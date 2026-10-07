@@ -45,6 +45,12 @@ type DownloadClientStatusApplyConfiguration struct {
 	UploadRateBps *int64 `json:"uploadRateBps,omitempty"`
 	// FreeBytes is the free space remaining on the client's download volume.
 	FreeBytes *int64 `json:"freeBytes,omitempty"`
+	// UnidentifiedTransfers counts transfers the engines hold with no claim
+	// (ADR-0019 §6.7), from the engine records.
+	UnidentifiedTransfers *int32 `json:"unidentifiedTransfers,omitempty"`
+	// ResyncSeq is the last resync the controller asked its engines for after
+	// clustarr-transfers was recreated (ADR-0019 §6.7, "Resync").
+	ResyncSeq *int64 `json:"resyncSeq,omitempty"`
 	// Conditions holds Ready, EngineReady and DiskSpaceOK.
 	Conditions []v1.ConditionApplyConfiguration `json:"conditions,omitempty"`
 }
@@ -116,6 +122,22 @@ func (b *DownloadClientStatusApplyConfiguration) WithUploadRateBps(value int64) 
 // If called multiple times, the FreeBytes field is set to the value of the last call.
 func (b *DownloadClientStatusApplyConfiguration) WithFreeBytes(value int64) *DownloadClientStatusApplyConfiguration {
 	b.FreeBytes = &value
+	return b
+}
+
+// WithUnidentifiedTransfers sets the UnidentifiedTransfers field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the UnidentifiedTransfers field is set to the value of the last call.
+func (b *DownloadClientStatusApplyConfiguration) WithUnidentifiedTransfers(value int32) *DownloadClientStatusApplyConfiguration {
+	b.UnidentifiedTransfers = &value
+	return b
+}
+
+// WithResyncSeq sets the ResyncSeq field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the ResyncSeq field is set to the value of the last call.
+func (b *DownloadClientStatusApplyConfiguration) WithResyncSeq(value int64) *DownloadClientStatusApplyConfiguration {
+	b.ResyncSeq = &value
 	return b
 }
 

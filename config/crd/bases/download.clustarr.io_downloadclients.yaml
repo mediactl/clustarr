@@ -38,6 +38,10 @@ spec:
       name: Queued
       priority: 1
       type: integer
+    - jsonPath: .status.unidentifiedTransfers
+      name: Unidentified
+      priority: 1
+      type: integer
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
@@ -887,9 +891,21 @@ spec:
                   transferring.
                 format: int32
                 type: integer
+              resyncSeq:
+                description: |-
+                  ResyncSeq is the last resync the controller asked its engines for after
+                  clustarr-transfers was recreated (ADR-0019 §6.7, "Resync").
+                format: int64
+                type: integer
               seeding:
                 description: Seeding is the number of Downloads seeding on this client.
                   Torrent only.
+                format: int32
+                type: integer
+              unidentifiedTransfers:
+                description: |-
+                  UnidentifiedTransfers counts transfers the engines hold with no claim
+                  (ADR-0019 §6.7), from the engine records.
                 format: int32
                 type: integer
               uploadRateBps:

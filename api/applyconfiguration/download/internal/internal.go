@@ -378,7 +378,13 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: queued
       type:
         scalar: numeric
+    - name: resyncSeq
+      type:
+        scalar: numeric
     - name: seeding
+      type:
+        scalar: numeric
+    - name: unidentifiedTransfers
       type:
         scalar: numeric
     - name: uploadRateBps

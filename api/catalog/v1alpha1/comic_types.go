@@ -233,6 +233,43 @@ type ComicStatus struct {
 	// +optional
 	IssueFileCount int32 `json:"issueFileCount,omitempty"`
 
+	// DownloadingIssueCount is the number of issues with a download in
+	// flight or a grab pending, the Queue print column (ADR-0019 §6.2,
+	// ruling R11).
+	// +optional
+	DownloadingIssueCount int32 `json:"downloadingIssueCount,omitempty"`
+
+	// Downloads is every grab of this item the system is responsible for, live
+	// entries only (ADR-0019 §6.4); written by the remediation loop's item key
+	// under catalogarr.
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=24
+	Downloads []DownloadEntry `json:"downloads,omitempty"`
+
+	// DownloadPhase is the active entry's phase, "" when none: a print column
+	// and a selectable field (ADR-0019 §6.2).
+	// +optional
+	DownloadPhase commonv1.DownloadPhase `json:"downloadPhase,omitempty"`
+
+	// DownloadNonces records the one-shot download intents last handled
+	// (ADR-0019 §6.10).
+	// +optional
+	DownloadNonces *DownloadNonces `json:"downloadNonces,omitempty"`
+
+	// LegacyDownloads is release N's record of the Downloads this item
+	// adopted (ADR-0019 §10.2); release N+1 removes it.
+	// +optional
+	LegacyDownloads *LegacyDownloads `json:"legacyDownloads,omitempty"`
+
+	// PendingGrabs are the chosen releases waiting out a DelayProfile delay,
+	// each naming the issues it covers (ADR-0019 §6.2), written under
+	// catalogarr-grab.
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=24
+	PendingGrabs []PendingGrab `json:"pendingGrabs,omitempty"`
+
 	// NextPullDate is when the next issue is expected on the pull list.
 	// +optional
 	NextPullDate *metav1.Time `json:"nextPullDate,omitempty"`
@@ -251,12 +288,15 @@ type ComicStatus struct {
 // +kubebuilder:ac:generate=true
 // +kubebuilder:resource:scope=Namespaced,shortName=cmc,categories=clustarr;catalog;media
 // +kubebuilder:selectablefield:JSONPath=`.spec.sourceID`
+// +kubebuilder:selectablefield:JSONPath=`.status.downloadPhase`
 // +kubebuilder:printcolumn:name="Title",type=string,JSONPath=`.status.metadata.title`
 // +kubebuilder:printcolumn:name="Kind",type=string,JSONPath=`.spec.kind`
 // +kubebuilder:printcolumn:name="Source",type=string,JSONPath=`.spec.source`
 // +kubebuilder:printcolumn:name="Monitored",type=boolean,JSONPath=`.spec.monitored`
 // +kubebuilder:printcolumn:name="Files",type=integer,JSONPath=`.status.issueFileCount`
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
+// +kubebuilder:printcolumn:name="Queue",type=integer,JSONPath=`.status.downloadingIssueCount`
+// +kubebuilder:printcolumn:name="Download",type=string,JSONPath=`.status.downloadPhase`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // Comic is a monitored comic or manga volume in the catalog. Its issues are

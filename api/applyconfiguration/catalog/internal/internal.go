@@ -178,12 +178,27 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: cutoffMet
       type:
         scalar: boolean
+    - name: downloadNonces
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.DownloadNonces
+    - name: downloadPhase
+      type:
+        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.DownloadPhase
+    - name: downloads
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.DownloadEntry
+          elementRelationship: atomic
     - name: formatScore
       type:
         scalar: numeric
     - name: lastSearchedAt
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: legacyDownloads
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.LegacyDownloads
     - name: metadata
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.AlbumMetadata
@@ -205,6 +220,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: searchAttempts
       type:
         namedType: com.github.mediactl.clustarr.api.common.v1alpha1.Attempts
+    - name: searchDispatch
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.Dispatch
     - name: trackFileCount
       type:
         scalar: numeric
@@ -703,6 +721,18 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: cutoffMet
       type:
         scalar: boolean
+    - name: downloadNonces
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.DownloadNonces
+    - name: downloadPhase
+      type:
+        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.DownloadPhase
+    - name: downloads
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.DownloadEntry
+          elementRelationship: atomic
     - name: fileRefs
       type:
         list:
@@ -715,6 +745,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: lastSearchedAt
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: legacyDownloads
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.LegacyDownloads
     - name: metadata
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.AudiobookMetadata
@@ -736,6 +769,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: searchAttempts
       type:
         namedType: com.github.mediactl.clustarr.api.common.v1alpha1.Attempts
+    - name: searchDispatch
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.Dispatch
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.Author
   map:
     fields:
@@ -908,6 +944,8 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: path
       type:
         scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.BlockScope
+  scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.Book
   map:
     fields:
@@ -1089,6 +1127,18 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: cutoffMet
       type:
         scalar: boolean
+    - name: downloadNonces
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.DownloadNonces
+    - name: downloadPhase
+      type:
+        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.DownloadPhase
+    - name: downloads
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.DownloadEntry
+          elementRelationship: atomic
     - name: fileFormat
       type:
         scalar: string
@@ -1101,6 +1151,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: lastSearchedAt
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: legacyDownloads
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.LegacyDownloads
     - name: metadata
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.BookMetadata
@@ -1119,6 +1172,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: searchAttempts
       type:
         namedType: com.github.mediactl.clustarr.api.common.v1alpha1.Attempts
+    - name: searchDispatch
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.Dispatch
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.CSVList
   map:
     fields:
@@ -1355,9 +1411,27 @@ var schemaYAML = typed.YAMLObject(`types:
           elementRelationship: associative
           keys:
           - type
+    - name: downloadNonces
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.DownloadNonces
+    - name: downloadPhase
+      type:
+        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.DownloadPhase
+    - name: downloadingIssueCount
+      type:
+        scalar: numeric
+    - name: downloads
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.DownloadEntry
+          elementRelationship: atomic
     - name: issueFileCount
       type:
         scalar: numeric
+    - name: legacyDownloads
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.LegacyDownloads
     - name: metadata
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ComicMetadata
@@ -1370,6 +1444,12 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: path
       type:
         scalar: string
+    - name: pendingGrabs
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.PendingGrab
+          elementRelationship: atomic
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.CustomList
   map:
     fields:
@@ -1518,6 +1598,186 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: withdrawn
       type:
         scalar: boolean
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.DownloadEntry
+  map:
+    fields:
+    - name: block
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.EntryBlock
+    - name: client
+      type:
+        scalar: string
+    - name: completedAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: dispatch
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.Dispatch
+    - name: engine
+      type:
+        scalar: string
+    - name: episodes
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.EpisodeNumber
+          elementRelationship: atomic
+    - name: failureReason
+      type:
+        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.DownloadFailureReason
+    - name: grabbedAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: grabbedBy
+      type:
+        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.GrabSource
+    - name: id
+      type:
+        scalar: string
+    - name: import
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.DownloadImportSummary
+    - name: issues
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: atomic
+    - name: manual
+      type:
+        scalar: boolean
+    - name: message
+      type:
+        scalar: string
+    - name: outputPath
+      type:
+        scalar: string
+    - name: phase
+      type:
+        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.DownloadPhase
+    - name: purpose
+      type:
+        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.DownloadPurpose
+    - name: qualityProfileRef
+      type:
+        scalar: string
+    - name: release
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.DownloadRelease
+    - name: removeDataOnDelete
+      type:
+        scalar: boolean
+    - name: removeOnImport
+      type:
+        scalar: boolean
+    - name: seedCriteria
+      type:
+        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.SeedCriteria
+    - name: seedGoalMetAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: source
+      type:
+        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.DownloadSource
+    - name: stage
+      type:
+        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.DownloadStage
+    - name: startedAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: uid
+      type:
+        scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.DownloadImportSummary
+  map:
+    fields:
+    - name: attempts
+      type:
+        scalar: numeric
+    - name: class
+      type:
+        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.ImportRejectionClass
+    - name: dispatch
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.Dispatch
+    - name: files
+      type:
+        scalar: numeric
+    - name: heldSince
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: importedAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: message
+      type:
+        scalar: string
+    - name: nextAttemptAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: phase
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ImportPhase
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.DownloadNonces
+  map:
+    fields:
+    - name: import
+      type:
+        scalar: string
+    - name: remove
+      type:
+        scalar: string
+    - name: resume
+      type:
+        scalar: string
+    - name: unblock
+      type:
+        scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.DownloadRelease
+  map:
+    fields:
+    - name: edition
+      type:
+        scalar: string
+    - name: formatScore
+      type:
+        scalar: numeric
+    - name: guid
+      type:
+        scalar: string
+    - name: indexerName
+      type:
+        scalar: string
+    - name: indexerRef
+      type:
+        scalar: string
+    - name: infoHash
+      type:
+        scalar: string
+    - name: languages
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: atomic
+    - name: protocol
+      type:
+        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.Protocol
+    - name: quality
+      type:
+        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.Quality
+    - name: releaseGroup
+      type:
+        scalar: string
+    - name: revision
+      type:
+        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.Revision
+    - name: sizeBytes
+      type:
+        scalar: numeric
+    - name: title
+      type:
+        scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.Edition
   map:
     fields:
@@ -1561,6 +1821,21 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         scalar: boolean
       default: true
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.EntryBlock
+  map:
+    fields:
+    - name: confirmedAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: reason
+      type:
+        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.DownloadFailureReason
+    - name: scope
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.BlockScope
+    - name: seq
+      type:
+        scalar: numeric
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.Episode
   map:
     fields:
@@ -1597,6 +1872,15 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: metadata
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.ListMeta
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.EpisodeNumber
+  map:
+    fields:
+    - name: number
+      type:
+        scalar: numeric
+    - name: season
+      type:
+        scalar: numeric
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.EpisodeOrder
   scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.EpisodePhase
@@ -1646,6 +1930,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: donorSearchAttempts
       type:
         namedType: com.github.mediactl.clustarr.api.common.v1alpha1.Attempts
+    - name: downloadPhase
+      type:
+        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.DownloadPhase
     - name: fileFormatScore
       type:
         scalar: numeric
@@ -1694,6 +1981,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: searchAttempts
       type:
         namedType: com.github.mediactl.clustarr.api.common.v1alpha1.Attempts
+    - name: searchDispatch
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.Dispatch
     - name: title
       type:
         scalar: string
@@ -1741,6 +2031,27 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: score
       type:
         scalar: numeric
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.GrabCandidate
+  map:
+    fields:
+    - name: grabbedBy
+      type:
+        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.GrabSource
+    - name: manual
+      type:
+        scalar: boolean
+    - name: purpose
+      type:
+        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.DownloadPurpose
+    - name: release
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.DownloadRelease
+    - name: score
+      type:
+        scalar: numeric
+    - name: source
+      type:
+        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.DownloadSource
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.GrabResult
   map:
     fields:
@@ -2069,6 +2380,8 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: removedCount
       type:
         scalar: numeric
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.ImportPhase
+  scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.ImportSource
   map:
     fields:
@@ -2184,6 +2497,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: date
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: downloadPhase
+      type:
+        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.DownloadPhase
     - name: fileQuality
       type:
         namedType: com.github.mediactl.clustarr.api.common.v1alpha1.Quality
@@ -2205,6 +2521,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: searchAttempts
       type:
         namedType: com.github.mediactl.clustarr.api.common.v1alpha1.Attempts
+    - name: searchDispatch
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.Dispatch
     - name: sourceID
       type:
         scalar: string
@@ -2214,6 +2533,38 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: title
       type:
         scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.LegacyDownload
+  map:
+    fields:
+    - name: at
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: name
+      type:
+        scalar: string
+    - name: outcome
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.LegacyOutcome
+    - name: uid
+      type:
+        scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.LegacyDownloads
+  map:
+    fields:
+    - name: adopted
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.LegacyDownload
+          elementRelationship: atomic
+    - name: held
+      type:
+        scalar: string
+    - name: message
+      type:
+        scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.LegacyOutcome
+  scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.LibraryScan
   map:
     fields:
@@ -2958,6 +3309,18 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: donorSearchAttempts
       type:
         namedType: com.github.mediactl.clustarr.api.common.v1alpha1.Attempts
+    - name: downloadNonces
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.DownloadNonces
+    - name: downloadPhase
+      type:
+        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.DownloadPhase
+    - name: downloads
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.DownloadEntry
+          elementRelationship: atomic
     - name: fileFormatScore
       type:
         scalar: numeric
@@ -2973,6 +3336,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: lastSearchedAt
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: legacyDownloads
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.LegacyDownloads
     - name: metadata
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.MovieMetadata
@@ -2994,6 +3360,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: searchAttempts
       type:
         namedType: com.github.mediactl.clustarr.api.common.v1alpha1.Attempts
+    - name: searchDispatch
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.Dispatch
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.MultiEpisodeStyle
   scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.MusicMetadataProfile
@@ -3206,9 +3575,24 @@ var schemaYAML = typed.YAMLObject(`types:
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.PendingGrab
   map:
     fields:
+    - name: candidate
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.GrabCandidate
+    - name: episodes
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.EpisodeNumber
+          elementRelationship: atomic
     - name: grabAt
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: issues
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: atomic
     - name: protocol
       type:
         namedType: com.github.mediactl.clustarr.api.common.v1alpha1.Protocol
@@ -4215,9 +4599,21 @@ var schemaYAML = typed.YAMLObject(`types:
           elementRelationship: associative
           keys:
           - type
+    - name: downloadNonces
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.DownloadNonces
+    - name: downloadPhase
+      type:
+        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.DownloadPhase
     - name: downloadingEpisodeCount
       type:
         scalar: numeric
+    - name: downloads
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.DownloadEntry
+          elementRelationship: atomic
     - name: episodeCount
       type:
         scalar: numeric
@@ -4227,6 +4623,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: lastSearchedAt
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: legacyDownloads
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.LegacyDownloads
     - name: metadata
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.SeriesMetadata
@@ -4245,6 +4644,12 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: path
       type:
         scalar: string
+    - name: pendingGrabs
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.PendingGrab
+          elementRelationship: atomic
     - name: phase
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.SeriesPhase
@@ -4691,8 +5096,50 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: title
       type:
         scalar: string
+- name: com.github.mediactl.clustarr.api.common.v1alpha1.DownloadFailureReason
+  scalar: string
+- name: com.github.mediactl.clustarr.api.common.v1alpha1.DownloadPhase
+  scalar: string
+- name: com.github.mediactl.clustarr.api.common.v1alpha1.DownloadPurpose
+  scalar: string
+- name: com.github.mediactl.clustarr.api.common.v1alpha1.DownloadSource
+  map:
+    fields:
+    - name: expectedInfoHash
+      type:
+        scalar: string
+    - name: indexerDownload
+      type:
+        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.IndexerDownload
+    - name: magnetURL
+      type:
+        scalar: string
+    - name: nzbURL
+      type:
+        scalar: string
+    - name: torrentURL
+      type:
+        scalar: string
+- name: com.github.mediactl.clustarr.api.common.v1alpha1.DownloadStage
+  scalar: string
+- name: com.github.mediactl.clustarr.api.common.v1alpha1.GrabSource
+  scalar: string
 - name: com.github.mediactl.clustarr.api.common.v1alpha1.HdrFormat
   scalar: string
+- name: com.github.mediactl.clustarr.api.common.v1alpha1.ImportRejectionClass
+  scalar: string
+- name: com.github.mediactl.clustarr.api.common.v1alpha1.IndexerDownload
+  map:
+    fields:
+    - name: guid
+      type:
+        scalar: string
+    - name: indexerRef
+      type:
+        scalar: string
+    - name: url
+      type:
+        scalar: string
 - name: com.github.mediactl.clustarr.api.common.v1alpha1.MediaInfo
   map:
     fields:
@@ -4942,6 +5389,21 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         scalar: numeric
       default: 1
+- name: com.github.mediactl.clustarr.api.common.v1alpha1.SeedCriteria
+  map:
+    fields:
+    - name: inactiveTime
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Duration
+    - name: packSeedTime
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Duration
+    - name: ratio
+      type:
+        namedType: io.k8s.apimachinery.pkg.api.resource.Quantity
+    - name: seedTime
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Duration
 - name: com.github.mediactl.clustarr.api.common.v1alpha1.Source
   scalar: string
 - name: com.github.mediactl.clustarr.api.common.v1alpha1.SubtitleStream

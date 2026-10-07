@@ -205,6 +205,17 @@ type EpisodeStatus struct {
 	// +optional
 	ActiveDownloadRef *string `json:"activeDownloadRef,omitempty"`
 
+	// DownloadPhase is the phase of the entry on the Series covering this
+	// episode, "" when none: a print column and a selectable field (ADR-0019
+	// §6.2).
+	// +optional
+	DownloadPhase commonv1.DownloadPhase `json:"downloadPhase,omitempty"`
+
+	// SearchDispatch is the outstanding search task (ADR-0019 §7.3), written
+	// under catalogarr-grab.
+	// +optional
+	SearchDispatch *Dispatch `json:"searchDispatch,omitempty"`
+
 	// PendingGrab is a chosen release waiting out a DelayProfile delay.
 	// +optional
 	PendingGrab *PendingGrab `json:"pendingGrab,omitempty"`
@@ -234,6 +245,7 @@ type EpisodeStatus struct {
 // +kubebuilder:ac:generate=true
 // +kubebuilder:resource:scope=Namespaced,shortName=ep,categories=clustarr;catalog;media
 // +kubebuilder:selectablefield:JSONPath=`.spec.seriesRef`
+// +kubebuilder:selectablefield:JSONPath=`.status.downloadPhase`
 // +kubebuilder:printcolumn:name="Series",type=string,JSONPath=`.spec.seriesRef`
 // +kubebuilder:printcolumn:name="Season",type=integer,JSONPath=`.spec.seasonNumber`
 // +kubebuilder:printcolumn:name="Episode",type=integer,JSONPath=`.spec.episodeNumber`
@@ -241,6 +253,7 @@ type EpisodeStatus struct {
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
 // +kubebuilder:printcolumn:name="File",type=boolean,JSONPath=`.status.hasFile`
 // +kubebuilder:printcolumn:name="Aired",type=string,JSONPath=`.status.conditions[?(@.type=="Aired")].status`
+// +kubebuilder:printcolumn:name="Download",type=string,JSONPath=`.status.downloadPhase`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // Episode is one episode of a Series. Episodes are created and owned by the

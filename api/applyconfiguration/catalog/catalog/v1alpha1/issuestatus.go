@@ -54,6 +54,13 @@ type IssueStatusApplyConfiguration struct {
 	CutoffMet *bool `json:"cutoffMet,omitempty"`
 	// ActiveDownloadRef is the Download currently working on this issue.
 	ActiveDownloadRef *string `json:"activeDownloadRef,omitempty"`
+	// DownloadPhase is the phase of the entry on the Comic covering this
+	// issue, "" when none: a print column and a selectable field (ADR-0019
+	// §6.2).
+	DownloadPhase *commonv1alpha1.DownloadPhase `json:"downloadPhase,omitempty"`
+	// SearchDispatch is the outstanding search task (ADR-0019 §7.3), written
+	// under catalogarr-grab.
+	SearchDispatch *DispatchApplyConfiguration `json:"searchDispatch,omitempty"`
 	// PendingGrab is a chosen release waiting out a DelayProfile delay.
 	PendingGrab *PendingGrabApplyConfiguration `json:"pendingGrab,omitempty"`
 	// LastSearchedAt is when the issue was last searched for.
@@ -158,6 +165,22 @@ func (b *IssueStatusApplyConfiguration) WithCutoffMet(value bool) *IssueStatusAp
 // If called multiple times, the ActiveDownloadRef field is set to the value of the last call.
 func (b *IssueStatusApplyConfiguration) WithActiveDownloadRef(value string) *IssueStatusApplyConfiguration {
 	b.ActiveDownloadRef = &value
+	return b
+}
+
+// WithDownloadPhase sets the DownloadPhase field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the DownloadPhase field is set to the value of the last call.
+func (b *IssueStatusApplyConfiguration) WithDownloadPhase(value commonv1alpha1.DownloadPhase) *IssueStatusApplyConfiguration {
+	b.DownloadPhase = &value
+	return b
+}
+
+// WithSearchDispatch sets the SearchDispatch field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the SearchDispatch field is set to the value of the last call.
+func (b *IssueStatusApplyConfiguration) WithSearchDispatch(value *DispatchApplyConfiguration) *IssueStatusApplyConfiguration {
+	b.SearchDispatch = value
 	return b
 }
 

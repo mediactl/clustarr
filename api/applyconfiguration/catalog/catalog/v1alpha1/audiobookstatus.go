@@ -51,6 +51,22 @@ type AudiobookStatusApplyConfiguration struct {
 	CutoffMet *bool `json:"cutoffMet,omitempty"`
 	// ActiveDownloadRef is the Download currently working on this audiobook.
 	ActiveDownloadRef *string `json:"activeDownloadRef,omitempty"`
+	// Downloads is every grab of this item the system is responsible for, live
+	// entries only (ADR-0019 §6.4); written by the remediation loop's item key
+	// under catalogarr.
+	Downloads []DownloadEntryApplyConfiguration `json:"downloads,omitempty"`
+	// DownloadPhase is the active entry's phase, "" when none: a print column
+	// and a selectable field (ADR-0019 §6.2).
+	DownloadPhase *commonv1alpha1.DownloadPhase `json:"downloadPhase,omitempty"`
+	// DownloadNonces records the one-shot download intents last handled
+	// (ADR-0019 §6.10).
+	DownloadNonces *DownloadNoncesApplyConfiguration `json:"downloadNonces,omitempty"`
+	// LegacyDownloads is release N's record of the Downloads this item
+	// adopted (ADR-0019 §10.2); release N+1 removes it.
+	LegacyDownloads *LegacyDownloadsApplyConfiguration `json:"legacyDownloads,omitempty"`
+	// SearchDispatch is the outstanding search task (ADR-0019 §7.3), written
+	// under catalogarr-grab.
+	SearchDispatch *DispatchApplyConfiguration `json:"searchDispatch,omitempty"`
 	// PendingGrab is a chosen release waiting out a DelayProfile delay.
 	PendingGrab *PendingGrabApplyConfiguration `json:"pendingGrab,omitempty"`
 	// LastSearchedAt is when the audiobook was last searched for.
@@ -152,6 +168,51 @@ func (b *AudiobookStatusApplyConfiguration) WithCutoffMet(value bool) *Audiobook
 // If called multiple times, the ActiveDownloadRef field is set to the value of the last call.
 func (b *AudiobookStatusApplyConfiguration) WithActiveDownloadRef(value string) *AudiobookStatusApplyConfiguration {
 	b.ActiveDownloadRef = &value
+	return b
+}
+
+// WithDownloads adds the given value to the Downloads field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Downloads field.
+func (b *AudiobookStatusApplyConfiguration) WithDownloads(values ...*DownloadEntryApplyConfiguration) *AudiobookStatusApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithDownloads")
+		}
+		b.Downloads = append(b.Downloads, *values[i])
+	}
+	return b
+}
+
+// WithDownloadPhase sets the DownloadPhase field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the DownloadPhase field is set to the value of the last call.
+func (b *AudiobookStatusApplyConfiguration) WithDownloadPhase(value commonv1alpha1.DownloadPhase) *AudiobookStatusApplyConfiguration {
+	b.DownloadPhase = &value
+	return b
+}
+
+// WithDownloadNonces sets the DownloadNonces field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the DownloadNonces field is set to the value of the last call.
+func (b *AudiobookStatusApplyConfiguration) WithDownloadNonces(value *DownloadNoncesApplyConfiguration) *AudiobookStatusApplyConfiguration {
+	b.DownloadNonces = value
+	return b
+}
+
+// WithLegacyDownloads sets the LegacyDownloads field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the LegacyDownloads field is set to the value of the last call.
+func (b *AudiobookStatusApplyConfiguration) WithLegacyDownloads(value *LegacyDownloadsApplyConfiguration) *AudiobookStatusApplyConfiguration {
+	b.LegacyDownloads = value
+	return b
+}
+
+// WithSearchDispatch sets the SearchDispatch field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the SearchDispatch field is set to the value of the last call.
+func (b *AudiobookStatusApplyConfiguration) WithSearchDispatch(value *DispatchApplyConfiguration) *AudiobookStatusApplyConfiguration {
+	b.SearchDispatch = value
 	return b
 }
 

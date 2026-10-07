@@ -127,12 +127,24 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &catalogv1alpha1.DeviceAuthApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("Dispatch"):
 		return &catalogv1alpha1.DispatchApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("DownloadEntry"):
+		return &catalogv1alpha1.DownloadEntryApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("DownloadImportSummary"):
+		return &catalogv1alpha1.DownloadImportSummaryApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("DownloadNonces"):
+		return &catalogv1alpha1.DownloadNoncesApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("DownloadRelease"):
+		return &catalogv1alpha1.DownloadReleaseApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("Edition"):
 		return &catalogv1alpha1.EditionApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("EditionSpec"):
 		return &catalogv1alpha1.EditionSpecApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("EntryBlock"):
+		return &catalogv1alpha1.EntryBlockApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("Episode"):
 		return &catalogv1alpha1.EpisodeApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("EpisodeNumber"):
+		return &catalogv1alpha1.EpisodeNumberApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("EpisodeSpec"):
 		return &catalogv1alpha1.EpisodeSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("EpisodeStatus"):
@@ -141,6 +153,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &catalogv1alpha1.FileMarkersApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("FormatScore"):
 		return &catalogv1alpha1.FormatScoreApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("GrabCandidate"):
+		return &catalogv1alpha1.GrabCandidateApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("GrabResult"):
 		return &catalogv1alpha1.GrabResultApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("GraftSegment"):
@@ -173,6 +187,10 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &catalogv1alpha1.IssueSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("IssueStatus"):
 		return &catalogv1alpha1.IssueStatusApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("LegacyDownload"):
+		return &catalogv1alpha1.LegacyDownloadApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("LegacyDownloads"):
+		return &catalogv1alpha1.LegacyDownloadsApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("LibraryScan"):
 		return &catalogv1alpha1.LibraryScanApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("LibraryScanSpec"):

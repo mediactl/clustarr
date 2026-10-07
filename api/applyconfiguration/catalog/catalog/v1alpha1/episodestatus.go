@@ -72,6 +72,13 @@ type EpisodeStatusApplyConfiguration struct {
 	CutoffMet *bool `json:"cutoffMet,omitempty"`
 	// ActiveDownloadRef is the Download currently working on this episode.
 	ActiveDownloadRef *string `json:"activeDownloadRef,omitempty"`
+	// DownloadPhase is the phase of the entry on the Series covering this
+	// episode, "" when none: a print column and a selectable field (ADR-0019
+	// §6.2).
+	DownloadPhase *commonv1alpha1.DownloadPhase `json:"downloadPhase,omitempty"`
+	// SearchDispatch is the outstanding search task (ADR-0019 §7.3), written
+	// under catalogarr-grab.
+	SearchDispatch *DispatchApplyConfiguration `json:"searchDispatch,omitempty"`
 	// PendingGrab is a chosen release waiting out a DelayProfile delay.
 	PendingGrab *PendingGrabApplyConfiguration `json:"pendingGrab,omitempty"`
 	// LastSearchedAt is when the episode was last searched for.
@@ -252,6 +259,22 @@ func (b *EpisodeStatusApplyConfiguration) WithCutoffMet(value bool) *EpisodeStat
 // If called multiple times, the ActiveDownloadRef field is set to the value of the last call.
 func (b *EpisodeStatusApplyConfiguration) WithActiveDownloadRef(value string) *EpisodeStatusApplyConfiguration {
 	b.ActiveDownloadRef = &value
+	return b
+}
+
+// WithDownloadPhase sets the DownloadPhase field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the DownloadPhase field is set to the value of the last call.
+func (b *EpisodeStatusApplyConfiguration) WithDownloadPhase(value commonv1alpha1.DownloadPhase) *EpisodeStatusApplyConfiguration {
+	b.DownloadPhase = &value
+	return b
+}
+
+// WithSearchDispatch sets the SearchDispatch field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the SearchDispatch field is set to the value of the last call.
+func (b *EpisodeStatusApplyConfiguration) WithSearchDispatch(value *DispatchApplyConfiguration) *EpisodeStatusApplyConfiguration {
+	b.SearchDispatch = value
 	return b
 }
 

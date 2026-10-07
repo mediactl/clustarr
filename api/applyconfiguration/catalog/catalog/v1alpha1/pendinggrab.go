@@ -30,12 +30,20 @@ import (
 // PendingGrab records a release that has been chosen but is waiting out a
 // DelayProfile delay before it is grabbed.
 type PendingGrabApplyConfiguration struct {
-	// ReleaseTitle is the raw title of the release that will be grabbed.
+	// ReleaseTitle is the raw title of the release that will be grabbed,
+	// clamped on a rune boundary (a stored longer value stays valid under
+	// validation ratcheting).
 	ReleaseTitle *string `json:"releaseTitle,omitempty"`
 	// Protocol is the transfer protocol of the pending release.
 	Protocol *commonv1alpha1.Protocol `json:"protocol,omitempty"`
 	// GrabAt is when the delay expires and the grab will be issued.
 	GrabAt *v1.Time `json:"grabAt,omitempty"`
+	// Candidate is the release this pending grab will be made from
+	// (ADR-0019 §6.2), so the grab needs nothing but status.
+	Candidate *GrabCandidateApplyConfiguration `json:"candidate,omitempty"`
+	// Episodes and Issues name what a Series' or Comic's pending grab covers.
+	Episodes []EpisodeNumberApplyConfiguration `json:"episodes,omitempty"`
+	Issues   []string                          `json:"issues,omitempty"`
 }
 
 // PendingGrabApplyConfiguration constructs a declarative configuration of the PendingGrab type for use with
@@ -65,5 +73,36 @@ func (b *PendingGrabApplyConfiguration) WithProtocol(value commonv1alpha1.Protoc
 // If called multiple times, the GrabAt field is set to the value of the last call.
 func (b *PendingGrabApplyConfiguration) WithGrabAt(value v1.Time) *PendingGrabApplyConfiguration {
 	b.GrabAt = &value
+	return b
+}
+
+// WithCandidate sets the Candidate field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Candidate field is set to the value of the last call.
+func (b *PendingGrabApplyConfiguration) WithCandidate(value *GrabCandidateApplyConfiguration) *PendingGrabApplyConfiguration {
+	b.Candidate = value
+	return b
+}
+
+// WithEpisodes adds the given value to the Episodes field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Episodes field.
+func (b *PendingGrabApplyConfiguration) WithEpisodes(values ...*EpisodeNumberApplyConfiguration) *PendingGrabApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithEpisodes")
+		}
+		b.Episodes = append(b.Episodes, *values[i])
+	}
+	return b
+}
+
+// WithIssues adds the given value to the Issues field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Issues field.
+func (b *PendingGrabApplyConfiguration) WithIssues(values ...string) *PendingGrabApplyConfiguration {
+	for i := range values {
+		b.Issues = append(b.Issues, values[i])
+	}
 	return b
 }

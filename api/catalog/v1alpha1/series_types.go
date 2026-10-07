@@ -501,6 +501,37 @@ type SeriesStatus struct {
 	// +optional
 	DownloadingEpisodeCount int32 `json:"downloadingEpisodeCount,omitempty"`
 
+	// Downloads is every grab of this item the system is responsible for, live
+	// entries only (ADR-0019 §6.4); written by the remediation loop's item key
+	// under catalogarr.
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=24
+	Downloads []DownloadEntry `json:"downloads,omitempty"`
+
+	// DownloadPhase is the active entry's phase, "" when none: a print column
+	// and a selectable field (ADR-0019 §6.2).
+	// +optional
+	DownloadPhase commonv1.DownloadPhase `json:"downloadPhase,omitempty"`
+
+	// DownloadNonces records the one-shot download intents last handled
+	// (ADR-0019 §6.10).
+	// +optional
+	DownloadNonces *DownloadNonces `json:"downloadNonces,omitempty"`
+
+	// LegacyDownloads is release N's record of the Downloads this item
+	// adopted (ADR-0019 §10.2); release N+1 removes it.
+	// +optional
+	LegacyDownloads *LegacyDownloads `json:"legacyDownloads,omitempty"`
+
+	// PendingGrabs are the chosen releases waiting out a DelayProfile delay,
+	// each naming the episodes it covers (ADR-0019 §6.2), written under
+	// catalogarr-grab.
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=24
+	PendingGrabs []PendingGrab `json:"pendingGrabs,omitempty"`
+
 	// NextAiring is when the next episode airs.
 	// +optional
 	NextAiring *metav1.Time `json:"nextAiring,omitempty"`
@@ -532,6 +563,7 @@ type SeriesStatus struct {
 // +kubebuilder:ac:generate=true
 // +kubebuilder:resource:scope=Namespaced,shortName=ser,categories=clustarr;catalog;media
 // +kubebuilder:selectablefield:JSONPath=`.spec.tvdbID`
+// +kubebuilder:selectablefield:JSONPath=`.status.downloadPhase`
 // +kubebuilder:printcolumn:name="Title",type=string,JSONPath=`.status.metadata.title`
 // +kubebuilder:printcolumn:name="Type",type=string,JSONPath=`.spec.seriesType`
 // +kubebuilder:printcolumn:name="Monitored",type=boolean,JSONPath=`.spec.monitored`
@@ -539,6 +571,8 @@ type SeriesStatus struct {
 // +kubebuilder:printcolumn:name="Episodes",type=integer,JSONPath=`.status.episodeCount`
 // +kubebuilder:printcolumn:name="Files",type=integer,JSONPath=`.status.episodeFileCount`
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
+// +kubebuilder:printcolumn:name="Queue",type=integer,JSONPath=`.status.downloadingEpisodeCount`
+// +kubebuilder:printcolumn:name="Download",type=string,JSONPath=`.status.downloadPhase`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // Series is a monitored television series in the catalog.

@@ -20,6 +20,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package v1alpha1
 
 import (
+	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
 )
@@ -39,6 +40,27 @@ type ComicStatusApplyConfiguration struct {
 	Path *string `json:"path,omitempty"`
 	// IssueFileCount is the number of issues with an imported file.
 	IssueFileCount *int32 `json:"issueFileCount,omitempty"`
+	// DownloadingIssueCount is the number of issues with a download in
+	// flight or a grab pending, the Queue print column (ADR-0019 §6.2,
+	// ruling R11).
+	DownloadingIssueCount *int32 `json:"downloadingIssueCount,omitempty"`
+	// Downloads is every grab of this item the system is responsible for, live
+	// entries only (ADR-0019 §6.4); written by the remediation loop's item key
+	// under catalogarr.
+	Downloads []DownloadEntryApplyConfiguration `json:"downloads,omitempty"`
+	// DownloadPhase is the active entry's phase, "" when none: a print column
+	// and a selectable field (ADR-0019 §6.2).
+	DownloadPhase *commonv1alpha1.DownloadPhase `json:"downloadPhase,omitempty"`
+	// DownloadNonces records the one-shot download intents last handled
+	// (ADR-0019 §6.10).
+	DownloadNonces *DownloadNoncesApplyConfiguration `json:"downloadNonces,omitempty"`
+	// LegacyDownloads is release N's record of the Downloads this item
+	// adopted (ADR-0019 §10.2); release N+1 removes it.
+	LegacyDownloads *LegacyDownloadsApplyConfiguration `json:"legacyDownloads,omitempty"`
+	// PendingGrabs are the chosen releases waiting out a DelayProfile delay,
+	// each naming the issues it covers (ADR-0019 §6.2), written under
+	// catalogarr-grab.
+	PendingGrabs []PendingGrabApplyConfiguration `json:"pendingGrabs,omitempty"`
 	// NextPullDate is when the next issue is expected on the pull list.
 	NextPullDate *metav1.Time `json:"nextPullDate,omitempty"`
 	// Artwork lists the images fetched into the artwork store, one per type.
@@ -94,6 +116,64 @@ func (b *ComicStatusApplyConfiguration) WithPath(value string) *ComicStatusApply
 // If called multiple times, the IssueFileCount field is set to the value of the last call.
 func (b *ComicStatusApplyConfiguration) WithIssueFileCount(value int32) *ComicStatusApplyConfiguration {
 	b.IssueFileCount = &value
+	return b
+}
+
+// WithDownloadingIssueCount sets the DownloadingIssueCount field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the DownloadingIssueCount field is set to the value of the last call.
+func (b *ComicStatusApplyConfiguration) WithDownloadingIssueCount(value int32) *ComicStatusApplyConfiguration {
+	b.DownloadingIssueCount = &value
+	return b
+}
+
+// WithDownloads adds the given value to the Downloads field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Downloads field.
+func (b *ComicStatusApplyConfiguration) WithDownloads(values ...*DownloadEntryApplyConfiguration) *ComicStatusApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithDownloads")
+		}
+		b.Downloads = append(b.Downloads, *values[i])
+	}
+	return b
+}
+
+// WithDownloadPhase sets the DownloadPhase field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the DownloadPhase field is set to the value of the last call.
+func (b *ComicStatusApplyConfiguration) WithDownloadPhase(value commonv1alpha1.DownloadPhase) *ComicStatusApplyConfiguration {
+	b.DownloadPhase = &value
+	return b
+}
+
+// WithDownloadNonces sets the DownloadNonces field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the DownloadNonces field is set to the value of the last call.
+func (b *ComicStatusApplyConfiguration) WithDownloadNonces(value *DownloadNoncesApplyConfiguration) *ComicStatusApplyConfiguration {
+	b.DownloadNonces = value
+	return b
+}
+
+// WithLegacyDownloads sets the LegacyDownloads field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the LegacyDownloads field is set to the value of the last call.
+func (b *ComicStatusApplyConfiguration) WithLegacyDownloads(value *LegacyDownloadsApplyConfiguration) *ComicStatusApplyConfiguration {
+	b.LegacyDownloads = value
+	return b
+}
+
+// WithPendingGrabs adds the given value to the PendingGrabs field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the PendingGrabs field.
+func (b *ComicStatusApplyConfiguration) WithPendingGrabs(values ...*PendingGrabApplyConfiguration) *ComicStatusApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithPendingGrabs")
+		}
+		b.PendingGrabs = append(b.PendingGrabs, *values[i])
+	}
 	return b
 }
 

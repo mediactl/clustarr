@@ -35,6 +35,10 @@ const (
 	DownloadClientConditionEngineReady = "EngineReady"
 	// DownloadClientConditionDiskSpaceOK is True when the client has room for new work.
 	DownloadClientConditionDiskSpaceOK = "DiskSpaceOK"
+	// DownloadClientConditionProxyUDPUnavailable is True when a torrent
+	// engine's SOCKS5 proxy refuses UDP ASSOCIATE, so the DHT, uTP and UDP
+	// trackers are off (ADR-0019 §6.7, §7.7), from the engine records.
+	DownloadClientConditionProxyUDPUnavailable = "ProxyUDPUnavailable"
 )
 
 // HealthAction is what a usenet client does with a download whose article
@@ -593,6 +597,16 @@ type DownloadClientStatus struct {
 	// +optional
 	FreeBytes int64 `json:"freeBytes,omitempty"`
 
+	// UnidentifiedTransfers counts transfers the engines hold with no claim
+	// (ADR-0019 §6.7), from the engine records.
+	// +optional
+	UnidentifiedTransfers int32 `json:"unidentifiedTransfers,omitempty"`
+
+	// ResyncSeq is the last resync the controller asked its engines for after
+	// clustarr-transfers was recreated (ADR-0019 §6.7, "Resync").
+	// +optional
+	ResyncSeq int64 `json:"resyncSeq,omitempty"`
+
 	// Conditions holds Ready, EngineReady and DiskSpaceOK.
 	// +optional
 	// +listType=map
@@ -617,6 +631,7 @@ type DownloadClientStatus struct {
 // +kubebuilder:printcolumn:name="Replicas",type="integer",JSONPath=".status.engine.readyReplicas"
 // +kubebuilder:printcolumn:name="Active",type="integer",JSONPath=".status.active"
 // +kubebuilder:printcolumn:name="Queued",type="integer",JSONPath=".status.queued",priority=1
+// +kubebuilder:printcolumn:name="Unidentified",type="integer",JSONPath=".status.unidentifiedTransfers",priority=1
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 type DownloadClient struct {
 	metav1.TypeMeta   `json:",inline"`

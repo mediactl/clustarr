@@ -21,6 +21,7 @@ package v1alpha1
 
 import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
 )
@@ -60,6 +61,23 @@ type SeriesStatusApplyConfiguration struct {
 	// flight or a grab pending (phase Downloading or Delayed), specials
 	// left out.
 	DownloadingEpisodeCount *int32 `json:"downloadingEpisodeCount,omitempty"`
+	// Downloads is every grab of this item the system is responsible for, live
+	// entries only (ADR-0019 §6.4); written by the remediation loop's item key
+	// under catalogarr.
+	Downloads []DownloadEntryApplyConfiguration `json:"downloads,omitempty"`
+	// DownloadPhase is the active entry's phase, "" when none: a print column
+	// and a selectable field (ADR-0019 §6.2).
+	DownloadPhase *commonv1alpha1.DownloadPhase `json:"downloadPhase,omitempty"`
+	// DownloadNonces records the one-shot download intents last handled
+	// (ADR-0019 §6.10).
+	DownloadNonces *DownloadNoncesApplyConfiguration `json:"downloadNonces,omitempty"`
+	// LegacyDownloads is release N's record of the Downloads this item
+	// adopted (ADR-0019 §10.2); release N+1 removes it.
+	LegacyDownloads *LegacyDownloadsApplyConfiguration `json:"legacyDownloads,omitempty"`
+	// PendingGrabs are the chosen releases waiting out a DelayProfile delay,
+	// each naming the episodes it covers (ADR-0019 §6.2), written under
+	// catalogarr-grab.
+	PendingGrabs []PendingGrabApplyConfiguration `json:"pendingGrabs,omitempty"`
 	// NextAiring is when the next episode airs.
 	NextAiring *metav1.Time `json:"nextAiring,omitempty"`
 	// PreviousAiring is when the most recent episode aired.
@@ -183,6 +201,56 @@ func (b *SeriesStatusApplyConfiguration) WithMissingEpisodeCount(value int32) *S
 // If called multiple times, the DownloadingEpisodeCount field is set to the value of the last call.
 func (b *SeriesStatusApplyConfiguration) WithDownloadingEpisodeCount(value int32) *SeriesStatusApplyConfiguration {
 	b.DownloadingEpisodeCount = &value
+	return b
+}
+
+// WithDownloads adds the given value to the Downloads field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Downloads field.
+func (b *SeriesStatusApplyConfiguration) WithDownloads(values ...*DownloadEntryApplyConfiguration) *SeriesStatusApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithDownloads")
+		}
+		b.Downloads = append(b.Downloads, *values[i])
+	}
+	return b
+}
+
+// WithDownloadPhase sets the DownloadPhase field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the DownloadPhase field is set to the value of the last call.
+func (b *SeriesStatusApplyConfiguration) WithDownloadPhase(value commonv1alpha1.DownloadPhase) *SeriesStatusApplyConfiguration {
+	b.DownloadPhase = &value
+	return b
+}
+
+// WithDownloadNonces sets the DownloadNonces field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the DownloadNonces field is set to the value of the last call.
+func (b *SeriesStatusApplyConfiguration) WithDownloadNonces(value *DownloadNoncesApplyConfiguration) *SeriesStatusApplyConfiguration {
+	b.DownloadNonces = value
+	return b
+}
+
+// WithLegacyDownloads sets the LegacyDownloads field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the LegacyDownloads field is set to the value of the last call.
+func (b *SeriesStatusApplyConfiguration) WithLegacyDownloads(value *LegacyDownloadsApplyConfiguration) *SeriesStatusApplyConfiguration {
+	b.LegacyDownloads = value
+	return b
+}
+
+// WithPendingGrabs adds the given value to the PendingGrabs field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the PendingGrabs field.
+func (b *SeriesStatusApplyConfiguration) WithPendingGrabs(values ...*PendingGrabApplyConfiguration) *SeriesStatusApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithPendingGrabs")
+		}
+		b.PendingGrabs = append(b.PendingGrabs, *values[i])
+	}
 	return b
 }
 

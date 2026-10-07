@@ -139,6 +139,17 @@ type IssueStatus struct {
 	// +optional
 	ActiveDownloadRef *string `json:"activeDownloadRef,omitempty"`
 
+	// DownloadPhase is the phase of the entry on the Comic covering this
+	// issue, "" when none: a print column and a selectable field (ADR-0019
+	// §6.2).
+	// +optional
+	DownloadPhase commonv1.DownloadPhase `json:"downloadPhase,omitempty"`
+
+	// SearchDispatch is the outstanding search task (ADR-0019 §7.3), written
+	// under catalogarr-grab.
+	// +optional
+	SearchDispatch *Dispatch `json:"searchDispatch,omitempty"`
+
 	// PendingGrab is a chosen release waiting out a DelayProfile delay.
 	// +optional
 	PendingGrab *PendingGrab `json:"pendingGrab,omitempty"`
@@ -157,12 +168,14 @@ type IssueStatus struct {
 // +kubebuilder:ac:generate=true
 // +kubebuilder:resource:scope=Namespaced,shortName=iss,categories=clustarr;catalog;media
 // +kubebuilder:selectablefield:JSONPath=`.spec.comicRef`
+// +kubebuilder:selectablefield:JSONPath=`.status.downloadPhase`
 // +kubebuilder:printcolumn:name="Comic",type=string,JSONPath=`.spec.comicRef`
 // +kubebuilder:printcolumn:name="Number",type=string,JSONPath=`.spec.number`
 // +kubebuilder:printcolumn:name="Title",type=string,JSONPath=`.status.title`
 // +kubebuilder:printcolumn:name="State",type=string,JSONPath=`.status.state`
 // +kubebuilder:printcolumn:name="File",type=boolean,JSONPath=`.status.hasFile`
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
+// +kubebuilder:printcolumn:name="Download",type=string,JSONPath=`.status.downloadPhase`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // Issue is one issue of a Comic. Issues are created and owned by the Comic

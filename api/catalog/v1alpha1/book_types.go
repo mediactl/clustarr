@@ -252,6 +252,34 @@ type BookStatus struct {
 	// +optional
 	ActiveDownloadRef *string `json:"activeDownloadRef,omitempty"`
 
+	// Downloads is every grab of this item the system is responsible for, live
+	// entries only (ADR-0019 §6.4); written by the remediation loop's item key
+	// under catalogarr.
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=8
+	Downloads []DownloadEntry `json:"downloads,omitempty"`
+
+	// DownloadPhase is the active entry's phase, "" when none: a print column
+	// and a selectable field (ADR-0019 §6.2).
+	// +optional
+	DownloadPhase commonv1.DownloadPhase `json:"downloadPhase,omitempty"`
+
+	// DownloadNonces records the one-shot download intents last handled
+	// (ADR-0019 §6.10).
+	// +optional
+	DownloadNonces *DownloadNonces `json:"downloadNonces,omitempty"`
+
+	// LegacyDownloads is release N's record of the Downloads this item
+	// adopted (ADR-0019 §10.2); release N+1 removes it.
+	// +optional
+	LegacyDownloads *LegacyDownloads `json:"legacyDownloads,omitempty"`
+
+	// SearchDispatch is the outstanding search task (ADR-0019 §7.3), written
+	// under catalogarr-grab.
+	// +optional
+	SearchDispatch *Dispatch `json:"searchDispatch,omitempty"`
+
 	// PendingGrab is a chosen release waiting out a DelayProfile delay.
 	// +optional
 	PendingGrab *PendingGrab `json:"pendingGrab,omitempty"`
@@ -278,12 +306,14 @@ type BookStatus struct {
 // +kubebuilder:ac:generate=true
 // +kubebuilder:resource:scope=Namespaced,shortName=bk,categories=clustarr;catalog;media
 // +kubebuilder:selectablefield:JSONPath=`.spec.workID`
+// +kubebuilder:selectablefield:JSONPath=`.status.downloadPhase`
 // +kubebuilder:printcolumn:name="Title",type=string,JSONPath=`.status.metadata.title`
 // +kubebuilder:printcolumn:name="Monitored",type=boolean,JSONPath=`.spec.monitored`
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
 // +kubebuilder:printcolumn:name="File",type=boolean,JSONPath=`.status.hasFile`
 // +kubebuilder:printcolumn:name="Format",type=string,JSONPath=`.status.fileFormat`
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
+// +kubebuilder:printcolumn:name="Download",type=string,JSONPath=`.status.downloadPhase`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // Book is one Open Library work, owned by an Author or standalone.

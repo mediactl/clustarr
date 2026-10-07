@@ -42,6 +42,9 @@ spec:
     - jsonPath: .status.conditions[?(@.type=="Ready")].status
       name: Ready
       type: string
+    - jsonPath: .status.downloadPhase
+      name: Download
+      type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
@@ -494,6 +497,635 @@ spec:
                     format: date-time
                     type: string
                 type: object
+              downloadNonces:
+                description: |-
+                  DownloadNonces records the one-shot download intents last handled
+                  (ADR-0019 §6.10).
+                properties:
+                  import:
+                    maxLength: 63
+                    type: string
+                  remove:
+                    maxLength: 63
+                    type: string
+                  resume:
+                    maxLength: 63
+                    type: string
+                  unblock:
+                    maxLength: 63
+                    type: string
+                type: object
+              downloadPhase:
+                description: |-
+                  DownloadPhase is the active entry's phase, "" when none: a print column
+                  and a selectable field (ADR-0019 §6.2).
+                enum:
+                - Pending
+                - Assigned
+                - Queued
+                - Downloading
+                - Paused
+                - Completed
+                - Seeding
+                - Imported
+                - Failed
+                - Blocklisted
+                - Removing
+                type: string
+              downloads:
+                description: |-
+                  Downloads is every grab of this item the system is responsible for, live
+                  entries only (ADR-0019 §6.4); written by the remediation loop's item key
+                  under catalogarr.
+                items:
+                  description: |-
+                    DownloadEntry is one grab of its owner, from the manager's decision to
+                    grab through seeding and removal. Written only by the owner's item key
+                    in the remediation loop, under field manager catalogarr (ADR-0019 §6.2).
+                  properties:
+                    block:
+                      description: |-
+                        Block is the blocklist write this entry owes the release index
+                        (§6.14): set on the Blocklisted transition; ConfirmedAt when the
+                        index answered. A Blocklisted entry is dropped only after its transfer
+                        is removed and its block confirmed, and then after BlockQuarantine.
+                      properties:
+                        confirmedAt:
+                          format: date-time
+                          type: string
+                        reason:
+                          description: DownloadFailureReason is the machine-readable
+                            cause of a failure.
+                          enum:
+                          - none
+                          - missingArticles
+                          - diskFull
+                          - encrypted
+                          - stalled
+                          - writeError
+                          - timeout
+                          - importRejected
+                          - importExpired
+                          - manual
+                          - payloadMismatch
+                          - payloadUnavailable
+                          type: string
+                        scope:
+                          description: BlockScope is where a release is blocked (ADR-0019
+                            §6.14).
+                          enum:
+                          - item
+                          - global
+                          type: string
+                        seq:
+                          description: Seq fences block and unblock writes on the
+                            release index row.
+                          format: int64
+                          minimum: 1
+                          type: integer
+                      required:
+                      - reason
+                      - scope
+                      - seq
+                      type: object
+                    client:
+                      description: |-
+                        Client is the DownloadClient, Engine the instance holding the
+                        transfer (<client>-<ordinal>); both pinned once, at admission.
+                      maxLength: 253
+                      type: string
+                    completedAt:
+                      format: date-time
+                      type: string
+                    dispatch:
+                      description: |-
+                        Dispatch fences the engine command: Seq is the last desired state
+                        published, AnsweredSeq the transfer record's seq last incorporated
+                        (loop spec §2.3, with ADR-0019 §8.3's Delivery). A Pending entry
+                        carries seq 1 from creation; nothing is published until Assigned.
+                      properties:
+                        answeredSeq:
+                          description: |-
+                            AnsweredSeq is the Seq of the last dispatch closed: by an incorporated
+                            answer, a withdrawal or a timeout. A task is in flight while
+                            Seq > AnsweredSeq.
+                          format: int64
+                          minimum: 0
+                          type: integer
+                        dispatchedAt:
+                          description: |-
+                            DispatchedAt is when Seq was issued; the republish window and the
+                            request timeout run from it.
+                          format: date-time
+                          type: string
+                        seq:
+                          description: Seq is the sequence of the last task issued
+                            for this remediation.
+                          format: int64
+                          minimum: 1
+                          type: integer
+                        withdrawn:
+                          description: |-
+                            Withdrawn is true when the dispatch at Seq was closed by a withdrawal,
+                            not by an answer. For transcode and graft a fact (a change already
+                            made on disk) can still land after that: the planner keeps reading
+                            the record while Withdrawn is true and now < DispatchedAt +
+                            records.FactWindow, and incorporates a fact at Seq whatever the phase
+                            (§4.10, §5.9). Incorporating it clears Withdrawn.
+                          type: boolean
+                      required:
+                      - dispatchedAt
+                      - seq
+                      type: object
+                    engine:
+                      maxLength: 263
+                      type: string
+                    episodes:
+                      description: |-
+                        Episodes names the covered episodes on a Series entry (season and
+                        number in the Series' stored order), Issues the covered issue numbers
+                        on a Comic entry. Empty on every other owner.
+                      items:
+                        description: |-
+                          EpisodeNumber is one episode a Series entry or pending grab covers, in
+                          the Series' stored order.
+                        properties:
+                          number:
+                            format: int32
+                            minimum: 0
+                            type: integer
+                          season:
+                            format: int32
+                            minimum: 0
+                            type: integer
+                        required:
+                        - number
+                        - season
+                        type: object
+                      maxItems: 200
+                      type: array
+                      x-kubernetes-list-type: atomic
+                    failureReason:
+                      description: DownloadFailureReason is the machine-readable cause
+                        of a failure.
+                      enum:
+                      - none
+                      - missingArticles
+                      - diskFull
+                      - encrypted
+                      - stalled
+                      - writeError
+                      - timeout
+                      - importRejected
+                      - importExpired
+                      - manual
+                      - payloadMismatch
+                      - payloadUnavailable
+                      type: string
+                    grabbedAt:
+                      format: date-time
+                      type: string
+                    grabbedBy:
+                      description: GrabSource records what caused a release to be
+                        grabbed.
+                      enum:
+                      - rss
+                      - search
+                      - interactive
+                      - push
+                      - redownload
+                      type: string
+                    id:
+                      description: |-
+                        ID is the grab's stable name: k8s.ChildName(target, guid), or
+                        k8s.ChildName(target, purpose, guid) for a donor, the name the
+                        Download had (adopted entries keep it, so MediaFile
+                        spec.importedFrom.downloadRef, history and ui links still resolve).
+                      maxLength: 253
+                      type: string
+                    import:
+                      description: |-
+                        DownloadImportSummary is the grab's import, summarised from its
+                        clustarr-imports record (ADR-0019 §6.9); the per-file detail stays in the
+                        record.
+                      properties:
+                        attempts:
+                          format: int32
+                          type: integer
+                        class:
+                          description: |-
+                            ImportRejectionClass is why an import that imported nothing did so, and
+                            with it the remediation (2026-10-07: refusing every file used to blocklist
+                            the release at once, which threw away a good 20 GB download that the item
+                            merely would not take).
+                          enum:
+                          - transient
+                          - itemState
+                          - needsPerson
+                          - releaseFault
+                          type: string
+                        dispatch:
+                          description: Dispatch fences the inspect and execute tasks
+                            (§6.9).
+                          properties:
+                            answeredSeq:
+                              description: |-
+                                AnsweredSeq is the Seq of the last dispatch closed: by an incorporated
+                                answer, a withdrawal or a timeout. A task is in flight while
+                                Seq > AnsweredSeq.
+                              format: int64
+                              minimum: 0
+                              type: integer
+                            dispatchedAt:
+                              description: |-
+                                DispatchedAt is when Seq was issued; the republish window and the
+                                request timeout run from it.
+                              format: date-time
+                              type: string
+                            seq:
+                              description: Seq is the sequence of the last task issued
+                                for this remediation.
+                              format: int64
+                              minimum: 1
+                              type: integer
+                            withdrawn:
+                              description: |-
+                                Withdrawn is true when the dispatch at Seq was closed by a withdrawal,
+                                not by an answer. For transcode and graft a fact (a change already
+                                made on disk) can still land after that: the planner keeps reading
+                                the record while Withdrawn is true and now < DispatchedAt +
+                                records.FactWindow, and incorporates a fact at Seq whatever the phase
+                                (§4.10, §5.9). Incorporating it clears Withdrawn.
+                              type: boolean
+                          required:
+                          - dispatchedAt
+                          - seq
+                          type: object
+                        files:
+                          description: |-
+                            Files is how many files the approved plan places; the entry reads
+                            Imported only when that many MediaFiles name this entry's ID in
+                            spec.importedFrom.downloadRef.
+                          format: int32
+                          type: integer
+                        heldSince:
+                          format: date-time
+                          type: string
+                        importedAt:
+                          format: date-time
+                          type: string
+                        message:
+                          maxLength: 1024
+                          type: string
+                        nextAttemptAt:
+                          format: date-time
+                          type: string
+                        phase:
+                          description: |-
+                            ImportPhase is a grab's import, summarised (ADR-0019 §6.9). Not
+                            downloadv1alpha1.ImportPhase, which release N+1 removes with Download.
+                          enum:
+                          - pending
+                          - inspected
+                          - approved
+                          - imported
+                          - blocked
+                          - held
+                          - expired
+                          type: string
+                      required:
+                      - dispatch
+                      - phase
+                      type: object
+                    issues:
+                      items:
+                        maxLength: 16
+                        type: string
+                      maxItems: 200
+                      type: array
+                      x-kubernetes-list-type: atomic
+                    manual:
+                      type: boolean
+                    message:
+                      maxLength: 1024
+                      type: string
+                    outputPath:
+                      description: |-
+                        OutputPath is where the engine put the payload; the manager removes
+                        it (fsops.SafeRemove) when the entry's removal asks for data, so it is
+                        kept in etcd, not only in the transfer record.
+                      maxLength: 4096
+                      type: string
+                    phase:
+                      description: |-
+                        DownloadPhase is the lifecycle phase of a Download, owned by the grabarr
+                        controller.
+                      enum:
+                      - Pending
+                      - Assigned
+                      - Queued
+                      - Downloading
+                      - Paused
+                      - Completed
+                      - Seeding
+                      - Imported
+                      - Failed
+                      - Blocklisted
+                      - Removing
+                      type: string
+                    purpose:
+                      description: DownloadPurpose is what a Download is for.
+                      enum:
+                      - audioDonor
+                      type: string
+                    qualityProfileRef:
+                      maxLength: 253
+                      type: string
+                    release:
+                      description: |-
+                        DownloadRelease is the capped subset of ReleaseInfo a grab keeps.
+                        ReleaseInfo itself has no string caps, so it cannot go into status.
+                      properties:
+                        edition:
+                          maxLength: 256
+                          type: string
+                        formatScore:
+                          format: int32
+                          type: integer
+                        guid:
+                          description: 'GUID is identity: a longer one is refused
+                            at admission, never clamped.'
+                          maxLength: 1024
+                          type: string
+                        indexerName:
+                          maxLength: 253
+                          type: string
+                        indexerRef:
+                          maxLength: 253
+                          type: string
+                        infoHash:
+                          pattern: ^([0-9a-f]{40}|[0-9a-f]{64})$
+                          type: string
+                        languages:
+                          items:
+                            maxLength: 35
+                            type: string
+                          maxItems: 16
+                          type: array
+                          x-kubernetes-list-type: atomic
+                        protocol:
+                          description: Protocol is the transfer protocol of an indexer,
+                            download client or release.
+                          enum:
+                          - torrent
+                          - usenet
+                          type: string
+                        quality:
+                          description: |-
+                            Quality identifies a quality definition. For video the name is derived from
+                            the (source, resolution, modifier) tuple; for music, books, audiobooks and
+                            comics it is a table name such as FLAC, MP3-320, EPUB, M4B or CBZ.
+                          properties:
+                            modifier:
+                              description: Modifier refines the quality (remux, screener,
+                                ...).
+                              enum:
+                              - none
+                              - regional
+                              - screener
+                              - rawhd
+                              - brdisk
+                              - remux
+                              type: string
+                            name:
+                              description: Name is the canonical quality definition
+                                name.
+                              maxLength: 64
+                              type: string
+                            resolution:
+                              description: Resolution is the vertical resolution in
+                                lines. Video only.
+                              enum:
+                              - 0
+                              - 360
+                              - 480
+                              - 540
+                              - 576
+                              - 720
+                              - 1080
+                              - 2160
+                              format: int32
+                              type: integer
+                            source:
+                              description: Source is the release source. Video only.
+                              enum:
+                              - unknown
+                              - cam
+                              - telesync
+                              - telecine
+                              - workprint
+                              - dvd
+                              - tv
+                              - webdl
+                              - webrip
+                              - bluray
+                              type: string
+                          required:
+                          - name
+                          type: object
+                        releaseGroup:
+                          maxLength: 256
+                          type: string
+                        revision:
+                          description: Revision records the proper/repack revision
+                            of a release.
+                          properties:
+                            real:
+                              default: 0
+                              description: Real counts REAL re-releases that fix a
+                                broken proper.
+                              format: int32
+                              type: integer
+                            repack:
+                              default: false
+                              description: Repack is true when the release is flagged
+                                as a repack.
+                              type: boolean
+                            version:
+                              default: 1
+                              description: |-
+                                Version is the release version; 1 is the original, 2+ are propers.
+                                It has no omitempty, so a Go client always sends it and the default
+                                never applies; 0 has no meaning, and every comparison (pkg/quality,
+                                pkg/decision) floors it to 1, so an unparsed revision reads as the
+                                original rather than as older than one.
+                              format: int32
+                              type: integer
+                          type: object
+                        sizeBytes:
+                          format: int64
+                          type: integer
+                        title:
+                          description: |-
+                            Title is clamped on a rune boundary; it is for display and the
+                            blocklist's title match.
+                          maxLength: 512
+                          type: string
+                      required:
+                      - protocol
+                      - title
+                      type: object
+                    removeDataOnDelete:
+                      type: boolean
+                    removeOnImport:
+                      description: |-
+                        RemoveOnImport and RemoveDataOnDelete are the effective values,
+                        resolved at admission from DownloadClient and RootFolder settings and
+                        always written (no default can hide a false).
+                      type: boolean
+                    seedCriteria:
+                      description: |-
+                        SeedCriteria are the release's (from its Indexer) when it has any;
+                        the engine applies its DownloadClient's defaults to what is unset.
+                      properties:
+                        inactiveTime:
+                          description: |-
+                            InactiveTime is how long a completed torrent may seed without uploading before its seed
+                            goal counts as met, measured from the later of completion and the last upload
+                            (qBittorrent's inactive seeding time limit). Like Ratio and SeedTime, reaching it alone
+                            meets the goal. It is not a stall timeout: an incomplete torrent that receives no data
+                            fails on the DownloadClient's torrent.stallTimeout instead.
+                          type: string
+                        packSeedTime:
+                          description: PackSeedTime is how long a pack (season, discography)
+                            torrent must seed before removal.
+                          type: string
+                        ratio:
+                          anyOf:
+                          - type: integer
+                          - type: string
+                          description: |-
+                            Ratio is the upload/download ratio to reach before the torrent may be removed,
+                            written as a decimal string such as "2.0". Quantity is used instead of a float
+                            so the value round-trips exactly across API clients.
+                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                          x-kubernetes-int-or-string: true
+                        seedTime:
+                          description: SeedTime is how long a single-item torrent
+                            must seed before removal.
+                          type: string
+                      type: object
+                    seedGoalMetAt:
+                      format: date-time
+                      type: string
+                    source:
+                      description: |-
+                        DownloadSource says where the transfer payload comes from. Exactly one of
+                        the four members is set. There is intentionally no inline bytes field: a
+                        .torrent or .nzb body is never embedded in the object. Either the payload is
+                        addressable by URL, or indexerDownload names the release and grabarr
+                        resolves it through indexarr.
+                      properties:
+                        expectedInfoHash:
+                          description: |-
+                            ExpectedInfoHash is the info hash the resolved torrent must have. The
+                            engine refuses a mismatch, which stops an indexer from swapping content
+                            out from under a grab decision. Torrent only.
+                          pattern: ^[0-9a-f]{40}([0-9a-f]{24})?$
+                          type: string
+                        indexerDownload:
+                          description: |-
+                            IndexerDownload names a release to resolve through indexarr. This is the
+                            normal path: the indexer applies auth, rate limits and proxying, and
+                            returns the payload to the engine.
+                          properties:
+                            guid:
+                              description: |-
+                                GUID is the indexer-scoped unique identifier of the release. It is the
+                                input to the Download's deterministic name.
+                              minLength: 1
+                              type: string
+                            indexerRef:
+                              description: |-
+                                IndexerRef is the name of the Indexer that published the release, in the
+                                same namespace as the Download.
+                              minLength: 1
+                              type: string
+                            url:
+                              description: |-
+                                URL is the indexer's download link for the release. grabarr fetches it
+                                through indexarr, which applies the indexer's auth and proxy settings.
+                              maxLength: 2048
+                              type: string
+                          required:
+                          - guid
+                          - indexerRef
+                          type: object
+                        magnetURL:
+                          description: MagnetURL is a magnet link the torrent engine
+                            can add directly.
+                          maxLength: 4096
+                          pattern: ^magnet:\?.+$
+                          type: string
+                        nzbURL:
+                          description: NZBURL is a directly fetchable .nzb URL that
+                            needs no indexer credentials.
+                          maxLength: 2048
+                          type: string
+                        torrentURL:
+                          description: |-
+                            TorrentURL is a directly fetchable .torrent URL that needs no indexer
+                            credentials.
+                          maxLength: 2048
+                          type: string
+                      type: object
+                      x-kubernetes-validations:
+                      - message: exactly one of magnetURL, torrentURL, nzbURL or indexerDownload
+                          must be set
+                        rule: '(has(self.magnetURL) ? 1 : 0) + (has(self.torrentURL)
+                          ? 1 : 0) + (has(self.nzbURL) ? 1 : 0) + (has(self.indexerDownload)
+                          ? 1 : 0) == 1'
+                    stage:
+                      description: DownloadStage is the fine-grained engine stage,
+                        reported by grabarr-engine.
+                      enum:
+                      - fetchingMetadata
+                      - transferring
+                      - verifying
+                      - repairing
+                      - extracting
+                      - publishing
+                      - seeding
+                      - done
+                      type: string
+                    startedAt:
+                      format: date-time
+                      type: string
+                    uid:
+                      description: |-
+                        UID is issued by the manager when it admits the grab (an adopted
+                        entry keeps its Download's UID). It keys clustarr-transfers,
+                        clustarr-imports, the engine command subject and the clustarr-progress
+                        key download.<uid>, so a re-grab under the same ID never reads an old
+                        transfer's records.
+                      maxLength: 36
+                      type: string
+                  required:
+                  - client
+                  - dispatch
+                  - grabbedAt
+                  - grabbedBy
+                  - id
+                  - phase
+                  - release
+                  - removeDataOnDelete
+                  - removeOnImport
+                  - source
+                  - uid
+                  type: object
+                maxItems: 8
+                type: array
+                x-kubernetes-list-type: atomic
               fileFormatScore:
                 description: FileFormatScore is the custom-format score of the imported
                   file.
@@ -557,6 +1189,55 @@ spec:
                 description: LastSearchedAt is when the movie was last searched for.
                 format: date-time
                 type: string
+              legacyDownloads:
+                description: |-
+                  LegacyDownloads is release N's record of the Downloads this item
+                  adopted (ADR-0019 §10.2); release N+1 removes it.
+                properties:
+                  adopted:
+                    items:
+                      description: |-
+                        LegacyDownload is one Download release N adopted, blocklisted, dismissed
+                        or is removing for this owner.
+                      properties:
+                        at:
+                          format: date-time
+                          type: string
+                        name:
+                          maxLength: 253
+                          type: string
+                        outcome:
+                          description: LegacyOutcome is what release N did with an
+                            adopted Download.
+                          enum:
+                          - adopted
+                          - blocklisted
+                          - dismissed
+                          - removing
+                          type: string
+                        uid:
+                          maxLength: 36
+                          type: string
+                      required:
+                      - at
+                      - name
+                      - outcome
+                      - uid
+                      type: object
+                    maxItems: 64
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  held:
+                    description: |-
+                      Held is "TooMany" while the owner has more live Downloads than its
+                      entry cap; nothing is truncated.
+                    enum:
+                    - TooMany
+                    type: string
+                  message:
+                    maxLength: 1024
+                    type: string
+                type: object
               metadata:
                 description: Metadata is the cached provider metadata.
                 properties:
@@ -899,11 +1580,272 @@ spec:
                 description: PendingGrab is a chosen release waiting out a DelayProfile
                   delay.
                 properties:
+                  candidate:
+                    description: |-
+                      Candidate is the release this pending grab will be made from
+                      (ADR-0019 §6.2), so the grab needs nothing but status.
+                    properties:
+                      grabbedBy:
+                        description: GrabSource records what caused a release to be
+                          grabbed.
+                        enum:
+                        - rss
+                        - search
+                        - interactive
+                        - push
+                        - redownload
+                        type: string
+                      manual:
+                        type: boolean
+                      purpose:
+                        description: DownloadPurpose is what a Download is for.
+                        enum:
+                        - audioDonor
+                        type: string
+                      release:
+                        description: |-
+                          DownloadRelease is the capped subset of ReleaseInfo a grab keeps.
+                          ReleaseInfo itself has no string caps, so it cannot go into status.
+                        properties:
+                          edition:
+                            maxLength: 256
+                            type: string
+                          formatScore:
+                            format: int32
+                            type: integer
+                          guid:
+                            description: 'GUID is identity: a longer one is refused
+                              at admission, never clamped.'
+                            maxLength: 1024
+                            type: string
+                          indexerName:
+                            maxLength: 253
+                            type: string
+                          indexerRef:
+                            maxLength: 253
+                            type: string
+                          infoHash:
+                            pattern: ^([0-9a-f]{40}|[0-9a-f]{64})$
+                            type: string
+                          languages:
+                            items:
+                              maxLength: 35
+                              type: string
+                            maxItems: 16
+                            type: array
+                            x-kubernetes-list-type: atomic
+                          protocol:
+                            description: Protocol is the transfer protocol of an indexer,
+                              download client or release.
+                            enum:
+                            - torrent
+                            - usenet
+                            type: string
+                          quality:
+                            description: |-
+                              Quality identifies a quality definition. For video the name is derived from
+                              the (source, resolution, modifier) tuple; for music, books, audiobooks and
+                              comics it is a table name such as FLAC, MP3-320, EPUB, M4B or CBZ.
+                            properties:
+                              modifier:
+                                description: Modifier refines the quality (remux,
+                                  screener, ...).
+                                enum:
+                                - none
+                                - regional
+                                - screener
+                                - rawhd
+                                - brdisk
+                                - remux
+                                type: string
+                              name:
+                                description: Name is the canonical quality definition
+                                  name.
+                                maxLength: 64
+                                type: string
+                              resolution:
+                                description: Resolution is the vertical resolution
+                                  in lines. Video only.
+                                enum:
+                                - 0
+                                - 360
+                                - 480
+                                - 540
+                                - 576
+                                - 720
+                                - 1080
+                                - 2160
+                                format: int32
+                                type: integer
+                              source:
+                                description: Source is the release source. Video only.
+                                enum:
+                                - unknown
+                                - cam
+                                - telesync
+                                - telecine
+                                - workprint
+                                - dvd
+                                - tv
+                                - webdl
+                                - webrip
+                                - bluray
+                                type: string
+                            required:
+                            - name
+                            type: object
+                          releaseGroup:
+                            maxLength: 256
+                            type: string
+                          revision:
+                            description: Revision records the proper/repack revision
+                              of a release.
+                            properties:
+                              real:
+                                default: 0
+                                description: Real counts REAL re-releases that fix
+                                  a broken proper.
+                                format: int32
+                                type: integer
+                              repack:
+                                default: false
+                                description: Repack is true when the release is flagged
+                                  as a repack.
+                                type: boolean
+                              version:
+                                default: 1
+                                description: |-
+                                  Version is the release version; 1 is the original, 2+ are propers.
+                                  It has no omitempty, so a Go client always sends it and the default
+                                  never applies; 0 has no meaning, and every comparison (pkg/quality,
+                                  pkg/decision) floors it to 1, so an unparsed revision reads as the
+                                  original rather than as older than one.
+                                format: int32
+                                type: integer
+                            type: object
+                          sizeBytes:
+                            format: int64
+                            type: integer
+                          title:
+                            description: |-
+                              Title is clamped on a rune boundary; it is for display and the
+                              blocklist's title match.
+                            maxLength: 512
+                            type: string
+                        required:
+                        - protocol
+                        - title
+                        type: object
+                      score:
+                        format: int32
+                        type: integer
+                      source:
+                        description: |-
+                          DownloadSource says where the transfer payload comes from. Exactly one of
+                          the four members is set. There is intentionally no inline bytes field: a
+                          .torrent or .nzb body is never embedded in the object. Either the payload is
+                          addressable by URL, or indexerDownload names the release and grabarr
+                          resolves it through indexarr.
+                        properties:
+                          expectedInfoHash:
+                            description: |-
+                              ExpectedInfoHash is the info hash the resolved torrent must have. The
+                              engine refuses a mismatch, which stops an indexer from swapping content
+                              out from under a grab decision. Torrent only.
+                            pattern: ^[0-9a-f]{40}([0-9a-f]{24})?$
+                            type: string
+                          indexerDownload:
+                            description: |-
+                              IndexerDownload names a release to resolve through indexarr. This is the
+                              normal path: the indexer applies auth, rate limits and proxying, and
+                              returns the payload to the engine.
+                            properties:
+                              guid:
+                                description: |-
+                                  GUID is the indexer-scoped unique identifier of the release. It is the
+                                  input to the Download's deterministic name.
+                                minLength: 1
+                                type: string
+                              indexerRef:
+                                description: |-
+                                  IndexerRef is the name of the Indexer that published the release, in the
+                                  same namespace as the Download.
+                                minLength: 1
+                                type: string
+                              url:
+                                description: |-
+                                  URL is the indexer's download link for the release. grabarr fetches it
+                                  through indexarr, which applies the indexer's auth and proxy settings.
+                                maxLength: 2048
+                                type: string
+                            required:
+                            - guid
+                            - indexerRef
+                            type: object
+                          magnetURL:
+                            description: MagnetURL is a magnet link the torrent engine
+                              can add directly.
+                            maxLength: 4096
+                            pattern: ^magnet:\?.+$
+                            type: string
+                          nzbURL:
+                            description: NZBURL is a directly fetchable .nzb URL that
+                              needs no indexer credentials.
+                            maxLength: 2048
+                            type: string
+                          torrentURL:
+                            description: |-
+                              TorrentURL is a directly fetchable .torrent URL that needs no indexer
+                              credentials.
+                            maxLength: 2048
+                            type: string
+                        type: object
+                        x-kubernetes-validations:
+                        - message: exactly one of magnetURL, torrentURL, nzbURL or
+                            indexerDownload must be set
+                          rule: '(has(self.magnetURL) ? 1 : 0) + (has(self.torrentURL)
+                            ? 1 : 0) + (has(self.nzbURL) ? 1 : 0) + (has(self.indexerDownload)
+                            ? 1 : 0) == 1'
+                    required:
+                    - grabbedBy
+                    - release
+                    - source
+                    type: object
+                  episodes:
+                    description: Episodes and Issues name what a Series' or Comic's
+                      pending grab covers.
+                    items:
+                      description: |-
+                        EpisodeNumber is one episode a Series entry or pending grab covers, in
+                        the Series' stored order.
+                      properties:
+                        number:
+                          format: int32
+                          minimum: 0
+                          type: integer
+                        season:
+                          format: int32
+                          minimum: 0
+                          type: integer
+                      required:
+                      - number
+                      - season
+                      type: object
+                    maxItems: 200
+                    type: array
+                    x-kubernetes-list-type: atomic
                   grabAt:
                     description: GrabAt is when the delay expires and the grab will
                       be issued.
                     format: date-time
                     type: string
+                  issues:
+                    items:
+                      maxLength: 16
+                      type: string
+                    maxItems: 200
+                    type: array
+                    x-kubernetes-list-type: atomic
                   protocol:
                     description: Protocol is the transfer protocol of the pending
                       release.
@@ -912,8 +1854,11 @@ spec:
                     - usenet
                     type: string
                   releaseTitle:
-                    description: ReleaseTitle is the raw title of the release that
-                      will be grabbed.
+                    description: |-
+                      ReleaseTitle is the raw title of the release that will be grabbed,
+                      clamped on a rune boundary (a stored longer value stays valid under
+                      validation ratcheting).
+                    maxLength: 512
                     type: string
                 required:
                 - grabAt
@@ -949,10 +1894,49 @@ spec:
                     format: date-time
                     type: string
                 type: object
+              searchDispatch:
+                description: |-
+                  SearchDispatch is the outstanding search task (ADR-0019 §7.3), written
+                  under catalogarr-grab.
+                properties:
+                  answeredSeq:
+                    description: |-
+                      AnsweredSeq is the Seq of the last dispatch closed: by an incorporated
+                      answer, a withdrawal or a timeout. A task is in flight while
+                      Seq > AnsweredSeq.
+                    format: int64
+                    minimum: 0
+                    type: integer
+                  dispatchedAt:
+                    description: |-
+                      DispatchedAt is when Seq was issued; the republish window and the
+                      request timeout run from it.
+                    format: date-time
+                    type: string
+                  seq:
+                    description: Seq is the sequence of the last task issued for this
+                      remediation.
+                    format: int64
+                    minimum: 1
+                    type: integer
+                  withdrawn:
+                    description: |-
+                      Withdrawn is true when the dispatch at Seq was closed by a withdrawal,
+                      not by an answer. For transcode and graft a fact (a change already
+                      made on disk) can still land after that: the planner keeps reading
+                      the record while Withdrawn is true and now < DispatchedAt +
+                      records.FactWindow, and incorporates a fact at Seq whatever the phase
+                      (§4.10, §5.9). Incorporating it clears Withdrawn.
+                    type: boolean
+                required:
+                - dispatchedAt
+                - seq
+                type: object
             type: object
         type: object
     selectableFields:
     - jsonPath: .spec.tmdbID
+    - jsonPath: .status.downloadPhase
     served: true
     storage: true
     subresources:

@@ -304,8 +304,11 @@ const (
 // PendingGrab records a release that has been chosen but is waiting out a
 // DelayProfile delay before it is grabbed.
 type PendingGrab struct {
-	// ReleaseTitle is the raw title of the release that will be grabbed.
+	// ReleaseTitle is the raw title of the release that will be grabbed,
+	// clamped on a rune boundary (a stored longer value stays valid under
+	// validation ratcheting).
 	// +required
+	// +kubebuilder:validation:MaxLength=512
 	ReleaseTitle string `json:"releaseTitle"`
 
 	// Protocol is the transfer protocol of the pending release.
@@ -315,6 +318,22 @@ type PendingGrab struct {
 	// GrabAt is when the delay expires and the grab will be issued.
 	// +required
 	GrabAt metav1.Time `json:"grabAt"`
+
+	// Candidate is the release this pending grab will be made from
+	// (ADR-0019 §6.2), so the grab needs nothing but status.
+	// +optional
+	Candidate *GrabCandidate `json:"candidate,omitempty"`
+
+	// Episodes and Issues name what a Series' or Comic's pending grab covers.
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=200
+	Episodes []EpisodeNumber `json:"episodes,omitempty"`
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=200
+	// +kubebuilder:validation:items:MaxLength=16
+	Issues []string `json:"issues,omitempty"`
 }
 
 // NamedRef is a display name paired with the provider ID it resolved from.
