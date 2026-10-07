@@ -91,10 +91,17 @@ func Run(ctx context.Context, o Options) error {
 		bus = o.WrapBus(bus)
 	}
 
-	// 8. Process-level checks.
+	// 8. Process-level checks. `bus` is the liveness check of split §3.3 as
+	// amended 2026-10-07: handlers that ignore their context have held a
+	// subscription's every slot past its budget, which only a restart cures.
 	var ready, live k8s.Checks
 	if err := ready.Add("jetstream", busconn.ReadyChecker(nc, raw)); err != nil {
 		return err
+	}
+	if raw != nil {
+		if err := live.Add("bus", busconn.WedgeChecker(raw)); err != nil {
+			return err
+		}
 	}
 	cacheReady, err := k8s.CacheSyncChecker(mgr)
 	if err != nil {

@@ -166,15 +166,23 @@ func run(args []string, getenv func(string) string) int {
 	}
 
 	// /readyz is green only once NATS is connected and the subscription is
-	// bound; /healthz always answers (a wedged decode exits the process).
+	// bound; /healthz fails only on a bus wedged by handlers that ignore
+	// their context (split §3.3 as amended 2026-10-07); a wedged decode
+	// exits the process.
 	var (
 		subscribed atomic.Bool
 		ncRef      atomic.Pointer[nats.Conn]
+		busRef     atomic.Pointer[natsbus.Bus]
 	)
 	if *f.metricsAddr != "" {
 		mux := http.NewServeMux()
 		mux.Handle("/metrics", promhttp.Handler())
-		mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+		mux.Handle("/healthz", healthzHandler(wedgeFunc(func() error {
+			if b := busRef.Load(); b != nil {
+				return b.Wedged()
+			}
+			return nil
+		})))
 		mux.HandleFunc("/readyz", func(w http.ResponseWriter, _ *http.Request) {
 			if nc := ncRef.Load(); subscribed.Load() && nc != nil && nc.IsConnected() {
 				w.WriteHeader(http.StatusOK)
@@ -205,6 +213,7 @@ func run(args []string, getenv func(string) string) int {
 		log.ErrorContext(ctx, "bus", "error", err)
 		return worker.ExitRetriable
 	}
+	busRef.Store(bus)
 	sub := spec.Subscription()
 	sub.MaxInFlight = events.SlotsFor(spec, overrides)
 	h := &worker.Handler{
@@ -234,6 +243,29 @@ func run(args []string, getenv func(string) string) int {
 		log.ErrorContext(ctx, "in-process FFmpeg calls are stuck; restarting", "abandoned", ffruntime.Abandoned())
 		return worker.ExitRetriable
 	}
+}
+
+// wedgeFunc adapts a func to events.WedgeReporter, so /healthz, served
+// before the bus exists, reads it once it does.
+type wedgeFunc func() error
+
+// Wedged implements events.WedgeReporter.
+func (f wedgeFunc) Wedged() error { return f() }
+
+// healthzHandler is markers' /healthz: 200 "ok", or 500 with the wedge the
+// bus reports (the `bus` liveness check, split §3.3 as amended 2026-10-07).
+// markers links no pkg/busconn (§4.5.4), so it asks the bus itself.
+func healthzHandler(w events.WedgeReporter) http.Handler {
+	return http.HandlerFunc(func(rw http.ResponseWriter, _ *http.Request) {
+		if w != nil {
+			if err := w.Wedged(); err != nil {
+				http.Error(rw, err.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
+		rw.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(rw, "ok")
+	})
 }
 
 // decodeThreads is --decode-threads: an explicit value, else the cgroup's
