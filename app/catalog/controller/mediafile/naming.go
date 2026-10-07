@@ -28,6 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
@@ -89,76 +90,118 @@ type namingInputs struct {
 // It reads the probe from known, not from mf.Status, because known is what
 // this reconcile is about to apply: a probe taken earlier in the same
 // reconcile is already in it. in says where the file is and what holds it.
+// It is LoadNaming, then RenderNaming; see both.
+func (r *Reconciler) renderNaming(ctx context.Context, mf *catalogv1alpha1.MediaFile, known *knownStatus, in namingInputs) (naming *catalogv1alpha1.NamingStatus, retry bool) {
+	look := LoadNaming(ctx, r.Client, mf)
+	look.log(ctx)
+	return RenderNaming(mf, look, known.MediaInfo, known.Naming, in.specPath, in.probeStale, in.transcodePending)
+}
+
+// NamingLookup is what LoadNaming read for a file: the item it backs (or why
+// none can name it), its RootFolder, and a failed read to keep the
+// proposal over.
+type NamingLookup struct {
+	owner       *namingOwner
+	reason      catalogv1alpha1.NamingReason
+	root        *catalogv1alpha1.RootFolder
+	rootMissing bool
+	err         error
+}
+
+// log reports a failed lookup and a missing RootFolder, as renderNaming did.
+func (look NamingLookup) log(ctx context.Context) {
+	log := logging.FromContext(ctx)
+	switch {
+	case look.err != nil:
+		log.Warn("mediafile: could not load the item or its RootFolder to name the file; keeping the previous proposal", "error", look.err)
+	case look.rootMissing:
+		log.Warn("mediafile: the item's RootFolder does not exist; the file cannot be named", "rootFolder", look.owner.rootFolderRef)
+	}
+}
+
+// LoadNaming reads what RenderNaming needs through c: the probe-free half of
+// renderNaming. A failed read (anything but NotFound) is recorded, never
+// returned: RenderNaming keeps the proposal over it and asks for a retry.
+func LoadNaming(ctx context.Context, c client.Reader, mf *catalogv1alpha1.MediaFile) NamingLookup {
+	owner, reason, err := namingOwnerOf(ctx, c, mf)
+	look := NamingLookup{owner: owner, reason: reason, err: err}
+	if err != nil || owner == nil || reason != "" {
+		return look
+	}
+	var root catalogv1alpha1.RootFolder
+	switch err := c.Get(ctx, types.NamespacedName{Namespace: mf.Namespace, Name: owner.rootFolderRef}, &root); {
+	case apierrors.IsNotFound(err):
+		look.rootMissing = true
+	case err != nil:
+		look.err = err
+	default:
+		look.root = &root
+	}
+	return look
+}
+
+// RenderNaming proposes mf's canonical path from look, the draft's mi and
+// specPath (spec.path as of this pass's main apply): renderNaming's decision,
+// unchanged, with no read. prev is the proposal on the object, kept over a
+// failed lookup.
 //
 // The result is nil for a kind this phase does not name (anything but a
 // movie or an episode). Otherwise it carries a Reason and no ExpectedPath
 // when the path cannot be rendered yet -- MetadataPending, TranscodePending
 // (a transcode running or not yet incorporated: spec D6, a rename never
 // touches a file another job holds), ProbePending (never probed, or the
-// bytes changed and the re-probe failed), Unrenderable -- or the
-// ExpectedPath and whether spec.path already is it. Recycling is never
-// returned: this controller has no notion of a file in the recycle bin.
-// Quality, the probe-corrected quality the rename re-applies into
-// spec.quality, is set whenever a probe describes the file, even when it
-// agreed with the name, so the rename has one value to apply.
+// bytes changed and the re-probe failed: probeStale), Unrenderable -- or the
+// ExpectedPath and whether specPath already is it. Recycling is never
+// returned: nothing here knows of a file in the recycle bin. Quality, the
+// probe-corrected quality the rename re-applies into spec.quality, is set
+// whenever a probe describes the file, even when it agreed with the name, so
+// the rename has one value to apply.
 //
-// A failed lookup (anything but NotFound) keeps known.Naming, with Current
-// re-judged against in.specPath, and reports retry: a cache blip must not
-// replace a good proposal, returning nil would release status.naming
-// (CLAUDE.md, the complete-declaration rule), and without a requeue nothing
-// would render it again until the next unrelated event.
-func (r *Reconciler) renderNaming(ctx context.Context, mf *catalogv1alpha1.MediaFile, known *knownStatus, in namingInputs) (naming *catalogv1alpha1.NamingStatus, retry bool) {
-	log := logging.FromContext(ctx)
-	owner, reason, err := r.namingOwner(ctx, mf)
+// A failed lookup keeps prev, with Current re-judged against specPath, and
+// reports retry: a cache blip must not replace a good proposal, returning nil
+// would drop status.naming, and without a requeue nothing would render it
+// again until the next unrelated event.
+func RenderNaming(mf *catalogv1alpha1.MediaFile, look NamingLookup, mi *commonv1.MediaInfo, prev *catalogv1alpha1.NamingStatus,
+	specPath string, probeStale, transcodePending bool,
+) (*catalogv1alpha1.NamingStatus, bool) {
 	switch {
-	case err != nil:
-		log.Warn("mediafile: could not load the item to name the file; keeping the previous proposal", "error", err)
-		return keepNaming(known.Naming, in.specPath), true
-	case owner == nil && reason == "":
+	case look.err != nil:
+		return keepNaming(prev, specPath), true
+	case look.owner == nil && look.reason == "":
 		return nil, false
 	}
-
-	mi := known.MediaInfo
-	if in.probeStale {
+	if probeStale {
 		mi = nil
 	}
 	out := &catalogv1alpha1.NamingStatus{}
 	spec := mf.Spec
-	spec.Path = in.specPath
+	spec.Path = specPath
 	if mi != nil {
 		corrected, _ := quality.AugmentFromMediaInfo(spec.Quality, mi)
 		spec.Quality = corrected
 		out.Quality = &corrected
 	}
 	switch {
-	case reason != "":
-		out.Reason = reason
+	case look.reason != "":
+		out.Reason = look.reason
 		return out, false
-	case in.transcodePending:
+	case transcodePending:
 		out.Reason = catalogv1alpha1.NamingReasonTranscodePending
 		return out, false
 	case mi == nil:
 		out.Reason = catalogv1alpha1.NamingReasonProbePending
 		return out, false
-	}
-
-	var root catalogv1alpha1.RootFolder
-	if err := r.Get(ctx, types.NamespacedName{Namespace: mf.Namespace, Name: owner.rootFolderRef}, &root); err != nil {
-		if !apierrors.IsNotFound(err) {
-			log.Warn("mediafile: could not load the RootFolder; keeping the previous proposal", "rootFolder", owner.rootFolderRef, "error", err)
-			return keepNaming(known.Naming, in.specPath), true
-		}
-		log.Warn("mediafile: the item's RootFolder does not exist; the file cannot be named", "rootFolder", owner.rootFolderRef)
+	case look.rootMissing:
 		out.Reason = catalogv1alpha1.NamingReasonUnrenderable
 		return out, false
 	}
-
-	expected, err := owner.render(&root, catalogctx.File(ctx, owner.context, &spec, mi), catalogctx.ContainerExt(mi, spec.Path))
+	// catalogctx.File's context carries only the catalogue's regexp deadline
+	// and logging, so the pure render passes context.Background().
+	expected, err := look.owner.render(look.root, catalogctx.File(context.Background(), look.owner.context, &spec, mi), catalogctx.ContainerExt(mi, spec.Path))
 	if err == nil && len(expected) > maxExpectedPathLen {
 		err = fmt.Errorf("the rendered path is %d bytes, over the %d status.naming.expectedPath holds", len(expected), maxExpectedPathLen)
 	}
 	if err != nil {
-		log.Warn("mediafile: could not render the file's canonical path", "error", err)
 		out.Reason = catalogv1alpha1.NamingReasonUnrenderable
 		return out, false
 	}
@@ -197,6 +240,11 @@ func withNamingRetry(res ctrl.Result, retry bool) ctrl.Result {
 // more than one series, is Unrenderable. It returns nil, "", nil for any
 // other kind.
 func (r *Reconciler) namingOwner(ctx context.Context, mf *catalogv1alpha1.MediaFile) (*namingOwner, catalogv1alpha1.NamingReason, error) {
+	return namingOwnerOf(ctx, r.Client, mf)
+}
+
+// namingOwnerOf is namingOwner reading through c.
+func namingOwnerOf(ctx context.Context, c client.Reader, mf *catalogv1alpha1.MediaFile) (*namingOwner, catalogv1alpha1.NamingReason, error) {
 	key := func(name string) types.NamespacedName {
 		return types.NamespacedName{Namespace: mf.Namespace, Name: name}
 	}
@@ -204,7 +252,7 @@ func (r *Reconciler) namingOwner(ctx context.Context, mf *catalogv1alpha1.MediaF
 	switch ref.Kind {
 	case commonv1.MediaKindMovie:
 		var m catalogv1alpha1.Movie
-		if err := r.Get(ctx, key(ref.Name), &m); err != nil {
+		if err := c.Get(ctx, key(ref.Name), &m); err != nil {
 			return ownerNotLoaded(err)
 		}
 		c, ok := catalogctx.Movie(&m)
@@ -228,7 +276,7 @@ func (r *Reconciler) namingOwner(ctx context.Context, mf *catalogv1alpha1.MediaF
 		eps := make([]catalogv1alpha1.Episode, 0, len(names))
 		for _, n := range names {
 			var ep catalogv1alpha1.Episode
-			if err := r.Get(ctx, key(n), &ep); err != nil {
+			if err := c.Get(ctx, key(n), &ep); err != nil {
 				return ownerNotLoaded(err)
 			}
 			eps = append(eps, ep)
@@ -249,7 +297,7 @@ func (r *Reconciler) namingOwner(ctx context.Context, mf *catalogv1alpha1.MediaF
 			}
 		}
 		var s catalogv1alpha1.Series
-		if err := r.Get(ctx, key(seriesRef), &s); err != nil {
+		if err := c.Get(ctx, key(seriesRef), &s); err != nil {
 			return ownerNotLoaded(err)
 		}
 		c, ok := catalogctx.Episode(&s, eps)
@@ -291,14 +339,14 @@ func coveredEpisodeNames(ref commonv1.MediaRef) []string {
 	return out
 }
 
-// markNamingCurrent mirrors n onto the NamingCurrent condition, for kubectl
+// MarkNamingCurrent mirrors n onto the NamingCurrent condition, for kubectl
 // and the UI: True/Current when spec.path is the proposal, False/Stale when
 // it is not, and Unknown with the NamingReason as its reason when nothing
 // was rendered to compare spec.path with. A nil n (a kind this phase does
 // not name) sets nothing. applyStatus calls it, and nothing else sets this
 // condition, so every apply carries exactly one NamingCurrent entry that
 // agrees with the status.naming beside it.
-func markNamingCurrent(obj *catalogv1alpha1.MediaFile, conditions *[]metav1.Condition, n *catalogv1alpha1.NamingStatus) {
+func MarkNamingCurrent(obj *catalogv1alpha1.MediaFile, conditions *[]metav1.Condition, n *catalogv1alpha1.NamingStatus) {
 	const cond = catalogv1alpha1.ConditionNamingCurrent
 	switch {
 	case n == nil:

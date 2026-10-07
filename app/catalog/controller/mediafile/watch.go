@@ -135,12 +135,8 @@ func requestsOf(nns []types.NamespacedName) []reconcile.Request {
 	return out
 }
 
-func (r *Reconciler) mediaFileForSubtitleRequest(_ context.Context, o client.Object) []reconcile.Request {
-	sr, ok := o.(*subtitlev1alpha1.SubtitleRequest)
-	if !ok || sr.Spec.MediaFileRef == "" {
-		return nil
-	}
-	return []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: sr.Namespace, Name: sr.Spec.MediaFileRef}}}
+func (r *Reconciler) mediaFileForSubtitleRequest(ctx context.Context, o client.Object) []reconcile.Request {
+	return requestsOf(FileOfSubtitleRequest(ctx, o))
 }
 
 // The naming watches' field indexes. Each is this package's own, under a
@@ -305,106 +301,162 @@ func rootFolderNamingChanged() predicate.Predicate {
 }
 
 // mediaFilesForMovie, mediaFilesForEpisode, mediaFilesForSeries and
-// mediaFilesForRootFolder map a naming input's change to the MediaFiles
-// whose proposal it moves: a Movie's or Episode's own files; a Series'
-// episodes' files; and a RootFolder's every movie's and series' files -- a
-// preset change renames the whole folder by design. Every List is served
-// from the manager's cache through an index, without a deep copy, since
-// only names are read.
+// mediaFilesForRootFolder are the old controller's map functions over
+// FilesForMovie, FilesForEpisode, FilesForSeries and FilesForRootFolder.
 func (r *Reconciler) mediaFilesForMovie(ctx context.Context, o client.Object) []reconcile.Request {
+	return requestsOf(FilesForMovie(ctx, r.Client, o))
+}
+
+func (r *Reconciler) mediaFilesForEpisode(ctx context.Context, o client.Object) []reconcile.Request {
+	return requestsOf(FilesForEpisode(ctx, r.Client, o))
+}
+
+func (r *Reconciler) mediaFilesForSeries(ctx context.Context, o client.Object) []reconcile.Request {
+	return requestsOf(FilesForSeries(ctx, r.Client, o))
+}
+
+func (r *Reconciler) mediaFilesForRootFolder(ctx context.Context, o client.Object) []reconcile.Request {
+	return requestsOf(FilesForRootFolder(ctx, r.Client, o))
+}
+
+// FilesForMovie, FilesForEpisode, FilesForSeries and FilesForRootFolder map
+// a naming input's change to the MediaFiles whose proposal it moves: a
+// Movie's or Episode's own files; a Series' episodes' files; and a
+// RootFolder's every movie's and series' files -- a preset change renames
+// the whole folder by design. Every List is served from c (the manager's
+// cache) through an index, without a deep copy, since only names are read.
+func FilesForMovie(ctx context.Context, c client.Reader, o client.Object) []types.NamespacedName {
 	m, ok := o.(*catalogv1alpha1.Movie)
 	if !ok {
 		return nil
 	}
-	reqs := requestSet{}
-	r.addMediaFilesOf(ctx, reqs, m.Namespace, commonv1.MediaKindMovie, m.Name)
-	return reqs.requests()
+	set := fileSet{}
+	addMediaFilesOf(ctx, c, set, m.Namespace, commonv1.MediaKindMovie, m.Name)
+	return set.names()
 }
 
-func (r *Reconciler) mediaFilesForEpisode(ctx context.Context, o client.Object) []reconcile.Request {
+// FilesForEpisode is an Episode's files.
+func FilesForEpisode(ctx context.Context, c client.Reader, o client.Object) []types.NamespacedName {
 	ep, ok := o.(*catalogv1alpha1.Episode)
 	if !ok {
 		return nil
 	}
-	reqs := requestSet{}
-	r.addMediaFilesOf(ctx, reqs, ep.Namespace, commonv1.MediaKindEpisode, ep.Name)
-	return reqs.requests()
+	set := fileSet{}
+	addMediaFilesOf(ctx, c, set, ep.Namespace, commonv1.MediaKindEpisode, ep.Name)
+	return set.names()
 }
 
-func (r *Reconciler) mediaFilesForSeries(ctx context.Context, o client.Object) []reconcile.Request {
+// FilesForSeries is a Series' episodes' files.
+func FilesForSeries(ctx context.Context, c client.Reader, o client.Object) []types.NamespacedName {
 	s, ok := o.(*catalogv1alpha1.Series)
 	if !ok {
 		return nil
 	}
-	reqs := requestSet{}
-	r.addSeriesMediaFiles(ctx, reqs, s.Namespace, s.Name)
-	return reqs.requests()
+	set := fileSet{}
+	addSeriesMediaFiles(ctx, c, set, s.Namespace, s.Name)
+	return set.names()
 }
 
-func (r *Reconciler) mediaFilesForRootFolder(ctx context.Context, o client.Object) []reconcile.Request {
+// FilesForRootFolder is a RootFolder's every movie's and series' files.
+func FilesForRootFolder(ctx context.Context, c client.Reader, o client.Object) []types.NamespacedName {
 	rf, ok := o.(*catalogv1alpha1.RootFolder)
 	if !ok {
 		return nil
 	}
-	reqs := requestSet{}
+	set := fileSet{}
 	var movies catalogv1alpha1.MovieList
-	if err := r.List(ctx, &movies, client.InNamespace(rf.Namespace),
+	if err := c.List(ctx, &movies, client.InNamespace(rf.Namespace),
 		client.MatchingFields{movieByRootFolderIndex: rf.Name}, client.UnsafeDisableDeepCopy); err != nil {
 		logging.FromContext(ctx).Warn("mediafile: list a RootFolder's movies to re-name their files", "rootFolder", rf.Name, "error", err)
 	}
 	for i := range movies.Items {
-		r.addMediaFilesOf(ctx, reqs, rf.Namespace, commonv1.MediaKindMovie, movies.Items[i].Name)
+		addMediaFilesOf(ctx, c, set, rf.Namespace, commonv1.MediaKindMovie, movies.Items[i].Name)
 	}
 	var series catalogv1alpha1.SeriesList
-	if err := r.List(ctx, &series, client.InNamespace(rf.Namespace),
+	if err := c.List(ctx, &series, client.InNamespace(rf.Namespace),
 		client.MatchingFields{seriesByRootFolderIndex: rf.Name}, client.UnsafeDisableDeepCopy); err != nil {
 		logging.FromContext(ctx).Warn("mediafile: list a RootFolder's series to re-name their files", "rootFolder", rf.Name, "error", err)
 	}
 	for i := range series.Items {
-		r.addSeriesMediaFiles(ctx, reqs, rf.Namespace, series.Items[i].Name)
+		addSeriesMediaFiles(ctx, c, set, rf.Namespace, series.Items[i].Name)
 	}
-	return reqs.requests()
+	return set.names()
 }
 
 // addSeriesMediaFiles adds the MediaFiles of every Episode of series.
-func (r *Reconciler) addSeriesMediaFiles(ctx context.Context, reqs requestSet, ns, series string) {
+func addSeriesMediaFiles(ctx context.Context, c client.Reader, set fileSet, ns, series string) {
 	var eps catalogv1alpha1.EpisodeList
-	if err := r.List(ctx, &eps, client.InNamespace(ns),
+	if err := c.List(ctx, &eps, client.InNamespace(ns),
 		client.MatchingFields{episodeBySeriesIndex: series}, client.UnsafeDisableDeepCopy); err != nil {
 		logging.FromContext(ctx).Warn("mediafile: list a series' episodes to re-name their files", "series", series, "error", err)
 		return
 	}
 	for i := range eps.Items {
-		r.addMediaFilesOf(ctx, reqs, ns, commonv1.MediaKindEpisode, eps.Items[i].Name)
+		addMediaFilesOf(ctx, c, set, ns, commonv1.MediaKindEpisode, eps.Items[i].Name)
 	}
 }
 
 // addMediaFilesOf adds the MediaFiles backing the named movie or episode.
 // A failed List is logged and skipped: a map function cannot return an
-// error, and the MediaFile is re-rendered on its next reconcile anyway.
-func (r *Reconciler) addMediaFilesOf(ctx context.Context, reqs requestSet, ns string, kind commonv1.MediaKind, name string) {
+// error, and the MediaFile is re-rendered on its next pass anyway.
+func addMediaFilesOf(ctx context.Context, c client.Reader, set fileSet, ns string, kind commonv1.MediaKind, name string) {
 	var files catalogv1alpha1.MediaFileList
-	if err := r.List(ctx, &files, client.InNamespace(ns),
+	if err := c.List(ctx, &files, client.InNamespace(ns),
 		client.MatchingFields{mediaFileByOwnerIndex: ownerKey(kind, name)}, client.UnsafeDisableDeepCopy); err != nil {
 		logging.FromContext(ctx).Warn("mediafile: list an item's files to re-name them", "kind", kind, "name", name, "error", err)
 		return
 	}
 	for i := range files.Items {
-		reqs[types.NamespacedName{Namespace: files.Items[i].Namespace, Name: files.Items[i].Name}] = struct{}{}
+		set[types.NamespacedName{Namespace: files.Items[i].Namespace, Name: files.Items[i].Name}] = struct{}{}
 	}
 }
 
-// requestSet deduplicates the requests a fan-out collects: a multi-episode
-// file is reached once through each episode it covers.
-type requestSet map[types.NamespacedName]struct{}
+// fileSet deduplicates the files a fan-out collects: a multi-episode file is
+// reached once through each episode it covers.
+type fileSet map[types.NamespacedName]struct{}
 
-func (s requestSet) requests() []reconcile.Request {
+func (s fileSet) names() []types.NamespacedName {
 	if len(s) == 0 {
 		return nil
 	}
-	out := make([]reconcile.Request, 0, len(s))
+	out := make([]types.NamespacedName, 0, len(s))
 	for k := range s {
-		out = append(out, reconcile.Request{NamespacedName: k})
+		out = append(out, k)
 	}
 	return out
+}
+
+// MovieNamingChanged, EpisodeNamingChanged, SeriesNamingChanged and
+// RootFolderNamingChanged are the naming watches' predicates: a spec change,
+// or the status fields a render reads.
+func MovieNamingChanged() predicate.Predicate {
+	return k8s.Or(k8s.GenerationChanged(), k8s.StatusFieldChanged(movieNamingInputs))
+}
+
+// EpisodeNamingChanged is an Episode's naming predicate.
+func EpisodeNamingChanged() predicate.Predicate {
+	return k8s.Or(k8s.GenerationChanged(), k8s.StatusFieldChanged(episodeNamingInputs))
+}
+
+// SeriesNamingChanged is a Series' naming predicate.
+func SeriesNamingChanged() predicate.Predicate {
+	return k8s.Or(k8s.GenerationChanged(), k8s.StatusFieldChanged(seriesNamingInputs))
+}
+
+// RootFolderNamingChanged is a RootFolder's naming predicate.
+func RootFolderNamingChanged() predicate.Predicate { return rootFolderNamingChanged() }
+
+// SubtitleRequestItemsChanged passes a SubtitleRequest whose items' langKey,
+// state or path moved.
+func SubtitleRequestItemsChanged() predicate.Predicate {
+	return k8s.StatusFieldChanged(extractSubtitleItemsSignature)
+}
+
+// FileOfSubtitleRequest is the file a SubtitleRequest names.
+func FileOfSubtitleRequest(_ context.Context, o client.Object) []types.NamespacedName {
+	sr, ok := o.(*subtitlev1alpha1.SubtitleRequest)
+	if !ok || sr.Spec.MediaFileRef == "" {
+		return nil
+	}
+	return []types.NamespacedName{{Namespace: sr.Namespace, Name: sr.Spec.MediaFileRef}}
 }

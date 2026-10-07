@@ -30,7 +30,9 @@ import (
 
 	"github.com/mediactl/clustarr/app/catalog/controller/mediafile"
 	"github.com/mediactl/clustarr/app/remediation"
+	"github.com/mediactl/clustarr/app/remediation/naming"
 	"github.com/mediactl/clustarr/app/remediation/probe"
+	"github.com/mediactl/clustarr/app/remediation/rename"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/metrics"
@@ -77,15 +79,19 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 }
 
 // Planners is every planner the loop binds; the loop sorts them by Order.
-// F3.3 and F3.4 add the naming and markers planners.
+// F3.4 adds the markers planner.
 func Planners(d Deps) []remediation.Bound {
 	probes := probestore.New(d.Env.Bus, probestore.WithErrors(func(op string) {
 		metrics.RecordErrorsTotal.WithLabelValues("probe", op).Inc()
 	}))
 	return []remediation.Bound{
 		remediation.Bind[mediafile.ProbeInput](probe.New(probe.Options{Bus: d.Env.Bus, Probes: probes})),
+		remediation.Bind[naming.Input](naming.New(naming.Options{})),
 	}
 }
 
-// Actuators is every actuator; F3.3 adds rename, F3.5 replay.
-func Actuators(_ ctrl.Manager, _ Deps) []remediation.Actuator { return nil }
+// Actuators is every actuator, the loop orders them (replay, then rename);
+// F3.5 adds replay.
+func Actuators(mgr ctrl.Manager, _ Deps) []remediation.Actuator {
+	return []remediation.Actuator{rename.New(rename.Options{Recorder: mgr.GetEventRecorder("rename")})}
+}

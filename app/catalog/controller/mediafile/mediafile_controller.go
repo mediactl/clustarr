@@ -621,7 +621,7 @@ func (k *knownStatus) statusAC(mf *catalogv1alpha1.MediaFile, conditions []metav
 // returns included -- sends a condition that agrees with the status.naming
 // beside it, set in exactly one place.
 func (r *Reconciler) applyStatus(ctx context.Context, mf *catalogv1alpha1.MediaFile, conditions []metav1.Condition, known *knownStatus) error {
-	markNamingCurrent(mf, &conditions, known.Naming)
+	MarkNamingCurrent(mf, &conditions, known.Naming)
 	_, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr,
 		catalogac.MediaFile(mf.Name, mf.Namespace).WithStatus(known.statusAC(mf, conditions)))
 	return err
