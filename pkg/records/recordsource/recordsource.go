@@ -76,11 +76,34 @@ func HeaderDecoder(value []byte) (schema.Ref, string, bool) {
 	return h.MediaFile, h.State, true
 }
 
+// ItemDecoder reads which item an item-keyed record names (ADR-0019 §4.3:
+// RecordHeader.item), and its state.
+type ItemDecoder func(value []byte) (item schema.ItemRef, state string, ok bool)
+
+// ItemHeaderDecoder reads schema.RecordHeader's item and state, and nothing
+// else: every ADR-0019 agent-written bucket. A record with no item is not
+// ok.
+var ItemHeaderDecoder ItemDecoder = func(value []byte) (schema.ItemRef, string, bool) {
+	var h struct {
+		Item  *schema.ItemRef `json:"item"`
+		State string          `json:"state"`
+	}
+	if err := json.Unmarshal(value, &h); err != nil || h.Item == nil || h.Item.Name == "" {
+		return schema.ItemRef{}, "", false
+	}
+	return *h.Item, h.State, true
+}
+
 // Option configures a Source.
 type Option[K comparable] func(*Source[K])
 
 // WithDecoder replaces HeaderDecoder.
 func WithDecoder[K comparable](d Decoder) Option[K] { return func(s *Source[K]) { s.decode = d } }
+
+// WithItemDecoder replaces ItemHeaderDecoder on a NewItems source.
+func WithItemDecoder[K comparable](d ItemDecoder) Option[K] {
+	return func(s *Source[K]) { s.decodeItem = d }
+}
 
 // OnRecreated is called when the bucket was deleted and created again under
 // the source; enqueue adds at low priority. The loop enqueues, from its cache,
@@ -96,6 +119,9 @@ type Source[K comparable] struct {
 	toKey     func(schema.Ref) (K, bool)
 	decode    Decoder
 	recreated func(ctx context.Context, enqueue func(K))
+	// toKeys and decodeItem replace toKey and decode on a NewItems source.
+	toKeys     func(item schema.ItemRef, value []byte) []K
+	decodeItem ItemDecoder
 
 	// lastRev and created belong to the run goroutine once Start returns.
 	lastRev uint64
@@ -106,6 +132,20 @@ type Source[K comparable] struct {
 // to skip it.
 func New[K comparable](bus Bus, bucket string, toKey func(schema.Ref) (K, bool), opts ...Option[K]) *Source[K] {
 	s := &Source[K]{bus: bus, bucket: bucket, toKey: toKey, decode: HeaderDecoder}
+	for _, o := range opts {
+		o(s)
+	}
+	return s
+}
+
+// NewItems is the waker of an item-keyed bucket (ADR-0019 §8.1, S25 and
+// S27-S29): the same watch, reopen and recreate handling as New, but each
+// worker write is decoded with ItemHeaderDecoder (or WithItemDecoder) and
+// enqueues every key toKeys returns for its item: a search record of an
+// Episode wakes the Episode and its Series. A record with no item enqueues
+// nothing.
+func NewItems[K comparable](bus Bus, bucket string, toKeys func(item schema.ItemRef, value []byte) []K, opts ...Option[K]) *Source[K] {
+	s := &Source[K]{bus: bus, bucket: bucket, toKeys: toKeys, decodeItem: ItemHeaderDecoder}
 	for _, o := range opts {
 		o(s)
 	}
@@ -254,6 +294,16 @@ func (s *Source[K]) handle(e events.Entry, replayThrough uint64, q workqueue.Typ
 	if e.Operation != events.KVPut {
 		return
 	}
+	if s.toKeys != nil {
+		item, state, ok := s.decodeItem(e.Value)
+		if !ok || state == records.StateRequested || state == records.StateWithdrawn {
+			return
+		}
+		for _, k := range s.toKeys(item, e.Value) {
+			s.enqueue(q, k, e.Revision <= replayThrough)
+		}
+		return
+	}
 	ref, state, ok := s.decode(e.Value)
 	if !ok || state == records.StateRequested || state == records.StateWithdrawn {
 		return
@@ -262,7 +312,12 @@ func (s *Source[K]) handle(e events.Entry, replayThrough uint64, q workqueue.Typ
 	if !ok {
 		return
 	}
-	if e.Revision <= replayThrough {
+	s.enqueue(q, k, e.Revision <= replayThrough)
+}
+
+// enqueue adds k, at low priority while a recreated bucket replays.
+func (s *Source[K]) enqueue(q workqueue.TypedRateLimitingInterface[K], k K, replay bool) {
+	if replay {
 		addLow(q, k)
 		return
 	}

@@ -24,6 +24,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // half, Answerer the workers'. It imports pkg/events, its schema and the
 // standard library only (TestRecordsLinksNoKubernetes), so the
 // credential-less transcode and markers binaries link it.
+//
+// ADR-0019's agent-written buckets (clustarr-transfers, -engines, -imports,
+// -searches, -item-metadata, -indexer-health) have one writer per key, the
+// agent, and no request: the manager never writes there. They use Reader
+// (the manager's half) and Writer (the agent's), keyed through Spec.KeyOf;
+// the fold's buckets keep Requester and Answerer.
 package records
 
 import (
@@ -126,6 +132,11 @@ type Spec[R Record] struct {
 	Errors func(op string)
 	// Now is the clock; nil is time.Now.
 	Now func() time.Time
+	// KeyOf names the key tokens a record must carry, for buckets keyed by
+	// something other than the MediaFile UID (ADR-0019's agent-written
+	// buckets: entry, task, item, indexer and client UIDs); nil is
+	// (Header().MediaFile.UID, Header().Sub).
+	KeyOf func(R) (uid, sub string)
 }
 
 // TerminalAnswered is the Answered of every bucket the fold adds.
@@ -162,6 +173,15 @@ func newStore[R Record](kv events.KV, spec Spec[R]) store[R] {
 
 func (s store[R]) now() time.Time { return s.spec.Now().UTC() }
 
+// keyOf is the UID and sub-key rec must be stored under.
+func (s store[R]) keyOf(rec R) (uid, sub string) {
+	if s.spec.KeyOf != nil {
+		return s.spec.KeyOf(rec)
+	}
+	h := rec.Header()
+	return h.MediaFile.UID, h.Sub
+}
+
 func (s store[R]) count(op string) {
 	if s.spec.Errors != nil {
 		s.spec.Errors(op)
@@ -191,7 +211,8 @@ func (s store[R]) get(ctx context.Context, key string) (R, uint64, bool, error) 
 	}
 	h := rec.Header()
 	uid, sub, err := keyParts(key)
-	if err != nil || h.Schema != s.spec.Schema || h.MediaFile.UID != uid || h.Sub != sub {
+	ruid, rsub := s.keyOf(rec)
+	if err != nil || h.Schema != s.spec.Schema || ruid != uid || rsub != sub {
 		s.count("decode")
 		return zero, e.Revision, false, nil
 	}
@@ -215,8 +236,9 @@ func (s store[R]) at(ctx context.Context, key string, rev uint64) (R, bool, erro
 func (s store[R]) write(ctx context.Context, key string, rev uint64, rec R, op string) (uint64, error) {
 	h := rec.Header()
 	uid, sub, err := keyParts(key)
-	if err != nil || h.MediaFile.UID != uid || h.Sub != sub {
-		return 0, fmt.Errorf("records: a %s record for %q/%q cannot be written under key %q", s.spec.Remediation, h.MediaFile.UID, h.Sub, key)
+	ruid, rsub := s.keyOf(rec)
+	if err != nil || ruid != uid || rsub != sub {
+		return 0, fmt.Errorf("records: a %s record for %q/%q cannot be written under key %q", s.spec.Remediation, ruid, rsub, key)
 	}
 	h.Schema = s.spec.Schema
 	b, err := json.Marshal(rec)
@@ -274,7 +296,8 @@ func (s store[R]) refuseFact(cur R, ok bool, opts []Option) error {
 	if h.Seq <= o.incorporated {
 		return nil
 	}
-	return fmt.Errorf("records: %s %s seq %d: %w", s.spec.Bucket, h.MediaFile.UID, h.Seq, ErrUnincorporatedFact)
+	uid, _ := s.keyOf(cur)
+	return fmt.Errorf("records: %s %s seq %d: %w", s.spec.Bucket, uid, h.Seq, ErrUnincorporatedFact)
 }
 
 // keyParts reads the UID and sub-key back out of a records key.

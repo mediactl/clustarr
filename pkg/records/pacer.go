@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package records
 
 import (
+	"strings"
 	"sync"
 	"time"
 )
@@ -28,14 +29,22 @@ const (
 	PaceProbeLow = "probe/low"
 	PaceSubtitle = "subtitle"
 	PaceMarkers  = "markers"
+	// PaceSearch paces live automatic searches per namespace (ADR-0019
+	// §5.4): a planner reserves in class "search/<namespace>", which paces
+	// at PaceSearch's rate. Index-only searches are not paced.
+	PaceSearch = "search"
 	// ReservationLapse frees a reservation not consumed this long after its slot.
 	ReservationLapse = 10 * time.Minute
 )
 
-// DefaultRates are §4.7's admission rates, per minute.
+// DefaultRates are §4.7's admission rates, per minute, and ADR-0019 §5.4's
+// live-search rate (--search-live-per-minute).
 func DefaultRates() map[string]int {
-	return map[string]int{PaceProbeLow: 600, PaceSubtitle: 120, PaceMarkers: 120}
+	return map[string]int{PaceProbeLow: 600, PaceSubtitle: 120, PaceMarkers: 120, PaceSearch: 20}
 }
+
+// SearchClass is the pacing class of a live automatic search in namespace.
+func SearchClass(namespace string) string { return PaceSearch + "/" + namespace }
 
 // Pacer is the leader-local admission queue over new requests (not
 // republishes), one per class: a key reserves one slot and keeps it until
@@ -51,7 +60,9 @@ type Pacer struct {
 }
 
 // NewPacer paces each class at perMinute; a class absent or at zero is
-// unpaced. A nil now is time.Now.
+// unpaced. A class's rate is looked up by its exact name first, then by the
+// part before its first '/', so "search/media" paces at the "search" rate;
+// reservations stay per full class name and key. A nil now is time.Now.
 func NewPacer(perMinute map[string]int, now func() time.Time) *Pacer {
 	if now == nil {
 		now = time.Now
@@ -69,6 +80,18 @@ func NewPacer(perMinute map[string]int, now func() time.Time) *Pacer {
 	return p
 }
 
+// rate is class's slot interval: its own, else its prefix's.
+func (p *Pacer) rate(class string) (time.Duration, bool) {
+	if every, ok := p.every[class]; ok {
+		return every, true
+	}
+	if prefix, _, ok := strings.Cut(class, "/"); ok {
+		every, ok := p.every[prefix]
+		return every, ok
+	}
+	return 0, false
+}
+
 // Reserve returns key's slot in class: the slot it holds, or else the next
 // free one, which it then holds. A planner whose slot is in the future returns
 // Due = the slot plus up to 5 s of jitter, and checks its reservation before
@@ -77,12 +100,16 @@ func (p *Pacer) Reserve(class, key string) time.Time {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	now := p.now()
-	every, paced := p.every[class]
+	every, paced := p.rate(class)
 	if !paced {
 		return now
 	}
 	p.sweepLocked(class, now)
 	held := p.held[class]
+	if held == nil {
+		held = map[string]time.Time{}
+		p.held[class] = held
+	}
 	if slot, ok := held[key]; ok {
 		if now.Before(slot.Add(ReservationLapse)) {
 			return slot
