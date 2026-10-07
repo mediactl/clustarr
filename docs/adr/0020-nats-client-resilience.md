@@ -141,6 +141,7 @@ Wave N, after the current plan's implementation waves and before the test batch:
 | N4 | `ClassifyRequestError` and the callers' retry rules |
 | N5 | `ObjectStoreSpec.ChunkSize`, `ObjectMeta` override, Validate's 1 MiB cap; the manager's orphan purge over every object store |
 | N6 | Reconnect backoff with jitter, `NATS_URL` pool validation, the named reconnect buffer, `ErrReconnectBufExceeded` as transient; the comment corrections |
+| N7, N8 | ADR-0021: fingerprint metadata through `pkg/segments.FingerprintMeta`, and the guards `TestNoObjectLinks` and `TestObjectMetadataComesFromItsStoresBuilder` |
 
 ## Revisit triggers
 
