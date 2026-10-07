@@ -17,10 +17,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 package naming
 
-// The naming planner reads the file's item, its RootFolder and its
-// TranscodeJobs through the manager's cache (moved
-// from the mediafile controller, F3.4). The blank line keeps the markers
-// package-level.
+// The naming planner reads the file's item and its RootFolder through the
+// manager's cache (moved from the mediafile controller, F3.4). The blank
+// line keeps the markers package-level.
 //
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series;episodes;rootfolders,verbs=get;list;watch
-// +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodejobs,verbs=get;list;watch

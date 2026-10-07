@@ -56,7 +56,7 @@ func BuildTask(tj *transcodev1alpha1.TranscodeJob, tp *transcodev1alpha1.Transco
 	// OutputPath needs the SourcePath to be set, so make a copy with it populated
 	spec := tj.Spec
 	spec.SourcePath = source
-	out, err := OutputPath(spec, tp.Name, OutputContainer, ReplaceSource(tp.Spec.Policy))
+	out, err := JobOutputPath(spec, tp.Name, OutputContainer, ReplaceSource(tp.Spec.Policy))
 	if err != nil {
 		return task.Task{}, fmt.Errorf("%w: %w", ErrInvalidOutput, err)
 	}

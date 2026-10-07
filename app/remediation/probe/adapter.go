@@ -21,18 +21,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io/fs"
 	"time"
 
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
-	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/mediafile"
 	"github.com/mediactl/clustarr/app/remediation"
+	"github.com/mediactl/clustarr/app/transcode/transcodeplan"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/probestore"
@@ -58,43 +55,23 @@ func (*Adapter) Name() remediation.PlannerName { return remediation.PlannerProbe
 // Applies implements remediation.Planner: every file is probed.
 func (*Adapter) Applies(*catalogv1alpha1.MediaFile) bool { return true }
 
-// Gather reads the file's TranscodeJobs and AudioGrafts from the cache, stats
-// the file (or a swap's target) through the I/O executor, and reads its probe
-// record when the probe is due or a swap waits.
+// Gather reads the file's AudioGrafts from the cache, takes a Swapping
+// transcode block's output as the file to probe (loop spec §5.9 "The
+// swap"), stats it through the I/O executor, and reads its probe record
+// when the probe is due or a swap waits.
 func (a *Adapter) Gather(ctx context.Context, env *remediation.Env, v *remediation.View) (mediafile.ProbeInput, error) {
 	mf := v.File
 	in := mediafile.ProbeInput{File: mf, Prev: v.Prev, Version: a.o.Version, Now: v.Now}
-	jobs, err := mediafile.TranscodeJobsOf(ctx, env.Reader, mf)
-	if err != nil {
-		return in, remediation.Transient(err)
+	if swap := v.Prev.Transcode; swap != nil && swap.Phase == catalogv1alpha1.TranscodePhaseSwapping && swap.Result != nil {
+		if done, _ := transcodeplan.SwapIncorporated(swap, v.Prev); !done {
+			in.Swap, in.SwapTag = swap, transcodeplan.Tag(swap.Profile, swap.ProfileHash)
+		}
 	}
-	in.Swap = mediafile.LatestUnincorporatedTranscode(jobs, v.Prev.ProbedAt)
+	var err error
 	if in.Graft, err = mediafile.UnincorporatedGraft(ctx, env.Reader, mf); err != nil {
 		return in, remediation.Transient(err)
 	}
-	stat := func(path string) (fs.FileInfo, error) { return env.IO.Stat(ctx, path) }
-	if in.Path, in.Kept, err = mediafile.SwapTarget(mf, in.Swap, stat); err != nil {
-		return in, err // the executor marks a timeout, a busy pool and EIO Transient
-	}
-	if in.Kept != nil {
-		in.Swap = nil
-	}
-	for _, j := range []struct {
-		job *transcodev1alpha1.TranscodeJob
-		tag *string
-	}{{in.Swap, &in.SwapTag}, {in.Kept, &in.KeptTag}} {
-		if j.job == nil {
-			continue
-		}
-		var tp transcodev1alpha1.TranscodeProfile
-		if err := env.Reader.Get(ctx, types.NamespacedName{Name: j.job.Spec.ProfileRef}, &tp); err != nil {
-			if apierrors.IsNotFound(err) {
-				return in, fmt.Errorf("probe: TranscodeProfile %s of TranscodeJob %s: %w", j.job.Spec.ProfileRef, j.job.Name, err)
-			}
-			return in, remediation.Transient(err)
-		}
-		*j.tag = mediafile.ProfileTag(j.job.Spec.ProfileRef, tp.Status.Hash)
-	}
+	in.Path = mediafile.SwapTarget(mf, in.Swap)
 	info, err := env.IO.Stat(ctx, in.Path)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
@@ -183,12 +160,11 @@ func publish(rec schema.ProbeRecord, now metav1.Time) (remediation.Publish, erro
 
 // Copy is the probe's row of §3.5's table: probeHash, probedAt,
 // probeVersion, mediaInfo, graftTag and graftedAt (F7.2 moves these two to
-// the graft planner), transcode (F6.2 moves it to the transcode planner),
-// and the Probed and Ready conditions.
+// the graft planner), and the Probed and Ready conditions. status.transcode
+// is the transcode planner's (F6.2).
 func (*Adapter) Copy(from, into *catalogv1alpha1.MediaFileStatus) {
 	into.ProbeHash, into.ProbedAt, into.ProbeVersion = from.ProbeHash, from.ProbedAt.DeepCopy(), from.ProbeVersion
 	into.MediaInfo = from.MediaInfo.DeepCopy()
 	into.GraftTag, into.GraftedAt = from.GraftTag, from.GraftedAt.DeepCopy()
-	into.Transcode = from.Transcode.DeepCopy()
 	remediation.CopyConditions(from, into, catalogv1alpha1.MediaFileConditionProbed, catalogv1alpha1.MediaFileConditionReady)
 }

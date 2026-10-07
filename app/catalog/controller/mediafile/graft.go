@@ -31,9 +31,9 @@ import (
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
-// audioGraftMediaFileRefIndex indexes AudioGrafts by status.mediaFileRef,
+// AudioGraftMediaFileRefIndex indexes AudioGrafts by status.mediaFileRef,
 // the file transcode judged (and grafted) them against.
-const audioGraftMediaFileRefIndex = "status.mediaFileRef"
+const AudioGraftMediaFileRefIndex = "status.mediaFileRef"
 
 func indexAudioGraftByMediaFileRef(o client.Object) []string {
 	g, ok := o.(*transcodev1alpha1.AudioGraft)
@@ -77,7 +77,7 @@ func extractAudioGraftDone(o client.Object) string {
 // finished after probedAt. nil when none.
 func UnincorporatedGraft(ctx context.Context, c client.Reader, mf *catalogv1alpha1.MediaFile) (*transcodev1alpha1.AudioGraft, error) {
 	var l transcodev1alpha1.AudioGraftList
-	if err := c.List(ctx, &l, client.InNamespace(mf.Namespace), client.MatchingFields{audioGraftMediaFileRefIndex: mf.Name}); err != nil {
+	if err := c.List(ctx, &l, client.InNamespace(mf.Namespace), client.MatchingFields{AudioGraftMediaFileRefIndex: mf.Name}); err != nil {
 		return nil, fmt.Errorf("mediafile: list AudioGrafts: %w", err)
 	}
 	var best *transcodev1alpha1.AudioGraft

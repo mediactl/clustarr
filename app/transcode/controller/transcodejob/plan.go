@@ -18,94 +18,23 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package transcodejob
 
 import (
-	"path/filepath"
-	"strings"
-
-	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/transcode/task"
-	"github.com/mediactl/clustarr/pkg/transcode"
+	"github.com/mediactl/clustarr/app/transcode/transcodeplan"
 	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
-
-// profileTagKey is the container tag transcode writes into every output,
-// "<name>@<hash>" (§4.5). catalog records it two ways: the probe reads it
-// into MediaFile.status.mediaInfo.transcodeProfile, and a transcode it
-// incorporates sets status.transcode.profileTag.
-const profileTagKey = "CLUSTARR_PROFILE"
 
 // maxPlanList is the CRD's MaxItems on every list inside status.plan.
 const maxPlanList = 200
 
-// mediaInfoFromFile builds pkg/transcode's MediaInfo from the probe
-// catalog already stored on the MediaFile (ruling R3: the controller role
-// does not mount /data, so it cannot probe; the worker re-probes the live
-// file and refuses on a ProbeHash mismatch), through transcode.FromSummary,
-// which takes nothing from a probe the summary lacks -- so the plan recorded
-// here hashes as the worker's.
-//
-// The summary carries no format tags. The one the standard reads, the
-// CLUSTARR_PROFILE that makes a file "already transcoded", is set from
-// catalog's records (recordedTag), so a transcoded file is skipped here
-// as the worker's probe of it would be.
-func mediaInfoFromFile(path string, mf *catalogv1alpha1.MediaFile, tag string) (transcode.MediaInfo, error) {
-	info, err := transcode.FromSummary(path, mf.Status.MediaInfo)
-	if err != nil {
-		return transcode.MediaInfo{}, err
-	}
-	info.Format.SizeBytes = mf.Spec.SizeBytes
-	info.Modifier = string(mf.Spec.Quality.Modifier)
-	if t := recordedTag(mf, tag); t != "" {
-		info.Tags = map[string]string{profileTagKey: t}
-	}
-	return info, nil
-}
-
-// recordedTag is the CLUSTARR_PROFILE catalog recorded for mf: the
-// probe's read of the file's own tag (any profile, any hash), else a
-// transcode by tag's profile, under any hash, that catalog incorporated
-// (status.transcode.profileTag; a replaceSource=false job records it on the
-// untouched source beside its derived copy). "" when there is neither.
-func recordedTag(mf *catalogv1alpha1.MediaFile, tag string) string {
-	if mi := mf.Status.MediaInfo; mi != nil && mi.TranscodeProfile != "" {
-		return mi.TranscodeProfile
-	}
-	name, _, _ := strings.Cut(tag, "@")
-	if tr := mf.Status.Transcode; tr != nil && strings.HasPrefix(tr.ProfileTag, name+"@") {
-		return tr.ProfileTag
-	}
-	return ""
-}
-
-// containerChange reports whether planning source under a profile that
-// writes container changes the file's container, and returns both sides for
-// the Planned condition's message. The comparison is case-insensitive on the
-// extension; an empty profile container means the CRD default, mkv. Since
-// gap-fix ruling R-11 a container change is transcoded -- to a new name
-// beside the source (jobspec.OutputPath) -- rather than skipped as Phase E's
-// R8 did; this only labels it.
+// containerChange is transcodeplan.ContainerChange.
 func containerChange(source string, container transcodev1alpha1.Container) (src, want string, changed bool) {
-	src = strings.ToLower(strings.TrimPrefix(filepath.Ext(source), "."))
-	want = strings.ToLower(string(container))
-	if want == "" {
-		want = string(transcodev1alpha1.ContainerMKV)
-	}
-	return src, want, src != want
+	return transcodeplan.ContainerChange(source, container)
 }
 
-// hardwareForEncoder maps status.plan.encoder back to the slot class the Job
-// is budgeted against. "copy" (remux-only) needs no GPU, so it takes a CPU
-// slot even under a GPU profile -- holding the one NVIDIA slot to copy a
-// stream would be waste.
+// hardwareForEncoder is transcodeplan.HardwareForEncoder.
 func hardwareForEncoder(encoder string) transcodev1alpha1.Hardware {
-	switch encoder {
-	case "hevc_nvenc":
-		return transcodev1alpha1.HardwareNVIDIA
-	case "hevc_qsv", "hevc_vaapi":
-		return transcodev1alpha1.HardwareIntel
-	default:
-		return transcodev1alpha1.HardwareCPU
-	}
+	return transcodeplan.HardwareForEncoder(encoder)
 }
 
 // statusPlanOf records p's plan as status.plan; a refused job records none.

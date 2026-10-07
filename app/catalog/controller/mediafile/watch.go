@@ -29,61 +29,11 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	seriesctl "github.com/mediactl/clustarr/app/catalog/controller/series"
 	"github.com/mediactl/clustarr/app/remediation/mfindex"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
-
-// Field index key. Registered against TranscodeJob so the loop can List
-// "every TranscodeJob for this MediaFile" -- the direction the mapping
-// functions below don't need, because the spec names its MediaFile
-// directly.
-//
-// It is spelled as the apiserver spells the field label of a CRD
-// selectable field -- no leading dot -- so one client.MatchingFields reads
-// the cache's index on the manager's client and the apiserver's
-// fieldSelector on a raw one.
-const transcodeJobMediaFileRefIndex = "spec.mediaFileRef"
-
-func indexTranscodeJobByMediaFileRef(o client.Object) []string {
-	tj, ok := o.(*transcodev1alpha1.TranscodeJob)
-	if !ok || tj.Spec.MediaFileRef == "" {
-		return nil
-	}
-	return []string{tj.Spec.MediaFileRef}
-}
-
-// extractTranscodeJobPhase is §10's predicate: catalog's mediafile
-// controller only reacts to a TranscodeJob reaching Succeeded, via
-// k8s.StatusFieldIn. A wrong-typed object (never happens in practice --
-// Watches only calls this for TranscodeJobs -- but StatusFieldChanged's own
-// doc comment models exactly this defensive shape) returns "".
-func extractTranscodeJobPhase(o client.Object) string {
-	tj, ok := o.(*transcodev1alpha1.TranscodeJob)
-	if !ok {
-		return ""
-	}
-	return string(tj.Status.Phase)
-}
-
-// FileOfTranscodeJob is the file a TranscodeJob names (spec.mediaFileRef).
-func FileOfTranscodeJob(_ context.Context, o client.Object) []types.NamespacedName {
-	tj, ok := o.(*transcodev1alpha1.TranscodeJob)
-	if !ok || tj.Spec.MediaFileRef == "" {
-		return nil
-	}
-	return []types.NamespacedName{{Namespace: tj.Namespace, Name: tj.Spec.MediaFileRef}}
-}
-
-// TranscodeJobPhaseChanged is the predicate a TranscodeJob's file is woken
-// through: every phase transition, since a transcode that starts or stops
-// running holds or releases the rename (TranscodePending, ruling R18), and a
-// Succeeded one is a swap to incorporate.
-func TranscodeJobPhaseChanged() predicate.Predicate {
-	return k8s.StatusFieldChanged(extractTranscodeJobPhase)
-}
 
 // The naming watches' field indexes. Each is this package's own, under a
 // name no other controller registers: an informer refuses a second indexer

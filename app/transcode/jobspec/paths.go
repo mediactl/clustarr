@@ -74,35 +74,53 @@ func RootFolderFor(folders []catalogv1alpha1.RootFolder, source string) *catalog
 	return best
 }
 
-// OutputPath is where a TranscodeJob's verified output finally lives: the
-// output location gap-fix ruling R-11 asks for, from design spec §4.5
-// (TranscodeJobSpec.OutputPath, "default <stem>.mkv beside source";
-// PolicySpec.ReplaceSource) and §6.4 ("atomic rename over the source path
-// (source -> recycle bin)"; "replaces the library hardlink only").
+// OutputPath is where a transcode of source under profileName finally
+// lives: the output location gap-fix ruling R-11 asks for, from design spec
+// §4.5 and §6.4 ("atomic rename over the source path (source -> recycle
+// bin)"; "replaces the library hardlink only").
 //
-//   - spec.outputPath, when set, wins. It must be absolute, carry the
-//     profile's container extension (a .mp4 name over mkv data is exactly
-//     what ruling R8 refused), and -- with replaceSource=false -- must not
-//     be the source itself, which would contradict keeping it.
-//   - Otherwise, replaceSource=true: <stem>.<container> beside the source,
-//     §4.5's default with the profile's container in place of the mkv
-//     default. For a same-container profile that IS the source path and the
-//     output replaces it in place; for a container change it is the new
-//     name, and the source is retired to the recycle bin once the output is
-//     in place.
-//   - Otherwise, replaceSource=false: "<stem> - <profile>.<container>" beside
-//     the source. §4.5's default would be the source itself for a
-//     same-container profile, so a kept source needs another name; the
-//     " - <label>" suffix is the multiple-version convention Jellyfin and
-//     Plex both read (docs/research/naming.md §A3), so a media server shows
-//     the transcode as a version of the same title rather than as a second
-//     one.
+//   - replaceSource=true: <stem>.<container> beside the source. For a
+//     same-container profile that IS the source path and the output replaces
+//     it in place; for a container change (every MP4 output of an .mkv) it is
+//     the new name, and the source is retired to the recycle bin once the
+//     output is in place.
+//   - replaceSource=false: "<stem> - <profile>.<container>" beside the
+//     source. The source itself would be the same-container name, so a kept
+//     source needs another; the " - <label>" suffix is the multiple-version
+//     convention Jellyfin and Plex both read (docs/research/naming.md §A3),
+//     so a media server shows the transcode as a version of the same title
+//     rather than as a second one.
 //
 // The extension comparison ignores case: Film.MKV under an mkv profile is
-// replaced in place, not renamed. Both the TranscodeJob controller (which
-// records the plan) and the worker (which writes the file) call this, so
-// they agree on the path by construction.
-func OutputPath(spec transcodev1alpha1.TranscodeJobSpec, profileName string,
+// replaced in place, not renamed. The transcode planner (which records the
+// plan and builds the task) and the worker's tests call this, so they agree
+// on the path by construction.
+func OutputPath(source, profileName string, container transcodev1alpha1.Container, replaceSource bool) (string, error) {
+	ext := strings.ToLower(string(container))
+	if ext == "" {
+		ext = string(transcodev1alpha1.ContainerMKV)
+	}
+	source = filepath.Clean(source)
+	if !filepath.IsAbs(source) {
+		return "", fmt.Errorf("source %q is not absolute", source)
+	}
+	srcExt := filepath.Ext(source)
+	stem := strings.TrimSuffix(source, srcExt)
+	if replaceSource {
+		if strings.EqualFold(strings.TrimPrefix(srcExt, "."), ext) {
+			return source, nil
+		}
+		return stem + "." + ext, nil
+	}
+	return stem + " - " + profileName + "." + ext, nil
+}
+
+// JobOutputPath is OutputPath for a TranscodeJob, honouring its explicit
+// spec.outputPath: when set it wins, must be absolute, carry the profile's
+// container extension (a .mp4 name over mkv data is exactly what ruling R8
+// refused), and -- with replaceSource=false -- must not be the source
+// itself. The TranscodeJob controller is its only caller; F6.6 deletes both.
+func JobOutputPath(spec transcodev1alpha1.TranscodeJobSpec, profileName string,
 	container transcodev1alpha1.Container, replaceSource bool,
 ) (string, error) {
 	ext := strings.ToLower(string(container))
@@ -110,7 +128,6 @@ func OutputPath(spec transcodev1alpha1.TranscodeJobSpec, profileName string,
 		ext = string(transcodev1alpha1.ContainerMKV)
 	}
 	source := filepath.Clean(spec.SourcePath)
-
 	if spec.OutputPath != nil && *spec.OutputPath != "" {
 		out := filepath.Clean(*spec.OutputPath)
 		if !filepath.IsAbs(out) {
@@ -124,16 +141,7 @@ func OutputPath(spec transcodev1alpha1.TranscodeJobSpec, profileName string,
 		}
 		return out, nil
 	}
-
-	srcExt := filepath.Ext(source)
-	stem := strings.TrimSuffix(source, srcExt)
-	if replaceSource {
-		if strings.EqualFold(strings.TrimPrefix(srcExt, "."), ext) {
-			return source, nil
-		}
-		return stem + "." + ext, nil
-	}
-	return stem + " - " + profileName + "." + ext, nil
+	return OutputPath(spec.SourcePath, profileName, container, replaceSource)
 }
 
 // RecycleBinOf is the recycle bin a RootFolder's swaps link into.

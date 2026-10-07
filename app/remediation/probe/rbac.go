@@ -17,10 +17,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 package probe
 
-// The probe planner reads a file's TranscodeJobs, AudioGrafts and the
-// TranscodeProfile a swap ran under through the manager's cache (moved from
-// the mediafile controller, F3.4). The blank line keeps the markers
-// package-level.
+// The probe planner reads a file's AudioGrafts through the manager's cache
+// (moved from the mediafile controller, F3.4; F7 folds them). The blank line
+// keeps the markers package-level.
 //
-// +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodejobs;audiografts,verbs=get;list;watch
-// +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodeprofiles,verbs=get;list;watch
+// +kubebuilder:rbac:groups=transcode.clustarr.io,resources=audiografts,verbs=get;list;watch

@@ -37,17 +37,14 @@ import (
 
 // Sources: S16 (answered probe records, and every file whose status says a
 // probe is pending when the bucket was recreated, §4.9) and S23's
-// TranscodeJob and AudioGraft rows, as the old controller watched them,
-// until F6 and F7 fold the kinds.
+// AudioGraft row, as the old controller watched it, until F7 folds the
+// kind. A swap's probe is asked by the transcode block's Swapping phase,
+// which the transcode record's waker (S17) wakes.
 func (a *Adapter) Sources(mgr ctrl.Manager) ([]remediation.Source, error) {
 	c := mgr.GetClient()
 	return []remediation.Source{
 		{Name: "S16/clustarr-probes", Raw: recordsource.New(a.o.Bus, events.BucketProbes, remediation.FileKey,
 			recordsource.OnRecreated(func(ctx context.Context, enqueue func(remediation.Key)) { wakePendingProbes(ctx, c, enqueue) }))},
-		{
-			Name: "S23/TranscodeJob", Object: &transcodev1alpha1.TranscodeJob{}, Handler: remediation.MapFiles(mediafile.FileOfTranscodeJob),
-			Predicates: []predicate.Predicate{mediafile.TranscodeJobPhaseChanged()},
-		},
 		{
 			Name: "S23/AudioGraft", Object: &transcodev1alpha1.AudioGraft{}, Handler: remediation.MapFiles(mediafile.FileOfAudioGraft),
 			Predicates: []predicate.Predicate{mediafile.AudioGraftDoneChanged()},

@@ -123,11 +123,17 @@ func (a *Actuator) Act(ctx context.Context, env *remediation.Env, c client.Clien
 }
 
 // inFlight holds a rename while a remediation block of the file is in
-// flight (§3.9). Before F6.2 and F7.2 no block carries a phase, and a running
-// TranscodeJob holds the rename through naming's TranscodePending; F6.2 adds
-// status.transcode's Queued, Running and Swapping here, F7.2 status.graft's
-// in-flight phases.
-func inFlight(*catalogv1alpha1.MediaFile) bool { return false }
+// flight (§3.9): status.transcode Queued, Running or Swapping (F6.2); F7.2
+// adds status.graft's in-flight phases.
+func inFlight(mf *catalogv1alpha1.MediaFile) bool {
+	if t := mf.Status.Transcode; t != nil {
+		switch t.Phase {
+		case catalogv1alpha1.TranscodePhaseQueued, catalogv1alpha1.TranscodePhaseRunning, catalogv1alpha1.TranscodePhaseSwapping:
+			return true
+		}
+	}
+	return false
+}
 
 func proposal(mf *catalogv1alpha1.MediaFile) string {
 	if mf.Status.Naming == nil {

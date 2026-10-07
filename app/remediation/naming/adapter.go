@@ -59,17 +59,12 @@ func (*Adapter) Applies(mf *catalogv1alpha1.MediaFile) bool {
 	return k == commonv1.MediaKindMovie || k == commonv1.MediaKindEpisode
 }
 
-// Gather reads the item, its RootFolder and the file's TranscodeJobs from the
-// cache. The directory listing (status.sidecars) is the subtitles planner's
-// since F5.1 (loop spec §6.4.3).
+// Gather reads the item and its RootFolder from the cache. The directory
+// listing (status.sidecars) is the subtitles planner's since F5.1 (loop
+// spec §6.4.3); whether a transcode holds the file is read off the draft in
+// Plan (F6.2), since Gather runs before the transcode planner's Plan.
 func (*Adapter) Gather(ctx context.Context, env *remediation.Env, v *remediation.View) (Input, error) {
-	in := Input{Read: true, Lookup: mediafile.LoadNaming(ctx, env.Reader, v.File)}
-	jobs, err := mediafile.TranscodeJobsOf(ctx, env.Reader, v.File)
-	if err != nil {
-		return in, remediation.Transient(err)
-	}
-	in.TranscodePending = mediafile.TranscodeInFlight(jobs)
-	return in, nil
+	return Input{Read: true, Lookup: mediafile.LoadNaming(ctx, env.Reader, v.File)}, nil
 }
 
 // Plan renders status.naming and NamingCurrent against spec.path as of this
@@ -78,6 +73,14 @@ func (*Adapter) Plan(v *remediation.View, in Input, out *catalogv1alpha1.MediaFi
 	var res remediation.Result
 	if !in.Read {
 		return res, nil
+	}
+	// A transcode in flight holds the rename: its worker re-probes the
+	// source and swaps its output over it (spec D6).
+	if t := v.Draft.Transcode; t != nil {
+		switch t.Phase {
+		case catalogv1alpha1.TranscodePhaseQueued, catalogv1alpha1.TranscodePhaseRunning, catalogv1alpha1.TranscodePhaseSwapping:
+			in.TranscodePending = true
+		}
 	}
 	n, retry := mediafile.RenderNaming(v.File, in.Lookup, v.Draft.MediaInfo, v.Prev.Naming, v.SpecPath(), probeFailed(v.Draft), in.TranscodePending)
 	out.Naming = n

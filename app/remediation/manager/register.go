@@ -51,6 +51,7 @@ import (
 	replayactuator "github.com/mediactl/clustarr/app/remediation/replay"
 	searchstage "github.com/mediactl/clustarr/app/remediation/search"
 	"github.com/mediactl/clustarr/app/remediation/subtitles"
+	"github.com/mediactl/clustarr/app/remediation/transcode"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/objindex"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -222,6 +223,10 @@ func Planners(d Deps) []remediation.Bound {
 	}
 	return []remediation.Bound{
 		remediation.Bind[mediafile.ProbeInput](probe.New(probe.Options{Bus: d.Env.Bus, Probes: probes})),
+		// The transcode planner (loop spec §5.8-§5.11).
+		remediation.Bind[transcode.In](transcode.New(transcode.Options{
+			Bus: d.Env.Bus, AudioGraftIndex: mediafile.AudioGraftMediaFileRefIndex,
+		})),
 		remediation.Bind[naming.Input](naming.New(naming.Options{})),
 		// The subtitles planner (loop spec §6.4); its adapter is also the
 		// Withdrawer of the withdrawals it emits.

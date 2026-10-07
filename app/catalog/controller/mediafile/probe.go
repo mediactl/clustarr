@@ -197,8 +197,8 @@ func later(a, b time.Time) time.Time {
 }
 
 // probeLane is the lane a probe of ps is asked on: high for a file never
-// probed, changed bytes, a transcode swap, a kept job or an audio graft's
-// swap (swapOrKept carries all three); low for a
+// probed, changed bytes, a transcode swap or an audio graft's swap
+// (swapOrKept carries both); low for a
 // version-only re-probe, which never queues ahead of a new import.
 func probeLane(mf *catalogv1alpha1.MediaFile, ps probeState, swapOrKept bool) clustarrevents.Priority {
 	if mf.Status.ProbeHash == "" || bytesChanged(mf, ps) || swapOrKept {
@@ -218,12 +218,4 @@ func pathOnly(mf *catalogv1alpha1.MediaFile, ps probeState, swapOrKept bool) boo
 // a newer probe version: it changes no condition and no naming input.
 func versionOnly(mf *catalogv1alpha1.MediaFile, ps probeState, swapOrKept bool) bool {
 	return !ps.Stale && mf.Status.ProbeHash != "" && !swapOrKept
-}
-
-// keptNeedsNoProbe reports a kept job (replaceSource=false) whose source the
-// current summary, at probe version want or newer, still describes: it is
-// recorded from that summary.
-func keptNeedsNoProbe(mf *catalogv1alpha1.MediaFile, ps probeState, kept bool, want int32) bool {
-	return kept && !ps.Stale && mf.Status.ProbeHash != "" && mf.Status.MediaInfo != nil &&
-		mf.Status.ProbeVersion >= want
 }

@@ -21,7 +21,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -46,11 +45,11 @@ import (
 	"github.com/mediactl/clustarr/app/transcode/controller/pool"
 	"github.com/mediactl/clustarr/app/transcode/jobspec"
 	"github.com/mediactl/clustarr/app/transcode/task"
+	"github.com/mediactl/clustarr/app/transcode/transcodeplan"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
-	"github.com/mediactl/clustarr/pkg/transcode"
 	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
 
@@ -573,29 +572,19 @@ func planFor(tj *transcodev1alpha1.TranscodeJob, tp *transcodev1alpha1.Transcode
 	if source == "" {
 		source = mf.Spec.Path
 	}
-	source = filepath.Clean(source)
-	outPath, err := jobspec.OutputPath(tj.Spec, tp.Name, jobspec.OutputContainer, jobspec.ReplaceSource(tp.Spec.Policy))
-	if err != nil {
-		return planning{}, &planFailure{ReasonInvalidOutput, fmt.Sprintf("cannot place the output: %v", err)}
+	p, fail := transcodeplan.PlanFor(source, tp, tp.Status.Hash, mf, &mf.Status, hardware,
+		transcodeplan.Device{Tier: dev.tier, Limits: dev.limits})
+	if fail != nil {
+		reason := ReasonPlanError
+		if strings.HasPrefix(fail.Message, "cannot place the output") {
+			reason = ReasonInvalidOutput
+		}
+		return planning{}, &planFailure{reason, fail.Message}
 	}
-	info, err := mediaInfoFromFile(source, mf, tp.Name+"@"+tp.Status.Hash)
-	if err != nil {
-		return planning{}, &planFailure{ReasonPlanError, fmt.Sprintf("planning failed: %v", err)}
+	if out, err := jobspec.JobOutputPath(tj.Spec, tp.Name, jobspec.OutputContainer, jobspec.ReplaceSource(tp.Spec.Policy)); err == nil {
+		p.OutPath = out // an explicit spec.outputPath wins
 	}
-	p := planning{source: source, outPath: outPath}
-	// Past the stream cap the stored summary is not the file, so no plan
-	// from it could be the worker's.
-	if why := transcode.TooManyStreams(info); why != "" {
-		p.reject = why
-		return p, nil
-	}
-	tier := jobspec.StandardTier(jobspec.ProfileHardware(tp.Spec, hardware))
-	if dev.tier != "" {
-		tier = dev.tier // what the class's pods measured: the worker plans with it too
-	}
-	p.plan = standard.Plan(info, jobspec.StandardProfile(tp.Name, tp.Status.Hash, tp.Spec),
-		standard.Hardware{Tier: tier, Limits: dev.limits[tier]})
-	return p, nil
+	return planning{plan: p.Plan, reject: p.Reject, source: p.Source, outPath: p.OutPath}, nil
 }
 
 // recordPlan writes p onto st as a plan is recorded: a reject is Skipped

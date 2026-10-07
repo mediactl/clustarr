@@ -26,14 +26,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
-	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/mediafile"
 	"github.com/mediactl/clustarr/app/remediation"
 )
 
-// Sources: S2', S3', S4' and S11 as the old controller's naming watches;
-// S23's TranscodeJob (deduplicated with the probe's) holds a rename while a
-// transcode runs.
+// Sources: S2', S3', S4' and S11 as the old controller's naming watches. A
+// transcode holds a rename through the file's own status.transcode (F6.2).
 func (*Adapter) Sources(mgr ctrl.Manager) ([]remediation.Source, error) {
 	c := mgr.GetClient()
 	via := func(f func(context.Context, client.Reader, client.Object) []types.NamespacedName) func(context.Context, client.Object) []types.NamespacedName {
@@ -55,10 +53,6 @@ func (*Adapter) Sources(mgr ctrl.Manager) ([]remediation.Source, error) {
 		{
 			Name: "S11/RootFolder", Object: &catalogv1alpha1.RootFolder{}, Handler: remediation.MapFiles(via(mediafile.FilesForRootFolder)),
 			Predicates: []predicate.Predicate{mediafile.RootFolderNamingChanged()},
-		},
-		{
-			Name: "S23/TranscodeJob", Object: &transcodev1alpha1.TranscodeJob{}, Handler: remediation.MapFiles(mediafile.FileOfTranscodeJob),
-			Predicates: []predicate.Predicate{mediafile.TranscodeJobPhaseChanged()},
 		},
 	}, nil
 }

@@ -56,8 +56,10 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/transcode/graftstate"
+	"github.com/mediactl/clustarr/app/transcode/jobspec"
 	transcodestatus "github.com/mediactl/clustarr/app/transcode/status"
 	"github.com/mediactl/clustarr/app/transcode/task"
+	"github.com/mediactl/clustarr/app/transcode/transcodeplan"
 	busevents "github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -150,8 +152,8 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		return ctrl.Result{}, fmt.Errorf("transcodeprofile: list TranscodeProfiles: %w", err)
 	}
 
-	hash := profileHash(tp.Spec)
-	invalid, invalidReason, invalidMessage := validateProfile(&tp, profileList.Items)
+	hash := jobspec.ProfileHash(tp.Spec)
+	invalid, invalidReason, invalidMessage := transcodeplan.ValidateProfile(&tp, profileList.Items)
 
 	var mfList catalogv1alpha1.MediaFileList
 	if err := r.List(ctx, &mfList); err != nil {
@@ -161,8 +163,8 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	matching, overlapped := selectFiles(&tp, profileList.Items, defaultWinner(profileList.Items),
-		managedFiles(mfList.Items, items))
+	matching, overlapped := transcodeplan.SelectFiles(&tp, profileList.Items, transcodeplan.DefaultWinner(profileList.Items),
+		transcodeplan.ManagedFiles(mfList.Items, items))
 
 	var jobList transcodev1alpha1.TranscodeJobList
 	if err := r.List(ctx, &jobList); err != nil {
@@ -195,7 +197,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	var createErrs []error
 	if !invalid {
 		for _, mf := range matching {
-			if !probed(mf) || alreadyTranscoded(mf, tp.Name) {
+			if !transcodeplan.Probed(mf) || transcodeplan.AlreadyTranscoded(mf, tp.Name) {
 				continue
 			}
 			// A job that failed because its source changed can never
@@ -279,10 +281,10 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 			"%d matching file(s), %d job(s) created this pass, %d waiting for the window of %d", len(matching), created, waiting, r.Window)
 	}
 	if overlapped {
-		k8s.MarkTrue(&fresh, &conditions, ConditionOverlap, ReasonSelectorOverlap,
+		k8s.MarkTrue(&fresh, &conditions, transcodeplan.ConditionOverlap, transcodeplan.ReasonSelectorOverlap,
 			"this profile's selector also matches file(s) a higher-priority profile claims; no job was created for them")
 	} else {
-		k8s.MarkFalse(&fresh, &conditions, ConditionOverlap, ReasonNoOverlap, "no selector overlap with another profile")
+		k8s.MarkFalse(&fresh, &conditions, transcodeplan.ConditionOverlap, transcodeplan.ReasonNoOverlap, "no selector overlap with another profile")
 	}
 
 	fresh.Status.EncoderLimits = r.encoderLimits(ctx)
@@ -455,16 +457,16 @@ func (r *Reconciler) retireSucceeded(ctx context.Context, jobs []transcodev1alph
 // exists, as metadata only: [managedFiles] needs their names, and a metadata
 // informer holds a fraction of what full objects would (a library's
 // Episodes number in the thousands).
-func (r *Reconciler) catalogItems(ctx context.Context) (map[itemKey]bool, error) {
-	items := map[itemKey]bool{}
-	for kind, listKind := range managedItemLists {
+func (r *Reconciler) catalogItems(ctx context.Context) (map[transcodeplan.ItemKey]bool, error) {
+	items := map[transcodeplan.ItemKey]bool{}
+	for kind, listKind := range transcodeplan.ManagedItemLists {
 		list := &metav1.PartialObjectMetadataList{}
 		list.SetGroupVersionKind(catalogv1alpha1.GroupVersion.WithKind(listKind))
 		if err := r.List(ctx, list); err != nil {
 			return nil, fmt.Errorf("transcodeprofile: list %s: %w", listKind, err)
 		}
 		for i := range list.Items {
-			items[itemKey{kind: kind, namespace: list.Items[i].Namespace, name: list.Items[i].Name}] = true
+			items[transcodeplan.ItemKey{Kind: kind, Namespace: list.Items[i].Namespace, Name: list.Items[i].Name}] = true
 		}
 	}
 	return items, nil
@@ -614,7 +616,7 @@ func (r *Reconciler) mapAllProfiles(ctx context.Context, _ client.Object) []reco
 // book or comic MediaFile never wakes a transcode profile.
 func (r *Reconciler) mapMediaFileToProfiles(ctx context.Context, o client.Object) []reconcile.Request {
 	mf, ok := o.(*catalogv1alpha1.MediaFile)
-	if !ok || !eligibleKind(mf.Spec.MediaRef.Kind) {
+	if !ok || !transcodeplan.EligibleKind(mf.Spec.MediaRef.Kind) {
 		return nil
 	}
 	var list transcodev1alpha1.TranscodeProfileList
@@ -624,7 +626,7 @@ func (r *Reconciler) mapMediaFileToProfiles(ctx context.Context, o client.Object
 	var reqs []reconcile.Request
 	for i := range list.Items {
 		p := &list.Items[i]
-		if p.Spec.Default || selectorMatches(p, mf) {
+		if p.Spec.Default || transcodeplan.SelectorMatches(p, mf.Labels) {
 			reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{Name: p.Name}})
 		}
 	}
@@ -666,4 +668,24 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 			ReconciliationTimeout: 5 * time.Minute,
 		}).
 		Complete(r)
+}
+
+// transcodeJobName renders the exact scheme TranscodeJob's own doc comment
+// pins: "owned by the MediaFile and named <mediafile>-<profileHash[:8]>".
+// This is what makes job creation idempotent without a side table -- the
+// same (MediaFile, profile hash) pair always renders the same name. The
+// suffix is never truncated; mediaFileName is trimmed from the right only
+// in the pathological case where the scheme would exceed the apiserver's
+// name limit. Legacy: deleted with this reconciler (F6.6).
+func transcodeJobName(mediaFileName, profileHash string) string {
+	suffix := profileHash
+	if len(suffix) > 8 {
+		suffix = suffix[:8]
+	}
+	name := mediaFileName + "-" + suffix
+	if len(name) <= k8s.MaxNameLength {
+		return name
+	}
+	trim := max(len(mediaFileName)-(len(name)-k8s.MaxNameLength), 1)
+	return mediaFileName[:trim] + "-" + suffix
 }
