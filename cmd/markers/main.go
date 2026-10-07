@@ -203,7 +203,12 @@ func run(args []string, getenv func(string) string) int {
 		defer func() { _ = srv.Close() }()
 	}
 
-	nc, err := nats.Connect(need["NATS_URL"], nats.Name("markers/"+need["POD_NAME"]))
+	if err := busconn.ValidateURL(need["NATS_URL"]); err != nil {
+		log.ErrorContext(ctx, "$NATS_URL", "error", err)
+		return worker.ExitMisconfigured
+	}
+	nc, err := nats.Connect(need["NATS_URL"],
+		append([]nats.Option{nats.Name("markers/" + need["POD_NAME"])}, busconn.ReconnectOptions()...)...)
 	if err != nil {
 		log.ErrorContext(ctx, "nats connect", "error", err)
 		return worker.ExitRetriable

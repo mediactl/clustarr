@@ -150,7 +150,12 @@ func run(args []string, getenv func(string) string) int {
 		return jobspec.WorkerExitRetriable
 	}
 	ffruntime.RouteLog(log)
-	nc, err := nats.Connect(need["NATS_URL"], nats.Name("transcode/"+need["POD_NAME"]))
+	if err := busconn.ValidateURL(need["NATS_URL"]); err != nil {
+		log.ErrorContext(ctx, "$NATS_URL", "error", err)
+		return jobspec.WorkerExitMisconfigured
+	}
+	nc, err := nats.Connect(need["NATS_URL"],
+		append([]nats.Option{nats.Name("transcode/" + need["POD_NAME"])}, busconn.ReconnectOptions()...)...)
 	if err != nil {
 		log.ErrorContext(ctx, "nats connect", "error", err)
 		return jobspec.WorkerExitRetriable
@@ -247,7 +252,11 @@ func runGraft(taskJSON, dataDir string, getenv func(string) string, log *slog.Lo
 		fmt.Fprintln(os.Stderr, "transcode: a graft pod needs $NATS_URL and $POD_NAME")
 		return jobspec.WorkerExitMisconfigured
 	}
-	nc, err := nats.Connect(url, nats.Name("transcode/graft/"+pod))
+	if err := busconn.ValidateURL(url); err != nil {
+		log.ErrorContext(ctx, "$NATS_URL", "error", err)
+		return jobspec.WorkerExitMisconfigured
+	}
+	nc, err := nats.Connect(url, append([]nats.Option{nats.Name("transcode/graft/" + pod)}, busconn.ReconnectOptions()...)...)
 	if err != nil {
 		log.ErrorContext(ctx, "nats connect", "error", err)
 		return 1

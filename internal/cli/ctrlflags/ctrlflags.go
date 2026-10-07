@@ -78,7 +78,7 @@ func bind(fs *pflag.FlagSet, manager bool) *k8s.Options {
 
 	o.NATSURL = cli.EnvOr(cli.EnvNATSURL, o.NATSURL)
 	fs.StringVar(&o.NATSURL, "nats-url", o.NATSURL,
-		"JetStream endpoint. Defaults to $"+cli.EnvNATSURL+".")
+		"JetStream endpoint: one NATS URL or a comma-separated pool of them. Defaults to $"+cli.EnvNATSURL+".")
 	if manager {
 		fs.BoolVar(&o.BusSingleNode, "nats-single-node", o.BusSingleNode,
 			"Collapse the JetStream topology to one replica, for kind and single-node NATS.")

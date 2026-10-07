@@ -86,7 +86,8 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 			"anonymous, which serves every request without a login and must sit behind ingress "+
 			"authentication (design amendment §A3.5).")
 	fs.StringVar(&natsURL, "nats-url", cli.EnvOr(cli.EnvNATSURL, busconn.DefaultNATSURL),
-		"JetStream endpoint ui reads artwork from (GET /art). Defaults to $"+cli.EnvNATSURL+". ui never "+
+		"JetStream endpoint ui reads artwork from (GET /art): one NATS URL or a comma-separated pool. "+
+			"Defaults to $"+cli.EnvNATSURL+". ui never "+
 			"writes to it, so an unreachable endpoint degrades every page to placeholder art rather "+
 			"than failing the process.")
 	fs.BoolVar(&plexProvider, "plex-provider", true,

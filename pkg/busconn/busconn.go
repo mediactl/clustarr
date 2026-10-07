@@ -43,8 +43,19 @@ const (
 	// has Kubernetes work to do.
 	ConnectTimeout = 10 * time.Second
 
-	// ReconnectWait is the pause between reconnect attempts.
-	ReconnectWait = 2 * time.Second
+	// ReconnectDelayMin and ReconnectDelayMax bound the reconnect backoff
+	// (ReconnectDelay): 250 ms doubling to 30 s, with full jitter, after
+	// each pass over the server pool (ADR-0020 §6). It replaced a fixed
+	// 2 s ReconnectWait, which sent every pod back at once after an outage.
+	ReconnectDelayMin = 250 * time.Millisecond
+	ReconnectDelayMax = 30 * time.Second
+
+	// ReconnectBufSize is how many bytes of publishes nats.go buffers while
+	// it reconnects: 8 MiB, nats.go's own default, named so it is a choice
+	// (ADR-0020 §6). A publish past it fails with
+	// nats.ErrReconnectBufExceeded, which natsbus reports as
+	// events.ErrTransient: the caller's backoff sends it again.
+	ReconnectBufSize = 8 << 20
 
 	// DefaultNATSURL is the in-cluster address of the JetStream service the
 	// umbrella chart installs.
@@ -100,13 +111,15 @@ func Connect(url, service string, opts ...Option) (*natsbus.Bus, *nats.Conn, err
 	if url == "" {
 		return nil, nil, fmt.Errorf("busconn: empty NATS url")
 	}
-	nc, err := nats.Connect(url,
+	if err := ValidateURL(url); err != nil {
+		return nil, nil, err
+	}
+	nopts := append([]nats.Option{
 		nats.Name(fmt.Sprintf("clustarr-%s@%s", service, version.String())),
 		nats.Timeout(ConnectTimeout),
-		nats.MaxReconnects(-1),
-		nats.ReconnectWait(ReconnectWait),
 		nats.RetryOnFailedConnect(true),
-	)
+	}, ReconnectOptions()...)
+	nc, err := nats.Connect(url, nopts...)
 	if err != nil {
 		return nil, nil, fmt.Errorf("busconn: connect to NATS at %s: %w", url, err)
 	}

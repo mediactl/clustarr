@@ -100,8 +100,10 @@ type delivery struct {
 // frees, raises it; the lag metric's ack-pending wakes a domain at zero; and a
 // final-attempt handler that returns is dead-lettered in process by Settle.
 // A pull this process abandons does not stand in for one: nats.go
-// unsubscribes its inbox, and any CONSUMER.INFO -- the manager's QueueGauge,
-// every 30 s -- prunes it (worker-pool research, 2026-10-07, D4 and E5).
+// unsubscribes its inbox, and the pull's own fetchWait expiry (30 s) ends it
+// at the server; a CONSUMER.INFO -- the manager's QueueGauge -- prunes it
+// sooner when one happens (worker-pool research, 2026-10-07, D4 and E5;
+// ADR-0020 §7).
 //
 // Drain. Once the subscription stops -- its context ends or its stop
 // function is called -- it fetches nothing more, hands back with a Nak any
@@ -262,9 +264,10 @@ func (s *subscription) effectiveLocked() events.Subscription {
 }
 
 // fetch asks for n messages and dispatches each as it arrives. Its request
-// waits up to fetchWait at the broker; one this process abandons is pruned by
-// the next CONSUMER.INFO (nats-server consumer.go; worker-pool research E5),
-// so nothing relies on it.
+// waits up to fetchWait at the broker, and that expiry bounds one this
+// process abandons: the server drops it within fetchWait, and a
+// CONSUMER.INFO prunes it sooner when one happens (nats-server consumer.go;
+// worker-pool research E5; ADR-0020 §7). Nothing relies on either.
 func (s *subscription) fetch(ctx context.Context, cons jetstream.Consumer, n int) error {
 	fctx, cancel := context.WithTimeout(ctx, fetchWait)
 	defer cancel()

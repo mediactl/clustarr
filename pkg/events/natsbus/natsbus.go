@@ -336,6 +336,12 @@ func (b *Bus) Publish(ctx context.Context, subject string, e *events.Envelope,
 // publishError maps JetStream publish failures onto the package sentinels the
 // rest of Clustarr switches on.
 func publishError(top events.Topology, subject string, err error) error {
+	if errors.Is(err, nats.ErrReconnectBufExceeded) {
+		// Never sent: the client is reconnecting with its buffer full. It
+		// is transient, like a timeout -- the caller's backoff sends it
+		// again -- and never dropped silently (ADR-0020 §6).
+		return fmt.Errorf("natsbus: publish %q: %w: %w", subject, events.ErrTransient, err)
+	}
 	var apiErr *jetstream.APIError
 	if errors.As(err, &apiErr) && apiErr.ErrorCode == jsStoreFailed {
 		return fmt.Errorf("natsbus: publish %q: %s: %w",
