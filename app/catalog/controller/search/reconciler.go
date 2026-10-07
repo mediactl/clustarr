@@ -582,20 +582,28 @@ func (r *Reconciler) runQuery(ctx context.Context, s *catalogv1alpha1.Search) (c
 
 	resp, err := r.Query.Query(ctx, req)
 	if err != nil {
-		if errors.Is(err, events.ErrNoResponders) {
-			// Transient -- index is not up yet -- not a verdict on the
-			// query. Leave phase alone so the next reconcile still takes
-			// the runQuery branch, the same shape startSearch uses for
-			// ErrQueueFull.
+		// rpc.index.query is idempotent: it retries on this reconciler's own
+		// backoff whatever the class (ADR-0020 §4). No responder and busy
+		// are not verdicts on the query -- index is not up, or full -- so
+		// phase is left alone and the next reconcile still takes the
+		// runQuery branch, the same shape startSearch uses for
+		// ErrQueueFull; a timeout or anything else is the controller's
+		// error backoff.
+		switch events.ClassifyRequestError(err) {
+		case events.RequestNoResponders, events.RequestBusy:
+			reason, msg := "IndexUnavailable", "the index agent's release index is not reachable yet"
+			if errors.Is(err, events.ErrResponderBusy) {
+				reason, msg = "IndexBusy", "the index agent's release index is busy; asking again shortly"
+			}
 			u := newStatusUpdate(s)
-			k8s.MarkFalse(s, &u.conditions, k8s.ConditionReady, "IndexUnavailable",
-				"the index agent's release index is not reachable yet")
+			k8s.MarkFalse(s, &u.conditions, k8s.ConditionReady, reason, "%s", msg)
 			if perr := r.apply(ctx, s, u); perr != nil {
 				return ctrl.Result{}, perr
 			}
 			return ctrl.Result{RequeueAfter: noQueryResponderRequeue}, nil
+		default:
+			return ctrl.Result{}, fmt.Errorf("query RPC: %w", events.DescribeRequestError(events.RPCIndexQuery, err))
 		}
-		return ctrl.Result{}, fmt.Errorf("query RPC: %w", err)
 	}
 	if resp.Error != "" {
 		return r.fail(ctx, s, "QueryFailed", resp.Error)

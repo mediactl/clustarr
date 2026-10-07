@@ -47,6 +47,13 @@ var (
 	// (ServeLimits). Nothing ran; the request may be retried.
 	ErrResponderBusy = errors.New("events: responder busy")
 
+	// ErrTransient is a bus failure that says nothing about the work: the
+	// client could not even send it -- nats.go's reconnect buffer full while
+	// it reconnects (nats.ErrReconnectBufExceeded). A publish or request
+	// refused with it was never sent; the caller's backoff sends it again,
+	// and nothing may drop it silently (ADR-0020 §6).
+	ErrTransient = errors.New("events: transient bus failure; retry")
+
 	// ErrStreamNotFound is returned when a subscription names a stream that
 	// EnsureTopology has not created.
 	ErrStreamNotFound = errors.New("events: stream not found")

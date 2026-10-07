@@ -321,7 +321,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, a *catalogv1alpha1.Aut
 	// patch above.
 	booksSynced, books, syncErr := r.syncBooks(ctx, a, now)
 	if syncErr != nil {
-		k8s.MarkFalse(a, &conditions, catalogv1alpha1.AuthorConditionBooksSynced, "RPCError", "book listing RPC failed: %s", syncErr.Error())
+		k8s.MarkFalse(a, &conditions, catalogv1alpha1.AuthorConditionBooksSynced, events.ClassifyRequestError(syncErr).Reason(), "book listing RPC failed: %s", syncErr.Error())
 	} else {
 		k8s.MarkTrue(a, &conditions, catalogv1alpha1.AuthorConditionBooksSynced, k8s.ReasonReconciled, "books synced")
 	}
@@ -392,8 +392,10 @@ func (r *Reconciler) syncBooks(ctx context.Context, a *catalogv1alpha1.Author, n
 	defer cancel()
 
 	var resp schema.MetadataResponse
+	// An idempotent lookup: every class retries on the reconciler's
+	// requeue, and the condition names the class (ADR-0020 §4).
 	if rpcErr := r.Bus.Request(rpcCtx, events.RPCMetadataLookup, req, &resp); rpcErr != nil {
-		return false, bookList.Items, rpcErr
+		return false, bookList.Items, events.DescribeRequestError(events.RPCMetadataLookup, rpcErr)
 	}
 	if resp.Error != "" {
 		return false, bookList.Items, fmt.Errorf("metadata gateway: %s", resp.Error)

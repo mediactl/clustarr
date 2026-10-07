@@ -399,7 +399,10 @@ func (w *Worker) resolveIMDb(ctx context.Context) ResolveIMDb {
 		}
 		var resp schema.MetadataResponse
 		if err := w.Bus.Request(rpcCtx, events.RPCMetadataResolve, req, &resp); err != nil {
-			return 0, fmt.Errorf("rescan: resolve imdb id %q: %w", imdbID, err)
+			// Never a guess: whatever the class, the file is unmatched
+			// for now, its reason naming the class (no agent, busy, timed
+			// out), and the next scan asks again (ADR-0020 §4).
+			return 0, fmt.Errorf("rescan: resolve imdb id %q: %w", imdbID, events.DescribeRequestError(events.RPCMetadataResolve, err))
 		}
 		if resp.Error != "" {
 			return 0, fmt.Errorf("rescan: resolve imdb id %q: %s", imdbID, resp.Error)

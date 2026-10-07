@@ -457,10 +457,11 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, s *catalogv1alpha1.Ser
 	// surfaces on EpisodesSynced/Phase without blocking the patch above.
 	fan, syncErr := r.syncEpisodes(ctx, s, now)
 	if syncErr != nil {
-		if rollup.Transitioned(s.Status.Conditions, catalogv1alpha1.SeriesConditionEpisodesSynced, metav1.ConditionFalse, "RPCError") {
+		reason := events.ClassifyRequestError(syncErr).Reason()
+		if rollup.Transitioned(s.Status.Conditions, catalogv1alpha1.SeriesConditionEpisodesSynced, metav1.ConditionFalse, reason) {
 			r.warn(s, "EpisodeSyncFailed", "episode listing RPC failed: %s", syncErr.Error())
 		}
-		k8s.MarkFalse(s, &conditions, catalogv1alpha1.SeriesConditionEpisodesSynced, "RPCError", "episode listing RPC failed: %s", syncErr.Error())
+		k8s.MarkFalse(s, &conditions, catalogv1alpha1.SeriesConditionEpisodesSynced, reason, "episode listing RPC failed: %s", syncErr.Error())
 	} else {
 		k8s.MarkTrue(s, &conditions, catalogv1alpha1.SeriesConditionEpisodesSynced, k8s.ReasonReconciled, "episodes synced")
 	}
@@ -687,8 +688,10 @@ func (r *Reconciler) syncEpisodes(ctx context.Context, s *catalogv1alpha1.Series
 	defer cancel()
 
 	var resp schema.MetadataResponse
+	// An idempotent lookup: every class retries on the reconciler's
+	// requeue, and the condition names the class (ADR-0020 §4).
 	if rpcErr := r.Bus.Request(rpcCtx, events.RPCMetadataLookup, req, &resp); rpcErr != nil {
-		return done(), rpcErr
+		return done(), events.DescribeRequestError(events.RPCMetadataLookup, rpcErr)
 	}
 	if resp.Error != "" {
 		return done(), fmt.Errorf("metadata gateway: %s", resp.Error)

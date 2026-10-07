@@ -212,6 +212,11 @@ func newPlanes(mgr ctrl.Manager, bus events.Bus, o Options) (planes, error) {
 	if err := mgr.Add(p.ledger); err != nil {
 		return planes{}, fmt.Errorf("manager: add the dispatch ledger: %w", err)
 	}
+	// Every request the manager makes feeds the ledger (ADR-0020 §4): a
+	// verb that finds no responder reads as its serving domain's NoAgent.
+	if o, ok := bus.(events.RequestObserver); ok {
+		o.ObserveRequests(p.ledger.ObserveRequest)
+	}
 	// The intake (§4.3, §8.4): the candidate inbox, acked after the owner's
 	// pass decides, and the scan intake with its applier (A6.1); both
 	// leader-only, binding the durables EnsureTopology created.

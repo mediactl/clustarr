@@ -49,6 +49,8 @@ func NewBusQueryRPC(r events.Requester) QueryRPC { return &busQueryRPC{r: r} }
 func (b *busQueryRPC) Query(ctx context.Context, req schema.QueryRequest) (schema.QueryResponse, error) {
 	var resp schema.QueryResponse
 	if err := b.r.Request(ctx, events.RPCIndexQuery, req, &resp); err != nil {
+		// The reconciler switches on the class (runQuery); errors.Is and
+		// events.ClassifyRequestError see through this wrap.
 		return schema.QueryResponse{}, fmt.Errorf("query RPC: %w", err)
 	}
 	return resp, nil

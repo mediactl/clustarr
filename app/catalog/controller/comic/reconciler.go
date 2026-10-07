@@ -370,7 +370,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, c *catalogv1alpha1.Com
 	issuesSyncedBefore := k8s.IsConditionTrue(c.Status.Conditions, catalogv1alpha1.ComicConditionIssuesSynced)
 	issuesSynced, issues, syncErr := r.syncIssues(ctx, c, issuesSyncedBefore)
 	if syncErr != nil {
-		k8s.MarkFalse(c, &conditions, catalogv1alpha1.ComicConditionIssuesSynced, "RPCError", "issue listing RPC failed: %s", syncErr.Error())
+		k8s.MarkFalse(c, &conditions, catalogv1alpha1.ComicConditionIssuesSynced, events.ClassifyRequestError(syncErr).Reason(), "issue listing RPC failed: %s", syncErr.Error())
 	} else {
 		k8s.MarkTrue(c, &conditions, catalogv1alpha1.ComicConditionIssuesSynced, k8s.ReasonReconciled, "issues synced")
 	}
@@ -450,8 +450,10 @@ func (r *Reconciler) syncIssues(ctx context.Context, c *catalogv1alpha1.Comic, i
 	defer cancel()
 
 	var resp schema.MetadataResponse
+	// An idempotent lookup: every class retries on the reconciler's
+	// requeue, and the condition names the class (ADR-0020 §4).
 	if rpcErr := r.Bus.Request(rpcCtx, events.RPCMetadataLookup, req, &resp); rpcErr != nil {
-		return false, issueList.Items, rpcErr
+		return false, issueList.Items, events.DescribeRequestError(events.RPCMetadataLookup, rpcErr)
 	}
 	if resp.Error != "" {
 		return false, issueList.Items, fmt.Errorf("metadata gateway: %s", resp.Error)

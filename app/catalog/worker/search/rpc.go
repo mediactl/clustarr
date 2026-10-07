@@ -19,7 +19,6 @@ package search
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -73,12 +72,29 @@ func (b *busSearchRPC) Search(ctx context.Context, req schema.SearchRequest) (sc
 	}
 	var resp schema.SearchResponse
 	if err := b.r.Request(ctx, events.RPCIndexSearch, req, &resp); err != nil {
-		if errors.Is(err, events.ErrNoResponders) {
-			return schema.SearchResponse{}, events.Retry(noRespondersRetryAfter, fmt.Errorf("search RPC: %w", err))
-		}
-		return schema.SearchResponse{}, fmt.Errorf("search RPC: %w", err)
+		return schema.SearchResponse{}, retryRequest("search RPC", events.RPCIndexSearch, err)
 	}
 	return resp, nil
+}
+
+// busyRetryAfter is how long the worker waits before asking a busy index
+// again: a refusal is immediate and its slots free in seconds.
+const busyRetryAfter = 5 * time.Second
+
+// retryRequest is the search worker's rule for a failed request to index
+// (ADR-0020 §4): no responder and busy are naked onto a fixed delay -- no
+// handler ran, so asking again costs nothing -- and a timeout or anything
+// else is a plain error, the subscription's own backoff.
+func retryRequest(what, subject string, err error) error {
+	described := fmt.Errorf("%s: %w", what, events.DescribeRequestError(subject, err))
+	switch events.ClassifyRequestError(err) {
+	case events.RequestNoResponders:
+		return events.Retry(noRespondersRetryAfter, described)
+	case events.RequestBusy:
+		return events.Retry(busyRetryAfter, described)
+	default:
+		return described
+	}
 }
 
 // FakeSearchRPC is a SearchRPC test double: it returns Response/Err
@@ -121,7 +137,8 @@ func NewBusIndexQuery(r events.Requester) IndexQuery { return &busIndexQuery{r: 
 func (b *busIndexQuery) Query(ctx context.Context, req schema.QueryRequest) (schema.QueryResponse, error) {
 	var resp schema.QueryResponse
 	if err := b.r.Request(ctx, events.RPCIndexQuery, req, &resp); err != nil {
-		return schema.QueryResponse{}, fmt.Errorf("index query RPC: %w", err)
+		// rpc.index.query is idempotent: it retries on the worker's backoff.
+		return schema.QueryResponse{}, retryRequest("index query RPC", events.RPCIndexQuery, err)
 	}
 	return resp, nil
 }

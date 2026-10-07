@@ -58,7 +58,16 @@ func NewBusIndexerResolver(r events.Requester) IndexerResolver { return &busInde
 func (b *busIndexerResolver) ResolveDownload(ctx context.Context, req schema.DownloadRequest) (schema.DownloadResponse, error) {
 	var resp schema.DownloadResponse
 	if err := b.r.Request(ctx, events.RPCIndexDownload, req, &resp); err != nil {
-		return schema.DownloadResponse{}, fmt.Errorf("torrent: download RPC: %w", err)
+		// rpc.index.download is not idempotent (ADR-0020 §4). No responder
+		// and busy ran nothing, so the engine's apply retry may ask again;
+		// a timeout is retried only after the engine re-reads its
+		// transfers (engine.Handler: downloadTimeoutRetry, then find).
+		switch class := events.ClassifyRequestError(err); {
+		case class.NotRun(), class == events.RequestTimeout:
+			return schema.DownloadResponse{}, fmt.Errorf("torrent: %w", events.DescribeRequestError(events.RPCIndexDownload, err))
+		default:
+			return schema.DownloadResponse{}, fmt.Errorf("torrent: download RPC: %w", err)
+		}
 	}
 	return resp, nil
 }

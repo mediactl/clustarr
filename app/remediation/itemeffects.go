@@ -237,10 +237,19 @@ func (ir *ItemReconciler) runItemEffect(ctx context.Context, item client.Object,
 		if e.Done != nil {
 			e.Done(e.Reply, err)
 		}
-		if err != nil {
+		// An RPC effect's verb is idempotent (the blocklist call: a stale
+		// seq is answered Stale), so every class retries on the loop's
+		// backoff (ADR-0020 §4). No responder fails fast here; the bus's
+		// request observer has already told the dispatch ledger, which
+		// reads the verb's domain as NoAgent.
+		switch events.ClassifyRequestError(err) {
+		case events.RequestOK:
+			return nil
+		case events.RequestNoResponders, events.RequestBusy, events.RequestTimeout:
+			return Transient(fmt.Errorf("rpc effect: %w", events.DescribeRequestError(e.Subject, err)))
+		default:
 			return Transient(fmt.Errorf("rpc %s: %w", e.Subject, err))
 		}
-		return nil
 	case SafeRemove:
 		if e.Path == "" {
 			return nil

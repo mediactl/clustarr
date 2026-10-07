@@ -142,6 +142,10 @@ type Ledger struct {
 	books      map[string]map[Key]*slot
 	waiting    map[string]map[Key]waitingEntry
 	attendance map[string]*attendance
+	// unserved is, per agent domain, when a request to one of its verbs
+	// last found no responder, while no later request was answered
+	// (ObserveRequest).
+	unserved map[string]time.Time
 }
 
 // New is a Ledger over o. Register every Source, then add it to the manager.
@@ -152,6 +156,7 @@ func New(o Options) *Ledger {
 		books:      map[string]map[Key]*slot{},
 		waiting:    map[string]map[Key]waitingEntry{},
 		attendance: map[string]*attendance{},
+		unserved:   map[string]time.Time{},
 	}
 }
 

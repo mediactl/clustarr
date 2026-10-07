@@ -36,6 +36,11 @@ const (
 	// applyRetry is a command the engine cannot apply yet: the payload RPC
 	// failed, the disk is full.
 	applyRetry = 30 * time.Second
+	// downloadTimeoutRetry is a command whose payload RPC timed out:
+	// rpc.index.download is not idempotent (index fetches from the indexer
+	// and counts a grab), so the command is not asked again at once; the
+	// next delivery re-reads the transfers before it asks (ADR-0020 §4).
+	downloadTimeoutRetry = 2 * applyRetry
 	// notReadyRetry is a command that arrived before the re-attach report.
 	notReadyRetry = 10 * time.Second
 )
@@ -147,6 +152,13 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 			return events.Retry(notReadyRetry, werr)
 		}
 		return nil
+	case events.ClassifyRequestError(err) == events.RequestTimeout:
+		// The payload RPC timed out: index may have fetched it and counted
+		// the grab. Never asked again blindly -- the next delivery runs
+		// find, and the usenet client's ByName, before it asks again.
+		log.WarnContext(ctx, "engine: the payload RPC timed out; re-reading before asking again",
+			"entry", cmd.Entry.ID, "seq", cmd.Seq, "error", err)
+		return events.Retry(downloadTimeoutRetry, err)
 	case err != nil:
 		log.WarnContext(ctx, "engine: cannot apply the command yet", "entry", cmd.Entry.ID, "seq", cmd.Seq, "error", err)
 		return events.Retry(applyRetry, err)

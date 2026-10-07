@@ -41,6 +41,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jonboulle/clockwork"
@@ -99,6 +100,20 @@ type Bus struct {
 	// draining is set by Drain: new subscriptions and responders are
 	// refused, as natsbus refuses them.
 	draining bool
+
+	// observer is told every Request's outcome (events.RequestObserver).
+	observer atomic.Pointer[func(subject string, err error)]
+}
+
+var _ events.RequestObserver = (*Bus)(nil)
+
+// ObserveRequests implements events.RequestObserver, as natsbus does.
+func (b *Bus) ObserveRequests(fn func(subject string, err error)) {
+	if fn == nil {
+		b.observer.Store(nil)
+		return
+	}
+	b.observer.Store(&fn)
 }
 
 var _ events.Bus = (*Bus)(nil)
@@ -920,7 +935,10 @@ func (b *Bus) forgetResponder(r *responder) {
 // run through BeforePublish: see natsbus.Bus.Request's doc comment, which
 // this mirrors, for why request/reply's synchronous round trip has no
 // second hop for a hook to bridge on the way back.
-func (b *Bus) Request(ctx context.Context, subject string, in, out any) error {
+func (b *Bus) Request(ctx context.Context, subject string, in, out any) (err error) {
+	if fn := b.observer.Load(); fn != nil {
+		defer func() { (*fn)(subject, err) }()
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}

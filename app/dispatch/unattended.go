@@ -52,6 +52,48 @@ type attendance struct {
 	unattended  bool
 }
 
+// ObserveRequest is the manager bus's request observer
+// (events.RequestObserver, ADR-0020 §4): a request to an RPC verb that finds
+// no responder (events.RequestNoResponders) is evidence that no agent of the
+// verb's domain (agentdomain.ServedBy) is up, which detect counts as that
+// domain's absence, so its durables read NoAgent after UnattendedAfter, as a
+// missing presence key does. An answer of any kind -- a reply, a busy
+// refusal, a handler's failure -- proves a responder and clears it; a
+// timeout proves nothing either way. A verb no domain serves is ignored.
+func (l *Ledger) ObserveRequest(subject string, err error) {
+	domain, ok := agentdomain.ServedBy(subject)
+	if !ok {
+		return
+	}
+	class := events.ClassifyRequestError(err)
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	switch class {
+	case events.RequestNoResponders:
+		l.unserved[domain] = l.now()
+	case events.RequestTimeout:
+	default:
+		delete(l.unserved, domain)
+	}
+}
+
+// unservedLocked reports whether the last request to one of domain's verbs
+// found no responder, within 2 x UnattendedAfter, with none answered since.
+// detect's absentSince times the absence itself. The caller holds l.mu.
+func (l *Ledger) unservedLocked(domain string, now time.Time) bool {
+	last, ok := l.unserved[domain]
+	if !ok {
+		return false
+	}
+	if now.Sub(last) > 2*UnattendedAfter {
+		// Stale: nothing has asked the domain for a while, so it says
+		// nothing about now.
+		delete(l.unserved, domain)
+		return false
+	}
+	return true
+}
+
 // tick is the leader's periodic pass: lapse every book, detect every
 // dispatched durable's attendance, and set the two dispatch gauges.
 func (l *Ledger) tick(ctx context.Context) {
@@ -113,6 +155,12 @@ func (l *Ledger) detect(ctx context.Context, c events.ConsumerSpec, domain strin
 	if a == nil {
 		a = &attendance{}
 		l.attendance[c.Name] = a
+	}
+	// A verb of the domain that found no responder counts as its absence
+	// even while a presence key says a pod lives (ADR-0020 §4): that pod's
+	// responders are not in their queue group.
+	if domain != "" && l.unservedLocked(domain, now) {
+		absent, prErr = true, nil
 	}
 	if stErr == nil {
 		if !a.known || st.Lag() != a.lag {

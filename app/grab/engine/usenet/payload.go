@@ -128,7 +128,11 @@ func (r *Resolver) resolveIndexer(ctx context.Context, ns string, id commonv1.In
 	}
 	var resp schema.DownloadResponse
 	if err := r.RPC.Request(ctx, events.RPCIndexDownload, req, &resp); err != nil {
-		return nil, fmt.Errorf("usenetengine: download RPC for %s/%s: %w", id.IndexerRef, id.GUID, err)
+		// rpc.index.download is not idempotent (ADR-0020 §4): no responder
+		// and busy ran nothing; after a timeout Transfers.add re-reads the
+		// client by name before the engine asks again.
+		return nil, fmt.Errorf("usenetengine: %s/%s: %w", id.IndexerRef, id.GUID,
+			events.DescribeRequestError(events.RPCIndexDownload, err))
 	}
 	switch {
 	case resp.Error != "":

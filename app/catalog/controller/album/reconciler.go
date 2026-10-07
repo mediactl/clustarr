@@ -489,7 +489,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, alb *catalogv1alpha1.A
 	tracksSynced := false
 	switch {
 	case ts.err != nil:
-		k8s.MarkFalse(alb, &conditions, conditionTracksSynced, "RPCError", "track listing RPC failed: %s", ts.err.Error())
+		k8s.MarkFalse(alb, &conditions, conditionTracksSynced, events.ClassifyRequestError(ts.err).Reason(), "track listing RPC failed: %s", ts.err.Error())
 	case ts.selection == SelectionPinnedReleaseMissing:
 		k8s.MarkFalse(alb, &conditions, conditionTracksSynced, string(ts.selection),
 			"spec.releaseID %q is not a release of this group, and spec.anyReleaseOk is false", ptr.Deref(alb.Spec.ReleaseID, ""))
@@ -695,8 +695,10 @@ func (r *Reconciler) syncTracks(ctx context.Context, alb *catalogv1alpha1.Album,
 		rpcCtx, cancel := context.WithTimeout(ctx, metadataSyncRPCTimeout)
 		defer cancel()
 		var resp schema.MetadataResponse
+		// An idempotent lookup: every class retries on the reconciler's
+		// requeue, and the condition names the class (ADR-0020 §4).
 		if rpcErr := r.Bus.Request(rpcCtx, events.RPCMetadataLookup, req, &resp); rpcErr != nil {
-			return kept(rpcErr)
+			return kept(events.DescribeRequestError(events.RPCMetadataLookup, rpcErr))
 		}
 		if resp.Error != "" {
 			return kept(fmt.Errorf("metadata gateway: %s", resp.Error))

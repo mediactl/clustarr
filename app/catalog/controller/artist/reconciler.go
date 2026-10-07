@@ -317,7 +317,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, a *catalogv1alpha1.Art
 	// blocking the patch above.
 	albumsSynced, albums, syncErr := r.syncAlbums(ctx, a, now)
 	if syncErr != nil {
-		k8s.MarkFalse(a, &conditions, catalogv1alpha1.ArtistConditionAlbumsSynced, "RPCError", "album listing RPC failed: %s", syncErr.Error())
+		k8s.MarkFalse(a, &conditions, catalogv1alpha1.ArtistConditionAlbumsSynced, events.ClassifyRequestError(syncErr).Reason(), "album listing RPC failed: %s", syncErr.Error())
 	} else {
 		k8s.MarkTrue(a, &conditions, catalogv1alpha1.ArtistConditionAlbumsSynced, k8s.ReasonReconciled, "albums synced")
 	}
@@ -388,8 +388,10 @@ func (r *Reconciler) syncAlbums(ctx context.Context, a *catalogv1alpha1.Artist, 
 	defer cancel()
 
 	var resp schema.MetadataResponse
+	// An idempotent lookup: every class retries on the reconciler's
+	// requeue, and the condition names the class (ADR-0020 §4).
 	if rpcErr := r.Bus.Request(rpcCtx, events.RPCMetadataLookup, req, &resp); rpcErr != nil {
-		return false, albumList.Items, rpcErr
+		return false, albumList.Items, events.DescribeRequestError(events.RPCMetadataLookup, rpcErr)
 	}
 	if resp.Error != "" {
 		return false, albumList.Items, fmt.Errorf("metadata gateway: %s", resp.Error)

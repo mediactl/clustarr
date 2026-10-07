@@ -39,6 +39,7 @@ import (
 	"log/slog"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -138,6 +139,9 @@ type Bus struct {
 	// so handlers still running or waiting for a slot stop with the bus.
 	serveCtx    context.Context
 	serveCancel context.CancelFunc
+
+	// observer is told every Request's outcome (events.RequestObserver).
+	observer atomic.Pointer[func(subject string, err error)]
 }
 
 var _ events.Bus = (*Bus)(nil)
@@ -405,6 +409,17 @@ func (b *Bus) forget(s *subscription) {
 			return
 		}
 	}
+}
+
+var _ events.RequestObserver = (*Bus)(nil)
+
+// ObserveRequests implements events.RequestObserver.
+func (b *Bus) ObserveRequests(fn func(subject string, err error)) {
+	if fn == nil {
+		b.observer.Store(nil)
+		return
+	}
+	b.observer.Store(&fn)
 }
 
 var _ events.WedgeReporter = (*Bus)(nil)
@@ -697,12 +712,15 @@ func (b *Bus) respond(ctx context.Context, gate *events.ServeGate, subject strin
 // span) the caller already holds, so there is no second, independent hop
 // for a hook to bridge on the way back, and nothing on the receiving end
 // would ever read a trace header stamped on the reply.
-func (b *Bus) Request(ctx context.Context, subject string, in, out any) error {
+func (b *Bus) Request(ctx context.Context, subject string, in, out any) (err error) {
 	b.mu.Lock()
 	closed := b.closed
 	b.mu.Unlock()
 	if closed {
 		return events.ErrClosed
+	}
+	if fn := b.observer.Load(); fn != nil {
+		defer func() { (*fn)(subject, err) }()
 	}
 
 	var data []byte
@@ -738,8 +756,13 @@ func (b *Bus) Request(ctx context.Context, subject string, in, out any) error {
 
 	reply, err := b.nc.RequestMsgWithContext(ctx, msg)
 	if err != nil {
-		if errors.Is(err, nats.ErrNoResponders) {
+		switch {
+		case errors.Is(err, nats.ErrNoResponders):
 			return fmt.Errorf("natsbus: %q: %w", subject, events.ErrNoResponders)
+		case errors.Is(err, nats.ErrReconnectBufExceeded):
+			// Never sent: the client is reconnecting with its buffer full
+			// (ADR-0020 §6). ClassifyRequestError reads it as busy.
+			return fmt.Errorf("natsbus: request %q: %w: %w", subject, events.ErrTransient, err)
 		}
 		return fmt.Errorf("natsbus: request %q: %w", subject, err)
 	}

@@ -68,6 +68,10 @@ type Domain struct {
 	MinReplicas int32
 	// Consumers are the static durables the domain drains.
 	Consumers []string
+	// Serves are the RPC verbs the domain's responders answer: a request to
+	// one that finds no responder means no agent of the domain is up, which
+	// the manager's dispatch reads as the domain's NoAgent (ADR-0020 §4).
+	Serves []string
 }
 
 // Domains is every agent domain and markers, in §3.5.3's order. A fresh
@@ -92,6 +96,9 @@ func Domains() []Domain {
 		{Name: Metadata, Consumers: []string{
 			events.ConsumerCatalogMetadata, events.ConsumerCatalogArtworkFetch,
 			events.ConsumerCatalogMarkers,
+		}, Serves: []string{
+			events.RPCMetadataLookup, events.RPCMetadataSearch, events.RPCMetadataResolve,
+			events.RPCMetadataExtras,
 		}},
 		// The R3 probe queue's two lanes ride with the import consumers: a
 		// ProbeVersion raise's backlog scales the import domain out.
@@ -102,7 +109,9 @@ func Domains() []Domain {
 		}},
 		// One replica: the release index, the RPC responders, the facade
 		// and the per-host limiter (OD15).
-		{Name: Index, Consumers: []string{events.ConsumerIndexRSS}},
+		{Name: Index, Consumers: []string{events.ConsumerIndexRSS}, Serves: []string{
+			events.RPCIndexSearch, events.RPCIndexDownload, events.RPCIndexQuery, events.RPCIndexBlocklist,
+		}},
 		{Name: Caption, Autoscaled: true, Consumers: []string{
 			events.ConsumerCaptionFetchHigh, events.ConsumerCaptionFetchNormal,
 		}},
@@ -111,6 +120,19 @@ func Domains() []Domain {
 		{Name: UsenetEngine},
 		{Name: Markers, Autoscaled: true, Consumers: []string{events.ConsumerMarkersAnalyze}},
 	}
+}
+
+// ServedBy is the domain whose responders answer the RPC verb subject
+// (Domain.Serves), false for a subject no domain serves.
+func ServedBy(subject string) (string, bool) {
+	for _, d := range Domains() {
+		for _, v := range d.Serves {
+			if v == subject {
+				return d.Name, true
+			}
+		}
+	}
+	return "", false
 }
 
 // Lookup returns the named domain.

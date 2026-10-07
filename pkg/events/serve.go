@@ -19,11 +19,14 @@ package events
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"runtime/debug"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/nats-io/nats.go"
 )
 
 // The request/reply rules every bus shares. They live here, not in each
@@ -280,6 +283,104 @@ func (e *ResponderError) Unwrap() error {
 		return ErrResponderBusy
 	}
 	return ErrResponderFailed
+}
+
+// RequestErrorClass is what a Request's error says about the verb's
+// responder (ADR-0020 §4), for its caller to switch on.
+type RequestErrorClass string
+
+// The request error classes.
+const (
+	// RequestOK is a nil error.
+	RequestOK RequestErrorClass = ""
+	// RequestNoResponders: nothing serves the verb (ErrNoResponders). It
+	// fails fast and no handler ran. In the manager the bus's request
+	// observer feeds it to app/dispatch as the serving domain's NoAgent.
+	RequestNoResponders RequestErrorClass = "noResponders"
+	// RequestBusy: refused at once, before any handler ran -- a responder
+	// with no slot and no queue place (ErrResponderBusy), or a request the
+	// client could not even buffer while reconnecting (ErrTransient).
+	RequestBusy RequestErrorClass = "busy"
+	// RequestTimeout: the caller's deadline passed. The responder may be
+	// slow or busy, or its answer was lost: a handler may have run.
+	RequestTimeout RequestErrorClass = "timeout"
+	// RequestOther: anything else, a handler's failure included
+	// (ErrResponderFailed).
+	RequestOther RequestErrorClass = "other"
+)
+
+// ClassifyRequestError classifies a Requester.Request error (ADR-0020 §4).
+func ClassifyRequestError(err error) RequestErrorClass {
+	switch {
+	case err == nil:
+		return RequestOK
+	case errors.Is(err, ErrNoResponders):
+		return RequestNoResponders
+	case errors.Is(err, ErrResponderBusy), errors.Is(err, ErrTransient):
+		return RequestBusy
+	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, nats.ErrTimeout):
+		return RequestTimeout
+	default:
+		return RequestOther
+	}
+}
+
+// NotRun reports that no handler ran: nothing served the verb, or it was
+// refused at once. Even a verb that is not idempotent may be sent again.
+func (c RequestErrorClass) NotRun() bool {
+	return c == RequestNoResponders || c == RequestBusy
+}
+
+// Retryable reports that an idempotent verb should be asked again on its
+// caller's own backoff: no responder, busy, or timed out. A verb that is not
+// idempotent retries only what NotRun admits, and after a timeout re-reads
+// its state first (ADR-0020 §4).
+func (c RequestErrorClass) Retryable() bool {
+	return c.NotRun() || c == RequestTimeout
+}
+
+// Reason is a condition reason for a request that failed with class c:
+// NoAgent (no responder), AgentBusy, RPCTimeout, else RPCError -- the
+// reason every RPC failure read as before ADR-0020 §4.
+func (c RequestErrorClass) Reason() string {
+	switch c {
+	case RequestNoResponders:
+		return "NoAgent"
+	case RequestBusy:
+		return "AgentBusy"
+	case RequestTimeout:
+		return "RPCTimeout"
+	default:
+		return "RPCError"
+	}
+}
+
+// DescribeRequestError wraps a failed request's error with what its class
+// means for subject, for a log line, a returned error or a status message:
+// "no responder serves <subject>", "<subject> is busy", "<subject> timed
+// out". nil stays nil; errors.Is still finds every sentinel through it.
+func DescribeRequestError(subject string, err error) error {
+	switch ClassifyRequestError(err) {
+	case RequestOK:
+		return nil
+	case RequestNoResponders:
+		return fmt.Errorf("no responder serves %s (no agent of its domain is up): %w", subject, err)
+	case RequestBusy:
+		return fmt.Errorf("%s is busy; asked again on the caller's backoff: %w", subject, err)
+	case RequestTimeout:
+		return fmt.Errorf("%s timed out (its responder is slow, busy, or its answer was lost): %w", subject, err)
+	default:
+		return fmt.Errorf("%s: %w", subject, err)
+	}
+}
+
+// RequestObserver is a bus whose every Request outcome can be observed: the
+// manager feeds them to app/dispatch, so a verb that finds no responder
+// reads as its serving domain's NoAgent (ADR-0020 §4). natsbus and membus
+// implement it; fn is called after every Request with its subject and
+// error, nil on success, and must not block. A nil fn stops observing.
+type RequestObserver interface {
+	ObserveRequests(fn func(subject string, err error))
 }
 
 // CallResponder runs h on data, turning a panic into an error so one bad

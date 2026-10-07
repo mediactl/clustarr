@@ -26,6 +26,7 @@ import (
 
 	"github.com/mediactl/clustarr/app/grab/engine"
 	"github.com/mediactl/clustarr/pkg/download"
+	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
@@ -139,6 +140,16 @@ func (t *Transfers) add(ctx context.Context, cmd schema.EngineCommand) (string, 
 	payload, err := t.Resolver.Resolve(rctx, cmd.Owner.Namespace, *cmd.Source)
 	cancel()
 	if err != nil {
+		// A timed-out download RPC is not retried blindly (ADR-0020 §4):
+		// re-read the client first, since another delivery of the command
+		// may have added the job meanwhile.
+		if events.ClassifyRequestError(err) == events.RequestTimeout {
+			if byName, ok := t.Client.(download.ByName); ok {
+				if it, ferr := byName.FindByName(ctx, cmd.Entry.ID); ferr == nil {
+					return it.ID, nil
+				}
+			}
+		}
 		return "", err
 	}
 	cat := cmd.Category

@@ -164,7 +164,10 @@ func (w *Worker) resolveRequiredID(
 	req := schema.MetadataRequest{Kind: kind, IDs: ToMetadataExternalIDs(ids)}
 	var resp schema.MetadataResponse
 	if err := w.Bus.Request(rpcCtx, events.RPCMetadataResolve, req, &resp); err != nil {
-		return 0, fmt.Errorf("resolve %s id: %w", key, err)
+		// An idempotent resolve: every class fails this sync, which the
+		// list's own schedule and the consumer's backoff run again; the
+		// error names the class (ADR-0020 §4).
+		return 0, fmt.Errorf("resolve %s id: %w", key, events.DescribeRequestError(events.RPCMetadataResolve, err))
 	}
 	if resp.Error != "" {
 		return 0, fmt.Errorf("resolve %s id: %s", key, resp.Error)

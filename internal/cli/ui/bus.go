@@ -82,7 +82,7 @@ func buildBus(ctx context.Context, natsURL string) uiBus {
 	}
 	search := func(ctx context.Context, req schema.MetadataRequest) (schema.MetadataResponse, error) {
 		var resp schema.MetadataResponse
-		err := bus.Request(ctx, events.RPCMetadataSearch, req, &resp)
+		err := requestIdempotent(ctx, bus, events.RPCMetadataSearch, req, &resp)
 		return resp, err
 	}
 	// The extended-metadata read is a closure over Get alone: ui is handed
@@ -105,7 +105,7 @@ func buildBus(ctx context.Context, natsURL string) uiBus {
 		ctx, cancel := context.WithTimeout(ctx, plexExtrasTimeout)
 		defer cancel()
 		var resp schema.PlexExtrasResponse
-		if err := bus.Request(ctx, events.RPCMetadataExtras, schema.PlexExtrasRequest{PlexID: plexID}, &resp); err != nil {
+		if err := requestIdempotent(ctx, bus, events.RPCMetadataExtras, schema.PlexExtrasRequest{PlexID: plexID}, &resp); err != nil {
 			return nil, err
 		}
 		if resp.Error != "" {
@@ -181,6 +181,33 @@ func buildBus(ctx context.Context, natsURL string) uiBus {
 		// §1): ui serves no responder and binds no durable, so this drains
 		// the connection -- its watches and outbound buffer -- and closes it.
 		close: busconn.ShutdownAfter(ctx, busShutdownBudget, bus, nc),
+	}
+}
+
+// idempotentRetries is the ui's own backoff for a busy metadata verb: a
+// refusal is immediate, so a short wait inside the request's own deadline
+// usually finds a slot.
+var idempotentRetries = []time.Duration{250 * time.Millisecond, time.Second}
+
+// requestIdempotent sends one of the metadata gateway's idempotent verbs
+// (search, extras) and asks again on idempotentRetries while it is refused
+// as busy and ctx allows (ADR-0020 §4). No responder fails fast -- no
+// metadata agent is up, and waiting cannot change that inside one page
+// load -- and a timeout has spent the request's deadline; both are named in
+// the returned error.
+func requestIdempotent(ctx context.Context, r events.Requester, subject string, in, out any) error {
+	for attempt := 0; ; attempt++ {
+		err := r.Request(ctx, subject, in, out)
+		if events.ClassifyRequestError(err) != events.RequestBusy || attempt >= len(idempotentRetries) {
+			return events.DescribeRequestError(subject, err)
+		}
+		t := time.NewTimer(idempotentRetries[attempt])
+		select {
+		case <-ctx.Done():
+			t.Stop()
+			return events.DescribeRequestError(subject, err)
+		case <-t.C:
+		}
 	}
 }
 
