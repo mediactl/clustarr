@@ -34,10 +34,10 @@ import (
 )
 
 // probeRaw reads path as ffprobe does -- the container, its streams and
-// chapters, and with frame the first decoded frame of v:0's colour tags and
-// HDR side data -- and builds the Raw ffprobe's JSON would decode to (spec
-// §6.3), which mediainfo.FromRaw maps; with frame it also merges v:0's first
-// decoded frame, as the second ffprobe call did.
+// chapters -- and builds the Raw ffprobe's JSON would decode to (spec §6.3),
+// which mediainfo.FromRaw maps. With frame it also merges the colour tags
+// and HDR side data of v:0's first decoded frame, as the second ffprobe call
+// did.
 func probeRaw(ctx context.Context, path string, frame bool) (*mediainfo.Raw, error) {
 	st, err := os.Stat(path)
 	if err != nil {
@@ -160,8 +160,8 @@ var readFirstFrame = firstFrame
 const firstFramePackets = 2000
 
 // firstFrame merges the first decoded frame of v into raw, as the second
-// ffprobe call (-select_streams v:0 -show_frames) did: its colour tags, which some encoders write only
-// there, and its HDR side data. A packet the decoder refuses (a damaged
+// ffprobe call (-select_streams v:0 -show_frames) did: its colour tags,
+// which some encoders write only there, and its HDR side data. A packet the decoder refuses (a damaged
 // one, or one before the first keyframe) is passed over, as ffprobe passes
 // over a frame it cannot decode; it is an error only when no frame decodes
 // within firstFramePackets, and that error says why.
