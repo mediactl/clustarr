@@ -665,6 +665,13 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - configmaps
+  - namespaces
+  verbs:
+  - get
+- apiGroups:
+  - ""
+  resources:
   - nodes
   verbs:
   - get
@@ -676,6 +683,24 @@ rules:
   - pods
   verbs:
   - list
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - create
+  - get
+  - update
+- apiGroups:
+  - apiregistration.k8s.io
+  resourceNames:
+  - v1beta1.external.metrics.k8s.io
+  resources:
+  - apiservices
+  verbs:
+  - delete
+  - get
+  - patch
 - apiGroups:
   - apps
   resources:
