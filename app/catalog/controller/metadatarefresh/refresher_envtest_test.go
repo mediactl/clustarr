@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package metadata_test
+package metadatarefresh_test
 
 import (
 	"context"
@@ -38,7 +38,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	"github.com/mediactl/clustarr/app/catalog/metadata"
+	"github.com/mediactl/clustarr/app/catalog/controller/metadatarefresh"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -107,7 +107,7 @@ func TestRefresherPublishesAForcedTaskAndConsumesTheAnnotation(t *testing.T) {
 	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
 		t.Skip("KUBEBUILDER_ASSETS is unset; run via `make test`")
 	}
-	env := &envtest.Environment{CRDDirectoryPaths: []string{"../../../config/crd/bases"}, ErrorIfCRDPathMissing: true}
+	env := &envtest.Environment{CRDDirectoryPaths: []string{"../../../../config/crd/bases"}, ErrorIfCRDPathMissing: true}
 	cfg, err := env.Start()
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, env.Stop()) })
@@ -122,7 +122,7 @@ func TestRefresherPublishesAForcedTaskAndConsumesTheAnnotation(t *testing.T) {
 	require.NoError(t, err)
 	bus := &recordingBus{}
 	rec := &fakeRecorder{}
-	require.NoError(t, metadata.NewRefresher(metadata.RefreshDeps{Client: mgr.GetClient(), Bus: bus, Recorder: rec}).SetupWithManager(mgr))
+	require.NoError(t, metadatarefresh.NewRefresher(metadatarefresh.RefreshDeps{Client: mgr.GetClient(), Bus: bus, Recorder: rec}).SetupWithManager(mgr))
 	go func() { _ = mgr.Start(ctx) }()
 	require.True(t, mgr.GetCache().WaitForCacheSync(ctx))
 	c, err := client.New(cfg, client.Options{Scheme: k8s.MustNewScheme()})
@@ -143,12 +143,12 @@ func TestRefresherPublishesAForcedTaskAndConsumesTheAnnotation(t *testing.T) {
 
 	consumed := func(obj client.Object) func() bool {
 		return func() bool {
-			return c.Get(ctx, client.ObjectKeyFromObject(obj), obj) == nil && obj.GetAnnotations()[metadata.AnnotationRefresh] == ""
+			return c.Get(ctx, client.ObjectKeyFromObject(obj), obj) == nil && obj.GetAnnotations()[metadatarefresh.AnnotationRefresh] == ""
 		}
 	}
 
 	t.Run("a movie", func(t *testing.T) {
-		setAnnotation(t, ctx, c, movie, metadata.AnnotationRefresh, "1758665000")
+		setAnnotation(t, ctx, c, movie, metadatarefresh.AnnotationRefresh, "1758665000")
 		require.Eventually(t, consumed(movie), 10*time.Second, 50*time.Millisecond, "the annotation must be consumed")
 		msgs := bus.snapshot()
 		require.Len(t, msgs, 1)
@@ -165,7 +165,7 @@ func TestRefresherPublishesAForcedTaskAndConsumesTheAnnotation(t *testing.T) {
 	})
 
 	t.Run("a second request with a newer epoch publishes again", func(t *testing.T) {
-		setAnnotation(t, ctx, c, movie, metadata.AnnotationRefresh, "1758665001")
+		setAnnotation(t, ctx, c, movie, metadatarefresh.AnnotationRefresh, "1758665001")
 		require.Eventually(t, consumed(movie), 10*time.Second, 50*time.Millisecond)
 		msgs := bus.snapshot()
 		require.Len(t, msgs, 2)
@@ -173,7 +173,7 @@ func TestRefresherPublishesAForcedTaskAndConsumesTheAnnotation(t *testing.T) {
 	})
 
 	t.Run("a series", func(t *testing.T) {
-		setAnnotation(t, ctx, c, series, metadata.AnnotationRefresh, "1758665002")
+		setAnnotation(t, ctx, c, series, metadatarefresh.AnnotationRefresh, "1758665002")
 		require.Eventually(t, consumed(series), 10*time.Second, 50*time.Millisecond)
 		msgs := bus.snapshot()
 		require.Len(t, msgs, 3)
@@ -182,7 +182,7 @@ func TestRefresherPublishesAForcedTaskAndConsumesTheAnnotation(t *testing.T) {
 
 	t.Run("not an epoch", func(t *testing.T) {
 		before := len(bus.snapshot())
-		setAnnotation(t, ctx, c, movie, metadata.AnnotationRefresh, "soon")
+		setAnnotation(t, ctx, c, movie, metadatarefresh.AnnotationRefresh, "soon")
 		require.Eventually(t, consumed(movie), 10*time.Second, 50*time.Millisecond, "a request that can never succeed is consumed, not retried forever")
 		assert.Len(t, bus.snapshot(), before, "a refused request publishes nothing")
 		assert.Contains(t, rec.seen(), "MetadataRefreshRefused")

@@ -15,7 +15,12 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package metadata
+// Package metadatarefresh is the clustarr.io/refresh-metadata handler: one
+// metadata-only controller per kind with a status.metadata of its own,
+// which publishes a forced MetadataTask for the gateway and consumes the
+// annotation. It left app/catalog/metadata, the gateway's package, so the
+// manager links no metadata client (design 2026-10-06 §4.3 C3).
+package metadatarefresh
 
 import (
 	"context"

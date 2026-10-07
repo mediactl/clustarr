@@ -49,6 +49,7 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/controller/issue"
 	"github.com/mediactl/clustarr/app/catalog/controller/mediafile"
 	"github.com/mediactl/clustarr/app/catalog/controller/metadataprovider"
+	"github.com/mediactl/clustarr/app/catalog/controller/metadatarefresh"
 	"github.com/mediactl/clustarr/app/catalog/controller/movie"
 	"github.com/mediactl/clustarr/app/catalog/controller/overlayprofile"
 	"github.com/mediactl/clustarr/app/catalog/controller/qualityprofile"
@@ -435,7 +436,7 @@ func setupControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	// The operator's forced metadata refresh (clustarr.io/refresh-metadata):
 	// one metadata-only controller per kind with metadata of its own, beside
 	// the reconcilers that publish the scheduled refreshes.
-	if err := catalogmetadata.NewRefresher(catalogmetadata.RefreshDeps{
+	if err := metadatarefresh.NewRefresher(metadatarefresh.RefreshDeps{
 		Client: c, Bus: bus, Recorder: mgr.GetEventRecorder("metadata-refresh"),
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("catalogarr: metadata refresh: %w", err)
