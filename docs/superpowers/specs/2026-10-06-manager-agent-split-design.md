@@ -2,7 +2,8 @@
 
 **Status:** Accepted for implementation, 2026-10-06. Supersedes
 `docs/superpowers/specs/2026-09-24-unified-manager-design.md` and adopts the
-topology ADR-0013 deferred (the superseding ADR is ADR-0016, §12). Nothing in
+topology ADR-0013 deferred (the superseding ADR is ADR-0018, §12; ADR-0016 is
+"per-file work is MediaFile status", accepted on this branch the same day). Nothing in
 this document is implemented or deployed. Building it is in scope; deploying
 it to kind-cluster-plex needs a later, explicit OK from the owner (§1).
 
@@ -292,7 +293,7 @@ envtests to `test/system`. Per-binary CLI and wiring tests live with their cmd.
 Start envtests split per identity. Every guard's intent is kept or retired with
 a stated reason (the KEDA guard becomes the consumer-home guard) (§10.3).
 
-**R11. Docs.** ADR-0016 adopts the topology and supersedes ADR-0013; ADR-0017
+**R11. Docs.** ADR-0018 adopts the topology and supersedes ADR-0013; ADR-0017
 records "no external media programs" and supersedes the par2-is-an-exec
 decision; `docs/autoscaling.md` replaces the KEDA docs; CLAUDE.md and the design
 of record are rewritten; the 2026-09-24 design is marked superseded (§12).
@@ -6279,12 +6280,16 @@ Its `kind-clustarr` fixture stands in for the ui Service under the same name.
 
 ## 12. Docs and ADRs to write
 
-- **ADR-0016** `docs/adr/0016-manager-agents-and-ui.md` (Accepted when the
+ADR-0016 went to "per-file work is MediaFile status" (accepted on this branch,
+2026-10-06), so the topology ADR, first drafted as 0016, is ADR-0018; ADR-0017 keeps
+its number, since the plan's code cites it from Wave 0 on.
+
+- **ADR-0018** `docs/adr/0018-manager-agents-and-ui.md` (Accepted when the
   owner accepts this spec): one manager with every reconciler and leader-only
   runnable under `manager.clustarr.io`; one agent Deployment per domain; ui alone;
   markers and transcode as native binaries; HPA autoscaling without KEDA. Its Context
   names ADR-0013 and the premise that changed (the owner chose to adopt now). In the
-  same commit ADR-0013's Status becomes `Superseded by ADR-0016, <date>`, and both
+  same commit ADR-0013's Status becomes `Superseded by ADR-0018, <date>`, and both
   rows of `docs/adr/README.md` change.
 - **ADR-0017** `docs/adr/0017-no-external-media-programs.md`: no image ships or runs
   ffmpeg, ffprobe or par2; probing, decode and subtitle extraction run on ffgo;
