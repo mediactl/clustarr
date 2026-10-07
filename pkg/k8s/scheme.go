@@ -21,6 +21,8 @@ import (
 	"fmt"
 
 	appsv1 "k8s.io/api/apps/v1"
+	autoscalingv1 "k8s.io/api/autoscaling/v1"
+	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	batchv1 "k8s.io/api/batch/v1"
 	coordinationv1 "k8s.io/api/coordination/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -52,6 +54,11 @@ var AddToSchemeFuncs = []func(*runtime.Scheme) error{
 	appsv1.AddToScheme,
 	coordinationv1.AddToScheme,
 	eventsv1.AddToScheme,
+	// autoscaling/v2 for the HPAs the autoscale reconciler owns, and
+	// autoscaling/v1 for the Scale subresource body ScaleTo reads and
+	// writes (spec 2026-10-06 §9.5).
+	autoscalingv1.AddToScheme,
+	autoscalingv2.AddToScheme,
 
 	// Clustarr API groups. api/common/v1alpha1 holds shared Go types only
 	// and has no GroupVersion of its own, so there is nothing to register.

@@ -316,6 +316,15 @@ const (
 	// must still hold, and a guard test asserts it the same way one does
 	// for ManagerDLQProjector above.
 	ManagerUI FieldManager = "clustarr-ui"
+
+	// ManagerAutoscale is the manager's autoscale reconciler and external-
+	// metrics CA injector (spec 2026-10-06 §5.3.6, §9.4, §9.5). It applies
+	// each autoscaled agent Deployment's HorizontalPodAutoscaler, writes a
+	// Deployment's scale subresource to wake one at zero that its HPA did
+	// not scale there, and owns only spec.caBundle on the
+	// v1beta1.external.metrics.k8s.io APIService. Written only from
+	// cmd/manager; never on a status subresource.
+	ManagerAutoscale FieldManager = "clustarr-autoscale"
 )
 
 // FieldManagers lists every manager name §2 allows, in spec order.
@@ -342,6 +351,7 @@ func FieldManagers() []FieldManager {
 		ManagerCaptionarrWorker,
 		ManagerDLQProjector,
 		ManagerUI,
+		ManagerAutoscale,
 	}
 }
 
