@@ -184,7 +184,7 @@ func run(args []string, getenv func(string) string) int {
 		return worker.ExitRetriable
 	}
 	h := &worker.Handler{
-		Decoder:      decode.Decoder{FFmpeg: *f.ffmpeg, Threads: *f.threads},
+		Decoder:      decode.Decoder{Threads: *f.threads},
 		Fingerprints: bus.ObjectStore(events.ObjectStoreFingerprints),
 		Bus:          bus,
 		KV:           bus.KV(events.BucketSegments),
