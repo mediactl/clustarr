@@ -17,15 +17,18 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 // Package natsbus implements events.Bus on NATS JetStream.
 //
-// It is the production bus. Streams, durable pull consumers and key/value
-// buckets are created from an events.Topology by Ensure; handler errors are
-// translated into explicit acknowledgements, delayed negative
-// acknowledgements and dead-letter copies by the shared events.Settle policy,
-// a final delivery whose handler hangs past its acknowledgement deadline is
-// dead-lettered from JetStream's MAX_DELIVERIES advisory, which every
-// subscription watches for its own consumer, and each subscription runs up
-// to MaxInFlight handlers, plus as many again while handlers are past their
-// acknowledgement deadline, so its observable behaviour matches membus.
+// It is the production bus. Streams, durable pull consumers with their
+// dead-letter watchers, and key/value buckets are created from an
+// events.Topology by Ensure (the manager's alone once the split lands, spec
+// §5.9); Subscribe only binds what Ensure created, and Pull alone creates its
+// own dynamic durable. Handler errors are translated into explicit
+// acknowledgements, delayed negative acknowledgements and dead-letter copies
+// by the shared events.Settle policy, a final delivery whose handler hangs
+// past its acknowledgement deadline is dead-lettered from JetStream's
+// MAX_DELIVERIES advisory, which every subscription watches for its own
+// consumer, and each subscription runs up to MaxInFlight handlers, plus as
+// many again while handlers are past their acknowledgement deadline, so its
+// observable behaviour matches membus.
 package natsbus
 
 import (
@@ -278,8 +281,15 @@ func publishError(top events.Topology, subject string, err error) error {
 	return fmt.Errorf("natsbus: publish %q: %w", subject, err)
 }
 
-// Subscribe creates or updates the durable pull consumer described by sub and
-// starts consuming it.
+// Subscribe binds to the durable pull consumer sub names and starts consuming
+// it. It never creates or updates consumer config, for the durable or for its
+// dead-letter watcher: both are topology objects the manager's EnsureTopology
+// creates (spec §5.9), so an older process cannot revert a newer topology,
+// and sub's tuning other than MaxInFlight, Backoff and Drain is the
+// topology's, not the caller's. It returns at once; the subscription binds
+// the durable and its watcher when they exist, waiting while either is
+// missing, and binds them again if they disappear while it runs, as a NATS
+// restart wipes a memory-backed stream.
 //
 // Slots. Up to sub.MaxInFlight handlers run at once (one when it is unset),
 // as on membus, each on its own goroutine, and the subscription fetches only
@@ -289,10 +299,6 @@ func publishError(top events.Topology, subject string, err error) error {
 // slot back while fewer than MaxInFlight are past theirs, so a hung handler
 // does not stop the next task, and at most twice MaxInFlight handlers ever
 // run at once. See subscription.
-//
-// The subscription binds its durable by name. If the durable or its stream
-// disappears while it runs, as a NATS restart wipes a memory-backed stream,
-// it waits for the durable to come back and resumes.
 //
 // The stop function stops fetching, lets running handlers keep their context
 // for up to sub.Drain, then cancels it and waits for them, as membus's does.
@@ -310,29 +316,9 @@ func (b *Bus) Subscribe(ctx context.Context, sub events.Subscription,
 		return nil, events.ErrClosed
 	}
 
-	// The cap is the topology's (sub.MaxAckPending), not this process's
-	// slots, so a Subscribe agrees with EnsureTopology instead of rewriting it.
-	cfg := events.ConsumerConfig(events.SubscriptionSpec(sub))
-	if _, err := b.js.CreateOrUpdateConsumer(ctx, sub.Stream, cfg); err != nil {
-		if errors.Is(err, jetstream.ErrStreamNotFound) {
-			return nil, fmt.Errorf("natsbus: stream %s: %w",
-				sub.Stream, events.ErrStreamNotFound)
-		}
-		return nil, fmt.Errorf("natsbus: consumer %s on %s: %w",
-			sub.Durable, sub.Stream, err)
-	}
-
-	// Watch for lapsed final deliveries. The advisories are captured in a
-	// stream, so one fired before this watcher starts is not missed.
-	watch, err := b.watchMaxDeliveries(ctx, sub)
-	if err != nil {
-		return nil, err
-	}
-
 	s := newSubscription(ctx, b, sub, func(hctx context.Context, m jetstream.Msg, onProgress func()) {
 		b.handle(hctx, sub, h, m, onProgress)
 	})
-	s.watch = watch
 	b.mu.Lock()
 	if b.closed {
 		b.mu.Unlock()

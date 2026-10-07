@@ -35,7 +35,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package membus
 
 import (
-	"cmp"
 	"context"
 	"fmt"
 	"strings"
@@ -268,31 +267,25 @@ func (b *Bus) ObjectStore(name string) events.ObjectStore {
 	return &objectHandle{bus: b, name: name}
 }
 
-// Subscribe starts a durable consumer over an in-memory stream. Like
-// natsbus's, it runs up to sub.MaxInFlight handlers at once, claiming a
-// message only into a free slot; a handler past its delivery's
-// acknowledgement deadline gives its slot back while fewer than
-// sub.MaxInFlight are past theirs (memSub); and the stop function lets
-// running handlers keep their context for up to sub.Drain before cancelling
-// it and waiting for them. Close cancels it at once.
+// Subscribe binds a durable consumer over an in-memory stream and delivers
+// to h. Like natsbus's, it never creates the durable: Ensure binds every
+// topology consumer, with its filters and cap, and Subscribe waits while its
+// durable is not bound -- not ensured yet, or deleted -- and resumes once it
+// is. It runs up to sub.MaxInFlight handlers at once, claiming a message only
+// into a free slot; a handler past its delivery's acknowledgement deadline
+// gives its slot back while fewer than sub.MaxInFlight are past theirs
+// (memSub); and the stop function lets running handlers keep their context
+// for up to sub.Drain before cancelling it and waiting for them. Close
+// cancels it at once.
 func (b *Bus) Subscribe(ctx context.Context, sub events.Subscription,
 	h events.Handler,
 ) (func(), error) {
 	if err := sub.Validate(); err != nil {
 		return nil, err
 	}
-	b.mu.Lock()
-	if b.closed {
-		b.mu.Unlock()
+	if b.isClosed() {
 		return nil, events.ErrClosed
 	}
-	st := b.streams[sub.Stream]
-	b.mu.Unlock()
-	if st == nil {
-		return nil, fmt.Errorf("membus: stream %s not ensured: %w",
-			sub.Stream, events.ErrStreamNotFound)
-	}
-	st.bindDurable(sub.Durable, sub.Filters, cmp.Or(sub.MaxAckPending, max(sub.MaxInFlight, 1)))
 
 	loopCtx, stopLoop := context.WithCancel(ctx)
 	// Handlers outlive the loop by up to sub.Drain, so their context is not
@@ -305,7 +298,7 @@ func (b *Bus) Subscribe(ctx context.Context, sub events.Subscription,
 	b.wg.Add(1)
 	go func() {
 		defer b.wg.Done()
-		closing := b.consume(loopCtx, hctx, st, sub, h, ms, &handlers, ackWait)
+		closing := b.consume(loopCtx, hctx, sub, h, ms, &handlers, ackWait)
 		if !closing && sub.Drain > 0 {
 			b.awaitIdle(&handlers, sub.Drain)
 		}
@@ -321,6 +314,52 @@ func (b *Bus) Subscribe(ctx context.Context, sub events.Subscription,
 			handlers.Wait()
 		})
 	}, nil
+}
+
+// boundStream is sub's stream once sub's durable is bound on it, else nil.
+func (b *Bus) boundStream(sub events.Subscription) *stream {
+	b.mu.Lock()
+	st := b.streams[sub.Stream]
+	b.mu.Unlock()
+	if st == nil || !st.hasDurable(sub.Durable) {
+		return nil
+	}
+	return st
+}
+
+var _ events.DeadLetterWatcher = (*Bus)(nil)
+
+// WatchDeadLetters implements events.DeadLetterWatcher by sweeping sub's
+// durable for lapsed final deliveries, the copy natsbus makes from the
+// MAX_DELIVERIES advisory, until stop or Close.
+func (b *Bus) WatchDeadLetters(ctx context.Context, sub events.Subscription) (func(), error) {
+	if err := sub.Validate(); err != nil {
+		return nil, err
+	}
+	if b.isClosed() {
+		return nil, events.ErrClosed
+	}
+	wctx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	ackWait := func(attempt uint64) time.Duration { return events.AckDeadline(sub, attempt) }
+	b.wg.Add(1)
+	go func() {
+		defer b.wg.Done()
+		defer close(done)
+		for {
+			if st := b.boundStream(sub); st != nil {
+				b.deadLetterLapsed(wctx, st, sub, ackWait)
+			}
+			select {
+			case <-wctx.Done():
+				return
+			case <-b.done:
+				return
+			case <-b.clock.After(pollInterval):
+			}
+		}
+	}()
+	return func() { cancel(); <-done }, nil
 }
 
 // memSub is one Subscribe call's handler slots. A message is claimed only
@@ -393,10 +432,11 @@ func (s *memSub) reclaim(st *stream, durable string, now time.Time) {
 	}
 }
 
-// consume claims into free slots until ctx ends (false) or the bus closes
-// (true). Lapsed final deliveries are swept on every pass, with or without a
-// free slot: JetStream gives up on them whatever the client is doing.
-func (b *Bus) consume(ctx, hctx context.Context, st *stream, sub events.Subscription, h events.Handler,
+// consume claims into free slots, once sub's durable is bound, until ctx
+// ends (false) or the bus closes (true). Lapsed final deliveries are swept on
+// every pass, with or without a free slot: JetStream gives up on them
+// whatever the client is doing.
+func (b *Bus) consume(ctx, hctx context.Context, sub events.Subscription, h events.Handler,
 	ms *memSub, handlers *sync.WaitGroup, ackWait func(uint64) time.Duration,
 ) bool {
 	for {
@@ -406,6 +446,17 @@ func (b *Bus) consume(ctx, hctx context.Context, st *stream, sub events.Subscrip
 		case <-b.done:
 			return true
 		default:
+		}
+		st := b.boundStream(sub)
+		if st == nil { // not created yet, or deleted: wait, as natsbus does
+			select {
+			case <-ctx.Done():
+				return false
+			case <-b.done:
+				return true
+			case <-b.clock.After(pollInterval):
+			}
+			continue
 		}
 		now := b.clock.Now()
 		b.deadLetterLapsed(ctx, st, sub, ackWait)

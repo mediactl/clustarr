@@ -97,7 +97,8 @@ type parkedMsg struct {
 // Close halts at once, without a drain.
 //
 // Re-binding. The pull loop binds a durable it never creates
-// (Bus.bindConsumer). If the durable or its stream disappears under it -- a
+// (Bus.bindConsumer), and the dead-letter watcher loop binds the durable's
+// watcher the same way. If the durable or its stream disappears under it -- a
 // NATS restart wipes a memory-backed stream until the manager ensures the
 // topology again -- it stops fetching, keeps its running handlers, and binds
 // again once the durable exists (spec §5.9).
@@ -106,7 +107,6 @@ type subscription struct {
 	sub   events.Subscription
 	slots int
 	run   func(ctx context.Context, m jetstream.Msg, onProgress func())
-	watch jetstream.ConsumeContext // the dead-letter watcher
 
 	loopCtx        context.Context
 	stopLoop       context.CancelFunc
@@ -142,10 +142,17 @@ func newSubscription(ctx context.Context, b *Bus, sub events.Subscription,
 	return s
 }
 
+// start runs the pull loop, the lapse reaper and the durable's dead-letter
+// watcher (Bus.runWatcher), all until the subscription stops, and the drain
+// that follows.
 func (s *subscription) start() {
-	s.loops.Add(2)
+	s.loops.Add(3)
 	go s.pullLoop()
 	go s.reapLoop()
+	go func() {
+		defer s.loops.Done()
+		s.bus.runWatcher(s.loopCtx, s.sub)
+	}()
 	go s.drainOnStop()
 }
 
@@ -385,9 +392,6 @@ func (s *subscription) drainOnStop() {
 // context for up to sub.Drain, and it returns once every handler and loop has.
 func (s *subscription) stop() {
 	s.stopLoop()
-	if s.watch != nil {
-		s.watch.Stop()
-	}
 	<-s.drained
 	s.handlers.Wait()
 	s.loops.Wait()
@@ -397,7 +401,4 @@ func (s *subscription) stop() {
 func (s *subscription) halt() {
 	s.hardOnce.Do(func() { close(s.hard) })
 	s.stopLoop()
-	if s.watch != nil {
-		s.watch.Stop()
-	}
 }

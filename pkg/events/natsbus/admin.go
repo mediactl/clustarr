@@ -31,9 +31,8 @@ import (
 var _ events.StreamAdmin = (*Bus)(nil)
 
 // lookupStream resolves stream and remaps jetstream.ErrStreamNotFound to
-// events.ErrStreamNotFound, exactly as Subscribe (natsbus.go) and
-// watchMaxDeliveries (deadletter.go) already do for their own stream lookups,
-// so every StreamAdmin caller can errors.Is against the package sentinel
+// events.ErrStreamNotFound, as lookupError does for consumer lookups, so
+// every StreamAdmin caller can errors.Is against the package sentinel
 // instead of the jetstream one.
 func (b *Bus) lookupStream(ctx context.Context, stream string) (jetstream.Stream, error) {
 	st, err := b.js.Stream(ctx, stream)

@@ -188,17 +188,21 @@ func (s *stream) expireLocked(now time.Time) {
 }
 
 // claim hands the next deliverable message to a durable consumer. It returns
-// nil when nothing is ready. A message whose delivery budget is spent is
-// never handed out again: its final delivery is still in flight, or lapsed
-// is about to dead-letter it.
+// nil when nothing is ready, and for a durable not bound on the stream: a
+// deleted durable takes nothing until it is bound again. A message whose
+// delivery budget is spent is never handed out again: its final delivery is
+// still in flight, or lapsed is about to dead-letter it.
 func (s *stream) claim(durable string, filters []string, now time.Time,
 	ackWait func(attempt uint64) time.Duration, maxDeliver int,
 ) *memMsg {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	workQueue := s.spec.Retention == events.RetentionWorkQueue
 	d, bound := s.durables[durable]
-	capped := bound && s.unsettledLocked(durable) >= d.maxAckPending
+	if !bound {
+		return nil
+	}
+	workQueue := s.spec.Retention == events.RetentionWorkQueue
+	capped := s.unsettledLocked(durable) >= d.maxAckPending
 	for _, m := range s.msgs {
 		if m.removed {
 			continue

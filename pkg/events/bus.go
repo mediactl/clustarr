@@ -185,10 +185,25 @@ func AckDeadline(s Subscription, attempt uint64) time.Duration {
 
 // Subscriber reads messages from a stream through a durable pull consumer.
 type Subscriber interface {
-	// Subscribe creates or updates the durable consumer described by s and
-	// starts delivering to h. The returned stop function drains in-flight
-	// handlers and detaches; it does not delete the durable consumer.
+	// Subscribe binds to the durable s names, which the topology declares and
+	// the manager's EnsureTopology creates, and delivers to h. It never
+	// creates or updates consumer config: s.MaxInFlight is only this
+	// process's slots. A missing durable, or one that disappears later, is
+	// waited for. The stop function stops fetching, lets running handlers
+	// keep their context for up to s.Drain, then cancels it and waits; it
+	// does not delete the durable.
 	Subscribe(ctx context.Context, s Subscription, h Handler) (stop func(), err error)
+}
+
+// DeadLetterWatcher dead-letters a durable's lapsed final deliveries without
+// consuming the durable. The manager runs one per static consumer
+// (busconn.WatchDeadLetters) as a backstop, so a lapse a draining pod leaves
+// behind is copied even while the durable's domain is at zero replicas (spec
+// §5.9). natsbus binds the durable's watcher on StreamAdvisories, which the
+// pods consuming the durable share; membus sweeps the durable for lapsed
+// final deliveries.
+type DeadLetterWatcher interface {
+	WatchDeadLetters(ctx context.Context, sub Subscription) (stop func(), err error)
 }
 
 // Puller hands out one message per Next call from a durable pull consumer.
@@ -223,7 +238,7 @@ type StreamAdmin interface {
 	// Subjects lists the subjects under filter that hold stored messages.
 	Subjects(ctx context.Context, stream, filter string) ([]string, error)
 	// Subscriptions lists the durable consumers that exist on stream,
-	// sorted: every durable a Subscribe or Pull created and no
+	// sorted: every durable Ensure declared or a Pull created, and no
 	// DeleteSubscription has removed since. It is how an owner finds the
 	// durables of things that are gone (squasharr's pool sweep). A
 	// dead-letter watcher lives on StreamAdvisories, not on stream, so it

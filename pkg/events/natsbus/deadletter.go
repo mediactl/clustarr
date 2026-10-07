@@ -61,56 +61,109 @@ type maxDeliveriesAdvisory struct {
 	Deliveries uint64 `json:"deliveries"`
 }
 
-// watchMaxDeliveries starts sub's MAX_DELIVERIES watcher and dead-letters
-// every message an advisory names, completing the DLQ path for the one case
-// events.Settle cannot see: a handler that hangs through its final delivery
-// never returns, so nothing in process ever settles or copies the message.
+var _ events.DeadLetterWatcher = (*Bus)(nil)
+
+// runWatcher dead-letters what sub's watcher on events.StreamAdvisories
+// reports, one advisory at a time, until ctx ends, completing the DLQ path
+// for the one case events.Settle cannot see: a handler that hangs through its
+// final delivery never returns, so nothing in process ever settles or copies
+// the message.
 //
-// The watcher reads the advisories from events.StreamAdvisories, which
-// captures them as JetStream publishes them, through a durable consumer
-// filtered to sub's own advisory subject. So an advisory fired while no
-// replica of sub's consumer is subscribed -- JetStream fires it when it next
-// tries to deliver, and a pull request a stopping replica left behind is
-// enough for that -- waits for the next replica to subscribe instead of being
-// lost, and one whose copy fails is retried rather than dropped. It was a
-// core-NATS queue subscription, which had neither property (gap fixes Z2).
+// The watcher is a topology object (events.DeadLetterWatcherSpec): the
+// manager's EnsureTopology creates it, and runWatcher only binds it, waiting
+// while it is missing and binding it again if it disappears, exactly as the
+// pull loop binds a durable. It reads the advisories from
+// events.StreamAdvisories, which captures them as JetStream publishes them,
+// through a durable filtered to sub's own advisory subject. So an advisory
+// fired while no replica of sub's consumer is subscribed -- JetStream fires
+// it when it next tries to deliver, and a pull request a stopping replica
+// left behind is enough for that -- waits for a watcher instead of being
+// lost, and one whose copy fails is naked onto watchRetry rather than
+// dropped.
 //
-// It runs wherever sub is consumed, which is every replica of every service
-// with a queue worker (spec §6.1: workers run on every replica), rather than
-// in one designated role. The DLQ path is in process by design (spec §5:
-// events.Settle, shared by natsbus and membus), so the process that owns a
-// consumer owns its dead letters; a watcher confined to catalogarr's history
-// role would leave importarr's, indexarr's and captionarr's hung handlers
-// dropped whenever that role is not deployed. The shared durable keeps the
-// replicas from copying one advisory more than once.
-func (b *Bus) watchMaxDeliveries(ctx context.Context, sub events.Subscription) (jetstream.ConsumeContext, error) {
-	// The watcher's config is the topology's (events.DeadLetterWatcherSpec),
-	// so it cannot drift from what EnsureTopology writes.
-	spec := events.DeadLetterWatcherSpec(events.SubscriptionSpec(sub))
-	cons, err := b.js.CreateOrUpdateConsumer(ctx, events.StreamAdvisories, events.ConsumerConfig(spec))
-	if err != nil {
-		if errors.Is(err, jetstream.ErrStreamNotFound) {
-			return nil, fmt.Errorf("natsbus: watch max deliveries of %s: stream %s: %w",
-				sub.Durable, events.StreamAdvisories, events.ErrStreamNotFound)
-		}
-		return nil, fmt.Errorf("natsbus: watch max deliveries of %s: %w", sub.Durable, err)
-	}
+// Every process consuming sub's durable runs it, and the manager runs it too
+// as a backstop (WatchDeadLetters), for a domain at zero replicas. They all
+// share the one watcher durable, so each advisory is handled once, and the
+// copy's Msg-Id deduplicates an advisory handled twice anyway.
+func (b *Bus) runWatcher(ctx context.Context, sub events.Subscription) {
+	name := events.DeadLetterWatcherName(sub.Stream, sub.Durable)
 	base := context.WithoutCancel(ctx)
-	cc, err := cons.Consume(func(m jetstream.Msg) {
+	var cons jetstream.Consumer
+	for ctx.Err() == nil {
+		if cons == nil {
+			c, err := b.bindConsumer(ctx, events.StreamAdvisories, name)
+			if err != nil {
+				return
+			}
+			cons = c
+		}
+		err := b.watchOnce(ctx, base, cons, sub)
+		switch {
+		case err == nil, ctx.Err() != nil, benignFetchError(err):
+		case consumerGone(err):
+			cons = nil
+		default:
+			logging.FromContext(ctx).Warn("bus: dead-letter watcher fetch failed; retrying",
+				"watcher", name, "error", err)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(fetchRetry):
+			}
+		}
+	}
+}
+
+// watchOnce fetches up to events.DeadLetterWatcherMaxAckPending advisories
+// and handles each: acknowledged once dead-lettered, naked onto watchRetry
+// when the copy failed. The copies run on base, so stopping the watcher
+// does not cut one short.
+func (b *Bus) watchOnce(ctx, base context.Context, cons jetstream.Consumer, sub events.Subscription) error {
+	fctx, cancel := context.WithTimeout(ctx, fetchWait)
+	defer cancel()
+	batch, err := cons.Fetch(events.DeadLetterWatcherMaxAckPending,
+		jetstream.FetchContext(fctx), jetstream.FetchHeartbeat(fetchHeartbeat))
+	if err != nil {
+		return err
+	}
+	for m := range batch.Messages() {
 		if b.deadLetterLapsed(base, sub, m.Data()) {
 			_ = m.Ack()
-			return
+			continue
 		}
 		attempt := uint64(1)
 		if md, err := m.Metadata(); err == nil && md.NumDelivered > 0 {
 			attempt = md.NumDelivered
 		}
 		_ = m.NakWithDelay(watchRetry[min(attempt, uint64(len(watchRetry)))-1])
-	}, jetstream.PullMaxMessages(events.DeadLetterWatcherMaxAckPending))
-	if err != nil {
-		return nil, fmt.Errorf("natsbus: watch max deliveries of %s: %w", sub.Durable, err)
 	}
-	return cc, nil
+	return batch.Error()
+}
+
+// WatchDeadLetters implements events.DeadLetterWatcher. It binds sub's
+// watcher, which EnsureTopology created, and never creates it; Close stops it.
+func (b *Bus) WatchDeadLetters(ctx context.Context, sub events.Subscription) (func(), error) {
+	if err := sub.Validate(); err != nil {
+		return nil, err
+	}
+	b.mu.Lock()
+	closed := b.closed
+	b.mu.Unlock()
+	if closed {
+		return nil, events.ErrClosed
+	}
+	wctx, cancel := context.WithCancel(ctx)
+	unhook := context.AfterFunc(b.serveCtx, cancel)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		b.runWatcher(wctx, sub)
+	}()
+	return func() {
+		unhook()
+		cancel()
+		<-done
+	}, nil
 }
 
 // deadLetterLapsed handles one MAX_DELIVERIES advisory for sub. It reports
