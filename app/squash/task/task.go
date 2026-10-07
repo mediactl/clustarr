@@ -23,12 +23,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package task
 
 import (
-	"github.com/mediactl/clustarr/app/squash/grafttask"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
+	"github.com/mediactl/clustarr/app/squash/grafttask"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 )
 

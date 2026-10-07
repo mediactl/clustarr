@@ -20,9 +20,9 @@ package worker
 import (
 	"context"
 	"errors"
-	"github.com/mediactl/clustarr/app/squash/grafttask"
 
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
+	"github.com/mediactl/clustarr/app/squash/grafttask"
 	"github.com/mediactl/clustarr/app/squash/task"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"

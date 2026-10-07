@@ -19,7 +19,6 @@ package transcodejob
 
 import (
 	"fmt"
-	"github.com/mediactl/clustarr/app/squash/grafttask"
 	"regexp"
 	"strings"
 	"time"
@@ -28,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
+	"github.com/mediactl/clustarr/app/squash/grafttask"
 	"github.com/mediactl/clustarr/app/squash/task"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )

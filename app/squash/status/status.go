@@ -186,8 +186,11 @@ func GraftResultAC(g *transcodev1alpha1.GraftResult) *transcodeac.GraftResultApp
 		v   string
 		set func(string) *transcodeac.GraftResultApplyConfiguration
 	}{
-		{g.Release, ac.WithRelease}, {g.Reason, ac.WithReason}, {g.Message, ac.WithMessage},
-		{g.RateName, ac.WithRateName}, {g.GraftTag, ac.WithGraftTag},
+		{g.Release, ac.WithRelease},
+		{g.Reason, ac.WithReason},
+		{g.Message, ac.WithMessage},
+		{g.RateName, ac.WithRateName},
+		{g.GraftTag, ac.WithGraftTag},
 	} {
 		if s.v != "" {
 			s.set(s.v)

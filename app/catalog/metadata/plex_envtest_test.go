@@ -133,7 +133,7 @@ func requireManagerOwns(t *testing.T, mfs []metav1.ManagedFieldsEntry, manager k
 			continue
 		}
 		for _, p := range paths {
-			require.True(t, strings.Contains(mf.FieldsV1.GetRawString(), p), "%s owns no %s: %s", manager, p, mf.FieldsV1.Raw)
+			require.True(t, strings.Contains(mf.FieldsV1.GetRawString(), p), "%s owns no %s: %s", manager, p, mf.FieldsV1.GetRawString())
 		}
 		return
 	}

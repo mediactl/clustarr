@@ -18,7 +18,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package transcodejob
 
 import (
-	"github.com/mediactl/clustarr/app/squash/grafttask"
 	"strings"
 	"testing"
 	"time"
@@ -27,6 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
+	"github.com/mediactl/clustarr/app/squash/grafttask"
 	"github.com/mediactl/clustarr/app/squash/task"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
@@ -179,8 +179,10 @@ func TestApplyDecisionRequeue(t *testing.T) {
 // result for a join the dispatch write missed names its AudioGraft itself.
 func TestAWorkersGraftResultLandsInStatusGraft(t *testing.T) {
 	joined := &transcodev1alpha1.GraftResult{Phase: transcodev1alpha1.GraftJoined, AudioGraft: "monster-audiograft", Release: "r"}
-	got := graftResult(joined, grafttask.Result{Phase: grafttask.PhaseSucceeded, Reason: grafttask.ReasonGrafted, GraftTag: "abc",
-		Segments: []grafttask.Segment{{LengthMillis: 5}}})
+	got := graftResult(joined, grafttask.Result{
+		Phase: grafttask.PhaseSucceeded, Reason: grafttask.ReasonGrafted, GraftTag: "abc",
+		Segments: []grafttask.Segment{{LengthMillis: 5}},
+	})
 	assert.Equal(t, transcodev1alpha1.GraftSucceeded, got.Phase)
 	assert.Equal(t, "monster-audiograft", got.AudioGraft)
 	assert.Equal(t, "r", got.Release)

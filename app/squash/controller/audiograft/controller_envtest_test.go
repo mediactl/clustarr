@@ -492,8 +492,10 @@ func TestANewDonorIsReducedAtOnce(t *testing.T) {
 	assert.Empty(t, set, "a reduce writes only the donor: no transcode is held back")
 
 	job := jobs[0]
-	f.finish(&job, grafttask.Result{Phase: grafttask.PhaseSucceeded, Reason: grafttask.ReasonReduced,
-		DonorAudio: "/data/media/tv/.clustarr/donors/uid/monster-s01e03.mka"})
+	f.finish(&job, grafttask.Result{
+		Phase: grafttask.PhaseSucceeded, Reason: grafttask.ReasonReduced,
+		DonorAudio: "/data/media/tv/.clustarr/donors/uid/monster-s01e03.mka",
+	})
 	g = f.reconcile(g)
 	assert.Equal(t, "/data/media/tv/.clustarr/donors/uid/monster-s01e03.mka", g.Status.DonorAudioPath)
 	assert.Equal(t, transcodev1alpha1.AudioGraftWaiting, g.Status.Phase)
@@ -528,8 +530,10 @@ func TestAGraftMirrorsTheTranscodeItJoined(t *testing.T) {
 	g := f.graft("monster-s01e02")
 	tj := &transcodev1alpha1.TranscodeJob{
 		ObjectMeta: metav1.ObjectMeta{Name: "tj", Namespace: f.ns},
-		Spec: transcodev1alpha1.TranscodeJobSpec{MediaFileRef: mf.Name, ProfileRef: "default",
-			SourcePath: mf.Spec.Path, SourceProbeHash: mf.Status.ProbeHash},
+		Spec: transcodev1alpha1.TranscodeJobSpec{
+			MediaFileRef: mf.Name, ProfileRef: "default",
+			SourcePath: mf.Spec.Path, SourceProbeHash: mf.Status.ProbeHash,
+		},
 	}
 	require.NoError(t, f.c.Create(f.ctx, tj))
 	_, err := k8s.PatchStatus(f.ctx, f.c, k8s.ManagerSquasharr, transcodeac.TranscodeJob("tj", f.ns).WithStatus(
