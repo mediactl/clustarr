@@ -8,7 +8,12 @@ Status: design, for the owner's approval (2026-10-07).
   Deployment or service of their own.
 - **The group:** `IPTVProvider` belongs to the `clustarr.io` group.
 - **The stream format:** the provider serves MPEG-TS, so HLS is deferred.
-- **The 480 limit:** it applies to each DVR (§3.1).
+- **No channel cap:** 480 is the cap of Plex's setup wizard, not of PMS.
+  cluster-plex registers through PMS's API, so a provider carries any
+  number of active channels (§3.1). This follows iptvtunerr's patterns.
+  - **What it changes:** the mappings move out of `IPTVProvider` into a
+    kind of their own, `IPTVChannel`, one object per mapped channel. One
+    object could not hold thousands.
 - **cluster-plex adds each provider to Plex:** it registers the device and
   creates the DVR through PMS's API (§6.1). No address is entered by hand.
 - **The NetworkPolicy ships on.** clustarr and cluster-plex are being
@@ -33,6 +38,7 @@ The sections below are written to these rulings.
   - mappings;
   - active channels.
 - Validation that Plex sees no more than 480 live channels, Plex's limit.
+  **Superseded:** the owner removed the cap (§3.1).
 - Every setting manageable from the UI, on the Settings page.
 - A new **Live TV** page that does what xTeVe's tables do: filtering,
   mapping and channel selection.
@@ -41,8 +47,8 @@ The sections below are written to these rulings.
 
 - **One provider, one device:** each provider is one emulated HDHomeRun
   device and one Plex DVR.
-- **The 480 limit:** it applies to each DVR (owner, 2026-10-07). Two
-  providers make two DVRs of up to 480 channels each.
+- **No channel cap:** the owner's ruling (2026-10-07). §3.1 says why it
+  holds and what remains to be measured.
 - **Plex's job:** Plex records and transcodes. Clustarr only relays streams
   and serves the guide.
 - **Network:** Plex reaches the proxy inside the cluster. Plex and clustarr
@@ -96,12 +102,22 @@ Its model has four parts:
   device is added by address;
 - the web-socket configuration API. The CRD is the configuration.
 
-## 3. The resource: `IPTVProvider`
+## 3. The resources: `IPTVProvider` and `IPTVChannel`
 
-`IPTVProvider` (short name `iptv`) is the first kind of the
-`clustarr.io/v1alpha1` group, in `api/clustarr/v1alpha1`. Its controller
-gives it one Service, its address in Plex. Its tuner is a runnable of the
-manager (§5), not a pod of its own.
+Both are the first kinds of the `clustarr.io/v1alpha1` group, in
+`api/clustarr/v1alpha1`:
+
+- **`IPTVProvider`** (short name `iptv`) holds the provider's settings. Its
+  controller gives it one Service, its address in Plex. Its tuner is a
+  runnable of the manager (§5), not a pod of its own.
+- **`IPTVChannel`** (short name `iptvch`) holds one mapped channel: a
+  candidate the owner activated or customised. Its full model is in §3.0.
+  - **Why a kind of its own:** with no cap, the mappings cannot be a list in
+    the provider. etcd caps an object at about 1.5 MiB, which a few
+    thousand mappings with logo URLs would exceed.
+  - **What else it buys:** one object per channel also means a table edit
+    writes one small object, never a whole list that two browser tabs could
+    overwrite. And `kubectl get iptvch` is xTeVe's mapping table.
 
 ```go
 type IPTVProviderSpec struct {
@@ -139,14 +155,6 @@ type IPTVProviderSpec struct {
 
 	// ChannelNumberStart is where the UI's auto-numbering begins. Default 1000.
 	ChannelNumberStart *int32 `json:"channelNumberStart,omitempty"`
-
-	// Channels are the mapped channels: every candidate the owner activated
-	// or customised. An inactive entry keeps its mapping for later.
-	// +listType=map
-	// +listMapKey=key
-	// +kubebuilder:validation:MaxItems=1024
-	// +kubebuilder:validation:XValidation:rule="self.filter(c, c.active).size() <= 480",message="Plex accepts at most 480 channels per tuner device"
-	Channels []Channel `json:"channels,omitempty"`
 
 	// Device names the emulated HDHomeRun.
 	Device DeviceSpec `json:"device,omitempty"`
@@ -189,11 +197,15 @@ type ChannelFilter struct {
 	Enabled       *bool    `json:"enabled,omitempty"`
 }
 
-type Channel struct {
-	// Key is the playlist entry's identity (pkg/iptv.EntryKey, 4.1).
+type IPTVChannelSpec struct {
+	// ProviderRef names the IPTVProvider in the same namespace. Immutable (CEL).
+	ProviderRef string `json:"providerRef"`
+	// Key is the playlist entry's identity (pkg/iptv.EntryKey, 4.1). Immutable (CEL).
 	// +kubebuilder:validation:MaxLength=64
-	Key    string `json:"key"`
-	Active bool   `json:"active,omitempty"`
+	Key string `json:"key"`
+	// Active puts the channel in the lineup. An inactive IPTVChannel keeps
+	// its mapping for later.
+	Active bool `json:"active,omitempty"`
 	// Number is the GuideNumber Plex shows: "1001" or "5.1".
 	// +kubebuilder:validation:Pattern=`^[0-9]{1,5}(\.[0-9]{1,3})?$`
 	Number string `json:"number"`
@@ -237,30 +249,62 @@ accessor, as the typed-client gotcha requires. `EPGSource` is an
 `omitempty` string whose zero value means nothing, so its CRD default can
 be reached.
 
-### 3.1 The 480 limit, in three places
+### 3.0 IPTVChannel's name, owner and status
 
-The limit is per DVR, and one provider is one DVR. So every check below
-counts one provider's active channels.
+- **Its name:** `<provider>-<base32 SHA-256 of the key, 10 characters>`,
+  built by `pkg/names`. So the UI and kubectl name a channel the same way,
+  and a second IPTVChannel for one key cannot exist.
+- **Its owner:** an owner reference to its IPTVProvider, so deleting the
+  provider deletes its channels.
+- **Its status** comes from the IPTVChannel reconciler (§6), its sole
+  writer, under `k8s.ManagerLiveTVChannel`:
+  - `conditions`: `Ready`, with reason `Active`, `Inactive`, `Missing`
+    (the key has left the playlist), `DuplicateNumber`, or `GuideNotFound`;
+  - `guide`: the guide and channel actually used, including one resolved by
+    tvg-id or a dummy;
+  - `observedGeneration`.
+- **Its printer columns:** Provider, Number, Name, Active, Guide, Ready.
 
-1. **Admission:** the CEL rule on `spec.channels` rejects a 481st active
-   channel, from kubectl or the UI alike. `MaxItems=1024` bounds the CEL
-   cost. Inactive mappings count toward 1024, not 480.
-2. **The UI:** it shows `active / 480`. It refuses an activation that would
-   pass 480, saying how many of the selection fit, before it writes
-   anything (§6.2).
-3. **The tuner:** it renders at most `livetv.PlexChannelLimit` (480)
-   entries into `lineup.json`, whatever it reads. This is a defence, never
-   the rule.
+### 3.1 No channel cap
 
-Rules too costly for CEL go to the controller, which reports them in
-`Valid=False` with a reason. Its `lineup.json` drops an offending entry and
-names it:
-- **Duplicate numbers among active channels:** checking them pairwise over
-  1024 entries is beyond CEL's cost budget.
-- **`epg.guide` naming no guide.**
+**Why the cap goes:**
+- **The 480 is the setup wizard's.** Plex Web's DVR wizard shows at most
+  480 channels.
+- **PMS takes more through its API.** It accepts a larger channel map when
+  a DVR is registered through the API rather than the wizard. That is
+  iptvtunerr's documented production path (its README: "Plex's wizard caps
+  the visible lineup at 480 channels … use programmatic registration
+  instead", `run -register-plex=api`).
+- **So nothing in clustarr limits the active count.** cluster-plex
+  registers every DVR through the API (§6.1). Under PMS the owner finishes
+  the setup in the wizard, and cluster-plex then saves the full channel map
+  through the API, so there is no cap there either.
+- **What is gone:** the CEL rule, the UI's `/ 480` counter and refusal, and
+  the tuner's lineup cap. The UI shows the active count only.
 
-CEL covers the cheap rules: exactly one of `url` and `urlFrom`, exactly one
-of `epg.guide` and `epg.dummy`, and `channelID` required with `guide`.
+**What remains to measure, in the plan's PMS recording task (§6.1):**
+1. **The largest channel map PMS 1.43.4 accepts in one request.** The map
+   is a full replacement, so it cannot be split. iptvtunerr found that
+   batching truncates the map to its last batch. The request carries every
+   pair in its query string, so the URL length is the likely limit.
+2. **How PMS behaves with thousands of channels,** including its guide
+   grid. Clustarr does not limit this; the owner judges it.
+
+**If PMS refuses a large map,** the fallback is iptvtunerr's "category DVR
+fleet": several devices from one provider, each with its own device ID and
+a non-overlapping range of guide numbers. It is designed here but not
+built. It would be a `spec.devices` list splitting the lineup by group,
+and each entry would get its own Service.
+
+**What is still validated:**
+- **CEL, for the cheap rules:** exactly one of `url` and `urlFrom`; exactly
+  one of `epg.guide` and `epg.dummy`; `channelID` required with `guide`;
+  `providerRef` and `key` immutable.
+- **The IPTVChannel reconciler, for the rules that span objects:** a
+  duplicate number among a provider's active channels, and an `epg.guide`
+  naming no guide. Each is reported on the channel's `Ready` condition. The
+  tuner's `lineup.json` keeps the first channel by name and drops the
+  others.
 
 ### 3.2 Status: one writer
 
@@ -281,7 +325,7 @@ The reconciler is the sole writer of status, under `k8s.ManagerLiveTV`.
 **Fields:**
 - `conditions`:
   - `Ready`;
-  - `Valid` (§3.1);
+  - `Valid`: the Secrets and keys the provider names exist;
   - `PlaylistFetched`;
   - `GuidesFetched`;
 - `observedGeneration`;
@@ -361,7 +405,7 @@ counts, filters and previews the UI shows are the ones Plex gets.
   - **at render time:** the tuner applies it to an active channel with no
     `epg`;
   - **in the UI:** the "Auto-map guide" bulk action writes the result into
-    spec, so the CR says what Plex gets.
+    each IPTVChannel's spec, so the objects say what Plex gets.
 
 ### 4.4 The HDHomeRun surface: `pkg/iptv/hdhr`
 
@@ -425,7 +469,10 @@ bounded:
 
 ### 5.1 Startup and refresh
 
-1. **Read the CR** from the manager's cache, for every enabled provider.
+1. **Read the CRs** from the manager's cache: every enabled provider, and
+   its IPTVChannels through a field index on `spec.providerRef`. A
+   namespace List per event would scale as watched × listed, the gotcha the
+   startup map functions hit.
 2. **Fetch the playlist**, with the URL from the Secret. A Secret is read
    by name with `get` only, as the usenet engine reads provider Secrets.
    - The playlist, stream URLs included, is held in memory only.
@@ -438,7 +485,9 @@ bounded:
    - Until the fetch finishes, the stored guide is served, so a restart
      never blanks Plex's guide.
 4. **Re-render on a spec change:** `lineup.json` and the guide are rendered
-   again on a spec change (channels, filters or guides). A playlist URL
+   again when an IPTVChannel or the provider's filters or guides change.
+   The render is debounced to 2 s, so a bulk edit of thousands of channels
+   renders once. A playlist URL
    change fetches the playlist again. Nothing restarts.
 5. **Refresh on schedule or by request:** fetches repeat on each source's
    `refresh`. The `clustarr.io/livetv-refresh` annotation, which the UI's
@@ -552,11 +601,20 @@ There is no channel label: a channel name is a title.
   given stays.
 
 **Its other work:**
-- the §3.1 checks, written as `Valid`;
+- `Valid` (§3.2);
 - `deviceID`, `address` and `guideURL`;
 - status from the tuner's snapshot (§3.2).
 
 It does no fetching. Fetching is the tuner's.
+
+**The IPTVChannel reconciler** (`app/livetv/controller/iptvchannel`) is
+the sole writer of IPTVChannel status (§3.0).
+- **What wakes it:** a channel's own change, and its provider's snapshot
+  changing (a new playlist or guide). The provider's events reach its
+  channels through the `spec.providerRef` index.
+- **What it writes:** only a status that differs from the current one. So
+  a playlist refresh that changes nothing writes nothing, even across
+  thousands of channels.
 
 **Guard test:** `TestLiveTVServicesSelectTheManager` holds each Service's
 selector and target port to the manager pod's labels and
@@ -584,34 +642,59 @@ cluster-plex already has the pieces:
 - **The provisioner:** it gains DVRs, run by cluster-plex's leader. That
   makes it the one writer of Plex's Live TV state.
 
-**What it converges, for each IPTVProvider that is `Ready` and enabled:**
+**What it converges, for each IPTVProvider that is `Ready` and enabled.**
+The calls are the ones iptvtunerr makes in production
+(`internal/plex/dvr.go`), each with the server's `X-Plex-Token`:
 
-1. **The device.** If `GET /media/grabbers/devices` has no device whose
-   identifier is `device://tv.plex.grabbers.hdhomerun/<status.deviceID>`,
-   it registers one with `POST /media/grabbers/devices?uri=http://<status.address>`.
-   PMS then reads `discover.json`.
+1. **The device.**
+   - **Find it:** `GET /media/grabbers/devices`, looking for the identifier
+     `device://tv.plex.grabbers.hdhomerun/<status.deviceID>`.
+   - **When none exists:**
+     - probe with `POST /media/grabbers/devices/discover?uri=http://<status.address>`;
+     - then register with `POST /media/grabbers/devices?uri=http://<status.address>`.
+   - **When one exists, it is never registered again.** Registering again
+     is how duplicate and empty DVR rows arise (iptvtunerr's recovery
+     notes).
+   - **When an existing device names another address:** it records
+     `DVRDeviceAddressChanged` and changes nothing. The Service is never
+     recreated, so this means a person did something by hand.
 2. **The DVR.**
-   - **Under XEPG:** if `GET /livetv/dvrs` has no DVR on that device, it
-     creates one with `POST /livetv/dvrs?device=<identifier>&lineup=lineup://tv.plex.providers.epg.xmltv/<url-encoded status.guideURL>#<friendlyName>&language=<lang>`.
+   - **Under XEPG:** when `GET /livetv/dvrs` has no DVR on the device, it
+     creates one with `POST /livetv/dvrs?language=<lang>&device=<device uuid>&lineup=lineup://tv.plex.providers.epg.xmltv/<url-encoded status.guideURL>#<friendlyName>`.
    - **Under PMS:** a Plex lineup depends on the owner's location, which
-     the CR does not know. So cluster-plex registers the device only and
-     records `DVRNeedsLineup`. The owner then finishes the setup once in
-     Plex's wizard.
-3. **The channel map.** When `status.lineup.hash` differs from the hash it
-   last saved, it saves the device's channel map. Every lineup channel is
-   enabled and mapped to the XMLTV channel of the same id, since under XEPG
-   a channel's guide id is its number. So an activation on the Live TV page
-   reaches Plex without the wizard.
-4. **The guide.** When `status.guideHash` changes, it asks PMS to reload
-   that DVR's guide.
+     the CR does not know. So it registers the device only and records
+     `DVRNeedsLineup`. Once the owner has finished Plex's wizard, it adopts
+     that DVR for steps 3 and 4.
+3. **The channel map,** when `status.lineup.hash` differs from the hash it
+   last saved:
+   - `GET /livetv/epg/channelmap?device=<uuid>&lineup=<lineup id>` gives
+     PMS's pairing of the device's channels with the lineup's;
+   - then **one** `PUT /media/grabbers/devices/<key>/channelmap` enables
+     every channel. Its query is `channelsEnabled=<every number>`, plus
+     `channelMappingByKey[<number>]=<channel key>` and
+     `channelMapping[<number>]=<lineup identifier>` for each channel.
+   - The PUT replaces the whole map, so it is never batched. A batch would
+     leave only the last batch's channels (iptvtunerr).
+   - This is the step that carries more than 480 channels, and it is how an
+     activation on the Live TV page reaches Plex without the wizard.
+4. **The guide:** when `status.guideHash` changes, it calls
+   `POST /livetv/dvrs/<key>/reloadGuide`.
 
 **Which DVRs it manages:** cluster-plex manages exactly the devices whose
 identifier carries an IPTVProvider's `deviceID`. Every other tuner and DVR
 in Plex is left alone.
 
+**Ghost cleanup (iptvtunerr's "ghost-hunter" pattern):** on a managed
+device, DVR rows beyond the first are deleted with
+`DELETE /livetv/dvrs/<key>`. So are DVRs left on a managed device that no
+longer exists. Being the one writer is what keeps such rows from coming
+back.
+
 **Deleting a provider** removes its DVR and its device, through the
 watcher's tombstone handling. That also removes the DVR's recording rules:
-the tuner they would record from is gone. `enabled: false` removes
+the tuner they would record from is gone. The calls are
+`DELETE /livetv/dvrs/<key>` and `DELETE /media/grabbers/devices/<key>`.
+`enabled: false` removes
 nothing, and Plex shows the device offline until it is enabled again.
 
 **Reporting:** cluster-plex never writes clustarr's status (one writer). It
@@ -619,24 +702,31 @@ records Events on the IPTVProvider instead:
 - `DVRProvisioned`;
 - `DVRChannelMapSaved`;
 - `DVRNeedsLineup`;
+- `DVRDeviceAddressChanged`;
 - `DVRProvisionFailed`, with PMS's answer through cluster-plex's existing
   `snippet`.
 
 `kubectl describe iptv` and the Settings panel (§7.1) show them.
 
-**The PMS calls are to be confirmed.** Steps 1 and 2 follow the calls Plex
-Web makes and that the community's tools use. The channel-map and
-guide-reload calls are known only from those tools, not from Plex's
-documentation. So the plan's first cluster-plex task records the real
-calls Plex Web makes against the owner's PMS (1.43.4). It does that once,
-by hand, through the wizard, and replays them as `fakepms` fixtures. This
-is how `ui/plex`'s extras route was pinned down.
+**Recording the calls.** The calls come from iptvtunerr's code, not from
+Plex's documentation. So the plan's first cluster-plex task records them
+once against the owner's PMS (1.43.4), by hand, and replays them as
+`fakepms` fixtures. This is how `ui/plex`'s extras route was pinned down.
+The same task settles three points:
+- the largest channel map one PUT carries (§3.1);
+- whether PMS re-reads a changed `lineup.json` on its own before step 3,
+  or needs a device rescan first;
+- what step 2 needs under PMS.
 
 ## 7. The UI
 
 The UI writes only spec, Secrets and annotations, through `ui/actions`,
-under `clustarr-ui`. That makes IPTVProvider the eleventh Settings kind, and
-CLAUDE.md's invariant and `actions.Grants()` change from ten to eleven.
+under `clustarr-ui`:
+- **IPTVProvider** is the eleventh Settings kind (create, patch, delete).
+- **IPTVChannel** joins the kinds the UI creates, as Add New's four do
+  (create, patch, delete; spec only).
+
+CLAUDE.md's invariant and `actions.Grants()` change to match.
 `TestUINeverWrites` needs no change: the object-store reads are `Get`.
 
 ### 7.1 Settings: "Live TV providers"
@@ -661,7 +751,7 @@ A section in the same form system as Download Clients (`ui/forms`).
     events;
   - the device address and the XMLTV URL, for a Plex that cluster-plex does
     not manage;
-  - entries, candidates, active out of 480;
+  - entries, candidates and active channels;
   - each guide's last fetch and error;
   - tuners in use.
 - **Actions:** "Refresh now" (the annotation) and Delete.
@@ -690,8 +780,7 @@ htmx, so the sidebar stays put:
     - Group (a select);
     - State: All, Active, Inactive, No guide, Missing;
     - Sort: number, name, group.
-  - **The counter:** a badge reads **Active 312 / 480** and turns
-    destructive at 480.
+  - **The counter:** a badge reads **Active 312**.
   - **Paging:** server-side through `ui/paging`, 100 rows a page, because a
     candidate set can run to thousands.
   - **Editing a row** opens a dialog:
@@ -703,8 +792,7 @@ htmx, so the sidebar stays put:
   - **Bulk, the library's mass editor:**
     - **Select** marks rows; a bottom bar acts on them, or on every row the
       current filter matches;
-    - **Activate:** refused past 480, before any write, with "37 of 50
-      fit";
+    - **Activate;**
     - **Deactivate;**
     - **Auto-number:** from `channelNumberStart`, filling gaps, in the
       current sort;
@@ -727,26 +815,25 @@ htmx, so the sidebar stays put:
 
 ### 7.3 How a table edit is written
 
-- **The edit:** `actions.EditIPTVChannels(ctx, ref, mutate)` reads the CR,
-  applies a pure `mutate([]Channel) []Channel`, and sends a JSON merge
-  patch of `spec.channels` with `metadata.resourceVersion`. That is the
-  precondition `ui/actions/season.go` already uses.
-- **Why the whole list:** a merge patch replaces a list whole. So the
-  precondition is what stops two tabs from overwriting each other.
-- **On a 409 Conflict:**
-  - it reads again and re-applies the same `mutate` once. A mutation is
-    stated in keys, such as "activate these", so it applies to the new list
-    as meant;
-  - a second conflict is reported as "changed elsewhere, reload".
-- **What a mutation keeps:**
-  - The list stays sorted by key, for stable diffs.
-  - Deactivating an entry that has no customisation removes it, so 1024 is
-    rarely approached.
-  - Deactivating a customised entry keeps it with `active: false`.
-- **Above 480:** the apiserver's CEL message is shown as is, if the UI's
-  own check was raced.
+- **A single row:** `actions.EditIPTVChannel` reads the channel and sends a
+  JSON merge patch of its spec with `metadata.resourceVersion`, the
+  precondition `ui/actions/season.go` uses.
+  - It creates the IPTVChannel, named and owned per §3.0, when the row has
+    none.
+  - On a 409 Conflict it reads again and applies the edit once more; a
+    second conflict is reported as "changed elsewhere, reload".
+- **Deactivating:**
+  - a channel with no customisation is deleted;
+  - a customised one keeps its mapping with `active: false`.
+- **A bulk edit:** `actions.EditIPTVChannels` does the same per row.
+  - Eight writers run at once, under a dedicated client limited to 50
+    requests a second. That is about a minute for 3,000 rows.
+  - The bottom bar shows progress over the page's SSE stream.
+  - A failure names the rows it did not write, and every other row stays
+    written.
+  - The tuner's 2 s debounce renders the lineup once, after the burst.
 
-Filter, guide and settings edits are merge patches of their own lists,
+Filter, guide and settings edits are merge patches of the provider's spec,
 under the same precondition.
 
 ## 8. Testing
@@ -776,23 +863,27 @@ under the same precondition.
     routing works on any host.
   - The tests run under `-race`.
 - **`pkg/crdcheck`:**
-  - 480 active channels are admitted, 481 are refused with the message;
-  - 1,000 entries with 400 active are admitted;
   - `url` and `urlFrom` are exclusive;
-  - `guide` and `dummy` are exclusive.
+  - `guide` and `dummy` are exclusive;
+  - an IPTVChannel's `providerRef` and `key` are immutable.
   - These run under `KUBEBUILDER_ASSETS`.
 - **envtest:**
   - the controller creates the Service, keeps it across a spec edit, and
     deletes it through the finalizer;
-  - `Valid=False` on a duplicate number;
+  - a duplicate number marks both channels `DuplicateNumber`, and a key
+    gone from the playlist marks its channel `Missing`;
+  - a playlist refresh that changes nothing writes no IPTVChannel status,
+    shown across 3,000 channels;
+  - deleting the provider removes its channels through the owner
+    reference;
   - status rendered from a snapshot is complete: it is run against an
     object that already has status, and `managedFields` show one manager
     (the release gotchas);
   - the Service selector guard.
 - **The UI:**
-  - activation past 480 is refused with the fit count, and nothing is
-    written;
-  - a 409 is retried once with the same mutation;
+  - a bulk activation of 3,000 rows reports progress, and a failure part
+    way names its unwritten rows;
+  - a 409 on a row is retried once;
   - the filter preview count;
   - the Missing rows;
   - `TestBothUICommandsWireEveryUIOption` covers the new
@@ -801,11 +892,14 @@ under the same precondition.
   owner's PMS:**
   - a Ready provider gets one device and one DVR;
   - a second run changes nothing;
-  - a new `lineup.hash` saves the channel map once;
+  - a new `lineup.hash` saves the channel map once, in one PUT, with 2,000
+    channels;
   - a new `guideHash` reloads the guide once;
   - a provider under PMS gets a device and `DVRNeedsLineup`, and no DVR;
   - a deleted provider removes its DVR and device;
-  - a DVR whose device no IPTVProvider names is never touched.
+  - a DVR whose device no IPTVProvider names is never touched;
+  - a duplicate DVR row on a managed device is deleted;
+  - an existing device is never registered again.
 - **e2e scenario 19** (`test/e2e/livetv_test.go`, with an `iptvstub`
   fixture serving an M3U, an MPEG-TS loop and an XMLTV guide):
   - create an IPTVProvider;
@@ -819,7 +913,7 @@ under the same precondition.
 
 1. **Plex sees channels.** This phase is enough to configure from kubectl.
    It covers:
-   - the API and CEL;
+   - the two kinds and their CEL;
    - `pkg/iptv` (M3U, filter, XMLTV, hdhr);
    - the controller;
    - the tuner runnable in the manager, with the TS relay and fan-out;
@@ -829,7 +923,7 @@ under the same precondition.
    - in cluster-plex: the IPTVProvider watch and the DVR provisioner
      (§6.1), after the recorded PMS fixtures.
 2. **The UI:** the Settings section and the Live TV page (Mapping, Filters,
-   Guides), with bulk edits and the 480 checks.
+   Guides), with bulk edits.
 3. **Breadth:**
    - the logo cache (`/logo`, used in the lineup, the guide and the UI);
    - a `/playlist.m3u` output for players other than Plex (cheap, since the
@@ -847,6 +941,10 @@ under the same precondition.
 
 ## 10. Open questions for the owner
 
-None. The rulings at the top settle the five earlier questions. One
-consequence to confirm while reviewing: deleting a provider removes its
-Plex DVR and that DVR's recording rules (§6.1).
+None. Two consequences to confirm while reviewing:
+
+1. **Deleting a provider** removes its Plex DVR and that DVR's recording
+   rules (§6.1).
+2. **Mappings are now objects:** they live in `IPTVChannel`, one per mapped
+   channel, rather than in the provider (§3). This follows from removing
+   the cap.
