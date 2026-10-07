@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -55,7 +56,7 @@ const (
 // token pair (a [SecretTokenStore], implementing pkg/importlist.TokenStore)
 // and for the in-flight device code between Start and the poll that
 // authorizes it. It is owned by, and garbage-collected with, the ImportList
-// -- see [SecretTokenStore.applyAll]'s owner reference -- so nothing else
+// -- see [SecretTokenStore.owner] -- so nothing else
 // needs to clean it up.
 func TraktTokenSecretName(listName string) string {
 	return k8s.ChildName(listName, "trakt-token")
@@ -77,7 +78,10 @@ func TraktTokenSecretName(listName string) string {
 // which always sends the Secret's full six-key data map -- never a subset
 // -- so the two processes sharing one field manager on one object never
 // hits the "later apply released the earlier one's fields" hazard
-// CLAUDE.md documents: every apply is a complete declaration, not a delta.
+// CLAUDE.md documents: every apply is a complete declaration, not a delta,
+// and every write is a compare-and-swap on the read's resourceVersion
+// (spec 2026-10-06 §5.5, OD13), so neither process's complete declaration
+// carries the other's overtaken keys back.
 type SecretTokenStore struct {
 	Client client.Client
 	List   *catalogv1alpha1.ImportList
@@ -92,56 +96,71 @@ func (s *SecretTokenStore) secretKey() types.NamespacedName {
 	return types.NamespacedName{Namespace: s.List.Namespace, Name: TraktTokenSecretName(s.List.Name)}
 }
 
-// get reads the current Secret, treating "not found" as an empty map rather
-// than an error: the Secret does not exist until the first Save.
-func (s *SecretTokenStore) get(ctx context.Context) (map[string][]byte, error) {
+// get reads the current Secret live (Secrets are never cached, spec
+// 2026-10-06 §5.6), treating "not found" as an empty map and an empty
+// resourceVersion rather than an error: the Secret does not exist until the
+// first Save.
+func (s *SecretTokenStore) get(ctx context.Context) (map[string][]byte, string, error) {
 	var sec corev1.Secret
 	if err := s.Client.Get(ctx, s.secretKey(), &sec); err != nil {
 		if apierrors.IsNotFound(err) {
-			return map[string][]byte{}, nil
+			return map[string][]byte{}, "", nil
 		}
-		return nil, fmt.Errorf("importlist: read trakt token secret %s: %w", s.secretKey(), err)
+		return nil, "", fmt.Errorf("importlist: read trakt token secret %s: %w", s.secretKey(), err)
 	}
-	return sec.Data, nil
+	return sec.Data, sec.ResourceVersion, nil
 }
 
-// applyAll reads the Secret's current data, lets mutate change it, and
-// applies the WHOLE resulting map back in one call under
-// k8s.ManagerImportarr. Every field this store ever writes is always sent
-// together -- see the type doc comment for why a partial apply here would
-// be unsafe across the two processes that share this field manager on this
-// object.
-func (s *SecretTokenStore) applyAll(ctx context.Context, mutate func(map[string][]byte)) error {
-	data, err := s.get(ctx)
-	if err != nil {
-		return err
-	}
-	next := make(map[string][]byte, len(data))
-	for k, v := range data {
-		next[k] = v
-	}
-	mutate(next)
-
-	owner := metav1ac.OwnerReference().
+// owner is the Secret's controller reference to its ImportList, so it is
+// garbage-collected with the list.
+func (s *SecretTokenStore) owner() *metav1ac.OwnerReferenceApplyConfiguration {
+	return metav1ac.OwnerReference().
 		WithAPIVersion(catalogv1alpha1.GroupVersion.String()).
 		WithKind("ImportList").
 		WithName(s.List.Name).
 		WithUID(s.List.UID).
 		WithController(true).
 		WithBlockOwnerDeletion(true)
-	ac := corev1ac.Secret(TraktTokenSecretName(s.List.Name), s.List.Namespace).
-		WithOwnerReferences(owner).
-		WithType(corev1.SecretTypeOpaque).
-		WithData(next)
-	if _, err := k8s.Apply(ctx, s.Client, k8s.ManagerImportarr, ac); err != nil {
-		return fmt.Errorf("importlist: write trakt token secret %s: %w", s.secretKey(), err)
-	}
-	return nil
+}
+
+// applyAll reads the Secret, lets mutate change its data, and applies the
+// WHOLE resulting map under k8s.ManagerImportarr with the read's
+// resourceVersion: a compare-and-swap (spec 2026-10-06 §5.5, OD13). The
+// ImportList controller (manager) and the list worker (agent import) both
+// write this Secret, so a write built from a read the other has overtaken is
+// a Conflict, redone from a fresh read with mutate run again on the fresh
+// data, never a rollback of the other's keys. Every field this store ever
+// writes is always sent together -- see the type doc comment for why a
+// partial apply here would be unsafe across the two processes that share
+// this field manager on this object.
+func (s *SecretTokenStore) applyAll(ctx context.Context, mutate func(map[string][]byte)) error {
+	return retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+		data, rv, err := s.get(ctx)
+		if err != nil {
+			return err
+		}
+		next := make(map[string][]byte, len(data))
+		for k, v := range data {
+			next[k] = v
+		}
+		mutate(next)
+		ac := corev1ac.Secret(TraktTokenSecretName(s.List.Name), s.List.Namespace).
+			WithOwnerReferences(s.owner()).
+			WithType(corev1.SecretTypeOpaque).
+			WithData(next)
+		if rv != "" {
+			ac = ac.WithResourceVersion(rv)
+		}
+		if _, err := k8s.Apply(ctx, s.Client, k8s.ManagerImportarr, ac); err != nil {
+			return fmt.Errorf("importlist: write trakt token secret %s: %w", s.secretKey(), err)
+		}
+		return nil
+	})
 }
 
 // Load implements pkg/importlist.TokenStore.
 func (s *SecretTokenStore) Load(ctx context.Context) (importlist.Token, bool, error) {
-	data, err := s.get(ctx)
+	data, _, err := s.get(ctx)
 	if err != nil {
 		return importlist.Token{}, false, err
 	}
@@ -189,7 +208,7 @@ func (s *SecretTokenStore) SaveDeviceCode(ctx context.Context, dc trakt.DeviceCo
 // instead, which is where the controller reads them back from when it
 // needs to know what it last showed the user.
 func (s *SecretTokenStore) LoadDeviceCode(ctx context.Context) (trakt.DeviceCode, bool, error) {
-	data, err := s.get(ctx)
+	data, _, err := s.get(ctx)
 	if err != nil {
 		return trakt.DeviceCode{}, false, err
 	}
