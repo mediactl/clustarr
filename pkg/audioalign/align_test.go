@@ -185,6 +185,13 @@ func TestAlignRuntime(t *testing.T) {
 	require.NoError(t, err)
 	cpu, wall := cpuTime(t)-cpu0, time.Since(start)
 	t.Logf("align: wall %s, cpu %s", wall, cpu)
+	// Coverage counters sit in Align's hot loops, which eight goroutines
+	// share: make test's -coverprofile made the same run 5m28s of CPU
+	// against 1m44s without it (2026-10-06), so an instrumented binary
+	// cannot judge the bound.
+	if testing.CoverMode() != "" {
+		t.Skip("runtime guard: coverage instrumentation inflates the CPU time about threefold")
+	}
 	// CPU time, not wall time: under make test every package runs at once
 	// and the wall clock measures the machine's load (32 s against 14 s
 	// alone, 2026-10-06). About 100 s of CPU alone; a graft Job's 4 cores
