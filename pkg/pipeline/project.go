@@ -29,7 +29,7 @@ import (
 	downloadv1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	subtitlev1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
 	transcodev1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
-	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/k8s/conditions"
 )
 
 // Project derives the current stage of one catalog item from its resources.
@@ -584,11 +584,11 @@ func describeItem(item client.Object) itemDescription {
 // metadataDescription reads the shared MetadataReady + status.metadata shape
 // that every top-level catalog kind follows: ready comes from the condition,
 // synced additionally requires that condition to be reporting on the item's
-// current generation (pkg/k8s.StatusUpToDate), so a MetadataReady=True left
-// over from a previous generation shows as "found" rather than "synced"
-// until the next reconcile catches up.
-func metadataDescription(obj client.Object, conditions []metav1.Condition, condType string, kind commonv1.MediaKind, title string) itemDescription {
-	ready := k8s.IsConditionTrue(conditions, condType)
-	synced := ready && k8s.StatusUpToDate(obj, conditions, condType)
+// current generation (pkg/k8s/conditions.StatusUpToDate), so a
+// MetadataReady=True left over from a previous generation shows as "found"
+// rather than "synced" until the next reconcile catches up.
+func metadataDescription(obj client.Object, conds []metav1.Condition, condType string, kind commonv1.MediaKind, title string) itemDescription {
+	ready := conditions.IsConditionTrue(conds, condType)
+	synced := ready && conditions.StatusUpToDate(obj, conds, condType)
 	return itemDescription{kind: kind, title: title, metadataReady: ready, metadataSynced: synced}
 }

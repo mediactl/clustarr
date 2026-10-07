@@ -24,13 +24,17 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	kconditions "github.com/mediactl/clustarr/pkg/k8s/conditions"
 )
 
 // ConditionReady is the one condition type every Clustarr kind reports. Each
 // api group also declares kind-specific types next to its status struct
 // (MovieConditionAvailable, IndexerConditionHealthy, ...); Ready is the
 // roll-up, and it is what the "Ready" print column of almost every CRD reads.
-const ConditionReady = "Ready"
+// It is pkg/k8s/conditions.ConditionReady; kept so pkg/k8s callers are
+// unchanged.
+const ConditionReady = kconditions.ConditionReady
 
 // Condition reasons shared across services. A reason is a CamelCase token, is
 // part of the API, and is what an operator greps for; kind-specific reasons
@@ -144,44 +148,39 @@ func RemoveCondition(conditions *[]metav1.Condition, condType string) bool {
 	return meta.RemoveStatusCondition(conditions, condType)
 }
 
-// FindCondition returns the condition of type condType, or nil.
+// FindCondition is pkg/k8s/conditions.FindCondition; kept so pkg/k8s callers
+// are unchanged. It returns the condition of type condType, or nil.
 func FindCondition(conditions []metav1.Condition, condType string) *metav1.Condition {
-	return meta.FindStatusCondition(conditions, condType)
+	return kconditions.FindCondition(conditions, condType)
 }
 
-// IsConditionTrue reports whether condType is present and True.
+// IsConditionTrue is pkg/k8s/conditions.IsConditionTrue; kept so pkg/k8s
+// callers are unchanged. It reports whether condType is present and True.
 func IsConditionTrue(conditions []metav1.Condition, condType string) bool {
-	return meta.IsStatusConditionTrue(conditions, condType)
+	return kconditions.IsConditionTrue(conditions, condType)
 }
 
-// IsConditionFalse reports whether condType is present and False.
+// IsConditionFalse is pkg/k8s/conditions.IsConditionFalse; kept so pkg/k8s
+// callers are unchanged. It reports whether condType is present and False.
 func IsConditionFalse(conditions []metav1.Condition, condType string) bool {
-	return meta.IsStatusConditionFalse(conditions, condType)
+	return kconditions.IsConditionFalse(conditions, condType)
 }
 
-// IsReady reports whether Ready is present and True.
-func IsReady(conditions []metav1.Condition) bool {
-	return IsConditionTrue(conditions, ConditionReady)
-}
+// IsReady is pkg/k8s/conditions.IsReady; kept so pkg/k8s callers are
+// unchanged. It reports whether Ready is present and True.
+func IsReady(conditions []metav1.Condition) bool { return kconditions.IsReady(conditions) }
 
-// ObservedGeneration returns the ObservedGeneration of condType, or 0.
+// ObservedGeneration is pkg/k8s/conditions.ObservedGeneration; kept so pkg/k8s
+// callers are unchanged. It returns the ObservedGeneration of condType, or 0.
 func ObservedGeneration(conditions []metav1.Condition, condType string) int64 {
-	if c := FindCondition(conditions, condType); c != nil {
-		return c.ObservedGeneration
-	}
-	return 0
+	return kconditions.ObservedGeneration(conditions, condType)
 }
 
-// StatusUpToDate reports whether condType was last set for obj's current
-// generation. A controller that returns early on an unchanged spec, and a test
-// that waits for a reconcile to land, both ask exactly this question; a stale
-// Ready=True is the classic way to miss a regression.
+// StatusUpToDate is pkg/k8s/conditions.StatusUpToDate; kept so pkg/k8s callers
+// are unchanged. It reports whether condType was last set for obj's current
+// generation. A nil obj answers false.
 func StatusUpToDate(obj client.Object, conditions []metav1.Condition, condType string) bool {
-	if obj == nil {
-		return false
-	}
-	c := FindCondition(conditions, condType)
-	return c != nil && c.ObservedGeneration == obj.GetGeneration()
+	return kconditions.StatusUpToDate(obj, conditions, condType)
 }
 
 // ConditionAC converts a condition into the apply configuration [PatchStatus]
