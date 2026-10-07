@@ -1216,3 +1216,63 @@ None. Two consequences to confirm while reviewing:
 2. **Mappings are now objects:** they live in `IPTVChannel`, one per mapped
    channel, rather than in the provider (§3). This follows from removing
    the cap.
+
+## 11. As built (phase 1, clustarr)
+
+Built on branch `livetv`, rebased onto `unify-manager-agent` after Wave 6
+(plan `docs/superpowers/plans/2026-10-07-livetv-phase1.md`; its ledger holds
+every ruling with its cost). Where this section and the sections above
+disagree, this one describes the code.
+
+**Behaviour the sections above do not state:**
+- **The playlist (§4.1):** Xtream `m3u_plus` movie and series entries
+  (`/movie/`, `/series/`) are skipped as they stream, `MaxEntries` counts
+  the live entries kept, and the cap is 1 GiB. The owner's provider: 1.24
+  million entries in 328 MiB, 28,527 live.
+- **Guides (§5.1):** fetched only after the first playlist, whose channels
+  choose what is parsed (`xmltv.ParseFunc`, auto-mapping in the same pass);
+  a channel wanting an id a loaded guide was not parsed for refetches that
+  guide. The stored guide is served until every guide has been fetched in
+  this process, and a failed fetch never replaces it.
+- **Dummy guides (§3):** an explicit `epg.dummy` is never auto-mapped.
+- **A provider made invalid** (its Secret or key gone) keeps serving its
+  last configuration, so deleting a Secret never takes a device off Plex;
+  it reads Ready=False with the reason.
+- **Finalizers** are added and removed by optimistic-lock merge patches. A
+  channel the tuner has no snapshot entry for reads Ready=Unknown, reason
+  `Pending`.
+- **Blocks (§3.1, §6):** a split never moves a surviving block's port (the
+  test pass found it moving the next block's).
+- **The relay (§5.2)** has a fifth close reason, `panic`, and cuts off a
+  viewer that falls a buffer behind.
+- **Installers (§5.3):**
+  - the manager's memory default rises by 128Mi (request and limit) instead
+    of a `livetv.memory` added by Helm arithmetic;
+  - `livetv.enabled: false` renders no Service, tuner port or policy, and
+    `--livetv-bind-address=0`;
+  - kustomize's NetworkPolicy is `config/livetv`, outside `config/manager`,
+    whose `includeSelectors` labels would add clustarr's own labels to the
+    policy's peer, and no Plex pod carries them;
+  - the guards are `test/guards/livetv`, their own package, because
+    `test/guards` does not build on `unify-manager-agent`.
+- **E2e scenario 19** (`test/e2e/livetv_test.go`, the `iptv-stub` fixture)
+  is written and type-checks, but has never run: `unify-manager-agent`'s
+  `test/e2e` does not build.
+
+**cluster-plex (§6.1), as built on its `livetv` branch** (its own ledger):
+- A channel-map save starts `provider.epg.load`, like creating a DVR and
+  reloading a guide. A pass starts at most one load, and reads
+  `/activities` again before every delete, save, reload or DVR creation. No
+  reload follows a save.
+- What was saved is noted on the block's Lease
+  (`livetv.clusterplex.io/saved`: the DVR and both hashes), so a new lease
+  holder saves nothing again. A Lease that changes installation drops the
+  note.
+- A device whose DVR this PMS does not list, though the database ties it to
+  one (`parentID`), gets no second DVR. The lease holder records
+  `DVRListStale` and restarts its own PMS once.
+- A Lease is renewed while this Plex has the block's device, whatever the
+  provider's state, and while PMS cannot be read. A block another
+  installation took while this Plex has it is a Warning; its DVR is left for
+  a person to delete.
+- A pod whose in-place restart fails is handed back to its health watch.
