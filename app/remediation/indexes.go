@@ -25,10 +25,12 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/controller/album"
 	"github.com/mediactl/clustarr/app/catalog/controller/audiobook"
 	"github.com/mediactl/clustarr/app/catalog/controller/book"
+	"github.com/mediactl/clustarr/app/catalog/controller/comic"
 	"github.com/mediactl/clustarr/app/catalog/controller/episode"
 	"github.com/mediactl/clustarr/app/catalog/controller/issue"
 	"github.com/mediactl/clustarr/app/catalog/controller/mediafile"
 	"github.com/mediactl/clustarr/app/catalog/controller/movie"
+	"github.com/mediactl/clustarr/app/catalog/controller/series"
 	"github.com/mediactl/clustarr/app/remediation/mfindex"
 )
 
@@ -37,9 +39,10 @@ import (
 // loop's own (mfindex: UID and Item, the one MediaFile index by item that
 // replaced nine) and the ones its domain functions read by their unchanged
 // names (mediafile.RegisterIndexes: the TranscodeJob, AudioGraft and
-// SubtitleRequest refs and the two RootFolder naming indexes). It registers
-// no ".spec.seriesRef": the Series controller does (series.RegisterIndexes),
-// and the loop only reads it.
+// SubtitleRequest refs and the two RootFolder naming indexes). Since Series
+// and Comic became item keys (ADR-0019 A3.2) it also registers
+// ".spec.seriesRef" (series.RegisterIndexes) and the Issue-by-comicRef index
+// (comic.RegisterIndexes): one registrar per process (split §3.5.2 step 9).
 func RegisterIndexes(ctx context.Context, idx client.FieldIndexer) error {
 	if err := mfindex.Register(ctx, idx); err != nil {
 		return err
@@ -63,6 +66,12 @@ func RegisterIndexes(ctx context.Context, idx client.FieldIndexer) error {
 		return err
 	}
 	if err := issue.RegisterIndexes(ctx, idx); err != nil {
+		return err
+	}
+	if err := series.RegisterIndexes(ctx, idx); err != nil {
+		return err
+	}
+	if err := comic.RegisterIndexes(ctx, idx); err != nil {
 		return err
 	}
 	return mediafile.RegisterIndexes(ctx, idx)

@@ -34,7 +34,6 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/artwork"
 	"github.com/mediactl/clustarr/app/catalog/controller/artist"
 	"github.com/mediactl/clustarr/app/catalog/controller/author"
-	"github.com/mediactl/clustarr/app/catalog/controller/comic"
 	"github.com/mediactl/clustarr/app/catalog/controller/delayprofile"
 	"github.com/mediactl/clustarr/app/catalog/controller/metadataprovider"
 	"github.com/mediactl/clustarr/app/catalog/controller/metadatarefresh"
@@ -42,7 +41,6 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/controller/qualityprofile"
 	"github.com/mediactl/clustarr/app/catalog/controller/rootfolder"
 	searchctl "github.com/mediactl/clustarr/app/catalog/controller/search"
-	"github.com/mediactl/clustarr/app/catalog/controller/series"
 	"github.com/mediactl/clustarr/app/catalog/controller/wantedcron"
 	"github.com/mediactl/clustarr/app/catalog/history"
 	"github.com/mediactl/clustarr/app/catalog/history/replay"
@@ -182,17 +180,10 @@ const metadataProbeTimeout = 30 * time.Second
 // repo and fails only in production.
 func registerControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	c := mgr.GetClient()
-	scheme := mgr.GetScheme()
 
-	if err := (&series.Reconciler{
-		Client:   c,
-		Scheme:   scheme,
-		Recorder: mgr.GetEventRecorder("series"),
-		Bus:      bus,
-	}).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("catalogarr: series: %w", err)
-	}
-
+	// The Series is the remediation loop's item key now (ADR-0019 A3.2,
+	// app/remediation/manager), as are the Movie, Episode and the non-video
+	// items.
 	if err := registerNonVideoControllers(mgr, bus); err != nil {
 		return err
 	}
@@ -322,9 +313,10 @@ func registerControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	return nil
 }
 
-// registerNonVideoControllers registers the three non-video parents
-// (Artist, Author, Comic), each as its package's doc.go prescribes. Album,
-// Book, Audiobook and Issue are the remediation loop's item keys
+// registerNonVideoControllers registers the two non-video parents that are
+// not item keys (Artist, Author), each as its package's doc.go prescribes.
+// Album, Book, Audiobook, Issue and -- since it owns its issues' grabs
+// (ADR-0019 A3.2) -- Comic are the remediation loop's item keys
 // (app/remediation/manager, loop spec §3.12).
 //
 // Each parent fans out children through the metadata gateway's
@@ -350,10 +342,6 @@ func registerNonVideoControllers(mgr ctrl.Manager, bus events.Bus) error {
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("catalogarr: author: %w", err)
 	}
-	if err := (&comic.Reconciler{
-		Client: c, Scheme: scheme, Recorder: mgr.GetEventRecorder("comic"), Bus: bus,
-	}).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("catalogarr: comic: %w", err)
-	}
+	// The Comic is the remediation loop's item key now (ADR-0019 A3.2).
 	return nil
 }

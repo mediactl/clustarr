@@ -25,10 +25,12 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/controller/album"
 	"github.com/mediactl/clustarr/app/catalog/controller/audiobook"
 	"github.com/mediactl/clustarr/app/catalog/controller/book"
+	"github.com/mediactl/clustarr/app/catalog/controller/comic"
 	"github.com/mediactl/clustarr/app/catalog/controller/episode"
 	"github.com/mediactl/clustarr/app/catalog/controller/issue"
 	"github.com/mediactl/clustarr/app/catalog/controller/movie"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
+	"github.com/mediactl/clustarr/app/catalog/controller/series"
 	"github.com/mediactl/clustarr/app/remediation"
 	"github.com/mediactl/clustarr/pkg/events"
 )
@@ -54,5 +56,10 @@ func items(c client.Client, s *runtime.Scheme, recorder func(name string) k8seve
 		remediation.KindBook:      &book.Reconciler{Client: c, Scheme: s, Recorder: recorder("book"), Bus: bus},
 		remediation.KindAudiobook: &audiobook.Reconciler{Client: c, Scheme: s, Recorder: recorder("audiobook"), Bus: bus},
 		remediation.KindIssue:     &issue.Reconciler{Client: c, Scheme: s, Recorder: recorder("issue"), Bus: bus},
+		// The grab owners of episodes and issues (ADR-0019 §6.1, A3.2): the
+		// controllers named "series" and "comic" are gone, their recorders
+		// keep the names.
+		remediation.KindSeries: &series.Reconciler{Client: c, Scheme: s, Recorder: recorder("series"), Bus: bus},
+		remediation.KindComic:  &comic.Reconciler{Client: c, Scheme: s, Recorder: recorder("comic"), Bus: bus},
 	}
 }

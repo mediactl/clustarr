@@ -27,6 +27,8 @@ import (
 // The item kinds (loop spec §3.2): the loop's second key type, beside
 // KindMediaFile. An item key reconciles one catalog item's file rollups
 // (§3.12); it writes that item's status and finalizer and nothing else.
+// Series and Comic joined as the owners of their episodes' and issues' grabs
+// (ADR-0019 §6.1, A3.2).
 const (
 	KindMovie     KeyKind = "Movie"
 	KindEpisode   KeyKind = "Episode"
@@ -34,6 +36,8 @@ const (
 	KindBook      KeyKind = "Book"
 	KindAudiobook KeyKind = "Audiobook"
 	KindIssue     KeyKind = "Issue"
+	KindSeries    KeyKind = "Series"
+	KindComic     KeyKind = "Comic"
 )
 
 var itemKinds = map[commonv1.MediaKind]KeyKind{
@@ -43,10 +47,12 @@ var itemKinds = map[commonv1.MediaKind]KeyKind{
 	commonv1.MediaKindBook:      KindBook,
 	commonv1.MediaKindAudiobook: KindAudiobook,
 	commonv1.MediaKindIssue:     KindIssue,
+	commonv1.MediaKindSeries:    KindSeries,
+	commonv1.MediaKindComic:     KindComic,
 }
 
-// ItemKind is the item key kind of a MediaRef kind; false for a kind that
-// holds no files of its own (series, artist, author, comic).
+// ItemKind is the item key kind of a MediaRef kind; false for a kind the
+// loop has no key for (artist, author).
 func ItemKind(kind commonv1.MediaKind) (KeyKind, bool) {
 	k, ok := itemKinds[kind]
 	return k, ok

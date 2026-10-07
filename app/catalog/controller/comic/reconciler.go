@@ -30,9 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	k8sevents "k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -41,6 +39,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/artwork"
+	"github.com/mediactl/clustarr/app/catalog/controller/itemstatus"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -115,33 +114,68 @@ type Reconciler struct {
 	OnReconcile func()
 }
 
-// SetupWithManager registers the Comic controller: the finalizer/
-// metadata-refresh predicate on Comic itself, and Owns(&Issue{}) guarded by
-// StatusFieldChanged on HasFile so an Issue's own HasFile flip (from the
-// Issue controller's MediaFile watch) re-triggers this reconciler's
-// IssueFileCount rollup, without this reconciler's own writes to the SAME
-// owned Issues (SourceID/Title/Date, never HasFile) looping it.
-func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
-	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &catalogv1alpha1.Issue{}, issueByComicRefIndexKey,
+// RegisterIndexes registers the Issue-by-spec.comicRef index under its
+// existing name. The remediation loop registers it once
+// (remediation.RegisterIndexes) since the Comic became an item key
+// (ADR-0019 A3.2).
+func RegisterIndexes(ctx context.Context, idx client.FieldIndexer) error {
+	return idx.IndexField(ctx, &catalogv1alpha1.Issue{}, issueByComicRefIndexKey,
 		func(o client.Object) []string {
 			iss, ok := o.(*catalogv1alpha1.Issue)
 			if !ok {
 				return nil
 			}
 			return []string{iss.Spec.ComicRef}
-		}); err != nil {
-		return err
-	}
+		})
+}
 
-	return ctrl.NewControllerManagedBy(mgr).
-		Named("comic").
-		For(&catalogv1alpha1.Comic{}, builder.WithPredicates(comicPredicate())).
-		Owns(&catalogv1alpha1.Issue{}, builder.WithPredicates(k8s.StatusFieldChanged(func(o client.Object) bool {
-			iss, ok := o.(*catalogv1alpha1.Issue)
-			return ok && iss.Status.HasFile
-		}))).
-		WithOptions(controller.Options{RecoverPanic: new(true), ReconciliationTimeout: 5 * time.Minute}).
-		Complete(r)
+// IssueByComicRefIndex is the field index of Issues by spec.comicRef, for
+// other readers of the cache.
+const IssueByComicRefIndex = issueByComicRefIndexKey
+
+// Watches is the Comic's item path on the remediation loop (ADR-0019 §6.1,
+// A3.2): the Comic itself (a spec change, the metadata gateway's write, the
+// DLQ annotation, a person's download intent) and its Issues by
+// spec.comicRef when one's HasFile flips -- never this reconciler's own
+// writes to them (SourceID/Title/Date), which would loop it. The controller
+// named "comic" is gone; the recorder keeps the name.
+func (r *Reconciler) Watches() []rollup.Watch {
+	return []rollup.Watch{
+		{Object: &catalogv1alpha1.Comic{}, Map: rollup.Self, Predicates: []predicate.Predicate{
+			k8s.Or(comicPredicate(), k8s.AnnotationsChanged(catalogv1alpha1.DownloadIntentAnnotations()...)),
+		}},
+		{Object: &catalogv1alpha1.Issue{}, Map: mapIssueToComic, Predicates: []predicate.Predicate{issueRollupChanged()}},
+	}
+}
+
+var _ rollup.Item = (*Reconciler)(nil)
+
+// issueRollupKey is what of an Issue the Comic's rollup reads: its file, and
+// its download phase for downloadingIssueCount.
+type issueRollupKey struct {
+	hasFile       bool
+	downloadPhase commonv1.DownloadPhase
+}
+
+// issueRollupChanged wakes the Comic when an Issue's file or download phase
+// changes.
+func issueRollupChanged() predicate.Predicate {
+	return k8s.StatusFieldChanged(func(o client.Object) issueRollupKey {
+		iss, ok := o.(*catalogv1alpha1.Issue)
+		if !ok {
+			return issueRollupKey{}
+		}
+		return issueRollupKey{hasFile: iss.Status.HasFile, downloadPhase: iss.Status.DownloadPhase}
+	})
+}
+
+// mapIssueToComic maps an Issue to the Comic its spec.comicRef names.
+func mapIssueToComic(_ context.Context, o client.Object) []reconcile.Request {
+	iss, ok := o.(*catalogv1alpha1.Issue)
+	if !ok || iss.Spec.ComicRef == "" {
+		return nil
+	}
+	return []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: iss.Namespace, Name: iss.Spec.ComicRef}}}
 }
 
 // comicPredicate wakes this controller on a spec change (GenerationChanged)
@@ -163,16 +197,17 @@ func comicPredicate() predicate.Predicate {
 	)
 }
 
-// Reconcile implements the §8.8 skeleton: get, split on deletion, ensure the
+// ReconcileItem is the Comic's item path on the remediation loop (ADR-0019
+// A3.2); it keeps the §8.8 skeleton: get, split on deletion, ensure the
 // finalizer WITHOUT an early return, then reconcileNormal.
-func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *Reconciler) ReconcileItem(ctx context.Context, nn types.NamespacedName) (ctrl.Result, error) {
 	ctx, span := tracing.Start(ctx, "comic.Reconcile")
 	defer span.End()
 	if r.OnReconcile != nil {
 		r.OnReconcile()
 	}
 	var c catalogv1alpha1.Comic
-	if err := r.Get(ctx, req.NamespacedName, &c); err != nil {
+	if err := r.Get(ctx, nn, &c); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	if k8s.IsDeleting(&c) {
@@ -277,8 +312,8 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, c *catalogv1alpha1.Com
 				k8s.MarkTrue(c, &conditions, conditionQueueFull, "QueueFull", "metadata work queue is full")
 				statusAC = reassertKnownStatus(statusAC, c)
 				statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
-				if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr, catalogac.Comic(c.Name, c.Namespace).WithStatus(statusAC)); err != nil {
-					return ctrl.Result{}, err
+				if conflicted, err := itemstatus.Apply(ctx, r.Client, c, catalogac.Comic(c.Name, c.Namespace).WithStatus(statusAC)); err != nil || conflicted {
+					return itemstatus.Requeue(conflicted), err
 				}
 				return ctrl.Result{RequeueAfter: time.Minute}, nil
 			}
@@ -297,8 +332,8 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, c *catalogv1alpha1.Com
 				k8s.MarkFalse(c, &conditions, k8s.ConditionReady, "RootFolderNotFound", "rootFolder %q not found", c.Spec.RootFolderRef)
 				statusAC = reassertKnownStatus(statusAC, c)
 				statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
-				if _, perr := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr, catalogac.Comic(c.Name, c.Namespace).WithStatus(statusAC)); perr != nil {
-					return ctrl.Result{}, perr
+				if conflicted, perr := itemstatus.Apply(ctx, r.Client, c, catalogac.Comic(c.Name, c.Namespace).WithStatus(statusAC)); perr != nil || conflicted {
+					return itemstatus.Requeue(conflicted), perr
 				}
 				return ctrl.Result{RequeueAfter: time.Minute}, nil
 			}
@@ -347,8 +382,8 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, c *catalogv1alpha1.Com
 	k8s.MarkReady(c, &conditions, metaReady && issuesSynced, k8s.ReasonReconciled, "metadataReady=%t issuesSynced=%t", metaReady, issuesSynced)
 	statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
 
-	if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr, catalogac.Comic(c.Name, c.Namespace).WithStatus(statusAC)); err != nil {
-		return ctrl.Result{}, err
+	if conflicted, err := itemstatus.Apply(ctx, r.Client, c, catalogac.Comic(c.Name, c.Namespace).WithStatus(statusAC)); err != nil || conflicted {
+		return itemstatus.Requeue(conflicted), err
 	}
 
 	if syncErr != nil {

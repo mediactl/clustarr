@@ -32,11 +32,8 @@ import (
 	k8sevents "k8s.io/client-go/tools/events"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -44,6 +41,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/artwork"
+	"github.com/mediactl/clustarr/app/catalog/controller/itemstatus"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 	"github.com/mediactl/clustarr/app/catalog/episodeorder"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -72,11 +70,11 @@ const episodeBySeriesRefIndexKey = ".spec.seriesRef"
 // registered with the Series controller, for other readers of the cache.
 const EpisodeBySeriesRefIndex = episodeBySeriesRefIndexKey
 
-// RegisterIndexes registers EpisodeBySeriesRefIndex. The Series controller
-// registers it (SetupWithManager); every other reader in the manager -- the
-// Episode item path, the remediation loop's naming wakes, the segment
-// planner -- reads this one index (loop spec §3.16, "Consolidated"), and a
-// test that runs one of them without the Series controller calls this.
+// RegisterIndexes registers EpisodeBySeriesRefIndex. The remediation loop
+// registers it once (remediation.RegisterIndexes, since the Series became an
+// item key, ADR-0019 A3.2); every reader in the manager -- the Series and
+// Episode item paths, the loop's naming wakes, the segment planner -- reads
+// this one index (loop spec §3.16, "Consolidated").
 func RegisterIndexes(ctx context.Context, idx client.FieldIndexer) error {
 	return idx.IndexField(ctx, &catalogv1alpha1.Episode{}, episodeBySeriesRefIndexKey, indexEpisodeBySeriesRef)
 }
@@ -162,28 +160,35 @@ type Reconciler struct {
 	OnReconcile func()
 }
 
-// SetupWithManager registers the Series controller: the finalizer/
-// metadata-refresh predicate on Series itself, and Owns(&Episode{}) guarded
-// by StatusFieldChanged on HasFile so an Episode's own HasFile flip (from
-// the Episode controller's MediaFile watch) re-triggers this reconciler's
-// Rollup, without this reconciler's own writes to the SAME owned Episodes
-// (title/overview/airDate, never HasFile) looping it.
-func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
-	if err := RegisterIndexes(context.Background(), mgr.GetFieldIndexer()); err != nil {
-		return err
-	}
-
-	return ctrl.NewControllerManagedBy(mgr).
-		Named("series").
-		For(&catalogv1alpha1.Series{}, builder.WithPredicates(seriesPredicate())).
-		Owns(&catalogv1alpha1.Episode{}, builder.WithPredicates(episodeRollupChanged())).
+// Watches is the Series' item path on the remediation loop (ADR-0019 §6.1,
+// A3.2; loop spec §3.12): the Series itself (a spec change, the metadata
+// gateway's write, the DLQ annotation, a person's download intent), its
+// Episodes by spec.seriesRef when one's file or phase moves (the rollup's
+// inputs, never this reconciler's own provider-field writes, which would loop
+// it), and a RootFolder's spec edit for the series it classifies. The
+// controller named "series" is gone; the recorder keeps the name.
+func (r *Reconciler) Watches() []rollup.Watch {
+	return []rollup.Watch{
+		{Object: &catalogv1alpha1.Series{}, Map: rollup.Self, Predicates: []predicate.Predicate{
+			k8s.Or(seriesPredicate(), k8s.AnnotationsChanged(catalogv1alpha1.DownloadIntentAnnotations()...)),
+		}},
+		{Object: &catalogv1alpha1.Episode{}, Map: mapEpisodeToSeries, Predicates: []predicate.Predicate{episodeRollupChanged()}},
 		// A RootFolder's spec edit -- defaults.anime set after deploy --
 		// must reach the series it classifies; an ended series otherwise
 		// waits days for its next metadata refresh.
-		Watches(&catalogv1alpha1.RootFolder{}, handler.EnqueueRequestsFromMapFunc(r.mapRootFolder),
-			builder.WithPredicates(k8s.GenerationChanged())).
-		WithOptions(controller.Options{RecoverPanic: new(true), ReconciliationTimeout: 5 * time.Minute}).
-		Complete(r)
+		{Object: &catalogv1alpha1.RootFolder{}, Map: r.mapRootFolder, Predicates: []predicate.Predicate{k8s.GenerationChanged()}},
+	}
+}
+
+var _ rollup.Item = (*Reconciler)(nil)
+
+// mapEpisodeToSeries maps an Episode to the Series its spec.seriesRef names.
+func mapEpisodeToSeries(_ context.Context, o client.Object) []reconcile.Request {
+	ep, ok := o.(*catalogv1alpha1.Episode)
+	if !ok || ep.Spec.SeriesRef == "" {
+		return nil
+	}
+	return []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: ep.Namespace, Name: ep.Spec.SeriesRef}}}
 }
 
 // mapRootFolder enqueues the RootFolder's series that are not classified
@@ -247,16 +252,17 @@ func seriesPredicate() predicate.Predicate {
 	)
 }
 
-// Reconcile implements the §8.8 skeleton: get, split on deletion, ensure the
+// ReconcileItem is the Series' item path on the remediation loop (ADR-0019
+// A3.2); it keeps the §8.8 skeleton: get, split on deletion, ensure the
 // finalizer WITHOUT an early return, then reconcileNormal.
-func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *Reconciler) ReconcileItem(ctx context.Context, nn types.NamespacedName) (ctrl.Result, error) {
 	ctx, span := tracing.Start(ctx, "series.Reconcile")
 	defer span.End()
 	if r.OnReconcile != nil {
 		r.OnReconcile()
 	}
 	var s catalogv1alpha1.Series
-	if err := r.Get(ctx, req.NamespacedName, &s); err != nil {
+	if err := r.Get(ctx, nn, &s); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	if k8s.IsDeleting(&s) {
@@ -497,8 +503,8 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, s *catalogv1alpha1.Ser
 		statusAC = statusAC.WithClassification(classificationAC(classification))
 	}
 
-	if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr, catalogac.Series(s.Name, s.Namespace).WithStatus(statusAC)); err != nil {
-		return ctrl.Result{}, err
+	if conflicted, err := itemstatus.Apply(ctx, r.Client, s, catalogac.Series(s.Name, s.Namespace).WithStatus(statusAC)); err != nil || conflicted {
+		return itemstatus.Requeue(conflicted), err
 	}
 	if s.Status.Phase != "" && s.Status.Phase != phase {
 		r.normal(s, string(phase), "phase %s -> %s", s.Status.Phase, phase)

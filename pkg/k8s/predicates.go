@@ -141,6 +141,32 @@ func Deleting() predicate.Predicate {
 	return predicate.NewPredicateFuncs(IsDeleting)
 }
 
+// AnnotationsChanged passes an update only when one of keys' values (or
+// presence) changed; creates, deletes and generic events pass. It wakes an
+// item on a person's download intent (ADR-0019 §6.10), which bumps neither
+// generation nor status.
+func AnnotationsChanged(keys ...string) predicate.Predicate {
+	return predicate.Funcs{
+		CreateFunc:  func(event.CreateEvent) bool { return true },
+		DeleteFunc:  func(event.DeleteEvent) bool { return true },
+		GenericFunc: func(event.GenericEvent) bool { return true },
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			if e.ObjectOld == nil || e.ObjectNew == nil {
+				return false
+			}
+			oa, na := e.ObjectOld.GetAnnotations(), e.ObjectNew.GetAnnotations()
+			for _, k := range keys {
+				ov, ook := oa[k]
+				nv, nok := na[k]
+				if ov != nv || ook != nok {
+					return true
+				}
+			}
+			return false
+		},
+	}
+}
+
 // And passes when every p passes.
 func And(ps ...predicate.Predicate) predicate.Predicate { return predicate.And(ps...) }
 
