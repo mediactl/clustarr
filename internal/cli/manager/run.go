@@ -41,6 +41,7 @@ import (
 	indexermanager "github.com/mediactl/clustarr/app/indexer/manager"
 	"github.com/mediactl/clustarr/app/intake"
 	"github.com/mediactl/clustarr/app/intake/advisory"
+	livetvmanager "github.com/mediactl/clustarr/app/livetv/manager"
 	"github.com/mediactl/clustarr/app/maintenance"
 	"github.com/mediactl/clustarr/app/remediation"
 	remediationmanager "github.com/mediactl/clustarr/app/remediation/manager"
@@ -281,8 +282,9 @@ func newScanApplier(mgr ctrl.Manager, bus events.Bus, o Options) *scanapply.Appl
 
 // register adds every manager-side component in §3.4.2's fixed order and
 // returns their names: catalog, import, index, grab, transcode, caption,
-// remediation, then autoscale. The admission and intake planes come first:
-// the components that dispatch take them.
+// remediation, livetv (Live TV spec 2026-10-07), then autoscale. The
+// admission and intake planes come first: the components that dispatch
+// take them.
 func register(mgr ctrl.Manager, bus events.Bus, o Options) ([]string, error) {
 	p, err := newPlanes(mgr, bus, o)
 	if err != nil {
@@ -354,6 +356,19 @@ func register(mgr ctrl.Manager, bus events.Bus, o Options) ([]string, error) {
 				// A standalone graft Job runs on the cpu pool's pod template
 				// (loop spec §4.12): the transcode manager's own.
 				GraftPool: transcodemanager.PoolConfig(transcodeOptions(o, ledger)),
+			})
+		}},
+		{"livetv", func() error {
+			var sel map[string]string
+			if o.LiveTVBindAddress != k8s.DisabledBindAddress {
+				var err error
+				if sel, err = o.LiveTVSelector(); err != nil {
+					return err
+				}
+			}
+			return livetvmanager.Register(mgr, bus, livetvmanager.Options{
+				Options:     o.Options,
+				BindAddress: o.LiveTVBindAddress, Selector: sel,
 			})
 		}},
 		// The autoscale step runs whatever --autoscale says (§9.4): QueueGauge

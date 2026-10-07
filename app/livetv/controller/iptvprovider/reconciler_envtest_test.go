@@ -131,13 +131,12 @@ func (f *fakeTuner) removals(key types.NamespacedName) int {
 }
 
 type harness struct {
-	c       client.Client
-	tuner   *fakeTuner
-	events  chan event.GenericEvent
-	mgrNS   string
-	ns      string
-	ctx     context.Context
-	cleanup []func()
+	c      client.Client
+	tuner  *fakeTuner
+	events chan event.GenericEvent
+	mgrNS  string
+	ns     string
+	ctx    context.Context
 }
 
 var nsSeq atomic.Int32

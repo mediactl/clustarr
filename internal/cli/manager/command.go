@@ -149,6 +149,10 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 		cli.EnvOr(cli.EnvExternalMetricsSecret, d.ExternalMetricsSecret),
 		"Secret holding the External Metrics API's self-generated CA and serving certificate. "+
 			"Defaults to $"+cli.EnvExternalMetricsSecret+".")
+	fs.StringVar(&d.LiveTVBindAddress, "livetv-bind-address", d.LiveTVBindAddress,
+		`Address the Live TV tuner (HDHomeRun surface and stream relay) binds to on the leader. "0" disables Live TV.`)
+	fs.StringVar(&d.LiveTVServiceSelector, "livetv-service-selector", d.LiveTVServiceSelector,
+		"The manager pod's labels as k=v[,k=v]: each IPTVProvider's Service selects them.")
 
 	root.RunE = func(cmd *cobra.Command, _ []string) error {
 		o := d
