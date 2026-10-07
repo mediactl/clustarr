@@ -22,8 +22,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // entry the moment a real importer lands -- an entry that outlives its task is
 // a dependency nobody can account for.
 //
-// It keeps nothing (gap fixes, W3 dependency prune, 2026-09-23). The last
-// entries went two ways:
+// It keeps only the manager/agent split's pre-adds (below), each until its
+// first real importer lands. The gap fixes' W3 dependency prune (2026-09-23)
+// retired every earlier entry, two ways:
 //
 //   - Real importers had landed, so the entries were redundant:
 //     anacrolix/torrent and anacrolix/torrent/storage (pkg/download/torrent),
@@ -75,3 +76,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // golang.org/x/image/font/opentype and golang.org/x/image/math/fixed for
 // real (Render, faceForCapHeight).
 package deps
+
+// The manager/agent split (plan docs/superpowers/plans/2026-10-06-manager-agent-split.md, W0.27)
+// pre-adds k8s.io/component-helpers v0.37.0, which the autoscale reconciler's
+// MatchingNodes uses (spec §9.5); the task that creates
+// app/autoscale/controller imports it for real and deletes these entries.
+import (
+	_ "k8s.io/component-helpers/scheduling/corev1"
+	_ "k8s.io/component-helpers/scheduling/corev1/nodeaffinity"
+)
