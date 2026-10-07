@@ -2,12 +2,26 @@
 
 **Status:** Accepted for implementation on branch `unify-manager-agent`, 2026-10-06.
 
+**Reconciled with main `80175fdc`, 2026-10-07.** The branch is rebased onto it (the 28
+commits `0d3ae234..80175fdc`, §8.1). What changed here: the MP4 standard's phase 1 is on
+the branch, so the transcode planner plans MP4 under `standard.Version` 2 and names the
+subtitles it drops in `status.transcode.plan.dropped` (§2.5, §5.8); the transcode writes
+every text subtitle beside its output, and the rename and the deletes now take those
+sidecars with the file (`subtitles.SidecarsOf`, §2.7, §3.9, §4.12, §6.4.3); the item path
+keeps main's `TranscodedFinal` and `ImportMessageExistingFileFinal` rules and wakes on a
+Download's import verdict (§3.3 S9, §3.12); the usenet connection budget and the ui's mass
+editor change nothing the fold owns (§7.7, §8.5); §8 is restated against `80175fdc`; and two
+decisions are added, D43 (open: a sidecar with no language follows no rename or delete) and
+D44 (`plan.dropped`).
+
 **Basis:**
 
 - Worktree `/home/appkins/src/mediactl/clustarr-unify`, branch `unify-manager-agent`, on main
-  `0d3ae234`. ADR-0016 is commit `a63ca1e0`
+  `0d3ae234`, rebased onto main `80175fdc` on 2026-10-07. ADR-0016 is commit `a63ca1e0`
   (`docs/adr/0016-per-file-work-is-mediafile-status.md`, Accepted). Line references are to
-  that tree unless marked **main** (local main `75e651c8`).
+  `0d3ae234` unless marked **main**. Before the reconciliation **main** meant local main
+  `75e651c8`; the passages the reconciliation added or changed cite main `80175fdc`, and a
+  `0d3ae234` line elsewhere may have moved.
 - The owner's answers to ADR-0016, recorded at the end of `.superpowers/unify/rulings.md`.
 - The manager/agent split design (`docs/superpowers/specs/2026-10-06-manager-agent-split-design.md`,
   "split spec" below), especially §5 (writers) and §6.5 (the probe protocol: KV bucket
@@ -551,6 +565,17 @@ type TranscodePlan struct {
 	// +required
 	// +kubebuilder:validation:MaxLength=64
 	PlanHash string `json:"planHash"`
+	// Dropped names each source subtitle the output carries neither embedded
+	// nor as a sidecar (standard.Result.Dropped: a codec the MP4 standard does
+	// not carry, or a second track for a sidecar name already planned), each
+	// clamped on a rune boundary; past 8, the eighth reads "and N more". It
+	// replaces the "; dropped …" suffix main's c0fb39b7 adds to TranscodeJob's
+	// Planned condition, which the fold removes.
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=8
+	// +kubebuilder:validation:items:MaxLength=320
+	Dropped []string `json:"dropped,omitempty"`
 }
 
 type TranscodeOutput struct {
@@ -580,14 +605,20 @@ type TranscodeOutput struct {
 | `Swapping` | The worker reported success; the output's probe is awaited before the spec takeover. This replaces "a Succeeded job not yet incorporated still holds its file". |
 | `Succeeded` | Incorporated. |
 | `Failed` | A verdict for this (profileHash, probeHash). `blocked` is false only for `SourceChanged`, re-planned when the new probe lands. Other reasons: `RetriesExhausted`, `InvalidSource`, `DeadLettered`, `DeadlineExceeded`. |
-| `Skipped` | The plan said skip (including the MP4 standard's `HoldImageSubtitles`, which **main** implements as a skip, `pkg/transcode/standard/plan.go:131-134`), the file is `Transcoded` (reason `Transcoded`), or a user cancelled (reason `Cancelled`). |
+| `Skipped` | The plan said skip (including the MP4 standard's `HoldImageSubtitles`, which **main** implements as a skip, `pkg/transcode/standard/plan.go:132-135` at `80175fdc`), the file is `Transcoded` (reason `Transcoded`), or a user cancelled (reason `Cancelled`). |
 
 **Removed from TranscodeJob:**
 
 - `plan.audioTracks` and `plan.subtitleTracks` (MaxItems 200 each,
   transcodejob_types.go:170-178). No non-test code reads them; only `Encoder`, `Mode`,
   `PlanHash` and `Engine` are read (dispatch.go:156-162, metrics.go:82,
-  pkg/pipeline/project.go:190-191).
+  pkg/pipeline/project.go:190-191). Under `standard.Version` 2 (main `b0bd01ee`,
+  `fbfd754c`) `standard.Result.Subtitles` is always empty, because every subtitle is a
+  `SidecarPlan`, so `subtitleTracks` is empty on every new job, and `audioTracks` lists
+  each encode as `aac` or `ac3` (`standardStatusPlan`, transcodejob/plan.go:121-147).
+  The plan's sidecars and drops are in `planHash` (`Result.Hash` marshals both); only
+  the drops are kept, as `plan.dropped`, because the sidecars are on disk and the
+  subtitles planner lists them (§6.4.3).
 - `plan.engine`, since every plan is ffgo.
 - `progress`, which lives only in `clustarr-progress` (ADR-0016).
 - `result.mediaInfo`, which duplicates `status.mediaInfo` after the re-probe.
@@ -780,13 +811,42 @@ type Sidecar struct {
 **What it lists.** Every attributable subtitle sidecar (`subtitles.ParseSidecar`) the
 subtitles planner's directory read finds, whether downloaded, written by the MP4 standard, or
 placed by hand, sorted by name and capped at 32. Today it lists only downloaded items
-(sidecars.go:36-58), which is why a rename orphans hand-placed and MP4 sidecars.
+(sidecars.go:36-58), so it misses hand-placed and MP4 sidecars.
 
-**Consumers that move or delete files** (rename's `moveSidecars` rename.go:245,282,
-importlist delete.go:155, librarydelete target.go:74) enumerate on disk at the moment they
-act, because the list is capped and is a view; they keep reading `path` through release N.
-In N+1 (F9.2) they, and ui/detail.go:246-247's extras, join `name` to `dir(spec.path)`
-instead.
+**Who writes the files** (the loop writes none; it lists):
+
+- **The transcode** (`cmd/transcode` pool pods; main `71dc301d`, `b33e4417`): every text
+  subtitle of the source, in its own pass, as `<stem>.<lang>[.forced|.sdh].srt` or `.ass`
+  (`standard.Result.Sidecars`, `fsops.SidecarPath`). Each is written as a part beside the
+  output's part, verified, and placed at its final name before the video swap
+  (`placeSidecars`, app/squash/worker/run.go:718-743 at main `80175fdc`); an existing name
+  is kept and the part removed (MP4 ruling R3), and an empty one (a track with no cues) is
+  dropped (`a9848d35`). The MP4 then carries no subtitle stream.
+- **The caption fetch worker** (agent `caption`): downloaded and extracted subtitles, at
+  `subtitles.SidecarName`, replacing what is there (§6.7.3).
+- **People**, by hand.
+
+**Consumers that move or delete files** enumerate on disk at the moment they act, because
+the list is capped and is a view. Main's `fa12e1b5` built this: each takes the union of
+`status.sidecars` and `subtitles.SidecarsOf(spec.path)` (pkg/subtitles/sidecarname.go:158-182,
+every file beside the video that `ParseSidecar` attributes to its stem): rename's
+`moveSidecars` (app/import/worker/rescan/rename.go:247,284-316), the import list's
+`recycleMediaFiles` (app/import/worker/importlist/delete.go:155-166), and librarydelete's
+`Target.paths` (app/import/controller/librarydelete/target.go:70-93). So a transcode's
+sidecars already follow a rename, and go with a delete, before the fold. They keep reading
+`path` through release N. In N+1 (F9.2) they, and ui/detail.go:246-247's extras, join `name`
+to `dir(spec.path)` instead; `SidecarsOf` needs no change.
+
+**A gap the fold inherits: a sidecar with no language.** For a subtitle track with no usable
+language the standard names the sidecar `<stem>.srt`, `<stem>.ass`, `<stem>.forced.srt` or
+`<stem>.sdh.srt` (`sidecarSuffix`, pkg/transcode/standard/plan.go:659-674 at `80175fdc`).
+`ParseSidecar` never guesses a language, so it attributes none of these: `SidecarsOf` skips
+them, so a rename leaves them under the old stem and a delete leaves them behind, and the
+listing records none in `status.sidecars`. This is main's behaviour, and the fold keeps it.
+The fix belongs on main: the movers should also take the language-less
+`<stem>[.forced|.sdh].<srt|ass>` names, through a `SidecarsOf` variant that attributes by
+stem alone, while the listing and the subtitles planner keep counting only sidecars with a
+language (§9 D43).
 
 ### 2.8 Conditions
 
@@ -978,10 +1038,11 @@ MaxItems, every string at MaxLength, condition messages at the clamp):
 | **status total** | **182,477 (178 KiB)** |
 
 The assembled shape differs by a few KiB: it adds `subtitles.wanted` (20 × 64),
-`transcode.probeHash`, `transcode.pool`, `transcode.joinedGraft`, `graft.jobName` and
-`lastSeq`, and drops the draft's `markerDispatch` and `subtitles.profileGeneration`. **Release
-N's sidecars also carry `path`** (§2.16): 32 × about 4.1 KB adds 131,392 B, so N's worst
-case is about 306 KiB of status. The envtest below measures the real number. Spec is about
+`transcode.probeHash`, `transcode.pool`, `transcode.joinedGraft`, `graft.jobName`,
+`lastSeq` and (2026-10-07) `transcode.plan.dropped` (8 × 320, about 2.6 KB), and drops the
+draft's `markerDispatch` and `subtitles.profileGeneration`. **Release N's sidecars also carry
+`path`** (§2.16): 32 × about 4.1 KB adds 131,392 B, so N's worst case is about 309 KiB of
+status, still under N's 320 KiB budget. The envtest below measures the real number. Spec is about
 86 KiB at its new caps, and annotations can reach the apiserver's 256 KiB limit
 (`TotalAnnotationSizeLimitB`, apimachinery objectmeta.go:39). The whole object comes to about
 530 KiB in N+1 and about 660 KiB in N, against etcd's 1.5 MiB.
@@ -1067,7 +1128,7 @@ and `source.Channel(ledger.profileWake)`.
 
 | Field | After the fold |
 |---|---|
-| `hash` | `jobspec.ProfileHash(spec)`, pure over spec and `standard.Version`; the transcode planner uses the same function for `status.transcode.profileHash`, so no file waits on `status.hash`. |
+| `hash` | `jobspec.ProfileHash(spec)`, pure over spec and `standard.Version`; the transcode planner uses the same function for `status.transcode.profileHash`, so no file waits on `status.hash`. From Version 2 (main `b33e4417`) `ProfileHashAt` hashes `OutputContainer` in place of `spec.container`, so editing a profile's `container` (now documented as ignored, default `mp4`) changes no hash and re-plans nothing. |
 | `matchingFiles` | Files with `status.transcode.profile == name`, plus backlog files the ledger holds for it. |
 | `pendingJobs` | Window files under the profile in `Pending`, `Planned` or `Queued`. The doc text changes to "files"; the name stays. |
 | `runningJobs` | `Running` or `Swapping`. |
@@ -1152,8 +1213,9 @@ resolvers; `status.legacyFold`; `TranscodeState.jobRef` (never written) and
 `TranscodeState.lastResult` with the `TranscodeResult` type; `Sidecar.path` (and the map
 list keyed by it). `transcode.phase` and `Sidecar.name` become `+required`. The readers of
 `Sidecar.Path` move to `name` in the same commit: ui/detail.go:246-247,
-app/import/controller/librarydelete/target.go:74, app/import/worker/importlist/delete.go:155,
-app/import/worker/rescan/rename.go:245,282, and their tests
+app/import/controller/librarydelete/target.go:85, app/import/worker/importlist/delete.go:157,
+`moveSidecars` (rescan/rename.go:296 at main `80175fdc`; `app/import/mediafilespec` after the
+split's W2.21), and their tests
 (librarydelete/target_test.go:40,94, app/import/run_test.go:113, rescan/keptoutput_test.go:109,
 test/e2e/transcode_test.go:690). `api/transcode/v1alpha1` keeps TranscodeProfile.
 `api/subtitle/v1alpha1` keeps SubtitleProfile and SubtitleProvider.
@@ -1313,7 +1375,7 @@ Every source is registered on the one controller
 | S6 | Book; Author | `bookPredicate`; `authorPredicate` | Book keys |
 | S7 | Audiobook; Book | `audiobookPredicate`; Book `GenerationChanged` | Audiobook keys (`.spec.bookRef`) |
 | S8 | Issue; Comic | `issuePredicate`; Comic `GenerationChanged` | Issue keys |
-| S9 | Download | `downloadPredicate`, the same in all six packages: generation, `status.phase`, deleting | Target item keys: `spec.target.name` plus its `keys` (donor Downloads included, which feed `status.audio.donor`) |
+| S9 | Download | `downloadPredicate`, the same in all six packages: generation, `status.phase`, deleting; **plus** a change of `rollup.DownloadNonTerminal(dl)`, which since main `991b7ced` also reads `status.import` (an import `Blocked` with `ImportMessageExistingFileFinal` leaves the Download `Completed` but no longer the item's active download, and today's predicate misses that edge, §3.12) | Target item keys: `spec.target.name` plus its `keys` (donor Downloads included, which feed `status.audio.donor`) |
 | S10 | QualityProfile | `GenerationChanged` | Items, through the six `.spec.qualityProfileRef` indexes (Episodes through their Series) |
 | S11 | RootFolder | `rootFolderNamingChanged` (watch.go), plus create and delete | Files, through `mediafile.clustarr.io/movie-rootfolder` and `series-rootfolder` |
 | S12 | TranscodeProfile | `GenerationChanged` | Every movie and episode MediaFile at `LowPriority` |
@@ -1683,9 +1745,13 @@ behind a pure gate:
   rename/controller.go:77).
 - **What it does.** `mediafilespec.RenameFile` (formerly `rescan.RenameFile`, split §5.14
   item 3): re-reads the file uncached through the APIReader (the loop's only uncached GET, once
-  per rename attempt), moves the file on disk (sidecars included, enumerated on disk, §2.7), and
-  applies the spec under `importarr-worker` with that read's resourceVersion
-  (rescan/mediafile.go:613-670).
+  per rename attempt), moves the file on disk, and applies the spec under `importarr-worker`
+  with that read's resourceVersion (rescan/mediafile.go:613-670). Its `moveSidecars` moves
+  every sidecar of the old stem: the stored `status.sidecars` plus `subtitles.SidecarsOf(from)`
+  (main `fa12e1b5`, §2.7), so the transcode's own `.srt` and `.ass` follow a
+  `renameTranscoded` rename, with no loop state. A sidecar whose new name is taken stays
+  under the old one, with a warning, as today. The next pass's listing (gate 3 of §6.4.3)
+  records the moved names.
 - **What follows.** The spec apply bumps generation, S1 wakes the file, and the next pass
   incorporates the path-only change without a probe (split §6.5.3) and lists the directory for
   subtitles (§6.4.3).
@@ -1722,7 +1788,9 @@ the takeover in `Result.Main` (the swap target's path from the transcode block's
 or takeover values differ from the cached object, so in steady state it never runs. A Conflict
 ends the pass with `RequeueAfter: 1s` and no status apply. `spec.path` stays co-owned with
 `importarr-worker`, which renames transcoded files, as today. The MP4 standard makes every output
-`<stem>.mp4`, so the path takeover is the normal case.
+`<stem>.mp4`, so the path takeover is the normal case. The stem does not change, so the
+sidecars the transcode placed beside the output (§2.7) and any downloaded before keep matching
+the new path, and no sidecar moves with the takeover.
 
 ### 3.11 Scheduling
 
@@ -1790,6 +1858,31 @@ requeues in 30 s (:629-631). The `status.metadata.selectedReleaseID` leaf stays 
 
 **The item path also derives `status.audio.donor` and appends `rejectedReleases`** (§2.6, §2.14).
 There is no item-keyed record and no item-keyed task: the donor is reduced at import (§4.12).
+
+**Main's "a transcoded file is final" rules carry over unchanged** (`22230298`, `991b7ced`,
+`e21885cc`, 2026-10-07). None of them is the loop's code, but the item path renders their
+inputs and outputs:
+
+- **The verdict's inputs are the loop's.** `pkg/decision` now rejects every candidate over a
+  transcoded file as `TranscodedFinal`, a user-invoked search's included, because "Search now"
+  grabs its best approved release automatically (`grabbedBy: search`). Only a person's own
+  pick, Search `spec.grab`, is exempt (`resolveGrab`, app/catalog/controller/search/grab.go,
+  through `decision.ReasonTranscodedFinal.Of`). The search worker reads the verdict through
+  `search.CurrentFile` (`rollup.Transcoded(&mf)`, app/catalog/worker/search/snapshot.go:255-258),
+  so the loop must keep `spec.original` (the swap takeover, §3.10),
+  `status.mediaInfo.transcodeProfile` and `videoEncoder` exactly as today; it does.
+- **An import refused over a transcoded file is not a release fault.** fileimport writes
+  `status.import.message = ImportMessageExistingFileFinal` (api/download/v1alpha1/download_types.go:262-272)
+  instead of `ImportMessageEveryFileRejected`, so grabarr neither blocklists nor fails the
+  Download, which stays `Completed` with its files for a person's import. `rollup.DownloadNonTerminal`
+  (app/catalog/controller/rollup/activedownload.go:57-64) no longer counts it as active, so the
+  item's `activeDownloadRef` drops it and the item reads `Transcoded`, not `Downloading`. The
+  item key computes this through the same rollup, and S9 wakes it on that edge (today's
+  `downloadPredicate` watches only generation, phase and deletion, so a Movie learns of the
+  refusal only at its next unrelated wake: a gap on main that the fold closes).
+- **Phase precedence is unchanged:** Downloading (the overlay), Unmonitored, Pending (Movie),
+  Transcoded, Imported, Delayed, CutoffUnevaluated, CutoffUnmet, Unavailable or Unaired,
+  Wanted (design of record §4.2).
 
 **Unchanged:** finalizers, metadata and artwork publishes, item Events (recorders `movie`,
 `episode`, `album`, `book`, `audiobook`, `issue`).
@@ -2306,7 +2399,10 @@ the planner keeps reading the record after the withdrawal closes the dispatch (�
 by name, and the loop's directory read attributes an unrecorded one; a transcode re-run finds its
 own output through `producedEarlier`, `finishElsewhere` and `alreadySwappedOrChanged`
 (`app/squash/worker/run.go:533-600`); a graft re-run finds the language `Present`; a probe or a
-TheIntroDB query is simply asked again.
+TheIntroDB query is simply asked again. A transcode places its subtitle sidecars before the
+video swap (main `b33e4417`), so a crash between the two leaves them beside the source under
+the same stem, where the re-run keeps them (an existing name is never replaced) and the listing
+attributes them to the file either way.
 
 **Last delivery.** On a task's last delivery (`MaxDeliver`) a worker writes `StateFailed` with
 `Transient: true` and the cause, rather than leaving it to the DLQ. This generalises
@@ -2442,10 +2538,17 @@ The protocol, names and constants stay as split §6.5 has them: `CLUSTARR_WORK_P
   marker applying to its Seq and earlier; part files `<stem>.part-<mfUID8>-<seq><ext>`, with
   `fsops.TranscodePart.JobUID8` renamed `FileUID8` and `Attempt` renamed `Seq`
   (`pkg/fsops/parts.go:27-63`; `partAttemptRE`, `pkg/fsops/classify.go:90`, already accepts long
-  digit runs).
+  digit runs). The subtitle sidecar parts follow the same key (main `fb57194d`,
+  `fsops.SidecarPath`: `<stem>.<lang>[.forced|.sdh].part-<mfUID8>-<seq>.<srt|ass>`), so
+  `sidecarParts`, `removePart` and `sweepEarlierAttempts` (which compare `JobUID8` and
+  `Attempt`, run.go:684-716, ffgo.go:296-322) and the rescan's orphan-part guard (which reads
+  them through `ParseTranscodePart`, rescan/orphanpart.go:49-52, its live set keyed on
+  in-flight `status.transcode` UIDs after F6.4) treat them as parts of their attempt.
 - **Answer:** `task.Answer{Outcome, Reason, Message (≤1024), Class, Pod, Node, StartedAt,
   FinishedAt, Result *transcodev1alpha1.Result (MediaInfo always nil), StderrTail (≤4096),
-  Graft *grafttask.Result}`. `Spec.Fact` is `Outcome == succeeded`.
+  Graft *grafttask.Result}`. `Spec.Fact` is `Outcome == succeeded`. The answer names no
+  sidecar: the ones the run placed are on disk under the output's stem, and the subtitles
+  planner lists them when it incorporates the swap's probe (§6.4.3, gate 3).
 - **Progress** lives only in `clustarr-progress` at `worker.ProgressKey(mfUID)` =
   `transcode.<KVKeyToken(mfUID)>` (`app/squash/worker/telemetry.go:45`), value
   `schema.TranscodeProgress` v2 (`transcode.Progress.v2`: `File`, `Seq`, …), written at 1 Hz
@@ -2458,7 +2561,12 @@ The protocol, names and constants stay as split §6.5 has them: `CLUSTARR_WORK_P
   `task.Inputs`, and if this dispatch's swap already happened, answer the fact (allowed over
   `withdrawn{S}`, §4.8) and ack; then, if `Superseded`, ack; claim the lease (`lease.go`,
   re-keyed); `Claim` the record (if `withdrawn`, `DeleteRevision` the lease and ack); run
-  `Process`, `BeforeSwap` reasserting the lease; `Answer`; `DeleteRevision` the lease; ack. A
+  `Process`, `BeforeSwap` reasserting the lease (then `placeSidecars`, then the swap, as on
+  main); `Answer`; `DeleteRevision` the lease; ack. `Process` keeps main's two MP4 guards: a
+  task whose output extension is not the plan's container is refused as retriable
+  (`a9848d35`; with every v2 task built under `jobspec.OutputContainer` it fires only on a
+  task built by another standard version), and verify fails a planned sidecar that is
+  missing, while an empty one is dropped at placement. A
   failed `Answer` of a non-fact deletes the lease and `Nak(0)`s, as with today's unpublished
   finished event (`serve.go:452-462`). **A failed `Answer` of a fact is retried** with backoff
   (1 s doubling to 30 s) for `factAnswerTimeout` (10 min), whatever the lease now says, as the graft
@@ -2485,7 +2593,10 @@ The protocol, names and constants stay as split §6.5 has them: `CLUSTARR_WORK_P
   `Inputs grafttask.Inputs{TargetProbeHash, DonorAudio, DonorRelease, Language, Anchor}`; the
   `Graft` name field is dropped.
 - **Answer:** `grafttask.Result`, unchanged in shape. `Spec.Fact` is
-  `Phase == Succeeded && Reason == Grafted`.
+  `Phase == Succeeded && Reason == Grafted`. Main's `1f9e8c90` and `adf9372c` graft a surround
+  dub as an AAC 2.0 track followed by AC-3 5.1 (`grafttask.Prepared.Tracks()` is 2), so the
+  worker's expectation and `graft.Check` count two tracks; neither the task, the answer nor
+  the graft block changes.
 - **Pod** (`cmd/transcode --graft-task`): connect to NATS; if `Superseded`, exit 0; `Claim`; run
   `graft.Run`; `Answer`, retrying bus errors for `graftAnswerTimeout` (2 min); exit 0 on
   `Succeeded`, else 1.
@@ -2921,13 +3032,16 @@ The planner runs inside the loop's pass against the cached view; the one CAS app
 (§3.7). It never acts on a grant without checking it against that view.
 
 **Window grant.** The planner plans from the stored probe with `planFor` for the profile's hardware
-(today's Pending→Planned step, `controller.go:495-543`):
+(today's Pending→Planned step, `controller.go:495-543`). The plan is `standard.Plan` at Version 2
+(main `b0bd01ee`): the output is always `<stem>.mp4` (`jobspec.OutputContainer`, whatever the
+profile's `container`, which `ProfileHashAt` ignores from Version 2 on), and the result carries the
+audio layout, the sidecars and the drops. It yields:
 
 - a verdict: `Skipped` (including a standard hold such as `HoldImageSubtitles`), or `Failed` for a
   plan error; or
 - `Planned`, with `plannedAt=now`, `profile`, `profileHash`, `profileTag`, `probeHash`, the plan
-  summary and `attempts=0`; or `Pending` with its reason while the probe is pending or a standalone
-  graft holds the file.
+  summary (with `plan.dropped` from `standard.Result.Dropped`, §2.5) and `attempts=0`; or
+  `Pending` with its reason while the probe is pending or a standalone graft holds the file.
 
 If the file is no longer eligible, the planner releases the grant.
 
@@ -2937,6 +3051,8 @@ If the file is no longer eligible, the planner releases the grant.
 2. Re-plan for C with `ledger.Device(C)` (`dispatch.go:147-163`). If it skips or fails, record the
    verdict and release. If it needs another class, stay Planned (an `auto` file gets a
    `fallbackReason`, as `keepPlanned` does, `dispatch.go:310-339`), release and wake admission.
+   A re-plan rewrites `plan` whole, `dropped` included (main records the re-plan with
+   `worker.OutputContainer`, dispatch.go:266,275,323 at `80175fdc`).
 3. `jobspec.BuildTask`. A missing RootFolder or invalid output gives `Failed`, blocked,
    `InvalidSource` (`dispatch.go:166-183`).
 4. Join the graft if it can ride along (§5.13), recording it in `transcode.joinedGraft`.
@@ -3417,8 +3533,9 @@ no periodic relist.
 
 - **`status.sidecars`:** one entry per name `subtitles.ParseSidecar(stem, name)` attributes (`name`,
   and in release N its absolute `path`; language, forced, hi), sorted by name, capped at 32 (§2.7). Not filtered by profile: hand-placed
-  sidecars count, and so do the `.srt`, `.ass` and `.sdh` sidecars the MP4 standard writes
-  (mp4-standard §4.1, on main). This replaces `sidecarsFromSubtitleRequest` (sidecars.go:35-58),
+  sidecars count, and so do the `<stem>.<lang>[.forced|.sdh].srt` and `.ass` sidecars the MP4
+  standard writes (mp4-standard §4.1; on the branch since the rebase onto `80175fdc`; the same
+  attribution `subtitles.SidecarsOf` uses, §2.7). This replaces `sidecarsFromSubtitleRequest` (sidecars.go:35-58),
   `scanSidecars` (mediafile_controller.go:864), the SubtitleRequest watch (:733-734) and its index
   (:762-764). Without a listing, `status.sidecars` is carried from the stored status.
 - **The sidecar half of existing:** only profile languages count, as in `buildExisting`
@@ -3434,6 +3551,12 @@ no periodic relist.
 
 - **Existing subtitles:** `embeddedExisting(mediaInfo, policy, extractable)` plus
   `sidecarExisting(names)`, the names from the listing or, without one, from `status.sidecars`.
+  After an MP4 transcode the output carries no subtitle stream, so the swap's probe empties the
+  embedded half, and the sidecars the transcode placed carry the same languages: a language the
+  source had embedded stays satisfied across the swap, through the listing gate 3 opens. A
+  forced or SDH track keeps its key, since the sidecar's `.forced` or `.sdh` maps to `:forced`
+  or `:hi` under `ParseSidecar`. A file held for its image subtitles (`HoldImageSubtitles`)
+  keeps its embedded streams until MP4 phase 2.
 - **Audio languages:** `audioLanguages(mediaInfo, Item.OriginalLanguage)` (existing.go:273-288).
   Tagged tracks win; untagged or `und` audio counts as the item's original language (the Movie's
   `status.metadata.originalLanguage`, or the Episode's Series'). `audioExclude` and
@@ -3829,9 +3952,11 @@ What follows:
 - **The migration must not copy squasharr's retirement test.** squasharr's `!probed.After(done)`
   (`transcodeprofile/controller.go:392,445`) keeps all 48 Succeeded jobs alive. Adoption uses
   catalogarr's test.
-- **Every TranscodeJob verdict on this cluster is superseded** once standard.Version 2 (main
-  `b0bd01ee`) reaches the branch at its next rebase: it changes every profile hash. Then release N's
-  transcode copy carries nothing on kind-cluster-plex; only withdrawal and the suspend intent matter.
+- **Every TranscodeJob verdict on this cluster is superseded** by standard.Version 2 (main
+  `b0bd01ee`, on the branch since the rebase onto `80175fdc`): it changes every profile hash.
+  So release N's transcode copy carries nothing on kind-cluster-plex; only withdrawal and the
+  suspend intent matter. Whether main deploys MP4 phase 1 before release N decides only which
+  jobs exist at the cutover, not what is copied: re-read §7.1 then (§8.5 item 8).
 
 ### 7.2 Shape: the loop adopts, a Migrator does everything else
 
@@ -4443,6 +4568,12 @@ N to the previous release is this procedure**, which replaces split §11.3's rol
   follows (`TestUIRoleChartMatchesConfig`).
 - **`ui/actions`: no change** (§9, D18). The ui holds no write on mediafiles, so the intent
   annotations are `kubectl annotate` only. `settings.go`'s TranscodeProfile priority action stays.
+  Main's mass editor (`POST /library/{tab}/bulk`, `ui/library_bulk.go`, `b77c30d2`) and per-card
+  hover actions (`0a39889a`) call only the item page's actions (`SetMonitored`, `SearchNow`,
+  `RefreshMetadata` with `RescanPath`, `RequestDelete`), none of which reads or writes a folded
+  kind. They need no change for the fold, and their tests (`ui/library_bulk_test.go`,
+  `ui/library_card_actions_test.go`) are not F8.7's. A later subtitle or transcode action (D19)
+  would sit in the same two places: the item page and the editor's bottom bar.
 
 ### 7.8 e2e (F8; every scenario is still written and never run, as Phase H owns that)
 
@@ -4451,7 +4582,8 @@ N to the previous release is this procedure**, which replaces split §11.3's rol
   fields, the pool resuming and suspending, the swap (`Succeeded`, `profileTag`, hevc, `Transcoded()`),
   the recycled original, a rehash on a profile edit, and the `transcode.clustarr.io/suspend` round
   trip); `TestTranscodeContainerChangeMovesTheFile` (`:765`) asserts the `spec.path` takeover to
-  `.mp4`; `TestTranscodeDolbyVisionSkipped` (`:847`) asserts the Skipped verdict;
+  `.mp4`, and, when the source carries text subtitles, that they are sidecars beside it that the
+  next pass lists in `status.sidecars` (MP4 standard §4.1); `TestTranscodeDolbyVisionSkipped` (`:847`) asserts the Skipped verdict;
   `TestDownloadScenario1TranscodeLeg` (`:903`) asserts on the block.
 - `test/e2e/subtitle_test.go`: `TestSubtitleRequestSidecarPipelineAndLanguageRemoval` (`:310`) becomes
   `TestSubtitlesSidecarPipelineAndLanguageRemoval` (its `data-stage="SubtitleDone"` leg can now pass);
@@ -4479,11 +4611,14 @@ N to the previous release is this procedure**, which replaces split §11.3's rol
 - `docs/superpowers/specs/2026-09-18-clustarr-design-amendment-1.md:433-434` (A3.3, the pipeline
   mapping): subtitle and transcode stages from `status.subtitles` and `status.transcode`, progress from
   `clustarr-progress`. The amendment wins over the spec, so its text must not keep the old kinds.
-- `CLAUDE.md`: `:7` `kubectl get movies,downloads,transcodejobs` becomes
-  `kubectl get movies,downloads,mediafiles`; `:54-57` the window, retention and SubtitleRequest text;
-  `:360-380` the AudioGraft text; `:409` and `:959` the TranscodeJob status invariant and the "two
-  write paths need compare-and-swap" gotcha, restated for the loop; a Status paragraph for the fold.
-  The historical phase paragraphs stay as records.
+- `CLAUDE.md` (lines at main `80175fdc`): `:7` `kubectl get movies,downloads,transcodejobs`
+  becomes `kubectl get movies,downloads,mediafiles`; `:51-62` the window, retention and
+  SubtitleRequest text; `:394-420` the AudioGraft text; `:449-452` and `:998-1004` the
+  TranscodeJob status invariant and the "two write paths need compare-and-swap" gotcha,
+  restated for the loop; a Status paragraph for the fold. The MP4 standard's text (`:60-75`,
+  `dea6d010`, `adf9372c`) names `worker.OutputContainer` and TranscodeJob's Skipped hold, which
+  become `jobspec.OutputContainer` and `status.transcode` `Skipped`; the transcoded-file paragraph
+  (`:49`, `e21885cc`) is kept as it is. The historical phase paragraphs stay as records.
 - `README.md:8,59-60`: the ground-truth `kubectl get` line and the list of kinds.
 - `docs/adr/README.md` refinement bullets (the ADR body is frozen): **0016** — the copy is adoption
   inside the loop and protects subtitle backoff (`attempts`, `nextSearchAt`, `lastError`), not
@@ -4570,13 +4705,31 @@ own waves, the ffgo tag, and how the work interacts with the MP4 standard on mai
   `clustarr.13` in all) and the split's ADR numbers after ADR-0016 (W10.2 is ADR-0018, plan:53264;
   W10.3 is ADR-0017, plan:53400; split spec §12, spec:6281-6297). This section lists only the edits
   the committed plan still lacks.
-- **Local main** is at `adf9372c`, 17 commits past the base: `35db28ff`, `ebbb2322` (go.mod:218 →
-  `v0.0.0-clustarr.12`), `fb57194d` (`fsops.SidecarPath`), `b0bd01ee` (`standard.Version` 2, MP4),
-  `fbfd754c`/`75e651c8` (every subtitle becomes a sidecar), the MP4 engine and squash work through
-  `b33e4417` (`worker.OutputContainer`), **`dea6d010`, MP4 phase 1's gate commit** ("docs: the MP4
-  standard's phase 1 as built"), and fixes after it (`fa12e1b5`: a rename and a delete take the
-  transcode's own sidecars with the file). So F6.1's prerequisite is met on main; the branch takes
-  it at the next rebase.
+- **Local main** was at `adf9372c`, 17 commits past the base, when this section was drafted, and
+  is at **`80175fdc`, 28 commits past it**, on 2026-10-07. **The branch is rebased onto
+  `80175fdc`** (HEAD `1f618bba`), so everything below is on the branch:
+  - **ffgo `.12`:** `35db28ff`, `ebbb2322` (go.mod:218 → `v0.0.0-clustarr.12`).
+  - **MP4 phase 1:** `fb57194d` (`fsops.SidecarPath`), `b0bd01ee` (`standard.Version` 2, MP4),
+    `fbfd754c`/`75e651c8` (every subtitle becomes a sidecar), `e9ebc22c`, `71dc301d`, `1f9e8c90`
+    and `b33e4417` (`worker.OutputContainer`, sidecars placed before the swap), **`dea6d010`,
+    the phase-1 gate commit** ("docs: the MP4 standard's phase 1 as built"), and its fixes:
+    `f8eb8d90` (a late video stage no longer stalls an encoded audio track), `a9848d35` (an
+    empty sidecar is dropped; a task for another container is refused as retriable),
+    `c0fb39b7` (forced and SDH from a subtitle's title; dropped subtitles named in the Planned
+    condition), `adf9372c` (the AAC companion listed first), `64e46a8c`, `adbb865a` (tests).
+  - **Sidecars follow the file:** `fa12e1b5` (`subtitles.SidecarsOf`; a rename and a delete
+    take the transcode's own sidecars).
+  - **A transcoded file is final against every search:** `22230298` (`TranscodedFinal` for a
+    user-invoked search, the `spec.grab` exemption), `991b7ced` (`ImportMessageExistingFileFinal`,
+    never blocklisted; `rollup.DownloadNonTerminal` drops such a Download), `bbc1b135`,
+    `e21885cc` (docs).
+  - **Downloads:** `38db94e6` (usenet post-processing reports its progress); `e4b59a5c` and
+    `db53ebd1` (the usenet connection budget's design and phase-A plan, to be built on main by
+    another session in `pkg/download/usenet` and `app/grab/engine/usenet`; nothing here).
+  - **ui:** `b77c30d2` (Sonarr's layout, the mass editor, the library-wide find), `0a39889a`
+    (per-card hover actions); `80175fdc` (formatting).
+
+  So F6.1's prerequisite is met on the branch.
 - **ffgo.** `v0.0.0-clustarr.12` is `a18455764d9f79215f3973867bcb1206d6b8371a`, a lightweight tag
   already on origin. It added `avcodec.NewPacket` (binds `av_new_packet`, avcodec/avcodec.go:471),
   `avcodec.SetCodecParCodecID`/`SetCodecParExtradata`, `ffgo.NewPacketFromData` and `(*Packet).Data`
@@ -4624,7 +4777,7 @@ as callers that survive until the fold, or as transitional code.
 | Task | Disposition | Change |
 |---|---|---|
 | W2.21, I2 (plan:9278, `mediafilespec.RenameFile`) | Keep | The rename actuator calls it (F3.3). |
-| W2.30, S1 (plan:10581, `app/squash/jobspec`) | Keep, with an MP4 note | The transcode planner reuses `BuildTask`, `OutputPath`, `ProfileHash`, `StandardProfile`; the edits to `audiograft/controller.go` and `transcodejob/*.go` are import rewrites the doomed controllers need to compile. **MP4 note:** main's `b33e4417` added `worker.OutputContainer`; if it is on the branch when W2.30 runs, `OutputContainer` and `ProfileHashAt` move into `jobspec` with `profile.go`, and their `transcodejob/controller.go` and `dispatch.go` call sites read `jobspec.OutputContainer`; if not, F6.1's rebase resolves the same points. |
+| W2.30, S1 (plan:10581, `app/squash/jobspec`) | Keep, with an MP4 note | The transcode planner reuses `BuildTask`, `OutputPath`, `ProfileHash`, `StandardProfile`; the edits to `audiograft/controller.go` and `transcodejob/*.go` are import rewrites the doomed controllers need to compile. **MP4 note:** main's `b33e4417` added `worker.OutputContainer`, and it is on the branch since the rebase onto `80175fdc`: `OutputContainer` and `ProfileHashAt` move into `jobspec` with `profile.go`, and their call sites (`transcodejob/controller.go:541,577`, `dispatch.go:266,275,323`, `transcodeprofile/profile_test.go:68,163`) read `jobspec.OutputContainer`. The task's symbol list, comment sweep and test cut gain them (listed, uncommitted, in `.superpowers/unify/plan-edits-80175fdc.md`). |
 | W2.31, P1 (plan:10800, providerset split) | Keep | The subtitles planner and the slim SubtitleProfile reconciler use the light half. |
 
 **Wave 3 (registrations):**
@@ -4678,7 +4831,7 @@ fixtures mechanically; the per-profile pool durables they touch survive.
 | W6.11 (plan:42501, both installers' manager args) | Change | The kustomize `config/manager` args and the chart's manager args carry release N's `--legacy-fold`/`--legacy-fold-retain` (§7.3.10), `--remediation-concurrency`, `--remediation-bulk-writes-per-second`, `--remediation-io-workers` and `--graft-concurrency`, and drop `--job-retention`. The grace-period comment (plan:43625) names only `catalogarr-segments-plan`; the value (70) is unchanged, the 60 s AckWait at pkg/events/topology.go:735 still the longest. |
 | W6.13 (plan:45433, the closed `values.schema.json`) | Change | Admits `manager.legacyFold.{mode,retain}` (mode an enum `apply\|hold`) and `manager.remediation.{concurrency,bulkWritesPerSecond,ioWorkers}`, and rejects `manager.jobRetention`. F9.3 removes `manager.legacyFold`. |
 | W6.15 (plan:45931) | Change | Renames the files F8.9 rewrote. |
-| W6.20, W6.21, W6.22 (plan:46820, 46839, 46858) | Change | They also convert main's MP4 tests that run the CLIs (`pkg/transcode/engine/mp4_capabilities_test.go:50,63`, plus MP4 Tasks 5-9's). `app/squash/controller/transcodejob/parity_envtest_test.go` (plan:46841) becomes `app/squash/transcodeplan/parity_envtest_test.go`. |
+| W6.20, W6.21, W6.22 (plan:46820, 46839, 46858) | Change | They also convert main's MP4 tests that run the CLIs: `pkg/transcode/engine/{mp4_capabilities,sidecar,audio,graft}_test.go`'s new clips and `pkg/transcode/standard/parity_test.go`'s `TestTheSummaryAndTheProbePlanSubtitlesAlike` (W6.20), and `app/squash/worker/worker_envtest_test.go`'s `withASSAndForcedSRT` (an ASS and a forced SubRip stream, `adbb865a`) under the six sidecar tests (W6.21), which needs W0.29's subtitle streams. `app/squash/controller/transcodejob/parity_envtest_test.go` (plan:46841) becomes `app/squash/transcodeplan/parity_envtest_test.go`. |
 
 **Waves 7-10:**
 
@@ -4698,14 +4851,17 @@ fixtures mechanically; the per-profile pool durables they touch survive.
 follows the ProbePending apply; `NextSeq`; the waker opens `UpdatesOnly`; "Downstream gates"
 spec:2779-2806 replaced by the structural gate; the retention sentence dropped), §11.1 (the
 F-steps), and §11.3's runbook and rollback (spec:6175-6280), replaced by §7.5-§7.6, which carry its
-steps. §7.5's title and §12 need no change: the committed split spec already reads `.13` and the
-post-ADR-0016 numbers.
+steps. (The `spec:` lines are the committed split spec's; its 2026-10-07 reconciliation added
+lines above them.) §12 needs no change for the ADR numbers. The `.13` tag is in the split spec
+since that reconciliation (its R12, §7.5 and OD18); this list said it was already there, which
+was wrong.
 
 ### 8.4 The ffgo fork moves to `.13`
 
 1. **Before W0.1** (the plan is committed, `8b3f67bb`), the controlling session rebases the branch
-   onto local main; go.mod:218 then reads `.12`, and the MP4 docs are present. The committed plan
-   already carries steps 2 and 3 (§8.1); they are restated here as the fold relies on them.
+   onto local main; go.mod:218 then reads `.12`, and the MP4 docs are present. **Done:** the branch
+   is on main `80175fdc` since 2026-10-07. The committed plan already carries steps 2 and 3
+   (§8.1); they are restated here as the fold relies on them.
 2. **W0.1** runs `git -C /home/appkins/src/mediactl/ffgo worktree add -b clustarr/unify-media
    /home/appkins/src/mediactl/ffgo-unify v0.0.0-clustarr.12`. F1-F17 (the fork's own tasks), the
    testmedia additions and F12's `FFSHIM_API_VERSION 1` land on top of `a184557`. `.12` changed no shim
@@ -4729,26 +4885,42 @@ post-ADR-0016 numbers.
    the split forbids in tests (Global Constraints, plan:24); W6.20 and W6.22 convert them, and W6.23 records their goldens
    before the exec implementations go.
 4. **The transcode planner (F6) is written after MP4 phase 1.** F6.1 waits for the phase-1 gate commit
-   ("docs: the MP4 standard's phase 1 as built", mp4-standard-phase1.md:1820; on local main as
-   `dea6d010` since 2026-10-06, §8.1) and for
-   `OutputContainer = transcodev1alpha1.ContainerMP4` in `app/squash/jobspec`. Every output is
+   ("docs: the MP4 standard's phase 1 as built", mp4-standard-phase1.md:1820; `dea6d010`, on the
+   branch since the rebase onto `80175fdc`, §8.1) and for
+   `OutputContainer = transcodev1alpha1.ContainerMP4` in `app/squash/jobspec` (W2.30). Every output is
    `<stem>.mp4`, so the path takeover is the normal case; MP4 ruling R1 ("a held file is Skipped, not
    Planned", mp4-standard-phase1.md:55) becomes a `status.transcode` verdict, `phase: Skipped`, keyed by
    (profileHash, probeHash), so phase 2's `standard.Version` raise plans the file again; the plan's
-   audio codec comes from `standard.Plan` (b0bd01ee's `standardStatusPlan` change).
+   audio codec comes from `standard.Plan` (b0bd01ee's `standardStatusPlan` change); and the
+   subtitles a plan drops, which `c0fb39b7` names in TranscodeJob's Planned condition, go into
+   `status.transcode.plan.dropped` (§2.5).
 5. **MP4 phases 2 and 3 land in the fold's planner.** Phase 2 (OCR) and phase 3 (remux of transcoded
    files, which "the TranscodeProfile controller selects", mp4-standard-design.md:205) edit exactly the
    controllers F6 deletes. If phase 3 is on main before F6.1, F6.2 ports its selection rule into
    `transcodeplan.Eligible`; if not, phase 3 is planned against `app/squash/transcodeplan` (§9, D28).
 6. **Sidecars.** The MP4 worker writes `<stem>.<lang>[.forced|.sdh].{srt,ass}` beside the output before
-   the swap and never overwrites an existing name (MP4 R3). Today `status.sidecars` mirrors only
-   captionarr's downloads, so a `renameFiles` rename orphans them. After the fold `status.sidecars` is
-   the loop's own listing (§6.4.3); the rename actuator moves them, and the subtitles planner counts them
-   as existing. Both sides spell the HI flag `sdh` (pkg/subtitles/sidecarname.go:37; standard/plan.go:640-652).
-7. **Grafts.** MP4 Task 8 makes a surround dub AC-3 5.1 plus AAC 2.0, which does not change the graft
-   planner's model.
+   the swap and never overwrites an existing name (MP4 R3); an empty one is dropped (`a9848d35`).
+   `status.sidecars` still mirrors only captionarr's downloads on main, but since `fa12e1b5` the
+   movers no longer depend on it: a rename, a library delete and an import-list delete each add
+   `subtitles.SidecarsOf(spec.path)` (§2.7). After the fold `status.sidecars` is the loop's own
+   listing (§6.4.3); the rename actuator calls the same `moveSidecars` (§3.9), and the subtitles
+   planner counts them as existing. Both sides spell the HI flag `sdh` (pkg/subtitles/sidecarname.go:40;
+   standard/plan.go:633,643-645,671 at `80175fdc`). A language-less sidecar (`<stem>.srt`) is attributed by neither, on
+   main or after the fold (§2.7, D43).
+7. **Grafts.** MP4 Task 8 makes a surround dub AC-3 5.1 plus AAC 2.0 (`1f9e8c90`; AAC listed first
+   since `adf9372c`), which does not change the graft planner's model (§4.12).
 8. **Live state.** MP4 phases deploy from main one at a time (mp4-standard-design.md §10), so release
    N's adoption meets jobs under the Version 2 hash; the §7.1 inventory is re-read before cutover.
+9. **A transcoded file is final against every search** (`22230298`, `991b7ced`, `e21885cc`). Outside
+   the loop except for its inputs: the item path keeps `rollup.Transcoded`'s inputs and
+   `rollup.DownloadNonTerminal`'s new import rule, and S9 gains the import-verdict edge (§3.3,
+   §3.12). No task changes beyond F4.2's predicate.
+10. **Usenet** (`38db94e6`, `e4b59a5c`, `db53ebd1`). Download stays a resource (ADR-0016), so neither
+    post-processing progress nor the connection budget touches the fold. A
+    `Download.status.usenet.servers[]` (budget design §3.5) would be engine-owned Download status,
+    outside the loop.
+11. **ui** (`b77c30d2`, `0a39889a`). The mass editor and card actions use no folded kind (§7.7);
+    D18 and D19 stand.
 
 ### 8.6 The fold's waves (F0-F9)
 
@@ -4777,7 +4949,8 @@ wave's guards.
   `v0.0.0-clustarr.13`; ADR-0016 accepted.
 - **F0.2 Rebase** (controlling session) onto local main; record which MP4 tasks the branch carries;
   resolve the `jobspec` conflicts with the W2.30 MP4 note; add any new MP4 CLI tests to W6.20 and
-  W6.22's lists.
+  W6.22's lists. At the 2026-10-07 rebase onto `80175fdc` the branch carries all of MP4 phase 1
+  (through `dea6d010` and its fixes, §8.1); F0.2 repeats the check for whatever main adds after.
 - **F0.3 `test/guards/mediafilewatch_test.go`: `TestOnlyTheLoopWatchesMediaFile`,** an AST scan for
   `For`, `Watches` or `source.Kind` on `catalogv1alpha1.MediaFile` outside the loop (today
   `app/catalog/controller/mediafile`, from F3.1 `app/remediation`). Its allow-list starts with the
@@ -4819,7 +4992,8 @@ wave's guards.
   `joinedGraft`, its `phase` `+optional`, and `jobRef` and `lastResult` kept with no default,
   `status.graft`, `sidecars` with `name` beside the required `path` map key and MaxItems 32,
   conditions MaxItems 12 and the planner-error constants, `handledNonces`, the intent annotation
-  constants, the six selectable fields and the print columns). Nothing is removed, so every
+  constants, the six selectable fields and the print columns, and `TranscodePlan.dropped`,
+  MaxItems 8 of 320). Nothing is removed, so every
   reader and writer of today's fields keeps compiling (§2.15). Nothing new inside `status.markers`.
 - **F2.2 Bounds and sanitizing:** §2.11 (the new MaxLengths, `mediafilestatus.Render`'s clamp and C1
   rules, the budget constants and tests).
@@ -4870,7 +5044,10 @@ wave's guards.
   `want`.
 - **F4.2 Movie and Episode** become item keys (§3.12); their controllers go, their non-file watches
   move onto the loop; a file pass enqueues every covered item when a rollup input changes;
-  `applyItemStatus`.
+  `applyItemStatus`. S9's Download predicate adds the `rollup.DownloadNonTerminal` edge
+  (`TestARefusedImportOverATranscodedFileStopsReadingDownloading`: a Completed Download whose
+  import turns `Blocked` with `ImportMessageExistingFileFinal`, phase unchanged, wakes the Movie,
+  which reads `Transcoded` with no `activeDownloadRef`).
 - **F4.3 Album, Book, Audiobook and Issue,** with `album.ReleaseCache`
   (`TestAnAlbumReconcileWithoutAMetadataChangeMakesNoRPC`).
 - **F4.4 Gate.**
@@ -4896,11 +5073,14 @@ wave's guards.
 **F6: transcode and admission** (§5)
 
 - **F6.1 Prerequisite:** MP4 phase 1's gate commit is on local main and in the branch (rebase by the
-  controlling session), and `app/squash/jobspec` holds `OutputContainer`.
+  controlling session), and `app/squash/jobspec` holds `OutputContainer`. The first half has held
+  since the rebase onto `80175fdc`; the second holds once W2.30 runs with its MP4 note.
 - **F6.2 `app/squash/transcodeplan`** and the `transcode` adapter: profile selection moved from
-  `transcodeprofile/profile.go`; plans from `standard.Plan` at Version 2; verdicts per (profileHash,
-  probeHash); the swap incorporated through `Swapping`, the tag from the dispatched hash; the `<stem>.mp4`
-  path takeover under `catalogarr`.
+  `transcodeprofile/profile.go`; plans from `standard.Plan` at Version 2; `plan.dropped` from
+  `Result.Dropped` (`TestThePlannedBlockNamesDroppedSubtitles`, the successor of main's
+  `TestThePlannedConditionNamesDroppedSubtitles`); verdicts per (profileHash, probeHash); the swap
+  incorporated through `Swapping`, the tag from the dispatched hash; the `<stem>.mp4` path takeover
+  under `catalogarr`.
 - **F6.3 `app/squash/admission`:** the ledger (`FileView.Seq` = `status.lastSeq`, the absent-block
   observation, resync by replacement, §5.5-§5.6), the `transcode-admission` controller, the rebuild
   through the APIReader with `FieldTranscodePhase`/`FieldGraftPhase`, the window, `LoopSource`, and
@@ -4997,9 +5177,9 @@ wave's guards.
 
 - **New rows:** F0-F8 depend on W5.18 and W5.19; W6.1 depends on F8.12 (it depended on Wave 5); F9
   depends on W10.8. The task total is 223 − 1 (W4.14) + 55 = 277.
-- **Rebase points** (controlling session only, between tasks, with a clean worktree): before W0.1; at
-  W0.28 (as planned); before W2.30, only if MP4 Task 9 is on local main; at F0.2; at F6.1; before
-  hand-back.
+- **Rebase points** (controlling session only, between tasks, with a clean worktree): before W0.1
+  (done: `80175fdc`, 2026-10-07); at W0.28 (as planned); at F0.2; at F6.1; before hand-back. The
+  optional rebase before W2.30 is no longer needed: MP4 Task 9 (`b33e4417`) is on the branch.
 - **"What the waves call one another"** gains: "the fold, the remediation loop" → F0-F8; "kind removal,
   release N+1" → F9.
 - **"Cross-wave interface gaps"** gains item 13 (ADR-0016's fold, this document) and item 14 (main's MP4
@@ -5034,7 +5214,7 @@ the other is recorded in Appendix A. Every deploy step stays under "Build, don't
 | D16 | SubtitleRequest `spec.languages`, `spec.minScoreOverride`, `spec.profileRef` and TranscodeJob `spec.outputPath` are dropped, not given annotations; a profile is pinned by a MediaFile label; R-11's explicit-outputPath takeover goes with `outputPath`. | Taken | api D4, subtitles D1, migration |
 | D17 | Transient planner errors (bus, KV, apiserver, deadlines, EIO) are never written to MediaFile status. | Taken | loop D2 |
 | D18 | No ui action and no ui `patch` on mediafiles in this branch; intents are `kubectl annotate`. | Taken | migration D6. The subtitles draft's `actions.SearchSubtitles` is deferred to D19. |
-| D19 | A ui "Search subtitles" (and transcode) action, which needs `patch` on mediafiles in `actions.Grants()`, optionally narrowed by a ValidatingAdmissionPolicy. | Open (later; widens the ui's write surface) | subtitles D3 |
+| D19 | A ui "Search subtitles" (and transcode) action, which needs `patch` on mediafiles in `actions.Grants()`, optionally narrowed by a ValidatingAdmissionPolicy. | Open (later; widens the ui's write surface) | subtitles D3. Main's mass editor and card actions (`b77c30d2`, `0a39889a`) add no grant and do not reopen it; they give it a natural home (the editor's bottom bar and the card's hover row) if the owner takes it, and a bulk form would let one post annotate up to `maxBulkItems` (500) MediaFiles. |
 | D20 | `status.sidecars` reshaped (basename `name`, MaxItems 32; `path` kept as the map key through release N, atomic from N+1, §2.16) and listing every attributable sidecar, hand-placed and MP4 ones included. | Taken | api D8 |
 | D21 | `catalogarr` is the field manager of all MediaFile status, blocks included. | Taken | loop D6 |
 | D22 | Subtitle dispatches pass a backlog gate (`captionarr-fetch-normal` lag under 500) and the records pacer; forced dispatches bypass the gate. | Taken | subtitles D2, records |
@@ -5043,13 +5223,13 @@ the other is recorded in Appendix A. Every deploy step stays under "Build, don't
 | D25 | No v1 shims: a drain gate before release N, `squasharr-transcode-results` and `catalogarr-segments-result` retired through `Topology.Retired`, v1 tasks acked as stale. | Taken | records D6, migration D7, integration D7 |
 | D26 | Make `CLUSTARR_WORK_CAPTIONARR` and `CLUSTARR_WORK_SQUASHARR` Durable (delete and recreate while empty at the drain). | Open (destructive on the live cluster) | records D7; the admission and subtitles drafts recommended keeping the storage, which is the default until the owner rules. |
 | D27 | Reserve `v0.0.0-clustarr.13` for the branch's ffgo fork (main uses `.14` next); pushing `.13` to github.com/mediactl/ffgo. | Reserving: taken, with §8.4's collision rule. Pushing: open (public). | integration D3, R12 |
-| D28 | F6 waits for MP4 phase 1's gate commit; from F6.1 until merge, main stops editing `app/squash/controller/{transcodejob,transcodeprofile,audiograft}`; MP4 phases 2 and 3 are planned against `app/squash/transcodeplan`. If phase 1 is not landed when F5's gate is green, the owner chooses between waiting and building F6 on Version 1. | Taken as the plan; the pause on main is the owner's to announce | integration D4 |
+| D28 | F6 waits for MP4 phase 1's gate commit; from F6.1 until merge, main stops editing `app/squash/controller/{transcodejob,transcodeprofile,audiograft}`; MP4 phases 2 and 3 are planned against `app/squash/transcodeplan`. If phase 1 is not landed when F5's gate is green, the owner chooses between waiting and building F6 on Version 1. | Taken as the plan; the pause on main is the owner's to announce. **The conditional is moot:** phase 1 landed (`dea6d010`) and is on the branch since the rebase onto `80175fdc`. Main edited `transcodejob` again after it (`c0fb39b7`, 2026-10-07: dropped subtitles in the Planned condition), before any F6 work, which the pause does not cover; F6.2 carries it as `plan.dropped` (D44). The pause is still unannounced. | integration D4 |
 | D29 | The controller names `movie`, `episode`, `album`, `book`, `audiobook`, `issue`, `rename`, `transcodejob`, `audiograft` and `subtitlerequest` disappear (an exception to split §3.11, justified by ADR-0016's merge); `mediafile`, `transcodeprofile` and `subtitleprofile` keep theirs; `transcode-admission` is new. | Taken | integration D9 |
 | D30 | Release N starts in `--legacy-fold=hold`, the census is compared with the pre-flight report, then it flips to `apply`. | Taken as the procedure; each rollout is open | migration D3 |
 | D31 | The cutover quiesces transcoding by suspending the open TranscodeJobs under the running release (to drain), deploying release N with `--slots=cpu=0,intel=0,nvidia=0`, and resuming by removing the runbook's suspend annotations and restoring the slots. | Taken as the procedure; executing it is open | migration runbook step 2 with integration D8 |
 | D32 | Accept release N's one-time `catalogarr-markers` release wave (about 24,000 writes, once), paced by the status-write limiter (D39). | Taken | migration D9 |
 | D33 | The phantom Running TranscodeJob is handled by the suspend and release N's withdrawal, then dismissed; not deleted by hand. | Taken | migration D8 |
-| D34 | Rebase main's MP4 standard (`standard.Version` 2, `b0bd01ee`) onto the branch before release N. | Taken | migration D10 |
+| D34 | Rebase main's MP4 standard (`standard.Version` 2, `b0bd01ee`) onto the branch before release N. | Taken; **done** with the rebase onto `80175fdc` (2026-10-07) | migration D10 |
 | D35 | The split's ADR numbers stand as committed: ADR-0018 is manager, agents and ui (supersedes 0013; plan W10.2) and ADR-0017 is no external media programs (plan W10.3), which the committed split spec (§12) and plan already chose after ADR-0016 took 0016. Nothing is renumbered. | Taken | split spec §12 (spec:6281-6297), plan:53264, 53400. The drafts' "0017 = topology, 0018 = no external programs" (migration D11, integration objection 4) was written against an earlier, untracked plan and is withdrawn. |
 | D36 | Each kind-cluster-plex rollout (release N in hold, the flip to apply, the transcode resume, release N+1, the CRD deletion) needs the owner's explicit OK. | Standing rule | rulings "Build, don't deploy" |
 | D37 | Release N's MediaFile schema accepts the previous release's status applies (`transcode.phase` optional, `jobRef` and `lastResult` kept without a default, `Sidecar.path` kept as the required map key beside an optional `name`); N+1 tightens it (§2.16). | Taken | review: without it, a rollback's first previous-release apply is refused on every file N wrote |
@@ -5058,6 +5238,8 @@ the other is recorded in Appendix A. Every deploy step stays under "Build, don't
 | D40 | Every `/data` call from the manager goes through a bounded I/O executor with a breaker (§3.17); item keys never touch `/data`. | Taken | review |
 | D41 | A transcode or graft fact that lands after its withdrawal is incorporated: `Dispatch.withdrawn`, `records.FactWindow`, `ErrUnincorporatedFact`, the worker's fact-answer retry, and recovery from the record's inputs (§4.7-§4.10, §5.9). | Taken | review |
 | D42 | The transcode block records the graft it carries (`transcode.joinedGraft`); the graft planner derives its joined state from it (§5.13). | Taken | review: the Copy partition (§3.5) |
+| D43 | A sidecar with no language (`<stem>.srt`, `<stem>.forced.srt`, the standard's name for an untagged track) is attributed by neither `subtitles.ParseSidecar` nor `SidecarsOf`, so a rename and a delete leave it behind on main today, and the fold inherits that (§2.7). Fix on main: the movers also take `<stem>[.forced\|.sdh].<srt\|ass>` by stem alone; the listing and the subtitles planner keep counting only sidecars with a language. | **Open** (main's code; the owner decides whether the movers take language-less names, or the standard names an untagged track `und`) | reconciliation with `80175fdc` |
+| D44 | `status.transcode.plan.dropped` (MaxItems 8 of 320) carries `standard.Result.Dropped`, replacing the dropped-subtitle suffix main's `c0fb39b7` writes into TranscodeJob's Planned condition, which the fold removes. | Taken | reconciliation with `80175fdc`; the owner asked for dropped subtitles to be named "where an operator reads the job" (MP4 final review I5) |
 
 ---
 
@@ -5108,7 +5290,10 @@ the other is recorded in Appendix A. Every deploy step stays under "Build, don't
 13. **Intermediate commits are not deployable.** With W4.14 dropped, nothing between W4.13 and F8.12
     has probe-pending gates on the old controllers (D1).
 14. **Coordination with main.** MP4 phases 2 and 3 and any new fork surface land on main while the fold
-    rewrites the same controllers (D28); an ffgo tag collision renames every `.13` (§8.4).
+    rewrites the same controllers (D28); an ffgo tag collision renames every `.13` (§8.4). Main kept
+    editing `transcodejob` after phase 1's gate (`c0fb39b7`), and
+    the usenet connection budget will change `pkg/download/usenet` and the engine's `BuildConfig`
+    beside the split's par2 wave; each rebase re-runs §8.1's check.
 15. **Graft pods gain network reach to NATS** (no Kubernetes credentials), as pool pods already have.
 16. **Force search and transcode intents have no ui** in this branch (D18, D19).
 

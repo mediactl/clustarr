@@ -7,14 +7,22 @@ topology ADR-0013 deferred (the superseding ADR is ADR-0018, §12; ADR-0016 is
 this document is implemented or deployed. Building it is in scope; deploying
 it to kind-cluster-plex needs a later, explicit OK from the owner (§1).
 
+**Reconciled with main `80175fdc`, 2026-10-07.** The 28 commits
+`0d3ae234..80175fdc` are folded in below (summary under "Drift since
+`0d3ae234`"): the fork tag is now `.13`, on main's published `.12`; the MP4
+standard's phase 1 changes what `cmd/transcode` writes and what it must
+`Require`; the usenet connection budget is coming to `pkg/download/usenet`;
+and the ui gained a mass editor and per-card actions, but no new grant.
+
 **Adoption.** The owner asked for this to be designed, planned and
 implemented in one request, so every owner decision in §13 is taken at its
 recommendation, except the public actions, which wait for the owner:
 OD18 (push the ffgo `clustarr/unify-media` branch and the
-`v0.0.0-clustarr.12` tag), OD19 (publish par2go) and OD23 (report the
+`v0.0.0-clustarr.13` tag), OD19 (publish par2go) and OD23 (report the
 dropped `basepath` upstream). Until OD18 and OD19 are granted, go.mod
-replaces ffgo and par2go with `../ffgo` and `../par2go` (§7.6), and the
-images build from named contexts.
+replaces ffgo and par2go with local directories (§7.6; the plan's W0.25
+uses the worktree `../ffgo-unify`), and the images build from named
+contexts.
 
 **Drift since the review.** Main gained anime dual-audio phase 4 after the
 review (`4bd5d7b9`..`cdbdd870`): the `AudioGraft` kind (transcode group),
@@ -26,6 +34,58 @@ manager reconciler like the TranscodeJob controller, the graft Job runs
 `/usr/bin/transcode --graft-task` on the native image (§3.8's explicit
 `Command`), and squasharr's graft flags move to `cmd/manager` with the other
 squasharr flags. The plan carries this; the sections below predate it.
+
+**Drift since `0d3ae234` (main `80175fdc`, 28 commits; the branch is rebased
+onto it).** Each item names the sections it changed:
+
+- **ffgo `.12` is published by main** (`ebbb2322`; fork commit `a184557`:
+  `NewPacketFromData`, `(*Packet).Data`, `avcodec.NewPacket`, and the
+  `avcodec` codec-id and extradata setters; no shim change). So this design's
+  fork tag is **`v0.0.0-clustarr.13`**, cut from `.12` (R3, R12, §6.4, §7.4,
+  §7.5, §7.6, §10.1.6, §11.1, OD18).
+- **MP4 standard, phase 1** (`35db28ff`..`adf9372c`, gate commit `dea6d010`,
+  with the fixes `f8eb8d90`, `a9848d35`, `c0fb39b7` and `adf9372c` after it, and
+  the test fixes `64e46a8c`, `adbb865a`):
+  `standard.Version` 2; every transcode writes `<stem>.mp4`
+  (`worker.OutputContainer`); audio is E-AC-3 or AC-3 copied, or AC-3 5.1
+  encoded, with an AAC 2.0 companion listed first; every text subtitle is
+  written beside the output in the transcode's own pass
+  (`pkg/transcode/engine/sidecar.go`), verified, placed before the swap and
+  never over an existing name; image subtitles hold the file
+  (`standard.HoldImageSubtitles`). This touches §3.8, §4.3 S1, §6.3, §6.8,
+  §7.3 and §7.4 (the transcode class must `Require` the `ac3` encoder and the
+  `mp4`, `srt` and `ass` muxers). Its new tests run the ffmpeg and ffprobe
+  CLIs; the plan's U2 conversions (W6.20, W6.21) take them.
+- **Sidecars follow the file** (`fb57194d`, `fa12e1b5`): `fsops.SidecarPath`
+  names a sidecar or its part; `subtitles.SidecarsOf` lists every subtitle
+  beside a video, so the rename (manager, `mediafilespec` after W2.21), the
+  library delete (manager) and the import-list delete (agent `import`) move or
+  recycle the transcode's own sidecars too. librarydelete and the rename now
+  import `pkg/subtitles` as well; the manager already links it (§4.1), and
+  W1.7 keeps its root free of astisub (§4.5.1).
+- **Transcoded files are final against every search** (`22230298`,
+  `991b7ced`, `e21885cc`): `pkg/decision` raises `TranscodedFinal` for a
+  user-invoked search too, a Search `spec.grab` pick is exempt in
+  `resolveGrab`, and an import refused over a transcoded file writes
+  `ImportMessageExistingFileFinal`, which grabarr never blocklists. No process
+  boundary moves (search controller in the manager, the decision in agent
+  `catalog`, the importer in agent `import`, grabarr's phase derivation in the
+  manager), so §5 is unchanged.
+- **Usenet post-processing reports progress** (`38db94e6`): the Repairing,
+  Extracting and Publishing stages write `status.message` from the stage's
+  start time, and `job.repair` logs its start and finish. §8.1, §8.5.4, §8.6
+  and OD24.
+- **Usenet connection budget** (spec `e4b59a5c`, phase-A plan `db53ebd1`),
+  to be built on main by another session (clustarr-c9), in
+  `pkg/download/usenet`, the CRD and the engine's `BuildConfig`. Not landed.
+  §3.5.3 says how the usenet-engine domain takes it, and what its phase B
+  (several pods) would need from this design; §8.4.5 and §14 cover its
+  interplay with the repair child.
+- **ui** (`b77c30d2`, `0a39889a`): Sonarr's layout on shadcn-templ's registry
+  components, a mass editor (`POST /library/{tab}/bulk`), a library-wide find
+  (`GET /library/find`) and per-card hover actions. Every write goes through
+  the existing `ui/actions` calls, so no grant, ui option or `cmd/ui` link
+  changes (§3.6, §4.7).
 
 **Basis.**
 
@@ -50,8 +110,10 @@ squasharr flags. The plan carries this; the sections below predate it.
     main) and moves the ffgo replace to `github.com/mediactl/ffgo v0.0.0-clustarr.11`,
     a tag another session published today at ffgo `9f7a3a4` (`.10` plus the purego
     bump). So the purego bump §7.6 needs is done once this branch rebases (R14),
-    and this design's fork tag is **`v0.0.0-clustarr.12`**, not `.11` as the
-    section drafts assumed.
+    and this design's fork tag was **`v0.0.0-clustarr.12`**, not `.11` as the
+    section drafts assumed. **Superseded 2026-10-07:** main then published `.12`
+    itself (`ebbb2322`, fork commit `a184557`), so the tag is **`.13`**, cut from
+    `.12` (R12).
   - Main is now 20 commits ahead and moving; the others (anime audio policy,
     `pkg/audioalign`, ui forms) do not touch this design's packages beyond line
     numbers.
@@ -161,10 +223,11 @@ produce a summary identical to ffprobe's for every stored field, and
   the reconciler's `statusOf`/`statusAC` never declares `markers`
   (`TestMediaFileFieldManagersStayDisjoint` asserts the split, §6.8).
 - "Not raised unless outputs differ" is reachable only after the ffgo fork
-  additions (§7.5). With ffgo `.9` to `.11`, outputs differ on live files today
+  additions (§7.5). With ffgo `.9` to `.12`, outputs differ on live files today
   (codec profiles on every file, channel layout on 249 streams, chapter times on
-  44 files). The native probe cannot ship before `v0.0.0-clustarr.12`: a hard
-  ordering, not an option.
+  44 files; main's `.12` added only packet and codec-parameter setters). The
+  native probe cannot ship before `v0.0.0-clustarr.13`: a hard ordering, not an
+  option.
 
 **R4. Agent domains.** One Deployment per domain, `agent --domain <d>`, each a
 non-electing controller-runtime manager used for cache, indexes, probes and
@@ -299,16 +362,21 @@ decision; `docs/autoscaling.md` replaces the KEDA docs; CLAUDE.md and the design
 of record are rewritten; the 2026-09-24 design is marked superseded (§12).
 
 **R12. ffgo fork.** New surface goes into `/home/appkins/src/mediactl/ffgo` on a
-branch, tagged locally as the next `v0.0.0-clustarr.N` (`.12`: `.11` was
-published today at ffgo `9f7a3a4`, the purego bump, and main pins it); clustarr's
-`go.mod` uses `replace … => ../ffgo` until the owner OKs pushing the tag.
+branch, tagged locally as the next `v0.0.0-clustarr.N`. That is **`.13`**: `.11`
+was published at ffgo `9f7a3a4` (the purego bump), and main published `.12` at
+`a184557` on 2026-10-06 for the MP4 standard (`ebbb2322`) and pins it. The branch
+`clustarr/unify-media` is cut from `.12` in the worktree
+`/home/appkins/src/mediactl/ffgo-unify` (other sessions edit `../ffgo`), and
+clustarr's `go.mod` replaces ffgo with that worktree until the owner OKs pushing
+the tag. If `.13` is taken when the branch tags, it takes the next free N (the
+remediation-loop design's §8.4 collision rule).
 **Amended (§7.6, §10.1.5):**
 
 - A directory replace cannot build any image as written:
   `images/Dockerfile.transcoder:64` resolves the shim source with `go list -m`,
-  and `../ffgo` lies outside the build context. Every Dockerfile gains an empty
-  `FROM scratch AS ffgo` stage that a BuildKit named context
-  (`--build-context ffgo=../ffgo`) replaces.
+  and `../ffgo-unify` lies outside the build context. Every Dockerfile gains an
+  empty `FROM scratch AS ffgo` stage that a BuildKit named context
+  (`--build-context ffgo=<export>`) replaces.
 - No GitHub CI job can build or test the branch while the replace is local.
   That is acceptable only because R14 forbids pushing anyway; `ci.yml` gains a
   "no local replace" check that names the cause.
@@ -316,9 +384,10 @@ published today at ffgo `9f7a3a4`, the purego bump, and main pins it); clustarr'
   same treatment: `replace github.com/mediactl/par2go => ../par2go` and a
   `par2go` named context, until the owner OKs its push.
 - **The named contexts are clean exports, not the sibling working trees.**
-  `../ffgo` and `../par2go` are trees other sessions edit, and par2go's holds a
+  `../ffgo-unify` and `../par2go` are working trees with uncommitted state (and
+  `../ffgo` beside them is main's, edited by other sessions), and par2go's holds a
   host CMake cache that breaks the image build, so the Makefile passes
-  `git archive` exports of `v0.0.0-clustarr.12` and par2go `1bd94eb` and refuses
+  `git archive` exports of `v0.0.0-clustarr.13` and par2go `1bd94eb` and refuses
   a mismatched or dirty checkout (§7.6 item 3). go.mod's replaces still read the
   working trees for local builds and tests, as R12 says.
 
@@ -762,7 +831,45 @@ Durables are named with their stream and retention (WQ = WorkQueue).
 | `index` (`app/indexer/agent`) | `indexarr-rss` (`CLUSTARR_WORK_INDEXARR`, WQ; `rss.Worker`, `rss/worker.go:195`) | `clustarr.rpc.indexarr.search`, `.download`, `.query`, queue group `indexarr` (`search.Serve`, E); Torznab facade on `--facade-bind-address` (E), with `ensureFacadeAPIKeys` at registration | relindex store opened before `mgr.Start` (SQLite at `--index-path`, or Postgres with `--index-dsn`) and closed after; its own `clientcache.ClientCache`, `clients.SessionStore` and limiter (R8, §5.12); `indexSweeper` as `EveryReplica` (it was `NeedLeaderElection` true, `indexer/run.go:891`, and the agent never elects) | `index.releaseindex` | fixed 1, Recreate (both engines) |
 | `caption` (`app/caption/agent`: fetch) | `captionarr-fetch-high`, `captionarr-fetch-normal` (`CLUSTARR_WORK_CAPTIONARR`, WQ; `fetch/worker.go:155-170`) | — | providerset built by `providerset/build` with the KV throttle `clustarr-provider-throttle`; `providers.Extract = native.Extract` (§7.3) | `caption.data`; healthz `ffgo` | HPA 0..1 (throttled, §9.1.1) |
 | `torrent-engine` (`app/grab/agent/torrent.Register`) | none | — | DownloadClient and proxy Secret read through the APIReader; `net.DefaultResolver` swapped when proxied; `dltorrent` client and `ReAttach`; `torrent.Reconciler` (controller `torrent-engine`); `torrent.Reaper`; `engine.ProgressPublisher` writing KV `clustarr-progress` (`grab/run.go:456-556`) | `torrent-engine.reattach` | StatefulSet replicas from the DownloadClient spec (manager-rendered) |
-| `usenet-engine` (`app/grab/agent/usenet.Register`) | none | — | direct client and `usenet.BuildClient` with `usenet.LibraryRepairer{Runner: par2child.Exec{}}` (§8.6); `usenet.Reconciler`; `usenet.Reaper`; `ProgressPublisher` (`grab/run.go:561-605`) | — | Deployment, 1 replica (CEL) |
+| `usenet-engine` (`app/grab/agent/usenet.Register`) | none | — | direct client and `usenet.BuildClient` with `usenet.LibraryRepairer{Runner: par2child.Exec{}}` (§8.6); `usenet.Reconciler`; `usenet.Reaper`; `ProgressPublisher` (`grab/run.go:561-605`); once main's connection budget lands, its per-server collector (below) | — | Deployment, 1 replica (CEL) |
+
+**The usenet connection budget** (main's design `e4b59a5c`, phase-A plan
+`db53ebd1`; built on main by another session, not landed at `80175fdc`). Phase
+A keeps the engine one pod and puts everything in `pkg/download/usenet`, the
+`UsenetSpec` CRD fields `connectionsPerDownload` and `maxBytesPerSecond`, and
+the engine's `BuildConfig`, which maps them to `Config.ConnectionsPerDownload`
+and an injected byte-rate `Config.Limiter` (`app/grab/engine/usenet/config.go`).
+`Client.Add` then admits a job's transfer stage by slots (the primaries'
+connections divided by `connectionsPerDownload`), and a job waiting for a slot
+reads `Queued`. For this design that means:
+
+- **Nothing moves that the split moves.** `pkg/download/usenet` and
+  `app/grab/engine/usenet` stay where they are (agent-only, §4.4). Every
+  `spec.usenet` field is already in `engineConfigHash`, so an edit rolls the
+  engine, rendered by the manager's DownloadClient controller as today.
+- **The per-server collector** (`clustarr_usenet_server_bytes_total{client,server}`
+  and `clustarr_usenet_server_penalties_total{client,server,reason}`, read from
+  `Client.Info`'s `ServerStats` on scrape, phase-A Task 4) is registered by
+  `app/grab/agent/usenet.Register` on the agent's registry, wherever main's
+  `setupUsenetEngine` registers it, since that function becomes `Register`
+  (§4.3). Both families need rows in amendment §A2.3 and `wantSeries`, which
+  the catalogue test reads.
+- **`Download.status.usenet.servers[]`**, if phase A adds it (design §3.5; the
+  phase-A plan does not), is an `EngineFields` leaf under `grabarr-engine`,
+  which `app/grab/status.Patch` must list. It adds no field manager.
+- **Phase B (several pods, deferred by the owner)** would touch what this
+  design moves. The CEL rule that pins usenet to one replica relaxes; a
+  usenet engine then needs a per-pod identity like the torrent engine's
+  (`EngineIdentity` from `POD_NAME`, §3.5.5), instead of the fixed
+  `--engine=<dc>-0`, and pod anti-affinity that the DownloadClient controller
+  renders. The KV bucket `clustarr-usenet-connections` goes into
+  `events.Default()`, so only the manager creates it (§5.9) and engines wait
+  for it in `AwaitTopology`. Assigning a Download by free capacity instead of
+  `HashOrdinal` is the manager's download controller's job
+  (`app/grab/manager`), and `status.engine` is still pinned once.
+- **Slots gate only the transfer.** Repair, unpack and publish hold no slot
+  (phase-A Global Constraints), so the budget does not bound how many par2
+  children run at once (§8.4.5).
 
 **The recycle sweep becomes queued work** (R4 amendment):
 
@@ -927,6 +1034,19 @@ three cuts of §4.3 Wave 1 together: `pkg/obs` calls `SetLogger` through
 `sigs.k8s.io/controller-runtime/pkg/log`; `pkg/pipeline` reads conditions from
 `pkg/k8s/conditions`; the bus connector moves to `pkg/busconn`.
 
+**Main's ui since `0d3ae234`** (`b77c30d2`, `0a39889a`) changes none of this.
+The mass editor (`POST /library/{tab}/bulk`, `ui/library_bulk.go`) and the
+per-card hover actions (Refresh & Scan, Search, Monitor/Unmonitor, Delete,
+answered in place by `finishActionWith`) call only the item page's existing
+actions: `SetMonitored`, `SearchNow`, `RefreshMetadata` with `RescanPath`, and
+`RequestDelete`. The library-wide find (`GET /library/find`) reads the
+projection. So `actions.Grants()`, `ui_role.yaml`,
+`TestUIRoleGrantsOnlyReadsAndActionWrites`, `TestUINeverWrites` and
+`TestBothUICommandsWireEveryUIOption` are unchanged, and the `clustarr-ui` write
+sites in §5.2 are the same lines. Replacing the vendored components with
+shadcn-templ's registry ones deleted `ui/components/{navigationmenu,scrollarea}`'s
+own tests. No moved test names them.
+
 ### 3.7 cmd/markers
 
 `markers [flags]`, pflag, flag set `markers`.
@@ -1009,6 +1129,23 @@ on them (`pool/render.go:259-275`): `WorkerExitRetriable` 2,
 **No metrics endpoint**, as today; worker-side observations
 (`app/squash/worker/run.go:624-668`) stay unexported, and the manager's
 transcodejob controller exports transcode speed.
+
+**What a run writes, since the MP4 standard** (main `b33e4417`, `71dc301d`,
+`a9848d35`; nothing in the CLI changes). Every output is `<stem>.mp4`
+(`worker.OutputContainer`, whatever the profile's `container`). Beside its part
+the run writes one subtitle sidecar part per `standard.Result.Sidecars`
+(`fsops.SidecarPath`: `<stem>.<lang>[.forced|.sdh].part-<uid8>-<n>.<srt|ass>`):
+SubRip through FFmpeg's `srt` muxer, ASS through `ass`, and WebVTT,
+`mov_text` and plain text through a Go SubRip writer
+(`pkg/transcode/engine/sidecar.go`). Verify fails a missing sidecar; an empty
+one (a track with no cues) is dropped at placement. `placeSidecars` moves each
+to its final name before the video swap, never over an existing file, and
+`removePart` and `sweepEarlierAttempts` remove sidecar parts with their attempt.
+A task rendered for another container (a pre-MP4 `.mkv` output) is refused as
+retriable. So a pool pod writes more files under `/data`, with the same mounts,
+UMASK and exit codes. The FFmpeg it loads must carry the `ac3` encoder and the
+`mp4`, `srt` and `ass` muxers, which §7.4's `Require` checks. A surround dub is
+grafted as AC-3 5.1 plus AAC 2.0 (`1f9e8c90`), inside the same graft task.
 
 **Pool Jobs.** `pool.Template` sets `Command: []string{binpath.Transcode}`. Args
 are unchanged (`--data-dir` plus `workerObservabilityArgs`).
@@ -1431,10 +1568,16 @@ and `app/autoscale/extmetrics` (the hand-rolled external.metrics.k8s.io server).
   engine.go:87 becomes `const Finalizer = status.EngineFinalizer`;
   controller/download switches.
 - **S1. `app/squash/jobspec`.** Carries worker's buildtask.go, exit.go, paths.go
-  and profile.go, plus `StandardProfile/StandardTier` (ffgo.go:63–90) and
-  `CPULimitEnv` (run.go:87–93); `localPath` and `within` exported as `LocalPath`
-  and `Within` (run.go:271,275,295 use them). pool, transcodejob and
-  transcodeprofile switch from worker to jobspec.
+  and profile.go, plus `StandardProfile/StandardTier` (ffgo.go:63–90; at main
+  `80175fdc` ffgo.go:84–108) and `CPULimitEnv` (run.go:87–93; now :94);
+  `localPath` and `within` exported as `LocalPath` and `Within` (run.go:271,275,295
+  use them). pool, transcodejob and transcodeprofile switch from worker to
+  jobspec. Since the MP4 standard (main `b33e4417`) profile.go also holds
+  `OutputContainer` (`ContainerMP4`, which `ProfileHashAt` uses from Version 2
+  on), so it moves too: transcodejob's `recordPlan`, `markPlanned` and `planFor`
+  call sites (controller.go:541,577; dispatch.go:266,275,323) read
+  `jobspec.OutputContainer`. The worker's sidecar code (`placeSidecars`,
+  `sidecarParts`, the container refusal) stays in the worker.
 - **P1. Split `app/caption/providerset`.** The light half stays: Entry,
   FileSource, Order, Serves, errors, Validate, resolve, readSecret, requireKeys;
   `NeedsSecrets/HIVerifiable` read a static `capabilities` table (§13 OD9);
@@ -1775,7 +1918,7 @@ closure, scale to the stripped size. Projections are upper bounds.
 |---|---|---|---|
 | cmd/clustarr | 1569 pkgs; 93.9 MB static (CGO=0, Makefile:165, controller image); 95.6 MB dynamic (CGO=1, media image) | removed | — |
 | cmd/manager | — | ≈ 60 MB static (1201 pkgs) | Without the cuts ≈ 70 MB, linking sqlite, pgx, x/image, astisub, rardecode and the list providers. ≈ 3.0 MB (+34 pkgs) is metadata clients via metadataprovider (§13 OD10). |
-| cmd/ui | (its closure alone: 1063 pkgs ≈ 51 MB) | ≈ 48 MB static (762 pkgs) | −301 pkgs but only ≈ 3 MB: k8s API (core/v1 is 1.9 MB of symbols), templ views (1 MB) and ui/static (4.9 MB) dominate. |
+| cmd/ui | (its closure alone: 1063 pkgs ≈ 51 MB) | ≈ 48 MB static (762 pkgs) | −301 pkgs but only ≈ 3 MB: k8s API (core/v1 is 1.9 MB of symbols), templ views (1 MB) and ui/static (4.9 MB) dominate. Main's `b77c30d2` grew both after the measurement (generated templ Go 1.53 → 1.71 MB of source, `ui/static` 553 → 825 KB, the shadcn-templ bundle 6,038 → 11,665 lines): add about 0.5 MB. |
 | cmd/agent | — | ≈ 74 MB (1520 pkgs), plus cgo (crawshaw sqlite, C++ go-libutp) | about today's media-image clustarr; `libffshim.so`, `libpar2shim.so` and ORT are separate `.so` files |
 | cmd/markers | segmentarr-worker: 30.6 MB, 520 pkgs (4.8 MB is textdet's embedded ONNX model) | ≈ 31 MB (537 pkgs); about 5 MB less once §7.2.9 drops the API types | ffgo adds ≈ 0.15 MB of symbols |
 | cmd/transcode | squasharr-worker: 25.7 MB, 535 pkgs | ≈ 26 MB (540 pkgs) | |
@@ -2585,7 +2728,7 @@ refers to the unified fork additions of §7.5.
 | format.size | `FromProbe` SizeBytes | – | `os.Stat` |
 | format.tags | CLUSTARR_PROFILE (`FormatTag`, map.go:121); worker run.go:545,592 | `GetMetadata()` | inprocess |
 | stream index, codec_type | everything | `StreamInfo.Index`, `Type` | inprocess |
-| codec_name | videoCodec, audio and subtitle codec, bitmap flag, ProbeAudio | `StreamInfo.Codec` (`avcodec_get_name`) | "none" and "unknown_codec" become "", because ffprobe omits a codec without a descriptor |
+| codec_name | videoCodec, audio and subtitle codec, bitmap flag (the MP4 standard's `HoldImageSubtitles` and its sidecar format, main `fbfd754c`), ProbeAudio | `StreamInfo.Codec` (`avcodec_get_name`) | "none" and "unknown_codec" become "", because ffprobe omits a codec without a descriptor |
 | profile | videoProfile; audio profile (naming's Atmos and DTS-HD tokens, Plex, `FromProbe`'s Lossless and Atmos) | **missing** | F11a, ffprobe's rule: `ProfileName(id,p)`, else `strconv.Itoa(p)` when `p != ProfileUnknown`, else "" |
 | level (video) | `FromProbe` | **missing** | F11a |
 | pix_fmt | pixelFormat, videoBitDepth (classify.go:33) | `PixelFormatName` | inprocess |
@@ -2599,8 +2742,8 @@ refers to the unified fork additions of §7.5.
 | bits_per_sample | ProbeAudio fallback | **missing** | F11b `BitsPerSample(id)` (`av_get_bits_per_sample`) |
 | channels, sample_rate | summary, `FromProbe` | ✓ | inprocess |
 | channel_layout | audio channelLayout (UI, Plex, `FromProbe`) | describes an unspecified order as "N channels" | F11f: "" when `ChannelOrder == ChannelOrderUnspec` |
-| disposition (default, comment, forced, hearing_impaired, attached_pic) | summary, `primaryVideoStream` | from the shim | inprocess |
-| tags: language, title, encoder, BPS, BPS-eng, filename, mimetype | summary, videoEncoder (map.go:247), videoBitrateKbps (map.go:227), `FromProbe` | `Metadata` (raw bytes) | inprocess, through `validString` (§6.2); `StreamTags` filled as go-ffprobe's `setFrom` fills them |
+| disposition (default, comment, forced, hearing_impaired, attached_pic) | summary, `primaryVideoStream`; since standard Version 2 the audio default and commentary rules (`planAudio`) and each subtitle sidecar's `.forced`/`.sdh` (`planSubtitles`), so the plan hash | from the shim | inprocess |
+| tags: language, title, encoder, BPS, BPS-eng, filename, mimetype | summary, videoEncoder (map.go:247), videoBitrateKbps (map.go:227), `FromProbe`; since main `c0fb39b7` a subtitle's title also decides `.forced` (`forced`, `sign(s)`, `song(s)`, unless it also says `full` or `dialogue`) and `.sdh` (`sdh`, `hi`, `cc`, `hearing impaired`), and names a dropped track in `Result.Dropped`, both in the plan hash; the language's `lang.Normalize` base names the sidecar | `Metadata` (raw bytes) | inprocess, through `validString` (§6.2); `StreamTags` filled as go-ffprobe's `setFrom` fills them |
 | side data "DOVI configuration record" | doviProfile, doviBLCompatID, `Raw.Dovi` | `StreamSideData(…, PacketSideDOVIConf())` | inprocess `doviRecord` |
 | stream side data mastering display and CLL (presence) | `IncompleteHDR` | `StreamSideData` | inprocess `staticHDRSideData` |
 | chapter id, tags, start_time, end_time | chapters, chapterList (map.go:164-187), `FromProbe` | count and title ✓; times overflow | F15 + `ffprobeTime(StartTS/EndTS, TimeBase)`; TagList is all chapter metadata |
@@ -2623,10 +2766,10 @@ none live: all 11,958 MediaFiles are `Probed=True`.
 ### 6.4 ffgo fork additions the probe needs
 
 F11a-F11f, F15 and F16 of the unified table (§7.5), all in
-`v0.0.0-clustarr.12`. Every new struct read is a shim layout entry in
+`v0.0.0-clustarr.13`. Every new struct read is a shim layout entry in
 `shim/ffshim.c` `ffshim_fields[]` (:646-724) with a `layout.Offset` Go fallback
 for FFmpeg 7.1, as the existing entries have; FFmpeg 9 requires the shim anyway
-(`ffgo.go:35`). The native probe cannot ship before `.12` (R3 amendment). ffgo
+(`ffgo.go:35`). The native probe cannot ship before `.13` (R3 amendment). ffgo
 tests owned here: `TestStreamInfoReadsWhatFFprobePrints` (FFmpeg 9 with ffprobe
 present; every new field against `ffprobe -show_streams` JSON),
 `TestChapterTimesPastTheInt64MicrosecondRange`,
@@ -2950,14 +3093,14 @@ construction; `ffprobeTime`'s print-and-parse makes the floats identical.
 | `worker/inprocess/probe_test.go` | `TestTheInProcessProbeAgreesWithFFprobe` deleted (native's parity test replaces it); `TestDoviRecordReadsEveryField` moves to native. |
 | `worker/inprocess/incomplete_test.go` | both tests move to native with `hdr10WithStreamSideData`. |
 | `worker/inprocess/measure_test.go` | `Engine{}` literals become `New()`. |
-| `worker/worker_envtest_test.go` | `fakeEngine.Probe` and `recordingEngine.Probe` (:1076, :1099) and `videoCodec` (:389) use `native.Prober`, skipping without FFmpeg 9. |
+| `worker/worker_envtest_test.go` | `fakeEngine.Probe` and `recordingEngine.Probe` (:1076, :1099; :1085, :1108 at main `80175fdc`) and `videoCodec` (:389; :397) use `native.Prober`, skipping without FFmpeg 9. Main's MP4 sidecar tests in this file (`TestRunPlacesTheSidecarsAndKeepsAnExistingOne` and five more, `b33e4417`, `a9848d35`) probe through the same two engines; their source clip `withASSAndForcedSRT` runs the ffmpeg CLI (`adbb865a`) and converts with the plan's U2 task W6.21. |
 | `controller/transcodejob/parity_envtest_test.go` | `TestStatusPlanIsTheArgvTheWorkerRenders` uses native. |
 
 **pkg/transcode, pkg/naming, test/parity**
 
 | File | Change |
 |---|---|
-| `pkg/transcode/standard/parity_test.go` | `TestTheSummaryAndTheProbePlanTheSameStandard`, `TestContainerNamesFromTheSummaryAndTheDemuxer` use native. |
+| `pkg/transcode/standard/parity_test.go` | `TestTheSummaryAndTheProbePlanTheSameStandard`, `TestContainerNamesFromTheSummaryAndTheDemuxer` and main's `TestTheSummaryAndTheProbePlanSubtitlesAlike` (`fbfd754c`: the stored summary and a live probe give the same sidecars and drops, so subtitle titles and dispositions must survive the native probe byte for byte) use native. |
 | `pkg/transcode/engine/video_test.go` | `TestTheStandardsNVENCPlanHoldsALeanSourceUnderItsBitRate` uses native. |
 | `pkg/naming/catalogctx/context_test.go` | `TestContainerExtReadsWhatTheProbeRecords` uses native. |
 | `test/parity/parity_test.go` | `checkStandard` and the library test use native or the oracle. |
@@ -3045,7 +3188,7 @@ and transcode (§4.5). `TestEveryConsumerHasExactlyOneHome` (§10.3.2) places
 ### 6.9 Order of work
 
 1. The ffgo additions F11, F15, F16 and their tests (with §7.5's others); tag
-   `.12` locally; `replace => ../ffgo`.
+   `.13` locally; `replace => ../ffgo-unify`.
 2. Split pkg/mediainfo; add native; move the oracle to `test/ffprobeoracle`;
    parity test 1 green on this host.
 3. Make inprocess delegate to native.
@@ -3068,7 +3211,10 @@ builds against the fork before its tag is pushed.
 
 **Sources checked:** clustarr at 7791f1f5; ffgo `/home/appkins/src/mediactl/ffgo`
 master `9f7a3a4` (`v0.0.0-clustarr.11`, published today: `.10` = `6e3b3ca` plus
-"upgrade: purego to v0.11.1"); FFmpeg n9.0.2 sources (fftools, libavcodec, libavformat, libavfilter)
+"upgrade: purego to v0.11.1"); re-checked against `.12` (`a184557`, published by
+main's `ebbb2322`), which adds `NewPacketFromData`, `(*Packet).Data`,
+`avcodec.NewPacket` and the `avcodec` codec-id and extradata setters, changes no
+shim file, and closes none of the gaps below; FFmpeg n9.0.2 sources (fftools, libavcodec, libavformat, libavfilter)
 for what `ffmpeg(1)` does; the host's FFmpeg n9.0.1 (libavformat 63.1.101) for
 demuxer flags and exported symbols.
 
@@ -3523,6 +3669,25 @@ astisub anyway.
 `ffmpeg_enc.c:378`; an overflow is an encode error); the fetch task's ctx
 deadline. Reading the whole file costs the same I/O as ffmpeg.
 
+**Main's transcode sidecars are a different writer, on purpose.** Since the MP4
+standard (main `71dc301d`) the transcode engine writes a file's text subtitles
+beside its output in-process (`pkg/transcode/engine/sidecar.go`): SubRip copied
+packet for packet into FFmpeg's `srt` muxer (ffgo's `ffmpeg -map 0:s:N out.srt`),
+ASS copied into the `ass` muxer, and WebVTT, `mov_text` and plain text written as
+SubRip by a Go writer that drops markup. It needs no subtitle encoder, so it
+does not need F10. `native.Extract` keeps F10's decode and encode anyway: it
+must reproduce `ffmpeg -c:s srt` byte for byte (the `parity` gate, §11.2), it
+must turn ASS into SubRip for `subtitles.PostProcess`, and the srt encoder
+normalises tags, which neither the copy nor the Go writer does. So one file's
+`<stem>.en.srt` can differ in markup depending on which wrote it. Since an MP4
+output carries no subtitle stream, only untranscoded files and image-subtitle
+holds reach `native.Extract`. The transcode never replaces an existing name
+(MP4 ruling R3). The fetch worker writes `subtitles.SidecarName` with a
+replacing write (`fetch/search.go:445-458`), but only for a language the file
+lacked when the search was planned, so it replaces a transcode's sidecar only
+when a search was already in flight as the transcode placed the same name. The
+downloaded subtitle then wins, which is what the search was for.
+
 **Tests.** `native` tests use generated MKVs with subrip carrying `<i>`, ass with
 an `Italic=-1` style, webvtt, and an MP4 with mov_text, asserting cue text and
 italics and that `ErrTooLarge` fires when the test lowers the cap.
@@ -3539,17 +3704,17 @@ with a fake. Under the `parity` tag each output must equal
 ```go
 const (
     AVCodecMajor = 63 // FFmpeg 9
-    MinShimAPI   = 1  // FFSHIM_API_VERSION of ffgo v0.0.0-clustarr.12
+    MinShimAPI   = 1  // FFSHIM_API_VERSION of ffgo v0.0.0-clustarr.13
     Grace        = 5 * time.Second
     MaxAbandoned = 4
 )
 type Report struct{ FFmpegMajor, ShimAPI int; AVUtil, AVCodec, AVFormat, ShimPath string } // paths as loaded
-type Needs struct{ Demuxers, Decoders, Encoders, Filters []string }
+type Needs struct{ Demuxers, Muxers, Decoders, Encoders, Filters []string }
 var ErrUnavailable = errors.New("ffruntime: FFmpeg is unavailable")
 var ErrWedged = errors.New("ffruntime: FFmpeg calls are stuck; restart the process")
 
 func Load() (Report, error)        // once per process
-func Require(n Needs) error        // avformat.FindInputFormat, avcodec.FindDecoderByName/FindEncoderByName, avfilter.GetByName
+func Require(n Needs) error        // avformat.FindInputFormat, avformat.AllocOutputContext2 (freed at once), avcodec.FindDecoderByName/FindEncoderByName, avfilter.GetByName
 func RouteLog(l *slog.Logger)      // one process-wide FFmpeg log callback
 func Capture(sink func(ffgo.LogLevel, string)) (release func())
 func Mute() (release func())
@@ -3594,7 +3759,7 @@ the native image always carries FFmpeg, so a failure means a broken image):
 
 | Consumer | On failure | Notes |
 | --- | --- | --- |
-| `cmd/transcode` | `WorkerExitRetriable` | as `inprocess.New` today; `inprocess.New` becomes `ffruntime.Load()` + `Require` of its class; `selfcheck.Check` takes its first fields from `Load` |
+| `cmd/transcode` | `WorkerExitRetriable` | as `inprocess.New` today; `inprocess.New` becomes `ffruntime.Load()` + `Require` of its class; `selfcheck.Check` takes its first fields from `Load`. Every class's `Needs` covers what standard Version 2 writes (main `b0bd01ee`, `71dc301d`): encoders `libx265`, `aac` and **`ac3`** (every surround track that is not E-AC-3 or AC-3), muxers **`mp4`**, **`srt`** and **`ass`** (the sidecars). Main's `selfcheck.Needs` (selfcheck.go:56-60) still lists only `libx265` and `aac` plus the GPU encoders and filters, so on main today an FFmpeg build without `ac3` passes the self-check and fails the first surround encode; `ebbb2322`'s `TestTheAC3EncoderOpensAtFivePointOne` proves the encoder only in a test |
 | `cmd/markers` | `ExitMisconfigured` | §3.7 |
 | `cmd/agent --domain import` | exit 1 before the manager starts | `native.New()` (§6.6) |
 | `cmd/agent --domain caption` | exit 1 before the manager starts | requires `native.Needs` |
@@ -3604,17 +3769,20 @@ Both agent domains register the process-level healthz check `ffgo` =
 at start through the package-init dlopen (§7.1): accepted, it costs mapped
 pages, not binary size.
 
-### 7.5 ffgo fork additions: `v0.0.0-clustarr.12`
+### 7.5 ffgo fork additions: `v0.0.0-clustarr.13`
 
-- The worktree's go.mod pins `.9` (go.mod:218) and main's `.11`. `.10` and `.11` are
-  taken (published; `.10` is used by cluster-plex), so the next tag is `.12`.
-- One branch, **`clustarr/unify-media`**, in `/home/appkins/src/mediactl/ffgo`
-  from current master `9f7a3a4` = `.11` (bringing `.10`'s muxer-to-writer API and
-  purego v0.11.1). One commit per addition, each with tests against `testdata/` and
-  generated clips.
+- go.mod pins `.12` (go.mod:218, since main's `ebbb2322`; the worktree pinned `.9`
+  and main `.11` when this section was drafted). `.10`, `.11` and `.12` are taken
+  (published; `.10` is used by cluster-plex, `.12` by main's MP4 standard), so the
+  next tag is `.13`.
+- One branch, **`clustarr/unify-media`**, in the worktree
+  `/home/appkins/src/mediactl/ffgo-unify`, cut from `.12` = `a184557` (which carries
+  `.10`'s muxer-to-writer API, purego v0.11.1 and `.12`'s packet and
+  codec-parameter setters). One commit per addition, each with tests against
+  `testdata/` and generated clips.
 - Rebuild the shim with `./shim/build.sh prebuilt` against FFmpeg 9 headers and
   commit `shim/prebuilt/linux-amd64/libffshim.so`, as `9c292f0` did.
-- Run `go test ./...`, then `git tag -a v0.0.0-clustarr.12` locally. Nothing is
+- Run `go test ./...`, then `git tag -a v0.0.0-clustarr.13` locally. Nothing is
   pushed (§13 OD18).
 - Every new struct read is a shim layout entry (`FFSHIM_FIELD`) with a Go
   fallback; `FFSHIM_API_VERSION` (F12) is raised whenever the shim gains a symbol
@@ -3671,10 +3839,11 @@ task bound, not for decode.
 
 1. **go.mod** (the controlling session only, serially, once; never
    `go mod tidy`, never from a parallel agent):
-   - `go mod edit -replace=github.com/obinnaokechukwu/ffgo=../ffgo`.
-   - purego v0.11.1, which `../ffgo/go.mod` requires, is already on main
-     (`b3b077a2`, which also replaces ffgo with the published `.11`); after the
-     R14 rebase this edit only changes that replace to `../ffgo`. If the replace
+   - `go mod edit -replace=github.com/obinnaokechukwu/ffgo=../ffgo-unify`.
+   - purego v0.11.1, which the fork's `go.mod` requires, is already on main
+     (`b3b077a2`, which also replaces ffgo with the published `.11`, and
+     `ebbb2322` with `.12`); after the R14 rebase this edit only changes that
+     replace to `../ffgo-unify`. If the replace
      lands before the rebase, add `-require=github.com/ebitengine/purego@v0.11.1`
      and record `go.sum` with `GOPROXY=off go mod download github.com/ebitengine/purego`
      (v0.11.1 is in `~/go/pkg/mod`). `onnxruntime-purego` uses only `Dlopen`,
@@ -3682,18 +3851,20 @@ task bound, not for decode.
      tests prove the bump.
    - `go mod edit -require=github.com/mediactl/par2go@v0.0.0-00010101000000-000000000000 -replace=github.com/mediactl/par2go=../par2go`
      for §8 (par2go's own module requires purego v0.11.1 too).
-   - `../ffgo` and `../par2go` resolve to `/home/appkins/src/mediactl/{ffgo,par2go}`
-     from both `clustarr` and `clustarr-unify`. Only this branch carries the replaces.
+   - `../ffgo-unify` and `../par2go` resolve to
+     `/home/appkins/src/mediactl/{ffgo-unify,par2go}` from both `clustarr` and
+     `clustarr-unify`. Only this branch carries the replaces.
 2. **Dockerfiles.** Every image whose build stage resolves this module needs
-   `/ffgo` and `/par2go`, because a directory replace needs the replacement's
+   `/ffgo-unify` (the replace `../ffgo-unify` seen from `WORKDIR /src`) and
+   `/par2go`, because a directory replace needs the replacement's
    `go.mod` even for binaries that never link it: `images/Dockerfile.clustarr`,
    `images/Dockerfile.native` and `images/Dockerfile.e2e-fixtures`. Each gains
    stages `FROM scratch AS ffgo` and `FROM scratch AS par2go` before its build
-   stage, and `COPY --from=ffgo / /ffgo/` and `COPY --from=par2go / /par2go/`
+   stage, and `COPY --from=ffgo / /ffgo-unify/` and `COPY --from=par2go / /par2go/`
    before `go mod download`. A BuildKit `--build-context ffgo=…` overrides a
    stage of the same name; without the flag the stage is empty and harmless. In
    the native build, `go list -m -f '{{.Dir}}' github.com/obinnaokechukwu/ffgo`
-   (today `Dockerfile.transcoder:64`) resolves to `/ffgo`, so `libffshim.so` is
+   (today `Dockerfile.transcoder:64`) resolves to `/ffgo-unify`, so `libffshim.so` is
    compiled from the fork's own `shim/ffshim.c` (`:106-108`) and always matches
    `MinShimAPI`. An image-build check in the `staging` stage, after
    `stage.sh` has run, fails the build if BtbN's libraries ever export C++
@@ -3702,13 +3873,15 @@ task bound, not for decode.
    (the `grep -q … && exit 1` form would exit 1 on success, as the last
    command of a `RUN`).
 3. **Makefile: clean, pinned contexts.** A `--build-context` directory ships
-   its uncommitted files and build output, and `../ffgo` and `../par2go` are
-   working trees other sessions edit (during review ffgo carried an
-   uncommitted `shim/build.sh` change and par2go's HEAD moved twice; par2go's
+   its uncommitted files and build output, and `../ffgo-unify` and `../par2go` are
+   working trees (during review ffgo carried an uncommitted `shim/build.sh`
+   change and par2go's HEAD moved twice; main's MP4 work then committed and
+   tagged `.12` in `../ffgo` itself, which is why the fork moved to its own
+   worktree, `../ffgo-unify`; par2go's
    tree holds a 251 MB `shim/build/` with a CMake cache recorded at host paths,
    which makes the image's CMake refuse to configure). So the Makefile never
-   passes the working trees. `FFGO_DIR ?= ../ffgo`, `PAR2GO_DIR ?= ../par2go`,
-   `FFGO_REF ?= v0.0.0-clustarr.12`, `PAR2GO_REF ?= 1bd94eb` (the par2go basis,
+   passes the working trees. `FFGO_DIR ?= ../ffgo-unify`, `PAR2GO_DIR ?= ../par2go`,
+   `FFGO_REF ?= v0.0.0-clustarr.13`, `PAR2GO_REF ?= 1bd94eb` (the par2go basis,
    until it is tagged); target `contexts` refuses unless
    `git -C $(FFGO_DIR) describe --exact-match --dirty` prints exactly
    `$(FFGO_REF)` and `git -C $(PAR2GO_DIR) rev-parse HEAD` resolves to
@@ -3724,12 +3897,12 @@ task bound, not for decode.
    (§8.7) and `hack/image-checks.sh notices` prints. The exports carry no
    `shim/build/`, so the image builds par2cmdline-turbo from a fresh clone and
    the Go stages copy kilobytes, not 251 MB. ffgo is 4.6 MB.
-4. **CI** cannot resolve `../ffgo` or `../par2go`, so this branch stays local, as
+4. **CI** cannot resolve `../ffgo-unify` or `../par2go`, so this branch stays local, as
    R14 requires. `ci.yml` fails with a named cause on a local replace (§10.1.7);
    that red CI is the guard against merging a directory replace.
 5. **After the owner's OK** (§13 OD18, OD19): push `clustarr/unify-media` and
-   `v0.0.0-clustarr.12` to `github.com/mediactl/ffgo`; push par2go per its plan's
-   Task 9; `go mod edit -replace=github.com/obinnaokechukwu/ffgo=github.com/mediactl/ffgo@v0.0.0-clustarr.12`
+   `v0.0.0-clustarr.13` to `github.com/mediactl/ffgo`; push par2go per its plan's
+   Task 9; `go mod edit -replace=github.com/obinnaokechukwu/ffgo=github.com/mediactl/ffgo@v0.0.0-clustarr.13`
    and replace par2go's directory with its tag; `go mod download` both; commit
    `go.mod` and `go.sum` path-scoped. The empty stages stay; the Makefile stops
    passing the contexts.
@@ -3831,6 +4004,36 @@ CI downloads the release zip (`.github/workflows/ci.yml:36,121-136`).
 
 **"PAR2 is an EXEC" is a recorded decision** at `hack/deps/deps.go:43-49`,
 `repair.go:39-47` and `docs/research/download.md:272,318`.
+
+**Line numbers moved on main.** `38db94e6` (below) added lines to `client.go`;
+at main `80175fdc` the places this section cites are `Config.Par2Path` :99-100
+and `Client.par2` :205 (unchanged), `New` :228 with the `Par2Runner` at :293,
+`job.stop` :438, `job.fail` :467, the reattach test :551, `abort` :878,
+`failureReason` :913-929, `postProcess` :1013 with the `ErrRepairFailed`
+tolerance at :1042, `job.repair` :1113-1160 with the timeout branch at :1150,
+and `Client.Close` :1594. The plan's par2 tasks (Wave 9) should cite these.
+
+**Post-processing reports its progress** (main `38db94e6`, 2026-10-07). par2
+and the unpack move no downloaded bytes, so `progressPercent`,
+`lastProgressAt` and the rate used to stand still for as long as they ran (42
+minutes on a 20 GB set over NFS) and read as a stall. Now:
+
+- `setStage` stamps `job.stageStarted` when the stage changes (in memory only:
+  a job re-attached from its manifest reports no duration).
+- `job.item` fills an empty `status.message` from `postProcessMessageLocked`:
+  `verifying and repairing with par2 for <d>` while `DownloadStageRepairing`,
+  `extracting: <written> of about <archives> for <d>, <rate>/s` while
+  `Extracting` (an `unpackProgress` counter in `writeArchiveEntry`), and
+  `publishing for <d>`.
+- The download rate and ETA are the transfer's alone (zero outside
+  `Transferring`).
+- `job.repair` logs `usenet: par2 verifying and repairing` (with the failed
+  article count and the set's size) before the call and `usenet: par2
+  repaired` (with its duration) after; the unpack logs its start and finish.
+
+None of it reads par2's output, so the repair child (§8.4) needs no progress
+channel to keep it: the stage change, its timestamp and both logs stay in the
+engine process, around `Repairer.Repair`.
 
 **Latent defect, fixed by §8.5.4: an engine shutdown during a repair blocklists a
 good release.**
@@ -4107,6 +4310,17 @@ from `cmd/agent` and `cmd/clustarr` is gone: `cmd/clustarr` must never link pure
 Repairs run concurrently, as today: one child per repairing job, each with
 par2go's one-job mutex to itself.
 
+Main's usenet connection budget (phase A, `db53ebd1`) admits only the transfer
+stage by slots; repair, unpack and publish hold none. So it does not bound the
+children either: a pod with 10 transfer slots can still have every job that
+finished its transfer repairing at once, each child taking par2go's default
+memory share (§8.4.6, §14). Today every job transfers at once, so their
+repairs can overlap too; slots space the transfers out, which makes overlapping
+repairs rarer, not impossible. A cap, if one is needed, is a per-pod repair
+semaphore in `job.repair` around
+`Repairer.Repair`; it belongs to whoever builds the budget's phase A, since it
+lives in `pkg/download/usenet`.
+
 #### 8.4.6 Threads and memory
 
 - `Threads` 0: par2go uses `runtime.GOMAXPROCS(0)`, cgroup-aware (the CLI used
@@ -4187,7 +4401,9 @@ per-file lines, but the verdict lines come last.
   means no repair (a set that needs one fails with `ErrPar2Unavailable`).
 - `Client.par2` (`:205`) becomes `Client.repairer`; `New` (`:293`) installs
   `cfg.Repairer`, or `noRepairer{}` when nil.
-- `job.repair` (`:1126-1131`) gains one branch, which fixes §8.1's defect:
+- `job.repair` (`:1126-1131` at `7791f1f5`; the call is at :1149-1154 at main
+  `80175fdc`, between `38db94e6`'s two log lines) gains one branch, which fixes
+  §8.1's defect:
 
 ```go
 if _, err := j.client.repairer.Repair(repairCtx, j.contentDir(), safeName(index)); err != nil {
@@ -4204,8 +4420,12 @@ if _, err := j.client.repairer.Repair(repairCtx, j.contentDir(), safeName(index)
 }
 ```
 
-- `failureReason` (`:903-918`) is unchanged; its doc's "no par2 binary" becomes
-  "no par2 library".
+- `failureReason` (`:903-918`; :913-929 at `80175fdc`) is unchanged; its doc's
+  "no par2 binary" becomes "no par2 library".
+- `38db94e6`'s logs stay where they are: `usenet: par2 verifying and repairing`
+  before the call, and `usenet: par2 repaired` only after a success, so an
+  interrupted repair (the new branch) logs neither a finish nor a verdict.
+  `postProcessMessageLocked`'s repair message names "par2", and stays true.
 
 #### 8.5.5 `repair.go` cleanup
 
@@ -4230,8 +4450,10 @@ cfg.Repairer = rep
 // unavailable: a release that needs repair fails as writeError"; never gates readiness.
 ```
 
-`BuildConfig` and its table tests (`config_test.go`) are unchanged. par2 owns no
-field manager, KV bucket, stream or consumer (R7). par2go and `pkg/par2child` are
+par2 changes nothing in `BuildConfig` or its table tests (`config_test.go`).
+Main's connection budget (phase-A Task 1, not landed at `80175fdc`) adds
+`ConnectionsPerDownload` and `Limiter` there; the repairer line goes after them
+either way. par2 owns no field manager, KV bucket, stream or consumer (R7). par2go and `pkg/par2child` are
 reached only through `pkg/download/usenet` → the usenet-engine domain →
 `cmd/agent`; manager, ui, markers and transcode never link them (§4.5). purego
 works under both cgo modes, so the agent's cgo build (R13) does not matter.
@@ -5225,7 +5447,7 @@ ARG TARGETARCH
 ARG VERSION=dev
 WORKDIR /src
 ENV CGO_ENABLED=0 GOFLAGS=-trimpath
-COPY --from=ffgo / /ffgo/
+COPY --from=ffgo / /ffgo-unify/
 COPY --from=par2go / /par2go/
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
@@ -5301,18 +5523,18 @@ definition of the e2e `go test` line" rule, `hack/e2e.sh:116-118`).
 
 #### 10.1.5 Building while go.mod replaces ffgo and par2go with local directories (R12)
 
-Under R12, `go.mod` says `replace github.com/obinnaokechukwu/ffgo => ../ffgo`
-(`=> github.com/mediactl/ffgo v0.0.0-clustarr.9` at `go.mod:218` in the worktree,
-`.11` on main) and §8 adds
-`replace github.com/mediactl/par2go => ../par2go`. Inside a build `/src/../ffgo` is
-`/ffgo`, outside the build context, so `go mod download` fails in every
+Under R12, `go.mod` says `replace github.com/obinnaokechukwu/ffgo => ../ffgo-unify`
+(`=> github.com/mediactl/ffgo v0.0.0-clustarr.9` at `go.mod:218` in the worktree
+when this was drafted, `.12` on main since `ebbb2322`) and §8 adds
+`replace github.com/mediactl/par2go => ../par2go`. Inside a build `/src/../ffgo-unify` is
+`/ffgo-unify`, outside the build context, so `go mod download` fails in every
 Dockerfile; ffgo is a direct requirement, so even `./cmd/manager` needs its
 `go.mod`. Hence every Dockerfile's empty `ffgo` and `par2go` stages and
 `COPY --from=… / /…/` before `go mod download` (§7.6); with the published
 replaces they stay empty and unused.
 
 GitHub CI cannot build or test the branch while a replace is local (the checkout
-has no `../ffgo`); `ci.yml` fails with that message (§10.1.7) rather than
+has no `../ffgo-unify`); `ci.yml` fails with that message (§10.1.7) rather than
 obscurely in `go mod download`. The first push of this work must push the ffgo
 tag and par2go and switch the replaces to tagged versions (R12 amendment).
 
@@ -5327,12 +5549,12 @@ IMG ?= ghcr.io/mediactl/clustarr:dev
 NATIVE_IMG ?= ghcr.io/mediactl/clustarr/native:dev
 NATIVE_DEBUG_IMG ?= ghcr.io/mediactl/clustarr/native-debug:dev
 NATIVE_CLASSES ?= cpu cuda intel
-FFGO_DIR ?= ../ffgo
+FFGO_DIR ?= ../ffgo-unify
 PAR2GO_DIR ?= ../par2go
-FFGO_REF ?= v0.0.0-clustarr.12
+FFGO_REF ?= v0.0.0-clustarr.13
 PAR2GO_REF ?= 1bd94eb
 CONTEXTS ?= $(or $(TMPDIR),/tmp)/clustarr-contexts-$(USER)
-LOCAL_CONTEXTS := $(if $(shell grep -qE '^replace github.com/obinnaokechukwu/ffgo => \.\./ffgo$$' go.mod && echo y),--build-context ffgo=$(CONTEXTS)/ffgo --build-arg FFGO_COMMIT=$(shell git -C $(FFGO_DIR) rev-parse $(FFGO_REF)^{commit})) \
+LOCAL_CONTEXTS := $(if $(shell grep -qE '^replace github.com/obinnaokechukwu/ffgo => \.\./ffgo-unify$$' go.mod && echo y),--build-context ffgo=$(CONTEXTS)/ffgo --build-arg FFGO_COMMIT=$(shell git -C $(FFGO_DIR) rev-parse $(FFGO_REF)^{commit})) \
                   $(if $(shell grep -qE '^replace github.com/mediactl/par2go => \.\./par2go$$' go.mod && echo y),--build-context par2go=$(CONTEXTS)/par2go --build-arg PAR2GO_COMMIT=$(shell git -C $(PAR2GO_DIR) rev-parse $(PAR2GO_REF)^{commit}))
 NATIVE_ASSETS ?= $(GOBIN)/native-assets
 LDFLAGS := -s -w -X github.com/mediactl/clustarr/pkg/version.Version=$(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
@@ -5424,7 +5646,7 @@ every `docker-build*` target depends on it, and `LOCAL_CONTEXTS` becomes
 --build-arg FFGO_COMMIT=$(shell git -C $(FFGO_DIR) rev-parse $(FFGO_REF))
 --build-arg PAR2GO_COMMIT=$(shell git -C $(PAR2GO_DIR) rev-parse $(PAR2GO_REF))`
 while go.mod carries the local replaces. `make build` and `make test`, which
-read `../ffgo` and `../par2go` through go.mod's replaces (R12), only print a
+read `../ffgo-unify` and `../par2go` through go.mod's replaces (R12), only print a
 WARNING when either tree is dirty or off its ref, because developing the fork
 additions needs a dirty tree.
 
@@ -6129,9 +6351,9 @@ parallel agent and never with `go mod tidy`.
 
 | # | Step | Depends on | Section |
 |---|---|---|---|
-| 0a | ffgo fork F1-F17 on `clustarr/unify-media`, `go test ./...`, tag `v0.0.0-clustarr.12` locally | — | §7.5 |
+| 0a | ffgo fork F1-F17 on `clustarr/unify-media` (worktree `../ffgo-unify`, cut from main's `.12`), `go test ./...`, tag `v0.0.0-clustarr.13` locally | — | §7.5 |
 | 0b | par2go Tasks 1-8, locally | — | §8.11 |
-| 0c | go.mod: ffgo replace `=> ../ffgo`; par2go require + replace `=> ../par2go`; `k8s.io/component-helpers v0.37.0` (network once) | 0a, 0b; the R14 rebase (purego v0.11.1) | §7.6, §9.5 |
+| 0c | go.mod: ffgo replace `=> ../ffgo-unify`; par2go require + replace `=> ../par2go`; `k8s.io/component-helpers v0.37.0` (network once) | 0a, 0b; the R14 rebase (purego v0.11.1) | §7.6, §9.5 |
 | 1 | Wave 1: pkg leaves (1.1-1.9) | — | §4.3 |
 | 2 | Wave 2: app leaves (C1-C9, I1-I5, X1-X4, G1, S1, P1) | 1 | §4.3 |
 | 3 | Wave 3: registration packages, R9 moves, cmd/clustarr shims | 2 | §4.3 |
@@ -6365,7 +6587,11 @@ its number, since the plan's code cites it from Wave 0 on.
     paragraph.
   - Transcoding paragraph: probing is `pkg/mediainfo/native` in the import domain; a
     ProbeVersion raise re-probes through the low lane; there is no transcoder image,
-    only `native`.
+    only `native`. Edit main's text as it stands at the rebase, not this design's
+    draft of it: at `80175fdc` it already carries the MP4 standard (`dea6d010`,
+    `adf9372c`), TranscodedFinal for every search with the `spec.grab` exemption
+    and `ImportMessageExistingFileFinal` (`e21885cc`), and the ui's top bar, mass
+    editor and card actions (`b77c30d2`, `0a39889a`).
   - Gotchas: the par2 gotchas (`:794-807` names `usenet.LibraryRepairer`,
     `par2Extras`, `TestLibraryRepairerRepairsASetWhoseFilesCarryOtherNames`; `:845-852`
     points at `par2child.Exec`: cooperative stdin cancel, WaitDelay kill, Setpgid);
@@ -6477,8 +6703,8 @@ across the section drafts are merged.
   logs it, `app/squash/worker/ffgo.go:104-114`). This changes the GOP length of future
   encodes of field-coded sources. **Recommend accept, with no `standard.Version` raise.**
 - **OD18. Push the ffgo fork:** branch `clustarr/unify-media` and tag
-  `v0.0.0-clustarr.12` to `github.com/mediactl/ffgo`, then switch go.mod from
-  `../ffgo` to the tag. **Recommend** once ffgo's `go test ./...`, clustarr's
+  `v0.0.0-clustarr.13` to `github.com/mediactl/ffgo` (`.12` is main's, published
+  2026-10-06), then switch go.mod from `../ffgo-unify` to the tag. **Recommend** once ffgo's `go test ./...`, clustarr's
   `parity`-tagged decode, probe and subtitle tests, and the library parity runs pass.
   Until then CI cannot build the branch.
 - **OD19. Publish par2go** (its plan's Task 9: create `github.com/mediactl/par2go`,
@@ -6513,7 +6739,10 @@ across the section drafts are merged.
   either way.
 - **OD24. Surface repair progress** (phase, per mille, file) in the Download stage
   message or `clustarr-progress`. **Recommend not in this change;** par2go's
-  `Options.Progress` already carries it.
+  `Options.Progress` already carries it. Main's `38db94e6` already writes the
+  stage and its elapsed time into `status.message` (§8.1), which answers the
+  stall it was meant to explain. Adding par2's per mille now needs §8.4.3's
+  protocol to carry progress frames from the child, not only a final result.
 - **OD25. NZBGet-style ParQuick** (skip re-reading files whose articles all verified).
   **Recommend a later, separate change** (it needs slice-CRC equivalence and a par2go
   hook).
@@ -6678,7 +6907,8 @@ across the section drafts are merged.
   par2 repair buffers count against the pod but not against Go's limit; an OOM in
   markers or the import/caption agents kills every in-flight task (they redeliver).
   The par2 child takes the OOM itself (`oom_score_adj` 1000), but concurrent children
-  in one pod each size their buffers at 1/8 of the pod's limit.
+  in one pod each size their buffers at 1/8 of the pod's limit, and main's coming
+  usenet connection budget bounds transfers, not repairs (§8.4.5).
 - **Package-init dlopen.** Every binary that links ffgo maps FFmpeg before `main`;
   agent domains that never decode still pay the mapped pages.
 - **A stale shim reads wrong offsets.** Mitigated by `FFSHIM_API_VERSION` and
@@ -6699,7 +6929,7 @@ across the section drafts are merged.
 
 **Build and CI**
 
-- **CI is red while go.mod carries `../ffgo` and `../par2go`.** Nothing can merge until
+- **CI is red while go.mod carries `../ffgo-unify` and `../par2go`.** Nothing can merge until
   the owner OKs both pushes (§13 OD18, OD19).
 - **Image totals grow.** Each binary carries its own client-go, k8s API, otel and grpc:
   the clustarr image ≈ 108 MB of Go against 94 MB today; transcode pool pods pull
@@ -6708,7 +6938,10 @@ across the section drafts are merged.
   one-time download of FFmpeg, ORT and the par2 CLI (§13 OD44).
 - **The rebase.** Main moved during design (par2go, purego, wrong-language); other
   sessions keep committing. Re-run §4.1's chains and the line references after the R14
-  rebase.
+  rebase. The 2026-10-07 reconciliation with `80175fdc` found main had taken this
+  design's fork tag (`.12`), added CLI-running tests the plan's U2 tasks must convert,
+  and added encoders and muxers the transcode class must `Require`; the usenet
+  connection budget will change `pkg/download/usenet` and `BuildConfig` under Wave 9.
 
 ---
 
@@ -6750,7 +6983,7 @@ across the section drafts are merged.
 | A32 | RBAC verbs for the autoscaler | installers: hpa update, apiservices list/watch; autoscale: hpa get/list/watch/create/patch/delete, apiservices get/patch by name | autoscale's set | the owner of the reconciler; least privilege |
 | A33 | `clustarr_work_queue_pending` labels | binaries: `{consumer}`; autoscale: `{stream,consumer}` | `{stream,consumer}` | the declaration at `pkg/obs/metrics/domain.go:247-255` |
 | A34 | Leader-election bindings | installers: manager and agent-index; writers: manager only | manager only | agents never elect |
-| A35 | ffgo fork tag | every draft: `v0.0.0-clustarr.11`; go.mod at `.9` | `v0.0.0-clustarr.12`, from master `9f7a3a4` | another session published `.11` at `9f7a3a4` (the purego bump) today, and main's go.mod pins it (`b3b077a2`) |
+| A35 | ffgo fork tag | every draft: `v0.0.0-clustarr.11`; go.mod at `.9` | `v0.0.0-clustarr.12`, from master `9f7a3a4`; **since 2026-10-07 `.13`, from `.12` (`a184557`)** | another session published `.11` at `9f7a3a4` (the purego bump) today, and main's go.mod pins it (`b3b077a2`); main then published `.12` for the MP4 standard (`ebbb2322`) |
 | A36 | purego bump | decode: this branch must raise purego from v0.9.1 to v0.11.1 | already done on main; only needed if the replace lands before the rebase | `b3b077a2` on main |
 
 ---
