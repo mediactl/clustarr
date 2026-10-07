@@ -75,8 +75,8 @@ type Builder struct {
 
 	// Extract pulls one embedded text subtitle stream out of a file for the
 	// embedded provider. Nil leaves embedded Downloads failing with
-	// embedded.ErrNoExtractor. Only the fetch worker's process sets it: today
-	// app/caption/run.go's setupWorkers, and app/caption/agent after Wave 3.
+	// embedded.ErrNoExtractor. Only the fetch worker's process sets it:
+	// app/caption/agent, to embedded/native's in-process Extract.
 	Extract embedded.ExtractFunc
 
 	// KV is the clustarr-provider-throttle bucket

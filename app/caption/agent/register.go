@@ -32,7 +32,6 @@ import (
 	catalogagent "github.com/mediactl/clustarr/app/catalog/agent"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
-	"github.com/mediactl/clustarr/pkg/subtitles/providers/embedded/execextract"
 )
 
 // Options is what the caption domain's Register takes.
@@ -56,9 +55,13 @@ type Options struct {
 // Secrets, and the worker re-reads each SubtitleRequest before its status
 // apply, through the API reader.
 //
-// The domain's one check is caption.data: the fetch worker writes sidecars
-// into o.DataDir, which had no readiness gate before the split (spec §3.3).
-func Register(_ context.Context, mgr ctrl.Manager, bus events.Bus, o Options) (catalogagent.Registration, error) {
+// The domain's readiness check is caption.data: the fetch worker writes
+// sidecars into o.DataDir, which had no readiness gate before the split
+// (spec §3.3). Embedded subtitles are extracted in-process
+// (registerExtraction), so the domain also serves the process-level ffgo
+// liveness check and does not start without FFmpeg 9 and the srt encoder
+// (spec 2026-10-06 §7.3.1, §7.4).
+func Register(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options) (catalogagent.Registration, error) {
 	if bus == nil {
 		return catalogagent.Registration{}, errors.New("caption domain: Register needs the bus")
 	}
@@ -67,7 +70,10 @@ func Register(_ context.Context, mgr ctrl.Manager, bus events.Bus, o Options) (c
 	}
 	providers := build.NewBuilder(mgr.GetClient(), mgr.GetAPIReader())
 	providers.KV = bus.KV(events.BucketProviderThrottle)
-	providers.Extract = execextract.New("")
+	var live k8s.Checks
+	if err := registerExtraction(ctx, providers, &live); err != nil {
+		return catalogagent.Registration{}, err
+	}
 	worker := fetch.NewWorker(mgr.GetClient(), mgr.GetAPIReader(), bus, providers, o.DataDir)
 	if err := worker.SetupWithManager(mgr, o.BusTopology()); err != nil {
 		return catalogagent.Registration{}, fmt.Errorf("captionarr: fetch worker: %w", err)
@@ -76,5 +82,5 @@ func Register(_ context.Context, mgr ctrl.Manager, bus events.Bus, o Options) (c
 	if err := ready.Add("caption.data", k8s.DataReadyChecker(o.DataDir)); err != nil {
 		return catalogagent.Registration{}, err
 	}
-	return catalogagent.Registration{Ready: &ready}, nil
+	return catalogagent.Registration{Ready: &ready, Live: &live}, nil
 }

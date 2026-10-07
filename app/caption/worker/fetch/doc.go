@@ -85,11 +85,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # Registration
 //
-// Nothing here registers itself. captionarr's setupWorkers (plan task F-6)
-// wires it for the worker role with:
+// Nothing here registers itself. The agent's caption domain
+// (app/caption/agent) wires it with:
 //
 //	providers := build.NewBuilder(mgr.GetClient(), mgr.GetAPIReader())
-//	providers.Extract = execextract.New("")
+//	err := registerExtraction(ctx, providers, &live) // providers.Extract = embedded/native's Extract
 //	worker := fetch.NewWorker(mgr.GetClient(), mgr.GetAPIReader(), bus, providers, o.DataDir)
 //	if err := worker.SetupWithManager(mgr, o.BusTopology()); err != nil {
 //	        return fmt.Errorf("captionarr: fetch worker: %w", err)

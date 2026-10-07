@@ -20,8 +20,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // this package never probes. Download hands one text track to the process's
 // ExtractFunc, which returns it as SRT. The package runs no program: the
 // manager links it for Search alone (spec §7.3.1), and only the fetch worker's
-// process sets an extractor. That extractor is embedded/execextract (ffmpeg)
-// until the R2 step replaces it with embedded/native (ffgo).
+// process sets an extractor: embedded/native, FFmpeg in-process through ffgo
+// (spec 2026-10-06 §7.3.1).
 package embedded
 
 import (
