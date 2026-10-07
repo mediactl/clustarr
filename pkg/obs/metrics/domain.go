@@ -455,3 +455,25 @@ var (
 		"verb",
 	)
 )
+
+// Dispatch admission (ADR-0019 §5.4, §5.5). The manager's leader sets both
+// from app/dispatch's ledger; they are dashboards' and alerts', never an HPA
+// metric: the HPA sees only work an agent can take.
+var (
+	// DispatchWaiting is how many CRs wait to dispatch to a durable: due,
+	// not admitted (Budget, Paced, NoAgent, NoCapableAgent, ...), by
+	// consumer.
+	DispatchWaiting = newGaugeVec(
+		"clustarr_dispatch_waiting",
+		"Dispatches the manager has not yet admitted to a durable, by consumer.",
+		"consumer",
+	)
+	// DispatchUnattended is 1 while a dispatched durable is unattended:
+	// pending work with no pull open and no progress for two minutes, or no
+	// agent of its domain present, by consumer.
+	DispatchUnattended = newGaugeVec(
+		"clustarr_dispatch_unattended",
+		"1 while a dispatched durable has work and no agent taking it, by consumer.",
+		"consumer",
+	)
+)

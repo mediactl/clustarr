@@ -47,6 +47,17 @@ type QueueGauge struct {
 	Streams  events.StreamStater
 	Interval time.Duration // 0 means DefaultGaugeInterval
 	Timeout  time.Duration // 0 means 5 s
+	// Dispatch, when set, is the manager's dispatch ledger (app/dispatch):
+	// Update exports clustarr_dispatch_waiting and
+	// clustarr_dispatch_unattended for every Dispatched consumer from it
+	// (ADR-0019 §5.4). Never an HPA metric.
+	Dispatch DispatchStats
+}
+
+// DispatchStats is what QueueGauge reads of the dispatch ledger.
+type DispatchStats interface {
+	WaitingCount(durable string) int
+	Unattended(durable string) bool
 }
 
 // NeedLeaderElection makes it a cluster singleton.
@@ -111,6 +122,19 @@ func (q *QueueGauge) Update(ctx context.Context) {
 		metrics.ConsumerAckPending.WithLabelValues(c.Stream, c.Name).Set(float64(st.AckPending))
 		metrics.ConsumerWaiting.WithLabelValues(c.Stream, c.Name).Set(float64(st.Waiting))
 		metrics.ConsumerMaxAckPending.WithLabelValues(c.Stream, c.Name).Set(float64(st.MaxAckPending))
+	}
+	if q.Dispatch != nil {
+		for _, c := range q.Topology.Consumers {
+			if !c.Dispatched || c.Stream == events.StreamAdvisories {
+				continue
+			}
+			metrics.DispatchWaiting.WithLabelValues(c.Name).Set(float64(q.Dispatch.WaitingCount(c.Name)))
+			unattended := 0.0
+			if q.Dispatch.Unattended(c.Name) {
+				unattended = 1
+			}
+			metrics.DispatchUnattended.WithLabelValues(c.Name).Set(unattended)
+		}
 	}
 	if q.Streams != nil {
 		for _, s := range q.Topology.Streams {

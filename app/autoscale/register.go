@@ -30,6 +30,7 @@ import (
 
 	"github.com/mediactl/clustarr/app/autoscale/controller"
 	"github.com/mediactl/clustarr/app/autoscale/extmetrics"
+	"github.com/mediactl/clustarr/app/dispatch"
 	"github.com/mediactl/clustarr/pkg/agentdomain"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -50,6 +51,13 @@ type Options struct {
 	BindAddress string // --external-metrics-bind-address; "0" disables the API
 	ServiceName string // --external-metrics-service
 	SecretName  string // --external-metrics-secret
+
+	// Cache, when set, is the one StateCache the gauge, the External
+	// Metrics API and the manager's dispatch ledger share; nil builds one.
+	Cache *extmetrics.StateCache
+	// Dispatch, when set, is the dispatch ledger the gauge exports
+	// clustarr_dispatch_waiting and _unattended from (ADR-0019 §5.4).
+	Dispatch *dispatch.Ledger
 }
 
 // Validate is §3.4.1's rule: --autoscale implies an enabled
@@ -83,8 +91,14 @@ func Register(mgr ctrl.Manager, admin events.StreamAdmin, o Options) error {
 	}
 	// One read path for the gauge and the API (split §9.4 as amended
 	// 2026-10-07): a burst of HPA reads and the gauge's tick share a read.
-	cache := extmetrics.NewStateCache(admin)
+	cache := o.Cache
+	if cache == nil {
+		cache = extmetrics.NewStateCache(admin)
+	}
 	g := &extmetrics.QueueGauge{States: admin, Cache: cache, Topology: events.Default()}
+	if o.Dispatch != nil {
+		g.Dispatch = o.Dispatch
+	}
 	if ss, ok := admin.(events.StreamStater); ok {
 		g.Streams = ss
 	}

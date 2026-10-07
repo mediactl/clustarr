@@ -20,12 +20,16 @@ package manager
 import (
 	"context"
 	"fmt"
+	"os"
 
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	"github.com/mediactl/clustarr/app/autoscale"
+	"github.com/mediactl/clustarr/app/autoscale/extmetrics"
 	captionmanager "github.com/mediactl/clustarr/app/caption/manager"
 	catalogmanager "github.com/mediactl/clustarr/app/catalog/manager"
+	"github.com/mediactl/clustarr/app/dispatch"
 	grabmanager "github.com/mediactl/clustarr/app/grab/manager"
 	importmanager "github.com/mediactl/clustarr/app/import/manager"
 	indexermanager "github.com/mediactl/clustarr/app/indexer/manager"
@@ -36,6 +40,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/pkg/presence"
 )
 
 // Run starts the manager (spec §3.4.2, in order) and blocks until ctx is
@@ -145,10 +150,48 @@ func Run(ctx context.Context, o Options) error {
 	return nil
 }
 
+// planes are the manager's shared admission and intake planes (ADR-0019
+// §5.4, §8.1), built once by register before any component and handed to
+// the components that dispatch or decide.
+type planes struct {
+	// states is the one 5 s consumer-state read path: the queue gauge, the
+	// External Metrics API and the ledger share it.
+	states *extmetrics.StateCache
+	// ledger admits every task the manager publishes to an agent.
+	ledger *dispatch.Ledger
+}
+
+// newPlanes builds the shared planes and adds the leader-only runnables
+// among them to mgr.
+func newPlanes(mgr ctrl.Manager, bus events.Bus, o Options) (planes, error) {
+	admin, ok := bus.(events.StreamAdmin)
+	if !ok {
+		return planes{}, fmt.Errorf("manager: admission needs a bus that reports consumer state; %T does not", bus)
+	}
+	p := planes{states: extmetrics.NewStateCache(admin)}
+	p.ledger = dispatch.New(dispatch.Options{
+		Topology: o.BusTopology(),
+		States:   p.states,
+		Presence: &presence.Reader{KV: bus.KV(events.BucketProgress)},
+		Reader:   mgr.GetClient(),
+		Recorder: mgr.GetEventRecorder("clustarr-dispatch"),
+		Pod:      types.NamespacedName{Namespace: os.Getenv("POD_NAMESPACE"), Name: os.Getenv("POD_NAME")},
+	})
+	if err := mgr.Add(p.ledger); err != nil {
+		return planes{}, fmt.Errorf("manager: add the dispatch ledger: %w", err)
+	}
+	return p, nil
+}
+
 // register adds every manager-side component in §3.4.2's fixed order and
 // returns their names: catalog, import, index, grab, squash, caption,
-// remediation, then autoscale.
+// remediation, then autoscale. The admission and intake planes come first:
+// the components that dispatch take them.
 func register(mgr ctrl.Manager, bus events.Bus, o Options) ([]string, error) {
+	p, err := newPlanes(mgr, bus, o)
+	if err != nil {
+		return nil, err
+	}
 	type step struct {
 		name string
 		add  func() error
@@ -161,20 +204,26 @@ func register(mgr ctrl.Manager, bus events.Bus, o Options) ([]string, error) {
 			return importmanager.Register(mgr, bus, importmanager.Options{Options: o.Options, TraktBaseURL: o.TraktBaseURL})
 		}},
 		{"index", func() error {
-			return indexermanager.Register(mgr, bus, indexermanager.Options{Options: o.Options,
-				CardigannDefinitionsDir: o.CardigannDefinitionsDir, CardigannBundled: o.CardigannBundled})
+			return indexermanager.Register(mgr, bus, indexermanager.Options{
+				Options:                 o.Options,
+				CardigannDefinitionsDir: o.CardigannDefinitionsDir, CardigannBundled: o.CardigannBundled,
+			})
 		}},
 		{"grab", func() error {
-			return grabmanager.Register(mgr, bus, grabmanager.Options{Options: o.Options, DataDir: o.DataDir,
+			return grabmanager.Register(mgr, bus, grabmanager.Options{
+				Options: o.Options, DataDir: o.DataDir,
 				ScratchDir: o.EngineScratchDir, EngineImage: o.NativeImage, DataClaimName: o.DataClaim,
-				EngineServiceAccount: o.EngineServiceAccount})
+				EngineServiceAccount: o.EngineServiceAccount,
+			})
 		}},
 		{"squash", func() error {
-			return squashmanager.Register(mgr, bus, squashmanager.Options{Options: o.Options, Slots: o.Slots,
+			return squashmanager.Register(mgr, bus, squashmanager.Options{
+				Options: o.Options, Slots: o.Slots,
 				DataDir: o.DataDir, WorkerImage: o.NativeImage, DataClaimName: o.DataClaim,
 				IntelRenderGroups: o.IntelRenderGroups, NodeLabelNVIDIA: o.NodeLabelNVIDIA, NodeLabelIntel: o.NodeLabelIntel,
 				JobWindow: o.JobWindow, JobRetention: o.JobRetention, GraftConcurrency: o.GraftConcurrency,
-				Logging: o.Logging, Tracing: o.Tracing})
+				Logging: o.Logging, Tracing: o.Tracing,
+			})
 		}},
 		{"caption", func() error {
 			return captionmanager.Register(mgr, bus, captionmanager.Options{Options: o.Options, DataDir: o.DataDir})
@@ -205,6 +254,8 @@ func register(mgr ctrl.Manager, bus events.Bus, o Options) ([]string, error) {
 				BindAddress: o.ExternalMetricsBindAddress,
 				ServiceName: o.ExternalMetricsService,
 				SecretName:  o.ExternalMetricsSecret,
+				Cache:       p.states,
+				Dispatch:    p.ledger,
 			})
 		}},
 	}

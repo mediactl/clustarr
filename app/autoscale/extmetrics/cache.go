@@ -84,6 +84,12 @@ func (c *StateCache) Get(ctx context.Context, s Series) (events.ConsumerState, e
 	return v.(events.ConsumerState), nil
 }
 
+// ConsumerState is Get for one (stream, durable): the cache is itself a
+// ConsumerStater, so the manager's dispatch ledger shares its reads.
+func (c *StateCache) ConsumerState(ctx context.Context, stream, durable string) (events.ConsumerState, error) {
+	return c.Get(ctx, Series{Stream: stream, Consumer: durable})
+}
+
 func (c *StateCache) now() time.Time {
 	if c.Now != nil {
 		return c.Now()
