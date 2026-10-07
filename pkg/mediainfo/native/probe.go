@@ -49,9 +49,13 @@ func probeRaw(ctx context.Context, path string, frame bool) (*mediainfo.Raw, err
 	}
 	defer func() { _ = d.Close() }()
 	raw := &mediainfo.Raw{Format: &ffprobe.Format{
-		Filename: path, FormatName: d.FormatName(), NBStreams: len(d.Streams()),
-		DurationSeconds: d.Duration().Seconds(), Size: strconv.FormatInt(st.Size(), 10),
-		BitRate: positive(d.BitRate()), TagList: tags(d.GetMetadata()),
+		Filename:        path,
+		FormatName:      d.FormatName(),
+		NBStreams:       len(d.Streams()),
+		DurationSeconds: ffprobeSeconds(d.DurationMicroseconds(), ffgo.NewRational(1, 1_000_000)),
+		Size:            strconv.FormatInt(st.Size(), 10),
+		BitRate:         positive(d.BitRate()),
+		TagList:         tags(d.GetMetadata()),
 	}}
 	var v0 *ffgo.StreamInfo
 	for _, s := range d.Streams() {
@@ -63,10 +67,15 @@ func probeRaw(ctx context.Context, path string, frame bool) (*mediainfo.Raw, err
 			}
 		}
 	}
-	for i, c := range d.GetChapters() {
+	for _, c := range d.GetChapters() {
+		// F15: the container's own timestamps, which a Matroska chapter past
+		// 9,223 s overflows in int64 microseconds; ffprobe prints these.
 		raw.Chapters = append(raw.Chapters, &ffprobe.Chapter{
-			ID: int64(i), StartTimeSeconds: c.Start.Seconds(), EndTimeSeconds: c.End.Seconds(),
-			TagList: ffprobe.Tags{"title": c.Title},
+			ID:               c.ID,
+			TimeBase:         fmt.Sprintf("%d/%d", c.TimeBase.Num, c.TimeBase.Den),
+			StartTimeSeconds: ffprobeSeconds(c.StartTS, c.TimeBase),
+			EndTimeSeconds:   ffprobeSeconds(c.EndTS, c.TimeBase),
+			TagList:          tags(c.Metadata),
 		})
 	}
 	if frame && v0 != nil {
@@ -83,26 +92,40 @@ func probeRaw(ctx context.Context, path string, frame bool) (*mediainfo.Raw, err
 	return raw, nil
 }
 
-// stream is one stream as ffprobe's JSON decodes it. W8.4 completes it to
-// every field §6.3 lists.
+// stream is one stream as ffprobe's JSON decodes it (spec §6.3).
 func stream(s *ffgo.StreamInfo) *ffprobe.Stream {
+	md := tags(s.Metadata)
 	ps := &ffprobe.Stream{
-		Index: s.Index, CodecName: s.Codec, CodecType: codecType(s.Type), BitRate: positive(s.BitRate),
-		TagList: tags(s.Metadata), Disposition: disposition(s.Disposition),
-		Tags: ffprobe.StreamTags{
-			Language: s.Metadata["language"], Title: s.Metadata["title"], Encoder: s.Metadata["encoder"],
-			CreationTime: s.Metadata["creation_time"], Location: s.Metadata["location"],
-		},
+		Index:       s.Index,
+		CodecName:   codecName(s.Codec),
+		CodecType:   codecType(s.Type),
+		Profile:     profile(s.CodecID, s.Profile),
+		BitRate:     positive(s.BitRate),
+		RFrameRate:  fmt.Sprintf("%d/%d", s.RealFrameRate.Num, s.RealFrameRate.Den), // always printed, 0/0 included
+		StartTime:   ffprobeTime(s.StartTime, s.TimeBase),
+		Duration:    ffprobeTime(s.Duration, s.TimeBase),
+		TagList:     md,
+		Tags:        streamTags(md),
+		Disposition: disposition(s.Disposition),
+	}
+	if s.BitsPerRawSample > 0 {
+		ps.BitsPerRawSample = strconv.Itoa(s.BitsPerRawSample)
 	}
 	switch s.Type {
 	case ffgo.MediaTypeVideo:
-		ps.Width, ps.Height, ps.PixFmt = s.Width, s.Height, ffgo.PixelFormatName(s.PixelFmt)
-		if s.FrameRate.Den > 0 {
-			ps.RFrameRate = fmt.Sprintf("%d/%d", s.FrameRate.Num, s.FrameRate.Den)
+		ps.Width, ps.Height, ps.Level = s.Width, s.Height, s.Level
+		if s.PixelFmt >= 0 {
+			ps.PixFmt = ffgo.PixelFormatName(s.PixelFmt)
 		}
+		ps.FieldOrder = s.FieldOrder.String()
+		ps.ColorPrimaries, ps.ColorTransfer, ps.ColorSpace, ps.ColorRange = colourNames(s.Color)
 		ps.SideDataList = staticHDRSideData(s)
 	case ffgo.MediaTypeAudio:
-		ps.Channels, ps.ChannelLayout, ps.SampleRate = s.Channels, s.ChannelLayout, strconv.Itoa(s.SampleRate)
+		ps.SampleRate, ps.Channels = strconv.Itoa(s.SampleRate), s.Channels
+		if s.ChannelOrder != ffgo.ChannelOrderUnspec {
+			ps.ChannelLayout = s.ChannelLayout
+		}
+		ps.BitsPerSample = ffgo.BitsPerSample(s.CodecID)
 	}
 	return ps
 }
@@ -260,17 +283,6 @@ func disposition(d ffgo.Disposition) ffprobe.StreamDisposition {
 		VisualImpaired: on(ffgo.DispositionVisualImpaired), CleanEffects: on(ffgo.DispositionCleanEffects),
 		AttachedPic: on(ffgo.DispositionAttachedPic),
 	}
-}
-
-func tags(md ffgo.Metadata) ffprobe.Tags {
-	if len(md) == 0 {
-		return nil
-	}
-	out := make(ffprobe.Tags, len(md))
-	for k, v := range md {
-		out[k] = v
-	}
-	return out
 }
 
 func positive(v int64) string {
