@@ -106,3 +106,20 @@ func TestPlanRunsIn(t *testing.T) {
 }
 
 func ptrTo[T any](v T) *T { return &v }
+
+// A subtitle the plan drops is named in the Planned condition, where an
+// operator reads the job (final review I5): before, only the plan's hash
+// carried it.
+func TestThePlannedConditionNamesDroppedSubtitles(t *testing.T) {
+	tj := &transcodev1alpha1.TranscodeJob{}
+	st := &transcodev1alpha1.TranscodeJobStatus{}
+	p := planning{source: "/m/a.mkv", outPath: "/m/a.mp4", plan: standard.Result{
+		Decision: standard.DecisionCopyVideo, Video: standard.VideoPlan{Action: "copy"},
+		Dropped: []string{`subtitle 3 (ass "Honorifics"): a second en.ass sidecar`},
+	}}
+	markPlanned(tj, st, p, transcodev1alpha1.ContainerMP4)
+	if !assert.Len(t, st.Conditions, 1) {
+		return
+	}
+	assert.Contains(t, st.Conditions[0].Message, `dropped subtitle 3 (ass "Honorifics"): a second en.ass sidecar`)
+}

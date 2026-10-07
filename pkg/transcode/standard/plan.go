@@ -33,6 +33,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -618,11 +619,25 @@ var (
 	assSubtitles  = []string{"ass", "ssa"}
 )
 
-// forcedSubtitle is the forced flag, or a "Signs & Songs" style title
-// (ruling R2).
+var (
+	// forcedTitle and fullTitle read a track's title where its flags are
+	// unset -- Matroska had no hearing-impaired flag until 2022, and many
+	// releases leave forced unset -- "Forced", "Signs & Songs" (ruling R2),
+	// but never a full track's "Dialogue + Signs & Songs" (final review I5).
+	forcedTitle = regexp.MustCompile(`(?i)\b(forced|signs?|songs?)\b`)
+	fullTitle   = regexp.MustCompile(`(?i)\b(full|dialogue)\b`)
+	sdhTitle    = regexp.MustCompile(`(?i)\b(sdh|hi|cc|hearing[ -]impaired)\b`)
+)
+
+// forcedSubtitle is the forced flag, or a forced title that is not a full
+// track's.
 func forcedSubtitle(s transcode.SubtitleStream) bool {
-	t := strings.ToLower(s.Title)
-	return s.Disposition.Forced || strings.Contains(t, "sign") || strings.Contains(t, "song")
+	return s.Disposition.Forced || (forcedTitle.MatchString(s.Title) && !fullTitle.MatchString(s.Title))
+}
+
+// sdhSubtitle is the hearing-impaired flag, or an SDH title.
+func sdhSubtitle(s transcode.SubtitleStream) bool {
+	return s.Disposition.HearingImpaired || sdhTitle.MatchString(s.Title)
 }
 
 // sidecarLang is the language segment of a sidecar's name: lang.Normalize's
@@ -648,7 +663,7 @@ func sidecarSuffix(s transcode.SubtitleStream, ext string) string {
 	switch {
 	case forcedSubtitle(s):
 		parts = append(parts, "forced")
-	case s.Disposition.HearingImpaired:
+	case sdhSubtitle(s):
 		parts = append(parts, "sdh")
 	}
 	return strings.Join(append(parts, ext), ".")

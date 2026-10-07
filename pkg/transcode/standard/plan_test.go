@@ -516,3 +516,25 @@ func TestTheSubtitleLayoutDecidesTheSkip(t *testing.T) {
 	in.Subtitles = []transcode.SubtitleStream{sub("mov_text", "eng", "", false, false)}
 	assert.Equal(t, DecisionCopyVideo, Plan(in, profile, cpu).Decision)
 }
+
+// Older Matroska files carry no forced or hearing-impaired flag, only a
+// title; and a full track whose title mentions signs is still full (final
+// review I5).
+func TestSubtitleFlagsAreReadFromTheTitleToo(t *testing.T) {
+	sidecars, dropped := planSubtitles([]transcode.SubtitleStream{
+		sub("subrip", "en", "English", false, false),
+		sub("subrip", "en", "English (SDH)", false, false),
+		sub("subrip", "en", "Forced", false, false),
+		sub("ass", "en", "Dialogue + Signs & Songs", false, false),
+		sub("ass", "en", "Signs & Songs", false, false),
+		sub("subrip", "de", "Deutsch HI", false, false),
+		sub("subrip", "fr", "CC", false, false),
+		sub("subrip", "es", "Accented", false, false), // "cc" inside a word is no flag
+	})
+	var suffixes []string
+	for _, s := range sidecars {
+		suffixes = append(suffixes, s.Suffix)
+	}
+	assert.Equal(t, []string{"en.srt", "en.sdh.srt", "en.forced.srt", "en.ass", "en.forced.ass", "de.sdh.srt", "fr.sdh.srt", "es.srt"}, suffixes)
+	assert.Empty(t, dropped)
+}

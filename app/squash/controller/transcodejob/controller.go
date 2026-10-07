@@ -645,6 +645,11 @@ func markPlanned(tj *transcodev1alpha1.TranscodeJob, st *transcodev1alpha1.Trans
 			where = fmt.Sprintf("; .%s becomes %s at %s", src, want, p.outPath)
 		}
 	}
+	// A subtitle the output carries neither way is named here, where an
+	// operator reads the job (final review I5).
+	for _, d := range p.plan.Dropped {
+		where += "; dropped " + d
+	}
 	k8s.MarkTrue(tj, &st.Conditions, transcodev1alpha1.TranscodeJobConditionPlanned, reason,
 		"%s with %s%s", st.Plan.Mode, st.Plan.Encoder, where)
 }
