@@ -72,7 +72,7 @@ type FileSource struct {
 // Entry is one enabled SubtitleProvider resolved to a client.
 type Entry struct {
 	// Name and Namespace identify the SubtitleProvider object. Name is what
-	// SubtitleRequest.status.items[].provider records.
+	// MediaFile status.subtitles.items[].provider records.
 	Name, Namespace string
 
 	// UID is the SubtitleProvider's UID: the key of its state in the

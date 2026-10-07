@@ -18,12 +18,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Package datapath maps the logical /data paths stored in CRDs to where the
 // media volume is mounted in this process (--data-dir).
 //
-// Both caption roles read the media file's directory: the SubtitleRequest
-// controller lists it for sidecars, the fetch worker stats the video and
-// writes the sidecar beside it. They share this one mapping so --data-dir
-// means the same thing to both. Until plan task F-6 only the worker mapped;
-// the controller read spec.path literally, so a non-default --data-dir left
-// every request Blocked on a directory that does not exist in its process.
+// Both sides read the media file's directory: the remediation loop's
+// subtitles planner lists it for sidecars (loop spec §6.4.3), the fetch
+// worker stats the video and writes the sidecar beside it. They share this
+// one mapping so --data-dir means the same thing to both.
 package datapath
 
 import (
