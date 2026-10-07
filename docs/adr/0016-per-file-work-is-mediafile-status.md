@@ -144,6 +144,11 @@ ADR-0004 rejected: `kubectl` is the interface.
 - Migration needs a release that copies each SubtitleRequest's and TranscodeJob's status onto
   its MediaFile and then deletes the object, before the CRDs are removed. Rebuilding instead
   would lose the provider, score and subtitle ID the upgrade decision reads.
+  - *Amended 2026-10-07 (owner): cold turkey, no migration --* no release copies or adopts
+    anything. SubtitleRequest, TranscodeJob and AudioGraft are deleted (types, generated code,
+    CRDs, RBAC, installers) right after the waves that replace them, and the remediation loop
+    recomputes subtitle, transcode and graft state from the files. The live cluster's objects are
+    deleted by hand (`docs/runbooks/unify-cold-cutover.md`); their history is an accepted loss.
 - The spec, its amendment, CLAUDE.md and the ui's projection describe the three kinds as built,
   and are rewritten as each kind is removed.
 

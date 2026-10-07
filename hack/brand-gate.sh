@@ -34,6 +34,7 @@ fi
     ':(exclude)docs/superpowers' \
     ':(exclude)docs/research' \
     ':(glob,exclude)docs/adr/[0-9]*.md' \
+    ':(exclude)docs/runbooks/unify-cold-cutover.md' \
     ${temp[@]+"${temp[@]}"} || true; } |
 awk -v readme="$readme" -v lo="$lo" -v hi="$hi" -v re="$re" '
   {

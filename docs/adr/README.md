@@ -55,6 +55,14 @@ Refinements that did not change a decision are recorded in the spec, not here:
 - **0016:** its "These stay resources: Download" is reversed by ADR-0019 (2026-10-07); the
   rest of 0016 stands. A grab now lives in its owning item's status, not on the MediaFile,
   for the reasons 0016 gave for not folding Download into per-file work.
+- **0016:** 2026-10-07, the owner: cold turkey, no migration. The three folded kinds are
+  deleted right after the waves that replace them, with no adopting release; the live
+  cluster's objects are removed by hand (`docs/runbooks/unify-cold-cutover.md`) and their
+  history is not kept. The Consequences bullet about a copying release no longer holds.
+- **0019:** 2026-10-07, the owner: cold turkey, no migration. Download is deleted once nothing
+  creates or reads it (after waves A4-A6), with no adopting release, export or rollback; the
+  live cluster's Downloads and their blocklist labels are an accepted loss
+  (`docs/runbooks/unify-cold-cutover.md`).
 
 ## Writing one
 

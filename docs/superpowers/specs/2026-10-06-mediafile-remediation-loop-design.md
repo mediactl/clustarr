@@ -9,6 +9,13 @@
 types land in the split plan's Wave 4f, before F1), and a bucket re-created under an object watch is
 skipped silently, as under a KV watch.
 
+**Amended 2026-10-07 (owner): cold turkey, no migration.** There is one release and no
+migration: nothing adopts SubtitleRequests, TranscodeJobs or AudioGrafts, and the three kinds
+(types, generated code, CRDs, RBAC, installers) are deleted right after the waves that replace
+them (F5-F7, then one removal step). §2.16, §7 (all of it), §8.6's F8 and F9, §8.7 and decisions
+D1, D24, D25, D30-D33 and D36-D38 are superseded as their notes say; the one-time cluster cleanup
+is `docs/runbooks/unify-cold-cutover.md`, and the plan's "Cold-turkey revision" sections carry the task changes.
+
 **Reconciled with main `80175fdc`, 2026-10-07.** The branch is rebased onto it (the 28
 commits `0d3ae234..80175fdc`, §8.1). What changed here: the MP4 standard's phase 1 is on
 the branch, so the transcode planner plans MP4 under `standard.Version` 2 and names the
@@ -1228,6 +1235,13 @@ test/e2e/transcode_test.go:690). `api/transcode/v1alpha1` keeps TranscodeProfile
 `api/subtitle/v1alpha1` keeps SubtitleProfile and SubtitleProvider.
 
 ### 2.16 Release N's schema accepts the previous release's writes
+
+> **Amended 2026-10-07 (owner): cold turkey, no migration --** no previous release runs beside
+> or after this one (its workloads are stopped before the install, and there is no rollback),
+> so nothing needs this superset for the previous release's applies. The tightening of the N+1
+> column lands in the folded-kinds removal step, right after F7. What still binds: the MediaFiles
+> are kept, so the branch's CRD must accept the status chart 0.4.x stored (a transcode block
+> without `phase`, sidecars keyed by `path`) until the loop's first apply rewrites it.
 
 Helm never reverts CRDs (charts/clustarr/crds/README.md:21-29), and the previous release
 applies MediaFile status under the same field manager, `catalogarr`, from its `knownStatus`
@@ -3960,6 +3974,16 @@ fold touches none of it.
 
 ## 7. Migration and removal
 
+> **Amended 2026-10-07 (owner): cold turkey, no migration --** this whole section is history.
+> There is no release N/N+1 split, no `app/catalog/legacyfold`, no Migrator, no adoption planner,
+> no `status.legacyFold`, no `--legacy-fold*` flags, no `manager legacy-fold report` or
+> `restore-markers`, no `catalogarr-markers` release write and no rollback. The three kinds are
+> deleted in one removal step right after F7 (before it, F8.6 and F8.7 retarget their last
+> readers). On kind-cluster-plex their objects, finalizers, CRDs, the old NATS state and the
+> stale `managedFields` are cleaned up once, by hand (`docs/runbooks/unify-cold-cutover.md`). Accepted
+> losses: the TranscodeJob and subtitle history (§7.1's 283 search backoffs included; the
+> backlog gate, D22, paces the searches that fall due).
+
 Nothing in this section has run. The branch deploys as two releases (§8, §9 D1):
 
 - **Release N** is the split plus the fold: the manager, agents and ui, the remediation loop, and
@@ -4425,6 +4449,10 @@ file left without the entry.
 
 ### 7.4 Release N+1: removal
 
+> **Amended 2026-10-07 (owner):** there is no release N+1; what this lists is removed in the
+> folded-kinds removal step right after F7, and the CRDs are deleted by hand in the cutover
+> runbook (`docs/runbooks/unify-cold-cutover.md`).
+
 Code first, then the CRDs, and the CRDs only by hand: Helm never updates or deletes `crds/`
 (`charts/clustarr/crds/README.md:21-40`), `make install` is `kubectl apply --server-side` with no prune
 (`Makefile:254-255`), and the live CRDs are owned by kubectl.
@@ -4466,6 +4494,9 @@ Code first, then the CRDs, and the CRDs only by hand: Helm never updates or dele
   `catalogarr`'s next apply then drops `f:legacyFold` from its managedFields.
 
 ### 7.5 Runbooks (kind-cluster-plex; not executed; each step needs the owner's OK)
+
+> **Amended 2026-10-07 (owner):** superseded by `docs/runbooks/unify-cold-cutover.md`, one cold
+> cutover with no hold mode, census, retention or N+1 step; it still needs the owner's OK.
 
 **Release N** (the split and the fold together). This is the whole runbook for release N. It
 replaces split §11.3's runbook and its rollback (F8.11 points split §11.3 here), and carries
@@ -4557,6 +4588,9 @@ status as `catalogarr` with different field sets, each releasing the other's fie
    `subtitleproviders`.
 
 ### 7.6 Rollback
+
+> **Amended 2026-10-07 (owner):** there is no rollback to the previous release; a failed
+> cutover is fixed forward.
 
 "Previous" is the release before N (revision `P`), which predates the split. **Every rollback from
 N to the previous release is this procedure**, which replaces split §11.3's rollback:
@@ -4973,6 +5007,11 @@ was wrong.
 
 ### 8.6 The fold's waves (F0-F9)
 
+> **Amended 2026-10-07 (owner): cold turkey --** F8.1-F8.5 are dropped; F8.6 and F8.7 run right
+> after F7; F9.2-F9.4 (with F8.8, F8.10 and F9.1's guard) move up to one removal step after them;
+> F8.9, F8.11 and F8.12 keep their non-migration parts; F9.1 and F9.5's runbook are dropped. The
+> split plan's "Cold-turkey revision" section lists every task.
+
 F0-F8 run after W5.18/W5.19 and before W6.1; with Waves 6-10 they are release N. F9 runs after W10.8
 and is release N+1. The tasks run in order: every wave edits the loop, so there are no parallel lanes.
 Each wave gate runs `make test` (envtest, pg-assets, chart dependencies) and `make lint`, plus the
@@ -5224,6 +5263,11 @@ wave's guards.
 
 ### 8.7 Execution order changes
 
+> **Amended 2026-10-07 (owner):** the order is the split plan's "Cold-turkey revision": A4 / A5 /
+> A6 → the Download removal → F5 → F6 → F7 → F8.6 → F8.7 → the folded-kinds removal → F8.9,
+> F8.11, F8.12 → A7 → W6.9+ → W6b → W9 → W10 → Wave N → the test batch. No task runs after W10.8
+> for an N+1.
+
 - **New rows:** F0-F8 depend on W5.18 and W5.19; W6.1 depends on F8.12 (it depended on Wave 5); F9
   depends on W10.8. The task total is 223 − 1 (W4.14) + 55 = 277.
 - **Rebase points** (controlling session only, between tasks, with a clean worktree): before W0.1
@@ -5289,6 +5333,15 @@ the other is recorded in Appendix A. Every deploy step stays under "Build, don't
 | D42 | The transcode block records the graft it carries (`transcode.joinedGraft`); the graft planner derives its joined state from it (§5.13). | Taken | review: the Copy partition (§3.5) |
 | D43 | A sidecar with no language (`<stem>.srt`, `<stem>.forced.srt`, the standard's name for an untagged track) is attributed by neither `subtitles.ParseSidecar` nor `SidecarsOf`, so a rename and a delete leave it behind on main today, and the fold inherits that (§2.7). Fix on main: the movers also take `<stem>[.forced\|.sdh].<srt\|ass>` by stem alone; the listing and the subtitles planner keep counting only sidecars with a language. | **Open** (main's code; the owner decides whether the movers take language-less names, or the standard names an untagged track `und`) | reconciliation with `80175fdc` |
 | D44 | `status.transcode.plan.dropped` (MaxItems 8 of 320) carries `standard.Result.Dropped`, replacing the dropped-subtitle suffix main's `c0fb39b7` writes into TranscodeJob's Planned condition, which the fold removes. | Taken | reconciliation with `80175fdc`; the owner asked for dropped subtitles to be named "where an operator reads the job" (MP4 final review I5) |
+
+> **Amended 2026-10-07 (owner): cold turkey, no migration --** D1 (two releases), D24 (adopted
+> objects kept 72 h), D25 (the drain gate, `Topology.Retired`, v1 tasks acked as stale for a
+> release), D30 (hold, then apply), D31 (the transcode quiesce through suspended jobs), D32 (the
+> `catalogarr-markers` release wave), D33 (the phantom job dismissed by adoption), D36's release
+> N+1 and CRD-deletion rollouts, D37 (the previous release's applies) and D38 (`restore-markers`)
+> are superseded: one release, the kinds deleted in the branch, the old NATS state, finalizers
+> and stale `managedFields` cleaned up by hand (`docs/runbooks/unify-cold-cutover.md`). The cutover still
+> needs the owner's explicit OK.
 
 ---
 

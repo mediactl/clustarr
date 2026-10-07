@@ -50,6 +50,103 @@ tree wins and the disagreement is a ruling in **Rulings**.
 
 ---
 
+## Cold-turkey revision (owner, 2026-10-07)
+
+**The decision.** The owner chose **cold turkey everywhere** on 2026-10-07 ("This is a new
+development repo - we can just cold turkey swap"; `.superpowers/unify/rulings.md`, last entry).
+There is one release and no migration code. The Download kind (type, `DownloadList`, apply
+configurations, CRD, RBAC, installer entries, the `api/download/v1alpha1` aliases) is deleted as
+soon as nothing creates or reads it, right after A4-A6, with no adoption, no
+`status.legacyDownloads`, no Migrator Download part, no `downloads export`, no rollback and no
+release N+1. `DownloadClient` and the `download.clustarr.io` group stay. Accepted loss on
+kind-cluster-plex: its Downloads, their blocklist labels, held imports, pauses and in-flight or
+seeding transfers; the bytes stay on disk, and the engines remove each transfer no entry claims
+after `UnidentifiedGrace`, keeping its data (spec §6.7). The one-time cleanup is
+`docs/runbooks/unify-cold-cutover.md`, not code; deploying still needs the owner's explicit OK.
+The fold's side (F8, F9) is in the split plan's own "Cold-turkey revision".
+
+**What this supersedes below.** Task bodies are not rewritten: this section and each task's
+`Cold-turkey revision` pointer win where they disagree. Superseded: the Goal's "release N adopts
+every live Download; release N+1 removes the CRD"; R2's and R3's "until N+1" (until the Download
+removal); R4's reason (the argument order stays, and now a re-grab of the same release reuses the
+old Download's name, so an engine that still holds that transfer claims it by name); R8's "in
+release N"; R22 (nothing drains: `catalogarr-grab`, `catalogarr-redownload`, `clustarr-leases`
+and `clustarr-pending` leave the topology in the Download removal, and the runbook deletes the
+cluster's copies); the Order table's A8 and A9 rows; and, under "Amendments to the main plan",
+the F8.3, F8.4, F8.5 and F9.1-F9.5 entries, F8.9's `downloads export` step, W6.2's `Draining()`
+exemption and W6.9's release-N `downloads` grant.
+
+**The Download removal** runs right after A4.5, A5.4 and A6.5, before F5.1: A9.1 → A9.2 → A9.3 →
+A9.5. Nothing creates or reads a Download once A4.4 deletes the grab worker (A4.5's last grep),
+and A5 and A6 name none. It deletes the `Download` and `DownloadList` types and every
+Download-only declaration with their apply configurations; the aliases A1.1 kept;
+`status.legacyDownloads` and its types (A1.2) with A3.3's `Contribution.LegacyDownloads`; A3.7's
+`UnidentifiedGate`; A1.4's v1 Search, Metadata and ArtworkFetch decoders and the v1 `ImportTask`
+decoder; the Download kind in `pkg/k8s/deadletter.go`; the grab engine's field manager (and with
+it `RetiredFieldManagers()`'s second name); the two durables and two buckets of R22, outright,
+with no `Topology.Retired` entry and no drain gate; and the Download CRD with its RBAC and
+installer entries.
+
+### New order
+
+Wave U and the applyconfiguration flatten (done) → **A4 / A5 / A6** → **the Download removal**
+(A9.1 → A9.2 → A9.3 → A9.5) → **F5** → **F6** → **F7** → **F8.6** → **F8.7** → **the folded-kinds
+removal** (F9.2 → F9.4 → F9.5's gate) → **F8.9** → **F8.11** → **F8.12** → **A7** → **W6.9-W6.17**
+→ **W6b** → **W9** → **W10** → **Wave N** (ADR-0020/0021) → **the test batch**. A1-A3 are built.
+
+### Every task the revision touches (21)
+
+Counts: 5 dropped, 5 moved, 11 amended.
+
+| Task | Outcome | Reason |
+| --- | --- | --- |
+| A1.1 (built) | amended | its `api/download` aliases go in A9.1 (moved), not at N+1 |
+| A1.2 (built) | amended | `LegacyDownloads`, `LegacyDownload`, `LegacyOutcome` and `legacyDownloads` on the owner kinds are deleted in A9.1 (moved); nothing ever writes them |
+| A1.4 (built) | amended | its v1 decoders (`SearchTaskV1Schema`, `MetadataTaskV1Schema`, `ArtworkFetchTaskV1Schema` into v2) are deleted in A9.1 (moved); the runbook purges the old dead letters |
+| A3.3 (built) | amended | `Contribution.LegacyDownloads` goes in A9.1 (moved) |
+| A3.6 (built) | amended | nothing adopts: on the first boot every 0.4.x transfer is unidentified and removed after `UnidentifiedGrace` with its bytes kept, unless an entry of the same id claims it first; the name match stays |
+| A3.7 (built) | amended | `UnidentifiedGate` stays open and is deleted in A9.1 (moved); its deferred test leaves the batch |
+| A3.9 (built) | amended | its deferred guard is written as `TestNothingNamesDownload` once A9.1 lands; no Migrator or export exclusions |
+| A3.10 (built) | amended | its grep exclusions name no Migrator path; A9.5 (moved) is the check that Download is gone |
+| A4.4 | amended | no `agentdomain.Draining()`: the two durables and two buckets leave the topology in A9.2 (moved), right after A4-A6 |
+| A4.5 | amended | its `catalogarr-grab` durable grep counts declarations in `pkg/events` only until A9.2 (no `Draining`) |
+| A7.2 | amended | the grab engine's field manager is deleted (A9.1, moved), not kept in `RetiredFieldManagers()`; A7 follows F8.12 alone (no A8) |
+| A8.1 | dropped | adoption of live Downloads, `status.legacyDownloads`, the unidentified-removal gate |
+| A8.2 | dropped | the Migrator's Download part; the runbook strips the finalizers and deletes the objects |
+| A8.3 | dropped | the report's Downloads and `manager downloads export` |
+| A8.4 | moved | its e2e text goes to F8.9 and W6.15 (as "Amendments to the main plan" says, without `downloads export`); its runbook edit is dropped |
+| A8.5 | dropped | its greps name Migrator and export paths; A9.5 (moved) proves Download is gone |
+| A9.1 | moved; amended | the Download removal, after A4.5, A5.4 and A6.5: no Migrator part or export exists to delete; it also deletes A1.1's aliases, A1.4's v1 decoders and A3.7's gate |
+| A9.2 | moved; amended | with A9.1: the durables and buckets leave the topology outright, with no `Topology.Retired` entry, drain gate or `Draining()` |
+| A9.3 | moved; amended | with A9.1; `expectedCRDCount` drops by one here |
+| A9.4 | dropped | the N+1 CRD-removal runbook; `docs/runbooks/unify-cold-cutover.md` deletes the CRD |
+| A9.5 | moved | the Download removal's gate |
+
+### Tests that leave the test batch
+
+No task writes these 19 tests any more, nor the two extras at the end: A1.1's
+`TestTheDownloadCRDIsUnchangedButPayloadUnavailable`
+(the CRD goes); A1.4's `TestV1SearchAndMetadataTasksStillDecode`; A3.7's
+`TestTheGateHoldsUnidentifiedRemovalUntilAdoptionCompletes`; A8.1's `TestAdoptionRules`,
+`TestAdoptionIsIdempotent`, `TestAHeldImportKeepsItsClock`, `TestAnOwnerOverItsCapIsHeldNotTruncated`,
+`TestAPreJournalTransferIsClaimedByItsAdoptedEntry`, `TestTheUnidentifiedGateWaitsForAdoption`,
+`TestHoldModeAdoptsNothing`; A8.2's `TestTheMigratorCarriesIntentBeforeAdoption`,
+`TestAHeldImportIsSeededOnce`, `TestTheInfoHashIsBackfilledByCAS`,
+`TestFinalizersAreStrippedOnlyAfterAnOutcome`, `TestAnAdoptedDownloadIsDeletedOnlyAfterRetention`;
+A8.3's `TestTheReportCountsDownloadsAndTheirPlan`, `TestExportRefusesWhileAManagerLeads`,
+`TestExportRecreatesEveryEntryAndEveryBlock` and the upgrade-and-rollback scenario's export leg;
+A9.2's `TestRetiredBucketsAreDeletedAfterTheDrainGate` and the two rows it would add to
+`TestValidateChecksRetiredConsumers`.
+
+Rewritten, not dropped: A3.6's `TestAPreJournalTransferIsMatchedByNameAndAdopted` (matched by name
+and claimed by an entry of that id); A3.9's `TestNothingButTheMigratorNamesDownload`, written as
+`TestNothingNamesDownload`; W6.2's `TestEveryConsumerHasExactlyOneHome` (no `Draining()`
+exemption). Kept: A9.1's `TestDownloadSourceAllowsExactlyOne`; A8.4's e2e
+`TestEngineRestartKeepsSeeding`, `TestAnUnclaimedTransferIsResumedOrRemoved` and
+`TestABlockedReleaseShowsBlockedInASearch` (now F8.9's).
+
+---
+
 ## Global Constraints
 
 **Inherited, verbatim in force:** the split plan's Global Constraints (branch hygiene R14;
@@ -304,6 +401,8 @@ Waves 0-5, 4a-4f, 7 and 8 are built.
 
 **Wave U (2026-10-07)** runs alone between A3 and A4 / A5 / A6 (`docs/superpowers/plans/2026-10-07-unbranded-names.md`); every name in this plan is read through `docs/superpowers/specs/2026-10-07-unbranded-names-design.md` §6, and each task whose substance changes carries an "Amended by Wave U" line.
 
+**Cold-turkey revision (owner, 2026-10-07):** supersedes the order notes above (and the table's A8 and A9 rows): Wave U and the applyconfiguration flatten (done) → A4 / A5 / A6 → the Download removal (A9.1 → A9.2 → A9.3 → A9.5) → F5 → F6 → F7 → F8.6 → F8.7 → the folded-kinds removal (F9.2 → F9.4 → F9.5's gate) → F8.9 → F8.11 → F8.12 → A7 → W6.9-W6.17 → W6b → W9 → W10 → Wave N (ADR-0020/0021) → the test batch. Dropped: F8.1-F8.5, F9.1, A8.1-A8.3, A8.5, A9.4. The section "Cold-turkey revision (owner, 2026-10-07)" near the top of this plan and of the split plan lists every task.
+
 | Wave | Tasks | Depends on | Parallel with |
 |---|---|---|---|
 | A1 API and topology | A1.1-A1.8 (8) | F4.4 green | nothing (serial, one owner: `api/`, `pkg/events`, `pkg/records` are shared) |
@@ -477,6 +576,7 @@ NATS objects.
 ---
 
 ### Task A1.1: The download enums and `DownloadSource` move to `api/common/v1alpha1`; `payloadUnavailable`
+> **Cold-turkey revision:** amended (built): the `api/download` aliases go in A9.1 (moved after A4-A6), not at N+1.
 
 **Spec:** §6.2 (first paragraph), §6.7 ("payloadUnavailable (new)"), §6.14 (scope by reason).
 
@@ -567,6 +667,7 @@ NATS objects.
 ---
 
 ### Task A1.2: Item status: grab entries, intents, pending candidates, the queue view; DownloadClient engine fields
+> **Cold-turkey revision:** amended (built): `LegacyDownloads` and its types are deleted in A9.1 (moved after A4-A6); nothing writes them.
 
 **Spec:** §6.1, §6.2 (all of it), §6.3, §6.5, §6.10, §7.3 (`searchDispatch`), §10.2
 (`status.legacyDownloads`), §6.7 (DownloadClient `unidentifiedTransfers`), §7.7
@@ -842,6 +943,7 @@ NATS objects.
 ---
 
 ### Task A1.4: `schema` -- item refs, records, intake, commands, tasks and RPC payloads
+> **Cold-turkey revision:** amended (built): the v1 Search, Metadata and ArtworkFetch decoders are deleted in A9.1 (moved after A4-A6).
 
 **Spec:** §4.3 (header field, intake payloads), §6.7 (command, transfer record, engine record,
 claim), §6.9 (inspect and execute), §6.14 (block state in answers, the RPC), §7.1 (metadata
@@ -1936,6 +2038,7 @@ Episode"), §11.2 row A3; loop §3.12 (the item path), F4.2's pattern (`Reconcil
 ---
 
 ### Task A3.3: Item stages -- `itempass`, `remediation.ItemStage`, one apply per manager per pass, the item effects, `remediation.item.download`, S24
+> **Cold-turkey revision:** amended (built): `Contribution.LegacyDownloads` goes in A9.1 (moved after A4-A6).
 
 **Spec:** §7.0 (one pass, one apply per manager, CAS-chained, skipped only when equal at its own
 paths), §6.11 (the index `remediation.item.download`, S24), §8.1 (S24-S30), §6.8 (the
@@ -2627,6 +2730,7 @@ ordinal); rulings R4, R21, R25.
 
 ---
 ### Task A3.6: Engines execute commands -- journal claims and seqs, transfer and engine records, resync; no Download reconciler, reaper or finalizer
+> **Cold-turkey revision:** amended (built): nothing adopts; a 0.4.x transfer is unidentified and removed after `UnidentifiedGrace`, bytes kept, unless an entry of the same id claims it first.
 
 **Spec:** §6.7 (what an engine does, commands, records, re-attach and the journal, claims,
 convergence's engine half, resync, data safety), §3.5 P111-P123, §3.1 W37-W44, §9.1
@@ -2799,6 +2903,7 @@ release-N boot); ruling R20.
 ---
 
 ### Task A3.7: The DownloadClient controller reads engine records; per-engine durables; resync; unidentified transfers; the Download controller, the blocklist sweeper and `directgrab` go
+> **Cold-turkey revision:** amended (built): `UnidentifiedGate` stays open and is deleted in A9.1 (moved); its deferred gate test leaves the batch.
 
 **Spec:** §6.7 ("What the manager does with them", "Resync", unidentified transfers), §5.1
 (per-engine durables), §6.11 (`BlocklistSweeper`, DownloadClient Active/Queued, `directgrab`),
@@ -3052,6 +3157,7 @@ release-N boot); ruling R20.
 ---
 
 ### Task A3.9: Readers and the ui -- no Download anywhere but the Migrator's
+> **Cold-turkey revision:** amended (built): the deferred guard is `TestNothingNamesDownload`, with no Migrator or export exclusions.
 
 **Spec:** §6.11 (every row), §6.12 (the ui), §6.10 (the ui's actions), §8.5 (dead letters
 resolve to the owner), §3.4 (every reader outside `app/grab`).
@@ -3162,6 +3268,7 @@ resolve to the owner), §3.4 (every reader outside `app/grab`).
 ---
 
 ### Task A3.10: Wave A3 gate
+> **Cold-turkey revision:** amended (built): no Migrator exclusions; A9.5 (moved after A4-A6) proves Download is gone.
 
 ```bash
 cd /home/appkins/src/mediactl/clustarr-unify
@@ -3534,6 +3641,7 @@ rulings R12, R13, R25.
 ---
 
 ### Task A4.4: RSS candidates; the grab worker, leases, pending records, scheduled grabs and redownload retire
+> **Cold-turkey revision:** amended: no `agentdomain.Draining()`; the two durables and two buckets leave the topology in A9.2 (moved after A4-A6).
 > **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", A4.4.
 
 **Spec:** §6.6 steps 1, 3, 5, §3.5 P13-P25, §3.1 W1, W5, W6, §6.11 (grab guard, RSS matcher,
@@ -3597,6 +3705,7 @@ redownload); ruling R22.
 ---
 
 ### Task A4.5: Wave A4 gate
+> **Cold-turkey revision:** amended: the durable grep counts `pkg/events` declarations only until A9.2 (no `Draining`).
 
 ```bash
 cd /home/appkins/src/mediactl/clustarr-unify
@@ -4207,6 +4316,7 @@ test ! -f app/import/worker/rescan/renamepass.go && echo gone
 ---
 
 ### Task A7.2: Markers, roles and field-manager homes
+> **Cold-turkey revision:** amended: the grab engine's field manager is deleted (A9.1), not kept in `RetiredFieldManagers()`; A7 follows F8.12 alone (A8 is dropped).
 > **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", A7.2.
 
 **Spec:** §9.1 (the roles table), §9.2 (`TestEveryFieldManagerHasItsHome`, `TestRecordsWritersAreTheirAgents`,
@@ -4286,6 +4396,7 @@ for rollback; `manager downloads export` writes them back for a rollback.
 ---
 
 ### Task A8.1: Adoption in the downloads stage; `status.legacyDownloads`; the unidentified-removal gate
+> **Cold-turkey revision:** dropped (no adoption, no `status.legacyDownloads`, no unidentified-removal gate).
 > **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", A8.1.
 
 **Spec:** §10.2 "Adoption in the owner key" (every bullet), "The engines re-attach without
@@ -4358,6 +4469,7 @@ Downloads", §6.7 (pre-journal transfers), §6.3 (an owner over its cap is `Held
 ---
 
 ### Task A8.2: The Migrator's Download part -- intent, held imports, source hashes, finalizers, census and deletion
+> **Cold-turkey revision:** dropped (no Migrator Download part; the runbook strips the finalizers and deletes the objects).
 > **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", A8.2.
 
 **Spec:** §10.2 "The Migrator" steps 1-5; loop §7.3.5, §7.3.7 (the fold's order and retention).
@@ -4419,6 +4531,7 @@ Downloads", §6.7 (pre-journal transfers), §6.3 (an owner over its cap is `Held
 ---
 
 ### Task A8.3: `manager legacy-fold report` gains Downloads; `manager downloads export`
+> **Cold-turkey revision:** dropped (no Downloads report, no `manager downloads export`).
 > **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", A8.3.
 
 **Spec:** §10.2 "Report", §10.4 (the rollback rows, `downloads export`), §6.2 (Q7: `manager
@@ -4465,6 +4578,7 @@ downloads list` stays optional -- not built).
 ---
 
 ### Task A8.4: The runbook and the e2e scenarios' text
+> **Cold-turkey revision:** moved: its e2e text goes to F8.9 and W6.15, without `downloads export`; its runbook edit is dropped.
 > **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", A8.4.
 
 **Spec:** §10.2 "Runbook", §6.13; loop §7.5.
@@ -4497,6 +4611,7 @@ becomes the `remove … blocklist` intent; `newTorrentDownloadE2E` and `newUsene
 ---
 
 ### Task A8.5: Gate additions to F8.12
+> **Cold-turkey revision:** dropped (its greps name Migrator and export paths; A9.5 proves Download is gone).
 > **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", A8.5.
 
 F8.12 runs these beside its own:
@@ -4521,6 +4636,7 @@ owner's OK (the CRD deletion by hand, §10.3).
 ---
 
 ### Task A9.1 (with F9.1, F9.2): Remove the Download type and the Migrator's Download part
+> **Cold-turkey revision:** moved to the Download removal, right after A4.5, A5.4 and A6.5; amended: no Migrator part or export to delete; also deletes A1.1's aliases, A1.4's v1 decoders and A3.7's gate.
 
 **Files:**
 
@@ -4551,6 +4667,7 @@ owner's OK (the CRD deletion by hand, §10.3).
 ---
 
 ### Task A9.2 (with F9.4): Retire the NATS state of the old grab path
+> **Cold-turkey revision:** moved to the Download removal (after A9.1); amended: the durables and buckets leave the topology outright, no `Topology.Retired` entry or drain gate.
 > **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", A9.2.
 
 **Files:**
@@ -4578,6 +4695,7 @@ owner's OK (the CRD deletion by hand, §10.3).
 ---
 
 ### Task A9.3 (with F9.3): Installers without `downloads`
+> **Cold-turkey revision:** moved to the Download removal (after A9.2); amended: `expectedCRDCount` drops by one here.
 
 **Files:** `config/crd/kustomization.yaml` (the Download base, `:40`), `config/crd/bases/download.clustarr.io_downloads.yaml`
 (`git rm`), the chart's CRD copy, every role and the chart's RBAC (`downloads` leaves),
@@ -4595,6 +4713,7 @@ deferred), `crdbases_test.go` (deferred).
 ---
 
 ### Task A9.4 (with F9.5): Docs -- the Download CRD removal runbook
+> **Cold-turkey revision:** dropped (the N+1 CRD-removal runbook; `docs/runbooks/unify-cold-cutover.md` deletes the CRD).
 
 **Files:** the loop spec's N+1 runbook (loop §7.5) and `charts/clustarr/crds/README.md`: after the
 census reads 0, `kubectl delete crd downloads.download.clustarr.io` (Helm never deletes CRDs);
@@ -4610,6 +4729,7 @@ rollback N+1 → N re-applies N's CRDs (`git show`) then `helm rollback` (§10.4
 ---
 
 ### Task A9.5: Release N+1 gate (beside F9.5's)
+> **Cold-turkey revision:** moved: the Download removal's gate, before F5.1.
 > **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", A9.5.
 
 ```bash

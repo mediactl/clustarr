@@ -230,6 +230,13 @@ sequence, and the engine applies only the newest.
 - Migration needs two releases: release N adopts every live Download into item status, strips
   the Download finalizers and keeps the frozen objects for rollback; release N+1 removes the
   CRD.
+  - *Amended 2026-10-07 (owner): cold turkey, no migration --* one release, no adoption. The
+    Download kind (type, apply configurations, CRD, RBAC, installers) is deleted as soon as
+    nothing creates or reads it, right after waves A4-A6, with no Migrator, no
+    `status.legacyDownloads`, no `downloads export` and no rollback. The live cluster's
+    Downloads, their blocklist labels and their in-flight and seeding transfers are an accepted
+    loss; the bytes stay on disk, and the engines remove each transfer no entry claims after its
+    grace, keeping its data. The one-time cleanup is `docs/runbooks/unify-cold-cutover.md`.
 
 ## Revisit triggers
 

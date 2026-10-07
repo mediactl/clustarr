@@ -9,6 +9,11 @@ topology ADR-0013 deferred (the superseding ADR is ADR-0018, §12; ADR-0016 is
 this document is implemented or deployed. Building it is in scope; deploying
 it to kind-cluster-plex needs a later, explicit OK from the owner (§1).
 
+**Amended 2026-10-07 (owner): cold turkey, no migration.** The split, the fold and ADR-0019
+deploy as one release with no migration code: §11.3's live cutover runbook and its rollback are
+replaced by `docs/runbooks/unify-cold-cutover.md`, and the legacy-lease gate (§5.8,
+`--legacy-lease-check`) is removed.
+
 **Reconciled with main `80175fdc`, 2026-10-07.** The 28 commits
 `0d3ae234..80175fdc` are folded in below (summary under "Drift since
 `0d3ae234`"): the fork tag is now `.13`, on main's published `.12`; the MP4
@@ -2322,6 +2327,10 @@ squasharr and captionarr names are prefixed. Names that repeat
   (ui/reader.go:154,173).
 
 ### 5.8 The lease
+
+> **Amended 2026-10-07 (owner):** `k8s.GatedLeaseLock` and `--legacy-lease-check` are removed
+> (cold turkey: no cutover release in which a per-service controller could still hold a lease).
+> The cutover runbook (`docs/runbooks/unify-cold-cutover.md`) stops every old writer by hand before the install.
 
 - **One lease**, `manager.clustarr.io`, in `--leader-election-namespace` or
   `POD_NAMESPACE`, with the existing 60 s / 45 s / 5 s timings
@@ -6961,6 +6970,12 @@ compiling under `go vet -tags e2e ./test/...` (`ci.yml:94`) and naming what will
 ---
 
 ## 11. Migration and cutover (not executed)
+
+> **Amended 2026-10-07 (owner): cold turkey, no migration --** §11.3's runbook (which assumed
+> kept durable names, a legacy-lease gate and a `helm rollback`) is superseded by
+> `docs/runbooks/unify-cold-cutover.md`: the four removed kinds and their CRDs, the old NATS streams,
+> durables and buckets, stale `managedFields` and the old leases are cleaned up once by hand, and
+> there is no rollback.
 
 Nothing in this section has been run. §11.1 and §11.2 are for the sessions that
 build the branch; §11.3 is for a later session, with the owner's explicit OK, on

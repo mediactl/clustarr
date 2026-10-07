@@ -16,6 +16,145 @@
 
 ---
 
+## Cold-turkey revision (owner, 2026-10-07)
+
+**The decision.** "Why are we retiring the names? This is a new development repo - we can just cold
+turkey swap." Asked whether that extends to the CRD migrations, the owner chose **cold turkey
+everywhere** (`.superpowers/unify/rulings.md`, last entry). There is one release and no migration
+code: no legacy-name table and no dual reads (Wave U, already redirected), and no two-release CRD
+migration. SubtitleRequest, TranscodeJob and AudioGraft (ADR-0016) and Download (ADR-0019) are
+deleted -- types, generated code, apply configurations, CRDs, RBAC, installers -- right after the
+waves that replace them, with no Migrator, no adoption, no read-only release N, no rollback or
+export tooling and no release N+1. Accepted losses on kind-cluster-plex: its Downloads (their
+blocklist labels and in-flight or seeding transfers included; the bytes stay on disk, and ADR-0019's
+convergence removes unidentified transfers keeping their bytes) and its TranscodeJob and subtitle
+history; the loop recomputes transcode and subtitle state from the files. Movies, Series, Episodes,
+MediaFiles and every other kind are kept as stored. The one-time cluster cleanup is
+`docs/runbooks/unify-cold-cutover.md`, not code; deploying still needs the owner's explicit OK.
+
+**What this supersedes below.** Task bodies are not rewritten: this section and each task's
+`Cold-turkey revision` pointer win where they disagree. Superseded: the Goal's "release N ...
+adopts ... release N+1 (F9) removes"; in Global Constraints, "Release N is everything through W10.8
+and release N+1 is F9", the loop spec §7.5 runbook steps under "Build, don't deploy" (one cutover,
+`docs/runbooks/unify-cold-cutover.md`, one OK) and R7's `clustarr-legacy-fold` and retired-manager
+exceptions (neither exists: retired managers are deleted, not kept valid); Review Focus's adoption,
+rollback and N+1 points; the execution-order table's F0-F8 and F9 rows; "What the waves call one
+another"'s "kind removal, release N+1"; cross-wave gap 15's W6.11, W6.13 and F9 items; and the
+fold waves' migration passages (F8's preamble and cross-wave notes, F9's preamble, "What release
+N+1 removes" and its deviations 1, 2, 4 and 5). "No commit between W4.13 and F8.12 is deployed"
+still holds: nothing is deployed before the cutover.
+
+**Two removal steps replace F9 and A9.** Their tasks keep their ids and run at new positions:
+
+- **The Download removal**: the A-wave plan's A9.1, A9.2 and A9.3, then A9.5 as its gate, right
+  after A4.5, A5.4 and A6.5 and before F5.1. Nothing creates or reads a Download once A4.4 deletes
+  the grab worker (A4.5's grep proves it), and A5 and A6 name none. The A-wave plan's own
+  "Cold-turkey revision" has the detail.
+- **The folded-kinds removal**: F9.2, which takes F8.8's marker sweep, F9.1's guard file
+  `test/guards/foldedkinds_test.go` and F9.3's CRD, RBAC and chart half, then F9.4, then F9.5's
+  gate; right after F8.6 and F8.7, which follow F7.5. One step for the three kinds rather than one
+  after each of F5, F6 and F7, because they share every file a removal edits: TranscodeJob and
+  AudioGraft share `api/transcode/v1alpha1` with TranscodeProfile and with the `Result`, `Plan`,
+  `Progress` and `GraftResult` types F6 and F7 still use until F9.2 moves `Result` into the task
+  package; and all three share `pkg/k8s/deadletter.go`, history's `ReplayKinds` and the DLQ
+  projector, the ui projection and `pkg/pipeline`, `config/crd/kustomization.yaml`,
+  `crdbases_test.go` and `expectedCRDCount`. F8.6 and F8.7 move ahead of it because they retarget
+  the kinds' last readers (history, the DLQ projector, the ui and the pipeline) onto MediaFile
+  status; a removal before them would edit those readers twice.
+
+### New order
+
+Wave U and the applyconfiguration flatten (done) → **A4 / A5 / A6** → **the Download removal**
+(A9.1 → A9.2 → A9.3 → A9.5) → **F5** → **F6** → **F7** → **F8.6** → **F8.7** → **the folded-kinds
+removal** (F9.2 → F9.4 → F9.5's gate) → **F8.9** → **F8.11** → **F8.12** → **A7** → **W6.9-W6.17**
+(W6.2-W6.8 built; W6.1 as amended) → **W6b** (W6.18-W6.24) → **W9** → **W10** (W10.9-W10.11
+before W10.8, which closes the branch) → **Wave N** (ADR-0020/0021, N1-N8) → **the test batch**.
+Waves 0-5, 4a-4f, 7 and 8, F0-F4 and A1-A3 are built. Nothing runs after W10.8 for a release N+1.
+
+### Every task the revision touches (41)
+
+**Dropped** means not run; **moved** means run at the new position above, as amended; **amended**
+means run where it is, with the change named. A built task's pointer records what a later task
+changes in its code. Counts: 6 dropped, 8 moved, 27 amended.
+
+| Task | Outcome | Reason |
+| --- | --- | --- |
+| F1.2 (built) | amended | `Topology.Retired` and its one entry are emptied by F9.4 (moved): the renamed durable never existed on a cluster, and the runbook deletes the old ones |
+| F2.1 (built) | amended | §2.16's superset schema is tightened in F9.2 (moved); the CRD must still accept the status chart 0.4.x stored on the kept MediaFiles |
+| F3.4 (built) | amended | the retired markers manager leaves `RetiredFieldManagers()` and is deleted in F9.4 (moved); the runbook renames its stale `managedFields` entries |
+| F5.2 | amended | its v1 stale-ack branch is deleted in F9.4 (moved), not kept for release N |
+| F5.3 | amended | the SubtitleRequest index and the loop's `subtitlerequests` grant go with the controller; the caption worker's field manager is deleted, not retired |
+| F5.4 | amended | its v1 resolvers are deleted by F8.6, not kept for release N's dead letters |
+| F6.2 | amended | the TranscodeJob `spec.mediaFileRef` index is not kept for adoption |
+| F6.4 | amended | its v1 stale-ack branch is deleted in F9.4 (moved) |
+| F6.6 | amended | the results durable leaves the topology outright, with no `Topology.Retired` entry; no index kept for adoption |
+| F7.2 | amended | `ReasonFileUnprobed` is kept only if a planner uses it (F8.2's adoption is dropped) |
+| F7.3 | amended | the AudioGraft index and its `audiografts` grant go with the controller; `TestOnlyTheLoopWatchesMediaFile`'s allow-list empties with no adoption exception |
+| F7.4 | amended | the v1 decoders it lists as kept for release N live only until F9.4 (moved) |
+| F8.1 | dropped | `status.legacyFold` is adoption's record |
+| F8.2 | dropped | `legacyfold.Plan`, the adoption rules and the live fixtures |
+| F8.3 | dropped | the Migrator (preparation, census, retention, retired-durable reports, the markers pending set), `clustarr-legacy-fold` and its metrics; the runbook does the one-time cleanup |
+| F8.4 | dropped | adoption and hold in the loop, the markers manager's release, `restore-markers` and the previous-release schema test; the runbook renames the stale `managedFields` |
+| F8.5 | dropped | `manager legacy-fold report` and `restore-markers`, `RenderCheck`, the `--legacy-fold` flags |
+| F8.6 | moved; amended | right after F7.5; no `resolveFoldedV1`: the v1 resolvers are deleted (the runbook purges the old dead letters) |
+| F8.7 | moved | right after F8.6, so the ui and the pipeline stop reading the kinds before their types go |
+| F8.8 | moved | into F9.2: every marker naming the kinds goes with their types; no release-N grants exist |
+| F8.9 | amended | keeps scenarios 12 and 13, scenario 1's legs, the graft scenario and the A-wave download legs; no legacy-fold or upgrade-and-rollback scenario, no `e2eupgrade` tag |
+| F8.10 | moved | into F9.2 as F9.1's `foldedkinds_test.go` ("nothing names the kinds"); no `TestOnlyLegacyFold*` |
+| F8.11 | amended | the split spec gets the loop spec's amendments minus every legacy-fold row; §11.3 points at the cold-cutover runbook, with no rollback |
+| F8.12 | amended | no legacy-fold greps or tests; its cross-identity test starts from a MediaFile with no previous-release entry |
+| F9.1 | dropped | nothing of the legacy fold is built to remove; its guard file moves into F9.2 |
+| F9.2 | moved; amended | the folded-kinds removal, after F8.7, with F8.8's sweep, F9.1's guard and F9.3's CRD and RBAC half; its transition test is re-based on chart 0.4.x's stored MediaFiles, with no N+1 → N leg |
+| F9.3 | moved; amended | its CRD, RBAC and chart half joins F9.2; the `manager.legacyFold` values half is dropped |
+| F9.4 | moved; amended | after F9.2: the v1 decoders and stale acks, the kind-keyed bus names, `RetiredFieldManagers()` and `Topology.Retired` are emptied at once (no stale-ack window) |
+| F9.5 | moved; amended | its gate closes the folded-kinds removal; its docs half folds into W10.4-W10.7 and W10.8's text scan; its CRD-removal runbook is dropped |
+| W6.1 | amended | (waived for W6.2-W6.8) its fold checks drop `app/catalog/legacyfold` and `TestOnlyLegacyFoldNamesTheFoldedKinds` |
+| W6.2 (built) | amended | its deferred `TestEveryConsumerHasExactlyOneHome` has no `Draining()` exemption and no retired rows |
+| W6.9 | amended | `RBAC_PATHS_manager` has no `./app/catalog/legacyfold`; the manager role grants nothing on the four removed kinds |
+| W6.11 | amended | no `--legacy-fold*` args, `manager.legacyFold` values or `config/e2e` retain patch; `TestManagerCarriesTheFoldFlags` keeps only the graft and remediation flags |
+| W6.13 | amended | no `manager.legacyFold` in values, schema, README or `TestReleaseNsManagerValuesAreChecked`; "Upgrading from 0.4.x" keeps the retired-keys table and points at the cold-cutover runbook |
+| W6.15 | amended | no `legacyfold` or `upgrade` e2e files, no `e2eupgrade` tag, no `--legacy-fold-retain=0s` patch |
+| W6.17 | amended | the gate drops `-tags e2e,e2eupgrade` and `TestOnlyLegacyFoldNamesTheFoldedKinds` (the folded-kinds guard replaces it) |
+| W10.4 | amended | the design of record says the kinds are deleted: no release-N adoption, `clustarr-legacy-fold`, legacy-fold metrics or retired managers |
+| W10.5 | amended | `docs/observability.md` gets no `clustarr_legacy_fold_*` family |
+| W10.6 | amended | the chart README's "Upgrading from 0.4.x" points at the cold-cutover runbook |
+| W10.7 | amended | CLAUDE.md names no adoption, retired managers or `TestOnlyLegacyFoldNamesTheFoldedKinds`; the deploy is the cold-cutover runbook |
+| W10.8 | amended | the final gate drops the legacy-fold, upgrade and rollback checks, runs the folded-kinds guard's docs scan, and hands off the cold cutover, not a release N |
+
+### Tests that leave the test batch
+
+No task writes these any more (47):
+
+- F8.1: `TestLegacyFoldIsAbsentUntilAdoptionWritesIt`, `TestMediaFileLegacyFoldIsBoundedAndClosed` (and `pkg/crdcheck/legacyfold_cel_test.go`).
+- F8.2: `TestGraftRules`, `TestHoldModeAndTooMany`, `TestIntentAndPreparation`, `TestLegacyJobNameIsTranscodeprofilesName`, `TestPlanReproducesTheLiveTotals`, `TestSubtitleRules`, `TestTheLiveProfileIsTheDefaultSpec`, `TestTheNamedLiveObjects`, `TestTranscodeRules`.
+- F8.3: `TestAGarbageCollectedTranscodeJobIsReleased`, `TestARecreatedObjectSurvivesTheUIDPrecondition`, `TestARetiredDurableIsReportedUndrainedAndHoldsCompletion`, `TestApplyPreparesOnceWithoutOverwritingTheUser`, `TestDeletionNeedsTheRecordAndTheRetentionAndWithdrawsBeforeTheFinalizer`, `TestHoldWithdrawsAnnotatesAndDeletesNothing`, `TestLeaseV1IsTheShapeAPreviousWorkerHonours`, `TestMarkersPendingWakesEveryFileOnce`.
+- F8.4: `TestAWriterBetweenReadAndApplyConflictsAndTheAdoptionIsRedone`, `TestAdoptLegacyDonorFillsOnlyWhatIsMissing`, `TestAdoptionIntoASteadyStateFileKeepsEveryPriorLeaf`, `TestAfterTheReleaseCatalogarrAloneOwnsTheMarkers`, `TestAnAdoptedObjectIsNeverAdoptedAgain`, `TestRegisterIndexesTakesOverTheThreeNames`, `TestRestoreMarkersMakesARollbackLossless`, `TestSeedPrevLeavesTheCachedObjectAlone`, `TestThePreviousReleasesStatusApplyIsAccepted`, `TestWriteGoldens`.
+- F8.5: `TestLegacyFoldFlags`, `TestLegacyFoldReportIsReadOnlyAndCountsWhatTheRunbookChecks`, `TestRenderCheckSeesOnlyWhatTheFirstRenderWouldChange`, `TestRestoreMarkersRefusesWhileTheManagerHoldsTheLease`.
+- F8.6: `TestAV1DeadLetterFilesANamespaceEventAndPatchesNothing`, `TestResolve_V1FoldedKindPayloadsAreNamespaceOnly`.
+- F8.8: `TestReleaseNGrantsOnTheFoldedKinds` (its intent is F9.1's `TestNoRoleGrantsTheFoldedKinds`, kept).
+- F8.9: `TestLegacyFoldAdoptsThenDeletes`, `TestUpgradeToReleaseNAndRollBack` (`test/e2e/upgrade_test.go`, tag `e2eupgrade`).
+- F8.10: `TestOnlyLegacyFoldNamesTheFoldedKinds`, `TestOnlyLegacyFoldAppliesAsCatalogarrMarkers` (their intent is F9.1's `TestNoCodeNamesTheFoldedKinds` and `TestNoRoleGrantsTheFoldedKinds`, kept).
+- F9.1: `TestMediaFileStatusCarriesNoLegacyFold`, `TestNoInstallerPassesTheLegacyFoldFlags`, `TestTheLegacyFoldFamiliesAreGone`, `TestTheManagerTakesNoLegacyFoldFlag`.
+- F9.3: `TestTheValuesSchemaRejectsLegacyFold`. F9.4: `TestRetiredV1SchemasResolveToTheirNamespace`. F9.5: `TestTheRemovalRunbookNamesTheThreeCRDs`.
+
+Rewritten, not dropped: W6.11's `TestManagerCarriesTheFoldFlags` (no legacy-fold rows, no e2e
+half); W6.13's `TestReleaseNsManagerValuesAreChecked` (no `manager.legacyFold` cases); F8.12's
+`TestAMediaFilesStatusCarriesOnlyCatalogarrAcrossTheManagerAndImport` (no previous-release entry
+at the start); F9.2's `TestTheReleaseN1MediaFileCRDTakesOverReleaseNsStatus` and
+`TestMediaFileStatusIsReleaseN1Shaped` (against chart 0.4.x's stored MediaFiles, no rollback leg);
+F5.3's `TestCaptionarrWorkerIsRetired` and F3.4's `TestRetiredFieldManagersStayValid` (the names
+are gone, not retired); F6.6's `TestTheResultsDurableIsRetired` (the durable is gone). Kept as
+written: F9.1's `TestNoCodeNamesTheFoldedKinds`, `TestNoRoleGrantsTheFoldedKinds`,
+`TestNoIdentityWritesAsARetiredManager`, `TestNothingAppliesAsARetiredManager` and
+`TestTheFoldsRetiredManagersAreGone` (now in F9.2), and every other F9.2-F9.5 test.
+
+**Open, with a recommendation.** `TestTheFirstLoopPassKeepsEverySeedKey` (F8.4) guards a property
+the cold turkey keeps: the MediaFiles stay, and a first pass that changes a stored `status.markers`
+or `status.mediaInfo` makes cluster-plex reseed Plex. Recommended: keep it in the batch, re-homed
+to F3.4's markers planner, still needing the owner's read-only `clustarr-segments` dump.
+
+---
+
 ## Global Constraints
 
 - **Branch hygiene (R14).** Work only in `/home/appkins/src/mediactl/clustarr-unify`, on branch `unify-manager-agent`. Basis: main `0d3ae234` plus four branch commits, found by subject: the spec commit (`docs(spec): manager, agents and ui …`, `4b103429` before the rebase), `docs(adr): ADR-0016 -- per-file work is MediaFile status …`, this plan (`docs(plan): manager, agents and ui split -- 223 tasks …`) and the loop spec (`docs(spec): MediaFile remediation loop (ADR-0016) …`). Main's commits since `cdbdd870` that tasks touch are listed under **Rebasing**. ADR-0016 (Accepted) folds SubtitleRequest, TranscodeJob and AudioGraft into MediaFile status, and this plan implements it in the fold, Waves F0-F9 (`docs/superpowers/specs/2026-10-06-mediafile-remediation-loop-design.md`, the loop spec, §8.6), under the owner's rulings (`.superpowers/unify/rulings.md`): all three kinds are folded; every MediaFile watcher merges into the one remediation loop; the fold lands after `cmd/manager` exists (F0-F8 run after W5.18 and W5.19 and before W6.1, F9 after W10.8). Until F0, Waves 1-5 register the three kinds' controllers, squasharr's results consumer and the `catalogarr-markers` and segment-result writes from the packages they are in: no Wave 1-5 task moves code the fold deletes only to delete it (loop spec §8.2 rule 1), and a task whose code the fold changes later names the F-task that does and is not edited ahead of it. Loop spec §8.3 gives every split task's disposition, and a task it changes carries the change in its own text. Release N is everything through W10.8 and release N+1 is F9 (loop spec §9 D1); no commit between W4.13 and F8.12 is deployed, and public pushes and live-cluster actions wait for the owner. Because ADR-0016 is taken, this plan's manager/agents ADR is **ADR-0018** (`docs/adr/0018-manager-agents-and-ui.md`, W10.2), and W10.3's "no external media programs" keeps ADR-0017; the spec's §12, R11 and header say the same. Other sessions keep committing to main, so line numbers drift. Every task names its sites by symbol; verify each against the current tree before editing. Only the controlling session rebases onto local main, only between tasks with a clean worktree, at the points loop spec §8.7 names: before W0.1; at W0.28 green; before W2.30, only if MP4 Task 9 (`b33e4417`, `worker.OutputContainer`) is on local main but not yet on the branch; at F0.2; at F6.1; and before handing back (see **Rebasing** under Execution order). Tasks never rebase, merge, fetch, reset or stash.
@@ -102,6 +241,8 @@ The waves follow spec §11.1. The wave numbers are this plan's; the spec's step 
 **ADR-0019 (2026-10-07):** waves A1-A9 (51 tasks, `docs/superpowers/plans/2026-10-07-agents-report-over-nats.md`) join this plan, with the amendments they make to tasks here (each affected task carries an "Amended by ADR-0019" line). The overall order becomes F3 → F4 → A1 → A2 → A3 → A4 / A5 / A6 → F5 → F6 → F7 → F8 with A8 → A7 → W6 (W6.2-W6.8 already in progress early, a recorded ruling) → W6b → W9 → W10 → F9 with A9; Waves 0-5, 4a-4f, 7 and 8 are built.
 
 **Wave U (2026-10-07):** the owner's "rename anything internal named like catalogarr to simply catalog" (everything, migrated) runs as Wave U (U1-U7, `docs/superpowers/plans/2026-10-07-unbranded-names.md`) alone after A3 and before A4/A5/A6; every name in this plan is read through `docs/superpowers/specs/2026-10-07-unbranded-names-design.md` §6, and each task whose substance changes carries an "Amended by Wave U" line.
+
+**Cold-turkey revision (owner, 2026-10-07):** supersedes the order notes above (and the table's F0-F8 and F9 rows): Wave U and the applyconfiguration flatten (done) → A4 / A5 / A6 → the Download removal (A9.1 → A9.2 → A9.3 → A9.5) → F5 → F6 → F7 → F8.6 → F8.7 → the folded-kinds removal (F9.2 → F9.4 → F9.5's gate) → F8.9 → F8.11 → F8.12 → A7 → W6.9-W6.17 → W6b → W9 → W10 → Wave N (ADR-0020/0021) → the test batch. Dropped: F8.1-F8.5, F9.1, A8.1-A8.3, A8.5, A9.4. The section "Cold-turkey revision (owner, 2026-10-07)" near the top of this plan and of the A-wave plan lists every task.
 
 ### Order inside each wave
 
@@ -46138,6 +46279,7 @@ git commit -m "feat(records): pkg/records, the compare-and-swap record protocol 
 ---
 
 ### Task F1.2: The records buckets, their `Validate` rule, and `Topology.Retired`
+> **Cold-turkey revision:** amended (built): `Topology.Retired` and its one entry are emptied by F9.4, moved after F8.7; the runbook deletes the old durables.
 
 **Spec:** loop spec §4.3 (the table, why one bucket per remediation, sizing), §4.13 (names),
 §4.15 (`BucketSpec` fields, `KeyValueConfig`, `Topology.Validate`'s rule, `Topology.Retired`,
@@ -48261,6 +48403,7 @@ wave; F8.11 carries the amendments):
 ---
 
 ### Task F2.1: MediaFile status blocks, sequence, sidecar names, intent and selectable fields
+> **Cold-turkey revision:** amended (built): §2.16's superset schema is tightened in F9.2 (moved after F8.7); the CRD must still accept chart 0.4.x's stored MediaFile status.
 
 **Spec:** loop spec §2.1 items 1-9, §2.2 (the complete `MediaFileStatus`), §2.3 (`Dispatch`), §2.4
 (`status.subtitles`), §2.5 (`status.transcode`), §2.6 (`status.graft`; the item half is F2.3), §2.7
@@ -56297,6 +56440,7 @@ git commit -m "feat(remediation): the naming planner and the rename actuator -- 
 ---
 
 ### Task F3.4: the markers planner through records, and the loop replaces the `mediafile` and `rename` controllers
+> **Cold-turkey revision:** amended (built): the retired markers manager is deleted in F9.4 (moved), not kept valid; the runbook renames its stale `managedFields` entries.
 
 **Spec:** loop spec §4.12 "TheIntroDB markers" and "Segment analysis" (every row), §4.3
 (`clustarr-markers`, `clustarr-segments`' caps), §4.5, §4.8 (the worker's rules, last delivery),
@@ -63631,6 +63775,7 @@ git commit -m 'feat(remediation): the subtitles planner -- app/caption/subtitlep
 ---
 
 ### Task F5.2: the fetch worker answers in `clustarr-subtitles`
+> **Cold-turkey revision:** amended: the v1 stale-ack branch is deleted in F9.4 (moved after F8.7), not kept for release N.
 
 **Spec:** loop spec §6.7 (6.7.1-6.7.5), §6.2 decisions 4, 7 and 8, §4.8 (the answer rules, last
 delivery), §4.12 "Subtitle fetch", §4.14 row `agent-caption`, §6.10 first bullet (SubtitleEvent v2
@@ -64557,6 +64702,7 @@ git commit -m 'feat(caption): the fetch worker answers in clustarr-subtitles -- 
 ---
 
 ### Task F5.3: retire the SubtitleRequest machinery; the slim SubtitleProfile reconciler
+> **Cold-turkey revision:** amended: the SubtitleRequest index and the loop's `subtitlerequests` grant go with the controller (no adoption index); the caption worker's field manager is deleted, not retired.
 
 **Spec:** loop spec §6.11 (deleted, kept, renamed), §2.13 (SubtitleProfile status: matching files
 from the index, `InvalidFilter`, Overlap, Ready, `subtitleProfileWake`, `Bootstrap`), §3.3 rows S1'
@@ -65483,6 +65629,7 @@ git commit -m 'refactor(caption)!: retire SubtitleRequest -- its controller, the
 ---
 
 ### Task F5.4: forced search through the `subtitle.clustarr.io/search` nonce; history resolvers
+> **Cold-turkey revision:** amended: the v1 resolvers are deleted by F8.6, not kept for release N's dead letters.
 
 **Spec:** loop spec §6.5 (all), §2.9 (nonce format, handling, recorded on the pass that sees it,
 held while Blocked or held, invalid values), §2.4 ("Further API changes": `AnnotationSubtitleSearch`;
@@ -66173,6 +66320,7 @@ const OutputContainer = transcodev1alpha1.ContainerMP4
 ---
 
 ### Task F6.2: `app/squash/transcodeplan` and the loop's `transcode` adapter
+> **Cold-turkey revision:** amended: the TranscodeJob `spec.mediaFileRef` index is not kept for adoption.
 
 **Spec:** loop spec §5.11 (membership, verdicts, leaving the window), §5.8 "Window grant", §5.9
 "The swap", §5.14, §2.5 (phases, "Legacy objects", `plan.dropped` and D44), §3.5 (Copy partition: `transcode` and the two
@@ -68773,6 +68921,7 @@ type Admission interface {
 ---
 
 ### Task F6.4: Task v2 and `clustarr-transcodes`: dispatch status-first, the worker answers by compare-and-swap
+> **Cold-turkey revision:** amended: the v1 stale-ack branch is deleted in F9.4 (moved after F8.7), not kept for release N.
 
 **Spec:** loop spec §4.12 "Transcode", §4.4-§4.10 (the transcode rows), §5.8 (dispatch,
 republish, why one dispatch per seq), §5.9 (rows without a withdrawal: owed request, republish,
@@ -71058,6 +71207,7 @@ func (r *Reconciler) sweep(ctx context.Context, withdrawAll func(context.Context
 ---
 
 ### Task F6.6: Retire the TranscodeJob machinery; the squash manager registers admission and the slim reconciler
+> **Cold-turkey revision:** amended: the results durable leaves the topology outright (no `Topology.Retired` entry); no index kept for adoption.
 
 **Spec:** loop spec §5.18 (deleted, documents that change), §5.14, §4.13 (retired:
 `squasharr-transcode-results`, `FilterTranscodeResults`, `WorkTranscodeResultSubject`,
@@ -72651,6 +72801,7 @@ the `transcodev1alpha1` and (if unused) `k8s` imports; after building `d`:
 ---
 
 ### Task F7.2: `app/squash/graftplan`, the `graft` adapter, the graft Job on records, graft slots, S15 and the join
+> **Cold-turkey revision:** amended: `ReasonFileUnprobed` is kept only if a planner uses it (F8.2's adoption is dropped).
 
 **Spec:** loop spec §2.6 (block, existence, phases and reasons), §3.3 (S2', S3' carry the item's donor
 inputs; S15), §3.5 (`graft`, `graftTag`, `graftedAt` are the graft planner's from F7; why graft runs
@@ -75552,6 +75703,7 @@ func runGraft(taskJSON, dataDir string, getenv func(string) string, log *slog.Lo
 ---
 
 ### Task F7.3: Retire the AudioGraft controller and graftstate's cross-object readers
+> **Cold-turkey revision:** amended: the AudioGraft index and its `audiografts` grant go with the controller; the allow-list empties with no adoption exception.
 
 **Spec:** loop spec §3.18 (row `audiograft`: target half to the graft planner, donor intent to the
 item path, reduce to fileimport, concurrency to the ledger), §3.3 (S23's AudioGraft leg ends with its
@@ -75745,6 +75897,7 @@ func TestNothingReconcilesAudioGrafts(t *testing.T) {
 ---
 
 ### Task F7.4: The records guards and the v1-producer guard (loop spec §4.15)
+> **Cold-turkey revision:** amended: the v1 decoders kept "for release N" live only until F9.4 (moved after F8.7).
 
 **Spec:** loop spec §4.15 (`test/guards`: `TestRecordsRequestersAreTheLoop`, "`Request` and
 `Withdraw` called only from `app/remediation`"; `TestRecordsBucketsOpenOnlyThroughTheirStores`;
@@ -76265,6 +76418,7 @@ OK.
 ---
 
 ### Task F8.1: `MediaFile.status.legacyFold`, release N's record of adopted objects
+> **Cold-turkey revision:** dropped (`status.legacyFold` is adoption's record; there is no adoption).
 
 **Spec:** loop §7.3.1 (the types, verbatim), §2.2 (`legacyFold` row, owner `adopt`), §2.11.3
 (the budget), §2.11.4; loop §8.6 F8.1.
@@ -76535,6 +76689,7 @@ git commit -m "feat(api): MediaFile status.legacyFold, release N's record of ado
 ---
 
 ### Task F8.2: `legacyfold.Plan`, the pure adoption rules, and the live fixtures
+> **Cold-turkey revision:** dropped (`legacyfold.Plan`, the adoption rules and the live fixtures).
 
 **Spec:** loop §7.3.3 (every rule and outcome), §7.3.4 (idempotency and precedence), §7.3.5
 (what needs preparation, the intent table), §7.3.6 (hold), §7.1 (the live totals), §7.3.12
@@ -77832,6 +77987,7 @@ git commit -m "feat(legacyfold): Plan, the pure adoption rules (loop spec §7.3.
 ---
 
 ### Task F8.3: `legacyfold.Migrator` (prepare, census, delete after retention, retired-durable reports, the `catalogarr-markers` pending set) and its metrics
+> **Cold-turkey revision:** dropped (the Migrator, `clustarr-legacy-fold` and its metrics; the cold-cutover runbook does the one-time cleanup).
 > **Amended by ADR-0019:** see docs/superpowers/plans/2026-10-07-agents-report-over-nats.md, "Amendments", F8.3.
 > **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", F8.3.
 
@@ -79143,6 +79299,7 @@ git commit -m "feat(legacyfold): Migrator (prepare, census, delete after retenti
 ---
 
 ### Task F8.4: adoption and hold in the loop; `catalogarr-markers` released
+> **Cold-turkey revision:** dropped (adoption, hold, the markers release and `restore-markers`; the cold-cutover runbook renames stale `managedFields`). `TestTheFirstLoopPassKeepsEverySeedKey` is an open item.
 > **Amended by ADR-0019:** see docs/superpowers/plans/2026-10-07-agents-report-over-nats.md, "Amendments", F8.4.
 > **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", F8.4.
 
@@ -80695,6 +80852,7 @@ git commit -m "feat(remediation): adoption and hold in the loop; catalogarr-mark
 ---
 
 ### Task F8.5: `manager legacy-fold report` and `restore-markers`, and the `--legacy-fold` flags
+> **Cold-turkey revision:** dropped (`manager legacy-fold report` and `restore-markers`, `RenderCheck`, the `--legacy-fold` flags).
 > **Amended by ADR-0019:** see docs/superpowers/plans/2026-10-07-agents-report-over-nats.md, "Amendments", F8.5.
 > **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", F8.5.
 
@@ -81321,6 +81479,7 @@ git commit -m "feat(manager): legacy-fold report and restore-markers, and the --
 ---
 
 ### Task F8.6: dead letters and replays target MediaFile; TranscodeJob and SubtitleRequest leave `ReplayKinds` and the projector
+> **Cold-turkey revision:** moved to right after F7.5; amended: no `resolveFoldedV1`, the v1 resolvers are deleted (the runbook purges the old dead letters).
 > **Amended by ADR-0019:** see docs/superpowers/plans/2026-10-07-agents-report-over-nats.md, "Amendments", F8.6.
 > **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", F8.6.
 
@@ -81620,6 +81779,7 @@ git commit -m "feat(history): dead letters and replays target MediaFile; Transco
 ---
 
 ### Task F8.7: the ui projection reads MediaFile blocks and buckets files by `spec.mediaRef`; transcode progress from `clustarr-progress`; the item page's Subtitles table
+> **Cold-turkey revision:** moved to right after F8.6, before the folded-kinds removal (F9.2).
 > **Amended by ADR-0019:** see docs/superpowers/plans/2026-10-07-agents-report-over-nats.md, "Amendments", F8.7.
 
 **Spec:** loop §7.7 (every bullet), §6.9 (the item page's Subtitles table, the pipeline
@@ -82202,6 +82362,7 @@ git commit -m "feat(ui): the projection reads MediaFile blocks and buckets files
 ---
 
 ### Task F8.8: release N's grants on the folded kinds
+> **Cold-turkey revision:** moved into F9.2: every marker naming the kinds goes with their types; no release-N grants exist.
 
 **Spec:** loop §7.3.10 (the grants table, and "every other grant on the three kinds goes in N
 with the code that held it", with its list of seventeen marker sites), §4.14 and §6.7.5 (worker
@@ -82339,6 +82500,7 @@ git commit -m "chore(rbac): release N's grants -- only app/catalog/legacyfold na
 ---
 
 ### Task F8.9: e2e scenarios 12, 13 and scenario 1's legs read MediaFile status; legacy-fold and graft scenarios; the upgrade-and-rollback scenario
+> **Cold-turkey revision:** amended: scenarios 12, 13, scenario 1's legs, the graft scenario and the A-wave download legs stay; no legacy-fold or upgrade-and-rollback scenario, no `e2eupgrade` tag.
 > **Amended by ADR-0019:** see docs/superpowers/plans/2026-10-07-agents-report-over-nats.md, "Amendments", F8.9.
 > **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", F8.9.
 
@@ -83239,6 +83401,7 @@ git commit -m "test(e2e): scenarios 12, 13 and scenario 1's legs read MediaFile 
 ---
 
 ### Task F8.10: `test(guards)`: only `app/catalog/legacyfold` names SubtitleRequest, TranscodeJob or AudioGraft
+> **Cold-turkey revision:** moved into F9.2 as F9.1's `test/guards/foldedkinds_test.go`; no `TestOnlyLegacyFold*` guards.
 
 **Spec:** loop §7.3.12 last bullet (`TestOnlyLegacyFoldNamesTheFoldedKinds`, the AST walk and
 the role half, verbatim), §7.3.8 (`TestOnlyLegacyFoldAppliesAsCatalogarrMarkers`, "holds this to
@@ -83415,6 +83578,7 @@ git commit -m "test(guards): only app/catalog/legacyfold names SubtitleRequest, 
 ---
 
 ### Task F8.11: split spec amendments (loop spec §8.3's list), §11.3 replaced by the loop spec's runbook and rollback
+> **Cold-turkey revision:** amended: the loop spec's amendments minus every legacy-fold row; §11.3 points at the cold-cutover runbook, with no rollback.
 > **Amended by ADR-0019:** see docs/superpowers/plans/2026-10-07-agents-report-over-nats.md, "Amendments", F8.11.
 > **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", F8.11.
 
@@ -83580,6 +83744,7 @@ git commit -m "docs(spec): the split spec follows the fold -- flags, what the ma
 ---
 
 ### Task F8.12: Fold gate
+> **Cold-turkey revision:** amended: no legacy-fold greps or tests; its cross-identity test starts from a MediaFile with no previous-release entry.
 > **Amended by ADR-0019:** see docs/superpowers/plans/2026-10-07-agents-report-over-nats.md, "Amendments", F8.12.
 > **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", F8.12.
 
@@ -83917,6 +84082,7 @@ widening the history):
 ---
 
 ### Task F9.1: Remove the legacy fold
+> **Cold-turkey revision:** dropped (nothing of the legacy fold is built); its guard file moves into F9.2.
 > **Amended by ADR-0019:** see docs/superpowers/plans/2026-10-07-agents-report-over-nats.md, "Amendments", F9.1.
 > **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", F9.1.
 
@@ -84368,6 +84534,7 @@ any comment above them that names the kinds.
 ---
 
 ### Task F9.2: Remove SubtitleRequest, TranscodeJob and AudioGraft from the API; tighten MediaFile status
+> **Cold-turkey revision:** moved to after F8.7 as the folded-kinds removal, with F8.8's sweep, F9.1's guard and F9.3's CRD and RBAC half; amended: its transition test is re-based on chart 0.4.x's stored MediaFiles, no N+1 → N leg.
 > **Amended by ADR-0019:** see docs/superpowers/plans/2026-10-07-agents-report-over-nats.md, "Amendments", F9.2.
 
 **Spec:** loop §7.4 "Types", "Generated code", "CRDs", "pkg", "Pruning on read"; §2.15, §2.16
@@ -85192,6 +85359,7 @@ func eachSchema(where string, s *apiextensionsv1.JSONSchemaProps, fn func(string
 ---
 
 ### Task F9.3: Installers without the folded kinds; the values schema rejects `manager.legacyFold`
+> **Cold-turkey revision:** moved into F9.2 (the CRD, RBAC and chart half); amended: the `manager.legacyFold` values half is dropped.
 > **Amended by ADR-0019:** see docs/superpowers/plans/2026-10-07-agents-report-over-nats.md, "Amendments", F9.3.
 
 **Spec:** loop §7.4 "Installers", §7.3.10 (what release N rendered), §8.3 row W6.13 ("F9.3 removes
@@ -85304,6 +85472,7 @@ var foldScan = []string{"api/", "config/", "charts/", "hack/", "images/", ".gith
 ---
 
 ### Task F9.4: Drop the TranscodeJob- and SubtitleRequest-keyed bus names and the v1 decoders; empty `RetiredFieldManagers()`
+> **Cold-turkey revision:** moved to after F9.2; amended: v1 decoders, stale acks, kind-keyed names, `RetiredFieldManagers()` and `Topology.Retired` go at once.
 > **Amended by ADR-0019:** see docs/superpowers/plans/2026-10-07-agents-report-over-nats.md, "Amendments", F9.4.
 > **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", F9.4.
 
@@ -85603,6 +85772,7 @@ var foldHistory = map[string]string{
 ---
 
 ### Task F9.5: Docs: the folded kinds are gone; the CRD removal runbook; the release N+1 gate
+> **Cold-turkey revision:** moved: its gate closes the folded-kinds removal; amended: its docs half folds into W10.4-W10.8, its CRD-removal runbook is dropped.
 > **Amended by ADR-0019:** see docs/superpowers/plans/2026-10-07-agents-report-over-nats.md, "Amendments", F9.5.
 > **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", F9.5.
 
@@ -86024,6 +86194,7 @@ scenarios with `test/e2e/{legacyfold,graft,upgrade}_test.go`.
 ---
 
 ### Task W6.1: Prerequisite gate
+> **Cold-turkey revision:** amended: its fold checks drop `app/catalog/legacyfold` and `TestOnlyLegacyFoldNamesTheFoldedKinds` (the folded-kinds guard replaces it).
 
 **Spec:** §11.1 (step 9 depends on 8); loop spec §8.3 (W6.1 depends on F8.12, not on Wave 5 alone), §8.6
 
@@ -86131,6 +86302,7 @@ exit $fail
 ---
 
 ### Task W6.2: KEDA removal; `TestEveryConsumerHasExactlyOneHome`
+> **Cold-turkey revision:** amended (built): the deferred `TestEveryConsumerHasExactlyOneHome` has no `Draining()` exemption and no retired rows.
 > **Amended by ADR-0019:** see docs/superpowers/plans/2026-10-07-agents-report-over-nats.md, "Amendments", W6.2.
 
 **Spec:** §10.2.7 (the complete list), §10.3.2 (`TestEveryConsumerHasExactlyOneHome`,
@@ -88226,6 +88398,7 @@ wait -n
 ---
 
 ### Task W6.9: One generated ClusterRole per identity, beside the legacy roles
+> **Cold-turkey revision:** amended: `RBAC_PATHS_manager` has no `./app/catalog/legacyfold`; the manager role grants nothing on the four removed kinds.
 > **Amended by ADR-0019:** see docs/superpowers/plans/2026-10-07-agents-report-over-nats.md, "Amendments", W6.9.
 > **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", W6.9.
 
@@ -88812,6 +88985,7 @@ spec:
 ---
 
 ### Task W6.11: The topology switch: both installers, RBAC bindings, guards
+> **Cold-turkey revision:** amended: no `--legacy-fold*` args, `manager.legacyFold` values or `config/e2e` retain patch; `TestManagerCarriesTheFoldFlags` keeps only the graft and remediation flags.
 > **Amended by ADR-0019:** see docs/superpowers/plans/2026-10-07-agents-report-over-nats.md, "Amendments", W6.11.
 > **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", W6.11.
 
@@ -91848,6 +92022,7 @@ releases it.
 ---
 
 ### Task W6.13: `values.schema.json` closed, chart 0.5.0, retired keys, chart README
+> **Cold-turkey revision:** amended: no `manager.legacyFold` in values, schema, README or `TestReleaseNsManagerValuesAreChecked`; "Upgrading from 0.4.x" keeps the retired keys and points at the cold-cutover runbook.
 > **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", W6.13.
 
 **Spec:** §10.2.5 (`values.schema.json`, `Chart.yaml`), §10.2.8, §12 (chart README), §13 OD37, OD40; loop spec §7.3.10 (`manager.legacyFold`), §3.7, §3.17 (`manager.remediation`), §5.13 (`manager.graftConcurrency`), §8.3 (W6.13 row)
@@ -92418,6 +92593,7 @@ responders, facade and per-host limiter are one process.
 ---
 
 ### Task W6.15: `config/e2e`, `hack/e2e.sh`, `test/e2e` renames, scale-from-zero
+> **Cold-turkey revision:** amended: no `legacyfold` or `upgrade` e2e files, no `e2eupgrade` tag, no `--legacy-fold-retain=0s` patch.
 > **Amended by ADR-0019:** see docs/superpowers/plans/2026-10-07-agents-report-over-nats.md, "Amendments", W6.15.
 > **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", W6.15.
 
@@ -92911,6 +93087,7 @@ func TestTheWorkflowsCheckImagesThroughOneScript(t *testing.T) {
 ---
 
 ### Task W6.17: Wave gate
+> **Cold-turkey revision:** amended: no `-tags e2e,e2eupgrade` vet and no `TestOnlyLegacyFoldNamesTheFoldedKinds`; the folded-kinds guard runs instead.
 > **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", W6.17.
 
 **Spec:** §11.1 step 9, §11.2 gates 1 and 5
@@ -100236,6 +100413,7 @@ no ffmpeg (OD8).
 ---
 
 ### Task W10.4: The design of record, amendment 1 and the 2026-09-24 design follow the topology
+> **Cold-turkey revision:** amended: the kinds are deleted; no release-N adoption, `clustarr-legacy-fold`, legacy-fold metrics or retired managers in the design of record.
 > **Amended by ADR-0019:** see docs/superpowers/plans/2026-10-07-agents-report-over-nats.md, "Amendments", W10.4.
 > **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", W10.4.
 
@@ -100374,6 +100552,7 @@ echo OK
 ---
 
 ### Task W10.5: `docs/autoscaling.md`, `docs/observability.md`, `docs/gpu-nodes.md` and the top-level README
+> **Cold-turkey revision:** amended: no `clustarr_legacy_fold_*` family in `docs/observability.md`.
 > **Amended by ADR-0019:** see docs/superpowers/plans/2026-10-07-agents-report-over-nats.md, "Amendments", W10.5.
 > **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", W10.5.
 
@@ -100496,6 +100675,7 @@ echo OK
 ---
 
 ### Task W10.6: The chart README, `images/distroless/README.md` and `config/README.md`
+> **Cold-turkey revision:** amended: "Upgrading from 0.4.x" points at the cold-cutover runbook.
 > **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", W10.6.
 
 **Spec:** §12 (chart README: "Autoscaling", "Upgrading from 0.4.x", values table, GOMEMLIMIT, Cardigann, Postgres sections), §10.1.3 (distroless README), §10.2.6 (config README), §10.2.8 (retired keys)
@@ -100559,6 +100739,7 @@ echo OK
 ---
 
 ### Task W10.7: CLAUDE.md
+> **Cold-turkey revision:** amended: CLAUDE.md names no adoption, retired managers or legacy-fold guard; the deploy is the cold-cutover runbook.
 > **Amended by ADR-0019:** see docs/superpowers/plans/2026-10-07-agents-report-over-nats.md, "Amendments", W10.7.
 > **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", W10.7.
 
@@ -101295,6 +101476,7 @@ git commit -m "build(e2e): the fixtures image bakes its clips with test/fixtures
 ---
 
 ### Task W10.8: Final gate for Waves 7-10
+> **Cold-turkey revision:** amended: no legacy-fold, upgrade or rollback checks; runs the folded-kinds guard's docs scan; hands off the cold cutover, not a release N.
 > **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", W10.8.
 
 **Spec:** §11.1 (every step keeps the build green), §11.2 gates 1 and 5 (local), §11.2 gates 2-4 (instructions only)

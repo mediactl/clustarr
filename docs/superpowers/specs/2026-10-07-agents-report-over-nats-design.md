@@ -12,6 +12,12 @@ release information, decided by the manager and marked on every index answer (§
 `status.blocklist[]` is gone from §6.2 and §6.3). Q2, Q3, Q4, Q6 and Q7 take the
 recommendations (§12).
 
+**Amended 2026-10-07 (owner): cold turkey, no migration.** Download is deleted (type, apply
+configurations, CRD, RBAC, installers, the `api/download` aliases) as soon as nothing creates
+or reads it, right after waves A4-A6. Nothing adopts a live Download: §10, D14, Q2 and §11.2's
+A8 and A9 rows are superseded as their notes say, and the one-time cluster cleanup is
+`docs/runbooks/unify-cold-cutover.md`.
+
 **Basis:**
 
 - Worktree `/home/appkins/src/mediactl/clustarr-unify`, branch `unify-manager-agent`, at
@@ -93,6 +99,9 @@ if wrong.
 | D12 | The DLQ projector and the history sink move into the manager; the `events` domain keeps only the RSS matcher | §7.7 | none expected |
 | D13 | `status.artwork` and `status.overlay` are derived from the artwork objects' metadata through a manager-side `objindex` | §7.1 | a field missing from object metadata needs adding (the fetcher owns it) |
 | D14 | Two releases: N adopts every live Download into its owner (with the fold's Migrator), N+1 removes the CRD; rollback from N re-exports Downloads | §10 | a rollback path that is rarely exercised |
+
+> **Amended 2026-10-07 (owner):** D14 is superseded: one release, no adoption, no export;
+> the Download kind is deleted right after waves A4-A6 (§10's note).
 
 ---
 
@@ -1961,6 +1970,16 @@ fails loudly and is counted, rather than succeeding where RBAC was misconfigured
 
 ## 10. Migration
 
+> **Amended 2026-10-07 (owner): cold turkey, no migration --** §10.1-§10.4 are history. There
+> is no adopting release N, no `status.legacyDownloads`, no Migrator Download part, no
+> unidentified-removal gate, no `downloads export` and no rollback, and no release N+1: the
+> Download type, its apply configurations, CRD, RBAC and installer entries, the `api/download`
+> aliases, the v1 task decoders, `clustarr-leases`, `clustarr-pending` and the two retired
+> durables are deleted in one step right after A4-A6. On the live cluster the 122 Downloads,
+> their blocklist labels, held imports, pauses and in-flight or seeding transfers are an
+> accepted loss; the bytes stay on disk and the engines remove each unclaimed transfer after
+> `UnidentifiedGrace`, keeping its data (§6.7). The cleanup is `docs/runbooks/unify-cold-cutover.md`.
+
 Nothing here has run. Like the fold, the change deploys as two releases; every
 kind-cluster-plex step needs the owner's explicit OK.
 
@@ -2109,6 +2128,9 @@ owner's review, F4 is being implemented with §11.1's three notes.
 
 ### 11.2 New waves
 
+> **Amended 2026-10-07 (owner):** A8 (release N migration) is dropped, and A9's removals move to
+> right after A4-A6 (A9.4's runbook is dropped); see the A-wave plan's "Cold-turkey revision".
+
 | Wave | Content | Depends on |
 |---|---|---|
 | **A0** | Owner review of this design; plan revision (tasks for A1-A9, the amendments of §11.1) | — |
@@ -2144,6 +2166,8 @@ fails as `payloadUnavailable` when its payload is gone. Removal only on positive
 from the owner's state machine or the apiserver (§6.7, §6.4, D7).
 
 **Q2. Which release — resolved: the fold's release N** (§10.2).
+
+> **Amended 2026-10-07 (owner):** superseded: there is one release and no adoption (§10's note).
 
 **Q3. Wave order — resolved: A1-A6 between F4 and F5** (§11.2). F4 is being implemented now
 with §11.1's three notes.
