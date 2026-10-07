@@ -71,7 +71,7 @@ func ServeRPC(bus events.Requester, reg *pkgmetadata.Registry) error {
 	}
 	for subject, v := range verbs {
 		v := v
-		err := bus.Serve(subject, events.QueueGroupCatalogar, func(ctx context.Context, data []byte) ([]byte, error) {
+		err := bus.Serve(subject, events.QueueGroupCatalog, func(ctx context.Context, data []byte) ([]byte, error) {
 			ctx, span := tracing.Start(ctx, "metadata.rpc.serve."+v.name)
 			defer span.End()
 

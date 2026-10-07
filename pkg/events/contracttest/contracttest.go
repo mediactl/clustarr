@@ -353,7 +353,7 @@ func testRetryThenAck(t *testing.T, newBus func() events.Bus) {
 	done := make(chan struct{})
 
 	stop, err := bus.Subscribe(ctx, events.Subscription{
-		Stream:      events.StreamWorkCatalogarr,
+		Stream:      events.StreamWorkCatalog,
 		Durable:     "ct-search-high",
 		Filters:     []string{"clustarr.work.catalogarr.search.high.>"},
 		AckWait:     5 * time.Second,
@@ -412,7 +412,7 @@ func testDiscardToDLQ(t *testing.T, newBus func() events.Bus) {
 	var mu sync.Mutex
 	deliveries := 0
 	stop, err := bus.Subscribe(ctx, events.Subscription{
-		Stream:      events.StreamWorkImportarr,
+		Stream:      events.StreamWorkImport,
 		Durable:     "ct-import",
 		Filters:     []string{events.FilterImportFile},
 		AckWait:     5 * time.Second,
@@ -476,7 +476,7 @@ func testMaxDeliverToDLQ(t *testing.T, newBus func() events.Bus) {
 	var mu sync.Mutex
 	var attempts []uint64
 	stop, err := bus.Subscribe(ctx, events.Subscription{
-		Stream:      events.StreamWorkIndexarr,
+		Stream:      events.StreamWorkIndex,
 		Durable:     "ct-rss",
 		Filters:     []string{events.FilterIndexRSS},
 		AckWait:     5 * time.Second,
@@ -555,7 +555,7 @@ func testHungHandlerToDLQ(t *testing.T, newBus func() events.Bus, inFlight int) 
 	var attempts []uint64
 	returned := 0
 	stop, err := bus.Subscribe(ctx, events.Subscription{
-		Stream:  events.StreamWorkIndexarr,
+		Stream:  events.StreamWorkIndex,
 		Durable: "ct-hung",
 		Filters: []string{events.FilterIndexRSS},
 		// With Backoff set, delivery n times out on Backoff[n-1], not
@@ -671,7 +671,7 @@ func testLapseWhileUnwatchedToDLQ(t *testing.T, newBus func() events.Bus) {
 	t.Cleanup(unblock)
 
 	sub := events.Subscription{
-		Stream:      events.StreamWorkIndexarr,
+		Stream:      events.StreamWorkIndex,
 		Durable:     "ct-unwatched",
 		Filters:     []string{events.FilterIndexRSS},
 		AckWait:     deadline,
@@ -788,7 +788,7 @@ func testNakRedeliveryFollowsBackoff(t *testing.T, newBus func() events.Bus) {
 	var at []time.Time
 	done := make(chan struct{})
 	stop, err := bus.Subscribe(ctx, events.Subscription{
-		Stream:      events.StreamWorkIndexarr,
+		Stream:      events.StreamWorkIndex,
 		Durable:     "ct-nak-backoff",
 		Filters:     []string{events.FilterIndexRSS},
 		AckWait:     20 * time.Second,
@@ -859,7 +859,7 @@ func testHungRedeliveryFollowsBackoff(t *testing.T, newBus func() events.Bus) {
 	var mu sync.Mutex
 	var at []time.Time
 	stop, err := bus.Subscribe(ctx, events.Subscription{
-		Stream:     events.StreamWorkIndexarr,
+		Stream:     events.StreamWorkIndex,
 		Durable:    "ct-backoff",
 		Filters:    []string{events.FilterIndexRSS},
 		AckWait:    ackWait,
@@ -925,7 +925,7 @@ func testMaxInFlightConcurrency(t *testing.T, newBus func() events.Bus) {
 	var mu sync.Mutex
 	running, most, started, finished := 0, 0, 0, 0
 	stop, err := bus.Subscribe(ctx, events.Subscription{
-		Stream:      events.StreamWorkCaptionarr,
+		Stream:      events.StreamWorkCaption,
 		Durable:     "ct-concurrent",
 		Filters:     []string{events.FilterCaptionFetch},
 		AckWait:     10 * time.Second,
@@ -1006,7 +1006,7 @@ func testHungHandlerDoesNotStall(t *testing.T, newBus func() events.Bus) {
 	const others = 5
 	got := newCollector()
 	stop, err := bus.Subscribe(ctx, events.Subscription{
-		Stream:      events.StreamWorkIndexarr,
+		Stream:      events.StreamWorkIndex,
 		Durable:     "ct-stall",
 		Filters:     []string{events.FilterIndexRSS},
 		AckWait:     20 * time.Second,
@@ -1053,7 +1053,7 @@ func testAckRemoves(t *testing.T, newBus func() events.Bus) {
 	got := newCollector()
 
 	stop, err := bus.Subscribe(ctx, events.Subscription{
-		Stream:      events.StreamWorkCaptionarr,
+		Stream:      events.StreamWorkCaption,
 		Durable:     "ct-fetch",
 		Filters:     []string{events.FilterCaptionFetch},
 		AckWait:     2 * time.Second,
@@ -1101,7 +1101,7 @@ func testScheduledPublish(t *testing.T, newBus func() events.Bus) {
 	got := make(chan delivery, 4)
 
 	stop, err := bus.Subscribe(ctx, events.Subscription{
-		Stream:      events.StreamWorkCatalogarr,
+		Stream:      events.StreamWorkCatalog,
 		Durable:     "ct-grab",
 		Filters:     []string{events.FilterCatalogGrab},
 		AckWait:     5 * time.Second,
@@ -1527,7 +1527,7 @@ func testRequestReply(t *testing.T, newBus func() events.Bus) {
 		Echo     string `json:"echo"`
 	}
 
-	err := bus.Serve(events.RPCIndexSearch, events.QueueGroupIndexarr,
+	err := bus.Serve(events.RPCIndexSearch, events.QueueGroupIndex,
 		func(_ context.Context, data []byte) ([]byte, error) {
 			var in request
 			if err := json.Unmarshal(data, &in); err != nil {
@@ -1769,7 +1769,7 @@ func testHooksContract(t *testing.T, newBus func() events.Bus,
 		ctx, bus := setup(t, func() events.Bus { return newBusWithHooks(hooks) })
 		got := make(chan hookDelivery, 1)
 
-		err := bus.Serve(events.RPCIndexSearch, events.QueueGroupIndexarr,
+		err := bus.Serve(events.RPCIndexSearch, events.QueueGroupIndex,
 			func(ctx context.Context, _ []byte) ([]byte, error) {
 				v, ok := ctx.Value(hooksCtxKey{}).(string)
 				select {
@@ -1802,7 +1802,7 @@ func testHooksContract(t *testing.T, newBus func() events.Bus,
 		ctx, bus := setup(t, newBus)
 		got := make(chan hookDelivery, 1)
 
-		err := bus.Serve(events.RPCIndexSearch, events.QueueGroupIndexarr,
+		err := bus.Serve(events.RPCIndexSearch, events.QueueGroupIndex,
 			func(ctx context.Context, _ []byte) ([]byte, error) {
 				v, ok := ctx.Value(hooksCtxKey{}).(string)
 				select {

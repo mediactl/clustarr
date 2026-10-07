@@ -47,7 +47,7 @@ var ErrIncompleteProbe = errors.New("mediainfo: the first video frame could not 
 // probed at all, and the library would lose a file over a colour detail
 // that is SDR's on every other evidence. The transcode worker, which writes
 // a final file and has no stream-level colour tags to read (ffgo exposes
-// none), refuses every incomplete probe instead (app/squash/worker).
+// none), refuses every incomplete probe instead (app/transcode/worker).
 func IncompleteHDR(raw *Raw) error {
 	if raw == nil || raw.FrameErr == nil {
 		return nil

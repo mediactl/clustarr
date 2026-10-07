@@ -70,7 +70,7 @@ func TestReconcileReportsAFailureThenRemovesTheTransferOnceStopped(t *testing.T)
 	assert.Empty(t, fc.removeCallsSnapshot(), "the engine must not act on its own observation")
 
 	// The controller's verdict.
-	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrabarr, downloadac.Download(dl.Name, ns).WithStatus(
+	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadac.Download(dl.Name, ns).WithStatus(
 		downloadac.DownloadStatus().
 			WithPhase(downloadv1alpha1.DownloadPhaseBlocklisted).
 			WithFailureReason(downloadv1alpha1.DownloadFailureStalled)))

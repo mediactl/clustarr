@@ -23,7 +23,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	squashmanager "github.com/mediactl/clustarr/app/squash/manager"
+	transcodemanager "github.com/mediactl/clustarr/app/transcode/manager"
 	"github.com/mediactl/clustarr/internal/cli"
 	"github.com/mediactl/clustarr/internal/cli/ctrlflags"
 )
@@ -80,7 +80,7 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 			"(config/rbac/grabarr_engine_role.yaml). Defaults to $"+cli.EnvEngineServiceAccount+", then "+
 			d.EngineServiceAccount+".")
 
-	fs.StringVar(&slots, "slots", squashmanager.FormatSlots(d.Slots),
+	fs.StringVar(&slots, "slots", transcodemanager.FormatSlots(d.Slots),
 		"Concurrent transcode budget per hardware class, e.g. cpu=2,nvidia=1,intel=1. "+
 			"A budget of 0 means that class is never admitted.")
 	fs.StringVar(&renderGroups, "intel-render-groups", cli.EnvOr(cli.EnvIntelRenderGroups, ""),
@@ -152,7 +152,7 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 		o.Options = *common
 		o.Logging, o.Tracing = *lo, *to
 		var err error
-		if o.Slots, err = squashmanager.ParseSlots(slots); err != nil {
+		if o.Slots, err = transcodemanager.ParseSlots(slots); err != nil {
 			return fmt.Errorf("--slots: %w", err)
 		}
 		if o.IntelRenderGroups, err = ctrlflags.ParseGIDs(renderGroups); err != nil {

@@ -79,7 +79,7 @@ func (s *Stage) Gone(ctx context.Context, _ *remediation.Env, k remediation.Key)
 		}
 		effs = append(effs, eff)
 		ev := s.event(owner{}, lifecycle.Event{
-			Recorder: lifecycle.RecorderGrabarrEngine, Type: lifecycle.EventWarning, Reason: lifecycle.ReasonTransferOwnerGone,
+			Recorder: lifecycle.RecorderGrabEngine, Type: lifecycle.EventWarning, Reason: lifecycle.ReasonTransferOwnerGone,
 			Message: "the owner of transfer " + t.Record.Claim.Entry.ID + " is gone; removing it",
 			On:      downloadClientRef(k.Namespace, t.Record.Engine),
 		})

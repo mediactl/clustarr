@@ -76,7 +76,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 			WithObservedGeneration(dp.Generation).
 			WithConditions(k8s.ConditionACs(conditions)...),
 	)
-	if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr, ac); err != nil {
+	if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalog, ac); err != nil {
 		log.Error("patch status", "error", err)
 		return ctrl.Result{}, err
 	}

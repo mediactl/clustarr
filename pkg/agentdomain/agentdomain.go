@@ -106,7 +106,7 @@ func Domains() []Domain {
 		// Rendered per DownloadClient by the manager; no durables.
 		{Name: TorrentEngine},
 		{Name: UsenetEngine},
-		{Name: Markers, Autoscaled: true, Consumers: []string{events.ConsumerSegmentarrAnalyze}},
+		{Name: Markers, Autoscaled: true, Consumers: []string{events.ConsumerMarkersAnalyze}},
 	}
 }
 
@@ -126,7 +126,7 @@ func Lookup(name string) (Domain, bool) {
 func Fixed() map[string]string {
 	return map[string]string{
 		events.ConsumerCatalogSegmentsPlan: "manager: the segment planner reads the manager's Episode and MediaFile indexes (app/catalog/segmentplan, registered by app/catalog/manager)",
-		events.ConsumerSquasharrResults:    "manager: squasharr's ResultsConsumer shares TranscodeJob.status's one compare-and-swap path with its reconciler",
+		events.ConsumerTranscodeResults:    "manager: squasharr's ResultsConsumer shares TranscodeJob.status's one compare-and-swap path with its reconciler",
 		events.ConsumerIntakeCandidate:     "manager: the leader-only candidate inbox, acked after the owner's pass decides (app/intake, ADR-0019 §8.4)",
 		events.ConsumerIntakeScan:          "manager: the leader-only scan intake, acked after the scan applier writes (app/intake, ADR-0019 §8.4)",
 		events.ConsumerTaskEvents:          "manager: the leader-only advisory intake, nak and term advisories to delivery state (app/intake/advisory, ADR-0019 §8.2)",
@@ -141,12 +141,12 @@ func Fixed() map[string]string {
 // replicas would add pods the limiter cannot feed, and for search would
 // turn queued work into paced skips that cost an item its live search.
 func Throttled() map[string]string {
-	const indexarr = "indexarr's per-host limiter in the one index agent (app/indexer/search/fanout.go): every query waits its requestDelay inside a 45 s budget"
+	const indexLimiter = "indexarr's per-host limiter in the one index agent (app/indexer/search/fanout.go): every query waits its requestDelay inside a 45 s budget"
 	const provider = "the shared subtitle-provider token bucket (app/caption/throttle, KV clustarr-provider-throttle)"
 	return map[string]string{
-		events.ConsumerCatalogSearchHigh:  indexarr,
-		events.ConsumerCatalogSearchNorm:  indexarr,
-		events.ConsumerCatalogGrab:        indexarr + "; a grab fetches its payload through rpc.indexarr.download",
+		events.ConsumerCatalogSearchHigh:  indexLimiter,
+		events.ConsumerCatalogSearchNorm:  indexLimiter,
+		events.ConsumerCatalogGrab:        indexLimiter + "; a grab fetches its payload through rpc.indexarr.download",
 		events.ConsumerCaptionFetchHigh:   provider,
 		events.ConsumerCaptionFetchNormal: provider,
 	}

@@ -68,7 +68,7 @@ type CASApplyConfiguration[A any] interface {
 // apierrors.IsConflict.
 //
 // Five writers predate this helper and keep hand-rolled loops of the same
-// shape -- app/squash/status (writeStatus/patchCAS), app/import/worker/rescan's
+// shape -- app/transcode/status (writeStatus/patchCAS), app/import/worker/rescan's
 // MediaFile apply, and app/catalog/worker/grab's kindops and nonvideo status
 // writes. They are equivalent; a new writer should use this one, as the
 // remediation loop's one apply does.

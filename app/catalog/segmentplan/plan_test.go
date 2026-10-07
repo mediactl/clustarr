@@ -152,7 +152,7 @@ func TestPlannerBuildsTheSeasonTask(t *testing.T) {
 		ep("andor-s01e02", 1, 2), ep("andor-s01e01", 1, 1), ep("andor-s02e01", 2, 1),
 		probed("e2", "andor-s01e02", "h2"), analyzed, probed("s2", "andor-s02e01", "h3"))
 	b := bus(t, clockwork.NewRealClock())
-	got := collect(t, b, events.ConsumerSegmentarrAnalyze)
+	got := collect(t, b, events.ConsumerMarkersAnalyze)
 	p := &segmentplan.Planner{Reader: c, Bus: b, Clock: func() time.Time { return now }}
 	require.NoError(t, p.Handle(context.Background(), planMsg(t, schema.SegmentsPlanTask{Namespace: "media", Series: "andor", Season: 1})))
 	var task schema.AnalyzeTask
@@ -180,7 +180,7 @@ func TestPlannerAsksNothingWhenNoFileIsDue(t *testing.T) {
 		Result: catalogv1alpha1.MarkersFound, ForProbeHash: "h1", Version: segments.AnalyzerVersion, AnalyzedAt: metav1.NewTime(now),
 	}}
 	b := bus(t, clockwork.NewRealClock())
-	got := collect(t, b, events.ConsumerSegmentarrAnalyze)
+	got := collect(t, b, events.ConsumerMarkersAnalyze)
 	p := &segmentplan.Planner{Reader: plannerClient(sr, ep("andor-s01e01", 1, 1), analyzed), Bus: b, Clock: func() time.Time { return now }}
 	require.NoError(t, p.Handle(context.Background(), planMsg(t, schema.SegmentsPlanTask{Namespace: "media", Series: "andor", Season: 1})))
 	select {

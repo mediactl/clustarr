@@ -28,43 +28,43 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	importarr "github.com/mediactl/clustarr/app/import"
+	importapp "github.com/mediactl/clustarr/app/import"
 )
 
 func TestRunRejectsAnUnknownRole(t *testing.T) {
-	err := importarr.Run(context.Background(), importarr.Options{Role: "nonsense"})
+	err := importapp.Run(context.Background(), importapp.Options{Role: "nonsense"})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "role")
 }
 
-func TestManagerOptionsUseTheImportarrLeaderElectionID(t *testing.T) {
-	o := importarr.Options{Role: "controller", LeaderElect: true}
+func TestManagerOptionsUseTheImportLeaderElectionID(t *testing.T) {
+	o := importapp.Options{Role: "controller", LeaderElect: true}
 	mo := o.ManagerOptions()
 	require.Equal(t, "importarr.clustarr.io", mo.LeaderElectionID)
 	require.True(t, mo.LeaderElection)
 }
 
 func TestWorkerRoleDoesNotLeaderElect(t *testing.T) {
-	o := importarr.Options{Role: "worker", LeaderElect: true}
+	o := importapp.Options{Role: "worker", LeaderElect: true}
 	require.False(t, o.ManagerOptions().LeaderElection,
 		"workers are queue consumers; electing a leader would idle every other replica")
 }
 
 func TestAllRoleLeaderElectsWhenAsked(t *testing.T) {
-	o := importarr.Options{Role: "all", LeaderElect: true}
+	o := importapp.Options{Role: "all", LeaderElect: true}
 	require.True(t, o.ManagerOptions().LeaderElection,
 		"the all role runs controllers too, so it takes the lease like a dedicated controller replica")
 }
 
 func TestValidateRejectsAnEmptyDataPath(t *testing.T) {
-	o := importarr.Options{Role: "worker", DataPath: "  "}
+	o := importapp.Options{Role: "worker", DataPath: "  "}
 	err := o.Validate()
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "data-path")
 }
 
 func TestValidateRequiresTheBus(t *testing.T) {
-	o := importarr.DefaultOptions()
+	o := importapp.DefaultOptions()
 	o.NATSURL = ""
 	err := o.Validate()
 	require.Error(t, err)
@@ -72,7 +72,7 @@ func TestValidateRequiresTheBus(t *testing.T) {
 }
 
 // mediaFileCacheConfig is the ByObject entry o's manager gives MediaFile.
-func mediaFileCacheConfig(o importarr.Options) (cache.ByObject, bool) {
+func mediaFileCacheConfig(o importapp.Options) (cache.ByObject, bool) {
 	for obj, cfg := range o.ManagerOptions().Cache.ByObject {
 		if _, ok := obj.(*catalogv1alpha1.MediaFile); ok {
 			return cfg, true
@@ -87,7 +87,7 @@ func mediaFileCacheConfig(o importarr.Options) (cache.ByObject, bool) {
 // else a controller reads is kept. A role that also runs the workers keeps
 // the whole object.
 func TestTheControllerRoleCachesMediaFilesWithoutMediaInfo(t *testing.T) {
-	cfg, ok := mediaFileCacheConfig(importarr.Options{Role: importarr.RoleController})
+	cfg, ok := mediaFileCacheConfig(importapp.Options{Role: importapp.RoleController})
 	require.True(t, ok, "the controller role sets no MediaFile cache transform")
 	require.NotNil(t, cfg.Transform)
 
@@ -113,8 +113,8 @@ func TestTheControllerRoleCachesMediaFilesWithoutMediaInfo(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, want, got)
 
-	for _, role := range []importarr.Role{importarr.RoleWorker, importarr.RoleAll, "controller,worker"} {
-		_, ok := mediaFileCacheConfig(importarr.Options{Role: role})
+	for _, role := range []importapp.Role{importapp.RoleWorker, importapp.RoleAll, "controller,worker"} {
+		_, ok := mediaFileCacheConfig(importapp.Options{Role: role})
 		require.False(t, ok, "role %q keeps the whole MediaFile", role)
 	}
 }
@@ -125,8 +125,8 @@ func TestTheControllerRoleCachesMediaFilesWithoutMediaInfo(t *testing.T) {
 // Secret waited forever on that informer, so no ImportList ever synced
 // (kind-cluster-plex, 2026-10-06).
 func TestManagerOptionsNeverCacheSecretsOrConfigMaps(t *testing.T) {
-	for _, role := range importarr.Roles() {
-		mo := importarr.Options{Role: role}.ManagerOptions()
+	for _, role := range importapp.Roles() {
+		mo := importapp.Options{Role: role}.ManagerOptions()
 		require.NotNil(t, mo.Client.Cache, "%s caches Secrets", role)
 		var secrets, configMaps bool
 		for _, obj := range mo.Client.Cache.DisableFor {

@@ -268,9 +268,9 @@ const casAttempts = 8
 
 func seedFor(mgr k8s.FieldManager) (func(indexv1alpha1.IndexerStatus) *indexac.IndexerStatusApplyConfiguration, error) {
 	switch mgr {
-	case k8s.ManagerIndexarr:
+	case k8s.ManagerIndex:
 		return ControllerFields, nil
-	case k8s.ManagerIndexarrWorker:
+	case k8s.ManagerIndexWorker:
 		return WorkerFields, nil
 	default:
 		return nil, fmt.Errorf("status: %q owns no part of Indexer.status", mgr)

@@ -119,9 +119,9 @@ func run(args []string, getenv func(string) string) int {
 		fmt.Fprintln(os.Stderr, "markers:", err)
 		return worker.ExitMisconfigured
 	}
-	spec, ok := events.Default().Consumer(events.ConsumerSegmentarrAnalyze)
+	spec, ok := events.Default().Consumer(events.ConsumerMarkersAnalyze)
 	if !ok {
-		fmt.Fprintln(os.Stderr, "markers: consumer missing from the default topology:", events.ConsumerSegmentarrAnalyze)
+		fmt.Fprintln(os.Stderr, "markers: consumer missing from the default topology:", events.ConsumerMarkersAnalyze)
 		return worker.ExitMisconfigured
 	}
 	overrides, err := events.ParseSlotOverrides(getenv(events.SlotsEnv))
@@ -224,8 +224,8 @@ func run(args []string, getenv func(string) string) int {
 	pw := &presence.Writer{
 		KV: bus.KV(events.BucketProgress), Domain: "markers", Pod: need["POD_NAME"],
 		Node: getenv("NODE_NAME"), Version: version.String(),
-		Slots:    map[string]int{events.ConsumerSegmentarrAnalyze: sub.MaxInFlight},
-		Durables: []string{events.ConsumerSegmentarrAnalyze},
+		Slots:    map[string]int{events.ConsumerMarkersAnalyze: sub.MaxInFlight},
+		Durables: []string{events.ConsumerMarkersAnalyze},
 		Capabilities: func() map[string]string {
 			caps := map[string]string{}
 			if rep, err := ffruntime.Load(); err == nil {

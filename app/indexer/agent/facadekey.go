@@ -114,7 +114,7 @@ func ensureFacadeAPIKeys(
 			Type: corev1.SecretTypeOpaque,
 			Data: map[string][]byte{FacadeAPIKeyField: []byte(generated)},
 		}
-		cerr := writer.Create(ctx, &sec, client.FieldOwner(k8s.ManagerIndexarrWorker.String()))
+		cerr := writer.Create(ctx, &sec, client.FieldOwner(k8s.ManagerIndexWorker.String()))
 		switch {
 		case cerr == nil:
 			log.Info("indexarr: generated the Torznab facade's API key; read it from the Secret",

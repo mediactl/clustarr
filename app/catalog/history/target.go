@@ -455,15 +455,15 @@ func resolveJobEvent(key string, data []byte) Target {
 	return refTarget(p.JobRef, transcodev1alpha1.GroupVersion.String(), "TranscodeJob")
 }
 
-// transcodeTaskRef is the one field of app/squash/task.Task a dead letter
+// transcodeTaskRef is the one field of app/transcode/task.Task a dead letter
 // needs: the TranscodeJob the task was dispatched for. It is decoded here
-// rather than importing app/squash/task, which would make catalogarr depend
+// rather than importing app/transcode/task, which would make catalogarr depend
 // on squasharr's worker types for one reference.
 type transcodeTaskRef struct {
 	Job schema.Ref `json:"job"`
 }
 
-// Schema implements schema.Payload; it is app/squash/task.Task's.
+// Schema implements schema.Payload; it is app/transcode/task.Task's.
 func (transcodeTaskRef) Schema() string { return "transcode.Task.v1" }
 
 // resolveTranscodeTask names the TranscodeJob a dead-lettered transcode task

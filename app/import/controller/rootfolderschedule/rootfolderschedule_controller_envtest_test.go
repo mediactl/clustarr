@@ -222,7 +222,7 @@ func TestReconcileFiresOnlyWhenTheTickIsDue(t *testing.T) {
 			var after catalogv1alpha1.RootFolder
 			require.NoError(t, c.Get(ctx, request(ns).NamespacedName, &after))
 			assert.Equal(t, "2026-09-18T03:00:00Z", after.Annotations[rootfolderschedule.AnnotationLastTick])
-			assert.Equal(t, string(k8s.ManagerImportarr),
+			assert.Equal(t, string(k8s.ManagerImport),
 				managerFor(t, after.ManagedFields, "metadata.annotations"))
 		})
 	}

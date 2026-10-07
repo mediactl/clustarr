@@ -17,7 +17,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 // Package native is the in-process probe: what ffprobe printed for every
 // field clustarr stores, read through ffgo (spec 2026-10-06 §6). Only
-// app/import/agent and app/squash/worker/inprocess import it, so only
+// app/import/agent and app/transcode/worker/inprocess import it, so only
 // cmd/agent and cmd/transcode link it; it touches no FFmpeg log callback
 // (the binaries route it through pkg/ffruntime).
 package native

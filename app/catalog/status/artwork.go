@@ -18,7 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Package status declares which catalogarr field manager owns which leaves
 // of a catalog item's status where more than one catalogarr writer shares an
 // object, restated as data so a managedFields test can hold each manager to
-// its set -- the pattern app/grab/status, app/squash/status and
+// its set -- the pattern app/grab/status, app/transcode/status and
 // app/caption/status follow for their kinds.
 //
 // It starts with the artwork split of spec §B.3/§B.6. On Movie, Series,
@@ -60,7 +60,7 @@ import (
 // already wrote each kind's status.metadata before artwork existed (spec
 // §B.6: "written by the gateway under the manager that already writes that
 // kind's status.metadata").
-const GatewayManager = k8s.ManagerCatalogarrMetadata
+const GatewayManager = k8s.ManagerCatalogMetadata
 
 // GatewayFields are the top-level status fields GatewayManager owns on each
 // of the eight kinds with artwork. Every gateway apply -- the metadata
@@ -96,7 +96,7 @@ func ArtworkEntries(entries []catalogv1alpha1.ArtworkEntry) []*catalogac.Artwork
 
 // RendererManager is the artwork render role's field manager (spec §B.6:
 // "written by the renderer under a new manager k8s.ManagerCatalogarrArtwork").
-const RendererManager = k8s.ManagerCatalogarrArtwork
+const RendererManager = k8s.ManagerCatalogArtwork
 
 // RendererFields are the top-level status fields RendererManager owns, on
 // Movie and Series only. Disjoint from [GatewayFields]: the renderer never

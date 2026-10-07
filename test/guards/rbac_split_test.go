@@ -121,14 +121,14 @@ func TestEachServiceAccountHoldsExactlyItsOwnRole(t *testing.T) {
 // TestNoInstallerShipsASquasharrWorkerIdentity is X14's guard: the
 // per-task transcode Job used to run as its own squasharr-worker
 // ServiceAccount, bound to a ClusterRole generated from
-// app/squash/worker's RBAC markers, so it could patch TranscodeJob.status
+// app/transcode/worker's RBAC markers, so it could patch TranscodeJob.status
 // directly. The pool Jobs cmd/squasharr-worker runs report over NATS
 // instead (spec §18.1, §18.2) and hold no Kubernetes credentials at all, so
 // neither installer should render a squasharr-worker ServiceAccount,
 // ClusterRole or ClusterRoleBinding any more -- read from what each
 // installer actually renders, using the same run/decodeRendered helpers
 // TestEachServiceAccountHoldsExactlyItsOwnRole uses.
-func TestNoInstallerShipsASquasharrWorkerIdentity(t *testing.T) {
+func TestNoInstallerShipsATranscodeWorkerIdentity(t *testing.T) {
 	helm := findTool(t, "helm")
 	kustomize := findTool(t, "kustomize")
 	root, err := filepath.Abs("../..")

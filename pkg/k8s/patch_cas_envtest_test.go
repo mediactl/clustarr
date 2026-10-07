@@ -73,14 +73,14 @@ func TestPatchStatusCASRedoesARenderAnotherWriterOvertook(t *testing.T) {
 	key := client.ObjectKeyFromObject(idx)
 
 	renders := 0
-	fresh, applied, err := k8s.PatchStatusCAS(ctx, c, c, k8s.ManagerIndexarrWorker, key,
+	fresh, applied, err := k8s.PatchStatusCAS(ctx, c, c, k8s.ManagerIndexWorker, key,
 		func() *indexv1alpha1.Indexer { return &indexv1alpha1.Indexer{} },
 		func(fresh *indexv1alpha1.Indexer) (*indexac.IndexerApplyConfiguration, bool, error) {
 			renders++
 			if renders == 1 {
 				// The interleaved writer: a real apply under the SAME
 				// manager, after this render's read.
-				if _, _, err := k8s.PatchStatusCAS(ctx, c, c, k8s.ManagerIndexarrWorker, key,
+				if _, _, err := k8s.PatchStatusCAS(ctx, c, c, k8s.ManagerIndexWorker, key,
 					func() *indexv1alpha1.Indexer { return &indexv1alpha1.Indexer{} },
 					increment(key.Name, key.Namespace, 5), 3); err != nil {
 					t.Fatalf("interleaved writer: %v", err)
@@ -123,7 +123,7 @@ func TestPatchStatusCASLosesNoConcurrentIncrement(t *testing.T) {
 	errs := make(chan error, writers)
 	for range writers {
 		wg.Go(func() {
-			_, _, err := k8s.PatchStatusCAS(ctx, c, c, k8s.ManagerIndexarrWorker, key,
+			_, _, err := k8s.PatchStatusCAS(ctx, c, c, k8s.ManagerIndexWorker, key,
 				func() *indexv1alpha1.Indexer { return &indexv1alpha1.Indexer{} },
 				increment(key.Name, key.Namespace, 1), 4*writers)
 			errs <- err
@@ -156,7 +156,7 @@ func TestPatchStatusCASSkipErrorsAndExhaustion(t *testing.T) {
 	key := client.ObjectKeyFromObject(idx)
 	newObj := func() *indexv1alpha1.Indexer { return &indexv1alpha1.Indexer{} }
 
-	_, applied, err := k8s.PatchStatusCAS(ctx, c, c, k8s.ManagerIndexarrWorker, key, newObj,
+	_, applied, err := k8s.PatchStatusCAS(ctx, c, c, k8s.ManagerIndexWorker, key, newObj,
 		func(*indexv1alpha1.Indexer) (*indexac.IndexerApplyConfiguration, bool, error) {
 			return nil, true, nil
 		}, 3)
@@ -165,7 +165,7 @@ func TestPatchStatusCASSkipErrorsAndExhaustion(t *testing.T) {
 	}
 
 	boom := errors.New("boom")
-	_, _, err = k8s.PatchStatusCAS(ctx, c, c, k8s.ManagerIndexarrWorker, key, newObj,
+	_, _, err = k8s.PatchStatusCAS(ctx, c, c, k8s.ManagerIndexWorker, key, newObj,
 		func(*indexv1alpha1.Indexer) (*indexac.IndexerApplyConfiguration, bool, error) {
 			return nil, false, boom
 		}, 3)
@@ -173,7 +173,7 @@ func TestPatchStatusCASSkipErrorsAndExhaustion(t *testing.T) {
 		t.Errorf("render error: got %v, want boom", err)
 	}
 
-	_, _, err = k8s.PatchStatusCAS(ctx, c, c, k8s.ManagerIndexarrWorker,
+	_, _, err = k8s.PatchStatusCAS(ctx, c, c, k8s.ManagerIndexWorker,
 		client.ObjectKey{Namespace: key.Namespace, Name: "absent"}, newObj,
 		increment("absent", key.Namespace, 1), 3)
 	if !apierrors.IsNotFound(err) {
@@ -182,9 +182,9 @@ func TestPatchStatusCASSkipErrorsAndExhaustion(t *testing.T) {
 
 	// Every render is overtaken by a write of its own, so every apply
 	// conflicts.
-	_, _, err = k8s.PatchStatusCAS(ctx, c, c, k8s.ManagerIndexarrWorker, key, newObj,
+	_, _, err = k8s.PatchStatusCAS(ctx, c, c, k8s.ManagerIndexWorker, key, newObj,
 		func(fresh *indexv1alpha1.Indexer) (*indexac.IndexerApplyConfiguration, bool, error) {
-			if _, err := k8s.PatchStatus(ctx, c, k8s.ManagerIndexarr, indexac.Indexer(key.Name, key.Namespace).
+			if _, err := k8s.PatchStatus(ctx, c, k8s.ManagerIndex, indexac.Indexer(key.Name, key.Namespace).
 				WithStatus(indexac.IndexerStatus().WithObservedGeneration(fresh.Status.ObservedGeneration+1))); err != nil {
 				t.Fatalf("overtaking write: %v", err)
 			}

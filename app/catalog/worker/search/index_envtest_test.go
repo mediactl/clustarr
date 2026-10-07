@@ -77,7 +77,7 @@ func TestWorkerWantedScanSearchesTheIndexForAnItemSearchedBefore(t *testing.T) {
 // text the index is queried with.
 func setMatrixMetadata(t *testing.T, ctx context.Context, f *workerFixture) {
 	t.Helper()
-	_, err := k8s.PatchStatus(ctx, f.mgr, k8s.ManagerCatalogarrMetadata,
+	_, err := k8s.PatchStatus(ctx, f.mgr, k8s.ManagerCatalogMetadata,
 		catalogac.Movie("the-matrix", f.ns).WithStatus(catalogac.MovieStatus().WithMetadata(
 			catalogac.MovieMetadata().WithTitle("The Matrix").WithYear(1999).WithRefreshedAt(metav1.Now()))))
 	require.NoError(t, err)

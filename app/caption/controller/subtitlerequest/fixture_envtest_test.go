@@ -256,7 +256,7 @@ func (f *fixture) mediaFile(name string, mi *commonv1alpha1.MediaInfo, sidecars 
 // probe stands in for catalogarr's probe write.
 func (f *fixture) probe(name, hash string, mi commonv1alpha1.MediaInfo) {
 	f.t.Helper()
-	_, err := k8s.PatchStatus(f.ctx, f.c, k8s.ManagerCatalogarr,
+	_, err := k8s.PatchStatus(f.ctx, f.c, k8s.ManagerCatalog,
 		catalogac.MediaFile(name, f.ns).WithStatus(catalogac.MediaFileStatus().WithProbeHash(hash).WithMediaInfo(mi)))
 	require.NoError(f.t, err)
 }
@@ -328,7 +328,7 @@ func (f *fixture) workerApply(name string) {
 // the controller.
 func (f *fixture) workerApplyFrom(sr *subtitlev1alpha1.SubtitleRequest) {
 	f.t.Helper()
-	require.NoError(f.t, status.PatchRequest(f.ctx, f.c, k8s.ManagerCaptionarrWorker, sr.DeepCopy(), nil))
+	require.NoError(f.t, status.PatchRequest(f.ctx, f.c, k8s.ManagerCaptionWorker, sr.DeepCopy(), nil))
 }
 
 // sidecar writes a subtitle file next to the fixture's video, as the worker
@@ -374,7 +374,7 @@ func assertManagedFieldsSplit(t *testing.T, sr *subtitlev1alpha1.SubtitleRequest
 		}
 		want, ok := wantTop[mgr]
 		if !ok {
-			if mgr == k8s.ManagerCaptionarr || mgr == k8s.ManagerCaptionarrWorker {
+			if mgr == k8s.ManagerCaption || mgr == k8s.ManagerCaptionWorker {
 				t.Errorf("%s owns status fields the test expects it not to own at all", mgr)
 			}
 			continue

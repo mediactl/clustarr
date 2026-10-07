@@ -65,7 +65,7 @@ func managersOf(t *testing.T, entries []metav1.ManagedFieldsEntry, subresource s
 // manager -- k8s.ManagerGrabarrEngine, say, by copy-pasting a pattern from
 // Download.status -- would not fail any value assertion, because
 // ForceOwnership always wins the value. It would only show up here.
-func TestDownloadClientStatusIsOwnedOnlyByManagerGrabarr(t *testing.T) {
+func TestDownloadClientStatusIsOwnedOnlyByManagerGrab(t *testing.T) {
 	ctx := context.Background()
 	c := newTestClient(t)
 
@@ -89,7 +89,7 @@ func TestDownloadClientStatusIsOwnedOnlyByManagerGrabarr(t *testing.T) {
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "managed"}, &got))
 
 	statusManagers := managersOf(t, got.ManagedFields, "status")
-	assert.Equal(t, map[string]bool{k8s.ManagerGrabarr.String(): true}, statusManagers,
+	assert.Equal(t, map[string]bool{k8s.ManagerGrab.String(): true}, statusManagers,
 		"DownloadClient.status must be owned by k8s.ManagerGrabarr alone")
 }
 

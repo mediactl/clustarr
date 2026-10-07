@@ -183,7 +183,7 @@ func (r *Reconciler) sessions() *idxclients.SessionStore {
 	if r.Sessions != nil {
 		return r.Sessions
 	}
-	return idxclients.NewSessionStore(r.Client, nil, k8s.ManagerIndexarr)
+	return idxclients.NewSessionStore(r.Client, nil, k8s.ManagerIndex)
 }
 
 // proxyUnavailable reports a spec.proxyRef that cannot be routed through.

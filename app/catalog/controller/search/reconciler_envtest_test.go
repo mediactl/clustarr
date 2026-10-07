@@ -61,7 +61,7 @@ func (p *recordingPublisher) Publish(_ context.Context, subject string, e *event
 	}
 	p.subjects = append(p.subjects, subject)
 	p.envs = append(p.envs, e)
-	return events.Receipt{Stream: events.StreamWorkCatalogarr, Seq: uint64(len(p.envs))}, nil
+	return events.Receipt{Stream: events.StreamWorkCatalog, Seq: uint64(len(p.envs))}, nil
 }
 
 func (p *recordingPublisher) snapshot() ([]string, []*events.Envelope) {
@@ -251,7 +251,7 @@ func TestReconcileQueryModeFailsWhenTheIndexReportsAnError(t *testing.T) {
 // transport-level failure: nothing is currently serving
 // clustarr.rpc.indexarr.query. It must not fail the Search -- the same
 // "leave phase alone, requeue" shape startSearch uses for ErrQueueFull.
-func TestReconcileQueryModeRetriesWhenIndexarrIsUnreachable(t *testing.T) {
+func TestReconcileQueryModeRetriesWhenIndexIsUnreachable(t *testing.T) {
 	f := newFixture(t, "search-query-unreachable")
 	f.r.Query = &search.FakeQueryRPC{Err: events.ErrNoResponders}
 	q := "the matrix"
@@ -325,7 +325,7 @@ func TestReconcileQueueFullLeavesThePhaseUnsetAndRequeues(t *testing.T) {
 // field set it owns, under its own field manager.
 func workerWrote(t *testing.T, c client.Client, ns, name string, finishedAt metav1.Time, results ...commonv1.ReleaseDecision) {
 	t.Helper()
-	_, err := k8s.PatchStatus(context.Background(), c, k8s.ManagerCatalogarrWorker,
+	_, err := k8s.PatchStatus(context.Background(), c, k8s.ManagerCatalogWorker,
 		catalogac.Search(name, ns).WithStatus(
 			catalogac.SearchStatus().
 				WithFinishedAt(finishedAt).
@@ -578,7 +578,7 @@ func TestReconcileIgnoresAMissingSearch(t *testing.T) {
 // terminal error: finishedAt, one reserved-name error outcome, no results.
 func workerReportedFailure(t *testing.T, c client.Client, ns, name string, finishedAt metav1.Time, message string) {
 	t.Helper()
-	_, err := k8s.PatchStatus(context.Background(), c, k8s.ManagerCatalogarrWorker,
+	_, err := k8s.PatchStatus(context.Background(), c, k8s.ManagerCatalogWorker,
 		catalogac.Search(name, ns).WithStatus(
 			catalogac.SearchStatus().
 				WithFinishedAt(finishedAt).

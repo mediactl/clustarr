@@ -192,14 +192,14 @@ func ResolveDispatch(subject string, env *events.Envelope) (t Target, seq int64,
 	return Target{}, 0, "", false
 }
 
-// transcodeTaskAttempt is app/squash/task.Task's job and attempt, decoded
+// transcodeTaskAttempt is app/transcode/task.Task's job and attempt, decoded
 // without importing it (transcodeTaskRef's reason).
 type transcodeTaskAttempt struct {
 	Job     schema.Ref `json:"job"`
 	Attempt int32      `json:"attempt"`
 }
 
-// Schema implements schema.Payload; it is app/squash/task.Task's.
+// Schema implements schema.Payload; it is app/transcode/task.Task's.
 func (transcodeTaskAttempt) Schema() string { return transcodeTaskRef{}.Schema() }
 
 // DispatchID is what a task's Msg-Id says of its dispatch when the message

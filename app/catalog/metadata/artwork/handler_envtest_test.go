@@ -139,7 +139,7 @@ func TestArtworkTaskReDeclaresOnlyWhatTheGatewayOwns(t *testing.T) {
 			Digest: info.Digest, SizeBytes: info.Size, UpdatedAt: refreshed,
 		}})...)))
 	require.NoError(t, err)
-	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, catalogac.Album(name, ns).WithStatus(catalogac.AlbumStatus().
+	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, catalogac.Album(name, ns).WithStatus(catalogac.AlbumStatus().
 		WithMetadata(catalogac.AlbumMetadata().WithSelectedReleaseID("rel-1"))))
 	require.NoError(t, err)
 
@@ -174,7 +174,7 @@ func TestArtworkTaskReDeclaresOnlyWhatTheGatewayOwns(t *testing.T) {
 		for _, leaf := range catalogstatus.ArtworkEntryLeaves {
 			assert.Contains(t, gateway, "artwork[type=poster]."+leaf)
 		}
-		reconciler, err := catalogstatus.OwnedStatusPaths(got.ManagedFields, k8s.ManagerCatalogarr)
+		reconciler, err := catalogstatus.OwnedStatusPaths(got.ManagedFields, k8s.ManagerCatalog)
 		require.NoError(t, err)
 		assert.Contains(t, reconciler, "metadata.selectedReleaseID")
 		for p := range reconciler {
@@ -270,7 +270,7 @@ func collectRenders(t *testing.T, ctx context.Context, bus events.Bus) *renderCo
 	t.Helper()
 	c := &renderCollector{}
 	stop, err := bus.Subscribe(ctx, events.Subscription{
-		Stream: events.StreamWorkCatalogarr, Durable: "test-render-collector",
+		Stream: events.StreamWorkCatalog, Durable: "test-render-collector",
 		Filters: []string{events.FilterCatalogArtworkRender},
 	}, func(_ context.Context, m events.Message) error {
 		c.mu.Lock()
@@ -445,7 +445,7 @@ func TestAPosterDropPublishesTheNoneRender(t *testing.T) {
 	require.Len(t, renders.settled(t, 1), 1, "the custom poster's own render")
 
 	// The renderer has rendered it: status.overlay stands.
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrArtwork, catalogac.Movie(m.Name, ns).WithStatus(
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogArtwork, catalogac.Movie(m.Name, ns).WithStatus(
 		catalogac.MovieStatus().WithOverlay(catalogac.OverlayEntry().WithProfileRef("badges").WithDigest("ov").
 			WithRenderedFrom("in").WithUpdatedAt(metav1.NewTime(time.Date(2026, 9, 24, 0, 0, 0, 0, time.UTC))))))
 	require.NoError(t, err)

@@ -61,7 +61,7 @@ func ServeExtras(bus events.Requester, kv events.KV, reg *pkgmetadata.Registry, 
 			s.providers = append(s.providers, e)
 		}
 	}
-	err := bus.Serve(events.RPCMetadataExtras, events.QueueGroupCatalogar, func(ctx context.Context, data []byte) ([]byte, error) {
+	err := bus.Serve(events.RPCMetadataExtras, events.QueueGroupCatalog, func(ctx context.Context, data []byte) ([]byte, error) {
 		ctx, span := tracing.Start(ctx, "metadata.rpc.serve.extras")
 		defer span.End()
 		var req schema.PlexExtrasRequest

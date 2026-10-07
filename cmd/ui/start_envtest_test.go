@@ -89,7 +89,7 @@ func verifyUI(t *testing.T, cfg *rest.Config, addr, suffix string) {
 	// A status catalogarr owns, so the action lands on an object that
 	// already has one: only then can an over-claim of status by clustarr-ui
 	// show up in managedFields (CLAUDE.md, "Gotchas found the hard way").
-	if _, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, catalogac.Movie(name, ns).
+	if _, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, catalogac.Movie(name, ns).
 		WithStatus(catalogac.MovieStatus().WithPhase(catalogv1alpha1.MoviePhaseWanted))); err != nil {
 		t.Fatalf("seed Movie status: %v", err)
 	}
@@ -161,8 +161,8 @@ func verifyUI(t *testing.T, cfg *rest.Config, addr, suffix string) {
 	if got.Status.Phase != catalogv1alpha1.MoviePhaseWanted {
 		t.Errorf("the monitor action changed status.phase to %q; the UI never writes status", got.Status.Phase)
 	}
-	if m := statusManagers(got.ManagedFields); len(m) != 1 || !m[string(k8s.ManagerCatalogarr)] {
-		t.Errorf("status managers after the UI action = %v, want only %s", m, k8s.ManagerCatalogarr)
+	if m := statusManagers(got.ManagedFields); len(m) != 1 || !m[string(k8s.ManagerCatalog)] {
+		t.Errorf("status managers after the UI action = %v, want only %s", m, k8s.ManagerCatalog)
 	}
 	awaitFrame(t, "/events/library/movies to push the unmonitored Movie", libraryFrames, func(f string) bool {
 		return rowAttr(f, movieRow, "data-monitored") == "false"
@@ -225,7 +225,7 @@ func seedUnmatched(t *testing.T, c client.Client, name, ns string, paths ...stri
 	for _, p := range paths {
 		status.WithUnmatched(catalogac.UnmatchedFile().WithPath(p).WithReason("no_candidate").WithSeenAt(now))
 	}
-	if _, err := k8s.PatchStatus(context.Background(), c, k8s.ManagerImportarr,
+	if _, err := k8s.PatchStatus(context.Background(), c, k8s.ManagerImport,
 		catalogac.LibraryScan(name, ns).WithStatus(status)); err != nil {
 		t.Fatalf("seed LibraryScan status: %v", err)
 	}

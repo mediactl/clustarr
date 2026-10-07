@@ -61,7 +61,7 @@ func newSeriesFixture(t *testing.T, ns string) *seriesFixture {
 		Spec:       catalogv1alpha1.SeriesSpec{TvdbID: 81189, QualityProfileRef: f.profile.Name, RootFolderRef: rf.Name},
 	}
 	require.NoError(t, f.c.Create(ctx, series))
-	_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalogarrMetadata, catalogac.Series(series.Name, f.ns).WithStatus(
+	_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalogMetadata, catalogac.Series(series.Name, f.ns).WithStatus(
 		catalogac.SeriesStatus().WithMetadata(catalogac.SeriesMetadata().WithTitle("Breaking Bad").WithYear(2008))))
 	require.NoError(t, err)
 	for i, title := range []string{"Pilot", "Cat's in the Bag...", "...And the Bag's in the River"} {
@@ -70,7 +70,7 @@ func newSeriesFixture(t *testing.T, ns string) *seriesFixture {
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: f.ns},
 			Spec:       catalogv1alpha1.EpisodeSpec{SeriesRef: series.Name, SeasonNumber: 1, EpisodeNumber: int32(i + 1)},
 		}))
-		_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalogarr, catalogac.Episode(name, f.ns).
+		_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalog, catalogac.Episode(name, f.ns).
 			WithStatus(catalogac.EpisodeStatus().WithTitle(title)))
 		require.NoError(t, err)
 	}

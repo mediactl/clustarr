@@ -131,7 +131,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
-	transcodejobctrl "github.com/mediactl/clustarr/app/squash/controller/transcodejob"
+	transcodejobctrl "github.com/mediactl/clustarr/app/transcode/controller/transcodejob"
 	"github.com/mediactl/clustarr/pkg/pipeline"
 )
 
@@ -163,7 +163,7 @@ const (
 
 	// defaultRecycleBinLogical mirrors RootFolderSpec.RecycleBin.Path's own
 	// CRD default (api/catalog/v1alpha1/rootfolder_types.go) and
-	// app/squash/worker/paths.go's identical code-level floor
+	// app/transcode/worker/paths.go's identical code-level floor
 	// (defaultRecycleBin) for when a RootFolder's is somehow empty. Neither
 	// is imported here: the CRD default is a struct tag on a type in
 	// another package's API, and paths.go's constant is unexported.
@@ -180,7 +180,7 @@ const (
 
 	// transcodeJobCreatedTimeout covers the round trip from a probed
 	// MediaFile through transcodeprofile's mapper (watch-driven, no
-	// redelivery ladder -- app/squash/controller/transcodeprofile watches
+	// redelivery ladder -- app/transcode/controller/transcodeprofile watches
 	// MediaFile on status.probeHash changing and TranscodeProfile itself)
 	// to a created TranscodeJob.
 	transcodeJobCreatedTimeout = 2 * time.Minute
@@ -236,7 +236,7 @@ const (
 
 	// poolSuspendedTimeout bounds the wait for a pool Job to go back to
 	// suspend once its only task has finished and the Job controller has
-	// let its pods go (app/squash/controller/pool.Mutable's own gate).
+	// let its pods go (app/transcode/controller/pool.Mutable's own gate).
 	poolSuspendedTimeout = 2 * time.Minute
 )
 
@@ -247,7 +247,7 @@ const (
 // frozen-at-import Quality every real MediaFile in this suite carries -- and
 // waits for it to reach Ready with a non-empty status.hash (the controller's
 // own gate before it will plan or tag anything against this profile:
-// app/squash/controller/transcodejob/controller.go's plan() waits on exactly
+// app/transcode/controller/transcodejob/controller.go's plan() waits on exactly
 // this field too).
 //
 // container overrides the CRD's own "mkv" default, and policy.minDuration
@@ -262,7 +262,7 @@ const (
 // value never marshals as genuinely absent (ActiveDeadline, Resources,
 // Scratch -- metav1.Duration and resource.Quantity both always emit a
 // quoted value, never omit) are floored in Go by squasharr's own buildJob
-// (app/squash/controller/transcodejob/job.go's activeDeadlineFor/
+// (app/transcode/controller/transcodejob/job.go's activeDeadlineFor/
 // resourcesFor/scratchFor), not by CRD defaulting, so they need no value
 // here either.
 func newTranscodeProfile(
@@ -371,7 +371,7 @@ func transcodeJobsForMediaFile(ctx context.Context, t *testing.T, namespace, med
 }
 
 // waitForTranscodeJobForMediaFile waits for transcodeprofile's mapper
-// (app/squash/controller/transcodeprofile/controller.go's ensureTranscodeJob)
+// (app/transcode/controller/transcodeprofile/controller.go's ensureTranscodeJob)
 // to create exactly one TranscodeJob for mediaFileName and returns it.
 // transcodeJobName is deterministic on (MediaFile, profile hash) precisely
 // so this is "exactly one", not "at least one".
@@ -398,7 +398,7 @@ func waitForTranscodeJobForMediaFile(ctx context.Context, t *testing.T, namespac
 // apiserver's persisted status -- a terminal one (Succeeded, Failed,
 // Skipped), which advance() always returns from before its next status
 // apply. For an intermediate phase like Planned, use
-// waitForTranscodeJobPhaseAtLeast instead: app/squash/controller/transcodejob's
+// waitForTranscodeJobPhaseAtLeast instead: app/transcode/controller/transcodejob's
 // advance() runs plan() and ensureJob() in the SAME Reconcile call when
 // nothing blocks either, so a fresh job's FIRST persisted status can already
 // read Queued (or later) -- Planned was true only for an instant inside that
@@ -629,7 +629,7 @@ func TestTranscodeMediaFileThroughTranscodeJob(t *testing.T) {
 	// §7: the job's task went to its profile's pool, which scaled up from
 	// zero. status.jobRef names the pool Job -- squasharr dispatches to a
 	// long-lived, shared (profile, class) pool now, never a per-task Job
-	// (X14; app/squash/controller/pool.Name).
+	// (X14; app/transcode/controller/pool.Name).
 	poolName := *waitForTranscodeJobField(ctx, t, tjKey, transcodeJobPlannedTimeout, "jobRef",
 		func(s transcodev1alpha1.TranscodeJobStatus) *string { return s.JobRef })
 	poolKey := types.NamespacedName{Namespace: Namespace, Name: poolName}
@@ -654,7 +654,7 @@ func TestTranscodeMediaFileThroughTranscodeJob(t *testing.T) {
 	require.NotZero(t, succeeded.Status.Result.OutputSizeBytes)
 
 	// The pool drains and suspends back to zero once its only task has
-	// finished (app/squash/controller/pool.Mutable's own gate; next.go).
+	// finished (app/transcode/controller/pool.Mutable's own gate; next.go).
 	waitFor(t, ctx, poolSuspendedTimeout, "pool "+poolName+" suspended after its only job finished",
 		func(ctx context.Context) (bool, error) {
 			if err := k8sClient.Get(ctx, poolKey, &poolJob); err != nil {
@@ -841,7 +841,7 @@ func TestTranscodeContainerChangeMovesTheFile(t *testing.T) {
 //
 // The standard's Dolby Vision plans are exercised by
 // pkg/transcode/standard's unit tests against hand-authored MediaInfo, by
-// app/squash/controller/transcodejob's TestTheStandardEncodesDolbyVisionOnTheProfilesGPU,
+// app/transcode/controller/transcodejob's TestTheStandardEncodesDolbyVisionOnTheProfilesGPU,
 // and by the parity harness (test/parity) over real Dolby Vision clips from
 // the owner's library.
 func TestTranscodeDolbyVisionSkipped(t *testing.T) {
@@ -942,13 +942,13 @@ func TestDownloadScenario1TranscodeLeg(t *testing.T) {
 
 	// The trace check: see this function's own doc comment for exactly
 	// what is and is not proven here.
-	grabarrIDs := deploymentTraceIDsSince(ctx, t, "grabarr", t0)
-	importarrIDs := deploymentTraceIDsSince(ctx, t, "importarr-worker", t0)
-	shared := sharedTraceID(grabarrIDs, importarrIDs)
+	grabIDs := deploymentTraceIDsSince(ctx, t, "grabarr", t0)
+	importIDs := deploymentTraceIDsSince(ctx, t, "importarr-worker", t0)
+	shared := sharedTraceID(grabIDs, importIDs)
 	require.NotEmptyf(t, shared,
 		"no trace_id is common to grabarr's and importarr-worker's logs since %s -- "+
 			"grabarr saw %d distinct trace_id(s), importarr-worker saw %d; Clustarr-Trace propagation "+
 			"across the ImportTask bus hop (pkg/events hooks) may be broken, or the two Deployments' "+
 			"logs for this specific grab were not both captured",
-		t0.Format(time.RFC3339), len(grabarrIDs), len(importarrIDs))
+		t0.Format(time.RFC3339), len(grabIDs), len(importIDs))
 }

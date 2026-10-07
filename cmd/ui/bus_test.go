@@ -32,12 +32,12 @@ import (
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
 
-	captionarr "github.com/mediactl/clustarr/app/caption"
-	catalogarr "github.com/mediactl/clustarr/app/catalog"
-	grabarr "github.com/mediactl/clustarr/app/grab"
-	importarr "github.com/mediactl/clustarr/app/import"
-	indexarr "github.com/mediactl/clustarr/app/indexer"
-	squasharr "github.com/mediactl/clustarr/app/squash"
+	captionapp "github.com/mediactl/clustarr/app/caption"
+	catalogapp "github.com/mediactl/clustarr/app/catalog"
+	grabapp "github.com/mediactl/clustarr/app/grab"
+	importapp "github.com/mediactl/clustarr/app/import"
+	indexapp "github.com/mediactl/clustarr/app/indexer"
+	transcodeapp "github.com/mediactl/clustarr/app/transcode"
 	"github.com/mediactl/clustarr/ui"
 )
 
@@ -244,17 +244,17 @@ func startCountingNATS(t *testing.T) *natsserver.Server {
 // runUI with uiRun, restoring them all when the test ends.
 func stubServicesExceptUI(t *testing.T, uiRun func(context.Context, ui.Options) error) {
 	t.Helper()
-	catalog, index, grab, squash, caption, importa, origUI :=
-		runCatalogarr, runIndexarr, runGrabarr, runSquasharr, runCaptionarr, runImportarr, runUI
+	catalog, index, grab, transcode, caption, importa, origUI :=
+		runCatalog, runIndex, runGrab, runTranscode, runCaption, runImport, runUI
 	t.Cleanup(func() {
-		runCatalogarr, runIndexarr, runGrabarr, runSquasharr, runCaptionarr, runImportarr, runUI =
-			catalog, index, grab, squash, caption, importa, origUI
+		runCatalog, runIndex, runGrab, runTranscode, runCaption, runImport, runUI =
+			catalog, index, grab, transcode, caption, importa, origUI
 	})
-	runCatalogarr = func(context.Context, catalogarr.Options) error { return nil }
-	runIndexarr = func(context.Context, indexarr.Options) error { return nil }
-	runGrabarr = func(context.Context, grabarr.Options) error { return nil }
-	runSquasharr = func(context.Context, squasharr.Options) error { return nil }
-	runCaptionarr = func(context.Context, captionarr.Options) error { return nil }
-	runImportarr = func(context.Context, importarr.Options) error { return nil }
+	runCatalog = func(context.Context, catalogapp.Options) error { return nil }
+	runIndex = func(context.Context, indexapp.Options) error { return nil }
+	runGrab = func(context.Context, grabapp.Options) error { return nil }
+	runTranscode = func(context.Context, transcodeapp.Options) error { return nil }
+	runCaption = func(context.Context, captionapp.Options) error { return nil }
+	runImport = func(context.Context, importapp.Options) error { return nil }
 	runUI = uiRun
 }

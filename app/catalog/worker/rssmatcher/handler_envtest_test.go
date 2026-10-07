@@ -124,7 +124,7 @@ func TestHandler_ApprovedReleaseTakesTheGrabPath(t *testing.T) {
 	assert.Nil(t, got.Status.ActiveDownloadRef,
 		"no reconciler runs here, and the grab path no longer writes activeDownloadRef (ruling R-5)")
 	for _, mf := range got.ManagedFields {
-		if mf.Manager == string(k8s.ManagerCatalogarrGrab) && mf.FieldsV1 != nil {
+		if mf.Manager == string(k8s.ManagerCatalogGrab) && mf.FieldsV1 != nil {
 			assert.NotContains(t, mf.FieldsV1.GetRawString(), `"f:activeDownloadRef"`,
 				"the grab manager must not claim activeDownloadRef")
 			assert.NotContains(t, mf.FieldsV1.GetRawString(), `"f:phase"`, "the RSS path must never write Phase")
@@ -404,7 +404,7 @@ func setFile(t *testing.T, ctx context.Context, c client.Client, ns, name string
 			Path:     "/data/tv/" + file + ".mkv", Quality: q,
 		},
 	}))
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, catalogac.Episode(name, ns).WithStatus(
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, catalogac.Episode(name, ns).WithStatus(
 		catalogac.EpisodeStatus().WithHasFile(true).WithFileRef(file).WithFileQuality(q)))
 	require.NoError(t, err)
 	return file
@@ -547,7 +547,7 @@ func TestHandler_TranscodedMovieIsNeverGrabbed(t *testing.T) {
 	createMovie(t, ctx, c, ns, "the-thing-1982", 1091, "The Thing", 1982)
 	web720 := commonv1.Quality{Name: "WEBDL-720p", Source: commonv1.SourceWebDL, Resolution: 720, Modifier: commonv1.ModifierNone}
 	file := transcodedFile(t, ctx, c, ns, commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "the-thing-1982"}, web720)
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, catalogac.Movie("the-thing-1982", ns).WithStatus(
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, catalogac.Movie("the-thing-1982", ns).WithStatus(
 		catalogac.MovieStatus().WithHasFile(true).WithFileRef(file).WithFileQuality(web720)))
 	require.NoError(t, err)
 	createQualityProfile(t, ctx, c)
@@ -617,7 +617,7 @@ func TestHandler_CurrentFileIsTheMediaFile(t *testing.T) {
 			ImportedFrom: &catalogv1alpha1.ImportSource{DownloadRef: "imported-one", ReleaseTitle: rel.Info.Title},
 		},
 	}))
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, catalogac.Movie(movie.Name, ns).WithStatus(
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, catalogac.Movie(movie.Name, ns).WithStatus(
 		catalogac.MovieStatus().WithHasFile(true).WithFileRef("the-thing-file").WithFileQuality(web720)))
 	require.NoError(t, err)
 	createQualityProfile(t, ctx, c)
@@ -673,7 +673,7 @@ func TestHandler_PackNeverReachesATranscodedEpisode(t *testing.T) {
 	e2 := createEpisode(t, ctx, c, ns, "the-wire", 1, 2, &aired)
 	web720 := commonv1.Quality{Name: "WEBDL-720p", Source: commonv1.SourceWebDL, Resolution: 720, Modifier: commonv1.ModifierNone}
 	file := transcodedFile(t, ctx, c, ns, commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: e1}, web720)
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, catalogac.Episode(e1, ns).WithStatus(
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, catalogac.Episode(e1, ns).WithStatus(
 		catalogac.EpisodeStatus().WithHasFile(true).WithFileRef(file).WithFileQuality(web720)))
 	require.NoError(t, err)
 	createQualityProfile(t, ctx, c)

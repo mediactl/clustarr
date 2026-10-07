@@ -42,7 +42,7 @@ import (
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	usenetengine "github.com/mediactl/clustarr/app/grab/engine/usenet"
-	grabarrstatus "github.com/mediactl/clustarr/app/grab/status"
+	grabstatus "github.com/mediactl/clustarr/app/grab/status"
 	"github.com/mediactl/clustarr/pkg/download"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
@@ -151,7 +151,7 @@ func TestReconcileAddsNewDownloadAndReportsTelemetryUnderEngineManager(t *testin
 	assert.Equal(t, "id-1", got.Status.DownloadID)
 
 	statusManagers := managersOf(got.ManagedFields, "status")
-	assert.Equal(t, map[string]bool{k8s.ManagerGrabarrEngine.String(): true}, statusManagers,
+	assert.Equal(t, map[string]bool{k8s.ManagerRetiredEngine.String(): true}, statusManagers,
 		"Download.status must be owned only by k8s.ManagerGrabarrEngine after an engine-only write")
 }
 
@@ -168,7 +168,7 @@ func TestReconcileDoesNotReAddAnAlreadyKnownTransfer(t *testing.T) {
 
 	// Simulate a previous reconcile that already recorded the id.
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "movie-2"}, dl))
-	require.NoError(t, grabarrstatus.Patch(ctx, c, k8s.ManagerGrabarrEngine, dl,
+	require.NoError(t, grabstatus.Patch(ctx, c, k8s.ManagerRetiredEngine, dl,
 		func(ac *downloadac.DownloadStatusApplyConfiguration) { ac.WithDownloadID("pre-existing") }))
 
 	r := &usenetengine.Reconciler{
@@ -268,13 +268,13 @@ func TestReconcileMarksImportedAndRemovesOnImportByDefault(t *testing.T) {
 	fc.setItem(download.Item{ID: "done-1", Status: download.StatusCompleted, CanMoveFiles: true})
 
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "movie-4"}, dl))
-	require.NoError(t, grabarrstatus.Patch(ctx, c, k8s.ManagerGrabarrEngine, dl,
+	require.NoError(t, grabstatus.Patch(ctx, c, k8s.ManagerRetiredEngine, dl,
 		func(ac *downloadac.DownloadStatusApplyConfiguration) { ac.WithDownloadID("done-1") }))
 
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "movie-4"}, dl))
 	importAC := downloadac.Download(dl.Name, dl.Namespace).WithStatus(
 		downloadac.DownloadStatus().WithImport(downloadac.ImportState().WithState(downloadv1alpha1.ImportPhaseImported)))
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerImportarr, importAC)
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerImport, importAC)
 	require.NoError(t, err)
 
 	r := &usenetengine.Reconciler{Client: c, Download: fc, Resolver: &usenetengine.Resolver{}, Engine: "sabnzbd-0"}
@@ -304,13 +304,13 @@ func TestReconcileDoesNotRemoveDataOnImportWhenRemoveOnImportIsFalse(t *testing.
 	fc.setItem(download.Item{ID: "done-2", Status: download.StatusCompleted})
 
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "movie-5"}, dl))
-	require.NoError(t, grabarrstatus.Patch(ctx, c, k8s.ManagerGrabarrEngine, dl,
+	require.NoError(t, grabstatus.Patch(ctx, c, k8s.ManagerRetiredEngine, dl,
 		func(ac *downloadac.DownloadStatusApplyConfiguration) { ac.WithDownloadID("done-2") }))
 
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "movie-5"}, dl))
 	importAC := downloadac.Download(dl.Name, dl.Namespace).WithStatus(
 		downloadac.DownloadStatus().WithImport(downloadac.ImportState().WithState(downloadv1alpha1.ImportPhaseImported)))
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerImportarr, importAC)
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerImport, importAC)
 	require.NoError(t, err)
 
 	r := &usenetengine.Reconciler{Client: c, Download: fc, Resolver: &usenetengine.Resolver{}, Engine: "sabnzbd-0"}
@@ -337,12 +337,12 @@ func TestReconcileDeletingRemovesTransferAndTouchesNoOtherManagedField(t *testin
 	// reconcile already wrote telemetry. The deleting path must release
 	// neither.
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "movie-6"}, dl))
-	require.NoError(t, grabarrstatus.Patch(ctx, c, k8s.ManagerGrabarr, dl,
+	require.NoError(t, grabstatus.Patch(ctx, c, k8s.ManagerGrab, dl,
 		func(ac *downloadac.DownloadStatusApplyConfiguration) {
 			ac.WithPhase(downloadv1alpha1.DownloadPhaseDownloading).WithEngine("sabnzbd-0")
 		}))
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "movie-6"}, dl))
-	require.NoError(t, grabarrstatus.Patch(ctx, c, k8s.ManagerGrabarrEngine, dl,
+	require.NoError(t, grabstatus.Patch(ctx, c, k8s.ManagerRetiredEngine, dl,
 		func(ac *downloadac.DownloadStatusApplyConfiguration) { ac.WithDownloadID("live-1") }))
 
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "movie-6"}, dl))
@@ -364,7 +364,7 @@ func TestReconcileDeletingRemovesTransferAndTouchesNoOtherManagedField(t *testin
 		"the deleting path makes no status write of its own -- it only calls the in-memory client")
 
 	statusManagers := managersOf(got.ManagedFields, "status")
-	assert.Equal(t, map[string]bool{k8s.ManagerGrabarr.String(): true, k8s.ManagerGrabarrEngine.String(): true}, statusManagers,
+	assert.Equal(t, map[string]bool{k8s.ManagerGrab.String(): true, k8s.ManagerRetiredEngine.String(): true}, statusManagers,
 		"reconcileDeleting must add no managedFields entry of its own")
 }
 

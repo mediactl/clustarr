@@ -104,7 +104,7 @@ func createArtistAlbum(t *testing.T, ctx context.Context, f *fixture) *catalogv1
 		},
 	}
 	require.NoError(t, f.c.Create(ctx, artist))
-	_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalogarrMetadata, catalogac.Artist(artist.Name, f.ns).
+	_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalogMetadata, catalogac.Artist(artist.Name, f.ns).
 		WithStatus(catalogac.ArtistStatus().WithMetadata(catalogac.ArtistMetadata().WithName("Radiohead"))))
 	require.NoError(t, err)
 
@@ -115,11 +115,11 @@ func createArtistAlbum(t *testing.T, ctx context.Context, f *fixture) *catalogv1
 		},
 	}
 	require.NoError(t, f.c.Create(ctx, album))
-	_, err = k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalogarrMetadata, catalogac.Album(album.Name, f.ns).
+	_, err = k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalogMetadata, catalogac.Album(album.Name, f.ns).
 		WithStatus(catalogac.AlbumStatus().WithMetadata(
 			catalogac.AlbumMetadata().WithTitle("OK Computer").WithReleaseDate(*date(1997)))))
 	require.NoError(t, err)
-	_, err = k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalogarr, catalogac.Album(album.Name, f.ns).
+	_, err = k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalog, catalogac.Album(album.Name, f.ns).
 		WithStatus(catalogac.AlbumStatus().WithTrackFileCount(3)))
 	require.NoError(t, err)
 
@@ -204,7 +204,7 @@ func TestHandleAttributesAComicFileToAnExistingIssueOnly(t *testing.T) {
 		},
 	}
 	require.NoError(t, f.c.Create(ctx, comic))
-	_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalogarrMetadata, catalogac.Comic(comic.Name, f.ns).
+	_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalogMetadata, catalogac.Comic(comic.Name, f.ns).
 		WithStatus(catalogac.ComicStatus().WithMetadata(catalogac.ComicMetadata().WithTitle("Saga").WithYear(2012))))
 	require.NoError(t, err)
 	issue := &catalogv1alpha1.Issue{
@@ -284,7 +284,7 @@ func TestHandleAttributesABookFileToAnExistingBookOnly(t *testing.T) {
 		Spec:       catalogv1alpha1.AuthorSpec{OpenLibraryID: "OL79034A", QualityProfileRef: "books", RootFolderRef: f.rf.Name},
 	}
 	require.NoError(t, f.c.Create(ctx, author))
-	_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalogarrMetadata, catalogac.Author(author.Name, f.ns).
+	_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalogMetadata, catalogac.Author(author.Name, f.ns).
 		WithStatus(catalogac.AuthorStatus().WithMetadata(catalogac.AuthorMetadata().WithName("Frank Herbert"))))
 	require.NoError(t, err)
 	authorRef := author.Name
@@ -293,7 +293,7 @@ func TestHandleAttributesABookFileToAnExistingBookOnly(t *testing.T) {
 		Spec:       catalogv1alpha1.BookSpec{AuthorRef: &authorRef, WorkID: "OL893415W"},
 	}
 	require.NoError(t, f.c.Create(ctx, book))
-	_, err = k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalogarrMetadata, catalogac.Book(book.Name, f.ns).
+	_, err = k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalogMetadata, catalogac.Book(book.Name, f.ns).
 		WithStatus(catalogac.BookStatus().WithMetadata(catalogac.BookMetadata().WithTitle("Dune"))))
 	require.NoError(t, err)
 	waitCached(t, ctx, f.c, author, func() bool { return author.Status.Metadata != nil })
@@ -351,7 +351,7 @@ func TestHandleRescanReassertsFrozenImportFields(t *testing.T) {
 			WithOriginal(true).
 			WithImportedFrom(catalogac.ImportSource().WithDownloadRef("heat-dl").WithImportedAt(importedAt))))
 	require.NoError(t, err)
-	_, err = k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalogarr, catalogac.MediaFile(name, f.ns).
+	_, err = k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalog, catalogac.MediaFile(name, f.ns).
 		WithStatus(catalogac.MediaFileStatus().WithProbeHash("probe-1")))
 	require.NoError(t, err)
 	waitFor(t, 10*time.Second, func() bool {
@@ -385,7 +385,7 @@ func TestHandleRescanReassertsFrozenImportFields(t *testing.T) {
 		assert.Equal(t, string(rescan.FieldManager), managerFor(t, after.ManagedFields, "", leaf), leaf)
 	}
 	assert.Equal(t, "probe-1", after.Status.ProbeHash)
-	assert.Equal(t, string(k8s.ManagerCatalogarr), managerFor(t, after.ManagedFields, "status", "status.probeHash"))
+	assert.Equal(t, string(k8s.ManagerCatalog), managerFor(t, after.ManagedFields, "status", "status.probeHash"))
 }
 
 // assignScan creates a LibraryScan carrying the import-target annotation --
@@ -523,7 +523,7 @@ func TestHandleReadsReleaseYearsInUTC(t *testing.T) {
 		Spec:       catalogv1alpha1.ArtistSpec{MusicBrainzID: "mbid-1", QualityProfileRef: "music", RootFolderRef: f.rf.Name},
 	}
 	require.NoError(t, f.c.Create(ctx, artist))
-	_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalogarrMetadata, catalogac.Artist(artist.Name, f.ns).
+	_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalogMetadata, catalogac.Artist(artist.Name, f.ns).
 		WithStatus(catalogac.ArtistStatus().WithMetadata(catalogac.ArtistMetadata().WithName("Someone"))))
 	require.NoError(t, err)
 	album := &catalogv1alpha1.Album{
@@ -531,7 +531,7 @@ func TestHandleReadsReleaseYearsInUTC(t *testing.T) {
 		Spec:       catalogv1alpha1.AlbumSpec{ArtistRef: artist.Name, ReleaseGroupID: "rg-1"},
 	}
 	require.NoError(t, f.c.Create(ctx, album))
-	_, err = k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalogarrMetadata, catalogac.Album(album.Name, f.ns).
+	_, err = k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalogMetadata, catalogac.Album(album.Name, f.ns).
 		WithStatus(catalogac.AlbumStatus().WithMetadata(catalogac.AlbumMetadata().WithTitle("New Year").
 			WithReleaseDate(metav1.NewTime(time.Date(1997, 1, 1, 0, 30, 0, 0, time.UTC))))))
 	require.NoError(t, err)

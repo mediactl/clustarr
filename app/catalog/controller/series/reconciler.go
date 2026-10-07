@@ -391,7 +391,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, s *catalogv1alpha1.Ser
 				k8s.MarkTrue(s, &conditions, conditionQueueFull, "QueueFull", "metadata work queue is full")
 				statusAC = reassertKnownStatus(statusAC, s)
 				statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
-				if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr, catalogac.Series(s.Name, s.Namespace).WithStatus(withEntries(ctx, statusAC, s))); err != nil {
+				if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalog, catalogac.Series(s.Name, s.Namespace).WithStatus(withEntries(ctx, statusAC, s))); err != nil {
 					return ctrl.Result{}, err
 				}
 				return ctrl.Result{RequeueAfter: time.Minute}, nil
@@ -419,7 +419,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, s *catalogv1alpha1.Ser
 				k8s.MarkFalse(s, &conditions, k8s.ConditionReady, "RootFolderNotFound", "rootFolder %q not found", s.Spec.RootFolderRef)
 				statusAC = reassertKnownStatus(statusAC, s)
 				statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
-				if _, perr := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr, catalogac.Series(s.Name, s.Namespace).WithStatus(withEntries(ctx, statusAC, s))); perr != nil {
+				if _, perr := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalog, catalogac.Series(s.Name, s.Namespace).WithStatus(withEntries(ctx, statusAC, s))); perr != nil {
 					return ctrl.Result{}, perr
 				}
 				return ctrl.Result{RequeueAfter: time.Minute}, nil
@@ -440,7 +440,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, s *catalogv1alpha1.Ser
 					return ctrl.Result{}, err
 				}
 				if err := r.Patch(ctx, s.DeepCopy(), client.RawPatch(types.MergePatchType, body),
-					client.FieldOwner(k8s.ManagerCatalogarrClassify)); err != nil {
+					client.FieldOwner(k8s.ManagerCatalogClassify)); err != nil {
 					return ctrl.Result{}, err
 				}
 				r.normal(s, "Classified", "anime: quality profile %s, series type %s", c.QualityProfileRef, c.SeriesType)
@@ -639,7 +639,7 @@ func (r *Reconciler) cascadeSeasons(
 		}
 		patch := fmt.Appendf(nil, `{"spec":{"monitored":%t}}`, v)
 		obj := &catalogv1alpha1.Episode{ObjectMeta: metav1.ObjectMeta{Namespace: s.Namespace, Name: out[i].Name}}
-		if err := r.Patch(ctx, obj, client.RawPatch(types.MergePatchType, patch), client.FieldOwner(k8s.ManagerCatalogarrSeries)); err != nil {
+		if err := r.Patch(ctx, obj, client.RawPatch(types.MergePatchType, patch), client.FieldOwner(k8s.ManagerCatalogSeries)); err != nil {
 			if apierrors.IsNotFound(err) {
 				continue
 			}
@@ -840,7 +840,7 @@ func (r *Reconciler) ensureEpisode(ctx context.Context, s *catalogv1alpha1.Serie
 	// Episode reconciler's own fields needed here, and if the two ever
 	// genuinely claim the same field the apiserver reports a loud conflict
 	// instead of losing data quietly.
-	if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarrSeries, catalogac.Episode(d.Name, s.Namespace).WithStatus(statusAC)); err != nil {
+	if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogSeries, catalogac.Episode(d.Name, s.Namespace).WithStatus(statusAC)); err != nil {
 		return ep, created, err
 	}
 	// What this manager just declared is what the object now says: the

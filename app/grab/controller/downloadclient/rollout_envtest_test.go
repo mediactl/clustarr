@@ -182,7 +182,7 @@ func TestAnExistingUsenetDeploymentMovesToRecreate(t *testing.T) {
 			WithSelector(metav1ac.LabelSelector().WithMatchLabels(labels)).
 			WithTemplate(corev1ac.PodTemplateSpec().WithLabels(labels).WithSpec(corev1ac.PodSpec().
 				WithContainers(corev1ac.Container().WithName("engine").WithImage("img")))))
-	_, err := k8s.Apply(ctx, c, k8s.ManagerGrabarr, old)
+	_, err := k8s.Apply(ctx, c, k8s.ManagerGrab, old)
 	require.NoError(t, err)
 	var before appsv1.Deployment
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: "default", Name: "old-nzb-engine"}, &before))

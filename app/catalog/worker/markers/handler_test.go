@@ -191,7 +191,7 @@ func TestAFileNoLongerDueIsLeftAlone(t *testing.T) {
 // refuses a manager missing from k8s.FieldManagers: every apply failed
 // that way on the first deploy while the injected Apply hid it here.
 func TestTheMarkersManagerIsOnePatchStatusAccepts(t *testing.T) {
-	require.NoError(t, k8s.ManagerCatalogarrMarkers.Validate())
+	require.NoError(t, k8s.ManagerRetiredMarkers.Validate())
 }
 
 // No markers provider in the registry -- a disabled theintrodb, or the

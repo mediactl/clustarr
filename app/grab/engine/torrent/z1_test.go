@@ -154,7 +154,7 @@ func TestSyncPriorityRemoveCompletedAndSeedRecord(t *testing.T) {
 	off := false
 	dc.Spec.Torrent.RemoveCompleted = &off
 	require.NoError(t, c.Update(ctx, &dc))
-	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerImportarr,
+	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerImport,
 		downloadac.Download(dl.Name, ns).WithStatus(downloadac.DownloadStatus().
 			WithImport(downloadac.ImportState().WithState(downloadv1alpha1.ImportPhaseImported))))
 	require.NoError(t, err)

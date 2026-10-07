@@ -551,7 +551,7 @@ func (r *Reconciler) ensureIssue(ctx context.Context, c *catalogv1alpha1.Comic, 
 	// reconciler writes an Issue it owns but does not itself compute the
 	// acquisition state for -- see this package's doc.go and
 	// k8s.ManagerCatalogarrFanout's own doc comment for the full reasoning.
-	_, err = k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarrFanout, catalogac.Issue(d.Name, c.Namespace).WithStatus(statusAC))
+	_, err = k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogFanout, catalogac.Issue(d.Name, c.Namespace).WithStatus(statusAC))
 	return err
 }
 

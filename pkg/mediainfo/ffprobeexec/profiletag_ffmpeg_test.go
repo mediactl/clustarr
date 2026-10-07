@@ -46,7 +46,7 @@ import (
 // +use_metadata_tags -- so without that flag in the engine, every mp4
 // transcode would read back as an untouched original and stay upgradeable
 // forever.
-func TestProbeReadsTheTagSquasharrWrites(t *testing.T) {
+func TestProbeReadsTheTagTranscodeWrites(t *testing.T) {
 	if _, err := exec.LookPath("ffprobe"); err != nil {
 		t.Skip("ffprobe not on PATH")
 	}

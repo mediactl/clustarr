@@ -140,6 +140,6 @@ func TestForSingleNodeKeepsRelativeStreamSizing(t *testing.T) {
 	}
 	p, s := byName(Default()), byName(Default().ForSingleNode())
 
-	require.Greater(t, p[StreamReleases], p[StreamWorkIndexarr], "premise changed: re-pick the streams")
-	assert.Greater(t, s[StreamReleases], s[StreamWorkIndexarr], "scaling flattened production's ordering")
+	require.Greater(t, p[StreamReleases], p[StreamWorkIndex], "premise changed: re-pick the streams")
+	assert.Greater(t, s[StreamReleases], s[StreamWorkIndex], "scaling flattened production's ordering")
 }

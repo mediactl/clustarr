@@ -220,14 +220,14 @@ func createSteadyArtist(t *testing.T, ctx context.Context, c client.Client, ns, 
 	metaAC := catalogac.Artist(a.Name, a.Namespace).WithStatus(catalogac.ArtistStatus().
 		WithMetadata(catalogac.ArtistMetadata().WithName(name).WithRefreshedAt(metav1.Now())).
 		WithPath("/data/media/music/" + name))
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, metaAC)
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, metaAC)
 	require.NoError(t, err)
 	// Artist.status.path is catalogarr's own field, not the metadata
 	// gateway's, but nothing in this test package runs the real
 	// artist.Reconciler -- seed it directly under k8s.ManagerCatalogarr so
 	// this fixture matches what a real reconcile would have produced.
 	pathAC := catalogac.Artist(a.Name, a.Namespace).WithStatus(catalogac.ArtistStatus().WithPath("/data/media/music/" + name))
-	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, pathAC)
+	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, pathAC)
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		var got catalogv1alpha1.Artist
@@ -280,7 +280,7 @@ func TestAlbumReconcilerArtistNotFound(t *testing.T) {
 
 	metaAC := catalogac.Album(alb.Name, alb.Namespace).WithStatus(catalogac.AlbumStatus().WithMetadata(
 		catalogac.AlbumMetadata().WithTitle("OK Computer").WithRefreshedAt(metav1.Now())))
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, metaAC)
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, metaAC)
 	require.NoError(t, err)
 
 	r := &album.Reconciler{
@@ -317,7 +317,7 @@ func TestAlbumReconcilerNeverClaimsStatusMetadata(t *testing.T) {
 
 	metaAC := catalogac.Album(alb.Name, alb.Namespace).WithStatus(catalogac.AlbumStatus().WithMetadata(
 		catalogac.AlbumMetadata().WithTitle("OK Computer").WithReleaseDate(metav1.NewTime(time.Date(1997, 6, 16, 0, 0, 0, 0, time.UTC))).WithRefreshedAt(metav1.Now())))
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, metaAC)
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, metaAC)
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		var got catalogv1alpha1.Album
@@ -376,7 +376,7 @@ func TestAlbumReconcilerBuildsTracksFromTheExistingSingleLookupRPC(t *testing.T)
 	require.NoError(t, c.Create(ctx, alb))
 	metaAC := catalogac.Album(alb.Name, alb.Namespace).WithStatus(catalogac.AlbumStatus().WithMetadata(
 		catalogac.AlbumMetadata().WithTitle("OK Computer").WithRefreshedAt(metav1.Now())))
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, metaAC)
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, metaAC)
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		var got catalogv1alpha1.Album
@@ -439,7 +439,7 @@ func TestAlbumReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 		require.NoError(t, c.Create(ctx, alb))
 		metaAC := catalogac.Album(alb.Name, alb.Namespace).WithStatus(catalogac.AlbumStatus().WithMetadata(
 			catalogac.AlbumMetadata().WithTitle("Steady State").WithRefreshedAt(metav1.Now())))
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, metaAC)
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, metaAC)
 		require.NoError(t, err)
 		require.Eventually(t, func() bool {
 			var got catalogv1alpha1.Album
@@ -474,7 +474,7 @@ func TestAlbumReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 		oldRefresh := metav1.NewTime(time.Now().Add(-10 * 24 * time.Hour))
 		staleAC := catalogac.Album(before.Name, before.Namespace).WithStatus(catalogac.AlbumStatus().WithMetadata(
 			catalogac.AlbumMetadata().WithTitle("Steady State").WithRefreshedAt(oldRefresh)))
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, staleAC)
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, staleAC)
 		require.NoError(t, err)
 		require.Eventually(t, func() bool {
 			var got catalogv1alpha1.Album
@@ -524,7 +524,7 @@ func TestAlbumReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 		require.NoError(t, c.Create(ctx, alb))
 		metaAC := catalogac.Album(alb.Name, alb.Namespace).WithStatus(catalogac.AlbumStatus().WithMetadata(
 			catalogac.AlbumMetadata().WithTitle("Steady State").WithRefreshedAt(metav1.Now())))
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, metaAC)
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, metaAC)
 		require.NoError(t, err)
 		require.Eventually(t, func() bool {
 			var got catalogv1alpha1.Album
@@ -620,7 +620,7 @@ func TestAlbumReconcilerSelectsAReleaseAndAttributesTracks(t *testing.T) {
 		t.Helper()
 		metaAC := catalogac.Album(alb.Name, alb.Namespace).WithStatus(catalogac.AlbumStatus().WithMetadata(
 			catalogac.AlbumMetadata().WithTitle(title).WithRefreshedAt(metav1.Now())))
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, metaAC)
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, metaAC)
 		require.NoError(t, err)
 	}
 	gatewayApply("OK Computer")
@@ -724,7 +724,7 @@ func TestAlbumReconcilerSelectsAReleaseAndAttributesTracks(t *testing.T) {
 	// steady state reasserts the selection rather than releasing it.
 	staleAC := catalogac.Album(alb.Name, alb.Namespace).WithStatus(catalogac.AlbumStatus().WithMetadata(
 		catalogac.AlbumMetadata().WithTitle("OK Computer (Remastered)").WithRefreshedAt(metav1.NewTime(time.Now().Add(-30 * 24 * time.Hour)))))
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, staleAC)
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, staleAC)
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		return c.Get(ctx, key, &got) == nil && got.Status.Metadata.RefreshedAt.Time.Before(time.Now().Add(-24*time.Hour))

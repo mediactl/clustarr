@@ -25,12 +25,12 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	captionarr "github.com/mediactl/clustarr/app/caption"
-	catalogarr "github.com/mediactl/clustarr/app/catalog"
-	grabarr "github.com/mediactl/clustarr/app/grab"
-	importarr "github.com/mediactl/clustarr/app/import"
-	indexarr "github.com/mediactl/clustarr/app/indexer"
-	squasharr "github.com/mediactl/clustarr/app/squash"
+	captionapp "github.com/mediactl/clustarr/app/caption"
+	catalogapp "github.com/mediactl/clustarr/app/catalog"
+	grabapp "github.com/mediactl/clustarr/app/grab"
+	importapp "github.com/mediactl/clustarr/app/import"
+	indexapp "github.com/mediactl/clustarr/app/indexer"
+	transcodeapp "github.com/mediactl/clustarr/app/transcode"
 	"github.com/mediactl/clustarr/ui"
 )
 
@@ -66,7 +66,7 @@ func TestIndexDSNFlagReachesIndexerOptions(t *testing.T) {
 		{"all", "--index-dsn", wantDSN, "--ui-auth-mode", "anonymous"},
 	} {
 		t.Run("clustarr "+argv[0], func(t *testing.T) {
-			got := captureIndexarrOptions(t, argv...)
+			got := captureIndexOptions(t, argv...)
 			require.Equal(t, wantDSN, got.IndexDSN,
 				"clustarr %v did not carry --index-dsn through to indexer.Options.IndexDSN", argv)
 		})
@@ -87,7 +87,7 @@ func TestIndexDSNEnvDefaultsBothCommands(t *testing.T) {
 		{"all", "--ui-auth-mode", "anonymous"},
 	} {
 		t.Run("clustarr "+argv[0], func(t *testing.T) {
-			got := captureIndexarrOptions(t, argv...)
+			got := captureIndexOptions(t, argv...)
 			require.Equal(t, wantDSN, got.IndexDSN,
 				"clustarr %v did not default --index-dsn from $%s", argv, indexDSNEnv)
 		})
@@ -108,7 +108,7 @@ func TestIndexDSNEmptyKeepsSQLite(t *testing.T) {
 		{"all", "--ui-auth-mode", "anonymous"},
 	} {
 		t.Run("clustarr "+argv[0], func(t *testing.T) {
-			got := captureIndexarrOptions(t, argv...)
+			got := captureIndexOptions(t, argv...)
 			require.Empty(t, got.IndexDSN, "clustarr %v set IndexDSN with neither --index-dsn nor $%s given",
 				argv, indexDSNEnv)
 			require.NotEmpty(t, got.IndexPath, "IndexPath must still default when IndexDSN is empty")
@@ -119,27 +119,27 @@ func TestIndexDSNEmptyKeepsSQLite(t *testing.T) {
 // captureIndexarrOptions executes argv with every service entrypoint stubbed
 // (the `all` command starts all seven; `indexarr` alone only ever calls its
 // own) and returns the indexer.Options runIndexarr was called with.
-func captureIndexarrOptions(t *testing.T, argv ...string) indexarr.Options {
+func captureIndexOptions(t *testing.T, argv ...string) indexapp.Options {
 	t.Helper()
 
-	catalog, index, grab, squash, caption, importa, uiRun :=
-		runCatalogarr, runIndexarr, runGrabarr, runSquasharr, runCaptionarr, runImportarr, runUI
+	catalog, index, grab, transcode, caption, importa, uiRun :=
+		runCatalog, runIndex, runGrab, runTranscode, runCaption, runImport, runUI
 	t.Cleanup(func() {
-		runCatalogarr, runIndexarr, runGrabarr, runSquasharr, runCaptionarr, runImportarr, runUI =
-			catalog, index, grab, squash, caption, importa, uiRun
+		runCatalog, runIndex, runGrab, runTranscode, runCaption, runImport, runUI =
+			catalog, index, grab, transcode, caption, importa, uiRun
 	})
 
-	var got indexarr.Options
+	var got indexapp.Options
 	var called bool
-	runCatalogarr = func(context.Context, catalogarr.Options) error { return nil }
-	runIndexarr = func(_ context.Context, o indexarr.Options) error {
+	runCatalog = func(context.Context, catalogapp.Options) error { return nil }
+	runIndex = func(_ context.Context, o indexapp.Options) error {
 		got, called = o, true
 		return nil
 	}
-	runGrabarr = func(context.Context, grabarr.Options) error { return nil }
-	runSquasharr = func(context.Context, squasharr.Options) error { return nil }
-	runCaptionarr = func(context.Context, captionarr.Options) error { return nil }
-	runImportarr = func(context.Context, importarr.Options) error { return nil }
+	runGrab = func(context.Context, grabapp.Options) error { return nil }
+	runTranscode = func(context.Context, transcodeapp.Options) error { return nil }
+	runCaption = func(context.Context, captionapp.Options) error { return nil }
+	runImport = func(context.Context, importapp.Options) error { return nil }
 	runUI = func(context.Context, ui.Options) error { return nil }
 
 	_, err := execute(t, argv...)

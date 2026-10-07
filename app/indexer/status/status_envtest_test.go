@@ -87,7 +87,7 @@ func TestTheTwoManagersDoNotReleaseEachOthersFields(t *testing.T) {
 	require.NoError(t, c.Create(ctx, idx))
 
 	// Steady state, half written by each manager.
-	require.NoError(t, status.Patch(ctx, c, k8s.ManagerIndexarr, idx,
+	require.NoError(t, status.Patch(ctx, c, k8s.ManagerIndex, idx,
 		func(ac *indexac.IndexerStatusApplyConfiguration) {
 			ac.WithObservedGeneration(1).
 				WithPrivacy("private").
@@ -106,7 +106,7 @@ func TestTheTwoManagersDoNotReleaseEachOthersFields(t *testing.T) {
 
 	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(idx), idx))
 	now := metav1.NewTime(time.Now().Truncate(time.Second))
-	require.NoError(t, status.Patch(ctx, c, k8s.ManagerIndexarrWorker, idx,
+	require.NoError(t, status.Patch(ctx, c, k8s.ManagerIndexWorker, idx,
 		func(ac *indexac.IndexerStatusApplyConfiguration) {
 			ac.WithEscalationLevel(3).
 				WithIndexedReleases(41).
@@ -124,7 +124,7 @@ func TestTheTwoManagersDoNotReleaseEachOthersFields(t *testing.T) {
 
 	// Now each manager applies again, changing only its own field. Neither
 	// may disturb the other's half.
-	require.NoError(t, status.Patch(ctx, c, k8s.ManagerIndexarr, &seeded,
+	require.NoError(t, status.Patch(ctx, c, k8s.ManagerIndex, &seeded,
 		func(ac *indexac.IndexerStatusApplyConfiguration) { ac.WithObservedGeneration(2) }))
 
 	var afterController indexv1alpha1.Indexer
@@ -134,7 +134,7 @@ func TestTheTwoManagersDoNotReleaseEachOthersFields(t *testing.T) {
 	assert.NotNil(t, afterController.Status.LastRssAt, "the controller apply released lastRssAt")
 	assert.Equal(t, "boom", afterController.Status.LastFailure, "the controller apply released lastFailure")
 
-	require.NoError(t, status.Patch(ctx, c, k8s.ManagerIndexarrWorker, &afterController,
+	require.NoError(t, status.Patch(ctx, c, k8s.ManagerIndexWorker, &afterController,
 		func(ac *indexac.IndexerStatusApplyConfiguration) { ac.WithIndexedReleases(42) }))
 
 	var afterWorker indexv1alpha1.Indexer
@@ -196,7 +196,7 @@ func TestTheTwoManagersDoNotReleaseEachOthersFields(t *testing.T) {
 // A manager outside the split must be refused rather than allowed to claim
 // fields that neither half accounts for.
 func TestPatchRefusesAManagerOutsideTheSplit(t *testing.T) {
-	err := status.Patch(context.Background(), nil, k8s.ManagerCatalogarr,
+	err := status.Patch(context.Background(), nil, k8s.ManagerCatalog,
 		&indexv1alpha1.Indexer{ObjectMeta: metav1.ObjectMeta{Name: "x", Namespace: "y"}}, nil)
 	require.ErrorContains(t, err, "owns no part of Indexer.status")
 }
@@ -226,24 +226,24 @@ func TestTheWindowCountsAreOwnedByTheControllerAlone(t *testing.T) {
 	key := client.ObjectKeyFromObject(idx)
 
 	// Before the move: the worker manager owned both counts.
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerIndexarrWorker, indexac.Indexer(idx.Name, ns).
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerIndexWorker, indexac.Indexer(idx.Name, ns).
 		WithStatus(indexac.IndexerStatus().WithQueriesInWindow(7).WithGrabsInWindow(2).WithIndexedReleases(1)))
 	require.NoError(t, err)
-	require.Contains(t, statusFieldsOf(t, c, key, k8s.ManagerIndexarrWorker), "queriesInWindow", "setup")
+	require.Contains(t, statusFieldsOf(t, c, key, k8s.ManagerIndexWorker), "queriesInWindow", "setup")
 
 	// After it: one reconcile and one worker apply, in either order.
 	require.NoError(t, c.Get(ctx, key, idx))
 	idx.Status.QueriesInWindow, idx.Status.GrabsInWindow = 3, 1
-	require.NoError(t, status.Patch(ctx, c, k8s.ManagerIndexarr, idx, nil))
-	_, _, err = status.PatchCAS(ctx, c, c, k8s.ManagerIndexarrWorker, key,
+	require.NoError(t, status.Patch(ctx, c, k8s.ManagerIndex, idx, nil))
+	_, _, err = status.PatchCAS(ctx, c, c, k8s.ManagerIndexWorker, key,
 		func(fresh *indexv1alpha1.Indexer, ac *indexac.IndexerStatusApplyConfiguration) bool {
 			ac.WithIndexedReleases(fresh.Status.IndexedReleases + 1)
 			return false
 		})
 	require.NoError(t, err)
 
-	worker := statusFieldsOf(t, c, key, k8s.ManagerIndexarrWorker)
-	controller := statusFieldsOf(t, c, key, k8s.ManagerIndexarr)
+	worker := statusFieldsOf(t, c, key, k8s.ManagerIndexWorker)
+	controller := statusFieldsOf(t, c, key, k8s.ManagerIndex)
 	for _, f := range []string{"queriesInWindow", "grabsInWindow"} {
 		assert.NotContains(t, worker, f, "indexarr-worker still owns status.%s", f)
 		assert.Contains(t, controller, f, "indexarr does not own status.%s", f)

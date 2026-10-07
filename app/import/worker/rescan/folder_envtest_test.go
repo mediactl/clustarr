@@ -261,7 +261,7 @@ func TestHandleNeverReadsAGrandparentsIDForAJunkNamedFile(t *testing.T) {
 			Spec:       catalogv1alpha1.MovieSpec{TmdbID: 348, QualityProfileRef: "hd-bluray-web", RootFolderRef: f.rf.Name},
 		}
 		require.NoError(t, f.c.Create(ctx, alien))
-		_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalogarrMetadata, catalogac.Movie(alien.Name, f.ns).WithStatus(
+		_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalogMetadata, catalogac.Movie(alien.Name, f.ns).WithStatus(
 			catalogac.MovieStatus().WithMetadata(catalogac.MovieMetadata().WithTitle("Alien").WithYear(1979))))
 		require.NoError(t, err)
 		waitCached(t, ctx, f.c, byID, func() bool { return true })

@@ -86,7 +86,7 @@ func TestSetSeasonMonitoredKeepsTheOtherSeasonsAndSurvivesARacingWriter(t *testi
 	}}
 	require.NoError(t, c.Create(ctx, series, client.FieldOwner(creatorManager)))
 	gvk := mustGVK(t, series, scheme)
-	seedStatus(ctx, t, c, k8s.ManagerCatalogarr, gvk, series.Name, ns)
+	seedStatus(ctx, t, c, k8s.ManagerCatalog, gvk, series.Name, ns)
 	rec := &recordingWriter{c: c}
 
 	got, err := actions.SetSeasonMonitored(ctx, c, rec, ns, "simpsons", 2, false)
@@ -101,7 +101,7 @@ func TestSetSeasonMonitoredKeepsTheOtherSeasonsAndSurvivesARacingWriter(t *testi
 	requireNeverOnStatus(t, after)
 	entry := requireOneUIEntry(t, after)
 	requireFieldsContain(t, entry, "f:spec", "f:seasons")
-	requireStatusStillOwnedBy(t, after, k8s.ManagerCatalogarr.String())
+	requireStatusStillOwnedBy(t, after, k8s.ManagerCatalog.String())
 
 	// A real second writer unmonitors season 1 after the action has read
 	// the Series and before it patches: the first patch must be refused

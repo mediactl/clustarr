@@ -225,7 +225,7 @@ func (cc *ClientCache) For(ctx context.Context, idx *indexv1alpha1.Indexer) (idx
 	// URL, not a connection.
 	sessions := cc.Sessions
 	if sessions == nil {
-		sessions = idxclients.NewSessionStore(cc.client, nil, k8s.ManagerIndexarrWorker)
+		sessions = idxclients.NewSessionStore(cc.client, nil, k8s.ManagerIndexWorker)
 	}
 	built, err := buildWireClientFor(ctx, cc.client, idx, sel, cc.limiters, sessions,
 		func(def *cardigann.Definition, floor time.Duration) { cc.ApplyRateLimit(idx, def, floor) })

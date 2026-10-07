@@ -61,7 +61,7 @@ func donorClip(t *testing.T, langs ...string) string {
 func (f *fixture) donorFor(t *testing.T, name, contentRoot string) *downloadv1alpha1.Download {
 	t.Helper()
 	ctx := context.Background()
-	_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalogarr, catalogac.Movie(f.movieName, f.ns).WithStatus(
+	_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalog, catalogac.Movie(f.movieName, f.ns).WithStatus(
 		catalogac.MovieStatus().
 			WithMetadata(catalogac.MovieMetadata().WithTitle("The Matrix").WithYear(1999).WithOriginalLanguage("ja")).
 			WithAudio(catalogac.AudioState().WithWanted("en", "ja").WithPresent("ja").WithMissing("en").WithGraft("grabbed"))))
@@ -83,7 +83,7 @@ func (f *fixture) donorFor(t *testing.T, name, contentRoot string) *downloadv1al
 		},
 	}
 	require.NoError(t, f.c.Create(ctx, dl))
-	_, err = k8s.PatchStatus(ctx, f.c, k8s.ManagerGrabarr, downloadac.Download(name, f.ns).WithStatus(
+	_, err = k8s.PatchStatus(ctx, f.c, k8s.ManagerGrab, downloadac.Download(name, f.ns).WithStatus(
 		downloadac.DownloadStatus().WithPhase(downloadv1alpha1.DownloadPhaseCompleted).WithContentRoot(contentRoot).WithCanMoveFiles(false)))
 	require.NoError(t, err)
 	waitFor(t, 5*time.Second, func() bool {

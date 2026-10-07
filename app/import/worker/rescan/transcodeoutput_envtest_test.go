@@ -47,7 +47,7 @@ func finishedJob(t *testing.T, ctx context.Context, f *fixture, name, mediaFile,
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: f.ns},
 		Spec:       transcodev1alpha1.TranscodeJobSpec{MediaFileRef: mediaFile, ProfileRef: "hevc-1080p", SourcePath: source},
 	}))
-	_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerSquasharr, transcodeac.TranscodeJob(name, f.ns).WithStatus(
+	_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerTranscode, transcodeac.TranscodeJob(name, f.ns).WithStatus(
 		transcodeac.TranscodeJobStatus().WithPhase(phase).WithResult(transcodeac.Result().WithOutputPath(output))))
 	require.NoError(t, err)
 	waitFor(t, 10*time.Second, func() bool {
@@ -66,7 +66,7 @@ func finishedJob(t *testing.T, ctx context.Context, f *fixture, name, mediaFile,
 // MediaFile records it; then it is the catalog's like any other. A job that
 // did not succeed protects nothing, and squasharr's half-written
 // <stem>.part.<ext> is a part.
-func TestHandleLeavesTranscodeOutputsToCatalogarr(t *testing.T) {
+func TestHandleLeavesTranscodeOutputsToCatalog(t *testing.T) {
 	ctx := context.Background()
 	f := newFixture(t, ctx, "rw-transcode-out", catalogv1alpha1.RootFolderKindMovie, "hd-bluray-web", catalogv1alpha1.ScanModeIncremental)
 	name, source, _ := f.importedFile(t, ctx) // Heat, steady state: recorded, fingerprint current
@@ -105,7 +105,7 @@ func TestHandleLeavesTranscodeOutputsToCatalogarr(t *testing.T) {
 	// source's derived file is still left alone.
 	info, err := os.Stat(containerChange)
 	require.NoError(t, err)
-	_, err = k8s.Apply(ctx, f.c, k8s.ManagerCatalogarr, catalogac.MediaFile(name, f.ns).WithSpec(
+	_, err = k8s.Apply(ctx, f.c, k8s.ManagerCatalog, catalogac.MediaFile(name, f.ns).WithSpec(
 		catalogac.MediaFileSpec().WithPath(containerChange).WithSizeBytes(info.Size()).
 			WithModTime(metav1.NewTime(info.ModTime())).WithOriginal(false)))
 	require.NoError(t, err)

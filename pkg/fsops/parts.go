@@ -24,7 +24,7 @@ import (
 )
 
 // TranscodePart is a transcode attempt's in-progress output,
-// <Stem>.part-<JobUID8>-<Attempt><Ext>, as app/squash/worker's
+// <Stem>.part-<JobUID8>-<Attempt><Ext>, as app/transcode/worker's
 // uniquePartPath names it beside the output path <Stem><Ext>.
 type TranscodePart struct {
 	// Stem is the output path without its extension, directory included.

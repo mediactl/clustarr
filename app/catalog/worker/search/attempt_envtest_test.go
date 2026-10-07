@@ -99,14 +99,14 @@ func TestWorkerRecordingAnAttemptLeavesTheGrabPathsFieldsIntact(t *testing.T) {
 	// reconciler's phase and activeDownloadRef, and a delayed grab already
 	// pending under the grab manager. A blank object could not observe a
 	// release.
-	_, err := k8s.PatchStatus(ctx, f.mgr, k8s.ManagerCatalogarr,
+	_, err := k8s.PatchStatus(ctx, f.mgr, k8s.ManagerCatalog,
 		catalogac.Movie("the-matrix", f.ns).WithStatus(
 			catalogac.MovieStatus().
 				WithPhase(catalogv1alpha1.MoviePhaseDelayed).
 				WithActiveDownloadRef("the-matrix-abc1234567")))
 	require.NoError(t, err)
 	grabAt := metav1.NewTime(time.Now().Add(time.Hour).Truncate(time.Second))
-	_, err = k8s.PatchStatus(ctx, f.mgr, k8s.ManagerCatalogarrGrab,
+	_, err = k8s.PatchStatus(ctx, f.mgr, k8s.ManagerCatalogGrab,
 		catalogac.Movie("the-matrix", f.ns).WithStatus(
 			catalogac.MovieStatus().
 				WithPendingGrab(catalogac.PendingGrab().
@@ -155,9 +155,9 @@ func TestWorkerRecordingAnAttemptLeavesTheGrabPathsFieldsIntact(t *testing.T) {
 			continue
 		}
 		switch mf.Manager {
-		case string(k8s.ManagerCatalogarrGrab):
+		case string(k8s.ManagerCatalogGrab):
 			grabFields = mf.FieldsV1.GetRawString()
-		case string(k8s.ManagerCatalogarr):
+		case string(k8s.ManagerCatalog):
 			reconcilerFields = mf.FieldsV1.GetRawString()
 		}
 	}

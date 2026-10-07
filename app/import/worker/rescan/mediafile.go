@@ -357,7 +357,7 @@ func (w *Worker) handOver(ctx context.Context, st *scanState, existing *catalogv
 	if !st.task.DryRun && existing.Annotations[AnnotationObservedFingerprint] != fp {
 		ac := catalogac.MediaFile(existing.Name, existing.Namespace).
 			WithAnnotations(map[string]string{AnnotationObservedFingerprint: fp})
-		if _, err := k8s.Apply(ctx, w.Client, k8s.ManagerImportarr, ac); err != nil {
+		if _, err := k8s.Apply(ctx, w.Client, k8s.ManagerImport, ac); err != nil {
 			return fmt.Errorf("rescan: hand media file %s over to catalogarr: %w", existing.Name, err)
 		}
 	}

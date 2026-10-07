@@ -309,7 +309,7 @@ func TestComicReconcilerRealController(t *testing.T) {
 				catalogac.ComicMetadata().WithTitle("Hellboy").WithRefreshedAt(metav1.Now()),
 			),
 		)
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, metaAC)
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, metaAC)
 		require.NoError(t, err)
 
 		var issues catalogv1alpha1.IssueList
@@ -549,7 +549,7 @@ func TestComicReconcilerRealController(t *testing.T) {
 		issAC := catalogac.Issue("hellboy-001.0", "comic-ns").WithStatus(
 			catalogac.IssueStatus().WithHasFile(true),
 		)
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, issAC)
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, issAC)
 		require.NoError(t, err)
 
 		require.Eventually(t, func() bool {
@@ -589,7 +589,7 @@ func TestComicReconcilerRealController(t *testing.T) {
 				catalogac.ComicMetadata().WithTitle("Self Loop Comic").WithRefreshedAt(metav1.Now()),
 			),
 		)
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, metaAC)
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, metaAC)
 		require.NoError(t, err)
 
 		require.Eventually(t, func() bool { return counter.count() > n }, 5*time.Second, 20*time.Millisecond,
@@ -711,7 +711,7 @@ func TestComicReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 				catalogac.ComicMetadata().WithTitle("Steady State").WithRefreshedAt(metav1.Now()),
 			),
 		)
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, metaAC)
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, metaAC)
 		require.NoError(t, err)
 		require.Eventually(t, func() bool {
 			var got catalogv1alpha1.Comic
@@ -740,7 +740,7 @@ func TestComicReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 		issAC := catalogac.Issue(name+"-001.0", "comic-transient-ns").WithStatus(
 			catalogac.IssueStatus().WithHasFile(true),
 		)
-		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, issAC)
+		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, issAC)
 		require.NoError(t, err)
 		require.Eventually(t, func() bool {
 			var got catalogv1alpha1.Issue
@@ -776,7 +776,7 @@ func TestComicReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 				catalogac.ComicMetadata().WithTitle("Steady State").WithRefreshedAt(oldRefresh),
 			),
 		)
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, staleAC)
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, staleAC)
 		require.NoError(t, err)
 		require.Eventually(t, func() bool {
 			var got catalogv1alpha1.Comic
@@ -903,8 +903,8 @@ func TestComicIssueFieldManagersStayDisjoint(t *testing.T) {
 
 	// Comic's write landed under catalogarr-fanout, claiming exactly the
 	// provider fields it set (sourceID, title) and nothing Issue-owned.
-	fanoutFields := managedStatusFieldPaths(iss.ManagedFields, string(k8s.ManagerCatalogarrFanout))
-	require.NotNil(t, fanoutFields, "no %s/status entry in managedFields: %+v", k8s.ManagerCatalogarrFanout, fieldManagerNames(iss.ManagedFields))
+	fanoutFields := managedStatusFieldPaths(iss.ManagedFields, string(k8s.ManagerCatalogFanout))
+	require.NotNil(t, fanoutFields, "no %s/status entry in managedFields: %+v", k8s.ManagerCatalogFanout, fieldManagerNames(iss.ManagedFields))
 	fanoutStatusNames := statusFieldNames(fanoutFields)
 	assert.True(t, fanoutStatusNames["title"], "catalogarr-fanout should own status.title")
 	assert.True(t, fanoutStatusNames["sourceID"], "catalogarr-fanout should own status.sourceID")
@@ -920,7 +920,7 @@ func TestComicIssueFieldManagersStayDisjoint(t *testing.T) {
 			WithState(catalogv1alpha1.IssueStateDownloaded).
 			WithHasFile(true),
 	)
-	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, issAC)
+	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, issAC)
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool {
@@ -934,20 +934,20 @@ func TestComicIssueFieldManagersStayDisjoint(t *testing.T) {
 	assert.Equal(t, catalogv1alpha1.IssueStateDownloaded, iss.Status.State)
 	assert.True(t, iss.Status.HasFile)
 
-	for _, want := range []string{string(k8s.ManagerCatalogarrFanout), string(k8s.ManagerCatalogarr)} {
+	for _, want := range []string{string(k8s.ManagerCatalogFanout), string(k8s.ManagerCatalog)} {
 		if !managesField(iss.ManagedFields, want, "status") {
 			t.Errorf("no %q/status entry in managedFields: %+v", want, fieldManagerNames(iss.ManagedFields))
 		}
 	}
-	fanoutFields = managedStatusFieldPaths(iss.ManagedFields, string(k8s.ManagerCatalogarrFanout))
+	fanoutFields = managedStatusFieldPaths(iss.ManagedFields, string(k8s.ManagerCatalogFanout))
 	require.NotNil(t, fanoutFields)
 	fanoutStatusNames = statusFieldNames(fanoutFields)
 	assert.True(t, fanoutStatusNames["title"])
 	assert.False(t, fanoutStatusNames["state"], "catalogarr-fanout must still not claim status.state after the Issue write")
 	assert.False(t, fanoutStatusNames["hasFile"], "catalogarr-fanout must still not claim status.hasFile after the Issue write")
 
-	issueFields := managedStatusFieldPaths(iss.ManagedFields, string(k8s.ManagerCatalogarr))
-	require.NotNil(t, issueFields, "no %s/status entry in managedFields: %+v", k8s.ManagerCatalogarr, fieldManagerNames(iss.ManagedFields))
+	issueFields := managedStatusFieldPaths(iss.ManagedFields, string(k8s.ManagerCatalog))
+	require.NotNil(t, issueFields, "no %s/status entry in managedFields: %+v", k8s.ManagerCatalog, fieldManagerNames(iss.ManagedFields))
 	issueStatusNames := statusFieldNames(issueFields)
 	assert.True(t, issueStatusNames["state"], "catalogarr should own status.state")
 	assert.True(t, issueStatusNames["hasFile"], "catalogarr should own status.hasFile")

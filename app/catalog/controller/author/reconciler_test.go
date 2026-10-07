@@ -343,7 +343,7 @@ func TestAuthorReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 			catalogac.AuthorMetadata().WithName("Steady State Author").WithRefreshedAt(metav1.Now()),
 		),
 	)
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, metaAC)
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, metaAC)
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		var got catalogv1alpha1.Author
@@ -391,7 +391,7 @@ func TestAuthorReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 					WithRefreshedAt(metav1.NewTime(time.Now().Add(-40 * 24 * time.Hour))),
 			),
 		)
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, oldAC)
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, oldAC)
 		require.NoError(t, err)
 		require.Eventually(t, func() bool {
 			var got catalogv1alpha1.Author
@@ -429,7 +429,7 @@ func TestAuthorReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 				catalogac.AuthorMetadata().WithName("Steady State Author").WithRefreshedAt(metav1.Now()),
 			),
 		)
-		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, freshAC)
+		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, freshAC)
 		require.NoError(t, err)
 	})
 

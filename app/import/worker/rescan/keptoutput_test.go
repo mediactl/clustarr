@@ -35,7 +35,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/import/worker/rescan"
-	"github.com/mediactl/clustarr/app/squash/jobspec"
+	"github.com/mediactl/clustarr/app/transcode/jobspec"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
@@ -43,7 +43,7 @@ import (
 // a replaceSource=false output -- the convention is restated in importarr,
 // so it is held to squasharr's own function here -- and nothing a person
 // would call a version of their own.
-func TestKeptOutputNameReadsSquasharrsName(t *testing.T) {
+func TestKeptOutputNameReadsTheTranscodeName(t *testing.T) {
 	for _, tc := range []struct {
 		source, profile string
 		container       transcodev1alpha1.Container
@@ -104,7 +104,7 @@ func TestHandleKeepsAKeptSourcesOutputOnceItsJobIsGone(t *testing.T) {
 			name, source, _ := f.importedFile(t, ctx) // Heat, recorded, no TranscodeJob anywhere
 			f.waitOriginal(t, ctx, name, true)
 			if tc.sourceTag != "" {
-				_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalogarr, catalogac.MediaFile(name, f.ns).WithStatus(
+				_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalog, catalogac.MediaFile(name, f.ns).WithStatus(
 					catalogac.MediaFileStatus().WithTranscode(catalogac.TranscodeState().
 						WithProfileTag(tc.sourceTag).WithLastResult(catalogv1alpha1.TranscodeResultSucceeded))))
 				require.NoError(t, err)

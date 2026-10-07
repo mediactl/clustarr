@@ -97,7 +97,7 @@ func TestAlbumReconcilerPublishesMediaFileEvents(t *testing.T) {
 	require.NoError(t, c.Create(ctx, alb))
 	metaAC := catalogac.Album(alb.Name, alb.Namespace).WithStatus(catalogac.AlbumStatus().WithMetadata(
 		catalogac.AlbumMetadata().WithTitle("OK Computer").WithRefreshedAt(metav1.Now())))
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, metaAC)
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, metaAC)
 	require.NoError(t, err)
 	key := types.NamespacedName{Namespace: ns, Name: alb.Name}
 	require.Eventually(t, func() bool {

@@ -27,7 +27,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/yaml"
 
-	importarr "github.com/mediactl/clustarr/app/import"
+	importapp "github.com/mediactl/clustarr/app/import"
 )
 
 // TestEveryImportarrDeploymentMountsTheDataClaim holds both installers to
@@ -42,16 +42,16 @@ import (
 // Each Deployment that runs `clustarr importarr` must mount a
 // PersistentVolumeClaim at /data and set UMASK, whatever its --role; both
 // readiness gates include /data writability (app/import's Run).
-func TestEveryImportarrDeploymentMountsTheDataClaim(t *testing.T) {
+func TestEveryImportDeploymentMountsTheDataClaim(t *testing.T) {
 	root, err := filepath.Abs("../..")
 	require.NoError(t, err)
 
-	t.Run("kustomize", func(t *testing.T) { assertKustomizeImportarrData(t, root) })
-	t.Run("chart", func(t *testing.T) { assertChartImportarrData(t, root) })
+	t.Run("kustomize", func(t *testing.T) { assertKustomizeImportData(t, root) })
+	t.Run("chart", func(t *testing.T) { assertChartImportData(t, root) })
 }
 
 // importarrWorkload is the slice of a Deployment manifest this guard reads.
-type importarrWorkload struct {
+type importWorkload struct {
 	Kind     string `json:"kind"`
 	Metadata struct {
 		Name string `json:"name"`
@@ -78,13 +78,13 @@ type importarrWorkload struct {
 	} `json:"spec"`
 }
 
-func assertKustomizeImportarrData(t *testing.T, root string) {
+func assertKustomizeImportData(t *testing.T, root string) {
 	t.Helper()
 	dir := filepath.Join(root, "config", "manager")
 	entries, err := os.ReadDir(dir)
 	require.NoError(t, err)
 
-	roles := map[importarr.Role]bool{}
+	roles := map[importapp.Role]bool{}
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".yaml") || entry.Name() == "kustomization.yaml" {
 			continue
@@ -92,7 +92,7 @@ func assertKustomizeImportarrData(t *testing.T, root string) {
 		raw, err := os.ReadFile(filepath.Join(dir, entry.Name()))
 		require.NoError(t, err)
 		for _, doc := range strings.Split(string(raw), "\n---") {
-			var w importarrWorkload
+			var w importWorkload
 			require.NoError(t, yaml.Unmarshal([]byte(doc), &w), "parse %s", entry.Name())
 			if w.Kind != "Deployment" {
 				continue
@@ -104,16 +104,16 @@ func assertKustomizeImportarrData(t *testing.T, root string) {
 				}
 			}
 			for _, c := range w.Spec.Template.Spec.Containers {
-				if len(c.Args) == 0 || c.Args[0] != importarr.ServiceName {
+				if len(c.Args) == 0 || c.Args[0] != importapp.ServiceName {
 					continue
 				}
 				roles[roleArg(c.Args)] = true
 				mounted := false
 				for _, m := range c.VolumeMounts {
-					mounted = mounted || (m.MountPath == importarr.DefaultDataPath && pvcs[m.Name])
+					mounted = mounted || (m.MountPath == importapp.DefaultDataPath && pvcs[m.Name])
 				}
 				require.True(t, mounted, "%s: Deployment %s runs `importarr --role %s` and mounts no "+
-					"PersistentVolumeClaim at %s", entry.Name(), w.Metadata.Name, roleArg(c.Args), importarr.DefaultDataPath)
+					"PersistentVolumeClaim at %s", entry.Name(), w.Metadata.Name, roleArg(c.Args), importapp.DefaultDataPath)
 				umask := false
 				for _, e := range c.Env {
 					umask = umask || e.Name == "UMASK"
@@ -123,14 +123,14 @@ func assertKustomizeImportarrData(t *testing.T, root string) {
 			}
 		}
 	}
-	require.True(t, roles[importarr.RoleController] && roles[importarr.RoleWorker],
+	require.True(t, roles[importapp.RoleController] && roles[importapp.RoleWorker],
 		"config/manager should run importarr as both a controller and a worker Deployment; found roles %v", roles)
 }
 
-func roleArg(args []string) importarr.Role {
+func roleArg(args []string) importapp.Role {
 	for i, a := range args {
 		if a == "--role" && i+1 < len(args) {
-			return importarr.Role(args[i+1])
+			return importapp.Role(args[i+1])
 		}
 	}
 	return ""
@@ -147,23 +147,23 @@ var (
 // helm skips wherever helm is missing. clustarr.workload's "data" flag adds
 // the /data claim, its mount, fsGroup and UMASK together
 // (TestEveryPVCMountingWorkloadGetsFsGroup holds the fsGroup half).
-func assertChartImportarrData(t *testing.T, root string) {
+func assertChartImportData(t *testing.T, root string) {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join(root, "charts", "clustarr", "templates", "deployments.yaml"))
 	require.NoError(t, err)
 
-	roles := map[importarr.Role]bool{}
+	roles := map[importapp.Role]bool{}
 	for _, call := range strings.Split(string(raw), `include "clustarr.workload"`)[1:] {
 		args := chartWorkloadArgs.FindStringSubmatch(call)
 		if args == nil {
 			continue
 		}
-		role := importarr.Role(args[1])
+		role := importapp.Role(args[1])
 		roles[role] = true
 		data := chartWorkloadData.FindStringSubmatch(call)
 		require.NotNil(t, data, "the chart's importarr --role %s workload passes no \"data\" flag", role)
 		require.Equal(t, "true", data[1], "the chart's importarr --role %s workload does not mount /data", role)
 	}
-	require.True(t, roles[importarr.RoleController] && roles[importarr.RoleWorker],
+	require.True(t, roles[importapp.RoleController] && roles[importapp.RoleWorker],
 		"the chart should run importarr as both a controller and a worker workload; found roles %v", roles)
 }

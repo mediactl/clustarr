@@ -79,7 +79,7 @@ func steadyState(
 	// The Indexer reconciler's half, under ITS manager. It must survive
 	// every apply this package makes: that disjointness is what ruling R6's
 	// split exists for.
-	require.NoError(t, idxstatus.Patch(ctx, c, k8s.ManagerIndexarr, idx,
+	require.NoError(t, idxstatus.Patch(ctx, c, k8s.ManagerIndex, idx,
 		func(ac *indexac.IndexerStatusApplyConfiguration) {
 			*ac = *idxstatus.ControllerFields(indexv1alpha1.IndexerStatus{
 				ObservedGeneration: 1,
@@ -105,7 +105,7 @@ func steadyState(
 	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(idx), idx))
 
 	rssAt := metav1.NewTime(time.Now().Add(-time.Hour).Truncate(time.Second))
-	require.NoError(t, idxstatus.Patch(ctx, c, k8s.ManagerIndexarrWorker, idx,
+	require.NoError(t, idxstatus.Patch(ctx, c, k8s.ManagerIndexWorker, idx,
 		func(ac *indexac.IndexerStatusApplyConfiguration) {
 			*ac = *idxstatus.WorkerFields(indexv1alpha1.IndexerStatus{
 				LastRssAt:       &rssAt,
@@ -228,7 +228,7 @@ func TestASuccessfulSearchClearsTheEscalation(t *testing.T) {
 	// Drive it into backoff first, the way a run of failures would.
 	until := metav1.NewTime(time.Now().Add(-time.Minute).Truncate(time.Second))
 	failedAt := metav1.NewTime(time.Now().Add(-2 * time.Minute).Truncate(time.Second))
-	require.NoError(t, idxstatus.Patch(ctx, c, k8s.ManagerIndexarrWorker, idx,
+	require.NoError(t, idxstatus.Patch(ctx, c, k8s.ManagerIndexWorker, idx,
 		func(ac *indexac.IndexerStatusApplyConfiguration) {
 			st := idx.Status
 			st.EscalationLevel = 1
@@ -282,7 +282,7 @@ func (i interleavingClient) Search(ctx context.Context, _ torznab.Query) ([]torz
 
 	until := metav1.NewTime(time.Now().Add(30 * time.Minute).Truncate(time.Second))
 	rssAt := metav1.NewTime(time.Now().Truncate(time.Second))
-	require.NoError(i.t, idxstatus.Patch(ctx, i.c, k8s.ManagerIndexarrWorker, &live,
+	require.NoError(i.t, idxstatus.Patch(ctx, i.c, k8s.ManagerIndexWorker, &live,
 		func(ac *indexac.IndexerStatusApplyConfiguration) {
 			st := live.Status
 			st.LastRssAt = &rssAt
@@ -375,7 +375,7 @@ func TestASearchCountsOnTheRingAndLeavesTheProjectionAlone(t *testing.T) {
 	require.Equal(t, int32(5), got.Status.QueriesInWindow, "the search wrote the reconciler's projection")
 	require.Equal(t, int32(3), got.Status.GrabsInWindow)
 	for _, mf := range got.ManagedFields {
-		if mf.Manager == k8s.ManagerIndexarrWorker.String() && mf.FieldsV1 != nil {
+		if mf.Manager == k8s.ManagerIndexWorker.String() && mf.FieldsV1 != nil {
 			require.NotContains(t, mf.FieldsV1.GetRawString(), "f:queriesInWindow", "the worker manager claimed queriesInWindow")
 			require.NotContains(t, mf.FieldsV1.GetRawString(), "f:grabsInWindow", "the worker manager claimed grabsInWindow")
 		}
@@ -403,7 +403,7 @@ func (r *racingReader) Get(ctx context.Context, key client.ObjectKey, obj client
 	}
 	if !r.raced {
 		r.raced = true
-		_, _, err := idxstatus.PatchCAS(ctx, r.Reader, r.c, k8s.ManagerIndexarrWorker, key,
+		_, _, err := idxstatus.PatchCAS(ctx, r.Reader, r.c, k8s.ManagerIndexWorker, key,
 			func(fresh *indexv1alpha1.Indexer, ac *indexac.IndexerStatusApplyConfiguration) bool {
 				ac.WithIndexedReleases(fresh.Status.IndexedReleases + 100)
 				return false

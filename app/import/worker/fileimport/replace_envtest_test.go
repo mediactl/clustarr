@@ -68,7 +68,7 @@ func newAlbumFixture(t *testing.T, ns string, tracks []string, qualities ...stri
 		Spec:       catalogv1alpha1.ArtistSpec{MusicBrainzID: "a74b1b7f", QualityProfileRef: profile, RootFolderRef: rf.Name},
 	}
 	require.NoError(t, f.c.Create(ctx, artist))
-	_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalogarrMetadata, catalogac.Artist(artist.Name, f.ns).
+	_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalogMetadata, catalogac.Artist(artist.Name, f.ns).
 		WithStatus(catalogac.ArtistStatus().WithMetadata(catalogac.ArtistMetadata().WithName("Radiohead"))))
 	require.NoError(t, err)
 	album := &catalogv1alpha1.Album{
@@ -81,7 +81,7 @@ func newAlbumFixture(t *testing.T, ns string, tracks []string, qualities ...stri
 	for i, id := range tracks {
 		status = status.WithTracks(catalogac.Track().WithRecordingID(id).WithMedium(1).WithNumber(int32(i + 1)))
 	}
-	_, err = k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalogarr, catalogac.Album(album.Name, f.ns).WithStatus(status))
+	_, err = k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalog, catalogac.Album(album.Name, f.ns).WithStatus(status))
 	require.NoError(t, err)
 	waitFor(t, 5*time.Second, func() bool {
 		var a catalogv1alpha1.Album

@@ -51,7 +51,7 @@ func objects(t *testing.T, in []byte) []*unstructured.Unstructured {
 // segmentarr-worker reads /data and talks NATS, nothing else: its pod
 // mounts no ServiceAccount token and no binding names its account, in
 // either installer (spec 2026-10-01 segment detection §4.1).
-func TestSegmentarrWorkerHasNoCredentials(t *testing.T) {
+func TestMarkersWorkerHasNoCredentials(t *testing.T) {
 	helm, kustomize := findTool(t, "helm"), findTool(t, "kustomize")
 	root, err := filepath.Abs("../..")
 	require.NoError(t, err)

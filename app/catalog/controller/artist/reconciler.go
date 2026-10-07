@@ -269,7 +269,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, a *catalogv1alpha1.Art
 				k8s.MarkTrue(a, &conditions, conditionQueueFull, "QueueFull", "metadata work queue is full")
 				statusAC = reassertKnownStatus(statusAC, a)
 				statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
-				if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr, catalogac.Artist(a.Name, a.Namespace).WithStatus(statusAC)); err != nil {
+				if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalog, catalogac.Artist(a.Name, a.Namespace).WithStatus(statusAC)); err != nil {
 					return ctrl.Result{}, err
 				}
 				return ctrl.Result{RequeueAfter: time.Minute}, nil
@@ -289,7 +289,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, a *catalogv1alpha1.Art
 				k8s.MarkFalse(a, &conditions, k8s.ConditionReady, "RootFolderNotFound", "rootFolder %q not found", a.Spec.RootFolderRef)
 				statusAC = reassertKnownStatus(statusAC, a)
 				statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
-				if _, perr := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr, catalogac.Artist(a.Name, a.Namespace).WithStatus(statusAC)); perr != nil {
+				if _, perr := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalog, catalogac.Artist(a.Name, a.Namespace).WithStatus(statusAC)); perr != nil {
 					return ctrl.Result{}, perr
 				}
 				return ctrl.Result{RequeueAfter: time.Minute}, nil
@@ -330,7 +330,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, a *catalogv1alpha1.Art
 	k8s.MarkReady(a, &conditions, metaReady && albumsSynced, k8s.ReasonReconciled, "metadataReady=%t albumsSynced=%t", metaReady, albumsSynced)
 	statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
 
-	if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr, catalogac.Artist(a.Name, a.Namespace).WithStatus(statusAC)); err != nil {
+	if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalog, catalogac.Artist(a.Name, a.Namespace).WithStatus(statusAC)); err != nil {
 		return ctrl.Result{}, err
 	}
 

@@ -255,13 +255,13 @@ func (r *Reconciler) fire(
 	// No owner reference: a LibraryScan outlives nothing and deletes itself
 	// on its own TTL. Garbage-collecting scans when the RootFolder goes away
 	// would also destroy the record of what the last walk found.
-	if _, err := k8s.Apply(ctx, r.Client, k8s.ManagerImportarr, scan); err != nil {
+	if _, err := k8s.Apply(ctx, r.Client, k8s.ManagerImport, scan); err != nil {
 		return ctrl.Result{}, err
 	}
 
 	stamp := catalogac.RootFolder(rf.Name, rf.Namespace).
 		WithAnnotations(map[string]string{AnnotationLastTick: tick.UTC().Format(time.RFC3339)})
-	if _, err := k8s.Apply(ctx, r.Client, k8s.ManagerImportarr, stamp); err != nil {
+	if _, err := k8s.Apply(ctx, r.Client, k8s.ManagerImport, stamp); err != nil {
 		// The scan exists; only the bookkeeping failed. Retrying re-applies
 		// the same scan name, so this is safe to repeat.
 		return ctrl.Result{}, err

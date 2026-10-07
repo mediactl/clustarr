@@ -243,7 +243,7 @@ func TestMetadataRefreshNeverReleasesStatusArtwork(t *testing.T) {
 	require.NoError(t, h.Handle(ctx, movieTask(t, ns, name)))
 	overlay := catalogac.OverlayEntry().WithProfileRef("imdb-badges").WithDigest("ov1").WithRenderedFrom("in1").
 		WithUpdatedAt(metav1.NewTime(time.Date(2026, 9, 24, 0, 0, 0, 0, time.UTC)))
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrArtwork,
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogArtwork,
 		catalogac.Movie(name, ns).WithStatus(catalogac.MovieStatus().WithOverlay(overlay)))
 	require.NoError(t, err, "the renderer's status.overlay, standing in for task C3")
 
@@ -326,7 +326,7 @@ func TestMetadataRefreshPublishesARenderWhenOnlyTheRatingsChanged(t *testing.T) 
 	var mu sync.Mutex
 	var renders []*events.Envelope
 	stop, err := bus.Subscribe(ctx, events.Subscription{
-		Stream: events.StreamWorkCatalogarr, Durable: "test-render-collector",
+		Stream: events.StreamWorkCatalog, Durable: "test-render-collector",
 		Filters: []string{events.FilterCatalogArtworkRender},
 	}, func(_ context.Context, m events.Message) error {
 		mu.Lock()
@@ -406,7 +406,7 @@ func TestMetadataRefreshPublishesOneRenderPerChangedPoster(t *testing.T) {
 	var mu sync.Mutex
 	var renders []*events.Envelope
 	stop, err := bus.Subscribe(ctx, events.Subscription{
-		Stream: events.StreamWorkCatalogarr, Durable: "test-render-collector",
+		Stream: events.StreamWorkCatalog, Durable: "test-render-collector",
 		Filters: []string{events.FilterCatalogArtworkRender},
 	}, func(_ context.Context, m events.Message) error {
 		mu.Lock()

@@ -64,7 +64,7 @@ func TestEnsureRefusesRetentionChange(t *testing.T) {
 		t.Fatalf("Ensure: %v", err)
 	}
 	for i := range top.Streams {
-		if top.Streams[i].Name == events.StreamWorkCatalogarr {
+		if top.Streams[i].Name == events.StreamWorkCatalog {
 			top.Streams[i].Retention = events.RetentionLimits
 		}
 	}

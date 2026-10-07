@@ -58,7 +58,7 @@ var StageOrder = []ItemStageName{StageGrab, StageDownloads, StageSearch, StageMe
 
 // setOrder is the order the other managers' sets apply in, each
 // preconditioned on the resourceVersion the one before returned (§7.0).
-var setOrder = []k8s.FieldManager{k8s.ManagerCatalogarrGrab, k8s.ManagerCatalogarrMetadata, k8s.ManagerCatalogarrArtwork}
+var setOrder = []k8s.FieldManager{k8s.ManagerCatalogGrab, k8s.ManagerCatalogMetadata, k8s.ManagerCatalogArtwork}
 
 // ItemView is what one item pass's stages read.
 type ItemView struct {

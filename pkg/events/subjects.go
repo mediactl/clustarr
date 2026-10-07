@@ -33,17 +33,17 @@ import (
 
 // Stream names.
 const (
-	StreamEvents         = "CLUSTARR_EVENTS"
-	StreamReleases       = "CLUSTARR_RELEASES"
-	StreamWorkCatalogarr = "CLUSTARR_WORK_CATALOGARR"
-	StreamWorkImportarr  = "CLUSTARR_WORK_IMPORTARR"
-	StreamWorkIndexarr   = "CLUSTARR_WORK_INDEXARR"
-	StreamWorkCaptionarr = "CLUSTARR_WORK_CAPTIONARR"
-	StreamWorkSquasharr  = "CLUSTARR_WORK_SQUASHARR"
+	StreamEvents        = "CLUSTARR_EVENTS"
+	StreamReleases      = "CLUSTARR_RELEASES"
+	StreamWorkCatalog   = "CLUSTARR_WORK_CATALOGARR"
+	StreamWorkImport    = "CLUSTARR_WORK_IMPORTARR"
+	StreamWorkIndex     = "CLUSTARR_WORK_INDEXARR"
+	StreamWorkCaption   = "CLUSTARR_WORK_CAPTIONARR"
+	StreamWorkTranscode = "CLUSTARR_WORK_SQUASHARR"
 	// StreamWorkSegmentarr carries skip-segment work: TheIntroDB's marker
 	// fetches and segment detection's plans, analysis tasks and results.
-	StreamWorkSegmentarr = "CLUSTARR_WORK_SEGMENTARR"
-	StreamDLQ            = "CLUSTARR_DLQ"
+	StreamWorkMarkers = "CLUSTARR_WORK_SEGMENTARR"
+	StreamDLQ         = "CLUSTARR_DLQ"
 
 	// StreamAdvisories keeps JetStream's MAX_DELIVERIES advisories until a
 	// replica of the consumer they name has dead-lettered the message. See
@@ -94,12 +94,12 @@ const (
 const (
 	FilterAllEvents           = "clustarr.evt.>"
 	FilterAllReleases         = "clustarr.rel.>"
-	FilterWorkCatalogarr      = "clustarr.work.catalogarr.>"
-	FilterWorkImportarr       = "clustarr.work.importarr.>"
-	FilterWorkIndexarr        = "clustarr.work.indexarr.>"
-	FilterWorkCaptionarr      = "clustarr.work.captionarr.>"
-	FilterWorkSquasharr       = "clustarr.work.transcode.>"
-	FilterWorkSegmentarr      = "clustarr.work.segmentarr.>"
+	FilterWorkCatalog         = "clustarr.work.catalogarr.>"
+	FilterWorkImport          = "clustarr.work.importarr.>"
+	FilterWorkIndex           = "clustarr.work.indexarr.>"
+	FilterWorkCaption         = "clustarr.work.captionarr.>"
+	FilterWorkTranscode       = "clustarr.work.transcode.>"
+	FilterWorkMarkers         = "clustarr.work.segmentarr.>"
 	FilterTranscodeResults    = "clustarr.work.transcode.result.>"
 	FilterAllDLQ              = "clustarr.dlq.>"
 	FilterCatalogSearch       = "clustarr.work.catalogarr.search.>"
@@ -141,7 +141,7 @@ const (
 	ConsumerIndexRSS             = "indexarr-rss"
 	ConsumerCaptionFetchHigh     = "captionarr-fetch-high"
 	ConsumerCaptionFetchNormal   = "captionarr-fetch-normal"
-	ConsumerSquasharrResults     = legacynames.TranscodeResultsDurable
+	ConsumerTranscodeResults     = legacynames.TranscodeResultsDurable
 	ConsumerDLQProjector         = "clustarr-dlq-projector"
 	ConsumerCatalogArtworkFetch  = "catalogarr-artwork-fetch"
 	ConsumerCatalogArtworkRender = "catalogarr-artwork-render"
@@ -150,7 +150,7 @@ const (
 	// is segmentarr-worker's. ConsumerCatalogSegmentsResult is retired
 	// (loop spec §4.12): Topology.Retired names it until F9.4.
 	ConsumerCatalogSegmentsPlan   = "catalogarr-segments-plan"
-	ConsumerSegmentarrAnalyze     = "segmentarr-analyze"
+	ConsumerMarkersAnalyze        = "segmentarr-analyze"
 	ConsumerCatalogSegmentsResult = legacynames.SegmentsResultDurable
 )
 
@@ -296,15 +296,15 @@ const (
 
 // RPC subjects. Each is served by a queue group named after the service.
 const (
-	RPCIndexSearch      = "clustarr.rpc.indexarr.search"
-	RPCIndexDownload    = "clustarr.rpc.indexarr.download"
-	RPCIndexQuery       = "clustarr.rpc.indexarr.query"
-	RPCMetadataLookup   = "clustarr.rpc.catalogarr.metadata.lookup"
-	RPCMetadataSearch   = "clustarr.rpc.catalogarr.metadata.search"
-	RPCMetadataResolve  = "clustarr.rpc.catalogarr.metadata.resolve"
-	RPCMetadataExtras   = "clustarr.rpc.catalogarr.metadata.extras"
-	QueueGroupIndexarr  = "indexarr"
-	QueueGroupCatalogar = "catalogarr"
+	RPCIndexSearch     = "clustarr.rpc.indexarr.search"
+	RPCIndexDownload   = "clustarr.rpc.indexarr.download"
+	RPCIndexQuery      = "clustarr.rpc.indexarr.query"
+	RPCMetadataLookup  = "clustarr.rpc.catalogarr.metadata.lookup"
+	RPCMetadataSearch  = "clustarr.rpc.catalogarr.metadata.search"
+	RPCMetadataResolve = "clustarr.rpc.catalogarr.metadata.resolve"
+	RPCMetadataExtras  = "clustarr.rpc.catalogarr.metadata.extras"
+	QueueGroupIndex    = "indexarr"
+	QueueGroupCatalog  = "catalogarr"
 )
 
 // CatalogItemSubject builds clustarr.evt.catalog.<kind>.<action>.<uid>.

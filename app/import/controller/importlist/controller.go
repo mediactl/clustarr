@@ -423,7 +423,7 @@ func (r *Reconciler) applyStatusFull(
 	}
 
 	ac := catalogac.ImportList(il.Name, il.Namespace).WithStatus(status)
-	_, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerImportarr, ac)
+	_, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerImport, ac)
 	return err
 }
 

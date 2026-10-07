@@ -60,13 +60,13 @@ func createNonVideoLibrary(t *testing.T, ctx context.Context, c client.Client, n
 			MusicBrainzID: "a74b1b7f-71a5-4011-9441-d0b5e4122711", QualityProfileRef: profile, RootFolderRef: "music",
 		},
 	}))
-	status(k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, catalogac.Artist(lib.artist, ns).WithStatus(
+	status(k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, catalogac.Artist(lib.artist, ns).WithStatus(
 		catalogac.ArtistStatus().WithMetadata(catalogac.ArtistMetadata().WithName("Radiohead").WithSortName("Radiohead")))))
 	require.NoError(t, c.Create(ctx, &catalogv1alpha1.Album{
 		ObjectMeta: metav1.ObjectMeta{Name: lib.album, Namespace: ns},
 		Spec:       catalogv1alpha1.AlbumSpec{ArtistRef: lib.artist, ReleaseGroupID: "b8048f24-c026-3398-b23a-b5e30716ea6f"},
 	}))
-	status(k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, catalogac.Album(lib.album, ns).WithStatus(
+	status(k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, catalogac.Album(lib.album, ns).WithStatus(
 		catalogac.AlbumStatus().WithMetadata(catalogac.AlbumMetadata().WithTitle("Kid A").
 			WithReleaseDate(metav1.NewTime(time.Date(2000, 10, 2, 0, 0, 0, 0, time.UTC)))))))
 
@@ -74,20 +74,20 @@ func createNonVideoLibrary(t *testing.T, ctx context.Context, c client.Client, n
 		ObjectMeta: metav1.ObjectMeta{Name: lib.author, Namespace: ns},
 		Spec:       catalogv1alpha1.AuthorSpec{OpenLibraryID: "OL79034A", QualityProfileRef: profile, RootFolderRef: "books"},
 	}))
-	status(k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, catalogac.Author(lib.author, ns).WithStatus(
+	status(k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, catalogac.Author(lib.author, ns).WithStatus(
 		catalogac.AuthorStatus().WithMetadata(catalogac.AuthorMetadata().WithName("Frank Herbert").WithSortName("Herbert, Frank")))))
 	require.NoError(t, c.Create(ctx, &catalogv1alpha1.Book{
 		ObjectMeta: metav1.ObjectMeta{Name: lib.book, Namespace: ns},
 		Spec:       catalogv1alpha1.BookSpec{AuthorRef: new(lib.author), WorkID: "OL893415W"},
 	}))
-	status(k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, catalogac.Book(lib.book, ns).WithStatus(
+	status(k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, catalogac.Book(lib.book, ns).WithStatus(
 		catalogac.BookStatus().WithMetadata(catalogac.BookMetadata().WithTitle("Dune")))))
 
 	require.NoError(t, c.Create(ctx, &catalogv1alpha1.Audiobook{
 		ObjectMeta: metav1.ObjectMeta{Name: lib.audiobook, Namespace: ns},
 		Spec:       catalogv1alpha1.AudiobookSpec{ASIN: "B00BATUAHO", QualityProfileRef: profile, RootFolderRef: "audiobooks"},
 	}))
-	status(k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, catalogac.Audiobook(lib.audiobook, ns).WithStatus(
+	status(k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, catalogac.Audiobook(lib.audiobook, ns).WithStatus(
 		catalogac.AudiobookStatus().WithMetadata(catalogac.AudiobookMetadata().WithTitle("The Talisman").WithAuthors(
 			catalogac.NamedRef().WithName("Stephen King"), catalogac.NamedRef().WithName("Peter Straub"))))))
 
@@ -97,13 +97,13 @@ func createNonVideoLibrary(t *testing.T, ctx context.Context, c client.Client, n
 			Source: catalogv1alpha1.ComicSourceComicVine, SourceID: "91273", QualityProfileRef: profile, RootFolderRef: "comics",
 		},
 	}))
-	status(k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, catalogac.Comic(lib.comic, ns).WithStatus(
+	status(k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, catalogac.Comic(lib.comic, ns).WithStatus(
 		catalogac.ComicStatus().WithMetadata(catalogac.ComicMetadata().WithTitle("Batman")))))
 	require.NoError(t, c.Create(ctx, &catalogv1alpha1.Issue{
 		ObjectMeta: metav1.ObjectMeta{Name: lib.issue, Namespace: ns},
 		Spec:       catalogv1alpha1.IssueSpec{ComicRef: lib.comic, Number: "50", CalculatedNumberCentis: 5000},
 	}))
-	status(k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, catalogac.Issue(lib.issue, ns).WithStatus(
+	status(k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, catalogac.Issue(lib.issue, ns).WithStatus(
 		catalogac.IssueStatus().WithDate(metav1.NewTime(time.Date(2018, 7, 4, 0, 0, 0, 0, time.UTC))))))
 
 	eventually(t, 15*time.Second, "every non-video item's metadata to reach the cache", func() bool {
@@ -231,7 +231,7 @@ func TestMatch_NonVideoAmbiguousNamesMatchNothing(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "radiohead-kid-a-live", Namespace: ns},
 		Spec:       catalogv1alpha1.AlbumSpec{ArtistRef: lib.artist, ReleaseGroupID: "00000000-0000-0000-0000-000000000001"},
 	}))
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, catalogac.Album("radiohead-kid-a-live", ns).WithStatus(
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, catalogac.Album("radiohead-kid-a-live", ns).WithStatus(
 		catalogac.AlbumStatus().WithMetadata(catalogac.AlbumMetadata().WithTitle("Kid A"))))
 	require.NoError(t, err)
 

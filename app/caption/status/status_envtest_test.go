@@ -103,7 +103,7 @@ func TestTheRequestManagersDoNotReleaseEachOthersItemLeaves(t *testing.T) {
 
 	// Steady state, half one: the worker's two items, "en" and "es", each
 	// with every worker-owned leaf set.
-	require.NoError(t, status.PatchRequest(ctx, c, k8s.ManagerCaptionarrWorker, req,
+	require.NoError(t, status.PatchRequest(ctx, c, k8s.ManagerCaptionWorker, req,
 		func(ac *subtitleac.SubtitleRequestStatusApplyConfiguration) {
 			ac.Items = []subtitleac.SubtitleItemApplyConfiguration{
 				*subtitleac.SubtitleItem().WithLangKey("en").WithState(subtitlev1alpha1.SubtitleItemDownloaded).
@@ -132,7 +132,7 @@ func TestTheRequestManagersDoNotReleaseEachOthersItemLeaves(t *testing.T) {
 			req.Status.Items[i].Attempts = commonv1alpha1.Attempts{Initial: &now, Latest: &now, Count: 1}
 		}
 	}
-	require.NoError(t, status.PatchRequest(ctx, c, k8s.ManagerCaptionarr, req,
+	require.NoError(t, status.PatchRequest(ctx, c, k8s.ManagerCaption, req,
 		func(ac *subtitleac.SubtitleRequestStatusApplyConfiguration) {
 			ac.WithObservedGeneration(1).WithPhase(subtitlev1alpha1.SubtitleRequestPhaseSearching).
 				WithConditions(k8s.ConditionAC(metav1.Condition{
@@ -154,7 +154,7 @@ func TestTheRequestManagersDoNotReleaseEachOthersItemLeaves(t *testing.T) {
 	// only ONE of the two items -- exactly the shape that would leak an
 	// under-declared "every item" loop: a WorkerFields that only rendered the
 	// item it just changed would release the OTHER item's worker leaves.
-	require.NoError(t, status.PatchRequest(ctx, c, k8s.ManagerCaptionarrWorker, &seeded,
+	require.NoError(t, status.PatchRequest(ctx, c, k8s.ManagerCaptionWorker, &seeded,
 		func(ac *subtitleac.SubtitleRequestStatusApplyConfiguration) {
 			for i := range ac.Items {
 				if ac.Items[i].LangKey != nil && *ac.Items[i].LangKey == "en" {
@@ -176,7 +176,7 @@ func TestTheRequestManagersDoNotReleaseEachOthersItemLeaves(t *testing.T) {
 	// leaves unmodified in this call's mutate.
 	later := metav1.NewTime(now.Add(time.Hour))
 	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(req), req))
-	require.NoError(t, status.PatchRequest(ctx, c, k8s.ManagerCaptionarr, req,
+	require.NoError(t, status.PatchRequest(ctx, c, k8s.ManagerCaption, req,
 		func(ac *subtitleac.SubtitleRequestStatusApplyConfiguration) {
 			// Conditions is unseeded by design (see RequestControllerFields'
 			// doc), so a real caller recomputes and resends the full set on
@@ -263,18 +263,18 @@ func assertRequestManagedFieldsSplit(t *testing.T, req *subtitlev1alpha1.Subtitl
 	t.Helper()
 
 	wantItemLeaves := map[k8s.FieldManager]map[string][]string{
-		k8s.ManagerCaptionarr: {
+		k8s.ManagerCaption: {
 			"en": {"langKey", "nextSearchAt", "attempts"},
 			"es": {"langKey", "nextSearchAt"},
 		},
-		k8s.ManagerCaptionarrWorker: {
+		k8s.ManagerCaptionWorker: {
 			"en": {"langKey", "state", "score", "scoreOutOf", "provider", "subtitleID", "path", "lastError"},
 			"es": {"langKey", "state", "score", "scoreOutOf", "provider", "subtitleID", "path", "lastError"},
 		},
 	}
 	wantTopLevel := map[k8s.FieldManager][]string{
-		k8s.ManagerCaptionarr:       {"observedGeneration", "profileGeneration", "probeHash", "phase", "conditions", "items"},
-		k8s.ManagerCaptionarrWorker: {"items"},
+		k8s.ManagerCaption:       {"observedGeneration", "profileGeneration", "probeHash", "phase", "conditions", "items"},
+		k8s.ManagerCaptionWorker: {"items"},
 	}
 
 	seen := map[k8s.FieldManager]bool{}
@@ -364,7 +364,7 @@ func TestPatchRequestAgainstARealAPIServerRefusesAManagerOutsideTheSplit(t *test
 	newNamespace(t, ctx, c, ns)
 	req := newSubtitleRequest(t, ctx, c, ns, "refuse")
 
-	err := status.PatchRequest(ctx, c, k8s.ManagerCatalogarr, req, nil)
+	err := status.PatchRequest(ctx, c, k8s.ManagerCatalog, req, nil)
 	require.ErrorContains(t, err, "owns no part of SubtitleRequest.status")
 }
 
@@ -373,7 +373,7 @@ func TestPatchRequestAgainstARealAPIServerRefusesAManagerOutsideTheSplit(t *test
 // rules apply: a second call site that forgot a field would silently narrow
 // what is on the object, and only managedFields would show ManagerCaptionarr
 // owning less than it should.
-func TestSubtitleProfileAndProviderRoundTripThroughManagerCaptionarr(t *testing.T) {
+func TestSubtitleProfileAndProviderRoundTripThroughManagerCaption(t *testing.T) {
 	c := newTestClient(t)
 	ctx := context.Background()
 
@@ -387,7 +387,7 @@ func TestSubtitleProfileAndProviderRoundTripThroughManagerCaptionarr(t *testing.
 		},
 	}
 	require.NoError(t, c.Create(ctx, profile))
-	require.NoError(t, status.PatchProfile(ctx, c, k8s.ManagerCaptionarr, profile,
+	require.NoError(t, status.PatchProfile(ctx, c, k8s.ManagerCaption, profile,
 		func(ac *subtitleac.SubtitleProfileStatusApplyConfiguration) {
 			ac.WithObservedGeneration(1).WithWantedKeys("en").WithConditions(k8s.ConditionAC(metav1.Condition{
 				Type: subtitlev1alpha1.SubtitleProfileConditionReady, Status: metav1.ConditionTrue,
@@ -406,7 +406,7 @@ func TestSubtitleProfileAndProviderRoundTripThroughManagerCaptionarr(t *testing.
 		Spec:       subtitlev1alpha1.SubtitleProviderSpec{Type: subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom},
 	}
 	require.NoError(t, c.Create(ctx, provider))
-	require.NoError(t, status.PatchProvider(ctx, c, k8s.ManagerCaptionarr, provider,
+	require.NoError(t, status.PatchProvider(ctx, c, k8s.ManagerCaption, provider,
 		func(ac *subtitleac.SubtitleProviderStatusApplyConfiguration) {
 			ac.WithObservedGeneration(1).WithErrorsLast120s(0).WithHIVerifiable(true)
 		}))
@@ -421,7 +421,7 @@ func TestSubtitleProfileAndProviderRoundTripThroughManagerCaptionarr(t *testing.
 	// property app/grab/status.status_envtest_test proves for the controller
 	// and engine halves of Download.status.
 	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(provider), provider))
-	require.NoError(t, status.PatchProvider(ctx, c, k8s.ManagerCaptionarr, provider,
+	require.NoError(t, status.PatchProvider(ctx, c, k8s.ManagerCaption, provider,
 		func(ac *subtitleac.SubtitleProviderStatusApplyConfiguration) {
 			ac.WithThrottleReason("5 errors in 120s")
 		}))
@@ -431,7 +431,7 @@ func TestSubtitleProfileAndProviderRoundTripThroughManagerCaptionarr(t *testing.
 	assert.True(t, afterReapply.Status.HIVerifiable, "the re-apply released hiVerifiable")
 	assert.Equal(t, "5 errors in 120s", afterReapply.Status.ThrottleReason)
 
-	err := status.PatchProvider(ctx, c, k8s.ManagerCaptionarrWorker, provider, nil)
+	err := status.PatchProvider(ctx, c, k8s.ManagerCaptionWorker, provider, nil)
 	require.ErrorContains(t, err, "owns no part of SubtitleProvider.status")
 }
 
@@ -457,7 +457,7 @@ func TestAWithdrawnItemIsDeletedByTheWorkersNextApply(t *testing.T) {
 	// Steady state: both items live and fully described. The worker writes
 	// its half first only because the CRD still requires items[].state
 	// until F-4 relaxes it (rule 2 then lets the controller create items).
-	require.NoError(t, status.PatchRequest(ctx, c, k8s.ManagerCaptionarrWorker, req,
+	require.NoError(t, status.PatchRequest(ctx, c, k8s.ManagerCaptionWorker, req,
 		func(ac *subtitleac.SubtitleRequestStatusApplyConfiguration) {
 			ac.Items = []subtitleac.SubtitleItemApplyConfiguration{
 				*subtitleac.SubtitleItem().WithLangKey("en").WithState(subtitlev1alpha1.SubtitleItemDownloaded).
@@ -472,14 +472,14 @@ func TestAWithdrawnItemIsDeletedByTheWorkersNextApply(t *testing.T) {
 	for i := range req.Status.Items {
 		req.Status.Items[i].NextSearchAt = &now
 	}
-	require.NoError(t, status.PatchRequest(ctx, c, k8s.ManagerCaptionarr, req, nil))
+	require.NoError(t, status.PatchRequest(ctx, c, k8s.ManagerCaption, req, nil))
 
 	// The controller withdraws "es": its next apply simply omits it.
 	require.NoError(t, c.Get(ctx, key, req))
 	req.Status.Items = slices.DeleteFunc(req.Status.Items, func(it subtitlev1alpha1.SubtitleItem) bool {
 		return it.LangKey == "es"
 	})
-	require.NoError(t, status.PatchRequest(ctx, c, k8s.ManagerCaptionarr, req, nil))
+	require.NoError(t, status.PatchRequest(ctx, c, k8s.ManagerCaption, req, nil))
 
 	var mid subtitlev1alpha1.SubtitleRequest
 	require.NoError(t, c.Get(ctx, key, &mid))
@@ -488,7 +488,7 @@ func TestAWithdrawnItemIsDeletedByTheWorkersNextApply(t *testing.T) {
 	require.Equal(t, subtitlev1alpha1.SubtitleItemDownloaded, esMid.State, "setup: the worker should still hold es")
 
 	// The worker's next apply, from a fresh read.
-	require.NoError(t, status.PatchRequest(ctx, c, k8s.ManagerCaptionarrWorker, &mid, nil))
+	require.NoError(t, status.PatchRequest(ctx, c, k8s.ManagerCaptionWorker, &mid, nil))
 
 	var after subtitlev1alpha1.SubtitleRequest
 	require.NoError(t, c.Get(ctx, key, &after))

@@ -172,7 +172,7 @@ func TestADefinitionBackedIndexerLogsInAndPersistsItsSession(t *testing.T) {
 	for _, mf := range sec.ManagedFields {
 		managers[mf.Manager] = true
 	}
-	require.True(t, managers[string(k8s.ManagerIndexarr)], "the session Secret is not under the indexarr manager: %v", managers)
+	require.True(t, managers[string(k8s.ManagerIndex)], "the session Secret is not under the indexarr manager: %v", managers)
 
 	// The KV mirror, under the UID key.
 	entry, err := r.Bus.KV(events.BucketIndexerSessions).Get(ctx, idxclients.SessionKey(got.UID))
@@ -227,7 +227,7 @@ func TestConditionsAfterALoginAreDerivedFromAFreshRead(t *testing.T) {
 	until := metav1.NewTime(time.Now().Add(time.Hour).Truncate(time.Second))
 	tracker.onSubmit = func() {
 		live := mustGet(t, c, name)
-		require.NoError(t, idxstatus.Patch(ctx, c, k8s.ManagerIndexarrWorker, &live,
+		require.NoError(t, idxstatus.Patch(ctx, c, k8s.ManagerIndexWorker, &live,
 			func(ac *indexac.IndexerStatusApplyConfiguration) {
 				ac.WithEscalationLevel(2).WithDisabledUntil(until).WithLastFailure("search.error: rate limited")
 			}))

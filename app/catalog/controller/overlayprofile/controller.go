@@ -169,7 +169,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		WithHash(Hash(self.Spec)).
 		WithSelected(selected).
 		WithConditions(k8s.ConditionACs(conditions)...))
-	if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr, ac); err != nil {
+	if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalog, ac); err != nil {
 		tracing.RecordError(span, err)
 		return ctrl.Result{}, errors.Join(err, pubErr)
 	}

@@ -191,8 +191,8 @@ func TestObservabilityMetricsNonZero(t *testing.T) {
 	// completed torrent/usenet transfer in this suite's earlier scenarios
 	// (download_test.go, import_test.go, transcode_test.go, subtitle_test.go
 	// all complete at least one).
-	grabarrBody := fetchMetrics(ctx, t, "grabarr")
-	downloadBytes, downloadSeries := metricSum(grabarrBody, "clustarr_download_bytes_total")
+	grabBody := fetchMetrics(ctx, t, "grabarr")
+	downloadBytes, downloadSeries := metricSum(grabBody, "clustarr_download_bytes_total")
 	require.Greaterf(t, downloadSeries, 0,
 		"clustarr_download_bytes_total has no series in grabarr's /metrics -- no completed transfer was "+
 			"observed by this point in the suite run (see this file's own package doc comment on ordering)")
@@ -203,10 +203,10 @@ func TestObservabilityMetricsNonZero(t *testing.T) {
 	// project's closest documented signal for encode throughput is
 	// clustarr_transcode_speed_ratio (docs/observability.md: "Below 1.0 on
 	// tier=gpu means the encode is slower than real time"), produced by
-	// app/squash/worker's progress reporting (FPSMilli feeds the ratio, not
+	// app/transcode/worker's progress reporting (FPSMilli feeds the ratio, not
 	// a standalone counter) once a TranscodeJob Succeeds.
-	squasharrBody := fetchMetrics(ctx, t, "squasharr")
-	_, speedSeries := metricSum(squasharrBody, "clustarr_transcode_speed_ratio")
+	transcodeBody := fetchMetrics(ctx, t, "squasharr")
+	_, speedSeries := metricSum(transcodeBody, "clustarr_transcode_speed_ratio")
 	require.Greaterf(t, speedSeries, 0,
 		"clustarr_transcode_speed_ratio has no series in squasharr's /metrics -- no TranscodeJob had "+
 			"Succeeded by this point (transcode_test.go's TestTranscodeMediaFileThroughTranscodeJob and "+
@@ -217,8 +217,8 @@ func TestObservabilityMetricsNonZero(t *testing.T) {
 	// series" is the meaningful, always-true-once-any-worker-has-run
 	// assertion here, not "> 0" (a fully drained queue at scrape time is
 	// the SYSTEM WORKING, not a fixture gap).
-	importarrWorkerBody := fetchMetrics(ctx, t, "importarr-worker")
-	_, pendingSeries := metricSum(importarrWorkerBody, "clustarr_work_queue_pending")
+	importWorkerBody := fetchMetrics(ctx, t, "importarr-worker")
+	_, pendingSeries := metricSum(importWorkerBody, "clustarr_work_queue_pending")
 	require.Greaterf(t, pendingSeries, 0,
 		"clustarr_work_queue_pending has no series in importarr-worker's /metrics -- no consumer has "+
 			"polled at all, which points at the worker never having run rather than an empty queue")
@@ -227,8 +227,8 @@ func TestObservabilityMetricsNonZero(t *testing.T) {
 	// by every caps probe (app/indexer/controller/indexer) as well as every
 	// real search -- indexer_test.go's scenario 17 test and the caps probe
 	// every Indexer gets on creation both produce this.
-	indexarrBody := fetchMetrics(ctx, t, "indexarr")
-	_, durationSeries := metricSum(indexarrBody, "clustarr_indexer_query_duration_seconds_count")
+	indexBody := fetchMetrics(ctx, t, "indexarr")
+	_, durationSeries := metricSum(indexBody, "clustarr_indexer_query_duration_seconds_count")
 	require.Greaterf(t, durationSeries, 0,
 		"clustarr_indexer_query_duration_seconds has no series in indexarr's /metrics -- no indexer query "+
 			"(a caps probe or a real search) was observed by this point in the suite run")

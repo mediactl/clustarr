@@ -183,7 +183,7 @@ func TestReconcileFoldsDeadLettered(t *testing.T) {
 	assert.Equal(t, k8s.ReasonDeadLettered, readyCondition(t, after).Reason)
 	assert.True(t, k8s.IsConditionTrue(after.Status.Conditions, k8s.ConditionDeadLettered))
 	assert.Equal(t, int64(12), after.Status.FilesSeen, "the tally survives the failure")
-	assert.Equal(t, string(k8s.ManagerImportarr), managerForCondition(t, after, k8s.ConditionDeadLettered))
+	assert.Equal(t, string(k8s.ManagerImport), managerForCondition(t, after, k8s.ConditionDeadLettered))
 
 	// An operator clears the annotation on the settled scan.
 	annotate(nil)
@@ -233,7 +233,7 @@ func TestReconcileCarriesTheRenamePass(t *testing.T) {
 	assert.Equal(t, int64(2), after.Status.FilesRenamed)
 	assert.Equal(t, want, after.Status.Renamed)
 	for _, field := range []string{"status.renamed", "status.filesRenamed"} {
-		assert.Equal(t, []string{string(k8s.ManagerImportarr)}, managersFor(t, after.ManagedFields, "status", field), field)
+		assert.Equal(t, []string{string(k8s.ManagerImport)}, managersFor(t, after.ManagedFields, "status", field), field)
 	}
 
 	require.NoError(t, bus.KV(events.BucketProgress).Delete(ctx, scanprogress.ProgressKey(string(scan.UID))))

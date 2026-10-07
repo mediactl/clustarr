@@ -152,7 +152,7 @@ func (a *Adapter) Plan(v *remediation.View, in Input, out *catalogv1alpha1.Media
 		if err != nil {
 			return res, err
 		}
-		res.Effects = append(res.Effects, remediation.Publish{Subject: subject, MsgID: id, ExpectStream: events.StreamWorkSegmentarr, Envelope: env})
+		res.Effects = append(res.Effects, remediation.Publish{Subject: subject, MsgID: id, ExpectStream: events.StreamWorkMarkers, Envelope: env})
 	}
 	planned := v.File.DeepCopy()
 	planned.Status = *out

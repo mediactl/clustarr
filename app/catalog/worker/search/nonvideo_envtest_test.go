@@ -68,7 +68,7 @@ func createKidA(t *testing.T, ctx context.Context, c client.Client, ns, profile 
 			QualityProfileRef: profile, RootFolderRef: "music",
 		},
 	}))
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, catalogac.Artist("radiohead", ns).WithStatus(
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, catalogac.Artist("radiohead", ns).WithStatus(
 		catalogac.ArtistStatus().WithMetadata(catalogac.ArtistMetadata().WithName("Radiohead").WithSortName("Radiohead"))))
 	require.NoError(t, err)
 
@@ -79,7 +79,7 @@ func createKidA(t *testing.T, ctx context.Context, c client.Client, ns, profile 
 		},
 	}))
 	released := metav1.NewTime(time.Date(2000, 10, 2, 0, 0, 0, 0, time.UTC))
-	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, catalogac.Album("radiohead-kid-a", ns).WithStatus(
+	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, catalogac.Album("radiohead-kid-a", ns).WithStatus(
 		catalogac.AlbumStatus().
 			WithPhase(catalogv1alpha1.AlbumPhaseWanted).
 			WithMetadata(catalogac.AlbumMetadata().WithTitle("Kid A").WithReleaseDate(released))))
@@ -199,7 +199,7 @@ func TestWorkerWantedScanIncludesNonVideoItems(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: f.ns},
 			Spec:       catalogv1alpha1.IssueSpec{ComicRef: "saga", Number: number, CalculatedNumberCentis: centis},
 		}))
-		_, err := k8s.PatchStatus(ctx, f.mgr, k8s.ManagerCatalogarr, catalogac.Issue(name, f.ns).WithStatus(
+		_, err := k8s.PatchStatus(ctx, f.mgr, k8s.ManagerCatalog, catalogac.Issue(name, f.ns).WithStatus(
 			catalogac.IssueStatus().WithState(catalogv1alpha1.IssueStateWanted).WithDate(metav1.NewTime(date))))
 		require.NoError(t, err)
 	}

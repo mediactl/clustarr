@@ -51,15 +51,15 @@ import (
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
-	captionarr "github.com/mediactl/clustarr/app/caption"
-	catalogarr "github.com/mediactl/clustarr/app/catalog"
+	captionapp "github.com/mediactl/clustarr/app/caption"
+	catalogapp "github.com/mediactl/clustarr/app/catalog"
 	"github.com/mediactl/clustarr/app/catalog/history"
-	grabarr "github.com/mediactl/clustarr/app/grab"
-	importarr "github.com/mediactl/clustarr/app/import"
+	grabapp "github.com/mediactl/clustarr/app/grab"
+	importapp "github.com/mediactl/clustarr/app/import"
 	"github.com/mediactl/clustarr/app/import/importliststate"
-	indexarr "github.com/mediactl/clustarr/app/indexer"
+	indexapp "github.com/mediactl/clustarr/app/indexer"
 	"github.com/mediactl/clustarr/app/indexer/bundle"
-	squasharr "github.com/mediactl/clustarr/app/squash"
+	transcodeapp "github.com/mediactl/clustarr/app/transcode"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -166,18 +166,18 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 		{
 			name: "app/catalog/worker",
 			run: func(ctx context.Context, o k8s.Options) error {
-				d := catalogarr.DefaultOptions()
-				d.Options, d.Role = o, catalogarr.RoleWorker
-				return catalogarr.Run(ctx, d)
+				d := catalogapp.DefaultOptions()
+				d.Options, d.Role = o, catalogapp.RoleWorker
+				return catalogapp.Run(ctx, d)
 			},
 			// Gap fix Y3: the redownload consumer is subscribed in the
 			// running worker, not only built.
 			verify: func(t *testing.T) { verifyRedownload(t, natsURL) },
 		},
 		{name: "app/catalog/metadata", run: func(ctx context.Context, o k8s.Options) error {
-			d := catalogarr.DefaultOptions()
-			d.Options, d.Role = o, catalogarr.RoleMetadata
-			return catalogarr.Run(ctx, d)
+			d := catalogapp.DefaultOptions()
+			d.Options, d.Role = o, catalogapp.RoleMetadata
+			return catalogapp.Run(ctx, d)
 		}},
 		// Spec §C.6: the renderer, a role with no named controller, so it
 		// runs beside the "all" case below, which proves `clustarr all`
@@ -185,9 +185,9 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 		{
 			name: "app/catalog/artwork",
 			run: func(ctx context.Context, o k8s.Options) error {
-				d := catalogarr.DefaultOptions()
-				d.Options, d.Role = o, catalogarr.RoleArtwork
-				return catalogarr.Run(ctx, d)
+				d := catalogapp.DefaultOptions()
+				d.Options, d.Role = o, catalogapp.RoleArtwork
+				return catalogapp.Run(ctx, d)
 			},
 			verify: func(t *testing.T) { verifyRenderer(t, env.Config, natsURL, "render-probe", false) },
 		},
@@ -199,12 +199,12 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 		// verifyHistory: the sink, the DLQ projector and the replay handler,
 		// each doing its first piece of work on the real bus.
 		{name: "app/import/worker", run: func(ctx context.Context, o k8s.Options) error {
-			d := importarr.DefaultOptions()
-			d.Options, d.Role = o, importarr.RoleWorker
+			d := importapp.DefaultOptions()
+			d.Options, d.Role = o, importapp.RoleWorker
 			// The worker roles gate readiness on a writable /data
 			// (amendment §A1.6); a dev box has no such mount.
 			d.DataPath = t.TempDir()
-			return importarr.Run(ctx, d)
+			return importapp.Run(ctx, d)
 		}},
 		// grabarr had NO presence in this table before plan task D2-8: its
 		// setupControllers/setupEngine were literal no-ops
@@ -230,7 +230,7 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 		{
 			name: "app/grab/controller",
 			run: func(ctx context.Context, o k8s.Options) error {
-				d := grabarr.DefaultOptions()
+				d := grabapp.DefaultOptions()
 				d.Options = o
 				d.DataDir = t.TempDir()
 				// There is no default: [grabarr.Options.Validate] requires it
@@ -246,7 +246,7 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 				// non-default value shows --engine-service-account reaching
 				// the pod spec.
 				d.EngineServiceAccount = "media-clustarr-grabarr-engine"
-				return grabarr.Run(ctx, d)
+				return grabapp.Run(ctx, d)
 			},
 			verify: func(t *testing.T) {
 				c, err := client.New(env.Config, client.Options{Scheme: k8s.MustNewScheme()})
@@ -342,12 +342,12 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 				}
 			},
 			run: func(ctx context.Context, o k8s.Options) error {
-				d := grabarr.DefaultOptions()
+				d := grabapp.DefaultOptions()
 				d.Options = o
-				d.Role = grabarr.RoleTorrentEngine
+				d.Role = grabapp.RoleTorrentEngine
 				d.Engine = "torrents-0"
 				d.DataDir = t.TempDir()
-				return grabarr.Run(ctx, d)
+				return grabapp.Run(ctx, d)
 			},
 		},
 		{
@@ -389,13 +389,13 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 				}
 			},
 			run: func(ctx context.Context, o k8s.Options) error {
-				d := grabarr.DefaultOptions()
+				d := grabapp.DefaultOptions()
 				d.Options = o
-				d.Role = grabarr.RoleUsenetEngine
+				d.Role = grabapp.RoleUsenetEngine
 				d.Engine = "sabnzbd-0"
 				d.DataDir = t.TempDir()
 				d.ScratchDir = t.TempDir()
-				return grabarr.Run(ctx, d)
+				return grabapp.Run(ctx, d)
 			},
 		},
 		// squasharr had no presence in this table before plan task E-4:
@@ -411,13 +411,13 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 		// which starts no manager and serves no probes, and whose exit
 		// codes cmd/squasharr-worker's own tests hold to the process.
 		{
-			name: "app/squash/controller",
+			name: "app/transcode/controller",
 			run: func(ctx context.Context, o k8s.Options) error {
-				d := squasharr.DefaultOptions()
+				d := transcodeapp.DefaultOptions()
 				d.Options = o
 				d.DataDir = t.TempDir()
 				d.WorkerImage = "ghcr.io/mediactl/clustarr/transcoder:dev"
-				return squasharr.Run(ctx, d)
+				return transcodeapp.Run(ctx, d)
 			},
 			verify: func(t *testing.T) {
 				c, err := client.New(env.Config, client.Options{Scheme: k8s.MustNewScheme()})
@@ -465,22 +465,22 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 		{
 			name: "app/caption/controller",
 			run: func(ctx context.Context, o k8s.Options) error {
-				d := captionarr.DefaultOptions()
-				d.Options, d.Role = o, captionarr.RoleController
+				d := captionapp.DefaultOptions()
+				d.Options, d.Role = o, captionapp.RoleController
 				d.DataDir = captionData
-				return captionarr.Run(ctx, d)
+				return captionapp.Run(ctx, d)
 			},
-			verify: func(t *testing.T) { verifyCaptionarrController(t, env.Config, captionData) },
+			verify: func(t *testing.T) { verifyCaptionController(t, env.Config, captionData) },
 		},
 		{
 			name: "app/caption/worker",
 			run: func(ctx context.Context, o k8s.Options) error {
-				d := captionarr.DefaultOptions()
-				d.Options, d.Role = o, captionarr.RoleWorker
+				d := captionapp.DefaultOptions()
+				d.Options, d.Role = o, captionapp.RoleWorker
 				d.DataDir = captionData
-				return captionarr.Run(ctx, d)
+				return captionapp.Run(ctx, d)
 			},
-			verify: func(t *testing.T) { verifyCaptionarrWorker(t, env.Config) },
+			verify: func(t *testing.T) { verifyCaptionWorker(t, env.Config) },
 		},
 		// The three "all" cases come last and are each the superset of
 		// their service's roles: controllers, workers and (for catalogarr)
@@ -516,9 +516,9 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 				prepareNonVideoCatalog(t, env.Config, nvFake)
 			},
 			run: func(ctx context.Context, o k8s.Options) error {
-				d := catalogarr.DefaultOptions()
-				d.Options, d.Role = o, catalogarr.RoleAll
-				return catalogarr.Run(ctx, d)
+				d := catalogapp.DefaultOptions()
+				d.Options, d.Role = o, catalogapp.RoleAll
+				return catalogapp.Run(ctx, d)
 			},
 			verify: func(t *testing.T) {
 				verifyNonVideoCatalog(t, env.Config, nvFake)
@@ -537,11 +537,11 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 		{
 			name: "app/import/all (non-leader)",
 			run: func(ctx context.Context, o k8s.Options) error {
-				d := importarr.DefaultOptions()
-				d.Options, d.Role = o, importarr.RoleAll
+				d := importapp.DefaultOptions()
+				d.Options, d.Role = o, importapp.RoleAll
 				d.DataPath = t.TempDir()
 				d.LeaderElect = true
-				return importarr.Run(ctx, d)
+				return importapp.Run(ctx, d)
 			},
 			verify: func(t *testing.T) {
 				verifyImportList(t, env.Config, natsURL)
@@ -650,7 +650,7 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 
 	// The lease app/import/all must fail to acquire, held by another identity
 	// for a day so the takeover can never happen inside the test.
-	holdLease(t, env.Config, "default", importarr.LeaderElectionID)
+	holdLease(t, env.Config, "default", importapp.LeaderElectionID)
 
 	// Every case runs its service as the identity it ships as, under only
 	// the RBAC its installers bind (X14): see identityKubeconfigs.
@@ -735,23 +735,23 @@ func TestServiceStartsServesProbesAndStopsOnSignal(t *testing.T) {
 func TestServiceFailsFastOnBadOptions(t *testing.T) {
 	ctx := context.Background()
 
-	o := catalogarr.DefaultOptions()
+	o := catalogapp.DefaultOptions()
 	o.Role = "nonsense"
-	if err := catalogarr.Run(ctx, o); err == nil {
+	if err := catalogapp.Run(ctx, o); err == nil {
 		t.Error("an unknown role reached the manager")
 	}
 
-	o = catalogarr.DefaultOptions()
+	o = catalogapp.DefaultOptions()
 	o.NATSURL = ""
-	if err := catalogarr.Run(ctx, o); err == nil {
+	if err := catalogapp.Run(ctx, o); err == nil {
 		t.Error("a missing --nats-url reached the manager")
 	}
 
-	o = catalogarr.DefaultOptions()
+	o = catalogapp.DefaultOptions()
 	o.LeaderElect = true
 	o.Namespace = ""
 	o.LeaderElectionNamespace = ""
-	if err := catalogarr.Run(ctx, o); err == nil {
+	if err := catalogapp.Run(ctx, o); err == nil {
 		t.Error("leader election with nowhere to put the Lease reached the manager")
 	}
 }
@@ -1067,9 +1067,9 @@ func verifyImportList(t *testing.T, cfg *rest.Config, natsURL string) {
 	if err != nil {
 		t.Fatalf("build client: %v", err)
 	}
-	lease := &coordinationv1.Lease{ObjectMeta: metav1.ObjectMeta{Name: importarr.LeaderElectionID, Namespace: "default"}}
+	lease := &coordinationv1.Lease{ObjectMeta: metav1.ObjectMeta{Name: importapp.LeaderElectionID, Namespace: "default"}}
 	if err := c.Delete(ctx, lease); err != nil {
-		t.Fatalf("release the held %s lease: %v", importarr.LeaderElectionID, err)
+		t.Fatalf("release the held %s lease: %v", importapp.LeaderElectionID, err)
 	}
 
 	il := &catalogv1alpha1.ImportList{
@@ -1123,10 +1123,10 @@ func verifyFacade(t *testing.T, cfg *rest.Config, addr string) {
 		t.Fatalf("build client: %v", err)
 	}
 	var sec corev1.Secret
-	if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: indexarr.DefaultFacadeAPIKeySecret}, &sec); err != nil {
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "default", Name: indexapp.DefaultFacadeAPIKeySecret}, &sec); err != nil {
 		t.Fatalf("indexarr did not generate the facade's API-key Secret: %v", err)
 	}
-	key := string(sec.Data[indexarr.FacadeAPIKeyField])
+	key := string(sec.Data[indexapp.FacadeAPIKeyField])
 	if len(key) != 64 {
 		t.Fatalf("generated API key has %d characters, want 64 hex", len(key))
 	}
@@ -1232,7 +1232,7 @@ const (
 // which needs the bus (a fetch task is published and its dispatch stamped)
 // and --data-dir (the file exists only under dataDir, at the logical path's
 // place, so reading spec.path literally leaves the request Blocked).
-func verifyCaptionarrController(t *testing.T, cfg *rest.Config, dataDir string) {
+func verifyCaptionController(t *testing.T, cfg *rest.Config, dataDir string) {
 	t.Helper()
 	ctx := context.Background()
 	c, err := client.New(cfg, client.Options{Scheme: k8s.MustNewScheme()})
@@ -1301,7 +1301,7 @@ func verifyCaptionarrController(t *testing.T, cfg *rest.Config, dataDir string) 
 	// catalogarr's probe, standing in: the hash the fetch worker will
 	// recompute from the file on disk, and an English audio track with no
 	// embedded subtitle, so German is the one wanted language.
-	if _, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, catalogac.MediaFile(captionProbe, "default").
+	if _, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, catalogac.MediaFile(captionProbe, "default").
 		WithStatus(catalogac.MediaFileStatus().
 			WithProbeHash(mediainfo.ProbeHash(captionProbeLogical, st.Size(), st.ModTime())).
 			WithMediaInfo(commonv1alpha1.MediaInfo{
@@ -1353,7 +1353,7 @@ func verifyCaptionarrController(t *testing.T, cfg *rest.Config, dataDir string) 
 // result is "unavailable", naming the provider it skipped -- which is the
 // proof the worker's providerset builder listed it. Then it removes every
 // object the two captionarr cases made.
-func verifyCaptionarrWorker(t *testing.T, cfg *rest.Config) {
+func verifyCaptionWorker(t *testing.T, cfg *rest.Config) {
 	t.Helper()
 	ctx := context.Background()
 	c, err := client.New(cfg, client.Options{Scheme: k8s.MustNewScheme()})

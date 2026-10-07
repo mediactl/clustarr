@@ -72,7 +72,7 @@ func TestHandleImportsOnlyTheBestFormatOfABookRelease(t *testing.T) {
 		},
 	}
 	require.NoError(t, f.c.Create(ctx, book))
-	_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalogarrMetadata, catalogac.Book(book.Name, f.ns).
+	_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalogMetadata, catalogac.Book(book.Name, f.ns).
 		WithStatus(catalogac.BookStatus().WithMetadata(catalogac.BookMetadata().WithTitle("The Left Hand of Darkness"))))
 	require.NoError(t, err)
 	waitFor(t, 5*time.Second, func() bool {

@@ -252,7 +252,7 @@ func newFixture(t *testing.T, ns string) *fixture {
 	}
 	require.NoError(t, c.Create(ctx, movie))
 
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr,
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalog,
 		catalogac.Movie(movie.Name, ns).WithStatus(
 			catalogac.MovieStatus().WithMetadata(
 				catalogac.MovieMetadata().
@@ -317,7 +317,7 @@ func (f *fixture) createDownload(t *testing.T, name, contentRoot string, target 
 	}
 	require.NoError(t, f.c.Create(ctx, dl))
 
-	_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerGrabarr,
+	_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerGrab,
 		downloadac.Download(dl.Name, f.ns).WithStatus(
 			downloadac.DownloadStatus().
 				WithPhase(downloadv1alpha1.DownloadPhaseCompleted).

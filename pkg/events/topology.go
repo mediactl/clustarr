@@ -198,7 +198,7 @@ func SubscriptionSpec(s Subscription) ConsumerSpec {
 // squasharr's periodic sweep deletes it -- through StreamAdmin's
 // Subscriptions and DeleteSubscription, which removes its dead-letter
 // watcher too -- once no TranscodeProfile with its UID exists (the sweep in
-// app/squash/controller/transcodejob/withdraw.go; spec §6.4). A profile
+// app/transcode/controller/transcodejob/withdraw.go; spec §6.4). A profile
 // that still exists keeps every class's durable, idle or not. There is no
 // Heartbeat: the worker sends InProgress
 // itself while it renews its lease (spec §17.3). AckWait governs redelivery
@@ -216,7 +216,7 @@ func SubscriptionSpec(s Subscription) ConsumerSpec {
 func TranscodeTaskConsumer(profileUID, class string) ConsumerSpec {
 	return ConsumerSpec{
 		Name:          TranscodeTaskConsumerName(profileUID, class),
-		Stream:        StreamWorkSquasharr,
+		Stream:        StreamWorkTranscode,
 		Description:   "One transcode pool's tasks.",
 		Filters:       []string{FilterTranscodeTasks(profileUID, class)},
 		AckWait:       60 * time.Second,
@@ -758,7 +758,7 @@ func Default() Topology {
 			// loop spec §4.12: segment results are clustarr-segments records
 			// cmd/markers writes by CAS; the consumer that applied them is
 			// gone. Ensure deletes the durable and purges what it left.
-			{Stream: StreamWorkSegmentarr, Durable: ConsumerCatalogSegmentsResult, Purge: FilterCatalogSegmentsResult},
+			{Stream: StreamWorkMarkers, Durable: ConsumerCatalogSegmentsResult, Purge: FilterCatalogSegmentsResult},
 		},
 	})
 }
@@ -819,25 +819,25 @@ func defaultStreams() []StreamSpec {
 			Duplicates:  2 * time.Hour,
 			Replicas:    3,
 		},
-		work(StreamWorkCatalogarr, FilterWorkCatalogarr, 1*GiB),
+		work(StreamWorkCatalog, FilterWorkCatalog, 1*GiB),
 		// importarr (amendment §A1.6). Sized above indexarr's and
 		// captionarr's because a first scan of a large library enqueues one
 		// message per directory chunk and every completed download enqueues
 		// a fileimport; the other two enqueue per indexer and per subtitle
 		// request.
-		work(StreamWorkImportarr, FilterWorkImportarr, 512*MiB),
-		work(StreamWorkIndexarr, FilterWorkIndexarr, 256*MiB),
-		work(StreamWorkCaptionarr, FilterWorkCaptionarr, 256*MiB),
+		work(StreamWorkImport, FilterWorkImport, 512*MiB),
+		work(StreamWorkIndex, FilterWorkIndex, 256*MiB),
+		work(StreamWorkCaption, FilterWorkCaption, 256*MiB),
 		// Skip-segment work (spec 2026-10-01 segment detection): TheIntroDB's
 		// fetches, rescheduled by the thousand to its allowance's reset, and
 		// segment detection's plans, tasks and results. Durable: on a single
 		// node they filled catalogarr's memory work stream, whose
 		// discard-oldest then dropped catalogarr's own work.
-		durableStream(work(StreamWorkSegmentarr, FilterWorkSegmentarr, 256*MiB)),
+		durableStream(work(StreamWorkMarkers, FilterWorkMarkers, 256*MiB)),
 		{
-			Name:        StreamWorkSquasharr,
+			Name:        StreamWorkTranscode,
 			Description: "Transcode tasks squasharr admitted, and the workers' status events.",
-			Subjects:    []string{FilterWorkSquasharr},
+			Subjects:    []string{FilterWorkTranscode},
 			Retention:   RetentionWorkQueue,
 			Storage:     StorageFile,
 			Discard:     DiscardNew,
@@ -892,7 +892,7 @@ func defaultConsumers() []ConsumerSpec {
 			Slots:         256,
 		},
 		{
-			Name: ConsumerCatalogSearchHigh, Stream: StreamWorkCatalogarr,
+			Name: ConsumerCatalogSearchHigh, Stream: StreamWorkCatalog,
 			Filters: []string{"clustarr.work.catalogarr.search.high.>"},
 			AckWait: 120 * s, MaxDeliver: 5,
 			BackOff:         []time.Duration{30 * s, 2 * m, 10 * m},
@@ -902,7 +902,7 @@ func defaultConsumers() []ConsumerSpec {
 			Dispatched:      true,
 		},
 		{
-			Name: ConsumerCatalogSearchNorm, Stream: StreamWorkCatalogarr,
+			Name: ConsumerCatalogSearchNorm, Stream: StreamWorkCatalog,
 			Filters: []string{
 				"clustarr.work.catalogarr.search.normal.>",
 				"clustarr.work.catalogarr.search.low.>",
@@ -916,7 +916,7 @@ func defaultConsumers() []ConsumerSpec {
 			Dispatched:      true,
 		},
 		{
-			Name: ConsumerCatalogGrab, Stream: StreamWorkCatalogarr,
+			Name: ConsumerCatalogGrab, Stream: StreamWorkCatalog,
 			Filters: []string{FilterCatalogGrab},
 			AckWait: 60 * s, MaxDeliver: 5,
 			BackOff:       []time.Duration{10 * s, 1 * m, 5 * m},
@@ -924,7 +924,7 @@ func defaultConsumers() []ConsumerSpec {
 			Slots:         16,
 		},
 		{
-			Name: ConsumerCatalogMetadata, Stream: StreamWorkCatalogarr,
+			Name: ConsumerCatalogMetadata, Stream: StreamWorkCatalog,
 			Filters: []string{FilterCatalogMetadata},
 			AckWait: 60 * s, MaxDeliver: 8,
 			BackOff:         []time.Duration{30 * s, 2 * m, 10 * m, 1 * h, 6 * h},
@@ -938,7 +938,7 @@ func defaultConsumers() []ConsumerSpec {
 			// tuning as ConsumerCatalogMetadata: it runs inside the same
 			// role and the fetch does the same class of work, one outbound
 			// HTTP GET plus an object-store Put.
-			Name: ConsumerCatalogArtworkFetch, Stream: StreamWorkCatalogarr,
+			Name: ConsumerCatalogArtworkFetch, Stream: StreamWorkCatalog,
 			Filters: []string{FilterCatalogArtworkFetch},
 			AckWait: 60 * s, MaxDeliver: 8,
 			BackOff:         []time.Duration{30 * s, 2 * m, 10 * m, 1 * h, 6 * h},
@@ -952,7 +952,7 @@ func defaultConsumers() []ConsumerSpec {
 			// it is not leader-elected and scales by consumer, so the
 			// headroom that matters is per-task retry budget, not
 			// singleton throughput.
-			Name: ConsumerCatalogArtworkRender, Stream: StreamWorkCatalogarr,
+			Name: ConsumerCatalogArtworkRender, Stream: StreamWorkCatalog,
 			Filters: []string{FilterCatalogArtworkRender},
 			AckWait: 60 * s, MaxDeliver: 8,
 			BackOff:         []time.Duration{30 * s, 2 * m, 10 * m, 1 * h, 6 * h},
@@ -968,7 +968,7 @@ func defaultConsumers() []ConsumerSpec {
 			// message naked onto the BackOff holds its slot while it waits,
 			// and 8 such (the first deploy's refused applies) stalled the
 			// whole queue for up to an hour.
-			Name: ConsumerCatalogMarkers, Stream: StreamWorkSegmentarr,
+			Name: ConsumerCatalogMarkers, Stream: StreamWorkMarkers,
 			Filters: []string{FilterCatalogMarkers},
 			AckWait: 60 * s, MaxDeliver: 8,
 			BackOff:         []time.Duration{30 * s, 2 * m, 10 * m, 1 * h, 6 * h},
@@ -980,7 +980,7 @@ func defaultConsumers() []ConsumerSpec {
 		{
 			// Segment detection (spec 2026-10-01 §4.2): catalogarr's planner
 			// turns a season's (or a movie's) plan into one analysis task.
-			Name: ConsumerCatalogSegmentsPlan, Stream: StreamWorkSegmentarr,
+			Name: ConsumerCatalogSegmentsPlan, Stream: StreamWorkMarkers,
 			Filters: []string{FilterCatalogSegmentsPlan},
 			AckWait: 60 * s, MaxDeliver: 5,
 			BackOff:         []time.Duration{30 * s, 2 * m},
@@ -992,7 +992,7 @@ func defaultConsumers() []ConsumerSpec {
 		{
 			// segmentarr-worker: a season task decodes and analyzes up to
 			// minutes of ffmpeg work, heartbeating with InProgress.
-			Name: ConsumerSegmentarrAnalyze, Stream: StreamWorkSegmentarr,
+			Name: ConsumerMarkersAnalyze, Stream: StreamWorkMarkers,
 			Filters: []string{FilterCatalogSegmentsAnalyze},
 			AckWait: 30 * m, MaxDeliver: 3,
 			BackOff:       []time.Duration{1 * m, 10 * m},
@@ -1049,7 +1049,7 @@ func defaultConsumers() []ConsumerSpec {
 		// TestTheImportFitsTheFileConsumersAckDeadline), so a change here
 		// trips them.
 		{
-			Name: ConsumerImportScan, Stream: StreamWorkImportarr,
+			Name: ConsumerImportScan, Stream: StreamWorkImport,
 			Filters: []string{FilterImportScan},
 			AckWait: 60 * s, MaxDeliver: 4,
 			BackOff:       []time.Duration{30 * s, 2 * m, 10 * m},
@@ -1058,7 +1058,7 @@ func defaultConsumers() []ConsumerSpec {
 			Dispatched:      true,
 		},
 		{
-			Name: ConsumerImportList, Stream: StreamWorkImportarr,
+			Name: ConsumerImportList, Stream: StreamWorkImport,
 			Filters: []string{FilterImportList},
 			AckWait: 60 * s, MaxDeliver: 4,
 			BackOff:       []time.Duration{5 * m, 30 * m, 2 * h},
@@ -1074,7 +1074,7 @@ func defaultConsumers() []ConsumerSpec {
 			// grabarr blocklists the release: the owner's three tries over
 			// about an hour (2026-10-07). After the last delivery a
 			// transient import is held for a person, never blocklisted.
-			Name: ConsumerImportFile, Stream: StreamWorkImportarr,
+			Name: ConsumerImportFile, Stream: StreamWorkImport,
 			Filters: []string{FilterImportFile},
 			AckWait: 60 * s, MaxDeliver: 4,
 			BackOff:       []time.Duration{1 * m, 10 * m, 45 * m},
@@ -1089,7 +1089,7 @@ func defaultConsumers() []ConsumerSpec {
 			// JetStream replaces AckWait with BackOff[0] on a first
 			// delivery, so a sweep has 5 min; the handler sends in-progress
 			// acks while it removes folders.
-			Name: ConsumerImportRecycle, Stream: StreamWorkImportarr,
+			Name: ConsumerImportRecycle, Stream: StreamWorkImport,
 			Filters: []string{FilterImportRecycle},
 			AckWait: 60 * s, MaxDeliver: 3,
 			BackOff:       []time.Duration{5 * m, 30 * m},
@@ -1109,7 +1109,7 @@ func defaultConsumers() []ConsumerSpec {
 			// outlast 60s, so the worker sends in-progress acks on this
 			// heartbeat rather than having AckWait raised past the grace
 			// period. Spec 5's consumer table carries the same 60s.
-			Name: ConsumerIndexRSS, Stream: StreamWorkIndexarr,
+			Name: ConsumerIndexRSS, Stream: StreamWorkIndex,
 			Filters: []string{FilterIndexRSS},
 			AckWait: 60 * s, MaxDeliver: 4,
 			BackOff:         []time.Duration{1 * m, 5 * m, 15 * m},
@@ -1120,7 +1120,7 @@ func defaultConsumers() []ConsumerSpec {
 			Dispatched:      true,
 		},
 		{
-			Name: ConsumerCaptionFetchHigh, Stream: StreamWorkCaptionarr,
+			Name: ConsumerCaptionFetchHigh, Stream: StreamWorkCaption,
 			Filters: []string{"clustarr.work.captionarr.fetch.high.>"},
 			AckWait: 90 * s, MaxDeliver: 8,
 			BackOff:         []time.Duration{30 * s, 2 * m, 10 * m, 1 * h, 6 * h},
@@ -1130,7 +1130,7 @@ func defaultConsumers() []ConsumerSpec {
 			Dispatched:      true,
 		},
 		{
-			Name: ConsumerCaptionFetchNormal, Stream: StreamWorkCaptionarr,
+			Name: ConsumerCaptionFetchNormal, Stream: StreamWorkCaption,
 			Filters: []string{
 				"clustarr.work.captionarr.fetch.normal.>",
 				"clustarr.work.captionarr.fetch.low.>",
@@ -1143,7 +1143,7 @@ func defaultConsumers() []ConsumerSpec {
 			Dispatched:      true,
 		},
 		{
-			Name: ConsumerSquasharrResults, Stream: StreamWorkSquasharr,
+			Name: ConsumerTranscodeResults, Stream: StreamWorkTranscode,
 			Description: "Worker status events: squasharr sets TranscodeJob status and decides the next step.",
 			Filters:     []string{FilterTranscodeResults},
 			AckWait:     30 * s, MaxDeliver: 10,

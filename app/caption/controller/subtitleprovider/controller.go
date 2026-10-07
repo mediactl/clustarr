@@ -47,7 +47,7 @@ import (
 	subtitleac "github.com/mediactl/clustarr/api/applyconfiguration/subtitle/subtitle/v1alpha1"
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
 	"github.com/mediactl/clustarr/app/caption/providerset"
-	captionarrstatus "github.com/mediactl/clustarr/app/caption/status"
+	captionstatus "github.com/mediactl/clustarr/app/caption/status"
 	"github.com/mediactl/clustarr/app/caption/throttle"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -214,7 +214,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		}
 	}
 
-	err := captionarrstatus.PatchProvider(ctx, r.Client, k8s.ManagerCaptionarr, &fresh,
+	err := captionstatus.PatchProvider(ctx, r.Client, k8s.ManagerCaption, &fresh,
 		func(ac *subtitleac.SubtitleProviderStatusApplyConfiguration) {
 			applyThrottleState(ac, fresh.Generation, impl, sp.Spec.Type, state)
 			ac.WithConditions(k8s.ConditionACs(conditions)...)

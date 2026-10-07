@@ -29,14 +29,14 @@ import (
 
 // OrphanPartAge is how long a transcode attempt's part file must have gone
 // unwritten before the rescan removes it as abandoned: the worker's default
-// per-task deadline (app/squash/jobspec.DefaultActiveDeadline, 48h, the
+// per-task deadline (app/transcode/jobspec.DefaultActiveDeadline, 48h, the
 // TranscodeProfile CRD default) plus a day. A running encode writes its
 // part continuously, so its modification time stays fresh however long a
 // profile's own deadline is; one this old belongs to an attempt that died
 // without its cleanup -- OOM-killed, or lost with its node. The liveness
 // check below is the first guard, this age the second: a part whose job is
 // still non-terminal stays at any age, since that job's next attempt sweeps
-// it itself (app/squash/worker's sweepEarlierAttempts).
+// it itself (app/transcode/worker's sweepEarlierAttempts).
 const OrphanPartAge = 72 * time.Hour
 
 // orphanPart reports whether the walked file at path is an abandoned

@@ -184,7 +184,7 @@ func (movieOps) applyWorkerStatus(ctx context.Context, c client.Client, ns, name
 	if !isZeroAttempts(ws.DonorSearchAttempts) {
 		status = status.WithDonorSearchAttempts(ws.DonorSearchAttempts)
 	}
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrGrab,
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogGrab,
 		catalogac.Movie(name, ns).WithResourceVersion(resourceVersion).WithStatus(status))
 	return err
 }
@@ -249,7 +249,7 @@ func (episodeOps) applyWorkerStatus(ctx context.Context, c client.Client, ns, na
 	if !isZeroAttempts(ws.DonorSearchAttempts) {
 		status = status.WithDonorSearchAttempts(ws.DonorSearchAttempts)
 	}
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrGrab,
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogGrab,
 		catalogac.Episode(name, ns).WithResourceVersion(resourceVersion).WithStatus(status))
 	return err
 }

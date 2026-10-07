@@ -259,7 +259,7 @@ func TestArtistReconcilerNeverClaimsStatusMetadata(t *testing.T) {
 			catalogac.ArtistMetadata().WithName("Radiohead").WithRefreshedAt(metav1.Now()),
 		),
 	)
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, metaAC)
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, metaAC)
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		var got catalogv1alpha1.Artist
@@ -326,7 +326,7 @@ func TestArtistReconcilerCreatesAlbumsFilteredByProfile(t *testing.T) {
 			catalogac.ArtistMetadata().WithName("Radiohead").WithRefreshedAt(metav1.Now()),
 		),
 	)
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, metaAC)
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, metaAC)
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		var got catalogv1alpha1.Artist
@@ -410,7 +410,7 @@ func TestArtistReconcilerNeverTouchesAnExistingAlbumsSpec(t *testing.T) {
 
 	metaAC := catalogac.Artist(a.Name, a.Namespace).WithStatus(catalogac.ArtistStatus().WithMetadata(
 		catalogac.ArtistMetadata().WithName("Radiohead").WithRefreshedAt(metav1.Now())))
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, metaAC)
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, metaAC)
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		var got catalogv1alpha1.Artist
@@ -499,7 +499,7 @@ func TestArtistReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 
 		metaAC := catalogac.Artist(a.Name, a.Namespace).WithStatus(catalogac.ArtistStatus().WithMetadata(
 			catalogac.ArtistMetadata().WithName("Steady State").WithRefreshedAt(metav1.Now())))
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, metaAC)
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, metaAC)
 		require.NoError(t, err)
 		require.Eventually(t, func() bool {
 			var got catalogv1alpha1.Artist
@@ -551,7 +551,7 @@ func TestArtistReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 		oldRefresh := metav1.NewTime(time.Now().Add(-10 * 24 * time.Hour))
 		staleAC := catalogac.Artist(before.Name, before.Namespace).WithStatus(catalogac.ArtistStatus().WithMetadata(
 			catalogac.ArtistMetadata().WithName("Steady State").WithRefreshedAt(oldRefresh)))
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, staleAC)
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, staleAC)
 		require.NoError(t, err)
 		require.Eventually(t, func() bool {
 			var got catalogv1alpha1.Artist

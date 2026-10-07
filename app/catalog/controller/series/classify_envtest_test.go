@@ -65,7 +65,7 @@ func TestSeriesClassifiesAnimeOnce(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
 			Spec:       catalogv1alpha1.SeriesSpec{TvdbID: 79824, QualityProfileRef: "web-1080p", RootFolderRef: root},
 		}))
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, catalogac.Series(name, ns).WithStatus(
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, catalogac.Series(name, ns).WithStatus(
 			catalogac.SeriesStatus().WithMetadata(catalogac.SeriesMetadata().WithTitle(name).WithGenres(genres...).
 				WithStatus(catalogv1alpha1.SeriesRunStatusEnded).WithRefreshedAt(metav1.Now()).WithSchemaVersion(metadata.SchemaVersion))))
 		require.NoError(t, err)
@@ -96,21 +96,21 @@ func TestSeriesClassifiesAnimeOnce(t *testing.T) {
 	// Ownership, through the direct client: caches strip managedFields.
 	var got catalogv1alpha1.Series
 	require.NoError(t, direct.Get(ctx, naruto.NamespacedName, &got))
-	classifyOwnsProfile, catalogarrOwnsRecord := false, false
+	classifyOwnsProfile, catalogOwnsRecord := false, false
 	for _, mf := range got.ManagedFields {
 		raw := ""
 		if mf.FieldsV1 != nil {
 			raw = mf.FieldsV1.GetRawString()
 		}
-		if mf.Manager == string(k8s.ManagerCatalogarrClassify) && mf.Subresource == "" && strings.Contains(raw, `"f:qualityProfileRef"`) {
+		if mf.Manager == string(k8s.ManagerCatalogClassify) && mf.Subresource == "" && strings.Contains(raw, `"f:qualityProfileRef"`) {
 			classifyOwnsProfile = true
 		}
-		if mf.Manager == string(k8s.ManagerCatalogarr) && mf.Subresource == "status" && strings.Contains(raw, `"f:classification"`) {
-			catalogarrOwnsRecord = true
+		if mf.Manager == string(k8s.ManagerCatalog) && mf.Subresource == "status" && strings.Contains(raw, `"f:classification"`) {
+			catalogOwnsRecord = true
 		}
 	}
 	require.True(t, classifyOwnsProfile, "catalogarr-classify must own spec.qualityProfileRef")
-	require.True(t, catalogarrOwnsRecord, "catalogarr must own status.classification")
+	require.True(t, catalogOwnsRecord, "catalogarr must own status.classification")
 
 	// The owner's later change sticks.
 	require.NoError(t, c.Patch(ctx, &got, client.RawPatch(types.MergePatchType, []byte(`{"spec":{"qualityProfileRef":"web-1080p"}}`)), client.FieldOwner("clustarr-ui")))

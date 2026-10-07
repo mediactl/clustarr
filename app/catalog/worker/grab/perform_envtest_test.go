@@ -114,7 +114,7 @@ func TestPerformGrab_NeverWritesActiveDownloadRef(t *testing.T) {
 	movie := newMovie(t, ctx, c, ns, "the-thing-1982")
 	newIndexer(t, ctx, c, ns, "my-indexer", nil)
 	seedWorkerStatus(t, ctx, c, movie, "", nil)
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrGrab, catalogac.Movie(movie.Name, ns).WithStatus(
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogGrab, catalogac.Movie(movie.Name, ns).WithStatus(
 		catalogac.MovieStatus().
 			WithActiveDownloadRef("the-thing-1982-0000000000").
 			WithPendingGrab(catalogac.PendingGrab().
@@ -132,7 +132,7 @@ func TestPerformGrab_NeverWritesActiveDownloadRef(t *testing.T) {
 	var got catalogv1alpha1.Movie
 	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(movie), &got))
 	assert.Nil(t, got.Status.PendingGrab, "the grab consumed the pending candidate")
-	assert.NotContains(t, managerStatusFields(&got, k8s.ManagerCatalogarrGrab), "activeDownloadRef",
+	assert.NotContains(t, managerStatusFields(&got, k8s.ManagerCatalogGrab), "activeDownloadRef",
 		"k8s.ManagerCatalogarrGrab still owns status.activeDownloadRef after a grab; R-5 gives it to the reconciler alone")
 }
 
@@ -303,7 +303,7 @@ func TestPerformGrab_RedeliveryAfterThePublishFailedFinishesTheGrab(t *testing.T
 // "source (indexerDownload when the indexer is authenticated)": with no magnet
 // and an Indexer carrying a SecretRef, the engine must be told to resolve the
 // link through indexarr rather than handed a URL that will 401.
-func TestPerformGrab_AuthenticatedIndexerRoutesThroughIndexarr(t *testing.T) {
+func TestPerformGrab_AuthenticatedIndexerRoutesThroughIndex(t *testing.T) {
 	ctx := context.Background()
 	c := newTestClient(t)
 	ns := newNamespace(t, ctx, c)
@@ -365,7 +365,7 @@ func TestPerformGrab_UpperCaseInfoHashStillGrabs(t *testing.T) {
 // identically and spec.source is immutable, whichever grabbed second was
 // rejected. Routing every indexer release through indexarr also keeps the
 // Indexer's proxy and grab accounting in the path.
-func TestPerformGrab_UnauthenticatedIndexerAlsoRoutesThroughIndexarr(t *testing.T) {
+func TestPerformGrab_UnauthenticatedIndexerAlsoRoutesThroughIndex(t *testing.T) {
 	ctx := context.Background()
 	c := newTestClient(t)
 	ns := newNamespace(t, ctx, c)
@@ -547,8 +547,8 @@ func TestGatewayRefreshPreservesTheGrabsFields(t *testing.T) {
 		if e.Subresource != "status" {
 			continue
 		}
-		sawGrab = sawGrab || e.Manager == string(k8s.ManagerCatalogarrGrab)
-		sawMetadata = sawMetadata || e.Manager == string(k8s.ManagerCatalogarrMetadata)
+		sawGrab = sawGrab || e.Manager == string(k8s.ManagerCatalogGrab)
+		sawMetadata = sawMetadata || e.Manager == string(k8s.ManagerCatalogMetadata)
 	}
 	assert.True(t, sawGrab && sawMetadata,
 		"the grab path and the gateway must own separate status field-manager entries, got %+v", got.ManagedFields)
@@ -595,7 +595,7 @@ func TestRecordSearchAttempt_AdvancesTheLadderWithoutReleasingAnything(t *testin
 		"recording a search attempt released status.pendingGrab")
 	require.NotNil(t, got.Status.Metadata)
 	assert.Equal(t, catalogv1alpha1.MoviePhaseDelayed, got.Status.Phase, "the reconciler's phase is untouched")
-	assert.NotContains(t, managerStatusFields(&got, k8s.ManagerCatalogarrGrab), `"f:phase"`, "this helper must never write Phase")
+	assert.NotContains(t, managerStatusFields(&got, k8s.ManagerCatalogGrab), `"f:phase"`, "this helper must never write Phase")
 
 	// A second attempt advances Latest and Count but never moves Initial --
 	// the ladder is measured from the first attempt.

@@ -242,7 +242,7 @@ func previousKeys(ex *catalogv1alpha1.ImportExclusion) []string {
 func (r *Reconciler) recordKeys(ctx context.Context, ex *catalogv1alpha1.ImportExclusion, keys []string) error {
 	ac := catalogac.ImportExclusion(ex.Name, ex.Namespace).
 		WithAnnotations(map[string]string{AnnotationKeys: strings.Join(keys, ",")})
-	_, err := k8s.Apply(ctx, r.Client, k8s.ManagerImportarr, ac)
+	_, err := k8s.Apply(ctx, r.Client, k8s.ManagerImport, ac)
 	return err
 }
 
@@ -265,7 +265,7 @@ func (r *Reconciler) applyStatus(
 	if ex.Status.LastMatchedAt != nil {
 		status = status.WithLastMatchedAt(*ex.Status.LastMatchedAt)
 	}
-	_, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerImportarr,
+	_, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerImport,
 		catalogac.ImportExclusion(ex.Name, ex.Namespace).WithStatus(status))
 	return err
 }

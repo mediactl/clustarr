@@ -25,7 +25,7 @@ package v1alpha1
 // the marker it mirrors (api/subtitle/v1alpha1/defaults.go is the same
 // convention). They are plain Go methods and generate nothing.
 //
-// The policy pointers' defaults are read in app/squash/worker (ReplaceSource,
+// The policy pointers' defaults are read in app/transcode/worker (ReplaceSource,
 // MaxOutputToSourcePercent, ...), which predates this file.
 
 // DefaultQuality is an unset TranscodeProfileSpec.quality (no CRD default:

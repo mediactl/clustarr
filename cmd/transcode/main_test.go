@@ -36,8 +36,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/mediactl/clustarr/app/squash/grafttask"
-	"github.com/mediactl/clustarr/app/squash/jobspec"
+	"github.com/mediactl/clustarr/app/transcode/grafttask"
+	"github.com/mediactl/clustarr/app/transcode/jobspec"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/natsbus"
 )
@@ -63,7 +63,7 @@ func fakeTools(t *testing.T) string {
 }
 
 // ensureTopology creates the streams, consumers and buckets the worker needs
-// against a real embedded JetStream server, the way app/squash/worker's own
+// against a real embedded JetStream server, the way app/transcode/worker's own
 // NATS-backed tests do (e.g. lease_nats_test.go's leaseKVWithTTL): a bus
 // that has never had Ensure run against it has no clustarr-transcode-tasks
 // stream to pull from and no clustarr-transcode-leases or clustarr-progress

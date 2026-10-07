@@ -170,7 +170,7 @@ func createMovie(t *testing.T, ctx context.Context, c client.Client, ns, name st
 		},
 	}
 	require.NoError(t, c.Create(ctx, m))
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, catalogac.Movie(name, ns).WithStatus(
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, catalogac.Movie(name, ns).WithStatus(
 		catalogac.MovieStatus().WithAvailable(true).WithMetadata(
 			catalogac.MovieMetadata().WithTitle(title).WithYear(year).WithRuntimeMinutes(109).
 				// A BCP-47 TAG, which is what
@@ -195,7 +195,7 @@ func createSeries(t *testing.T, ctx context.Context, c client.Client, ns, name s
 		},
 	}
 	require.NoError(t, c.Create(ctx, s))
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, catalogac.Series(name, ns).WithStatus(
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, catalogac.Series(name, ns).WithStatus(
 		catalogac.SeriesStatus().WithMetadata(
 			catalogac.SeriesMetadata().WithTitle(title).WithYear(year).WithRuntimeMinutes(60).
 				WithRefreshedAt(metav1.Now()),
@@ -215,7 +215,7 @@ func createEpisode(t *testing.T, ctx context.Context, c client.Client, ns, serie
 	}
 	require.NoError(t, c.Create(ctx, ep))
 	if airDate != nil {
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrSeries, catalogac.Episode(name, ns).WithStatus(
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogSeries, catalogac.Episode(name, ns).WithStatus(
 			catalogac.EpisodeStatus().WithAirDate(metav1.NewTime(*airDate))))
 		require.NoError(t, err)
 	}

@@ -167,7 +167,7 @@ func collectRenders(t *testing.T, bus events.Bus) *renderCollector {
 	t.Helper()
 	c := &renderCollector{}
 	stop, err := bus.Subscribe(context.Background(), events.Subscription{
-		Stream: events.StreamWorkCatalogarr, Durable: "test-render-collector",
+		Stream: events.StreamWorkCatalog, Durable: "test-render-collector",
 		Filters: []string{events.FilterCatalogArtworkRender},
 	}, func(_ context.Context, m events.Message) error {
 		c.mu.Lock()
@@ -362,7 +362,7 @@ func TestTheLowerNameWinsAndTheLoserIsOverlapped(t *testing.T) {
 	// The status is the controller's one apply under catalogarr.
 	for _, e := range alpha.ManagedFields {
 		if e.Subresource == "status" {
-			assert.Equal(t, string(k8s.ManagerCatalogarr), e.Manager)
+			assert.Equal(t, string(k8s.ManagerCatalog), e.Manager)
 		}
 	}
 }

@@ -37,16 +37,16 @@ func TestSegmentsTopology(t *testing.T) {
 		maxAck       int
 	}{
 		{ConsumerCatalogSegmentsPlan, FilterCatalogSegmentsPlan, 8},
-		{ConsumerSegmentarrAnalyze, FilterCatalogSegmentsAnalyze, 4},
+		{ConsumerMarkersAnalyze, FilterCatalogSegmentsAnalyze, 4},
 		{ConsumerCatalogSegmentsResult, FilterCatalogSegmentsResult, 32},
 	} {
 		spec, ok := top.Consumer(c.name)
 		require.True(t, ok, c.name)
-		assert.Equal(t, StreamWorkSegmentarr, spec.Stream, c.name)
+		assert.Equal(t, StreamWorkMarkers, spec.Stream, c.name)
 		assert.Equal(t, []string{c.filter}, spec.Filters, c.name)
 		assert.Equal(t, c.maxAck, spec.MaxAckPending, c.name)
 	}
-	analyze, _ := top.Consumer(ConsumerSegmentarrAnalyze)
+	analyze, _ := top.Consumer(ConsumerMarkersAnalyze)
 	assert.Equal(t, 30*time.Minute, analyze.AckWait, "a season task runs up to 30 min, with heartbeats")
 
 	assert.Equal(t, "clustarr.work.segmentarr.plan.normal.media-dexter-s01", WorkSegmentsPlanSubject("media/dexter-s01"))
@@ -54,7 +54,7 @@ func TestSegmentsTopology(t *testing.T) {
 	assert.Equal(t, "clustarr.work.segmentarr.result.normal.k", WorkSegmentsResultSubject("k"))
 	assert.Equal(t, "clustarr.work.segmentarr.markers.normal.k", WorkMarkersSubject("k"))
 	markers, _ := top.Consumer(ConsumerCatalogMarkers)
-	assert.Equal(t, StreamWorkSegmentarr, markers.Stream, "TheIntroDB's tasks, rescheduled by the thousand to an allowance reset, live beside the segment work")
+	assert.Equal(t, StreamWorkMarkers, markers.Stream, "TheIntroDB's tasks, rescheduled by the thousand to an allowance reset, live beside the segment work")
 	_, err := ScheduleSubject(WorkSegmentsPlanSubject("media/dexter-s01"))
 	require.NoError(t, err, "a plan is scheduled 5 min ahead")
 
@@ -85,23 +85,23 @@ func TestSegmentsTopology(t *testing.T) {
 // work stream, whose discard-oldest then dropped catalogarr's own searches
 // and grabs (2026-10-01). Their stream stays on file, at full size, outside
 // the memory budget.
-func TestSegmentarrStreamStaysOnFileOnASingleNode(t *testing.T) {
+func TestMarkersStreamStaysOnFileOnASingleNode(t *testing.T) {
 	var full, single StreamSpec
 	for _, s := range Default().Streams {
-		if s.Name == StreamWorkSegmentarr {
+		if s.Name == StreamWorkMarkers {
 			full = s
 		}
 	}
 	for _, s := range Default().ForSingleNode().Streams {
-		if s.Name == StreamWorkSegmentarr {
+		if s.Name == StreamWorkMarkers {
 			single = s
 		}
 	}
-	require.Equal(t, StreamWorkSegmentarr, single.Name)
+	require.Equal(t, StreamWorkMarkers, single.Name)
 	assert.Equal(t, StorageFile, single.Storage)
 	assert.EqualValues(t, 256*MiB, single.MaxBytes)
 	assert.Equal(t, full.MaxBytes, single.MaxBytes)
 	assert.Equal(t, 1, single.Replicas)
 	assert.True(t, single.AllowMsgSchedules)
-	assert.Equal(t, []string{FilterWorkSegmentarr}, single.Subjects)
+	assert.Equal(t, []string{FilterWorkMarkers}, single.Subjects)
 }

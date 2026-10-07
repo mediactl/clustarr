@@ -324,7 +324,7 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 	// from a fresh read, applies with its resourceVersion, and on a Conflict
 	// redoes the ladder step and the indexedReleases increment from a new
 	// one.
-	prev, _, err := idxstatus.PatchCAS(ctx, w.reader(), w.Deps.Client, k8s.ManagerIndexarrWorker, key,
+	prev, _, err := idxstatus.PatchCAS(ctx, w.reader(), w.Deps.Client, k8s.ManagerIndexWorker, key,
 		func(fresh *indexv1alpha1.Indexer, ac *indexac.IndexerStatusApplyConfiguration) bool {
 			if pollErr != nil {
 				esc = idxstatus.RecordFailure(fresh.Status, now, pollErr.Error())

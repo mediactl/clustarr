@@ -39,7 +39,7 @@ import (
 const CodeUnconfirmedTranscodeOutput = "unconfirmed_transcode_output"
 
 // keptOutputSeparator is the " - <label>" multiple-version separator
-// app/squash/jobspec.OutputPath puts between a kept source's stem and the
+// app/transcode/jobspec.OutputPath puts between a kept source's stem and the
 // profile name (docs/research/naming.md §A3).
 const keptOutputSeparator = " - "
 
@@ -59,7 +59,7 @@ func probedTranscodeProfile(mi *commonv1.MediaInfo) string {
 	return mi.TranscodeProfile
 }
 
-// keptOutputName splits base as app/squash/jobspec.OutputPath names a
+// keptOutputName splits base as app/transcode/jobspec.OutputPath names a
 // replaceSource=false output, "<stem> - <profile>.<container>", into the
 // kept source's stem and the profile; ok is false for any other name. A
 // profile is a TranscodeProfile name, a DNS-1123 subdomain with no space in

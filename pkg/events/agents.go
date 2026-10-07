@@ -275,7 +275,7 @@ func AckMetricSubject(stream, durable string) string {
 func dynamicDispatchedStreams() []string {
 	var out []string
 	if TranscodeTaskConsumer("", "").Dispatched {
-		out = append(out, StreamWorkSquasharr)
+		out = append(out, StreamWorkTranscode)
 	}
 	if EngineConsumer("", 0).Dispatched {
 		out = append(out, StreamWorkEngine)

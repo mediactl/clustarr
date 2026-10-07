@@ -30,12 +30,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	captionarr "github.com/mediactl/clustarr/app/caption"
-	catalogarr "github.com/mediactl/clustarr/app/catalog"
-	grabarr "github.com/mediactl/clustarr/app/grab"
-	importarr "github.com/mediactl/clustarr/app/import"
-	indexarr "github.com/mediactl/clustarr/app/indexer"
-	squasharr "github.com/mediactl/clustarr/app/squash"
+	captionapp "github.com/mediactl/clustarr/app/caption"
+	catalogapp "github.com/mediactl/clustarr/app/catalog"
+	grabapp "github.com/mediactl/clustarr/app/grab"
+	importapp "github.com/mediactl/clustarr/app/import"
+	indexapp "github.com/mediactl/clustarr/app/indexer"
+	transcodeapp "github.com/mediactl/clustarr/app/transcode"
 	"github.com/mediactl/clustarr/ui"
 	"github.com/mediactl/clustarr/ui/actions"
 	"github.com/mediactl/clustarr/ui/projection"
@@ -95,11 +95,11 @@ func TestBothUICommandsWireEveryUIOption(t *testing.T) {
 func captureUIOptions(t *testing.T, argv ...string) ui.Options {
 	t.Helper()
 
-	catalog, index, grab, squash, caption, importa, uiRun :=
-		runCatalogarr, runIndexarr, runGrabarr, runSquasharr, runCaptionarr, runImportarr, runUI
+	catalog, index, grab, transcode, caption, importa, uiRun :=
+		runCatalog, runIndex, runGrab, runTranscode, runCaption, runImport, runUI
 	t.Cleanup(func() {
-		runCatalogarr, runIndexarr, runGrabarr, runSquasharr, runCaptionarr, runImportarr, runUI =
-			catalog, index, grab, squash, caption, importa, uiRun
+		runCatalog, runIndex, runGrab, runTranscode, runCaption, runImport, runUI =
+			catalog, index, grab, transcode, caption, importa, uiRun
 	})
 
 	var (
@@ -107,12 +107,12 @@ func captureUIOptions(t *testing.T, argv ...string) ui.Options {
 		got    ui.Options
 		called bool
 	)
-	runCatalogarr = func(context.Context, catalogarr.Options) error { return nil }
-	runIndexarr = func(context.Context, indexarr.Options) error { return nil }
-	runGrabarr = func(context.Context, grabarr.Options) error { return nil }
-	runSquasharr = func(context.Context, squasharr.Options) error { return nil }
-	runCaptionarr = func(context.Context, captionarr.Options) error { return nil }
-	runImportarr = func(context.Context, importarr.Options) error { return nil }
+	runCatalog = func(context.Context, catalogapp.Options) error { return nil }
+	runIndex = func(context.Context, indexapp.Options) error { return nil }
+	runGrab = func(context.Context, grabapp.Options) error { return nil }
+	runTranscode = func(context.Context, transcodeapp.Options) error { return nil }
+	runCaption = func(context.Context, captionapp.Options) error { return nil }
+	runImport = func(context.Context, importapp.Options) error { return nil }
 	runUI = func(_ context.Context, o ui.Options) error {
 		mu.Lock()
 		defer mu.Unlock()

@@ -21,7 +21,7 @@
 # (libcuda, libnvidia-encode, libnvcuvid) into a pod that asks for them with
 # runtimeClassName, an nvidia.com/gpu request and
 # NVIDIA_DRIVER_CAPABILITIES=video,compute,utility
-# (app/squash/controller/pool.applyHardware).
+# (app/transcode/controller/pool.applyHardware).
 #
 # There is no ffmpeg, ffprobe or par2 executable in the image: every binary
 # runs FFmpeg through ffgo in-process, and (from §11.1 step 12) par2 through

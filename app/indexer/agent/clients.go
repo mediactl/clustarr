@@ -43,7 +43,7 @@ import (
 // Session writes go under indexarr-worker (§5.3.2).
 func newClientCache(c client.Client, bus events.Bus, add func(manager.Runnable) error) (*clientcache.ClientCache, error) {
 	cc := clientcache.NewClientCache(c, ratelimit.New(idxclients.DefaultLimiterConfig()))
-	cc.Sessions = idxclients.NewSessionStore(c, bus, k8s.ManagerIndexarrWorker)
+	cc.Sessions = idxclients.NewSessionStore(c, bus, k8s.ManagerIndexWorker)
 	kv := bus.KV(events.BucketIndexerSessions)
 	if err := add(k8s.EveryReplica(func(ctx context.Context) error { return cc.WatchSessions(ctx, kv) })); err != nil {
 		return nil, fmt.Errorf("indexarr: add the session watch: %w", err)

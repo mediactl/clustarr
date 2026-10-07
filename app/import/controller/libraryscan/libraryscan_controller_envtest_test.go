@@ -66,7 +66,7 @@ func TestReconcileStartPublishesScanTaskAndSetsRunning(t *testing.T) {
 	after := getScan(t, ctx, c, ns, scan.Name)
 	assert.Equal(t, catalogv1alpha1.ScanPhaseRunning, after.Status.Phase)
 	require.NotNil(t, after.Status.StartedAt)
-	assert.Equal(t, string(k8s.ManagerImportarr), managerFor(t, after.ManagedFields, "status", "status.phase"),
+	assert.Equal(t, string(k8s.ManagerImport), managerFor(t, after.ManagedFields, "status", "status.phase"),
 		"importarr is the single writer of LibraryScan.status")
 
 	task, _ := drainOneScanTask(t, ctx, bus)
@@ -198,7 +198,7 @@ func TestReconcilePendingDoesNotReleaseTheRestOfTheStatus(t *testing.T) {
 		"status.filesSeen", "status.filesMatched", "status.itemsCreated",
 		"status.itemsUpdated", "status.filesSkipped", "status.unmatched", "status.startedAt",
 	} {
-		require.Equal(t, []string{string(k8s.ManagerImportarr)},
+		require.Equal(t, []string{string(k8s.ManagerImport)},
 			managersFor(t, populated.ManagedFields, "status", path),
 			"%s must be owned by importarr alone, or a release cannot be observed", path)
 	}
@@ -209,7 +209,7 @@ func TestReconcilePendingDoesNotReleaseTheRestOfTheStatus(t *testing.T) {
 	//    counters keep importarr as their only owner.
 	setRootFolderReady(t, ctx, c, rf, false)
 	setScanPhase(t, ctx, c, scan, catalogv1alpha1.ScanPhasePending)
-	require.Equal(t, []string{string(k8s.ManagerImportarr)},
+	require.Equal(t, []string{string(k8s.ManagerImport)},
 		managersFor(t, getScan(t, ctx, c, ns, scan.Name).ManagedFields, "status", "status.filesSeen"),
 		"rewinding the phase must not have taken the counters away from importarr")
 

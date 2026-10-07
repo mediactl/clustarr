@@ -85,7 +85,7 @@ func TestAnEmptyResultsListIsReleasedAndReadsEmpty(t *testing.T) {
 	}))
 
 	// Steady state first: a blank object cannot observe a release.
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrWorker,
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogWorker,
 		catalogac.Search(name, ns).WithStatus(
 			catalogac.SearchStatus().
 				WithFinishedAt(metav1.Now()).
@@ -96,11 +96,11 @@ func TestAnEmptyResultsListIsReleasedAndReadsEmpty(t *testing.T) {
 	got := &catalogv1alpha1.Search{}
 	require.NoError(t, c.Get(ctx, client.ObjectKey{Namespace: ns, Name: name}, got))
 	require.Len(t, got.Status.Results, 1)
-	require.Contains(t, statusFieldsOwnedBy(t, got, string(k8s.ManagerCatalogarrWorker)), "f:results")
+	require.Contains(t, statusFieldsOwnedBy(t, got, string(k8s.ManagerCatalogWorker)), "f:results")
 
 	// The same manager applies again with nothing to put in the list, which is
 	// what a terminal failure with no earlier results carries.
-	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrWorker,
+	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogWorker,
 		catalogac.Search(name, ns).WithStatus(
 			catalogac.SearchStatus().
 				WithFinishedAt(metav1.Now()).
@@ -110,7 +110,7 @@ func TestAnEmptyResultsListIsReleasedAndReadsEmpty(t *testing.T) {
 
 	require.NoError(t, c.Get(ctx, client.ObjectKey{Namespace: ns, Name: name}, got))
 	require.Empty(t, got.Status.Results, "an empty list must read as no results")
-	owned := statusFieldsOwnedBy(t, got, string(k8s.ManagerCatalogarrWorker))
+	owned := statusFieldsOwnedBy(t, got, string(k8s.ManagerCatalogWorker))
 	require.NotContains(t, owned, "f:results",
 		"a generated apply configuration omits an empty list, so the field is released, not declared empty")
 	require.Contains(t, owned, "f:finishedAt", "the fields this apply did send stay owned")
@@ -142,7 +142,7 @@ func TestAssociativeListOwnershipIsPerEntry(t *testing.T) {
 			MediaRef: &commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "the-matrix"},
 		},
 	}))
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrWorker,
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogWorker,
 		catalogac.Search(name, ns).WithStatus(
 			catalogac.SearchStatus().
 				WithFinishedAt(metav1.Now()).
@@ -152,14 +152,14 @@ func TestAssociativeListOwnershipIsPerEntry(t *testing.T) {
 
 	got := &catalogv1alpha1.Search{}
 	require.NoError(t, c.Get(ctx, client.ObjectKey{Namespace: ns, Name: name}, got))
-	owned := statusFieldsOwnedBy(t, got, string(k8s.ManagerCatalogarrWorker))
+	owned := statusFieldsOwnedBy(t, got, string(k8s.ManagerCatalogWorker))
 	entries, ok := owned["f:indexerOutcomes"].(map[string]any)
 	require.True(t, ok, "a non-empty associative list is owned by entry")
 	require.Contains(t, entries, `k:{"name":"idx"}`)
 
 	// Declaring the list empty removes the entry AND the ownership record --
 	// exactly as omitting the field would have done.
-	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrWorker,
+	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogWorker,
 		catalogac.Search(name, ns).WithStatus(
 			catalogac.SearchStatus().
 				WithFinishedAt(metav1.Now()).
@@ -169,7 +169,7 @@ func TestAssociativeListOwnershipIsPerEntry(t *testing.T) {
 
 	require.NoError(t, c.Get(ctx, client.ObjectKey{Namespace: ns, Name: name}, got))
 	require.Empty(t, got.Status.IndexerOutcomes)
-	require.NotContains(t, statusFieldsOwnedBy(t, got, string(k8s.ManagerCatalogarrWorker)), "f:indexerOutcomes",
+	require.NotContains(t, statusFieldsOwnedBy(t, got, string(k8s.ManagerCatalogWorker)), "f:indexerOutcomes",
 		"an empty associative list owns nothing; only re-declaring its contents preserves them")
 }
 
@@ -190,14 +190,14 @@ func TestSearchApplyConfigurationClaimsOnlyWhatItSets(t *testing.T) {
 		},
 	}))
 
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrWorker,
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogWorker,
 		catalogac.Search(name, ns).WithStatus(
 			catalogac.SearchStatus().WithFinishedAt(metav1.Now())))
 	require.NoError(t, err)
 
 	got := &catalogv1alpha1.Search{}
 	require.NoError(t, c.Get(ctx, client.ObjectKey{Namespace: ns, Name: name}, got))
-	owned := statusFieldsOwnedBy(t, got, string(k8s.ManagerCatalogarrWorker))
+	owned := statusFieldsOwnedBy(t, got, string(k8s.ManagerCatalogWorker))
 	require.Contains(t, owned, "f:finishedAt")
 	require.NotContains(t, owned, "f:results",
 		"a builder that never calls WithResults must not claim the field")
@@ -224,7 +224,7 @@ func TestReconcilerDoesNotClaimWorkerFieldsOnAMediaRefSearch(t *testing.T) {
 	f.reconcile(t, "srch")
 
 	got := f.get(t, "srch")
-	owned := statusFieldsOwnedBy(t, got, string(k8s.ManagerCatalogarr))
+	owned := statusFieldsOwnedBy(t, got, string(k8s.ManagerCatalog))
 	require.Contains(t, owned, "f:phase", "the reconciler does own phase")
 	require.NotContains(t, owned, "f:results")
 	require.NotContains(t, owned, "f:indexerOutcomes")
@@ -245,7 +245,7 @@ func TestReconcilerClaimsResultFieldsOnAQueryModeSearch(t *testing.T) {
 	f.reconcile(t, "srch")
 
 	got := f.get(t, "srch")
-	owned := statusFieldsOwnedBy(t, got, string(k8s.ManagerCatalogarr))
+	owned := statusFieldsOwnedBy(t, got, string(k8s.ManagerCatalog))
 	require.Contains(t, owned, "f:results")
 	require.Contains(t, owned, "f:indexerOutcomes")
 	require.Contains(t, owned, "f:finishedAt")

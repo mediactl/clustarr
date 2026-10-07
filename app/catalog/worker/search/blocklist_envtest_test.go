@@ -89,7 +89,7 @@ func newDownload(t *testing.T, ctx context.Context, c client.Client, ns string, 
 	if f.blocklistedUntil != nil {
 		statusAC = statusAC.WithBlocklistedUntil(*f.blocklistedUntil)
 	}
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrabarr, downloadac.Download(f.name, ns).WithStatus(statusAC))
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadac.Download(f.name, ns).WithStatus(statusAC))
 	require.NoError(t, err)
 }
 

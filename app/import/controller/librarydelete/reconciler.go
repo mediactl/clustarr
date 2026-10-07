@@ -328,7 +328,7 @@ func (r *Reconciler) fail(ctx context.Context, obj client.Object, err error) err
 		target := r.kind.newObject()
 		target.SetNamespace(obj.GetNamespace())
 		target.SetName(obj.GetName())
-		if perr := r.Patch(ctx, target, client.RawPatch(types.MergePatchType, patch), client.FieldOwner(k8s.ManagerImportarr.String())); perr != nil {
+		if perr := r.Patch(ctx, target, client.RawPatch(types.MergePatchType, patch), client.FieldOwner(k8s.ManagerImport.String())); perr != nil {
 			logging.FromContext(ctx).Error("librarydelete: record delete-error", "error", perr)
 		}
 	}

@@ -25,7 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	indexarr "github.com/mediactl/clustarr/app/indexer"
+	indexapp "github.com/mediactl/clustarr/app/indexer"
 )
 
 // Both of these constants shipped disagreeing with the manifest, and neither
@@ -40,29 +40,29 @@ import (
 // restates the value it guards cannot catch drift; that is how ValidKVKey
 // shipped permissive in Phase C, pinned against a regex copied into the test
 // file instead of against the server that rejects the key.
-const indexarrManifest = "../../config/manager/indexarr.yaml"
+const indexManifest = "../../config/manager/indexarr.yaml"
 
 func TestDefaultIndexPathMatchesTheManifest(t *testing.T) {
-	b, err := os.ReadFile(indexarrManifest)
+	b, err := os.ReadFile(indexManifest)
 	require.NoError(t, err)
 
 	m := regexp.MustCompile(`(?m)^\s*-\s*name:\s*CLUSTARR_INDEX_PATH\s*\n\s*value:\s*(\S+)\s*$`).
 		FindSubmatch(b)
-	require.Len(t, m, 2, "CLUSTARR_INDEX_PATH is not set in %s -- if it moved, this test must follow it", indexarrManifest)
+	require.Len(t, m, 2, "CLUSTARR_INDEX_PATH is not set in %s -- if it moved, this test must follow it", indexManifest)
 
-	assert.Equal(t, string(m[1]), indexarr.DefaultIndexPath,
+	assert.Equal(t, string(m[1]), indexapp.DefaultIndexPath,
 		"the compiled-in index path and the manifest's CLUSTARR_INDEX_PATH disagree; "+
 			"the pod runs readOnlyRootFilesystem, so a path outside the PVC mount cannot be written")
 }
 
 func TestDefaultFacadeBindAddressMatchesTheServicePort(t *testing.T) {
-	b, err := os.ReadFile(indexarrManifest)
+	b, err := os.ReadFile(indexManifest)
 	require.NoError(t, err)
 
 	m := regexp.MustCompile(`(?m)^\s*-\s*name:\s*http\s*\n\s*containerPort:\s*(\d+)\s*$`).
 		FindSubmatch(b)
-	require.Len(t, m, 2, "no named http port in %s -- if it was renamed, this test must follow it", indexarrManifest)
+	require.Len(t, m, 2, "no named http port in %s -- if it was renamed, this test must follow it", indexManifest)
 
-	assert.Equal(t, ":"+string(m[1]), indexarr.DefaultFacadeBindAddress,
+	assert.Equal(t, ":"+string(m[1]), indexapp.DefaultFacadeBindAddress,
 		"the facade would bind a port the Service does not route to, so it would be unreachable")
 }

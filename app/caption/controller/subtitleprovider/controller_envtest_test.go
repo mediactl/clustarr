@@ -129,7 +129,7 @@ func TestReconcileEmbeddedProviderIsReadyWithNoCredentials(t *testing.T) {
 	// "an over-claim is silent" rule.
 	var sawStatusOwner bool
 	for _, mfEntry := range got.ManagedFields {
-		if mfEntry.Manager == string(k8s.ManagerCaptionarr) && mfEntry.Subresource == "status" {
+		if mfEntry.Manager == string(k8s.ManagerCaption) && mfEntry.Subresource == "status" {
 			sawStatusOwner = true
 		}
 	}

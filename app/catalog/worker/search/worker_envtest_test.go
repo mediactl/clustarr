@@ -316,7 +316,7 @@ func TestWorkerHandleWritesAnInteractiveSearchesResults(t *testing.T) {
 // worker-only test.
 func writeControllerStatus(t *testing.T, ctx context.Context, c client.Client, ns, name string) {
 	t.Helper()
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr,
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalog,
 		catalogac.Search(name, ns).WithStatus(
 			catalogac.SearchStatus().
 				WithPhase(catalogv1alpha1.SearchPhaseRunning).

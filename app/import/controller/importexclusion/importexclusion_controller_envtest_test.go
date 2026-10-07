@@ -160,7 +160,7 @@ func TestReconcilePutsAnIndexKeyPerRecognizedExternalID(t *testing.T) {
 	assert.True(t, k8s.IsConditionTrue(after.Status.Conditions, catalogv1alpha1.ImportExclusionConditionReady))
 	assert.Equal(t, after.Generation, after.Status.ObservedGeneration)
 	assert.True(t, k8s.HasFinalizer(&after, "catalog.clustarr.io/importexclusion"))
-	assert.Equal(t, string(k8s.ManagerImportarr),
+	assert.Equal(t, string(k8s.ManagerImport),
 		managerFor(t, after.ManagedFields, "status", "status.conditions"))
 }
 

@@ -33,7 +33,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // EightBitTarget and TooManyStreams are the two rules the controller and
 // the standard share; Progress and Report are the engine's telemetry and
 // verification. A profile reaches the standard as standard.Profile
-// (app/squash/jobspec.StandardProfile); this package mirrors only its
+// (app/transcode/jobspec.StandardProfile); this package mirrors only its
 // Container and Hardware enums.
 //
 // This package carries no Kubernetes types beyond commonv1.MediaInfo, and

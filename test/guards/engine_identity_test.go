@@ -43,7 +43,7 @@ import (
 // mounts at /data -- engines and controller share one volume. The chart is
 // rendered under two release names because its names carry the fullname:
 // a hard-coded default passes under "clustarr" and fails under anything else.
-func TestGrabarrEnginesMountAClaimTheInstallerCreates(t *testing.T) {
+func TestGrabEnginesMountAClaimTheInstallerCreates(t *testing.T) {
 	helm := findTool(t, "helm")
 	kustomize := findTool(t, "kustomize")
 	root, err := filepath.Abs("../..")
@@ -78,7 +78,7 @@ func TestGrabarrEnginesMountAClaimTheInstallerCreates(t *testing.T) {
 				}
 			}
 			t.Setenv(namespaceEnv, "clustarr-system")
-			got := stub(t, &runGrabarr)
+			got := stub(t, &runGrab)
 			_, err := execute(t, ctr.Args...)
 			require.NoError(t, err)
 			require.NoError(t, got.Validate())
@@ -112,7 +112,7 @@ func TestGrabarrEnginesMountAClaimTheInstallerCreates(t *testing.T) {
 // (cmd/clustarr's start envtest proves the stamp itself). That account must
 // be one the installer creates, bound to exactly one ClusterRole whose
 // grants are exactly the engines' generated role.
-func TestGrabarrEnginesRunAsAnAccountTheInstallerBinds(t *testing.T) {
+func TestGrabEnginesRunAsAnAccountTheInstallerBinds(t *testing.T) {
 	helm := findTool(t, "helm")
 	kustomize := findTool(t, "kustomize")
 	root, err := filepath.Abs("../..")
@@ -144,7 +144,7 @@ func TestGrabarrEnginesRunAsAnAccountTheInstallerBinds(t *testing.T) {
 				}
 			}
 			t.Setenv(namespaceEnv, "clustarr-system")
-			got := stub(t, &runGrabarr)
+			got := stub(t, &runGrab)
 			_, err := execute(t, ctr.Args...)
 			require.NoError(t, err)
 			require.NoError(t, got.Validate())

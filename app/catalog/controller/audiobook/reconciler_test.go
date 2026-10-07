@@ -521,7 +521,7 @@ func TestAudiobookReconcilerRealController(t *testing.T) {
 		require.NoError(t, c.Create(ctx, m))
 
 		release := metav1.NewTime(time.Date(1989, time.January, 1, 0, 0, 0, 0, time.UTC))
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata,
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata,
 			catalogac.Audiobook(m.Name, m.Namespace).WithStatus(
 				catalogac.AudiobookStatus().WithMetadata(
 					catalogac.AudiobookMetadata().
@@ -560,7 +560,7 @@ func TestAudiobookReconcilerRealController(t *testing.T) {
 		}
 		require.NoError(t, c.Create(ctx, m))
 
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata,
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata,
 			catalogac.Audiobook(m.Name, m.Namespace).WithStatus(
 				catalogac.AudiobookStatus().WithMetadata(
 					catalogac.AudiobookMetadata().WithTitle("Guards! Guards!").WithRefreshedAt(metav1.Now()),
@@ -575,7 +575,7 @@ func TestAudiobookReconcilerRealController(t *testing.T) {
 			return got.Status.Phase == catalogv1alpha1.AudiobookPhaseWanted
 		}, 10*time.Second, 20*time.Millisecond, "the audiobook must settle at Wanted before the delay is applied")
 
-		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrGrab,
+		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogGrab,
 			catalogac.Audiobook(m.Name, m.Namespace).WithStatus(
 				catalogac.AudiobookStatus().WithPendingGrab(
 					catalogac.PendingGrab().
@@ -609,7 +609,7 @@ func TestAudiobookReconcilerRealController(t *testing.T) {
 		}
 		require.NoError(t, c.Create(ctx, m))
 
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata,
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata,
 			catalogac.Audiobook(m.Name, m.Namespace).WithStatus(
 				catalogac.AudiobookStatus().WithMetadata(
 					catalogac.AudiobookMetadata().WithTitle("Guards! Guards!").WithRefreshedAt(metav1.Now()),
@@ -698,18 +698,18 @@ func TestAudiobookReconcilerRealController(t *testing.T) {
 				refOwners = append(refOwners, e.Manager)
 			}
 		}
-		assert.Equal(t, []string{string(k8s.ManagerCatalogarr)}, refOwners)
+		assert.Equal(t, []string{string(k8s.ManagerCatalog)}, refOwners)
 
 		// Completed is on disk and awaiting import: still this item's
 		// Download (R-12).
-		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrabarr, downloadStatusAC("guards-guards-dl", "rollup-ns", downloadv1alpha1.DownloadPhaseCompleted))
+		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadStatusAC("guards-guards-dl", "rollup-ns", downloadv1alpha1.DownloadPhaseCompleted))
 		require.NoError(t, err)
 		require.Never(t, func() bool {
 			var g catalogv1alpha1.Audiobook
 			return c.Get(ctx, key, &g) == nil && (g.Status.ActiveDownloadRef == nil || g.Status.Phase != catalogv1alpha1.AudiobookPhaseDownloading)
 		}, 500*time.Millisecond, 20*time.Millisecond, "a Completed Download is still working on the item")
 
-		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrabarr, downloadStatusAC("guards-guards-dl", "rollup-ns", downloadv1alpha1.DownloadPhaseImported))
+		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadStatusAC("guards-guards-dl", "rollup-ns", downloadv1alpha1.DownloadPhaseImported))
 		require.NoError(t, err)
 		require.Eventually(t, func() bool {
 			var g catalogv1alpha1.Audiobook
@@ -818,7 +818,7 @@ func TestAudiobookReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 				catalogac.AudiobookMetadata().WithTitle("Steady State").WithRefreshedAt(metav1.Now()),
 			),
 		)
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, metaAC)
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, metaAC)
 		require.NoError(t, err)
 		waitForCachedMetadata(t, ctx, c, "transient-ns", name)
 
@@ -869,7 +869,7 @@ func TestAudiobookReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 				catalogac.AudiobookMetadata().WithTitle("Steady State").WithRefreshedAt(oldRefresh),
 			),
 		)
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, staleAC)
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, staleAC)
 		require.NoError(t, err)
 		// A tolerant "is it old now" check, not exact equality: the apiserver
 		// round-trips metav1.Time through RFC 3339 at one-second precision,

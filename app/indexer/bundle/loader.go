@@ -124,7 +124,7 @@ func (l *Loader) SyncOnce(ctx context.Context) (Result, error) {
 		ac := indexac.IndexerDefinition(name).
 			WithLabels(map[string]string{LabelBundled: "true"}).
 			WithSpec(indexac.IndexerDefinitionSpec().WithYAML(string(def.YAML)))
-		if _, err := k8s.Apply(ctx, l.Client, k8s.ManagerIndexarr, ac); err != nil {
+		if _, err := k8s.Apply(ctx, l.Client, k8s.ManagerIndex, ac); err != nil {
 			tracing.RecordError(span, err)
 			return res, fmt.Errorf("bundle: apply IndexerDefinition %s: %w", name, err)
 		}

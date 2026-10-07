@@ -59,7 +59,7 @@ func driveToSteadyState(t *testing.T, ctx context.Context, c client.Client, ns, 
 	t.Helper()
 	idx := getIndexer(t, ctx, c, ns, name)
 
-	require.NoError(t, idxstatus.Patch(ctx, c, k8s.ManagerIndexarr, idx,
+	require.NoError(t, idxstatus.Patch(ctx, c, k8s.ManagerIndex, idx,
 		func(ac *indexac.IndexerStatusApplyConfiguration) {
 			ac.WithObservedGeneration(1).
 				WithProtocol(commonv1.ProtocolTorrent).
@@ -71,7 +71,7 @@ func driveToSteadyState(t *testing.T, ctx context.Context, c client.Client, ns, 
 		}))
 
 	idx = getIndexer(t, ctx, c, ns, name)
-	require.NoError(t, idxstatus.Patch(ctx, c, k8s.ManagerIndexarrWorker, idx,
+	require.NoError(t, idxstatus.Patch(ctx, c, k8s.ManagerIndexWorker, idx,
 		func(ac *indexac.IndexerStatusApplyConfiguration) {
 			ac.WithLastRssAt(metav1.NewTime(t0)).
 				WithLastRssNewCount(7).
@@ -290,7 +290,7 @@ func TestTheWorkerNeverWritesTheControllersFields(t *testing.T) {
 	idx := getIndexer(t, ctx, c, ns, "idx")
 	var owned string
 	for _, mf := range idx.ManagedFields {
-		if mf.Manager == string(k8s.ManagerIndexarrWorker) && mf.Subresource == "status" {
+		if mf.Manager == string(k8s.ManagerIndexWorker) && mf.Subresource == "status" {
 			owned = mf.FieldsV1.GetRawString()
 		}
 	}
@@ -619,7 +619,7 @@ func TestAConcurrentWorkerWriteSurvivesALongPoll(t *testing.T) {
 // fan-out's outcome apply, through the same compare-and-swap.
 func addIndexedReleases(t *testing.T, ctx context.Context, c client.Client, key client.ObjectKey, n int64) {
 	t.Helper()
-	_, _, err := idxstatus.PatchCAS(ctx, c, c, k8s.ManagerIndexarrWorker, key,
+	_, _, err := idxstatus.PatchCAS(ctx, c, c, k8s.ManagerIndexWorker, key,
 		func(fresh *indexv1alpha1.Indexer, ac *indexac.IndexerStatusApplyConfiguration) bool {
 			ac.WithIndexedReleases(fresh.Status.IndexedReleases + n)
 			return false

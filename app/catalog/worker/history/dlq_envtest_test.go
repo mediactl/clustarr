@@ -63,7 +63,7 @@ func TestDLQProjector_AnnotatesExactlyOneLeaf_NeverStatus(t *testing.T) {
 	}
 	require.NoError(t, c.Create(ctx, movie))
 
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr,
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalog,
 		catalogac.Movie(movie.Name, ns).WithStatus(
 			catalogac.MovieStatus().WithPhase(catalogv1alpha1.MoviePhaseWanted).WithAvailable(true),
 		))

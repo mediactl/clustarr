@@ -190,7 +190,7 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 				WithTvdbID(123456).WithRuntimeMinutes(44).
 				WithAirDate(yesterday),
 		)
-		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrSeries, provAC)
+		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogSeries, provAC)
 		require.NoError(t, err)
 
 		require.Eventually(t, func() bool {
@@ -236,7 +236,7 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 		// Drive it to a settled Wanted first, or the assertion below could
 		// not tell Delayed apart from "never reconciled".
 		yesterday := metav1.NewTime(time.Now().Add(-24 * time.Hour))
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrSeries,
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogSeries,
 			catalogac.Episode(ep.Name, ep.Namespace).WithStatus(catalogac.EpisodeStatus().WithAirDate(yesterday)))
 		require.NoError(t, err)
 		require.Eventually(t, func() bool {
@@ -249,7 +249,7 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 
 		// Exactly what app/catalog/worker/grab writes: pendingGrab only, under
 		// the worker's own field manager, never Phase.
-		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrGrab,
+		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogGrab,
 			catalogac.Episode(ep.Name, ep.Namespace).WithStatus(
 				catalogac.EpisodeStatus().WithPendingGrab(
 					catalogac.PendingGrab().
@@ -474,7 +474,7 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 		}
 
 		steady(t, "t1-show-s01e01", "t1-show-s01e01-abc1234567", 1)
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr,
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalog,
 			catalogac.MediaFile("t1-show-s01e01-abc1234567", "ep-ns").WithStatus(catalogac.MediaFileStatus().
 				WithProbeHash("probe-1").
 				WithMediaInfo(commonv1.MediaInfo{
@@ -559,9 +559,9 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 			return got.Status.ActiveDownloadRef != nil
 		}, 5*time.Second, 20*time.Millisecond, "a new owned Download must reach the ref through the Download watch alone")
 		assert.Equal(t, dl, *got.Status.ActiveDownloadRef)
-		assert.Equal(t, []string{k8s.ManagerCatalogarr.String()}, statusFieldOwners(t, &got, "activeDownloadRef"))
+		assert.Equal(t, []string{k8s.ManagerCatalog.String()}, statusFieldOwners(t, &got, "activeDownloadRef"))
 
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrabarr, downloadStatusAC(dl, "ep-ns", downloadv1alpha1.DownloadPhaseAssigned))
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadStatusAC(dl, "ep-ns", downloadv1alpha1.DownloadPhaseAssigned))
 		require.NoError(t, err)
 		require.Eventually(t, func() bool {
 			if err := c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: "the-wire-s01e02"}, &got); err != nil {
@@ -570,7 +570,7 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 			return got.Status.Phase == catalogv1alpha1.EpisodePhaseDownloading
 		}, 5*time.Second, 20*time.Millisecond)
 
-		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrabarr, downloadStatusAC(dl, "ep-ns", downloadv1alpha1.DownloadPhaseImported))
+		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadStatusAC(dl, "ep-ns", downloadv1alpha1.DownloadPhaseImported))
 		require.NoError(t, err)
 		require.Eventually(t, func() bool {
 			if err := c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: "the-wire-s01e02"}, &got); err != nil {
@@ -592,7 +592,7 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 		live := waitForPhase(t, ctx, c, "ep-ns", "the-wire-s01e05")
 		ref, err := k8s.OwnerReferenceAC(&live, k8s.MustNewScheme())
 		require.NoError(t, err)
-		_, err = k8s.Apply(ctx, c, k8s.ManagerCatalogarrGrab, downloadac.Download("the-wire-s01e05-donor", "ep-ns").
+		_, err = k8s.Apply(ctx, c, k8s.ManagerCatalogGrab, downloadac.Download("the-wire-s01e05-donor", "ep-ns").
 			WithOwnerReferences(ref).
 			WithSpec(downloadac.DownloadSpec().
 				WithProtocol(commonv1.ProtocolUsenet).WithPurpose(downloadv1alpha1.DownloadPurposeAudioDonor).
@@ -600,7 +600,7 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 				WithRelease(commonv1.ReleaseInfo{GUID: "donor", IndexerRef: "example", Title: "The.Wire.S01E05.DVDRip.DL", Protocol: commonv1.ProtocolUsenet}).
 				WithTarget(commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: "the-wire-s01e05"})))
 		require.NoError(t, err)
-		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrabarr, downloadStatusAC("the-wire-s01e05-donor", "ep-ns", downloadv1alpha1.DownloadPhaseDownloading))
+		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadStatusAC("the-wire-s01e05-donor", "ep-ns", downloadv1alpha1.DownloadPhaseDownloading))
 		require.NoError(t, err)
 		require.Never(t, func() bool {
 			var got catalogv1alpha1.Episode
@@ -621,7 +621,7 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "ep-ns"},
 			Spec:       catalogv1alpha1.EpisodeSpec{SeriesRef: "the-wire", SeasonNumber: 1, EpisodeNumber: 3},
 		}))
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrSeries, catalogac.Episode(name, "ep-ns").WithStatus(
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogSeries, catalogac.Episode(name, "ep-ns").WithStatus(
 			catalogac.EpisodeStatus().WithAirDate(metav1.NewTime(time.Now().Add(-48*time.Hour)))))
 		require.NoError(t, err)
 
@@ -658,7 +658,7 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 		settled(t, "a Download with no phase yet", catalogv1alpha1.EpisodePhaseDownloading, dl)
 
 		set := func(p downloadv1alpha1.DownloadPhase) {
-			_, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrabarr, downloadStatusAC(dl, "ep-ns", p))
+			_, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadStatusAC(dl, "ep-ns", p))
 			require.NoError(t, err)
 		}
 		for _, p := range []downloadv1alpha1.DownloadPhase{
@@ -694,7 +694,7 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{Name: n, Namespace: "ep-ns"},
 				Spec:       catalogv1alpha1.EpisodeSpec{SeriesRef: "multi-show", SeasonNumber: 2, EpisodeNumber: int32(i + 1)},
 			}))
-			_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrSeries, catalogac.Episode(n, "ep-ns").WithStatus(
+			_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogSeries, catalogac.Episode(n, "ep-ns").WithStatus(
 				catalogac.EpisodeStatus().WithAirDate(metav1.NewTime(time.Now().Add(-72*time.Hour)))))
 			require.NoError(t, err)
 		}
@@ -765,7 +765,7 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 				got.Status.ActiveDownloadRef != nil
 		}, 500*time.Millisecond, 50*time.Millisecond, "an episode outside the pack's keys is not covered")
 
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrabarr, downloadStatusAC(dl, "ep-ns", downloadv1alpha1.DownloadPhaseFailed))
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadStatusAC(dl, "ep-ns", downloadv1alpha1.DownloadPhaseFailed))
 		require.NoError(t, err)
 		for _, name := range []string{"pack-show-s01e01", "pack-show-s01e02"} {
 			require.Eventually(t, func() bool {
@@ -814,7 +814,7 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 		bluray := commonv1.Quality{Name: "Bluray-1080p", Resolution: 1080, Source: commonv1.SourceBluray, Modifier: commonv1.ModifierNone}
 		require.NoError(t, c.Create(ctx, testSeries("ep-ns", "monster", "wl-at-1080p")))
 		require.NoError(t, c.Create(ctx, testQualityProfile("ep-ns", "wl-at-1080p", "Bluray-1080p")))
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, catalogac.Series("monster", "ep-ns").WithStatus(
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, catalogac.Series("monster", "ep-ns").WithStatus(
 			catalogac.SeriesStatus().WithMetadata(catalogac.SeriesMetadata().WithTitle("Monster").WithOriginalLanguage("ja"))))
 		require.NoError(t, err)
 		require.NoError(t, c.Create(ctx, &catalogv1alpha1.Episode{
@@ -833,7 +833,7 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 		require.NoError(t, c.Create(ctx, mf))
 		audio := func(lang string) {
 			t.Helper()
-			_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, catalogac.MediaFile(mf.Name, "ep-ns").WithStatus(
+			_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, catalogac.MediaFile(mf.Name, "ep-ns").WithStatus(
 				catalogac.MediaFileStatus().WithMediaInfo(commonv1.MediaInfo{Audio: []commonv1.AudioStream{{Language: lang}}})))
 			require.NoError(t, err)
 		}
@@ -889,7 +889,7 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 		qp := testQualityProfile("ep-ns", "dual-at-1080p", "Bluray-1080p")
 		qp.Spec.Audio = &catalogv1alpha1.AudioPolicy{Languages: []string{"en", "original"}, Graft: true}
 		require.NoError(t, c.Create(ctx, qp))
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, catalogac.Series("monster2", "ep-ns").WithStatus(
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, catalogac.Series("monster2", "ep-ns").WithStatus(
 			catalogac.SeriesStatus().WithMetadata(catalogac.SeriesMetadata().WithTitle("Monster").WithOriginalLanguage("ja"))))
 		require.NoError(t, err)
 		require.NoError(t, c.Create(ctx, &catalogv1alpha1.Episode{
@@ -909,7 +909,7 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 			for _, l := range langs {
 				a = append(a, commonv1.AudioStream{Language: l})
 			}
-			_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, catalogac.MediaFile(mf.Name, "ep-ns").WithStatus(
+			_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, catalogac.MediaFile(mf.Name, "ep-ns").WithStatus(
 				catalogac.MediaFileStatus().WithMediaInfo(commonv1.MediaInfo{Audio: a})))
 			require.NoError(t, err)
 		}
@@ -951,7 +951,7 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 		qp := testQualityProfile("ep-ns", "dual2-at-1080p", "Bluray-1080p")
 		qp.Spec.Audio = &catalogv1alpha1.AudioPolicy{Languages: []string{"en", "original"}, Graft: true}
 		require.NoError(t, c.Create(ctx, qp))
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, catalogac.Series("naruto", "ep-ns").WithStatus(
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, catalogac.Series("naruto", "ep-ns").WithStatus(
 			catalogac.SeriesStatus().WithMetadata(catalogac.SeriesMetadata().WithTitle("Naruto").WithOriginalLanguage("ja"))))
 		require.NoError(t, err)
 		require.NoError(t, c.Create(ctx, &catalogv1alpha1.Episode{
@@ -967,7 +967,7 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 			},
 		}
 		require.NoError(t, c.Create(ctx, mf))
-		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, catalogac.MediaFile(mf.Name, "ep-ns").WithStatus(
+		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, catalogac.MediaFile(mf.Name, "ep-ns").WithStatus(
 			catalogac.MediaFileStatus().WithMediaInfo(commonv1.MediaInfo{Audio: []commonv1.AudioStream{{Language: "jpn"}}})))
 		require.NoError(t, err)
 		key := types.NamespacedName{Namespace: "ep-ns", Name: "naruto-s01e01"}
@@ -1003,7 +1003,7 @@ func grabPathDownload(t *testing.T, ctx context.Context, c client.Client, owner 
 				InfoHash: "0123456789abcdef0123456789abcdef01234567",
 			}).
 			WithTarget(target))
-	_, err = k8s.Apply(ctx, c, k8s.ManagerCatalogarrGrab, dl)
+	_, err = k8s.Apply(ctx, c, k8s.ManagerCatalogGrab, dl)
 	require.NoError(t, err)
 	return name
 }

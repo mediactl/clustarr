@@ -59,7 +59,7 @@ func (f *fixture) seedNamingStatus(t *testing.T, ctx context.Context, name strin
 		{Type: catalogv1alpha1.MediaFileConditionProbed, Status: metav1.ConditionTrue, Reason: "Probed", Message: "probed", LastTransitionTime: now},
 		{Type: catalogv1alpha1.ConditionNamingCurrent, Status: metav1.ConditionFalse, Reason: "Stale", Message: "the file's canonical path differs", LastTransitionTime: now},
 	}
-	_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalogarr, catalogac.MediaFile(name, f.ns).WithStatus(
+	_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalog, catalogac.MediaFile(name, f.ns).WithStatus(
 		catalogac.MediaFileStatus().
 			WithConditions(k8s.ConditionACs(conditions)...).
 			WithNaming(naming).

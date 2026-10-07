@@ -274,7 +274,7 @@ func TestMovieReconcilerRealController(t *testing.T) {
 		mediaKey := events.MediaKey(string(commonv1.MediaKindMovie), "outdated-ns", "weekend")
 		received := make(chan *events.Envelope, 4)
 		stop, err := bus.Subscribe(ctx, events.Subscription{
-			Stream:  events.StreamWorkCatalogarr,
+			Stream:  events.StreamWorkCatalog,
 			Durable: "test-watcher-weekend",
 			Filters: []string{events.WorkMetadataSubject(events.PriorityNormal, mediaKey)},
 		}, func(_ context.Context, m events.Message) error {
@@ -292,7 +292,7 @@ func TestMovieReconcilerRealController(t *testing.T) {
 			},
 		}
 		require.NoError(t, c.Create(ctx, m))
-		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata,
+		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata,
 			catalogac.Movie(m.Name, m.Namespace).WithStatus(
 				catalogac.MovieStatus().WithMetadata(
 					catalogac.MovieMetadata().WithTitle("Weekend").WithYear(2011).
@@ -347,7 +347,7 @@ func TestMovieReconcilerRealController(t *testing.T) {
 		// Drive it to a settled, metadata-ready steady state first: Phase
 		// must be Wanted before the pendingGrab write, or the assertion
 		// below could not tell Delayed apart from "never reconciled".
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata,
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata,
 			catalogac.Movie(m.Name, m.Namespace).WithStatus(
 				catalogac.MovieStatus().WithMetadata(
 					catalogac.MovieMetadata().WithTitle("Inception").WithYear(2010).
@@ -368,7 +368,7 @@ func TestMovieReconcilerRealController(t *testing.T) {
 		// status.metadata, and does not have to: k8s.ManagerCatalogarrGrab
 		// and k8s.ManagerCatalogarrMetadata own disjoint field sets, so
 		// neither apply releases the other's.
-		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrGrab,
+		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogGrab,
 			catalogac.Movie(m.Name, m.Namespace).WithStatus(
 				catalogac.MovieStatus().WithPendingGrab(
 					catalogac.PendingGrab().
@@ -476,7 +476,7 @@ func TestMovieReconcilerRealController(t *testing.T) {
 
 		received := make(chan *events.Envelope, 4)
 		stop, err := bus.Subscribe(ctx, events.Subscription{
-			Stream:  events.StreamWorkCatalogarr,
+			Stream:  events.StreamWorkCatalog,
 			Durable: "test-watcher-the-matrix",
 			Filters: []string{wantSubject},
 		}, func(_ context.Context, m events.Message) error {
@@ -560,7 +560,7 @@ func TestMovieReconcilerRealController(t *testing.T) {
 					WithStatus(catalogv1alpha1.MovieReleaseStatusReleased).WithRefreshedAt(metav1.Now()),
 			),
 		)
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrWorker, metaAC)
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogWorker, metaAC)
 		require.NoError(t, err)
 		// Settle the create+metadata reconcile (finalizer added, base phase
 		// computed, and -- since the QualityProfile fetch is unconditional --
@@ -708,7 +708,7 @@ func TestMovieReconcilerRealController(t *testing.T) {
 					WithStatus(catalogv1alpha1.MovieReleaseStatusReleased).WithRefreshedAt(metav1.Now()),
 			),
 		)
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrWorker, metaAC)
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogWorker, metaAC)
 		require.NoError(t, err)
 		waitForPhase(t, ctx, c, "avail-ns", "tenet")
 
@@ -767,7 +767,7 @@ func TestMovieReconcilerRealController(t *testing.T) {
 				},
 			}
 			require.NoError(t, c.Create(ctx, m))
-			_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata,
+			_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata,
 				catalogac.Movie(m.Name, m.Namespace).WithStatus(catalogac.MovieStatus().WithMetadata(
 					catalogac.MovieMetadata().WithTitle("Dune").WithYear(2021).
 						WithStatus(catalogv1alpha1.MovieReleaseStatusReleased).WithRefreshedAt(metav1.Now()))))
@@ -809,7 +809,7 @@ func TestMovieReconcilerRealController(t *testing.T) {
 			require.NotNil(t, cond)
 			assert.Equal(t, metav1.ConditionTrue, cond.Status)
 			assert.Equal(t, "Transcoded", cond.Reason)
-			assert.Equal(t, []string{string(k8s.ManagerCatalogarr)}, statusFieldOwners(t, &got, "phase"),
+			assert.Equal(t, []string{string(k8s.ManagerCatalog)}, statusFieldOwners(t, &got, "phase"),
 				"the phase goes through the reconciler's one status declaration, under its own manager only")
 
 			cands, err := wantedcron.ListCandidates(ctx, c, func(k commonv1.MediaKind) bool { return k == commonv1.MediaKindMovie },
@@ -846,7 +846,7 @@ func TestMovieReconcilerRealController(t *testing.T) {
 		// 1. The probe reads the tag: a status-only write, exactly as the
 		// MediaFile reconciler makes it (its own manager, its one apply).
 		steady(t, "dune", "dune-abc1234567")
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr,
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalog,
 			catalogac.MediaFile("dune-abc1234567", "avail-ns").WithStatus(catalogac.MediaFileStatus().
 				WithProbeHash("probe-1").
 				WithMediaInfo(commonv1.MediaInfo{
@@ -899,10 +899,10 @@ func TestMovieReconcilerRealController(t *testing.T) {
 			return got.Status.ActiveDownloadRef != nil
 		}, 5*time.Second, 20*time.Millisecond, "a new owned Download must reach the ref through the Download watch alone")
 		assert.Equal(t, dl, *got.Status.ActiveDownloadRef)
-		assert.Equal(t, []string{k8s.ManagerCatalogarr.String()}, statusFieldOwners(t, &got, "activeDownloadRef"),
+		assert.Equal(t, []string{k8s.ManagerCatalog.String()}, statusFieldOwners(t, &got, "activeDownloadRef"),
 			"status.activeDownloadRef must have exactly one owner, the Movie reconciler")
 
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrabarr, downloadStatusAC(dl, "avail-ns", downloadv1alpha1.DownloadPhaseAssigned))
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadStatusAC(dl, "avail-ns", downloadv1alpha1.DownloadPhaseAssigned))
 		require.NoError(t, err)
 		require.Eventually(t, func() bool {
 			if err := c.Get(ctx, types.NamespacedName{Namespace: "avail-ns", Name: "arrival"}, &got); err != nil {
@@ -913,7 +913,7 @@ func TestMovieReconcilerRealController(t *testing.T) {
 		require.NotNil(t, got.Status.ActiveDownloadRef)
 		assert.Equal(t, dl, *got.Status.ActiveDownloadRef)
 
-		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrabarr, downloadStatusAC(dl, "avail-ns", downloadv1alpha1.DownloadPhaseImported))
+		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadStatusAC(dl, "avail-ns", downloadv1alpha1.DownloadPhaseImported))
 		require.NoError(t, err)
 		require.Eventually(t, func() bool {
 			if err := c.Get(ctx, types.NamespacedName{Namespace: "avail-ns", Name: "arrival"}, &got); err != nil {
@@ -945,7 +945,7 @@ func TestMovieReconcilerRealController(t *testing.T) {
 			},
 		}
 		require.NoError(t, c.Create(ctx, m))
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata,
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata,
 			catalogac.Movie(m.Name, m.Namespace).WithStatus(catalogac.MovieStatus().WithMetadata(
 				catalogac.MovieMetadata().WithTitle("Prisoners").WithYear(2013).
 					WithStatus(catalogv1alpha1.MovieReleaseStatusReleased).WithRefreshedAt(metav1.Now()))))
@@ -986,7 +986,7 @@ func TestMovieReconcilerRealController(t *testing.T) {
 		settled(t, `a Download with no phase yet`, catalogv1alpha1.MoviePhaseDownloading, dl)
 
 		set := func(p downloadv1alpha1.DownloadPhase) {
-			_, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrabarr, downloadStatusAC(dl, "avail-ns", p))
+			_, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadStatusAC(dl, "avail-ns", p))
 			require.NoError(t, err)
 		}
 		for _, p := range []downloadv1alpha1.DownloadPhase{
@@ -1031,7 +1031,7 @@ func TestMovieReconcilerRealController(t *testing.T) {
 		grabPathDownload(t, ctx, c, stranger, "sicario-stranger01")
 
 		terminal := grabPathDownload(t, ctx, c, &live, "sicario-failed0001")
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrabarr, downloadStatusAC(terminal, "avail-ns", downloadv1alpha1.DownloadPhaseFailed))
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadStatusAC(terminal, "avail-ns", downloadv1alpha1.DownloadPhaseFailed))
 		require.NoError(t, err)
 
 		hasRef := func() bool {
@@ -1130,7 +1130,7 @@ func TestMovieReconcilerRealController(t *testing.T) {
 					WithStatus(catalogv1alpha1.MovieReleaseStatusReleased).WithRefreshedAt(metav1.Now()),
 			),
 		)
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrWorker, metaAC)
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogWorker, metaAC)
 		require.NoError(t, err)
 
 		require.Eventually(t, func() bool { return counter.count() > n }, 5*time.Second, 20*time.Millisecond,
@@ -1168,7 +1168,7 @@ func TestMovieReconcilerRealController(t *testing.T) {
 			},
 		}
 		require.NoError(t, c.Create(ctx, m))
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrWorker, catalogac.Movie(m.Name, m.Namespace).WithStatus(
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogWorker, catalogac.Movie(m.Name, m.Namespace).WithStatus(
 			catalogac.MovieStatus().WithMetadata(catalogac.MovieMetadata().WithTitle("Spirited Away").WithYear(2001).
 				WithOriginalLanguage("ja").WithStatus(catalogv1alpha1.MovieReleaseStatusReleased).WithRefreshedAt(metav1.Now()))))
 		require.NoError(t, err)
@@ -1184,7 +1184,7 @@ func TestMovieReconcilerRealController(t *testing.T) {
 		require.NoError(t, c.Create(ctx, mf))
 		audio := func(lang string) {
 			t.Helper()
-			_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, catalogac.MediaFile(mf.Name, "avail-ns").WithStatus(
+			_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, catalogac.MediaFile(mf.Name, "avail-ns").WithStatus(
 				catalogac.MediaFileStatus().WithMediaInfo(commonv1.MediaInfo{Audio: []commonv1.AudioStream{{Language: lang}}})))
 			require.NoError(t, err)
 		}
@@ -1246,7 +1246,7 @@ func TestMovieReconcilerRealController(t *testing.T) {
 			},
 		}
 		require.NoError(t, c.Create(ctx, m))
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrWorker, catalogac.Movie(m.Name, m.Namespace).WithStatus(
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogWorker, catalogac.Movie(m.Name, m.Namespace).WithStatus(
 			catalogac.MovieStatus().WithMetadata(catalogac.MovieMetadata().WithTitle("Perfect Blue").WithYear(1997).
 				WithOriginalLanguage("ja").WithStatus(catalogv1alpha1.MovieReleaseStatusReleased).WithRefreshedAt(metav1.Now()))))
 		require.NoError(t, err)
@@ -1263,7 +1263,7 @@ func TestMovieReconcilerRealController(t *testing.T) {
 			for _, l := range langs {
 				a = append(a, commonv1.AudioStream{Language: l})
 			}
-			_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, catalogac.MediaFile(mf.Name, "avail-ns").WithStatus(
+			_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, catalogac.MediaFile(mf.Name, "avail-ns").WithStatus(
 				catalogac.MediaFileStatus().WithMediaInfo(commonv1.MediaInfo{Audio: a})))
 			require.NoError(t, err)
 		}
@@ -1309,7 +1309,7 @@ func grabPathDownload(t *testing.T, ctx context.Context, c client.Client, owner 
 				InfoHash: "0123456789abcdef0123456789abcdef01234567",
 			}).
 			WithTarget(commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: owner.Name}))
-	_, err = k8s.Apply(ctx, c, k8s.ManagerCatalogarrGrab, dl)
+	_, err = k8s.Apply(ctx, c, k8s.ManagerCatalogGrab, dl)
 	require.NoError(t, err)
 	return name
 }
@@ -1451,7 +1451,7 @@ func TestMovieReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 					WithDigitalRelease(yesterday).WithRefreshedAt(metav1.Now()),
 			),
 		)
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrWorker, metaAC)
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogWorker, metaAC)
 		require.NoError(t, err)
 		waitForCachedMetadata(t, ctx, c, "transient-ns", name)
 
@@ -1510,7 +1510,7 @@ func TestMovieReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 					WithRefreshedAt(oldRefresh),
 			),
 		)
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrWorker, staleAC)
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogWorker, staleAC)
 		require.NoError(t, err)
 		// A tolerant "is it old now" check, not exact equality: the apiserver
 		// round-trips metav1.Time through RFC 3339 at one-second precision,
@@ -1652,7 +1652,7 @@ func TestMovieReconcilerAvailabilityAndPath(t *testing.T) {
 					WithRefreshedAt(metav1.Now()),
 			),
 		)
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrWorker, metaAC)
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogWorker, metaAC)
 		require.NoError(t, err)
 		waitForCachedMetadata(t, ctx, c, "avail-ns", "inception")
 
@@ -1689,7 +1689,7 @@ func TestMovieReconcilerAvailabilityAndPath(t *testing.T) {
 					WithRefreshedAt(metav1.Now()),
 			),
 		)
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrWorker, metaAC)
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogWorker, metaAC)
 		require.NoError(t, err)
 		waitForCachedMetadata(t, ctx, c, "avail-ns", "dune-part-three")
 
@@ -1720,7 +1720,7 @@ func TestMovieReconcilerAvailabilityAndPath(t *testing.T) {
 					WithRefreshedAt(metav1.Now()),
 			),
 		)
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrWorker, metaAC)
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogWorker, metaAC)
 		require.NoError(t, err)
 		waitForCachedMetadata(t, ctx, c, "avail-ns", "unknown-release")
 
@@ -1802,7 +1802,7 @@ func TestMovieReconcilerPublishesCatalogEvents(t *testing.T) {
 		},
 	}
 	require.NoError(t, c.Create(ctx, m))
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, catalogac.Movie(m.Name, ns).WithStatus(
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, catalogac.Movie(m.Name, ns).WithStatus(
 		catalogac.MovieStatus().WithMetadata(catalogac.MovieMetadata().WithTitle("Heat").WithYear(1995).
 			WithStatus(catalogv1alpha1.MovieReleaseStatusReleased).WithRefreshedAt(metav1.Now()))))
 	require.NoError(t, err)

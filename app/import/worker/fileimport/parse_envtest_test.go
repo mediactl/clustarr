@@ -82,7 +82,7 @@ func TestImportFreezesTheParsedGroupEvenWhenItIsAQualityWord(t *testing.T) {
 func TestAnUntaggedImportTakesTheMoviesOriginalLanguage(t *testing.T) {
 	ctx := context.Background()
 	f := newFixture(t, "fi-lang")
-	_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalogarr,
+	_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalog,
 		catalogac.Movie(f.movieName, f.ns).WithStatus(catalogac.MovieStatus().WithMetadata(
 			catalogac.MovieMetadata().WithTitle("The Matrix").WithYear(1999).WithOriginalLanguage("ja"))))
 	require.NoError(t, err)

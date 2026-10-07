@@ -151,7 +151,7 @@ func (s *SecretTokenStore) applyAll(ctx context.Context, mutate func(map[string]
 		if rv != "" {
 			ac = ac.WithResourceVersion(rv)
 		}
-		if _, err := k8s.Apply(ctx, s.Client, k8s.ManagerImportarr, ac); err != nil {
+		if _, err := k8s.Apply(ctx, s.Client, k8s.ManagerImport, ac); err != nil {
 			return fmt.Errorf("importlist: write trakt token secret %s: %w", s.secretKey(), err)
 		}
 		return nil

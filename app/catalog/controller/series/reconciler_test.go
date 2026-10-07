@@ -295,7 +295,7 @@ func TestSeriesReconcilerRealController(t *testing.T) {
 					WithStatus(catalogv1alpha1.SeriesRunStatusContinuing).WithRefreshedAt(metav1.Now()),
 			),
 		)
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrWorker, metaAC)
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogWorker, metaAC)
 		require.NoError(t, err)
 
 		var eps catalogv1alpha1.EpisodeList
@@ -401,7 +401,7 @@ func TestSeriesReconcilerRealController(t *testing.T) {
 					WithStatus(catalogv1alpha1.SeriesRunStatusContinuing).WithRefreshedAt(metav1.Now()),
 			),
 		)
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrWorker, metaAC)
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogWorker, metaAC)
 		require.NoError(t, err)
 
 		var got catalogv1alpha1.Series
@@ -445,7 +445,7 @@ func TestSeriesReconcilerRealController(t *testing.T) {
 		epAC := catalogac.Episode("one-piece-s01e1091", "series-ns").WithStatus(
 			catalogac.EpisodeStatus().WithHasFile(true),
 		)
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, epAC)
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, epAC)
 		require.NoError(t, err)
 
 		require.Eventually(t, func() bool {
@@ -532,7 +532,7 @@ func TestSeriesReconcilerRealController(t *testing.T) {
 					WithStatus(catalogv1alpha1.SeriesRunStatusContinuing).WithRefreshedAt(metav1.Now()),
 			),
 		)
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrWorker, metaAC)
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogWorker, metaAC)
 		require.NoError(t, err)
 
 		require.Eventually(t, func() bool { return counter.count() > n }, 5*time.Second, 20*time.Millisecond,
@@ -566,7 +566,7 @@ func TestSeriesReconcilerRealController(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Name: "bleach", Namespace: "series-ns"},
 			Spec:       catalogv1alpha1.SeriesSpec{TvdbID: 74796, QualityProfileRef: "web-1080p", RootFolderRef: "late-root"},
 		}))
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, catalogac.Series("bleach", "series-ns").WithStatus(
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, catalogac.Series("bleach", "series-ns").WithStatus(
 			catalogac.SeriesStatus().WithMetadata(catalogac.SeriesMetadata().WithTitle("Bleach").WithGenres("Anime").
 				WithStatus(catalogv1alpha1.SeriesRunStatusEnded).WithRefreshedAt(metav1.Now()).WithSchemaVersion(metadata.SchemaVersion))))
 		require.NoError(t, err)
@@ -683,7 +683,7 @@ func TestSeriesEpisodeFieldManagersStayDisjoint(t *testing.T) {
 			WithFileFormatScore(10).
 			WithCutoffMet(true),
 	)
-	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, epAC)
+	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, epAC)
 	require.NoError(t, err)
 
 	// Same eventually-consistent-cache reasoning as above: this Get must
@@ -857,7 +857,7 @@ func TestSeriesReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 					WithStatus(catalogv1alpha1.SeriesRunStatusContinuing).WithRefreshedAt(metav1.Now()),
 			),
 		)
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrWorker, metaAC)
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogWorker, metaAC)
 		require.NoError(t, err)
 		require.Eventually(t, func() bool {
 			var got catalogv1alpha1.Series
@@ -893,7 +893,7 @@ func TestSeriesReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 		epAC := catalogac.Episode(name+"-s01e01", "series-transient-ns").WithStatus(
 			catalogac.EpisodeStatus().WithHasFile(true),
 		)
-		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, epAC)
+		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, epAC)
 		require.NoError(t, err)
 		require.Eventually(t, func() bool {
 			var got catalogv1alpha1.Episode
@@ -951,7 +951,7 @@ func TestSeriesReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 					WithRefreshedAt(oldRefresh),
 			),
 		)
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrWorker, staleAC)
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogWorker, staleAC)
 		require.NoError(t, err)
 		// A tolerant "is it old now" check, not exact equality: the
 		// apiserver round-trips metav1.Time through RFC 3339 at
@@ -1205,7 +1205,7 @@ func TestSeriesRollupIsPostFanOut(t *testing.T) {
 		},
 	}
 	require.NoError(t, c.Create(ctx, s))
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, catalogac.Series(s.Name, ns).WithStatus(
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, catalogac.Series(s.Name, ns).WithStatus(
 		catalogac.SeriesStatus().WithMetadata(catalogac.SeriesMetadata().WithTitle("Severance").WithYear(2022).
 			WithStatus(catalogv1alpha1.SeriesRunStatusContinuing).WithRefreshedAt(metav1.Now()))))
 	require.NoError(t, err)
@@ -1368,11 +1368,11 @@ func TestSeriesEnsureEpisodeKeepsItsPlexID(t *testing.T) {
 	require.NoError(t, direct.Get(ctx, epKey, &got))
 	owned := false
 	for _, mf := range got.ManagedFields {
-		if mf.Manager == string(k8s.ManagerCatalogarrSeries) && mf.FieldsV1 != nil && strings.Contains(mf.FieldsV1.GetRawString(), `"f:plexID"`) {
+		if mf.Manager == string(k8s.ManagerCatalogSeries) && mf.FieldsV1 != nil && strings.Contains(mf.FieldsV1.GetRawString(), `"f:plexID"`) {
 			owned = true
 		}
 	}
-	require.True(t, owned, "status.plexID belongs to %s", k8s.ManagerCatalogarrSeries)
+	require.True(t, owned, "status.plexID belongs to %s", k8s.ManagerCatalogSeries)
 
 	// Plex answered this time and has no id for the episode (renumbered,
 	// or now another episode's): the stale id is released, never kept.

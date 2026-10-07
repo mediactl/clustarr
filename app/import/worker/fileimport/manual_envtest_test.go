@@ -69,7 +69,7 @@ func (f *fixture) createDownloadWith(
 		edit(&dl.Spec)
 	}
 	require.NoError(t, f.c.Create(ctx, dl))
-	_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerGrabarr, downloadac.Download(dl.Name, f.ns).WithStatus(
+	_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerGrab, downloadac.Download(dl.Name, f.ns).WithStatus(
 		downloadac.DownloadStatus().
 			WithPhase(downloadv1alpha1.DownloadPhaseCompleted).
 			WithContentRoot(contentRoot)))
@@ -160,7 +160,7 @@ func TestHandleImportTargetRedirectsAMovieImport(t *testing.T) {
 		Spec:       catalogv1alpha1.MovieSpec{TmdbID: 949, QualityProfileRef: f.profile.Name, RootFolderRef: f.rootFolder.Name},
 	}
 	require.NoError(t, f.c.Create(ctx, heat))
-	_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalogarr, catalogac.Movie(heat.Name, f.ns).WithStatus(
+	_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalog, catalogac.Movie(heat.Name, f.ns).WithStatus(
 		catalogac.MovieStatus().WithMetadata(catalogac.MovieMetadata().WithTitle("Heat").WithYear(1995))))
 	require.NoError(t, err)
 	waitFor(t, 5*time.Second, func() bool {
@@ -202,7 +202,7 @@ func TestHandleReportsAMalformedImportAnnotationOnStatus(t *testing.T) {
 		dl := f.createDownloadWith(t, "bad-"+string(rune('a'+i)), contentRoot,
 			commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: f.movieName}, f.profile.Name, bad)
 		// The Download already has an import state from an earlier attempt.
-		_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerImportarr, downloadac.Download(dl.Name, f.ns).WithStatus(
+		_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerImport, downloadac.Download(dl.Name, f.ns).WithStatus(
 			downloadac.DownloadStatus().WithImport(downloadac.ImportState().
 				WithState(downloadv1alpha1.ImportPhaseBlocked).WithMessage(downloadv1alpha1.ImportMessageEveryFileRejected))))
 		require.NoError(t, err)
@@ -214,8 +214,8 @@ func TestHandleReportsAMalformedImportAnnotationOnStatus(t *testing.T) {
 		assert.Contains(t, got.Status.Import.Message, "invalid annotation")
 		assert.Equal(t, downloadv1alpha1.DownloadPhaseCompleted, got.Status.Phase, "grabarr's fields survive")
 		assert.Equal(t, contentRoot, got.Status.ContentRoot)
-		assert.Equal(t, string(k8s.ManagerImportarr), managerFor(t, got.ManagedFields, "status", "status.import.message"))
-		assert.Equal(t, string(k8s.ManagerGrabarr), managerFor(t, got.ManagedFields, "status", "status.phase"))
+		assert.Equal(t, string(k8s.ManagerImport), managerFor(t, got.ManagedFields, "status", "status.import.message"))
+		assert.Equal(t, string(k8s.ManagerGrab), managerFor(t, got.ManagedFields, "status", "status.phase"))
 	}
 
 	var mfList catalogv1alpha1.MediaFileList
@@ -239,7 +239,7 @@ func TestHandleNonVideoImportNeedsOverrideAndRetriggerRequeuesIt(t *testing.T) {
 		Spec:       catalogv1alpha1.ArtistSpec{MusicBrainzID: "a74b1b7f", QualityProfileRef: profile, RootFolderRef: rf.Name},
 	}
 	require.NoError(t, f.c.Create(ctx, artist))
-	_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalogarrMetadata, catalogac.Artist(artist.Name, f.ns).
+	_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalogMetadata, catalogac.Artist(artist.Name, f.ns).
 		WithStatus(catalogac.ArtistStatus().WithMetadata(catalogac.ArtistMetadata().WithName("Radiohead"))))
 	require.NoError(t, err)
 	album := &catalogv1alpha1.Album{
@@ -248,7 +248,7 @@ func TestHandleNonVideoImportNeedsOverrideAndRetriggerRequeuesIt(t *testing.T) {
 	}
 	require.NoError(t, f.c.Create(ctx, album))
 	released := metav1.NewTime(time.Date(1997, 5, 21, 0, 0, 0, 0, time.UTC))
-	_, err = k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalogarrMetadata, catalogac.Album(album.Name, f.ns).
+	_, err = k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalogMetadata, catalogac.Album(album.Name, f.ns).
 		WithStatus(catalogac.AlbumStatus().WithMetadata(catalogac.AlbumMetadata().WithTitle("OK Computer").WithReleaseDate(released))))
 	require.NoError(t, err)
 	waitFor(t, 5*time.Second, func() bool {
@@ -328,7 +328,7 @@ func TestHandleImportTargetKeyedComicIssue(t *testing.T) {
 			},
 		}
 		require.NoError(t, f.c.Create(ctx, co))
-		_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalogarrMetadata, catalogac.Comic(name, f.ns).
+		_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalogMetadata, catalogac.Comic(name, f.ns).
 			WithStatus(catalogac.ComicStatus().WithMetadata(catalogac.ComicMetadata().WithTitle(strings.ToUpper(name[:1])+name[1:]))))
 		require.NoError(t, err)
 		is := &catalogv1alpha1.Issue{

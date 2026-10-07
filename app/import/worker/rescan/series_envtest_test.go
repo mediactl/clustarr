@@ -45,7 +45,7 @@ func createSeries(t *testing.T, ctx context.Context, f *fixture, name, title str
 		Spec:       catalogv1alpha1.SeriesSpec{TvdbID: tvdb, QualityProfileRef: "hd-bluray-web", RootFolderRef: f.rf.Name},
 	}
 	require.NoError(t, f.c.Create(ctx, s))
-	_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalogarrMetadata, catalogac.Series(name, f.ns).WithStatus(
+	_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalogMetadata, catalogac.Series(name, f.ns).WithStatus(
 		catalogac.SeriesStatus().WithMetadata(catalogac.SeriesMetadata().WithTitle(title).WithYear(year))))
 	require.NoError(t, err)
 	for i := 1; i <= n; i++ {

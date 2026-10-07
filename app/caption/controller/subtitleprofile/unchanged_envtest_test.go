@@ -145,7 +145,7 @@ func TestReconcileReappliesARequestThatDrifted(t *testing.T) {
 		Spec:       other.Spec,
 	}
 	require.NoError(t, c.Create(ctx, again))
-	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, catalogac.MediaFile(again.Name, ns).WithStatus(
+	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, catalogac.MediaFile(again.Name, ns).WithStatus(
 		catalogac.MediaFileStatus().WithProbeHash("p-again").WithMediaInfo(*other.Status.MediaInfo)))
 	require.NoError(t, err)
 	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(again), again))

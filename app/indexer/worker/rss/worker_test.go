@@ -243,7 +243,7 @@ func pageOf(n int) []torznab.Release {
 
 func TestSubscriptionFitsThePodsGracePeriod(t *testing.T) {
 	sub := (&rss.Worker{}).Subscription()
-	require.Equal(t, events.StreamWorkIndexarr, sub.Stream)
+	require.Equal(t, events.StreamWorkIndex, sub.Stream)
 	require.Equal(t, events.ConsumerIndexRSS, sub.Durable)
 	require.LessOrEqual(t, sub.AckWait, 60*time.Second,
 		"terminationGracePeriodSeconds is 60; work that can outlast AckWait heartbeats instead")
@@ -531,7 +531,7 @@ func pendingSchedule(t *testing.T, nc *nats.Conn, uid string) (out struct {
 
 	js, err := jetstream.New(nc)
 	require.NoError(t, err)
-	st, err := js.Stream(t.Context(), events.StreamWorkIndexarr)
+	st, err := js.Stream(t.Context(), events.StreamWorkIndex)
 	require.NoError(t, err)
 	msg, err := st.GetLastMsgForSubject(t.Context(), hold)
 	require.NoError(t, err)

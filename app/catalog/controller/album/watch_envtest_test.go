@@ -97,7 +97,7 @@ func TestAlbumControllerWakesOnInheritedProfileEdits(t *testing.T) {
 	require.NoError(t, c.Create(ctx, alb))
 	metaAC := catalogac.Album(alb.Name, alb.Namespace).WithStatus(catalogac.AlbumStatus().WithMetadata(
 		catalogac.AlbumMetadata().WithTitle("OK Computer").WithRefreshedAt(metav1.Now())))
-	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, metaAC)
+	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, metaAC)
 	require.NoError(t, err)
 	require.NoError(t, c.Create(ctx, &catalogv1alpha1.MediaFile{
 		ObjectMeta: metav1.ObjectMeta{Name: "ok-computer-flac", Namespace: ns},
@@ -206,10 +206,10 @@ func TestAlbumControllerWakesOnInheritedProfileEdits(t *testing.T) {
 			refOwners = append(refOwners, e.Manager)
 		}
 	}
-	assert.Equal(t, []string{string(k8s.ManagerCatalogarr)}, refOwners, "status.activeDownloadRef has one writer")
+	assert.Equal(t, []string{string(k8s.ManagerCatalog)}, refOwners, "status.activeDownloadRef has one writer")
 
 	// Completed is on disk, awaiting import: still the item's Download (R-12).
-	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrabarr, downloadac.Download("ok-computer-dl", ns).WithStatus(
+	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadac.Download("ok-computer-dl", ns).WithStatus(
 		downloadac.DownloadStatus().WithPhase(downloadv1alpha1.DownloadPhaseCompleted)))
 	require.NoError(t, err)
 	require.Never(t, func() bool {
@@ -218,7 +218,7 @@ func TestAlbumControllerWakesOnInheritedProfileEdits(t *testing.T) {
 	}, 500*time.Millisecond, 20*time.Millisecond, "a Completed Download is still working on the Album")
 
 	// Imported is terminal: the ref goes and the phase is the file's again.
-	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrabarr, downloadac.Download("ok-computer-dl", ns).WithStatus(
+	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadac.Download("ok-computer-dl", ns).WithStatus(
 		downloadac.DownloadStatus().WithPhase(downloadv1alpha1.DownloadPhaseImported)))
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
@@ -237,7 +237,7 @@ func TestAlbumControllerWakesOnInheritedProfileEdits(t *testing.T) {
 		var g catalogv1alpha1.Album
 		return c.Get(ctx, kidKey, &g) == nil && g.Status.Phase == catalogv1alpha1.AlbumPhaseWanted
 	}, 10*time.Second, 20*time.Millisecond, "setup: the second Album never settled at Wanted")
-	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrGrab, catalogac.Album("kid-a", ns).WithStatus(catalogac.AlbumStatus().
+	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogGrab, catalogac.Album("kid-a", ns).WithStatus(catalogac.AlbumStatus().
 		WithPendingGrab(catalogac.PendingGrab().WithReleaseTitle("Radiohead - Kid A (2000) [FLAC]").
 			WithProtocol(commonv1.ProtocolTorrent).WithGrabAt(metav1.NewTime(time.Now().Add(time.Hour))))))
 	require.NoError(t, err)

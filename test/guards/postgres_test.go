@@ -73,7 +73,7 @@ type namedRef struct {
 // indexarrDeploy is the slice of the indexarr Deployment this file asserts
 // on: its update strategy, its volumes, and its one container's env and
 // volumeMounts.
-type indexarrDeploy struct {
+type indexDeploy struct {
 	Spec struct {
 		Strategy struct {
 			Type string `json:"type"`
@@ -229,7 +229,7 @@ func TestChartAndKustomizePostgresAgree(t *testing.T) {
 	overlay := buildPostgresKustomizeOverlay(t, root)
 	kzDocs := splitDocs(t, run(t, root, kustomize, "build", overlay))
 
-	var chartDeploy, kzDeploy indexarrDeploy
+	var chartDeploy, kzDeploy indexDeploy
 	findDoc(t, chartDocs, "Deployment", "clustarr-indexarr", &chartDeploy)
 	findDoc(t, kzDocs, "Deployment", "indexarr", &kzDeploy)
 
@@ -239,7 +239,7 @@ func TestChartAndKustomizePostgresAgree(t *testing.T) {
 
 	for _, tc := range []struct {
 		installer string
-		d         indexarrDeploy
+		d         indexDeploy
 	}{
 		{"helm", chartDeploy},
 		{"kustomize", kzDeploy},

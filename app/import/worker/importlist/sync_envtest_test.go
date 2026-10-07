@@ -124,7 +124,7 @@ func newMediaFile(t *testing.T, ctx context.Context, c client.Client, ns, name s
 	for _, p := range sidecars {
 		st = st.WithSidecars(catalogac.Sidecar().WithPath(p))
 	}
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, catalogac.MediaFile(name, ns).WithStatus(st))
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, catalogac.MediaFile(name, ns).WithStatus(st))
 	require.NoError(t, err)
 }
 

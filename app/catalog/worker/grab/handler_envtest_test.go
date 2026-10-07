@@ -374,7 +374,7 @@ func TestHandler_InteractiveGrabOfTheSameReleaseDoesNotStrandDelayed(t *testing.
 	assert.True(t, dl.Spec.Manual)
 	assert.Equal(t, existing.Spec.Source, dl.Spec.Source)
 	for _, mf := range dl.ManagedFields {
-		assert.NotEqual(t, k8s.ManagerCatalogarrGrab.String(), mf.Manager, "the grab path applied over the user's Download")
+		assert.NotEqual(t, k8s.ManagerCatalogGrab.String(), mf.Manager, "the grab path applied over the user's Download")
 	}
 	var list downloadv1alpha1.DownloadList
 	require.NoError(t, c.List(ctx, &list, client.InNamespace(ns)))

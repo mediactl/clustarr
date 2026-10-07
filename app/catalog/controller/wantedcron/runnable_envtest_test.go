@@ -76,7 +76,7 @@ func createWantedMovie(t *testing.T, ctx context.Context, c client.Client, ns, n
 		Spec:       catalogv1alpha1.MovieSpec{TmdbID: 1, QualityProfileRef: "hd-bluray-web", RootFolderRef: "movies"},
 	}
 	require.NoError(t, c.Create(ctx, m))
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, catalogac.Movie(name, ns).WithStatus(
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, catalogac.Movie(name, ns).WithStatus(
 		catalogac.MovieStatus().WithPhase(catalogv1alpha1.MoviePhaseWanted)))
 	require.NoError(t, err)
 }
@@ -98,7 +98,7 @@ func TestRunOnce_PublishesOneWantedScanPerEligibleNamespace(t *testing.T) {
 		Spec:       catalogv1alpha1.MovieSpec{TmdbID: 2, QualityProfileRef: "hd-bluray-web", RootFolderRef: "movies"},
 	}
 	require.NoError(t, c.Create(ctx, done))
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, catalogac.Movie(done.Name, done.Namespace).WithStatus(
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, catalogac.Movie(done.Name, done.Namespace).WithStatus(
 		catalogac.MovieStatus().WithPhase(catalogv1alpha1.MoviePhaseImported)))
 	require.NoError(t, err)
 
@@ -278,7 +278,7 @@ func TestRunOnce_WakesANamespaceHoldingOnlyNonVideoItems(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "kid-a", Namespace: "music-only"},
 		Spec:       catalogv1alpha1.AlbumSpec{ArtistRef: "radiohead", ReleaseGroupID: "b8048f24-c026-3398-b23a-b5e30716ea6f"},
 	}))
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, catalogac.Album("kid-a", "music-only").WithStatus(
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, catalogac.Album("kid-a", "music-only").WithStatus(
 		catalogac.AlbumStatus().WithPhase(catalogv1alpha1.AlbumPhaseWanted)))
 	require.NoError(t, err)
 

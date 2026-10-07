@@ -60,7 +60,7 @@ func TestChartIntelRenderGroupsReachTheController(t *testing.T) {
 				}
 			}
 			t.Setenv(namespaceEnv, "clustarr-system")
-			got := stub(t, &runSquasharr)
+			got := stub(t, &runTranscode)
 			_, err := execute(t, ctr.Args...)
 			require.NoError(t, err)
 			require.Equal(t, tc.want, got.IntelRenderGroups,

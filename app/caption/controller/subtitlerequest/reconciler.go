@@ -643,7 +643,7 @@ func (r *Reconciler) apply(ctx context.Context, sr *subtitlev1alpha1.SubtitleReq
 	k8s.MarkDeadLettered(sr, &conds)
 	target := sr.DeepCopy()
 	target.Status = st
-	return status.PatchRequest(ctx, r.Client, k8s.ManagerCaptionarr, target,
+	return status.PatchRequest(ctx, r.Client, k8s.ManagerCaption, target,
 		func(ac *subtitleac.SubtitleRequestStatusApplyConfiguration) {
 			// Conditions are unseeded by app/caption/status and WithConditions
 			// appends, so this is the one place they are set.
@@ -685,7 +685,7 @@ func (r *Reconciler) publish(ctx context.Context, sr *subtitlev1alpha1.SubtitleR
 	}
 	tracing.Inject(ctx, env)
 	rcpt, err := r.Bus.Publish(ctx, events.WorkFetchSubject(prio, string(sr.UID), t.langKey), env,
-		events.WithMsgID(msgID), events.WithExpectStream(events.StreamWorkCaptionarr))
+		events.WithMsgID(msgID), events.WithExpectStream(events.StreamWorkCaption))
 	if err != nil {
 		tracing.RecordError(span, err)
 	}
@@ -703,7 +703,7 @@ func (r *Reconciler) publish(ctx context.Context, sr *subtitlev1alpha1.SubtitleR
 // tracked in its own managedFields entry and cannot.
 func (r *Reconciler) resetForceSearch(ctx context.Context, sr *subtitlev1alpha1.SubtitleRequest) error {
 	patch := client.RawPatch(types.MergePatchType, []byte(`{"spec":{"forceSearch":false}}`))
-	if err := r.Client.Patch(ctx, sr, patch, client.FieldOwner(k8s.ManagerCaptionarr.String())); err != nil {
+	if err := r.Client.Patch(ctx, sr, patch, client.FieldOwner(k8s.ManagerCaption.String())); err != nil {
 		return fmt.Errorf("subtitlerequest: reset spec.forceSearch: %w", err)
 	}
 	return nil

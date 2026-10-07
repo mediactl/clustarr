@@ -164,11 +164,11 @@ func testPurgeSubject(t *testing.T, newBus func() events.Bus) {
 	publishTask(ctx, t, bus, "prof", "gone")
 	publishTask(ctx, t, bus, "prof", "kept")
 
-	subjects, err := sa.Subjects(ctx, events.StreamWorkSquasharr, events.FilterTranscodeTasks("prof", "cpu"))
+	subjects, err := sa.Subjects(ctx, events.StreamWorkTranscode, events.FilterTranscodeTasks("prof", "cpu"))
 	if err != nil || len(subjects) != 2 {
 		t.Fatalf("Subjects = %v, %v; want two", subjects, err)
 	}
-	if err := sa.PurgeSubject(ctx, events.StreamWorkSquasharr,
+	if err := sa.PurgeSubject(ctx, events.StreamWorkTranscode,
 		events.WorkTranscodeTaskSubject("prof", "cpu", "gone")); err != nil {
 		t.Fatalf("PurgeSubject: %v", err)
 	}
@@ -197,12 +197,12 @@ func testPurgeSubjectWildcard(t *testing.T, newBus func() events.Bus) {
 	publishTask(ctx, t, bus, "profB", "job1") // matches, under an entirely different profile
 	publishTask(ctx, t, bus, "profA", "job2") // sibling: the job token differs -- must survive
 
-	if err := sa.PurgeSubject(ctx, events.StreamWorkSquasharr,
+	if err := sa.PurgeSubject(ctx, events.StreamWorkTranscode,
 		events.WorkTranscodeTaskSubjectAnyProfile("cpu", "job1")); err != nil {
 		t.Fatalf("PurgeSubject (wildcard): %v", err)
 	}
 
-	subjects, err := sa.Subjects(ctx, events.StreamWorkSquasharr, "clustarr.work.transcode.task.>")
+	subjects, err := sa.Subjects(ctx, events.StreamWorkTranscode, "clustarr.work.transcode.task.>")
 	if err != nil {
 		t.Fatalf("Subjects: %v", err)
 	}
@@ -287,7 +287,7 @@ func testSubscriptions(t *testing.T, newBus func() events.Bus) {
 		}
 		return false
 	}
-	names, err := sa.Subscriptions(ctx, events.StreamWorkSquasharr)
+	names, err := sa.Subscriptions(ctx, events.StreamWorkTranscode)
 	if err != nil {
 		t.Fatalf("Subscriptions: %v", err)
 	}
@@ -299,7 +299,7 @@ func testSubscriptions(t *testing.T, newBus func() events.Bus) {
 	if err := sa.DeleteSubscription(ctx, gone.Stream, gone.Durable); err != nil {
 		t.Fatalf("DeleteSubscription: %v", err)
 	}
-	names, err = sa.Subscriptions(ctx, events.StreamWorkSquasharr)
+	names, err = sa.Subscriptions(ctx, events.StreamWorkTranscode)
 	if err != nil {
 		t.Fatalf("Subscriptions after delete: %v", err)
 	}

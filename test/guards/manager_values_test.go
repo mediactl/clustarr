@@ -35,7 +35,7 @@ import (
 // renamed env var or flag on either side fails here rather than on a
 // cluster. The default render adds nothing -- the binary's own defaults
 // (bundled on, no directory) are what an unconfigured chart means.
-func TestChartIndexarrCardigannReachesIndexarr(t *testing.T) {
+func TestChartIndexCardigannReachesIndex(t *testing.T) {
 	helm := findTool(t, "helm")
 	root, err := filepath.Abs("../..")
 	require.NoError(t, err)
@@ -77,7 +77,7 @@ func TestChartIndexarrCardigannReachesIndexarr(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			out := run(t, root, helm, append([]string{"template", "clustarr", "charts/clustarr"}, tc.args...)...)
-			dep := indexarrDeployment(t, decodeRendered(t, out).deployments)
+			dep := indexDeployment(t, decodeRendered(t, out).deployments)
 			ctr := dep.Spec.Template.Spec.Containers[0]
 
 			got := map[string]string{}
@@ -121,7 +121,7 @@ func TestChartIndexarrCardigannReachesIndexarr(t *testing.T) {
 				}
 			}
 			t.Setenv(namespaceEnv, "clustarr-system")
-			opts := stub(t, &runIndexarr)
+			opts := stub(t, &runIndex)
 			_, err := execute(t, ctr.Args...)
 			require.NoError(t, err)
 			require.Equal(t, tc.wantBundled, opts.CardigannBundled, "--cardigann-bundled")
@@ -149,7 +149,7 @@ func TestChartRefusesTwoCardigannDefinitionSources(t *testing.T) {
 	require.Contains(t, stderr.String(), "indexarr.cardigann.definitions: set configMap or existingClaim, not both")
 }
 
-func indexarrDeployment(t *testing.T, deps []appsv1.Deployment) *appsv1.Deployment {
+func indexDeployment(t *testing.T, deps []appsv1.Deployment) *appsv1.Deployment {
 	t.Helper()
 	for i := range deps {
 		if deps[i].Spec.Template.Labels["app.kubernetes.io/component"] == "indexarr" {

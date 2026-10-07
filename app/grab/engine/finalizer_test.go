@@ -22,11 +22,11 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	grabarrstatus "github.com/mediactl/clustarr/app/grab/status"
+	grabstatus "github.com/mediactl/clustarr/app/grab/status"
 )
 
 // The engines add the finalizer the Download controller waits on; both must
 // name the one constant.
 func TestFinalizerIsTheStatusPackagesName(t *testing.T) {
-	assert.Equal(t, grabarrstatus.EngineFinalizer, Finalizer)
+	assert.Equal(t, grabstatus.EngineFinalizer, Finalizer)
 }

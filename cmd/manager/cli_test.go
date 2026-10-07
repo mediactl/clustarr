@@ -31,13 +31,13 @@ import (
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	captionarr "github.com/mediactl/clustarr/app/caption"
-	catalogarr "github.com/mediactl/clustarr/app/catalog"
-	grabarr "github.com/mediactl/clustarr/app/grab"
-	importarr "github.com/mediactl/clustarr/app/import"
-	indexarr "github.com/mediactl/clustarr/app/indexer"
-	squasharr "github.com/mediactl/clustarr/app/squash"
-	"github.com/mediactl/clustarr/app/squash/controller/pool"
+	captionapp "github.com/mediactl/clustarr/app/caption"
+	catalogapp "github.com/mediactl/clustarr/app/catalog"
+	grabapp "github.com/mediactl/clustarr/app/grab"
+	importapp "github.com/mediactl/clustarr/app/import"
+	indexapp "github.com/mediactl/clustarr/app/indexer"
+	transcodeapp "github.com/mediactl/clustarr/app/transcode"
+	"github.com/mediactl/clustarr/app/transcode/controller/pool"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
@@ -104,8 +104,8 @@ func stub[T any](t *testing.T, target *func(context.Context, T) error) *T {
 	return &got
 }
 
-func TestCatalogarrManagerOptions(t *testing.T) {
-	got := stub(t, &runCatalogarr)
+func TestCatalogManagerOptions(t *testing.T) {
+	got := stub(t, &runCatalog)
 
 	if _, err := execute(t, "catalogarr",
 		"--role", "worker",
@@ -118,7 +118,7 @@ func TestCatalogarrManagerOptions(t *testing.T) {
 		t.Fatalf("clustarr catalogarr: %v", err)
 	}
 
-	if got.Role != catalogarr.RoleWorker {
+	if got.Role != catalogapp.RoleWorker {
 		t.Errorf("role = %q", got.Role)
 	}
 	if err := got.Validate(); err != nil {
@@ -131,8 +131,8 @@ func TestCatalogarrManagerOptions(t *testing.T) {
 	if opts.LeaderElection {
 		t.Error("--leader-elect turned on leader election for a worker role")
 	}
-	if opts.LeaderElectionID != catalogarr.LeaderElectionID {
-		t.Errorf("LeaderElectionID = %q, want %q", opts.LeaderElectionID, catalogarr.LeaderElectionID)
+	if opts.LeaderElectionID != catalogapp.LeaderElectionID {
+		t.Errorf("LeaderElectionID = %q, want %q", opts.LeaderElectionID, catalogapp.LeaderElectionID)
 	}
 	if opts.Metrics.BindAddress != ":9443" {
 		t.Errorf("metrics bind address = %q", opts.Metrics.BindAddress)
@@ -145,7 +145,7 @@ func TestCatalogarrManagerOptions(t *testing.T) {
 	}
 
 	// The controller role does take the lease.
-	got = stub(t, &runCatalogarr)
+	got = stub(t, &runCatalog)
 	if _, err := execute(t, "catalogarr",
 		"--role", "controller", "--namespace", "clustarr", "--leader-elect",
 	); err != nil {
@@ -156,8 +156,8 @@ func TestCatalogarrManagerOptions(t *testing.T) {
 	}
 }
 
-func TestIndexarrManagerOptions(t *testing.T) {
-	got := stub(t, &runIndexarr)
+func TestIndexManagerOptions(t *testing.T) {
+	got := stub(t, &runIndex)
 
 	if _, err := execute(t, "indexarr",
 		"--namespace", "clustarr",
@@ -165,7 +165,7 @@ func TestIndexarrManagerOptions(t *testing.T) {
 	); err != nil {
 		t.Fatalf("clustarr indexarr: %v", err)
 	}
-	if got.Role != indexarr.RoleAll {
+	if got.Role != indexapp.RoleAll {
 		t.Errorf("role = %q", got.Role)
 	}
 	if err := got.Validate(); err != nil {
@@ -187,14 +187,14 @@ func TestIndexarrManagerOptions(t *testing.T) {
 // $CLUSTARR_FACADE_API_KEY_SECRET (the chart's, which carries the release
 // fullname). The facade fails closed, so an enabled facade with no namespace
 // to keep that Secret in is refused before anything starts.
-func TestIndexarrFacadeSettings(t *testing.T) {
-	got := stub(t, &runIndexarr)
+func TestIndexFacadeSettings(t *testing.T) {
+	got := stub(t, &runIndex)
 	if _, err := execute(t, "indexarr", "--namespace", "clustarr"); err != nil {
 		t.Fatalf("clustarr indexarr: %v", err)
 	}
-	if got.FacadeAPIKeySecret != indexarr.DefaultFacadeAPIKeySecret || got.FacadeBindAddress != ":8080" {
+	if got.FacadeAPIKeySecret != indexapp.DefaultFacadeAPIKeySecret || got.FacadeBindAddress != ":8080" {
 		t.Errorf("facade = %q / secret %q, want :8080 / %q",
-			got.FacadeBindAddress, got.FacadeAPIKeySecret, indexarr.DefaultFacadeAPIKeySecret)
+			got.FacadeBindAddress, got.FacadeAPIKeySecret, indexapp.DefaultFacadeAPIKeySecret)
 	}
 	if !got.FacadeEnabled() {
 		t.Error("the facade is disabled by default")
@@ -240,8 +240,8 @@ func TestIndexarrFacadeSettings(t *testing.T) {
 // (X14) to indexarr.Options, from the flag, from
 // $CLUSTARR_CARDIGANN_DEFINITIONS_DIR and from `clustarr all`; the start
 // envtest's indexarr case holds the rest, the directory to IndexerDefinitions.
-func TestIndexarrCardigannDefinitionsDir(t *testing.T) {
-	got := stub(t, &runIndexarr)
+func TestIndexCardigannDefinitionsDir(t *testing.T) {
+	got := stub(t, &runIndex)
 	if _, err := execute(t, "indexarr", "--namespace", "clustarr", "--cardigann-definitions-dir", "/bundle"); err != nil {
 		t.Fatalf("clustarr indexarr: %v", err)
 	}
@@ -257,7 +257,7 @@ func TestIndexarrCardigannDefinitionsDir(t *testing.T) {
 		t.Errorf("CardigannDefinitionsDir = %q, want $%s's /from-env", got.CardigannDefinitionsDir, cardigannDefinitionsDirEnv)
 	}
 
-	all := stub(t, &runIndexarr)
+	all := stub(t, &runIndex)
 	if err := allServiceRun(t, "indexarr")(context.Background(), k8s.DefaultOptions()); err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -272,8 +272,8 @@ func TestIndexarrCardigannDefinitionsDir(t *testing.T) {
 // default and the chart sets $CLUSTARR_DATA_CLAIM, because the chart's claim
 // carries the release fullname. See TestGrabarrEnginesMountAClaimTheInstallerCreates
 // for the same fact read from what each installer renders.
-func TestGrabarrDataClaimComesFromTheEnvironment(t *testing.T) {
-	got := stub(t, &runGrabarr)
+func TestGrabDataClaimComesFromTheEnvironment(t *testing.T) {
+	got := stub(t, &runGrab)
 	t.Setenv(engineImageEnv, "ghcr.io/mediactl/clustarr/media:dev")
 	if _, err := execute(t, "grabarr", "--namespace", "clustarr"); err != nil {
 		t.Fatalf("clustarr grabarr: %v", err)
@@ -307,8 +307,8 @@ func TestGrabarrDataClaimComesFromTheEnvironment(t *testing.T) {
 // $CLUSTARR_ENGINE_SERVICE_ACCOUNT to its fullname-prefixed account. See
 // TestGrabarrEnginesRunAsAnAccountTheInstallerBinds for the same fact read
 // from what each installer renders.
-func TestGrabarrEngineServiceAccountComesFromTheEnvironment(t *testing.T) {
-	got := stub(t, &runGrabarr)
+func TestGrabEngineServiceAccountComesFromTheEnvironment(t *testing.T) {
+	got := stub(t, &runGrab)
 	t.Setenv(engineImageEnv, "ghcr.io/mediactl/clustarr/media:dev")
 	if _, err := execute(t, "grabarr", "--namespace", "clustarr"); err != nil {
 		t.Fatalf("clustarr grabarr: %v", err)
@@ -330,8 +330,8 @@ func TestGrabarrEngineServiceAccountComesFromTheEnvironment(t *testing.T) {
 	}
 }
 
-func TestIndexarrRejectsLeaderElection(t *testing.T) {
-	got := stub(t, &runIndexarr)
+func TestIndexRejectsLeaderElection(t *testing.T) {
+	got := stub(t, &runIndex)
 	if _, err := execute(t, "indexarr", "--namespace", "clustarr", "--leader-elect"); err != nil {
 		t.Fatalf("clustarr indexarr: %v", err)
 	}
@@ -340,8 +340,8 @@ func TestIndexarrRejectsLeaderElection(t *testing.T) {
 	}
 }
 
-func TestGrabarrManagerOptions(t *testing.T) {
-	got := stub(t, &runGrabarr)
+func TestGrabManagerOptions(t *testing.T) {
+	got := stub(t, &runGrab)
 
 	if _, err := execute(t, "grabarr",
 		"--role", "torrent-engine",
@@ -351,7 +351,7 @@ func TestGrabarrManagerOptions(t *testing.T) {
 	); err != nil {
 		t.Fatalf("clustarr grabarr: %v", err)
 	}
-	if got.Role != grabarr.RoleTorrentEngine || got.Engine != "qbit-0" {
+	if got.Role != grabapp.RoleTorrentEngine || got.Engine != "qbit-0" {
 		t.Errorf("role = %q, engine = %q", got.Role, got.Engine)
 	}
 	if err := got.Validate(); err != nil {
@@ -362,8 +362,8 @@ func TestGrabarrManagerOptions(t *testing.T) {
 	}
 }
 
-func TestGrabarrEngineRoleNeedsAnIdentity(t *testing.T) {
-	got := stub(t, &runGrabarr)
+func TestGrabEngineRoleNeedsAnIdentity(t *testing.T) {
+	got := stub(t, &runGrab)
 	if _, err := execute(t, "grabarr", "--role", "usenet-engine", "--namespace", "clustarr"); err != nil {
 		t.Fatalf("clustarr grabarr: %v", err)
 	}
@@ -372,8 +372,8 @@ func TestGrabarrEngineRoleNeedsAnIdentity(t *testing.T) {
 	}
 }
 
-func TestSquasharrManagerOptionsAndSlots(t *testing.T) {
-	got := stub(t, &runSquasharr)
+func TestTranscodeManagerOptionsAndSlots(t *testing.T) {
+	got := stub(t, &runTranscode)
 
 	if _, err := execute(t, "squasharr",
 		"--role", "controller",
@@ -434,12 +434,12 @@ func TestSquasharrManagerOptionsAndSlots(t *testing.T) {
 // claim, whose name carries the release fullname. Each variable must reach
 // its flag, or the chart's pool Jobs would mount a claim that does not
 // exist.
-func TestSquasharrWorkerSettingsComeFromTheEnvironment(t *testing.T) {
+func TestTranscodeWorkerSettingsComeFromTheEnvironment(t *testing.T) {
 	t.Setenv(workerImageEnv, "registry.example/media:1")
 	t.Setenv(dataClaimEnv, "release-clustarr-data")
 	t.Setenv(gpuNodeLabelNVIDIAEnv, "example.com/env-nvidia-gpu")
 	t.Setenv(gpuNodeLabelIntelEnv, "example.com/env-intel-gpu")
-	got := stub(t, &runSquasharr)
+	got := stub(t, &runTranscode)
 	if _, err := execute(t, "squasharr", "--namespace", "clustarr"); err != nil {
 		t.Fatalf("clustarr squasharr: %v", err)
 	}
@@ -459,7 +459,7 @@ func TestSquasharrWorkerSettingsComeFromTheEnvironment(t *testing.T) {
 
 	// An explicit flag still wins over the environment, the same as every
 	// other squasharr setting envOr defaults.
-	got = stub(t, &runSquasharr)
+	got = stub(t, &runTranscode)
 	if _, err := execute(t, "squasharr", "--namespace", "clustarr",
 		"--gpu-node-label-nvidia", "flag.example/nvidia-gpu"); err != nil {
 		t.Fatalf("clustarr squasharr: %v", err)
@@ -485,8 +485,8 @@ func TestSquasharrWorkerSettingsComeFromTheEnvironment(t *testing.T) {
 // refused at startup rather than at every Job's pod creation.
 // squasharr's TestPoolConfigCarriesTheControllerOptions holds the next link,
 // Options to the pool.
-func TestSquasharrIntelRenderGroups(t *testing.T) {
-	got := stub(t, &runSquasharr)
+func TestTranscodeIntelRenderGroups(t *testing.T) {
+	got := stub(t, &runTranscode)
 	if _, err := execute(t, "squasharr", "--namespace", "clustarr", "--worker-image", "m:1",
 		"--intel-render-groups", "44, 109"); err != nil {
 		t.Fatalf("clustarr squasharr: %v", err)
@@ -499,7 +499,7 @@ func TestSquasharrIntelRenderGroups(t *testing.T) {
 	}
 
 	t.Setenv(intelRenderGroupsEnv, "109")
-	got = stub(t, &runSquasharr)
+	got = stub(t, &runTranscode)
 	if _, err := execute(t, "squasharr", "--namespace", "clustarr", "--worker-image", "m:1"); err != nil {
 		t.Fatalf("clustarr squasharr: %v", err)
 	}
@@ -508,7 +508,7 @@ func TestSquasharrIntelRenderGroups(t *testing.T) {
 	}
 
 	t.Setenv(intelRenderGroupsEnv, "")
-	got = stub(t, &runSquasharr)
+	got = stub(t, &runTranscode)
 	if _, err := execute(t, "squasharr", "--namespace", "clustarr", "--worker-image", "m:1"); err != nil {
 		t.Fatalf("clustarr squasharr: %v", err)
 	}
@@ -523,8 +523,8 @@ func TestSquasharrIntelRenderGroups(t *testing.T) {
 	}
 }
 
-func TestSquasharrRejectsABadSlotFlag(t *testing.T) {
-	stub(t, &runSquasharr)
+func TestTranscodeRejectsABadSlotFlag(t *testing.T) {
+	stub(t, &runTranscode)
 	if _, err := execute(t, "squasharr", "--slots", "gpu=1"); err == nil {
 		t.Fatal("an unknown hardware class was accepted")
 	}
@@ -533,8 +533,8 @@ func TestSquasharrRejectsABadSlotFlag(t *testing.T) {
 	}
 }
 
-func TestCaptionarrManagerOptions(t *testing.T) {
-	got := stub(t, &runCaptionarr)
+func TestCaptionManagerOptions(t *testing.T) {
+	got := stub(t, &runCaption)
 
 	if _, err := execute(t, "captionarr",
 		"--role", "worker",
@@ -544,7 +544,7 @@ func TestCaptionarrManagerOptions(t *testing.T) {
 	); err != nil {
 		t.Fatalf("clustarr captionarr: %v", err)
 	}
-	if got.Role != captionarr.RoleWorker {
+	if got.Role != captionapp.RoleWorker {
 		t.Errorf("role = %q", got.Role)
 	}
 	if err := got.Validate(); err != nil {
@@ -558,7 +558,7 @@ func TestCaptionarrManagerOptions(t *testing.T) {
 }
 
 func TestUnknownRoleIsRejected(t *testing.T) {
-	got := stub(t, &runCatalogarr)
+	got := stub(t, &runCatalog)
 	if _, err := execute(t, "catalogarr", "--role", "nonsense", "--namespace", "clustarr"); err != nil {
 		t.Fatalf("clustarr catalogarr: %v", err)
 	}
@@ -573,43 +573,43 @@ func TestEverySubcommandBuildsManagerOptions(t *testing.T) {
 	// server. ui is absent: it builds no ctrl.Options, having no manager.
 	cases := map[string]func() ctrl.Options{
 		"catalogarr": func() ctrl.Options {
-			o := catalogarr.DefaultOptions()
+			o := catalogapp.DefaultOptions()
 			o.Namespace = "clustarr"
 			return o.ManagerOptions()
 		},
 		"importarr": func() ctrl.Options {
-			o := importarr.DefaultOptions()
+			o := importapp.DefaultOptions()
 			o.Namespace = "clustarr"
 			return o.ManagerOptions()
 		},
 		"indexarr": func() ctrl.Options {
-			o := indexarr.DefaultOptions()
+			o := indexapp.DefaultOptions()
 			o.Namespace = "clustarr"
 			return o.ManagerOptions()
 		},
 		"grabarr": func() ctrl.Options {
-			o := grabarr.DefaultOptions()
+			o := grabapp.DefaultOptions()
 			o.Namespace = "clustarr"
 			return o.ManagerOptions()
 		},
 		"squasharr": func() ctrl.Options {
-			o := squasharr.DefaultOptions()
+			o := transcodeapp.DefaultOptions()
 			o.Namespace = "clustarr"
 			return o.ManagerOptions()
 		},
 		"captionarr": func() ctrl.Options {
-			o := captionarr.DefaultOptions()
+			o := captionapp.DefaultOptions()
 			o.Namespace = "clustarr"
 			return o.ManagerOptions()
 		},
 	}
 	wantIDs := map[string]string{
-		"catalogarr": catalogarr.LeaderElectionID,
-		"importarr":  importarr.LeaderElectionID,
-		"indexarr":   indexarr.LeaderElectionID,
-		"grabarr":    grabarr.LeaderElectionID,
-		"squasharr":  squasharr.LeaderElectionID,
-		"captionarr": captionarr.LeaderElectionID,
+		"catalogarr": catalogapp.LeaderElectionID,
+		"importarr":  importapp.LeaderElectionID,
+		"indexarr":   indexapp.LeaderElectionID,
+		"grabarr":    grabapp.LeaderElectionID,
+		"squasharr":  transcodeapp.LeaderElectionID,
+		"captionarr": captionapp.LeaderElectionID,
 	}
 	for name, build := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -703,34 +703,34 @@ func TestAllGivesEachServiceItsOwnPorts(t *testing.T) {
 	}
 	restore := []func(){}
 
-	origCatalog, origImport, origIndex := runCatalogarr, runImportarr, runIndexarr
-	origGrab, origSquash, origCaption, origUI := runGrabarr, runSquasharr, runCaptionarr, runUI
-	runCatalogarr = func(_ context.Context, o catalogarr.Options) error {
+	origCatalog, origImport, origIndex := runCatalog, runImport, runIndex
+	origGrab, origTranscode, origCaption, origUI := runGrab, runTranscode, runCaption, runUI
+	runCatalog = func(_ context.Context, o catalogapp.Options) error {
 		record("catalogarr", o.Options, o.Logging, o.Tracing, o.Validate)
 		return nil
 	}
-	runImportarr = func(_ context.Context, o importarr.Options) error {
+	runImport = func(_ context.Context, o importapp.Options) error {
 		record("importarr", o.Options, o.Logging, o.Tracing, o.Validate)
 		return nil
 	}
-	var indexOpts indexarr.Options
-	runIndexarr = func(_ context.Context, o indexarr.Options) error {
+	var indexOpts indexapp.Options
+	runIndex = func(_ context.Context, o indexapp.Options) error {
 		mu.Lock()
 		indexOpts = o
 		mu.Unlock()
 		record("indexarr", o.Options, o.Logging, o.Tracing, o.Validate)
 		return nil
 	}
-	runGrabarr = func(_ context.Context, o grabarr.Options) error {
+	runGrab = func(_ context.Context, o grabapp.Options) error {
 		record("grabarr", o.Options, o.Logging, o.Tracing, o.Validate)
 		return nil
 	}
-	runSquasharr = func(_ context.Context, o squasharr.Options) error {
+	runTranscode = func(_ context.Context, o transcodeapp.Options) error {
 		record("squasharr", o.Options, o.Logging, o.Tracing, o.Validate)
 		return nil
 	}
-	var captionRole captionarr.Role
-	runCaptionarr = func(_ context.Context, o captionarr.Options) error {
+	var captionRole captionapp.Role
+	runCaption = func(_ context.Context, o captionapp.Options) error {
 		mu.Lock()
 		captionRole = o.Role
 		mu.Unlock()
@@ -746,8 +746,8 @@ func TestAllGivesEachServiceItsOwnPorts(t *testing.T) {
 		return nil
 	}
 	restore = append(restore, func() {
-		runCatalogarr, runImportarr, runIndexarr = origCatalog, origImport, origIndex
-		runGrabarr, runSquasharr, runCaptionarr, runUI = origGrab, origSquash, origCaption, origUI
+		runCatalog, runImport, runIndex = origCatalog, origImport, origIndex
+		runGrab, runTranscode, runCaption, runUI = origGrab, origTranscode, origCaption, origUI
 	})
 	t.Cleanup(func() {
 		for _, f := range restore {
@@ -876,8 +876,8 @@ func keysOf[V any](m map[string]V) []string {
 // indexarr.Options: on by default, off from the flag or from
 // $CLUSTARR_CARDIGANN_BUNDLED, and on by default in `clustarr all` too, so a
 // fresh install and a dev stack both get the embedded corpus.
-func TestIndexarrCardigannBundled(t *testing.T) {
-	got := stub(t, &runIndexarr)
+func TestIndexCardigannBundled(t *testing.T) {
+	got := stub(t, &runIndex)
 	if _, err := execute(t, "indexarr", "--namespace", "clustarr"); err != nil {
 		t.Fatalf("clustarr indexarr: %v", err)
 	}
@@ -901,7 +901,7 @@ func TestIndexarrCardigannBundled(t *testing.T) {
 	}
 
 	t.Setenv(cardigannBundledEnv, "")
-	all := stub(t, &runIndexarr)
+	all := stub(t, &runIndex)
 	if err := allServiceRun(t, "indexarr")(context.Background(), k8s.DefaultOptions()); err != nil {
 		t.Fatalf("run: %v", err)
 	}

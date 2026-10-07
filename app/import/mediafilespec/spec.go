@@ -56,7 +56,7 @@ import (
 // drifted: production wrote as ManagerImportarr while the gate, and
 // k8s.ManagerImportarrWorker's own doc comment, described ManagerImportarr-
 // Worker.
-const FieldManager = k8s.ManagerImportarrWorker
+const FieldManager = k8s.ManagerImportWorker
 
 // StaleReadError is an apply to an existing MediaFile that the apiserver
 // refused because the object changed after the caller read it: the

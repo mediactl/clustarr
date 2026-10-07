@@ -39,7 +39,7 @@ const (
 	// status write. Design spec §8.4 assigned it to catalogarr before
 	// amendment-1 moved the importer into app/import/worker/fileimport; see
 	// ManagerImportarr, which now owns that write. Settled at task D2-7.)
-	ManagerCatalogarr FieldManager = "catalogarr"
+	ManagerCatalog FieldManager = "catalogarr"
 
 	// ManagerCatalogarrSeries is the catalogarr Series reconciler when it
 	// writes to an Episode it owns. Its field set is exactly
@@ -63,7 +63,7 @@ const (
 	// any field it claims. An over-claim is invisible in the object's values
 	// and shows up only in metadata.managedFields, which is where a test that
 	// means to catch one has to look.
-	ManagerCatalogarrSeries FieldManager = "catalogarr-series"
+	ManagerCatalogSeries FieldManager = "catalogarr-series"
 
 	// ManagerCatalogarrWorker is the catalogarr queue worker. It covers the
 	// consumers that write status fields NO other catalogarr writer touches:
@@ -76,7 +76,7 @@ const (
 	// The two consumers that used to share it and could not -- the metadata
 	// gateway and the grab path -- have their own names below. See
 	// ManagerCatalogarrGrab for what went wrong.
-	ManagerCatalogarrWorker FieldManager = "catalogarr-worker"
+	ManagerCatalogWorker FieldManager = "catalogarr-worker"
 
 	// ManagerCatalogarrMetadata is the catalogarr metadata gateway. On Movie
 	// and Series it applies status.metadata and nothing else.
@@ -92,7 +92,7 @@ const (
 	// cron re-searched an item that already had a grab scheduled). Both
 	// directions were reproduced against a real apiserver; see
 	// app/catalog/worker/grab's field-manager tests.
-	ManagerCatalogarrMetadata FieldManager = "catalogarr-metadata"
+	ManagerCatalogMetadata FieldManager = "catalogarr-metadata"
 
 	// ManagerCatalogarrGrab is the catalogarr grab path -- the grab worker,
 	// the RSS matcher and the search worker's grab sink, which all write
@@ -117,7 +117,7 @@ const (
 	//
 	// See ManagerCatalogarrMetadata for why this is not
 	// ManagerCatalogarrWorker.
-	ManagerCatalogarrGrab FieldManager = "catalogarr-grab"
+	ManagerCatalogGrab FieldManager = "catalogarr-grab"
 
 	// ManagerCatalogarrFanout is the Comic reconciler when it writes an
 	// Issue's provider-sourced status fields (sourceID, title, date) onto the
@@ -146,7 +146,7 @@ const (
 	// object would silently release each other's fields the next time
 	// either side reconciled -- proven once already for Series/Episode (see
 	// ManagerCatalogarrSeries).
-	ManagerCatalogarrFanout FieldManager = "catalogarr-fanout"
+	ManagerCatalogFanout FieldManager = "catalogarr-fanout"
 
 	// ManagerCatalogarrArtwork is the renderer role (catalogarr --role
 	// artwork, spec §C.6, §B.6). On Movie and Series it applies
@@ -159,7 +159,7 @@ const (
 	// and ManagerCatalogarrGrab are: server-side apply replaces a manager's
 	// whole ownership set on every apply, so a shared name would let one
 	// role's apply silently release the other's fields.
-	ManagerCatalogarrArtwork FieldManager = "catalogarr-artwork"
+	ManagerCatalogArtwork FieldManager = "catalogarr-artwork"
 
 	// ManagerCatalogarrMarkers is RETIRED (loop spec 2026-10-06 §2.12,
 	// §3.14): it was the metadata gateway's marker worker, the writer of
@@ -168,14 +168,14 @@ const (
 	// accepts it (RetiredFieldManagers) because release N's one release
 	// apply of every MediaFile's catalogarr-markers entry runs under it
 	// (§7.3.8, F8.4). F9.4 removes it.
-	ManagerCatalogarrMarkers FieldManager = legacynames.MarkersStatusManager
+	ManagerRetiredMarkers FieldManager = legacynames.MarkersStatusManager
 
 	// ManagerCatalogarrClassify is the Series reconciler's one-time anime
 	// classification: it merge-patches spec.seriesType and
 	// spec.qualityProfileRef once, never again for that Series. Distinct
 	// from every creator's manager (importarr, importarr-worker,
 	// clustarr-ui), so the patch reads in managedFields as the classifier's.
-	ManagerCatalogarrClassify FieldManager = "catalogarr-classify"
+	ManagerCatalogClassify FieldManager = "catalogarr-classify"
 
 	// ManagerImportarr is the importarr controller manager. It owns ImportList,
 	// ImportExclusion and LibraryScan status.
@@ -200,7 +200,7 @@ const (
 	// app/grab/status already said importarr; ManagerCatalogarr's comment and
 	// DownloadStatus' own field doc still said catalogarr. All three are now
 	// consistent.
-	ManagerImportarr FieldManager = "importarr"
+	ManagerImport FieldManager = "importarr"
 
 	// ManagerImportarrWorker is an importarr scan, list or file-import worker.
 	// On MediaFile it applies MediaFileSpec only -- what it observed on disk,
@@ -218,7 +218,7 @@ const (
 	// the rescan worker actually wrote as ManagerImportarr while this
 	// comment, catalogarr's two-writer gate and the e2e suite each said
 	// something different.
-	ManagerImportarrWorker FieldManager = "importarr-worker"
+	ManagerImportWorker FieldManager = "importarr-worker"
 
 	// ManagerIndexarr is the indexarr controller manager. On Indexer it owns
 	// the configuration half of status: conditions, protocol, privacy, caps,
@@ -230,7 +230,7 @@ const (
 	// Since the manager/agent split (2026-10-06) it is written only by the
 	// manager: the three reconcilers, the bundle loader and the Indexer
 	// reconciler's session-Secret Saves.
-	ManagerIndexarr FieldManager = "indexarr"
+	ManagerIndex FieldManager = "indexarr"
 
 	// ManagerIndexarrWorker is indexarr's RSS poll and search fan-out. On
 	// Indexer it owns the observed half of status: lastRssAt, lastRssNewCount,
@@ -252,31 +252,31 @@ const (
 	// client's relogin Save and the compare-and-swap Drop, through the same
 	// complete declaration as the manager's Save) and creates the facade's
 	// API-key Secret (§13 OD14).
-	ManagerIndexarrWorker FieldManager = "indexarr-worker"
+	ManagerIndexWorker FieldManager = "indexarr-worker"
 
 	// ManagerGrabarr is the grabarr controller manager, the single writer for
 	// download.clustarr.io phase and conditions.
-	ManagerGrabarr FieldManager = "grabarr"
+	ManagerGrab FieldManager = "grabarr"
 
 	// ManagerGrabarrEngine was a torrent or usenet engine pod's, which applied
 	// the telemetry fields of Download.status. Retired (ADR-0019 A3.6):
 	// engines write no Kubernetes object; RetiredFieldManagers keeps it
 	// valid until N+1.
-	ManagerGrabarrEngine FieldManager = legacynames.EngineTelemetryManager
+	ManagerRetiredEngine FieldManager = legacynames.EngineTelemetryManager
 
 	// ManagerSquasharr is the squasharr controller manager.
-	ManagerSquasharr FieldManager = "squasharr"
+	ManagerTranscode FieldManager = "squasharr"
 
 	// ManagerSquasharrPool is squasharr's transcode pool Jobs: the sole
 	// writer of their spec, including spec.scheduling.schedulingPolicy.gang.minCount.
-	ManagerSquasharrPool FieldManager = "squasharr-pool"
+	ManagerTranscodePool FieldManager = "squasharr-pool"
 
 	// ManagerCaptionarr is the captionarr controller manager.
-	ManagerCaptionarr FieldManager = "captionarr"
+	ManagerCaption FieldManager = "captionarr"
 
 	// ManagerCaptionarrWorker is a captionarr subtitle fetch worker. It
 	// applies SubtitleRequest.status.items entries only.
-	ManagerCaptionarrWorker FieldManager = "captionarr-worker"
+	ManagerCaptionWorker FieldManager = "captionarr-worker"
 
 	// ManagerDLQProjector is the DLQ projector wired into catalogarr's
 	// RoleHistory branch (built by task G1-4, wired by G1-5), the one
@@ -351,23 +351,23 @@ const DefaultFieldOwner = "clustarr"
 // FieldManagers lists every manager name §2 allows, in spec order.
 func FieldManagers() []FieldManager {
 	return []FieldManager{
-		ManagerCatalogarr,
-		ManagerCatalogarrSeries,
-		ManagerCatalogarrWorker,
-		ManagerCatalogarrMetadata,
-		ManagerCatalogarrGrab,
-		ManagerCatalogarrFanout,
-		ManagerCatalogarrArtwork,
-		ManagerCatalogarrClassify,
-		ManagerImportarr,
-		ManagerImportarrWorker,
-		ManagerIndexarr,
-		ManagerIndexarrWorker,
-		ManagerGrabarr,
-		ManagerSquasharr,
-		ManagerSquasharrPool,
-		ManagerCaptionarr,
-		ManagerCaptionarrWorker,
+		ManagerCatalog,
+		ManagerCatalogSeries,
+		ManagerCatalogWorker,
+		ManagerCatalogMetadata,
+		ManagerCatalogGrab,
+		ManagerCatalogFanout,
+		ManagerCatalogArtwork,
+		ManagerCatalogClassify,
+		ManagerImport,
+		ManagerImportWorker,
+		ManagerIndex,
+		ManagerIndexWorker,
+		ManagerGrab,
+		ManagerTranscode,
+		ManagerTranscodePool,
+		ManagerCaption,
+		ManagerCaptionWorker,
 		ManagerDLQProjector,
 		ManagerUI,
 		ManagerAutoscale,
@@ -380,7 +380,7 @@ func FieldManagers() []FieldManager {
 // grabarr-engine retired with the Download kind (ADR-0019 A3.6: engines
 // write no Kubernetes object). F9.4 and A9.1 empty the list.
 func RetiredFieldManagers() []FieldManager {
-	return []FieldManager{ManagerCatalogarrMarkers, ManagerGrabarrEngine}
+	return []FieldManager{ManagerRetiredMarkers, ManagerRetiredEngine}
 }
 
 // String returns the manager name as the apiserver sees it.

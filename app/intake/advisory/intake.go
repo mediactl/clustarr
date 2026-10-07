@@ -291,7 +291,7 @@ func (i *Intake) maxDeliver(stream, durable string) int {
 		return c.MaxDeliver
 	}
 	switch stream {
-	case events.StreamWorkSquasharr:
+	case events.StreamWorkTranscode:
 		return events.TranscodeTaskConsumer("", "").MaxDeliver
 	case events.StreamWorkEngine:
 		return events.EngineConsumer("", 0).MaxDeliver

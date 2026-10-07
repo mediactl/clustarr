@@ -350,7 +350,7 @@ func (r *Reconciler) apply(ctx context.Context, s *catalogv1alpha1.Search, u *st
 		statusAC = statusAC.WithChildren(catalogac.SearchChildren().WithTotal(c.Total).WithRunning(c.Running).
 			WithCompleted(c.Completed).WithFailed(c.Failed).WithGrabbed(c.Grabbed))
 	}
-	if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr,
+	if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalog,
 		catalogac.Search(s.Name, s.Namespace).WithStatus(statusAC)); err != nil {
 		return err
 	}
@@ -802,7 +802,7 @@ func (r *Reconciler) handleGrabs(ctx context.Context, s *catalogv1alpha1.Search)
 				dl = dl.WithOwnerReferences(ownerAC)
 			}
 
-			if _, err := k8s.Apply(ctx, r.Client, k8s.ManagerCatalogarr, dl); err != nil {
+			if _, err := k8s.Apply(ctx, r.Client, k8s.ManagerCatalog, dl); err != nil {
 				log.Error("search: grab failed", "guid", guid, "download", name, "err", err)
 				grabbed[guid] = catalogv1alpha1.GrabResult{GUID: guid, Error: err.Error()}
 				r.eventWarning(s, "GrabFailed", "could not create Download %s: %v", name, err)

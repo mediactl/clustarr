@@ -102,7 +102,7 @@ func (albumOps) applyWorkerStatus(ctx context.Context, c client.Client, ns, name
 	if !isZeroAttempts(ws.SearchAttempts) {
 		status = status.WithSearchAttempts(ws.SearchAttempts)
 	}
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrGrab,
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogGrab,
 		catalogac.Album(name, ns).WithResourceVersion(resourceVersion).WithStatus(status))
 	return err
 }
@@ -164,7 +164,7 @@ func (bookOps) applyWorkerStatus(ctx context.Context, c client.Client, ns, name,
 	if !isZeroAttempts(ws.SearchAttempts) {
 		status = status.WithSearchAttempts(ws.SearchAttempts)
 	}
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrGrab,
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogGrab,
 		catalogac.Book(name, ns).WithResourceVersion(resourceVersion).WithStatus(status))
 	return err
 }
@@ -216,7 +216,7 @@ func (audiobookOps) applyWorkerStatus(ctx context.Context, c client.Client, ns, 
 	if !isZeroAttempts(ws.SearchAttempts) {
 		status = status.WithSearchAttempts(ws.SearchAttempts)
 	}
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrGrab,
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogGrab,
 		catalogac.Audiobook(name, ns).WithResourceVersion(resourceVersion).WithStatus(status))
 	return err
 }
@@ -272,7 +272,7 @@ func (issueOps) applyWorkerStatus(ctx context.Context, c client.Client, ns, name
 	if !isZeroAttempts(ws.SearchAttempts) {
 		status = status.WithSearchAttempts(ws.SearchAttempts)
 	}
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrGrab,
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogGrab,
 		catalogac.Issue(name, ns).WithResourceVersion(resourceVersion).WithStatus(status))
 	return err
 }

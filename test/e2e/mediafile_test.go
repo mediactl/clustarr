@@ -135,32 +135,32 @@ func waitForBothWriters(ctx context.Context, t *testing.T, key client.ObjectKey)
 			//nolint:nilerr // keep polling
 			return false, nil
 		}
-		importarrOK, catalogarrOK := false, false
+		importOK, catalogOK := false, false
 		for _, e := range mf.GetManagedFields() {
 			switch e.Manager {
 			case rescan.FieldManager.String():
 				if ok, err := managedFieldsTouch(e, "spec.path", "spec.sizeBytes", "spec.mediaRef"); err == nil && ok {
-					importarrOK = true
+					importOK = true
 				}
-			case k8s.ManagerCatalogarr.String():
+			case k8s.ManagerCatalog.String():
 				if ok, err := managedFieldsTouch(e, "status.mediaInfo", "status.probeHash", "status.conditions"); err == nil && ok {
-					catalogarrOK = true
+					catalogOK = true
 				}
 			}
 		}
-		return importarrOK && catalogarrOK, nil
+		return importOK && catalogOK, nil
 	}, describeMediaFile(key))
 
 	var (
-		importarrSpec  bool
-		catalogarrStat bool
+		importSpec  bool
+		catalogStat bool
 	)
 	for _, e := range mf.GetManagedFields() {
 		switch e.Manager {
 		case rescan.FieldManager.String():
 			ok, err := managedFieldsTouch(e, "spec.path")
 			require.NoError(t, err)
-			importarrSpec = importarrSpec || ok
+			importSpec = importSpec || ok
 
 			// importarr never writes MediaFileStatus, and never the labels
 			// catalogarr mirrors onto the object.
@@ -171,11 +171,11 @@ func waitForBothWriters(ctx context.Context, t *testing.T, key client.ObjectKey)
 			require.NoError(t, err)
 			require.False(t, claims, "importarr must not claim metadata.labels, which catalogarr mirrors")
 
-		case k8s.ManagerCatalogarr.String():
+		case k8s.ManagerCatalog.String():
 			if e.Subresource == "status" {
 				ok, err := managedFieldsTouch(e, "status.mediaInfo", "status.probeHash", "status.probedAt", "status.conditions")
 				require.NoError(t, err)
-				catalogarrStat = catalogarrStat || ok
+				catalogStat = catalogStat || ok
 			}
 			// Phase C has no transcode, so catalogarr has not taken
 			// spec.sizeBytes/modTime/original over from importarr and must
@@ -186,8 +186,8 @@ func waitForBothWriters(ctx context.Context, t *testing.T, key client.ObjectKey)
 				"catalogarr's %q managedFields entry claims a spec field; only an incorporated transcode swap may do that", e.Subresource)
 		}
 	}
-	require.True(t, importarrSpec, "no importarr managedFields entry claims spec.path")
-	require.True(t, catalogarrStat, "no catalogarr managedFields entry on the status subresource claims the probe result")
+	require.True(t, importSpec, "no importarr managedFields entry claims spec.path")
+	require.True(t, catalogStat, "no catalogarr managedFields entry on the status subresource claims the probe result")
 	return mf
 }
 

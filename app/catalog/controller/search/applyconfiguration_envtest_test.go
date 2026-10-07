@@ -63,7 +63,7 @@ func TestSearchApplyConfigurationRoundTripsThroughPatchStatus(t *testing.T) {
 				Rank:     1,
 			}),
 	)
-	applied, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, ac)
+	applied, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, ac)
 	require.NoError(t, err)
 	require.NotNil(t, applied.Status)
 	require.NotNil(t, applied.Status.Phase)
@@ -111,14 +111,14 @@ func TestSearchApplyConfigurationReleasesOmittedFields(t *testing.T) {
 				Rank:        1,
 			}),
 	)
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, full)
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, full)
 	require.NoError(t, err)
 
 	// A partial apply that keeps only the phase.
 	partial := catalogac.Search(name, ns).WithStatus(
 		catalogac.SearchStatus().WithPhase(catalogv1alpha1.SearchPhaseFailed),
 	)
-	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, partial)
+	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, partial)
 	require.NoError(t, err)
 
 	got := &catalogv1alpha1.Search{}

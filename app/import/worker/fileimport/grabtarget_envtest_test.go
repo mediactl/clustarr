@@ -49,7 +49,7 @@ func (f *fixture) newBook(t *testing.T) (*catalogv1alpha1.RootFolder, *catalogv1
 		Spec:       catalogv1alpha1.AuthorSpec{OpenLibraryID: "OL31353A", QualityProfileRef: profile, RootFolderRef: rf.Name},
 	}
 	require.NoError(t, f.c.Create(ctx, author))
-	_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalogarrMetadata, catalogac.Author(author.Name, f.ns).
+	_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalogMetadata, catalogac.Author(author.Name, f.ns).
 		WithStatus(catalogac.AuthorStatus().WithMetadata(catalogac.AuthorMetadata().WithName("Ursula K. Le Guin"))))
 	require.NoError(t, err)
 	book := &catalogv1alpha1.Book{
@@ -58,7 +58,7 @@ func (f *fixture) newBook(t *testing.T) (*catalogv1alpha1.RootFolder, *catalogv1
 	}
 	require.NoError(t, f.c.Create(ctx, book))
 	released := metav1.NewTime(time.Date(1974, 5, 1, 0, 0, 0, 0, time.UTC))
-	_, err = k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalogarrMetadata, catalogac.Book(book.Name, f.ns).
+	_, err = k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalogMetadata, catalogac.Book(book.Name, f.ns).
 		WithStatus(catalogac.BookStatus().WithMetadata(catalogac.BookMetadata().WithTitle("The Dispossessed").WithReleaseDate(released))))
 	require.NoError(t, err)
 	waitFor(t, 5*time.Second, func() bool {
@@ -122,7 +122,7 @@ func TestHandleImportsACompletedDownloadOfAnIssue(t *testing.T) {
 		},
 	}
 	require.NoError(t, f.c.Create(ctx, comic))
-	_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalogarrMetadata, catalogac.Comic(comic.Name, f.ns).
+	_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalogMetadata, catalogac.Comic(comic.Name, f.ns).
 		WithStatus(catalogac.ComicStatus().WithMetadata(catalogac.ComicMetadata().WithTitle("Saga").WithYear(2012))))
 	require.NoError(t, err)
 	issue := &catalogv1alpha1.Issue{

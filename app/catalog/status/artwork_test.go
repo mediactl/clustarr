@@ -70,25 +70,25 @@ func TestOwnedStatusPathsReadsLeavesPerManagerAndSubresource(t *testing.T) {
 	fields := metav1.NewFieldsV1
 	managed := []metav1.ManagedFieldsEntry{
 		{
-			Manager: string(k8s.ManagerCatalogarrMetadata), Subresource: "status",
+			Manager: string(k8s.ManagerCatalogMetadata), Subresource: "status",
 			FieldsV1: fields(`{"f:status":{"f:artwork":{"k:{\"type\":\"poster\"}":{".":{},"f:digest":{},"f:type":{}}},` +
 				`"f:metadata":{".":{},"f:title":{}}}}`),
 		},
 		{
-			Manager: string(k8s.ManagerCatalogarr), Subresource: "status",
+			Manager: string(k8s.ManagerCatalog), Subresource: "status",
 			FieldsV1: fields(`{"f:status":{"f:metadata":{"f:selectedReleaseID":{}},"f:phase":{}}}`),
 		},
 		{
-			Manager: string(k8s.ManagerCatalogarrMetadata), Subresource: "",
+			Manager: string(k8s.ManagerCatalogMetadata), Subresource: "",
 			FieldsV1: fields(`{"f:spec":{"f:title":{}}}`),
 		},
 	}
-	got, err := status.OwnedStatusPaths(managed, k8s.ManagerCatalogarrMetadata)
+	got, err := status.OwnedStatusPaths(managed, k8s.ManagerCatalogMetadata)
 	require.NoError(t, err)
 	assert.Equal(t, sets.New("artwork[type=poster].digest", "artwork[type=poster].type", "metadata.title"), got)
 	assert.Equal(t, sets.New("artwork", "metadata"), status.TopLevel(got))
 
-	other, err := status.OwnedStatusPaths(managed, k8s.ManagerCatalogarr)
+	other, err := status.OwnedStatusPaths(managed, k8s.ManagerCatalog)
 	require.NoError(t, err)
 	assert.Equal(t, sets.New("metadata.selectedReleaseID", "phase"), other)
 }
@@ -127,7 +127,7 @@ func TestOverlayEntryACSendsEveryLeaf(t *testing.T) {
 func TestGatewayAndRendererFieldsAreDisjoint(t *testing.T) {
 	assert.Empty(t, sets.New(status.GatewayFields...).Intersection(sets.New(status.RendererFields...)))
 	assert.Equal(t, []string{"overlay"}, status.RendererFields)
-	assert.Equal(t, k8s.ManagerCatalogarrArtwork, status.RendererManager)
+	assert.Equal(t, k8s.ManagerCatalogArtwork, status.RendererManager)
 }
 
 // PatchOverlay refuses every manager but the renderer's before it touches

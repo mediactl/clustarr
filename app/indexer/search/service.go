@@ -374,7 +374,7 @@ func Serve(ctx context.Context, bus events.Bus, s *Service) (func(), error) {
 		// The bus hands every inbound RPC a bare context, so without a span
 		// started here every RPC-triggered indexer call would be an orphaned
 		// root.
-		if err := bus.Serve(v.subject, events.QueueGroupIndexarr,
+		if err := bus.Serve(v.subject, events.QueueGroupIndex,
 			func(ctx context.Context, data []byte) ([]byte, error) {
 				ctx, span := tracing.Start(ctx, v.span)
 				defer span.End()

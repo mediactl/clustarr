@@ -49,7 +49,7 @@ import (
 // FieldManager is the server-side-apply field manager this worker writes
 // SubtitleRequest.status under. app/caption/status.PatchRequest renders its
 // complete owned set from [status.RequestWorkerFields].
-const FieldManager = k8s.ManagerCaptionarrWorker
+const FieldManager = k8s.ManagerCaptionWorker
 
 const (
 	// HeartbeatInterval is how often a long fetch sends an in-progress ack.

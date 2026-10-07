@@ -473,7 +473,7 @@ func (r *Reconciler) apply(
 	status *catalogac.LibraryScanStatusApplyConfiguration,
 ) error {
 	ac := catalogac.LibraryScan(scan.Name, scan.Namespace).WithStatus(status)
-	_, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerImportarr, ac)
+	_, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerImport, ac)
 	return err
 }
 

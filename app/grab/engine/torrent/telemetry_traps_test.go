@@ -100,7 +100,7 @@ func TestApplyTelemetryDoesNotClobberAConcurrentControllerWrite(t *testing.T) {
 
 	// The controller (ManagerGrabarr) writes phase concurrently, "while" this
 	// engine's slow work (an HTTP resolve, in the real path) is in flight.
-	require.NoError(t, status.Patch(ctx, c, k8s.ManagerGrabarr, &stale,
+	require.NoError(t, status.Patch(ctx, c, k8s.ManagerGrab, &stale,
 		func(ac *downloadac.DownloadStatusApplyConfiguration) {
 			ac.WithObservedGeneration(1).WithPhase(downloadv1alpha1.DownloadPhaseDownloading).
 				WithConditions(k8s.ConditionAC(metav1.Condition{
@@ -132,7 +132,7 @@ func TestApplyTelemetryDoesNotClobberAConcurrentControllerWrite(t *testing.T) {
 // app/grab/status directly -- catching a wiring mistake here (the wrong
 // constant, a typo) that app/grab/status's own tests cannot see because they
 // call status.Patch with the right manager by construction.
-func TestApplyTelemetryManagedFieldsAreOnlyGrabarrEngine(t *testing.T) {
+func TestApplyTelemetryManagedFieldsAreOnlyGrabEngine(t *testing.T) {
 	ctx := context.Background()
 	c := newEnvtestClient(t)
 	const ns = "torrent-telemetry-managedfields"
@@ -160,7 +160,7 @@ func TestApplyTelemetryManagedFieldsAreOnlyGrabarrEngine(t *testing.T) {
 		if entry.Subresource != "status" || entry.FieldsV1 == nil {
 			continue
 		}
-		require.Equalf(t, k8s.ManagerGrabarrEngine.String(), entry.Manager,
+		require.Equalf(t, k8s.ManagerRetiredEngine.String(), entry.Manager,
 			"only k8s.ManagerGrabarrEngine may own status fields after this package's own apply, got %q", entry.Manager)
 		found = true
 
@@ -235,7 +235,7 @@ func TestReconcileDeletingRemovesDataWhenRequestedAndTouchesNoOtherManagedField(
 			statusManagers[entry.Manager] = true
 		}
 	}
-	assert.Equal(t, map[string]bool{k8s.ManagerGrabarrEngine.String(): true}, statusManagers,
+	assert.Equal(t, map[string]bool{k8s.ManagerRetiredEngine.String(): true}, statusManagers,
 		"reconcileDeleting must add no managedFields entry of its own")
 }
 

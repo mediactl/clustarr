@@ -139,7 +139,7 @@ func TestMain(m *testing.M) {
 //     variables from one package are indistinguishable -- registering the
 //     same reconciler twice and never the other would satisfy this. The
 //     envtest is again the backstop.
-func TestEveryIndexarrRunnableIsRegistered(t *testing.T) {
+func TestEveryIndexRunnableIsRegistered(t *testing.T) {
 	root, err := filepath.Abs(".")
 	require.NoError(t, err)
 
@@ -692,7 +692,7 @@ func TestRunPassesTheBusHooks(t *testing.T) {
 // to the Phase C Critical this task exists for -- a controller that was never
 // registered at all, with a tree-wide grep showing zero production call sites
 // and every component test passing.
-func TestIndexarrWiringRegistersEveryComponent(t *testing.T) {
+func TestIndexWiringRegistersEveryComponent(t *testing.T) {
 	cfg := requireEnvtest(t)
 	ctx := t.Context()
 
@@ -1051,7 +1051,7 @@ func scheduledPoll(t *testing.T, nc *nats.Conn, uid string) (schema.RssTask, boo
 	t.Helper()
 	js, err := jetstream.New(nc)
 	require.NoError(t, err)
-	st, err := js.Stream(context.Background(), events.StreamWorkIndexarr)
+	st, err := js.Stream(context.Background(), events.StreamWorkIndex)
 	require.NoError(t, err)
 
 	hold, err := events.ScheduleSubject(events.WorkRSSSubject(uid))

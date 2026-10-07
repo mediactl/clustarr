@@ -44,7 +44,7 @@ var busServiceSources = []busSource{
 	{"app/import", filepath.Join("..", "..", "app/import", "run.go")},
 	{"app/indexer", filepath.Join("..", "..", "app/indexer", "run.go")},
 	{"app/grab", filepath.Join("..", "..", "app/grab", "run.go")},
-	{"app/squash", filepath.Join("..", "..", "app/squash", "run.go")},
+	{"app/transcode", filepath.Join("..", "..", "app/transcode", "run.go")},
 	{"app/caption", filepath.Join("..", "..", "app/caption", "run.go")},
 	{"cmd/clustarr/services.go (ui)", "services.go"},
 }

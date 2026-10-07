@@ -70,10 +70,10 @@ func (f *fixture) markTranscoded(t *testing.T, name string, swap bool) {
 	ctx := context.Background()
 	var err error
 	if swap {
-		_, err = k8s.Apply(ctx, f.c, k8s.ManagerCatalogarr,
+		_, err = k8s.Apply(ctx, f.c, k8s.ManagerCatalog,
 			catalogac.MediaFile(name, f.ns).WithSpec(catalogac.MediaFileSpec().WithOriginal(false)))
 	} else {
-		_, err = k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalogarr,
+		_, err = k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalog,
 			catalogac.MediaFile(name, f.ns).WithStatus(catalogac.MediaFileStatus().
 				WithProbeHash("probe-1").
 				WithMediaInfo(commonv1.MediaInfo{
@@ -308,7 +308,7 @@ func TestHandleGatesAMovieOnEveryMediaFileItHas(t *testing.T) {
 	b.Spec = *a.Spec.DeepCopy()
 	b.Spec.Path = secondPath
 	require.NoError(t, f.c.Create(ctx, b))
-	_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalogarr,
+	_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalog,
 		catalogac.MediaFile(secondName, f.ns).WithStatus(catalogac.MediaFileStatus().
 			WithProbeHash("probe-2").
 			WithMediaInfo(commonv1.MediaInfo{

@@ -102,8 +102,8 @@ func TestFirstPlanCreatesTheItemAndPublishesOnlyWhatNothingCovers(t *testing.T) 
 	assert.Equal(t, testStart, timeOf(t, de.Attempts.Initial))
 	assert.Equal(t, testStart.Add(6*time.Hour), timeOf(t, de.NextSearchAt))
 	assertManagedFieldsSplit(t, got,
-		map[k8s.FieldManager][]string{k8s.ManagerCaptionarr: controllerTop},
-		map[k8s.FieldManager]map[string][]string{k8s.ManagerCaptionarr: {"de": controllerItem}})
+		map[k8s.FieldManager][]string{k8s.ManagerCaption: controllerTop},
+		map[k8s.FieldManager]map[string][]string{k8s.ManagerCaption: {"de": controllerItem}})
 
 	assert.Equal(t, metav1.ConditionTrue, cond(got, subtitlev1alpha1.SubtitleRequestConditionPlanned).Status)
 	sat := cond(got, subtitlev1alpha1.SubtitleRequestConditionSatisfied)
@@ -332,10 +332,10 @@ func TestBlockedPathsRedeclareTheSteadyState(t *testing.T) {
 	split := func(sr *subtitlev1alpha1.SubtitleRequest) {
 		t.Helper()
 		assertManagedFieldsSplit(t, sr,
-			map[k8s.FieldManager][]string{k8s.ManagerCaptionarr: controllerTop, k8s.ManagerCaptionarrWorker: {"items"}},
+			map[k8s.FieldManager][]string{k8s.ManagerCaption: controllerTop, k8s.ManagerCaptionWorker: {"items"}},
 			map[k8s.FieldManager]map[string][]string{
-				k8s.ManagerCaptionarr:       {"de": controllerItem},
-				k8s.ManagerCaptionarrWorker: {"de": workerLeaves},
+				k8s.ManagerCaption:       {"de": controllerItem},
+				k8s.ManagerCaptionWorker: {"de": workerLeaves},
 			})
 	}
 	split(before)
@@ -409,10 +409,10 @@ func TestHappyPathOverAnObjectWithBothManagers(t *testing.T) {
 	assert.Equal(t, "timeout", item(t, got, "de").LastError)
 
 	assertManagedFieldsSplit(t, got,
-		map[k8s.FieldManager][]string{k8s.ManagerCaptionarr: controllerTop, k8s.ManagerCaptionarrWorker: {"items"}},
+		map[k8s.FieldManager][]string{k8s.ManagerCaption: controllerTop, k8s.ManagerCaptionWorker: {"items"}},
 		map[k8s.FieldManager]map[string][]string{
-			k8s.ManagerCaptionarr:       {"de": controllerItem, "en": controllerItem},
-			k8s.ManagerCaptionarrWorker: {"de": workerLeaves, "en": withDownloadedAt(workerLeaves)},
+			k8s.ManagerCaption:       {"de": controllerItem, "en": controllerItem},
+			k8s.ManagerCaptionWorker: {"de": workerLeaves, "en": withDownloadedAt(workerLeaves)},
 		})
 }
 
@@ -438,10 +438,10 @@ func TestDroppedLanguageIsRemovedFromItems(t *testing.T) {
 	f.reconcile("movie")
 	both := f.get("movie")
 	assertManagedFieldsSplit(t, both,
-		map[k8s.FieldManager][]string{k8s.ManagerCaptionarr: controllerTop, k8s.ManagerCaptionarrWorker: {"items"}},
+		map[k8s.FieldManager][]string{k8s.ManagerCaption: controllerTop, k8s.ManagerCaptionWorker: {"items"}},
 		map[k8s.FieldManager]map[string][]string{
-			k8s.ManagerCaptionarr:       {"de": controllerItem, "en": controllerItem},
-			k8s.ManagerCaptionarrWorker: {"de": workerLeaves, "en": withDownloadedAt(workerLeaves)},
+			k8s.ManagerCaption:       {"de": controllerItem, "en": controllerItem},
+			k8s.ManagerCaptionWorker: {"de": workerLeaves, "en": withDownloadedAt(workerLeaves)},
 		})
 	stale := both.DeepCopy() // a worker read taken before the drop
 
@@ -460,10 +460,10 @@ func TestDroppedLanguageIsRemovedFromItems(t *testing.T) {
 	assert.Empty(t, afterDrop.Status.Existing)
 	noExisting := slices.DeleteFunc(slices.Clone(controllerTop), func(s string) bool { return s == "existing" })
 	assertManagedFieldsSplit(t, afterDrop,
-		map[k8s.FieldManager][]string{k8s.ManagerCaptionarr: noExisting, k8s.ManagerCaptionarrWorker: {"items"}},
+		map[k8s.FieldManager][]string{k8s.ManagerCaption: noExisting, k8s.ManagerCaptionWorker: {"items"}},
 		map[k8s.FieldManager]map[string][]string{
-			k8s.ManagerCaptionarr:       {"de": controllerItem},
-			k8s.ManagerCaptionarrWorker: {"de": workerLeaves, "en": withDownloadedAt(workerLeaves)},
+			k8s.ManagerCaption:       {"de": controllerItem},
+			k8s.ManagerCaptionWorker: {"de": workerLeaves, "en": withDownloadedAt(workerLeaves)},
 		})
 
 	// The worker races the drop: it applies from the read it took before.
@@ -478,10 +478,10 @@ func TestDroppedLanguageIsRemovedFromItems(t *testing.T) {
 	assert.Equal(t, "de", gone.Status.Items[0].LangKey)
 	assert.Equal(t, subtitlev1alpha1.SubtitleItemUnavailable, gone.Status.Items[0].State, "de is untouched")
 	assertManagedFieldsSplit(t, gone,
-		map[k8s.FieldManager][]string{k8s.ManagerCaptionarr: noExisting, k8s.ManagerCaptionarrWorker: {"items"}},
+		map[k8s.FieldManager][]string{k8s.ManagerCaption: noExisting, k8s.ManagerCaptionWorker: {"items"}},
 		map[k8s.FieldManager]map[string][]string{
-			k8s.ManagerCaptionarr:       {"de": controllerItem},
-			k8s.ManagerCaptionarrWorker: {"de": workerLeaves},
+			k8s.ManagerCaption:       {"de": controllerItem},
+			k8s.ManagerCaptionWorker: {"de": workerLeaves},
 		})
 
 	// And it stays gone: one more worker apply, one more reconcile.
@@ -584,7 +584,7 @@ func TestForceSearch(t *testing.T) {
 	// entry, so it can never release the profile controller's apply-owned
 	// spec fields, which share the captionarr manager name.
 	for _, e := range got.ManagedFields {
-		if e.Manager == k8s.ManagerCaptionarr.String() && e.Subresource == "" {
+		if e.Manager == k8s.ManagerCaption.String() && e.Subresource == "" {
 			assert.Equal(t, metav1.ManagedFieldsOperationUpdate, e.Operation)
 		}
 	}

@@ -224,7 +224,7 @@ func TestIssueReconcilerRealController(t *testing.T) {
 		fanoutAC := catalogac.Issue(iss.Name, iss.Namespace).WithStatus(
 			catalogac.IssueStatus().WithSourceID("9999").WithTitle("The Corpse").WithDate(future),
 		)
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrFanout, fanoutAC)
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogFanout, fanoutAC)
 		require.NoError(t, err)
 
 		require.Eventually(t, func() bool { return counter.count() > n }, 5*time.Second, 20*time.Millisecond,
@@ -311,11 +311,11 @@ func TestIssueReconcilerRealController(t *testing.T) {
 				refOwners = append(refOwners, e.Manager)
 			}
 		}
-		assert.Equal(t, []string{string(k8s.ManagerCatalogarr)}, refOwners)
+		assert.Equal(t, []string{string(k8s.ManagerCatalog)}, refOwners)
 
 		// Downloading, then Completed: both still working on the issue.
 		for _, phase := range []downloadv1alpha1.DownloadPhase{downloadv1alpha1.DownloadPhaseDownloading, downloadv1alpha1.DownloadPhaseCompleted} {
-			_, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrabarr, downloadStatusAC("batman-003-dl", "issue-ns", phase))
+			_, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadStatusAC("batman-003-dl", "issue-ns", phase))
 			require.NoError(t, err)
 			require.Never(t, func() bool {
 				var g catalogv1alpha1.Issue
@@ -324,7 +324,7 @@ func TestIssueReconcilerRealController(t *testing.T) {
 		}
 
 		// Failed is terminal: the ref goes, and the issue is Wanted again.
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrabarr, downloadStatusAC("batman-003-dl", "issue-ns", downloadv1alpha1.DownloadPhaseFailed))
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadStatusAC("batman-003-dl", "issue-ns", downloadv1alpha1.DownloadPhaseFailed))
 		require.NoError(t, err)
 		require.Eventually(t, func() bool {
 			return c.Get(ctx, key, &got) == nil && got.Status.State != catalogv1alpha1.IssueStateSnatched
@@ -371,7 +371,7 @@ func TestIssueReconcilerRealController(t *testing.T) {
 		}, 5*time.Second, 20*time.Millisecond, "setup: the Issue never settled at Wanted")
 
 		grabAt := metav1.NewTime(time.Now().Add(time.Hour).Truncate(time.Second))
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrGrab, catalogac.Issue(iss.Name, iss.Namespace).WithStatus(
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogGrab, catalogac.Issue(iss.Name, iss.Namespace).WithStatus(
 			catalogac.IssueStatus().WithPendingGrab(catalogac.PendingGrab().
 				WithReleaseTitle("Batman.004.CBZ").WithProtocol(commonv1.ProtocolTorrent).WithGrabAt(grabAt))))
 		require.NoError(t, err)
@@ -387,10 +387,10 @@ func TestIssueReconcilerRealController(t *testing.T) {
 				owners = append(owners, e.Manager)
 			}
 		}
-		assert.Equal(t, []string{string(k8s.ManagerCatalogarrGrab)}, owners, "pendingGrab has one writer, the grab worker")
+		assert.Equal(t, []string{string(k8s.ManagerCatalogGrab)}, owners, "pendingGrab has one writer, the grab worker")
 
 		// The grab consumes it: the worker's complete declaration without it.
-		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrGrab, catalogac.Issue(iss.Name, iss.Namespace).WithStatus(catalogac.IssueStatus()))
+		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogGrab, catalogac.Issue(iss.Name, iss.Namespace).WithStatus(catalogac.IssueStatus()))
 		require.NoError(t, err)
 		require.Eventually(t, func() bool {
 			return c.Get(ctx, key, &got) == nil && got.Status.State == catalogv1alpha1.IssueStateWanted
@@ -480,7 +480,7 @@ func TestIssueReconcilerRealController(t *testing.T) {
 				owned["cutoffMet"] = append(owned["cutoffMet"], e.Manager)
 			}
 		}
-		assert.Equal(t, []string{string(k8s.ManagerCatalogarr)}, owned["cutoffMet"])
+		assert.Equal(t, []string{string(k8s.ManagerCatalog)}, owned["cutoffMet"])
 	})
 
 	// DeadLettered: the DLQ projector's annotation on an object already in

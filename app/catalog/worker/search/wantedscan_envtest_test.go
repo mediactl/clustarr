@@ -175,7 +175,7 @@ func setMoviePhase(t *testing.T, ctx context.Context, c client.Client, ns, name 
 	if lastSearchedAt != nil {
 		status = status.WithLastSearchedAt(*lastSearchedAt)
 	}
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, catalogac.Movie(name, ns).WithStatus(status))
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, catalogac.Movie(name, ns).WithStatus(status))
 	require.NoError(t, err)
 }
 
@@ -315,10 +315,10 @@ func TestWorkerWantedScanQueuesDonorSearchesUnderACap(t *testing.T) {
 		createMovie(t, ctx, f.mgr, f.ns, name, profile)
 		status := catalogac.MovieStatus().WithPhase(catalogv1alpha1.MoviePhaseImported).
 			WithAudio(catalogac.AudioState().WithWanted("en", "ja").WithPresent("ja").WithMissing("en").WithGraft("searching"))
-		_, err := k8s.PatchStatus(ctx, f.mgr, k8s.ManagerCatalogarr, catalogac.Movie(name, f.ns).WithStatus(status))
+		_, err := k8s.PatchStatus(ctx, f.mgr, k8s.ManagerCatalog, catalogac.Movie(name, f.ns).WithStatus(status))
 		require.NoError(t, err)
 		if i == 3 {
-			_, err = k8s.PatchStatus(ctx, f.mgr, k8s.ManagerCatalogarrGrab, catalogac.Movie(name, f.ns).WithStatus(
+			_, err = k8s.PatchStatus(ctx, f.mgr, k8s.ManagerCatalogGrab, catalogac.Movie(name, f.ns).WithStatus(
 				catalogac.MovieStatus().WithDonorSearchAttempts(commonv1.Attempts{Latest: &searched, Count: 1})))
 			require.NoError(t, err)
 		}
@@ -363,7 +363,7 @@ func TestWorkerWantedScanQueuesDonorSearchesUnderACap(t *testing.T) {
 func TestADonorSearchWithNothingToAlignOnStillCounts(t *testing.T) {
 	ctx := context.Background()
 	f := newWorkerFixture(t, "worker-donor-unknown")
-	_, err := k8s.PatchStatus(ctx, f.mgr, k8s.ManagerCatalogarr, catalogac.Movie("the-matrix", f.ns).WithStatus(
+	_, err := k8s.PatchStatus(ctx, f.mgr, k8s.ManagerCatalog, catalogac.Movie("the-matrix", f.ns).WithStatus(
 		catalogac.MovieStatus().WithPhase(catalogv1alpha1.MoviePhaseImported).
 			WithAudio(catalogac.AudioState().WithWanted("en").WithPresent("ja").WithMissing("en").WithGraft("searching"))))
 	require.NoError(t, err)

@@ -54,7 +54,7 @@ func TestWorkStreamsAllowSchedules(t *testing.T) {
 		// The advisory stream is WorkQueue for its retention, not a work
 		// stream: only JetStream publishes to it, never with a schedule.
 		// The transcode stream uses DiscardNew, so it has no schedules.
-		if s.Retention != events.RetentionWorkQueue || s.Name == events.StreamAdvisories || s.Name == events.StreamWorkSquasharr {
+		if s.Retention != events.RetentionWorkQueue || s.Name == events.StreamAdvisories || s.Name == events.StreamWorkTranscode {
 			continue
 		}
 		if !s.AllowMsgSchedules {
@@ -96,12 +96,12 @@ func TestEveryWorkStreamHasAConsumer(t *testing.T) {
 
 // TestImportarrWorkTopology pins amendment §A1.6 verbatim: the stream, its
 // work-queue retention, and the three subjects its workers consume.
-func TestImportarrWorkTopology(t *testing.T) {
+func TestImportWorkTopology(t *testing.T) {
 	top := events.Default()
 
-	stream, ok := top.Stream(events.StreamWorkImportarr)
+	stream, ok := top.Stream(events.StreamWorkImport)
 	if !ok {
-		t.Fatalf("%s is missing from the default topology", events.StreamWorkImportarr)
+		t.Fatalf("%s is missing from the default topology", events.StreamWorkImport)
 	}
 	if stream.Retention != events.RetentionWorkQueue {
 		t.Errorf("%s retention = %q, want %q (§A1.6)",
@@ -124,17 +124,17 @@ func TestImportarrWorkTopology(t *testing.T) {
 	}
 	for _, tc := range cases {
 		got, ok := top.StreamForSubject(tc.subject)
-		if !ok || got.Name != events.StreamWorkImportarr {
+		if !ok || got.Name != events.StreamWorkImport {
 			t.Errorf("%s routes to %v (found=%v), want %s",
-				tc.subject, got.Name, ok, events.StreamWorkImportarr)
+				tc.subject, got.Name, ok, events.StreamWorkImport)
 		}
 		c, ok := top.Consumer(tc.consumer)
 		if !ok {
 			t.Errorf("consumer %s is missing", tc.consumer)
 			continue
 		}
-		if c.Stream != events.StreamWorkImportarr {
-			t.Errorf("consumer %s reads %s, want %s", c.Name, c.Stream, events.StreamWorkImportarr)
+		if c.Stream != events.StreamWorkImport {
+			t.Errorf("consumer %s reads %s, want %s", c.Name, c.Stream, events.StreamWorkImport)
 		}
 		matched := false
 		for _, f := range c.Filters {
@@ -153,7 +153,7 @@ func TestImportarrWorkTopology(t *testing.T) {
 			t.Errorf("ScheduleSubject(%s): %v", tc.subject, err)
 			continue
 		}
-		if s, ok := top.StreamForSubject(sched); !ok || s.Name != events.StreamWorkImportarr {
+		if s, ok := top.StreamForSubject(sched); !ok || s.Name != events.StreamWorkImport {
 			t.Errorf("scheduled %s leaves the stream", sched)
 		}
 		for _, f := range c.Filters {
@@ -168,7 +168,7 @@ func TestTopologyValidateCatchesBadConsumer(t *testing.T) {
 	top := events.Default()
 	top.Consumers = append(top.Consumers, events.ConsumerSpec{
 		Name:       "broken",
-		Stream:     events.StreamWorkCatalogarr,
+		Stream:     events.StreamWorkCatalog,
 		Filters:    []string{events.FilterCatalogGrab},
 		MaxDeliver: 2,
 		BackOff:    []time.Duration{time.Second, time.Second},
@@ -180,7 +180,7 @@ func TestTopologyValidateCatchesBadConsumer(t *testing.T) {
 	top = events.Default()
 	top.Consumers = append(top.Consumers, events.ConsumerSpec{
 		Name:       "stray",
-		Stream:     events.StreamWorkIndexarr,
+		Stream:     events.StreamWorkIndex,
 		Filters:    []string{events.FilterCatalogGrab},
 		MaxDeliver: 3,
 	})
@@ -200,9 +200,9 @@ func TestStreamForSubject(t *testing.T) {
 	cases := map[string]string{
 		events.CatalogItemSubject("movie", events.ActionAdded, "u"): events.StreamEvents,
 		events.ReleaseSubject("torrent", "nzb-su", 2000):            events.StreamReleases,
-		events.WorkSearchSubject(events.PriorityHigh, "m1"):         events.StreamWorkCatalogarr,
-		events.WorkRSSSubject("idx"):                                events.StreamWorkIndexarr,
-		events.WorkFetchSubject(events.PriorityLow, "r", "en"):      events.StreamWorkCaptionarr,
+		events.WorkSearchSubject(events.PriorityHigh, "m1"):         events.StreamWorkCatalog,
+		events.WorkRSSSubject("idx"):                                events.StreamWorkIndex,
+		events.WorkFetchSubject(events.PriorityLow, "r", "en"):      events.StreamWorkCaption,
 		events.DLQSubject("catalogarr", "import", "1"):              events.StreamDLQ,
 	}
 	for subject, want := range cases {
@@ -256,7 +256,7 @@ func TestScheduleSubjectAvoidsConsumerFilters(t *testing.T) {
 	}
 	top := events.Default()
 	stream, ok := top.StreamForSubject(hold)
-	if !ok || stream.Name != events.StreamWorkCatalogarr {
+	if !ok || stream.Name != events.StreamWorkCatalog {
 		t.Fatalf("holding subject %q resolved to %v/%v", hold, stream.Name, ok)
 	}
 	for _, c := range top.Consumers {
@@ -556,7 +556,7 @@ func TestArtworkKeyPanicsOnBadPart(t *testing.T) {
 // work subjects (spec §B.7, §C.6) land in CLUSTARR_WORK_CATALOGARR and are
 // picked up by their own durable and no other durable's filter, the same
 // property TestImportarrWorkTopology holds for the importarr subjects.
-func TestArtworkWorkSubjectsResolveToCatalogarr(t *testing.T) {
+func TestArtworkWorkSubjectsResolveToCatalog(t *testing.T) {
 	top := events.Default()
 	cases := []struct {
 		subject      string
@@ -574,16 +574,16 @@ func TestArtworkWorkSubjectsResolveToCatalogarr(t *testing.T) {
 	}
 	for _, tc := range cases {
 		got, ok := top.StreamForSubject(tc.subject)
-		if !ok || got.Name != events.StreamWorkCatalogarr {
+		if !ok || got.Name != events.StreamWorkCatalog {
 			t.Errorf("%s routes to %v (found=%v), want %s",
-				tc.subject, got.Name, ok, events.StreamWorkCatalogarr)
+				tc.subject, got.Name, ok, events.StreamWorkCatalog)
 		}
 		c, ok := top.Consumer(tc.consumer)
 		if !ok {
 			t.Fatalf("consumer %s is missing", tc.consumer)
 		}
-		if c.Stream != events.StreamWorkCatalogarr {
-			t.Errorf("consumer %s reads %s, want %s", c.Name, c.Stream, events.StreamWorkCatalogarr)
+		if c.Stream != events.StreamWorkCatalog {
+			t.Errorf("consumer %s reads %s, want %s", c.Name, c.Stream, events.StreamWorkCatalog)
 		}
 		matched := false
 		for _, f := range c.Filters {

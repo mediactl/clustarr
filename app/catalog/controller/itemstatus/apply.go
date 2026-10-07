@@ -60,7 +60,7 @@ const ConflictRequeue = time.Second
 // the applied object's resourceVersion to the pass, which chains the other
 // managers' sets on it (ADR-0019 §7.0).
 func Apply[A k8s.CASApplyConfiguration[A]](ctx context.Context, c client.Client, item client.Object, ac A) (conflicted bool, err error) {
-	applied, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, ac.WithResourceVersion(item.GetResourceVersion()))
+	applied, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, ac.WithResourceVersion(item.GetResourceVersion()))
 	if err != nil {
 		if apierrors.IsConflict(err) {
 			return true, nil

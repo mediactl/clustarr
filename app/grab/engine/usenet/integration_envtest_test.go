@@ -143,5 +143,5 @@ func TestUsenetEngineEndToEndThroughARealNNTPStub(t *testing.T) {
 	assert.Equal(t, want, gotBytes, "the assembled, published file must be byte-identical to what the fixture posted")
 
 	statusManagers := managersOf(got.ManagedFields, "status")
-	assert.Equal(t, map[string]bool{k8s.ManagerGrabarrEngine.String(): true}, statusManagers)
+	assert.Equal(t, map[string]bool{k8s.ManagerRetiredEngine.String(): true}, statusManagers)
 }

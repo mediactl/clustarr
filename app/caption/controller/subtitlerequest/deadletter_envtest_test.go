@@ -83,10 +83,10 @@ func TestDeadLetteredFoldsIntoAConditionOnEveryPath(t *testing.T) {
 	split := func(sr *subtitlev1alpha1.SubtitleRequest) {
 		t.Helper()
 		assertManagedFieldsSplit(t, sr,
-			map[k8s.FieldManager][]string{k8s.ManagerCaptionarr: controllerTop, k8s.ManagerCaptionarrWorker: {"items"}},
+			map[k8s.FieldManager][]string{k8s.ManagerCaption: controllerTop, k8s.ManagerCaptionWorker: {"items"}},
 			map[k8s.FieldManager]map[string][]string{
-				k8s.ManagerCaptionarr:       {"de": controllerItem},
-				k8s.ManagerCaptionarrWorker: {"de": workerLeaves},
+				k8s.ManagerCaption:       {"de": controllerItem},
+				k8s.ManagerCaptionWorker: {"de": workerLeaves},
 			})
 	}
 	split(after)

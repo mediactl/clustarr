@@ -223,7 +223,7 @@ func (r *Reconciler) patch(
 	}
 
 	ac := indexac.IndexerProxy(pxy.Name, pxy.Namespace).WithStatus(status)
-	if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerIndexarr, ac); err != nil {
+	if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerIndex, ac); err != nil {
 		logging.FromContext(ctx).Error("patch status", "error", err)
 		return err
 	}

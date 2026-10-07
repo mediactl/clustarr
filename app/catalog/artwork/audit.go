@@ -128,7 +128,7 @@ func (p *pacer) allow(ctx context.Context) (bool, error) {
 		return false, nil
 	}
 	if !p.read || p.since >= lagReadEvery {
-		st, err := p.lag.ConsumerState(ctx, events.StreamWorkCatalogarr, p.durable)
+		st, err := p.lag.ConsumerState(ctx, events.StreamWorkCatalog, p.durable)
 		if err != nil {
 			p.full = true
 			return false, fmt.Errorf("artwork: audit pacing, read %s's lag: %w", p.durable, err)

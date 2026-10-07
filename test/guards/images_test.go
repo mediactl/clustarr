@@ -118,7 +118,7 @@ func TestChartImagesMatchConfig(t *testing.T) {
 // none sets NVIDIA_VISIBLE_DEVICES (all would hand every GPU to any pod
 // running the image under the nvidia runtime, bypassing the device plugin),
 // and Dockerfile.media-cuda, the first CUDA image, stays gone too.
-func TestTranscoderImagesAreWhatSquasharrStampsOntoPools(t *testing.T) {
+func TestTranscoderImagesAreWhatTheTranscodeControllerStampsOntoPools(t *testing.T) {
 	root, err := filepath.Abs("../..")
 	require.NoError(t, err)
 
@@ -162,7 +162,7 @@ func TestTranscoderImagesAreWhatSquasharrStampsOntoPools(t *testing.T) {
 
 // The transcoder image carries no ffmpeg or ffprobe executable: the worker
 // runs every transcode and probe in-process (ffgo Phase 5), and
-// app/squash's TestTheWorkerNeverExecsFFmpeg keeps it from exec'ing one.
+// app/transcode's TestTheWorkerNeverExecsFFmpeg keeps it from exec'ing one.
 // Neither the Dockerfile nor stage.sh may put one in the image, and
 // stage.sh's last step refuses one that arrives some other way (a package
 // the Intel runtime pulls in, say). The Wolfi image that carried them, the

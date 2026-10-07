@@ -86,7 +86,7 @@ func TestTwoManagerSSASplitDoesNotClobberEitherSide(t *testing.T) {
 				WithMessage("metadata not yet fetched").
 				WithLastTransitionTime(metav1.Now())),
 	)
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, controllerAC)
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, controllerAC)
 	require.NoError(t, err)
 
 	// The gateway patches status.metadata only, under its own field manager.
@@ -94,7 +94,7 @@ func TestTwoManagerSSASplitDoesNotClobberEitherSide(t *testing.T) {
 		catalogac.MovieStatus().WithMetadata(
 			catalogac.MovieMetadata().WithTitle("Inception").WithRuntimeMinutes(148)),
 	)
-	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, workerAC)
+	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, workerAC)
 	require.NoError(t, err)
 
 	var got catalogv1alpha1.Movie
@@ -116,7 +116,7 @@ func TestTwoManagerSSASplitDoesNotClobberEitherSide(t *testing.T) {
 				WithMessage("metadata fetched").
 				WithLastTransitionTime(metav1.Now())),
 	)
-	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, controllerAC2)
+	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, controllerAC2)
 	require.NoError(t, err)
 
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &got))
@@ -124,13 +124,13 @@ func TestTwoManagerSSASplitDoesNotClobberEitherSide(t *testing.T) {
 	require.NotNil(t, got.Status.Metadata, "the controller's re-apply erased the worker's metadata")
 	require.Equal(t, "Inception", got.Status.Metadata.Title)
 
-	var sawCatalogarr, sawWorker bool
+	var sawCatalog, sawWorker bool
 	for _, e := range got.ManagedFields {
 		if e.Subresource != "status" {
 			continue
 		}
-		sawCatalogarr = sawCatalogarr || e.Manager == string(k8s.ManagerCatalogarr)
-		sawWorker = sawWorker || e.Manager == string(k8s.ManagerCatalogarrMetadata)
+		sawCatalog = sawCatalog || e.Manager == string(k8s.ManagerCatalog)
+		sawWorker = sawWorker || e.Manager == string(k8s.ManagerCatalogMetadata)
 	}
-	require.True(t, sawCatalogarr && sawWorker, "both field managers must own a status entry")
+	require.True(t, sawCatalog && sawWorker, "both field managers must own a status entry")
 }

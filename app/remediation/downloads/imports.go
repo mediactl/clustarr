@@ -342,7 +342,7 @@ func (s *Stage) importEffects(ow owner, v lifecycle.View, plan lifecycle.Plan) [
 		now := v.Now.UTC()
 		out = append(out, remediation.DispatchPublish{
 			Publish: remediation.Publish{
-				Subject: d.Subject, MsgID: d.MsgID, ExpectStream: events.StreamWorkImportarr,
+				Subject: d.Subject, MsgID: d.MsgID, ExpectStream: events.StreamWorkImport,
 				Envelope: &events.Envelope{
 					ID: d.MsgID, Type: typ, Schema: name, Source: source(),
 					Key: ow.ref.Namespace + "/" + ow.ref.Name, Time: now, Data: data,

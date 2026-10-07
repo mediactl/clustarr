@@ -37,7 +37,7 @@ import (
 	"github.com/mediactl/clustarr/app/intake"
 	"github.com/mediactl/clustarr/app/intake/advisory"
 	remediationmanager "github.com/mediactl/clustarr/app/remediation/manager"
-	squashmanager "github.com/mediactl/clustarr/app/squash/manager"
+	transcodemanager "github.com/mediactl/clustarr/app/transcode/manager"
 	"github.com/mediactl/clustarr/pkg/busconn"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -255,7 +255,7 @@ func register(mgr ctrl.Manager, bus events.Bus, o Options) ([]string, error) {
 			})
 		}},
 		{"squash", func() error {
-			return squashmanager.Register(mgr, bus, squashmanager.Options{
+			return transcodemanager.Register(mgr, bus, transcodemanager.Options{
 				Options: o.Options, Slots: o.Slots,
 				DataDir: o.DataDir, WorkerImage: o.NativeImage, DataClaimName: o.DataClaim,
 				IntelRenderGroups: o.IntelRenderGroups, NodeLabelNVIDIA: o.NodeLabelNVIDIA, NodeLabelIntel: o.NodeLabelIntel,

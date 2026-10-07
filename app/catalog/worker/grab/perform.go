@@ -317,7 +317,7 @@ func createDownload(
 	dl := downloadac.Download(downloadName, ns).
 		WithOwnerReferences(ownerRef).
 		WithSpec(spec)
-	if _, err := k8s.Apply(ctx, d.Client, k8s.ManagerCatalogarrGrab, dl); err != nil {
+	if _, err := k8s.Apply(ctx, d.Client, k8s.ManagerCatalogGrab, dl); err != nil {
 		return fmt.Errorf("grab: create download %q: %w", downloadName, err)
 	}
 	return nil
@@ -412,7 +412,7 @@ func guardExistingDownloads(
 // for this path's own.
 func appliedByGrabPath(dl *downloadv1alpha1.Download) bool {
 	for _, mf := range dl.ManagedFields {
-		if mf.Manager == k8s.ManagerCatalogarrGrab.String() && mf.Subresource == "" {
+		if mf.Manager == k8s.ManagerCatalogGrab.String() && mf.Subresource == "" {
 			return true
 		}
 	}

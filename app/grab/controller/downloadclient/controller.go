@@ -294,7 +294,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		st = st.WithResyncSeq(resyncSeq)
 	}
 	ac := downloadac.DownloadClient(dc.Name, dc.Namespace).WithStatus(st)
-	if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerGrabarr, ac); err != nil {
+	if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerGrab, ac); err != nil {
 		log.Error("patch status", "error", err)
 		return ctrl.Result{}, err
 	}
@@ -336,7 +336,7 @@ func (r *Reconciler) migrateToRecreate(ctx context.Context, namespace, name stri
 		return nil
 	}
 	if err := r.Client.Patch(ctx, &live, client.RawPatch(types.MergePatchType, recreateStrategyPatch),
-		client.FieldOwner(string(k8s.ManagerGrabarr))); err != nil {
+		client.FieldOwner(string(k8s.ManagerGrab))); err != nil {
 		return fmt.Errorf("downloadclient: move Deployment %s to the Recreate strategy: %w", name, err)
 	}
 	return nil
@@ -362,7 +362,7 @@ func (r *Reconciler) reconcileWorkload(
 		}
 		if needsScratchClaim(dc) {
 			pvc := buildScratchPVC(dc, ownerRef)
-			if _, err := k8s.Apply(ctx, r.Client, k8s.ManagerGrabarr, pvc); err != nil {
+			if _, err := k8s.Apply(ctx, r.Client, k8s.ManagerGrab, pvc); err != nil {
 				return 0, 0, 0, fmt.Errorf("downloadclient: apply scratch PVC for %s: %w", dc.Name, err)
 			}
 		}
@@ -370,7 +370,7 @@ func (r *Reconciler) reconcileWorkload(
 		if err := r.replaceForClaimTemplates(ctx, dc.Namespace, workloadName, sts); err != nil {
 			return 0, 0, 0, err
 		}
-		if _, err := k8s.Apply(ctx, r.Client, k8s.ManagerGrabarr, sts); err != nil {
+		if _, err := k8s.Apply(ctx, r.Client, k8s.ManagerGrab, sts); err != nil {
 			return 0, 0, 0, fmt.Errorf("downloadclient: apply StatefulSet %s: %w", workloadName, err)
 		}
 		var live appsv1.StatefulSet
@@ -385,7 +385,7 @@ func (r *Reconciler) reconcileWorkload(
 	case commonv1alpha1.ProtocolUsenet:
 		if needsScratchClaim(dc) {
 			pvc := buildScratchPVC(dc, ownerRef)
-			if _, err := k8s.Apply(ctx, r.Client, k8s.ManagerGrabarr, pvc); err != nil {
+			if _, err := k8s.Apply(ctx, r.Client, k8s.ManagerGrab, pvc); err != nil {
 				return 0, 0, 0, fmt.Errorf("downloadclient: apply scratch PVC for %s: %w", dc.Name, err)
 			}
 		}
@@ -400,7 +400,7 @@ func (r *Reconciler) reconcileWorkload(
 			return 0, 0, 0, err
 		}
 		dep := buildDeployment(dc, workloadName, r.EngineImage, r.DataDir, r.ScratchDir, r.DataClaimName, r.Engine, secrets, ownerRef)
-		if _, err := k8s.Apply(ctx, r.Client, k8s.ManagerGrabarr, dep); err != nil {
+		if _, err := k8s.Apply(ctx, r.Client, k8s.ManagerGrab, dep); err != nil {
 			return 0, 0, 0, fmt.Errorf("downloadclient: apply Deployment %s: %w", workloadName, err)
 		}
 		var live appsv1.Deployment

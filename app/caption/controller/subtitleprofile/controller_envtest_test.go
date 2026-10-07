@@ -77,7 +77,7 @@ func movieFile(t *testing.T, ctx context.Context, c client.Client, ns, name stri
 		},
 	}
 	require.NoError(t, c.Create(ctx, mf))
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, catalogac.MediaFile(name, ns).WithStatus(
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, catalogac.MediaFile(name, ns).WithStatus(
 		catalogac.MediaFileStatus().WithProbeHash("p-"+name).WithMediaInfo(commonv1.MediaInfo{
 			Container: "matroska", VideoCodec: "h264",
 			Audio: []commonv1.AudioStream{{Index: 1, Codec: "aac", Channels: 2, Language: "jpn", Default: true}},
@@ -151,7 +151,7 @@ func TestReconcileEnsuresSubtitleRequestsIdempotently(t *testing.T) {
 	// "an over-claim is silent" rule.
 	var sawSpecOwner bool
 	for _, mfEntry := range sr.ManagedFields {
-		if mfEntry.Manager == string(k8s.ManagerCaptionarr) && mfEntry.Subresource == "" {
+		if mfEntry.Manager == string(k8s.ManagerCaption) && mfEntry.Subresource == "" {
 			sawSpecOwner = true
 		}
 	}
@@ -207,7 +207,7 @@ func TestReconcileUpdatesProfileRefWhenTheWinningProfileChanges(t *testing.T) {
 }
 
 // TestReconcileMarksTheNewerOfTwoDefaultsInvalid mirrors
-// app/squash/controller/transcodeprofile's identical ruling for the identical
+// app/transcode/controller/transcodeprofile's identical ruling for the identical
 // shape shared between the two CRDs.
 func TestReconcileMarksTheNewerOfTwoDefaultsInvalid(t *testing.T) {
 	c := newTestClient(t)

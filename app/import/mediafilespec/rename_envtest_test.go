@@ -126,7 +126,7 @@ func (f *fixture) seedNamingStatus(t *testing.T, ctx context.Context, name strin
 		{Type: catalogv1alpha1.MediaFileConditionProbed, Status: metav1.ConditionTrue, Reason: "Probed", Message: "probed", LastTransitionTime: now},
 		{Type: catalogv1alpha1.ConditionNamingCurrent, Status: metav1.ConditionFalse, Reason: "Stale", Message: "the file's canonical path differs", LastTransitionTime: now},
 	}
-	_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalogarr, catalogac.MediaFile(name, f.ns).WithStatus(
+	_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalog, catalogac.MediaFile(name, f.ns).WithStatus(
 		catalogac.MediaFileStatus().
 			WithConditions(k8s.ConditionACs(conditions)...).
 			WithNaming(naming).
@@ -204,7 +204,7 @@ func TestRenameFileMovesTheFileAndReappliesTheCompleteSpec(t *testing.T) {
 		assert.Equal(t, []string{string(mediafilespec.FieldManager)}, managersOf(t, after.ManagedFields, leaf), leaf)
 	}
 	for _, leaf := range renameSpecLeaves {
-		assert.NotContains(t, managersOf(t, after.ManagedFields, leaf), string(k8s.ManagerImportarr),
+		assert.NotContains(t, managersOf(t, after.ManagedFields, leaf), string(k8s.ManagerImport),
 			"%s: k8s.ManagerImportarr owns only the observed-fingerprint annotation on a MediaFile", leaf)
 	}
 }
@@ -212,7 +212,7 @@ func TestRenameFileMovesTheFileAndReappliesTheCompleteSpec(t *testing.T) {
 // A transcoded file's size, mtime and original flag are catalogarr's
 // (CLAUDE.md's invariant): the rename moves it and applies the new path,
 // but leaves those three to catalogarr alone.
-func TestRenameFileLeavesATranscodedFilesTakenOverFieldsToCatalogarr(t *testing.T) {
+func TestRenameFileLeavesATranscodedFilesTakenOverFieldsToCatalog(t *testing.T) {
 	ctx := context.Background()
 	f := newFixture(t, ctx, "rn-transcoded", catalogv1alpha1.RootFolderKindMovie, "hd-bluray-web", catalogv1alpha1.ScanModeFull)
 	sf := f.plantStaleFile(t, ctx, renamedBase)
@@ -231,7 +231,7 @@ func TestRenameFileLeavesATranscodedFilesTakenOverFieldsToCatalogarr(t *testing.
 	require.NotNil(t, after.Spec.Original)
 	assert.False(t, *after.Spec.Original)
 	for _, leaf := range []string{"spec.sizeBytes", "spec.modTime", "spec.original"} {
-		assert.Equal(t, []string{string(k8s.ManagerCatalogarr)}, managersOf(t, after.ManagedFields, leaf), leaf)
+		assert.Equal(t, []string{string(k8s.ManagerCatalog)}, managersOf(t, after.ManagedFields, leaf), leaf)
 	}
 	assert.Contains(t, managersOf(t, after.ManagedFields, "spec.path"), string(mediafilespec.FieldManager))
 	assert.Equal(t, []string{string(mediafilespec.FieldManager)}, managersOf(t, after.ManagedFields, "spec.quality"))

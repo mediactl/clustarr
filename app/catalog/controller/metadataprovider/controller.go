@@ -122,7 +122,7 @@ func (r *Reconciler) patch(ctx context.Context, mp *catalogv1alpha1.MetadataProv
 		statusAC = statusAC.WithQuotaRemaining(*quotaRemaining)
 	}
 	ac := catalogac.MetadataProvider(mp.Name, mp.Namespace).WithStatus(statusAC)
-	if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr, ac); err != nil {
+	if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalog, ac); err != nil {
 		logging.FromContext(ctx).Error("patch status", "error", err)
 		return ctrl.Result{}, err
 	}

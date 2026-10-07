@@ -400,9 +400,9 @@ func verifyNonVideoCatalog(t *testing.T, cfg *rest.Config, fake *fakeMetadataPro
 	waitForLong(t, "the Issue controller to set the fanned-out Issue's state", func() bool {
 		return c.Get(ctx, client.ObjectKeyFromObject(&iss), &iss) == nil && iss.Status.State != ""
 	})
-	if got := statusManagers(iss.ManagedFields); !got[string(k8s.ManagerCatalogarrFanout)] || !got[string(k8s.ManagerCatalogarr)] {
+	if got := statusManagers(iss.ManagedFields); !got[string(k8s.ManagerCatalogFanout)] || !got[string(k8s.ManagerCatalog)] {
 		t.Errorf("Issue %s status is applied by %v, want both %s (Comic's fan-out) and %s (the Issue controller)",
-			iss.Name, got, k8s.ManagerCatalogarrFanout, k8s.ManagerCatalogarr)
+			iss.Name, got, k8s.ManagerCatalogFanout, k8s.ManagerCatalog)
 	}
 	// The Issue controller's catalog item event, which app/catalog/run.go
 	// could publish only once it handed the reconciler the bus (X14; until
@@ -482,14 +482,14 @@ func verifyRetrigger(t *testing.T, cfg *rest.Config) {
 	t.Cleanup(func() { _ = c.Delete(context.Background(), dl) })
 
 	// The state an earlier import left behind: completed, and Blocked.
-	if _, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrabarr, downloadac.Download(dl.Name, dl.Namespace).
+	if _, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadac.Download(dl.Name, dl.Namespace).
 		WithStatus(downloadac.DownloadStatus().
 			WithPhase(downloadv1alpha1.DownloadPhaseCompleted).
 			WithContentRoot("/data/downloads/retrigger-probe"))); err != nil {
 		t.Fatalf("complete the Download: %v", err)
 	}
 	const seeded = "seeded by the start test"
-	if _, err := k8s.PatchStatus(ctx, c, k8s.ManagerImportarr, downloadac.Download(dl.Name, dl.Namespace).
+	if _, err := k8s.PatchStatus(ctx, c, k8s.ManagerImport, downloadac.Download(dl.Name, dl.Namespace).
 		WithStatus(downloadac.DownloadStatus().WithImport(downloadac.ImportState().
 			WithState(downloadv1alpha1.ImportPhaseBlocked).WithMessage(seeded)))); err != nil {
 		t.Fatalf("block the Download's import: %v", err)

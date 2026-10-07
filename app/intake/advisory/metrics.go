@@ -66,7 +66,7 @@ func ackSubjects(t events.Topology) []string {
 		}
 	}
 	if events.TranscodeTaskConsumer("", "").Dispatched {
-		out = append(out, events.AckMetricSubject(events.StreamWorkSquasharr, "*"))
+		out = append(out, events.AckMetricSubject(events.StreamWorkTranscode, "*"))
 	}
 	if events.EngineConsumer("", 0).Dispatched {
 		out = append(out, events.AckMetricSubject(events.StreamWorkEngine, "*"))

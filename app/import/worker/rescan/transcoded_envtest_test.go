@@ -72,7 +72,7 @@ func (f *fixture) importedFile(t *testing.T, ctx context.Context) (name, path st
 // spec.sizeBytes, spec.modTime and spec.original=false under its own
 // manager, exactly as app/catalog/controller/mediafile does.
 func takeOver(ctx context.Context, c client.Client, ns, name string, size int64, mod time.Time) error {
-	_, err := k8s.Apply(ctx, c, k8s.ManagerCatalogarr, catalogac.MediaFile(name, ns).WithSpec(
+	_, err := k8s.Apply(ctx, c, k8s.ManagerCatalog, catalogac.MediaFile(name, ns).WithSpec(
 		catalogac.MediaFileSpec().WithSizeBytes(size).WithModTime(metav1.NewTime(mod)).WithOriginal(false)))
 	return err
 }
@@ -92,7 +92,7 @@ func (f *fixture) waitOriginal(t *testing.T, ctx context.Context, name string, o
 // under k8s.ManagerImportarr -- which owns nothing else on a MediaFile, so
 // the apply releases nothing -- and a later scan that finds the same bytes
 // does not write it again.
-func TestHandleHandsAChangedPostTranscodeFileToCatalogarr(t *testing.T) {
+func TestHandleHandsAChangedPostTranscodeFileToCatalog(t *testing.T) {
 	ctx := context.Background()
 	f := newFixture(t, ctx, "rw-handover", catalogv1alpha1.RootFolderKindMovie, "hd-bluray-web", catalogv1alpha1.ScanModeFull)
 	name, _, info := f.importedFile(t, ctx)
@@ -119,10 +119,10 @@ func TestHandleHandsAChangedPostTranscodeFileToCatalogarr(t *testing.T) {
 	require.NotNil(t, after.Spec.Original)
 	assert.False(t, *after.Spec.Original, "nor its original flag")
 
-	assert.Equal(t, string(k8s.ManagerImportarr), managerForParts(t, after.ManagedFields, "",
+	assert.Equal(t, string(k8s.ManagerImport), managerForParts(t, after.ManagedFields, "",
 		"metadata", "annotations", rescan.AnnotationObservedFingerprint))
 	for _, leaf := range []string{"spec.sizeBytes", "spec.modTime", "spec.original"} {
-		assert.Equal(t, string(k8s.ManagerCatalogarr), managerFor(t, after.ManagedFields, "", leaf), leaf)
+		assert.Equal(t, string(k8s.ManagerCatalog), managerFor(t, after.ManagedFields, "", leaf), leaf)
 	}
 	for _, leaf := range []string{"spec.path", "spec.mediaRef", "spec.quality"} {
 		assert.Equal(t, string(rescan.FieldManager), managerFor(t, after.ManagedFields, "", leaf),
@@ -203,7 +203,7 @@ func TestHandleNeverRevertsATakeoverThatLandsMidScan(t *testing.T) {
 	require.NotNil(t, after.Spec.Original)
 	assert.False(t, *after.Spec.Original, "the takeover's original=false stands")
 	assert.Equal(t, int64(12345), after.Spec.SizeBytes, "and its size")
-	assert.Equal(t, string(k8s.ManagerCatalogarr), managerFor(t, after.ManagedFields, "", "spec.original"))
+	assert.Equal(t, string(k8s.ManagerCatalog), managerFor(t, after.ManagedFields, "", "spec.original"))
 
 	got := readProgress(t, ctx, f.bus, string(f.scan.UID))
 	assert.Equal(t, int64(1), got.HandedOver+got.Deferred,

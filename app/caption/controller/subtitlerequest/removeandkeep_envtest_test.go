@@ -59,10 +59,10 @@ func TestARequestWhoseItemIsGoneIsBlockedAndPublishesNothing(t *testing.T) {
 	assert.Equal(t, before.Status.ProbeHash, after.Status.ProbeHash, "the block released probeHash")
 	assert.Equal(t, item(t, before, "de"), item(t, after, "de"), "the block changed an item")
 	assertManagedFieldsSplit(t, after,
-		map[k8s.FieldManager][]string{k8s.ManagerCaptionarr: controllerTop, k8s.ManagerCaptionarrWorker: {"items"}},
+		map[k8s.FieldManager][]string{k8s.ManagerCaption: controllerTop, k8s.ManagerCaptionWorker: {"items"}},
 		map[k8s.FieldManager]map[string][]string{
-			k8s.ManagerCaptionarr:       {"de": controllerItem},
-			k8s.ManagerCaptionarrWorker: {"de": workerLeaves},
+			k8s.ManagerCaption:       {"de": controllerItem},
+			k8s.ManagerCaptionWorker: {"de": workerLeaves},
 		})
 
 	// A list re-adds the film under the same name: the kept MediaFile is

@@ -35,10 +35,10 @@ import (
 
 	"github.com/mediactl/clustarr/app/grab/controller/downloadclient"
 	"github.com/mediactl/clustarr/app/remediation"
-	"github.com/mediactl/clustarr/app/squash/controller/audiograft"
-	"github.com/mediactl/clustarr/app/squash/controller/pool"
-	"github.com/mediactl/clustarr/app/squash/controller/transcodejob"
-	squashmanager "github.com/mediactl/clustarr/app/squash/manager"
+	"github.com/mediactl/clustarr/app/transcode/controller/audiograft"
+	"github.com/mediactl/clustarr/app/transcode/controller/pool"
+	"github.com/mediactl/clustarr/app/transcode/controller/transcodejob"
+	transcodemanager "github.com/mediactl/clustarr/app/transcode/manager"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
@@ -106,9 +106,9 @@ func DefaultOptions() Options {
 	o.LeaderElect = true
 	o.DataDir, o.EngineScratchDir = "/data", "/scratch"
 	o.DataClaim, o.EngineServiceAccount = downloadclient.DefaultDataClaimName, downloadclient.DefaultEngineServiceAccount
-	o.Slots = squashmanager.DefaultSlots()
+	o.Slots = transcodemanager.DefaultSlots()
 	o.NodeLabelNVIDIA, o.NodeLabelIntel = pool.DefaultNodeLabelNVIDIA, pool.DefaultNodeLabelIntel
-	o.JobWindow, o.JobRetention = squashmanager.DefaultJobWindow, squashmanager.DefaultJobRetention
+	o.JobWindow, o.JobRetention = transcodemanager.DefaultJobWindow, transcodemanager.DefaultJobRetention
 	o.GraftConcurrency = audiograft.DefaultConcurrency
 	o.CardigannBundled = true
 	o.RemediationConcurrency = remediation.DefaultConcurrency
@@ -124,8 +124,11 @@ func DefaultOptions() Options {
 func (o Options) Validate() error {
 	var errs []error
 	for _, req := range []struct{ flag, value string }{
-		{"--nats-url", o.NATSURL}, {"--native-image", o.NativeImage}, {"--data-claim", o.DataClaim},
-		{"--engine-service-account", o.EngineServiceAccount}, {"--data-dir", o.DataDir},
+		{"--nats-url", o.NATSURL},
+		{"--native-image", o.NativeImage},
+		{"--data-claim", o.DataClaim},
+		{"--engine-service-account", o.EngineServiceAccount},
+		{"--data-dir", o.DataDir},
 	} {
 		if strings.TrimSpace(req.value) == "" {
 			errs = append(errs, fmt.Errorf("%s is required", req.flag))

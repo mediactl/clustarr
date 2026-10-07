@@ -29,12 +29,12 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
 
-	captionarr "github.com/mediactl/clustarr/app/caption"
-	catalogarr "github.com/mediactl/clustarr/app/catalog"
-	grabarr "github.com/mediactl/clustarr/app/grab"
-	importarr "github.com/mediactl/clustarr/app/import"
-	indexarr "github.com/mediactl/clustarr/app/indexer"
-	squasharr "github.com/mediactl/clustarr/app/squash"
+	captionapp "github.com/mediactl/clustarr/app/caption"
+	catalogapp "github.com/mediactl/clustarr/app/catalog"
+	grabapp "github.com/mediactl/clustarr/app/grab"
+	importapp "github.com/mediactl/clustarr/app/import"
+	indexapp "github.com/mediactl/clustarr/app/indexer"
+	transcodeapp "github.com/mediactl/clustarr/app/transcode"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/ui"
 )
@@ -219,19 +219,19 @@ func stubEveryService(t *testing.T) *validatable {
 	t.Helper()
 	var got validatable
 
-	catalog, index, grab, squash, caption, importa, uiRun :=
-		runCatalogarr, runIndexarr, runGrabarr, runSquasharr, runCaptionarr, runImportarr, runUI
+	catalog, index, grab, transcode, caption, importa, uiRun :=
+		runCatalog, runIndex, runGrab, runTranscode, runCaption, runImport, runUI
 	t.Cleanup(func() {
-		runCatalogarr, runIndexarr, runGrabarr, runSquasharr, runCaptionarr, runImportarr, runUI =
-			catalog, index, grab, squash, caption, importa, uiRun
+		runCatalog, runIndex, runGrab, runTranscode, runCaption, runImport, runUI =
+			catalog, index, grab, transcode, caption, importa, uiRun
 	})
 
-	runCatalogarr = func(_ context.Context, o catalogarr.Options) error { got = o; return nil }
-	runIndexarr = func(_ context.Context, o indexarr.Options) error { got = o; return nil }
-	runGrabarr = func(_ context.Context, o grabarr.Options) error { got = o; return nil }
-	runSquasharr = func(_ context.Context, o squasharr.Options) error { got = o; return nil }
-	runCaptionarr = func(_ context.Context, o captionarr.Options) error { got = o; return nil }
-	runImportarr = func(_ context.Context, o importarr.Options) error { got = o; return nil }
+	runCatalog = func(_ context.Context, o catalogapp.Options) error { got = o; return nil }
+	runIndex = func(_ context.Context, o indexapp.Options) error { got = o; return nil }
+	runGrab = func(_ context.Context, o grabapp.Options) error { got = o; return nil }
+	runTranscode = func(_ context.Context, o transcodeapp.Options) error { got = o; return nil }
+	runCaption = func(_ context.Context, o captionapp.Options) error { got = o; return nil }
+	runImport = func(_ context.Context, o importapp.Options) error { got = o; return nil }
 	runUI = func(_ context.Context, o ui.Options) error { got = o; return nil }
 	return &got
 }
@@ -240,9 +240,9 @@ func stubEveryService(t *testing.T) *validatable {
 // runs the controllers, the queue workers and the history sink, and it must
 // NOT be `--role all`, which would start a second metadata gateway beside the
 // single-replica catalogarr-metadata Deployment.
-func TestCatalogarrRoleCombinations(t *testing.T) {
+func TestCatalogRoleCombinations(t *testing.T) {
 	valid := []struct {
-		role        catalogarr.Role
+		role        catalogapp.Role
 		controllers bool
 		workers     bool
 	}{
@@ -270,7 +270,7 @@ func TestCatalogarrRoleCombinations(t *testing.T) {
 		}
 	}
 
-	for _, role := range []catalogarr.Role{"", ",", "bogus", "controller,bogus", "controller,controller", "all,,"} {
+	for _, role := range []catalogapp.Role{"", ",", "bogus", "controller,bogus", "controller,controller", "all,,"} {
 		if role.Valid() {
 			t.Errorf("role %q is accepted", role)
 		}
@@ -280,11 +280,11 @@ func TestCatalogarrRoleCombinations(t *testing.T) {
 	// not the metadata gateway, so its role must not name metadata.
 	// TestBothInstallersRunTheRendererOnTheCatalogarrDeployment reads the
 	// role both installers actually render.
-	const deployed catalogarr.Role = "controller,worker,history,artwork"
-	if deployed.Has(catalogarr.RoleMetadata) {
+	const deployed catalogapp.Role = "controller,worker,history,artwork"
+	if deployed.Has(catalogapp.RoleMetadata) {
 		t.Error("the catalogarr Deployment's role would start a second metadata gateway")
 	}
-	if !deployed.Has(catalogarr.RoleArtwork) {
+	if !deployed.Has(catalogapp.RoleArtwork) {
 		t.Error("the catalogarr Deployment's role would start no overlay renderer")
 	}
 }
@@ -297,7 +297,7 @@ func TestEnvironmentSuppliesDefaults(t *testing.T) {
 	t.Setenv(natsURLEnv, "nats://nats.clustarr-system.svc:4222")
 	t.Setenv(indexPathEnv, "/var/lib/clustarr/index/releases.db")
 
-	catalog := stub(t, &runCatalogarr)
+	catalog := stub(t, &runCatalog)
 	if _, err := execute(t, "catalogarr", "--role", "controller"); err != nil {
 		t.Fatalf("clustarr catalogarr: %v", err)
 	}
@@ -305,7 +305,7 @@ func TestEnvironmentSuppliesDefaults(t *testing.T) {
 		t.Errorf("NATSURL = %q, want the value of $%s", catalog.NATSURL, natsURLEnv)
 	}
 
-	index := stub(t, &runIndexarr)
+	index := stub(t, &runIndex)
 	if _, err := execute(t, "indexarr"); err != nil {
 		t.Fatalf("clustarr indexarr: %v", err)
 	}
@@ -314,7 +314,7 @@ func TestEnvironmentSuppliesDefaults(t *testing.T) {
 	}
 
 	// An explicit flag still wins over the environment.
-	index = stub(t, &runIndexarr)
+	index = stub(t, &runIndex)
 	if _, err := execute(t, "indexarr", "--index-path", "/elsewhere/releases.db"); err != nil {
 		t.Fatalf("clustarr indexarr: %v", err)
 	}

@@ -116,7 +116,7 @@ func TestFetchWritesTheBestAcceptableSubtitleAndRecordsIt(t *testing.T) {
 	live := f.get(t)
 	assert.Equal(t, map[string][]string{"en": workerItemLeaves}, itemLeaves(t, live, fetch.FieldManager),
 		"the worker owns exactly its leaves -- never nextSearchAt or attempts")
-	assert.Equal(t, map[string][]string{"en": {"langKey", "nextSearchAt"}}, itemLeaves(t, live, k8s.ManagerCaptionarr),
+	assert.Equal(t, map[string][]string{"en": {"langKey", "nextSearchAt"}}, itemLeaves(t, live, k8s.ManagerCaption),
 		"the controller keeps the schedule that makes the item live")
 }
 
@@ -146,7 +146,7 @@ func TestFetchDoesNotRollBackWhatAnotherWriterRecordedDuringTheSearch(t *testing
 	seeded := f.get(t)
 	seeded.Status.ProbeHash = f.probe
 	seeded.Status.Phase = subtitlev1alpha1.SubtitleRequestPhaseSearching
-	require.NoError(t, status.PatchRequest(f.ctx, f.c, k8s.ManagerCaptionarr, seeded, nil))
+	require.NoError(t, status.PatchRequest(f.ctx, f.c, k8s.ManagerCaption, seeded, nil))
 
 	rescheduled := metav1.NewTime(now.Add(6 * time.Hour))
 	siblingAt := metav1.NewTime(now.Add(-time.Second))
@@ -165,7 +165,7 @@ func TestFetchDoesNotRollBackWhatAnotherWriterRecordedDuringTheSearch(t *testing
 				it.DownloadedAt = &siblingAt
 			}
 		}
-		require.NoError(t, status.PatchRequest(f.ctx, f.c, k8s.ManagerCaptionarrWorker, sib, nil))
+		require.NoError(t, status.PatchRequest(f.ctx, f.c, k8s.ManagerCaptionWorker, sib, nil))
 
 		// ...and the controller reschedules "en".
 		ctl := f.get(t)
@@ -175,7 +175,7 @@ func TestFetchDoesNotRollBackWhatAnotherWriterRecordedDuringTheSearch(t *testing
 				ctl.Status.Items[i].Attempts = commonv1.Attempts{Initial: &schedule, Latest: &siblingAt, Count: 2}
 			}
 		}
-		require.NoError(t, status.PatchRequest(f.ctx, f.c, k8s.ManagerCaptionarr, ctl, nil))
+		require.NoError(t, status.PatchRequest(f.ctx, f.c, k8s.ManagerCaption, ctl, nil))
 	}
 	f.entry("os", os1, p)
 
@@ -202,7 +202,7 @@ func TestFetchDoesNotRollBackWhatAnotherWriterRecordedDuringTheSearch(t *testing
 	assert.Equal(t, map[string][]string{
 		"en": {"attempts", "langKey", "nextSearchAt"},
 		"es": {"langKey", "nextSearchAt"},
-	}, itemLeaves(t, live, k8s.ManagerCaptionarr), "the split holds on managedFields, where an over-claim would show")
+	}, itemLeaves(t, live, k8s.ManagerCaption), "the split holds on managedFields, where an over-claim would show")
 	assert.Equal(t, subtitlev1alpha1.SubtitleRequestPhaseSearching, live.Status.Phase, "the controller's request fields are untouched")
 }
 
@@ -243,7 +243,7 @@ func TestAnUpgradeOnlyEverReplacesWithSomethingBetter(t *testing.T) {
 	it := &seeded.Status.Items[0] // "en", live from the fixture
 	it.State, it.Score, it.ScoreOutOf = subtitlev1alpha1.SubtitleItemUpgradable, 147, 180
 	it.Provider, it.SubtitleID, it.Path, it.DownloadedAt = "os", "exact", oldRel, &earlier
-	require.NoError(t, status.PatchRequest(f.ctx, f.c, k8s.ManagerCaptionarrWorker, seeded, nil))
+	require.NoError(t, status.PatchRequest(f.ctx, f.c, k8s.ManagerCaptionWorker, seeded, nil))
 
 	p := newFakeProvider("fake")
 	p.cands = []subtitles.Candidate{candidate("same", releaseTitle)} // 147 again: not better
@@ -401,7 +401,7 @@ func TestTheWorkersNextApplyDeletesALanguageTheControllerWithdrew(t *testing.T) 
 			it.Provider, it.SubtitleID, it.Path = "os", "es-1", "Film (2010).es.srt"
 		}
 	}
-	require.NoError(t, status.PatchRequest(f.ctx, f.c, k8s.ManagerCaptionarrWorker, withSub, nil))
+	require.NoError(t, status.PatchRequest(f.ctx, f.c, k8s.ManagerCaptionWorker, withSub, nil))
 
 	f.withdraw(t, "es")
 	require.Contains(t, itemLeaves(t, f.get(t), fetch.FieldManager), "es",
@@ -417,7 +417,7 @@ func TestTheWorkersNextApplyDeletesALanguageTheControllerWithdrew(t *testing.T) 
 	require.Len(t, live.Status.Items, 1, "the withdrawn item must be deleted")
 	assert.Equal(t, "en", live.Status.Items[0].LangKey)
 	assert.Equal(t, subtitlev1alpha1.SubtitleItemUpgradable, live.Status.Items[0].State)
-	for _, mgr := range []k8s.FieldManager{fetch.FieldManager, k8s.ManagerCaptionarr} {
+	for _, mgr := range []k8s.FieldManager{fetch.FieldManager, k8s.ManagerCaption} {
 		assert.NotContains(t, itemLeaves(t, live, mgr), "es", "%s still owns a leaf of the withdrawn item", mgr)
 	}
 	assert.Equal(t, map[string][]string{"en": workerItemLeaves}, itemLeaves(t, live, fetch.FieldManager))

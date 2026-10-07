@@ -424,7 +424,7 @@ func TestIndexerFailureBackoff(t *testing.T) {
 	// exists, so it is not charged against scenarioTimeout. It is an ALLOWANCE,
 	// not a sleep: nothing here waits for it, the escalation wait below is
 	// simply sized to survive it. See indexarrStartupGraceEndsAt.
-	graceEndsAt := indexarrStartupGraceEndsAt(t)
+	graceEndsAt := indexStartupGraceEndsAt(t)
 	ctx, cancel := context.WithTimeout(context.Background(), scenarioTimeout+remaining(graceEndsAt))
 	defer cancel()
 	t0 := time.Now()
@@ -667,7 +667,7 @@ func remaining(at time.Time) time.Duration {
 //
 // The margin covers the gap between the Pod's StartTime (which the kubelet
 // stamps) and the moment the process's own package variables initialise.
-func indexarrStartupGraceEndsAt(t *testing.T) time.Time {
+func indexStartupGraceEndsAt(t *testing.T) time.Time {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()

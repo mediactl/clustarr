@@ -96,7 +96,7 @@ func (r *Reconciler) fanOut(ctx context.Context, s *catalogv1alpha1.Search) (ctr
 			WithLabels(map[string]string{catalogv1alpha1.LabelParentSearch: s.Name}).
 			WithOwnerReferences(owner).
 			WithSpec(spec)
-		if _, err := k8s.Apply(ctx, r.Client, k8s.ManagerCatalogarr, child); err != nil {
+		if _, err := k8s.Apply(ctx, r.Client, k8s.ManagerCatalog, child); err != nil {
 			return ctrl.Result{}, fmt.Errorf("apply child Search for %s %s: %w", kid.kind, kid.name, err)
 		}
 	}

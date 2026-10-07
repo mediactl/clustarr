@@ -196,7 +196,7 @@ func (f *fixture) seedLive(t *testing.T, langKeys ...string) {
 	t.Helper()
 	req := f.get(t)
 	have := status.LiveItemKeys(req.Status)
-	require.NoError(t, status.PatchRequest(f.ctx, f.c, k8s.ManagerCaptionarrWorker, req,
+	require.NoError(t, status.PatchRequest(f.ctx, f.c, k8s.ManagerCaptionWorker, req,
 		func(ac *subtitleac.SubtitleRequestStatusApplyConfiguration) {
 			for _, k := range langKeys {
 				if !have.Has(k) {
@@ -215,7 +215,7 @@ func (f *fixture) seedLive(t *testing.T, langKeys ...string) {
 			req.Status.Items[i].NextSearchAt = &schedule
 		}
 	}
-	require.NoError(t, status.PatchRequest(f.ctx, f.c, k8s.ManagerCaptionarr, req, nil))
+	require.NoError(t, status.PatchRequest(f.ctx, f.c, k8s.ManagerCaption, req, nil))
 	for _, k := range langKeys {
 		require.True(t, status.LiveItemKeys(f.get(t).Status).Has(k), "setup: %s is not live", k)
 	}
@@ -229,7 +229,7 @@ func (f *fixture) withdraw(t *testing.T, langKey string) {
 	req.Status.Items = slices.DeleteFunc(req.Status.Items, func(it subtitlev1alpha1.SubtitleItem) bool {
 		return it.LangKey == langKey || !status.IsLive(it)
 	})
-	require.NoError(t, status.PatchRequest(f.ctx, f.c, k8s.ManagerCaptionarr, req, nil))
+	require.NoError(t, status.PatchRequest(f.ctx, f.c, k8s.ManagerCaption, req, nil))
 }
 
 func (f *fixture) local(logical string) string {
@@ -302,7 +302,7 @@ func (f *fixture) localEntry(name string, p *fakeProvider) providerset.Entry {
 // eligible only for a MediaFile whose status.mediaInfo exists.
 func (f *fixture) probed(t *testing.T, mi commonv1.MediaInfo) {
 	t.Helper()
-	_, err := k8s.PatchStatus(f.ctx, f.c, k8s.ManagerCatalogarr,
+	_, err := k8s.PatchStatus(f.ctx, f.c, k8s.ManagerCatalog,
 		catalogac.MediaFile("film", f.ns).WithStatus(catalogac.MediaFileStatus().WithProbeHash(f.probe).WithMediaInfo(mi)))
 	require.NoError(t, err)
 }

@@ -143,7 +143,7 @@ func TestEnsureDefaultTopology(t *testing.T) {
 			t.Errorf("stream %s retention = %v", spec.Name, cfg.Retention)
 		}
 		if spec.Retention == events.RetentionWorkQueue && !cfg.AllowMsgSchedules &&
-			spec.Name != events.StreamAdvisories && spec.Name != events.StreamWorkSquasharr {
+			spec.Name != events.StreamAdvisories && spec.Name != events.StreamWorkTranscode {
 			t.Errorf("work stream %s does not allow message schedules", spec.Name)
 		}
 	}
@@ -186,7 +186,7 @@ func TestEnsureRefusesRetentionChange(t *testing.T) {
 		t.Fatalf("Ensure: %v", err)
 	}
 	for i := range top.Streams {
-		if top.Streams[i].Name == events.StreamWorkCatalogarr {
+		if top.Streams[i].Name == events.StreamWorkCatalog {
 			top.Streams[i].Retention = events.RetentionLimits
 		}
 	}
@@ -302,14 +302,14 @@ func TestLapsedWorkQueueMessageIsDeleted(t *testing.T) {
 	}
 
 	advisories := hangConsumer(ctx, t, bus, nc,
-		events.StreamWorkIndexarr, "nb-hung", events.FilterIndexRSS)
+		events.StreamWorkIndex, "nb-hung", events.FilterIndexRSS)
 	if _, err := bus.Publish(ctx, events.WorkRSSSubject("idx-1"),
 		&events.Envelope{ID: "task-wq", Data: []byte(`{}`)}); err != nil {
 		t.Fatalf("Publish: %v", err)
 	}
 
 	waitForMsgs(ctx, t, bus, events.StreamDLQ, 1)
-	waitForMsgs(ctx, t, bus, events.StreamWorkIndexarr, 0)
+	waitForMsgs(ctx, t, bus, events.StreamWorkIndex, 0)
 
 	resend(t, nc, advisories)
 	if n := storedMsgs(ctx, t, bus, events.StreamDLQ); n != 1 {
@@ -383,7 +383,7 @@ func TestFailedLapseCopyIsRetried(t *testing.T) {
 	}
 
 	advisories := hangConsumer(ctx, t, bus, nc,
-		events.StreamWorkIndexarr, "nb-retry", events.FilterIndexRSS)
+		events.StreamWorkIndex, "nb-retry", events.FilterIndexRSS)
 	if err := bus.JetStream().DeleteStream(ctx, events.StreamDLQ); err != nil {
 		t.Fatalf("delete %s: %v", events.StreamDLQ, err)
 	}
@@ -398,14 +398,14 @@ func TestFailedLapseCopyIsRetried(t *testing.T) {
 	}
 	// Let the watcher try, and fail, with nowhere to copy to.
 	time.Sleep(500 * time.Millisecond)
-	if n := storedMsgs(ctx, t, bus, events.StreamWorkIndexarr); n != 1 {
-		t.Fatalf("%s holds %d messages before any copy was possible, want the lapsed one", events.StreamWorkIndexarr, n)
+	if n := storedMsgs(ctx, t, bus, events.StreamWorkIndex); n != 1 {
+		t.Fatalf("%s holds %d messages before any copy was possible, want the lapsed one", events.StreamWorkIndex, n)
 	}
 
 	if err := bus.Ensure(ctx, top); err != nil {
 		t.Fatalf("Ensure again: %v", err)
 	}
 	waitForMsgs(ctx, t, bus, events.StreamDLQ, 1)
-	waitForMsgs(ctx, t, bus, events.StreamWorkIndexarr, 0)
+	waitForMsgs(ctx, t, bus, events.StreamWorkIndex, 0)
 	waitForMsgs(ctx, t, bus, events.StreamAdvisories, 0)
 }

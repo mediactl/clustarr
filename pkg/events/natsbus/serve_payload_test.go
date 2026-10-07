@@ -81,7 +81,7 @@ func TestServeReportsAReplyTheServerRefuses(t *testing.T) {
 	// Twice the limit: the JSON envelope alone would not tip a body that
 	// is merely close, so this is unambiguously over.
 	body := bytes.Repeat([]byte("x"), 2*maxPayload)
-	err = bus.Serve(events.RPCIndexDownload, events.QueueGroupIndexarr,
+	err = bus.Serve(events.RPCIndexDownload, events.QueueGroupIndex,
 		func(context.Context, []byte) ([]byte, error) { return body, nil })
 	if err != nil {
 		t.Fatalf("Serve: %v", err)
@@ -149,7 +149,7 @@ func TestAFullDownloadWireBudgetFitsTheBrokersMaxPayload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	if err := bus.Serve(events.RPCIndexDownload, events.QueueGroupIndexarr,
+	if err := bus.Serve(events.RPCIndexDownload, events.QueueGroupIndex,
 		func(context.Context, []byte) ([]byte, error) { return reply, nil }); err != nil {
 		t.Fatalf("Serve: %v", err)
 	}

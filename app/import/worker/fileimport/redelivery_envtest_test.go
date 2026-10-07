@@ -77,7 +77,7 @@ func (f *fixture) deliver(t *testing.T, dl *downloadv1alpha1.Download) *fakeMess
 func (f *fixture) crashBeforeTheStatusWrite(t *testing.T, dl *downloadv1alpha1.Download, msg *fakeMessage) {
 	t.Helper()
 	ctx := context.Background()
-	_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerImportarr,
+	_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerImport,
 		downloadac.Download(dl.Name, f.ns).WithStatus(downloadac.DownloadStatus()))
 	require.NoError(t, err)
 	uid := msg.uid(t)
@@ -158,7 +158,7 @@ func TestARedeliveryAfterTheMovieFileLandedFinishesTheImport(t *testing.T) {
 			require.Equal(t, downloadv1alpha1.ImportPhaseImported, first.State, "message %q, rejections %v", first.Message, first.Rejections)
 			require.Len(t, first.Imported, 1)
 			if c.probe != nil {
-				_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalogarr,
+				_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerCatalog,
 					catalogac.MediaFile(first.Imported[0].MediaFileRef, f.ns).WithStatus(
 						catalogac.MediaFileStatus().WithProbeHash("probe-1").WithMediaInfo(*c.probe)))
 				require.NoError(t, err)
@@ -363,7 +363,7 @@ func TestAPlacementOutsideTheRootFolderBlocksTheImport(t *testing.T) {
 	ctx := context.Background()
 	a := newAlbumFixture(t, "fi-outside-root", []string{"r1", "r2"}, "FLAC")
 	elsewhere := filepath.Join(dataDir(t, "media"), "Radiohead", "OK Computer")
-	_, err := k8s.PatchStatus(ctx, a.c, k8s.ManagerCatalogarrFanout,
+	_, err := k8s.PatchStatus(ctx, a.c, k8s.ManagerCatalogFanout,
 		catalogac.Album(a.album.Name, a.ns).WithStatus(catalogac.AlbumStatus().WithPath(elsewhere)))
 	require.NoError(t, err)
 	waitFor(t, 5*time.Second, func() bool {

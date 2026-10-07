@@ -228,7 +228,7 @@ func fixedNow(t time.Time) func() time.Time { return func() time.Time { return t
 func seedWorkerStatus(t *testing.T, ctx context.Context, c client.Client, m *catalogv1alpha1.Movie, activeDownloadRef string, pg *catalogv1alpha1.PendingGrab) {
 	t.Helper()
 	if pg != nil {
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrGrab, catalogac.Movie(m.Name, m.Namespace).WithStatus(
+		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogGrab, catalogac.Movie(m.Name, m.Namespace).WithStatus(
 			catalogac.MovieStatus().WithPendingGrab(catalogac.PendingGrab().
 				WithReleaseTitle(pg.ReleaseTitle).
 				WithProtocol(pg.Protocol).
@@ -242,7 +242,7 @@ func seedWorkerStatus(t *testing.T, ctx context.Context, c client.Client, m *cat
 	if activeDownloadRef != "" {
 		reconciler = reconciler.WithActiveDownloadRef(activeDownloadRef)
 	}
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, catalogac.Movie(m.Name, m.Namespace).WithStatus(reconciler))
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, catalogac.Movie(m.Name, m.Namespace).WithStatus(reconciler))
 	require.NoError(t, err)
 }
 
@@ -257,7 +257,7 @@ func interactiveDownload(t *testing.T, ctx context.Context, c client.Client, own
 	ownerRef, err := k8s.OwnerReferenceAC(owner, c.Scheme())
 	require.NoError(t, err)
 	name := k8s.ChildName(target.Name, rel.GUID)
-	_, err = k8s.Apply(ctx, c, k8s.ManagerCatalogarr, downloadac.Download(name, owner.GetNamespace()).
+	_, err = k8s.Apply(ctx, c, k8s.ManagerCatalog, downloadac.Download(name, owner.GetNamespace()).
 		WithOwnerReferences(ownerRef).
 		WithSpec(downloadac.DownloadSpec().
 			WithProtocol(rel.Protocol).
@@ -277,7 +277,7 @@ func interactiveDownload(t *testing.T, ctx context.Context, c client.Client, own
 // under k8s.ManagerGrabarr.
 func setDownloadPhase(t *testing.T, ctx context.Context, c client.Client, ns, name string, phase downloadv1alpha1.DownloadPhase) {
 	t.Helper()
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrabarr,
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrab,
 		downloadac.Download(name, ns).WithStatus(downloadac.DownloadStatus().WithPhase(phase)))
 	require.NoError(t, err)
 }
@@ -300,7 +300,7 @@ func managerStatusFields(obj client.Object, fm k8s.FieldManager) string {
 // k8s.ManagerCatalogarrMetadata.
 func seedGatewayMetadata(t *testing.T, ctx context.Context, c client.Client, m *catalogv1alpha1.Movie) {
 	t.Helper()
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata,
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata,
 		catalogac.Movie(m.Name, m.Namespace).WithStatus(catalogac.MovieStatus().WithMetadata(
 			catalogac.MovieMetadata().
 				WithTitle("The Thing").

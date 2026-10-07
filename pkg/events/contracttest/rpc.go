@@ -52,7 +52,7 @@ func serveBlocking(t *testing.T, bus events.Bus, subject string) *blockingRespon
 	t.Helper()
 	r := &blockingResponder{release: make(chan struct{})}
 	t.Cleanup(r.free)
-	err := bus.Serve(subject, events.QueueGroupIndexarr,
+	err := bus.Serve(subject, events.QueueGroupIndex,
 		func(ctx context.Context, data []byte) ([]byte, error) {
 			body := string(data)
 			if body != `"block"` {
@@ -111,7 +111,7 @@ func testServeConcurrency(t *testing.T, newBus func() events.Bus) {
 	const n = 8
 	var arrived atomic.Int32
 	all := make(chan struct{})
-	err := bus.Serve(events.RPCIndexSearch, events.QueueGroupIndexarr,
+	err := bus.Serve(events.RPCIndexSearch, events.QueueGroupIndex,
 		func(ctx context.Context, data []byte) ([]byte, error) {
 			if arrived.Add(1) == n {
 				close(all)
@@ -148,7 +148,7 @@ func testServeConcurrency(t *testing.T, newBus func() events.Bus) {
 // ErrResponderFailed, and the responder keeps serving.
 func testServePanic(t *testing.T, newBus func() events.Bus) {
 	ctx, bus := setup(t, newBus)
-	err := bus.Serve(events.RPCIndexSearch, events.QueueGroupIndexarr,
+	err := bus.Serve(events.RPCIndexSearch, events.QueueGroupIndex,
 		func(_ context.Context, data []byte) ([]byte, error) {
 			if string(data) == `"boom"` {
 				// A real runtime panic, as a handler parsing a provider
@@ -189,7 +189,7 @@ var errLookupContract = errors.New("contract: title not found")
 // the handler's own sentinel -- identically on every bus.
 func testServeErrorSemantics(t *testing.T, newBus func() events.Bus) {
 	ctx, bus := setup(t, newBus)
-	err := bus.Serve(events.RPCIndexSearch, events.QueueGroupIndexarr,
+	err := bus.Serve(events.RPCIndexSearch, events.QueueGroupIndex,
 		func(context.Context, []byte) ([]byte, error) {
 			return nil, errors.Join(errors.New("lookup tt0001"), errLookupContract)
 		})
@@ -302,7 +302,7 @@ func testServeBusy(t *testing.T, newBus func() events.Bus) {
 func testServeDeadlineFollowsCaller(t *testing.T, newBus func() events.Bus) {
 	ctx, bus := setup(t, newBus)
 	got := make(chan time.Duration, 1)
-	err := bus.Serve(events.RPCIndexSearch, events.QueueGroupIndexarr,
+	err := bus.Serve(events.RPCIndexSearch, events.QueueGroupIndex,
 		func(ctx context.Context, data []byte) ([]byte, error) {
 			left := time.Duration(-1)
 			if dl, ok := ctx.Deadline(); ok {

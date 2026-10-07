@@ -43,7 +43,7 @@ func TestTranscodeTopology(t *testing.T) {
 	top := Default()
 	require.NoError(t, top.Validate())
 
-	st, ok := top.Stream(StreamWorkSquasharr)
+	st, ok := top.Stream(StreamWorkTranscode)
 	require.True(t, ok, "CLUSTARR_WORK_SQUASHARR is missing from Default()")
 	assert.Equal(t, RetentionWorkQueue, st.Retention)
 	assert.Equal(t, DiscardNew, st.Discard, "a full queue must refuse a task, not drop an admitted one")
@@ -55,7 +55,7 @@ func TestTranscodeTopology(t *testing.T) {
 	for _, subj := range []string{task, result} {
 		got, ok := top.StreamForSubject(subj)
 		require.True(t, ok, subj)
-		assert.Equal(t, StreamWorkSquasharr, got.Name)
+		assert.Equal(t, StreamWorkTranscode, got.Name)
 	}
 
 	c := TranscodeTaskConsumer("6f1c-uid", "nvidia")
@@ -66,9 +66,9 @@ func TestTranscodeTopology(t *testing.T) {
 		"one class's pool must never receive another class's task")
 	assert.False(t, matches(c.Filters[0], result))
 
-	rc, ok := top.Consumer(ConsumerSquasharrResults)
+	rc, ok := top.Consumer(ConsumerTranscodeResults)
 	require.True(t, ok, "squasharr-transcode-results is missing from Default()")
-	assert.Equal(t, StreamWorkSquasharr, rc.Stream)
+	assert.Equal(t, StreamWorkTranscode, rc.Stream)
 	assert.Equal(t, 1, rc.MaxAckPending, "one event at a time: status writes stay ordered")
 	assert.True(t, matches(rc.Filters[0], result))
 	assert.False(t, matches(rc.Filters[0], task), "work-queue filters must not overlap")

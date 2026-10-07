@@ -153,7 +153,7 @@ func TestAContainerSearchCompletesWhenItsChildrenFinish(t *testing.T) {
 // setChildStatus writes a child Search's status as its own writers do.
 func setChildStatus(t *testing.T, c client.Client, name string, st *catalogac.SearchStatusApplyConfiguration) {
 	t.Helper()
-	_, err := k8s.PatchStatus(context.Background(), c, k8s.ManagerCatalogarrWorker,
+	_, err := k8s.PatchStatus(context.Background(), c, k8s.ManagerCatalogWorker,
 		catalogac.Search(name, "media").WithStatus(st))
 	require.NoError(t, err)
 }

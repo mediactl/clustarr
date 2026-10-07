@@ -55,7 +55,7 @@ func (f *fixture) importTitled(t *testing.T, name, title, contentRoot string, ta
 		},
 	}
 	require.NoError(t, f.c.Create(ctx, dl))
-	_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerGrabarr, downloadac.Download(dl.Name, f.ns).WithStatus(
+	_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerGrab, downloadac.Download(dl.Name, f.ns).WithStatus(
 		downloadac.DownloadStatus().WithPhase(downloadv1alpha1.DownloadPhaseCompleted).WithContentRoot(contentRoot)))
 	require.NoError(t, err)
 	waitFor(t, 5*time.Second, func() bool {

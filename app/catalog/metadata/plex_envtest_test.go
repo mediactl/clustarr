@@ -113,7 +113,7 @@ func TestHandlerLandsASeriesPlexIDsAndKeepsThemWhenPlexFails(t *testing.T) {
 	require.NoError(t, c.Get(ctx, key, &got))
 	require.Equal(t, "5d9c086c46115600200aa2fe", got.Status.Metadata.ExternalIDs["plex"])
 	require.Equal(t, want, got.Status.Metadata.PlexSeasons)
-	requireManagerOwns(t, got.ManagedFields, k8s.ManagerCatalogarrMetadata, `"f:plexSeasons"`, `"f:plex"`)
+	requireManagerOwns(t, got.ManagedFields, k8s.ManagerCatalogMetadata, `"f:plexSeasons"`, `"f:plex"`)
 
 	fail = true
 	require.NoError(t, handleTask(t, h, ns, name, commonv1.MediaKindSeries))

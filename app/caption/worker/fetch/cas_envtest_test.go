@@ -60,7 +60,7 @@ func (r *racingReader) Get(ctx context.Context, key client.ObjectKey, obj client
 				it.DownloadedAt = &at
 			}
 		}
-		require.NoError(r.t, status.PatchRequest(ctx, r.f.c, k8s.ManagerCaptionarrWorker, sib, nil))
+		require.NoError(r.t, status.PatchRequest(ctx, r.f.c, k8s.ManagerCaptionWorker, sib, nil))
 	}
 	return nil
 }

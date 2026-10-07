@@ -357,7 +357,7 @@ func TestMatch_SeriesAndMovieByAlternateTitle(t *testing.T) {
 	ns := newNamespace(t, ctx, c)
 
 	createSeries(t, ctx, c, ns, "attack-on-titan", 267440, "Attack on Titan", 2013)
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, catalogac.Series("attack-on-titan", ns).WithStatus(
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, catalogac.Series("attack-on-titan", ns).WithStatus(
 		catalogac.SeriesStatus().WithMetadata(catalogac.SeriesMetadata().
 			WithTitle("Attack on Titan").WithYear(2013).WithRuntimeMinutes(60).WithRefreshedAt(metav1.Now()).
 			WithAlternateTitles(catalogac.AltTitle().WithTitle("Shingeki no Kyojin")))))
@@ -365,7 +365,7 @@ func TestMatch_SeriesAndMovieByAlternateTitle(t *testing.T) {
 	createEpisode(t, ctx, c, ns, "attack-on-titan", 1, 5, nil)
 
 	createMovie(t, ctx, c, ns, "spirited-away", 129, "Spirited Away", 2001)
-	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, catalogac.Movie("spirited-away", ns).WithStatus(
+	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, catalogac.Movie("spirited-away", ns).WithStatus(
 		catalogac.MovieStatus().WithAvailable(true).WithMetadata(catalogac.MovieMetadata().
 			WithTitle("Spirited Away").WithYear(2001).WithRuntimeMinutes(125).WithOriginalLanguage("ja").
 			WithStatus(catalogv1alpha1.MovieReleaseStatusReleased).WithRefreshedAt(metav1.Now()).
@@ -395,7 +395,7 @@ func TestMatch_SeriesAndMovieByAlternateTitle(t *testing.T) {
 // fan-out writes it.
 func setAbsolute(t *testing.T, ctx context.Context, c client.Client, ns, name string, absolute int32) {
 	t.Helper()
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrSeries, catalogac.Episode(name, ns).WithStatus(
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogSeries, catalogac.Episode(name, ns).WithStatus(
 		catalogac.EpisodeStatus().WithAbsoluteNumber(absolute)))
 	require.NoError(t, err)
 }

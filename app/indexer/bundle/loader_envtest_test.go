@@ -106,7 +106,7 @@ func TestLoaderAppliesTheBundleAndLeavesTheOperatorsObjects(t *testing.T) {
 			managers = append(managers, e.Manager)
 		}
 	}
-	require.Equal(t, []string{string(k8s.ManagerIndexarr)}, managers,
+	require.Equal(t, []string{string(k8s.ManagerIndex)}, managers,
 		"the bundle's spec must be owned by indexarr's field manager alone")
 
 	// Steady state: idempotent, and a changed file carries through.

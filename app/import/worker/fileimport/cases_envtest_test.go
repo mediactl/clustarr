@@ -65,7 +65,7 @@ func TestHandleImportsAFileAndOwnsOnlySpec(t *testing.T) {
 	require.NotEmpty(t, mfName)
 	require.Contains(t, gotDL.Status.Import.Imported[0].DestPath, f.mediaRoot)
 
-	require.Equal(t, string(k8s.ManagerImportarr),
+	require.Equal(t, string(k8s.ManagerImport),
 		managerFor(t, gotDL.ManagedFields, "status", "status.import"),
 		"status.import must be owned by k8s.ManagerImportarr, not any other manager")
 

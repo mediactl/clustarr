@@ -104,7 +104,7 @@ func stream(t *testing.T, nc *nats.Conn) jetstream.Stream {
 	t.Helper()
 	js, err := jetstream.New(nc)
 	require.NoError(t, err)
-	st, err := js.Stream(context.Background(), events.StreamWorkIndexarr)
+	st, err := js.Stream(context.Background(), events.StreamWorkIndex)
 	require.NoError(t, err)
 	return st
 }
@@ -271,7 +271,7 @@ func TestReSeedingTheSlotTheWorkerAlreadyChoseStoresNothing(t *testing.T) {
 	// from. Its slot is 15 minutes out, so it stays PENDING and the reads
 	// below are not racing the broker's schedule tick.
 	polledAt := time.Now().Add(-5 * time.Minute).Truncate(time.Second).UTC()
-	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerIndexarrWorker,
+	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerIndexWorker,
 		indexac.Indexer(name.Name, ns).WithStatus(
 			indexac.IndexerStatus().WithLastRssAt(metav1.NewTime(polledAt))))
 	require.NoError(t, err)

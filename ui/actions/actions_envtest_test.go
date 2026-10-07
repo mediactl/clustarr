@@ -160,7 +160,7 @@ func TestUIManagerNeverOwnsStatus(t *testing.T) {
 				obj := fixture("item-"+string(kind), ns)
 				require.NoError(t, c.Create(ctx, obj, client.FieldOwner(creatorManager)))
 				gvk := mustGVK(t, obj, scheme)
-				seedStatus(ctx, t, c, k8s.ManagerCatalogarr, gvk, obj.GetName(), ns)
+				seedStatus(ctx, t, c, k8s.ManagerCatalog, gvk, obj.GetName(), ns)
 				before := getUnstructured(ctx, t, c, gvk, obj.GetName(), ns)
 				require.NotNil(t, before.Object["status"], "the fixture must already have status")
 
@@ -171,7 +171,7 @@ func TestUIManagerNeverOwnsStatus(t *testing.T) {
 					after := getUnstructured(ctx, t, c, gvk, obj.GetName(), ns)
 					requireNeverOnStatus(t, after)
 					requireUIOwnsExactly(t, after, monitoredOnly)
-					requireStatusStillOwnedBy(t, after, k8s.ManagerCatalogarr.String())
+					requireStatusStillOwnedBy(t, after, k8s.ManagerCatalog.String())
 					requireManagerDoesNotOwn(t, after, creatorManager, "f:spec", "f:monitored")
 
 					got, found, err := unstructured.NestedBool(after.Object, "spec", "monitored")
@@ -199,14 +199,14 @@ func TestUIManagerNeverOwnsStatus(t *testing.T) {
 		require.Equal(t, actions.OriginUI, s.Labels[actions.LabelOrigin])
 
 		gvk := mustGVK(t, s, scheme)
-		seedStatus(ctx, t, c, k8s.ManagerCatalogarr, gvk, s.Name, ns)
+		seedStatus(ctx, t, c, k8s.ManagerCatalog, gvk, s.Name, ns)
 		got := getUnstructured(ctx, t, c, gvk, s.Name, ns)
 
 		entry := requireOneUIEntry(t, got)
 		requireFieldsContain(t, entry, "f:metadata", "f:labels", "f:"+actions.LabelOrigin)
 		requireFieldsContain(t, entry, "f:spec", "f:mediaRef", "f:name")
 		requireNeverOnStatus(t, got)
-		requireStatusStillOwnedBy(t, got, k8s.ManagerCatalogarr.String())
+		requireStatusStillOwnedBy(t, got, k8s.ManagerCatalog.String())
 	})
 
 	t.Run("rescan", func(t *testing.T) {
@@ -216,14 +216,14 @@ func TestUIManagerNeverOwnsStatus(t *testing.T) {
 		require.Equal(t, actions.OriginUI, scan.Labels[actions.LabelOrigin])
 
 		gvk := mustGVK(t, scan, scheme)
-		seedStatus(ctx, t, c, k8s.ManagerImportarr, gvk, scan.Name, ns)
+		seedStatus(ctx, t, c, k8s.ManagerImport, gvk, scan.Name, ns)
 		got := getUnstructured(ctx, t, c, gvk, scan.Name, ns)
 
 		entry := requireOneUIEntry(t, got)
 		requireFieldsContain(t, entry, "f:metadata", "f:labels", "f:"+actions.LabelOrigin)
 		requireFieldsContain(t, entry, "f:spec", "f:rootFolderRef")
 		requireNeverOnStatus(t, got)
-		requireStatusStillOwnedBy(t, got, k8s.ManagerImportarr.String())
+		requireStatusStillOwnedBy(t, got, k8s.ManagerImport.String())
 	})
 
 	// TestUIManagerNeverOwnsStatus's "rename" subtest is rescan's sibling:
@@ -247,7 +247,7 @@ func TestUIManagerNeverOwnsStatus(t *testing.T) {
 				require.Equal(t, want, scan.Spec.Rename)
 
 				gvk := mustGVK(t, scan, scheme)
-				seedStatus(ctx, t, c, k8s.ManagerImportarr, gvk, scan.Name, ns)
+				seedStatus(ctx, t, c, k8s.ManagerImport, gvk, scan.Name, ns)
 				got := getUnstructured(ctx, t, c, gvk, scan.Name, ns)
 
 				gotRename, found, err := unstructured.NestedString(got.Object, "spec", "rename")
@@ -278,7 +278,7 @@ func TestUIManagerNeverOwnsStatus(t *testing.T) {
 				// closed set, and in particular no status leaf.
 				requireSpecFieldsExactly(t, got, ".", "mode", "rename", "rootFolderRef", "subpath", "ttlSecondsAfterFinished")
 				requireNeverOnStatus(t, got)
-				requireStatusStillOwnedBy(t, got, k8s.ManagerImportarr.String())
+				requireStatusStillOwnedBy(t, got, k8s.ManagerImport.String())
 			})
 		}
 	})

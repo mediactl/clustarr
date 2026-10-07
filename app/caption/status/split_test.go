@@ -374,7 +374,7 @@ func TestProviderFieldsDeclaresExactlyItsOwnSet(t *testing.T) {
 // ---------------------------------------------------------------------
 
 func TestPatchRequestRefusesAManagerOutsideTheSplit(t *testing.T) {
-	for _, mgr := range []k8s.FieldManager{k8s.ManagerCatalogarr, k8s.FieldManager("captionarr-bogus"), ""} {
+	for _, mgr := range []k8s.FieldManager{k8s.ManagerCatalog, k8s.FieldManager("captionarr-bogus"), ""} {
 		err := status.PatchRequest(t.Context(), nil, mgr,
 			&subtitlev1alpha1.SubtitleRequest{}, nil)
 		require.ErrorContains(t, err, "owns no part of SubtitleRequest.status")
@@ -382,7 +382,7 @@ func TestPatchRequestRefusesAManagerOutsideTheSplit(t *testing.T) {
 }
 
 func TestPatchProfileRefusesAManagerOutsideTheSplit(t *testing.T) {
-	for _, mgr := range []k8s.FieldManager{k8s.ManagerCatalogarr, k8s.ManagerCaptionarrWorker, ""} {
+	for _, mgr := range []k8s.FieldManager{k8s.ManagerCatalog, k8s.ManagerCaptionWorker, ""} {
 		err := status.PatchProfile(t.Context(), nil, mgr,
 			&subtitlev1alpha1.SubtitleProfile{}, nil)
 		require.ErrorContains(t, err, "owns no part of SubtitleProfile.status")
@@ -393,7 +393,7 @@ func TestPatchProviderRefusesAManagerOutsideTheSplit(t *testing.T) {
 	// captionarr-worker is deliberately in this list: ruling R2 forbids a
 	// worker from writing SubtitleProvider.status directly, even though it is
 	// a legitimate manager elsewhere in the project.
-	for _, mgr := range []k8s.FieldManager{k8s.ManagerCatalogarr, k8s.ManagerCaptionarrWorker, ""} {
+	for _, mgr := range []k8s.FieldManager{k8s.ManagerCatalog, k8s.ManagerCaptionWorker, ""} {
 		err := status.PatchProvider(t.Context(), nil, mgr,
 			&subtitlev1alpha1.SubtitleProvider{}, nil)
 		require.ErrorContains(t, err, "owns no part of SubtitleProvider.status")

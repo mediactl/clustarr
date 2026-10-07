@@ -224,10 +224,10 @@ func (f *fixture) newMovie(t *testing.T, name, profile string, monitored bool, a
 		},
 	}
 	require.NoError(t, f.c.Create(f.ctx, m))
-	_, err := k8s.PatchStatus(f.ctx, f.c, k8s.ManagerCatalogarr, catalogac.Movie(name, f.ns).WithStatus(
+	_, err := k8s.PatchStatus(f.ctx, f.c, k8s.ManagerCatalog, catalogac.Movie(name, f.ns).WithStatus(
 		catalogac.MovieStatus().WithPhase(catalogv1alpha1.MoviePhaseDownloading).WithActiveDownloadRef(activeDownload)))
 	require.NoError(t, err)
-	_, err = k8s.PatchStatus(f.ctx, f.c, k8s.ManagerCatalogarrGrab, catalogac.Movie(name, f.ns).WithStatus(
+	_, err = k8s.PatchStatus(f.ctx, f.c, k8s.ManagerCatalogGrab, catalogac.Movie(name, f.ns).WithStatus(
 		catalogac.MovieStatus().
 			WithLastSearchedAt(metav1.NewTime(time.Now().Add(-time.Hour).Truncate(time.Second))).
 			WithSearchAttempts(commonv1.Attempts{Count: 1})))
@@ -261,7 +261,7 @@ func (f *fixture) failedDownload(t *testing.T, target commonv1.MediaRef, guid st
 	if blocklisted {
 		dl = dl.WithLabels(map[string]string{downloadv1alpha1.LabelBlocklisted: downloadv1alpha1.LabelBlocklistedValue})
 	}
-	_, err = k8s.Apply(f.ctx, f.c, k8s.ManagerCatalogarrGrab, dl)
+	_, err = k8s.Apply(f.ctx, f.c, k8s.ManagerCatalogGrab, dl)
 	require.NoError(t, err)
 
 	st := downloadac.DownloadStatus().WithPhase(downloadv1alpha1.DownloadPhaseFailed).WithFailureReason(reason)
@@ -269,7 +269,7 @@ func (f *fixture) failedDownload(t *testing.T, target commonv1.MediaRef, guid st
 		st = downloadac.DownloadStatus().WithPhase(downloadv1alpha1.DownloadPhaseBlocklisted).
 			WithBlocklistedUntil(metav1.NewTime(time.Now().Add(90 * 24 * time.Hour).Truncate(time.Second)))
 	}
-	_, err = k8s.PatchStatus(f.ctx, f.c, k8s.ManagerGrabarr, downloadac.Download(name, f.ns).WithStatus(st))
+	_, err = k8s.PatchStatus(f.ctx, f.c, k8s.ManagerGrab, downloadac.Download(name, f.ns).WithStatus(st))
 	require.NoError(t, err)
 
 	// The object the test goes on to use is read through the API reader: the
@@ -487,7 +487,7 @@ func TestALocalFaultFreesTheLeaseButDoesNotSearch(t *testing.T) {
 // grabarr has labelled the Download is retried rather than searched, so the
 // search cannot rank the failed release again -- and after the settle
 // attempts it searches anyway.
-func TestAFailureWaitsForGrabarrsBlocklist(t *testing.T) {
+func TestAFailureWaitsForTheGrabBlocklist(t *testing.T) {
 	f := newFixture(t, "redownload-settle")
 	movie := commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "the-matrix"}
 	failed := f.failedDownload(t, movie, "g-failed", downloadv1alpha1.DownloadFailureStalled, false)

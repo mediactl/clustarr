@@ -134,7 +134,7 @@ func (r *Reconciler) patch(
 	// IndexerDefinition is cluster-scoped: the apply configuration takes a
 	// name and no namespace.
 	ac := indexac.IndexerDefinition(def.Name).WithStatus(statusFor(def.Generation, s, conditions))
-	if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerIndexarr, ac); err != nil {
+	if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerIndex, ac); err != nil {
 		logging.FromContext(ctx).Error("patch status", "error", err)
 		return err
 	}

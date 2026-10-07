@@ -202,10 +202,10 @@ func TestBookControllerWakesOnInheritedProfileEdits(t *testing.T) {
 			refOwners = append(refOwners, e.Manager)
 		}
 	}
-	assert.Equal(t, []string{string(k8s.ManagerCatalogarr)}, refOwners, "status.activeDownloadRef has one writer")
+	assert.Equal(t, []string{string(k8s.ManagerCatalog)}, refOwners, "status.activeDownloadRef has one writer")
 
 	// Completed is on disk, awaiting import: still the item's Download (R-12).
-	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrabarr, downloadac.Download("earthsea-dl", ns).WithStatus(
+	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadac.Download("earthsea-dl", ns).WithStatus(
 		downloadac.DownloadStatus().WithPhase(downloadv1alpha1.DownloadPhaseCompleted)))
 	require.NoError(t, err)
 	require.Never(t, func() bool {
@@ -214,7 +214,7 @@ func TestBookControllerWakesOnInheritedProfileEdits(t *testing.T) {
 	}, 500*time.Millisecond, 20*time.Millisecond, "a Completed Download is still working on the Book")
 
 	// Imported is terminal: the ref goes and the phase is the file's again.
-	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrabarr, downloadac.Download("earthsea-dl", ns).WithStatus(
+	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadac.Download("earthsea-dl", ns).WithStatus(
 		downloadac.DownloadStatus().WithPhase(downloadv1alpha1.DownloadPhaseImported)))
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {

@@ -94,10 +94,10 @@ func nonVideoKinds() []nonVideoKind {
 					ObjectMeta: metav1.ObjectMeta{Name: "radiohead-kid-a", Namespace: ns},
 					Spec:       catalogv1alpha1.AlbumSpec{ArtistRef: "radiohead", ReleaseGroupID: "b8048f24-c026-3398-b23a-b5e30716ea6f"},
 				}))
-				_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, catalogac.Album("radiohead-kid-a", ns).WithStatus(
+				_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, catalogac.Album("radiohead-kid-a", ns).WithStatus(
 					catalogac.AlbumStatus().WithPhase(catalogv1alpha1.AlbumPhaseDelayed)))
 				require.NoError(t, err)
-				_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrGrab, catalogac.Album("radiohead-kid-a", ns).WithStatus(
+				_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogGrab, catalogac.Album("radiohead-kid-a", ns).WithStatus(
 					catalogac.AlbumStatus().WithPendingGrab(delayedPendingGrab())))
 				require.NoError(t, err)
 				return commonv1.MediaRef{Kind: commonv1.MediaKindAlbum, Name: "radiohead-kid-a"}
@@ -124,10 +124,10 @@ func nonVideoKinds() []nonVideoKind {
 						AuthorRef: new("frank-herbert"), WorkID: "OL893415W", QualityProfileRef: ptr.To("book-override"),
 					},
 				}))
-				_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, catalogac.Book("dune", ns).WithStatus(
+				_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, catalogac.Book("dune", ns).WithStatus(
 					catalogac.BookStatus().WithPhase(catalogv1alpha1.BookPhaseDelayed)))
 				require.NoError(t, err)
-				_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrGrab, catalogac.Book("dune", ns).WithStatus(
+				_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogGrab, catalogac.Book("dune", ns).WithStatus(
 					catalogac.BookStatus().WithPendingGrab(delayedPendingGrab())))
 				require.NoError(t, err)
 				return commonv1.MediaRef{Kind: commonv1.MediaKindBook, Name: "dune"}
@@ -146,10 +146,10 @@ func nonVideoKinds() []nonVideoKind {
 					ObjectMeta: metav1.ObjectMeta{Name: "guards-guards", Namespace: ns},
 					Spec:       catalogv1alpha1.AudiobookSpec{ASIN: "B002V1A0WE", QualityProfileRef: "audiobook", RootFolderRef: "audiobooks"},
 				}))
-				_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, catalogac.Audiobook("guards-guards", ns).WithStatus(
+				_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, catalogac.Audiobook("guards-guards", ns).WithStatus(
 					catalogac.AudiobookStatus().WithPhase(catalogv1alpha1.AudiobookPhaseDelayed)))
 				require.NoError(t, err)
-				_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrGrab, catalogac.Audiobook("guards-guards", ns).WithStatus(
+				_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogGrab, catalogac.Audiobook("guards-guards", ns).WithStatus(
 					catalogac.AudiobookStatus().WithPendingGrab(delayedPendingGrab())))
 				require.NoError(t, err)
 				return commonv1.MediaRef{Kind: commonv1.MediaKindAudiobook, Name: "guards-guards"}
@@ -176,10 +176,10 @@ func nonVideoKinds() []nonVideoKind {
 					ObjectMeta: metav1.ObjectMeta{Name: "saga-00001.0", Namespace: ns},
 					Spec:       catalogv1alpha1.IssueSpec{ComicRef: "saga", Number: "1", CalculatedNumberCentis: 100},
 				}))
-				_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, catalogac.Issue("saga-00001.0", ns).WithStatus(
+				_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, catalogac.Issue("saga-00001.0", ns).WithStatus(
 					catalogac.IssueStatus().WithState(catalogv1alpha1.IssueStateDelayed)))
 				require.NoError(t, err)
-				_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrGrab, catalogac.Issue("saga-00001.0", ns).WithStatus(
+				_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogGrab, catalogac.Issue("saga-00001.0", ns).WithStatus(
 					catalogac.IssueStatus().WithPendingGrab(delayedPendingGrab())))
 				require.NoError(t, err)
 				return commonv1.MediaRef{Kind: commonv1.MediaKindIssue, Name: "saga-00001.0"}
@@ -258,7 +258,7 @@ func TestGrab_NonVideoKindsTakeTheWholeGrabPath(t *testing.T) {
 
 			assert.Nil(t, item.pendingGrab, "the consumed pendingGrab must be cleared")
 			assert.Equal(t, k.wantPhase, item.phase, "the reconciler's field is not the grab path's to touch")
-			assert.NotContains(t, managerStatusFields(item.obj, k8s.ManagerCatalogarrGrab), "activeDownloadRef")
+			assert.NotContains(t, managerStatusFields(item.obj, k8s.ManagerCatalogGrab), "activeDownloadRef")
 
 			// The guard: while that Download is live, another release for
 			// the same item is a duplicate.
@@ -321,13 +321,13 @@ func seedClear(t *testing.T, ctx context.Context, c client.Client, ns string, ta
 	var err error
 	switch target.Kind {
 	case commonv1.MediaKindAlbum:
-		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrGrab, catalogac.Album(target.Name, ns).WithStatus(catalogac.AlbumStatus()))
+		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogGrab, catalogac.Album(target.Name, ns).WithStatus(catalogac.AlbumStatus()))
 	case commonv1.MediaKindBook:
-		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrGrab, catalogac.Book(target.Name, ns).WithStatus(catalogac.BookStatus()))
+		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogGrab, catalogac.Book(target.Name, ns).WithStatus(catalogac.BookStatus()))
 	case commonv1.MediaKindAudiobook:
-		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrGrab, catalogac.Audiobook(target.Name, ns).WithStatus(catalogac.AudiobookStatus()))
+		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogGrab, catalogac.Audiobook(target.Name, ns).WithStatus(catalogac.AudiobookStatus()))
 	case commonv1.MediaKindIssue:
-		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrGrab, catalogac.Issue(target.Name, ns).WithStatus(catalogac.IssueStatus()))
+		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogGrab, catalogac.Issue(target.Name, ns).WithStatus(catalogac.IssueStatus()))
 	default:
 		t.Fatalf("seedClear: %s has no pendingGrab", target.Kind)
 	}

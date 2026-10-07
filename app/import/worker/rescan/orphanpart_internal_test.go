@@ -24,7 +24,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/mediactl/clustarr/app/squash/jobspec"
+	"github.com/mediactl/clustarr/app/transcode/jobspec"
 )
 
 type partInfo struct {

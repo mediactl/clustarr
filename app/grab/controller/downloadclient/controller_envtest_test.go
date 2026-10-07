@@ -39,7 +39,7 @@ import (
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/app/grab/controller/downloadclient"
-	grabarrstatus "github.com/mediactl/clustarr/app/grab/status"
+	grabstatus "github.com/mediactl/clustarr/app/grab/status"
 	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
@@ -187,7 +187,7 @@ func TestAnExistingEngineWorkloadGainsThePodSecurity(t *testing.T) {
 					WithVolumeMounts(corev1ac.VolumeMount().WithName("data").WithMountPath("/data"))).
 				WithVolumes(corev1ac.Volume().WithName("data").WithPersistentVolumeClaim(
 					corev1ac.PersistentVolumeClaimVolumeSource().WithClaimName("clustarr-data"))))))
-	_, err := k8s.Apply(ctx, c, k8s.ManagerGrabarr, old)
+	_, err := k8s.Apply(ctx, c, k8s.ManagerGrab, old)
 	require.NoError(t, err)
 
 	r := downloadclient.NewReconciler(c, events.NewFakeRecorder(10), "/data", "/scratch", "img")
@@ -320,9 +320,9 @@ func TestReconcileAggregatesDownloadCounters(t *testing.T) {
 		// provenance and stays inside forbidigo's rule, which has no
 		// test-file exemption (see mediafile_envtest_test.go's identical
 		// note).
-		require.NoError(t, grabarrstatus.Patch(ctx, c, k8s.ManagerGrabarr, d,
+		require.NoError(t, grabstatus.Patch(ctx, c, k8s.ManagerGrab, d,
 			func(ac *downloadac.DownloadStatusApplyConfiguration) { ac.WithPhase(phase) }))
-		require.NoError(t, grabarrstatus.Patch(ctx, c, k8s.ManagerGrabarrEngine, d,
+		require.NoError(t, grabstatus.Patch(ctx, c, k8s.ManagerRetiredEngine, d,
 			func(ac *downloadac.DownloadStatusApplyConfiguration) {
 				ac.WithDownloadRateBps(downRate).WithUploadRateBps(upRate)
 			}))

@@ -273,9 +273,9 @@ func PatchRequest(
 ) error {
 	var ac *subtitleac.SubtitleRequestStatusApplyConfiguration
 	switch mgr {
-	case k8s.ManagerCaptionarr:
+	case k8s.ManagerCaption:
 		ac = RequestControllerFields(req.Status)
-	case k8s.ManagerCaptionarrWorker:
+	case k8s.ManagerCaptionWorker:
 		ac = RequestWorkerFields(req.Status)
 	default:
 		return fmt.Errorf("status: %q owns no part of SubtitleRequest.status", mgr)
@@ -329,7 +329,7 @@ func PatchProfile(
 	profile *subtitlev1alpha1.SubtitleProfile,
 	mutate func(*subtitleac.SubtitleProfileStatusApplyConfiguration),
 ) error {
-	if mgr != k8s.ManagerCaptionarr {
+	if mgr != k8s.ManagerCaption {
 		return fmt.Errorf("status: %q owns no part of SubtitleProfile.status", mgr)
 	}
 	ac := ProfileFields(profile.Status)
@@ -416,7 +416,7 @@ func PatchProvider(
 	provider *subtitlev1alpha1.SubtitleProvider,
 	mutate func(*subtitleac.SubtitleProviderStatusApplyConfiguration),
 ) error {
-	if mgr != k8s.ManagerCaptionarr {
+	if mgr != k8s.ManagerCaption {
 		return fmt.Errorf("status: %q owns no part of SubtitleProvider.status", mgr)
 	}
 	ac := ProviderFields(provider.Status)

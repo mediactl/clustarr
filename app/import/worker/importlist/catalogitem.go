@@ -53,7 +53,7 @@ import (
 // complete, self-consistent field set (see applyMovie/applySeries), never a
 // partial one, since a narrower send from the same manager releases the
 // difference.
-const FieldManager = k8s.ManagerImportarrWorker
+const FieldManager = k8s.ManagerImportWorker
 
 // resolveMonitored applies the "item override, else list default" rule
 // pkg/importlist/types.go documents on Item.Monitored: "Nil means: use the
@@ -273,7 +273,7 @@ func classified(s *catalogv1alpha1.Series) bool {
 		return true
 	}
 	for _, mf := range s.ManagedFields {
-		if mf.Manager != string(k8s.ManagerCatalogarrClassify) || mf.FieldsV1 == nil {
+		if mf.Manager != string(k8s.ManagerCatalogClassify) || mf.FieldsV1 == nil {
 			continue
 		}
 		var fields map[string]map[string]any

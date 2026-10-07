@@ -46,8 +46,8 @@ import (
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
-	"github.com/mediactl/clustarr/app/squash/jobspec"
-	"github.com/mediactl/clustarr/app/squash/worker/inprocess"
+	"github.com/mediactl/clustarr/app/transcode/jobspec"
+	"github.com/mediactl/clustarr/app/transcode/worker/inprocess"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
 	"github.com/mediactl/clustarr/pkg/mediainfo/ffprobeexec"
 	"github.com/mediactl/clustarr/pkg/transcode"
@@ -119,7 +119,7 @@ func TestParity(t *testing.T) {
 // TestTheInProcessProbeAgreesOnTheLibrary holds the worker's in-process
 // probe to ffprobe's on every real clip -- Dolby Vision 5, 7 and 8.1, HDR10+,
 // PGS, TrueHD, fonts -- which the generated fixtures of
-// app/squash/worker/inprocess cannot make: catalogarr plans from ffprobe's
+// app/transcode/worker/inprocess cannot make: catalogarr plans from ffprobe's
 // summary and the worker from its own probe, so a field they disagree on is
 // a different decision. Codec profile names are ffprobe's alone.
 func TestTheInProcessProbeAgreesOnTheLibrary(t *testing.T) {

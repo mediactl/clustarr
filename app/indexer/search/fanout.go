@@ -655,7 +655,7 @@ func (s *Service) recordOutcome(
 	// is the only thing that can UNDO that seed -- a recovered indexer's
 	// cleared disabledUntil has to remove the seeded value rather than carry
 	// it forward, which no generated With* helper can express.
-	prev, _, err := idxstatus.PatchCAS(ctx, s.reader(), s.Client, k8s.ManagerIndexarrWorker, key,
+	prev, _, err := idxstatus.PatchCAS(ctx, s.reader(), s.Client, k8s.ManagerIndexWorker, key,
 		func(fresh *indexv1alpha1.Indexer, ac *indexac.IndexerStatusApplyConfiguration) bool {
 			if ok {
 				esc = idxstatus.RecordSuccess(fresh.Status, now)

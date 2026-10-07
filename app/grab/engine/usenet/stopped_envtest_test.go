@@ -69,7 +69,7 @@ func TestReconcileReportsAFailureThenRemovesTheJobOnceStopped(t *testing.T) {
 	assert.Equal(t, downloadv1alpha1.DownloadFailureMissingArticles, got.Status.EngineFailureReason)
 	assert.Empty(t, fc.removeCalls, "the engine must not act on its own observation")
 
-	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrabarr, downloadac.Download(dl.Name, dl.Namespace).WithStatus(
+	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadac.Download(dl.Name, dl.Namespace).WithStatus(
 		downloadac.DownloadStatus().
 			WithPhase(downloadv1alpha1.DownloadPhaseBlocklisted).
 			WithFailureReason(downloadv1alpha1.DownloadFailureMissingArticles)))

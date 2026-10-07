@@ -122,7 +122,7 @@ func TestHandleDiscardsATaskForASettledScan(t *testing.T) {
 	ctx := context.Background()
 	f := newFixture(t, ctx, "rw-settled", catalogv1alpha1.RootFolderKindMovie, "hd-bluray-web", catalogv1alpha1.ScanModeFull)
 	threeFilms(t, f)
-	_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerImportarr, catalogac.LibraryScan(f.scan.Name, f.ns).
+	_, err := k8s.PatchStatus(ctx, f.c, k8s.ManagerImport, catalogac.LibraryScan(f.scan.Name, f.ns).
 		WithStatus(catalogac.LibraryScanStatus().WithPhase(catalogv1alpha1.ScanPhaseFailed)))
 	require.NoError(t, err)
 	waitCached(t, ctx, f.c, f.scan, func() bool { return f.scan.Status.Phase == catalogv1alpha1.ScanPhaseFailed })

@@ -470,7 +470,7 @@ func TestHandlerAlbumMetadataStaysSolelyOwnedByTheGatewayAcrossReapplies(t *test
 			managers[e.Manager] = true
 		}
 	}
-	require.Equal(t, map[string]bool{string(k8s.ManagerCatalogarrMetadata): true}, managers,
+	require.Equal(t, map[string]bool{string(k8s.ManagerCatalogMetadata): true}, managers,
 		"only the metadata gateway may own a status field on Album -- ManagerCatalogarrFanout must never apply to status.metadata here (see buildAlbumMetadataAC's doc comment)")
 }
 

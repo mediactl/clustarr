@@ -52,8 +52,8 @@ func TestAListReApplyKeepsAClassifiedSeries(t *testing.T) {
 	var s catalogv1alpha1.Series
 	require.NoError(t, c.Get(ctx, key, &s))
 	require.NoError(t, c.Patch(ctx, &s, client.RawPatch(types.MergePatchType,
-		[]byte(`{"spec":{"qualityProfileRef":"anime-web-1080p","seriesType":"anime"}}`)), client.FieldOwner(string(k8s.ManagerCatalogarrClassify))))
-	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, catalogac.Series(name, ns).WithStatus(
+		[]byte(`{"spec":{"qualityProfileRef":"anime-web-1080p","seriesType":"anime"}}`)), client.FieldOwner(string(k8s.ManagerCatalogClassify))))
+	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, catalogac.Series(name, ns).WithStatus(
 		catalogac.SeriesStatus().WithClassification(catalogac.SeriesClassification().WithAnime(true).WithAppliedAt(metav1.Now()).
 			WithQualityProfileRef("anime-web-1080p").WithSeriesType(catalogv1alpha1.SeriesTypeAnime))))
 	require.NoError(t, err)

@@ -251,7 +251,7 @@ func TestTransientProbeFailureDoesNotReleaseCaps(t *testing.T) {
 
 	// 2. The OTHER manager's fields, applied exactly as D1-5/D1-7 will.
 	until := metav1.NewTime(time.Now().Add(-time.Minute).Truncate(time.Second))
-	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerIndexarrWorker,
+	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerIndexWorker,
 		indexac.Indexer(name.Name, ns).WithStatus(indexac.IndexerStatus().
 			WithEscalationLevel(3).
 			WithDisabledUntil(until).
@@ -598,7 +598,7 @@ func TestAFutureDisabledUntilBacksOff(t *testing.T) {
 	// The worker's half, applied under its own manager, exactly as
 	// RecordFailure's result will be.
 	until := metav1.NewTime(time.Now().Add(time.Hour).Truncate(time.Second))
-	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerIndexarrWorker,
+	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerIndexWorker,
 		indexac.Indexer(name.Name, ns).WithStatus(indexac.IndexerStatus().
 			WithEscalationLevel(5).WithDisabledUntil(until)))
 	require.NoError(t, err)

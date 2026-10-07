@@ -835,7 +835,7 @@ func (w *Worker) applySearchStatus(
 		WithIndexerOutcomes(outcomeACs...).
 		WithResults(ranked...)
 
-	if _, err := k8s.PatchStatus(ctx, w.Client, k8s.ManagerCatalogarrWorker,
+	if _, err := k8s.PatchStatus(ctx, w.Client, k8s.ManagerCatalogWorker,
 		catalogac.Search(srch.Name, srch.Namespace).WithStatus(statusAC)); err != nil {
 		return fmt.Errorf("record search results: %w", err)
 	}

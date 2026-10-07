@@ -35,7 +35,7 @@ import (
 // under 50 MiB imported as a feature film, with nothing in the logs.
 // importarr's own TestWorkersGetTheSampleSizeFloor holds the next link,
 // Options to both workers.
-func TestImportarrSampleMaxBytesReachesTheOptions(t *testing.T) {
+func TestImportSampleMaxBytesReachesTheOptions(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
 		flags []string
@@ -46,7 +46,7 @@ func TestImportarrSampleMaxBytesReachesTheOptions(t *testing.T) {
 		{name: "0 disables the rule", flags: []string{"--sample-max-bytes=0"}, want: 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got := stub(t, &runImportarr)
+			got := stub(t, &runImport)
 			args := append([]string{"importarr", "--role", "worker", "--namespace", "clustarr"}, tc.flags...)
 			if _, err := execute(t, args...); err != nil {
 				t.Fatalf("clustarr %v: %v", args, err)
@@ -61,7 +61,7 @@ func TestImportarrSampleMaxBytesReachesTheOptions(t *testing.T) {
 	}
 
 	t.Run("a negative floor is refused", func(t *testing.T) {
-		got := stub(t, &runImportarr)
+		got := stub(t, &runImport)
 		if _, err := execute(t, "importarr", "--role", "worker", "--namespace", "clustarr",
 			"--sample-max-bytes=-1"); err != nil {
 			t.Fatalf("clustarr importarr: %v", err)
@@ -75,7 +75,7 @@ func TestImportarrSampleMaxBytesReachesTheOptions(t *testing.T) {
 	// default without a flag of its own -- asserted through its own closure,
 	// not a restatement of it.
 	t.Run("clustarr all", func(t *testing.T) {
-		got := stub(t, &runImportarr)
+		got := stub(t, &runImport)
 		if err := allServiceRun(t, "importarr")(context.Background(), k8s.DefaultOptions()); err != nil {
 			t.Fatalf("run: %v", err)
 		}
@@ -93,7 +93,7 @@ func TestImportarrSampleMaxBytesReachesTheOptions(t *testing.T) {
 		for _, file := range []string{"importarr.yaml", "importarr-worker.yaml"} {
 			for _, d := range deploymentsIn(t, filepath.Join("../../config/manager", file)) {
 				argv := d.Spec.Template.Spec.Containers[0].Args
-				got := stub(t, &runImportarr)
+				got := stub(t, &runImport)
 				if _, err := execute(t, argv...); err != nil {
 					t.Fatalf("clustarr %v: %v", argv, err)
 				}
@@ -118,11 +118,11 @@ func TestImportarrSampleMaxBytesReachesTheOptions(t *testing.T) {
 // holds the next, Options to the list worker and the ImportList controller.
 // Before X14 neither host was reachable from a deployed binary at all, so
 // test/e2e's Trakt and Plex legs skipped.
-func TestImportarrListBaseURLsReachTheOptions(t *testing.T) {
+func TestImportListBaseURLsReachTheOptions(t *testing.T) {
 	const trakt, plex = "http://importlist-stub.clustarr-system.svc", "http://plex.example:32400"
 
 	t.Run("flags", func(t *testing.T) {
-		got := stub(t, &runImportarr)
+		got := stub(t, &runImport)
 		if _, err := execute(t, "importarr", "--role", "worker", "--namespace", "clustarr",
 			"--trakt-base-url", trakt, "--plex-base-url", plex); err != nil {
 			t.Fatalf("clustarr importarr: %v", err)
@@ -136,7 +136,7 @@ func TestImportarrListBaseURLsReachTheOptions(t *testing.T) {
 	t.Run("environment", func(t *testing.T) {
 		t.Setenv(traktBaseURLEnv, trakt)
 		t.Setenv(plexBaseURLEnv, plex)
-		got := stub(t, &runImportarr)
+		got := stub(t, &runImport)
 		if _, err := execute(t, "importarr", "--role", "worker", "--namespace", "clustarr"); err != nil {
 			t.Fatalf("clustarr importarr: %v", err)
 		}
@@ -147,7 +147,7 @@ func TestImportarrListBaseURLsReachTheOptions(t *testing.T) {
 	})
 
 	t.Run("unset is the providers' own default", func(t *testing.T) {
-		got := stub(t, &runImportarr)
+		got := stub(t, &runImport)
 		if _, err := execute(t, "importarr", "--role", "worker", "--namespace", "clustarr"); err != nil {
 			t.Fatalf("clustarr importarr: %v", err)
 		}
@@ -160,7 +160,7 @@ func TestImportarrListBaseURLsReachTheOptions(t *testing.T) {
 	t.Run("clustarr all", func(t *testing.T) {
 		t.Setenv(traktBaseURLEnv, trakt)
 		t.Setenv(plexBaseURLEnv, plex)
-		got := stub(t, &runImportarr)
+		got := stub(t, &runImport)
 		if err := allServiceRun(t, "importarr")(context.Background(), k8s.DefaultOptions()); err != nil {
 			t.Fatalf("run: %v", err)
 		}

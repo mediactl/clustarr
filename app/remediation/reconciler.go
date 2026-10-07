@@ -270,7 +270,7 @@ func (r *Reconciler) reconcileFile(ctx context.Context, nn types.NamespacedName)
 	// 6. Main resource.
 	viewRV, viewGen := mf.ResourceVersion, mf.Generation
 	if mac, changed := renderMain(&mf, rendered, v.Main); changed {
-		applied, err := k8s.Apply(ctx, r.c, k8s.ManagerCatalogarr, mac.WithResourceVersion(mf.ResourceVersion))
+		applied, err := k8s.Apply(ctx, r.c, k8s.ManagerCatalog, mac.WithResourceVersion(mf.ResourceVersion))
 		switch {
 		case apierrors.IsConflict(err):
 			return r.count(passConflict, reconcile.Result{RequeueAfter: ks.conflictBackoff(), Priority: new(0)}), nil
@@ -296,7 +296,7 @@ func (r *Reconciler) reconcileFile(ctx context.Context, nn types.NamespacedName)
 	outcomeLabel := passUnchanged
 	appliedStatus := v.Prev
 	if changed {
-		_, ok, err := k8s.PatchStatusCAS(ctx, viewReader{obj: v.File, rv: viewRV, gen: viewGen}, r.c, k8s.ManagerCatalogarr,
+		_, ok, err := k8s.PatchStatusCAS(ctx, viewReader{obj: v.File, rv: viewRV, gen: viewGen}, r.c, k8s.ManagerCatalog,
 			nn, newMediaFile, func(fresh *catalogv1alpha1.MediaFile) (*catalogac.MediaFileApplyConfiguration, bool, error) {
 				if equality.Semantic.DeepEqual(normalize(rendered), normalize(&fresh.Status)) {
 					return nil, true, nil

@@ -199,7 +199,7 @@ func collectFetches(t *testing.T, ctx context.Context, bus events.Bus) *fetchCol
 	t.Helper()
 	c := &fetchCollector{subj: map[string][]*events.Envelope{}}
 	stop, err := bus.Subscribe(ctx, events.Subscription{
-		Stream:  events.StreamWorkCatalogarr,
+		Stream:  events.StreamWorkCatalog,
 		Durable: "test-artwork-fetch-collector",
 		Filters: []string{events.FilterCatalogArtworkFetch},
 	}, func(_ context.Context, m events.Message) error {

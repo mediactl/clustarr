@@ -307,7 +307,7 @@ func TestBookReconcilerOwnedInheritsAuthorRootFolderAndName(t *testing.T) {
 			catalogac.AuthorMetadata().WithName("J.R.R. Tolkien").WithRefreshedAt(metav1.Now()),
 		),
 	)
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, metaAC)
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, metaAC)
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		var got catalogv1alpha1.Author
@@ -578,9 +578,9 @@ func TestBookReconcilerFieldManagerNeverIncludesFanout(t *testing.T) {
 	}, 5*time.Second, 10*time.Millisecond)
 
 	for _, want := range fieldManagerNames(bk.ManagedFields) {
-		assert.NotContains(t, want, string(k8s.ManagerCatalogarrFanout), "Book must never be written under ManagerCatalogarrFanout: %+v", fieldManagerNames(bk.ManagedFields))
+		assert.NotContains(t, want, string(k8s.ManagerCatalogFanout), "Book must never be written under ManagerCatalogarrFanout: %+v", fieldManagerNames(bk.ManagedFields))
 	}
-	statusFields := managedStatusFieldPaths(bk.ManagedFields, string(k8s.ManagerCatalogarr))
+	statusFields := managedStatusFieldPaths(bk.ManagedFields, string(k8s.ManagerCatalog))
 	require.NotNil(t, statusFields, "no catalogarr/status entry in managedFields: %+v", fieldManagerNames(bk.ManagedFields))
 	names := statusFieldNames(statusFields)
 	assert.True(t, names["phase"], "catalogarr should own status.phase")
@@ -592,7 +592,7 @@ func TestBookReconcilerFieldManagerNeverIncludesFanout(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, c.Get(ctx, breq.NamespacedName, &bk))
 	for _, want := range fieldManagerNames(bk.ManagedFields) {
-		assert.NotContains(t, want, string(k8s.ManagerCatalogarrFanout))
+		assert.NotContains(t, want, string(k8s.ManagerCatalogFanout))
 	}
 }
 

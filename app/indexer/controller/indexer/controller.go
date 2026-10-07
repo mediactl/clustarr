@@ -159,7 +159,7 @@ func NewReconciler(
 		Recorder: recorder,
 		Limiters: limiters,
 		Bus:      bus,
-		Sessions: idxclients.NewSessionStore(c, bus, k8s.ManagerIndexarr),
+		Sessions: idxclients.NewSessionStore(c, bus, k8s.ManagerIndex),
 		capsSeen: map[types.UID]capsMemo{},
 	}
 }
@@ -603,7 +603,7 @@ func (r *Reconciler) patch(
 	// this manager's complete set on every path -- early returns included --
 	// and is removed once an operator deletes the annotation.
 	k8s.MarkDeadLettered(idx, &conditions)
-	err := idxstatus.Patch(ctx, r.Client, k8s.ManagerIndexarr, idx,
+	err := idxstatus.Patch(ctx, r.Client, k8s.ManagerIndex, idx,
 		func(ac *indexac.IndexerStatusApplyConfiguration) {
 			ac.WithConditions(k8s.ConditionACs(conditions)...)
 		})

@@ -127,7 +127,7 @@ func TestWorkerSnapshotOfAnAnimeEpisodeWithAFile(t *testing.T) {
 	})
 
 	airDate := metav1.NewTime(time.Date(2000, 6, 4, 0, 0, 0, 0, time.UTC))
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr,
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalog,
 		catalogac.Episode("one-piece-s01e37", ns).WithStatus(
 			catalogac.EpisodeStatus().
 				WithTvdbID(4242).
@@ -262,7 +262,7 @@ func TestWorkerSearchesASceneMappedEpisodeByItsSceneNumbering(t *testing.T) {
 			TvdbID: 195721, QualityProfileRef: qp.Name, RootFolderRef: "tv",
 		},
 	}))
-	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrMetadata, catalogac.Series("ika-musume", ns).WithStatus(
+	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogMetadata, catalogac.Series("ika-musume", ns).WithStatus(
 		catalogac.SeriesStatus().WithMetadata(catalogac.SeriesMetadata().
 			WithTitle("Shinryaku! Ika Musume").WithYear(2010).WithRefreshedAt(metav1.Now()))))
 	require.NoError(t, err)
@@ -270,7 +270,7 @@ func TestWorkerSearchesASceneMappedEpisodeByItsSceneNumbering(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "ika-musume-s01e13", Namespace: ns},
 		Spec:       catalogv1alpha1.EpisodeSpec{SeriesRef: "ika-musume", SeasonNumber: 1, EpisodeNumber: 13},
 	}))
-	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, catalogac.Episode("ika-musume-s01e13", ns).WithStatus(
+	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, catalogac.Episode("ika-musume-s01e13", ns).WithStatus(
 		catalogac.EpisodeStatus().WithAirDate(metav1.NewTime(time.Date(2011, 9, 27, 0, 0, 0, 0, time.UTC))).
 			WithPhase(catalogv1alpha1.EpisodePhaseWanted)))
 	require.NoError(t, err)
@@ -367,7 +367,7 @@ func TestWorkerSnapshotMarksATranscodedCurrentFile(t *testing.T) {
 			require.NoError(t, c.Patch(ctx, &mf, patch))
 		}},
 		{name: "the probe's tag", mfName: "the-matrix-tagged", mark: func(t *testing.T, mfName string) {
-			_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr,
+			_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalog,
 				catalogac.MediaFile(mfName, f.ns).WithStatus(catalogac.MediaFileStatus().
 					WithMediaInfo(commonv1.MediaInfo{VideoCodec: "hevc", TranscodeProfile: "default@abc"})))
 			require.NoError(t, err)
@@ -384,7 +384,7 @@ func TestWorkerSnapshotMarksATranscodedCurrentFile(t *testing.T) {
 				},
 			}))
 			tc.mark(t, mfName)
-			_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr,
+			_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalog,
 				catalogac.Movie("the-matrix", f.ns).WithStatus(catalogac.MovieStatus().
 					WithPhase(catalogv1alpha1.MoviePhaseTranscoded).WithHasFile(true).WithFileRef(mfName)))
 			require.NoError(t, err)
@@ -497,7 +497,7 @@ func TestWorkerSearchAtCRDDefaultsApprovesAnEnglishRelease(t *testing.T) {
 	f := newWorkerFixture(t, "snapshot-crd-defaults")
 	f.worker.Evaluate = decision.Evaluate
 
-	_, err := k8s.PatchStatus(ctx, f.mgr, k8s.ManagerCatalogarrMetadata,
+	_, err := k8s.PatchStatus(ctx, f.mgr, k8s.ManagerCatalogMetadata,
 		catalogac.Movie("the-matrix", f.ns).WithStatus(
 			catalogac.MovieStatus().WithAvailable(true).WithMetadata(
 				catalogac.MovieMetadata().WithTitle("The Matrix").WithYear(1999).
@@ -560,7 +560,7 @@ func TestWorkerSearchRejectsAWrongFilmFromATextFallbackIndexer(t *testing.T) {
 	f := newWorkerFixture(t, "snapshot-identity")
 	f.worker.Evaluate = decision.Evaluate
 
-	_, err := k8s.PatchStatus(ctx, f.mgr, k8s.ManagerCatalogarrMetadata,
+	_, err := k8s.PatchStatus(ctx, f.mgr, k8s.ManagerCatalogMetadata,
 		catalogac.Movie("the-matrix", f.ns).WithStatus(
 			catalogac.MovieStatus().WithAvailable(true).WithMetadata(
 				catalogac.MovieMetadata().WithTitle("The Matrix").WithYear(1999).

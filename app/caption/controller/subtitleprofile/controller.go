@@ -63,7 +63,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
 	"github.com/mediactl/clustarr/app/caption/controller/subtitlerequest"
-	captionarrstatus "github.com/mediactl/clustarr/app/caption/status"
+	captionstatus "github.com/mediactl/clustarr/app/caption/status"
 	"github.com/mediactl/clustarr/app/remediation/mfindex"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -73,7 +73,7 @@ import (
 // This controller's own RBAC. SubtitleProfile is cluster-scoped (no
 // namespaces verb needed); subtitlerequests needs create (and update,
 // alongside patch, for the same server-side-apply create-if-absent reason
-// app/squash/controller/transcodeprofile/controller.go's own marker comment
+// app/transcode/controller/transcodeprofile/controller.go's own marker comment
 // documents) because this package is captionarr's only creator of them.
 // mediafiles is read-only: this controller only ever reads a MediaFile's
 // labels, kind and status.probeHash to decide whether and for whom to
@@ -245,7 +245,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		k8s.MarkFalse(&fresh, &conditions, ConditionOverlap, ReasonNoOverlap, "no selector overlap with another profile")
 	}
 
-	err := captionarrstatus.PatchProfile(ctx, r.Client, k8s.ManagerCaptionarr, &fresh,
+	err := captionstatus.PatchProfile(ctx, r.Client, k8s.ManagerCaption, &fresh,
 		func(ac *subtitleac.SubtitleProfileStatusApplyConfiguration) {
 			ac.WithObservedGeneration(fresh.Generation).
 				WithMatchingFiles(int32(len(matching))).
@@ -335,14 +335,14 @@ func (r *Reconciler) ensureSubtitleRequest(
 		WithOwnerReferences(ownerRef).
 		WithSpec(spec)
 
-	if _, err := k8s.Apply(ctx, r.Client, k8s.ManagerCaptionarr, request); err != nil {
+	if _, err := k8s.Apply(ctx, r.Client, k8s.ManagerCaption, request); err != nil {
 		return fmt.Errorf("subtitleprofile: ensure SubtitleRequest %s/%s: %w", mf.Namespace, mf.Name, err)
 	}
 	return nil
 }
 
 // extractProbeHash is this package's own restatement of the §10-documented
-// predicate function (app/squash/controller/transcodeprofile/controller.go's
+// predicate function (app/transcode/controller/transcodeprofile/controller.go's
 // own extractProbeHash carries the identical doc comment) -- not imported,
 // because it is a closure over this package's concrete MediaFile type. This
 // is the watch that wakes a SubtitleProfile reconcile when a MediaFile is
