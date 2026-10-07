@@ -30,10 +30,14 @@ import (
 const DefaultGaugeInterval = 30 * time.Second
 
 // QueueGauge sets metrics.WorkQueuePending{stream,consumer} to every work
-// consumer's lag (§9.4). Leader-only: one replica asks the broker.
+// consumer's lag (§9.4), and, with Streams, metrics.StreamFillRatio{stream}
+// to every byte-limited stream's fill (S10). Leader-only: one replica asks
+// the broker.
 type QueueGauge struct {
 	States   ConsumerStater
 	Topology events.Topology
+	// Streams reads each stream's fill; nil skips the series.
+	Streams  events.StreamStater
 	Interval time.Duration // 0 means DefaultGaugeInterval
 	Timeout  time.Duration // 0 means 5 s
 }
@@ -79,5 +83,21 @@ func (q *QueueGauge) Update(ctx context.Context) {
 			continue
 		}
 		metrics.WorkQueuePending.WithLabelValues(c.Stream, c.Name).Set(float64(st.Lag()))
+	}
+	if q.Streams != nil {
+		for _, s := range q.Topology.Streams {
+			if s.MaxBytes <= 0 {
+				metrics.StreamFillRatio.DeleteLabelValues(s.Name)
+				continue
+			}
+			cctx, cancel := context.WithTimeout(ctx, timeout)
+			f, err := q.Streams.StreamFill(cctx, s.Name)
+			cancel()
+			if err != nil || f.MaxBytes == 0 {
+				metrics.StreamFillRatio.DeleteLabelValues(s.Name)
+				continue
+			}
+			metrics.StreamFillRatio.WithLabelValues(s.Name).Set(float64(f.Bytes) / float64(f.MaxBytes))
+		}
 	}
 }

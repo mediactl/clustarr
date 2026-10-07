@@ -81,7 +81,11 @@ func Register(mgr ctrl.Manager, admin events.StreamAdmin, o Options) error {
 	if err := o.Validate(); err != nil {
 		return err
 	}
-	if err := mgr.Add(&extmetrics.QueueGauge{States: admin, Topology: events.Default()}); err != nil {
+	g := &extmetrics.QueueGauge{States: admin, Topology: events.Default()}
+	if ss, ok := admin.(events.StreamStater); ok {
+		g.Streams = ss
+	}
+	if err := mgr.Add(g); err != nil {
 		return fmt.Errorf("autoscale: add the queue gauge: %w", err)
 	}
 	if !o.Enabled {

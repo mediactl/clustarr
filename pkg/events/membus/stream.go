@@ -480,6 +480,25 @@ func (s *stream) purgeSubject(subject string) {
 	s.msgs = keep
 }
 
+// fill is the stream's StreamFill: every stored message's payload and header
+// bytes, as JetStream counts a message's size, against the spec's MaxBytes.
+func (s *stream) fill() events.StreamFill {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := events.StreamFill{MaxBytes: uint64(max(s.spec.MaxBytes, 0))}
+	for _, m := range s.msgs {
+		if m.removed {
+			continue
+		}
+		out.Messages++
+		out.Bytes += uint64(len(m.subject) + len(m.env.Data))
+		for k, v := range m.env.ToHeaders() {
+			out.Bytes += uint64(len(k) + len(v))
+		}
+	}
+	return out
+}
+
 // subjects returns the sorted distinct stored subjects matching filter.
 func (s *stream) subjects(filter string) []string {
 	s.mu.Lock()

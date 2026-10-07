@@ -45,6 +45,22 @@ func (b *Bus) lookupStream(ctx context.Context, stream string) (jetstream.Stream
 	return st, nil
 }
 
+var _ events.StreamStater = (*Bus)(nil)
+
+// StreamFill implements events.StreamStater: one STREAM.INFO.
+func (b *Bus) StreamFill(ctx context.Context, stream string) (events.StreamFill, error) {
+	s, err := b.lookupStream(ctx, stream)
+	if err != nil {
+		return events.StreamFill{}, err
+	}
+	info := s.CachedInfo()
+	return events.StreamFill{
+		Bytes:    info.State.Bytes,
+		MaxBytes: uint64(max(info.Config.MaxBytes, 0)),
+		Messages: info.State.Msgs,
+	}, nil
+}
+
 // DeleteSubscription implements events.StreamAdmin.
 func (b *Bus) DeleteSubscription(ctx context.Context, stream, durable string) error {
 	for _, c := range [][2]string{{stream, durable}, {events.StreamAdvisories, events.DeadLetterWatcherName(stream, durable)}} {

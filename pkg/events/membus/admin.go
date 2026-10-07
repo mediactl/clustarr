@@ -78,6 +78,20 @@ func (b *Bus) ConsumerState(_ context.Context, stream, durable string) (events.C
 	return cs, nil
 }
 
+var _ events.StreamStater = (*Bus)(nil)
+
+// StreamFill implements events.StreamStater: the stored messages' payload and
+// header bytes, against the spec's MaxBytes.
+func (b *Bus) StreamFill(_ context.Context, stream string) (events.StreamFill, error) {
+	b.mu.Lock()
+	st := b.streams[stream]
+	b.mu.Unlock()
+	if st == nil {
+		return events.StreamFill{}, fmt.Errorf("membus: stream %s: %w", stream, events.ErrStreamNotFound)
+	}
+	return st.fill(), nil
+}
+
 // Subjects implements events.StreamAdmin.
 func (b *Bus) Subjects(_ context.Context, stream, filter string) ([]string, error) {
 	b.mu.Lock()

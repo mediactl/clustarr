@@ -255,6 +255,16 @@ var (
 		"stream", "consumer",
 	)
 
+	// StreamFillRatio is a stream's stored bytes over its MaxBytes, by
+	// stream: the manager's leader sets it every 30 s (QueueGauge) from
+	// STREAM.INFO. A single-node memory stream is DiscardOld, so at 1 it
+	// is dropping its oldest messages, which lag cannot show (S10).
+	StreamFillRatio = newGaugeVec(
+		"clustarr_stream_fill_ratio",
+		"A stream's stored bytes over its MaxBytes, by stream; 1 means a DiscardOld stream is dropping its oldest messages.",
+		"stream",
+	)
+
 	// WorkHandledTotal counts work items a consumer finished handling, by
 	// consumer and outcome (ok, retry, discard, ...).
 	WorkHandledTotal = newCounterVec(
