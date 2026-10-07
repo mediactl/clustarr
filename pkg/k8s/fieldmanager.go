@@ -157,10 +157,13 @@ const (
 	// role's apply silently release the other's fields.
 	ManagerCatalogarrArtwork FieldManager = "catalogarr-artwork"
 
-	// ManagerCatalogarrMarkers is the metadata gateway's marker worker, the
-	// sole writer of MediaFile status.markers: disjoint from
-	// ManagerCatalogarr, which owns every other MediaFile status field, so
-	// neither apply releases the other's.
+	// ManagerCatalogarrMarkers is RETIRED (loop spec 2026-10-06 §2.12,
+	// §3.14): it was the metadata gateway's marker worker, the writer of
+	// MediaFile status.markers until the remediation loop took every status
+	// leaf under ManagerCatalogarr. No writer may use it; Validate still
+	// accepts it (RetiredFieldManagers) because release N's one release
+	// apply of every MediaFile's catalogarr-markers entry runs under it
+	// (§7.3.8, F8.4). F9.4 removes it.
 	ManagerCatalogarrMarkers FieldManager = "catalogarr-markers"
 
 	// ManagerCatalogarrClassify is the Series reconciler's one-time anime
@@ -345,7 +348,6 @@ func FieldManagers() []FieldManager {
 		ManagerCatalogarrGrab,
 		ManagerCatalogarrFanout,
 		ManagerCatalogarrArtwork,
-		ManagerCatalogarrMarkers,
 		ManagerCatalogarrClassify,
 		ManagerImportarr,
 		ManagerImportarrWorker,
@@ -363,12 +365,21 @@ func FieldManagers() []FieldManager {
 	}
 }
 
+// RetiredFieldManagers are names no writer may use any more but Validate
+// still accepts: release N's one release apply of every MediaFile's
+// catalogarr-markers entry runs under it (loop spec §7.3.8, F8.4); F9.4
+// empties the list.
+func RetiredFieldManagers() []FieldManager {
+	return []FieldManager{ManagerCatalogarrMarkers}
+}
+
 // String returns the manager name as the apiserver sees it.
 func (f FieldManager) String() string { return string(f) }
 
-// Valid reports whether f is one of the names §2 enumerates.
+// Valid reports whether f is one of the names §2 enumerates, live or
+// retired.
 func (f FieldManager) Valid() bool {
-	for _, known := range FieldManagers() {
+	for _, known := range append(FieldManagers(), RetiredFieldManagers()...) {
 		if f == known {
 			return true
 		}

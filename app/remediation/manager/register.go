@@ -30,6 +30,7 @@ import (
 
 	"github.com/mediactl/clustarr/app/catalog/controller/mediafile"
 	"github.com/mediactl/clustarr/app/remediation"
+	markersplanner "github.com/mediactl/clustarr/app/remediation/markers"
 	"github.com/mediactl/clustarr/app/remediation/naming"
 	"github.com/mediactl/clustarr/app/remediation/probe"
 	"github.com/mediactl/clustarr/app/remediation/rename"
@@ -79,7 +80,6 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 }
 
 // Planners is every planner the loop binds; the loop sorts them by Order.
-// F3.4 adds the markers planner.
 func Planners(d Deps) []remediation.Bound {
 	probes := probestore.New(d.Env.Bus, probestore.WithErrors(func(op string) {
 		metrics.RecordErrorsTotal.WithLabelValues("probe", op).Inc()
@@ -87,6 +87,7 @@ func Planners(d Deps) []remediation.Bound {
 	return []remediation.Bound{
 		remediation.Bind[mediafile.ProbeInput](probe.New(probe.Options{Bus: d.Env.Bus, Probes: probes})),
 		remediation.Bind[naming.Input](naming.New(naming.Options{})),
+		remediation.Bind[markersplanner.Input](markersplanner.New(markersplanner.Options{Bus: d.Env.Bus})),
 	}
 }
 

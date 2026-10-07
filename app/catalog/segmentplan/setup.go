@@ -38,8 +38,9 @@ type Options struct {
 	Reader client.Reader
 }
 
-// Setup subscribes catalogarr-segments-plan to a Planner. The results
-// consumer is app/catalog/segmenting.Setup.
+// Setup subscribes catalogarr-segments-plan to a Planner. Results are
+// clustarr-segments records cmd/markers writes; the remediation loop's
+// markers planner merges them (loop spec §4.12).
 func Setup(ctx context.Context, o Options) (stop func(), err error) {
 	spec, ok := events.Default().Consumer(events.ConsumerCatalogSegmentsPlan)
 	if !ok {

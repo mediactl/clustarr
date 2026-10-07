@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/mediactl/clustarr/app/grab/controller/downloadclient"
+	"github.com/mediactl/clustarr/app/remediation"
 	"github.com/mediactl/clustarr/app/squash/controller/audiograft"
 	"github.com/mediactl/clustarr/app/squash/controller/pool"
 	"github.com/mediactl/clustarr/app/squash/controller/transcodejob"
@@ -82,6 +83,11 @@ type Options struct {
 	CardigannBundled        bool
 	TraktBaseURL            string
 
+	// The remediation loop's tuning (loop spec §3.1, §3.7, §3.17).
+	RemediationConcurrency         int
+	RemediationBulkWritesPerSecond int
+	RemediationIOWorkers           int
+
 	Autoscale                  bool
 	ExternalMetricsBindAddress string
 	ExternalMetricsService     string
@@ -106,6 +112,9 @@ func DefaultOptions() Options {
 	o.JobWindow, o.JobRetention = squashmanager.DefaultJobWindow, squashmanager.DefaultJobRetention
 	o.GraftConcurrency = audiograft.DefaultConcurrency
 	o.CardigannBundled = true
+	o.RemediationConcurrency = remediation.DefaultConcurrency
+	o.RemediationBulkWritesPerSecond = remediation.DefaultBulkWritesPerSecond
+	o.RemediationIOWorkers = remediation.DefaultIOWorkers
 	o.Autoscale = true
 	o.ExternalMetricsBindAddress, o.ExternalMetricsService, o.ExternalMetricsSecret = ":6443", "external-metrics", "external-metrics-tls"
 	o.LegacyLeaseCheck = true
@@ -129,6 +138,15 @@ func (o Options) Validate() error {
 		if msgs := validation.IsQualifiedName(l.key); len(msgs) > 0 {
 			errs = append(errs, fmt.Errorf("%s %q: %s", l.flag, l.key, strings.Join(msgs, "; ")))
 		}
+	}
+	if o.RemediationConcurrency < 1 || o.RemediationConcurrency > 64 {
+		errs = append(errs, fmt.Errorf("--remediation-concurrency %d: must be 1 to 64", o.RemediationConcurrency))
+	}
+	if o.RemediationIOWorkers < 1 || o.RemediationIOWorkers > 64 {
+		errs = append(errs, fmt.Errorf("--remediation-io-workers %d: must be 1 to 64", o.RemediationIOWorkers))
+	}
+	if o.RemediationBulkWritesPerSecond < 0 {
+		errs = append(errs, fmt.Errorf("--remediation-bulk-writes-per-second %d: must be 0 (off) or more", o.RemediationBulkWritesPerSecond))
 	}
 	if o.Autoscale && (o.ExternalMetricsBindAddress == "" || o.ExternalMetricsBindAddress == k8s.DisabledBindAddress) {
 		errs = append(errs, errors.New("--autoscale needs --external-metrics-bind-address; pass --autoscale=false to run without the External Metrics API"))

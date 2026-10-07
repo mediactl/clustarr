@@ -41,7 +41,6 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/controller/delayprofile"
 	"github.com/mediactl/clustarr/app/catalog/controller/episode"
 	"github.com/mediactl/clustarr/app/catalog/controller/issue"
-	"github.com/mediactl/clustarr/app/catalog/controller/mediafile"
 	"github.com/mediactl/clustarr/app/catalog/controller/metadataprovider"
 	"github.com/mediactl/clustarr/app/catalog/controller/metadatarefresh"
 	"github.com/mediactl/clustarr/app/catalog/controller/movie"
@@ -56,8 +55,6 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/segmentplan"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
-	"github.com/mediactl/clustarr/pkg/obs/metrics"
-	"github.com/mediactl/clustarr/pkg/probestore"
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
 )
 
@@ -184,15 +181,6 @@ func registerControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 		return err
 	}
 
-	probes := probestore.New(bus, probestore.WithErrors(func(op string) {
-		metrics.RecordErrorsTotal.WithLabelValues("probe", op).Inc()
-	}))
-	mfr := mediafile.NewReconciler(c, scheme, mgr.GetEventRecorder("mediafile"), probes)
-	mfr.Bus = bus // the markers fetch (app/catalog/markers)
-	if err := mfr.SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("catalogarr: mediafile: %w", err)
-	}
-
 	if err := rootfolder.NewReconciler(c, mgr.GetEventRecorder("rootfolder")).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("catalogarr: rootfolder: %w", err)
 	}
@@ -304,6 +292,15 @@ func registerControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 		return nil
 	})); err != nil {
 		return fmt.Errorf("catalogarr: add the segment planner: %w", err)
+	}
+
+	// The clustarr-segments sweep (loop spec §4.11): the bucket's TTL is 0,
+	// so a dead file's record is deleted here, once a day, behind the lease.
+	// It reads mfindex.UID, which the remediation step registers in this
+	// same manager.
+	sweeper := &segmentplan.Sweeper{KV: bus.KV(events.BucketSegments), Reader: c}
+	if err := mgr.Add(k8s.LeaderOnly(sweeper.Run)); err != nil {
+		return fmt.Errorf("catalogarr: segments sweeper: %w", err)
 	}
 
 	return nil

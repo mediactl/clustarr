@@ -22,12 +22,10 @@ import (
 	"fmt"
 	"path/filepath"
 	"slices"
-	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -60,43 +58,6 @@ type namingOwner struct {
 	render        func(root *catalogv1alpha1.RootFolder, c naming.Context, ext string) (string, error)
 }
 
-// namingRetryAfter is how soon a reconcile whose render kept the previous
-// proposal over a failed lookup is retried: the lookup is a cache read, so
-// its failure is a blip, and nothing else would wake the reconcile.
-const namingRetryAfter = 30 * time.Second
-
-// namingInputs is what Reconcile knows about the file as of this apply that
-// renderNaming cannot read off the object.
-type namingInputs struct {
-	// specPath is spec.path as of this apply: a swap incorporated in this
-	// reconcile may have moved the file.
-	specPath string
-	// probeStale is true when the file's bytes changed since known's probe
-	// and the probe that would describe them failed: known.MediaInfo then
-	// describes bytes that are gone (ruling R20).
-	probeStale bool
-	// transcodePending is true when a TranscodeJob for the file is still
-	// running, or finished without this apply incorporating it (ruling R18).
-	transcodePending bool
-}
-
-// renderNaming proposes mf's canonical path for status.naming: the path an
-// import of this file would have produced today, rendered through the same
-// catalogctx calls fileimport makes (the item's metadata, the release-time
-// spec, the probe, the RootFolder's naming config), so a rename lands the
-// file exactly where a fresh import would have. importarr performs the
-// rename; this only proposes.
-//
-// It reads the probe from known, not from mf.Status, because known is what
-// this reconcile is about to apply: a probe taken earlier in the same
-// reconcile is already in it. in says where the file is and what holds it.
-// It is LoadNaming, then RenderNaming; see both.
-func (r *Reconciler) renderNaming(ctx context.Context, mf *catalogv1alpha1.MediaFile, known *knownStatus, in namingInputs) (naming *catalogv1alpha1.NamingStatus, retry bool) {
-	look := LoadNaming(ctx, r.Client, mf)
-	look.log(ctx)
-	return RenderNaming(mf, look, known.MediaInfo, known.Naming, in.specPath, in.probeStale, in.transcodePending)
-}
-
 // NamingLookup is what LoadNaming read for a file: the item it backs (or why
 // none can name it), its RootFolder, and a failed read to keep the
 // proposal over.
@@ -106,17 +67,6 @@ type NamingLookup struct {
 	root        *catalogv1alpha1.RootFolder
 	rootMissing bool
 	err         error
-}
-
-// log reports a failed lookup and a missing RootFolder, as renderNaming did.
-func (look NamingLookup) log(ctx context.Context) {
-	log := logging.FromContext(ctx)
-	switch {
-	case look.err != nil:
-		log.Warn("mediafile: could not load the item or its RootFolder to name the file; keeping the previous proposal", "error", look.err)
-	case look.rootMissing:
-		log.Warn("mediafile: the item's RootFolder does not exist; the file cannot be named", "rootFolder", look.owner.rootFolderRef)
-	}
 }
 
 // LoadNaming reads what RenderNaming needs through c: the probe-free half of
@@ -224,26 +174,12 @@ func keepNaming(prev *catalogv1alpha1.NamingStatus, specPath string) *catalogv1a
 	return &out
 }
 
-// withNamingRetry shortens res's requeue to namingRetryAfter when a render
-// kept its previous proposal over a failed lookup.
-func withNamingRetry(res ctrl.Result, retry bool) ctrl.Result {
-	if retry && (res.RequeueAfter == 0 || res.RequeueAfter > namingRetryAfter) {
-		res.RequeueAfter = namingRetryAfter
-	}
-	return res
-}
-
-// namingOwner loads the item mf backs: a Movie, or every Episode the file
-// covers (spec.mediaRef.name plus keys, a multi-episode file) and their
-// Series. A missing item, or one whose metadata has not arrived, is
-// MetadataPending; an episode reference naming no episode, or episodes of
-// more than one series, is Unrenderable. It returns nil, "", nil for any
-// other kind.
-func (r *Reconciler) namingOwner(ctx context.Context, mf *catalogv1alpha1.MediaFile) (*namingOwner, catalogv1alpha1.NamingReason, error) {
-	return namingOwnerOf(ctx, r.Client, mf)
-}
-
-// namingOwnerOf is namingOwner reading through c.
+// namingOwnerOf loads, through c, the item mf backs: a Movie, or every
+// Episode the file covers (spec.mediaRef.name plus keys, a multi-episode
+// file) and their Series. A missing item, or one whose metadata has not
+// arrived, is MetadataPending; an episode reference naming no episode, or
+// episodes of more than one series, is Unrenderable. It returns nil, "", nil
+// for any other kind.
 func namingOwnerOf(ctx context.Context, c client.Reader, mf *catalogv1alpha1.MediaFile) (*namingOwner, catalogv1alpha1.NamingReason, error) {
 	key := func(name string) types.NamespacedName {
 		return types.NamespacedName{Namespace: mf.Namespace, Name: name}

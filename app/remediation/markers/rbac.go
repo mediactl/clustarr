@@ -15,13 +15,9 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package markers is the catalogarr-markers durable's handler (spec
-// 2026-09-30 plex-analyze-bypass §3; loop spec 2026-10-06 §4.12): [Handler]
-// asks the gateway's markers providers (TheIntroDB) for one MediaFile's skip
-// segments and answers into the file's clustarr-markers record by
-// compare-and-swap. It reads no Kubernetes object and writes no status: the
-// task carries the query the remediation loop built from its cache, and the
-// loop's markers planner incorporates the answer into status.markers. It
-// runs beside the metadata gateway, which calls [Setup] once it has built
-// its registry.
 package markers
+
+// The query reads the file's item through the manager's cache. The blank line
+// keeps the marker package-level.
+//
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series;episodes,verbs=get;list;watch

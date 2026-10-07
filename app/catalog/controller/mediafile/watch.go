@@ -26,7 +26,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
@@ -98,14 +97,6 @@ func extractSubtitleItemsSignature(o client.Object) string {
 	return sig
 }
 
-// mediaFileForTranscodeJob and mediaFileForSubtitleRequest map the watched
-// object straight to its named MediaFile -- both spec types carry the ref
-// directly, so no List/field-index round trip is needed here (the index
-// above is for the reverse direction, used inside Reconcile).
-func (r *Reconciler) mediaFileForTranscodeJob(ctx context.Context, o client.Object) []reconcile.Request {
-	return requestsOf(FileOfTranscodeJob(ctx, o))
-}
-
 // FileOfTranscodeJob is the file a TranscodeJob names (spec.mediaFileRef).
 func FileOfTranscodeJob(_ context.Context, o client.Object) []types.NamespacedName {
 	tj, ok := o.(*transcodev1alpha1.TranscodeJob)
@@ -121,22 +112,6 @@ func FileOfTranscodeJob(_ context.Context, o client.Object) []types.NamespacedNa
 // Succeeded one is a swap to incorporate.
 func TranscodeJobPhaseChanged() predicate.Predicate {
 	return k8s.StatusFieldChanged(extractTranscodeJobPhase)
-}
-
-// requestsOf is nns as reconcile requests.
-func requestsOf(nns []types.NamespacedName) []reconcile.Request {
-	if len(nns) == 0 {
-		return nil
-	}
-	out := make([]reconcile.Request, 0, len(nns))
-	for _, nn := range nns {
-		out = append(out, reconcile.Request{NamespacedName: nn})
-	}
-	return out
-}
-
-func (r *Reconciler) mediaFileForSubtitleRequest(ctx context.Context, o client.Object) []reconcile.Request {
-	return requestsOf(FileOfSubtitleRequest(ctx, o))
 }
 
 // The naming watches' field indexes. Each is this package's own, under a
@@ -298,25 +273,6 @@ func rootFolderNamingChanged() predicate.Predicate {
 			return oldRF.Spec.Path != newRF.Spec.Path || !equality.Semantic.DeepEqual(oldRF.Spec.Naming, newRF.Spec.Naming)
 		},
 	}
-}
-
-// mediaFilesForMovie, mediaFilesForEpisode, mediaFilesForSeries and
-// mediaFilesForRootFolder are the old controller's map functions over
-// FilesForMovie, FilesForEpisode, FilesForSeries and FilesForRootFolder.
-func (r *Reconciler) mediaFilesForMovie(ctx context.Context, o client.Object) []reconcile.Request {
-	return requestsOf(FilesForMovie(ctx, r.Client, o))
-}
-
-func (r *Reconciler) mediaFilesForEpisode(ctx context.Context, o client.Object) []reconcile.Request {
-	return requestsOf(FilesForEpisode(ctx, r.Client, o))
-}
-
-func (r *Reconciler) mediaFilesForSeries(ctx context.Context, o client.Object) []reconcile.Request {
-	return requestsOf(FilesForSeries(ctx, r.Client, o))
-}
-
-func (r *Reconciler) mediaFilesForRootFolder(ctx context.Context, o client.Object) []reconcile.Request {
-	return requestsOf(FilesForRootFolder(ctx, r.Client, o))
 }
 
 // FilesForMovie, FilesForEpisode, FilesForSeries and FilesForRootFolder map

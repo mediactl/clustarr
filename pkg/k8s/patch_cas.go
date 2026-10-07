@@ -67,11 +67,11 @@ type CASApplyConfiguration[A any] interface {
 // all conflict return the last Conflict, still recognisable by
 // apierrors.IsConflict.
 //
-// Six writers predate this helper and keep hand-rolled loops of the same
+// Five writers predate this helper and keep hand-rolled loops of the same
 // shape -- app/squash/status (writeStatus/patchCAS), app/import/worker/rescan's
-// MediaFile apply, app/catalog/worker/grab's kindops and nonvideo status
-// writes, and app/catalog/segmenting.Applier. They are equivalent; a new
-// writer should use this one.
+// MediaFile apply, and app/catalog/worker/grab's kindops and nonvideo status
+// writes. They are equivalent; a new writer should use this one, as the
+// remediation loop's one apply does.
 func PatchStatusCAS[O client.Object, A CASApplyConfiguration[A]](
 	ctx context.Context,
 	r client.Reader,

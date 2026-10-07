@@ -712,6 +712,12 @@ func Default() Topology {
 		Consumers:    withDeadLetterWatchers(append(defaultConsumers(), probeConsumers()...)),
 		Buckets:      append(append(defaultBuckets(), probeBucket()), recordBuckets()...),
 		ObjectStores: defaultObjectStores(),
+		Retired: []RetiredConsumer{
+			// loop spec §4.12: segment results are clustarr-segments records
+			// cmd/markers writes by CAS; the consumer that applied them is
+			// gone. Ensure deletes the durable and purges what it left.
+			{Stream: StreamWorkSegmentarr, Durable: ConsumerCatalogSegmentsResult, Purge: FilterCatalogSegmentsResult},
+		},
 	}
 }
 
@@ -939,16 +945,6 @@ func defaultConsumers() []ConsumerSpec {
 			// Its TaskTimeout (app/segments/worker); every other consumer's
 			// budget waits for its clustarr_work_duration_seconds tail.
 			HandlerTimeout: 30 * m,
-		},
-		{
-			// catalogarr records each file's result and merges it into
-			// status.markers.
-			Name: ConsumerCatalogSegmentsResult, Stream: StreamWorkSegmentarr,
-			Filters: []string{FilterCatalogSegmentsResult},
-			AckWait: 60 * s, MaxDeliver: 8,
-			BackOff:       []time.Duration{30 * s, 2 * m, 10 * m},
-			MaxAckPending: 32,
-			Slots:         32,
 		},
 		{
 			Name: ConsumerCatalogHistory, Stream: StreamEvents,

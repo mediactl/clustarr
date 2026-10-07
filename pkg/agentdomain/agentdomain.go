@@ -88,7 +88,7 @@ func Domains() []Domain {
 		// (ADR-0007).
 		{Name: Metadata, Consumers: []string{
 			events.ConsumerCatalogMetadata, events.ConsumerCatalogArtworkFetch,
-			events.ConsumerCatalogMarkers, events.ConsumerCatalogSegmentsResult,
+			events.ConsumerCatalogMarkers,
 		}},
 		// The R3 probe queue's two lanes ride with the import consumers: a
 		// ProbeVersion raise's backlog scales the import domain out.

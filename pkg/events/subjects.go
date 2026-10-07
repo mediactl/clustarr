@@ -112,8 +112,9 @@ const (
 	FilterCaptionFetch        = "clustarr.work.captionarr.fetch.>"
 	FilterCatalogArtworkFetch = "clustarr.work.catalogarr.artwork.fetch.>"
 	FilterCatalogMarkers      = "clustarr.work.segmentarr.markers.>"
-	// Segment detection (spec 2026-10-01): a season's or a movie's plan,
-	// the analysis task the worker takes, and each file's result.
+	// Segment detection (spec 2026-10-01): a season's or a movie's plan and
+	// the analysis task the worker takes. FilterCatalogSegmentsResult is the
+	// retired results durable's, purged by Topology.Retired until F9.4.
 	FilterCatalogSegmentsPlan    = "clustarr.work.segmentarr.plan.>"
 	FilterCatalogSegmentsAnalyze = "clustarr.work.segmentarr.analyze.>"
 	FilterCatalogSegmentsResult  = "clustarr.work.segmentarr.result.>"
@@ -144,8 +145,9 @@ const (
 	ConsumerCatalogArtworkFetch  = "catalogarr-artwork-fetch"
 	ConsumerCatalogArtworkRender = "catalogarr-artwork-render"
 	ConsumerCatalogMarkers       = "catalogarr-markers"
-	// ConsumerCatalogSegmentsPlan and ConsumerCatalogSegmentsResult are
-	// catalogarr's; ConsumerSegmentarrAnalyze is segmentarr-worker's.
+	// ConsumerCatalogSegmentsPlan is catalogarr's; ConsumerSegmentarrAnalyze
+	// is segmentarr-worker's. ConsumerCatalogSegmentsResult is retired
+	// (loop spec §4.12): Topology.Retired names it until F9.4.
 	ConsumerCatalogSegmentsPlan   = "catalogarr-segments-plan"
 	ConsumerSegmentarrAnalyze     = "segmentarr-analyze"
 	ConsumerCatalogSegmentsResult = "catalogarr-segments-result"
@@ -391,16 +393,23 @@ func WorkSegmentsAnalyzeSubject(key string) string {
 	return "clustarr.work.segmentarr.analyze.normal." + tok(key)
 }
 
-// WorkSegmentsResultSubject builds
-// clustarr.work.segmentarr.result.normal.<key>.
-func WorkSegmentsResultSubject(key string) string {
-	return "clustarr.work.segmentarr.result.normal." + tok(key)
-}
-
 // WorkMarkersSubject builds clustarr.work.segmentarr.markers.normal.<mediaKey>:
 // fetch one MediaFile's skip segments (schema.MarkersTask).
 func WorkMarkersSubject(mediaKey string) string {
 	return "clustarr.work.segmentarr.markers.normal." + tok(mediaKey)
+}
+
+// MsgIDForMarkers is a markers task's Msg-Id, "markers/<file UID>/<seq>"
+// (loop spec 2026-10-06 §4.12): the remediation loop's sequence, so a
+// republish of one request is absorbed and the next request is not.
+func MsgIDForMarkers(fileUID string, seq int64) string {
+	return "markers/" + fileUID + "/" + strconv.FormatInt(seq, 10)
+}
+
+// MsgIDForMarkersAt is a deferred markers task's, republished for at:
+// MsgIDForMarkers plus "/at-<unix>", so the dedup window keeps it.
+func MsgIDForMarkersAt(fileUID string, seq int64, at time.Time) string {
+	return MsgIDForMarkers(fileUID, seq) + "/at-" + strconv.FormatInt(at.Unix(), 10)
 }
 
 // WorkWantedScanSubject builds

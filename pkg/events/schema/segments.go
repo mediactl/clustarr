@@ -61,7 +61,8 @@ type AnalyzeTask struct {
 // Schema implements Payload.
 func (AnalyzeTask) Schema() string { return "catalog.AnalyzeTask.v1" }
 
-// SegmentJSON is one segment of a SegmentsResult.
+// SegmentJSON is one segment of a MarkersAnswer: TheIntroDB's segments as the
+// marker worker answers them.
 type SegmentJSON struct {
 	Kind       string `json:"kind"`
 	StartMs    int64  `json:"startMs"`
@@ -69,18 +70,3 @@ type SegmentJSON struct {
 	Source     string `json:"source"`
 	Confidence int32  `json:"confidence"`
 }
-
-// SegmentsResult is one file's analysis, from segmentarr-worker. Subject:
-// clustarr.work.segmentarr.result.normal.<key>; the envelope key
-// is <namespace>/<name> of the MediaFile.
-type SegmentsResult struct {
-	MediaFile string        `json:"mediaFile"`
-	ProbeHash string        `json:"probeHash"`
-	Version   int32         `json:"version"`
-	Result    string        `json:"result"`
-	Message   string        `json:"message,omitempty"`
-	Segments  []SegmentJSON `json:"segments,omitempty"`
-}
-
-// Schema implements Payload.
-func (SegmentsResult) Schema() string { return "catalog.SegmentsResult.v1" }

@@ -25,6 +25,9 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/mediactl/clustarr/pkg/events/schema"
 )
 
 // AnalyzerVersion is recorded in status.markers.analysis.version; raise it
@@ -107,13 +110,33 @@ type Segment struct {
 	Confidence int32  `json:"confidence"`
 }
 
-// Record is a file's analysis as kept in the clustarr-segments bucket,
-// keyed by its MediaFile's UID: what the merge into status.markers needs
-// when TheIntroDB's side changes, and what segmentarr-worker reads to skip
-// a file already analyzed or to add an intro its season later revealed.
-type Record struct {
+// RecordSchema is a v2 record's Schema; a v1 record has none.
+const RecordSchema = "segments.Record.v2"
+
+// Attempt is an analysis that failed.
+type Attempt struct {
 	ProbeHash string    `json:"probeHash"`
 	Version   int32     `json:"version"`
-	Result    string    `json:"result"`
-	Segments  []Segment `json:"segments"`
+	Message   string    `json:"message"`
+	At        time.Time `json:"at"`
+}
+
+// Record is a file's analysis in the clustarr-segments bucket, keyed
+// events.RecordKey(MediaFile UID), written by cmd/markers by CAS (Store;
+// loop spec 2026-10-06 §4.12): what the remediation loop's markers planner
+// merges into status.markers, and what the worker reads to skip a file
+// already analyzed or to add an intro its season later revealed. A v1
+// record has no Schema, File, AnalyzedAt, Amend or LastError.
+type Record struct {
+	Schema     string     `json:"schema,omitempty"`
+	File       schema.Ref `json:"file,omitzero"`
+	ProbeHash  string     `json:"probeHash"`
+	Version    int32      `json:"version"`
+	Result     string     `json:"result"`
+	Segments   []Segment  `json:"segments"`
+	AnalyzedAt time.Time  `json:"analyzedAt,omitzero"`
+	// Amend counts the season amendments (an intro the season revealed
+	// later) made to this analysis.
+	Amend     int32    `json:"amend,omitempty"`
+	LastError *Attempt `json:"lastError,omitempty"`
 }

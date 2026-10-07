@@ -169,7 +169,7 @@ var resolvers = map[string]resolver{
 	schema.RenderOverlayTask{}.Schema(): resolveRenderOverlayTask,
 	schema.SegmentsPlanTask{}.Schema():  resolveSegmentsPlanTask,
 	schema.AnalyzeTask{}.Schema():       resolveAnalyzeTask,
-	schema.SegmentsResult{}.Schema():    resolveSegmentsResult,
+	schema.MarkersTask{}.Schema():       resolveMarkersTask,
 	schema.ProbeTask{}.Schema():         resolveProbeTask,
 }
 
@@ -294,12 +294,15 @@ func resolveAnalyzeTask(key string, data []byte) Target {
 	return Target{Namespace: p.Namespace}
 }
 
-func resolveSegmentsResult(key string, data []byte) Target {
-	var p schema.SegmentsResult
-	if err := schema.Decode(p.Schema(), data, &p); err != nil {
+// resolveMarkersTask is the marker worker's TheIntroDB ask for one MediaFile
+// (loop spec §4.12): a dead letter of it annotates the file, and the
+// remediation loop folds the annotation.
+func resolveMarkersTask(key string, data []byte) Target {
+	var p schema.MarkersTask
+	if err := schema.Decode(p.Schema(), data, &p); err != nil || p.File.Name == "" {
 		return Target{Namespace: namespaceOf(key)}
 	}
-	return mediaFileTarget(namespaceOf(key), p.MediaFile)
+	return mediaFileTarget(p.File.Namespace, p.File.Name)
 }
 
 // resolveProbeTask is the import domain's probe of one MediaFile.

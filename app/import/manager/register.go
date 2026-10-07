@@ -16,9 +16,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 // Package manager is importarr's manager-side registration (spec §4.2.1):
-// the LibraryScan, rename, RootFolder schedule, ImportExclusion,
-// LibraryDelete and ImportList controllers, the import retrigger and the
-// recycle sweep's publisher.
+// the LibraryScan, RootFolder schedule, ImportExclusion, LibraryDelete and
+// ImportList controllers, the import retrigger and the recycle sweep's
+// publisher. The streaming rename is the remediation loop's rename actuator
+// (app/remediation/rename, ADR-0016).
 package manager
 
 import (
@@ -34,7 +35,6 @@ import (
 	"github.com/mediactl/clustarr/app/import/controller/librarydelete"
 	"github.com/mediactl/clustarr/app/import/controller/libraryscan"
 	"github.com/mediactl/clustarr/app/import/controller/recyclesweep"
-	"github.com/mediactl/clustarr/app/import/controller/rename"
 	"github.com/mediactl/clustarr/app/import/controller/retrigger"
 	"github.com/mediactl/clustarr/app/import/controller/rootfolderschedule"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -65,19 +65,6 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 		Clock:  time.Now,
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("importarr: libraryscan: %w", err)
-	}
-
-	// The streaming rename pass (probe-driven naming spec §5): moves a file
-	// to the path catalogarr proposes in status.naming when its RootFolder
-	// sets renameFiles. It reads the MediaFile past the cache immediately
-	// before each move (the lost-update rule), hence the APIReader, and it
-	// moves files, so it needs the library mounted where spec.path says.
-	if err := (&rename.Reconciler{
-		Client:    mgr.GetClient(),
-		APIReader: mgr.GetAPIReader(),
-		Recorder:  mgr.GetEventRecorder("rename"),
-	}).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("importarr: rename: %w", err)
 	}
 
 	// mgr.GetEventRecorder, not the deprecated mgr.GetEventRecorderFor: the

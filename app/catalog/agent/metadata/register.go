@@ -17,7 +17,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 // Package metadata is the agent's metadata domain (spec §3.5.3): the
 // metadata gateway (rpc.catalogarr.metadata.* and catalogarr-metadata),
-// catalogarr-markers, catalogarr-segments-result and catalogarr-artwork-fetch.
+// catalogarr-markers (answering into clustarr-markers) and
+// catalogarr-artwork-fetch.
 // Fixed at one replica (ADR-0007): its in-process rate limiters are what keep
 // Clustarr inside every provider's quota, and artwork.Fetcher's in-process
 // lock serialises the two artwork consumers per item. The orphan reaper is
@@ -29,6 +30,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"time"
 
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -36,7 +38,6 @@ import (
 	catalogagent "github.com/mediactl/clustarr/app/catalog/agent"
 	catalogmetadata "github.com/mediactl/clustarr/app/catalog/metadata"
 	"github.com/mediactl/clustarr/app/catalog/metadata/artwork"
-	"github.com/mediactl/clustarr/app/catalog/segmenting"
 	markerworker "github.com/mediactl/clustarr/app/catalog/worker/markers"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -97,23 +98,10 @@ func Register(_ context.Context, mgr ctrl.Manager, bus events.Bus, o Options) (c
 			Bus:        bus,
 			HTTPClient: metadataHTTPClient,
 			Artwork:    fetcher,
+			// TheIntroDB's handler answers into clustarr-markers; the
+			// remediation loop incorporates (loop spec §4.12).
 			Markers: func(ctx context.Context, providers []pkgmetadata.MarkersProvider) (func(), error) {
-				stopMarkers, err := markerworker.Setup(ctx, markerworker.Options{Bus: bus, Reader: mgr.GetAPIReader(), Client: mgr.GetClient()}, providers)
-				if err != nil {
-					return nil, err
-				}
-				// Segment analysis results write status.markers beside
-				// TheIntroDB's handler, through the same merge. The results
-				// half registers from the package it is in (loop spec §8.2
-				// rule 1); F3.4 removes it with app/catalog/segmenting.
-				stopResults, err := segmenting.Setup(ctx, segmenting.Options{
-					Bus: bus, Reader: mgr.GetAPIReader(), Client: mgr.GetClient(),
-				})
-				if err != nil {
-					stopMarkers()
-					return nil, err
-				}
-				return func() { stopResults(); stopMarkers() }, nil
+				return markerworker.Setup(ctx, markerworker.Options{Bus: bus, Writer: os.Getenv("POD_NAME")}, providers)
 			},
 		})
 		if err != nil {

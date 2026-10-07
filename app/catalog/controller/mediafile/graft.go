@@ -25,14 +25,11 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
-
-// +kubebuilder:rbac:groups=transcode.clustarr.io,resources=audiografts,verbs=get;list;watch
 
 // audioGraftMediaFileRefIndex indexes AudioGrafts by status.mediaFileRef,
 // the file squasharr judged (and grafted) them against.
@@ -44,11 +41,6 @@ func indexAudioGraftByMediaFileRef(o client.Object) []string {
 		return nil
 	}
 	return []string{g.Status.MediaFileRef}
-}
-
-// mediaFileForAudioGraft wakes the file a graft names.
-func mediaFileForAudioGraft(ctx context.Context, o client.Object) []reconcile.Request {
-	return requestsOf(FileOfAudioGraft(ctx, o))
 }
 
 // FileOfAudioGraft is the file a graft names (status.mediaFileRef).
@@ -78,12 +70,6 @@ func extractAudioGraftDone(o client.Object) string {
 		at = g.Status.CompletedAt.UTC().String()
 	}
 	return string(g.Status.Phase) + "|" + at
-}
-
-// unincorporatedGraft is a graft that swapped mf's file after its last
-// probe: Succeeded with a graft tag, finished after probedAt. nil when none.
-func (r *Reconciler) unincorporatedGraft(ctx context.Context, mf *catalogv1alpha1.MediaFile) (*transcodev1alpha1.AudioGraft, error) {
-	return UnincorporatedGraft(ctx, r.Client, mf)
 }
 
 // UnincorporatedGraft is a graft that swapped mf's file after its last

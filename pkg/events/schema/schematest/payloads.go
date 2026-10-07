@@ -41,7 +41,7 @@ func Payloads() []schema.Payload {
 		schema.MetadataTask{},
 		schema.SegmentsPlanTask{},
 		schema.AnalyzeTask{},
-		schema.SegmentsResult{},
+		schema.MarkersTask{},
 		schema.WantedScan{},
 		schema.MetadataRequest{},
 		schema.MetadataResponse{},

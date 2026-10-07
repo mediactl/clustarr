@@ -22,7 +22,6 @@ import (
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	ctrl "sigs.k8s.io/controller-runtime"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	clustarrevents "github.com/mediactl/clustarr/pkg/events"
@@ -96,16 +95,9 @@ const (
 	// loop while the old agent still answers (a rollout, a draining pod).
 	ProbeSkewRetry = 30 * time.Minute
 	// probeAbandonLimit is how many consecutive abandoned probes of the same
-	// bytes are tried before the reconciler gives up on them.
+	// bytes are tried before the probe planner gives up on them.
 	probeAbandonLimit = 3
-	// probeConflictRetry requeues a reconcile whose request lost a
-	// compare-and-swap.
-	probeConflictRetry = time.Second
 )
-
-// probeVersion is the probe version a reconcile wants: mediainfo.ProbeVersion,
-// a variable only so a test can raise it (export_test.go's SetProbeVersion).
-var probeVersion = mediainfo.ProbeVersion
 
 // verdict is what a reconcile does about a file's probe record.
 type verdict int
@@ -234,21 +226,4 @@ func versionOnly(mf *catalogv1alpha1.MediaFile, ps probeState, swapOrKept bool) 
 func keptNeedsNoProbe(mf *catalogv1alpha1.MediaFile, ps probeState, kept bool, want int32) bool {
 	return kept && !ps.Stale && mf.Status.ProbeHash != "" && mf.Status.MediaInfo != nil &&
 		mf.Status.ProbeVersion >= want
-}
-
-// sooner is res, requeued after d if that is sooner than res asks.
-func sooner(res ctrl.Result, d time.Duration) ctrl.Result {
-	if d > 0 && (res.RequeueAfter == 0 || d < res.RequeueAfter) {
-		res.RequeueAfter = d
-	}
-	return res
-}
-
-// requeueAt is res, requeued at at (at least a second from now); a zero at
-// leaves res as it is.
-func requeueAt(res ctrl.Result, at, now time.Time) ctrl.Result {
-	if at.IsZero() {
-		return res
-	}
-	return sooner(res, max(at.Sub(now), time.Second))
 }

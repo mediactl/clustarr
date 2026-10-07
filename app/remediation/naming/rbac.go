@@ -15,18 +15,13 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package mediafile
+package naming
 
-// The per-reconcile lookups, for the envtests in package mediafile_test
-// that hold them to a raw client and a manager cache alike.
-var (
-	TranscodeJobsOf = (*Reconciler).transcodeJobsOf
-	ScanSidecars    = (*Reconciler).scanSidecars
-)
-
-// MediaFileRefIndex is the field the two lookups above select on: the
-// SubtitleRequest selectable field's JSONPath and both cache indexes' name.
-const MediaFileRefIndex = subtitleRequestMediaFileRefIndex
-
-// AudioGraftMediaFileRefIndex is the AudioGraft cache index's name.
-const AudioGraftMediaFileRefIndex = audioGraftMediaFileRefIndex
+// The naming planner reads the file's item, its RootFolder, its
+// TranscodeJobs and its SubtitleRequest through the manager's cache (moved
+// from the mediafile controller, F3.4). The blank line keeps the markers
+// package-level.
+//
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series;episodes;rootfolders,verbs=get;list;watch
+// +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodejobs,verbs=get;list;watch
+// +kubebuilder:rbac:groups=subtitle.clustarr.io,resources=subtitlerequests,verbs=get;list;watch

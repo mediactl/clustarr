@@ -29,6 +29,7 @@ import (
 	grabmanager "github.com/mediactl/clustarr/app/grab/manager"
 	importmanager "github.com/mediactl/clustarr/app/import/manager"
 	indexermanager "github.com/mediactl/clustarr/app/indexer/manager"
+	remediationmanager "github.com/mediactl/clustarr/app/remediation/manager"
 	squashmanager "github.com/mediactl/clustarr/app/squash/manager"
 	"github.com/mediactl/clustarr/pkg/busconn"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -145,8 +146,8 @@ func Run(ctx context.Context, o Options) error {
 }
 
 // register adds every manager-side component in §3.4.2's fixed order and
-// returns their names: catalog, import, index, grab, squash, caption, then
-// autoscale.
+// returns their names: catalog, import, index, grab, squash, caption,
+// remediation, then autoscale.
 func register(mgr ctrl.Manager, bus events.Bus, o Options) ([]string, error) {
 	type step struct {
 		name string
@@ -177,6 +178,15 @@ func register(mgr ctrl.Manager, bus events.Bus, o Options) ([]string, error) {
 		}},
 		{"caption", func() error {
 			return captionmanager.Register(mgr, bus, captionmanager.Options{Options: o.Options, DataDir: o.DataDir})
+		}},
+		// The MediaFile remediation loop (ADR-0016, loop spec §3.1), after
+		// squash and caption: the only writer of MediaFile status.
+		{"remediation", func() error {
+			return remediationmanager.Register(mgr, bus, remediationmanager.Options{
+				Options: o.Options, DataDir: o.DataDir,
+				Concurrency: o.RemediationConcurrency, BulkWritesPerSecond: o.RemediationBulkWritesPerSecond,
+				IOWorkers: o.RemediationIOWorkers,
+			})
 		}},
 		// The autoscale step runs whatever --autoscale says (§9.4): QueueGauge
 		// is always added, and with --autoscale=false Register's leader-only

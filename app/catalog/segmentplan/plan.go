@@ -23,7 +23,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"sort"
-	"strconv"
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -34,7 +33,6 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/controller/series"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
-	"github.com/mediactl/clustarr/pkg/segments"
 	"github.com/mediactl/clustarr/pkg/version"
 )
 
@@ -44,24 +42,20 @@ const planDelay = 5 * time.Minute
 
 // PublishPlan asks for mf's analysis: its season's (ep non-nil), held to the
 // end of the current 5-minute bucket and deduplicated within it, or its own
-// as a movie, at once.
+// as a movie, at once. It publishes PlanMessage.
 func PublishPlan(ctx context.Context, bus events.Publisher, mf *catalogv1alpha1.MediaFile, ep *catalogv1alpha1.Episode, now time.Time) error {
-	task := schema.SegmentsPlanTask{Namespace: mf.Namespace}
-	var key, id string
-	var opts []events.PublishOption
-	if ep != nil {
-		task.Series, task.Season = ep.Spec.SeriesRef, ep.Spec.SeasonNumber
-		key = seasonKey(mf.Namespace, task.Series, task.Season)
-		bucket := now.Truncate(planDelay)
-		id = "segments-plan-" + key + "-" + strconv.FormatInt(bucket.Unix(), 10)
-		opts = append(opts, events.WithScheduleAt(bucket.Add(planDelay)))
-	} else {
-		task.Movie = mf.Name
-		key = mf.Namespace + "/" + mf.Name
-		id = events.MsgIDForObject(string(mf.UID), 0,
-			"segments-plan-"+mf.Status.ProbeHash+"-v"+strconv.Itoa(int(segments.AnalyzerVersion)))
+	subject, id, env, at, err := PlanMessage(mf, ep, now)
+	if err != nil {
+		return err
 	}
-	return publish(ctx, bus, events.WorkSegmentsPlanSubject(key), "catalog.SegmentsPlanTask", key, id, now, task, opts...)
+	opts := []events.PublishOption{events.WithMsgID(id)}
+	if !at.IsZero() {
+		opts = append(opts, events.WithScheduleAt(at))
+	}
+	if _, err := bus.Publish(ctx, subject, env, opts...); err != nil {
+		return fmt.Errorf("segmenting: publish %s: %w", env.Key, err)
+	}
+	return nil
 }
 
 func seasonKey(ns, series string, season int32) string {
@@ -69,15 +63,22 @@ func seasonKey(ns, series string, season int32) string {
 }
 
 func publish(ctx context.Context, bus events.Publisher, subject, typ, key, id string, now time.Time, p schema.Payload, opts ...events.PublishOption) error {
-	name, data, err := schema.Encode(p)
+	env, err := envelope(typ, key, id, now, p)
 	if err != nil {
 		return err
 	}
-	env := &events.Envelope{ID: id, Type: typ, Schema: name, Source: "catalogarr@" + version.String(), Key: key, Time: now, Data: data}
 	if _, err := bus.Publish(ctx, subject, env, append(opts, events.WithMsgID(id))...); err != nil {
 		return fmt.Errorf("segmenting: publish %s: %w", key, err)
 	}
 	return nil
+}
+
+func envelope(typ, key, id string, now time.Time, p schema.Payload) (*events.Envelope, error) {
+	name, data, err := schema.Encode(p)
+	if err != nil {
+		return nil, err
+	}
+	return &events.Envelope{ID: id, Type: typ, Schema: name, Source: "catalogarr@" + version.String(), Key: key, Time: now, Data: data}, nil
 }
 
 // Planner is the catalogarr-segments-plan durable's handler: it turns a plan

@@ -269,17 +269,58 @@ type MetadataTask struct {
 // Schema implements Payload.
 func (MetadataTask) Schema() string { return "catalog.MetadataTask.v1" }
 
-// MarkersTask asks the metadata gateway's marker worker to fetch one
-// MediaFile's skip segments. Subject:
-// clustarr.work.segmentarr.markers.normal.<mediaKey>; the envelope key is
-// <namespace>/<name> of the MediaFile.
+// MarkersTask asks the metadata domain's marker worker for one MediaFile's
+// TheIntroDB segments (loop spec 2026-10-06 §4.12). The remediation loop
+// builds Query from its cache, so the worker reads no Kubernetes object, and
+// the worker answers into the file's clustarr-markers record. Subject:
+// clustarr.work.segmentarr.markers.normal.<mediaKey>; Msg-Id
+// events.MsgIDForMarkers(File.UID, Seq). A v1 task (published before the
+// switch, {"mediaFile": <name>}) is acked unanswered.
 type MarkersTask struct {
-	// MediaFile is the MediaFile's name.
-	MediaFile string `json:"mediaFile"`
+	File      Ref           `json:"file"`
+	Seq       int64         `json:"seq"`
+	Inputs    MarkersInputs `json:"inputs"`
+	SeriesKey string        `json:"seriesKey,omitempty"`
 }
 
 // Schema implements Payload.
-func (MarkersTask) Schema() string { return "catalog.MarkersTask.v1" }
+func (MarkersTask) Schema() string { return "catalog.MarkersTask.v2" }
+
+// MarkersInputs fence a markers record: the probe its answer is for.
+type MarkersInputs struct {
+	ProbeHash  string       `json:"probeHash"`
+	DurationMs int64        `json:"durationMs"`
+	Query      MarkersQuery `json:"query"`
+}
+
+// MarkersQuery names the file to TheIntroDB: a movie by its TMDB id, an
+// episode by its series' TVDB id, season and episode.
+type MarkersQuery struct {
+	IDs     map[string]string `json:"ids"`
+	Season  int32             `json:"season,omitempty"`
+	Episode int32             `json:"episode,omitempty"`
+}
+
+// MarkersAnswer is the worker's answer: Result Found, NotFound or Error.
+type MarkersAnswer struct {
+	Result    string        `json:"result"`
+	Segments  []SegmentJSON `json:"segments,omitempty"` // at most 20
+	Message   string        `json:"message,omitempty"`  // at most 512 bytes
+	FetchedAt time.Time     `json:"fetchedAt"`
+}
+
+// MarkersRecordSchema is RecordHeader.Schema on a clustarr-markers record.
+const MarkersRecordSchema = "records.markers.v1"
+
+// MarkersRecord is one file's record in clustarr-markers, keyed
+// events.RecordKey(file UID): the loop's request (Inputs, SeriesKey) and
+// the worker's Answer.
+type MarkersRecord struct {
+	RecordHeader
+	Inputs    MarkersInputs  `json:"inputs"`
+	SeriesKey string         `json:"seriesKey,omitempty"`
+	Answer    *MarkersAnswer `json:"answer,omitempty"`
+}
 
 // WantedScan asks the search workers to sweep a namespace for missing and
 // cutoff-unmet items. Subject:

@@ -25,7 +25,6 @@ rules:
   - books
   - episodes
   - issues
-  - mediafiles
   verbs:
   - create
   - get
@@ -60,7 +59,6 @@ rules:
   - delayprofiles/status
   - episodes/status
   - issues/status
-  - mediafiles/status
   - metadataproviders/status
   - movies/status
   - overlayprofiles/status
@@ -105,11 +103,19 @@ rules:
   resources:
   - importlists
   - libraryscans
+  - mediafiles
   verbs:
   - get
   - list
   - patch
   - watch
+- apiGroups:
+  - catalog.clustarr.io
+  resources:
+  - mediafiles/status
+  verbs:
+  - get
+  - patch
 - apiGroups:
   - catalog.clustarr.io
   resources:

@@ -16,18 +16,21 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 // Package markers keeps MediaFile status.markers: a file's skip segments
-// from TheIntroDB (spec 2026-09-30 plex-analyze-bypass §3). Due decides
-// when a file needs fetching and Publish/PublishAt queue it;
-// app/catalog/worker/markers.Handler fetches and records.
+// from TheIntroDB (spec 2026-09-30 plex-analyze-bypass §3) merged with
+// clustarr's own segment analysis. Since the fold (ADR-0016, loop spec
+// 2026-10-06 §4.12) it is the protocol between the remediation loop and the
+// metadata domain's marker worker: Due and DueAt decide when a file needs
+// asking, Plan decides the status block and the request (pure), Records is
+// the loop's read half of clustarr-markers, Answers the worker's write half,
+// and TaskMessage and DeferredTask build the task. Nothing here writes
+// MediaFile status: the loop applies what Plan decides.
 package markers
 
 import (
-	"strconv"
 	"time"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	"github.com/mediactl/clustarr/pkg/events"
 )
 
 // How long each result stands before the file is asked about again. A
@@ -65,16 +68,21 @@ func notFoundTTL(m *catalogv1alpha1.FileMarkers) time.Duration {
 // not, how long until it will. Only a probed movie or episode file has
 // markers: the probe's duration is what identifies its release.
 func Due(mf *catalogv1alpha1.MediaFile, now time.Time) (bool, time.Duration) {
-	switch mf.Spec.MediaRef.Kind {
+	return DueAt(mf.Spec.MediaRef.Kind, mf.Status.ProbeHash, mf.Status.MediaInfo != nil, mf.Status.Markers, now)
+}
+
+// DueAt is Due over the parts of a file the loop's draft has: its kind, its
+// probe hash, whether a probe describes it, and its stored markers.
+func DueAt(kind commonv1.MediaKind, probeHash string, probed bool, m *catalogv1alpha1.FileMarkers, now time.Time) (bool, time.Duration) {
+	switch kind {
 	case commonv1.MediaKindMovie, commonv1.MediaKindEpisode:
 	default:
 		return false, 0
 	}
-	if mf.Status.MediaInfo == nil || mf.Status.ProbeHash == "" {
+	if !probed || probeHash == "" {
 		return false, 0
 	}
-	m := mf.Status.Markers
-	if m == nil || m.ForProbeHash != mf.Status.ProbeHash {
+	if m == nil || m.ForProbeHash != probeHash {
 		return true, 0
 	}
 	ttl := ErrorTTL
@@ -89,18 +97,4 @@ func Due(mf *catalogv1alpha1.MediaFile, now time.Time) (bool, time.Duration) {
 		return true, 0
 	}
 	return false, left
-}
-
-// MsgID is the fetch task's deduplication id: the file, its probe and the
-// fetch it replaces, so a republish of one pending fetch is absorbed and
-// the next scheduled fetch is not.
-func MsgID(mf *catalogv1alpha1.MediaFile) string {
-	var last int64
-	if mf.Status.Markers != nil {
-		last = mf.Status.Markers.FetchedAt.Unix()
-		if mf.Status.Markers.FetchedAt.IsZero() {
-			last = 0
-		}
-	}
-	return events.MsgIDForObject(string(mf.UID), 0, "markers-"+mf.Status.ProbeHash+"-"+strconv.FormatInt(last, 10))
 }

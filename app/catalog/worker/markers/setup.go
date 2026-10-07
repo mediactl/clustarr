@@ -21,8 +21,7 @@ import (
 	"context"
 	"fmt"
 
-	"sigs.k8s.io/controller-runtime/pkg/client"
-
+	catalogmarkers "github.com/mediactl/clustarr/app/catalog/markers"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/metadata"
 )
@@ -30,8 +29,7 @@ import (
 // Options configures Setup.
 type Options struct {
 	Bus    events.Bus
-	Reader client.Reader
-	Client client.Client
+	Writer string // the pod's name, stamped on every answer (POD_NAME)
 }
 
 // Setup subscribes the catalogarr-markers durable to a Handler asking
@@ -42,7 +40,10 @@ func Setup(ctx context.Context, o Options, providers []metadata.MarkersProvider)
 	if !ok {
 		return nil, fmt.Errorf("markers: consumer %q missing from the default topology", events.ConsumerCatalogMarkers)
 	}
-	h := &Handler{Reader: o.Reader, Client: o.Client, Providers: providers, Bus: o.Bus, KV: o.Bus.KV(events.BucketSegments)}
+	h := &Handler{
+		Providers: providers, Bus: o.Bus, Answers: catalogmarkers.NewAnswers(o.Bus, o.Writer),
+		MaxDeliver: uint64(max(spec.MaxDeliver, 0)),
+	}
 	stop, err = o.Bus.Subscribe(ctx, spec.Subscription(), h.Handle)
 	if err != nil {
 		return nil, fmt.Errorf("markers: subscribe %s: %w", events.ConsumerCatalogMarkers, err)

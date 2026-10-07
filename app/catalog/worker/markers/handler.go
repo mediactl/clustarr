@@ -21,177 +21,138 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
-	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	"github.com/mediactl/clustarr/app/catalog/episodeorder"
 	catalogmarkers "github.com/mediactl/clustarr/app/catalog/markers"
-	"github.com/mediactl/clustarr/app/catalog/segmenting"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
-	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/metadata"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
-	"github.com/mediactl/clustarr/pkg/segments"
+	"github.com/mediactl/clustarr/pkg/records"
 )
 
-// maxMessage is FileMarkers.Message's MaxLength.
-const maxMessage = 512
-
-// errNotAsked is a NotFound decided without asking a provider.
-var errNotAsked = errors.New("not asked")
+// ErrNotAsked is a NotFound decided without asking a provider.
+var ErrNotAsked = errors.New("not asked")
 
 // errNoProvider is a gateway whose registry has no markers provider: a
 // disabled theintrodb, or the seed landing after the gateway built its
-// registry. The task is acked without a result, so the file stays due and
-// its next reconcile (a resync, or catalogarr's next start) publishes it
-// again; a retry would cycle every due file to the dead-letter stream, and
-// an Error would park it for ErrorTTL.
+// registry. The task is acked without an answer, so the record stays
+// requested and the loop asks again after its request timeout; a retry would
+// cycle every due file to the dead-letter stream, and an Error would park it
+// for ErrorTTL.
 var errNoProvider = errors.New("no markers provider is configured")
 
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles;movies;episodes;series,verbs=get
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles/status,verbs=patch
-
-// Handler is the catalogarr-markers durable's handler: it fetches one
-// MediaFile's skip segments and records them in status.markers, the only
-// field it writes, under k8s.ManagerCatalogarrMarkers.
+// Handler is the catalogarr-markers durable's handler: it asks TheIntroDB
+// for one file and writes the answer into clustarr-markers by CAS (loop spec
+// 2026-10-06 §4.12). It reads no Kubernetes object: the task carries the
+// query, which the remediation loop built from its cache.
 type Handler struct {
-	// Reader reads uncached: the MediaFile is read twice, the second time
-	// just before the apply (the lost-update rule).
-	Reader    client.Reader
-	Providers []metadata.MarkersProvider
-	Clock     func() time.Time
-	// Apply writes the status; nil applies through k8s.PatchStatus with
-	// Client.
-	Apply  func(ctx context.Context, ac *catalogac.MediaFileApplyConfiguration) error
-	Client client.Client
-	// Bus re-publishes a task deferred to a spent key's reset.
-	Bus events.Publisher
-	// KV is the segments bucket: the file's own analysis, merged under
-	// TheIntroDB's segments. Nil merges none.
-	KV events.KV
+	Providers  []metadata.MarkersProvider
+	Clock      func() time.Time
+	Answers    *catalogmarkers.Answers // writes as this pod (NewAnswers' writer)
+	Bus        events.Publisher        // a deferral's republish at the reset
+	MaxDeliver uint64                  // the consumer's; the last delivery answers failed
 
 	// absent remembers, for SeriesAbsentTTL, each series the provider has
-	// nothing for at all (metadata.ErrNoTitle), keyed by its query id, so
-	// its other episodes are not asked about one by one.
+	// nothing for at all (metadata.ErrNoTitle), keyed by the task's
+	// SeriesKey, so its other episodes are not asked about one by one.
 	mu     sync.Mutex
 	absent map[string]time.Time
 }
 
 // deferAfter is the longest limit a task waits out in its in-flight slot.
-// A longer one -- TheIntroDB's daily allowance -- is published again for
-// the reset, so the durable's slots serve the tasks that need no request.
+// A longer one -- TheIntroDB's daily allowance -- defers the record and is
+// published again for the reset, so the durable's slots serve the tasks that
+// need no request.
 const deferAfter = 5 * time.Minute
 
 // SeriesAbsentTTL is how long a series the provider lacks answers for its
-// other episodes without a request. The gateway runs one replica, and a
+// other episodes without a request. The domain runs one replica, and a
 // restart costs one request per series.
 const SeriesAbsentTTL = 24 * time.Hour
 
 // Handle implements events.Handler.
 func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 	env := m.Envelope()
+	if env.Schema == "catalog.MarkersTask.v1" {
+		return nil // published before the switch: the file's next due pass asks with a v2 task
+	}
 	var task schema.MarkersTask
 	if err := schema.Decode(env.Schema, env.Data, &task); err != nil {
 		return events.Discard("undecodable markers task", err)
 	}
-	ns, _, ok := strings.Cut(env.Key, "/")
-	if !ok || task.MediaFile == "" {
-		return events.Discard("envelope key is not <namespace>/<name>", fmt.Errorf("key=%q", env.Key))
+	if task.File.UID == "" || task.Seq == 0 {
+		return events.Discard("a markers task with no file or sequence", fmt.Errorf("file=%v seq=%d", task.File, task.Seq))
+	}
+	if sup, err := h.Answers.Superseded(ctx, task); err != nil {
+		return err
+	} else if sup {
+		return nil
 	}
 	now := h.now()
-	var mf catalogv1alpha1.MediaFile
-	if err := h.Reader.Get(ctx, client.ObjectKey{Namespace: ns, Name: task.MediaFile}, &mf); err != nil {
-		if apierrors.IsNotFound(err) {
-			return nil
-		}
-		return err
+	q := metadata.MarkersQuery{
+		IDs: metadata.ExternalIDs(task.Inputs.Query.IDs), Season: task.Inputs.Query.Season,
+		Episode: task.Inputs.Query.Episode, DurationMs: task.Inputs.DurationMs,
 	}
-	if due, _ := catalogmarkers.Due(&mf, now); !due {
-		return nil // a duplicate or redelivery for a file already recorded
-	}
-
-	q, err := h.query(ctx, &mf)
 	var segs metadata.Segments
-	if err == nil {
-		if h.seriesAbsent(q, now) {
-			err = fmt.Errorf("the series is not on TheIntroDB: %w: %w", errNotAsked, metadata.ErrNotFound)
-		} else {
-			segs, err = h.ask(ctx, q)
-			if errors.Is(err, metadata.ErrNoTitle) {
-				h.rememberAbsent(q, now)
-			}
-		}
+	var err error
+	if h.seriesAbsent(task.SeriesKey, now) {
+		err = fmt.Errorf("the series is not on TheIntroDB: %w: %w", ErrNotAsked, metadata.ErrNotFound)
+	} else if segs, err = h.ask(ctx, q); errors.Is(err, metadata.ErrNoTitle) {
+		h.rememberAbsent(task.SeriesKey, now)
 	}
 	var rl *metadata.RateLimitedError
-	if errors.As(err, &rl) { // a limit is not a result
-		if rl.RetryAfter > deferAfter && h.Bus != nil {
-			if perr := catalogmarkers.PublishAt(ctx, h.Bus, &mf, now, now.Add(rl.RetryAfter)); perr != nil {
-				return events.Retry(rl.RetryAfter, errors.Join(err, perr))
-			}
-			return nil // the slot goes to the next task; this one returns at the reset
+	switch {
+	case errors.As(err, &rl) && rl.RetryAfter > deferAfter && h.Bus != nil:
+		until := now.Add(rl.RetryAfter)
+		v, derr := h.Answers.Defer(ctx, task, until)
+		if derr != nil {
+			return events.Retry(rl.RetryAfter, errors.Join(err, derr))
+		}
+		if v != records.Wrote {
+			return nil // superseded or answered meanwhile: nothing to defer
+		}
+		subject, id, denv, perr := catalogmarkers.DeferredTask(task, now, until)
+		if perr == nil {
+			_, perr = h.Bus.Publish(ctx, subject, denv, events.WithMsgID(id), events.WithScheduleAt(until))
+		}
+		if perr != nil {
+			return events.Retry(rl.RetryAfter, errors.Join(err, perr))
+		}
+		return nil
+	case errors.As(err, &rl):
+		if h.MaxDeliver > 0 && m.Attempt() >= h.MaxDeliver {
+			// The last delivery answers failed and transient (§4.8), never
+			// leaving the request to the dead-letter stream.
+			_, aerr := h.Answers.Answer(ctx, task, schema.MarkersAnswer{FetchedAt: now, Message: err.Error()}, true)
+			return aerr
 		}
 		return events.Retry(rl.RetryAfter, err)
+	case errors.Is(err, errNoProvider):
+		return nil // the registry, not the file: the record stays requested and the loop asks again after 24 h
 	}
-	if errors.Is(err, errNoProvider) {
-		return nil // the registry, not the file, is missing something
-	}
-
-	// The apply re-reads the file and drops the result when it was
-	// re-probed meanwhile (the lost-update rule), then merges TheIntroDB's
-	// segments with the file's own analysis (segmenting.ApplyMerged).
-	tid := &segmenting.TheIntroDBUpdate{
-		FetchedAt: metav1.NewTime(now), ForProbeHash: mf.Status.ProbeHash, DurationMs: q.DurationMs,
-	}
+	ans := schema.MarkersAnswer{FetchedAt: now}
 	switch {
 	case err == nil:
-		tid.Result, tid.Segments = catalogv1alpha1.MarkersFound, toSegments(segs)
+		ans.Result, ans.Segments = string(catalogv1alpha1.MarkersFound), toJSON(segs)
 	case errors.Is(err, metadata.ErrNotFound):
-		since := metav1.NewTime(notFoundSince(&mf, now))
-		tid.Result, tid.NotFoundSince = catalogv1alpha1.MarkersNotFound, &since
-		if errors.Is(err, errNotAsked) { // decided here, so say why
-			tid.Message = clamp(err.Error())
+		ans.Result = string(catalogv1alpha1.MarkersNotFound)
+		if errors.Is(err, ErrNotAsked) {
+			ans.Message = err.Error()
 		}
 	default:
-		logging.FromContext(ctx).WarnContext(ctx, "markers: fetch failed", "mediafile", mf.Name, "error", err)
-		tid.Result, tid.Message = catalogv1alpha1.MarkersError, clamp(err.Error())
+		logging.FromContext(ctx).WarnContext(ctx, "markers: fetch failed", "mediafile", task.File.Name, "error", err)
+		ans.Result, ans.Message = string(catalogv1alpha1.MarkersError), err.Error()
 	}
-	applier := &segmenting.Applier{Reader: h.Reader, KV: h.KV, Apply: h.apply}
-	return applier.ApplyMerged(ctx, client.ObjectKeyFromObject(&mf), tid, nil)
+	_, err = h.Answers.Answer(ctx, task, ans, false)
+	return err
 }
 
-// notFoundSince is when the provider first had nothing for mf's probe: the
-// last result's, when it was a NotFound for the same probe, else now.
-func notFoundSince(mf *catalogv1alpha1.MediaFile, now time.Time) time.Time {
-	prev := mf.Status.Markers
-	if prev == nil || prev.Result != catalogv1alpha1.MarkersNotFound || prev.ForProbeHash != mf.Status.ProbeHash {
-		return now
-	}
-	if prev.NotFoundSince != nil {
-		return prev.NotFoundSince.Time
-	}
-	return prev.FetchedAt.Time
-}
-
-// seriesKey names an episode query's series; "" for a movie.
-func seriesKey(q metadata.MarkersQuery) string {
-	if q.Season == 0 && q.Episode == 0 {
-		return ""
-	}
-	return metadata.KeyTVDB + ":" + q.IDs[metadata.KeyTVDB]
-}
-
-func (h *Handler) seriesAbsent(q metadata.MarkersQuery, now time.Time) bool {
-	k := seriesKey(q)
+// seriesAbsent reports whether the provider had nothing for series k (the
+// task's SeriesKey; "" for a movie) inside SeriesAbsentTTL.
+func (h *Handler) seriesAbsent(k string, now time.Time) bool {
 	if k == "" {
 		return false
 	}
@@ -201,8 +162,7 @@ func (h *Handler) seriesAbsent(q metadata.MarkersQuery, now time.Time) bool {
 	return ok && now.Sub(at) < SeriesAbsentTTL
 }
 
-func (h *Handler) rememberAbsent(q metadata.MarkersQuery, now time.Time) {
-	k := seriesKey(q)
+func (h *Handler) rememberAbsent(k string, now time.Time) {
 	if k == "" {
 		return
 	}
@@ -212,55 +172,6 @@ func (h *Handler) rememberAbsent(q metadata.MarkersQuery, now time.Time) {
 		h.absent = map[string]time.Time{}
 	}
 	h.absent[k] = now
-}
-
-// query names the file to TheIntroDB: a movie by its TMDB id, an episode by
-// its series' TVDB id, season and episode -- only in the aired order, the
-// one TheIntroDB numbers episodes in.
-func (h *Handler) query(ctx context.Context, mf *catalogv1alpha1.MediaFile) (metadata.MarkersQuery, error) {
-	q := metadata.MarkersQuery{DurationMs: mf.Status.MediaInfo.RuntimeMillis}
-	key := client.ObjectKey{Namespace: mf.Namespace, Name: mf.Spec.MediaRef.Name}
-	switch mf.Spec.MediaRef.Kind {
-	case commonv1.MediaKindMovie:
-		var mv catalogv1alpha1.Movie
-		if err := h.Reader.Get(ctx, key, &mv); err != nil {
-			return q, err
-		}
-		q.IDs = metadata.ExternalIDs{metadata.KeyTMDB: strconv.FormatInt(mv.Spec.TmdbID, 10)}
-	case commonv1.MediaKindEpisode:
-		if others := otherEpisodes(mf.Spec.MediaRef); others > 0 {
-			return q, fmt.Errorf("the file holds %d more episodes, whose segments TheIntroDB times per episode: %w: %w",
-				others, errNotAsked, metadata.ErrNotFound)
-		}
-		var ep catalogv1alpha1.Episode
-		if err := h.Reader.Get(ctx, key, &ep); err != nil {
-			return q, err
-		}
-		var sr catalogv1alpha1.Series
-		if err := h.Reader.Get(ctx, client.ObjectKey{Namespace: mf.Namespace, Name: ep.Spec.SeriesRef}, &sr); err != nil {
-			return q, err
-		}
-		if order := episodeorder.EffectiveEpisodeOrder(sr.Spec.SeriesType, sr.Spec.EpisodeOrder); order != catalogv1alpha1.EpisodeOrderOfficial {
-			return q, fmt.Errorf("episode order %s is not the aired order TheIntroDB numbers episodes in: %w: %w",
-				order, errNotAsked, metadata.ErrNotFound)
-		}
-		q.IDs = metadata.ExternalIDs{metadata.KeyTVDB: strconv.FormatInt(sr.Spec.TvdbID, 10)}
-		q.Season, q.Episode = ep.Spec.SeasonNumber, ep.Spec.EpisodeNumber
-	default:
-		return q, fmt.Errorf("%s files have no markers: %w: %w", mf.Spec.MediaRef.Kind, errNotAsked, metadata.ErrNotFound)
-	}
-	return q, nil
-}
-
-// otherEpisodes counts the episodes a file's ref names besides its own.
-func otherEpisodes(ref commonv1.MediaRef) int {
-	n := 0
-	for _, k := range ref.Keys {
-		if k != ref.Name {
-			n++
-		}
-	}
-	return n
 }
 
 // ask takes the first provider's answer; NotFound from every one is
@@ -283,14 +194,6 @@ func (h *Handler) ask(ctx context.Context, q metadata.MarkersQuery) (metadata.Se
 	return metadata.Segments{}, last
 }
 
-func (h *Handler) apply(ctx context.Context, ac *catalogac.MediaFileApplyConfiguration) error {
-	if h.Apply != nil {
-		return h.Apply(ctx, ac)
-	}
-	_, err := k8s.PatchStatus(ctx, h.Client, k8s.ManagerCatalogarrMarkers, ac)
-	return err
-}
-
 func (h *Handler) now() time.Time {
 	if h.Clock != nil {
 		return h.Clock()
@@ -298,39 +201,25 @@ func (h *Handler) now() time.Time {
 	return time.Now()
 }
 
-// toSegments tags TheIntroDB's segments with their source, confidence 100;
-// segments.Merge orders and caps them.
-func toSegments(s metadata.Segments) []segments.Segment {
-	var out []segments.Segment
+// toJSON tags TheIntroDB's segments with their source, confidence 100, as
+// the answer carries them; the loop's merge orders and caps them.
+func toJSON(s metadata.Segments) []schema.SegmentJSON {
+	var out []schema.SegmentJSON
 	for _, k := range []struct {
-		kind segments.Kind
+		kind catalogv1alpha1.MarkerKind
 		list []metadata.Segment
 	}{
-		{segments.KindIntro, s.Intro},
-		{segments.KindRecap, s.Recap},
-		{segments.KindCredits, s.Credits},
-		{segments.KindPreview, s.Preview},
+		{catalogv1alpha1.MarkerIntro, s.Intro},
+		{catalogv1alpha1.MarkerRecap, s.Recap},
+		{catalogv1alpha1.MarkerCredits, s.Credits},
+		{catalogv1alpha1.MarkerPreview, s.Preview},
 	} {
 		for _, x := range k.list {
-			out = append(out, segments.Segment{
-				Kind: k.kind, StartMs: x.StartMs, EndMs: x.EndMs,
-				Source: segments.SourceTheIntroDB, Confidence: 100,
+			out = append(out, schema.SegmentJSON{
+				Kind: string(k.kind), StartMs: x.StartMs, EndMs: x.EndMs,
+				Source: string(catalogv1alpha1.SegmentSourceTheIntroDB), Confidence: 100,
 			})
 		}
 	}
 	return out
 }
-
-// clamp cuts s to the CRD's MaxLength on a rune boundary.
-func clamp(s string) string {
-	if len(s) <= maxMessage {
-		return s
-	}
-	cut := maxMessage
-	for cut > 0 && !utf8RuneStart(s[cut]) {
-		cut--
-	}
-	return s[:cut]
-}
-
-func utf8RuneStart(b byte) bool { return b&0xC0 != 0x80 }

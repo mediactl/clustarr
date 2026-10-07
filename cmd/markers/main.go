@@ -49,6 +49,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/obsflags"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
+	"github.com/mediactl/clustarr/pkg/segments"
 	"github.com/mediactl/clustarr/pkg/segments/decode"
 	"github.com/mediactl/clustarr/pkg/segments/textdet"
 	"github.com/mediactl/clustarr/pkg/version"
@@ -219,8 +220,7 @@ func run(args []string, getenv func(string) string) int {
 	h := &worker.Handler{
 		Decoder:      decode.Decoder{Threads: decodeThreads(*f.threads, sub.MaxInFlight, runtime.GOMAXPROCS(0))},
 		Fingerprints: bus.ObjectStore(events.ObjectStoreFingerprints),
-		Bus:          bus,
-		KV:           bus.KV(events.BucketSegments),
+		Records:      segments.NewStore(bus.KV(events.BucketSegments)),
 	}
 	if det != nil {
 		h.Detector = det

@@ -16,15 +16,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 // Package worker is segmentarr-worker's analysis: one AnalyzeTask -- a
-// season's files or a movie's -- in, one SegmentsResult per due file out
-// (spec 2026-10-01 segment detection §4).
+// season's files or a movie's -- in, one clustarr-segments record per due
+// file written by CAS (spec 2026-10-01 segment detection §4; loop spec
+// 2026-10-06 §4.12), which the remediation loop's markers planner merges
+// into status.markers.
 package worker
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"strconv"
 	"time"
 
 	"github.com/mediactl/clustarr/pkg/events"
@@ -34,7 +34,6 @@ import (
 	"github.com/mediactl/clustarr/pkg/segments/decode"
 	"github.com/mediactl/clustarr/pkg/segments/frames"
 	"github.com/mediactl/clustarr/pkg/segments/textdet"
-	"github.com/mediactl/clustarr/pkg/version"
 )
 
 // Decoder is pkg/segments/decode.Decoder's surface.
@@ -49,9 +48,9 @@ type Handler struct {
 	Decoder      Decoder
 	Detector     textdet.Detector // nil skips the DNN stage
 	Fingerprints events.ObjectStore
-	Bus          events.Publisher
-	// KV is the clustarr-segments bucket: each file's recorded analysis.
-	KV events.KV
+	// Records is the clustarr-segments bucket: each file's recorded
+	// analysis, read and written by compare-and-swap.
+	Records *segments.Store
 	// FileTimeout bounds one file's decoding and analysis (default 5 min);
 	// TaskTimeout one task's (default 30 min).
 	FileTimeout, TaskTimeout time.Duration
@@ -146,19 +145,20 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 		}
 	}
 	for i, f := range files {
-		var res schema.SegmentsResult
+		var res analysisResult
+		amend := false
 		switch {
 		case f.Due:
 			fctx, cancel := context.WithTimeout(ctx, orDefault(h.FileTimeout, defaultFileTimeout))
 			res = h.analyze(fctx, f, movie, at(intros, i), at(endings, i), usable)
 			cancel()
 		case f.rec != nil && at(intros, i) != nil && !hasKind(f.rec.Segments, segments.KindIntro):
-			res = withIntro(f, at(intros, i), usable)
+			res, amend = withIntro(f, at(intros, i), usable), true
 		default:
 			continue
 		}
 		analyzedTotal.WithLabelValues(res.Result, strongestSource(res)).Inc()
-		if err := h.publish(ctx, task.Namespace, f, res); err != nil {
+		if err := h.store(ctx, task.Namespace, f, res, amend); err != nil {
 			return events.Retry(time.Minute, err)
 		}
 	}
@@ -171,33 +171,29 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 // record is the bucket's analysis of f for its probe and the current
 // analyzer; nil when there is none, it failed, or it is unreadable.
 func (h *Handler) record(ctx context.Context, f schema.AnalyzeFile) *segments.Record {
-	if h.KV == nil {
+	if h.Records == nil {
 		return nil
 	}
-	e, err := h.KV.Get(ctx, events.KVKeyToken(f.UID))
-	if err != nil {
-		return nil
-	}
-	var r segments.Record
-	if json.Unmarshal(e.Value, &r) != nil || r.ProbeHash != f.ProbeHash || r.Version != segments.AnalyzerVersion ||
+	r, _, ok, err := h.Records.Get(ctx, f.UID)
+	if err != nil || !ok || r.ProbeHash != f.ProbeHash || r.Version != segments.AnalyzerVersion ||
 		r.Result == segments.ResultError {
 		return nil
 	}
 	return &r
 }
 
+// analysisResult is one file's analysis, as store records it.
+type analysisResult struct {
+	Result, Message string
+	Segments        []segments.Segment
+}
+
 // withIntro is f's recorded analysis with the intro its season revealed.
-func withIntro(f *file, intro *align.Region, usable int) schema.SegmentsResult {
-	res := schema.SegmentsResult{
-		MediaFile: f.MediaFile, ProbeHash: f.ProbeHash, Version: segments.AnalyzerVersion,
-		Result: segments.ResultFound,
+func withIntro(f *file, intro *align.Region, usable int) analysisResult {
+	return analysisResult{
+		Result:   segments.ResultFound,
+		Segments: append(append([]segments.Segment(nil), f.rec.Segments...), introSegment(intro, usable)),
 	}
-	for _, s := range append(append([]segments.Segment(nil), f.rec.Segments...), introSegment(intro, usable)) {
-		res.Segments = append(res.Segments, schema.SegmentJSON{
-			Kind: string(s.Kind), StartMs: s.StartMs, EndMs: s.EndMs, Source: string(s.Source), Confidence: s.Confidence,
-		})
-	}
-	return res
 }
 
 func introSegment(r *align.Region, usable int) segments.Segment {
@@ -252,8 +248,8 @@ func endWindow(durS float64, movie bool) (fromS, lenS float64) {
 }
 
 // analyze decides one file's segments.
-func (h *Handler) analyze(ctx context.Context, f *file, movie bool, intro, ending *align.Region, usable int) schema.SegmentsResult {
-	res := schema.SegmentsResult{MediaFile: f.MediaFile, ProbeHash: f.ProbeHash, Version: segments.AnalyzerVersion}
+func (h *Handler) analyze(ctx context.Context, f *file, movie bool, intro, ending *align.Region, usable int) analysisResult {
+	var res analysisResult
 	if f.err != nil {
 		res.Result, res.Message = segments.ResultError, clamp(f.err.Error())
 		return res
@@ -311,21 +307,17 @@ func (h *Handler) analyze(ctx context.Context, f *file, movie bool, intro, endin
 	if len(out) > 0 {
 		res.Result = segments.ResultFound
 	}
-	for _, s := range out {
-		res.Segments = append(res.Segments, schema.SegmentJSON{
-			Kind: string(s.Kind), StartMs: s.StartMs, EndMs: s.EndMs, Source: string(s.Source), Confidence: s.Confidence,
-		})
-	}
+	res.Segments = out
 	return res
 }
 
 // strongestSource is the source of the result's most confident segment,
 // "" for none.
-func strongestSource(r schema.SegmentsResult) string {
+func strongestSource(r analysisResult) string {
 	src, best := "", int32(-1)
 	for _, s := range r.Segments {
 		if s.Confidence > best {
-			src, best = s.Source, s.Confidence
+			src, best = string(s.Source), s.Confidence
 		}
 	}
 	return src
@@ -364,23 +356,42 @@ func analysis(k segments.Kind, startS, endS float64, conf int32) segments.Segmen
 	}
 }
 
-func (h *Handler) publish(ctx context.Context, ns string, f *file, res schema.SegmentsResult) error {
-	name, data, err := schema.Encode(res)
+// store writes res as f's record by CAS (loop spec §4.12): an analysis
+// replaces the record; an amendment (withIntro) adds the intro and counts
+// one more Amend; an Error keeps the segments of the same probe and version
+// and records the attempt.
+func (h *Handler) store(ctx context.Context, ns string, f *file, res analysisResult, amend bool) error {
+	if h.Records == nil {
+		return nil
+	}
+	now := time.Now().UTC()
+	ref := schema.Ref{Namespace: ns, Name: f.MediaFile, UID: f.UID}
+	_, err := h.Records.Update(ctx, f.UID, func(cur *segments.Record) (segments.Record, bool) {
+		next := segments.Record{
+			Schema: segments.RecordSchema, File: ref,
+			ProbeHash: f.ProbeHash, Version: segments.AnalyzerVersion, Result: res.Result, Segments: res.Segments, AnalyzedAt: now,
+		}
+		same := cur != nil && cur.ProbeHash == f.ProbeHash && cur.Version == segments.AnalyzerVersion
+		switch {
+		case amend && same:
+			next.Amend = cur.Amend + 1
+		case res.Result == segments.ResultError && same:
+			next = *cur
+			next.Schema, next.File = segments.RecordSchema, ref
+			next.LastError = &segments.Attempt{ProbeHash: f.ProbeHash, Version: segments.AnalyzerVersion, Message: res.Message, At: now}
+			if cur.Result == segments.ResultError {
+				// An Error over an Error is the analysis now: its time moves,
+				// so the file is due again a day from this attempt, not from
+				// the first.
+				next.AnalyzedAt = now
+			}
+		case res.Result == segments.ResultError:
+			next.LastError = &segments.Attempt{ProbeHash: f.ProbeHash, Version: segments.AnalyzerVersion, Message: res.Message, At: now}
+		}
+		return next, true
+	})
 	if err != nil {
-		return err
-	}
-	key := ns + "/" + f.MediaFile
-	env := &events.Envelope{
-		ID:     events.MsgIDForObject(f.UID, 0, "segments-"+f.ProbeHash+"-v"+strconv.Itoa(int(segments.AnalyzerVersion))),
-		Type:   "catalog.SegmentsResult",
-		Schema: name,
-		Source: "segmentarr-worker@" + version.String(),
-		Key:    key,
-		Time:   time.Now(),
-		Data:   data,
-	}
-	if _, err := h.Bus.Publish(ctx, events.WorkSegmentsResultSubject(key), env); err != nil {
-		return fmt.Errorf("worker: publish %s: %w", key, err)
+		return fmt.Errorf("worker: record %s/%s: %w", ns, f.MediaFile, err)
 	}
 	return nil
 }

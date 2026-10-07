@@ -118,6 +118,17 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 		"Trakt API the ImportList controller's device-code flow reaches; the import agent's syncs must name "+
 			"the same host. Empty is https://api.trakt.tv. Defaults to $"+cli.EnvTraktBaseURL+".")
 
+	fs.IntVar(&d.RemediationConcurrency, "remediation-concurrency", d.RemediationConcurrency,
+		"MediaFile remediation passes run at once (1 to 64): the loop's MaxConcurrentReconciles. A pass is "+
+			"mostly cache reads; the /data calls run on --remediation-io-workers.")
+	fs.IntVar(&d.RemediationBulkWritesPerSecond, "remediation-bulk-writes-per-second", d.RemediationBulkWritesPerSecond,
+		"MediaFile status writes per second that no worker answer, admission grant, user intent or first probe "+
+			"caused -- a profile edit, a ProbeVersion raise, a preset change -- paced so a library-wide change "+
+			"does not flood the apiserver. 0 disables the limit.")
+	fs.IntVar(&d.RemediationIOWorkers, "remediation-io-workers", d.RemediationIOWorkers,
+		"Goroutines the remediation loop's /data calls (stat, readdir) run on (1 to 64), each with a deadline "+
+			"and a mount-health breaker: a hung mount pins at most this many, never the loop's workers.")
+
 	fs.BoolVar(&d.Autoscale, "autoscale", d.Autoscale,
 		"Scale the autoscaled agent domains with HPAs the manager renders, fed by its own External Metrics API. "+
 			"Needs --external-metrics-bind-address. With --autoscale=false the manager deletes the HPAs it labelled.")
