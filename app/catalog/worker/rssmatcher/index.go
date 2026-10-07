@@ -99,7 +99,7 @@ func FieldIndexes() []k8s.FieldIndex {
 		{Object: &catalogv1alpha1.Series{}, Name: IndexSeriesTvdbID, Extract: seriesTvdbIDKeys},
 		{Object: &catalogv1alpha1.Movie{}, Name: IndexMovieTitleYear, Extract: movieTitleYearKeys},
 		{Object: &catalogv1alpha1.Movie{}, Name: IndexMovieTitle, Extract: titleindex.MovieTitleKeys},
-		{Object: &catalogv1alpha1.Series{}, Name: IndexSeriesTitleYear, Extract: titleindex.SeriesTitleYearKeys},
+		{Object: &catalogv1alpha1.Series{}, Name: IndexSeriesTitleYear, Extract: seriesTitleYearKeys},
 		{Object: &catalogv1alpha1.Episode{}, Name: IndexEpisodeSeriesSeason, Extract: titleindex.EpisodeSeasonKeys},
 		{Object: &catalogv1alpha1.Episode{}, Name: IndexEpisodeSeriesAbsolute, Extract: episodeAbsoluteKeys},
 		{Object: &catalogv1alpha1.Artist{}, Name: IndexArtistName, Extract: artistNameKeys},
@@ -202,6 +202,12 @@ func movieTitleYearKeys(o client.Object) []string {
 func SeriesTitleKey(title string, year int32) string {
 	return titleindex.SeriesTitleKey(title, year)
 }
+
+// seriesTitleYearKeys indexes a Series under SeriesTitleKey of its title
+// and every alternate title, yearless and with its first-aired year
+// (titleindex.SeriesTitleYearKeys): "Doctor Who" (2005) answers both
+// "Doctor.Who.S01E01" and "Doctor.Who.2005.S01E01".
+var seriesTitleYearKeys = titleindex.SeriesTitleYearKeys
 
 func seasonKey(seriesRef string, season int32) string {
 	return titleindex.SeasonKey(seriesRef, season)
