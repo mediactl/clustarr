@@ -28,12 +28,20 @@ import (
 // MediaFileStatusApplyConfiguration represents a declarative configuration of the MediaFileStatus type for use
 // with apply.
 //
-// MediaFileStatus describes the observed state of MediaFile.
+// MediaFileStatus is written by one remediation loop in the manager, under
+// field manager catalogarr (ADR-0016). Until F3.1 the MediaFile reconciler
+// still writes it through knownStatus.
 type MediaFileStatusApplyConfiguration struct {
 	// ObservedGeneration is the generation of the spec this status reflects.
 	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
-	// Conditions represent the latest available observations of the file's state.
+	// Conditions represent the latest available observations of the file's
+	// state: a set closed at ten types (loop spec §2.8).
 	Conditions []v1.ConditionApplyConfiguration `json:"conditions,omitempty"`
+	// LastSeq is the last sequence the loop issued to any remediation task
+	// for this file (subtitles, transcode, graft). It never decreases while
+	// the MediaFile exists; the probe and markers keep their record-local
+	// Seq (split §6.5.2).
+	LastSeq *int64 `json:"lastSeq,omitempty"`
 	// ProbeHash is sha1(path|size|mtime); a change makes downstream services replan.
 	ProbeHash *string `json:"probeHash,omitempty"`
 	// ProbedAt is when the file was last probed.
@@ -50,17 +58,10 @@ type MediaFileStatusApplyConfiguration struct {
 	// (app/catalog/controller/rollup.Transcoded) -- the tag is what recognises
 	// a file an earlier install transcoded, found by a rescan.
 	MediaInfo *commonv1alpha1.MediaInfo `json:"mediaInfo,omitempty"`
-	// Sidecars lists the subtitle and metadata files found next to this one.
+	// Sidecars are the subtitle sidecars beside the file, found on disk by
+	// the subtitles planner's directory read, sorted by name. Release N keeps
+	// today's map list keyed by path (loop spec §2.16); N+1 makes it atomic.
 	Sidecars []SidecarApplyConfiguration `json:"sidecars,omitempty"`
-	// Transcode is transcodarr's view of this file.
-	Transcode *TranscodeStateApplyConfiguration `json:"transcode,omitempty"`
-	// GraftTag is the CLUSTARR_GRAFT tag of the last audio graft catalogarr
-	// incorporated into this file (anime dual-audio spec §7.2), and
-	// GraftedAt when. A graft is not a transcode: spec.original stays as it
-	// was, but from the first graft catalogarr owns spec.path, sizeBytes and
-	// modTime, as after a transcode swap.
-	GraftTag  *string      `json:"graftTag,omitempty"`
-	GraftedAt *metav1.Time `json:"graftedAt,omitempty"`
 	// Naming is the file's canonical path under its RootFolder's naming
 	// preset, rendered by catalogarr from the item's metadata, the
 	// release-time spec and the probe; importarr performs the rename.
@@ -70,6 +71,25 @@ type MediaFileStatusApplyConfiguration struct {
 	// catalogarr-markers) with the probe's duration, and seeded into Plex
 	// by cluster-plex (spec 2026-09-30 plex-analyze-bypass).
 	Markers *FileMarkersApplyConfiguration `json:"markers,omitempty"`
+	// Subtitles is the remediation loop's subtitles block (loop spec §2.4);
+	// it replaces SubtitleRequest.
+	Subtitles *SubtitlesStatusApplyConfiguration `json:"subtitles,omitempty"`
+	// Transcode is the remediation loop's transcode block (loop spec §2.5);
+	// it replaces TranscodeJob.
+	Transcode *TranscodeStateApplyConfiguration `json:"transcode,omitempty"`
+	// Graft is the remediation loop's graft block (loop spec §2.6); it
+	// replaces AudioGraft's per-file half.
+	Graft *GraftStateApplyConfiguration `json:"graft,omitempty"`
+	// GraftTag is the CLUSTARR_GRAFT tag of the last audio graft catalogarr
+	// incorporated into this file (anime dual-audio spec §7.2), and
+	// GraftedAt when. A graft is not a transcode: spec.original stays as it
+	// was, but from the first graft catalogarr owns spec.path, sizeBytes and
+	// modTime, as after a transcode swap.
+	GraftTag  *string      `json:"graftTag,omitempty"`
+	GraftedAt *metav1.Time `json:"graftedAt,omitempty"`
+	// HandledNonces records the last one-shot intent nonce handled for each
+	// one-shot intent annotation (loop spec §2.9).
+	HandledNonces *HandledNoncesApplyConfiguration `json:"handledNonces,omitempty"`
 }
 
 // MediaFileStatusApplyConfiguration constructs a declarative configuration of the MediaFileStatus type for use with
@@ -96,6 +116,14 @@ func (b *MediaFileStatusApplyConfiguration) WithConditions(values ...*v1.Conditi
 		}
 		b.Conditions = append(b.Conditions, *values[i])
 	}
+	return b
+}
+
+// WithLastSeq sets the LastSeq field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the LastSeq field is set to the value of the last call.
+func (b *MediaFileStatusApplyConfiguration) WithLastSeq(value int64) *MediaFileStatusApplyConfiguration {
+	b.LastSeq = &value
 	return b
 }
 
@@ -144,11 +172,43 @@ func (b *MediaFileStatusApplyConfiguration) WithSidecars(values ...*SidecarApply
 	return b
 }
 
+// WithNaming sets the Naming field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Naming field is set to the value of the last call.
+func (b *MediaFileStatusApplyConfiguration) WithNaming(value *NamingStatusApplyConfiguration) *MediaFileStatusApplyConfiguration {
+	b.Naming = value
+	return b
+}
+
+// WithMarkers sets the Markers field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Markers field is set to the value of the last call.
+func (b *MediaFileStatusApplyConfiguration) WithMarkers(value *FileMarkersApplyConfiguration) *MediaFileStatusApplyConfiguration {
+	b.Markers = value
+	return b
+}
+
+// WithSubtitles sets the Subtitles field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Subtitles field is set to the value of the last call.
+func (b *MediaFileStatusApplyConfiguration) WithSubtitles(value *SubtitlesStatusApplyConfiguration) *MediaFileStatusApplyConfiguration {
+	b.Subtitles = value
+	return b
+}
+
 // WithTranscode sets the Transcode field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Transcode field is set to the value of the last call.
 func (b *MediaFileStatusApplyConfiguration) WithTranscode(value *TranscodeStateApplyConfiguration) *MediaFileStatusApplyConfiguration {
 	b.Transcode = value
+	return b
+}
+
+// WithGraft sets the Graft field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Graft field is set to the value of the last call.
+func (b *MediaFileStatusApplyConfiguration) WithGraft(value *GraftStateApplyConfiguration) *MediaFileStatusApplyConfiguration {
+	b.Graft = value
 	return b
 }
 
@@ -168,18 +228,10 @@ func (b *MediaFileStatusApplyConfiguration) WithGraftedAt(value metav1.Time) *Me
 	return b
 }
 
-// WithNaming sets the Naming field in the declarative configuration to the given value
+// WithHandledNonces sets the HandledNonces field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Naming field is set to the value of the last call.
-func (b *MediaFileStatusApplyConfiguration) WithNaming(value *NamingStatusApplyConfiguration) *MediaFileStatusApplyConfiguration {
-	b.Naming = value
-	return b
-}
-
-// WithMarkers sets the Markers field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Markers field is set to the value of the last call.
-func (b *MediaFileStatusApplyConfiguration) WithMarkers(value *FileMarkersApplyConfiguration) *MediaFileStatusApplyConfiguration {
-	b.Markers = value
+// If called multiple times, the HandledNonces field is set to the value of the last call.
+func (b *MediaFileStatusApplyConfiguration) WithHandledNonces(value *HandledNoncesApplyConfiguration) *MediaFileStatusApplyConfiguration {
+	b.HandledNonces = value
 	return b
 }

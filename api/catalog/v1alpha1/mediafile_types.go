@@ -37,17 +37,32 @@ const (
 	MediaFileReasonProbePending = "ProbePending"
 )
 
-// TranscodeResult is the outcome of the most recent transcode of a file.
-//
-// +kubebuilder:validation:Enum=none;succeeded;failed;skipped
-type TranscodeResult string
-
-// Transcode results.
+// Planner-error conditions (loop spec §2.8). Each is present only while its
+// planner fails, with reason MediaFileReasonPlannerError (a returned error)
+// or MediaFileReasonPlannerPanic (a recovered panic) and a message clamped
+// to k8s.MaxConditionMessage; the planner's last block stays in place, and
+// the condition is removed on its next success. With Probed, Ready,
+// NamingCurrent and DeadLettered the set is closed at ten; Conditions'
+// MaxItems is 12.
 const (
-	TranscodeResultNone      TranscodeResult = "none"
-	TranscodeResultSucceeded TranscodeResult = "succeeded"
-	TranscodeResultFailed    TranscodeResult = "failed"
-	TranscodeResultSkipped   TranscodeResult = "skipped"
+	MediaFileConditionProbePlannerError     = "ProbePlannerError"
+	MediaFileConditionNamingPlannerError    = "NamingPlannerError"
+	MediaFileConditionTranscodePlannerError = "TranscodePlannerError"
+	MediaFileConditionGraftPlannerError     = "GraftPlannerError"
+	MediaFileConditionSubtitlesPlannerError = "SubtitlesPlannerError"
+	MediaFileConditionMarkersPlannerError   = "MarkersPlannerError"
+
+	MediaFileReasonPlannerError = "PlannerError"
+	MediaFileReasonPlannerPanic = "PlannerPanic"
+)
+
+// Field selectors on MediaFile's selectable fields (loop spec §2.10).
+// Transcode admission's rebuild lists through the APIReader with
+// client.MatchingFields{FieldTranscodePhase: p}; a file with no block
+// reads "".
+const (
+	FieldTranscodePhase = "status.transcode.phase"
+	FieldGraftPhase     = "status.graft.phase"
 )
 
 // ImportSource records where an imported file came from.
@@ -77,14 +92,29 @@ type ImportSource struct {
 	Manual bool `json:"manual,omitempty"`
 }
 
-// Sidecar is a subtitle or metadata file sitting next to the media file.
+// Sidecar is a subtitle sidecar beside the media file (loop spec §2.7):
+// every attributable one the subtitles planner's directory read finds,
+// downloaded, written by the MP4 standard or placed by hand.
 type Sidecar struct {
-	// Path is the sidecar's absolute path.
+	// Path is the sidecar's absolute path: today's field and the list's map
+	// key, written by the loop on every entry in release N (dir(spec.path)
+	// + "/" + Name) so that the previous release can read and re-send the
+	// list after a rollback (§2.16). The loop fills each half from the
+	// other on an entry it carries forward. Deleted in N+1.
 	// +required
+	// +kubebuilder:validation:MaxLength=4096
 	Path string `json:"path"`
 
-	// Language is the ISO 639 language tag of the sidecar.
+	// Name is the sidecar's file name in the media file's directory.
+	// +optional in release N (an entry the previous release wrote after a
+	// rollback has none); +required with MinLength=1 from N+1.
 	// +optional
+	// +kubebuilder:validation:MaxLength=255
+	Name string `json:"name,omitempty"`
+
+	// Language is the sidecar's language tag.
+	// +optional
+	// +kubebuilder:validation:MaxLength=35
 	Language string `json:"language,omitempty"`
 
 	// Forced is true when the sidecar is a forced subtitle track.
@@ -94,26 +124,6 @@ type Sidecar struct {
 	// HI is true when the sidecar is a hearing-impaired (SDH) subtitle track.
 	// +optional
 	HI bool `json:"hi,omitempty"`
-}
-
-// TranscodeState is transcodarr's view of this file, mirrored back onto it.
-type TranscodeState struct {
-	// Compliant is true when the file already matches its TranscodeProfile.
-	// +optional
-	Compliant bool `json:"compliant,omitempty"`
-
-	// ProfileTag identifies the TranscodeProfile revision compliance was judged against.
-	// +optional
-	ProfileTag string `json:"profileTag,omitempty"`
-
-	// JobRef is the TranscodeJob currently working on the file.
-	// +optional
-	JobRef *string `json:"jobRef,omitempty"`
-
-	// LastResult is the outcome of the most recent transcode.
-	// +optional
-	// +kubebuilder:default=none
-	LastResult TranscodeResult `json:"lastResult,omitempty"`
 }
 
 // MediaFileSpec defines the desired state of MediaFile.
@@ -198,23 +208,35 @@ type MediaFileSpec struct {
 	Original *bool `json:"original,omitempty"`
 }
 
-// MediaFileStatus describes the observed state of MediaFile.
+// MediaFileStatus is written by one remediation loop in the manager, under
+// field manager catalogarr (ADR-0016). Until F3.1 the MediaFile reconciler
+// still writes it through knownStatus.
 type MediaFileStatus struct {
 	// ObservedGeneration is the generation of the spec this status reflects.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 
-	// Conditions represent the latest available observations of the file's state.
+	// Conditions represent the latest available observations of the file's
+	// state: a set closed at ten types (loop spec §2.8).
 	// +optional
 	// +listType=map
 	// +listMapKey=type
 	// +patchStrategy=merge
 	// +patchMergeKey=type
-	// +kubebuilder:validation:MaxItems=8
+	// +kubebuilder:validation:MaxItems=12
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
+
+	// LastSeq is the last sequence the loop issued to any remediation task
+	// for this file (subtitles, transcode, graft). It never decreases while
+	// the MediaFile exists; the probe and markers keep their record-local
+	// Seq (split §6.5.2).
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	LastSeq int64 `json:"lastSeq,omitempty"`
 
 	// ProbeHash is sha1(path|size|mtime); a change makes downstream services replan.
 	// +optional
+	// +kubebuilder:validation:MaxLength=128
 	ProbeHash string `json:"probeHash,omitempty"`
 
 	// ProbedAt is when the file was last probed.
@@ -238,27 +260,14 @@ type MediaFileStatus struct {
 	// +optional
 	MediaInfo *commonv1.MediaInfo `json:"mediaInfo,omitempty"`
 
-	// Sidecars lists the subtitle and metadata files found next to this one.
+	// Sidecars are the subtitle sidecars beside the file, found on disk by
+	// the subtitles planner's directory read, sorted by name. Release N keeps
+	// today's map list keyed by path (loop spec §2.16); N+1 makes it atomic.
 	// +optional
 	// +listType=map
 	// +listMapKey=path
-	// +kubebuilder:validation:MaxItems=50
+	// +kubebuilder:validation:MaxItems=32
 	Sidecars []Sidecar `json:"sidecars,omitempty"`
-
-	// Transcode is transcodarr's view of this file.
-	// +optional
-	Transcode *TranscodeState `json:"transcode,omitempty"`
-
-	// GraftTag is the CLUSTARR_GRAFT tag of the last audio graft catalogarr
-	// incorporated into this file (anime dual-audio spec §7.2), and
-	// GraftedAt when. A graft is not a transcode: spec.original stays as it
-	// was, but from the first graft catalogarr owns spec.path, sizeBytes and
-	// modTime, as after a transcode swap.
-	// +optional
-	// +kubebuilder:validation:MaxLength=64
-	GraftTag string `json:"graftTag,omitempty"`
-	// +optional
-	GraftedAt *metav1.Time `json:"graftedAt,omitempty"`
 
 	// Naming is the file's canonical path under its RootFolder's naming
 	// preset, rendered by catalogarr from the item's metadata, the
@@ -272,6 +281,37 @@ type MediaFileStatus struct {
 	// by cluster-plex (spec 2026-09-30 plex-analyze-bypass).
 	// +optional
 	Markers *FileMarkers `json:"markers,omitempty"`
+
+	// Subtitles is the remediation loop's subtitles block (loop spec §2.4);
+	// it replaces SubtitleRequest.
+	// +optional
+	Subtitles *SubtitlesStatus `json:"subtitles,omitempty"`
+
+	// Transcode is the remediation loop's transcode block (loop spec §2.5);
+	// it replaces TranscodeJob.
+	// +optional
+	Transcode *TranscodeState `json:"transcode,omitempty"`
+
+	// Graft is the remediation loop's graft block (loop spec §2.6); it
+	// replaces AudioGraft's per-file half.
+	// +optional
+	Graft *GraftState `json:"graft,omitempty"`
+
+	// GraftTag is the CLUSTARR_GRAFT tag of the last audio graft catalogarr
+	// incorporated into this file (anime dual-audio spec §7.2), and
+	// GraftedAt when. A graft is not a transcode: spec.original stays as it
+	// was, but from the first graft catalogarr owns spec.path, sizeBytes and
+	// modTime, as after a transcode swap.
+	// +optional
+	// +kubebuilder:validation:MaxLength=64
+	GraftTag string `json:"graftTag,omitempty"`
+	// +optional
+	GraftedAt *metav1.Time `json:"graftedAt,omitempty"`
+
+	// HandledNonces records the last one-shot intent nonce handled for each
+	// one-shot intent annotation (loop spec §2.9).
+	// +optional
+	HandledNonces *HandledNonces `json:"handledNonces,omitempty"`
 }
 
 // MarkersResult is how a file's last marker fetch ended.
@@ -438,13 +478,23 @@ const (
 // +kubebuilder:ac:generate=true
 // +kubebuilder:resource:scope=Namespaced,shortName=mf,categories=clustarr;catalog
 // +kubebuilder:selectablefield:JSONPath=`.spec.mediaRef.name`
+// +kubebuilder:selectablefield:JSONPath=`.spec.mediaRef.kind`
+// +kubebuilder:selectablefield:JSONPath=`.status.transcode.phase`
+// +kubebuilder:selectablefield:JSONPath=`.status.subtitles.phase`
+// +kubebuilder:selectablefield:JSONPath=`.status.graft.phase`
+// +kubebuilder:selectablefield:JSONPath=`.status.naming.current`
 // +kubebuilder:printcolumn:name="Media",type=string,JSONPath=`.spec.mediaRef.name`
 // +kubebuilder:printcolumn:name="Kind",type=string,JSONPath=`.spec.mediaRef.kind`
 // +kubebuilder:printcolumn:name="Quality",type=string,JSONPath=`.spec.quality.name`
-// +kubebuilder:printcolumn:name="Score",type=integer,JSONPath=`.spec.formatScore`
-// +kubebuilder:printcolumn:name="Size",type=integer,JSONPath=`.spec.sizeBytes`
-// +kubebuilder:printcolumn:name="Probed",type=string,JSONPath=`.status.conditions[?(@.type=="Probed")].status`
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
+// +kubebuilder:printcolumn:name="Transcode",type=string,JSONPath=`.status.transcode.phase`
+// +kubebuilder:printcolumn:name="Subtitles",type=string,JSONPath=`.status.subtitles.phase`
+// +kubebuilder:printcolumn:name="Graft",type=string,JSONPath=`.status.graft.phase`,priority=1
+// +kubebuilder:printcolumn:name="Class",type=string,JSONPath=`.status.transcode.class`,priority=1
+// +kubebuilder:printcolumn:name="Worker",type=string,JSONPath=`.status.transcode.workerPod`,priority=1
+// +kubebuilder:printcolumn:name="Probed",type=string,JSONPath=`.status.conditions[?(@.type=="Probed")].status`,priority=1
+// +kubebuilder:printcolumn:name="Score",type=integer,JSONPath=`.spec.formatScore`,priority=1
+// +kubebuilder:printcolumn:name="Size",type=integer,JSONPath=`.spec.sizeBytes`,priority=1
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // MediaFile is one file on disk backing a catalog item. It is the pivot every

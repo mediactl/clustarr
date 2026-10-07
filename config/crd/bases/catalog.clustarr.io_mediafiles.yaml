@@ -29,18 +29,39 @@ spec:
     - jsonPath: .spec.quality.name
       name: Quality
       type: string
-    - jsonPath: .spec.formatScore
-      name: Score
-      type: integer
-    - jsonPath: .spec.sizeBytes
-      name: Size
-      type: integer
-    - jsonPath: .status.conditions[?(@.type=="Probed")].status
-      name: Probed
-      type: string
     - jsonPath: .status.conditions[?(@.type=="Ready")].status
       name: Ready
       type: string
+    - jsonPath: .status.transcode.phase
+      name: Transcode
+      type: string
+    - jsonPath: .status.subtitles.phase
+      name: Subtitles
+      type: string
+    - jsonPath: .status.graft.phase
+      name: Graft
+      priority: 1
+      type: string
+    - jsonPath: .status.transcode.class
+      name: Class
+      priority: 1
+      type: string
+    - jsonPath: .status.transcode.workerPod
+      name: Worker
+      priority: 1
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Probed")].status
+      name: Probed
+      priority: 1
+      type: string
+    - jsonPath: .spec.formatScore
+      name: Score
+      priority: 1
+      type: integer
+    - jsonPath: .spec.sizeBytes
+      name: Size
+      priority: 1
+      type: integer
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
@@ -300,11 +321,15 @@ spec:
             - path
             type: object
           status:
-            description: MediaFileStatus describes the observed state of MediaFile.
+            description: |-
+              MediaFileStatus is written by one remediation loop in the manager, under
+              field manager catalogarr (ADR-0016). Until F3.1 the MediaFile reconciler
+              still writes it through knownStatus.
             properties:
               conditions:
-                description: Conditions represent the latest available observations
-                  of the file's state.
+                description: |-
+                  Conditions represent the latest available observations of the file's
+                  state: a set closed at ten types (loop spec §2.8).
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -359,11 +384,174 @@ spec:
                   - status
                   - type
                   type: object
-                maxItems: 8
+                maxItems: 12
                 type: array
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              graft:
+                description: |-
+                  Graft is the remediation loop's graft block (loop spec §2.6); it
+                  replaces AudioGraft's per-file half.
+                properties:
+                  completedAt:
+                    format: date-time
+                    type: string
+                  coveragePercent:
+                    format: int32
+                    maximum: 100
+                    minimum: 0
+                    type: integer
+                  dispatch:
+                    description: |-
+                      Dispatch fences one remediation's task and the record that answers it
+                      (loop spec §2.3). A dispatch takes seq = records.NextSeq(record.Seq,
+                      status.lastSeq, now), and the apply that moves its block in flight writes
+                      status.lastSeq = seq beside it; records are also matched by their inputs.
+                    properties:
+                      answeredSeq:
+                        description: |-
+                          AnsweredSeq is the Seq of the last dispatch closed: by an incorporated
+                          answer, a withdrawal or a timeout. A task is in flight while
+                          Seq > AnsweredSeq.
+                        format: int64
+                        minimum: 0
+                        type: integer
+                      dispatchedAt:
+                        description: |-
+                          DispatchedAt is when Seq was issued; the republish window and the
+                          request timeout run from it.
+                        format: date-time
+                        type: string
+                      seq:
+                        description: Seq is the sequence of the last task issued for
+                          this remediation.
+                        format: int64
+                        minimum: 1
+                        type: integer
+                      withdrawn:
+                        description: |-
+                          Withdrawn is true when the dispatch at Seq was closed by a withdrawal,
+                          not by an answer. For transcode and graft a fact (a change already
+                          made on disk) can still land after that: the planner keeps reading
+                          the record while Withdrawn is true and now < DispatchedAt +
+                          records.FactWindow, and incorporates a fact at Seq whatever the phase
+                          (§4.10, §5.9). Incorporating it clears Withdrawn.
+                        type: boolean
+                    required:
+                    - dispatchedAt
+                    - seq
+                    type: object
+                  donorFault:
+                    description: |-
+                      DonorFault marks a failure that rejects the donor's release
+                      (AlignmentRejected, VerifyFailed, MuxFailed, DonorLacksLanguage).
+                    type: boolean
+                  donorImportedAt:
+                    format: date-time
+                    type: string
+                  donorRelease:
+                    description: |-
+                      DonorRelease and DonorImportedAt identify the item's donor this graft
+                      is for (status.audio.donor); a Failed graft is retried only for another
+                      donor or another ProbeHash.
+                    maxLength: 512
+                    type: string
+                  jobName:
+                    description: JobName is the standalone graft Job of the in-flight
+                      dispatch.
+                    maxLength: 253
+                    type: string
+                  joinedTranscodeSeq:
+                    description: JoinedTranscodeSeq is the transcode dispatch this
+                      graft rides.
+                    format: int64
+                    minimum: 0
+                    type: integer
+                  languages:
+                    items:
+                      maxLength: 35
+                      type: string
+                    maxItems: 4
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  message:
+                    maxLength: 1024
+                    type: string
+                  phase:
+                    description: GraftPhase is status.graft's phase (loop spec §2.6).
+                    enum:
+                    - Waiting
+                    - Queued
+                    - Running
+                    - Swapping
+                    - Succeeded
+                    - Failed
+                    type: string
+                  probeHash:
+                    maxLength: 128
+                    type: string
+                  rateMarginMilli:
+                    format: int32
+                    minimum: 0
+                    type: integer
+                  rateMicros:
+                    format: int64
+                    minimum: 0
+                    type: integer
+                  rateName:
+                    maxLength: 32
+                    type: string
+                  reason:
+                    description: |-
+                      Reason: Waiting -- FileUnprobed, TranscodeRunning, WaitingForTranscode,
+                      WaitingForSlot, Backoff; Running -- JoinedTranscode; Succeeded --
+                      Grafted, Present; Failed -- the grafttask reasons and JobLost.
+                    maxLength: 64
+                    type: string
+                  residualMillis:
+                    format: int32
+                    type: integer
+                  segments:
+                    items:
+                      description: |-
+                        GraftSegment is one aligned span: the donor's start, the target's start
+                        and its length, in milliseconds.
+                      properties:
+                        donorStartMillis:
+                          format: int64
+                          type: integer
+                        lengthMillis:
+                          format: int64
+                          type: integer
+                        targetStartMillis:
+                          format: int64
+                          type: integer
+                      required:
+                      - donorStartMillis
+                      - lengthMillis
+                      - targetStartMillis
+                      type: object
+                    maxItems: 16
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  startedAt:
+                    format: date-time
+                    type: string
+                  tag:
+                    description: |-
+                      Tag is the CLUSTARR_GRAFT tag the worker wrote; status.graftTag takes
+                      it when the grafted bytes' probe is incorporated.
+                    maxLength: 64
+                    type: string
+                  within80Percent:
+                    format: int32
+                    maximum: 100
+                    minimum: 0
+                    type: integer
+                required:
+                - phase
+                type: object
               graftTag:
                 description: |-
                   GraftTag is the CLUSTARR_GRAFT tag of the last audio graft catalogarr
@@ -376,6 +564,30 @@ spec:
               graftedAt:
                 format: date-time
                 type: string
+              handledNonces:
+                description: |-
+                  HandledNonces records the last one-shot intent nonce handled for each
+                  one-shot intent annotation (loop spec §2.9).
+                properties:
+                  subtitleSearch:
+                    maxLength: 63
+                    type: string
+                  transcodeCancel:
+                    maxLength: 63
+                    type: string
+                  transcodeRetry:
+                    maxLength: 63
+                    type: string
+                type: object
+              lastSeq:
+                description: |-
+                  LastSeq is the last sequence the loop issued to any remediation task
+                  for this file (subtitles, transcode, graft). It never decreases while
+                  the MediaFile exists; the probe and markers keep their record-local
+                  Seq (split §6.5.2).
+                format: int64
+                minimum: 0
+                type: integer
               markers:
                 description: |-
                   Markers are the skip segments TheIntroDB publishes for this file,
@@ -822,6 +1034,7 @@ spec:
               probeHash:
                 description: ProbeHash is sha1(path|size|mtime); a change makes downstream
                   services replan.
+                maxLength: 128
                 type: string
               probeVersion:
                 description: |-
@@ -838,11 +1051,15 @@ spec:
                 format: date-time
                 type: string
               sidecars:
-                description: Sidecars lists the subtitle and metadata files found
-                  next to this one.
+                description: |-
+                  Sidecars are the subtitle sidecars beside the file, found on disk by
+                  the subtitles planner's directory read, sorted by name. Release N keeps
+                  today's map list keyed by path (loop spec §2.16); N+1 makes it atomic.
                 items:
-                  description: Sidecar is a subtitle or metadata file sitting next
-                    to the media file.
+                  description: |-
+                    Sidecar is a subtitle sidecar beside the media file (loop spec §2.7):
+                    every attributable one the subtitles planner's directory read finds,
+                    downloaded, written by the MP4 standard or placed by hand.
                   properties:
                     forced:
                       description: Forced is true when the sidecar is a forced subtitle
@@ -853,48 +1070,502 @@ spec:
                         (SDH) subtitle track.
                       type: boolean
                     language:
-                      description: Language is the ISO 639 language tag of the sidecar.
+                      description: Language is the sidecar's language tag.
+                      maxLength: 35
+                      type: string
+                    name:
+                      description: |-
+                        Name is the sidecar's file name in the media file's directory.
+                        rollback has none); +required with MinLength=1 from N+1.
+                      maxLength: 255
                       type: string
                     path:
-                      description: Path is the sidecar's absolute path.
+                      description: |-
+                        Path is the sidecar's absolute path: today's field and the list's map
+                        key, written by the loop on every entry in release N (dir(spec.path)
+                        list after a rollback (§2.16). The loop fills each half from the
+                        other on an entry it carries forward. Deleted in N+1.
+                      maxLength: 4096
                       type: string
                   required:
                   - path
                   type: object
-                maxItems: 50
+                maxItems: 32
                 type: array
                 x-kubernetes-list-map-keys:
                 - path
                 x-kubernetes-list-type: map
-              transcode:
-                description: Transcode is transcodarr's view of this file.
+              subtitles:
+                description: |-
+                  Subtitles is the remediation loop's subtitles block (loop spec §2.4);
+                  it replaces SubtitleRequest.
                 properties:
+                  cutoffMet:
+                    description: CutoffMet is sent false as well as true (no omitempty,
+                      no default).
+                    type: boolean
+                  items:
+                    description: Items is one entry per wanted language or language
+                      on disk, sorted by langKey.
+                    items:
+                      description: SubtitleItemStatus is one language of a file's
+                        subtitles.
+                      properties:
+                        attempts:
+                          description: Attempts tracks repeated attempts at an operation
+                            such as a search or grab.
+                          properties:
+                            count:
+                              description: Count is the total number of attempts so
+                                far.
+                              format: int32
+                              type: integer
+                            initial:
+                              description: Initial is when the first attempt was made.
+                              format: date-time
+                              type: string
+                            latest:
+                              description: Latest is when the most recent attempt
+                                was made.
+                              format: date-time
+                              type: string
+                          type: object
+                        dispatch:
+                          description: |-
+                            Dispatch fences one remediation's task and the record that answers it
+                            (loop spec §2.3). A dispatch takes seq = records.NextSeq(record.Seq,
+                            status.lastSeq, now), and the apply that moves its block in flight writes
+                            status.lastSeq = seq beside it; records are also matched by their inputs.
+                          properties:
+                            answeredSeq:
+                              description: |-
+                                AnsweredSeq is the Seq of the last dispatch closed: by an incorporated
+                                answer, a withdrawal or a timeout. A task is in flight while
+                                Seq > AnsweredSeq.
+                              format: int64
+                              minimum: 0
+                              type: integer
+                            dispatchedAt:
+                              description: |-
+                                DispatchedAt is when Seq was issued; the republish window and the
+                                request timeout run from it.
+                              format: date-time
+                              type: string
+                            seq:
+                              description: Seq is the sequence of the last task issued
+                                for this remediation.
+                              format: int64
+                              minimum: 1
+                              type: integer
+                            withdrawn:
+                              description: |-
+                                Withdrawn is true when the dispatch at Seq was closed by a withdrawal,
+                                not by an answer. For transcode and graft a fact (a change already
+                                made on disk) can still land after that: the planner keeps reading
+                                the record while Withdrawn is true and now < DispatchedAt +
+                                records.FactWindow, and incorporates a fact at Seq whatever the phase
+                                (§4.10, §5.9). Incorporating it clears Withdrawn.
+                              type: boolean
+                          required:
+                          - dispatchedAt
+                          - seq
+                          type: object
+                        downloadedAt:
+                          format: date-time
+                          type: string
+                        langKey:
+                          maxLength: 64
+                          minLength: 1
+                          type: string
+                        lastError:
+                          maxLength: 512
+                          type: string
+                        name:
+                          description: |-
+                            Name is the sidecar written for this language: a file name in the media
+                            file's directory.
+                          maxLength: 255
+                          type: string
+                        nextSearchAt:
+                          format: date-time
+                          type: string
+                        provider:
+                          description: Provider is the SubtitleProvider's name.
+                          maxLength: 253
+                          type: string
+                        score:
+                          format: int32
+                          minimum: 0
+                          type: integer
+                        scoreOutOf:
+                          format: int32
+                          minimum: 0
+                          type: integer
+                        state:
+                          description: |-
+                            SubtitleState is one language's state, derived by the loop on every plan.
+                            Its first value is pending; searching means dispatch.seq >
+                            dispatch.answeredSeq.
+                          enum:
+                          - pending
+                          - searching
+                          - downloaded
+                          - upgradable
+                          - unavailable
+                          - failed
+                          type: string
+                        subtitleID:
+                          maxLength: 256
+                          type: string
+                      required:
+                      - langKey
+                      - state
+                      type: object
+                    maxItems: 20
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  message:
+                    maxLength: 1024
+                    type: string
+                  phase:
+                    description: SubtitlesPhase is the queue view of one file's subtitles
+                      (loop spec §2.4).
+                    enum:
+                    - NotWanted
+                    - Wanted
+                    - Searching
+                    - Satisfied
+                    - Blocked
+                    type: string
+                  probeHash:
+                    description: |-
+                      ProbeHash is the status.probeHash the items describe; a new one resets
+                      every language's attempts. Written only while items exist, so a
+                      NotWanted block with no items does not change with the bytes.
+                      (No profileGeneration: nothing reads it from status, and on a block
+                      every probed video file carries it would make one SubtitleProfile
+                      edit rewrite every MediaFile. The task and the record carry it, §6.6.)
+                    maxLength: 128
+                    type: string
+                  profile:
+                    description: Profile is the SubtitleProfile the plan used.
+                    maxLength: 253
+                    type: string
+                  reason:
+                    description: |-
+                      Reason is why the phase is Blocked: ItemNotFound, NoProfile,
+                      ProfileInvalid, MediaFileNotOnDataVolume, MediaDirUnreadable or
+                      MediaFileNotOnDisk.
+                    maxLength: 64
+                    type: string
+                  wanted:
+                    description: Wanted is the langKeys still missing.
+                    items:
+                      maxLength: 64
+                      type: string
+                    maxItems: 20
+                    type: array
+                    x-kubernetes-list-type: atomic
+                required:
+                - cutoffMet
+                - phase
+                type: object
+              transcode:
+                description: |-
+                  Transcode is the remediation loop's transcode block (loop spec §2.5);
+                  it replaces TranscodeJob.
+                properties:
+                  attempts:
+                    description: |-
+                      Attempts counts dispatches in the current cycle; a retry, new bytes or
+                      a new ProfileHash reset it. Dispatch.Seq never resets.
+                    format: int32
+                    minimum: 0
+                    type: integer
+                  blocked:
+                    description: |-
+                      Blocked is a Failed verdict that is not retried without
+                      transcode.clustarr.io/retry, new bytes or a new ProfileHash.
+                    type: boolean
+                  class:
+                    description: |-
+                      TranscodeClass is the concrete class a task was dispatched to
+                      (pkg/crdcheck.TestTranscodeClassIsConcreteHardware).
+                    enum:
+                    - cpu
+                    - nvidia
+                    - intel
+                    type: string
                   compliant:
                     description: Compliant is true when the file already matches its
                       TranscodeProfile.
                     type: boolean
-                  jobRef:
-                    description: JobRef is the TranscodeJob currently working on the
-                      file.
+                  dispatch:
+                    description: |-
+                      Dispatch fences one remediation's task and the record that answers it
+                      (loop spec §2.3). A dispatch takes seq = records.NextSeq(record.Seq,
+                      status.lastSeq, now), and the apply that moves its block in flight writes
+                      status.lastSeq = seq beside it; records are also matched by their inputs.
+                    properties:
+                      answeredSeq:
+                        description: |-
+                          AnsweredSeq is the Seq of the last dispatch closed: by an incorporated
+                          answer, a withdrawal or a timeout. A task is in flight while
+                          Seq > AnsweredSeq.
+                        format: int64
+                        minimum: 0
+                        type: integer
+                      dispatchedAt:
+                        description: |-
+                          DispatchedAt is when Seq was issued; the republish window and the
+                          request timeout run from it.
+                        format: date-time
+                        type: string
+                      seq:
+                        description: Seq is the sequence of the last task issued for
+                          this remediation.
+                        format: int64
+                        minimum: 1
+                        type: integer
+                      withdrawn:
+                        description: |-
+                          Withdrawn is true when the dispatch at Seq was closed by a withdrawal,
+                          not by an answer. For transcode and graft a fact (a change already
+                          made on disk) can still land after that: the planner keeps reading
+                          the record while Withdrawn is true and now < DispatchedAt +
+                          records.FactWindow, and incorporates a fact at Seq whatever the phase
+                          (§4.10, §5.9). Incorporating it clears Withdrawn.
+                        type: boolean
+                    required:
+                    - dispatchedAt
+                    - seq
+                    type: object
+                  fallbackReason:
+                    maxLength: 256
                     type: string
+                  finishedAt:
+                    format: date-time
+                    type: string
+                  hardware:
+                    description: |-
+                      Hardware is the hardware in force: the transcode.clustarr.io/hardware
+                      annotation when valid, else the profile's.
+                    enum:
+                    - cpu
+                    - nvidia
+                    - intel
+                    - auto
+                    - gpu
+                    type: string
+                  jobRef:
+                    description: |-
+                      JobRef and LastResult are today's fields, kept in release N's schema
+                      only so the previous release's apply is still valid after a rollback
+                      (§2.16). The loop never writes them; LastResult has no default. F9.2
+                      deletes both.
+                    type: string
+                  joinedGraft:
+                    description: |-
+                      JoinedGraft is the graft the dispatch at Dispatch.Seq carries, written
+                      by the transcode planner in the apply that dispatches and kept until
+                      its next dispatch (§5.13).
+                    properties:
+                      donorImportedAt:
+                        format: date-time
+                        type: string
+                      donorRelease:
+                        maxLength: 512
+                        type: string
+                      languages:
+                        items:
+                          maxLength: 35
+                          type: string
+                        maxItems: 4
+                        type: array
+                        x-kubernetes-list-type: atomic
+                      probeHash:
+                        maxLength: 128
+                        type: string
+                    required:
+                    - donorRelease
+                    - probeHash
+                    type: object
                   lastResult:
-                    default: none
-                    description: LastResult is the outcome of the most recent transcode.
+                    description: |-
+                      TranscodeResult is the outcome of the most recent transcode of a file:
+                      today's lastResult, kept in release N's schema only so the previous
+                      release's apply stays valid after a rollback (loop spec §2.16). The loop
+                      never writes it; F9.2 deletes it.
                     enum:
                     - none
                     - succeeded
                     - failed
                     - skipped
                     type: string
+                  message:
+                    maxLength: 1024
+                    type: string
+                  nextAttemptAt:
+                    format: date-time
+                    type: string
+                  phase:
+                    description: |-
+                      Phase is always written by the loop. It is +optional, and omitted
+                      when empty, in release N only: the previous release applies this
+                      block with no phase under the same field manager, and a typed
+                      phase-less block must not send phase:"" (§2.16). F9.2 makes it
+                    enum:
+                    - Pending
+                    - Planned
+                    - Queued
+                    - Running
+                    - Swapping
+                    - Succeeded
+                    - Failed
+                    - Skipped
+                    type: string
+                  plan:
+                    description: TranscodePlan is what the transcode planner decided
+                      for the file.
+                    properties:
+                      decode:
+                        enum:
+                        - cpu
+                        - nvdec
+                        - upload
+                        - vaapi
+                        - qsv
+                        type: string
+                      dropped:
+                        description: |-
+                          Dropped names each source subtitle the output carries neither embedded
+                          nor as a sidecar (standard.Result.Dropped: a codec the MP4 standard does
+                          not carry, or a second track for a sidecar name already planned), each
+                          clamped on a rune boundary; past 8, the eighth reads "and N more". It
+                          replaces the "; dropped …" suffix main's c0fb39b7 adds to TranscodeJob's
+                          Planned condition, which the fold removes (loop spec §2.5, D44).
+                        items:
+                          maxLength: 320
+                          type: string
+                        maxItems: 8
+                        type: array
+                        x-kubernetes-list-type: atomic
+                      encoder:
+                        maxLength: 64
+                        type: string
+                      hdrMode:
+                        maxLength: 64
+                        type: string
+                      mode:
+                        description: TranscodeMode is a plan's mode.
+                        enum:
+                        - transcode
+                        - remuxOnly
+                        type: string
+                      planHash:
+                        maxLength: 64
+                        type: string
+                      videoAction:
+                        enum:
+                        - copy
+                        - encode
+                        type: string
+                    required:
+                    - mode
+                    - planHash
+                    type: object
+                  plannedAt:
+                    description: |-
+                      PlannedAt is when this (ProfileHash, ProbeHash) first reached Planned;
+                      admission orders by priority, then PlannedAt, then name.
+                    format: date-time
+                    type: string
+                  pool:
+                    description: Pool is the pool Job of the in-flight or last dispatch.
+                    maxLength: 253
+                    type: string
+                  priority:
+                    description: |-
+                      Priority is the priority admission used: the annotation's, else the
+                      profile's spec.priority.
+                    format: int32
+                    type: integer
+                  probeHash:
+                    description: ProbeHash is the status.probeHash the plan or verdict
+                      was made for.
+                    maxLength: 128
+                    type: string
+                  profile:
+                    description: |-
+                      Profile is the TranscodeProfile that won the file, and ProfileHash the
+                      hash the block is planned under (jobspec.ProfileHash over the
+                      standard's inputs and standard.Version, the function the profile's
+                      status.hash uses). Pending, Failed and Skipped are verdicts for this
+                      (ProfileHash, ProbeHash) only.
+                    maxLength: 253
+                    type: string
+                  profileHash:
+                    maxLength: 64
+                    type: string
                   profileTag:
-                    description: ProfileTag identifies the TranscodeProfile revision
-                      compliance was judged against.
+                    description: |-
+                      ProfileTag is <Profile>@<ProfileHash>, set when a swap is incorporated,
+                      from this block, never from a TranscodeProfile Get.
+                    maxLength: 320
+                    type: string
+                  reason:
+                    maxLength: 64
+                    type: string
+                  result:
+                    description: |-
+                      Result stays until the swap is incorporated, and for good for a
+                      replaceSource=false copy (the rescan protects result.outputPath).
+                    properties:
+                      outputPath:
+                        maxLength: 4096
+                        type: string
+                      outputSizeBytes:
+                        format: int64
+                        minimum: 0
+                        type: integer
+                      outputToSourcePercent:
+                        format: int32
+                        minimum: 0
+                        type: integer
+                      vmafCentis:
+                        format: int32
+                        maximum: 10000
+                        minimum: 0
+                        type: integer
+                    required:
+                    - outputPath
+                    type: object
+                  startedAt:
+                    format: date-time
+                    type: string
+                  stderrTail:
+                    description: |-
+                      StderrTail is the last 1 KiB of the encoder's stderr on Failed; the
+                      record keeps 4 KiB.
+                    maxLength: 1024
+                    type: string
+                  suspended:
+                    description: Suspended is the transcode.clustarr.io/suspend annotation
+                      in force.
+                    type: boolean
+                  workerPod:
+                    maxLength: 253
                     type: string
                 type: object
             type: object
         type: object
     selectableFields:
     - jsonPath: .spec.mediaRef.name
+    - jsonPath: .spec.mediaRef.kind
+    - jsonPath: .status.transcode.phase
+    - jsonPath: .status.subtitles.phase
+    - jsonPath: .status.graft.phase
+    - jsonPath: .status.naming.current
     served: true
     storage: true
     subresources:

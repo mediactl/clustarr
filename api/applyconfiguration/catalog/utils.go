@@ -123,6 +123,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &catalogv1alpha1.DelayProfileStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("DeviceAuth"):
 		return &catalogv1alpha1.DeviceAuthApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("Dispatch"):
+		return &catalogv1alpha1.DispatchApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("Edition"):
 		return &catalogv1alpha1.EditionApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("EditionSpec"):
@@ -139,6 +141,12 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &catalogv1alpha1.FormatScoreApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("GrabResult"):
 		return &catalogv1alpha1.GrabResultApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("GraftSegment"):
+		return &catalogv1alpha1.GraftSegmentApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("GraftState"):
+		return &catalogv1alpha1.GraftStateApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("HandledNonces"):
+		return &catalogv1alpha1.HandledNoncesApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("Image"):
 		return &catalogv1alpha1.ImageApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("ImportExclusion"):
@@ -289,6 +297,10 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &catalogv1alpha1.SidecarApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("SizeLimit"):
 		return &catalogv1alpha1.SizeLimitApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("SubtitleItemStatus"):
+		return &catalogv1alpha1.SubtitleItemStatusApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("SubtitlesStatus"):
+		return &catalogv1alpha1.SubtitlesStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("Tier"):
 		return &catalogv1alpha1.TierApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("TmdbList"):
@@ -297,6 +309,12 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &catalogv1alpha1.TrackApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("TraktList"):
 		return &catalogv1alpha1.TraktListApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("TranscodeGraftJoin"):
+		return &catalogv1alpha1.TranscodeGraftJoinApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("TranscodeOutput"):
+		return &catalogv1alpha1.TranscodeOutputApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("TranscodePlan"):
+		return &catalogv1alpha1.TranscodePlanApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("TranscodeState"):
 		return &catalogv1alpha1.TranscodeStateApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("UnmatchedFile"):

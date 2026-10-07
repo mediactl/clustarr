@@ -1479,6 +1479,21 @@ var schemaYAML = typed.YAMLObject(`types:
         scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.DeviceAuthState
   scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.Dispatch
+  map:
+    fields:
+    - name: answeredSeq
+      type:
+        scalar: numeric
+    - name: dispatchedAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: seq
+      type:
+        scalar: numeric
+    - name: withdrawn
+      type:
+        scalar: boolean
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.Edition
   map:
     fields:
@@ -1712,6 +1727,104 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         scalar: string
     - name: guid
+      type:
+        scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.GraftPhase
+  scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.GraftSegment
+  map:
+    fields:
+    - name: donorStartMillis
+      type:
+        scalar: numeric
+    - name: lengthMillis
+      type:
+        scalar: numeric
+    - name: targetStartMillis
+      type:
+        scalar: numeric
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.GraftState
+  map:
+    fields:
+    - name: completedAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: coveragePercent
+      type:
+        scalar: numeric
+    - name: dispatch
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.Dispatch
+    - name: donorFault
+      type:
+        scalar: boolean
+    - name: donorImportedAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: donorRelease
+      type:
+        scalar: string
+    - name: jobName
+      type:
+        scalar: string
+    - name: joinedTranscodeSeq
+      type:
+        scalar: numeric
+    - name: languages
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: atomic
+    - name: message
+      type:
+        scalar: string
+    - name: phase
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.GraftPhase
+    - name: probeHash
+      type:
+        scalar: string
+    - name: rateMarginMilli
+      type:
+        scalar: numeric
+    - name: rateMicros
+      type:
+        scalar: numeric
+    - name: rateName
+      type:
+        scalar: string
+    - name: reason
+      type:
+        scalar: string
+    - name: residualMillis
+      type:
+        scalar: numeric
+    - name: segments
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.GraftSegment
+          elementRelationship: atomic
+    - name: startedAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: tag
+      type:
+        scalar: string
+    - name: within80Percent
+      type:
+        scalar: numeric
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.HandledNonces
+  map:
+    fields:
+    - name: subtitleSearch
+      type:
+        scalar: string
+    - name: transcodeCancel
+      type:
+        scalar: string
+    - name: transcodeRetry
       type:
         scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.Image
@@ -2361,12 +2474,21 @@ var schemaYAML = typed.YAMLObject(`types:
           elementRelationship: associative
           keys:
           - type
+    - name: graft
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.GraftState
     - name: graftTag
       type:
         scalar: string
     - name: graftedAt
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: handledNonces
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.HandledNonces
+    - name: lastSeq
+      type:
+        scalar: numeric
     - name: markers
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.FileMarkers
@@ -2396,6 +2518,9 @@ var schemaYAML = typed.YAMLObject(`types:
           elementRelationship: associative
           keys:
           - path
+    - name: subtitles
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.SubtitlesStatus
     - name: transcode
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.TranscodeState
@@ -4124,6 +4249,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: language
       type:
         scalar: string
+    - name: name
+      type:
+        scalar: string
     - name: path
       type:
         scalar: string
@@ -4156,6 +4284,82 @@ var schemaYAML = typed.YAMLObject(`types:
         elementType:
           namedType: __untyped_deduced_
         elementRelationship: separable
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.SubtitleItemStatus
+  map:
+    fields:
+    - name: attempts
+      type:
+        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.Attempts
+    - name: dispatch
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.Dispatch
+    - name: downloadedAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: langKey
+      type:
+        scalar: string
+    - name: lastError
+      type:
+        scalar: string
+    - name: name
+      type:
+        scalar: string
+    - name: nextSearchAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: provider
+      type:
+        scalar: string
+    - name: score
+      type:
+        scalar: numeric
+    - name: scoreOutOf
+      type:
+        scalar: numeric
+    - name: state
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.SubtitleState
+    - name: subtitleID
+      type:
+        scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.SubtitleState
+  scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.SubtitlesPhase
+  scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.SubtitlesStatus
+  map:
+    fields:
+    - name: cutoffMet
+      type:
+        scalar: boolean
+    - name: items
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.SubtitleItemStatus
+          elementRelationship: atomic
+    - name: message
+      type:
+        scalar: string
+    - name: phase
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.SubtitlesPhase
+    - name: probeHash
+      type:
+        scalar: string
+    - name: profile
+      type:
+        scalar: string
+    - name: reason
+      type:
+        scalar: string
+    - name: wanted
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: atomic
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.SyncLevel
   scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.Tier
@@ -4225,22 +4429,161 @@ var schemaYAML = typed.YAMLObject(`types:
         scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.TraktListType
   scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.TranscodeClass
+  scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.TranscodeGraftJoin
+  map:
+    fields:
+    - name: donorImportedAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: donorRelease
+      type:
+        scalar: string
+    - name: languages
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: atomic
+    - name: probeHash
+      type:
+        scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.TranscodeHardware
+  scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.TranscodeMode
+  scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.TranscodeOutput
+  map:
+    fields:
+    - name: outputPath
+      type:
+        scalar: string
+    - name: outputSizeBytes
+      type:
+        scalar: numeric
+    - name: outputToSourcePercent
+      type:
+        scalar: numeric
+    - name: vmafCentis
+      type:
+        scalar: numeric
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.TranscodePhase
+  scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.TranscodePlan
+  map:
+    fields:
+    - name: decode
+      type:
+        scalar: string
+    - name: dropped
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: atomic
+    - name: encoder
+      type:
+        scalar: string
+    - name: hdrMode
+      type:
+        scalar: string
+    - name: mode
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.TranscodeMode
+    - name: planHash
+      type:
+        scalar: string
+    - name: videoAction
+      type:
+        scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.TranscodeResult
   scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.TranscodeState
   map:
     fields:
+    - name: attempts
+      type:
+        scalar: numeric
+    - name: blocked
+      type:
+        scalar: boolean
+    - name: class
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.TranscodeClass
     - name: compliant
       type:
         scalar: boolean
+    - name: dispatch
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.Dispatch
+    - name: fallbackReason
+      type:
+        scalar: string
+    - name: finishedAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: hardware
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.TranscodeHardware
     - name: jobRef
       type:
         scalar: string
+    - name: joinedGraft
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.TranscodeGraftJoin
     - name: lastResult
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.TranscodeResult
-      default: none
+    - name: message
+      type:
+        scalar: string
+    - name: nextAttemptAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: phase
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.TranscodePhase
+    - name: plan
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.TranscodePlan
+    - name: plannedAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: pool
+      type:
+        scalar: string
+    - name: priority
+      type:
+        scalar: numeric
+    - name: probeHash
+      type:
+        scalar: string
+    - name: profile
+      type:
+        scalar: string
+    - name: profileHash
+      type:
+        scalar: string
     - name: profileTag
+      type:
+        scalar: string
+    - name: reason
+      type:
+        scalar: string
+    - name: result
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.TranscodeOutput
+    - name: startedAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: stderrTail
+      type:
+        scalar: string
+    - name: suspended
+      type:
+        scalar: boolean
+    - name: workerPod
       type:
         scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.UnmatchedFile

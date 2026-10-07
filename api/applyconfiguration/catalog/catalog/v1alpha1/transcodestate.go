@@ -21,20 +21,78 @@ package v1alpha1
 
 import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // TranscodeStateApplyConfiguration represents a declarative configuration of the TranscodeState type for use
 // with apply.
 //
-// TranscodeState is transcodarr's view of this file, mirrored back onto it.
+// TranscodeState is the file's transcode, written by the remediation loop's
+// transcode planner (loop spec §2.5; ADR-0016). It replaces TranscodeJob.
 type TranscodeStateApplyConfiguration struct {
+	// Phase is always written by the loop. It is +optional, and omitted
+	// when empty, in release N only: the previous release applies this
+	// block with no phase under the same field manager, and a typed
+	// phase-less block must not send phase:"" (§2.16). F9.2 makes it
+	Phase   *catalogv1alpha1.TranscodePhase `json:"phase,omitempty"`
+	Reason  *string                         `json:"reason,omitempty"`
+	Message *string                         `json:"message,omitempty"`
+	// Profile is the TranscodeProfile that won the file, and ProfileHash the
+	// hash the block is planned under (jobspec.ProfileHash over the
+	// standard's inputs and standard.Version, the function the profile's
+	// status.hash uses). Pending, Failed and Skipped are verdicts for this
+	// (ProfileHash, ProbeHash) only.
+	Profile     *string `json:"profile,omitempty"`
+	ProfileHash *string `json:"profileHash,omitempty"`
+	// ProbeHash is the status.probeHash the plan or verdict was made for.
+	ProbeHash *string                          `json:"probeHash,omitempty"`
+	Plan      *TranscodePlanApplyConfiguration `json:"plan,omitempty"`
+	// Hardware is the hardware in force: the transcode.clustarr.io/hardware
+	// annotation when valid, else the profile's.
+	Hardware *catalogv1alpha1.TranscodeHardware `json:"hardware,omitempty"`
+	// Priority is the priority admission used: the annotation's, else the
+	// profile's spec.priority.
+	Priority *int32 `json:"priority,omitempty"`
+	// Suspended is the transcode.clustarr.io/suspend annotation in force.
+	Suspended *bool `json:"suspended,omitempty"`
+	// PlannedAt is when this (ProfileHash, ProbeHash) first reached Planned;
+	// admission orders by priority, then PlannedAt, then name.
+	PlannedAt *v1.Time                        `json:"plannedAt,omitempty"`
+	Class     *catalogv1alpha1.TranscodeClass `json:"class,omitempty"`
+	// Pool is the pool Job of the in-flight or last dispatch.
+	Pool           *string `json:"pool,omitempty"`
+	FallbackReason *string `json:"fallbackReason,omitempty"`
+	// Attempts counts dispatches in the current cycle; a retry, new bytes or
+	// a new ProfileHash reset it. Dispatch.Seq never resets.
+	Attempts      *int32   `json:"attempts,omitempty"`
+	NextAttemptAt *v1.Time `json:"nextAttemptAt,omitempty"`
+	// Blocked is a Failed verdict that is not retried without
+	// transcode.clustarr.io/retry, new bytes or a new ProfileHash.
+	Blocked    *bool                       `json:"blocked,omitempty"`
+	Dispatch   *DispatchApplyConfiguration `json:"dispatch,omitempty"`
+	WorkerPod  *string                     `json:"workerPod,omitempty"`
+	StartedAt  *v1.Time                    `json:"startedAt,omitempty"`
+	FinishedAt *v1.Time                    `json:"finishedAt,omitempty"`
+	// Result stays until the swap is incorporated, and for good for a
+	// replaceSource=false copy (the rescan protects result.outputPath).
+	Result *TranscodeOutputApplyConfiguration `json:"result,omitempty"`
+	// StderrTail is the last 1 KiB of the encoder's stderr on Failed; the
+	// record keeps 4 KiB.
+	StderrTail *string `json:"stderrTail,omitempty"`
 	// Compliant is true when the file already matches its TranscodeProfile.
 	Compliant *bool `json:"compliant,omitempty"`
-	// ProfileTag identifies the TranscodeProfile revision compliance was judged against.
+	// ProfileTag is <Profile>@<ProfileHash>, set when a swap is incorporated,
+	// from this block, never from a TranscodeProfile Get.
 	ProfileTag *string `json:"profileTag,omitempty"`
-	// JobRef is the TranscodeJob currently working on the file.
-	JobRef *string `json:"jobRef,omitempty"`
-	// LastResult is the outcome of the most recent transcode.
+	// JoinedGraft is the graft the dispatch at Dispatch.Seq carries, written
+	// by the transcode planner in the apply that dispatches and kept until
+	// its next dispatch (§5.13).
+	JoinedGraft *TranscodeGraftJoinApplyConfiguration `json:"joinedGraft,omitempty"`
+	// JobRef and LastResult are today's fields, kept in release N's schema
+	// only so the previous release's apply is still valid after a rollback
+	// (§2.16). The loop never writes them; LastResult has no default. F9.2
+	// deletes both.
+	JobRef     *string                          `json:"jobRef,omitempty"`
 	LastResult *catalogv1alpha1.TranscodeResult `json:"lastResult,omitempty"`
 }
 
@@ -42,6 +100,190 @@ type TranscodeStateApplyConfiguration struct {
 // apply.
 func TranscodeState() *TranscodeStateApplyConfiguration {
 	return &TranscodeStateApplyConfiguration{}
+}
+
+// WithPhase sets the Phase field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Phase field is set to the value of the last call.
+func (b *TranscodeStateApplyConfiguration) WithPhase(value catalogv1alpha1.TranscodePhase) *TranscodeStateApplyConfiguration {
+	b.Phase = &value
+	return b
+}
+
+// WithReason sets the Reason field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Reason field is set to the value of the last call.
+func (b *TranscodeStateApplyConfiguration) WithReason(value string) *TranscodeStateApplyConfiguration {
+	b.Reason = &value
+	return b
+}
+
+// WithMessage sets the Message field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Message field is set to the value of the last call.
+func (b *TranscodeStateApplyConfiguration) WithMessage(value string) *TranscodeStateApplyConfiguration {
+	b.Message = &value
+	return b
+}
+
+// WithProfile sets the Profile field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Profile field is set to the value of the last call.
+func (b *TranscodeStateApplyConfiguration) WithProfile(value string) *TranscodeStateApplyConfiguration {
+	b.Profile = &value
+	return b
+}
+
+// WithProfileHash sets the ProfileHash field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the ProfileHash field is set to the value of the last call.
+func (b *TranscodeStateApplyConfiguration) WithProfileHash(value string) *TranscodeStateApplyConfiguration {
+	b.ProfileHash = &value
+	return b
+}
+
+// WithProbeHash sets the ProbeHash field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the ProbeHash field is set to the value of the last call.
+func (b *TranscodeStateApplyConfiguration) WithProbeHash(value string) *TranscodeStateApplyConfiguration {
+	b.ProbeHash = &value
+	return b
+}
+
+// WithPlan sets the Plan field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Plan field is set to the value of the last call.
+func (b *TranscodeStateApplyConfiguration) WithPlan(value *TranscodePlanApplyConfiguration) *TranscodeStateApplyConfiguration {
+	b.Plan = value
+	return b
+}
+
+// WithHardware sets the Hardware field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Hardware field is set to the value of the last call.
+func (b *TranscodeStateApplyConfiguration) WithHardware(value catalogv1alpha1.TranscodeHardware) *TranscodeStateApplyConfiguration {
+	b.Hardware = &value
+	return b
+}
+
+// WithPriority sets the Priority field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Priority field is set to the value of the last call.
+func (b *TranscodeStateApplyConfiguration) WithPriority(value int32) *TranscodeStateApplyConfiguration {
+	b.Priority = &value
+	return b
+}
+
+// WithSuspended sets the Suspended field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Suspended field is set to the value of the last call.
+func (b *TranscodeStateApplyConfiguration) WithSuspended(value bool) *TranscodeStateApplyConfiguration {
+	b.Suspended = &value
+	return b
+}
+
+// WithPlannedAt sets the PlannedAt field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the PlannedAt field is set to the value of the last call.
+func (b *TranscodeStateApplyConfiguration) WithPlannedAt(value v1.Time) *TranscodeStateApplyConfiguration {
+	b.PlannedAt = &value
+	return b
+}
+
+// WithClass sets the Class field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Class field is set to the value of the last call.
+func (b *TranscodeStateApplyConfiguration) WithClass(value catalogv1alpha1.TranscodeClass) *TranscodeStateApplyConfiguration {
+	b.Class = &value
+	return b
+}
+
+// WithPool sets the Pool field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Pool field is set to the value of the last call.
+func (b *TranscodeStateApplyConfiguration) WithPool(value string) *TranscodeStateApplyConfiguration {
+	b.Pool = &value
+	return b
+}
+
+// WithFallbackReason sets the FallbackReason field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the FallbackReason field is set to the value of the last call.
+func (b *TranscodeStateApplyConfiguration) WithFallbackReason(value string) *TranscodeStateApplyConfiguration {
+	b.FallbackReason = &value
+	return b
+}
+
+// WithAttempts sets the Attempts field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Attempts field is set to the value of the last call.
+func (b *TranscodeStateApplyConfiguration) WithAttempts(value int32) *TranscodeStateApplyConfiguration {
+	b.Attempts = &value
+	return b
+}
+
+// WithNextAttemptAt sets the NextAttemptAt field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the NextAttemptAt field is set to the value of the last call.
+func (b *TranscodeStateApplyConfiguration) WithNextAttemptAt(value v1.Time) *TranscodeStateApplyConfiguration {
+	b.NextAttemptAt = &value
+	return b
+}
+
+// WithBlocked sets the Blocked field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Blocked field is set to the value of the last call.
+func (b *TranscodeStateApplyConfiguration) WithBlocked(value bool) *TranscodeStateApplyConfiguration {
+	b.Blocked = &value
+	return b
+}
+
+// WithDispatch sets the Dispatch field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Dispatch field is set to the value of the last call.
+func (b *TranscodeStateApplyConfiguration) WithDispatch(value *DispatchApplyConfiguration) *TranscodeStateApplyConfiguration {
+	b.Dispatch = value
+	return b
+}
+
+// WithWorkerPod sets the WorkerPod field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the WorkerPod field is set to the value of the last call.
+func (b *TranscodeStateApplyConfiguration) WithWorkerPod(value string) *TranscodeStateApplyConfiguration {
+	b.WorkerPod = &value
+	return b
+}
+
+// WithStartedAt sets the StartedAt field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the StartedAt field is set to the value of the last call.
+func (b *TranscodeStateApplyConfiguration) WithStartedAt(value v1.Time) *TranscodeStateApplyConfiguration {
+	b.StartedAt = &value
+	return b
+}
+
+// WithFinishedAt sets the FinishedAt field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the FinishedAt field is set to the value of the last call.
+func (b *TranscodeStateApplyConfiguration) WithFinishedAt(value v1.Time) *TranscodeStateApplyConfiguration {
+	b.FinishedAt = &value
+	return b
+}
+
+// WithResult sets the Result field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Result field is set to the value of the last call.
+func (b *TranscodeStateApplyConfiguration) WithResult(value *TranscodeOutputApplyConfiguration) *TranscodeStateApplyConfiguration {
+	b.Result = value
+	return b
+}
+
+// WithStderrTail sets the StderrTail field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the StderrTail field is set to the value of the last call.
+func (b *TranscodeStateApplyConfiguration) WithStderrTail(value string) *TranscodeStateApplyConfiguration {
+	b.StderrTail = &value
+	return b
 }
 
 // WithCompliant sets the Compliant field in the declarative configuration to the given value
@@ -57,6 +299,14 @@ func (b *TranscodeStateApplyConfiguration) WithCompliant(value bool) *TranscodeS
 // If called multiple times, the ProfileTag field is set to the value of the last call.
 func (b *TranscodeStateApplyConfiguration) WithProfileTag(value string) *TranscodeStateApplyConfiguration {
 	b.ProfileTag = &value
+	return b
+}
+
+// WithJoinedGraft sets the JoinedGraft field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the JoinedGraft field is set to the value of the last call.
+func (b *TranscodeStateApplyConfiguration) WithJoinedGraft(value *TranscodeGraftJoinApplyConfiguration) *TranscodeStateApplyConfiguration {
+	b.JoinedGraft = value
 	return b
 }
 
