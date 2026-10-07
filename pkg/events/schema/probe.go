@@ -37,8 +37,9 @@ const (
 	ProbeSourceImport = "import"
 )
 
-// MaxProbeFailure bounds ProbeRecord.Failure, in bytes.
-const MaxProbeFailure = 1024
+// MaxProbeFailure bounds ProbeRecord.Failure, in bytes: every record's
+// bound (loop spec 2026-10-06 §4.5).
+const MaxProbeFailure = MaxRecordFailure
 
 // ProbeTask asks the import domain to probe one MediaFile's file. Subject
 // clustarr.work.probe.file.<high|low>.<mediaKey> (events.WorkProbeSubject),
@@ -69,9 +70,12 @@ func (ProbeTask) Schema() string { return "importarr.ProbeTask.v1" }
 // its answer, every write a compare-and-swap (pkg/probestore). It is KV state,
 // never a message on a stream. An undecodable value reads as no record.
 type ProbeRecord struct {
-	MediaFile Ref    `json:"mediaFile"`
-	Seq       int64  `json:"seq"`
-	State     string `json:"state"`
+	// RecordHeader carries MediaFile, Seq, State, RequestedAt, Failure and
+	// Transient under the keys W4.3 gave them (TestProbeRecordWireFormatIsUnchanged).
+	// Failure is the probe's error, at most MaxProbeFailure bytes; Transient
+	// is a failure worth retrying soon: a timeout inside the grace, an
+	// incomplete probe, a file that changed while it was read.
+	RecordHeader
 	Path      string `json:"path"`
 	ProbeHash string `json:"probeHash"`
 	// ProbeVersion is the version of the probe that produced the answer.
@@ -80,19 +84,13 @@ type ProbeRecord struct {
 	// for an importer's seed, which answers no request.
 	RequestedVersion int32               `json:"requestedVersion,omitempty"`
 	Lane             string              `json:"lane,omitempty"`
-	RequestedAt      time.Time           `json:"requestedAt,omitzero"`
 	ProbedAt         time.Time           `json:"probedAt,omitzero"`
 	MediaInfo        *commonv1.MediaInfo `json:"mediaInfo,omitempty"`
-	// Failure is the probe's error, at most MaxProbeFailure bytes.
-	Failure string `json:"failure,omitempty"`
-	// Transient is a failure worth retrying soon: a timeout inside the grace,
-	// an incomplete probe, a file that changed while it was read.
-	Transient bool `json:"transient,omitempty"`
 	// Abandoned is a probe that outlived its deadline and the grace after it
 	// (mediainfo.ErrProbeAbandoned); never Transient.
 	Abandoned bool `json:"abandoned,omitempty"`
 	// AbandonedCount counts consecutive abandoned probes of this path and
-	// hash; Request and Answer carry it forward.
+	// hash; Request and Answer carry it forward (probestore's Carry).
 	AbandonedCount int32  `json:"abandonedCount,omitempty"`
 	Source         string `json:"source,omitempty"`
 	// Prober is the pod that answered.
@@ -100,5 +98,7 @@ type ProbeRecord struct {
 }
 
 // Schema implements Payload, so the payload guards in schematest cover the
-// record; it is never published.
+// record; it is never published. It shadows the promoted RecordHeader.Schema
+// field, which the probe never sets; pkg/records reaches the field through
+// Header().
 func (ProbeRecord) Schema() string { return "importarr.ProbeRecord.v1" }

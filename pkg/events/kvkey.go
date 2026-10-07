@@ -19,6 +19,8 @@ package events
 
 import (
 	"encoding/hex"
+	"errors"
+	"fmt"
 	"strings"
 )
 
@@ -73,6 +75,54 @@ func KVKeyToken(s string) string {
 		}
 	}
 	return string(b)
+}
+
+// RecordKey is a records bucket's key for one object: its UID through
+// KVKeyToken (loop spec 2026-10-06 §4.4). It is ProbeKey's rule for every
+// remediation.
+func RecordKey(uid string) string { return KVKeyToken(uid) }
+
+// RecordSubKey is the key of one of several records an object has in a
+// bucket (a subtitle language): "<KVKeyToken(uid)>.<KVKeyToken(sub)>". Neither
+// token can hold a ".", so the pair cannot be forged and a Watch wildcard
+// matches one token.
+func RecordSubKey(uid, sub string) string { return KVKeyToken(uid) + "." + KVKeyToken(sub) }
+
+// ParseKVKeyToken inverts KVKeyToken. It refuses anything KVKeyToken never
+// emits, the non-canonical escapes included ("-41" for "A", upper-case hex),
+// so a key read back always names exactly one id.
+func ParseKVKeyToken(tok string) (string, error) {
+	if tok == "-0" {
+		return "", nil
+	}
+	if tok == "" {
+		return "", errors.New("events: an empty string is no KV key token")
+	}
+	var b []byte
+	for i := 0; i < len(tok); i++ {
+		c := tok[i]
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+			b = append(b, c)
+		case c == '-' && i+1 < len(tok) && tok[i+1] == '-':
+			b = append(b, '-')
+			i++
+		case c == '-' && i+2 < len(tok):
+			v, err := hex.DecodeString(tok[i+1 : i+3])
+			if err != nil {
+				return "", fmt.Errorf("events: %q is no KV key token: %w", tok, err)
+			}
+			b = append(b, v[0])
+			i += 2
+		default:
+			return "", fmt.Errorf("events: %q is no KV key token: byte %q at %d", tok, c, i)
+		}
+	}
+	s := string(b)
+	if KVKeyToken(s) != tok {
+		return "", fmt.Errorf("events: %q is not KVKeyToken's encoding of %q", tok, s)
+	}
+	return s, nil
 }
 
 // ValidKVKey reports whether s is a key a NATS key/value bucket will accept.

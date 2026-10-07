@@ -308,6 +308,11 @@ Naming follows the Prometheus conventions: `clustarr_` prefix, base units
 | `clustarr_work_handled_total` | counter | `consumer`, `outcome` | Throughput and dead-letter rate |
 | `clustarr_work_duration_seconds` | histogram | `consumer` | Which handlers are slow |
 | `clustarr_reconcile_errors_total` | counter | `controller` | Alongside controller-runtime's own |
+| `clustarr_probe_duration_seconds` | histogram | `lane`, `outcome` | How long the import domain's probes take, and how many wedge (added by the manager/agent split, 2026-10-06) |
+| `clustarr_record_requests_total` | counter | `remediation`, `lane` | What the remediation loop asks its workers for (added by the remediation loop, ADR-0016; it replaces the split's `clustarr_probe_requests_total`) |
+| `clustarr_record_incorporations_total` | counter | `remediation`, `state` | Worker answers the loop incorporated, by outcome (ADR-0016) |
+| `clustarr_record_timeouts_total` | counter | `remediation` | Requests nobody answered in time (ADR-0016) |
+| `clustarr_record_errors_total` | counter | `remediation`, `op` | Records-bucket operations that failed (ADR-0016) |
 
 `docs/observability.md` documents this catalogue, the trace layout, and example
 queries. The brief asks for useful metrics to be discovered and documented, so

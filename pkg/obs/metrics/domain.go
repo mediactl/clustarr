@@ -402,16 +402,10 @@ var (
 	)
 )
 
-// Probe queue telemetry (spec 2026-10-06 §6.5.3, §6.6).
+// Probe queue telemetry (spec 2026-10-06 §6.6). The probe's requests are
+// counted as clustarr_record_requests_total{remediation="probe"} (loop spec
+// 2026-10-06 §4.12; it replaced clustarr_probe_requests_total).
 var (
-	// ProbeRequestsTotal counts probes catalogarr's MediaFile reconciler
-	// asked the import domain for, by lane (high, low).
-	ProbeRequestsTotal = newCounterVec(
-		"clustarr_probe_requests_total",
-		"Total MediaFile probes requested, by lane.",
-		"lane",
-	)
-
 	// ProbeDuration is how long the import domain's probe worker took per
 	// task, by lane and outcome (probed, failed, transient, abandoned,
 	// superseded).
@@ -420,5 +414,31 @@ var (
 		"Duration of MediaFile probes in seconds, by lane and outcome.",
 		durationBucketsShort,
 		"lane", "outcome",
+	)
+)
+
+// Records protocol telemetry (loop spec 2026-10-06 §4.15). The manager alone
+// counts these; pool, graft and markers pods export none. lane is high, low
+// or none; op is get, request, withdraw, decode, publish or watch.
+var (
+	RecordRequestsTotal = newCounterVec(
+		"clustarr_record_requests_total",
+		"Total records-bucket requests the remediation loop wrote, by remediation and lane.",
+		"remediation", "lane",
+	)
+	RecordIncorporationsTotal = newCounterVec(
+		"clustarr_record_incorporations_total",
+		"Total worker records the remediation loop incorporated, by remediation and record state.",
+		"remediation", "state",
+	)
+	RecordTimeoutsTotal = newCounterVec(
+		"clustarr_record_timeouts_total",
+		"Total requests that outlived their remediation's request timeout, by remediation.",
+		"remediation",
+	)
+	RecordErrorsTotal = newCounterVec(
+		"clustarr_record_errors_total",
+		"Total records-bucket operations that failed, by remediation and operation.",
+		"remediation", "op",
 	)
 )

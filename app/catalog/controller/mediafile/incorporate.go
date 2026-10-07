@@ -261,6 +261,6 @@ func (r *Reconciler) ask(ctx context.Context, want probestore.Want, cur probesto
 	if err := r.Probes.Publish(ctx, rec); err != nil {
 		return rec, false, err
 	}
-	metrics.ProbeRequestsTotal.WithLabelValues(rec.Lane).Inc()
+	metrics.RecordRequestsTotal.WithLabelValues("probe", rec.Lane).Inc()
 	return rec, false, nil
 }

@@ -20,7 +20,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // write a compare-and-swap, nobody deleting one (the bucket's TTL does).
 // catalogarr's MediaFile reconciler requests and publishes; the import
 // domain's probe worker answers; an importer seeds the probe it already ran.
-// It imports pkg/events and its schema, and nothing that probes.
+// Since the fold it is pkg/records' probe remediation (loop spec 2026-10-06
+// §4.12): the protocol is records', and this package keeps the probe's own
+// names, its Carry and its task. It imports pkg/events, its schema and
+// pkg/records, and nothing that probes.
 package probestore
 
 import (
@@ -29,11 +32,11 @@ import (
 	"errors"
 	"fmt"
 	"time"
-	"unicode/utf8"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
+	"github.com/mediactl/clustarr/pkg/records"
 	"github.com/mediactl/clustarr/pkg/version"
 )
 
@@ -45,22 +48,49 @@ type Bus interface {
 }
 
 // ErrConflict is a compare-and-swap that lost to another writer: re-read and
-// decide again.
-var ErrConflict = errors.New("probestore: the record changed since it was read")
+// decide again. It is records.ErrRaced, so errors.Is holds under either name.
+var ErrConflict = records.ErrRaced
 
-// maxCAS bounds how often Answer and Seed redo a lost compare-and-swap.
-const maxCAS = 5
+// MaxValue is clustarr-probes' MaxValueSize (loop spec §4.3): a probe answer's
+// MediaInfo runs to about 153 KB at the schema's worst case.
+const MaxValue = 256 << 10
 
-// Store reads and writes probe records.
+// Option configures a Store.
+type Option func(*Store)
+
+// WithErrors counts a failed records operation ("get", "decode", "request",
+// "answer"); the manager binds it to clustarr_record_errors_total.
+func WithErrors(count func(op string)) Option { return func(s *Store) { s.errs = count } }
+
+// Store reads and writes probe records through pkg/records (loop spec §4.12).
 type Store struct {
-	bus Bus
-	kv  events.KV
+	bus  Bus
+	errs func(op string)
+	q    *records.Requester[*schema.ProbeRecord]
+	a    *records.Answerer[*schema.ProbeRecord]
 	// Now is the clock; nil is time.Now.
 	Now func() time.Time
 }
 
 // New is the store over bus's clustarr-probes bucket.
-func New(bus Bus) *Store { return &Store{bus: bus, kv: bus.KV(events.BucketProbes)} }
+func New(bus Bus, opts ...Option) *Store {
+	s := &Store{bus: bus}
+	for _, o := range opts {
+		o(s)
+	}
+	spec := records.Spec[*schema.ProbeRecord]{
+		Remediation: "probe", Bucket: events.BucketProbes, MaxValue: MaxValue,
+		New:      func() *schema.ProbeRecord { return new(schema.ProbeRecord) },
+		Answered: func(st string) bool { return st == schema.ProbeProbed || st == schema.ProbeFailed },
+		Carry:    carryAbandoned,
+		Errors:   s.errs,
+		Now:      s.now,
+	}
+	kv := bus.KV(events.BucketProbes)
+	s.q = records.NewRequester(kv, spec)
+	s.a = records.NewAnswerer(kv, spec, "", "")
+	return s
+}
 
 func (s *Store) now() time.Time {
 	if s.Now != nil {
@@ -99,15 +129,15 @@ type Seed struct {
 
 // Get reads uid's record.
 func (s *Store) Get(ctx context.Context, uid string) (Current, error) {
-	e, err := s.kv.Get(ctx, events.ProbeKey(uid))
-	if errors.Is(err, events.ErrKeyNotFound) {
-		return Current{}, nil
-	}
+	rec, rev, ok, err := s.q.Get(ctx, events.ProbeKey(uid))
 	if err != nil {
 		return Current{}, fmt.Errorf("probestore: get %s: %w", uid, err)
 	}
-	rec, ok := Decode(e)
-	return Current{Record: rec, OK: ok, Revision: e.Revision}, nil
+	cur := Current{OK: ok, Revision: rev}
+	if ok {
+		cur.Record = *rec
+	}
+	return cur, nil
 }
 
 // Decode reads a record from a bucket entry. A delete, a purge or an
@@ -125,7 +155,7 @@ func Decode(e events.Entry) (schema.ProbeRecord, bool) {
 
 // Watch streams every record now in the bucket and then every change.
 func (s *Store) Watch(ctx context.Context) (<-chan events.Entry, error) {
-	return s.kv.Watch(ctx, ">")
+	return s.bus.KV(events.BucketProbes).Watch(ctx, ">")
 }
 
 // TaskOf is the task that asks for rec.
@@ -136,26 +166,24 @@ func TaskOf(rec schema.ProbeRecord) schema.ProbeTask {
 	}
 }
 
-// Request writes a requested record for want at prev's revision: sequence
-// prev's plus one (1 when there is none), carrying prev's AbandonedCount when
-// prev describes the same path and hash. A lost compare-and-swap is
-// ErrConflict. The caller then Publishes the record's task.
+// Request writes a requested record for want at prev's revision, with Seq
+// records.NextSeq(prev's, 0, now) (loop spec §4.6, §4.12) and prev's
+// AbandonedCount when prev describes the same path and hash. A lost
+// compare-and-swap is ErrConflict. The caller then Publishes the task.
 func (s *Store) Request(ctx context.Context, want Want, prev Current) (schema.ProbeRecord, error) {
-	rec := schema.ProbeRecord{
-		MediaFile: want.MediaFile, Seq: 1, State: schema.ProbeRequested,
-		Path: want.Path, ProbeHash: want.ProbeHash, RequestedVersion: want.ProbeVersion,
-		Lane: lane(want.Lane), RequestedAt: s.now(),
-	}
+	var prevSeq int64
 	if prev.OK {
-		rec.Seq = prev.Record.Seq + 1
-		if samePathAndHash(prev.Record, rec) {
-			rec.AbandonedCount = prev.Record.AbandonedCount
-		}
+		prevSeq = prev.Record.Seq
 	}
-	if err := s.write(ctx, want.MediaFile.UID, prev.Revision, rec); err != nil {
+	now := s.now()
+	rec := &schema.ProbeRecord{
+		RecordHeader: schema.RecordHeader{MediaFile: want.MediaFile, Seq: records.NextSeq(prevSeq, 0, now), RequestedAt: now},
+		Path:         want.Path, ProbeHash: want.ProbeHash, RequestedVersion: want.ProbeVersion, Lane: lane(want.Lane),
+	}
+	if _, err := s.q.Request(ctx, events.ProbeKey(want.MediaFile.UID), prev.Revision, rec); err != nil {
 		return schema.ProbeRecord{}, err
 	}
-	return rec, nil
+	return *rec, nil
 }
 
 // Publish puts rec's task on its lane under its Msg-Id. A republish inside
@@ -182,123 +210,79 @@ func (s *Store) Publish(ctx context.Context, rec schema.ProbeRecord) error {
 // Superseded reports whether t's answer would be dropped: a newer request
 // exists, or t is answered already (by the agent or a seed).
 func (s *Store) Superseded(ctx context.Context, t schema.ProbeTask) (bool, error) {
-	cur, err := s.Get(ctx, t.MediaFile.UID)
-	if err != nil {
-		return false, err
-	}
-	return !answerable(cur, t), nil
+	return s.a.Superseded(ctx, events.ProbeKey(t.MediaFile.UID), t.Seq)
 }
 
-// Answer records ans, a probed or failed answer to t, re-reading the record
-// immediately before each compare-and-swap: written when the record is
-// absent, requested at or below t.Seq, or answered below t.Seq; dropped
-// (false, nil) otherwise. An abandoned answer counts one more than the
-// record's AbandonedCount for the same path and hash; any other resets it.
+// Answer records ans, a probed or failed answer to t (§6.5.2's rule, which is
+// records' §4.8 table for the probe's states), re-reading the record
+// immediately before each compare-and-swap; dropped (false, nil) when a newer
+// request exists or t is answered already. An answer over MaxValue is
+// recorded as a failure instead.
 func (s *Store) Answer(ctx context.Context, t schema.ProbeTask, ans schema.ProbeRecord) (bool, error) {
 	if ans.State != schema.ProbeProbed && ans.State != schema.ProbeFailed {
 		return false, fmt.Errorf("probestore: an answer is %q or %q, not %q", schema.ProbeProbed, schema.ProbeFailed, ans.State)
 	}
-	for range maxCAS {
-		cur, err := s.Get(ctx, t.MediaFile.UID)
-		if err != nil {
-			return false, err
-		}
-		if !answerable(cur, t) {
-			return false, nil
-		}
-		rec := ans
-		rec.MediaFile, rec.Seq, rec.RequestedVersion, rec.Lane = t.MediaFile, t.Seq, t.ProbeVersion, t.Lane
-		rec.Source = schema.ProbeSourceProbe
-		rec.Failure = clip(rec.Failure, schema.MaxProbeFailure)
-		if cur.OK && cur.Record.Seq == t.Seq {
-			rec.RequestedAt = cur.Record.RequestedAt
-		}
-		rec.AbandonedCount = 0
-		if rec.Abandoned {
-			rec.AbandonedCount = 1
-			if cur.OK && samePathAndHash(cur.Record, rec) {
-				rec.AbandonedCount = cur.Record.AbandonedCount + 1
-			}
-		}
-		err = s.write(ctx, t.MediaFile.UID, cur.Revision, rec)
-		if errors.Is(err, ErrConflict) {
-			continue
-		}
-		return err == nil, err
+	key := events.ProbeKey(t.MediaFile.UID)
+	task := func(r *schema.ProbeRecord) *schema.ProbeRecord {
+		r.MediaFile, r.Seq, r.RequestedVersion, r.Lane, r.Source = t.MediaFile, t.Seq, t.ProbeVersion, t.Lane, schema.ProbeSourceProbe
+		return r
 	}
-	return false, fmt.Errorf("probestore: answer for %s: %w", t.MediaFile, ErrConflict)
+	rec := ans
+	v, err := s.a.Answer(ctx, key, task(&rec))
+	if errors.Is(err, records.ErrTooLarge) {
+		over := &schema.ProbeRecord{
+			RecordHeader: schema.RecordHeader{State: schema.ProbeFailed, Failure: fmt.Sprintf("answer exceeds %d bytes", MaxValue)},
+			Path:         ans.Path, ProbeHash: ans.ProbeHash, ProbeVersion: ans.ProbeVersion, ProbedAt: ans.ProbedAt, Prober: ans.Prober,
+		}
+		v, err = s.a.Answer(ctx, key, task(over))
+	}
+	if err != nil {
+		return false, fmt.Errorf("probestore: answer for %s: %w", t.MediaFile, err)
+	}
+	return v == records.Wrote, nil
 }
 
-// Seed records a probe an importer ran as a probed record answering no
-// request (RequestedVersion 0, the current sequence), unless the record is
-// already probed for the same path and hash at seed's version or newer.
+// Seed records a probe an importer ran: probed, answering no request
+// (RequestedVersion 0, the current Seq), unless the record is already probed
+// for the same path and hash at seed's version or newer.
 func (s *Store) Seed(ctx context.Context, seed Seed) error {
 	if seed.MediaFile.UID == "" || seed.MediaInfo == nil {
 		return errors.New("probestore: a seed needs the MediaFile's UID and a MediaInfo")
 	}
-	for range maxCAS {
-		cur, err := s.Get(ctx, seed.MediaFile.UID)
-		if err != nil {
-			return err
-		}
-		if cur.OK && cur.Record.State == schema.ProbeProbed && cur.Record.Path == seed.Path &&
-			cur.Record.ProbeHash == seed.ProbeHash && cur.Record.ProbeVersion >= seed.ProbeVersion {
-			return nil
-		}
-		rec := schema.ProbeRecord{
-			MediaFile: seed.MediaFile, State: schema.ProbeProbed, Path: seed.Path, ProbeHash: seed.ProbeHash,
-			ProbeVersion: seed.ProbeVersion, ProbedAt: s.now(), MediaInfo: seed.MediaInfo,
-			Source: schema.ProbeSourceImport, Prober: seed.Prober,
-		}
-		if cur.OK {
-			rec.Seq = cur.Record.Seq
-		}
-		err = s.write(ctx, seed.MediaFile.UID, cur.Revision, rec)
-		if errors.Is(err, ErrConflict) {
-			continue
-		}
-		return err
+	rec := &schema.ProbeRecord{
+		RecordHeader: schema.RecordHeader{MediaFile: seed.MediaFile, State: schema.ProbeProbed},
+		Path:         seed.Path, ProbeHash: seed.ProbeHash, ProbeVersion: seed.ProbeVersion, ProbedAt: s.now(),
+		MediaInfo: seed.MediaInfo, Source: schema.ProbeSourceImport, Prober: seed.Prober,
 	}
-	return fmt.Errorf("probestore: seed for %s: %w", seed.MediaFile, ErrConflict)
-}
-
-// write creates uid's record when rev is 0 and replaces it at rev otherwise.
-func (s *Store) write(ctx context.Context, uid string, rev uint64, rec schema.ProbeRecord) error {
-	b, err := json.Marshal(rec)
+	_, err := s.a.Seed(ctx, events.ProbeKey(seed.MediaFile.UID), rec, func(cur *schema.ProbeRecord, ok bool) bool {
+		return ok && cur.State == schema.ProbeProbed && cur.Path == seed.Path &&
+			cur.ProbeHash == seed.ProbeHash && cur.ProbeVersion >= seed.ProbeVersion
+	})
 	if err != nil {
-		return fmt.Errorf("probestore: encode the record of %s: %w", uid, err)
-	}
-	key := events.ProbeKey(uid)
-	if rev == 0 {
-		_, err = s.kv.Create(ctx, key, b)
-	} else {
-		_, err = s.kv.Update(ctx, key, b, rev)
-	}
-	switch {
-	case errors.Is(err, events.ErrKeyExists), errors.Is(err, events.ErrRevisionMismatch), errors.Is(err, events.ErrKeyNotFound):
-		return ErrConflict
-	case err != nil:
-		return fmt.Errorf("probestore: write the record of %s: %w", uid, err)
+		return fmt.Errorf("probestore: seed for %s: %w", seed.MediaFile, err)
 	}
 	return nil
 }
 
-// answerable is §6.5.2's answer rule.
-func answerable(cur Current, t schema.ProbeTask) bool {
-	if !cur.OK {
-		return true
+// carryAbandoned is the probe's Carry: a request keeps the count of the same
+// path and hash, an abandoned answer counts one more than it, any other
+// answer resets it.
+func carryAbandoned(cur *schema.ProbeRecord, ok bool, next *schema.ProbeRecord) {
+	same := ok && cur.Path == next.Path && cur.ProbeHash == next.ProbeHash
+	switch {
+	case next.State == schema.ProbeRequested:
+		next.AbandonedCount = 0
+		if same {
+			next.AbandonedCount = cur.AbandonedCount
+		}
+	case next.Abandoned:
+		next.AbandonedCount = 1
+		if same {
+			next.AbandonedCount = cur.AbandonedCount + 1
+		}
+	default:
+		next.AbandonedCount = 0
 	}
-	switch cur.Record.State {
-	case schema.ProbeRequested:
-		return cur.Record.Seq <= t.Seq
-	case schema.ProbeProbed, schema.ProbeFailed:
-		return cur.Record.Seq < t.Seq
-	}
-	return true
-}
-
-func samePathAndHash(a, b schema.ProbeRecord) bool {
-	return a.Path == b.Path && a.ProbeHash == b.ProbeHash
 }
 
 // lane is the record's lane: "high" or "low".
@@ -307,15 +291,4 @@ func lane(p events.Priority) string {
 		return string(events.PriorityHigh)
 	}
 	return string(events.PriorityLow)
-}
-
-// clip cuts s to at most n bytes on a rune boundary.
-func clip(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	for n > 0 && !utf8.RuneStart(s[n]) {
-		n--
-	}
-	return s[:n]
 }
