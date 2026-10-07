@@ -1,0 +1,32 @@
+# Live TV spec 2026-10-07 §5.3: the tuner port admits only Plex's pods. A
+# policy that selects a pod denies every port it does not list, so the
+# manager's other ports (extmetrics, metrics, health) stay open to all. While
+# Plex runs in another namespace, add a namespaceSelector to the peer. The
+# chart's is templates/livetv-networkpolicy.yaml (livetv.networkPolicy.*).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: livetv
+  labels:
+    app.kubernetes.io/component: livetv
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: manager
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: plex
+      ports:
+        - port: livetv
+          protocol: TCP
+    - ports:
+        - port: extmetrics
+          protocol: TCP
+        - port: metrics
+          protocol: TCP
+        - port: health
+          protocol: TCP

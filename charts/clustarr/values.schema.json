@@ -4,7 +4,7 @@
   "description": "Values for the clustarr umbrella chart (0.5.0: the manager, agent and ui topology of spec 2026-10-06). Checks shapes (types, enums, known number/string formats) so a bad values file fails at `helm install`/`helm template`/`helm lint` with a schema-path error naming the exact key. The top level is closed: a key chart 0.5.0 retired (the eleven 0.4.x per-service blocks and keda, and image.controller/media/transcoder/transcoderCuda) fails here with a message naming its replacement; see the README's \"Upgrading from 0.4.x\". Cross-field invariants are clustarr.validate's in templates/_helpers.tpl. nats and cloudnative-pg pass through to the subcharts, which ship no schema of their own, and are checked only shallowly.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["image", "storage", "podSecurityContext", "securityContext", "autoscaling", "manager", "agents", "markers"],
+  "required": ["image", "storage", "podSecurityContext", "securityContext", "autoscaling", "manager", "livetv", "agents", "markers"],
   "patternProperties": {
     "^catalog[a]rr$": { "const": "retired in chart 0.5.0: its controllers run in the manager, so use manager (README, Upgrading from 0.4.x)" },
     "^catalog[a]rrMetadata$": { "const": "retired in chart 0.5.0: use agents.metadata, which always runs one replica (README, Upgrading from 0.4.x)" },
@@ -248,6 +248,26 @@
       }
     },
 
+    "livetv": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "port", "portRange", "networkPolicy"],
+      "description": "Live TV (spec 2026-10-07): the manager's IPTV tuner, the <release>-livetv Service and the NetworkPolicy on the tuner port.",
+      "properties": {
+        "enabled": { "type": "boolean", "description": "false renders --livetv-bind-address=0 and no livetv Service or NetworkPolicy." },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535, "description": "The tuner's container port (--livetv-bind-address=:<port>); the livetv Service maps port 80 to it." },
+        "portRange": { "type": "string", "pattern": "^[0-9]{1,5}-[0-9]{1,5}$", "description": "--livetv-port-range: the ports the blocks get, low-high. cluster-plex serves them on a link-local address inside its Plex pods." },
+        "networkPolicy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "allowFrom"],
+          "properties": {
+            "enabled": { "type": "boolean", "description": "Render a NetworkPolicy on the manager pod admitting the tuner port only from allowFrom; every other manager port stays open." },
+            "allowFrom": { "type": "array", "minItems": 1, "items": { "type": "object" }, "description": "NetworkPolicyPeer list allowed to reach the tuner port. Default: Plex's pods (app.kubernetes.io/component: plex) in this namespace." }
+          }
+        }
+      }
+    },
     "agents": {
       "type": "object",
       "additionalProperties": false,

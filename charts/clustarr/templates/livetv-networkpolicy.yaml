@@ -1,0 +1,37 @@
+{{- if and .Values.livetv.enabled .Values.livetv.networkPolicy.enabled }}
+{{- /* Live TV spec 2026-10-07 §5.3: the tuner port admits only
+       livetv.networkPolicy.allowFrom. A policy that selects a pod denies
+       every port it does not list, so the manager's other ports -- metrics,
+       health and clustarr.managerPorts, as the Deployment declares them --
+       stay open to all. */}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "clustarr.fullname" . }}-livetv
+  labels:
+    {{- include "clustarr.labels" . | nindent 4 }}
+    app.kubernetes.io/component: livetv
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "clustarr.selectorLabels" (dict "root" . "component" "manager") | nindent 6 }}
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+      {{- toYaml .Values.livetv.networkPolicy.allowFrom | nindent 6 }}
+    ports:
+    - port: livetv
+      protocol: TCP
+  - ports:
+    - port: metrics
+      protocol: TCP
+    - port: health
+      protocol: TCP
+    {{- range include "clustarr.managerPorts" . | fromJsonArray }}
+    {{- if ne .name "livetv" }}
+    - port: {{ .name }}
+      protocol: TCP
+    {{- end }}
+    {{- end }}
+{{- end }}

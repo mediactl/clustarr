@@ -26,15 +26,24 @@ creates those at runtime, owned by the object that asked for them.
       (dict "name" "CLUSTARR_ENGINE_SERVICE_ACCOUNT" "value" (printf "%s-grab-engine" $fullname))
       (dict "name" "CLUSTARR_DATA_CLAIM" "value" $dataClaim)
       (dict "name" "CLUSTARR_FACADE_API_KEY_SECRET" "value" $facadeSecret) }}
-{{- $managerPorts := list }}
+{{- $managerPorts := include "clustarr.managerPorts" . | fromJsonArray }}
 {{- if .Values.autoscaling.enabled }}
 {{- $managerEnv = append $managerEnv (dict "name" "CLUSTARR_EXTERNAL_METRICS_SECRET" "value" (printf "%s-external-metrics-tls" $fullname)) }}
 {{- $managerEnv = append $managerEnv (dict "name" "CLUSTARR_EXTERNAL_METRICS_SERVICE" "value" (printf "%s-external-metrics" $fullname)) }}
-{{- $managerPorts = append $managerPorts (dict "name" "extmetrics" "containerPort" 6443) }}
 {{- else }}
 {{- /* No HPA reconciler, External Metrics server or CA injection; the
        manager deletes the HPAs it labelled, once, at start (spec §9.4). */}}
 {{- $managerArgs = append $managerArgs "--autoscale=false" }}
+{{- end }}
+{{- /* Live TV (spec 2026-10-07 §5.0): the tuner on livetv.port, the blocks'
+       ports, and the one livetv Service (templates/livetv-service.yaml). */}}
+{{- if .Values.livetv.enabled }}
+{{- $managerArgs = concat $managerArgs (list
+      (printf "--livetv-bind-address=:%d" (int .Values.livetv.port))
+      (printf "--livetv-port-range=%s" .Values.livetv.portRange)
+      (printf "--livetv-service=%s-livetv" $fullname)) }}
+{{- else }}
+{{- $managerArgs = append $managerArgs "--livetv-bind-address=0" }}
 {{- end }}
 {{- /* Host-specific, so set only when given. */}}
 {{- with .Values.manager.intelRenderGroups }}

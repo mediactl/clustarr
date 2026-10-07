@@ -1,0 +1,19 @@
+# The one livetv Service (Live TV spec 2026-10-07 §5.0): every
+# IPTVProvider's status.address, where cluster-plex's per-block proxies send.
+# ClusterIP only, and no Ingress: the tuner has no authentication (§5.3).
+# The chart's is templates/livetv-service.yaml.
+apiVersion: v1
+kind: Service
+metadata:
+  name: livetv
+  labels:
+    app.kubernetes.io/component: livetv
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/component: manager
+  ports:
+    - name: http
+      port: 80
+      targetPort: livetv
+      protocol: TCP

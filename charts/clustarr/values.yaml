@@ -319,16 +319,43 @@ manager:
     bulkWritesPerSecond: 25
     # Goroutines for the loop's /data calls (--remediation-io-workers, 1-64).
     ioWorkers: 8
+  # The memory includes 128Mi for the Live TV tuner's stream buffers (at
+  # most tuners x 8 MiB per provider; Live TV spec 2026-10-07 §5.0.1),
+  # which run in this process.
   resources:
     requests:
       cpu: 200m
-      memory: 512Mi
+      memory: 640Mi
     limits:
       cpu: "2"
-      memory: 1536Mi
+      memory: 1664Mi
   nodeSelector: {}
   tolerations: []
   affinity: {}
+
+# Live TV (spec 2026-10-07): the manager runs the IPTVProvider and IPTVChannel
+# controllers and an HDHomeRun tuner that cluster-plex adds to Plex as DVRs.
+livetv:
+  # false renders --livetv-bind-address=0: no tuner, Service or policy.
+  enabled: true
+  # The tuner's port in the manager pod; the <release>-livetv Service maps
+  # port 80 to it.
+  port: 5004
+  # Ports the blocks get (--livetv-port-range). cluster-plex serves each on a
+  # link-local address inside its Plex pods (spec §5.0), never on a node.
+  portRange: "47000-47999"
+  networkPolicy:
+    # A NetworkPolicy on the manager pod that admits the tuner port only from
+    # allowFrom, and keeps every other manager port open. false for a CNI
+    # that enforces no policies.
+    enabled: true
+    # Peers allowed to reach the tuner port (NetworkPolicyPeer list).
+    # Default: Plex's pods in this namespace. While Plex runs in another
+    # namespace, give each peer a namespaceSelector too.
+    allowFrom:
+      - podSelector:
+          matchLabels:
+            app.kubernetes.io/component: plex
 
 # One Deployment per agent domain (agent --domain=<domain>). Agents are
 # read-only against Kubernetes: they answer in NATS records, and the manager

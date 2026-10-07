@@ -1,0 +1,17 @@
+# The Live TV NetworkPolicy, apart from config/manager: that kustomization's
+# includeSelectors labels would add clustarr's own labels to the policy's
+# peer as well, and no Plex pod carries them, so the tuner would admit no one
+# (test/guards/livetv). The policy selects the manager by its component
+# label alone.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+labels:
+- includeSelectors: false
+  pairs:
+    app.kubernetes.io/name: clustarr
+    app.kubernetes.io/part-of: clustarr
+    app.kubernetes.io/managed-by: kustomize
+
+resources:
+- networkpolicy.yaml

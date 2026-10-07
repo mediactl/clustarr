@@ -82,7 +82,7 @@ CRD_DIR := config/crd/bases
 # TestChartRBACMatchesTheGeneratedRoles holds the chart's copies to these
 # files byte for byte.
 RBAC_ROLES := manager agent-catalog agent-events agent-metadata agent-import agent-index agent-caption grab-engine
-RBAC_PATHS_manager := ./app/catalog/controller/... ./app/catalog/history/replay ./app/catalog/worker/history ./app/catalog/segmentplan ./app/catalog/artwork ./app/remediation/... ./app/intake/... ./app/dispatch/... ./app/import/controller/... ./app/import/manager/... ./app/indexer/controller/... ./app/indexer/manager ./app/indexer/bundle/... ./app/indexer/clients ./app/indexer/proxy ./app/indexer/status/... ./app/grab/controller/... ./app/transcode/controller/... ./app/transcode/status ./app/transcode/admission ./app/caption/controller/... ./app/caption/providerset ./app/autoscale/...
+RBAC_PATHS_manager := ./app/catalog/controller/... ./app/catalog/history/replay ./app/catalog/worker/history ./app/catalog/segmentplan ./app/catalog/artwork ./app/remediation/... ./app/intake/... ./app/dispatch/... ./app/import/controller/... ./app/import/manager/... ./app/indexer/controller/... ./app/indexer/manager ./app/indexer/bundle/... ./app/indexer/clients ./app/indexer/proxy ./app/indexer/status/... ./app/grab/controller/... ./app/transcode/controller/... ./app/transcode/status ./app/transcode/admission ./app/caption/controller/... ./app/caption/providerset ./app/autoscale/... ./app/livetv/...
 RBAC_PATHS_agent-catalog := ./app/catalog/worker/search ./app/catalog/worker/artwork
 RBAC_PATHS_agent-events := ./app/catalog/worker/rssmatcher
 RBAC_PATHS_agent-metadata := ./app/catalog/metadata/... ./app/catalog/worker/markers

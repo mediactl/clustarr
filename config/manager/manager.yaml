@@ -86,8 +86,10 @@ spec:
           # The fold's flags (loop spec §3.7, §3.17, §5.13): the admission
           # ledger's graft slots, the remediation loop's concurrency, its
           # status-write pacing and its /data workers. The chart renders the
-          # same from manager.{slots,graftConcurrency,remediation}.
-          args: ["--leader-elect", "--slots=cpu=2,nvidia=1,intel=1", "--nats-single-node", "--graft-concurrency=2", "--remediation-concurrency=16", "--remediation-bulk-writes-per-second=25", "--remediation-io-workers=8"]
+          # same from manager.{slots,graftConcurrency,remediation}. Then Live
+          # TV's (spec 2026-10-07 §5.0): the tuner's port, the blocks' ports,
+          # and the livetv Service (livetv-service.yaml); the chart's livetv.*.
+          args: ["--leader-elect", "--slots=cpu=2,nvidia=1,intel=1", "--nats-single-node", "--graft-concurrency=2", "--remediation-concurrency=16", "--remediation-bulk-writes-per-second=25", "--remediation-io-workers=8", "--livetv-bind-address=:5004", "--livetv-port-range=47000-47999", "--livetv-service=livetv"]
           env:
             - name: NATS_URL
               value: nats://nats.clustarr-system.svc:4222
@@ -101,10 +103,10 @@ spec:
                   fieldPath: metadata.namespace
             - name: UMASK
               value: "002"
-            # GOMEMLIMIT = 80% of 1536Mi, in bytes (the chart computes the same
+            # GOMEMLIMIT = 80% of 1664Mi, in bytes (the chart computes the same
             # with clustarr.gomemlimit; TestGOMEMLIMITIsItsShareOfTheLimit).
             - name: GOMEMLIMIT
-              value: "1288490189"
+              value: "1395864371"
             # The image of every engine, pool and graft pod (--native-image),
             # nvidia pools included: there is no CUDA image
             # (docs/adr/0015-no-cuda-image.md).
@@ -137,6 +139,10 @@ spec:
             - name: extmetrics
               containerPort: 6443
               protocol: TCP
+            # The Live TV tuner (livetv-service.yaml, livetv-networkpolicy.yaml).
+            - name: livetv
+              containerPort: 5004
+              protocol: TCP
             - name: metrics
               containerPort: 8443
               protocol: TCP
@@ -155,13 +161,15 @@ spec:
               port: health
             initialDelaySeconds: 5
             periodSeconds: 10
+          # The memory includes 128Mi for the Live TV tuner's stream buffers
+          # (Live TV spec 2026-10-07 §5.0.1), as the chart's.
           resources:
             requests:
               cpu: 200m
-              memory: 512Mi
+              memory: 640Mi
             limits:
               cpu: "2"
-              memory: 1536Mi
+              memory: 1664Mi
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

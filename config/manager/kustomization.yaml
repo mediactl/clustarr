@@ -31,3 +31,4 @@ resources:
 - agent-caption.yaml
 - markers.yaml
 - ui.yaml
+- livetv-service.yaml

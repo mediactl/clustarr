@@ -50,6 +50,24 @@ Selector labels for one component. Call with (dict "root" $ "component" "manager
 Immutable on a Deployment, so keep this to name/instance/component only --
 adding the chart version here would break every upgrade.
 */}}
+{{/*
+clustarr.managerPorts is the manager container's ports besides metrics and
+health, as a JSON list: the External Metrics API's and the Live TV tuner's.
+The Deployment and the Live TV NetworkPolicy both read it, so the policy
+leaves every port the manager declares open (Live TV spec §5.3; held by
+test/guards/livetv).
+*/}}
+{{- define "clustarr.managerPorts" -}}
+{{- $ports := list }}
+{{- if .Values.autoscaling.enabled }}
+{{- $ports = append $ports (dict "name" "extmetrics" "containerPort" 6443) }}
+{{- end }}
+{{- if .Values.livetv.enabled }}
+{{- $ports = append $ports (dict "name" "livetv" "containerPort" (int .Values.livetv.port)) }}
+{{- end }}
+{{- toJson $ports }}
+{{- end }}
+
 {{- define "clustarr.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "clustarr.name" .root }}
 app.kubernetes.io/instance: {{ .root.Release.Name }}
