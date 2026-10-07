@@ -29,15 +29,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
-
-// DefaultRecycleSweepInterval is how often a [RecycleSweeper] empties the
-// recycle bins. The bins are dated by day, so an hour is well inside the
-// granularity a retention in days can be honoured to.
-const DefaultRecycleSweepInterval = time.Hour
 
 // RecycleSweeper empties the RootFolders' recycle bins of what has outlived
 // spec.recycleBin.cleanupDays: it is that field's consumer, which nothing
@@ -45,12 +42,10 @@ const DefaultRecycleSweepInterval = time.Hour
 // task that removes what is older than the cleanup days, and does nothing
 // when they are 0.
 //
-// It runs on importarr-worker replicas, the ones that mount /data (the
-// leader-elected importarr Deployment does not, so the RootFolder schedule
-// controller cannot do this), and on every one of them: a sweep only
-// removes dated folders past their retention, so two replicas sweeping the
-// same RWX bin at once remove the same folders, and whichever is second
-// finds them gone.
+// It is the importarr-recycle handler on the import agent (spec 2026-10-06
+// §3.5.3): the manager queues one task every 6 h, and whichever import pod
+// takes it sweeps. Two pods sweeping one RWX bin at once remove the same
+// folders, and whichever is second finds them gone.
 //
 // Each distinct bin path is swept once per pass, whichever RootFolders
 // share it -- they all default to /data/.recycle -- and with the LONGEST
@@ -62,22 +57,12 @@ const DefaultRecycleSweepInterval = time.Hour
 // RootFolder's own path is refused: a sweep removes every date-named
 // folder directly beneath the bin, and a library's folders are not its to
 // judge.
-//
-// Registration is W2's (app/import/run.go, the worker role):
-//
-//	if err := mgr.Add(k8s.EveryReplica(fileimport.NewRecycleSweeper(mgr.GetClient()).Run)); err != nil {
-//	        return err
-//	}
 type RecycleSweeper struct {
 	// Client lists RootFolders, across every namespace the cache covers.
 	Client client.Reader
 
 	// Clock is the time source, injected so tests are deterministic.
 	Clock func() time.Time
-
-	// Interval is the time between sweeps; zero means
-	// DefaultRecycleSweepInterval.
-	Interval time.Duration
 
 	// Namespace, when set, limits a sweep to that namespace's RootFolders.
 	// Empty -- production -- is every RootFolder the cache holds. A bin
@@ -87,33 +72,50 @@ type RecycleSweeper struct {
 	Namespace string
 }
 
-// NewRecycleSweeper builds a RecycleSweeper with the production clock and
-// interval.
+// NewRecycleSweeper builds a RecycleSweeper with the production clock.
 func NewRecycleSweeper(c client.Reader) *RecycleSweeper {
-	return &RecycleSweeper{Client: c, Clock: time.Now, Interval: DefaultRecycleSweepInterval}
+	return &RecycleSweeper{Client: c, Clock: time.Now}
 }
 
-// Run sweeps once at start and then every Interval until ctx is done. A
-// failed sweep is logged and retried at the next tick; it never stops the
-// loop, because the next pass may well succeed and nothing else will empty
-// the bins.
-func (s *RecycleSweeper) Run(ctx context.Context) error {
-	interval := s.Interval
-	if interval <= 0 {
-		interval = DefaultRecycleSweepInterval
+// Handle runs one importarr-recycle task: one SweepOnce over every bin,
+// with in-progress acks while it runs, since removing a large day folder on
+// NFS can outlast the 5 min first-delivery deadline (BackOff[0]). A failed
+// sweep is retried on the consumer's backoff; a payload that is not a
+// RecycleSweepTask is dead-lettered at once.
+func (s *RecycleSweeper) Handle(ctx context.Context, m events.Message) error {
+	env := m.Envelope()
+	var task schema.RecycleSweepTask
+	if err := schema.Decode(env.Schema, env.Data, &task); err != nil {
+		return events.Discard("undecodable recycle sweep task", err)
 	}
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for {
-		if err := s.SweepOnce(ctx); err != nil && ctx.Err() == nil {
-			logging.FromContext(ctx).Warn("fileimport: recycle bin sweep failed; retrying at the next tick", "error", err)
-		}
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-ticker.C:
-		}
+	stop := keepAlive(ctx, m)
+	defer stop()
+	if err := s.SweepOnce(ctx); err != nil {
+		return fmt.Errorf("fileimport: recycle sweep for the slot at %s: %w", task.Period.UTC().Format(time.RFC3339), err)
 	}
+	return nil
+}
+
+// keepAlive sends an in-progress ack every heartbeatInterval until stop.
+func keepAlive(ctx context.Context, m events.Message) (stop func()) {
+	ctx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(heartbeatInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if err := heartbeat(ctx, m); err != nil && ctx.Err() == nil {
+					logging.FromContext(ctx).Warn("fileimport: recycle sweep heartbeat failed", "error", err)
+				}
+			}
+		}
+	}()
+	return func() { cancel(); <-done }
 }
 
 // binPlan is one bin path and what the RootFolders sharing it ask of it.

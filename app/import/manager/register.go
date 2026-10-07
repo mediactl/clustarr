@@ -17,7 +17,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 // Package manager is importarr's manager-side registration (spec §4.2.1):
 // the LibraryScan, rename, RootFolder schedule, ImportExclusion,
-// LibraryDelete and ImportList controllers and the import retrigger.
+// LibraryDelete and ImportList controllers, the import retrigger and the
+// recycle sweep's publisher.
 package manager
 
 import (
@@ -32,6 +33,7 @@ import (
 	importlistctrl "github.com/mediactl/clustarr/app/import/controller/importlist"
 	"github.com/mediactl/clustarr/app/import/controller/librarydelete"
 	"github.com/mediactl/clustarr/app/import/controller/libraryscan"
+	"github.com/mediactl/clustarr/app/import/controller/recyclesweep"
 	"github.com/mediactl/clustarr/app/import/controller/rename"
 	"github.com/mediactl/clustarr/app/import/controller/retrigger"
 	"github.com/mediactl/clustarr/app/import/controller/rootfolderschedule"
@@ -127,6 +129,12 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	// /data and runs here, under the lease, not on importarr-worker.
 	if err := (&retrigger.Reconciler{Client: mgr.GetClient(), Bus: bus}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("importarr: fileimport retrigger: %w", err)
+	}
+
+	// The recycle-bin sweep's publisher (spec 2026-10-06 §3.5.3, OD36):
+	// leader-only, one task per 6-hour slot on importarr-recycle.
+	if err := mgr.Add(&recyclesweep.Scheduler{Bus: bus}); err != nil {
+		return fmt.Errorf("import manager: add the recycle sweep scheduler: %w", err)
 	}
 
 	return nil

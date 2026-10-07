@@ -16,9 +16,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 // Package agent is the agent's import domain (spec §3.5.3): importarr-scan,
-// importarr-fileimport and importarr-list on CLUSTARR_WORK_IMPORTARR, and
-// the recycle-bin sweeper. Every replica consumes, and every replica needs a
-// writable /data.
+// importarr-fileimport, importarr-list and importarr-recycle (the
+// recycle-bin sweep) on CLUSTARR_WORK_IMPORTARR. Every replica consumes,
+// and every replica needs a writable /data.
 package agent
 
 import (
@@ -50,11 +50,11 @@ type Options struct {
 	TraktBaseURL, PlexBaseURL string
 }
 
-// Register adds the three consumers and the sweeper, declares the two
-// MediaFile indexes they read, and returns the import.data check.
+// Register adds the four consumers, declares the two MediaFile indexes they
+// read, and returns the import.data check.
 //
 // The consumers are the work.importarr.* queues (amendment §A1.6): scan,
-// fileimport and list. The list worker creates Movie and Series only today;
+// fileimport, list and recycle. The list worker creates Movie and Series only today;
 // a spec.kinds entry naming a kind its provider cannot yield is refused at
 // admission (R-10), and one it can yield but no catalog writer exists for
 // fails on status (app/import/worker/importlist's syncKind), rather than
@@ -93,6 +93,14 @@ func Register(_ context.Context, mgr ctrl.Manager, bus events.Bus, o Options) (c
 		// checkpoints a Result to clustarr-progress for the ImportList
 		// controller (app/import/manager) to project.
 		{events.ConsumerImportList, newListWorker(c, bus, o).Handle},
+		// The recycle-bin sweep (spec 2026-10-06 §3.5.3): the manager queues
+		// one task every 6 h on importarr-recycle, so this domain has no
+		// timer and can scale to zero. fileimport.RecycleSweeper (task X7a
+		// built it) is the one consumer of RootFolder.spec.recycleBin.
+		// cleanupDays, emptying each bin of the dated folders past
+		// retention. It reads and deletes under /data, so it runs here in
+		// the import domain, whose pods mount it.
+		{events.ConsumerImportRecycle, fileimport.NewRecycleSweeper(c).Handle},
 	} {
 		spec, ok := topo.Consumer(cons.durable)
 		if !ok {
@@ -119,20 +127,6 @@ func Register(_ context.Context, mgr ctrl.Manager, bus events.Bus, o Options) (c
 		})); err != nil {
 			return catalogagent.Registration{}, fmt.Errorf("import domain: add %s consumer: %w", cons.durable, err)
 		}
-	}
-	// The recycle-bin sweeper stays a per-replica timer here; spec §3.5.3
-	// turns it into the importarr-recycle durable, which no §11.1 step owns yet.
-	//
-	// The recycle-bin sweeper (task X7a built it, X14 wires it): the one
-	// consumer of RootFolder.spec.recycleBin.cleanupDays, emptying each bin
-	// of the dated folders past retention. It reads and deletes under /data,
-	// so it runs here in the import domain -- the importarr controller
-	// Deployment mounts no /data -- and on every replica: a sweep only
-	// removes date-named folders past retention, so two replicas racing on
-	// one folder cost a harmless second RemoveAll, and a leader lease would
-	// buy nothing but a replica that never sweeps.
-	if err := mgr.Add(k8s.EveryReplica(fileimport.NewRecycleSweeper(c).Run)); err != nil {
-		return catalogagent.Registration{}, fmt.Errorf("import domain: add the recycle-bin sweeper: %w", err)
 	}
 	// A scan or import worker that cannot write the library must not accept
 	// work (amendment §A1.6).
