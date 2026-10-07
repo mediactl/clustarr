@@ -309,7 +309,7 @@ indexarr:
   tolerations: []
   affinity: {}
 
-# DownloadClient/Download controllers. The download engines themselves are
+# The DownloadClient controller. The download engines themselves are
 # StatefulSets and Deployments this controller creates per DownloadClient at
 # runtime, sized by DownloadClient.spec.replicas -- not chart templates.
 grabarr:

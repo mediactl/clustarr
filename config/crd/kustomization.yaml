@@ -37,7 +37,6 @@ resources:
 
 # download.clustarr.io
 - bases/download.clustarr.io_downloadclients.yaml
-- bases/download.clustarr.io_downloads.yaml
 
 # index.clustarr.io
 - bases/index.clustarr.io_indexerdefinitions.yaml

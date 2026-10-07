@@ -1,13 +1,12 @@
-# grabarr -- DownloadClient and Download controllers. Design spec §3, §6.3.
+# grabarr -- the DownloadClient controller. Design spec §3, §6.3.
 #
 # The download *engines* are not here: the DownloadClient controller creates a
 # StatefulSet (torrent) or Deployment (usenet) per DownloadClient at runtime,
 # sized by DownloadClient.spec.replicas. This Deployment is the controller
 # only.
 #
-# It mounts /data because the Download finalizer removes per-download
-# directories under /data/torrents and /data/usenet, and the DiskSpaceOK
-# condition is a statfs on the mount.
+# It mounts /data because the DiskSpaceOK condition is a statfs on the
+# mount.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -16,8 +15,7 @@ metadata:
 # The identity every engine pod the DownloadClient controller creates runs as
 # (--engine-service-account's default). It holds only the engines' own
 # ClusterRole (config/rbac/grabarr_engine_role.yaml, generated from
-# app/grab/engine's markers): read its DownloadClient, watch, update and
-# finalize its Downloads, write their engine status. Until task X14 the engine
+# app/grab/engine's markers). Until task X14 the engine
 # pods named no ServiceAccount and ran as the namespace's unbound "default".
 apiVersion: v1
 kind: ServiceAccount

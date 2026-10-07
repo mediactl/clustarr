@@ -58,17 +58,14 @@ func crdSchemaAt(t *testing.T, file string, path ...string) *apiextensionsv1.JSO
 }
 
 // TestMaxAlsoOnMatchesTheCRD holds commonv1.MaxAlsoOn, the cap a merge
-// truncates ReleaseInfo.AlsoOn to, equal to the field's MaxItems, checked on
-// both CRDs that carry a ReleaseInfo.
+// truncates ReleaseInfo.AlsoOn to, equal to the field's MaxItems.
 func TestMaxAlsoOnMatchesTheCRD(t *testing.T) {
-	onDownload := crdSchemaAt(t, "download.clustarr.io_downloads.yaml", "spec", "release", "alsoOn")
 	results := crdSchemaAt(t, "catalog.clustarr.io_searches.yaml", "status", "results")
 	require.NotNil(t, results.Items)
 	onSearch, ok := results.Items.Schema.Properties["alsoOn"]
 	require.True(t, ok, "status.results[] has no alsoOn")
 
 	for where, schema := range map[string]*apiextensionsv1.JSONSchemaProps{
-		"Download spec.release.alsoOn":   onDownload,
 		"Search status.results[].alsoOn": &onSearch,
 	} {
 		require.NotNil(t, schema.MaxItems, "%s is uncapped", where)

@@ -34,7 +34,7 @@ that owns it (§3, single-writer rule).
 
 Ordering matters for a bulk apply, because some Kinds only reconcile once
 their references resolve -- RootFolder and QualityProfile before Movie or
-Series, DownloadClient before Download, Indexer before Search,
+Series, Indexer before Search,
 TranscodeProfile and SubtitleProfile after the MediaFiles they select. List
 them in that order in the kustomization rather than relying on retry.
 

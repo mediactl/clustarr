@@ -35,7 +35,7 @@ two consequences:
   is the same content plus labels.)
 
 * `helm uninstall` leaves the CRDs, and therefore every Movie, Series,
-  Indexer, Download, TranscodeJob and SubtitleRequest, in place. Deleting
+  Indexer, TranscodeJob and SubtitleRequest, in place. Deleting
   them is an explicit, destructive `kubectl delete crd` -- it garbage-collects
   every CR of those kinds.
 
