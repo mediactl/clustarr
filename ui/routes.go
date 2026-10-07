@@ -25,6 +25,7 @@ import (
 	"slices"
 	"sort"
 
+	"github.com/a-h/templ"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -351,6 +352,10 @@ func (s *Server) handleSetMonitored(w http.ResponseWriter, r *http.Request) {
 	kind := commonv1.MediaKind(r.PathValue("kind"))
 	patched, err := s.opts.Actions.SetMonitored(r.Context(),
 		r.PathValue("namespace"), kind, r.PathValue("name"), monitored)
+	if cardAction(r) {
+		s.finishActionWith(w, r, err, monitoredTitle(monitored))
+		return
+	}
 	// A row's toggle on a series', an artist's or an author's page swaps
 	// the row, not the page.
 	if isHTMX(r) {
@@ -415,7 +420,7 @@ func (s *Server) handleRefreshMetadata(w http.ResponseWriter, r *http.Request) {
 			_, err = s.opts.Actions.RescanPath(r.Context(), ns, root, sub)
 		}
 	}
-	s.finishAction(w, r, err)
+	s.finishActionWith(w, r, err, "Refresh queued")
 }
 
 // handleSearchNow is the "search now" action (§A3.2): POST
@@ -423,7 +428,7 @@ func (s *Server) handleRefreshMetadata(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSearchNow(w http.ResponseWriter, r *http.Request) {
 	_, err := s.opts.Actions.SearchNow(r.Context(),
 		r.PathValue("namespace"), commonv1.MediaKind(r.PathValue("kind")), r.PathValue("name"))
-	s.finishAction(w, r, err)
+	s.finishActionWith(w, r, err, "Search queued")
 }
 
 // handleRenameItem is the per-item "Rename" action (design
@@ -516,6 +521,36 @@ func rootFoldersFor(folders []catalogv1.RootFolder, tab projection.Tab) []catalo
 // Options.Actions in cmd/clustarr, it was what every production process
 // answered.
 func (s *Server) finishAction(w http.ResponseWriter, r *http.Request, err error) {
+	s.finishActionWith(w, r, err, "Done")
+}
+
+// cardAction is whether r is a library card's action (views.cardActions),
+// which htmx posts with #action-status as its target.
+func cardAction(r *http.Request) bool {
+	return isHTMX(r) && r.Header.Get("HX-Target") == "action-status"
+}
+
+// finishActionWith is finishAction for an action a library card can post
+// too: a card's request is answered in place, 200 with ActionStatus's done
+// line or ActionError's why not -- htmx swaps no error status and would
+// follow a redirect to fetch a page it does not show -- while a form's is
+// finishAction's redirect or error page.
+func (s *Server) finishActionWith(w http.ResponseWriter, r *http.Request, err error, done string) {
+	if cardAction(r) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		var view templ.Component
+		if err != nil {
+			code, _ := actionErrorCode(err)
+			logging.FromContext(r.Context()).Error("ui action failed", "error", err, "code", code)
+			view = views.ActionError(code, err.Error())
+		} else {
+			view = views.ActionStatus(done)
+		}
+		if renderErr := view.Render(r.Context(), w); renderErr != nil {
+			logging.FromContext(r.Context()).Error("render action status", "error", renderErr)
+		}
+		return
+	}
 	if err != nil {
 		code, status := actionErrorCode(err)
 		logging.FromContext(r.Context()).Error("ui action failed", "error", err, "code", code)
@@ -651,4 +686,12 @@ func (s *Server) handleLibraryScanDetail(w http.ResponseWriter, r *http.Request)
 	if err := views.LibraryScanDetail(scan).Render(ctx, w); err != nil {
 		logging.FromContext(ctx).Error("render library scan detail page", "error", err)
 	}
+}
+
+// monitoredTitle is a monitor toggle's done line.
+func monitoredTitle(monitored bool) string {
+	if monitored {
+		return "Monitored"
+	}
+	return "Unmonitored"
 }

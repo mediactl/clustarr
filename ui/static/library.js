@@ -13,6 +13,11 @@
  *   namespace/kind/name, read from each card's data-ref and data-kind;
  *   [data-bulk-action] buttons are disabled while nothing is selected, and
  *   every [data-selected-count] shows how many are.
+ * - A card's own Delete ([data-card-delete], 2026-10-06) opens the same
+ *   delete dialog for that item alone: the dialog then names it, and its
+ *   form posts it instead of the selection; the bulk bar's Delete goes back
+ *   to the selection. #action-status, where a card's other actions answer,
+ *   is cleared a few seconds after each answer.
  * - The Options menu's poster size ([data-poster-size] radio items) and
  *   "Show details" ([data-library-option="details"]) are the reader's own:
  *   kept in localStorage and applied to <html> as --library-poster-width and
@@ -23,6 +28,8 @@
 (function () {
   "use strict";
   var selected = new Set();
+  // single is the item a card's Delete opened the dialog for, else null.
+  var single = null;
 
   function page() {
     return document.getElementById("library-page");
@@ -53,6 +60,11 @@
     document.querySelectorAll("[data-selected-count]").forEach(function (el) {
       el.textContent = String(selected.size);
     });
+    if (!single) {
+      document.querySelectorAll("[data-delete-count]").forEach(function (el) {
+        el.textContent = String(selected.size);
+      });
+    }
     document.querySelectorAll("[data-bulk-action]").forEach(function (el) {
       el.disabled = selected.size === 0;
       el.toggleAttribute("data-disabled", selected.size === 0);
@@ -70,10 +82,34 @@
     render();
   }
 
+  // deleteSubject names what the delete dialog deletes: the card's title
+  // for a card's Delete, else its default, the selection.
+  function deleteSubject(text) {
+    document.querySelectorAll("[data-delete-subject]").forEach(function (el) {
+      el.textContent = text || el.getAttribute("data-default") || "";
+    });
+    document.querySelectorAll("[data-delete-count]").forEach(function (el) {
+      el.textContent = String(text ? 1 : selected.size);
+    });
+  }
+
   document.addEventListener(
     "click",
     function (e) {
       if (!e.target.closest) return;
+      var cardDelete = e.target.closest("[data-card-delete]");
+      if (cardDelete) {
+        single = cardDelete.getAttribute("data-card-delete");
+        var link = cardDelete.closest("[data-ref]");
+        link = link && link.querySelector("[data-card-link]");
+        deleteSubject(link ? link.getAttribute("aria-label") : single);
+        return;
+      }
+      if (e.target.closest('[data-bulk-action="delete"]')) {
+        single = null;
+        deleteSubject(null);
+        return;
+      }
       if (e.target.closest('[data-action="select-toggle"]')) {
         e.preventDefault();
         setSelecting(!selecting());
@@ -109,14 +145,17 @@
   document.addEventListener("submit", function (e) {
     var form = e.target;
     if (!form || !form.hasAttribute || !form.hasAttribute("data-bulk-form")) return;
-    if (selected.size === 0) {
+    // Only the delete dialog's form carries a hidden action field; the
+    // bar's form names its action on the button.
+    var items = single && form.querySelector('input[name="action"][value="delete"]') ? new Set([single]) : selected;
+    if (items.size === 0) {
       e.preventDefault();
       return;
     }
     form.querySelectorAll('input[name="item"]').forEach(function (el) {
       el.remove();
     });
-    selected.forEach(function (it) {
+    items.forEach(function (it) {
       var input = document.createElement("input");
       input.type = "hidden";
       input.name = "item";
@@ -133,6 +172,15 @@
     render();
   });
   document.addEventListener("htmx:sseMessage", render);
+
+  var statusTimer = null;
+  document.addEventListener("htmx:afterSwap", function (e) {
+    if (!e.target || e.target.id !== "action-status") return;
+    clearTimeout(statusTimer);
+    statusTimer = setTimeout(function () {
+      e.target.innerHTML = "";
+    }, 4000);
+  });
 
   // Options.
   var SIZE_KEY = "clustarr.library.posterSize";

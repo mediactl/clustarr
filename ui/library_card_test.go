@@ -82,10 +82,15 @@ func TestLibraryCardsFollowRadarrsPosterGrid(t *testing.T) {
 	require.Equal(t, 3, strings.Count(body, `data-slot="aspect-ratio"`), "every card has a poster box, art or not")
 	require.NotContains(t, body, `data-slot="item-title"`, "the poster carries the title; the card prints none")
 
+	// The whole tile is the link, stretched over the card (2026-10-06): the
+	// card itself is a div, so its hover actions can be buttons, which a
+	// link may not contain.
 	card := tagWith(t, body, `data-ref="default/arrival"`)
-	require.True(t, strings.HasPrefix(card, "<a "), "the whole tile is the link: %s", card)
-	require.Contains(t, card, `href="/library/default/movie/arrival"`)
+	require.True(t, strings.HasPrefix(card, "<div "), "the card holds its link and its actions: %s", card)
 	require.Contains(t, card, `data-slot="item"`)
+	at := strings.Index(body, `data-ref="default/arrival"`)
+	link := requireTag(t, body[at:], `data-card-link`, `href="/library/default/movie/arrival"`, `aria-label="Arrival (2016)"`, "absolute", "inset-0")
+	require.True(t, strings.HasPrefix(link, "<a "), link)
 	for _, attr := range []string{
 		`data-kind="movie"`, `data-monitored="true"`, `data-phase="Imported"`, `data-hasfile="true"`,
 		`data-year="2016"`, `data-profile="hd-bluray-web"`, `data-poster="art"`,
@@ -105,10 +110,10 @@ func TestLibraryCardsFollowRadarrsPosterGrid(t *testing.T) {
 	require.Regexp(t, regexp.MustCompile(`data-slot="tooltip-content"[^>]*>[^<]*Arrival`), body, "the title is a tooltip on the poster")
 
 	requireTag(t, body, `data-status="downloaded"`, `bg-emerald-500`)
-	at := strings.Index(body, `data-status="downloaded"`)
+	at = strings.Index(body, `data-status="downloaded"`)
 	require.GreaterOrEqual(t, at, 0)
 	footer := body[at:]
-	end := strings.Index(footer, "</a>")
+	end := strings.Index(footer, `data-ref=`) // the next card
 	require.GreaterOrEqual(t, end, 0)
 	footer = footer[:end]
 	require.Contains(t, footer, ">Monitored<")

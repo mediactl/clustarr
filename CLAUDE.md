@@ -200,7 +200,16 @@ selection as `item=namespace/kind/name` to `POST /library/{tab}/bulk`
 (monitor, unmonitor, search, refresh, delete), which accepts only items on
 that tab in the projection, validates all before writing, and runs each
 item page's own `ui/actions` call; Options (poster size, details) are the
-reader's own, in localStorage. The vendored shadcn-templ components are
+reader's own, in localStorage. Every card has its own actions on hover
+(Sonarr's poster buttons): the card is a div with a stretched link
+(`data-card-link`), and Refresh & Scan, Search, Monitor/Unmonitor post
+through htmx to the item's own routes with `HX-Target: action-status`,
+which `finishActionWith` answers in place (200 with `ActionStatus` or
+`ActionError`, never a redirect; the monitor toggle skips its row reply);
+Delete opens the page's delete dialog for that item alone. Tailwind's
+`group-hover` applies only under `(hover: hover)` -- headless Chromium
+reports `none`, so a screenshot shows no hover bar unless the rule is
+injected. The vendored shadcn-templ components are
 the registry's own (`shadcn-templ add … --overwrite`, 2026-10-06: hooks are
 `data-templ-*` and `window.templ`, the select's hidden input follows its
 trigger and a read-only select is `ReadOnly` with a disabled trigger, so

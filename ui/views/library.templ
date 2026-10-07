@@ -76,6 +76,9 @@ templ Library(tab projection.Tab, p paging.Page, items []projection.LibraryItem,
 			</div>
 			@jumpBar(jumpsFor)
 			@bulkBar(tab)
+			// Where a card's action says how it went (ActionStatus,
+			// ActionError); ui/static/library.js clears it after a while.
+			<div id="action-status" aria-live="polite" class="fixed top-16 left-1/2 z-50 w-max max-w-[90vw] -translate-x-1/2 empty:hidden"></div>
 		</div>
 	}
 }
@@ -216,14 +219,16 @@ templ LibraryRows(items []projection.LibraryItem) {
 // Every card carries data-ref, data-kind, data-monitored, data-phase and
 // data-hasfile (ruling R8): the UI tests assert on these attributes, not on
 // visible copy, so a wording change does not break a test and a markup
-// change does not pass one. While the page is selecting (Sonarr's mass
-// editor, 2026-10-06) a click selects the card instead of opening it
-// (ui/static/library.js sets data-selected), and its mark, hidden
-// otherwise, shows in the poster's corner.
+// change does not pass one. The card is a div and its link (data-card-link)
+// is stretched over it (2026-10-06), so the card can also hold its own
+// actions (cardActions), which as buttons may not sit inside a link. While
+// the page is selecting (Sonarr's mass editor, 2026-10-06) a click selects
+// the card instead of opening it (ui/static/library.js sets
+// data-selected), and its mark, hidden otherwise, shows in the poster's
+// corner.
 templ libraryCard(li projection.LibraryItem) {
 	@item.Item(item.Props{
 		Variant: item.VariantMuted,
-		Href:    libraryDetailPath(li),
 		Class:   "group/card relative flex-col items-stretch gap-0 overflow-hidden border-0 bg-card p-0 hover:bg-card data-selected:ring-2 data-selected:ring-primary",
 		Attributes: templ.Attributes{
 			"data-ref":       li.Ref.String(),
@@ -236,19 +241,24 @@ templ libraryCard(li projection.LibraryItem) {
 			"data-poster":    posterState(li.Poster),
 		},
 	}) {
+		@tooltip.Tooltip() {
+			<a
+				data-card-link
+				href={ templ.SafeURL(libraryDetailPath(li)) }
+				aria-label={ cardLabel(li) }
+				class="absolute inset-0 z-[1] rounded-[inherit] outline-none focus-visible:ring-2 focus-visible:ring-ring"
+				{ tooltip.Trigger(ctx)... }
+			></a>
+			@tooltip.Content(tooltip.ContentProps{Side: tooltip.SideBottom}) {
+				{ cardLabel(li) }
+			}
+		}
 		<span data-select-mark aria-hidden="true" class="absolute top-2 left-2 z-10 hidden size-6 items-center justify-center rounded-full border-2 border-white/80 bg-black/40 text-primary-foreground shadow group-data-selecting/library:flex group-data-selected/card:border-primary group-data-selected/card:bg-primary">
 			@icon.Icon("check")(icon.Props{Class: "hidden size-4 group-data-selected/card:block"})
 		</span>
-		@tooltip.Tooltip() {
-			@aspectratio.AspectRatio(aspectratio.Props{Ratio: "2/3", Class: "w-full bg-muted", Attributes: tooltip.Trigger(ctx)}) {
-				@posterFill(li.Poster, li.Title)
-			}
-			@tooltip.Content(tooltip.ContentProps{Side: tooltip.SideBottom}) {
-				{ li.Title }
-				if li.Year > 0 {
-					({ fmt.Sprint(li.Year) })
-				}
-			}
+		@aspectratio.AspectRatio(aspectratio.Props{Ratio: "2/3", Class: "w-full bg-muted"}) {
+			@posterFill(li.Poster, li.Title)
+			@cardActions(li)
 		}
 		<div class={ stripeClass(projection.LibraryStatus(li)) } data-status={ projection.LibraryStatus(li) }></div>
 		<div data-card-details class="px-2 py-1.5 text-center text-xs leading-5">
@@ -256,6 +266,101 @@ templ libraryCard(li projection.LibraryItem) {
 			<div class="truncate text-muted-foreground">{ li.QualityProfileRef }</div>
 		</div>
 	}
+}
+
+// cardLabel is the card's accessible name and tooltip: the title and year.
+func cardLabel(li projection.LibraryItem) string {
+	if li.Year > 0 {
+		return fmt.Sprintf("%s (%d)", li.Title, li.Year)
+	}
+	return li.Title
+}
+
+// cardActions are a card's own actions (2026-10-06, after Sonarr's poster
+// buttons), along the poster's foot: Refresh & Scan, Search, Monitor or
+// Unmonitor, and Delete -- the item page's actions, so a card does what
+// its page does without opening it. They show while the pointer is over
+// the card or focus is inside it, and never while the page is selecting,
+// when a click selects. Each but Delete posts through htmx to the item's
+// own action route and reads the outcome, a line saying it was done or why
+// it failed, into the page's #action-status (ActionStatus); the live
+// stream then redraws the card. Delete opens the page's delete dialog for
+// this item alone (ui/static/library.js reads data-card-delete), with the
+// same two checkboxes as the item page's.
+templ cardActions(li projection.LibraryItem) {
+	<div
+		data-card-actions
+		class="absolute right-0 bottom-0 left-0 z-20 flex justify-center gap-1 bg-gradient-to-t from-black/80 to-transparent px-1 pt-6 pb-1.5 opacity-0 transition-opacity group-hover/card:opacity-100 group-focus-within/card:opacity-100 group-data-selecting/library:hidden"
+	>
+		@cardAction(li, "refresh", "refresh-cw", "Refresh & Scan", `{"scan":"true"}`)
+		@cardAction(li, "search", "search", "Search", "")
+		if li.Monitored {
+			@cardAction(li, "monitor", "bookmark-x", "Unmonitor", `{"monitored":"false"}`)
+		} else {
+			@cardAction(li, "monitor", "bookmark-check", "Monitor", `{"monitored":"true"}`)
+		}
+		@button.Button(button.Props{
+			Variant:    button.VariantGhost,
+			Size:       button.SizeIconSm,
+			Class:      cardActionClass + " hover:text-destructive",
+			Attributes: cardDeleteAttrs(li),
+		}) {
+			@icon.Icon("trash-2")()
+		}
+	</div>
+}
+
+// cardActionClass is a card action's look: a light icon on the poster's
+// shade.
+const cardActionClass = "size-8 rounded-full text-white/90 hover:bg-white/20 hover:text-white focus-visible:bg-white/20"
+
+// cardAction is one of a card's posting actions: a button posting to the
+// item's action route through htmx, vals its form fields as hx-vals JSON.
+templ cardAction(li projection.LibraryItem, action, iconName, label, vals string) {
+	@button.Button(button.Props{
+		Variant:    button.VariantGhost,
+		Size:       button.SizeIconSm,
+		Class:      cardActionClass,
+		Attributes: cardActionAttrs(li, action, label, vals),
+	}) {
+		@icon.Icon(iconName)()
+	}
+}
+
+// cardActionAttrs are a posting card action's htmx attributes.
+func cardActionAttrs(li projection.LibraryItem, action, label, vals string) templ.Attributes {
+	attrs := templ.Attributes{
+		"data-card-action": action,
+		"aria-label":       label,
+		"title":            label,
+		"hx-post":          libraryActionURL(li, action),
+		"hx-target":        "#action-status",
+		"hx-swap":          "innerHTML",
+	}
+	if vals != "" {
+		attrs["hx-vals"] = vals
+	}
+	return attrs
+}
+
+// cardDeleteAttrs make a card's Delete the page's delete dialog's trigger,
+// naming the item (namespace/kind/name) for ui/static/library.js.
+func cardDeleteAttrs(li projection.LibraryItem) templ.Attributes {
+	attrs := dialog.TriggerFor("library-bulk-delete")
+	attrs["data-card-action"] = "delete"
+	attrs["data-card-delete"] = li.Ref.Namespace + "/" + string(li.Kind) + "/" + li.Ref.Name
+	attrs["aria-label"] = "Delete"
+	attrs["title"] = "Delete"
+	return attrs
+}
+
+// ActionStatus is what a card's action answers into #action-status: a
+// line saying it was done, or ActionError's why not.
+templ ActionStatus(message string) {
+	<div data-action-status="ok" role="status" class="flex items-center gap-2 rounded-md border border-border bg-popover px-3 py-2 text-sm text-popover-foreground shadow-md">
+		@icon.Icon("circle-check")(icon.Props{Class: "size-4 text-primary"})
+		{ message }
+	</div>
 }
 
 // posterFill is the poster filling a 2:3 aspect-ratio box: the art at its
@@ -535,7 +640,8 @@ templ optionsMenu() {
 // repeated "item" fields (namespace/kind/name) when a [data-bulk-form]
 // submits. Delete asks first, as the item page's Delete does, in a dialog
 // with the same two checkboxes; its form is the dialog's own, since the
-// dialog moves its content to <body> when it opens. The buttons stay
+// dialog moves its content to <body> when it opens. A card's own Delete
+// opens the same dialog for that item alone (cardActions). The buttons stay
 // disabled until something is selected.
 templ bulkBar(tab projection.Tab) {
 	<div data-bulk-bar class="sticky bottom-0 z-20 -mx-6 -mb-6 mt-6 hidden flex-wrap items-center gap-2 border-t border-border bg-card px-4 py-3 group-data-selecting/library:flex lg:pr-12">
@@ -554,10 +660,10 @@ templ bulkBar(tab projection.Tab) {
 			@dialog.Content() {
 				@dialog.Header() {
 					@dialog.Title() {
-						Delete the selected { findNoun(tab) }
+						Delete <span data-delete-subject data-default={ "the selected " + findNoun(tab) }>{ "the selected " + findNoun(tab) }</span>
 					}
 					@dialog.Description() {
-						<span data-selected-count>0</span> selected
+						<span data-delete-count>0</span> selected
 					}
 				}
 				<form method="post" action={ templ.URL(bulkPath(tab)) } data-bulk-form class="space-y-3">
