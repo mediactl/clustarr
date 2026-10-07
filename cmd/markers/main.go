@@ -30,17 +30,21 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
 	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/nats-io/nats.go"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/pflag"
 
 	"github.com/mediactl/clustarr/app/segments/worker"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/natsbus"
+	"github.com/mediactl/clustarr/pkg/ffruntime"
+	"github.com/mediactl/clustarr/pkg/ffruntime/ffmetrics"
 	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/obsflags"
@@ -55,12 +59,12 @@ func main() { os.Exit(run(os.Args[1:], os.Getenv)) }
 // flags is markers' flag set: newFlags builds it, run parses it, and the
 // installers' markers args are parsed through it.
 type flags struct {
-	fs                  *pflag.FlagSet
-	ffmpeg, metricsAddr *string
-	threads             *int
-	version             *bool
-	lo                  *logging.Options
-	to                  *tracing.Options
+	fs                 *pflag.FlagSet
+	metricsAddr        *string
+	threads            *int
+	version, selfCheck *bool
+	lo                 *logging.Options
+	to                 *tracing.Options
 }
 
 // newFlags builds the flag set. --concurrency is gone: per-pod in-flight is
@@ -69,8 +73,8 @@ type flags struct {
 func newFlags() flags {
 	fs := pflag.NewFlagSet("markers", pflag.ContinueOnError)
 	f := flags{fs: fs}
-	f.ffmpeg = fs.String("ffmpeg", "ffmpeg", "The ffmpeg binary.")
-	f.threads = fs.Int("ffmpeg-threads", 0, "Threads per ffmpeg run; 0 lets ffmpeg choose.")
+	f.threads = fs.Int("decode-threads", 0, "Threads per decoder; 0 is max(1, GOMAXPROCS / segmentarr-analyze's slots).")
+	f.selfCheck = fs.Bool("self-check", false, "Check this image can decode and run the text detector, print the report as JSON and exit: 0 when it can.")
 	f.metricsAddr = fs.String("metrics-bind-address", ":8080",
 		"Where /metrics, /healthz and /readyz are served; empty serves none.")
 	f.version = fs.Bool("version", false, "Print the version and exit.")
@@ -86,8 +90,9 @@ func printVersion(w io.Writer) int {
 }
 
 // run returns an exit code: ExitMisconfigured for bad flags or environment,
-// ExitRetriable when NATS cannot be reached or the subscription ends,
-// ExitDrained on SIGTERM.
+// or when FFmpeg 9 or what decoding needs is missing; ExitRetriable when NATS
+// cannot be reached, the subscription ends, or in-process FFmpeg calls are
+// stuck (ffruntime.Wedged); ExitDrained on SIGTERM.
 func run(args []string, getenv func(string) string) int {
 	f := newFlags()
 	if err := f.fs.Parse(args); err != nil {
@@ -96,6 +101,9 @@ func run(args []string, getenv func(string) string) int {
 	}
 	if *f.version {
 		return printVersion(os.Stdout)
+	}
+	if *f.selfCheck { // before the environment checks: no NATS, no pod
+		return selfCheck(os.Stdout, getenv)
 	}
 	need := map[string]string{}
 	for _, k := range []string{"NATS_URL", "POD_NAME"} {
@@ -142,6 +150,20 @@ func run(args []string, getenv func(string) string) int {
 	} else {
 		worker.DNNAvailable.Set(1)
 	}
+	// §3.7 steps 7-8: FFmpeg 9 and what decoding needs, or the image is broken.
+	if _, err := ffruntime.Load(); err != nil {
+		log.ErrorContext(ctx, "FFmpeg is unavailable: the native image is broken", "error", err)
+		return worker.ExitMisconfigured
+	}
+	if err := ffruntime.Require(decode.Needs); err != nil {
+		log.ErrorContext(ctx, "FFmpeg lacks what decoding needs", "error", err)
+		return worker.ExitMisconfigured
+	}
+	ffruntime.RouteLog(log)
+	if err := ffmetrics.Register(prometheus.DefaultRegisterer); err != nil {
+		log.ErrorContext(ctx, "metrics", "error", err)
+		return worker.ExitMisconfigured
+	}
 
 	// /readyz is green only once NATS is connected and the subscription is
 	// bound; /healthz always answers (a wedged decode exits the process).
@@ -183,8 +205,10 @@ func run(args []string, getenv func(string) string) int {
 		log.ErrorContext(ctx, "bus", "error", err)
 		return worker.ExitRetriable
 	}
+	sub := spec.Subscription()
+	sub.MaxInFlight = events.SlotsFor(spec, overrides)
 	h := &worker.Handler{
-		Decoder:      decode.Decoder{Threads: *f.threads},
+		Decoder:      decode.Decoder{Threads: decodeThreads(*f.threads, sub.MaxInFlight, runtime.GOMAXPROCS(0))},
 		Fingerprints: bus.ObjectStore(events.ObjectStoreFingerprints),
 		Bus:          bus,
 		KV:           bus.KV(events.BucketSegments),
@@ -192,8 +216,6 @@ func run(args []string, getenv func(string) string) int {
 	if det != nil {
 		h.Detector = det
 	}
-	sub := spec.Subscription()
-	sub.MaxInFlight = events.SlotsFor(spec, overrides)
 	// §3.7 step 11: unsubscribing waits for in-flight handlers up to the
 	// drain, the durable's declared handler budget.
 	sub.Drain = spec.AckWait
@@ -205,6 +227,20 @@ func run(args []string, getenv func(string) string) int {
 	defer unsub()
 	subscribed.Store(true)
 	log.InfoContext(ctx, "markers serving", "slots", sub.MaxInFlight, "dnn", det != nil)
-	<-ctx.Done()
-	return worker.ExitDrained
+	select {
+	case <-ctx.Done():
+		return worker.ExitDrained
+	case <-ffruntime.Wedged():
+		log.ErrorContext(ctx, "in-process FFmpeg calls are stuck; restarting", "abandoned", ffruntime.Abandoned())
+		return worker.ExitRetriable
+	}
+}
+
+// decodeThreads is --decode-threads: an explicit value, else the cgroup's
+// CPUs (GOMAXPROCS follows the quota) shared by the per-pod slots.
+func decodeThreads(flag, slots, procs int) int {
+	if flag > 0 {
+		return flag
+	}
+	return max(1, procs/max(slots, 1))
 }
