@@ -35,14 +35,14 @@ import (
 const (
 	StreamEvents        = "CLUSTARR_EVENTS"
 	StreamReleases      = "CLUSTARR_RELEASES"
-	StreamWorkCatalog   = "CLUSTARR_WORK_CATALOGARR"
-	StreamWorkImport    = "CLUSTARR_WORK_IMPORTARR"
-	StreamWorkIndex     = "CLUSTARR_WORK_INDEXARR"
-	StreamWorkCaption   = "CLUSTARR_WORK_CAPTIONARR"
-	StreamWorkTranscode = "CLUSTARR_WORK_SQUASHARR"
+	StreamWorkCatalog   = "CLUSTARR_WORK_CATALOG"
+	StreamWorkImport    = "CLUSTARR_WORK_IMPORT"
+	StreamWorkIndex     = "CLUSTARR_WORK_INDEX"
+	StreamWorkCaption   = "CLUSTARR_WORK_CAPTION"
+	StreamWorkTranscode = "CLUSTARR_WORK_TRANSCODE"
 	// StreamWorkSegmentarr carries skip-segment work: TheIntroDB's marker
 	// fetches and segment detection's plans, analysis tasks and results.
-	StreamWorkMarkers = "CLUSTARR_WORK_SEGMENTARR"
+	StreamWorkMarkers = "CLUSTARR_WORK_MARKERS"
 	StreamDLQ         = "CLUSTARR_DLQ"
 
 	// StreamAdvisories keeps JetStream's MAX_DELIVERIES advisories until a
@@ -94,63 +94,67 @@ const (
 const (
 	FilterAllEvents           = "clustarr.evt.>"
 	FilterAllReleases         = "clustarr.rel.>"
-	FilterWorkCatalog         = "clustarr.work.catalogarr.>"
-	FilterWorkImport          = "clustarr.work.importarr.>"
-	FilterWorkIndex           = "clustarr.work.indexarr.>"
-	FilterWorkCaption         = "clustarr.work.captionarr.>"
+	FilterWorkCatalog         = "clustarr.work.catalog.>"
+	FilterWorkImport          = "clustarr.work.import.>"
+	FilterWorkIndex           = "clustarr.work.index.>"
+	FilterWorkCaption         = "clustarr.work.caption.>"
 	FilterWorkTranscode       = "clustarr.work.transcode.>"
-	FilterWorkMarkers         = "clustarr.work.segmentarr.>"
+	FilterWorkMarkers         = "clustarr.work.markers.>"
 	FilterTranscodeResults    = "clustarr.work.transcode.result.>"
 	FilterAllDLQ              = "clustarr.dlq.>"
-	FilterCatalogSearch       = "clustarr.work.catalogarr.search.>"
-	FilterCatalogGrab         = "clustarr.work.catalogarr.grab.>"
-	FilterCatalogMetadata     = "clustarr.work.catalogarr.metadata.>"
-	FilterCatalogWanted       = "clustarr.work.catalogarr.wantedscan.>"
-	FilterImportScan          = "clustarr.work.importarr.scan.>"
-	FilterImportList          = "clustarr.work.importarr.list.>"
-	FilterImportFile          = "clustarr.work.importarr.fileimport.>"
-	FilterIndexRSS            = "clustarr.work.indexarr.rss.>"
-	FilterCaptionFetch        = "clustarr.work.captionarr.fetch.>"
-	FilterCatalogArtworkFetch = "clustarr.work.catalogarr.artwork.fetch.>"
-	FilterCatalogMarkers      = "clustarr.work.segmentarr.markers.>"
+	FilterCatalogSearch       = "clustarr.work.catalog.search.>"
+	FilterCatalogGrab         = "clustarr.work.catalog.grab.>"
+	FilterCatalogMetadata     = "clustarr.work.catalog.metadata.>"
+	FilterCatalogWanted       = "clustarr.work.catalog.wantedscan.>"
+	FilterImportScan          = "clustarr.work.import.scan.>"
+	FilterImportList          = "clustarr.work.import.list.>"
+	FilterImportFile          = "clustarr.work.import.fileimport.>"
+	FilterIndexRSS            = "clustarr.work.index.rss.>"
+	FilterCaptionFetch        = "clustarr.work.caption.fetch.>"
+	FilterCatalogArtworkFetch = "clustarr.work.catalog.artwork.fetch.>"
+	FilterCatalogMarkers      = "clustarr.work.markers.markers.>"
 	// Segment detection (spec 2026-10-01): a season's or a movie's plan and
 	// the analysis task the worker takes. FilterCatalogSegmentsResult is the
-	// retired results durable's, purged by Topology.Retired until F9.4.
-	FilterCatalogSegmentsPlan    = "clustarr.work.segmentarr.plan.>"
-	FilterCatalogSegmentsAnalyze = "clustarr.work.segmentarr.analyze.>"
-	FilterCatalogSegmentsResult  = "clustarr.work.segmentarr.result.>"
-	FilterCatalogArtworkRender   = "clustarr.work.catalogarr.artwork.render.>"
+	// retired results durable's subject: nothing publishes it in release N,
+	// and the durable went with chart 0.4.x's displaced markers stream
+	// (unbranded-names spec §4.2.2). F9.4 deletes both names.
+	FilterCatalogSegmentsPlan    = "clustarr.work.markers.plan.>"
+	FilterCatalogSegmentsAnalyze = "clustarr.work.markers.analyze.>"
+	FilterCatalogSegmentsResult  = "clustarr.work.markers.result.>"
+	FilterCatalogArtworkRender   = "clustarr.work.catalog.artwork.render.>"
 	// FilterImportRecycle is the recycle-bin sweep the manager queues
-	// (spec 2026-10-06 §3.5.3). It lies inside FilterWorkImportarr, so the
+	// (spec 2026-10-06 §3.5.3). It lies inside FilterWorkImport, so the
 	// stream is unchanged.
-	FilterImportRecycle = "clustarr.work.importarr.recycle.>"
+	FilterImportRecycle = "clustarr.work.import.recycle.>"
 )
 
 // Durable consumer names.
 const (
-	ConsumerCatalogRSSMatcher    = "catalogarr-rss-matcher"
-	ConsumerCatalogSearchHigh    = "catalogarr-search-high"
-	ConsumerCatalogSearchNorm    = "catalogarr-search-normal"
+	ConsumerCatalogRSSMatcher    = "catalog-rss-matcher"
+	ConsumerCatalogSearchHigh    = "catalog-search-high"
+	ConsumerCatalogSearchNorm    = "catalog-search-normal"
 	ConsumerCatalogGrab          = legacynames.GrabDurable
-	ConsumerCatalogMetadata      = "catalogarr-metadata"
-	ConsumerCatalogHistory       = "catalogarr-history"
-	ConsumerImportScan           = "importarr-scan"
-	ConsumerImportList           = "importarr-list"
-	ConsumerImportFile           = "importarr-fileimport"
-	ConsumerImportRecycle        = "importarr-recycle"
-	ConsumerIndexRSS             = "indexarr-rss"
-	ConsumerCaptionFetchHigh     = "captionarr-fetch-high"
-	ConsumerCaptionFetchNormal   = "captionarr-fetch-normal"
+	ConsumerCatalogMetadata      = "catalog-metadata"
+	ConsumerCatalogHistory       = "catalog-history"
+	ConsumerImportScan           = "import-scan"
+	ConsumerImportList           = "import-list"
+	ConsumerImportFile           = "import-fileimport"
+	ConsumerImportRecycle        = "import-recycle"
+	ConsumerIndexRSS             = "index-rss"
+	ConsumerCaptionFetchHigh     = "caption-fetch-high"
+	ConsumerCaptionFetchNormal   = "caption-fetch-normal"
 	ConsumerTranscodeResults     = legacynames.TranscodeResultsDurable
 	ConsumerDLQProjector         = "clustarr-dlq-projector"
-	ConsumerCatalogArtworkFetch  = "catalogarr-artwork-fetch"
-	ConsumerCatalogArtworkRender = "catalogarr-artwork-render"
-	ConsumerCatalogMarkers       = "catalogarr-markers"
-	// ConsumerCatalogSegmentsPlan is catalogarr's; ConsumerSegmentarrAnalyze
-	// is segmentarr-worker's. ConsumerCatalogSegmentsResult is retired
-	// (loop spec §4.12): Topology.Retired names it until F9.4.
-	ConsumerCatalogSegmentsPlan   = "catalogarr-segments-plan"
-	ConsumerMarkersAnalyze        = "segmentarr-analyze"
+	ConsumerCatalogArtworkFetch  = "catalog-artwork-fetch"
+	ConsumerCatalogArtworkRender = "catalog-artwork-render"
+	ConsumerCatalogMarkers       = "catalog-markers"
+	// ConsumerCatalogSegmentsPlan is the catalog domain's;
+	// ConsumerMarkersAnalyze is the markers worker's.
+	// ConsumerCatalogSegmentsResult is retired (loop spec §4.12): it lived
+	// on chart 0.4.x's markers stream, which release N displaces, and goes
+	// with it (unbranded-names spec §4.2.2).
+	ConsumerCatalogSegmentsPlan   = "catalog-segments-plan"
+	ConsumerMarkersAnalyze        = "markers-analyze"
 	ConsumerCatalogSegmentsResult = legacynames.SegmentsResultDurable
 )
 
@@ -296,15 +300,15 @@ const (
 
 // RPC subjects. Each is served by a queue group named after the service.
 const (
-	RPCIndexSearch     = "clustarr.rpc.indexarr.search"
-	RPCIndexDownload   = "clustarr.rpc.indexarr.download"
-	RPCIndexQuery      = "clustarr.rpc.indexarr.query"
-	RPCMetadataLookup  = "clustarr.rpc.catalogarr.metadata.lookup"
-	RPCMetadataSearch  = "clustarr.rpc.catalogarr.metadata.search"
-	RPCMetadataResolve = "clustarr.rpc.catalogarr.metadata.resolve"
-	RPCMetadataExtras  = "clustarr.rpc.catalogarr.metadata.extras"
-	QueueGroupIndex    = "indexarr"
-	QueueGroupCatalog  = "catalogarr"
+	RPCIndexSearch     = "clustarr.rpc.index.search"
+	RPCIndexDownload   = "clustarr.rpc.index.download"
+	RPCIndexQuery      = "clustarr.rpc.index.query"
+	RPCMetadataLookup  = "clustarr.rpc.catalog.metadata.lookup"
+	RPCMetadataSearch  = "clustarr.rpc.catalog.metadata.search"
+	RPCMetadataResolve = "clustarr.rpc.catalog.metadata.resolve"
+	RPCMetadataExtras  = "clustarr.rpc.catalog.metadata.extras"
+	QueueGroupIndex    = "index"
+	QueueGroupCatalog  = "catalog"
 )
 
 // CatalogItemSubject builds clustarr.evt.catalog.<kind>.<action>.<uid>.
@@ -366,38 +370,38 @@ func SubtitleEventSubject(action, requestUID string) string {
 // WorkSearchSubject builds
 // clustarr.work.catalogarr.search.<priority>.<mediaKey>.
 func WorkSearchSubject(p Priority, mediaKey string) string {
-	return fmt.Sprintf("clustarr.work.catalogarr.search.%s.%s", tok(string(p)), tok(mediaKey))
+	return fmt.Sprintf("clustarr.work.catalog.search.%s.%s", tok(string(p)), tok(mediaKey))
 }
 
 // WorkGrabSubject builds clustarr.work.catalogarr.grab.normal.<mediaKey>.
 // Grab tasks are published with WithScheduleAt to honour delay profiles.
 func WorkGrabSubject(mediaKey string) string {
-	return "clustarr.work.catalogarr.grab.normal." + tok(mediaKey)
+	return "clustarr.work.catalog.grab.normal." + tok(mediaKey)
 }
 
 // WorkMetadataSubject builds
 // clustarr.work.catalogarr.metadata.<high|normal>.<mediaKey>.
 func WorkMetadataSubject(p Priority, mediaKey string) string {
-	return fmt.Sprintf("clustarr.work.catalogarr.metadata.%s.%s", tok(string(p)), tok(mediaKey))
+	return fmt.Sprintf("clustarr.work.catalog.metadata.%s.%s", tok(string(p)), tok(mediaKey))
 }
 
 // WorkSegmentsPlanSubject builds
 // clustarr.work.segmentarr.plan.normal.<key>: plan one season's or
 // movie's segment analysis (schema.SegmentsPlanTask).
 func WorkSegmentsPlanSubject(key string) string {
-	return "clustarr.work.segmentarr.plan.normal." + tok(key)
+	return "clustarr.work.markers.plan.normal." + tok(key)
 }
 
 // WorkSegmentsAnalyzeSubject builds
 // clustarr.work.segmentarr.analyze.normal.<key>.
 func WorkSegmentsAnalyzeSubject(key string) string {
-	return "clustarr.work.segmentarr.analyze.normal." + tok(key)
+	return "clustarr.work.markers.analyze.normal." + tok(key)
 }
 
 // WorkMarkersSubject builds clustarr.work.segmentarr.markers.normal.<mediaKey>:
 // fetch one MediaFile's skip segments (schema.MarkersTask).
 func WorkMarkersSubject(mediaKey string) string {
-	return "clustarr.work.segmentarr.markers.normal." + tok(mediaKey)
+	return "clustarr.work.markers.markers.normal." + tok(mediaKey)
 }
 
 // MsgIDForMarkers is a markers task's Msg-Id, "markers/<file UID>/<seq>"
@@ -416,7 +420,7 @@ func MsgIDForMarkersAt(fileUID string, seq int64, at time.Time) string {
 // WorkWantedScanSubject builds
 // clustarr.work.catalogarr.wantedscan.low.<namespace>.
 func WorkWantedScanSubject(namespace string) string {
-	return "clustarr.work.catalogarr.wantedscan.low." + tok(namespace)
+	return "clustarr.work.catalog.wantedscan.low." + tok(namespace)
 }
 
 // The three importarr work subjects (amendment §A1.6). Unlike the catalogarr
@@ -433,18 +437,18 @@ func WorkWantedScanSubject(namespace string) string {
 // token per directory would make the work-queue stream's subject cardinality
 // grow with the library.
 func WorkScanSubject(rootFolder string) string {
-	return "clustarr.work.importarr.scan." + tok(rootFolder)
+	return "clustarr.work.import.scan." + tok(rootFolder)
 }
 
 // WorkListSubject builds clustarr.work.importarr.list.<importlist>.
 func WorkListSubject(importList string) string {
-	return "clustarr.work.importarr.list." + tok(importList)
+	return "clustarr.work.import.list." + tok(importList)
 }
 
 // WorkFileImportSubject builds
 // clustarr.work.importarr.fileimport.<download>.
 func WorkFileImportSubject(downloadUID string) string {
-	return "clustarr.work.importarr.fileimport." + tok(downloadUID)
+	return "clustarr.work.import.fileimport." + tok(downloadUID)
 }
 
 // SubjectImportRecycleSweep is the one subject the recycle sweep task rides.
@@ -452,17 +456,17 @@ func WorkFileImportSubject(downloadUID string) string {
 // longest retention any RootFolder sharing it asks for
 // (fileimport.RecycleSweeper.SweepOnce), which a per-RootFolder task could
 // not know.
-const SubjectImportRecycleSweep = "clustarr.work.importarr.recycle.sweep"
+const SubjectImportRecycleSweep = "clustarr.work.import.recycle.sweep"
 
 // WorkRSSSubject builds clustarr.work.indexarr.rss.normal.<indexer-uid>.
 func WorkRSSSubject(indexerUID string) string {
-	return "clustarr.work.indexarr.rss.normal." + tok(indexerUID)
+	return "clustarr.work.index.rss.normal." + tok(indexerUID)
 }
 
 // WorkFetchSubject builds
 // clustarr.work.captionarr.fetch.<priority>.<request-uid>.<langKey>.
 func WorkFetchSubject(p Priority, requestUID, langKey string) string {
-	return fmt.Sprintf("clustarr.work.captionarr.fetch.%s.%s.%s",
+	return fmt.Sprintf("clustarr.work.caption.fetch.%s.%s.%s",
 		tok(string(p)), tok(requestUID), tok(langKey))
 }
 
@@ -470,14 +474,14 @@ func WorkFetchSubject(p Priority, requestUID, langKey string) string {
 // clustarr.work.catalogarr.artwork.fetch.<mediaKey>, consumed by the
 // metadata gateway's ConsumerCatalogArtworkFetch (spec §B.7).
 func WorkArtworkFetchSubject(mediaKey string) string {
-	return "clustarr.work.catalogarr.artwork.fetch." + tok(mediaKey)
+	return "clustarr.work.catalog.artwork.fetch." + tok(mediaKey)
 }
 
 // WorkArtworkRenderSubject builds
 // clustarr.work.catalogarr.artwork.render.<mediaKey>, consumed by the
 // renderer role's ConsumerCatalogArtworkRender (spec §C.6).
 func WorkArtworkRenderSubject(mediaKey string) string {
-	return "clustarr.work.catalogarr.artwork.render." + tok(mediaKey)
+	return "clustarr.work.catalog.artwork.render." + tok(mediaKey)
 }
 
 // ArtworkKey builds the object name for one artwork object in
@@ -665,9 +669,15 @@ func FilterTranscodeTasks(profileUID, class string) string {
 	return fmt.Sprintf("clustarr.work.transcode.task.%s.%s.>", tok(profileUID), tok(class))
 }
 
+// TranscodePoolDurablePrefix starts every name TranscodeTaskConsumerName
+// builds (ruling R-U2 of the unbranded-names design: chart 0.4.x's family,
+// legacynames.PoolDurablePrefix, goes with its displaced stream). The
+// transcode controller's durable sweep matches on it.
+const TranscodePoolDurablePrefix = "transcode-pool-"
+
 // TranscodeTaskConsumerName is the durable one pool's workers share.
 func TranscodeTaskConsumerName(profileUID, class string) string {
-	return "squasharr-transcode-" + KVKeyToken(profileUID) + "-" + KVKeyToken(class)
+	return TranscodePoolDurablePrefix + KVKeyToken(profileUID) + "-" + KVKeyToken(class)
 }
 
 // TranscodeLeaseKey is a TranscodeJob's lease in clustarr-transcode-leases.

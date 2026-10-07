@@ -38,7 +38,7 @@ func TestNakDelaySubtractsTheServersBackoffAddition(t *testing.T) {
 		{"no backoff asks for the wait itself", 5 * s, nil, 3, 5 * s},
 		{"first attempt: nothing is added", 30 * s, search, 1, 30 * s},
 		{"settle's schedule comes out as BackOff[0]", 2 * m, search, 2, 30 * s},
-		{"fourth attempt of catalogarr-search-normal", 60 * m, search, 4, 30 * s},
+		{"fourth attempt of catalog-search-normal", 60 * m, search, 4, 30 * s},
 		{"past the end reuses the last entry", 60 * m, search, 9, 30 * s},
 		{"a longer explicit retry keeps its excess", 3 * m, search, 2, 90 * s},
 		{"shorter than the addition floors at a delayed nak", 10 * s, search, 3, time.Nanosecond},

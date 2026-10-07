@@ -44,7 +44,7 @@ func TestTranscodeTopology(t *testing.T) {
 	require.NoError(t, top.Validate())
 
 	st, ok := top.Stream(StreamWorkTranscode)
-	require.True(t, ok, "CLUSTARR_WORK_SQUASHARR is missing from Default()")
+	require.True(t, ok, "CLUSTARR_WORK_TRANSCODE is missing from Default()")
 	assert.Equal(t, RetentionWorkQueue, st.Retention)
 	assert.Equal(t, DiscardNew, st.Discard, "a full queue must refuse a task, not drop an admitted one")
 	assert.False(t, st.AllowMsgSchedules, "DiscardNew cannot be combined with schedules")
@@ -67,7 +67,7 @@ func TestTranscodeTopology(t *testing.T) {
 	assert.False(t, matches(c.Filters[0], result))
 
 	rc, ok := top.Consumer(ConsumerTranscodeResults)
-	require.True(t, ok, "squasharr-transcode-results is missing from Default()")
+	require.True(t, ok, "the transcode results durable is missing from Default()")
 	assert.Equal(t, StreamWorkTranscode, rc.Stream)
 	assert.Equal(t, 1, rc.MaxAckPending, "one event at a time: status writes stay ordered")
 	assert.True(t, matches(rc.Filters[0], result))

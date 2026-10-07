@@ -274,8 +274,8 @@ func (r *Reconciler) sweep(ctx context.Context, tjs []transcodev1alpha1.Transcod
 // A durable is kept when it is the name events.TranscodeTaskConsumerName
 // builds for an existing profile's UID and any pool class -- idle or not,
 // since the pool may be resumed at any pass -- and so is every durable that
-// is not a pool's at all (isPoolDurable): squasharr-transcode-results
-// shares the prefix. The name is compared as built, never parsed back into
+// is not a pool's at all (isPoolDurable): the shipped topology's results
+// durable is never one. The name is compared as built, never parsed back into
 // a UID, so the builder's token escaping is the only one involved.
 func (r *Reconciler) sweepDurables(ctx context.Context, profiles map[string]*transcodev1alpha1.TranscodeProfile) error {
 	names, err := r.Admin.Subscriptions(ctx, events.StreamWorkTranscode)
@@ -305,12 +305,12 @@ func (r *Reconciler) sweepDurables(ctx context.Context, profiles map[string]*tra
 
 // poolDurablePrefix starts every name events.TranscodeTaskConsumerName
 // builds (TestIsPoolDurable holds the two together).
-const poolDurablePrefix = "squasharr-transcode-"
+const poolDurablePrefix = events.TranscodePoolDurablePrefix
 
 // isPoolDurable reports whether name is a pool's durable: one
 // events.TranscodeTaskConsumerName builds, for some profile UID and a pool
-// class, and never a durable of the shipped topology -- which is how
-// squasharr-transcode-results, under the same prefix, is never swept.
+// class, and never a durable of the shipped topology, so the results
+// durable (legacynames.TranscodeResultsDurable) is never swept.
 func isPoolDurable(name string) bool {
 	if _, shipped := events.Default().Consumer(name); shipped || !strings.HasPrefix(name, poolDurablePrefix) {
 		return false

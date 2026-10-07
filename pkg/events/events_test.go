@@ -203,7 +203,7 @@ func TestStreamForSubject(t *testing.T) {
 		events.WorkSearchSubject(events.PriorityHigh, "m1"):         events.StreamWorkCatalog,
 		events.WorkRSSSubject("idx"):                                events.StreamWorkIndex,
 		events.WorkFetchSubject(events.PriorityLow, "r", "en"):      events.StreamWorkCaption,
-		events.DLQSubject("catalogarr", "import", "1"):              events.StreamDLQ,
+		events.DLQSubject("catalog", "import", "1"):                 events.StreamDLQ,
 	}
 	for subject, want := range cases {
 		got, ok := top.StreamForSubject(subject)
@@ -227,9 +227,9 @@ func TestSubjectMatches(t *testing.T) {
 	}{
 		{"clustarr.evt.>", "clustarr.evt.catalog.movie.added.u1", true},
 		{"clustarr.evt.>", "clustarr.rel.torrent.x.2000", false},
-		{"clustarr.work.catalogarr.search.high.>", "clustarr.work.catalogarr.search.high.m1", true},
-		{"clustarr.work.catalogarr.search.high.>", "clustarr.work.catalogarr.search.low.m1", false},
-		{"clustarr.work.catalogarr.*.normal.>", "clustarr.work.catalogarr.grab.normal.m1", true},
+		{"clustarr.work.catalog.search.high.>", "clustarr.work.catalog.search.high.m1", true},
+		{"clustarr.work.catalog.search.high.>", "clustarr.work.catalog.search.low.m1", false},
+		{"clustarr.work.catalog.*.normal.>", "clustarr.work.catalog.grab.normal.m1", true},
 		{"a.b", "a.b", true},
 		{"a.b", "a.b.c", false},
 		{"a.>", "a", false},
@@ -279,7 +279,7 @@ func TestEnvelopeHeaderRoundTrip(t *testing.T) {
 		ID:      "uid:3:search",
 		Type:    "catalog.search",
 		Schema:  "catalog.SearchTask.v1",
-		Source:  "catalogarr@1.2.3+abc",
+		Source:  "catalog@1.2.3+abc",
 		Key:     "media/the-thing",
 		Time:    now,
 		Trace:   "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
@@ -398,7 +398,7 @@ func TestMsgIDsAreDeterministic(t *testing.T) {
 // silently widening a subject into extra tokens.
 func TestSubjectTokensAreSanitised(t *testing.T) {
 	got := events.WorkSearchSubject(events.PriorityHigh, "movie/the.thing 1982")
-	want := "clustarr.work.catalogarr.search.high.movie-the-thing-1982"
+	want := "clustarr.work.catalog.search.high.movie-the-thing-1982"
 	if got != want {
 		t.Errorf("WorkSearchSubject = %q, want %q", got, want)
 	}
@@ -479,19 +479,19 @@ func TestDeadLetterSubjectNamesTheFailedTask(t *testing.T) {
 	}{
 		{
 			"work subject names itself", events.WorkSearchSubject(events.PriorityHigh, "m1"),
-			events.ConsumerCatalogSearchHigh, events.DLQSubject("catalogarr", "search", "id-1"),
+			events.ConsumerCatalogSearchHigh, events.DLQSubject("catalog", "search", "id-1"),
 		},
 		{
 			"event, redownload consumer", failed,
-			events.ConsumerCatalogRedownload, events.DLQSubject("catalogarr", "redownload", "id-1"),
+			events.ConsumerCatalogRedownload, events.DLQSubject("catalog", "redownload", "id-1"),
 		},
 		{
 			"same event, history consumer", failed,
-			events.ConsumerCatalogHistory, events.DLQSubject("catalogarr", "history", "id-1"),
+			events.ConsumerCatalogHistory, events.DLQSubject("catalog", "history", "id-1"),
 		},
 		{
 			"release, rss matcher", events.ReleaseSubject("torrent", "idx", 2000),
-			events.ConsumerCatalogRSSMatcher, events.DLQSubject("catalogarr", "rss-matcher", "id-1"),
+			events.ConsumerCatalogRSSMatcher, events.DLQSubject("catalog", "rss-matcher", "id-1"),
 		},
 		{"durable without a task", failed, "loner", events.DLQSubject("loner", "unknown", "id-1")},
 		{"no durable", failed, "", events.DLQSubject("unknown", "unknown", "id-1")},

@@ -53,8 +53,8 @@ func TestMaxDeliveriesAdvisoryMatchesServer(t *testing.T) {
 			ID:   "adv-1",
 			Time: time.Now().UTC(),
 		},
-		Stream:     "CLUSTARR_WORK_INDEXARR",
-		Consumer:   "indexarr-rss",
+		Stream:     "CLUSTARR_WORK_INDEX",
+		Consumer:   "index-rss",
 		StreamSeq:  42,
 		Deliveries: 4,
 	}
@@ -77,7 +77,7 @@ func TestMaxDeliveriesAdvisoryMatchesServer(t *testing.T) {
 		t.Errorf("decoded %+v from %s, want %+v", got, data, want)
 	}
 	if subj := events.MaxDeliveriesAdvisorySubject(sent.Stream, sent.Consumer); subj !=
-		natsserver.JSAdvisoryConsumerMaxDeliveryExceedPre+".CLUSTARR_WORK_INDEXARR.indexarr-rss" {
+		natsserver.JSAdvisoryConsumerMaxDeliveryExceedPre+".CLUSTARR_WORK_INDEX.index-rss" {
 		t.Errorf("advisory subject = %q", subj)
 	}
 }

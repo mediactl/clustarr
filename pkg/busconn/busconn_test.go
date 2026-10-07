@@ -28,7 +28,7 @@ import (
 )
 
 func TestConnectRejectsAnEmptyURL(t *testing.T) {
-	_, _, err := busconn.Connect("", "catalogarr")
+	_, _, err := busconn.Connect("", "catalog")
 	require.ErrorContains(t, err, "busconn: empty NATS url")
 }
 

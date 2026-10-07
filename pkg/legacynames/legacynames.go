@@ -160,12 +160,12 @@ const (
 
 // Schemas are the Clustarr-Schema values main publishes that release N
 // renames, old -> new (spec §2.6, §4.2.5): a dead letter N-1 wrote still
-// decodes through LegacySchemas.
+// decodes through LegacySchemas. main publishes only v1 of each; the v2
+// spellings spec §2.6 lists appear on main only in tests asserting that
+// Decode refuses them.
 var Schemas = map[string]string{
 	"importarr.ScanTask.v1": "import.ScanTask.v1",
-	"importarr.ScanTask.v2": "import.ScanTask.v2",
 	"importarr.ListTask.v1": "import.ListTask.v1",
-	"importarr.ListTask.v2": "import.ListTask.v2",
 }
 
 // LeaseIDs are the per-service leader-election leases manager.clustarr.io

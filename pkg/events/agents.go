@@ -56,20 +56,20 @@ const (
 
 	// ConsumerIntakeCandidate is the manager's leader-only candidate
 	// inbox (app/intake).
-	ConsumerIntakeCandidate = "catalogarr-intake-candidate"
+	ConsumerIntakeCandidate = "catalog-intake-candidate"
 	// ConsumerIntakeScan is the manager's leader-only scan applier
 	// (app/import/manager/scanapply).
-	ConsumerIntakeScan = "importarr-intake-scan"
+	ConsumerIntakeScan = "import-intake-scan"
 	// ConsumerTaskEvents is the manager's leader-only advisory intake
 	// (app/intake/advisory).
 	ConsumerTaskEvents = "clustarr-task-events"
 
 	// EngineConsumerPrefix begins every engine instance's durable.
-	EngineConsumerPrefix = "grabarr-engine-"
+	EngineConsumerPrefix = "grab-engine-"
 
 	// RPCIndexBlocklist is the release index's blocklist verb (design
 	// §6.14), beside search, download and query, in queue group indexarr.
-	RPCIndexBlocklist = "clustarr.rpc.indexarr.blocklist"
+	RPCIndexBlocklist = "clustarr.rpc.index.blocklist"
 
 	// The JetStream advisory and metric subjects the manager consumes
 	// (design §8.2): <prefix>.<stream>.<durable>. The ack metric is a core
@@ -167,20 +167,20 @@ func EngineConsumer(client string, ordinal int32) ConsumerSpec {
 // clustarr.work.importarr.fileimport.inspect.<KVKeyToken(entry uid)>, under
 // importarr-fileimport's filter.
 func WorkImportInspectSubject(entryUID string) string {
-	return "clustarr.work.importarr.fileimport.inspect." + KVKeyToken(entryUID)
+	return "clustarr.work.import.fileimport.inspect." + KVKeyToken(entryUID)
 }
 
 // WorkImportExecuteSubject builds
 // clustarr.work.importarr.fileimport.execute.<KVKeyToken(entry uid)>.
 func WorkImportExecuteSubject(entryUID string) string {
-	return "clustarr.work.importarr.fileimport.execute." + KVKeyToken(entryUID)
+	return "clustarr.work.import.fileimport.execute." + KVKeyToken(entryUID)
 }
 
 // SubjectImportRecycleFiles builds
 // clustarr.work.importarr.recycle.files.<KVKeyToken(id)>, under
 // importarr-recycle's filter.
 func SubjectImportRecycleFiles(id string) string {
-	return "clustarr.work.importarr.recycle.files." + KVKeyToken(id)
+	return "clustarr.work.import.recycle.files." + KVKeyToken(id)
 }
 
 // MsgIDForEngineCommand is an engine command's Msg-Id,

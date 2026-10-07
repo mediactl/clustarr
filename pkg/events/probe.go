@@ -41,8 +41,8 @@ const (
 	FilterProbeHigh = "clustarr.work.probe.file.high.>"
 	FilterProbeLow  = "clustarr.work.probe.file.low.>"
 
-	ConsumerImportProbeHigh = "importarr-probe-high"
-	ConsumerImportProbeLow  = "importarr-probe-low"
+	ConsumerImportProbeHigh = "import-probe-high"
+	ConsumerImportProbeLow  = "import-probe-low"
 
 	// BucketProbes holds one probe record per MediaFile UID.
 	BucketProbes = "clustarr-probes"
@@ -86,7 +86,7 @@ func MsgIDForProbe(uid, probeHash string, version int32, seq int64) string {
 func probeStream() StreamSpec {
 	return StreamSpec{
 		Name:        StreamWorkProbe,
-		Description: "MediaFile probe tasks catalogarr asked the import domain for.",
+		Description: "MediaFile probe tasks the catalog domain asked the import domain for.",
 		Subjects:    []string{FilterWorkProbe},
 		Retention:   RetentionWorkQueue,
 		Storage:     StorageFile,

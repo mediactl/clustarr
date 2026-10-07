@@ -79,7 +79,7 @@ type ImportInspectTask struct {
 }
 
 // Schema implements Payload.
-func (ImportInspectTask) Schema() string { return "importarr.ImportInspectTask.v1" }
+func (ImportInspectTask) Schema() string { return "import.ImportInspectTask.v1" }
 
 // ImportExecuteTask carries the manager's approved plan to the import agent
 // (ADR-0019 §6.9, step 3). Subject events.WorkImportExecuteSubject, consumer
@@ -93,7 +93,7 @@ type ImportExecuteTask struct {
 }
 
 // Schema implements Payload.
-func (ImportExecuteTask) Schema() string { return "importarr.ImportExecuteTask.v1" }
+func (ImportExecuteTask) Schema() string { return "import.ImportExecuteTask.v1" }
 
 // ImportPlan is what the import planner approved: the files to place, the
 // MediaFiles they replace (the plan's basis: the agent re-reads each through
@@ -241,4 +241,4 @@ type ImportRecord struct {
 }
 
 // Schema implements Payload and is RecordHeader.Schema on every value.
-func (ImportRecord) Schema() string { return "importarr.Import.v1" }
+func (ImportRecord) Schema() string { return "import.Import.v1" }

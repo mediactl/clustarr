@@ -38,7 +38,7 @@ type ListSnapshot struct {
 }
 
 // Schema implements Payload.
-func (ListSnapshot) Schema() string { return "importarr.ListSnapshot.v1" }
+func (ListSnapshot) Schema() string { return "import.ListSnapshot.v1" }
 
 // ListKindSnapshot is one kind's part of a list's snapshot.
 type ListKindSnapshot struct {
@@ -66,4 +66,4 @@ type RecycleFilesTask struct {
 }
 
 // Schema implements Payload.
-func (RecycleFilesTask) Schema() string { return "importarr.RecycleFilesTask.v1" }
+func (RecycleFilesTask) Schema() string { return "import.RecycleFilesTask.v1" }

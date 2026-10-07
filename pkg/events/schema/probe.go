@@ -64,7 +64,7 @@ type ProbeTask struct {
 }
 
 // Schema implements Payload.
-func (ProbeTask) Schema() string { return "importarr.ProbeTask.v1" }
+func (ProbeTask) Schema() string { return "import.ProbeTask.v1" }
 
 // ProbeRecord is clustarr-probes' value for one MediaFile UID: a request, then
 // its answer, every write a compare-and-swap (pkg/probestore). It is KV state,
@@ -101,4 +101,4 @@ type ProbeRecord struct {
 // record; it is never published. It shadows the promoted RecordHeader.Schema
 // field, which the probe never sets; pkg/records reaches the field through
 // Header().
-func (ProbeRecord) Schema() string { return "importarr.ProbeRecord.v1" }
+func (ProbeRecord) Schema() string { return "import.ProbeRecord.v1" }

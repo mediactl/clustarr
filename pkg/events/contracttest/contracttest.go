@@ -355,7 +355,7 @@ func testRetryThenAck(t *testing.T, newBus func() events.Bus) {
 	stop, err := bus.Subscribe(ctx, events.Subscription{
 		Stream:      events.StreamWorkCatalog,
 		Durable:     "ct-search-high",
-		Filters:     []string{"clustarr.work.catalogarr.search.high.>"},
+		Filters:     []string{"clustarr.work.catalog.search.high.>"},
 		AckWait:     5 * time.Second,
 		MaxDeliver:  4,
 		Backoff:     []time.Duration{50 * time.Millisecond},
@@ -438,7 +438,7 @@ func testDiscardToDLQ(t *testing.T, newBus func() events.Bus) {
 
 	dlq.waitFor(t, 1, "dead-letter copies")
 	e, dlqSubject := dlq.at(0)
-	if want := events.DLQSubject("importarr", "fileimport", "task-discard"); dlqSubject != want {
+	if want := events.DLQSubject("import", "fileimport", "task-discard"); dlqSubject != want {
 		t.Errorf("DLQ subject = %q, want %q", dlqSubject, want)
 	}
 	if got := e.Headers[events.HeaderDLQReason]; got != "unparsable payload" {
@@ -597,7 +597,7 @@ func testHungHandlerToDLQ(t *testing.T, newBus func() events.Bus, inFlight int) 
 	mu.Unlock()
 
 	e, dlqSubject := dlq.at(0)
-	if want := events.DLQSubject("indexarr", "rss", "task-hung"); dlqSubject != want {
+	if want := events.DLQSubject("index", "rss", "task-hung"); dlqSubject != want {
 		t.Errorf("DLQ subject = %q, want %q", dlqSubject, want)
 	}
 	for header, want := range map[string]string{
@@ -738,7 +738,7 @@ func testLapseWhileUnwatchedToDLQ(t *testing.T, newBus func() events.Bus) {
 
 	dlq.waitFor(t, 1, "the dead-letter copy of a lapse nobody watched")
 	e, dlqSubject := dlq.at(0)
-	if want := events.DLQSubject("indexarr", "rss", "task-unwatched"); dlqSubject != want {
+	if want := events.DLQSubject("index", "rss", "task-unwatched"); dlqSubject != want {
 		t.Errorf("DLQ subject = %q, want %q", dlqSubject, want)
 	}
 	for header, want := range map[string]string{

@@ -87,7 +87,7 @@ func TestConnectCarriesTheTraceWhenBuiltTheWayAServiceBuildsIt(t *testing.T) {
 	// through the otel globals Setup installs, so hooks wired before it are
 	// a silent no-op.
 	shutdown, err := tracing.Setup(context.Background(), tracing.Options{
-		ServiceName: "catalogarr", SampleRatio: 1,
+		ServiceName: "catalog", SampleRatio: 1,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -96,7 +96,7 @@ func TestConnectCarriesTheTraceWhenBuiltTheWayAServiceBuildsIt(t *testing.T) {
 		}
 	})
 
-	bus, nc, err := busconn.Connect(url, "catalogarr", busconn.WithHooks(obs.BusHooks()))
+	bus, nc, err := busconn.Connect(url, "catalog", busconn.WithHooks(obs.BusHooks()))
 	require.NoError(t, err)
 	t.Cleanup(nc.Close)
 	t.Cleanup(func() {
@@ -144,9 +144,9 @@ func TestConnectCarriesTheTraceWhenBuiltTheWayAServiceBuildsIt(t *testing.T) {
 	_, err = bus.Publish(publishCtx, events.CatalogItemSubject("movie", events.ActionAdded, "uid-bushooks"),
 		&events.Envelope{
 			ID:     "evt-bushooks",
-			Type:   "catalogarr",
+			Type:   "catalog",
 			Schema: "catalog.ItemEvent.v1",
-			Source: "catalogarr@0.0.0",
+			Source: "catalog@0.0.0",
 			Key:    "default/bushooks",
 			// Left empty on purpose: the hook, not the caller, must be what
 			// stamps it. A caller that filled it in would prove nothing.
@@ -180,7 +180,7 @@ func TestConnectWithoutHooksCarriesNoTrace(t *testing.T) {
 	url := startJetStream(t)
 
 	shutdown, err := tracing.Setup(context.Background(), tracing.Options{
-		ServiceName: "catalogarr", SampleRatio: 1,
+		ServiceName: "catalog", SampleRatio: 1,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -189,7 +189,7 @@ func TestConnectWithoutHooksCarriesNoTrace(t *testing.T) {
 		}
 	})
 
-	bus, nc, err := busconn.Connect(url, "catalogarr")
+	bus, nc, err := busconn.Connect(url, "catalog")
 	require.NoError(t, err)
 	t.Cleanup(nc.Close)
 	t.Cleanup(func() {
@@ -227,9 +227,9 @@ func TestConnectWithoutHooksCarriesNoTrace(t *testing.T) {
 	_, err = bus.Publish(publishCtx, events.CatalogItemSubject("movie", events.ActionAdded, "uid-bushooks-off"),
 		&events.Envelope{
 			ID:     "evt-bushooks-off",
-			Type:   "catalogarr",
+			Type:   "catalog",
 			Schema: "catalog.ItemEvent.v1",
-			Source: "catalogarr@0.0.0",
+			Source: "catalog@0.0.0",
 			Key:    "default/bushooks",
 			Data:   data,
 		})

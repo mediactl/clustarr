@@ -57,10 +57,10 @@ func (r DownloadResponse) ForWire() DownloadResponse {
 	var z bytes.Buffer
 	w := gzip.NewWriter(&z)
 	if _, err := w.Write(r.Bytes); err != nil {
-		return DownloadResponse{Error: fmt.Sprintf("indexarr: compress payload: %v", err)}
+		return DownloadResponse{Error: fmt.Sprintf("index: compress payload: %v", err)}
 	}
 	if err := w.Close(); err != nil {
-		return DownloadResponse{Error: fmt.Sprintf("indexarr: compress payload: %v", err)}
+		return DownloadResponse{Error: fmt.Sprintf("index: compress payload: %v", err)}
 	}
 	r.Bytes, r.Encoding = z.Bytes(), DownloadEncodingGzip
 	return r.fitsWire()
@@ -68,7 +68,7 @@ func (r DownloadResponse) ForWire() DownloadResponse {
 
 func (r DownloadResponse) fitsWire() DownloadResponse {
 	if len(r.Bytes) > MaxDownloadWireBytes {
-		return DownloadResponse{Error: fmt.Sprintf("indexarr: %v: %d bytes on the wire, over %d",
+		return DownloadResponse{Error: fmt.Sprintf("index: %v: %d bytes on the wire, over %d",
 			ErrDownloadPayloadTooLarge, len(r.Bytes), MaxDownloadWireBytes)}
 	}
 	return r

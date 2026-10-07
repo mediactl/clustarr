@@ -31,6 +31,7 @@ import (
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
+	"github.com/mediactl/clustarr/pkg/legacynames"
 )
 
 // Target is the custom resource a domain event or a dead letter concerns, or
@@ -145,7 +146,12 @@ type resolver func(key string, data []byte) Target
 // alone rather than pretending it names one object.
 // importarr.RecycleSweepTask is the one cluster-global task: it names
 // neither, and resolveRecycleSweepTask says so by returning the zero Target.
-var resolvers = map[string]resolver{
+//
+// A schema chart 0.4.x published under its branded name
+// (legacynames.Schemas) resolves as its successor does, so a dead letter N-1
+// wrote still lands on its object in release N (unbranded-names spec
+// §4.2.5, §4.2.6).
+var resolvers = withLegacySchemas(map[string]resolver{
 	schema.ItemEvent{}.Schema():         resolveItemEvent,
 	schema.ReleaseEvent{}.Schema():      resolveReleaseEvent,
 	schema.MediaFileEvent{}.Schema():    resolveMediaFileEvent,
@@ -182,6 +188,17 @@ var resolvers = map[string]resolver{
 	schema.ImportExecuteTask{}.Schema(): resolveImportExecute,
 	schema.Candidate{}.Schema():         resolveCandidate,
 	schema.ScanObservation{}.Schema():   resolveScanObservation,
+})
+
+// withLegacySchemas adds each legacynames.Schemas key under its
+// successor's resolver.
+func withLegacySchemas(m map[string]resolver) map[string]resolver {
+	for old, now := range legacynames.Schemas {
+		if r, ok := m[now]; ok {
+			m[old] = r
+		}
+	}
+	return m
 }
 
 // Resolve establishes the CR a domain event or dead-lettered envelope

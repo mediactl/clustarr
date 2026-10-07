@@ -56,7 +56,7 @@ func TestScanTaskEncodeDecodeRoundTrip(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			name, data, err := schema.Encode(tc.in)
 			require.NoError(t, err)
-			assert.Equal(t, "importarr.ScanTask.v1", name)
+			assert.Equal(t, "import.ScanTask.v1", name)
 
 			var out schema.ScanTask
 			require.NoError(t, schema.Decode(name, data, &out))
@@ -72,7 +72,7 @@ func TestScanTaskRejectsAForeignSchemaHeader(t *testing.T) {
 	require.NoError(t, err)
 
 	var out schema.ScanTask
-	assert.Error(t, schema.Decode("importarr.ScanTask.v2", data, &out))
+	assert.Error(t, schema.Decode("import.ScanTask.v2", data, &out))
 }
 
 func TestListTaskEncodeDecodeRoundTrip(t *testing.T) {
@@ -81,7 +81,7 @@ func TestListTaskEncodeDecodeRoundTrip(t *testing.T) {
 	}
 	name, data, err := schema.Encode(in)
 	require.NoError(t, err)
-	assert.Equal(t, "importarr.ListTask.v1", name)
+	assert.Equal(t, "import.ListTask.v1", name)
 
 	var out schema.ListTask
 	require.NoError(t, schema.Decode(name, data, &out))
@@ -95,5 +95,5 @@ func TestListTaskRejectsAForeignSchemaHeader(t *testing.T) {
 	require.NoError(t, err)
 
 	var out schema.ListTask
-	assert.Error(t, schema.Decode("importarr.ListTask.v2", data, &out))
+	assert.Error(t, schema.Decode("import.ListTask.v2", data, &out))
 }

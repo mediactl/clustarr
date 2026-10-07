@@ -60,9 +60,32 @@ func (b *Bus) EnsureConsumer(_ context.Context, c events.ConsumerSpec) error {
 		}
 	}
 	for _, spec := range specs {
-		b.streams[spec.Stream].bindDurable(spec.Name, spec.Filters, spec.MaxAckPending, spec.Subscription().Timing())
+		bindConsumer(b.streams[spec.Stream], spec)
 	}
 	return nil
+}
+
+// RetireStream implements events.StreamAdmin: the census, then the stream
+// forgotten with its durables. A stream never ensured is success.
+func (b *Bus) RetireStream(_ context.Context, stream string) (events.StreamCensus, error) {
+	census := events.StreamCensus{Stream: stream}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	st := b.streams[stream]
+	if st == nil {
+		return census, nil
+	}
+	census.Existed = true
+	census.Messages, census.BySubjectToken = st.census()
+	census.Pending = map[string]uint64{}
+	now := b.clock.Now()
+	for _, d := range st.subscriptions() {
+		if cs, ok := st.consumerState(d, now); ok {
+			census.Pending[d] = cs.Lag()
+		}
+	}
+	delete(b.streams, stream)
+	return census, nil
 }
 
 // PurgeSubject implements events.StreamAdmin.
