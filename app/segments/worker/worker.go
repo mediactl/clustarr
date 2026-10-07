@@ -54,6 +54,9 @@ type Handler struct {
 	// FileTimeout bounds one file's decoding and analysis (default 5 min);
 	// TaskTimeout one task's (default 30 min).
 	FileTimeout, TaskTimeout time.Duration
+	// WrittenBy is every fingerprint's clustarr.io/written-by (ADR-0021
+	// §2); empty is "markers@<version>".
+	WrittenBy string
 }
 
 // Windows and confidences (spec §6).

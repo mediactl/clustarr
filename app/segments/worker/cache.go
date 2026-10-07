@@ -23,9 +23,10 @@ import (
 	"encoding/binary"
 	"io"
 
-	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/segments"
 	"github.com/mediactl/clustarr/pkg/segments/chromaprint"
+	"github.com/mediactl/clustarr/pkg/version"
 )
 
 // fingerprint fills f.start and f.end from the store, or by decoding and
@@ -45,7 +46,7 @@ func (h *Handler) fingerprint(ctx context.Context, f *file) {
 
 func (h *Handler) window(ctx context.Context, f *file, which string, fromS, lenS float64) ([]uint32, error) {
 	name := segments.FingerprintKey(f.ProbeHash, which)
-	if fp, ok := h.cached(ctx, name); ok {
+	if fp, ok := h.cached(ctx, name, lenS); ok {
 		return fp, nil
 	}
 	pcm, err := h.Decoder.Audio(ctx, f.Path, int(f.AudioStream), fromS, lenS)
@@ -56,13 +57,38 @@ func (h *Handler) window(ctx context.Context, f *file, which string, fromS, lenS
 	var buf bytes.Buffer
 	_ = binary.Write(&buf, binary.LittleEndian, fp)
 	if h.Fingerprints != nil {
-		_, _ = h.Fingerprints.Put(ctx, name, &buf, events.ObjectMeta{}) // a cache: a failed write is recomputed next time
+		// Self-describing, through the store's one builder (ADR-0021 §2). A
+		// cache: a failed write is recomputed next time.
+		meta := segments.FingerprintMeta(f.ProbeHash, which, lenS, h.writtenBy())
+		_, _ = h.Fingerprints.Put(ctx, name, &buf, meta)
 	}
 	return fp, nil
 }
 
-func (h *Handler) cached(ctx context.Context, name string) ([]uint32, bool) {
+// writtenBy is the fingerprints' clustarr.io/written-by: Handler.WrittenBy,
+// else this binary's name and version.
+func (h *Handler) writtenBy() string {
+	if h.WrittenBy != "" {
+		return h.WrittenBy
+	}
+	return "markers@" + version.String()
+}
+
+// cached reads name's fingerprint when its metadata matches what this
+// process computes for a window of lenS seconds. It decides from Info, a
+// direct get of the object's meta, and runs Get -- a consumer over the
+// chunks -- only for a match; a mismatch is recomputed and overwritten
+// (ADR-0021 §4).
+func (h *Handler) cached(ctx context.Context, name string, lenS float64) ([]uint32, bool) {
 	if h.Fingerprints == nil {
+		return nil, false
+	}
+	info, err := h.Fingerprints.Info(ctx, name)
+	if err != nil { // ErrObjectNotFound, or a store blip: decode instead
+		return nil, false
+	}
+	if why := segments.FingerprintMetaMismatch(info, lenS); why != "" {
+		logging.FromContext(ctx).Debug("segments: cached fingerprint does not match; recomputing", "name", name, "why", why)
 		return nil, false
 	}
 	_, r, err := h.Fingerprints.Get(ctx, name)

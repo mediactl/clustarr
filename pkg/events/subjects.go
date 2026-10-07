@@ -245,6 +245,40 @@ const (
 // metadata so a reader can check it (ArtworkKey builds the names).
 const ArtworkKeyScheme = "<kind>/<uid>/<imageType>/<variant>"
 
+// The metadata keys every object store shares (ADR-0021 §2): the version of
+// its store's metadata set, what kind of object it is, and who wrote it.
+// ArtworkMetaKeyVersion and ArtworkMetaKeyKind are the same keys under the
+// artwork names.
+const (
+	ObjectMetaKeyVersion   = ArtworkMetaKeyVersion
+	ObjectMetaKeyKind      = ArtworkMetaKeyKind
+	ObjectMetaKeyWrittenBy = "clustarr.io/written-by"
+)
+
+// FingerprintMetaVersion is the version of the metadata set every
+// fingerprint object carries (ADR-0021 §2), under ObjectMetaKeyVersion. A
+// fingerprint written before it reads as the key absent, which the
+// manager's maintenance audit backfills with SetMeta. Raise it when the set
+// changes.
+const FingerprintMetaVersion = "1"
+
+// FingerprintMetaKind is a fingerprint object's ObjectMetaKeyKind.
+const FingerprintMetaKind = "fingerprint"
+
+// The metadata keys of a fingerprint object (ADR-0021 §2), built only by
+// pkg/segments.FingerprintMeta: the probe hash and window ("start" or "end")
+// its name also carries, the FingerprintVersion it was computed under, and
+// the analyzer's parameters -- the window's length in seconds, the sample
+// rate and channels the audio was decoded to.
+const (
+	FingerprintMetaKeyProbeHash     = "clustarr.io/probe-hash"
+	FingerprintMetaKeyWindow        = "clustarr.io/window"
+	FingerprintMetaKeyVersion       = "clustarr.io/fingerprint-version"
+	FingerprintMetaKeyWindowSeconds = "clustarr.io/window-seconds"
+	FingerprintMetaKeySampleRate    = "clustarr.io/sample-rate"
+	FingerprintMetaKeyChannels      = "clustarr.io/channels"
+)
+
 // FingerprintKeyScheme is ObjectStoreFingerprints' key scheme, recorded in
 // the bucket's metadata (segments.FingerprintKey builds the names: no
 // version suffix for the CLI decoder's legacy keys, ".v<N>" from version 2).

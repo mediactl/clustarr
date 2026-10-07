@@ -1196,7 +1196,10 @@ func defaultObjectStores() []ObjectStoreSpec {
 			MaxBytes:    FingerprintsMaxBytes,
 			MaxAge:      90 * 24 * time.Hour,
 			Replicas:    3,
-			Metadata:    map[string]string{BucketMetaKeyKeyScheme: FingerprintKeyScheme},
+			Metadata: map[string]string{
+				BucketMetaKeyKeyScheme: FingerprintKeyScheme,
+				ObjectMetaKeyVersion:   FingerprintMetaVersion,
+			},
 		},
 		{
 			Name:        BucketArtwork,

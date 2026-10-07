@@ -53,6 +53,8 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/presence"
+	"github.com/mediactl/clustarr/pkg/segments"
+	"github.com/mediactl/clustarr/pkg/version"
 )
 
 // Run starts the manager (spec §3.4.2, in order) and blocks until ctx is
@@ -375,11 +377,22 @@ func register(mgr ctrl.Manager, bus events.Bus, o Options) ([]string, error) {
 
 // objectStoreMaintenance is the manager's object-store maintenance loop
 // over o's topology; a bus that is not an ObjectStoreAdmin purges nothing.
+// Its audits backfill each store's metadata (ADR-0021 §3): the artwork
+// store's is the item keys' (ADR-0019 D13), the fingerprint store's is this
+// loop's.
 func objectStoreMaintenance(bus events.Bus, o Options) *maintenance.ObjectStores {
 	m := &maintenance.ObjectStores{Topology: o.BusTopology()}
 	if admin, ok := bus.(events.ObjectStoreAdmin); ok {
 		m.Admin = admin
 	}
+	fingerprints := bus.ObjectStore(events.ObjectStoreFingerprints)
+	writtenBy := "manager@" + version.String()
+	m.Audits = append(m.Audits, maintenance.Audit{
+		Name: events.ObjectStoreFingerprints,
+		Run: func(ctx context.Context) (int, error) {
+			return segments.BackfillFingerprintMeta(ctx, fingerprints, writtenBy)
+		},
+	})
 	return m
 }
 
