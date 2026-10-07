@@ -18,19 +18,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package mediainfo
 
 import (
-	"context"
 	"errors"
-	"fmt"
 	"math"
 	"strconv"
 
 	ffprobe "gopkg.in/vansante/go-ffprobe.v2"
-
-	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
 
-// ErrNoAudioStream is returned by [ProbeAudio] for a file ffprobe reads but
-// finds no audio stream in.
+// ErrNoAudioStream is returned by ffprobeexec.ProbeAudio (through
+// AudioProbeFrom) for a file ffprobe reads but finds no audio stream in.
 var ErrNoAudioStream = errors.New("mediainfo: no audio stream")
 
 // AudioProbe is what one ffprobe call says about an audio file's first audio
@@ -56,27 +52,10 @@ type AudioProbe struct {
 	SampleBits int
 }
 
-// ProbeAudio runs one ffprobe call against path and returns its first audio
-// stream's [AudioProbe]. Unlike [Probe] it makes no frame call: an audio
-// file's quality needs the stream header only.
-func ProbeAudio(ctx context.Context, path string) (AudioProbe, error) {
-	ctx, span := tracing.Start(ctx, "mediainfo.ProbeAudio")
-	defer span.End()
-
-	pd, err := ffprobe.ProbeURL(ctx, path)
-	if err != nil {
-		tracing.RecordError(span, err)
-		return AudioProbe{}, fmt.Errorf("mediainfo: probe %s: %w", path, err)
-	}
-	ap, err := audioProbeFrom(pd)
-	if err != nil {
-		return AudioProbe{}, fmt.Errorf("mediainfo: probe %s: %w", path, err)
-	}
-	return ap, nil
-}
-
-// audioProbeFrom reduces a probe to its first audio stream's AudioProbe.
-func audioProbeFrom(pd *ffprobe.ProbeData) (AudioProbe, error) {
+// AudioProbeFrom reduces a probe to its first audio stream's AudioProbe:
+// pkg/mediainfo/ffprobeexec.ProbeAudio's mapping, exported so the probe can
+// live outside this package.
+func AudioProbeFrom(pd *ffprobe.ProbeData) (AudioProbe, error) {
 	s := firstStream(pd.Streams, ffprobe.StreamAudio)
 	if s == nil {
 		return AudioProbe{}, ErrNoAudioStream

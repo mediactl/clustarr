@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package mediainfo
+package ffprobeexec
 
 import (
 	"context"
@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/mediainfo"
 )
 
 // hdr10FixtureArgs is the EXACT ffmpeg recipe
@@ -64,13 +65,14 @@ var hdr10FixtureArgs = []string{
 }
 
 // TestHDR10FixtureClassifiesAsHDR10 generates images/Dockerfile.e2e-fixtures's
-// HDR10 clip with a real ffmpeg and proves the full, real pkg/mediainfo.Probe
-// -> ClassifyHDR path reads it back as HDR10 -- not PQ10 (which is what a
-// clip with the colour transfer but no mastering-display metadata would
-// classify as), not SDR (what a clip whose colour tags never reached the
-// bitstream at all would classify as), and not HDR10+ or Dolby Vision. This
-// is what makes the Dockerfile stage's clip meaningful: a clip ffmpeg writes
-// but ClassifyHDR reads as SDR proves nothing about the fixture image.
+// HDR10 clip with a real ffmpeg and proves the full, real
+// pkg/mediainfo/ffprobeexec.Probe -> ClassifyHDR path reads it back as HDR10
+// -- not PQ10 (which is what a clip with the colour transfer but no
+// mastering-display metadata would classify as), not SDR (what a clip whose
+// colour tags never reached the bitstream at all would classify as), and not
+// HDR10+ or Dolby Vision. This is what makes the Dockerfile stage's clip
+// meaningful: a clip ffmpeg writes but ClassifyHDR reads as SDR proves
+// nothing about the fixture image.
 func TestHDR10FixtureClassifiesAsHDR10(t *testing.T) {
 	if _, err := exec.LookPath("ffmpeg"); err != nil {
 		t.Skip("ffmpeg not on PATH")
@@ -104,6 +106,6 @@ func TestHDR10FixtureClassifiesAsHDR10(t *testing.T) {
 	require.NotNil(t, raw.ContentLight,
 		"MaxCLL/MaxFALL content-light side data must reach the decoded frame (via -x265-params max-cll=)")
 
-	require.Equal(t, commonv1.HdrFormatHDR10, ClassifyHDR(raw))
+	require.Equal(t, commonv1.HdrFormatHDR10, mediainfo.ClassifyHDR(raw))
 	require.Equal(t, commonv1.HdrFormatHDR10, mi.Hdr, "toMediaInfo must mirror ClassifyHDR's verdict onto MediaInfo.Hdr")
 }

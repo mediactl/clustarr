@@ -46,6 +46,7 @@ import (
 	clustarrevents "github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
+	"github.com/mediactl/clustarr/pkg/mediainfo/ffprobeexec"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/pkg/segments"
@@ -151,7 +152,7 @@ type Reconciler struct {
 	Bus clustarrevents.Publisher
 }
 
-// ProbeFunc matches mediainfo.Probe's signature so tests can substitute a
+// ProbeFunc matches ffprobeexec.Probe's signature so tests can substitute a
 // fake that never shells out to ffprobe.
 type ProbeFunc func(ctx context.Context, path string) (*commonv1.MediaInfo, *mediainfo.Raw, error)
 
@@ -162,7 +163,7 @@ func NewReconciler(c client.Client, scheme *runtime.Scheme, recorder events.Even
 		Client:   c,
 		Scheme:   scheme,
 		Recorder: recorder,
-		Probe:    mediainfo.Probe,
+		Probe:    ffprobeexec.Probe,
 		Clock:    time.Now,
 	}
 }

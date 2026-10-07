@@ -27,7 +27,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/mediactl/clustarr/pkg/mediainfo"
+	"github.com/mediactl/clustarr/pkg/mediainfo/ffprobeexec"
 	"github.com/mediactl/clustarr/pkg/transcode"
 )
 
@@ -71,7 +71,7 @@ func TestTheSummaryAndTheProbePlanTheSameStandard(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			src := c.src()
-			mi, raw, err := mediainfo.Probe(context.Background(), src)
+			mi, raw, err := ffprobeexec.Probe(context.Background(), src)
 			require.NoError(t, err)
 			live, err := transcode.FromProbe(mi, raw)
 			require.NoError(t, err)
@@ -127,7 +127,7 @@ func TestTheSummaryAndTheProbePlanSubtitlesAlike(t *testing.T) {
 	if err != nil {
 		t.Skipf("ffmpeg cannot make the clip: %v\n%s", err, b)
 	}
-	mi, raw, err := mediainfo.Probe(context.Background(), out)
+	mi, raw, err := ffprobeexec.Probe(context.Background(), out)
 	require.NoError(t, err)
 	live, err := transcode.FromProbe(mi, raw)
 	require.NoError(t, err)

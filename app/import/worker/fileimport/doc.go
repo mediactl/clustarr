@@ -31,8 +31,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // MediaFileStatus, which catalogarr owns in full and populates by probing
 // (spec §8.5). The probes this worker makes serve fields it does own. A
 // music file's frozen quality is its codec and bitrate (FrozenFileQuality,
-// mediainfo.ProbeAudio). Every video import probes the file too
-// (probeVideo, mediainfo.Probe): the probe corrects the name-derived
+// ffprobeexec.ProbeAudio). Every video import probes the file too
+// (probeVideo, ffprobeexec.Probe): the probe corrects the name-derived
 // quality's resolution and a false remux (quality.AugmentFromMediaInfo)
 // before the profile's Allowed check, so the profile judges, and
 // spec.quality freezes, the corrected quality; and the destination name is

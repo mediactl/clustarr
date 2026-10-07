@@ -38,7 +38,7 @@ import (
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/squash/controller/pool"
 	"github.com/mediactl/clustarr/app/squash/worker"
-	"github.com/mediactl/clustarr/pkg/mediainfo"
+	"github.com/mediactl/clustarr/pkg/mediainfo/ffprobeexec"
 	"github.com/mediactl/clustarr/pkg/transcode"
 	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
@@ -92,7 +92,7 @@ func TestStatusPlanIsTheArgvTheWorkerRenders(t *testing.T) {
 				"-c:a", "ac3", "-metadata:s:a:0", "language=eng", src)
 			out, err := gen.CombinedOutput()
 			require.NoError(t, err, string(out))
-			mi, raw, err := mediainfo.Probe(ctx, src)
+			mi, raw, err := ffprobeexec.Probe(ctx, src)
 			require.NoError(t, err)
 			require.Equal(t, commonv1.HdrFormatHDR10, mi.Hdr)
 			require.NotNil(t, raw.MasteringDisplay, "the source must carry what the summary cannot")

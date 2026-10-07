@@ -412,7 +412,7 @@ func TestNamingSurvivesAMissingFile(t *testing.T) {
 }
 
 // containerProbe is fakeProbe with the container and codec the file's own
-// extension implies, as the real mediainfo.Probe records the container: an
+// extension implies, as the real ffprobeexec.Probe records the container: an
 // .avi is an XviD AVI, an .mkv an HEVC Matroska -- so a render can show a
 // transcode's container change.
 func containerProbe(ctx context.Context, path string) (*commonv1.MediaInfo, *mediainfo.Raw, error) {

@@ -53,11 +53,11 @@ const ClipName = "tiny.mkv"
 // clipgen stage places its generated clip in the final image (Task E-5:
 // HEVC 10-bit, BT.2020/PQ, mastering-display and content-light metadata,
 // built with the identical ffmpeg recipe
-// pkg/mediainfo/hdr10_fixture_test.go proves classifies as HDR10). That unit
-// test is this clip's whole proof obligation -- no scenario in test/e2e
-// consumes it as of Phase E, deliberately (see test/e2e/transcode_test.go's
-// package doc comment for why scenario 12 uses the plain probe clip
-// instead) -- Run copies it out anyway so a future HDR-aware scenario has a
+// pkg/mediainfo/ffprobeexec/hdr10_fixture_test.go proves classifies as
+// HDR10). That unit test is this clip's whole proof obligation -- no
+// scenario in test/e2e consumes it as of Phase E, deliberately (see
+// test/e2e/transcode_test.go's package doc comment for why scenario 12 uses
+// the plain probe clip instead) -- Run copies it out anyway so a future HDR-aware scenario has a
 // real, ffprobe-verified HDR10 source ready without a second bake step.
 const HDR10ClipBakedPath = "/fixtures/media/hdr10.mkv"
 

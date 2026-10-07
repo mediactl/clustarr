@@ -39,7 +39,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
-	"github.com/mediactl/clustarr/pkg/mediainfo"
+	"github.com/mediactl/clustarr/pkg/mediainfo/ffprobeexec"
 	"github.com/mediactl/clustarr/pkg/obs/metrics"
 	"github.com/mediactl/clustarr/pkg/quality"
 )
@@ -86,7 +86,7 @@ func plantCopy(t *testing.T, clip, path string) {
 // expectation every test here builds from, never a hard-coded number.
 func probedResolution(t *testing.T, ctx context.Context, clip string) int32 {
 	t.Helper()
-	mi, _, err := mediainfo.Probe(ctx, clip)
+	mi, _, err := ffprobeexec.Probe(ctx, clip)
 	require.NoError(t, err)
 	// What the scan does to a name that says nothing about quality:
 	// Radarr's bucketing, by width or height and 480p at the least, not

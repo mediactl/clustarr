@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package mediainfo_test
+package ffprobeexec_test
 
 import (
 	"context"
@@ -28,6 +28,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/mediactl/clustarr/pkg/mediainfo"
+	"github.com/mediactl/clustarr/pkg/mediainfo/ffprobeexec"
 	"github.com/mediactl/clustarr/pkg/transcode"
 	"github.com/mediactl/clustarr/pkg/transcode/engine"
 	"github.com/mediactl/clustarr/pkg/transcode/standard"
@@ -57,7 +58,7 @@ func TestProbeReadsTheTagSquasharrWrites(t *testing.T) {
 	}
 
 	const tag = "hevc-main10@0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-	src := "../../test/data/mediainfo/sample_hevc_10bit.mkv"
+	src := "../../../test/data/mediainfo/sample_hevc_10bit.mkv"
 	for _, c := range []struct {
 		container transcode.Container
 		file      string
@@ -77,13 +78,13 @@ func TestProbeReadsTheTagSquasharrWrites(t *testing.T) {
 			_, err := engine.Run(t.Context(), plan, src, out, engine.Options{})
 			require.NoError(t, err)
 
-			mi, _, err := mediainfo.Probe(context.Background(), out)
+			mi, _, err := ffprobeexec.Probe(context.Background(), out)
 			require.NoError(t, err)
 			assert.Equal(t, tag, mi.TranscodeProfile, "a file squasharr wrote must read back as transcoded")
 		})
 	}
 
-	untagged, _, err := mediainfo.Probe(context.Background(), src)
+	untagged, _, err := ffprobeexec.Probe(context.Background(), src)
 	require.NoError(t, err)
 	assert.Empty(t, untagged.TranscodeProfile, "the untouched source carries no tag")
 }

@@ -40,7 +40,7 @@ import (
 	"github.com/mediactl/clustarr/app/squash/grafttask"
 	"github.com/mediactl/clustarr/app/squash/task"
 	"github.com/mediactl/clustarr/app/squash/worker/inprocess"
-	"github.com/mediactl/clustarr/pkg/mediainfo"
+	"github.com/mediactl/clustarr/pkg/mediainfo/ffprobeexec"
 	"github.com/mediactl/clustarr/pkg/transcode/engine"
 )
 
@@ -150,7 +150,7 @@ func TestATranscodeCarriesAJoinedGraftInOnePass(t *testing.T) {
 	assert.Equal(t, grafttask.ReasonGrafted, out.Graft.Reason)
 	assert.NotEmpty(t, out.Graft.GraftTag)
 
-	mi, raw, err := mediainfo.Probe(context.Background(), f.local)
+	mi, raw, err := ffprobeexec.Probe(context.Background(), f.local)
 	require.NoError(t, err)
 	assert.Equal(t, "hevc", mi.VideoCodec)
 	assert.Equal(t, f.profileName+"@"+f.profileHash, formatTag(raw, "CLUSTARR_PROFILE"), "a transcode")
@@ -179,7 +179,7 @@ func TestAJoinedGraftThatWillNotAlignLeavesTheTranscodeAlone(t *testing.T) {
 	require.NotNil(t, out.Graft)
 	assert.Equal(t, grafttask.PhaseFailed, out.Graft.Phase)
 	assert.Equal(t, grafttask.ReasonAlignmentRejected, out.Graft.Reason)
-	mi, raw, err := mediainfo.Probe(context.Background(), f.local)
+	mi, raw, err := ffprobeexec.Probe(context.Background(), f.local)
 	require.NoError(t, err)
 	assert.Equal(t, "hevc", mi.VideoCodec)
 	assert.Empty(t, formatTag(raw, "CLUSTARR_GRAFT"))

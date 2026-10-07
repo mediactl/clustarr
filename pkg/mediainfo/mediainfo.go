@@ -15,25 +15,20 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package mediainfo wraps ffprobe to produce the api/common/v1alpha1
-// MediaInfo the MediaFile status carries, plus the richer Raw detail (the
-// full ffprobe result, the Dolby Vision configuration record, and typed
-// SMPTE ST 2086 mastering-display / content-light metadata) that
-// api/common/v1alpha1.MediaInfo has no room for and pkg/transcode's
-// planner needs. See docs/superpowers/specs/2026-09-18-clustarr-design.md
-// §7 and docs/research/transcode.md §2.
+// Package mediainfo is the probe's model and mapping: the
+// api/common/v1alpha1 MediaInfo the MediaFile status carries, plus the Raw
+// detail (the full stream, format and chapter set, the Dolby Vision
+// configuration record, and typed SMPTE ST 2086 mastering-display and
+// content-light metadata) that pkg/transcode's planner needs. It runs no
+// program. pkg/mediainfo/ffprobeexec probes with ffprobe (transitional, spec
+// §4.2.5). See docs/superpowers/specs/2026-09-18-clustarr-design.md §7 and
+// docs/research/transcode.md §2.
 package mediainfo
 
 import (
-	"context"
-	"errors"
 	"fmt"
 
 	ffprobe "gopkg.in/vansante/go-ffprobe.v2"
-
-	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	"github.com/mediactl/clustarr/pkg/obs/logging"
-	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
 
 // Raw is the unabridged ffprobe result for one file: every stream, the
@@ -44,14 +39,14 @@ import (
 // transcode.MediaInfo that transcode.Plan reads (spec §7's
 // Planner.Plan(mi, raw, hw) is satisfied by that pair -- there is no
 // Planner type); catalogarr's MediaFile status only ever sees the mapped
-// MediaInfo Probe returns alongside it.
+// MediaInfo a probe (pkg/mediainfo/ffprobeexec.Probe) returns alongside it.
 type Raw struct {
 	Format   *ffprobe.Format
 	Streams  []*ffprobe.Stream
 	Chapters []*ffprobe.Chapter
 
 	// ColorPrimaries, ColorTransfer, ColorSpace and ColorRange are read
-	// from the first decoded frame (the second ffprobe call, mergeFrame),
+	// from the first decoded frame (the second ffprobe call, MergeFrame),
 	// more reliable than the stream-level tags for some encoders --
 	// docs/research/transcode.md §2.1.
 	ColorPrimaries string
@@ -92,60 +87,15 @@ type DoviRecord struct {
 	MDCompression                    string
 }
 
-// buildRaw copies pd's streams/format/chapters onto Raw and extracts the
-// primary video stream's Dolby Vision record. mergeFrame adds the
-// frame-level merge on top.
-func buildRaw(pd *ffprobe.ProbeData) *Raw {
+// BuildRaw copies pd's streams, format and chapters onto Raw and extracts the
+// primary video stream's Dolby Vision record. MergeFrame adds the
+// frame-level merge on top; pkg/mediainfo/ffprobeexec.Probe calls both.
+func BuildRaw(pd *ffprobe.ProbeData) *Raw {
 	raw := &Raw{Format: pd.Format, Streams: pd.Streams, Chapters: pd.Chapters}
 	if v := pd.FirstVideoStream(); v != nil {
 		raw.Dovi = parseDoviRecord(v.SideDataList)
 	}
 	return raw
-}
-
-// frameProbe is the second ffprobe call; a variable so a test can make it
-// fail.
-var frameProbe = runFrameProbe
-
-// Probe runs ffprobe twice against path -- once for the container,
-// streams and chapters, once for the first decoded frame's colour tags
-// and HDR side data (docs/research/transcode.md §2.1) -- and returns
-// both the api/common/v1alpha1 MediaInfo the MediaFile status carries
-// and the Raw detail pkg/transcode needs.
-func Probe(ctx context.Context, path string) (*commonv1.MediaInfo, *Raw, error) {
-	ctx, span := tracing.Start(ctx, "mediainfo.Probe")
-	defer span.End()
-
-	pd, err := ffprobe.ProbeURL(ctx, path)
-	if err != nil {
-		tracing.RecordError(span, err)
-		return nil, nil, fmt.Errorf("mediainfo: probe %s: %w", path, err)
-	}
-	raw := buildRaw(pd)
-
-	if pd.FirstVideoStream() != nil {
-		frames, ferr := frameProbe(ctx, path)
-		if ferr == nil && len(frames.Frames) == 0 {
-			ferr = errors.New("mediainfo: ffprobe frame probe decoded no frame")
-		}
-		if ferr != nil {
-			raw.FrameErr = ferr
-			// A stream that says it may be HDR cannot be read as SDR
-			// without its frame: the caller retries. Any other stream
-			// classifies as SDR either way, so its probe stands.
-			if err := IncompleteHDR(raw); err != nil {
-				tracing.RecordError(span, err)
-				return nil, nil, fmt.Errorf("mediainfo: probe %s: %w", path, err)
-			}
-			logging.FromContext(ctx).WarnContext(ctx,
-				"mediainfo: frame probe failed; the stream says nothing of HDR, so the file reads as SDR",
-				"path", path, "error", ferr)
-		} else {
-			mergeFrame(raw, frames)
-		}
-	}
-
-	return toMediaInfo(raw), raw, nil
 }
 
 // MasteringDisplay is SMPTE ST 2086 mastering-display metadata.

@@ -29,6 +29,7 @@ import (
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
+	"github.com/mediactl/clustarr/pkg/mediainfo/ffprobeexec"
 	"github.com/mediactl/clustarr/pkg/transcode"
 	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
@@ -89,7 +90,7 @@ func TestTheInProcessProbeAgreesWithFFprobe(t *testing.T) {
 	ffmpeg9OrSkip(t)
 	for name, path := range probeFixtures(t) {
 		t.Run(name, func(t *testing.T) {
-			want, wantRaw, err := mediainfo.Probe(context.Background(), path)
+			want, wantRaw, err := ffprobeexec.Probe(context.Background(), path)
 			require.NoError(t, err)
 			got, gotRaw, err := Engine{}.Probe(context.Background(), path)
 			require.NoError(t, err)

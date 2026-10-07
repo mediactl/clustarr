@@ -37,7 +37,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/k8s"
-	"github.com/mediactl/clustarr/pkg/mediainfo"
+	"github.com/mediactl/clustarr/pkg/mediainfo/ffprobeexec"
 	"github.com/mediactl/clustarr/pkg/naming"
 	"github.com/mediactl/clustarr/pkg/naming/catalogctx"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -465,7 +465,7 @@ func probeVideo(ctx context.Context, m events.Message, srcPath, rel string) (*co
 	}
 	pctx, cancel := context.WithTimeout(ctx, videoProbeTimeout)
 	defer cancel()
-	mi, _, err := mediainfo.Probe(pctx, srcPath)
+	mi, _, err := ffprobeexec.Probe(pctx, srcPath)
 	if err != nil {
 		logging.FromContext(ctx).Warn("fileimport: could not probe the file; importing it under its name-derived quality",
 			"source", rel, "error", err)

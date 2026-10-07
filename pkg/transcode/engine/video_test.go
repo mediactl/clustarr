@@ -30,7 +30,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/mediactl/clustarr/pkg/mediainfo"
+	"github.com/mediactl/clustarr/pkg/mediainfo/ffprobeexec"
 	"github.com/mediactl/clustarr/pkg/transcode"
 	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
@@ -277,7 +277,7 @@ func TestTheStandardsNVENCPlanHoldsALeanSourceUnderItsBitRate(t *testing.T) {
 	require.NoError(t, err)
 	srcKbps := int32(st.Size() * 8 / 30 / 1000)
 
-	mi, raw, err := mediainfo.Probe(context.Background(), src)
+	mi, raw, err := ffprobeexec.Probe(context.Background(), src)
 	require.NoError(t, err)
 	info, err := transcode.FromProbe(mi, raw)
 	require.NoError(t, err)

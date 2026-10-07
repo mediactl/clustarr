@@ -21,7 +21,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/mediactl/clustarr/app/squash/grafttask"
 	"maps"
 	"os"
 	"path/filepath"
@@ -33,6 +32,7 @@ import (
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
+	"github.com/mediactl/clustarr/app/squash/grafttask"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
@@ -58,7 +58,8 @@ type Engine interface {
 	// Measure measures this pod's device for class (spec §4): the tier it
 	// encodes on and its limits, or transcode.ErrDeviceUnavailable.
 	Measure(ctx context.Context, class transcode.Hardware) (transcode.Measurement, error)
-	// Probe reads path as pkg/mediainfo.Probe does, without ffprobe.
+	// Probe reads path as pkg/mediainfo/ffprobeexec.Probe does, without
+	// ffprobe.
 	Probe(ctx context.Context, path string) (*commonv1.MediaInfo, *mediainfo.Raw, error)
 }
 

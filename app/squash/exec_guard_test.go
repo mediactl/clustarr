@@ -34,7 +34,10 @@ import (
 // TestTheWorkerNeverExecsFFmpeg holds squasharr to the in-process engine
 // (ffgo Phase 5): no non-test file under app/squash, pkg/transcode or
 // cmd/squasharr-worker imports os/exec, or calls the probes that shell out
-// to ffprobe (pkg/mediainfo's Probe and ProbeAudio, go-ffprobe's Probe*).
+// to ffprobe (pkg/mediainfo/ffprobeexec, go-ffprobe's Probe*). The
+// pkg/mediainfo entry is defence in depth: its Probe and ProbeAudio moved to
+// pkg/mediainfo/ffprobeexec (spec §4.3 step 1.7), which no file here may
+// import at all.
 // The transcoder image carries no ffmpeg or ffprobe executable, so such a
 // call would fail only in a pool pod, at a job; this fails it here.
 func TestTheWorkerNeverExecsFFmpeg(t *testing.T) {
@@ -58,6 +61,9 @@ func TestTheWorkerNeverExecsFFmpeg(t *testing.T) {
 				ip, _ := strconv.Unquote(imp.Path.Value)
 				if ip == "os/exec" {
 					t.Errorf("%s imports os/exec: the worker runs FFmpeg in-process", p)
+				}
+				if ip == "github.com/mediactl/clustarr/pkg/mediainfo/ffprobeexec" {
+					t.Errorf("%s imports pkg/mediainfo/ffprobeexec, which runs ffprobe: probe through the worker's Engine", p)
 				}
 				if is, ok := banned[ip]; ok {
 					name := strings.TrimSuffix(path.Base(ip), ".v2")

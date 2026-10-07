@@ -29,7 +29,7 @@ import (
 
 	"github.com/obinnaokechukwu/ffgo"
 
-	"github.com/mediactl/clustarr/pkg/mediainfo"
+	"github.com/mediactl/clustarr/pkg/mediainfo/ffprobeexec"
 	"github.com/mediactl/clustarr/pkg/transcode"
 )
 
@@ -141,7 +141,7 @@ func (p probed) seconds(t *testing.T) float64 {
 // through mediainfo, mapped by transcode.FromProbe.
 func probeInfo(t *testing.T, path string) transcode.MediaInfo {
 	t.Helper()
-	mi, raw, err := mediainfo.Probe(context.Background(), path)
+	mi, raw, err := ffprobeexec.Probe(context.Background(), path)
 	if err != nil {
 		t.Fatalf("probe %s: %v", path, err)
 	}

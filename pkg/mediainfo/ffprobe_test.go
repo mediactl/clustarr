@@ -68,7 +68,7 @@ func TestBuildRawParsesDoviConfigurationRecord(t *testing.T) {
 	var pd ffprobe.ProbeData
 	require.NoError(t, json.Unmarshal([]byte(doviStreamsJSON), &pd))
 
-	raw := buildRaw(&pd)
+	raw := BuildRaw(&pd)
 
 	require.NotNil(t, raw.Dovi)
 	assert.Equal(t, int32(1), raw.Dovi.VersionMajor)
@@ -86,7 +86,7 @@ func TestBuildRawWithNoDoviSideDataLeavesDoviNil(t *testing.T) {
 		Streams: []*ffprobe.Stream{{Index: 0, CodecType: "video", CodecName: "h264"}},
 		Format:  &ffprobe.Format{Filename: "plain.mp4"},
 	}
-	raw := buildRaw(pd)
+	raw := BuildRaw(pd)
 	assert.Nil(t, raw.Dovi)
 	assert.Same(t, pd.Format, raw.Format)
 }
@@ -116,11 +116,11 @@ const hdr10FrameJSON = `{
 }`
 
 func TestMergeFrameExtractsColourAndStaticHDRMetadata(t *testing.T) {
-	var fd frameProbeData
+	var fd FrameProbeData
 	require.NoError(t, json.Unmarshal([]byte(hdr10FrameJSON), &fd))
 
 	raw := &Raw{}
-	mergeFrame(raw, fd)
+	MergeFrame(raw, fd)
 
 	assert.Equal(t, "bt2020", raw.ColorPrimaries)
 	assert.Equal(t, "smpte2084", raw.ColorTransfer)
@@ -135,18 +135,18 @@ func TestMergeFrameExtractsColourAndStaticHDRMetadata(t *testing.T) {
 
 func TestMergeFrameDetectsHDR10Plus(t *testing.T) {
 	const j = `{"frames":[{"color_transfer":"smpte2084","side_data_list":[{"side_data_type":"HDR Dynamic Metadata SMPTE2094-40 (HDR10+)"}]}]}`
-	var fd frameProbeData
+	var fd FrameProbeData
 	require.NoError(t, json.Unmarshal([]byte(j), &fd))
 
 	raw := &Raw{}
-	mergeFrame(raw, fd)
+	MergeFrame(raw, fd)
 
 	assert.True(t, raw.HasHDR10Plus)
 }
 
 func TestMergeFrameWithNoFramesLeavesRawUnchanged(t *testing.T) {
 	raw := &Raw{}
-	mergeFrame(raw, frameProbeData{})
+	MergeFrame(raw, FrameProbeData{})
 	assert.Empty(t, raw.ColorTransfer)
 	assert.Nil(t, raw.MasteringDisplay)
 }

@@ -35,6 +35,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
+	"github.com/mediactl/clustarr/pkg/mediainfo/ffprobeexec"
 	"github.com/mediactl/clustarr/pkg/naming/catalogctx"
 )
 
@@ -108,7 +109,7 @@ func TestAnImportIsQualifiedAndNamedFromItsProbe(t *testing.T) {
 	f.worker.SampleMaxBytes = 0
 
 	clip := encodeClip(t, "clip.mkv", hdr10ClipArgs...)
-	mi, _, err := mediainfo.Probe(ctx, clip)
+	mi, _, err := ffprobeexec.Probe(ctx, clip)
 	require.NoError(t, err)
 	res := mediainfo.ResolutionFromDimensions(mi.Width, mi.Height)
 	require.Equal(t, commonv1.HdrFormatHDR10, mi.Hdr, "the clip must be HDR10, or its name's dynamic-range block proves nothing")
@@ -159,7 +160,7 @@ func TestAProbedDVDRipIsStillDVD(t *testing.T) {
 
 	clip := encodeClip(t, "clip.avi", "-hide_banner", "-loglevel", "error", "-y",
 		"-f", "lavfi", "-i", "testsrc2=duration=0.2:size=720x576:rate=25", "-c:v", "mpeg4", "-vtag", "XVID")
-	mi, _, err := mediainfo.Probe(ctx, clip)
+	mi, _, err := ffprobeexec.Probe(ctx, clip)
 	require.NoError(t, err)
 	require.Equal(t, commonv1.Resolution576p, mediainfo.ResolutionFromDimensions(mi.Width, mi.Height))
 

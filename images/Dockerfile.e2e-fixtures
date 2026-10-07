@@ -43,9 +43,9 @@ RUN mkdir -p /out && \
 # ST 2084 (PQ) transfer, mastering-display and content-light metadata --
 # baked in at build time alongside clipgen's plain probe target (Task E-5).
 #
-# Its proof obligation is pkg/mediainfo/hdr10_fixture_test.go, a UNIT test
-# (not this e2e suite) that runs the IDENTICAL ffmpeg recipe itself and
-# asserts pkg/mediainfo.ClassifyHDR reads the result back as HDR10 -- a clip
+# Its proof obligation is pkg/mediainfo/ffprobeexec/hdr10_fixture_test.go, a
+# UNIT test (not this e2e suite) that runs the IDENTICAL ffmpeg recipe itself
+# and asserts pkg/mediainfo.ClassifyHDR reads the result back as HDR10 -- a clip
 # ffmpeg writes but ClassifyHDR reads as SDR proves nothing, so that test is
 # what actually establishes this recipe works, not this Dockerfile stage. No
 # scenario in test/e2e consumes this clip as of Phase E: see

@@ -35,7 +35,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
 
-// Probe reads path as pkg/mediainfo.Probe does with ffprobe -- the
+// Probe reads path as pkg/mediainfo/ffprobeexec.Probe does with ffprobe -- the
 // container, its streams and chapters, and the first video frame's colour
 // tags and HDR side data -- through ffgo, and maps it with mediainfo's own
 // rules (mediainfo.FromRaw). The transcoder image has no ffprobe. What it
@@ -100,7 +100,7 @@ func (Engine) Probe(ctx context.Context, path string) (*commonv1.MediaInfo, *med
 	}
 	if firstVideo != nil {
 		if err := readFirstFrame(d, firstVideo, raw); err != nil {
-			// mediainfo.Probe's rule, so both probes read a file alike: a
+			// ffprobeexec.Probe's rule, so both probes read a file alike: a
 			// stream that says it may be HDR is not read as SDR without
 			// its frame. ffgo exposes no stream colour tags, so here the
 			// evidence is the stream's HDR10 side data; the worker refuses

@@ -22,7 +22,7 @@ import (
 	"time"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	"github.com/mediactl/clustarr/pkg/mediainfo"
+	"github.com/mediactl/clustarr/pkg/mediainfo/ffprobeexec"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/quality"
 )
@@ -48,7 +48,7 @@ const videoProbeTimeout = 15 * time.Second
 func probeVideo(ctx context.Context, path string) (*commonv1.MediaInfo, error) {
 	pctx, cancel := context.WithTimeout(ctx, videoProbeTimeout)
 	defer cancel()
-	mi, _, err := mediainfo.Probe(pctx, path)
+	mi, _, err := ffprobeexec.Probe(pctx, path)
 	return mi, err
 }
 

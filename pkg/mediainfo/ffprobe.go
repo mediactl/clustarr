@@ -18,12 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package mediainfo
 
 import (
-	"bytes"
-	"context"
-	"encoding/json"
-	"fmt"
 	"math"
-	"os/exec"
 
 	ffprobe "gopkg.in/vansante/go-ffprobe.v2"
 )
@@ -61,15 +56,18 @@ func parseDoviRecord(list ffprobe.SideDataList) *DoviRecord {
 	}
 }
 
-// frameProbeData is the shape of the second ffprobe call's JSON.
-// go-ffprobe.v2's ProbeData has no field for ffprobe's "frames" array, so
-// this call is issued directly with os/exec (see runFrameProbe) and
-// decoded into this package-local type.
-type frameProbeData struct {
-	Frames []frameEntry `json:"frames"`
+// FrameProbeData is the shape of the frame probe's JSON (ffprobe
+// -show_frames, run by pkg/mediainfo/ffprobeexec). go-ffprobe.v2's
+// ProbeData has no field for ffprobe's "frames" array, so
+// pkg/mediainfo/ffprobeexec issues this call directly and decodes it into
+// this type.
+type FrameProbeData struct {
+	Frames []FrameEntry `json:"frames"`
 }
 
-type frameEntry struct {
+// FrameEntry is one decoded frame of FrameProbeData: its colour tags and side
+// data.
+type FrameEntry struct {
 	ColorPrimaries string               `json:"color_primaries"`
 	ColorTransfer  string               `json:"color_transfer"`
 	ColorSpace     string               `json:"color_space"`
@@ -82,10 +80,10 @@ type frameEntry struct {
 // side-data table).
 const hdr10PlusSideDataType = "HDR Dynamic Metadata SMPTE2094-40 (HDR10+)"
 
-// mergeFrame layers the second ffprobe call's first-frame colour tags and
+// MergeFrame layers the frame probe's first-frame colour tags and
 // HDR side data onto raw. docs/research/transcode.md §2.1: "HDR static
 // metadata + real colour tags come from the first decoded frame."
-func mergeFrame(raw *Raw, frames frameProbeData) {
+func MergeFrame(raw *Raw, frames FrameProbeData) {
 	if len(frames.Frames) == 0 {
 		return
 	}
@@ -136,26 +134,4 @@ func toContentLight(c *ffprobe.SideDataContentLightLevel) *ContentLight {
 // round32 rounds an ffprobe FlexFloat to the nearest int32.
 func round32(f ffprobe.FlexFloat) int32 {
 	return int32(math.Round(float64(f)))
-}
-
-// runFrameProbe issues the second ffprobe call: the first decoded
-// frame's colour tags and HDR side data, per docs/research/transcode.md
-// §2.1's second command, verbatim. go-ffprobe.v2 cannot express this
-// call (no Frames field on ProbeData), so it bypasses the library.
-func runFrameProbe(ctx context.Context, path string) (frameProbeData, error) {
-	cmd := exec.CommandContext(ctx, "ffprobe",
-		"-v", "error", "-print_format", "json",
-		"-select_streams", "v:0", "-show_frames", "-read_intervals", "%+#1",
-		"-show_entries", "frame=pix_fmt,color_primaries,color_transfer,color_space,color_range,side_data_list",
-		path)
-	var out, stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &out, &stderr
-	if err := cmd.Run(); err != nil {
-		return frameProbeData{}, fmt.Errorf("mediainfo: ffprobe frame probe: %w: %s", err, stderr.String())
-	}
-	var fd frameProbeData
-	if err := json.Unmarshal(out.Bytes(), &fd); err != nil {
-		return frameProbeData{}, fmt.Errorf("mediainfo: parse frame probe json: %w", err)
-	}
-	return fd, nil
 }

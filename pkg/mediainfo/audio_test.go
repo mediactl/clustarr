@@ -18,7 +18,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package mediainfo
 
 import (
-	"context"
 	"encoding/json"
 	"testing"
 
@@ -65,7 +64,7 @@ func TestAudioProbeFrom(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var pd ffprobe.ProbeData
 			require.NoError(t, json.Unmarshal([]byte(tc.json), &pd))
-			got, err := audioProbeFrom(&pd)
+			got, err := AudioProbeFrom(&pd)
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, got)
 		})
@@ -73,23 +72,6 @@ func TestAudioProbeFrom(t *testing.T) {
 
 	var video ffprobe.ProbeData
 	require.NoError(t, json.Unmarshal([]byte(`{"streams":[{"codec_type":"video","codec_name":"h264"}]}`), &video))
-	_, err := audioProbeFrom(&video)
+	_, err := AudioProbeFrom(&video)
 	require.ErrorIs(t, err, ErrNoAudioStream)
-}
-
-func TestProbeAudioReadsTheFixtures(t *testing.T) {
-	skipIfNoFFprobe(t)
-	ctx := context.Background()
-
-	mp3, err := ProbeAudio(ctx, "../../test/data/mediainfo/audio_mp3_cbr320.mp3")
-	require.NoError(t, err)
-	assert.Equal(t, AudioProbe{Codec: "mp3", BitrateKbps: 320}, mp3)
-
-	flac, err := ProbeAudio(ctx, "../../test/data/mediainfo/audio_flac_24bit.flac")
-	require.NoError(t, err)
-	assert.Equal(t, "flac", flac.Codec)
-	assert.Equal(t, 24, flac.SampleBits)
-
-	_, err = ProbeAudio(ctx, "../../test/data/mediainfo/does-not-exist.mp3")
-	require.Error(t, err)
 }

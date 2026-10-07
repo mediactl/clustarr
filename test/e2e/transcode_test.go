@@ -66,10 +66,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // (HEVC 10-bit, BT.2020 primaries, SMPTE ST 2084 transfer, mastering-display
 // and content-light metadata) and test/fixtures/seed copies it out
 // alongside the plain probe clip. Its ENTIRE proof obligation, per this
-// task's brief, is the UNIT test pkg/mediainfo/hdr10_fixture_test.go -- a
-// clip ffmpeg writes but pkg/mediainfo.ClassifyHDR reads as SDR proves
-// nothing, so that test, not an e2e assertion, is what actually establishes
-// the recipe works.
+// task's brief, is the UNIT test
+// pkg/mediainfo/ffprobeexec/hdr10_fixture_test.go -- a clip ffmpeg writes but
+// pkg/mediainfo.ClassifyHDR reads as SDR proves nothing, so that test, not an
+// e2e assertion, is what actually establishes the recipe works.
 //
 // Deliberately NOT reused here: the source this scenario needs is one the
 // standard (pkg/transcode/standard, ffgo spec §1) decides to actually

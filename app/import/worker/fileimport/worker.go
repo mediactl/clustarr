@@ -39,7 +39,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/k8s"
-	"github.com/mediactl/clustarr/pkg/mediainfo"
+	"github.com/mediactl/clustarr/pkg/mediainfo/ffprobeexec"
 	"github.com/mediactl/clustarr/pkg/naming/catalogctx"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
@@ -112,7 +112,7 @@ type Worker struct {
 
 	// ProbeAudio reads a music file's codec and bitrate, the only way to
 	// freeze a lossy track's quality (FrozenFileQuality). NewWorker sets
-	// mediainfo.ProbeAudio; nil freezes by extension alone, as before.
+	// ffprobeexec.ProbeAudio; nil freezes by extension alone, as before.
 	ProbeAudio AudioProber
 
 	// SampleMaxBytes is the video size floor (fsops.IsSuspectedSample): a
@@ -133,7 +133,7 @@ type Worker struct {
 func NewWorker(c client.Client, bus events.Bus) *Worker {
 	return &Worker{
 		Client: c, Bus: bus, Catalogue: catalogue.LoadedCatalogue(), Clock: time.Now,
-		ProbeAudio: mediainfo.ProbeAudio, SampleMaxBytes: fsops.DefaultSampleMaxBytes,
+		ProbeAudio: ffprobeexec.ProbeAudio, SampleMaxBytes: fsops.DefaultSampleMaxBytes,
 	}
 }
 

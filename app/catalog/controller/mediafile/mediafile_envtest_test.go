@@ -384,7 +384,7 @@ func TestMediaFileFieldManagersStayDisjoint(t *testing.T) {
 
 func fakeProbe(_ context.Context, path string) (*commonv1.MediaInfo, *mediainfo.Raw, error) {
 	if _, err := os.Stat(path); err != nil {
-		return nil, nil, err // same failure shape as the real mediainfo.Probe on a missing file
+		return nil, nil, err // same failure shape as the real ffprobeexec.Probe on a missing file
 	}
 	return &commonv1.MediaInfo{
 		Container:     "mkv",
@@ -497,7 +497,7 @@ func skipIfNoFFprobe(t *testing.T) {
 }
 
 // TestReconcileRealFFprobe is the one place this task's fake probe and the
-// real mediainfo.Probe connect end to end: NewReconciler's default Probe
+// real ffprobeexec.Probe connect end to end: NewReconciler's default Probe
 // (unlike every other test in this file, which overrides it with fakeProbe)
 // runs the actual ffprobe binary against a Phase B fixture. It skips
 // cleanly, naming ffprobe, when the binary is not on PATH; every other

@@ -49,6 +49,7 @@ import (
 	"github.com/mediactl/clustarr/app/squash/worker"
 	"github.com/mediactl/clustarr/app/squash/worker/inprocess"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
+	"github.com/mediactl/clustarr/pkg/mediainfo/ffprobeexec"
 	"github.com/mediactl/clustarr/pkg/transcode"
 	"github.com/mediactl/clustarr/pkg/transcode/engine"
 	"github.com/mediactl/clustarr/pkg/transcode/standard"
@@ -87,7 +88,7 @@ func TestParity(t *testing.T) {
 			continue // an output of an earlier run
 		}
 		t.Run(class, func(t *testing.T) {
-			srcMI, srcRaw, err := mediainfo.Probe(ctx, clip)
+			srcMI, srcRaw, err := ffprobeexec.Probe(ctx, clip)
 			require.NoError(t, err)
 			info, err := transcode.FromProbe(srcMI, srcRaw)
 			require.NoError(t, err)
@@ -139,7 +140,7 @@ func TestTheInProcessProbeAgreesOnTheLibrary(t *testing.T) {
 			continue // an output of an earlier run
 		}
 		t.Run(class, func(t *testing.T) {
-			want, wantRaw, err := mediainfo.Probe(ctx, clip)
+			want, wantRaw, err := ffprobeexec.Probe(ctx, clip)
 			require.NoError(t, err)
 			got, gotRaw, err := eng.Probe(ctx, clip)
 			require.NoError(t, err)
@@ -165,7 +166,7 @@ func TestTheInProcessProbeAgreesOnTheLibrary(t *testing.T) {
 // checkStandard holds the standard's output to spec §1 against its source.
 func checkStandard(t *testing.T, src *commonv1.MediaInfo, srcRaw *mediainfo.Raw, plan standard.Result, out string) {
 	t.Helper()
-	got, gotRaw, err := mediainfo.Probe(context.Background(), out)
+	got, gotRaw, err := ffprobeexec.Probe(context.Background(), out)
 	require.NoError(t, err)
 	if got.VideoCodec != "hevc" {
 		t.Errorf("video %s, want hevc", got.VideoCodec)

@@ -26,7 +26,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	"github.com/mediactl/clustarr/pkg/mediainfo"
+	"github.com/mediactl/clustarr/pkg/mediainfo/ffprobeexec"
 	"github.com/mediactl/clustarr/pkg/naming/catalogctx"
 )
 
@@ -92,13 +92,13 @@ func TestContainerExt(t *testing.T) {
 
 // TestContainerExtReadsWhatTheProbeRecords runs the real producer: a
 // literal MediaInfo{Container: "matroska"} is what ffprobe calls the
-// format, but not what pkg/mediainfo.Probe writes into MediaInfo.Container,
+// format, but not what pkg/mediainfo/ffprobeexec.Probe writes into MediaInfo.Container,
 // so only a real probe shows the mapping is reachable.
 func TestContainerExtReadsWhatTheProbeRecords(t *testing.T) {
 	if _, err := exec.LookPath("ffprobe"); err != nil {
 		t.Skip("ffprobe not on PATH")
 	}
-	mi, _, err := mediainfo.Probe(t.Context(), "../../../test/data/mediainfo/sample_hevc_10bit.mkv")
+	mi, _, err := ffprobeexec.Probe(t.Context(), "../../../test/data/mediainfo/sample_hevc_10bit.mkv")
 	require.NoError(t, err)
 	require.Equal(t, ".mkv", catalogctx.ContainerExt(mi, "x.mp4"), "container %q", mi.Container)
 }

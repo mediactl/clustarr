@@ -54,6 +54,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
+	"github.com/mediactl/clustarr/pkg/mediainfo/ffprobeexec"
 	"github.com/mediactl/clustarr/pkg/transcode"
 	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
@@ -396,7 +397,7 @@ func (f *fixture) requireSourceUntouched(t *testing.T) {
 
 func videoCodec(t *testing.T, path string) (codec, tag string) {
 	t.Helper()
-	mi, raw, err := mediainfo.Probe(context.Background(), path)
+	mi, raw, err := ffprobeexec.Probe(context.Background(), path)
 	require.NoError(t, err)
 	return mi.VideoCodec, formatTag(raw, "CLUSTARR_PROFILE")
 }
@@ -709,7 +710,7 @@ func TestRunChangesTheContainerAndRetiresTheSource(t *testing.T) {
 	codec, tag := videoCodec(t, wantLocal)
 	assert.Equal(t, "hevc", codec, "the output must be at <stem>.mp4")
 	assert.Equal(t, f.profileName+"@"+f.profileHash, tag)
-	mi, _, err := mediainfo.Probe(context.Background(), wantLocal)
+	mi, _, err := ffprobeexec.Probe(context.Background(), wantLocal)
 	require.NoError(t, err)
 	assert.Equal(t, "mp4", mi.Container, "mp4 data behind an .mp4 name, not the .mkv one")
 	_, err = os.Stat(f.local)
@@ -1083,7 +1084,7 @@ func (e fakeEngine) Verify(context.Context, string, string, standard.Expectation
 }
 
 func (e fakeEngine) Probe(ctx context.Context, path string) (*commonv1alpha1.MediaInfo, *mediainfo.Raw, error) {
-	return mediainfo.Probe(ctx, path)
+	return ffprobeexec.Probe(ctx, path)
 }
 
 func (e fakeEngine) Measure(context.Context, transcode.Hardware) (transcode.Measurement, error) {
@@ -1106,7 +1107,7 @@ func (e *recordingEngine) Verify(context.Context, string, string, standard.Expec
 }
 
 func (e *recordingEngine) Probe(ctx context.Context, path string) (*commonv1alpha1.MediaInfo, *mediainfo.Raw, error) {
-	return mediainfo.Probe(ctx, path)
+	return ffprobeexec.Probe(ctx, path)
 }
 
 func (e *recordingEngine) Measure(context.Context, transcode.Hardware) (transcode.Measurement, error) {
