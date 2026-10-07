@@ -302,6 +302,8 @@ owner while it has entries (field manager `clustarr`, `k8s.EnsureFinalizer`).
 W6 (W6.2-W6.8 already in progress early, a recorded ruling) → W6b → W9 → W10 → **F9 with A9**.
 Waves 0-5, 4a-4f, 7 and 8 are built.
 
+**Wave U (2026-10-07)** runs alone between A3 and A4 / A5 / A6 (`docs/superpowers/plans/2026-10-07-unbranded-names.md`); every name in this plan is read through `docs/superpowers/specs/2026-10-07-unbranded-names-design.md` §6, and each task whose substance changes carries an "Amended by Wave U" line.
+
 | Wave | Tasks | Depends on | Parallel with |
 |---|---|---|---|
 | A1 API and topology | A1.1-A1.8 (8) | F4.4 green | nothing (serial, one owner: `api/`, `pkg/events`, `pkg/records` are shared) |
@@ -3532,6 +3534,7 @@ rulings R12, R13, R25.
 ---
 
 ### Task A4.4: RSS candidates; the grab worker, leases, pending records, scheduled grabs and redownload retire
+> **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", A4.4.
 
 **Spec:** §6.6 steps 1, 3, 5, §3.5 P13-P25, §3.1 W1, W5, W6, §6.11 (grab guard, RSS matcher,
 redownload); ruling R22.
@@ -4073,6 +4076,7 @@ pairs may run beside each other; A6.5 is the gate.
 ---
 
 ### Task A6.4: Sessions mirrored by the manager; the facade key created by the manager
+> **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", A6.4.
 
 **Spec:** §7.5 "Sessions" and "Facade key", §3.1 W31-W33; W4.20-W4.24 (amended).
 
@@ -4203,6 +4207,7 @@ test ! -f app/import/worker/rescan/renamepass.go && echo gone
 ---
 
 ### Task A7.2: Markers, roles and field-manager homes
+> **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", A7.2.
 
 **Spec:** §9.1 (the roles table), §9.2 (`TestEveryFieldManagerHasItsHome`, `TestRecordsWritersAreTheirAgents`,
 `starttest.AssertWroteOnlyAs`).
@@ -4281,6 +4286,7 @@ for rollback; `manager downloads export` writes them back for a rollback.
 ---
 
 ### Task A8.1: Adoption in the downloads stage; `status.legacyDownloads`; the unidentified-removal gate
+> **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", A8.1.
 
 **Spec:** §10.2 "Adoption in the owner key" (every bullet), "The engines re-attach without
 Downloads", §6.7 (pre-journal transfers), §6.3 (an owner over its cap is `Held: TooMany`).
@@ -4352,6 +4358,7 @@ Downloads", §6.7 (pre-journal transfers), §6.3 (an owner over its cap is `Held
 ---
 
 ### Task A8.2: The Migrator's Download part -- intent, held imports, source hashes, finalizers, census and deletion
+> **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", A8.2.
 
 **Spec:** §10.2 "The Migrator" steps 1-5; loop §7.3.5, §7.3.7 (the fold's order and retention).
 
@@ -4412,6 +4419,7 @@ Downloads", §6.7 (pre-journal transfers), §6.3 (an owner over its cap is `Held
 ---
 
 ### Task A8.3: `manager legacy-fold report` gains Downloads; `manager downloads export`
+> **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", A8.3.
 
 **Spec:** §10.2 "Report", §10.4 (the rollback rows, `downloads export`), §6.2 (Q7: `manager
 downloads list` stays optional -- not built).
@@ -4457,6 +4465,7 @@ downloads list` stays optional -- not built).
 ---
 
 ### Task A8.4: The runbook and the e2e scenarios' text
+> **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", A8.4.
 
 **Spec:** §10.2 "Runbook", §6.13; loop §7.5.
 
@@ -4488,6 +4497,7 @@ becomes the `remove … blocklist` intent; `newTorrentDownloadE2E` and `newUsene
 ---
 
 ### Task A8.5: Gate additions to F8.12
+> **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", A8.5.
 
 F8.12 runs these beside its own:
 
@@ -4541,6 +4551,7 @@ owner's OK (the CRD deletion by hand, §10.3).
 ---
 
 ### Task A9.2 (with F9.4): Retire the NATS state of the old grab path
+> **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", A9.2.
 
 **Files:**
 
@@ -4599,6 +4610,7 @@ rollback N+1 → N re-applies N's CRDs (`git show`) then `helm rollback` (§10.4
 ---
 
 ### Task A9.5: Release N+1 gate (beside F9.5's)
+> **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", A9.5.
 
 ```bash
 cd /home/appkins/src/mediactl/clustarr-unify

@@ -101,6 +101,8 @@ The waves follow spec §11.1. The wave numbers are this plan's; the spec's step 
 
 **ADR-0019 (2026-10-07):** waves A1-A9 (51 tasks, `docs/superpowers/plans/2026-10-07-agents-report-over-nats.md`) join this plan, with the amendments they make to tasks here (each affected task carries an "Amended by ADR-0019" line). The overall order becomes F3 → F4 → A1 → A2 → A3 → A4 / A5 / A6 → F5 → F6 → F7 → F8 with A8 → A7 → W6 (W6.2-W6.8 already in progress early, a recorded ruling) → W6b → W9 → W10 → F9 with A9; Waves 0-5, 4a-4f, 7 and 8 are built.
 
+**Wave U (2026-10-07):** the owner's "rename anything internal named like catalogarr to simply catalog" (everything, migrated) runs as Wave U (U1-U7, `docs/superpowers/plans/2026-10-07-unbranded-names.md`) alone after A3 and before A4/A5/A6; every name in this plan is read through `docs/superpowers/specs/2026-10-07-unbranded-names-design.md` §6, and each task whose substance changes carries an "Amended by Wave U" line.
+
 ### Order inside each wave
 
 - **Wave 0.** The controlling session first rebases the branch onto local main (loop spec §8.4 step 1: go.mod:218 then pins ffgo `.12`, and main's MP4 work is on the branch); then W0.1 runs first. W0.2-W0.22 run serially under one owner, then W0.29 and W0.30 (testmedia's ffgo needs, guide U2.2; they appear just before W0.23 below), then W0.23 tags `.13`. W0.24 runs in parallel with them. W0.25, then W0.26, then W0.27 (controlling session). W0.28 is the gate.
@@ -77831,6 +77833,7 @@ git commit -m "feat(legacyfold): Plan, the pure adoption rules (loop spec §7.3.
 
 ### Task F8.3: `legacyfold.Migrator` (prepare, census, delete after retention, retired-durable reports, the `catalogarr-markers` pending set) and its metrics
 > **Amended by ADR-0019:** see docs/superpowers/plans/2026-10-07-agents-report-over-nats.md, "Amendments", F8.3.
+> **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", F8.3.
 
 **Spec:** loop §7.2 (why a runnable may not copy status), §7.3.5 (preparation: withdrawal and
 intent), §7.3.7 (census, deletion, retention, the GC case, completion), §7.3.8 step 1 (the
@@ -79141,6 +79144,7 @@ git commit -m "feat(legacyfold): Migrator (prepare, census, delete after retenti
 
 ### Task F8.4: adoption and hold in the loop; `catalogarr-markers` released
 > **Amended by ADR-0019:** see docs/superpowers/plans/2026-10-07-agents-report-over-nats.md, "Amendments", F8.4.
+> **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", F8.4.
 
 **Spec:** loop §7.2 (adoption runs inside the loop's own `PatchStatusCAS` render, as its first
 planner), §7.3.2 (lookup and wake-up: `legacyfold.RegisterIndexes`, S23 on create events only),
@@ -80692,6 +80696,7 @@ git commit -m "feat(remediation): adoption and hold in the loop; catalogarr-mark
 
 ### Task F8.5: `manager legacy-fold report` and `restore-markers`, and the `--legacy-fold` flags
 > **Amended by ADR-0019:** see docs/superpowers/plans/2026-10-07-agents-report-over-nats.md, "Amendments", F8.5.
+> **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", F8.5.
 
 **Spec:** loop §7.3.10 (the two flags and defaults), §7.3.11 (the report and restore-markers
 commands, verbatim), §7.2 ("two dry runs"), §7.5 steps 1 and 9-12, §7.6 step 3, §7.10 (the
@@ -81317,6 +81322,7 @@ git commit -m "feat(manager): legacy-fold report and restore-markers, and the --
 
 ### Task F8.6: dead letters and replays target MediaFile; TranscodeJob and SubtitleRequest leave `ReplayKinds` and the projector
 > **Amended by ADR-0019:** see docs/superpowers/plans/2026-10-07-agents-report-over-nats.md, "Amendments", F8.6.
+> **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", F8.6.
 
 **Spec:** loop §6.10 (resolvers, the projector's `mediafiles` grant, `ReplayKinds`), §3.9
 (MediaFile replay is the loop's actuator, never a `replay-mediafile` controller), §2.8
@@ -82334,6 +82340,7 @@ git commit -m "chore(rbac): release N's grants -- only app/catalog/legacyfold na
 
 ### Task F8.9: e2e scenarios 12, 13 and scenario 1's legs read MediaFile status; legacy-fold and graft scenarios; the upgrade-and-rollback scenario
 > **Amended by ADR-0019:** see docs/superpowers/plans/2026-10-07-agents-report-over-nats.md, "Amendments", F8.9.
+> **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", F8.9.
 
 **Spec:** loop §7.8 (every bullet), §7.3.12 last two bullets (`test/e2e/upgrade_test.go`, tag
 `e2eupgrade`, never against kind-cluster-plex), §7.5-§7.6 (the steps the upgrade scenario
@@ -83409,6 +83416,7 @@ git commit -m "test(guards): only app/catalog/legacyfold names SubtitleRequest, 
 
 ### Task F8.11: split spec amendments (loop spec §8.3's list), §11.3 replaced by the loop spec's runbook and rollback
 > **Amended by ADR-0019:** see docs/superpowers/plans/2026-10-07-agents-report-over-nats.md, "Amendments", F8.11.
+> **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", F8.11.
 
 **Spec:** loop §8.3 "Split spec sections to amend (F8.11)" (verbatim list), §8.1, §7.5-§7.6,
 §8.6 F8.11; the ADR-0016 rule that the loop spec wins where it and the split spec disagree on
@@ -83573,6 +83581,7 @@ git commit -m "docs(spec): the split spec follows the fold -- flags, what the ma
 
 ### Task F8.12: Fold gate
 > **Amended by ADR-0019:** see docs/superpowers/plans/2026-10-07-agents-report-over-nats.md, "Amendments", F8.12.
+> **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", F8.12.
 
 **Spec:** loop §8.6 F8.12 (verbatim list), §8.3 W5.13 ("F8.12 extends it: under `f:status`, a
 MediaFile carries only `catalogarr`"), §7.11 (each commit of the series green), §8.2 rule 3
@@ -83909,6 +83918,7 @@ widening the history):
 
 ### Task F9.1: Remove the legacy fold
 > **Amended by ADR-0019:** see docs/superpowers/plans/2026-10-07-agents-report-over-nats.md, "Amendments", F9.1.
+> **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", F9.1.
 
 **Spec:** loop §7.4 "Packages and hooks" and "Pruning on read", §7.2, §7.3.1-§7.3.12 (everything
 release N added for adoption), §3.14 (`clustarr-legacy-fold`; the `catalogarr-markers` release
@@ -85295,6 +85305,7 @@ var foldScan = []string{"api/", "config/", "charts/", "hack/", "images/", ".gith
 
 ### Task F9.4: Drop the TranscodeJob- and SubtitleRequest-keyed bus names and the v1 decoders; empty `RetiredFieldManagers()`
 > **Amended by ADR-0019:** see docs/superpowers/plans/2026-10-07-agents-report-over-nats.md, "Amendments", F9.4.
+> **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", F9.4.
 
 **Spec:** loop §7.4 "pkg" (the subjects, Msg-Ids, lease keys and v1 task decoders, "once the
 one-release stale-ack window has passed": release N+1 is that point) and `RetiredFieldManagers()`'s
@@ -85593,6 +85604,7 @@ var foldHistory = map[string]string{
 
 ### Task F9.5: Docs: the folded kinds are gone; the CRD removal runbook; the release N+1 gate
 > **Amended by ADR-0019:** see docs/superpowers/plans/2026-10-07-agents-report-over-nats.md, "Amendments", F9.5.
+> **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", F9.5.
 
 **Spec:** loop §7.4 (the CRD README), §7.5 "Release N+1" (the runbook), §7.6 (the N+1 → N
 rows, corrected by F9.2's transition test), §7.9 ("N+1: `charts/clustarr/crds/README.md` …, and
@@ -88215,6 +88227,7 @@ wait -n
 
 ### Task W6.9: One generated ClusterRole per identity, beside the legacy roles
 > **Amended by ADR-0019:** see docs/superpowers/plans/2026-10-07-agents-report-over-nats.md, "Amendments", W6.9.
+> **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", W6.9.
 
 **Spec:** §4.6, §10.2.4 (generated files), §10.3.2 (`TestEachRoleCoversTheMarkedPackagesItsHomeLinks`,
 `TestConfigRBACHoldsOnlyKnownRoleFiles`); loop spec §4.14 (worker RBAC after the fold), §7.3.10 (release N's
@@ -88800,6 +88813,7 @@ spec:
 
 ### Task W6.11: The topology switch: both installers, RBAC bindings, guards
 > **Amended by ADR-0019:** see docs/superpowers/plans/2026-10-07-agents-report-over-nats.md, "Amendments", W6.11.
+> **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", W6.11.
 
 **Spec:** §10.0, §10.2.1, §10.2.2 (label and no `replicas`), §10.2.3, §10.2.4, §10.2.5
 (`deployments.yaml`, `markers.yaml`, `servicemonitor.yaml`, `pvc.yaml` condition, `NOTES.txt`,
@@ -91834,6 +91848,7 @@ releases it.
 ---
 
 ### Task W6.13: `values.schema.json` closed, chart 0.5.0, retired keys, chart README
+> **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", W6.13.
 
 **Spec:** §10.2.5 (`values.schema.json`, `Chart.yaml`), §10.2.8, §12 (chart README), §13 OD37, OD40; loop spec §7.3.10 (`manager.legacyFold`), §3.7, §3.17 (`manager.remediation`), §5.13 (`manager.graftConcurrency`), §8.3 (W6.13 row)
 **Files:**
@@ -92327,6 +92342,7 @@ memory limit and its `GOMEMLIMIT` moves with it on the next `helm upgrade`;
 ---
 
 ### Task W6.14: The index PVC is kept; `config/` READMEs
+> **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", W6.14.
 
 **Spec:** §10.2.5 (`pvc.yaml` keep), §10.2.6 (`config/README.md`), §13 OD39
 **Files:**
@@ -92403,6 +92419,7 @@ responders, facade and per-host limiter are one process.
 
 ### Task W6.15: `config/e2e`, `hack/e2e.sh`, `test/e2e` renames, scale-from-zero
 > **Amended by ADR-0019:** see docs/superpowers/plans/2026-10-07-agents-report-over-nats.md, "Amendments", W6.15.
+> **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", W6.15.
 
 **Spec:** §10.4 (every row), §11.2 gate 6, §13 OD41; loop spec §7.8 and §8.3 (W6.15 row: it renames the files F8.9 rewrote)
 **Files:**
@@ -92894,6 +92911,7 @@ func TestTheWorkflowsCheckImagesThroughOneScript(t *testing.T) {
 ---
 
 ### Task W6.17: Wave gate
+> **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", W6.17.
 
 **Spec:** §11.1 step 9, §11.2 gates 1 and 5
 **Files:** none.
@@ -99937,6 +99955,7 @@ const execAllowed = "pkg/par2child/exec.go"
 
 ### Task W10.2: ADR-0018, one manager and domain agents (supersedes ADR-0013)
 > **Amended by ADR-0019:** see docs/superpowers/plans/2026-10-07-agents-report-over-nats.md, "Amendments", W10.2.
+> **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", W10.2.
 
 **Spec:** §12 (ADR-0018; ADR-0013 superseded; both index rows; the refinements under the index), R11
 **Files:**
@@ -100218,6 +100237,7 @@ no ffmpeg (OD8).
 
 ### Task W10.4: The design of record, amendment 1 and the 2026-09-24 design follow the topology
 > **Amended by ADR-0019:** see docs/superpowers/plans/2026-10-07-agents-report-over-nats.md, "Amendments", W10.4.
+> **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", W10.4.
 
 **Spec:** §12 (design of record §3, §6, §19, §2's field-manager list; amendment-1's services table; the 2026-09-24 design's Status); loop spec §7.9 and §8.3 (W10.4 row: release N, with the loop, the records, the retired managers and durables, and the three kinds being adopted)
 **Files:**
@@ -100355,6 +100375,7 @@ echo OK
 
 ### Task W10.5: `docs/autoscaling.md`, `docs/observability.md`, `docs/gpu-nodes.md` and the top-level README
 > **Amended by ADR-0019:** see docs/superpowers/plans/2026-10-07-agents-report-over-nats.md, "Amendments", W10.5.
+> **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", W10.5.
 
 **Spec:** §12 (`docs/autoscaling.md`; `docs/observability.md`; `README.md`; `docs/gpu-nodes.md`), §9.0, §9.8, §10.2.2, §10.2.7 ("Edit these comments": `README.md:109-111`)
 > **Wave 4f note (NATS research 2026-10-07; split §3.3, §9.0, §9.4, §9.8 and §12 as amended).** Also, each added to the check script: `docs/autoscaling.md`'s "The metric" section says why `CONSUMER.INFO` and not `/jsz` or a stream's `messages` count, with split §9.0's live numbers (897 bytes and 0.23-0.83 ms per durable; `/jsz` 45,913 bytes and about 6 ms, a follower reading `num_pending` 0, port 8222 unauthenticated, HTTP 200 with no data on a wrong `acc`; `CLUSTARR_WORK_SEGMENTARR` 18,897 messages against a lag of 16,563, the gap being 2,334 TheIntroDB holds; `CLUSTARR_RELEASES` 10,137 against 0), says no NATS-native metrics adapter exists, and does **not** repeat the deleted ScaledObject's claim about KEDA and kedacore/keda#8166 (`! grep -q 8166 docs/autoscaling.md`); its failure modes take §9.8's added rows. `docs/observability.md`'s catalogue gains `clustarr_consumer_pending`, `clustarr_consumer_ack_pending`, `clustarr_consumer_waiting`, `clustarr_consumer_max_ack_pending`, `clustarr_stream_fill_ratio` (with an alert at 0.8), `clustarr_nats_async_errors_total`, `clustarr_bus_lapsed_handlers`, `clustarr_bus_saturated`, `clustarr_bus_muted_total`, `clustarr_object_orphan_chunks_purged_total`, `clustarr_object_orphan_bytes_purged_total`, `clustarr_artwork_objects` and `clustarr_artwork_audit_tasks_total`, and its readiness table the `bus` liveness check. If W4.115 (S4) was deferred, the `NakWithDelay` text keeps OD27 (a domain in a long backoff stays at 1); if it landed, it says a long retry is a scheduled republish that is not lag.
@@ -100475,6 +100496,7 @@ echo OK
 ---
 
 ### Task W10.6: The chart README, `images/distroless/README.md` and `config/README.md`
+> **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", W10.6.
 
 **Spec:** §12 (chart README: "Autoscaling", "Upgrading from 0.4.x", values table, GOMEMLIMIT, Cardigann, Postgres sections), §10.1.3 (distroless README), §10.2.6 (config README), §10.2.8 (retired keys)
 **Files:**
@@ -100538,6 +100560,7 @@ echo OK
 
 ### Task W10.7: CLAUDE.md
 > **Amended by ADR-0019:** see docs/superpowers/plans/2026-10-07-agents-report-over-nats.md, "Amendments", W10.7.
+> **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", W10.7.
 
 **Spec:** §12 (CLAUDE.md: services table, commands, invariants, guard successors, Transcoding paragraph, gotchas, status), R3 amendment (the MediaFile split per field manager)
 > **Wave 4f note (NATS research 2026-10-07; split §12 as amended).** Also, each added to the check script's `fresh` list (`TestNoObjectLinks`, `Clustarr-Id`, `PurgeOrphanChunks`, `deliveryCount`, `objindex`):
@@ -101272,6 +101295,7 @@ git commit -m "build(e2e): the fixtures image bakes its clips with test/fixtures
 ---
 
 ### Task W10.8: Final gate for Waves 7-10
+> **Amended by Wave U:** see docs/superpowers/plans/2026-10-07-unbranded-names.md, "Amendments", W10.8.
 
 **Spec:** §11.1 (every step keeps the build green), §11.2 gates 1 and 5 (local), §11.2 gates 2-4 (instructions only)
 **Files:** none
