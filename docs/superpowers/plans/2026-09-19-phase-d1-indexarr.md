@@ -6393,7 +6393,7 @@ func TestStatusApplyDoesNotReleaseWhatItDidNotChange(t *testing.T) {
  before := getStatus(t, ctx, c, ns, "idx")
  _, err = k8s.PatchStatus(ctx, c, k8s.ManagerIndexarrWorker,
   rss.WorkerStatus(ns, "idx", before, rss.Patch{
-   LastRssAt: new(metav1.NewTime(t1)), LastRssNewCount: ptr.To(int32(0)),
+   LastRssAt: new(metav1.NewTime(t1)), LastRssNewCount: new(int32(0)),
   }))
  require.NoError(t, err)
 

@@ -293,8 +293,8 @@ ctrl.NewControllerManagedBy(mgr).
     WatchesMetadata(&corev1.Secret{}, h)                      // PartialObjectMetadata informer (cheap)
     WatchesRawSource(source.Channel(ch, h, source.WithBufferSize[...](1024)))   // external events (NATS!) -> GenericEvent
     WithEventFilter(p).WithLogConstructor(f).
-    WithOptions(controller.Options{MaxConcurrentReconciles: 4, RecoverPanic: new(true), UsePriorityQueue: ptr.To(true),
-                                   ReconciliationTimeout: 2*time.Minute, RateLimiter: ..., NeedLeaderElection: new(true), EnableWarmup: ptr.To(true)}).
+    WithOptions(controller.Options{MaxConcurrentReconciles: 4, RecoverPanic: new(true), UsePriorityQueue: new(true),
+                                   ReconciliationTimeout: 2*time.Minute, RateLimiter: ..., NeedLeaderElection: new(true), EnableWarmup: new(true)}).
     Complete(r)   // or Build(r) to keep the controller.TypedController handle
 ```
 
@@ -310,6 +310,7 @@ Handlers/predicates/sources (verified): `handler.EnqueueRequestForObject`, `Enqu
 `source.Channel(<-chan event.TypedGenericEvent[T], handler, opts...)`, `source.TypedInformer`, `source.Func`. `event.TypedCreateEvent.IsInInitialList` is available to handlers.
 
 Priority queue (`pkg/controller/priorityqueue`, verified): `PriorityQueue[T]` = `workqueue.TypedRateLimitingInterface[T]` + `AddWithOpts(AddOpts{After, RateLimited, Priority *int}, items...)`
+
 * `GetWithPriority()`. De-duplicates; keeps max priority / min delay; FIFO within a priority level. To map `spec.priority` onto queue priority, write a custom
 `handler.TypedEventHandler` that type-asserts the queue to `priorityqueue.PriorityQueue[reconcile.Request]` and calls `AddWithOpts`; `reconcile.Result.Priority`
 only affects requeues.
@@ -357,7 +358,7 @@ mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
     LeaseDuration/RenewDeadline/RetryPeriod: 15s/10s/2s defaults,
     Cache: cache.Options{...}, Client: client.Options{...},
     WebhookServer: webhook.NewServer(webhook.Options{Port: -1}),   // -1 disables the webhook server (v0.25); default 9443, CertDir /tmp/k8s-webhook-server/serving-certs
-    Controller: config.Controller{RecoverPanic: new(true), UsePriorityQueue: ptr.To(true), EnableWarmup: ptr.To(true), GroupKindConcurrency: map[string]int{"TranscodeJob.transcode.clustarr.io": 8}},
+    Controller: config.Controller{RecoverPanic: new(true), UsePriorityQueue: new(true), EnableWarmup: ptr.To(true), GroupKindConcurrency: map[string]int{"TranscodeJob.transcode.clustarr.io": 8}},
     GracefulShutdownTimeout: new(30*time.Second),
     BaseContext: func() context.Context { ... },
 })

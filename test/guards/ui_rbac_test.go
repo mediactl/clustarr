@@ -66,6 +66,7 @@ type uiGrant struct {
 // needs, this list and the role are one set.
 var uiActionGrants = map[uiGrant]bool{
 	{"catalog.clustarr.io", "searches", "create"}:     true,
+	{"catalog.clustarr.io", "searches", "patch"}:      true,
 	{"catalog.clustarr.io", "libraryscans", "create"}: true,
 	{"catalog.clustarr.io", "albums", "patch"}:        true,
 	{"catalog.clustarr.io", "artists", "patch"}:       true,

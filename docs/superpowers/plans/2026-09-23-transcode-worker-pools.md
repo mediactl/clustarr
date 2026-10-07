@@ -928,7 +928,7 @@ func TestTaskJSONKeepsFalsePolicyPointers(t *testing.T) {
   Job:     schema.Ref{Namespace: "media", Name: "tj", UID: "u1"},
   Attempt: 2,
   Profile: task.Profile{Name: "p", Hash: "h", Spec: transcodev1alpha1.TranscodeProfileSpec{
-   Policy: transcodev1alpha1.PolicySpec{ReplaceSource: new(false), RecycleBin: ptr.To(false)},
+   Policy: transcodev1alpha1.PolicySpec{ReplaceSource: new(false), RecycleBin: new(false)},
   }},
  }
  _, data, err := schema.Encode(in)
@@ -1333,9 +1333,11 @@ Expected: FAIL to compile, "undefined: transcodev1alpha1.HardwareAuto".
 - Add the constant:
 
   ```go
+
  // HardwareAuto prefers a GPU class with a labelled GPU node and a free slot,
  // else cpu, chosen per task at dispatch (spec §18.5).
  HardwareAuto Hardware = "auto"
+
   ```
 
 - Change `TranscodeProfileSpec.Hardware`'s default marker to `// +kubebuilder:default="auto"`, and
@@ -2921,7 +2923,7 @@ func TestClassify(t *testing.T) {
 }
 
 func job(suspend bool, par int32, started bool, active int32, failed bool) *batchv1.Job {
- j := &batchv1.Job{Spec: batchv1.JobSpec{Suspend: new(suspend), Parallelism: ptr.To(par)}}
+ j := &batchv1.Job{Spec: batchv1.JobSpec{Suspend: new(suspend), Parallelism: new(par)}}
  if started {
   j.Status.StartTime = &metav1.Time{}
  }
@@ -3196,7 +3198,7 @@ func Render(k Key, tp *transcodev1alpha1.TranscodeProfile, want Spec, d Desired,
    Annotations: map[string]string{AnnotationAppliedTemplate: string(raw)},
    OwnerReferences: []metav1.OwnerReference{{
     APIVersion: transcodev1alpha1.GroupVersion.String(), Kind: "TranscodeProfile",
-    Name: tp.Name, UID: tp.UID, Controller: new(true), BlockOwnerDeletion: ptr.To(true),
+    Name: tp.Name, UID: tp.UID, Controller: new(true), BlockOwnerDeletion: new(true),
    }},
   },
   Spec: batchv1.JobSpec{

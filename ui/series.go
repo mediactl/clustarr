@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -86,7 +87,7 @@ func (s *Server) handleSeason(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "could not list episodes", http.StatusInternalServerError)
 		return
 	}
-	rows := episodeRows(episodes, name, int32(n))
+	rows := episodeRows(episodes, name, int32(n), time.Now())
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if isHTMX(r) {
@@ -160,7 +161,7 @@ func (s *Server) replyEpisodeRow(w http.ResponseWriter, r *http.Request, ns, nam
 		ep = &catalogv1.Episode{}
 		ep.Namespace, ep.Name = ns, name
 	}
-	row := episodeRows([]catalogv1.Episode{*ep}, ep.Spec.SeriesRef, ep.Spec.SeasonNumber)[0]
+	row := episodeRow(ep, time.Now())
 	if err != nil {
 		row.Error = failureOf(r, err)
 	}
@@ -230,7 +231,7 @@ func seasonRow(series *catalogv1.Series, number int32) views.SeasonRow {
 	row := views.SeasonRow{Series: series.Name, Namespace: series.Namespace, Number: number, Monitored: true}
 	for _, st := range series.Status.Seasons {
 		if st.Number == number {
-			row.Monitored, row.Episodes, row.Files = st.Monitored, st.EpisodeCount, st.EpisodeFileCount
+			row.Monitored, row.Episodes, row.Files, row.SizeBytes = st.Monitored, st.EpisodeCount, st.EpisodeFileCount, st.SizeBytes
 			if st.NextAiring != nil {
 				row.NextAiring = st.NextAiring.UTC().Format("2006-01-02")
 			}
@@ -246,29 +247,89 @@ func seasonRow(series *catalogv1.Series, number int32) views.SeasonRow {
 
 // episodeRows keeps the episodes of one season of one series, in episode
 // order.
-func episodeRows(episodes []catalogv1.Episode, series string, season int32) []views.EpisodeRow {
+func episodeRows(episodes []catalogv1.Episode, series string, season int32, now time.Time) []views.EpisodeRow {
 	var rows []views.EpisodeRow
 	for i := range episodes {
 		ep := &episodes[i]
 		if ep.Spec.SeriesRef != series || ep.Spec.SeasonNumber != season {
 			continue
 		}
-		row := views.EpisodeRow{
-			Namespace: ep.Namespace, Name: ep.Name, Number: ep.Spec.EpisodeNumber,
-			Title: ep.Status.Title, Monitored: monitoredOrDefault(ep.Spec.Monitored),
-			HasFile: ep.Status.HasFile, Phase: string(ep.Status.Phase),
-		}
-		if ep.Status.AirDate != nil {
-			row.AirDate = ep.Status.AirDate.UTC().Format("2006-01-02")
-		}
-		if ep.Status.FileQuality != nil {
-			row.Quality = ep.Status.FileQuality.Name
-		}
-		row.Audio = audioNote(ep.Status.Audio)
-		rows = append(rows, row)
+		rows = append(rows, episodeRow(ep, now))
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].Number < rows[j].Number })
 	return rows
+}
+
+// episodeRow is one episode's row in Sonarr's season table.
+func episodeRow(ep *catalogv1.Episode, now time.Time) views.EpisodeRow {
+	row := views.EpisodeRow{
+		Namespace: ep.Namespace, Name: ep.Name, Series: ep.Spec.SeriesRef,
+		Season: ep.Spec.SeasonNumber, Number: ep.Spec.EpisodeNumber,
+		Title: ep.Status.Title, FinaleType: ep.Status.FinaleType, Monitored: monitoredOrDefault(ep.Spec.Monitored),
+		HasFile: ep.Status.HasFile, Phase: string(ep.Status.Phase),
+	}
+	if ep.Status.AirDate != nil {
+		row.AirDate = ep.Status.AirDate.UTC().Format(time.DateOnly)
+		row.AirDateLabel = relativeDate(ep.Status.AirDate.UTC(), now)
+	}
+	if ep.Status.FileQuality != nil {
+		row.Quality = ep.Status.FileQuality.Name
+	}
+	row.Audio = audioNote(ep.Status.Audio)
+	row.Status = episodeStatus(ep, row.Monitored, now)
+	return row
+}
+
+// episodeStatus is Sonarr's status cell (EpisodeStatus.tsx), the first
+// case that applies: a grab in flight, a grab waiting out its delay, the
+// file's quality (warned below the cutoff), no air date yet, not aired,
+// unmonitored, else missing.
+func episodeStatus(ep *catalogv1.Episode, monitored bool, now time.Time) views.EpisodeStatus {
+	st := ep.Status
+	switch {
+	case st.Phase == catalogv1.EpisodePhaseDownloading || st.ActiveDownloadRef != nil:
+		return views.EpisodeStatus{Kind: "downloading", Label: "Downloading", Title: "Episode is downloading"}
+	case st.Phase == catalogv1.EpisodePhaseDelayed || st.PendingGrab != nil:
+		return views.EpisodeStatus{Kind: "pending", Label: "Pending", Title: "A release waits out its delay profile"}
+	case st.HasFile:
+		s := views.EpisodeStatus{Kind: "file", Label: "Unknown", Title: "Episode on disk"}
+		if st.FileQuality != nil && st.FileQuality.Name != "" {
+			s.Label = st.FileQuality.Name
+		}
+		switch st.Phase {
+		case catalogv1.EpisodePhaseCutoffUnmet:
+			s.Warn, s.Title = true, "Quality cutoff has not been met"
+		case catalogv1.EpisodePhaseCutoffUnevaluated:
+			s.Warn, s.Title = true, "Quality profile could not be resolved"
+		case catalogv1.EpisodePhaseTranscoded:
+			s.Title = "Transcoded: final"
+		}
+		return s
+	case st.AirDate == nil:
+		return views.EpisodeStatus{Kind: "tba", Label: "TBA", Title: "Air date to be announced"}
+	case st.Phase == catalogv1.EpisodePhaseUnaired || st.AirDate.After(now):
+		return views.EpisodeStatus{Kind: "unaired", Label: "Unaired", Title: "Episode has not aired"}
+	case !monitored:
+		return views.EpisodeStatus{Kind: "unmonitored", Label: "Unmonitored", Title: "Episode is not monitored"}
+	default:
+		return views.EpisodeStatus{Kind: "missing", Label: "Missing", Title: "Episode missing from disk"}
+	}
+}
+
+// relativeDate is Sonarr's relative air date: Today, Yesterday or
+// Tomorrow, else its short date ("Sep 21 2022"). Both are UTC calendar
+// days, as air dates are.
+func relativeDate(t, now time.Time) string {
+	day := func(t time.Time) time.Time { return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC) }
+	switch day(t).Sub(day(now.UTC())) / (24 * time.Hour) {
+	case 0:
+		return "Today"
+	case -1:
+		return "Yesterday"
+	case 1:
+		return "Tomorrow"
+	}
+	return t.Format("Jan 2 2006")
 }
 
 // monitoredOrDefault reads a spec.monitored pointer as the CRD default
