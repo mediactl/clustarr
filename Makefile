@@ -209,13 +209,15 @@ fork-status:
 	@if [ -n "$(FFGO_LOCAL)" ] && [ "$$(git -C $(FFGO_DIR) describe --tags --exact-match --dirty 2>/dev/null)" != "$(FFGO_REF)" ]; then \
 	  echo "WARNING: $(FFGO_DIR) is not a clean $(FFGO_REF); go.mod builds against it as it is" >&2; fi
 
+LDFLAGS := -s -w -X github.com/mediactl/clustarr/pkg/version.Version=$(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+
 .PHONY: build
-build: ## Build the five binaries.
-	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/mediactl/clustarr/pkg/version.Version=$(shell git describe --tags --always --dirty 2>/dev/null || echo dev)" -o bin/manager ./cmd/manager
-	CGO_ENABLED=1 go build -trimpath -ldflags "-s -w -X github.com/mediactl/clustarr/pkg/version.Version=$(shell git describe --tags --always --dirty 2>/dev/null || echo dev)" -o bin/agent ./cmd/agent
-	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/mediactl/clustarr/pkg/version.Version=$(shell git describe --tags --always --dirty 2>/dev/null || echo dev)" -o bin/ui ./cmd/ui
-	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/mediactl/clustarr/pkg/version.Version=$(shell git describe --tags --always --dirty 2>/dev/null || echo dev)" -o bin/transcode ./cmd/transcode
-	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/mediactl/clustarr/pkg/version.Version=$(shell git describe --tags --always --dirty 2>/dev/null || echo dev)" -o bin/markers ./cmd/markers
+build: fork-status ## Build bin/manager, bin/ui, bin/agent, bin/markers and bin/transcode, each as its image does (spec §3.9).
+	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o bin/manager ./cmd/manager
+	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o bin/ui ./cmd/ui
+	CGO_ENABLED=1 go build -trimpath -ldflags "$(LDFLAGS)" -o bin/agent ./cmd/agent
+	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o bin/markers ./cmd/markers
+	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o bin/transcode ./cmd/transcode
 
 .PHONY: docker-build
 docker-build: contexts ## Build the clustarr (manager, ui) and native (agent, markers, transcode) images.
@@ -339,6 +341,10 @@ kind-up: ## Create a local kind cluster with NATS.
 .PHONY: kind-load
 kind-load: ## Load the clustarr and native images into kind, skipping any the node already holds.
 	IMG=$(IMG) NATIVE_IMG=$(NATIVE_IMG) hack/kind.sh load
+
+.PHONY: run-dev
+run-dev: build native-assets ## Run the manager, six agents and the ui locally against the current kube context (hack/dev-run.sh, spec §3.10).
+	NATIVE_ASSETS=$(NATIVE_ASSETS) NATIVE_IMG=$(NATIVE_IMG) hack/dev-run.sh
 
 .PHONY: kind-down
 kind-down:
