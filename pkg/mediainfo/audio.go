@@ -52,17 +52,20 @@ type AudioProbe struct {
 	SampleBits int
 }
 
-// AudioProbeFrom reduces a probe to its first audio stream's AudioProbe:
-// pkg/mediainfo/ffprobeexec.ProbeAudio's mapping, exported so the probe can
-// live outside this package.
-func AudioProbeFrom(pd *ffprobe.ProbeData) (AudioProbe, error) {
-	s := firstStream(pd.Streams, ffprobe.StreamAudio)
+// AudioProbeFromRaw reduces a probe to its first audio stream's AudioProbe:
+// what both the in-process probe and the ffprobe oracle answer ProbeAudio
+// with (spec 2026-10-06 §6.2).
+func AudioProbeFromRaw(raw *Raw) (AudioProbe, error) {
+	if raw == nil {
+		return AudioProbe{}, ErrNoAudioStream
+	}
+	s := firstStream(raw.Streams, ffprobe.StreamAudio)
 	if s == nil {
 		return AudioProbe{}, ErrNoAudioStream
 	}
 	ap := AudioProbe{Codec: s.CodecName, BitrateKbps: roundKbps(s.BitRate)}
-	if ap.BitrateKbps == 0 && pd.Format != nil {
-		ap.BitrateKbps = roundKbps(pd.Format.BitRate)
+	if ap.BitrateKbps == 0 && raw.Format != nil {
+		ap.BitrateKbps = roundKbps(raw.Format.BitRate)
 	}
 	if bits, err := strconv.Atoi(s.BitsPerRawSample); err == nil && bits > 0 {
 		ap.SampleBits = bits
@@ -70,6 +73,11 @@ func AudioProbeFrom(pd *ffprobe.ProbeData) (AudioProbe, error) {
 		ap.SampleBits = s.BitsPerSample
 	}
 	return ap, nil
+}
+
+// AudioProbeFrom is AudioProbeFromRaw over ffprobe's decoded JSON.
+func AudioProbeFrom(pd *ffprobe.ProbeData) (AudioProbe, error) {
+	return AudioProbeFromRaw(&Raw{Format: pd.Format, Streams: pd.Streams})
 }
 
 // roundKbps turns ffprobe's bit_rate string (bits per second) into whole
