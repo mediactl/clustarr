@@ -16,8 +16,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 // Package busconn connects a process to the JetStream bus: Connect, the
-// trace-hook option, the readiness check, EnsureTopology for the manager and
-// AwaitTopology for everyone else (spec §4.3 step 1.3, §5.9). It imports no
+// trace-hook option, the readiness check, EnsureTopology and its two
+// leader-only keepers, KeepTopology and WatchDeadLetters, for the manager,
+// and AwaitTopology for everyone else (spec §4.3 step 1.3, §5.9). It imports no
 // pkg/k8s and no pkg/obs, so cmd/ui links it.
 package busconn
 
@@ -118,11 +119,12 @@ func Connect(url, service string, opts ...Option) (*natsbus.Bus, *nats.Conn, err
 	return bus, nc, nil
 }
 
-// EnsureTopology creates or updates the streams, consumers, buckets and object
-// stores in t. Once the split lands only cmd/manager calls it (spec §5.9);
-// agents, the ui, markers and transcode wait for it with AwaitTopology
-// instead. Until Wave 5, every app/<svc>.Run still calls it through pkg/k8s's
-// wrapper.
+// EnsureTopology creates or updates every stream, consumer, dead-letter
+// watcher, bucket and object store in t. Only the manager calls it, once
+// before it starts and then through KeepTopology (spec §5.9); every other
+// process waits for the topology with AwaitTopology and binds, so an older
+// agent can never revert a newer topology. Until Wave 5 lands cmd/manager,
+// every app/<svc>.Run still calls it through pkg/k8s's wrapper.
 func EnsureTopology(ctx context.Context, bus events.Bus, t events.Topology) error {
 	if bus == nil {
 		return fmt.Errorf("busconn: nil bus")
