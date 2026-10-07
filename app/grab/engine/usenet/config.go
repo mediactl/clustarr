@@ -139,14 +139,9 @@ func BuildConfig(ctx context.Context, c client.Client, dc *downloadv1alpha1.Down
 	if us.PropagationDelay != nil {
 		cfg.PropagationDelay = us.PropagationDelay.Duration
 	}
-	// No CRD default: unset (and "0s") means no deadline, which is also
-	// Config's zero value.
-	if us.StallTimeout != nil && us.StallTimeout.Duration > 0 {
-		cfg.StallTimeout = us.StallTimeout.Duration
-	}
-	if us.DownloadTimeout != nil && us.DownloadTimeout.Duration > 0 {
-		cfg.DownloadTimeout = us.DownloadTimeout.Duration
-	}
+	// spec.usenet.stallTimeout and downloadTimeout are the manager's
+	// judgement now, on the transfer record's lastProgressAt and startedAt
+	// (ADR-0019 §3.5 P111, ruling R21): the client runs with neither.
 	return cfg, nil
 }
 

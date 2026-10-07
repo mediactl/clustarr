@@ -399,6 +399,11 @@ func (c *Client) Add(ctx context.Context, req download.AddRequest) (string, erro
 		sess.hasSeedCriteria = true
 	}
 	goalMet := sess.restoreSeedHistoryLocked(req.SeedHistory)
+	if req.Imported {
+		// The engine's journal recorded the import (ADR-0019 §6.7): the
+		// transfer comes back imported, so CanBeRemoved survives a restart.
+		sess.imported = true
+	}
 	sess.mu.Unlock()
 
 	if req.Paused {

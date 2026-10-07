@@ -25,6 +25,7 @@ import (
 	"net/http"
 
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	"github.com/mediactl/clustarr/app/grab/engine"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/redact"
@@ -133,7 +134,9 @@ func resolveSource(ctx context.Context, httpClient *http.Client, resolver Indexe
 			return resolved{}, fmt.Errorf("torrent: resolve indexerDownload: %w", err)
 		}
 		if resp.Error != "" {
-			return resolved{}, fmt.Errorf("torrent: indexer resolve failed: %s", resp.Error)
+			// indexarr answered and could not produce the payload: the
+			// release is gone from its indexer (ADR-0019 §6.7).
+			return resolved{}, fmt.Errorf("%w: torrent: indexer resolve failed: %s", engine.ErrPayloadUnavailable, resp.Error)
 		}
 		switch {
 		case len(resp.Bytes) > 0:
@@ -192,6 +195,9 @@ func fetchURL(ctx context.Context, httpClient *http.Client, url string) ([]byte,
 	}
 	defer func() { _ = resp.Body.Close() }()
 
+	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusGone {
+		return nil, fmt.Errorf("%w: torrent: fetch %s: status %d", engine.ErrPayloadUnavailable, redact.Host(url), resp.StatusCode)
+	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("torrent: fetch %s: status %d", redact.Host(url), resp.StatusCode)
 	}

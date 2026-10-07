@@ -29,6 +29,7 @@ import (
 
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	"github.com/mediactl/clustarr/app/grab/engine"
 	"github.com/mediactl/clustarr/pkg/download"
 	"github.com/mediactl/clustarr/pkg/fsops"
 )
@@ -73,6 +74,12 @@ type descriptor struct {
 	// re-attach hands it back (AddRequest.ContentRoot) so a changed
 	// publishDir or scratch resumes it there rather than downloading again.
 	ContentRoot string `json:"contentRoot,omitempty"`
+
+	// Journal is the transfer's claim, the last applied command seq and
+	// the import (ADR-0019 §6.7), flattened into the descriptor. A
+	// descriptor written before it existed decodes with an empty journal:
+	// a pre-journal transfer, which holds only its Download name (Name).
+	engine.Journal
 }
 
 // seedRecord is the persisted half of a torrent's seeding. Every field only
@@ -189,85 +196,6 @@ type loadedDescriptor struct {
 	Payload []byte
 }
 
-// descriptorState is the mutable half of a descriptor: what [Reconciler.sync]
-// can change after the initial Add, plus the latest observation of the
-// transfer, whose seed counters are persisted from it.
-type descriptorState struct {
-	Paused       bool
-	SeedCriteria *commonv1alpha1.SeedCriteria
-	Priority     downloadv1alpha1.DownloadPriority
-	Item         download.Item
-}
-
-// updateDescriptorState refreshes the mutable half of id's persisted
-// descriptor -- Paused, SeedCriteria and Priority, the fields
-// [Reconciler.sync] can change after the initial Add, and the seed counters
-// ([nextSeedRecord]) -- without touching the payload/magnet a re-resolve
-// would otherwise require. It is a no-op when no descriptor is on disk for id
-// (nothing to refresh: either it was never persisted, e.g. a re-attach
-// anomaly, or it has already been removed), and writes nothing when nothing
-// changed.
-//
-// Without this, a Download paused or re-scored after its initial Add would
-// re-attach in its ORIGINAL state after an engine restart, relying on the
-// next sync() pass to self-correct -- a brief but real window where a
-// transfer marked paused in spec.paused runs unpaused until the very next
-// reconcile notices. Keeping the descriptor current removes that window
-// rather than tolerating it.
-func updateDescriptorState(stateDir, id string, st descriptorState, now time.Time) error {
-	body, err := os.ReadFile(sidecarFileName(stateDir, id))
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil
-		}
-		return fmt.Errorf("torrent: read descriptor for %s: %w", id, err)
-	}
-	var d descriptor
-	if err := json.Unmarshal(body, &d); err != nil {
-		return fmt.Errorf("torrent: decode descriptor for %s: %w", id, err)
-	}
-	seed, seedDue := nextSeedRecord(d.Seed, st.Item, now)
-	moved := st.Item.ContentRoot != "" && st.Item.ContentRoot != d.ContentRoot
-	if d.Paused == st.Paused && seedCriteriaEqual(d.SeedCriteria, st.SeedCriteria) &&
-		d.Priority == st.Priority && !seedDue && !moved {
-		return nil
-	}
-	if moved {
-		d.ContentRoot = st.Item.ContentRoot
-	}
-	d.Paused = st.Paused
-	d.SeedCriteria = st.SeedCriteria
-	d.Priority = st.Priority
-	if seedDue {
-		d.Seed = &seed
-	}
-
-	out, err := json.Marshal(d)
-	if err != nil {
-		return fmt.Errorf("torrent: marshal descriptor for %s: %w", id, err)
-	}
-	if err := fsops.AtomicWrite(sidecarFileName(stateDir, id), bytes.NewReader(out), 0o640); err != nil {
-		return fmt.Errorf("torrent: persist descriptor for %s: %w", id, err)
-	}
-	return nil
-}
-
-// seedCriteriaEqual is a shallow, pointer-aware comparison good enough to
-// decide whether [updateDescriptorState] needs to write: it compares the
-// rendered JSON rather than field by field, since commonv1alpha1.SeedCriteria
-// carries a *resource.Quantity that has no cheap equality of its own.
-func seedCriteriaEqual(a, b *commonv1alpha1.SeedCriteria) bool {
-	if a == nil || b == nil {
-		return a == b
-	}
-	aj, errA := json.Marshal(a)
-	bj, errB := json.Marshal(b)
-	if errA != nil || errB != nil {
-		return false
-	}
-	return string(aj) == string(bj)
-}
-
 // loadDescriptors reads every persisted descriptor under stateDir. A single
 // corrupt or unreadable pair is logged by the caller and skipped rather than
 // failing the whole re-attach: one damaged sidecar must not strand every
@@ -336,6 +264,9 @@ func (l loadedDescriptor) addRequest() download.AddRequest {
 		AddedAt:          l.Desc.AddedAt,
 		SeedHistory:      l.Desc.Seed.history(),
 		ContentRoot:      l.Desc.ContentRoot,
+		// The journal's import comes back with the transfer, so
+		// CanBeRemoved survives a restart (ADR-0019 §6.7).
+		Imported: l.Desc.Imported,
 	}
 	return req
 }

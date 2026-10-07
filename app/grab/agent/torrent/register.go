@@ -16,8 +16,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 // Package torrent is the agent's torrent-engine domain (spec §3.5.3): one
-// StatefulSet replica's embedded anacrolix client, its Download reconciler,
-// its orphan reaper and its progress publisher.
+// StatefulSet replica's embedded anacrolix client, its command handler,
+// its transfer and engine records, and its progress publisher (ADR-0019
+// §6.7). It reads its DownloadClient and proxy Secret at start and writes
+// no Kubernetes object.
 package torrent
 
 import (
@@ -25,9 +27,10 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"path/filepath"
+	"sync/atomic"
 
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 
@@ -38,6 +41,7 @@ import (
 	torrentengine "github.com/mediactl/clustarr/app/grab/engine/torrent"
 	dltorrent "github.com/mediactl/clustarr/pkg/download/torrent"
 	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
@@ -62,12 +66,13 @@ type Options struct {
 }
 
 // Register builds the embedded anacrolix client from the named
-// DownloadClient's spec.torrent, re-attaches it synchronously (R4), and
-// registers [torrentengine.Reconciler], [torrentengine.Reaper] -- a
-// manager.Runnable that NOTHING else registers (plan task D2-8b, commit
-// d5c01d2) -- and its [engine.ProgressPublisher]. It returns the
-// torrent-engine.reattach readiness check and the client's Close. (§6.3,
-// §16 M3; plan tasks D2-5, D2-8)
+// DownloadClient's spec.torrent, re-attaches it synchronously from its
+// descriptors (R4; journals included, so the import survives a restart),
+// and registers the engine runtime: the reporter (the re-attach report,
+// then the engine record and transfer records), the command handler bound
+// to the engine's durable, and the progress publisher. It returns the
+// torrent-engine.reattach readiness check -- the reporter's -- and the
+// client's Close.
 func Register(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options) (catalogagent.Registration, error) {
 	if bus == nil {
 		return catalogagent.Registration{}, errors.New("torrent engine: Register needs the bus")
@@ -104,31 +109,39 @@ func Register(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options) 
 	// and -- with hostnameLookup -- every public name resolved through it.
 	// net.DefaultResolver is this engine process's alone (the engine runs
 	// in its own pod; `clustarr all` runs none), and cluster names still go
-	// to cluster DNS, so NATS and the apiserver are reached as before.
-	recorder := mgr.GetEventRecorder("grabarr-engine")
+	// to cluster DNS, so NATS and the apiserver are reached as before. The
+	// proxy's warning is the engine record's proxyUDP now: the engine
+	// records no Event (ADR-0019 §7.7).
+	var proxyUDP atomic.Value
+	proxyUDP.Store(schema.ProxyUDPNotApplicable)
 	pcfg, err := torrentProxy(ctx, mgr.GetAPIReader(), &dc, func(reason, message string) {
 		logging.FromContext(ctx).WarnContext(ctx, "torrent engine proxy", "reason", reason, "message", message)
-		recorder.Eventf(&dc, nil, corev1.EventTypeWarning, reason, "Start", "%s", message)
+		proxyUDP.Store(schema.ProxyUDPUnavailable)
 	})
 	if err != nil {
 		return catalogagent.Registration{}, err
 	}
-	if pcfg != nil && dc.Spec.Torrent.Proxy.HostnameLookupOrDefault() {
-		net.DefaultResolver = pcfg.Proxy.Resolver(dc.Spec.Torrent.Proxy.DNSServerOrDefault(), nil)
+	if pcfg != nil {
+		if proxyUDP.Load() == schema.ProxyUDPNotApplicable {
+			proxyUDP.Store(schema.ProxyUDPAvailable)
+		}
+		if dc.Spec.Torrent.Proxy.HostnameLookupOrDefault() {
+			net.DefaultResolver = pcfg.Proxy.Resolver(dc.Spec.Torrent.Proxy.DNSServerOrDefault(), nil)
+		}
 	}
 
 	enableDHT := dc.Spec.Torrent.EnableDHT == nil || *dc.Spec.Torrent.EnableDHT
 	rawClient, err := dltorrent.New(dltorrent.Config{
-		Proxy:        pcfg,
-		DataDir:      torrentDataDir,
-		ScratchDir:   scratchDir,
-		ListenPort:   int(dc.Spec.Torrent.ListenPort),
-		NoDHT:        !enableDHT,
-		StallTimeout: torrentengine.StallTimeout(dc.Spec.Torrent),
-		// Seed keeps a completed torrent uploading once finished; a
-		// DownloadClient exists to run the engine spec.seedCriteria (via
-		// Download.spec.seedCriteria/DownloadClientSpec.Torrent.Seed)
-		// governs, so the client-wide switch is always on.
+		Proxy:      pcfg,
+		DataDir:    torrentDataDir,
+		ScratchDir: scratchDir,
+		ListenPort: int(dc.Spec.Torrent.ListenPort),
+		NoDHT:      !enableDHT,
+		// No stall verdict in the engine: the manager judges a stall on
+		// the transfer record's lastProgressAt (ADR-0019 §3.5 P111).
+		StallTimeout: 0,
+		// Seed keeps a completed torrent uploading once finished; the
+		// manager's command carries the seed criteria that govern it.
 		Seed:   true,
 		Logger: logging.FromContext(ctx),
 	})
@@ -142,52 +155,26 @@ func Register(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options) 
 		return catalogagent.Registration{}, fmt.Errorf("grabarr: torrent engine re-attach: %w", err)
 	}
 
-	r := &torrentengine.Reconciler{
-		Client:     mgr.GetClient(),
-		HTTPClient: proxyHTTPClient(pcfg),
-		Engine:     e,
-		EngineID:   o.Engine,
-		StateDir:   stateDir,
-		Resolver:   torrentengine.NewBusIndexerResolver(bus),
-		// Uncached: the Episodes a pack targets are read once per Download,
-		// at its first Add, for file selection -- not worth an Episode
-		// informer in every engine pod.
-		EpisodeReader: mgr.GetAPIReader(),
+	pod, _ := PodName(os.Getenv, os.Hostname)
+	rt, err := engine.NewRuntime(bus, &torrentengine.Transfers{
+		Engine: e, HTTPClient: proxyHTTPClient(pcfg), Resolver: torrentengine.NewBusIndexerResolver(bus),
+	}, engine.RuntimeOptions{
+		Client: schema.Ref{Namespace: dc.Namespace, Name: dc.Name, UID: string(dc.UID)},
+		Engine: o.Engine, Pod: pod,
+		Proxy:      func() string { return proxyUDP.Load().(string) },
+		ScratchDir: scratchDir, PublishDir: torrentDataDir,
+	})
+	if err != nil {
+		_ = rawClient.Close()
+		return catalogagent.Registration{}, err
 	}
-	if err := r.SetupWithManager(mgr); err != nil {
-		return catalogagent.Registration{}, fmt.Errorf("grabarr: torrent-engine reconciler: %w", err)
-	}
-
-	// [torrentengine.Reaper] needs mgr.GetCache() for its cache-sync gate
-	// (its own doc comment: "D2-8's wiring must set this to mgr.GetCache(),
-	// or this guard does nothing") and NeedLeaderElection()==false already
-	// makes it run on every replica -- mgr.Add is enough, no k8s.EveryReplica
-	// wrapper needed, unlike a bare func.
-	reaper := &torrentengine.Reaper{
-		Client:   mgr.GetClient(),
-		Engine:   e,
-		EngineID: o.Engine,
-		Cache:    mgr.GetCache(),
-	}
-	if err := mgr.Add(reaper); err != nil {
-		return catalogagent.Registration{}, fmt.Errorf("grabarr: torrent reaper: %w", err)
-	}
-
-	// Design spec §5's 1 Hz telemetry into clustarr-progress, gated on
-	// re-attach like everything else that reads the client.
-	if err := mgr.Add(&engine.ProgressPublisher{
-		Client:   mgr.GetClient(),
-		Download: rawClient,
-		EngineID: o.Engine,
-		KV:       bus.KV(events.BucketProgress),
-		Cache:    mgr.GetCache(),
-		Ready:    e.Ready,
-	}); err != nil {
-		return catalogagent.Registration{}, fmt.Errorf("grabarr: torrent progress publisher: %w", err)
+	if err := rt.Add(mgr, bus); err != nil {
+		_ = rawClient.Close()
+		return catalogagent.Registration{}, err
 	}
 
 	var ready k8s.Checks
-	if err := ready.Add("torrent-engine.reattach", proxyReadiness(e.HealthzCheck, pcfg)); err != nil {
+	if err := ready.Add("torrent-engine.reattach", proxyReadiness(rt.Reporter.HealthzCheck, pcfg)); err != nil {
 		_ = rawClient.Close()
 		return catalogagent.Registration{}, err
 	}

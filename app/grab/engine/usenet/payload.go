@@ -25,6 +25,7 @@ import (
 	"net/http"
 
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	"github.com/mediactl/clustarr/app/grab/engine"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/redact"
@@ -132,7 +133,9 @@ func (r *Resolver) resolveIndexer(ctx context.Context, ns string, id downloadv1a
 	}
 	switch {
 	case resp.Error != "":
-		return nil, fmt.Errorf("usenetengine: indexarr: %s", resp.Error)
+		// indexarr answered and could not produce the payload: the release
+		// is gone from its indexer (ADR-0019 §6.7).
+		return nil, fmt.Errorf("%w: usenetengine: indexarr: %s", engine.ErrPayloadUnavailable, resp.Error)
 	case len(resp.Bytes) > 0:
 		// A large .nzb crosses the bus gzipped (DownloadResponse.ForWire).
 		b, err := resp.Payload(r.maxBytes())
@@ -182,6 +185,9 @@ func (r *Resolver) fetchURL(ctx context.Context, rawURL string) ([]byte, error) 
 		_ = resp.Body.Close()
 	}()
 
+	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusGone {
+		return nil, fmt.Errorf("%w: usenetengine: fetch %s: status %d", engine.ErrPayloadUnavailable, host, resp.StatusCode)
+	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("usenetengine: fetch %s: status %d", host, resp.StatusCode)
 	}

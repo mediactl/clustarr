@@ -338,6 +338,10 @@ type manifest struct {
 	AddedAt time.Time `json:"addedAt,omitzero"`
 	Done    []bitset  `json:"done,omitempty"`
 	Failed  []bitset  `json:"failed,omitempty"`
+	// Journal is the engine's per-transfer journal (ADR-0019 §6.7), an
+	// opaque document this client stores and never reads
+	// ([download.Journaled]).
+	Journal json.RawMessage `json:"journal,omitempty"`
 }
 
 const (
@@ -413,6 +417,8 @@ type job struct {
 
 	// renames is the manifest's Renames, kept in step by renameObfuscated.
 	renames map[string]string
+	// journal is the manifest's Journal ([Client.SetJournal]).
+	journal []byte
 	// par2Names is every name the par2 set records, from renameObfuscated,
 	// for adoptRepairedSet.
 	par2Names []string
@@ -503,6 +509,7 @@ func (j *job) checkpoint() error {
 		AddedAt:        j.addedAt,
 		Done:           cloneBitsets(j.done),
 		Failed:         cloneBitsets(j.failedSegs),
+		Journal:        append(json.RawMessage(nil), j.journal...),
 	}
 	j.mu.Unlock()
 
@@ -588,6 +595,7 @@ func (c *Client) loadJob(dir string) (*job, error) {
 	j.renames = m.Renames
 	applyRenames(j.nzb.Files, m.Renames)
 	j.addedAt = m.AddedAt
+	j.journal = append([]byte(nil), m.Journal...)
 	restoreBitsets(j.done, m.Done)
 	restoreBitsets(j.failedSegs, m.Failed)
 	for i := range j.done {
@@ -1312,6 +1320,7 @@ func (j *job) item() download.Item {
 	}
 
 	it := download.Item{
+		Name:            j.name,
 		ID:              j.id,
 		Status:          status,
 		Stage:           j.stage,
@@ -1495,6 +1504,35 @@ func (c *Client) SetPriority(_ context.Context, id string, priority downloadv1al
 func (c *Client) SetSeedCriteria(_ context.Context, _ string, _ commonv1alpha1.SeedCriteria) error {
 	return nil
 }
+
+// SetJournal implements [download.Journaled]: the engine's journal is
+// checkpointed with the manifest.
+func (c *Client) SetJournal(_ context.Context, id string, journal []byte) error {
+	j, err := c.lookup(id)
+	if err != nil {
+		return err
+	}
+	j.mu.Lock()
+	j.journal = append([]byte(nil), journal...)
+	j.mu.Unlock()
+	return j.checkpoint()
+}
+
+// Journal implements [download.Journaled].
+func (c *Client) Journal(_ context.Context, id string) ([]byte, error) {
+	j, err := c.lookup(id)
+	if err != nil {
+		return nil, err
+	}
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if len(j.journal) == 0 {
+		return nil, nil
+	}
+	return append([]byte(nil), j.journal...), nil
+}
+
+var _ download.Journaled = (*Client)(nil)
 
 // MarkImported tells the client the content is in the library, so the scratch
 // area may go.

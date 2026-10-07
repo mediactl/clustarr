@@ -181,6 +181,11 @@ type Item struct {
 	// [Client.Get]/[Client.Remove] take and what lands in status.downloadID.
 	ID string
 
+	// Name is the AddRequest.Name the transfer was added under (a grab
+	// entry's id, or a pre-journal Download's name), when the client keeps
+	// it; "" when it does not.
+	Name string
+
 	// Status is the engine's view of the transfer.
 	Status Status
 
@@ -483,7 +488,30 @@ type AddRequest struct {
 	// layout -- a torrent client whose publishDir or scratch changed would
 	// otherwise download every transfer again and orphan the old copies.
 	ContentRoot string
+
+	// Imported, on a re-attach, is the import an engine recorded in its
+	// journal (ADR-0019 §6.7): the client marks the transfer imported at
+	// once, as [Client.MarkImported] would, so CanBeRemoved survives a
+	// restart instead of living in memory only.
+	Imported bool
 }
+
+// Journaled is a client that keeps an engine's per-transfer journal
+// (ADR-0019 §6.7: the claim, the last applied seq, the import) beside its own
+// crash-recovery state, as an opaque document it never reads: usenet's
+// scratch manifest. A torrent engine keeps its journal in its own
+// descriptor, so its client is not Journaled.
+type Journaled interface {
+	// SetJournal stores journal for id durably.
+	SetJournal(ctx context.Context, id string, journal []byte) error
+	// Journal returns id's stored journal, nil when none, or ErrNotFound.
+	Journal(ctx context.Context, id string) ([]byte, error)
+}
+
+// ClampMessage cuts an engine message to the transfer record's bound
+// (schema.MaxTransferMessage, 2048 runes at most), as the Download status'
+// message was: one oversized message must not fail the whole report.
+func ClampMessage(s string) string { return clampMessage(s) }
 
 // SeedHistory is a torrent's seeding so far; see [AddRequest.SeedHistory].
 type SeedHistory struct {

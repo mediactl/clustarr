@@ -254,8 +254,10 @@ const (
 	// download.clustarr.io phase and conditions.
 	ManagerGrabarr FieldManager = "grabarr"
 
-	// ManagerGrabarrEngine is a torrent or usenet engine pod. It applies only
-	// the telemetry fields of Download.status.
+	// ManagerGrabarrEngine was a torrent or usenet engine pod's, which applied
+	// the telemetry fields of Download.status. Retired (ADR-0019 A3.6):
+	// engines write no Kubernetes object; RetiredFieldManagers keeps it
+	// valid until N+1.
 	ManagerGrabarrEngine FieldManager = "grabarr-engine"
 
 	// ManagerSquasharr is the squasharr controller manager.
@@ -358,7 +360,6 @@ func FieldManagers() []FieldManager {
 		ManagerIndexarr,
 		ManagerIndexarrWorker,
 		ManagerGrabarr,
-		ManagerGrabarrEngine,
 		ManagerSquasharr,
 		ManagerSquasharrPool,
 		ManagerCaptionarr,
@@ -371,10 +372,11 @@ func FieldManagers() []FieldManager {
 
 // RetiredFieldManagers are names no writer may use any more but Validate
 // still accepts: release N's one release apply of every MediaFile's
-// catalogarr-markers entry runs under it (loop spec §7.3.8, F8.4); F9.4
-// empties the list.
+// catalogarr-markers entry runs under it (loop spec §7.3.8, F8.4), and
+// grabarr-engine retired with the Download kind (ADR-0019 A3.6: engines
+// write no Kubernetes object). F9.4 and A9.1 empty the list.
 func RetiredFieldManagers() []FieldManager {
-	return []FieldManager{ManagerCatalogarrMarkers}
+	return []FieldManager{ManagerCatalogarrMarkers, ManagerGrabarrEngine}
 }
 
 // String returns the manager name as the apiserver sees it.

@@ -18,16 +18,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package torrent
 
 import (
-	"context"
-	"fmt"
 	"slices"
 	"time"
 
-	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/download"
+	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/release"
 )
 
@@ -63,76 +59,26 @@ func (s *Selection) empty() bool {
 	return s == nil || (len(s.Episodes) == 0 && len(s.Absolutes) == 0 && len(s.AirDates) == 0)
 }
 
-// resolveSelection reads the Episodes a Download targets and returns the
-// selection that fetches only their files. It returns nil -- want every
-// file -- for anything that is not an episode or a pack of episodes, and
-// for any Episode it cannot read: a selection built from part of a pack
-// would skip the files of the episodes it could not see.
-//
-// A movie, an album, a book or a comic issue is left whole. Their releases
-// are one item, and the files beside the main one (a cue sheet, a cover,
-// subtitles) belong to it.
-func resolveSelection(ctx context.Context, r client.Reader, dl downloadTarget) (*Selection, error) {
-	if r == nil {
-		return nil, nil
+// selectionFrom is the file selection an engine command carries
+// (ADR-0019 §6.7: cmd.Selection replaces the engine's Episode reads): the
+// covered episodes' numbers, absolute numbers and air dates, as the manager
+// read them from its cache. nil wants every file.
+func selectionFrom(sel *schema.TransferSelection) *Selection {
+	if sel == nil {
+		return nil
 	}
-	var names []string
-	switch dl.target.Kind {
-	case commonv1alpha1.MediaKindEpisode:
-		names = []string{dl.target.Name}
-	case commonv1alpha1.MediaKindSeries:
-		names = dl.target.Keys
-	default:
-		return nil, nil
+	out := &Selection{AirDates: append([]string(nil), sel.AirDates...)}
+	for _, e := range sel.Episodes {
+		out.Episodes = append(out.Episodes, EpisodeNumber{Season: int(e.Season), Episode: int(e.Number)})
 	}
-	if len(names) == 0 {
-		return nil, nil
+	for _, a := range sel.Absolutes {
+		out.Absolutes = append(out.Absolutes, int(a))
 	}
-
-	sel := &Selection{}
-	for _, name := range names {
-		var ep catalogv1alpha1.Episode
-		if err := r.Get(ctx, client.ObjectKey{Namespace: dl.namespace, Name: name}, &ep); err != nil {
-			return nil, fmt.Errorf("torrent: read episode %s/%s for file selection: %w", dl.namespace, name, err)
-		}
-		sel.add(&ep)
+	out.normalize()
+	if out.empty() {
+		return nil
 	}
-	sel.normalize()
-	return sel, nil
-}
-
-// downloadTarget is the part of a Download [resolveSelection] reads.
-type downloadTarget struct {
-	namespace string
-	target    commonv1alpha1.MediaRef
-}
-
-func (s *Selection) add(ep *catalogv1alpha1.Episode) {
-	s.Episodes = append(s.Episodes, EpisodeNumber{Season: int(ep.Spec.SeasonNumber), Episode: int(ep.Spec.EpisodeNumber)})
-	if ep.Status.AbsoluteNumber != nil {
-		s.Absolutes = append(s.Absolutes, int(*ep.Status.AbsoluteNumber))
-	}
-	if sn := ep.Status.SceneNumbering; sn != nil {
-		if sn.Episode != nil {
-			season := ep.Spec.SeasonNumber
-			if sn.Season != nil {
-				season = *sn.Season
-			}
-			s.Episodes = append(s.Episodes, EpisodeNumber{Season: int(season), Episode: int(*sn.Episode)})
-		}
-		if sn.Absolute != nil {
-			s.Absolutes = append(s.Absolutes, int(*sn.Absolute))
-		}
-	}
-	if ep.Status.AirDate != nil {
-		// UTC, never the local zone metav1.Time decodes into (CLAUDE.md's
-		// New Year gotcha), and a day either side, because a release names
-		// the local broadcast date and a provider's date may be the UTC one.
-		day := ep.Status.AirDate.UTC()
-		for _, d := range []int{-1, 0, 1} {
-			s.AirDates = append(s.AirDates, day.AddDate(0, 0, d).Format(time.DateOnly))
-		}
-	}
+	return out
 }
 
 // normalize sorts and de-duplicates, so the persisted form is stable.

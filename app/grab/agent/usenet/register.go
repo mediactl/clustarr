@@ -17,14 +17,17 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 // Package usenet is the agent's usenet-engine domain (spec §3.5.3): the
 // Deployment's embedded usenet pipeline (NNTP pools, yEnc assembly, PAR2
-// repair and extraction), its Download reconciler, its orphan reaper and
-// its progress publisher.
+// repair and extraction), its command handler, its transfer and engine
+// records, and its progress publisher (ADR-0019 §6.7). It reads its
+// DownloadClient and provider Secrets at start and writes no Kubernetes
+// object.
 package usenet
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -33,6 +36,7 @@ import (
 	"github.com/mediactl/clustarr/app/grab/engine"
 	usenetengine "github.com/mediactl/clustarr/app/grab/engine/usenet"
 	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
@@ -60,13 +64,11 @@ type Options struct {
 }
 
 // Register builds the embedded pkg/download/usenet client -- which
-// re-attaches synchronously inside usenet.BuildClient (R4 is satisfied by
-// construction; see app/grab/engine/usenet's doc.go) -- and registers
-// [usenetengine.Reconciler], [usenetengine.Reaper] -- a manager.Runnable
-// that NOTHING else registers (plan task D2-8b, commit d5c01d2) -- and its
-// [engine.ProgressPublisher]. It returns the client's Close and no
-// readiness check: there is nothing left to gate once BuildClient returns.
-// (§6.3, §16 M3; plan tasks D2-6, D2-8)
+// re-attaches synchronously inside usenet.BuildClient from its scratch
+// manifests, journals included (R4) -- and registers the engine runtime:
+// the reporter, the command handler bound to the engine's durable, and the
+// progress publisher. It returns the usenet-engine.reattach readiness check
+// (the reporter's) and the client's Close.
 func Register(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options) (catalogagent.Registration, error) {
 	if bus == nil {
 		return catalogagent.Registration{}, errors.New("usenet engine: Register needs the bus")
@@ -78,7 +80,7 @@ func Register(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options) 
 	// usenet.BuildClient Gets the DownloadClient (and every provider's
 	// Secret) before mgr.Start, so it needs a client that talks to the
 	// apiserver directly rather than mgr.GetClient()'s cache-backed one --
-	// see [directClient]'s doc comment.
+	// see [directClient]'s doc comment. It only reads.
 	direct, err := directClient(mgr)
 	if err != nil {
 		return catalogagent.Registration{}, err
@@ -88,41 +90,32 @@ func Register(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options) 
 		return catalogagent.Registration{}, fmt.Errorf("grabarr: build usenet client: %w", err)
 	}
 
-	r := &usenetengine.Reconciler{
-		Client:     mgr.GetClient(),
-		Download:   cl,
-		Resolver:   &usenetengine.Resolver{RPC: bus},
-		Recorder:   mgr.GetEventRecorder("usenet-engine"),
-		Engine:     o.Engine,
-		Categories: dc.Spec.Categories,
+	publish := o.PublishDir
+	if publish == "" {
+		publish = o.DataDir
 	}
-	if err := r.SetupWithManager(mgr); err != nil {
-		return catalogagent.Registration{}, fmt.Errorf("grabarr: usenet-engine reconciler: %w", err)
+	rt, err := engine.NewRuntime(bus, &usenetengine.Transfers{
+		Client: cl, Resolver: &usenetengine.Resolver{RPC: bus},
+	}, engine.RuntimeOptions{
+		Client: schema.Ref{Namespace: dc.Namespace, Name: dc.Name, UID: string(dc.UID)},
+		Engine: o.Engine, Pod: os.Getenv("POD_NAME"),
+		ScratchDir: o.ScratchDir, PublishDir: publish,
+	})
+	if err != nil {
+		_ = cl.Close()
+		return catalogagent.Registration{}, err
 	}
-
-	reaper := &usenetengine.Reaper{
-		Client:   mgr.GetClient(),
-		Download: cl,
-		Engine:   o.Engine,
-		Cache:    mgr.GetCache(),
-	}
-	if err := mgr.Add(reaper); err != nil {
-		return catalogagent.Registration{}, fmt.Errorf("grabarr: usenet reaper: %w", err)
+	if err := rt.Add(mgr, bus); err != nil {
+		_ = cl.Close()
+		return catalogagent.Registration{}, err
 	}
 
-	// Design spec §5's 1 Hz telemetry into clustarr-progress. BuildClient has
-	// already re-attached, so there is no readiness gate to wait for.
-	if err := mgr.Add(&engine.ProgressPublisher{
-		Client:   mgr.GetClient(),
-		Download: cl,
-		EngineID: o.Engine,
-		KV:       bus.KV(events.BucketProgress),
-		Cache:    mgr.GetCache(),
-	}); err != nil {
-		return catalogagent.Registration{}, fmt.Errorf("grabarr: usenet progress publisher: %w", err)
+	var ready k8s.Checks
+	if err := ready.Add("usenet-engine.reattach", rt.Reporter.HealthzCheck); err != nil {
+		_ = cl.Close()
+		return catalogagent.Registration{}, err
 	}
-
-	return catalogagent.Registration{Close: cl.Close}, nil
+	return catalogagent.Registration{Ready: &ready, Close: cl.Close}, nil
 }
 
 // directClient builds a client.Client that talks to the apiserver directly,
