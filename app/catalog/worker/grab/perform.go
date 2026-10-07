@@ -30,7 +30,6 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
-	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 	"github.com/mediactl/clustarr/app/catalog/grabsource"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -375,14 +374,14 @@ func guardExistingDownloads(
 	for i := range list.Items {
 		dl := &list.Items[i]
 		if dl.Name == downloadName {
-			if rollup.DownloadNonTerminal(dl) && appliedByGrabPath(dl) {
+			if grabsource.DownloadNonTerminal(dl) && appliedByGrabPath(dl) {
 				resume = true
 				continue
 			}
 			blockers = append(blockers, dl.Name)
 			continue
 		}
-		if !rollup.DownloadNonTerminal(dl) || dl.Spec.Purpose != purpose {
+		if !grabsource.DownloadNonTerminal(dl) || dl.Spec.Purpose != purpose {
 			// A donor and a video grab of one item coexist: an upgrade
 			// never waits on a dub, nor a dub on an upgrade.
 			continue
@@ -437,7 +436,7 @@ func (d Deps) leaseHolder(ns string) holderFunc {
 			return holderStale, nil
 		case err != nil:
 			return holderActive, err
-		case rollup.DownloadNonTerminal(&dl):
+		case grabsource.DownloadNonTerminal(&dl):
 			return holderActive, nil
 		default:
 			return holderStale, nil

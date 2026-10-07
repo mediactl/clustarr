@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"slices"
 	"sort"
+	"strings"
 
 	"github.com/a-h/templ"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -32,6 +33,7 @@ import (
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/ui/actions"
 	"github.com/mediactl/clustarr/ui/paging"
@@ -54,6 +56,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /events/pipeline", s.handlePipelineEvents)
 	mux.HandleFunc("GET /downloads", s.handleDownloads)
 	mux.HandleFunc("GET /events/downloads", s.handleDownloadsEvents)
+	mux.HandleFunc("GET /downloads/{namespace}/{kind}/{owner}/{entry}/import", s.handleDownloadImport)
+	mux.HandleFunc("POST /downloads/{namespace}/{kind}/{owner}/{entry}/{action}", s.handleDownloadAction)
 	mux.HandleFunc("GET /library", s.handleLibraryIndex)
 	mux.HandleFunc("GET /library/{tab}", s.handleLibrary)
 	mux.HandleFunc("GET /library/find", s.handleFind)
@@ -75,6 +79,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /library/{namespace}/{kind}/{name}/search", s.handleSearchNow)
 	mux.HandleFunc("POST /library/{namespace}/{kind}/{name}/refresh", s.handleRefreshMetadata)
 	mux.HandleFunc("POST /library/{namespace}/{kind}/{name}/rename", s.handleRenameItem)
+	mux.HandleFunc("POST /library/{namespace}/{kind}/{name}/unblock", s.handleUnblockRelease)
 	mux.HandleFunc("POST /library/{namespace}/{kind}/{name}/delete", s.handleRequestDelete)
 	mux.HandleFunc("POST /library/{namespace}/{kind}/{name}/delete/cancel", s.handleCancelDelete)
 	mux.HandleFunc("POST /library/rescan", s.handleRescan)
@@ -174,54 +179,195 @@ func (s *Server) handlePipeline(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleDownloads renders the Downloads page (§A3.4) from the current
-// cluster state, read directly through Options.Reader. Task D3-2 consumes
-// D3-0's Reader on its own -- the shared projection loop (Task D3-1) that
-// later backs /events/downloads (Task D3-3) is a separate package this task
-// does not touch, so this handler lists Download and DownloadClient itself
-// rather than waiting on it.
+// handleDownloads renders the Downloads page: one row per grab entry
+// (ADR-0019 §6.12) from the shared projection, with each row's transfer
+// telemetry, and the DownloadClients read through Options.Reader.
 func (s *Server) handleDownloads(w http.ResponseWriter, r *http.Request) {
-	downloads, clients := s.listDownloads(r.Context())
-	p := paging.Parse(r.URL.Query()).Page(len(downloads))
+	rows, clients := s.listDownloads(r.Context())
+	p := paging.Parse(r.URL.Query()).Page(len(rows))
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := views.Downloads(p, paging.Window(downloads, p), clients).Render(r.Context(), w); err != nil {
+	if err := views.Downloads(p, s.downloadViews(r.Context(), paging.Window(rows, p)), clients).Render(r.Context(), w); err != nil {
 		logging.FromContext(r.Context()).Error("render downloads page", "error", err)
 	}
 }
 
-// listDownloads lists every Download and DownloadClient through
-// Options.Reader, each sorted by name for a stable render.
-//
-// A nil Reader (no cluster configured, or a test that only cares about
-// routing) returns two nil slices, exactly as a nil Options.Entries behaves
-// for the Pipeline page -- the page must render something sensible with no
-// cluster at all, not just with an empty one.
-//
-// A List error (a reachable but not-yet-synced cache, or a cluster that
-// dropped mid-request) is logged and treated as "nothing to show" rather
-// than failing the request: Options.Reader is a read-only, best-effort seam,
-// and a transient list failure must not turn into a 500 for a page whose
-// only job is to show what it currently knows.
-func (s *Server) listDownloads(ctx context.Context) ([]downloadv1.Download, []downloadv1.DownloadClient) {
+// listDownloads is the grab rows -- the projection's, through one
+// SubscribeDownloads read -- and every DownloadClient through
+// Options.Reader, sorted by name. A nil Reader or a List error is "nothing
+// to show", never a 500.
+func (s *Server) listDownloads(ctx context.Context) ([]projection.DownloadRow, []downloadv1.DownloadClient) {
+	var rows []projection.DownloadRow
+	if s.opts.SubscribeDownloads != nil {
+		ch, unsubscribe := s.opts.SubscribeDownloads()
+		select {
+		case rows = <-ch:
+		case <-ctx.Done():
+		}
+		unsubscribe()
+	}
 	if s.opts.Reader == nil {
-		return nil, nil
+		return rows, nil
 	}
-
-	var downloadList downloadv1.DownloadList
-	if err := s.opts.Reader.List(ctx, &downloadList); err != nil {
-		logging.FromContext(ctx).Error("list downloads", "error", err)
-	}
-	downloads := downloadList.Items
-	sort.Slice(downloads, func(i, j int) bool { return downloads[i].Name < downloads[j].Name })
-
 	var clientList downloadv1.DownloadClientList
 	if err := s.opts.Reader.List(ctx, &clientList); err != nil {
 		logging.FromContext(ctx).Error("list download clients", "error", err)
 	}
 	clients := clientList.Items
 	sort.Slice(clients, func(i, j int) bool { return clients[i].Name < clients[j].Name })
+	return rows, clients
+}
 
-	return downloads, clients
+// findDownload is the grab row the path names: namespace, owner kind,
+// owner and entry id.
+func (s *Server) findDownload(ctx context.Context, r *http.Request) (projection.DownloadRow, bool) {
+	rows, _ := s.listDownloads(ctx)
+	ns, kind, owner, entry := r.PathValue("namespace"), r.PathValue("kind"), r.PathValue("owner"), r.PathValue("entry")
+	for _, row := range rows {
+		if row.Owner.Namespace == ns && string(row.OwnerKind) == kind && row.Owner.Name == owner && row.Entry.ID == entry {
+			return row, true
+		}
+	}
+	return projection.DownloadRow{}, false
+}
+
+// handleDownloadImport renders an entry's import records
+// (Options.ImportDetail): what the inspect found and what the execute
+// placed.
+func (s *Server) handleDownloadImport(w http.ResponseWriter, r *http.Request) {
+	row, ok := s.findDownload(r.Context(), r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	var inspect, execute *schema.ImportRecord
+	if s.opts.ImportDetail != nil {
+		if rec, ok, err := s.opts.ImportDetail(r.Context(), row.Entry.UID, schema.ImportSubInspect); err == nil && ok {
+			inspect = &rec
+		}
+		if rec, ok, err := s.opts.ImportDetail(r.Context(), row.Entry.UID, schema.ImportSubExecute); err == nil && ok {
+			execute = &rec
+		}
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := views.DownloadImport(row, inspect, execute).Render(r.Context(), w); err != nil {
+		logging.FromContext(r.Context()).Error("render download import page", "error", err)
+	}
+}
+
+// handleDownloadAction is an entry's action (ADR-0019 §6.10): POST
+// /downloads/{namespace}/{kind}/{owner}/{entry}/{action}, each a patch of
+// one download.clustarr.io annotation on the owner through
+// Options.Actions:
+//
+//   - pause: paused=true|false toggles the entry in the standing paused
+//     list, kept against the owner's current value and resourceVersion;
+//   - priority: priority=high|normal|low, likewise;
+//   - resume: releases a health hold;
+//   - remove: data and blocklist ride along when true;
+//   - retry-import: imports again, to target=<kind>/<name> when set, with
+//     override when true.
+func (s *Server) handleDownloadAction(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+	ctx := r.Context()
+	ns, kind, owner, entry := r.PathValue("namespace"), commonv1.MediaKind(r.PathValue("kind")), r.PathValue("owner"), r.PathValue("entry")
+	var (
+		err  error
+		done string
+	)
+	switch r.PathValue("action") {
+	case "pause":
+		paused := r.FormValue("paused") != "false"
+		var cur actions.Standing
+		cur, err = s.standing(ctx, ns, kind, owner, catalogv1.AnnotationDownloadPaused)
+		if err == nil {
+			err = s.opts.Actions.PauseDownload(ctx, ns, kind, owner, entry, paused, cur)
+		}
+		done = "Paused"
+		if !paused {
+			done = "Unpaused"
+		}
+	case "priority":
+		var cur actions.Standing
+		cur, err = s.standing(ctx, ns, kind, owner, catalogv1.AnnotationDownloadPriority)
+		if err == nil {
+			err = s.opts.Actions.SetDownloadPriority(ctx, ns, kind, owner, entry, r.FormValue("priority"), cur)
+		}
+		done = "Priority set"
+	case "resume":
+		err, done = s.opts.Actions.ResumeDownload(ctx, ns, kind, owner, entry), "Resume queued"
+	case "remove":
+		err = s.opts.Actions.RemoveDownload(ctx, ns, kind, owner, entry,
+			r.FormValue("data") == "true", r.FormValue("blocklist") == "true")
+		done = "Removal queued"
+	case "retry-import":
+		var target *schema.ItemRef
+		if t := r.FormValue("target"); t != "" {
+			k, n, ok := strings.Cut(t, "/")
+			if !ok {
+				s.finishAction(w, r, fmt.Errorf("%w: target wants <kind>/<name>", actions.ErrInvalid))
+				return
+			}
+			target = &schema.ItemRef{Kind: k, Ref: schema.Ref{Name: n}}
+		}
+		err = s.opts.Actions.RetryImport(ctx, ns, kind, owner, entry, target, r.FormValue("override") == "true")
+		done = "Import queued"
+	default:
+		http.NotFound(w, r)
+		return
+	}
+	s.finishActionWith(w, r, err, done)
+}
+
+// handleUnblockRelease lifts a release's block for an item (or every item
+// with global=true): POST /library/{namespace}/{kind}/{name}/unblock with
+// release=<infoHash> or <indexer>/<guid>.
+func (s *Server) handleUnblockRelease(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+	err := s.opts.Actions.UnblockRelease(r.Context(), r.PathValue("namespace"), commonv1.MediaKind(r.PathValue("kind")),
+		r.PathValue("name"), r.FormValue("release"), r.FormValue("global") == "true")
+	s.finishActionWith(w, r, err, "Unblock queued")
+}
+
+// standing reads a standing download annotation off the owner through the
+// cache, with the owner's resourceVersion, so a toggle keeps every other
+// entry and conflicts rather than overwrite a change it did not see.
+func (s *Server) standing(ctx context.Context, ns string, kind commonv1.MediaKind, owner, key string) (actions.Standing, error) {
+	if s.opts.Reader == nil {
+		return actions.Standing{}, actions.ErrNoWriter
+	}
+	obj, ok := ownerObject(kind)
+	if !ok {
+		return actions.Standing{}, fmt.Errorf("%w: a %s holds no grabs", actions.ErrInvalid, kind)
+	}
+	if err := s.opts.Reader.Get(ctx, client.ObjectKey{Namespace: ns, Name: owner}, obj); err != nil {
+		return actions.Standing{}, err
+	}
+	return actions.Standing{Value: obj.GetAnnotations()[key], ResourceVersion: obj.GetResourceVersion()}, nil
+}
+
+// ownerObject is an empty object of a grab owner kind.
+func ownerObject(kind commonv1.MediaKind) (client.Object, bool) {
+	switch kind {
+	case commonv1.MediaKindMovie:
+		return &catalogv1.Movie{}, true
+	case commonv1.MediaKindSeries:
+		return &catalogv1.Series{}, true
+	case commonv1.MediaKindAlbum:
+		return &catalogv1.Album{}, true
+	case commonv1.MediaKindBook:
+		return &catalogv1.Book{}, true
+	case commonv1.MediaKindAudiobook:
+		return &catalogv1.Audiobook{}, true
+	case commonv1.MediaKindComic:
+		return &catalogv1.Comic{}, true
+	}
+	return nil, false
 }
 
 // handleLibrary renders the Library page (amendment §A3.4, Task G3-3) from

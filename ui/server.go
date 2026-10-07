@@ -36,7 +36,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/objindex"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -145,7 +144,8 @@ type Options struct {
 	// page answers 404.
 	//
 	// Server reads it directly for data that does not ride the shared
-	// projection: GET /downloads' Downloads and DownloadClients, the
+	// projection: GET /downloads' DownloadClients (and its rows when no
+	// projection is wired), the
 	// RootFolders behind the Library page's rescan toolbar, the Settings
 	// page's lists and the library-scan detail page -- and, when
 	// SubscribeDownloads is nil, NewServer's per-connection poll.
@@ -262,23 +262,29 @@ type Options struct {
 	// *projection.Projection.
 	Subscribe func() (<-chan []pipeline.Entry, func())
 
-	// SubscribeDownloads is Subscribe's Task D3-3 counterpart for the
-	// Downloads page: a channel that receives the current downloads slice
-	// immediately upon subscribing, and again whenever it changes, plus a
-	// func that unsubscribes. /events/downloads (ui/sse.go) reads from it
-	// instead of listing Download itself on its own ticker, so production
-	// wiring can back this with the SAME shared *projection.Projection as
-	// Subscribe -- one list round feeding both streams (design plan ruling
-	// R4).
+	// SubscribeDownloads is Subscribe's counterpart for the Downloads page:
+	// a channel that receives the current grab rows (one per entry on an
+	// owner's status.downloads, ADR-0019 §6.12) immediately upon
+	// subscribing, and again whenever they change, plus a func that
+	// unsubscribes. Production wiring backs it with the SAME shared
+	// *projection.Projection as Subscribe (ruling R4).
 	//
-	// A nil SubscribeDownloads -- every test in this package that sets only
-	// Reader (or neither), and any `clustarr ui` process too short-lived to
-	// have wired a projection loop yet -- defaults in [NewServer] to a
-	// per-connection poll of Reader, mirroring Subscribe's own nil fallback.
-	// GET /downloads (ui/routes.go's handleDownloads) does not use this
-	// field at all; it lists through Reader directly, exactly as it did
-	// before this field existed.
-	SubscribeDownloads func() (<-chan []downloadv1.Download, func())
+	// A nil SubscribeDownloads defaults in [NewServer] to a per-connection
+	// poll of Reader (projection.ListDownloadRows), mirroring Subscribe's
+	// own nil fallback.
+	SubscribeDownloads func() (<-chan []projection.DownloadRow, func())
+
+	// TransferProgress reads an entry's 1 Hz transfer telemetry from
+	// clustarr-progress (download.<entry uid>), bound in cmd/ui to the
+	// read-only bus under a short deadline; false when there is none. A nil
+	// TransferProgress renders rows without telemetry.
+	TransferProgress func(ctx context.Context, entryUID string) (schema.DownloadProgress, bool, error)
+
+	// ImportDetail reads one of an entry's import records from
+	// clustarr-imports (phase "inspect" or "execute"), bound in cmd/ui to
+	// the read-only bus; false when there is none. A nil ImportDetail shows
+	// no record.
+	ImportDetail func(ctx context.Context, entryUID, phase string) (schema.ImportRecord, bool, error)
 
 	// Library returns the current library projection for the Library page
 	// (Task G3-3) and its SSE stream, mirroring Entries: production wiring
@@ -445,9 +451,8 @@ func NewServer(ctx context.Context, opts Options) *Server {
 		opts.Subscribe = defaultSubscribe(opts.Entries)
 	}
 	if opts.SubscribeDownloads == nil {
-		// opts.Reader may itself be nil here; defaultSubscribeDownloads and
-		// the poller behind it treat that exactly like Entries returning no
-		// rows -- see pollDownloadsOnly's own doc comment.
+		// opts.Reader may itself be nil here; the poller behind
+		// defaultSubscribeDownloads treats that as no rows.
 		opts.SubscribeDownloads = defaultSubscribeDownloads(opts.Reader)
 	}
 	if opts.Library == nil {

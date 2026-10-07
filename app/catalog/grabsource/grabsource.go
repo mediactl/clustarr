@@ -229,3 +229,52 @@ func CoversEntry(e *catalogv1alpha1.DownloadEntry, kind commonv1.MediaKind, name
 		return true
 	}
 }
+
+// DownloadNonTerminal reports whether dl can still deliver content to the
+// catalog item it targets, which is what status.activeDownloadRef means
+// (gap-fix ruling R-5). A Download is terminal once it is Imported, Failed,
+// Blocklisted or Removing, or once it carries a deletion timestamp: grabarr
+// never sets Removing itself (its finalizer tears the transfer down without
+// a phase change), so a Download on its way out would otherwise read as
+// active for as long as its engine takes to let go of it.
+//
+// Completed and Seeding are deliberately NOT terminal. The content is on
+// disk and waiting for importarr, and derivePhase makes Imported sticky
+// over Seeding, so a Seeding Download has not been imported yet. Clearing
+// the ref there would tell every reader -- the grab path's double-grab
+// guard above all -- that nothing is working on an item whose file is one
+// import away.
+//
+// It moved here from app/catalog/controller/rollup with ADR-0019 A3.9:
+// only the grab worker, which A4 retires, still reads a Download.
+//
+// A Download labelled blocklisted is terminal whatever its phase reads:
+// grabarr labels a release fault first, then publishes blocklisted, then
+// writes the phase, so the redownload search that event starts would
+// otherwise find the dead release still queued and reject every release
+// that does not beat it (2026-09-30).
+func DownloadNonTerminal(dl *downloadv1alpha1.Download) bool {
+	if dl == nil || dl.DeletionTimestamp != nil {
+		return false
+	}
+	if dl.Labels[downloadv1alpha1.LabelBlocklisted] == downloadv1alpha1.LabelBlocklistedValue {
+		return false
+	}
+	// An import importarr held for a person (status.import.heldSince) keeps
+	// the Download and its files for their decision, but nothing more comes
+	// of it on its own: it is not the item's active download, so a
+	// transcoded movie reads Transcoded, not Downloading, while it waits.
+	// One still being retried (pending, nextAttemptAt) is.
+	if imp := dl.Status.Import; imp != nil && imp.State == downloadv1alpha1.ImportPhaseBlocked && imp.HeldSince != nil {
+		return false
+	}
+	switch dl.Status.Phase {
+	case downloadv1alpha1.DownloadPhaseImported,
+		downloadv1alpha1.DownloadPhaseFailed,
+		downloadv1alpha1.DownloadPhaseBlocklisted,
+		downloadv1alpha1.DownloadPhaseRemoving:
+		return false
+	default:
+		return true
+	}
+}

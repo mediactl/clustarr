@@ -28,7 +28,6 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/delay"
 	"github.com/mediactl/clustarr/app/catalog/worker/grab"
 	"github.com/mediactl/clustarr/app/catalog/worker/search"
@@ -100,7 +99,7 @@ func blockScope(kind string, o client.Object) string {
 //
 // The current file is read from the item's MediaFile through the search
 // worker's own search.CurrentFile -- quality, revision, format score, matched
-// formats, the source title and the source Download's info hash, and the
+// formats, the source title and the info hash frozen at import, and the
 // transcoded verdict -- not from the item's status rollup
 // (hasFile/fileQuality/fileFormatScore), which carries neither the revision
 // nor the source. A non-video item is read whole through
@@ -252,26 +251,18 @@ func currentFile(ctx context.Context, c client.Reader, ns string, hasFile bool, 
 	return cur, nil
 }
 
-// queueFor lists the Downloads already working on ref, through the search
-// worker's exported IndexDownloadTarget index. A read failure is a warning,
-// not an error: an empty queue can only approve a release the fuller check
-// might have deferred, and the grab's lease plus its lookup of the item's
-// live Downloads still stop a second Download for the same item.
+// queueFor is the live grabs already working on ref, through the search
+// worker's search.QueuedFor, so an RSS decision and a search decision see
+// one queue. A read failure is a warning, not an error: an empty queue can
+// only approve a release the fuller check might have deferred, and the
+// grab's own admission still stops a second grab for the same item.
 func queueFor(ctx context.Context, c client.Client, ns string, ref commonv1.MediaRef) []decision.Queued {
-	var list downloadv1alpha1.DownloadList
-	if err := c.List(ctx, &list,
-		client.InNamespace(ns),
-		client.MatchingFields{search.IndexDownloadTarget: search.TargetIndexValue(ref)},
-	); err != nil {
+	q, err := search.QueuedFor(ctx, c, ns, ref)
+	if err != nil {
 		logging.FromContext(ctx).Warn("rssmatcher: queue lookup failed; deciding against an empty queue", "error", err)
 		return nil
 	}
-	out := make([]decision.Queued, 0, len(list.Items))
-	for i := range list.Items {
-		r := list.Items[i].Spec.Release
-		out = append(out, quality.Candidate{Quality: r.Quality, Revision: r.Revision, FormatScore: int(r.FormatScore)})
-	}
-	return out
+	return q
 }
 
 // decisionOptions folds the delay profile's protocol switches and the

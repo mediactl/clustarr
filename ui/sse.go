@@ -23,12 +23,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"sort"
 	"time"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	downloadv1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/pipeline"
 	"github.com/mediactl/clustarr/ui/paging"
@@ -181,18 +180,71 @@ func (s *Server) handleDownloadsEvents(w http.ResponseWriter, r *http.Request) {
 	defer unsubscribe()
 
 	want := paging.Parse(r.URL.Query())
+	// The rows change when an entry's status does; the transfer telemetry
+	// beside them every second. A frame goes out on either: a new set of
+	// rows, or progressPushInterval with rows in flight.
+	ticker := time.NewTicker(progressPushInterval)
+	defer ticker.Stop()
+	var rows []projection.DownloadRow
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case downloads := <-ch:
-			p := want.Page(len(downloads))
-			if !writeDownloadsEvent(w, ctx, p, paging.Window(downloads, p)) {
-				return
+		case rows = <-ch:
+		case <-ticker.C:
+			if !anyMoving(rows) {
+				continue
 			}
-			flusher.Flush()
+		}
+		p := want.Page(len(rows))
+		if !writeDownloadsEvent(w, ctx, p, s.downloadViews(ctx, paging.Window(rows, p))) {
+			return
+		}
+		flusher.Flush()
+	}
+}
+
+// progressPushInterval is how often /events/downloads re-renders a page
+// with a transfer in flight, for its clustarr-progress telemetry.
+const progressPushInterval = 2 * time.Second
+
+// anyMoving reports a row whose transfer telemetry moves.
+func anyMoving(rows []projection.DownloadRow) bool {
+	for i := range rows {
+		switch rows[i].Entry.Phase {
+		case commonv1.DownloadPhaseQueued, commonv1.DownloadPhaseDownloading, commonv1.DownloadPhaseSeeding:
+			return true
 		}
 	}
+	return false
+}
+
+// downloadViews joins a page's rows with their transfer telemetry
+// (Options.TransferProgress); a row whose read fails or finds nothing
+// renders without it.
+func (s *Server) downloadViews(ctx context.Context, rows []projection.DownloadRow) []views.DownloadView {
+	out := make([]views.DownloadView, len(rows))
+	for i := range rows {
+		out[i].Row = rows[i]
+		if s.opts.TransferProgress == nil || rows[i].Entry.UID == "" {
+			continue
+		}
+		switch rows[i].Entry.Phase {
+		case commonv1.DownloadPhaseQueued, commonv1.DownloadPhaseDownloading, commonv1.DownloadPhasePaused,
+			commonv1.DownloadPhaseSeeding, commonv1.DownloadPhaseCompleted:
+		default:
+			continue
+		}
+		pr, ok, err := s.opts.TransferProgress(ctx, rows[i].Entry.UID)
+		if err != nil {
+			logging.FromContext(ctx).Debug("read transfer progress", "entry", rows[i].Entry.ID, "error", err)
+			continue
+		}
+		if ok {
+			out[i].Progress = &pr
+		}
+	}
+	return out
 }
 
 // writeDownloadsEvent writes one "downloads" SSE event for downloads and
@@ -204,9 +256,9 @@ func (s *Server) handleDownloadsEvents(w http.ResponseWriter, r *http.Request) {
 // reassembles the fragment exactly -- the same fragment #downloads-rows was
 // initially rendered with, which is the D3-2/D3-3 markup contract this
 // stream exists to satisfy.
-func writeDownloadsEvent(w http.ResponseWriter, ctx context.Context, p paging.Page, downloads []downloadv1.Download) bool {
+func writeDownloadsEvent(w http.ResponseWriter, ctx context.Context, p paging.Page, downloads []views.DownloadView) bool {
 	if downloads == nil {
-		downloads = []downloadv1.Download{}
+		downloads = []views.DownloadView{}
 	}
 
 	var fragment bytes.Buffer
@@ -556,32 +608,16 @@ func defaultSubscribe(entries func(context.Context) []pipeline.Entry) func() (<-
 	return pollingSubscribe(pipelinePushInterval, entries)
 }
 
-// defaultSubscribeDownloads is [defaultSubscribe]'s Task D3-3 counterpart:
-// it adapts a direct read of Options.Reader to the SubscribeDownloads shape
-// /events/downloads consumes, by polling on downloadsPushInterval from a
-// goroutine private to each subscription. It exists so that Options.Reader
-// alone (no Options.SubscribeDownloads, i.e. no shared
-// ui/projection.Projection wired) still streams something -- every test in
-// this package that sets only Reader, and a `clustarr ui` process too
-// short-lived to have wired the projection loop yet.
-//
-// Unlike defaultSubscribe, there is no plain poll func on Options to adapt:
-// D3-2's GET /downloads reads Options.Reader directly through the Server's
-// own listDownloads method, which this package-level func cannot call (it
-// runs from [NewServer], before a *Server exists), so it lists Download
-// itself instead.
-func defaultSubscribeDownloads(reader client.Reader) func() (<-chan []downloadv1.Download, func()) {
-	return pollingSubscribe(downloadsPushInterval, func(ctx context.Context) []downloadv1.Download {
+// defaultSubscribeDownloads is [defaultSubscribe]'s Downloads-page
+// counterpart: with no shared ui/projection.Projection wired it polls
+// Options.Reader through projection.ListDownloadRows on
+// downloadsPushInterval, from a goroutine private to each subscription.
+func defaultSubscribeDownloads(reader client.Reader) func() (<-chan []projection.DownloadRow, func()) {
+	return pollingSubscribe(downloadsPushInterval, func(ctx context.Context) []projection.DownloadRow {
 		return pollDownloadsOnly(ctx, reader)
 	})
 }
 
-// pollDownloadsOnly lists every Download through reader, sorted by name to
-// match ui/routes.go's listDownloads ordering, tolerating a nil reader (no
-// cluster configured) or a List error the same way listDownloads does: as
-// "nothing to show" rather than a failure, since this is a best-effort
-// fallback poller, not a request handler with a caller to report an error
-// to.
 // defaultSubscribeLibrary is [defaultSubscribe]'s Library-page counterpart
 // (Task G3-3): it adapts Options.Library, a plain poll function, to the
 // SubscribeLibrary shape /events/library consumes, by polling it on
@@ -613,19 +649,16 @@ func defaultSubscribeImportLists(
 	return pollingSubscribe(importListsPushInterval, importLists)
 }
 
-func pollDownloadsOnly(ctx context.Context, reader client.Reader) []downloadv1.Download {
-	if reader == nil {
+// pollDownloadsOnly builds the grab rows through reader, tolerating a nil
+// reader or a List error as "nothing to show": this is a best-effort
+// fallback poller with no caller to report an error to.
+func pollDownloadsOnly(ctx context.Context, reader client.Reader) []projection.DownloadRow {
+	rows, err := projection.ListDownloadRows(ctx, reader)
+	if err != nil {
+		logging.FromContext(ctx).Error("list grab rows for sse fallback poll", "error", err)
 		return nil
 	}
-
-	var list downloadv1.DownloadList
-	if err := reader.List(ctx, &list); err != nil {
-		logging.FromContext(ctx).Error("list downloads for sse fallback poll", "error", err)
-		return nil
-	}
-	downloads := list.Items
-	sort.Slice(downloads, func(i, j int) bool { return downloads[i].Name < downloads[j].Name })
-	return downloads
+	return rows
 }
 
 // pollingSubscribe adapts poll -- a plain per-call snapshot function -- to
@@ -669,8 +702,8 @@ func pollingSubscribe[T any](interval time.Duration, poll func(context.Context) 
 // cancellation, not the handler draining ch, so an unbuffered or blocking
 // send could hang a goroutine past the point its subscriber stopped
 // reading. Generic over the payload so both defaultSubscribe's
-// []pipeline.Entry and defaultSubscribeDownloads's []downloadv1.Download
-// (Task D3-3) share the one implementation.
+// []pipeline.Entry and defaultSubscribeDownloads's []projection.DownloadRow
+// share the one implementation.
 func publishSSE[T any](ch chan T, v T) {
 	select {
 	case ch <- v:

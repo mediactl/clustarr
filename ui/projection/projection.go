@@ -39,7 +39,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
-	downloadv1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	subtitlev1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
 	transcodev1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -52,8 +51,9 @@ const DefaultInterval = 5 * time.Second
 
 // Projection computes []pipeline.Entry over a client.Reader on a fixed
 // interval and broadcasts the result to every current [Subscribe]r. The
-// same tick also broadcasts the Download list gathered along the way (Task
-// D3-3, ruling R4) to every current [SubscribeDownloads]r, plus -- Task
+// same tick also broadcasts the grab entries read off the same items (one
+// DownloadRow per entry, ADR-0019 §6.12) to every current
+// [SubscribeDownloads]r, plus -- Task
 // G3-3, same ruling -- the Library page's []LibraryItem to every current
 // [SubscribeLibrary]r and the Unmatched page's []UnmatchedEntry to every
 // current [SubscribeUnmatched]r, plus -- Task G3-4, same ruling -- the
@@ -83,12 +83,12 @@ type Projection struct {
 
 	mu             sync.Mutex
 	entries        []pipeline.Entry
-	downloads      []downloadv1.Download
+	downloads      []DownloadRow
 	library        []LibraryItem
 	unmatched      []UnmatchedEntry
 	importLists    []ImportListEntry
 	subs           map[chan []pipeline.Entry]struct{}
-	downloadSubs   map[chan []downloadv1.Download]struct{}
+	downloadSubs   map[chan []DownloadRow]struct{}
 	librarySubs    map[chan []LibraryItem]struct{}
 	unmatchedSubs  map[chan []UnmatchedEntry]struct{}
 	importListSubs map[chan []ImportListEntry]struct{}
@@ -106,7 +106,7 @@ func New(r client.Reader, interval time.Duration, opts ...Option) *Projection {
 		interval:       interval,
 		history:        DefaultPipelineHistory,
 		subs:           make(map[chan []pipeline.Entry]struct{}),
-		downloadSubs:   make(map[chan []downloadv1.Download]struct{}),
+		downloadSubs:   make(map[chan []DownloadRow]struct{}),
 		librarySubs:    make(map[chan []LibraryItem]struct{}),
 		unmatchedSubs:  make(map[chan []UnmatchedEntry]struct{}),
 		importListSubs: make(map[chan []ImportListEntry]struct{}),
@@ -262,7 +262,7 @@ func (p *Projection) Projected() bool { return p.projected.Load() }
 // "a slow consumer drops frames rather than blocking the loop; the newest
 // projection is the only one worth delivering" (design plan, Task D3-1).
 // It is generic over the payload so both the pipeline broadcast ([]pipeline.
-// Entry) and the downloads broadcast ([]downloadv1.Download, Task D3-3)
+// Entry) and the downloads broadcast ([]DownloadRow)
 // share the one implementation.
 func publish[T any](ch chan T, v T) {
 	select {
@@ -294,11 +294,11 @@ func (p *Projection) Entries(ctx context.Context) []pipeline.Entry {
 	return p.entries
 }
 
-// Downloads returns the most recently computed downloads slice -- the
-// Task D3-3 analogue of [Entries] for the same reasons: it never blocks on
+// Downloads returns the most recently computed grab rows -- the analogue
+// of [Entries] for the Downloads page, for the same reasons: it never blocks on
 // the cluster, and a Projection that has not ticked yet (or was built over
 // a nil Reader) returns nil.
-func (p *Projection) Downloads(ctx context.Context) []downloadv1.Download {
+func (p *Projection) Downloads(ctx context.Context) []DownloadRow {
 	p.refresh(ctx)
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -364,11 +364,11 @@ func (p *Projection) Subscribe() (<-chan []pipeline.Entry, func()) {
 
 // SubscribeDownloads is [Subscribe]'s downloads-stream counterpart (Task
 // D3-3): same immediate-then-on-change delivery, same single-call
-// unsubscribe, but fed from the Download list [tick] already gathers for
-// [Subscribe] -- ruling R4's "one list round feeds both streams" -- rather
-// than a List call of its own.
-func (p *Projection) SubscribeDownloads() (<-chan []downloadv1.Download, func()) {
-	ch := make(chan []downloadv1.Download, 1)
+// unsubscribe, but fed from the grab entries on the items [tick] already
+// lists for [Subscribe] -- ruling R4's "one list round feeds both streams"
+// -- rather than a List call of its own.
+func (p *Projection) SubscribeDownloads() (<-chan []DownloadRow, func()) {
+	ch := make(chan []DownloadRow, 1)
 
 	p.mu.Lock()
 	ch <- p.downloads
@@ -472,7 +472,7 @@ func watchedKinds() []client.Object {
 		&catalogv1.Movie{}, &catalogv1.Series{}, &catalogv1.Episode{},
 		&catalogv1.Album{}, &catalogv1.Artist{}, &catalogv1.Author{},
 		&catalogv1.Book{}, &catalogv1.Audiobook{}, &catalogv1.Comic{}, &catalogv1.Issue{},
-		&catalogv1.MediaFile{}, &downloadv1.Download{}, &catalogv1.Search{},
+		&catalogv1.MediaFile{}, &catalogv1.Search{},
 		&transcodev1.TranscodeJob{}, &subtitlev1.SubtitleRequest{},
 		&catalogv1.LibraryScan{}, &catalogv1.ImportList{},
 	}
@@ -515,7 +515,7 @@ func (p *Projection) watchChanges(ctx context.Context) {
 // hands back the informer cache's own objects (a raw or fake client
 // ignores it and copies as before): a round only reads them, and nothing
 // it publishes writes through them -- LibraryItem and pipeline.Entry are
-// plain values; the Download, UnmatchedEntry and ImportListEntry slices a
+// plain values; the DownloadRow, UnmatchedEntry and ImportListEntry slices a
 // stream or page renders share the cache's nested slices and pointers,
 // which no renderer modifies (sorts reorder the round's own slices, never
 // an object's fields). The objects of one round used to be a deep copy of
@@ -524,9 +524,9 @@ var listOpts = []client.ListOption{client.UnsafeDisableDeepCopy}
 
 // project lists every catalog kind pkg/pipeline's describeItem handles plus
 // everything index.go's buildRelatedIndex needs, then calls pipeline.Project
-// once per catalog item. It also returns the Download list buildRelatedIndex
-// gathered along the way (ruling R4: no second List call for the downloads
-// stream), the Library page's []LibraryItem derived from the same items and
+// once per catalog item. It also returns the Downloads page's rows, read
+// off the same items' grab entries (ruling R4: no List call for the
+// downloads stream), the Library page's []LibraryItem derived from the same items and
 // entries (Task G3-3, again no second List call), the Unmatched page's
 // []UnmatchedEntry from one additional LibraryScan List call, and the
 // Import Lists page's []ImportListEntry from one additional ImportList List
@@ -535,7 +535,7 @@ var listOpts = []client.ListOption{client.UnsafeDisableDeepCopy}
 // configured) yields no rows without listing anything.
 func (p *Projection) project(
 	ctx context.Context,
-) ([]pipeline.Entry, []downloadv1.Download, []LibraryItem, []UnmatchedEntry, []ImportListEntry, error) {
+) ([]pipeline.Entry, []DownloadRow, []LibraryItem, []UnmatchedEntry, []ImportListEntry, error) {
 	if p.reader == nil {
 		return nil, nil, nil, nil, nil, nil
 	}
@@ -550,9 +550,12 @@ func (p *Projection) project(
 		return nil, nil, nil, nil, nil, err
 	}
 
+	grabs := buildEntryIndex(items)
 	entries := make([]pipeline.Entry, 0, len(items))
 	for _, item := range items {
-		entries = append(entries, pipeline.Project(item, idx.Related(item.GetUID())))
+		related := idx.Related(item.GetUID())
+		related.Entries = grabs.entriesFor(item)
+		entries = append(entries, pipeline.Project(item, related))
 	}
 
 	library := buildLibraryItems(items, entries)
@@ -566,11 +569,9 @@ func (p *Projection) project(
 	// (--pipeline-history): one entry per catalog item was ~16,000 rows.
 	entries = pipeline.Trim(entries, p.history)
 
-	// Sorted by name for the same reason ui/routes.go's listDownloads sorts
-	// its own, independent List the same way: a stable render, here across
-	// successive SSE frames rather than across requests.
-	downloads := idx.AllDownloads()
-	sort.Slice(downloads, func(i, j int) bool { return downloads[i].Name < downloads[j].Name })
+	// One row per grab entry, sorted by entry id: a stable render across
+	// successive SSE frames.
+	downloads := grabs.rows(items)
 
 	scans, err := listLibraryScans(ctx, p.reader, listOpts...)
 	if err != nil {

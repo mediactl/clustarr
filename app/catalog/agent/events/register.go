@@ -34,7 +34,6 @@ import (
 	catalogagent "github.com/mediactl/clustarr/app/catalog/agent"
 	"github.com/mediactl/clustarr/app/catalog/worker/redownload"
 	"github.com/mediactl/clustarr/app/catalog/worker/rssmatcher"
-	"github.com/mediactl/clustarr/app/catalog/worker/search"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
@@ -67,7 +66,7 @@ func Register(_ context.Context, mgr ctrl.Manager, bus events.Bus, o Options) (c
 			return catalogagent.Registration{}, fmt.Errorf("events domain: subscribe %s: %w", s.durable, err)
 		}
 	}
-	return catalogagent.Registration{Indexes: append(search.FieldIndexes(), rssmatcher.FieldIndexes()...)}, nil
+	return catalogagent.Registration{Indexes: rssmatcher.FieldIndexes()}, nil
 }
 
 type workers struct {

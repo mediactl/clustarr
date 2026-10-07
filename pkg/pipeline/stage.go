@@ -32,7 +32,6 @@ import (
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	subtitlev1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
 	transcodev1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 )
@@ -108,8 +107,10 @@ type Entry struct {
 // derive its stage. All of it is read-only input; Project never mutates it
 // and never fetches more of it.
 type Related struct {
-	// Downloads are the Downloads targeting this item, active or historical.
-	Downloads []downloadv1.Download
+	// Entries are the grab entries covering this item, live or settled
+	// (ADR-0019 §6.2): its own status.downloads, or for an Episode or Issue
+	// its Series' or Comic's entries covering it.
+	Entries []catalogv1.DownloadEntry
 
 	// Jobs are the TranscodeJobs for this item's MediaFile.
 	Jobs []transcodev1.TranscodeJob

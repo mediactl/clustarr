@@ -63,7 +63,7 @@ func Register(_ context.Context, mgr ctrl.Manager, bus events.Bus, o Options) (c
 	if err := w.render.SetupWithManager(mgr, bus); err != nil {
 		return catalogagent.Registration{}, fmt.Errorf("catalog domain: subscribe the artwork renderer: %w", err)
 	}
-	return catalogagent.Registration{Indexes: search.FieldIndexes()}, nil
+	return catalogagent.Registration{}, nil
 }
 
 // workers is the domain's three consumers, built but not subscribed, so a

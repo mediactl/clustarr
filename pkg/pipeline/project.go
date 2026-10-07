@@ -26,7 +26,6 @@ import (
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	subtitlev1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
 	transcodev1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/k8s/conditions"
@@ -61,7 +60,7 @@ func Project(item client.Object, related Related) Entry {
 }
 
 // settledAt is when a settled item reached its result: the newest activity
-// among its Downloads (created, completed, imported), TranscodeJobs
+// among its grab entries (grabbed, completed, imported), TranscodeJobs
 // (finished), SubtitleRequests (a subtitle written), MediaFile and Search
 // (created), or the item's own creation when it has none. The pipeline
 // page orders its results by it (Trim), so an item added long ago and
@@ -73,12 +72,12 @@ func settledAt(item client.Object, related Related) time.Time {
 			at = t.Time
 		}
 	}
-	for i := range related.Downloads {
-		d := &related.Downloads[i]
-		seen(&d.CreationTimestamp)
-		seen(d.Status.CompletedAt)
-		if d.Status.Import != nil {
-			seen(d.Status.Import.ImportedAt)
+	for i := range related.Entries {
+		e := &related.Entries[i]
+		seen(&e.GrabbedAt)
+		seen(e.CompletedAt)
+		if e.Import != nil {
+			seen(e.Import.ImportedAt)
 		}
 	}
 	for i := range related.Jobs {
@@ -150,9 +149,9 @@ func project(item client.Object, related Related) Entry {
 	switch {
 	case failedDL != nil:
 		entry.Stage = StageFailed
-		entry.Failure = string(failedDL.Status.FailureReason)
+		entry.Failure = string(failedDL.FailureReason)
 		if entry.Failure == "" {
-			entry.Failure = failedDL.Status.Message
+			entry.Failure = failedDL.Message
 		}
 		return entry
 
@@ -164,10 +163,11 @@ func project(item client.Object, related Related) Entry {
 	case blockedDL != nil:
 		entry.Stage = StageBlocked
 		entry.Failure = "release blocklisted"
-		if blockedDL.Status.Import != nil && blockedDL.Status.Import.State == downloadv1.ImportPhaseBlocked {
-			entry.Failure = blockedDL.Status.Import.Message
+		if imp := blockedDL.Import; imp != nil && blockedDL.Phase != commonv1.DownloadPhaseBlocklisted &&
+			(imp.Phase == catalogv1.ImportPhaseHeld || imp.Phase == catalogv1.ImportPhaseBlocked) {
+			entry.Failure = imp.Message
 			if entry.Failure == "" {
-				entry.Failure = "import blocked"
+				entry.Failure = "import held"
 			}
 		}
 		return entry
@@ -232,15 +232,12 @@ func project(item client.Object, related Related) Entry {
 		return entry
 
 	case downloadingDL != nil:
+		// The entry carries no byte counters (they are clustarr-progress'):
+		// the percent stays unknown here and the ui reads the 1 Hz record.
 		entry.Stage = StageDownloading
-		entry.Percent = downloadingDL.Status.ProgressPercent
-		entry.Detail = string(downloadingDL.Status.Stage)
-		if downloadingDL.Status.ETASeconds != nil {
-			eta := time.Duration(*downloadingDL.Status.ETASeconds) * time.Second
-			entry.ETA = &eta
-		}
-		if downloadingDL.Status.StartedAt != nil {
-			entry.Since = downloadingDL.Status.StartedAt.Time
+		entry.Detail = string(downloadingDL.Stage)
+		if downloadingDL.StartedAt != nil {
+			entry.Since = downloadingDL.StartedAt.Time
 		}
 		return entry
 
@@ -293,10 +290,10 @@ func requiresPostProcessing(kind commonv1.MediaKind) bool {
 
 // --- failure and blocked signals -------------------------------------------------
 
-func failedDownload(related Related) *downloadv1.Download {
-	for i := range related.Downloads {
-		if related.Downloads[i].Status.Phase == downloadv1.DownloadPhaseFailed {
-			return &related.Downloads[i]
+func failedDownload(related Related) *catalogv1.DownloadEntry {
+	for i := range related.Entries {
+		if related.Entries[i].Phase == commonv1.DownloadPhaseFailed {
+			return &related.Entries[i]
 		}
 	}
 	return nil
@@ -311,14 +308,16 @@ func failedJob(related Related) *transcodev1.TranscodeJob {
 	return nil
 }
 
-func blockedDownload(related Related) *downloadv1.Download {
-	for i := range related.Downloads {
-		d := &related.Downloads[i]
-		if d.Status.Phase == downloadv1.DownloadPhaseBlocklisted {
-			return d
+// blockedDownload is a blocklisted grab, or one whose import waits for a
+// person (held) or was refused as the release's fault (blocked).
+func blockedDownload(related Related) *catalogv1.DownloadEntry {
+	for i := range related.Entries {
+		e := &related.Entries[i]
+		if e.Phase == commonv1.DownloadPhaseBlocklisted {
+			return e
 		}
-		if d.Status.Import != nil && d.Status.Import.State == downloadv1.ImportPhaseBlocked {
-			return d
+		if imp := e.Import; imp != nil && (imp.Phase == catalogv1.ImportPhaseHeld || imp.Phase == catalogv1.ImportPhaseBlocked) {
+			return e
 		}
 	}
 	return nil
@@ -427,57 +426,58 @@ func searchingSubtitle(related Related) *subtitlev1.SubtitleRequest {
 
 // --- download and import --------------------------------------------------------
 
-func importedDownload(related Related) *downloadv1.Download {
-	for i := range related.Downloads {
-		d := &related.Downloads[i]
-		if d.Status.Import != nil &&
-			(d.Status.Import.State == downloadv1.ImportPhaseImported || d.Status.Import.State == downloadv1.ImportPhaseIgnored) {
-			return d
+func importedDownload(related Related) *catalogv1.DownloadEntry {
+	for i := range related.Entries {
+		e := &related.Entries[i]
+		if e.Phase == commonv1.DownloadPhaseImported ||
+			(e.Import != nil && e.Import.Phase == catalogv1.ImportPhaseImported && e.Import.ImportedAt != nil) {
+			return e
 		}
 	}
 	return nil
 }
 
-func importingDownload(related Related) *downloadv1.Download {
-	for i := range related.Downloads {
-		d := &related.Downloads[i]
-		if d.Status.Import != nil &&
-			(d.Status.Import.State == downloadv1.ImportPhasePending || d.Status.Import.State == downloadv1.ImportPhaseImporting) {
-			return d
+func importingDownload(related Related) *catalogv1.DownloadEntry {
+	for i := range related.Entries {
+		e := &related.Entries[i]
+		if e.Phase != commonv1.DownloadPhaseCompleted || e.Import == nil {
+			continue
+		}
+		switch e.Import.Phase {
+		case catalogv1.ImportPhasePending, catalogv1.ImportPhaseInspected, catalogv1.ImportPhaseApproved,
+			catalogv1.ImportPhaseImported:
+			return e
 		}
 	}
 	return nil
 }
 
-func downloadedDownload(related Related) *downloadv1.Download {
-	for i := range related.Downloads {
-		switch related.Downloads[i].Status.Phase {
-		case downloadv1.DownloadPhaseCompleted, downloadv1.DownloadPhaseSeeding:
-			return &related.Downloads[i]
+func downloadedDownload(related Related) *catalogv1.DownloadEntry {
+	for i := range related.Entries {
+		switch related.Entries[i].Phase {
+		case commonv1.DownloadPhaseCompleted, commonv1.DownloadPhaseSeeding:
+			return &related.Entries[i]
 		}
 	}
 	return nil
 }
 
-// downloadingDownload is the item's in-flight Download: every phase before
-// Completed, and the empty phase of a Download the grab has just created and
-// grabarr has not yet reconciled -- the grab has happened, so the item is
-// downloading, not still at ReleaseSelected. This is the same reading as
-// catalogarr's rollup.DownloadNonTerminal (gap-fix ruling R-12, re-read
-// against every DownloadPhase by task X14); the pipeline only splits the
+// downloadingDownload is the item's in-flight grab: every phase before
+// Completed, and the empty phase of an entry just created -- the grab has
+// happened, so the item is downloading, not still at ReleaseSelected. This
+// is rollup.EntryNonTerminal's reading; the pipeline only splits the
 // finished half finer (Downloaded, Importing, Imported). Removing, and any
-// phase added later, show no Download stage until someone decides one:
-// TestProjectMapsEveryDownloadPhase fails for a phase with no row.
-func downloadingDownload(related Related) *downloadv1.Download {
-	for i := range related.Downloads {
-		switch related.Downloads[i].Status.Phase {
+// phase added later, show no download stage until someone decides one.
+func downloadingDownload(related Related) *catalogv1.DownloadEntry {
+	for i := range related.Entries {
+		switch related.Entries[i].Phase {
 		case "",
-			downloadv1.DownloadPhasePending,
-			downloadv1.DownloadPhaseAssigned,
-			downloadv1.DownloadPhaseQueued,
-			downloadv1.DownloadPhaseDownloading,
-			downloadv1.DownloadPhasePaused:
-			return &related.Downloads[i]
+			commonv1.DownloadPhasePending,
+			commonv1.DownloadPhaseAssigned,
+			commonv1.DownloadPhaseQueued,
+			commonv1.DownloadPhaseDownloading,
+			commonv1.DownloadPhasePaused:
+			return &related.Entries[i]
 		}
 	}
 	return nil

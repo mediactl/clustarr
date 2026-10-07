@@ -142,6 +142,8 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 			Entries:              proj.Entries,
 			Subscribe:            proj.Subscribe,
 			SubscribeDownloads:   proj.SubscribeDownloads,
+			TransferProgress:     b.progress,
+			ImportDetail:         b.imports,
 			Library:              proj.Library,
 			SubscribeLibrary:     proj.SubscribeLibrary,
 			Unmatched:            proj.Unmatched,

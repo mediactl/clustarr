@@ -40,7 +40,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
@@ -57,14 +56,14 @@ import (
 //
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series;episodes;artists;albums;authors;books;audiobooks;comics;issues;importlists;libraryscans,verbs=get;list;watch;patch
 // +kubebuilder:rbac:groups=index.clustarr.io,resources=indexers,verbs=get;list;watch;patch
-// +kubebuilder:rbac:groups=download.clustarr.io,resources=downloads,verbs=get;list;watch;patch
 // +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodejobs,verbs=get;list;watch;patch
 // +kubebuilder:rbac:groups=subtitle.clustarr.io,resources=subtitlerequests,verbs=get;list;watch;patch
 
 // ReplayKinds is every kind a dead letter can be replayed from: exactly the
 // kinds the DLQ projector annotates (app/catalog/history's resolvers, and
 // pkg/k8s.AnnotationDeadLettered's list), because a replay is only accepted
-// from the object its dead letter resolves to.
+// from the object its dead letter resolves to. A grab's dead letter
+// resolves to its owner (ADR-0019 §6.11, §8.5), so Download is not one.
 var ReplayKinds = []schema.GroupVersionKind{
 	catalogv1alpha1.GroupVersion.WithKind("Movie"),
 	catalogv1alpha1.GroupVersion.WithKind("Series"),
@@ -79,7 +78,6 @@ var ReplayKinds = []schema.GroupVersionKind{
 	catalogv1alpha1.GroupVersion.WithKind("ImportList"),
 	catalogv1alpha1.GroupVersion.WithKind("LibraryScan"),
 	indexv1alpha1.GroupVersion.WithKind("Indexer"),
-	downloadv1alpha1.GroupVersion.WithKind("Download"),
 	transcodev1alpha1.GroupVersion.WithKind("TranscodeJob"),
 	subtitlev1alpha1.GroupVersion.WithKind("SubtitleRequest"),
 }

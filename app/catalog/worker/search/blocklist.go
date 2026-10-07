@@ -18,57 +18,132 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package search
 
 import (
+	"context"
+	"fmt"
 	"strings"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
+	"github.com/mediactl/clustarr/pkg/decision"
 	"github.com/mediactl/clustarr/pkg/events/schema"
-	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/quality"
 	"github.com/mediactl/clustarr/pkg/release"
 )
 
-// IndexDownloadTarget is the field index name, used both by
-// FieldIndexes and by the worker's own List calls. It is exported
-// so a task that shares a manager with this worker can reuse the index
-// instead of registering a second, conflicting one under a different name.
-//
-// It indexes non-terminal Downloads by their target catalog item: the live
-// queue for one media key. "Non-terminal" is rollup.DownloadNonTerminal, the
-// set the item reconcilers derive status.activeDownloadRef from and the grab
-// path's double-grab guard reads, so the three can never disagree about one
-// Download: a Seeding torrent still occupies the queue (its content is one
-// import away), Imported, Failed, Blocklisted and Removing do not, and
-// neither does a Download already being deleted.
-const IndexDownloadTarget = "search.clustarr.io/download-target"
-
-// FieldIndexes declares the one index the search worker reads on Download:
-// the per-target live queue (IndexDownloadTarget). The RSS matcher reads it
-// too, so the catalog and events domains both declare it and the process
-// registers it once (spec §5.7).
-func FieldIndexes() []k8s.FieldIndex {
-	return []k8s.FieldIndex{{Object: &downloadv1alpha1.Download{}, Name: IndexDownloadTarget, Extract: downloadTargetKeys}}
-}
-
-// downloadTargetKeys is IndexDownloadTarget's value function: a non-terminal
-// Download's target, and nothing for any other.
-func downloadTargetKeys(o client.Object) []string {
-	d, ok := o.(*downloadv1alpha1.Download)
-	if !ok || !rollup.DownloadNonTerminal(d) {
-		return nil
+// OwnerEntries is the live grab entries covering ref (ADR-0019 §6.2): an
+// Episode's are its Series' entries covering its number, an Issue's its
+// Comic's, every other item's its own status.downloads. "Live" is
+// rollup.EntryNonTerminal, the set the item kinds derive
+// status.activeDownloadRef from, so the queue and the ref never disagree. A
+// missing item reads as no entries.
+func OwnerEntries(ctx context.Context, c client.Reader, ns string, ref commonv1.MediaRef) ([]catalogv1alpha1.DownloadEntry, error) {
+	key := client.ObjectKey{Namespace: ns, Name: ref.Name}
+	var (
+		entries []catalogv1alpha1.DownloadEntry
+		covers  func(*catalogv1alpha1.DownloadEntry) bool
+	)
+	switch ref.Kind {
+	case commonv1.MediaKindEpisode:
+		var ep catalogv1alpha1.Episode
+		if err := c.Get(ctx, key, &ep); err != nil {
+			return nil, client.IgnoreNotFound(err)
+		}
+		var s catalogv1alpha1.Series
+		if err := c.Get(ctx, client.ObjectKey{Namespace: ns, Name: ep.Spec.SeriesRef}, &s); err != nil {
+			return nil, client.IgnoreNotFound(err)
+		}
+		entries = s.Status.Downloads
+		covers = func(e *catalogv1alpha1.DownloadEntry) bool {
+			return rollup.CoversEpisode(e, ep.Name, ep.Spec.SeasonNumber, ep.Spec.EpisodeNumber)
+		}
+	case commonv1.MediaKindIssue:
+		var is catalogv1alpha1.Issue
+		if err := c.Get(ctx, key, &is); err != nil {
+			return nil, client.IgnoreNotFound(err)
+		}
+		var co catalogv1alpha1.Comic
+		if err := c.Get(ctx, client.ObjectKey{Namespace: ns, Name: is.Spec.ComicRef}, &co); err != nil {
+			return nil, client.IgnoreNotFound(err)
+		}
+		entries = co.Status.Downloads
+		covers = func(e *catalogv1alpha1.DownloadEntry) bool { return rollup.CoversIssue(e, is.Name, is.Spec.Number) }
+	default:
+		obj, ok := ownerObject(ref.Kind)
+		if !ok {
+			return nil, nil
+		}
+		if err := c.Get(ctx, key, obj); err != nil {
+			return nil, client.IgnoreNotFound(err)
+		}
+		entries = entriesOf(obj)
 	}
-	return []string{TargetIndexValue(d.Spec.Target)}
+	out := make([]catalogv1alpha1.DownloadEntry, 0, len(entries))
+	for i := range entries {
+		if e := &entries[i]; rollup.EntryNonTerminal(e) && (covers == nil || covers(e)) {
+			out = append(out, *e)
+		}
+	}
+	return out, nil
 }
 
-// TargetIndexValue is the IndexDownloadTarget key for one catalog item. It is
-// not events.MediaKey: the index is scoped to a namespace by the List call
-// itself, so the kind and name alone identify the target, and keeping the
-// value readable makes `kubectl get downloads` debugging match what the
-// worker sees.
-func TargetIndexValue(ref commonv1.MediaRef) string {
-	return string(ref.Kind) + "/" + ref.Name
+// QueuedFor is the decision engine's queue for ref: the live video grabs
+// covering it (an audio donor is no video candidate, so an upgrade never
+// waits on a dub).
+func QueuedFor(ctx context.Context, c client.Reader, ns string, ref commonv1.MediaRef) ([]decision.Queued, error) {
+	entries, err := OwnerEntries(ctx, c, ns, ref)
+	if err != nil {
+		return nil, fmt.Errorf("read the grabs of %s/%s: %w", ref.Kind, ref.Name, err)
+	}
+	out := make([]decision.Queued, 0, len(entries))
+	for i := range entries {
+		if rollup.IsDonor(&entries[i]) {
+			continue
+		}
+		rel := entries[i].Release
+		out = append(out, quality.Candidate{Quality: rel.Quality, Revision: rel.Revision, FormatScore: int(rel.FormatScore)})
+	}
+	return out, nil
+}
+
+// ownerObject is an empty object of an owner kind.
+func ownerObject(kind commonv1.MediaKind) (client.Object, bool) {
+	switch kind {
+	case commonv1.MediaKindMovie:
+		return &catalogv1alpha1.Movie{}, true
+	case commonv1.MediaKindSeries:
+		return &catalogv1alpha1.Series{}, true
+	case commonv1.MediaKindAlbum:
+		return &catalogv1alpha1.Album{}, true
+	case commonv1.MediaKindBook:
+		return &catalogv1alpha1.Book{}, true
+	case commonv1.MediaKindAudiobook:
+		return &catalogv1alpha1.Audiobook{}, true
+	case commonv1.MediaKindComic:
+		return &catalogv1alpha1.Comic{}, true
+	}
+	return nil, false
+}
+
+// entriesOf is an owner object's status.downloads.
+func entriesOf(o client.Object) []catalogv1alpha1.DownloadEntry {
+	switch t := o.(type) {
+	case *catalogv1alpha1.Movie:
+		return t.Status.Downloads
+	case *catalogv1alpha1.Series:
+		return t.Status.Downloads
+	case *catalogv1alpha1.Album:
+		return t.Status.Downloads
+	case *catalogv1alpha1.Book:
+		return t.Status.Downloads
+	case *catalogv1alpha1.Audiobook:
+		return t.Status.Downloads
+	case *catalogv1alpha1.Comic:
+		return t.Status.Downloads
+	}
+	return nil
 }
 
 // normalizeInfoHash lower-cases an info hash so a v1 hash written in upper

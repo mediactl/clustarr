@@ -27,6 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/app/grab/engine"
 	"github.com/mediactl/clustarr/internal/cli"
 	"github.com/mediactl/clustarr/pkg/busconn"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -111,14 +112,56 @@ func buildBus(ctx context.Context, natsURL string) uiBus {
 		}
 		return resp.Extras, nil
 	}
+	// A grab's 1 Hz transfer telemetry and its import records: reads of
+	// clustarr-progress and clustarr-imports, each under a short deadline,
+	// closures over Get alone (ui/guard_test.go).
+	progressKV := bus.KV(events.BucketProgress)
+	progress := func(ctx context.Context, entryUID string) (schema.DownloadProgress, bool, error) {
+		ctx, cancel := context.WithTimeout(ctx, busReadTimeout)
+		defer cancel()
+		e, err := progressKV.Get(ctx, engine.ProgressKey(entryUID))
+		if errors.Is(err, events.ErrKeyNotFound) {
+			return schema.DownloadProgress{}, false, nil
+		}
+		if err != nil {
+			return schema.DownloadProgress{}, false, err
+		}
+		var p schema.DownloadProgress
+		if err := json.Unmarshal(e.Value, &p); err != nil {
+			return schema.DownloadProgress{}, false, err
+		}
+		return p, true, nil
+	}
+	importsKV := bus.KV(events.BucketImports)
+	importDetail := func(ctx context.Context, entryUID, phase string) (schema.ImportRecord, bool, error) {
+		ctx, cancel := context.WithTimeout(ctx, busReadTimeout)
+		defer cancel()
+		e, err := importsKV.Get(ctx, events.RecordSubKey(entryUID, phase))
+		if errors.Is(err, events.ErrKeyNotFound) {
+			return schema.ImportRecord{}, false, nil
+		}
+		if err != nil {
+			return schema.ImportRecord{}, false, err
+		}
+		var rec schema.ImportRecord
+		if err := json.Unmarshal(e.Value, &rec); err != nil {
+			return schema.ImportRecord{}, false, err
+		}
+		return rec, true, nil
+	}
 	return uiBus{
 		artwork:  bus.ObjectStore(events.BucketArtwork),
 		search:   search,
 		extended: extendedRead,
 		extras:   extras,
+		progress: progress,
+		imports:  importDetail,
 		close:    nc.Close,
 	}
 }
+
+// busReadTimeout bounds one KV read the Downloads page makes.
+const busReadTimeout = 2 * time.Second
 
 // plexExtrasTimeout bounds one extras request. A miss waits on the
 // gateway's Plex rate limit while a library refresh asks for every item; a
@@ -136,6 +179,10 @@ type uiBus struct {
 	// extras asks the metadata gateway for a Plex id's extras
 	// (rpc.catalogarr.metadata.extras); an answer carrying an error is one.
 	extras func(ctx context.Context, plexID string) ([]json.RawMessage, error)
+	// progress reads an entry's transfer telemetry; imports one of its
+	// import records.
+	progress func(ctx context.Context, entryUID string) (schema.DownloadProgress, bool, error)
+	imports  func(ctx context.Context, entryUID, phase string) (schema.ImportRecord, bool, error)
 	// close drains the connection; never nil.
 	close func()
 }

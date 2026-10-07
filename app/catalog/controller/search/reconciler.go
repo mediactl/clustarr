@@ -54,6 +54,7 @@ import (
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 	"github.com/mediactl/clustarr/app/catalog/searchoutcome"
+	"github.com/mediactl/clustarr/app/remediation/dlindex"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -823,23 +824,65 @@ func (r *Reconciler) handleGrabs(ctx context.Context, s *catalogv1alpha1.Search)
 	return ctrl.Result{RequeueAfter: r.ttlRequeue(s)}, nil
 }
 
-// inFlightDownload names a non-terminal Download for s's item other than
-// ours, read uncached, or "" when there is none.
+// inFlightDownload names a live grab entry covering s's item other than
+// ours, read uncached from the item's owner (ADR-0019 §6.2): an Episode's
+// Series and an Issue's Comic hold its grabs, so a season pack covering the
+// episode counts too, which the Download target match missed. "" when there
+// is none.
 func (r *Reconciler) inFlightDownload(ctx context.Context, s *catalogv1alpha1.Search, ours string) (string, error) {
 	reader := r.APIReader
 	if reader == nil {
 		reader = r.Client
 	}
-	var list downloadv1alpha1.DownloadList
-	if err := reader.List(ctx, &list, client.InNamespace(s.Namespace)); err != nil {
-		return "", fmt.Errorf("list Downloads for %s: %w", s.Spec.MediaRef.Name, err)
-	}
-	for i := range list.Items {
-		dl := &list.Items[i]
-		if dl.Name != ours && dl.Spec.Target.Kind == s.Spec.MediaRef.Kind &&
-			dl.Spec.Target.Name == s.Spec.MediaRef.Name && rollup.DownloadNonTerminal(dl) {
-			return dl.Name, nil
+	ns, ref := s.Namespace, s.Spec.MediaRef
+	key := client.ObjectKey{Namespace: ns, Name: ref.Name}
+	var (
+		owner  client.Object
+		covers = func(*catalogv1alpha1.DownloadEntry) bool { return true }
+	)
+	switch ref.Kind {
+	case commonv1.MediaKindEpisode:
+		var ep catalogv1alpha1.Episode
+		if err := reader.Get(ctx, key, &ep); err != nil {
+			return "", client.IgnoreNotFound(err)
 		}
+		owner, key = &catalogv1alpha1.Series{}, client.ObjectKey{Namespace: ns, Name: ep.Spec.SeriesRef}
+		covers = func(e *catalogv1alpha1.DownloadEntry) bool {
+			return rollup.CoversEpisode(e, ep.Name, ep.Spec.SeasonNumber, ep.Spec.EpisodeNumber)
+		}
+	case commonv1.MediaKindIssue:
+		var is catalogv1alpha1.Issue
+		if err := reader.Get(ctx, key, &is); err != nil {
+			return "", client.IgnoreNotFound(err)
+		}
+		owner, key = &catalogv1alpha1.Comic{}, client.ObjectKey{Namespace: ns, Name: is.Spec.ComicRef}
+		covers = func(e *catalogv1alpha1.DownloadEntry) bool { return rollup.CoversIssue(e, is.Name, is.Spec.Number) }
+	case commonv1.MediaKindMovie:
+		owner = &catalogv1alpha1.Movie{}
+	case commonv1.MediaKindSeries:
+		owner = &catalogv1alpha1.Series{}
+	case commonv1.MediaKindAlbum:
+		owner = &catalogv1alpha1.Album{}
+	case commonv1.MediaKindBook:
+		owner = &catalogv1alpha1.Book{}
+	case commonv1.MediaKindAudiobook:
+		owner = &catalogv1alpha1.Audiobook{}
+	case commonv1.MediaKindComic:
+		owner = &catalogv1alpha1.Comic{}
+	default:
+		return "", nil
+	}
+	if err := reader.Get(ctx, key, owner); err != nil {
+		if client.IgnoreNotFound(err) == nil {
+			return "", nil
+		}
+		return "", fmt.Errorf("read the grabs of %s %s: %w", ref.Kind, ref.Name, err)
+	}
+	entries := dlindex.Entries(owner)
+	if a := rollup.ActiveEntry(entries, func(e *catalogv1alpha1.DownloadEntry) bool {
+		return e.ID != ours && !rollup.IsDonor(e) && covers(e)
+	}); a != nil {
+		return a.ID, nil
 	}
 	return "", nil
 }

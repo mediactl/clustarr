@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"path"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -32,9 +33,9 @@ import (
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	subtitlev1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
 	transcodev1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/pipeline"
 )
 
@@ -47,11 +48,11 @@ import (
 // owner's UID never resolves to a different object -- it just stops
 // resolving, which is the correct outcome.
 //
-// Downloads and Searches are owned directly by the catalog item they
-// target: app/catalog/worker/grab/perform.go and
-// app/catalog/controller/search/reconciler.go both call
-// k8s.OwnerReferenceAC(owner, ...) against the resolved catalog item before
-// creating a Download, and that owner reference is what this index reads.
+// Searches are owned directly by the catalog item they target
+// (app/catalog/controller/search calls k8s.OwnerReferenceAC against the
+// resolved item), and that owner reference is what this index reads. Grabs
+// are no objects of their own (ADR-0019 §6.2): each item's entries are read
+// off the items themselves (entryIndex).
 // TranscodeJobs and SubtitleRequests are owned by the MediaFile they act on
 // (per their doc comments and pkg/pipeline.Related's own field docs), not by
 // the catalog item directly, so resolving one to a pipeline row goes through
@@ -70,19 +71,9 @@ import (
 // them. The moment those controllers start setting the owner reference,
 // this index starts filling in with no changes here.
 type relatedIndex struct {
-	downloads map[types.UID][]downloadv1.Download
 	searches  map[types.UID][]catalogv1.Search
 	jobs      map[types.UID][]transcodev1.TranscodeJob
 	subtitles map[types.UID][]subtitlev1.SubtitleRequest
-
-	// all is every Download this round's single List call returned,
-	// regardless of ownership -- unlike downloads above, which drops any
-	// Download with no controlling owner reference. [relatedIndex.AllDownloads]
-	// exposes it so Projection can feed /events/downloads (Task D3-3) from
-	// the same list round this index already does for ownership
-	// resolution, per ruling R4: no second List call for the downloads
-	// stream.
-	all []downloadv1.Download
 
 	mediaFiles map[types.UID]*catalogv1.MediaFile
 
@@ -93,13 +84,12 @@ type relatedIndex struct {
 	mediaFileOwner map[types.UID]types.UID
 }
 
-// buildRelatedIndex lists Download, TranscodeJob, SubtitleRequest, Search
-// and MediaFile once each -- five List calls total, whatever the catalogue's
+// buildRelatedIndex lists TranscodeJob, SubtitleRequest, Search and
+// MediaFile once each -- four List calls total, whatever the catalogue's
 // size or the number of open SSE connections -- and buckets every item by
 // its owning object's UID.
 func buildRelatedIndex(ctx context.Context, r client.Reader, opts ...client.ListOption) (*relatedIndex, error) {
 	idx := &relatedIndex{
-		downloads:      map[types.UID][]downloadv1.Download{},
 		searches:       map[types.UID][]catalogv1.Search{},
 		jobs:           map[types.UID][]transcodev1.TranscodeJob{},
 		subtitles:      map[types.UID][]subtitlev1.SubtitleRequest{},
@@ -118,17 +108,6 @@ func buildRelatedIndex(ctx context.Context, r client.Reader, opts ...client.List
 		if owner, ok := controllingOwnerUID(mf); ok {
 			idx.mediaFiles[owner] = mf
 			idx.mediaFileOwner[mf.UID] = owner
-		}
-	}
-
-	var downloads downloadv1.DownloadList
-	if err := r.List(ctx, &downloads, opts...); err != nil {
-		return nil, fmt.Errorf("projection: list downloads: %w", err)
-	}
-	idx.all = downloads.Items
-	for i := range downloads.Items {
-		if owner, ok := controllingOwnerUID(&downloads.Items[i]); ok {
-			idx.downloads[owner] = append(idx.downloads[owner], downloads.Items[i])
 		}
 	}
 
@@ -186,16 +165,6 @@ func controllingOwnerUID(obj metav1.Object) (types.UID, bool) {
 	return refs[0].UID, true
 }
 
-// AllDownloads returns every Download buildRelatedIndex's single List call
-// returned this round, regardless of ownership -- the same population the
-// Downloads page (ui/routes.go's listDownloads) shows via its own,
-// independent List call. Projection uses this one instead of making a
-// second List of its own, so the SAME list round that feeds pipeline rows
-// also feeds /events/downloads (Task D3-3, ruling R4).
-func (idx *relatedIndex) AllDownloads() []downloadv1.Download {
-	return idx.all
-}
-
 // Related returns the Related bundle buildRelatedIndex has for the catalog
 // item with the given UID: everything pipeline.Project needs beyond the
 // item itself. A UID this index has no data for (nothing owned by it, or
@@ -203,7 +172,6 @@ func (idx *relatedIndex) AllDownloads() []downloadv1.Download {
 // exactly as pipeline.Project already treats "nothing to report".
 func (idx *relatedIndex) Related(uid types.UID) pipeline.Related {
 	return pipeline.Related{
-		Downloads: idx.downloads[uid],
 		Jobs:      idx.jobs[uid],
 		Subtitles: idx.subtitles[uid],
 		Search:    latestSearch(idx.searches[uid]),
@@ -638,4 +606,175 @@ func (idx *Index) MovieByName(namespace, name string) (*catalogv1.Movie, bool) {
 func (idx *Index) EpisodeByName(namespace, name string) (*catalogv1.Episode, bool) {
 	e, ok := idx.episodeByName[types.NamespacedName{Namespace: namespace, Name: name}]
 	return e, ok
+}
+
+// DownloadRow is one grab entry on the Downloads page (ADR-0019 §6.12): the
+// owner whose status.downloads holds it, the entry, and for a Series or
+// Comic entry the names of the episodes or issues it covers.
+type DownloadRow struct {
+	Owner     schema.ItemRef
+	OwnerKind commonv1.MediaKind
+	Entry     catalogv1.DownloadEntry
+	Covered   []string
+}
+
+// entryIndex reads the grab entries off a round's items: each owner's own
+// (one DownloadRow per entry), and an Episode's or Issue's view of its
+// Series' or Comic's entries covering it.
+type entryIndex struct {
+	series   map[types.NamespacedName]*catalogv1.Series
+	comics   map[types.NamespacedName]*catalogv1.Comic
+	episodes map[types.NamespacedName]map[episodeNo]string // series -> number -> episode name
+	issues   map[types.NamespacedName]map[string]string    // comic -> number -> issue name
+}
+
+type episodeNo struct{ season, number int32 }
+
+// buildEntryIndex indexes items' Series, Comics and their children.
+func buildEntryIndex(items []client.Object) *entryIndex {
+	x := &entryIndex{
+		series:   map[types.NamespacedName]*catalogv1.Series{},
+		comics:   map[types.NamespacedName]*catalogv1.Comic{},
+		episodes: map[types.NamespacedName]map[episodeNo]string{},
+		issues:   map[types.NamespacedName]map[string]string{},
+	}
+	for _, it := range items {
+		switch t := it.(type) {
+		case *catalogv1.Series:
+			x.series[types.NamespacedName{Namespace: t.Namespace, Name: t.Name}] = t
+		case *catalogv1.Comic:
+			x.comics[types.NamespacedName{Namespace: t.Namespace, Name: t.Name}] = t
+		case *catalogv1.Episode:
+			k := types.NamespacedName{Namespace: t.Namespace, Name: t.Spec.SeriesRef}
+			if x.episodes[k] == nil {
+				x.episodes[k] = map[episodeNo]string{}
+			}
+			x.episodes[k][episodeNo{t.Spec.SeasonNumber, t.Spec.EpisodeNumber}] = t.Name
+		case *catalogv1.Issue:
+			k := types.NamespacedName{Namespace: t.Namespace, Name: t.Spec.ComicRef}
+			if x.issues[k] == nil {
+				x.issues[k] = map[string]string{}
+			}
+			x.issues[k][t.Spec.Number] = t.Name
+		}
+	}
+	return x
+}
+
+// entriesFor is the grab entries covering item: an owner's own, an
+// Episode's Series' entries naming its number, an Issue's Comic's naming
+// its number.
+func (x *entryIndex) entriesFor(item client.Object) []catalogv1.DownloadEntry {
+	switch t := item.(type) {
+	case *catalogv1.Episode:
+		s := x.series[types.NamespacedName{Namespace: t.Namespace, Name: t.Spec.SeriesRef}]
+		if s == nil {
+			return nil
+		}
+		var out []catalogv1.DownloadEntry
+		for i := range s.Status.Downloads {
+			for _, n := range s.Status.Downloads[i].Episodes {
+				if n.Season == t.Spec.SeasonNumber && n.Number == t.Spec.EpisodeNumber {
+					out = append(out, s.Status.Downloads[i])
+					break
+				}
+			}
+		}
+		return out
+	case *catalogv1.Issue:
+		c := x.comics[types.NamespacedName{Namespace: t.Namespace, Name: t.Spec.ComicRef}]
+		if c == nil {
+			return nil
+		}
+		var out []catalogv1.DownloadEntry
+		for i := range c.Status.Downloads {
+			if slices.Contains(c.Status.Downloads[i].Issues, t.Spec.Number) {
+				out = append(out, c.Status.Downloads[i])
+			}
+		}
+		return out
+	}
+	entries, _ := ownerEntries(item)
+	return entries
+}
+
+// ownerEntries is an owner kind's status.downloads and its MediaKind.
+func ownerEntries(o client.Object) ([]catalogv1.DownloadEntry, commonv1.MediaKind) {
+	switch t := o.(type) {
+	case *catalogv1.Movie:
+		return t.Status.Downloads, commonv1.MediaKindMovie
+	case *catalogv1.Series:
+		return t.Status.Downloads, commonv1.MediaKindSeries
+	case *catalogv1.Album:
+		return t.Status.Downloads, commonv1.MediaKindAlbum
+	case *catalogv1.Book:
+		return t.Status.Downloads, commonv1.MediaKindBook
+	case *catalogv1.Audiobook:
+		return t.Status.Downloads, commonv1.MediaKindAudiobook
+	case *catalogv1.Comic:
+		return t.Status.Downloads, commonv1.MediaKindComic
+	}
+	return nil, ""
+}
+
+// rows is one DownloadRow per entry of every owner in items, sorted by
+// entry id for a stable render across frames.
+func (x *entryIndex) rows(items []client.Object) []DownloadRow {
+	var out []DownloadRow
+	for _, it := range items {
+		entries, kind := ownerEntries(it)
+		if kind == "" {
+			continue
+		}
+		owner := schema.ItemRef{Kind: objectKind(kind), Ref: schema.Ref{
+			Namespace: it.GetNamespace(), Name: it.GetName(), UID: string(it.GetUID()),
+		}}
+		key := types.NamespacedName{Namespace: it.GetNamespace(), Name: it.GetName()}
+		for i := range entries {
+			e := entries[i]
+			r := DownloadRow{Owner: owner, OwnerKind: kind, Entry: e}
+			for _, n := range e.Episodes {
+				if name, ok := x.episodes[key][episodeNo{n.Season, n.Number}]; ok {
+					r.Covered = append(r.Covered, name)
+				}
+			}
+			for _, n := range e.Issues {
+				if name, ok := x.issues[key][n]; ok {
+					r.Covered = append(r.Covered, name)
+				}
+			}
+			out = append(out, r)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Entry.ID != out[j].Entry.ID {
+			return out[i].Entry.ID < out[j].Entry.ID
+		}
+		return out[i].Entry.UID < out[j].Entry.UID
+	})
+	return out
+}
+
+// objectKind is a MediaKind as its object Kind ("audiobook" -> "Audiobook").
+func objectKind(k commonv1.MediaKind) string {
+	s := string(k)
+	if s == "" {
+		return ""
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
+}
+
+// ListDownloadRows lists the six owner kinds, and the Episodes and Issues
+// that name what their entries cover, through r and builds the Downloads
+// page's rows: GET /downloads' read when no projection is wired.
+func ListDownloadRows(ctx context.Context, r client.Reader) ([]DownloadRow, error) {
+	if r == nil {
+		return nil, nil
+	}
+	p := &Projection{reader: r}
+	items, err := p.listItems(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return buildEntryIndex(items).rows(items), nil
 }

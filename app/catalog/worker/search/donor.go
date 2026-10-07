@@ -25,7 +25,6 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 	"github.com/mediactl/clustarr/pkg/decision"
@@ -72,14 +71,14 @@ func (w *Worker) donorWant(ctx context.Context, ns string, ref commonv1.MediaRef
 		return nil, nil, false, fmt.Errorf("get the AudioGraft of %s: %w", ref.Name, err)
 	}
 
-	var list downloadv1alpha1.DownloadList
-	if err := w.Client.List(ctx, &list, client.InNamespace(ns), client.MatchingFields{IndexDownloadTarget: TargetIndexValue(ref)}); err != nil {
-		return nil, nil, false, fmt.Errorf("list donor Downloads for %s: %w", TargetIndexValue(ref), err)
+	entries, err := OwnerEntries(ctx, w.Client, ns, ref)
+	if err != nil {
+		return nil, nil, false, fmt.Errorf("read the donor grabs of %s: %w", ref.Name, err)
 	}
 	var queue []decision.Queued
-	for i := range list.Items {
-		if dl := &list.Items[i]; dl.Spec.IsDonor() && rollup.DownloadNonTerminal(dl) {
-			queue = append(queue, decision.Queued{Quality: dl.Spec.Release.Quality})
+	for i := range entries {
+		if rollup.IsDonor(&entries[i]) {
+			queue = append(queue, decision.Queued{Quality: entries[i].Release.Quality})
 		}
 	}
 	return d, queue, true, nil

@@ -28,12 +28,10 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 	"github.com/mediactl/clustarr/pkg/decision"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
-	"github.com/mediactl/clustarr/pkg/quality"
 )
 
 // itemSnapshot is everything the worker reads off the cluster before it can
@@ -225,10 +223,8 @@ func episodeAvailable(e *catalogv1alpha1.Episode, now time.Time) bool {
 // is rollup.Transcoded's verdict (catalogv1alpha1.(*MediaFile).Transcoded,
 // the one place that rule lives).
 //
-// SourceHash has no MediaFile-side source -- a torrent's info hash lives on
-// the Download that produced the file -- so it is resolved from
-// spec.importedFrom.downloadRef when that Download still exists. A missing
-// Download is not an error: blocklisting keeps the Download around, and
+// SourceHash is spec.importedFrom.infoHash, frozen at import (ADR-0019
+// §6.2): a torrent's info hash outlives the grab that fetched it, and
 // already-imported matching falls back to the release title, which
 // spec.importedFrom.releaseTitle always carries.
 //
@@ -269,41 +265,12 @@ func CurrentFile(ctx context.Context, c client.Reader, ns, name string) (*decisi
 		return cur, nil
 	}
 	cur.SourceTitle = mf.Spec.ImportedFrom.ReleaseTitle
-	if ref := mf.Spec.ImportedFrom.DownloadRef; ref != "" {
-		var d downloadv1alpha1.Download
-		switch err := c.Get(ctx, client.ObjectKey{Namespace: ns, Name: ref}, &d); {
-		case err == nil:
-			cur.SourceHash = d.Spec.Release.InfoHash
-		case apierrors.IsNotFound(err):
-			// Expected once grabarr sweeps the Download.
-		default:
-			return nil, fmt.Errorf("get Download %s/%s: %w", ns, ref, err)
-		}
-	}
+	cur.SourceHash = mf.Spec.ImportedFrom.InfoHash
 	return cur, nil
 }
 
-// queue lists the non-terminal Downloads already working on this item, as the
-// decision engine's queue-preference check needs them.
+// queue is the live grabs already working on this item, as the decision
+// engine's queue-preference check needs them (QueuedFor).
 func (w *Worker) queue(ctx context.Context, ns string, ref commonv1.MediaRef) ([]decision.Queued, error) {
-	var list downloadv1alpha1.DownloadList
-	if err := w.Client.List(ctx, &list,
-		client.InNamespace(ns),
-		client.MatchingFields{IndexDownloadTarget: TargetIndexValue(ref)},
-	); err != nil {
-		return nil, fmt.Errorf("list queued Downloads for %s: %w", TargetIndexValue(ref), err)
-	}
-	out := make([]decision.Queued, 0, len(list.Items))
-	for i := range list.Items {
-		if list.Items[i].Spec.IsDonor() {
-			continue // an audio donor is no video candidate: an upgrade never waits on a dub
-		}
-		rel := list.Items[i].Spec.Release
-		out = append(out, quality.Candidate{
-			Quality:     rel.Quality,
-			Revision:    rel.Revision,
-			FormatScore: int(rel.FormatScore),
-		})
-	}
-	return out, nil
+	return QueuedFor(ctx, w.Client, ns, ref)
 }

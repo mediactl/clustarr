@@ -78,7 +78,6 @@ rules:
   - download.clustarr.io
   resources:
   - downloadclients
-  - downloads
   verbs:
   - get
   - list
