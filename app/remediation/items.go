@@ -193,7 +193,7 @@ func (ir *ItemReconciler) staged(ctx context.Context, it rollup.Item, k Key) (re
 	// 4. The kind's own pass, with the contribution on its context. A pass
 	// that did not land (a conflict, an error, a path that returned before
 	// applying) stops here: no set, no effect.
-	pass := &itempass.Pass{Contribution: merged}
+	pass := &itempass.Pass{Contribution: merged, Admitter: ir.admitterFor(k)}
 	res, err := it.ReconcileItem(itempass.With(ctx, pass), nn)
 	rv, landed := pass.LandedRV()
 	if err != nil || !landed {
@@ -259,6 +259,9 @@ func (ir *ItemReconciler) staged(ctx context.Context, it rollup.Item, k Key) (re
 	}
 	if transient || stageTransient {
 		shorten(itemEffectRetry, 0)
+	}
+	if d := pass.RetryAfter(); d > 0 {
+		shorten(d, PriorityTimed)
 	}
 	if failed || effectFailed {
 		shorten(plannerFailedRetry, PriorityTimed)

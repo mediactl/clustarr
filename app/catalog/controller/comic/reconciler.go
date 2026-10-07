@@ -42,13 +42,13 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/controller/itempass"
 	"github.com/mediactl/clustarr/app/catalog/controller/itemstatus"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
+	"github.com/mediactl/clustarr/app/catalog/metadatainputs"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/metadata"
 	"github.com/mediactl/clustarr/pkg/naming"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
-	"github.com/mediactl/clustarr/pkg/version"
 )
 
 // conditionQueueFull mirrors movie.MovieConditionQueueFull's name and
@@ -304,37 +304,33 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, c *catalogv1alpha1.Com
 	metaReady := !stale
 
 	if stale {
-		envKey := c.Namespace + "/" + c.Name
-		mediaKey := events.MediaKey(string(commonv1.MediaKindComic), c.Namespace, c.Name)
-		schemaName, data, err := schema.Encode(schema.MetadataTask{
-			MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindComic, Name: c.Name},
-		})
+		// The task carries what the refresh asks for -- the item and its
+		// inputs, answered in clustarr-item-metadata (ADR-0019 §7.1) -- under
+		// Msg-Id metadata/<uid>/<inputsHash>.
+		subject, env, err := metadatainputs.Task(c, metadatainputs.For(c), events.PriorityNormal, now)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
-		env := &events.Envelope{
-			ID:     events.MsgIDForObject(string(c.UID), c.Generation, "metadata"),
-			Type:   "catalog.MetadataTask",
-			Schema: schemaName,
-			Source: "catalog@" + version.String(),
-			Key:    envKey,
-			Time:   now,
-			Data:   data,
-		}
-		_, pubErr := r.Bus.Publish(ctx, events.WorkMetadataSubject(events.PriorityNormal, mediaKey), env)
-		if pubErr != nil {
-			if errors.Is(pubErr, events.ErrQueueFull) {
-				k8s.MarkTrue(c, &conditions, conditionQueueFull, "QueueFull", "metadata work queue is full")
-				statusAC = reassertKnownStatus(statusAC, c)
-				statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
-				if conflicted, err := itemstatus.Apply(ctx, r.Client, c, catalogac.Comic(c.Name, c.Namespace).WithStatus(withEntries(ctx, statusAC, c))); err != nil || conflicted {
-					return itemstatus.Requeue(conflicted), err
+		// Admitted by the dispatch ledger (ruling R23): a refusal publishes
+		// nothing, and the item path requeues the pass after the wait.
+		seq := metadatainputs.Seq(now)
+		if itempass.Admit(itempass.From(ctx), metadatainputs.Durable, seq) {
+			_, pubErr := r.Bus.Publish(ctx, subject, env)
+			if pubErr != nil {
+				if errors.Is(pubErr, events.ErrQueueFull) {
+					k8s.MarkTrue(c, &conditions, conditionQueueFull, "QueueFull", "metadata work queue is full")
+					statusAC = reassertKnownStatus(statusAC, c)
+					statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
+					if conflicted, err := itemstatus.Apply(ctx, r.Client, c, catalogac.Comic(c.Name, c.Namespace).WithStatus(withEntries(ctx, statusAC, c))); err != nil || conflicted {
+						return itemstatus.Requeue(conflicted), err
+					}
+					return ctrl.Result{RequeueAfter: time.Minute}, nil
 				}
-				return ctrl.Result{RequeueAfter: time.Minute}, nil
+				return ctrl.Result{}, pubErr
 			}
-			return ctrl.Result{}, pubErr
+			itempass.Published(itempass.From(ctx), metadatainputs.Durable, seq)
+			k8s.MarkFalse(c, &conditions, conditionQueueFull, "Published", "metadata task published")
 		}
-		k8s.MarkFalse(c, &conditions, conditionQueueFull, "Published", "metadata task published")
 		k8s.MarkFalse(c, &conditions, catalogv1alpha1.ComicConditionMetadataReady, "Refreshing", "metadata refresh requested")
 	} else {
 		k8s.MarkTrue(c, &conditions, catalogv1alpha1.ComicConditionMetadataReady, k8s.ReasonReconciled, "metadata is fresh")

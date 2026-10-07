@@ -19,6 +19,7 @@ package metadata
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -27,43 +28,42 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/metadata/artwork"
+	"github.com/mediactl/clustarr/app/catalog/metadatainputs"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
-	"github.com/mediactl/clustarr/pkg/k8s"
 	pkgmetadata "github.com/mediactl/clustarr/pkg/metadata"
 	"github.com/mediactl/clustarr/pkg/metadata/extended"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
+	"github.com/mediactl/clustarr/pkg/records"
+	"github.com/mediactl/clustarr/pkg/records/agentrecords"
 )
 
 // Handler is the clustarr.work.catalog.metadata.<tier>.<mediaKey>
-// consumer: the only place that reads a MetadataTask, calls a provider
-// through the Registry, and patches status.metadata back -- together with
-// status.artwork, which the same manager owns (spec §B.6), in the same
-// apply and nothing else (§3's single-writer rule; §8.1).
+// consumer: the only place that reads a MetadataTask and calls a provider
+// through the Registry. It answers in clustarr-item-metadata (ADR-0019
+// §7.1): the kind's status.metadata block exactly as the apply it once made
+// would have declared it, which the item key (the Artist and Author
+// reconcilers for theirs) incorporates under catalog-metadata. It writes no
+// Kubernetes object; status.artwork is the item key's, from the artwork
+// objects' metadata (A5.2).
 type Handler struct {
 	Client client.Client
 
-	// Reader reads the item, uncached (mgr.GetAPIReader()), for the artwork
-	// pass that follows every successful fetch. Required: see
-	// artwork.Pass.Reader for why the cached Client will not do.
+	// Reader reads a series' episodes, uncached (mgr.GetAPIReader()), for
+	// their people after a Series refresh.
 	Reader client.Reader
 
 	Registry *pkgmetadata.Registry
 	Cache    pkgmetadata.Cache
 
-	// Artwork fetches the item's artwork originals after the metadata
-	// fetch (spec §B.4). Nil fetches none; status.artwork is then
-	// re-declared as it stands, never omitted.
-	Artwork *artwork.Fetcher
-
-	// Bus receives the RenderOverlay task every artwork pass ends with. Nil
-	// publishes none.
-	Bus events.Publisher
+	// Records is the item-metadata records writer, the answer's only path.
+	// The artwork fetcher, in this same process, writes its failures
+	// through the same writer (records.Writer.Update).
+	Records *records.Writer[*schema.ItemMetadataRecord]
 
 	// Extended is the clustarr-metadata-extended bucket: every successful
 	// movie or series refresh replaces the item's people and similar titles
@@ -111,6 +111,19 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 		tracing.RecordError(span, err)
 		return fmt.Errorf("metadata: get %s: %w", key, err)
 	}
+	// The record is keyed by the item the task names. A task for an item
+	// since deleted and re-created under the same name answers nothing: the
+	// new item's own pass asks again.
+	item := task.Item
+	if item.UID == "" {
+		item = metadatainputs.ItemRef(target)
+	} else if item.UID != string(target.GetUID()) {
+		return events.Discard("target object was re-created", fmt.Errorf("task uid %s, object uid %s", item.UID, target.GetUID()))
+	}
+	inputs := task.Inputs
+	if inputs.SchemaVersion == 0 && len(inputs.ProviderIDs) == 0 {
+		inputs = metadatainputs.For(target)
+	}
 
 	ids, err := externalIDs(target)
 	if err != nil {
@@ -122,7 +135,7 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 	// hit: the operator asked for what the provider publishes now, which
 	// the cached document may lack. The fetch still lands in the cache.
 	cacheGet := func(ctx context.Context, key string, out any) (bool, error) {
-		if task.RefreshEpoch > 0 {
+		if task.RefreshEpoch > 0 || task.Inputs.Force {
 			return false, nil
 		}
 		return h.Cache.Get(ctx, key, out)
@@ -195,7 +208,10 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 		if err != nil {
 			tracing.RecordError(fetchSpan, err)
 			fetchSpan.End()
-			return settlement(err)
+			verdict := settlement(err)
+			var discard *events.DiscardError
+			h.answerFailure(ctx, item, inputs, err, !errors.As(verdict, &discard))
+			return verdict
 		}
 		fetchSpan.End()
 		// Crosswalk and artwork are folded in before the document is
@@ -206,15 +222,14 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 	}
 
 	// Each kind renders its status.metadata once, from the provider
-	// document; the images the artwork pass resolves against are the very
-	// list that status.metadata.images will hold. build is the gateway's
-	// whole declaration -- status.metadata AND status.artwork in one apply
-	// (app/catalog/status.GatewayFields) -- because server-side apply
-	// releases whatever a manager's apply omits.
+	// document, exactly as the apply the gateway once made declared it; the
+	// record carries that block as JSON and the item key applies it
+	// (ADR-0019 §7.1). refreshed is second-precision, what the apiserver
+	// keeps, so the record's refreshedAt and the block's are one instant.
+	refreshed := now().UTC().Truncate(time.Second)
 	var (
-		ttl    time.Duration
-		images []catalogv1alpha1.Image
-		build  artwork.BuildFunc
+		ttl time.Duration
+		md  any
 	)
 	switch v := result.(type) {
 	case *pkgmetadata.Movie:
@@ -230,27 +245,19 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 		// Before the cache write below, so a cached Movie carries the
 		// summary and is not fetched again.
 		withCollectionSummary(ctx, h.Registry, v.Collection)
-		md := buildMovieMetadataAC(v, ratings, now())
-		if md.Collection != nil {
+		mmd := buildMovieMetadataAC(v, ratings, refreshed)
+		if mmd.Collection != nil {
 			if id := plexCollection(ctx, h.Registry, v.IDs[pkgmetadata.KeyPlex], knownPlexCollection(target, v.Collection)); id != "" {
-				md.Collection.WithPlexID(id)
+				mmd.Collection.WithPlexID(id)
 			}
 		}
-		images = imagesOf(md.Images)
-		build = func(_ client.Object, art []*catalogac.ArtworkEntryApplyConfiguration) (k8s.ApplyConfiguration, error) {
-			return catalogac.Movie(key.Name, key.Namespace).WithStatus(
-				catalogac.MovieStatus().WithMetadata(md).WithArtwork(art...)), nil
-		}
+		md = mmd
 	case *pkgmetadata.Series:
 		ttl = pkgmetadata.RefreshTTL(commonv1.MediaKindSeries, seriesRefreshState(v, now()), refreshedAt(target))
 		ratings := enrichRatings(ctx, h.Registry, task.MediaRef.Kind, v.IDs, v.Ratings, knownRatings(target))
-		md := buildSeriesMetadataAC(v, ratings, now())
-		withPlexSeasons(md, plexSeasons(ctx, h.Registry, v.IDs, knownPlexSeasons(target)))
-		images = imagesOf(md.Images)
-		build = func(_ client.Object, art []*catalogac.ArtworkEntryApplyConfiguration) (k8s.ApplyConfiguration, error) {
-			return catalogac.Series(key.Name, key.Namespace).WithStatus(
-				catalogac.SeriesStatus().WithMetadata(md).WithArtwork(art...)), nil
-		}
+		smd := buildSeriesMetadataAC(v, ratings, refreshed)
+		withPlexSeasons(smd, plexSeasons(ctx, h.Registry, v.IDs, knownPlexSeasons(target)))
+		md = smd
 	case *pkgmetadata.Artist:
 		// RefreshTTL's MediaKindArtist/MediaKindAlbum branch is a flat 7-day
 		// cadence regardless of state (pkg/metadata/refresh.go); Active is
@@ -258,54 +265,24 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 		// RefreshStateCrosswalk) RefreshTTL special-cases ahead of its
 		// per-kind switch, not because it carries meaning for this kind.
 		ttl = pkgmetadata.RefreshTTL(commonv1.MediaKindArtist, pkgmetadata.RefreshStateActive, refreshedAt(target))
-		md := buildArtistMetadataAC(v, now())
-		images = imagesOf(md.Images)
-		build = func(_ client.Object, art []*catalogac.ArtworkEntryApplyConfiguration) (k8s.ApplyConfiguration, error) {
-			return catalogac.Artist(key.Name, key.Namespace).WithStatus(
-				catalogac.ArtistStatus().WithMetadata(md).WithArtwork(art...)), nil
-		}
+		md = buildArtistMetadataAC(v, refreshed)
 	case *pkgmetadata.Album:
 		ttl = pkgmetadata.RefreshTTL(commonv1.MediaKindAlbum, pkgmetadata.RefreshStateActive, refreshedAt(target))
-		md := buildAlbumMetadataAC(v, now())
-		images = imagesOf(md.Images)
-		build = func(_ client.Object, art []*catalogac.ArtworkEntryApplyConfiguration) (k8s.ApplyConfiguration, error) {
-			return catalogac.Album(key.Name, key.Namespace).WithStatus(
-				catalogac.AlbumStatus().WithMetadata(md).WithArtwork(art...)), nil
-		}
+		md = buildAlbumMetadataAC(v, refreshed)
 	case *pkgmetadata.Author:
 		// MediaKindAuthor/Book/Audiobook are likewise a flat 30-day cadence
 		// regardless of state; see the Artist/Album comment above.
 		ttl = pkgmetadata.RefreshTTL(commonv1.MediaKindAuthor, pkgmetadata.RefreshStateActive, refreshedAt(target))
-		md := buildAuthorMetadataAC(v, now())
-		images = imagesOf(md.Images)
-		build = func(_ client.Object, art []*catalogac.ArtworkEntryApplyConfiguration) (k8s.ApplyConfiguration, error) {
-			return catalogac.Author(key.Name, key.Namespace).WithStatus(
-				catalogac.AuthorStatus().WithMetadata(md).WithArtwork(art...)), nil
-		}
+		md = buildAuthorMetadataAC(v, refreshed)
 	case *pkgmetadata.Book:
 		ttl = pkgmetadata.RefreshTTL(commonv1.MediaKindBook, pkgmetadata.RefreshStateActive, refreshedAt(target))
-		md := buildBookMetadataAC(v, now())
-		images = imagesOf(md.Images)
-		build = func(_ client.Object, art []*catalogac.ArtworkEntryApplyConfiguration) (k8s.ApplyConfiguration, error) {
-			return catalogac.Book(key.Name, key.Namespace).WithStatus(
-				catalogac.BookStatus().WithMetadata(md).WithArtwork(art...)), nil
-		}
+		md = buildBookMetadataAC(v, refreshed)
 	case *pkgmetadata.Audiobook:
 		ttl = pkgmetadata.RefreshTTL(commonv1.MediaKindAudiobook, pkgmetadata.RefreshStateActive, refreshedAt(target))
-		md := buildAudiobookMetadataAC(v, now())
-		images = imagesOf(md.Images)
-		build = func(_ client.Object, art []*catalogac.ArtworkEntryApplyConfiguration) (k8s.ApplyConfiguration, error) {
-			return catalogac.Audiobook(key.Name, key.Namespace).WithStatus(
-				catalogac.AudiobookStatus().WithMetadata(md).WithArtwork(art...)), nil
-		}
+		md = buildAudiobookMetadataAC(v, refreshed)
 	case *pkgmetadata.ComicVolume:
 		ttl = pkgmetadata.RefreshTTL(commonv1.MediaKindComic, comicRefreshState(v), refreshedAt(target))
-		md := buildComicMetadataAC(v, now())
-		images = imagesOf(md.Images)
-		build = func(_ client.Object, art []*catalogac.ArtworkEntryApplyConfiguration) (k8s.ApplyConfiguration, error) {
-			return catalogac.Comic(key.Name, key.Namespace).WithStatus(
-				catalogac.ComicStatus().WithMetadata(md).WithArtwork(art...)), nil
-		}
+		md = buildComicMetadataAC(v, refreshed)
 	default:
 		return events.Discard("registry returned an unexpected type", fmt.Errorf("%T", result))
 	}
@@ -318,25 +295,16 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 		}
 	}
 
-	// k8s.ManagerCatalogMetadata, not ManagerCatalogWorker: this apply
-	// carries status.metadata and status.artwork and nothing else, and
-	// server-side apply releases every field its manager owns and this apply
-	// omits. While the gateway and the grab path shared catalog-worker,
-	// each refresh deleted the grab path's status.activeDownloadRef and
-	// status.pendingGrab -- taking a delayed item out of Phase=Delayed back
-	// to Wanted, where the wanted cron re-searched an item that already had a
-	// grab scheduled -- and each grab deleted the metadata written here.
-	//
-	// The artwork pass fetches the originals first (slow work), re-reads the
-	// item uncached and applies once; a failed image fetch keeps its
-	// previous entry (R3), so a refresh never empties status.artwork.
-	pass := artwork.Pass{Client: h.Client, Reader: h.Reader, Bus: h.Bus, Fetcher: h.Artwork}
-	if err := pass.Run(ctx, key, task.MediaRef.Kind, images, build); err != nil {
-		if errors.Is(err, artwork.ErrItemGone) {
-			return events.Discard("target object no longer exists", err)
+	block, err := json.Marshal(md)
+	if err != nil {
+		return events.Discard("metadata: encode the status.metadata block", err)
+	}
+	if err := h.answer(ctx, item, inputs, refreshed, block); err != nil {
+		if errors.Is(err, records.ErrTooLarge) {
+			return events.Discard("metadata: the record is over the bucket's value limit", err)
 		}
 		tracing.RecordError(span, err)
-		return fmt.Errorf("metadata: patch status.metadata and status.artwork: %w", err)
+		return fmt.Errorf("metadata: write the item-metadata record: %w", err)
 	}
 	h.writeExtended(ctx, task.MediaRef.Kind, target, result)
 	if series, ok := target.(*catalogv1alpha1.Series); ok {
@@ -373,17 +341,59 @@ func (h *Handler) writeExtended(ctx context.Context, kind commonv1.MediaKind, ta
 	}
 }
 
-// imagesOf reads a rendered status.metadata.images back as API values, the
-// list the artwork pass resolves provider sources from. It is never nil --
-// an empty list means "the provider published no images", which
-// artwork.Pass must not mistake for "use the item's stored images".
-func imagesOf(acs []catalogac.ImageApplyConfiguration) []catalogv1alpha1.Image {
-	out := make([]catalogv1alpha1.Image, 0, len(acs))
-	for _, img := range acs {
-		if img.Type == nil || img.URL == nil {
-			continue
-		}
-		out = append(out, catalogv1alpha1.Image{Type: *img.Type, URL: *img.URL})
+// answer writes the item's metadata record (ADR-0019 §7.1): the next Seq,
+// the inputs the task asked for, the refresh time and the block, carrying
+// the fetcher's artwork failures forward. The writer re-reads before its
+// compare-and-swap.
+func (h *Handler) answer(ctx context.Context, item schema.ItemRef, inputs schema.MetadataInputs,
+	refreshed time.Time, block json.RawMessage,
+) error {
+	if h.Records == nil {
+		return errors.New("metadata: no item-metadata records writer")
 	}
-	return out
+	_, err := h.Records.Update(ctx, agentrecords.ItemMetadataKey(item.UID), func(cur *schema.ItemMetadataRecord, ok bool) (*schema.ItemMetadataRecord, bool) {
+		next := &schema.ItemMetadataRecord{Inputs: inputs, RefreshedAt: refreshed, SchemaVersion: pkgmetadata.SchemaVersion, Metadata: block}
+		ref := item
+		next.Item = &ref
+		next.State = records.StateAnswered
+		if ok {
+			next.Seq = cur.Seq + 1
+			next.ArtworkFailures = cur.ArtworkFailures
+		} else {
+			next.Seq = 1
+		}
+		return next, true
+	})
+	return err
+}
+
+// answerFailure records a provider failure in the item's record (ADR-0019
+// §7.1): the header's Failure and Transient, the inputs asked for, and
+// whatever document the record held, kept, so a failure never empties what
+// the item already incorporated. A write failure is logged: the task's own
+// settlement is what retries.
+func (h *Handler) answerFailure(ctx context.Context, item schema.ItemRef, inputs schema.MetadataInputs, cause error, transient bool) {
+	if h.Records == nil {
+		return
+	}
+	_, err := h.Records.Update(ctx, agentrecords.ItemMetadataKey(item.UID), func(cur *schema.ItemMetadataRecord, ok bool) (*schema.ItemMetadataRecord, bool) {
+		next := &schema.ItemMetadataRecord{Inputs: inputs}
+		if ok {
+			*next = *cur
+			next.Seq = cur.Seq + 1
+		} else {
+			next.Seq = 1
+		}
+		ref := item
+		next.Item = &ref
+		next.Inputs = inputs
+		next.State = records.StateFailed
+		next.Failure, next.Transient = cause.Error(), transient
+		next.Failures++
+		return next, true
+	})
+	if err != nil {
+		logging.FromContext(ctx).WarnContext(ctx, "metadata: record a provider failure (non-fatal)",
+			"kind", item.Kind, "name", item.Name, "error", err)
+	}
 }

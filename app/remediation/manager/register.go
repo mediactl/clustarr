@@ -39,6 +39,7 @@ import (
 	"github.com/mediactl/clustarr/app/remediation"
 	"github.com/mediactl/clustarr/app/remediation/downloads"
 	markersplanner "github.com/mediactl/clustarr/app/remediation/markers"
+	metadatastage "github.com/mediactl/clustarr/app/remediation/metadata"
 	"github.com/mediactl/clustarr/app/remediation/naming"
 	"github.com/mediactl/clustarr/app/remediation/probe"
 	"github.com/mediactl/clustarr/app/remediation/rename"
@@ -136,6 +137,7 @@ func Stages(d Deps) []remediation.ItemStage {
 			Reader: d.Manager.GetClient(), APIReader: d.Manager.GetAPIReader(), Bus: d.Env.Bus,
 			Dispatch: d.Options.Dispatch, Book: d.Options.Book, Recorder: recorder,
 		}),
+		metadatastage.New(metadatastage.Options{Bus: d.Env.Bus}),
 	}
 }
 

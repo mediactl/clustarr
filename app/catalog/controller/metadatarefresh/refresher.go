@@ -46,11 +46,10 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/app/catalog/metadatainputs"
 	"github.com/mediactl/clustarr/pkg/events"
-	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
-	"github.com/mediactl/clustarr/pkg/version"
 )
 
 // AnnotationRefresh is the operator's forced metadata refresh (design
@@ -177,25 +176,23 @@ func (r *Refresher) Refresh(ctx context.Context, obj *metav1.PartialObjectMetada
 		return ctrl.Result{}, r.consume(ctx, obj, value)
 	}
 
-	schemaName, data, err := schema.Encode(schema.MetadataTask{
-		MediaRef:     commonv1.MediaRef{Kind: kind, Name: obj.Name},
-		RefreshEpoch: epoch,
-	})
+	// The v2 task carries the item and what it asks for (ADR-0019 §7.1):
+	// the item's inputs, forced at this epoch. The full object is read for
+	// its provider ids; the metadata-only read above woke the controller.
+	item, ok := metadatainputs.NewObject(kind)
+	if !ok {
+		return ctrl.Result{}, nil
+	}
+	if err := r.Deps.Client.Get(ctx, client.ObjectKeyFromObject(obj), item); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	// Each epoch is its own Msg-Id (the epoch is in the inputs' hash): the
+	// scheduled task's duplicate window never drops a forced refresh. Not
+	// admitted by the dispatch ledger: a person asked for it (A5-R2).
+	subject, env, err := metadatainputs.Task(item, metadatainputs.Forced(metadatainputs.For(item), epoch), events.PriorityHigh, time.Now())
 	if err != nil {
 		tracing.RecordError(span, err)
 		return ctrl.Result{}, err
-	}
-	subject := events.WorkMetadataSubject(events.PriorityHigh, events.MediaKey(string(kind), obj.Namespace, obj.Name))
-	env := &events.Envelope{
-		// Not the scheduled task's id: JetStream's duplicate window would
-		// otherwise drop the refresh as a repeat of it.
-		ID:     events.MsgIDForObject(string(obj.UID), obj.Generation, "metadata:refresh:"+value),
-		Type:   "catalog.MetadataTask",
-		Schema: schemaName,
-		Source: "catalog@" + version.String(),
-		Key:    obj.Namespace + "/" + obj.Name,
-		Time:   time.Now(),
-		Data:   data,
 	}
 	if _, err := r.Deps.Bus.Publish(ctx, subject, env); err != nil {
 		if errors.Is(err, events.ErrQueueFull) {

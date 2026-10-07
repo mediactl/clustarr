@@ -42,9 +42,9 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/controller/itempass"
 	"github.com/mediactl/clustarr/app/catalog/controller/itemstatus"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
+	"github.com/mediactl/clustarr/app/catalog/metadatainputs"
 	"github.com/mediactl/clustarr/app/remediation/mfindex"
 	"github.com/mediactl/clustarr/pkg/events"
-	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/metadata"
 	"github.com/mediactl/clustarr/pkg/naming"
@@ -52,7 +52,6 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/pkg/quality"
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
-	"github.com/mediactl/clustarr/pkg/version"
 )
 
 const (
@@ -328,50 +327,33 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Aud
 	metaReady := !stale
 
 	if stale {
-		// The envelope key is the <namespace>/<name> routing key every
-		// worker parses to recover the namespace; the media key is the
-		// subject token. They are not interchangeable -- the media key is
-		// tokenised for the wire and has no slash to cut on. This is also
-		// the entire "does region reach the metadata task" story: the task
-		// below carries only MediaRef{Kind, Name} (schema.MetadataTask has
-		// no region field), and the metadata gateway's Handler re-Gets this
-		// exact object by that name before it ever looks at region
-		// (app/catalog/metadata/worker.go's Handle, target.go's
-		// externalIDs) -- so region reaches the gateway through
-		// m.Spec.Region on the live object, not through anything this
-		// reconciler puts on the wire. This reconciler's only job is to ask
-		// for a refresh of the right object.
-		envKey := m.Namespace + "/" + m.Name
-		mediaKey := events.MediaKey(string(commonv1.MediaKindAudiobook), m.Namespace, m.Name)
-		schemaName, data, err := schema.Encode(schema.MetadataTask{
-			MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindAudiobook, Name: m.Name},
-		})
+		// The task carries what the refresh asks for -- the item and its
+		// inputs, answered in clustarr-item-metadata (ADR-0019 §7.1) -- under
+		// Msg-Id metadata/<uid>/<inputsHash>.
+		subject, env, err := metadatainputs.Task(m, metadatainputs.For(m), events.PriorityNormal, now)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
-		env := &events.Envelope{
-			ID:     events.MsgIDForObject(string(m.UID), m.Generation, "metadata"),
-			Type:   "catalog.MetadataTask",
-			Schema: schemaName,
-			Source: "catalog@" + version.String(),
-			Key:    envKey,
-			Time:   now,
-			Data:   data,
-		}
-		_, pubErr := r.Bus.Publish(ctx, events.WorkMetadataSubject(events.PriorityNormal, mediaKey), env)
-		if pubErr != nil {
-			if errors.Is(pubErr, events.ErrQueueFull) {
-				k8s.MarkTrue(m, &conditions, catalogv1alpha1.AudiobookConditionQueueFull, "QueueFull", "metadata work queue is full")
-				statusAC = reassertKnownStatus(statusAC, m)
-				statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
-				if conflicted, err := itemstatus.Apply(ctx, r.Client, m, catalogac.Audiobook(m.Name, m.Namespace).WithStatus(withEntries(ctx, statusAC, m))); err != nil || conflicted {
-					return itemstatus.Requeue(conflicted), err
+		// Admitted by the dispatch ledger (ruling R23): a refusal publishes
+		// nothing, and the item path requeues the pass after the wait.
+		seq := metadatainputs.Seq(now)
+		if itempass.Admit(itempass.From(ctx), metadatainputs.Durable, seq) {
+			_, pubErr := r.Bus.Publish(ctx, subject, env)
+			if pubErr != nil {
+				if errors.Is(pubErr, events.ErrQueueFull) {
+					k8s.MarkTrue(m, &conditions, catalogv1alpha1.AudiobookConditionQueueFull, "QueueFull", "metadata work queue is full")
+					statusAC = reassertKnownStatus(statusAC, m)
+					statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
+					if conflicted, err := itemstatus.Apply(ctx, r.Client, m, catalogac.Audiobook(m.Name, m.Namespace).WithStatus(withEntries(ctx, statusAC, m))); err != nil || conflicted {
+						return itemstatus.Requeue(conflicted), err
+					}
+					return ctrl.Result{RequeueAfter: time.Minute}, nil
 				}
-				return ctrl.Result{RequeueAfter: time.Minute}, nil
+				return ctrl.Result{}, pubErr
 			}
-			return ctrl.Result{}, pubErr
+			itempass.Published(itempass.From(ctx), metadatainputs.Durable, seq)
+			k8s.MarkFalse(m, &conditions, catalogv1alpha1.AudiobookConditionQueueFull, "Published", "metadata task published")
 		}
-		k8s.MarkFalse(m, &conditions, catalogv1alpha1.AudiobookConditionQueueFull, "Published", "metadata task published")
 		k8s.MarkFalse(m, &conditions, catalogv1alpha1.AudiobookConditionMetadataReady, "Refreshing", "metadata refresh requested")
 	} else {
 		k8s.MarkFalse(m, &conditions, catalogv1alpha1.AudiobookConditionQueueFull, "Published", "no refresh currently queued")

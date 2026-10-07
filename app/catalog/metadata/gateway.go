@@ -26,9 +26,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
-	"github.com/mediactl/clustarr/app/catalog/metadata/artwork"
 	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/events/schema"
 	pkgmetadata "github.com/mediactl/clustarr/pkg/metadata"
+	"github.com/mediactl/clustarr/pkg/records"
 )
 
 // The gateway's own RBAC. It runs as RoleMetadata, in its own single-replica
@@ -36,26 +37,21 @@ import (
 // markers being in force in the same pod -- even though controller-gen folds
 // every marker into one ClusterRole today.
 //
-// The six non-video kinds (artists, albums, authors, books, audiobooks,
-// comics) share the movies/series lines below rather than getting their own:
-// newTarget (target.go) and Handle's per-kind switch (worker.go) read and
-// PatchStatus all eight kinds identically, through the one
-// k8s.ManagerCatalogMetadata field manager, so their RBAC needs are the
-// same get;list;watch / status get;update;patch shape movies and series
-// already had.
+// The eight kinds with metadata of their own are read, never written: the
+// gateway answers in clustarr-item-metadata, and the item keys (the Artist
+// and Author reconcilers for theirs) apply status.metadata under
+// catalog-metadata in the manager (ADR-0019 §7.1, A5.1).
 //
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=metadataproviders,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series;artists;albums;authors;books;audiobooks;comics,verbs=get;list;watch
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies/status;series/status;artists/status;albums/status;authors/status;books/status;audiobooks/status;comics/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 
 // Options configures Setup. Client, Reader and Bus are required;
 // everything else defaults.
 type Options struct {
 	Client client.Client
-	// Reader is the uncached reader the artwork pass reads an item through
-	// (mgr.GetAPIReader()). Required: the manager's cache lags the
-	// gateway's own writes and strips managedFields (artwork.Pass.Reader).
+	// Reader is the uncached reader a Series refresh lists its episodes
+	// through (mgr.GetAPIReader()).
 	Reader     client.Reader
 	Bus        events.Bus
 	HTTPClient *http.Client
@@ -65,10 +61,9 @@ type Options struct {
 	// registry's Markers providers: app/catalog/run.go binds
 	// app/catalog/worker/markers.Setup. Nil starts none.
 	Markers func(ctx context.Context, providers []pkgmetadata.MarkersProvider) (stop func(), err error)
-	// Artwork fetches artwork originals after each metadata fetch (spec
-	// §B.4). Nil fetches none -- status.artwork is still re-declared on
-	// every apply, never omitted.
-	Artwork *artwork.Fetcher
+	// Records writes the item-metadata records (ADR-0019 §7.1); required.
+	// The register shares it with the artwork fetcher, one process.
+	Records *records.Writer[*schema.ItemMetadataRecord]
 }
 
 // Setup builds the metadata gateway (the Registry from every enabled
@@ -82,8 +77,10 @@ func Setup(ctx context.Context, o Options) (stop func(), err error) {
 		return nil, fmt.Errorf("metadata: Client and Bus are required")
 	}
 	if o.Reader == nil {
-		return nil, fmt.Errorf("metadata: Reader is required -- pass the uncached API reader (mgr.GetAPIReader()); " +
-			"the manager's cache lags the gateway's own writes and strips managedFields")
+		return nil, fmt.Errorf("metadata: Reader is required -- pass the uncached API reader (mgr.GetAPIReader())")
+	}
+	if o.Records == nil {
+		return nil, fmt.Errorf("metadata: Records is required -- the gateway answers in %s", events.BucketItemMetadata)
 	}
 	httpClient := o.HTTPClient
 	if httpClient == nil {
@@ -119,7 +116,7 @@ func Setup(ctx context.Context, o Options) (stop func(), err error) {
 	}
 	h := &Handler{
 		Client: o.Client, Reader: o.Reader, Registry: reg, Cache: cache,
-		Artwork: o.Artwork, Bus: o.Bus,
+		Records:  o.Records,
 		Extended: o.Bus.KV(events.BucketMetadataExtended),
 	}
 	stopSub, err := o.Bus.Subscribe(ctx, spec.Subscription(), h.Handle)

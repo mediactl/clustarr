@@ -42,6 +42,9 @@ import (
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	pkgmetadata "github.com/mediactl/clustarr/pkg/metadata"
+	"github.com/mediactl/clustarr/pkg/records"
+	"github.com/mediactl/clustarr/pkg/records/agentrecords"
+	"github.com/mediactl/clustarr/pkg/version"
 )
 
 // Options is what the metadata domain's Register takes.
@@ -85,6 +88,11 @@ func Register(_ context.Context, mgr ctrl.Manager, bus events.Bus, o Options) (c
 	if bus == nil {
 		return catalogagent.Registration{}, errors.New("metadata domain: Register needs the bus")
 	}
+	// The gateway's one writer of clustarr-item-metadata (ADR-0019 §7.1):
+	// the metadata handler answers through it, and the artwork fetcher
+	// records its failures through it, one process, one compare-and-swap.
+	answers := records.NewWriter(bus.KV(events.BucketItemMetadata), agentrecords.ItemMetadata(),
+		os.Getenv("POD_NAME"), version.String())
 	fetcher := &artwork.Fetcher{
 		Store:    bus.ObjectStore(events.BucketArtwork),
 		HTTP:     artworkHTTPClient,
@@ -97,7 +105,7 @@ func Register(_ context.Context, mgr ctrl.Manager, bus events.Bus, o Options) (c
 			Reader:     mgr.GetAPIReader(),
 			Bus:        bus,
 			HTTPClient: metadataHTTPClient,
-			Artwork:    fetcher,
+			Records:    answers,
 			// TheIntroDB's handler answers into clustarr-markers; the
 			// remediation loop incorporates (loop spec §4.12).
 			Markers: func(ctx context.Context, providers []pkgmetadata.MarkersProvider) (func(), error) {
@@ -120,7 +128,7 @@ func Register(_ context.Context, mgr ctrl.Manager, bus events.Bus, o Options) (c
 	if !ok {
 		return catalogagent.Registration{}, fmt.Errorf("catalog: consumer %q missing from the bus topology", events.ConsumerCatalogArtworkFetch)
 	}
-	fetch := &artwork.Handler{Client: mgr.GetClient(), Reader: mgr.GetAPIReader(), Bus: bus, Fetcher: fetcher}
+	fetch := &artwork.Handler{Reader: mgr.GetAPIReader(), Bus: bus, Fetcher: fetcher}
 	if err := mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
 		stop, err := bus.Subscribe(ctx, spec.Subscription(), fetch.Handle)
 		if err != nil {

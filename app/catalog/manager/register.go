@@ -44,6 +44,7 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/controller/wantedcron"
 	"github.com/mediactl/clustarr/app/catalog/history"
 	"github.com/mediactl/clustarr/app/catalog/history/replay"
+	"github.com/mediactl/clustarr/app/catalog/metadataset"
 	"github.com/mediactl/clustarr/app/catalog/segmentplan"
 	historyworker "github.com/mediactl/clustarr/app/catalog/worker/history"
 	"github.com/mediactl/clustarr/app/remediation/dlindex"
@@ -340,14 +341,17 @@ func registerControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 func registerNonVideoControllers(mgr ctrl.Manager, bus events.Bus) error {
 	c := mgr.GetClient()
 	scheme := mgr.GetScheme()
+	// Neither is a loop key, so each incorporates its metadata record and
+	// artwork objects itself (ADR-0019 A5.1 step 4).
+	incorporator := metadataset.NewIncorporator(bus)
 
 	if err := (&artist.Reconciler{
-		Client: c, Scheme: scheme, Recorder: mgr.GetEventRecorder("artist"), Bus: bus,
+		Client: c, Scheme: scheme, Recorder: mgr.GetEventRecorder("artist"), Bus: bus, Metadata: incorporator,
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("catalog: artist: %w", err)
 	}
 	if err := (&author.Reconciler{
-		Client: c, Scheme: scheme, Recorder: mgr.GetEventRecorder("author"), Bus: bus,
+		Client: c, Scheme: scheme, Recorder: mgr.GetEventRecorder("author"), Bus: bus, Metadata: incorporator,
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("catalog: author: %w", err)
 	}

@@ -24,10 +24,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // It starts with the artwork split of spec §B.3/§B.6. On Movie, Series,
 // Artist, Album, Author, Book, Audiobook and Comic:
 //
-//   - [GatewayManager] (the metadata gateway) owns status.metadata -- every
-//     leaf but Album's metadata.selectedReleaseID, which is the Album
-//     reconciler's under k8s.ManagerCatalog -- and all of
-//     status.artwork, and declares both in ONE apply ([GatewayFields]);
+//   - [GatewayManager] owns status.metadata -- every leaf but Album's
+//     metadata.selectedReleaseID, which is the Album reconciler's under
+//     k8s.ManagerCatalog -- and all of status.artwork, and declares both in
+//     ONE apply ([GatewayFields]). The name is the metadata gateway's (R7),
+//     but since ADR-0019 (A5.1) the manager writes it: the item keys'
+//     metadata stage and the Artist and Author reconcilers incorporate the
+//     gateway's clustarr-item-metadata records (app/catalog/metadataset);
+//     no agent calls a status write;
 //   - [RendererManager] (the artwork render role, catalog --role
 //     artwork) owns status.overlay on Movie and Series and nothing else
 //     ([RendererFields]); [PatchOverlay] is its one write, a complete
@@ -56,17 +60,16 @@ import (
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
-// GatewayManager is the metadata gateway's field manager, the one that
-// already wrote each kind's status.metadata before artwork existed (spec
-// §B.6: "written by the gateway under the manager that already writes that
-// kind's status.metadata").
+// GatewayManager is the field manager of status.metadata and
+// status.artwork: the metadata gateway's name (spec §B.6), kept when the
+// writes moved into the manager (ADR-0019 §7.0, R7).
 const GatewayManager = k8s.ManagerCatalogMetadata
 
 // GatewayFields are the top-level status fields GatewayManager owns on each
-// of the eight kinds with artwork. Every gateway apply -- the metadata
-// work-queue handler's and the artwork-fetch handler's alike -- declares all
-// of them, because server-side apply releases whatever a manager's apply
-// omits: an apply of metadata alone would delete every artwork entry.
+// of the eight kinds with artwork. Every apply under it
+// (app/catalog/metadataset) declares all of them, because server-side
+// apply releases whatever a manager's apply omits: an apply of metadata
+// alone would delete every artwork entry.
 var GatewayFields = []string{"artwork", "metadata"}
 
 // ArtworkEntryLeaves are the leaves of one status.artwork entry. All six

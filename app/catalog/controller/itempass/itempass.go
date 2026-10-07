@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"sync"
+	"time"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -57,8 +58,12 @@ type Set struct {
 // Pass rides the context of one item pass.
 type Pass struct {
 	Contribution Contribution
+	// Admitter admits a task the kind publishes itself (ADR-0019 R23; nil
+	// admits everything: tests, F4's harness). See Admit.
+	Admitter Admitter
 
 	mu       sync.Mutex
+	retry    time.Duration
 	landedRV string
 	landed   bool
 }

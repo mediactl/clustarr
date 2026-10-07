@@ -28,14 +28,12 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	catalogartwork "github.com/mediactl/clustarr/app/catalog/artwork"
 	catalogstatus "github.com/mediactl/clustarr/app/catalog/status"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
-	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
@@ -44,11 +42,6 @@ import (
 // task: there is nothing left to record artwork on, and the reaper takes
 // whatever the item left in the store.
 var ErrItemGone = errors.New("artwork: item no longer exists")
-
-// ErrNoManagedFields is an item read without its managedFields -- from a
-// cache that strips them -- handed to [ExtractGatewayStatus], which cannot
-// then tell what the gateway owns.
-var ErrNoManagedFields = errors.New("artwork: item was read without managedFields; re-read it through the uncached API reader")
 
 // HeartbeatInterval is how often a gateway handler tells the broker it is
 // still working. Both gateway consumers set a BackOff whose first step (30
@@ -91,20 +84,10 @@ func KeepAlive(ctx context.Context, m events.Message, interval time.Duration) (s
 	}
 }
 
-// BuildFunc renders the gateway's complete status apply configuration for
-// fresh -- the item as re-read immediately before the apply -- given the
-// status.artwork entries to declare. It must declare every field
-// catalogstatus.GatewayFields names, artwork included, in one
-// configuration, and pass artwork to exactly one With Artwork call.
-type BuildFunc func(fresh client.Object, artwork []*catalogac.ArtworkEntryApplyConfiguration) (k8s.ApplyConfiguration, error)
-
 // Pass is one gateway write of one item's artwork: the step both gateway
 // consumers share, so the lock, the re-read and the merge happen the same
 // way on both.
 type Pass struct {
-	// Client applies the status.
-	Client client.Client
-
 	// Reader reads the item, uncached (mgr.GetAPIReader()). Required: Run
 	// panics without one. There is no fallback to Client, because in
 	// production Client is the manager's cache, which is wrong twice over:
@@ -146,7 +129,7 @@ const errNoReader = "artwork: Pass.Reader is required -- pass the uncached API r
 // returns without writing, and the one apply is build's complete
 // declaration.
 func (p Pass) Run(ctx context.Context, key client.ObjectKey, kind commonv1.MediaKind,
-	images []catalogv1alpha1.Image, build BuildFunc,
+	images []catalogv1alpha1.Image,
 ) error {
 	if p.Reader == nil {
 		panic(errNoReader)
@@ -199,21 +182,8 @@ func (p Pass) Run(ctx context.Context, key client.ObjectKey, kind commonv1.Media
 	}
 	merged := Merge(it.Entries, entries, freshItem.Entries)
 
-	ac, err := build(fresh, catalogstatus.ArtworkEntries(merged))
-	if err != nil {
-		return err
-	}
-	if _, err := k8s.PatchStatus(ctx, p.Client, catalogstatus.GatewayManager, ac); err != nil {
-		tracing.RecordError(span, err)
-		return fmt.Errorf("artwork: apply %s %s status: %w", kind, key, err)
-	}
-
-	// The ratings the render is keyed by are the ones this apply declared:
-	// the metadata path writes newly fetched ratings in the very apply, so
-	// fresh -- read before it -- still carries the previous refresh's.
-	if ratings, ok := appliedRatings(ac); ok {
-		freshItem.Ratings = ratings
-	}
+	// No status apply: the item key renders status.artwork from the
+	// objects' metadata (ADR-0019 §7.1, A5.1); A5.2 retires this pass.
 	if err := p.publishRenders(ctx, fresh, kind, it, freshItem, merged); err != nil {
 		tracing.RecordError(span, err)
 		return err
@@ -258,39 +228,6 @@ func (p Pass) publishRenders(ctx context.Context, fresh client.Object, kind comm
 	return nil
 }
 
-// appliedRatings is status.metadata.ratings as ac declares them, for the two
-// kinds whose ratings are drawn (Movie and Series); false when ac declares
-// no status.metadata at all, so the caller keeps what it read.
-func appliedRatings(ac k8s.ApplyConfiguration) ([]catalogv1alpha1.Rating, bool) {
-	var declared []catalogac.RatingApplyConfiguration
-	switch a := ac.(type) {
-	case *catalogac.MovieApplyConfiguration:
-		if a.Status == nil || a.Status.Metadata == nil {
-			return nil, false
-		}
-		declared = a.Status.Metadata.Ratings
-	case *catalogac.SeriesApplyConfiguration:
-		if a.Status == nil || a.Status.Metadata == nil {
-			return nil, false
-		}
-		declared = a.Status.Metadata.Ratings
-	default:
-		return nil, false
-	}
-	out := make([]catalogv1alpha1.Rating, 0, len(declared))
-	for _, r := range declared {
-		var got catalogv1alpha1.Rating
-		if r.Source != nil {
-			got.Source = *r.Source
-		}
-		if r.ValueCentis != nil {
-			got.ValueCentis = *r.ValueCentis
-		}
-		out = append(out, got)
-	}
-	return out, true
-}
-
 func (p Pass) read(ctx context.Context, kind commonv1.MediaKind, key client.ObjectKey) (client.Object, error) {
 	obj, err := catalogartwork.NewObject(kind)
 	if err != nil {
@@ -312,7 +249,6 @@ func (p Pass) read(ctx context.Context, kind commonv1.MediaKind, key client.Obje
 // against are the item's own status.metadata.images, and the
 // status.metadata it must re-declare is [ExtractGatewayStatus]'s.
 type Handler struct {
-	Client  client.Client
 	Reader  client.Reader
 	Bus     events.Publisher
 	Fetcher *Fetcher
@@ -338,8 +274,8 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 	stop := KeepAlive(ctx, m, HeartbeatInterval)
 	defer stop()
 
-	pass := Pass{Client: h.Client, Reader: h.Reader, Bus: h.Bus, Fetcher: h.Fetcher}
-	err := pass.Run(ctx, client.ObjectKey{Namespace: ns, Name: task.MediaRef.Name}, task.MediaRef.Kind, nil, ExtractGatewayStatus)
+	pass := Pass{Reader: h.Reader, Bus: h.Bus, Fetcher: h.Fetcher}
+	err := pass.Run(ctx, client.ObjectKey{Namespace: ns, Name: task.MediaRef.Name}, task.MediaRef.Kind, nil)
 	switch {
 	case errors.Is(err, ErrItemGone):
 		return events.Discard("item no longer exists", err)
@@ -348,121 +284,4 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 		return err
 	}
 	return nil
-}
-
-// ExtractGatewayStatus is the [BuildFunc] of a pass that fetched no
-// metadata: it re-declares exactly the status leaves the gateway's manager
-// owns on fresh right now -- read from fresh's managedFields by the
-// generated Extract<Kind>Status -- with status.artwork replaced by artwork.
-//
-// Extraction, not a copy of fresh.status.metadata: a copy would claim every
-// leaf present, including Album's metadata.selectedReleaseID, which the
-// Album reconciler owns under k8s.ManagerCatalog; the gateway would then
-// co-own it silently (ForceOwnership), and the reconciler's "omit it to
-// clear it" would stop clearing it. Extraction sends what the gateway last
-// declared and nothing else, so the apply neither releases status.metadata
-// nor over-claims inside it.
-func ExtractGatewayStatus(fresh client.Object, artwork []*catalogac.ArtworkEntryApplyConfiguration) (k8s.ApplyConfiguration, error) {
-	// Every object the apiserver returns carries managedFields -- at least
-	// its creator's. None at all means fresh came from a cache that strips
-	// them (pkg/k8s.ManagerOptions does, for every manager), and extracting
-	// from it would yield an empty status.metadata: an apply of artwork
-	// alone, which releases every metadata leaf the gateway owns. Refuse
-	// rather than write that; Pass.Reader must be the uncached API reader.
-	if len(fresh.GetManagedFields()) == 0 {
-		return nil, ErrNoManagedFields
-	}
-	mgr := string(catalogstatus.GatewayManager)
-	switch o := fresh.(type) {
-	case *catalogv1alpha1.Movie:
-		ac, err := catalogac.ExtractMovieStatus(o, mgr)
-		if err != nil {
-			return nil, err
-		}
-		if ac.Status == nil {
-			ac.WithStatus(catalogac.MovieStatus())
-		}
-		ac.Status.Artwork = nil
-		ac.Status.WithArtwork(artwork...)
-		return ac, nil
-	case *catalogv1alpha1.Series:
-		ac, err := catalogac.ExtractSeriesStatus(o, mgr)
-		if err != nil {
-			return nil, err
-		}
-		if ac.Status == nil {
-			ac.WithStatus(catalogac.SeriesStatus())
-		}
-		ac.Status.Artwork = nil
-		ac.Status.WithArtwork(artwork...)
-		return ac, nil
-	case *catalogv1alpha1.Artist:
-		ac, err := catalogac.ExtractArtistStatus(o, mgr)
-		if err != nil {
-			return nil, err
-		}
-		if ac.Status == nil {
-			ac.WithStatus(catalogac.ArtistStatus())
-		}
-		ac.Status.Artwork = nil
-		ac.Status.WithArtwork(artwork...)
-		return ac, nil
-	case *catalogv1alpha1.Album:
-		ac, err := catalogac.ExtractAlbumStatus(o, mgr)
-		if err != nil {
-			return nil, err
-		}
-		if ac.Status == nil {
-			ac.WithStatus(catalogac.AlbumStatus())
-		}
-		ac.Status.Artwork = nil
-		ac.Status.WithArtwork(artwork...)
-		return ac, nil
-	case *catalogv1alpha1.Author:
-		ac, err := catalogac.ExtractAuthorStatus(o, mgr)
-		if err != nil {
-			return nil, err
-		}
-		if ac.Status == nil {
-			ac.WithStatus(catalogac.AuthorStatus())
-		}
-		ac.Status.Artwork = nil
-		ac.Status.WithArtwork(artwork...)
-		return ac, nil
-	case *catalogv1alpha1.Book:
-		ac, err := catalogac.ExtractBookStatus(o, mgr)
-		if err != nil {
-			return nil, err
-		}
-		if ac.Status == nil {
-			ac.WithStatus(catalogac.BookStatus())
-		}
-		ac.Status.Artwork = nil
-		ac.Status.WithArtwork(artwork...)
-		return ac, nil
-	case *catalogv1alpha1.Audiobook:
-		ac, err := catalogac.ExtractAudiobookStatus(o, mgr)
-		if err != nil {
-			return nil, err
-		}
-		if ac.Status == nil {
-			ac.WithStatus(catalogac.AudiobookStatus())
-		}
-		ac.Status.Artwork = nil
-		ac.Status.WithArtwork(artwork...)
-		return ac, nil
-	case *catalogv1alpha1.Comic:
-		ac, err := catalogac.ExtractComicStatus(o, mgr)
-		if err != nil {
-			return nil, err
-		}
-		if ac.Status == nil {
-			ac.WithStatus(catalogac.ComicStatus())
-		}
-		ac.Status.Artwork = nil
-		ac.Status.WithArtwork(artwork...)
-		return ac, nil
-	default:
-		return nil, fmt.Errorf("%w: %T", catalogartwork.ErrNoArtwork, fresh)
-	}
 }

@@ -55,5 +55,4 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series;artists;albums;authors;books;audiobooks;comics,verbs=get;list;watch
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies/status;series/status;artists/status;albums/status;authors/status;books/status;audiobooks/status;comics/status,verbs=get;update;patch
 package artwork

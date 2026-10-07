@@ -41,14 +41,16 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/artwork"
+	"github.com/mediactl/clustarr/app/catalog/controller/itemstatus"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
+	"github.com/mediactl/clustarr/app/catalog/metadatainputs"
+	"github.com/mediactl/clustarr/app/catalog/metadataset"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/metadata"
 	"github.com/mediactl/clustarr/pkg/naming"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
-	"github.com/mediactl/clustarr/pkg/version"
 )
 
 // conditionQueueFull mirrors movie.MovieConditionQueueFull's name and
@@ -110,6 +112,13 @@ type Reconciler struct {
 	Recorder k8sevents.EventRecorder
 	Bus      bus
 
+	// Metadata incorporates the metadata gateway's answers and the artwork
+	// objects' metadata into status.metadata and status.artwork under
+	// catalog-metadata, after this reconciler's own apply (ADR-0019 A5.1
+	// step 4: not a loop key, so the reconciler applies the set itself).
+	// Nil incorporates nothing.
+	Metadata *metadataset.Incorporator
+
 	// OnReconcile is a test-only hook, called at the top of every Reconcile.
 	// It is nil-checked so production callers never need to set it.
 	OnReconcile func()
@@ -137,13 +146,19 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		return err
 	}
 
-	return ctrl.NewControllerManagedBy(mgr).
+	b := ctrl.NewControllerManagedBy(mgr).
 		Named("author").
 		For(&catalogv1alpha1.Author{}, builder.WithPredicates(authorPredicate())).
 		Owns(&catalogv1alpha1.Book{}, builder.WithPredicates(k8s.StatusFieldChanged(func(o client.Object) bool {
 			bk, ok := o.(*catalogv1alpha1.Book)
 			return ok && bk.Status.HasFile
-		}))).
+		})))
+	// S25 and S26 (ADR-0019 §8.1): its metadata record and its artwork
+	// objects wake it.
+	for _, src := range r.Metadata.Sources("Author") {
+		b = b.WatchesRawSource(src)
+	}
+	return b.
 		WithOptions(controller.Options{RecoverPanic: new(true), ReconciliationTimeout: 5 * time.Minute}).
 		Complete(r)
 }
@@ -253,27 +268,14 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, a *catalogv1alpha1.Aut
 	metaReady := !stale
 
 	if stale {
-		// The envelope key is the <namespace>/<name> routing key every
-		// worker parses to recover the namespace; the media key is the
-		// subject token -- see movie/series' identical comment.
-		envKey := a.Namespace + "/" + a.Name
-		mediaKey := events.MediaKey(string(commonv1.MediaKindAuthor), a.Namespace, a.Name)
-		schemaName, data, err := schema.Encode(schema.MetadataTask{
-			MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindAuthor, Name: a.Name},
-		})
+		// The task carries what the refresh asks for -- the item and its
+		// inputs, answered in clustarr-item-metadata (ADR-0019 §7.1) -- under
+		// Msg-Id metadata/<uid>/<inputsHash>.
+		subject, env, err := metadatainputs.Task(a, metadatainputs.For(a), events.PriorityNormal, now)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
-		env := &events.Envelope{
-			ID:     events.MsgIDForObject(string(a.UID), a.Generation, "metadata"),
-			Type:   "catalog.MetadataTask",
-			Schema: schemaName,
-			Source: "catalog@" + version.String(),
-			Key:    envKey,
-			Time:   now,
-			Data:   data,
-		}
-		_, pubErr := r.Bus.Publish(ctx, events.WorkMetadataSubject(events.PriorityNormal, mediaKey), env)
+		_, pubErr := r.Bus.Publish(ctx, subject, env)
 		if pubErr != nil {
 			if errors.Is(pubErr, events.ErrQueueFull) {
 				k8s.MarkTrue(a, &conditions, conditionQueueFull, "QueueFull", "metadata work queue is full")
@@ -337,7 +339,15 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, a *catalogv1alpha1.Aut
 	k8s.MarkReady(a, &conditions, metaReady && booksSynced, k8s.ReasonReconciled, "metadataReady=%t booksSynced=%t", metaReady, booksSynced)
 	statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
 
-	if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalog, catalogac.Author(a.Name, a.Namespace).WithStatus(statusAC)); err != nil {
+	applied, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalog, catalogac.Author(a.Name, a.Namespace).WithStatus(statusAC))
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	// catalog-metadata's set, chained on the apply above (ADR-0019 §7.0).
+	if err := r.Metadata.Incorporate(ctx, r.Client, a, itemstatus.AppliedResourceVersion(applied)); err != nil {
+		if errors.Is(err, metadataset.ErrConflict) {
+			return ctrl.Result{RequeueAfter: time.Second}, nil
+		}
 		return ctrl.Result{}, err
 	}
 
