@@ -27,28 +27,6 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/controller/series"
 )
 
-func TestEffectiveEpisodeOrder(t *testing.T) {
-	cases := []struct {
-		name       string
-		seriesType catalogv1alpha1.SeriesType
-		order      catalogv1alpha1.EpisodeOrder
-		want       catalogv1alpha1.EpisodeOrder
-	}{
-		{"anime keeps the official order", catalogv1alpha1.SeriesTypeAnime, catalogv1alpha1.EpisodeOrderOfficial, catalogv1alpha1.EpisodeOrderOfficial},
-		{"anime keeps an explicit dvd order", catalogv1alpha1.SeriesTypeAnime, catalogv1alpha1.EpisodeOrderDVD, catalogv1alpha1.EpisodeOrderDVD},
-		{"anime keeps an explicit absolute order", catalogv1alpha1.SeriesTypeAnime, catalogv1alpha1.EpisodeOrderAbsolute, catalogv1alpha1.EpisodeOrderAbsolute},
-		{"anime falls back to official on the Go zero value", catalogv1alpha1.SeriesTypeAnime, catalogv1alpha1.EpisodeOrder(""), catalogv1alpha1.EpisodeOrderOfficial},
-		{"standard keeps the spec value", catalogv1alpha1.SeriesTypeStandard, catalogv1alpha1.EpisodeOrderDVD, catalogv1alpha1.EpisodeOrderDVD},
-		{"daily keeps official default", catalogv1alpha1.SeriesTypeDaily, catalogv1alpha1.EpisodeOrderOfficial, catalogv1alpha1.EpisodeOrderOfficial},
-		{"standard falls back to official on the Go zero value", catalogv1alpha1.SeriesTypeStandard, catalogv1alpha1.EpisodeOrder(""), catalogv1alpha1.EpisodeOrderOfficial},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			assert.Equal(t, c.want, series.EffectiveEpisodeOrder(c.seriesType, c.order))
-		})
-	}
-}
-
 func TestEpisodeName(t *testing.T) {
 	airDate := time.Date(2026, 3, 4, 0, 0, 0, 0, time.UTC)
 	cases := []struct {

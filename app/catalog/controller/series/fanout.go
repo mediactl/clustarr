@@ -181,10 +181,10 @@ func lastSeason(all []EpisodeCandidate) int32 {
 //
 // Episodes with a duplicate (season, episode) pair are deduplicated,
 // first occurrence wins: the provider is assumed not to send duplicates,
-// but this defends anyway. EffectiveEpisodeOrder is applied upstream of
-// this function (by the caller, when building the metadata request) --
-// this function does not need to know which order was requested, since the
-// fetched []metadata.Episode already reflects it.
+// but this defends anyway. episodeorder.EffectiveEpisodeOrder is applied
+// upstream of this function (by the caller, when building the metadata
+// request) -- this function does not need to know which order was
+// requested, since the fetched []metadata.Episode already reflects it.
 func DesiredEpisodes(
 	s *catalogv1alpha1.Series,
 	addOptionsApplied bool,

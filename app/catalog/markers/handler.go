@@ -33,7 +33,7 @@ import (
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	"github.com/mediactl/clustarr/app/catalog/controller/series"
+	"github.com/mediactl/clustarr/app/catalog/episodeorder"
 	"github.com/mediactl/clustarr/app/catalog/segmenting"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -239,7 +239,7 @@ func (h *Handler) query(ctx context.Context, mf *catalogv1alpha1.MediaFile) (met
 		if err := h.Reader.Get(ctx, client.ObjectKey{Namespace: mf.Namespace, Name: ep.Spec.SeriesRef}, &sr); err != nil {
 			return q, err
 		}
-		if order := series.EffectiveEpisodeOrder(sr.Spec.SeriesType, sr.Spec.EpisodeOrder); order != catalogv1alpha1.EpisodeOrderOfficial {
+		if order := episodeorder.EffectiveEpisodeOrder(sr.Spec.SeriesType, sr.Spec.EpisodeOrder); order != catalogv1alpha1.EpisodeOrderOfficial {
 			return q, fmt.Errorf("episode order %s is not the aired order TheIntroDB numbers episodes in: %w: %w",
 				order, errNotAsked, metadata.ErrNotFound)
 		}

@@ -26,7 +26,7 @@ import (
 )
 
 // TestEffectiveOrderAnimeKeepsTheOfficialOrder holds the mirror of
-// series.EffectiveEpisodeOrder to the same rule: series type anime no longer
+// episodeorder.EffectiveEpisodeOrder to the same rule: series type anime no longer
 // forces absolute order; only spec.episodeOrder changes it.
 func TestEffectiveOrderAnimeKeepsTheOfficialOrder(t *testing.T) {
 	s := &catalogv1.Series{Spec: catalogv1.SeriesSpec{SeriesType: catalogv1.SeriesTypeAnime}}

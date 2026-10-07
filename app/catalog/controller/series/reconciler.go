@@ -45,6 +45,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/artwork"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
+	"github.com/mediactl/clustarr/app/catalog/episodeorder"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -657,7 +658,7 @@ func (r *Reconciler) syncEpisodes(ctx context.Context, s *catalogv1alpha1.Series
 		return out
 	}
 
-	order := EffectiveEpisodeOrder(s.Spec.SeriesType, s.Spec.EpisodeOrder)
+	order := episodeorder.EffectiveEpisodeOrder(s.Spec.SeriesType, s.Spec.EpisodeOrder)
 	req := schema.MetadataRequest{
 		Kind: commonv1.MediaKindEpisode,
 		IDs: map[string]string{

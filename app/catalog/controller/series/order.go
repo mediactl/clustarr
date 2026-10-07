@@ -24,25 +24,6 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 )
 
-// EffectiveEpisodeOrder returns the numbering scheme actually used: the
-// requested order, falling back to official when order is the Go zero
-// value. Series type anime no longer forces absolute order (2026-10-06,
-// docs/superpowers/specs/2026-10-06-anime-dual-audio-design.md §3): with
-// TVDB, absolute order puts every episode in season 1, which collapsed a
-// multi-season show's seasons. An anime reads absolute numbers for search,
-// import and naming from status.absoluteNumber instead, and a series that
-// wants absolute order sets spec.episodeOrder: absolute. seriesType stays a
-// parameter so the callers read as before. SeriesSpec.EpisodeOrder carries
-// +kubebuilder:default=official, so a real object is never "" in practice;
-// this function still handles it defensively since it is tested and used in
-// isolation.
-func EffectiveEpisodeOrder(_ catalogv1alpha1.SeriesType, order catalogv1alpha1.EpisodeOrder) catalogv1alpha1.EpisodeOrder {
-	if order == "" {
-		return catalogv1alpha1.EpisodeOrderOfficial
-	}
-	return order
-}
-
 // EpisodeName renders an Episode object's name per spec §4.2:
 // "<series>-s<NN>e<NN>" for standard and anime series (the object name
 // always numbers by season/episode; only the metadata fan-out reads
