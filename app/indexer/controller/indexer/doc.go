@@ -159,12 +159,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // It DOES seed the RSS poll chain, and that is the only thing it publishes
 // (ruling R36). This sentence previously read "No RSS scheduling (that is the
-// RSS worker's WithScheduleAt)" while rss.ScheduleNext's own doc said the
-// reconciler seeded the first one; neither did, so nothing ever started a
+// RSS worker's WithScheduleAt)" while rssschedule.ScheduleNext's own doc said
+// the reconciler seeded the first one; neither did, so nothing ever started a
 // chain and the release firehose never ran in a real cluster. The division is
 // now: this reconciler seeds a poll for an enabled, healthy Indexer at
-// rss.NextPollAt on every pass, and the worker schedules the next one at the
-// end of every poll. The seed is idempotent by msg-id rather than by memory --
+// rssschedule.NextPollAt on every pass, and the worker schedules the next one
+// at the end of every poll. The seed is idempotent by msg-id rather than by memory --
 // see [Reconciler.seedRSSSchedule].
 //
 // The RBAC markers below are package-level comments, separated from the

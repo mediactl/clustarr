@@ -43,8 +43,8 @@ import (
 	indexac "github.com/mediactl/clustarr/api/applyconfiguration/index/index/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	"github.com/mediactl/clustarr/app/indexer/limits"
+	"github.com/mediactl/clustarr/app/indexer/rssschedule"
 	idxstatus "github.com/mediactl/clustarr/app/indexer/status"
-	"github.com/mediactl/clustarr/app/indexer/worker/rss"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -440,8 +440,8 @@ func (r *Reconciler) finish(
 // Publishing on EVERY reconcile is safe, and deliberately so rather than
 // guarded by a "have I seeded this one?" memo, which would be a second
 // in-memory truth about a cluster-wide fact and would be wrong after every
-// restart. rss.NextPollAt returns the slot the worker's own reschedule
-// already chose, rss.TaskMsgID quantises it to the second, and
+// restart. rssschedule.NextPollAt returns the slot the worker's own reschedule
+// already chose, rssschedule.TaskMsgID quantises it to the second, and
 // CLUSTARR_WORK_INDEXARR deduplicates for an hour (pkg/events/topology.go's
 // work() helper, Duplicates: time.Hour), so the duplicate seed stores
 // nothing. Where it does store something -- a slot past the dedup window, or
@@ -475,11 +475,11 @@ func (r *Reconciler) seedRSSSchedule(
 			"indexer", client.ObjectKeyFromObject(idx))
 		return nil
 	}
-	at := rss.NextPollAt(idx, now)
+	at := rssschedule.NextPollAt(idx, now)
 	if queryRetry.After(at) {
 		at = queryRetry
 	}
-	return rss.ScheduleNext(ctx, r.Bus, idx, at)
+	return rssschedule.ScheduleNext(ctx, r.Bus, idx, at)
 }
 
 // rateLimited derives the RateLimited condition from spec.limits and

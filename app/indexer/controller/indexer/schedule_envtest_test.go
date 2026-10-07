@@ -242,9 +242,9 @@ func TestADisabledThenReEnabledIndexerIsScheduledAgain(t *testing.T) {
 // seeded this?" memo -- which would be a second truth about a cluster-wide
 // fact, and wrong after every restart.
 //
-// Two things have to hold. rss.NextPollAt must return the slot the worker's
-// own reschedule already chose, lastRssAt + rssInterval, and rss.TaskMsgID
-// must quantise it so the two publishes carry ONE id that
+// Two things have to hold. rssschedule.NextPollAt must return the slot the
+// worker's own reschedule already chose, lastRssAt + rssInterval, and
+// rssschedule.TaskMsgID must quantise it so the two publishes carry ONE id that
 // CLUSTARR_WORK_INDEXARR deduplicates. The stored sequence is what says
 // whether a publish stored anything at all: it does not move.
 //

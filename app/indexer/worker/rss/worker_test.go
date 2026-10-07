@@ -37,6 +37,7 @@ import (
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
+	"github.com/mediactl/clustarr/app/indexer/rssschedule"
 	"github.com/mediactl/clustarr/app/indexer/worker/rss"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
@@ -480,7 +481,7 @@ func TestScheduleNextDedupsPerSlotAndAdvancesBetweenSlots(t *testing.T) {
 
 	slot1, slot2 := t0.Add(15*time.Minute), t0.Add(30*time.Minute)
 
-	require.NoError(t, rss.ScheduleNext(t.Context(), bus, idx, slot1))
+	require.NoError(t, rssschedule.ScheduleNext(t.Context(), bus, idx, slot1))
 	first := pendingSchedule(t, nc, "u1")
 	require.Equal(t, "@at "+slot1.UTC().Format(time.RFC3339), first.schedule)
 
@@ -488,7 +489,7 @@ func TestScheduleNextDedupsPerSlotAndAdvancesBetweenSlots(t *testing.T) {
 	// collapse to ONE delivery. The msg-id is what collapses it: the stream
 	// dedups for 1h, so the second publish stores nothing at all and the
 	// stored sequence does not move.
-	require.NoError(t, rss.ScheduleNext(t.Context(), bus, idx, slot1))
+	require.NoError(t, rssschedule.ScheduleNext(t.Context(), bus, idx, slot1))
 	again := pendingSchedule(t, nc, "u1")
 	require.Equal(t, first.seq, again.seq, "a second schedule for the same slot must store nothing")
 
@@ -496,20 +497,20 @@ func TestScheduleNextDedupsPerSlotAndAdvancesBetweenSlots(t *testing.T) {
 	// be a duplicate inside the same 1h window, so nothing would be stored,
 	// the pending schedule would still be slot1, and once that one fired the
 	// indexer would stop polling for good.
-	require.NoError(t, rss.ScheduleNext(t.Context(), bus, idx, slot2))
+	require.NoError(t, rssschedule.ScheduleNext(t.Context(), bus, idx, slot2))
 	next := pendingSchedule(t, nc, "u1")
 	require.Greater(t, next.seq, first.seq,
 		"a constant per-object msg-id would swallow this and polling would stop dead")
 	require.Equal(t, "@at "+slot2.UTC().Format(time.RFC3339), next.schedule,
 		"the pending poll is the newest slot, not the stale one")
 
-	require.NotEqual(t, rss.TaskMsgID("u1", 3, slot1), rss.TaskMsgID("u1", 3, slot2))
+	require.NotEqual(t, rssschedule.TaskMsgID("u1", 3, slot1), rssschedule.TaskMsgID("u1", 3, slot2))
 }
 
 func TestScheduleNextRefusesAnIndexerWithNoUID(t *testing.T) {
 	idx := testIndexer("media", "idx")
 	idx.UID = ""
-	require.Error(t, rss.ScheduleNext(t.Context(), newTestBus(t), idx, t0))
+	require.Error(t, rssschedule.ScheduleNext(t.Context(), newTestBus(t), idx, t0))
 }
 
 // pendingSchedule reads the one scheduled poll held for an indexer.

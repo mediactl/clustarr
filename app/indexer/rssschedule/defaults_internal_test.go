@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package rss
+package rssschedule
 
 import (
 	"os"
@@ -29,7 +29,7 @@ import (
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 )
 
-// The default restated in worker.go must equal what controller-gen actually
+// The default restated in schedule.go must equal what controller-gen actually
 // generated, or the floor drifts away from the value every apiserver-created
 // Indexer gets. Read from the generated schema rather than from the marker,
 // because the schema is what is installed.
@@ -38,7 +38,7 @@ import (
 // "15m" and time.Duration renders "15m0s", so a string comparison would fail
 // on a pair that agrees.
 func TestRssIntervalDefaultMatchesTheGeneratedCRD(t *testing.T) {
-	raw, err := os.ReadFile("../../../../config/crd/bases/index.clustarr.io_indexers.yaml")
+	raw, err := os.ReadFile("../../../config/crd/bases/index.clustarr.io_indexers.yaml")
 	require.NoError(t, err)
 
 	var crd struct {
@@ -65,8 +65,8 @@ func TestRssIntervalDefaultMatchesTheGeneratedCRD(t *testing.T) {
 	require.NotEmpty(t, got, "spec.rssInterval lost its +kubebuilder:default")
 	d, err := time.ParseDuration(got)
 	require.NoError(t, err)
-	require.Equal(t, defaultRssInterval, d,
-		"worker.go's defaultRssInterval no longer mirrors spec.rssInterval's +kubebuilder:default")
+	require.Equal(t, DefaultInterval, d,
+		"schedule.go's DefaultInterval no longer mirrors spec.rssInterval's +kubebuilder:default")
 }
 
 // A kubebuilder default fills an ABSENT field, and metav1.Duration is a
@@ -81,14 +81,14 @@ func TestRssIntervalFloorsAtTheCRDDefault(t *testing.T) {
 		in   metav1.Duration
 		want time.Duration
 	}{
-		{"a typed client's zero", metav1.Duration{}, defaultRssInterval},
-		{"a negative interval", metav1.Duration{Duration: -time.Second}, defaultRssInterval},
+		{"a typed client's zero", metav1.Duration{}, DefaultInterval},
+		{"a negative interval", metav1.Duration{Duration: -time.Second}, DefaultInterval},
 		{"an operator's own interval wins", metav1.Duration{Duration: 30 * time.Minute}, 30 * time.Minute},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			idx := &indexv1alpha1.Indexer{Spec: indexv1alpha1.IndexerSpec{RssInterval: tt.in}}
-			require.Equal(t, tt.want, rssInterval(idx))
+			require.Equal(t, tt.want, Interval(idx))
 		})
 	}
 }
