@@ -54,6 +54,9 @@ func targetRuntimeMinutes(t Target, parsed *release.ParsedRelease) (minutes int,
 		return m, true
 
 	case common.MediaKindEpisode, common.MediaKindSeries:
+		if t.Identity.SeasonSearch && t.RuntimeByEpisode != nil {
+			return seasonRuntimeMinutes(t, releaseCoverage(parsed, newSceneIndex(t.Identity.SceneMappings))), true
+		}
 		multi := parsed.FullSeason || len(parsed.Episodes) > 1
 		if !multi {
 			m := 0
@@ -86,6 +89,44 @@ func targetRuntimeMinutes(t Target, parsed *release.ParsedRelease) (minutes int,
 	default:
 		return 0, false
 	}
+}
+
+// seasonRuntimeMinutes is a season search's runtime for one release (Wave
+// S): the sum of the runtimes of the searched season's episodes it covers
+// (t.RuntimeByEpisode, the 45-minute fallback for an unknown one), every
+// episode of the season for a pack of it. A pack naming several whole
+// seasons is measured as that many of the searched one, the only season
+// whose runtimes the search knows. A release covering none of the
+// season's episodes (the identity check rejects it) is one episode.
+func seasonRuntimeMinutes(t Target, cov coverage) int {
+	id := t.Identity
+	minutes := func(e int) int {
+		if m := t.RuntimeByEpisode[e]; m > 0 {
+			return m
+		}
+		return fallbackEpisodeRuntimeMinutes
+	}
+	absOf := map[int]int{}
+	if len(id.Absolute) == len(id.Episodes) {
+		for i, a := range id.Absolute {
+			absOf[id.Episodes[i]] = a
+		}
+	}
+	whole := cov.fullSeasons[id.Season]
+	total := 0
+	for _, e := range id.Episodes {
+		a, hasAbs := absOf[e]
+		if whole || cov.pairs[seasonEpisode{id.Season, e}] || (hasAbs && cov.absolutes[a]) {
+			total += minutes(e)
+		}
+	}
+	if total == 0 {
+		return fallbackEpisodeRuntimeMinutes
+	}
+	if seasons := len(cov.fullSeasons); whole && seasons > 1 {
+		total *= seasons
+	}
+	return total
 }
 
 // sizeRejections is AcceptableSizeSpecification, ported: a release with

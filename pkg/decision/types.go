@@ -99,6 +99,15 @@ type Target struct {
 	// §6.1) rather than the item's video: nil for a video search. Queue then
 	// holds only the item's donor Downloads.
 	Donor *Donor
+	// Anime is the series' type being anime (Wave S): Rank's
+	// CompareEpisodeCount then prefers more episodes on a tie, any other
+	// series fewer.
+	Anime bool
+	// RuntimeByEpisode maps a season search's episode numbers to their
+	// runtimes in minutes (Wave S): the size check sums the runtimes of the
+	// episodes a release covers (Identity.SeasonSearch), so a single episode
+	// is not measured against a whole season. Nil for every other search.
+	RuntimeByEpisode map[int]int
 }
 
 // Donor is what an audio donor must carry. A donor is judged on its
@@ -212,6 +221,19 @@ type Identity struct {
 	// "one episode", because an RSS pack target can resolve to one episode
 	// too.
 	SingleEpisodeSearch bool
+	// SeasonSearch is true when the candidates answer a search for a whole
+	// season (Wave S): the numbering half then accepts a release covering
+	// at least one of Episodes (or Absolute) -- a single, a multi-episode
+	// release, a full-season pack or a multi-season pack naming the season
+	// -- instead of every one of them. Set by the season search's caller
+	// only, like SingleEpisodeSearch; the two are never both true.
+	SeasonSearch bool
+	// Namesakes are the item's titles another library item of its kind (in
+	// its namespace) also carries, keyed by the same clean form (Wave S). A
+	// release matched to the item only through one of them, naming no year,
+	// cannot say which item it is: UnknownItem. Ids and an id query still
+	// identify it.
+	Namesakes []string
 
 	// Creators names who made a non-video item, primary first: an album's
 	// artist (the owning Artist's name and aliases), a book's or
@@ -274,6 +296,24 @@ type Decision struct {
 	Score               int
 	Matched             []string
 	Rank                RankKey
+	// Coverage is what the release covers in the series' stored numbering,
+	// read through its scene table (CoverageOf): set for an Episode or
+	// Series target whose title parsed, nil otherwise.
+	Coverage *Coverage
+}
+
+// SeasonEpisode is one episode by season and number.
+type SeasonEpisode struct{ Season, Episode int }
+
+// Coverage is what a release covers in the series' stored (TVDB)
+// numbering, after its scene mapping (Wave S): the seasons it is a whole
+// pack of (read literally, no scene row naming them), the season and
+// episode pairs it names, and the absolute numbers it names. Each list is
+// sorted.
+type Coverage struct {
+	FullSeasons []int
+	Episodes    []SeasonEpisode
+	Absolute    []int
 }
 
 // Reason is a typed, non-string rejection reason: a stable Code ported from

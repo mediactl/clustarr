@@ -207,6 +207,13 @@ func evaluateOne(ctx context.Context, t Target, originalLanguage string, an audi
 		d.Rank = buildRankKey(p, o, t, parsed, rel, score)
 		d.Rank.LanguagesComplete = languagesComplete
 	}
+	if t.Kind == common.MediaKindEpisode || t.Kind == common.MediaKindSeries {
+		// What the release covers, through the identity index's scene
+		// table (Wave S): the search agent records it, and the grab
+		// planner judges a pack by it without reparsing.
+		cov := releaseCoverage(parsed, idx.scene).export()
+		d.Coverage = &cov
+	}
 	return d
 }
 

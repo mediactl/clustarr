@@ -56,14 +56,26 @@ type identityIndex struct {
 	titles   map[string]struct{}
 	creators map[string]struct{}
 	scene    sceneIndex
+	// namesakes are Identity.Namesakes' title keys: a yearless match on
+	// one of them is ambiguous (Wave S).
+	namesakes map[string]struct{}
 }
 
 func newIdentityIndex(kind common.MediaKind, id Identity) identityIndex {
-	return identityIndex{
+	idx := identityIndex{
 		titles:   targetTitleKeys(kind, id),
 		creators: creatorKeySet(id.Creators),
 		scene:    newSceneIndex(id.SceneMappings),
 	}
+	for _, n := range id.Namesakes {
+		if k := titleKey(n); k != "" {
+			if idx.namesakes == nil {
+				idx.namesakes = map[string]struct{}{}
+			}
+			idx.namesakes[k] = struct{}{}
+		}
+	}
+	return idx
 }
 
 // identityRejection answers the question every other check on the §8.2
@@ -153,7 +165,7 @@ func identityRejection(t Target, idx identityIndex, parsed *release.ParsedReleas
 		r := newRejection(ReasonUnknownItem, "pkg/decision has no identity rule for kind %q", t.Kind)
 		return &r
 	}
-	if r := itemRejection(t.Kind, t.Identity, idx.titles, parsed, rel); r != nil {
+	if r := itemRejection(t.Kind, t.Identity, idx.titles, idx.namesakes, parsed, rel); r != nil {
 		return r
 	}
 	if t.Kind == common.MediaKindMovie {
@@ -182,7 +194,15 @@ func seasonPackRejection(id Identity, p *release.ParsedRelease) *common.Rejectio
 }
 
 // itemRejection is identityRejection's item half: the movie, or the series.
-func itemRejection(kind common.MediaKind, id Identity, want map[string]struct{}, parsed *release.ParsedRelease, rel common.ReleaseInfo) *common.Rejection {
+//
+// A title match on one of namesakes -- a title another library item of the
+// kind also carries (Identity.Namesakes) -- from a release naming no year
+// is UnknownItem (Wave S): the release cannot say which of the two it is.
+// A series' "<title><year>" key is never a namesake key, so a release
+// naming the year in its title matches through it; a movie naming its year
+// passes on to movieYearRejection. Ids and the id-query vouch run first and
+// are unchanged.
+func itemRejection(kind common.MediaKind, id Identity, want, namesakes map[string]struct{}, parsed *release.ParsedRelease, rel common.ReleaseInfo) *common.Rejection {
 	matched, conflict := compareIDs(kind, id.IDs, rel.IDs)
 	if conflict != "" {
 		r := newRejection(ReasonWrongItem, "%s", conflict)
@@ -217,17 +237,41 @@ func itemRejection(kind common.MediaKind, id Identity, want map[string]struct{},
 		return &r
 	}
 
+	var namesake string
 	for _, k := range got {
 		if _, ok := want[k]; ok {
+			if _, shared := namesakes[k]; shared && parsed.Year < minPlausibleYear {
+				// Ambiguous on its own; another of its titles may still
+				// name the item alone.
+				if namesake == "" {
+					namesake = k
+				}
+				continue
+			}
 			if kind == common.MediaKindMovie {
 				return movieYearRejection(id, parsed.Year)
 			}
 			return nil
 		}
 	}
+	if namesake != "" {
+		r := newRejection(ReasonUnknownItem,
+			"the library holds another %s titled %q; a release naming no year cannot say which it is",
+			namesakeKind(kind), parsed.Title)
+		return &r
+	}
 	r := newRejection(ReasonWrongItem, "title %q matches none of the item's %d known title(s) (primary %q)",
 		parsed.Title, len(id.Titles), id.Titles[0])
 	return &r
+}
+
+// namesakeKind names the library kind a namesake is: an episode's is its
+// series'.
+func namesakeKind(kind common.MediaKind) string {
+	if kind == common.MediaKindEpisode {
+		return string(common.MediaKindSeries)
+	}
+	return string(kind)
 }
 
 // identityIDKeys are the id keys compared for each kind.
@@ -429,19 +473,37 @@ func numberingRejection(id Identity, scene sceneIndex, p *release.ParsedRelease)
 		mismatches []string
 	)
 	cov := releaseCoverage(p, scene)
-	if len(id.Episodes) > 0 && cov.hasInSeason() {
+	if (len(id.Episodes) > 0 || id.SeasonSearch) && cov.hasInSeason() {
 		compared = true
-		if cov.coversInSeason(id.Season, id.Episodes) {
-			return nil
+		if id.SeasonSearch {
+			// A season search takes anything of the season (Wave S):
+			// singles, multi-episode releases and packs alike.
+			if cov.coversAnyInSeason(id.Season, id.Episodes) {
+				return nil
+			}
+			mismatches = append(mismatches, fmt.Sprintf("release is %s%s, which covers no episode of the season %d",
+				describeRelease(p), cov.describeMapping(), id.Season))
+		} else {
+			if cov.coversInSeason(id.Season, id.Episodes) {
+				return nil
+			}
+			mismatches = append(mismatches, fmt.Sprintf("release is %s%s, the item is %s", describeRelease(p), cov.describeMapping(), describeTarget(id)))
 		}
-		mismatches = append(mismatches, fmt.Sprintf("release is %s%s, the item is %s", describeRelease(p), cov.describeMapping(), describeTarget(id)))
 	}
 	if len(id.Absolute) > 0 && len(cov.absolutes) > 0 {
 		compared = true
-		if cov.coversAbsolute(id.Absolute) {
-			return nil
+		if id.SeasonSearch {
+			if cov.coversAnyAbsolute(id.Absolute) {
+				return nil
+			}
+			mismatches = append(mismatches, fmt.Sprintf("release is absolute %v%s, which covers no episode of the season %d",
+				p.Absolute, cov.describeMapping(), id.Season))
+		} else {
+			if cov.coversAbsolute(id.Absolute) {
+				return nil
+			}
+			mismatches = append(mismatches, fmt.Sprintf("release is absolute %v%s, the item is absolute %v", p.Absolute, cov.describeMapping(), id.Absolute))
 		}
-		mismatches = append(mismatches, fmt.Sprintf("release is absolute %v%s, the item is absolute %v", p.Absolute, cov.describeMapping(), id.Absolute))
 	}
 	if id.AirDate != nil && p.AirDate != nil {
 		compared = true
@@ -455,9 +517,13 @@ func numberingRejection(id Identity, scene sceneIndex, p *release.ParsedRelease)
 		r := newRejection(ReasonWrongItem, "%s", strings.Join(mismatches, "; "))
 		return &r
 	}
+	target := describeTarget(id)
+	if id.SeasonSearch {
+		target = fmt.Sprintf("season %d", id.Season)
+	}
 	r := newRejection(ReasonUnknownItem,
 		"the release names no season/episode, absolute number or air date the item also has (release is %s, item is %s)",
-		describeRelease(p), describeTarget(id))
+		describeRelease(p), target)
 	return &r
 }
 

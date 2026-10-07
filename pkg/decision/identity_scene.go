@@ -18,7 +18,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package decision
 
 import (
+	"cmp"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/mediactl/clustarr/pkg/release"
@@ -179,6 +181,63 @@ func (c coverage) coversAbsolute(absolutes []int) bool {
 		}
 	}
 	return true
+}
+
+// coversAnyInSeason is a season search's numbering rule (Wave S): a pack of
+// the season, or any one of its episodes.
+func (c coverage) coversAnyInSeason(season int, episodes []int) bool {
+	if c.fullSeasons[season] {
+		return true
+	}
+	for _, e := range episodes {
+		if c.pairs[seasonEpisode{season, e}] {
+			return true
+		}
+	}
+	return false
+}
+
+// coversAnyAbsolute is coversAnyInSeason for the anime absolute numbering:
+// any one of the season's absolute numbers.
+func (c coverage) coversAnyAbsolute(absolutes []int) bool {
+	for _, a := range absolutes {
+		if c.absolutes[a] {
+			return true
+		}
+	}
+	return false
+}
+
+// export is the coverage's exported, sorted form (Decision.Coverage).
+func (c coverage) export() Coverage {
+	var out Coverage
+	for s := range c.fullSeasons {
+		out.FullSeasons = append(out.FullSeasons, s)
+	}
+	slices.Sort(out.FullSeasons)
+	for p := range c.pairs {
+		out.Episodes = append(out.Episodes, SeasonEpisode{Season: p.season, Episode: p.episode})
+	}
+	slices.SortFunc(out.Episodes, func(a, b SeasonEpisode) int {
+		return cmp.Or(cmp.Compare(a.Season, b.Season), cmp.Compare(a.Episode, b.Episode))
+	})
+	for a := range c.absolutes {
+		out.Absolute = append(out.Absolute, a)
+	}
+	slices.Sort(out.Absolute)
+	return out
+}
+
+// CoverageOf is what release p covers in the series' stored numbering,
+// read through scene (the series' whole TheXEM table) first and literally
+// where it has no row -- the numbering half's own reading
+// (releaseCoverage), exported for the search agent's record and the grab
+// planner (Wave S).
+func CoverageOf(p *release.ParsedRelease, scene []SceneMapping) Coverage {
+	if p == nil {
+		return Coverage{}
+	}
+	return releaseCoverage(p, newSceneIndex(scene)).export()
 }
 
 // describeMapping is the suffix a rejection message carries when a scene
