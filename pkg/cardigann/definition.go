@@ -51,12 +51,28 @@ func (s *Scalar) UnmarshalYAML(node ast.Node) error {
 		*s = ""
 	case string:
 		*s = Scalar(t)
-	case bool, int, int64, uint64, float64:
+	case bool:
 		*s = Scalar(fmt.Sprint(t))
+	case int, int64, uint64, float64:
+		*s = Scalar(numberText(node, t))
 	default:
 		return fmt.Errorf("cardigann: scalar: unsupported YAML type %T", v)
 	}
 	return nil
+}
+
+// numberText is a numeric scalar's text as written, not its value.
+// goccy/go-yaml reads an unquoted 0_0 or 1_2 as a YAML 1.1 integer, the
+// underscores digit separators, and 01 and 1.0 as 1; Prowlarr deserialises
+// the same scalars into strings and keeps the text. The text is what a site
+// is sent and what its category ids are matched against: nyaasi's category
+// select defaults to 0_0 ("all categories"), and c=0 was answered 400 --
+// 216 bundled definitions carry such a number.
+func numberText(node ast.Node, v any) string {
+	if tok := node.GetToken(); tok != nil && tok.Value != "" {
+		return tok.Value
+	}
+	return fmt.Sprint(v)
 }
 
 // scalarNodeValue extracts a scalar AST node's decoded Go value (string,
@@ -97,6 +113,39 @@ func (l *ScalarList) UnmarshalYAML(node ast.Node) error {
 		return fmt.Errorf("cardigann: args: %w", err)
 	}
 	*l = ScalarList{string(one)}
+	return nil
+}
+
+// ScalarMap is a mapping whose keys and values are Scalars, decoded the
+// way Scalar decodes them: a select setting's options, keyed by the value
+// the site is sent (nyaasi's 1_2, which a plain map[string]string decoded
+// as 12).
+type ScalarMap map[string]string
+
+// UnmarshalYAML implements goccy/go-yaml's NodeUnmarshaler; see Scalar's
+// doc comment for why this decodes from the node tree, not raw bytes.
+func (m *ScalarMap) UnmarshalYAML(node ast.Node) error {
+	if node.Type() == ast.NullType {
+		*m = nil
+		return nil
+	}
+	mapNode, ok := node.(ast.MapNode)
+	if !ok {
+		return fmt.Errorf("cardigann: options: expected a mapping, got %s", node.Type())
+	}
+	out := ScalarMap{}
+	it := mapNode.MapRange()
+	for it.Next() {
+		var key, val Scalar
+		if err := key.UnmarshalYAML(it.Key()); err != nil {
+			return fmt.Errorf("cardigann: options key: %w", err)
+		}
+		if err := val.UnmarshalYAML(it.Value()); err != nil {
+			return fmt.Errorf("cardigann: options %q: %w", string(key), err)
+		}
+		out[string(key)] = string(val)
+	}
+	*m = out
 	return nil
 }
 
@@ -215,12 +264,12 @@ type Definition struct {
 // configuration the definition author exposes (an API key, a sort order, a
 // checkbox toggle, ...).
 type SettingsField struct {
-	Name     string            `yaml:"name"`
-	Label    string            `yaml:"label"`
-	Type     string            `yaml:"type"` // info|text|password|checkbox|select|info_category_8000|info_cookie|info_flaresolverr|info_useragent
-	Default  Scalar            `yaml:"default"`
-	Options  map[string]string `yaml:"options"`
-	Defaults []string          `yaml:"defaults"`
+	Name     string    `yaml:"name"`
+	Label    string    `yaml:"label"`
+	Type     string    `yaml:"type"` // info|text|password|checkbox|select|info_category_8000|info_cookie|info_flaresolverr|info_useragent
+	Default  Scalar    `yaml:"default"`
+	Options  ScalarMap `yaml:"options"`
+	Defaults []string  `yaml:"defaults"`
 }
 
 // Caps describes what a Definition can search for: its category table and

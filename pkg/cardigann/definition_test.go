@@ -40,6 +40,12 @@ func TestScalarUnmarshalsEveryPrimitiveKind(t *testing.T) {
 		{"bare bool true", `v: true`, "true"},
 		{"bare bool false", `v: false`, "false"},
 		{"null", "v:", ""},
+		// The number as written: Prowlarr keeps the text, and goccy reads
+		// these as YAML 1.1 numbers (nyaasi's category ids, 0_0 and 1_2).
+		{"underscored int", `v: 0_0`, "0_0"},
+		{"underscored id", `v: 1_2`, "1_2"},
+		{"leading zero", `v: 01`, "01"},
+		{"float with a zero fraction", `v: 1.0`, "1.0"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -48,6 +54,16 @@ func TestScalarUnmarshalsEveryPrimitiveKind(t *testing.T) {
 			assert.Equal(t, tc.want, doc.V)
 		})
 	}
+}
+
+func TestScalarMapKeepsOptionKeysAsWritten(t *testing.T) {
+	var doc struct{ Options cardigann.ScalarMap }
+	require.NoError(t, yaml.Unmarshal([]byte("options:\n  0_0: All categories\n  1_2: Anime - English-translated\n  2: Trusted only\n"), &doc))
+	assert.Equal(t, cardigann.ScalarMap{"0_0": "All categories", "1_2": "Anime - English-translated", "2": "Trusted only"}, doc.Options)
+
+	var none struct{ Options cardigann.ScalarMap }
+	require.NoError(t, yaml.Unmarshal([]byte("options:"), &none))
+	assert.Nil(t, none.Options)
 }
 
 func TestScalarListAcceptsBareScalarOrList(t *testing.T) {
