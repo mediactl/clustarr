@@ -25,7 +25,6 @@ import (
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/history"
-	"github.com/mediactl/clustarr/app/transcode/task"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/events/schema/schematest"
@@ -155,55 +154,6 @@ func TestResolve_SelfContainedRefs(t *testing.T) {
 		})
 		got := history.Resolve(env)
 		require.Equal(t, "Indexer", got.Kind)
-	})
-
-	t.Run("JobEvent", func(t *testing.T) {
-		env := envelopeFor(t, "", schema.JobEvent{
-			JobRef: schema.Ref{Namespace: "default", Name: "job-1"},
-			Action: "succeeded",
-		})
-		got := history.Resolve(env)
-		require.Equal(t, history.Target{
-			Namespace: "default", Name: "job-1",
-			Kind: "TranscodeJob", APIVersion: "transcode.clustarr.io/v1alpha1",
-		}, got)
-	})
-
-	// A dead-lettered transcode task, built as transcode dispatches it:
-	// catalog decodes only its job reference, so this holds the two
-	// packages to one JSON shape.
-	t.Run("transcode Task", func(t *testing.T) {
-		env := envelopeFor(t, "default/job-1", task.Task{
-			Job: schema.Ref{Namespace: "default", Name: "job-1", UID: "uid-1"}, Attempt: 2, Class: "cpu",
-		})
-		require.Equal(t, "transcode.Task.v1", env.Schema)
-		got := history.Resolve(env)
-		require.Equal(t, history.Target{
-			Namespace: "default", Name: "job-1",
-			Kind: "TranscodeJob", APIVersion: "transcode.clustarr.io/v1alpha1",
-		}, got)
-	})
-
-	t.Run("SubtitleEvent", func(t *testing.T) {
-		env := envelopeFor(t, "", schema.SubtitleEvent{
-			RequestRef: schema.Ref{Namespace: "default", Name: "req-1"},
-			Action:     "downloaded",
-			LangKey:    "en",
-		})
-		got := history.Resolve(env)
-		require.Equal(t, history.Target{
-			Namespace: "default", Name: "req-1",
-			Kind: "SubtitleRequest", APIVersion: "subtitle.clustarr.io/v1alpha1",
-		}, got)
-	})
-
-	t.Run("FetchTask", func(t *testing.T) {
-		env := envelopeFor(t, "", schema.FetchTask{
-			RequestRef: schema.Ref{Namespace: "default", Name: "req-1"},
-			LangKey:    "en",
-		})
-		got := history.Resolve(env)
-		require.Equal(t, "SubtitleRequest", got.Kind)
 	})
 
 	t.Run("ScanTask resolves the LibraryScan, not the RootFolder", func(t *testing.T) {

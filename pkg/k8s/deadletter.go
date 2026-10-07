@@ -43,7 +43,7 @@ import (
 //
 // The projector annotates only an object it can name exactly, from the dead
 // letter's payload schema (app/catalog/history/target.go's resolvers). That
-// is these sixteen kinds -- the same set its +kubebuilder:rbac patch
+// is these fourteen kinds -- the same set its +kubebuilder:rbac patch
 // markers grant, and the only kinds whose controllers need to fold the
 // condition:
 //
@@ -56,15 +56,18 @@ import (
 //	                      ImportList   (catalog.ImportListSynced, import.ListTask)
 //	                      LibraryScan  (import.ScanTask)
 //	                      MediaFile    (import.ProbeTask, catalog.MarkersTask,
-//	                        catalog.SegmentsPlanTask and catalog.AnalyzeTask,
-//	                        by their file; the remediation loop folds it)
+//	                        catalog.SegmentsPlanTask, catalog.AnalyzeTask,
+//	                        transcode.Task, transcode.JobEvent,
+//	                        subtitle.FetchTask and subtitle.SubtitleEvent
+//	                        v2, by their file; the remediation loop folds
+//	                        it, whose conditions cap at 12)
 //	index.clustarr.io     Indexer      (index.Release, IndexerEvent, RssTask)
-//	transcode.clustarr.io TranscodeJob (transcode.JobEvent, transcode.Task)
-//	subtitle.clustarr.io  SubtitleRequest (subtitle.SubtitleEvent, FetchTask)
 //
 // Every other kind never carries it: a dead letter whose schema has no
-// resolver, or that names no single object (catalog.WantedScan, a namespace
-// sweep), gets a namespace-level Warning Event instead. RootFolder,
+// resolver (a v1 transcode or subtitle payload among them, since ADR-0016
+// folded the per-file objects it named into MediaFile status), or that
+// names no single object (catalog.WantedScan, a namespace sweep), gets a
+// namespace-level Warning Event instead. RootFolder,
 // QualityProfile, DownloadClient, TranscodeProfile, SubtitleProfile,
 // SubtitleProvider and the rest are never annotated.
 //

@@ -143,6 +143,9 @@ type resolver func(key string, data []byte) Target
 // alone rather than pretending it names one object.
 // import.RecycleSweepTask is the one cluster-global task: it names
 // neither, and resolveRecycleSweepTask says so by returning the zero Target.
+// A v1 transcode or subtitle payload (the per-file objects ADR-0016 folded
+// into MediaFile status) has no resolver: Resolve's fallback gives it its
+// envelope key's namespace, and the cold cutover purges those dead letters.
 var resolvers = map[string]resolver{
 	schema.ItemEvent{}.Schema():         resolveItemEvent,
 	schema.ReleaseEvent{}.Schema():      resolveReleaseEvent,
@@ -156,13 +159,9 @@ var resolvers = map[string]resolver{
 	schema.RssTask{}.Schema():           resolveRssTask,
 	schema.DownloadEvent{}.Schema():     resolveDownloadEvent,
 	schema.JobEvent{}.Schema():          resolveJobEvent,
-	schema.JobEventV1{}.Schema():        resolveJobEventV1,
-	transcodeTaskRef{}.Schema():         resolveTranscodeTask,
 	transcodeTaskV2{}.Schema():          resolveTranscodeTaskV2,
 	schema.SubtitleEvent{}.Schema():     resolveSubtitleEvent,
-	schema.SubtitleEventV1Schema:        resolveSubtitleEventV1,
 	schema.FetchTask{}.Schema():         resolveFetchTask,
-	schema.FetchTaskV1Schema:            resolveFetchTaskV1,
 	schema.ScanTask{}.Schema():          resolveScanTask,
 	schema.ListTask{}.Schema():          resolveListTask,
 	schema.RecycleSweepTask{}.Schema():  resolveRecycleSweepTask,
@@ -434,36 +433,6 @@ func resolveJobEvent(key string, data []byte) Target {
 	return mediaFileTarget(p.File.Namespace, p.File.Name)
 }
 
-// resolveJobEventV1 resolves a v1 transcode event to its namespace alone:
-// nothing reads or writes a TranscodeJob any more, so a v1 event names no
-// object (loop spec §5.16). F8.6 deletes it.
-func resolveJobEventV1(key string, data []byte) Target {
-	var p schema.JobEventV1
-	_ = schema.Decode(p.Schema(), data, &p)
-	return Target{Namespace: cmp.Or(p.JobRef.Namespace, namespaceOf(key))}
-}
-
-// transcodeTaskRef is the one field of a v1 transcode task (one TranscodeJob
-// dispatch) a dead letter needs. It is decoded here rather than importing
-// app/transcode/task, which would make catalog depend on transcode's worker
-// types for one reference.
-type transcodeTaskRef struct {
-	Job schema.Ref `json:"job"`
-}
-
-// Schema implements schema.Payload; it is app/transcode/task.TaskV1Schema.
-func (transcodeTaskRef) Schema() string { return "transcode.Task.v1" }
-
-// resolveTranscodeTask resolves a dead-lettered v1 transcode task to its
-// namespace alone: nothing reads or writes a TranscodeJob any more, so the
-// DLQ projector annotates no object for it (loop spec §5.16). F8.6 deletes
-// it.
-func resolveTranscodeTask(key string, data []byte) Target {
-	var p transcodeTaskRef
-	_ = schema.Decode(p.Schema(), data, &p)
-	return Target{Namespace: cmp.Or(p.Job.Namespace, namespaceOf(key))}
-}
-
 // resolveTranscodeTaskV2 names the MediaFile a dead-lettered v2 transcode
 // task was dispatched for, so the DLQ projector annotates the file and the
 // transcode planner fails the dispatch, DeadLettered (loop spec §5.9).
@@ -485,22 +454,6 @@ func resolveSubtitleEvent(key string, data []byte) Target {
 	return mediaFileTarget(cmp.Or(p.MediaFile.Namespace, namespaceOf(key)), p.MediaFile.Name)
 }
 
-// subtitleEventV1Ref is the one field of a v1 SubtitleEvent a dead letter
-// needs.
-type subtitleEventV1Ref struct {
-	RequestRef schema.Ref `json:"requestRef"`
-}
-
-func (subtitleEventV1Ref) Schema() string { return schema.SubtitleEventV1Schema }
-
-// resolveSubtitleEventV1 resolves a v1 subtitle event to its namespace
-// alone (loop spec §6.10). F8.6 deletes it.
-func resolveSubtitleEventV1(key string, data []byte) Target {
-	var p subtitleEventV1Ref
-	_ = schema.Decode(p.Schema(), data, &p)
-	return Target{Namespace: cmp.Or(p.RequestRef.Namespace, namespaceOf(key))}
-}
-
 // resolveFetchTask resolves a v2 fetch task to its MediaFile (loop spec
 // §6.10): the task names the file the loop planned.
 func resolveFetchTask(key string, data []byte) Target {
@@ -509,22 +462,6 @@ func resolveFetchTask(key string, data []byte) Target {
 		return Target{Namespace: namespaceOf(key)}
 	}
 	return mediaFileTarget(cmp.Or(p.MediaFile.Namespace, namespaceOf(key)), p.MediaFile.Name)
-}
-
-// fetchTaskV1Ref is the one field of a v1 FetchTask a dead letter needs.
-type fetchTaskV1Ref struct {
-	RequestRef schema.Ref `json:"requestRef"`
-}
-
-func (fetchTaskV1Ref) Schema() string { return schema.FetchTaskV1Schema }
-
-// resolveFetchTaskV1 resolves a v1 fetch task to its namespace alone: a
-// SubtitleRequest is no longer planned against, so a v1 dead letter names
-// no object (loop spec §6.10). F8.6 deletes it.
-func resolveFetchTaskV1(key string, data []byte) Target {
-	var p fetchTaskV1Ref
-	_ = schema.Decode(p.Schema(), data, &p)
-	return Target{Namespace: cmp.Or(p.RequestRef.Namespace, namespaceOf(key))}
 }
 
 func resolveScanTask(key string, data []byte) Target {

@@ -41,8 +41,6 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
-	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
-	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/history"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -56,14 +54,15 @@ import (
 //
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series;episodes;artists;albums;authors;books;audiobooks;comics;issues;importlists;libraryscans,verbs=get;list;watch;patch
 // +kubebuilder:rbac:groups=index.clustarr.io,resources=indexers,verbs=get;list;watch;patch
-// +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodejobs,verbs=get;list;watch;patch
-// +kubebuilder:rbac:groups=subtitle.clustarr.io,resources=subtitlerequests,verbs=get;list;watch;patch
 
 // ReplayKinds is every kind a dead letter can be replayed from: exactly the
 // kinds the DLQ projector annotates (app/catalog/history's resolvers, and
 // pkg/k8s.AnnotationDeadLettered's list), because a replay is only accepted
 // from the object its dead letter resolves to. A grab's dead letter
 // resolves to its owner (ADR-0019 §6.11, §8.5), so Download is not one.
+// MediaFile is not here either: its replay is the remediation loop's
+// actuator (loop spec §3.9), since a replay-mediafile controller would be a
+// second MediaFile watcher.
 var ReplayKinds = []schema.GroupVersionKind{
 	catalogv1alpha1.GroupVersion.WithKind("Movie"),
 	catalogv1alpha1.GroupVersion.WithKind("Series"),
@@ -78,8 +77,6 @@ var ReplayKinds = []schema.GroupVersionKind{
 	catalogv1alpha1.GroupVersion.WithKind("ImportList"),
 	catalogv1alpha1.GroupVersion.WithKind("LibraryScan"),
 	indexv1alpha1.GroupVersion.WithKind("Indexer"),
-	transcodev1alpha1.GroupVersion.WithKind("TranscodeJob"),
-	subtitlev1alpha1.GroupVersion.WithKind("SubtitleRequest"),
 }
 
 // ReplayDeps is everything the replay handler needs from the process
