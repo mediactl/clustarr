@@ -18,8 +18,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package events
 
 import (
+	"cmp"
 	"context"
 	"maps"
+	"strings"
 	"time"
 )
 
@@ -30,6 +32,13 @@ const (
 	// derived from the producer's identity, never random: see MsgIDForObject,
 	// MsgIDForRelease and MsgIDForSubtitle.
 	HeaderMsgID = "Nats-Msg-Id"
+
+	// HeaderID carries the envelope's ID beside Nats-Msg-Id. When a
+	// JetStream schedule fires, the server strips Nats-Msg-Id from the copy
+	// (nats-server scheduler.go:214-231), so without this a scheduled task
+	// reached its handler with no ID and its dead-letter copies shared one
+	// Msg-Id (split spec §9.3 as amended 2026-10-07, M2).
+	HeaderID = "Clustarr-Id"
 
 	// HeaderType is the coarse message type, e.g. "catalog.search".
 	HeaderType = "Clustarr-Type"
@@ -77,7 +86,8 @@ const ContentTypeJSON = "application/json"
 // holds any extra headers beyond the named fields; the named fields win when
 // both are set.
 type Envelope struct {
-	// ID is the deduplication key sent as HeaderMsgID.
+	// ID is the deduplication key sent as HeaderMsgID, and again as
+	// HeaderID, which a fired schedule keeps.
 	ID string
 
 	// Type is the coarse message type sent as HeaderType.
@@ -125,7 +135,7 @@ func (e *Envelope) Clone() *Envelope {
 // Envelope fields over the Headers map.
 func (e *Envelope) Header(name string) string {
 	switch name {
-	case HeaderMsgID:
+	case HeaderMsgID, HeaderID:
 		return e.ID
 	case HeaderType:
 		return e.Type
@@ -153,7 +163,7 @@ func (e *Envelope) ToHeaders() map[string]string {
 	h := make(map[string]string, len(e.Headers)+8)
 	maps.Copy(h, e.Headers)
 	for _, name := range []string{
-		HeaderMsgID, HeaderType, HeaderSchema, HeaderSource,
+		HeaderMsgID, HeaderID, HeaderType, HeaderSchema, HeaderSource,
 		HeaderKey, HeaderTime, HeaderTrace, HeaderContentType,
 	} {
 		if v := e.Header(name); v != "" {
@@ -164,38 +174,58 @@ func (e *Envelope) ToHeaders() map[string]string {
 }
 
 // EnvelopeFromHeaders rebuilds an Envelope from wire headers and a payload.
-// Headers that map onto a named field are lifted out of the Headers map.
+// Headers that map onto a named field are lifted out of the Headers map. The
+// ID is Nats-Msg-Id, else Clustarr-Id (a fired schedule has only the latter),
+// and a transport header the broker added or read in transit is dropped.
 func EnvelopeFromHeaders(h map[string]string, data []byte) *Envelope {
 	e := &Envelope{Data: data}
 	rest := make(map[string]string, len(h))
+	var msgID, clustarrID string
 	for k, v := range h {
-		switch k {
-		case HeaderMsgID:
-			e.ID = v
-		case HeaderType:
+		switch {
+		case k == HeaderMsgID:
+			msgID = v
+		case k == HeaderID:
+			clustarrID = v
+		case k == HeaderType:
 			e.Type = v
-		case HeaderSchema:
+		case k == HeaderSchema:
 			e.Schema = v
-		case HeaderSource:
+		case k == HeaderSource:
 			e.Source = v
-		case HeaderKey:
+		case k == HeaderKey:
 			e.Key = v
-		case HeaderTrace:
+		case k == HeaderTrace:
 			e.Trace = v
-		case HeaderContentType:
+		case k == HeaderContentType:
 			// Implied; not round-tripped into Headers.
-		case HeaderTime:
+		case k == HeaderTime:
 			if t, err := time.Parse(time.RFC3339Nano, v); err == nil {
 				e.Time = t
 			}
+		case transportHeader(k):
+			// How the message travelled, not what it is: never copied on.
 		default:
 			rest[k] = v
 		}
 	}
+	e.ID = cmp.Or(msgID, clustarrID)
 	if len(rest) > 0 {
 		e.Headers = rest
 	}
 	return e
+}
+
+// transportHeader reports a header the broker adds or reads in transit: a
+// schedule's (Nats-Schedule*, Nats-Scheduler), an expectation's
+// (Nats-Expected-*), a per-message TTL or a rollup. A copy published with
+// Nats-Schedule-Next onto a stream that allows no schedules is refused with
+// 10188, so none may ride into an envelope (M2).
+func transportHeader(name string) bool {
+	n := strings.ToLower(name)
+	return strings.HasPrefix(n, "nats-schedule") ||
+		strings.HasPrefix(n, "nats-expected-") ||
+		n == "nats-ttl" || n == "nats-rollup"
 }
 
 // WorkQueue is the acknowledgement contract a handler holds over a single
