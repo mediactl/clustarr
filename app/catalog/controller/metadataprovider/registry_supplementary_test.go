@@ -24,13 +24,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
-	"github.com/mediactl/clustarr/pkg/k8s"
-	"github.com/mediactl/clustarr/pkg/metadata"
 )
 
 var creds = map[string][]byte{
@@ -39,35 +34,34 @@ var creds = map[string][]byte{
 }
 
 // TestEveryProviderTypeBuildsAClient is the X6b guard: each of the eight
-// types that used to be ErrProviderNotImplemented, and mdblist since its
-// shapes were recorded, builds a client and fills exactly the Registry
-// slots its client serves.
+// types that used to be ErrProviderNotImplemented, and mdblist and
+// theintrodb, builds a client that fills exactly the slots its client serves.
 func TestEveryProviderTypeBuildsAClient(t *testing.T) {
-	type slots struct{ artwork, books, comics, resolvers, ratings, markers int }
+	type slots struct{ artwork, books, comics, resolver, ratings, markers, plex bool }
 	tests := []struct {
 		typ  catalogv1alpha1.MetadataProviderType
 		want slots
 	}{
-		{catalogv1alpha1.MetadataProviderCoverArt, slots{artwork: 1}},
-		{catalogv1alpha1.MetadataProviderFanart, slots{artwork: 1}},
-		{catalogv1alpha1.MetadataProviderHardcover, slots{books: 1}},
-		{catalogv1alpha1.MetadataProviderMetron, slots{comics: 1, resolvers: 1}},
-		{catalogv1alpha1.MetadataProviderMangaDex, slots{comics: 1, resolvers: 1}},
-		{catalogv1alpha1.MetadataProviderAniList, slots{resolvers: 1}},
-		{catalogv1alpha1.MetadataProviderKitsu, slots{resolvers: 1}},
-		{catalogv1alpha1.MetadataProviderAnimeLists, slots{resolvers: 1}},
-		{catalogv1alpha1.MetadataProviderMDBList, slots{ratings: 1}},
-		{catalogv1alpha1.MetadataProviderTheIntroDB, slots{markers: 1}},
+		{catalogv1alpha1.MetadataProviderCoverArt, slots{artwork: true}},
+		{catalogv1alpha1.MetadataProviderFanart, slots{artwork: true}},
+		{catalogv1alpha1.MetadataProviderHardcover, slots{books: true}},
+		{catalogv1alpha1.MetadataProviderMetron, slots{comics: true, resolver: true}},
+		{catalogv1alpha1.MetadataProviderMangaDex, slots{comics: true, resolver: true}},
+		{catalogv1alpha1.MetadataProviderAniList, slots{resolver: true}},
+		{catalogv1alpha1.MetadataProviderKitsu, slots{resolver: true}},
+		{catalogv1alpha1.MetadataProviderAnimeLists, slots{resolver: true}},
+		{catalogv1alpha1.MetadataProviderMDBList, slots{ratings: true}},
+		{catalogv1alpha1.MetadataProviderTheIntroDB, slots{markers: true}},
 	}
 	for _, tt := range tests {
 		t.Run(string(tt.typ), func(t *testing.T) {
-			reg := &metadata.Registry{}
-			require.NoError(t, addToRegistry(reg, catalogv1alpha1.MetadataProviderSpec{Type: tt.typ}, creds, http.DefaultClient))
-			require.Equal(t, tt.want, slots{len(reg.Artwork), len(reg.Books), len(reg.Comics), len(reg.Resolvers), len(reg.Ratings), len(reg.Markers)})
-			require.Empty(t, reg.Movies)
-			require.Empty(t, reg.Series)
-			require.Empty(t, reg.Artists)
-			require.Empty(t, reg.Audiobooks)
+			a, err := buildSupplementary(catalogv1alpha1.MetadataProviderSpec{Type: tt.typ}, creds, http.DefaultClient)
+			require.NoError(t, err)
+			require.Equal(t, tt.want, slots{
+				a.artwork != nil, a.books != nil, a.comics != nil, a.resolver != nil,
+				a.ratings != nil, a.markers != nil, a.plex != nil,
+			})
+			require.NotNil(t, a.ping)
 
 			p, err := newSupplementaryProber(catalogv1alpha1.MetadataProviderSpec{Type: tt.typ}, creds, http.DefaultClient)
 			require.NoError(t, err)
@@ -90,7 +84,7 @@ func TestSupplementaryProvidersRefuseAMissingCredential(t *testing.T) {
 					wrong[k] = v
 				}
 			}
-			err := addToRegistry(&metadata.Registry{}, catalogv1alpha1.MetadataProviderSpec{Type: typ}, wrong, http.DefaultClient)
+			_, err := buildSupplementary(catalogv1alpha1.MetadataProviderSpec{Type: typ}, wrong, http.DefaultClient)
 			require.ErrorContains(t, err, key)
 			require.NotErrorIs(t, err, ErrProviderNotImplemented, "a missing credential is a spec error, not an unknown type")
 		})
@@ -98,7 +92,7 @@ func TestSupplementaryProvidersRefuseAMissingCredential(t *testing.T) {
 }
 
 func TestAnUnknownTypeIsStillNotImplemented(t *testing.T) {
-	err := addToRegistry(&metadata.Registry{}, catalogv1alpha1.MetadataProviderSpec{Type: "gcd"}, creds, http.DefaultClient)
+	_, err := buildSupplementary(catalogv1alpha1.MetadataProviderSpec{Type: "gcd"}, creds, http.DefaultClient)
 	require.ErrorIs(t, err, ErrProviderNotImplemented)
 	_, err = newSupplementaryProber(catalogv1alpha1.MetadataProviderSpec{Type: "gcd"}, creds, http.DefaultClient)
 	require.ErrorIs(t, err, ErrProviderNotImplemented)
@@ -110,15 +104,14 @@ func TestAnUnknownTypeIsStillNotImplemented(t *testing.T) {
 // client construction with ErrProviderAwaitingFixtures, per ruling R5
 // (spec §C.3): no client is written without a recorded response shape,
 // and OMDB_API_KEY was unset at task C1's dispatch (mdblist's shapes were
-// recorded on 2026-09-24; see TestEveryProviderTypeBuildsAClient). Both
-// addToRegistry and newSupplementaryProber (the two construction paths,
-// registry-build and CR-probe) must agree.
+// recorded on 2026-09-24; see TestEveryProviderTypeBuildsAClient).
+// buildSupplementary and newSupplementaryProber must agree.
 func TestOMDbIsRecognisedButBlockedUnderR5(t *testing.T) {
 	for _, typ := range []catalogv1alpha1.MetadataProviderType{
 		catalogv1alpha1.MetadataProviderOMDb,
 	} {
 		t.Run(string(typ), func(t *testing.T) {
-			err := addToRegistry(&metadata.Registry{}, catalogv1alpha1.MetadataProviderSpec{Type: typ}, creds, http.DefaultClient)
+			_, err := buildSupplementary(catalogv1alpha1.MetadataProviderSpec{Type: typ}, creds, http.DefaultClient)
 			require.Error(t, err)
 			require.ErrorIs(t, err, ErrProviderAwaitingFixtures)
 			require.NotErrorIs(t, err, ErrProviderNotImplemented, "the type is known, not unimplemented -- construction is refused, not missing")
@@ -172,40 +165,4 @@ func TestSupplementaryProberReportsReachabilityAndRejectedCredentials(t *testing
 	require.NoError(t, err)
 	_, err = p.Probe(context.Background())
 	require.True(t, isAuthError(err), "a rejected second key must read as CredentialsRejected, got %v", err)
-}
-
-func TestSupplementaryProvidersLoseAPriorityTieToPrimaryOnes(t *testing.T) {
-	ns := "clustarr"
-	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "creds", Namespace: ns}, Data: creds}
-	mp := func(name string, typ catalogv1alpha1.MetadataProviderType, priority int32) *catalogv1alpha1.MetadataProvider {
-		return &catalogv1alpha1.MetadataProvider{
-			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
-			Spec: catalogv1alpha1.MetadataProviderSpec{
-				Type: typ, Priority: priority, ContactUserAgent: "clustarr-test (test@example.com)",
-				SecretRef: &corev1.LocalObjectReference{Name: "creds"},
-			},
-		}
-	}
-	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).WithObjects(
-		secret,
-		mp("a-hardcover", catalogv1alpha1.MetadataProviderHardcover, 50),
-		mp("b-openlibrary", catalogv1alpha1.MetadataProviderOpenLibrary, 50),
-		mp("a-metron", catalogv1alpha1.MetadataProviderMetron, 50),
-		mp("b-comicvine", catalogv1alpha1.MetadataProviderComicVine, 50),
-		mp("c-mangadex", catalogv1alpha1.MetadataProviderMangaDex, 40),
-	).Build()
-
-	reg, err := BuildRegistry(context.Background(), c, ns, http.DefaultClient)
-	require.NoError(t, err)
-
-	names := func(n int, name func(int) string) []string {
-		out := make([]string, n)
-		for i := range out {
-			out[i] = name(i)
-		}
-		return out
-	}
-	require.Equal(t, []string{"openlibrary", "hardcover"}, names(len(reg.Books), func(i int) string { return reg.Books[i].Name() }))
-	require.Equal(t, []string{"mangadex", "comicvine", "metron"}, names(len(reg.Comics), func(i int) string { return reg.Comics[i].Name() }),
-		"priority first; at a tie the provider a Comic can be keyed by answers before Metron")
 }

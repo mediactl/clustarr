@@ -36,7 +36,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/metadata/clients/tvdb"
 )
 
-// ErrProviderNotImplemented is returned by NewProber and addToRegistry for a
+// ErrProviderNotImplemented is returned by NewProber and buildSupplementary for a
 // MetadataProviderType this package has no client for. Every value the
 // CRD's enum admits has one since task X6b (the eight Phase B left without
 // -- coverart, fanart, hardcover, metron, mangadex, anilist, kitsu,

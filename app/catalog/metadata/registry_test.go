@@ -408,3 +408,49 @@ func TestBuildRegistryWiresPlexAsAResolverAndAPlexProvider(t *testing.T) {
 	require.Equal(t, "5d776b83fb0d55001f56a04b", got[pkgmetadata.KeyPlex])
 	require.Equal(t, "tok", gotToken)
 }
+
+// TestBuildRegistrySupplementaryProvidersLoseAPriorityTieToPrimaryOnes is the
+// tie-break guard, ported from app/catalog/controller/metadataprovider when
+// that package's unused BuildRegistry was deleted (design 2026-10-06 §4.3 C4):
+// at equal priority a provider a catalog CR is keyed by answers before a
+// supplementary one, whatever the list order.
+func TestBuildRegistrySupplementaryProvidersLoseAPriorityTieToPrimaryOnes(t *testing.T) {
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "creds", Namespace: "clustarr"},
+		Data: map[string][]byte{
+			catalogv1alpha1.MetadataSecretKeyAPIKey: []byte("k"),
+			catalogv1alpha1.MetadataSecretKeyBearer: []byte("t"),
+		},
+	}
+	mp := func(name string, typ catalogv1alpha1.MetadataProviderType, priority int32) catalogv1alpha1.MetadataProvider {
+		return catalogv1alpha1.MetadataProvider{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "clustarr"},
+			Spec: catalogv1alpha1.MetadataProviderSpec{
+				Type: typ, Enabled: enabled(), Priority: priority, ContactUserAgent: "clustarr-test (test@example.com)",
+				SecretRef: &corev1.LocalObjectReference{Name: "creds"},
+			},
+		}
+	}
+	providers := []catalogv1alpha1.MetadataProvider{
+		mp("a-hardcover", catalogv1alpha1.MetadataProviderHardcover, 50),
+		mp("b-openlibrary", catalogv1alpha1.MetadataProviderOpenLibrary, 50),
+		mp("a-metron", catalogv1alpha1.MetadataProviderMetron, 50),
+		mp("b-comicvine", catalogv1alpha1.MetadataProviderComicVine, 50),
+		mp("c-mangadex", catalogv1alpha1.MetadataProviderMangaDex, 40),
+	}
+	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).WithObjects(secret).Build()
+
+	reg, err := BuildRegistry(context.Background(), c, providers, http.DefaultClient)
+	require.NoError(t, err)
+
+	names := func(n int, name func(int) string) []string {
+		out := make([]string, n)
+		for i := range out {
+			out[i] = name(i)
+		}
+		return out
+	}
+	require.Equal(t, []string{"openlibrary", "hardcover"}, names(len(reg.Books), func(i int) string { return reg.Books[i].Name() }))
+	require.Equal(t, []string{"mangadex", "comicvine", "metron"}, names(len(reg.Comics), func(i int) string { return reg.Comics[i].Name() }),
+		"priority first; at a tie the provider a Comic can be keyed by answers before Metron")
+}
