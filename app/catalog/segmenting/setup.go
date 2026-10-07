@@ -28,22 +28,16 @@ import (
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles;episodes;series,verbs=get;list;watch
+// The Applier reads each MediaFile uncached and applies its status.markers.
+//
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles/status,verbs=patch
 
-// Options configures Setup: which of the two consumers to start.
+// Options configures Setup.
 type Options struct {
 	Bus    events.Bus
 	Reader client.Reader
 	Client client.Client
-	// Planner starts catalogarr-segments-plan. Reader must be a cache with
-	// the Episode-by-series and MediaFile-by-episode indexes: the
-	// controller role's.
-	Planner bool
-	// Results starts catalogarr-segments-result, beside TheIntroDB's
-	// handler in the metadata gateway: both write status.markers through
-	// NewApplier.
-	Results bool
 }
 
 // NewApplier is the status.markers writer both TheIntroDB's handler and the
@@ -56,38 +50,18 @@ func NewApplier(bus events.Bus, reader client.Reader, c client.Client) *Applier 
 	}}
 }
 
-// Setup subscribes the consumers o asks for.
+// Setup subscribes catalogarr-segments-result, beside TheIntroDB's handler
+// in the metadata gateway: both write status.markers through NewApplier.
+// The planner is app/catalog/segmentplan.Setup.
 func Setup(ctx context.Context, o Options) (stop func(), err error) {
-	var stops []func()
-	stop = func() {
-		for _, s := range stops {
-			s()
-		}
+	spec, ok := events.Default().Consumer(events.ConsumerCatalogSegmentsResult)
+	if !ok {
+		return nil, fmt.Errorf("segmenting: consumer %q missing from the default topology", events.ConsumerCatalogSegmentsResult)
 	}
-	sub := func(consumer string, h events.Handler) error {
-		spec, ok := events.Default().Consumer(consumer)
-		if !ok {
-			return fmt.Errorf("segmenting: consumer %q missing from the default topology", consumer)
-		}
-		s, err := o.Bus.Subscribe(ctx, spec.Subscription(), h)
-		if err != nil {
-			return fmt.Errorf("segmenting: subscribe %s: %w", consumer, err)
-		}
-		stops = append(stops, s)
-		return nil
-	}
-	if o.Planner {
-		if err := sub(events.ConsumerCatalogSegmentsPlan, (&Planner{Reader: o.Reader, Bus: o.Bus}).Handle); err != nil {
-			stop()
-			return nil, err
-		}
-	}
-	if o.Results {
-		r := &Results{Applier: NewApplier(o.Bus, o.Reader, o.Client)}
-		if err := sub(events.ConsumerCatalogSegmentsResult, r.Handle); err != nil {
-			stop()
-			return nil, err
-		}
+	r := &Results{Applier: NewApplier(o.Bus, o.Reader, o.Client)}
+	stop, err = o.Bus.Subscribe(ctx, spec.Subscription(), r.Handle)
+	if err != nil {
+		return nil, fmt.Errorf("segmenting: subscribe %s: %w", events.ConsumerCatalogSegmentsResult, err)
 	}
 	return stop, nil
 }

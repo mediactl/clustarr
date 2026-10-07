@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package segmenting_test
+package segmentplan_test
 
 import (
 	"context"
@@ -34,13 +34,15 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/episode"
 	"github.com/mediactl/clustarr/app/catalog/controller/series"
-	"github.com/mediactl/clustarr/app/catalog/segmenting"
+	"github.com/mediactl/clustarr/app/catalog/segmentplan"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/segments"
 )
+
+var now = time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
 
 func ep(name string, season, number int32) *catalogv1alpha1.Episode {
 	e := &catalogv1alpha1.Episode{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "media"}}
@@ -88,8 +90,8 @@ func TestDueEpisodesPublishOneSeasonPlan(t *testing.T) {
 	clock := clockwork.NewFakeClockAt(now)
 	b := bus(t, clock)
 	got := collect(t, b, events.ConsumerCatalogSegmentsPlan)
-	require.NoError(t, segmenting.PublishPlan(context.Background(), b, probed("e1", "andor-s01e01", "h1"), ep("andor-s01e01", 1, 1), now))
-	require.NoError(t, segmenting.PublishPlan(context.Background(), b, probed("e2", "andor-s01e02", "h2"), ep("andor-s01e02", 1, 2), now.Add(time.Minute)))
+	require.NoError(t, segmentplan.PublishPlan(context.Background(), b, probed("e1", "andor-s01e01", "h1"), ep("andor-s01e01", 1, 1), now))
+	require.NoError(t, segmentplan.PublishPlan(context.Background(), b, probed("e2", "andor-s01e02", "h2"), ep("andor-s01e02", 1, 2), now.Add(time.Minute)))
 	select {
 	case <-got:
 		t.Fatal("the plan is held 5 minutes")
@@ -151,7 +153,7 @@ func TestPlannerBuildsTheSeasonTask(t *testing.T) {
 		probed("e2", "andor-s01e02", "h2"), analyzed, probed("s2", "andor-s02e01", "h3"))
 	b := bus(t, clockwork.NewRealClock())
 	got := collect(t, b, events.ConsumerSegmentarrAnalyze)
-	p := &segmenting.Planner{Reader: c, Bus: b, Clock: func() time.Time { return now }}
+	p := &segmentplan.Planner{Reader: c, Bus: b, Clock: func() time.Time { return now }}
 	require.NoError(t, p.Handle(context.Background(), planMsg(t, schema.SegmentsPlanTask{Namespace: "media", Series: "andor", Season: 1})))
 	var task schema.AnalyzeTask
 	select {
@@ -179,7 +181,7 @@ func TestPlannerAsksNothingWhenNoFileIsDue(t *testing.T) {
 	}}
 	b := bus(t, clockwork.NewRealClock())
 	got := collect(t, b, events.ConsumerSegmentarrAnalyze)
-	p := &segmenting.Planner{Reader: plannerClient(sr, ep("andor-s01e01", 1, 1), analyzed), Bus: b, Clock: func() time.Time { return now }}
+	p := &segmentplan.Planner{Reader: plannerClient(sr, ep("andor-s01e01", 1, 1), analyzed), Bus: b, Clock: func() time.Time { return now }}
 	require.NoError(t, p.Handle(context.Background(), planMsg(t, schema.SegmentsPlanTask{Namespace: "media", Series: "andor", Season: 1})))
 	select {
 	case <-got:

@@ -62,6 +62,7 @@ import (
 	catalogmetadata "github.com/mediactl/clustarr/app/catalog/metadata"
 	artworkgateway "github.com/mediactl/clustarr/app/catalog/metadata/artwork"
 	"github.com/mediactl/clustarr/app/catalog/segmenting"
+	"github.com/mediactl/clustarr/app/catalog/segmentplan"
 	renderer "github.com/mediactl/clustarr/app/catalog/worker/artwork"
 	"github.com/mediactl/clustarr/app/catalog/worker/grab"
 	"github.com/mediactl/clustarr/app/catalog/worker/redownload"
@@ -455,9 +456,9 @@ func setupControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	}
 
 	// The segment analysis planner reads a season's episodes and files
-	// through this role's cache and its field indexes (segmenting.Planner).
+	// through this role's cache and its field indexes (segmentplan.Planner).
 	if err := mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
-		stop, err := segmenting.Setup(ctx, segmenting.Options{Bus: bus, Reader: c, Planner: true})
+		stop, err := segmentplan.Setup(ctx, segmentplan.Options{Bus: bus, Reader: c})
 		if err != nil {
 			return fmt.Errorf("catalogarr: segment planner: %w", err)
 		}
@@ -809,7 +810,7 @@ func setupMetadataGateway(mgr ctrl.Manager, bus events.Bus) error {
 				// Segment analysis results write status.markers beside
 				// TheIntroDB's handler, through the same merge.
 				stopResults, err := segmenting.Setup(ctx, segmenting.Options{
-					Bus: bus, Reader: mgr.GetAPIReader(), Client: mgr.GetClient(), Results: true,
+					Bus: bus, Reader: mgr.GetAPIReader(), Client: mgr.GetClient(),
 				})
 				if err != nil {
 					stopMarkers()

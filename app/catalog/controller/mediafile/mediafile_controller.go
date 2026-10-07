@@ -42,7 +42,7 @@ import (
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/markers"
-	"github.com/mediactl/clustarr/app/catalog/segmenting"
+	"github.com/mediactl/clustarr/app/catalog/segmentplan"
 	clustarrevents "github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
@@ -515,7 +515,7 @@ func (r *Reconciler) followUpMarkers(ctx context.Context, mf *catalogv1alpha1.Me
 
 // planSegments asks for the file's segment analysis when it is due
 // (segments.Due): its season's plan for an episode, its own for a movie
-// (app/catalog/segmenting). An episode not in the cache yet plans nothing;
+// (app/catalog/segmentplan). An episode not in the cache yet plans nothing;
 // its next reconcile does.
 func (r *Reconciler) planSegments(ctx context.Context, mf *catalogv1alpha1.MediaFile, now time.Time) error {
 	if !segments.Due(mf, now) {
@@ -531,7 +531,7 @@ func (r *Reconciler) planSegments(ctx context.Context, mf *catalogv1alpha1.Media
 			return client.IgnoreNotFound(err)
 		}
 	}
-	return segmenting.PublishPlan(ctx, r.Bus, mf, ep, now)
+	return segmentplan.PublishPlan(ctx, r.Bus, mf, ep, now)
 }
 
 // swapTarget decides what an unincorporated Succeeded TranscodeJob means for

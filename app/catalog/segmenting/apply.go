@@ -15,11 +15,13 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package segmenting joins clustarr's own segment analysis to TheIntroDB's
-// in MediaFile status.markers: the plan that asks segmentarr-worker for a
-// season or a movie, the consumer of its results, and the one merge-and-
-// apply path both TheIntroDB's handler and the results use (spec
-// 2026-10-01 segment detection §4).
+// Package segmenting writes MediaFile status.markers: the
+// catalogarr-segments-result consumer ([Results]) that records a
+// segmentarr-worker analysis, and [Applier], the one merge-and-apply path
+// it shares with TheIntroDB's markers handler, under
+// k8s.ManagerCatalogarrMarkers (spec 2026-10-01 segment detection §4). It
+// runs beside the metadata gateway and links no controller. The planner
+// that asks for an analysis is app/catalog/segmentplan, in the manager.
 package segmenting
 
 import (
