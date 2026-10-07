@@ -189,9 +189,18 @@ func (r *Reconciler) planBlocks(ctx context.Context, p *clustarrv1.IPTVProvider,
 		return false
 	}
 	taken := map[int32]bool{}
+	// kept is every port a surviving block already holds: a new block never
+	// takes one, or the block after a split would lose its port, and with it
+	// its device's address in Plex.
+	kept := map[int32]bool{}
+	for _, nb := range next {
+		if old, ok := byStart[nb.Start]; ok && old.Port != 0 {
+			kept[old.Port] = true
+		}
+	}
 	allocate := func() (int32, error) {
 		for port := r.Ports.Low; port <= r.Ports.High; port++ {
-			if !taken[port] && !usedByOthers(port) && !heldByAny(others, port) {
+			if !taken[port] && !kept[port] && !usedByOthers(port) && !heldByAny(others, port) {
 				return port, nil
 			}
 		}
