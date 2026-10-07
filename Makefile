@@ -117,6 +117,10 @@ generate: ## Generate DeepCopy and apply-configuration code.
 # tool dependency. The generated files are committed, so a generator change
 # can never break a build unattended -- this target is for regenerating them
 # after editing a .templ file, not a build-time step.
+.PHONY: brand-gate
+brand-gate: ## Fail if a retired *arr brand name appears outside the records.
+	hack/brand-gate.sh
+
 .PHONY: templ
 templ: ## Regenerate ui/views/*_templ.go and ui/components/*/*_templ.go from their .templ sources.
 	go run github.com/a-h/templ/cmd/templ@v0.3.1020 generate

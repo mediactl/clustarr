@@ -18,7 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 // Task D2-10 -- e2e scenarios 1 (through import), 3, 4 and 6
-// (docs/superpowers/plans/2026-09-22-phase-d2-grab.md). This file covers
+// (docs/superpowers/plans/2026-09-22-phase-d2-grabarr.md). This file covers
 // grab's own new surface: the DownloadClient and Download controllers
 // (D2-3, D2-4, D2-8a) and the torrent/usenet engines (D2-5, D2-6) against
 // real fixture services, driving real transfers over cluster networking.

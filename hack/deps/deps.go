@@ -52,7 +52,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // pkg/download/usenet execs. The full D2-0 record, including why the cgo NNTP
 // pool the research note recommends was never added (javi11/nntppool/v4 is
 // cgo-only and cmd/clustarr builds with CGO_ENABLED=0 for the controller
-// image), is in .superpowers/sdd/2026-09-22-phase-d2-grab/task-D2-0-report.md.
+// image), is in .superpowers/sdd/2026-09-22-phase-d2-grabarr/task-D2-0-report.md.
 //
 // Two corrections to earlier versions of this comment, kept as history:
 //

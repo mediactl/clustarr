@@ -1119,7 +1119,7 @@ func requireFixtureService(ctx context.Context, t *testing.T, svcName string) {
 	}
 	if apierrors.IsNotFound(err) {
 		t.Skipf("fixture Service %s/%s does not exist: config/e2e does not yet deploy it "+
-			"(no task in docs/superpowers/plans/2026-09-22-phase-d2-grab.md adds this manifest; "+
+			"(no task in docs/superpowers/plans/2026-09-22-phase-d2-grabarr.md adds this manifest; "+
 			"see test/fixtures/seeder and test/fixtures/nntpstub for the binary it would front, and "+
 			"this file's own package-level doc comment for the exact flags it needs) -- skipping "+
 			"rather than waiting out a timeout no fixture can ever answer", Namespace, svcName)
