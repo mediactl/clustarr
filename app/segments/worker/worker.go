@@ -100,6 +100,12 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 	if err := schema.Decode(env.Schema, env.Data, &task); err != nil {
 		return events.Discard("undecodable analyze task", err)
 	}
+	// Every decode of this task goes through dec: once one is abandoned,
+	// nothing more is decoded and the task is dead-lettered (abandon.go).
+	dec := &guard{Decoder: h.Decoder}
+	hh := *h
+	hh.Decoder = dec
+	h = &hh
 	ctx, cancel := context.WithTimeout(ctx, orDefault(h.TaskTimeout, defaultTaskTimeout))
 	defer cancel()
 	stop := keepAlive(ctx, m)
@@ -147,6 +153,9 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 		if err := h.publish(ctx, task.Namespace, f, res); err != nil {
 			return events.Retry(time.Minute, err)
 		}
+	}
+	if err := dec.failed(); err != nil {
+		return events.Discard("segments: an FFmpeg decode was abandoned; not redelivered into another stuck call", err)
 	}
 	return nil
 }
