@@ -21,7 +21,6 @@ package v1alpha1
 
 import (
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 )
 
 // DownloadSpecApplyConfiguration represents a declarative configuration of the DownloadSpec type for use
@@ -37,7 +36,7 @@ type DownloadSpecApplyConfiguration struct {
 	// the enabled clients of the matching protocol; once set it is immutable.
 	ClientRef *string `json:"clientRef,omitempty"`
 	// Source is where the payload comes from. Immutable.
-	Source *DownloadSourceApplyConfiguration `json:"source,omitempty"`
+	Source *commonv1alpha1.DownloadSource `json:"source,omitempty"`
 	// Release is the indexer release snapshot this grab was decided from. It is
 	// immutable: re-deciding means creating a new Download.
 	//
@@ -65,7 +64,7 @@ type DownloadSpecApplyConfiguration struct {
 	// importer re-checks the finished files against it.
 	QualityProfileRef *string `json:"qualityProfileRef,omitempty"`
 	// Priority orders this Download within its engine's queue.
-	Priority *downloadv1alpha1.DownloadPriority `json:"priority,omitempty"`
+	Priority *commonv1alpha1.DownloadPriority `json:"priority,omitempty"`
 	// Paused suspends the transfer without removing it from the engine.
 	Paused *bool `json:"paused,omitempty"`
 	// SeedCriteria overrides the client's default seed goal for this Download.
@@ -78,7 +77,7 @@ type DownloadSpecApplyConfiguration struct {
 	// is deleted. Imported files already linked into the library are untouched.
 	RemoveDataOnDelete *bool `json:"removeDataOnDelete,omitempty"`
 	// GrabbedBy records what caused the grab.
-	GrabbedBy *downloadv1alpha1.GrabSource `json:"grabbedBy,omitempty"`
+	GrabbedBy *commonv1alpha1.GrabSource `json:"grabbedBy,omitempty"`
 	// Manual marks an operator-forced grab: a release a person picked, as a
 	// Search's grab does. The completed-download importer then treats the
 	// import as that person's decision -- it skips the upgrade comparison
@@ -93,7 +92,7 @@ type DownloadSpecApplyConfiguration struct {
 	Manual *bool `json:"manual,omitempty"`
 	// Purpose is what the grab is for; absent is the item's video. Set by
 	// the grab at creation and immutable.
-	Purpose *downloadv1alpha1.DownloadPurpose `json:"purpose,omitempty"`
+	Purpose *commonv1alpha1.DownloadPurpose `json:"purpose,omitempty"`
 }
 
 // DownloadSpecApplyConfiguration constructs a declarative configuration of the DownloadSpec type for use with
@@ -121,8 +120,8 @@ func (b *DownloadSpecApplyConfiguration) WithClientRef(value string) *DownloadSp
 // WithSource sets the Source field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Source field is set to the value of the last call.
-func (b *DownloadSpecApplyConfiguration) WithSource(value *DownloadSourceApplyConfiguration) *DownloadSpecApplyConfiguration {
-	b.Source = value
+func (b *DownloadSpecApplyConfiguration) WithSource(value commonv1alpha1.DownloadSource) *DownloadSpecApplyConfiguration {
+	b.Source = &value
 	return b
 }
 
@@ -153,7 +152,7 @@ func (b *DownloadSpecApplyConfiguration) WithQualityProfileRef(value string) *Do
 // WithPriority sets the Priority field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Priority field is set to the value of the last call.
-func (b *DownloadSpecApplyConfiguration) WithPriority(value downloadv1alpha1.DownloadPriority) *DownloadSpecApplyConfiguration {
+func (b *DownloadSpecApplyConfiguration) WithPriority(value commonv1alpha1.DownloadPriority) *DownloadSpecApplyConfiguration {
 	b.Priority = &value
 	return b
 }
@@ -193,7 +192,7 @@ func (b *DownloadSpecApplyConfiguration) WithRemoveDataOnDelete(value bool) *Dow
 // WithGrabbedBy sets the GrabbedBy field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the GrabbedBy field is set to the value of the last call.
-func (b *DownloadSpecApplyConfiguration) WithGrabbedBy(value downloadv1alpha1.GrabSource) *DownloadSpecApplyConfiguration {
+func (b *DownloadSpecApplyConfiguration) WithGrabbedBy(value commonv1alpha1.GrabSource) *DownloadSpecApplyConfiguration {
 	b.GrabbedBy = &value
 	return b
 }
@@ -209,7 +208,7 @@ func (b *DownloadSpecApplyConfiguration) WithManual(value bool) *DownloadSpecApp
 // WithPurpose sets the Purpose field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Purpose field is set to the value of the last call.
-func (b *DownloadSpecApplyConfiguration) WithPurpose(value downloadv1alpha1.DownloadPurpose) *DownloadSpecApplyConfiguration {
+func (b *DownloadSpecApplyConfiguration) WithPurpose(value commonv1alpha1.DownloadPurpose) *DownloadSpecApplyConfiguration {
 	b.Purpose = &value
 	return b
 }

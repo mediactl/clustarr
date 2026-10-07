@@ -18,7 +18,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package search
 
 import (
-	downloadac "github.com/mediactl/clustarr/api/applyconfiguration/download/download/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/grabsource"
@@ -52,7 +51,7 @@ func BuildDownloadSource(rel commonv1.ReleaseInfo) downloadv1alpha1.DownloadSour
 // toDownloadSourceAC converts the plain value BuildDownloadSource returns into
 // the apply configuration k8s.Apply needs, through the same converter the
 // grab worker uses.
-func toDownloadSourceAC(src downloadv1alpha1.DownloadSource) *downloadac.DownloadSourceApplyConfiguration {
+func toDownloadSourceAC(src downloadv1alpha1.DownloadSource) downloadv1alpha1.DownloadSource {
 	return grabsource.SourceApplyConfiguration(src)
 }
 

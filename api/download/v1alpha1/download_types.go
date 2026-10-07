@@ -65,170 +65,73 @@ const (
 // grabarr sweeps it, when the blocklisting party sets no explicit deadline.
 const DefaultBlocklistTTL = 90 * 24 * time.Hour
 
-// DownloadPhase is the lifecycle phase of a Download, owned by the grabarr
-// controller.
+// Kept until release N+1 (ADR-0019 §6.2, §10.3): the types live in api/common/v1alpha1.
 //
-// +kubebuilder:validation:Enum=Pending;Assigned;Queued;Downloading;Paused;Completed;Seeding;Imported;Failed;Blocklisted;Removing
-type DownloadPhase string
-
-// Download phases.
-const (
-	// DownloadPhasePending means the Download exists but has no client yet.
-	DownloadPhasePending DownloadPhase = "Pending"
-	// DownloadPhaseAssigned means a client and engine ordinal were chosen.
-	DownloadPhaseAssigned DownloadPhase = "Assigned"
-	// DownloadPhaseQueued means the engine accepted the work but has not started it.
-	DownloadPhaseQueued DownloadPhase = "Queued"
-	// DownloadPhaseDownloading means bytes are moving.
-	DownloadPhaseDownloading DownloadPhase = "Downloading"
-	// DownloadPhasePaused means transfer is suspended, by spec.paused or by a health action.
-	DownloadPhasePaused DownloadPhase = "Paused"
-	// DownloadPhaseCompleted means the content is on disk and ready to import.
-	DownloadPhaseCompleted DownloadPhase = "Completed"
-	// DownloadPhaseSeeding means the content is imported or importable and the torrent is seeding.
-	DownloadPhaseSeeding DownloadPhase = "Seeding"
-	// DownloadPhaseImported means catalogarr finished importing the content.
-	DownloadPhaseImported DownloadPhase = "Imported"
-	// DownloadPhaseFailed means the Download cannot make progress; see status.failureReason.
-	DownloadPhaseFailed DownloadPhase = "Failed"
-	// DownloadPhaseBlocklisted means the release is blocklisted until status.blocklistedUntil.
-	DownloadPhaseBlocklisted DownloadPhase = "Blocklisted"
-	// DownloadPhaseRemoving means the engine is tearing the transfer down.
-	DownloadPhaseRemoving DownloadPhase = "Removing"
+// +kubebuilder:object:generate=false
+type (
+	DownloadPhase         = commonv1alpha1.DownloadPhase
+	DownloadStage         = commonv1alpha1.DownloadStage
+	DownloadFailureReason = commonv1alpha1.DownloadFailureReason
+	DownloadPriority      = commonv1alpha1.DownloadPriority
+	GrabSource            = commonv1alpha1.GrabSource
+	DownloadPurpose       = commonv1alpha1.DownloadPurpose
+	ImportRejectionClass  = commonv1alpha1.ImportRejectionClass
+	IndexerDownload       = commonv1alpha1.IndexerDownload
+	DownloadSource        = commonv1alpha1.DownloadSource
 )
 
-// DownloadStage is the fine-grained engine stage, reported by grabarr-engine.
-//
-// +kubebuilder:validation:Enum=fetchingMetadata;transferring;verifying;repairing;extracting;publishing;seeding;done
-type DownloadStage string
-
-// Download stages.
+// Kept until release N+1 (ADR-0019 §6.2, §10.3): the constants live in api/common/v1alpha1.
 const (
-	// DownloadStageFetchingMetadata means the engine is resolving the torrent metainfo or NZB.
-	DownloadStageFetchingMetadata DownloadStage = "fetchingMetadata"
-	// DownloadStageTransferring means pieces or articles are being fetched.
-	DownloadStageTransferring DownloadStage = "transferring"
-	// DownloadStageVerifying means hashes or article checksums are being checked.
-	DownloadStageVerifying DownloadStage = "verifying"
-	// DownloadStageRepairing means par2 repair is running.
-	DownloadStageRepairing DownloadStage = "repairing"
-	// DownloadStageExtracting means archives are being unpacked.
-	DownloadStageExtracting DownloadStage = "extracting"
-	// DownloadStagePublishing means the content is being moved to its output path.
-	DownloadStagePublishing DownloadStage = "publishing"
-	// DownloadStageSeeding means the torrent is seeding toward its goal.
-	DownloadStageSeeding DownloadStage = "seeding"
-	// DownloadStageDone means the engine has nothing left to do.
-	DownloadStageDone DownloadStage = "done"
-)
+	DownloadPhasePending     = commonv1alpha1.DownloadPhasePending
+	DownloadPhaseAssigned    = commonv1alpha1.DownloadPhaseAssigned
+	DownloadPhaseQueued      = commonv1alpha1.DownloadPhaseQueued
+	DownloadPhaseDownloading = commonv1alpha1.DownloadPhaseDownloading
+	DownloadPhasePaused      = commonv1alpha1.DownloadPhasePaused
+	DownloadPhaseCompleted   = commonv1alpha1.DownloadPhaseCompleted
+	DownloadPhaseSeeding     = commonv1alpha1.DownloadPhaseSeeding
+	DownloadPhaseImported    = commonv1alpha1.DownloadPhaseImported
+	DownloadPhaseFailed      = commonv1alpha1.DownloadPhaseFailed
+	DownloadPhaseBlocklisted = commonv1alpha1.DownloadPhaseBlocklisted
+	DownloadPhaseRemoving    = commonv1alpha1.DownloadPhaseRemoving
 
-// DownloadFailureReason is the machine-readable cause of a failure.
-//
-// +kubebuilder:validation:Enum=none;missingArticles;diskFull;encrypted;stalled;writeError;timeout;importRejected;importExpired;manual;payloadMismatch
-type DownloadFailureReason string
+	DownloadStageFetchingMetadata = commonv1alpha1.DownloadStageFetchingMetadata
+	DownloadStageTransferring     = commonv1alpha1.DownloadStageTransferring
+	DownloadStageVerifying        = commonv1alpha1.DownloadStageVerifying
+	DownloadStageRepairing        = commonv1alpha1.DownloadStageRepairing
+	DownloadStageExtracting       = commonv1alpha1.DownloadStageExtracting
+	DownloadStagePublishing       = commonv1alpha1.DownloadStagePublishing
+	DownloadStageSeeding          = commonv1alpha1.DownloadStageSeeding
+	DownloadStageDone             = commonv1alpha1.DownloadStageDone
 
-// Download failure reasons.
-const (
-	// DownloadFailureNone means no failure has been recorded.
-	DownloadFailureNone DownloadFailureReason = "none"
-	// DownloadFailureMissingArticles means usenet articles could not be fetched or repaired.
-	DownloadFailureMissingArticles DownloadFailureReason = "missingArticles"
-	// DownloadFailureDiskFull means the client ran out of space.
-	DownloadFailureDiskFull DownloadFailureReason = "diskFull"
-	// DownloadFailureEncrypted means the content is password protected.
-	DownloadFailureEncrypted DownloadFailureReason = "encrypted"
-	// DownloadFailureStalled means no progress was made within the inactivity window.
-	DownloadFailureStalled DownloadFailureReason = "stalled"
-	// DownloadFailureWriteError means the engine could not write to its volume.
-	DownloadFailureWriteError DownloadFailureReason = "writeError"
-	// DownloadFailureTimeout means the Download exceeded its overall deadline.
-	DownloadFailureTimeout DownloadFailureReason = "timeout"
-	// DownloadFailureImportRejected means catalogarr refused every file.
-	DownloadFailureImportRejected DownloadFailureReason = "importRejected"
-	// DownloadFailureImportExpired means importarr held the import for a
-	// person -- the item would not take the files, they could not be
-	// attributed, or the import kept failing transiently -- and nobody
-	// imported them within ImportHoldRetention. The files are removed; the
-	// release is not blocklisted and no redownload is searched, since
-	// nothing showed the release was at fault.
-	DownloadFailureImportExpired DownloadFailureReason = "importExpired"
-	// DownloadFailureManual means an operator failed the Download by hand.
-	DownloadFailureManual DownloadFailureReason = "manual"
-	// DownloadFailurePayloadMismatch means the resolved torrent's info hash
-	// is not spec.source.expectedInfoHash: the indexer served different
-	// content than the grab decision was made from, so nothing was added.
-	DownloadFailurePayloadMismatch DownloadFailureReason = "payloadMismatch"
-)
+	DownloadFailureNone               = commonv1alpha1.DownloadFailureNone
+	DownloadFailureMissingArticles    = commonv1alpha1.DownloadFailureMissingArticles
+	DownloadFailureDiskFull           = commonv1alpha1.DownloadFailureDiskFull
+	DownloadFailureEncrypted          = commonv1alpha1.DownloadFailureEncrypted
+	DownloadFailureStalled            = commonv1alpha1.DownloadFailureStalled
+	DownloadFailureWriteError         = commonv1alpha1.DownloadFailureWriteError
+	DownloadFailureTimeout            = commonv1alpha1.DownloadFailureTimeout
+	DownloadFailureImportRejected     = commonv1alpha1.DownloadFailureImportRejected
+	DownloadFailureImportExpired      = commonv1alpha1.DownloadFailureImportExpired
+	DownloadFailureManual             = commonv1alpha1.DownloadFailureManual
+	DownloadFailurePayloadMismatch    = commonv1alpha1.DownloadFailurePayloadMismatch
+	DownloadFailurePayloadUnavailable = commonv1alpha1.DownloadFailurePayloadUnavailable
 
-// IsReleaseFault reports whether a failure for reason r is the RELEASE's
-// fault, which is what decides whether grabarr blocklists it (design spec
-// §8.3, "Failed -> Blocklisted").
-//
-// The ruling (gap fix Y2): missingArticles, encrypted, stalled, timeout,
-// importRejected and manual blocklist; diskFull and writeError do not, and
-// neither do none or an empty or unknown reason. payloadMismatch (Z1)
-// blocklists too: an info hash that differs from the one the grab decided on
-// is the indexer serving other content, which no retry of the same release
-// can fix. A local fault is not
-// evidence against the release -- the same release grabbed onto a disk with
-// room would have succeeded -- so blocklisting it would discard a good
-// release and send the redownload search to a worse one. Sonarr draws the
-// same line: its SABnzbd client reports "Unpacking failed, write error or
-// disk is full?" as a Warning rather than a Failed item, and NZBGet's
-// UnpackStatus=SPACE likewise, while every other client-reported failure is
-// Failed, which Sonarr's FailedDownloadService blocklists.
-//
-// manual counts as the release's fault because it is an operator saying so:
-// it is recorded when someone labels a Download blocklisted by hand.
-func (r DownloadFailureReason) IsReleaseFault() bool {
-	switch r {
-	case DownloadFailureMissingArticles, DownloadFailureEncrypted, DownloadFailureStalled,
-		DownloadFailureTimeout, DownloadFailureImportRejected, DownloadFailureManual,
-		DownloadFailurePayloadMismatch:
-		return true
-	default:
-		return false
-	}
-}
+	DownloadPriorityHigh   = commonv1alpha1.DownloadPriorityHigh
+	DownloadPriorityNormal = commonv1alpha1.DownloadPriorityNormal
+	DownloadPriorityLow    = commonv1alpha1.DownloadPriorityLow
 
-// IsFailure reports whether r names an actual failure: set, and not
-// DownloadFailureNone.
-func (r DownloadFailureReason) IsFailure() bool {
-	return r != "" && r != DownloadFailureNone
-}
+	GrabSourceRSS         = commonv1alpha1.GrabSourceRSS
+	GrabSourceSearch      = commonv1alpha1.GrabSourceSearch
+	GrabSourceInteractive = commonv1alpha1.GrabSourceInteractive
+	GrabSourcePush        = commonv1alpha1.GrabSourcePush
+	GrabSourceRedownload  = commonv1alpha1.GrabSourceRedownload
 
-// DownloadPriority orders Downloads within an engine's queue.
-//
-// +kubebuilder:validation:Enum=high;normal;low
-type DownloadPriority string
+	DownloadPurposeAudioDonor = commonv1alpha1.DownloadPurposeAudioDonor
 
-// Download priorities.
-const (
-	// DownloadPriorityHigh jumps the queue.
-	DownloadPriorityHigh DownloadPriority = "high"
-	// DownloadPriorityNormal is the default.
-	DownloadPriorityNormal DownloadPriority = "normal"
-	// DownloadPriorityLow runs only when the engine is otherwise idle.
-	DownloadPriorityLow DownloadPriority = "low"
-)
-
-// GrabSource records what caused a release to be grabbed.
-//
-// +kubebuilder:validation:Enum=rss;search;interactive;push;redownload
-type GrabSource string
-
-// Grab sources.
-const (
-	// GrabSourceRSS means an indexer RSS poll matched a wanted item.
-	GrabSourceRSS GrabSource = "rss"
-	// GrabSourceSearch means an automatic search grabbed the release.
-	GrabSourceSearch GrabSource = "search"
-	// GrabSourceInteractive means an operator picked the release by hand.
-	GrabSourceInteractive GrabSource = "interactive"
-	// GrabSourcePush means an external system pushed the release in.
-	GrabSourcePush GrabSource = "push"
-	// GrabSourceRedownload means an earlier grab failed and was replaced.
-	GrabSourceRedownload GrabSource = "redownload"
+	ImportClassTransient    = commonv1alpha1.ImportClassTransient
+	ImportClassItemState    = commonv1alpha1.ImportClassItemState
+	ImportClassNeedsPerson  = commonv1alpha1.ImportClassNeedsPerson
+	ImportClassReleaseFault = commonv1alpha1.ImportClassReleaseFault
 )
 
 // ImportPhase is the state of the import handoff, written by catalogarr.
@@ -273,79 +176,6 @@ const ImportMessageEveryFileRejected = "every candidate file was rejected"
 const ImportMessageExistingFileFinal = "the existing file is transcoded, and a transcoded file is final: " +
 	"import this download by hand to replace it"
 
-// IndexerDownload points at a release on an indexer. grabarr resolves it
-// through indexarr at grab time to obtain the actual .torrent or .nzb bytes;
-// those bytes are deliberately never stored on the Download object, which
-// keeps the object small and keeps indexer credentials out of the API.
-type IndexerDownload struct {
-	// IndexerRef is the name of the Indexer that published the release, in the
-	// same namespace as the Download.
-	// +required
-	// +kubebuilder:validation:MinLength=1
-	IndexerRef string `json:"indexerRef"`
-
-	// GUID is the indexer-scoped unique identifier of the release. It is the
-	// input to the Download's deterministic name.
-	// +required
-	// +kubebuilder:validation:MinLength=1
-	GUID string `json:"guid"`
-
-	// URL is the indexer's download link for the release. grabarr fetches it
-	// through indexarr, which applies the indexer's auth and proxy settings.
-	// +optional
-	// +kubebuilder:validation:MaxLength=2048
-	URL string `json:"url,omitempty"`
-}
-
-// DownloadSource says where the transfer payload comes from. Exactly one of
-// the four members is set. There is intentionally no inline bytes field: a
-// .torrent or .nzb body is never embedded in the object. Either the payload is
-// addressable by URL, or indexerDownload names the release and grabarr
-// resolves it through indexarr.
-//
-// +kubebuilder:validation:XValidation:rule="(has(self.magnetURL) ? 1 : 0) + (has(self.torrentURL) ? 1 : 0) + (has(self.nzbURL) ? 1 : 0) + (has(self.indexerDownload) ? 1 : 0) == 1",message="exactly one of magnetURL, torrentURL, nzbURL or indexerDownload must be set"
-type DownloadSource struct {
-	// MagnetURL is a magnet link the torrent engine can add directly.
-	// +optional
-	// +kubebuilder:validation:MaxLength=4096
-	// +kubebuilder:validation:Pattern=`^magnet:\?.+$`
-	MagnetURL *string `json:"magnetURL,omitempty"`
-
-	// TorrentURL is a directly fetchable .torrent URL that needs no indexer
-	// credentials.
-	// +optional
-	// +kubebuilder:validation:MaxLength=2048
-	TorrentURL *string `json:"torrentURL,omitempty"`
-
-	// NZBURL is a directly fetchable .nzb URL that needs no indexer credentials.
-	// +optional
-	// +kubebuilder:validation:MaxLength=2048
-	NZBURL *string `json:"nzbURL,omitempty"`
-
-	// IndexerDownload names a release to resolve through indexarr. This is the
-	// normal path: the indexer applies auth, rate limits and proxying, and
-	// returns the payload to the engine.
-	// +optional
-	IndexerDownload *IndexerDownload `json:"indexerDownload,omitempty"`
-
-	// ExpectedInfoHash is the info hash the resolved torrent must have. The
-	// engine refuses a mismatch, which stops an indexer from swapping content
-	// out from under a grab decision. Torrent only.
-	// +optional
-	// +kubebuilder:validation:Pattern=`^[0-9a-f]{40}([0-9a-f]{24})?$`
-	ExpectedInfoHash *string `json:"expectedInfoHash,omitempty"`
-}
-
-// DownloadPurpose is what a Download is for.
-//
-// +kubebuilder:validation:Enum=audioDonor
-type DownloadPurpose string
-
-// DownloadPurposeAudioDonor is a release grabbed only for its audio: the
-// importer keeps its missing-language tracks as an item's donor and makes
-// no library file of it (anime dual-audio spec §6).
-const DownloadPurposeAudioDonor DownloadPurpose = "audioDonor"
-
 // DownloadSpec defines the desired state of Download.
 //
 // +kubebuilder:validation:XValidation:rule="has(self.purpose) == has(oldSelf.purpose) && (!has(self.purpose) || self.purpose == oldSelf.purpose)",message="purpose is immutable"
@@ -366,7 +196,7 @@ type DownloadSpec struct {
 	// Source is where the payload comes from. Immutable.
 	// +required
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="source is immutable"
-	Source DownloadSource `json:"source"`
+	Source commonv1alpha1.DownloadSource `json:"source"`
 
 	// Release is the indexer release snapshot this grab was decided from. It is
 	// immutable: re-deciding means creating a new Download.
@@ -405,7 +235,7 @@ type DownloadSpec struct {
 	// Priority orders this Download within its engine's queue.
 	// +optional
 	// +kubebuilder:default=normal
-	Priority DownloadPriority `json:"priority,omitempty"`
+	Priority commonv1alpha1.DownloadPriority `json:"priority,omitempty"`
 
 	// Paused suspends the transfer without removing it from the engine.
 	// +optional
@@ -430,7 +260,7 @@ type DownloadSpec struct {
 
 	// GrabbedBy records what caused the grab.
 	// +optional
-	GrabbedBy GrabSource `json:"grabbedBy,omitempty"`
+	GrabbedBy commonv1alpha1.GrabSource `json:"grabbedBy,omitempty"`
 
 	// Manual marks an operator-forced grab: a release a person picked, as a
 	// Search's grab does. The completed-download importer then treats the
@@ -449,7 +279,7 @@ type DownloadSpec struct {
 	// Purpose is what the grab is for; absent is the item's video. Set by
 	// the grab at creation and immutable.
 	// +optional
-	Purpose DownloadPurpose `json:"purpose,omitempty"`
+	Purpose commonv1alpha1.DownloadPurpose `json:"purpose,omitempty"`
 }
 
 // IsDonor reports whether the Download is an audio donor.
@@ -551,7 +381,7 @@ type ImportState struct {
 	// Class is why nothing was imported, for a pending or blocked import:
 	// what importarr does next follows from it (ImportRejectionClass).
 	// +optional
-	Class ImportRejectionClass `json:"class,omitempty"`
+	Class commonv1alpha1.ImportRejectionClass `json:"class,omitempty"`
 
 	// Attempts is how many times importarr has walked the download for
 	// this import task.
@@ -571,38 +401,6 @@ type ImportState struct {
 	// +optional
 	HeldSince *metav1.Time `json:"heldSince,omitempty"`
 }
-
-// ImportRejectionClass is why an import that imported nothing did so, and
-// with it the remediation (2026-10-07: refusing every file used to blocklist
-// the release at once, which threw away a good 20 GB download that the item
-// merely would not take).
-//
-// +kubebuilder:validation:Enum=transient;itemState;needsPerson;releaseFault
-type ImportRejectionClass string
-
-// Import rejection classes, in the order importarr lets one outweigh the
-// next when the files of one download were refused for several reasons:
-// any doubt holds the download rather than condemning the release.
-const (
-	// ImportClassTransient means the walk could not judge the files: one
-	// could not be read or probed, or placing it failed (a full disk, a
-	// permission, the NAS). importarr retries on the import consumer's
-	// backoff and holds the download after the last attempt.
-	ImportClassTransient ImportRejectionClass = "transient"
-	// ImportClassItemState means the item does not take the files now: its
-	// file is transcoded and final, or already as good, or it holds several
-	// files. Not the release's fault: held for a person.
-	ImportClassItemState ImportRejectionClass = "itemState"
-	// ImportClassNeedsPerson means the files cannot be attributed without
-	// guessing (a name that does not parse, an ambiguous episode), or an
-	// annotation or the target is wrong. Held for a person.
-	ImportClassNeedsPerson ImportRejectionClass = "needsPerson"
-	// ImportClassReleaseFault means the release is not what it claimed:
-	// only samples or junk, another item, a quality the profile does not
-	// allow. importarr walks it once more to confirm, then blocks it, and
-	// grabarr blocklists the release and searches again.
-	ImportClassReleaseFault ImportRejectionClass = "releaseFault"
-)
 
 // ImportHoldRetention is how long a held import keeps its files for a
 // person before grabarr fails the Download as DownloadFailureImportExpired
@@ -625,7 +423,7 @@ type DownloadStatus struct {
 
 	// Phase is the lifecycle phase. Written by the grabarr controller.
 	// +optional
-	Phase DownloadPhase `json:"phase,omitempty"`
+	Phase commonv1alpha1.DownloadPhase `json:"phase,omitempty"`
 
 	// Engine is the engine replica that owns the transfer, "<client>-<ordinal>".
 	// It is set once, when the Download is assigned, and the label
@@ -635,7 +433,7 @@ type DownloadStatus struct {
 
 	// FailureReason is the machine-readable cause of a failure.
 	// +optional
-	FailureReason DownloadFailureReason `json:"failureReason,omitempty"`
+	FailureReason commonv1alpha1.DownloadFailureReason `json:"failureReason,omitempty"`
 
 	// BlocklistedUntil is when this release stops being blocklisted. It is
 	// meaningful only together with the download.clustarr.io/blocklisted label;
@@ -657,7 +455,7 @@ type DownloadStatus struct {
 
 	// Stage is the fine-grained engine stage. Written by grabarr-engine.
 	// +optional
-	Stage DownloadStage `json:"stage,omitempty"`
+	Stage commonv1alpha1.DownloadStage `json:"stage,omitempty"`
 
 	// DownloadID is the engine's own handle for the transfer, e.g. the info
 	// hash or NZB id.
@@ -774,7 +572,7 @@ type DownloadStatus struct {
 	// release fault) in one apply under its own field manager. Absent while
 	// the transfer has not failed.
 	// +optional
-	EngineFailureReason DownloadFailureReason `json:"engineFailureReason,omitempty"`
+	EngineFailureReason commonv1alpha1.DownloadFailureReason `json:"engineFailureReason,omitempty"`
 
 	// SeedGoalReached is true once the torrent has satisfied its seed
 	// criteria, whether or not it has been imported yet. Written by

@@ -40,6 +40,50 @@ func Parser() *typed.Parser {
 var parserOnce sync.Once
 var parser *typed.Parser
 var schemaYAML = typed.YAMLObject(`types:
+- name: com.github.mediactl.clustarr.api.common.v1alpha1.DownloadFailureReason
+  scalar: string
+- name: com.github.mediactl.clustarr.api.common.v1alpha1.DownloadPhase
+  scalar: string
+- name: com.github.mediactl.clustarr.api.common.v1alpha1.DownloadPriority
+  scalar: string
+- name: com.github.mediactl.clustarr.api.common.v1alpha1.DownloadPurpose
+  scalar: string
+- name: com.github.mediactl.clustarr.api.common.v1alpha1.DownloadSource
+  map:
+    fields:
+    - name: expectedInfoHash
+      type:
+        scalar: string
+    - name: indexerDownload
+      type:
+        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.IndexerDownload
+    - name: magnetURL
+      type:
+        scalar: string
+    - name: nzbURL
+      type:
+        scalar: string
+    - name: torrentURL
+      type:
+        scalar: string
+- name: com.github.mediactl.clustarr.api.common.v1alpha1.DownloadStage
+  scalar: string
+- name: com.github.mediactl.clustarr.api.common.v1alpha1.GrabSource
+  scalar: string
+- name: com.github.mediactl.clustarr.api.common.v1alpha1.ImportRejectionClass
+  scalar: string
+- name: com.github.mediactl.clustarr.api.common.v1alpha1.IndexerDownload
+  map:
+    fields:
+    - name: guid
+      type:
+        scalar: string
+    - name: indexerRef
+      type:
+        scalar: string
+    - name: url
+      type:
+        scalar: string
 - name: com.github.mediactl.clustarr.api.common.v1alpha1.MediaKind
   scalar: string
 - name: com.github.mediactl.clustarr.api.common.v1alpha1.MediaRef
@@ -340,8 +384,6 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: uploadRateBps
       type:
         scalar: numeric
-- name: com.github.mediactl.clustarr.api.download.v1alpha1.DownloadFailureReason
-  scalar: string
 - name: com.github.mediactl.clustarr.api.download.v1alpha1.DownloadFile
   map:
     fields:
@@ -372,30 +414,6 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: metadata
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.ListMeta
-- name: com.github.mediactl.clustarr.api.download.v1alpha1.DownloadPhase
-  scalar: string
-- name: com.github.mediactl.clustarr.api.download.v1alpha1.DownloadPriority
-  scalar: string
-- name: com.github.mediactl.clustarr.api.download.v1alpha1.DownloadPurpose
-  scalar: string
-- name: com.github.mediactl.clustarr.api.download.v1alpha1.DownloadSource
-  map:
-    fields:
-    - name: expectedInfoHash
-      type:
-        scalar: string
-    - name: indexerDownload
-      type:
-        namedType: com.github.mediactl.clustarr.api.download.v1alpha1.IndexerDownload
-    - name: magnetURL
-      type:
-        scalar: string
-    - name: nzbURL
-      type:
-        scalar: string
-    - name: torrentURL
-      type:
-        scalar: string
 - name: com.github.mediactl.clustarr.api.download.v1alpha1.DownloadSpec
   map:
     fields:
@@ -404,7 +422,7 @@ var schemaYAML = typed.YAMLObject(`types:
         scalar: string
     - name: grabbedBy
       type:
-        namedType: com.github.mediactl.clustarr.api.download.v1alpha1.GrabSource
+        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.GrabSource
     - name: manual
       type:
         scalar: boolean
@@ -413,14 +431,14 @@ var schemaYAML = typed.YAMLObject(`types:
         scalar: boolean
     - name: priority
       type:
-        namedType: com.github.mediactl.clustarr.api.download.v1alpha1.DownloadPriority
+        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.DownloadPriority
       default: normal
     - name: protocol
       type:
         namedType: com.github.mediactl.clustarr.api.common.v1alpha1.Protocol
     - name: purpose
       type:
-        namedType: com.github.mediactl.clustarr.api.download.v1alpha1.DownloadPurpose
+        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.DownloadPurpose
     - name: qualityProfileRef
       type:
         scalar: string
@@ -440,12 +458,10 @@ var schemaYAML = typed.YAMLObject(`types:
         namedType: com.github.mediactl.clustarr.api.common.v1alpha1.SeedCriteria
     - name: source
       type:
-        namedType: com.github.mediactl.clustarr.api.download.v1alpha1.DownloadSource
+        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.DownloadSource
     - name: target
       type:
         namedType: com.github.mediactl.clustarr.api.common.v1alpha1.MediaRef
-- name: com.github.mediactl.clustarr.api.download.v1alpha1.DownloadStage
-  scalar: string
 - name: com.github.mediactl.clustarr.api.download.v1alpha1.DownloadStatus
   map:
     fields:
@@ -486,13 +502,13 @@ var schemaYAML = typed.YAMLObject(`types:
         scalar: string
     - name: engineFailureReason
       type:
-        namedType: com.github.mediactl.clustarr.api.download.v1alpha1.DownloadFailureReason
+        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.DownloadFailureReason
     - name: etaSeconds
       type:
         scalar: numeric
     - name: failureReason
       type:
-        namedType: com.github.mediactl.clustarr.api.download.v1alpha1.DownloadFailureReason
+        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.DownloadFailureReason
     - name: files
       type:
         list:
@@ -530,7 +546,7 @@ var schemaYAML = typed.YAMLObject(`types:
         scalar: numeric
     - name: phase
       type:
-        namedType: com.github.mediactl.clustarr.api.download.v1alpha1.DownloadPhase
+        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.DownloadPhase
     - name: progressPercent
       type:
         scalar: numeric
@@ -554,7 +570,7 @@ var schemaYAML = typed.YAMLObject(`types:
         scalar: numeric
     - name: stage
       type:
-        namedType: com.github.mediactl.clustarr.api.download.v1alpha1.DownloadStage
+        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.DownloadStage
     - name: startedAt
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
@@ -579,13 +595,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: workloadRef
       type:
         scalar: string
-- name: com.github.mediactl.clustarr.api.download.v1alpha1.GrabSource
-  scalar: string
 - name: com.github.mediactl.clustarr.api.download.v1alpha1.HealthAction
   scalar: string
 - name: com.github.mediactl.clustarr.api.download.v1alpha1.ImportPhase
-  scalar: string
-- name: com.github.mediactl.clustarr.api.download.v1alpha1.ImportRejectionClass
   scalar: string
 - name: com.github.mediactl.clustarr.api.download.v1alpha1.ImportState
   map:
@@ -595,7 +607,7 @@ var schemaYAML = typed.YAMLObject(`types:
         scalar: numeric
     - name: class
       type:
-        namedType: com.github.mediactl.clustarr.api.download.v1alpha1.ImportRejectionClass
+        namedType: com.github.mediactl.clustarr.api.common.v1alpha1.ImportRejectionClass
     - name: heldSince
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
@@ -633,18 +645,6 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         scalar: string
     - name: sourcePath
-      type:
-        scalar: string
-- name: com.github.mediactl.clustarr.api.download.v1alpha1.IndexerDownload
-  map:
-    fields:
-    - name: guid
-      type:
-        scalar: string
-    - name: indexerRef
-      type:
-        scalar: string
-    - name: url
       type:
         scalar: string
 - name: com.github.mediactl.clustarr.api.download.v1alpha1.NNTPProvider

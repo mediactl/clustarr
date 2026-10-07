@@ -20,7 +20,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package v1alpha1
 
 import (
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	metav1 "k8s.io/client-go/applyconfigurations/meta/v1"
 )
@@ -40,13 +40,13 @@ type DownloadStatusApplyConfiguration struct {
 	// Written by the grabarr controller.
 	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
 	// Phase is the lifecycle phase. Written by the grabarr controller.
-	Phase *downloadv1alpha1.DownloadPhase `json:"phase,omitempty"`
+	Phase *commonv1alpha1.DownloadPhase `json:"phase,omitempty"`
 	// Engine is the engine replica that owns the transfer, "<client>-<ordinal>".
 	// It is set once, when the Download is assigned, and the label
 	// download.clustarr.io/engine mirrors it so replicas can select their work.
 	Engine *string `json:"engine,omitempty"`
 	// FailureReason is the machine-readable cause of a failure.
-	FailureReason *downloadv1alpha1.DownloadFailureReason `json:"failureReason,omitempty"`
+	FailureReason *commonv1alpha1.DownloadFailureReason `json:"failureReason,omitempty"`
 	// BlocklistedUntil is when this release stops being blocklisted. It is
 	// meaningful only together with the download.clustarr.io/blocklisted label;
 	// grabarr deletes the Download once the deadline passes.
@@ -58,7 +58,7 @@ type DownloadStatusApplyConfiguration struct {
 	// SeedGoalMetAt is when the torrent satisfied its seed criteria.
 	SeedGoalMetAt *v1.Time `json:"seedGoalMetAt,omitempty"`
 	// Stage is the fine-grained engine stage. Written by grabarr-engine.
-	Stage *downloadv1alpha1.DownloadStage `json:"stage,omitempty"`
+	Stage *commonv1alpha1.DownloadStage `json:"stage,omitempty"`
 	// DownloadID is the engine's own handle for the transfer, e.g. the info
 	// hash or NZB id.
 	DownloadID *string `json:"downloadID,omitempty"`
@@ -118,7 +118,7 @@ type DownloadStatusApplyConfiguration struct {
 	// status.failureReason and the phase (Failed, or Blocklisted for a
 	// release fault) in one apply under its own field manager. Absent while
 	// the transfer has not failed.
-	EngineFailureReason *downloadv1alpha1.DownloadFailureReason `json:"engineFailureReason,omitempty"`
+	EngineFailureReason *commonv1alpha1.DownloadFailureReason `json:"engineFailureReason,omitempty"`
 	// SeedGoalReached is true once the torrent has satisfied its seed
 	// criteria, whether or not it has been imported yet. Written by
 	// grabarr-engine; the grabarr controller turns the first true into
@@ -160,7 +160,7 @@ func (b *DownloadStatusApplyConfiguration) WithObservedGeneration(value int64) *
 // WithPhase sets the Phase field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Phase field is set to the value of the last call.
-func (b *DownloadStatusApplyConfiguration) WithPhase(value downloadv1alpha1.DownloadPhase) *DownloadStatusApplyConfiguration {
+func (b *DownloadStatusApplyConfiguration) WithPhase(value commonv1alpha1.DownloadPhase) *DownloadStatusApplyConfiguration {
 	b.Phase = &value
 	return b
 }
@@ -176,7 +176,7 @@ func (b *DownloadStatusApplyConfiguration) WithEngine(value string) *DownloadSta
 // WithFailureReason sets the FailureReason field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the FailureReason field is set to the value of the last call.
-func (b *DownloadStatusApplyConfiguration) WithFailureReason(value downloadv1alpha1.DownloadFailureReason) *DownloadStatusApplyConfiguration {
+func (b *DownloadStatusApplyConfiguration) WithFailureReason(value commonv1alpha1.DownloadFailureReason) *DownloadStatusApplyConfiguration {
 	b.FailureReason = &value
 	return b
 }
@@ -216,7 +216,7 @@ func (b *DownloadStatusApplyConfiguration) WithSeedGoalMetAt(value v1.Time) *Dow
 // WithStage sets the Stage field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Stage field is set to the value of the last call.
-func (b *DownloadStatusApplyConfiguration) WithStage(value downloadv1alpha1.DownloadStage) *DownloadStatusApplyConfiguration {
+func (b *DownloadStatusApplyConfiguration) WithStage(value commonv1alpha1.DownloadStage) *DownloadStatusApplyConfiguration {
 	b.Stage = &value
 	return b
 }
@@ -405,7 +405,7 @@ func (b *DownloadStatusApplyConfiguration) WithLastProgressAt(value v1.Time) *Do
 // WithEngineFailureReason sets the EngineFailureReason field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the EngineFailureReason field is set to the value of the last call.
-func (b *DownloadStatusApplyConfiguration) WithEngineFailureReason(value downloadv1alpha1.DownloadFailureReason) *DownloadStatusApplyConfiguration {
+func (b *DownloadStatusApplyConfiguration) WithEngineFailureReason(value commonv1alpha1.DownloadFailureReason) *DownloadStatusApplyConfiguration {
 	b.EngineFailureReason = &value
 	return b
 }

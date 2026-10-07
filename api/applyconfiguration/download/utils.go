@@ -43,8 +43,6 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &downloadv1alpha1.DownloadClientStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("DownloadFile"):
 		return &downloadv1alpha1.DownloadFileApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("DownloadSource"):
-		return &downloadv1alpha1.DownloadSourceApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("DownloadSpec"):
 		return &downloadv1alpha1.DownloadSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("DownloadStatus"):
@@ -55,8 +53,6 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &downloadv1alpha1.ImportedFileApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("ImportState"):
 		return &downloadv1alpha1.ImportStateApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("IndexerDownload"):
-		return &downloadv1alpha1.IndexerDownloadApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("NNTPProvider"):
 		return &downloadv1alpha1.NNTPProviderApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("PostProcessSpec"):

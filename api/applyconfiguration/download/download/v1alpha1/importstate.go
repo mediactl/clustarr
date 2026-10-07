@@ -20,6 +20,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package v1alpha1
 
 import (
+	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -41,7 +42,7 @@ type ImportStateApplyConfiguration struct {
 	ImportedAt *v1.Time `json:"importedAt,omitempty"`
 	// Class is why nothing was imported, for a pending or blocked import:
 	// what importarr does next follows from it (ImportRejectionClass).
-	Class *downloadv1alpha1.ImportRejectionClass `json:"class,omitempty"`
+	Class *commonv1alpha1.ImportRejectionClass `json:"class,omitempty"`
 	// Attempts is how many times importarr has walked the download for
 	// this import task.
 	Attempts *int32 `json:"attempts,omitempty"`
@@ -111,7 +112,7 @@ func (b *ImportStateApplyConfiguration) WithImportedAt(value v1.Time) *ImportSta
 // WithClass sets the Class field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Class field is set to the value of the last call.
-func (b *ImportStateApplyConfiguration) WithClass(value downloadv1alpha1.ImportRejectionClass) *ImportStateApplyConfiguration {
+func (b *ImportStateApplyConfiguration) WithClass(value commonv1alpha1.ImportRejectionClass) *ImportStateApplyConfiguration {
 	b.Class = &value
 	return b
 }

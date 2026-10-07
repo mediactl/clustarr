@@ -43,7 +43,6 @@ import (
 
 	"k8s.io/apimachinery/pkg/types"
 
-	downloadac "github.com/mediactl/clustarr/api/applyconfiguration/download/download/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 )
@@ -155,35 +154,15 @@ func expectedInfoHash(h string) (string, bool) {
 	}
 }
 
-// SourceApplyConfiguration converts a DownloadSource into the apply
-// configuration k8s.Apply needs. It is a field-by-field copy rather than a
-// marshal/unmarshal round trip so a new member added to DownloadSource fails
-// to compile here instead of being silently dropped on the wire.
-func SourceApplyConfiguration(src downloadv1alpha1.DownloadSource) *downloadac.DownloadSourceApplyConfiguration {
-	ac := downloadac.DownloadSource()
-	if src.MagnetURL != nil {
-		ac = ac.WithMagnetURL(*src.MagnetURL)
-	}
-	if src.TorrentURL != nil {
-		ac = ac.WithTorrentURL(*src.TorrentURL)
-	}
-	if src.NZBURL != nil {
-		ac = ac.WithNZBURL(*src.NZBURL)
-	}
-	if src.IndexerDownload != nil {
-		// url is sent even when empty, as both paths always have: source is
-		// `self == oldSelf`, and an absent key does not equal an empty one,
-		// so changing that now would make a re-apply onto a Download created
-		// before this function existed fail as "source is immutable".
-		ac = ac.WithIndexerDownload(downloadac.IndexerDownload().
-			WithIndexerRef(src.IndexerDownload.IndexerRef).
-			WithGUID(src.IndexerDownload.GUID).
-			WithURL(src.IndexerDownload.URL))
-	}
-	if src.ExpectedInfoHash != nil {
-		ac = ac.WithExpectedInfoHash(*src.ExpectedInfoHash)
-	}
-	return ac
+// SourceApplyConfiguration returns the spec.source a Download apply sends:
+// a deep copy of src. DownloadSource moved to api/common (ADR-0019 §6.2),
+// which generates no apply configurations, so the apply sends the plain
+// struct. Its indexerDownload.url has no omitempty, so it is sent even when
+// empty, as every apply before the move sent it: source is `self == oldSelf`,
+// and an absent key does not equal an empty one, so omitting it would make a
+// re-apply onto an existing Download fail as "source is immutable".
+func SourceApplyConfiguration(src downloadv1alpha1.DownloadSource) downloadv1alpha1.DownloadSource {
+	return *src.DeepCopy()
 }
 
 // Covers reports whether dl is a grab for the catalog item of the given kind,
