@@ -1241,8 +1241,10 @@ func TestMovieReconcilerRealController(t *testing.T) {
 		require.NoError(t, c.Create(ctx, qp))
 		m := &catalogv1alpha1.Movie{
 			ObjectMeta: metav1.ObjectMeta{Name: "perfect-blue", Namespace: "avail-ns"},
-			Spec: catalogv1alpha1.MovieSpec{TmdbID: 10494, QualityProfileRef: "dual-at-1080p", RootFolderRef: "movies-root",
-				MinimumAvailability: catalogv1alpha1.MinimumAvailabilityTBA},
+			Spec: catalogv1alpha1.MovieSpec{
+				TmdbID: 10494, QualityProfileRef: "dual-at-1080p", RootFolderRef: "movies-root",
+				MinimumAvailability: catalogv1alpha1.MinimumAvailabilityTBA,
+			},
 		}
 		require.NoError(t, c.Create(ctx, m))
 		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarrWorker, catalogac.Movie(m.Name, m.Namespace).WithStatus(

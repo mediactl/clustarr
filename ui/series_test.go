@@ -79,8 +79,10 @@ func seriesFixtureOver(t *testing.T, wrap func(client.Reader) client.Reader) (*u
 		return ep
 	}
 	withAudio := func(ep *catalogv1.Episode) *catalogv1.Episode {
-		ep.Status.Audio = &catalogv1.AudioState{Wanted: []string{"en", "ja"}, Present: []string{"ja"}, Missing: []string{"en"},
-			Graft: "failed", Reason: "AlignmentRejected: coverage 12%"}
+		ep.Status.Audio = &catalogv1.AudioState{
+			Wanted: []string{"en", "ja"}, Present: []string{"ja"}, Missing: []string{"en"},
+			Graft: "failed", Reason: "AlignmentRejected: coverage 12%",
+		}
 		return ep
 	}
 	other := &catalogv1.Episode{ // another series' episode, never listed here

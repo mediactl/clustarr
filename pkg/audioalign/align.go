@@ -60,8 +60,13 @@ type rateCandidate struct {
 
 // candidates are the speed ratios real releases differ by.
 var candidates = []rateCandidate{
-	{"1", 1}, {"25/23.976", 25 / 23.976}, {"23.976/25", 23.976 / 25},
-	{"25/24", 25.0 / 24}, {"24/25", 24.0 / 25}, {"1.001", 1.001}, {"1/1.001", 1 / 1.001},
+	{"1", 1},
+	{"25/23.976", 25 / 23.976},
+	{"23.976/25", 23.976 / 25},
+	{"25/24", 25.0 / 24},
+	{"24/25", 24.0 / 25},
+	{"1.001", 1.001},
+	{"1/1.001", 1 / 1.001},
 }
 
 const (
@@ -185,8 +190,10 @@ func (tg *target) window(d features, st int) (window, bool) {
 	if second > 0 {
 		ratio = s[k] / second
 	}
-	return window{start: st, lag: k - st, peak: s[k], ratio: ratio,
-		confident: ratio >= minRatio && s[k] >= minPeak}, true
+	return window{
+		start: st, lag: k - st, peak: s[k], ratio: ratio,
+		confident: ratio >= minRatio && s[k] >= minPeak,
+	}, true
 }
 
 func medianPeak(ws []window) float64 {

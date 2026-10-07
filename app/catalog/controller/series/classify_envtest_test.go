@@ -56,8 +56,10 @@ func TestSeriesClassifiesAnimeOnce(t *testing.T) {
 	require.NoError(t, c.Create(ctx, rf))
 	require.NoError(t, c.Create(ctx, testRootFolder(ns, "plain-root", "/data/media/tv2")))
 
-	r := &series.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10),
-		Bus: combinedBus{Publisher: fakePublisher{}, requester: &fakeEpisodeRPC{}}}
+	r := &series.Reconciler{
+		Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10),
+		Bus: combinedBus{Publisher: fakePublisher{}, requester: &fakeEpisodeRPC{}},
+	}
 	newSeries := func(name, root string, genres ...string) reconcile.Request {
 		require.NoError(t, c.Create(ctx, &catalogv1alpha1.Series{
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
@@ -98,7 +100,7 @@ func TestSeriesClassifiesAnimeOnce(t *testing.T) {
 	for _, mf := range got.ManagedFields {
 		raw := ""
 		if mf.FieldsV1 != nil {
-			raw = string(mf.FieldsV1.Raw)
+			raw = mf.FieldsV1.GetRawString()
 		}
 		if mf.Manager == string(k8s.ManagerCatalogarrClassify) && mf.Subresource == "" && strings.Contains(raw, `"f:qualityProfileRef"`) {
 			classifyOwnsProfile = true

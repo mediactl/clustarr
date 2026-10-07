@@ -49,13 +49,13 @@ func TestJoinPlexEpisodes(t *testing.T) {
 		{Season: 3, Episode: 1, TVDB: "900", ID: "ccccccccccccccccccccccc1"},
 	}
 	episodes := []pkgmetadata.Episode{
-		ep(1, 1, "297989"), // by tvdb id
-		ep(9, 9, "297990"), // by tvdb id, whatever its numbering
-		ep(1, 2, ""),       // pair (1,2) is Plex's tvdb 297990, already claimed above
+		ep(1, 1, "297989"),                 // by tvdb id
+		ep(9, 9, "297990"),                 // by tvdb id, whatever its numbering
+		ep(1, 2, ""),                       // pair (1,2) is Plex's tvdb 297990, already claimed above
 		epAt(0, 7, "555", "Making Of", ""), // pair, Plex has no tvdb id, title agrees
-		ep(2, 1, ""),       // ambiguous pair
-		ep(3, 1, "901"),    // pair fallback refused: Plex's episode names another tvdb id
-		ep(4, 1, ""),       // Plex has nothing
+		ep(2, 1, ""),                       // ambiguous pair
+		ep(3, 1, "901"),                    // pair fallback refused: Plex's episode names another tvdb id
+		ep(4, 1, ""),                       // Plex has nothing
 	}
 	joinPlexEpisodes(plex, episodes)
 	got := make([]string, len(episodes))

@@ -52,6 +52,7 @@ func (p stubPlex) Resolve(context.Context, commonv1.MediaKind, pkgmetadata.Exter
 	}
 	return pkgmetadata.ExternalIDs{pkgmetadata.KeyPlex: "5d9c086c46115600200aa2fe"}, nil
 }
+
 func (p stubPlex) ShowChildren(context.Context, pkgmetadata.ExternalIDs) (*pkgmetadata.PlexChildren, error) {
 	if *p.fail {
 		return nil, errors.New("plex: unexpected status 502")
@@ -132,7 +133,7 @@ func requireManagerOwns(t *testing.T, mfs []metav1.ManagedFieldsEntry, manager k
 			continue
 		}
 		for _, p := range paths {
-			require.True(t, strings.Contains(string(mf.FieldsV1.Raw), p), "%s owns no %s: %s", manager, p, mf.FieldsV1.Raw)
+			require.True(t, strings.Contains(mf.FieldsV1.GetRawString(), p), "%s owns no %s: %s", manager, p, mf.FieldsV1.Raw)
 		}
 		return
 	}

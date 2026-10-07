@@ -767,6 +767,7 @@ type stubPlexProvider struct {
 
 func (stubPlexProvider) Name() string                           { return "plex" }
 func (stubPlexProvider) Capabilities() pkgmetadata.Capabilities { return pkgmetadata.Capabilities{} }
+
 func (p stubPlexProvider) ShowChildren(_ context.Context, ids pkgmetadata.ExternalIDs) (*pkgmetadata.PlexChildren, error) {
 	*p.gotIDs = ids
 	return p.children, p.err

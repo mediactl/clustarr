@@ -1332,12 +1332,16 @@ func TestSeriesEnsureEpisodeKeepsItsPlexID(t *testing.T) {
 	requester := &fakeEpisodeRPC{episodes: []metadata.Episode{
 		{SeasonNumber: 1, EpisodeNumber: 1, Title: "Serenity", Runtime: 42, PlexID: "5d9c127e4eefaa001f6449c2"},
 	}}
-	r := &series.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10),
-		Bus: combinedBus{Publisher: fakePublisher{}, requester: requester}}
+	r := &series.Reconciler{
+		Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10),
+		Bus: combinedBus{Publisher: fakePublisher{}, requester: requester},
+	}
 	require.NoError(t, c.Create(ctx, &catalogv1alpha1.Series{
 		ObjectMeta: metav1.ObjectMeta{Name: "firefly", Namespace: "plexid-ns"},
-		Spec: catalogv1alpha1.SeriesSpec{TvdbID: 78874, QualityProfileRef: "none", RootFolderRef: "tv-root",
-			AddOptions: catalogv1alpha1.SeriesAddOptions{Monitor: catalogv1alpha1.SeriesMonitorAll}},
+		Spec: catalogv1alpha1.SeriesSpec{
+			TvdbID: 78874, QualityProfileRef: "none", RootFolderRef: "tv-root",
+			AddOptions: catalogv1alpha1.SeriesAddOptions{Monitor: catalogv1alpha1.SeriesMonitorAll},
+		},
 	}))
 	req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "plexid-ns", Name: "firefly"}}
 	epKey := types.NamespacedName{Namespace: "plexid-ns", Name: "firefly-s01e01"}
@@ -1364,7 +1368,7 @@ func TestSeriesEnsureEpisodeKeepsItsPlexID(t *testing.T) {
 	require.NoError(t, direct.Get(ctx, epKey, &got))
 	owned := false
 	for _, mf := range got.ManagedFields {
-		if mf.Manager == string(k8s.ManagerCatalogarrSeries) && mf.FieldsV1 != nil && strings.Contains(string(mf.FieldsV1.Raw), `"f:plexID"`) {
+		if mf.Manager == string(k8s.ManagerCatalogarrSeries) && mf.FieldsV1 != nil && strings.Contains(mf.FieldsV1.GetRawString(), `"f:plexID"`) {
 			owned = true
 		}
 	}

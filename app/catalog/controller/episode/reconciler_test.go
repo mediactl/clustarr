@@ -962,8 +962,10 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 		waitForPhase(t, ctx, c, "ep-ns", "naruto-s01e01")
 		mf := &catalogv1alpha1.MediaFile{
 			ObjectMeta: metav1.ObjectMeta{Name: "naruto-s01e01-abc1234567", Namespace: "ep-ns"},
-			Spec: catalogv1alpha1.MediaFileSpec{MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: "naruto-s01e01"},
-				Path: "/data/media/tv/Naruto/Season 1/Naruto - S01E01.mkv", Quality: bluray},
+			Spec: catalogv1alpha1.MediaFileSpec{
+				MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: "naruto-s01e01"},
+				Path:     "/data/media/tv/Naruto/Season 1/Naruto - S01E01.mkv", Quality: bluray,
+			},
 		}
 		require.NoError(t, c.Create(ctx, mf))
 		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerCatalogarr, catalogac.MediaFile(mf.Name, "ep-ns").WithStatus(
