@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/events/internal/evqueue"
 )
 
 // memObject is one stored object, spec §B.1.
@@ -46,6 +47,19 @@ type objectBucket struct {
 	mu      sync.Mutex
 	spec    events.ObjectStoreSpec
 	objects map[string]*memObject
+	// created is when Ensure created the bucket (ObjectStore.Status).
+	created time.Time
+	// watchers are the open Watch queues. A change is pushed to each under
+	// mu, so every watcher sees the bucket's own order; a push never
+	// blocks, so no writer waits on a reader.
+	watchers []*evqueue.Queue[events.ObjectEvent]
+}
+
+// notifyLocked hands e to every watcher. The caller holds b.mu.
+func (b *objectBucket) notifyLocked(e events.ObjectEvent) {
+	for _, q := range b.watchers {
+		q.Push(e)
+	}
 }
 
 // objectHandle is the events.ObjectStore view of one bucket. A handle for a
@@ -140,6 +154,7 @@ func (o *objectHandle) Put(ctx context.Context, name string, r io.Reader,
 	}
 	b.mu.Lock()
 	b.objects[name] = obj
+	b.notifyLocked(events.ObjectEvent{Info: infoOf(name, obj)})
 	b.mu.Unlock()
 	return infoOf(name, obj), nil
 }
@@ -163,13 +178,15 @@ func (o *objectHandle) SetMeta(ctx context.Context, name string, meta events.Obj
 	}
 	// A new memObject rather than an in-place edit: an info rendered
 	// earlier shares nothing with it.
-	b.objects[name] = &memObject{
+	obj := &memObject{
 		data:     old.data,
 		digest:   old.digest,
 		headers:  cloneHeaders(meta.Headers),
 		metadata: cloneHeaders(meta.Metadata),
 		modTime:  o.bus.clock.Now(),
 	}
+	b.objects[name] = obj
+	b.notifyLocked(events.ObjectEvent{Info: infoOf(name, obj)})
 	return nil
 }
 
@@ -189,6 +206,7 @@ func (o *objectHandle) Delete(ctx context.Context, name string) error {
 		return fmt.Errorf("membus: delete %s/%s: %w", o.name, name, events.ErrObjectNotFound)
 	}
 	delete(b.objects, name)
+	b.notifyLocked(events.ObjectEvent{Deleted: true, Info: events.ObjectInfo{Name: name}})
 	return nil
 }
 
@@ -232,4 +250,81 @@ func (o *objectHandle) List(ctx context.Context, prefix string) ([]events.Object
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
+}
+
+// Watch replays the live objects in name order (membus keeps no
+// tombstones), then Synced unless WatchUpdatesOnly, then every Put, SetMeta
+// and Delete in the bucket's order, through an unbounded queue that never
+// drops one. WatchFromRevision is ErrWatchOptionUnsupported, as on natsbus.
+// The channel closes on ctx or Close.
+func (o *objectHandle) Watch(ctx context.Context, opts ...events.WatchOption) (<-chan events.ObjectEvent, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	wo := events.ResolveWatchOptions(opts)
+	if wo.FromRevision != 0 {
+		return nil, fmt.Errorf("membus: watch %s from revision %d: %w", o.name, wo.FromRevision, events.ErrWatchOptionUnsupported)
+	}
+	b, err := o.resolve()
+	if err != nil {
+		return nil, err
+	}
+	q := evqueue.New[events.ObjectEvent]()
+	b.mu.Lock()
+	if !wo.UpdatesOnly {
+		names := make([]string, 0, len(b.objects))
+		for name := range b.objects {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			q.Push(events.ObjectEvent{Info: infoOf(name, b.objects[name])})
+		}
+		q.Push(events.ObjectEvent{Synced: true})
+	}
+	b.watchers = append(b.watchers, q)
+	b.mu.Unlock()
+
+	wctx, cancel := context.WithCancel(ctx)
+	out := make(chan events.ObjectEvent)
+	go q.Relay(wctx, out)
+	o.bus.wg.Add(1)
+	go func() {
+		defer o.bus.wg.Done()
+		select {
+		case <-ctx.Done():
+		case <-o.bus.done:
+		}
+		b.mu.Lock()
+		kept := b.watchers[:0]
+		for _, x := range b.watchers {
+			if x != q {
+				kept = append(kept, x)
+			}
+		}
+		b.watchers = kept
+		b.mu.Unlock()
+		q.Close()
+		cancel()
+	}()
+	return out, nil
+}
+
+// Status reports when Ensure created the bucket and the summed sizes of its
+// live objects.
+func (o *objectHandle) Status(ctx context.Context) (events.ObjectStoreStatus, error) {
+	if err := ctx.Err(); err != nil {
+		return events.ObjectStoreStatus{}, err
+	}
+	b, err := o.resolve()
+	if err != nil {
+		return events.ObjectStoreStatus{}, err
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	var size uint64
+	for _, obj := range b.objects {
+		size += uint64(len(obj.data))
+	}
+	return events.ObjectStoreStatus{Bucket: o.name, Created: b.created, Bytes: size}, nil
 }

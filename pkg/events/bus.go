@@ -395,6 +395,48 @@ func ResolveKVOptions(opts []KVOption) KVOptions {
 	return o
 }
 
+// WatchOptions is the resolved effect of a list of WatchOption values (loop
+// spec §4.15 as amended 2026-10-07). An object-store watch uses them first;
+// a KV watch takes the same set.
+type WatchOptions struct {
+	// UpdatesOnly skips the current values: only writes after the watch
+	// opens are delivered, and an object watch sends no Synced marker. It
+	// wins over FromRevision.
+	UpdatesOnly bool
+	// FromRevision starts the watch at this revision instead of at each
+	// key's current value; 0 is the current values. A KV watch only: an
+	// object store refuses it with ErrWatchOptionUnsupported.
+	FromRevision uint64
+}
+
+// WatchOption modifies a KV.Watch or an ObjectStore.Watch.
+type WatchOption func(*WatchOptions)
+
+// WatchUpdatesOnly opens a watch at the bucket's end (jetstream.UpdatesOnly).
+func WatchUpdatesOnly() WatchOption { return func(o *WatchOptions) { o.UpdatesOnly = true } }
+
+// WatchFromRevision opens a watch at revision rev
+// (jetstream.ResumeFromRevision): every live value written at or after it,
+// in revision order, then every change. An object store refuses it.
+func WatchFromRevision(rev uint64) WatchOption {
+	return func(o *WatchOptions) { o.FromRevision = rev }
+}
+
+// ResolveWatchOptions folds opts into a WatchOptions value.
+func ResolveWatchOptions(opts []WatchOption) WatchOptions {
+	var o WatchOptions
+	for _, fn := range opts {
+		fn(&o)
+	}
+	return o
+}
+
+// ErrWatchOptionUnsupported is returned by a watch given an option it cannot
+// honour. nats.go accepts ResumeFromRevision on an object store and silently
+// ignores it, replaying from the start (research E6), so an object store
+// refuses WatchFromRevision rather than pretend.
+var ErrWatchOptionUnsupported = errors.New("events: watch option unsupported")
+
 // KV is a single bucket of the broker's key/value store.
 type KV interface {
 	// Get returns the current revision of key, or ErrKeyNotFound.
@@ -471,6 +513,28 @@ type ObjectMeta struct {
 	Metadata map[string]string
 }
 
+// ObjectEvent is one object-store watch delivery (artwork design §B.1 as
+// amended 2026-10-07).
+type ObjectEvent struct {
+	// Info is the object's info after the change.
+	Info ObjectInfo
+	// Deleted marks a tombstone: Info carries only Name.
+	Deleted bool
+	// Synced marks the replay's end: Info is zero.
+	Synced bool
+}
+
+// ObjectStoreStatus is an object-store bucket's backing stream.
+type ObjectStoreStatus struct {
+	Bucket string
+	// Created is when the bucket's stream was created: a bucket deleted
+	// and created again has a new one, which is how a watcher notices a
+	// re-creation the broker skips silently (research E9).
+	Created time.Time
+	// Bytes is the stream's size, chunks and metas together.
+	Bytes uint64
+}
+
 // ObjectStore is a single bucket of the broker's object store, spec §B.1.
 // natsbus binds it to a jetstream.ObjectStore; membus keeps it in memory.
 type ObjectStore interface {
@@ -501,6 +565,21 @@ type ObjectStore interface {
 
 	// List returns the info of every object whose name starts with prefix.
 	List(ctx context.Context, prefix string) ([]ObjectInfo, error)
+
+	// Watch replays the latest info of every object (a natsbus replay may
+	// include tombstones for names deleted earlier; membus keeps none),
+	// sends one Synced event, then one event per Put, SetMeta or Delete, in
+	// the order the bucket recorded them, never dropping one and never
+	// blocking a writer. WatchUpdatesOnly skips the replay and the Synced
+	// event; WatchFromRevision is ErrWatchOptionUnsupported. The channel
+	// closes on ctx, Close, or a watch the broker cannot resume -- not on a
+	// plain reconnect. A bucket re-created under a running watch is skipped
+	// silently: compare Status().Created (research E9).
+	Watch(ctx context.Context, opts ...WatchOption) (<-chan ObjectEvent, error)
+
+	// Status reports the bucket's backing stream: its creation time and
+	// size.
+	Status(ctx context.Context) (ObjectStoreStatus, error)
 }
 
 // ErrObjectNotFound is returned by ObjectStore.Get and ObjectStore.Info for a

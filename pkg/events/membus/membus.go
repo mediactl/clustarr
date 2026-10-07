@@ -174,7 +174,9 @@ func (b *Bus) Ensure(_ context.Context, t events.Topology) error {
 			existing.mu.Unlock()
 			continue
 		}
-		b.objectStores[spec.Name] = &objectBucket{spec: spec, objects: map[string]*memObject{}}
+		// created stamps the bucket's generation, as a stream's creation
+		// time does on NATS (ObjectStore.Status).
+		b.objectStores[spec.Name] = &objectBucket{spec: spec, objects: map[string]*memObject{}, created: b.clock.Now()}
 	}
 	b.topology = t
 	return nil

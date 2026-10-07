@@ -31,6 +31,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/events/internal/evqueue"
 )
 
 // ObjectStore binds to bucket, created by Ensure. The binding is lazy and
@@ -280,5 +281,86 @@ func (o *objectHandle) List(ctx context.Context, prefix string) ([]events.Object
 		out = append(out, oi)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
+}
+
+// Watch wraps nats.go's ObjectStore.Watch, an ordered push consumer on
+// $O.<bucket>.M.> (artwork design §B.1 as amended 2026-10-07): the replay of
+// every object's latest meta, tombstones included, then Synced, then one event
+// per Put, SetMeta or Delete. WatchFromRevision is refused: nats.go accepts
+// ResumeFromRevision on an object store and silently replays from the start
+// (research E6).
+func (o *objectHandle) Watch(ctx context.Context, opts ...events.WatchOption) (<-chan events.ObjectEvent, error) {
+	wo := events.ResolveWatchOptions(opts)
+	if wo.FromRevision != 0 {
+		return nil, fmt.Errorf("natsbus: watch %s from revision %d: %w", o.name, wo.FromRevision, events.ErrWatchOptionUnsupported)
+	}
+	store, err := o.resolve(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var jo []jetstream.WatchOpt
+	if wo.UpdatesOnly {
+		jo = append(jo, jetstream.UpdatesOnly())
+	}
+	w, err := store.Watch(ctx, jo...)
+	if err != nil {
+		return nil, objectError("watch", o.name, "", err)
+	}
+	out := make(chan events.ObjectEvent)
+	q := evqueue.New[events.ObjectEvent]()
+	// The pump drains nats.go's channel at once -- its callback blocks on 32
+	// slots and would stall the ordered consumer -- into an unbounded queue;
+	// the relay hands it on at the reader's pace. An Updates channel that
+	// closes while ctx is live means nats.go gave up resetting the consumer:
+	// the queue closes, out closes once drained, and the reader reopens.
+	go func() {
+		defer q.Close()
+		defer func() { _ = w.Stop() }()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case info, ok := <-w.Updates():
+				if !ok {
+					return
+				}
+				switch {
+				case info == nil:
+					q.Push(events.ObjectEvent{Synced: true})
+				case info.Deleted:
+					q.Push(events.ObjectEvent{Deleted: true, Info: events.ObjectInfo{Name: info.Name}})
+				default:
+					// A malformed digest is skipped, as List would refuse it;
+					// the next change to the name delivers it again.
+					if oi, err := objectInfoOf(o.name, info); err == nil {
+						q.Push(events.ObjectEvent{Info: oi})
+					}
+				}
+			}
+		}
+	}()
+	go q.Relay(ctx, out)
+	return out, nil
+}
+
+// Status reports the bucket's backing stream: its creation time, which
+// changes when the bucket is deleted and created again (research E9), and
+// its size.
+func (o *objectHandle) Status(ctx context.Context) (events.ObjectStoreStatus, error) {
+	store, err := o.resolve(ctx)
+	if err != nil {
+		return events.ObjectStoreStatus{}, err
+	}
+	st, err := store.Status(ctx)
+	if err != nil {
+		return events.ObjectStoreStatus{}, objectError("status", o.name, "", err)
+	}
+	out := events.ObjectStoreStatus{Bucket: o.name, Bytes: st.Size()}
+	// ObjectStoreStatus, the interface, carries no stream info; nats.go's
+	// one implementation does.
+	if bs, ok := st.(*jetstream.ObjectBucketStatus); ok && bs.StreamInfo() != nil {
+		out.Created = bs.StreamInfo().Created
+	}
 	return out, nil
 }
