@@ -743,8 +743,6 @@ rules:
   - episodes
   - mediafiles
   - movies
-  - rootfolders
-  - series
   verbs:
   - get
   - list

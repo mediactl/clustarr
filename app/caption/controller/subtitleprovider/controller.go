@@ -52,6 +52,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/pkg/obs/metrics"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
 
@@ -161,6 +162,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		if err != nil {
 			return ctrl.Result{}, fmt.Errorf("subtitleprovider: read throttle state for %s/%s: %w", sp.Namespace, sp.Name, err)
 		}
+		recordQuota(sp.Name, state)
 	}
 
 	now := r.now()
@@ -282,6 +284,15 @@ func applyThrottleState(
 // so a throttle that expires is reflected without an external event, since
 // nothing about a KV write wakes a controller." A throttle already expired
 // (or never set) contributes nothing shorter than the steady tick.
+// recordQuota sets clustarr_provider_quota_remaining from the quota a
+// provider last reported (loop spec §6.7.4); a provider that reported none
+// keeps its last value.
+func recordQuota(provider string, st throttle.State) {
+	if st.Quota != nil {
+		metrics.ProviderQuotaRemaining.WithLabelValues(provider).Set(float64(st.Quota.Remaining))
+	}
+}
+
 func nextRequeue(now time.Time, state throttle.State) time.Duration {
 	d := kvPollInterval
 	if state.ThrottledUntil != nil {

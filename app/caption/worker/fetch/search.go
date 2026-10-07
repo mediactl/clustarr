@@ -39,6 +39,7 @@ import (
 	"github.com/mediactl/clustarr/app/caption/datapath"
 	"github.com/mediactl/clustarr/app/caption/throttle"
 	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/mediainfo"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/pkg/subtitles"
@@ -58,7 +59,8 @@ type searchPlan struct {
 	toSRT     bool
 	hiExt     string
 	mediaPath string      // logical /data path of the video
-	mode      os.FileMode // the sidecar's file mode ([Worker.sidecarModeFor])
+	probeHash string      // the task's, which the video must still match when the sidecar is written
+	mode      os.FileMode // the sidecar's file mode (the task's, 0664 when it names none)
 }
 
 // chosen is the candidate that was downloaded and written.
@@ -101,6 +103,13 @@ type writeError struct{ err error }
 
 func (e *writeError) Error() string { return "write sidecar: " + e.err.Error() }
 func (e *writeError) Unwrap() error { return e.err }
+
+// movedError is a video that moved or changed while the providers were
+// asked: the answer is dropped rather than leaving a sidecar beside a stem
+// that is no longer the planned file (loop spec §6.7.3).
+type movedError struct{ path string }
+
+func (e *movedError) Error() string { return "video moved or replaced during the fetch: " + e.path }
 
 // search is spec §6.5's provider walk -- "iterate providers by priority
 // skipping throttled ... score with Bazarr weights; filter must/mustNot;
@@ -367,6 +376,10 @@ func (w *Worker) fetchOne(ctx context.Context, m events.Message, kv events.KV, p
 	}
 	logical, rel, err := w.writeSidecar(ctx, p, content)
 	if err != nil {
+		var moved *movedError
+		if errors.As(err, &moved) {
+			return nil, false, moved
+		}
 		return nil, false, &writeError{err: err}
 	}
 	logging.FromContext(ctx).Info("fetch: subtitle written", "provider", e.Name,
@@ -444,6 +457,16 @@ func providerLevel(err error) bool {
 // when the profile keeps the original format and the content is still ASS,
 // the extension follows the content so a player does not misparse it.
 func (w *Worker) writeSidecar(ctx context.Context, p searchPlan, content []byte) (logical, rel string, err error) {
+	video, err := datapath.Local(w.DataDir, p.mediaPath)
+	if err != nil {
+		return "", "", err
+	}
+	// Re-stat the video immediately before writing: a video that moved or
+	// was replaced while the providers were asked is not the planned file.
+	st, err := os.Stat(video)
+	if err != nil || mediainfo.ProbeHash(p.mediaPath, st.Size(), st.ModTime()) != p.probeHash {
+		return "", "", &movedError{path: p.mediaPath}
+	}
 	logical = subtitles.SidecarName(p.mediaPath, p.want.key, p.hiExt)
 	if !p.toSRT && isASS(content) {
 		logical = strings.TrimSuffix(logical, ".srt") + ".ass"

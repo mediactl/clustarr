@@ -21,9 +21,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package agent
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
+	"os"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
@@ -51,9 +53,9 @@ type Options struct {
 // The provider builder lives as long as the process: its client cache is
 // what keeps an OpenSubtitles login across fetch tasks, and its KV -- the
 // clustarr-provider-throttle bucket -- is what shares that login across
-// worker replicas (build.TokenCache, throttle.SetAuth). It reads
-// Secrets, and the worker re-reads each SubtitleRequest before its status
-// apply, through the API reader.
+// worker replicas (build.TokenCache, throttle.SetAuth). It reads Secrets
+// through the API reader. The worker answers in clustarr-subtitles and
+// writes no Kubernetes object (loop spec §6.7).
 //
 // The domain's readiness check is caption.data: the fetch worker writes
 // sidecars into o.DataDir, which had no readiness gate before the split
@@ -74,7 +76,8 @@ func Register(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options) 
 	if err := registerExtraction(ctx, providers, &live); err != nil {
 		return catalogagent.Registration{}, err
 	}
-	worker := fetch.NewWorker(mgr.GetClient(), mgr.GetAPIReader(), bus, providers, o.DataDir)
+	host, _ := os.Hostname() // a pod's own name when POD_NAME is unset
+	worker := fetch.NewWorker(mgr.GetClient(), bus, providers, o.DataDir, cmp.Or(os.Getenv("POD_NAME"), host, "agent-caption"))
 	if err := worker.SetupWithManager(mgr, o.BusTopology()); err != nil {
 		return catalogagent.Registration{}, fmt.Errorf("caption: fetch worker: %w", err)
 	}

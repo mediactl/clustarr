@@ -23,20 +23,16 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strings"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
 	"github.com/mediactl/clustarr/app/caption/datapath"
 	"github.com/mediactl/clustarr/app/caption/providerset"
-	"github.com/mediactl/clustarr/app/caption/status"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -44,12 +40,8 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/pkg/subtitles"
+	"github.com/mediactl/clustarr/pkg/subtitlestore"
 )
-
-// FieldManager is the server-side-apply field manager this worker writes
-// SubtitleRequest.status under. app/caption/status.PatchRequest renders its
-// complete owned set from [status.RequestWorkerFields].
-const FieldManager = k8s.ManagerCaptionWorker
 
 const (
 	// HeartbeatInterval is how often a long fetch sends an in-progress ack.
@@ -61,28 +53,21 @@ const (
 	// lapse (NATS research 2026-10-07, S9; held by
 	// test/guards.TestHeartbeatsFitTheirDeadline): the fetch consumers'
 	// BackOff[0] is 30s, which replaces their 90s AckWait as the deadline
-	// (pkg/events/topology.go), and the 20s this was left no margin.
+	// (pkg/events/topology.go).
 	HeartbeatInterval = 10 * time.Second
 
-	// probeRetry is spec §6.5's "verify path/size/mtime == probeHash (else
-	// Retry(5m))".
-	probeRetry = 5 * time.Minute
+	// statRetry is a failed stat's retry (loop spec §6.7.2 step 5).
+	statRetry = 5 * time.Minute
 
-	// upgradeMargin is Bazarr's upgrade candidacy rule, "score <
-	// score_out_of - 3" (research note §8; spec §6.5's 12h upgrade pass):
-	// a subtitle within three points of the maximum is not worth
-	// upgrading, so it is recorded downloaded rather than upgradable.
-	upgradeMargin = 3
+	// profileLagRetry is how soon a task whose SubtitleProfile generation
+	// is ahead of this agent's cache is tried again (§6.7.2 step 3).
+	profileLagRetry = 30 * time.Second
 
 	// DefaultSidecarMode is RootFolderSpec.Permissions.FileMode's default,
-	// 0664: sidecars sit beside the video in a group-shared library. It is
-	// the mode of a sidecar whose video lies under no RootFolder, or under
-	// one whose fileMode does not parse ([Worker.sidecarModeFor]).
+	// 0664: a task whose SidecarMode is 0 writes its sidecar with it.
 	DefaultSidecarMode os.FileMode = 0o664
 
-	// maxLastError and maxSubtitleID are the CRD's own limits on
-	// items[].lastError and items[].subtitleID.
-	maxLastError  = 512
+	// maxSubtitleID is the CRD's own limit on items[].subtitleID.
 	maxSubtitleID = 256
 )
 
@@ -93,24 +78,20 @@ type ProviderSource interface {
 	Build(ctx context.Context, namespace string) ([]providerset.Entry, error)
 }
 
-// Worker handles clustarr.work.caption.fetch.<priority>.<uid>.<langKey>
-// messages. See the package doc for the flow and the registration F-6 does.
+// Worker handles clustarr.work.caption.fetch.<priority>.<mediafile-uid>.<langKey>.
+// It reads SubtitleProfiles (and, through Providers, SubtitleProviders and
+// their Secrets) and answers in clustarr-subtitles; it writes no Kubernetes
+// object (loop spec §6.7).
 type Worker struct {
-	// Client is the manager's client: it reads SubtitleRequests,
-	// MediaFiles, the catalog owners and SubtitleProfiles, and applies
-	// SubtitleRequest.status.
-	Client client.Client
-
-	// APIReader re-reads the SubtitleRequest immediately before the status
-	// apply. It should be the manager's uncached API reader: the re-read
-	// exists to see what another writer did during the search, and an
-	// informer that has not caught up yet would hand back the same stale
-	// snapshot the re-read is there to replace. Nil falls back to Client.
-	APIReader client.Reader
+	// Client is the agent's cache: SubtitleProfiles only (§6.7.2).
+	Client client.Reader
 
 	// Bus publishes SubtitleEvents and carries the
 	// clustarr-provider-throttle KV bucket.
 	Bus events.Bus
+
+	// Store is clustarr-subtitles, as this pod.
+	Store *subtitlestore.Store
 
 	// Providers builds the provider set per task.
 	Providers ProviderSource
@@ -118,12 +99,6 @@ type Worker struct {
 	// DataDir is where the /data volume is mounted in this process. Empty
 	// means /data itself (app/caption/datapath.Local).
 	DataDir string
-
-	// SidecarMode is the file mode of a sidecar whose video lies under no
-	// RootFolder. Zero means [DefaultSidecarMode]. A video under a
-	// RootFolder gets that folder's spec.permissions.fileMode instead
-	// ([Worker.sidecarModeFor]).
-	SidecarMode os.FileMode
 
 	// MaxDeliver is the fetch consumers' MaxDeliver, for recognising the
 	// final delivery. Zero means the default topology's.
@@ -133,9 +108,10 @@ type Worker struct {
 	Clock func() time.Time
 }
 
-// NewWorker builds a Worker with the production clock.
-func NewWorker(c client.Client, apiReader client.Reader, bus events.Bus, providers ProviderSource, dataDir string) *Worker {
-	return &Worker{Client: c, APIReader: apiReader, Bus: bus, Providers: providers, DataDir: dataDir, Clock: time.Now}
+// NewWorker builds a Worker with the production clock; writer is the pod
+// name the answers carry.
+func NewWorker(c client.Reader, bus events.Bus, providers ProviderSource, dataDir, writer string) *Worker {
+	return &Worker{Client: c, Bus: bus, Store: subtitlestore.New(bus, writer), Providers: providers, DataDir: dataDir, Clock: time.Now}
 }
 
 func (w *Worker) now() time.Time {
@@ -145,18 +121,11 @@ func (w *Worker) now() time.Time {
 	return time.Now()
 }
 
-func (w *Worker) reader() client.Reader {
-	if w.APIReader != nil {
-		return w.APIReader
-	}
-	return w.Client
-}
-
 // SetupWithManager subscribes the worker to both fetch consumers,
-// caption-fetch-high and caption-fetch-normal, as
-// [k8s.EveryReplica] runnables: fetch workers are never leader-elected
-// (spec §6.5) -- every replica consumes, bounded by the shared KV token
-// bucket rather than by how many pods run.
+// caption-fetch-high and caption-fetch-normal, as k8s.EveryReplica
+// runnables: fetch workers are never leader-elected -- every replica
+// consumes, bounded by the shared KV token bucket rather than by how many
+// pods run.
 func (w *Worker) SetupWithManager(mgr ctrl.Manager, t events.Topology) error {
 	for _, name := range []string{events.ConsumerCaptionFetchHigh, events.ConsumerCaptionFetchNormal} {
 		spec, ok := t.Consumer(name)
@@ -182,55 +151,52 @@ func (w *Worker) SetupWithManager(mgr ctrl.Manager, t events.Topology) error {
 	return nil
 }
 
-// task is a decoded FetchTask plus the request it names.
-type task struct {
-	schema.FetchTaskV1
-	key types.NamespacedName
-}
-
-// decodeTask decodes a delivery into a task. Any error is a poison message:
-// no redelivery of the same bytes can fix it.
-func decodeTask(env *events.Envelope) (task, error) {
+// decodeTask decodes a v2 FetchTask. Any error is a poison message: no
+// redelivery of the same bytes can fix it.
+func decodeTask(env *events.Envelope) (schema.FetchTask, error) {
 	if env == nil {
-		return task{}, errors.New("fetch: nil envelope")
+		return schema.FetchTask{}, errors.New("fetch: nil envelope")
 	}
-	var ft schema.FetchTaskV1
-	if err := schema.Decode(env.Schema, env.Data, &ft); err != nil {
-		return task{}, err
+	var t schema.FetchTask
+	if err := schema.Decode(env.Schema, env.Data, &t); err != nil {
+		return schema.FetchTask{}, err
 	}
-	ns, name := ft.RequestRef.Namespace, ft.RequestRef.Name
-	if keyNS, keyName, ok := strings.Cut(env.Key, "/"); ok {
-		ns, name = cmp.Or(ns, keyNS), cmp.Or(name, keyName)
+	switch {
+	case t.MediaFile.UID == "":
+		return schema.FetchTask{}, errors.New("fetch: the task names no MediaFile UID")
+	case t.Path == "":
+		return schema.FetchTask{}, errors.New("fetch: the task names no path")
+	case t.Seq <= 0:
+		return schema.FetchTask{}, fmt.Errorf("fetch: the task's seq %d is not positive", t.Seq)
 	}
-	if ns == "" || name == "" {
-		return task{}, fmt.Errorf("fetch: no <namespace>/<name> in requestRef %+v or key %q", ft.RequestRef, env.Key)
+	if _, _, _, err := subtitles.ParseLangKey(subtitles.LangKey(t.LangKey)); err != nil {
+		return schema.FetchTask{}, err
 	}
-	if _, _, _, err := subtitles.ParseLangKey(subtitles.LangKey(ft.LangKey)); err != nil {
-		return task{}, err
-	}
-	return task{FetchTaskV1: ft, key: types.NamespacedName{Namespace: ns, Name: name}}, nil
+	return t, nil
 }
 
 // Handle implements events.Handler.
 //
-// Settlement follows app/import/worker/fileimport: nil acks, events.Discard
-// dead-letters a poison message at once, and any other error is redelivered
-// on the consumer's backoff until MaxDeliver dead-letters it. A search that
-// finds nothing, or finds every provider throttled, is a result -- recorded
-// on the item and acked -- not a failure to redeliver.
+// Settlement: nil acks, events.Discard dead-letters a poison message at
+// once, and any other error is redelivered on the consumer's backoff until
+// MaxDeliver dead-letters it. A search that finds nothing, or finds every
+// provider throttled, is an answer -- recorded in the task's record and
+// acked -- not a failure to redeliver.
 func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 	env := m.Envelope()
 	ctx = tracing.Extract(ctx, env)
 	ctx, span := tracing.Start(ctx, "fetch.Worker.Handle")
 	defer span.End()
-
+	if env != nil && env.Schema == schema.FetchTaskV1Schema {
+		logging.FromContext(ctx).Info("fetch: a v1 task names a SubtitleRequest; the loop re-plans", "key", env.Key)
+		return nil
+	}
 	t, err := decodeTask(env)
 	if err != nil {
 		tracing.RecordError(span, err)
 		return events.Discard("fetch: malformed FetchTask", err)
 	}
-	ctx = logging.With(ctx, "namespace", t.key.Namespace, "subtitleRequest", t.key.Name, "langKey", t.LangKey)
-
+	ctx = logging.With(ctx, "namespace", t.MediaFile.Namespace, "mediaFile", t.MediaFile.Name, "langKey", t.LangKey, "seq", t.Seq)
 	if err := w.handle(ctx, m, t); err != nil {
 		tracing.RecordError(span, err)
 		return err
@@ -238,181 +204,96 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 	return nil
 }
 
-func (w *Worker) handle(ctx context.Context, m events.Message, t task) error {
-	log := logging.FromContext(ctx)
-
-	var req subtitlev1alpha1.SubtitleRequest
-	if err := w.Client.Get(ctx, t.key, &req); err != nil {
-		if apierrors.IsNotFound(err) {
-			log.Info("fetch: the subtitle request no longer exists; nothing to fetch")
-			return nil
-		}
-		return fmt.Errorf("fetch: get subtitle request: %w", err)
-	}
-	if t.RequestRef.UID != "" && string(req.UID) != t.RequestRef.UID {
-		log.Info("fetch: the subtitle request was replaced since this task was published", "taskUID", t.RequestRef.UID)
+// handle is §6.7.2 in order: the record fences the task, the profile is
+// read at the task's generation, the video must still be the planned file,
+// then the provider walk and the answer.
+func (w *Worker) handle(ctx context.Context, m events.Message, t schema.FetchTask) error {
+	if sup, err := w.Store.Superseded(ctx, t); err != nil {
+		return fmt.Errorf("fetch: read the record: %w", err)
+	} else if sup {
+		logging.FromContext(ctx).Info("fetch: a newer request, a withdrawal or an answer supersedes this task")
 		return nil
 	}
-	if !status.LiveItemKeys(req.Status).Has(t.LangKey) {
-		// Rule 3 of the item-liveness protocol (status.IsLive): the
-		// controller no longer schedules this language, so the want was
-		// withdrawn. Record nothing -- the worker never creates an item.
-		log.Info("fetch: the controller no longer wants this language; nothing to fetch")
-		return nil
-	}
-
-	var mf catalogv1alpha1.MediaFile
-	if err := w.Client.Get(ctx, types.NamespacedName{Namespace: req.Namespace, Name: req.Spec.MediaFileRef}, &mf); err != nil {
-		if apierrors.IsNotFound(err) {
-			log.Info("fetch: the media file no longer exists; nothing to fetch", "mediaFile", req.Spec.MediaFileRef)
-			return nil
-		}
-		return fmt.Errorf("fetch: get media file: %w", err)
-	}
-	kind := mf.Spec.MediaRef.Kind
+	kind := t.Query.Kind
 	if kind != commonv1.MediaKindMovie && kind != commonv1.MediaKindEpisode {
-		return events.Discard("fetch: media file is not a video kind",
-			fmt.Errorf("media file %s/%s is a %q", mf.Namespace, mf.Name, kind))
+		return events.Discard("fetch: the task is not for a video kind", fmt.Errorf("kind %q", kind))
 	}
 	outOf := int32(subtitles.MaxScore[kind]) //nolint:gosec // 180 or 360
 
-	profile, err := w.resolveProfile(ctx, req.Spec.ProfileRef, mf.Labels)
-	if err != nil {
-		return fmt.Errorf("fetch: %w", err)
+	var profile subtitlev1alpha1.SubtitleProfile
+	switch err := w.Client.Get(ctx, client.ObjectKey{Name: t.Profile}, &profile); {
+	case apierrors.IsNotFound(err):
+		return w.answer(ctx, t, dropped(outOf, fmt.Sprintf("SubtitleProfile %s is gone", t.Profile)))
+	case err != nil:
+		return fmt.Errorf("fetch: get SubtitleProfile %s: %w", t.Profile, err)
 	}
-	if profile == nil {
-		log.Info("fetch: no subtitle profile applies to this request any more; the controller's replan supersedes the task")
-		return nil
+	wnt, ok := wantFor(&profile, t.LangKey)
+	switch {
+	case !ok:
+		return w.answer(ctx, t, dropped(outOf, fmt.Sprintf("SubtitleProfile %s no longer has %s", profile.Name, t.LangKey)))
+	case profile.Generation < t.ProfileGeneration:
+		return events.Retry(profileLagRetry, fmt.Errorf("SubtitleProfile %s is at generation %d here, the task at %d",
+			profile.Name, profile.Generation, t.ProfileGeneration))
+	case profile.Generation > t.ProfileGeneration:
+		return w.answer(ctx, t, dropped(outOf, fmt.Sprintf("SubtitleProfile %s changed since planned", profile.Name)))
 	}
-	wnt, ok := wantFor(profile, req.Spec.Languages, t.LangKey)
-	if !ok {
-		log.Info("fetch: the profile no longer wants this language; the controller's replan supersedes the task", "profile", profile.Name)
-		return nil
-	}
-
 	flt, err := compileFilters(profile.Spec)
-	if err != nil {
-		msg := truncate(fmt.Sprintf("subtitle profile %s is invalid: %v", profile.Name, err), maxLastError)
-		return w.recordFailure(ctx, &req, t.LangKey, outOf, msg)
+	if err != nil { // the profile reconciler marks it Invalid too (§2.13)
+		return w.answer(ctx, t, verdict(schema.SubtitleVerdictFailed, outOf,
+			fmt.Sprintf("subtitle profile %s is invalid: %v", profile.Name, err)))
 	}
-
-	local, err := datapath.Local(w.DataDir, mf.Spec.Path)
+	local, err := datapath.Local(w.DataDir, t.Path)
 	if err != nil {
 		return events.Discard("fetch: media file path is not on the data volume", err)
 	}
 	st, err := os.Stat(local)
 	if err != nil {
-		return w.transient(ctx, m, &req, t.LangKey, outOf, fmt.Errorf("stat media file %s: %w", mf.Spec.Path, err), probeRetry)
+		return w.transient(ctx, m, t, outOf, fmt.Errorf("stat %s: %w", t.Path, err), statRetry)
 	}
-	live := mediainfo.ProbeHash(mf.Spec.Path, st.Size(), st.ModTime())
-	if planned := cmp.Or(t.ProbeHash, req.Status.ProbeHash); planned != "" && live != planned {
-		if mf.Status.ProbeHash == live {
-			log.Info("fetch: the media file changed and was re-probed after this task was planned; the replan supersedes it")
-			return nil
-		}
-		return w.transient(ctx, m, &req, t.LangKey, outOf,
-			fmt.Errorf("media file %s no longer matches the probe the request was planned against", mf.Spec.Path), probeRetry)
+	if mediainfo.ProbeHash(t.Path, st.Size(), st.ModTime()) != t.ProbeHash {
+		return w.answer(ctx, t, dropped(outOf, "file changed since planned"))
 	}
-
-	q, err := w.buildQuery(ctx, &mf, local, st.Size(), wnt.key)
-	if errors.Is(err, errItemGone) {
-		log.Info("fetch: the media file's catalog item no longer exists; nothing to fetch for a file Clustarr no longer manages",
-			"kind", kind, "item", mf.Spec.MediaRef.Name)
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("fetch: %w", err)
-	}
-	mode, err := w.sidecarModeFor(ctx, &mf)
-	if err != nil {
-		return fmt.Errorf("fetch: %w", err)
-	}
-
-	entries, err := w.Providers.Build(ctx, req.Namespace)
+	entries, err := w.Providers.Build(ctx, t.MediaFile.Namespace)
 	if err != nil {
 		return fmt.Errorf("fetch: %w", err)
 	}
 	entries = providerset.Order(entries, profile.Spec.Providers)
-
-	cur := findItem(req.Status.Items, t.LangKey)
-	onDisk := hasSubtitle(cur)
-
-	var info commonv1.MediaInfo
-	if mf.Status.MediaInfo != nil {
-		info = *mf.Status.MediaInfo
-	}
+	q := buildQuery(ctx, t, local, st.Size(), wnt.key)
 	src := providerset.FileSource{
-		Path: local, Info: info,
+		Path: local, Info: commonv1.MediaInfo{Subtitles: t.Extract},
 		IgnoreASS: profile.Spec.Embedded.IgnoreASS, SkipCommentary: profile.Spec.Embedded.SkipCommentaryOrDefault(),
 	}
-	provs, skipped := eligible(entries, src, kind, wnt, q, profile.Spec.Embedded.ExtractOrDefault() && mf.Status.MediaInfo != nil)
-
+	provs, skipped := eligible(entries, src, kind, wnt, q, profile.Spec.Embedded.ExtractOrDefault() && len(t.Extract) > 0)
 	plan := searchPlan{
-		kind:      kind,
-		query:     q,
-		want:      wnt,
-		filters:   flt,
-		threshold: minScore(kind, profile.Spec.MinScorePercent, req.Spec.MinScoreOverride, t.MinScore, cur, onDisk),
-		providers: provs,
-		skipped:   skipped,
-		mods:      mods(profile.Spec.Mods),
-		toSRT:     !profile.Spec.OriginalFormat,
-		hiExt:     string(profile.Spec.HIExtension),
-		mediaPath: mf.Spec.Path,
-		mode:      mode,
+		kind: kind, query: q, want: wnt, filters: flt, threshold: int(t.MinScore),
+		providers: provs, skipped: skipped, mods: mods(profile.Spec.Mods), toSRT: !profile.Spec.OriginalFormat,
+		hiExt: string(profile.Spec.HIExtension), mediaPath: t.Path, probeHash: t.ProbeHash,
+		mode: cmp.Or(os.FileMode(t.SidecarMode), DefaultSidecarMode),
 	}
 	out, err := w.search(ctx, m, plan)
 	if err != nil {
+		var moved *movedError
+		if errors.As(err, &moved) {
+			return w.answer(ctx, t, dropped(outOf, moved.Error()))
+		}
 		var we *writeError
 		if errors.As(err, &we) {
-			return w.transient(ctx, m, &req, t.LangKey, outOf, err, 0)
+			return w.transient(ctx, m, t, outOf, err, 0)
 		}
 		return fmt.Errorf("fetch: %w", err)
 	}
-
-	return w.finish(ctx, &req, t.LangKey, plan, out, onDisk, cur, outOf, profile.Spec.Upgrade.EnabledOrDefault())
+	return w.finish(ctx, t, plan, out, outOf)
 }
 
-// findItem returns a copy of items' entry for langKey, or nil.
-func findItem(items []subtitlev1alpha1.SubtitleItem, langKey string) *subtitlev1alpha1.SubtitleItem {
-	for i := range items {
-		if items[i].LangKey == langKey {
-			return items[i].DeepCopy()
-		}
-	}
-	return nil
+// dropped is an answer that searched nothing (§6.7.2): the loop plans
+// again.
+func dropped(outOf int32, msg string) schema.SubtitleRecord {
+	return verdict(schema.SubtitleVerdictDropped, outOf, msg)
 }
 
-// hasSubtitle reports whether an item already has a subtitle on disk that
-// catalog projects into MediaFile.status.sidecars
-// (app/catalog/controller/mediafile/sidecars.go: downloaded or upgradable,
-// with a path). Such an item is only ever REPLACED by a better one: a search
-// that finds nothing better leaves it exactly as it is.
-func hasSubtitle(it *subtitlev1alpha1.SubtitleItem) bool {
-	return it != nil && it.Path != "" &&
-		(it.State == subtitlev1alpha1.SubtitleItemDownloaded || it.State == subtitlev1alpha1.SubtitleItemUpgradable)
-}
-
-// minScore is the absolute score a candidate must reach: the profile's
-// percentage for the kind (or the request's override) of MaxScore, raised
-// to the task's own minScore (the controller's upgrade pass sends
-// score+1), and -- when a subtitle is already on disk -- to one point more
-// than it, so an upgrade can only ever replace it with something better.
-func minScore(kind commonv1.MediaKind, pct subtitlev1alpha1.ScorePct, override *int32, taskMin int32,
-	cur *subtitlev1alpha1.SubtitleItem, onDisk bool,
-) int {
-	p := pct.Movie
-	if kind == commonv1.MediaKindEpisode {
-		p = pct.Episode
-	}
-	if override != nil {
-		p = *override
-	}
-	th := max(subtitles.MinScore(kind, int(p)), int(taskMin))
-	if onDisk {
-		th = max(th, int(cur.Score)+1)
-	}
-	return th
+// verdict is an answer with no subtitle written.
+func verdict(v schema.SubtitleVerdict, outOf int32, msg string) schema.SubtitleRecord {
+	return schema.SubtitleRecord{Verdict: v, ScoreOutOf: outOf, LastError: truncate(msg, schema.MaxSubtitleLastError)}
 }
 
 func mods(in []subtitlev1alpha1.SubtitleMod) []string {
@@ -449,7 +330,7 @@ func eligible(entries []providerset.Entry, src providerset.FileSource, kind comm
 	for _, e := range entries {
 		switch {
 		case e.Local() && !extract:
-			skipped = append(skipped, e.Name+": embedded extraction is off or the file is not probed yet")
+			skipped = append(skipped, e.Name+": embedded extraction is off or the task names no embedded track")
 			continue
 		case !e.Serves(w.tags()):
 			skipped = append(skipped, e.Name+": spec.languages excludes "+w.lang)

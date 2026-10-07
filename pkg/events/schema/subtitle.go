@@ -23,18 +23,29 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 )
 
-// SubtitleEvent reports a subtitle being downloaded, upgraded or failing.
-// Subject:
-// clustarr.evt.subtitle.subtitle.<downloaded|upgraded|failed>.<request-uid>.
+// SubtitleEventType is the Clustarr-Type header of every subtitle event.
+const SubtitleEventType = "subtitle.SubtitleEvent"
+
+// SubtitleEventV1Schema names the SubtitleRequest-keyed event the fold
+// retires; its dead letters resolve to their namespace.
+const SubtitleEventV1Schema = "subtitle.SubtitleEvent.v1"
+
+// SubtitleEvent reports a subtitle being downloaded, upgraded or failing
+// (loop spec §6.7.4). Subject:
+// clustarr.evt.subtitle.subtitle.<downloaded|upgraded|failed>.<mediafile-uid>.
+// It is published only after the answer landed in clustarr-subtitles.
 type SubtitleEvent struct {
-	// RequestRef is the SubtitleRequest the event is about.
-	RequestRef Ref `json:"requestRef"`
+	// MediaFile is the file the subtitle is for.
+	MediaFile Ref `json:"mediaFile"`
 
 	// Action is one of downloaded, upgraded or failed.
 	Action string `json:"action"`
 
 	// LangKey is the language key, e.g. "en", "en:forced" or "en:hi".
 	LangKey string `json:"langKey"`
+
+	// Seq is the dispatch's sequence the answer was for.
+	Seq int64 `json:"seq"`
 
 	// Provider is the subtitle provider that served the file.
 	Provider string `json:"provider,omitempty"`
@@ -60,7 +71,7 @@ type SubtitleEvent struct {
 }
 
 // Schema implements Payload.
-func (SubtitleEvent) Schema() string { return "subtitle.SubtitleEvent.v1" }
+func (SubtitleEvent) Schema() string { return "subtitle.SubtitleEvent.v2" }
 
 // FetchTaskType is the Clustarr-Type header of every fetch task.
 const FetchTaskType = "subtitle.FetchTask"

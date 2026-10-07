@@ -18,38 +18,31 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package fetch
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
-	"strconv"
 	"strings"
 	"time"
 
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
-
-	subtitleac "github.com/mediactl/clustarr/api/applyconfiguration/subtitle/v1alpha1"
-	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
 	"github.com/mediactl/clustarr/app/caption/datapath"
-	"github.com/mediactl/clustarr/app/caption/status"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
-	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/pkg/obs/metrics"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
+	"github.com/mediactl/clustarr/pkg/subtitles"
 	"github.com/mediactl/clustarr/pkg/version"
 )
 
-// verdict is what a finished search means for the item.
-type verdict int
+// searchVerdict is what a finished search means for the item.
+type searchVerdict int
 
 const (
 	// verdictDownloaded: a subtitle was written.
-	verdictDownloaded verdict = iota
+	verdictDownloaded searchVerdict = iota
 	// verdictKeep: a subtitle is already on disk and nothing better was
 	// found (or nothing could be asked). The item is left exactly as it is.
 	verdictKeep
@@ -66,7 +59,7 @@ const (
 
 // decide maps a search outcome to a verdict. Pure, so every branch of the
 // ack-or-record policy is table-testable without a cluster.
-func decide(out searchOutcome, eligible int, onDisk bool) verdict {
+func decide(out searchOutcome, eligible int, onDisk bool) searchVerdict {
 	switch {
 	case out.chosen != nil:
 		return verdictDownloaded
@@ -88,7 +81,7 @@ func decide(out searchOutcome, eligible int, onDisk bool) verdict {
 }
 
 // explain renders why nothing was written, for items[].lastError.
-func explain(v verdict, out searchOutcome, p searchPlan, outOf int32) string {
+func explain(v searchVerdict, out searchOutcome, p searchPlan, outOf int32) string {
 	var parts []string
 	switch v {
 	case verdictUnavailable:
@@ -122,126 +115,90 @@ func explain(v verdict, out searchOutcome, p searchPlan, outOf int32) string {
 	if len(out.throttled) > 0 {
 		parts = append(parts, "throttled: "+strings.Join(out.throttled, "; "))
 	}
-	return truncate(strings.Join(parts, ". "), maxLastError)
+	return truncate(strings.Join(parts, ". "), schema.MaxSubtitleLastError)
 }
 
-// finish records the search's verdict on the item and publishes the event.
-func (w *Worker) finish(ctx context.Context, req *subtitlev1alpha1.SubtitleRequest, langKey string, p searchPlan,
-	out searchOutcome, onDisk bool, cur *subtitlev1alpha1.SubtitleItem, outOf int32, upgradesEnabled bool,
-) error {
-	log := logging.FromContext(ctx)
-	v := decide(out, len(p.providers), onDisk)
-	now := metav1.NewTime(w.now())
-
-	switch v {
+// finish answers the search's verdict (loop spec §6.7.3): the record
+// carries the facts, and the loop derives the item's state from them.
+func (w *Worker) finish(ctx context.Context, t schema.FetchTask, p searchPlan, out searchOutcome, outOf int32) error {
+	onDisk := t.OnDisk != nil
+	switch v := decide(out, len(p.providers), onDisk); v {
 	case verdictKeep:
-		log.Info("fetch: nothing better than the subtitle on disk; keeping it",
-			"score", cur.Score, "threshold", p.threshold, "why", explain(verdictUnavailable, out, p, outOf))
-		return nil
-
+		logging.FromContext(ctx).Info("fetch: nothing better than the subtitle on disk; keeping it",
+			"threshold", p.threshold, "why", explain(verdictUnavailable, out, p, outOf))
+		return w.answer(ctx, t, schema.SubtitleRecord{Verdict: schema.SubtitleVerdictKept, ScoreOutOf: outOf})
 	case verdictDownloaded:
 		ch := out.chosen
-		score := int32(ch.r.score) //nolint:gosec // bounded by MaxScore (360)
-		state := subtitlev1alpha1.SubtitleItemDownloaded
-		if upgradesEnabled && score < outOf-upgradeMargin {
-			state = subtitlev1alpha1.SubtitleItemUpgradable
+		ans := schema.SubtitleRecord{
+			Verdict: schema.SubtitleVerdictDownloaded, Score: int32(ch.r.score), //nolint:gosec // bounded by MaxScore (360)
+			ScoreOutOf: outOf, Provider: ch.entry.entry.Name, SubtitleID: truncate(subtitleID(ch.r.c), maxSubtitleID), Name: ch.relPath,
 		}
-		applied, err := w.record(ctx, req, langKey, func(it *subtitlev1alpha1.SubtitleItem) {
-			it.State = state
-			it.Score, it.ScoreOutOf = score, outOf
-			it.Provider = ch.entry.entry.Name
-			it.SubtitleID = subtitleID(ch.r.c)
-			it.Path = ch.relPath
-			it.DownloadedAt = &now
-			it.LastError = ""
-		})
-		if err != nil {
-			return err
+		if onDisk && t.OnDisk.Name != ch.relPath {
+			ans.ReplacedName = t.OnDisk.Name
 		}
-		if !applied {
-			log.Warn("fetch: the request or this language was withdrawn during the fetch; the sidecar is written but unrecorded",
-				"path", ch.logicalPath)
-			return nil
-		}
-		action, prev := events.ActionDownloaded, int32(0)
-		if onDisk {
-			action, prev = events.ActionUpgraded, cur.Score
-			w.removeReplaced(ctx, p.mediaPath, cur.Path, ch.relPath)
-		}
-		w.publish(ctx, req, action, langKey, ch.entry.entry.Name+"/"+subtitleID(ch.r.c), func(e *schema.SubtitleEvent) {
-			e.Provider = ch.entry.entry.Name
-			e.ProviderID = subtitleID(ch.r.c)
-			e.Score, e.PreviousScore = score, prev
-			e.Path = ch.logicalPath
-		})
-		return nil
-
+		return w.answer(ctx, t, ans)
 	case verdictThrottled:
-		msg := explain(v, out, p, outOf)
-		log.Info("fetch: every eligible provider is throttled; recorded, not redelivered", "earliest", out.earliest)
-		_, err := w.record(ctx, req, langKey, func(it *subtitlev1alpha1.SubtitleItem) {
-			if it.State == "" {
-				it.State = subtitlev1alpha1.SubtitleItemPending
-			}
-			it.LastError = msg
+		until := out.earliest.UTC()
+		logging.FromContext(ctx).Info("fetch: every eligible provider is throttled; answered, not redelivered", "earliest", until)
+		return w.answer(ctx, t, schema.SubtitleRecord{
+			Verdict: schema.SubtitleVerdictThrottled, ScoreOutOf: outOf,
+			LastError: explain(v, out, p, outOf), ThrottledUntil: &until,
 		})
-		return err
+	case verdictFailed:
+		return w.answer(ctx, t, verdict(schema.SubtitleVerdictFailed, outOf, explain(v, out, p, outOf)))
+	default:
+		return w.answer(ctx, t, verdict(schema.SubtitleVerdictUnavailable, outOf, explain(v, out, p, outOf)))
+	}
+}
 
-	default: // verdictUnavailable, verdictFailed
-		state := subtitlev1alpha1.SubtitleItemUnavailable
-		if v == verdictFailed {
-			state = subtitlev1alpha1.SubtitleItemFailed
-		}
-		msg := explain(v, out, p, outOf)
-		log.Info("fetch: no subtitle written", "state", state, "why", msg)
-		applied, err := w.record(ctx, req, langKey, func(it *subtitlev1alpha1.SubtitleItem) {
-			clearCandidate(it, state, outOf, msg)
-		})
-		if err != nil {
-			return err
-		}
-		if applied && v == verdictFailed {
-			w.publishFailure(ctx, req, langKey, msg)
-		}
+// answer records ans and, only when it lands, removes a replaced sidecar,
+// counts the fetch and publishes the history event (§6.7.3-§6.7.4). An
+// answer the record's rules drop changes nothing: the sidecar a dropped
+// download wrote is found by the loop's next listing.
+func (w *Worker) answer(ctx context.Context, t schema.FetchTask, ans schema.SubtitleRecord) error {
+	landed, err := w.Store.Answer(ctx, t, ans)
+	if err != nil {
+		return fmt.Errorf("fetch: answer: %w", err)
+	}
+	if !landed {
+		logging.FromContext(ctx).Warn("fetch: superseded during the fetch; the answer is dropped", "verdict", ans.Verdict)
 		return nil
 	}
-}
-
-// clearCandidate records a no-subtitle outcome: the state and why, and no
-// chosen candidate -- the item has nothing on disk.
-func clearCandidate(it *subtitlev1alpha1.SubtitleItem, state subtitlev1alpha1.SubtitleItemState, outOf int32, msg string) {
-	it.State = state
-	it.Score, it.ScoreOutOf = 0, outOf
-	it.Provider, it.SubtitleID, it.Path = "", "", ""
-	it.DownloadedAt = nil
-	it.LastError = msg
-}
-
-// recordFailure records a failure that no redelivery will fix and acks.
-func (w *Worker) recordFailure(ctx context.Context, req *subtitlev1alpha1.SubtitleRequest, langKey string, outOf int32, msg string) error {
-	logging.FromContext(ctx).Warn("fetch: recording a failure", "why", msg)
-	applied, err := w.record(ctx, req, langKey, func(it *subtitlev1alpha1.SubtitleItem) {
-		if hasSubtitle(it) {
-			it.LastError = msg // the subtitle on disk is still good
-			return
-		}
-		clearCandidate(it, subtitlev1alpha1.SubtitleItemFailed, outOf, msg)
-	})
-	if err != nil {
-		return err
+	if ans.ReplacedName != "" {
+		w.removeReplaced(ctx, t.Path, ans.ReplacedName)
 	}
-	if applied {
-		w.publishFailure(ctx, req, langKey, msg)
+	metrics.SubtitleFetchesTotal.WithLabelValues(cmp.Or(ans.Provider, "none"), baseLanguage(t.LangKey), string(ans.Verdict)).Inc()
+	switch ans.Verdict {
+	case schema.SubtitleVerdictDownloaded:
+		action, prev := events.ActionDownloaded, int32(0)
+		if t.OnDisk != nil {
+			action, prev = events.ActionUpgraded, t.OnDisk.Score
+		}
+		w.publish(ctx, t, action, func(e *schema.SubtitleEvent) {
+			e.Provider, e.ProviderID, e.Score, e.PreviousScore = ans.Provider, ans.SubtitleID, ans.Score, prev
+			e.Path = filepath.Join(filepath.Dir(t.Path), ans.Name)
+		})
+	case schema.SubtitleVerdictFailed:
+		w.publish(ctx, t, events.ActionFailed, func(e *schema.SubtitleEvent) { e.Reason = ans.LastError })
 	}
 	return nil
 }
 
+// baseLanguage is the language half of a langKey, the metric's label.
+func baseLanguage(langKey string) string {
+	l, _, _, err := subtitles.ParseLangKey(subtitles.LangKey(langKey))
+	if err != nil {
+		return "unknown"
+	}
+	return l
+}
+
 // transient redelivers a failure that may clear up -- a file mid-move, a
-// full disk -- and, on the final delivery, records it on the item and acks
-// instead, the same shape as app/import/worker/fileimport's finishBlocked:
-// the operator sees why on the object rather than only in the DLQ.
-func (w *Worker) transient(ctx context.Context, m events.Message, req *subtitlev1alpha1.SubtitleRequest, langKey string,
-	outOf int32, cause error, retryAfter time.Duration,
+// full disk -- and, on the final delivery, answers failed instead (§4.8's
+// last delivery): the loop sees why on the file rather than only in the
+// DLQ.
+func (w *Worker) transient(ctx context.Context, m events.Message, t schema.FetchTask, outOf int32, cause error,
+	retryAfter time.Duration,
 ) error {
 	if !w.finalAttempt(m) {
 		if retryAfter > 0 {
@@ -249,8 +206,9 @@ func (w *Worker) transient(ctx context.Context, m events.Message, req *subtitlev
 		}
 		return cause
 	}
-	msg := truncate(fmt.Sprintf("gave up after %d deliveries: %v", m.Attempt(), cause), maxLastError)
-	return w.recordFailure(ctx, req, langKey, outOf, msg)
+	logging.FromContext(ctx).Warn("fetch: giving up on the last delivery", "err", cause)
+	return w.answer(ctx, t, verdict(schema.SubtitleVerdictFailed, outOf,
+		fmt.Sprintf("gave up after %d deliveries: %v", m.Attempt(), cause)))
 }
 
 // finalAttempt reports whether m is the last delivery the fetch consumers
@@ -265,84 +223,15 @@ func (w *Worker) finalAttempt(m events.Message) bool {
 	return md <= 0 || m.Attempt() >= uint64(md) //nolint:gosec // MaxDeliver is a small positive constant
 }
 
-// record applies one item's worker-owned leaves, as a compare-and-swap.
-//
-// It reads the SubtitleRequest fresh, through the uncached API reader, and
-// seeds the apply from that read -- never from req, which was read before the
-// provider walk -- and applies with the read's resourceVersion, redoing set
-// on a new read after a Conflict. This is CLAUDE.md's lost-update shape
-// exactly: a fetch spends seconds to minutes on provider round trips, the
-// fetch for every other language of the request runs beside it under the
-// same field manager, and status.RequestWorkerFields re-declares every
-// worker-owned leaf of every live item -- so an apply seeded from any read
-// but the latest rolls back what a sibling recorded in between: a sidecar
-// written, recorded, then forgotten, and dropped from
-// MediaFile.status.sidecars by catalog. A re-read before the apply
-// narrowed that window; two languages fetched at once still hit it, and only
-// the precondition closes it. No release test can see it; the interleaved
-// and concurrent writers in worker_envtest_test.go and cas_envtest_test.go
-// do. (The controller's own leaves, nextSearchAt and attempts, are a
-// different manager's and are never declared here, so they survive this
-// apply either way.)
-//
-// The read is also where the item-liveness protocol (status.IsLive) is
-// applied. The item must still be live on the fresh object: a controller
-// that withdrew the language during the search has spoken last, so nothing
-// is recorded -- the worker never creates or revives an item. And because
-// RequestWorkerFields renders only live items, every other entry the
-// controller has withdrawn is released by this apply and deleted.
-//
-// set mutates the live item for langKey, on each fresh read. The bool is
-// false when there was nothing to apply to: the request is gone or was
-// replaced, or the item is no longer live.
-func (w *Worker) record(ctx context.Context, req *subtitlev1alpha1.SubtitleRequest, langKey string,
-	set func(*subtitlev1alpha1.SubtitleItem),
-) (bool, error) {
-	_, applied, err := k8s.PatchStatusCAS(ctx, w.reader(), w.Client, FieldManager,
-		types.NamespacedName{Namespace: req.Namespace, Name: req.Name},
-		func() *subtitlev1alpha1.SubtitleRequest { return &subtitlev1alpha1.SubtitleRequest{} },
-		func(fresh *subtitlev1alpha1.SubtitleRequest) (*subtitleac.SubtitleRequestApplyConfiguration, bool, error) {
-			if fresh.UID != req.UID {
-				return nil, true, nil
-			}
-			items := make([]subtitlev1alpha1.SubtitleItem, len(fresh.Status.Items))
-			for i := range fresh.Status.Items {
-				fresh.Status.Items[i].DeepCopyInto(&items[i])
-			}
-			idx := slices.IndexFunc(items, func(it subtitlev1alpha1.SubtitleItem) bool { return it.LangKey == langKey })
-			if idx < 0 || !status.IsLive(items[idx]) {
-				logging.FromContext(ctx).Info("fetch: the controller withdrew this language during the fetch; recording nothing")
-				return nil, true, nil
-			}
-			set(&items[idx])
-			st := fresh.Status
-			st.Items = items
-			return subtitleac.SubtitleRequest(fresh.Name, fresh.Namespace).
-				WithStatus(status.RequestWorkerFields(st)), false, nil
-		}, recordAttempts)
-	switch {
-	case apierrors.IsNotFound(err):
-		return false, nil
-	case err != nil:
-		return false, fmt.Errorf("fetch: apply subtitle request status: %w", err)
-	}
-	return applied, nil
-}
-
-// recordAttempts bounds record's compare-and-swap. Contention is the
-// request's other languages, fetched at once, and the controller.
-const recordAttempts = 8
-
 // removeReplaced deletes the sidecar an upgrade superseded when it had a
 // different name (an .ass replaced by an .srt, say). Same-name upgrades were
-// already replaced atomically by the write. Only a bare file name the worker
-// itself recorded is ever removed -- never a path that could leave the
-// media file's directory.
-func (w *Worker) removeReplaced(ctx context.Context, mediaPath, oldRel, newRel string) {
-	if oldRel == "" || oldRel == newRel || filepath.Base(oldRel) != oldRel || oldRel == "." || oldRel == ".." {
+// already replaced atomically by the write. Only a bare file name is ever
+// removed -- never a path that could leave the media file's directory.
+func (w *Worker) removeReplaced(ctx context.Context, mediaPath, oldName string) {
+	if oldName == "" || filepath.Base(oldName) != oldName || oldName == "." || oldName == ".." {
 		return
 	}
-	local, err := datapath.Local(w.DataDir, filepath.Join(filepath.Dir(mediaPath), oldRel))
+	local, err := datapath.Local(w.DataDir, filepath.Join(filepath.Dir(mediaPath), oldName))
 	if err != nil {
 		return
 	}
@@ -351,28 +240,14 @@ func (w *Worker) removeReplaced(ctx context.Context, mediaPath, oldRel, newRel s
 	}
 }
 
-// publishFailure publishes a subtitle.failed event.
-func (w *Worker) publishFailure(ctx context.Context, req *subtitlev1alpha1.SubtitleRequest, langKey, reason string) {
-	w.publish(ctx, req, events.ActionFailed, langKey, strconv.FormatInt(w.now().UnixNano(), 10), func(e *schema.SubtitleEvent) {
-		e.Reason = reason
-	})
-}
-
-// publish emits clustarr.evt.subtitle.subtitle.<action>.<request-uid>. It is
-// best effort and runs only after the status apply landed: the event is
-// history, the status is the record, and failing the task over a lost event
+// publish emits clustarr.evt.subtitle.subtitle.<action>.<mediafile-uid>. It
+// is best effort and runs only after the answer landed: the event is
+// history, the record is the record, and failing the task over a lost event
 // would redeliver a fetch that already wrote its sidecar and spent a
 // download from the provider's quota.
-func (w *Worker) publish(ctx context.Context, req *subtitlev1alpha1.SubtitleRequest, action, langKey, idSuffix string,
-	fill func(*schema.SubtitleEvent),
-) {
+func (w *Worker) publish(ctx context.Context, t schema.FetchTask, action string, fill func(*schema.SubtitleEvent)) {
 	now := w.now()
-	evt := schema.SubtitleEvent{
-		RequestRef: schema.Ref{Namespace: req.Namespace, Name: req.Name, UID: string(req.UID)},
-		Action:     action,
-		LangKey:    langKey,
-		At:         now,
-	}
+	evt := schema.SubtitleEvent{MediaFile: t.MediaFile, Action: action, LangKey: t.LangKey, Seq: t.Seq, At: now}
 	fill(&evt)
 	schemaName, data, err := schema.Encode(evt)
 	if err != nil {
@@ -380,16 +255,16 @@ func (w *Worker) publish(ctx context.Context, req *subtitlev1alpha1.SubtitleRequ
 		return
 	}
 	env := &events.Envelope{
-		ID:     strings.Join([]string{string(req.UID), langKey, action, idSuffix}, "/"),
-		Type:   "subtitle.SubtitleEvent",
+		ID:     fmt.Sprintf("%s/subtitle/%s/%d/%s", t.MediaFile.UID, t.LangKey, t.Seq, action),
+		Type:   schema.SubtitleEventType,
 		Schema: schemaName,
-		Source: "caption-worker@" + version.String(),
-		Key:    req.Namespace + "/" + req.Name,
+		Source: "agent-caption@" + version.String(),
+		Key:    t.MediaFile.Key(),
 		Time:   now,
 		Data:   data,
 	}
 	tracing.Inject(ctx, env)
-	if _, err := w.Bus.Publish(ctx, events.SubtitleEventSubject(action, string(req.UID)), env); err != nil {
+	if _, err := w.Bus.Publish(ctx, events.SubtitleEventSubject(action, t.MediaFile.UID), env); err != nil {
 		logging.FromContext(ctx).Warn("fetch: could not publish the subtitle event", "action", action, "err", err)
 	}
 }

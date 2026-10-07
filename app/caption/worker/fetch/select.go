@@ -63,13 +63,9 @@ func (w want) tags() []string {
 }
 
 // wantFor finds the profile entry keyed langKey. ok is false when the
-// profile no longer has such an entry, or the request's spec.languages
-// override excludes it -- a task published before a profile edit, which
-// the controller's replan supersedes.
-func wantFor(profile *subtitlev1alpha1.SubtitleProfile, override []string, langKey string) (want, bool) {
-	if len(override) > 0 && !slices.Contains(override, langKey) {
-		return want{}, false
-	}
+// profile no longer has such an entry -- a task published before a profile
+// edit, which the loop's next plan supersedes.
+func wantFor(profile *subtitlev1alpha1.SubtitleProfile, langKey string) (want, bool) {
 	for _, l := range profile.Spec.Languages {
 		if l.Key != langKey {
 			continue

@@ -192,8 +192,8 @@ func describeEvent(env *events.Envelope) (action, note string, ok bool) {
 		if err := schema.Decode(p.Schema(), env.Data, &p); err != nil {
 			return "", "", false
 		}
-		return p.Action, fmt.Sprintf("subtitle %s (lang=%q provider=%q score=%d reason=%q)",
-			p.Action, p.LangKey, p.Provider, p.Score, p.Reason), true
+		return p.Action, fmt.Sprintf("subtitle %s (lang=%q seq=%d provider=%q score=%d reason=%q)",
+			p.Action, p.LangKey, p.Seq, p.Provider, p.Score, p.Reason), true
 
 	case schema.IndexerEvent{}.Schema():
 		var p schema.IndexerEvent

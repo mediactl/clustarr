@@ -160,6 +160,7 @@ var resolvers = map[string]resolver{
 	schema.JobEvent{}.Schema():          resolveJobEvent,
 	transcodeTaskRef{}.Schema():         resolveTranscodeTask,
 	schema.SubtitleEvent{}.Schema():     resolveSubtitleEvent,
+	schema.SubtitleEventV1Schema:        resolveSubtitleEventV1,
 	schema.FetchTask{}.Schema():         resolveFetchTask,
 	schema.FetchTaskV1Schema:            resolveFetchTaskV1,
 	schema.ScanTask{}.Schema():          resolveScanTask,
@@ -453,9 +454,29 @@ func resolveTranscodeTask(key string, data []byte) Target {
 	return refTarget(p.Job, transcodev1alpha1.GroupVersion.String(), "TranscodeJob")
 }
 
+// resolveSubtitleEvent resolves a v2 subtitle event to its MediaFile (loop
+// spec §6.10).
 func resolveSubtitleEvent(key string, data []byte) Target {
 	var p schema.SubtitleEvent
-	if err := schema.Decode(p.Schema(), data, &p); err != nil {
+	if err := schema.Decode(p.Schema(), data, &p); err != nil || p.MediaFile.Name == "" {
+		return Target{Namespace: namespaceOf(key)}
+	}
+	return mediaFileTarget(cmp.Or(p.MediaFile.Namespace, namespaceOf(key)), p.MediaFile.Name)
+}
+
+// subtitleEventV1Ref is the one field of a v1 SubtitleEvent a dead letter
+// needs.
+type subtitleEventV1Ref struct {
+	RequestRef schema.Ref `json:"requestRef"`
+}
+
+func (subtitleEventV1Ref) Schema() string { return schema.SubtitleEventV1Schema }
+
+// resolveSubtitleEventV1 keeps a v1 subtitle event's SubtitleRequest
+// target until F5.4 makes it namespace-only.
+func resolveSubtitleEventV1(key string, data []byte) Target {
+	var p subtitleEventV1Ref
+	if err := schema.Decode(p.Schema(), data, &p); err != nil || p.RequestRef.Name == "" {
 		return Target{Namespace: namespaceOf(key)}
 	}
 	return refTarget(p.RequestRef, subtitlev1alpha1.GroupVersion.String(), "SubtitleRequest")
