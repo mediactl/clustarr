@@ -649,7 +649,9 @@ func (r *Reconciler) patch(
 //
 // With a bus, every change to an Indexer's clustarr-indexer-limits rings
 // enqueues it too ([Reconciler.limitsSource]), so the window counts on status
-// follow the traffic rather than the 15-minute tick.
+// follow the traffic rather than the 15-minute tick. With a bus it also
+// watches clustarr-indexer-sessions ([Reconciler.sessionsSource]), so a
+// session the index agent dropped is logged in again at once.
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	b := ctrl.NewControllerManagedBy(mgr).
 		Named("indexer").
@@ -667,7 +669,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 			RecoverPanic:          ptr.To(true),
 		})
 	if r.Bus != nil {
-		b = b.WatchesRawSource(r.limitsSource())
+		b = b.WatchesRawSource(r.limitsSource()).WatchesRawSource(r.sessionsSource())
 	}
 	return b.Complete(r)
 }
@@ -701,6 +703,52 @@ func (r *Reconciler) limitsSource() source.Source {
 		}()
 		return nil
 	})
+}
+
+// sessionsSource enqueues the Indexer whose session the index agent dropped:
+// a Delete or Purge of its key in clustarr-indexer-sessions, which a cached
+// client's failed relogin writes (clients.SessionStore.Drop). The next login
+// is then this reconcile's rather than the next reprobe's (§5.12). A Put (a
+// Save from this reconciler or an agent's successful relogin) needs no
+// login and wakes nothing. Like limitsSource, a watch that ends leaves the
+// 15-minute reprobe in charge, and it says so.
+func (r *Reconciler) sessionsSource() source.Source {
+	return source.Func(func(ctx context.Context, q workqueue.TypedRateLimitingInterface[reconcile.Request]) error {
+		ch, err := r.Bus.KV(events.BucketIndexerSessions).Watch(ctx, ">")
+		if err != nil {
+			return fmt.Errorf("indexer: watch %s: %w", events.BucketIndexerSessions, err)
+		}
+		go func() {
+			for e := range ch {
+				if e.Operation != events.KVDelete && e.Operation != events.KVPurge {
+					continue
+				}
+				for _, req := range r.indexersForSession(ctx, e.Key) {
+					q.Add(req)
+				}
+			}
+			if ctx.Err() == nil {
+				logging.FromContext(ctx).Warn("indexer: the sessions watch ended; a dropped session now waits for the reprobe tick")
+			}
+		}()
+		return nil
+	})
+}
+
+// indexersForSession maps a clustarr-indexer-sessions key, clients.SessionKey
+// of an Indexer's UID, onto that Indexer, from the manager's cache.
+func (r *Reconciler) indexersForSession(ctx context.Context, key string) []reconcile.Request {
+	var list indexv1alpha1.IndexerList
+	if err := r.Client.List(ctx, &list); err != nil {
+		logging.FromContext(ctx).Warn("indexer: listing Indexers for a session change failed", "error", err)
+		return nil
+	}
+	for i := range list.Items {
+		if idxclients.SessionKey(list.Items[i].UID) == key {
+			return []reconcile.Request{{NamespacedName: client.ObjectKeyFromObject(&list.Items[i])}}
+		}
+	}
+	return nil
 }
 
 // indexersForRing maps a ring key -- events.KVKeyToken(uid) plus ".query" or
