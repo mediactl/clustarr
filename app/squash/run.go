@@ -35,7 +35,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/healthz"
 
 	"github.com/mediactl/clustarr/app/squash/controller/audiograft"
 	"github.com/mediactl/clustarr/app/squash/controller/pool"
@@ -350,10 +349,14 @@ func Run(ctx context.Context, o Options) error {
 	if err != nil {
 		return err
 	}
-	if err := k8s.AddProbes(mgr, map[string]healthz.Checker{
-		"jetstream": k8s.BusReadyChecker(nc, bus),
-		"cache":     cacheReady,
-	}); err != nil {
+	var ready k8s.Checks
+	if err := ready.Add("jetstream", k8s.BusReadyChecker(nc, bus)); err != nil {
+		return err
+	}
+	if err := ready.Add("cache", cacheReady); err != nil {
+		return err
+	}
+	if err := k8s.AddProbes(mgr, &ready, nil); err != nil {
 		return err
 	}
 

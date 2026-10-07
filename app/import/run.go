@@ -41,7 +41,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/healthz"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/app/import/controller/importexclusion"
@@ -340,19 +339,24 @@ func Run(ctx context.Context, o Options) error {
 	if err != nil {
 		return err
 	}
-	ready := map[string]healthz.Checker{
-		"jetstream": k8s.BusReadyChecker(nc, bus),
-		// §13 lists only the JetStream ping, but a manager whose informers
-		// have not synced serves a cold cache: the scan schedule would see no
-		// RootFolders and the exclusion controller no exclusions, both of
-		// which read as "nothing to do" rather than as "not ready yet".
-		"cache": cacheReady,
+	var ready k8s.Checks
+	if err := ready.Add("jetstream", k8s.BusReadyChecker(nc, bus)); err != nil {
+		return err
+	}
+	// §13 lists only the JetStream ping, but a manager whose informers
+	// have not synced serves a cold cache: the scan schedule would see no
+	// RootFolders and the exclusion controller no exclusions, both of
+	// which read as "nothing to do" rather than as "not ready yet".
+	if err := ready.Add("cache", cacheReady); err != nil {
+		return err
 	}
 	// A scan or import worker that cannot write the library must not
 	// accept work (amendment §A1.6), and neither may the controllers, whose
 	// rename controller moves library files.
-	ready["data"] = k8s.DataReadyChecker(o.dataPath())
-	if err := k8s.AddProbes(mgr, ready); err != nil {
+	if err := ready.Add("data", k8s.DataReadyChecker(o.dataPath())); err != nil {
+		return err
+	}
+	if err := k8s.AddProbes(mgr, &ready, nil); err != nil {
 		return err
 	}
 

@@ -292,15 +292,18 @@ func Run(ctx context.Context, o Options) error {
 		return err
 	}
 
-	ready := map[string]healthz.Checker{
-		"jetstream": k8s.BusReadyChecker(nc, bus),
+	var ready k8s.Checks
+	if err := ready.Add("jetstream", k8s.BusReadyChecker(nc, bus)); err != nil {
+		return err
 	}
 
 	cacheReady, err := k8s.CacheSyncChecker(mgr)
 	if err != nil {
 		return err
 	}
-	ready["cache"] = cacheReady
+	if err := ready.Add("cache", cacheReady); err != nil {
+		return err
+	}
 
 	// An engine role must build its embedded download.Client and, for
 	// torrent, run [torrent.Engine.ReAttach] to completion -- both
@@ -320,7 +323,9 @@ func Run(ctx context.Context, o Options) error {
 		}
 		engineClose = closeFn
 		if checker != nil {
-			ready["reattach"] = checker
+			if err := ready.Add("reattach", checker); err != nil {
+				return err
+			}
 		}
 	}
 	if engineClose != nil {
@@ -331,7 +336,7 @@ func Run(ctx context.Context, o Options) error {
 		}()
 	}
 
-	if err := k8s.AddProbes(mgr, ready); err != nil {
+	if err := k8s.AddProbes(mgr, &ready, nil); err != nil {
 		return err
 	}
 

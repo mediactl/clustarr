@@ -432,7 +432,7 @@ func Run(ctx context.Context, o Options) error {
 	if err != nil {
 		return err
 	}
-	if err := k8s.AddProbes(mgr, ready); err != nil {
+	if err := k8s.AddProbes(mgr, ready, nil); err != nil {
 		return err
 	}
 
@@ -491,23 +491,29 @@ func Run(ctx context.Context, o Options) error {
 // this manager out of the lease.
 func readinessChecks(
 	mgr ctrl.Manager, store relindex.Store, jetstream healthz.Checker,
-) (map[string]healthz.Checker, error) {
+) (*k8s.Checks, error) {
 	cacheReady, err := k8s.CacheSyncChecker(mgr)
 	if err != nil {
 		return nil, err
 	}
-	return map[string]healthz.Checker{
-		"jetstream": jetstream,
-		// §13's "informer caches synced". Every controller and the search
-		// fan-out read through the manager's cache, and an unsynced cache
-		// does not fail -- it reports an EMPTY cluster, so a search would
-		// answer "no indexers" rather than "not ready yet".
-		"cache": cacheReady,
-		// §13's SQLite half. Stats is relindex's designated readiness call:
-		// it is a real query against the handle, so it fails once the handle
-		// stops working.
-		"releaseindex": IndexReadyChecker(store),
-	}, nil
+	ready := k8s.NewChecks()
+	if err := ready.Add("jetstream", jetstream); err != nil {
+		return nil, err
+	}
+	// §13's "informer caches synced". Every controller and the search
+	// fan-out read through the manager's cache, and an unsynced cache
+	// does not fail -- it reports an EMPTY cluster, so a search would
+	// answer "no indexers" rather than "not ready yet".
+	if err := ready.Add("cache", cacheReady); err != nil {
+		return nil, err
+	}
+	// §13's SQLite half. Stats is relindex's designated readiness call:
+	// it is a real query against the handle, so it fails once the handle
+	// stops working.
+	if err := ready.Add("releaseindex", IndexReadyChecker(store)); err != nil {
+		return nil, err
+	}
+	return ready, nil
 }
 
 // defaultLimiterConfig is the bucket [ratelimit.Limiter] hands to a host it

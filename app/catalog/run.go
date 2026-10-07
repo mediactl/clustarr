@@ -34,7 +34,6 @@ import (
 	"time"
 
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/healthz"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/artwork"
@@ -272,15 +271,19 @@ func Run(ctx context.Context, o Options) error {
 	if err != nil {
 		return err
 	}
-	if err := k8s.AddProbes(mgr, map[string]healthz.Checker{
-		"jetstream": k8s.BusReadyChecker(nc, bus),
-		// §13 names only the JetStream ping. The Kubernetes half matters
-		// more here: every catalogarr controller and worker reads through
-		// the manager's cache, and an unsynced cache does not fail -- it
-		// reports an EMPTY cluster, which reads as "nothing to reconcile"
-		// rather than "not ready yet".
-		"cache": cacheReady,
-	}); err != nil {
+	var ready k8s.Checks
+	if err := ready.Add("jetstream", k8s.BusReadyChecker(nc, bus)); err != nil {
+		return err
+	}
+	// §13 names only the JetStream ping. The Kubernetes half matters
+	// more here: every catalogarr controller and worker reads through
+	// the manager's cache, and an unsynced cache does not fail -- it
+	// reports an EMPTY cluster, which reads as "nothing to reconcile"
+	// rather than "not ready yet".
+	if err := ready.Add("cache", cacheReady); err != nil {
+		return err
+	}
+	if err := k8s.AddProbes(mgr, &ready, nil); err != nil {
 		return err
 	}
 

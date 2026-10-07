@@ -313,16 +313,33 @@ func RegisterRESTClientMetrics() {
 // §13 puts the JetStream ping on every service, the SQLite open on indexarr
 // and the engine re-attach on grabarr engines -- because an unready pod is
 // taken out of Services and left alone.
-func AddProbes(mgr ctrl.Manager, ready map[string]healthz.Checker) error {
+//
+// ready and live are added after ping, each in its set's order. Either may
+// be nil. A set that names "ping" is refused: it is AddProbes' own. This is
+// the only probe registrar (TestOnlyPkgK8sRegistersProbes); every component
+// returns its checks instead of registering them (spec §3.3).
+func AddProbes(mgr ctrl.Manager, ready, live *Checks) error {
 	if err := mgr.AddHealthzCheck("ping", healthz.Ping); err != nil {
 		return fmt.Errorf("k8s: add healthz check: %w", err)
 	}
 	if err := mgr.AddReadyzCheck("ping", healthz.Ping); err != nil {
 		return fmt.Errorf("k8s: add readyz ping check: %w", err)
 	}
-	for name, check := range ready {
-		if err := mgr.AddReadyzCheck(name, check); err != nil {
-			return fmt.Errorf("k8s: add readyz check %q: %w", name, err)
+	for _, set := range []struct {
+		kind   string
+		checks *Checks
+		add    func(string, healthz.Checker) error
+	}{
+		{"readyz", ready, mgr.AddReadyzCheck},
+		{"healthz", live, mgr.AddHealthzCheck},
+	} {
+		for _, name := range set.checks.Names() {
+			if name == "ping" {
+				return fmt.Errorf("k8s: %s check %q is AddProbes' own", set.kind, name)
+			}
+			if err := set.add(name, set.checks.Get(name)); err != nil {
+				return fmt.Errorf("k8s: add %s check %q: %w", set.kind, name, err)
+			}
 		}
 	}
 	return nil
@@ -355,6 +372,19 @@ func (f EveryReplica) Start(ctx context.Context) error { return f(ctx) }
 // NeedLeaderElection implements manager.LeaderElectionRunnable. Returning
 // false is this type's entire reason to exist.
 func (EveryReplica) NeedLeaderElection() bool { return false }
+
+// LeaderOnly adapts fn into a manager.Runnable that controller-runtime starts
+// only on the replica holding the lease: a cluster singleton that states so,
+// as EveryReplica states the opposite (spec §3.4.3). The manager's R9
+// runnables (the Cardigann bundle loader, artwork.Reaper) and its topology
+// keepers use it. No agent domain adds one: an agent never elects.
+type LeaderOnly func(ctx context.Context) error
+
+// Start implements manager.Runnable.
+func (f LeaderOnly) Start(ctx context.Context) error { return f(ctx) }
+
+// NeedLeaderElection implements manager.LeaderElectionRunnable.
+func (LeaderOnly) NeedLeaderElection() bool { return true }
 
 // CacheSyncChecker returns a readiness check that fails until every informer
 // the manager's cache backs has completed its initial List, and adds the
