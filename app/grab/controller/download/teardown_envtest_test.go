@@ -37,7 +37,6 @@ import (
 	downloadac "github.com/mediactl/clustarr/api/applyconfiguration/download/download/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	downloadctl "github.com/mediactl/clustarr/app/grab/controller/download"
-	"github.com/mediactl/clustarr/app/grab/engine"
 	grabarrstatus "github.com/mediactl/clustarr/app/grab/status"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
@@ -68,7 +67,7 @@ func assignedWithEngineFinalizer(
 	seedOutputPath(t, ctx, c, ns, dl.Name, outputPath)
 
 	live := getDownload(t, ctx, c, ns, dl.Name)
-	_, err := k8s.EnsureFinalizer(ctx, c, live, engine.Finalizer)
+	_, err := k8s.EnsureFinalizer(ctx, c, live, grabarrstatus.EngineFinalizer)
 	require.NoError(t, err)
 	require.NoError(t, c.Delete(ctx, live))
 	return getDownload(t, ctx, c, ns, dl.Name), outputPath
@@ -95,10 +94,10 @@ func TestFinalizerWaitsForALiveEngineBeforeRemovingData(t *testing.T) {
 	assert.Positive(t, res.RequeueAfter)
 	assert.FileExists(t, outputPath, "no data may be removed while the engine's finalizer is on")
 	held := getDownload(t, ctx, c, ns, deleting.Name)
-	assert.Contains(t, held.Finalizers, engine.Finalizer)
+	assert.Contains(t, held.Finalizers, grabarrstatus.EngineFinalizer)
 
 	// The engine removes its transfer and drops its finalizer.
-	_, err := k8s.RemoveFinalizer(ctx, c, held, engine.Finalizer)
+	_, err := k8s.RemoveFinalizer(ctx, c, held, grabarrstatus.EngineFinalizer)
 	require.NoError(t, err)
 	reconcileOK(t, r, ns, deleting.Name)
 
@@ -160,7 +159,7 @@ func TestFinalizerReleasesAGoneEngineAfterTheTimeout(t *testing.T) {
 			res := reconcileOK(t, r, ns, deleting.Name)
 			assert.Positive(t, res.RequeueAfter, "a gone engine is still waited for until the timeout")
 			assert.FileExists(t, outputPath)
-			assert.Contains(t, getDownload(t, ctx, c, ns, deleting.Name).Finalizers, engine.Finalizer)
+			assert.Contains(t, getDownload(t, ctx, c, ns, deleting.Name).Finalizers, grabarrstatus.EngineFinalizer)
 
 			r.Now = func() time.Time {
 				return deleting.DeletionTimestamp.Add(downloadctl.DefaultEngineTeardownTimeout + time.Second)

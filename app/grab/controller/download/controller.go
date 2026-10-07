@@ -44,7 +44,6 @@ import (
 	downloadac "github.com/mediactl/clustarr/api/applyconfiguration/download/download/v1alpha1"
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
-	"github.com/mediactl/clustarr/app/grab/engine"
 	grabarrstatus "github.com/mediactl/clustarr/app/grab/status"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -610,7 +609,7 @@ func (r *Reconciler) reconcileDelete(ctx context.Context, dl *downloadv1alpha1.D
 		return ctrl.Result{}, nil
 	}
 
-	if k8s.HasFinalizer(dl, engine.Finalizer) {
+	if k8s.HasFinalizer(dl, grabarrstatus.EngineFinalizer) {
 		gone, why, err := r.engineGone(ctx, dl)
 		if err != nil {
 			return ctrl.Result{}, err
@@ -631,7 +630,7 @@ func (r *Reconciler) reconcileDelete(ctx context.Context, dl *downloadv1alpha1.D
 				dl.Status.Engine, timeout, why)
 		}
 		log.Warn("releasing the engine finalizer on a gone engine's behalf", "engine", dl.Status.Engine, "why", why)
-		if _, err := k8s.RemoveFinalizer(ctx, r.Client, dl, engine.Finalizer); err != nil {
+		if _, err := k8s.RemoveFinalizer(ctx, r.Client, dl, grabarrstatus.EngineFinalizer); err != nil {
 			return ctrl.Result{}, err
 		}
 	}

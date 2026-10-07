@@ -56,6 +56,7 @@ import (
 	"time"
 
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	grabarrstatus "github.com/mediactl/clustarr/app/grab/status"
 	"github.com/mediactl/clustarr/pkg/download"
 )
 
@@ -79,12 +80,8 @@ func Stopped(dl *downloadv1alpha1.Download) bool {
 	return dl.Labels[downloadv1alpha1.LabelBlocklisted] == downloadv1alpha1.LabelBlocklistedValue
 }
 
-// Finalizer is the finalizer every engine adds to a Download it owns. It is
-// distinct from the Download controller's own finalizer
-// (k8s.FinalizerFor(Download) = "download.clustarr.io/download") because the
-// two guard different things: this one the transfer, that one the data. See
-// the package doc for the ordering between them.
-const Finalizer = "download.clustarr.io/engine"
+// Finalizer is [grabarrstatus.EngineFinalizer], named here for the engines.
+const Finalizer = grabarrstatus.EngineFinalizer
 
 // OrphanClock is the bookkeeping behind both engines' orphan reapers: it
 // decides when a transfer the client holds, but no Download this replica
