@@ -109,21 +109,30 @@ func (s *Stage) Plan(ctx context.Context, _ *remediation.Env, v *remediation.Ite
 		// its pending grabs re-sent until the item is gone.
 		return s.deleting(v), nil
 	}
-	gv, err := s.gather(ctx, v.Item, v.Now.Time)
+	g, err := s.gather(ctx, v.Item, v.Now.Time)
 	if err != nil {
 		return remediation.ItemResult{}, remediation.Transient(err)
 	}
-	plan := grabplan.Decide(gv)
-	return s.result(ctx, v, gv, plan), nil
+	plan := grabplan.Decide(g.v)
+	return s.result(ctx, v, g, plan), nil
 }
 
 // result is the plan as the pass's outcome.
-func (s *Stage) result(ctx context.Context, v *remediation.ItemView, gv grabplan.View, plan grabplan.Plan) remediation.ItemResult {
+func (s *Stage) result(ctx context.Context, v *remediation.ItemView, g *gathered, plan grabplan.Plan) remediation.ItemResult {
+	gv := g.v
 	res := remediation.ItemResult{
 		NewEntries: plan.NewEntries,
-		StillWants: func(c schema.TransferClaim) (bool, string) { return grabplan.StillWants(gv, c) },
-		Sets:       []itempass.Set{pendingSet(v.Key.Kind, plan.Pending)},
-		Due:        plan.Due,
+		// Convergence reads the covered items' files; a pass that had
+		// nothing to decide reads them only now. A file it cannot read
+		// keeps the transfer: no evidence, no removal (§6.7).
+		StillWants: func(c schema.TransferClaim) (bool, string) {
+			if err := s.fillCurrent(ctx, g); err != nil {
+				return true, "the owner's files could not be read"
+			}
+			return grabplan.StillWants(g.v, c)
+		},
+		Sets: []itempass.Set{pendingSet(v.Key.Kind, plan.Pending)},
+		Due:  plan.Due,
 	}
 	for id, o := range plan.Settle {
 		res.Effects = append(res.Effects, remediation.SettleCandidate{MsgID: id, Outcome: o})

@@ -250,6 +250,13 @@ func purposeDue(v View, now time.Time) *purpose {
 	if redownloadDue(v, now) {
 		return &purpose{reason: schema.SearchReasonRedownload, live: true}
 	}
+	// A dispatch that closed without counting -- every indexer paced (P6),
+	// or nobody answered -- still waits the backoff's floor before the next,
+	// as the item waited for the next sweep before: a paced pool must not
+	// come straight back at the index agent's limiter.
+	if d := v.Dispatch; d != nil && now.Sub(d.DispatchedAt.Time) < wantedcron.MinimumGap {
+		return nil
+	}
 	if v.Wanted && wantedcron.Eligible(v.Attempts, now) {
 		reason := v.Reason
 		if reason == "" {

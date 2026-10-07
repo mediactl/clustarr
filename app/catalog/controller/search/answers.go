@@ -221,20 +221,20 @@ func (r *Reconciler) handlePicks(ctx context.Context, s *catalogv1alpha1.Search)
 			if have && cur.DownloadRef != "" {
 				continue
 			}
-			// grabBest's pick is the automatic search's grab, not a
-			// person's: grabbedBy search, not manual.
-			manual := guid != best || containsString(s.Spec.Grab, guid)
-			if have && cur.Error == "" && owner != nil {
-				// Published: find the entry, or the owner's refusal.
+			if owner != nil {
 				if id := entryFor(owner, item, guid); id != "" {
 					grabbed[guid] = catalogv1alpha1.GrabResult{GUID: guid, DownloadRef: id}
 					r.event(s, "Grabbed", "the release is grab %s on %s", id, owner.GetName())
 					continue
 				}
-				if o, ok := r.settled(s, guid); ok && o == intake.Refused {
-					grabbed[guid] = catalogv1alpha1.GrabResult{GUID: guid, Error: "the item's owner did not take the release (see its Events)"}
-					continue
-				}
+			}
+			if o, ok := r.settled(s, guid); ok && o == intake.Refused {
+				// Sent again only under a new Msg-Id: flipping spec.override.
+				grabbed[guid] = catalogv1alpha1.GrabResult{GUID: guid, Error: "the item's owner did not take the release (see its Events)"}
+				continue
+			}
+			if have && cur.Error == "" {
+				// Sent; its entry or the owner's refusal is still to come.
 				waiting = true
 				continue
 			}
@@ -247,6 +247,9 @@ func (r *Reconciler) handlePicks(ctx context.Context, s *catalogv1alpha1.Search)
 				grabbed[guid] = catalogv1alpha1.GrabResult{GUID: guid, Error: "the item to grab it for no longer exists"}
 				continue
 			}
+			// grabBest's pick is the automatic search's grab, not a
+			// person's: grabbedBy search, not manual.
+			manual := guid != best || containsString(s.Spec.Grab, guid)
 			if err := r.publishPick(ctx, s, item, owner, guid, manual); err != nil {
 				grabbed[guid] = catalogv1alpha1.GrabResult{GUID: guid, Error: err.Error()}
 				r.eventWarning(s, "GrabFailed", "could not send the pick %s: %v", guid, err)

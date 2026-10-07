@@ -343,12 +343,18 @@ func (w *Worker) fail(ctx context.Context, a answer, reason string) error {
 func (w *Worker) record(a answer) *schema.SearchRecord {
 	now := w.now()
 	item := a.item
-	return &schema.SearchRecord{
+	rec := &schema.SearchRecord{
 		RecordHeader: schema.RecordHeader{
 			Item: &item, Seq: a.task.Seq, State: records.StateAnswered, AnsweredAt: &now,
 		},
-		Task: a.key, Container: a.task.Container, Purpose: a.task.Purpose, FinishedAt: now,
+		Task: a.key, Purpose: a.task.Purpose, FinishedAt: now,
 	}
+	if a.task.SearchRef == nil {
+		// An automatic answer is the container's grab input too (R7); an
+		// interactive one is the Search's alone.
+		rec.Container = a.task.Container
+	}
+	return rec
 }
 
 // store writes rec; a record above rec's seq already stored is no error.

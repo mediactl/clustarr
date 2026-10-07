@@ -193,13 +193,15 @@ func Decide(v View) Plan {
 
 	var limited []verdict
 	for _, vd := range approved {
+		// The delay first: the grab limit matters when the grab is made,
+		// which for a delayed release is when its delay has passed.
 		switch {
 		case d.overlaps(vd):
 			d.settle(vd.c, intake.Refused, "refused")
-		case d.limitedUntil(vd).After(d.now):
-			limited = append(limited, vd)
 		case d.delays(vd):
 			d.hold(vd, d.now.Add(d.wait(vd)), true)
+		case d.limitedUntil(vd).After(d.now):
+			limited = append(limited, vd)
 		default:
 			d.grab(vd)
 		}

@@ -49,29 +49,69 @@ import (
 // Episodes dispatched inside it.
 const recordHorizon = 15*time.Minute + grabplan.CandidateWindow
 
+// gathered is one owner's view and the covered items' objects, in
+// v.Covered's order: the current files are read only when the plan or
+// convergence needs them (fillCurrent).
+type gathered struct {
+	v       grabplan.View
+	objects []client.Object
+	filled  bool
+}
+
+// fillCurrent reads every covered item's current file, once.
+func (s *Stage) fillCurrent(ctx context.Context, g *gathered) error {
+	if g.filled {
+		return nil
+	}
+	for i, o := range g.objects {
+		cur, err := itemread.Current(ctx, s.o.Reader, o)
+		if err != nil {
+			return err
+		}
+		g.v.Covered[i].Current = cur
+	}
+	g.filled = true
+	return nil
+}
+
 // gather builds grabplan's view of one owner from the cache, the records
-// bucket, the inbox and the grab ring (A4.1 step 3).
-func (s *Stage) gather(ctx context.Context, item client.Object, now time.Time) (grabplan.View, error) {
+// bucket, the inbox and the grab ring (A4.1 step 3). The covered items'
+// current files are read only when there is something to decide.
+func (s *Stage) gather(ctx context.Context, item client.Object, now time.Time) (*gathered, error) {
+	g := &gathered{}
+	if err := s.gatherInto(ctx, item, now, g); err != nil {
+		return nil, err
+	}
+	if len(g.v.Candidates) > 0 || len(g.v.Pending) > 0 {
+		if err := s.fillCurrent(ctx, g); err != nil {
+			return nil, err
+		}
+	}
+	return g, nil
+}
+
+func (s *Stage) gatherInto(ctx context.Context, item client.Object, now time.Time, g *gathered) error {
 	r := s.o.Reader
 	ns := item.GetNamespace()
 	ref := itemread.Ref(item)
-	v := grabplan.View{
+	g.v = grabplan.View{
 		Owner: ref, Kind: itemread.MediaKind(item), Now: now,
 		Entries: dlindex.Entries(item), Pending: pendingOf(item),
 		EntryCap: catalogv1alpha1.MaxOwnerEntries, PendingCap: 1,
 	}
+	v := &g.v
 	if v.Kind == commonv1.MediaKindSeries || v.Kind == commonv1.MediaKindComic {
 		v.EntryCap, v.PendingCap = catalogv1alpha1.MaxContainerEntries, catalogv1alpha1.MaxContainerEntries
 	}
 
 	monitored, err := itemread.Monitored(ctx, r, item)
 	if err != nil {
-		return v, err
+		return err
 	}
 	v.Monitored = monitored
 	cfg, err := itemread.ConfigOf(ctx, r, item)
 	if err != nil {
-		return v, err
+		return err
 	}
 	v.ProfileRef = cfg.QualityProfileRef
 	switch p, err := itemread.Profile(ctx, r, cfg.QualityProfileRef); {
@@ -80,36 +120,41 @@ func (s *Stage) gather(ctx context.Context, item client.Object, now time.Time) (
 	case errors.Is(err, itemread.ErrNoProfile):
 		logging.FromContext(ctx).Debug("grab: the owner has no usable quality profile; its candidates are refused", "reason", err)
 	default:
-		return v, err
+		return err
 	}
 	dspec, err := itemread.Delay(ctx, r, ns, cfg)
 	if err != nil {
-		return v, err
+		return err
 	}
 	v.Delay = &dspec
 	if v.Protocols, err = itemread.Protocols(ctx, r, ns); err != nil {
-		return v, err
+		return err
 	}
 	v.OriginalLanguageTag = itemread.OriginalLanguage(ctx, r, item)
 
-	if err := s.covered(ctx, item, &v); err != nil {
-		return v, err
+	if err := s.covered(ctx, item, g); err != nil {
+		return err
 	}
-	if err := s.candidates(ctx, item, &v); err != nil {
-		return v, err
+	if err := s.candidates(ctx, item, g); err != nil {
+		return err
 	}
-	if err := s.indexers(ctx, ns, &v); err != nil {
-		return v, err
+	if err := s.indexers(ctx, ns, v); err != nil {
+		return err
 	}
-	return v, nil
+	return nil
 }
 
-// covered fills the items a candidate may cover: the owner itself, or a
-// Series' Episodes or a Comic's Issues, each with its monitoring, its
-// availability and its current file.
-func (s *Stage) covered(ctx context.Context, item client.Object, v *grabplan.View) error {
+// covered fills the items a candidate may cover -- the owner itself, or a
+// Series' Episodes or a Comic's Issues -- each with its monitoring and its
+// availability; their current files are fillCurrent's.
+func (s *Stage) covered(ctx context.Context, item client.Object, g *gathered) error {
 	r := s.o.Reader
 	ns := item.GetNamespace()
+	v := &g.v
+	add := func(o client.Object, c grabplan.Covered) {
+		v.Covered = append(v.Covered, c)
+		g.objects = append(g.objects, o)
+	}
 	switch t := item.(type) {
 	case *catalogv1alpha1.Series:
 		var eps catalogv1alpha1.EpisodeList
@@ -118,13 +163,10 @@ func (s *Stage) covered(ctx context.Context, item client.Object, v *grabplan.Vie
 		}
 		for i := range eps.Items {
 			ep := &eps.Items[i]
-			c, err := s.coveredItem(ctx, ep, v.Now)
-			if err != nil {
-				return err
-			}
+			c := coveredItem(ep, v.Now)
 			c.Monitored = c.Monitored && v.Monitored
 			c.Season, c.Number, c.Absolute = ep.Spec.SeasonNumber, ep.Spec.EpisodeNumber, ep.Status.AbsoluteNumber
-			v.Covered = append(v.Covered, c)
+			add(ep, c)
 		}
 	case *catalogv1alpha1.Comic:
 		var issues catalogv1alpha1.IssueList
@@ -133,59 +175,54 @@ func (s *Stage) covered(ctx context.Context, item client.Object, v *grabplan.Vie
 		}
 		for i := range issues.Items {
 			iss := &issues.Items[i]
-			c, err := s.coveredItem(ctx, iss, v.Now)
-			if err != nil {
-				return err
-			}
+			c := coveredItem(iss, v.Now)
 			c.Monitored = c.Monitored && v.Monitored
 			c.Issue = iss.Spec.Number
-			v.Covered = append(v.Covered, c)
+			add(iss, c)
 		}
 	default:
-		c, err := s.coveredItem(ctx, item, v.Now)
-		if err != nil {
-			return err
-		}
-		v.Covered = []grabplan.Covered{c}
+		add(item, coveredItem(item, v.Now))
 	}
 	return nil
 }
 
-// coveredItem reads one item's own monitoring, availability and current
-// file (its container's monitoring is the caller's).
-func (s *Stage) coveredItem(ctx context.Context, item client.Object, now time.Time) (grabplan.Covered, error) {
-	cur, err := itemread.Current(ctx, s.o.Reader, item)
-	if err != nil {
-		return grabplan.Covered{}, err
-	}
-	return grabplan.Covered{
-		Ref: itemread.Ref(item), Monitored: itemread.OwnMonitored(item), Wanted: itemread.Available(item, now), Current: cur,
-	}, nil
+// coveredItem is one item's own monitoring and availability (its
+// container's monitoring is the caller's).
+func coveredItem(item client.Object, now time.Time) grabplan.Covered {
+	return grabplan.Covered{Ref: itemread.Ref(item), Monitored: itemread.OwnMonitored(item), Wanted: itemread.Available(item, now)}
 }
 
 // candidates gathers the owner's candidates: its parked intake candidates,
 // and the search answers of the owner (or its covered Episodes or Issues)
 // that answer each item's current searchDispatch inside the window (R7).
-func (s *Stage) candidates(ctx context.Context, item client.Object, v *grabplan.View) error {
+func (s *Stage) candidates(ctx context.Context, item client.Object, g *gathered) error {
+	v := &g.v
 	if s.o.Inbox != nil {
 		for _, p := range s.o.Inbox.Take(intake.OwnerOf(v.Owner)) {
 			v.Candidates = append(v.Candidates, grabplan.FromParked(p))
 		}
 	}
-	addRecord := func(it client.Object, d *catalogv1alpha1.Dispatch, target *schema.ItemRef) error {
+	container := v.Kind == commonv1.MediaKindSeries || v.Kind == commonv1.MediaKindComic
+	for i, it := range g.objects {
+		d := itemread.SearchDispatch(it)
 		if d == nil || v.Now.Sub(d.DispatchedAt.Time) > recordHorizon {
-			return nil
+			continue
 		}
 		rec, _, ok, err := s.searches.Get(ctx, agentrecords.SearchKey(string(it.GetUID())))
 		if err != nil {
 			return fmt.Errorf("grab: search record of %s: %w", it.GetName(), err)
 		}
 		if !ok || rec.Seq != d.Seq || v.Now.Sub(rec.FinishedAt) > grabplan.CandidateWindow {
-			return nil
+			continue
 		}
 		by := commonv1.GrabSourceSearch
 		if redownload(v.Entries, it, d.DispatchedAt.Time, v.Now) {
 			by = commonv1.GrabSourceRedownload
+		}
+		var target *schema.ItemRef
+		if container {
+			t := v.Covered[i].Ref
+			target = &t
 		}
 		cs := grabplan.FromRecord(rec, target, by)
 		if rec.Purpose == schema.SearchPurposeAudioDonor && len(cs) > 0 {
@@ -194,31 +231,6 @@ func (s *Stage) candidates(ctx context.Context, item client.Object, v *grabplan.
 			}
 		}
 		v.Candidates = append(v.Candidates, cs...)
-		return nil
-	}
-	ns := item.GetNamespace()
-	switch item.(type) {
-	case *catalogv1alpha1.Series, *catalogv1alpha1.Comic:
-		for i := range v.Covered {
-			it, ok := itemread.New(v.Covered[i].Ref.Kind)
-			if !ok {
-				continue
-			}
-			if err := s.o.Reader.Get(ctx, client.ObjectKey{Namespace: ns, Name: v.Covered[i].Ref.Name}, it); err != nil {
-				if client.IgnoreNotFound(err) == nil {
-					continue
-				}
-				return err
-			}
-			target := v.Covered[i].Ref
-			if err := addRecord(it, itemread.SearchDispatch(it), &target); err != nil {
-				return err
-			}
-		}
-	default:
-		if err := addRecord(item, itemread.SearchDispatch(item), nil); err != nil {
-			return err
-		}
 	}
 	return nil
 }
