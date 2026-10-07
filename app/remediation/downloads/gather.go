@@ -317,3 +317,60 @@ func containsString(ss []string, s string) bool {
 	}
 	return false
 }
+
+// episodesOf lists a Series' Episodes from the cache, nil on an error (a
+// command then selects by season and episode numbers alone).
+func (s *Stage) episodesOf(ctx context.Context, ow owner) []catalogv1alpha1.Episode {
+	var eps catalogv1alpha1.EpisodeList
+	if err := s.o.Reader.List(ctx, &eps, client.InNamespace(ow.ref.Namespace), client.MatchingFields{series.EpisodeBySeriesRefIndex: ow.ref.Name}); err != nil {
+		return nil
+	}
+	return eps.Items
+}
+
+// enrichSelection adds to a command's episode selection what the engine
+// used to read off each covered Episode (ADR-0019 §6.7: the selection
+// replaces the engine's Episode reads): its absolute number, its scene
+// numbering, and its air date with a day either side (a release dated in
+// another timezone).
+func enrichSelection(sel *schema.TransferSelection, eps []catalogv1alpha1.Episode) *schema.TransferSelection {
+	out := *sel
+	out.Episodes = append([]schema.EpisodeNo(nil), sel.Episodes...)
+	out.Absolutes = append([]int32(nil), sel.Absolutes...)
+	out.AirDates = append([]string(nil), sel.AirDates...)
+	for i := range eps {
+		ep := &eps[i]
+		covered := false
+		for _, n := range sel.Episodes {
+			if n.Season == ep.Spec.SeasonNumber && n.Number == ep.Spec.EpisodeNumber {
+				covered = true
+				break
+			}
+		}
+		if !covered {
+			continue
+		}
+		if ep.Status.AbsoluteNumber != nil {
+			out.Absolutes = append(out.Absolutes, *ep.Status.AbsoluteNumber)
+		}
+		if sn := ep.Status.SceneNumbering; sn != nil {
+			if sn.Episode != nil {
+				season := ep.Spec.SeasonNumber
+				if sn.Season != nil {
+					season = *sn.Season
+				}
+				out.Episodes = append(out.Episodes, schema.EpisodeNo{Season: season, Number: *sn.Episode})
+			}
+			if sn.Absolute != nil {
+				out.Absolutes = append(out.Absolutes, *sn.Absolute)
+			}
+		}
+		if ep.Status.AirDate != nil {
+			day := ep.Status.AirDate.UTC()
+			for _, d := range []int{-1, 0, 1} {
+				out.AirDates = append(out.AirDates, day.AddDate(0, 0, d).Format(time.DateOnly))
+			}
+		}
+	}
+	return &out
+}

@@ -15,52 +15,18 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package downloadclient reconciles DownloadClient: it stands up the engine
-// workload the client describes, reports DiskSpaceOK/EngineReady/Ready, and
-// sweeps expired blocklist entries. Design spec §6.3, §4.4; plan task D2-3.
-//
-// # Two reconcilers, one package
-//
-// [Reconciler] owns DownloadClient itself -- the StatefulSet (torrent) or
-// Deployment (usenet) it describes, and DownloadClientStatus. [BlocklistSweeper]
-// owns nothing on DownloadClient at all; it watches Download and deletes the
-// ones whose blocklist has expired. They are two controllers, registered
-// separately, because they watch different root kinds and controller-runtime
-// reconciles one kind per controller. Both need wiring in app/grab/run.go's
-// setupControllers, which is task D2-8's job, not this one's:
-//
-//	if err := downloadclient.NewReconciler(
-//	    mgr.GetClient(), mgr.GetEventRecorder("downloadclient"), o.DataDir, engineImage,
-//	).SetupWithManager(mgr); err != nil {
-//	    return err
-//	}
-//	if err := downloadclient.NewBlocklistSweeper(
-//	    mgr.GetClient(), mgr.GetEventRecorder("downloadclient-blocklist"),
-//	).SetupWithManager(mgr); err != nil {
-//	    return err
-//	}
-//
-// engineImage is CLUSTARR_ENGINE_IMAGE (config/manager/grabarr.yaml already
-// declares it, on the grabarr Deployment, as "images the controller stamps
-// into the engine workloads it owns"); no code reads that env var into
-// grabarr.Options yet, because app/grab/run.go is outside this task's directory
-// (see the task instructions: stay inside
-// app/grab/controller/downloadclient/). D2-8 adds the flag/Options field and
-// passes it through.
-//
-// # Why the sweep deletes rather than clears BlocklistedUntil
-//
-// download_types.go's own doc comment on LabelBlocklisted settles this:
-// "grabarr sweeps expired entries, and the decision engine reads the live set
-// through a catalogarr informer" and BlocklistedUntil's comment is more
-// direct still -- "grabarr deletes the Download once the deadline passes."
-// [BlocklistSweeper] therefore never calls app/grab/status.Patch or claims any
-// part of k8s.ManagerGrabarr's Download.status set: it Gets, checks the label
-// and the deadline, and either client.Delete()s or requeues for the moment
-// the deadline arrives. There is no status write here to build a partial
-// declaration of in the first place -- the early-return hazard CLAUDE.md
-// warns about needs an apply to exist, and this reconciler never issues one
-// against Download.
+// Package downloadclient reconciles DownloadClient (ADR-0019 §6.7): it
+// stands up the engine workload the client describes, ensures one durable
+// per rendered engine ordinal (grabarr-engine-<client>-<ordinal>, §5.1) and
+// deletes a scaled-away ordinal's once nothing is pinned to it, and reports
+// the client from its engines' own records: active, queued, seeding, the
+// engines' free bytes (DiskSpaceOK), EngineReady (ready replicas AND a fresh
+// engine record saying ready), ProxyUDPUnavailable and the unidentified
+// transfers. After a clustarr-transfers loss it asks every engine for a
+// resync at a new status.resyncSeq, and it commands the removal, bytes
+// kept, of a transfer an engine holds with no claim once its grace passed.
+// The Download watch, the blocklist sweeper (the release index sweeps its
+// own rows, §6.14) and the manager's own statfs are gone.
 //
 // # DiskSpaceOK has no spec field to read a floor from
 //
@@ -130,7 +96,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // +kubebuilder:rbac:groups=download.clustarr.io,resources=downloadclients,verbs=get;list;watch
 // +kubebuilder:rbac:groups=download.clustarr.io,resources=downloadclients/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=download.clustarr.io,resources=downloads,verbs=get;list;watch;delete
 // +kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create;update;patch

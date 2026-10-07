@@ -13,14 +13,6 @@ rules:
   - get
   - patch
 - apiGroups:
-  - download.clustarr.io
-  resources:
-  - downloads
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
   - events.k8s.io
   resources:
   - events

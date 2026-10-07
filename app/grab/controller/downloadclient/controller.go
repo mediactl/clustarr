@@ -26,6 +26,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"sort"
+	"sync"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -40,16 +41,17 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	downloadac "github.com/mediactl/clustarr/api/applyconfiguration/download/download/v1alpha1"
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
-	"github.com/mediactl/clustarr/pkg/fsops"
+	cevents "github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
+	"github.com/mediactl/clustarr/pkg/records"
 )
 
 // recheckInterval is how often a DownloadClient is re-reconciled with no spec
@@ -119,24 +121,45 @@ type Reconciler struct {
 	// from its options and environment.
 	Engine EngineRuntime
 
-	// MinFreeBytes is the floor DiskSpaceOK enforces on DataDir. Zero uses
-	// [DefaultMinFreeBytes].
+	// MinFreeBytes is the floor DiskSpaceOK enforces on the engines' own
+	// free bytes (their records'). Zero uses [DefaultMinFreeBytes].
 	MinFreeBytes int64
 
-	// DiskUsage is the filesystem probe; production uses fsops.DiskUsage.
-	DiskUsage diskUsageFunc
-
-	// SecretReader reads the Secrets a usenet engine reads at start, by name
-	// ([Reconciler.secretDigests]). Production passes the manager's uncached
-	// mgr.GetAPIReader(), so a read is a plain `get`: a cached read would
-	// start a Secret informer, which needs list and watch on every Secret in
-	// scope. NewReconciler sets it to the client it is given.
+	// SecretReader reads a provider or proxy Secret by name, for the
+	// engine-config-hash: mgr.GetAPIReader() in production.
 	SecretReader client.Reader
+
+	// Bus publishes the resync and unidentified-removal commands; Admin
+	// ensures and deletes the per-engine durables (ADR-0019 §5.1, §6.7).
+	// The manager alone creates topology (§8.5).
+	Bus   cevents.Bus
+	Admin cevents.StreamAdmin
+
+	// Engines reads the engines' records (clustarr-engines).
+	Engines *records.Reader[*schema.EngineRecord]
+
+	// EngineRecorder records the engines' Events the manager raises for
+	// them: ProxyUDPUnavailable and UnidentifiedTransferRemoved, as
+	// grabarr-engine (ADR-0019 §7.7). nil uses Recorder.
+	EngineRecorder events.EventRecorder
+
+	// Now is the clock; nil is time.Now.
+	Now func() time.Time
+
+	// UnidentifiedGate holds the removal of unidentified transfers; nil is
+	// always open. Release N sets the adoption gate (A8.1, §10.2).
+	UnidentifiedGate func(ctx context.Context, dc *downloadv1alpha1.DownloadClient) bool
+
+	// The leader-local books: when an unidentified transfer was first seen,
+	// which removals were already commanded, which durables were ensured,
+	// and which clients owe a resync after a transfers-bucket loss.
+	mu             sync.Mutex
+	firstSeen      map[string]time.Time
+	removalsIssued map[string]bool
+	ensured        map[string]bool
+	resyncWanted   map[types.NamespacedName]bool
 }
 
-// DefaultDataClaimName is the PVC config/'s grabarr pods -- controller and
-// engine alike -- mount at DataDir, per config/manager/grabarr.yaml. The
-// chart's differs; see Reconciler.DataClaimName.
 const DefaultDataClaimName = "clustarr-data"
 
 // NewReconciler builds a Reconciler with the real filesystem probe and the
@@ -151,7 +174,6 @@ func NewReconciler(c client.Client, recorder events.EventRecorder, dataDir, scra
 		DataClaimName: DefaultDataClaimName,
 		Engine:        EngineRuntime{ServiceAccountName: DefaultEngineServiceAccount},
 		MinFreeBytes:  DefaultMinFreeBytes,
-		DiskUsage:     fsops.DiskUsage,
 		SecretReader:  c,
 	}
 }
@@ -170,7 +192,20 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 
 	var dc downloadv1alpha1.DownloadClient
 	if err := r.Client.Get(ctx, req.NamespacedName, &dc); err != nil {
-		return ctrl.Result{}, client.IgnoreNotFound(err)
+		if !apierrors.IsNotFound(err) {
+			return ctrl.Result{}, err
+		}
+		// The client is gone: its engines' durables go once no entry is
+		// pinned to them (an entry drops EngineTeardownTimeout after its
+		// engine is gone, §6.8), so come back while one still is.
+		kept, err := r.sweepDurables(ctx, req.Namespace, req.Name, 0)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if kept > 0 {
+			return ctrl.Result{RequeueAfter: time.Minute}, nil
+		}
+		return ctrl.Result{}, nil
 	}
 
 	ownerRef, err := k8s.OwnerReferenceAC(&dc, r.Client.Scheme())
@@ -195,26 +230,44 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		desiredReplicas = 1
 	}
 
-	active, queued, seeding, downRate, upRate, err := r.aggregateDownloads(ctx, &dc)
-	if err != nil {
-		log.Error("aggregate downloads", "error", err)
+	now := r.now()
+	// The per-engine durables (§5.1): one per rendered ordinal, ensured by
+	// the manager; a scaled-away ordinal's goes once nothing is pinned to it.
+	if err := r.reconcileDurables(ctx, &dc, desiredReplicas); err != nil {
+		log.Error("reconcile engine durables", "error", err)
 		return ctrl.Result{}, err
 	}
 
-	usage, usageErr := r.DiskUsage(r.DataDir)
-	diskOK := usageErr == nil && usage.Free >= r.minFreeBytes()
+	// Engine records instead of the Downloads (§6.7).
+	es, err := r.engineRecords(ctx, &dc, desiredReplicas)
+	if err != nil {
+		log.Error("read engine records", "error", err)
+		return ctrl.Result{}, err
+	}
+
+	// A resync after a transfers-bucket loss: a new resyncSeq, published to
+	// every engine after the apply, again until each record reaches it.
+	resyncSeq := dc.Status.ResyncSeq
+	r.mu.Lock()
+	wanted := r.resyncWanted[req.NamespacedName]
+	r.mu.Unlock()
+	if wanted {
+		resyncSeq = records.NextSeq(dc.Status.ResyncSeq, 0, now)
+	}
 
 	conditions := append([]metav1.Condition(nil), dc.Status.Conditions...)
-	setDiskSpaceCondition(&dc, &conditions, diskOK, usage.Free, r.minFreeBytes(), usageErr)
-	engineReady := specErr == nil && desiredReplicas > 0 && replicas == desiredReplicas && readyReplicas == desiredReplicas
-	setEngineReadyCondition(&dc, &conditions, engineReady, replicas, readyReplicas, desiredReplicas)
-
-	ready := diskOK && engineReady
+	freeOK := es.reported > 0 && es.freeBytes >= r.minFreeBytes()
+	setDiskSpaceCondition(&dc, &conditions, freeOK, es.freeBytes, r.minFreeBytes(), es.freeErr())
+	fresh := es.freshReady == desiredReplicas
+	engineReady := specErr == nil && desiredReplicas > 0 && replicas == desiredReplicas && readyReplicas == desiredReplicas && fresh
+	setEngineReadyCondition(&dc, &conditions, engineReady, replicas, readyReplicas, desiredReplicas, es.freshReady)
+	r.setProxyCondition(&dc, &conditions, es.proxyUnavailable)
+	ready := freeOK && engineReady
 	reason, message := k8s.ReasonReconciled, "engine ready and disk space above minFreeBytes"
 	if !ready {
 		reason = ReasonEngineNotReady
 		message = "engine or disk space not ready; see EngineReady and DiskSpaceOK"
-		if !diskOK {
+		if !freeOK {
 			reason = ReasonBelowMinFree
 		}
 		if specErr != nil {
@@ -225,31 +278,41 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		r.Recorder.Eventf(&dc, nil, "Warning", reason, "Reconcile", message)
 	}
 
-	ac := downloadac.DownloadClient(dc.Name, dc.Namespace).WithStatus(
-		downloadac.DownloadClientStatus().
-			WithObservedGeneration(dc.Generation).
-			WithEngine(downloadac.EngineStatus().
-				WithWorkloadRef(workloadName).
-				WithReplicas(replicas).
-				WithReadyReplicas(readyReplicas)).
-			WithActive(active).
-			WithQueued(queued).
-			WithSeeding(seeding).
-			WithDownloadRateBps(downRate).
-			WithUploadRateBps(upRate).
-			WithFreeBytes(usage.Free).
-			WithConditions(k8s.ConditionACs(conditions)...),
-	)
+	st := downloadac.DownloadClientStatus().
+		WithObservedGeneration(dc.Generation).
+		WithEngine(downloadac.EngineStatus().
+			WithWorkloadRef(workloadName).
+			WithReplicas(replicas).
+			WithReadyReplicas(readyReplicas)).
+		WithActive(es.active).
+		WithQueued(es.queued).
+		WithSeeding(es.seeding).
+		WithFreeBytes(es.freeBytes).
+		WithUnidentifiedTransfers(es.unidentified).
+		WithConditions(k8s.ConditionACs(conditions)...)
+	if resyncSeq != 0 {
+		st = st.WithResyncSeq(resyncSeq)
+	}
+	ac := downloadac.DownloadClient(dc.Name, dc.Namespace).WithStatus(st)
 	if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerGrabarr, ac); err != nil {
 		log.Error("patch status", "error", err)
 		return ctrl.Result{}, err
 	}
+	if wanted {
+		r.mu.Lock()
+		delete(r.resyncWanted, req.NamespacedName)
+		r.mu.Unlock()
+	}
 
+	// After the apply: the resync commands, then the unidentified removals.
+	pending := r.publishResync(ctx, &dc, es, resyncSeq, now)
+	r.removeUnidentified(ctx, &dc, es, now)
+	if pending {
+		return ctrl.Result{RequeueAfter: resyncRepublish}, nil
+	}
 	return ctrl.Result{RequeueAfter: recheckInterval}, nil
 }
 
-// recreateStrategyPatch moves a Deployment to the Recreate strategy and drops
-// the rollingUpdate block with it -- see [Reconciler.migrateToRecreate].
 var recreateStrategyPatch = []byte(`{"spec":{"strategy":{"type":"Recreate","rollingUpdate":null}}}`)
 
 // migrateToRecreate moves a usenet engine Deployment created before
@@ -361,38 +424,6 @@ func (r *Reconciler) reconcileWorkload(
 	}
 }
 
-// aggregateDownloads rolls up every Download labelled for this client into
-// the three counters and two rates DownloadClientStatus reports. The mapping
-// from DownloadPhase to these buckets is this task's own reading of each
-// field's doc comment (DownloadClientStatus's Active/Queued/Seeding), not a
-// contract fixed elsewhere: Assigned and Queued are both "has a client, not
-// yet transferring" so both count as queued; Downloading is active; Seeding
-// is seeding. Every other phase (Pending has no client yet so is never
-// labelled for one; Paused, Completed, Imported, Failed, Blocklisted,
-// Removing) counts toward none of the three, which matches each field's own
-// wording ("currently transferring", "not yet transferring", "seeding").
-func (r *Reconciler) aggregateDownloads(ctx context.Context, dc *downloadv1alpha1.DownloadClient) (active, queued, seeding int32, downRate, upRate int64, err error) {
-	var downloads downloadv1alpha1.DownloadList
-	if err := r.Client.List(ctx, &downloads, client.InNamespace(dc.Namespace), client.MatchingLabels{downloadv1alpha1.LabelClient: dc.Name}); err != nil {
-		return 0, 0, 0, 0, 0, fmt.Errorf("downloadclient: list Downloads for %s: %w", dc.Name, err)
-	}
-	for i := range downloads.Items {
-		d := &downloads.Items[i]
-		switch d.Status.Phase {
-		case downloadv1alpha1.DownloadPhaseAssigned, downloadv1alpha1.DownloadPhaseQueued:
-			queued++
-		case downloadv1alpha1.DownloadPhaseDownloading:
-			active++
-			downRate += d.Status.DownloadRateBps
-			upRate += d.Status.UploadRateBps
-		case downloadv1alpha1.DownloadPhaseSeeding:
-			seeding++
-			upRate += d.Status.UploadRateBps
-		}
-	}
-	return active, queued, seeding, downRate, upRate, nil
-}
-
 func setDiskSpaceCondition(dc *downloadv1alpha1.DownloadClient, conditions *[]metav1.Condition, ok bool, free, minFree int64, probeErr error) {
 	if probeErr != nil {
 		k8s.MarkFalse(dc, conditions, downloadv1alpha1.DownloadClientConditionDiskSpaceOK, ReasonStatfsFailed, "%s", probeErr.Error())
@@ -407,14 +438,15 @@ func setDiskSpaceCondition(dc *downloadv1alpha1.DownloadClient, conditions *[]me
 		"free=%d minFreeBytes=%d", free, minFree)
 }
 
-func setEngineReadyCondition(dc *downloadv1alpha1.DownloadClient, conditions *[]metav1.Condition, ready bool, replicas, readyReplicas, desired int32) {
+func setEngineReadyCondition(dc *downloadv1alpha1.DownloadClient, conditions *[]metav1.Condition, ready bool, replicas, readyReplicas, desired, freshReady int32) {
 	if ready {
 		k8s.MarkTrue(dc, conditions, downloadv1alpha1.DownloadClientConditionEngineReady, k8s.ReasonReconciled,
-			"%d/%d replicas ready", readyReplicas, desired)
+			"%d/%d replicas ready, each reporting ready", readyReplicas, desired)
 		return
 	}
 	k8s.MarkFalse(dc, conditions, downloadv1alpha1.DownloadClientConditionEngineReady, ReasonEngineNotReady,
-		"%d/%d replicas exist, %d ready, want %d", replicas, desired, readyReplicas, desired)
+		"%d/%d replicas exist, %d ready, %d reporting ready on a fresh engine record, want %d",
+		replicas, desired, readyReplicas, freshReady, desired)
 }
 
 // secretDigests reads every Secret the usenet engine for dc reads at start --
@@ -506,28 +538,22 @@ func secretDataDigest(data map[string][]byte) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// mapDownloadToClient enqueues the DownloadClient a Download is labelled for,
-// so an assignment or a phase change is reconciled promptly instead of
-// waiting up to [recheckInterval] for the Active/Queued/Seeding rollup to
-// catch up.
-func mapDownloadToClient(_ context.Context, obj client.Object) []reconcile.Request {
-	name := obj.GetLabels()[downloadv1alpha1.LabelClient]
-	if name == "" {
-		return nil
-	}
-	return []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: obj.GetNamespace(), Name: name}}}
-}
-
-// SetupWithManager registers the DownloadClient controller.
+// SetupWithManager registers the DownloadClient controller: the client,
+// its workloads, and its engines' records (a records source on
+// clustarr-engines, whose record's item is the DownloadClient), plus a
+// second source on clustarr-transfers used only for its recreation signal,
+// which starts a resync of every client (§6.7).
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
+	b := ctrl.NewControllerManagedBy(mgr).
 		Named("downloadclient").
 		For(&downloadv1alpha1.DownloadClient{}, builder.WithPredicates(k8s.GenerationChanged())).
 		Owns(&appsv1.StatefulSet{}).
-		Owns(&appsv1.Deployment{}).
-		Watches(&downloadv1alpha1.Download{}, handler.EnqueueRequestsFromMapFunc(mapDownloadToClient)).
-		WithOptions(controller.Options{ReconciliationTimeout: 5 * time.Minute}).
-		Complete(r)
+		Owns(&appsv1.Deployment{})
+	if r.Bus != nil {
+		b = b.WatchesRawSource(EngineRecordSource(r.Bus)).
+			WatchesRawSource(r.transfersRecreated(mgr.GetClient()))
+	}
+	return b.WithOptions(controller.Options{ReconciliationTimeout: 5 * time.Minute}).Complete(r)
 }
 
 // replaceForClaimTemplates deletes the torrent StatefulSet name, orphaning

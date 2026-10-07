@@ -213,7 +213,14 @@ func (s *Stage) result(ctx context.Context, ow owner, v lifecycle.View, plan lif
 	for _, b := range plan.Blocks {
 		res.Effects = append(res.Effects, s.blockCall(b))
 	}
+	var eps []catalogv1alpha1.Episode
+	if ow.kind == commonv1.MediaKindSeries && len(plan.Commands) > 0 {
+		eps = s.episodesOf(ctx, ow)
+	}
 	for _, c := range plan.Commands {
+		if c.Cmd.Selection != nil && len(eps) > 0 {
+			c.Cmd.Selection = enrichSelection(c.Cmd.Selection, eps)
+		}
 		if eff, ok := s.command(ow, c, metav1.NewTime(v.Now)); ok {
 			res.Effects = append(res.Effects, eff)
 		}

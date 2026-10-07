@@ -16,8 +16,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 // Package manager is grabarr's manager-side registration (spec §4.2.1): the
-// DownloadClient controller (which renders every engine workload) with its
-// blocklist sweeper, and the Download controller.
+// DownloadClient controller, which renders every engine workload, ensures
+// the per-engine durables, reads the engine records and resyncs and prunes
+// the engines (ADR-0019 §6.7). The Download controller and the blocklist
+// sweeper are gone: grabs are entries on their owners, run by the
+// remediation loop's downloads stage, and the blocklist is the release
+// index's.
 package manager
 
 import (
@@ -27,10 +31,11 @@ import (
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	"github.com/mediactl/clustarr/app/grab/controller/download"
 	"github.com/mediactl/clustarr/app/grab/controller/downloadclient"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/records"
+	"github.com/mediactl/clustarr/pkg/records/agentrecords"
 )
 
 // Options is what the grab manager registration takes.
@@ -57,8 +62,8 @@ type Options struct {
 // Cache contributions: none beyond today's Secret DisableFor, which the
 // shim's ManagerOptions keeps (Wave 5's merged cache owns it, §5.6).
 
-// Register registers the DownloadClient and Download reconcilers, plus the
-// blocklist sweeper (§6.3, §16 M3; plan tasks D2-3, D2-4, D2-8a).
+// Register registers the DownloadClient reconciler (§6.3, §16 M3; ADR-0019
+// A3.7).
 func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	if bus == nil {
 		return errors.New("grab manager: Register needs the bus")
@@ -73,23 +78,18 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	dcReconciler.Engine = engineRuntime(o)
 	// By name and uncached, so reading a provider Secret needs only get.
 	dcReconciler.SecretReader = mgr.GetAPIReader()
+	// The engine records, the per-engine durables and the commands
+	// (ADR-0019 §5.1, §6.7). The ProxyUDPUnavailable and
+	// UnidentifiedTransferRemoved Events are recorded as grabarr-engine
+	// (§7.7), though the manager records them.
+	dcReconciler.Bus = bus
+	if admin, ok := bus.(events.StreamAdmin); ok {
+		dcReconciler.Admin = admin
+	}
+	dcReconciler.Engines = records.NewReader(bus.KV(events.BucketEngines), agentrecords.Engines())
+	dcReconciler.EngineRecorder = mgr.GetEventRecorder("grabarr-engine")
 	if err := dcReconciler.SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("grabarr: downloadclient: %w", err)
-	}
-	if err := downloadclient.NewBlocklistSweeper(
-		mgr.GetClient(), mgr.GetEventRecorder("downloadclient-blocklist"),
-	).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("grabarr: downloadclient blocklist sweeper: %w", err)
-	}
-
-	dlReconciler := download.NewReconciler(mgr.GetClient(), mgr.GetEventRecorder("download"), o.DataDir)
-	// download.Reconciler.Bus is events.Publisher, not the full events.Bus:
-	// see its doc comment -- NewReconciler leaves it nil for callers that
-	// exercise only Phase=Assigned, but a real deployment must wire a real
-	// bus or a completed Download is never imported.
-	dlReconciler.Bus = bus
-	if err := dlReconciler.SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("grabarr: download: %w", err)
 	}
 	return nil
 }

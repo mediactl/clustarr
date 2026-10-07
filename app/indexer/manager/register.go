@@ -31,7 +31,6 @@ import (
 	"github.com/mediactl/clustarr/app/indexer/bundle"
 	"github.com/mediactl/clustarr/app/indexer/bundle/embedded"
 	idxclients "github.com/mediactl/clustarr/app/indexer/clients"
-	"github.com/mediactl/clustarr/app/indexer/controller/directgrab"
 	"github.com/mediactl/clustarr/app/indexer/controller/indexer"
 	"github.com/mediactl/clustarr/app/indexer/controller/indexerdefinition"
 	"github.com/mediactl/clustarr/app/indexer/controller/indexerproxy"
@@ -100,12 +99,10 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 		return fmt.Errorf("indexarr: indexerdefinition: %w", err)
 	}
 
-	// Grabs whose source is a direct torrentURL/magnetURL/nzbURL never reach
-	// rpc.indexarr.download, so this counts them into the same grab ring
-	// from the Download's creation; see directgrab.Reconciler.
-	if err := (&directgrab.Reconciler{Client: c, Bus: bus}).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("indexarr: direct-grab accounting: %w", err)
-	}
+	// A grab whose source is a direct torrentURL/magnetURL/nzbURL never
+	// reaches rpc.indexarr.download; the downloads stage counts it into the
+	// same grab ring at the entry's Assigned edge (ADR-0019 §6.11), so the
+	// directgrab controller is gone.
 
 	// The nil *http.Client is indexerproxy.NewReconciler's documented
 	// "http.DefaultClient". It is deliberate rather than an omission: the

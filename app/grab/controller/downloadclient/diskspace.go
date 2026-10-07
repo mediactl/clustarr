@@ -17,10 +17,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 package downloadclient
 
-import "github.com/mediactl/clustarr/pkg/fsops"
-
 // DefaultMinFreeBytes is the floor [Reconciler.MinFreeBytes] uses when left
-// at zero. DownloadClientSpec has no minFreeBytes field of its own (verified
+// at zero, against the engines' own reported free bytes (ADR-0019 §6.7).
+// DownloadClientSpec has no minFreeBytes field of its own (verified
 // against downloadclient_types.go, unlike RootFolderSpec), so this is
 // invented the same way app/catalog/controller/rootfolder invented its
 // recheckInterval: a cheap, documented default rather than a real signal.
@@ -28,8 +27,3 @@ import "github.com/mediactl/clustarr/pkg/fsops"
 // finish an in-flight write, and comfortably below the smallest sane media
 // library volume.
 const DefaultMinFreeBytes int64 = 1 << 30 // 1Gi
-
-// diskUsageFunc is the filesystem probe [Reconciler] calls for DiskSpaceOK.
-// Production wires fsops.DiskUsage; tests inject a fake so they never need a
-// real /data mount, mirroring app/catalog/controller/rootfolder's CheckPath.
-type diskUsageFunc func(path string) (fsops.Usage, error)
