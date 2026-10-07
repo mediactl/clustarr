@@ -17,7 +17,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 // Package audiograft reconciles AudioGraft (anime dual-audio spec §7.2):
 // when the item's probed file still lacks the donor's language, it runs one
-// graft Job -- squasharr-worker --graft-task on the pool's pod template,
+// graft Job -- transcode --graft-task on the pool's pod template,
 // class cpu -- and records the Job's result, which its pod leaves in its
 // termination message, as the AudioGraft's status. It never runs a graft
 // beside an open TranscodeJob of the file, and the TranscodeProfile

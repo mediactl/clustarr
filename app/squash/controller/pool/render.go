@@ -217,7 +217,7 @@ func Render(k Key, tp *transcodev1alpha1.TranscodeProfile, want Spec, d Desired,
 		ObjectMeta: metav1.ObjectMeta{
 			Name: Name(k), Namespace: cfg.Namespace,
 			Labels: map[string]string{
-				"app.kubernetes.io/name": "clustarr", "app.kubernetes.io/component": "squasharr-worker",
+				"app.kubernetes.io/name": "clustarr", "app.kubernetes.io/component": "transcode",
 				LabelManagedBy: ManagedByValue, LabelHardware: string(k.Class), LabelProfile: ProfileLabelValue(k.Profile),
 				LabelTemplateHash: Hash(spec),
 			},

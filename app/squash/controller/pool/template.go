@@ -29,6 +29,7 @@ import (
 
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/squash/jobspec"
+	"github.com/mediactl/clustarr/pkg/binpath"
 )
 
 // Labels, annotations and env names squasharr-pool stamps on the Jobs and
@@ -368,8 +369,11 @@ func Template(tp *transcodev1alpha1.TranscodeProfile, class transcodev1alpha1.Ha
 		AutomountServiceAccountToken: ptr.To(false),
 		SecurityContext:              PodSecurityContext(),
 		Containers: []corev1.Container{{
-			Name:            ContainerName,
-			Image:           image,
+			Name:  ContainerName,
+			Image: image,
+			// Neither image has an ENTRYPOINT (spec §10.1.1): one image holds
+			// several binaries, so a pool pod names its own.
+			Command:         []string{binpath.Transcode},
 			Args:            append([]string{"--data-dir", dataDir}, cfg.ExtraArgs...),
 			Env:             env,
 			Resources:       res,
@@ -389,7 +393,7 @@ func Template(tp *transcodev1alpha1.TranscodeProfile, class transcodev1alpha1.Ha
 	applyHardware(&pod, tp, class, cfg)
 	return corev1.PodTemplateSpec{
 		ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{
-			"app.kubernetes.io/name": "clustarr", "app.kubernetes.io/component": "squasharr-worker",
+			"app.kubernetes.io/name": "clustarr", "app.kubernetes.io/component": "transcode",
 			LabelManagedBy: ManagedByValue, LabelHardware: string(class),
 		}},
 		Spec: pod,
