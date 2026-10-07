@@ -18,7 +18,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package status_test
 
 import (
-	"context"
 	"encoding/json"
 	"reflect"
 	"sort"
@@ -128,26 +127,4 @@ func TestGatewayAndRendererFieldsAreDisjoint(t *testing.T) {
 	assert.Empty(t, sets.New(status.GatewayFields...).Intersection(sets.New(status.RendererFields...)))
 	assert.Equal(t, []string{"overlay"}, status.RendererFields)
 	assert.Equal(t, k8s.ManagerCatalogArtwork, status.RendererManager)
-}
-
-// PatchOverlay refuses every manager but the renderer's before it touches
-// the client, so a nil client proves no apply was attempted.
-func TestPatchOverlayRefusesEveryOtherManager(t *testing.T) {
-	m := &catalogv1alpha1.Movie{ObjectMeta: metav1.ObjectMeta{Name: "heat", Namespace: "films"}}
-	for _, mgr := range k8s.FieldManagers() {
-		if mgr == status.RendererManager {
-			continue
-		}
-		err := status.PatchOverlay(context.Background(), nil, mgr, m, nil)
-		require.Error(t, err, "%s was allowed to write status.overlay", mgr)
-		assert.ErrorIs(t, err, status.ErrNotTheRenderer)
-	}
-}
-
-// Only Movie and Series carry status.overlay (spec §B.6).
-func TestPatchOverlayRefusesAKindWithoutAnOverlay(t *testing.T) {
-	err := status.PatchOverlay(context.Background(), nil, status.RendererManager,
-		&catalogv1alpha1.Album{ObjectMeta: metav1.ObjectMeta{Name: "ok", Namespace: "music"}}, nil)
-	require.Error(t, err)
-	assert.ErrorIs(t, err, status.ErrNoOverlay)
 }

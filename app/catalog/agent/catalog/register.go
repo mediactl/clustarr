@@ -124,7 +124,6 @@ func buildWorkers(mgr ctrl.Manager, bus events.Bus, o Options) (workers, error) 
 	gh := grab.NewHandler(grabDeps)
 	gh.Topology = &topo
 	render := &renderer.Handler{
-		Client:   c,
 		Reader:   mgr.GetAPIReader(),
 		Store:    bus.ObjectStore(events.BucketArtwork),
 		Topology: &topo,

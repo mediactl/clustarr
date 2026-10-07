@@ -307,16 +307,18 @@ func (w Want) RecordedBy(o *catalogv1alpha1.OverlayEntry) bool {
 	return o != nil && o.ProfileRef == w.Profile.Name && o.RenderedFrom == w.InputsDigest
 }
 
-// Publish publishes one RenderOverlayTask for it under
-// schema.MsgIDForRenderOverlay(uid, token), on
-// events.WorkArtworkRenderSubject -- the subject the render consumer reads.
-func Publish(ctx context.Context, bus events.Publisher, it Item, token, reason string) error {
+// Task builds one RenderOverlayTask for it: its subject
+// (events.WorkArtworkRenderSubject, the subject the render consumer reads)
+// and envelope under schema.MsgIDForRenderOverlay(uid, token). The item
+// key's overlay stage publishes it with the plan's InputsDigest as token
+// (ADR-0019 §7.2), RenderNone when the item wants no overlay.
+func Task(it Item, token, reason string, now time.Time) (string, *events.Envelope, error) {
 	schemaName, data, err := schema.Encode(schema.RenderOverlayTask{
 		MediaRef: commonv1.MediaRef{Kind: it.Kind, Name: it.Object.GetName()},
 		Reason:   reason,
 	})
 	if err != nil {
-		return err
+		return "", nil, err
 	}
 	env := &events.Envelope{
 		ID:     schema.MsgIDForRenderOverlay(it.Object.GetUID(), token),
@@ -324,11 +326,30 @@ func Publish(ctx context.Context, bus events.Publisher, it Item, token, reason s
 		Schema: schemaName,
 		Source: "catalog@" + version.String(),
 		Key:    it.Object.GetNamespace() + "/" + it.Object.GetName(),
-		Time:   time.Now().UTC(),
+		Time:   now.UTC(),
 		Data:   data,
 	}
 	mediaKey := events.MediaKey(string(it.Kind), it.Object.GetNamespace(), it.Object.GetName())
-	if _, err := bus.Publish(ctx, events.WorkArtworkRenderSubject(mediaKey), env); err != nil {
+	return events.WorkArtworkRenderSubject(mediaKey), env, nil
+}
+
+// RenderNone is the token of a render task for an item that wants no
+// overlay, so the renderer removes the one it has. A hex SHA-256 never
+// reads "none", so it cannot collide with a real inputs digest.
+const RenderNone = "none"
+
+// ReasonPlan is the Reason of the item key's render task (ADR-0019 §7.2).
+const ReasonPlan = "plan"
+
+// Publish publishes one RenderOverlayTask for it under
+// schema.MsgIDForRenderOverlay(uid, token), on
+// events.WorkArtworkRenderSubject -- the subject the render consumer reads.
+func Publish(ctx context.Context, bus events.Publisher, it Item, token, reason string) error {
+	subject, env, err := Task(it, token, reason, time.Now())
+	if err != nil {
+		return err
+	}
+	if _, err := bus.Publish(ctx, subject, env); err != nil {
 		return fmt.Errorf("artwork: publish the render task for %s %s/%s: %w",
 			it.Kind, it.Object.GetNamespace(), it.Object.GetName(), err)
 	}

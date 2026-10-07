@@ -15,46 +15,47 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package artwork is the renderer (catalog --role artwork, spec §C.6):
-// the durable catalog-artwork-render consumer that draws a Movie's or
-// Series' rating badges onto its stored original poster and records the
-// result.
+// Package artwork is the renderer (the agent's catalog domain, spec §C.6,
+// as ADR-0019 §7.2 changed it): the durable catalog-artwork-render consumer
+// that draws a Movie's or Series' rating badges onto its stored original
+// poster and stores the result. It writes no Kubernetes object.
 //
 // # Writers
 //
 // The renderer is the sole writer of "overlay" objects in
-// events.BucketArtwork and of status.overlay, under
-// k8s.ManagerCatalogArtwork (app/catalog/status.PatchOverlay, which
-// refuses any other manager). It reads, and never writes, the gateway's
-// "original" objects and status.artwork (spec §B.3); the gateway's reaper
-// is the only code that deletes both variants.
+// events.BucketArtwork. status.overlay is the manager's: the item key's
+// overlay stage renders it from the overlay object's metadata (profile,
+// inputs digest, update time) under k8s.ManagerCatalogArtwork, one apply per
+// pass -- W4.82's PatchOverlay compare-and-swap is gone with the status
+// write. It reads, and never writes, the gateway's "original" objects; the
+// manager's reaper is the only code that deletes both variants.
 //
 // # One task
 //
-// A task says which item, not what to do. Whatever its reason, and whether
-// it came from the gateway's poster pass (Msg-Id keyed by the poster's
-// digest, or "none" when the poster went) or the OverlayProfile
-// controller, [Handler.Render] judges the item's CURRENT inputs:
+// A task says which item, not what to do: the item key publishes one when
+// the overlay object's metadata does not record its plan (Msg-Id keyed by
+// the plan's inputs digest, or "none" when it wants no overlay), and the
+// OverlayProfile controller when a selection changes. Whatever its reason,
+// [Handler.Render] judges the item's CURRENT inputs:
 //
 //  1. overlayplan.Plan: the winning profile (overlayplan.Winner, lowest
 //     name among the profiles whose selector and kinds match), its badges
 //     that have a rating (overlayplan.Badges) and the stored original's
 //     digest. No profile, no rated badge or no original means no overlay:
-//     delete poster/overlay and clear status.overlay.
+//     delete poster/overlay.
 //  2. overlayplan.InputsDigest over the original's digest,
 //     overlayplan.ProfileHash and the ratings sorted by source.
 //  3. If the stored overlay's Clustarr-Rendered-From is that digest,
-//     render nothing; record it in status.overlay if it is not already.
+//     render nothing; backfill its metadata if it is older than the
+//     current set.
 //  4. Otherwise decode the original, render.Render, encode JPEG q90, Put
-//     poster/overlay with Content-Type image/jpeg, Clustarr-Source render
-//     and Clustarr-Rendered-From, and record it. An original that does not
-//     decode is "no overlay", as in step 1.
+//     poster/overlay with Content-Type image/jpeg, Clustarr-Source render,
+//     Clustarr-Rendered-From and the complete metadata. An original that
+//     does not decode is "no overlay", as in step 1; one replaced mid-read
+//     is retried ([ErrInputsMoved]).
 //
-// Every status write re-reads the item, its profiles and its original
-// after the slow work and applies only if they still want what was drawn;
-// otherwise the delivery is retried ([ErrInputsMoved]) and the retry
-// judges the new inputs -- CLAUDE.md's lost-update rule. The one apply per
-// task declares all of status.overlay or none of it.
+// An overlay drawn from inputs that moved meanwhile records the old digest
+// in its metadata; the item key sees the mismatch and asks again.
 //
 // The role is not leader-elected and scales by consumer.
 //
@@ -63,11 +64,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // decoded poster is tens of megabytes, and the pod runs every catalog
 // controller under the same GOMEMLIMIT.
 //
-// RBAC: the item reads and the status apply (catalog already holds both
-// for its reconcilers) and the OverlayProfile list the plan needs, read
-// uncached like the item.
+// RBAC: the item reads and the OverlayProfile list the plan needs, read
+// uncached.
 //
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=overlayprofiles,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series,verbs=get;list;watch
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies/status;series/status,verbs=get;update;patch
 package artwork
