@@ -215,4 +215,4 @@ require (
 	zombiezen.com/go/sqlite v0.13.1 // indirect
 )
 
-replace github.com/obinnaokechukwu/ffgo => github.com/mediactl/ffgo v0.0.0-clustarr.12
+replace github.com/obinnaokechukwu/ffgo => ../ffgo-unify
