@@ -35,6 +35,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	importlist "github.com/mediactl/clustarr/app/import/controller/importlist"
+	"github.com/mediactl/clustarr/app/import/importliststate"
 	workerimportlist "github.com/mediactl/clustarr/app/import/worker/importlist"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -52,11 +53,11 @@ func stevenLuList(ns, name string) *catalogv1alpha1.ImportList {
 }
 
 // putResult checkpoints res as the worker does for il.
-func putResult(t *testing.T, ctx context.Context, bus events.Bus, uid types.UID, res workerimportlist.Result) {
+func putResult(t *testing.T, ctx context.Context, bus events.Bus, uid types.UID, res importliststate.Result) {
 	t.Helper()
 	data, err := res.Encode()
 	require.NoError(t, err)
-	_, err = bus.KV(events.BucketProgress).Put(ctx, workerimportlist.ResultKey(string(uid)), data)
+	_, err = bus.KV(events.BucketProgress).Put(ctx, importliststate.ResultKey(string(uid)), data)
 	require.NoError(t, err)
 }
 
@@ -94,7 +95,7 @@ func steadyList(t *testing.T, ctx context.Context, c client.Client, bus events.B
 	require.NoError(t, err)
 	recvListTask(t, ctx, bus, 5*time.Second)
 
-	putResult(t, ctx, bus, il.UID, workerimportlist.Result{
+	putResult(t, ctx, bus, il.UID, importliststate.Result{
 		SyncedAt: clock.Add(30 * time.Second), Fetched: 5, Added: 2, Excluded: 1,
 	})
 	*clock = clock.Add(time.Minute)
@@ -233,7 +234,7 @@ func TestAFinishedSyncReachesStatusWithoutWaitingForNextSyncAt(t *testing.T) {
 	// Two syncs finish in turn; each must be projected on its own.
 	for _, fetched := range []int32{3, 7} {
 		at := time.Now().UTC()
-		putResult(t, ctx, bus, il.UID, workerimportlist.Result{SyncedAt: at, Fetched: fetched, Added: 1})
+		putResult(t, ctx, bus, il.UID, importliststate.Result{SyncedAt: at, Fetched: fetched, Added: 1})
 		require.NoError(t, workerimportlist.StampSynced(ctx, c, il, at))
 		require.Eventually(t, func() bool {
 			if c.Get(ctx, key, &got) != nil {
@@ -270,7 +271,7 @@ func TestReconcileKeepsSyncedOnceTheCheckpointHasExpired(t *testing.T) {
 	il := steadyList(t, ctx, c, bus, r, &clock, ns)
 	before := findCondition(il.Status.Conditions, catalogv1alpha1.ImportListConditionSynced).DeepCopy()
 
-	require.NoError(t, bus.KV(events.BucketProgress).Delete(ctx, workerimportlist.ResultKey(string(il.UID))))
+	require.NoError(t, bus.KV(events.BucketProgress).Delete(ctx, importliststate.ResultKey(string(il.UID))))
 	clock = clock.Add(time.Hour)
 	_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: ns, Name: il.Name}})
 	require.NoError(t, err)

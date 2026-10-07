@@ -38,6 +38,7 @@ import (
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/app/import/importliststate"
 	worker "github.com/mediactl/clustarr/app/import/worker/importlist"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -50,11 +51,11 @@ const seriesCSVFixture = `Const,Your Rating,Date Rated,Title,URL,Title Type,IMDb
 tt0903747,,,Breaking Bad,https://www.imdb.com/title/tt0903747/,tvSeries,9.5,49,2008,"Crime, Drama",2000000,2008-01-20,
 `
 
-func lastResult(t *testing.T, ctx context.Context, bus events.Bus, uid types.UID) worker.Result {
+func lastResult(t *testing.T, ctx context.Context, bus events.Bus, uid types.UID) importliststate.Result {
 	t.Helper()
-	entry, err := bus.KV(events.BucketProgress).Get(ctx, worker.ResultKey(string(uid)))
+	entry, err := bus.KV(events.BucketProgress).Get(ctx, importliststate.ResultKey(string(uid)))
 	require.NoError(t, err)
-	res, err := worker.DecodeResult(entry.Value)
+	res, err := importliststate.DecodeResult(entry.Value)
 	require.NoError(t, err)
 	return res
 }
@@ -148,13 +149,13 @@ func TestHandleStampsTheListWhenASyncFinishes(t *testing.T) {
 
 	res := lastResult(t, ctx, bus, il.UID)
 	got := getList(t, ctx, c, ns, il.Name)
-	require.Equal(t, res.SyncedAt.UTC().Format(time.RFC3339Nano), got.Annotations[worker.AnnotationSyncedAt],
+	require.Equal(t, res.SyncedAt.UTC().Format(time.RFC3339Nano), got.Annotations[importliststate.AnnotationSyncedAt],
 		"the stamp carries the checkpoint's SyncedAt, so each finished sync changes it")
 
 	var stampOwner string
 	for _, e := range got.ManagedFields {
 		if e.Subresource == "" && e.FieldsV1 != nil &&
-			strings.Contains(e.FieldsV1.GetRawString(), `"f:`+worker.AnnotationSyncedAt+`"`) {
+			strings.Contains(e.FieldsV1.GetRawString(), `"f:`+importliststate.AnnotationSyncedAt+`"`) {
 			stampOwner = e.Manager
 		}
 	}
@@ -219,7 +220,7 @@ func TestHandleSendsPlexAndTraktToTheirBaseURLOverrides(t *testing.T) {
 	}
 	require.NoError(t, c.Create(ctx, plexList))
 	require.NoError(t, c.Create(ctx, traktList))
-	require.NoError(t, worker.NewSecretTokenStore(c, traktList).Save(ctx,
+	require.NoError(t, importliststate.NewSecretTokenStore(c, traktList).Save(ctx,
 		pkgimportlist.Token{AccessToken: "access-tok", ExpiresAt: time.Now().Add(24 * time.Hour)}))
 
 	w := worker.NewWorker(c, bus)
@@ -281,7 +282,7 @@ func TestHandleFailsAKindTheProviderCannotYieldInsteadOfSkippingIt(t *testing.T)
 	require.NoError(t, w.Handle(ctx, newTaskMessage(t, ns, arr.Name, string(arr.UID))))
 
 	res := lastResult(t, ctx, bus, il.UID)
-	require.Contains(t, res.Error, worker.ErrKindNotYieldable.Error(), "an imdbCSV album is a failure on status, not a skip")
+	require.Contains(t, res.Error, importliststate.ErrKindNotYieldable.Error(), "an imdbCSV album is a failure on status, not a skip")
 	require.Contains(t, res.Error, "album")
 	require.Equal(t, int32(1), res.Added, "the movie kind still syncs")
 
@@ -289,7 +290,7 @@ func TestHandleFailsAKindTheProviderCannotYieldInsteadOfSkippingIt(t *testing.T)
 	// being skipped; the arr provider is spec-deferred, and says so.
 	arrRes := lastResult(t, ctx, bus, arr.UID)
 	require.Contains(t, arrRes.Error, "arr not implemented yet", "the provider's own deferral reaches status")
-	require.NotContains(t, arrRes.Error, worker.ErrKindNotYieldable.Error())
+	require.NotContains(t, arrRes.Error, importliststate.ErrKindNotYieldable.Error())
 }
 
 func TestHandleRemoveAndDeleteRecyclesTheFilesAndRemoveAndKeepLeavesThem(t *testing.T) {

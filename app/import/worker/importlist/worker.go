@@ -32,6 +32,7 @@ import (
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/app/import/importliststate"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -50,9 +51,10 @@ const defaultMetadataTimeout = 10 * time.Second
 // The worker is never the writer of ImportList.status: k8s.ManagerImportarr
 // (the controller's field manager) owns it in full, per that constant's own
 // doc comment, and this worker instead checkpoints its result to a
-// clustarr-progress key (see Result and ResultKey) that the controller
-// reads -- the same split app/import/worker/rescan uses for LibraryScan --
-// and then stamps [AnnotationSyncedAt] so the controller reads it now.
+// clustarr-progress key (see importliststate.Result and ResultKey) that the
+// controller reads -- the same split app/import/worker/rescan uses for
+// LibraryScan -- and then stamps [importliststate.AnnotationSyncedAt] so the
+// controller reads it now.
 type Worker struct {
 	// Client reads the ImportList, its Secret/ConfigMap, and creates or
 	// updates the Movie and Series items a sync produces.
@@ -82,8 +84,9 @@ type Worker struct {
 // The import-list worker's RBAC. It creates and updates Movie and Series
 // spec, reads Secrets and ConfigMaps for provider credentials and CSV
 // content, and writes the owned Trakt token Secret. It patches one
-// annotation on the ImportList itself ([AnnotationSyncedAt]) but never
-// importlists/status (the controller's alone), and never writes
+// annotation on the ImportList itself
+// ([importliststate.AnnotationSyncedAt]) but never importlists/status (the
+// controller's alone), and never writes
 // MovieStatus/SeriesStatus, both of which catalogarr owns in full. Under
 // syncLevel removeAndDelete it reads the item's Episodes and RootFolder and
 // deletes the MediaFiles whose files it recycled.
@@ -179,7 +182,7 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 	if err != nil {
 		return fmt.Errorf("importlist: encode result: %w", err)
 	}
-	if _, err := kv.Put(ctx, ResultKey(string(il.UID)), data); err != nil {
+	if _, err := kv.Put(ctx, importliststate.ResultKey(string(il.UID)), data); err != nil {
 		return fmt.Errorf("importlist: checkpoint result: %w", err)
 	}
 	if err := StampSynced(ctx, w.Client, &il, result.SyncedAt); err != nil {
@@ -201,28 +204,19 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 	return nil
 }
 
-// AnnotationSyncedAt is stamped on an ImportList by the worker when a sync
-// finishes, with the checkpointed Result's SyncedAt (RFC 3339, nanoseconds).
-// It is how the ImportList controller learns a sync completed: its For()
-// predicate passes a change to this value, so the new Result is projected
-// into status as soon as it lands rather than at the next scheduled sync
-// (nextSyncAt, up to a day away). The value is only a signal; the Result in
-// the clustarr-progress bucket stays the source of what status says.
-const AnnotationSyncedAt = "catalog.clustarr.io/importlist-synced-at"
-
-// StampSynced applies [AnnotationSyncedAt] to il under [FieldManager], the
-// one field that manager owns on an ImportList, so every apply is its
-// complete declaration there. It never touches spec or status.
+// StampSynced applies [importliststate.AnnotationSyncedAt] to il under
+// [FieldManager], the one field that manager owns on an ImportList, so every
+// apply is its complete declaration there. It never touches spec or status.
 func StampSynced(ctx context.Context, c client.Client, il *catalogv1alpha1.ImportList, at time.Time) error {
 	ac := catalogac.ImportList(il.Name, il.Namespace).
-		WithAnnotations(map[string]string{AnnotationSyncedAt: at.UTC().Format(time.RFC3339Nano)})
+		WithAnnotations(map[string]string{importliststate.AnnotationSyncedAt: at.UTC().Format(time.RFC3339Nano)})
 	_, err := k8s.Apply(ctx, c, FieldManager, ac)
 	return err
 }
 
 // syncAllKinds runs syncKind for every kind il.Spec.Kinds names and
 // aggregates the outcome into one Result.
-func (w *Worker) syncAllKinds(ctx context.Context, il *catalogv1alpha1.ImportList) Result {
+func (w *Worker) syncAllKinds(ctx context.Context, il *catalogv1alpha1.ImportList) importliststate.Result {
 	deps := w.deps()
 	var (
 		fetched, added, excluded, removed int32
@@ -239,7 +233,7 @@ func (w *Worker) syncAllKinds(ctx context.Context, il *catalogv1alpha1.ImportLis
 		}
 	}
 
-	r := Result{
+	r := importliststate.Result{
 		SyncedAt: w.now(), Fetched: fetched, Added: added, Excluded: excluded, Removed: removed,
 	}
 	if len(errs) > 0 {

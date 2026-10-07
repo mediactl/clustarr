@@ -35,7 +35,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	importlist "github.com/mediactl/clustarr/app/import/controller/importlist"
-	workerimportlist "github.com/mediactl/clustarr/app/import/worker/importlist"
+	"github.com/mediactl/clustarr/app/import/importliststate"
 )
 
 func TestReconcileDisabledListSkipsScheduling(t *testing.T) {
@@ -187,7 +187,7 @@ func TestReconcileTraktDeviceFlowSurfacesTheUserCodeThenAuthorizesAndSchedules(t
 	// The token Secret is owned by, and named after, the ImportList.
 	var tokenSecret corev1.Secret
 	require.NoError(t, c.Get(ctx, types.NamespacedName{
-		Namespace: ns, Name: workerimportlist.TraktTokenSecretName(il.Name),
+		Namespace: ns, Name: importliststate.TraktTokenSecretName(il.Name),
 	}, &tokenSecret))
 	require.Equal(t, "access-abc", string(tokenSecret.Data["accessToken"]))
 	require.Len(t, tokenSecret.OwnerReferences, 1)

@@ -57,7 +57,7 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/history"
 	grabarr "github.com/mediactl/clustarr/app/grab"
 	importarr "github.com/mediactl/clustarr/app/import"
-	importlistworker "github.com/mediactl/clustarr/app/import/worker/importlist"
+	"github.com/mediactl/clustarr/app/import/importliststate"
 	indexarr "github.com/mediactl/clustarr/app/indexer"
 	"github.com/mediactl/clustarr/app/indexer/bundle"
 	squasharr "github.com/mediactl/clustarr/app/squash"
@@ -1096,14 +1096,14 @@ func verifyImportList(t *testing.T, cfg *rest.Config, natsURL string) {
 		t.Fatalf("connect the bus: %v", err)
 	}
 	t.Cleanup(func() { _ = bus.Close(); nc.Close() })
-	key := importlistworker.ResultKey(string(il.UID))
-	var res importlistworker.Result
+	key := importliststate.ResultKey(string(il.UID))
+	var res importliststate.Result
 	waitFor(t, "the list worker to checkpoint the sync it was sent", func() bool {
 		e, err := bus.KV(events.BucketProgress).Get(ctx, key)
 		if err != nil {
 			return false
 		}
-		res, err = importlistworker.DecodeResult(e.Value)
+		res, err = importliststate.DecodeResult(e.Value)
 		return err == nil
 	})
 	if res.Error == "" {

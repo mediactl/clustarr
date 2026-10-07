@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package importlist
+package importliststate
 
 import (
 	"errors"
@@ -133,8 +133,8 @@ func ProviderName(spec catalogv1alpha1.ImportListSpec) string {
 	}
 }
 
-// hasCatalogWriter reports whether syncKind can turn kind's items into
+// HasCatalogWriter reports whether syncKind can turn kind's items into
 // catalog objects. See ErrNoCatalogWriter.
-func hasCatalogWriter(kind commonv1.MediaKind) bool {
+func HasCatalogWriter(kind commonv1.MediaKind) bool {
 	return slices.Contains(videoKinds, kind)
 }

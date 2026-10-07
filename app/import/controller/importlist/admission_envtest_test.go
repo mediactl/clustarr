@@ -30,12 +30,12 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	worker "github.com/mediactl/clustarr/app/import/worker/importlist"
+	"github.com/mediactl/clustarr/app/import/importliststate"
 )
 
 // TestAdmissionMatchesYieldableKinds holds ImportListSpec's three R-10 CEL
 // rules (task X14 applied them, verbatim from x7b-report) to the table the
-// controller and the worker enforce, worker.YieldableKinds, for every
+// controller and the worker enforce, importliststate.YieldableKinds, for every
 // provider and every kind the enum admits. The two encode one decision --
 // a list may name only kinds its provider can yield -- and nothing else ties
 // them together: a provider added to one and not the other would either be
@@ -90,13 +90,13 @@ func TestAdmissionMatchesYieldableKinds(t *testing.T) {
 					Spec:       spec,
 				}
 				err := c.Create(ctx, il, client.DryRunAll)
-				if worker.CanYield(spec, kind) {
+				if importliststate.CanYield(spec, kind) {
 					admitted++
-					require.NoError(t, err, "admission refused a kind worker.YieldableKinds says %s can yield", name)
+					require.NoError(t, err, "admission refused a kind importliststate.YieldableKinds says %s can yield", name)
 					return
 				}
 				refused++
-				require.Error(t, err, "admission accepted a kind worker.YieldableKinds says %s cannot yield", name)
+				require.Error(t, err, "admission accepted a kind importliststate.YieldableKinds says %s cannot yield", name)
 				require.Contains(t, err.Error(), "yield", "refused for another reason than R-10: %v", err)
 			})
 		}

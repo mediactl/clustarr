@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	"github.com/mediactl/clustarr/app/import/importliststate"
 	worker "github.com/mediactl/clustarr/app/import/worker/importlist"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -156,9 +157,9 @@ func TestHandleCreatesAMovieFromAnImdbCSVList(t *testing.T) {
 	specManager := managerFor(m.ManagedFields, "")
 	require.Equal(t, "importarr-worker", specManager, "MovieSpec must be owned by k8s.ManagerImportarrWorker")
 
-	entry, err := bus.KV(events.BucketProgress).Get(ctx, worker.ResultKey(string(il.UID)))
+	entry, err := bus.KV(events.BucketProgress).Get(ctx, importliststate.ResultKey(string(il.UID)))
 	require.NoError(t, err, "the worker must checkpoint a result for the controller to poll")
-	res, err := worker.DecodeResult(entry.Value)
+	res, err := importliststate.DecodeResult(entry.Value)
 	require.NoError(t, err)
 	require.Equal(t, int32(1), res.Fetched)
 	require.Equal(t, int32(1), res.Added)
@@ -194,9 +195,9 @@ func TestHandleRespectsAnImportExclusion(t *testing.T) {
 	err = c.Get(ctx, types.NamespacedName{Namespace: ns, Name: movieName(t)}, &m)
 	require.Error(t, err, "an excluded entry must never become a catalog item")
 
-	resEntry, err := bus.KV(events.BucketProgress).Get(ctx, worker.ResultKey(string(il.UID)))
+	resEntry, err := bus.KV(events.BucketProgress).Get(ctx, importliststate.ResultKey(string(il.UID)))
 	require.NoError(t, err)
-	res, err := worker.DecodeResult(resEntry.Value)
+	res, err := importliststate.DecodeResult(resEntry.Value)
 	require.NoError(t, err)
 	require.Equal(t, int32(1), res.Excluded)
 	require.Equal(t, int32(0), res.Added)
@@ -229,9 +230,9 @@ func TestHandleUnmonitorsAnItemThatFellOffTheList(t *testing.T) {
 	require.NotNil(t, m.Spec.Monitored)
 	require.False(t, *m.Spec.Monitored, "syncLevel=keepAndUnmonitor must unmonitor an item that fell off the list")
 
-	resEntry, err := bus.KV(events.BucketProgress).Get(ctx, worker.ResultKey(string(il.UID)))
+	resEntry, err := bus.KV(events.BucketProgress).Get(ctx, importliststate.ResultKey(string(il.UID)))
 	require.NoError(t, err)
-	res, err := worker.DecodeResult(resEntry.Value)
+	res, err := importliststate.DecodeResult(resEntry.Value)
 	require.NoError(t, err)
 	require.Equal(t, int32(1), res.Removed)
 }

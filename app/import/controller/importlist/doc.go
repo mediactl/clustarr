@@ -28,7 +28,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // (importlist.ResultKey/Result, in the clustarr-progress bucket) and
 // projects it into status, the same split
 // app/import/controller/libraryscan runs against
-// app/import/worker/rescan's Progress checkpoint for LibraryScan.
+// app/import/scanprogress's Progress checkpoint for LibraryScan.
 //
 // # Why a worker on a queue, not a controller-driven requeue alone
 //
@@ -46,18 +46,18 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // # Projecting a finished sync
 //
 // The worker's checkpoint lives in NATS KV, which no informer watches, so
-// the worker also stamps worker.AnnotationSyncedAt on the ImportList when a
-// sync finishes. SyncCompleted, ORed into the For() predicate, turns that
+// the worker also stamps importliststate.AnnotationSyncedAt on the
+// ImportList when a sync finishes. SyncCompleted, ORed into the For() predicate, turns that
 // stamp into a reconcile, which reads the checkpoint and projects it. The
 // status therefore follows the worker within one reconcile, not one
 // refresh interval later.
 //
 // # Kinds a provider cannot yield (gap-fix ruling R-10)
 //
-// worker.YieldableKinds is the table: trakt, plex, tmdb, mdblist and imdbCSV
-// yield movie and series; stevenLu movie; arr its instance's kinds (radarr
-// movie, sonarr series, lidarr album, readarr book or audiobook, clustarr
-// any); custom any. R-10 rejects every other combination at admission,
+// importliststate.YieldableKinds is the table: trakt, plex, tmdb, mdblist
+// and imdbCSV yield movie and series; stevenLu movie; arr its instance's
+// kinds (radarr movie, sonarr series, lidarr album, readarr book or
+// audiobook, clustarr any); custom any. R-10 rejects every other combination at admission,
 // through three CEL rules on ImportListSpec (task X14 applied them);
 // TestAdmissionMatchesYieldableKinds holds them to the table for every
 // provider and kind.

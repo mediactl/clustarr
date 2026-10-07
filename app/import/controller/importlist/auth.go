@@ -25,7 +25,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
-	worker "github.com/mediactl/clustarr/app/import/worker/importlist"
+	"github.com/mediactl/clustarr/app/import/importliststate"
 	"github.com/mediactl/clustarr/pkg/importlist/trakt"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
@@ -72,7 +72,7 @@ const defaultPollFloor = 5 * time.Second
 // apply would blank the code out from under a user who has not finished
 // typing it in yet.
 func reconcileTraktAuth(
-	ctx context.Context, flow *trakt.DeviceFlow, store *worker.SecretTokenStore,
+	ctx context.Context, flow *trakt.DeviceFlow, store *importliststate.SecretTokenStore,
 	previous *catalogv1alpha1.DeviceAuth, now time.Time,
 ) (authOutcome, error) {
 	log := logging.FromContext(ctx)
@@ -133,7 +133,7 @@ func reconcileTraktAuth(
 // VerificationURL a pending outcome must keep reporting -- see
 // reconcileTraktAuth's doc comment.
 func pollTraktDeviceCode(
-	ctx context.Context, flow *trakt.DeviceFlow, store *worker.SecretTokenStore,
+	ctx context.Context, flow *trakt.DeviceFlow, store *importliststate.SecretTokenStore,
 	dc trakt.DeviceCode, previous *catalogv1alpha1.DeviceAuth,
 ) (authOutcome, error) {
 	log := logging.FromContext(ctx)

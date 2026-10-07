@@ -29,6 +29,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/app/import/importliststate"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	pkgimportlist "github.com/mediactl/clustarr/pkg/importlist"
@@ -68,10 +69,11 @@ func (d syncDeps) now() time.Time {
 // spec.automaticAdd false it does all of that except the create or update:
 // the entries are recorded as listed and nothing is added (Radarr).
 //
-// A kind the provider cannot yield (CanYield; gap-fix ruling R-10) fails
-// with ErrKindNotYieldable, and a yieldable kind with no catalog writer
-// fails with ErrNoCatalogWriter once the provider has answered: both reach
-// status.lastError through the Result, never a log line alone. An item this
+// A kind the provider cannot yield (importliststate.CanYield; gap-fix ruling
+// R-10) fails with importliststate.ErrKindNotYieldable, and a yieldable kind
+// with no catalog writer fails with importliststate.ErrNoCatalogWriter once
+// the provider has answered: both reach status.lastError through the
+// Result, never a log line alone. An item this
 // task cannot resolve the required external id for (see resolveRequiredID)
 // is logged and dropped rather than created with a guessed id.
 func syncKind(
@@ -81,12 +83,12 @@ func syncKind(
 	defer span.End()
 	log := logging.FromContext(ctx).With("importList", il.Namespace+"/"+il.Name, "kind", kind)
 
-	if !CanYield(il.Spec, kind) {
+	if !importliststate.CanYield(il.Spec, kind) {
 		return kindResult{err: fmt.Errorf("%w: a %s list yields only %v, not %s",
-			ErrKindNotYieldable, ProviderName(il.Spec), YieldableKinds(il.Spec), kind)}
+			importliststate.ErrKindNotYieldable, importliststate.ProviderName(il.Spec), importliststate.YieldableKinds(il.Spec), kind)}
 	}
 
-	tokenStore := NewSecretTokenStore(deps.Client, il)
+	tokenStore := importliststate.NewSecretTokenStore(deps.Client, il)
 	provider, err := BuildProvider(ctx, deps.Client, il, kind, tokenStore, deps.Providers)
 	if err != nil {
 		return kindResult{err: fmt.Errorf("build provider: %w", err)}
@@ -110,10 +112,10 @@ func syncKind(
 		tracing.RecordError(span, err)
 		return kindResult{err: fmt.Errorf("fetch: %w", err)}
 	}
-	if !hasCatalogWriter(kind) {
+	if !importliststate.HasCatalogWriter(kind) {
 		return kindResult{fetched: int32(len(fetched)), err: fmt.Errorf(
 			"%w: the %s list returned %d %s items, and import lists create only movie and series items",
-			ErrNoCatalogWriter, ProviderName(il.Spec), len(fetched), kind)}
+			importliststate.ErrNoCatalogWriter, importliststate.ProviderName(il.Spec), len(fetched), kind)}
 	}
 
 	deduped := pkgimportlist.Dedupe(fetched)

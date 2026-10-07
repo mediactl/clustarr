@@ -31,6 +31,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/app/import/importliststate"
 	pkgimportlist "github.com/mediactl/clustarr/pkg/importlist"
 	"github.com/mediactl/clustarr/pkg/importlist/arr"
 	"github.com/mediactl/clustarr/pkg/importlist/custom"
@@ -75,9 +76,9 @@ func readConfigMap(ctx context.Context, c client.Client, ns string, ref corev1.L
 
 // ErrUnsupportedProviderKind is returned by BuildProvider when the CRD's
 // selected provider has no data for the requested kind (for example
-// spec.stevenLu with kind=series). syncKind checks CanYield first, so
-// reaching it means that table and a provider constructor disagree; the
-// kind fails with it rather than being skipped.
+// spec.stevenLu with kind=series). syncKind checks importliststate.CanYield
+// first, so reaching it means that table and a provider constructor
+// disagree; the kind fails with it rather than being skipped.
 var ErrUnsupportedProviderKind = fmt.Errorf("importlist: provider does not support this kind")
 
 // ProviderOptions carries what BuildProvider threads into the providers
@@ -116,7 +117,7 @@ func BuildProvider(
 	c client.Client,
 	il *catalogv1alpha1.ImportList,
 	kind commonv1.MediaKind,
-	tokenStore *SecretTokenStore,
+	tokenStore *importliststate.SecretTokenStore,
 	opts ProviderOptions,
 ) (pkgimportlist.ImportList, error) {
 	httpClient := opts.HTTPClient
