@@ -45,7 +45,7 @@ var multiLanguageRegex = func() *regexp2.Regexp {
 // blocklist. Quality, cutoff, upgrade and transcoded are not a donor's
 // business.
 func evaluateDonor(t Target, originalLanguage string, need []string, p quality.Profile, parsed *release.ParsedRelease,
-	rel common.ReleaseInfo, score int, matched []string, rejections []common.Rejection,
+	rel common.ReleaseInfo, score int, matched []string, rejections []common.Rejection, itemState bool,
 ) Decision {
 	add := func(r *common.Rejection) {
 		if r != nil {
@@ -53,16 +53,13 @@ func evaluateDonor(t Target, originalLanguage string, need []string, p quality.P
 		}
 	}
 	add(donorLanguageRejection(need, originalLanguage, p, parsed, rel.Title))
-	if slices.Contains(t.Donor.Rejected, rel.Title) {
-		r := newRejection(ReasonDonorRejected, "a graft of this item already failed with %s", rel.Title)
-		add(&r)
-	}
-	if len(t.Queue) > 0 {
-		r := newRejection(ReasonDonorQueued, "a donor for this item is already downloading")
-		add(&r)
+	if itemState {
+		rejections = append(rejections, donorItemState(t, rel)...)
 	}
 	add(sampleRejection(rel))
-	rejections = append(rejections, blocklistAndHistoryRejections(t, rel)...)
+	if itemState {
+		rejections = append(rejections, blocklistAndHistoryRejections(t, rel)...)
+	}
 	d := Decision{
 		Release: rel, Parsed: parsed, Approved: len(rejections) == 0,
 		TemporarilyRejected: len(rejections) > 0 && allTemporary(rejections),
@@ -72,6 +69,19 @@ func evaluateDonor(t Target, originalLanguage string, need []string, p quality.P
 		d.Rank = RankKey{Donor: true, DonorLineage: donorLineage(t.Donor, rel, parsed), SizeBytes: rel.SizeBytes}
 	}
 	return d
+}
+
+// donorItemState is a donor's item-state rules before the sample check:
+// the item's rejected donors and a donor in flight (Evaluate's order).
+func donorItemState(t Target, rel common.ReleaseInfo) []common.Rejection {
+	var out []common.Rejection
+	if slices.Contains(t.Donor.Rejected, rel.Title) {
+		out = append(out, newRejection(ReasonDonorRejected, "a graft of this item already failed with %s", rel.Title))
+	}
+	if len(t.Queue) > 0 {
+		out = append(out, newRejection(ReasonDonorQueued, "a donor for this item is already downloading"))
+	}
+	return out
 }
 
 // donorLanguageRejection: a donor must carry every missing language and

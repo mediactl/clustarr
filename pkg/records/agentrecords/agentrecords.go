@@ -72,6 +72,24 @@ func Imports() records.Spec[*schema.ImportRecord] {
 	}
 }
 
+// Searches is clustarr-searches' protocol (ADR-0019 §7.4): one record per
+// search task, keyed events.RecordKey(task uid) -- the Search's UID for an
+// interactive search, the item's for an automatic one (R13) -- written by
+// the catalog agent's search worker.
+func Searches() records.Spec[*schema.SearchRecord] {
+	return records.Spec[*schema.SearchRecord]{
+		Remediation: "search",
+		Bucket:      events.BucketSearches,
+		Schema:      schema.SearchRecord{}.Schema(),
+		MaxValue:    int(events.SearchesMaxValueSize),
+		New:         func() *schema.SearchRecord { return &schema.SearchRecord{} },
+		KeyOf:       func(r *schema.SearchRecord) (string, string) { return r.Task, "" },
+	}
+}
+
+// SearchKey is a search task's record key.
+func SearchKey(taskUID string) string { return events.RecordKey(taskUID) }
+
 // TransferKey is an entry's transfer record key.
 func TransferKey(entryUID string) string { return events.RecordKey(entryUID) }
 

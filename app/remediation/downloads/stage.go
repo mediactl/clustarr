@@ -137,6 +137,9 @@ func (s *Stage) Plan(ctx context.Context, _ *remediation.Env, v *remediation.Ite
 		}
 	}
 	lv.NewEntries = v.NewEntries
+	// Convergence asks the grab planner whether the owner still wants an
+	// unclaimed transfer (grabplan.StillWants, A4.1 step 4).
+	lv.StillWants = v.StillWants
 	if err := s.importDecisions(ctx, ow, &lv); err != nil {
 		return remediation.ItemResult{}, remediation.Transient(err)
 	}

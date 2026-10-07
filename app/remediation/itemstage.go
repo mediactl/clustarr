@@ -70,6 +70,10 @@ type ItemView struct {
 	Now metav1.Time
 	// NewEntries are the grab stage's decisions this pass.
 	NewEntries []catalogv1alpha1.DownloadEntry
+	// StillWants is the grab stage's convergence answer for the downloads
+	// stage (grabplan.StillWants over the view it gathered, A4.1); nil when
+	// the grab stage did not run, which leaves lifecycle's default.
+	StillWants func(schema.TransferClaim) (bool, string)
 	// Downloads is the downloads stage's outcome, for search.
 	Downloads *DownloadsOutcome
 }
@@ -91,6 +95,8 @@ type ItemResult struct {
 	// one manager are merged by field, each field from at most one stage.
 	Sets       []itempass.Set
 	NewEntries []catalogv1alpha1.DownloadEntry
+	// StillWants is the grab stage's answer for ItemView.StillWants.
+	StillWants func(schema.TransferClaim) (bool, string)
 	Downloads  *DownloadsOutcome
 	// Effects run after every apply landed, in the stage's order.
 	Effects []Effect
@@ -115,6 +121,15 @@ type ItemStage interface {
 	Name() ItemStageName
 	Applies(kind KeyKind) bool
 	Plan(ctx context.Context, env *Env, v *ItemView) (ItemResult, error)
+}
+
+// SetDeclarer is a stage that contributes fields to another manager's set
+// on kind: a pass in which it failed applies none of those managers' sets,
+// since a set is a complete declaration and one missing that stage's
+// fields would release them (two stages share catalog-grab's set: grab's
+// pendingGrab and search's bookkeeping, A4).
+type SetDeclarer interface {
+	DeclaresSets(kind KeyKind) []k8s.FieldManager
 }
 
 // OwnerGone is implemented by the downloads stage: a key NotFound in the

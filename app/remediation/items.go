@@ -155,6 +155,9 @@ func (ir *ItemReconciler) staged(ctx context.Context, it rollup.Item, k Key) (re
 		failed         bool
 		stageTransient bool
 		order          []ItemStageName
+		// skipSets are the managers a failed stage declares fields of: their
+		// sets would be incomplete this pass (SetDeclarer).
+		skipSets = map[k8s.FieldManager]bool{}
 	)
 	for _, name := range StageOrder {
 		for _, s := range ir.Stages {
@@ -167,6 +170,11 @@ func (ir *ItemReconciler) staged(ctx context.Context, it rollup.Item, k Key) (re
 					stageTransient = true
 				} else {
 					failed = true
+				}
+				if sd, ok := s.(SetDeclarer); ok {
+					for _, m := range sd.DeclaresSets(k.Kind) {
+						skipSets[m] = true
+					}
 				}
 				logging.FromContext(ctx).Warn("remediation: item stage failed; its stored values stand this pass",
 					"stage", name, "reason", so.failed.reason, "error", so.failed.message)
@@ -181,6 +189,7 @@ func (ir *ItemReconciler) staged(ctx context.Context, it rollup.Item, k Key) (re
 			}
 			if name == StageGrab {
 				v.NewEntries = so.res.NewEntries
+				v.StillWants = so.res.StillWants
 			}
 			if so.res.Downloads != nil {
 				v.Downloads = so.res.Downloads
@@ -203,7 +212,7 @@ func (ir *ItemReconciler) staged(ctx context.Context, it rollup.Item, k Key) (re
 	// 5. Every other manager's set, CAS-chained, skipped when equal at its
 	// own paths.
 	for _, s := range orderedSets(sets) {
-		if itemstatus.SetEqual(item, s) {
+		if skipSets[s.Manager] || itemstatus.SetEqual(item, s) {
 			continue
 		}
 		next, conflicted, err := itemstatus.ApplySet(ctx, ir.Client, item, rv, s)

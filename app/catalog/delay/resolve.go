@@ -24,8 +24,12 @@ package delay
 import (
 	"errors"
 	"slices"
+	"time"
+
+	"k8s.io/utils/ptr"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 )
 
 var (
@@ -88,4 +92,47 @@ func tagsIntersect(a, b []string) bool {
 		}
 	}
 	return false
+}
+
+// Bypasses reports whether a DelayProfile's delay is skipped for this
+// release, per spec §8.2's two bypasses: "BypassIfHighestQuality and quality
+// index == top tier; or BypassIfAboveFormatScore and score >= min" (P15,
+// moved here from the retired grab worker, ADR-0019 A4.1).
+//
+// Both flags are *bool on the CRD with a +kubebuilder:default, so a spec read
+// back from the apiserver always has them set -- but a spec built in memory
+// (a test, a defaulted-but-not-yet-persisted object) does not, and a nil there
+// must mean the documented default, not false. ptr.Deref supplies it.
+func Bypasses(spec catalogv1alpha1.DelayProfileSpec, atTopTier bool, formatScore int32) bool {
+	if ptr.Deref(spec.BypassIfHighestQuality, true) && atTopTier {
+		return true
+	}
+	return ptr.Deref(spec.BypassIfAboveFormatScore, false) && formatScore >= spec.MinimumFormatScore
+}
+
+// DelayFor is the delay this profile imposes on a release of the given
+// protocol. An unrecognised protocol delays nothing: a release Clustarr cannot
+// classify must not be held hostage by a profile that never mentions it.
+func DelayFor(spec catalogv1alpha1.DelayProfileSpec, protocol commonv1.Protocol) time.Duration {
+	switch protocol {
+	case commonv1.ProtocolUsenet:
+		return time.Duration(spec.UsenetDelayMinutes) * time.Minute
+	case commonv1.ProtocolTorrent:
+		return time.Duration(spec.TorrentDelayMinutes) * time.Minute
+	default:
+		return 0
+	}
+}
+
+// ProtocolEnabled reports whether the profile allows this protocol at all.
+// Both flags default to true on the CRD, so the nil case is "allowed".
+func ProtocolEnabled(spec catalogv1alpha1.DelayProfileSpec, protocol commonv1.Protocol) bool {
+	switch protocol {
+	case commonv1.ProtocolUsenet:
+		return ptr.Deref(spec.EnableUsenet, true)
+	case commonv1.ProtocolTorrent:
+		return ptr.Deref(spec.EnableTorrent, true)
+	default:
+		return false
+	}
 }

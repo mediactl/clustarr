@@ -41,6 +41,7 @@ import (
 	"github.com/mediactl/clustarr/app/remediation"
 	artworkstage "github.com/mediactl/clustarr/app/remediation/artwork"
 	"github.com/mediactl/clustarr/app/remediation/downloads"
+	grabstage "github.com/mediactl/clustarr/app/remediation/grab"
 	markersplanner "github.com/mediactl/clustarr/app/remediation/markers"
 	metadatastage "github.com/mediactl/clustarr/app/remediation/metadata"
 	"github.com/mediactl/clustarr/app/remediation/naming"
@@ -144,6 +145,8 @@ func Stages(d Deps) []remediation.ItemStage {
 	}
 	recorder := func(name string) k8sevents.EventRecorder { return d.Manager.GetEventRecorder(name) }
 	stages := []remediation.ItemStage{
+		// The grab decision is the owner key's (ADR-0019 §6.6, A4.1).
+		grabstage.New(grabstage.Options{Reader: d.Manager.GetClient(), Bus: d.Env.Bus, Inbox: d.Options.Inbox}),
 		downloads.New(downloads.Options{
 			Reader: d.Manager.GetClient(), APIReader: d.Manager.GetAPIReader(), Bus: d.Env.Bus,
 			Dispatch: d.Options.Dispatch, Book: d.Options.Book, Recorder: recorder,

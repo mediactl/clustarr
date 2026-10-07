@@ -171,19 +171,20 @@ func (d *decider) converge(entries []catalogv1alpha1.DownloadEntry) []catalogv1a
 	return entries
 }
 
-// stillWants is the grab planner's answer when it is set (A4.1), else A3's
-// default: the owner is monitored and either holds no live entry of the
-// claim's purpose and has no file, or the claim is imported with its seed
-// goal not met (the seeding obligation).
+// stillWants: an imported claim whose seed goal is not met is wanted (the
+// seeding obligation, which needs the record); otherwise the grab planner's
+// answer when it is set (grabplan.StillWants, A4.1), else A3's default: the
+// owner is monitored and holds no live entry of the claim's purpose and has
+// no file.
 func (d *decider) stillWants(claim schema.TransferClaim, rec schema.TransferRecord, entries []catalogv1alpha1.DownloadEntry) (bool, string) {
+	if claim.Imported && !rec.SeedGoalReached && d.v.Monitored {
+		return true, "its seed goal is not met"
+	}
 	if d.v.StillWants != nil {
 		return d.v.StillWants(claim)
 	}
 	if !d.v.Monitored {
 		return false, "the owner is not monitored"
-	}
-	if claim.Imported && !rec.SeedGoalReached {
-		return true, "its seed goal is not met"
 	}
 	for i := range entries {
 		if entries[i].Purpose == claim.Purpose && live(&entries[i]) {

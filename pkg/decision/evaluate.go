@@ -41,7 +41,74 @@ import (
 // DownloadDecision's Rejections list, which Approved/TemporarilyRejected
 // are then derived from exactly as Radarr's DownloadDecision does
 // (Disagreement 6).
+//
+// It is EvaluateRelease and ItemStateRejections in one pass, in today's
+// order (ADR-0019 §3.5 P8): an agent runs the release half, the manager's
+// grab planner the item-state half against fresh state.
 func Evaluate(ctx context.Context, t Target, p quality.Profile, cat *catalogue.Catalogue, rels []common.ReleaseInfo, o Options) []Decision {
+	return evaluate(ctx, t, p, cat, rels, o, true)
+}
+
+// EvaluateRelease is Evaluate without the item-state rules (ADR-0019 §3.5
+// P8, §6.6): identity, protocol, availability, size, quality and custom
+// format score, language or audio policy, sample, and a donor's languages --
+// everything a release can be judged on without the item's current file,
+// its queue, its blocklist or its rejected donors, which ItemStateRejections
+// adds where that state lives (the manager). t.Current, t.Queue,
+// t.Blocklist and t.Donor.Rejected are not read.
+func EvaluateRelease(ctx context.Context, t Target, p quality.Profile, cat *catalogue.Catalogue, rels []common.ReleaseInfo, o Options) []Decision {
+	return evaluate(ctx, t, p, cat, rels, o, false)
+}
+
+// ItemStateRejections is the item-state half of Evaluate (ADR-0019 §6.6
+// step 2): for a video release, blocklist and already-imported
+// (t.Blocklist, t.Current), the queue preference (t.Queue), the
+// transcoded-final check and the upgrade table against t.Current; for an
+// audio donor (t.Donor), the item's rejected donors, a donor in flight and
+// the blocklist. d is the release's decision from EvaluateRelease, or one
+// rebuilt from a record (d.Parsed nil: the title is parsed again, which
+// costs no regexp2). The rules are pkg/decision's own, cheap, and read no
+// catalogue: the grab planner runs them on every candidate it re-checks.
+func ItemStateRejections(ctx context.Context, t Target, p quality.Profile, d Decision, o Options) []common.Rejection {
+	_ = o
+	rel := d.Release
+	parsed := d.Parsed
+	lang := originalLanguageName(ctx, t.OriginalLanguageTag)
+	if parsed == nil {
+		pr, err := release.Parse(rel.Title, release.Options{Kind: t.Kind})
+		if err != nil {
+			return nil
+		}
+		pr.Languages = pr.LanguagesFor(lang)
+		parsed = pr
+	}
+	if t.Donor != nil {
+		var out []common.Rejection
+		out = append(out, donorItemState(t, rel)...)
+		return append(out, blocklistAndHistoryRejections(t, rel)...)
+	}
+	score := d.Score
+	if score == 0 {
+		score = int(rel.FormatScore)
+	}
+	return videoItemState(t, p, resolveAudioNames(ctx, p, lang), parsed, rel, score)
+}
+
+// WithItemState is d with extra rejections folded in: Approved and
+// TemporarilyRejected are derived again exactly as Evaluate derives them.
+// d's RankKey is kept (it ranks d among the releases its agent approved).
+func WithItemState(d Decision, extra []common.Rejection) Decision {
+	if len(extra) == 0 {
+		return d
+	}
+	d.Rejections = append(append([]common.Rejection(nil), d.Rejections...), extra...)
+	d.Approved = false
+	d.TemporarilyRejected = allTemporary(d.Rejections)
+	return d
+}
+
+// evaluate is Evaluate (itemState) or EvaluateRelease (!itemState).
+func evaluate(ctx context.Context, t Target, p quality.Profile, cat *catalogue.Catalogue, rels []common.ReleaseInfo, o Options, itemState bool) []Decision {
 	// Resolved once per call, not once per release: the lookup is the same
 	// for every candidate, and an unresolvable tag must warn once about the
 	// item rather than once about every release of it.
@@ -58,7 +125,7 @@ func Evaluate(ctx context.Context, t Target, p quality.Profile, cat *catalogue.C
 	}
 	out := make([]Decision, 0, len(rels))
 	for _, rel := range rels {
-		out = append(out, evaluateOne(ctx, t, lang, an, donorNeed, idx, p, cat, rel, o))
+		out = append(out, evaluateOne(ctx, t, lang, an, donorNeed, idx, p, cat, rel, o, itemState))
 	}
 	return out
 }
@@ -70,7 +137,7 @@ func Evaluate(ctx context.Context, t Target, p quality.Profile, cat *catalogue.C
 // newIdentityIndex(t.Kind, t.Identity), computed once per Evaluate for the
 // same reason.
 func evaluateOne(ctx context.Context, t Target, originalLanguage string, an audioNames, donorNeed []string, idx identityIndex,
-	p quality.Profile, cat *catalogue.Catalogue, rel common.ReleaseInfo, o Options,
+	p quality.Profile, cat *catalogue.Catalogue, rel common.ReleaseInfo, o Options, itemState bool,
 ) Decision {
 	parsed, err := release.Parse(rel.Title, release.Options{Kind: t.Kind})
 	if err != nil {
@@ -111,7 +178,7 @@ func evaluateOne(ctx context.Context, t Target, originalLanguage string, an audi
 	add(availabilityRejection(t, o))
 	rejections = append(rejections, sizeRejections(t, p, parsed, rel)...)
 	if t.Donor != nil {
-		return evaluateDonor(t, originalLanguage, donorNeed, p, parsed, rel, score, matched, rejections)
+		return evaluateDonor(t, originalLanguage, donorNeed, p, parsed, rel, score, matched, rejections, itemState)
 	}
 	rejections = append(rejections, qualityRejections(p, rel, score)...)
 	languagesComplete := true
@@ -123,14 +190,9 @@ func evaluateOne(ctx context.Context, t Target, originalLanguage string, an audi
 		add(languageRejection(originalLanguage, p, parsed))
 	}
 	add(sampleRejection(rel))
-	rejections = append(rejections, blocklistAndHistoryRejections(t, rel)...)
-
-	candidate := quality.Candidate{Quality: rel.Quality, Revision: rel.Revision, FormatScore: score}
-	add(queueRejection(p, t, candidate))
-	add(transcodedRejection(t, o))
-	// A dual-audio anime release names its languages (the original and
-	// English) though the parser recognises neither word.
-	add(upgradeRejection(p, t, candidate, namesWantedLanguages(an, p, parsed, rel.Title)))
+	if itemState {
+		rejections = append(rejections, videoItemState(t, p, an, parsed, rel, score)...)
+	}
 
 	d := Decision{
 		Release:             rel,
@@ -146,6 +208,26 @@ func evaluateOne(ctx context.Context, t Target, originalLanguage string, an audi
 		d.Rank.LanguagesComplete = languagesComplete
 	}
 	return d
+}
+
+// videoItemState is a video release's item-state rules, in Evaluate's
+// order: blocklist and already-imported, the queue preference, the
+// transcoded-final check and the upgrade table.
+func videoItemState(t Target, p quality.Profile, an audioNames, parsed *release.ParsedRelease, rel common.ReleaseInfo, score int) []common.Rejection {
+	var out []common.Rejection
+	add := func(r *common.Rejection) {
+		if r != nil {
+			out = append(out, *r)
+		}
+	}
+	out = append(out, blocklistAndHistoryRejections(t, rel)...)
+	candidate := quality.Candidate{Quality: rel.Quality, Revision: rel.Revision, FormatScore: score}
+	add(queueRejection(p, t, candidate))
+	add(transcodedRejection(t, Options{}))
+	// A dual-audio anime release names its languages (the original and
+	// English) though the parser recognises neither word.
+	add(upgradeRejection(p, t, candidate, namesWantedLanguages(an, p, parsed, rel.Title)))
+	return out
 }
 
 // maxMatchedFormats is ReleaseInfo.MatchedFormats' +kubebuilder:validation:MaxItems.
