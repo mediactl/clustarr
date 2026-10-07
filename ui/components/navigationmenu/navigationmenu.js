@@ -1,418 +1,965 @@
-// Clustarr's own component (2026-09-24): a port of Base UI's NavigationMenu
-// behaviour for navigationmenu.templ, which shadcn-templ's registry lacks.
-// Uses window.FloatingUIDOM from components/floatingui (the same bundle).
+// Port of @base-ui/react navigation-menu (1.6.0): Root, List, Item, Trigger,
+// Content, Link, Icon, Portal, Positioner, Popup and Viewport, as shadcn
+// composes them. One popup per menu: the positioner follows the active
+// trigger, and the active item's content moves into the viewport, which
+// resizes to it through --popup-width/--popup-height and
+// --positioner-width/--positioner-height.
 //
-// A trigger opens its item's content after the root's delay on hover, at
-// once on click (a click on the open trigger closes); the pointer leaving
-// the root -- the popup is inside it -- closes after the close delay, as
-// does focus leaving it, Escape (focus returns to the trigger), a press
-// outside, and a click on a link marked close-on-click. The open content
-// is moved into the popup's viewport, the previous one slides out the way
-// Base UI's does (data-activation-direction says which way), the popup is
-// sized to the content through --popup-width/height and
-// --positioner-width/height and placed against the trigger with floating
-// ui (side, align and the offsets from the positioner's attributes,
-// --transform-origin for the popup's scale); a switch between items slides
-// the positioner, a first open lands it without a transition
-// (data-instant). The arrow keys move focus along the triggers (the
-// orientation picks the axis, the writing direction the order) and carry
-// an open menu along; the arrow into the content (down under a horizontal
-// list) opens and focuses its first link; Home and End jump.
-//
-// State follows Base UI's public contract: data-popup-open on the trigger,
-// data-open/closed with data-starting-style and data-ending-style on the
-// content, popup and positioner, data-side and data-align on the
-// positioner and popup, and the root's data-tui-navigation-menu-value for
-// the open item, which navigation-menu-value-change announces before it
-// changes (cancelable; a controlled root never changes it itself).
+// Every trigger has its own floating root context, as in the source: its
+// hover (rest delay, close delay, safe polygon), its click and its open
+// event. The root holds the value, the active item.
 (function () {
   "use strict";
 
-  const EXIT_MS = 350; // the tsx's 0.35s transitions
-  const q = (v) => (window.CSS && CSS.escape ? CSS.escape(v) : String(v).replace(/"/g, '\\"'));
-  const byId = (root, part) =>
-    "[data-tui-navigation-menu-" + part + '][data-tui-navigation-menu-id="' + q(root.getAttribute("data-tui-navigation-menu-id")) + '"]';
+  const ROOT = '[data-slot="navigation-menu"]';
+  const LIST = '[data-slot="navigation-menu-list"]';
+  const ITEM = '[data-slot="navigation-menu-item"]';
+  const TRIGGER = '[data-slot="navigation-menu-trigger"]';
+  const CONTENT = '[data-slot="navigation-menu-content"]';
+  const LINK = '[data-slot="navigation-menu-link"]';
+  const INDICATOR = '[data-slot="navigation-menu-indicator"]';
+  // The holder a part waits in until it mounts, see navigationmenu.templ.
+  const HOLDER = "[data-templ-portal]";
 
-  function rootOf(el) {
-    return el && el.closest ? el.closest("[data-tui-navigation-menu]") : null;
-  }
-  function partsOf(root) {
-    return {
-      positioner: root.querySelector(byId(root, "positioner")),
-      popup: root.querySelector(byId(root, "positioner") + " [data-tui-navigation-menu-popup]"),
-      viewport: root.querySelector(byId(root, "positioner") + " [data-tui-navigation-menu-viewport]"),
-      indicator: root.querySelector(byId(root, "indicator")),
-    };
-  }
-  function triggersOf(root) {
-    return [...root.querySelectorAll(byId(root, "trigger"))];
-  }
-  function triggerFor(root, value) {
-    return root.querySelector(byId(root, "trigger") + '[data-tui-navigation-menu-value="' + q(value) + '"]');
-  }
-  function contentFor(root, value) {
-    return root.querySelector(byId(root, "content") + '[data-tui-navigation-menu-value="' + q(value) + '"]');
-  }
-  function current(root) {
-    return root.getAttribute("data-tui-navigation-menu-value") || "";
-  }
-  function num(el, name, fallback) {
-    const n = parseInt(el.getAttribute(name), 10);
-    return isNaN(n) ? fallback : n;
-  }
-  function timers(root) {
-    return root._tuiNav || (root._tuiNav = { open: 0, close: 0, exit: 0 });
-  }
-  function nextFrames(fn) {
-    requestAnimationFrame(() => requestAnimationFrame(fn));
-  }
+  const OPEN_DELAY = 50;
+  const CLOSE_DELAY = 50;
+  const PATIENT_CLICK_THRESHOLD = 500;
+  const BLOCKED_RETURN_FOCUS_REASONS = new Set(["trigger-hover", "outside-press", "focus-out"]);
 
-  // ----- geometry ------------------------------------------------------------
+  const t = () => window.templ.tabbable;
+  const T = () => window.templ.transition;
 
-  function origin(side, align) {
-    const x = align === "start" ? "left" : align === "end" ? "right" : "center";
-    if (side === "bottom") return "top " + x;
-    if (side === "top") return "bottom " + x;
-    const y = align === "start" ? "top" : align === "end" ? "bottom" : "center";
-    return (side === "right" ? "left " : "right ") + y;
-  }
+  // ----- helpers -------------------------------------------------------------
 
-  // The content's own size, measured free of the popup's current one.
-  // Nothing paints between the two style writes, so the content is not
-  // hidden for the measure: a link inside it wears transition-all, and a
-  // visibility that flips hidden and back would transition, leaving the
-  // link unfocusable for the transition's length (an arrow into the
-  // content right after it opened found it so).
-  // The author's inline style stays (a width set there or by a class
-  // holds); min-width keeps the old popup's width from wrapping a wider
-  // content, and the tsx's h-full gives way to the content's own height.
-  function sizeOf(content) {
-    const saved = content.style.cssText;
-    content.style.cssText =
-      saved +
-      ";position:absolute;top:0;left:0;min-width:max-content;" +
-      (/(^|;)\s*height\s*:/.test(saved) ? "" : "height:auto;");
-    const w = content.offsetWidth, h = content.offsetHeight;
-    content.style.cssText = saved;
-    return { w: Math.min(w, document.documentElement.clientWidth - 10), h };
-  }
-
-  function place(root, trigger, instant) {
-    const p = partsOf(root);
-    const pos = p.positioner;
-    if (!pos || !window.FloatingUIDOM) return Promise.resolve();
-    const { computePosition, offset, flip, shift } = window.FloatingUIDOM;
-    const side = pos.getAttribute("data-tui-navigation-menu-side") || "bottom";
-    const align = pos.getAttribute("data-tui-navigation-menu-align") || "start";
-    const placement = align === "center" ? side : side + "-" + align;
-    const sideOffset = num(pos, "data-tui-navigation-menu-side-offset", 8);
-    const alignOffset = num(pos, "data-tui-navigation-menu-align-offset", 0);
-    if (instant) pos.setAttribute("data-instant", "");
-    return computePosition(trigger, pos, {
-      placement,
-      strategy: "absolute",
-      middleware: [offset({ mainAxis: sideOffset, crossAxis: alignOffset }), flip(), shift({ padding: 5 })],
-    }).then((r) => {
-      pos.style.left = r.x + "px";
-      pos.style.top = r.y + "px";
-      const finalSide = r.placement.split("-")[0];
-      const finalAlign = r.placement.split("-")[1] || "center";
-      const tb = trigger.getBoundingClientRect();
-      pos.style.setProperty("--anchor-width", tb.width + "px");
-      pos.style.setProperty("--anchor-height", tb.height + "px");
-      pos.style.setProperty("--available-width", document.documentElement.clientWidth - 10 + "px");
-      pos.style.setProperty("--available-height", document.documentElement.clientHeight - 10 + "px");
-      pos.style.setProperty("--transform-origin", origin(finalSide, finalAlign));
-      [pos, p.popup].forEach((el) => {
-        if (!el) return;
-        el.setAttribute("data-side", finalSide);
-        el.setAttribute("data-align", finalAlign);
-      });
-      if (instant) {
-        pos.offsetHeight; // flush the move before transitions come back
-        pos.removeAttribute("data-instant");
-      }
-      const ind = p.indicator;
-      if (ind) {
-        const rb = root.getBoundingClientRect();
-        ind.hidden = false;
-        ind.style.left = tb.left - rb.left + "px";
-        ind.style.width = tb.width + "px";
-        ind.setAttribute("data-state", "visible");
-      }
-    });
-  }
-
-  // ----- state ---------------------------------------------------------------
-
-  // The content of value leaves the viewport: it slides out towards dir
-  // (or fades, on a close) and goes home to its item once done.
-  function retire(root, value, dir) {
-    const trigger = triggerFor(root, value);
-    if (trigger) {
-      trigger.setAttribute("aria-expanded", "false");
-      trigger.removeAttribute("data-popup-open");
+  // @floating-ui/react-dom's getCssDimensions.
+  function getCssDimensions(element) {
+    const css = getComputedStyle(element);
+    let width = parseFloat(css.width) || 0;
+    let height = parseFloat(css.height) || 0;
+    const offsetWidth = element.offsetWidth;
+    const offsetHeight = element.offsetHeight;
+    if (Math.round(width) !== offsetWidth || Math.round(height) !== offsetHeight) {
+      width = offsetWidth;
+      height = offsetHeight;
     }
-    const content = contentFor(root, value);
-    if (!content) return;
-    content.removeAttribute("data-open");
-    content.removeAttribute("data-starting-style");
-    content.setAttribute("data-closed", "");
-    content.setAttribute("data-ending-style", "");
-    if (dir) content.setAttribute("data-activation-direction", dir);
-    else content.removeAttribute("data-activation-direction");
-    // Out of the flow, so the next content takes the viewport at once.
-    content.style.position = "absolute";
-    content.style.inset = "0";
-    setTimeout(() => {
-      if (!content.hasAttribute("data-ending-style")) return;
-      content.hidden = true;
-      content.removeAttribute("data-ending-style");
-      content.style.position = "";
-      content.style.inset = "";
-      if (content._tuiHome && content._tuiHome.isConnected) content._tuiHome.appendChild(content);
-    }, EXIT_MS);
+    return { width, height };
   }
 
-  function open(root, value, opts) {
-    opts = opts || {};
-    const t = timers(root);
-    clearTimeout(t.open);
-    clearTimeout(t.close);
-    const prev = current(root);
-    if (prev === value) return;
-    const trigger = triggerFor(root, value);
-    const content = contentFor(root, value);
-    const p = partsOf(root);
-    if (!trigger || !content || !p.positioner || !p.popup || !p.viewport) return;
-    let dir = "";
-    if (prev) {
-      const order = triggersOf(root);
-      dir = order.indexOf(trigger) > order.indexOf(triggerFor(root, prev)) ? "right" : "left";
-      retire(root, prev, dir);
-    }
-    clearTimeout(t.exit);
-    root.setAttribute("data-tui-navigation-menu-value", value);
-    trigger.setAttribute("aria-expanded", "true");
-    trigger.setAttribute("data-popup-open", "");
-
-    // The content moves into the viewport, as Base UI moves it.
-    if (!content._tuiHome) content._tuiHome = content.parentElement;
-    p.viewport.appendChild(content);
-    content.hidden = false;
-    content.style.position = "";
-    content.style.inset = "";
-    content.removeAttribute("data-closed");
-    content.removeAttribute("data-ending-style");
-    if (dir) content.setAttribute("data-activation-direction", dir);
-    else content.removeAttribute("data-activation-direction");
-    content.setAttribute("data-open", "");
-    content.setAttribute("data-starting-style", "");
-
-    // A first open shows the positioner before the content is measured: a
-    // hidden ancestor measures as nothing. Its starting style keeps the
-    // popup invisible until it is placed.
-    const first = !prev;
-    if (first) {
-      [p.positioner, p.popup].forEach((el) => {
-        el.hidden = false;
-        el.removeAttribute("data-closed");
-        el.removeAttribute("data-ending-style");
-        el.setAttribute("data-open", "");
-        el.setAttribute("data-starting-style", "");
-      });
-    }
-    const size = sizeOf(content);
-    p.positioner.style.setProperty("--positioner-width", size.w + "px");
-    p.positioner.style.setProperty("--positioner-height", size.h + "px");
-    p.positioner.style.setProperty("--popup-width", size.w + "px");
-    p.positioner.style.setProperty("--popup-height", size.h + "px");
-    place(root, trigger, first || opts.instant).then(() => {
-      nextFrames(() => {
-        content.removeAttribute("data-starting-style");
-        if (first) {
-          p.positioner.removeAttribute("data-starting-style");
-          p.popup.removeAttribute("data-starting-style");
-        }
-      });
-    });
+  function isClickLikeEvent(event) {
+    const type = event?.type;
+    return type === "click" || type === "mousedown" || type === "keydown" || type === "keyup";
   }
 
-  function close(root) {
-    const t = timers(root);
-    clearTimeout(t.open);
-    clearTimeout(t.close);
-    const value = current(root);
-    if (!value) return;
-    root.removeAttribute("data-tui-navigation-menu-value");
-    retire(root, value, "");
-    const p = partsOf(root);
-    [p.positioner, p.popup].forEach((el) => {
-      if (!el) return;
-      el.removeAttribute("data-open");
-      el.removeAttribute("data-starting-style");
-      el.setAttribute("data-closed", "");
-      el.setAttribute("data-ending-style", "");
-    });
-    if (p.indicator) p.indicator.setAttribute("data-state", "hidden");
-    t.exit = setTimeout(() => {
-      if (p.positioner && p.positioner.hasAttribute("data-ending-style")) {
-        p.positioner.hidden = true;
-        p.positioner.removeAttribute("data-ending-style");
-        if (p.popup) p.popup.removeAttribute("data-ending-style");
-      }
-      if (p.indicator && p.indicator.getAttribute("data-state") === "hidden") p.indicator.hidden = true;
-    }, EXIT_MS);
+  function stopEvent(event) {
+    event.preventDefault();
+    event.stopPropagation();
   }
 
-  // value "" asks to close. A controlled root only announces.
-  function request(root, value) {
-    if (!root || current(root) === value) return;
-    const accepted = root.dispatchEvent(
+  // Parts of this menu only, not of a nested one.
+  function own(nav, element) {
+    return element.closest(ROOT) === nav.root;
+  }
+
+  // ----- the root's value ----------------------------------------------------
+
+  function isOpen(nav) {
+    return nav.value != null;
+  }
+
+  function isActive(st) {
+    return isOpen(st.nav) && st.nav.value === st.item;
+  }
+
+  function activeState(nav) {
+    return nav.value ? nav.items.get(nav.value) : null;
+  }
+
+  function setValue(nav, item, reason, event) {
+    if (item == null) nav.closeReason = reason;
+    if (item === nav.value) return;
+    const accepted = nav.root.dispatchEvent(
       new CustomEvent("navigation-menu-value-change", {
         bubbles: true,
         cancelable: true,
-        detail: { value: value || null },
+        detail: { value: item, reason, event },
       }),
     );
-    if (!accepted || root.hasAttribute("data-tui-navigation-menu-controlled")) return;
-    if (value) open(root, value);
-    else close(root);
-  }
-  function delay(root) {
-    return num(root, "data-tui-navigation-menu-delay", 50);
-  }
-  function closeDelay(root) {
-    return num(root, "data-tui-navigation-menu-close-delay", 50);
+    if (!accepted) return;
+    const prev = nav.value;
+    nav.value = item;
+    if (item == null) nav.activationDirection = null;
+    render(nav, prev);
   }
 
-  // ----- events --------------------------------------------------------------
+  // The render pass after a value change: every part reads the new value,
+  // then the layout effects run.
+  function render(nav, prev = nav.value) {
+    const open = isOpen(nav);
+    const wasOpen = prev != null;
+    nav.root.toggleAttribute("data-open", open);
+    nav.list?.toggleAttribute("data-open", open);
 
-  document.addEventListener("pointerover", (e) => {
-    if (e.pointerType === "touch") return;
-    const root = rootOf(e.target);
-    if (!root) return;
-    const t = timers(root);
-    clearTimeout(t.close);
-    const trigger = e.target.closest("[data-tui-navigation-menu-trigger]");
-    if (!trigger || rootOf(trigger) !== root || trigger.disabled) return;
-    const value = trigger.getAttribute("data-tui-navigation-menu-value");
-    if (current(root) === value) return;
-    clearTimeout(t.open);
-    t.open = setTimeout(() => request(root, value), delay(root));
-  });
+    if (open && !nav.mounted) mount(nav);
 
-  document.addEventListener("pointerout", (e) => {
-    if (e.pointerType === "touch") return;
-    const root = rootOf(e.target);
-    if (!root || (e.relatedTarget && root.contains(e.relatedTarget))) return;
-    const t = timers(root);
-    clearTimeout(t.open);
-    if (!current(root)) return;
-    clearTimeout(t.close);
-    t.close = setTimeout(() => request(root, ""), closeDelay(root));
-  });
+    nav.items.forEach((st) => renderTrigger(st));
+    nav.items.forEach((st) => renderContent(st));
 
-  document.addEventListener("click", (e) => {
-    const trigger = e.target.closest("[data-tui-navigation-menu-trigger]");
-    if (trigger) {
-      const root = rootOf(trigger);
-      if (!root || trigger.disabled) return;
-      const value = trigger.getAttribute("data-tui-navigation-menu-value");
-      request(root, current(root) === value ? "" : value);
-      return;
+    if (open) {
+      const active = activeState(nav);
+      // NavigationMenuTrigger's layout effect: the active trigger is where
+      // focus returns to and what the positioner anchors to.
+      nav.prevTrigger = active.trigger;
+      nav.positioning?.setAnchor(active.trigger);
+      if (active !== nav.floatingHoverOwner) startFloatingHover(nav, active);
+      if (!wasOpen) {
+        startDismiss(nav);
+        // Unpositioned (fixed, invisible) first, so the opening size is the
+        // popup's own; the enter transition runs once positioned.
+        startPositioning(nav, active.trigger);
+        sizeOnOpen(active);
+      }
+      focusIntoContent(active);
+      setActivationDirection(nav);
+    } else if (wasOpen) {
+      closePopup(nav);
     }
-    const link = e.target.closest("[data-tui-navigation-menu-close-on-click]");
-    if (link) request(rootOf(link), "");
-  });
+  }
 
-  // A press outside an open menu closes it.
-  document.addEventListener("pointerdown", (e) => {
-    document.querySelectorAll("[data-tui-navigation-menu][data-tui-navigation-menu-value]").forEach((root) => {
-      if (!root.contains(e.target)) request(root, "");
+  // ----- trigger -------------------------------------------------------------
+
+  function renderTrigger(st) {
+    const { nav, trigger } = st;
+    const active = isActive(st);
+    trigger.setAttribute("aria-expanded", String(active));
+    trigger.toggleAttribute("data-popup-open", active);
+    trigger.toggleAttribute("data-pressed", active);
+    if (active && nav.mounted) trigger.setAttribute("aria-controls", nav.popup.id);
+    else trigger.removeAttribute("aria-controls");
+    st.item.querySelectorAll(INDICATOR).forEach((indicator) => {
+      if (own(nav, indicator)) indicator.toggleAttribute("data-popup-open", active);
     });
-  });
+    if (active) renderTriggerGuards(st);
+    else removeTriggerGuards(st);
 
-  document.addEventListener("focusin", (e) => {
-    const root = rootOf(e.target);
-    if (root) clearTimeout(timers(root).close);
-  });
-  document.addEventListener("focusout", (e) => {
-    const root = rootOf(e.target);
-    if (!root || !current(root) || (e.relatedTarget && root.contains(e.relatedTarget))) return;
-    const t = timers(root);
-    clearTimeout(t.close);
-    t.close = setTimeout(() => request(root, ""), closeDelay(root));
-  });
-
-  document.addEventListener("keydown", (e) => {
-    const root = rootOf(e.target);
-    if (!root) return;
-    if (e.key === "Escape") {
-      const value = current(root);
-      if (!value) return;
-      e.preventDefault();
-      const trigger = triggerFor(root, value);
-      request(root, "");
-      if (trigger) trigger.focus();
-      return;
+    if (!active) {
+      // Inactive: no pending resize for this trigger.
+      cancelAnimationFrame(st.sizeFrame);
+      cancelAnimationFrame(st.mutationFrame);
+      cancelAutoSizeReset(st);
+      stopContentObserver(st);
+      stopResizeListener(st);
+    } else {
+      startContentObserver(st);
+      startResizeListener(st);
     }
-    const trigger = e.target.closest("[data-tui-navigation-menu-trigger]");
-    if (!trigger || rootOf(trigger) !== root) return;
-    const vertical = root.getAttribute("data-orientation") === "vertical";
-    const rtl = getComputedStyle(root).direction === "rtl";
-    const prev = vertical ? "ArrowUp" : rtl ? "ArrowRight" : "ArrowLeft";
-    const next = vertical ? "ArrowDown" : rtl ? "ArrowLeft" : "ArrowRight";
-    const into = vertical ? (rtl ? "ArrowLeft" : "ArrowRight") : "ArrowDown";
-    if (e.key === into) {
-      e.preventDefault();
-      const value = trigger.getAttribute("data-tui-navigation-menu-value");
-      if (current(root) !== value) request(root, value);
-      const content = contentFor(root, value);
-      const first = content && !content.hidden && content.querySelector('a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])');
-      if (first) first.focus();
-      return;
-    }
-    const all = triggersOf(root).filter((t) => !t.disabled);
-    const i = all.indexOf(trigger);
-    if (i < 0) return;
-    let target = null;
-    if (e.key === next) target = all[(i + 1) % all.length];
-    else if (e.key === prev) target = all[(i - 1 + all.length) % all.length];
-    else if (e.key === "Home") target = all[0];
-    else if (e.key === "End") target = all[all.length - 1];
-    if (!target) return;
-    e.preventDefault();
-    target.focus();
-    if (current(root)) request(root, target.getAttribute("data-tui-navigation-menu-value"));
-  });
 
-  // An item rendered open (the root's Value or DefaultValue) has its content
-  // in its item still; move it into the viewport and land the popup without
-  // a transition.
-  function init() {
-    document.querySelectorAll("[data-tui-navigation-menu][data-tui-navigation-menu-value]").forEach((root) => {
-      const value = current(root);
-      const content = contentFor(root, value);
-      const p = partsOf(root);
-      if (!content || !p.viewport || content.parentElement === p.viewport) return;
-      root.removeAttribute("data-tui-navigation-menu-value");
-      open(root, value, { instant: true });
+    if (!isOpen(nav)) {
+      // The trigger's effects on close.
+      clearTimeout(st.stickIfOpenTimer);
+      cancelAnimationFrame(st.mutationFrame);
+      cancelAnimationFrame(st.sizeFrame);
+      cancelAutoSizeReset(st, true);
+      st.skipAutoSizeSync = false;
+      st.pointerType = "";
+      st.openEvent = undefined;
+      const hover = st.hover;
+      hover.pointerType = undefined;
+      hover.interactedInside = false;
+      hover.restTimeoutPending = false;
+      hover.openChangeTimeout.clear();
+      hover.restTimeout.clear();
+      window.templ.hover.clearSafePolygonPointerEventsMutation(hover);
+    }
+  }
+
+  // The focus guards and the aria-owns link to the viewport the active
+  // trigger renders after itself.
+  function renderTriggerGuards(st) {
+    const { nav, trigger } = st;
+    if (!st.guards) {
+      const { createFocusGuard } = window.templ.focusManager;
+      const before = createFocusGuard(null, (event) => {
+        const reference = referenceElement(nav);
+        if (reference && t().isOutsideEvent(event, reference)) nav.beforeInside?.focus();
+        else t().getPreviousTabbable(trigger)?.focus();
+      });
+      const owns = document.createElement("span");
+      owns.style.cssText = "clip-path:inset(50%);position:fixed;top:0;left:0";
+      const after = createFocusGuard(null, (event) => {
+        const reference = referenceElement(nav);
+        if (reference && t().isOutsideEvent(event, reference)) {
+          (nav.afterInside || trigger).focus();
+        } else {
+          const nextTabbable = t().getNextTabbable(trigger);
+          nextTabbable?.focus();
+          if (!t().contains(nav.root, nextTabbable)) setValue(nav, null, "focus-out", event);
+        }
+      });
+      trigger.after(before, owns, after);
+      st.guards = { before, owns, after };
+    }
+    if (nav.mounted) st.guards.owns.setAttribute("aria-owns", nav.viewport.id);
+  }
+
+  function removeTriggerGuards(st) {
+    if (!st.guards) return;
+    st.guards.before.remove();
+    st.guards.owns.remove();
+    st.guards.after.remove();
+    st.guards = null;
+  }
+
+  // positionerElement || viewportElement while mounted.
+  function referenceElement(nav) {
+    return nav.mounted ? nav.positioner : null;
+  }
+
+  function interactionsEnabled(st) {
+    return (st.nav.mounted || st.nav.value == null) && !st.trigger.disabled;
+  }
+
+  // The trigger's floating root context store: setOpen syncs the open event
+  // and notifies the interactions, then the trigger's handleOpenChange runs.
+  function storeSetOpen(st, nextOpen, reason, event) {
+    if (!nextOpen || !isOpen(st.nav) || (event != null && isClickLikeEvent(event))) {
+      st.openEvent = nextOpen ? event : undefined;
+    }
+    handleOpenChange(st, nextOpen, reason, event);
+    st.hover.openChange(nextOpen, reason);
+  }
+
+  function handleOpenChange(st, nextOpen, reason, event) {
+    const { nav } = st;
+    const isHover = reason === "trigger-hover";
+    if (!interactionsEnabled(st)) return;
+    if (st.pointerType === "touch" && isHover) return;
+    if (!nextOpen && nav.value !== st.item) return;
+    if (isHover) {
+      // Only patient clicks close a popup the pointer just opened.
+      st.stickIfOpen = true;
+      clearTimeout(st.stickIfOpenTimer);
+      st.stickIfOpenTimer = setTimeout(() => {
+        st.stickIfOpen = false;
+      }, PATIENT_CLICK_THRESHOLD);
+    }
+    if (nextOpen) {
+      setValue(nav, st.item, reason, event);
+    } else {
+      setValue(nav, null, reason, event);
+      st.pointerType = "";
+    }
+  }
+
+  function setActivationDirection(nav) {
+    const direction = isOpen(nav) ? nav.activationDirection : null;
+    nav.items.forEach((st) => {
+      if (st.contentMounted) {
+        if (direction) st.content.setAttribute("data-activation-direction", direction);
+        else st.content.removeAttribute("data-activation-direction");
+      }
     });
   }
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", init);
-  } else {
-    init();
-  }
-  // Re-init on any childList mutation, directly (never rAF-deferred: rAF
-  // does not fire in hidden tabs or throttled iframes): swapped-in markup
-  // wires itself.
-  new MutationObserver(() => init()).observe(document.body, { childList: true, subtree: true });
 
-  window.tui = window.tui || {};
-  window.tui.navigationMenu = {
-    open: (root, value) => open(root, value),
-    close: (root) => close(root),
-  };
+  // handleActivation: the direction from the previous trigger, and moving
+  // an open menu over to this trigger.
+  function updateActivationDirection(st) {
+    const { nav } = st;
+    const prevTriggerRect = nav.prevTrigger?.getBoundingClientRect();
+    if (!nav.mounted || !prevTriggerRect) return;
+    const nextTriggerRect = st.trigger.getBoundingClientRect();
+    if (nav.orientation === "horizontal" && nextTriggerRect.left !== prevTriggerRect.left) {
+      nav.activationDirection = nextTriggerRect.left > prevTriggerRect.left ? "right" : "left";
+    } else if (nav.orientation === "vertical" && nextTriggerRect.top !== prevTriggerRect.top) {
+      nav.activationDirection = nextTriggerRect.top > prevTriggerRect.top ? "down" : "up";
+    }
+  }
+
+  // handleOpenEvent with handleActivation, for mouseenter, click and the
+  // keyboard open. keyboardReason: the keydown already set the value.
+  function handleOpenEvent(st, event, keyboardReason) {
+    const { nav } = st;
+    if (st.trigger.disabled) return;
+    const wasMounted = nav.mounted;
+    const prevValue = nav.value;
+    const size = wasMounted ? getCssDimensions(nav.popup) : null;
+
+    updateActivationDirection(st);
+    if (event.type !== "click" && prevValue != null) st.openEvent = undefined;
+    if (keyboardReason) {
+      setValue(nav, st.item, keyboardReason, event);
+    } else if (!(st.pointerType === "touch" && event.type !== "click")) {
+      if (prevValue != null) {
+        setValue(nav, st.item, event.type === "mouseenter" ? "trigger-hover" : "trigger-press", event);
+      }
+      const floating = referenceElement(nav);
+      if (event.type === "mouseenter" && st.pointerType !== "touch" && floating) {
+        const apply = () => {
+          window.templ.hover.applySafePolygonPointerEventsMutation(st.hover, {
+            scopeElement: nav.list ?? document.body,
+            referenceElement: st.trigger,
+            floatingElement: floating,
+          });
+        };
+        if (prevValue != null && prevValue !== st.item) queueMicrotask(apply);
+        else apply();
+      }
+    }
+    setActivationDirection(nav);
+
+    if (!wasMounted) return;
+    if (prevValue != null && prevValue !== st.item && (event.type === "click" || st.pointerType !== "touch")) {
+      st.skipAutoSizeSync = true;
+    }
+    handleValueChange(st, size.width, size.height);
+  }
+
+  // ----- sizing --------------------------------------------------------------
+
+  function setPopupSize(nav, width, height) {
+    nav.popup.style.setProperty("--popup-width", typeof width === "number" ? `${width}px` : width);
+    nav.popup.style.setProperty("--popup-height", typeof height === "number" ? `${height}px` : height);
+  }
+
+  function setPositionerSize(nav, width, height) {
+    nav.positioner.style.setProperty("--positioner-width", `${width}px`);
+    nav.positioner.style.setProperty("--positioner-height", `${height}px`);
+  }
+
+  // utils/setSharedFixedSize.ts
+  function setSharedFixedSize(nav, width, height) {
+    setPopupSize(nav, width, height);
+    setPositionerSize(nav, width, height);
+  }
+
+  function clearFixedSizes(nav) {
+    ["--popup-width", "--popup-height"].forEach((name) => nav.popup.style.removeProperty(name));
+    ["--positioner-width", "--positioner-height"].forEach((name) => nav.positioner.style.removeProperty(name));
+  }
+
+  function setAutoSizes(nav) {
+    setPopupSize(nav, "auto", "auto");
+  }
+
+  // The popup's auto size reset is shared by the triggers, so a newly
+  // active one can cancel the one the previous trigger scheduled.
+  function cancelAutoSizeReset(st, force = false) {
+    const reset = st.nav.autoSizeReset;
+    if (!force && reset.owner !== st.item) return;
+    reset.token = null;
+    reset.owner = null;
+  }
+
+  function scheduleAutoSizeReset(st) {
+    const { nav } = st;
+    cancelAutoSizeReset(st, true);
+    const token = {};
+    nav.autoSizeReset.token = token;
+    nav.autoSizeReset.owner = st.item;
+    T().animationsFinished(nav.popup, () => {
+      if (nav.autoSizeReset.token !== token || nav.autoSizeReset.owner !== st.item) return;
+      nav.autoSizeReset.token = null;
+      nav.autoSizeReset.owner = null;
+      setAutoSizes(nav);
+    });
+  }
+
+  function handleValueChange(st, currentWidth, currentHeight, { syncPositioner = false } = {}) {
+    const { nav } = st;
+    if (!nav.mounted) return;
+    cancelAutoSizeReset(st, true);
+    clearFixedSizes(nav);
+    const { width, height } = getCssDimensions(nav.popup);
+    const measuredWidth = width || nav.prevSize.width;
+    const measuredHeight = height || nav.prevSize.height;
+    if (currentHeight === 0 || currentWidth === 0) {
+      currentWidth = measuredWidth;
+      currentHeight = measuredHeight;
+    }
+    setPopupSize(nav, currentWidth, currentHeight);
+    setPositionerSize(nav, syncPositioner ? currentWidth : measuredWidth, syncPositioner ? currentHeight : measuredHeight);
+    cancelAnimationFrame(st.sizeFrame);
+    st.sizeFrame = requestAnimationFrame(() => {
+      if (!isActive(st)) return;
+      setPopupSize(nav, measuredWidth, measuredHeight);
+      if (syncPositioner) setPositionerSize(nav, measuredWidth, measuredHeight);
+      scheduleAutoSizeReset(st);
+    });
+  }
+
+  function handleInterruptedMutationResize(st, currentWidth, currentHeight) {
+    const { nav } = st;
+    cancelAnimationFrame(st.sizeFrame);
+    cancelAnimationFrame(st.mutationFrame);
+    cancelAutoSizeReset(st, true);
+    if (currentWidth === 0 || currentHeight === 0) return;
+    setSharedFixedSize(nav, currentWidth, currentHeight);
+    st.mutationFrame = requestAnimationFrame(() => {
+      st.mutationFrame = requestAnimationFrame(() => {
+        clearFixedSizes(nav);
+        const { width, height } = getCssDimensions(nav.popup);
+        const measuredWidth = width || currentWidth || nav.prevSize.width;
+        const measuredHeight = height || currentHeight || nav.prevSize.height;
+        setSharedFixedSize(nav, currentWidth, currentHeight);
+        st.sizeFrame = requestAnimationFrame(() => {
+          if (!isActive(st)) return;
+          setSharedFixedSize(nav, measuredWidth, measuredHeight);
+          scheduleAutoSizeReset(st);
+        });
+      });
+    });
+  }
+
+  function syncCurrentSize(st) {
+    const { nav } = st;
+    if (!nav.mounted) return;
+    cancelAnimationFrame(st.sizeFrame);
+    cancelAutoSizeReset(st, true);
+    clearFixedSizes(nav);
+    const { width, height } = getCssDimensions(nav.popup);
+    if (width === 0 || height === 0) return;
+    nav.prevSize = { width, height };
+    setAutoSizes(nav);
+    setPositionerSize(nav, width, height);
+  }
+
+  function getMutationBaseline(nav) {
+    const popupWidth = nav.popup.style.getPropertyValue("--popup-width");
+    const popupHeight = nav.popup.style.getPropertyValue("--popup-height");
+    const isResizing = popupWidth !== "" && popupWidth !== "auto" && popupHeight !== "" && popupHeight !== "auto";
+    if (!isResizing) return { size: nav.prevSize, syncPositioner: false };
+    return {
+      size: { width: nav.popup.offsetWidth || nav.prevSize.width, height: nav.popup.offsetHeight || nav.prevSize.height },
+      syncPositioner: true,
+    };
+  }
+
+  // The trigger's layout effect when the popup opens on it.
+  function sizeOnOpen(st) {
+    if (st.skipAutoSizeSync) {
+      st.skipAutoSizeSync = false;
+      return;
+    }
+    const { width, height } = getCssDimensions(st.nav.popup);
+    handleValueChange(st, width, height);
+  }
+
+  // The active content changing its own size.
+  function startContentObserver(st) {
+    if (st.contentObserver || typeof MutationObserver !== "function" || !st.content) return;
+    const { nav } = st;
+    st.contentObserver = new MutationObserver(() => {
+      if (!nav.mounted) return;
+      if (nav.popup.hasAttribute("data-starting-style")) {
+        syncCurrentSize(st);
+        return;
+      }
+      const { size, syncPositioner } = getMutationBaseline(nav);
+      if (syncPositioner) handleInterruptedMutationResize(st, size.width, size.height);
+      else handleValueChange(st, size.width, size.height);
+    });
+    st.contentObserver.observe(st.content, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: ["hidden"],
+    });
+  }
+
+  function stopContentObserver(st) {
+    st.contentObserver?.disconnect();
+    st.contentObserver = null;
+  }
+
+  function startResizeListener(st) {
+    if (st.onResize || !st.nav.mounted) return;
+    st.onResize = () => {
+      cancelAnimationFrame(st.resizeFrame);
+      st.resizeFrame = requestAnimationFrame(() => syncCurrentSize(st));
+    };
+    window.addEventListener("resize", st.onResize);
+  }
+
+  function stopResizeListener(st) {
+    if (!st.onResize) return;
+    cancelAnimationFrame(st.resizeFrame);
+    window.removeEventListener("resize", st.onResize);
+    st.onResize = null;
+  }
+
+  // ----- content -------------------------------------------------------------
+
+  // NavigationMenuContent: portaled into the viewport while mounted, with its
+  // own transition status. Inactive but still mounted it leaves the flow.
+  function renderContent(st) {
+    if (!st.content) return;
+    const { nav, content } = st;
+    const open = nav.mounted && nav.value === st.item;
+    if (open) {
+      if (st.contentOpen) return;
+      st.contentOpen = true;
+      content.style.position = "";
+      content.style.top = "";
+      content.style.left = "";
+      content.inert = false;
+      if (!st.contentMounted) {
+        st.contentMounted = true;
+        window.templ.portal.render(content, nav.viewport);
+      }
+      T().open([content]);
+    } else if (st.contentOpen) {
+      st.contentOpen = false;
+      content.style.position = "absolute";
+      content.style.top = "0px";
+      content.style.left = "0px";
+      content.inert = !st.focusInside;
+      T().close([content], content, () => unmountContent(st));
+    }
+  }
+
+  function unmountContent(st) {
+    if (!st.contentMounted || st.contentOpen) return;
+    const { content } = st;
+    st.contentMounted = false;
+    st.focusInside = false;
+    st.holder.appendChild(content);
+    T().reset([content], false);
+    content.removeAttribute("data-open");
+    content.removeAttribute("data-closed");
+    content.removeAttribute("data-activation-direction");
+    content.removeAttribute("style");
+    content.inert = false;
+  }
+
+  // Keyboard opens move focus into the content: the trigger's guard hands it
+  // on to the first tabbable inside the popup.
+  function focusIntoContent(st) {
+    if (!st.allowFocus || !st.nav.mounted) return;
+    st.allowFocus = false;
+    cancelAnimationFrame(st.focusFrame);
+    st.focusFrame = requestAnimationFrame(() => st.guards?.before.focus());
+  }
+
+  // ----- popup ---------------------------------------------------------------
+
+  function mount(nav) {
+    nav.mounted = true;
+    window.templ.portal.render(nav.portalNode);
+    nav.positioner.hidden = false;
+    nav.prevSize = { width: 0, height: 0 };
+    if (typeof ResizeObserver === "function") {
+      nav.popupResizeObserver = new ResizeObserver(() => {
+        nav.prevSize = { width: nav.popup.offsetWidth, height: nav.popup.offsetHeight };
+      });
+      nav.popupResizeObserver.observe(nav.popup);
+    }
+    nav.onWindowResize = () => {
+      // The positioner jumps instead of transitioning while the window resizes.
+      nav.positioner.setAttribute("data-instant", "");
+      clearTimeout(nav.instantTimer);
+      nav.instantTimer = setTimeout(() => nav.positioner.removeAttribute("data-instant"), 100);
+    };
+    window.addEventListener("resize", nav.onWindowResize);
+  }
+
+  // NavigationMenuPositioner's useAnchorPositioning with adaptiveOrigin,
+  // then the popup's enter transition in place.
+  function startPositioning(nav, anchor) {
+    const positioner = nav.positioner;
+    if (nav.positioning) {
+      // Opened again during the exit transition: still mounted and placed.
+      nav.openToken = {};
+      T().open({ parts: [nav.popup], positioner });
+      return;
+    }
+    nav.positioning = window.templ.anchorPositioning.useAnchorPositioning({
+      anchor,
+      positioner,
+      parts: [positioner, nav.popup],
+      side: positioner.getAttribute("data-templ-side") || "bottom",
+      align: positioner.getAttribute("data-templ-align") || "center",
+      sideOffset: parseFloat(positioner.getAttribute("data-templ-side-offset")) || 0,
+      alignOffset: parseFloat(positioner.getAttribute("data-templ-align-offset")) || 0,
+      collisionAvoidance: { fallbackAxisSide: "none" },
+      adaptiveOrigin: true,
+      onPosition: (result, side) => placePopup(nav, side),
+    });
+    const token = (nav.openToken = {});
+    const finish = () => {
+      if (nav.openToken !== token || !isOpen(nav)) return;
+      T().open({ parts: [nav.popup], positioner });
+    };
+    nav.positioning.positioned.then(finish, finish);
+  }
+
+  // NavigationMenuPopup anchors its size transition to the far edge when it
+  // opens on the top or left side.
+  function placePopup(nav, side) {
+    const style = nav.popup.style;
+    const isPhysicalLeft = side === "left" || side === (nav.rtl() ? "inline-end" : "inline-start");
+    const isOriginSide = side === "top" || isPhysicalLeft;
+    style.position = isOriginSide ? "absolute" : "";
+    style.top = isOriginSide && side !== "top" ? "0" : "";
+    style.bottom = isOriginSide && side === "top" ? "0" : "";
+    style.left = isOriginSide && !isPhysicalLeft ? "0" : "";
+    style.right = isOriginSide && isPhysicalLeft ? "0" : "";
+  }
+
+  function closePopup(nav) {
+    nav.openToken = null;
+    stopDismiss(nav);
+    stopFloatingHover(nav);
+    // The root's layout effect: the last positioner size holds the popup
+    // while it transitions out.
+    const width = parseFloat(nav.positioner.style.getPropertyValue("--positioner-width")) || 0;
+    const height = parseFloat(nav.positioner.style.getPropertyValue("--positioner-height")) || 0;
+    if (width > 0 && height > 0) setSharedFixedSize(nav, width, height);
+    T().close({ parts: [nav.popup], positioner: nav.positioner }, nav.popup, () => handleUnmount(nav));
+  }
+
+  // The root's handleUnmount once the popup's exit animations finished.
+  function handleUnmount(nav) {
+    if (isOpen(nav)) return;
+    const active = t().activeElement(document);
+    const blocked = nav.closeReason ? BLOCKED_RETURN_FOCUS_REASONS.has(nav.closeReason) : false;
+    if (!blocked && nav.prevTrigger && (active === document.body || t().contains(nav.popup, active))) {
+      nav.prevTrigger.focus({ preventScroll: true });
+      nav.prevTrigger = null;
+    }
+    unmount(nav);
+    nav.closeReason = undefined;
+  }
+
+  function unmount(nav) {
+    if (!nav.mounted) return;
+    nav.mounted = false;
+    nav.activationDirection = null;
+    nav.items.forEach((st) => {
+      if (st.contentOpen) st.contentOpen = false;
+      unmountContent(st);
+      stopResizeListener(st);
+    });
+    nav.positioning?.cleanup();
+    nav.positioning = null;
+    nav.popupResizeObserver?.disconnect();
+    nav.popupResizeObserver = null;
+    window.removeEventListener("resize", nav.onWindowResize);
+    clearTimeout(nav.instantTimer);
+    nav.positioner.hidden = true;
+    // A fresh positioner and popup on the next mount.
+    nav.positioner.removeAttribute("style");
+    nav.positioner.removeAttribute("data-side");
+    nav.positioner.removeAttribute("data-align");
+    nav.positioner.removeAttribute("data-anchor-hidden");
+    nav.positioner.removeAttribute("data-instant");
+    nav.popup.removeAttribute("style");
+    nav.popup.removeAttribute("data-side");
+    nav.popup.removeAttribute("data-align");
+    nav.prevSize = { width: 0, height: 0 };
+    window.templ.portal.remove(nav.portalNode);
+  }
+
+  // ----- interactions --------------------------------------------------------
+
+  // NavigationMenuList's useDismiss on the active trigger's context: Escape,
+  // and a click outside that is not on another trigger.
+  function startDismiss(nav) {
+    stopDismiss(nav);
+    nav.dismiss = window.templ.dismiss.useDismiss({
+      floating: nav.positioner,
+      reference: [...nav.items.values()].map((st) => st.trigger),
+      outsidePressEvent: "intentional",
+      outsidePress(event) {
+        const target = event.composedPath?.()[0] || event.target;
+        return !target?.closest?.(TRIGGER);
+      },
+      onOpenChange(open, reason, event) {
+        const active = activeState(nav);
+        if (!active) return false;
+        storeSetOpen(active, open, reason, event);
+        return !isOpen(nav);
+      },
+    });
+  }
+
+  function stopDismiss(nav) {
+    nav.dismiss?.();
+    nav.dismiss = null;
+  }
+
+  // NavigationMenuList's useHoverFloatingInteraction, on the active trigger's
+  // context.
+  function startFloatingHover(nav, st) {
+    stopFloatingHover(nav);
+    nav.floatingHoverOwner = st;
+    nav.floatingHover = window.templ.hover.useHoverFloatingInteraction(st.hover, {
+      enabled: () => nav.floatingHoverOwner === st && interactionsEnabled(st),
+      closeDelay: () => nav.closeDelay,
+    });
+  }
+
+  function stopFloatingHover(nav) {
+    nav.floatingHover?.();
+    nav.floatingHover = null;
+    nav.floatingHoverOwner = null;
+  }
+
+  function isOutsideMenuEvent(nav, currentTarget, relatedTarget) {
+    const popup = nav.mounted ? nav.popup : null;
+    if (!popup) return !t().contains(nav.root, relatedTarget);
+    return (
+      !t().contains(popup, currentTarget) &&
+      !t().contains(popup, relatedTarget) &&
+      !t().contains(nav.root, relatedTarget)
+    );
+  }
+
+  function setupTrigger(nav, trigger) {
+    const item = trigger.closest(ITEM);
+    const content = [...item.querySelectorAll(CONTENT)].find((el) => own(nav, el) && el.parentElement?.matches(HOLDER)) || null;
+    const st = {
+      nav,
+      item,
+      trigger,
+      content,
+      holder: content?.parentElement ?? null,
+      stickIfOpen: true,
+      stickIfOpenTimer: 0,
+      pointerType: "",
+      openEvent: undefined,
+      allowFocus: false,
+      guards: null,
+      contentOpen: false,
+      contentMounted: false,
+      focusInside: false,
+      skipAutoSizeSync: false,
+      sizeFrame: 0,
+      mutationFrame: 0,
+      focusFrame: 0,
+      resizeFrame: 0,
+      cleanups: [],
+    };
+    const on = (target, type, listener, options) => {
+      target.addEventListener(type, listener, options);
+      st.cleanups.push(() => target.removeEventListener(type, listener, options));
+    };
+
+    // The trigger's own props run before its click and hover interactions.
+    // useClick reads toggle as rendered before this click activated it.
+    on(trigger, "click", () => {
+      st.clickToggle = isActive(st);
+    });
+    on(trigger, "mouseenter", (event) => handleOpenEvent(st, event));
+    on(trigger, "click", (event) => handleOpenEvent(st, event));
+    on(trigger, "pointerenter", (event) => {
+      st.pointerType = event.pointerType;
+    });
+    on(trigger, "pointerdown", (event) => {
+      st.pointerType = event.pointerType;
+      window.templ.hover.clearSafePolygonPointerEventsMutation(st.hover);
+    });
+    on(trigger, "mousemove", () => {
+      st.allowFocus = false;
+    });
+    on(trigger, "keydown", (event) => {
+      st.allowFocus = true;
+      const verticalOpenKey = nav.rtl() ? "ArrowLeft" : "ArrowRight";
+      const openHorizontal = nav.orientation === "horizontal" && event.key === "ArrowDown";
+      const openVertical = nav.orientation === "vertical" && event.key === verticalOpenKey;
+      if (openHorizontal || openVertical) {
+        handleOpenEvent(st, event, "list-navigation");
+        stopEvent(event);
+      }
+    });
+    on(trigger, "blur", (event) => {
+      if (nav.mounted && isOutsideMenuEvent(nav, trigger, event.relatedTarget)) {
+        setValue(nav, null, "focus-out", event);
+      }
+    });
+
+    const hover = window.templ.hover;
+    st.hover = hover.createHoverInteraction({
+      isOpen: () => isOpen(nav),
+      onOpenChange: (open, reason, event) => storeSetOpen(st, open, reason, event),
+      openEventType: () => st.openEvent?.type ?? null,
+      domReference: () => trigger,
+      floating: () => referenceElement(nav),
+      placement: () => nav.positioner.getAttribute("data-side") || "bottom",
+      triggers: () => [trigger],
+      parentFloating: () => null,
+    });
+    st.cleanups.push(
+      hover.useHoverReferenceInteraction(trigger, st.hover, {
+        enabled: () => interactionsEnabled(st),
+        move: false,
+        handleClose: hover.safePolygon({ blockPointerEvents: true, getScope: () => nav.list }),
+        restMs: () => (nav.mounted ? 0 : nav.delay),
+        delay: () => ({ close: nav.closeDelay }),
+        isClosing: () => T().isEnding(nav.popup),
+      }),
+      window.templ.click.useClick(trigger, {
+        isOpen: () => isOpen(nav),
+        toggle: () => st.clickToggle,
+        stickIfOpen: () => st.stickIfOpen,
+        openEventType: () => st.openEvent?.type ?? null,
+        onOpenChange(nextOpen, event) {
+          if (!interactionsEnabled(st)) return;
+          storeSetOpen(st, nextOpen, "trigger-press", event);
+        },
+      }),
+    );
+
+    if (content) {
+      // NavigationMenuContent: a composite of its links, and whether focus
+      // is inside while it transitions out.
+      const composite = window.templ.composite.useCompositeRoot(content, {
+        items: () => [...content.querySelectorAll(LINK)].filter((link) => link.closest(CONTENT) === content),
+        itemTabIndex: false,
+        rtl: () => nav.rtl(),
+      });
+      st.cleanups.push(() => composite.cleanup());
+      on(content, "focusin", (event) => {
+        if (event.target?.hasAttribute?.("data-base-ui-focus-guard")) return;
+        st.focusInside = true;
+      });
+      on(content, "focusout", (event) => {
+        if (!t().contains(content, event.relatedTarget)) {
+          st.focusInside = false;
+          if (!st.contentOpen && st.contentMounted) content.inert = true;
+        }
+      });
+    }
+    return st;
+  }
+
+  function setup(root) {
+    const portalOwner = [...root.children].find((child) => child.matches(HOLDER));
+    const portalNode = portalOwner?.firstElementChild;
+    const positioner = portalNode?.firstElementChild;
+    const popup = positioner?.firstElementChild;
+    const viewport = popup?.firstElementChild;
+    if (!viewport) return;
+    const list = [...root.querySelectorAll(LIST)].find((el) => el.closest(ROOT) === root) || null;
+    const nav = {
+      root,
+      list,
+      portalNode,
+      positioner,
+      popup,
+      viewport,
+      value: null,
+      mounted: false,
+      activationDirection: null,
+      closeReason: undefined,
+      prevTrigger: null,
+      orientation: "horizontal",
+      rtl: () => window.templ.direction.useDirection(root) === "rtl",
+      delay: parseInt(root.getAttribute("data-templ-delay"), 10) || OPEN_DELAY,
+      closeDelay: parseInt(root.getAttribute("data-templ-close-delay"), 10) || CLOSE_DELAY,
+      autoSizeReset: { token: null, owner: null },
+      prevSize: { width: 0, height: 0 },
+      items: new Map(),
+      cleanups: [],
+    };
+    root._templNav = nav;
+
+    // NavigationMenuViewport's guards around it, inside the popup.
+    const { createFocusGuard } = window.templ.focusManager;
+    nav.beforeInside = createFocusGuard(null, (event) => {
+      const reference = referenceElement(nav);
+      if (reference && t().isOutsideEvent(event, reference)) t().getNextTabbable(reference)?.focus();
+      else activeState(nav)?.guards?.before.focus();
+    });
+    nav.afterInside = createFocusGuard(null, (event) => {
+      const reference = referenceElement(nav);
+      if (reference && t().isOutsideEvent(event, reference)) t().getPreviousTabbable(reference)?.focus();
+      else activeState(nav)?.guards?.after.focus();
+    });
+    viewport.before(nav.beforeInside);
+    viewport.after(nav.afterInside);
+
+    // The positioner's tabbables count only once focus came in.
+    const onFocus = (event) => {
+      if (!t().isOutsideEvent(event)) return;
+      if (event.type === "focusin") t().enableFocusInside(positioner);
+      else t().disableFocusInside(positioner);
+    };
+    positioner.addEventListener("focusin", onFocus, true);
+    positioner.addEventListener("focusout", onFocus, true);
+    nav.cleanups.push(() => {
+      positioner.removeEventListener("focusin", onFocus, true);
+      positioner.removeEventListener("focusout", onFocus, true);
+    });
+
+    // NavigationMenuLink's onBlur: focus leaving the menu closes it.
+    const onLinkBlur = (event) => {
+      const link = event.target?.closest?.(LINK);
+      if (!link || !nav.mounted) return;
+      if (isOutsideMenuEvent(nav, link, event.relatedTarget)) setValue(nav, null, "focus-out", event);
+    };
+    root.addEventListener("focusout", onLinkBlur);
+    positioner.addEventListener("focusout", onLinkBlur);
+    nav.cleanups.push(() => {
+      root.removeEventListener("focusout", onLinkBlur);
+      positioner.removeEventListener("focusout", onLinkBlur);
+    });
+
+    [...root.querySelectorAll(TRIGGER)].filter((trigger) => own(nav, trigger)).forEach((trigger) => {
+      const st = setupTrigger(nav, trigger);
+      nav.items.set(st.item, st);
+    });
+
+    if (list) {
+      // NavigationMenuList: a composite of the triggers and links in the
+      // list, every one its own tab stop; the arrows along the orientation
+      // stay inside it.
+      const composite = window.templ.composite.useCompositeRoot(list, {
+        items: () =>
+          [...list.querySelectorAll(TRIGGER + "," + LINK)].filter(
+            (el) => el.closest(LIST) === list && !el.closest(HOLDER),
+          ),
+        loopFocus: false,
+        orientation: nav.orientation,
+        itemTabIndex: false,
+        rtl: () => nav.rtl(),
+      });
+      const onKeyDown = (event) => {
+        const shouldStop =
+          (nav.orientation === "horizontal" && (event.key === "ArrowLeft" || event.key === "ArrowRight")) ||
+          (nav.orientation === "vertical" && (event.key === "ArrowUp" || event.key === "ArrowDown"));
+        if (shouldStop) event.stopPropagation();
+      };
+      list.addEventListener("keydown", onKeyDown);
+      nav.cleanups.push(() => {
+        composite.cleanup();
+        list.removeEventListener("keydown", onKeyDown);
+      });
+    }
+  }
+
+  function teardown(root) {
+    const nav = root._templNav;
+    if (!nav) return;
+    stopDismiss(nav);
+    stopFloatingHover(nav);
+    nav.items.forEach((st) => {
+      clearTimeout(st.stickIfOpenTimer);
+      cancelAnimationFrame(st.sizeFrame);
+      cancelAnimationFrame(st.mutationFrame);
+      cancelAnimationFrame(st.focusFrame);
+      stopContentObserver(st);
+      stopResizeListener(st);
+      removeTriggerGuards(st);
+      st.cleanups.forEach((cleanup) => cleanup());
+      st.hover.dispose();
+    });
+    nav.cleanups.forEach((cleanup) => cleanup());
+    nav.positioning?.cleanup();
+    nav.popupResizeObserver?.disconnect();
+    window.removeEventListener("resize", nav.onWindowResize);
+    window.templ.portal.remove(nav.portalNode);
+    root._templNav = null;
+  }
+
+  window.templ.lifecycle.register(ROOT, { init: setup, destroy: teardown });
 })();

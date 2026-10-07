@@ -2,6 +2,7 @@ package sheet
 
 import (
 	"context"
+	"strconv"
 
 	"github.com/mediactl/clustarr/ui/components/button"
 	"github.com/mediactl/clustarr/ui/components/icon"
@@ -41,8 +42,9 @@ type Props struct {
 	// should own the state after the initial render.
 	Open        *bool
 	DefaultOpen bool
-	// DisableDismissible keeps the sheet open when clicking the backdrop.
-	DisableDismissible bool
+	// DisablePointerDismissal is Base UI's disablePointerDismissal: a press
+	// on the backdrop does not close the sheet.
+	DisablePointerDismissal bool
 }
 
 func initialOpen(p Props) bool {
@@ -95,7 +97,7 @@ templ Sheet(props ...Props) {
 	if p.ID == "" {
 		{{ p.ID = utils.RandomID() }}
 	}
-	{{ ctx = context.WithValue(ctx, stateKey, ctxState{id: p.ID, open: initialOpen(p), controlled: p.Open != nil, disableClickAway: p.DisableDismissible}) }}
+	{{ ctx = context.WithValue(ctx, stateKey, ctxState{id: p.ID, open: initialOpen(p), controlled: p.Open != nil, disableClickAway: p.DisablePointerDismissal}) }}
 	{ children... }
 }
 
@@ -108,10 +110,14 @@ func Trigger(ctx context.Context) templ.Attributes {
 // TriggerFor targets a sheet outside the current Sheet root by id.
 func TriggerFor(id string) templ.Attributes {
 	return templ.Attributes{
-		"data-tui-dialog-trigger": true,
-		"aria-controls":           id,
-		"aria-haspopup":           "dialog",
-		"aria-expanded":           "false",
+		// useButton: tabIndex 0 and the native type.
+		"tabindex":                   "0",
+		"type":                       "button",
+		"data-slot":                  "sheet-trigger",
+		"data-base-ui-click-trigger": true,
+		"data-templ-controls":        id,
+		"aria-haspopup":              "dialog",
+		"aria-expanded":              "false",
 	}
 }
 
@@ -123,8 +129,11 @@ func Close(ctx context.Context) templ.Attributes {
 // CloseFor targets a sheet outside the current Sheet root by id.
 func CloseFor(id string) templ.Attributes {
 	return templ.Attributes{
-		"data-tui-dialog-close":  true,
-		"data-tui-dialog-target": id,
+		// useButton: tabIndex 0 and the native type.
+		"tabindex":                "0",
+		"type":                    "button",
+		"data-slot":               "sheet-close",
+		"data-templ-dialog-close": id,
 	}
 }
 
@@ -139,14 +148,13 @@ templ Content(props ...ContentProps) {
 	{{ s := state(ctx) }}
 	// Hidden until the script portals it to <body> on open, so the SSRd
 	// content never participates in layout or sibling CSS.
-	<div data-tui-dialog-portal hidden>
-		<div data-tui-dialog-root hidden>
+	<div data-templ-portal hidden>
+		<div data-base-ui-portal data-slot="sheet-portal" hidden>
 			// 1:1 base/ui/sheet.tsx SheetOverlay (Dialog.Backdrop): the look
 			// comes from. user-select none is Base UI's
 			// inline style on the backdrop.
 			<div
 				data-slot="sheet-overlay"
-				data-tui-dialog-backdrop
 				role="presentation"
 				style="user-select: none; -webkit-user-select: none;"
 				class="bg-black/10 supports-backdrop-filter:backdrop-blur-xs fixed inset-0 z-50 transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0"
@@ -159,14 +167,17 @@ templ Content(props ...ContentProps) {
 				id={ s.id }
 				role="dialog"
 				tabindex="-1"
+				data-base-ui-focusable
 				data-slot="sheet-content"
-				data-tui-dialog-content
 				data-side={ string(p.Side) }
-				data-tui-dialog-initial-open={ utils.IfElse(s.open, "true", "false") }
-				data-tui-dialog-controlled?={ s.controlled }
-				data-tui-dialog-show-modal="true"
+				if s.controlled {
+					data-templ-open={ strconv.FormatBool(s.open) }
+				} else {
+					data-templ-default-open?={ s.open }
+				}
+				data-templ-modal="true"
 				if s.disableClickAway {
-					data-tui-dialog-disable-dismissible="true"
+					data-templ-disable-pointer-dismissal="true"
 				}
 				class={
 					utils.CN(
@@ -184,8 +195,7 @@ templ Content(props ...ContentProps) {
 						Class:   "absolute top-4 right-4",
 						Attributes: templ.Attributes{
 							"data-slot":             "sheet-close",
-							"data-tui-dialog-close": true,
-							"aria-label":            "Close",
+							"data-templ-dialog-close": "",
 						},
 					}) {
 						@icon.X()
@@ -236,17 +246,17 @@ templ Title(props ...TitleProps) {
 	if len(props) > 0 {
 		{{ p = props[0] }}
 	}
-	<div
+	<h2
 		if p.ID != "" {
 			id={ p.ID }
 		}
 		data-slot="sheet-title"
-		data-tui-dialog-title
+		data-templ-dialog-title
 		class={ utils.CN("text-foreground font-medium font-heading", p.Class) }
 		{ p.Attributes... }
 	>
 		{ children... }
-	</div>
+	</h2>
 }
 
 templ Description(props ...DescriptionProps) {
@@ -254,15 +264,15 @@ templ Description(props ...DescriptionProps) {
 	if len(props) > 0 {
 		{{ p = props[0] }}
 	}
-	<div
+	<p
 		if p.ID != "" {
 			id={ p.ID }
 		}
 		data-slot="sheet-description"
-		data-tui-dialog-description
+		data-templ-dialog-description
 		class={ utils.CN("text-muted-foreground text-sm", p.Class) }
 		{ p.Attributes... }
 	>
 		{ children... }
-	</div>
+	</p>
 }

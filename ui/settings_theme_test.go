@@ -44,7 +44,8 @@ import (
 // theme's tokens (2026-09-29): no hard-coded palette colour, and every
 // control a component -- a visible <input>, <button>, <label> or
 // <textarea> carries its component's data-slot (or, for a component's
-// inner part, its data-tui- hook), and a choice is the
+// inner input, is visually hidden: aria-hidden and out of the tab order),
+// and a choice is the
 // component select, never a bare <select>. The guard reads each page's
 // body only, below the chrome.
 var (
@@ -71,9 +72,10 @@ func requireThemedComponents(t *testing.T, page, html string) {
 		if strings.HasPrefix(tag, "<input") && strings.Contains(tag, `type="hidden"`) {
 			continue
 		}
-		// a component's own parts carry its data-slot, or its script's
-		// data-tui- hook (the checkbox's inner input)
-		if !strings.Contains(tag, "data-slot=") && !strings.Contains(tag, "data-tui-") {
+		// a component's own parts carry its data-slot; its inner input (the
+		// select's and the checkbox's) is aria-hidden and out of the tab order
+		inner := strings.HasPrefix(tag, "<input") && strings.Contains(tag, `aria-hidden="true"`) && strings.Contains(tag, `tabindex="-1"`)
+		if !strings.Contains(tag, "data-slot=") && !inner {
 			t.Errorf("%s: a raw control, not a component: %s", page, tag)
 		}
 	}

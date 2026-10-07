@@ -7,14 +7,17 @@
   // visually hidden native input beside the root; the input's change event
   // syncs the state attributes back onto the root and indicator.
 
+  const ROOT = '[data-slot="checkbox"]';
+  // Base UI renders the hidden input right beside the root, without markers.
+  const INPUT = ROOT + ' + input[type="checkbox"]';
+
   function inputOf(root) {
     const next = root.nextElementSibling;
-    return next && next.matches("[data-tui-checkbox-input]") ? next : null;
+    return next && next.matches(INPUT) ? next : null;
   }
 
   function rootOf(input) {
-    const prev = input.previousElementSibling;
-    return prev && prev.matches("[data-tui-checkbox]") ? prev : null;
+    return input.matches && input.matches(INPUT) ? input.previousElementSibling : null;
   }
 
   function isDisabled(root, input) {
@@ -51,15 +54,17 @@
     const indeterminate = input.indeterminate;
     root.setAttribute("aria-checked", indeterminate ? "mixed" : String(checked));
     root.toggleAttribute("data-indeterminate", indeterminate);
-    root.toggleAttribute("data-checked", checked);
-    root.toggleAttribute("data-unchecked", !checked);
+    // useStateAttributesMapping: the mixed state renders neither
+    // data-checked nor data-unchecked.
+    root.toggleAttribute("data-checked", checked && !indeterminate);
+    root.toggleAttribute("data-unchecked", !checked && !indeterminate);
     const indicator = root.querySelector('[data-slot="checkbox-indicator"]');
     if (indicator) {
       // Base UI unmounts the indicator while unchecked; we toggle [hidden].
       indicator.hidden = !checked && !indeterminate;
       indicator.toggleAttribute("data-indeterminate", indeterminate);
-      indicator.toggleAttribute("data-checked", checked);
-      indicator.toggleAttribute("data-unchecked", !checked);
+      indicator.toggleAttribute("data-checked", checked && !indeterminate);
+      indicator.toggleAttribute("data-unchecked", !checked && !indeterminate);
     }
   }
 
@@ -71,7 +76,7 @@
       detail: { checked: nextChecked },
     });
     root.dispatchEvent(change);
-    if (change.defaultPrevented || root.hasAttribute("data-tui-checkbox-controlled")) return;
+    if (change.defaultPrevented || root.hasAttribute("data-templ-checked")) return;
     forwardClick(input, sourceEvent);
   }
 
@@ -79,7 +84,7 @@
   // otherwise forward it to the input a second time) and toggle through the
   // hidden input so the native change event fires.
   document.addEventListener("click", (e) => {
-    const root = e.target.closest && e.target.closest("[data-tui-checkbox]");
+    const root = e.target.closest && e.target.closest(ROOT);
     if (!root) return;
     const input = inputOf(root);
     if (!input) return;
@@ -95,14 +100,14 @@
 
   document.addEventListener("change", (e) => {
     const input = e.target;
-    if (!input.matches || !input.matches("[data-tui-checkbox-input]")) return;
+    if (!input.matches || !input.matches(INPUT)) return;
     const root = rootOf(input);
     if (root) sync(root, input);
   });
 
   document.addEventListener("keydown", (e) => {
     const root = e.target;
-    if (!root.matches || !root.matches("[data-tui-checkbox]")) return;
+    if (!root.matches || !root.matches(ROOT)) return;
     const input = inputOf(root);
     if (isDisabled(root, input)) return;
     if (e.key === "Enter") {
@@ -130,7 +135,7 @@
   // click handler above forwards to the input.
   document.addEventListener("keyup", (e) => {
     const root = e.target;
-    if (!root.matches || !root.matches("[data-tui-checkbox]")) return;
+    if (!root.matches || !root.matches(ROOT)) return;
     if (e.key !== " " || e.defaultPrevented) return;
     if (isDisabled(root, inputOf(root))) return;
     forwardClick(root, e);
@@ -140,7 +145,7 @@
   // the root (CheckboxRoot's input onFocus).
   document.addEventListener("focusin", (e) => {
     const input = e.target;
-    if (!input.matches || !input.matches("[data-tui-checkbox-input]")) return;
+    if (!input.matches || !input.matches(INPUT)) return;
     const root = rootOf(input);
     if (root) root.focus();
   });
@@ -148,8 +153,6 @@
   let labelId = 0;
 
   function setup(root) {
-    if (root.hasAttribute("data-tui-checkbox-initialized")) return;
-    root.setAttribute("data-tui-checkbox-initialized", "");
     const input = inputOf(root);
     if (!input) return;
     // SSR'd mixed state: the input element has no indeterminate attribute,
@@ -171,7 +174,7 @@
       if (label) {
         if (!label.id) {
           labelId += 1;
-          label.id = (input.id || "tui-checkbox-" + labelId) + "-label";
+          label.id = (input.id || "templ-checkbox-" + labelId) + "-label";
         }
         root.setAttribute("aria-labelledby", label.id);
       }
@@ -179,14 +182,17 @@
     sync(root, input);
   }
 
-  function init() {
-    document.querySelectorAll("[data-tui-checkbox]").forEach(setup);
-  }
+  window.templ.lifecycle.register(ROOT, { init: setup });
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", init);
-  } else {
-    init();
-  }
-  new MutationObserver(() => init()).observe(document.body, { childList: true, subtree: true });
+  // The owner's API: setChecked is the pendant of the checked prop a page
+  // renders a controlled checkbox with.
+  window.templ = window.templ || {};
+  window.templ.checkbox = {
+    setChecked(root, checked) {
+      const input = inputOf(root);
+      if (!input) return;
+      input.checked = checked;
+      sync(root, input);
+    },
+  };
 })();

@@ -153,7 +153,7 @@ func TestStaticRouteServesTheSettingsScript(t *testing.T) {
 	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/static/settings.js", nil))
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Contains(t, rec.Header().Get("Content-Type"), "javascript")
-	for _, hook := range []string{"data-add-row", "data-remove-row", "data-row-template", "__i__", "data-show-when", "data-confirm", "aria-controls", "aria-required", "data-tui-select-input"} {
+	for _, hook := range []string{"data-add-row", "data-remove-row", "data-row-template", "__i__", "data-show-when", "data-confirm", "aria-controls", "aria-required", "select-trigger"} {
 		require.Contains(t, rec.Body.String(), hook)
 	}
 }

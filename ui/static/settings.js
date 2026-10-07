@@ -91,23 +91,37 @@
 
   document.addEventListener('change', function (e) {
     if (e.target && e.target.name) applyConditions();
-    // a select component posts through a hidden input, which the browser's
-    // required check skips; a choice clears the mark requiredSelects set
-    if (e.target && e.target.hasAttribute && e.target.hasAttribute('data-tui-select-input')) {
-      var trigger = e.target.nextElementSibling;
-      if (trigger) trigger.removeAttribute('aria-invalid');
-    }
+    // a select component posts through its visually hidden input; a
+    // choice clears the mark requiredSelects set on its trigger
+    var trigger = e.target && selectTriggerOf(e.target);
+    if (trigger) trigger.removeAttribute('aria-invalid');
   });
 
-  // requiredSelects is the browser's required check for the select
-  // component: an empty required choice in a shown section marks its
-  // trigger invalid and takes focus, and the form does not submit.
+  // The select component renders its hidden input after its children, so
+  // after the trigger among its siblings (select.js' inputFor and
+  // triggerOfInput walk the same way).
+  var SELECT_INPUT = 'input[aria-hidden="true"][tabindex="-1"]';
+  function selectInputOf(trigger) {
+    var el = trigger.nextElementSibling;
+    while (el && !(el.matches && el.matches(SELECT_INPUT))) el = el.nextElementSibling;
+    return el;
+  }
+  function selectTriggerOf(input) {
+    if (!input.matches || !input.matches(SELECT_INPUT)) return null;
+    var el = input.previousElementSibling;
+    while (el && !(el.matches && el.matches('[data-slot="select-trigger"]'))) el = el.previousElementSibling;
+    return el;
+  }
+
+  // requiredSelects marks the select component's required check on its
+  // trigger: an empty required choice in a shown section marks its trigger
+  // invalid and takes focus, and the form does not submit.
   function requiredSelects(form) {
     var first = null;
     // templ renders the flag bare (aria-required, no value)
     form.querySelectorAll('[data-slot="select-trigger"][aria-required]:not([aria-required="false"])').forEach(function (trigger) {
-      var input = trigger.previousElementSibling;
-      if (!input || !input.hasAttribute('data-tui-select-input')) return;
+      var input = selectInputOf(trigger);
+      if (!input) return;
       if (trigger.closest('[hidden]')) return;
       if (input.value === '') {
         trigger.setAttribute('aria-invalid', 'true');

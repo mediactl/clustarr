@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package views
 
 import (
+	"context"
 	"fmt"
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -26,9 +27,12 @@ import (
 	"github.com/mediactl/clustarr/ui/components/badge"
 	"github.com/mediactl/clustarr/ui/components/button"
 	"github.com/mediactl/clustarr/ui/components/buttongroup"
-	"github.com/mediactl/clustarr/ui/components/dropdownmenu"
+	"github.com/mediactl/clustarr/ui/components/checkbox"
+	"github.com/mediactl/clustarr/ui/components/dialog"
 	"github.com/mediactl/clustarr/ui/components/icon"
 	"github.com/mediactl/clustarr/ui/components/item"
+	"github.com/mediactl/clustarr/ui/components/menubar"
+	"github.com/mediactl/clustarr/ui/components/separator"
 	"github.com/mediactl/clustarr/ui/components/tooltip"
 	"github.com/mediactl/clustarr/ui/paging"
 	"github.com/mediactl/clustarr/ui/projection"
@@ -53,7 +57,7 @@ import (
 // placement.
 templ Library(tab projection.Tab, p paging.Page, items []projection.LibraryItem, tb LibraryToolbar, rootFolders []catalogv1.RootFolder, jumpsFor []Jump) {
 	@Shell(Chrome{Title: "Library", Crumbs: []Crumb{{Label: "Library", Href: "/library"}, {Label: tabLabel(tab)}}, Tab: tab, HideScrollbar: true}) {
-		<div id="library-page">
+		<div id="library-page" class="group/library" data-tab={ string(tab) }>
 			@libraryToolbar(tab, tb, rootFolders)
 			<div
 				id="library-rows"
@@ -71,6 +75,7 @@ templ Library(tab projection.Tab, p paging.Page, items []projection.LibraryItem,
 				@LibraryList(tab, p, items)
 			</div>
 			@jumpBar(jumpsFor)
+			@bulkBar(tab)
 		</div>
 	}
 }
@@ -95,9 +100,9 @@ type Jump struct {
 const jumpButtonClass = "min-h-0 w-full flex-1 px-0 py-0 text-[11px]"
 
 // jumpBar is Radarr's A-Z bar as a vertical button group fixed to the
-// right edge of the screen, from beneath the top bar, the breadcrumb row
-// and the toolbar (3rem + 2.25rem + 3.5rem, which is where 8.75rem comes
-// from) to the bottom of the viewport, outside the grid's flow (the grid
+// right edge of the screen, from beneath the top bar and the toolbar
+// (3rem + 3.5rem, which is where 6.5rem comes from) to the bottom of the
+// viewport, outside the grid's flow (the grid
 // keeps clear of it with lg:pr-10). ui/static/jump.js places the thumb
 // (data-jump-thumb) along it in proportion to the items on screen over
 // the whole list, from #library-rows' data-offset and data-total, and
@@ -111,7 +116,7 @@ const jumpButtonClass = "min-h-0 w-full flex-1 px-0 py-0 text-[11px]"
 // which stalled scrolling whenever the pointer rested on one.
 templ jumpBar(jumpsFor []Jump) {
 	if len(jumpsFor) > 0 {
-		<div data-jump-bar class="fixed top-[8.75rem] right-0 bottom-0 z-10 hidden w-8 lg:block">
+		<div data-jump-bar class="fixed top-[6.5rem] right-0 bottom-0 z-10 hidden w-8 lg:block">
 			<div data-jump-thumb class="absolute left-0 z-10 w-3 cursor-grab touch-none select-none rounded-l-sm border-l-2 border-primary active:cursor-grabbing" style="top: 0; height: 16px"></div>
 			@buttongroup.ButtonGroup(buttongroup.Props{Orientation: buttongroup.OrientationVertical, Class: "h-full w-full"}) {
 				for _, j := range jumpsFor {
@@ -195,7 +200,9 @@ templ LibraryRows(items []projection.LibraryItem) {
 	if len(items) == 0 {
 		<p class="text-muted-foreground">Nothing in the library yet.</p>
 	}
-	@item.Group(item.GroupProps{Class: "grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-3"}) {
+	// The column width is the Options menu's poster size
+	// (--library-poster-width, set on <html> by ui/static/library.js).
+	@item.Group(item.GroupProps{Class: "grid grid-cols-[repeat(auto-fill,minmax(var(--library-poster-width,160px),1fr))] gap-3", Attributes: templ.Attributes{"data-library-grid": true}}) {
 		for _, li := range items {
 			@libraryCard(li)
 		}
@@ -209,12 +216,15 @@ templ LibraryRows(items []projection.LibraryItem) {
 // Every card carries data-ref, data-kind, data-monitored, data-phase and
 // data-hasfile (ruling R8): the UI tests assert on these attributes, not on
 // visible copy, so a wording change does not break a test and a markup
-// change does not pass one.
+// change does not pass one. While the page is selecting (Sonarr's mass
+// editor, 2026-10-06) a click selects the card instead of opening it
+// (ui/static/library.js sets data-selected), and its mark, hidden
+// otherwise, shows in the poster's corner.
 templ libraryCard(li projection.LibraryItem) {
 	@item.Item(item.Props{
 		Variant: item.VariantMuted,
 		Href:    libraryDetailPath(li),
-		Class:   "flex-col items-stretch gap-0 overflow-hidden border-0 bg-card p-0 hover:bg-card",
+		Class:   "group/card relative flex-col items-stretch gap-0 overflow-hidden border-0 bg-card p-0 hover:bg-card data-selected:ring-2 data-selected:ring-primary",
 		Attributes: templ.Attributes{
 			"data-ref":       li.Ref.String(),
 			"data-kind":      string(li.Kind),
@@ -226,6 +236,9 @@ templ libraryCard(li projection.LibraryItem) {
 			"data-poster":    posterState(li.Poster),
 		},
 	}) {
+		<span data-select-mark aria-hidden="true" class="absolute top-2 left-2 z-10 hidden size-6 items-center justify-center rounded-full border-2 border-white/80 bg-black/40 text-primary-foreground shadow group-data-selecting/library:flex group-data-selected/card:border-primary group-data-selected/card:bg-primary">
+			@icon.Icon("check")(icon.Props{Class: "hidden size-4 group-data-selected/card:block"})
+		</span>
 		@tooltip.Tooltip() {
 			@aspectratio.AspectRatio(aspectratio.Props{Ratio: "2/3", Class: "w-full bg-muted", Attributes: tooltip.Trigger(ctx)}) {
 				@posterFill(li.Poster, li.Title)
@@ -238,7 +251,7 @@ templ libraryCard(li projection.LibraryItem) {
 			}
 		}
 		<div class={ stripeClass(projection.LibraryStatus(li)) } data-status={ projection.LibraryStatus(li) }></div>
-		<div class="px-2 py-1.5 text-center text-xs leading-5">
+		<div data-card-details class="px-2 py-1.5 text-center text-xs leading-5">
 			<div>{ monitoredTitle(li.Monitored) }</div>
 			<div class="truncate text-muted-foreground">{ li.QualityProfileRef }</div>
 		</div>
@@ -342,11 +355,12 @@ type LibraryToolbar struct {
 	Filters []Choice
 }
 
-// libraryToolbar is Radarr's toolbar row (design 2026-09-24, views/toolbar.templ): the actions
+// libraryToolbar is Sonarr's toolbar row (design 2026-09-24, views/toolbar.templ): the actions
 // on the left -- the tab's single "Rescan" (rescanForm), §A3.2's third
 // action, reading config-like data that needs no live stream of its own,
-// as downloads.templ's client cards do -- and the Sort and Filter menus on
-// the right. It renders outside the SSE-swapped rows: the view only changes
+// as downloads.templ's client cards do, Add New, and the mass editor's
+// Select (Stop Selecting while it is on) and Select All -- and the
+// Options, Sort and Filter menus on the right. It renders outside the SSE-swapped rows: the view only changes
 // when the reader chooses, and every menu link swaps the whole page as the
 // sidebar's tab entries do so the stream reconnects with the new view.
 templ libraryToolbar(tab projection.Tab, tb LibraryToolbar, rootFolders []catalogv1.RootFolder) {
@@ -354,9 +368,15 @@ templ libraryToolbar(tab projection.Tab, tb LibraryToolbar, rootFolders []catalo
 		@toolbarGroup() {
 			@rescanForm(tab, len(rootFolders) > 0)
 			@addNewButton(tab)
+			@separator.Separator(separator.Props{Orientation: separator.OrientationVertical, Class: "mx-1 my-2 data-vertical:h-auto"})
+			@selectToggle()
+			<div class="hidden group-data-selecting/library:flex">
+				@toolbarButton("check-check", "Select All", templ.Attributes{"data-action": "select-all", "data-toolbar-button": true})
+			</div>
 		}
-		@libraryFind(tab)
 		@toolbarGroup() {
+			@optionsMenu()
+			@separator.Separator(separator.Props{Orientation: separator.OrientationVertical, Class: "mx-1 my-2 data-vertical:h-auto"})
 			@viewMenu("Sort", "arrow-up-down", "Sort by", "data-sort", tb.Sorts)
 			@viewMenu("Filter", "funnel", "Filter", "data-filter", tb.Filters)
 		}
@@ -429,35 +449,161 @@ func rescanTitle(tab projection.Tab, enabled bool) string {
 	return "Rescan every " + tabLabel(tab) + " root folder"
 }
 
-// viewMenu is one toolbar menu: a button trigger and a dropdown of links,
+// viewMenu is one toolbar menu: a menubar trigger and a menu of links,
 // the current entry checked and, for a sort, marked with its direction.
 // attr names the data attribute each entry carries its key in.
 templ viewMenu(label, iconName, heading, attr string, choices []Choice) {
-	@dropdownmenu.DropdownMenu() {
-		@toolbarTrigger(iconName, label, dropdownmenu.Trigger(ctx))
-		@dropdownmenu.Content(dropdownmenu.ContentProps{Align: dropdownmenu.AlignEnd}) {
-			@dropdownmenu.Label() {
-				{ heading }
-			}
-			for _, c := range choices {
-				@dropdownmenu.Item(dropdownmenu.ItemProps{Href: c.Href, Attributes: choiceAttributes(attr, c)}) {
-					if c.Active {
-						@icon.Icon("check")()
-					} else {
-						<span class="size-4"></span>
-					}
-					<span class="flex-1">{ c.Label }</span>
-					switch c.Dir {
-						case "asc":
-							@icon.Icon("arrow-up")()
-						case "desc":
-							@icon.Icon("arrow-down")()
-					}
+	@toolbarMenu(iconName, label) {
+		@menubar.Label() {
+			{ heading }
+		}
+		for _, c := range choices {
+			@menubar.Item(menubar.ItemProps{Href: c.Href, Attributes: choiceAttributes(attr, c)}) {
+				if c.Active {
+					@icon.Icon("check")()
+				} else {
+					<span class="size-4"></span>
+				}
+				<span class="flex-1">{ c.Label }</span>
+				switch c.Dir {
+					case "asc":
+						@icon.Icon("arrow-up")()
+					case "desc":
+						@icon.Icon("arrow-down")()
 				}
 			}
 		}
 	}
 }
+
+// selectToggle turns the mass editor on and off (Sonarr's Select and Stop
+// Selecting): ui/static/library.js toggles data-selecting on
+// #library-page, which swaps the label and shows the cards' marks, Select
+// All and the bulk bar.
+templ selectToggle() {
+	@button.Button(button.Props{Variant: button.VariantGhost, Class: toolbarButtonClass, Attributes: templ.Attributes{"data-action": "select-toggle", "data-toolbar-button": true, "aria-pressed": "false"}}) {
+		@icon.Icon("square-check")(icon.Props{Class: "group-data-selecting/library:hidden"})
+		@icon.Icon("square-x")(icon.Props{Class: "hidden group-data-selecting/library:block"})
+		<span class="group-data-selecting/library:hidden">Select</span>
+		<span class="hidden group-data-selecting/library:inline">Stop Selecting</span>
+	}
+}
+
+// PosterSize is one of the Options menu's poster sizes: the grid's
+// minimum column width.
+type PosterSize struct {
+	Key   string
+	Label string
+	Width string
+}
+
+// PosterSizes are Sonarr's three, medium the default.
+var PosterSizes = []PosterSize{
+	{"small", "Small", "120px"},
+	{"medium", "Medium", "160px"},
+	{"large", "Large", "220px"},
+}
+
+// optionsMenu is Sonarr's Options: the poster size and whether each card
+// shows its details (monitored and quality profile) under the poster.
+// Both are the reader's own and stay in the browser: ui/static/library.js
+// applies them to every library page from localStorage, setting
+// --library-poster-width and data-library-details on <html>.
+templ optionsMenu() {
+	@toolbarMenu("settings-2", "Options") {
+		@menubar.Label() {
+			Poster size
+		}
+		@menubar.RadioGroup(menubar.RadioGroupProps{DefaultValue: "medium", Attributes: templ.Attributes{"data-poster-sizes": true}}) {
+			for _, sz := range PosterSizes {
+				@menubar.RadioItem(menubar.RadioItemProps{Value: sz.Key, Attributes: templ.Attributes{"data-poster-size": sz.Key, "data-width": sz.Width}}) {
+					{ sz.Label }
+				}
+			}
+		}
+		@menubar.Separator()
+		@menubar.CheckboxItem(menubar.CheckboxItemProps{DefaultChecked: true, Attributes: templ.Attributes{"data-library-option": "details"}}) {
+			Show details
+		}
+	}
+}
+
+// bulkBar is the mass editor's bar (Sonarr's, 2026-10-06), shown at the
+// foot of the screen while the page is selecting: how many cards are
+// selected and what to do with them, one POST to /library/{tab}/bulk per
+// action, the selected items filled in by ui/static/library.js as
+// repeated "item" fields (namespace/kind/name) when a [data-bulk-form]
+// submits. Delete asks first, as the item page's Delete does, in a dialog
+// with the same two checkboxes; its form is the dialog's own, since the
+// dialog moves its content to <body> when it opens. The buttons stay
+// disabled until something is selected.
+templ bulkBar(tab projection.Tab) {
+	<div data-bulk-bar class="sticky bottom-0 z-20 -mx-6 -mb-6 mt-6 hidden flex-wrap items-center gap-2 border-t border-border bg-card px-4 py-3 group-data-selecting/library:flex lg:pr-12">
+		<form id="library-bulk" method="post" action={ templ.URL(bulkPath(tab)) } data-bulk-form class="flex flex-wrap items-center gap-2">
+			<input type="hidden" name="return" value={ "/library/" + string(tab) }/>
+			@bulkButton("monitor", "bookmark-check", "Monitor", button.VariantSecondary)
+			@bulkButton("unmonitor", "bookmark-x", "Unmonitor", button.VariantSecondary)
+			@bulkButton("search", "search", "Search", button.VariantSecondary)
+			@bulkButton("refresh", "refresh-cw", "Refresh & Scan", button.VariantSecondary)
+		</form>
+		@dialog.Dialog(dialog.Props{ID: "library-bulk-delete"}) {
+			@button.Button(button.Props{Variant: button.VariantDestructive, Disabled: true, Attributes: bulkDeleteTrigger(ctx)}) {
+				@icon.Icon("trash-2")()
+				Delete
+			}
+			@dialog.Content() {
+				@dialog.Header() {
+					@dialog.Title() {
+						Delete the selected { findNoun(tab) }
+					}
+					@dialog.Description() {
+						<span data-selected-count>0</span> selected
+					}
+				}
+				<form method="post" action={ templ.URL(bulkPath(tab)) } data-bulk-form class="space-y-3">
+					<input type="hidden" name="return" value={ "/library/" + string(tab) }/>
+					<input type="hidden" name="action" value="delete"/>
+					<label class="flex items-start gap-2">
+						@checkbox.Checkbox(checkbox.Props{ID: "bulk-delete-files", Name: "files", Value: "true"})
+						<span>
+							Delete files and folders
+							<span class="block text-xs text-destructive">This permanently deletes every selected folder and cannot be undone.</span>
+						</span>
+					</label>
+					<label class="flex items-center gap-2">
+						@checkbox.Checkbox(checkbox.Props{ID: "bulk-delete-exclude", Name: "exclude", Value: "true"})
+						<span>Add import list exclusions</span>
+					</label>
+					@dialog.Footer() {
+						@button.Button(button.Props{Variant: button.VariantOutline, Attributes: dialog.Close(ctx)}) { Cancel }
+						@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantDestructive, Attributes: templ.Attributes{"data-action": "bulk-delete-confirm"}}) { Delete }
+					}
+				</form>
+			}
+		}
+		<span class="ml-auto text-sm text-muted-foreground"><span data-selected-count>0</span> selected</span>
+	</div>
+}
+
+// bulkButton is one of the bulk bar's actions: a submit of #library-bulk
+// naming the action, disabled until something is selected.
+templ bulkButton(action, iconName, label string, variant button.Variant) {
+	@button.Button(button.Props{Type: button.TypeSubmit, Variant: variant, Disabled: true, Attributes: templ.Attributes{"name": "action", "value": action, "data-bulk-action": action}}) {
+		@icon.Icon(iconName)()
+		{ label }
+	}
+}
+
+// bulkDeleteTrigger is the bulk Delete's dialog trigger, a bulk action
+// like the others for library.js' enabling.
+func bulkDeleteTrigger(ctx context.Context) templ.Attributes {
+	attrs := dialog.Trigger(ctx)
+	attrs["data-bulk-action"] = "delete"
+	return attrs
+}
+
+// bulkPath is the tab's bulk action route.
+func bulkPath(tab projection.Tab) string { return "/library/" + string(tab) + "/bulk" }
 
 // choiceAttributes are a menu entry's attributes: its key under attr, the
 // htmx swap of #library-page the tabs use (so the URL follows and the

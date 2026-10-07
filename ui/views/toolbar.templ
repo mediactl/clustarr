@@ -20,13 +20,17 @@ package views
 import (
 	"github.com/mediactl/clustarr/ui/components/button"
 	"github.com/mediactl/clustarr/ui/components/icon"
+	"github.com/mediactl/clustarr/ui/components/menubar"
 )
 
-// Radarr's page toolbar (design 2026-09-24): a full-width bar under the
-// page header holding icon-over-label buttons -- the page's actions on the
-// left, its view controls on the right. Every button is shadcn-templ's
+// Sonarr's page toolbar (design 2026-09-24; shadcn's menubar since
+// 2026-10-06): a full-width bar under the top bar holding icon-over-label
+// buttons -- the page's actions on the left, its view menus on the right.
+// The bar is shadcn-templ's menubar, so the view menus (toolbarMenu) are
+// its menus, with its keyboard handling and its portalled popups, which
+// the bar's sideways scroll cannot clip; an action is shadcn-templ's
 // button in its ghost variant, laid out as a column, so the bar composes
-// forms (an action), links and dropdown triggers alike.
+// forms (an action), links and menu triggers alike.
 
 // toolbarButtonClass turns a button into Radarr's toolbar button: the
 // icon above a small label, the whole thing a hover target.
@@ -38,19 +42,33 @@ type Field struct {
 	Value string
 }
 
-// toolbar is the bar itself: full-bleed under the header (the page's
-// padding is undone), sticky beneath the top bar and the breadcrumb row
-// at a fixed height (h-14, which the library's A-Z bar counts on), its
-// groups pushed to the edges. attrs land on the bar, beside data-toolbar.
+// toolbar is the bar itself: the menubar, full-bleed under the top bar
+// (the page's padding is undone, its own border and rounding dropped but
+// the bottom rule), sticky beneath the top bar at a fixed height (h-14,
+// which the library's A-Z bar counts on), its groups pushed to the edges.
+// attrs land on the bar, beside data-toolbar.
 templ toolbar(attrs templ.Attributes) {
-	<div data-toolbar class="sticky top-[5.25rem] z-10 -mx-6 -mt-6 mb-6 flex h-14 items-stretch justify-between gap-2 overflow-x-auto border-b border-border bg-card px-2 py-1" { attrs... }>
+	@menubar.Menubar(menubar.Props{
+		Class:      "sticky top-12 z-20 -mx-6 -mt-6 mb-6 flex h-14 items-stretch justify-between gap-2 overflow-x-auto rounded-none border-0 border-b border-border bg-card px-2 py-1 shadow-none",
+		Attributes: toolbarAttrs(attrs),
+	}) {
 		{ children... }
-	</div>
+	}
 }
 
-// toolbarGroup is one run of buttons.
+// toolbarAttrs adds data-toolbar to the page's own attributes.
+func toolbarAttrs(attrs templ.Attributes) templ.Attributes {
+	out := templ.Attributes{"data-toolbar": true}
+	for k, v := range attrs {
+		out[k] = v
+	}
+	return out
+}
+
+// toolbarGroup is one run of buttons, centred so a button in a form and a
+// menu trigger line up.
 templ toolbarGroup() {
-	<div class="flex flex-wrap items-stretch gap-0.5">
+	<div class="flex items-center gap-0.5">
 		{ children... }
 	</div>
 }
@@ -70,10 +88,26 @@ templ toolbarForm(action string, fields []Field, iconName, label, dataAction str
 	</form>
 }
 
-// toolbarTrigger is an icon-over-label button that opens something --
-// the Sort and Filter menus -- rather than posting; attrs are the
-// trigger's (a dropdown menu's Trigger(ctx)).
-templ toolbarTrigger(iconName, label string, attrs templ.Attributes) {
+// toolbarMenu is one of the bar's menus -- Options, Sort, Filter -- as a
+// menubar menu: an icon-over-label trigger carrying data-toolbar-menu with
+// its label, and its content, aligned to the trigger's end since the menus
+// sit at the bar's right.
+templ toolbarMenu(iconName, label string) {
+	@menubar.Menu() {
+		@menubar.Trigger(menubar.TriggerProps{Class: toolbarButtonClass + " justify-center rounded-md aria-expanded:text-foreground", Attributes: templ.Attributes{"data-toolbar-menu": label}}) {
+			@icon.Icon(iconName)()
+			<span>{ label }</span>
+		}
+		@menubar.Content(menubar.ContentProps{Align: menubar.AlignEnd, Class: "min-w-48"}) {
+			{ children... }
+		}
+	}
+}
+
+// toolbarButton is an icon-over-label button that acts on the page itself
+// in the browser, not by posting: attrs carry what ui/static/library.js
+// binds to.
+templ toolbarButton(iconName, label string, attrs templ.Attributes) {
 	@button.Button(button.Props{Variant: button.VariantGhost, Class: toolbarButtonClass, Attributes: attrs}) {
 		@icon.Icon(iconName)()
 		<span>{ label }</span>

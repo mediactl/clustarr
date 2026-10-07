@@ -1,227 +1,196 @@
-// Uses window.FloatingUIDOM from components/floatingui (loaded in the same bundle).
 (function () {
-  // Exit animations run at the tw-animate default (150ms); hide after.
-  const EXIT_MS = 170;
+  const CONTENT = '[data-slot="tooltip-content"]';
+  // Base UI's TooltipTrigger identifier; a disabled trigger renders
+  // data-trigger-disabled instead, so it never opens.
+  const TRIGGER = "[data-base-ui-tooltip-trigger]";
 
-  const escapeTargets = new WeakSet();
-  function listenForEscape(element) {
-    if (!element || escapeTargets.has(element)) return;
-    element.addEventListener("keydown", closeOnEscapeKeyDown);
-    escapeTargets.add(element);
+  // shadcn's TooltipPrimitive.Arrow has no slot; Base UI renders it
+  // aria-hidden as the popup's last child.
+  function arrowOf(content) {
+    return content.querySelector(':scope > [aria-hidden="true"]:last-child');
   }
 
-  // useDismiss: popup/reference listeners stop Escape before outer document handlers.
-  function closeOnEscapeKeyDown(event) {
-    if (event.key !== "Escape") return;
-    const contents = event.currentTarget === document
-      ? allContents()
-      : [event.currentTarget.hasAttribute("data-tui-tooltip-content")
-        ? event.currentTarget
-        : contentFor(event.currentTarget)];
-    let handled = false;
-    for (const content of contents) {
-      if (!content?.hasAttribute("data-open")) continue;
-      if (requestOpenChange(triggerFor(content), false)) event.preventDefault();
-      event.stopPropagation();
-      handled = true;
-    }
-    return handled;
+  // Base UI's TooltipPositioner, the popup's parent: it is portaled and
+  // positioned and renders the open state.
+  function positionerOf(content) {
+    return content.parentElement;
   }
 
-  function allContents() {
-    return document.querySelectorAll("[data-tui-tooltip-content]");
+  function statusOf(content) {
+    return { positioner: positionerOf(content), parts: [content], stateParts: [arrowOf(content)] };
   }
 
   function contentFor(trigger) {
-    return document.getElementById(trigger.getAttribute("aria-describedby"));
+    return document.getElementById(trigger.getAttribute("data-templ-tooltip-trigger"));
   }
 
   function triggerFor(content) {
     return document.querySelector(
-      '[data-tui-tooltip-trigger][aria-describedby="' + content.id + '"]',
+      '[data-templ-tooltip-trigger="' + content.id + '"]',
     );
   }
 
-  // Base UI zooms the popup out of the anchor's center point (e.g.
-  // "96px -4px"), not out of a placement corner.
-  function anchorOrigin(result, anchorRect, positionerRect, sideOffset) {
-    const side = result.placement.split("-")[0];
-    const centerX = anchorRect.left + anchorRect.width / 2 - positionerRect.left + "px";
-    const centerY = anchorRect.top + anchorRect.height / 2 - positionerRect.top + "px";
-    if (side === "bottom") return centerX + " " + -sideOffset + "px";
-    if (side === "top") return centerX + " calc(100% + " + sideOffset + "px)";
-    if (side === "right") return -sideOffset + "px " + centerY;
-    return "calc(100% + " + sideOffset + "px) " + centerY;
+  // The positioner's parent is the portal node, which moves to <body>
+  // (shadcn portals it the same way).
+  function portalNodeOf(content) {
+    return positionerOf(content).parentElement;
   }
 
-  // The arrow styles itself per side (data-side classes, like Base UI's
-  // Arrow); the script only feeds it the side and the centered coordinate.
-  function placeArrow(content, side, arrowData) {
-    const arrowEl = content.querySelector("[data-tui-tooltip-arrow]");
-    if (!arrowEl) return;
-    arrowEl.setAttribute("data-side", side);
-    arrowEl.style.left = arrowData && arrowData.x != null ? arrowData.x + "px" : "";
-    arrowEl.style.top = arrowData && arrowData.y != null ? arrowData.y + "px" : "";
-  }
-
-  // Moves the content to <body> (shadcn portals it the same way).
-  // The unmount half of the React portal pendant: a portaled content lives
-  // as long as its SSR declaration site (_tuiPortalOwner) stays in the
-  // document. Trigger-presence heuristics judged mid-swap moments wrongly -
-  // multi-phase swap layers briefly disconnect the new triggers.
-  function removeOrphanedContents(content) {
-    document.querySelectorAll("body > [data-tui-tooltip-content]").forEach((c) => {
-      if (c !== content && c._tuiPortalOwner && !c._tuiPortalOwner.isConnected) {
-        stopAutoPositioning(c);
-        c.remove();
-      }
-    });
-  }
-
+  // TooltipPortal mounts with the popup.
   function portal(content) {
-    listenForEscape(content);
-    removeOrphanedContents(content);
-    if (content.parentElement !== document.body) {
-      if (!content._tuiPortalOwner) content._tuiPortalOwner = content.parentElement;
-      document.body.appendChild(content);
-    }
+    const node = portalNodeOf(content);
+    window.templ.portal.render(node);
+    node.hidden = false;
   }
 
-  function positionContent(content, trigger) {
-    const { computePosition, offset, flip, shift, arrow } = window.FloatingUIDOM;
-    const side = content.getAttribute("data-tui-tooltip-side") || "top";
-    const sideOffset =
-      parseInt(content.getAttribute("data-tui-tooltip-side-offset"), 10) || 4;
-    const arrowEl = content.querySelector("[data-tui-tooltip-arrow]");
-
-    return computePosition(trigger, content, {
-      placement: side,
-      strategy: "absolute",
-      middleware: [
-        offset(sideOffset),
-        flip(),
-        shift({ padding: 5 }),
-        arrowEl ? arrow({ element: arrowEl, padding: 5 }) : undefined,
-      ].filter(Boolean),
-    }).then((result) => {
-      content.style.transition = "none";
-      content.style.left = result.x + "px";
-      content.style.top = result.y + "px";
-      content.style.setProperty(
-        "--transform-origin",
-        anchorOrigin(
-          result,
-          trigger.getBoundingClientRect(),
-          content.getBoundingClientRect(),
-          sideOffset,
-        ),
-      );
-      const finalSide = result.placement.split("-")[0];
-      content.setAttribute("data-side", finalSide);
-      placeArrow(content, finalSide, result.middlewareData.arrow);
-      content.offsetHeight; // flush styles before re-enabling transitions
-      content.style.transition = "";
-    });
-  }
-
+  // TooltipPositioner: useAnchorPositioning with the popup collision
+  // avoidance, while the tooltip is mounted.
   function startAutoPositioning(content, trigger) {
-    if (content._tuiPositionCleanup) content._tuiPositionCleanup();
-    let resolveFirst;
-    const firstPosition = new Promise((resolve) => {
-      resolveFirst = resolve;
+    stopAutoPositioning(content);
+    const positioner = positionerOf(content);
+    const arrow = arrowOf(content);
+    const positioning = window.templ.anchorPositioning.useAnchorPositioning({
+      anchor: trigger,
+      positioner,
+      parts: [positioner, content, arrow],
+      arrow,
+      side: positioner.getAttribute("data-templ-side") || "top",
+      align: positioner.getAttribute("data-templ-align") || "center",
+      sideOffset: parseFloat(positioner.getAttribute("data-templ-side-offset")) || 0,
+      alignOffset: parseFloat(positioner.getAttribute("data-templ-align-offset")) || 0,
     });
-    const update = () => positionContent(content, trigger).then(resolveFirst, resolveFirst);
-    content._tuiPositionCleanup = window.FloatingUIDOM.autoUpdate(trigger, content, update, {
-      elementResize: typeof ResizeObserver !== "undefined",
-      layoutShift: typeof IntersectionObserver !== "undefined",
-    });
-    return firstPosition;
+    content._templPositionCleanup = positioning.cleanup;
+    return positioning.positioned;
   }
 
   function stopAutoPositioning(content) {
-    if (!content._tuiPositionCleanup) return;
-    content._tuiPositionCleanup();
-    content._tuiPositionCleanup = null;
+    if (!content._templPositionCleanup) return;
+    content._templPositionCleanup();
+    content._templPositionCleanup = null;
   }
 
-  function open(trigger) {
-    // Consumers can suppress a tooltip situationally (e.g. the sidebar only
-    // shows menu tooltips while collapsed to icons).
-    if (trigger.hasAttribute("data-tui-tooltip-disabled")) return;
-    const content = contentFor(trigger);
-    if (!content) return;
-    clearTimeout(content._tuiHide);
-    portal(content);
-    // z-index portal like shadcn (no native top layer); re-append
-    // keeps paint order = open order.
-    document.body.appendChild(content);
-    content.hidden = false;
+  // ----- TooltipProvider -----------------------------------------------------
 
-    // Position it invisibly first, then play the enter animation in place.
-    content.style.visibility = "hidden";
-    startAutoPositioning(content, trigger).then(() => {
-      if (content.hidden) return; // closed meanwhile
-      // duration-100 transitions `all`; a visibility transition would
-      // freeze at hidden in background tabs - flip suppressed.
-      content.style.transitionProperty = "none";
-      content.style.visibility = "";
-      void content.offsetWidth;
-      content.style.transitionProperty = "";
-      content.removeAttribute("data-closed");
-      content.removeAttribute("data-ending-style");
-      content.setAttribute("data-open", "");
-      content.setAttribute("data-starting-style", "");
-      const arrowEl = content.querySelector("[data-tui-tooltip-arrow]");
-      if (arrowEl) {
-        arrowEl.removeAttribute("data-closed");
-        arrowEl.removeAttribute("data-ending-style");
-        arrowEl.setAttribute("data-open", "");
-        arrowEl.setAttribute("data-starting-style", "");
-      }
-      trigger.setAttribute("data-popup-open", "");
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          content.removeAttribute("data-starting-style");
-          if (arrowEl) arrowEl.removeAttribute("data-starting-style");
-        });
-      });
+  // shadcn's layout wraps the page in TooltipProvider (delay 0), Base UI's
+  // FloatingDelayGroup with its 400 ms timeout: a tooltip that opens while
+  // another one is open, or within the timeout after it closed, opens in the
+  // instant phase, and the other closes at once.
+  const GROUP_TIMEOUT = 400;
+  const group = { current: null, timer: null };
+
+  // TooltipRoot's instantType: "delay" in the instant phase, or while closing
+  // because another tooltip opened; else the open change's, "focus" for a
+  // focus open, "dismiss" for a press or Escape, none for hover. Positioner,
+  // popup and arrow render it as data-instant.
+  function setInstantType(content, open, reason) {
+    if (open && reason === "trigger-focus") content._templInstantType = "focus";
+    else if (!open && (reason === "trigger-press" || reason === "escape-key")) content._templInstantType = "dismiss";
+    else if (reason === "trigger-hover") content._templInstantType = undefined;
+    content._templCloseReason = open ? null : reason ?? null;
+    renderInstant(content);
+  }
+
+  function renderInstant(content) {
+    const delay = content._templEnding ? content._templCloseReason === "none" : !!content._templInstantPhase;
+    const type = delay ? "delay" : content._templInstantType;
+    [positionerOf(content), content, arrowOf(content)].forEach((el) => {
+      if (!el) return;
+      if (type) el.setAttribute("data-instant", type);
+      else el.removeAttribute("data-instant");
     });
   }
 
-  function close(content) {
-    if (content.hidden) return;
-    stopAutoPositioning(content);
-    content.removeAttribute("data-open");
-    content.removeAttribute("data-starting-style");
-    content.setAttribute("data-closed", "");
-    content.setAttribute("data-ending-style", "");
-    const arrowEl = content.querySelector("[data-tui-tooltip-arrow]");
-    if (arrowEl) {
-      arrowEl.removeAttribute("data-open");
-      arrowEl.removeAttribute("data-starting-style");
-      arrowEl.setAttribute("data-closed", "");
-      arrowEl.setAttribute("data-ending-style", "");
+  function setInstantPhase(content, on) {
+    content._templInstantPhase = on;
+    renderInstant(content);
+  }
+
+  // The group's open side: this tooltip becomes the current one.
+  function joinGroup(content) {
+    clearTimeout(group.timer);
+    const previous = group.current;
+    group.current = content;
+    if (previous && previous !== content) {
+      setInstantPhase(content, true);
+      setInstantPhase(previous, true);
+      requestOpenChange(triggerFor(previous), false, { reason: "none" });
+    } else {
+      setInstantPhase(content, false);
     }
+  }
+
+  // The group's close side: the current tooltip ends the instant phase after
+  // the timeout, unless another one opened meanwhile.
+  function leaveGroup(content) {
+    if (group.current !== content) return;
+    setInstantPhase(content, false);
+    clearTimeout(group.timer);
+    group.timer = setTimeout(() => {
+      if (group.current !== content || content._templOpen) return;
+      group.current = null;
+    }, GROUP_TIMEOUT);
+  }
+
+  // ----- open / close ----------------------------------------------------------
+
+  // details { reason, event } of the change, for the hover interaction.
+  function open(trigger, details = {}) {
+    // A disabled trigger (Base UI data-trigger-disabled) never opens, e.g.
+    // the sidebar's menu tooltips while it is expanded.
+    if (trigger.hasAttribute("data-trigger-disabled")) return;
+    const content = contentFor(trigger);
+    if (!content) return;
+    content._templOpen = true;
+    content._templOpenEventType = details.event?.type ?? null;
+    content._templEnding = false;
+    setInstantType(content, true, details.reason);
+    joinGroup(content);
+    portal(content);
+    positionerOf(content).hidden = false;
+    // TooltipRoot's useDismiss: a press on the trigger closes (closeOnClick).
+    content._templDismiss ??= window.templ.dismiss.useDismiss({
+      floating: positionerOf(content),
+      reference: trigger,
+      referencePress: true,
+      onOpenChange: (open, reason, event) => requestOpenChange(trigger, open, { reason, event }),
+    });
+    emitOpenChange(content, true, details.reason);
+
+    // Positioned first, then the enter animation plays in place.
+    startAutoPositioning(content, trigger).then(() => {
+      if (positionerOf(content).hidden) return; // closed meanwhile
+      window.templ.transition.open(statusOf(content));
+      trigger.setAttribute("data-popup-open", "");
+    });
+  }
+
+  function close(content, details = {}) {
+    if (positionerOf(content).hidden) return;
+    content._templOpen = false;
+    content._templOpenEventType = null;
+    content._templEnding = true;
+    setInstantType(content, false, details.reason);
+    leaveGroup(content);
+    emitOpenChange(content, false, details.reason);
+    content._templDismiss?.();
+    content._templDismiss = null;
+    // Positioned until it unmounts, like Base UI.
+    window.templ.transition.close(statusOf(content), content, () => {
+      stopAutoPositioning(content);
+      positionerOf(content).hidden = true;
+      portalNodeOf(content).hidden = true;
+      content._templEnding = false;
+      content._templInstantPhase = false;
+      renderInstant(content);
+    });
     const trigger = triggerFor(content);
     if (trigger) trigger.removeAttribute("data-popup-open");
-    clearTimeout(content._tuiHide);
-    content._tuiHide = setTimeout(() => {
-      if (content.hasAttribute("data-closed") && !content.hidden) {
-        content.hidden = true;
-        content.removeAttribute("data-ending-style");
-        if (arrowEl) arrowEl.removeAttribute("data-ending-style");
-      }
-    }, EXIT_MS);
   }
 
-  function closeAll() {
-    allContents().forEach(close);
-  }
-
-  function requestOpenChange(trigger, nextOpen) {
+  function requestOpenChange(trigger, nextOpen, details) {
     if (!trigger) return false;
     const content = contentFor(trigger);
-    if (!content || content.hasAttribute("data-open") === nextOpen) return false;
+    if (!content || !!content._templOpen === nextOpen) return false;
     const accepted = content.dispatchEvent(
       new CustomEvent("tooltip-open-change", {
         bubbles: true,
@@ -229,69 +198,89 @@
         detail: { open: nextOpen },
       }),
     );
-    if (!accepted || content.hasAttribute("data-tui-tooltip-controlled")) return false;
-    if (nextOpen) open(trigger);
-    else close(content);
+    if (!accepted || content.hasAttribute("data-templ-open")) return false;
+    if (nextOpen) open(trigger, details);
+    else close(content, details);
     return true;
   }
 
-  function requestCloseAll() {
-    allContents().forEach((content) => requestOpenChange(triggerFor(content), false));
+  // TooltipTrigger's useHoverReferenceInteraction and TooltipPopup's
+  // useHoverFloatingInteraction. The delay is shadcn's TooltipProvider
+  // default of 0, the popup is hoverable through safePolygon.
+  function startHover(content, trigger) {
+    const hover = window.templ.hover;
+    const positioner = positionerOf(content);
+    content._templHover = hover.createHoverInteraction({
+      isOpen: () => !!content._templOpen,
+      onOpenChange: (open, reason, event) => requestOpenChange(trigger, open, { reason, event }),
+      openEventType: () => content._templOpenEventType ?? null,
+      domReference: () => trigger,
+      floating: () => (positioner.hidden ? null : positioner),
+      placement: () => positioner.getAttribute("data-side") || "top",
+      triggers: () => [trigger],
+      parentFloating: () => null,
+    });
+    const isClosing = () => window.templ.transition.isEnding(content);
+    content._templHoverCleanups = [
+      hover.useHoverReferenceInteraction(trigger, content._templHover, {
+        mouseOnly: true,
+        move: false,
+        handleClose: hover.safePolygon(),
+        restMs: 0,
+        delay: { close: 0 },
+        isClosing,
+      }),
+      hover.useHoverFloatingInteraction(content._templHover, { closeDelay: 0 }),
+    ];
+    // TooltipTrigger's useFocus.
+    content._templFocusOpen = window.templ.focus.useFocus(trigger, content._templHover.context);
+    // TooltipTrigger's onPointerDown and onClick: with closeOnClick a press
+    // cancels a pending open (cancelPendingOpen).
+    const cancelPendingOpen = () => {
+      if (!content._templOpen) emitOpenChange(content, false, "trigger-press");
+    };
+    trigger.addEventListener("pointerdown", cancelPendingOpen);
+    trigger.addEventListener("click", cancelPendingOpen);
+    content._templHoverCleanups.push(() => {
+      trigger.removeEventListener("pointerdown", cancelPendingOpen);
+      trigger.removeEventListener("click", cancelPendingOpen);
+    });
+  }
+
+  // The store's openchange event, for the trigger's interactions.
+  function emitOpenChange(content, open, reason) {
+    content._templHover?.openChange(open, reason);
+    content._templFocusOpen?.openChange(open, reason);
+  }
+
+  function stopHover(content) {
+    content._templFocusOpen?.cleanup();
+    content._templFocusOpen = null;
+    content._templHoverCleanups?.forEach((cleanup) => cleanup());
+    content._templHoverCleanups = null;
+    content._templHover?.dispose();
+    content._templHover = null;
   }
 
   // ----- events -------------------------------------------------------------
 
-  document.addEventListener("mouseover", (e) => {
-    const trigger = e.target.closest("[data-tui-tooltip-trigger]");
-    if (trigger) requestOpenChange(trigger, true);
-  });
-
-  document.addEventListener("mouseout", (e) => {
-    const trigger = e.target.closest("[data-tui-tooltip-trigger]");
-    if (!trigger) return;
-    if (e.relatedTarget && trigger.contains(e.relatedTarget)) return; // still inside
-    const content = contentFor(trigger);
-    if (content) requestOpenChange(trigger, false);
-  });
-
-  // Keyboard: show on focus, hide on blur. Like Base UI, only visible
-  // focus opens the tooltip, so programmatic focus (e.g. a dialog's
-  // autofocus) does not pop it.
-  document.addEventListener("focusin", (e) => {
-    const trigger = e.target.closest("[data-tui-tooltip-trigger]");
-    if (trigger && trigger.matches(":focus-visible")) requestOpenChange(trigger, true);
-  });
-
-  document.addEventListener("focusout", (e) => {
-    const trigger = e.target.closest("[data-tui-tooltip-trigger]");
-    if (!trigger) return;
-    const content = contentFor(trigger);
-    if (content) requestOpenChange(trigger, false);
-  });
-
-  document.addEventListener("keydown", closeOnEscapeKeyDown);
-
-  // Content stays in its hidden portal node until it opens.
-  function init() {
-    removeOrphanedContents();
-    document.querySelectorAll("[data-tui-tooltip-trigger]").forEach(listenForEscape);
-    allContents().forEach((content) => {
-      if (content.getAttribute("data-tui-tooltip-initial-open") === "true") {
-        content.removeAttribute("data-tui-tooltip-initial-open");
-        const trigger = triggerFor(content);
-        if (trigger) open(trigger);
+  // Content stays in its hidden portal node until it opens. It unmounts with
+  // its portal owner: a portaled one is removed from <body> then.
+  window.templ.lifecycle.register(CONTENT, {
+    init(content) {
+      const trigger = triggerFor(content);
+      if (!trigger) return;
+      startHover(content, trigger);
+      // Server-side open state (Base UI open or defaultOpen).
+      if (content.getAttribute("data-templ-open") === "true" || content.hasAttribute("data-templ-default-open")) {
+        open(trigger);
       }
-    });
-  }
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", init);
-  } else {
-    init();
-  }
-  // Re-init on any childList mutation, directly (never rAF-deferred: rAF
-  // does not fire in hidden tabs or throttled iframes): swapped-in markup
-  // wires itself, removals release portaled content through the
-  // ownership sweep.
-  new MutationObserver(() => init()).observe(document.body, { childList: true, subtree: true });
-
+    },
+    destroy(content) {
+      stopHover(content);
+      stopAutoPositioning(content);
+      content._templDismiss?.();
+      window.templ.portal.remove(portalNodeOf(content));
+    },
+  });
 })();

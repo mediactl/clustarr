@@ -213,3 +213,9 @@ html[data-scrollbar="hidden"] {
 html[data-scrollbar="hidden"]::-webkit-scrollbar {
   display: none;
 }
+
+/* The library's Options menu (ui/static/library.js): "Show details" off
+   hides each card's monitored and profile lines under the poster. */
+html[data-library-details="hidden"] [data-card-details] {
+  display: none;
+}

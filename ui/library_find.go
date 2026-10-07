@@ -50,3 +50,17 @@ func (s *Server) handleLibraryFind(w http.ResponseWriter, r *http.Request) {
 		logging.FromContext(r.Context()).Error("render library find", "error", err)
 	}
 }
+
+// handleFind answers the top bar's search on a page that is no library tab
+// (2026-10-06): the same dropdown over every tab's monitored items.
+func (s *Server) handleFind(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	if q == "" {
+		return
+	}
+	items := projection.Find(s.opts.Library(r.Context()), q, findLimit)
+	if err := views.LibraryFindResults("", q, items).Render(r.Context(), w); err != nil {
+		logging.FromContext(r.Context()).Error("render library find", "error", err)
+	}
+}

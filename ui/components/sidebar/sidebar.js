@@ -3,73 +3,77 @@
 
   const SIDEBAR_COOKIE_NAME = "sidebar_state";
   const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7; // 7 days
+  const SIDEBAR_KEYBOARD_SHORTCUT = "b";
   const MOBILE_QUERY = "(max-width: 767px)";
 
+  // shadcn has one SidebarProvider context; the port marker names each
+  // sidebar so several can live on a page.
+  const WRAPPER = "[data-templ-sidebar-id]";
+
   function wrapperFor(sidebarId) {
-    return document.querySelector(
-      '[data-tui-sidebar-wrapper][data-tui-sidebar-id="' + sidebarId + '"]',
-    );
+    return document.querySelector('[data-templ-sidebar-id="' + sidebarId + '"]');
   }
 
   // SidebarProvider.openMobile survives the Sheet's viewport-driven unmount.
   function openMobileOf(sidebarId) {
-    return !!anyWrapper(sidebarId)?.hasAttribute("data-tui-sidebar-open-mobile");
+    return !!anyWrapper(sidebarId)?._templOpenMobile;
   }
 
   // SidebarProvider.setOpenMobile: state is independent of the mounted Sheet.
   function setOpenMobile(open, sidebarId) {
     const wrapper = anyWrapper(sidebarId);
     if (!wrapper) return;
-    wrapper.toggleAttribute("data-tui-sidebar-open-mobile", !!open);
+    wrapper._templOpenMobile = !!open;
     if (!window.matchMedia(MOBILE_QUERY).matches) return;
-    const popup = document.getElementById(wrapper.getAttribute("data-tui-sidebar-id") + "-mobile");
-    const dialog = window.tui?.dialog;
+    const popup = document.getElementById(wrapper.getAttribute("data-templ-sidebar-id") + "-mobile");
+    const dialog = window.templ?.dialog;
     if (!popup || !dialog) return;
     if (open && !dialog.isOpen(popup)) dialog.open(popup);
     else if (!open && dialog.isOpen(popup)) dialog.close(popup);
   }
 
-  // The sidebar content renders once and moves between the desktop container
-  // and the mobile sheet, depending on the viewport.
-  function init() {
-    document.querySelectorAll("[data-tui-sidebar-content]").forEach((content) => {
-      const sidebarId = content.getAttribute("data-tui-sidebar-content");
-      const portal = document.querySelector(
-        '[data-tui-sidebar-mobile-portal="' + sidebarId + '"]',
-      );
-      if (!portal) return;
+  // shadcn's Sidebar renders its children in the mobile sheet below md and
+  // in sidebar-inner otherwise: they render once and move between the two.
+  function place(sidebar) {
+    const sidebarId = sidebar.getAttribute("data-templ-sidebar-id");
+    const inner = sidebar.querySelector('[data-slot="sidebar-inner"]');
+    const portal = document.querySelector('[data-templ-sidebar-mobile-portal="' + sidebarId + '"]');
+    if (!inner || !portal) return;
 
-      const isMobile = window.matchMedia(MOBILE_QUERY).matches;
+    const isMobile = window.matchMedia(MOBILE_QUERY).matches;
+    const from = isMobile ? inner : portal;
+    const to = isMobile ? portal : inner;
+    if (from.firstChild) to.append(...from.childNodes);
+    syncTooltips(sidebarId);
 
-      if (isMobile && content.parentElement !== portal) {
-        portal.appendChild(content);
-      } else if (!isMobile && content.parentElement === portal) {
-        const inner = wrapperFor(sidebarId)?.querySelector('[data-slot="sidebar-inner"]');
-        if (inner) inner.appendChild(content);
-      }
+    // Mount/unmount the Sheet with open={openMobile}, as in shadcn's Sidebar.
+    const popup = document.getElementById(sidebarId + "-mobile");
+    const dialog = window.templ?.dialog;
+    if (!popup || !dialog) return;
+    if (isMobile && openMobileOf(sidebarId) && !dialog.isOpen(popup)) {
+      dialog.open(popup);
+    } else if (!isMobile && dialog.isOpen(popup)) {
+      dialog.close(popup);
+    }
+  }
 
-      // Mount/unmount the Sheet with open={openMobile}, as in shadcn's Sidebar.
-      const popup = document.getElementById(sidebarId + "-mobile");
-      const dialog = window.tui?.dialog;
-      if (!popup || !dialog) return;
-      if (isMobile && openMobileOf(sidebarId) && !dialog.isOpen(popup)) {
-        dialog.open(popup);
-      } else if (!isMobile && dialog.isOpen(popup)) {
-        dialog.close(popup);
-      }
+  window.templ.lifecycle.register(WRAPPER, { init: place });
+  window.addEventListener("resize", () => document.querySelectorAll(WRAPPER).forEach(place));
+
+  // SidebarMenuButton's TooltipContent: hidden={state !== "collapsed" ||
+  // isMobile}, unless the tooltip prop sets hidden itself.
+  function syncTooltips(sidebarId) {
+    const wrapper = wrapperFor(sidebarId);
+    const portal = document.querySelector('[data-templ-sidebar-mobile-portal="' + sidebarId + '"]');
+    const hidden = wrapper?.getAttribute("data-state") !== "collapsed" || window.matchMedia(MOBILE_QUERY).matches;
+    [wrapper, portal].forEach((root) => {
+      root?.querySelectorAll("[data-templ-tooltip-trigger]").forEach((trigger) => {
+        const popup = document.getElementById(trigger.getAttribute("data-templ-tooltip-trigger"));
+        if (!popup || popup.hasAttribute("data-templ-tooltip-hidden")) return;
+        popup.hidden = hidden;
+      });
     });
   }
-
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", init);
-  } else {
-    init();
-  }
-  window.addEventListener("resize", init);
-  // Re-init on any childList mutation, directly (never rAF-deferred: rAF
-  // does not fire in hidden tabs or throttled iframes): swapped-in markup
-  // wires itself.
-  new MutationObserver(() => init()).observe(document.body, { childList: true, subtree: true });
 
   function toggleSidebar(sidebarId) {
     // shadcn's toggleSidebar: setOpenMobile((open) => !open) below md.
@@ -80,7 +84,7 @@
 
     const wrapper = wrapperFor(sidebarId);
     if (!wrapper) return;
-    const mode = wrapper.getAttribute("data-tui-sidebar-collapsible-mode");
+    const mode = wrapper.getAttribute("data-templ-collapsible");
     if (mode === "none") return;
 
     const collapsed = wrapper.getAttribute("data-state") !== "collapsed";
@@ -89,13 +93,7 @@
     // so icon/offcanvas selectors need no extra state check.
     wrapper.setAttribute("data-collapsible", collapsed ? mode : "");
 
-    // Menu button tooltips only show while collapsed to icons.
-    const tooltipsDisabled = !(collapsed && mode === "icon");
-    wrapper.querySelectorAll("[data-tui-tooltip-trigger]").forEach((trigger) => {
-      // An explicit tooltip.hidden pendant pins the state.
-      if (trigger.hasAttribute("data-tui-sidebar-tooltip-fixed")) return;
-      trigger.toggleAttribute("data-tui-tooltip-disabled", tooltipsDisabled);
-    });
+    syncTooltips(sidebarId);
 
     document.cookie =
       SIDEBAR_COOKIE_NAME +
@@ -107,9 +105,10 @@
 
   document.addEventListener("click", (e) => {
     if (!(e.target instanceof Element)) return;
-    const trigger = e.target.closest("[data-tui-sidebar-trigger]");
+    // SidebarTrigger and SidebarRail; the port marker names their sidebar.
+    const trigger = e.target.closest("[data-templ-sidebar-trigger]");
     if (!trigger) return;
-    const targetId = trigger.getAttribute("data-tui-sidebar-target");
+    const targetId = trigger.getAttribute("data-templ-sidebar-trigger");
     if (targetId) toggleSidebar(targetId);
   });
 
@@ -127,11 +126,11 @@
   function anyWrapper(sidebarId) {
     return sidebarId
       ? wrapperFor(sidebarId)
-      : document.querySelector("[data-tui-sidebar-wrapper]");
+      : document.querySelector(WRAPPER);
   }
 
-  window.tui = window.tui || {};
-  window.tui.sidebar = {
+  window.templ = window.templ || {};
+  window.templ.sidebar = {
     state(sidebarId) {
       return anyWrapper(sidebarId)?.getAttribute("data-state") || null;
     },
@@ -142,7 +141,7 @@
       const wrapper = anyWrapper(sidebarId);
       if (!wrapper) return;
       if (this.open(sidebarId) !== open) {
-        toggleSidebar(wrapper.getAttribute("data-tui-sidebar-id"));
+        toggleSidebar(wrapper.getAttribute("data-templ-sidebar-id"));
       }
     },
     openMobile(sidebarId) {
@@ -154,20 +153,30 @@
     isMobile() {
       return window.matchMedia(MOBILE_QUERY).matches;
     },
+    // The subscription half of useSidebar().isMobile: calls fn with the
+    // current value now and again whenever it changes, like a re-render.
+    // fn returns false when its elements are gone (the unmount pendant),
+    // which unsubscribes it.
+    onMobileChange(fn) {
+      const query = window.matchMedia(MOBILE_QUERY);
+      const listener = () => {
+        if (fn(query.matches) === false) query.removeEventListener("change", listener);
+      };
+      query.addEventListener("change", listener);
+      listener();
+    },
     toggleSidebar(sidebarId) {
       const wrapper = anyWrapper(sidebarId);
-      if (wrapper) toggleSidebar(wrapper.getAttribute("data-tui-sidebar-id"));
+      if (wrapper) toggleSidebar(wrapper.getAttribute("data-templ-sidebar-id"));
     },
   };
 
   // Cmd/Ctrl + shortcut key toggles the sidebar.
   document.addEventListener("keydown", (e) => {
     if (!(e.ctrlKey || e.metaKey) || e.key.length !== 1) return;
-    const wrapper = document.querySelector("[data-tui-sidebar-wrapper]");
-    if (!wrapper) return;
-    const shortcut = wrapper.getAttribute("data-tui-sidebar-keyboard-shortcut");
-    if (!shortcut || shortcut.toLowerCase() !== e.key.toLowerCase()) return;
+    const wrapper = document.querySelector(WRAPPER);
+    if (!wrapper || e.key.toLowerCase() !== SIDEBAR_KEYBOARD_SHORTCUT) return;
     e.preventDefault();
-    toggleSidebar(wrapper.getAttribute("data-tui-sidebar-id"));
+    toggleSidebar(wrapper.getAttribute("data-templ-sidebar-id"));
   });
 })();

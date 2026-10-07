@@ -1120,9 +1120,10 @@ func formControl(c forms.Control) templ.Component {
 // selectControl is a choice as shadcn-templ's select component: its hidden
 // input posts the value under the control's name, and its change event is
 // what settings.js re-reads the conditions on. A read-only (immutable)
-// choice is the component's Disabled: the trigger cannot open while the
-// hidden input, never disabled, still posts -- the component's own
-// ReadOnly renders a bare aria-readonly its script reads as not read-only.
+// choice is the component's ReadOnly, so its input is readonly and still
+// posts, with the trigger itself disabled: the component renders a bare
+// aria-readonly its script reads as not read-only, and a Disabled root
+// would disable the input too, which then posts nothing.
 // An option with the empty value is the "unset" choice of an optional
 // field.
 func selectControl(c forms.Control) templ.Component {
@@ -1176,7 +1177,7 @@ func selectControl(c forms.Control) templ.Component {
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = selectcomp.Trigger(selectcomp.TriggerProps{Class: "w-full"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var47), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = selectcomp.Trigger(selectcomp.TriggerProps{Class: "w-full", Attributes: readOnlyTrigger(c.ReadOnly)}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var47), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1224,7 +1225,7 @@ func selectControl(c forms.Control) templ.Component {
 							var templ_7745c5c3_Var51 string
 							templ_7745c5c3_Var51, templ_7745c5c3_Err = templ.JoinStringErrs(o.Label)
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings_form.templ`, Line: 270, Col: 15}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings_form.templ`, Line: 271, Col: 15}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var51))
 							if templ_7745c5c3_Err != nil {
@@ -1251,12 +1252,20 @@ func selectControl(c forms.Control) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = selectcomp.Select(selectcomp.Props{ID: controlID(c.Name), Name: c.Name, DefaultValue: c.Value, Required: c.Required && !c.ReadOnly, Disabled: c.ReadOnly}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var46), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = selectcomp.Select(selectcomp.Props{ID: controlID(c.Name), Name: c.Name, DefaultValue: c.Value, Required: c.Required && !c.ReadOnly, ReadOnly: c.ReadOnly}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var46), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		return nil
 	})
+}
+
+// readOnlyTrigger disables a read-only select's trigger, so it cannot open.
+func readOnlyTrigger(readOnly bool) templ.Attributes {
+	if !readOnly {
+		return nil
+	}
+	return templ.Attributes{"disabled": true, "data-disabled": true}
 }
 
 func fieldLabel(c forms.Control, target string) templ.Component {
@@ -1295,7 +1304,7 @@ func fieldLabel(c forms.Control, target string) templ.Component {
 			var templ_7745c5c3_Var54 string
 			templ_7745c5c3_Var54, templ_7745c5c3_Err = templ.JoinStringErrs(c.Label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings_form.templ`, Line: 280, Col: 11}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings_form.templ`, Line: 289, Col: 11}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var54))
 			if templ_7745c5c3_Err != nil {
@@ -1358,7 +1367,7 @@ func fieldHelp(c forms.Control) templ.Component {
 				var templ_7745c5c3_Var57 string
 				templ_7745c5c3_Var57, templ_7745c5c3_Err = templ.JoinStringErrs(c.Help)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings_form.templ`, Line: 290, Col: 11}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings_form.templ`, Line: 299, Col: 11}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var57))
 				if templ_7745c5c3_Err != nil {
@@ -1441,7 +1450,7 @@ func rowsControl(c forms.Control) templ.Component {
 					var templ_7745c5c3_Var62 string
 					templ_7745c5c3_Var62, templ_7745c5c3_Err = templ.JoinStringErrs(c.Label)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings_form.templ`, Line: 302, Col: 14}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings_form.templ`, Line: 311, Col: 14}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var62))
 					if templ_7745c5c3_Err != nil {
@@ -1725,7 +1734,7 @@ func mapControl(c forms.Control) templ.Component {
 					var templ_7745c5c3_Var74 string
 					templ_7745c5c3_Var74, templ_7745c5c3_Err = templ.JoinStringErrs(c.Label)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings_form.templ`, Line: 354, Col: 14}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings_form.templ`, Line: 363, Col: 14}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var74))
 					if templ_7745c5c3_Err != nil {
@@ -1983,7 +1992,7 @@ func configActionsTo(slug, namespace, name, returnTo string) templ.Component {
 			var templ_7745c5c3_Var82 templ.SafeURL
 			templ_7745c5c3_Var82, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(fmt.Sprintf("/settings/delete/%s/%s/%s", slug, ns, name)))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings_form.templ`, Line: 416, Col: 98}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings_form.templ`, Line: 425, Col: 98}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var82))
 			if templ_7745c5c3_Err != nil {
@@ -1996,7 +2005,7 @@ func configActionsTo(slug, namespace, name, returnTo string) templ.Component {
 			var templ_7745c5c3_Var83 string
 			templ_7745c5c3_Var83, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf("Delete %q? This cannot be undone.", name))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings_form.templ`, Line: 416, Col: 170}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings_form.templ`, Line: 425, Col: 170}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var83)
 			if templ_7745c5c3_Err != nil {
@@ -2009,7 +2018,7 @@ func configActionsTo(slug, namespace, name, returnTo string) templ.Component {
 			var templ_7745c5c3_Var84 string
 			templ_7745c5c3_Var84, templ_7745c5c3_Err = templ.ResolveAttributeValue(returnTo)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings_form.templ`, Line: 417, Col: 54}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/settings_form.templ`, Line: 426, Col: 54}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var84)
 			if templ_7745c5c3_Err != nil {

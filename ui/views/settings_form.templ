@@ -253,14 +253,15 @@ templ formControl(c forms.Control) {
 // selectControl is a choice as shadcn-templ's select component: its hidden
 // input posts the value under the control's name, and its change event is
 // what settings.js re-reads the conditions on. A read-only (immutable)
-// choice is the component's Disabled: the trigger cannot open while the
-// hidden input, never disabled, still posts -- the component's own
-// ReadOnly renders a bare aria-readonly its script reads as not read-only.
+// choice is the component's ReadOnly, so its input is readonly and still
+// posts, with the trigger itself disabled: the component renders a bare
+// aria-readonly its script reads as not read-only, and a Disabled root
+// would disable the input too, which then posts nothing.
 // An option with the empty value is the "unset" choice of an optional
 // field.
 templ selectControl(c forms.Control) {
-	@selectcomp.Select(selectcomp.Props{ID: controlID(c.Name), Name: c.Name, DefaultValue: c.Value, Required: c.Required && !c.ReadOnly, Disabled: c.ReadOnly}) {
-		@selectcomp.Trigger(selectcomp.TriggerProps{Class: "w-full"}) {
+	@selectcomp.Select(selectcomp.Props{ID: controlID(c.Name), Name: c.Name, DefaultValue: c.Value, Required: c.Required && !c.ReadOnly, ReadOnly: c.ReadOnly}) {
+		@selectcomp.Trigger(selectcomp.TriggerProps{Class: "w-full", Attributes: readOnlyTrigger(c.ReadOnly)}) {
 			@selectcomp.Value(selectcomp.ValueProps{Placeholder: "—"})
 		}
 		@selectcomp.Content() {
@@ -273,6 +274,14 @@ templ selectControl(c forms.Control) {
 			}
 		}
 	}
+}
+
+// readOnlyTrigger disables a read-only select's trigger, so it cannot open.
+func readOnlyTrigger(readOnly bool) templ.Attributes {
+	if !readOnly {
+		return nil
+	}
+	return templ.Attributes{"disabled": true, "data-disabled": true}
 }
 
 templ fieldLabel(c forms.Control, target string) {

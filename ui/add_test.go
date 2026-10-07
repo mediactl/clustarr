@@ -194,7 +194,7 @@ func TestAddRejectionRerendersTheForm(t *testing.T) {
 	require.NotEqual(t, http.StatusSeeOther, rec.Code)
 	body := rec.Body.String()
 	requireTag(t, body, `data-action-error=`, `data-slot="alert"`)
-	requireTag(t, body, `name="q"`, `value="fight"`)
+	requireTag(t, pageBody(t, body), `name="q"`, `value="fight"`)
 	requireTag(t, body, `data-add-hit="550"`)
 	require.Regexp(t, `<details[^>]*\bopen\b`, body, "the rejected hit's form is open")
 	requireTag(t, body, `name="monitor"`, `value="none"`)
@@ -205,7 +205,7 @@ func TestAddRejectionRerendersTheForm(t *testing.T) {
 func TestAddPageOffersTheKindsOwnChoices(t *testing.T) {
 	srv, _ := addServer(t, hits(commonv1.MediaKindSeries, `{"IDs":{"tvdb":"81189"},"Title":"Breaking Bad","Year":2008}`), moviesRoot, tvRoot, hdProfile)
 	body := get(t, srv, "/library/tv/add/search?q=breaking").Body.String()
-	for _, want := range []string{`name="seriesType"`, `name="seasonFolder"`, `name="searchCutoffUnmet"`, `data-tui-select-value="pilot"`, `data-tui-select-value="media/tv"`, "Breaking Bad"} {
+	for _, want := range []string{`name="seriesType"`, `name="seasonFolder"`, `name="searchCutoffUnmet"`, `data-templ-value="pilot"`, `data-templ-value="media/tv"`, "Breaking Bad"} {
 		require.Contains(t, body, want)
 	}
 	require.NotContains(t, body, "library/movies", "a movie root folder is not offered for a series")
@@ -245,7 +245,7 @@ func TestAddOffersOnlyRootFoldersOfTheKind(t *testing.T) {
 	ebook := &catalogv1.QualityProfile{ObjectMeta: metav1.ObjectMeta{Name: "ebook"}, Spec: catalogv1.QualityProfileSpec{MediaKind: catalogv1.ProfileMediaKindBook, Cutoff: "e", Tiers: []catalogv1.Tier{{Name: "e", Qualities: []string{"EPUB"}}}}}
 	srv, _ := addServer(t, hits(commonv1.MediaKindAuthor, `{"IDs":{"olauthor":"OL21594A"},"Title":"Jane Austen"}`), books, audio, ebook)
 	body := get(t, srv, "/library/books/add/search?q=austen").Body.String()
-	require.Contains(t, body, `data-tui-select-value="media/books"`)
+	require.Contains(t, body, `data-templ-value="media/books"`)
 	require.NotContains(t, body, "media/audiobooks")
 }
 

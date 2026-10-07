@@ -1,46 +1,79 @@
 (function () {
   "use strict";
 
-  // Update tab state
-  function setActiveTab(tabsId, value) {
-  const root = document.querySelector(
-    `[data-tui-tabs][data-tui-tabs-id="${tabsId}"]`,
-  );
-  if (root) root.setAttribute("data-tui-tabs-value", value || "");
-    // Update all triggers with this tabs-id
-    document
-      .querySelectorAll(`[data-tui-tabs-trigger][data-tui-tabs-id="${tabsId}"]`)
-      .forEach((trigger) => {
-        const isActive = trigger.getAttribute("data-tui-tabs-value") === value;
-        trigger.setAttribute(
-          "data-tui-tabs-state",
-          isActive ? "active" : "inactive",
-        );
-        // Base UI marks the selected tab with a bare data-active attribute;
-        // the styles select on it.
-        trigger.toggleAttribute("data-active", isActive);
-        // The ARIA state moves with the visual one, and the roving tabindex
-        // keeps the list a single tab stop.
-        trigger.setAttribute("aria-selected", isActive ? "true" : "false");
-        trigger.setAttribute("tabindex", isActive ? "0" : "-1");
-      });
+  const ROOT = '[data-slot="tabs"]';
+  const LIST = '[data-slot="tabs-list"]';
+  const TAB = '[data-slot="tabs-trigger"]';
+  const PANEL = '[data-slot="tabs-content"]';
 
-    // Update all contents with this tabs-id
-    document
-      .querySelectorAll(`[data-tui-tabs-content][data-tui-tabs-id="${tabsId}"]`)
-      .forEach((content) => {
-        const isActive = content.getAttribute("data-tui-tabs-value") === value;
-        content.setAttribute(
-          "data-tui-tabs-state",
-          isActive ? "active" : "inactive",
-        );
-        content.classList.toggle("hidden", !isActive);
-        content.setAttribute("tabindex", isActive ? "0" : "-1");
-      });
+  // Parts of this root only, never those of a nested tabs.
+  function partsOf(root, selector) {
+    return [...root.querySelectorAll(selector)].filter((el) => el.closest(ROOT) === root);
+  }
+
+  function isDisabled(tab) {
+    return tab.getAttribute("aria-disabled") === "true";
+  }
+
+  function activeValue(root) {
+    const tab = partsOf(root, TAB).find((t) => t.hasAttribute("data-active"));
+    return tab ? tab.getAttribute("data-templ-value") : null;
+  }
+
+  // TabsRoot's computeActivationDirection: where the new tab sits from the
+  // previous one along Base UI's orientation, "none" when level or until the
+  // first change. Root, list, tabs and panels render it.
+  function activationDirection(root, previous, next) {
+    if (!previous || !next) return "none";
+    const a = previous.getBoundingClientRect();
+    const b = next.getBoundingClientRect();
+    if (partsOf(root, LIST)[0]?.getAttribute("data-orientation") === "vertical") {
+      return b.top < a.top ? "up" : b.top > a.top ? "down" : "none";
+    }
+    return b.left < a.left ? "left" : b.left > a.left ? "right" : "none";
+  }
+
+  // Update tab state
+  function setActiveTab(root, value) {
+    if (!root) return;
+    const tabs = partsOf(root, TAB);
+    const previous = tabs.find((t) => t.hasAttribute("data-active"));
+    const next = tabs.find((t) => t.getAttribute("data-templ-value") === value);
+    if (previous && next && previous !== next) {
+      const direction = activationDirection(root, previous, next);
+      [root, ...partsOf(root, LIST), ...tabs, ...partsOf(root, PANEL)].forEach((el) =>
+        el.setAttribute("data-activation-direction", direction));
+    }
+    tabs.forEach((trigger) => {
+      const isActive = trigger.getAttribute("data-templ-value") === value;
+      // Base UI marks the selected tab with a bare data-active attribute;
+      // the styles select on it.
+      trigger.toggleAttribute("data-active", isActive);
+      trigger.toggleAttribute("data-composite-item-active", isActive);
+      trigger.setAttribute("aria-selected", isActive ? "true" : "false");
+      // TabsTab names its panel while that is mounted, the active one.
+      const panel = isActive && partsOf(root, PANEL).find((p) => p.getAttribute("data-templ-value") === value);
+      if (panel) trigger.setAttribute("aria-controls", panel.id);
+      else trigger.removeAttribute("aria-controls");
+    });
+    partsOf(root, PANEL).forEach((content) => {
+      const isActive = content.getAttribute("data-templ-value") === value;
+      content.toggleAttribute("data-hidden", !isActive);
+      content.classList.toggle("hidden", !isActive);
+      content.setAttribute("tabindex", isActive ? "0" : "-1");
+    });
+    // TabsTab keeps the highlight on the active tab, unless the focus is in
+    // the list, where it stays relative to the focused tab, and never on a
+    // disabled tab.
+    const list = partsOf(root, LIST)[0];
+    const index = tabs.findIndex((t) => t.getAttribute("data-templ-value") === value);
+    if (!list?._templComposite || index === -1 || isDisabled(tabs[index])) return;
+    if (list.contains(document.activeElement)) return;
+    list._templComposite.highlight(index);
   }
 
   function requestValueChange(root, value) {
-    if (!root || root.getAttribute("data-tui-tabs-value") === value) return;
+    if (!root || activeValue(root) === value) return;
     const accepted = root.dispatchEvent(
       new CustomEvent("tabs-value-change", {
         bubbles: true,
@@ -48,113 +81,83 @@
         detail: { value },
       }),
     );
-    if (!accepted || root.hasAttribute("data-tui-tabs-controlled")) return;
-    setActiveTab(root.getAttribute("data-tui-tabs-id"), value);
+    // Controlled: the Base UI value prop on the root, the owner commits.
+    if (!accepted || root.hasAttribute("data-templ-value")) return;
+    setActiveTab(root, value);
   }
 
-  // Click handler
+  // TabsTab's onClick.
   document.addEventListener("click", (e) => {
-    const trigger = e.target.closest("[data-tui-tabs-trigger]");
-    if (!trigger || trigger.getAttribute("aria-disabled") === "true") return;
+    const trigger = e.target.closest && e.target.closest(TAB);
+    if (!trigger || isDisabled(trigger) || trigger.hasAttribute("data-active")) return;
+    const value = trigger.getAttribute("data-templ-value");
+    if (value) requestValueChange(trigger.closest(ROOT), value);
+  });
 
-    const tabsId = trigger.getAttribute("data-tui-tabs-id");
-    const value = trigger.getAttribute("data-tui-tabs-value");
-    if (tabsId && value) {
-    const root = trigger.closest("[data-tui-tabs]");
-    requestValueChange(root, value);
+  // TabsTab's onPointerDown: a press on a tab, and whether it is the main
+  // button, for activateOnFocus.
+  let isPressing = false;
+  let isMainButton = false;
+  document.addEventListener("pointerdown", (e) => {
+    const trigger = e.target.closest && e.target.closest(TAB);
+    if (!trigger || trigger.hasAttribute("data-active") || isDisabled(trigger)) return;
+    isPressing = true;
+    if (!e.button) {
+      isMainButton = true;
+      document.addEventListener("pointerup", () => {
+        isPressing = false;
+        isMainButton = false;
+      }, { once: true });
     }
   });
 
-  // Keyboard navigation from useTabsList: the arrows walk the list, Home and
-  // End jump to its ends, disabled tabs stay focusable and movement wraps.
-  //
-  // Moving focus does not activate. That is Base UI's activateOnFocus=false
-  // default, and the right one here: a panel is free to load its content when
-  // it becomes active, and selecting on every keystroke would fire a request
-  // per arrow press. Enter and Space activate, through the native button
-  // click the click handler above already answers. Set ActivateOnFocus on the
-  // list for the other behaviour.
-  document.addEventListener("keydown", (e) => {
-    const trigger = e.target.closest && e.target.closest("[data-tui-tabs-trigger]");
-    if (!trigger) return;
-    const root = trigger.closest("[data-tui-tabs]");
-    if (!root) return;
-
-    // In a horizontal list the arrows follow the writing direction.
-    const vertical = root.getAttribute("data-orientation") === "vertical";
-    const rtl = getComputedStyle(root).direction === "rtl";
-    const prev = vertical ? "ArrowUp" : rtl ? "ArrowRight" : "ArrowLeft";
-    const next = vertical ? "ArrowDown" : rtl ? "ArrowLeft" : "ArrowRight";
-
-    const triggers = [...root.querySelectorAll("[data-tui-tabs-trigger]")];
-    const current = triggers.indexOf(trigger);
-    if (current === -1) return;
-
-    let target = null;
-    if (e.key === next) target = triggers[(current + 1) % triggers.length];
-    else if (e.key === prev)
-      target = triggers[(current - 1 + triggers.length) % triggers.length];
-    else if (e.key === "Home") target = triggers[0];
-    else if (e.key === "End") target = triggers[triggers.length - 1];
-    if (!target) return;
-
-    e.preventDefault(); // the arrows would otherwise scroll the page
-
-    const list = trigger.closest("[data-tui-tabs-list]");
-    if (
-      list && list.hasAttribute("data-activate-on-focus") &&
-      target.getAttribute("aria-disabled") !== "true"
-    ) {
-      // setActiveTab moves the roving tabindex with the selection.
-      setActiveTab(
-        target.getAttribute("data-tui-tabs-id"),
-        target.getAttribute("data-tui-tabs-value"),
-      );
-    } else {
-      // Focus moves without selecting, so the roving tabindex has to follow
-      // the focus instead: tabbing away and back returns to where the user
-      // was, not to the selected tab.
-      triggers.forEach((t) => t.setAttribute("tabindex", t === target ? "0" : "-1"));
-    }
-    target.focus();
+  // TabsTab's onFocus: with activateOnFocus a tab focused by the keyboard,
+  // touch or the main mouse button activates. Base UI's default leaves it off,
+  // so the arrows move the focus and Enter or Space activate.
+  document.addEventListener("focusin", (e) => {
+    const trigger = e.target.closest && e.target.closest(TAB);
+    if (!trigger || trigger.hasAttribute("data-active") || isDisabled(trigger)) return;
+    const list = trigger.closest(LIST);
+    if (!list?.hasAttribute("data-templ-activate-on-focus")) return;
+    if (isPressing && !isMainButton) return;
+    requestValueChange(trigger.closest(ROOT), trigger.getAttribute("data-templ-value"));
   });
 
-  // Initialize active states
-  function init() {
-    document.querySelectorAll("[data-tui-tabs]").forEach((container) => {
-      const tabsId = container.getAttribute("data-tui-tabs-id");
-      if (!tabsId) return;
-
-      // Find active trigger or use first
-    const authored = container.querySelector(
-    `[data-tui-tabs-trigger][data-tui-tabs-state="active"]`,
-    );
-    const activeTrigger =
-    authored ||
-    (container.hasAttribute("data-tui-tabs-controlled")
-      ? null
-      : container.querySelector(`[data-tui-tabs-trigger]:not([aria-disabled="true"])`));
-
-      if (activeTrigger) {
-        setActiveTab(tabsId, activeTrigger.getAttribute("data-tui-tabs-value"));
-      }
+  // Initialize active states: the server marks the active tab; an
+  // uncontrolled root without one activates its first enabled tab.
+  function init(root) {
+    const value = activeValue(root);
+    if (value !== null) {
+      setActiveTab(root, value);
+    } else if (!root.hasAttribute("data-templ-value")) {
+      const first = partsOf(root, TAB).find((t) => !isDisabled(t));
+      if (first) setActiveTab(root, first.getAttribute("data-templ-value"));
+    }
+    // TabsList's CompositeRoot: the arrows by orientation, Home and End, loop,
+    // disabled tabs stay reachable (an empty disabledIndices).
+    const list = partsOf(root, LIST)[0];
+    if (!list) return;
+    list._templComposite = window.templ.composite.useCompositeRoot(list, {
+      items: () => partsOf(root, TAB),
+      // The list's, Base UI's orientation, not the root's styling one.
+      orientation: list.getAttribute("data-orientation") === "vertical" ? "vertical" : "horizontal",
+      rtl: () => window.templ.direction.useDirection(list) === "rtl",
+      enableHomeAndEndKeys: true,
+      disabledIndices: [],
     });
   }
 
-  // Setup on load and mutations
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", init);
-  } else {
-    init();
+  function destroy(root) {
+    const list = partsOf(root, LIST)[0];
+    list?._templComposite?.cleanup();
+    if (list) list._templComposite = null;
   }
-  // Re-init on any childList mutation, directly (never rAF-deferred: rAF
-  // does not fire in hidden tabs or throttled iframes): swapped-in markup
-  // wires itself.
-  new MutationObserver(() => init()).observe(document.body, { childList: true, subtree: true });
 
-  // Expose public API
-  window.tui = window.tui || {};
-  window.tui.tabs = {
+  window.templ.lifecycle.register(ROOT, { init, destroy });
+
+  // Expose public API: setActive(root, value) with the [data-slot=tabs] root.
+  window.templ = window.templ || {};
+  window.templ.tabs = {
     setActive: setActiveTab,
   };
 })();

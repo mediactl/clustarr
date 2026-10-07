@@ -163,7 +163,7 @@ templ Content(props ...ContentProps) {
 			id={ p.ID }
 		}
 		data-slot="card-content"
-		class={ utils.CN("px-(--card-spacing)", p.Class) }
+		class={ utils.CN("flex flex-col gap-3 px-(--card-spacing)", p.Class) }
 		{ p.Attributes... }
 	>
 		{ children... }

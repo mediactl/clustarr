@@ -79,16 +79,35 @@ func TestLayoutHasASidebarAndTheComponentScripts(t *testing.T) {
 	// The library's four media entries are the Library entry's sub-menu in
 	// the sidebar (2026-09-24, after shadcn's sidebar-07: MenuSub under the
 	// MenuItem), on every page; each swaps the page body through htmx so
-	// the sidebar stays put. The top bar holds the trigger alone, and the
-	// breadcrumbs sit beneath it inside the swapped page body; on a page
-	// that is no library tab no sub-entry is active.
+	// the sidebar stays put. The top bar (2026-10-06, after Sonarr's) is
+	// shadcn's navigation menu: the sidebar trigger and the breadcrumbs on
+	// the left, the search centred, the Add New menu on the right; on a
+	// page that is no library tab no sub-entry is active.
 	headerStart := strings.Index(body, "<header")
 	headerEnd := strings.Index(body, "</header>")
 	require.GreaterOrEqual(t, headerStart, 0)
 	require.Greater(t, headerEnd, headerStart)
 	header := body[headerStart:headerEnd]
-	require.NotContains(t, header, `data-tui-tabs-trigger`, "no tab strip in the top bar")
-	require.NotContains(t, header, `hx-get="/library/`)
+	require.NotContains(t, header, `data-slot="tabs-trigger"`, "no tab strip in the top bar")
+	require.NotContains(t, header, `hx-select="#page-body"`, "no tab links in the top bar")
+	require.Contains(t, header, `data-slot="navigation-menu"`, "the top bar is a navigation menu")
+	trigger := strings.Index(header, `data-slot="sidebar-trigger"`)
+	crumbs := strings.Index(header, `id="page-crumbs"`)
+	find := strings.Index(header, `id="header-find"`)
+	add := strings.Index(header, `data-nav="add-new"`)
+	require.True(t, trigger >= 0 && trigger < crumbs && crumbs < find && find < add,
+		"trigger, breadcrumbs, search, Add New, left to right: %d %d %d %d", trigger, crumbs, find, add)
+	require.Greater(t, strings.Index(header[crumbs:], `data-slot="breadcrumb"`), 0, "the breadcrumbs are the top bar's")
+	// The search is shadcn's input group: the box, a search icon and the
+	// result count; off a library tab it searches the whole library.
+	group := header[find:]
+	require.Contains(t, group, `data-slot="input-group"`)
+	requireTag(t, group, `data-find-input`, `data-slot="input-group-control"`, `hx-get="/library/find"`, `placeholder="Search library…"`)
+	require.Contains(t, group, `lucide-search`)
+	requireTag(t, group, `id="library-find-count"`)
+	for _, tab := range projection.Tabs() {
+		requireTag(t, header, `data-nav-add="`+string(tab)+`"`, `href="/library/`+string(tab)+`/add"`, `data-slot="navigation-menu-link"`)
+	}
 	inset := strings.Index(body, `data-slot="sidebar-inset"`)
 	require.Greater(t, inset, 0)
 	sidebarHTML := body[:inset]
@@ -104,14 +123,13 @@ func TestLayoutHasASidebarAndTheComponentScripts(t *testing.T) {
 		// the active mark follows the tab although the sidebar sits outside
 		// the swapped page body.
 		entry := requireTag(t, sidebarHTML, `href="/library/`+string(tab)+`"`, `data-slot="sidebar-menu-sub-button"`,
-			`hx-get="/library/`+string(tab)+`"`, `hx-push-url="true"`, `hx-select="#page-body"`, `hx-select-oob="#library-subnav"`,
+			`hx-get="/library/`+string(tab)+`"`, `hx-push-url="true"`, `hx-select="#page-body"`, `hx-select-oob="#library-subnav,#page-crumbs,#header-find"`,
 			`hx-target="#page-body"`, `hx-swap="outerHTML"`)
 		require.NotRegexp(t, activeAttr, entry, "no library sub-entry is active on the pipeline page")
 	}
 	pageBody := strings.Index(body, `id="page-body"`)
 	require.Greater(t, pageBody, headerEnd, "the page body follows the top bar")
-	require.Greater(t, strings.Index(body, `data-slot="breadcrumb"`), pageBody, "the breadcrumbs sit beneath the top bar, in the page body")
-	require.NotContains(t, header, `data-slot="breadcrumb"`)
+	require.NotContains(t, body[pageBody:], `data-slot="breadcrumb"`, "no breadcrumb row beneath the top bar")
 
 	headEnd := strings.Index(body, "</head>")
 	require.GreaterOrEqual(t, headEnd, 0)
@@ -122,11 +140,11 @@ func TestLayoutHasASidebarAndTheComponentScripts(t *testing.T) {
 	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, src, nil))
 	require.Equal(t, http.StatusOK, rec.Code, "GET %s", src)
 	require.Contains(t, rec.Header().Get("Content-Type"), "javascript")
-	// Clustarr's own components (2026-09-24: navigationmenu and scrollarea,
-	// shadcn parts shadcn-templ's registry lacks) ship their scripts in the
-	// same bundle: `shadcn-templ bundle` packs every ui/components/*/*.js.
-	for _, own := range []string{"data-tui-navigation-menu", "data-tui-scroll-area"} {
-		require.Contains(t, rec.Body.String(), own, "the bundle lacks %s; run `shadcn-templ bundle`", own)
+	// The navigation menu, the menubar and the scroll area (shadcn-templ's
+	// own since 2026-10-06) ship their scripts in the same bundle:
+	// `shadcn-templ bundle` packs every ui/components/*/*.js.
+	for _, slot := range []string{`"navigation-menu-link"`, `"menubar"`, `scroll-area-viewport`} {
+		require.Contains(t, rec.Body.String(), slot, "the bundle lacks %s; run `shadcn-templ bundle`", slot)
 	}
 }
 
@@ -143,11 +161,13 @@ func TestLibraryPageHasBreadcrumbsSidebarSubEntriesAndAJumpBar(t *testing.T) {
 	require.Contains(t, tagWith(t, body, `data-slot="breadcrumb-link"`), `href="/library"`)
 	require.Regexp(t, regexp.MustCompile(`data-slot="breadcrumb-link"[^>]*>[^<]*Library`), body)
 	require.Regexp(t, regexp.MustCompile(`data-slot="breadcrumb-page"[^>]*>[^<]*TV`), body, "the current tab is the breadcrumb's page")
+	// On a tab the top bar's search is the tab's.
+	requireTag(t, body, `data-find-input`, `hx-get="/library/tv/find"`, `placeholder="Search TV…"`)
 
-	require.NotContains(t, body, `data-tui-tabs-trigger`, "the library has no tab strip; its media entries are the sidebar's")
+	require.NotContains(t, body, `data-slot="tabs-trigger"`, "the library has no tab strip; its media entries are the sidebar's")
 	for _, tab := range projection.Tabs() {
 		requireTag(t, body, `hx-get="/library/`+string(tab)+`"`, `data-slot="sidebar-menu-sub-button"`, `href="/library/`+string(tab)+`"`,
-			`hx-push-url="true"`, `hx-select="#page-body"`, `hx-select-oob="#library-subnav"`, `hx-target="#page-body"`)
+			`hx-push-url="true"`, `hx-select="#page-body"`, `hx-select-oob="#library-subnav,#page-crumbs,#header-find"`, `hx-target="#page-body"`)
 	}
 	require.Less(t, strings.Index(body, `data-slot="sidebar-menu-sub-button"`), strings.Index(body, `data-slot="sidebar-inset"`), "the sub-entries are in the sidebar")
 	require.Regexp(t, regexp.MustCompile(`\sdata-active(\s|>)`), tagWith(t, body, `hx-get="/library/tv"`), "the TV sub-entry is active")
@@ -166,7 +186,7 @@ func TestLibraryPageHasBreadcrumbsSidebarSubEntriesAndAJumpBar(t *testing.T) {
 	// of it, every card files under its letter for the scroll tracker, and
 	// the tracker script loads from the static files.
 	bar := tagWith(t, body, `data-jump-bar`)
-	for _, class := range []string{"fixed", "right-0", "top-[8.75rem]", "bottom-0"} {
+	for _, class := range []string{"fixed", "right-0", "top-[6.5rem]", "bottom-0"} {
 		require.Contains(t, bar, class, "the bar is fixed to the right of the screen")
 	}
 	require.NotContains(t, bar, "sticky")

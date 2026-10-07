@@ -46,24 +46,18 @@ templ Checkbox(props ...Props) {
 	{{ checked := initialChecked(p) }}
 	<span
 		data-slot="checkbox"
-		data-tui-checkbox
 		role="checkbox"
 		if p.Indeterminate {
 			aria-checked="mixed"
 			data-indeterminate
+		} else {
 			if checked {
+				aria-checked="true"
 				data-checked
 			} else {
+				aria-checked="false"
 				data-unchecked
 			}
-		}
-		else
-		if checked {
-			aria-checked="true"
-			data-checked
-		} else {
-			aria-checked="false"
-			data-unchecked
 		}
 		if p.Disabled {
 			data-disabled
@@ -74,12 +68,12 @@ templ Checkbox(props ...Props) {
 		}
 		aria-readonly?={ p.ReadOnly }
 		aria-required?={ p.Required }
-		data-tui-checkbox-controlled?={ p.Checked != nil }
+		data-templ-checked?={ p.Checked != nil }
 		class={
 			utils.CN(
 				// 1:1 base/ui/checkbox.tsx: structure lives here, the look comes
 				// from the active style-*.css via.
-				"border-input dark:bg-input/30 data-checked:bg-primary data-checked:text-primary-foreground dark:data-checked:bg-primary data-checked:border-primary aria-invalid:aria-checked:border-primary aria-invalid:border-destructive dark:aria-invalid:border-destructive/50 focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 flex size-4 items-center justify-center rounded-[4px] border shadow-xs transition-shadow group-has-disabled/field:opacity-50 focus-visible:ring-3 aria-invalid:ring-3 peer relative shrink-0 outline-none after:absolute after:-inset-x-3 after:-inset-y-2 disabled:cursor-not-allowed disabled:opacity-50",
+				"border-input dark:bg-input/30 data-checked:bg-primary data-checked:text-primary-foreground dark:data-checked:bg-primary data-checked:border-primary aria-invalid:aria-checked:border-primary aria-invalid:border-destructive dark:aria-invalid:border-destructive/50 focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 flex size-4 items-center justify-center rounded-[4px] border shadow-xs transition-shadow group-has-disabled/field:opacity-50 focus-visible:ring-3 aria-invalid:ring-3 group-has-[:focus-visible]/field-label:ring-0 group-has-[:focus-visible]/field-label:not-data-checked:border-input group-has-[:focus-visible]/field-label:data-checked:border-primary peer relative shrink-0 outline-none after:absolute after:-inset-x-3 after:-inset-y-2 disabled:cursor-not-allowed disabled:opacity-50",
 				p.Class,
 			),
 		}
@@ -90,14 +84,10 @@ templ Checkbox(props ...Props) {
 		// indicator), checkbox.js keeps it in sync.
 		<span
 			data-slot="checkbox-indicator"
-			if p.Indeterminate {
-				data-indeterminate
-			}
-			if checked {
-				data-checked
-			} else {
-				data-unchecked
-			}
+			data-indeterminate?={ p.Indeterminate }
+			data-checked?={ checked && !p.Indeterminate }
+			data-unchecked?={ !checked && !p.Indeterminate }
+			data-disabled?={ p.Disabled }
 			if !checked && !p.Indeterminate {
 				hidden
 			}
@@ -113,7 +103,6 @@ templ Checkbox(props ...Props) {
 	// validation popups anchor near the control).
 	<input
 		type="checkbox"
-		data-tui-checkbox-input
 		aria-hidden="true"
 		tabindex="-1"
 		checked?={ checked }

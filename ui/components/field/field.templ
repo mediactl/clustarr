@@ -1,6 +1,12 @@
 package field
 
-import "github.com/mediactl/clustarr/ui/components/utils"
+import (
+	"context"
+	"strconv"
+	"strings"
+
+	"github.com/mediactl/clustarr/ui/components/utils"
+)
 
 type Orientation string
 
@@ -221,7 +227,7 @@ templ Label(props ...LabelProps) {
 				// 1:1 base/ui/field.tsx FieldLabel: it composes Label, so the
 				// base string comes first, then the field-label strings.
 				"gap-2 text-sm leading-none font-medium group-data-[disabled=true]:opacity-50 peer-disabled:opacity-50 flex items-center select-none group-data-[disabled=true]:pointer-events-none peer-disabled:cursor-not-allowed",
-				"has-data-checked:bg-primary/5 has-data-checked:border-primary/30 dark:has-data-checked:border-primary/20 dark:has-data-checked:bg-primary/10 gap-2 leading-snug group-data-[disabled=true]/field:opacity-50 has-[>[data-slot=field]]:rounded-md has-[>[data-slot=field]]:border *:data-[slot=field]:p-3 group/field-label peer/field-label flex w-fit",
+				"has-data-checked:bg-primary/5 has-data-checked:border-primary/30 dark:has-data-checked:border-primary/20 dark:has-data-checked:bg-primary/10 gap-2 leading-snug group-data-[disabled=true]/field:opacity-50 has-[>[data-slot=field]]:rounded-md has-[>[data-slot=field]]:border has-[>[data-slot=field]]:not-has-[:disabled,[data-disabled]]:hover:bg-muted/50 has-[>[data-slot=field]]:has-[:focus-visible]:border-ring has-[>[data-slot=field]]:has-[:focus-visible]:ring-ring/50 has-[>[data-slot=field]]:has-[:focus-visible]:ring-3 *:data-[slot=field]:p-3 group/field-label peer/field-label flex w-fit",
 				"has-[>[data-slot=field]]:w-full has-[>[data-slot=field]]:flex-col",
 				p.Class,
 			),
@@ -271,25 +277,32 @@ templ Separator(props ...SeparatorProps) {
 	if len(props) > 0 {
 		{{ p = props[0] }}
 	}
+	// data-content and the content span only with children, like shadcn's.
+	{{ content := childrenHTML(ctx) }}
 	<div
 		if p.ID != "" {
 			id={ p.ID }
 		}
 		data-slot="field-separator"
+		data-content={ strconv.FormatBool(content != "") }
 		class={ utils.CN("-my-2 h-5 text-sm group-data-[variant=outline]/field-group:-mb-2 relative", p.Class) }
 		{ p.Attributes... }
 	>
 		<div
 			data-slot="separator"
 			data-orientation="horizontal"
+			role="separator"
+			aria-orientation="horizontal"
 			class="shrink-0 bg-border data-horizontal:h-px data-horizontal:w-full data-vertical:w-px data-vertical:self-stretch absolute inset-0 top-1/2"
 		></div>
-		<span
-			class="text-muted-foreground px-2 relative mx-auto block w-fit bg-background"
-			data-slot="field-separator-content"
-		>
-			{ children... }
-		</span>
+		if content != "" {
+			<span
+				class="text-muted-foreground px-2 relative mx-auto block w-fit bg-background"
+				data-slot="field-separator-content"
+			>
+				@templ.Raw(content)
+			</span>
+		}
 	</div>
 }
 
@@ -309,4 +322,11 @@ templ Error(props ...ErrorProps) {
 	>
 		{ children... }
 	</div>
+}
+
+// childrenHTML renders the children, "" without any: React's {children &&}.
+func childrenHTML(ctx context.Context) string {
+	var b strings.Builder
+	_ = templ.GetChildren(ctx).Render(ctx, &b)
+	return strings.TrimSpace(b.String())
 }

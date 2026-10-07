@@ -2,6 +2,8 @@ package selectcomp
 
 import (
 	"context"
+	"fmt"
+	"strconv"
 
 	"github.com/mediactl/clustarr/ui/components/icon"
 	"github.com/mediactl/clustarr/ui/components/utils"
@@ -22,15 +24,6 @@ const (
 	AlignEnd    Align = "end"
 )
 
-type OpenMethod string
-
-const (
-	OpenMethodProgrammatic OpenMethod = "programmatic"
-	OpenMethodKeyboard     OpenMethod = "keyboard"
-	OpenMethodMouse        OpenMethod = "mouse"
-	OpenMethodTouch        OpenMethod = "touch"
-)
-
 type ctxKey string
 
 const stateKey ctxKey = "selectState"
@@ -40,13 +33,13 @@ type ctxState struct {
 	name            string
 	value           string
 	valueControlled bool
-	initialOpen     bool
-	openMethod      OpenMethod
-	openControlled  bool
+	open            *bool
+	defaultOpen     bool
 	disabled        bool
 	readOnly        bool
 	required        bool
 	form            string
+	items           []ItemData
 }
 
 func state(ctx context.Context) ctxState {
@@ -56,23 +49,40 @@ func state(ctx context.Context) ctxState {
 	return ctxState{}
 }
 
+// ItemData is one entry of Base UI's items prop: the label Value shows for
+// the value. Label is a string or a templ.Component, Base UI's ReactNode.
+// The value "" is Base UI's null, the placeholder item.
+type ItemData struct {
+	Value string
+	Label any
+}
+
 type Props struct {
 	ID string
 	// Name makes the select submit its value in forms (hidden input).
 	Name string
+	// Items is Base UI's items: the labels Value renders for the values.
+	Items []ItemData
 	// Value is the controlled selected value. Use DefaultValue when the
 	// browser should own selection after the initial render.
 	Value        *string
 	DefaultValue string
 	Open         *bool
 	DefaultOpen  bool
-	// OpenMethod preserves how a controlled Open state was requested. Read it
-	// from the select-open-change event detail. Defaults to programmatic.
-	OpenMethod OpenMethod
 	Disabled     bool
 	ReadOnly     bool
 	Required     bool
 	Form         string
+}
+
+// label is the items entry of the value, if any.
+func (s ctxState) label() (any, bool) {
+	for _, item := range s.items {
+		if item.Value == s.value {
+			return item.Label, true
+		}
+	}
+	return nil, false
 }
 
 func initialValue(p Props) string {
@@ -80,22 +90,6 @@ func initialValue(p Props) string {
 		return *p.Value
 	}
 	return p.DefaultValue
-}
-
-func initialOpen(p Props) bool {
-	if p.Open != nil {
-		return *p.Open
-	}
-	return p.DefaultOpen
-}
-
-func initialOpenMethod(p Props) OpenMethod {
-	switch p.OpenMethod {
-	case OpenMethodKeyboard, OpenMethodMouse, OpenMethodTouch:
-		return p.OpenMethod
-	default:
-		return OpenMethodProgrammatic
-	}
 }
 
 type TriggerProps struct {
@@ -117,10 +111,10 @@ type ValueProps struct {
 type ContentProps struct {
 	Class      string
 	Attributes templ.Attributes
-	// DisableAlignItemWithTrigger opens the popup below the trigger like a
-	// dropdown instead of overlaying the selected item (Base UI
-	// alignItemWithTrigger, default true).
-	DisableAlignItemWithTrigger bool
+	// AlignItemWithTrigger is Base UI's alignItemWithTrigger: the popup
+	// overlays the selected item on the trigger. nil means true; false opens
+	// it below the trigger edge like a dropdown.
+	AlignItemWithTrigger *bool
 	// Align along the trigger edge in popper mode. Defaults to center.
 	Align Align
 }
@@ -154,8 +148,8 @@ type SeparatorProps struct {
 	Attributes templ.Attributes
 }
 
-// Select renders no element: it only carries the id, name and value that link
-// Trigger, Content and the hidden form input (via ctx).
+// Select is SelectRoot: it carries the id, name and value that link Trigger
+// and Content (via ctx), and renders the hidden input after its children.
 templ Select(props ...Props) {
 	{{ var p Props }}
 	if len(props) > 0 {
@@ -164,8 +158,32 @@ templ Select(props ...Props) {
 	if p.ID == "" {
 		{{ p.ID = utils.RandomID() }}
 	}
-	{{ ctx = context.WithValue(ctx, stateKey, ctxState{id: p.ID, name: p.Name, value: initialValue(p), valueControlled: p.Value != nil, initialOpen: initialOpen(p), openMethod: initialOpenMethod(p), openControlled: p.Open != nil, disabled: p.Disabled, readOnly: p.ReadOnly, required: p.Required, form: p.Form}) }}
+	{{ s := ctxState{id: p.ID, name: p.Name, value: initialValue(p), valueControlled: p.Value != nil, open: p.Open, defaultOpen: p.DefaultOpen, disabled: p.Disabled, readOnly: p.ReadOnly, required: p.Required, form: p.Form, items: p.Items} }}
+	{{ ctx = context.WithValue(ctx, stateKey, s) }}
 	{ children... }
+	// The input that carries the value for forms and autofill, visually
+	// hidden, focus moves on to the trigger.
+	<input
+		if s.name == "" {
+			id={ s.id + "-hidden-input" }
+		} else {
+			name={ s.name }
+		}
+		if s.form != "" {
+			form={ s.form }
+		}
+		value={ s.value }
+		disabled?={ s.disabled }
+		required?={ s.required }
+		readonly?={ s.readOnly }
+		if s.name != "" {
+			style="clip-path:inset(50%);overflow:hidden;white-space:nowrap;border:0;padding:0;width:1px;height:1px;margin:-1px;position:absolute"
+		} else {
+			style="clip-path:inset(50%);overflow:hidden;white-space:nowrap;border:0;padding:0;width:1px;height:1px;margin:-1px;position:fixed;top:0;left:0"
+		}
+		tabindex="-1"
+		aria-hidden="true"
+	/>
 }
 
 templ Trigger(props ...TriggerProps) {
@@ -180,39 +198,29 @@ templ Trigger(props ...TriggerProps) {
 	if p.ID == "" {
 		{{ p.ID = s.id + "-trigger" }}
 	}
-	if s.name != "" {
-		<input
-			type="hidden"
-			name={ s.name }
-			value={ s.value }
-			if s.form != "" {
-				form={ s.form }
-			}
-			data-tui-select-input
-			aria-hidden="true"
-			tabindex="-1"
-		/>
-	}
+	// useButton: a disabled trigger leaves the tab order.
 	<button
 		type="button"
 		id={ p.ID }
 		if _, ok := p.Attributes["tabindex"]; !ok {
-			tabindex="0"
+			tabindex={ utils.IfElse(s.disabled, "-1", "0") }
 		}
 		data-slot="select-trigger"
-		data-tui-select-trigger
 		data-size={ string(p.Size) }
 		role="combobox"
-		aria-controls={ s.id }
+		data-templ-controls={ s.id }
 		aria-haspopup="listbox"
 		aria-expanded="false"
 		aria-readonly?={ s.readOnly }
 		aria-required?={ s.required }
-		data-tui-select-value-controlled?={ s.valueControlled }
+		if s.valueControlled {
+			data-templ-value={ s.value }
+		}
 		if s.value == "" {
 			data-placeholder
 		}
 		disabled?={ s.disabled }
+		data-disabled?={ s.disabled }
 		class={
 			utils.CN(
 				// 1:1 base/ui/select.tsx SelectTrigger, the look comes from
@@ -224,7 +232,8 @@ templ Trigger(props ...TriggerProps) {
 		{ p.Attributes... }
 	>
 		{ children... }
-		@icon.ChevronDown(icon.Props{Class: "text-muted-foreground size-4 pointer-events-none"})
+		// SelectIcon.
+		@icon.ChevronDown(icon.Props{Class: "text-muted-foreground size-4 pointer-events-none", Attributes: templ.Attributes{"aria-hidden": "true"}})
 	</button>
 }
 
@@ -233,15 +242,46 @@ templ Value(props ...ValueProps) {
 	if len(props) > 0 {
 		{{ p = props[0] }}
 	}
+	{{ s := state(ctx) }}
+	{{ label, hasLabel := s.label() }}
+	// SelectValue: the selected value's label, else the placeholder; while no
+	// value is selected (the null item counts as none) it is a placeholder.
 	<span
 		data-slot="select-value"
-		data-tui-select-value
-		data-tui-select-placeholder={ p.Placeholder }
+		data-placeholder?={ s.value == "" }
+		if p.Placeholder != "" {
+			data-templ-placeholder={ p.Placeholder }
+		}
 		class={ utils.CN("flex flex-1 text-left", p.Class) }
 		{ p.Attributes... }
 	>
-		{ p.Placeholder }
+		if hasLabel {
+			@itemLabel(label)
+		} else if s.value == "" {
+			{ p.Placeholder }
+		} else {
+			{ s.value }
+		}
+		// The labels of the items, for the value a later selection picks.
+		if len(s.items) > 0 {
+			<template data-templ-items>
+				for _, item := range s.items {
+					<span data-templ-value={ item.Value }>
+						@itemLabel(item.Label)
+					</span>
+				}
+			</template>
+		}
 	</span>
+}
+
+// itemLabel renders an items label: a templ.Component, or text.
+templ itemLabel(label any) {
+	if c, ok := label.(templ.Component); ok {
+		@c
+	} else if label != nil {
+		{ fmt.Sprint(label) }
+	}
 }
 
 templ Content(props ...ContentProps) {
@@ -253,56 +293,63 @@ templ Content(props ...ContentProps) {
 		{{ p.Align = AlignCenter }}
 	}
 	{{ s := state(ctx) }}
+	{{ alignItem := p.AlignItemWithTrigger == nil || *p.AlignItemWithTrigger }}
 	// Hidden until the script portals it to <body> on open, so the SSRd
 	// content never participates in layout or sibling CSS.
-	<div data-tui-select-portal hidden>
+	<div data-templ-portal hidden>
+		<div data-base-ui-portal hidden>
 		<div
-			id={ s.id }
-			data-tui-select-content
-			data-tui-portal
-			data-tui-select-disable-align-item-with-trigger?={ p.DisableAlignItemWithTrigger }
-			data-tui-select-align={ string(p.Align) }
-			data-tui-select-initial-open={ utils.IfElse(s.initialOpen, "true", "false") }
-			data-tui-select-initial-open-method={ string(s.openMethod) }
-			data-tui-select-open-controlled?={ s.openControlled }
+			if !alignItem {
+				data-templ-align-item-with-trigger="false"
+			}
+			data-templ-align={ string(p.Align) }
+			if s.open != nil {
+				data-templ-open={ strconv.FormatBool(*s.open) }
+			}
+			data-templ-default-open?={ s.open == nil && s.defaultOpen }
 			data-closed
 			hidden
-			class="pointer-events-none isolate fixed inset-auto z-50 m-0 overflow-visible border-0 bg-transparent p-0"
+			role="presentation"
+			class="isolate z-50"
+			{ utils.DirectionAttributes(ctx)... }
 		>
 			<div
+				id={ s.id }
 				data-slot="select-content"
-				data-tui-select-popup
-				if p.DisableAlignItemWithTrigger {
+				tabindex="-1"
+				data-base-ui-focusable
+				if !alignItem {
 					data-align-trigger="false"
 				} else {
 					data-align-trigger="true"
 				}
 				data-closed
-				role="listbox"
+				role="presentation"
 				class={
 					utils.CN(
 						// 1:1 base/ui/select.tsx SelectContent, the look comes from
 						// and Base UI's standard positioner variables.
 						"bg-popover text-popover-foreground data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 data-closed:zoom-out-95 data-open:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 ring-foreground/10 min-w-36 rounded-md shadow-md ring-1 duration-100 data-[side=inline-start]:slide-in-from-right-2 data-[side=inline-end]:slide-in-from-left-2 relative isolate z-50 max-h-(--available-height) w-(--anchor-width) origin-(--transform-origin) overflow-x-hidden overflow-y-auto data-[align-trigger=true]:animate-none",
-						// JS wiring: the positioner wrapper is pointer-events-none, the
-						// scroll arrows/viewport need a flex column, and the popup stays
-						// mounted after animate-out until hidePopover runs.
-						"pointer-events-auto flex flex-col data-closed:fill-mode-forwards",
+						// The popup stays mounted after animate-out until it unmounts.
+						"data-closed:fill-mode-forwards",
 						p.Class,
 					),
 				}
 				{ p.Attributes... }
 			>
-				<div data-slot="select-scroll-up-button" data-tui-select-scroll-up class="bg-popover z-10 cursor-default items-center justify-center py-1 [&_svg:not([class*='size-'])]:size-4 top-0 w-full absolute hidden">
+				// SelectScrollUpArrow, mounted while the list can scroll up.
+				<div data-slot="select-scroll-up-button" data-direction="up" aria-hidden="true" hidden style="position:absolute" class="bg-popover z-10 flex cursor-default items-center justify-center py-1 [&_svg:not([class*='size-'])]:size-4 top-0 w-full">
 					@icon.ChevronUp()
 				</div>
-				<div data-tui-select-viewport class="relative flex-1 overflow-x-hidden overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+				// SelectList.
+				<div id={ s.id + "-list" } role="listbox">
 					{ children... }
 				</div>
-				<div data-slot="select-scroll-down-button" data-tui-select-scroll-down class="bg-popover z-10 cursor-default items-center justify-center py-1 [&_svg:not([class*='size-'])]:size-4 bottom-0 w-full absolute hidden">
+				<div data-slot="select-scroll-down-button" data-direction="down" aria-hidden="true" hidden style="position:absolute" class="bg-popover z-10 flex cursor-default items-center justify-center py-1 [&_svg:not([class*='size-'])]:size-4 bottom-0 w-full">
 					@icon.ChevronDown()
 				</div>
 			</div>
+		</div>
 		</div>
 	</div>
 }
@@ -348,7 +395,7 @@ templ Item(props ...ItemProps) {
 		{{ p = props[0] }}
 	}
 	{{ s := state(ctx) }}
-	{{ selected := s.value != "" && s.value == p.Value }}
+	{{ selected := s.value == p.Value }}
 	<div
 		if p.ID != "" {
 			id={ p.ID }
@@ -356,10 +403,9 @@ templ Item(props ...ItemProps) {
 		role="option"
 		tabindex="-1"
 		data-slot="select-item"
-		data-tui-select-item
-		data-tui-select-value={ p.Value }
+		data-templ-value={ p.Value }
 		if p.Label != "" {
-			data-tui-select-label={ p.Label }
+			data-templ-label={ p.Label }
 		}
 		if selected {
 			data-selected
@@ -377,18 +423,18 @@ templ Item(props ...ItemProps) {
 				// (items highlight via real focus, our JS moves focus
 				// to the item under the pointer like Base UI).
 				"focus:bg-accent focus:text-accent-foreground not-data-[variant=destructive]:focus:**:text-accent-foreground gap-2 rounded-sm py-1.5 pr-8 pl-2 text-sm [&_svg:not([class*='size-'])]:size-4 *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2 relative flex w-full cursor-default items-center outline-hidden select-none data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0",
-				// Native wiring: Base UI unmounts the indicator when unchecked, our
-				// indicator toggles on the checked state via the group instead.
-				"group/select-item",
 				p.Class,
 			),
 		}
 		{ p.Attributes... }
 	>
-		<span data-tui-select-item-text class="flex flex-1 gap-2 shrink-0 whitespace-nowrap">
+		// SelectItemText.
+		<div class="flex flex-1 gap-2 shrink-0 whitespace-nowrap">
 			{ children... }
-		</span>
-		<span class="pointer-events-none absolute right-2 flex size-4 items-center justify-center opacity-0 group-data-selected/select-item:opacity-100">
+		</div>
+		// SelectItemIndicator: mounted while the item is selected, the script
+		// toggles [hidden] for the unmount.
+		<span class="pointer-events-none absolute right-2 flex size-4 items-center justify-center" aria-hidden="true" data-selected hidden?={ !selected }>
 			@icon.Check(icon.Props{Class: "pointer-events-none"})
 		</span>
 	</div>
@@ -404,6 +450,8 @@ templ Separator(props ...SeparatorProps) {
 			id={ p.ID }
 		}
 		role="separator"
+		aria-orientation="horizontal"
+		data-orientation="horizontal"
 		data-slot="select-separator"
 		class={ utils.CN("bg-border -mx-1 my-1 h-px pointer-events-none", p.Class) }
 		{ p.Attributes... }

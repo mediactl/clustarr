@@ -35,6 +35,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/ui"
 	"github.com/mediactl/clustarr/ui/projection"
+	"github.com/mediactl/clustarr/ui/views"
 )
 
 // The library toolbar (design 2026-09-24, after Radarr's): the rescan
@@ -118,12 +119,31 @@ func TestLibraryToolbarHasRescanSortAndFilter(t *testing.T) {
 	requireTag(t, bar, `data-action="add-new"`, `href="/library/movies/add"`, `data-slot="button"`)
 	require.Regexp(t, regexp.MustCompile(`(?s)data-action="add-new"[^>]*>.*?<span>Add New</span>`), bar)
 
-	require.Equal(t, 2, strings.Count(bar, `data-tui-dropdownmenu-trigger`), "a Sort trigger and a Filter trigger")
-	require.Regexp(t, regexp.MustCompile(`data-tui-dropdownmenu-trigger[^>]*>[^<]*(<[^>]*>[^<]*)*Sort`), bar)
-	require.Regexp(t, regexp.MustCompile(`data-tui-dropdownmenu-trigger[^>]*>[^<]*(<[^>]*>[^<]*)*Filter`), bar)
+	// The toolbar is shadcn's menubar (2026-10-06), its view menus the
+	// menubar's own: Options, Sort and Filter, in Sonarr's order.
+	require.Contains(t, toolbar, `data-slot="menubar"`)
+	require.Contains(t, toolbar, `role="menubar"`)
+	require.Equal(t, 3, strings.Count(bar, `data-slot="menubar-trigger"`), "an Options, a Sort and a Filter trigger")
+	options, sortAt, filter := strings.Index(bar, `data-toolbar-menu="Options"`), strings.Index(bar, `data-toolbar-menu="Sort"`), strings.Index(bar, `data-toolbar-menu="Filter"`)
+	require.True(t, options >= 0 && options < sortAt && sortAt < filter, "Options, Sort, Filter: %d %d %d", options, sortAt, filter)
+	requireTag(t, bar, `data-toolbar-menu="Sort"`, `data-slot="menubar-trigger"`)
+	// Options are the reader's own: the poster size, medium by default,
+	// and the details under each poster, on.
+	for _, sz := range views.PosterSizes {
+		requireTag(t, bar, `data-poster-size="`+sz.Key+`"`, `data-slot="menubar-radio-item"`, `data-width="`+sz.Width+`"`)
+	}
+	requireTag(t, bar, `data-poster-size="medium"`, `aria-checked="true"`)
+	requireTag(t, bar, `data-library-option="details"`, `data-slot="menubar-checkbox-item"`, `aria-checked="true"`)
+
+	// The mass editor (2026-10-06, after Sonarr's): Select, and Select All
+	// shown only while selecting.
+	requireTag(t, bar, `data-action="select-toggle"`, `data-slot="button"`, `aria-pressed="false"`)
+	require.Regexp(t, regexp.MustCompile(`(?s)data-action="select-toggle".*?>Select</span>.*?>Stop Selecting</span>`), bar)
+	requireTag(t, bar, `data-action="select-all"`, `data-slot="button"`)
+	require.Regexp(t, regexp.MustCompile(`class="hidden group-data-selecting/library:flex"[^>]*>\s*<button[^>]*data-action="select-all"`), bar, "Select All only while selecting")
 
 	for _, s := range projection.LibrarySorts() {
-		requireTag(t, bar, `data-sort="`+string(s)+`"`, `data-slot="dropdown-menu-item"`, `hx-get="`,
+		requireTag(t, bar, `data-sort="`+string(s)+`"`, `data-slot="menubar-item"`, `hx-get="`,
 			`hx-target="#library-page"`, `hx-select="#library-page"`, `hx-swap="outerHTML"`, `hx-push-url="true"`)
 		require.Contains(t, bar, ">"+s.Label()+"<", "the menu prints the sort's label")
 	}
@@ -136,7 +156,7 @@ func TestLibraryToolbarHasRescanSortAndFilter(t *testing.T) {
 	require.Contains(t, year, `hx-get="/library/movies?per=25&amp;sort=year"`)
 
 	for _, f := range projection.LibraryFilters() {
-		requireTag(t, bar, `data-filter="`+string(f)+`"`, `data-slot="dropdown-menu-item"`, `hx-get="`,
+		requireTag(t, bar, `data-filter="`+string(f)+`"`, `data-slot="menubar-item"`, `hx-get="`,
 			`hx-target="#library-page"`, `hx-select="#library-page"`, `hx-swap="outerHTML"`, `hx-push-url="true"`)
 		require.Contains(t, bar, ">"+f.Label()+"<", "the menu prints the filter's label")
 	}

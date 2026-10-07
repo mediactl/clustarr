@@ -55,7 +55,6 @@ templ Switch(props ...Props) {
 	{{ checked := initialChecked(p) }}
 	<span
 		data-slot="switch"
-		data-tui-switch
 		data-size={ string(p.Size) }
 		role="switch"
 		if checked {
@@ -74,19 +73,19 @@ templ Switch(props ...Props) {
 		}
 		aria-readonly?={ p.ReadOnly }
 		aria-required?={ p.Required }
-		data-tui-switch-controlled?={ p.Checked != nil }
+		data-templ-checked?={ p.Checked != nil }
 		class={
 			utils.CN(
 				// 1:1 base/ui/switch.tsx: structure lives here, the look comes from
 				// the active style-*.css via.
-				"data-checked:bg-primary data-unchecked:bg-input focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive dark:aria-invalid:border-destructive/50 dark:data-unchecked:bg-input/80 shrink-0 rounded-full border border-transparent shadow-xs focus-visible:ring-3 aria-invalid:ring-3 data-[size=default]:h-[18.4px] data-[size=default]:w-[32px] data-[size=sm]:h-[14px] data-[size=sm]:w-[24px] peer group/switch relative inline-flex items-center transition-all outline-none after:absolute after:-inset-x-3 after:-inset-y-2 data-disabled:cursor-not-allowed data-disabled:opacity-50",
+				"data-checked:bg-primary data-unchecked:bg-input focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive dark:aria-invalid:border-destructive/50 dark:data-unchecked:bg-input/80 shrink-0 rounded-full border border-transparent shadow-xs focus-visible:ring-3 aria-invalid:ring-3 group-has-[:focus-visible]/field-label:ring-0 group-has-[:focus-visible]/field-label:border-transparent data-[size=default]:h-[18.4px] data-[size=default]:w-[32px] data-[size=sm]:h-[14px] data-[size=sm]:w-[24px] peer group/switch relative inline-flex items-center transition-all outline-none after:absolute after:-inset-x-3 after:-inset-y-2 data-disabled:cursor-not-allowed data-disabled:opacity-50",
 				p.Class,
 			),
 		}
 		{ p.Attributes... }
 	>
-		// Base UI mirrors data-checked/data-unchecked onto the thumb via the
-		// stateAttributesMapping; switch.js keeps them in sync.
+		// Base UI mirrors data-checked/data-unchecked and data-disabled onto
+		// the thumb via the stateAttributesMapping; switch.js keeps them in sync.
 		<span
 			data-slot="switch-thumb"
 			if checked {
@@ -94,6 +93,7 @@ templ Switch(props ...Props) {
 			} else {
 				data-unchecked
 			}
+			data-disabled?={ p.Disabled }
 			class="bg-background dark:data-unchecked:bg-foreground dark:data-checked:bg-primary-foreground rounded-full group-data-[size=default]/switch:size-4 group-data-[size=sm]/switch:size-3 group-data-[size=default]/switch:data-checked:translate-x-[calc(100%-2px)] group-data-[size=sm]/switch:data-checked:translate-x-[calc(100%-2px)] group-data-[size=default]/switch:data-unchecked:translate-x-0 group-data-[size=sm]/switch:data-unchecked:translate-x-0 pointer-events-none block ring-0 transition-transform"
 		></span>
 	</span>
@@ -104,7 +104,6 @@ templ Switch(props ...Props) {
 	// validation popups anchor near the control).
 	<input
 		type="checkbox"
-		data-tui-switch-input
 		aria-hidden="true"
 		tabindex="-1"
 		id={ p.ID }

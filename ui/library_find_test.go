@@ -92,6 +92,44 @@ func TestLibraryFindSaysWhenNothingMatchesAndOffersAddNew(t *testing.T) {
 	requireTag(t, body, `data-action="find-add-new"`, `href="/library/movies/add?q=zardoz"`)
 }
 
+// The top bar's search (2026-10-06) counts what it lists in its input
+// group's end addon, swapped in out of band beside the dropdown.
+func TestLibraryFindSetsTheResultCountOutOfBand(t *testing.T) {
+	_, body := findGet(t, findServer(t), "/library/movies/find?q=blade")
+	count := requireTag(t, body, `id="library-find-count"`, `hx-swap-oob="true"`)
+	require.Regexp(t, regexp.MustCompile(`id="library-find-count"[^>]*>\s*2 results`), body)
+	require.NotEmpty(t, count)
+	_, body = findGet(t, findServer(t), "/library/movies/find?q=blade+runner")
+	require.Regexp(t, regexp.MustCompile(`id="library-find-count"[^>]*>\s*1 result\s*<`), body)
+	_, body = findGet(t, findServer(t), "/library/movies/find?q=zardoz")
+	require.Regexp(t, regexp.MustCompile(`id="library-find-count"[^>]*>\s*0 results`), body)
+}
+
+// Off a library tab the top bar searches the whole library: every tab's
+// monitored matches, and with none an Add New per tab.
+func TestFindSearchesTheWholeLibraryOffATab(t *testing.T) {
+	code, body := findGet(t, findServer(t), "/library/find?q=blade")
+	require.Equal(t, http.StatusOK, code)
+	var refs []string
+	for _, m := range regexp.MustCompile(`data-find-ref="([^"]+)"`).FindAllStringSubmatch(body, -1) {
+		refs = append(refs, m[1])
+	}
+	require.ElementsMatch(t, []string{"media/blade", "media/blade-runner", "media/blade-of-the-immortal"}, refs,
+		"the movies and the series; Blade II is unmonitored")
+	require.Equal(t, "media/blade", refs[0], "the exact title first")
+
+	_, body = findGet(t, findServer(t), "/library/find?q=zardoz")
+	require.Contains(t, body, "No monitored titles match")
+	for _, tab := range projection.Tabs() {
+		require.Regexp(t, regexp.MustCompile(`<a[^>]*data-action="find-add-new"[^>]*href="/library/`+string(tab)+`/add\?q=zardoz"`), body, tab)
+	}
+	_, body = findGet(t, findServer(t), "/library/find?q=")
+	require.Empty(t, strings.TrimSpace(body))
+
+	_, body = findGet(t, findServer(t), "/pipeline")
+	requireTag(t, body, `data-find-input`, `hx-get="/library/find"`)
+}
+
 func TestLibraryFindRendersNothingForABlankQuery(t *testing.T) {
 	code, body := findGet(t, findServer(t), "/library/movies/find?q=+")
 	require.Equal(t, http.StatusOK, code)
@@ -118,7 +156,8 @@ func TestEveryLibraryTabHasTheFindBox(t *testing.T) {
 func TestAddNewTakesAQueryFromTheURL(t *testing.T) {
 	code, body := findGet(t, findServer(t), "/library/movies/add?q=zardoz")
 	require.Equal(t, http.StatusOK, code)
-	box := requireTag(t, body, `name="q"`, `type="search"`)
+	// the page's own box, not the top bar's search
+	box := requireTag(t, pageBody(t, body), `name="q"`, `type="search"`)
 	require.Contains(t, box, `value="zardoz"`, "the search box is filled in")
 	require.Contains(t, box, "load", "and searches as the page loads")
 }

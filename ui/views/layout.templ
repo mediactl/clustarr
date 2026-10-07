@@ -26,6 +26,8 @@ import (
 	"github.com/mediactl/clustarr/ui/components"
 	"github.com/mediactl/clustarr/ui/components/breadcrumb"
 	"github.com/mediactl/clustarr/ui/components/icon"
+	"github.com/mediactl/clustarr/ui/components/navigationmenu"
+	"github.com/mediactl/clustarr/ui/components/separator"
 	"github.com/mediactl/clustarr/ui/components/sidebar"
 	"github.com/mediactl/clustarr/ui/projection"
 )
@@ -39,7 +41,7 @@ type Chrome struct {
 	Tab    projection.Tab
 	// HideScrollbar hides the document's native scrollbar (data-scrollbar
 	// on <html>, app.css): the library, where the A-Z strip is the only
-	// thing on the right edge, as in Radarr. ui/static/jump.js keeps the
+	// thing on the right edge, as in Sonarr. ui/static/jump.js keeps the
 	// attribute in step when htmx swaps the page body.
 	HideScrollbar bool
 }
@@ -94,13 +96,12 @@ templ Layout(title string) {
 // embedded static files so a cluster without Internet egress still has a
 // working UI; then shadcn-templ's sidebar with every page, collapsible to
 // icons, the Library entry carrying the four media tabs as its sub-menu
-// (librarySubMenu), and its inset holding the top bar -- the sidebar
-// trigger -- and the page body: the breadcrumb row and the page. The
-// active sidebar entry is derived from the title (activeFor); a tab's
-// sub-entry swaps the page body through htmx, so the sidebar and the top
-// bar stay and the URL follows. The top bar and the
-// breadcrumb row are sticky, as is a page's toolbar, so the library's A-Z
-// bar can sit exactly beneath them and fill the rest of the viewport.
+// (librarySubMenu), and its inset holding the top bar (topNav) and the
+// page body. The active sidebar entry is derived from the title
+// (activeFor); a tab's sub-entry swaps the page body through htmx, so the
+// sidebar and the top bar stay and the URL follows. The top bar is sticky,
+// as is a page's toolbar, so the library's A-Z bar can sit exactly beneath
+// them and fill the rest of the viewport.
 templ Shell(c Chrome) {
 	<!DOCTYPE html>
 	<html
@@ -122,6 +123,7 @@ templ Shell(c Chrome) {
 			<script src="/static/jump.js" defer></script>
 			<script src="/static/find.js" defer></script>
 			<script src="/static/settings.js" defer></script>
+			<script src="/static/library.js" defer></script>
 			@components.Scripts()
 		</head>
 		<body class="min-h-screen bg-background font-sans text-foreground">
@@ -155,13 +157,8 @@ templ Shell(c Chrome) {
 					@sidebar.Rail()
 				}
 				@sidebar.Inset() {
-					<header class="sticky top-0 z-20 flex h-12 shrink-0 items-center gap-4 border-b border-border bg-background px-4">
-						@sidebar.Trigger()
-					</header>
+					@topNav(c)
 					<div id="page-body" class="flex flex-1 flex-col">
-						<div class="sticky top-12 z-10 flex h-9 shrink-0 items-center border-b border-border bg-background px-4 text-sm">
-							@breadcrumbs(c.Crumbs)
-						</div>
 						<div class="flex-1 p-6">
 							{ children... }
 						</div>
@@ -172,17 +169,68 @@ templ Shell(c Chrome) {
 	</html>
 }
 
+// topNav is the top bar (2026-10-06, after Sonarr's header): shadcn's
+// navigation menu holding the sidebar trigger and the page's breadcrumb
+// trail on the left, the library search centred (headerFind), and the Add
+// New menu on the right. The left and right thirds share the width
+// evenly, so the search sits at the bar's true centre whatever the trail's
+// length; on a narrow screen the search gives way, down to 10rem, before
+// the trail (clipped at 6rem, the trigger always shown) or Add New. The
+// trail (#page-crumbs) and the search (#header-find) depend on the page,
+// so a tab's htmx swap carries both out of band (librarySubMenu's
+// hx-select-oob) while the bar itself stays.
+templ topNav(c Chrome) {
+	<header class="sticky top-0 z-30 flex h-12 shrink-0 items-center border-b border-border bg-background px-4">
+		@navigationmenu.NavigationMenu(navigationmenu.Props{Align: navigationmenu.AlignEnd, Class: "w-full max-w-none justify-between gap-4"}) {
+			<div class="flex min-w-24 flex-1 basis-0 items-center overflow-hidden">
+				@sidebar.Trigger(sidebar.TriggerProps{Class: "-ml-1"})
+				@separator.Separator(separator.Props{
+					Orientation: separator.OrientationVertical,
+					Class:       "mx-2 data-vertical:h-4 data-vertical:self-auto",
+				})
+				<div id="page-crumbs" class="min-w-0 text-sm">
+					@breadcrumbs(c.Crumbs)
+				</div>
+			</div>
+			<div id="header-find" class="flex min-w-40 flex-[0_1_28rem] justify-center">
+				@headerFind(c.Tab)
+			</div>
+			<div class="flex flex-1 basis-0 justify-end">
+				@navigationmenu.List(navigationmenu.ListProps{Class: "flex-none"}) {
+					@navigationmenu.Item() {
+						@navigationmenu.Trigger(navigationmenu.TriggerProps{Attributes: templ.Attributes{"data-nav": "add-new"}}) {
+							@icon.Icon("plus")(icon.Props{Class: "mr-1 size-4"})
+							<span class="hidden sm:inline">Add New</span>
+						}
+						@navigationmenu.Content(navigationmenu.ContentProps{Class: "w-48"}) {
+							<ul class="grid gap-1">
+								for _, tab := range projection.Tabs() {
+									<li>
+										@navigationmenu.Link(navigationmenu.LinkProps{Href: "/library/" + string(tab) + "/add", Attributes: templ.Attributes{"data-nav-add": string(tab)}}) {
+											{ "Add " + addLabel(tab) }
+										}
+									</li>
+								}
+							</ul>
+						}
+					}
+				}
+			</div>
+		}
+	</header>
+}
+
 // breadcrumbs renders the trail: every crumb but the last a link, the last
-// the page itself.
+// the page itself. On a narrow screen only the page shows.
 templ breadcrumbs(crumbs []Crumb) {
 	if len(crumbs) > 0 {
 		@breadcrumb.Breadcrumb() {
-			@breadcrumb.List() {
+			@breadcrumb.List(breadcrumb.ListProps{Class: "flex-nowrap"}) {
 				for i, c := range crumbs {
 					if i > 0 {
-						@breadcrumb.Separator()
+						@breadcrumb.Separator(breadcrumb.SeparatorProps{Class: "hidden md:block"})
 					}
-					@breadcrumb.Item() {
+					@breadcrumb.Item(breadcrumb.ItemProps{Class: crumbClass(i, len(crumbs))}) {
 						if i < len(crumbs)-1 && c.Href != "" {
 							@breadcrumb.Link(breadcrumb.LinkProps{Href: c.Href}) { { c.Label } }
 						} else {
@@ -201,7 +249,8 @@ templ breadcrumbs(crumbs []Crumb) {
 // through htmx (hx-select of #page-body, URL pushed) so the sidebar and
 // the top bar stay put -- and, since the sidebar sits outside that swap,
 // the sub-menu itself out of band (hx-select-oob of #library-subnav) so
-// the active mark follows the tab. The component hides the sub-menu while
+// the active mark follows the tab, with the top bar's trail and search
+// (#page-crumbs, #header-find), which name the tab. The component hides the sub-menu while
 // the sidebar is collapsed to icons; the Library entry itself still opens
 // the library then.
 templ librarySubMenu(current projection.Tab) {
@@ -216,7 +265,7 @@ templ librarySubMenu(current projection.Tab) {
 						"hx-push-url": "true",
 						"hx-target":     "#page-body",
 						"hx-select":     "#page-body",
-						"hx-select-oob": "#library-subnav",
+						"hx-select-oob": "#library-subnav,#page-crumbs,#header-find",
 						"hx-swap":       "outerHTML",
 					},
 				}) {
@@ -225,4 +274,13 @@ templ librarySubMenu(current projection.Tab) {
 			}
 		}
 	}
+}
+
+// crumbClass hides every crumb but the page itself on a narrow screen, and
+// truncates the page's own, so a long title never pushes the search aside.
+func crumbClass(i, n int) string {
+	if i < n-1 {
+		return "hidden md:inline-flex"
+	}
+	return "min-w-0 truncate"
 }

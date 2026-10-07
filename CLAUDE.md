@@ -179,14 +179,33 @@ Each library page has an **Add New** (`/library/{tab}/add`, since
 (TMDB movies, TVDB series, MusicBrainz artists, Open Library authors) and
 adds the chosen item through `ui/actions.AddItem`; an item the library
 already holds is found by `LibraryItem.ProviderID` and opened instead.
-Each library tab's toolbar also has a typeahead (2026-10-01, Sonarr's and
-Radarr's header search): `GET /library/{tab}/find?q=` answers a dropdown of
-up to 10 of the tab's **monitored** items (`projection.Find`: titles through
+The top bar (2026-10-06, after Sonarr's) is shadcn's navigation menu: the
+sidebar trigger and the breadcrumbs (`#page-crumbs`) on the left, the
+search centred as an input group (`#header-find`), an Add New menu on the
+right; a tab's htmx swap carries the crumbs and search out of band beside
+`#library-subnav`. The search is a typeahead (2026-10-01, Sonarr's and
+Radarr's header search): on a tab `GET /library/{tab}/find?q=`, elsewhere
+`GET /library/find?q=` over every tab, answers a dropdown of up to 10
+**monitored** items (`projection.Find`: titles through
 `release.TitleNorm`, ranked exact, prefix, word prefix, anywhere; a
-`tmdb:603`-style or bare provider id first), from the projection alone;
+`tmdb:603`-style or bare provider id first), from the projection alone,
+with the count (`#library-find-count`) out of band;
 `ui/static/find.js` gives it arrow keys, Enter and Escape and places the
-dropdown `position: fixed`, since the toolbar's `overflow-x: auto` clips it.
-No match links to Add New with `?q=`, which fills and runs its search.
+dropdown `position: fixed`. No match links to Add New with `?q=`, which
+fills and runs its search. The page toolbar is shadcn's menubar
+(`views.toolbar`; Options, Sort and Filter are its menus). The library has
+Sonarr's mass editor: Select marks cards (`ui/static/library.js`, client
+side, re-applied over every stream frame) and a bottom bar posts the
+selection as `item=namespace/kind/name` to `POST /library/{tab}/bulk`
+(monitor, unmonitor, search, refresh, delete), which accepts only items on
+that tab in the projection, validates all before writing, and runs each
+item page's own `ui/actions` call; Options (poster size, details) are the
+reader's own, in localStorage. The vendored shadcn-templ components are
+the registry's own (`shadcn-templ add … --overwrite`, 2026-10-06: hooks are
+`data-templ-*` and `window.templ`, the select's hidden input follows its
+trigger and a read-only select is `ReadOnly` with a disabled trigger, so
+its value still posts); Clustarr no longer keeps its own navigationmenu or
+scrollarea.
 An import list likewise finds an item by provider id
 (`importlist.libraryByID`) and writes only the items it added itself:
 one added by hand, by a rescan or by another list is recorded as listed

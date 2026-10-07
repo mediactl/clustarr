@@ -14,13 +14,12 @@ import (
 	"github.com/mediactl/clustarr/ui/components/utils"
 )
 
-// The pendant of shadcn's sidebar.tsx constants: edit these to change the
-// sidebar widths and the toggle key.
+// The pendant of shadcn's sidebar.tsx width constants; the cookie and the
+// toggle key constants live in sidebar.js, where they are used.
 const (
-	sidebarWidth            = "16rem"
-	sidebarWidthMobile      = "18rem"
-	sidebarWidthIcon        = "3rem"
-	sidebarKeyboardShortcut = "b"
+	sidebarWidth       = "16rem"
+	sidebarWidthMobile = "18rem"
+	sidebarWidthIcon   = "3rem"
 )
 
 type contextKey string
@@ -208,9 +207,8 @@ type MenuButtonProps struct {
 	Variant    MenuButtonVariant // default: "default"
 	Size       MenuButtonSize    // default: "default"
 	Tooltip    string            // Tooltip text to show when sidebar is collapsed to icons
-	// TooltipHidden overrides the automatic tooltip visibility (shadcn's
-	// tooltip.hidden): nil follows the collapsed-to-icons rule, false forces
-	// the tooltip, true disables it.
+	// TooltipHidden is the tooltip prop's hidden (tooltip={{ hidden }}):
+	// nil hides the tooltip unless the sidebar is collapsed, a value pins it.
 	TooltipHidden *bool
 }
 
@@ -346,7 +344,7 @@ templ Sidebar(props ...Props) {
 						Displays the mobile sidebar.
 					}
 				}
-				<div class="flex h-full w-full flex-col" data-tui-sidebar-mobile-portal={ p.ID }></div>
+				<div class="flex h-full w-full flex-col" data-templ-sidebar-mobile-portal={ p.ID }></div>
 			}
 		}
 		<!-- Desktop -->
@@ -357,10 +355,8 @@ templ Sidebar(props ...Props) {
 			data-variant={ string(p.Variant) }
 			data-side={ string(p.Side) }
 			data-slot="sidebar"
-			data-tui-sidebar-wrapper
-			data-tui-sidebar-id={ p.ID }
-			data-tui-sidebar-collapsible-mode={ string(p.Collapsible) }
-			data-tui-sidebar-keyboard-shortcut={ sidebarKeyboardShortcut }
+			data-templ-sidebar-id={ p.ID }
+			data-templ-collapsible={ string(p.Collapsible) }
 		>
 			<!-- Gap element that keeps the sidebar width in the document flow -->
 			<div
@@ -396,9 +392,7 @@ templ Sidebar(props ...Props) {
 					data-slot="sidebar-inner"
 					class="bg-sidebar group-data-[variant=floating]:ring-sidebar-border group-data-[variant=floating]:rounded-lg group-data-[variant=floating]:shadow-sm group-data-[variant=floating]:ring-1 flex size-full flex-col"
 				>
-					<div data-tui-sidebar-content={ p.ID } class="flex h-full w-full flex-col">
-						{ children... }
-					</div>
+					{ children... }
 				</div>
 			</div>
 		</div>
@@ -423,10 +417,9 @@ templ Trigger(props ...TriggerProps) {
 		Class:   utils.CN("", p.Class),
 		Attributes: utils.MergeAttributes(
 			templ.Attributes{
-				"data-sidebar":             "trigger",
-				"data-slot":                "sidebar-trigger",
-				"data-tui-sidebar-trigger": true,
-				"data-tui-sidebar-target":  targetID,
+				"data-sidebar":               "trigger",
+				"data-slot":                  "sidebar-trigger",
+				"data-templ-sidebar-trigger": targetID,
 			},
 			p.Attributes,
 		),
@@ -443,12 +436,9 @@ templ Rail(props ...RailProps) {
 		{{ p = props[0] }}
 	}
 	<button
-		type="button"
 		data-sidebar="rail"
 		data-slot="sidebar-rail"
-		data-tui-sidebar-trigger
-		data-tui-sidebar-target={ sidebarID(ctx) }
-		data-tui-sidebar-rail
+		data-templ-sidebar-trigger={ sidebarID(ctx) }
 		aria-label="Toggle Sidebar"
 		tabindex="-1"
 		title="Toggle Sidebar"
@@ -748,23 +738,23 @@ templ MenuButton(props ...MenuButtonProps) {
 			{{ s := sidebarState(ctx) }}
 			{{ tp := p }}
 			{{ trigger := tooltip.Trigger(ctx) }}
-			// The tooltip only shows while the sidebar is collapsed to icons;
-			// the script keeps the attribute in sync on toggle. An explicit
-			// TooltipHidden pins the state (the fixed marker keeps the
-			// script's toggle sync away).
-			if p.TooltipHidden != nil {
-				{{ trigger["data-tui-sidebar-tooltip-fixed"] = true }}
-				if *p.TooltipHidden {
-					{{ trigger["data-tui-tooltip-disabled"] = true }}
-				}
-			} else if !(s.collapsed && s.collapsible == CollapsibleIcon) {
-				{{ trigger["data-tui-tooltip-disabled"] = true }}
-			}
+			// shadcn renders the trigger through the menu button element,
+			// whose own data-slot stays.
+			{{ delete(trigger, "data-slot") }}
 			{{ tp.Attributes = utils.MergeAttributes(trigger, p.Attributes) }}
 			@menuButtonEl(tp) {
 				{ children... }
 			}
-			@tooltip.Content(tooltip.ContentProps{Side: tooltip.SideRight}) {
+			// hidden={state !== "collapsed" || isMobile}: the script keeps it in
+			// sync on toggle and below md. An explicit TooltipHidden pins it.
+			{{ content := templ.Attributes{} }}
+			if p.TooltipHidden != nil {
+				{{ content["data-templ-tooltip-hidden"] = strconv.FormatBool(*p.TooltipHidden) }}
+				{{ content["hidden"] = *p.TooltipHidden }}
+			} else {
+				{{ content["hidden"] = !s.collapsed }}
+			}
+			@tooltip.Content(tooltip.ContentProps{Side: tooltip.SideRight, Attributes: content}) {
 				{ p.Tooltip }
 			}
 		}
@@ -782,7 +772,9 @@ templ menuButtonEl(p MenuButtonProps) {
 				id={ p.ID }
 			}
 			href={ templ.SafeURL(p.Href) }
-			data-slot="sidebar-menu-button"
+			if _, ok := p.Attributes["data-slot"]; !ok {
+				data-slot="sidebar-menu-button"
+			}
 			data-sidebar="menu-button"
 			data-size={ string(p.Size) }
 			data-active?={ p.IsActive }
@@ -796,8 +788,12 @@ templ menuButtonEl(p MenuButtonProps) {
 			if p.ID != "" {
 				id={ p.ID }
 			}
-			type="button"
-			data-slot="sidebar-menu-button"
+			if _, ok := p.Attributes["type"]; !ok {
+				type="button"
+			}
+			if _, ok := p.Attributes["data-slot"]; !ok {
+				data-slot="sidebar-menu-button"
+			}
 			data-sidebar="menu-button"
 			data-size={ string(p.Size) }
 			data-active?={ p.IsActive }
@@ -818,8 +814,12 @@ templ MenuAction(props ...MenuActionProps) {
 		if p.ID != "" {
 			id={ p.ID }
 		}
-		type="button"
-		data-slot="sidebar-menu-action"
+		if _, ok := p.Attributes["type"]; !ok {
+			type="button"
+		}
+		if _, ok := p.Attributes["data-slot"]; !ok {
+			data-slot="sidebar-menu-action"
+		}
 		data-sidebar="menu-action"
 		class={ utils.CN(
 			"text-sidebar-foreground ring-sidebar-ring hover:bg-sidebar-accent hover:text-sidebar-accent-foreground peer-hover/menu-button:text-sidebar-accent-foreground absolute top-1.5 right-1 aspect-square w-5 rounded-md p-0 peer-data-[size=default]/menu-button:top-1.5 peer-data-[size=lg]/menu-button:top-2.5 peer-data-[size=sm]/menu-button:top-1 focus-visible:ring-2 [&>svg]:size-4 flex items-center justify-center outline-hidden transition-transform group-data-[collapsible=icon]:hidden after:absolute after:-inset-2 md:after:hidden [&>svg]:shrink-0",

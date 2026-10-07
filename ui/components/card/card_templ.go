@@ -561,7 +561,7 @@ func Content(props ...ContentProps) templ.Component {
 		if len(props) > 0 {
 			p = props[0]
 		}
-		var templ_7745c5c3_Var23 = []any{utils.CN("px-(--card-spacing)", p.Class)}
+		var templ_7745c5c3_Var23 = []any{utils.CN("flex flex-col gap-3 px-(--card-spacing)", p.Class)}
 		templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var23...)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err

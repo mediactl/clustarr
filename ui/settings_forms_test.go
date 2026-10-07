@@ -121,13 +121,13 @@ func TestNewSettingsFormRendersTheOverlay(t *testing.T) {
 	requireTag(t, body, `data-section="Client"`)
 	requireTag(t, body, `data-section="Torrent"`, `data-show-when="protocol=torrent"`)
 	requireTag(t, body, `data-section="Usenet"`, `data-show-when="protocol=usenet"`)
-	// a choice is shadcn-templ's select component: its hidden input posts
-	// the value, its trigger is what the label names and the browser's
-	// required check leans on (settings.js), and its items are the options
-	requireTag(t, body, `name="protocol"`, `type="hidden"`, `data-tui-select-input`)
+	// a choice is shadcn-templ's select component: its visually hidden
+	// input posts the value, its trigger is what the label names and the
+	// required check marks (settings.js), and its items are the options
+	requireTag(t, body, `name="protocol"`, `aria-hidden="true"`, `tabindex="-1"`, "required")
 	requireTag(t, body, `id="f-protocol-trigger"`, `data-slot="select-trigger"`, "aria-required")
 	requireTag(t, body, `for="f-protocol-trigger"`)
-	requireTag(t, body, `data-tui-select-value="torrent"`, `data-slot="select-item"`)
+	requireTag(t, body, `data-templ-value="torrent"`, `data-slot="select-item"`)
 	require.NotContains(t, body, "<select", "no native select")
 	requireTag(t, body, `name="torrent.listenPort"`, `type="number"`, `placeholder="42069"`, `min="1"`, `max="65535"`)
 	require.Contains(t, body, "Listen port")
@@ -137,7 +137,7 @@ func TestNewSettingsFormRendersTheOverlay(t *testing.T) {
 	requireTag(t, body, `name="__secret.usenet.providers.__i__.secretRef.password"`, `type="password"`, `autocomplete="new-password"`)
 	requireTag(t, body, `data-map="categories"`)
 	require.Regexp(t, regexp.MustCompile(`<input[^>]*type="hidden"[^>]*name="enabled"[^>]*value="false"`), body, "a checkbox posts false when unchecked")
-	requireTag(t, body, `data-tui-checkbox-input`, `name="enabled"`, `value="true"`)
+	requireTag(t, body, `type="checkbox"`, `name="enabled"`, `value="true"`, `aria-hidden="true"`)
 	require.NotContains(t, body, `name="resources`, "workload plumbing is not on the form")
 	require.Contains(t, body, `<script src="/static/settings.js"`, "rows, conditions and confirms come from the settings script")
 
@@ -159,7 +159,8 @@ func TestEditSettingsFormIsPrefilledAndNeverShowsASecret(t *testing.T) {
 	trigger := tagWith(t, body, `id="f-protocol-trigger"`)
 	require.Regexp(t, regexp.MustCompile(`\sdisabled(\s|>)`), trigger, "protocol is immutable: the trigger cannot open")
 	require.NotContains(t, trigger, "aria-required", "and is not required")
-	require.Regexp(t, regexp.MustCompile(`<input[^>]*type="hidden"[^>]*name="protocol"[^>]*value="usenet"`), body, "a read-only select still posts its value")
+	input := requireTag(t, body, `name="protocol"`, `value="usenet"`, "readonly")
+	require.NotRegexp(t, regexp.MustCompile(`\sdisabled(\s|>)`), input, "a read-only select still posts its value")
 	require.Equal(t, 1, strings.Count(body, `name="protocol"`), "one input posts it: no hidden twin beside the component's")
 	requireTag(t, body, `name="priority"`, `value="2"`)
 	requireTag(t, body, `name="usenet.providers.0.host"`, `value="news.eweka.nl"`)
@@ -297,11 +298,11 @@ func TestIndexerFormOffersDefinitionsClientsAndProxies(t *testing.T) {
 	rec := get(t, srv, "/settings/new/indexers")
 	require.Equal(t, http.StatusOK, rec.Code)
 	body := rec.Body.String()
-	requireTag(t, body, `name="definition"`, `data-tui-select-input`)
-	requireTag(t, body, `data-tui-select-value="1337x"`, `data-slot="select-item"`)
+	requireTag(t, body, `name="definition"`, `aria-hidden="true"`, `tabindex="-1"`)
+	requireTag(t, body, `data-templ-value="1337x"`, `data-slot="select-item"`)
 	require.Contains(t, body, "1337x (public)", "definitions come from the cluster's IndexerDefinitions")
-	requireTag(t, body, `data-tui-select-value="qbit"`, `data-slot="select-item"`)
-	requireTag(t, body, `data-tui-select-value="flare"`, `data-slot="select-item"`)
+	requireTag(t, body, `data-templ-value="qbit"`, `data-slot="select-item"`)
+	requireTag(t, body, `data-templ-value="flare"`, `data-slot="select-item"`)
 	requireTag(t, body, `data-section="Generic Newznab/Torznab"`, `data-show-when="definition="`)
 	requireTag(t, body, `name="__secret.secretRef.apikey"`, `type="password"`)
 }
