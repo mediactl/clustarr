@@ -53,7 +53,8 @@ FROM golang:${GO_VERSION}-bookworm AS build
 ARG VERSION=dev
 ARG FFGO_COMMIT=""
 WORKDIR /src
-ENV GOFLAGS=-trimpath
+# grpcnotrace: see the Makefile's GOTAGS.
+ENV GOFLAGS="-trimpath -tags=grpcnotrace"
 COPY --from=ffgo / /ffgo-unify/
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download

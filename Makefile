@@ -211,13 +211,21 @@ fork-status:
 
 LDFLAGS := -s -w -X github.com/mediactl/clustarr/pkg/version.Version=$(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
+# grpcnotrace drops gRPC's golang.org/x/net/trace, which every binary links
+# through OpenTelemetry's OTLP exporters (the HTTP one too): its init keeps
+# html/template reachable, and a reachable text/template turns off the
+# linker's method dead-code elimination for the whole binary (2026-10-07:
+# markers 26.6 -> 21.6 MB, transcode 27.0 -> 20.7 MB). The images build with
+# the same tag, and test/deadcode holds all three places to it.
+GOTAGS ?= grpcnotrace
+
 .PHONY: build
 build: fork-status ## Build bin/manager, bin/ui, bin/agent, bin/markers and bin/transcode, each as its image does (spec §3.9).
-	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o bin/manager ./cmd/manager
-	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o bin/ui ./cmd/ui
-	CGO_ENABLED=1 go build -trimpath -ldflags "$(LDFLAGS)" -o bin/agent ./cmd/agent
-	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o bin/markers ./cmd/markers
-	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o bin/transcode ./cmd/transcode
+	CGO_ENABLED=0 go build -trimpath -tags "$(GOTAGS)" -ldflags "$(LDFLAGS)" -o bin/manager ./cmd/manager
+	CGO_ENABLED=0 go build -trimpath -tags "$(GOTAGS)" -ldflags "$(LDFLAGS)" -o bin/ui ./cmd/ui
+	CGO_ENABLED=1 go build -trimpath -tags "$(GOTAGS)" -ldflags "$(LDFLAGS)" -o bin/agent ./cmd/agent
+	CGO_ENABLED=0 go build -trimpath -tags "$(GOTAGS)" -ldflags "$(LDFLAGS)" -o bin/markers ./cmd/markers
+	CGO_ENABLED=0 go build -trimpath -tags "$(GOTAGS)" -ldflags "$(LDFLAGS)" -o bin/transcode ./cmd/transcode
 
 .PHONY: docker-build
 docker-build: contexts ## Build the clustarr (manager, ui) and native (agent, markers, transcode) images.

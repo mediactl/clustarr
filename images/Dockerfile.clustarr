@@ -36,8 +36,9 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends upx-ucl \
  && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
+# grpcnotrace: see the Makefile's GOTAGS.
 ENV CGO_ENABLED=0 \
-    GOFLAGS=-trimpath
+    GOFLAGS="-trimpath -tags=grpcnotrace"
 COPY --from=ffgo / /ffgo-unify/
 # Warm the module cache separately so source edits do not re-download.
 COPY go.mod go.sum ./

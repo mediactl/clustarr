@@ -20,6 +20,7 @@ package cli
 import (
 	"fmt"
 	"runtime"
+	"strconv"
 
 	"github.com/spf13/cobra"
 
@@ -31,8 +32,9 @@ import (
 )
 
 // NewRoot is a binary's root command: --version without a shorthand (klog's
-// -v), the --log-* and --tracing-* flags bound once on PersistentFlags, and
-// the version subcommand. Errors are printed once, by Main.
+// -v; versionFlag), the --log-* and --tracing-* flags bound once on
+// PersistentFlags, and the version subcommand. Errors are printed once, by
+// Main.
 //
 // Logging is deliberately NOT set up here. controller-runtime's delegating
 // log sink fulfils its promise exactly once, so the first ctrl.SetLogger in
@@ -47,23 +49,62 @@ func NewRoot(binary, short, long string) (*cobra.Command, *logging.Options, *tra
 		Use:           binary,
 		Short:         short,
 		Long:          long,
-		Version:       version.String(),
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	root.SetVersionTemplate(binary + " {{.Version}}\n")
 	lo, to := obsflags.Bind(root.PersistentFlags())
-
-	// Cobra gives --version the shorthand -v, which collides with the klog
-	// convention where -v sets log verbosity. Operators write -v into
-	// manifests expecting verbosity and would silently get a version print,
-	// so drop the shorthand and leave --version spelled out.
-	root.InitDefaultVersionFlag()
-	if f := root.Flags().Lookup("version"); f != nil {
-		f.Shorthand = ""
-	}
+	addVersionFlag(root, binary)
 	root.AddCommand(NewVersionCommand(binary))
 	return root, lo, to
+}
+
+// addVersionFlag gives root a --version that prints "<binary> <version>"
+// and stops, before any hook or RunE runs, as cobra's own does. It is not
+// cobra's own because cobra prints that one through a text/template
+// (SetVersionTemplate), and a reachable text/template turns off the
+// linker's method dead-code elimination for the whole binary: every
+// exported method of every type held in an interface is kept (2026-10-07:
+// 11.5 MB of the ui's 56). So root has no Version; setting --version sets
+// --help, cobra's other early stop, and the help function prints the
+// version instead of the usage. It has no shorthand: -v is klog's log
+// verbosity, and an operator who writes -v into a manifest must not get a
+// version print instead.
+func addVersionFlag(root *cobra.Command, binary string) {
+	asked := &versionFlag{root: root}
+	root.Flags().Var(asked, "version", "version for "+binary)
+	root.Flags().Lookup("version").NoOptDefVal = "true"
+	help := root.HelpFunc()
+	root.SetHelpFunc(func(c *cobra.Command, args []string) {
+		if !asked.set {
+			help(c, args)
+			return
+		}
+		if _, err := fmt.Fprintf(c.OutOrStdout(), "%s %s\n", binary, version.String()); err != nil {
+			c.PrintErrln(err)
+		}
+	})
+}
+
+// versionFlag is --version's value: a bool whose true also sets root's
+// --help, which cobra defines before it parses flags.
+type versionFlag struct {
+	root *cobra.Command
+	set  bool
+}
+
+func (f *versionFlag) String() string { return strconv.FormatBool(f.set) }
+func (f *versionFlag) Type() string   { return "bool" }
+
+func (f *versionFlag) Set(s string) error {
+	v, err := strconv.ParseBool(s)
+	if err != nil {
+		return err
+	}
+	f.set = v
+	if !v {
+		return nil
+	}
+	return f.root.Flags().Set("help", "true")
 }
 
 // NewVersionCommand prints "<binary> <version>" and the Go toolchain.
