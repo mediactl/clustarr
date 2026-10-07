@@ -48,6 +48,7 @@ import (
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/app/catalog/overlayplan"
 	catalogstatus "github.com/mediactl/clustarr/app/catalog/status"
 	"github.com/mediactl/clustarr/app/catalog/worker/artwork"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -247,12 +248,12 @@ func (f *fixture) gateway(ratings []catalogv1alpha1.Rating, withArtwork bool) {
 	require.NoError(f.t, err)
 }
 
-func (f *fixture) get() artwork.Item {
+func (f *fixture) get() overlayplan.Item {
 	f.t.Helper()
-	obj, err := artwork.NewObject(f.kind)
+	obj, err := overlayplan.NewObject(f.kind)
 	require.NoError(f.t, err)
 	require.NoError(f.t, f.c.Get(context.Background(), f.key, obj))
-	it, err := artwork.ItemOf(obj)
+	it, err := overlayplan.ItemOf(obj)
 	require.NoError(f.t, err)
 	return it
 }
@@ -278,7 +279,7 @@ func (f *fixture) profile() *catalogv1alpha1.OverlayProfile {
 }
 
 func (f *fixture) wantDigest() string {
-	return artwork.InputsDigest(f.info.Digest, artwork.ProfileHash(f.profile().Spec), f.ratings)
+	return overlayplan.InputsDigest(f.info.Digest, overlayplan.ProfileHash(f.profile().Spec), f.ratings)
 }
 
 func (f *fixture) setLabels(lbls map[string]string) {
@@ -292,7 +293,7 @@ func (f *fixture) setLabels(lbls map[string]string) {
 // owns status.overlay's four leaves when an overlay is recorded and nothing
 // otherwise; the gateway owns status.metadata and status.artwork and no
 // overlay leaf.
-func (f *fixture) assertSplit(it artwork.Item) {
+func (f *fixture) assertSplit(it overlayplan.Item) {
 	f.t.Helper()
 	renderer, err := catalogstatus.OwnedStatusPaths(it.Object.GetManagedFields(), catalogstatus.RendererManager)
 	require.NoError(f.t, err)
@@ -598,7 +599,7 @@ func TestAnOriginalReplacedBeforeTheDrawIsNotRenderedUnderItsOldDigest(t *testin
 	info, err := f.store.Info(ctx, f.overlayKey())
 	require.NoError(t, err)
 	sum := sha256.Sum256(replacement)
-	want := artwork.InputsDigest(hex.EncodeToString(sum[:]), artwork.ProfileHash(f.profile().Spec), f.ratings)
+	want := overlayplan.InputsDigest(hex.EncodeToString(sum[:]), overlayplan.ProfileHash(f.profile().Spec), f.ratings)
 	assert.Equal(t, want, info.Headers["Clustarr-Rendered-From"])
 	assert.Equal(t, want, f.get().Overlay.RenderedFrom)
 }
@@ -738,7 +739,7 @@ func TestProfilesAreReadUncached(t *testing.T) {
 	p.Spec.Corner = catalogv1alpha1.OverlayCornerTopLeft
 	require.NoError(t, f.c.Update(ctx, p))
 	fresh := f.wantDigest()
-	require.NotEqual(t, artwork.InputsDigest(f.info.Digest, artwork.ProfileHash(before.Items[0].Spec), f.ratings), fresh,
+	require.NotEqual(t, overlayplan.InputsDigest(f.info.Digest, overlayplan.ProfileHash(before.Items[0].Spec), f.ratings), fresh,
 		"the edit moves the profile hash, so a stale list is visible")
 
 	require.NoError(t, f.handle())

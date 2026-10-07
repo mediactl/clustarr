@@ -36,13 +36,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // digest, or "none" when the poster went) or the OverlayProfile
 // controller, [Handler.Render] judges the item's CURRENT inputs:
 //
-//  1. [Plan]: the winning profile ([Winner], lowest name among the
-//     profiles whose selector and kinds match), its badges that have a
-//     rating ([Badges]) and the stored original's digest. No profile, no
-//     rated badge or no original means no overlay: delete poster/overlay
-//     and clear status.overlay.
-//  2. [InputsDigest] over the original's digest, [ProfileHash] and the
-//     ratings sorted by source.
+//  1. overlayplan.Plan: the winning profile (overlayplan.Winner, lowest
+//     name among the profiles whose selector and kinds match), its badges
+//     that have a rating (overlayplan.Badges) and the stored original's
+//     digest. No profile, no rated badge or no original means no overlay:
+//     delete poster/overlay and clear status.overlay.
+//  2. overlayplan.InputsDigest over the original's digest,
+//     overlayplan.ProfileHash and the ratings sorted by source.
 //  3. If the stored overlay's Clustarr-Rendered-From is that digest,
 //     render nothing; record it in status.overlay if it is not already.
 //  4. Otherwise decode the original, render.Render, encode JPEG q90, Put

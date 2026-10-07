@@ -38,7 +38,7 @@ import (
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
-	"github.com/mediactl/clustarr/app/catalog/worker/artwork"
+	"github.com/mediactl/clustarr/app/catalog/overlayplan"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -63,9 +63,9 @@ const (
 	ReasonInvalidSelector = "InvalidSelector"
 )
 
-// Hash is status.hash: artwork.ProfileHash, the conversion the renderer
+// Hash is status.hash: overlayplan.ProfileHash, the conversion the renderer
 // draws from and stamps into every overlay's inputs digest.
-func Hash(spec catalogv1alpha1.OverlayProfileSpec) string { return artwork.ProfileHash(spec) }
+func Hash(spec catalogv1alpha1.OverlayProfileSpec) string { return overlayplan.ProfileHash(spec) }
 
 // Reconciler owns OverlayProfile.status under k8s.ManagerCatalogarr and
 // publishes the RenderOverlay tasks its selection calls for. It writes
@@ -76,7 +76,7 @@ type Reconciler struct {
 }
 
 // Reconcile resolves which Movies and Series in req's namespace the profile
-// wins (artwork.Winner: of the profiles that select an item, the lowest
+// wins (overlayplan.Winner: of the profiles that select an item, the lowest
 // name), publishes a render task for every item whose status.overlay
 // disagrees with what the renderer would now draw -- an item it wins, or
 // one whose overlay names it and which it no longer wins -- and applies
@@ -111,23 +111,23 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		pubErrs    []error
 	)
 	for _, it := range items {
-		winner := artwork.Winner(profiles.Items, it)
+		winner := overlayplan.Winner(profiles.Items, it)
 		mine := winner != nil && winner.Name == req.Name
 		switch {
 		case mine:
 			selected++
-		case self != nil && artwork.Selects(self, it):
+		case self != nil && overlayplan.Selects(self, it):
 			overlapped = true
 		}
 		named := it.Overlay != nil && it.Overlay.ProfileRef == req.Name
 		if !mine && !named {
 			continue
 		}
-		want := artwork.Plan(it, profiles.Items, it.PosterDigest)
+		want := overlayplan.Plan(it, profiles.Items, it.PosterDigest)
 		if want.RecordedBy(it.Overlay) {
 			continue
 		}
-		if err := artwork.Publish(ctx, r.Bus, it, Token(want, it), artwork.ReasonProfile); err != nil {
+		if err := overlayplan.Publish(ctx, r.Bus, it, Token(want, it), overlayplan.ReasonProfile); err != nil {
 			pubErrs = append(pubErrs, err)
 			continue
 		}
@@ -199,13 +199,13 @@ func validSelector(p *catalogv1alpha1.OverlayProfile) error {
 // item or its status, and so its resourceVersion; a hot loop over an
 // unchanged item still publishes once. Only a stale item is published at
 // all, so the churn is bounded by what actually needs rendering.
-func Token(want artwork.Want, it artwork.Item) string {
+func Token(want overlayplan.Want, it overlayplan.Item) string {
 	sum := sha256.Sum256([]byte(want.ProfileName() + "\n" + want.InputsDigest + "\n" + it.Object.GetResourceVersion()))
 	return hex.EncodeToString(sum[:])
 }
 
 // items lists the Movies and Series in ns.
-func (r *Reconciler) items(ctx context.Context, ns string) ([]artwork.Item, error) {
+func (r *Reconciler) items(ctx context.Context, ns string) ([]overlayplan.Item, error) {
 	var movies catalogv1alpha1.MovieList
 	if err := r.Client.List(ctx, &movies, client.InNamespace(ns)); err != nil {
 		return nil, fmt.Errorf("overlayprofile: list Movies: %w", err)
@@ -214,16 +214,16 @@ func (r *Reconciler) items(ctx context.Context, ns string) ([]artwork.Item, erro
 	if err := r.Client.List(ctx, &series, client.InNamespace(ns)); err != nil {
 		return nil, fmt.Errorf("overlayprofile: list Series: %w", err)
 	}
-	out := make([]artwork.Item, 0, len(movies.Items)+len(series.Items))
+	out := make([]overlayplan.Item, 0, len(movies.Items)+len(series.Items))
 	for i := range movies.Items {
-		it, err := artwork.ItemOf(&movies.Items[i])
+		it, err := overlayplan.ItemOf(&movies.Items[i])
 		if err != nil {
 			return nil, err
 		}
 		out = append(out, it)
 	}
 	for i := range series.Items {
-		it, err := artwork.ItemOf(&series.Items[i])
+		it, err := overlayplan.ItemOf(&series.Items[i])
 		if err != nil {
 			return nil, err
 		}

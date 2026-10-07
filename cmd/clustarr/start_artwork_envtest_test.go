@@ -34,6 +34,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/overlayprofile"
+	"github.com/mediactl/clustarr/app/catalog/overlayplan"
 	catalogstatus "github.com/mediactl/clustarr/app/catalog/status"
 	"github.com/mediactl/clustarr/app/catalog/worker/artwork"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -125,11 +126,11 @@ func verifyRenderer(t *testing.T, cfg *rest.Config, natsURL, name string, viaCon
 		if err := c.Get(ctx, client.ObjectKeyFromObject(movie), &got); err != nil {
 			t.Fatalf("get Movie: %v", err)
 		}
-		it, err := artwork.ItemOf(&got)
+		it, err := overlayplan.ItemOf(&got)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := artwork.Publish(ctx, bus, it, "start-probe", "original"); err != nil {
+		if err := overlayplan.Publish(ctx, bus, it, "start-probe", "original"); err != nil {
 			t.Fatalf("publish the render task: %v", err)
 		}
 	}

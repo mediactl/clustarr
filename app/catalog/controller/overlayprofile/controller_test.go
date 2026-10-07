@@ -42,8 +42,8 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/overlayprofile"
+	"github.com/mediactl/clustarr/app/catalog/overlayplan"
 	catalogstatus "github.com/mediactl/clustarr/app/catalog/status"
-	"github.com/mediactl/clustarr/app/catalog/worker/artwork"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -123,7 +123,7 @@ func TestStatusHashChangesWithEveryRenderField(t *testing.T) {
 
 	// status.hash is the renderer's hash: one conversion, not two.
 	s := badges(catalogv1alpha1.RatingSourceTMDB)
-	assert.Equal(t, artwork.ProfileHash(s), overlayprofile.Hash(s))
+	assert.Equal(t, overlayplan.ProfileHash(s), overlayprofile.Hash(s))
 }
 
 func geometryDefault(t *testing.T, field string) int32 {
@@ -278,11 +278,11 @@ func (w *world) get(name string) *catalogv1alpha1.OverlayProfile {
 	return &p
 }
 
-func (w *world) item(name string) artwork.Item {
+func (w *world) item(name string) overlayplan.Item {
 	w.t.Helper()
 	var m catalogv1alpha1.Movie
 	require.NoError(w.t, w.c.Get(context.Background(), types.NamespacedName{Namespace: w.ns, Name: name}, &m))
-	it, err := artwork.ItemOf(&m)
+	it, err := overlayplan.ItemOf(&m)
 	require.NoError(w.t, err)
 	return it
 }
@@ -294,7 +294,7 @@ func (w *world) rendered(name string) {
 	var list catalogv1alpha1.OverlayProfileList
 	require.NoError(w.t, w.c.List(context.Background(), &list, client.InNamespace(w.ns)))
 	it := w.item(name)
-	want := artwork.Plan(it, list.Items, it.PosterDigest)
+	want := overlayplan.Plan(it, list.Items, it.PosterDigest)
 	require.NotNil(w.t, want.Profile)
 	require.NoError(w.t, catalogstatus.PatchOverlay(context.Background(), w.c, catalogstatus.RendererManager, it.Object,
 		&catalogv1alpha1.OverlayEntry{
@@ -399,7 +399,7 @@ func TestOneRenderTaskPerSelectedItem(t *testing.T) {
 		var task schema.RenderOverlayTask
 		require.NoError(t, schema.Decode(env.Schema, env.Data, &task))
 		assert.Equal(t, commonv1.MediaKindMovie, task.MediaRef.Kind)
-		assert.Equal(t, artwork.ReasonProfile, task.Reason)
+		assert.Equal(t, overlayplan.ReasonProfile, task.Reason)
 		assert.Equal(t, w.ns+"/"+task.MediaRef.Name, env.Key)
 		assert.Equal(t, events.WorkArtworkRenderSubject(events.MediaKey("movie", w.ns, task.MediaRef.Name)), subjects[i])
 		byName[task.MediaRef.Name] = env

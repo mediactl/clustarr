@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package artwork
+package overlayplan
 
 // InputsDigestAt is InputsDigest under an explicit renderer version, so a
 // test can prove a RenderVersion bump moves every digest.

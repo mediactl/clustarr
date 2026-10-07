@@ -119,7 +119,7 @@ var ErrNoOverlay = errors.New("status: kind has no status.overlay")
 // HasOverlay reports whether kind carries status.overlay: Movie and Series
 // (spec §B.6). It is the one statement of that rule -- the gateway asks it
 // before publishing a render task, the renderer before drawing one
-// (app/catalog/worker/artwork.Overlaid) -- because two copies had drifted:
+// (app/catalog/overlayplan.Overlaid) -- because two copies had drifted:
 // the gateway published a task for every kind with a poster, the renderer
 // discarded the non-video ones, and each discard was dead-lettered.
 func HasOverlay(kind commonv1.MediaKind) bool {

@@ -40,6 +40,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	gateway "github.com/mediactl/clustarr/app/catalog/metadata/artwork"
+	"github.com/mediactl/clustarr/app/catalog/overlayplan"
 	catalogstatus "github.com/mediactl/clustarr/app/catalog/status"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -163,7 +164,7 @@ const DefaultMaxConcurrentRenders = 2
 // poster is shown at a few hundred pixels wide by every client this serves
 // (the library grid, Plex), and TMDB's own "original" size is 2000 wide,
 // so the cap costs nothing visible. Changing it changes every render's
-// output: bump RenderVersion with it.
+// output: bump overlayplan.RenderVersion with it.
 const MaxRenderWidth = 2000
 
 // acquire takes a draw slot, or gives up when ctx ends.
@@ -239,7 +240,7 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) (err error) {
 	if !ok || ns == "" {
 		return events.Discard("envelope key is not <namespace>/<name>", fmt.Errorf("key=%q", env.Key))
 	}
-	if !Overlaid(task.MediaRef.Kind) {
+	if !overlayplan.Overlaid(task.MediaRef.Kind) {
 		// A kind with no overlay has nothing to render: ack it, since a
 		// Discard dead-letters. The gateway no longer publishes one; this
 		// covers a task already queued by an older gateway during a
@@ -373,28 +374,28 @@ func (h *Handler) Render(ctx context.Context, key client.ObjectKey, kind commonv
 // profile edit would have the render drawn, and recorded, under a profile
 // hash the profile no longer has. A namespace's profiles are a handful, so
 // the List per task is cheap.
-func (h *Handler) plan(ctx context.Context, it Item) (Want, error) {
+func (h *Handler) plan(ctx context.Context, it overlayplan.Item) (overlayplan.Want, error) {
 	var list catalogv1alpha1.OverlayProfileList
 	if err := h.Reader.List(ctx, &list, client.InNamespace(it.Object.GetNamespace())); err != nil {
-		return Want{}, fmt.Errorf("artwork: list OverlayProfiles: %w", err)
+		return overlayplan.Want{}, fmt.Errorf("artwork: list OverlayProfiles: %w", err)
 	}
 	// Skip the store when no profile could want an overlay anyway.
-	if Winner(list.Items, it) == nil {
-		return Want{}, nil
+	if overlayplan.Winner(list.Items, it) == nil {
+		return overlayplan.Want{}, nil
 	}
 	originalKey := objectKey(it, events.ArtworkVariantOriginal)
 	info, err := h.Store.Info(ctx, originalKey)
 	switch {
 	case errors.Is(err, events.ErrObjectNotFound):
-		return Plan(it, list.Items, ""), nil
+		return overlayplan.Plan(it, list.Items, ""), nil
 	case err != nil:
-		return Want{}, fmt.Errorf("artwork: info %s: %w", originalKey, err)
+		return overlayplan.Want{}, fmt.Errorf("artwork: info %s: %w", originalKey, err)
 	}
-	return Plan(it, list.Items, info.Digest), nil
+	return overlayplan.Plan(it, list.Items, info.Digest), nil
 }
 
 // draw renders want onto the stored original and Puts the overlay.
-func (h *Handler) draw(ctx context.Context, it Item, want Want) (*catalogv1alpha1.OverlayEntry, error) {
+func (h *Handler) draw(ctx context.Context, it overlayplan.Item, want overlayplan.Want) (*catalogv1alpha1.OverlayEntry, error) {
 	ctx, span := tracing.Start(ctx, "artwork.Render.draw")
 	defer span.End()
 
@@ -491,7 +492,7 @@ func FitWidth(img image.Image, maxWidth int) image.Image {
 // a decode, a render, a Put) it re-reads the item, its profiles and its
 // original, and applies entry only if they still want what was worked on
 // (CLAUDE.md's lost-update rule). A nil entry clears status.overlay.
-func (h *Handler) record(ctx context.Context, before Item, want Want, entry *catalogv1alpha1.OverlayEntry) error {
+func (h *Handler) record(ctx context.Context, before overlayplan.Item, want overlayplan.Want, entry *catalogv1alpha1.OverlayEntry) error {
 	key := client.ObjectKeyFromObject(before.Object)
 	fresh, err := h.read(ctx, before.Kind, key)
 	if err != nil {
@@ -522,20 +523,20 @@ func recorded(o, entry *catalogv1alpha1.OverlayEntry) bool {
 	return o != nil && o.ProfileRef == entry.ProfileRef && o.Digest == entry.Digest && o.RenderedFrom == entry.RenderedFrom
 }
 
-func (h *Handler) read(ctx context.Context, kind commonv1.MediaKind, key client.ObjectKey) (Item, error) {
-	obj, err := NewObject(kind)
+func (h *Handler) read(ctx context.Context, kind commonv1.MediaKind, key client.ObjectKey) (overlayplan.Item, error) {
+	obj, err := overlayplan.NewObject(kind)
 	if err != nil {
-		return Item{}, err
+		return overlayplan.Item{}, err
 	}
 	if err := h.Reader.Get(ctx, key, obj); err != nil {
 		if apierrors.IsNotFound(err) {
-			return Item{}, fmt.Errorf("%w: %s %s", errItemGone, kind, key)
+			return overlayplan.Item{}, fmt.Errorf("%w: %s %s", errItemGone, kind, key)
 		}
-		return Item{}, fmt.Errorf("artwork: get %s %s: %w", kind, key, err)
+		return overlayplan.Item{}, fmt.Errorf("artwork: get %s %s: %w", kind, key, err)
 	}
-	return ItemOf(obj)
+	return overlayplan.ItemOf(obj)
 }
 
-func objectKey(it Item, variant string) string {
+func objectKey(it overlayplan.Item, variant string) string {
 	return events.ArtworkKey(it.Kind, it.Object.GetUID(), string(catalogv1alpha1.ImageTypePoster), variant)
 }

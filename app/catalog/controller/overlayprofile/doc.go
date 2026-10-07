@@ -26,14 +26,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // match spec.selector (nil selects nothing; a malformed one selects nothing
 // and reports Ready=False, InvalidSelector) and whose kind is in
 // spec.kinds (unset: both). When several profiles select one item the
-// lowest name wins it -- the rule artwork.Winner states once for the
+// lowest name wins it -- the rule overlayplan.Winner states once for the
 // controller and the renderer alike -- and every other selecting profile
 // reports Overlap=True, as TranscodeProfile does. status.selected counts
 // the items a profile wins.
 //
 // # Hash
 //
-// status.hash is artwork.ProfileHash: overlay.TemplateSpec's corner and
+// status.hash is overlayplan.ProfileHash: overlay.TemplateSpec's corner and
 // geometry, plus the badges in order -- every render field and nothing
 // else, through the conversion the renderer draws from. It is the profile
 // half of every overlay's inputs digest (spec §C.6 step 2), so a render
@@ -43,7 +43,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // A reconcile publishes one RenderOverlayTask (reason "profile") for each
 // item whose status.overlay disagrees with what the renderer would now
-// draw -- artwork.Plan over the item's status.artwork poster entry, its
+// draw -- overlayplan.Plan over the item's status.artwork poster entry, its
 // ratings and the namespace's profiles -- when the item is one this profile
 // wins or one whose overlay names it. The second half is what removes an
 // overlay from an item that was relabelled out of the profile, or whose
