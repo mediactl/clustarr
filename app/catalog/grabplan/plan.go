@@ -68,7 +68,11 @@ type Candidate struct {
 	// Targets are the covered Episodes or Issues; empty for a single-item
 	// owner.
 	Targets []schema.ItemRef
-	At      time.Time
+	// Season is the season a season answer or a season search's pick is
+	// for (Wave S): its coverage, without the agent's, is the season's
+	// episodes its parsed facts name.
+	Season *int32
+	At     time.Time
 
 	// pending is the index of the stored pending grab this candidate came
 	// from (a delayed grab come due), -1 otherwise.
@@ -127,6 +131,9 @@ type View struct {
 	// PendingCap caps Pending (status.pendingGrabs' MaxItems; 1 for a
 	// single-item owner).
 	PendingCap int
+	// Anime is a Series' type being anime: pack preference
+	// (decision.CompareEpisodeCount) prefers more episodes then.
+	Anime bool
 }
 
 // Plan is Decide's answer.
@@ -142,15 +149,20 @@ type Plan struct {
 	Due    time.Time
 	Events []lifecycle.Event
 	// Decisions counts the plan's verdicts for metrics: "grabbed",
-	// "delayed", "grabLimited", "refused".
+	// "delayed", "grabLimited", "refused", and the release-level refusals
+	// "overlapsLive", "seasonNotAired" and "tooManyEpisodes" (Wave S).
 	Decisions map[string]int
 }
 
-// verdict is one candidate's re-check.
+// verdict is one candidate's re-check: the items it is taken for (items),
+// every item its coverage names (covered), or why it is refused (reason,
+// and the metric decision).
 type verdict struct {
-	c      Candidate
-	items  []Covered
-	reason string
+	c        Candidate
+	items    []Covered
+	covered  []Covered
+	reason   string
+	decision string
 }
 
 // Decide is the owner key's grab decision (ADR-0019 §6.6 steps 1-5).
@@ -184,7 +196,11 @@ func Decide(v View) Plan {
 	for _, c := range cands {
 		vd := d.check(c)
 		if vd.reason != "" {
-			d.settle(c, intake.Refused, "refused")
+			label := vd.decision
+			if label == "" {
+				label = decisionRefused
+			}
+			d.settle(c, intake.Refused, label)
 			continue
 		}
 		approved = append(approved, vd)
@@ -271,26 +287,52 @@ func (d *decider) check(c Candidate) verdict {
 		vd.reason = why
 		return vd
 	}
-	for _, it := range d.coverage(c) {
-		if d.itemOK(c, it) {
+	vd.covered = d.coverage(c)
+	if len(vd.covered) == 0 {
+		vd.reason = "no item it covers wants it"
+		return vd
+	}
+	// Each covered item's re-check, folded into the release's verdict
+	// (Wave S, §6.3): a live grab of an episode it covers refuses it
+	// whole unless it upgrades that grab, as does a full-season pack of a
+	// season still airing; P23 narrows it to the items that want it.
+	checks := make([]ItemCheck, len(vd.covered))
+	for i, it := range vd.covered {
+		checks[i] = d.itemCheck(c, it)
+	}
+	season := vd.covered[0].Season
+	if c.Season != nil {
+		season = *c.Season
+	}
+	if rejs := CoverageRejections(checks, season, c.Release.Parsed.FullSeason, c.Manual, c.Override); rejs != nil {
+		vd.reason, vd.decision = rejs[0].Reason, refusalDecision(rejs)
+		if vd.decision == decisionRefused {
+			// P23: a pack covering no wanted episode is refused; one
+			// covering some is taken as covering those.
+			vd.reason = "no item it covers wants it: " + rejs[0].Reason
+		}
+		return vd
+	}
+	for i, it := range vd.covered {
+		if len(checks[i].Rejections) == 0 {
 			vd.items = append(vd.items, it)
 		}
 	}
-	if len(vd.items) == 0 {
-		// P23: a pack covering no wanted episode is refused; one covering
-		// some is taken as covering those.
-		vd.reason = "no item it covers wants it"
+	if len(vd.items) > maxCovered {
+		// An entry names at most maxCovered episodes or issues; the rest of
+		// the payload would be attributed to nothing, so it is refused,
+		// never truncated (§6.3 rule 3).
+		vd.items = nil
+		vd.reason, vd.decision = "the release covers more wanted items than a grab can name", decisionTooManyEpisodes
 	}
 	return vd
 }
 
-// itemOK re-checks the candidate for one covered item: monitored and out
-// (unless a person picked it), and no item-state rejection it is not exempt
-// from.
-func (d *decider) itemOK(c Candidate, it Covered) bool {
-	if !c.Manual && (!it.Monitored || !it.Wanted) {
-		return false
-	}
+// itemStateRejections are pkg/decision's item-state rejections of the
+// candidate for one covered item: the queue preference over the live
+// entries, the current file, its cutoff and TranscodedFinal, the release
+// index's block and the owner's Blocklisted tombstones.
+func (d *decider) itemStateRejections(c Candidate, it Covered) []commonv1.Rejection {
 	rel := c.Release.Decision.ReleaseInfo
 	t := decision.Target{
 		Kind:                commonv1.MediaKind(strings.ToLower(it.Ref.Kind)),
@@ -304,12 +346,7 @@ func (d *decider) itemOK(c Candidate, it Covered) bool {
 		t.Donor = &decision.Donor{Rejected: it.DonorRejected}
 	}
 	dec := decision.Decision{Release: rel, Score: int(c.Release.Score)}
-	for _, rej := range decision.ItemStateRejections(ctxBackground, t, *d.v.Profile, dec, decision.Options{}) {
-		if !exempt(c, rej) {
-			return false
-		}
-	}
-	return true
+	return decision.ItemStateRejections(ctxBackground, t, *d.v.Profile, dec, decision.Options{})
 }
 
 // releaseOK is the agent's verdict, with a person's exemptions: an approved
@@ -331,18 +368,23 @@ func releaseOK(c Candidate) (bool, string) {
 	return true, ""
 }
 
-// exempt reports a rejection a person's pick passes (resolveGrab's rule).
+// exempt reports a rejection a person's pick passes (resolveGrab's rule):
+// with spec.override every permanent one; a pick TranscodedFinal,
+// FullSeasonNotAired (Wave S) and every temporary one.
 func exempt(c Candidate, rej commonv1.Rejection) bool {
 	if c.Override && rej.Type == commonv1.RejectionPermanent {
 		return true
 	}
-	return c.Manual && (decision.ReasonTranscodedFinal.Of(rej) || rej.Type == commonv1.RejectionTemporary)
+	return c.Manual && (decision.ReasonTranscodedFinal.Of(rej) || decision.ReasonFullSeasonNotAired.Of(rej) ||
+		rej.Type == commonv1.RejectionTemporary)
 }
 
 // better orders approved candidates best first (decision.Rank's order, P13,
 // over what a scored release carries): a person's pick, then quality tier,
-// revision (unless the profile does not prefer it), format score, how many
-// items it covers, indexer priority, the agent's own rank, and the newest.
+// revision (unless the profile does not prefer it), format score, then on
+// a Series Sonarr's CompareEpisodeCount (a whole season first, then anime
+// more episodes and any other series fewer; Wave S) and elsewhere more
+// items first, indexer priority, the agent's own rank, and the newest.
 func (d *decider) better(a, b verdict) bool {
 	if a.c.Manual != b.c.Manual {
 		return a.c.Manual
@@ -362,7 +404,12 @@ func (d *decider) better(a, b verdict) bool {
 			return a.c.Release.Score > b.c.Release.Score
 		}
 	}
-	if len(a.items) != len(b.items) {
+	if d.v.Kind == commonv1.MediaKindSeries {
+		if c := decision.CompareEpisodeCount(d.whole(a), len(a.items), d.whole(b), len(b.items), d.v.Anime); c != 0 {
+			return c < 0
+		}
+	} else if len(a.items) != len(b.items) {
+		// A Comic keeps more issues first.
 		return len(a.items) > len(b.items)
 	}
 	if pa, pb := priority(a.c.Release.IndexerPriority), priority(b.c.Release.IndexerPriority); pa != pb {
@@ -417,9 +464,10 @@ func coverKey(purpose commonv1.DownloadPurpose, it Covered) string {
 }
 
 // overlaps reports a candidate covering an item a grab or hold this pass
-// already covers.
+// already covers: every item its payload brings, not only those it is
+// taken for (Sonarr's IsEpisodeProcessed; Wave S, no episode twice).
 func (d *decider) overlaps(vd verdict) bool {
-	for _, it := range vd.items {
+	for _, it := range payload(vd) {
 		if d.taken[coverKey(vd.c.Purpose, it)] {
 			return true
 		}
@@ -428,9 +476,18 @@ func (d *decider) overlaps(vd verdict) bool {
 }
 
 func (d *decider) take(vd verdict) {
-	for _, it := range vd.items {
+	for _, it := range payload(vd) {
 		d.taken[coverKey(vd.c.Purpose, it)] = true
 	}
+}
+
+// payload is every item a verdict's release brings: its coverage, or the
+// items it is taken for when it has none recorded.
+func payload(vd verdict) []Covered {
+	if len(vd.covered) > 0 {
+		return vd.covered
+	}
+	return vd.items
 }
 
 // limitedUntil is when the candidate's indexer next has a grab slot, zero

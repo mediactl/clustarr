@@ -102,6 +102,9 @@ func (s *Stage) gatherInto(ctx context.Context, item client.Object, now time.Tim
 	if v.Kind == commonv1.MediaKindSeries || v.Kind == commonv1.MediaKindComic {
 		v.EntryCap, v.PendingCap = catalogv1alpha1.MaxContainerEntries, catalogv1alpha1.MaxContainerEntries
 	}
+	if ser, ok := item.(*catalogv1alpha1.Series); ok {
+		v.Anime = ser.Spec.SeriesType == catalogv1alpha1.SeriesTypeAnime
+	}
 
 	monitored, err := itemread.Monitored(ctx, r, item)
 	if err != nil {
@@ -231,7 +234,44 @@ func (s *Stage) candidates(ctx context.Context, item client.Object, g *gathered)
 		}
 		v.Candidates = append(v.Candidates, cs...)
 	}
+	if ser, ok := item.(*catalogv1alpha1.Series); ok {
+		cs, err := s.seasonAnswers(ctx, ser, v.Now)
+		if err != nil {
+			return err
+		}
+		v.Candidates = append(v.Candidates, cs...)
+	}
 	return nil
+}
+
+// seasonAnswers are a Series' season search answers still grab input
+// (Wave S, series search design §6.3): each Answered season of
+// status.seasonSearch whose answer is younger than grabplan.CandidateWindow,
+// read at the series' season key and taken only at the season's seq, so a
+// stage failure on the pass that brought an answer does not lose it. A
+// canceled request's answered seasons stay input inside their window; a
+// late answer to a canceled season is none.
+func (s *Stage) seasonAnswers(ctx context.Context, ser *catalogv1alpha1.Series, now time.Time) ([]grabplan.Candidate, error) {
+	st := ser.Status.SeasonSearch
+	if st == nil {
+		return nil, nil
+	}
+	var out []grabplan.Candidate
+	for _, se := range st.Seasons {
+		if se.Phase != catalogv1alpha1.SeasonSearchAnswered || se.AnsweredAt == nil || se.Seq == 0 ||
+			now.Sub(se.AnsweredAt.Time) > grabplan.CandidateWindow {
+			continue
+		}
+		rec, _, ok, err := s.searches.Get(ctx, agentrecords.SeasonSearchKey(string(ser.UID), se.Number))
+		if err != nil {
+			return nil, fmt.Errorf("grab: season %d record of %s: %w", se.Number, ser.Name, err)
+		}
+		if !ok || rec.Seq != se.Seq {
+			continue
+		}
+		out = append(out, grabplan.FromSeasonRecord(rec, se.Number, commonv1.GrabSourceSearch)...)
+	}
+	return out, nil
 }
 
 // donorRejected fills the covered item's donors a graft already failed

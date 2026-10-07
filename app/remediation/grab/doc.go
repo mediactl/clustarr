@@ -24,7 +24,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // (the RSS matcher's matches, a Search's picks), the owner's own search
 // answer and, for a Series or Comic, the answers of its covered Episodes or
 // Issues while each answers its item's current searchDispatch inside
-// grabplan.CandidateWindow (ruling R7) -- and the owner's fresh state from
+// grabplan.CandidateWindow (ruling R7), and a Series' season search answers
+// (Wave S: each Answered season of status.seasonSearch, read at the series'
+// season key at the season's seq inside the window) -- and the owner's fresh state from
 // the cache (its profile, delay profile, entries, pending grabs, covered
 // items and their current files, the DownloadClients' protocols, the
 // Indexers' seed criteria and the grab ring, read without reserving), runs

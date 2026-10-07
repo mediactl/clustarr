@@ -93,6 +93,11 @@ func FromParked(p intake.Parked) Candidate {
 		Manual: c.Manual, Override: c.Override, Targets: c.Targets, At: c.At, pending: -1,
 		NoDelay: c.SearchRef != nil,
 	}
+	if c.Season != nil {
+		// A season search's pick (Wave S): its coverage resolves it.
+		n := *c.Season
+		out.Season = &n
+	}
 	if out.At.IsZero() {
 		out.At = p.At
 	}

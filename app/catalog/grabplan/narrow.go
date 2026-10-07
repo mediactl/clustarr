@@ -52,9 +52,13 @@ func covers(e *catalogv1alpha1.DownloadEntry, it Covered) bool {
 }
 
 // coverage is the covered items a candidate names: the owner's one item,
-// or the container's items its targets name -- and, for a search answer,
-// every episode of the same season its parsed numbers name (a
-// multi-episode release found for one of them).
+// or the container's items its targets name -- and, on a Series, every
+// Episode the search agent's scene-mapped coverage names (any season: a
+// multi-season pack is judged against every episode it brings, Wave S).
+// Without the agent's coverage (an older agent's record): for a season
+// answer or a season search's pick, the searched season's episodes its
+// parsed facts name; for a search answer, every episode of the same season
+// its parsed numbers name (a multi-episode release found for one of them).
 func (d *decider) coverage(c Candidate) []Covered {
 	if len(d.v.Covered) == 0 {
 		return nil
@@ -75,6 +79,16 @@ func (d *decider) coverage(c Candidate) []Covered {
 			if (t.UID != "" && t.UID == it.Ref.UID) || (t.UID == "" && t.Name == it.Ref.Name) {
 				add(it)
 			}
+		}
+	}
+	if d.v.Kind == commonv1.MediaKindSeries && c.pending < 0 {
+		if cov := c.Release.Parsed.Coverage; cov != nil {
+			coveredBy(cov, d.v.Covered, add)
+			return out
+		}
+		if c.Season != nil {
+			seasonFacts(c.Release.Parsed, *c.Season, d.v.Covered, add)
+			return out
 		}
 	}
 	if c.MsgID == "" && c.pending < 0 && len(out) > 0 && strings.EqualFold(out[0].Ref.Kind, "Episode") {
@@ -103,7 +117,9 @@ func container(k commonv1.MediaKind) bool {
 	return k == commonv1.MediaKindSeries || k == commonv1.MediaKindComic
 }
 
-// numbers is the covered items' episode numbers and issue numbers.
+// numbers is the covered items' episode numbers and issue numbers. A
+// candidate covering more than maxCovered is refused before it is taken
+// (check), so nothing here truncates.
 func numbers(items []Covered) ([]catalogv1alpha1.EpisodeNumber, []string) {
 	var (
 		eps    []catalogv1alpha1.EpisodeNumber
@@ -116,12 +132,6 @@ func numbers(items []Covered) ([]catalogv1alpha1.EpisodeNumber, []string) {
 		case strings.EqualFold(it.Ref.Kind, "Episode"):
 			eps = append(eps, catalogv1alpha1.EpisodeNumber{Season: it.Season, Number: it.Number})
 		}
-	}
-	if len(eps) > maxCovered {
-		eps = eps[:maxCovered]
-	}
-	if len(issues) > maxCovered {
-		issues = issues[:maxCovered]
 	}
 	return eps, issues
 }

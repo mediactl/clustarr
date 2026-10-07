@@ -40,6 +40,18 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // spec.override (Candidate.Override) from every permanent one, the
 // Blocklisted tombstone included (§6.6 step 4).
 //
+// On a Series (Wave S, series search design §6.2-§6.4) a candidate covers
+// every Episode the search agent's scene-mapped coverage names, a season
+// search's answers among them (FromSeasonRecord). A release overlapping an
+// episode a live grab covers is refused whole unless it upgrades that grab
+// (Sonarr's QueueSpecification), a full-season pack of a season still
+// airing is refused unless picked by hand (FullSeasonSpecification), a
+// release covering more wanted episodes than an entry can name is refused,
+// never truncated, and pack preference is decision.CompareEpisodeCount;
+// CoverageRejections folds the per-episode re-checks, for the planner and
+// the Search controller alike. With the in-pass taken set over every
+// episode a payload brings, no episode is grabbed twice.
+//
 // StillWants is lifecycle's convergence input (§6.7): whether an unclaimed
 // transfer is still one the owner wants.
 package grabplan
