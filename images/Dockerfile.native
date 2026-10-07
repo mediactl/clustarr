@@ -151,7 +151,7 @@ RUN set -eux; \
 # against older versions, as the agent (bookworm, cgo) and BtbN's are.
 FROM debian:trixie-slim AS staging-base
 RUN apt-get update \
- && apt-get install -y --no-install-recommends pax-utils ca-certificates gcc binutils \
+ && apt-get install -y --no-install-recommends pax-utils ca-certificates gcc binutils upx-ucl \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=ffmpeg /out/ /
 COPY --from=ort /out/ /
@@ -187,6 +187,25 @@ RUN set -eux; \
     if nm -D --defined-only /staging/usr/lib/libav*.so.* /staging/usr/lib/libsw*.so.* | grep -q ' _Z'; then \
       echo 'FFmpeg exports C++ symbols beside ONNX Runtime' >&2; exit 1; \
     fi
+
+# Shrink what was staged. Every shared library -- FFmpeg's, the shim, ONNX
+# Runtime, glibc and libstdc++, the Intel runtime -- loses the symbols and
+# sections nothing links against (--strip-unneeded keeps .dynsym, which the
+# loader and the C++-symbol check above read); the stripped copy is moved
+# over the original, since the loader resolves the file by its soname. Then
+# the Go binaries are packed with UPX, after stage.sh and never in the build
+# stage: a packed executable hides the DT_NEEDED entries lddtree traces.
+# UPX_FLAGS sets the packing ("--ultra-brute" squeezes a few percent more, at
+# minutes per binary).
+ARG UPX_FLAGS="--best --lzma"
+RUN set -eux; \
+    find /staging -type f \( -name '*.so' -o -name '*.so.*' \) | while read -r lib; do \
+      readelf -h "${lib}" >/dev/null 2>&1 || continue; \
+      strip --strip-unneeded -o "${lib}-min.so" "${lib}"; \
+      mv "${lib}-min.so" "${lib}"; \
+    done; \
+    upx ${UPX_FLAGS} /staging/usr/bin/agent /staging/usr/bin/markers /staging/usr/bin/transcode; \
+    upx -t /staging/usr/bin/agent /staging/usr/bin/markers /staging/usr/bin/transcode
 
 # ---------------------------------------------------------------------------
 # native: FROM scratch, plus what one architecture alone needs

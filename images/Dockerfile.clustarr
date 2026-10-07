@@ -1,10 +1,10 @@
 # syntax=docker/dockerfile:1.7
 #
-# ghcr.io/mediactl/clustarr -- the manager and ui binaries, static and
-# cgo-free, on distroless (spec 2026-10-06 §10.1.2, R1). Everything that
-# loads FFmpeg, ONNX Runtime or par2 runs from images/Dockerfile.native. The
-# deps guards (test/guards/deps_test.go) keep both binaries free of a dynamic
-# loader, so they cross-compile from $BUILDPLATFORM.
+# ghcr.io/mediactl/clustarr -- the manager and ui binaries, static, cgo-free
+# and UPX-packed, on distroless (spec 2026-10-06 §10.1.2, R1). Everything
+# that loads FFmpeg, ONNX Runtime or par2 runs from images/Dockerfile.native.
+# The deps guards (test/guards/deps_test.go) keep both binaries free of a
+# dynamic loader, so they cross-compile from $BUILDPLATFORM.
 #
 # No ENTRYPOINT: the image holds two binaries, so every container names its
 # own (pkg/binpath; TestEveryContainerNamesItsBinary).
@@ -28,6 +28,13 @@ FROM --platform=$BUILDPLATFORM golang:${GO_VERSION} AS build
 ARG TARGETOS
 ARG TARGETARCH
 ARG VERSION=dev
+# UPX packs both binaries after the build; it packs any architecture's ELF,
+# so it runs on $BUILDPLATFORM like the compiler. UPX_FLAGS sets the packing
+# ("--ultra-brute" squeezes a few percent more, at minutes per binary).
+ARG UPX_FLAGS="--best --lzma"
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends upx-ucl \
+ && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
 ENV CGO_ENABLED=0 \
     GOFLAGS=-trimpath
@@ -44,7 +51,9 @@ RUN --mount=type=cache,target=/go/pkg/mod \
       -o /out/manager ./cmd/manager \
  && GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
       -ldflags "-s -w -X github.com/mediactl/clustarr/pkg/version.Version=${VERSION}" \
-      -o /out/ui ./cmd/ui
+      -o /out/ui ./cmd/ui \
+ && upx ${UPX_FLAGS} /out/manager /out/ui \
+ && upx -t /out/manager /out/ui
 
 # ---------------------------------------------------------------------------
 # clustarr: distroless static, non-root
