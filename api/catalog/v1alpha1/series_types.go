@@ -535,9 +535,18 @@ type SeriesStatus struct {
 	// +optional
 	PreviousAiring *metav1.Time `json:"previousAiring,omitempty"`
 
-	// LastSearchedAt is when the series was last searched for.
+	// LastSearchedAt is when the series was last searched for: the newest
+	// answeredAt of a finished series or season search, written with
+	// seasonSearch under catalog-grab.
 	// +optional
 	LastSearchedAt *metav1.Time `json:"lastSearchedAt,omitempty"`
+
+	// SeasonSearch is the person-requested series or season search the
+	// series serves or last served (Wave S): one paced season task at a
+	// time, written by the remediation loop's search stage under
+	// catalog-grab.
+	// +optional
+	SeasonSearch *SeasonSearchState `json:"seasonSearch,omitempty"`
 
 	// Artwork lists the images fetched into the artwork store, one per type.
 	// Written by the metadata gateway.

@@ -181,6 +181,15 @@ spec:
               query:
                 description: Query is a free-text search term.
                 type: string
+              season:
+                description: |-
+                  Season narrows a series search to one season (0 is the specials). With
+                  grabBest the series searches that season and grabs what it finds;
+                  without it this is an interactive season search, its results in
+                  status.results. Only with mediaRef.kind series.
+                format: int32
+                minimum: 0
+                type: integer
               ttl:
                 default: 1h
                 description: |-
@@ -193,6 +202,17 @@ spec:
             x-kubernetes-validations:
             - message: exactly one of query or mediaRef must be set
               rule: '(has(self.query) ? 1 : 0) + (has(self.mediaRef) ? 1 : 0) == 1'
+            - message: season needs mediaRef.kind series
+              rule: '!has(self.season) || (has(self.mediaRef) && self.mediaRef.kind
+                == ''series'')'
+            - message: 'a series search either grabs (grabBest) or names a season:
+                an interactive search is per season'
+              rule: '!has(self.mediaRef) || self.mediaRef.kind != ''series'' || has(self.season)
+                || (has(self.grabBest) && self.grabBest)'
+            - message: a series search with grabBest grabs through the series; spec.grab
+                needs an interactive season search
+              rule: '!has(self.mediaRef) || self.mediaRef.kind != ''series'' || !has(self.grabBest)
+                || !self.grabBest || !has(self.grab) || size(self.grab) == 0'
           status:
             description: SearchStatus describes the observed state of Search.
             properties:
@@ -355,6 +375,15 @@ spec:
                   status reflects.
                 format: int64
                 type: integer
+              otherTitles:
+                description: |-
+                  OtherTitles is how many of status.results, at their end, are for other
+                  titles: a WrongItem, UnknownItem or UnableToParse rejection. The ui
+                  collapses them; they stay so a person can override a mislabelled one.
+                format: int32
+                maximum: 200
+                minimum: 0
+                type: integer
               phase:
                 description: Phase is the coarse lifecycle state of the search.
                 enum:
@@ -399,6 +428,12 @@ spec:
                         type: integer
                       maxItems: 50
                       type: array
+                    coversSeason:
+                      description: |-
+                        CoversSeason marks, on a season search's results, a release covering
+                        every aired episode of the searched season: a full-season pack or an
+                        anime batch. The ui's season view lists these by default.
+                      type: boolean
                     downloadURL:
                       description: DownloadURL is the .torrent / .nzb download link.
                       type: string
@@ -638,6 +673,69 @@ spec:
                   type: object
                 maxItems: 200
                 type: array
+              seasons:
+                description: Seasons is a planned series search's progress, one entry
+                  per season.
+                items:
+                  description: |-
+                    SearchSeason is one season of a planned series search, as the Search
+                    reports it.
+                  properties:
+                    approved:
+                      description: Approved is how many of them were approved.
+                      format: int32
+                      minimum: 0
+                      type: integer
+                    grabbed:
+                      description: |-
+                        Grabbed is how many of the Series' grabs came from the season's
+                        approved releases.
+                      format: int32
+                      minimum: 0
+                      type: integer
+                    number:
+                      description: Number is the season number; 0 is the specials.
+                      format: int32
+                      minimum: 0
+                      type: integer
+                    phase:
+                      description: Phase is the season's phase, copied from the Series.
+                      enum:
+                      - Queued
+                      - Searching
+                      - Answered
+                      - Skipped
+                      - Failed
+                      - Canceled
+                      type: string
+                    reason:
+                      description: Reason says why the season was skipped, failed
+                        or canceled.
+                      enum:
+                      - NotMonitored
+                      - NothingWanted
+                      - AllDownloading
+                      - NoSuchSeason
+                      - AllPaced
+                      - TimedOut
+                      - AgentFailed
+                      - SearchDeleted
+                      type: string
+                    results:
+                      description: Results is how many releases the season's answer
+                        held.
+                      format: int32
+                      minimum: 0
+                      type: integer
+                  required:
+                  - number
+                  - phase
+                  type: object
+                maxItems: 200
+                type: array
+                x-kubernetes-list-map-keys:
+                - number
+                x-kubernetes-list-type: map
               startedAt:
                 description: StartedAt is when the search began.
                 format: date-time

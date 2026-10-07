@@ -218,6 +218,12 @@ func MsgIDForSearch(taskUID string, seq int64) string {
 	return fmt.Sprintf("search/%s/%d", taskUID, seq)
 }
 
+// MsgIDForSeasonSearch is a season task's Msg-Id (Wave S),
+// "season-search/<series uid>/<season>/<seq>".
+func MsgIDForSeasonSearch(seriesUID string, season int32, seq int64) string {
+	return fmt.Sprintf("season-search/%s/%d/%d", seriesUID, season, seq)
+}
+
 // Candidate Msg-Id origins (MsgIDForCandidate).
 const (
 	// CandidateMsgOriginRSS scopes a candidate by its owner's UID.

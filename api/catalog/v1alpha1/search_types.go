@@ -101,6 +101,9 @@ type GrabResult struct {
 // SearchSpec defines the desired state of Search.
 //
 // +kubebuilder:validation:XValidation:rule="(has(self.query) ? 1 : 0) + (has(self.mediaRef) ? 1 : 0) == 1",message="exactly one of query or mediaRef must be set"
+// +kubebuilder:validation:XValidation:rule="!has(self.season) || (has(self.mediaRef) && self.mediaRef.kind == 'series')",message="season needs mediaRef.kind series"
+// +kubebuilder:validation:XValidation:rule="!has(self.mediaRef) || self.mediaRef.kind != 'series' || has(self.season) || (has(self.grabBest) && self.grabBest)",message="a series search either grabs (grabBest) or names a season: an interactive search is per season"
+// +kubebuilder:validation:XValidation:rule="!has(self.mediaRef) || self.mediaRef.kind != 'series' || !has(self.grabBest) || !self.grabBest || !has(self.grab) || size(self.grab) == 0",message="a series search with grabBest grabs through the series; spec.grab needs an interactive season search"
 type SearchSpec struct {
 	// Query is a free-text search term.
 	// +optional
@@ -160,6 +163,48 @@ type SearchSpec struct {
 	// +optional
 	// +kubebuilder:default="1h"
 	TTL metav1.Duration `json:"ttl,omitempty"`
+
+	// Season narrows a series search to one season (0 is the specials). With
+	// grabBest the series searches that season and grabs what it finds;
+	// without it this is an interactive season search, its results in
+	// status.results. Only with mediaRef.kind series.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	Season *int32 `json:"season,omitempty"`
+}
+
+// PlannedBySeries reports a Search the Series key plans (Wave S): a series
+// or season search with grabBest. Its seasons are searched one at a time
+// by the Series, which grabs what they find; the Search mirrors the
+// Series' status.seasonSearch.
+func (s SearchSpec) PlannedBySeries() bool {
+	return s.MediaRef != nil && s.MediaRef.Kind == commonv1.MediaKindSeries && s.GrabBest
+}
+
+// SearchSeason is one season of a planned series search, as the Search
+// reports it.
+type SearchSeason struct {
+	// Number is the season number; 0 is the specials.
+	// +kubebuilder:validation:Minimum=0
+	Number int32 `json:"number"`
+	// Phase is the season's phase, copied from the Series.
+	Phase SeasonSearchPhase `json:"phase"`
+	// Reason says why the season was skipped, failed or canceled.
+	// +optional
+	Reason SeasonSearchReason `json:"reason,omitempty"`
+	// Results is how many releases the season's answer held.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	Results int32 `json:"results,omitempty"`
+	// Approved is how many of them were approved.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	Approved int32 `json:"approved,omitempty"`
+	// Grabbed is how many of the Series' grabs came from the season's
+	// approved releases.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	Grabbed int32 `json:"grabbed,omitempty"`
 }
 
 // SearchChildren counts a container Search's child Searches: one per
@@ -193,7 +238,9 @@ const MaxContainerChildren = 200
 // ContainerKind reports whether a Search on kind fans out into its
 // monitored children -- an author's books, an artist's albums, a comic's
 // issues -- rather than searching for the item itself. A series is not one:
-// television wants season packs, which this fan-out does not do.
+// television wants season packs, which this fan-out does not do; a series
+// is searched one season at a time by the Series itself (SearchSpec.Season,
+// PlannedBySeries).
 func ContainerKind(kind commonv1.MediaKind) bool {
 	switch kind {
 	case commonv1.MediaKindAuthor, commonv1.MediaKindArtist, commonv1.MediaKindComic:
@@ -253,6 +300,21 @@ type SearchStatus struct {
 	// or comic); absent on any other Search.
 	// +optional
 	Children *SearchChildren `json:"children,omitempty"`
+
+	// OtherTitles is how many of status.results, at their end, are for other
+	// titles: a WrongItem, UnknownItem or UnableToParse rejection. The ui
+	// collapses them; they stay so a person can override a mislabelled one.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=200
+	OtherTitles int32 `json:"otherTitles,omitempty"`
+
+	// Seasons is a planned series search's progress, one entry per season.
+	// +optional
+	// +listType=map
+	// +listMapKey=number
+	// +kubebuilder:validation:MaxItems=200
+	Seasons []SearchSeason `json:"seasons,omitempty"`
 }
 
 // +kubebuilder:object:root=true

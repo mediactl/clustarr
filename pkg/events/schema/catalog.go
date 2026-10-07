@@ -35,6 +35,9 @@ const (
 	SearchReasonCutoffUnmet SearchReason = "cutoffUnmet"
 	SearchReasonInteractive SearchReason = "interactive"
 	SearchReasonRedownload  SearchReason = "redownload"
+	// SearchReasonSeason is a season task of a person's series or season
+	// search, planned by the Series (Wave S).
+	SearchReasonSeason SearchReason = "season"
 )
 
 // MediaFileReason says why a media file event was emitted.
@@ -237,6 +240,11 @@ type SearchTask struct {
 	// Scope is the release index's block scope for the item (BlockScopeOf).
 	Scope string     `json:"scope,omitempty"`
 	Donor *DonorWant `json:"donor,omitempty"`
+	// Season makes a task on a Series a season search (Wave S): the
+	// series' season, searched as one query per indexer. The record is
+	// keyed agentrecords.SeasonSearchKey(series uid, season) for a season
+	// task the Series planned, the Search's UID for an interactive one.
+	Season *int32 `json:"season,omitempty"`
 }
 
 // DonorWant is what an audio donor search looks for (anime dual-audio spec

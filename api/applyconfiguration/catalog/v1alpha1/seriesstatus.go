@@ -79,8 +79,15 @@ type SeriesStatusApplyConfiguration struct {
 	NextAiring *metav1.Time `json:"nextAiring,omitempty"`
 	// PreviousAiring is when the most recent episode aired.
 	PreviousAiring *metav1.Time `json:"previousAiring,omitempty"`
-	// LastSearchedAt is when the series was last searched for.
+	// LastSearchedAt is when the series was last searched for: the newest
+	// answeredAt of a finished series or season search, written with
+	// seasonSearch under catalog-grab.
 	LastSearchedAt *metav1.Time `json:"lastSearchedAt,omitempty"`
+	// SeasonSearch is the person-requested series or season search the
+	// series serves or last served (Wave S): one paced season task at a
+	// time, written by the remediation loop's search stage under
+	// catalog-grab.
+	SeasonSearch *SeasonSearchStateApplyConfiguration `json:"seasonSearch,omitempty"`
 	// Artwork lists the images fetched into the artwork store, one per type.
 	// Written by the metadata gateway.
 	Artwork []ArtworkEntryApplyConfiguration `json:"artwork,omitempty"`
@@ -264,6 +271,14 @@ func (b *SeriesStatusApplyConfiguration) WithPreviousAiring(value metav1.Time) *
 // If called multiple times, the LastSearchedAt field is set to the value of the last call.
 func (b *SeriesStatusApplyConfiguration) WithLastSearchedAt(value metav1.Time) *SeriesStatusApplyConfiguration {
 	b.LastSearchedAt = &value
+	return b
+}
+
+// WithSeasonSearch sets the SeasonSearch field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the SeasonSearch field is set to the value of the last call.
+func (b *SeriesStatusApplyConfiguration) WithSeasonSearch(value *SeasonSearchStateApplyConfiguration) *SeriesStatusApplyConfiguration {
+	b.SeasonSearch = value
 	return b
 }
 

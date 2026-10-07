@@ -19,6 +19,7 @@ package schema
 
 import (
 	"encoding/json"
+	"strconv"
 	"time"
 )
 
@@ -58,10 +59,17 @@ type SearchRecord struct {
 	IndexerOutcomes []SearchOutcome `json:"indexerOutcomes,omitempty"`
 	// Candidates are the ranked releases, at most MaxSearchCandidates.
 	Candidates []ScoredRelease `json:"candidates,omitempty"`
+	// Season is the season a season task searched (Wave S); the header's
+	// Sub is SeasonSub(season) for one the Series planned.
+	Season *int32 `json:"season,omitempty"`
 }
 
 // Schema implements Payload and is RecordHeader.Schema on every value.
 func (SearchRecord) Schema() string { return "catalog.Search.v1" }
+
+// SeasonSub is a season search record's sub, "season-<n>": its key is
+// events.RecordSubKey(series uid, SeasonSub(n)).
+func SeasonSub(season int32) string { return "season-" + strconv.Itoa(int(season)) }
 
 // MetadataInputs are what a metadata refresh was asked for (ADR-0019 §7.1):
 // a record answers a task only when its inputs equal the item's last ask.

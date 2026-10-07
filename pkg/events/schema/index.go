@@ -295,6 +295,12 @@ type SearchRequest struct {
 	// release in the reply carries Blocked for it or the global scope
 	// (ADR-0019 §6.14).
 	Scope string `json:"scope,omitempty"`
+
+	// Anime marks a request for an anime series (Wave S): a season request
+	// keeps its Season for an indexer that takes ids, while a text query
+	// gets the title alone with the indexer's anime categories, since anime
+	// packs are named by absolute range or "Batch", never S01.
+	Anime bool `json:"anime,omitempty"`
 }
 
 // Schema implements Payload.

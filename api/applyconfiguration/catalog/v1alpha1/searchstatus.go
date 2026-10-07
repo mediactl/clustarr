@@ -50,6 +50,12 @@ type SearchStatusApplyConfiguration struct {
 	// Children counts a container Search's child Searches (author, artist
 	// or comic); absent on any other Search.
 	Children *SearchChildrenApplyConfiguration `json:"children,omitempty"`
+	// OtherTitles is how many of status.results, at their end, are for other
+	// titles: a WrongItem, UnknownItem or UnableToParse rejection. The ui
+	// collapses them; they stay so a person can override a mislabelled one.
+	OtherTitles *int32 `json:"otherTitles,omitempty"`
+	// Seasons is a planned series search's progress, one entry per season.
+	Seasons []SearchSeasonApplyConfiguration `json:"seasons,omitempty"`
 }
 
 // SearchStatusApplyConfiguration constructs a declarative configuration of the SearchStatus type for use with
@@ -144,5 +150,26 @@ func (b *SearchStatusApplyConfiguration) WithGrabbed(values ...*GrabResultApplyC
 // If called multiple times, the Children field is set to the value of the last call.
 func (b *SearchStatusApplyConfiguration) WithChildren(value *SearchChildrenApplyConfiguration) *SearchStatusApplyConfiguration {
 	b.Children = value
+	return b
+}
+
+// WithOtherTitles sets the OtherTitles field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the OtherTitles field is set to the value of the last call.
+func (b *SearchStatusApplyConfiguration) WithOtherTitles(value int32) *SearchStatusApplyConfiguration {
+	b.OtherTitles = &value
+	return b
+}
+
+// WithSeasons adds the given value to the Seasons field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Seasons field.
+func (b *SearchStatusApplyConfiguration) WithSeasons(values ...*SearchSeasonApplyConfiguration) *SearchStatusApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithSeasons")
+		}
+		b.Seasons = append(b.Seasons, *values[i])
+	}
 	return b
 }

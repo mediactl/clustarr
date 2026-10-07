@@ -34,7 +34,10 @@ import (
 // grab entry's engine command and import -- so the sub tells them apart.
 // Planners and the advisory intake (ADR-0019 §8.2) build keys from these.
 const (
-	DispatchSubSearch       = "search"
+	DispatchSubSearch = "search"
+	// DispatchSubSeasonSearch is a Series' season search dispatch (Wave S):
+	// status.seasonSearch.dispatch, one season task in flight at a time.
+	DispatchSubSeasonSearch = "season-search"
 	DispatchSubMetadata     = "metadata"
 	DispatchSubArtworkFetch = "artwork-fetch"
 	DispatchSubOverlay      = "overlay"
@@ -115,7 +118,13 @@ func ResolveDispatch(subject string, env *events.Envelope) (t Target, seq int64,
 		default:
 			t = Resolve(env)
 		}
-		return t, p.Seq, DispatchSubSearch, t.KindKnown()
+		sub = DispatchSubSearch
+		if p.Season != nil && p.SearchRef == nil {
+			// A season task the Series planned: its status.seasonSearch
+			// dispatch, not an item's searchDispatch.
+			sub = DispatchSubSeasonSearch
+		}
+		return t, p.Seq, sub, t.KindKnown()
 	case schema.MetadataTask{}.Schema():
 		t = Resolve(env)
 		return t, 0, DispatchSubMetadata, t.KindKnown()
@@ -208,8 +217,8 @@ type DispatchID struct {
 	UID string
 	Seq int64
 	Sub string
-	// Kind is "MediaFile" when the shape names it; ""
-	// for an item, a Search or an entry.
+	// Kind is "MediaFile" when the shape names it, "Series" for a season
+	// search; "" for an item, a Search or an entry.
 	Kind string
 	// Entry marks a UID that is a grab entry's, found through its owner's
 	// status.downloads.
@@ -217,7 +226,7 @@ type DispatchID struct {
 }
 
 // ParseDispatchID reads the Msg-Id shapes of the dispatched tasks
-// (pkg/events: MsgIDForSearch, MsgIDForEngineCommand[AfterBoot],
+// (pkg/events: MsgIDForSearch, MsgIDForSeasonSearch, MsgIDForEngineCommand[AfterBoot],
 // MsgIDForImport, MsgIDForProbe, MsgIDForMarkers[At],
 // MsgIDForTranscodeTask). A resync's, an unidentified removal's and every
 // other shape is not ok.
@@ -231,6 +240,13 @@ func ParseDispatchID(id string) (DispatchID, bool) {
 	case len(parts) == 3 && parts[0] == "search":
 		if n, ok := num(parts[2]); ok && parts[1] != "" {
 			return DispatchID{UID: parts[1], Seq: n, Sub: DispatchSubSearch}, true
+		}
+	case len(parts) == 4 && parts[0] == "season-search":
+		// MsgIDForSeasonSearch: season-search/<series uid>/<season>/<seq>.
+		if n, ok := num(parts[3]); ok && parts[1] != "" {
+			if _, ok := num(parts[2]); ok {
+				return DispatchID{UID: parts[1], Seq: n, Sub: DispatchSubSeasonSearch, Kind: "Series"}, true
+			}
 		}
 	case (len(parts) == 3 || len(parts) == 4) && parts[0] == "engine":
 		if n, ok := num(parts[2]); ok && parts[1] != "" {

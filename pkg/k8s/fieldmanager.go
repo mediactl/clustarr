@@ -89,7 +89,9 @@ const (
 	// (ADR-0019 §6.6, §7.3; A4.1, A4.2), one complete set per item pass,
 	// written only from cmd/manager: status.pendingGrab (pendingGrabs on a
 	// Series or Comic), status.searchDispatch, status.lastSearchedAt,
-	// status.searchAttempts and status.donorSearchAttempts. The two stages
+	// status.searchAttempts and status.donorSearchAttempts -- and, on a
+	// Series, status.seasonSearch and status.lastSearchedAt beside
+	// pendingGrabs (Wave S: the search stage's season planner). The two stages
 	// contribute to one set, and a pass in which either failed applies none
 	// of it (remediation.SetDeclarer), so neither releases the other's
 	// fields. The grab worker, the RSS matcher's grab and the search worker's

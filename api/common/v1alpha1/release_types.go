@@ -245,4 +245,10 @@ type ReleaseDecision struct {
 	// Rank is the release's position in the ranked result set; lower is better.
 	// +optional
 	Rank int32 `json:"rank,omitempty"`
+
+	// CoversSeason marks, on a season search's results, a release covering
+	// every aired episode of the searched season: a full-season pack or an
+	// anime batch. The ui's season view lists these by default.
+	// +optional
+	CoversSeason bool `json:"coversSeason,omitempty"`
 }

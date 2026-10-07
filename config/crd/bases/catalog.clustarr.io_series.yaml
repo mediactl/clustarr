@@ -1178,7 +1178,10 @@ spec:
                 format: int32
                 type: integer
               lastSearchedAt:
-                description: LastSearchedAt is when the series was last searched for.
+                description: |-
+                  LastSearchedAt is when the series was last searched for: the newest
+                  answeredAt of a finished series or season search, written with
+                  seasonSearch under catalog-grab.
                 format: date-time
                 type: string
               metadata:
@@ -1881,6 +1884,201 @@ spec:
                 description: PreviousAiring is when the most recent episode aired.
                 format: date-time
                 type: string
+              seasonSearch:
+                description: |-
+                  SeasonSearch is the person-requested series or season search the
+                  series serves or last served (Wave S): one paced season task at a
+                  time, written by the remediation loop's search stage under
+                  catalog-grab.
+                properties:
+                  dispatch:
+                    description: |-
+                      Dispatch is the season task in flight (the season whose phase is
+                      Searching); Seq > AnsweredSeq while one is out.
+                    properties:
+                      answeredSeq:
+                        description: |-
+                          AnsweredSeq is the Seq of the last dispatch closed: by an incorporated
+                          answer, a withdrawal or a timeout. A task is in flight while
+                          Seq > AnsweredSeq.
+                        format: int64
+                        minimum: 0
+                        type: integer
+                      delivery:
+                        description: |-
+                          Delivery is what the manager knows about the task between publish
+                          and answer. Written on transitions only (ADR-0019 §8.3), never per
+                          nak.
+                        properties:
+                          attempts:
+                            description: Attempts is the deliveries count of the last
+                              nak the manager recorded.
+                            format: int32
+                            type: integer
+                          deadLetteredAt:
+                            format: date-time
+                            type: string
+                          lastNakAt:
+                            format: date-time
+                            type: string
+                          message:
+                            maxLength: 256
+                            type: string
+                          reason:
+                            description: |-
+                              Reason when waiting or retrying: Budget, Paced, NoAgent,
+                              NoCapableAgent, EngineNotReady, Rebuilding, Nak.
+                            maxLength: 64
+                            type: string
+                          state:
+                            description: |-
+                              DeliveryPhase is where a dispatched task is between its publish and its
+                              answer (ADR-0019 §8.3).
+                            enum:
+                            - waiting
+                            - published
+                            - claimed
+                            - retrying
+                            - deadLettered
+                            type: string
+                        required:
+                        - state
+                        type: object
+                      destination:
+                        description: |-
+                          Destination is the durable, pool or engine instance the task went to
+                          (ADR-0019 §8.3).
+                        maxLength: 253
+                        type: string
+                      dispatchedAt:
+                        description: |-
+                          DispatchedAt is when Seq was issued; the republish window and the
+                          request timeout run from it.
+                        format: date-time
+                        type: string
+                      seq:
+                        description: Seq is the sequence of the last task issued for
+                          this remediation.
+                        format: int64
+                        minimum: 1
+                        type: integer
+                      withdrawn:
+                        description: |-
+                          Withdrawn is true when the dispatch at Seq was closed by a withdrawal,
+                          not by an answer. For transcode and graft a fact (a change already
+                          made on disk) can still land after that: the planner keeps reading
+                          the record while Withdrawn is true and now < DispatchedAt +
+                          records.FactWindow, and incorporates a fact at Seq whatever the phase
+                          (§4.10, §5.9). Incorporating it clears Withdrawn.
+                        type: boolean
+                    required:
+                    - dispatchedAt
+                    - seq
+                    type: object
+                  finishedAt:
+                    description: FinishedAt is when every season reached a final phase.
+                    format: date-time
+                    type: string
+                  request:
+                    description: Request is the Search this state serves.
+                    properties:
+                      name:
+                        description: Name is the Search's name.
+                        maxLength: 253
+                        type: string
+                      uid:
+                        description: |-
+                          UID is the Search's uid: a Search recreated under the same name is
+                          another request.
+                        maxLength: 36
+                        type: string
+                    required:
+                    - name
+                    - uid
+                    type: object
+                  seasons:
+                    description: Seasons are the seasons asked for, ascending, each
+                      with its outcome.
+                    items:
+                      description: SeasonSearchSeason is one season of a series search.
+                      properties:
+                        answeredAt:
+                          description: AnsweredAt is when the season's answer was
+                            incorporated.
+                          format: date-time
+                          type: string
+                        approved:
+                          description: Approved is how many of them were approved.
+                          format: int32
+                          minimum: 0
+                          type: integer
+                        attempts:
+                          description: |-
+                            Attempts counts the season's dispatches: a season every indexer
+                            paced goes once more to the back of the queue.
+                          format: int32
+                          maximum: 2
+                          minimum: 0
+                          type: integer
+                        candidates:
+                          description: Candidates is how many releases the answer
+                            held.
+                          format: int32
+                          minimum: 0
+                          type: integer
+                        number:
+                          description: Number is the season number; 0 is the specials.
+                          format: int32
+                          minimum: 0
+                          type: integer
+                        phase:
+                          description: Phase is where the season is.
+                          enum:
+                          - Queued
+                          - Searching
+                          - Answered
+                          - Skipped
+                          - Failed
+                          - Canceled
+                          type: string
+                        reason:
+                          description: Reason says why the season was skipped, failed
+                            or canceled.
+                          enum:
+                          - NotMonitored
+                          - NothingWanted
+                          - AllDownloading
+                          - NoSuchSeason
+                          - AllPaced
+                          - TimedOut
+                          - AgentFailed
+                          - SearchDeleted
+                          type: string
+                        seq:
+                          description: |-
+                            Seq is the dispatch seq this season's task carried; its record
+                            answers at it, and the grab stage reads the record only at it.
+                          format: int64
+                          minimum: 0
+                          type: integer
+                      required:
+                      - number
+                      - phase
+                      type: object
+                    maxItems: 200
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - number
+                    x-kubernetes-list-type: map
+                  startedAt:
+                    description: StartedAt is when the Series took the request.
+                    format: date-time
+                    type: string
+                required:
+                - request
+                - seasons
+                - startedAt
+                type: object
               seasons:
                 description: Seasons is the per-season rollup.
                 items:

@@ -55,6 +55,11 @@ type Candidate struct {
 	Purpose   commonv1.DownloadPurpose `json:"purpose,omitempty"`
 	Release   ScoredRelease            `json:"release"`
 	At        time.Time                `json:"at"`
+	// Season is the season an interactive season search's pick was found
+	// for (Wave S): the owner resolves what it covers from the release's
+	// coverage, and without one from the season's episodes its parsed
+	// numbers name.
+	Season *int32 `json:"season,omitempty"`
 }
 
 // Schema implements Payload.
@@ -71,6 +76,31 @@ type ParsedFacts struct {
 	FullSeason  bool   `json:"fullSeason,omitempty"`
 	MultiSeason bool   `json:"multiSeason,omitempty"`
 	Issue       string `json:"issue,omitempty"`
+	// Coverage is what the release covers in the series' stored numbering,
+	// after its scene mapping (decision.CoverageOf); nil for a non-episode
+	// kind or an unparsed title. Each of its lists holds at most
+	// MaxCoverageNumbers entries.
+	Coverage *ReleaseCoverage `json:"coverage,omitempty"`
+}
+
+// MaxCoverageNumbers caps each list of a ReleaseCoverage.
+const MaxCoverageNumbers = 1000
+
+// ReleaseCoverage is a release's coverage in a series' stored (TVDB)
+// numbering, read through its TheXEM scene table first (Wave S): whole
+// seasons it is a pack of, the season and episode pairs it names, and the
+// absolute numbers no pair accounted for. At most MaxCoverageNumbers
+// entries in each list.
+type ReleaseCoverage struct {
+	FullSeasons []int32         `json:"fullSeasons,omitempty"`
+	Episodes    []SeasonEpisode `json:"episodes,omitempty"`
+	Absolute    []int32         `json:"absolute,omitempty"`
+}
+
+// SeasonEpisode is one episode by season and number.
+type SeasonEpisode struct {
+	Season  int32 `json:"season"`
+	Episode int32 `json:"episode"`
 }
 
 // ScoredRelease is one release an agent evaluated against an item's

@@ -4096,6 +4096,27 @@ var schemaYAML = typed.YAMLObject(`types:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.ListMeta
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.SearchPhase
   scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.SearchSeason
+  map:
+    fields:
+    - name: approved
+      type:
+        scalar: numeric
+    - name: grabbed
+      type:
+        scalar: numeric
+    - name: number
+      type:
+        scalar: numeric
+    - name: phase
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.SeasonSearchPhase
+    - name: reason
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.SeasonSearchReason
+    - name: results
+      type:
+        scalar: numeric
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.SearchSpec
   map:
     fields:
@@ -4139,6 +4160,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: query
       type:
         scalar: string
+    - name: season
+      type:
+        scalar: numeric
     - name: ttl
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Duration
@@ -4179,6 +4203,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: observedGeneration
       type:
         scalar: numeric
+    - name: otherTitles
+      type:
+        scalar: numeric
     - name: phase
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.SearchPhase
@@ -4188,6 +4215,14 @@ var schemaYAML = typed.YAMLObject(`types:
           elementType:
             namedType: com.github.mediactl.clustarr.api.common.v1alpha1.ReleaseDecision
           elementRelationship: atomic
+    - name: seasons
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.SearchSeason
+          elementRelationship: associative
+          keys:
+          - number
     - name: startedAt
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
@@ -4206,6 +4241,69 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: url
       type:
         scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.SeasonSearchPhase
+  scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.SeasonSearchReason
+  scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.SeasonSearchRequest
+  map:
+    fields:
+    - name: name
+      type:
+        scalar: string
+    - name: uid
+      type:
+        scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.SeasonSearchSeason
+  map:
+    fields:
+    - name: answeredAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: approved
+      type:
+        scalar: numeric
+    - name: attempts
+      type:
+        scalar: numeric
+    - name: candidates
+      type:
+        scalar: numeric
+    - name: number
+      type:
+        scalar: numeric
+    - name: phase
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.SeasonSearchPhase
+    - name: reason
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.SeasonSearchReason
+    - name: seq
+      type:
+        scalar: numeric
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.SeasonSearchState
+  map:
+    fields:
+    - name: dispatch
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.Dispatch
+    - name: finishedAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: request
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.SeasonSearchRequest
+    - name: seasons
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.SeasonSearchSeason
+          elementRelationship: associative
+          keys:
+          - number
+    - name: startedAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.SeasonSpec
   map:
     fields:
@@ -4642,6 +4740,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: previousAiring
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: seasonSearch
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.SeasonSearchState
     - name: seasons
       type:
         list:
@@ -5255,6 +5356,9 @@ var schemaYAML = typed.YAMLObject(`types:
           elementType:
             scalar: numeric
           elementRelationship: atomic
+    - name: coversSeason
+      type:
+        scalar: boolean
     - name: downloadURL
       type:
         scalar: string

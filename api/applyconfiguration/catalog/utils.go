@@ -283,12 +283,20 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &catalogv1alpha1.SearchApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("SearchChildren"):
 		return &catalogv1alpha1.SearchChildrenApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("SearchSeason"):
+		return &catalogv1alpha1.SearchSeasonApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("SearchSpec"):
 		return &catalogv1alpha1.SearchSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("SearchStatus"):
 		return &catalogv1alpha1.SearchStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("SeasonImage"):
 		return &catalogv1alpha1.SeasonImageApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("SeasonSearchRequest"):
+		return &catalogv1alpha1.SeasonSearchRequestApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("SeasonSearchSeason"):
+		return &catalogv1alpha1.SeasonSearchSeasonApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("SeasonSearchState"):
+		return &catalogv1alpha1.SeasonSearchStateApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("SeasonSpec"):
 		return &catalogv1alpha1.SeasonSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("SeasonStatus"):

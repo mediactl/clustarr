@@ -60,6 +60,11 @@ type SearchSpecApplyConfiguration struct {
 	// the Search controller floors a zero (or negative) one to this default
 	// rather than delete a Search the moment it answers.
 	TTL *v1.Duration `json:"ttl,omitempty"`
+	// Season narrows a series search to one season (0 is the specials). With
+	// grabBest the series searches that season and grabs what it finds;
+	// without it this is an interactive season search, its results in
+	// status.results. Only with mediaRef.kind series.
+	Season *int32 `json:"season,omitempty"`
 }
 
 // SearchSpecApplyConfiguration constructs a declarative configuration of the SearchSpec type for use with
@@ -153,5 +158,13 @@ func (b *SearchSpecApplyConfiguration) WithGrabBest(value bool) *SearchSpecApply
 // If called multiple times, the TTL field is set to the value of the last call.
 func (b *SearchSpecApplyConfiguration) WithTTL(value v1.Duration) *SearchSpecApplyConfiguration {
 	b.TTL = &value
+	return b
+}
+
+// WithSeason sets the Season field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Season field is set to the value of the last call.
+func (b *SearchSpecApplyConfiguration) WithSeason(value int32) *SearchSpecApplyConfiguration {
+	b.Season = &value
 	return b
 }
