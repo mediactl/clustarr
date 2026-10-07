@@ -126,7 +126,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		if want.RecordedBy(it.Overlay) {
 			continue
 		}
-		if err := overlayplan.Publish(ctx, r.Bus, it, Token(want, it), overlayplan.ReasonProfile); err != nil {
+		if err := publish(ctx, r.Bus, it, Token(want, it), overlayplan.ReasonProfile); err != nil {
 			pubErrs = append(pubErrs, err)
 			continue
 		}
@@ -272,4 +272,22 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 			ReconciliationTimeout: 5 * time.Minute,
 		}).
 		Complete(r)
+}
+
+// publish publishes one RenderOverlayTask for it under
+// schema.MsgIDForRenderOverlay(uid, token), on
+// events.WorkArtworkRenderSubject -- the subject the render consumer reads.
+// It lives here, in the manager, rather than in overlayplan, which the
+// catalog agent links: no package an agent links publishes a task
+// (ADR-0019 §9.2).
+func publish(ctx context.Context, bus events.Publisher, it overlayplan.Item, token, reason string) error {
+	subject, env, err := overlayplan.Task(it, token, reason, time.Now())
+	if err != nil {
+		return err
+	}
+	if _, err := bus.Publish(ctx, subject, env); err != nil {
+		return fmt.Errorf("overlayprofile: publish the render task for %s %s/%s: %w",
+			it.Kind, it.Object.GetNamespace(), it.Object.GetName(), err)
+	}
+	return nil
 }

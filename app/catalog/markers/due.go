@@ -22,8 +22,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // metadata domain's marker worker: Due and DueAt decide when a file needs
 // asking, Plan decides the status block and the request (pure), Records is
 // the loop's read half of clustarr-markers, Answers the worker's write half,
-// and TaskMessage and DeferredTask build the task. Nothing here writes
-// MediaFile status: the loop applies what Plan decides.
+// and TaskMessage and ResumeMessage build the task, which only the loop
+// publishes (a deferral's too, at its reset: ADR-0019 §5.6). Nothing here
+// writes MediaFile status: the loop applies what Plan decides.
 package markers
 
 import (

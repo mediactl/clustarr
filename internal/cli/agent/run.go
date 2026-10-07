@@ -64,17 +64,19 @@ func Run(ctx context.Context, o Options) error {
 	k8s.RegisterRESTClientMetrics()
 
 	// 5. The manager: no lease, non-leader controllers, Secret and
-	// ConfigMap uncached.
+	// ConfigMap uncached, a read-only client (ADR-0019 §9.2), and Event
+	// recorders that discard (§7.7): an agent writes no Kubernetes object.
 	cfg := o.RESTConfig
 	if cfg == nil {
 		if cfg, err = ctrl.GetConfig(); err != nil {
 			return fmt.Errorf("agent: kubeconfig: %w", err)
 		}
 	}
-	mgr, err := ctrl.NewManager(cfg, k8s.WithBaseContext(managerOptions(o), ctx))
+	built, err := ctrl.NewManager(cfg, k8s.WithBaseContext(managerOptions(o), ctx))
 	if err != nil {
 		return fmt.Errorf("agent: %w", err)
 	}
+	mgr := k8s.AgentManager(built)
 
 	// 6. The bus.
 	raw, nc, err := busconn.Connect(o.NATSURL, "agent-"+o.Domain, busconn.WithHooks(obs.BusHooks()))

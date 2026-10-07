@@ -260,12 +260,29 @@ func (o Options) ManagerOptions(leaderElectionID string, leaderElect bool) ctrl.
 // a Secret or a ConfigMap: every read is a by-name Get, which its roles
 // allow, where an informer would need list and watch grants no agent role
 // holds.
+//
+// An agent never writes the Kubernetes API (ADR-0019 §9.2): the manager's
+// client is wrapped in ReadOnly, so a write left in an agent fails with
+// ErrAgentWrite and counts clustarr_agent_write_refused_total{verb}, even
+// where an installer bound a role with a write verb. Its Event recorders
+// discard: the agent wraps its manager in AgentManager.
 func (o Options) AgentManagerOptions() ctrl.Options {
 	opts := o.ManagerOptions("", false)
 	opts.Controller.NeedLeaderElection = new(false)
 	opts.Client.FieldOwner = string(DefaultFieldOwner)
 	opts.Client.Cache = &client.CacheOptions{DisableFor: []client.Object{&corev1.Secret{}, &corev1.ConfigMap{}}}
+	opts.NewClient = newReadOnlyClient
 	return opts
+}
+
+// newReadOnlyClient is controller-runtime's default client.New, wrapped in
+// ReadOnly: an agent manager's client (AgentManagerOptions).
+func newReadOnlyClient(cfg *rest.Config, o client.Options) (client.Client, error) {
+	c, err := client.New(cfg, o)
+	if err != nil {
+		return nil, err
+	}
+	return ReadOnly(c), nil
 }
 
 // WithBaseContext gives the manager's runnables ctx as their base context.

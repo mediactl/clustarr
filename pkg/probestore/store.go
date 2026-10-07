@@ -18,8 +18,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Package probestore is the MediaFile probe record protocol (spec 2026-10-06
 // §6.5.2): one record per MediaFile UID in the clustarr-probes bucket, every
 // write a compare-and-swap, nobody deleting one (the bucket's TTL does).
-// catalog's MediaFile reconciler requests and publishes; the import
+// The remediation loop's probe planner requests (NewRequest, written as a
+// records effect) and publishes (TaskMessage), in the manager; the import
 // domain's probe worker answers; an importer seeds the probe it already ran.
+// Nothing here publishes: the import agent links this package, and no agent
+// publishes a task (ADR-0019 §9.2).
 // Since the fold it is pkg/records' probe remediation (loop spec 2026-10-06
 // §4.12): the protocol is records', and this package keeps the probe's own
 // names, its Carry and its task. It imports pkg/events, its schema and
@@ -40,10 +43,9 @@ import (
 	"github.com/mediactl/clustarr/pkg/version"
 )
 
-// Bus is what the store needs of the bus: the bucket and the probe stream.
+// Bus is what the store needs of the bus: the clustarr-probes bucket.
 // Every events.Bus is one.
 type Bus interface {
-	events.Publisher
 	KV(bucket string) events.KV
 }
 
@@ -206,29 +208,6 @@ func TaskMessage(rec schema.ProbeRecord, now time.Time) (subject, msgID string, 
 	subject = events.WorkProbeSubject(events.Priority(rec.Lane),
 		events.MediaKey("mediafile", rec.MediaFile.Namespace, rec.MediaFile.Name))
 	return subject, msgID, env, nil
-}
-
-// Request writes NewRequest(want, prev, now) at prev's revision. A lost
-// compare-and-swap is ErrConflict. The caller then Publishes the task.
-func (s *Store) Request(ctx context.Context, want Want, prev Current) (schema.ProbeRecord, error) {
-	rec := NewRequest(want, prev, s.now())
-	if _, err := s.q.Request(ctx, events.ProbeKey(want.MediaFile.UID), prev.Revision, &rec); err != nil {
-		return schema.ProbeRecord{}, err
-	}
-	return rec, nil
-}
-
-// Publish puts rec's task on its lane under its Msg-Id. A republish inside
-// the stream's one-hour window is absorbed; a full queue is events.ErrQueueFull.
-func (s *Store) Publish(ctx context.Context, rec schema.ProbeRecord) error {
-	subject, id, env, err := TaskMessage(rec, s.now())
-	if err != nil {
-		return err
-	}
-	if _, err := s.bus.Publish(ctx, subject, env, events.WithMsgID(id), events.WithExpectStream(events.StreamWorkProbe)); err != nil {
-		return fmt.Errorf("probestore: publish the probe of %s: %w", rec.MediaFile, err)
-	}
-	return nil
 }
 
 // Superseded reports whether t's answer would be dropped: a newer request

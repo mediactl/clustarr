@@ -128,10 +128,13 @@ func Register(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options) 
 // Get, but usenet.BuildClient also needs the full client.Client shape (it
 // reads Secrets through the same client), so this builds one from the
 // manager's own Config/Scheme/RESTMapper rather than mixing reader types.
+//
+// It is wrapped in k8s.ReadOnly like the manager's own client (ADR-0019
+// §9.2): the engine only reads.
 func directClient(mgr ctrl.Manager) (client.Client, error) {
 	c, err := client.New(mgr.GetConfig(), client.Options{Scheme: mgr.GetScheme(), Mapper: mgr.GetRESTMapper()})
 	if err != nil {
 		return nil, fmt.Errorf("grab: build direct apiserver client: %w", err)
 	}
-	return c, nil
+	return k8s.ReadOnly(c), nil
 }

@@ -119,9 +119,9 @@ func (a *Adapter) input(v *remediation.View, in Input, s *catalogv1alpha1.MediaF
 	return pin
 }
 
-// Plan is catalogmarkers.Plan over the draft's probe, its request and
-// republish turned into effects (the record write, then the task), and the
-// segment plan published when analysis is due.
+// Plan is catalogmarkers.Plan over the draft's probe, its request,
+// republish and a deferral's resume turned into effects (the record write,
+// then the task), and the segment plan published when analysis is due.
 func (a *Adapter) Plan(v *remediation.View, in Input, out *catalogv1alpha1.MediaFileStatus) (remediation.Result, error) {
 	var res remediation.Result
 	if !in.Read {
@@ -149,6 +149,15 @@ func (a *Adapter) Plan(v *remediation.View, in Input, out *catalogv1alpha1.Media
 			continue
 		}
 		subject, id, env, err := catalogmarkers.TaskMessage(*rec, v.Now.Time)
+		if err != nil {
+			return res, err
+		}
+		res.Effects = append(res.Effects, remediation.Publish{Subject: subject, MsgID: id, ExpectStream: events.StreamWorkMarkers, Envelope: env})
+	}
+	if d.Resume != nil {
+		// A deferral's reset: the worker deferred and acked; the loop
+		// republishes (ADR-0019 §5.6).
+		subject, id, env, err := catalogmarkers.ResumeMessage(*d.Resume, v.Now.Time)
 		if err != nil {
 			return res, err
 		}

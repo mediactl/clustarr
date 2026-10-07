@@ -110,13 +110,28 @@ func (a *Answers) Answer(ctx context.Context, t schema.MarkersTask, ans schema.M
 
 // TaskMessage is the subject, Msg-Id and envelope of rec's task.
 func TaskMessage(rec schema.MarkersRecord, now time.Time) (subject, msgID string, env *events.Envelope, err error) {
-	return taskMessage(schema.MarkersTask{File: rec.MediaFile, Seq: rec.Seq, Inputs: rec.Inputs, SeriesKey: rec.SeriesKey},
-		events.MsgIDForMarkers(rec.MediaFile.UID, rec.Seq), now)
+	return taskMessage(taskOf(rec), events.MsgIDForMarkers(rec.MediaFile.UID, rec.Seq), now)
+}
+
+// ResumeMessage is the task of rec, deferred to its DeferredUntil, which
+// the loop publishes once that reset has come (Decision.Resume): under
+// events.MsgIDForMarkersAt, so neither the first publish's Msg-Id nor an
+// earlier deferral's absorbs it.
+func ResumeMessage(rec schema.MarkersRecord, now time.Time) (subject, msgID string, env *events.Envelope, err error) {
+	if rec.DeferredUntil == nil {
+		return "", "", nil, fmt.Errorf("markers: the record of %s is not deferred", rec.MediaFile.Name)
+	}
+	return DeferredTask(taskOf(rec), now, *rec.DeferredUntil)
 }
 
 // DeferredTask is t republished for at, a spent key's reset.
 func DeferredTask(t schema.MarkersTask, now, at time.Time) (subject, msgID string, env *events.Envelope, err error) {
 	return taskMessage(t, events.MsgIDForMarkersAt(t.File.UID, t.Seq, at), now)
+}
+
+// taskOf is the task rec asks for.
+func taskOf(rec schema.MarkersRecord) schema.MarkersTask {
+	return schema.MarkersTask{File: rec.MediaFile, Seq: rec.Seq, Inputs: rec.Inputs, SeriesKey: rec.SeriesKey}
 }
 
 func taskMessage(t schema.MarkersTask, id string, now time.Time) (string, string, *events.Envelope, error) {

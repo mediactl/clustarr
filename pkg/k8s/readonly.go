@@ -24,7 +24,10 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime"
 	toolsevents "k8s.io/client-go/tools/events"
+	"k8s.io/client-go/tools/record"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	crrecorder "sigs.k8s.io/controller-runtime/pkg/recorder"
 
 	"github.com/mediactl/clustarr/pkg/obs/metrics"
 )
@@ -37,8 +40,9 @@ var ErrAgentWrite = errors.New("k8s: agents never write the Kubernetes API (ADR-
 // and SubResource(...), return ErrAgentWrite and count
 // clustarr_agent_write_refused_total{verb}. A subresource's Get passes
 // through. It is the runtime half of the guard whose static half is the
-// agents' read-only roles; it is wired into the agent's manager options in
-// A7.1, once no agent package writes (ruling R13).
+// agents' read-only roles: AgentManagerOptions wraps every agent manager's
+// client in it (A7.1, ruling R13), and an agent that builds a client of its
+// own wraps that too.
 func ReadOnly(c client.Client) client.Client { return readOnlyClient{Client: c} }
 
 // refuse counts and returns the refusal of verb on obj.
@@ -115,7 +119,43 @@ func (s readOnlySubResource) Apply(_ context.Context, obj runtime.ApplyConfigura
 // nothing: an agent emits no Kubernetes Event (ADR-0019 §7.7).
 type DiscardingRecorder struct{}
 
-var _ toolsevents.EventRecorder = DiscardingRecorder{}
+var (
+	_ toolsevents.EventRecorder = DiscardingRecorder{}
+	_ crrecorder.EventRecorder  = DiscardingRecorder{}
+)
 
 // Eventf implements k8s.io/client-go/tools/events.EventRecorder.
 func (DiscardingRecorder) Eventf(_, _ runtime.Object, _, _, _, _ string, _ ...any) {}
+
+// AnnotatedEventf implements k8s.io/client-go/tools/events.AnnotatedEventRecorder.
+func (DiscardingRecorder) AnnotatedEventf(_, _ runtime.Object, _ map[string]string, _, _, _, _ string, _ ...any) {
+}
+
+// discardingLegacyRecorder is DiscardingRecorder for the core/v1 Events API
+// controller-runtime still offers (GetEventRecorderFor).
+type discardingLegacyRecorder struct{}
+
+var _ record.EventRecorder = discardingLegacyRecorder{}
+
+func (discardingLegacyRecorder) Event(runtime.Object, string, string, string)          {}
+func (discardingLegacyRecorder) Eventf(runtime.Object, string, string, string, ...any) {}
+func (discardingLegacyRecorder) AnnotatedEventf(runtime.Object, map[string]string, string, string, string, ...any) {
+}
+
+// AgentManager wraps an agent's manager (ADR-0019 §7.7, §9.2): every Event
+// recorder it hands out discards. controller-runtime has no option that
+// replaces its events.k8s.io broadcaster (Options.EventBroadcaster is
+// deprecated and covers only the core/v1 API), so the agent hands its
+// domains this manager instead of the one ctrl.NewManager returned. Its
+// client is the ReadOnly one AgentManagerOptions built.
+func AgentManager(mgr ctrl.Manager) ctrl.Manager { return agentManager{Manager: mgr} }
+
+type agentManager struct{ ctrl.Manager }
+
+// GetEventRecorderFor returns a recorder that records nothing.
+func (agentManager) GetEventRecorderFor(string) record.EventRecorder {
+	return discardingLegacyRecorder{}
+}
+
+// GetEventRecorder returns a recorder that records nothing.
+func (agentManager) GetEventRecorder(string) crrecorder.EventRecorder { return DiscardingRecorder{} }

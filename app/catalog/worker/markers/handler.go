@@ -30,7 +30,6 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/metadata"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
-	"github.com/mediactl/clustarr/pkg/records"
 )
 
 // ErrNotAsked is a NotFound decided without asking a provider.
@@ -52,7 +51,6 @@ type Handler struct {
 	Providers  []metadata.MarkersProvider
 	Clock      func() time.Time
 	Answers    *catalogmarkers.Answers // writes as this pod (NewAnswers' writer)
-	Bus        events.Publisher        // a deferral's republish at the reset
 	MaxDeliver uint64                  // the consumer's; the last delivery answers failed
 
 	// absent remembers, for SeriesAbsentTTL, each series the provider has
@@ -63,9 +61,10 @@ type Handler struct {
 }
 
 // deferAfter is the longest limit a task waits out in its in-flight slot.
-// A longer one -- TheIntroDB's daily allowance -- defers the record and is
-// published again for the reset, so the durable's slots serve the tasks that
-// need no request.
+// A longer one -- TheIntroDB's daily allowance -- defers the record and
+// acks; the remediation loop publishes the task again at the reset
+// (ADR-0019 §5.6: no agent publishes a task), so the durable's slots serve
+// the tasks that need no request.
 const deferAfter = 5 * time.Minute
 
 // SeriesAbsentTTL is how long a series the provider lacks answers for its
@@ -105,21 +104,11 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 	}
 	var rl *metadata.RateLimitedError
 	switch {
-	case errors.As(err, &rl) && rl.RetryAfter > deferAfter && h.Bus != nil:
-		until := now.Add(rl.RetryAfter)
-		v, derr := h.Answers.Defer(ctx, task, until)
-		if derr != nil {
+	case errors.As(err, &rl) && rl.RetryAfter > deferAfter:
+		// Deferred, or superseded or answered meanwhile: either way ack.
+		// The record's DeferredUntil wakes the loop, which republishes.
+		if _, derr := h.Answers.Defer(ctx, task, now.Add(rl.RetryAfter)); derr != nil {
 			return events.Retry(rl.RetryAfter, errors.Join(err, derr))
-		}
-		if v != records.Wrote {
-			return nil // superseded or answered meanwhile: nothing to defer
-		}
-		subject, id, denv, perr := catalogmarkers.DeferredTask(task, now, until)
-		if perr == nil {
-			_, perr = h.Bus.Publish(ctx, subject, denv, events.WithMsgID(id), events.WithScheduleAt(until))
-		}
-		if perr != nil {
-			return events.Retry(rl.RetryAfter, errors.Join(err, perr))
 		}
 		return nil
 	case errors.As(err, &rl):

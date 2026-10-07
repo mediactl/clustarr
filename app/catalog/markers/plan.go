@@ -67,10 +67,14 @@ type Decision struct {
 	Markers   *catalogv1alpha1.FileMarkers // the block to apply; Prev when nothing changed
 	Request   *schema.MarkersRecord        // write at Input.RecordRev, then publish
 	Republish *schema.MarkersRecord
-	Due       time.Time
-	Again     bool
-	Unpaced   bool
-	Notes     []Note
+	// Resume is a deferred record whose reset has come: publish its task
+	// again under ResumeMessage's Msg-Id. The worker defers and acks; the
+	// loop owns the republish (ADR-0019 §5.6), so no agent publishes a task.
+	Resume  *schema.MarkersRecord
+	Due     time.Time
+	Again   bool
+	Unpaced bool
+	Notes   []Note
 }
 
 // Plan is the markers planner (loop spec §4.12): it incorporates TheIntroDB's
@@ -140,7 +144,17 @@ func Plan(in Input) Decision {
 		}
 	case in.RecordOK && rec.Inputs.ProbeHash == in.ProbeHash && rec.State == records.StateDeferred && rec.DeferredUntil != nil &&
 		in.Now.Before(rec.DeferredUntil.Add(markersRequestTimeout)):
+		// A spent key's reset: wait for it, then republish the task for
+		// records.RepublishWindow (its Msg-Id names the reset, so the
+		// stream absorbs the repeats); the request timeout asks afresh.
 		d.Due = rec.DeferredUntil.Add(markersRequestTimeout)
+		switch until := *rec.DeferredUntil; {
+		case in.Now.Before(until):
+			d.Due = until
+		case in.Now.Sub(until) < records.RepublishWindow:
+			r := rec
+			d.Resume = &r
+		}
 	case in.PacedUntil.After(in.Now):
 		d.Due = in.PacedUntil
 	default:

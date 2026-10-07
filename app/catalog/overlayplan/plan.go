@@ -18,7 +18,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package overlayplan
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -340,18 +339,3 @@ const RenderNone = "none"
 
 // ReasonPlan is the Reason of the item key's render task (ADR-0019 §7.2).
 const ReasonPlan = "plan"
-
-// Publish publishes one RenderOverlayTask for it under
-// schema.MsgIDForRenderOverlay(uid, token), on
-// events.WorkArtworkRenderSubject -- the subject the render consumer reads.
-func Publish(ctx context.Context, bus events.Publisher, it Item, token, reason string) error {
-	subject, env, err := Task(it, token, reason, time.Now())
-	if err != nil {
-		return err
-	}
-	if _, err := bus.Publish(ctx, subject, env); err != nil {
-		return fmt.Errorf("artwork: publish the render task for %s %s/%s: %w",
-			it.Kind, it.Object.GetNamespace(), it.Object.GetName(), err)
-	}
-	return nil
-}

@@ -41,7 +41,7 @@ func Setup(ctx context.Context, o Options, providers []metadata.MarkersProvider)
 		return nil, fmt.Errorf("markers: consumer %q missing from the default topology", events.ConsumerCatalogMarkers)
 	}
 	h := &Handler{
-		Providers: providers, Bus: o.Bus, Answers: catalogmarkers.NewAnswers(o.Bus, o.Writer),
+		Providers: providers, Answers: catalogmarkers.NewAnswers(o.Bus, o.Writer),
 		MaxDeliver: uint64(max(spec.MaxDeliver, 0)),
 	}
 	stop, err = o.Bus.Subscribe(ctx, spec.Subscription(), h.Handle)
