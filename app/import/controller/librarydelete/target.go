@@ -33,6 +33,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/fsops"
+	"github.com/mediactl/clustarr/pkg/subtitles"
 )
 
 // ErrRefused is a delete that would reach outside the item: nothing is
@@ -66,13 +67,26 @@ func (t Target) Owns(ref commonv1.MediaRef) bool {
 	return slices.ContainsFunc(ref.Keys, func(k string) bool { return t.Keys[TargetKey(ref.Kind, k)] })
 }
 
-// paths is every file path and sidecar the target's MediaFiles record.
+// paths is every file path and sidecar the target's MediaFiles record, and
+// every subtitle beside a file that its stem names -- squasharr's own,
+// which no MediaFile records (MP4 standard §4.1).
 func (t Target) paths() []string {
 	var out []string
+	seen := map[string]bool{}
+	add := func(p string) {
+		if !seen[p] {
+			seen[p] = true
+			out = append(out, p)
+		}
+	}
 	for _, mf := range t.Files {
-		out = append(out, mf.Spec.Path)
+		add(mf.Spec.Path)
 		for _, sc := range mf.Status.Sidecars {
-			out = append(out, sc.Path)
+			add(sc.Path)
+		}
+		found, _ := subtitles.SidecarsOf(mf.Spec.Path) // an unreadable folder adds none
+		for _, p := range found {
+			add(p)
 		}
 	}
 	return out

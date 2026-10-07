@@ -18,6 +18,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package subtitles
 
 import (
+	"errors"
+	"io/fs"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -150,4 +153,30 @@ func ParseSidecar(videoStem, name string) (LangKey, bool) {
 		return "", false
 	}
 	return FormatLangKey(lang, forced, hi), true
+}
+
+// SidecarsOf is every file beside the video at videoPath that ParseSidecar
+// attributes to it: recorded or not -- squasharr writes the source's own
+// subtitles beside a transcode (MP4 standard §4.1), and no MediaFile lists
+// them. A folder that cannot be read has none.
+func SidecarsOf(videoPath string) ([]string, error) {
+	dir := filepath.Dir(videoPath)
+	stem := strings.TrimSuffix(filepath.Base(videoPath), filepath.Ext(videoPath))
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, e := range entries {
+		if !e.Type().IsRegular() {
+			continue
+		}
+		if _, ok := ParseSidecar(stem, e.Name()); ok {
+			out = append(out, filepath.Join(dir, e.Name()))
+		}
+	}
+	return out, nil
 }

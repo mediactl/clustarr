@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -35,6 +36,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/pkg/subtitles"
 )
 
 // The reasons a [RenameOutcome] carries. A move that happened has none.
@@ -286,15 +288,29 @@ func moveSidecars(ctx context.Context, sidecars []catalogv1alpha1.Sidecar, from,
 		return
 	}
 	log := logging.FromContext(ctx)
+	// The recorded sidecars, and every subtitle beside the file its stem
+	// names -- squasharr's own, which no MediaFile records (MP4 standard
+	// §4.1).
+	paths := map[string]bool{}
 	for _, s := range sidecars {
-		if filepath.Dir(s.Path) != filepath.Dir(from) || !strings.HasPrefix(s.Path, oldStem+".") {
+		paths[s.Path] = true
+	}
+	found, err := subtitles.SidecarsOf(from)
+	if err != nil {
+		log.Warn("could not list a renamed file's folder for its sidecars", "file", from, "error", err)
+	}
+	for _, p := range found {
+		paths[p] = true
+	}
+	for _, p := range slices.Sorted(maps.Keys(paths)) {
+		if filepath.Dir(p) != filepath.Dir(from) || !strings.HasPrefix(p, oldStem+".") {
 			continue
 		}
-		dst := newStem + strings.TrimPrefix(s.Path, oldStem)
-		if err := fsops.MoveNoReplace(s.Path, dst); errors.Is(err, fsops.ErrExists) {
-			log.Warn("a sidecar's renamed path is taken; leaving it under the old name", "sidecar", s.Path, "to", dst)
-		} else if err != nil {
-			log.Warn("could not move a sidecar with its renamed file", "sidecar", s.Path, "to", dst, "error", err)
+		dst := newStem + strings.TrimPrefix(p, oldStem)
+		if err := fsops.MoveNoReplace(p, dst); errors.Is(err, fsops.ErrExists) {
+			log.Warn("a sidecar's renamed path is taken; leaving it under the old name", "sidecar", p, "to", dst)
+		} else if err != nil && !errors.Is(err, fs.ErrNotExist) {
+			log.Warn("could not move a sidecar with its renamed file", "sidecar", p, "to", dst, "error", err)
 		}
 	}
 }

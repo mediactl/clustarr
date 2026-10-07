@@ -33,6 +33,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/pkg/subtitles"
 )
 
 // ErrOutsideRootFolder is a MediaFile whose path does not lie strictly under
@@ -154,6 +155,14 @@ func recycleMediaFiles(
 		paths := []string{mf.Spec.Path}
 		for _, sc := range mf.Status.Sidecars {
 			paths = append(paths, sc.Path)
+		}
+		// squasharr's own sidecars, which no MediaFile records (MP4
+		// standard §4.1).
+		found, _ := subtitles.SidecarsOf(mf.Spec.Path)
+		for _, p := range found {
+			if !slices.Contains(paths, p) {
+				paths = append(paths, p)
+			}
 		}
 		// Check every path before moving any, so a MediaFile with one
 		// out-of-root sidecar is left whole rather than half recycled.

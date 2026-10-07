@@ -212,3 +212,17 @@ func TestRemoveFromDiskRemovesTheItemsDonors(t *testing.T) {
 	assert.NoDirExists(t, donors)
 	assert.FileExists(t, other, "another item's donor stays")
 }
+
+// A delete takes the transcode's own sidecars with the file, which no
+// MediaFile records (final review I2).
+func TestTargetPathsIncludeUnrecordedSidecars(t *testing.T) {
+	dir := t.TempDir()
+	video := filepath.Join(dir, "Film (2020).mp4")
+	ass := filepath.Join(dir, "Film (2020).en.ass")
+	require.NoError(t, os.WriteFile(video, []byte("v"), 0o644))
+	require.NoError(t, os.WriteFile(ass, []byte("s"), 0o644))
+	var mf catalogv1alpha1.MediaFile
+	mf.Spec.Path = video
+	tg := Target{Files: []catalogv1alpha1.MediaFile{mf}}
+	assert.Contains(t, tg.paths(), ass)
+}
