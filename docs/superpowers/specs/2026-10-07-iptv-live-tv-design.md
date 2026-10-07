@@ -113,8 +113,9 @@ Both are the first kinds of the `clustarr.io/v1alpha1` group, in
 `api/clustarr/v1alpha1`:
 
 - **`IPTVProvider`** (short name `iptv`) holds the provider's settings. Its
-  controller gives it one Service, its address in Plex. Its tuner is a
-  runnable of the manager (§5), not a pod of its own.
+  controller packs its channels into blocks, each one Plex device on a port
+  of its own (§3.1, §5.0). Its tuner is a runnable of the manager (§5), not
+  a pod of its own.
 - **`IPTVChannel`** (short name `iptvch`) holds one mapped channel: a
   candidate the owner activated or customised. Its full model is in §3.0.
   - **Why a kind of its own:** with no cap, the mappings cannot be a list in
@@ -250,6 +251,11 @@ type ChannelEPG struct {
 
 type DeviceSpec struct {
 	FriendlyName string `json:"friendlyName,omitempty"` // default "Clustarr <name>"
+	// ID pins the first block's DeviceID: eight hex digits, unique among
+	// every provider's blocks (§3.1). Later blocks derive theirs from it.
+	// Unset, every DeviceID is a hash (§3.2).
+	// +kubebuilder:validation:Pattern=`^[0-9A-F]{8}$`
+	ID string `json:"id,omitempty"`
 }
 
 type StreamSpec struct {
@@ -326,10 +332,13 @@ changes DVR loses the Plex recording rules made on it.
 
 **What each block is in Plex:**
 - an HDHomeRun device of its own:
-  - DeviceID from a hash of namespace, name and the block's `start`;
+  - DeviceID from a hash of namespace, name and the block's `start`, or,
+    for the first block, `spec.device.id` when set;
   - FriendlyName `<device.friendlyName> <start>+`, e.g. "Sling 1000+";
-- its own `lineup.json` and XMLTV guide, holding only its channels;
-- its own Service and address (§5.0);
+- its own `lineup.json`, and an XMLTV guide that is a subset of the feeds:
+  only its channels, and their programmes for `guideDays` (§4.3);
+- its own port, reached on a link-local address inside each Plex pod
+  (§5.0);
 - its own DVR, whose lineup title is the FriendlyName.
 
 A title names only the block's start, which never changes, because Plex
@@ -338,6 +347,32 @@ fixes a DVR's title at creation.
 **Tuners:** every block's device advertises `spec.tuners`. The relay
 enforces the provider-wide limit (§5.2). When every tuner is busy, a stream
 on another block's DVR gets 503, which Plex shows as "tuner busy".
+
+**What no two registrations share.** A registration is one block: one
+device, one port, one DVR. Across every provider in the cluster:
+- **Device IDs are unique.**
+  - Derived IDs are hashes, so they differ by construction.
+  - An explicit `spec.device.id` is checked against every other block's
+    ID. The provider created later reads `Ready=False`, reason
+    `DuplicateDeviceID`.
+  - cluster-plex also refuses a DeviceID that Plex already has at another
+    address, a real HDHomeRun or another proxy (§6.1).
+- **Number ranges do not overlap.**
+  - Within a provider, blocks are disjoint by construction.
+  - Across providers, the controller checks each provider's span, from its
+    lowest active number to its highest, against every other's. The
+    provider created later reads `Ready=False`, reason `NumberRangeOverlap`,
+    naming the other provider and the shared span.
+  - Disjoint spans also make every GuideNumber, and so every XMLTV channel
+    id, unique cluster-wide.
+- **Each block has one registering owner.** Only the cluster-plex lease
+  holder registers, and a Lease per block keeps a second cluster-plex
+  installation from registering it in another Plex (§6.1).
+
+**A conflict never removes a DVR.** A provider that fails one of these keeps
+its last good `status.blocks`, so Plex keeps what it had. Only the new
+state is withheld until the conflict is fixed. The UI's auto-numbering
+starts a new provider past every existing span.
 
 **What is gone:** the 480 CEL rule and the UI's `/ 480` refusal. The UI
 shows the active count and the number of blocks.
@@ -375,15 +410,20 @@ The reconciler is the sole writer of status, under `k8s.ManagerLiveTV`.
   - `PlaylistFetched`;
   - `GuidesFetched`;
 - `observedGeneration`;
+- `address`: the tuner Service, where the Plex pods' proxies send each
+  block's port (§5.0);
 - `blocks[]` (§3.1), `MaxItems=32`, ordered by `start`, one per Plex DVR:
   - `start`: the block's boundary, the number its channels begin at;
   - `channels`, `first` and `last`: its active channels and the numbers
     they span;
   - `mapBytes`: the size of its channel-map query;
-  - `deviceID`: eight hex digits from a hash of namespace, name and
-    `start`, so a recreated CR gives the same devices;
-  - `address`: the block's Service ClusterIP, which cluster-plex registers
-    with PMS (§6.1);
+  - `deviceID`: eight hex digits, from `spec.device.id` or a hash of
+    namespace, name and `start` (§3.1), so a recreated CR gives the same
+    devices;
+  - `port`: the block's port (§5.0). The Plex pods' proxies listen on it,
+    and the tuner routes by it;
+  - `owner`: the cluster-plex installation registered for the block, read
+    from its Lease (§6.1). Empty while none holds it;
   - `guideURL`: XEPG only;
   - `lineupHash`: a hash of the block's `lineup.json`. A change tells
     cluster-plex to save that DVR's channel map again;
@@ -444,7 +484,10 @@ counts, filters and previews the UI shows are the ones Plex gets.
     dropdown;
   - with a set of wanted channel ids, those channels' programmes from now
     to now plus `guideDays` (7).
-- **`BuildGuide(lineup, sources) []byte`** writes the XEPG guide:
+- **`BuildGuide(block, sources) []byte`** writes one block's XEPG guide, a
+  subset of the feeds: only the block's channels, and only their
+  programmes inside `guideDays`. So a guide grows with its block, never
+  with the provider's feed:
   - one `<channel id="<number>">` per active channel, since Plex maps an
     XMLTV channel to a lineup entry by the GuideNumber, as xTeVe does;
   - its programmes, timeshifted;
@@ -504,27 +547,55 @@ tuner beside the IPTVProvider controller as a leader-only runnable
 - **The manager's image:** pure Go and distroless. The tuner links no ffgo
   or purego, so the manager's own dynamic-loader guard still holds.
 
-### 5.0 One address per block
+### 5.0 One port per block, on a link-local address in each Plex pod
 
 Plex adds a device by an address and reads `/discover.json` at its root.
-So each block (§3.1), which is one device, needs an address of its own:
+Plex treats one IP on different ports as different devices. So every block
+shares one tuner address, and each block gets a port of its own.
 
-- **A Service per block:** the controller (§6) gives each block its own
-  Service, `livetv-<hash of ns/name/start>`.
-  - It lives in the manager's namespace: a selector reaches only its own
-    namespace's pods.
-  - It selects the manager pod, port 80 to `5004`.
-  - Its ClusterIP is `status.blocks[].address`.
-- **Routing:**
-  - **At the root:** Plex sends `Host: <the address it was given>`. The
-    tuner routes `/discover.json`, `/lineup_status.json`, `/device.xml`,
-    `/lineup.json` and `/lineup.post` to the block whose `address` that
-    host is. An unknown host at the root gets 404.
-  - **Everything else:** each URL the tuner hands out is absolute under
-    `http://<address>/livetv/<ns>/<name>/<start>/`. That covers `BaseURL`,
-    `LineupURL`, the stream URLs and the guide URL. So every later request
-    names its provider and block in the path, which also serves curl and
-    the e2e tests.
+**clustarr's side:**
+- **One Service for every provider:** `livetv`, rendered by the chart and
+  kustomize, selecting the manager pod, port 80 to `5004`. Its address is
+  `status.address`.
+- **A port per block:** the IPTVProvider controller allocates
+  `status.blocks[].port` from `--livetv-port-range`, default `47000-47999`.
+  - Ports are unique across every provider. The controller is the one
+    writer, and it sees every provider through its cache.
+  - A block keeps its port for life, and a port is never reused while a
+    block holds it. If two providers claim one port (after a status was
+    lost), the older provider keeps it and the other gets a new one.
+
+**cluster-plex's side (§6.1):**
+- **A link-local address:** every Plex pod adds the same address,
+  `plex.liveTV.localAddress` (default `169.254.47.1`), to its loopback
+  interface. The supervisor does this at start; the Plex container is
+  privileged.
+  - Link-local, not loopback: it is never routed beyond the pod, and it is
+    the same in every pod.
+  - It avoids the link-local addresses clusters already use: cloud
+    metadata at `169.254.169.254`, and NodeLocal DNSCache at
+    `169.254.20.10` or `169.254.25.10`.
+- **A proxy per block:** each pod runs one of its supervisor's byte-level
+  TCP proxies (`pkg/proxy.TCP`) per block, listening on
+  `<localAddress>:<port>` and forwarding to `status.address`.
+  - Every pod runs the full set, not only the lease holder, from a
+    read-only watch of the IPTVProviders. The listeners are up before PMS
+    starts.
+  - So the device address Plex stores, `http://169.254.47.1:<port>`, is the
+    same on every pod and never moves.
+  - It also works for a remote transcode, which runs on one of the same
+    Plex pods.
+
+**Routing in the tuner:**
+- **By port:** the proxy passes bytes untouched, so the tuner sees PMS's
+  own `Host: 169.254.47.1:<port>`. It routes `/discover.json`,
+  `/lineup_status.json`, `/device.xml`, `/lineup.json` and `/lineup.post`
+  to the block holding that port. An unknown port gets 404.
+- **Its URLs:** `BaseURL`, `LineupURL`, the stream URLs and the guide URL
+  are built from that `Host`. So every later request, streams included,
+  returns through the same proxy port.
+- **By path, for curl and the e2e tests:** `/livetv/<ns>/<name>/<start>/…`
+  on any host.
 - **A stream URL keeps working when its channel changes block.** The relay
   is per provider, so `stream/<number>` answers under any of the
   provider's blocks.
@@ -614,7 +685,7 @@ This is xTeVe's own buffer, minus the ffmpeg and VLC options:
 
 | Path | Serves |
 |---|---|
-| `/discover.json`, `/lineup_status.json`, `/device.xml`, `/lineup.json`, `/lineup.post` | §2 for one block, routed by `Host` (§5.0), from `pkg/iptv/hdhr` |
+| `/discover.json`, `/lineup_status.json`, `/device.xml`, `/lineup.json`, `/lineup.post` | §2 for one block, routed by the port in `Host` (§5.0), from `pkg/iptv/hdhr` |
 | `/livetv/<ns>/<name>/<start>/{discover.json,lineup.json,…}` | the same, by path |
 | `/livetv/<ns>/<name>/<start>/xmltv.xml` | the block's XEPG guide, only its channels (404 under PMS) |
 | `/livetv/<ns>/<name>/<start>/stream/<number>` | §5.2; any of the provider's numbers, under any of its blocks |
@@ -624,8 +695,10 @@ This is xTeVe's own buffer, minus the ffmpeg and VLC options:
 Metrics ride the manager's own `/metrics`.
 
 **Authentication:** the surface has none, because Plex sends none. The
-Services are ClusterIP only, and nothing in the chart routes an Ingress to
-them: whoever reaches a stream watches on the owner's subscription.
+`livetv` Service is ClusterIP only, and nothing in the chart routes an
+Ingress to it: whoever reaches a stream watches on the owner's
+subscription. The block ports exist only inside the Plex pods, on a
+link-local address.
 
 **The NetworkPolicy (on by default):**
 - **What it selects:** the manager pod.
@@ -673,23 +746,17 @@ There is no channel label: a channel name is a title.
 
 `cmd/manager` registers the controller beside the tuner.
 
-**Each block's Service (§5.0):**
-- **Created:** by the controller, one per `status.blocks[]` entry,
-  labelled with the provider and the block's `start`.
-- **Deleted:** when its block is removed (§3.1). Plex then shows that
-  device offline, until cluster-plex removes its DVR (§6.1).
-- **Cleaned up:** an owner reference cannot cross namespaces, so finalizer
-  `clustarr.io/livetv-service` deletes every block's Service when the CR
-  goes.
-- **Kept:** it is never recreated on a spec edit, so the ClusterIP Plex was
-  given stays.
-
-**Its other work:**
+**Its work:**
 - `Valid` (§3.2);
-- the blocks (§3.1, `pkg/iptv/blocks`): it reads the previous
+- **the blocks** (§3.1, `pkg/iptv/blocks`): it reads the previous
   `status.blocks` and the active channels, and renders the next blocks,
-  each with its `deviceID`, `address` and `guideURL`. A split or a removal
+  each with its `deviceID`, `port` and `guideURL`. A split or a removal
   happens here and nowhere else;
+- **the ports** (§5.0), allocated across every provider;
+- **the checks across providers** (§3.1): `DuplicateDeviceID` and
+  `NumberRangeOverlap`. A conflict keeps the last good blocks;
+- **each block's `owner`,** read from its Lease (§6.1). The controller
+  only reads Leases;
 - status from the tuner's snapshot (§3.2). The tuner renders each block's
   `lineup.json` and guide from the blocks in status.
 
@@ -704,19 +771,20 @@ the sole writer of IPTVChannel status (§3.0).
   a playlist refresh that changes nothing writes nothing, even across
   thousands of channels.
 
-**Guard test:** `TestLiveTVServicesSelectTheManager` holds each Service's
-selector and target port to the manager pod's labels and
-`--livetv-bind-address`, as the chart and kustomize render them. A
-controller-built Service is the same class as the engines' controller-built
-pods: nothing else would notice it drifting from the installer.
+**Guard test:** `TestLiveTVServiceSelectsTheManager` holds the `livetv`
+Service's selector and target port to the manager pod's labels and
+`--livetv-bind-address`, in both the chart and kustomize.
 
 **Placement:** the work lands on the `unify-manager-agent` branch, where
 `cmd/manager` exists, coordinated with that branch's session. Nothing lands
 on main first.
 
 **RBAC:** the manager role needs:
-- `create`, `get`, `list`, `watch`, `update` and `delete` on Services;
+- `get`, `list` and `watch` on `coordination.k8s.io` Leases, to read each
+  block's owner;
 - `get` on Secrets, for named reads, unless it already has it.
+
+It creates no Service: the one `livetv` Service is the installers'.
 
 ### 6.1 cluster-plex adds each provider to Plex
 
@@ -738,16 +806,16 @@ and enabled.** The calls were recorded against the owner's PMS 1.43.4
 1. **The device.**
    - **Find it:** `GET /media/grabbers/devices`, looking for the identifier
      `device://tv.plex.grabbers.hdhomerun/<block.deviceID>`.
-   - **When none exists:** register with
-     `POST /media/grabbers/devices?uri=http://<block.address>`. The
-     discover call iptvtunerr makes first answers `size: 0` and is not
-     needed.
+   - **When none exists:** take the block's Lease (below), then register
+     with `POST /media/grabbers/devices?uri=http://<localAddress>:<block.port>`.
+     The discover call iptvtunerr makes first answers `size: 0` and is
+     not needed.
    - **When one exists, it is never registered again.** Registering again
      is how duplicate and empty DVR rows arise (iptvtunerr's recovery
      notes).
-   - **When an existing device names another address:** it records
-     `DVRDeviceAddressChanged` and changes nothing. The Service is never
-     recreated, so this means a person did something by hand.
+   - **When Plex has the DeviceID at another address:** a real
+     HDHomeRun, another proxy, or a person's edit. cluster-plex records
+     `DVRDeviceIDTaken` and changes nothing.
 2. **The DVR.**
    - **Under XEPG:** when `GET /livetv/dvrs` has no DVR on the device, it
      creates one with `POST /livetv/dvrs?language=<lang>&device=<device uuid>&lineup=<lineup>`.
@@ -784,8 +852,33 @@ again, only when `/activities` lists no `provider.epg.load`. Otherwise it
 waits for its next pass.
 
 **Which DVRs it manages:** cluster-plex manages exactly the devices whose
-identifier carries one of an IPTVProvider's block `deviceID`s. Every other
-tuner and DVR in Plex is left alone.
+identifier carries one of an IPTVProvider's block `deviceID`s, at its own
+link-local address. Every other tuner and DVR in Plex is left alone.
+
+**One owner per block.** Before it registers a block, the lease holder
+takes that block's Lease, `livetv-<deviceID>` in clustarr's namespace,
+holding it as its own installation (its PMS's machine identifier).
+- **It renews the Lease every pass** while it manages the device.
+- **A live Lease held by another installation** means another Plex owns
+  the block. cluster-plex then registers nothing for it, and records
+  `DVRBlockOwned`.
+- **An expired Lease** can be taken over.
+- **Why it matters:** two Plex servers on one block would each count the
+  provider's tuners as their own.
+- **RBAC:** cluster-plex needs `create`, `get` and `update` on Leases in
+  clustarr's namespace. clustarr only reads them, to report
+  `blocks[].owner`.
+
+**The proxy in every Plex pod (§5.0).** On every pod, not only the lease
+holder:
+- the supervisor adds `plex.liveTV.localAddress` to `lo`;
+- it watches the IPTVProviders read-only;
+- it keeps one `proxy.TCP` per block, `<localAddress>:<port>` to
+  `status.address`.
+
+It starts them before PMS, and adds and removes them as blocks come and
+go. A pod whose proxies are not up yet shows those devices offline. It
+never shows another block's.
 
 **A block that is gone** (removed by clustarr, §3.1) leaves a managed
 device that no block names. cluster-plex deletes its DVR, then the device,
@@ -850,6 +943,9 @@ records Events on the IPTVProvider instead:
     the FriendlyName).
 
 **Still to record** (the plan's probe task):
+- that PMS registers a device at a link-local address, and two at once on
+  one address with different ports;
+- a stream played through a proxy port;
 - whether the other pods show a changed channel map without a restart;
 - what step 2 needs under PMS.
 
@@ -884,8 +980,9 @@ A section in the same form system as Download Clients (`ui/forms`).
   - **Plex:** the DVR's state, from the latest of the Events cluster-plex
     records on the provider (§6.1); the ui role gains `list` and `watch` on
     events;
-  - the device address and the XMLTV URL, for a Plex that cluster-plex does
-    not manage;
+  - each block: its numbers, port, DeviceID and owner (§3.2). A Plex that
+    cluster-plex does not manage has no link-local proxy, so phase 1
+    serves managed Plex only;
   - entries, candidates and active channels;
   - each guide's last fetch and error;
   - tuners in use.
@@ -1017,8 +1114,12 @@ under the same precondition.
   - an IPTVChannel's `providerRef` and `key` are immutable.
   - These run under `KUBEBUILDER_ASSETS`.
 - **envtest:**
-  - the controller creates the Service, keeps it across a spec edit, and
-    deletes it through the finalizer;
+  - ports are allocated without collision across providers, and kept
+    across spec edits and splits; a port claimed twice stays with the
+    older provider;
+  - an explicit `spec.device.id` that another block holds reads
+    `DuplicateDeviceID`, and overlapping spans read `NumberRangeOverlap`,
+    each keeping the last good blocks;
   - a duplicate number marks both channels `DuplicateNumber`, and a key
     gone from the playlist marks its channel `Missing`;
   - a playlist refresh that changes nothing writes no IPTVChannel status,
@@ -1028,7 +1129,7 @@ under the same precondition.
   - status rendered from a snapshot is complete: it is run against an
     object that already has status, and `managedFields` show one manager
     (the release gotchas);
-  - the Service selector guard.
+  - the `livetv` Service guard (§6).
 - **The UI:**
   - a bulk activation of 3,000 rows reports progress, and a failure part
     way names its unwritten rows;
@@ -1053,11 +1154,18 @@ under the same precondition.
   - a deleted provider removes its DVR and device;
   - a DVR whose device no IPTVProvider names is never touched;
   - a duplicate DVR row on a managed device is deleted;
-  - an existing device is never registered again.
+  - an existing device is never registered again;
+  - a block whose Lease another installation holds is not registered, and
+    records `DVRBlockOwned`;
+  - a DeviceID Plex holds at another address records `DVRDeviceIDTaken`,
+    and is left alone;
+  - each pod's proxies follow the blocks: one listener per port on the
+    link-local address, added and removed with the blocks.
 - **e2e scenario 19** (`test/e2e/livetv_test.go`, with an `iptvstub`
   fixture serving an M3U, an MPEG-TS loop and an XMLTV guide):
   - create an IPTVProvider;
-  - read `lineup.json` and `xmltv.xml` through the Service;
+  - read `lineup.json` and `xmltv.xml` through the `livetv` Service, by
+    path and by a block's port in `Host`;
   - read 1 MiB of `/stream/<n>` from two clients over one upstream
     connection;
   - a third channel past `tuners: 1` gets 503.
