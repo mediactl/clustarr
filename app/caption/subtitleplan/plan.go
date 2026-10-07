@@ -47,6 +47,19 @@ const maxLastError = schema.MaxSubtitleLastError
 // maxPacerJitter bounds the jitter a paced-out file adds to its slot.
 const maxPacerJitter = 5 * time.Second
 
+// The Events a forced search records (loop spec §6.5, §2.9).
+const (
+	// EventInvalidAnnotation: subtitle.clustarr.io/search holds a value
+	// that is not a nonce; it is recorded at once and warned about once.
+	EventInvalidAnnotation = "InvalidAnnotation"
+	// EventNothingToSearch: a forced search found no wanted language and no
+	// upgrade candidate.
+	EventNothingToSearch = "NothingToSearch"
+)
+
+// nonceFormatText is §2.9's nonce format, for the Warning.
+const nonceFormatText = "^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$"
+
 // Plan is one plan of the file's subtitles (§6.4). issue is View.Issue:
 // the next sequence for a dispatch whose record holds recordSeq.
 func Plan(in Input, issue func(recordSeq int64) int64) Decision {
@@ -78,6 +91,9 @@ type pass struct {
 	extract   map[int32]bool
 	throttled map[string]time.Time
 	wake      time.Time
+	// forced: a pending subtitle.clustarr.io/search nonce is honoured this
+	// pass; forcedAny: it dispatched at least one language.
+	forced, forcedAny bool
 }
 
 // record is langKey's record when Gather read it; a Needs run asks for it.
@@ -129,6 +145,17 @@ func (p *pass) run() {
 		p.d.Held = true // §6.4.1: the previous block stays verbatim
 		return
 	}
+	switch pending, invalid := p.force(); {
+	case pending && invalid:
+		// Recorded at once, warned once: there is nothing to honour (§2.9).
+		p.d.HandledNonce = catalogv1alpha1.HandledNonce(in.ForceNonce)
+		p.d.Events = append(p.d.Events, Event{
+			Type: "Warning", Reason: EventInvalidAnnotation,
+			Message: clip(fmt.Sprintf("%s=%q is not a nonce (%s)", catalogv1alpha1.AnnotationSubtitleSearch, in.ForceNonce, nonceFormatText), 1024),
+		})
+	case pending:
+		p.forced = true // honoured by plan(); a Blocked file leaves it pending
+	}
 	if p.winner = WinningProfile(in.Labels, in.Profiles); p.winner == nil {
 		p.block(ReasonNoProfile, "no SubtitleProfile selects this MediaFile and there is no default profile", time.Time{})
 		return
@@ -142,8 +169,8 @@ func (p *pass) run() {
 		p.block(ReasonNotOnDataVolume, fmt.Sprintf("MediaFile %q: %v", mf.Name, err), time.Time{})
 		return
 	}
-	if p.listGateOpen() {
-		p.askList()
+	if p.listGateOpen() || p.forced {
+		p.askList() // forced dispatches list first (§6.5): a hand-placed sidecar stops a search
 	}
 	if l := in.Listing; l != nil {
 		dir, base := filepath.Dir(local), filepath.Base(mf.Spec.Path)
@@ -257,6 +284,15 @@ func (p *pass) plan() {
 	for _, k := range slices.Sorted(maps.Keys(stale)) {
 		p.d.Withdraws = append(p.d.Withdraws, Withdraw{LangKey: k, Seq: stale[k]})
 	}
+	if p.forced {
+		p.d.HandledNonce = in.ForceNonce // in the same apply as the forced dispatches (§6.5)
+		if !p.forcedAny {
+			p.d.Events = append(p.d.Events, Event{
+				Type: "Normal", Reason: EventNothingToSearch,
+				Message: fmt.Sprintf("%s=%s: no language is wanted or upgradable", catalogv1alpha1.AnnotationSubtitleSearch, in.ForceNonce),
+			})
+		}
+	}
 
 	searching := false
 	for i := range items {
@@ -311,6 +347,16 @@ func (p *pass) plan() {
 // whether it dispatched (or adopted a dispatch).
 func (p *pass) consider(it *catalogv1alpha1.SubtitleItemStatus) bool {
 	in, now := p.in, p.in.Now
+	if p.forced && (p.want[it.LangKey] || upgradeCandidate(now, *it, p.cad)) {
+		// §6.5: every wanted language and every upgrade candidate now, in
+		// flight or not, on the high lane, past the backlog gate and the
+		// pacer. A dispatch in flight is superseded by the new sequence; its
+		// worker finds the newer record and acks.
+		e, _ := p.record(it.LangKey)
+		p.dispatch(it, e, !p.want[it.LangKey], true)
+		p.forcedAny = true
+		return true
+	}
 	at, upgrade, scheduled := schedule(now, *it, p.want[it.LangKey], p.cad)
 	if !scheduled || now.Before(at) || inFlight(*it) {
 		return false
@@ -371,8 +417,10 @@ func (p *pass) incorporate(it *catalogv1alpha1.SubtitleItemStatus) {
 		p.owe(it, e, rec.Seq)
 	case e.OK && rec.State == records.StateRequested && rec.Seq == d.Seq:
 		if !timedOut {
-			if now.Sub(d.DispatchedAt.Time) < records.RepublishWindow && !p.in.Queued[it.LangKey] {
-				p.republish(it) // §4.7; a task still stored is absorbed anyway, so it is skipped
+			// §4.7; a task still stored is absorbed anyway, so it is skipped,
+			// and a forced pass supersedes the dispatch instead.
+			if now.Sub(d.DispatchedAt.Time) < records.RepublishWindow && !p.in.Queued[it.LangKey] && !p.forced {
+				p.republish(it)
 			}
 			return
 		}
@@ -634,6 +682,17 @@ func clip(s string, n int) string {
 		n--
 	}
 	return s[:n]
+}
+
+// force reads subtitle.clustarr.io/search against the handled nonce
+// (§6.5, §2.9): pending when set and not yet handled; invalid when it is not
+// a nonce. catalogv1alpha1.HandledNonce is what status records for a value.
+func (p *pass) force() (pending, invalid bool) {
+	v := p.in.ForceNonce
+	if v == "" || catalogv1alpha1.HandledNonce(v) == p.d.HandledNonce {
+		return false, false
+	}
+	return true, !catalogv1alpha1.ValidNonce(v)
 }
 
 // requestedAt is when rec was requested, or now for a record that carries

@@ -92,6 +92,7 @@ func (a *Adapter) Gather(ctx context.Context, env *remediation.Env, v *remediati
 	in := In{
 		File: &f, Labels: v.Labels(), ProbeCurrent: v.ProbeCurrent(), DataDir: a.o.DataDir,
 		Now: v.Now.Time, LastListed: a.listed.get(mf.UID),
+		ForceNonce: mf.Annotations[catalogv1alpha1.AnnotationSubtitleSearch],
 	}
 	var err error
 	if in.Item, err = item(ctx, env.Reader, mf); err != nil {
@@ -260,6 +261,13 @@ func (a *Adapter) Plan(v *remediation.View, in In, out *catalogv1alpha1.MediaFil
 	out.Subtitles, out.Sidecars = d.Block, d.Sidecars
 	setNonce(out, d.HandledNonce)
 	res := remediation.Result{Due: d.Wake}
+	var stored string
+	if v.Prev.HandledNonces != nil {
+		stored = v.Prev.HandledNonces.SubtitleSearch
+	}
+	// A person's forced search is exempt from the bulk status-write limiter
+	// (§3.7): the apply that records its nonce goes out at once.
+	res.Unpaced = d.HandledNonce != stored
 	var err error
 	if res.Effects, err = effectsOf(d, in.Now); err != nil {
 		return remediation.Result{}, err
@@ -350,7 +358,7 @@ func effectsOf(d subtitleplan.Decision, now time.Time) ([]remediation.Effect, er
 				Bucket: events.BucketSubtitles, Key: subtitlestore.Key(uid, x.LangKey), Revision: x.Revision, Value: b,
 				Remediation: subtitlestore.Remediation, Lane: string(x.Priority),
 			}
-			if x.New {
+			if x.New && !x.Task.Forced { // a forced dispatch took no pacer slot
 				rw.Pace = subtitlestore.Remediation
 			}
 			out = append(out, rw)

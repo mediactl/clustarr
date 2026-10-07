@@ -27,7 +27,6 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
-	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -472,14 +471,12 @@ type subtitleEventV1Ref struct {
 
 func (subtitleEventV1Ref) Schema() string { return schema.SubtitleEventV1Schema }
 
-// resolveSubtitleEventV1 keeps a v1 subtitle event's SubtitleRequest
-// target until F5.4 makes it namespace-only.
+// resolveSubtitleEventV1 resolves a v1 subtitle event to its namespace
+// alone (loop spec §6.10). F8.6 deletes it.
 func resolveSubtitleEventV1(key string, data []byte) Target {
 	var p subtitleEventV1Ref
-	if err := schema.Decode(p.Schema(), data, &p); err != nil || p.RequestRef.Name == "" {
-		return Target{Namespace: namespaceOf(key)}
-	}
-	return refTarget(p.RequestRef, subtitlev1alpha1.GroupVersion.String(), "SubtitleRequest")
+	_ = schema.Decode(p.Schema(), data, &p)
+	return Target{Namespace: cmp.Or(p.RequestRef.Namespace, namespaceOf(key))}
 }
 
 // resolveFetchTask resolves a v2 fetch task to its MediaFile (loop spec
@@ -499,14 +496,13 @@ type fetchTaskV1Ref struct {
 
 func (fetchTaskV1Ref) Schema() string { return schema.FetchTaskV1Schema }
 
-// resolveFetchTaskV1 keeps a v1 fetch task's SubtitleRequest target until
-// F5.4 makes it namespace-only.
+// resolveFetchTaskV1 resolves a v1 fetch task to its namespace alone: a
+// SubtitleRequest is no longer planned against, so a v1 dead letter names
+// no object (loop spec §6.10). F8.6 deletes it.
 func resolveFetchTaskV1(key string, data []byte) Target {
 	var p fetchTaskV1Ref
-	if err := schema.Decode(p.Schema(), data, &p); err != nil || p.RequestRef.Name == "" {
-		return Target{Namespace: namespaceOf(key)}
-	}
-	return refTarget(p.RequestRef, subtitlev1alpha1.GroupVersion.String(), "SubtitleRequest")
+	_ = schema.Decode(p.Schema(), data, &p)
+	return Target{Namespace: cmp.Or(p.RequestRef.Namespace, namespaceOf(key))}
 }
 
 func resolveScanTask(key string, data []byte) Target {
