@@ -25,8 +25,8 @@ import (
 	ffprobe "gopkg.in/vansante/go-ffprobe.v2"
 )
 
-// ErrNoAudioStream is returned by ffprobeexec.ProbeAudio (through
-// AudioProbeFrom) for a file ffprobe reads but finds no audio stream in.
+// ErrNoAudioStream is returned by a Prober's ProbeAudio (through
+// AudioProbeFromRaw) for a file it reads but finds no audio stream in.
 var ErrNoAudioStream = errors.New("mediainfo: no audio stream")
 
 // AudioProbe is what one ffprobe call says about an audio file's first audio
@@ -53,8 +53,7 @@ type AudioProbe struct {
 }
 
 // AudioProbeFromRaw reduces a probe to its first audio stream's AudioProbe:
-// what both the in-process probe and the ffprobe oracle answer ProbeAudio
-// with (spec 2026-10-06 §6.2).
+// what the in-process probe answers ProbeAudio with (spec 2026-10-06 §6.2).
 func AudioProbeFromRaw(raw *Raw) (AudioProbe, error) {
 	if raw == nil {
 		return AudioProbe{}, ErrNoAudioStream
@@ -73,11 +72,6 @@ func AudioProbeFromRaw(raw *Raw) (AudioProbe, error) {
 		ap.SampleBits = s.BitsPerSample
 	}
 	return ap, nil
-}
-
-// AudioProbeFrom is AudioProbeFromRaw over ffprobe's decoded JSON.
-func AudioProbeFrom(pd *ffprobe.ProbeData) (AudioProbe, error) {
-	return AudioProbeFromRaw(&Raw{Format: pd.Format, Streams: pd.Streams})
 }
 
 // roundKbps turns ffprobe's bit_rate string (bits per second) into whole

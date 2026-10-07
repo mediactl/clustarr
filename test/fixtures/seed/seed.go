@@ -53,7 +53,7 @@ const ClipName = "tiny.mkv"
 // clipgen stage places its generated clip in the final image (Task E-5:
 // HEVC 10-bit, BT.2020/PQ, mastering-display and content-light metadata,
 // built with the identical ffmpeg recipe
-// pkg/mediainfo/ffprobeexec/hdr10_fixture_test.go proves classifies as
+// pkg/mediainfo/native/hdr10_fixture_test.go proves classifies as
 // HDR10). That unit test is this clip's whole proof obligation -- no
 // scenario in test/e2e consumes it as of Phase E, deliberately (see
 // test/e2e/transcode_test.go's package doc comment for why scenario 12 uses

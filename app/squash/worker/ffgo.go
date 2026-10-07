@@ -58,8 +58,8 @@ type Engine interface {
 	// Measure measures this pod's device for class (spec §4): the tier it
 	// encodes on and its limits, or transcode.ErrDeviceUnavailable.
 	Measure(ctx context.Context, class transcode.Hardware) (transcode.Measurement, error)
-	// Probe reads path as pkg/mediainfo/ffprobeexec.Probe does, without
-	// ffprobe.
+	// Probe reads path in-process (pkg/mediainfo/native), as ffprobe
+	// printed it.
 	Probe(ctx context.Context, path string) (*commonv1.MediaInfo, *mediainfo.Raw, error)
 }
 

@@ -43,7 +43,7 @@ RUN mkdir -p /out && \
 # ST 2084 (PQ) transfer, mastering-display and content-light metadata --
 # baked in at build time alongside clipgen's plain probe target (Task E-5).
 #
-# Its proof obligation is pkg/mediainfo/ffprobeexec/hdr10_fixture_test.go, a
+# Its proof obligation is pkg/mediainfo/native/hdr10_fixture_test.go, a
 # UNIT test (not this e2e suite) that runs the IDENTICAL ffmpeg recipe itself
 # and asserts pkg/mediainfo.ClassifyHDR reads the result back as HDR10 -- a clip
 # ffmpeg writes but ClassifyHDR reads as SDR proves nothing, so that test is
@@ -66,16 +66,15 @@ RUN mkdir -p /out && \
 # it PQ10 (no mastering display) or SDR, never HDR10, exactly the "ffmpeg
 # writes it, ClassifyHDR reads SDR" trap this task's brief warns against.
 # The values are docs/research/transcode.md §2.2's own worked example, so
-# this clip decodes to the exact side data
-# pkg/mediainfo/ffprobe_test.go's hdr10FrameJSON fixture already
-# hand-authored from a real capture on this same box.
+# this clip decodes to the exact side data that example records from a real
+# capture on this same box.
 #
 # Dolby Vision is deliberately NOT attempted here: it needs an RPU a tool
 # like dovi_tool produces from a real DV master, and ffmpeg alone cannot
 # synthesise one -- confirmed on this box (`ffmpeg -dolbyvision 1` refuses
 # with "Dolby Vision requires VBV settings" and there is no RPU to feed it
-# regardless; see pkg/mediainfo/ffprobe_test.go's doviStreamsJSON comment,
-# which hit the identical wall). test/e2e/transcode_test.go's Dolby Vision
+# regardless; the ffprobe probe's own Dolby Vision fixture hit the identical
+# wall). test/e2e/transcode_test.go's Dolby Vision
 # scenario skips with that reason instead of faking one.
 FROM debian:bookworm-slim AS clipgen-hdr10
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \

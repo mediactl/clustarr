@@ -15,13 +15,14 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package mediainfo is the probe's model and mapping: the
-// api/common/v1alpha1 MediaInfo the MediaFile status carries, plus the Raw
-// detail (the full stream, format and chapter set, the Dolby Vision
-// configuration record, and typed SMPTE ST 2086 mastering-display and
-// content-light metadata) that pkg/transcode's planner needs. It runs no
-// program. pkg/mediainfo/ffprobeexec probes with ffprobe (transitional, spec
-// §4.2.5). See docs/superpowers/specs/2026-09-18-clustarr-design.md §7 and
+// Package mediainfo is the model of a probe: the api/common/v1alpha1
+// MediaInfo the MediaFile status carries, Raw (ffprobe's result as
+// go-ffprobe types, OD12: the full stream, format and chapter set, the Dolby
+// Vision configuration record, and typed SMPTE ST 2086 mastering-display and
+// content-light metadata that pkg/transcode's planner needs), the HDR rules
+// and the hashes. It runs no program and links no FFmpeg;
+// pkg/mediainfo/native probes. See
+// docs/superpowers/specs/2026-09-18-clustarr-design.md §7 and
 // docs/research/transcode.md §2.
 package mediainfo
 
@@ -39,14 +40,14 @@ import (
 // transcode.MediaInfo that transcode.Plan reads (spec §7's
 // Planner.Plan(mi, raw, hw) is satisfied by that pair -- there is no
 // Planner type); catalogarr's MediaFile status only ever sees the mapped
-// MediaInfo a probe (pkg/mediainfo/ffprobeexec.Probe) returns alongside it.
+// MediaInfo a probe (pkg/mediainfo/native's Prober.Probe) returns alongside it.
 type Raw struct {
 	Format   *ffprobe.Format
 	Streams  []*ffprobe.Stream
 	Chapters []*ffprobe.Chapter
 
 	// ColorPrimaries, ColorTransfer, ColorSpace and ColorRange are read
-	// from the first decoded frame (the second ffprobe call, MergeFrame),
+	// from the first decoded frame of v:0 (ffprobe's frame probe),
 	// more reliable than the stream-level tags for some encoders --
 	// docs/research/transcode.md §2.1.
 	ColorPrimaries string
@@ -87,25 +88,14 @@ type DoviRecord struct {
 	MDCompression                    string
 }
 
-// BuildRaw copies pd's streams, format and chapters onto Raw and extracts the
-// primary video stream's Dolby Vision record. MergeFrame adds the
-// frame-level merge on top; pkg/mediainfo/ffprobeexec.Probe calls both.
-func BuildRaw(pd *ffprobe.ProbeData) *Raw {
-	raw := &Raw{Format: pd.Format, Streams: pd.Streams, Chapters: pd.Chapters}
-	if v := pd.FirstVideoStream(); v != nil {
-		raw.Dovi = parseDoviRecord(v.SideDataList)
-	}
-	return raw
-}
-
 // MasteringDisplay is SMPTE ST 2086 mastering-display metadata.
 // Chromaticities are numerators over a fixed denominator of 50000 (CIE
 // 1931 xy); luminances are numerators over 10000 (0.0001 cd/m²). These
 // are exactly the integers libx265's master-display string carries, so no
-// float ever appears here -- the ffprobe FlexFloat side-data values are
-// converted to these integers once, at parse time (toMasteringDisplay in
-// ffprobe.go: x * 50000 for chromaticities, x * 10000 for luminance,
-// rounded).
+// float ever appears here -- the first frame's AVRational side data is
+// converted to these integers once, when the probe reads it
+// (pkg/mediainfo/native's masteringDisplay: x * 50000 for chromaticities,
+// x * 10000 for luminance, rounded).
 type MasteringDisplay struct {
 	GreenX, GreenY, BlueX, BlueY, RedX, RedY, WhiteX, WhiteY int32
 	MaxLuminance, MinLuminance                               int32

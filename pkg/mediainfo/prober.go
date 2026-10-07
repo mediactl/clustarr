@@ -27,8 +27,8 @@ import (
 // Prober reads a media file: Probe its technical description and the Raw
 // fields only transcode planning reads, ProbeAudio one audio stream's codec,
 // bitrate and sample size. The import domain holds one per process and hands
-// it to the probe worker (app/import/worker/probe). It is ffprobeexec.Prober
-// until the in-process ffgo probe lands (spec 2026-10-06 §6.2, §6.9).
+// it to the probe worker (app/import/worker/probe). It is
+// pkg/mediainfo/native's Prober (spec 2026-10-06 §6.2).
 type Prober interface {
 	Probe(ctx context.Context, path string) (*commonv1.MediaInfo, *Raw, error)
 	ProbeAudio(ctx context.Context, path string) (AudioProbe, error)

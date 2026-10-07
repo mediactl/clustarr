@@ -180,7 +180,7 @@ func formatNames(ctx context.Context, c naming.Context, frozen []string) []strin
 }
 
 // ContainerExt maps mi's probed container to a file extension. It reads
-// both vocabularies a container arrives in: what pkg/mediainfo/ffprobeexec.Probe
+// both vocabularies a container arrives in: what the probe (pkg/mediainfo/native)
 // actually records in MediaInfo.Container -- the probed file's own
 // extension, lowercased and without its dot (mediainfo's
 // containerFromPath) -- and ffprobe's format_name, a comma-separated
