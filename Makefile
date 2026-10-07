@@ -12,6 +12,25 @@ ENVTEST_K8S_VERSION ?= 1.37.0
 # test-race export it as CLUSTARR_PG_ASSETS so pkg/relindex's
 # TestPostgresStoreContract runs instead of skipping.
 PG_ASSETS ?= $(GOBIN)/pg-assets
+# NATIVE_ASSETS holds what the native tests load and compare against
+# (hack/native-assets.sh, spec §10.1.6): FFmpeg 9's libraries and libffshim,
+# ONNX Runtime, libpar2shim, and the test-only ffmpeg, ffprobe and par2
+# CLIs. ffgo finds libavutil, libavcodec and libavformat only through
+# LD_LIBRARY_PATH and fixed system directories, at package init, so the
+# variable must be in the test process's environment from the start;
+# FFGO_SHIM_DIR locates only the shim. CLUSTARR_REQUIRE_TOOLS=1 turns a
+# missing tool (FFmpeg, the shims, ONNX Runtime, helm, kustomize,
+# KUBEBUILDER_ASSETS) into a failure instead of a skip (OD44).
+NATIVE_ASSETS ?= $(GOBIN)/native-assets
+NATIVE_ENV = LD_LIBRARY_PATH="$(NATIVE_ASSETS)/lib" \
+	CLUSTARR_NATIVE_ASSETS="$(NATIVE_ASSETS)" \
+	FFGO_SHIM_DIR="$(NATIVE_ASSETS)/lib" \
+	ORT_LIB_PATH="$(NATIVE_ASSETS)/lib/libonnxruntime.so" \
+	PAR2GO_LIB="$(NATIVE_ASSETS)/lib/libpar2shim.so" \
+	PAR2GO_REQUIRE=1 \
+	PATH="$(NATIVE_ASSETS)/bin:$$PATH" \
+	CLUSTARR_REQUIRE_TOOLS=1
+
 IMG ?= ghcr.io/mediactl/clustarr:dev
 NATIVE_IMG ?= ghcr.io/mediactl/clustarr/native:dev
 NATIVE_DEBUG_IMG ?= ghcr.io/mediactl/clustarr/native-debug:dev
@@ -245,18 +264,22 @@ docker-selfcheck: ## Check the built images as CI and the release do (hack/image
 TEST_PARALLEL ?= 4
 
 .PHONY: test-race
-test-race: envtest pg-assets ## Run the suites under the race detector.
+# -timeout 60m: transcodejob's envtests take some 460 s without the race
+# detector, which multiplies that several times; go's 10m default panics.
+test-race: envtest pg-assets native-assets chart-deps fork-status ## Run the suites under the race detector.
 	@mkdir -p "$${CLUSTARR_TEST_MEDIA_ROOT:-/data/media}" 2>/dev/null || true
 	KUBEBUILDER_ASSETS="$(shell $(SETUP_ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
 	CLUSTARR_PG_ASSETS="$(PG_ASSETS)" \
-	go test ./... -race -p $(TEST_PARALLEL)
+	$(NATIVE_ENV) \
+	go test ./... -race -p $(TEST_PARALLEL) -timeout 60m
 
 # -timeout 20m: transcodejob's envtests take some 460 s alone and passed
 # go's 10m default under the whole suite's load (2026-10-06).
-test: envtest pg-assets ## Run unit and envtest suites.
+test: envtest pg-assets native-assets chart-deps fork-status ## Run unit and envtest suites; a missing tool fails.
 	@mkdir -p "$${CLUSTARR_TEST_MEDIA_ROOT:-/data/media}" 2>/dev/null || echo "warning: could not create $${CLUSTARR_TEST_MEDIA_ROOT:-/data/media}; importarr's scan suites will skip"
 	KUBEBUILDER_ASSETS="$(shell $(SETUP_ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
 	CLUSTARR_PG_ASSETS="$(PG_ASSETS)" \
+	$(NATIVE_ENV) \
 	go test ./... -p $(TEST_PARALLEL) -timeout 20m -coverprofile cover.out
 
 .PHONY: test-unit
@@ -270,6 +293,20 @@ envtest: ## Download envtest binaries.
 .PHONY: pg-assets
 pg-assets: ## Download the embedded Postgres binary for pkg/relindex's Postgres tests.
 	go run ./hack/pgassets $(PG_ASSETS)
+
+.PHONY: native-assets
+native-assets: ## FFmpeg 9 shared libs + libffshim, ONNX Runtime, libpar2shim and the test-only CLIs (hack/native-assets.sh).
+	hack/native-assets.sh $(NATIVE_ASSETS)
+
+# A fresh clone or worktree has no charts/clustarr/charts (gitignored), and
+# helm template refuses a chart whose dependencies are missing, which reads
+# as a chart/kustomize disagreement rather than a missing artifact.
+.PHONY: chart-deps
+chart-deps: ## Vendor the chart's nats and cloudnative-pg archives when charts/clustarr/charts lacks them.
+	@ls charts/clustarr/charts/nats-*.tgz charts/clustarr/charts/cloudnative-pg-*.tgz >/dev/null 2>&1 || { \
+	  helm repo add nats https://nats-io.github.io/k8s/helm/charts/ --force-update && \
+	  helm repo add cloudnative-pg https://cloudnative-pg.github.io/charts --force-update && \
+	  helm dependency build charts/clustarr; }
 
 # Extra arguments appended to the e2e `go test` invocation, e.g.
 #   make e2e E2E_ARGS="-run TestLibraryRescan -v"
