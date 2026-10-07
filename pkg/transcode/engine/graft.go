@@ -388,7 +388,7 @@ type graftOut struct {
 // and AAC 2.0 downmixed from it): each output sample is the donor's at
 // g.Map, silence where Map reads false or the donor has nothing.
 func graftStage(g GraftAudio, total int64, pace *graftPace) stageFunc {
-	return func(ctx context.Context, sc *stageContext) error {
+	return func(ctx context.Context, sc *stageContext) (err error) {
 		defer pace.done() // however it ends, the target's demuxer runs free
 		sd, err := sc.dec.NewStreamDecoder(sc.src.Index, nil)
 		if err != nil {
@@ -434,6 +434,7 @@ func graftStage(g GraftAudio, total int64, pace *graftPace) stageFunc {
 		if err := sc.setup(srcs...); err != nil {
 			return err
 		}
+		defer func() { sc.release(err) }() // before the encoders close
 
 		var (
 			buf  = donorBuffer{ch: ch}

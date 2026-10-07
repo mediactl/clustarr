@@ -26,6 +26,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -166,4 +167,24 @@ func TestTheEngineWritesTheMP4AudioLayout(t *testing.T) {
 	rep, err := Verify(context.Background(), src, out, plan.Expect)
 	require.NoError(t, err)
 	assert.True(t, rep.OK, "%v", rep.Problems)
+}
+
+// A video stream that starts after the audio must not stall the run: an
+// encoded audio stage reads on while the video stage has yet to open its
+// encoder (final review I1: setup waited for the header before reading,
+// filled its channel, blocked the demuxer, and the video never set up).
+func TestALateVideoStartDoesNotStallAnEncodedAudioTrack(t *testing.T) {
+	ffmpeg9OrSkip(t)
+	dir := t.TempDir()
+	src := filepath.Join(dir, "late.mkv")
+	run(t, "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+		"-itsoffset", "2", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24:duration=4",
+		"-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=6,aformat=channel_layouts=5.1",
+		"-map", "0", "-map", "1", "-c:v", "libx264", "-preset", "veryfast", "-c:a", "eac3", src)
+	plan := standard.Plan(probeInfo(t, src), standard.Profile{Name: "p", Hash: "h"}, standard.Hardware{Tier: transcode.TierCPUx265})
+	require.Len(t, plan.Audio, 2, "E-AC-3 copied, AAC companion encoded")
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	_, err := Run(ctx, plan, src, filepath.Join(dir, "out.mp4"), Options{VideoOptions: map[string]string{"preset": "ultrafast", "crf": "30"}})
+	require.NoError(t, err)
 }

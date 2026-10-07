@@ -55,7 +55,7 @@ func outputRate(action string, source int) int {
 // (built from the first decoded frame's real layout, not the container's
 // claim).
 func audioStage(outs []standard.AudioPlan) stageFunc {
-	return func(ctx context.Context, sc *stageContext) error {
+	return func(ctx context.Context, sc *stageContext) (err error) {
 		sd, err := sc.dec.NewStreamDecoder(sc.src.Index, nil)
 		if err != nil {
 			return fmt.Errorf("decoder: %w", err)
@@ -88,6 +88,7 @@ func audioStage(outs []standard.AudioPlan) stageFunc {
 		if err := sc.setup(srcs...); err != nil {
 			return err
 		}
+		defer func() { sc.release(err) }() // before the encoders close
 
 		res := make([]*ffgo.Resampler, len(outs))
 		defer func() {

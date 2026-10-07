@@ -127,11 +127,19 @@ type stageContext struct {
 	dec  *ffgo.Decoder
 	src  *ffgo.StreamInfo
 	opts Options
-	// setup hands the muxer each output's encoder, in output order, then
-	// waits for the header.
+	// setup hands the muxer each output's encoder, in output order, and
+	// returns: the stage reads on meanwhile, since the header waits for
+	// every stage's encoder and a stage that stopped reading would stall
+	// the demuxer before a later stream (a video that starts after the
+	// audio) set up.
 	setup func(...ffgo.EncodedStreamSource) error
-	emits []func(*ffgo.Packet) error // one per output
-	emit  func(*ffgo.Packet) error   // emits[0]
+	// release, deferred once setup has succeeded, holds the stage's
+	// encoders open until the muxer has done with their parameters -- the
+	// header written, or the run given up. A failing stage (err) fails the
+	// run first, so the muxer gives up instead of waiting for it.
+	release func(err error)
+	emits   []func(*ffgo.Packet) error // one per output
+	emit    func(*ffgo.Packet) error   // emits[0]
 }
 
 type muxItem struct {
@@ -243,10 +251,11 @@ func Run(ctx context.Context, plan standard.Result, input, output string, o Opti
 
 	muxCh := make(chan muxItem, o.QueueDepth*max(len(slots), 1))
 	setupCh := make(chan setupItem, len(slots))
-	// headerDone closes once the muxer has read every encoder's parameters
-	// and written the header: a stage's setup waits for it, so a stage that
-	// reaches the end of a tiny input cannot close its encoder while the
-	// muxer still reads it (a freed codec context, and SIGSEGV).
+	// headerDone closes once the muxer is done with the encoders'
+	// parameters -- the header written, or mux returned without it: a
+	// stage's release waits for it, so a stage that reaches the end of a
+	// tiny input cannot close its encoder while the muxer still reads it (a
+	// freed codec context, and SIGSEGV).
 	headerDone := make(chan struct{})
 	routes := map[int]chan *ffgo.Packet{} // source stream index → encode stage
 	copies := map[int]int{}               // source stream index → copy slot
@@ -305,12 +314,13 @@ func Run(ctx context.Context, plan standard.Result, input, output string, o Opti
 						return ctx.Err()
 					}
 				}
-				select {
-				case <-headerDone:
-					return nil
-				case <-ctx.Done():
-					return ctx.Err()
+				return nil
+			},
+			release: func(err error) {
+				if err != nil {
+					fe.set(&Error{Stage: name, Err: err})
 				}
+				<-headerDone
 			},
 		}
 		producers.Add(1)
@@ -493,6 +503,8 @@ func mux(ctx context.Context, m *ffgo.Muxer, d *ffgo.Decoder, plan standard.Resu
 	muxCh <-chan muxItem, setupCh <-chan setupItem, o Options, output string, headerDone chan<- struct{},
 ) (Result, error) {
 	var res Result
+	closeHeader := sync.OnceFunc(func() { close(headerDone) })
+	defer closeHeader() // however mux ends, no stage waits on it
 	waiting := 0
 	for _, s := range slots {
 		if !s.copy {
@@ -518,7 +530,7 @@ func mux(ctx context.Context, m *ffgo.Muxer, d *ffgo.Decoder, plan standard.Resu
 	if err := addStreams(m, d, plan, slots, srcs, output); err != nil {
 		return res, &Error{Stage: "mux", Err: err}
 	}
-	close(headerDone)
+	closeHeader()
 
 	durMillis := d.Duration().Milliseconds()
 	start := time.Now()

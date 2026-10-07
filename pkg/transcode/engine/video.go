@@ -52,7 +52,7 @@ func (s sideDataSource) StreamSideData() map[ffgo.PacketSideDataType][]byte { re
 // removes HDR10+ and Dolby Vision side data from every frame, and encodes
 // with the plan's encoder and options, HDR10 metadata passed to it.
 func videoStage(v standard.VideoPlan) stageFunc {
-	return func(ctx context.Context, sc *stageContext) error {
+	return func(ctx context.Context, sc *stageContext) (err error) {
 		gpu := v.Decode != "" && v.Decode != "cpu" || needsDevice(v.Filter)
 		if gpu && sc.opts.HWDevice == nil {
 			return fmt.Errorf("the plan decodes or filters on a GPU (%s, %q) and no device was opened", v.Decode, v.Filter)
@@ -74,6 +74,7 @@ func videoStage(v standard.VideoPlan) stageFunc {
 		)
 		defer func() {
 			if enc != nil {
+				sc.release(err) // the muxer is done with its parameters first
 				_ = enc.Close()
 			}
 			if graph != nil {
