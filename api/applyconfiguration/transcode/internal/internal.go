@@ -750,7 +750,7 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: container
       type:
         namedType: com.github.mediactl.clustarr.api.transcode.v1alpha1.Container
-      default: mkv
+      default: mp4
     - name: default
       type:
         scalar: boolean

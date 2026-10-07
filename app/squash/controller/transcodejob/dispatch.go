@@ -263,7 +263,7 @@ func (r *Reconciler) dispatch(ctx context.Context, key types.NamespacedName, cla
 		adoptedFirst = false // this may run again, from a fresh read, after a Conflict
 		if st.Phase == transcodev1alpha1.TranscodeJobPhasePlanned && st.Attempts == attempt-1 {
 			if replanned != nil {
-				r.recordPlan(tj, st, *replanned, tp.Spec.Container) // the plan the task was built from
+				r.recordPlan(tj, st, *replanned, worker.OutputContainer) // the plan the task was built from
 			}
 			markQueued(tj, st, attempt, class, pool.Name(k))
 			recordJoined(st, joined)
@@ -272,7 +272,7 @@ func (r *Reconciler) dispatch(ctx context.Context, key types.NamespacedName, cla
 		if tj.UID == uid && dispatched(st.Phase) && st.Attempts == attempt && st.Hardware == class &&
 			(replanned != nil || (joined != nil && st.Graft == nil)) {
 			if replanned != nil {
-				markPlanned(tj, st, *replanned, tp.Spec.Container) // adopted first: the re-plan, and the join
+				markPlanned(tj, st, *replanned, worker.OutputContainer) // adopted first: the re-plan, and the join
 			}
 			recordJoined(st, joined)
 			adoptedFirst = true
@@ -320,7 +320,7 @@ func (r *Reconciler) keepPlanned(ctx context.Context, key types.NamespacedName, 
 			r.fail(tj, st, fail.reason, "%s", fail.msg)
 			return true
 		}
-		r.recordPlan(tj, st, p, tp.Spec.Container)
+		r.recordPlan(tj, st, p, worker.OutputContainer)
 		if st.Phase == transcodev1alpha1.TranscodeJobPhasePlanned && choosesClassFor(tj, tp) {
 			st.FallbackReason = truncate(fmt.Sprintf("a plan for %s encodes with %s, which needs no GPU", class, st.Plan.Encoder),
 				maxFallbackReason)

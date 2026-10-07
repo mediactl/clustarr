@@ -511,15 +511,18 @@ func TestSkipAndRejectAreSkipped(t *testing.T) {
 	// container change is planned to a NEW name beside the source, in both
 	// directions and case-insensitively, and the .part the plan renders is
 	// beside that name; a same-container source in another case is in place.
-	t.Run("container change mp4 to mkv", func(t *testing.T) {
-		newMediaFile(t, c, ns, "mp4src", "p3", ptr.To(h264Probe()))
-		newTJ(t, c, ns, "mp4src-hevc", "mp4src", "hevc", "p3", func(tj *transcodev1alpha1.TranscodeJob) {
-			tj.Spec.SourcePath = "/data/media/movies/Film (2020)/Film.2020.MP4"
-		})
-		reconcileTJ(t, r, ns, "mp4src-hevc")
-		assertContainerChangePlanned(t, getTJ(t, c, ns, "mp4src-hevc"), "/data/media/movies/Film (2020)/Film.2020.mkv")
-	})
+	// The standard writes MP4 whatever the profile's container says
+	// (worker.OutputContainer): an .mkv source changes container under
+	// the default profile too.
 	t.Run("container change mkv to mp4", func(t *testing.T) {
+		newMediaFile(t, c, ns, "mkvupper", "p3", ptr.To(h264Probe()))
+		newTJ(t, c, ns, "mkvupper-hevc", "mkvupper", "hevc", "p3", func(tj *transcodev1alpha1.TranscodeJob) {
+			tj.Spec.SourcePath = "/data/media/movies/Film (2020)/Film.2020.MKV"
+		})
+		reconcileTJ(t, r, ns, "mkvupper-hevc")
+		assertContainerChangePlanned(t, getTJ(t, c, ns, "mkvupper-hevc"), "/data/media/movies/Film (2020)/Film.2020.mp4")
+	})
+	t.Run("container change mkv to mp4 under an mp4 profile", func(t *testing.T) {
 		newProfile(t, c, "mp4out", "hash3", func(p *transcodev1alpha1.TranscodeProfile) {
 			p.Spec.Container = transcodev1alpha1.ContainerMP4
 		})
@@ -531,7 +534,7 @@ func TestSkipAndRejectAreSkipped(t *testing.T) {
 	t.Run("same container in a different case is not a change", func(t *testing.T) {
 		newMediaFile(t, c, ns, "upper", "p5", ptr.To(h264Probe()))
 		newTJ(t, c, ns, "upper-hevc", "upper", "hevc", "p5", func(tj *transcodev1alpha1.TranscodeJob) {
-			tj.Spec.SourcePath = "/data/media/movies/Film (2020)/Film.2020.MKV"
+			tj.Spec.SourcePath = "/data/media/movies/Film (2020)/Film.2020.MP4"
 		})
 		reconcileTJ(t, r, ns, "upper-hevc")
 		tj := getTJ(t, c, ns, "upper-hevc")
@@ -553,14 +556,14 @@ func TestSkipAndRejectAreSkipped(t *testing.T) {
 		assert.Equal(t, transcodev1alpha1.TranscodeJobPhaseQueued, tj.Status.Phase)
 		cond := k8s.FindCondition(tj.Status.Conditions, transcodev1alpha1.TranscodeJobConditionPlanned)
 		require.NotNil(t, cond)
-		assert.Contains(t, cond.Message, "/data/media/movies/kept - keep.mkv")
+		assert.Contains(t, cond.Message, "/data/media/movies/kept - keep.mp4")
 	})
-	// An explicit output path the profile's container contradicts cannot be
-	// honoured: failed at plan time, without spending a pod.
+	// An explicit output path the standard's container (MP4) contradicts
+	// cannot be honoured: failed at plan time, without spending a pod.
 	t.Run("an output path with the wrong container fails", func(t *testing.T) {
 		newMediaFile(t, c, ns, "wrongext", "p7", ptr.To(h264Probe()))
 		newTJ(t, c, ns, "wrongext-hevc", "wrongext", "hevc", "p7", func(tj *transcodev1alpha1.TranscodeJob) {
-			tj.Spec.OutputPath = ptr.To("/data/media/movies/wrongext.mp4")
+			tj.Spec.OutputPath = ptr.To("/data/media/movies/wrongext.mkv")
 		})
 		reconcileTJ(t, r, ns, "wrongext-hevc")
 		tj := getTJ(t, c, ns, "wrongext-hevc")
@@ -579,7 +582,7 @@ func TestSkipAndRejectAreSkipped(t *testing.T) {
 			dispatched = append(dispatched, j.Name)
 		}
 	}
-	assert.ElementsMatch(t, []string{"tag-another-profiles-kept-copy", "mp4src-hevc", "mkvsrc-mp4out", "upper-hevc", "kept-keep"}, dispatched,
+	assert.ElementsMatch(t, []string{"tag-another-profiles-kept-copy", "mkvupper-hevc", "mkvsrc-mp4out", "upper-hevc", "kept-keep"}, dispatched,
 		"every planned job, container changes included, is dispatched; the skipped and failed ones are not")
 }
 

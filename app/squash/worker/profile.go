@@ -88,6 +88,9 @@ func ProfileHashAt(spec transcodev1alpha1.TranscodeProfileSpec, version int) str
 	if container == "" {
 		container = transcodev1alpha1.ContainerMKV
 	}
+	if version >= 2 {
+		container = OutputContainer // the profile's container is ignored since the MP4 standard
+	}
 	b, _ := json.Marshal(struct {
 		Version                  int
 		Quality                  int32
@@ -103,6 +106,11 @@ func ProfileHashAt(spec transcodev1alpha1.TranscodeProfileSpec, version int) str
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
 }
+
+// OutputContainer is what every transcode writes since standard.Version 2
+// (docs/superpowers/specs/2026-10-06-mp4-standard-design.md), whatever a
+// profile's spec.container says.
+const OutputContainer = transcodev1alpha1.ContainerMP4
 
 // ReplaceSource is policy.replaceSource with its CRD default applied: unset
 // means true. The pointer exists so a Go client can say false; nil must

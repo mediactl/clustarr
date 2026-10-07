@@ -197,9 +197,10 @@ type TranscodeProfileSpec struct {
 	// +optional
 	Selector *metav1.LabelSelector `json:"selector,omitempty"`
 
-	// Container is the output container.
+	// Container is ignored since the MP4 standard (2026-10-06): every
+	// transcode writes MP4. It is kept so existing profiles still apply.
 	// +optional
-	// +kubebuilder:default="mkv"
+	// +kubebuilder:default="mp4"
 	Container Container `json:"container,omitempty"`
 
 	// Quality is the standard's one quality setting (0 best, 51 smallest),

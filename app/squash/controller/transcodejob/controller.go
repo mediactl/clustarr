@@ -538,7 +538,7 @@ func (r *Reconciler) plan(ctx context.Context, tj *transcodev1alpha1.TranscodeJo
 		r.fail(tj, st, fail.reason, "%s", fail.msg)
 		return ctrl.Result{}, nil
 	}
-	r.recordPlan(tj, st, p, profile.Spec.Container)
+	r.recordPlan(tj, st, p, worker.OutputContainer)
 	return ctrl.Result{}, nil
 }
 
@@ -574,7 +574,7 @@ func planFor(tj *transcodev1alpha1.TranscodeJob, tp *transcodev1alpha1.Transcode
 		source = mf.Spec.Path
 	}
 	source = filepath.Clean(source)
-	outPath, err := worker.OutputPath(tj.Spec, tp.Name, tp.Spec.Container, worker.ReplaceSource(tp.Spec.Policy))
+	outPath, err := worker.OutputPath(tj.Spec, tp.Name, worker.OutputContainer, worker.ReplaceSource(tp.Spec.Policy))
 	if err != nil {
 		return planning{}, &planFailure{ReasonInvalidOutput, fmt.Sprintf("cannot place the output: %v", err)}
 	}

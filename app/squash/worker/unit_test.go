@@ -452,3 +452,21 @@ func TestUniquePartPathIsDistinctPerJobAndAttempt(t *testing.T) {
 	// The mp4 container's extension round-trips too.
 	assert.Equal(t, "/x.part-a1b2c3d4-3.mp4", uniquePartPath("/x.part.mp4", jobA, 3))
 }
+
+func TestOutputPathIsAlwaysMP4(t *testing.T) {
+	out, err := OutputPath(transcodev1alpha1.TranscodeJobSpec{SourcePath: "/data/media/m/F.mkv"}, "p", OutputContainer, true)
+	require.NoError(t, err)
+	assert.Equal(t, "/data/media/m/F.mp4", out)
+}
+
+func TestStandardProfileIgnoresTheContainer(t *testing.T) {
+	sp := StandardProfile("p", "h", transcodev1alpha1.TranscodeProfileSpec{Container: transcodev1alpha1.ContainerMKV})
+	assert.Equal(t, transcode.ContainerMP4, sp.Container)
+}
+
+func TestTheV2HashIgnoresTheContainer(t *testing.T) {
+	mkv := ProfileHashAt(transcodev1alpha1.TranscodeProfileSpec{Container: transcodev1alpha1.ContainerMKV}, 2)
+	mp4 := ProfileHashAt(transcodev1alpha1.TranscodeProfileSpec{Container: transcodev1alpha1.ContainerMP4}, 2)
+	assert.Equal(t, mkv, mp4)
+	assert.NotEqual(t, ProfileHashAt(transcodev1alpha1.TranscodeProfileSpec{Container: transcodev1alpha1.ContainerMKV}, 1), mkv)
+}

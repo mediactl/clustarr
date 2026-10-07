@@ -47,7 +47,7 @@ func TestBuildTask(t *testing.T) {
 	tp.Spec.Container = transcodev1alpha1.Container("mkv")
 	tp.Spec.ActiveDeadline = metav1.Duration{Duration: 3 * time.Hour}
 	mf := &catalogv1alpha1.MediaFile{}
-	mf.Spec.Path = "/data/media/movies/Heat (1995)/Heat.mkv"
+	mf.Spec.Path = "/data/media/movies/Heat (1995)/Heat.mp4"
 	mf.Spec.SizeBytes = 42
 	tj := &transcodev1alpha1.TranscodeJob{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "tj", UID: "juid"}}
 	tj.Spec.SourceProbeHash = "ph"
@@ -58,7 +58,7 @@ func TestBuildTask(t *testing.T) {
 	assert.Equal(t, "/data/media/movies", got.Root.Path, "the deepest containing folder wins")
 	assert.Equal(t, "/data/media/.bin", got.Root.RecycleBin)
 	assert.Equal(t, mf.Spec.Path, got.SourcePath, "an empty spec.sourcePath falls back to the MediaFile")
-	assert.Equal(t, mf.Spec.Path, got.OutputPath, "same container, replaceSource defaulted: in place")
+	assert.Equal(t, mf.Spec.Path, got.OutputPath, "an MP4 source under any profile, replaceSource defaulted: in place")
 	assert.Empty(t, got.OutputRoot)
 	assert.Equal(t, int32(3), got.Attempt)
 	assert.Equal(t, "nvidia", got.Class)
@@ -74,19 +74,27 @@ func TestBuildTask(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, defaultRecycleBin, got.Root.RecycleBin)
 
+	// The standard writes MP4 whatever the profile's container says
+	// (OutputContainer): an .mkv source becomes <stem>.mp4.
+	mkv := mf.DeepCopy()
+	mkv.Spec.Path = "/data/media/movies/Heat (1995)/Heat.mkv"
+	got, err = BuildTask(tj, tp, mkv, folders, 1, transcodev1alpha1.HardwareCPU)
+	require.NoError(t, err)
+	assert.Equal(t, "/data/media/movies/Heat (1995)/Heat.mp4", got.OutputPath)
+
 	elsewhere := tj.DeepCopy()
-	elsewhere.Spec.OutputPath = ptr.To("/data/media/other/Heat.mkv")
+	elsewhere.Spec.OutputPath = ptr.To("/data/media/other/Heat.mp4")
 	got, err = BuildTask(elsewhere, tp, mf, folders, 1, transcodev1alpha1.HardwareCPU)
 	require.NoError(t, err)
 	assert.Equal(t, "/data/media", got.OutputRoot)
 
 	outside := tj.DeepCopy()
-	outside.Spec.OutputPath = ptr.To("/tmp/Heat.mkv")
+	outside.Spec.OutputPath = ptr.To("/tmp/Heat.mp4")
 	_, err = BuildTask(outside, tp, mf, folders, 1, transcodev1alpha1.HardwareCPU)
 	assert.ErrorIs(t, err, ErrNoRootFolder)
 
 	stray := mf.DeepCopy()
-	stray.Spec.Path = "/srv/Heat.mkv"
+	stray.Spec.Path = "/srv/Heat.mp4"
 	_, err = BuildTask(tj, tp, stray, folders, 1, transcodev1alpha1.HardwareCPU)
 	assert.ErrorIs(t, err, ErrNoRootFolder)
 

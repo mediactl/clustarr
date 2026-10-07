@@ -38,6 +38,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/metrics"
 	"github.com/mediactl/clustarr/pkg/transcode"
+	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
 
 // Exit codes, the contract with the caller: [Process]'s Outcome.Code carries
@@ -406,6 +407,10 @@ func (r *runner) run(ctx context.Context) error {
 		if err := r.beforeSwap(ctx, job.part); err != nil {
 			return err
 		}
+		if err := placeSidecars(ctx, job.plan, job.part, sw.localOut); err != nil {
+			removePart(ctx, job.part)
+			return err
+		}
 		// Elsewhere (R-11): the verified output takes its own name first, so
 		// the library holds a complete file at every instant, then the source
 		// is retired -- or, with replaceSource=false, kept.
@@ -431,6 +436,10 @@ func (r *runner) run(ctx context.Context) error {
 	if err := r.beforeSwap(ctx, job.part); err != nil {
 		return err
 	}
+	if err := placeSidecars(ctx, job.plan, job.part, local); err != nil {
+		removePart(ctx, job.part)
+		return err
+	}
 	var recycled string
 	if sw.recycle {
 		recycled, err = fsops.RecycleLink(bin, local)
@@ -452,6 +461,7 @@ func (r *runner) run(ctx context.Context) error {
 // writes, how it encodes into it, and how the output is verified.
 type encodeJob struct {
 	part   string
+	plan   standard.Result // its sidecars are placed before the swap
 	encode func(ctx context.Context) error
 	verify func(ctx context.Context) (*transcode.Report, error)
 }
@@ -675,6 +685,55 @@ func removePart(ctx context.Context, path string) {
 	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 		logging.FromContext(ctx).WarnContext(ctx, "squasharr worker: removing output failed", "path", path, "error", err)
 	}
+	for _, s := range sidecarParts(path) {
+		if err := os.Remove(s); err != nil && !errors.Is(err, os.ErrNotExist) {
+			logging.FromContext(ctx).WarnContext(ctx, "squasharr worker: removing a sidecar part failed", "path", s, "error", err)
+		}
+	}
+}
+
+// sidecarParts are the sidecar parts of the attempt whose part is path
+// (fsops.SidecarPath): <stem>[.<lang...>].part-<uid8>-<n>.<ass|srt>.
+func sidecarParts(path string) []string {
+	cur, ok := fsops.ParseTranscodePart(path)
+	if !ok {
+		return nil
+	}
+	entries, err := os.ReadDir(filepath.Dir(path))
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, e := range entries {
+		p := filepath.Join(filepath.Dir(path), e.Name())
+		tp, ok := fsops.ParseTranscodePart(p)
+		if ok && e.Type().IsRegular() && fsops.SubtitleExt(tp.Ext) && tp.JobUID8 == cur.JobUID8 && tp.Attempt == cur.Attempt &&
+			(tp.Stem == cur.Stem || strings.HasPrefix(tp.Stem, cur.Stem+".")) {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// placeSidecars moves each planned sidecar's part to its final name beside
+// out, before the video swap: a crash between the two leaves the sidecars
+// beside the old file, where the retry finds and keeps them. A file
+// already at a final name is kept and the part removed (MP4 standard
+// ruling R3): it is the retry's own earlier work, or a sidecar captionarr
+// fetched.
+func placeSidecars(ctx context.Context, plan standard.Result, part, out string) error {
+	for _, s := range plan.Sidecars {
+		from, to := fsops.SidecarPath(part, s.Suffix), fsops.SidecarPath(out, s.Suffix)
+		if _, err := os.Lstat(to); err == nil {
+			logging.FromContext(ctx).InfoContext(ctx, "squasharr worker: a sidecar already exists; keeping it", "sidecar", to)
+			_ = os.Remove(from)
+			continue
+		}
+		if err := fsops.MoveAtomic(from, to); err != nil {
+			return retriable("squasharr worker: place sidecar %s: %w", to, err)
+		}
+	}
+	return nil
 }
 
 // formatTag reads a container-level tag case-insensitively: Matroska

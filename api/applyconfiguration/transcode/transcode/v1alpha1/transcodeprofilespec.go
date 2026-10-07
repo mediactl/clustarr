@@ -38,7 +38,8 @@ type TranscodeProfileSpecApplyConfiguration struct {
 	// Selector matches MediaFile labels this profile applies to. Only video
 	// kinds (movie, episode) are eligible; enforced by the controller.
 	Selector *v1.LabelSelectorApplyConfiguration `json:"selector,omitempty"`
-	// Container is the output container.
+	// Container is ignored since the MP4 standard (2026-10-06): every
+	// transcode writes MP4. It is kept so existing profiles still apply.
 	Container *transcodev1alpha1.Container `json:"container,omitempty"`
 	// Quality is the standard's one quality setting (0 best, 51 smallest),
 	// mapped to each encoder's own control by a code table: libx265 crf,

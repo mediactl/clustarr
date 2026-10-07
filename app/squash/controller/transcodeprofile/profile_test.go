@@ -64,8 +64,10 @@ func renderSpec() transcodev1alpha1.TranscodeProfileSpec {
 // and the size limit that decides whether its output is kept: a change to
 // any of them moves status.hash, so a file a terminal job skipped or failed
 // under the old values is planned again (a new job name) under the new.
+// Container is not one since standard.Version 2: every transcode writes MP4
+// (worker.OutputContainer).
 var standardInputs = map[string]bool{
-	"Quality": true, "Container": true, "Audio.Languages": true, "Policy.NeverTranscodeModifiers": true,
+	"Quality": true, "Audio.Languages": true, "Policy.NeverTranscodeModifiers": true,
 	"Policy.MinDuration": true, "Policy.MaxOutputToSourcePercent": true,
 }
 
@@ -158,8 +160,8 @@ func TestTheHashTreatsItsListsAsSets(t *testing.T) {
 		NeverTranscodeModifiers  []string
 		MinDuration              time.Duration
 		MaxOutputToSourcePercent int32
-	}{standard.Version, 30, transcodev1alpha1.ContainerMKV, []string{"eng"}, []string{"remux", "brdisk"}, time.Minute, 100})
-	assert.Equal(t, before, profileHash(stable), "the CRD default's hash is the one already stored")
+	}{standard.Version, 30, worker.OutputContainer, []string{"eng"}, []string{"remux", "brdisk"}, time.Minute, 100})
+	assert.Equal(t, before, profileHash(stable), "the hash's shape is unchanged: the container field holds the MP4 standard's")
 }
 
 func sha256Hex(t *testing.T, v any) string {

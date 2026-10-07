@@ -170,7 +170,8 @@ type fixtureOptions struct {
 	// typed create newFixture does. status.hash is set afterwards either way.
 	createProfile func(t *testing.T, c client.Client, name string)
 
-	// fileName replaces the source's file name, Film.2020.1080p.mkv; its
+	// fileName replaces the source's file name, Film.2020.1080p.mp4 (the
+	// MP4 standard's own container, so the default run swaps in place); its
 	// extension picks the source's container.
 	fileName string
 
@@ -189,7 +190,7 @@ func newFixtureWith(t *testing.T, c client.Client, fo fixtureOptions) *fixture {
 	fixtureSeq++
 	fileName := fo.fileName
 	if fileName == "" {
-		fileName = "Film.2020.1080p.mkv"
+		fileName = "Film.2020.1080p.mp4"
 	}
 	f := &fixture{
 		ns:          fmt.Sprintf("worker-%d", fixtureSeq),
@@ -420,7 +421,7 @@ func TestRunTranscodesVerifiesAndSwapsOverTheSource(t *testing.T) {
 
 	entries := f.binEntries(t)
 	require.Len(t, entries, 1, "the original must be in the recycle bin")
-	assert.Equal(t, filepath.Join(time.Now().UTC().Format("2006-01-02"), "Film.2020.1080p.mkv"), entries[0])
+	assert.Equal(t, filepath.Join(time.Now().UTC().Format("2006-01-02"), "Film.2020.1080p.mp4"), entries[0])
 	recycled, err := os.ReadFile(filepath.Join(f.bin, entries[0]))
 	require.NoError(t, err)
 	assert.True(t, bytes.Equal(f.original, recycled), "the recycled file must be the original, byte for byte")
@@ -690,29 +691,29 @@ func TestTheAPIAdmitsReplaceSourceFalse(t *testing.T) {
 
 // --- gap-fix ruling R-11: output location, container change, kept source ---
 
-// A container change (an .mp4 source under the default mkv profile) is
-// transcoded to <stem>.mkv beside the source; once that is in place the
+// A container change (an .mkv source: the standard writes MP4) is
+// transcoded to <stem>.mp4 beside the source; once that is in place the
 // source is retired to the recycle bin, the seeding link is untouched, and
 // status.result names the new path for catalogarr to take spec.path from.
 func TestRunChangesTheContainerAndRetiresTheSource(t *testing.T) {
 	c := requireCluster(t)
 	requireFFmpeg(t)
-	f := newFixtureWith(t, c, fixtureOptions{fileName: "Film.2020.1080p.mp4"})
-	wantLogical := "/data/media/movies/Film (2020)/Film.2020.1080p.mkv"
-	wantLocal := filepath.Join(f.dataDir, "media/movies/Film (2020)/Film.2020.1080p.mkv")
+	f := newFixtureWith(t, c, fixtureOptions{fileName: "Film.2020.1080p.mkv"})
+	wantLogical := "/data/media/movies/Film (2020)/Film.2020.1080p.mp4"
+	wantLocal := filepath.Join(f.dataDir, "media/movies/Film (2020)/Film.2020.1080p.mp4")
 
 	out := f.process(t, c)
 	require.NoError(t, out.Err)
 	require.Equal(t, ExitOK, out.Code)
 
 	codec, tag := videoCodec(t, wantLocal)
-	assert.Equal(t, "hevc", codec, "the output must be at <stem>.mkv")
+	assert.Equal(t, "hevc", codec, "the output must be at <stem>.mp4")
 	assert.Equal(t, f.profileName+"@"+f.profileHash, tag)
 	mi, _, err := mediainfo.Probe(context.Background(), wantLocal)
 	require.NoError(t, err)
-	assert.Equal(t, "mkv", mi.Container, "mkv data behind an .mkv name, not the .mp4 one")
+	assert.Equal(t, "mp4", mi.Container, "mp4 data behind an .mp4 name, not the .mkv one")
 	_, err = os.Stat(f.local)
-	assert.ErrorIs(t, err, os.ErrNotExist, "the .mp4 source must be retired from the library")
+	assert.ErrorIs(t, err, os.ErrNotExist, "the .mkv source must be retired from the library")
 	entries := f.binEntries(t)
 	require.Len(t, entries, 1)
 	recycled, err := os.ReadFile(filepath.Join(f.bin, entries[0]))
@@ -735,7 +736,7 @@ func TestRunWithReplaceSourceFalseKeepsTheSource(t *testing.T) {
 	f := newFixtureWith(t, c, fixtureOptions{mutateProfile: func(tp *transcodev1alpha1.TranscodeProfile) {
 		tp.Spec.Policy.ReplaceSource = ptr.To(false)
 	}})
-	name := "Film.2020.1080p - " + f.profileName + ".mkv"
+	name := "Film.2020.1080p - " + f.profileName + ".mp4"
 	outLocal := filepath.Join(f.dataDir, "media/movies/Film (2020)", name)
 
 	out := f.process(t, c)
@@ -775,8 +776,8 @@ func plantOutput(t *testing.T, path, tag string) []byte {
 func TestRunAfterACrashPostPlaceRetiresTheSourceWithoutTranscoding(t *testing.T) {
 	c := requireCluster(t)
 	requireFFmpeg(t)
-	f := newFixtureWith(t, c, fixtureOptions{fileName: "Film.2020.1080p.mp4"})
-	outLocal := filepath.Join(f.dataDir, "media/movies/Film (2020)/Film.2020.1080p.mkv")
+	f := newFixtureWith(t, c, fixtureOptions{fileName: "Film.2020.1080p.mkv"})
+	outLocal := filepath.Join(f.dataDir, "media/movies/Film (2020)/Film.2020.1080p.mp4")
 	placed := plantOutput(t, outLocal, f.profileName+"@"+f.profileHash)
 
 	out := f.process(t, c)
@@ -790,7 +791,7 @@ func TestRunAfterACrashPostPlaceRetiresTheSourceWithoutTranscoding(t *testing.T)
 	assert.ErrorIs(t, err, os.ErrNotExist, "the retry must finish retiring the source")
 	assert.Len(t, f.binEntries(t), 1)
 	require.NotNil(t, out.Result)
-	assert.Equal(t, "/data/media/movies/Film (2020)/Film.2020.1080p.mkv", out.Result.OutputPath)
+	assert.Equal(t, "/data/media/movies/Film (2020)/Film.2020.1080p.mp4", out.Result.OutputPath)
 }
 
 // A profile's hash changes (an edit, a new standard.Version) between an
@@ -824,8 +825,8 @@ func TestRunAfterACrashFinishesUnderAnEarlierHashOfTheProfile(t *testing.T) {
 	})
 
 	t.Run("post-place", func(t *testing.T) {
-		f := newFixtureWith(t, c, fixtureOptions{fileName: "Film.2020.1080p.mp4"})
-		outLocal := filepath.Join(f.dataDir, "media/movies/Film (2020)/Film.2020.1080p.mkv")
+		f := newFixtureWith(t, c, fixtureOptions{fileName: "Film.2020.1080p.mkv"})
+		outLocal := filepath.Join(f.dataDir, "media/movies/Film (2020)/Film.2020.1080p.mp4")
 		placed := plantOutput(t, outLocal, f.profileName+"@"+f.profileHash)
 		rehash(f)
 		out := f.process(t, c)
@@ -837,8 +838,8 @@ func TestRunAfterACrashFinishesUnderAnEarlierHashOfTheProfile(t *testing.T) {
 	})
 
 	t.Run("another profile's output is not ours", func(t *testing.T) {
-		f := newFixtureWith(t, c, fixtureOptions{fileName: "Film.2020.1080p.mp4"})
-		outLocal := filepath.Join(f.dataDir, "media/movies/Film (2020)/Film.2020.1080p.mkv")
+		f := newFixtureWith(t, c, fixtureOptions{fileName: "Film.2020.1080p.mkv"})
+		outLocal := filepath.Join(f.dataDir, "media/movies/Film (2020)/Film.2020.1080p.mp4")
 		theirs := plantOutput(t, outLocal, "other@"+f.profileHash)
 		out := f.process(t, c)
 		require.Equal(t, ExitInvalidSource, out.Code)
@@ -853,8 +854,8 @@ func TestRunAfterACrashFinishesUnderAnEarlierHashOfTheProfile(t *testing.T) {
 func TestRunRefusesToOverwriteAnUnrelatedFileAtTheOutputPath(t *testing.T) {
 	c := requireCluster(t)
 	requireFFmpeg(t)
-	f := newFixtureWith(t, c, fixtureOptions{fileName: "Film.2020.1080p.mp4"})
-	outLocal := filepath.Join(f.dataDir, "media/movies/Film (2020)/Film.2020.1080p.mkv")
+	f := newFixtureWith(t, c, fixtureOptions{fileName: "Film.2020.1080p.mkv"})
+	outLocal := filepath.Join(f.dataDir, "media/movies/Film (2020)/Film.2020.1080p.mp4")
 	theirs := plantOutput(t, outLocal, "")
 
 	out := f.process(t, c)
@@ -877,7 +878,7 @@ func TestRunWritesAnExplicitOutputPath(t *testing.T) {
 	f := newFixture(t, c)
 	tj := f.get(t, c)
 	require.NoError(t, c.Delete(ctx, tj))
-	logicalOut := "/data/media/movies/Film (2020) [hevc]/Film (2020).mkv"
+	logicalOut := "/data/media/movies/Film (2020) [hevc]/Film (2020).mp4"
 	require.NoError(t, c.Create(ctx, &transcodev1alpha1.TranscodeJob{
 		ObjectMeta: metav1.ObjectMeta{Name: f.job, Namespace: f.ns},
 		Spec: transcodev1alpha1.TranscodeJobSpec{
@@ -890,7 +891,7 @@ func TestRunWritesAnExplicitOutputPath(t *testing.T) {
 	require.NoError(t, out.Err)
 	require.Equal(t, ExitOK, out.Code)
 
-	codec, _ := videoCodec(t, filepath.Join(f.dataDir, "media/movies/Film (2020) [hevc]/Film (2020).mkv"))
+	codec, _ := videoCodec(t, filepath.Join(f.dataDir, "media/movies/Film (2020) [hevc]/Film (2020).mp4"))
 	assert.Equal(t, "hevc", codec)
 	_, err := os.Stat(f.local)
 	assert.ErrorIs(t, err, os.ErrNotExist, "replaceSource=true retires the source")
@@ -905,7 +906,7 @@ func TestRunWritesAnExplicitOutputPath(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: f2.job, Namespace: f2.ns},
 		Spec: transcodev1alpha1.TranscodeJobSpec{
 			MediaFileRef: "film-2020", ProfileRef: f2.profileName,
-			SourcePath: f2.logical, SourceProbeHash: f2.probeHash, OutputPath: ptr.To("/data/elsewhere/Film.mkv"),
+			SourcePath: f2.logical, SourceProbeHash: f2.probeHash, OutputPath: ptr.To("/data/elsewhere/Film.mp4"),
 		},
 	}))
 	out2 := f2.process(t, c)
@@ -1191,4 +1192,112 @@ func TestTheEnginesFailuresAreClassified(t *testing.T) {
 			assert.Empty(t, f.partFiles(t))
 		})
 	}
+}
+
+// sidecarEngine is fakeEngine whose encode also writes every planned
+// sidecar beside the part, as the in-process engine does.
+type sidecarEngine struct{ fakeEngine }
+
+func (e sidecarEngine) Encode(ctx context.Context, plan standard.Result, tier transcode.Tier, input, output string,
+	progress func(transcode.Progress),
+) (string, error) {
+	if tail, err := e.fakeEngine.Encode(ctx, plan, tier, input, output, progress); err != nil {
+		return tail, err
+	}
+	for _, s := range plan.Sidecars {
+		if err := os.WriteFile(fsops.SidecarPath(output, s.Suffix), []byte("sidecar"), 0o644); err != nil {
+			return "", err
+		}
+	}
+	return "", nil
+}
+
+// withASSAndForcedSRT writes the source as an H.264 clip with an English
+// ASS track and a forced German SubRip one: the plan's sidecars en.ass and
+// de.forced.srt.
+func withASSAndForcedSRT(t *testing.T, path string) {
+	t.Helper()
+	dir := t.TempDir()
+	ass := filepath.Join(dir, "s.ass")
+	require.NoError(t, os.WriteFile(ass, []byte("[Script Info]\nScriptType: v4.00+\n\n[V4+ Styles]\n"+
+		"Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n"+
+		"Style: Default,Arial,20,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,1,0,2,10,10,10,1\n\n"+
+		"[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"+
+		"Dialogue: 0,0:00:00.50,0:00:01.50,Default,,0,0,0,,Hello\n"), 0o644))
+	srt := filepath.Join(dir, "s.srt")
+	require.NoError(t, os.WriteFile(srt, []byte("1\n00:00:00,500 --> 00:00:01,500\nSign\n"), 0o644))
+	out, err := exec.Command(ffmpegBin, "-hide_banner", "-loglevel", "error", "-y",
+		"-f", "lavfi", "-i", "testsrc2=size=320x240:rate=24:duration=2",
+		"-f", "lavfi", "-i", "sine=frequency=1000:sample_rate=48000:duration=2",
+		"-i", ass, "-i", srt, "-map", "0", "-map", "1", "-map", "2", "-map", "3",
+		"-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "96k", "-c:s:0", "copy", "-c:s:1", "srt",
+		"-metadata:s:s:0", "language=eng", "-metadata:s:s:1", "language=ger", "-disposition:s:1", "forced",
+		"-shortest", path).CombinedOutput()
+	require.NoError(t, err, string(out))
+}
+
+func (f *fixture) withEngine(e Engine) Options {
+	o := f.options()
+	o.Engine = e
+	return o
+}
+
+// The plan's sidecars reach their final names before the video swap; an
+// existing file at one of them is kept (ruling R3); none is left as a part.
+func TestRunPlacesTheSidecarsAndKeepsAnExistingOne(t *testing.T) {
+	c := requireCluster(t)
+	requireFFmpeg(t)
+	f := newFixtureWith(t, c, fixtureOptions{fileName: "Film.2020.1080p.mkv", writeSource: withASSAndForcedSRT})
+	dir := filepath.Dir(f.local)
+	existing := filepath.Join(dir, "Film.2020.1080p.de.forced.srt")
+	require.NoError(t, os.WriteFile(existing, []byte("captionarr's"), 0o644))
+	out := f.processWith(t, c, f.withEngine(sidecarEngine{fakeEngine{report: &transcode.Report{OK: true}}}))
+	require.NoError(t, out.Err)
+	b, err := os.ReadFile(filepath.Join(dir, "Film.2020.1080p.en.ass"))
+	require.NoError(t, err)
+	assert.Equal(t, "sidecar", string(b))
+	b, err = os.ReadFile(existing)
+	require.NoError(t, err)
+	assert.Equal(t, "captionarr's", string(b), "an existing sidecar is never overwritten")
+	assert.Empty(t, f.partFiles(t), "no video or sidecar part is left")
+}
+
+// A verify failure leaves no sidecar, at its final name or as a part.
+func TestAFailedVerifyLeavesNoSidecar(t *testing.T) {
+	c := requireCluster(t)
+	requireFFmpeg(t)
+	f := newFixtureWith(t, c, fixtureOptions{fileName: "Film.2020.1080p.mkv", writeSource: withASSAndForcedSRT})
+	out := f.processWith(t, c, f.withEngine(sidecarEngine{fakeEngine{report: &transcode.Report{OK: false, Problems: []string{"bad"}}}}))
+	require.Error(t, out.Err)
+	_, err := os.Stat(filepath.Join(filepath.Dir(f.local), "Film.2020.1080p.en.ass"))
+	assert.ErrorIs(t, err, os.ErrNotExist)
+	assert.Empty(t, f.partFiles(t))
+}
+
+// An engine that wrote no sidecar fails verification: the plan's sidecars
+// are part of the output.
+func TestAMissingSidecarFailsVerification(t *testing.T) {
+	c := requireCluster(t)
+	requireFFmpeg(t)
+	f := newFixtureWith(t, c, fixtureOptions{fileName: "Film.2020.1080p.mkv", writeSource: withASSAndForcedSRT})
+	out := f.processWith(t, c, f.withEngine(fakeEngine{report: &transcode.Report{OK: true}}))
+	require.Error(t, out.Err)
+	assert.Contains(t, out.Err.Error(), "sidecar")
+	assert.Empty(t, f.partFiles(t))
+}
+
+// A crash after the sidecars were placed but before the swap: the retry
+// places nothing twice and overwrites nothing.
+func TestARetryAfterPlacingTheSidecarsDoesNotDuplicateThem(t *testing.T) {
+	c := requireCluster(t)
+	requireFFmpeg(t)
+	f := newFixtureWith(t, c, fixtureOptions{fileName: "Film.2020.1080p.mkv", writeSource: withASSAndForcedSRT})
+	final := filepath.Join(filepath.Dir(f.local), "Film.2020.1080p.en.ass")
+	require.NoError(t, os.WriteFile(final, []byte("first attempt"), 0o644))
+	out := f.processWith(t, c, f.withEngine(sidecarEngine{fakeEngine{report: &transcode.Report{OK: true}}}))
+	require.NoError(t, out.Err)
+	b, err := os.ReadFile(final)
+	require.NoError(t, err)
+	assert.Equal(t, "first attempt", string(b))
+	assert.Empty(t, f.partFiles(t))
 }

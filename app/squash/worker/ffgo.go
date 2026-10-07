@@ -88,7 +88,7 @@ func StandardProfile(name, hash string, spec transcodev1alpha1.TranscodeProfileS
 	return standard.Profile{
 		Name: name, Hash: hash, Quality: spec.QualityOrDefault(),
 		Languages: spec.Audio.Languages, NeverTranscodeModifiers: spec.Policy.NeverTranscodeModifiers,
-		Container:   transcode.Container(spec.Container),
+		Container:   transcode.ContainerMP4, // the standard writes MP4 (OutputContainer)
 		MinDuration: MinDuration(spec.Policy),
 	}
 }
@@ -142,7 +142,7 @@ func (r *runner) ffgoJob(ctx context.Context, info transcode.MediaInfo, sw swap,
 	durationMillis := info.Format.Duration.Milliseconds()
 	graft, plan := r.prepareGraft(ctx, local, plan)
 	return encodeJob{
-		part: part,
+		part: part, plan: plan,
 		encode: func(ctx context.Context) error {
 			if err := r.encodeFFgo(ctx, plan, tier, local, part, durationMillis, graft); err != nil {
 				return err
@@ -160,8 +160,18 @@ func (r *runner) ffgoJob(ctx context.Context, info transcode.MediaInfo, sw swap,
 		},
 		verify: func(ctx context.Context) (*transcode.Report, error) {
 			rep, err := r.o.Engine.Verify(ctx, local, part, plan.Expect)
-			if err != nil || !rep.OK || graft == nil {
+			if err != nil {
 				return rep, err
+			}
+			// The plan's sidecars are part of the output (MP4 standard §4.1).
+			for _, s := range plan.Sidecars {
+				if st, err := os.Stat(fsops.SidecarPath(part, s.Suffix)); err != nil || st.Size() == 0 {
+					rep.Problems = append(rep.Problems, fmt.Sprintf("sidecar %s missing or empty", s.Suffix))
+					rep.OK = false
+				}
+			}
+			if !rep.OK || graft == nil {
+				return rep, nil
 			}
 			// The transcode is sound; the dub it carries must be too. A bad
 			// one fails this attempt as retriable, with the graft's failure
@@ -288,7 +298,9 @@ func sweepEarlierAttempts(ctx context.Context, part string) {
 	for _, e := range entries {
 		path := filepath.Join(dir, e.Name())
 		p, ok := fsops.ParseTranscodePart(path)
-		if !ok || !e.Type().IsRegular() || p.Stem != cur.Stem || p.JobUID8 != cur.JobUID8 || p.Attempt >= cur.Attempt {
+		// The attempt's part, or one of its sidecar parts (fsops.SidecarPath).
+		stemOK := p.Stem == cur.Stem || (strings.HasPrefix(p.Stem, cur.Stem+".") && fsops.SubtitleExt(p.Ext))
+		if !ok || !e.Type().IsRegular() || !stemOK || p.JobUID8 != cur.JobUID8 || p.Attempt >= cur.Attempt {
 			continue
 		}
 		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {

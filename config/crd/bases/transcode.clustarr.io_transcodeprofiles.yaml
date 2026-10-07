@@ -105,8 +105,10 @@ spec:
                     must be false'
                   rule: '!has(self.enabled) || !self.enabled'
               container:
-                default: mkv
-                description: Container is the output container.
+                default: mp4
+                description: |-
+                  Container is ignored since the MP4 standard (2026-10-06): every
+                  transcode writes MP4. It is kept so existing profiles still apply.
                 enum:
                 - mkv
                 - mp4
