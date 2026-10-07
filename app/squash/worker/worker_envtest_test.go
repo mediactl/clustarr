@@ -1226,13 +1226,18 @@ func withASSAndForcedSRT(t *testing.T, path string) {
 		"Dialogue: 0,0:00:00.50,0:00:01.50,Default,,0,0,0,,Hello\n"), 0o644))
 	srt := filepath.Join(dir, "s.srt")
 	require.NoError(t, os.WriteFile(srt, []byte("1\n00:00:00,500 --> 00:00:01,500\nSign\n"), 0o644))
-	out, err := exec.Command(ffmpegBin, "-hide_banner", "-loglevel", "error", "-y",
+	// No -shortest (every input is 2 s already): with the subtitle inputs
+	// it stalled ffmpeg once under make test's load, for the suite's whole
+	// timeout; the deadline makes any stall a quick failure instead.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, ffmpegBin, "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
 		"-f", "lavfi", "-i", "testsrc2=size=320x240:rate=24:duration=2",
 		"-f", "lavfi", "-i", "sine=frequency=1000:sample_rate=48000:duration=2",
 		"-i", ass, "-i", srt, "-map", "0", "-map", "1", "-map", "2", "-map", "3",
 		"-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "96k", "-c:s:0", "copy", "-c:s:1", "srt",
 		"-metadata:s:s:0", "language=eng", "-metadata:s:s:1", "language=ger", "-disposition:s:1", "forced",
-		"-shortest", path).CombinedOutput()
+		path).CombinedOutput()
 	require.NoError(t, err, string(out))
 }
 
