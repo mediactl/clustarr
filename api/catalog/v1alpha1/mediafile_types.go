@@ -69,14 +69,17 @@ const (
 type ImportSource struct {
 	// DownloadRef is the name of the Download the file was imported from.
 	// +optional
+	// +kubebuilder:validation:MaxLength=253
 	DownloadRef string `json:"downloadRef,omitempty"`
 
 	// ReleaseTitle is the raw title of the release the file came from.
 	// +optional
+	// +kubebuilder:validation:MaxLength=512
 	ReleaseTitle string `json:"releaseTitle,omitempty"`
 
 	// IndexerName is the display name of the indexer the release came from.
 	// +optional
+	// +kubebuilder:validation:MaxLength=253
 	IndexerName string `json:"indexerName,omitempty"`
 
 	// Protocol is the transfer protocol the release was fetched over.
@@ -91,6 +94,19 @@ type ImportSource struct {
 	// +optional
 	Manual bool `json:"manual,omitempty"`
 }
+
+// Bounds of the MediaFile spec's paths and the release text importarr
+// freezes into it from a Download (loop spec §2.11.2), mirrored by
+// pkg/crdcheck.TestProbeAndImportBoundsMatchTheCRD. A Download's release
+// fields are unbounded, so fileimport clamps to these where it freezes them;
+// the item's audio donor (AudioDonor) uses the same path and release bounds.
+const (
+	MaxPathLength         = 4096
+	MaxReleaseTitleLength = 512
+	MaxIndexerNameLength  = 253
+	MaxReleaseGroupLength = 256
+	MaxEditionLength      = 256
+)
 
 // Sidecar is a subtitle sidecar beside the media file (loop spec §2.7):
 // every attributable one the subtitles planner's directory read finds,
@@ -148,6 +164,7 @@ type MediaFileSpec struct {
 	// changes only when catalogarr swaps in a transcode written under a new
 	// name, and catalogarr then owns it.
 	// +required
+	// +kubebuilder:validation:MaxLength=4096
 	Path string `json:"path"`
 
 	// SizeBytes is the file size in bytes.
@@ -173,15 +190,18 @@ type MediaFileSpec struct {
 
 	// ReleaseGroup is the release group parsed from the source release.
 	// +optional
+	// +kubebuilder:validation:MaxLength=256
 	ReleaseGroup string `json:"releaseGroup,omitempty"`
 
 	// Edition is the edition parsed from the source release.
 	// +optional
+	// +kubebuilder:validation:MaxLength=256
 	Edition string `json:"edition,omitempty"`
 
 	// Languages lists the languages parsed from the source release.
 	// +optional
 	// +kubebuilder:validation:MaxItems=64
+	// +kubebuilder:validation:items:MaxLength=35
 	Languages []string `json:"languages,omitempty"`
 
 	// FormatScore is the custom-format score of the source release at import.
@@ -191,10 +211,12 @@ type MediaFileSpec struct {
 	// MatchedFormats lists the custom-format slugs that matched at import.
 	// +optional
 	// +kubebuilder:validation:MaxItems=200
+	// +kubebuilder:validation:items:MaxLength=128
 	MatchedFormats []string `json:"matchedFormats,omitempty"`
 
 	// ProfileHash is the QualityProfile status.hash the file was scored against.
 	// +optional
+	// +kubebuilder:validation:MaxLength=64
 	ProfileHash string `json:"profileHash,omitempty"`
 
 	// ImportedFrom records where the file came from.

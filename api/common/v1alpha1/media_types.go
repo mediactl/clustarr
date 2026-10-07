@@ -48,11 +48,13 @@ type MediaRef struct {
 	// Name is the name of the referenced object; it lives in the same
 	// namespace as the object holding the reference.
 	// +required
+	// +kubebuilder:validation:MaxLength=253
 	Name string `json:"name"`
 
 	// Keys lists the Episode or Issue names covered by a pack release.
 	// +optional
 	// +kubebuilder:validation:MaxItems=200
+	// +kubebuilder:validation:items:MaxLength=253
 	Keys []string `json:"keys,omitempty"`
 
 	// Track narrows an album reference to one Track of that Album: the
@@ -93,18 +95,22 @@ type AudioStream struct {
 
 	// Codec is the audio codec name, e.g. aac, eac3, truehd, flac.
 	// +optional
+	// +kubebuilder:validation:MaxLength=64
 	Codec string `json:"codec,omitempty"`
 
 	// Profile is the codec profile, if any, e.g. Atmos or DTS-HD MA.
 	// +optional
+	// +kubebuilder:validation:MaxLength=64
 	Profile string `json:"profile,omitempty"`
 
 	// Language is the ISO 639 language tag of the track.
 	// +optional
+	// +kubebuilder:validation:MaxLength=64
 	Language string `json:"language,omitempty"`
 
 	// Title is the track title from the container metadata.
 	// +optional
+	// +kubebuilder:validation:MaxLength=256
 	Title string `json:"title,omitempty"`
 
 	// Channels is the channel count (2 = stereo, 6 = 5.1, 8 = 7.1).
@@ -139,14 +145,17 @@ type SubtitleStream struct {
 
 	// Codec is the subtitle codec name, e.g. subrip, ass, hdmv_pgs_subtitle.
 	// +optional
+	// +kubebuilder:validation:MaxLength=64
 	Codec string `json:"codec,omitempty"`
 
 	// Language is the ISO 639 language tag of the track.
 	// +optional
+	// +kubebuilder:validation:MaxLength=64
 	Language string `json:"language,omitempty"`
 
 	// Title is the track title from the container metadata.
 	// +optional
+	// +kubebuilder:validation:MaxLength=256
 	Title string `json:"title,omitempty"`
 
 	// Forced is true when the track is flagged as forced.
@@ -167,18 +176,22 @@ type SubtitleStream struct {
 type MediaInfo struct {
 	// Container is the container format, e.g. mkv, mp4, flac, epub.
 	// +optional
+	// +kubebuilder:validation:MaxLength=64
 	Container string `json:"container,omitempty"`
 
 	// VideoCodec is the video codec name, e.g. h264, hevc, av1.
 	// +optional
+	// +kubebuilder:validation:MaxLength=64
 	VideoCodec string `json:"videoCodec,omitempty"`
 
 	// VideoProfile is the video codec profile, e.g. Main 10.
 	// +optional
+	// +kubebuilder:validation:MaxLength=64
 	VideoProfile string `json:"videoProfile,omitempty"`
 
 	// PixelFormat is the pixel format, e.g. yuv420p10le.
 	// +optional
+	// +kubebuilder:validation:MaxLength=64
 	PixelFormat string `json:"pixelFormat,omitempty"`
 
 	// VideoBitDepth is the video bit depth (8, 10, 12).

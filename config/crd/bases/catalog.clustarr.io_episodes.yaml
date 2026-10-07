@@ -275,6 +275,7 @@ spec:
                     type: string
                   name:
                     description: Name is the canonical quality definition name.
+                    maxLength: 64
                     type: string
                   resolution:
                     description: Resolution is the vertical resolution in lines. Video

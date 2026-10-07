@@ -398,7 +398,7 @@ func (w *Worker) importEpisodeFile(
 		WithImportedFrom(catalogac.ImportSource().
 			WithDownloadRef(dl.Name).
 			WithReleaseTitle(frozen.ImportedFrom.ReleaseTitle).
-			WithIndexerName(dl.Spec.Release.IndexerName).
+			WithIndexerName(importText(dl.Spec.Release.IndexerName, catalogv1alpha1.MaxIndexerNameLength)).
 			WithProtocol(dl.Spec.Release.Protocol).
 			WithImportedAt(metav1.NewTime(w.now())).
 			WithManual(manual))

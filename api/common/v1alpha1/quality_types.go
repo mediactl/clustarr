@@ -70,6 +70,7 @@ const (
 type Quality struct {
 	// Name is the canonical quality definition name.
 	// +required
+	// +kubebuilder:validation:MaxLength=64
 	Name string `json:"name"`
 
 	// Source is the release source. Video only.

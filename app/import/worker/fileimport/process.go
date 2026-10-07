@@ -400,7 +400,7 @@ func (pc *processConfig) processFile(
 		WithImportedFrom(catalogac.ImportSource().
 			WithDownloadRef(pc.download.Name).
 			WithReleaseTitle(frozen.ImportedFrom.ReleaseTitle).
-			WithIndexerName(pc.download.Spec.Release.IndexerName).
+			WithIndexerName(importText(pc.download.Spec.Release.IndexerName, catalogv1alpha1.MaxIndexerNameLength)).
 			WithProtocol(pc.download.Spec.Release.Protocol).
 			WithImportedAt(metav1.NewTime(pc.worker.now())).
 			WithManual(pc.manual))
@@ -489,10 +489,21 @@ func (w *Worker) probeVideo(ctx context.Context, m events.Message, srcPath, rel 
 // values, and a later rename of the file renders the name the import did.
 func frozenRelease(parsed *release.ParsedRelease, matched []string, releaseTitle string) *catalogv1alpha1.MediaFileSpec {
 	return &catalogv1alpha1.MediaFileSpec{
-		Quality: parsed.Quality, Revision: parsed.Revision, ReleaseGroup: parsed.Group, Edition: parsed.Edition,
+		Quality: parsed.Quality, Revision: parsed.Revision,
+		ReleaseGroup:   importText(parsed.Group, catalogv1alpha1.MaxReleaseGroupLength),
+		Edition:        importText(parsed.Edition, catalogv1alpha1.MaxEditionLength),
 		MatchedFormats: capMatchedFormats(matched),
-		ImportedFrom:   &catalogv1alpha1.ImportSource{ReleaseTitle: releaseTitle},
+		ImportedFrom:   &catalogv1alpha1.ImportSource{ReleaseTitle: importText(releaseTitle, catalogv1alpha1.MaxReleaseTitleLength)},
 	}
+}
+
+// importText is s as a MediaFile spec field bounded at maxBytes holds it:
+// the runes a server-side apply cannot carry replaced, then cut on a rune
+// boundary (loop spec §2.11.2). A Download's release fields are unbounded,
+// and the apiserver refuses an over-long one whole, which would fail the
+// import.
+func importText(s string, maxBytes int) string {
+	return k8s.ClampText(k8s.SanitizeText(s), maxBytes)
 }
 
 // relPath renders srcPath relative to root, matching

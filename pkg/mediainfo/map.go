@@ -44,6 +44,18 @@ var bitmapSubtitleCodecs = map[string]bool{
 // (pkg/transcode.FromProbe), never from this summary.
 const MaxStreamsPerKind = 64
 
+// MaxStreamToken and MaxStreamTitle are the MaxLengths loop spec §2.11.2
+// gives MediaInfo's container, codec, profile, pixel format and language
+// names, and its stream titles. The apiserver refuses a status apply carrying
+// a longer value WHOLE, on MediaFile and on TranscodeJob's result alike, so
+// toMediaInfo cuts one on a rune boundary. A stored status holds no such
+// value (it could not have been applied), so this does not raise
+// ProbeVersion.
+const (
+	MaxStreamToken = 64
+	MaxStreamTitle = 256
+)
+
 // FromRaw maps raw to the MediaFile status summary with the same rules
 // Probe applies to ffprobe's output: a probe that fills Raw another way
 // (the squasharr worker's in-process probe, which has no ffprobe) gets the
@@ -57,14 +69,14 @@ func FromRaw(raw *Raw) *commonv1.MediaInfo { return toMediaInfo(raw) }
 // carries..." note.
 func toMediaInfo(raw *Raw) *commonv1.MediaInfo {
 	mi := &commonv1.MediaInfo{
-		Container:     containerFromPath(raw.Format.Filename),
+		Container:     clipRunes(containerFromPath(raw.Format.Filename), MaxStreamToken),
 		RuntimeMillis: int64(raw.Format.DurationSeconds*1000 + 0.5),
 		Hdr:           ClassifyHDR(raw),
 	}
 	if v := firstStream(raw.Streams, ffprobe.StreamVideo); v != nil {
-		mi.VideoCodec = v.CodecName
-		mi.VideoProfile = v.Profile
-		mi.PixelFormat = v.PixFmt
+		mi.VideoCodec = clipRunes(v.CodecName, MaxStreamToken)
+		mi.VideoProfile = clipRunes(v.Profile, MaxStreamToken)
+		mi.PixelFormat = clipRunes(v.PixFmt, MaxStreamToken)
 		mi.VideoBitDepth = bitDepthFromPixFmt(v.PixFmt)
 		mi.Width = int32(v.Width)
 		mi.Height = int32(v.Height)
@@ -282,10 +294,10 @@ func firstStream(streams []*ffprobe.Stream, t ffprobe.StreamType) *ffprobe.Strea
 func toAudioStream(s *ffprobe.Stream) commonv1.AudioStream {
 	return commonv1.AudioStream{
 		Index:         int32(s.Index),
-		Codec:         s.CodecName,
-		Profile:       s.Profile,
-		Language:      s.Tags.Language,
-		Title:         s.Tags.Title,
+		Codec:         clipRunes(s.CodecName, MaxStreamToken),
+		Profile:       clipRunes(s.Profile, MaxStreamToken),
+		Language:      clipRunes(s.Tags.Language, MaxStreamToken),
+		Title:         clipRunes(s.Tags.Title, MaxStreamTitle),
 		Channels:      int32(s.Channels),
 		ChannelLayout: s.ChannelLayout,
 		BitrateKbps:   kbpsFromBitRate(s.BitRate),
@@ -297,9 +309,9 @@ func toAudioStream(s *ffprobe.Stream) commonv1.AudioStream {
 func toSubtitleStream(s *ffprobe.Stream) commonv1.SubtitleStream {
 	return commonv1.SubtitleStream{
 		Index:           int32(s.Index),
-		Codec:           s.CodecName,
-		Language:        s.Tags.Language,
-		Title:           s.Tags.Title,
+		Codec:           clipRunes(s.CodecName, MaxStreamToken),
+		Language:        clipRunes(s.Tags.Language, MaxStreamToken),
+		Title:           clipRunes(s.Tags.Title, MaxStreamTitle),
 		Forced:          s.Disposition.Forced == 1,
 		HearingImpaired: s.Disposition.HearingImpaired == 1,
 		Bitmap:          bitmapSubtitleCodecs[s.CodecName],

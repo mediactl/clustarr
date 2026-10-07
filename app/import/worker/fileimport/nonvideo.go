@@ -353,8 +353,8 @@ func (w *Worker) importNonVideoFile(
 		WithOriginal(true).
 		WithImportedFrom(catalogac.ImportSource().
 			WithDownloadRef(dl.Name).
-			WithReleaseTitle(dl.Spec.Release.Title).
-			WithIndexerName(dl.Spec.Release.IndexerName).
+			WithReleaseTitle(importText(dl.Spec.Release.Title, catalogv1alpha1.MaxReleaseTitleLength)).
+			WithIndexerName(importText(dl.Spec.Release.IndexerName, catalogv1alpha1.MaxIndexerNameLength)).
 			WithProtocol(dl.Spec.Release.Protocol).
 			WithImportedAt(metav1.NewTime(w.now())).
 			WithManual(manual))

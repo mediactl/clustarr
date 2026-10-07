@@ -96,6 +96,7 @@ spec:
                     description: Keys lists the Episode or Issue names covered by
                       a pack release.
                     items:
+                      maxLength: 253
                       type: string
                     maxItems: 200
                     type: array
@@ -117,6 +118,7 @@ spec:
                     description: |-
                       Name is the name of the referenced object; it lives in the same
                       namespace as the object holding the reference.
+                    maxLength: 253
                     type: string
                   track:
                     description: |-

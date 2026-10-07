@@ -202,6 +202,7 @@ type TranscodeState struct {
 	// (§2.16). The loop never writes them; LastResult has no default. F9.2
 	// deletes both.
 	// +optional
+	// +kubebuilder:validation:MaxLength=253
 	JobRef *string `json:"jobRef,omitempty"`
 	// +optional
 	LastResult TranscodeResult `json:"lastResult,omitempty"`

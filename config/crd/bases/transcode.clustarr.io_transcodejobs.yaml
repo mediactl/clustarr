@@ -500,6 +500,7 @@ spec:
                             codec:
                               description: Codec is the audio codec name, e.g. aac,
                                 eac3, truehd, flac.
+                              maxLength: 64
                               type: string
                             commentary:
                               description: Commentary is true when the track is a
@@ -517,14 +518,17 @@ spec:
                             language:
                               description: Language is the ISO 639 language tag of
                                 the track.
+                              maxLength: 64
                               type: string
                             profile:
                               description: Profile is the codec profile, if any, e.g.
                                 Atmos or DTS-HD MA.
+                              maxLength: 64
                               type: string
                             title:
                               description: Title is the track title from the container
                                 metadata.
+                              maxLength: 256
                               type: string
                           type: object
                         maxItems: 64
@@ -565,6 +569,7 @@ spec:
                       container:
                         description: Container is the container format, e.g. mkv,
                           mp4, flac, epub.
+                        maxLength: 64
                         type: string
                       doviBLCompatID:
                         description: DoviBLCompatID is the Dolby Vision base-layer
@@ -604,6 +609,7 @@ spec:
                         type: integer
                       pixelFormat:
                         description: PixelFormat is the pixel format, e.g. yuv420p10le.
+                        maxLength: 64
                         type: string
                       runtimeMillis:
                         description: RuntimeMillis is the total duration of the file
@@ -624,6 +630,7 @@ spec:
                             codec:
                               description: Codec is the subtitle codec name, e.g.
                                 subrip, ass, hdmv_pgs_subtitle.
+                              maxLength: 64
                               type: string
                             forced:
                               description: Forced is true when the track is flagged
@@ -641,10 +648,12 @@ spec:
                             language:
                               description: Language is the ISO 639 language tag of
                                 the track.
+                              maxLength: 64
                               type: string
                             title:
                               description: Title is the track title from the container
                                 metadata.
+                              maxLength: 256
                               type: string
                           type: object
                         maxItems: 64
@@ -675,6 +684,7 @@ spec:
                       videoCodec:
                         description: VideoCodec is the video codec name, e.g. h264,
                           hevc, av1.
+                        maxLength: 64
                         type: string
                       videoEncoder:
                         description: |-
@@ -689,6 +699,7 @@ spec:
                       videoProfile:
                         description: VideoProfile is the video codec profile, e.g.
                           Main 10.
+                        maxLength: 64
                         type: string
                       width:
                         description: Width is the video frame width in pixels.
