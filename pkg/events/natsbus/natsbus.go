@@ -356,6 +356,37 @@ func (b *Bus) Subscribe(ctx context.Context, sub events.Subscription,
 	return s.stop, nil
 }
 
+// forget drops a stopped subscription from the bus's list.
+func (b *Bus) forget(s *subscription) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for i, x := range b.subs {
+		if x == s {
+			b.subs = append(b.subs[:i], b.subs[i+1:]...)
+			return
+		}
+	}
+}
+
+var _ events.WedgeReporter = (*Bus)(nil)
+
+// Wedged implements events.WedgeReporter: it names every subscription of
+// this process whose lapsed cap handlers that ignore their context have held
+// past its handler budget plus its first-delivery deadline. It reads only the
+// subscriptions' own state, never the broker (split §3.3 as amended
+// 2026-10-07).
+func (b *Bus) Wedged() error {
+	b.mu.Lock()
+	subs := append([]*subscription(nil), b.subs...)
+	b.mu.Unlock()
+	now := time.Now()
+	var errs []error
+	for _, s := range subs {
+		errs = append(errs, s.wedged(now))
+	}
+	return errors.Join(errs...)
+}
+
 // receive wraps one delivery the way every consumer path must: decode the
 // envelope, run Hooks.AfterReceive, and bind the message to its subscription.
 // Subscribe's handle and Pull's Next share it, so a message looks identical

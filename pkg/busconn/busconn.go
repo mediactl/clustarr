@@ -137,6 +137,21 @@ func EnsureTopology(ctx context.Context, bus events.Bus, t events.Topology) erro
 	return nil
 }
 
+// WedgeChecker is the `bus` liveness check (split §3.3 as amended
+// 2026-10-07): it fails while a subscription of the process has sat at its
+// lapsed cap past its handler budget plus its first-delivery deadline, which
+// only handlers that ignore their context cause -- a local fault a restart
+// cures. It reads the bus's own state, never the broker, so a NATS outage
+// never fails it. A nil reporter always passes.
+func WedgeChecker(r events.WedgeReporter) healthz.Checker {
+	return func(*http.Request) error {
+		if r == nil {
+			return nil
+		}
+		return r.Wedged()
+	}
+}
+
 // ReadyChecker is §13's "JetStream ping (all)" readiness gate: the pod is
 // ready only while its NATS connection is up and JetStream answers.
 //

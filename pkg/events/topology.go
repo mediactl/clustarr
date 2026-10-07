@@ -112,6 +112,26 @@ type ConsumerSpec struct {
 	Slots int
 
 	Heartbeat time.Duration
+
+	// HandlerTimeout is the explicit per-message handler budget the bus
+	// enforces (split §3.5.6 and §9.3 as amended 2026-10-07, "Handler
+	// budget"): it heartbeats a running handler every third of the deadline,
+	// cancels it with ErrHandlerBudget at the budget, and with ErrLapsed one
+	// deadline after a lapse. Zero, the default, enforces nothing: fileimport
+	// and the rescan heartbeat past their AckWait by design, so a budget at
+	// AckWait would cancel them. Set it only from a bound that already
+	// exists, or from the consumer's clustarr_work_duration_seconds tail.
+	HandlerTimeout time.Duration
+}
+
+// HandlerBudget is the explicit HandlerTimeout, else AckWait: what drain,
+// grace and the wedge threshold size from (split §3.5.6 as amended
+// 2026-10-07). Only the explicit HandlerTimeout is enforced.
+func (c ConsumerSpec) HandlerBudget() time.Duration {
+	if c.HandlerTimeout > 0 {
+		return c.HandlerTimeout
+	}
+	return c.AckWait
 }
 
 // AutoscaleReplicaCeiling sizes an autoscaled consumer's MaxAckPending:
@@ -122,15 +142,16 @@ const AutoscaleReplicaCeiling = 8
 // Subscriber.Subscribe, so worker code never restates the tuning.
 func (c ConsumerSpec) Subscription() Subscription {
 	return Subscription{
-		Stream:        c.Stream,
-		Durable:       c.Name,
-		Filters:       append([]string(nil), c.Filters...),
-		AckWait:       c.AckWait,
-		MaxDeliver:    c.MaxDeliver,
-		Backoff:       append([]time.Duration(nil), c.BackOff...),
-		MaxInFlight:   c.Slots,
-		MaxAckPending: c.MaxAckPending,
-		Heartbeat:     c.Heartbeat,
+		Stream:         c.Stream,
+		Durable:        c.Name,
+		Filters:        append([]string(nil), c.Filters...),
+		AckWait:        c.AckWait,
+		MaxDeliver:     c.MaxDeliver,
+		Backoff:        append([]time.Duration(nil), c.BackOff...),
+		MaxInFlight:    c.Slots,
+		MaxAckPending:  c.MaxAckPending,
+		Heartbeat:      c.Heartbeat,
+		HandlerTimeout: c.HandlerTimeout,
 	}
 }
 
@@ -142,15 +163,16 @@ func (c ConsumerSpec) Subscription() Subscription {
 func SubscriptionSpec(s Subscription) ConsumerSpec {
 	slots := max(s.MaxInFlight, 1)
 	return ConsumerSpec{
-		Name:          s.Durable,
-		Stream:        s.Stream,
-		Filters:       append([]string(nil), s.Filters...),
-		AckWait:       s.AckWait,
-		MaxDeliver:    s.MaxDeliver,
-		BackOff:       append([]time.Duration(nil), s.Backoff...),
-		MaxAckPending: cmp.Or(s.MaxAckPending, slots),
-		Slots:         slots,
-		Heartbeat:     s.Heartbeat,
+		Name:           s.Durable,
+		Stream:         s.Stream,
+		Filters:        append([]string(nil), s.Filters...),
+		AckWait:        s.AckWait,
+		MaxDeliver:     s.MaxDeliver,
+		BackOff:        append([]time.Duration(nil), s.Backoff...),
+		MaxAckPending:  cmp.Or(s.MaxAckPending, slots),
+		Slots:          slots,
+		Heartbeat:      s.Heartbeat,
+		HandlerTimeout: s.HandlerTimeout,
 	}
 }
 
@@ -855,6 +877,9 @@ func defaultConsumers() []ConsumerSpec {
 			BackOff:       []time.Duration{1 * m, 10 * m},
 			MaxAckPending: 1 * AutoscaleReplicaCeiling,
 			Slots:         1,
+			// Its TaskTimeout (app/segments/worker); every other consumer's
+			// budget waits for its clustarr_work_duration_seconds tail.
+			HandlerTimeout: 30 * m,
 		},
 		{
 			// catalogarr records each file's result and merges it into

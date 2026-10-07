@@ -18,7 +18,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package natsbus
 
 import (
+	"cmp"
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -26,6 +28,7 @@ import (
 
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/pkg/obs/metrics"
 )
 
 // The pull loop's timing.
@@ -45,6 +48,13 @@ type delivery struct {
 	seq, attempt uint64
 	deadline     time.Time // the broker's redelivery deadline; InProgress moves it
 	lapsed       bool
+	lapsedAt     time.Time // when the reaper marked it lapsed
+
+	// cancel ends a budgeted delivery's handler context with a cause; nil
+	// without a budget (Subscription.HandlerTimeout). cancelled records that
+	// the reaper has cancelled it with events.ErrLapsed.
+	cancel    context.CancelCauseFunc
+	cancelled bool
 }
 
 // A subscription is one Subscribe call's running state: a slot-gated pull
@@ -70,6 +80,16 @@ type delivery struct {
 // MaxAckPending. With it, they never exceed twice the slots: slots live and
 // at most slots lapsed. A lapsed handler keeps running with its context; its
 // late settlement behaves as any late settlement does.
+//
+// Budget. With Subscription.HandlerTimeout set, the bus heartbeats each
+// running handler every third of its deadline, so a budgeted handler lapses
+// only when its process stalls or its budget is spent; runs it under a context
+// whose deadline is the budget (cause events.ErrHandlerBudget); and cancels a
+// lapsed one's context with cause events.ErrLapsed one deadline after the
+// lapse. Without one nothing changes. For every subscription, a lapsed cap
+// held longer than the handler budget plus the first-delivery deadline is a
+// wedge (wedged, Bus.Wedged): handlers that ignore their context, which only
+// a restart frees (split §3.3 and §9.3 as amended 2026-10-07, S1).
 //
 // MAX_DELIVERIES. JetStream raises the advisory from which the dead-letter
 // watcher copies a message whose final delivery lapsed only when it next
@@ -114,13 +134,16 @@ type subscription struct {
 	// timing is the bound durable's, as the broker stores it: deadlines,
 	// delayed naks and Settle read it, not the caller's sub (S5). It is the
 	// caller's until the first bind.
-	timing   events.Timing
-	running  map[*delivery]struct{}
-	live     int           // running deliveries not lapsed: they hold the slots
-	lapsed   int           // running deliveries past their deadline: at most slots
-	wake     chan struct{} // capacity 1
-	handlers sync.WaitGroup
-	loops    sync.WaitGroup
+	timing  events.Timing
+	running map[*delivery]struct{}
+	live    int // running deliveries not lapsed: they hold the slots
+	lapsed  int // running deliveries past their deadline: at most slots
+	// saturatedSince is when lapsed deliveries came to hold the lapsed cap,
+	// zero while they do not.
+	saturatedSince time.Time
+	wake           chan struct{} // capacity 1
+	handlers       sync.WaitGroup
+	loops          sync.WaitGroup
 }
 
 // deliveryHooks is what a subscription tells the message it hands a handler:
@@ -285,15 +308,54 @@ func (s *subscription) startLocked(m jetstream.Msg, seq, attempt uint64) {
 	d := &delivery{seq: seq, attempt: attempt, deadline: time.Now().Add(events.AckDeadline(eff, attempt))}
 	s.running[d] = struct{}{}
 	s.live++
+	hctx, done := s.handlerCtx, func() {}
+	if budget := s.sub.HandlerTimeout; budget > 0 {
+		cctx, cancel := context.WithCancelCause(s.handlerCtx)
+		bctx, stopBudget := context.WithDeadlineCause(cctx, time.Now().Add(budget), events.ErrHandlerBudget)
+		d.cancel = cancel
+		beat := make(chan struct{})
+		go s.heartbeat(bctx, m, d, beat) // until beat closes or bctx ends
+		hctx = bctx
+		done = func() { close(beat); stopBudget(); cancel(nil) }
+	}
 	s.handlers.Add(1)
 	go func() {
 		defer s.handlers.Done()
-		s.run(s.handlerCtx, eff, m, deliveryHooks{
+		s.run(hctx, eff, m, deliveryHooks{
 			onProgress: func() { s.progress(d) },
 			lapsed:     func() bool { s.mu.Lock(); defer s.mu.Unlock(); return d.lapsed },
 		})
+		done()
 		s.finish(d)
 	}()
+}
+
+// heartbeat is the bus's keep-alive for a budgeted delivery: InProgress every
+// third of its deadline while the handler runs, its budget is unspent and it
+// has not lapsed (split §9.3 as amended, S1).
+func (s *subscription) heartbeat(ctx context.Context, m jetstream.Msg, d *delivery, done <-chan struct{}) {
+	s.mu.Lock()
+	every := events.AckDeadline(s.effectiveLocked(), d.attempt) / 3
+	s.mu.Unlock()
+	t := time.NewTicker(max(every, time.Millisecond))
+	defer t.Stop()
+	for {
+		select {
+		case <-done:
+			return
+		case <-ctx.Done():
+			return // the budget is spent, or the delivery was cancelled
+		case <-t.C:
+			s.mu.Lock()
+			lapsed := d.lapsed
+			s.mu.Unlock()
+			if lapsed {
+				return
+			}
+			_ = m.InProgress()
+			s.progress(d)
+		}
+	}
 }
 
 // finish returns d's slot, or its place under the lapsed cap, and wakes the
@@ -307,7 +369,47 @@ func (s *subscription) finish(d *delivery) {
 	} else {
 		s.live--
 	}
+	s.saturationLocked(time.Now())
 	s.signalLocked()
+}
+
+// saturationLocked keeps saturatedSince current and the lapse gauges set.
+// The caller holds s.mu.
+func (s *subscription) saturationLocked(now time.Time) {
+	if s.lapsed >= s.slots {
+		if s.saturatedSince.IsZero() {
+			s.saturatedSince = now
+		}
+	} else {
+		s.saturatedSince = time.Time{}
+	}
+	metrics.BusLapsedHandlers.WithLabelValues(s.sub.Durable).Set(float64(s.lapsed))
+	metrics.BusSaturated.WithLabelValues(s.sub.Durable).Set(boolGauge(s.lapsed >= s.slots))
+}
+
+func boolGauge(b bool) float64 {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+// wedged reports a subscription whose every slot lapsed handlers have held for
+// longer than its budget plus a first-delivery deadline: handlers that ignore
+// their context, which only a restart frees (split §3.3, §9.3 as amended).
+func (s *subscription) wedged(now time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.stopping || s.saturatedSince.IsZero() {
+		return nil
+	}
+	budget := cmp.Or(s.sub.HandlerTimeout, s.sub.AckWait, events.DefaultAckWait)
+	limit := budget + events.AckDeadline(s.effectiveLocked(), 1)
+	if held := now.Sub(s.saturatedSince); held > limit {
+		return fmt.Errorf("bus: every slot of %s has been held by lapsed handlers for %v (limit %v): they ignore their context",
+			s.sub.Durable, held.Round(time.Second), limit)
+	}
+	return nil
 }
 
 // progress moves d's deadline on an InProgress. A lapsed delivery stays
@@ -321,20 +423,32 @@ func (s *subscription) progress(d *delivery) {
 }
 
 // reap marks running deliveries past their deadline lapsed, freeing their
-// slots, while fewer than slots are lapsed (spec §9.3, "The bound").
+// slots, while fewer than slots are lapsed (spec §9.3, "The bound"), and
+// cancels a budgeted lapsed delivery's handler one deadline after its lapse
+// (S1).
 func (s *subscription) reap(now time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	changed := false
+	eff := s.effectiveLocked()
 	for d := range s.running {
-		if d.lapsed || s.lapsed >= s.slots || !now.After(d.deadline.Add(lapseGrace)) {
+		if d.lapsed {
+			if d.cancel != nil && !d.cancelled && now.After(d.lapsedAt.Add(events.AckDeadline(eff, d.attempt))) {
+				d.cancel(events.ErrLapsed)
+				d.cancelled = true
+			}
+			continue
+		}
+		if s.lapsed >= s.slots || !now.After(d.deadline.Add(lapseGrace)) {
 			continue
 		}
 		d.lapsed = true
+		d.lapsedAt = now
 		s.live--
 		s.lapsed++
 		changed = true
 	}
+	s.saturationLocked(now)
 	if changed {
 		s.signalLocked()
 	}
@@ -388,11 +502,15 @@ func (s *subscription) drainOnStop() {
 
 // stop ends the subscription: no more fetches, running handlers keep their
 // context for up to sub.Drain, and it returns once every handler and loop has.
+// The bus then forgets it, so Bus.Wedged no longer reads it.
 func (s *subscription) stop() {
 	s.stopLoop()
 	<-s.drained
 	s.handlers.Wait()
 	s.loops.Wait()
+	s.bus.forget(s)
+	metrics.BusLapsedHandlers.DeleteLabelValues(s.sub.Durable)
+	metrics.BusSaturated.DeleteLabelValues(s.sub.Durable)
 }
 
 // halt is Close's stop: handlers' context ends at once, and nothing waits.

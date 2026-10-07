@@ -141,6 +141,15 @@ type Subscription struct {
 	// Heartbeat asks the broker for idle heartbeats at this interval, so a
 	// long-idle consumer notices a broken connection.
 	Heartbeat time.Duration
+
+	// HandlerTimeout is the explicit handler budget only
+	// (ConsumerSpec.HandlerTimeout, never its AckWait fallback). Above zero
+	// the bus sends InProgress every third of the delivery's deadline while
+	// the handler runs, cancels the handler's context with ErrHandlerBudget at
+	// the budget, and with ErrLapsed one deadline after the delivery lapses
+	// (split §9.3 as amended 2026-10-07, "Handler budget"). Zero: no bus
+	// heartbeat, no deadline.
+	HandlerTimeout time.Duration
 }
 
 // Validate reports whether the subscription is internally consistent.
@@ -250,6 +259,17 @@ type Subscriber interface {
 // final deliveries.
 type DeadLetterWatcher interface {
 	WatchDeadLetters(ctx context.Context, sub Subscription) (stop func(), err error)
+}
+
+// WedgeReporter reports a process's subscriptions wedged by handlers that
+// ignore their context: Wedged names each one whose every slot lapsed
+// handlers have held for longer than its handler budget plus its
+// first-delivery deadline, which only a restart cures. It reads the bus's own
+// state, never the broker's, so a NATS outage never makes it fail; the `bus`
+// liveness check is built on it (split §3.3 and §9.3 as amended 2026-10-07).
+// natsbus and membus implement it.
+type WedgeReporter interface {
+	Wedged() error
 }
 
 // Puller hands out one message per Next call from a durable pull consumer.

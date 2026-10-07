@@ -76,6 +76,17 @@ var (
 	// retention policy differs from the topology. An operator must migrate
 	// the stream by hand; silently recreating it would drop queued work.
 	ErrRetentionImmutable = errors.New("events: stream retention is immutable")
+
+	// ErrLapsed is the cause a budgeted handler's context is cancelled with
+	// one deadline after its delivery lapsed: the broker has redelivered the
+	// message, so the work goes on elsewhere (split §9.3 as amended
+	// 2026-10-07, "Handler budget").
+	ErrLapsed = errors.New("events: delivery lapsed; the broker has redelivered it")
+
+	// ErrHandlerBudget is the cause a handler's context is cancelled with at
+	// its Subscription.HandlerTimeout (split §3.5.6 and §9.3 as amended
+	// 2026-10-07).
+	ErrHandlerBudget = errors.New("events: handler budget spent")
 )
 
 // RetryError asks the bus to redeliver the message after After. A zero After

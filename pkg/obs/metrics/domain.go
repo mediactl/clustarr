@@ -291,6 +291,23 @@ var (
 		"durable", "op",
 	)
 
+	// BusLapsedHandlers is how many of a subscription's handlers have lapsed
+	// and still run, by durable: at most its slots (split §9.3).
+	BusLapsedHandlers = newGaugeVec(
+		"clustarr_bus_lapsed_handlers",
+		"Handlers past their delivery's deadline that still run, by durable.",
+		"durable",
+	)
+
+	// BusSaturated is 1 while a subscription's lapsed handlers hold its
+	// every slot, by durable: it fetches nothing then, and the bus liveness
+	// check fails once that outlasts the handler budget (S1).
+	BusSaturated = newGaugeVec(
+		"clustarr_bus_saturated",
+		"1 while lapsed handlers hold every slot of a subscription, by durable.",
+		"durable",
+	)
+
 	// NATSAsyncErrorsTotal counts a NATS connection's asynchronous errors by
 	// kind: a slow consumer dropping messages (a Serve responder, a KV watch,
 	// a Fetch inbox), a permission violation, a disconnect with an error, or

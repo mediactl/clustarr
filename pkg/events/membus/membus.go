@@ -35,7 +35,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package membus
 
 import (
+	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -86,6 +88,7 @@ type Bus struct {
 	buckets      map[string]*bucket
 	objectStores map[string]*objectBucket
 	responders   map[string][]*responder
+	subs         map[*memSub]struct{} // running Subscribe calls, for Wedged
 
 	stopOnce sync.Once
 	done     chan struct{}
@@ -115,6 +118,7 @@ func New(clock clockwork.Clock, opts ...Option) *Bus {
 		buckets:      map[string]*bucket{},
 		objectStores: map[string]*objectBucket{},
 		responders:   map[string][]*responder{},
+		subs:         map[*memSub]struct{}{},
 		done:         make(chan struct{}),
 	}
 }
@@ -293,13 +297,17 @@ func (b *Bus) Subscribe(ctx context.Context, sub events.Subscription,
 	// Handlers outlive the loop by up to sub.Drain, so their context is not
 	// the subscription's, though it keeps its values.
 	hctx, cancelHandlers := context.WithCancel(context.WithoutCancel(ctx))
-	ms := &memSub{slots: max(sub.MaxInFlight, 1), running: map[*memDelivery]struct{}{}}
+	ms := &memSub{slots: max(sub.MaxInFlight, 1), sub: sub, eff: sub, running: map[*memDelivery]struct{}{}}
+	b.mu.Lock()
+	b.subs[ms] = struct{}{}
+	b.mu.Unlock()
 	var handlers sync.WaitGroup
 	drained := make(chan struct{})
 	b.wg.Add(1)
 	go func() {
 		defer b.wg.Done()
 		closing := b.consume(loopCtx, hctx, sub, h, ms, &handlers)
+		ms.stop()
 		if !closing && sub.Drain > 0 {
 			b.awaitIdle(&handlers, sub.Drain)
 		}
@@ -313,8 +321,31 @@ func (b *Bus) Subscribe(ctx context.Context, sub events.Subscription,
 			stopLoop()
 			<-drained
 			handlers.Wait()
+			b.mu.Lock()
+			delete(b.subs, ms)
+			b.mu.Unlock()
 		})
 	}, nil
+}
+
+var _ events.WedgeReporter = (*Bus)(nil)
+
+// Wedged implements events.WedgeReporter as natsbus does: it names every
+// running subscription whose lapsed cap handlers that ignore their context
+// have held past its handler budget plus its first-delivery deadline.
+func (b *Bus) Wedged() error {
+	b.mu.Lock()
+	subs := make([]*memSub, 0, len(b.subs))
+	for ms := range b.subs {
+		subs = append(subs, ms)
+	}
+	b.mu.Unlock()
+	now := b.clock.Now()
+	var errs []error
+	for _, ms := range subs {
+		errs = append(errs, ms.wedged(now))
+	}
+	return errors.Join(errs...)
 }
 
 // boundStream is sub's stream once sub's durable is bound on it, else nil.
@@ -366,21 +397,35 @@ func (b *Bus) WatchDeadLetters(ctx context.Context, sub events.Subscription) (fu
 // memSub is one Subscribe call's handler slots. A message is claimed only
 // into a free slot, as natsbus fetches only for free slots, and a delivery
 // past its acknowledgement deadline gives its slot back while fewer than
-// slots are lapsed (spec §9.3). memSub.mu then stream.mu is the only order
-// either is taken in.
+// slots are lapsed (spec §9.3). A budgeted delivery (HandlerTimeout) is
+// heartbeaten, cancelled at its budget and one deadline after a lapse, and a
+// lapsed cap held past the budget is a wedge, as on natsbus (S1). memSub.mu
+// then stream.mu is the only order either is taken in.
 type memSub struct {
 	slots   int
+	sub     events.Subscription
 	mu      sync.Mutex
+	eff     events.Subscription // sub with the bound durable's timing
 	live    int
 	lapsed  int
 	running map[*memDelivery]struct{}
+	// saturatedSince is when lapsed deliveries came to hold the lapsed cap,
+	// zero while they do not; stopping is set once the loop has ended.
+	saturatedSince time.Time
+	stopping       bool
 }
 
 // memDelivery is one running handler's message and the attempt it runs.
 type memDelivery struct {
-	msg     *memMsg
-	attempt uint64
-	lapsed  bool
+	msg      *memMsg
+	attempt  uint64
+	lapsed   bool
+	lapsedAt time.Time
+
+	// cancel ends a budgeted delivery's handler context; nil without a
+	// budget. cancelled records the ErrLapsed cancel.
+	cancel    context.CancelCauseFunc
+	cancelled bool
 }
 
 func (s *memSub) acquire() bool {
@@ -415,7 +460,7 @@ func (s *memSub) isLapsed(d *memDelivery) bool {
 	return d.lapsed
 }
 
-func (s *memSub) finish(d *memDelivery) {
+func (s *memSub) finish(d *memDelivery, now time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.running, d)
@@ -424,21 +469,111 @@ func (s *memSub) finish(d *memDelivery) {
 	} else {
 		s.live--
 	}
+	s.saturationLocked(now)
 }
 
 // reclaim marks running deliveries past their deadline, or made again since,
-// lapsed, freeing their slots, while fewer than slots are lapsed.
+// lapsed, freeing their slots, while fewer than slots are lapsed, and cancels
+// a budgeted lapsed delivery's handler one deadline after its lapse.
 func (s *memSub) reclaim(st *stream, durable string, now time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for d := range s.running {
-		if d.lapsed || s.lapsed >= s.slots || !st.overdue(d.msg, durable, d.attempt, now) {
+		if d.lapsed {
+			if d.cancel != nil && !d.cancelled && now.After(d.lapsedAt.Add(events.AckDeadline(s.eff, d.attempt))) {
+				d.cancel(events.ErrLapsed)
+				d.cancelled = true
+			}
+			continue
+		}
+		if s.lapsed >= s.slots || !st.overdue(d.msg, durable, d.attempt, now) {
 			continue
 		}
 		d.lapsed = true
+		d.lapsedAt = now
 		s.live--
 		s.lapsed++
 	}
+	s.saturationLocked(now)
+}
+
+// saturationLocked keeps saturatedSince current. The caller holds s.mu.
+func (s *memSub) saturationLocked(now time.Time) {
+	switch {
+	case s.lapsed < s.slots:
+		s.saturatedSince = time.Time{}
+	case s.saturatedSince.IsZero():
+		s.saturatedSince = now
+	}
+}
+
+// setEffective records sub with the bound durable's timing.
+func (s *memSub) setEffective(eff events.Subscription) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.eff = eff
+}
+
+func (s *memSub) stop() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.stopping = true
+}
+
+// wedged is natsbus's subscription.wedged on membus's clock.
+func (s *memSub) wedged(now time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.stopping || s.saturatedSince.IsZero() {
+		return nil
+	}
+	budget := cmp.Or(s.sub.HandlerTimeout, s.sub.AckWait, events.DefaultAckWait)
+	limit := budget + events.AckDeadline(s.eff, 1)
+	if held := now.Sub(s.saturatedSince); held > limit {
+		return fmt.Errorf("bus: every slot of %s has been held by lapsed handlers for %v (limit %v): they ignore their context",
+			s.sub.Durable, held.Round(time.Second), limit)
+	}
+	return nil
+}
+
+// budget gives d's handler, when sub has a HandlerTimeout, a context
+// cancelled with events.ErrHandlerBudget at the budget and a heartbeat that
+// keeps its claim's deadline every third of it until the delivery lapses, on
+// the bus's clock. The returned func ends both once the handler returns.
+func (b *Bus) budget(ctx context.Context, ms *memSub, d *memDelivery, st *stream,
+	eff events.Subscription, ackWait func(uint64) time.Duration,
+) (context.Context, func()) {
+	if ms.sub.HandlerTimeout <= 0 {
+		return ctx, func() {}
+	}
+	hctx, cancel := context.WithCancelCause(ctx)
+	ms.mu.Lock()
+	d.cancel = cancel
+	ms.mu.Unlock()
+	done := make(chan struct{})
+	budget := b.clock.After(ms.sub.HandlerTimeout)
+	every := max(events.AckDeadline(eff, d.attempt)/3, pollInterval)
+	go func() {
+		for {
+			select {
+			case <-done:
+				return
+			case <-hctx.Done():
+				return
+			case <-b.done:
+				return
+			case <-budget:
+				cancel(events.ErrHandlerBudget)
+				return
+			case <-b.clock.After(every):
+				if ms.isLapsed(d) {
+					continue // muted, as natsbus stops beating; the budget still runs
+				}
+				st.inProgress(d.msg, eff.Durable, b.clock.Now(), ackWait)
+			}
+		}
+	}()
+	return hctx, func() { close(done); cancel(nil) }
 }
 
 // consume claims into free slots, once sub's durable is bound, until ctx
@@ -478,6 +613,7 @@ func (b *Bus) consume(ctx, hctx context.Context, sub events.Subscription, h even
 					"declared", fmt.Sprintf("%+v", declared), "bound", fmt.Sprintf("%+v", bound))
 			}
 		}
+		ms.setEffective(eff)
 		ackWait := func(attempt uint64) time.Duration { return events.AckDeadline(eff, attempt) }
 		now := b.clock.Now()
 		b.deadLetterLapsed(ctx, st, eff, ackWait)
@@ -485,11 +621,13 @@ func (b *Bus) consume(ctx, hctx context.Context, sub events.Subscription, h even
 		if ms.acquire() {
 			if m := st.claim(sub.Durable, sub.Filters, now, ackWait, eff.MaxDeliver); m != nil {
 				d := ms.track(m, st.attemptOf(m, sub.Durable))
+				dctx, endBudget := b.budget(hctx, ms, d, st, eff, ackWait)
 				handlers.Add(1)
 				go func() {
 					defer handlers.Done()
-					defer ms.finish(d)
-					b.deliver(hctx, st, eff, h, m, ackWait, func() bool { return ms.isLapsed(d) })
+					defer func() { ms.finish(d, b.clock.Now()) }()
+					defer endBudget()
+					b.deliver(dctx, st, eff, h, m, ackWait, func() bool { return ms.isLapsed(d) })
 				}()
 				continue
 			}
