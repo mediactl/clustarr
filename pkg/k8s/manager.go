@@ -26,11 +26,13 @@ import (
 	"sync/atomic"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	crmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
@@ -244,6 +246,26 @@ func (o Options) ManagerOptions(leaderElectionID string, leaderElect bool) ctrl.
 		opts.Cache.DefaultNamespaces = byNamespace
 	}
 
+	return opts
+}
+
+// AgentManagerOptions renders ctrl.Options for one agent domain (§3.5.2
+// step 5): no lease, controllers declared non-leader, Secret and ConfigMap
+// uncached, the pinned default field owner.
+//
+// An agent never elects. Its engine reconcilers run as declared non-leader
+// controllers rather than leaning on controller-runtime's "not electing
+// counts as elected" fallthrough, which would also run every
+// NeedLeaderElection()==true runnable on every replica -- which is why every
+// leader-only runnable lives in the manager (R9). No domain lists or watches
+// a Secret or a ConfigMap: every read is a by-name Get, which its roles
+// allow, where an informer would need list and watch grants no agent role
+// holds.
+func (o Options) AgentManagerOptions() ctrl.Options {
+	opts := o.ManagerOptions("", false)
+	opts.Controller.NeedLeaderElection = ptr.To(false)
+	opts.Client.FieldOwner = string(DefaultFieldOwner)
+	opts.Client.Cache = &client.CacheOptions{DisableFor: []client.Object{&corev1.Secret{}, &corev1.ConfigMap{}}}
 	return opts
 }
 
