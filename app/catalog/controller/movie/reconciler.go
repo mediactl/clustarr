@@ -31,11 +31,8 @@ import (
 	k8sevents "k8s.io/client-go/tools/events"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -45,6 +42,7 @@ import (
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/artwork"
+	"github.com/mediactl/clustarr/app/catalog/controller/itemstatus"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 	"github.com/mediactl/clustarr/app/remediation/mfindex"
 	"github.com/mediactl/clustarr/pkg/decision"
@@ -91,8 +89,9 @@ const (
 
 // Reconciler reconciles a Movie: metadata staleness (publishing a
 // MetadataTask when the cache is missing or past its RefreshTTL),
-// availability and path, and the file/download rollup from a watched
-// MediaFile and Download. It is the sole writer of status.phase,
+// availability and path, and the file/download rollup from its MediaFiles
+// (the remediation loop wakes it when one's rollup inputs move, loop spec
+// §3.12) and its Downloads. It is the sole writer of status.phase,
 // status.hasFile, status.fileRef, status.fileQuality,
 // status.fileFormatScore, status.cutoffMet and status.activeDownloadRef
 // (§3's single-writer rule); status.metadata belongs to the metadata
@@ -121,16 +120,16 @@ type Reconciler struct {
 	Recorder k8sevents.EventRecorder
 	Bus      events.Publisher
 
-	// OnReconcile is a test-only hook, called at the top of every Reconcile.
+	// OnReconcile is a test-only hook, called at the top of every ReconcileItem.
 	// It is nil-checked so production callers never need to set it.
 	OnReconcile func()
 }
 
 // RegisterIndexes registers the Download and QualityProfile indexes
-// Reconcile's Lists and the watches' map functions read. A Movie's
+// ReconcileItem's Lists and the watches' map functions read. A Movie's
 // MediaFiles are found through the remediation loop's one item index
 // (mfindex.Item, loop spec §3.16), which the loop registers; a test
-// that drives Reconcile against a bare cache registers those beside this.
+// that drives ReconcileItem against a bare cache registers those beside this.
 func RegisterIndexes(ctx context.Context, idx client.FieldIndexer) error {
 	if err := idx.IndexField(ctx, &downloadv1alpha1.Download{}, downloadByMovieIndexKey,
 		func(o client.Object) []string {
@@ -152,26 +151,23 @@ func RegisterIndexes(ctx context.Context, idx client.FieldIndexer) error {
 		})
 }
 
-// SetupWithManager registers the Movie controller: the finalizer/
-// metadata-refresh predicate on Movie itself, and the MediaFile/Download
-// watches added in review so an imported file or an active download's
-// phase change reaches this reconciler without waiting for a poll.
-func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
-	if err := RegisterIndexes(context.Background(), mgr.GetFieldIndexer()); err != nil {
-		return err
+// Watches is the Movie's item path on the remediation loop (loop spec
+// §3.12; S2, S9, S10): every watch that wakes a Movie except its files',
+// which the loop's file signature (S1') wakes it for. The AudioGraft watch
+// stays until F7.3 retires the kind (S23).
+func (r *Reconciler) Watches() []rollup.Watch {
+	return []rollup.Watch{
+		{Object: &catalogv1alpha1.Movie{}, Map: rollup.Self, Predicates: []predicate.Predicate{moviePredicate()}},
+		{Object: &downloadv1alpha1.Download{}, Map: r.mapDownload, Predicates: []predicate.Predicate{rollup.DownloadPredicate()}},
+		{
+			Object: &transcodev1alpha1.AudioGraft{}, Map: rollup.ItemOfAudioGraft(commonv1.MediaKindMovie),
+			Predicates: []predicate.Predicate{k8s.Or(k8s.GenerationChanged(), k8s.StatusFieldChanged(rollup.AudioGraftState))},
+		},
+		{Object: &catalogv1alpha1.QualityProfile{}, Map: r.mapQualityProfile, Predicates: []predicate.Predicate{k8s.GenerationChanged()}},
 	}
-
-	return ctrl.NewControllerManagedBy(mgr).
-		Named("movie").
-		For(&catalogv1alpha1.Movie{}, builder.WithPredicates(moviePredicate())).
-		Watches(&catalogv1alpha1.MediaFile{}, handler.EnqueueRequestsFromMapFunc(r.mapMediaFile), builder.WithPredicates(mediaFilePredicate())).
-		Watches(&downloadv1alpha1.Download{}, handler.EnqueueRequestsFromMapFunc(r.mapDownload), builder.WithPredicates(downloadPredicate())).
-		Watches(&transcodev1alpha1.AudioGraft{}, handler.EnqueueRequestsFromMapFunc(rollup.ItemOfAudioGraft(commonv1.MediaKindMovie)),
-			builder.WithPredicates(k8s.Or(k8s.GenerationChanged(), k8s.StatusFieldChanged(rollup.AudioGraftState)))).
-		Watches(&catalogv1alpha1.QualityProfile{}, handler.EnqueueRequestsFromMapFunc(r.mapQualityProfile), builder.WithPredicates(k8s.GenerationChanged())).
-		WithOptions(controller.Options{RecoverPanic: new(true), ReconciliationTimeout: 5 * time.Minute}).
-		Complete(r)
 }
+
+var _ rollup.Item = (*Reconciler)(nil)
 
 // moviePredicate wakes this controller on a spec change (GenerationChanged),
 // on the metadata gateway's own write (StatusFieldChanged scoped to
@@ -215,59 +211,6 @@ func moviePredicate() predicate.Predicate {
 	)
 }
 
-// mediaFilePredicate wakes the MediaFile watch on a spec change -- a create,
-// a delete, and every MediaFileSpec edit, which covers every input FileState
-// reads, spec.original included -- and on the file's transcoded verdict
-// changing (rollup.TranscodedObject). The second arm is for the probe:
-// catalogarr's MediaFile reconciler records the CLUSTARR_PROFILE tag in
-// status.mediaInfo.transcodeProfile, a status write that bumps no generation,
-// so a rescanned file an earlier install transcoded would otherwise leave the
-// Movie at CutoffUnmet -- in the search rotation -- until something unrelated
-// woke it. It compares the verdict, not the tag, so an ordinary re-probe does
-// not wake the Movie.
-func mediaFilePredicate() predicate.Predicate {
-	return k8s.Or(k8s.GenerationChanged(), k8s.StatusFieldChanged(rollup.TranscodedObject),
-		k8s.StatusFieldChanged(rollup.AudioLanguagesObject))
-}
-
-// downloadPredicate wakes the Download watch on a spec change (Create
-// always passes regardless), on a status.phase transition, and on the
-// deletion timestamp appearing. GenerationChanged alone would be wrong here,
-// as it would for the MediaFile watch's one status input above:
-// MediaFileSpec's Quality/FormatScore are spec fields, so a create or edit
-// bumps generation, but
-// DownloadStatus.Phase is entirely status-driven -- grabarr sets it through
-// k8s.PatchStatus, which never touches spec/generation -- so a
-// GenerationChanged-only predicate would never fire on the one transition
-// this watch exists to observe. The deletion arm is there because a
-// Download being torn down stops counting as the Movie's active download
-// (rollup.DownloadNonTerminal) the moment it is marked, not when its
-// finalizers finally let it go.
-func downloadPredicate() predicate.Predicate {
-	return k8s.Or(
-		k8s.GenerationChanged(),
-		k8s.StatusFieldChanged(func(o client.Object) downloadv1alpha1.DownloadPhase {
-			dl, ok := o.(*downloadv1alpha1.Download)
-			if !ok {
-				return ""
-			}
-			return dl.Status.Phase
-		}),
-		k8s.StatusFieldChanged(k8s.IsDeleting),
-	)
-}
-
-// mapMediaFile needs no List/index -- a MediaFile already carries its
-// target's identity directly in spec.mediaRef, so this is the cheap
-// direction.
-func (r *Reconciler) mapMediaFile(_ context.Context, o client.Object) []reconcile.Request {
-	mf, ok := o.(*catalogv1alpha1.MediaFile)
-	if !ok || mf.Spec.MediaRef.Kind != commonv1.MediaKindMovie {
-		return nil
-	}
-	return []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: mf.Namespace, Name: mf.Spec.MediaRef.Name}}}
-}
-
 // mapDownload needs no List either: a Download names its target in
 // spec.target, so a Download that appears -- before anything has set the
 // ref, which is the whole point of deriving the ref from the Download --
@@ -306,17 +249,18 @@ func (r *Reconciler) mapQualityProfile(ctx context.Context, o client.Object) []r
 	return reqs
 }
 
-// Reconcile implements the §8.8 skeleton: get, split on deletion, ensure the
+// ReconcileItem is the Movie's item path on the remediation loop (loop spec
+// §3.12); it keeps the §8.8 skeleton: get, split on deletion, ensure the
 // finalizer WITHOUT an early return (the rest of this reconcile runs against
 // the same in-memory object in the same pass), then reconcileNormal.
-func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *Reconciler) ReconcileItem(ctx context.Context, nn types.NamespacedName) (ctrl.Result, error) {
 	ctx, span := tracing.Start(ctx, "movie.Reconcile")
 	defer span.End()
 	if r.OnReconcile != nil {
 		r.OnReconcile()
 	}
 	var m catalogv1alpha1.Movie
-	if err := r.Get(ctx, req.NamespacedName, &m); err != nil {
+	if err := r.Get(ctx, nn, &m); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	if k8s.IsDeleting(&m) {
@@ -439,8 +383,8 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Mov
 				k8s.MarkTrue(m, &conditions, catalogv1alpha1.MovieConditionQueueFull, "QueueFull", "metadata work queue is full")
 				statusAC = reassertKnownStatus(statusAC, m)
 				statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
-				if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr, catalogac.Movie(m.Name, m.Namespace).WithStatus(statusAC)); err != nil {
-					return ctrl.Result{}, err
+				if conflicted, err := itemstatus.Apply(ctx, r.Client, m, catalogac.Movie(m.Name, m.Namespace).WithStatus(statusAC)); err != nil || conflicted {
+					return itemstatus.Requeue(conflicted), err
 				}
 				return ctrl.Result{RequeueAfter: time.Minute}, nil
 			}
@@ -469,8 +413,8 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Mov
 				k8s.MarkFalse(m, &conditions, k8s.ConditionReady, "RootFolderNotFound", "rootFolder %q not found", m.Spec.RootFolderRef)
 				statusAC = reassertKnownStatus(statusAC, m)
 				statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
-				if _, perr := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr, catalogac.Movie(m.Name, m.Namespace).WithStatus(statusAC)); perr != nil {
-					return ctrl.Result{}, perr
+				if conflicted, perr := itemstatus.Apply(ctx, r.Client, m, catalogac.Movie(m.Name, m.Namespace).WithStatus(statusAC)); perr != nil || conflicted {
+					return itemstatus.Requeue(conflicted), perr
 				}
 				return ctrl.Result{RequeueAfter: time.Minute}, nil
 			}
@@ -643,8 +587,8 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Mov
 	k8s.MarkReady(m, &conditions, metaReady && phase != catalogv1alpha1.MoviePhasePending, k8s.ReasonReconciled, "phase=%s", phase)
 	statusAC = statusAC.WithConditions(k8s.ConditionACs(conditions)...)
 
-	if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr, catalogac.Movie(m.Name, m.Namespace).WithStatus(statusAC)); err != nil {
-		return ctrl.Result{}, err
+	if conflicted, err := itemstatus.Apply(ctx, r.Client, m, catalogac.Movie(m.Name, m.Namespace).WithStatus(statusAC)); err != nil || conflicted {
+		return itemstatus.Requeue(conflicted), err
 	}
 	// After the apply, so a phase that never landed is never announced. The
 	// first phase a Movie ever gets is not an edge worth an Event: the

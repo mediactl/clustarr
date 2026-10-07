@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"time"
 
+	k8sevents "k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	"github.com/mediactl/clustarr/app/catalog/controller/mediafile"
@@ -59,7 +60,8 @@ type Deps struct {
 	Options Options
 }
 
-// Register adds the loop, its indexes and its sources.
+// Register adds the loop, its indexes and its sources: the file path's
+// planners and actuators, and the item path's six item kinds (§3.12).
 func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	if bus == nil {
 		return errors.New("remediation manager: Register needs the bus")
@@ -79,6 +81,10 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	if err != nil {
 		return err
 	}
+	// mgr.GetEventRecorder returns controller-runtime's recorder.EventRecorder,
+	// which embeds the events.k8s.io EventRecorder the item reconcilers hold.
+	recorder := func(name string) k8sevents.EventRecorder { return mgr.GetEventRecorder(name) }
+	r.Items = remediation.ItemReconciler{Items: items(mgr.GetClient(), mgr.GetScheme(), recorder, bus)}
 	return r.SetupWithManager(mgr)
 }
 

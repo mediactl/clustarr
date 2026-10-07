@@ -31,11 +31,8 @@ import (
 	k8sevents "k8s.io/client-go/tools/events"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -44,6 +41,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
+	"github.com/mediactl/clustarr/app/catalog/controller/itemstatus"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 	seriesctl "github.com/mediactl/clustarr/app/catalog/controller/series"
 	"github.com/mediactl/clustarr/app/remediation/mfindex"
@@ -89,8 +87,9 @@ const (
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
 // Reconciler reconciles an Episode: phase from monitored/airDate/hasFile/
-// cutoffMet, and the file/download rollup from a watched MediaFile and
-// Download. It is the sole writer of status.phase, status.hasFile,
+// cutoffMet, and the file/download rollup from its MediaFiles (the
+// remediation loop wakes it when one's rollup inputs move, loop spec §3.12)
+// and its Downloads. It is the sole writer of status.phase, status.hasFile,
 // status.fileRef, status.fileQuality, status.fileFormatScore,
 // status.cutoffMet and status.activeDownloadRef; the provider-sourced
 // fields (title/overview/airDate/tvdbID/absoluteNumber/runtimeMinutes)
@@ -115,17 +114,18 @@ type Reconciler struct {
 	Recorder k8sevents.EventRecorder
 	Bus      events.Publisher
 
-	// OnReconcile is a test-only hook, called at the top of every Reconcile.
+	// OnReconcile is a test-only hook, called at the top of every ReconcileItem.
 	// It is nil-checked so production callers never need to set it.
 	OnReconcile func()
 }
 
 // RegisterIndexes registers the Download and QualityProfile indexes
-// Reconcile's Lists and the watches' map functions read. A Episode's
+// ReconcileItem's Lists and the watches' map functions read. An Episode's
 // MediaFiles are found through the remediation loop's one item index
-// (mfindex.Item, loop spec §3.16), which the loop registers; a Series' Episodes through the Series controller's
-// seriesctl.EpisodeBySeriesRefIndex; a test
-// that drives Reconcile against a bare cache registers those beside this.
+// (mfindex.Item, loop spec §3.16), which the loop registers, and a Series'
+// Episodes through the Series controller's seriesctl.EpisodeBySeriesRefIndex;
+// a test that drives ReconcileItem against a bare cache registers those
+// beside this.
 func RegisterIndexes(ctx context.Context, idx client.FieldIndexer) error {
 	if err := idx.IndexField(ctx, &downloadv1alpha1.Download{}, downloadByEpisodeIndexKey,
 		func(o client.Object) []string {
@@ -181,30 +181,30 @@ func coveredEpisodes(ref commonv1.MediaRef) []string {
 	return out
 }
 
-// SetupWithManager registers the Episode controller: a predicate reacting
-// to a spec change (GenerationChanged, e.g. a user editing spec.monitored)
-// or to the Series reconciler's own write of status.airDate
-// (StatusFieldChanged) -- a newly-discovered air date must wake this
-// controller immediately, not wait for the next RequeueAfter poll -- and
-// the MediaFile/Download watches added in review.
-func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
-	if err := RegisterIndexes(context.Background(), mgr.GetFieldIndexer()); err != nil {
-		return err
+// Watches is the Episode's item path on the remediation loop (loop spec
+// §3.12; S3, S4, S9, S10): every watch that wakes an Episode except its
+// files'. A Series' Episodes are found through
+// seriesctl.EpisodeBySeriesRefIndex. The AudioGraft watch stays until F7.3
+// (S23).
+func (r *Reconciler) Watches() []rollup.Watch {
+	return []rollup.Watch{
+		{Object: &catalogv1alpha1.Episode{}, Map: rollup.Self, Predicates: []predicate.Predicate{episodePredicate()}},
+		{Object: &downloadv1alpha1.Download{}, Map: r.mapDownload, Predicates: []predicate.Predicate{rollup.DownloadPredicate()}},
+		{
+			Object: &transcodev1alpha1.AudioGraft{}, Map: rollup.ItemOfAudioGraft(commonv1.MediaKindEpisode),
+			Predicates: []predicate.Predicate{k8s.Or(k8s.GenerationChanged(), k8s.StatusFieldChanged(rollup.AudioGraftState))},
+		},
+		{Object: &catalogv1alpha1.QualityProfile{}, Map: r.mapQualityProfile, Predicates: []predicate.Predicate{k8s.GenerationChanged()}},
+		{Object: &catalogv1alpha1.Series{}, Map: r.mapSeries, Predicates: []predicate.Predicate{seriesMonitoredChanged()}},
 	}
-
-	return ctrl.NewControllerManagedBy(mgr).
-		Named("episode").
-		For(&catalogv1alpha1.Episode{}, builder.WithPredicates(episodePredicate())).
-		Watches(&catalogv1alpha1.MediaFile{}, handler.EnqueueRequestsFromMapFunc(r.mapMediaFile), builder.WithPredicates(mediaFilePredicate())).
-		Watches(&downloadv1alpha1.Download{}, handler.EnqueueRequestsFromMapFunc(r.mapDownload), builder.WithPredicates(downloadPredicate())).
-		Watches(&transcodev1alpha1.AudioGraft{}, handler.EnqueueRequestsFromMapFunc(rollup.ItemOfAudioGraft(commonv1.MediaKindEpisode)),
-			builder.WithPredicates(k8s.Or(k8s.GenerationChanged(), k8s.StatusFieldChanged(rollup.AudioGraftState)))).
-		Watches(&catalogv1alpha1.QualityProfile{}, handler.EnqueueRequestsFromMapFunc(r.mapQualityProfile), builder.WithPredicates(k8s.GenerationChanged())).
-		Watches(&catalogv1alpha1.Series{}, handler.EnqueueRequestsFromMapFunc(r.mapSeries), builder.WithPredicates(seriesMonitoredChanged())).
-		WithOptions(controller.Options{RecoverPanic: new(true), ReconciliationTimeout: 5 * time.Minute}).
-		Complete(r)
 }
 
+var _ rollup.Item = (*Reconciler)(nil)
+
+// episodePredicate wakes an Episode on a spec change (GenerationChanged,
+// e.g. a user editing spec.monitored) or on the Series reconciler's own
+// write of status.airDate (StatusFieldChanged) -- a newly-discovered air
+// date must wake it immediately, not wait for the next RequeueAfter poll.
 func episodePredicate() predicate.Predicate {
 	return k8s.Or(
 		k8s.GenerationChanged(),
@@ -231,47 +231,6 @@ func episodePredicate() predicate.Predicate {
 		// status; see the movie package's moviePredicate.
 		k8s.DeadLetteredAnnotationChanged(),
 	)
-}
-
-// mediaFilePredicate is the movie package's: a spec change, or the file's
-// transcoded verdict changing in a status-only probe write (see its doc
-// comment there).
-func mediaFilePredicate() predicate.Predicate {
-	return k8s.Or(k8s.GenerationChanged(), k8s.StatusFieldChanged(rollup.TranscodedObject),
-		k8s.StatusFieldChanged(rollup.AudioLanguagesObject))
-}
-
-// downloadPredicate is the same shape as the movie package's: a status-only
-// phase transition never bumps generation, so GenerationChanged alone would
-// never fire on it, and a Download being deleted stops counting the moment
-// it is marked.
-func downloadPredicate() predicate.Predicate {
-	return k8s.Or(
-		k8s.GenerationChanged(),
-		k8s.StatusFieldChanged(func(o client.Object) downloadv1alpha1.DownloadPhase {
-			dl, ok := o.(*downloadv1alpha1.Download)
-			if !ok {
-				return ""
-			}
-			return dl.Status.Phase
-		}),
-		k8s.StatusFieldChanged(k8s.IsDeleting),
-	)
-}
-
-// mapMediaFile wakes every Episode a MediaFile covers -- all of a
-// multi-episode file's episodes, not only the first it names.
-func (r *Reconciler) mapMediaFile(_ context.Context, o client.Object) []reconcile.Request {
-	mf, ok := o.(*catalogv1alpha1.MediaFile)
-	if !ok || mf.Spec.MediaRef.Kind != commonv1.MediaKindEpisode {
-		return nil
-	}
-	names := coveredEpisodes(mf.Spec.MediaRef)
-	reqs := make([]reconcile.Request, 0, len(names))
-	for _, n := range names {
-		reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: mf.Namespace, Name: n}})
-	}
-	return reqs
 }
 
 // mapDownload needs no List: a Download names what it covers in
@@ -367,16 +326,17 @@ func seriesMonitoredChanged() predicate.Predicate {
 	}
 }
 
-// Reconcile implements the §8.8 skeleton: get, split on deletion, ensure the
-// finalizer WITHOUT an early return, then reconcileNormal.
-func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+// ReconcileItem is the Episode's item path on the remediation loop (loop
+// spec §3.12); it keeps the §8.8 skeleton: get, split on deletion, ensure
+// the finalizer WITHOUT an early return, then reconcileNormal.
+func (r *Reconciler) ReconcileItem(ctx context.Context, nn types.NamespacedName) (ctrl.Result, error) {
 	ctx, span := tracing.Start(ctx, "episode.Reconcile")
 	defer span.End()
 	if r.OnReconcile != nil {
 		r.OnReconcile()
 	}
 	var ep catalogv1alpha1.Episode
-	if err := r.Get(ctx, req.NamespacedName, &ep); err != nil {
+	if err := r.Get(ctx, nn, &ep); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	if k8s.IsDeleting(&ep) {
@@ -403,7 +363,7 @@ func (r *Reconciler) reconcileDelete(ctx context.Context, ep *catalogv1alpha1.Ep
 	return ctrl.Result{}, nil
 }
 
-// reconcileNormal computes hasFile/cutoffMet from a watched MediaFile
+// reconcileNormal computes hasFile/cutoffMet from its MediaFiles
 // (resolving the QualityProfile via the owning Series, since EpisodeSpec has
 // no QualityProfileRef of its own -- episodes are ranked against the
 // Series's profile), folds in a watched Download's overlay, computes Phase
@@ -568,8 +528,8 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, ep *catalogv1alpha1.Ep
 	// numbering is M6 work. This comment used to claim finaleType among the
 	// Series reconciler's fields, which would have made the next reader
 	// believe a field was owned when it was merely declared.
-	if _, err := k8s.PatchStatus(ctx, r.Client, k8s.ManagerCatalogarr, catalogac.Episode(ep.Name, ep.Namespace).WithStatus(statusAC)); err != nil {
-		return ctrl.Result{}, err
+	if conflicted, err := itemstatus.Apply(ctx, r.Client, ep, catalogac.Episode(ep.Name, ep.Namespace).WithStatus(statusAC)); err != nil || conflicted {
+		return itemstatus.Requeue(conflicted), err
 	}
 	// After the apply, so a phase that never landed is never announced; the
 	// first phase an Episode gets is not an edge.

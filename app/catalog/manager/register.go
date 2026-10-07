@@ -39,11 +39,9 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/controller/book"
 	"github.com/mediactl/clustarr/app/catalog/controller/comic"
 	"github.com/mediactl/clustarr/app/catalog/controller/delayprofile"
-	"github.com/mediactl/clustarr/app/catalog/controller/episode"
 	"github.com/mediactl/clustarr/app/catalog/controller/issue"
 	"github.com/mediactl/clustarr/app/catalog/controller/metadataprovider"
 	"github.com/mediactl/clustarr/app/catalog/controller/metadatarefresh"
-	"github.com/mediactl/clustarr/app/catalog/controller/movie"
 	"github.com/mediactl/clustarr/app/catalog/controller/overlayprofile"
 	"github.com/mediactl/clustarr/app/catalog/controller/qualityprofile"
 	"github.com/mediactl/clustarr/app/catalog/controller/rootfolder"
@@ -104,7 +102,9 @@ const metadataProbeTimeout = 30 * time.Second
 
 // registerControllers registers every catalog reconciler (§6.1, §16 M1 and M6),
 // plus the wantedcron sweep, which is a manager.Runnable rather than a
-// reconciler because it reconciles nothing -- only a clock.
+// reconciler because it reconciles nothing -- only a clock. Movie and
+// Episode are the remediation loop's item keys (app/remediation/manager,
+// loop spec §3.12).
 //
 // The seven non-video reconcilers (plan tasks G2-2 and G2-3 built them, G2-5
 // wires them) sat in their own packages, tested and registered nowhere, until
@@ -150,15 +150,6 @@ func registerControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	c := mgr.GetClient()
 	scheme := mgr.GetScheme()
 
-	if err := (&movie.Reconciler{
-		Client:   c,
-		Scheme:   scheme,
-		Recorder: mgr.GetEventRecorder("movie"),
-		Bus:      bus,
-	}).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("catalogarr: movie: %w", err)
-	}
-
 	if err := (&series.Reconciler{
 		Client:   c,
 		Scheme:   scheme,
@@ -166,15 +157,6 @@ func registerControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 		Bus:      bus,
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("catalogarr: series: %w", err)
-	}
-
-	if err := (&episode.Reconciler{
-		Client:   c,
-		Scheme:   scheme,
-		Recorder: mgr.GetEventRecorder("episode"),
-		Bus:      bus,
-	}).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("catalogarr: episode: %w", err)
 	}
 
 	if err := registerNonVideoControllers(mgr, bus); err != nil {

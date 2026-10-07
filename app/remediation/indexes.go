@@ -22,7 +22,9 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/mediactl/clustarr/app/catalog/controller/episode"
 	"github.com/mediactl/clustarr/app/catalog/controller/mediafile"
+	"github.com/mediactl/clustarr/app/catalog/controller/movie"
 	"github.com/mediactl/clustarr/app/remediation/mfindex"
 )
 
@@ -36,6 +38,15 @@ import (
 // and the loop only reads it.
 func RegisterIndexes(ctx context.Context, idx client.FieldIndexer) error {
 	if err := mfindex.Register(ctx, idx); err != nil {
+		return err
+	}
+	// The item paths' indexes (loop spec §3.16, "Kept, now registered by the
+	// loop, names unchanged"): Download .spec.target.<kind> and the
+	// .spec.qualityProfileRef indexes their Lists and map functions read.
+	if err := movie.RegisterIndexes(ctx, idx); err != nil {
+		return err
+	}
+	if err := episode.RegisterIndexes(ctx, idx); err != nil {
 		return err
 	}
 	return mediafile.RegisterIndexes(ctx, idx)

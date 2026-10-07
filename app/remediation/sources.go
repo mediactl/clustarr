@@ -73,10 +73,11 @@ func MapFiles(fn func(context.Context, client.Object) []types.NamespacedName) ha
 	})
 }
 
-// mediaFileEvents is S1: create and delete always; an update by
-// fileUpdateWakes; the initial list at handler.LowPriority (TypedFuncs).
-// Before F4.2 a status-only update maps to nothing (D-F3-8): the
-// self-trigger rule's "never the file key" half.
+// mediaFileEvents is S1's file arm: create and delete always; an update by
+// fileUpdateWakes; the initial list at handler.LowPriority (TypedFuncs). A
+// status-only update never maps to the file key (the self-trigger rule);
+// S1' and the item keys of S1 are the item arm, ItemReconciler.fileWakes,
+// registered on the same controller (§3.3).
 func mediaFileEvents() handler.TypedEventHandler[client.Object, Key] {
 	key := func(o client.Object) Key {
 		return Key{Kind: KindMediaFile, Namespace: o.GetNamespace(), Name: o.GetName()}

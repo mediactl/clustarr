@@ -1,0 +1,40 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package manager
+
+import (
+	"k8s.io/apimachinery/pkg/runtime"
+	k8sevents "k8s.io/client-go/tools/events"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/mediactl/clustarr/app/catalog/controller/episode"
+	"github.com/mediactl/clustarr/app/catalog/controller/movie"
+	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
+	"github.com/mediactl/clustarr/app/remediation"
+	"github.com/mediactl/clustarr/pkg/events"
+)
+
+// items is the loop's item path (loop spec §3.12): one reconciler per item
+// kind, each recording Events under its kind's name as its controller did.
+// recorder is mgr.GetEventRecorder.
+func items(c client.Client, s *runtime.Scheme, recorder func(name string) k8sevents.EventRecorder, bus events.Bus) map[remediation.KeyKind]rollup.Item {
+	return map[remediation.KeyKind]rollup.Item{
+		remediation.KindMovie:   &movie.Reconciler{Client: c, Scheme: s, Recorder: recorder("movie"), Bus: bus},
+		remediation.KindEpisode: &episode.Reconciler{Client: c, Scheme: s, Recorder: recorder("episode"), Bus: bus},
+	}
+}

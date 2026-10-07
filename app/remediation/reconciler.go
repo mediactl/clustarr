@@ -88,7 +88,10 @@ var actuatorOrder = []string{"replay", "rename"}
 // Reconciler is the remediation loop.
 type Reconciler struct {
 	// Clock is the pass's clock; NewReconciler sets time.Now.
-	Clock    func() time.Time
+	Clock func() time.Time
+	// Items is the item path (loop spec §3.12): the loop's second key type.
+	// app/remediation/manager.Register sets it before SetupWithManager.
+	Items    ItemReconciler
 	c        client.Client
 	env      *Env
 	recorder k8sevents.EventRecorder
@@ -145,10 +148,11 @@ func (r *Reconciler) PlannerNames() []PlannerName {
 	return out
 }
 
-// Reconcile runs one key's pass. Item keys arrive with F4.2.
+// Reconcile runs one key's pass: a file key's (§3.4), or an item key's
+// through Items (§3.12).
 func (r *Reconciler) Reconcile(ctx context.Context, k Key) (reconcile.Result, error) {
 	if k.Kind != KindMediaFile {
-		return reconcile.Result{}, fmt.Errorf("remediation: no path for a %s key yet", k.Kind)
+		return r.Items.Reconcile(ctx, k)
 	}
 	return r.reconcileFile(ctx, k.NamespacedName())
 }
@@ -504,7 +508,9 @@ func (r *Reconciler) gate() []bool {
 }
 
 // SetupWithManager registers the loop as controller "mediafile": S1, then
-// every source a bound planner or actuator declares, deduplicated by name.
+// every source a bound planner or actuator declares, deduplicated by name,
+// then the item path's sources (the item arm of the MediaFile source and
+// each item kind's Watches, §3.12).
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	b := builder.TypedControllerManagedBy[Key](mgr).Named(ControllerName).
 		Watches(&catalogv1alpha1.MediaFile{}, mediaFileEvents())
@@ -537,6 +543,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 			b = b.Watches(s.Object, s.Handler, builder.WithPredicates(s.Predicates...))
 		}
 	}
+	b = r.Items.Watch(b)
 	return b.WithOptions(controller.TypedOptions[Key]{
 		MaxConcurrentReconciles: r.cfg.Concurrency,
 		RecoverPanic:            new(true),
