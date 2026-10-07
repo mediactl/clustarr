@@ -787,6 +787,19 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
   RSS feeds delivered, no indexer query) -- an item never searched gets one
   live search, and Add New, "Search now" and redownloads stay live. A
   pool of searches must never be fired at an indexer in one burst.
+- **An import that imports nothing is classed, never blocklisted at once
+  (2026-10-07).** Refusing every file used to read as a bad release, so a
+  good 21 GB download the item merely would not take (its file transcoded)
+  was blocklisted and deleted. importarr's `conclude`
+  (`app/import/worker/fileimport/remediation.go`) settles every such
+  outcome by `status.import.class`: `transient` retries on the import
+  consumer's backoff (1m, 10m, 45m) then holds; `releaseFault` is walked
+  once more before grabarr blocklists; `itemState` and `needsPerson` hold
+  at once; a hold keeps the files for `ImportHoldRetention` (24h) and then
+  fails as `importExpired`, neither blocklisted nor searched again. A new
+  rejection site must say its class -- a `rejection` built by its class's
+  constructor, never a bare string -- and grabarr reads the class, never a
+  message.
 - **A Helm hook with no delete policy defaults to `before-hook-creation`,
   which destroys anything holding data.** A `post-install,post-upgrade`
   hook carrying no `helm.sh/hook-delete-policy` annotation is deleted and
