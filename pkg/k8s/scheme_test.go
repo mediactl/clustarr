@@ -29,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	clustarrv1alpha1 "github.com/mediactl/clustarr/api/clustarr/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
@@ -45,6 +46,7 @@ func TestSchemeKnowsEveryGroupAServiceTouches(t *testing.T) {
 		"download":  &downloadv1alpha1.DownloadClient{},
 		"transcode": &transcodev1alpha1.TranscodeProfile{},
 		"subtitle":  &subtitlev1alpha1.SubtitleProfile{},
+		"clustarr":  &clustarrv1alpha1.IPTVProvider{},
 
 		// What the managers create and consume.
 		"core secret":      &corev1.Secret{},
@@ -69,6 +71,7 @@ func TestSchemeCoversEveryClustarrGroup(t *testing.T) {
 		"catalog.clustarr.io":   false,
 		"index.clustarr.io":     false,
 		"download.clustarr.io":  false,
+		"clustarr.io":           false,
 		"transcode.clustarr.io": false,
 		"subtitle.clustarr.io":  false,
 	}

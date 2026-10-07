@@ -1,0 +1,238 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.22.0
+  name: iptvchannels.clustarr.io
+spec:
+  group: clustarr.io
+  names:
+    categories:
+    - clustarr
+    kind: IPTVChannel
+    listKind: IPTVChannelList
+    plural: iptvchannels
+    shortNames:
+    - iptvch
+    singular: iptvchannel
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.providerRef
+      name: Provider
+      type: string
+    - jsonPath: .spec.number
+      name: Number
+      type: string
+    - jsonPath: .spec.name
+      name: Name
+      type: string
+    - jsonPath: .spec.active
+      name: Active
+      type: boolean
+    - jsonPath: .status.guide
+      name: Guide
+      type: string
+    - jsonPath: .status.conditions[?(@.type=='Ready')].reason
+      name: Ready
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: IPTVChannel is one mapped channel of an IPTVProvider (Live TV
+          spec §3).
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: |-
+              IPTVChannelSpec is one mapped channel: a playlist candidate the owner
+              activated or customised (Live TV spec §3, §3.0).
+            properties:
+              active:
+                description: |-
+                  Active puts the channel in the lineup. An inactive IPTVChannel keeps
+                  its mapping for later.
+                type: boolean
+              epg:
+                description: EPG is the guide mapping; unset means by tvg-id, else
+                  a dummy guide.
+                properties:
+                  channelID:
+                    description: ChannelID is an XMLTV channel id in Guide.
+                    maxLength: 256
+                    type: string
+                  dummy:
+                    description: Dummy draws a placeholder guide.
+                    type: boolean
+                  dummyMinutes:
+                    description: DummyMinutes is the dummy guide's block length. Default
+                      60.
+                    enum:
+                    - 30
+                    - 60
+                    - 120
+                    - 180
+                    format: int32
+                    type: integer
+                  guide:
+                    description: Guide names one of the provider's spec.guides.
+                    maxLength: 63
+                    type: string
+                type: object
+                x-kubernetes-validations:
+                - message: set exactly one of guide and dummy
+                  rule: (has(self.guide) && self.guide != '') != (has(self.dummy)
+                    && self.dummy)
+                - message: channelID is required with guide
+                  rule: '!has(self.guide) || self.guide == '''' || (has(self.channelID)
+                    && self.channelID != '''')'
+              group:
+                description: Group overrides the playlist's group-title.
+                maxLength: 256
+                type: string
+              key:
+                description: |-
+                  Key is the playlist entry's identity (pkg/iptv/m3u: "t:<tvg-id>" or
+                  "n:<hash of group and name>"). Immutable.
+                maxLength: 64
+                minLength: 1
+                type: string
+                x-kubernetes-validations:
+                - message: key is immutable
+                  rule: self == oldSelf
+              logo:
+                description: Logo overrides the playlist's tvg-logo.
+                maxLength: 4096
+                type: string
+              name:
+                description: Name overrides the playlist's channel name.
+                maxLength: 256
+                type: string
+              number:
+                description: 'Number is the GuideNumber Plex shows: "1001" or "5.1".'
+                pattern: ^[0-9]{1,5}(\.[0-9]{1,3})?$
+                type: string
+              providerRef:
+                description: ProviderRef names the IPTVProvider in the same namespace.
+                  Immutable.
+                maxLength: 253
+                minLength: 1
+                type: string
+                x-kubernetes-validations:
+                - message: providerRef is immutable
+                  rule: self == oldSelf
+              timeshiftMinutes:
+                description: TimeshiftMinutes moves this channel's programmes.
+                format: int32
+                maximum: 720
+                minimum: -720
+                type: integer
+            required:
+            - key
+            - number
+            - providerRef
+            type: object
+          status:
+            description: |-
+              IPTVChannelStatus is written by the IPTVChannel controller alone, under
+              k8s.ManagerLiveTVChannel (Live TV spec §3.0).
+            properties:
+              conditions:
+                description: |-
+                  Conditions: Ready, whose reason is Active, Inactive, Missing,
+                  DuplicateNumber, GuideNotFound or ProviderNotFound.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                maxItems: 4
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              guide:
+                description: |-
+                  Guide is the mapping actually used: "<guide>/<channelID>",
+                  "dummy/<minutes>", or "" under PMS.
+                maxLength: 512
+                type: string
+              observedGeneration:
+                description: ObservedGeneration is the generation the status describes.
+                format: int64
+                type: integer
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

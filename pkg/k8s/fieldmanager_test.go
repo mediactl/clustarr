@@ -39,6 +39,7 @@ func TestFieldManagersAreTheOnesTheSpecLists(t *testing.T) {
 		"transcode", "transcode-pool",
 		"caption",
 		"clustarr-dlq-projector", "clustarr-ui", "clustarr-autoscale",
+		"clustarr-livetv", "clustarr-livetv-channel",
 	}
 	got := FieldManagers()
 	if len(got) != len(want) {

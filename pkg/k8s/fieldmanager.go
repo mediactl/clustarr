@@ -280,6 +280,15 @@ const (
 	// v1beta1.external.metrics.k8s.io APIService. Written only from
 	// cmd/manager; never on a status subresource.
 	ManagerAutoscale FieldManager = "clustarr-autoscale"
+
+	// ManagerLiveTV is the IPTVProvider controller, the sole writer of
+	// IPTVProvider.status (Live TV spec 2026-10-07 §3.2), rendered whole
+	// from the tuner's snapshot on every path.
+	ManagerLiveTV FieldManager = "clustarr-livetv"
+
+	// ManagerLiveTVChannel is the IPTVChannel controller, the sole writer of
+	// IPTVChannel.status (Live TV spec §3.0).
+	ManagerLiveTVChannel FieldManager = "clustarr-livetv-channel"
 )
 
 // DefaultFieldOwner is the field manager controller-runtime records for a
@@ -316,6 +325,8 @@ func FieldManagers() []FieldManager {
 		ManagerDLQProjector,
 		ManagerUI,
 		ManagerAutoscale,
+		ManagerLiveTV,
+		ManagerLiveTVChannel,
 	}
 }
 

@@ -32,6 +32,7 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	clustarrv1alpha1 "github.com/mediactl/clustarr/api/clustarr/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
@@ -67,6 +68,7 @@ var AddToSchemeFuncs = []func(*runtime.Scheme) error{
 	downloadv1alpha1.AddToScheme,
 	transcodev1alpha1.AddToScheme,
 	subtitlev1alpha1.AddToScheme,
+	clustarrv1alpha1.AddToScheme,
 }
 
 // AddToScheme registers every group from [AddToSchemeFuncs] into s.

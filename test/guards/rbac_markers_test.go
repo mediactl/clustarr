@@ -476,6 +476,12 @@ func apiGroupAliases(file *ast.File) map[string]string {
 		if imp.Name != nil {
 			name = imp.Name.Name
 		}
+		if group == "clustarr" {
+			// api/clustarr is the clustarr.io group itself (Live TV), not
+			// clustarr.clustarr.io.
+			out[name] = "clustarr.io"
+			continue
+		}
 		out[name] = group + ".clustarr.io"
 	}
 	return out
