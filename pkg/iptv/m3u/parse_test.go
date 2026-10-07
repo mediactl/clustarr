@@ -42,8 +42,10 @@ func TestParseReadsEveryAttributeForm(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"http://epg.example/guide.xml.gz", "http://epg.example/alt.xml"}, pl.GuideURLs)
 	require.Len(t, pl.Entries, 6)
-	assert.Equal(t, m3u.Entry{Key: "t:bbc1.uk", Name: "BBC One HD", Group: "UK | Entertainment", TvgID: "bbc1.uk",
-		TvgName: "BBC One HD", Logo: "http://logo.example/bbc1.png", URL: "http://provider.example/live/user/pass/1001.ts"}, pl.Entries[0])
+	assert.Equal(t, m3u.Entry{
+		Key: "t:bbc1.uk", Name: "BBC One HD", Group: "UK | Entertainment", TvgID: "bbc1.uk",
+		TvgName: "BBC One HD", Logo: "http://logo.example/bbc1.png", URL: "http://provider.example/live/user/pass/1001.ts",
+	}, pl.Entries[0])
 	assert.Equal(t, "News, Live", pl.Entries[1].Name, "a comma inside the name survives")
 	assert.Equal(t, "News, Live", pl.Entries[1].TvgName, "a comma inside quotes survives")
 	assert.Equal(t, "VLC/3.0.20", pl.Entries[1].UserAgent)
