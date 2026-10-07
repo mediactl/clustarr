@@ -86,7 +86,10 @@ func (i *Intake) subscribeAcks(ctx context.Context) (stop func()) {
 	log := logging.FromContext(ctx)
 	var stops []func()
 	for _, subj := range ackSubjects(i.Topology) {
-		s, err := cs.SubscribeCore(ctx, subj, observeAck)
+		// The default limits (1,024 samples, 8 MiB): observeAck only
+		// decodes and observes, so a burst past them is a sampling gap,
+		// counted as a slow consumer (ADR-0020 §2).
+		s, err := cs.SubscribeCore(ctx, subj, events.CoreLimits{}, observeAck)
 		if err != nil {
 			log.Warn("advisory: could not subscribe to an ack metric subject; its samples are lost", "subject", subj, "error", err)
 			continue

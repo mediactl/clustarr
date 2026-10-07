@@ -343,11 +343,14 @@ type StreamAdmin interface {
 // CoreSubscriber subscribes to a core NATS subject, no stream and no
 // durable: the manager's ack-metric sampling of JetStream's
 // $JS.EVENT.METRIC.CONSUMER.ACK subjects (ADR-0019 §8.2, ruling R16). h runs
-// on the connection's delivery goroutine, so it must not block. The stop
+// on the connection's delivery goroutine, so it must not block. limits bound
+// the subscription's client-side buffer (ADR-0020 §2; zero fields take
+// their defaults), and subject names it in clustarr_nats_dropped_messages,
+// so it must be a bounded pattern, never one carrying ids. The stop
 // function unsubscribes; so does ctx ending. Optional: natsbus implements
 // it, membus does not (it publishes no JetStream metrics).
 type CoreSubscriber interface {
-	SubscribeCore(ctx context.Context, subject string, h func(subject string, data []byte)) (stop func(), err error)
+	SubscribeCore(ctx context.Context, subject string, limits CoreLimits, h func(subject string, data []byte)) (stop func(), err error)
 }
 
 // Requester is the micro-style request/reply half of the bus: a single reply

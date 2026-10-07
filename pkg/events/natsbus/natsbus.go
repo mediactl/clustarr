@@ -565,7 +565,7 @@ func (b *Bus) Serve(subject, queue string,
 
 	limits := b.opts.serveLimits.WithDefaults()
 	gate := events.NewServeGate(limits)
-	r := &responder{bus: b, subject: subject, queue: queue}
+	r := &responder{bus: b, subject: subject, queue: queue, limits: limits}
 	r.ctx, r.cancel = context.WithCancel(b.serveCtx)
 	r.cb = func(m *nats.Msg) {
 		var callerLeft time.Duration

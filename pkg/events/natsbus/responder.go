@@ -20,10 +20,13 @@ package natsbus
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
 	"github.com/nats-io/nats.go"
+
+	"github.com/mediactl/clustarr/pkg/events"
 )
 
 // responderDrainGrace is how long past the bus's request timeout a
@@ -40,6 +43,7 @@ type responder struct {
 	subject string
 	queue   string
 	cb      nats.MsgHandler
+	limits  events.ServeLimits
 
 	// ctx parents every handler of this responder; cancel ends them, which
 	// stop does after its drain and Close does at once. It is a child of
@@ -60,12 +64,26 @@ type responder struct {
 	stopErr  error
 }
 
-// subscribe joins the queue group (or subscribes plainly with no queue).
+// subscribe joins the queue group (or subscribes plainly with no queue),
+// its client-side buffer bounded by the Serve's limits (ADR-0020 §2).
 func (r *responder) subscribe() (*nats.Subscription, error) {
+	var (
+		sub *nats.Subscription
+		err error
+	)
 	if r.queue == "" {
-		return r.bus.nc.Subscribe(r.subject, r.cb)
+		sub, err = r.bus.nc.Subscribe(r.subject, r.cb)
+	} else {
+		sub, err = r.bus.nc.QueueSubscribe(r.subject, r.queue, r.cb)
 	}
-	return r.bus.nc.QueueSubscribe(r.subject, r.queue, r.cb)
+	if err != nil {
+		return nil, err
+	}
+	if err := sub.SetPendingLimits(r.limits.MaxPending, r.limits.MaxPendingBytes); err != nil {
+		_ = unsubscribe(sub)
+		return nil, fmt.Errorf("pending limits: %w", err)
+	}
+	return sub, nil
 }
 
 // drain takes r out of service gracefully: the subscription is drained

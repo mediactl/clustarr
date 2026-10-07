@@ -86,6 +86,19 @@ const DefaultServeConcurrency = 16
 // still bounds its wait, so the queue empties of abandoned work by itself.
 const DefaultServeQueue = 64
 
+// DefaultPendingBytes is the default byte bound of a core subscription's
+// client-side buffer (ServeLimits.MaxPendingBytes, CoreLimits): the
+// server's own 8 MiB max_payload, so one request of the largest size the
+// server accepts still fits (ADR-0020 §2). nats.go's own default is 64 MiB
+// per subscription.
+const DefaultPendingBytes = 8 << 20
+
+// ServePendingPerSlot is how many requests per handler slot one Serve's
+// subscription buffers client-side by default (ServeLimits.MaxPending): 4 x
+// Concurrency. The callback never blocks (it admits or refuses at once), so
+// the buffer only rides out a burst the callback has not reached yet.
+const ServePendingPerSlot = 4
+
 // ServeLimits bounds one Serve call's handlers. A zero field takes its
 // default.
 type ServeLimits struct {
@@ -95,6 +108,16 @@ type ServeLimits struct {
 	// Queue is how many further requests wait for a free handler slot
 	// before a request is refused with ErrResponderBusy.
 	Queue int
+
+	// MaxPending and MaxPendingBytes bound the requests the subscription
+	// buffers client-side before its callback takes them (nats.go
+	// Subscription.SetPendingLimits; ADR-0020 §2). Past them nats.go drops
+	// the request as a slow consumer, which is counted and alerted on
+	// (clustarr_nats_async_errors_total{kind="slow_consumer"},
+	// clustarr_nats_dropped_messages). Defaults: ServePendingPerSlot x
+	// Concurrency messages and DefaultPendingBytes.
+	MaxPending      int
+	MaxPendingBytes int
 }
 
 // WithDefaults fills every unset field with its default.
@@ -104,6 +127,36 @@ func (l ServeLimits) WithDefaults() ServeLimits {
 	}
 	if l.Queue <= 0 {
 		l.Queue = DefaultServeQueue
+	}
+	if l.MaxPending <= 0 {
+		l.MaxPending = ServePendingPerSlot * l.Concurrency
+	}
+	if l.MaxPendingBytes <= 0 {
+		l.MaxPendingBytes = DefaultPendingBytes
+	}
+	return l
+}
+
+// DefaultCorePending is the default message bound of a SubscribeCore
+// subscription's client-side buffer (CoreLimits.MaxPending).
+const DefaultCorePending = 1024
+
+// CoreLimits bounds one SubscribeCore subscription's client-side buffer
+// (ADR-0020 §2). A zero field takes its default: DefaultCorePending
+// messages, DefaultPendingBytes bytes. Past them nats.go drops messages as
+// a slow consumer, counted and alerted on like a responder's.
+type CoreLimits struct {
+	MaxPending      int
+	MaxPendingBytes int
+}
+
+// WithDefaults fills every unset field with its default.
+func (l CoreLimits) WithDefaults() CoreLimits {
+	if l.MaxPending <= 0 {
+		l.MaxPending = DefaultCorePending
+	}
+	if l.MaxPendingBytes <= 0 {
+		l.MaxPendingBytes = DefaultPendingBytes
 	}
 	return l
 }

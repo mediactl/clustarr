@@ -58,16 +58,24 @@ func (b *Bus) forgetCore(c *coreSub) {
 }
 
 // SubscribeCore implements events.CoreSubscriber: a plain core NATS
-// subscription (nc.Subscribe), no stream and no durable, ended by the stop
-// function, by ctx, or by the bus's Drain or Close. h runs on the
-// subscription's delivery goroutine.
-func (b *Bus) SubscribeCore(ctx context.Context, subject string, h func(subject string, data []byte)) (func(), error) {
+// subscription (nc.Subscribe), no stream and no durable, its client-side
+// buffer bounded by limits (ADR-0020 §2), ended by the stop function, by
+// ctx, or by the bus's Drain or Close. h runs on the subscription's delivery
+// goroutine.
+func (b *Bus) SubscribeCore(ctx context.Context, subject string, limits events.CoreLimits,
+	h func(subject string, data []byte),
+) (func(), error) {
 	if !b.accepting() {
 		return nil, events.ErrClosed
 	}
+	limits = limits.WithDefaults()
 	sub, err := b.nc.Subscribe(subject, func(m *nats.Msg) { h(m.Subject, m.Data) })
 	if err != nil {
 		return nil, fmt.Errorf("natsbus: subscribe %s: %w", subject, err)
+	}
+	if err := sub.SetPendingLimits(limits.MaxPending, limits.MaxPendingBytes); err != nil {
+		_ = unsubscribe(sub)
+		return nil, fmt.Errorf("natsbus: subscribe %s: pending limits: %w", subject, err)
 	}
 	c := &coreSub{bus: b, sub: sub}
 	b.mu.Lock()
