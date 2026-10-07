@@ -106,11 +106,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //	  mode: full
 //
 // The annotation is the Download annotation's grammar, parsed by the same
-// function (fileimport.ParseImportTarget). The target names the item that
+// function (importtarget.ParseImportTarget). The target names the item that
 // holds the file: movie/<m>, album/<a>, book/<b>, audiobook/<ab>, for an
 // episode either episode/<e> or series/<s>/<e>, and for a comic either
 // issue/<i> or comic/<c>/<i>. Its kind must fit the root folder
-// (fileimport.FileRefFitsRoot), and the item must exist and be stored under
+// (importtarget.FileRefFitsRoot), and the item must exist and be stored under
 // that root folder.
 //
 // subpath names the FILE, not its directory. The walk of a file path visits

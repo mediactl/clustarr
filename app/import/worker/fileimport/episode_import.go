@@ -34,6 +34,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	"github.com/mediactl/clustarr/app/import/importtarget"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -86,7 +87,7 @@ type episodePlan struct {
 // settles no episode is a rejection, except under a manual import to one
 // named episode, where a person has said which it is.
 func (w *Worker) importEpisodes(
-	ctx context.Context, m events.Message, dl *downloadv1alpha1.Download, target ImportTarget, manual bool,
+	ctx context.Context, m events.Message, dl *downloadv1alpha1.Download, target importtarget.ImportTarget, manual bool,
 ) error {
 	plan, err := w.resolveSeries(ctx, dl, target)
 	if err != nil {
@@ -115,7 +116,7 @@ func (w *Worker) importEpisodes(
 
 // resolveSeries reads the target's Series, its root folder, profile and
 // episodes. Errors wrapping errBlocked are terminal for this Download.
-func (w *Worker) resolveSeries(ctx context.Context, dl *downloadv1alpha1.Download, target ImportTarget) (episodePlan, error) {
+func (w *Worker) resolveSeries(ctx context.Context, dl *downloadv1alpha1.Download, target importtarget.ImportTarget) (episodePlan, error) {
 	ns := dl.Namespace
 	plan := episodePlan{namespace: ns}
 
@@ -145,7 +146,7 @@ func (w *Worker) resolveSeries(ctx context.Context, dl *downloadv1alpha1.Downloa
 	if err != nil {
 		return plan, err
 	}
-	if !FileRefFitsRoot(commonv1.MediaRef{Kind: commonv1.MediaKindEpisode}, root.Spec.Kind) {
+	if !importtarget.FileRefFitsRoot(commonv1.MediaRef{Kind: commonv1.MediaKindEpisode}, root.Spec.Kind) {
 		return plan, blocked("root folder %q is a %s root; an episode file does not belong there", root.Name, root.Spec.Kind)
 	}
 	plan.rootFolder = root

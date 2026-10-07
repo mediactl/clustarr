@@ -36,6 +36,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	"github.com/mediactl/clustarr/app/import/importtarget"
 	"github.com/mediactl/clustarr/app/import/worker/fileimport"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -171,7 +172,7 @@ func TestHandleImportTargetRedirectsAMovieImport(t *testing.T) {
 	mustWriteSparseFile(t, filepath.Join(contentRoot, "Heat.1995.1080p.BluRay.x264-SPARKS.mkv"), sampleFloor)
 	dl := f.createDownloadWith(t, "redirect-dl", contentRoot,
 		commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: f.movieName}, f.profile.Name,
-		map[string]string{fileimport.AnnotationImportTarget: "movie/heat"})
+		map[string]string{importtarget.AnnotationImportTarget: "movie/heat"})
 
 	require.NoError(t, f.worker.Handle(ctx, newImportTaskMessage(t, f.ns, dl.Name, "")))
 
@@ -195,8 +196,8 @@ func TestHandleReportsAMalformedImportAnnotationOnStatus(t *testing.T) {
 	mustWriteSparseFile(t, filepath.Join(contentRoot, "The.Matrix.1999.1080p.BluRay.x264-SPARKS.mkv"), sampleFloor)
 
 	for i, bad := range []map[string]string{
-		{fileimport.AnnotationImportTarget: "movie/The Matrix"},
-		{fileimport.AnnotationImportOverride: "yes"},
+		{importtarget.AnnotationImportTarget: "movie/The Matrix"},
+		{importtarget.AnnotationImportOverride: "yes"},
 	} {
 		dl := f.createDownloadWith(t, "bad-"+string(rune('a'+i)), contentRoot,
 			commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: f.movieName}, f.profile.Name, bad)
@@ -271,7 +272,7 @@ func TestHandleNonVideoImportNeedsOverrideAndRetriggerRequeuesIt(t *testing.T) {
 
 	// The user overrides; the Retrigger sees the annotation change on a
 	// Blocked Download and re-queues exactly one import task for it.
-	f.setAnnotation(t, dl, fileimport.AnnotationImportOverride, "true")
+	f.setAnnotation(t, dl, importtarget.AnnotationImportOverride, "true")
 	pub := &capturePublisher{}
 	r := &fileimport.Retrigger{Client: f.c, Bus: pub}
 	_, err = r.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(dl)})
@@ -300,7 +301,7 @@ func TestHandleNonVideoImportNeedsOverrideAndRetriggerRequeuesIt(t *testing.T) {
 	assert.Empty(t, managerFor(t, mf.ManagedFields, "status", "status"), "never any MediaFile status")
 
 	// The Download is Imported now: a further annotation change is ignored.
-	f.setAnnotation(t, dl, fileimport.AnnotationImportTarget, "album/"+album.Name)
+	f.setAnnotation(t, dl, importtarget.AnnotationImportTarget, "album/"+album.Name)
 	pub.env = nil
 	_, err = r.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(dl)})
 	require.NoError(t, err)
@@ -352,13 +353,13 @@ func TestHandleImportTargetKeyedComicIssue(t *testing.T) {
 	require.Equal(t, downloadv1alpha1.ImportPhaseBlocked, got.Status.Import.State)
 	assert.Contains(t, got.Status.Import.Message, "holds no files itself")
 
-	f.setAnnotation(t, dl, fileimport.AnnotationImportTarget, "comic/saga/monstress-00001.0")
+	f.setAnnotation(t, dl, importtarget.AnnotationImportTarget, "comic/saga/monstress-00001.0")
 	require.NoError(t, f.worker.Handle(ctx, newImportTaskMessage(t, f.ns, dl.Name, "")))
 	got = f.importState(t, dl)
 	require.Equal(t, downloadv1alpha1.ImportPhaseBlocked, got.Status.Import.State)
 	assert.Contains(t, got.Status.Import.Message, `belongs to comic "monstress"`)
 
-	f.setAnnotation(t, dl, fileimport.AnnotationImportTarget, "comic/saga/saga-00001.0")
+	f.setAnnotation(t, dl, importtarget.AnnotationImportTarget, "comic/saga/saga-00001.0")
 	require.NoError(t, f.worker.Handle(ctx, newImportTaskMessage(t, f.ns, dl.Name, "")))
 	got = f.importState(t, dl)
 	require.Equal(t, downloadv1alpha1.ImportPhaseImported, got.Status.Import.State, got.Status.Import.Message)

@@ -34,6 +34,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	"github.com/mediactl/clustarr/app/import/importtarget"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -231,7 +232,7 @@ func (w *Worker) admit(
 				"media, and this is the promo clip beside it", relPath(root, path), SuspectedSampleReason(info.Size(), w.SampleMaxBytes)), false
 		}
 		r := needsPersonRejection("%s: %s; only a manual import (spec.manual, or %s=true) imports it",
-			relPath(root, path), SuspectedSampleReason(info.Size(), w.SampleMaxBytes), AnnotationImportOverride)
+			relPath(root, path), SuspectedSampleReason(info.Size(), w.SampleMaxBytes), importtarget.AnnotationImportOverride)
 		r.sample = true
 		return r, false
 	default:

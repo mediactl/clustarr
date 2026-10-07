@@ -42,21 +42,21 @@ import (
 // (metadata.annotations is an unvalidated map on every kind), so there is
 // nothing else to grant.
 
-// AnnotationImportTarget is app/import/worker/fileimport.AnnotationImportTarget's
+// AnnotationImportTarget is app/import/importtarget.AnnotationImportTarget's
 // value, restated here for the same reason [FieldManager] restates
 // pkg/k8s.ManagerUI's: ui/actions may import only api/ and pkg/obs/ from
 // this module (ui/guard_test.go's own import allowlist), and
-// app/import/worker/fileimport is neither. manualassign_test.go pins the two
+// app/import/importtarget is neither. manualassign_test.go pins the two
 // strings together by importing that package directly (a _test.go file is
 // exempt from the allowlist).
 const AnnotationImportTarget = "catalog.clustarr.io/import-target"
 
-// ManualAssignTarget is app/import/worker/fileimport.ImportTarget's grammar
+// ManualAssignTarget is app/import/importtarget.ImportTarget's grammar
 // -- "<kind>/<name>" or, for a series or comic, "<kind>/<name>/<key>" --
 // restated as a Go struct for the same reason [AnnotationImportTarget] is
 // restated as a string: ui/actions cannot import the package that type lives
 // in. [ManualAssign] validates a ManualAssignTarget the same way
-// fileimport.ParseImportTarget validates a parsed annotation string, so a
+// importtarget.ParseImportTarget validates a parsed annotation string, so a
 // malformed one is refused here, before anything is created, rather than
 // only by the worker after the fact.
 type ManualAssignTarget struct {
@@ -81,17 +81,17 @@ func (t ManualAssignTarget) String() string {
 }
 
 // keyedKinds are the only kinds a [ManualAssignTarget] may carry a Key for --
-// fileimport.ParseImportTarget's own rule ("only series and comic take a
+// importtarget.ParseImportTarget's own rule ("only series and comic take a
 // key: those are the two kinds whose children MediaRef.Keys names").
 var keyedKinds = map[commonv1.MediaKind]bool{
 	commonv1.MediaKindSeries: true,
 	commonv1.MediaKindComic:  true,
 }
 
-// validate checks t's shape exactly as fileimport.ParseImportTarget checks a
+// validate checks t's shape exactly as importtarget.ParseImportTarget checks a
 // parsed annotation string: a known kind, a valid object name, and a key
 // only on a kind whose children have one. It does not check whether t fits
-// any particular root folder (fileimport.FileRefFitsRoot) or whether the
+// any particular root folder (importtarget.FileRefFitsRoot) or whether the
 // named item exists -- both are the worker's job, reported on the created
 // LibraryScan's own status, per this action's own doc comment.
 func (t ManualAssignTarget) validate() error {

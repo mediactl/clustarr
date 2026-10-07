@@ -30,7 +30,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
-	"github.com/mediactl/clustarr/app/import/worker/fileimport"
+	"github.com/mediactl/clustarr/app/import/importtarget"
 	"github.com/mediactl/clustarr/pkg/fsops"
 )
 
@@ -75,7 +75,7 @@ func TestHandleRejectsASuspectedSampleAndSaysWhy(t *testing.T) {
 	assert.Contains(t, rejection, shortFilm+": suspected sample")
 	assert.Contains(t, rejection, "45.0 MiB (47185920 bytes)", "the rejection names the file's size")
 	assert.Contains(t, rejection, "50.0 MiB (52428800 bytes)", "and the threshold it fell under")
-	assert.Contains(t, rejection, fileimport.AnnotationImportOverride+"=true", "and the manual import that takes it")
+	assert.Contains(t, rejection, importtarget.AnnotationImportOverride+"=true", "and the manual import that takes it")
 
 	var files catalogv1alpha1.MediaFileList
 	require.NoError(t, f.api.List(ctx, &files, client.InNamespace(f.ns)))
@@ -120,7 +120,7 @@ func TestHandleImportsASuspectedSampleWhenManualOrTheRuleIsOff(t *testing.T) {
 		{
 			name: "fi-suspect-override",
 			setup: func(t *testing.T, f *fixture, dl *downloadv1alpha1.Download) {
-				f.setAnnotation(t, dl, fileimport.AnnotationImportOverride, "true")
+				f.setAnnotation(t, dl, importtarget.AnnotationImportOverride, "true")
 			},
 			manual: true,
 		},

@@ -38,6 +38,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	"github.com/mediactl/clustarr/app/import/importtarget"
 	"github.com/mediactl/clustarr/app/import/worker/fileimport"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -339,7 +340,7 @@ func TestAReplacedBookWhoseFileIsGoneLosesItsMediaFile(t *testing.T) {
 	second := dataDir(t, "scratch")
 	mustWriteSparseFile(t, filepath.Join(second, "The Dispossessed.azw3"), 1<<20)
 	dl = f.createDownloadWith(t, "second-dl", second, target, "",
-		map[string]string{fileimport.AnnotationImportOverride: "true"})
+		map[string]string{importtarget.AnnotationImportOverride: "true"})
 	f.deliver(t, dl)
 	got = f.importState(t, dl).Status.Import
 	require.Equal(t, downloadv1alpha1.ImportPhaseImported, got.State, "message %q, rejections %v", got.Message, got.Rejections)

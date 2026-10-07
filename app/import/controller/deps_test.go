@@ -62,6 +62,7 @@ func TestImportControllersLinkNoWorkerCode(t *testing.T) {
 		"github.com/mediactl/clustarr/app/import/mediafilespec",          // I2
 		"github.com/mediactl/clustarr/app/import/controller/importlist",  // I3
 		"github.com/mediactl/clustarr/app/import/importliststate",        // I3
+		"github.com/mediactl/clustarr/app/import/importtarget",           // I4
 	} {
 		t.Run(pkg[strings.LastIndex(pkg, "/")+1:], func(t *testing.T) {
 			denyLinks(t, pkg, importWorkers)

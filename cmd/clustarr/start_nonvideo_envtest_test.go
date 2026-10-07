@@ -39,7 +39,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
-	"github.com/mediactl/clustarr/app/import/worker/fileimport"
+	"github.com/mediactl/clustarr/app/import/importtarget"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
@@ -502,7 +502,7 @@ func verifyRetrigger(t *testing.T, cfg *rest.Config) {
 		t.Fatalf("get Download: %v", err)
 	}
 	patch := client.MergeFrom(cur.DeepCopy())
-	cur.Annotations = map[string]string{fileimport.AnnotationImportTarget: "movie/retrigger-target"}
+	cur.Annotations = map[string]string{importtarget.AnnotationImportTarget: "movie/retrigger-target"}
 	if err := c.Patch(ctx, &cur, patch); err != nil {
 		t.Fatalf("annotate the Download: %v", err)
 	}

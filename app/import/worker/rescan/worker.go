@@ -33,6 +33,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
+	"github.com/mediactl/clustarr/app/import/importtarget"
 	"github.com/mediactl/clustarr/app/import/scanprogress"
 	"github.com/mediactl/clustarr/app/import/worker/fileimport"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -704,7 +705,7 @@ func (w *Worker) suspectedSample(ctx context.Context, st *scanState, path string
 		return false, err
 	}
 	remedy := "; if it is real media, assign it by hand (the unmatched page's assign action, or a LibraryScan " +
-		"annotated " + fileimport.AnnotationImportTarget + " whose subpath names this file)"
+		"annotated " + importtarget.AnnotationImportTarget + " whose subpath names this file)"
 	if st.manual != nil {
 		if !st.manualHasMedia {
 			return false, nil

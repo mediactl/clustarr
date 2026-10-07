@@ -40,6 +40,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	"github.com/mediactl/clustarr/app/import/importtarget"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -100,7 +101,7 @@ type nonVideoPlan struct {
 // target. target is what the Download (or its import-target annotation)
 // named; ref is target.FileRef().
 func (w *Worker) importNonVideo(
-	ctx context.Context, m events.Message, dl *downloadv1alpha1.Download, target ImportTarget, manual bool,
+	ctx context.Context, m events.Message, dl *downloadv1alpha1.Download, target importtarget.ImportTarget, manual bool,
 ) error {
 	plan, err := w.resolveNonVideo(ctx, dl, target)
 	if err != nil {
@@ -279,7 +280,7 @@ func (w *Worker) importNonVideoFile(
 	case !known && !manual:
 		return nil, needsPersonRejection("%s: the quality of a %s %s file cannot be determined without probing; "+
 			"only a manual import (spec.manual, or %s=true) accepts it",
-			rel, kind, strings.ToLower(filepath.Ext(srcPath)), AnnotationImportOverride), nil
+			rel, kind, strings.ToLower(filepath.Ext(srcPath)), importtarget.AnnotationImportOverride), nil
 	}
 
 	// The item's files but this import's own from an earlier delivery
@@ -295,7 +296,7 @@ func (w *Worker) importNonVideoFile(
 		if !singleFileKind(kind) {
 			return nil, needsPersonRejection("%s: %s %s already has %d file(s); adding to or replacing a multi-file item "+
 				"needs a manual import (spec.manual, or %s=true)",
-				rel, kind, plan.ref.Name, len(compared), AnnotationImportOverride), nil
+				rel, kind, plan.ref.Name, len(compared), importtarget.AnnotationImportOverride), nil
 		}
 		verdict := plan.profile.UpgradeDecision(
 			quality.Candidate{Quality: current.Spec.Quality, Revision: current.Spec.Revision},
@@ -377,7 +378,7 @@ func (w *Worker) importNonVideoFile(
 // resolveNonVideo reads the target item and its parents and works out where
 // its files go. Errors wrapping errBlocked are terminal for this Download;
 // anything else is worth a redelivery.
-func (w *Worker) resolveNonVideo(ctx context.Context, dl *downloadv1alpha1.Download, target ImportTarget) (nonVideoPlan, error) {
+func (w *Worker) resolveNonVideo(ctx context.Context, dl *downloadv1alpha1.Download, target importtarget.ImportTarget) (nonVideoPlan, error) {
 	ns := dl.Namespace
 	ref := target.FileRef()
 	plan := nonVideoPlan{ref: ref, namespace: ns}
@@ -422,7 +423,7 @@ func (w *Worker) resolveNonVideo(ctx context.Context, dl *downloadv1alpha1.Downl
 		}
 		return nonVideoPlan{}, fmt.Errorf("fileimport: get root folder %s/%s: %w", ns, rootRef, err)
 	}
-	if !FileRefFitsRoot(ref, root.Spec.Kind) {
+	if !importtarget.FileRefFitsRoot(ref, root.Spec.Kind) {
 		return nonVideoPlan{}, blocked("root folder %q is a %s root; a %s file does not belong there",
 			root.Name, root.Spec.Kind, ref.Kind)
 	}
@@ -692,7 +693,7 @@ func wellFormedFolder(rel string) bool {
 // issue-file preset's last segment, "{Comic Series Title} c{issue}".
 // target is checked against the Issue's own comicRef when the annotation
 // named the comic, so "comic/a/<an issue of b>" is refused, not followed.
-func (w *Worker) resolveIssue(ctx context.Context, ns string, target ImportTarget) (
+func (w *Worker) resolveIssue(ctx context.Context, ns string, target importtarget.ImportTarget) (
 	rootRef, profileRef, folder string, fileName func(string) string, err error,
 ) {
 	ref := target.FileRef()

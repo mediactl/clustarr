@@ -20,6 +20,7 @@ package fileimport
 import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	"github.com/mediactl/clustarr/app/import/importtarget"
 )
 
 // userChosen reports whether a Download's files are a person's choice rather
@@ -60,7 +61,7 @@ func transcodedRejection(rel string, existing *catalogv1alpha1.MediaFile, dl *do
 	r := itemStateRejection("%s: %s %s's existing file (MediaFile %s) is transcoded, and a transcoded file is final: "+
 		"an automatic grab (grabbedBy %s) never replaces it; only an interactive grab or a manual import "+
 		"(spec.manual, or %s=true) does",
-		rel, existing.Spec.MediaRef.Kind, existing.Spec.MediaRef.Name, existing.Name, source, AnnotationImportOverride)
+		rel, existing.Spec.MediaRef.Kind, existing.Spec.MediaRef.Name, existing.Name, source, importtarget.AnnotationImportOverride)
 	r.transcoded = true
 	return r
 }

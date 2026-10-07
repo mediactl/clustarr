@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	"github.com/mediactl/clustarr/app/import/importtarget"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -92,8 +93,8 @@ func ImportAnnotationsChanged() predicate.Funcs {
 	return predicate.Funcs{
 		CreateFunc: func(e event.CreateEvent) bool {
 			a := e.Object.GetAnnotations()
-			_, t := a[AnnotationImportTarget]
-			_, o := a[AnnotationImportOverride]
+			_, t := a[importtarget.AnnotationImportTarget]
+			_, o := a[importtarget.AnnotationImportOverride]
 			return t || o
 		},
 		UpdateFunc: func(e event.UpdateEvent) bool {
@@ -101,8 +102,8 @@ func ImportAnnotationsChanged() predicate.Funcs {
 				return false
 			}
 			oldA, newA := e.ObjectOld.GetAnnotations(), e.ObjectNew.GetAnnotations()
-			return oldA[AnnotationImportTarget] != newA[AnnotationImportTarget] ||
-				oldA[AnnotationImportOverride] != newA[AnnotationImportOverride]
+			return oldA[importtarget.AnnotationImportTarget] != newA[importtarget.AnnotationImportTarget] ||
+				oldA[importtarget.AnnotationImportOverride] != newA[importtarget.AnnotationImportOverride]
 		},
 		DeleteFunc:  func(event.DeleteEvent) bool { return false },
 		GenericFunc: func(event.GenericEvent) bool { return false },
@@ -125,8 +126,8 @@ func (r *Retrigger) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resul
 	if dl.Status.Import == nil || dl.Status.Import.State != downloadv1alpha1.ImportPhaseBlocked {
 		return ctrl.Result{}, nil
 	}
-	target, hasTarget := dl.Annotations[AnnotationImportTarget]
-	override, hasOverride := dl.Annotations[AnnotationImportOverride]
+	target, hasTarget := dl.Annotations[importtarget.AnnotationImportTarget]
+	override, hasOverride := dl.Annotations[importtarget.AnnotationImportOverride]
 	if !hasTarget && !hasOverride {
 		return ctrl.Result{}, nil
 	}

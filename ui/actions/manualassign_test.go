@@ -26,25 +26,25 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	"github.com/mediactl/clustarr/app/import/worker/fileimport"
+	"github.com/mediactl/clustarr/app/import/importtarget"
 	"github.com/mediactl/clustarr/ui/actions"
 )
 
 // TestAnnotationImportTargetMatchesFileimport pins actions.AnnotationImportTarget
-// to fileimport.AnnotationImportTarget's value, the same way
+// to importtarget.AnnotationImportTarget's value, the same way
 // TestFieldManagerIsK8sManagerUI pins actions.FieldManager to
-// pkg/k8s.ManagerUI's -- ui/actions cannot import app/import/worker/fileimport
+// pkg/k8s.ManagerUI's -- ui/actions cannot import app/import/importtarget
 // itself (ui/guard_test.go's import allowlist), so a _test.go file, which is
 // exempt, is what stops the two constants drifting apart.
 func TestAnnotationImportTargetMatchesFileimport(t *testing.T) {
-	require.Equal(t, fileimport.AnnotationImportTarget, actions.AnnotationImportTarget)
+	require.Equal(t, importtarget.AnnotationImportTarget, actions.AnnotationImportTarget)
 }
 
 // TestManualAssignTargetStringMatchesFileimportGrammar proves
 // ManualAssignTarget.String() produces exactly what
-// fileimport.ParseImportTarget parses back into the same target -- the two
+// importtarget.ParseImportTarget parses back into the same target -- the two
 // packages' independent implementations of one grammar must round-trip
-// through each other, since ui/actions cannot share fileimport's type.
+// through each other, since ui/actions cannot share importtarget's type.
 func TestManualAssignTargetStringMatchesFileimportGrammar(t *testing.T) {
 	cases := []actions.ManualAssignTarget{
 		{Kind: commonv1.MediaKindMovie, Name: "the-matrix-1999"},
@@ -54,7 +54,7 @@ func TestManualAssignTargetStringMatchesFileimportGrammar(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.String(), func(t *testing.T) {
-			parsed, err := fileimport.ParseImportTarget(tc.String())
+			parsed, err := importtarget.ParseImportTarget(tc.String())
 			require.NoError(t, err)
 			require.Equal(t, tc.Kind, parsed.Kind)
 			require.Equal(t, tc.Name, parsed.Name)

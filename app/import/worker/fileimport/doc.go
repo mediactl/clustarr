@@ -68,7 +68,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // # Scope
 //
 // The import target is the Download's spec.target, or what its
-// [AnnotationImportTarget] annotation redirects it to (see "Manual import").
+// [importtarget.AnnotationImportTarget] annotation redirects it to (see
+// "Manual import").
 // Supported: a movie; an episode, or a series whose keys name the episodes
 // of a pack (episode_import.go); and the four non-video items that hold
 // files -- an album, a book, an audiobook, an issue (spec.target comic/<c>
@@ -135,11 +136,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // Design spec §8.4's two Download annotations:
 //
-//   - [AnnotationImportTarget] "<kind>/<name>[/<key>]" directs the import at
-//     one item instead of spec.target (which is immutable, and the
-//     Download's owner).
-//   - [AnnotationImportOverride] "true" has DownloadSpec.Manual's effect;
-//     [ParseImportOverride] says exactly what that is.
+//   - [importtarget.AnnotationImportTarget] "<kind>/<name>[/<key>]" directs
+//     the import at one item instead of spec.target (which is immutable, and
+//     the Download's owner).
+//   - [importtarget.AnnotationImportOverride] "true" has DownloadSpec.Manual's
+//     effect; [importtarget.ParseImportOverride] says exactly what that is.
 //
 // Both are parsed strictly; a malformed one blocks the import with the
 // parse error on status.import rather than importing to spec.target.

@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package fileimport
+package importtarget
 
 import (
 	"fmt"
@@ -29,7 +29,9 @@ import (
 
 // The manual-import annotations design spec §8.4 names ("override via
 // Download annotations catalog.clustarr.io/import-target=<kind>/<name>[/<key>]
-// and catalog.clustarr.io/import-override=true").
+// and catalog.clustarr.io/import-override=true"), honoured by the
+// file-import worker (app/import/worker/fileimport) and the rescan's manual
+// assignment.
 //
 // They are annotations rather than spec fields because they are a user's
 // instruction to the importer, not part of what a Download is: spec.target is
@@ -170,11 +172,11 @@ func ParseImportOverride(value string) (bool, error) {
 	}
 }
 
-// targetFromSpec reads a Download's spec.target in the annotation's terms. A
+// TargetFromSpec reads a Download's spec.target in the annotation's terms. A
 // series or comic target naming exactly one Episode or Issue in keys is that
 // child; any other key count leaves the parent, which the caller refuses as
 // a container rather than choose a child for.
-func targetFromSpec(ref commonv1.MediaRef) ImportTarget {
+func TargetFromSpec(ref commonv1.MediaRef) ImportTarget {
 	t := ImportTarget{Kind: ref.Kind, Name: ref.Name}
 	if len(ref.Keys) == 1 && (ref.Kind == commonv1.MediaKindSeries || ref.Kind == commonv1.MediaKindComic) {
 		t.Key = ref.Keys[0]
@@ -182,32 +184,32 @@ func targetFromSpec(ref commonv1.MediaRef) ImportTarget {
 	return t
 }
 
-// directives is what the two annotations on one object say, validated.
-type directives struct {
-	// target is the annotation's target; nil when the annotation is absent.
-	target *ImportTarget
+// Directives is what the two annotations on one object say, validated.
+type Directives struct {
+	// Target is the annotation's target; nil when the annotation is absent.
+	Target *ImportTarget
 
-	// override is the parsed import-override value.
-	override bool
+	// Override is the parsed import-override value.
+	Override bool
 }
 
-// readDirectives parses both annotations off annotations. A present but
+// ReadDirectives parses both annotations off annotations. A present but
 // malformed annotation is an error; an absent one is not.
-func readDirectives(annotations map[string]string) (directives, error) {
-	var d directives
+func ReadDirectives(annotations map[string]string) (Directives, error) {
+	var d Directives
 	if raw, ok := annotations[AnnotationImportTarget]; ok {
 		t, err := ParseImportTarget(raw)
 		if err != nil {
-			return directives{}, err
+			return Directives{}, err
 		}
-		d.target = &t
+		d.Target = &t
 	}
 	if raw, ok := annotations[AnnotationImportOverride]; ok {
 		v, err := ParseImportOverride(raw)
 		if err != nil {
-			return directives{}, err
+			return Directives{}, err
 		}
-		d.override = v
+		d.Override = v
 	}
 	return d, nil
 }

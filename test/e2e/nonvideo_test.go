@@ -88,7 +88,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	"github.com/mediactl/clustarr/app/import/worker/fileimport"
+	"github.com/mediactl/clustarr/app/import/importtarget"
 )
 
 // nonVideoConditionTimeout bounds the wait for a parent's metadata-ready and
@@ -112,13 +112,13 @@ const fixtureNonVideoStubService = "nonvideo-stub"
 // WORKER half of manual assignment on its own. The ui half (Options.Actions,
 // wired into both ui commands by G3-5) is scenario 14's POST to
 // /unmatched/assign in ui_test.go.
-func manualAssignScan(ctx context.Context, t *testing.T, rootFolder, subpath string, target fileimport.ImportTarget) *catalogv1alpha1.LibraryScan {
+func manualAssignScan(ctx context.Context, t *testing.T, rootFolder, subpath string, target importtarget.ImportTarget) *catalogv1alpha1.LibraryScan {
 	t.Helper()
 	scan := &catalogv1alpha1.LibraryScan{
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: "e2e-assign-",
 			Namespace:    Namespace,
-			Annotations:  map[string]string{fileimport.AnnotationImportTarget: target.String()},
+			Annotations:  map[string]string{importtarget.AnnotationImportTarget: target.String()},
 		},
 		Spec: catalogv1alpha1.LibraryScanSpec{
 			RootFolderRef: rootFolder,
@@ -198,7 +198,7 @@ func TestNonVideoArtistAlbumManualImport(t *testing.T) {
 	fullPath := filepath.Join(rf.Spec.Path, relSubpath)
 	plantBytes(t, hostPath(fullPath), []byte("id3-fixture-e2e11-music"))
 
-	manualAssignScan(ctx, t, rf.Name, relSubpath, fileimport.ImportTarget{Kind: commonv1.MediaKindAlbum, Name: album.Name})
+	manualAssignScan(ctx, t, rf.Name, relSubpath, importtarget.ImportTarget{Kind: commonv1.MediaKindAlbum, Name: album.Name})
 
 	mf := waitForMediaFileAt(ctx, t, fullPath)
 	require.Equal(t, commonv1.MediaKindAlbum, mf.Spec.MediaRef.Kind)
@@ -249,7 +249,7 @@ func TestNonVideoAuthorBookManualImport(t *testing.T) {
 	fullPath := filepath.Join(rf.Spec.Path, relSubpath)
 	plantBytes(t, hostPath(fullPath), []byte("epub-fixture-e2e11-book"))
 
-	manualAssignScan(ctx, t, rf.Name, relSubpath, fileimport.ImportTarget{Kind: commonv1.MediaKindBook, Name: book.Name})
+	manualAssignScan(ctx, t, rf.Name, relSubpath, importtarget.ImportTarget{Kind: commonv1.MediaKindBook, Name: book.Name})
 
 	mf := waitForMediaFileAt(ctx, t, fullPath)
 	require.Equal(t, commonv1.MediaKindBook, mf.Spec.MediaRef.Kind)
@@ -291,7 +291,7 @@ func TestNonVideoAudiobookManualImport(t *testing.T) {
 	fullPath := filepath.Join(rf.Spec.Path, relSubpath)
 	plantBytes(t, hostPath(fullPath), []byte("m4b-fixture-e2e11-audiobook"))
 
-	manualAssignScan(ctx, t, rf.Name, relSubpath, fileimport.ImportTarget{Kind: commonv1.MediaKindAudiobook, Name: audiobook.Name})
+	manualAssignScan(ctx, t, rf.Name, relSubpath, importtarget.ImportTarget{Kind: commonv1.MediaKindAudiobook, Name: audiobook.Name})
 
 	mf := waitForMediaFileAt(ctx, t, fullPath)
 	require.Equal(t, commonv1.MediaKindAudiobook, mf.Spec.MediaRef.Kind)
@@ -299,7 +299,7 @@ func TestNonVideoAudiobookManualImport(t *testing.T) {
 }
 
 // TestNonVideoComicIssueManualImport is scenario 11's Comic/Issue leg. It
-// uses the plain "issue/<name>" target form (fileimport.ParseImportTarget's
+// uses the plain "issue/<name>" target form (importtarget.ParseImportTarget's
 // two-segment grammar), not the "comic/<c>/<key>" three-segment alternative
 // the design note also allows: both resolve to the identical
 // FileRef{Kind: Issue, Name: ...} (annotation.go's FileRef, the Key branch
@@ -351,7 +351,7 @@ func TestNonVideoComicIssueManualImport(t *testing.T) {
 	fullPath := filepath.Join(rf.Spec.Path, relSubpath)
 	plantBytes(t, hostPath(fullPath), []byte("cbz-fixture-e2e11-comic"))
 
-	manualAssignScan(ctx, t, rf.Name, relSubpath, fileimport.ImportTarget{Kind: commonv1.MediaKindIssue, Name: issue.Name})
+	manualAssignScan(ctx, t, rf.Name, relSubpath, importtarget.ImportTarget{Kind: commonv1.MediaKindIssue, Name: issue.Name})
 
 	mf := waitForMediaFileAt(ctx, t, fullPath)
 	require.Equal(t, commonv1.MediaKindIssue, mf.Spec.MediaRef.Kind)

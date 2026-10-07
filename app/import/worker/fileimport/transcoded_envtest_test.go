@@ -35,7 +35,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
-	"github.com/mediactl/clustarr/app/import/worker/fileimport"
+	"github.com/mediactl/clustarr/app/import/importtarget"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
@@ -137,7 +137,7 @@ func TestHandleNeverLetsAnAutomaticGrabReplaceATranscodedMovie(t *testing.T) {
 		{name: "spec.manual", transcoded: true, swap: true, edit: grabbedAs(downloadv1alpha1.GrabSourceSearch, true), replaced: true},
 		{
 			name: "the import-override annotation", transcoded: true, edit: grabbedAs(downloadv1alpha1.GrabSourceRSS, false),
-			annotations: map[string]string{fileimport.AnnotationImportOverride: "true"}, replaced: true,
+			annotations: map[string]string{importtarget.AnnotationImportOverride: "true"}, replaced: true,
 		},
 	}
 	for i, c := range cases {
@@ -195,7 +195,7 @@ func TestHandleNeverLetsAnAutomaticGrabReplaceATranscodedMovie(t *testing.T) {
 			assert.Contains(t, r, "movie the-matrix's existing file (MediaFile "+existing+") is transcoded")
 			assert.Contains(t, r, "grabbedBy "+c.source)
 			assert.Contains(t, r, "only an interactive grab or a manual import")
-			assert.Contains(t, r, fileimport.AnnotationImportOverride+"=true")
+			assert.Contains(t, r, importtarget.AnnotationImportOverride+"=true")
 
 			require.NoError(t, oldErr, "the transcoded file's MediaFile stays")
 			assert.Equal(t, existingPath, old.Spec.Path)

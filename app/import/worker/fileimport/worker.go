@@ -35,6 +35,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	"github.com/mediactl/clustarr/app/import/importtarget"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/fsops"
@@ -227,14 +228,14 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 	// importing to spec.target instead would be guessing what they meant.
 	// It is reported on status.import, which this worker owns, and the
 	// Download stays importable once the annotation is fixed (Retrigger).
-	dirs, derr := readDirectives(dl.Annotations)
+	dirs, derr := importtarget.ReadDirectives(dl.Annotations)
 	if derr != nil {
 		return w.conclude(ctx, m, &dl, downloadv1alpha1.ImportClassNeedsPerson, nil, nil, "invalid annotation: "+derr.Error())
 	}
-	manual := dl.Spec.Manual || dirs.override
-	target := targetFromSpec(dl.Spec.Target)
-	if dirs.target != nil {
-		target = *dirs.target
+	manual := dl.Spec.Manual || dirs.Override
+	target := importtarget.TargetFromSpec(dl.Spec.Target)
+	if dirs.Target != nil {
+		target = *dirs.Target
 	}
 	ref := target.FileRef()
 
@@ -256,7 +257,7 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 		// is the guess this worker does not make.
 		return w.conclude(ctx, m, &dl, downloadv1alpha1.ImportClassNeedsPerson, nil, nil, fmt.Sprintf(
 			"target %s is a %s, which holds no files itself; set %s to the album, book or issue "+
-				"(comic/<comic>/<issue>) the files belong to", target, ref.Kind, AnnotationImportTarget))
+				"(comic/<comic>/<issue>) the files belong to", target, ref.Kind, importtarget.AnnotationImportTarget))
 	}
 
 	var movie catalogv1alpha1.Movie

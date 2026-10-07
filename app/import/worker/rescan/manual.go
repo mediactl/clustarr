@@ -34,8 +34,8 @@ import (
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/app/import/importtarget"
 	"github.com/mediactl/clustarr/app/import/mediafilespec"
-	"github.com/mediactl/clustarr/app/import/worker/fileimport"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/release"
 )
@@ -44,7 +44,7 @@ import (
 // against the cluster: the one item every unattributed file the scan walks
 // is assigned to. See this package's doc, "Manual assignment".
 type manualAssign struct {
-	target fileimport.ImportTarget
+	target importtarget.ImportTarget
 	ref    commonv1.MediaRef
 
 	// video is the scoring context of a movie or episode target -- the
@@ -64,7 +64,7 @@ func refuse(format string, args ...any) error {
 }
 
 // resolveManualAssign validates the scan's import-target annotation: the
-// grammar (fileimport.ParseImportTarget, the same parser the Download
+// grammar (importtarget.ParseImportTarget, the same parser the Download
 // annotation uses), that the item it names holds files of this root
 // folder's kind, that it exists, and that it is stored under this root
 // folder. A keyed comic target must name one of that comic's own issues.
@@ -72,18 +72,18 @@ func refuse(format string, args ...any) error {
 func (w *Worker) resolveManualAssign(
 	ctx context.Context, scan *catalogv1alpha1.LibraryScan, root *catalogv1alpha1.RootFolder,
 ) (*manualAssign, error) {
-	raw, ok := scan.Annotations[fileimport.AnnotationImportTarget]
+	raw, ok := scan.Annotations[importtarget.AnnotationImportTarget]
 	if !ok {
 		return nil, nil
 	}
-	t, err := fileimport.ParseImportTarget(raw)
+	t, err := importtarget.ParseImportTarget(raw)
 	if err != nil {
 		return nil, refuse("invalid annotation: %v", err)
 	}
 	ref := t.FileRef()
-	if !fileimport.FileRefFitsRoot(ref, root.Spec.Kind) {
+	if !importtarget.FileRefFitsRoot(ref, root.Spec.Kind) {
 		return nil, refuse("%s %q cannot be assigned files under root folder %q, which is a %s root",
-			fileimport.AnnotationImportTarget, raw, root.Name, root.Spec.Kind)
+			importtarget.AnnotationImportTarget, raw, root.Name, root.Spec.Kind)
 	}
 
 	itemRoot, video, err := w.itemRootFolder(ctx, scan.Namespace, t)
@@ -92,7 +92,7 @@ func (w *Worker) resolveManualAssign(
 	}
 	if itemRoot != root.Name {
 		return nil, refuse("%s %q names an item stored under root folder %q, not %q",
-			fileimport.AnnotationImportTarget, raw, itemRoot, root.Name)
+			importtarget.AnnotationImportTarget, raw, itemRoot, root.Name)
 	}
 	return &manualAssign{target: t, ref: ref, video: video}, nil
 }
@@ -101,7 +101,7 @@ func (w *Worker) resolveManualAssign(
 // and, for a movie or an episode, the scoring context a file assigned to it
 // freezes. A NotFound anywhere refuses the scan; any other read error is
 // transient.
-func (w *Worker) itemRootFolder(ctx context.Context, ns string, t fileimport.ImportTarget) (string, *MovieCandidate, error) {
+func (w *Worker) itemRootFolder(ctx context.Context, ns string, t importtarget.ImportTarget) (string, *MovieCandidate, error) {
 	if ref := t.FileRef(); ref.Kind == commonv1.MediaKindEpisode {
 		return w.episodeRootFolder(ctx, ns, t, ref.Name)
 	}
@@ -110,7 +110,7 @@ func (w *Worker) itemRootFolder(ctx context.Context, ns string, t fileimport.Imp
 		if err := w.Client.Get(ctx, types.NamespacedName{Namespace: ns, Name: ref.Name}, &m); err != nil {
 			if apierrors.IsNotFound(err) {
 				return "", nil, refuse("%s %q names movie %q, which does not exist",
-					fileimport.AnnotationImportTarget, t.String(), ref.Name)
+					importtarget.AnnotationImportTarget, t.String(), ref.Name)
 			}
 			return "", nil, fmt.Errorf("rescan: get movie %s/%s: %w", ns, ref.Name, err)
 		}
@@ -124,12 +124,12 @@ func (w *Worker) itemRootFolder(ctx context.Context, ns string, t fileimport.Imp
 // episodeRootFolder is itemRootFolder for an episode target ("episode/<e>",
 // or "series/<s>/<e>", whose episode must be one of that series'): the
 // Episode's Series names the root folder and the scoring context.
-func (w *Worker) episodeRootFolder(ctx context.Context, ns string, t fileimport.ImportTarget, episode string) (string, *MovieCandidate, error) {
+func (w *Worker) episodeRootFolder(ctx context.Context, ns string, t importtarget.ImportTarget, episode string) (string, *MovieCandidate, error) {
 	get := func(kind, name string, obj client.Object) error {
 		if err := w.Client.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, obj); err != nil {
 			if apierrors.IsNotFound(err) {
 				return refuse("%s %q names %s %q, which does not exist",
-					fileimport.AnnotationImportTarget, t.String(), kind, name)
+					importtarget.AnnotationImportTarget, t.String(), kind, name)
 			}
 			return fmt.Errorf("rescan: get %s %s/%s: %w", kind, ns, name, err)
 		}
@@ -141,7 +141,7 @@ func (w *Worker) episodeRootFolder(ctx context.Context, ns string, t fileimport.
 	}
 	if t.Kind == commonv1.MediaKindSeries && ep.Spec.SeriesRef != t.Name {
 		return "", nil, refuse("%s %q: episode %s belongs to series %q, not %q",
-			fileimport.AnnotationImportTarget, t.String(), ep.Name, ep.Spec.SeriesRef, t.Name)
+			importtarget.AnnotationImportTarget, t.String(), ep.Name, ep.Spec.SeriesRef, t.Name)
 	}
 	var s catalogv1alpha1.Series
 	if err := get("series", ep.Spec.SeriesRef, &s); err != nil {
@@ -155,12 +155,12 @@ func (w *Worker) episodeRootFolder(ctx context.Context, ns string, t fileimport.
 }
 
 // nonMovieRootFolder is itemRootFolder for every kind but a movie.
-func (w *Worker) nonMovieRootFolder(ctx context.Context, ns string, t fileimport.ImportTarget) (string, error) {
+func (w *Worker) nonMovieRootFolder(ctx context.Context, ns string, t importtarget.ImportTarget) (string, error) {
 	get := func(kind, name string, obj client.Object) error {
 		if err := w.Client.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, obj); err != nil {
 			if apierrors.IsNotFound(err) {
 				return refuse("%s %q names %s %q, which does not exist",
-					fileimport.AnnotationImportTarget, t.String(), kind, name)
+					importtarget.AnnotationImportTarget, t.String(), kind, name)
 			}
 			return fmt.Errorf("rescan: get %s %s/%s: %w", kind, ns, name, err)
 		}
@@ -207,7 +207,7 @@ func (w *Worker) nonMovieRootFolder(ctx context.Context, ns string, t fileimport
 		}
 		if t.Kind == commonv1.MediaKindComic && is.Spec.ComicRef != t.Name {
 			return "", refuse("%s %q: issue %s belongs to comic %q, not %q",
-				fileimport.AnnotationImportTarget, t.String(), is.Name, is.Spec.ComicRef, t.Name)
+				importtarget.AnnotationImportTarget, t.String(), is.Name, is.Spec.ComicRef, t.Name)
 		}
 		var co catalogv1alpha1.Comic
 		if err := get("comic", is.Spec.ComicRef, &co); err != nil {
@@ -216,7 +216,7 @@ func (w *Worker) nonMovieRootFolder(ctx context.Context, ns string, t fileimport
 		return co.Spec.RootFolderRef, nil
 	}
 	return "", refuse("%s %q: %s items hold no files library rescan can record",
-		fileimport.AnnotationImportTarget, t.String(), ref.Kind)
+		importtarget.AnnotationImportTarget, t.String(), ref.Kind)
 }
 
 // assignManually records one walked file against the scan's import-target.

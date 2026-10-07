@@ -34,7 +34,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
-	"github.com/mediactl/clustarr/app/import/worker/fileimport"
+	"github.com/mediactl/clustarr/app/import/importtarget"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
@@ -98,7 +98,7 @@ func (a *albumFixture) importAlbum(t *testing.T, name, contentRoot string, manua
 	t.Helper()
 	var annotations map[string]string
 	if manual {
-		annotations = map[string]string{fileimport.AnnotationImportOverride: "true"}
+		annotations = map[string]string{importtarget.AnnotationImportOverride: "true"}
 	}
 	dl := a.createDownloadWith(t, name, contentRoot,
 		commonv1.MediaRef{Kind: commonv1.MediaKindAlbum, Name: a.album.Name}, "", annotations)
@@ -239,7 +239,7 @@ func TestHandleManualImportLeavesThePromoClipBehind(t *testing.T) {
 	mustWriteSparseFile(t, filepath.Join(contentRoot, "Promo", "trailer-cut.mkv"), 10<<20)
 	dl := f.createDownloadWith(t, "promo-dl", contentRoot,
 		commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: f.movieName}, f.profile.Name,
-		map[string]string{fileimport.AnnotationImportOverride: "true"})
+		map[string]string{importtarget.AnnotationImportOverride: "true"})
 
 	require.NoError(t, f.worker.Handle(ctx, newImportTaskMessage(t, f.ns, dl.Name, "")))
 
