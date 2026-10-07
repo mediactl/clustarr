@@ -101,12 +101,20 @@ type stream struct {
 	bytes int64
 	dedup map[string]dedupRecord
 
-	// durables is every durable a Subscribe or Pull has bound on this
-	// stream and no DeleteSubscription has forgotten since: JetStream's
-	// consumer list, which events.StreamAdmin.Subscriptions reports. A
-	// JetStream durable outlives the subscription that created it, and so
-	// does an entry here.
-	durables map[string]struct{}
+	// durables is every durable Ensure, a Subscribe or a Pull has bound on
+	// this stream and no DeleteSubscription has forgotten since: JetStream's
+	// consumer list, which events.StreamAdmin.Subscriptions reports, with
+	// what membus enforces of each one's config. A JetStream durable outlives
+	// the subscription that created it, and so does an entry here.
+	durables map[string]durableState
+}
+
+// durableState is what Ensure (or Pull) declared for one durable, as far as
+// membus enforces JetStream's consumer config: its filters and its cap on
+// unsettled deliveries across every subscription and puller.
+type durableState struct {
+	filters       []string
+	maxAckPending int
 }
 
 // publish appends a message, honouring deduplication and DiscardNew
@@ -183,6 +191,8 @@ func (s *stream) claim(durable string, filters []string, now time.Time,
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	workQueue := s.spec.Retention == events.RetentionWorkQueue
+	d, bound := s.durables[durable]
+	capped := bound && s.unsettledLocked(durable) >= d.maxAckPending
 	for _, m := range s.msgs {
 		if m.removed {
 			continue
@@ -198,6 +208,12 @@ func (s *stream) claim(durable string, filters []string, now time.Time,
 		}
 		cs := m.stateFor(durable)
 		if cs.settled || !cs.due(now) {
+			continue
+		}
+		// At the cap JetStream still redelivers what is already ack-pending
+		// (a redelivery takes no new place under MaxAckPending); it only
+		// stops making first deliveries.
+		if capped && cs.attempts == 0 {
 			continue
 		}
 		if maxDeliver > 0 && cs.attempts >= uint64(maxDeliver) {
@@ -319,15 +335,61 @@ func (s *stream) forgetDurable(durable string) {
 	}
 }
 
-// bindDurable records durable as existing on this stream, as JetStream
-// creates a consumer on its first Subscribe or Pull.
-func (s *stream) bindDurable(durable string) {
+// bindDurable records durable as existing on this stream with its filters
+// and its cap on unsettled deliveries, as JetStream creates a consumer from
+// Ensure's topology or on a Pull.
+func (s *stream) bindDurable(durable string, filters []string, maxAckPending int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.durables == nil {
-		s.durables = map[string]struct{}{}
+		s.durables = map[string]durableState{}
 	}
-	s.durables[durable] = struct{}{}
+	s.durables[durable] = durableState{
+		filters:       append([]string(nil), filters...),
+		maxAckPending: max(maxAckPending, 1),
+	}
+}
+
+// unsettledLocked counts durable's deliveries neither acknowledged nor
+// terminated: JetStream's NumAckPending. The caller holds s.mu.
+func (s *stream) unsettledLocked(durable string) int {
+	n := 0
+	for _, m := range s.msgs {
+		if cs, ok := m.state[durable]; ok && !m.removed && cs.attempts > 0 && !cs.settled {
+			n++
+		}
+	}
+	return n
+}
+
+// consumerState is durable's ConsumerState, false when durable is not bound.
+func (s *stream) consumerState(durable string, now time.Time) (events.ConsumerState, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	d, ok := s.durables[durable]
+	if !ok {
+		return events.ConsumerState{}, false
+	}
+	workQueue := s.spec.Retention == events.RetentionWorkQueue
+	out := events.ConsumerState{MaxAckPending: d.maxAckPending, ObservedAt: now}
+	for _, m := range s.msgs {
+		if m.removed || !matchAny(d.filters, m.subject) {
+			continue
+		}
+		if !m.deliverAt.IsZero() && now.Before(m.deliverAt) {
+			continue
+		}
+		if workQueue && m.claim != "" && m.claim != durable {
+			continue
+		}
+		switch cs, ok := m.state[durable]; {
+		case !ok || cs.attempts == 0:
+			out.Pending++
+		case !cs.settled:
+			out.AckPending++
+		}
+	}
+	return out, true
 }
 
 // hasDurable reports whether durable exists on this stream: bound by Ensure,

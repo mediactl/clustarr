@@ -51,6 +51,10 @@ var (
 	// EnsureTopology has not created.
 	ErrStreamNotFound = errors.New("events: stream not found")
 
+	// ErrConsumerNotFound is returned by StreamAdmin.ConsumerState for a
+	// durable that does not exist on its stream.
+	ErrConsumerNotFound = errors.New("events: consumer not found")
+
 	// ErrBucketNotFound is returned by KV operations on an unknown bucket.
 	ErrBucketNotFound = errors.New("events: bucket not found")
 

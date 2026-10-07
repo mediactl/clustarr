@@ -229,6 +229,9 @@ type StreamAdmin interface {
 	// dead-letter watcher lives on StreamAdvisories, not on stream, so it
 	// is not listed here. A missing stream is ErrStreamNotFound.
 	Subscriptions(ctx context.Context, stream string) ([]string, error)
+	// ConsumerState reads one durable's backlog. A missing stream is
+	// ErrStreamNotFound, a missing durable ErrConsumerNotFound.
+	ConsumerState(ctx context.Context, stream, durable string) (ConsumerState, error)
 	// Missing names every stream, consumer, KV bucket and object store of t
 	// that does not exist, as TopologyObject.String spells it, in
 	// Topology.Objects order. It is empty when everything exists. Agents wait

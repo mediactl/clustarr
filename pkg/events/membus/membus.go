@@ -34,6 +34,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package membus
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"strings"
@@ -145,12 +146,13 @@ func (b *Bus) Ensure(_ context.Context, t events.Topology) error {
 		b.streams[spec.Name] = &stream{spec: spec, dedup: map[string]dedupRecord{}}
 	}
 	// natsbus's Ensure creates every topology consumer (events.EnsureTopology).
-	// membus records each as existing, so StreamAdmin.Missing and
-	// Subscriptions answer as natsbus would. t.Validate has rejected a
-	// consumer whose stream is not in t.Streams, and the loop above created
-	// every stream, so the lookup is never nil.
+	// membus records each as existing, with the filters and the cap it
+	// enforces, so StreamAdmin.Missing, Subscriptions and ConsumerState
+	// answer as natsbus would. t.Validate has rejected a consumer whose
+	// stream is not in t.Streams, and the loop above created every stream,
+	// so the lookup is never nil.
 	for _, c := range t.Consumers {
-		b.streams[c.Stream].bindDurable(c.Name)
+		b.streams[c.Stream].bindDurable(c.Name, c.Filters, c.MaxAckPending)
 	}
 	for _, spec := range t.Buckets {
 		if existing, ok := b.buckets[spec.Name]; ok {
@@ -283,7 +285,7 @@ func (b *Bus) Subscribe(ctx context.Context, sub events.Subscription,
 		return nil, fmt.Errorf("membus: stream %s not ensured: %w",
 			sub.Stream, events.ErrStreamNotFound)
 	}
-	st.bindDurable(sub.Durable)
+	st.bindDurable(sub.Durable, sub.Filters, cmp.Or(sub.MaxAckPending, max(sub.MaxInFlight, 1)))
 
 	loopCtx, cancel := context.WithCancel(ctx)
 	inFlight := sub.MaxInFlight

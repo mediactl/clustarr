@@ -87,6 +87,38 @@ func (b *Bus) Subscriptions(ctx context.Context, stream string) ([]string, error
 	return out, nil
 }
 
+// ConsumerState implements events.StreamAdmin: one CONSUMER.INFO request
+// (nats.go jetstream/consumer.go fetchConsumerInfo), read from the handle's
+// cached info.
+func (b *Bus) ConsumerState(ctx context.Context, stream, durable string) (events.ConsumerState, error) {
+	c, err := b.js.Consumer(ctx, stream, durable)
+	if err != nil {
+		return events.ConsumerState{}, lookupError(stream, durable, err)
+	}
+	info := c.CachedInfo()
+	return events.ConsumerState{
+		Pending:       info.NumPending,
+		AckPending:    uint64(max(info.NumAckPending, 0)),
+		MaxAckPending: info.Config.MaxAckPending,
+		ObservedAt:    info.TimeStamp,
+	}, nil
+}
+
+// lookupError maps a consumer lookup's failure onto the events sentinels. A
+// missing stream comes back from CONSUMER.INFO as an *APIError with
+// JSErrCodeStreamNotFound, which is matched by code as well as by errors.Is.
+func lookupError(stream, durable string, err error) error {
+	var apiErr *jetstream.APIError
+	switch {
+	case errors.Is(err, jetstream.ErrStreamNotFound),
+		errors.As(err, &apiErr) && apiErr.ErrorCode == jetstream.JSErrCodeStreamNotFound:
+		return fmt.Errorf("natsbus: stream %s: %w", stream, events.ErrStreamNotFound)
+	case errors.Is(err, jetstream.ErrConsumerNotFound):
+		return fmt.Errorf("natsbus: consumer %s on %s: %w", durable, stream, events.ErrConsumerNotFound)
+	}
+	return fmt.Errorf("natsbus: consumer %s on %s: %w", durable, stream, err)
+}
+
 // Subjects implements events.StreamAdmin.
 func (b *Bus) Subjects(ctx context.Context, stream, filter string) ([]string, error) {
 	st, err := b.lookupStream(ctx, stream)

@@ -63,6 +63,21 @@ func (b *Bus) Subscriptions(_ context.Context, stream string) ([]string, error) 
 	return st.subscriptions(), nil
 }
 
+// ConsumerState implements events.StreamAdmin.
+func (b *Bus) ConsumerState(_ context.Context, stream, durable string) (events.ConsumerState, error) {
+	b.mu.Lock()
+	st := b.streams[stream]
+	b.mu.Unlock()
+	if st == nil {
+		return events.ConsumerState{}, fmt.Errorf("membus: stream %s: %w", stream, events.ErrStreamNotFound)
+	}
+	cs, ok := st.consumerState(durable, b.clock.Now())
+	if !ok {
+		return events.ConsumerState{}, fmt.Errorf("membus: consumer %s on %s: %w", durable, stream, events.ErrConsumerNotFound)
+	}
+	return cs, nil
+}
+
 // Subjects implements events.StreamAdmin.
 func (b *Bus) Subjects(_ context.Context, stream, filter string) ([]string, error) {
 	b.mu.Lock()
