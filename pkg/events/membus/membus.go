@@ -92,9 +92,6 @@ type Bus struct {
 	// retired keeps, per retired durable, what Ensure found of it
 	// (events.MergeRetired).
 	retired map[string]events.RetiredReport
-	// blocked is what the last Ensure left uncreated behind a displaced
-	// stream (events.BlockedReporter).
-	blocked []string
 
 	stopOnce sync.Once
 	done     chan struct{}
@@ -143,41 +140,13 @@ func (b *Bus) Ensure(ctx context.Context, t events.Topology) error {
 	return err
 }
 
-var (
-	_ events.RetiredReporter = (*Bus)(nil)
-	_ events.BlockedReporter = (*Bus)(nil)
-)
-
-// Blocked implements events.BlockedReporter.
-func (b *Bus) Blocked() []string {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return append([]string(nil), b.blocked...)
-}
+var _ events.RetiredReporter = (*Bus)(nil)
 
 // RetiredReports implements events.RetiredReporter.
 func (b *Bus) RetiredReports() []events.RetiredReport {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return events.SortedRetired(b.retired)
-}
-
-// bindConsumer binds c on st, handing it over from c.HandoverFrom as
-// events.HandoverConsumerConfig does on NATS: created absent at the legacy
-// durable's ack floor + 1, recreated there when the legacy floor is ahead
-// of its own, and otherwise updated keeping its start sequence.
-func bindConsumer(st *stream, c events.ConsumerSpec) {
-	timing := c.Subscription().Timing()
-	if c.HandoverFrom != "" {
-		if legacy, ok := st.ackFloor(c.HandoverFrom); ok {
-			own, exists := st.ackFloor(c.Name)
-			if !exists || legacy > own {
-				st.bindDurableAt(c.Name, c.Filters, c.MaxAckPending, timing, legacy+1)
-				return
-			}
-		}
-	}
-	st.bindDurable(c.Name, c.Filters, c.MaxAckPending, timing)
 }
 
 // ensure creates or updates the streams, consumers and buckets in t. Existing
@@ -193,19 +162,7 @@ func (b *Bus) ensure(t events.Topology) error {
 	if b.closed {
 		return events.ErrClosed
 	}
-	// A displaced pair's New stream, its consumers and their watchers wait
-	// while Old exists (unbranded-names spec §4.2.1), as natsbus's do.
-	blockedSet := t.BlockedByDisplacement(func(old string) bool { return b.streams[old] != nil })
-	b.blocked = nil
-	for _, o := range t.Objects() {
-		if blockedSet[o.String()] {
-			b.blocked = append(b.blocked, o.String())
-		}
-	}
 	for _, spec := range t.Streams {
-		if blockedSet[events.TopologyObject{Kind: events.TopologyStream, Name: spec.Name}.String()] {
-			continue
-		}
 		if existing, ok := b.streams[spec.Name]; ok {
 			if existing.spec.Retention != spec.Retention {
 				return fmt.Errorf("membus: stream %s has retention %q, topology wants %q: %w",
@@ -226,10 +183,7 @@ func (b *Bus) ensure(t events.Topology) error {
 	// stream is not in t.Streams, and the loop above created every stream,
 	// so the lookup is never nil.
 	for _, c := range t.Consumers {
-		if blockedSet[events.TopologyObject{Kind: events.TopologyConsumer, Stream: c.Stream, Name: c.Name}.String()] {
-			continue
-		}
-		bindConsumer(b.streams[c.Stream], c)
+		b.streams[c.Stream].bindDurable(c.Name, c.Filters, c.MaxAckPending, c.Subscription().Timing())
 	}
 	for _, spec := range t.Buckets {
 		if existing, ok := b.buckets[spec.Name]; ok {

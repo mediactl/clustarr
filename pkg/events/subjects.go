@@ -28,7 +28,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	"github.com/mediactl/clustarr/pkg/legacynames"
 )
 
 // Stream names.
@@ -115,9 +114,7 @@ const (
 	FilterCatalogMarkers      = "clustarr.work.markers.markers.>"
 	// Segment detection (spec 2026-10-01): a season's or a movie's plan and
 	// the analysis task the worker takes. FilterCatalogSegmentsResult is the
-	// retired results durable's subject: nothing publishes it in release N,
-	// and the durable went with chart 0.4.x's displaced markers stream
-	// (unbranded-names spec §4.2.2). F9.4 deletes both names.
+	// retired results durable's, purged by Topology.Retired until F9.4.
 	FilterCatalogSegmentsPlan    = "clustarr.work.markers.plan.>"
 	FilterCatalogSegmentsAnalyze = "clustarr.work.markers.analyze.>"
 	FilterCatalogSegmentsResult  = "clustarr.work.markers.result.>"
@@ -133,7 +130,7 @@ const (
 	ConsumerCatalogRSSMatcher    = "catalog-rss-matcher"
 	ConsumerCatalogSearchHigh    = "catalog-search-high"
 	ConsumerCatalogSearchNorm    = "catalog-search-normal"
-	ConsumerCatalogGrab          = legacynames.GrabDurable
+	ConsumerCatalogGrab          = "catalog-grab"
 	ConsumerCatalogMetadata      = "catalog-metadata"
 	ConsumerCatalogHistory       = "catalog-history"
 	ConsumerImportScan           = "import-scan"
@@ -143,19 +140,17 @@ const (
 	ConsumerIndexRSS             = "index-rss"
 	ConsumerCaptionFetchHigh     = "caption-fetch-high"
 	ConsumerCaptionFetchNormal   = "caption-fetch-normal"
-	ConsumerTranscodeResults     = legacynames.TranscodeResultsDurable
+	ConsumerTranscodeResults     = "transcode-results"
 	ConsumerDLQProjector         = "clustarr-dlq-projector"
 	ConsumerCatalogArtworkFetch  = "catalog-artwork-fetch"
 	ConsumerCatalogArtworkRender = "catalog-artwork-render"
 	ConsumerCatalogMarkers       = "catalog-markers"
-	// ConsumerCatalogSegmentsPlan is the catalog domain's;
-	// ConsumerMarkersAnalyze is the markers worker's.
-	// ConsumerCatalogSegmentsResult is retired (loop spec §4.12): it lived
-	// on chart 0.4.x's markers stream, which release N displaces, and goes
-	// with it (unbranded-names spec §4.2.2).
+	// ConsumerCatalogSegmentsPlan is catalogarr's; ConsumerSegmentarrAnalyze
+	// is segmentarr-worker's. ConsumerCatalogSegmentsResult is retired
+	// (loop spec §4.12): Topology.Retired names it until F9.4.
 	ConsumerCatalogSegmentsPlan   = "catalog-segments-plan"
 	ConsumerMarkersAnalyze        = "markers-analyze"
-	ConsumerCatalogSegmentsResult = legacynames.SegmentsResultDurable
+	ConsumerCatalogSegmentsResult = "catalog-segments-result"
 )
 
 // Key/value bucket names. NATS bucket names may not contain dots.
@@ -670,9 +665,7 @@ func FilterTranscodeTasks(profileUID, class string) string {
 }
 
 // TranscodePoolDurablePrefix starts every name TranscodeTaskConsumerName
-// builds (ruling R-U2 of the unbranded-names design: chart 0.4.x's family,
-// legacynames.PoolDurablePrefix, goes with its displaced stream). The
-// transcode controller's durable sweep matches on it.
+// builds; the transcode controller's durable sweep matches on it.
 const TranscodePoolDurablePrefix = "transcode-pool-"
 
 // TranscodeTaskConsumerName is the durable one pool's workers share.

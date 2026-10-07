@@ -17,12 +17,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 package schema
 
-import (
-	"slices"
-	"time"
-
-	"github.com/mediactl/clustarr/pkg/legacynames"
-)
+import "time"
 
 // ScanTask asks a rescan worker to walk one RootFolder -- or the subpath of
 // it a LibraryScan names -- on behalf of that LibraryScan. Subject:
@@ -58,11 +53,6 @@ type ScanTask struct {
 // Schema implements Payload.
 func (ScanTask) Schema() string { return "import.ScanTask.v1" }
 
-// LegacySchemas implements Legacy: chart 0.4.x published ScanTask under its
-// branded name (legacynames.Schemas), which a dead letter replayed in
-// release N still carries (unbranded-names spec §4.2.5). N+1 drops it.
-func (t ScanTask) LegacySchemas() []string { return legacySchemasOf(t.Schema()) }
-
 // ListTask asks the import-list worker to sync one ImportList. Subject:
 // clustarr.work.importarr.list.<importlist>, built by events.WorkListSubject
 // and consumed by ConsumerImportList ("importarr-list", amendment §A1.6).
@@ -91,22 +81,6 @@ type ListTask struct {
 
 // Schema implements Payload.
 func (ListTask) Schema() string { return "import.ListTask.v1" }
-
-// LegacySchemas implements Legacy, as ScanTask's does.
-func (t ListTask) LegacySchemas() []string { return legacySchemasOf(t.Schema()) }
-
-// legacySchemasOf lists, sorted, the chart 0.4.x schema values that
-// legacynames.Schemas maps onto current.
-func legacySchemasOf(current string) []string {
-	var out []string
-	for old, now := range legacynames.Schemas {
-		if now == current {
-			out = append(out, old)
-		}
-	}
-	slices.Sort(out)
-	return out
-}
 
 // RecycleSweepTask asks the import domain to sweep every recycle bin once
 // (fileimport.RecycleSweeper.SweepOnce). Subject:

@@ -41,11 +41,6 @@ type ConsumerState struct {
 	Waiting int
 	// MaxAckPending is the durable's cap across every process.
 	MaxAckPending int
-	// AckFloorStreamSeq is the stream sequence at and below which every
-	// message the durable was delivered is settled: JetStream's
-	// AckFloor.Stream. A durable that hands over from it starts at this
-	// + 1 (ConsumerSpec.HandoverFrom, unbranded-names spec §4.2.3).
-	AckFloorStreamSeq uint64
 	// ObservedAt is when the broker gathered the numbers.
 	ObservedAt time.Time
 }

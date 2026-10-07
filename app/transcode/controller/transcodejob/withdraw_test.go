@@ -23,7 +23,6 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/mediactl/clustarr/pkg/events"
-	"github.com/mediactl/clustarr/pkg/legacynames"
 )
 
 // TestIsPoolDurable holds the sweep's notion of a pool durable to the one
@@ -40,6 +39,6 @@ func TestIsPoolDurable(t *testing.T) {
 	for _, c := range events.Default().Consumers {
 		assert.False(t, isPoolDurable(c.Name), "%s is the shipped topology's, never swept", c.Name)
 	}
-	assert.False(t, isPoolDurable(legacynames.TranscodeResultsDurable))
+	assert.False(t, isPoolDurable(events.ConsumerTranscodeResults))
 	assert.False(t, isPoolDurable("importarr-scan"))
 }

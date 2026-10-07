@@ -21,7 +21,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"strings"
 	"time"
 )
 
@@ -339,42 +338,6 @@ type StreamAdmin interface {
 	// on it at start (pkg/busconn.AwaitTopology): they never create topology,
 	// the manager does (spec §5.9). Only a failure to ask is an error.
 	Missing(ctx context.Context, t Topology) ([]string, error)
-	// RetireStream reads stream's census -- its messages, by subject task
-	// token, and each durable's lag -- then deletes the stream, its
-	// durables with it (unbranded-names spec §4.2.1: the leader retires a
-	// displaced legacy stream). A missing stream is success, with a census
-	// whose Existed is false. Only the manager's KeepTopology calls it.
-	RetireStream(ctx context.Context, stream string) (StreamCensus, error)
-}
-
-// StreamCensus is what RetireStream found on a stream before deleting it.
-type StreamCensus struct {
-	Stream string
-	// Existed is whether the stream was there to retire.
-	Existed bool
-	// Messages is the stream's stored message count.
-	Messages uint64
-	// BySubjectToken counts the stored messages by the task token of their
-	// subject: the fourth of clustarr.work.<service>.<task>.…, or
-	// "sched.<task>" for a held schedule (CensusToken).
-	BySubjectToken map[string]uint64
-	// Pending is each durable's lag (ConsumerState.Lag) on the stream.
-	Pending map[string]uint64
-}
-
-// CensusToken is the StreamCensus.BySubjectToken key of subject: its fourth
-// dot-separated token, "sched.<task>" for a schedule's holding subject, or
-// the whole subject when it has fewer than four.
-func CensusToken(subject string) string {
-	parts := strings.SplitN(subject, ".", 6)
-	switch {
-	case len(parts) < 4:
-		return subject
-	case parts[3] == "sched" && len(parts) > 4:
-		return "sched." + parts[4]
-	default:
-		return parts[3]
-	}
 }
 
 // CoreSubscriber subscribes to a core NATS subject, no stream and no

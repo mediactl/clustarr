@@ -24,8 +24,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/mediactl/clustarr/pkg/legacynames"
 )
 
 // Retention is a stream's message retention policy.
@@ -137,16 +135,6 @@ type ConsumerSpec struct {
 	// §5.1): its nak and term advisories are CLUSTARR_TASK_EVENTS subjects
 	// (TaskEventSubjects).
 	Dispatched bool
-
-	// HandoverFrom names the legacy durable on the same stream this one
-	// takes over from (unbranded-names spec §4.2.3): Ensure creates the
-	// durable, when it is absent and the legacy one exists, delivering from
-	// the legacy one's ack floor + 1, recreates it there when the legacy
-	// floor is ahead of its own (a rollback ran the old release after this
-	// one), and on every update keeps its DeliverPolicy and OptStartSeq,
-	// which JetStream refuses to change. The legacy durable is never
-	// deleted here; it stays idle for a rollback until N+1 retires it.
-	HandoverFrom string
 }
 
 // HandlerBudget is the explicit HandlerTimeout, else AckWait: what drain,
@@ -297,61 +285,8 @@ type Topology struct {
 	Buckets      []BucketSpec
 	ObjectStores []ObjectStoreSpec
 	// Retired are durables a release removed: Ensure deletes each and purges
-	// its filter, every time (loop spec 2026-10-06 §4.15, §7.3.9). A
-	// retired durable's stream may be one the topology no longer declares.
+	// its filter, every time (loop spec 2026-10-06 §4.15, §7.3.9).
 	Retired []RetiredConsumer
-	// Displaced are the work streams release N renamed (unbranded-names
-	// spec §4.2.1). While a pair's Old stream exists, Ensure creates
-	// neither New nor any consumer on it -- their subjects may overlap
-	// Old's, and a single node's memory store holds one set -- and reports
-	// them blocked; it never deletes Old. The leader's
-	// busconn.KeepTopology retires Old (StreamAdmin.RetireStream), after
-	// which Ensure creates them.
-	Displaced []DisplacedStream
-}
-
-// DisplacedStream is one renamed work stream: Old is chart 0.4.x's
-// (legacynames.Streams), New the topology's.
-type DisplacedStream struct {
-	Old, New string
-}
-
-// BlockedReporter is a bus that remembers what its last Ensure left
-// uncreated because a displaced stream's Old still exists, as
-// TopologyObject.String spells each object.
-type BlockedReporter interface {
-	Blocked() []string
-}
-
-// BlockedByDisplacement returns the objects of t that Ensure must not
-// create while present reports a displaced pair's Old stream as existing:
-// each such New stream, every consumer on it and each of those consumers'
-// dead-letter watchers. The set is keyed by TopologyObject.String.
-func (t Topology) BlockedByDisplacement(present func(old string) bool) map[string]bool {
-	out := map[string]bool{}
-	streams := map[string]bool{}
-	for _, d := range t.Displaced {
-		if present(d.Old) {
-			streams[d.New] = true
-			out[TopologyObject{Kind: TopologyStream, Name: d.New}.String()] = true
-		}
-	}
-	if len(streams) == 0 {
-		return out
-	}
-	watchers := map[string]bool{}
-	for _, c := range t.Consumers {
-		if streams[c.Stream] {
-			out[TopologyObject{Kind: TopologyConsumer, Stream: c.Stream, Name: c.Name}.String()] = true
-			watchers[DeadLetterWatcherName(c.Stream, c.Name)] = true
-		}
-	}
-	for _, c := range t.Consumers {
-		if c.Stream == StreamAdvisories && watchers[c.Name] {
-			out[TopologyObject{Kind: TopologyConsumer, Stream: c.Stream, Name: c.Name}.String()] = true
-		}
-	}
-	return out
 }
 
 // TopologyKind is the kind of JetStream object a TopologyObject is.
@@ -551,7 +486,6 @@ func (t Topology) clone() Topology {
 		Buckets:      append([]BucketSpec(nil), t.Buckets...),
 		ObjectStores: append([]ObjectStoreSpec(nil), t.ObjectStores...),
 		Retired:      append([]RetiredConsumer(nil), t.Retired...),
-		Displaced:    append([]DisplacedStream(nil), t.Displaced...),
 	}
 	for i := range out.Streams {
 		out.Streams[i].Subjects = append([]string(nil), out.Streams[i].Subjects...)
@@ -580,12 +514,8 @@ func (t Topology) clone() Topology {
 //   - the dead-letter stream and the advisory stream exist;
 //   - every Records bucket is Durable, keeps one value, is bounded in bytes
 //     and per value, and keeps a record at least 7 days or forever;
-//   - every retired durable is no longer a consumer and, when its stream is
-//     one the topology declares, purges only that stream's subjects (a
-//     retired durable may sit on a legacy stream the topology dropped);
-//   - every displaced pair names a declared New stream and an Old one the
-//     topology no longer declares, each once;
-//   - no consumer hands over from itself.
+//   - every retired durable names a stream in the topology, is no longer a
+//     consumer, and purges only that stream's subjects.
 func (t Topology) Validate() error {
 	var errs []error
 	seen := map[string]StreamSpec{}
@@ -730,34 +660,12 @@ func (t Topology) Validate() error {
 		switch {
 		case r.Durable == "":
 			errs = append(errs, fieldErr("RetiredConsumer.Durable", "is required"))
-		case r.Stream == "":
-			errs = append(errs, fieldErr(r.Durable+".Stream", "is required"))
+		case !ok:
+			errs = append(errs, fieldErr(r.Durable+".Stream", "unknown stream "+r.Stream))
 		case names[r.Durable]:
 			errs = append(errs, fieldErr(r.Durable, "is both a consumer and retired"))
-		case ok && r.Purge != "" && !subjectCovered(s.Subjects, r.Purge):
+		case r.Purge != "" && !subjectCovered(s.Subjects, r.Purge):
 			errs = append(errs, fieldErr(r.Durable+".Purge", "filter "+r.Purge+" is outside stream "+s.Name))
-		}
-	}
-	displacedOld, displacedNew := map[string]bool{}, map[string]bool{}
-	for _, d := range t.Displaced {
-		switch {
-		case d.Old == "" || d.New == "" || d.Old == d.New:
-			errs = append(errs, fieldErr("DisplacedStream", fmt.Sprintf("needs two distinct names, got %q -> %q", d.Old, d.New)))
-		case displacedOld[d.Old] || displacedNew[d.New]:
-			errs = append(errs, fieldErr("DisplacedStream", "duplicate pair "+d.Old+" -> "+d.New))
-		default:
-			if _, ok := seen[d.New]; !ok {
-				errs = append(errs, fieldErr("DisplacedStream."+d.New, "is not a stream of the topology"))
-			}
-			if _, ok := seen[d.Old]; ok {
-				errs = append(errs, fieldErr("DisplacedStream."+d.Old, "is still a stream of the topology"))
-			}
-		}
-		displacedOld[d.Old], displacedNew[d.New] = true, true
-	}
-	for _, c := range t.Consumers {
-		if c.HandoverFrom != "" && c.HandoverFrom == c.Name {
-			errs = append(errs, fieldErr(c.Name+".HandoverFrom", "cannot name the durable itself"))
 		}
 	}
 	return errors.Join(errs...)
@@ -802,7 +710,7 @@ func fieldErr(field, msg string) error {
 // It and its filters live here rather than beside the other names in
 // subjects.go only because this file is the one the task that added it owned
 // (gap fixes Y3); they are ordinary exported names of the package.
-const ConsumerCatalogRedownload = legacynames.RedownloadDurable
+const ConsumerCatalogRedownload = "catalog-redownload"
 
 // The two download-event subjects ConsumerCatalogRedownload filters.
 //
@@ -844,37 +752,13 @@ func Default() Topology {
 		Consumers:    withDeadLetterWatchers(append(defaultConsumers(), probeConsumers()...)),
 		Buckets:      append(append(defaultBuckets(), probeBucket()), recordBuckets()...),
 		ObjectStores: defaultObjectStores(),
-		// The segment results durable (loop spec §4.12) needs no Retired
-		// entry any more: it sat on chart 0.4.x's markers work stream,
-		// which is displaced, and goes with it (unbranded-names spec
-		// §4.2.2).
-		Displaced: displacedStreams(),
+		Retired: []RetiredConsumer{
+			// loop spec §4.12: segment results are clustarr-segments records
+			// cmd/markers writes by CAS; the consumer that applied them is
+			// gone. Ensure deletes the durable and purges what it left.
+			{Stream: StreamWorkMarkers, Durable: ConsumerCatalogSegmentsResult, Purge: FilterCatalogSegmentsResult},
+		},
 	})
-}
-
-// displacedStreams pairs each of the six work streams with the chart 0.4.x
-// stream it replaces (legacynames.Streams), in a fixed order.
-func displacedStreams() []DisplacedStream {
-	out := make([]DisplacedStream, 0, len(legacynames.Streams))
-	for _, n := range []string{StreamWorkCatalog, StreamWorkImport, StreamWorkIndex, StreamWorkCaption, StreamWorkTranscode, StreamWorkMarkers} {
-		for old, now := range legacynames.Streams {
-			if now == n {
-				out = append(out, DisplacedStream{Old: old, New: n})
-			}
-		}
-	}
-	return out
-}
-
-// handoverFrom is the chart 0.4.x durable a renamed event-stream durable
-// takes over from (legacynames.Handover), or "".
-func handoverFrom(name string) string {
-	for old, now := range legacynames.Handover {
-		if now == name {
-			return old
-		}
-	}
-	return ""
 }
 
 func defaultStreams() []StreamSpec {
@@ -999,12 +883,8 @@ func defaultConsumers() []ConsumerSpec {
 	return []ConsumerSpec{
 		{
 			Name: ConsumerCatalogRSSMatcher, Stream: StreamReleases,
-			// Unbranded-names spec §4.2.3: starts after the chart 0.4.x
-			// durable's ack floor rather than re-matching three days of
-			// releases.
-			HandoverFrom: handoverFrom(ConsumerCatalogRSSMatcher),
-			Filters:      []string{FilterAllReleases},
-			AckWait:      30 * s, MaxDeliver: 6,
+			Filters: []string{FilterAllReleases},
+			AckWait: 30 * s, MaxDeliver: 6,
 			BackOff:       []time.Duration{1 * s, 5 * s, 30 * s, 2 * m, 10 * m},
 			MaxAckPending: 256 * AutoscaleReplicaCeiling,
 			Slots:         256,
@@ -1124,12 +1004,8 @@ func defaultConsumers() []ConsumerSpec {
 		},
 		{
 			Name: ConsumerCatalogHistory, Stream: StreamEvents,
-			// Unbranded-names spec §4.2.3: starts after the chart 0.4.x
-			// durable's ack floor rather than re-recording a week of
-			// history Events.
-			HandoverFrom: handoverFrom(ConsumerCatalogHistory),
-			Filters:      []string{FilterAllEvents},
-			AckWait:      30 * s, MaxDeliver: 3,
+			Filters: []string{FilterAllEvents},
+			AckWait: 30 * s, MaxDeliver: 3,
 			BackOff:       []time.Duration{5 * s, 30 * s},
 			MaxAckPending: 512 * AutoscaleReplicaCeiling,
 			Slots:         512,

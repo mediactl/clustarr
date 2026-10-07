@@ -130,12 +130,11 @@ func stateOf(info *jetstream.ConsumerInfo, clustered bool) (events.ConsumerState
 		return events.ConsumerState{}, events.ErrConsumerUnavailable
 	}
 	return events.ConsumerState{
-		Pending:           info.NumPending,
-		AckPending:        uint64(max(info.NumAckPending, 0)),
-		Waiting:           info.NumWaiting,
-		MaxAckPending:     info.Config.MaxAckPending,
-		AckFloorStreamSeq: info.AckFloor.Stream,
-		ObservedAt:        info.TimeStamp,
+		Pending:       info.NumPending,
+		AckPending:    uint64(max(info.NumAckPending, 0)),
+		Waiting:       info.NumWaiting,
+		MaxAckPending: info.Config.MaxAckPending,
+		ObservedAt:    info.TimeStamp,
 	}, nil
 }
 
@@ -221,41 +220,4 @@ func (b *Bus) Missing(ctx context.Context, t events.Topology) ([]string, error) 
 		}
 	}
 	return out, nil
-}
-
-// RetireStream implements events.StreamAdmin: one STREAM.INFO with every
-// subject's count, one CONSUMER.LIST for the durables' lag, then
-// STREAM.DELETE, which takes the durables with it. A missing stream is
-// success.
-func (b *Bus) RetireStream(ctx context.Context, stream string) (events.StreamCensus, error) {
-	census := events.StreamCensus{Stream: stream}
-	st, err := b.js.Stream(ctx, stream)
-	switch {
-	case errors.Is(err, jetstream.ErrStreamNotFound):
-		return census, nil
-	case err != nil:
-		return census, fmt.Errorf("natsbus: retire stream %s: %w", stream, err)
-	}
-	info, err := st.Info(ctx, jetstream.WithSubjectFilter(">"))
-	if err != nil {
-		return census, fmt.Errorf("natsbus: retire stream %s: census: %w", stream, err)
-	}
-	census.Existed = true
-	census.Messages = info.State.Msgs
-	census.BySubjectToken = map[string]uint64{}
-	for subject, n := range info.State.Subjects {
-		census.BySubjectToken[events.CensusToken(subject)] += n
-	}
-	census.Pending = map[string]uint64{}
-	consumers := st.ListConsumers(ctx)
-	for ci := range consumers.Info() {
-		census.Pending[ci.Name] = ci.NumPending + uint64(max(ci.NumAckPending, 0))
-	}
-	if err := consumers.Err(); err != nil {
-		return census, fmt.Errorf("natsbus: retire stream %s: list its durables: %w", stream, err)
-	}
-	if err := b.js.DeleteStream(ctx, stream); err != nil && !errors.Is(err, jetstream.ErrStreamNotFound) {
-		return census, fmt.Errorf("natsbus: retire stream %s: %w", stream, err)
-	}
-	return census, nil
 }

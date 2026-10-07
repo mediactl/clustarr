@@ -53,9 +53,7 @@ import (
 const FacadeAPIKeyField = "apikey"
 
 // facadeComponent is the generated Secret's app.kubernetes.io/component
-// label: the index domain's name. Chart 0.4.x's Secret carries
-// legacynames.FacadeSecret's component; release N's manager copies its keys
-// into a new Secret (A6.4, unbranded-names spec §4.4).
+// label: the index domain's name.
 const facadeComponent = "index"
 
 // facadeAPIKeyBytes is a generated key's entropy: 32 random bytes, sent as

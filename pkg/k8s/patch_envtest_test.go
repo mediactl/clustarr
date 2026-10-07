@@ -165,7 +165,7 @@ func TestPatchStatusTwoManagersDoNotClobber(t *testing.T) {
 			WithDownloadRateBps(512).
 			WithProgressPercent(10),
 	)
-	if _, err := k8s.PatchStatus(ctx, c, k8s.ManagerRetiredEngine, engine); err != nil {
+	if _, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrabEngine, engine); err != nil {
 		t.Fatalf("engine PatchStatus: %v", err)
 	}
 
@@ -187,7 +187,7 @@ func TestPatchStatusTwoManagersDoNotClobber(t *testing.T) {
 			WithDownloadRateBps(512).
 			WithProgressPercent(20),
 	)
-	if _, err := k8s.PatchStatus(ctx, c, k8s.ManagerRetiredEngine, engine); err != nil {
+	if _, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrabEngine, engine); err != nil {
 		t.Fatalf("second engine PatchStatus: %v", err)
 	}
 	if err := c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &got); err != nil {
@@ -218,7 +218,7 @@ func TestPatchStatusReleasesItsOwnFieldsOnly(t *testing.T) {
 
 	newDownload(t, ctx, c, ns, name)
 
-	if _, err := k8s.PatchStatus(ctx, c, k8s.ManagerRetiredEngine,
+	if _, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrabEngine,
 		downloadac.Download(name, ns).WithStatus(
 			downloadac.DownloadStatus().WithDownloadedBytes(1024).WithSeeders(5),
 		)); err != nil {
@@ -232,7 +232,7 @@ func TestPatchStatusReleasesItsOwnFieldsOnly(t *testing.T) {
 	}
 
 	// The engine stops reporting seeders.
-	if _, err := k8s.PatchStatus(ctx, c, k8s.ManagerRetiredEngine,
+	if _, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrabEngine,
 		downloadac.Download(name, ns).WithStatus(
 			downloadac.DownloadStatus().WithDownloadedBytes(2048),
 		)); err != nil {

@@ -123,8 +123,6 @@ type EngineRuntime struct {
 // for the engine pods and bind to the engine role. The chart's is
 // "<release fullname>-grab-engine", which the manager's
 // --engine-service-account ($CLUSTARR_ENGINE_SERVICE_ACCOUNT) carries.
-// Chart 0.4.x named it legacynames.EngineServiceAccount; N's engines are
-// re-rendered under the new name (unbranded-names spec §4.4).
 const DefaultEngineServiceAccount = "grab-engine"
 
 // gomemlimitFraction is design §12's "GOMEMLIMIT = 80 % of limit" for the

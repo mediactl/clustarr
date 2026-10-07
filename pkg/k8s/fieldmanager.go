@@ -17,11 +17,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 package k8s
 
-import (
-	"fmt"
-
-	"github.com/mediactl/clustarr/pkg/legacynames"
-)
+import "fmt"
 
 // FieldManager is a server-side-apply field-manager name. Section 2 of the
 // design spec enumerates every manager Clustarr is allowed to use; §5 pins the
@@ -161,14 +157,14 @@ const (
 	// role's apply silently release the other's fields.
 	ManagerCatalogArtwork FieldManager = "catalog-artwork"
 
-	// ManagerRetiredMarkers is RETIRED (loop spec 2026-10-06 §2.12,
+	// ManagerCatalogMarkers is RETIRED (loop spec 2026-10-06 §2.12,
 	// §3.14): it was the metadata gateway's marker worker, the writer of
 	// MediaFile status.markers until the remediation loop took every status
 	// leaf under ManagerCatalog. No writer may use it; Validate still
 	// accepts it (RetiredFieldManagers) because release N's one release
-	// apply of every MediaFile's legacy markers entry runs under it
+	// apply of every MediaFile's catalog-markers entry runs under it
 	// (§7.3.8, F8.4). F9.4 removes it.
-	ManagerRetiredMarkers FieldManager = legacynames.MarkersStatusManager
+	ManagerCatalogMarkers FieldManager = "catalog-markers"
 
 	// ManagerCatalogClassify is the Series reconciler's one-time anime
 	// classification: it merge-patches spec.seriesType and
@@ -258,11 +254,11 @@ const (
 	// download.clustarr.io phase and conditions.
 	ManagerGrab FieldManager = "grab"
 
-	// ManagerRetiredEngine was a torrent or usenet engine pod's, which applied
+	// ManagerGrabEngine was a torrent or usenet engine pod's, which applied
 	// the telemetry fields of Download.status. Retired (ADR-0019 A3.6):
 	// engines write no Kubernetes object; RetiredFieldManagers keeps it
 	// valid until N+1.
-	ManagerRetiredEngine FieldManager = legacynames.EngineTelemetryManager
+	ManagerGrabEngine FieldManager = "grab-engine"
 
 	// ManagerTranscode is the transcode controller manager.
 	ManagerTranscode FieldManager = "transcode"
@@ -376,11 +372,11 @@ func FieldManagers() []FieldManager {
 
 // RetiredFieldManagers are names no writer may use any more but Validate
 // still accepts: release N's one release apply of every MediaFile's
-// legacy markers entry runs under it (loop spec §7.3.8, F8.4), and the
-// engines' telemetry manager retired with the Download kind (ADR-0019 A3.6: engines
-// write no Kubernetes object). F9.4 and A9.1 empty the list.
+// catalog-markers entry runs under it (loop spec §7.3.8, F8.4), and
+// grab-engine retired with the Download kind (ADR-0019 A3.6: engines write
+// no Kubernetes object). F9.4 and A9.1 empty the list.
 func RetiredFieldManagers() []FieldManager {
-	return []FieldManager{ManagerRetiredMarkers, ManagerRetiredEngine}
+	return []FieldManager{ManagerCatalogMarkers, ManagerGrabEngine}
 }
 
 // String returns the manager name as the apiserver sees it.

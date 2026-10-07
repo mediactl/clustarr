@@ -45,7 +45,6 @@ import (
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/history"
 	"github.com/mediactl/clustarr/pkg/events"
-	"github.com/mediactl/clustarr/pkg/legacynames"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
@@ -221,9 +220,6 @@ func (p *Replayer) Replay(ctx context.Context, obj *metav1.PartialObjectMetadata
 			seq, events.HeaderDLQSubject)
 	}
 
-	// A dead letter chart 0.4.x wrote names its branded work subject; it is
-	// replayed onto release N's (unbranded-names spec §4.2.6).
-	original = legacynames.Subject(original)
 	out := replayEnvelope(env, seq, obj.GetUID())
 	if _, err := p.Deps.Bus.Publish(ctx, original, out); err != nil {
 		if errors.Is(err, events.ErrQueueFull) {

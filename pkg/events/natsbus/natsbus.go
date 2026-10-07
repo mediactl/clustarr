@@ -125,9 +125,6 @@ type Bus struct {
 	// retired keeps, per retired durable, what Ensure found of it
 	// (events.MergeRetired).
 	retired map[string]events.RetiredReport
-	// blocked is what the last Ensure left uncreated behind a displaced
-	// stream (events.BlockedReporter).
-	blocked []string
 
 	// serveCtx parents every responder's handler context; Close cancels it,
 	// so handlers still running or waiting for a slot stop with the bus.
@@ -197,11 +194,7 @@ func (b *Bus) JetStream() jetstream.JetStream { return b.js }
 // Ensure applies t and remembers it, so Publish can resolve a subject to its
 // stream without a round trip, then retires t.Retired (events.Retire).
 func (b *Bus) Ensure(ctx context.Context, t events.Topology) error {
-	blocked, err := events.EnsureTopologyBlocked(ctx, b.js, t)
-	b.mu.Lock()
-	b.blocked = blocked
-	b.mu.Unlock()
-	if err != nil {
+	if err := events.EnsureTopology(ctx, b.js, t); err != nil {
 		return err
 	}
 	// The retirement runs last: t.Retired names durables a release removed,
@@ -215,18 +208,7 @@ func (b *Bus) Ensure(ctx context.Context, t events.Topology) error {
 	return err
 }
 
-var (
-	_ events.RetiredReporter = (*Bus)(nil)
-	_ events.BlockedReporter = (*Bus)(nil)
-)
-
-// Blocked implements events.BlockedReporter: what the last Ensure left
-// uncreated behind a displaced stream that still exists.
-func (b *Bus) Blocked() []string {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return append([]string(nil), b.blocked...)
-}
+var _ events.RetiredReporter = (*Bus)(nil)
 
 // RetiredReports implements events.RetiredReporter.
 func (b *Bus) RetiredReports() []events.RetiredReport {

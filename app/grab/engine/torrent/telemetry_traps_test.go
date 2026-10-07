@@ -160,7 +160,7 @@ func TestApplyTelemetryManagedFieldsAreOnlyGrabEngine(t *testing.T) {
 		if entry.Subresource != "status" || entry.FieldsV1 == nil {
 			continue
 		}
-		require.Equalf(t, k8s.ManagerRetiredEngine.String(), entry.Manager,
+		require.Equalf(t, k8s.ManagerGrabEngine.String(), entry.Manager,
 			"only k8s.ManagerGrabarrEngine may own status fields after this package's own apply, got %q", entry.Manager)
 		found = true
 
@@ -235,7 +235,7 @@ func TestReconcileDeletingRemovesDataWhenRequestedAndTouchesNoOtherManagedField(
 			statusManagers[entry.Manager] = true
 		}
 	}
-	assert.Equal(t, map[string]bool{k8s.ManagerRetiredEngine.String(): true}, statusManagers,
+	assert.Equal(t, map[string]bool{k8s.ManagerGrabEngine.String(): true}, statusManagers,
 		"reconcileDeleting must add no managedFields entry of its own")
 }
 

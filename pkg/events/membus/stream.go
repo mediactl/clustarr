@@ -123,10 +123,6 @@ type durableState struct {
 	filters       []string
 	maxAckPending int
 	timing        events.Timing
-	// startSeq is the first stream sequence the durable delivers: 0 or 1
-	// is every message (DeliverAll), more a handover's start
-	// (events.ConsumerSpec.HandoverFrom).
-	startSeq uint64
 }
 
 // publish appends a message, honouring deduplication and DiscardNew
@@ -223,7 +219,7 @@ func (s *stream) claim(durable string, filters []string, now time.Time,
 	workQueue := s.spec.Retention == events.RetentionWorkQueue
 	capped := s.unsettledLocked(durable) >= d.maxAckPending
 	for _, m := range s.msgs {
-		if m.removed || m.seq < d.startSeq {
+		if m.removed {
 			continue
 		}
 		if !m.deliverAt.IsZero() && now.Before(m.deliverAt) {
@@ -393,8 +389,6 @@ func (s *stream) forgetDurable(durable string) {
 // bindDurable records durable as existing on this stream with its filters,
 // its cap on unsettled deliveries and its timing, as JetStream creates a
 // consumer from Ensure's topology or on a Pull.
-// An update keeps the durable's start sequence, as JetStream keeps a
-// consumer's deliver policy.
 func (s *stream) bindDurable(durable string, filters []string, maxAckPending int, timing events.Timing) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -405,71 +399,7 @@ func (s *stream) bindDurable(durable string, filters []string, maxAckPending int
 		filters:       append([]string(nil), filters...),
 		maxAckPending: max(maxAckPending, 1),
 		timing:        timing,
-		startSeq:      s.durables[durable].startSeq,
 	}
-}
-
-// bindDurableAt binds durable afresh, delivering from stream sequence
-// startSeq: a handover's create, or its recreate behind the legacy
-// durable's ack floor. Any delivery state the durable had is forgotten.
-func (s *stream) bindDurableAt(durable string, filters []string, maxAckPending int, timing events.Timing, startSeq uint64) {
-	s.forgetDurable(durable)
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.durables == nil {
-		s.durables = map[string]durableState{}
-	}
-	s.durables[durable] = durableState{
-		filters:       append([]string(nil), filters...),
-		maxAckPending: max(maxAckPending, 1),
-		timing:        timing,
-		startSeq:      startSeq,
-	}
-}
-
-// ackFloor is durable's AckFloor.Stream: the highest sequence at and below
-// which every stored message it matches, from its start sequence on, is
-// settled for it; false when durable is not bound.
-func (s *stream) ackFloor(durable string) (uint64, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.ackFloorLocked(durable)
-}
-
-func (s *stream) ackFloorLocked(durable string) (uint64, bool) {
-	d, ok := s.durables[durable]
-	if !ok {
-		return 0, false
-	}
-	floor := max(d.startSeq, 1) - 1
-	for _, m := range s.msgs {
-		if m.seq < d.startSeq || !matchAny(d.filters, m.subject) {
-			continue
-		}
-		cs, ok := m.state[durable]
-		if !m.removed && (!ok || !cs.settled) {
-			break
-		}
-		floor = m.seq
-	}
-	return floor, true
-}
-
-// census counts the stored messages, in total and by
-// events.CensusToken, for StreamAdmin.RetireStream.
-func (s *stream) census() (uint64, map[string]uint64) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	var n uint64
-	by := map[string]uint64{}
-	for _, m := range s.msgs {
-		if m.removed {
-			continue
-		}
-		n++
-		by[events.CensusToken(m.subject)]++
-	}
-	return n, by
 }
 
 // boundTiming is durable's timing as bound, false when durable is not bound.
@@ -502,9 +432,8 @@ func (s *stream) consumerState(durable string, now time.Time) (events.ConsumerSt
 	}
 	workQueue := s.spec.Retention == events.RetentionWorkQueue
 	out := events.ConsumerState{MaxAckPending: d.maxAckPending, ObservedAt: now}
-	out.AckFloorStreamSeq, _ = s.ackFloorLocked(durable)
 	for _, m := range s.msgs {
-		if m.removed || m.seq < d.startSeq || !matchAny(d.filters, m.subject) {
+		if m.removed || !matchAny(d.filters, m.subject) {
 			continue
 		}
 		if !m.deliverAt.IsZero() && now.Before(m.deliverAt) {

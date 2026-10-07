@@ -35,8 +35,7 @@ import (
 // pods it creates.
 const (
 	// LabelManagedBy/ManagedByValue select every pool Job the transcode
-	// controller owns (chart 0.4.x's value is legacynames.PoolManagedBy,
-	// read only by the Migrator).
+	// controller owns.
 	LabelManagedBy = "app.kubernetes.io/managed-by"
 	ManagedByValue = "transcode"
 

@@ -322,7 +322,7 @@ func TestReconcileAggregatesDownloadCounters(t *testing.T) {
 		// note).
 		require.NoError(t, grabstatus.Patch(ctx, c, k8s.ManagerGrab, d,
 			func(ac *downloadac.DownloadStatusApplyConfiguration) { ac.WithPhase(phase) }))
-		require.NoError(t, grabstatus.Patch(ctx, c, k8s.ManagerRetiredEngine, d,
+		require.NoError(t, grabstatus.Patch(ctx, c, k8s.ManagerGrabEngine, d,
 			func(ac *downloadac.DownloadStatusApplyConfiguration) {
 				ac.WithDownloadRateBps(downRate).WithUploadRateBps(upRate)
 			}))

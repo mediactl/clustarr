@@ -24,9 +24,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
-	"errors"
 	"fmt"
-	"maps"
 	"sort"
 	"sync"
 	"time"
@@ -221,19 +219,10 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	// says why, and the next spec change re-runs this. The old workload, if
 	// any, is left as it was rather than rolled onto a bad template.
 	var desiredReplicas, replicas, readyReplicas int32
-	var replaced bool
 	specErr := validateEngineDirs(&dc, r.DataDir)
 	if specErr == nil {
 		desiredReplicas, replicas, readyReplicas, err = r.reconcileWorkload(ctx, &dc, workloadName, ownerRef)
-		var refused *selectorRefusedError
-		switch {
-		case errors.As(err, &refused):
-			// A selector change the claim policy forbids replacing: reported
-			// as InvalidSpec below, the live workload left as it is.
-			specErr = refused
-		case errors.Is(err, errWorkloadReplaced):
-			replaced = true
-		case err != nil:
+		if err != nil {
 			log.Error("reconcile engine workload", "error", err)
 			return ctrl.Result{}, err
 		}
@@ -318,9 +307,6 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	// After the apply: the resync commands, then the unidentified removals.
 	pending := r.publishResync(ctx, &dc, es, resyncSeq, now)
 	r.removeUnidentified(ctx, &dc, es, now)
-	if replaced {
-		return ctrl.Result{RequeueAfter: workloadReplaceRequeue}, nil
-	}
 	if pending {
 		return ctrl.Result{RequeueAfter: resyncRepublish}, nil
 	}
@@ -381,9 +367,6 @@ func (r *Reconciler) reconcileWorkload(
 			}
 		}
 		sts := buildStatefulSet(dc, workloadName, r.EngineImage, r.DataDir, r.ScratchDir, r.DataClaimName, r.Engine, secrets, ownerRef)
-		if err := r.replaceForSelector(ctx, dc, &appsv1.StatefulSet{}, workloadName, sts.Spec.Selector); err != nil {
-			return torrentReplicas(dc), 0, 0, err
-		}
 		if err := r.replaceForClaimTemplates(ctx, dc.Namespace, workloadName, sts); err != nil {
 			return 0, 0, 0, err
 		}
@@ -405,10 +388,6 @@ func (r *Reconciler) reconcileWorkload(
 			if _, err := k8s.Apply(ctx, r.Client, k8s.ManagerGrab, pvc); err != nil {
 				return 0, 0, 0, fmt.Errorf("downloadclient: apply scratch PVC for %s: %w", dc.Name, err)
 			}
-		}
-		if err := r.replaceForSelector(ctx, dc, &appsv1.Deployment{}, workloadName,
-			metav1ac.LabelSelector().WithMatchLabels(selectorLabels(dc))); err != nil {
-			return 1, 0, 0, err
 		}
 		if err := r.migrateToRecreate(ctx, dc.Namespace, workloadName); err != nil {
 			return 0, 0, 0, err
@@ -601,97 +580,4 @@ func (r *Reconciler) replaceForClaimTemplates(ctx context.Context, namespace, na
 		return fmt.Errorf("downloadclient: replace StatefulSet %s: %w", name, err)
 	}
 	return nil
-}
-
-// workloadReplaceRequeue is how soon a DownloadClient is reconciled again
-// after its engine workload was deleted for a selector change, so the next
-// pass applies the new one (the workload's own deletion event usually comes
-// first).
-const workloadReplaceRequeue = 5 * time.Second
-
-// ReasonEngineWorkloadReplaced is the Normal Event recorded on a
-// DownloadClient whose engine workload was deleted for a selector change.
-const ReasonEngineWorkloadReplaced = "EngineWorkloadReplaced"
-
-// errWorkloadReplaced reports that replaceForSelector deleted the live
-// workload: nothing is applied this pass, and the next applies the new one.
-var errWorkloadReplaced = errors.New("downloadclient: engine workload deleted for a selector change; the next pass recreates it")
-
-// selectorRefusedError reports a selector change replaceForSelector refused
-// to act on: deleting the StatefulSet would delete its claims.
-type selectorRefusedError struct {
-	kind, name string
-	policy     appsv1.PersistentVolumeClaimRetentionPolicyType
-}
-
-func (e *selectorRefusedError) Error() string {
-	return fmt.Sprintf("engine %s %s must be replaced for a new selector, but its persistentVolumeClaimRetentionPolicy.whenDeleted is %q, "+
-		"so deleting it would delete its claims; set it to Retain or replace the workload by hand", e.kind, e.name, e.policy)
-}
-
-// replaceForSelector deletes the engine workload name (a StatefulSet or a
-// Deployment, as live's type says) when its spec.selector differs from the
-// desired one, which the apiserver refuses to change in place: release N's
-// engines select app.kubernetes.io/component=grab-engine where chart
-// 0.4.x's selected legacynames.EngineComponent (unbranded-names spec §4.4).
-// It deletes with background propagation, records an
-// EngineWorkloadReplaced Event and returns errWorkloadReplaced, so the
-// caller applies nothing this pass and the next creates the new workload,
-// whose claim templates keep their names and so mount the same claims.
-//
-// A StatefulSet whose persistentVolumeClaimRetentionPolicy.whenDeleted is
-// set to anything but Retain is refused (a *selectorRefusedError): clustarr
-// never sets it, and deleting such a StatefulSet would delete its claims.
-func (r *Reconciler) replaceForSelector(ctx context.Context, dc *downloadv1alpha1.DownloadClient, live client.Object, name string, desired *metav1ac.LabelSelectorApplyConfiguration) error {
-	if err := r.Client.Get(ctx, types.NamespacedName{Namespace: dc.Namespace, Name: name}, live); err != nil {
-		if apierrors.IsNotFound(err) {
-			return nil
-		}
-		return fmt.Errorf("downloadclient: get engine workload %s: %w", name, err)
-	}
-	var have *metav1.LabelSelector
-	kind := "Deployment"
-	switch w := live.(type) {
-	case *appsv1.StatefulSet:
-		kind, have = "StatefulSet", w.Spec.Selector
-		if p := w.Spec.PersistentVolumeClaimRetentionPolicy; p != nil && p.WhenDeleted != "" &&
-			p.WhenDeleted != appsv1.RetainPersistentVolumeClaimRetentionPolicyType && !sameSelector(have, desired) {
-			logging.FromContext(ctx).Warn("downloadclient: engine selector changed, but deleting the StatefulSet would delete its claims; not replacing it",
-				"statefulset", name, "whenDeleted", p.WhenDeleted)
-			return &selectorRefusedError{kind: kind, name: name, policy: p.WhenDeleted}
-		}
-	case *appsv1.Deployment:
-		have = w.Spec.Selector
-	default:
-		return fmt.Errorf("downloadclient: replaceForSelector: unexpected workload %T", live)
-	}
-	if sameSelector(have, desired) {
-		return nil
-	}
-	logging.FromContext(ctx).Info("downloadclient: engine selector changed; replacing the workload",
-		"kind", kind, "name", name)
-	uid := live.GetUID()
-	if err := r.Client.Delete(ctx, live, client.PropagationPolicy(metav1.DeletePropagationBackground),
-		client.Preconditions{UID: &uid}); err != nil && !apierrors.IsNotFound(err) {
-		return fmt.Errorf("downloadclient: replace engine %s %s: %w", kind, name, err)
-	}
-	if r.Recorder != nil {
-		r.Recorder.Eventf(dc, nil, corev1.EventTypeNormal, ReasonEngineWorkloadReplaced, "Replace",
-			"engine %s %s deleted for a new selector; the next reconcile recreates it on the same claims", kind, name)
-	}
-	return errWorkloadReplaced
-}
-
-// sameSelector reports whether the live selector is the desired one: equal
-// matchLabels and no matchExpressions on either side (the engines set none).
-func sameSelector(have *metav1.LabelSelector, want *metav1ac.LabelSelectorApplyConfiguration) bool {
-	var haveLabels, wantLabels map[string]string
-	var haveExprs, wantExprs int
-	if have != nil {
-		haveLabels, haveExprs = have.MatchLabels, len(have.MatchExpressions)
-	}
-	if want != nil {
-		wantLabels, wantExprs = want.MatchLabels, len(want.MatchExpressions)
-	}
-	return maps.Equal(haveLabels, wantLabels) && haveExprs == 0 && wantExprs == 0
 }

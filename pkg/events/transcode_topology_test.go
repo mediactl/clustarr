@@ -67,7 +67,7 @@ func TestTranscodeTopology(t *testing.T) {
 	assert.False(t, matches(c.Filters[0], result))
 
 	rc, ok := top.Consumer(ConsumerTranscodeResults)
-	require.True(t, ok, "the transcode results durable is missing from Default()")
+	require.True(t, ok, "transcode-results is missing from Default()")
 	assert.Equal(t, StreamWorkTranscode, rc.Stream)
 	assert.Equal(t, 1, rc.MaxAckPending, "one event at a time: status writes stay ordered")
 	assert.True(t, matches(rc.Filters[0], result))
