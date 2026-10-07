@@ -26,6 +26,7 @@ import (
 	"image/jpeg"
 	_ "image/png" // registers the PNG decoder: originals are stored as the provider served them
 	"io"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -154,7 +155,21 @@ type Handler struct {
 
 	slotsOnce sync.Once
 	slots     chan struct{}
+
+	// locks serialises Render per item, keyed "<kind>/<namespace>/<name>"
+	// (artwork design §B.3 as amended 2026-10-07): two render tasks for one
+	// item -- the gateway's pass and the OverlayProfile controller publish
+	// under different Msg-Ids -- would otherwise Put one overlay at once and
+	// leak a full chunk set for good (research E8). The second finds the
+	// overlay current at step 3.
+	locks catalogartwork.KeyedLock
 }
+
+// originalReadTimeout bounds the read of an original poster. An original
+// overwritten mid-read stalls the reader until its deadline (research E14),
+// so the bound is what turns that into ErrInputsMoved, a retry, rather than
+// a slot held until the task's own deadline. A var so tests can shorten it.
+var originalReadTimeout = 30 * time.Second
 
 // DefaultMaxConcurrentRenders is MaxConcurrentRenders when unset: two
 // ordinary posters, under 100 MB, beside the controllers.
@@ -305,6 +320,14 @@ func observe(err error, took time.Duration) {
 // longer matches them. The role never touches an original or
 // status.artwork.
 func (h *Handler) Render(ctx context.Context, key client.ObjectKey, kind commonv1.MediaKind) (Outcome, error) {
+	// Plan, draw, Put or Delete, SetMeta and record all run under the
+	// item's lock.
+	unlock, err := h.locks.Lock(ctx, string(kind)+"/"+key.Namespace+"/"+key.Name)
+	if err != nil {
+		return "", err
+	}
+	defer unlock()
+
 	it, err := h.read(ctx, kind, key)
 	if err != nil {
 		return "", err
@@ -332,6 +355,9 @@ func (h *Handler) Render(ctx context.Context, key client.ObjectKey, kind commonv
 	current, err := h.Store.Info(ctx, overlayKey)
 	switch {
 	case err == nil && current.Headers[HeaderRenderedFrom] == want.InputsDigest:
+		if !catalogartwork.MetaCurrent(current) {
+			h.backfill(ctx, it, want, overlayKey, current)
+		}
 		entry := &catalogv1alpha1.OverlayEntry{
 			ProfileRef:   want.Profile.Name,
 			Digest:       current.Digest,
@@ -408,7 +434,9 @@ func (h *Handler) draw(ctx context.Context, it overlayplan.Item, want overlaypla
 	defer release()
 
 	originalKey := objectKey(it, events.ArtworkVariantOriginal)
-	info, rc, err := h.Store.Get(ctx, originalKey)
+	rctx, cancel := context.WithTimeout(ctx, originalReadTimeout)
+	defer cancel()
+	info, rc, err := h.Store.Get(rctx, originalKey)
 	if errors.Is(err, events.ErrObjectNotFound) {
 		// Gone since plan's Info: the gateway dropped it mid-task.
 		return nil, fmt.Errorf("%w: %s was deleted", ErrInputsMoved, originalKey)
@@ -423,6 +451,11 @@ func (h *Handler) draw(ctx context.Context, it overlayplan.Item, want overlaypla
 
 	raw, err := io.ReadAll(io.LimitReader(rc, gateway.MaxImageBytes+1))
 	if err != nil {
+		if errors.Is(err, os.ErrDeadlineExceeded) || errors.Is(err, context.DeadlineExceeded) {
+			// An original overwritten mid-read stalls the reader until its
+			// deadline (E14): treat it as the change it is, and retry.
+			return nil, fmt.Errorf("%w: %s was overwritten while it was read", ErrInputsMoved, originalKey)
+		}
 		return nil, fmt.Errorf("artwork: read %s: %w", originalKey, err)
 	}
 	if len(raw) > gateway.MaxImageBytes {
@@ -452,16 +485,18 @@ func (h *Handler) draw(ctx context.Context, it overlayplan.Item, want overlaypla
 		return nil, fmt.Errorf("artwork: encode the overlay: %w", err)
 	}
 
-	headers := map[string]string{
-		gateway.HeaderContentType: ContentTypeJPEG,
-		gateway.HeaderSource:      SourceRender,
-		HeaderRenderedFrom:        want.InputsDigest,
-	}
-	if u := info.Headers[gateway.HeaderSourceURL]; u != "" {
-		headers[gateway.HeaderSourceURL] = u
-	}
+	// The complete set (artwork design §B.2 as amended): a Put that omits a
+	// key releases it.
+	meta := catalogartwork.ObjectMeta(catalogartwork.RefOf(it.Object, it.Kind), catalogv1alpha1.ImageTypePoster,
+		events.ArtworkVariantOverlay, catalogartwork.Facts{
+			ContentType: ContentTypeJPEG, Source: SourceRender, SourceURL: info.Headers[gateway.HeaderSourceURL],
+			Width: img.Bounds().Dx(), Height: img.Bounds().Dy(),
+			Overlay: &catalogartwork.OverlayFacts{
+				Profile: want.Profile.Name, OriginalDigest: info.Digest, RenderedFrom: want.InputsDigest,
+			},
+		})
 	overlayKey := objectKey(it, events.ArtworkVariantOverlay)
-	put, err := h.Store.Put(ctx, overlayKey, &buf, events.ObjectMeta{Headers: headers})
+	put, err := h.Store.Put(ctx, overlayKey, &buf, meta)
 	if err != nil {
 		tracing.RecordError(span, err)
 		return nil, fmt.Errorf("artwork: put %s: %w", overlayKey, err)
@@ -541,6 +576,40 @@ func (h *Handler) record(ctx context.Context, before overlayplan.Item, want over
 
 // recorded reports whether status.overlay o already says what entry says.
 // UpdatedAt is the write's own and is not compared.
+// backfill gives a current overlay stored before object metadata existed its
+// full set with SetMeta (artwork design §C.6 as amended 2026-10-07): no
+// redraw, no chunk rewrite. Status records no dimensions, so it reads the
+// overlay's first 64 KiB for image.DecodeConfig, as the gateway's backfill
+// does. Render holds the item's lock, which SetMeta, having no
+// compare-and-swap, relies on. A failure is logged; the render's outcome
+// stands.
+func (h *Handler) backfill(ctx context.Context, it overlayplan.Item, want overlayplan.Want, overlayKey string,
+	current events.ObjectInfo,
+) {
+	var w, ht int
+	if _, rc, err := h.Store.Get(ctx, overlayKey); err == nil {
+		if cfg, _, err := image.DecodeConfig(io.LimitReader(rc, 64<<10)); err == nil {
+			w, ht = cfg.Width, cfg.Height
+		}
+		_ = rc.Close()
+	}
+	contentType := current.Headers[gateway.HeaderContentType]
+	if contentType == "" {
+		contentType = ContentTypeJPEG
+	}
+	meta := catalogartwork.ObjectMeta(catalogartwork.RefOf(it.Object, it.Kind), catalogv1alpha1.ImageTypePoster,
+		events.ArtworkVariantOverlay, catalogartwork.Facts{
+			ContentType: contentType, Source: SourceRender, SourceURL: current.Headers[gateway.HeaderSourceURL],
+			Width: w, Height: ht,
+			Overlay: &catalogartwork.OverlayFacts{
+				Profile: want.Profile.Name, OriginalDigest: want.OriginalDigest, RenderedFrom: want.InputsDigest,
+			},
+		})
+	if err := h.Store.SetMeta(ctx, overlayKey, meta); err != nil && !errors.Is(err, events.ErrObjectNotFound) {
+		logging.FromContext(ctx).Warn("artwork: backfill an overlay's metadata", "key", overlayKey, "err", err)
+	}
+}
+
 func recorded(o, entry *catalogv1alpha1.OverlayEntry) bool {
 	return o != nil && o.ProfileRef == entry.ProfileRef && o.Digest == entry.Digest && o.RenderedFrom == entry.RenderedFrom
 }
