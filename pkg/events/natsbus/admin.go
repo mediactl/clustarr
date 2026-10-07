@@ -104,3 +104,33 @@ func (b *Bus) Subjects(ctx context.Context, stream, filter string) ([]string, er
 	sort.Strings(out)
 	return out, nil
 }
+
+// Missing implements events.StreamAdmin. Each object is looked up afresh by
+// name: the bus's bound KV and object-store handles are not consulted, because
+// a NATS restart can delete a memory-backed bucket under a live handle.
+func (b *Bus) Missing(ctx context.Context, t events.Topology) ([]string, error) {
+	var out []string
+	for _, o := range t.Objects() {
+		var err error
+		switch o.Kind {
+		case events.TopologyStream:
+			_, err = b.js.Stream(ctx, o.Name)
+		case events.TopologyConsumer:
+			_, err = b.js.Consumer(ctx, o.Stream, o.Name)
+		case events.TopologyBucket:
+			_, err = b.js.KeyValue(ctx, o.Name)
+		case events.TopologyObjectStore:
+			_, err = b.js.ObjectStore(ctx, o.Name)
+		}
+		switch {
+		case err == nil:
+		case errors.Is(err, jetstream.ErrStreamNotFound),
+			errors.Is(err, jetstream.ErrConsumerNotFound),
+			errors.Is(err, jetstream.ErrBucketNotFound):
+			out = append(out, o.String())
+		default:
+			return nil, fmt.Errorf("natsbus: look up %s: %w", o, err)
+		}
+	}
+	return out, nil
+}

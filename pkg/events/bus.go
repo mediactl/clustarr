@@ -175,7 +175,7 @@ type PullSubscriber interface {
 	Pull(ctx context.Context, s Subscription) (Puller, error)
 }
 
-// StreamAdmin removes queue state whose owner is gone.
+// StreamAdmin inspects queue state and removes what has lost its owner.
 type StreamAdmin interface {
 	// DeleteSubscription deletes the durable and its dead-letter watcher.
 	// A missing one is not an error.
@@ -194,6 +194,12 @@ type StreamAdmin interface {
 	// dead-letter watcher lives on StreamAdvisories, not on stream, so it
 	// is not listed here. A missing stream is ErrStreamNotFound.
 	Subscriptions(ctx context.Context, stream string) ([]string, error)
+	// Missing names every stream, consumer, KV bucket and object store of t
+	// that does not exist, as TopologyObject.String spells it, in
+	// Topology.Objects order. It is empty when everything exists. Agents wait
+	// on it at start (pkg/busconn.AwaitTopology): they never create topology,
+	// the manager does (spec §5.9). Only a failure to ask is an error.
+	Missing(ctx context.Context, t Topology) ([]string, error)
 }
 
 // Requester is the micro-style request/reply half of the bus: a single reply

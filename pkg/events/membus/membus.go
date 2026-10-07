@@ -118,9 +118,9 @@ func New(clock clockwork.Clock, opts ...Option) *Bus {
 	}
 }
 
-// Ensure creates or updates the streams and buckets in t. Existing messages
-// survive an update, and a changed retention policy is refused exactly as
-// natsbus refuses it.
+// Ensure creates or updates the streams, consumers and buckets in t. Existing
+// messages survive an update, and a changed retention policy is refused
+// exactly as natsbus refuses it.
 func (b *Bus) Ensure(_ context.Context, t events.Topology) error {
 	if err := t.Validate(); err != nil {
 		return fmt.Errorf("membus: invalid topology: %w", err)
@@ -143,6 +143,14 @@ func (b *Bus) Ensure(_ context.Context, t events.Topology) error {
 			continue
 		}
 		b.streams[spec.Name] = &stream{spec: spec, dedup: map[string]dedupRecord{}}
+	}
+	// natsbus's Ensure creates every topology consumer (events.EnsureTopology).
+	// membus records each as existing, so StreamAdmin.Missing and
+	// Subscriptions answer as natsbus would. t.Validate has rejected a
+	// consumer whose stream is not in t.Streams, and the loop above created
+	// every stream, so the lookup is never nil.
+	for _, c := range t.Consumers {
+		b.streams[c.Stream].bindDurable(c.Name)
 	}
 	for _, spec := range t.Buckets {
 		if existing, ok := b.buckets[spec.Name]; ok {

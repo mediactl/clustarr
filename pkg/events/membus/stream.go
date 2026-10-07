@@ -330,6 +330,15 @@ func (s *stream) bindDurable(durable string) {
 	s.durables[durable] = struct{}{}
 }
 
+// hasDurable reports whether durable exists on this stream: bound by Ensure,
+// Subscribe or Pull, and not forgotten since.
+func (s *stream) hasDurable(durable string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, ok := s.durables[durable]
+	return ok
+}
+
 // subscriptions returns the sorted durables bound on this stream.
 func (s *stream) subscriptions() []string {
 	s.mu.Lock()

@@ -73,3 +73,31 @@ func (b *Bus) Subjects(_ context.Context, stream, filter string) ([]string, erro
 	}
 	return st.subjects(filter), nil
 }
+
+// Missing implements events.StreamAdmin.
+func (b *Bus) Missing(_ context.Context, t events.Topology) ([]string, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.closed {
+		return nil, events.ErrClosed
+	}
+	var out []string
+	for _, o := range t.Objects() {
+		var ok bool
+		switch o.Kind {
+		case events.TopologyStream:
+			_, ok = b.streams[o.Name]
+		case events.TopologyConsumer:
+			st := b.streams[o.Stream]
+			ok = st != nil && st.hasDurable(o.Name)
+		case events.TopologyBucket:
+			_, ok = b.buckets[o.Name]
+		case events.TopologyObjectStore:
+			_, ok = b.objectStores[o.Name]
+		}
+		if !ok {
+			out = append(out, o.String())
+		}
+	}
+	return out, nil
+}

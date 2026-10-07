@@ -20,6 +20,7 @@ package contracttest
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -37,6 +38,7 @@ func RunPullContract(t *testing.T, newBus func() events.Bus) {
 	t.Run("DeleteSubscriptionIsIdempotentAndKeepsQueuedWork", func(t *testing.T) { testDeleteSubscription(t, newBus) })
 	t.Run("SubscriptionsListsEachDurableUntilItIsDeleted", func(t *testing.T) { testSubscriptions(t, newBus) })
 	t.Run("StreamAdminReportsAMissingStream", func(t *testing.T) { testStreamAdminMissingStream(t, newBus) })
+	t.Run("MissingNamesEveryObjectNotYetCreated", func(t *testing.T) { testMissing(t, newBus) })
 }
 
 func pullBus(t *testing.T, bus events.Bus) (events.PullSubscriber, events.StreamAdmin) {
@@ -335,5 +337,63 @@ func testStreamAdminMissingStream(t *testing.T, newBus func() events.Bus) {
 	}
 	if err := sa.DeleteSubscription(ctx, missing, "some-durable"); err != nil {
 		t.Fatalf("DeleteSubscription on a missing stream = %v, want nil", err)
+	}
+}
+
+// testMissing holds StreamAdmin.Missing to its contract (spec §3.5.2). On a bus
+// nothing has ensured, it names every object of the topology in
+// Topology.Objects order. Once the streams, buckets and object stores exist,
+// it names only the consumer still absent. Once Ensure has created that too,
+// it names nothing. A deleted durable is missing again.
+func testMissing(t *testing.T, newBus func() events.Bus) {
+	ctx, cancel := context.WithTimeout(context.Background(), Timeout)
+	t.Cleanup(cancel)
+	bus := newBus()
+	t.Cleanup(func() {
+		if err := bus.Close(); err != nil {
+			t.Errorf("Close: %v", err)
+		}
+	})
+	sa, ok := bus.(events.StreamAdmin)
+	if !ok {
+		t.Fatalf("%T does not implement events.StreamAdmin", bus)
+	}
+
+	grab, ok := events.Default().ForSingleNode().Consumer(events.ConsumerCatalogGrab)
+	if !ok {
+		t.Fatalf("the default topology has no %s", events.ConsumerCatalogGrab)
+	}
+	bare := Topology()
+	full := Topology()
+	full.Consumers = []events.ConsumerSpec{grab}
+
+	var all []string
+	for _, o := range full.Objects() {
+		all = append(all, o.String())
+	}
+	if got, err := sa.Missing(ctx, full); err != nil || !slices.Equal(got, all) {
+		t.Fatalf("Missing before Ensure = %v, %v; want every object %v", got, err, all)
+	}
+
+	if err := bus.Ensure(ctx, bare); err != nil {
+		t.Fatalf("Ensure without consumers: %v", err)
+	}
+	consumer := events.TopologyObject{Kind: events.TopologyConsumer, Stream: grab.Stream, Name: grab.Name}.String()
+	if got, err := sa.Missing(ctx, full); err != nil || !slices.Equal(got, []string{consumer}) {
+		t.Fatalf("Missing with only the consumer absent = %v, %v; want [%s]", got, err, consumer)
+	}
+
+	if err := bus.Ensure(ctx, full); err != nil {
+		t.Fatalf("Ensure: %v", err)
+	}
+	if got, err := sa.Missing(ctx, full); err != nil || len(got) != 0 {
+		t.Fatalf("Missing after Ensure = %v, %v; want nothing", got, err)
+	}
+
+	if err := sa.DeleteSubscription(ctx, grab.Stream, grab.Name); err != nil {
+		t.Fatalf("DeleteSubscription: %v", err)
+	}
+	if got, err := sa.Missing(ctx, full); err != nil || !slices.Equal(got, []string{consumer}) {
+		t.Fatalf("Missing after deleting the durable = %v, %v; want [%s]", got, err, consumer)
 	}
 }

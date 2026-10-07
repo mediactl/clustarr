@@ -194,6 +194,54 @@ type Topology struct {
 	ObjectStores []ObjectStoreSpec
 }
 
+// TopologyKind is the kind of JetStream object a TopologyObject is.
+type TopologyKind string
+
+const (
+	TopologyStream      TopologyKind = "stream"
+	TopologyConsumer    TopologyKind = "consumer"
+	TopologyBucket      TopologyKind = "kv"
+	TopologyObjectStore TopologyKind = "object store"
+)
+
+// TopologyObject is one stream, consumer, KV bucket or object store that a
+// Topology declares.
+type TopologyObject struct {
+	Kind TopologyKind
+	// Stream is a consumer's stream; empty for every other kind.
+	Stream string
+	Name   string
+}
+
+// String names o as StreamAdmin.Missing reports it: "stream CLUSTARR_EVENTS",
+// "consumer CLUSTARR_WORK_CATALOGARR/catalogarr-grab", "kv <bucket>",
+// "object store clustarr-artwork".
+func (o TopologyObject) String() string {
+	if o.Kind == TopologyConsumer {
+		return string(o.Kind) + " " + o.Stream + "/" + o.Name
+	}
+	return string(o.Kind) + " " + o.Name
+}
+
+// Objects lists every object t declares: its streams, then its consumers, then
+// its KV buckets, then its object stores, each in declaration order.
+func (t Topology) Objects() []TopologyObject {
+	out := make([]TopologyObject, 0, len(t.Streams)+len(t.Consumers)+len(t.Buckets)+len(t.ObjectStores))
+	for _, s := range t.Streams {
+		out = append(out, TopologyObject{Kind: TopologyStream, Name: s.Name})
+	}
+	for _, c := range t.Consumers {
+		out = append(out, TopologyObject{Kind: TopologyConsumer, Stream: c.Stream, Name: c.Name})
+	}
+	for _, b := range t.Buckets {
+		out = append(out, TopologyObject{Kind: TopologyBucket, Name: b.Name})
+	}
+	for _, o := range t.ObjectStores {
+		out = append(out, TopologyObject{Kind: TopologyObjectStore, Name: o.Name})
+	}
+	return out
+}
+
 // Stream returns the named stream spec.
 func (t Topology) Stream(name string) (StreamSpec, bool) {
 	for _, s := range t.Streams {
