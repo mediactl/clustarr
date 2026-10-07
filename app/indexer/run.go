@@ -331,7 +331,7 @@ func Run(ctx context.Context, o Options) error {
 	// definition-backed Indexer's login session from the owned Secret only,
 	// which is correct but a live apiserver GET per client build.
 	clients := clientcache.NewClientCache(mgr.GetClient(), ratelimit.New(idxclients.DefaultLimiterConfig()))
-	clients.Sessions = idxclients.NewSessionStore(mgr.GetClient(), bus)
+	clients.Sessions = idxclients.NewSessionStore(mgr.GetClient(), bus, k8s.ManagerIndexarrWorker)
 
 	reg, err := indexagent.Register(ctx, mgr, bus, agentOptions(o, clients))
 	if err != nil {

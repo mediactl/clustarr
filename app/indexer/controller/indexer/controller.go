@@ -165,7 +165,7 @@ func NewReconciler(
 		Recorder: recorder,
 		Limiters: limiters,
 		Bus:      bus,
-		Sessions: idxclients.NewSessionStore(c, bus),
+		Sessions: idxclients.NewSessionStore(c, bus, k8s.ManagerIndexarr),
 		capsSeen: map[types.UID]capsMemo{},
 	}
 }

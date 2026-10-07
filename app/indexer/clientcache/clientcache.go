@@ -32,6 +32,7 @@ import (
 	"github.com/mediactl/clustarr/app/indexer/download"
 	"github.com/mediactl/clustarr/app/indexer/proxy"
 	"github.com/mediactl/clustarr/pkg/cardigann"
+	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/ratelimit"
 )
@@ -97,8 +98,10 @@ type ClientCache struct {
 	limiters *ratelimit.Limiter
 
 	// Sessions is where a definition-backed Indexer's login session is read
-	// from when its client is built. nil means "the owned Secret only"
-	// (NewSessionStore(c, nil)), which is always correct because the
+	// from when its client is built, and where a relogin Saves or Drops it.
+	// nil means "the owned Secret only", written as indexarr-worker
+	// (NewSessionStore(c, nil, k8s.ManagerIndexarrWorker)), which is always
+	// correct because the
 	// reconciler writes the Secret on every login; wiring the bus here adds
 	// the clustarr-indexer-sessions KV read in front of it.
 	Sessions *idxclients.SessionStore
@@ -181,7 +184,7 @@ func (cc *ClientCache) For(ctx context.Context, idx *indexv1alpha1.Indexer) (idx
 	// URL, not a connection.
 	sessions := cc.Sessions
 	if sessions == nil {
-		sessions = idxclients.NewSessionStore(cc.client, nil)
+		sessions = idxclients.NewSessionStore(cc.client, nil, k8s.ManagerIndexarrWorker)
 	}
 	built, err := buildWireClientFor(ctx, cc.client, idx, sel, cc.limiters, sessions)
 	if err != nil {

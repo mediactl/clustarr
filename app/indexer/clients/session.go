@@ -69,12 +69,21 @@ func SessionKey(uid types.UID) string { return events.KVKeyToken(string(uid)) }
 type SessionStore struct {
 	Client client.Client
 	KV     events.KV
+
+	// Manager is the field manager the owned Secret is applied under:
+	// k8s.ManagerIndexarr in the manager (the Indexer reconciler's logins) and
+	// k8s.ManagerIndexarrWorker in the index agent (a cached client's relogin
+	// Save and its Drop). Both apply sessionSecretAC's one complete
+	// declaration, so neither can release a field the other set: the only
+	// deliberate co-ownership of the manager/agent split (§5.3.2). Empty
+	// refuses every Secret write (k8s.FieldManager.Validate).
+	Manager k8s.FieldManager
 }
 
-// NewSessionStore returns a store over c and, when bus is non-nil, its
-// clustarr-indexer-sessions bucket.
-func NewSessionStore(c client.Client, bus events.Bus) *SessionStore {
-	s := &SessionStore{Client: c}
+// NewSessionStore returns a store over c that writes the Secret as manager
+// and, when bus is non-nil, mirrors into its clustarr-indexer-sessions bucket.
+func NewSessionStore(c client.Client, bus events.Bus, manager k8s.FieldManager) *SessionStore {
+	s := &SessionStore{Client: c, Manager: manager}
 	if bus != nil {
 		s.KV = bus.KV(events.BucketIndexerSessions)
 	}
@@ -142,7 +151,7 @@ func ownedBy(refs []metav1.OwnerReference, uid types.UID) bool {
 
 // Save writes sess to the Secret and then to KV.
 //
-// The Secret is applied under k8s.ManagerIndexarr with a CONTROLLER owner
+// The Secret is applied under s.Manager with a CONTROLLER owner
 // reference to the Indexer, so deleting the Indexer garbage-collects its
 // session; and it is a server-side apply of both keys every time, so the
 // Secret is a complete declaration and a stale cookie key can never outlive
@@ -161,7 +170,7 @@ func (s *SessionStore) Save(ctx context.Context, idx *indexv1alpha1.Indexer, ses
 			SessionSecretKeySession: data,
 			SessionSecretKeyCookie:  []byte(sess.CookieHeader()),
 		})
-		if _, err := k8s.Apply(ctx, s.Client, k8s.ManagerIndexarr, ac); err != nil {
+		if _, err := k8s.Apply(ctx, s.Client, s.Manager, ac); err != nil {
 			return fmt.Errorf("indexer: write session secret: %w", err)
 		}
 	}
@@ -179,7 +188,7 @@ func (s *SessionStore) Save(ctx context.Context, idx *indexv1alpha1.Indexer, ses
 // tracker has already killed.
 //
 // It EMPTIES the Secret rather than deleting it: the Secret is applied under
-// k8s.ManagerIndexarr with the same complete declaration Save makes (owner,
+// s.Manager with the same complete declaration Save makes (owner,
 // type, both keys), so this needs no verb Save does not already have, and
 // Save's next apply fills it again. A search that re-logged in and still
 // failed calls this; see CardigannClient.Search.
@@ -198,7 +207,7 @@ func (s *SessionStore) Drop(ctx context.Context, idx *indexv1alpha1.Indexer) err
 			SessionSecretKeySession: {},
 			SessionSecretKeyCookie:  {},
 		})
-		if _, err := k8s.Apply(ctx, s.Client, k8s.ManagerIndexarr, ac); err != nil {
+		if _, err := k8s.Apply(ctx, s.Client, s.Manager, ac); err != nil {
 			errs = append(errs, fmt.Errorf("indexer: empty session secret: %w", err))
 		}
 	}
@@ -207,8 +216,9 @@ func (s *SessionStore) Drop(ctx context.Context, idx *indexv1alpha1.Indexer) err
 
 // sessionSecretAC is the owned session Secret's complete declaration: a
 // CONTROLLER owner reference to idx, type Opaque, and data. Save and Drop
-// both render it here, so the two cannot declare different field sets under
-// the one manager.
+// both render it here and apply it under s.Manager, so the two cannot declare
+// different field sets under one manager, and the manager's and the index
+// agent's stores (two managers since the split) declare the same set.
 func sessionSecretAC(idx *indexv1alpha1.Indexer, data map[string][]byte) *corev1ac.SecretApplyConfiguration {
 	owner := metav1ac.OwnerReference().
 		WithAPIVersion(indexv1alpha1.GroupVersion.String()).

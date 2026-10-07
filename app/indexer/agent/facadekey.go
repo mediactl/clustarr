@@ -86,6 +86,10 @@ const facadeAPIKeyBytes = 32
 // a key they never saw. It reads through reader -- the manager's API reader,
 // live, since indexarr never caches Secrets (see indexarr.Options.ManagerOptions) --
 // and never logs a key.
+//
+// It creates the Secret as indexarr-worker. The index agent runs it, and
+// since the manager/agent split indexarr is the manager's alone (§5.3.2,
+// OD14). It is create-only, so the rename touches no live field.
 func ensureFacadeAPIKeys(
 	ctx context.Context, reader client.Reader, writer client.Writer, namespace, name string,
 ) ([]string, error) {
@@ -110,7 +114,7 @@ func ensureFacadeAPIKeys(
 			Type: corev1.SecretTypeOpaque,
 			Data: map[string][]byte{FacadeAPIKeyField: []byte(generated)},
 		}
-		cerr := writer.Create(ctx, &sec, client.FieldOwner(k8s.ManagerIndexarr.String()))
+		cerr := writer.Create(ctx, &sec, client.FieldOwner(k8s.ManagerIndexarrWorker.String()))
 		switch {
 		case cerr == nil:
 			log.Info("indexarr: generated the Torznab facade's API key; read it from the Secret",

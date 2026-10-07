@@ -121,7 +121,7 @@ func Register(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options) 
 		// The KV half of the session store: without it the cache reads a
 		// definition-backed Indexer's login session from the owned Secret
 		// only, which is correct but a live apiserver GET per client build.
-		cc.Sessions = idxclients.NewSessionStore(mgr.GetClient(), bus)
+		cc.Sessions = idxclients.NewSessionStore(mgr.GetClient(), bus, k8s.ManagerIndexarrWorker)
 	}
 	v, err := registerWorkers(mgr, bus, store, cc)
 	if err != nil {

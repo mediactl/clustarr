@@ -219,6 +219,10 @@ const (
 	// grabsInWindow, its projection of the clustarr-indexer-limits rings
 	// (since 2026-10-01). IndexerDefinition and
 	// IndexerProxy have one writer each, so it owns those outright.
+	//
+	// Since the manager/agent split (2026-10-06) it is written only by the
+	// manager: the three reconcilers, the bundle loader and the Indexer
+	// reconciler's session-Secret Saves.
 	ManagerIndexarr FieldManager = "indexarr"
 
 	// ManagerIndexarrWorker is indexarr's RSS poll and search fan-out. On
@@ -236,6 +240,11 @@ const (
 	// remedy that worked, twice, was distinct managers. The two worker paths
 	// DO share this name, so both declare the identical set through
 	// app/indexer/status.WorkerFields -- one definition, not two.
+	//
+	// In the index agent it also writes the owned session Secret (a cached
+	// client's relogin Save and the compare-and-swap Drop, through the same
+	// complete declaration as the manager's Save) and creates the facade's
+	// API-key Secret (§13 OD14).
 	ManagerIndexarrWorker FieldManager = "indexarr-worker"
 
 	// ManagerGrabarr is the grabarr controller manager, the single writer for
