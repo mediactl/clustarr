@@ -54,7 +54,7 @@ type IndexerClient interface {
 // ClientFor returns the wire client for one Indexer, ALREADY carrying that
 // host's injected ratelimit.Limiter and its timeout.
 //
-// In production it is app/indexer/controller/indexer.ClientCache.For, and that
+// In production it is app/indexer/clientcache.ClientCache.For, and that
 // is load-bearing rather than incidental: it shares the reconciler's own
 // builders, so the caps probe (or Cardigann login) and every search use one
 // construction. The proxy is the reason to care: spec.proxyRef is applied in

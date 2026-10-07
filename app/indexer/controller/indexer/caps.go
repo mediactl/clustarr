@@ -22,9 +22,8 @@ import (
 	"slices"
 	"sort"
 
-	idxclients "github.com/mediactl/clustarr/app/indexer/clients"
-
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
+	idxclients "github.com/mediactl/clustarr/app/indexer/clients"
 	"github.com/mediactl/clustarr/pkg/torznab"
 )
 

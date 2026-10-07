@@ -22,8 +22,6 @@ import (
 	"errors"
 	"time"
 
-	idxclients "github.com/mediactl/clustarr/app/indexer/clients"
-
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -31,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
+	idxclients "github.com/mediactl/clustarr/app/indexer/clients"
 	"github.com/mediactl/clustarr/pkg/cardigann"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -148,8 +147,8 @@ func (r *Reconciler) reconcileDefinition(
 			r.markProbed(idx.UID, idx.Generation, now)
 			// The cached client carries the OLD session; the key cannot see
 			// a new one, so evict and let the next search rebuild.
-			if r.Clients != nil {
-				r.Clients.Forget(idx.UID)
+			if r.ForgetClient != nil {
+				r.ForgetClient(idx.UID)
 			}
 		default:
 			r.markProbed(idx.UID, idx.Generation, now)

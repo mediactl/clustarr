@@ -45,8 +45,11 @@ var storage = []string{
 // managerSide is every indexarr package the manager links, with what each
 // must not (spec §4.3 X1-X4, §5.12). `test/guards` (W5.14) overlaps it.
 var managerSide = map[string][]string{
-	"github.com/mediactl/clustarr/app/indexer/controller/indexer": storage, // X1
-	"github.com/mediactl/clustarr/app/indexer/rssschedule":        storage, // X1
+	"github.com/mediactl/clustarr/app/indexer/controller/indexer": append(append([]string(nil), storage...), // X1, X3
+		"github.com/mediactl/clustarr/app/indexer/download",
+		"github.com/mediactl/clustarr/app/indexer/clientcache",
+		"github.com/mediactl/clustarr/app/indexer/search"),
+	"github.com/mediactl/clustarr/app/indexer/rssschedule": storage, // X1
 	// X2: the wire-client builders and session store the manager's caps probe
 	// and logins share with the index agent; nothing of the agent's.
 	"github.com/mediactl/clustarr/app/indexer/clients": append(append([]string(nil), storage...),

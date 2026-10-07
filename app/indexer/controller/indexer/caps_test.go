@@ -21,10 +21,9 @@ import (
 	"math"
 	"testing"
 
-	idxclients "github.com/mediactl/clustarr/app/indexer/clients"
-
 	"github.com/stretchr/testify/require"
 
+	idxclients "github.com/mediactl/clustarr/app/indexer/clients"
 	idxstatus "github.com/mediactl/clustarr/app/indexer/status"
 	"github.com/mediactl/clustarr/pkg/newznab"
 	"github.com/mediactl/clustarr/pkg/torznab"

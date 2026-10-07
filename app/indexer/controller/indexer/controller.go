@@ -24,8 +24,6 @@ import (
 	"sync"
 	"time"
 
-	idxclients "github.com/mediactl/clustarr/app/indexer/clients"
-
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -44,6 +42,7 @@ import (
 
 	indexac "github.com/mediactl/clustarr/api/applyconfiguration/index/index/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
+	idxclients "github.com/mediactl/clustarr/app/indexer/clients"
 	"github.com/mediactl/clustarr/app/indexer/limits"
 	"github.com/mediactl/clustarr/app/indexer/rssschedule"
 	idxstatus "github.com/mediactl/clustarr/app/indexer/status"
@@ -106,15 +105,15 @@ type Reconciler struct {
 	// a handful of bytes bounded by the size of the cluster's indexer set.
 	Limiters *ratelimit.Limiter
 
-	// Clients is the process-wide [ClientCache] the search fan-out and the
-	// RSS poll read through. This reconciler does not BUILD clients with it
-	// -- it has the fresh spec and the fresh Secret in hand and calls
-	// BuildClient directly -- it only evicts, so a deleted Indexer does not
-	// leave its client (and that client's idle connections) behind.
+	// ForgetClient evicts an Indexer's built client from the process's
+	// client cache: on deletion, and after a re-login, whose cached client
+	// still carries the old session. run.go wires it to
+	// clientcache.ClientCache.Forget. This reconciler never builds through
+	// that cache -- it has the fresh spec and Secret in hand and calls
+	// clients.BuildClient directly.
 	//
-	// Optional: a nil Clients evicts nothing, which is correct for a unit
-	// test and merely wasteful in a process that somehow had no cache.
-	Clients *ClientCache
+	// Optional: nil evicts nothing, which is correct for a unit test.
+	ForgetClient func(types.UID)
 
 	// Bus seeds the RSS poll chain (ruling R36). Nothing else in this
 	// reconciler publishes.
@@ -226,8 +225,8 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		// safe to prune. The limiter bucket is keyed by HOST and is not --
 		// see the Limiters field's comment.
 		r.forget(idx.UID)
-		if r.Clients != nil {
-			r.Clients.Forget(idx.UID)
+		if r.ForgetClient != nil {
+			r.ForgetClient(idx.UID)
 		}
 		return ctrl.Result{}, nil
 	}

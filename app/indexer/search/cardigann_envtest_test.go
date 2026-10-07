@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
+	"github.com/mediactl/clustarr/app/indexer/clientcache"
 	"github.com/mediactl/clustarr/app/indexer/controller/indexer"
 	"github.com/mediactl/clustarr/app/indexer/search"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -87,7 +88,7 @@ func cardigannIndexer(t *testing.T, ctx context.Context, c client.Client, ns, na
 // ClientFor is the production ClientCache, not a stub, so the Cardigann
 // engine is reached through the SAME seam a Torznab client is (ruling R5).
 func cardigannService(c client.Client) *search.Service {
-	cc := indexer.NewClientCache(c, ratelimit.New(ratelimit.Config{}))
+	cc := clientcache.NewClientCache(c, ratelimit.New(ratelimit.Config{}))
 	return &search.Service{
 		Client: c,
 		ClientFor: func(ctx context.Context, idx *indexv1alpha1.Indexer) (search.IndexerClient, error) {

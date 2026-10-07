@@ -28,11 +28,10 @@ import (
 	"sync/atomic"
 	"testing"
 
-	idxclients "github.com/mediactl/clustarr/app/indexer/clients"
-
 	"github.com/stretchr/testify/require"
 
-	"github.com/mediactl/clustarr/app/indexer/controller/indexer"
+	"github.com/mediactl/clustarr/app/indexer/clientcache"
+	idxclients "github.com/mediactl/clustarr/app/indexer/clients"
 	"github.com/mediactl/clustarr/pkg/cardigann"
 	"github.com/mediactl/clustarr/pkg/torznab"
 )
@@ -119,7 +118,7 @@ func TestAnExpiredSessionLogsInAgainInsteadOfFailingTheSearch(t *testing.T) {
 	store := idxclients.NewSessionStore(c, newMemBus(t))
 	require.NoError(t, store.Save(ctx, &idx, &cardigann.Session{Cookies: []*http.Cookie{{Name: "uid", Value: "killed"}}}))
 
-	cc := indexer.NewClientCache(c, nil)
+	cc := clientcache.NewClientCache(c, nil)
 	cc.Sessions = store
 	cli, err := cc.For(ctx, &idx)
 	require.NoError(t, err)
@@ -168,7 +167,7 @@ func TestAFailedReLoginFailsTheSearchAndDropsTheSession(t *testing.T) {
 
 	store := idxclients.NewSessionStore(c, newMemBus(t))
 	require.NoError(t, store.Save(ctx, &idx, &cardigann.Session{Cookies: []*http.Cookie{{Name: "uid", Value: "killed"}}}))
-	cc := indexer.NewClientCache(c, nil)
+	cc := clientcache.NewClientCache(c, nil)
 	cc.Sessions = store
 	cli, err := cc.For(ctx, &idx)
 	require.NoError(t, err)

@@ -127,10 +127,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // status.sessionSecretRef; a get/oneurl login runs on the caps-probe cadence
 // to prove the credentials.
 //
-// Searching is NOT done here. [ClientCache.For] builds the Cardigann engine
-// adapter behind the same [idxclients.Client] interface a *torznab.Client
-// satisfies, so the search fan-out, the RSS poll and -- through
-// [ClientCache.DefinitionFetcherFor] -- the download verb all drive it
+// Searching is NOT done here. clientcache.ClientCache.For
+// (app/indexer/clientcache) builds the Cardigann engine adapter behind the
+// same [idxclients.Client] interface a *torznab.Client satisfies, so the
+// search fan-out, the RSS poll and -- through
+// clientcache.ClientCache.DefinitionFetcherFor -- the download verb all drive it
 // through their existing seams (ruling R5), and a tracker's search.error
 // page is an error the fan-out escalates rather than zero results (R6).
 //

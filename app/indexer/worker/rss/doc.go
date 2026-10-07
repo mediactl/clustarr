@@ -61,7 +61,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // app/indexer/run.go constructs a Worker with a client, the bus, the release
 // index and a SearcherFor that is
-// app/indexer/controller/indexer.ClientCache.For -- the same builder the caps
+// app/indexer/clientcache.ClientCache.For -- the same builder the caps
 // probe uses, so this poll and that probe cannot disagree about an indexer's
 // endpoint, timeout, bucket or (from M6) proxy -- and calls SetupWithManager.
 //

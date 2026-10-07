@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package indexer
+package clientcache
 
 import (
 	"context"
@@ -24,12 +24,11 @@ import (
 	"sync"
 	"time"
 
-	idxclients "github.com/mediactl/clustarr/app/indexer/clients"
-
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
+	idxclients "github.com/mediactl/clustarr/app/indexer/clients"
 	"github.com/mediactl/clustarr/app/indexer/download"
 	"github.com/mediactl/clustarr/app/indexer/proxy"
 	"github.com/mediactl/clustarr/pkg/cardigann"
@@ -69,9 +68,9 @@ const DefaultClientCacheTTL = 5 * time.Minute
 // while status reported the proxy Ready. Sharing one builder makes that
 // impossible rather than merely unlikely.
 //
-// It notably does NOT write limiter config. That is [idxclients.ApplyRateLimit], called
-// only from Reconcile: this reconciler is the only reader of
-// spec.requestDelay, and a fan-out re-applying it from a cached Indexer would
+// It notably does NOT write limiter config. That is
+// [idxclients.ApplyRateLimit], called only from the Indexer reconciler's
+// Reconcile: that reconciler is the only reader of spec.requestDelay, and a fan-out re-applying it from a cached Indexer would
 // silently revert an operator's edit. The cache only ever READS the limiter
 // onto the client it builds, so every caller still draws on one bucket per
 // host.
@@ -133,7 +132,7 @@ type clientEntry struct {
 
 // NewClientCache returns a cache building clients for c's Indexers, paced by
 // limiters. limiters is the one process-wide instance; a nil one disables
-// pacing rather than panicking, matching [Reconciler.Limiters].
+// pacing rather than panicking, matching the Indexer reconciler's Limiters.
 func NewClientCache(c client.Client, limiters *ratelimit.Limiter) *ClientCache {
 	return &ClientCache{client: c, limiters: limiters, entries: map[types.UID]clientEntry{}}
 }
@@ -356,7 +355,8 @@ func (cc *ClientCache) store(idx *indexv1alpha1.Indexer, proxies string, built i
 // leaving room for the two to diverge.
 func (cc *ClientCache) Limiters() *ratelimit.Limiter { return cc.limiters }
 
-// Forget drops idx's entry. The Indexer reconciler calls it on delete, which
+// Forget drops idx's entry. The Indexer reconciler calls it on delete
+// (through its ForgetClient hook, which the wiring points here), which
 // is what keeps the map bounded by the cluster's live Indexer set rather than
 // by every Indexer this process has ever seen. It is keyed by UID, so an
 // Indexer deleted and recreated under the same name is a different object and

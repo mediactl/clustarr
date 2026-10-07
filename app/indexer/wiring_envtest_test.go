@@ -53,7 +53,7 @@ import (
 
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
-	"github.com/mediactl/clustarr/app/indexer/controller/indexer"
+	"github.com/mediactl/clustarr/app/indexer/clientcache"
 	"github.com/mediactl/clustarr/app/indexer/limits"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/natsbus"
@@ -360,7 +360,7 @@ func parseWiringSource(t *testing.T, serviceDir string) wiring {
 	// Pass 1: local variables and what package they came from, so a
 	// registration held in a variable still counts.
 	//
-	// `r := indexer.NewReconciler(...); r.Clients = c; r.SetupWithManager(mgr)`
+	// `r := indexer.NewReconciler(...); r.ForgetClient = c.Forget; r.SetupWithManager(mgr)`
 	// registers exactly as much as the one-line chain does, and a guard that
 	// rejected it would be dictating a coding style rather than checking a
 	// property -- which is how a guard gets worked around instead of fixed.
@@ -465,7 +465,7 @@ func rootIdent(expr ast.Expr) string {
 // TestSpecDefaultsMatchTheGeneratedCRD, deliberately: both are anchored on
 // the same generated file rather than on each other. (spec.timeout is pinned
 // only there now -- the client construction this file used to duplicate moved
-// into indexer.ClientCache.)
+// into clientcache.ClientCache.)
 func TestIndexerSpecDefaultsMatchTheCRD(t *testing.T) {
 	raw, err := os.ReadFile("../../config/crd/bases/index.clustarr.io_indexers.yaml")
 	require.NoError(t, err)
@@ -703,7 +703,7 @@ func TestIndexarrWiringRegistersEveryComponent(t *testing.T) {
 
 	nc, bus := newJetStreamBus(t)
 	store := openTestIndex(t)
-	clients := indexer.NewClientCache(c, ratelimit.New(defaultLimiterConfig()))
+	clients := clientcache.NewClientCache(c, ratelimit.New(defaultLimiterConfig()))
 
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme:                 k8s.MustNewScheme(),

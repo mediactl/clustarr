@@ -92,7 +92,7 @@ type Service struct {
 
 	// Definitions builds the Fetcher for a definition-backed Indexer
 	// (spec.definition or spec.definitionRef). Production supplies
-	// indexer.ClientCache.DefinitionFetcherFor, which dispatches to
+	// clientcache.ClientCache.DefinitionFetcherFor, which dispatches to
 	// cardigann.Engine.Download. A nil Definitions REFUSES a
 	// definition-backed grab rather than falling back to Fetch: a plain GET
 	// skips the definition's download block (its before-request and link

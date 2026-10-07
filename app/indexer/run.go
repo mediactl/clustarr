@@ -40,6 +40,7 @@ import (
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	"github.com/mediactl/clustarr/app/indexer/bundle"
 	"github.com/mediactl/clustarr/app/indexer/bundle/embedded"
+	"github.com/mediactl/clustarr/app/indexer/clientcache"
 	idxclients "github.com/mediactl/clustarr/app/indexer/clients"
 	"github.com/mediactl/clustarr/app/indexer/controller/indexer"
 	"github.com/mediactl/clustarr/app/indexer/controller/indexerdefinition"
@@ -298,7 +299,7 @@ func (o Options) FacadeEnabled() bool {
 //
 // The low-frequency readers are the 15-minute reprobe tick per Indexer, the
 // 5-minute IndexerProxy recheck and one Get per grab. The HIGH-frequency ones
-// are the two this wiring created: indexer.ClientCache.For is the search
+// are the two this wiring created: clientcache.ClientCache.For is the search
 // fan-out's ClientFor, called once per candidate indexer per SEARCH, and the
 // RSS poll's SearcherFor. A wanted-cron sweep of 200 items across 20 indexers
 // is 4,000 live Gets against controller-runtime's default 20 QPS client.
@@ -308,7 +309,7 @@ func (o Options) FacadeEnabled() bool {
 // named failure outcome, which runs RecordFailure -- escalationLevel, then
 // disabledUntil. An apiserver blip or a throttled REST client could therefore
 // escalate a perfectly healthy indexer toward disabled, which an informer read
-// makes impossible. [indexer.ClientCache] is what closes it: keyed by UID plus
+// makes impossible. [clientcache.ClientCache] is what closes it: keyed by UID plus
 // resourceVersion with a TTL, a fan-out costs one Get per indexer per CHANGE
 // rather than per query.
 //
@@ -418,7 +419,7 @@ func Run(ctx context.Context, o Options) error {
 	// against the same bucket per host, and every wire client any of them
 	// uses -- Torznab or Cardigann -- comes out of the indexer package's one
 	// builder, so spec.proxyRef cannot reach one path and miss another.
-	clients := indexer.NewClientCache(mgr.GetClient(), ratelimit.New(defaultLimiterConfig()))
+	clients := clientcache.NewClientCache(mgr.GetClient(), ratelimit.New(defaultLimiterConfig()))
 	// The KV half of the session store: without it the cache reads a
 	// definition-backed Indexer's login session from the owned Secret only,
 	// which is correct but a live apiserver GET per client build. The
@@ -593,7 +594,7 @@ func IndexReadyChecker(store relindex.Store) healthz.Checker {
 // IndexerProxy whose spec.selector matches the Indexer -- is app/indexer/proxy's,
 // applied by the one client builder every path shares and by the download
 // fetcher, not by the IndexerProxy reconciler, which only probes reachability.
-func setupControllers(mgr ctrl.Manager, bus events.Bus, clients *indexer.ClientCache) error {
+func setupControllers(mgr ctrl.Manager, bus events.Bus, clients *clientcache.ClientCache) error {
 	c := mgr.GetClient()
 
 	idxReconciler := indexer.NewReconciler(
@@ -604,7 +605,7 @@ func setupControllers(mgr ctrl.Manager, bus events.Bus, clients *indexer.ClientC
 	)
 	// So a deleted Indexer does not leave its built client, and that
 	// client's idle connections, in the cache forever.
-	idxReconciler.Clients = clients
+	idxReconciler.ForgetClient = clients.Forget
 	if err := idxReconciler.SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("indexarr: indexer: %w", err)
 	}
@@ -696,7 +697,7 @@ func setupBundle(mgr ctrl.Manager, o Options) error {
 // Definitions dispatch, one search fan-out with one query-limit window. A
 // facade holding its own copies would be a second path around both.
 func setupWorkers(
-	mgr ctrl.Manager, bus events.Bus, store relindex.Store, clients *indexer.ClientCache,
+	mgr ctrl.Manager, bus events.Bus, store relindex.Store, clients *clientcache.ClientCache,
 ) (verbs, error) {
 	c := mgr.GetClient()
 
@@ -770,7 +771,7 @@ func setupWorkers(
 // spec.limits.queryLimit holds against the indexer's whole traffic. Reader
 // is the uncached reader the poll's compare-and-swap status write reads
 // through.
-func rssDeps(c client.Client, r client.Reader, bus events.Bus, store relindex.Store, clients *indexer.ClientCache) rss.Deps {
+func rssDeps(c client.Client, r client.Reader, bus events.Bus, store relindex.Store, clients *clientcache.ClientCache) rss.Deps {
 	return rss.Deps{
 		Client: c,
 		Reader: r,

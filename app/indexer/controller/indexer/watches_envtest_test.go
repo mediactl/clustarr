@@ -23,8 +23,6 @@ import (
 	"testing"
 	"time"
 
-	idxclients "github.com/mediactl/clustarr/app/indexer/clients"
-
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -36,6 +34,7 @@ import (
 
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
+	idxclients "github.com/mediactl/clustarr/app/indexer/clients"
 	"github.com/mediactl/clustarr/app/indexer/controller/indexer"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/ratelimit"

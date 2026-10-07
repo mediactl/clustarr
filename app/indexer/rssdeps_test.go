@@ -24,7 +24,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	"github.com/mediactl/clustarr/app/indexer/controller/indexer"
+	"github.com/mediactl/clustarr/app/indexer/clientcache"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -42,7 +42,7 @@ func TestTheRSSPollGetsTheBusAndAnUncachedReader(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).Build()
 	reader := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).Build()
 
-	deps := rssDeps(c, reader, bus, nil, indexer.NewClientCache(c, nil))
+	deps := rssDeps(c, reader, bus, nil, clientcache.NewClientCache(c, nil))
 	require.Equal(t, bus, deps.Bus, "run.go must hand the RSS poll the bus its query ring lives on")
 	require.Equal(t, client.Reader(reader), deps.Reader, "run.go must hand the RSS poll the uncached reader")
 }
