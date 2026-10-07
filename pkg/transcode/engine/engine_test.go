@@ -45,7 +45,7 @@ func remuxPlan() standard.Result {
 		Decision: standard.DecisionCopyVideo, Container: transcode.ContainerMKV,
 		Video: standard.VideoPlan{SourceIndex: 0, Action: "copy"},
 		Audio: []standard.AudioPlan{
-			{SourceIndex: 0, Action: "copy", Language: "eng"},
+			{SourceIndex: 0, Action: "copy", Language: "eng", Default: true},
 			{SourceIndex: 1, Action: "copy", Language: "fre", Title: "Commentary", Comment: true},
 		},
 		Subtitles: []standard.SubtitlePlan{{SourceIndex: 0, Action: standard.SubtitleCopy, Codec: "subrip"}}, Attachments: true, Chapters: true,

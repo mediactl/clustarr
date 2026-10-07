@@ -566,8 +566,11 @@ func graftSlots(slots []slot, g GraftAudio, dd *ffgo.Decoder, target time.Durati
 			out = append(out, gs)
 		}
 		s := slots[i]
-		if g.Default && s.src.Type == ffgo.MediaTypeAudio && s.src.Disposition&ffgo.DispositionDefault != 0 {
+		if g.Default && s.src.Type == ffgo.MediaTypeAudio {
 			o := streamOptions(s.src, s.copy)
+			if s.opts != nil {
+				o = *s.opts // the plan's flags (audioOptions), not the source's
+			}
 			o.Disposition &^= ffgo.DispositionDefault
 			s.opts = &o
 		}
@@ -604,7 +607,10 @@ func CopyPlan(path string) (standard.Result, error) {
 	for _, s := range d.Streams() {
 		switch s.Type {
 		case ffgo.MediaTypeAudio:
-			plan.Audio = append(plan.Audio, standard.AudioPlan{SourceIndex: na, Action: "copy", Language: s.Language, Title: s.Title})
+			plan.Audio = append(plan.Audio, standard.AudioPlan{
+				SourceIndex: na, Action: standard.AudioCopy, Language: s.Language, Title: s.Title,
+				Default: s.Disposition&ffgo.DispositionDefault != 0, Comment: s.Disposition&ffgo.DispositionComment != 0,
+			})
 			na++
 		case ffgo.MediaTypeSubtitle:
 			plan.Subtitles = append(plan.Subtitles, standard.SubtitlePlan{SourceIndex: ns, Action: standard.SubtitleCopy, Codec: s.Codec})

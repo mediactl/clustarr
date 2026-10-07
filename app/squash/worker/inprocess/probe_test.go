@@ -117,7 +117,7 @@ func TestTheInProcessProbeAgreesWithFFprobe(t *testing.T) {
 			wantPlan, gotPlan := planOf(want, wantRaw), planOf(got, gotRaw)
 			if name == "sdr h264, every stream kind" {
 				require.Equal(t, standard.DecisionEncode, wantPlan.Decision, wantPlan.Reason)
-				require.Len(t, wantPlan.Audio, 3, "every audio track is planned")
+				require.Len(t, wantPlan.Audio, 5, "every audio track is planned: two surround tracks with their AAC companions, and the commentary")
 			}
 			assert.Equal(t, wantPlan.Hash(), gotPlan.Hash(), "the same standard plan")
 		})

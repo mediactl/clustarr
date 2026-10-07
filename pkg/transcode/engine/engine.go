@@ -104,20 +104,29 @@ type slot struct {
 	tb     ffgo.Rational
 	donor  bool                // the graft's stage, reading the donor
 	opts   *ffgo.StreamOptions // overrides the stream's own tags and flags
+	// fed is an output another slot's stage encodes: the first earlier
+	// encoded slot of the same source (src.Index and donor), whose stage
+	// encodes every such output from one decode (an AC-3 and its AAC
+	// companion).
+	fed bool
 }
 
-// stageFunc runs one encoded stream: it reads its packets from in, reports
-// its encoder with setup before its first packet, and writes packets with
-// emit (which takes its own reference).
+// stageFunc runs one encoded source: it reads its packets from in, reports
+// one encoder per output with setup before its first packet, and writes
+// each output's packets with that output's emit (which takes its own
+// reference).
 type stageFunc func(ctx context.Context, sc *stageContext) error
 
 type stageContext struct {
-	in    <-chan *ffgo.Packet
-	dec   *ffgo.Decoder
-	src   *ffgo.StreamInfo
-	opts  Options
-	setup func(ffgo.EncodedStreamSource) error
-	emit  func(*ffgo.Packet) error
+	in   <-chan *ffgo.Packet
+	dec  *ffgo.Decoder
+	src  *ffgo.StreamInfo
+	opts Options
+	// setup hands the muxer each output's encoder, in output order, then
+	// waits for the header.
+	setup func(...ffgo.EncodedStreamSource) error
+	emits []func(*ffgo.Packet) error // one per output
+	emit  func(*ffgo.Packet) error   // emits[0]
 }
 
 type muxItem struct {
@@ -231,6 +240,15 @@ func Run(ctx context.Context, plan standard.Result, input, output string, o Opti
 			copies[s.src.Index] = i
 			continue
 		}
+		if s.fed {
+			continue // its source's first encoded slot encodes it
+		}
+		outs := []int{i}
+		for j := i + 1; j < len(slots); j++ {
+			if f := slots[j]; f.fed && f.donor == s.donor && f.src.Index == s.src.Index {
+				outs = append(outs, j)
+			}
+		}
 		in := make(chan *ffgo.Packet, o.QueueDepth)
 		dec := d
 		if s.donor {
@@ -239,32 +257,40 @@ func Run(ctx context.Context, plan standard.Result, input, output string, o Opti
 		} else {
 			routes[s.src.Index] = in
 		}
-		i := i
-		sc := &stageContext{
-			in: in, dec: dec, src: s.src, opts: o,
-			setup: func(src ffgo.EncodedStreamSource) error {
-				select {
-				case setupCh <- setupItem{slot: i, src: src}:
-				case <-ctx.Done():
-					return ctx.Err()
-				}
-				select {
-				case <-headerDone:
-					return nil
-				case <-ctx.Done():
-					return ctx.Err()
-				}
-			},
-			emit: func(p *ffgo.Packet) error {
+		emits := make([]func(*ffgo.Packet) error, len(outs))
+		for k, slot := range outs {
+			emits[k] = func(p *ffgo.Packet) error {
 				c, err := p.Clone()
 				if err != nil {
 					return err
 				}
 				select {
-				case muxCh <- muxItem{slot: i, pkt: c}:
+				case muxCh <- muxItem{slot: slot, pkt: c}:
 					return nil
 				case <-ctx.Done():
 					_ = c.Free()
+					return ctx.Err()
+				}
+			}
+		}
+		name := s.name
+		sc := &stageContext{
+			in: in, dec: dec, src: s.src, opts: o, emits: emits, emit: emits[0],
+			setup: func(srcs ...ffgo.EncodedStreamSource) error {
+				if len(srcs) != len(outs) {
+					return fmt.Errorf("%s: %d encoders for %d outputs", name, len(srcs), len(outs))
+				}
+				for k, src := range srcs {
+					select {
+					case setupCh <- setupItem{slot: outs[k], src: src}:
+					case <-ctx.Done():
+						return ctx.Err()
+					}
+				}
+				select {
+				case <-headerDone:
+					return nil
+				case <-ctx.Done():
 					return ctx.Err()
 				}
 			},
@@ -392,13 +418,27 @@ func demuxPaced(ctx context.Context, d *ffgo.Decoder, shift map[int]int64, route
 			}
 		}
 		if encoded {
+			// A stream both copied and encoded (an E-AC-3 copied beside
+			// its AAC companion) sends the stage its own reference.
+			sent := c
+			if copied {
+				if sent, err = c.Clone(); err != nil {
+					_ = c.Free()
+					return &Error{Stage: "demux", Err: err}
+				}
+			}
 			select {
-			case in <- c:
+			case in <- sent:
 			case <-ctx.Done():
-				_ = c.Free()
+				_ = sent.Free()
+				if sent != c {
+					_ = c.Free()
+				}
 				return ctx.Err()
 			}
-			continue
+			if !copied {
+				continue
+			}
 		}
 		select {
 		case muxCh <- muxItem{slot: slot, pkt: c}:
@@ -549,6 +589,7 @@ func addStreams(m *ffgo.Muxer, d *ffgo.Decoder, plan standard.Result, slots []sl
 			if s.opts != nil {
 				opts = *s.opts
 			}
+			opts = mp4Title(opts, plan.Container)
 			s.stream, err = m.AddCopyStream(&ffgo.CopyStreamConfig{
 				CodecParameters: par, TimeBase: s.src.TimeBase, Options: opts,
 			})
@@ -559,6 +600,7 @@ func addStreams(m *ffgo.Muxer, d *ffgo.Decoder, plan standard.Result, slots []sl
 			if s.opts != nil {
 				opts = *s.opts
 			}
+			opts = mp4Title(opts, plan.Container)
 			if sd, ok := srcs[i].(interface {
 				StreamSideData() map[ffgo.PacketSideDataType][]byte
 			}); ok {
@@ -708,14 +750,30 @@ func planSlots(plan standard.Result, streams []*ffgo.StreamInfo) ([]slot, error)
 		vs.stage = videoStage(plan.Video)
 	}
 	slots = append(slots, vs)
+	// Every encoded output of a source is one stage's (fed), so the source
+	// is decoded once.
+	encodes := map[int32][]standard.AudioPlan{}
+	for _, a := range plan.Audio {
+		if a.Action != standard.AudioCopy {
+			encodes[a.SourceIndex] = append(encodes[a.SourceIndex], a)
+		}
+	}
+	started := map[int32]bool{}
 	for _, a := range plan.Audio {
 		s, err := pick(auds, a.SourceIndex, "audio")
 		if err != nil {
 			return nil, err
 		}
-		as := slot{src: s, name: fmt.Sprintf("audio:%d", a.SourceIndex), copy: a.Action == "copy"}
-		if !as.copy {
-			as.stage = audioStage(a)
+		copied := a.Action == standard.AudioCopy
+		opts := audioOptions(s, a, copied)
+		as := slot{src: s, name: fmt.Sprintf("audio:%d", a.SourceIndex), copy: copied, opts: &opts}
+		switch {
+		case copied:
+		case started[a.SourceIndex]:
+			as.fed = true
+		default:
+			started[a.SourceIndex] = true
+			as.stage = audioStage(encodes[a.SourceIndex])
 		}
 		slots = append(slots, as)
 	}
@@ -727,6 +785,41 @@ func planSlots(plan standard.Result, streams []*ffgo.StreamInfo) ([]slot, error)
 		slots = append(slots, slot{src: s, name: fmt.Sprintf("subtitle:%d", sp.SourceIndex), copy: true})
 	}
 	return slots, nil
+}
+
+// mp4Title names an MP4 track by its title: FFmpeg's MP4 muxer writes no
+// track title box, only the handler name (hdlr), which players read as
+// the track's name. A copy of o's metadata carries it.
+func mp4Title(o ffgo.StreamOptions, c transcode.Container) ffgo.StreamOptions {
+	if c != transcode.ContainerMP4 || o.Title == "" {
+		return o
+	}
+	md := ffgo.Metadata{}
+	for k, v := range o.Metadata {
+		md[k] = v
+	}
+	md["handler_name"] = o.Title
+	o.Metadata = md
+	return o
+}
+
+// audioOptions are an output audio track's tags: the source's language and
+// metadata, the plan's title when it names one or the track is encoded
+// (ruling R5), and the plan's default and comment flags in place of the
+// source's.
+func audioOptions(src *ffgo.StreamInfo, a standard.AudioPlan, copied bool) ffgo.StreamOptions {
+	o := streamOptions(src, copied)
+	if a.Title != "" || !copied {
+		o.Title = a.Title
+	}
+	o.Disposition &^= ffgo.DispositionDefault | ffgo.DispositionComment
+	if a.Default {
+		o.Disposition |= ffgo.DispositionDefault
+	}
+	if a.Comment {
+		o.Disposition |= ffgo.DispositionComment
+	}
+	return o
 }
 
 func muxFormat(c transcode.Container) string {

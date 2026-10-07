@@ -28,60 +28,99 @@ import (
 	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
 
-// maxAACRate is the highest sample rate the stage encodes at; a 96 kHz
+// maxAACRate is the highest sample rate the stage encodes AAC at; a 96 kHz
 // source is resampled to it (Apple TV plays 48 kHz AAC).
 const maxAACRate = 48000
 
-// audioStage decodes one audio track, resamples it into the plan's layout
-// by channel position (the resampler is built from the first decoded
-// frame's real layout, not the container's claim), and encodes AAC.
-func audioStage(a standard.AudioPlan) stageFunc {
+// outputRate is the sample rate an output encodes at: AAC at the source's
+// up to maxAACRate; AC-3 at the source's when AC-3 has it (32, 44.1 or 48
+// kHz), else 48 kHz.
+func outputRate(action string, source int) int {
+	if action == standard.AudioAC3 {
+		switch source {
+		case 32000, 44100, 48000:
+			return source
+		}
+		return 48000
+	}
+	if source <= 0 || source > maxAACRate {
+		return maxAACRate
+	}
+	return source
+}
+
+// audioStage decodes one audio track once and encodes each of outs from
+// it -- AC-3 5.1 and its AAC 2.0 companion, or one AAC track -- each
+// through its own resampler into the output's layout by channel position
+// (built from the first decoded frame's real layout, not the container's
+// claim).
+func audioStage(outs []standard.AudioPlan) stageFunc {
 	return func(ctx context.Context, sc *stageContext) error {
 		sd, err := sc.dec.NewStreamDecoder(sc.src.Index, nil)
 		if err != nil {
 			return fmt.Errorf("decoder: %w", err)
 		}
 		defer func() { _ = sd.Close() }()
-		rate := sc.src.SampleRate
-		if rate <= 0 || rate > maxAACRate {
-			rate = maxAACRate
+		encs := make([]*ffgo.AudioEncoder, len(outs))
+		rates := make([]int, len(outs))
+		defer func() {
+			for _, e := range encs {
+				if e != nil {
+					_ = e.Close()
+				}
+			}
+		}()
+		srcs := make([]ffgo.EncodedStreamSource, len(outs))
+		for k, a := range outs {
+			name := "aac"
+			if a.Action == standard.AudioAC3 {
+				name = "ac3"
+			}
+			rates[k] = outputRate(a.Action, sc.src.SampleRate)
+			if encs[k], err = ffgo.NewAudioEncoder(ffgo.AudioEncoderConfig2{
+				EncoderName: name, SampleRate: rates[k], Layout: a.Layout, BitRate: a.BitRate,
+				GlobalHeader: true, InputTimeBase: sd.TimeBase(),
+			}); err != nil {
+				return fmt.Errorf("%s encoder: %w", name, err)
+			}
+			srcs[k] = encs[k]
 		}
-		enc, err := ffgo.NewAudioEncoder(ffgo.AudioEncoderConfig2{
-			SampleRate: rate, Layout: a.Layout, BitRate: a.BitRate,
-			GlobalHeader: true, InputTimeBase: sd.TimeBase(),
-		})
-		if err != nil {
-			return fmt.Errorf("aac encoder: %w", err)
-		}
-		defer func() { _ = enc.Close() }()
-		if err := sc.setup(enc); err != nil {
+		if err := sc.setup(srcs...); err != nil {
 			return err
 		}
 
-		var res *ffgo.Resampler
+		res := make([]*ffgo.Resampler, len(outs))
 		defer func() {
-			if res != nil {
-				_ = res.Close()
+			for _, r := range res {
+				if r != nil {
+					_ = r.Close()
+				}
 			}
 		}()
 		encode := func(f ffgo.Frame) error {
-			if res == nil {
-				if res, err = ffgo.NewResampler(
-					ffgo.AudioFormat{SampleRate: sc.src.SampleRate, Layout: f.ChannelLayout(), SampleFormat: ffgo.SampleFormat(f.Format())},
-					ffgo.AudioFormat{SampleRate: rate, Layout: a.Layout, SampleFormat: ffgo.SampleFormatFLTP}); err != nil {
-					return fmt.Errorf("resampler: %w", err)
+			for k, a := range outs {
+				if res[k] == nil {
+					if res[k], err = ffgo.NewResampler(
+						ffgo.AudioFormat{SampleRate: sc.src.SampleRate, Layout: f.ChannelLayout(), SampleFormat: ffgo.SampleFormat(f.Format())},
+						ffgo.AudioFormat{SampleRate: rates[k], Layout: a.Layout, SampleFormat: ffgo.SampleFormatFLTP}); err != nil {
+						return fmt.Errorf("resampler: %w", err)
+					}
+				}
+				r, err := res[k].Resample(f)
+				if err != nil {
+					return fmt.Errorf("resample: %w", err)
+				}
+				if r.IsNil() {
+					continue
+				}
+				r.SetPTS(f.PTS()) // the resampler's frames carry none; the encoder anchors on the first
+				err = encs[k].Encode(r, sc.emits[k])
+				_ = r.Free()
+				if err != nil {
+					return err
 				}
 			}
-			r, err := res.Resample(f)
-			if err != nil {
-				return fmt.Errorf("resample: %w", err)
-			}
-			if r.IsNil() {
-				return nil
-			}
-			defer func() { _ = r.Free() }()
-			r.SetPTS(f.PTS()) // the resampler's frames carry none; the encoder anchors on the first
-			return enc.Encode(r, sc.emit)
+			return nil
 		}
 		drain := func() error {
 			for {
@@ -100,16 +139,21 @@ func audioStage(a standard.AudioPlan) stageFunc {
 		if err := decodeAll(ctx, sc.in, sd, drain); err != nil {
 			return err
 		}
-		if res != nil {
-			if tail, err := res.Flush(); err == nil && !tail.IsNil() {
-				err := enc.Encode(tail, sc.emit)
-				_ = tail.Free()
-				if err != nil {
-					return err
+		for k := range outs {
+			if res[k] != nil {
+				if tail, err := res[k].Flush(); err == nil && !tail.IsNil() {
+					err := encs[k].Encode(tail, sc.emits[k])
+					_ = tail.Free()
+					if err != nil {
+						return err
+					}
 				}
 			}
+			if err := encs[k].Flush(sc.emits[k]); err != nil {
+				return err
+			}
 		}
-		return enc.Flush(sc.emit)
+		return nil
 	}
 }
 

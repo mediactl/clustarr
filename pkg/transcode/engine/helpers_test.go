@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package engine
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -27,6 +28,9 @@ import (
 	"testing"
 
 	"github.com/obinnaokechukwu/ffgo"
+
+	"github.com/mediactl/clustarr/pkg/mediainfo"
+	"github.com/mediactl/clustarr/pkg/transcode"
 )
 
 // ffmpeg9OrSkip skips unless FFmpeg 9's libraries and the ffmpeg/ffprobe
@@ -131,4 +135,19 @@ func (p probed) seconds(t *testing.T) float64 {
 		t.Fatalf("duration %q", p.Format.Duration)
 	}
 	return d
+}
+
+// probeInfo is the plan input the worker builds for path: a live probe
+// through mediainfo, mapped by transcode.FromProbe.
+func probeInfo(t *testing.T, path string) transcode.MediaInfo {
+	t.Helper()
+	mi, raw, err := mediainfo.Probe(context.Background(), path)
+	if err != nil {
+		t.Fatalf("probe %s: %v", path, err)
+	}
+	info, err := transcode.FromProbe(mi, raw)
+	if err != nil {
+		t.Fatalf("plan input for %s: %v", path, err)
+	}
+	return info
 }

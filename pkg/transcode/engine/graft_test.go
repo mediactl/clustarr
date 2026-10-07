@@ -323,3 +323,17 @@ func TestAGraftedTrackIsInterleavedWithTheVideo(t *testing.T) {
 	}
 	assert.GreaterOrEqual(t, float64(near)/float64(len(dub)), 0.95, "%d of %d dub packets lie among the video of their time", near, len(dub))
 }
+
+// A copy plan carries each track's default and commentary flags: the plan
+// owns them (audioOptions), so a graft that is not the default keeps the
+// target's own.
+func TestACopyPlanKeepsTheTracksFlags(t *testing.T) {
+	src := everythingClip(t, 2)
+	plan, err := CopyPlan(src)
+	require.NoError(t, err)
+	require.Len(t, plan.Audio, 2)
+	assert.True(t, plan.Audio[0].Default)
+	assert.False(t, plan.Audio[0].Comment)
+	assert.True(t, plan.Audio[1].Comment)
+	assert.False(t, plan.Audio[1].Default)
+}

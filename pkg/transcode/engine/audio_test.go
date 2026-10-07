@@ -19,6 +19,7 @@ package engine
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"path/filepath"
 	"regexp"
@@ -128,4 +129,41 @@ func TestAudioThatStartsLateKeepsItsStart(t *testing.T) {
 	srcStart, _ := strconv.ParseFloat(ffprobeJSON(t, src).Streams[1].StartTime, 64)
 	outStart, _ := strconv.ParseFloat(ffprobeJSON(t, out).Streams[1].StartTime, 64)
 	assert.InDelta(t, srcStart, outStart, 0.03, "within about one AAC frame (21 ms) of the source's start")
+}
+
+// A FLAC 5.1 source becomes AC-3 5.1 and AAC 2.0 from one decode; an
+// E-AC-3 5.1 source is copied and gains AAC 2.0; titles and the default
+// flag are the plan's (MP4 standard spec §3), the title as the track's
+// handler name, the one name an MP4 track has.
+func TestTheEngineWritesTheMP4AudioLayout(t *testing.T) {
+	ffmpeg9OrSkip(t)
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src.mkv")
+	run(t, "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+		"-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24:duration=3",
+		"-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=3,aformat=channel_layouts=5.1",
+		"-f", "lavfi", "-i", "sine=frequency=660:sample_rate=48000:duration=3,aformat=channel_layouts=5.1",
+		"-map", "0", "-map", "1", "-map", "2",
+		"-c:v", "libx265", "-preset", "ultrafast", "-pix_fmt", "yuv420p10le", "-x265-params", "log-level=error",
+		"-c:a:0", "flac", "-c:a:1", "eac3",
+		"-metadata:s:a:0", "language=jpn", "-metadata:s:a:0", "title=FLAC 5.1",
+		"-metadata:s:a:1", "language=eng", "-disposition:a:0", "default", "-disposition:a:1", "0", src)
+	plan := standard.Plan(probeInfo(t, src), standard.Profile{Name: "p", Hash: "h"}, standard.Hardware{Tier: transcode.TierCPUx265})
+	require.Equal(t, standard.DecisionCopyVideo, plan.Decision, plan.Reason)
+	out := filepath.Join(dir, "out.mp4")
+	_, err := Run(context.Background(), plan, src, out, Options{})
+	require.NoError(t, err)
+	var auds []string
+	for _, s := range ffprobeJSON(t, out).Streams {
+		if s.CodecType == "audio" {
+			auds = append(auds, fmt.Sprintf("%s/%d/%s/%s/%d", s.CodecName, s.Channels, s.Tags["language"], s.Tags["handler_name"], s.Disposition["default"]))
+		}
+	}
+	assert.Equal(t, []string{
+		"ac3/6/jpn/Dolby Digital 5.1/1", "aac/2/jpn/Stereo/0", // FLAC 5.1 encoded twice from one decode
+		"eac3/6/eng/SoundHandler/0", "aac/2/eng/Stereo/0", // E-AC-3 copied (no title: the muxer's default handler), plus its companion
+	}, auds)
+	rep, err := Verify(context.Background(), src, out, plan.Expect)
+	require.NoError(t, err)
+	assert.True(t, rep.OK, "%v", rep.Problems)
 }
