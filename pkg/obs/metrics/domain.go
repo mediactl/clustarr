@@ -403,8 +403,9 @@ var (
 )
 
 // Probe queue telemetry (spec 2026-10-06 §6.6). The probe's requests are
-// counted as clustarr_record_requests_total{remediation="probe"} (loop spec
-// 2026-10-06 §4.12; it replaced clustarr_probe_requests_total).
+// counted as clustarr_record_requests_total{remediation="probe"}, which
+// replaced the split's own probe request counter (loop spec 2026-10-06
+// §4.12).
 var (
 	// ProbeDuration is how long the import domain's probe worker took per
 	// task, by lane and outcome (probed, failed, transient, abandoned,
