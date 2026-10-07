@@ -63,10 +63,10 @@ Main 10, or Main 8-bit for SDR at 1080p or less; Dolby Vision 7/8.1 as
 HDR10; since `standard.Version` 2 the MP4 layout,
 `docs/superpowers/specs/2026-10-06-mp4-standard-design.md`: one `.mp4`,
 HEVC tagged `hvc1`, whatever the profile's `container`
-(`worker.OutputContainer`); per language a Dolby surround track -- E-AC-3
-or AC-3 copied, anything else AC-3 5.1 640k -- plus an AAC 2.0 160k
-companion, or AAC alone for mono or stereo, commentary AAC, other mixes
-dropped; every subtitle beside the file in Plex's layout
+(`worker.OutputContainer`); per language an AAC 2.0 160k track listed
+first (it carries the default) and then a Dolby surround track -- E-AC-3
+or AC-3 copied, anything else AC-3 5.1 640k -- or AAC alone for mono or
+stereo, commentary AAC, other mixes dropped; every subtitle beside the file in Plex's layout
 `<stem>.<lang>[.forced|.sdh].<srt|ass>` (spec §4.1: SubRip copied through
 the `srt` muxer, WebVTT/`mov_text`/text converted, ASS through the `ass`
 muxer), written in the transcode's own pass and placed before the swap,

@@ -70,8 +70,8 @@ type GraftAudio struct {
 	// audio track.
 	Language, Title string
 	Default         bool
-	// Surround: the dub is surround, grafted as AC-3 5.1 plus an AAC 2.0
-	// companion (MP4 standard spec §3); else AAC 2.0 alone.
+	// Surround: the dub is surround, grafted as an AAC 2.0 companion then
+	// AC-3 5.1 (MP4 standard spec §3, AAC first); else AAC 2.0 alone.
 	Surround bool
 }
 
@@ -403,7 +403,9 @@ func graftStage(g GraftAudio, total int64, pace *graftPace) stageFunc {
 		specs := []spec{{"aac", GraftLayout, graftBitRate}}
 		if g.Surround {
 			layout, ch = standard.AC3Layout, 6
-			specs = []spec{{"ac3", standard.AC3Layout, standard.AC3BitRate}, {"aac", GraftLayout, graftBitRate}}
+			// AAC first, the AC-3 after it, as the standard orders a
+			// language's tracks.
+			specs = []spec{{"aac", GraftLayout, graftBitRate}, {"ac3", standard.AC3Layout, standard.AC3BitRate}}
 		}
 		outs := make([]graftOut, len(specs))
 		defer func() {
@@ -602,18 +604,18 @@ func graftSlots(slots []slot, g GraftAudio, dd *ffgo.Decoder, target time.Durati
 	if g.Default {
 		disp |= ffgo.DispositionDefault
 	}
+	first := g.Title
+	if g.Surround && first != "" {
+		first += " (Stereo)" // the AAC companion, before the AC-3
+	}
 	gs := []slot{{
 		src: auds[g.Stream], name: "graft", donor: true, stage: graftStage(g, total, pace),
-		opts: &ffgo.StreamOptions{Language: g.Language, Title: g.Title, Disposition: disp, Metadata: ffgo.Metadata{}},
+		opts: &ffgo.StreamOptions{Language: g.Language, Title: first, Disposition: disp, Metadata: ffgo.Metadata{}},
 	}}
 	if g.Surround {
-		title := g.Title
-		if title != "" {
-			title += " (Stereo)"
-		}
 		gs = append(gs, slot{
-			src: auds[g.Stream], name: "graft:stereo", donor: true, fed: true,
-			opts: &ffgo.StreamOptions{Language: g.Language, Title: title, Disposition: ffgo.DispositionDub, Metadata: ffgo.Metadata{}},
+			src: auds[g.Stream], name: "graft:ac3", donor: true, fed: true,
+			opts: &ffgo.StreamOptions{Language: g.Language, Title: g.Title, Disposition: ffgo.DispositionDub, Metadata: ffgo.Metadata{}},
 		})
 	}
 	at := len(slots)

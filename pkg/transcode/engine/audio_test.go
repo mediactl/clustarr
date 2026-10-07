@@ -161,8 +161,8 @@ func TestTheEngineWritesTheMP4AudioLayout(t *testing.T) {
 		}
 	}
 	assert.Equal(t, []string{
-		"ac3/6/jpn/Dolby Digital 5.1/1", "aac/2/jpn/Stereo/0", // FLAC 5.1 encoded twice from one decode
-		"eac3/6/eng/SoundHandler/0", "aac/2/eng/Stereo/0", // E-AC-3 copied (no title: the muxer's default handler), plus its companion
+		"aac/2/jpn/Stereo/1", "ac3/6/jpn/Dolby Digital 5.1/0", // FLAC 5.1 encoded twice from one decode, AAC first
+		"aac/2/eng/Stereo/0", "eac3/6/eng/SoundHandler/0", // the companion, then E-AC-3 copied (no title: the muxer's default handler)
 	}, auds)
 	rep, err := Verify(context.Background(), src, out, plan.Expect)
 	require.NoError(t, err)

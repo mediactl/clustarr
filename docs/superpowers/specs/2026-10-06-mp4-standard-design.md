@@ -52,7 +52,9 @@ filter (unchanged):
    first such track wins a tie. A copyable Dolby track is chosen over one
    with more channels that would need encoding (TrueHD 7.1 beside an AC-3
    5.1 core: the AC-3 is copied).
-2. **A primary with more than 2 channels** becomes two tracks:
+2. **A primary with more than 2 channels** becomes two tracks, the AAC
+   companion listed first and the Dolby track after it (the owner's
+   correction, 2026-10-07; the default flag goes with the first):
    - **The Dolby surround track:** E-AC-3 copied as is, at any channel
      count (7.1 and Atmos included); AC-3 copied as is; anything else
      decoded and encoded with FFmpeg's `ac3` encoder to AC-3 5.1 at
@@ -64,8 +66,9 @@ filter (unchanged):
 4. **Commentary tracks** become AAC 2.0, one each, flagged as comment.
 5. **Other tracks in the same language are dropped.** "1 or 2 audio streams
    per language" leaves no room for alternative mixes.
-6. **Default flag:** the first kept language's first track (AC-3 or AAC)
-   carries it, as the standard orders languages today.
+6. **Default flag:** the default language's first track carries it, which
+   for a surround language is its AAC companion (ruling R4 picks the
+   language).
 
 One decoded source feeding two encoders is new to the engine: a stage that
 fans the decoded frames out to two resamplers and encoders (§6).

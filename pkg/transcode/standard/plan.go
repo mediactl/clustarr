@@ -559,8 +559,9 @@ func aacTitle(ch int32) string {
 	return "Stereo"
 }
 
-// primaryPlans is a primary track's one or two outputs. A copied track
-// keeps its title; an encoded one is named for what it is (ruling R5).
+// primaryPlans is a primary track's one or two outputs: for surround, the
+// AAC 2.0 companion first and the Dolby track last. A copied track keeps
+// its title; an encoded one is named for what it is (ruling R5).
 func primaryPlans(a transcode.AudioStream, i int32) []AudioPlan {
 	ch := channels(a)
 	if ch <= 2 {
@@ -576,7 +577,10 @@ func primaryPlans(a transcode.AudioStream, i int32) []AudioPlan {
 			Language: a.Language, Title: "Dolby Digital 5.1",
 		}
 	}
-	return []AudioPlan{surround, aacPlan(i, a.Language, 2, "Stereo")}
+	// AAC first, the Dolby track after it (the owner's correction,
+	// 2026-10-07): a player that takes a language's first track gets the
+	// one every client decodes.
+	return []AudioPlan{aacPlan(i, a.Language, 2, "Stereo"), surround}
 }
 
 // commentaryPlan is a commentary track as AAC of at most 2 channels,

@@ -10,22 +10,22 @@
   "Audio": [
     {
       "SourceIndex": 0,
-      "Action": "ac3",
-      "Channels": 6,
-      "Layout": "5.1",
-      "BitRate": 640000,
-      "Language": "eng",
-      "Title": "Dolby Digital 5.1",
-      "Default": true
-    },
-    {
-      "SourceIndex": 0,
       "Action": "aac",
       "Channels": 2,
       "Layout": "stereo",
       "BitRate": 160000,
       "Language": "eng",
-      "Title": "Stereo"
+      "Title": "Stereo",
+      "Default": true
+    },
+    {
+      "SourceIndex": 0,
+      "Action": "ac3",
+      "Channels": 6,
+      "Layout": "5.1",
+      "BitRate": 640000,
+      "Language": "eng",
+      "Title": "Dolby Digital 5.1"
     }
   ],
   "Subtitles": [],

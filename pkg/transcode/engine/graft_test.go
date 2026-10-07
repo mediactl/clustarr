@@ -353,8 +353,9 @@ func graftDonorSurround(t *testing.T, seconds float64) string {
 	return out
 }
 
-// A surround dub is grafted as AC-3 5.1 plus an AAC 2.0 companion (MP4
-// standard spec §3), both on the target's clock, the AC-3 the default.
+// A surround dub is grafted as an AAC 2.0 companion and AC-3 5.1, AAC
+// first (MP4 standard spec §3), both on the target's clock, the AAC the
+// default.
 func TestASurroundDubIsGraftedAsAC3AndAAC(t *testing.T) {
 	target := graftTarget(t, 12)
 	donor := graftDonorSurround(t, 12)
@@ -375,7 +376,7 @@ func TestASurroundDubIsGraftedAsAC3AndAAC(t *testing.T) {
 			auds = append(auds, fmt.Sprintf("%s/%d/%s/%s/%d/%d", s.CodecName, s.Channels, s.Tags["language"], s.Tags["title"], s.Disposition["default"], s.Disposition["dub"]))
 		}
 	}
-	assert.Equal(t, []string{"aac/1/jpn//0/0", "ac3/6/eng/English/1/1", "aac/2/eng/English (Stereo)/0/1"}, auds)
+	assert.Equal(t, []string{"aac/1/jpn//0/0", "aac/2/eng/English (Stereo)/1/1", "ac3/6/eng/English/0/1"}, auds)
 	want, err := DecodePCM(context.Background(), burstsRef(t, 2, 12), 0, 8000)
 	require.NoError(t, err)
 	for _, i := range []int{1, 2} {
