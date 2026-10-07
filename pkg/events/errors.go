@@ -77,6 +77,13 @@ var (
 	// the stream by hand; silently recreating it would drop queued work.
 	ErrRetentionImmutable = errors.New("events: stream retention is immutable")
 
+	// ErrConsumerUnavailable is a consumer state the broker could not vouch
+	// for: the connection is to a cluster, and the answer carried no
+	// placement -- the "assigned, no Raft node yet" answer, with zero state
+	// that is not the durable's (split §9.3 as amended 2026-10-07). The
+	// External Metrics API answers 503 for it, holding the HPA's scale.
+	ErrConsumerUnavailable = errors.New("events: consumer state unavailable")
+
 	// ErrLapsed is the cause a budgeted handler's context is cancelled with
 	// one deadline after its delivery lapsed: the broker has redelivered the
 	// message, so the work goes on elsewhere (split §9.3 as amended

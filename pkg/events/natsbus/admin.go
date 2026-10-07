@@ -110,7 +110,25 @@ func (b *Bus) ConsumerState(ctx context.Context, stream, durable string) (events
 	if err != nil {
 		return events.ConsumerState{}, lookupError(stream, durable, err)
 	}
-	info := c.CachedInfo()
+	st, err := stateOf(c.CachedInfo(), b.nc.ConnectedClusterName() != "")
+	if err != nil {
+		return events.ConsumerState{}, fmt.Errorf("natsbus: consumer %s on %s: %w", durable, stream, err)
+	}
+	return st, nil
+}
+
+// stateOf reads a CONSUMER.INFO answer, which only the consumer's leader
+// gives (nats-server jetstream_api.go:5556, 5649), so it is right on an R3
+// cluster where /jsz on a follower reads NumPending 0 (split §9.0 as amended
+// 2026-10-07). On a cluster, an answer with no placement is the "assigned, no
+// Raft node yet" answer a member gives with zero state
+// (jetstream_api.go:5675-5688): events.ErrConsumerUnavailable, never lag 0.
+// A message past MaxDeliver waiting for its dead-letter copy counts in
+// neither NumPending nor NumAckPending (consumer.go:2427-2453).
+func stateOf(info *jetstream.ConsumerInfo, clustered bool) (events.ConsumerState, error) {
+	if info == nil || clustered && info.Cluster == nil {
+		return events.ConsumerState{}, events.ErrConsumerUnavailable
+	}
 	return events.ConsumerState{
 		Pending:       info.NumPending,
 		AckPending:    uint64(max(info.NumAckPending, 0)),
