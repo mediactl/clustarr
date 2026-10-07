@@ -37,6 +37,7 @@ import (
 	"github.com/obinnaokechukwu/ffgo/avcodec"
 	"github.com/obinnaokechukwu/ffgo/avutil"
 
+	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/transcode"
 	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
@@ -109,6 +110,10 @@ type slot struct {
 	// encodes every such output from one decode (an AC-3 and its AAC
 	// companion).
 	fed bool
+	// sidecar is a subtitle written beside the output, not muxed into it:
+	// its packets go to sink, made with the header.
+	sidecar *standard.SidecarPlan
+	sink    sidecarSink
 }
 
 // stageFunc runs one encoded source: it reads its packets from in, reports
@@ -178,6 +183,9 @@ func Run(ctx context.Context, plan standard.Result, input, output string, o Opti
 		}
 		if err != nil {
 			_ = os.Remove(output)
+			for _, sp := range plan.Sidecars {
+				_ = os.Remove(fsops.SidecarPath(output, sp.Suffix))
+			}
 		}
 	}()
 
@@ -190,6 +198,16 @@ func Run(ctx context.Context, plan standard.Result, input, output string, o Opti
 	if err != nil {
 		return res, &Error{Stage: "demux", Err: err}
 	}
+	// Runs before the removal above (defers are last in, first out): a
+	// failed run's sidecars are closed, then removed. A finished run's are
+	// closed already, after the trailer.
+	defer func() {
+		for i := range slots {
+			if s := slots[i].sink; s != nil {
+				_ = s.close()
+			}
+		}
+	}()
 	var dd *ffgo.Decoder // the graft's donor
 	var pace *graftPace  // holds the target's demuxer to the graft's output
 	if g := o.Graft; g != nil {
@@ -497,7 +515,7 @@ func mux(ctx context.Context, m *ffgo.Muxer, d *ffgo.Decoder, plan standard.Resu
 			return res, ctx.Err()
 		}
 	}
-	if err := addStreams(m, d, plan, slots, srcs); err != nil {
+	if err := addStreams(m, d, plan, slots, srcs, output); err != nil {
 		return res, &Error{Stage: "mux", Err: err}
 	}
 	close(headerDone)
@@ -534,6 +552,9 @@ func mux(ctx context.Context, m *ffgo.Muxer, d *ffgo.Decoder, plan standard.Resu
 	write := func(it muxItem) error {
 		s := &slots[it.slot]
 		defer func() { _ = it.pkt.Free() }()
+		if s.sink != nil {
+			return s.sink.write(it.pkt, s.src.TimeBase)
+		}
 		if ts := it.pkt.DTS(); ts != avutil.AV_NOPTS_VALUE && s.tb.Den > 0 {
 			outMillis = max(outMillis, ts*1000*int64(s.tb.Num)/int64(s.tb.Den))
 		}
@@ -555,6 +576,13 @@ func mux(ctx context.Context, m *ffgo.Muxer, d *ffgo.Decoder, plan standard.Resu
 				if err := m.WriteTrailer(); err != nil {
 					return res, &Error{Stage: "mux", Err: err}
 				}
+				for i := range slots {
+					if sk := slots[i].sink; sk != nil {
+						if err := sk.close(); err != nil {
+							return res, &Error{Stage: "mux", Err: fmt.Errorf("%s: %w", slots[i].name, err)}
+						}
+					}
+				}
 				res.DurationMillis = outMillis
 				report(true)
 				return res, nil
@@ -575,10 +603,16 @@ func mux(ctx context.Context, m *ffgo.Muxer, d *ffgo.Decoder, plan standard.Resu
 
 // addStreams adds every output stream in slot order, then the attachments,
 // chapters and container tags, and writes the header.
-func addStreams(m *ffgo.Muxer, d *ffgo.Decoder, plan standard.Result, slots []slot, srcs []ffgo.EncodedStreamSource) error {
+func addStreams(m *ffgo.Muxer, d *ffgo.Decoder, plan standard.Result, slots []slot, srcs []ffgo.EncodedStreamSource, output string) error {
 	for i := range slots {
 		s := &slots[i]
 		var err error
+		if s.sidecar != nil {
+			if s.sink, err = newSidecar(*s.sidecar, s.src, output); err != nil {
+				return fmt.Errorf("%s: %w", s.name, err)
+			}
+			continue
+		}
 		if s.copy {
 			s.tb = s.src.TimeBase
 			par, perr := outputParameters(s.src.CodecParameters(), outputTag(s.src.Codec, plan.Container))
@@ -783,6 +817,14 @@ func planSlots(plan standard.Result, streams []*ffgo.StreamInfo) ([]slot, error)
 			return nil, err
 		}
 		slots = append(slots, slot{src: s, name: fmt.Sprintf("subtitle:%d", sp.SourceIndex), copy: true})
+	}
+	for i := range plan.Sidecars {
+		sp := &plan.Sidecars[i]
+		s, err := pick(subs, sp.SourceIndex, "subtitle")
+		if err != nil {
+			return nil, err
+		}
+		slots = append(slots, slot{src: s, name: "sidecar:" + sp.Suffix, copy: true, sidecar: sp})
 	}
 	return slots, nil
 }
