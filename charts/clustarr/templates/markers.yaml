@@ -1,0 +1,165 @@
+{{- if .Values.markers.enabled }}
+{{/*
+markers detects skip segments (spec 2026-10-01 segment detection; spec
+2026-10-06 §3.7): the credential-less cmd/markers binary on the native
+image. It reads /data and talks NATS, so its ServiceAccount mounts no token
+and nothing binds it. Grace is its consumer's 30-minute AckWait plus 25 s.
+Autoscaled 0..N by the manager on markers-analyze's lag; per-pod slots come
+from markers.consumerSlots (CLUSTARR_CONSUMER_SLOTS), the number the HPA
+targets too.
+*/}}
+{{- $name := printf "%s-markers" (include "clustarr.fullname" .) }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "clustarr.labels" . | nindent 4 }}
+    app.kubernetes.io/component: markers
+automountServiceAccountToken: false
+{{- with .Values.imagePullSecrets }}
+imagePullSecrets:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "clustarr.labels" . | nindent 4 }}
+    app.kubernetes.io/component: markers
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "clustarr.selectorLabels" (dict "root" $ "component" "markers") | nindent 4 }}
+  ports:
+  - name: metrics
+    port: 8080
+    targetPort: metrics
+    protocol: TCP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "clustarr.labels" . | nindent 4 }}
+    app.kubernetes.io/component: markers
+    {{- if .Values.autoscaling.enabled }}
+    autoscale.clustarr.io/domain: markers
+    {{- end }}
+spec:
+  {{- if .Values.autoscaling.enabled }}
+  # replicas omitted: the manager's autoscale reconciler owns this
+  # Deployment's HPA. Created without it, it starts at 1; an explicit 0 would
+  # leave it paused and never woken (spec §10.2.2).
+  {{- else }}
+  replicas: {{ .Values.markers.replicas }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "clustarr.selectorLabels" (dict "root" $ "component" "markers") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "clustarr.labels" . | nindent 8 }}
+        app.kubernetes.io/component: markers
+    spec:
+      serviceAccountName: {{ $name }}
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 1825
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with .Values.markers.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.markers.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.markers.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      # Soft: a required anti-affinity would stall a RollingUpdate surge on a
+      # single node (spec §10.2.1, OD33).
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            {{- include "clustarr.selectorLabels" (dict "root" $ "component" "markers") | nindent 12 }}
+      containers:
+      - name: markers
+        image: {{ include "clustarr.image" (dict "root" $ "which" "native") }}
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        command:
+        - /usr/bin/markers
+        env:
+        - name: NATS_URL
+          value: {{ include "clustarr.natsUrl" . | quote }}
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        # The node the pod runs on, for its presence report (ADR-0019 §5.3).
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        {{- with dig "resources" "limits" "memory" "" .Values.markers }}
+        - name: GOMEMLIMIT
+          value: {{ include "clustarr.gomemlimit" (list . 50) | quote }}
+        {{- end }}
+        {{- with .Values.markers.consumerSlots }}
+        - name: CLUSTARR_CONSUMER_SLOTS
+          value: {{ include "clustarr.consumerSlots" . | quote }}
+        {{- end }}
+        ports:
+        - name: metrics
+          containerPort: 8080
+          protocol: TCP
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: metrics
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        readinessProbe:
+          # NATS connected and the subscription bound (§3.3).
+          httpGet:
+            path: /readyz
+            port: metrics
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          {{- toYaml .Values.markers.resources | nindent 10 }}
+        securityContext:
+          {{- toYaml .Values.securityContext | nindent 10 }}
+        volumeMounts:
+        - name: data
+          mountPath: /data
+          readOnly: true
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: {{ default (printf "%s-data" (include "clustarr.fullname" .)) .Values.storage.data.existingClaim }}
+          readOnly: true
+      # readOnlyRootFilesystem: true, so /tmp has to be a volume.
+      - name: tmp
+        emptyDir: {}
+{{- end }}

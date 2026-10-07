@@ -23,14 +23,15 @@ Name helpers -- standard Helm shapes.
 {{- end -}}
 
 {{/*
-The Secret holding the Torznab facade's API keys (indexarr
---facade-api-key-secret). indexarr creates it with one random key when it is
-absent and never modifies it, so the chart only names it -- it does not
-render it, and so `helm uninstall` leaves the key behind for a reinstall to
-reuse. Set indexarr.facade.apiKeySecret to use a Secret you manage.
+The Secret holding the Torznab facade's API keys (--facade-api-key-secret on
+the manager and the index agent, which must name the same Secret). The
+manager creates it with one random key when it is absent and never modifies
+it; the index agent only reads it. The chart only names it -- it does not
+render it -- so `helm uninstall` leaves the key behind for a reinstall to
+reuse. Set agents.index.facade.apiKeySecret to use a Secret you manage.
 */}}
 {{- define "clustarr.facadeAPIKeySecret" -}}
-{{- default (printf "%s-indexarr-facade" (include "clustarr.fullname" .)) .Values.indexarr.facade.apiKeySecret -}}
+{{- default (printf "%s-index-facade" (include "clustarr.fullname" .)) .Values.agents.index.facade.apiKeySecret -}}
 {{- end -}}
 
 {{- define "clustarr.labels" -}}
@@ -45,7 +46,7 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end -}}
 
 {{/*
-Selector labels for one component. Call with (dict "root" $ "component" "catalogarr").
+Selector labels for one component. Call with (dict "root" $ "component" "manager").
 Immutable on a Deployment, so keep this to name/instance/component only --
 adding the chart version here would break every upgrade.
 */}}
@@ -162,21 +163,15 @@ Guard rails. These are correctness invariants from the design spec, not
 preferences, so they fail the render rather than warn.
 */}}
 {{- define "clustarr.validate" -}}
-{{- if ne (int .Values.catalogarrMetadata.replicas) 1 -}}
-{{- fail "catalogarrMetadata.replicas must be exactly 1: the metadata gateway holds its provider rate-limiter windows in process memory, so a second replica doubles the outbound request rate against TMDB/TVDB/MusicBrainz and will get you banned, not throttled." -}}
-{{- end -}}
-{{- if and (not .Values.postgres.enabled) (ne (int .Values.indexarr.replicas) 1) -}}
-{{- fail "indexarr.replicas must be exactly 1 unless postgres.enabled: the default release index is a local SQLite database (WAL+FTS5) on a ReadWriteOnce PVC, and a second replica cannot bind the volume or share the database. Set postgres.enabled=true (CloudNativePG) to run more than one replica." -}}
-{{- end -}}
 {{- if and .Values.postgres.enabled (index .Values "cloudnative-pg" "enabled") .Release.IsInstall -}}
 {{- fail "postgres.enabled and cloudnative-pg.enabled cannot both be true on a first `helm install`: CNPG's admission webhook fails closed until the operator this chart would install is actually Ready, and a first install submits every rendered object -- including the Cluster -- in one pass, before that operator can possibly be running yet. Install in two steps instead: `helm install ... --set cloudnative-pg.enabled=true --set postgres.enabled=false --wait` (waits for the bundled operator's own resources to be Ready), then `helm upgrade ... --set cloudnative-pg.enabled=true --set postgres.enabled=true` to add the Cluster once its webhook is up. If CloudNativePG is already running elsewhere in the cluster, leave cloudnative-pg.enabled=false and set only postgres.enabled=true -- there is no ordering problem to guard against then, just `kubectl wait --for=condition=Available deployment/cnpg-controller-manager -n cnpg-system` first." -}}
 {{- end -}}
 {{- if and (not .Values.storage.data.existingClaim) (ne .Values.storage.data.accessMode "ReadWriteMany") -}}
-{{- fail "storage.data.accessMode must be ReadWriteMany: /data is one volume shared by catalogarr, grabarr, squasharr and captionarr, and import is a hardlink or rename inside that single filesystem. Use CephFS, or NFS/Longhorn RWX. Never exFAT or SMB -- neither can represent the hardlinks and atomic renames the importer depends on." -}}
+{{- fail "storage.data.accessMode must be ReadWriteMany: /data is one volume shared by the manager, the import and caption agents, markers, the download engines and the transcode pools, and import is a hardlink or rename inside that single filesystem. Use CephFS, or NFS/Longhorn RWX. Never exFAT or SMB -- neither can represent the hardlinks and atomic renames the importer depends on." -}}
 {{- end -}}
-{{- with .Values.indexarr.cardigann.definitions -}}
+{{- with .Values.manager.cardigann.definitions -}}
 {{- if and .configMap .existingClaim -}}
-{{- fail "indexarr.cardigann.definitions: set configMap or existingClaim, not both: indexarr loads one Cardigann definitions directory (--cardigann-definitions-dir), mounted from exactly one volume." -}}
+{{- fail "manager.cardigann.definitions: set configMap or existingClaim, not both: the manager's bundle loader reads one Cardigann definitions directory (--cardigann-definitions-dir), mounted from exactly one volume." -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}
@@ -199,6 +194,8 @@ Call with a dict:
   natsSingleNodeFlag append --nats-single-node when the JetStream topology is single-node
                      (the manager only: agents never ensure topology)
   leaderElect        append --leader-elect (the manager only)
+  nodeName           true for an agent: NODE_NAME from spec.nodeName, for its presence
+                     report (ADR-0019 §5.3)
   data               true to mount the RWX /data volume read-write, with UMASK 002
   index              true to mount the RWO index volume at /var/lib/clustarr/index
   strategy           a Deployment strategy map, or "" for the apps/v1 default
@@ -295,10 +292,11 @@ spec:
         CSI drivers, and these pods run as uid 1000, so without the chown the
         first write fails and the pod crash-loops forever. The condition must
         therefore cover every flag that adds a persistentVolumeClaim volume
-        below -- it read `if .data` alone, which left indexarr (the only
-        component with "data" false and "index" true) with runAsUser: 1000 and
-        no fsGroup, unable to create releases.db. The chart-only kustomize
-        sets fsGroup on both. TestEveryPVCMountingWorkloadGetsFsGroup pins it.
+        below -- it read `if .data` alone, which left the release index's
+        workload (the only one with "data" false and "index" true) with
+        runAsUser: 1000 and no fsGroup, unable to create releases.db. The
+        kustomize manifests set fsGroup on both.
+        TestEveryPVCMountingWorkloadGetsFsGroup pins it.
       */}}
       securityContext:
         {{- if or .data .index }}
@@ -334,6 +332,12 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
+        {{- if .nodeName }}
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        {{- end }}
         {{- if .data }}
         - name: UMASK
           value: "002"

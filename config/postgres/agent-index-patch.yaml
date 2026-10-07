@@ -1,0 +1,35 @@
+# Strategic-merge patch: points the index agent at the CloudNativePG
+# Cluster's release index instead of the local SQLite volume
+# config/manager/agent-index.yaml mounts by default (design spec 2026-09-24
+# §A.3-A.4; ADR-0010).
+#
+# CLUSTARR_INDEX_DSN is added (CLUSTARR_INDEX_PATH stays: the agent logs and
+# ignores it once a DSN is set) from Secret "clustarr-postgres-app", which
+# CNPG's bootstrap.initdb creates for cluster.yaml's "clustarr-postgres"
+# Cluster (key "uri"). $patch: delete removes the index volumeMount and the
+# volume: there is no PVC to mount under Postgres. The strategy stays
+# Recreate and the replicas 1: the index agent is one process under both
+# engines (its RPC responders, facade and per-host limiter; spec 2026-10-06
+# R4 amendment).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-index
+spec:
+  template:
+    spec:
+      containers:
+      - name: agent-index
+        env:
+        - name: CLUSTARR_INDEX_DSN
+          valueFrom:
+            secretKeyRef:
+              name: clustarr-postgres-app
+              key: uri
+        volumeMounts:
+        # volumeMounts' merge key is mountPath, not name.
+        - mountPath: /var/lib/clustarr/index
+          $patch: delete
+      volumes:
+      - name: index
+        $patch: delete

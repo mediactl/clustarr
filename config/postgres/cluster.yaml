@@ -1,4 +1,4 @@
-# CloudNativePG Cluster for indexarr's Postgres-backed release index (design
+# CloudNativePG Cluster for the index agent's Postgres-backed release index (design
 # spec 2026-09-24 §A.3-A.4; ADR-0010). Same shape as
 # charts/clustarr/templates/postgres-cluster.yaml, minus the Helm templating:
 # instances, storage size, and the bootstrap database/owner match that

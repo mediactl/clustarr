@@ -31,18 +31,25 @@ patches:
 - target:
     kind: Deployment
   path: resources-patch.yaml
+# Indexer health is judged by the manager's Indexer controller from the index
+# agent's outcomes (ADR-0019, A6.3).
 - target:
     kind: Deployment
-    name: indexarr
-  path: indexarr-e2e-patch.yaml
+    name: agent-index
+  path: agent-index-e2e-patch.yaml
 - target:
     kind: Deployment
-    name: importarr
-  path: importarr-e2e-patch.yaml
+    name: manager
+  path: agent-index-e2e-patch.yaml
+# The manager drives the Trakt device-code flow; the import agent syncs.
 - target:
     kind: Deployment
-    name: importarr-worker
-  path: importarr-e2e-patch.yaml
+    name: manager
+  path: agent-import-e2e-patch.yaml
+- target:
+    kind: Deployment
+    name: agent-import
+  path: agent-import-e2e-patch.yaml
 - target:
     kind: Deployment
     name: ui

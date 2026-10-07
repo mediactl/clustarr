@@ -1,26 +1,23 @@
-# captionarr-worker -- the subtitle fetch consumers. Design spec §3, §6.5, §12.
-#
-# Two fixed replicas. Safe at any replica count: every provider client
-# shares a KV token bucket in `clustarr-provider-throttle`, so N workers
-# still respect the provider's 5 req/s ceiling.
-#
-# terminationGracePeriodSeconds is set to the JetStream AckWait so a worker
-# finishes (or cleanly redelivers) its in-flight fetch on SIGTERM.
+# agent-catalog -- searches and artwork renders (agent --domain=catalog,
+# spec 2026-10-06 §3.5). No spec.replicas: the manager's autoscale reconciler
+# owns this Deployment's HPA, selected by autoscale.clustarr.io/domain, and
+# scales it 0..1 (its searches end in the index agent's per-host limiter).
+# Read-only: it answers in records; the manager writes every status.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: captionarr-worker
+  name: agent-catalog
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: captionarr-worker
+  name: agent-catalog
   labels:
-    app.kubernetes.io/component: captionarr-worker
+    app.kubernetes.io/component: agent-catalog
 spec:
   type: ClusterIP
   selector:
-    app.kubernetes.io/component: captionarr-worker
+    app.kubernetes.io/component: agent-catalog
   ports:
     - name: metrics
       port: 8443
@@ -30,37 +27,43 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: captionarr-worker
+  name: agent-catalog
   labels:
-    app.kubernetes.io/component: captionarr-worker
+    app.kubernetes.io/component: agent-catalog
+    autoscale.clustarr.io/domain: catalog
 spec:
-  replicas: 2
   selector:
     matchLabels:
-      app.kubernetes.io/component: captionarr-worker
+      app.kubernetes.io/component: agent-catalog
   template:
     metadata:
       labels:
-        app.kubernetes.io/component: captionarr-worker
+        app.kubernetes.io/component: agent-catalog
     spec:
-      serviceAccountName: captionarr-worker
-      terminationGracePeriodSeconds: 120
+      serviceAccountName: agent-catalog
+      # The longest AckWait it drains (catalog-search-*, 120 s) plus 25 s
+      # (spec §3.5.6).
+      terminationGracePeriodSeconds: 145
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
         runAsGroup: 1000
-        fsGroup: 1000
-        fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
+      # Soft: a required anti-affinity would stall a RollingUpdate surge on a
+      # single node (OD33).
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/component: agent-catalog
       containers:
-        - name: captionarr-worker
-          image: ghcr.io/mediactl/clustarr/media:dev
-          # --nats-single-node: config/default ships the single-server dev NATS
-          # in config/nats, which cannot host the R3 streams events.Default()
-          # asks for (§12). charts/clustarr deploys a clustered NATS and derives
-          # this from the subchart instead.
-          args: ["captionarr", "--role", "worker", "--nats-single-node"]
+        - name: agent-catalog
+          image: ghcr.io/mediactl/clustarr/native:dev
+          command: ["/usr/bin/agent"]
+          args: ["--domain=catalog"]
           env:
             - name: NATS_URL
               value: nats://nats.clustarr-system.svc:4222
@@ -72,9 +75,13 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
-            - name: UMASK
-              value: "002"
-            # §12: GOMEMLIMIT = 80% of 1Gi, in bytes (see catalogarr.yaml).
+            # The node the pod runs on, for the agent's presence report
+            # (ADR-0019 §5.3).
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            # GOMEMLIMIT = 80% of 1Gi, in bytes.
             - name: GOMEMLIMIT
               value: "858993459"
           ports:
@@ -109,13 +116,8 @@ spec:
             capabilities:
               drop: ["ALL"]
           volumeMounts:
-            - name: data
-              mountPath: /data
             - name: tmp
               mountPath: /tmp
       volumes:
-        - name: data
-          persistentVolumeClaim:
-            claimName: clustarr-data
         - name: tmp
           emptyDir: {}

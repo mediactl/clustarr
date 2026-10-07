@@ -1,7 +1,7 @@
 # config/prometheus -- optional monitoring overlay
 
-Seven ServiceMonitors, one per service Deployment, plus the ClusterRole a
-Prometheus needs to read auth-filtered metrics. Requires the Prometheus
+Eight ServiceMonitors -- the manager, the six agents and markers -- plus the
+ClusterRole a Prometheus needs to read auth-filtered metrics. Requires the Prometheus
 Operator CRDs; it is not part of `config/default`.
 
 ```sh

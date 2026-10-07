@@ -1,35 +1,35 @@
-# ServiceMonitors for the nine metrics-serving Deployments. One per Service
-# in config/manager that stands up a controller-runtime metrics listener,
-# all scraping the same `metrics` port. ui is the one Deployment without
+# ServiceMonitors for the manager, the six agents and markers: one per Service
+# in config/manager that serves metrics. ui is the one Deployment without
 # one: it runs no manager, so it serves no metrics port.
 #
 # This list is kept in step with charts/clustarr/templates/servicemonitor.yaml
-# by TestChartAndKustomizeAgreePerComponent in cmd/clustarr.
+# by TestChartAndKustomizeAgreePerComponent in test/guards.
 #
-# §13: controller-runtime metrics plus metrics.RegisterRESTClientMetrics() are
-# served on :8443 BEHIND THE AUTHN/AUTHZ FILTER, so the endpoint is https and
-# the scrape must present a bearer token. Prometheus's ServiceAccount
-# therefore needs the `clustarr-metrics-reader` ClusterRole in
-# metrics_reader_role.yaml bound to it -- see README.md.
+# §13: the manager's and the agents' controller-runtime metrics plus
+# metrics.RegisterRESTClientMetrics() are served on :8443 BEHIND THE
+# AUTHN/AUTHZ FILTER, so the endpoint is https and the scrape must present a
+# bearer token. Prometheus's ServiceAccount therefore needs the
+# `clustarr-metrics-reader` ClusterRole in metrics_reader_role.yaml bound to
+# it -- see README.md. markers serves plain http on 8080.
 #
-# The certificate is self-signed by the manager at startup, hence
+# The certificate is self-signed by each process at startup, hence
 # insecureSkipVerify. Swap in cert-manager and a real serverName if your
 # cluster requires verified scrapes.
-# catalogarr: catalog controllers, queue workers, history sink.
+# manager: every controller: reconcile, workqueue and REST-client series, the queue gauges and the External Metrics API's own.
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
-  name: catalogarr
+  name: manager
   labels:
     app.kubernetes.io/name: clustarr
     app.kubernetes.io/part-of: clustarr
-    app.kubernetes.io/component: catalogarr
+    app.kubernetes.io/component: manager
 spec:
   selector:
     matchLabels:
       app.kubernetes.io/name: clustarr
       app.kubernetes.io/part-of: clustarr
-      app.kubernetes.io/component: catalogarr
+      app.kubernetes.io/component: manager
   endpoints:
   - port: metrics
     path: /metrics
@@ -40,21 +40,21 @@ spec:
     tlsConfig:
       insecureSkipVerify: true
 ---
-# catalogarr-metadata: metadata gateway (cache hit/miss, provider limiters).
+# agent-catalog: searches and artwork renders.
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
-  name: catalogarr-metadata
+  name: agent-catalog
   labels:
     app.kubernetes.io/name: clustarr
     app.kubernetes.io/part-of: clustarr
-    app.kubernetes.io/component: catalogarr-metadata
+    app.kubernetes.io/component: agent-catalog
 spec:
   selector:
     matchLabels:
       app.kubernetes.io/name: clustarr
       app.kubernetes.io/part-of: clustarr
-      app.kubernetes.io/component: catalogarr-metadata
+      app.kubernetes.io/component: agent-catalog
   endpoints:
   - port: metrics
     path: /metrics
@@ -65,21 +65,21 @@ spec:
     tlsConfig:
       insecureSkipVerify: true
 ---
-# indexarr: search RPC, indexer escalation, release index.
+# agent-events: the RSS matcher.
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
-  name: indexarr
+  name: agent-events
   labels:
     app.kubernetes.io/name: clustarr
     app.kubernetes.io/part-of: clustarr
-    app.kubernetes.io/component: indexarr
+    app.kubernetes.io/component: agent-events
 spec:
   selector:
     matchLabels:
       app.kubernetes.io/name: clustarr
       app.kubernetes.io/part-of: clustarr
-      app.kubernetes.io/component: indexarr
+      app.kubernetes.io/component: agent-events
   endpoints:
   - port: metrics
     path: /metrics
@@ -90,21 +90,21 @@ spec:
     tlsConfig:
       insecureSkipVerify: true
 ---
-# grabarr: download controllers and engine telemetry.
+# agent-metadata: metadata gateway (cache hit/miss, provider limiters), markers, artwork fetches.
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
-  name: grabarr
+  name: agent-metadata
   labels:
     app.kubernetes.io/name: clustarr
     app.kubernetes.io/part-of: clustarr
-    app.kubernetes.io/component: grabarr
+    app.kubernetes.io/component: agent-metadata
 spec:
   selector:
     matchLabels:
       app.kubernetes.io/name: clustarr
       app.kubernetes.io/part-of: clustarr
-      app.kubernetes.io/component: grabarr
+      app.kubernetes.io/component: agent-metadata
   endpoints:
   - port: metrics
     path: /metrics
@@ -115,21 +115,21 @@ spec:
     tlsConfig:
       insecureSkipVerify: true
 ---
-# squasharr: transcode slots and job state.
+# agent-import: scans, imports, import lists, recycle sweeps and probes.
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
-  name: squasharr
+  name: agent-import
   labels:
     app.kubernetes.io/name: clustarr
     app.kubernetes.io/part-of: clustarr
-    app.kubernetes.io/component: squasharr
+    app.kubernetes.io/component: agent-import
 spec:
   selector:
     matchLabels:
       app.kubernetes.io/name: clustarr
       app.kubernetes.io/part-of: clustarr
-      app.kubernetes.io/component: squasharr
+      app.kubernetes.io/component: agent-import
   endpoints:
   - port: metrics
     path: /metrics
@@ -140,21 +140,21 @@ spec:
     tlsConfig:
       insecureSkipVerify: true
 ---
-# captionarr: subtitle controllers and republishers.
+# agent-index: release index, search RPC, RSS polls, Torznab facade.
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
-  name: captionarr
+  name: agent-index
   labels:
     app.kubernetes.io/name: clustarr
     app.kubernetes.io/part-of: clustarr
-    app.kubernetes.io/component: captionarr
+    app.kubernetes.io/component: agent-index
 spec:
   selector:
     matchLabels:
       app.kubernetes.io/name: clustarr
       app.kubernetes.io/part-of: clustarr
-      app.kubernetes.io/component: captionarr
+      app.kubernetes.io/component: agent-index
   endpoints:
   - port: metrics
     path: /metrics
@@ -165,21 +165,21 @@ spec:
     tlsConfig:
       insecureSkipVerify: true
 ---
-# captionarr-worker: subtitle fetch workers and provider throttles.
+# agent-caption: subtitle fetches and provider quota.
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
-  name: captionarr-worker
+  name: agent-caption
   labels:
     app.kubernetes.io/name: clustarr
     app.kubernetes.io/part-of: clustarr
-    app.kubernetes.io/component: captionarr-worker
+    app.kubernetes.io/component: agent-caption
 spec:
   selector:
     matchLabels:
       app.kubernetes.io/name: clustarr
       app.kubernetes.io/part-of: clustarr
-      app.kubernetes.io/component: captionarr-worker
+      app.kubernetes.io/component: agent-caption
   endpoints:
   - port: metrics
     path: /metrics
@@ -190,52 +190,24 @@ spec:
     tlsConfig:
       insecureSkipVerify: true
 ---
-# importarr: import-list, import-exclusion and library-scan controllers.
+# markers: skip-segment detection; plain http on 8080, no authn filter.
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
-  name: importarr
+  name: markers
   labels:
     app.kubernetes.io/name: clustarr
     app.kubernetes.io/part-of: clustarr
-    app.kubernetes.io/component: importarr
+    app.kubernetes.io/component: markers
 spec:
   selector:
     matchLabels:
       app.kubernetes.io/name: clustarr
       app.kubernetes.io/part-of: clustarr
-      app.kubernetes.io/component: importarr
+      app.kubernetes.io/component: markers
   endpoints:
   - port: metrics
     path: /metrics
-    scheme: https
+    scheme: http
     interval: 30s
     scrapeTimeout: 10s
-    bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
-    tlsConfig:
-      insecureSkipVerify: true
----
-# importarr-worker: scan, list and fileimport workers.
-apiVersion: monitoring.coreos.com/v1
-kind: ServiceMonitor
-metadata:
-  name: importarr-worker
-  labels:
-    app.kubernetes.io/name: clustarr
-    app.kubernetes.io/part-of: clustarr
-    app.kubernetes.io/component: importarr-worker
-spec:
-  selector:
-    matchLabels:
-      app.kubernetes.io/name: clustarr
-      app.kubernetes.io/part-of: clustarr
-      app.kubernetes.io/component: importarr-worker
-  endpoints:
-  - port: metrics
-    path: /metrics
-    scheme: https
-    interval: 30s
-    scrapeTimeout: 10s
-    bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
-    tlsConfig:
-      insecureSkipVerify: true

@@ -1,25 +1,23 @@
-# captionarr -- SubtitleProfile / SubtitleProvider controllers (each file's
-# subtitles are its MediaFile status.subtitles, ADR-0016) plus the cron republishers (adaptive search cadence, the 12h
-# upgrade pass). Design spec §3, §6.5.
-#
-# The provider fetches do NOT happen here; they run in captionarr-worker.
-# /data is mounted because replanning parses the sidecars next to each media
-# file and verifies path/size/mtime against status.probeHash.
+# agent-import -- library scans, file imports, import-list syncs, recycle
+# sweeps and probes (agent --domain=import, spec 2026-10-06 §3.5). Autoscaled
+# 0..N by the manager on its durables' lag; mounts /data read-write. Read-only
+# against Kubernetes: scan observations and import results go to the
+# manager's intake and records.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: captionarr
+  name: agent-import
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: captionarr
+  name: agent-import
   labels:
-    app.kubernetes.io/component: captionarr
+    app.kubernetes.io/component: agent-import
 spec:
   type: ClusterIP
   selector:
-    app.kubernetes.io/component: captionarr
+    app.kubernetes.io/component: agent-import
   ports:
     - name: metrics
       port: 8443
@@ -29,21 +27,22 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: captionarr
+  name: agent-import
   labels:
-    app.kubernetes.io/component: captionarr
+    app.kubernetes.io/component: agent-import
+    autoscale.clustarr.io/domain: import
 spec:
-  replicas: 1
   selector:
     matchLabels:
-      app.kubernetes.io/component: captionarr
+      app.kubernetes.io/component: agent-import
   template:
     metadata:
       labels:
-        app.kubernetes.io/component: captionarr
+        app.kubernetes.io/component: agent-import
     spec:
-      serviceAccountName: captionarr
-      terminationGracePeriodSeconds: 60
+      serviceAccountName: agent-import
+      # The longest AckWait it drains (60 s) plus 25 s (spec §3.5.6).
+      terminationGracePeriodSeconds: 85
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
@@ -52,24 +51,20 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
+      # Soft: a required anti-affinity would stall a RollingUpdate surge on a
+      # single node (OD33).
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/component: agent-import
       containers:
-        - name: captionarr
-          image: ghcr.io/mediactl/clustarr/media:dev
-          # --leader-elect: §3 and §12 run the controllers under a lease so
-          # only one replica reconciles. The flag defaults to off, so a
-          # controller Deployment that omits it reconciles from every replica.
-          # --nats-single-node: config/default ships the single-server dev NATS
-          # in config/nats, which cannot host the R3 streams events.Default()
-          # asks for (§12). charts/clustarr deploys a clustered NATS and derives
-          # this from the subchart instead.
-          args:
-            [
-              "captionarr",
-              "--role",
-              "controller",
-              "--leader-elect",
-              "--nats-single-node",
-            ]
+        - name: agent-import
+          image: ghcr.io/mediactl/clustarr/native:dev
+          command: ["/usr/bin/agent"]
+          args: ["--domain=import"]
           env:
             - name: NATS_URL
               value: nats://nats.clustarr-system.svc:4222
@@ -81,11 +76,17 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
+            # The node the pod runs on, for the agent's presence report
+            # (ADR-0019 §5.3).
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
             - name: UMASK
               value: "002"
-            # §12: GOMEMLIMIT = 80% of 512Mi, in bytes (see catalogarr.yaml).
+            # GOMEMLIMIT = 60% of 1536Mi, in bytes: FFmpeg allocates outside the Go heap (OD42).
             - name: GOMEMLIMIT
-              value: "429496730"
+              value: "966367642"
           ports:
             - name: metrics
               containerPort: 8443
@@ -107,11 +108,11 @@ spec:
             periodSeconds: 10
           resources:
             requests:
-              cpu: 50m
-              memory: 192Mi
+              cpu: 100m
+              memory: 256Mi
             limits:
-              cpu: 500m
-              memory: 512Mi
+              cpu: "2"
+              memory: 1536Mi
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -126,5 +127,6 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: clustarr-data
+        # readOnlyRootFilesystem: true, so /tmp has to be a volume.
         - name: tmp
           emptyDir: {}

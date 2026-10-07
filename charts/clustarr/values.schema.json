@@ -11,13 +11,12 @@
     "image": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["registry", "pullPolicy", "controller", "media", "transcoder"],
+      "required": ["registry", "pullPolicy", "clustarr", "native"],
       "properties": {
         "registry": { "type": "string" },
         "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] },
-        "controller": { "$ref": "#/$defs/imageRef" },
-        "media": { "$ref": "#/$defs/imageRef" },
-        "transcoder": { "$ref": "#/$defs/imageRef" }
+        "clustarr": { "$ref": "#/$defs/imageRef", "description": "The static image: manager and ui." },
+        "native": { "$ref": "#/$defs/imageRef", "description": "The FROM-scratch image: agent, markers and transcode on FFmpeg 9 and ONNX Runtime; every agent, markers, the download engines and the transcode pools run it." }
       }
     },
     "imagePullSecrets": {

@@ -1,5 +1,5 @@
 {{/*
-CloudNativePG Cluster for indexarr's Postgres-backed release index (design
+CloudNativePG Cluster for the index agent's Postgres-backed release index (design
 spec 2026-09-24 §A.3-A.4; ADR-0010). Rendered only when postgres.enabled.
 
 This is a NORMAL templated resource, not a Helm hook -- an earlier version
@@ -30,7 +30,7 @@ Release.IsInstall check in templates/_helpers.tpl.
 
 CNPG's bootstrap.initdb creates the "clustarr" database owned by role
 "clustarr" and a Secret named "<this Cluster's name>-app" holding that role's
-DSN under key "uri" -- what templates/deployments.yaml's indexarr env reads
+DSN under key "uri" -- what templates/deployments.yaml's agent-index env reads
 by default (postgres.existingSecret overrides the Secret name for a Postgres
 CNPG did not create).
 */}}

@@ -1,23 +1,23 @@
-# importarr-worker -- the scan, list and fileimport consumers. Amendment
-# §A1.6, design spec §3, §12.
-#
-# Every replica needs a writable /data: a scan or import worker that cannot
-# write the library must not accept work (amendment §A1.6).
+# agent-events -- the RSS matcher (agent --domain=events, spec 2026-10-06
+# §3.5; ADR-0019 moved the history sink and the DLQ projector into the
+# manager and retired the redownload consumer). Autoscaled 1..N: its stream is
+# memory-backed with discard-old on single-node NATS (§3.5.4), so it never
+# scales to zero. Read-only: candidates go to the manager's intake.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: importarr-worker
+  name: agent-events
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: importarr-worker
+  name: agent-events
   labels:
-    app.kubernetes.io/component: importarr-worker
+    app.kubernetes.io/component: agent-events
 spec:
   type: ClusterIP
   selector:
-    app.kubernetes.io/component: importarr-worker
+    app.kubernetes.io/component: agent-events
   ports:
     - name: metrics
       port: 8443
@@ -27,37 +27,42 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: importarr-worker
+  name: agent-events
   labels:
-    app.kubernetes.io/component: importarr-worker
+    app.kubernetes.io/component: agent-events
+    autoscale.clustarr.io/domain: events
 spec:
-  replicas: 2
   selector:
     matchLabels:
-      app.kubernetes.io/component: importarr-worker
+      app.kubernetes.io/component: agent-events
   template:
     metadata:
       labels:
-        app.kubernetes.io/component: importarr-worker
+        app.kubernetes.io/component: agent-events
     spec:
-      serviceAccountName: importarr-worker
-      terminationGracePeriodSeconds: 60
+      serviceAccountName: agent-events
+      # The longest AckWait it drains (catalog-rss-matcher, 30 s) plus 25 s (spec §3.5.6).
+      terminationGracePeriodSeconds: 55
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
         runAsGroup: 1000
-        fsGroup: 1000
-        fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
+      # Soft: a required anti-affinity would stall a RollingUpdate surge on a
+      # single node (OD33).
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/component: agent-events
       containers:
-        - name: importarr-worker
-          image: ghcr.io/mediactl/clustarr/media:dev
-          # --nats-single-node: config/default ships the single-server dev NATS
-          # in config/nats, which cannot host the R3 streams events.Default()
-          # asks for (§12). charts/clustarr deploys a clustered NATS and derives
-          # this from the subchart instead.
-          args: ["importarr", "--role", "worker", "--nats-single-node"]
+        - name: agent-events
+          image: ghcr.io/mediactl/clustarr/native:dev
+          command: ["/usr/bin/agent"]
+          args: ["--domain=events"]
           env:
             - name: NATS_URL
               value: nats://nats.clustarr-system.svc:4222
@@ -69,11 +74,13 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
-            # §11: everything writing under /data uses UMASK 002 so the other
-            # services (and the transcode Jobs) can rewrite what it creates.
-            - name: UMASK
-              value: "002"
-            # §12: GOMEMLIMIT = 80% of 1Gi, in bytes (see catalogarr.yaml).
+            # The node the pod runs on, for the agent's presence report
+            # (ADR-0019 §5.3).
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            # GOMEMLIMIT = 80% of 1Gi, in bytes.
             - name: GOMEMLIMIT
               value: "858993459"
           ports:
@@ -90,7 +97,6 @@ spec:
             initialDelaySeconds: 15
             periodSeconds: 20
           readinessProbe:
-            # §13: readiness is /data writability plus a JetStream ping.
             httpGet:
               path: /readyz
               port: health
@@ -109,13 +115,9 @@ spec:
             capabilities:
               drop: ["ALL"]
           volumeMounts:
-            - name: data
-              mountPath: /data
             - name: tmp
               mountPath: /tmp
       volumes:
-        - name: data
-          persistentVolumeClaim:
-            claimName: clustarr-data
+        # readOnlyRootFilesystem: true, so /tmp has to be a volume.
         - name: tmp
           emptyDir: {}

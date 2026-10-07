@@ -1,6 +1,6 @@
 # Default values for the clustarr umbrella chart.
-# Every service is one Deployment; see the process-topology table in §3 of
-# docs/superpowers/specs/2026-09-18-clustarr-design.md.
+# Every workload is one Deployment; see the topology table in §10.2.1 of
+# docs/superpowers/specs/2026-10-06-manager-agent-split-design.md.
 
 nameOverride: ""
 fullnameOverride: ""
@@ -8,30 +8,24 @@ fullnameOverride: ""
 # --------------------------------------------------------------------------
 # Images
 # --------------------------------------------------------------------------
-# Four images (§2, and the transcode-worker-pools design's §10):
-#   controller     -- distroless static, no media tooling. indexarr only.
-#   media          -- debian-slim + ffmpeg 9/libx265/ffprobe/par2. Everything
-#                      that touches files: catalogarr, grabarr, squasharr,
-#                      captionarr. Carries no encoding runtime.
-#   transcoder     -- the squasharr-worker binary plus ffmpeg/ffprobe and the
-#                      Intel QSV/VAAPI runtime; the only image squasharr's
-#                      pools stamp onto their pods, nvidia's included: the
-#                      NVIDIA container runtime injects the driver's
-#                      libraries from the host, so there is no CUDA image
-#                      (docs/adr/0015-no-cuda-image.md; image.transcoderCuda
-#                      was removed 2026-10-01 and is now rejected).
+# Two images (spec 2026-10-06 §10.1, R1):
+#   clustarr -- distroless static: the manager and ui binaries.
+#   native   -- FROM scratch: the agent, markers and transcode binaries on
+#               FFmpeg 9's libraries and ONNX Runtime. Every agent, markers,
+#               and everything the manager renders at runtime (the download
+#               engines, the transcode pools, graft Jobs) run it, nvidia
+#               pools included: the NVIDIA container runtime injects the
+#               driver's libraries from the host, so there is no CUDA image
+#               (docs/adr/0015-no-cuda-image.md).
 # An empty tag falls back to .Chart.AppVersion.
 image:
   registry: ghcr.io
   pullPolicy: IfNotPresent
-  controller:
+  clustarr:
     repository: mediactl/clustarr
     tag: ""
-  media:
-    repository: mediactl/clustarr/media
-    tag: ""
-  transcoder:
-    repository: mediactl/clustarr/transcoder
+  native:
+    repository: mediactl/clustarr/native
     tag: ""
 imagePullSecrets: []
 
@@ -66,10 +60,10 @@ nats:
         maxSize: 256Mi
     # Homelab-friendly limits (design spec §12), the same values
     # config/nats/configmap.yaml sets for kustomize. max_payload matters:
-    # the nats subchart's default is the server's 1 MiB, and indexarr
-    # answers rpc.indexarr.download with the .nzb inline (base64 in JSON,
+    # the nats subchart's default is the server's 1 MiB, and the index
+    # agent answers its download RPC with the .nzb inline (base64 in JSON,
     # so 4/3 of its size), which a 1080p movie's ~1.3 MB .nzb already
-    # exceeds -- every such grab then sat in Assigned with "context
+    # exceeds -- every such grab then waited out its deadline with "context
     # deadline exceeded" (2026-09-24). The << >> markers are the
     # subchart's syntax for an unquoted value with a unit.
     merge:
@@ -93,17 +87,17 @@ nats:
 # --------------------------------------------------------------------------
 # Release index on Postgres (optional, design spec 2026-09-24 §A; ADR-0010)
 # --------------------------------------------------------------------------
-# indexarr's release index is SQLite FTS5 on the RWO storage.index PVC below
-# by default (ADR-0003), which pins indexarr.replicas to 1. Set
-# postgres.enabled=true to run it on a CloudNativePG Cluster instead: indexarr
-# then reads CLUSTARR_INDEX_DSN, drops the index PVC entirely and indexarr's
-# own leader election (already unconditional in the binary, keyed on the DSN
-# being set) makes more than one replica safe.
+# The index agent's release index is SQLite FTS5 on the RWO storage.index PVC
+# below by default (ADR-0003). Set postgres.enabled=true to run it on a
+# CloudNativePG Cluster instead: the agent then reads CLUSTARR_INDEX_DSN and
+# the index PVC is not rendered. agent-index still runs exactly one replica:
+# its RPC responders, Torznab facade and per-host rate limiter are one
+# process (spec 2026-10-06, R4 amendment).
 postgres:
   enabled: false
   cluster:
     # CNPG Cluster.spec.instances -- the number of Postgres replicas CNPG
-    # itself runs (streaming replication), unrelated to indexarr.replicas.
+    # itself runs (streaming replication).
     instances: 1
     storage:
       size: 5Gi
@@ -113,7 +107,7 @@ postgres:
   # An existing Secret carrying the DSN under key "uri", instead of the
   # "<release>-postgres-app" Secret CNPG's bootstrap.initdb creates
   # automatically for the "clustarr" database's "clustarr" owner role. Set
-  # this to point indexarr at a Postgres CNPG did not create.
+  # this to point the index agent at a Postgres CNPG did not create.
   existingSecret: ""
 
 # CloudNativePG: the Postgres operator itself. A separate toggle from
@@ -127,6 +121,22 @@ postgres:
 # "Postgres release index" section for the exact commands).
 cloudnative-pg:
   enabled: false
+
+# --------------------------------------------------------------------------
+# Autoscaling (spec 2026-10-06 §9)
+# --------------------------------------------------------------------------
+# true: the manager owns one HorizontalPodAutoscaler per queue-driven
+# Deployment (agent-catalog, agent-events, agent-import, agent-caption,
+# markers) and scales each on JetStream consumer lag -- to zero while its
+# queues are empty (agent-events keeps one) and up to the number of nodes its
+# pods can schedule on -- through the External Metrics API it serves itself
+# (templates/autoscaling.yaml renders the APIService). The chart never renders
+# an HPA: the manager's reconciler owns them.
+# false: fixed replicas from agents.<domain>.replicas and markers.replicas,
+# and no APIService. Use it where KEDA or prometheus-adapter already holds
+# v1beta1.external.metrics.k8s.io: only one APIService may hold the group.
+autoscaling:
+  enabled: true
 
 # --------------------------------------------------------------------------
 # Monitoring
@@ -146,7 +156,7 @@ metrics:
 storage:
   # The single RWX volume mounted at /data by every media-touching pod.
   # Import is a hardlink or rename inside this one filesystem, so it must be
-  # ONE volume shared by all of them, not one per service. CephFS preferred;
+  # ONE volume shared by all of them, not one per workload. CephFS preferred;
   # NFS or Longhorn RWX acceptable; never exFAT or SMB. The chart refuses any
   # accessMode other than ReadWriteMany -- see templates/_helpers.tpl.
   data:
@@ -154,15 +164,15 @@ storage:
     storageClass: ""
     accessMode: ReadWriteMany
     size: 100Gi
-  # indexarr's SQLite release index. RWO on purpose, which is also why
-  # indexarr is pinned to one replica with strategy Recreate. Unused, and not
-  # rendered, when postgres.enabled selects a Postgres-backed index instead.
+  # The index agent's SQLite release index. RWO on purpose, which is one
+  # reason agent-index runs one replica with strategy Recreate. Unused, and
+  # not rendered, when postgres.enabled selects a Postgres-backed index.
   index:
     existingClaim: ""
     storageClass: ""
     size: 5Gi
 
-# fsGroup on every pod that mounts /data; UMASK 002 so services can rewrite
+# fsGroup on every pod that mounts a PVC; UMASK 002 so workloads can rewrite
 # each other's files (§11).
 podSecurityContext:
   runAsNonRoot: true
@@ -180,238 +190,202 @@ securityContext:
     drop: ["ALL"]
 
 # --------------------------------------------------------------------------
-# Services
+# Workloads (spec 2026-10-06 §10.2.1)
 # --------------------------------------------------------------------------
-# Per service: enabled / replicas / resources / scheduling. The parts that are
-# not knobs -- which image, which --role, which volumes, which update strategy
-# -- live in the templates, because getting them wrong is a correctness bug
-# rather than a preference.
+# The parts that are not knobs -- image, command, domain, volumes, update
+# strategy, grace period -- live in the templates, because getting them wrong
+# is a correctness bug rather than a preference. GOMEMLIMIT is a share of
+# resources.limits.memory: 80%, except agent-import and agent-caption (60%)
+# and markers (50%), whose FFmpeg, par2 and ONNX Runtime allocations live
+# outside the Go heap.
 
-# Controllers (leader-elected) + the queue workers that run on every replica
-# + history sink and DLQ projector. Safe to scale out: controllers stay
-# leader-only, workers are JetStream queue consumers.
-catalogarr:
-  enabled: true
-  replicas: 1
-  resources:
-    requests:
-      cpu: 100m
-      memory: 256Mi
-    limits:
-      cpu: "1"
-      memory: 1Gi
-  nodeSelector: {}
-  tolerations: []
-  affinity: {}
-
-# Metadata gateway. MUST be 1: it owns the in-process rate limiters that keep
-# Clustarr inside TMDB/TVDB/MusicBrainz quotas, and a second replica silently
-# doubles the outbound request rate. The chart fails the render on any other
-# value.
-catalogarrMetadata:
-  enabled: true
-  replicas: 1
-  resources:
-    requests:
-      cpu: 50m
-      memory: 192Mi
-    limits:
-      cpu: 500m
-      memory: 512Mi
-  nodeSelector: {}
-  tolerations: []
-  affinity: {}
-
-# import-list, import-exclusion, library-scan and root-folder schedule
-# controllers (leader-elected). Amendment §A1.6. Does not mount /data: the
-# scan/list/fileimport work itself runs on importarrWorker.
-importarr:
-  enabled: true
-  replicas: 1
-  resources:
-    requests:
-      cpu: 50m
-      memory: 192Mi
-    limits:
-      cpu: 500m
-      memory: 512Mi
-  nodeSelector: {}
-  tolerations: []
-  affinity: {}
-
-# The scan, list and fileimport consumers, on every replica. Amendment §A1.6.
-importarrWorker:
-  enabled: true
-  replicas: 2
-  resources:
-    requests:
-      cpu: 100m
-      memory: 256Mi
-    limits:
-      cpu: "1"
-      memory: 1Gi
-  nodeSelector: {}
-  tolerations: []
-  affinity: {}
-
-# Indexer controllers, search RPC, RSS worker, release index, Torznab facade.
-# MUST be 1 unless postgres.enabled: the default index is a local SQLite
-# database on an RWO PVC, and the chart fails the render on any other value
-# in that case. A Postgres-backed index (see postgres.enabled above) may run
-# more than one replica -- indexarr's own leader election, keyed on
-# CLUSTARR_INDEX_DSN, makes it safe.
-indexarr:
-  enabled: true
-  replicas: 1
-  # Torznab facade: /{indexer}/api, /{indexer}/download, /search/api.
-  facade:
-    service:
-      type: ClusterIP
-      port: 8080
-    # The facade serves only requests carrying an apikey that is a value in
-    # this Secret, in the release namespace. Empty means
-    # "<release fullname>-indexarr-facade". indexarr creates it with one
-    # random key under "apikey" when it does not exist and never modifies
-    # one that does, so pre-create it to choose the key.
-    apiKeySecret: ""
-  # Cardigann indexer definitions, applied as IndexerDefinitions at startup
-  # so an Indexer's spec.definition can name any of them.
+# Every controller in one process, one replica under the lease
+# manager.clustarr.io (no replica knob). It renders the download engines, the
+# transcode pools and graft Jobs, runs the MediaFile remediation loop
+# (ADR-0016), writes every status (ADR-0019) and serves the External Metrics
+# API.
+manager:
+  # Transcode admission per hardware class (--slots): class=count pairs.
+  slots: cpu=2,nvidia=1,intel=1
+  # GIDs of the host group owning /dev/dri/renderD* on the Intel GPU nodes
+  # (--intel-render-groups), added to every Intel transcode pod as
+  # supplementalGroups. Host-specific, so no default; leave empty with a
+  # runtime that has device_ownership_from_security_context.
+  intelRenderGroups: []
+  # Override the node labels that mark NVIDIA and Intel GPU nodes
+  # (--gpu-node-label-nvidia/-intel). Empty uses the binary's defaults,
+  # nvidia.com/gpu.present and intel.feature.node.kubernetes.io/gpu.
+  gpuNodeLabelNvidia: ""
+  gpuNodeLabelIntel: ""
+  # The Cardigann definitions the manager's bundle loader applies as
+  # IndexerDefinitions at startup. See the README's "Cardigann definitions".
   cardigann:
-    # Load the corpus compiled into the binary (Prowlarr's Cardigann
-    # definitions). false sets CLUSTARR_CARDIGANN_BUNDLED=false; true renders
-    # nothing, because on is the binary's own default. Moot when a
-    # definitions directory is mounted below: that replaces the corpus.
+    # --cardigann-bundled: load the corpus compiled into the binary
+    # (Prowlarr's Cardigann definitions). false renders
+    # CLUSTARR_CARDIGANN_BUNDLED=false; true renders nothing, on being the
+    # binary's own default.
     bundled: true
-    # A directory of definition files (<id>.yml, what hack/sync-cardigann
-    # writes) mounted read-only into indexarr and passed as
-    # --cardigann-definitions-dir. It REPLACES the embedded corpus rather
-    # than adding to it; to add or override one definition, create an
-    # IndexerDefinition instead. Off while both sources are empty; set at
-    # most one (clustarr.validate refuses both).
+    # A ConfigMap or claim of definition files (<id>.yml, what
+    # hack/sync-cardigann writes), mounted read-only and passed as
+    # --cardigann-definitions-dir. It REPLACES the corpus rather than adding
+    # to it; to add or override one definition, create an IndexerDefinition
+    # instead. Set at most one (clustarr.validate refuses both).
     definitions:
-      # An existing ConfigMap in the release namespace, one key per file.
-      # A ConfigMap holds at most 1 MiB, so this suits a pinned or trimmed
-      # set, not the whole corpus -- use a claim for that.
+      # An existing ConfigMap in the release namespace, one key per file. A
+      # ConfigMap holds at most 1 MiB: use a claim for the whole corpus.
       configMap: ""
       # An existing PersistentVolumeClaim holding the files.
       existingClaim: ""
-      # Directory inside the ConfigMap or claim that holds the files; ""
-      # is its root. Files are read from that one directory, not below it.
+      # Directory inside the ConfigMap or claim that holds the files.
       subPath: ""
+  # Audio grafts running at once in the namespace (--graft-concurrency): the
+  # admission ledger's graft slots, each a CPU pod of a cpu pool's size.
+  graftConcurrency: 2
+  # The MediaFile remediation loop (ADR-0016; loop spec §3.7, §3.17).
+  remediation:
+    # MediaFiles and items reconciled at once (--remediation-concurrency, 1-64).
+    concurrency: 16
+    # MediaFile status applies per second that no grant, answer, intent or
+    # first probe caused (--remediation-bulk-writes-per-second; 0 disables
+    # the pacing): a ProbeVersion or standard.Version raise stays off etcd.
+    bulkWritesPerSecond: 25
+    # Goroutines for the loop's /data calls (--remediation-io-workers, 1-64).
+    ioWorkers: 8
   resources:
     requests:
-      cpu: 100m
-      memory: 256Mi
-    limits:
-      cpu: "1"
-      memory: 1Gi
-  nodeSelector: {}
-  tolerations: []
-  affinity: {}
-
-# The DownloadClient controller. The download engines themselves are
-# StatefulSets and Deployments this controller creates per DownloadClient at
-# runtime, sized by DownloadClient.spec.replicas -- not chart templates.
-grabarr:
-  enabled: true
-  replicas: 1
-  resources:
-    requests:
-      cpu: 100m
-      memory: 256Mi
-    limits:
-      cpu: "1"
-      memory: 1Gi
-  nodeSelector: {}
-  tolerations: []
-  affinity: {}
-
-# TranscodeProfile controller, the transcode pools and the slot budget below:
-# each file's transcode is its MediaFile status.transcode (ADR-0016),
-# admitted against these slots and run in the pool Jobs this controller
-# creates.
-squasharr:
-  enabled: true
-  replicas: 1
-  # cpu / nvidia / intel slots (§6.4, §12).
-  slots: cpu=2,nvidia=1,intel=1
-  # GIDs of the host group owning /dev/dri/renderD* on the Intel GPU nodes,
-  # added to every Intel transcode Job's pod as supplementalGroups
-  # (--intel-render-groups). It varies per host install, so there is no
-  # default; leave it empty with a runtime that has
-  # device_ownership_from_security_context enabled.
-  intelRenderGroups: []
-  # Override the node label (set to "true") that marks a GPU node of each
-  # class (--gpu-node-label-nvidia/--gpu-node-label-intel). Empty uses the
-  # binary's own defaults, nvidia.com/gpu.present and
-  # intel.feature.node.kubernetes.io/gpu -- what the NVIDIA GPU Operator's
-  # GPU Feature Discovery and Intel's Node Feature Discovery set. Set these
-  # only if your cluster labels GPU nodes differently.
-  gpuNodeLabelNvidia: ""
-  gpuNodeLabelIntel: ""
-  # Engine transcodes are planned for (--worker-engine): ffmpeg runs the
-  # ffmpeg executable with a rendered command line; ffgo transcodes
-  # in-process to the fixed standard (HEVC Main 10, Apple TV audio). Empty
-  # uses the binary's default, ffmpeg. Queued jobs are re-planned for a new
-  # engine when they are dispatched.
-  workerEngine: ""
-  resources:
-    requests:
-      cpu: 50m
-      memory: 192Mi
-    limits:
-      cpu: 500m
+      cpu: 200m
       memory: 512Mi
+    limits:
+      cpu: "2"
+      memory: 1536Mi
   nodeSelector: {}
   tolerations: []
   affinity: {}
 
-# Subtitle controllers + cron republishers.
-captionarr:
+# One Deployment per agent domain (agent --domain=<domain>). Agents are
+# read-only against Kubernetes: they answer in NATS records, and the manager
+# writes every status (ADR-0019). replicas applies only with
+# autoscaling.enabled=false. consumerSlots overrides a consumer's per-pod
+# handler count (CLUSTARR_CONSUMER_SLOTS), which is also the HPA's per-pod
+# target, e.g. {catalog-artwork-render: 2}.
+agents:
+  # Searches and artwork renders. Autoscaled 0..1: its searches end in the
+  # index agent's per-host limiter, which more replicas cannot feed.
+  catalog:
+    enabled: true
+    replicas: 1
+    consumerSlots: {}
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+  # The RSS matcher. Its stream is memory-backed on single-node NATS, so it
+  # never scales below one.
+  events:
+    enabled: true
+    replicas: 1
+    consumerSlots: {}
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+  # The metadata gateway, TheIntroDB markers and artwork fetches. Always one
+  # replica, Recreate: its provider rate limiters live in process memory
+  # (ADR-0007), so a second replica doubles the request rate.
+  metadata:
+    enabled: true
+    resources:
+      requests:
+        cpu: 50m
+        memory: 96Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+  # Library scans, file imports, import-list syncs, recycle sweeps and probes.
+  # Mounts /data read-write.
+  import:
+    enabled: true
+    replicas: 1
+    consumerSlots: {}
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "2"
+        memory: 1536Mi
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+  # The release index, the search/download/query RPC, RSS polls and the
+  # Torznab facade. Always one replica, Recreate: a SQLite index on a
+  # ReadWriteOnce PVC, and under postgres.enabled still one process holding
+  # the RPC responders, the facade and the per-host limiter.
+  index:
+    enabled: true
+    # Torznab facade: /{indexer}/api, /{indexer}/download, /search/api.
+    facade:
+      service:
+        type: ClusterIP
+        port: 8080
+      # The Secret holding the facade's API keys, in the release namespace;
+      # the facade serves only requests carrying an apikey that is a value
+      # in it. Empty means "<release fullname>-index-facade". The manager
+      # creates it with one random key under "apikey" when it does not exist
+      # and never modifies one that does, so pre-create it to choose the key.
+      apiKeySecret: ""
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+  # Subtitle fetches. Autoscaled 0..1: fetches wait on the shared provider
+  # token bucket. Mounts /data read-write for sidecars.
+  caption:
+    enabled: true
+    replicas: 1
+    consumerSlots: {}
+    resources:
+      requests:
+        cpu: 100m
+        memory: 192Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+
+# Skip-segment detection (cmd/markers): FFmpeg decodes in-process, Go
+# analyzes, with PaddleOCR's text detector on ONNX Runtime when cheaper
+# signals are weak. Reads /data read-only and holds no ServiceAccount token.
+# Autoscaled 0..N on markers-analyze; its per-pod analyses are
+# consumerSlots.markers-analyze (default 1). CPU is what it spends; cap it
+# here.
+markers:
   enabled: true
   replicas: 1
-  resources:
-    requests:
-      cpu: 50m
-      memory: 192Mi
-    limits:
-      cpu: 500m
-      memory: 512Mi
-  nodeSelector: {}
-  tolerations: []
-  affinity: {}
-
-# Subtitle fetch consumers. Two fixed replicas (§12). Safe at any count: all
-# provider clients share a KV token bucket, so N workers still respect each
-# provider's rate limit. terminationGracePeriodSeconds tracks the consumer
-# AckWait so a worker drains its in-flight fetch on SIGTERM.
-captionarrWorker:
-  enabled: true
-  replicas: 2
-  ackWaitSeconds: 120
-  resources:
-    requests:
-      cpu: 100m
-      memory: 256Mi
-    limits:
-      cpu: "1"
-      memory: 1Gi
-  nodeSelector: {}
-  tolerations: []
-  affinity: {}
-
-# Server-rendered web UI (templ + htmx + SSE). Design spec amendment §A3. No
-# controller-runtime manager, no CRD, no status writes -- see the note in
-# templates/deployments.yaml for why it does not use clustarr.workload.
-# segmentarr-worker: skip-segment detection (spec 2026-10-01). A separate,
-# credential-less binary on the media image: ffmpeg decodes, Go analyzes,
-# with PaddleOCR's text detector on ONNX Runtime when cheaper signals are
-# weak. CPU is what it spends; cap it here.
-segmentarrWorker:
-  enabled: true
-  replicas: 1
-  # Analysis tasks (a season or a movie each) one replica runs at once.
-  concurrency: 1
+  consumerSlots: {}
   resources:
     requests:
       cpu: 250m
@@ -421,7 +395,11 @@ segmentarrWorker:
       memory: 2Gi
   nodeSelector: {}
   tolerations: []
+  affinity: {}
 
+# Server-rendered web UI (templ + htmx + SSE). Design spec amendment §A3. No
+# controller-runtime manager, no CRD, no status writes -- see the note in
+# templates/deployments.yaml for why it does not use clustarr.workload.
 ui:
   enabled: true
   replicas: 1

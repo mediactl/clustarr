@@ -1,737 +1,34 @@
 {{/*
-RBAC for every Clustarr identity: one ClusterRole per service (design §10),
-bound to that service's ServiceAccounts only.
+RBAC for every Clustarr identity: one ClusterRole per identity (spec
+2026-10-06 §10.2.4) -- the manager, each agent domain and the engine pods --
+bound to that identity's ServiceAccount only. Every agent role and the engine
+role hold get, list and watch only (secrets get only); the manager's alone
+writes (ADR-0019).
 
 Each generated ClusterRole's rules below are a VERBATIM copy of the `rules:`
 list in config/rbac/<role>_role.yaml, which `make manifests` generates from
 exactly that identity's +kubebuilder:rbac markers (RBAC_ROLES and
 RBAC_PATHS_* in the Makefile). Helm cannot read a file outside its own chart
 directory, so a copy is unavoidable; what closes the loop is
-cmd/clustarr.TestChartRBACMatchesTheGeneratedRoles, which fails the build the
+test/guards.TestChartRBACMatchesTheGeneratedRoles, which fails the build the
 moment any copy disagrees with its file. Regenerate with `make manifests`,
 then paste each file's rules between its BEGIN/END markers -- do not
 hand-edit them.
-
-Until task X14 there was one union manager ClusterRole, bound to every
-service, so each held every other service's grants. It also carried a
-chart-only customresourcedefinitions read that nothing in the tree used and
-config/ never granted; it went with it.
 */}}
-{{- $components := list }}
-{{- if .Values.catalogarr.enabled }}{{ $components = append $components "catalogarr" }}{{ end }}
-{{- if .Values.catalogarrMetadata.enabled }}{{ $components = append $components "catalogarr-metadata" }}{{ end }}
-{{- if .Values.importarr.enabled }}{{ $components = append $components "importarr" }}{{ end }}
-{{- if .Values.importarrWorker.enabled }}{{ $components = append $components "importarr-worker" }}{{ end }}
-{{- if .Values.indexarr.enabled }}{{ $components = append $components "indexarr" }}{{ end }}
-{{- if .Values.grabarr.enabled }}{{ $components = append $components "grabarr" }}{{ end }}
-{{- if .Values.squasharr.enabled }}{{ $components = append $components "squasharr" }}{{ end }}
-{{- if .Values.captionarr.enabled }}{{ $components = append $components "captionarr" }}{{ end }}
-{{- if .Values.captionarrWorker.enabled }}{{ $components = append $components "captionarr-worker" }}{{ end }}
-{{/* ui is deliberately absent from $components: it has no
-     controller-runtime manager and never leader-elects, so it needs no
-     entry in the ClusterRoleBinding loop below and no leader-election
-     RoleBinding. It gets its own, narrower ClusterRole and
-     ClusterRoleBinding -- see the .Values.ui.enabled block below. */}}
-{{/* The service whose generated role each component runs under: a
-     service's second Deployment runs the same packages in another role. */}}
-{{- $roleOf := dict
-      "catalogarr" "catalogarr" "catalogarr-metadata" "catalogarr"
-      "importarr" "importarr" "importarr-worker" "importarr"
-      "indexarr" "indexarr"
-      "grabarr" "grabarr"
-      "squasharr" "squasharr"
-      "captionarr" "captionarr" "captionarr-worker" "captionarr" }}
-{{- $roles := dict }}
-{{- range $components }}{{ $_ := set $roles (get $roleOf .) true }}{{ end }}
-{{- if hasKey $roles "catalogarr" }}
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: {{ include "clustarr.fullname" . }}-catalogarr
-  labels:
-    {{- include "clustarr.labels" . | nindent 4 }}
-    app.kubernetes.io/component: catalogarr
-rules:
-# BEGIN generated from config/rbac/catalogarr_role.yaml -- do not edit by hand.
-- apiGroups:
-  - ""
-  resources:
-  - namespaces
-  - pods
-  verbs:
-  - get
-- apiGroups:
-  - ""
-  resources:
-  - secrets
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - batch
-  resources:
-  - jobs
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - watch
-- apiGroups:
-  - catalog.clustarr.io
-  resources:
-  - albums
-  - books
-  - episodes
-  - issues
-  verbs:
-  - create
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - catalog.clustarr.io
-  resources:
-  - albums/finalizers
-  - artists/finalizers
-  - audiobooks/finalizers
-  - authors/finalizers
-  - books/finalizers
-  - comics/finalizers
-  - episodes/finalizers
-  - issues/finalizers
-  - movies/finalizers
-  - series/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - catalog.clustarr.io
-  resources:
-  - albums/status
-  - artists/status
-  - audiobooks/status
-  - authors/status
-  - books/status
-  - comics/status
-  - delayprofiles/status
-  - episodes/status
-  - issues/status
-  - metadataproviders/status
-  - movies/status
-  - overlayprofiles/status
-  - qualityprofiles/status
-  - rootfolders/status
-  - searches/status
-  - series/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - catalog.clustarr.io
-  resources:
-  - artists
-  - audiobooks
-  - authors
-  - comics
-  - mediafiles
-  - movies
-  - searches
-  - series
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - catalog.clustarr.io
-  resources:
-  - delayprofiles
-  - overlayprofiles
-  - rootfolders
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - catalog.clustarr.io
-  resources:
-  - importlists
-  - libraryscans
-  verbs:
-  - get
-  - list
-  - patch
-  - watch
-- apiGroups:
-  - catalog.clustarr.io
-  resources:
-  - mediafiles/status
-  verbs:
-  - get
-  - patch
-- apiGroups:
-  - catalog.clustarr.io
-  resources:
-  - metadataproviders
-  verbs:
-  - create
-  - get
-  - list
-  - watch
-- apiGroups:
-  - catalog.clustarr.io
-  resources:
-  - qualityprofiles
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - watch
-- apiGroups:
-  - download.clustarr.io
-  resources:
-  - downloadclients
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - events.k8s.io
-  resources:
-  - events
-  verbs:
-  - create
-  - patch
-- apiGroups:
-  - index.clustarr.io
-  resources:
-  - indexers
-  verbs:
-  - get
-  - list
-  - patch
-  - watch
-- apiGroups:
-  - subtitle.clustarr.io
-  resources:
-  - subtitleprofiles
-  - subtitleproviders
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - transcode.clustarr.io
-  resources:
-  - transcodeprofiles
-  verbs:
-  - get
-  - list
-  - watch
-# END generated from config/rbac/catalogarr_role.yaml.
+{{- $fullname := include "clustarr.fullname" . }}
+{{- $components := list "manager" }}
+{{- range $d := list "catalog" "events" "metadata" "import" "index" "caption" }}
+{{- if (index $.Values.agents $d).enabled }}{{ $components = append $components (printf "agent-%s" $d) }}{{ end }}
 {{- end }}
-{{- if hasKey $roles "importarr" }}
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: {{ include "clustarr.fullname" . }}-importarr
-  labels:
-    {{- include "clustarr.labels" . | nindent 4 }}
-    app.kubernetes.io/component: importarr
-rules:
-# BEGIN generated from config/rbac/importarr_role.yaml -- do not edit by hand.
-- apiGroups:
-  - ""
-  resources:
-  - configmaps
-  verbs:
-  - get
-- apiGroups:
-  - ""
-  resources:
-  - secrets
-  verbs:
-  - create
-  - get
-  - patch
-  - update
-- apiGroups:
-  - catalog.clustarr.io
-  resources:
-  - albums
-  - books
-  - episodes
-  - importlists
-  - issues
-  - qualityprofiles
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - catalog.clustarr.io
-  resources:
-  - artists
-  - audiobooks
-  - authors
-  - comics
-  verbs:
-  - delete
-  - get
-  - list
-  - patch
-  - watch
-- apiGroups:
-  - catalog.clustarr.io
-  resources:
-  - importexclusions
-  verbs:
-  - create
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - catalog.clustarr.io
-  resources:
-  - importexclusions/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - catalog.clustarr.io
-  resources:
-  - importexclusions/status
-  - importlists/status
-  - libraryscans/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - catalog.clustarr.io
-  resources:
-  - libraryscans
-  - mediafiles
-  - movies
-  - series
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - catalog.clustarr.io
-  resources:
-  - rootfolders
-  verbs:
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - events.k8s.io
-  resources:
-  - events
-  verbs:
-  - create
-  - patch
-# END generated from config/rbac/importarr_role.yaml.
-{{- end }}
-{{- if hasKey $roles "indexarr" }}
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: {{ include "clustarr.fullname" . }}-indexarr
-  labels:
-    {{- include "clustarr.labels" . | nindent 4 }}
-    app.kubernetes.io/component: indexarr
-rules:
-# BEGIN generated from config/rbac/indexarr_role.yaml -- do not edit by hand.
-- apiGroups:
-  - ""
-  resources:
-  - secrets
-  verbs:
-  - create
-  - get
-  - patch
-- apiGroups:
-  - events.k8s.io
-  resources:
-  - events
-  verbs:
-  - create
-  - patch
-- apiGroups:
-  - index.clustarr.io
-  resources:
-  - indexerdefinitions
-  verbs:
-  - create
-  - get
-  - list
-  - patch
-  - watch
-- apiGroups:
-  - index.clustarr.io
-  resources:
-  - indexerdefinitions/status
-  - indexerproxies/status
-  - indexers/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - index.clustarr.io
-  resources:
-  - indexerproxies
-  - indexers
-  verbs:
-  - get
-  - list
-  - watch
-# END generated from config/rbac/indexarr_role.yaml.
-{{- end }}
-{{- if hasKey $roles "grabarr" }}
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: {{ include "clustarr.fullname" . }}-grabarr
-  labels:
-    {{- include "clustarr.labels" . | nindent 4 }}
-    app.kubernetes.io/component: grabarr
-rules:
-# BEGIN generated from config/rbac/grabarr_role.yaml -- do not edit by hand.
-- apiGroups:
-  - ""
-  resources:
-  - persistentvolumeclaims
-  verbs:
-  - create
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - ""
-  resources:
-  - secrets
-  verbs:
-  - get
-- apiGroups:
-  - apps
-  resources:
-  - deployments
-  verbs:
-  - create
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - apps
-  resources:
-  - statefulsets
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - download.clustarr.io
-  resources:
-  - downloadclients
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - download.clustarr.io
-  resources:
-  - downloadclients/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - events.k8s.io
-  resources:
-  - events
-  verbs:
-  - create
-  - patch
-# END generated from config/rbac/grabarr_role.yaml.
----
-{{/* The engine pods' identity. Every StatefulSet/Deployment the
-     DownloadClient controller creates runs its pod as this ServiceAccount
-     (grabarr's --engine-service-account, $CLUSTARR_ENGINE_SERVICE_ACCOUNT in
-     deployments.yaml), never as grabarr's own. Its ClusterRole is generated
-     from app/grab/engine's markers alone. */}}
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: {{ include "clustarr.fullname" . }}-grabarr-engine
-  labels:
-    {{- include "clustarr.labels" . | nindent 4 }}
-    app.kubernetes.io/component: grabarr-engine
-{{- with .Values.imagePullSecrets }}
-imagePullSecrets:
-  {{- toYaml . | nindent 2 }}
-{{- end }}
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: {{ include "clustarr.fullname" . }}-grabarr-engine
-  labels:
-    {{- include "clustarr.labels" . | nindent 4 }}
-    app.kubernetes.io/component: grabarr-engine
-rules:
-# BEGIN generated from config/rbac/grab_engine_role.yaml -- do not edit by hand.
-- apiGroups:
-  - ""
-  resources:
-  - secrets
-  verbs:
-  - get
-- apiGroups:
-  - download.clustarr.io
-  resources:
-  - downloadclients
-  verbs:
-  - get
-  - list
-  - watch
-# END generated from config/rbac/grab_engine_role.yaml.
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: {{ include "clustarr.fullname" . }}-grabarr-engine
-  labels:
-    {{- include "clustarr.labels" . | nindent 4 }}
-    app.kubernetes.io/component: grabarr-engine
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: {{ include "clustarr.fullname" . }}-grabarr-engine
-subjects:
-- kind: ServiceAccount
-  name: {{ include "clustarr.fullname" . }}-grabarr-engine
-  namespace: {{ .Release.Namespace }}
-{{- end }}
-{{- if hasKey $roles "squasharr" }}
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: {{ include "clustarr.fullname" . }}-squasharr
-  labels:
-    {{- include "clustarr.labels" . | nindent 4 }}
-    app.kubernetes.io/component: squasharr
-rules:
-# BEGIN generated from config/rbac/squasharr_role.yaml -- do not edit by hand.
-- apiGroups:
-  - ""
-  resources:
-  - configmaps
-  - namespaces
-  verbs:
-  - get
-- apiGroups:
-  - ""
-  resources:
-  - nodes
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - ""
-  resources:
-  - pods
-  verbs:
-  - list
-- apiGroups:
-  - ""
-  resources:
-  - secrets
-  verbs:
-  - create
-  - get
-  - update
-- apiGroups:
-  - apiregistration.k8s.io
-  resourceNames:
-  - v1beta1.external.metrics.k8s.io
-  resources:
-  - apiservices
-  verbs:
-  - delete
-  - get
-  - patch
-- apiGroups:
-  - apps
-  resources:
-  - deployments
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - apps
-  resources:
-  - deployments/scale
-  verbs:
-  - get
-  - update
-- apiGroups:
-  - autoscaling
-  resources:
-  - horizontalpodautoscalers
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - batch
-  resources:
-  - jobs
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - watch
-- apiGroups:
-  - catalog.clustarr.io
-  resources:
-  - episodes
-  - mediafiles
-  - movies
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - events.k8s.io
-  resources:
-  - events
-  verbs:
-  - create
-  - patch
-- apiGroups:
-  - transcode.clustarr.io
-  resources:
-  - transcodeprofiles
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - transcode.clustarr.io
-  resources:
-  - transcodeprofiles/status
-  verbs:
-  - get
-  - patch
-  - update
-# END generated from config/rbac/squasharr_role.yaml.
-{{- end }}
-{{- if hasKey $roles "captionarr" }}
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: {{ include "clustarr.fullname" . }}-captionarr
-  labels:
-    {{- include "clustarr.labels" . | nindent 4 }}
-    app.kubernetes.io/component: captionarr
-rules:
-# BEGIN generated from config/rbac/captionarr_role.yaml -- do not edit by hand.
-- apiGroups:
-  - ""
-  resources:
-  - secrets
-  verbs:
-  - get
-- apiGroups:
-  - catalog.clustarr.io
-  resources:
-  - mediafiles
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - events.k8s.io
-  resources:
-  - events
-  verbs:
-  - create
-  - patch
-- apiGroups:
-  - subtitle.clustarr.io
-  resources:
-  - subtitleprofiles
-  verbs:
-  - create
-  - get
-  - list
-  - watch
-- apiGroups:
-  - subtitle.clustarr.io
-  resources:
-  - subtitleprofiles/status
-  - subtitleproviders/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - subtitle.clustarr.io
-  resources:
-  - subtitleproviders
-  verbs:
-  - get
-  - list
-  - watch
-# END generated from config/rbac/captionarr_role.yaml.
-{{- end }}
+{{/* Each component is its own identity: ServiceAccount, ClusterRole and
+     binding share its name. markers is absent (no token, nothing bound,
+     templates/markers.yaml); ui has its own role below. */}}
 {{- if has "manager" $components }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ include "clustarr.fullname" . }}-manager
+  name: {{ $fullname }}-manager
   labels:
     {{- include "clustarr.labels" . | nindent 4 }}
     app.kubernetes.io/component: manager
@@ -1074,7 +371,7 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ include "clustarr.fullname" . }}-agent-catalog
+  name: {{ $fullname }}-agent-catalog
   labels:
     {{- include "clustarr.labels" . | nindent 4 }}
     app.kubernetes.io/component: agent-catalog
@@ -1107,7 +404,7 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ include "clustarr.fullname" . }}-agent-events
+  name: {{ $fullname }}-agent-events
   labels:
     {{- include "clustarr.labels" . | nindent 4 }}
     app.kubernetes.io/component: agent-events
@@ -1138,7 +435,7 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ include "clustarr.fullname" . }}-agent-metadata
+  name: {{ $fullname }}-agent-metadata
   labels:
     {{- include "clustarr.labels" . | nindent 4 }}
     app.kubernetes.io/component: agent-metadata
@@ -1174,7 +471,7 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ include "clustarr.fullname" . }}-agent-import
+  name: {{ $fullname }}-agent-import
   labels:
     {{- include "clustarr.labels" . | nindent 4 }}
     app.kubernetes.io/component: agent-import
@@ -1216,7 +513,7 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ include "clustarr.fullname" . }}-agent-index
+  name: {{ $fullname }}-agent-index
   labels:
     {{- include "clustarr.labels" . | nindent 4 }}
     app.kubernetes.io/component: agent-index
@@ -1245,7 +542,7 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ include "clustarr.fullname" . }}-agent-caption
+  name: {{ $fullname }}-agent-caption
   labels:
     {{- include "clustarr.labels" . | nindent 4 }}
     app.kubernetes.io/component: agent-caption
@@ -1268,6 +565,64 @@ rules:
   - watch
 # END generated from config/rbac/agent_caption_role.yaml.
 {{- end }}
+---
+{{/* The engine pods' identity. Every StatefulSet/Deployment the manager's
+     DownloadClient controller creates runs its pod as this ServiceAccount
+     (the manager's --engine-service-account, $CLUSTARR_ENGINE_SERVICE_ACCOUNT
+     in deployments.yaml). Its ClusterRole is generated from app/grab/engine's
+     markers alone. The manager is always rendered, so these are too. */}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $fullname }}-grab-engine
+  labels:
+    {{- include "clustarr.labels" . | nindent 4 }}
+    app.kubernetes.io/component: grab-engine
+{{- with .Values.imagePullSecrets }}
+imagePullSecrets:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $fullname }}-grab-engine
+  labels:
+    {{- include "clustarr.labels" . | nindent 4 }}
+    app.kubernetes.io/component: grab-engine
+rules:
+# BEGIN generated from config/rbac/grab_engine_role.yaml -- do not edit by hand.
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - get
+- apiGroups:
+  - download.clustarr.io
+  resources:
+  - downloadclients
+  verbs:
+  - get
+  - list
+  - watch
+# END generated from config/rbac/grab_engine_role.yaml.
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $fullname }}-grab-engine
+  labels:
+    {{- include "clustarr.labels" . | nindent 4 }}
+    app.kubernetes.io/component: grab-engine
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $fullname }}-grab-engine
+subjects:
+- kind: ServiceAccount
+  name: {{ $fullname }}-grab-engine
+  namespace: {{ .Release.Namespace }}
 {{- if .Values.ui.enabled }}
 ---
 {{/* ui's ClusterRole is hand-written and stays hand-written (design plan
@@ -1444,13 +799,13 @@ subjects:
   namespace: {{ .Release.Namespace }}
 {{- end }}
 ---
-{{/* Leader election: LeaderElectionID is <service>.clustarr.io (§2), so one
-     namespaced Role covers every manager. Hand-written; controller-gen does
-     not emit these. */}}
+{{/* Leader election: only the manager elects (lease manager.clustarr.io,
+     spec 2026-10-06 §5.8). Hand-written; controller-gen does not emit
+     these. */}}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: {{ include "clustarr.fullname" . }}-leader-election
+  name: {{ $fullname }}-leader-election
   labels:
     {{- include "clustarr.labels" . | nindent 4 }}
 rules:
@@ -1465,32 +820,32 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: {{ include "clustarr.fullname" $ }}-{{ . }}
+  name: {{ $fullname }}-{{ . }}
   labels:
     {{- include "clustarr.labels" $ | nindent 4 }}
     app.kubernetes.io/component: {{ . }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: {{ include "clustarr.fullname" $ }}-{{ get $roleOf . }}
+  name: {{ $fullname }}-{{ . }}
 subjects:
 - kind: ServiceAccount
-  name: {{ include "clustarr.fullname" $ }}-{{ . }}
+  name: {{ $fullname }}-{{ . }}
   namespace: {{ $.Release.Namespace }}
+{{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: {{ include "clustarr.fullname" $ }}-{{ . }}-leader-election
+  name: {{ $fullname }}-manager-leader-election
   labels:
-    {{- include "clustarr.labels" $ | nindent 4 }}
-    app.kubernetes.io/component: {{ . }}
+    {{- include "clustarr.labels" . | nindent 4 }}
+    app.kubernetes.io/component: manager
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: {{ include "clustarr.fullname" $ }}-leader-election
+  name: {{ $fullname }}-leader-election
 subjects:
 - kind: ServiceAccount
-  name: {{ include "clustarr.fullname" $ }}-{{ . }}
-  namespace: {{ $.Release.Namespace }}
-{{- end }}
+  name: {{ $fullname }}-manager
+  namespace: {{ .Release.Namespace }}

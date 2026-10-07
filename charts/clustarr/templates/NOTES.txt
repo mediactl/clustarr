@@ -1,46 +1,42 @@
 Clustarr {{ .Chart.AppVersion }} installed as "{{ .Release.Name }}" in namespace {{ .Release.Namespace }}.
 
-Services in this release:
-{{- if .Values.catalogarr.enabled }}
-  catalogarr           {{ .Values.catalogarr.replicas }}  controllers + queue workers + history + artwork renderer
+Workloads in this release:
+  manager         1     every controller, under the lease manager.clustarr.io; transcode slots {{ .Values.manager.slots }}
+{{- $scaled := "0..N, the manager's HPA" }}
+{{- with .Values.agents.catalog }}{{ if .enabled }}
+  agent-catalog   {{ if $.Values.autoscaling.enabled }}0..1, the manager's HPA{{ else }}{{ .replicas }}{{ end }}  searches, artwork renders
+{{- end }}{{ end }}
+{{- with .Values.agents.events }}{{ if .enabled }}
+  agent-events    {{ if $.Values.autoscaling.enabled }}1..N, the manager's HPA{{ else }}{{ .replicas }}{{ end }}  RSS matcher
+{{- end }}{{ end }}
+{{- if .Values.agents.metadata.enabled }}
+  agent-metadata  1     metadata gateway, markers, artwork fetches (pinned: in-process rate limiters)
 {{- end }}
-{{- if .Values.catalogarrMetadata.enabled }}
-  catalogarr-metadata  1  metadata gateway (pinned to 1: in-process rate limiters)
+{{- with .Values.agents.import }}{{ if .enabled }}
+  agent-import    {{ if $.Values.autoscaling.enabled }}{{ $scaled }}{{ else }}{{ .replicas }}{{ end }}  scans, imports, import lists, probes
+{{- end }}{{ end }}
+{{- if .Values.agents.index.enabled }}
+  agent-index     1     release index{{ if .Values.postgres.enabled }} on Postgres{{ else }} (RWO SQLite){{ end }}, search RPC, RSS, Torznab facade
 {{- end }}
-{{- if .Values.importarr.enabled }}
-  importarr            {{ .Values.importarr.replicas }}  import-list/exclusion, library-scan and root-folder schedule controllers
-{{- end }}
-{{- if .Values.importarrWorker.enabled }}
-  importarr-worker     {{ .Values.importarrWorker.replicas }}  scan, list and fileimport consumers
-{{- end }}
-{{- if .Values.indexarr.enabled }}
-  indexarr             {{ .Values.indexarr.replicas }}  search/RSS/Torznab{{ if .Values.postgres.enabled }} (release index on Postgres){{ else }} (pinned to 1: RWO SQLite index){{ end }}
-{{- end }}
-{{- if .Values.grabarr.enabled }}
-  grabarr              {{ .Values.grabarr.replicas }}  download controllers (engines are created per DownloadClient)
-{{- end }}
-{{- if .Values.squasharr.enabled }}
-  squasharr            {{ .Values.squasharr.replicas }}  transcode controllers, slots {{ .Values.squasharr.slots }}
-{{- end }}
-{{- if .Values.captionarr.enabled }}
-  captionarr           {{ .Values.captionarr.replicas }}  subtitle controllers
-{{- end }}
-{{- if .Values.captionarrWorker.enabled }}
-  captionarr-worker    {{ .Values.captionarrWorker.replicas }}  subtitle fetch consumers
-{{- end }}
+{{- with .Values.agents.caption }}{{ if .enabled }}
+  agent-caption   {{ if $.Values.autoscaling.enabled }}0..1, the manager's HPA{{ else }}{{ .replicas }}{{ end }}  subtitle fetches
+{{- end }}{{ end }}
+{{- with .Values.markers }}{{ if .enabled }}
+  markers         {{ if $.Values.autoscaling.enabled }}{{ $scaled }}{{ else }}{{ .replicas }}{{ end }}  skip-segment detection
+{{- end }}{{ end }}
 {{- if .Values.ui.enabled }}
-  ui                   {{ .Values.ui.replicas }}  web UI (auth mode {{ .Values.ui.auth.mode }}: no login of its own -- put it behind ingress authentication)
+  ui              {{ .Values.ui.replicas }}     web UI (auth mode {{ .Values.ui.auth.mode }}: no login of its own -- put it behind ingress authentication)
 {{- end }}
 
 Watch them come up:
 
   kubectl -n {{ .Release.Namespace }} get pods -l app.kubernetes.io/instance={{ .Release.Name }} -w
-{{- if .Values.indexarr.enabled }}
+{{- if .Values.agents.index.enabled }}
 
 Torznab facade (for Sonarr, Radarr or anything else that speaks Torznab):
-  http://{{ include "clustarr.fullname" . }}-indexarr.{{ .Release.Namespace }}.svc:{{ .Values.indexarr.facade.service.port }}/<indexer>/api
-  It requires an API key. indexarr generates one on first start unless the
-  Secret already exists; read it with:
+  http://{{ include "clustarr.fullname" . }}-agent-index.{{ .Release.Namespace }}.svc:{{ .Values.agents.index.facade.service.port }}/<indexer>/api
+  It requires an API key. The manager generates one on first start unless
+  the Secret already exists; read it with:
 
   kubectl -n {{ .Release.Namespace }} get secret {{ include "clustarr.facadeAPIKeySecret" . }} -o jsonpath='{.data.apikey}' | base64 -d
 {{- end }}
@@ -56,8 +52,8 @@ NATS:
 {{- end }}
 {{- else }}
   external, at {{ include "clustarr.natsUrl" . }}
-  Make sure JetStream is enabled on it; pkg/events creates the streams,
-  consumers and KV buckets it needs on startup.
+  Make sure JetStream is enabled on it; the manager creates the streams,
+  consumers and KV buckets every workload needs on startup.
 {{- end }}
 
 CRDs are NOT upgraded by Helm. Before every `helm upgrade`, apply them first:

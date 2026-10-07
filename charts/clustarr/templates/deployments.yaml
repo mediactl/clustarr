@@ -1,234 +1,150 @@
 {{- include "clustarr.validate" . -}}
 {{/*
-One Deployment per row of the process-topology table (design spec §3), each
-with its own ServiceAccount and Service. This mirrors config/manager; the
-kustomize tree is the reference and this is the parameterised form of it.
+One Deployment per row of the process topology (spec 2026-10-06 §10.2.1):
+the manager, one agent per domain, and ui; markers is templates/markers.yaml.
+This mirrors config/manager; test/guards holds the two to each other
+(TestInstallersRenderTheTopology, TestChartAndKustomizeAgreePerComponent).
 
-The engine workloads (<downloadclient>-engine StatefulSets and Deployments)
-and the transcode batch/v1 Jobs are deliberately absent: those are created at
-runtime by the grabarr and squasharr controllers and owned by the CR that
-asked for them, so they can never be chart templates.
+The download engines (<downloadclient>-engine StatefulSets and Deployments)
+and the transcode pool and graft Jobs are absent on purpose: the manager
+creates those at runtime, owned by the object that asked for them.
 */}}
-{{- if .Values.catalogarr.enabled }}
-{{- include "clustarr.workload" (dict
-      "root" $
-      "component" "catalogarr"
-      "replicas" .Values.catalogarr.replicas
-      "natsSingleNodeFlag" true
-      "gomemPercent" 80
-      "values" .Values.catalogarr
-      "image" "media"
-      "args" (list "catalogarr" "--role" "controller,worker,history,artwork")
-      "leaderElect" true
-      "data" true
-      "index" false
-      "strategy" ""
-      "grace" 60) }}
+{{- $fullname := include "clustarr.fullname" . }}
+{{- $dataClaim := default (printf "%s-data" $fullname) .Values.storage.data.existingClaim }}
+{{- $facadeSecret := include "clustarr.facadeAPIKeySecret" . }}
+{{- /* The fold's flags (loop spec §3.7, §3.17, §5.13), as
+       config/manager/manager.yaml passes them. */}}
+{{- $managerArgs := list (printf "--slots=%s" .Values.manager.slots)
+      (printf "--graft-concurrency=%d" (int .Values.manager.graftConcurrency))
+      (printf "--remediation-concurrency=%d" (int .Values.manager.remediation.concurrency))
+      (printf "--remediation-bulk-writes-per-second=%d" (int .Values.manager.remediation.bulkWritesPerSecond))
+      (printf "--remediation-io-workers=%d" (int .Values.manager.remediation.ioWorkers)) }}
+{{- /* The facade's API-key Secret: the manager creates it when absent, the
+       index agent only reads it, so both name the same one. */}}
+{{- $managerEnv := list
+      (dict "name" "CLUSTARR_NATIVE_IMAGE" "value" (include "clustarr.image" (dict "root" $ "which" "native")))
+      (dict "name" "CLUSTARR_ENGINE_SERVICE_ACCOUNT" "value" (printf "%s-grab-engine" $fullname))
+      (dict "name" "CLUSTARR_DATA_CLAIM" "value" $dataClaim)
+      (dict "name" "CLUSTARR_FACADE_API_KEY_SECRET" "value" $facadeSecret) }}
+{{- $managerPorts := list }}
+{{- if .Values.autoscaling.enabled }}
+{{- $managerEnv = append $managerEnv (dict "name" "CLUSTARR_EXTERNAL_METRICS_SECRET" "value" (printf "%s-external-metrics-tls" $fullname)) }}
+{{- $managerEnv = append $managerEnv (dict "name" "CLUSTARR_EXTERNAL_METRICS_SERVICE" "value" (printf "%s-external-metrics" $fullname)) }}
+{{- $managerPorts = append $managerPorts (dict "name" "extmetrics" "containerPort" 6443) }}
+{{- else }}
+{{- /* No HPA reconciler, External Metrics server or CA injection; the
+       manager deletes the HPAs it labelled, once, at start (spec §9.4). */}}
+{{- $managerArgs = append $managerArgs "--autoscale=false" }}
 {{- end }}
-{{- if .Values.catalogarrMetadata.enabled }}
-{{/* Recreate: never two metadata gateways at once, not even mid-rollout. */}}
-{{- include "clustarr.workload" (dict
-      "root" $
-      "component" "catalogarr-metadata"
-      "replicas" .Values.catalogarrMetadata.replicas
-      "natsSingleNodeFlag" true
-      "gomemPercent" 80
-      "values" .Values.catalogarrMetadata
-      "image" "media"
-      "args" (list "catalogarr" "--role" "metadata")
-      "data" false
-      "index" false
-      "strategy" (dict "type" "Recreate")
-      "grace" 60) }}
+{{- /* Host-specific, so set only when given. */}}
+{{- with .Values.manager.intelRenderGroups }}
+{{- $managerEnv = append $managerEnv (dict "name" "CLUSTARR_INTEL_RENDER_GROUPS" "value" (join "," .)) }}
 {{- end }}
-{{- if .Values.importarr.enabled }}
-{{/* The controllers mount /data too: the rename controller moves library
-     files (probe-driven naming §5), and its readiness includes /data
-     writability, as the worker's does. */}}
-{{- include "clustarr.workload" (dict
-      "root" $
-      "component" "importarr"
-      "replicas" .Values.importarr.replicas
-      "natsSingleNodeFlag" true
-      "gomemPercent" 80
-      "values" .Values.importarr
-      "image" "media"
-      "args" (list "importarr" "--role" "controller")
-      "leaderElect" true
-      "data" true
-      "index" false
-      "strategy" ""
-      "grace" 60) }}
+{{- /* The binary's defaults match the NVIDIA GPU Operator and Intel NFD. */}}
+{{- with .Values.manager.gpuNodeLabelNvidia }}
+{{- $managerEnv = append $managerEnv (dict "name" "CLUSTARR_GPU_NODE_LABEL_NVIDIA" "value" .) }}
 {{- end }}
-{{- if .Values.importarrWorker.enabled }}
-{{/* Every replica needs a writable /data: a worker that cannot write the
-     library must not accept work (amendment §A1.6). */}}
-{{- include "clustarr.workload" (dict
-      "root" $
-      "component" "importarr-worker"
-      "replicas" .Values.importarrWorker.replicas
-      "natsSingleNodeFlag" true
-      "gomemPercent" 80
-      "values" .Values.importarrWorker
-      "image" "media"
-      "args" (list "importarr" "--role" "worker")
-      "data" true
-      "index" false
-      "strategy" ""
-      "grace" 60) }}
-{{- end }}
-{{- if .Values.indexarr.enabled }}
-{{- $indexEnv := list
-      (dict "name" "CLUSTARR_INDEX_PATH" "value" "/var/lib/clustarr/index/releases.db")
-      (dict "name" "CLUSTARR_FACADE_API_KEY_SECRET" "value" (include "clustarr.facadeAPIKeySecret" $)) }}
-{{- $indexVolumes := list }}
-{{- $indexMounts := list }}
-{{- /* Postgres-backed release index (design spec 2026-09-24 §A.3-A.4;
-     ADR-0010): CLUSTARR_INDEX_DSN points indexarr at the CNPG Cluster's app
-     Secret instead of the local SQLite file, and no PVC is mounted at all --
-     the index lives in the Cluster templates/postgres-cluster.yaml renders.
-     CLUSTARR_INDEX_PATH above is harmless: indexarr logs and ignores it once
-     a DSN is set (spec §A.3). */}}
-{{- if .Values.postgres.enabled }}
-{{- $indexEnv = append $indexEnv (dict "name" "CLUSTARR_INDEX_DSN" "valueFrom" (dict "secretKeyRef" (dict
-      "name" (default (printf "%s-postgres-app" (include "clustarr.fullname" $)) .Values.postgres.existingSecret)
-      "key" "uri"))) }}
+{{- with .Values.manager.gpuNodeLabelIntel }}
+{{- $managerEnv = append $managerEnv (dict "name" "CLUSTARR_GPU_NODE_LABEL_INTEL" "value" .) }}
 {{- end }}
 {{- /* --cardigann-bundled defaults on in the binary, so only "off" is
-     rendered: the default render stays byte-identical to config/manager. */}}
-{{- if not .Values.indexarr.cardigann.bundled }}
-{{- $indexEnv = append $indexEnv (dict "name" "CLUSTARR_CARDIGANN_BUNDLED" "value" "false") }}
+       rendered. The bundle loader is the manager's (R8, R9). */}}
+{{- if not .Values.manager.cardigann.bundled }}
+{{- $managerEnv = append $managerEnv (dict "name" "CLUSTARR_CARDIGANN_BUNDLED" "value" "false") }}
 {{- end }}
+{{- $managerVolumes := list }}
+{{- $managerMounts := list }}
 {{- /* A definitions directory replaces the embedded corpus entirely
-     (--cardigann-definitions-dir). Read-only: indexarr only reads it, and
-     the root filesystem is read-only anyway. clustarr.validate refuses
-     configMap and existingClaim together. */}}
-{{- with .Values.indexarr.cardigann.definitions }}
+       (--cardigann-definitions-dir); read-only. clustarr.validate refuses
+       configMap and existingClaim together. */}}
+{{- with .Values.manager.cardigann.definitions }}
 {{- if or .configMap .existingClaim }}
 {{- $dir := "/etc/clustarr/cardigann" }}
-{{- $indexEnv = append $indexEnv (dict "name" "CLUSTARR_CARDIGANN_DEFINITIONS_DIR" "value" $dir) }}
+{{- $managerEnv = append $managerEnv (dict "name" "CLUSTARR_CARDIGANN_DEFINITIONS_DIR" "value" $dir) }}
 {{- $mount := dict "name" "cardigann" "mountPath" $dir "readOnly" true }}
 {{- with .subPath }}
 {{- $_ := set $mount "subPath" . }}
 {{- end }}
-{{- $indexMounts = append $indexMounts $mount }}
+{{- $managerMounts = append $managerMounts $mount }}
 {{- if .configMap }}
-{{- $indexVolumes = append $indexVolumes (dict "name" "cardigann" "configMap" (dict "name" .configMap)) }}
+{{- $managerVolumes = append $managerVolumes (dict "name" "cardigann" "configMap" (dict "name" .configMap)) }}
 {{- else }}
-{{- $indexVolumes = append $indexVolumes (dict "name" "cardigann" "persistentVolumeClaim" (dict "claimName" .existingClaim "readOnly" true)) }}
+{{- $managerVolumes = append $managerVolumes (dict "name" "cardigann" "persistentVolumeClaim" (dict "claimName" .existingClaim "readOnly" true)) }}
 {{- end }}
 {{- end }}
 {{- end }}
-{{/* Recreate + RWO index PVC under SQLite: one writer, one PVC holder. Under
-     postgres.enabled there is no volume and no pinned strategy -- indexarr's
-     leader election (keyed on CLUSTARR_INDEX_DSN, unconditional once it is
-     set) makes indexarr.replicas > 1 safe there. */}}
 {{- include "clustarr.workload" (dict
-      "root" $
-      "component" "indexarr"
-      "replicas" .Values.indexarr.replicas
-      "natsSingleNodeFlag" true
-      "gomemPercent" 80
-      "values" .Values.indexarr
-      "image" "controller"
-      "args" (list "indexarr" "--role" "all")
-      "data" false
-      "index" (not .Values.postgres.enabled)
-      "strategy" (ternary "" (dict "type" "Recreate") .Values.postgres.enabled)
-      "grace" 60
-      "serviceType" .Values.indexarr.facade.service.type
+      "root" $ "component" "manager" "values" .Values.manager
+      "image" "clustarr" "command" "/usr/bin/manager" "args" $managerArgs
+      "replicas" 1 "leaderElect" true "natsSingleNodeFlag" true
+      "data" true "index" false
+      "strategy" (dict "type" "RollingUpdate" "rollingUpdate" (dict "maxSurge" 1 "maxUnavailable" 0))
+      "grace" 85 "gomemPercent" 80
+      "extraPorts" $managerPorts "extraEnv" $managerEnv
+      "extraVolumeMounts" $managerMounts "extraVolumes" $managerVolumes) }}
+{{- /* Every agent: grace is the longest AckWait it drains plus 25 s
+       (spec §3.5.6); NODE_NAME feeds its presence report. */}}
+{{- with .Values.agents.catalog }}{{ if .enabled }}
+{{- include "clustarr.workload" (dict
+      "root" $ "component" "agent-catalog" "values" .
+      "image" "native" "command" "/usr/bin/agent" "args" (list "--domain=catalog")
+      "replicas" .replicas "autoscaled" true "domain" "catalog" "nodeName" true
+      "data" false "index" false "strategy" "" "grace" 145 "gomemPercent" 80) }}
+{{- end }}{{ end }}
+{{- with .Values.agents.events }}{{ if .enabled }}
+{{- include "clustarr.workload" (dict
+      "root" $ "component" "agent-events" "values" .
+      "image" "native" "command" "/usr/bin/agent" "args" (list "--domain=events")
+      "replicas" .replicas "autoscaled" true "domain" "events" "nodeName" true
+      "data" false "index" false "strategy" "" "grace" 55 "gomemPercent" 80) }}
+{{- end }}{{ end }}
+{{- with .Values.agents.metadata }}{{ if .enabled }}
+{{- /* Exactly one, Recreate: in-process provider limiters (ADR-0007). */}}
+{{- include "clustarr.workload" (dict
+      "root" $ "component" "agent-metadata" "values" .
+      "image" "native" "command" "/usr/bin/agent" "args" (list "--domain=metadata")
+      "replicas" 1 "nodeName" true "data" false "index" false
+      "strategy" (dict "type" "Recreate") "grace" 85 "gomemPercent" 80) }}
+{{- end }}{{ end }}
+{{- with .Values.agents.import }}{{ if .enabled }}
+{{- include "clustarr.workload" (dict
+      "root" $ "component" "agent-import" "values" .
+      "image" "native" "command" "/usr/bin/agent" "args" (list "--domain=import")
+      "replicas" .replicas "autoscaled" true "domain" "import" "nodeName" true
+      "data" true "index" false "strategy" "" "grace" 85 "gomemPercent" 60) }}
+{{- end }}{{ end }}
+{{- with .Values.agents.index }}{{ if .enabled }}
+{{- $indexEnv := list
+      (dict "name" "CLUSTARR_INDEX_PATH" "value" "/var/lib/clustarr/index/releases.db")
+      (dict "name" "CLUSTARR_FACADE_API_KEY_SECRET" "value" $facadeSecret) }}
+{{- /* Postgres-backed release index (ADR-0010): CLUSTARR_INDEX_DSN points the
+       agent at the CNPG Cluster's app Secret and no PVC is mounted;
+       CLUSTARR_INDEX_PATH is then logged and ignored. */}}
+{{- if $.Values.postgres.enabled }}
+{{- $indexEnv = append $indexEnv (dict "name" "CLUSTARR_INDEX_DSN" "valueFrom" (dict "secretKeyRef" (dict
+      "name" (default (printf "%s-postgres-app" $fullname) $.Values.postgres.existingSecret)
+      "key" "uri"))) }}
+{{- end }}
+{{- /* Exactly one, Recreate under both engines: the RPC responders, the
+       facade and the per-host limiter are one process (R4 amendment), and
+       under SQLite the RWO PVC has one holder. */}}
+{{- include "clustarr.workload" (dict
+      "root" $ "component" "agent-index" "values" .
+      "image" "native" "command" "/usr/bin/agent" "args" (list "--domain=index")
+      "replicas" 1 "nodeName" true "data" false "index" (not $.Values.postgres.enabled)
+      "strategy" (dict "type" "Recreate") "grace" 85 "gomemPercent" 80
+      "serviceType" .facade.service.type
       "extraPorts" (list (dict "name" "http" "containerPort" 8080))
-      "extraServicePorts" (list (dict "name" "http" "port" .Values.indexarr.facade.service.port "targetPort" "http"))
-      "extraEnv" $indexEnv
-      "extraVolumeMounts" $indexMounts
-      "extraVolumes" $indexVolumes) }}
-{{- end }}
-{{- if .Values.grabarr.enabled }}
+      "extraServicePorts" (list (dict "name" "http" "port" .facade.service.port "targetPort" "http"))
+      "extraEnv" $indexEnv) }}
+{{- end }}{{ end }}
+{{- with .Values.agents.caption }}{{ if .enabled }}
 {{- include "clustarr.workload" (dict
-      "root" $
-      "component" "grabarr"
-      "replicas" .Values.grabarr.replicas
-      "natsSingleNodeFlag" true
-      "gomemPercent" 80
-      "values" .Values.grabarr
-      "image" "media"
-      "args" (list "grabarr" "--role" "controller")
-      "leaderElect" true
-      "data" true
-      "index" false
-      "strategy" ""
-      "grace" 60
-      "extraEnv" (list
-        (dict "name" "CLUSTARR_ENGINE_IMAGE" "value" (include "clustarr.image" (dict "root" $ "which" "media")))
-        (dict "name" "CLUSTARR_ENGINE_SERVICE_ACCOUNT" "value" (printf "%s-grabarr-engine" (include "clustarr.fullname" $)))
-        (dict "name" "CLUSTARR_DATA_CLAIM" "value" (default (printf "%s-data" (include "clustarr.fullname" $)) $.Values.storage.data.existingClaim)))) }}
-{{- end }}
-{{- if .Values.squasharr.enabled }}
-{{- $squashEnv := list
-      (dict "name" "CLUSTARR_WORKER_IMAGE" "value" (include "clustarr.image" (dict "root" $ "which" "transcoder")))
-      (dict "name" "CLUSTARR_DATA_CLAIM" "value" (default (printf "%s-data" (include "clustarr.fullname" $)) $.Values.storage.data.existingClaim)) }}
-{{- /* --intel-render-groups: host-specific, so set only when given. */}}
-{{- with .Values.squasharr.intelRenderGroups }}
-{{- $squashEnv = append $squashEnv (dict "name" "CLUSTARR_INTEL_RENDER_GROUPS" "value" (join "," .)) }}
-{{- end }}
-{{- /* GPU node labels: the binary's own defaults already match the NVIDIA
-       GPU Operator and Intel's Node Feature Discovery, so set only when
-       overridden. */}}
-{{- with .Values.squasharr.gpuNodeLabelNvidia }}
-{{- $squashEnv = append $squashEnv (dict "name" "CLUSTARR_GPU_NODE_LABEL_NVIDIA" "value" .) }}
-{{- end }}
-{{- with .Values.squasharr.gpuNodeLabelIntel }}
-{{- $squashEnv = append $squashEnv (dict "name" "CLUSTARR_GPU_NODE_LABEL_INTEL" "value" .) }}
-{{- end }}
-{{- include "clustarr.workload" (dict
-      "root" $
-      "component" "squasharr"
-      "replicas" .Values.squasharr.replicas
-      "natsSingleNodeFlag" true
-      "gomemPercent" 80
-      "values" .Values.squasharr
-      "image" "media"
-      "args" (list "squasharr" "--role" "controller" "--slots" .Values.squasharr.slots)
-      "leaderElect" true
-      "data" true
-      "index" false
-      "strategy" ""
-      "grace" 60
-      "extraEnv" $squashEnv) }}
-{{- end }}
-{{- if .Values.captionarr.enabled }}
-{{- include "clustarr.workload" (dict
-      "root" $
-      "component" "captionarr"
-      "replicas" .Values.captionarr.replicas
-      "natsSingleNodeFlag" true
-      "gomemPercent" 80
-      "values" .Values.captionarr
-      "image" "media"
-      "args" (list "captionarr" "--role" "controller")
-      "leaderElect" true
-      "data" true
-      "index" false
-      "strategy" ""
-      "grace" 60) }}
-{{- end }}
-{{- if .Values.captionarrWorker.enabled }}
-{{/* grace = the consumer AckWait: workers drain their in-flight fetch on
-     SIGTERM rather than letting it be redelivered to a dying pod (§12). */}}
-{{- include "clustarr.workload" (dict
-      "root" $
-      "component" "captionarr-worker"
-      "replicas" .Values.captionarrWorker.replicas
-      "natsSingleNodeFlag" true
-      "gomemPercent" 80
-      "values" .Values.captionarrWorker
-      "image" "media"
-      "args" (list "captionarr" "--role" "worker")
-      "data" true
-      "index" false
-      "strategy" ""
-      "grace" .Values.captionarrWorker.ackWaitSeconds) }}
-{{- end }}
+      "root" $ "component" "agent-caption" "values" .
+      "image" "native" "command" "/usr/bin/agent" "args" (list "--domain=caption")
+      "replicas" .replicas "autoscaled" true "domain" "caption" "nodeName" true
+      "data" true "index" false "strategy" "" "grace" 115 "gomemPercent" 60) }}
+{{- end }}{{ end }}
 {{- if .Values.ui.enabled }}
 {{/* ui does not fit clustarr.workload: it runs no controller-runtime
      manager, so it has no --leader-elect/--nats-single-node and no
@@ -237,7 +153,7 @@ asked for them, so they can never be chart templates.
      from the same clustarr.natsUrl helper every other Deployment uses: it
      holds a read-only bus connection to serve /art and every Plex image
      from the clustarr-artwork object store (M7 design §B.8, ADR-0011).
-     cmd/clustarr/nats_url_deploy_test.go fails the render if it is
+     test/guards' TestEveryClustarrContainerCarriesNATSURL fails if it is
      dropped. */}}
 {{- $name := printf "%s-%s" (include "clustarr.fullname" $) "ui" }}
 ---
@@ -298,9 +214,11 @@ spec:
         {{- omit $.Values.podSecurityContext "fsGroup" "fsGroupChangePolicy" | toYaml | nindent 8 }}
       containers:
       - name: ui
-        image: {{ include "clustarr.image" (dict "root" $ "which" "controller") }}
+        image: {{ include "clustarr.image" (dict "root" $ "which" "clustarr") }}
         imagePullPolicy: {{ $.Values.image.pullPolicy }}
-        {{- $uiArgs := list "ui" (printf "--auth-mode=%s" .Values.ui.auth.mode) (printf "--plex-provider=%t" .Values.ui.plex.enabled) (printf "--plex-guids=%t" .Values.ui.plex.plexGuids) (printf "--pipeline-history=%d" (int .Values.ui.pipelineHistory)) }}
+        command:
+        - /usr/bin/ui
+        {{- $uiArgs := list (printf "--auth-mode=%s" .Values.ui.auth.mode) (printf "--plex-provider=%t" .Values.ui.plex.enabled) (printf "--plex-guids=%t" .Values.ui.plex.plexGuids) (printf "--pipeline-history=%d" (int .Values.ui.pipelineHistory)) }}
         {{- with .Values.ui.plex.externalURL }}
         {{- $uiArgs = append $uiArgs (printf "--external-url=%s" .) }}
         {{- end }}

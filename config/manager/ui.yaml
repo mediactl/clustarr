@@ -17,7 +17,7 @@
 # catalog kinds' spec.monitored and on the Settings page's kinds -- and no
 # update, no delete and no */status resource anywhere in it. The UI edits
 # spec as field manager clustarr-ui and never writes status.
-# cmd/clustarr/ui_rbac_test.go holds the role to ui/actions.Grants() and
+# test/guards/ui_rbac_test.go holds the role to ui/actions.Grants() and
 # follows this Deployment's serviceAccountName to the binding, so a role
 # bound to nothing (every action Forbidden on a real cluster, invisible to
 # envtest) fails a test.
@@ -68,15 +68,17 @@ spec:
           type: RuntimeDefault
       containers:
       - name: ui
-        # ghcr.io/mediactl/clustarr: the distroless image. ui touches no
-        # media file and needs no ffmpeg/ffprobe toolchain (amendment §A3.1).
+        # ghcr.io/mediactl/clustarr: the static image the manager also runs;
+        # ui touches no media file (amendment §A3.1). No image has an
+        # ENTRYPOINT, so the container names its binary.
         image: ghcr.io/mediactl/clustarr:dev
+        command: ["/usr/bin/ui"]
         # --auth-mode is chosen explicitly (ui refuses to serve without it);
         # anonymous serves every request without a login, so this Service
         # must sit behind ingress authentication (amendment §A3.5).
         #
         # --plex-provider and --plex-guids default true in the binary; named explicitly here
-        # so the flag is visible without reading cmd/clustarr. --external-url
+        # so the flag is visible without reading cmd/ui. --external-url
         # is deliberately absent: no shipped manifest can guess an operator's
         # own reachable hostname (spec §D.1), so the Plex provider roots
         # answer 503 naming the flag until an overlay sets it, either as
@@ -86,7 +88,7 @@ spec:
         # it on anything but a private, cluster-internal network -- the
         # provider is unauthenticated by protocol. --pipeline-history is the
         # binary's default, named for the same reason as --plex-provider.
-        args: ["ui", "--auth-mode=anonymous", "--plex-provider=true", "--plex-guids=true", "--pipeline-history=100"]
+        args: ["--auth-mode=anonymous", "--plex-provider=true", "--plex-guids=true", "--pipeline-history=100"]
         env:
         - name: POD_NAMESPACE
           valueFrom:
@@ -97,8 +99,8 @@ spec:
         # it. Without this the binary dials its built-in default, a Service
         # no installer creates, and nats.go's retry-on-failed-connect never
         # reports an error -- every image request hangs, then 500s.
-        # cmd/clustarr/nats_url_deploy_test.go holds every Deployment whose
-        # command takes --nats-url to carrying this.
+        # test/guards' TestEveryClustarrContainerCarriesNATSURL holds every
+        # container to carrying this.
         - name: NATS_URL
           value: nats://nats.clustarr-system.svc:4222
         # Signs the /art/search URLs the Plex provider hands Plex, which
@@ -114,7 +116,7 @@ spec:
               name: ui-art-signing-key
               key: key
               optional: true
-        # §12: GOMEMLIMIT = 80% of 256Mi, in bytes (see catalogarr.yaml).
+        # GOMEMLIMIT = 80% of 256Mi, in bytes (spec 2026-10-06 §10.2.1).
         - name: GOMEMLIMIT
           value: "214748365"
         ports:

@@ -15,16 +15,10 @@ metadata:
 rules:
 - nonResourceURLs: ["/metrics"]
   verbs: ["get"]
-{{- $components := list }}
-{{- if .Values.catalogarr.enabled }}{{ $components = append $components "catalogarr" }}{{ end }}
-{{- if .Values.catalogarrMetadata.enabled }}{{ $components = append $components "catalogarr-metadata" }}{{ end }}
-{{- if .Values.importarr.enabled }}{{ $components = append $components "importarr" }}{{ end }}
-{{- if .Values.importarrWorker.enabled }}{{ $components = append $components "importarr-worker" }}{{ end }}
-{{- if .Values.indexarr.enabled }}{{ $components = append $components "indexarr" }}{{ end }}
-{{- if .Values.grabarr.enabled }}{{ $components = append $components "grabarr" }}{{ end }}
-{{- if .Values.squasharr.enabled }}{{ $components = append $components "squasharr" }}{{ end }}
-{{- if .Values.captionarr.enabled }}{{ $components = append $components "captionarr" }}{{ end }}
-{{- if .Values.captionarrWorker.enabled }}{{ $components = append $components "captionarr-worker" }}{{ end }}
+{{- $components := list "manager" }}
+{{- range $d := list "catalog" "events" "metadata" "import" "index" "caption" }}
+{{- if (index $.Values.agents $d).enabled }}{{ $components = append $components (printf "agent-%s" $d) }}{{ end }}
+{{- end }}
 {{/* ui has no metrics port -- no controller-runtime manager standing one
      up -- so it gets no ServiceMonitor. */}}
 {{- range $components }}
@@ -51,5 +45,29 @@ spec:
     bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
     tlsConfig:
       insecureSkipVerify: true
+{{- end }}
+{{- if .Values.markers.enabled }}
+---
+{{/* markers serves /metrics over plain http on 8080 (no controller-runtime
+     manager, no authn filter): no bearer token, no TLS. */}}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "clustarr.fullname" . }}-markers
+  labels:
+    {{- include "clustarr.labels" . | nindent 4 }}
+    app.kubernetes.io/component: markers
+    {{- with .Values.metrics.serviceMonitor.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "clustarr.selectorLabels" (dict "root" $ "component" "markers") | nindent 6 }}
+  endpoints:
+  - port: metrics
+    path: /metrics
+    scheme: http
+    interval: {{ .Values.metrics.serviceMonitor.interval }}
 {{- end }}
 {{- end }}

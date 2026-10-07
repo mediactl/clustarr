@@ -1,0 +1,181 @@
+# manager -- every reconciler in one process (spec 2026-10-06 §3.4): the
+# catalog, import, index, grab, transcode and caption controllers, the
+# MediaFile remediation loop (ADR-0016), the intake and dispatch ledger
+# (ADR-0019), the history sink and DLQ projector, the replay controllers, the
+# artwork reaper, the Cardigann bundle loader and the autoscale reconciler
+# with the External Metrics API it serves. One replica under the lease
+# manager.clustarr.io; RollingUpdate with maxUnavailable 0, so the new pod is
+# up (not leading) before the old one stops.
+#
+# It renders the download engines (as grab-engine, below) and the transcode
+# pool and graft Jobs, all on CLUSTARR_NATIVE_IMAGE, and mounts /data for its
+# filesystem reconcilers (§5.14).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: manager
+---
+# The identity every engine pod the manager's DownloadClient controller
+# creates runs as (--engine-service-account). It holds only the engines' own
+# ClusterRole (config/rbac/grab_engine_role.yaml, generated from
+# app/grab/engine's markers): read its DownloadClient and that client's
+# Secrets. Engines report over NATS; the manager writes every status.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: grab-engine
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: manager
+  labels:
+    app.kubernetes.io/component: manager
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/component: manager
+  ports:
+    - name: metrics
+      port: 8443
+      targetPort: metrics
+      protocol: TCP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: manager
+  labels:
+    app.kubernetes.io/component: manager
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: manager
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: manager
+    spec:
+      serviceAccountName: manager
+      # The longest AckWait or handler budget it drains (catalog-segments-plan,
+      # and the intake durables' 60 s handler budget) plus 25 s (spec §3.5.6,
+      # TestGracePeriodsCoverAckWait).
+      terminationGracePeriodSeconds: 85
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: manager
+          image: ghcr.io/mediactl/clustarr:dev
+          command: ["/usr/bin/manager"]
+          # --nats-single-node: config/default ships the single-server dev NATS
+          # in config/nats, which cannot host R3 streams; the manager is the
+          # only process that ensures topology (§5.9). charts/clustarr derives
+          # it from the subchart instead.
+          # The fold's flags (loop spec §3.7, §3.17, §5.13): the admission
+          # ledger's graft slots, the remediation loop's concurrency, its
+          # status-write pacing and its /data workers. The chart renders the
+          # same from manager.{slots,graftConcurrency,remediation}.
+          args: ["--leader-elect", "--slots=cpu=2,nvidia=1,intel=1", "--nats-single-node", "--graft-concurrency=2", "--remediation-concurrency=16", "--remediation-bulk-writes-per-second=25", "--remediation-io-workers=8"]
+          env:
+            - name: NATS_URL
+              value: nats://nats.clustarr-system.svc:4222
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: UMASK
+              value: "002"
+            # GOMEMLIMIT = 80% of 1536Mi, in bytes (the chart computes the same
+            # with clustarr.gomemlimit; TestGOMEMLIMITIsItsShareOfTheLimit).
+            - name: GOMEMLIMIT
+              value: "1288490189"
+            # The image of every engine, pool and graft pod (--native-image),
+            # nvidia pools included: there is no CUDA image
+            # (docs/adr/0015-no-cuda-image.md).
+            - name: CLUSTARR_NATIVE_IMAGE
+              value: ghcr.io/mediactl/clustarr/native:dev
+            - name: CLUSTARR_ENGINE_SERVICE_ACCOUNT
+              value: grab-engine
+            - name: CLUSTARR_DATA_CLAIM
+              value: clustarr-data
+            # The Torznab facade's API-key Secret. The manager creates it with
+            # one random key under "apikey" when it is absent (ADR-0019 §7.5)
+            # and never modifies one that does; the index agent only reads it,
+            # so both name the same Secret (agent-index.yaml).
+            - name: CLUSTARR_FACADE_API_KEY_SECRET
+              value: index-facade
+            # The External Metrics API's TLS Secret (created by the manager)
+            # and the Service config/autoscaling's APIService names.
+            - name: CLUSTARR_EXTERNAL_METRICS_SECRET
+              value: external-metrics-tls
+            - name: CLUSTARR_EXTERNAL_METRICS_SERVICE
+              value: external-metrics
+            # Intel transcode pods need the host's render group: add
+            #   - name: CLUSTARR_INTEL_RENDER_GROUPS
+            #     value: "109"
+            # (host-specific, so nothing is set here), or run a container
+            # runtime with device_ownership_from_security_context. The GPU
+            # node labels default to the NVIDIA GPU Operator's and Intel
+            # NFD's; override with CLUSTARR_GPU_NODE_LABEL_NVIDIA / _INTEL.
+          ports:
+            - name: extmetrics
+              containerPort: 6443
+              protocol: TCP
+            - name: metrics
+              containerPort: 8443
+              protocol: TCP
+            - name: health
+              containerPort: 8081
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 1536Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: clustarr-data
+        # readOnlyRootFilesystem: true, so /tmp has to be a volume.
+        - name: tmp
+          emptyDir: {}

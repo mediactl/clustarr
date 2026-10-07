@@ -1,0 +1,132 @@
+# markers -- skip-segment detection (spec 2026-10-01 segment detection; spec
+# 2026-10-06 §3.7): the credential-less cmd/markers binary on the native
+# image. It reads /data and talks NATS, so its ServiceAccount mounts no token
+# and nothing binds it. Autoscaled 0..N on markers-analyze's lag; a pod's
+# slots come from that consumer's Slots, or CLUSTARR_CONSUMER_SLOTS
+# (`markers-analyze=N`), the number the HPA targets too. Grace is the
+# consumer's 30-minute AckWait plus 25 s: it drains or naks what it holds.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: markers
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: markers
+  labels:
+    app.kubernetes.io/component: markers
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/component: markers
+  ports:
+    - name: metrics
+      port: 8080
+      targetPort: metrics
+      protocol: TCP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: markers
+  labels:
+    app.kubernetes.io/component: markers
+    autoscale.clustarr.io/domain: markers
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: markers
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: markers
+    spec:
+      serviceAccountName: markers
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 1825
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      # Soft: a required anti-affinity would stall a RollingUpdate surge on a
+      # single node (OD33).
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/component: markers
+      containers:
+        - name: markers
+          image: ghcr.io/mediactl/clustarr/native:dev
+          command: ["/usr/bin/markers"]
+          env:
+            - name: NATS_URL
+              value: nats://nats.clustarr-system.svc:4222
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            # The node the pod runs on, for its presence report (ADR-0019 §5.3).
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            # GOMEMLIMIT = 50% of 2Gi, in bytes: FFmpeg and ONNX Runtime
+            # allocate outside the Go heap (OD42).
+            - name: GOMEMLIMIT
+              value: "1073741824"
+          ports:
+            - name: metrics
+              containerPort: 8080
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            # NATS connected and the subscription bound (§3.3).
+            httpGet:
+              path: /readyz
+              port: metrics
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: clustarr-data
+            readOnly: true
+        # readOnlyRootFilesystem: true, so /tmp has to be a volume.
+        - name: tmp
+          emptyDir: {}
