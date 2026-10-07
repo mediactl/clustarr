@@ -166,6 +166,32 @@ const (
 	defaultRequestDelay = 2 * time.Second
 )
 
+// DefaultLimiterConfig is the bucket a ratelimit.Limiter gives a host that
+// has no Config of its own yet. It is the CRD's spec.requestDelay default,
+// never the zero Config, whose RPS of 0 is rate.Inf. The manager's Indexer
+// reconciler and the index agent's ClientCache each build their own limiter
+// from it (§5.12). An explicit requestDelay: 0s is unaffected, because
+// SetConfig installs a Config for that key and the key then never reads
+// this default.
+//
+// The obvious construction is ratelimit.New(ratelimit.Config{}) -- every real
+// per-host config arrives later, from the Indexer reconciler's SetConfig, so
+// the default looks like it is never consulted. It is: pkg/ratelimit falls
+// back to the Limiter's `defaults` for any key without its own Config, and
+// Config.RPS <= 0 is rate.Inf. Every window in which a host has no Config yet
+// is therefore a window with NO pacing at all -- the whole interval between
+// process start and that Indexer's first reconcile, a fresh host added by an
+// edit, and any key spelled differently from the reconciler's. Against a
+// private tracker that is a ban, not a slowdown.
+//
+// The rate is derived from the CRD's own default for spec.requestDelay
+// ([defaultRequestDelay]) rather than from a fresh literal, so an operator who
+// changes the default in api/index/v1alpha1 moves this too (and
+// TestIndexerSpecDefaultsMatchTheCRD fails if the mirror ever stops matching).
+func DefaultLimiterConfig() ratelimit.Config {
+	return ratelimit.Config{RPS: 1 / defaultRequestDelay.Seconds(), Burst: 1}
+}
+
 // timeoutFor floors spec.timeout.
 //
 // torznab.NewClient seeds its own 30s default and THEN applies the options,

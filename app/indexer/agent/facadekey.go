@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package indexarr
+package agent
 
 import (
 	"context"
@@ -52,6 +52,11 @@ import (
 // keys are read once at startup.
 const FacadeAPIKeyField = "apikey"
 
+// facadeComponent is the generated Secret's app.kubernetes.io/component
+// label: indexarr's ServiceName, which this package cannot import, since
+// indexarr imports it.
+const facadeComponent = "indexarr"
+
 // facadeAPIKeyBytes is a generated key's entropy: 32 random bytes, sent as
 // 64 hex characters, which is the shape every Torznab client's apikey field
 // accepts.
@@ -79,7 +84,7 @@ const facadeAPIKeyBytes = 32
 // non-blank entry is an error, not an invitation to add one: an operator
 // who emptied it meant something, and the facade must not come back up with
 // a key they never saw. It reads through reader -- the manager's API reader,
-// live, since indexarr never caches Secrets (see Options.ManagerOptions) --
+// live, since indexarr never caches Secrets (see indexarr.Options.ManagerOptions) --
 // and never logs a key.
 func ensureFacadeAPIKeys(
 	ctx context.Context, reader client.Reader, writer client.Writer, namespace, name string,
@@ -100,7 +105,7 @@ func ensureFacadeAPIKeys(
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      name,
 				Namespace: namespace,
-				Labels:    map[string]string{"app.kubernetes.io/component": ServiceName},
+				Labels:    map[string]string{"app.kubernetes.io/component": facadeComponent},
 			},
 			Type: corev1.SecretTypeOpaque,
 			Data: map[string][]byte{FacadeAPIKeyField: []byte(generated)},
