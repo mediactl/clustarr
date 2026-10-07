@@ -26,7 +26,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // events.BucketArtwork. status.overlay is the manager's: the item key's
 // overlay stage renders it from the overlay object's metadata (profile,
 // inputs digest, update time) under k8s.ManagerCatalogArtwork, one apply per
-// pass -- W4.82's PatchOverlay compare-and-swap is gone with the status
+// pass -- W4.82's status.overlay compare-and-swap is gone with the status
 // write. It reads, and never writes, the gateway's "original" objects; the
 // manager's reaper is the only code that deletes both variants.
 //

@@ -42,7 +42,7 @@ const RenderDurable = events.ConsumerCatalogArtworkRender
 // namespace's OverlayProfiles and the poster original's digest in the
 // index), publishes a render task when the overlay object's metadata does
 // not record that plan, and renders status.overlay from that metadata under
-// catalog-artwork. W4.82's PatchOverlay compare-and-swap is superseded: the
+// catalog-artwork. W4.82's status.overlay compare-and-swap is superseded: the
 // renderer writes the object only, and this stage is status.overlay's one
 // writer, one apply per pass.
 type OverlayStage struct{ o Options }

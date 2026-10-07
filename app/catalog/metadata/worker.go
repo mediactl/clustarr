@@ -98,9 +98,9 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 
 	ctx, span := tracing.Start(ctx, "metadata.Handler.Handle")
 	defer span.End()
-	// A provider fetch plus up to nine image fetches can outlast the
-	// consumer's first BackOff step, which replaces AckWait as the
-	// redelivery timer.
+	// A provider fetch, its enrichment and a series' episode people can
+	// outlast the consumer's first BackOff step, which replaces AckWait as
+	// the redelivery timer.
 	stopHeartbeat := artwork.KeepAlive(ctx, m, artwork.HeartbeatInterval)
 	defer stopHeartbeat()
 
@@ -118,7 +118,11 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 	if item.UID == "" {
 		item = metadatainputs.ItemRef(target)
 	} else if item.UID != string(target.GetUID()) {
-		return events.Discard("target object was re-created", fmt.Errorf("task uid %s, object uid %s", item.UID, target.GetUID()))
+		// Acked, not dead-lettered: a dead letter would be projected onto
+		// the new item, which asked for nothing.
+		logging.FromContext(ctx).DebugContext(ctx, "metadata: a task for an item since re-created; nothing to answer",
+			"kind", task.MediaRef.Kind, "key", key.String(), "taskUID", item.UID)
+		return nil
 	}
 	inputs := task.Inputs
 	if inputs.SchemaVersion == 0 && len(inputs.ProviderIDs) == 0 {
@@ -289,8 +293,8 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 
 	if cached == nil {
 		if err := h.Cache.Set(ctx, ck, result, ttl); err != nil {
-			// A cache-write failure must not fail the task: the status
-			// write below is what §8.1 actually depends on.
+			// A cache-write failure must not fail the task: the record
+			// below is what the item key depends on.
 			tracing.RecordError(span, fmt.Errorf("metadata: cache set (non-fatal): %w", err))
 		}
 	}
@@ -314,7 +318,7 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 }
 
 // writeExtended replaces the item's extended-metadata document. Like the
-// cache write, a failure is recorded and never fails the task: status is
+// cache write, a failure is recorded and never fails the task: the record is
 // what the rest of the system depends on, and the next refresh rewrites
 // the document.
 func (h *Handler) writeExtended(ctx context.Context, kind commonv1.MediaKind, target client.Object, result any) {
