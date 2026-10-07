@@ -90,6 +90,15 @@ type View struct {
 	InFlight *Task
 	// Key is the dispatch's ledger key.
 	Key dispatch.Key
+	// SeasonPending: an Episode's season is Queued or Searching in its
+	// Series' season search (Wave S, §7): its own video search waits for it,
+	// so a season turned on and searched at once is one query, not one per
+	// episode. A redownload does not wait.
+	SeasonPending bool
+	// SeasonAnsweredAt is when its Series' season search answered the
+	// Episode's season (Answered, not AllPaced): a season answer newer than
+	// the Episode's lastSearchedAt counts once as its search (§7).
+	SeasonAnsweredAt *metav1.Time
 }
 
 // Task is one search task to publish.
@@ -153,6 +162,17 @@ func Decide(v View, admit func(durable string, seq int64) dispatch.Decision, pac
 			p.LastSearchedAt = &at
 		}
 		p.Answered, p.AnsweredSeq = true, d.Seq
+	}
+
+	// 1b. A season search's answer counts as the Episode's search (Wave S,
+	// §7): folded once, while it is wanted and nothing of its own is in
+	// flight, never moving lastSearchedAt back. Its next search is then
+	// IndexOnly against the release index the season query fed.
+	if at := v.SeasonAnsweredAt; at != nil && v.Wanted && !d.InFlight() &&
+		(p.LastSearchedAt == nil || at.After(p.LastSearchedAt.Time)) {
+		t := *at
+		p.LastSearchedAt = &t
+		p.Attempts = bump(p.Attempts, t)
 	}
 
 	// 2. A dispatch nobody answered closes as timed out, uncounted.
@@ -257,7 +277,9 @@ func purposeDue(v View, now time.Time) *purpose {
 	if d := v.Dispatch; d != nil && now.Sub(d.DispatchedAt.Time) < wantedcron.MinimumGap {
 		return nil
 	}
-	if v.Wanted && wantedcron.Eligible(v.Attempts, now) {
+	// An Episode whose season search is queued or searching waits for it
+	// (Wave S, §7); its donor search does not.
+	if v.Wanted && !v.SeasonPending && wantedcron.Eligible(v.Attempts, now) {
 		reason := v.Reason
 		if reason == "" {
 			reason = schema.SearchReasonMissing

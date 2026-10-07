@@ -38,4 +38,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // unless every indexer was paced (P6) -- and the item key's grab planner
 // reads its candidates (grabplan, R7). A dispatch outstanding past Timeout
 // closes without counting.
+//
+// DecideSeasons is the planner's second mode (Wave S, series search design
+// §4): the Series key serves a person's series or season search -- a
+// Search with grabBest on a series -- from status.seasonSearch, one request
+// at a time and one season task in flight, each behind the namespace's
+// live-search pace and admitted on catalog-search-high (SeasonDurable).
+// Nothing here publishes an Episode search for a season: an Episode folds
+// its season's answer into its lastSearchedAt and attempts once
+// (View.SeasonAnsweredAt), so its next search is IndexOnly, and waits while
+// its season is pending (View.SeasonPending).
 package searchplan
