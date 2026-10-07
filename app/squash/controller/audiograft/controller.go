@@ -185,10 +185,14 @@ func (r *Reconciler) graftsOfTranscode(ctx context.Context, o ctrl.Object) []rec
 	return out
 }
 
-// The AudioGraft field indexes graftsOfFile reads.
+// The AudioGraft field indexes graftsOfFile reads. They carry the
+// squasharr.audiograft. prefix (spec §5.7) because the one manager also runs
+// the MediaFile reconciler, which registers its own AudioGraft index named
+// "status.mediaFileRef": a second IndexField on the same (kind, name) in one
+// cache is an indexer conflict, and the manager would fail at start.
 const (
-	IndexMediaFileRef = "status.mediaFileRef"
-	IndexItemRef      = "spec.itemRef.name"
+	IndexMediaFileRef = "squasharr.audiograft.status.mediaFileRef"
+	IndexItemRef      = "squasharr.audiograft.spec.itemRef.name"
 )
 
 // RegisterIndexes registers them on idx.
