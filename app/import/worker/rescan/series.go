@@ -29,11 +29,11 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/import/worker/fileimport"
-	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/events/schema"
+	"github.com/mediactl/clustarr/pkg/names"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/release"
 )
@@ -41,9 +41,10 @@ import (
 // Series attribution: a series root folder.
 //
 // A folder that carries a TheTVDB id no series has ("Breaking Bad (2008)
-// [tvdbid-81189]") creates that series, as a {tmdb-N} folder creates its
-// Movie (amendment §A1.5): the id is an embedded identifier, not a guess.
-// A folder without one never creates anything. A new series has no
+// [tvdbid-81189]") proposes that series, which the manager's scan applier
+// creates, as a {tmdb-N} folder proposes its Movie (amendment §A1.5): the
+// id is an embedded identifier, not a guess. A folder without one never
+// proposes anything. A new series has no
 // episodes until the Series controller fans them out from its metadata --
 // not something a walk can wait on -- so its files are counted in
 // Progress.AwaitingEpisodes, as are those of any series whose episodes have
@@ -186,8 +187,8 @@ func (w *Worker) loadSeries(ctx context.Context, ns string, root *catalogv1alpha
 
 // handleEpisodeFile attributes one file under a series root folder, which
 // no MediaFile records yet, to the episode (or episodes) of the series it
-// holds -- creating that series first when its folder's TheTVDB id names
-// none -- and records it, scored against the series' QualityProfile like
+// holds -- proposing that series first when its folder's TheTVDB id names
+// none -- and reports it, scored against the series' QualityProfile like
 // any scanned video file.
 func (w *Worker) handleEpisodeFile(ctx context.Context, st *scanState, path, rel string, info os.FileInfo) error {
 	now := w.now()
@@ -197,7 +198,7 @@ func (w *Worker) handleEpisodeFile(ctx context.Context, st *scanState, path, rel
 		return nil
 	}
 	if series.Name == "" {
-		created, err := w.createSeries(ctx, st, rel, series)
+		created, err := w.createSeries(ctx, st, path, info, series)
 		if err != nil || created == nil {
 			return err
 		}
@@ -217,67 +218,50 @@ func (w *Worker) handleEpisodeFile(ctx context.Context, st *scanState, path, rel
 		st.unmatched(rel, CodeNoChild, fmt.Sprintf("in series %s: %s", series.Name, reason), nil, now)
 		return nil
 	}
+	if st.task.DryRun {
+		st.predict(false)
+		return nil
+	}
 	fresh := w.freshVideoSpec(ctx, st, path, parsed, series.QualityProfileRef, series.OriginalLanguage)
-	return w.recordAttribution(ctx, st, path, rel, info, nil, fileimport.EpisodeFileRef(eps), fresh)
+	return w.proposeFile(ctx, st, path, info, nil, fileimport.EpisodeFileRef(eps), &fresh, nil, "series:"+series.Name)
 }
 
-// createSeries creates the series want describes -- MatchSeries' unnamed
-// candidate for a folder's TheTVDB id -- and adds it to the walk's
-// candidates, so the folder's other files find it rather than creating it
-// again. Series.spec.qualityProfileRef is required, so a root folder with no
-// default one records the file as unmatched and creates nothing (nil).
-func (w *Worker) createSeries(ctx context.Context, st *scanState, rel string, want *SeriesCandidate) (*SeriesCandidate, error) {
-	if ex, ok, err := w.excluded(ctx, catalogv1alpha1.ExclusionIDKeyTVDB, strconv.FormatInt(want.TvdbID, 10)); err != nil {
-		return nil, err
-	} else if ok {
-		st.unmatched(rel, CodeExcluded, fmt.Sprintf(
-			"excluded: the series folder carries TheTVDB id %d, which import exclusion %s/%s keeps out",
-			want.TvdbID, ex.Namespace, ex.Name), nil, w.now())
-		return nil, nil
-	}
-	profile := st.root.Spec.Defaults.QualityProfileRef
-	if profile == "" {
-		st.unmatched(rel, CodeNoQualityProfile, fmt.Sprintf(
-			"the series folder carries TheTVDB id %d, but root folder %q sets no default qualityProfileRef, "+
-				"which a new series requires", want.TvdbID, st.root.Name), nil, w.now())
-		return nil, nil
-	}
+// createSeries proposes the series want describes -- MatchSeries' unnamed
+// candidate for a folder's TheTVDB id -- with the file that found it, and
+// adds it to the walk's candidates, so the folder's other files find it
+// rather than proposing it again. The manager's scan applier creates it,
+// pinned to that folder, or refuses: an ImportExclusion naming the id
+// (P37), or a root folder with no default qualityProfileRef (P38), which
+// Series.spec.qualityProfileRef requires. A new series has no episodes, so
+// its files await them either way.
+func (w *Worker) createSeries(
+	ctx context.Context, st *scanState, path string, info os.FileInfo, want *SeriesCandidate,
+) (*SeriesCandidate, error) {
 	c := *want
-	c.Name = k8s.ChildName(want.Title, "series", strconv.FormatInt(want.TvdbID, 10))
-	c.QualityProfileRef = profile
-	if !st.task.DryRun {
-		if err := w.applySeries(ctx, st, c); err != nil {
-			return nil, err
-		}
-	}
+	c.Name = names.Series(want.Title, want.TvdbID)
+	c.QualityProfileRef = st.root.Spec.Defaults.QualityProfileRef
 	st.series = append(st.series, c)
-	st.progress.ItemsCreated++
-	logging.FromContext(ctx).Info("created a series from its folder's TheTVDB id",
-		"series", c.Name, "tvdbID", c.TvdbID, "dryRun", st.task.DryRun)
-	return &st.series[len(st.series)-1], nil
-}
-
-// applySeries creates (or re-asserts) a series a scan found by its folder's
-// TheTVDB id, under [FieldManager]. It is pinned to that folder
-// (spec.folder), so it resolves to where its files already are rather than
-// to the name the naming preset would give it, and neither add-time search
-// runs: its files are already on disk, as applyMovie's searchForMovie=false
-// says for a movie. It monitors no episode (monitor none): the owner turns
-// on the seasons they want searched.
-func (w *Worker) applySeries(ctx context.Context, st *scanState, c SeriesCandidate) error {
-	ac := catalogac.Series(c.Name, st.scan.Namespace).WithSpec(
-		catalogac.SeriesSpec().
-			WithTvdbID(c.TvdbID).
-			WithQualityProfileRef(c.QualityProfileRef).
-			WithRootFolderRef(st.root.Name).
-			WithFolder(c.Folder).
-			WithAddOptions(catalogac.SeriesAddOptions().
-				WithMonitor(catalogv1alpha1.SeriesMonitorNone).
-				WithSearchForMissing(false).
-				WithSearchForCutoffUnmet(false)),
-	)
-	if _, err := k8s.Apply(ctx, w.Client, FieldManager, ac); err != nil {
-		return fmt.Errorf("rescan: apply series %s: %w", c.Name, err)
+	if st.task.DryRun {
+		st.progress.ItemsCreated++
+		return &st.series[len(st.series)-1], nil
 	}
-	return nil
+	create := &schema.ItemCreate{
+		Kind: string(commonv1.MediaKindSeries), Name: c.Name, TvdbID: c.TvdbID,
+		QualityProfileRef: c.QualityProfileRef, RootFolderRef: st.root.Name,
+		Title: c.Title, Year: int32(c.Year), //nolint:gosec // a release year
+	}
+	obs := schema.ScanObservation{
+		Kind: schema.ScanObservationPresent, Path: path,
+		SizeBytes: info.Size(), ModTime: info.ModTime().UTC(),
+		Attribution: &schema.ScanAttribution{
+			Kind: string(commonv1.MediaKindSeries), Name: c.Name, ProviderID: "tvdb:" + strconv.FormatInt(c.TvdbID, 10),
+			Evidence: "folder", Create: create,
+		},
+	}
+	if err := w.observe(ctx, st, obs); err != nil {
+		return nil, err
+	}
+	logging.FromContext(ctx).Info("proposed a series from its folder's TheTVDB id",
+		"series", c.Name, "tvdbID", c.TvdbID)
+	return &st.series[len(st.series)-1], nil
 }

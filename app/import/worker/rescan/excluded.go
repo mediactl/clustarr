@@ -16,31 +16,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 package rescan
 
-import (
-	"context"
-	"errors"
-
-	"github.com/mediactl/clustarr/pkg/events"
-)
-
-// CodeExcluded is a folder whose id an ImportExclusion names: the scan
-// creates no item for it (a delete that kept the files and asked to stay
-// out).
+// CodeExcluded is a file whose item an ImportExclusion names: the manager's
+// scan applier creates no item for it (a delete that kept the files and
+// asked to stay out, P37), and lists the file as unmatched with this code.
 const CodeExcluded = "excluded"
-
-// excluded looks provider/id up in the clustarr-import-exclusions bucket,
-// the lookup the import-list sync makes. With no bus nothing is excluded.
-func (w *Worker) excluded(ctx context.Context, provider, id string) (events.ExclusionEntry, bool, error) {
-	if w.Bus == nil || id == "" {
-		return events.ExclusionEntry{}, false, nil
-	}
-	entry, err := w.Bus.KV(events.BucketImportExclusions).Get(ctx, events.ExclusionKey(provider, id))
-	switch {
-	case errors.Is(err, events.ErrKeyNotFound):
-		return events.ExclusionEntry{}, false, nil
-	case err != nil:
-		return events.ExclusionEntry{}, false, err
-	}
-	decoded, err := events.DecodeExclusionEntry(entry.Value)
-	return decoded, true, err
-}

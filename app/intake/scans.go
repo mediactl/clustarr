@@ -33,11 +33,11 @@ import (
 )
 
 // NoApplierDelay is the nak delay of an observation while no ScanApplier is
-// wired (until A6.1).
+// wired (a consumer built without one).
 const NoApplierDelay = 30 * time.Second
 
 // errNoApplier naks every observation until the scan applier exists.
-var errNoApplier = errors.New("intake: no scan applier is wired yet")
+var errNoApplier = errors.New("intake: no scan applier is wired")
 
 // Scan intake outcomes (clustarr_intake_scan_total's outcome label).
 const (
@@ -47,9 +47,9 @@ const (
 	scanUnapplied = "unapplied"
 )
 
-// ScanApplier decides one observation and writes; A6.1 implements it
-// (app/import/manager/scanapply). Apply is idempotent: a crash between it
-// and the ack re-applies.
+// ScanApplier decides one observation and writes:
+// app/import/manager/scanapply implements it (A6.1). Apply is idempotent: a
+// crash between it and the ack re-applies.
 type ScanApplier interface {
 	Apply(ctx context.Context, obs schema.ScanObservation) error
 }
@@ -57,7 +57,7 @@ type ScanApplier interface {
 // ScanConsumer is the leader-only import-intake-scan consumer.
 type ScanConsumer struct {
 	Bus events.Bus
-	// Applier is nil until A6.1: every observation is naked with 30 s.
+	// Applier decides; nil naks every observation with NoApplierDelay.
 	Applier  ScanApplier
 	Topology events.Topology
 }

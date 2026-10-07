@@ -92,8 +92,9 @@ func Register(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options) 
 		// The library rescan, on ConsumerImportScan ("import-scan"). Its
 		// incremental fingerprint check reads the spec.path field index
 		// (rescan.FieldIndexes), which the process registers before the
-		// manager starts.
-		{events.ConsumerImportScan, newScanWorker(c, api, bus, prober, o).Handle},
+		// manager starts. It reports observations on CLUSTARR_INTAKE and
+		// writes nothing (ADR-0019 §7.6).
+		{events.ConsumerImportScan, newScanWorker(c, bus, prober, o).Handle},
 		// The completed-download import worker (amendment §A1.2, §A1.6; plan
 		// tasks D2-7/D2-8), on ConsumerImportFile ("import-fileimport",
 		// R6). It reads the spec.mediaRef.target field index

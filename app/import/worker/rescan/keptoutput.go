@@ -109,13 +109,14 @@ func keptOutputName(base string) (stem, profile string, ok bool) {
 //     that turns out not to be an output is not probed again when it is
 //     attributed.
 //
-// A recognised output is skipped and counted in Progress.TranscodeOutputs,
-// as one a TranscodeJob names is. A file that passes the first two and
+// A recognised output is reported with its relation and the profile, as one
+// a TranscodeJob names is, and the manager's scan applier leaves it alone,
+// counting it in Progress.TranscodeOutputs. A file that passes the first two and
 // cannot be probed is reported unmatched ([CodeUnconfirmedTranscodeOutput])
 // rather than guessed at either way. An output given an explicit
 // spec.outputPath follows no naming convention, so it is recognised only
 // while its TranscodeJob exists.
-func (w *Worker) keptOutput(ctx context.Context, st *scanState, path string, probe *fileProbe) (skip bool, err error) {
+func (w *Worker) keptOutput(ctx context.Context, st *scanState, path string, info os.FileInfo, probe *fileProbe) (skip bool, err error) {
 	if k := st.root.Spec.Kind; k != catalogv1alpha1.RootFolderKindMovie && k != catalogv1alpha1.RootFolderKindSeries {
 		return false, nil
 	}
@@ -148,9 +149,10 @@ func (w *Worker) keptOutput(ctx context.Context, st *scanState, path string, pro
 		return false, nil
 	}
 	st.progress.FilesSeen++
-	st.progress.TranscodeOutputs++
-	st.progress.FilesSkipped++
-	logging.FromContext(ctx).Debug("left a kept source's transcode output alone",
+	if err := w.reportTranscodeOutput(ctx, st, path, info, source.Name, profile); err != nil {
+		return false, err
+	}
+	logging.FromContext(ctx).Debug("reported a kept source's transcode output",
 		"path", rel, "source", source.Name, "profile", profile)
 	return true, nil
 }

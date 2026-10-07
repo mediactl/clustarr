@@ -18,8 +18,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Package specwrite is the MediaFile spec's Kubernetes writers, split from
 // app/import/mediafilespec (ADR-0019 A3.8) so the import agent links none:
 // Apply and ApplyFacts (the one render of import-worker's MediaFileSpec)
-// and RenameFile. The manager's import materialisation and rename actuator
-// call them; the rescan until A6.1 moves its writes to the manager.
+// and RenameFile. The manager's import materialisation, scan applier
+// (app/import/manager/scanapply) and rename actuator call them.
 package specwrite
 
 import (
@@ -53,7 +53,7 @@ import (
 // Apply applies import's complete MediaFileSpec for one MediaFile
 // under [mediafilespec.FieldManager]: ref, path, the size and mtime info observed, and
 // every frozen field f carries. It is the one render of this manager's set
-// on a MediaFile -- the rescan and the rename both go through it, so neither
+// on a MediaFile -- the scan applier and the rename both go through it, so neither
 // can become a second, narrower apply that releases what the other sends.
 //
 // A nil info sends no size or mtime: a transcoded file's are catalog's
@@ -61,8 +61,7 @@ import (
 // sent as a precondition, and a refusal for that reason comes back as a
 // *[mediafilespec.StaleReadError].
 //
-// It returns the applied MediaFile's UID: the rescan seeds its probe record
-// under it (spec 2026-10-06 §6.6).
+// It returns the applied MediaFile's UID.
 func Apply(
 	ctx context.Context, c client.Client, namespace, name, rv string,
 	ref commonv1.MediaRef, path string, info os.FileInfo, f mediafilespec.Frozen,
@@ -162,7 +161,7 @@ func applyFacts(
 // a file that appears at the proposed path after the check rather than
 // replacing it. A dry run returns after the checks with [mediafilespec.RenameDryRun].
 //
-// The apply goes through [Apply], the render the rescan uses, under
+// The apply goes through [Apply], the render the scan applier uses, under
 // [mediafilespec.FieldManager], carrying the resourceVersion just read. If it fails, the
 // MediaFile is read again -- an apply whose response was lost may still
 // have landed -- and only if it does not already name the new path is the

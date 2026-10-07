@@ -26,12 +26,10 @@ import (
 	"strings"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/import/importtarget"
@@ -219,12 +217,13 @@ func (w *Worker) nonMovieRootFolder(ctx context.Context, ns string, t importtarg
 		importtarget.AnnotationImportTarget, t.String(), ref.Kind)
 }
 
-// assignManually records one walked file against the scan's import-target.
+// assignManually reports one walked file against the scan's import-target.
 // It bypasses matching -- a person made this attribution, which is the only
 // way the never-guess rule lets an unmatchable file into the catalog -- but
-// not the MediaFile invariants: a path already recorded against another item
-// is reported, never re-pointed, and a new MediaFile records
-// importedFrom.manual.
+// not the MediaFile invariants, which the manager's scan applier holds: it
+// validates the target again (P45), refuses a path already recorded against
+// another item, never re-pointing it, and records importedFrom.manual on a
+// new MediaFile.
 func (w *Worker) assignManually(
 	ctx context.Context, st *scanState, path, rel string, info os.FileInfo, existing *catalogv1alpha1.MediaFile,
 ) error {
@@ -244,9 +243,8 @@ func (w *Worker) assignManually(
 			fresh = w.freshVideoSpec(ctx, st, path, parsed, profile, language)
 		}
 	}
-	fresh.ImportedFrom = catalogac.ImportSource().
-		WithManual(true).
-		WithImportedAt(metav1.NewTime(w.now()))
+	// spec.importedFrom.manual is the applier's, from the observation's
+	// Manual flag (mediafilespec.FrozenFromScan).
 	return w.recordAttribution(ctx, st, path, rel, info, existing, ref, fresh)
 }
 

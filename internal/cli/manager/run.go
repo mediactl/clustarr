@@ -21,6 +21,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -33,9 +34,11 @@ import (
 	"github.com/mediactl/clustarr/app/dispatch"
 	grabmanager "github.com/mediactl/clustarr/app/grab/manager"
 	importmanager "github.com/mediactl/clustarr/app/import/manager"
+	"github.com/mediactl/clustarr/app/import/manager/scanapply"
 	indexermanager "github.com/mediactl/clustarr/app/indexer/manager"
 	"github.com/mediactl/clustarr/app/intake"
 	"github.com/mediactl/clustarr/app/intake/advisory"
+	"github.com/mediactl/clustarr/app/remediation"
 	remediationmanager "github.com/mediactl/clustarr/app/remediation/manager"
 	transcodemanager "github.com/mediactl/clustarr/app/transcode/manager"
 	"github.com/mediactl/clustarr/pkg/busconn"
@@ -186,7 +189,7 @@ func newPlanes(mgr ctrl.Manager, bus events.Bus, o Options) (planes, error) {
 		return planes{}, fmt.Errorf("manager: add the dispatch ledger: %w", err)
 	}
 	// The intake (§4.3, §8.4): the candidate inbox, acked after the owner's
-	// pass decides, and the scan intake, whose applier A6.1 wires; both
+	// pass decides, and the scan intake with its applier (A6.1); both
 	// leader-only, binding the durables EnsureTopology created.
 	top := o.BusTopology()
 	cand, _ := top.Consumer(events.ConsumerIntakeCandidate)
@@ -194,7 +197,7 @@ func newPlanes(mgr ctrl.Manager, bus events.Bus, o Options) (planes, error) {
 	if err := mgr.Add(&intake.CandidateConsumer{Bus: bus, Inbox: p.inbox, Topology: top}); err != nil {
 		return planes{}, fmt.Errorf("manager: add the candidate intake: %w", err)
 	}
-	if err := mgr.Add(&intake.ScanConsumer{Bus: bus, Topology: top}); err != nil {
+	if err := mgr.Add(&intake.ScanConsumer{Bus: bus, Topology: top, Applier: newScanApplier(mgr, bus, o)}); err != nil {
 		return planes{}, fmt.Errorf("manager: add the scan intake: %w", err)
 	}
 	// The task-events intake (§8.2): nak and term advisories of every
@@ -211,6 +214,17 @@ func newPlanes(mgr ctrl.Manager, bus events.Bus, o Options) (planes, error) {
 		return planes{}, fmt.Errorf("manager: add the task-events intake: %w", err)
 	}
 	return p, nil
+}
+
+// newScanApplier is the scan intake's applier (ADR-0019 §7.6, A6.1): the
+// manager's writes of what a library scan observed, paced by a limiter at
+// the remediation loop's bulk rate (--remediation-bulk-writes-per-second).
+func newScanApplier(mgr ctrl.Manager, bus events.Bus, o Options) *scanapply.Applier {
+	rate := o.RemediationBulkWritesPerSecond
+	return &scanapply.Applier{
+		Client: mgr.GetClient(), Reader: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Bus: bus,
+		Limiter: remediation.NewWriteLimiter(rate, rate), Now: time.Now,
+	}
 }
 
 // register adds every manager-side component in §3.4.2's fixed order and

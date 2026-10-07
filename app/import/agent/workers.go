@@ -30,12 +30,11 @@ import (
 // newScanWorker builds the work.import.scan handler with o's sample size
 // floor. rescan.NewWorker already defaults the floor, so the assignment
 // matters exactly when o carries a different one -- a non-default
-// --sample-max-bytes, or 0 to disable the rule. It also gets the manager's
-// API reader, which a scan's rename pass re-reads each MediaFile through
-// (rescan.Worker.APIReader), and the import domain's one prober.
-func newScanWorker(c client.Client, api client.Reader, bus events.Bus, prober mediainfo.Prober, o Options) *rescan.Worker {
+// --sample-max-bytes, or 0 to disable the rule. It gets the import domain's
+// one prober; it reads through the cache and writes nothing (its
+// observations are the manager's scan applier's to decide, ADR-0019 §7.6).
+func newScanWorker(c client.Client, bus events.Bus, prober mediainfo.Prober, o Options) *rescan.Worker {
 	w := rescan.NewWorker(c, bus, prober)
-	w.APIReader = api
 	w.SampleMaxBytes = o.SampleMaxBytes
 	return w
 }

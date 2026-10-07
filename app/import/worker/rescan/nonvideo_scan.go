@@ -276,29 +276,19 @@ func (w *Worker) freshNonVideoSpec(ctx context.Context, kind commonv1.MediaKind,
 	return f
 }
 
-// recordAttribution applies the MediaFile for an attributed file, unless a
-// MediaFile for this path already points elsewhere, and updates the tally.
-// fresh is only used when there is no existing MediaFile: an existing one's
-// frozen fields are re-asserted verbatim (observedSpec).
+// recordAttribution reports an attributed file to the manager's scan
+// applier, with the MediaFile the walk read for its path (existing, nil when
+// none). fresh is what a new MediaFile freezes; the applier re-asserts an
+// existing one's frozen fields verbatim, and refuses -- never re-points --
+// a path already recorded against another item (P41: unmatched,
+// recorded_elsewhere).
 func (w *Worker) recordAttribution(
 	ctx context.Context, st *scanState, path, rel string, info os.FileInfo,
 	existing *catalogv1alpha1.MediaFile, ref commonv1.MediaRef, fresh mediafilespec.Frozen,
 ) error {
-	if existing != nil && (existing.Spec.MediaRef.Kind != ref.Kind || existing.Spec.MediaRef.Name != ref.Name) {
-		st.unmatched(rel, CodeRecordedElsewhere, fmt.Sprintf(
-			"attributed to %s/%s, but MediaFile %s already records this path against %s/%s; spec.mediaRef is "+
-				"immutable, so delete that MediaFile to re-attribute the file",
-			ref.Kind, ref.Name, existing.Name, existing.Spec.MediaRef.Kind, existing.Spec.MediaRef.Name),
-			[]string{existing.Spec.MediaRef.Name}, w.now())
-		return nil
+	if err := w.proposeFile(ctx, st, path, info, existing, ref, &fresh, nil, "match"); err != nil {
+		return err
 	}
-	if !st.task.DryRun {
-		if _, err := w.applyObserved(ctx, st.scan.Namespace, existing, ref, path, info, fresh); err != nil {
-			return err
-		}
-	}
-	st.progress.ItemsUpdated++
-	st.progress.FilesMatched++
-	logging.FromContext(ctx).Debug("attributed a scanned file", "kind", ref.Kind, "item", ref.Name)
+	logging.FromContext(ctx).Debug("reported a scanned file", "kind", ref.Kind, "item", ref.Name, "path", rel)
 	return nil
 }

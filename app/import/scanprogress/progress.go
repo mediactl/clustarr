@@ -93,10 +93,10 @@ func MergeRenamed(list []RenamedFile, more ...RenamedFile) []RenamedFile {
 // Progress is the worker's running -- and, once Done, final -- tally for one
 // LibraryScan. The rescan worker (app/import/worker/rescan) checkpoints it
 // to a clustarr-progress key roughly every checkpointInterval; the
-// LibraryScan controller polls that key and
-// aggregates it into status, because the controller is the single writer of
-// LibraryScan.status and the single-writer rule has no worker exception
-// here.
+// manager's scan applier keeps the outcomes only it decides in a second
+// Progress at [AppliedKey]; the LibraryScan controller polls both, adds
+// them ([Progress.Merge]) and aggregates the sum into status, because the
+// controller is the single writer of LibraryScan.status.
 //
 // # What the counters mean
 //
@@ -199,15 +199,17 @@ type Progress struct {
 	// Unmatched lists the files that could not be attributed.
 	Unmatched []UnmatchedFile `json:"unmatched,omitempty"`
 
-	// FilesRenamed counts the files the scan's rename pass moved.
+	// FilesRenamed counted the files a scan's rename pass moved. The pass
+	// retired (ADR-0019 A6.1: the remediation loop's rename actuator
+	// renames), so nothing counts it now.
 	FilesRenamed int64 `json:"filesRenamed,omitempty"`
 
-	// FilesRemoved counts the MediaFiles the scan removed because their
-	// file is gone from disk (prunePass).
+	// FilesRemoved counts the MediaFiles the manager's scan applier
+	// removed because their file is gone from disk (the walk's missing
+	// observations; a dry run counts what it would report).
 	FilesRemoved int64 `json:"filesRemoved,omitempty"`
 
-	// Renamed lists what the rename pass did with each rename candidate
-	// under the walked path, in the order it took them (MergeRenamed).
+	// Renamed listed what a rename pass did; see FilesRenamed.
 	Renamed []RenamedFile `json:"renamed,omitempty"`
 
 	// Resume is the last path whose outcome is in this tally, in walk
@@ -297,3 +299,57 @@ func DecodeProgress(data []byte) (Progress, error) {
 // nothing after it is a trailing dot, which nats.go rejects on Put and on
 // Delete alike.
 func ProgressKey(scanUID string) string { return "scan." + events.KVKeyToken(scanUID) }
+
+// AppliedKey is the clustarr-progress key the manager's scan applier
+// (app/import/manager/scanapply) keeps one LibraryScan's applied tally under
+// (ADR-0019 §7.6): the outcomes only the applier knows -- items created,
+// files matched and recorded, post-transcode changes handed over,
+// transcode outputs left alone, stale observations deferred, records of
+// missing files removed, and the files it refused (unmatched). The rescan
+// agent's walk tally stays at [ProgressKey]; the LibraryScan controller
+// adds the two ([Progress.Merge]). Keyed by the scan's UID, through
+// events.KVKeyToken, as ProgressKey is.
+func AppliedKey(scanUID string) string { return "scan-applied." + events.KVKeyToken(scanUID) }
+
+// maxUnmatched is catalogv1alpha1.LibraryScanStatus.Unmatched's MaxItems.
+const maxUnmatched = 200
+
+// Merge adds q's counters to p's and appends q's unmatched files, keeping
+// the newest 200 (the CRD's MaxItems); Done, Error and Resume stay p's. The
+// LibraryScan controller merges the applier's tally ([AppliedKey]) into the
+// walk's ([ProgressKey]) with it: the walk counts what it saw, the applier
+// what it decided, so no outcome is counted twice.
+func (p Progress) Merge(q Progress) Progress {
+	p.FilesSeen += q.FilesSeen
+	p.FilesMatched += q.FilesMatched
+	p.ItemsCreated += q.ItemsCreated
+	p.ItemsUpdated += q.ItemsUpdated
+	p.FilesSkipped += q.FilesSkipped
+	p.Unchanged += q.Unchanged
+	p.Transcoded += q.Transcoded
+	p.Deferred += q.Deferred
+	p.TranscodeOutputs += q.TranscodeOutputs
+	p.HandedOver += q.HandedOver
+	p.AwaitingEpisodes += q.AwaitingEpisodes
+	p.NotMedia += q.NotMedia
+	p.Parts += q.Parts
+	p.Extras += q.Extras
+	p.Samples += q.Samples
+	p.Unreadable += q.Unreadable
+	p.FilesRenamed += q.FilesRenamed
+	p.FilesRemoved += q.FilesRemoved
+	if len(q.Unmatched) > 0 {
+		merged := make([]UnmatchedFile, 0, len(p.Unmatched)+len(q.Unmatched))
+		merged = append(merged, p.Unmatched...)
+		merged = append(merged, q.Unmatched...)
+		slices.SortStableFunc(merged, func(a, b UnmatchedFile) int { return a.SeenAt.Compare(b.SeenAt) })
+		if len(merged) > maxUnmatched {
+			merged = merged[len(merged)-maxUnmatched:]
+		}
+		p.Unmatched = merged
+	}
+	if len(q.Renamed) > 0 {
+		p.Renamed = MergeRenamed(append([]RenamedFile(nil), p.Renamed...), q.Renamed...)
+	}
+	return p
+}

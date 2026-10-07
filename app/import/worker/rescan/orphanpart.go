@@ -19,10 +19,11 @@ package rescan
 
 import (
 	"context"
-	"errors"
 	"os"
+	"path/filepath"
 	"time"
 
+	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
@@ -51,26 +52,35 @@ func orphanPart(path string, info os.FileInfo, now time.Time, live map[string]bo
 	return ok && info.Mode().IsRegular() && now.Sub(info.ModTime()) > OrphanPartAge && !live[p.JobUID8]
 }
 
-// sweepOrphanPart removes the walked part file at path when it is an
-// abandoned transcode attempt's (orphanPart), and logs it. A dry run
-// removes nothing. Best effort: a part that cannot be removed is logged and
-// the walk goes on. The file is examined again immediately before the
-// removal, so one rewritten or replaced since the walk listed it stays.
-func (w *Worker) sweepOrphanPart(ctx context.Context, st *scanState, path string, info os.FileInfo) {
+// reportOrphanPart reports the walked part file at path when it looks like
+// an abandoned transcode attempt's (orphanPart: the per-attempt form, a
+// regular file, unwritten for OrphanPartAge, its job not live), with the
+// MediaFile of the source it was made from when one is recorded beside it
+// (TranscodeOutputOf). The removal is the manager's (P47): the scan applier
+// keeps a part whose source's status.transcode is in flight, or whose job
+// is live, and otherwise asks the import domain to recycle it through a
+// recycle-files task. A dry run reports nothing.
+func (w *Worker) reportOrphanPart(ctx context.Context, st *scanState, path string, info os.FileInfo) error {
 	now := w.now()
 	if st.task.DryRun || !orphanPart(path, info, now, st.liveTranscodeJobs) {
-		return
+		return nil
 	}
-	log := logging.FromContext(ctx)
-	rel := relPath(st.root.Spec.Path, path)
-	again, err := os.Lstat(path)
-	if err != nil || !os.SameFile(info, again) || !orphanPart(path, again, now, st.liveTranscodeJobs) {
-		return
+	p, _ := fsops.ParseTranscodePart(path)
+	source, err := w.recordedSourceBeside(ctx, st.scan.Namespace, path, filepath.Base(p.Stem))
+	if err != nil {
+		return err
 	}
-	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-		log.WarnContext(ctx, "rescan: removing an abandoned transcode part file failed", "path", rel, "error", err)
-		return
+	obs := schema.ScanObservation{
+		Kind: schema.ScanObservationOrphanPart, Path: path,
+		SizeBytes: info.Size(), ModTime: info.ModTime().UTC(),
 	}
-	log.InfoContext(ctx, "rescan: removed an abandoned transcode part file",
-		"path", rel, "modified", again.ModTime().UTC(), "minAge", OrphanPartAge)
+	if source != nil {
+		obs.TranscodeOutputOf = source.Name
+	}
+	if err := w.observe(ctx, st, obs); err != nil {
+		return err
+	}
+	logging.FromContext(ctx).Info("rescan: reported an abandoned transcode part file",
+		"path", relPath(st.root.Spec.Path, path), "modified", info.ModTime().UTC(), "minAge", OrphanPartAge)
+	return nil
 }

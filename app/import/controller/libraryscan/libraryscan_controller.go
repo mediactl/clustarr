@@ -342,6 +342,11 @@ func (r *Reconciler) poll(ctx context.Context, scan *catalogv1alpha1.LibraryScan
 	if err != nil {
 		return ctrl.Result{}, err
 	}
+	applied, err := r.applied(ctx, scan)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	progress = progress.Merge(applied)
 	last := r.lastProgress(scan, &entry, now)
 	ac := aggregate(scan, progress)
 
@@ -370,6 +375,27 @@ func (r *Reconciler) poll(ctx context.Context, scan *catalogv1alpha1.LibraryScan
 	}
 	r.forget(key)
 	return ctrl.Result{RequeueAfter: ttl(scan)}, nil
+}
+
+// applied reads the manager's scan applier's tally for scan
+// (scanprogress.AppliedKey, ADR-0019 §7.6): what it created, recorded,
+// handed over, deferred, removed and refused. None yet, or one the
+// bucket's TTL took, is an empty tally; an undecodable one is ignored, as
+// the counters never move backwards anyway.
+func (r *Reconciler) applied(ctx context.Context, scan *catalogv1alpha1.LibraryScan) (scanprogress.Progress, error) {
+	entry, err := r.Bus.KV(events.BucketProgress).Get(ctx, scanprogress.AppliedKey(string(scan.UID)))
+	switch {
+	case errors.Is(err, events.ErrKeyNotFound):
+		return scanprogress.Progress{}, nil
+	case err != nil:
+		return scanprogress.Progress{}, err
+	}
+	p, err := scanprogress.DecodeProgress(entry.Value)
+	if err != nil {
+		logging.FromContext(ctx).Warn("ignoring an undecodable scan-applier tally", "error", err)
+		return scanprogress.Progress{}, nil
+	}
+	return p, nil
 }
 
 // fail settles a Running scan as Failed: ac (every other field this manager

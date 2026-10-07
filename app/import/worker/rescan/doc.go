@@ -17,9 +17,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 // Package rescan is import's library-rescan work consumer: the
 // clustarr.work.import.scan.* handler that walks a RootFolder, classifies
-// what it finds, attributes each media file to a catalog item, and records it
-// as a MediaFile -- creating the Movie for a movie file that carries a
-// provider id (amendment §A1.3, §A1.5, §A1.6; §16 M1, M6).
+// what it finds, attributes each media file to a catalog item, and reports
+// it to the manager's scan applier (app/import/manager/scanapply) as an
+// observation on CLUSTARR_INTAKE -- proposing the Movie for a movie file
+// that carries a provider id (amendment §A1.3, §A1.5, §A1.6; §16 M1, M6;
+// ADR-0019 §7.6). It writes nothing to Kubernetes: every create, apply and
+// delete is the applier's decision.
 //
 // The scanner never guesses. A file that cannot be attributed with
 // confidence is recorded as an [UnmatchedFile] with a reason, never turned
@@ -54,8 +57,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // A path that already has a MediaFile is never attributed again: the
 // MediaFile is its attribution (spec.mediaRef is immutable), so a rescan
-// refreshes only the observed size and mtime and re-asserts every frozen
-// field verbatim. See applyObserved for why omitting one would release it.
+// reports only the observed size and mtime, and the applier re-asserts
+// every frozen field verbatim (omitting one would release it).
 //
 // # Root folder kinds
 //
@@ -146,24 +149,21 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # The status split
 //
-// This worker writes MediaFileSpec, under the manager import's file-import
-// worker also uses (import-worker): the observed path, size and mtime,
-// plus the quality, revision, release type, release group, edition and
-// languages frozen at import (spec §8.4). It never writes
+// The walk writes no Kubernetes object (ADR-0019 §7.6). The manager's scan
+// applier records MediaFileSpec under import-worker (mediafilespec's
+// FieldManager): the observed path, size and mtime, plus the quality,
+// revision, release type, release group, edition and languages frozen at
+// import (spec §8.4) that the walk's observation carries. It never writes
 // MediaFileStatus, which catalog owns in full and populates by probing
 // (spec §8.5), and it never re-applies a MediaFile whose spec.original is
 // already false -- catalog has taken spec.sizeBytes, spec.modTime and
-// spec.original over after a transcode swap, and k8s.Apply's force-ownership
-// would silently reclaim them. When such a file's bytes have changed on disk
-// it tells catalog instead, with one annotation
-// ([AnnotationObservedFingerprint]) under k8s.ManagerImport, which owns
-// nothing else on a MediaFile. And every apply to an existing MediaFile
-// carries the resourceVersion the walk read, so a takeover landing between
-// the read and the write is refused rather than reverted (handleMediaFile).
-// Every spec write is made under [FieldManager], which is
-// k8s.ManagerImportWorker -- see that constant's doc comment for why this
-// worker does not share import's controller manager name even though it
-// runs in the same process.
+// spec.original over after a transcode swap. When such a file's bytes have
+// changed on disk the walk reports it, and the applier tells catalog with
+// one annotation ([AnnotationObservedFingerprint]) under k8s.ManagerImport,
+// which owns nothing else on a MediaFile. Every observation of an existing
+// MediaFile carries the one the walk read (its UID, resourceVersion and
+// spec hash), so a takeover landing between the read and the write is
+// re-observed rather than reverted.
 //
 // A scanned movie file is scored against its movie's QualityProfile, as an
 // imported one is, so the two compare on the same terms: the formatScore,
@@ -171,8 +171,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // (freshMovieSpec). A music file's quality is read from the file by a probe
 // (fileimport.FrozenFileQuality).
 //
-// The worker also never writes LibraryScan.status: the LibraryScan
-// controller is its single writer. Progress instead flows through a
+// The worker never writes LibraryScan.status: the LibraryScan controller is
+// its single writer, and adds the applier's tally to the walk's. Progress instead flows through a
 // [Progress] checkpoint in the clustarr-progress bucket, written roughly
 // every [checkpointInterval] and polled by the controller, with in-progress
 // acks roughly every [HeartbeatInterval], and immediately before each probe,
@@ -192,7 +192,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //	        return fmt.Errorf("import: consumer %s missing from topology", events.ConsumerImportScan)
 //	}
 //	worker := rescan.NewWorker(mgr.GetClient(), bus, prober) // the domain's one mediainfo.Prober
-//	worker.APIReader = mgr.GetAPIReader() // the rename pass's uncached reader
 //
 // k8s.EveryReplica, not manager.RunnableFunc: the latter has no
 // NeedLeaderElection method, so controller-runtime puts it behind the leader
@@ -214,10 +213,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // of the declared [FieldIndexes]; the agent registers it before the manager
 // starts.
 //
-// Non-video attribution needs no new registration, but the walk now lists
+// Non-video attribution needs no new registration, but the walk lists
 // Artists, Albums, Authors, Books, Audiobooks, Comics and Issues, and reads
-// QualityProfiles, through the manager's cache, so import's role needs
-// get/list/watch on them: the package-level +kubebuilder:rbac marker in
-// worker.go says so, and takes effect at the next `make manifests` plus
-// chart sync.
+// QualityProfiles, through the agent's cache, so its role needs
+// get/list/watch on them, and nothing more: the package-level
+// +kubebuilder:rbac marker in worker.go says so.
 package rescan

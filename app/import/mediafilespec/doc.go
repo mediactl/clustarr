@@ -15,11 +15,10 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package mediafilespec is import's one render of MediaFileSpec under
-// k8s.ManagerImportWorker ([Apply], [ReassertFrozen]) and the rename of
-// one library file to the path catalog proposes ([RenameFile]). The
-// rescan worker and the rename controller both write through it, so
-// neither can become a second, narrower apply that releases what the
-// other sends; it links no worker package, so the manager's rename
-// controller does not link the rescan (spec §4.3 I2).
+// Package mediafilespec is import's description of MediaFileSpec under
+// k8s.ManagerImportWorker: the frozen fields ([Frozen], [ReassertFrozen]),
+// the spec hash a scan observation's basis carries ([SpecHash]), the
+// observed-fingerprint hand-over and the missing-file rule a scan and the
+// manager's scan applier share. It holds no Kubernetes writer (ADR-0019
+// A3.8, A6.1): the writers are specwrite's, which only the manager links.
 package mediafilespec

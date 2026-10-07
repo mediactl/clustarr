@@ -44,7 +44,6 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/metrics"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
-	"github.com/mediactl/clustarr/pkg/probestore"
 	"github.com/mediactl/clustarr/pkg/quality"
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
 )
@@ -95,15 +94,8 @@ type Worker struct {
 	// MediaFiles through and applies them with.
 	Client client.Client
 
-	// APIReader reads straight from the apiserver. The rename pass hands it
-	// to RenameFile, which re-reads each MediaFile through it immediately
-	// before deciding (CLAUDE.md's lost-update rule). Nil falls back to
-	// Client: a stale cached read then fails the rename's
-	// resourceVersion-checked apply, and RenameFile moves the file back.
-	// NewWorker leaves it nil and import's run.go sets the manager's.
-	APIReader client.Reader
-
-	// Bus carries the progress checkpoints and the metadata-resolve RPC.
+	// Bus carries the progress checkpoints, the observations the manager's
+	// scan applier decides on, and the metadata-resolve RPC.
 	Bus events.Bus
 
 	// Clock is the time source, injected so tests are deterministic.
@@ -146,27 +138,20 @@ type Worker struct {
 	// sets fsops.DefaultSampleMaxBytes; a Worker built as a literal without
 	// it has the rule off.
 	SampleMaxBytes int64
-
-	// Probes records the probe a scan ran on a file it attributed as that
-	// MediaFile's probe record, so catalog does not probe the same bytes
-	// again (spec 2026-10-06 §6.6). NewWorker sets it; nil seeds nothing.
-	Probes *probestore.Store
 }
 
-// The rescan worker's RBAC. It is the sole writer of MediaFileSpec (spec §8.4)
-// and creates the Movie a scanned file is attributed to, and the Series a
-// series folder's TheTVDB id names; it never writes
-// MediaFileStatus or LibraryScan.status, both of which have their own single
-// writer, so neither /status subresource appears here. It reads
-// QualityProfiles to score a scanned movie file, and patches one annotation
-// on a post-transcode MediaFile (AnnotationObservedFingerprint), which the
-// mediafiles patch verb already covers. It deletes the MediaFile of a file
-// gone from disk (prunePass).
+// The rescan worker's RBAC: reads only (ADR-0019 §7.6). It reads the
+// catalog items a file may belong to, the MediaFiles that record paths, the
+// TranscodeJobs whose outputs and parts it must not adopt, the RootFolder
+// and LibraryScan it walks for, and the QualityProfiles it scores a file
+// against. Every write -- an item created, a MediaFile recorded or deleted,
+// a post-transcode change handed to catalog -- is the manager's scan
+// applier's (app/import/manager/scanapply), from this walk's observations.
 //
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=artists;albums;authors;books;audiobooks;comics;issues,verbs=get;list;watch
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=series,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=series,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=episodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodejobs,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=rootfolders,verbs=get;list;watch
@@ -190,9 +175,6 @@ func NewWorker(c client.Client, bus events.Bus, prober mediainfo.Prober) *Worker
 			mi, _, err := prober.Probe(pctx, path)
 			return mi, err
 		}
-	}
-	if bus != nil {
-		w.Probes = probestore.New(bus)
 	}
 	return w
 }
@@ -253,6 +235,11 @@ type scanState struct {
 	// with transcodeOutputs (transcodeJobs).
 	liveTranscodeJobs map[string]bool
 
+	// creates holds the items this walk proposed to create, by name: every
+	// later file of the same item carries the same proposal, so the
+	// applier refuses or records them alike.
+	creates map[string]*schema.ItemCreate
+
 	// profiles caches the QualityProfiles a movie walk scores files with,
 	// by name; a nil entry is a profile that could not be used.
 	profiles map[string]*quality.Profile
@@ -291,10 +278,12 @@ func (s *scanState) unmatched(path, code, reason string, candidates []string, at
 }
 
 // Handle implements events.Handler. It walks the ScanTask's path, attributes
-// what it finds, runs the scan's rename pass when spec.rename asks for one
-// (renamePass), and reports progress through the clustarr-progress bucket --
-// never through LibraryScan.status, whose single writer is the LibraryScan
-// controller.
+// what it finds, reports every change to the manager's scan applier
+// (observe.go), and reports its tally through the clustarr-progress bucket
+// -- never through LibraryScan.status, whose single writer is the
+// LibraryScan controller. It writes nothing to Kubernetes (ADR-0019 §7.6);
+// spec.rename is not a scan's any more: the remediation loop's rename
+// actuator renames, waiting for an open scan of the folder.
 func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 	ctx, span := tracing.Start(ctx, "rescan.Handle")
 	defer span.End()
@@ -430,9 +419,6 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 	if err := w.walk(ctx, m, st); err != nil {
 		return w.abort(ctx, m, st, err)
 	}
-	if err := w.renamePass(ctx, m, st); err != nil {
-		return w.abort(ctx, m, st, err)
-	}
 	if err := w.prunePass(ctx, st); err != nil {
 		return w.abort(ctx, m, st, err)
 	}
@@ -449,11 +435,7 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 		"filesSeen", st.progress.FilesSeen,
 		"filesMatched", st.progress.FilesMatched,
 		"filesSkipped", st.progress.FilesSkipped,
-		"itemsCreated", st.progress.ItemsCreated,
-		"itemsUpdated", st.progress.ItemsUpdated,
 		"unmatched", len(st.progress.Unmatched),
-		"filesRenamed", st.progress.FilesRenamed,
-		"filesRemoved", st.progress.FilesRemoved,
 		"summary", st.progress.Summary())
 	return nil
 }
@@ -577,7 +559,7 @@ func (w *Worker) visit(
 ) error {
 	probe := w.probeFor(path, func(ctx context.Context) error { return w.heartbeat(ctx, m, st) })
 	if class == fsops.ClassMedia || class == fsops.ClassSuspectedSample {
-		if skip, err := w.transcodeOutput(ctx, st, path, probe); err != nil || skip {
+		if skip, err := w.transcodeOutput(ctx, st, path, info, probe); err != nil || skip {
 			return err
 		}
 	}
@@ -592,7 +574,9 @@ func (w *Worker) visit(
 		switch class {
 		case fsops.ClassPart:
 			st.progress.Parts++
-			w.sweepOrphanPart(ctx, st, path, info)
+			if err := w.reportOrphanPart(ctx, st, path, info); err != nil {
+				return err
+			}
 		case fsops.ClassExtra:
 			st.progress.Extras++
 		case fsops.ClassSample:
@@ -638,20 +622,23 @@ func (w *Worker) transcodeJobs(ctx context.Context, ns string) (outputs map[stri
 	return outputs, live, nil
 }
 
-// transcodeOutput decides a media file transcode wrote. Once a MediaFile
+// transcodeOutput reports a media file transcode wrote. Once a MediaFile
 // records the path -- catalog moved spec.path to a container change's new
 // file, or the job transcoded in place -- the file is the catalog's like any
 // other, and skip is false. Until then a file a Succeeded TranscodeJob names
-// is skipped and counted (Progress.TranscodeOutputs): a container change
-// writes <stem>.<container> and retires the source, and replaceSource=false
-// keeps the source and writes "<stem> - <profile>.<container>" beside it,
-// and in the window before catalog's spec.path takeover -- and for good,
-// for a kept source's derived file -- the walk would otherwise adopt the
-// output as an unrecorded file: a second MediaFile for the item, or an
-// unmatched entry, or a new Movie. A kept source's derived file stays
-// protected once its job is gone too, recognised by its name beside the
-// recorded source and transcode's tag (keptOutput).
-func (w *Worker) transcodeOutput(ctx context.Context, st *scanState, path string, probe *fileProbe) (skip bool, err error) {
+// is reported with that relation (schema.ScanObservation.TranscodeOutputOf)
+// and no attribution, and the manager's scan applier leaves it alone,
+// counting it (Progress.TranscodeOutputs, P44): a container change writes
+// <stem>.<container> and retires the source, and replaceSource=false keeps
+// the source and writes "<stem> - <profile>.<container>" beside it, and in
+// the window before catalog's spec.path takeover -- and for good, for a
+// kept source's derived file -- adopting the output would make a second
+// MediaFile for the item, or an unmatched entry, or a new Movie. A kept
+// source's derived file is recognised once its job is gone too, by its name
+// beside the recorded source and transcode's tag (keptOutput).
+func (w *Worker) transcodeOutput(
+	ctx context.Context, st *scanState, path string, info os.FileInfo, probe *fileProbe,
+) (skip bool, err error) {
 	job, byJob := st.transcodeOutputs[filepath.Clean(path)]
 	if !byJob {
 		if _, _, named := keptOutputName(filepath.Base(path)); !named {
@@ -663,14 +650,33 @@ func (w *Worker) transcodeOutput(ctx context.Context, st *scanState, path string
 		return false, err
 	}
 	if !byJob {
-		return w.keptOutput(ctx, st, path, probe)
+		return w.keptOutput(ctx, st, path, info, probe)
 	}
 	st.progress.FilesSeen++
-	st.progress.TranscodeOutputs++
-	st.progress.FilesSkipped++
-	logging.FromContext(ctx).Debug("left a transcode output catalog has not recorded yet",
+	if err := w.reportTranscodeOutput(ctx, st, path, info, job, ""); err != nil {
+		return false, err
+	}
+	logging.FromContext(ctx).Debug("reported a transcode output catalog has not recorded yet",
 		"path", relPath(st.root.Spec.Path, path), "transcodeJob", job)
 	return true, nil
+}
+
+// reportTranscodeOutput reports a file transcode wrote for of (the
+// TranscodeJob, or the kept source's MediaFile) with no attribution: the
+// applier never adopts it. A dry run counts it as the applier would.
+func (w *Worker) reportTranscodeOutput(
+	ctx context.Context, st *scanState, path string, info os.FileInfo, of, profileTag string,
+) error {
+	if st.task.DryRun {
+		st.progress.TranscodeOutputs++
+		st.progress.FilesSkipped++
+		return nil
+	}
+	return w.observe(ctx, st, schema.ScanObservation{
+		Kind: schema.ScanObservationPresent, Path: path,
+		SizeBytes: info.Size(), ModTime: info.ModTime().UTC(),
+		TranscodeOutputOf: of, ProfileTag: profileTag,
+	})
 }
 
 // walkHoldsMedia reports whether the walk of a manual assignment will visit
