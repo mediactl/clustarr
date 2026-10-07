@@ -145,8 +145,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Both are parsed strictly; a malformed one blocks the import with the
 // parse error on status.import rather than importing to spec.target.
 // Grabarr publishes a Download's ImportTask once, so an annotation set on a
-// Download that is already Blocked is acted on by [Retrigger], which re-
-// queues it. The same import-target grammar on a LibraryScan is how a
+// Download that is already Blocked is acted on by the retrigger controller
+// (app/import/controller/retrigger), which re-queues it. The same import-target grammar on a LibraryScan is how a
 // rescan-unmatched file is assigned by hand: app/import/worker/rescan's
 // package doc, "Manual assignment".
 //
@@ -186,7 +186,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // the field index this worker uses to find a target's existing MediaFiles
 // (a movie's too, when the Worker has no APIReader).
 //
-// [Retrigger] is a separate controller, registered the same way as any
-// other (its doc comment has the call). It is not a work consumer and runs
+// The retrigger controller (app/import/controller/retrigger) is a separate
+// controller, registered the same way as any other (its doc comment has the
+// call). It is not a work consumer and runs
 // under ordinary leader election.
 package fileimport

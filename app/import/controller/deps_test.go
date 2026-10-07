@@ -55,14 +55,15 @@ const importWorkers = "github.com/mediactl/clustarr/app/import/worker"
 // to spec §4.3 Wave 2: the reconcilers, and the leaves they read, link no
 // app/import/worker package (R6). `test/guards` (W5.14) overlaps it.
 func TestImportControllersLinkNoWorkerCode(t *testing.T) {
+	require.Contains(t, linked(t, "github.com/mediactl/clustarr/app/import/controller/..."),
+		"github.com/mediactl/clustarr/app/import/controller/retrigger",
+		"the retrigger reconciler moved under app/import/controller (I5)")
 	for _, pkg := range []string{
-		"github.com/mediactl/clustarr/app/import/controller/libraryscan", // I1
-		"github.com/mediactl/clustarr/app/import/scanprogress",           // I1
-		"github.com/mediactl/clustarr/app/import/controller/rename",      // I2
-		"github.com/mediactl/clustarr/app/import/mediafilespec",          // I2
-		"github.com/mediactl/clustarr/app/import/controller/importlist",  // I3
-		"github.com/mediactl/clustarr/app/import/importliststate",        // I3
-		"github.com/mediactl/clustarr/app/import/importtarget",           // I4
+		"github.com/mediactl/clustarr/app/import/controller/...", // every importarr reconciler, retrigger included
+		"github.com/mediactl/clustarr/app/import/scanprogress",
+		"github.com/mediactl/clustarr/app/import/mediafilespec",
+		"github.com/mediactl/clustarr/app/import/importliststate",
+		"github.com/mediactl/clustarr/app/import/importtarget",
 	} {
 		t.Run(pkg[strings.LastIndex(pkg, "/")+1:], func(t *testing.T) {
 			denyLinks(t, pkg, importWorkers)

@@ -49,6 +49,7 @@ import (
 	"github.com/mediactl/clustarr/app/import/controller/librarydelete"
 	"github.com/mediactl/clustarr/app/import/controller/libraryscan"
 	"github.com/mediactl/clustarr/app/import/controller/rename"
+	"github.com/mediactl/clustarr/app/import/controller/retrigger"
 	"github.com/mediactl/clustarr/app/import/controller/rootfolderschedule"
 	"github.com/mediactl/clustarr/app/import/worker/fileimport"
 	"github.com/mediactl/clustarr/app/import/worker/importlist"
@@ -88,8 +89,8 @@ type Role string
 // The roles amendment §A1.6 lists for `clustarr importarr --role`.
 const (
 	// RoleController runs the import-list, import-exclusion, library-scan,
-	// root-folder schedule and rename controllers, and fileimport's
-	// Retrigger. Leader-elected. The rename controller moves library files,
+	// root-folder schedule and rename controllers, and the retrigger
+	// controller (app/import/controller/retrigger). Leader-elected. The rename controller moves library files,
 	// so this role needs a writable /data too.
 	RoleController Role = "controller"
 
@@ -436,8 +437,8 @@ func setupControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 		return fmt.Errorf("importarr: importlist: %w", err)
 	}
 
-	// fileimport's Retrigger (plan task G2-4 built it, G2-5 wires it), with
-	// the call its own doc comment gives. grabarr publishes a Download's
+	// The retrigger controller (app/import/controller/retrigger; plan task
+	// G2-4 built it, G2-5 wires it), with the call its own doc comment gives. grabarr publishes a Download's
 	// ImportTask once, on completion, and the file-import worker acks a
 	// Blocked outcome, so without this nothing ever looks again at the
 	// catalog.clustarr.io/import-target or import-override annotation a user
@@ -445,7 +446,7 @@ func setupControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	// documented instruction that does nothing. It publishes to
 	// work.importarr.fileimport rather than importing itself, so it needs no
 	// /data and runs here, under the lease, not on importarr-worker.
-	if err := (&fileimport.Retrigger{Client: mgr.GetClient(), Bus: bus}).SetupWithManager(mgr); err != nil {
+	if err := (&retrigger.Reconciler{Client: mgr.GetClient(), Bus: bus}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("importarr: fileimport retrigger: %w", err)
 	}
 

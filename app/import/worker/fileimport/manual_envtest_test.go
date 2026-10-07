@@ -36,8 +36,8 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	"github.com/mediactl/clustarr/app/import/controller/retrigger"
 	"github.com/mediactl/clustarr/app/import/importtarget"
-	"github.com/mediactl/clustarr/app/import/worker/fileimport"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
@@ -274,7 +274,7 @@ func TestHandleNonVideoImportNeedsOverrideAndRetriggerRequeuesIt(t *testing.T) {
 	// Blocked Download and re-queues exactly one import task for it.
 	f.setAnnotation(t, dl, importtarget.AnnotationImportOverride, "true")
 	pub := &capturePublisher{}
-	r := &fileimport.Retrigger{Client: f.c, Bus: pub}
+	r := &retrigger.Reconciler{Client: f.c, Bus: pub}
 	_, err = r.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(dl)})
 	require.NoError(t, err)
 	require.NotNil(t, pub.env, "a blocked download with a new import annotation must be re-queued")

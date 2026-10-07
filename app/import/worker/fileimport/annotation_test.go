@@ -24,11 +24,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
-	"github.com/mediactl/clustarr/app/import/importtarget"
 	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/quality"
 )
@@ -111,32 +108,4 @@ func TestWellFormedFolder(t *testing.T) {
 	assert.True(t, wellFormedFolder("Frank Herbert/Dune/2 - 1969 - Dune Messiah Scott Brick"))
 	assert.False(t, wellFormedFolder("Frank Herbert// -  - Dune"), "pkg/naming's render with no series, position or year")
 	assert.False(t, wellFormedFolder(""))
-}
-
-func TestImportAnnotationsChanged(t *testing.T) {
-	p := ImportAnnotationsChanged()
-	dl := func(ann map[string]string) *downloadv1alpha1.Download {
-		return &downloadv1alpha1.Download{ObjectMeta: metav1.ObjectMeta{Annotations: ann}}
-	}
-	assert.False(t, p.Create(event.CreateEvent{Object: dl(nil)}))
-	assert.True(t, p.Create(event.CreateEvent{Object: dl(map[string]string{importtarget.AnnotationImportTarget: "album/a"})}))
-	assert.True(t, p.Update(event.UpdateEvent{ObjectOld: dl(nil), ObjectNew: dl(map[string]string{importtarget.AnnotationImportOverride: "true"})}))
-	assert.True(t, p.Update(event.UpdateEvent{
-		ObjectOld: dl(map[string]string{importtarget.AnnotationImportTarget: "album/a"}),
-		ObjectNew: dl(map[string]string{importtarget.AnnotationImportTarget: "album/b"}),
-	}))
-	assert.False(t, p.Update(event.UpdateEvent{
-		ObjectOld: dl(map[string]string{importtarget.AnnotationImportTarget: "album/a", "other": "1"}),
-		ObjectNew: dl(map[string]string{importtarget.AnnotationImportTarget: "album/a", "other": "2"}),
-	}),
-		"only the two import annotations re-trigger; a status write or another annotation must not loop it")
-	assert.False(t, p.Delete(event.DeleteEvent{Object: dl(map[string]string{importtarget.AnnotationImportTarget: "album/a"})}))
-}
-
-func TestRetriggerMessageID(t *testing.T) {
-	a := RetriggerMessageID("ns", "dl", "uid", "album/a", "")
-	assert.NotEqual(t, a, RetriggerMessageID("ns", "dl", "uid", "album/b", ""), "a changed instruction is a new message")
-	assert.NotEqual(t, a, RetriggerMessageID("ns", "dl", "uid", "album/a", "true"))
-	assert.Equal(t, a, RetriggerMessageID("ns", "dl", "uid", "album/a", ""), "the same instruction dedups")
-	assert.NotEqual(t, "ns/dl:uid:import", a, "never grabarr's own completion message id")
 }

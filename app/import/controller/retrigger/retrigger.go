@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package fileimport
+package retrigger
 
 import (
 	"context"
@@ -42,7 +42,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/version"
 )
 
-// Retrigger re-publishes a Blocked Download's ImportTask when a user sets or
+// Reconciler re-publishes a Blocked Download's ImportTask when a user sets or
 // changes one of the import annotations, which is what makes
 // "catalog.clustarr.io/import-target directs a blocked import at a specific
 // item" true: grabarr publishes the ImportTask once, on completion, and the
@@ -59,20 +59,19 @@ import (
 // re-run that blocks again writes the same status.import, which is no
 // annotation change and so cannot loop.
 //
-// Nothing registers it. The wiring task adds it to importarr's controller
-// setup with
+// importarr's controller setup registers it with
 //
-//	if err := (&fileimport.Retrigger{Client: mgr.GetClient(), Bus: bus}).SetupWithManager(mgr); err != nil {
+//	if err := (&retrigger.Reconciler{Client: mgr.GetClient(), Bus: bus}).SetupWithManager(mgr); err != nil {
 //	        return fmt.Errorf("importarr: fileimport retrigger: %w", err)
 //	}
-type Retrigger struct {
+type Reconciler struct {
 	Client client.Client
 	Bus    events.Publisher
 	Clock  func() time.Time
 }
 
-// SetupWithManager registers the Retrigger controller.
-func (r *Retrigger) SetupWithManager(mgr ctrl.Manager) error {
+// SetupWithManager registers the retrigger controller.
+func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if r.Client == nil {
 		r.Client = mgr.GetClient()
 	}
@@ -112,7 +111,7 @@ func ImportAnnotationsChanged() predicate.Funcs {
 
 // Reconcile publishes a fresh ImportTask for a Blocked Download that carries
 // an import annotation.
-func (r *Retrigger) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	ctx, span := tracing.Start(ctx, "fileimport.Retrigger.Reconcile")
 	defer span.End()
 
@@ -140,7 +139,7 @@ func (r *Retrigger) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resul
 		return ctrl.Result{}, reconcile.TerminalError(fmt.Errorf("fileimport: encode import task: %w", err))
 	}
 	env := &events.Envelope{
-		ID:     RetriggerMessageID(dl.Namespace, dl.Name, string(dl.UID), target, override),
+		ID:     MessageID(dl.Namespace, dl.Name, string(dl.UID), target, override),
 		Type:   "catalog.ImportTask",
 		Schema: schemaName,
 		Source: "importarr-fileimport-retrigger@" + version.String(),
@@ -158,17 +157,17 @@ func (r *Retrigger) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resul
 	return ctrl.Result{}, nil
 }
 
-// RetriggerMessageID is the Envelope ID of a re-queued import: distinct from
+// MessageID is the Envelope ID of a re-queued import: distinct from
 // grabarr's "<ns>/<name>:<uid>:import" and from any other annotation pair's.
-func RetriggerMessageID(namespace, name, uid, target, override string) string {
+func MessageID(namespace, name, uid, target, override string) string {
 	return namespace + "/" + name + ":" + uid + ":import:" + k8s.HashSuffix(target, override)
 }
 
-func (r *Retrigger) now() time.Time {
+func (r *Reconciler) now() time.Time {
 	if r.Clock != nil {
 		return r.Clock()
 	}
 	return time.Now()
 }
 
-var _ reconcile.Reconciler = (*Retrigger)(nil)
+var _ reconcile.Reconciler = (*Reconciler)(nil)
