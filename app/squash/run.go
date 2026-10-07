@@ -24,9 +24,6 @@ package squasharr
 import (
 	"context"
 	"fmt"
-	"os"
-	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -39,8 +36,7 @@ import (
 	"github.com/mediactl/clustarr/app/squash/controller/audiograft"
 	"github.com/mediactl/clustarr/app/squash/controller/pool"
 	"github.com/mediactl/clustarr/app/squash/controller/transcodejob"
-	"github.com/mediactl/clustarr/app/squash/controller/transcodeprofile"
-	"github.com/mediactl/clustarr/pkg/events"
+	squashmanager "github.com/mediactl/clustarr/app/squash/manager"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -58,19 +54,6 @@ const (
 
 	// DefaultDataDir is the RWX media volume the pool pods mount.
 	DefaultDataDir = "/data"
-)
-
-// Hardware classes a transcode slot can be budgeted against, from §12's
-// `--slots cpu=2,nvidia=1,intel=1`.
-const (
-	// HardwareCPU is a libx265 software encode.
-	HardwareCPU = "cpu"
-
-	// HardwareNVIDIA is an hevc_nvenc encode on an nvidia.com/gpu.
-	HardwareNVIDIA = "nvidia"
-
-	// HardwareIntel is a QSV/VAAPI encode on gpu.intel.com/i915 or /xe.
-	HardwareIntel = "intel"
 )
 
 // Role selects what a replica does.
@@ -97,71 +80,21 @@ func (r Role) Valid() bool { return r == RoleController }
 // RunsControllers reports whether this role reconciles custom resources.
 func (r Role) RunsControllers() bool { return r == RoleController }
 
-// DefaultSlots is §12's default budget: two concurrent CPU encodes and one per
-// GPU vendor. The scheduler dispatches a Planned TranscodeJob to its pool
-// only while a slot of its hardware class is free.
-func DefaultSlots() map[string]int32 {
-	return map[string]int32{HardwareCPU: 2, HardwareNVIDIA: 1, HardwareIntel: 1}
-}
+// Hardware classes and the slot budget live in app/squash/manager; these
+// keep cmd/clustarr's references working until Wave 5 deletes this package.
+const (
+	DefaultJobWindow    = squashmanager.DefaultJobWindow
+	DefaultJobRetention = squashmanager.DefaultJobRetention
+)
 
-// ParseSlots reads the --slots flag, "cpu=2,nvidia=1,intel=1".
-//
-// An empty string returns [DefaultSlots]. A zero budget is legal and means
-// "never admit this hardware class", which is how a cluster with no GPUs is
-// configured; a negative one is not.
-func ParseSlots(s string) (map[string]int32, error) {
-	if strings.TrimSpace(s) == "" {
-		return DefaultSlots(), nil
-	}
-	out := map[string]int32{}
-	for _, pair := range strings.Split(s, ",") {
-		pair = strings.TrimSpace(pair)
-		if pair == "" {
-			continue
-		}
-		hardware, budget, ok := strings.Cut(pair, "=")
-		if !ok {
-			return nil, fmt.Errorf("squasharr: --slots entry %q is not <hardware>=<count>", pair)
-		}
-		hardware = strings.TrimSpace(hardware)
-		switch hardware {
-		case HardwareCPU, HardwareNVIDIA, HardwareIntel:
-		default:
-			return nil, fmt.Errorf("squasharr: --slots names unknown hardware %q, want one of %s, %s, %s",
-				hardware, HardwareCPU, HardwareNVIDIA, HardwareIntel)
-		}
-		if _, dup := out[hardware]; dup {
-			return nil, fmt.Errorf("squasharr: --slots names %q twice", hardware)
-		}
-		n, err := strconv.ParseInt(strings.TrimSpace(budget), 10, 32)
-		if err != nil {
-			return nil, fmt.Errorf("squasharr: --slots budget for %q: %w", hardware, err)
-		}
-		if n < 0 {
-			return nil, fmt.Errorf("squasharr: --slots budget for %q is negative", hardware)
-		}
-		out[hardware] = int32(n)
-	}
-	if len(out) == 0 {
-		return DefaultSlots(), nil
-	}
-	return out, nil
-}
+// DefaultSlots is [squashmanager.DefaultSlots].
+func DefaultSlots() map[string]int32 { return squashmanager.DefaultSlots() }
 
-// FormatSlots renders a budget back into the --slots syntax, in a stable order
-// so it can be logged and compared.
-func FormatSlots(slots map[string]int32) string {
-	keys := make([]string, 0, len(slots))
-	for k := range slots {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	parts := make([]string, 0, len(keys))
-	for _, k := range keys {
-		parts = append(parts, k+"="+strconv.FormatInt(int64(slots[k]), 10))
-	}
-	return strings.Join(parts, ",")
-}
+// ParseSlots is [squashmanager.ParseSlots].
+func ParseSlots(s string) (map[string]int32, error) { return squashmanager.ParseSlots(s) }
+
+// FormatSlots is [squashmanager.FormatSlots].
+func FormatSlots(slots map[string]int32) string { return squashmanager.FormatSlots(slots) }
 
 // Options is everything `clustarr squasharr` needs.
 type Options struct {
@@ -237,13 +170,6 @@ func DefaultOptions() Options {
 		GraftConcurrency: audiograft.DefaultConcurrency,
 	}
 }
-
-// DefaultJobWindow and DefaultJobRetention are --job-window's and
-// --job-retention's defaults.
-const (
-	DefaultJobWindow    = 32
-	DefaultJobRetention = 24 * time.Hour
-)
 
 // Validate checks the options before anything touches the cluster.
 func (o Options) Validate() error {
@@ -360,7 +286,7 @@ func Run(ctx context.Context, o Options) error {
 		return err
 	}
 
-	if err := setupControllers(mgr, o, bus); err != nil {
+	if err := squashmanager.Register(mgr, bus, managerOptions(o)); err != nil {
 		return err
 	}
 
@@ -371,125 +297,15 @@ func Run(ctx context.Context, o Options) error {
 	return nil
 }
 
-// setupControllers registers squasharr's two reconcilers (§6.4, §16 M4) and
-// the results consumer: the TranscodeProfile controller, which hashes
-// profiles and creates a TranscodeJob per file a profile wins, and the
-// TranscodeJob controller, which plans, admits against the --slots budget
-// and dispatches each job's task to its pool over bus, and whose results
-// consumer turns the pool workers' status events on
-// squasharr-transcode-results into TranscodeJob status (spec 2026-09-23
-// §18.2).
-//
-// The TranscodeJob reconciler reads TranscodeJobs through
-// mgr.GetAPIReader(), never the cache: its status writes are conditional on
-// the resourceVersion they read, and admission counts the jobs it
-// dispatched a moment ago; a cache one event behind would conflict on the
-// first and admit past the budget on the second (ADR-0005).
-//
-// bus carries the tasks, the results and the controller's
-// clustarr.evt.transcode.job.* history events (§5); Leases is the bucket
-// withdrawal writes its cancel markers to.
-func setupControllers(mgr ctrl.Manager, o Options, bus events.Bus) error {
-	profiles := transcodeprofile.NewReconciler(mgr.GetClient(), mgr.GetScheme(), mgr.GetEventRecorder("transcodeprofile"))
-	profiles.Window, profiles.Retention = o.JobWindow, o.JobRetention
-	if bus != nil {
-		profiles.Progress = bus.KV(events.BucketProgress)
+// managerOptions is the manager registration's slice of o: every squasharr
+// option the reconcilers, the results consumer and the pools they render
+// read.
+func managerOptions(o Options) squashmanager.Options {
+	return squashmanager.Options{
+		Options: o.Options, Slots: o.Slots, DataDir: o.DataDir, WorkerImage: o.WorkerImage,
+		DataClaimName: o.DataClaimName, IntelRenderGroups: o.IntelRenderGroups,
+		NodeLabelNVIDIA: o.NodeLabelNVIDIA, NodeLabelIntel: o.NodeLabelIntel,
+		JobWindow: o.JobWindow, JobRetention: o.JobRetention, GraftConcurrency: o.GraftConcurrency,
+		Logging: o.Logging, Tracing: o.Tracing,
 	}
-	if err := profiles.SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("squasharr: transcodeprofile: %w", err)
-	}
-	rec := &transcodejob.Reconciler{
-		Client:   mgr.GetClient(),
-		Reader:   mgr.GetAPIReader(),
-		Slots:    o.Slots,
-		Pool:     poolConfig(o),
-		Recorder: mgr.GetEventRecorder("transcodejob"),
-		Bus:      bus,
-		Leases:   bus.KV(events.BucketTranscodeLeases),
-	}
-	// natsbus and membus both implement events.StreamAdmin; the comma-ok
-	// form only keeps a bus that does not (a narrower test double) from
-	// panicking a real run.
-	if admin, ok := bus.(events.StreamAdmin); ok {
-		rec.Admin = admin
-	}
-	if err := rec.SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("squasharr: transcodejob: %w", err)
-	}
-	if err := mgr.Add(rec.ResultsConsumer()); err != nil {
-		return fmt.Errorf("squasharr: transcode results consumer: %w", err)
-	}
-	grafts := &audiograft.Reconciler{
-		Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Pool: poolConfig(o), Concurrency: o.GraftConcurrency,
-	}
-	if err := grafts.SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("squasharr: audiograft: %w", err)
-	}
-	return nil
-}
-
-// poolConfig is what the TranscodeJob controller renders every pool Job
-// with, from this controller's own options and environment. It is a
-// function of o alone so a test can hold each option to the pool it reaches
-// (TestPoolConfigCarriesTheControllerOptions): several of them -- the render
-// groups, the claim -- have legal empty values that only fail on a real
-// node.
-func poolConfig(o Options) pool.Config {
-	return pool.Config{
-		Namespace:         o.Namespace,
-		Image:             o.WorkerImage,
-		DataClaimName:     o.DataClaimName,
-		DataDir:           o.DataDir,
-		IntelRenderGroups: o.IntelRenderGroups,
-		// §18.5: the labels a GPU class's nodes carry, which admission
-		// reads to choose an auto job's class and the class's pools are
-		// held to.
-		NodeLabelNVIDIA: o.NodeLabelNVIDIA,
-		NodeLabelIntel:  o.NodeLabelIntel,
-		// §11: the pools create files with the same UMASK this
-		// Deployment was given.
-		Umask: os.Getenv(pool.UmaskEnv),
-		// The pool pods pull their tasks from, and report on, the
-		// controller's own bus.
-		NATSURL: o.NATSURL,
-		// The workers log and trace as this controller does: without
-		// these their spans -- the ffmpeg run's among them -- would be
-		// recorded into a TracerProvider exporting nowhere.
-		ExtraArgs: workerObservabilityArgs(o.Logging, o.Tracing),
-	}
-}
-
-// workerObservabilityArgs renders the root command's --log-* and
-// --tracing-* flags (pkg/obs/obsflags.Bind, which both cmd/clustarr's
-// bindObservabilityFlags and cmd/squasharr-worker call) for a pool's
-// workers, so a pool pod logs in the controller's format and level and
-// exports its spans -- the squasharr.worker.process and transcode.run
-// (ffmpeg) spans -- to the same collector. Only what differs from the flags'
-// defaults is rendered. TestWorkerObservabilityArgsParse holds the names to
-// the flags.
-func workerObservabilityArgs(lo logging.Options, to tracing.Options) []string {
-	var args []string
-	if lo.Level != 0 {
-		args = append(args, "--log-level="+lo.Level.String())
-	}
-	if lo.Format != "" {
-		args = append(args, "--log-format="+lo.Format)
-	}
-	if lo.AddSource {
-		args = append(args, "--log-add-source")
-	}
-	if to.Enabled {
-		args = append(args, "--tracing-enabled")
-		if to.Endpoint != "" {
-			args = append(args, "--tracing-endpoint="+to.Endpoint)
-		}
-		if to.Insecure {
-			args = append(args, "--tracing-insecure")
-		}
-	}
-	// The sampler is parent-based, so a worker whose task carries a sampled
-	// trace is sampled whatever this says; it decides only a trace the
-	// worker starts itself.
-	args = append(args, "--tracing-sample-ratio="+strconv.FormatFloat(to.SampleRatio, 'g', -1, 64))
-	return args
 }
