@@ -35,9 +35,9 @@ import (
 //
 // Transcoded is true when the file is transcoded
 // (catalogv1alpha1.(*MediaFile).Transcoded, the one place the rule lives): a
-// transcoded file is final, so Evaluate rejects every candidate of an
-// automatic decision against it (ReasonTranscodedFinal) and leaves only a
-// user-invoked one to the ordinary checks.
+// transcoded file is final, so Evaluate rejects every candidate against it
+// (ReasonTranscodedFinal), a user-invoked search's included; only a person's
+// own pick of a release (Search spec.grab) may still take one.
 type Current struct {
 	Quality     common.Quality
 	Revision    common.Revision

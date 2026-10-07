@@ -59,3 +59,15 @@ func TestVerdictReasonTableIsExhaustive(t *testing.T) {
 	_, ok := decision.VerdictReason(quality.Upgrade)
 	require.False(t, ok, "Upgrade must never map to a Reason -- it means approve")
 }
+
+// TestReasonOfMatchesOnlyItsOwnCode: Of reads the "<Code>: " prefix
+// newRejection writes, so a code that merely starts with another's, or a
+// message that mentions one, is not a match.
+func TestReasonOfMatchesOnlyItsOwnCode(t *testing.T) {
+	r := decision.ReasonTranscodedFinal
+	require.True(t, r.Of(common.Rejection{Reason: "TranscodedFinal: the current file is transcoded"}))
+	require.False(t, r.Of(common.Rejection{Reason: "TranscodedFinalish: not this one"}))
+	require.False(t, r.Of(common.Rejection{Reason: "ExistingCutoffMet: TranscodedFinal: quoted, not raised"}))
+	require.False(t, r.Of(common.Rejection{Reason: "TranscodedFinal"}), "no detail means newRejection did not write it")
+	require.False(t, r.Of(common.Rejection{}))
+}

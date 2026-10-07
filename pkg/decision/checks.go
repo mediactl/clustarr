@@ -48,12 +48,16 @@ func availabilityRejection(t Target, o Options) *common.Rejection {
 	return &r
 }
 
-// transcodedRejection rejects an automatic upgrade of a transcoded file
-// (ReasonTranscodedFinal): a transcoded file is final. Skipped entirely for a
-// user-invoked (interactive) search, like availability, so a user picking a
-// release by hand meets only the ordinary checks.
-func transcodedRejection(t Target, o Options) *common.Rejection {
-	if o.UserInvoked || t.Current == nil || !t.Current.Transcoded {
+// transcodedRejection rejects every candidate for a transcoded file
+// (ReasonTranscodedFinal): a transcoded file is final. A user-invoked search
+// meets it too, unlike availability: "Search now" grabs its best approved
+// release automatically (Search spec.grabBest), and the importer refuses an
+// automatic grab over a transcoded file, so approving one here would download
+// a release only to blocklist it (2026-10-07, 'Round Midnight). A person who
+// picks a release by hand (Search spec.grab) is exempt at grab time instead,
+// in app/catalog/controller/search's resolveGrab.
+func transcodedRejection(t Target, _ Options) *common.Rejection {
+	if t.Current == nil || !t.Current.Transcoded {
 		return nil
 	}
 	r := newRejection(ReasonTranscodedFinal, "the current file is transcoded, and a transcoded file is final")

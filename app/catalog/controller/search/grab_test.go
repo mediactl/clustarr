@@ -26,6 +26,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/worker/grab/downloads"
+	"github.com/mediactl/clustarr/pkg/decision"
 )
 
 // TestBuildDownloadSourceIsTheGrabWorkersMapping pins the interactive path to
@@ -78,7 +79,19 @@ func TestResolveGrab(t *testing.T) {
 		Rejections:          []commonv1.Rejection{{Reason: "queue already has an equal candidate", Type: commonv1.RejectionTemporary}},
 	}
 	ok := commonv1.ReleaseDecision{ReleaseInfo: commonv1.ReleaseInfo{GUID: "ok"}, Approved: true}
-	results := []commonv1.ReleaseDecision{ok, permanent, temporary}
+	transcodedFinal := commonv1.Rejection{
+		Reason: decision.ReasonTranscodedFinal.Code + ": the current file is transcoded, and a transcoded file is final",
+		Type:   commonv1.RejectionPermanent,
+	}
+	transcoded := commonv1.ReleaseDecision{
+		ReleaseInfo: commonv1.ReleaseInfo{GUID: "transcoded"},
+		Rejections:  []commonv1.Rejection{transcodedFinal},
+	}
+	transcodedAndPermanent := commonv1.ReleaseDecision{
+		ReleaseInfo: commonv1.ReleaseInfo{GUID: "transcoded-perm"},
+		Rejections:  []commonv1.Rejection{transcodedFinal, permanent.Rejections[0]},
+	}
+	results := []commonv1.ReleaseDecision{ok, permanent, temporary, transcoded, transcodedAndPermanent}
 
 	tests := []struct {
 		name        string
@@ -92,6 +105,9 @@ func TestResolveGrab(t *testing.T) {
 		{name: "a permanent rejection is allowed with override", guid: "perm", override: true, wantAllowed: true},
 		{name: "a temporary rejection needs no override", guid: "temp", wantAllowed: true},
 		{name: "an unknown guid is an error, not a silent skip", guid: "nope", override: true, wantErr: true},
+		{name: "a person's pick over a transcoded file needs no override", guid: "transcoded", wantAllowed: true},
+		{name: "the transcoded exemption waives no other permanent rejection", guid: "transcoded-perm", wantErr: true},
+		{name: "which override still waives", guid: "transcoded-perm", override: true, wantAllowed: true},
 	}
 
 	for _, tc := range tests {

@@ -138,14 +138,18 @@ func TestEvaluateScoresReleaseTitleFormatsFromTheReleaseName(t *testing.T) {
 	require.EqualValues(t, 505, ds[0].Release.FormatScore, "the score lands on the Release that Search.status and Download.spec carry")
 }
 
-// TestEvaluateNeverUpgradesATranscodedFileAutomatically pins the owner's rule
+// TestEvaluateNeverApprovesAReleaseOverATranscodedFile pins the owner's rule
 // (CLAUDE.md, "Transcoding"): a transcoded file is final. A clear upgrade --
 // Bluray-2160p over a Bluray-1080p file below a 2160p cutoff, which the
 // UpgradableSpecification table approves -- is rejected TranscodedFinal on
-// every automatic decision (the RSS matcher's, an automatic search's), and
-// the same release against the same file untranscoded, or offered to a
-// user's interactive search, is approved.
-func TestEvaluateNeverUpgradesATranscodedFileAutomatically(t *testing.T) {
+// every decision, the RSS matcher's, an automatic search's and a
+// user-invoked one's alike, while the same release against the same file
+// untranscoded is approved. A user-invoked search is "Search now", which
+// grabs its best approved release automatically; approving one over a
+// transcoded file there downloaded a 20 GB release only for the importer to
+// refuse and blocklist it (2026-10-07). A person's own pick is exempt at
+// grab time instead (app/catalog/controller/search's resolveGrab).
+func TestEvaluateNeverApprovesAReleaseOverATranscodedFile(t *testing.T) {
 	bluray2160, ok := quality.Lookup("video", "Bluray-2160p")
 	require.True(t, ok)
 	bluray1080, ok := quality.Lookup("video", "Bluray-1080p")
@@ -188,8 +192,10 @@ func TestEvaluateNeverUpgradesATranscodedFileAutomatically(t *testing.T) {
 	require.Equal(t, common.RejectionPermanent, got.Rejections[0].Type)
 	require.Contains(t, got.Rejections[0].Reason, decision.ReasonTranscodedFinal.Code+": ")
 
-	require.True(t, eval(target(true), interactive).Approved,
-		"a user's interactive search is left to the ordinary checks, as Radarr and Sonarr allow a manual grab")
+	got = eval(target(true), interactive)
+	require.False(t, got.Approved, "a user-invoked search grabs its best automatically, so it must not approve one either")
+	require.Len(t, got.Rejections, 1, "%+v", got.Rejections)
+	require.True(t, decision.ReasonTranscodedFinal.Of(got.Rejections[0]), got.Rejections[0].Reason)
 }
 
 // TestEvaluateReplacesAWrongLanguageFileOnlyWithATaggedRelease is anime

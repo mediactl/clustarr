@@ -22,6 +22,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/worker/grab/downloads"
+	"github.com/mediactl/clustarr/pkg/decision"
 )
 
 // BuildDownloadSource maps a release to a Download's spec.source. It is
@@ -65,7 +66,10 @@ type grabDecision struct {
 // resolveGrab looks guid up in results and applies spec §8.2's "Override
 // required for Permanent rejections" rule: an approved release, or a rejected
 // one whose Rejections are all temporary, grabs freely; a release carrying at
-// least one Permanent rejection needs spec.override.
+// least one Permanent rejection needs spec.override -- except
+// decision.ReasonTranscodedFinal, which a person's own pick is exempt from:
+// it bars automatic grabs over a transcoded file, and a spec.grab pick is
+// the interactive grab that may replace one.
 //
 // A temporary rejection is deliberately not a barrier. Temporary means "this
 // may pass on a later run" -- the queue already holds an equal candidate, the
@@ -81,6 +85,14 @@ func resolveGrab(guid string, results []commonv1.ReleaseDecision, override bool)
 			return grabDecision{Release: r.ReleaseInfo, Allowed: true}
 		}
 		for _, rej := range r.Rejections {
+			// A transcoded file is final against every automatic grab, but a
+			// person picking this release by hand is the interactive grab the
+			// importer lets replace one (grabbedBy interactive, manual): the
+			// one permanent rejection a pick needs no override for. A
+			// spec.grabBest pick never reaches here unapproved.
+			if decision.ReasonTranscodedFinal.Of(rej) {
+				continue
+			}
 			if rej.Type == commonv1.RejectionPermanent && !override {
 				return grabDecision{
 					Release: r.ReleaseInfo,

@@ -252,9 +252,9 @@ func CurrentFile(ctx context.Context, c client.Reader, ns, name string) (*decisi
 		Revision:    mf.Spec.Revision,
 		FormatScore: int(mf.Spec.FormatScore),
 		Formats:     mf.Spec.MatchedFormats,
-		// A transcoded file is final: an automatic search never grabs
-		// over it (decision.ReasonTranscodedFinal); an interactive one
-		// still may.
+		// A transcoded file is final: no search approves a release over
+		// it (decision.ReasonTranscodedFinal); only a person's own pick
+		// of one (Search spec.grab) still may.
 		Transcoded: rollup.Transcoded(&mf),
 		// A file whose audio lacks the profile's language is replaced by
 		// any accepted release (decision.LacksLanguage).

@@ -19,6 +19,7 @@ package decision
 
 import (
 	"fmt"
+	"strings"
 
 	common "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/quality"
@@ -83,14 +84,21 @@ var (
 
 	// ReasonTranscodedFinal has no *arr counterpart. It is the owner's rule
 	// (CLAUDE.md, "Transcoding"): a transcoded file is the final
-	// destination, so an automatic decision -- the RSS matcher's, or an
-	// automatic search's -- never grabs over one, whatever the candidate's
-	// quality. Target.Current.Transcoded carries the verdict. It is not
-	// raised for a user-invoked (interactive) search, as Radarr and Sonarr
-	// let a user grab by hand regardless; and it is Permanent, so no later
-	// automatic run revisits it.
+	// destination, so no decision -- the RSS matcher's, an automatic
+	// search's or a user-invoked one's -- approves a release over one,
+	// whatever the candidate's quality. Target.Current.Transcoded carries
+	// the verdict. A person who picks a release by hand (Search spec.grab)
+	// may still take it, as Radarr and Sonarr let a user grab by hand: the
+	// Search controller exempts this one rejection for such a pick. It is
+	// Permanent, so no later automatic run revisits it.
 	ReasonTranscodedFinal = Reason{"TranscodedFinal", common.RejectionPermanent}
 )
+
+// Of reports whether rej was raised for r: newRejection renders every
+// rejection as "<Code>: <detail>".
+func (r Reason) Of(rej common.Rejection) bool {
+	return strings.HasPrefix(rej.Reason, r.Code+": ")
+}
 
 // verdictReasons maps every non-Upgrade quality.Verdict to the Reason
 // upgradeRejection and queueRejection report it as (Disagreement 2: this
