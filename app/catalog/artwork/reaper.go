@@ -109,8 +109,11 @@ type Reaper struct {
 	Lag LagReader
 	// Admin purges orphaned chunks (PurgeOrphanChunks).
 	Admin events.ObjectStoreAdmin
-	// Buckets are purged each sweep; nil is events.BucketArtwork and
-	// events.ObjectStoreFingerprints.
+	// Buckets are purged each sweep; nil is Store's own bucket (the
+	// artwork bucket, as Status names it) and events.ObjectStoreFingerprints.
+	// Only the registration packages name the artwork bucket
+	// (TestArtworkWritersAreTheTwoVariantOwners), so the default reads it
+	// off the store.
 	Buckets []string
 	// Pace: the audit publishes while a consumer's lag is below it;
 	// DefaultAuditPace when zero.
@@ -245,11 +248,13 @@ func (r *Reaper) Sweep(ctx context.Context) (deleted int, err error) {
 		deleted++
 	}
 	countObjects(objects)
-	errs = append(errs, r.purge(ctx, grace)...)
-	if r.auditing() {
-		if st, err := r.Store.Status(ctx); err != nil {
-			errs = append(errs, fmt.Errorf("artwork: the bucket's status, for the audit: %w", err))
-		} else {
+	if r.Admin != nil || r.auditing() {
+		st, err := r.Store.Status(ctx)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("artwork: the bucket's status: %w", err))
+		}
+		errs = append(errs, r.purge(ctx, st.Bucket, grace)...)
+		if err == nil && r.auditing() {
 			r.gen = st.Created
 			backlog, err := r.audit(ctx, objects, strconv.FormatInt(st.Created.Unix(), 10))
 			r.backlog = backlog
@@ -266,15 +271,19 @@ func (r *Reaper) Sweep(ctx context.Context) (deleted int, err error) {
 }
 
 // purge runs PurgeOrphanChunks over Buckets with the reaper's grace, which
-// covers a Put in progress (its chunks precede its meta). A bucket this
-// deployment never created is skipped.
-func (r *Reaper) purge(ctx context.Context, grace time.Duration) []error {
+// covers a Put in progress (its chunks precede its meta). own is Store's
+// bucket, "" when its status could not be read. A bucket this deployment
+// never created is skipped.
+func (r *Reaper) purge(ctx context.Context, own string, grace time.Duration) []error {
 	if r.Admin == nil {
 		return nil
 	}
 	buckets := r.Buckets
 	if len(buckets) == 0 {
-		buckets = []string{events.BucketArtwork, events.ObjectStoreFingerprints}
+		buckets = []string{events.ObjectStoreFingerprints}
+		if own != "" {
+			buckets = append([]string{own}, buckets...)
+		}
 	}
 	var errs []error
 	for _, b := range buckets {
