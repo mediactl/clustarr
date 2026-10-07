@@ -51,11 +51,11 @@ import (
 // first frame). A healthy file answers in well under a second, even over a
 // network mount; one that hangs -- a stalled mount, a pathological file --
 // must not hold the import handler past its delivery's acknowledgement
-// deadline, ConsumerImportFile's BackOff[0] (30s; heartbeatInterval says
+// deadline, ConsumerImportFile's BackOff[0] (30s; HeartbeatInterval says
 // why not its AckWait), so a timeout is a probe failure like any other and
 // the file imports under its name. probeVideo heartbeats immediately before
 // it probes, and TestTheImportFitsTheFileConsumersAckDeadline holds this
-// and heartbeatInterval to that deadline together.
+// and HeartbeatInterval to that deadline together.
 const videoProbeTimeout = 15 * time.Second
 
 // metricKindMovie is the bounded `kind` label on the import metrics, mirroring

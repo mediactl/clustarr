@@ -52,12 +52,17 @@ import (
 const FieldManager = k8s.ManagerCaptionarrWorker
 
 const (
-	// heartbeatInterval is how often a long fetch sends an in-progress ack.
-	// The fetch consumers' AckWait is 90s (pkg/events/topology.go) and a
-	// fetch is several provider round trips, each bounded by
+	// HeartbeatInterval is how often a long fetch sends an in-progress ack.
+	// A fetch is several provider round trips, each bounded by
 	// providerset.DefaultHTTPTimeout, so the worker heartbeats between them
 	// rather than ask for an AckWait longer than a pod's termination grace.
-	heartbeatInterval = 20 * time.Second
+	// It is at most a third of the durable's first-delivery deadline,
+	// events.AckDeadline(sub, 1), so two heartbeats can be lost before a
+	// lapse (NATS research 2026-10-07, S9; held by
+	// test/guards.TestHeartbeatsFitTheirDeadline): the fetch consumers'
+	// BackOff[0] is 30s, which replaces their 90s AckWait as the deadline
+	// (pkg/events/topology.go), and the 20s this was left no margin.
+	HeartbeatInterval = 10 * time.Second
 
 	// probeRetry is spec §6.5's "verify path/size/mtime == probeHash (else
 	// Retry(5m))".

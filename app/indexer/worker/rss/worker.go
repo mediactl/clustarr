@@ -49,15 +49,18 @@ import (
 )
 
 const (
-	// heartbeatInterval is how often the poll extends its ack deadline.
+	// HeartbeatInterval is how often the poll extends its ack deadline.
 	// ConsumerIndexRSS's AckWait is 60s, pinned to the pod's
 	// terminationGracePeriodSeconds; the topology's own rule is that work
 	// which can outlast the grace period heartbeats rather than raising
-	// AckWait past it. 20s leaves two missed beats of headroom.
+	// AckWait past it. It is at most a third of the durable's
+	// first-delivery deadline, events.AckDeadline(sub, 1), so two
+	// heartbeats can be lost before a lapse (NATS research 2026-10-07, S9;
+	// held by test/guards.TestHeartbeatsFitTheirDeadline).
 	//
 	// This is NOT Subscription.Heartbeat, which is the broker's idle
 	// heartbeat for connection liveness and extends nothing.
-	heartbeatInterval = 20 * time.Second
+	HeartbeatInterval = 20 * time.Second
 
 	// maxPages bounds one poll. An indexer that keeps returning full pages
 	// would otherwise hold the delivery open indefinitely; the next poll
@@ -415,7 +418,7 @@ func (w *Worker) pollOnce(
 		if ctx.Err() != nil {
 			return all, queries, ctx.Err()
 		}
-		if beat := w.now(); last.IsZero() || beat.Sub(last) >= heartbeatInterval {
+		if beat := w.now(); last.IsZero() || beat.Sub(last) >= HeartbeatInterval {
 			last = beat
 			if err := m.InProgress(ctx); err != nil {
 				return all, queries, fmt.Errorf("rss: heartbeat: %w", err)

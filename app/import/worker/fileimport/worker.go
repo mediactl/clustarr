@@ -51,7 +51,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
 )
 
-// heartbeatInterval is how often the file loop sends an in-progress ack,
+// HeartbeatInterval is how often the file loop sends an in-progress ack,
 // checked before each file, following app/import/worker/rescan's
 // reasoning: a multi-file hardlink-or-copy import can outlast the
 // delivery's acknowledgement deadline, so this worker heartbeats rather
@@ -64,8 +64,10 @@ import (
 // must fit inside it with room for the loop's own work;
 // TestTheImportFitsTheFileConsumersAckDeadline holds them to it. (The
 // loop also beats immediately before each probe, so the sum is a bound
-// that holds even without that beat.)
-const heartbeatInterval = 10 * time.Second
+// that holds even without that beat.) It is also at most a third of that
+// deadline, so two heartbeats can be lost before a lapse (NATS research
+// 2026-10-07, S9; held by test/guards.TestHeartbeatsFitTheirDeadline).
+const HeartbeatInterval = 10 * time.Second
 
 // FieldManager is the server-side-apply field manager this worker uses for
 // the resource it creates: MediaFile. It is k8s.ManagerImportarrWorker, the
@@ -566,11 +568,11 @@ func (w *Worker) recordDedup(ctx context.Context, dl *downloadv1alpha1.Download,
 	}
 }
 
-// beat extends the delivery's ack deadline when heartbeatInterval has
+// beat extends the delivery's ack deadline when HeartbeatInterval has
 // elapsed, mirroring app/import/worker/rescan.Worker.beat.
 func (w *Worker) beat(ctx context.Context, m events.Message, last *time.Time) error {
 	now := w.now()
-	if !last.IsZero() && now.Sub(*last) < heartbeatInterval {
+	if !last.IsZero() && now.Sub(*last) < HeartbeatInterval {
 		return nil
 	}
 	*last = now

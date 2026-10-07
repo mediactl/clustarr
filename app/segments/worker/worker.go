@@ -68,8 +68,16 @@ const (
 	pairConfidence  = 70 // a season of two: one comparison
 	themeConfidence = 80 // a shared ending theme
 	dnnConfidence   = 80
-	heartbeat       = 30 * time.Second
 )
+
+// HeartbeatInterval is how often an analysis sends an in-progress ack: at
+// most a third of the durable's first-delivery deadline,
+// events.AckDeadline(sub, 1), so two heartbeats can be lost before a lapse
+// (NATS research 2026-10-07, S9; held by
+// test/guards.TestHeartbeatsFitTheirDeadline). ConsumerSegmentarrAnalyze's
+// first delivery has BackOff[0], 1 minute; the 30 s this was left no margin
+// for a lost beat.
+const HeartbeatInterval = 20 * time.Second
 
 // endingParams find an ending theme: an intro's tolerances over the credits
 // window's bounds.
@@ -381,7 +389,7 @@ func (h *Handler) publish(ctx context.Context, ns string, f *file, res schema.Se
 func keepAlive(ctx context.Context, m events.Message) func() {
 	ctx, cancel := context.WithCancel(ctx)
 	go func() {
-		t := time.NewTicker(heartbeat)
+		t := time.NewTicker(HeartbeatInterval)
 		defer t.Stop()
 		for {
 			select {

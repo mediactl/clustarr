@@ -463,11 +463,11 @@ func isASS(content []byte) bool {
 	return bytes.Contains(head, []byte("[Script Info]"))
 }
 
-// beat extends the delivery's ack deadline once heartbeatInterval has
+// beat extends the delivery's ack deadline once HeartbeatInterval has
 // passed since the last one, mirroring app/import/worker/fileimport.
 func (w *Worker) beat(ctx context.Context, m events.Message, last *time.Time) error {
 	now := w.now()
-	if !last.IsZero() && now.Sub(*last) < heartbeatInterval {
+	if !last.IsZero() && now.Sub(*last) < HeartbeatInterval {
 		return nil
 	}
 	*last = now

@@ -50,7 +50,7 @@ import (
 )
 
 const (
-	// heartbeatInterval is how often the walk sends an in-progress ack,
+	// HeartbeatInterval is how often the walk sends an in-progress ack,
 	// checked before each file. ConsumerImportScan sets a BackOff, and a
 	// BackOff replaces AckWait as the acknowledgement deadline
 	// (events.Subscription.Backoff): a first delivery must be acked, or
@@ -62,8 +62,11 @@ const (
 	// inside that deadline with room for the walk's own work;
 	// TestTheWalkFitsTheScanConsumersAckDeadline holds them to it. (The
 	// walk also beats immediately before each probe, so the sum is a
-	// bound that holds even without that beat.)
-	heartbeatInterval = 3 * time.Second
+	// bound that holds even without that beat.) It is also at most a
+	// third of that deadline, so two heartbeats can be lost before a lapse
+	// (NATS research 2026-10-07, S9; held by
+	// test/guards.TestHeartbeatsFitTheirDeadline).
+	HeartbeatInterval = 3 * time.Second
 
 	// checkpointInterval is how often the running tally is written to the
 	// clustarr-progress bucket. The LibraryScan controller polls at 3s, so
@@ -742,11 +745,11 @@ func (w *Worker) suspectedSample(ctx context.Context, st *scanState, path string
 	return true, nil
 }
 
-// beat extends the delivery's ack deadline when heartbeatInterval has
+// beat extends the delivery's ack deadline when HeartbeatInterval has
 // elapsed. A library walk is the canonical long task: without this the broker
 // redelivers it after its ack deadline and two workers walk the same tree.
 func (w *Worker) beat(ctx context.Context, m events.Message, st *scanState) error {
-	if !st.lastHeartbeat.IsZero() && w.now().Sub(st.lastHeartbeat) < heartbeatInterval {
+	if !st.lastHeartbeat.IsZero() && w.now().Sub(st.lastHeartbeat) < HeartbeatInterval {
 		return nil
 	}
 	return w.heartbeat(ctx, m, st)

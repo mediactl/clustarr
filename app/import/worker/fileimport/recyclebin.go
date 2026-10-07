@@ -96,13 +96,13 @@ func (s *RecycleSweeper) Handle(ctx context.Context, m events.Message) error {
 	return nil
 }
 
-// keepAlive sends an in-progress ack every heartbeatInterval until stop.
+// keepAlive sends an in-progress ack every HeartbeatInterval until stop.
 func keepAlive(ctx context.Context, m events.Message) (stop func()) {
 	ctx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		ticker := time.NewTicker(heartbeatInterval)
+		ticker := time.NewTicker(HeartbeatInterval)
 		defer ticker.Stop()
 		for {
 			select {

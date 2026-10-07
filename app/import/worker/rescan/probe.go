@@ -38,7 +38,7 @@ type VideoProber func(ctx context.Context, path string) (*commonv1.MediaInfo, er
 // ConsumerImportScan's acknowledgement deadline, which is BackOff[0] (30s),
 // not its AckWait: the walk heartbeats immediately before the probe
 // (fileProbe.heartbeat), and TestTheWalkFitsTheScanConsumersAckDeadline
-// holds this, heartbeatInterval and defaultMetadataTimeout to that
+// holds this, HeartbeatInterval and defaultMetadataTimeout to that
 // deadline together, so a topology change trips it.
 const videoProbeTimeout = 15 * time.Second
 

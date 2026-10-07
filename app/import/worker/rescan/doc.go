@@ -175,7 +175,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // controller is its single writer. Progress instead flows through a
 // [Progress] checkpoint in the clustarr-progress bucket, written roughly
 // every [checkpointInterval] and polled by the controller, with in-progress
-// acks roughly every [heartbeatInterval], and immediately before each probe,
+// acks roughly every [HeartbeatInterval], and immediately before each probe,
 // so a multi-minute walk outlives ConsumerImportScan's acknowledgement
 // deadline -- 30s on a first delivery, its BackOff[0], which replaces its
 // 60s AckWait (events.Subscription.Backoff).
