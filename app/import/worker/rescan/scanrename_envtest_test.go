@@ -35,6 +35,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/import/controller/libraryscan"
+	"github.com/mediactl/clustarr/app/import/scanprogress"
 	"github.com/mediactl/clustarr/app/import/worker/rescan"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
@@ -230,7 +231,7 @@ func TestLibraryScanWithoutRenameRunsNoRenamePass(t *testing.T) {
 	scan, msg := f.renameScan(t, ctx, "no-rename", "", "", false)
 	require.NoError(t, f.renameWorker(t).Handle(ctx, msg))
 	progress := readProgress(t, ctx, f.bus, string(scan.UID))
-	assert.Equal(t, rescan.Progress{
+	assert.Equal(t, scanprogress.Progress{
 		Done: true, FilesSeen: 1, FilesSkipped: 1, Unchanged: 1,
 	}, progress)
 	status := f.settle(t, ctx, scan)

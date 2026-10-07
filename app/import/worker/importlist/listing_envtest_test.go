@@ -35,6 +35,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	"github.com/mediactl/clustarr/app/import/scanprogress"
 	worker "github.com/mediactl/clustarr/app/import/worker/importlist"
 	"github.com/mediactl/clustarr/app/import/worker/rescan"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -152,7 +153,7 @@ func TestRemoveAndKeepSurvivesALibraryRescan(t *testing.T) {
 	require.NoError(t, f.Truncate(60<<20)) // clear the suspected-sample floor, sparsely
 	require.NoError(t, f.Close())
 
-	rescanOnce := func(name string) rescan.Progress {
+	rescanOnce := func(name string) scanprogress.Progress {
 		t.Helper()
 		scan := &catalogv1alpha1.LibraryScan{
 			ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name},
@@ -164,9 +165,9 @@ func TestRemoveAndKeepSurvivesALibraryRescan(t *testing.T) {
 			return cached.Get(ctx, client.ObjectKeyFromObject(scan), &got) == nil
 		}, 10*time.Second, 20*time.Millisecond)
 		require.NoError(t, rescan.NewWorker(cached, bus).Handle(ctx, scanMessage(t, scan, rf)))
-		entry, err := bus.KV(events.BucketProgress).Get(ctx, rescan.ProgressKey(string(scan.UID)))
+		entry, err := bus.KV(events.BucketProgress).Get(ctx, scanprogress.ProgressKey(string(scan.UID)))
 		require.NoError(t, err)
-		p, err := rescan.DecodeProgress(entry.Value)
+		p, err := scanprogress.DecodeProgress(entry.Value)
 		require.NoError(t, err)
 		require.Equal(t, int64(1), p.FilesSeen, "the walk must reach the kept file")
 		return p

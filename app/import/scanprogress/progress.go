@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package rescan
+package scanprogress
 
 import (
 	"encoding/json"
@@ -44,7 +44,7 @@ type UnmatchedFile struct {
 	Reason string `json:"reason"`
 
 	// Candidates lists the catalog items the scanner considered but could
-	// not choose between. Capped at [MaxCandidates] by the caller, which is
+	// not choose between. Capped at rescan.MaxCandidates by the caller, which is
 	// the CRD's own MaxItems.
 	Candidates []string `json:"candidates,omitempty"`
 
@@ -56,7 +56,7 @@ type UnmatchedFile struct {
 // candidate. It mirrors catalogv1alpha1.RenamedFile, as [UnmatchedFile]
 // mirrors its CRD type: From is the file's spec.path, To the path
 // catalogarr proposes, and Reason is empty for a move, else a Rename*
-// reason -- or "Failed: <error>" ([RenameFailed]) for a file the pass could
+// reason -- or "Failed: <error>" (rescan.RenameFailed) for a file the pass could
 // not rename, clamped to the CRD field's 256 characters.
 type RenamedFile struct {
 	From   string `json:"from"`
@@ -73,8 +73,9 @@ const maxRenamed = 200
 // pass or a controller merging a checkpoint into status never lists a file
 // twice -- and any other is appended. Past LibraryScanStatus.Renamed's MaxItems, 200, the oldest
 // entries are dropped, as the walk drops its oldest unmatched files. The
-// rename pass and the LibraryScan controller both merge through it, so the
-// worker's list and status agree on which entries survive.
+// rescan worker (app/import/worker/rescan) and the LibraryScan controller
+// both merge through it, so the worker's list and status agree on which
+// entries survive.
 func MergeRenamed(list []RenamedFile, more ...RenamedFile) []RenamedFile {
 	for _, r := range more {
 		if i := slices.IndexFunc(list, func(e RenamedFile) bool { return e.From == r.From }); i >= 0 {
@@ -90,8 +91,9 @@ func MergeRenamed(list []RenamedFile, more ...RenamedFile) []RenamedFile {
 }
 
 // Progress is the worker's running -- and, once Done, final -- tally for one
-// LibraryScan. The worker checkpoints it to a clustarr-progress key roughly
-// every [checkpointInterval]; the LibraryScan controller polls that key and
+// LibraryScan. The rescan worker (app/import/worker/rescan) checkpoints it
+// to a clustarr-progress key roughly every checkpointInterval; the
+// LibraryScan controller polls that key and
 // aggregates it into status, because the controller is the single writer of
 // LibraryScan.status and the single-writer rule has no worker exception
 // here.
@@ -112,7 +114,7 @@ func MergeRenamed(list []RenamedFile, more ...RenamedFile) []RenamedFile {
 //     skipped media -- which is what FilesSkipped used to conflate them
 //     with, alongside unchanged and transcoded files;
 //   - an entry the walk could not read is counted in Unreadable and listed
-//     in Unmatched with [CodeUnreadable].
+//     in Unmatched with rescan.CodeUnreadable.
 //
 // LibraryScanStatus has one skip counter and no field for the rest, so the
 // controller writes FilesSkipped (the CRD's own "an incremental scan
@@ -191,7 +193,7 @@ type Progress struct {
 	Samples  int64 `json:"samples,omitempty"`
 
 	// Unreadable counts entries the walk could not read (each is also in
-	// Unmatched, with [CodeUnreadable]).
+	// Unmatched, with rescan.CodeUnreadable).
 	Unreadable int64 `json:"unreadable,omitempty"`
 
 	// Unmatched lists the files that could not be attributed.

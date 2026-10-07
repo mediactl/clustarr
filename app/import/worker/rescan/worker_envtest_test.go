@@ -32,6 +32,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/app/import/scanprogress"
 	"github.com/mediactl/clustarr/app/import/worker/rescan"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -383,7 +384,7 @@ func TestHandleReportsAFailedWalkOnTheFinalDelivery(t *testing.T) {
 	// An early delivery is simply retried; nothing final is reported.
 	early := newFakeMessage(t, task)
 	require.Error(t, w.Handle(ctx, early))
-	_, err := f.bus.KV(events.BucketProgress).Get(ctx, rescan.ProgressKey(string(f.scan.UID)))
+	_, err := f.bus.KV(events.BucketProgress).Get(ctx, scanprogress.ProgressKey(string(f.scan.UID)))
 	assert.ErrorIs(t, err, events.ErrKeyNotFound)
 
 	spec, ok := events.Default().Consumer(events.ConsumerImportScan)

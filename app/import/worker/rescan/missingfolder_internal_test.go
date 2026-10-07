@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	"github.com/mediactl/clustarr/app/import/scanprogress"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -53,11 +54,11 @@ func missingFolderScan(t *testing.T, root, subpath string) (*Worker, *scanState,
 	return w, st, bus
 }
 
-func reportedProgress(t *testing.T, bus events.Bus) Progress {
+func reportedProgress(t *testing.T, bus events.Bus) scanprogress.Progress {
 	t.Helper()
-	e, err := bus.KV(events.BucketProgress).Get(context.Background(), ProgressKey("scan-uid"))
+	e, err := bus.KV(events.BucketProgress).Get(context.Background(), scanprogress.ProgressKey("scan-uid"))
 	require.NoError(t, err)
-	p, err := DecodeProgress(e.Value)
+	p, err := scanprogress.DecodeProgress(e.Value)
 	require.NoError(t, err)
 	return p
 }

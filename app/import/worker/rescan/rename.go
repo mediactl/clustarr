@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	"github.com/mediactl/clustarr/app/import/scanprogress"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -369,7 +370,7 @@ func (w *Worker) renamePass(ctx context.Context, m events.Message, st *scanState
 		}
 		mf := &candidates[i]
 		out, err := RenameFile(ctx, w.Client, api, mf, dryRun, false)
-		entry := RenamedFile{From: out.From, To: out.To, Reason: out.Reason}
+		entry := scanprogress.RenamedFile{From: out.From, To: out.To, Reason: out.Reason}
 		switch {
 		case err != nil:
 			log.Warn("the rename pass could not rename a file; carrying on", "mediaFile", mf.Name, "error", err)
@@ -385,7 +386,7 @@ func (w *Worker) renamePass(ctx context.Context, m events.Message, st *scanState
 		if entry.To == "" && mf.Status.Naming != nil {
 			entry.To = mf.Status.Naming.ExpectedPath
 		}
-		st.progress.Renamed = MergeRenamed(st.progress.Renamed, entry)
+		st.progress.Renamed = scanprogress.MergeRenamed(st.progress.Renamed, entry)
 		if err := w.checkpoint(ctx, st, false); err != nil {
 			return err
 		}

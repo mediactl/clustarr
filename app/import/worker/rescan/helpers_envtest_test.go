@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
+	"github.com/mediactl/clustarr/app/import/scanprogress"
 	"github.com/mediactl/clustarr/app/import/worker/rescan"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
@@ -224,11 +225,11 @@ func (m *fakeMessage) Term(context.Context, string) error { m.terms.Add(1); retu
 func (m *fakeMessage) InProgress(context.Context) error   { m.heartbeats.Add(1); return nil }
 
 // readProgress decodes the worker's checkpoint for a scan.
-func readProgress(t *testing.T, ctx context.Context, bus events.Bus, scanUID string) rescan.Progress {
+func readProgress(t *testing.T, ctx context.Context, bus events.Bus, scanUID string) scanprogress.Progress {
 	t.Helper()
-	entry, err := bus.KV(events.BucketProgress).Get(ctx, rescan.ProgressKey(scanUID))
+	entry, err := bus.KV(events.BucketProgress).Get(ctx, scanprogress.ProgressKey(scanUID))
 	require.NoError(t, err, "no progress checkpoint was written")
-	got, err := rescan.DecodeProgress(entry.Value)
+	got, err := scanprogress.DecodeProgress(entry.Value)
 	require.NoError(t, err)
 	return got
 }

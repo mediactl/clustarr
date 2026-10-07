@@ -38,7 +38,7 @@ import (
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
-	"github.com/mediactl/clustarr/app/import/worker/rescan"
+	"github.com/mediactl/clustarr/app/import/scanprogress"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -315,7 +315,7 @@ func (r *Reconciler) poll(ctx context.Context, scan *catalogv1alpha1.LibraryScan
 	conditions, folded := conditions(scan)
 	deadLettered := k8s.IsConditionTrue(conditions, k8s.ConditionDeadLettered)
 
-	entry, err := r.Bus.KV(events.BucketProgress).Get(ctx, rescan.ProgressKey(string(scan.UID)))
+	entry, err := r.Bus.KV(events.BucketProgress).Get(ctx, scanprogress.ProgressKey(string(scan.UID)))
 	if err != nil {
 		if !errors.Is(err, events.ErrKeyNotFound) {
 			return ctrl.Result{}, err
@@ -339,7 +339,7 @@ func (r *Reconciler) poll(ctx context.Context, scan *catalogv1alpha1.LibraryScan
 		return ctrl.Result{RequeueAfter: pollInterval}, nil
 	}
 
-	progress, err := rescan.DecodeProgress(entry.Value)
+	progress, err := scanprogress.DecodeProgress(entry.Value)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -395,8 +395,8 @@ func (r *Reconciler) fail(
 // counter status already reports (see poll): every field this manager owns
 // except the phase, finishedAt and the conditions, which the caller sets.
 // status.renamed keeps an entry until the worker reports the same file
-// again, as status.unmatched does (rescan.MergeRenamed).
-func aggregate(scan *catalogv1alpha1.LibraryScan, p rescan.Progress) *catalogac.LibraryScanStatusApplyConfiguration {
+// again, as status.unmatched does (scanprogress.MergeRenamed).
+func aggregate(scan *catalogv1alpha1.LibraryScan, p scanprogress.Progress) *catalogac.LibraryScanStatusApplyConfiguration {
 	s := scan.Status
 	ac := catalogac.LibraryScanStatus().
 		WithFilesSeen(max(s.FilesSeen, p.FilesSeen)).
@@ -405,20 +405,20 @@ func aggregate(scan *catalogv1alpha1.LibraryScan, p rescan.Progress) *catalogac.
 		WithItemsUpdated(max(s.ItemsUpdated, p.ItemsUpdated)).
 		WithFilesSkipped(max(s.FilesSkipped, p.FilesSkipped)).
 		WithFilesRenamed(max(s.FilesRenamed, p.FilesRenamed))
-	if renamed := rescan.MergeRenamed(renamedOf(s.Renamed), p.Renamed...); len(renamed) > 0 {
+	if renamed := scanprogress.MergeRenamed(renamedOf(s.Renamed), p.Renamed...); len(renamed) > 0 {
 		ac = ac.WithRenamed(renamedACs(renamed)...)
 	}
 	if s.StartedAt != nil {
 		ac = ac.WithStartedAt(*s.StartedAt)
 	}
-	byPath := make(map[string]rescan.UnmatchedFile, len(s.Unmatched)+len(p.Unmatched))
+	byPath := make(map[string]scanprogress.UnmatchedFile, len(s.Unmatched)+len(p.Unmatched))
 	for _, u := range s.Unmatched {
-		byPath[u.Path] = rescan.UnmatchedFile{Path: u.Path, Reason: u.Reason, Candidates: u.Candidates, SeenAt: u.SeenAt.Time}
+		byPath[u.Path] = scanprogress.UnmatchedFile{Path: u.Path, Reason: u.Reason, Candidates: u.Candidates, SeenAt: u.SeenAt.Time}
 	}
 	for _, u := range p.Unmatched {
 		byPath[u.Path] = u // the worker's own report of a path is the freshest
 	}
-	merged := make([]rescan.UnmatchedFile, 0, len(byPath))
+	merged := make([]scanprogress.UnmatchedFile, 0, len(byPath))
 	for _, u := range byPath {
 		merged = append(merged, u)
 	}
@@ -523,18 +523,18 @@ func baseStatus(scan *catalogv1alpha1.LibraryScan) *catalogac.LibraryScanStatusA
 }
 
 // renamedOf converts status.renamed to the worker's entries, for
-// rescan.MergeRenamed.
-func renamedOf(in []catalogv1alpha1.RenamedFile) []rescan.RenamedFile {
-	out := make([]rescan.RenamedFile, 0, len(in))
+// scanprogress.MergeRenamed.
+func renamedOf(in []catalogv1alpha1.RenamedFile) []scanprogress.RenamedFile {
+	out := make([]scanprogress.RenamedFile, 0, len(in))
 	for _, r := range in {
-		out = append(out, rescan.RenamedFile{From: r.From, To: r.To, Reason: r.Reason})
+		out = append(out, scanprogress.RenamedFile{From: r.From, To: r.To, Reason: r.Reason})
 	}
 	return out
 }
 
 // renamedACs renders rename-pass entries in the order given; the caller has
-// capped them (rescan.MergeRenamed).
-func renamedACs(in []rescan.RenamedFile) []*catalogac.RenamedFileApplyConfiguration {
+// capped them (scanprogress.MergeRenamed).
+func renamedACs(in []scanprogress.RenamedFile) []*catalogac.RenamedFileApplyConfiguration {
 	out := make([]*catalogac.RenamedFileApplyConfiguration, 0, len(in))
 	for _, r := range in {
 		ac := catalogac.RenamedFile().WithFrom(r.From).WithTo(r.To)
@@ -549,10 +549,10 @@ func renamedACs(in []rescan.RenamedFile) []*catalogac.RenamedFileApplyConfigurat
 // unmatchedACs renders the worker's unmatched files newest first and
 // truncates to the CRD's MaxItems. A list the apiserver would reject helps
 // nobody, and the newest entries are the ones a user is looking for.
-func unmatchedACs(in []rescan.UnmatchedFile) []*catalogac.UnmatchedFileApplyConfiguration {
-	sorted := make([]rescan.UnmatchedFile, len(in))
+func unmatchedACs(in []scanprogress.UnmatchedFile) []*catalogac.UnmatchedFileApplyConfiguration {
+	sorted := make([]scanprogress.UnmatchedFile, len(in))
 	copy(sorted, in)
-	slices.SortStableFunc(sorted, func(a, b rescan.UnmatchedFile) int { return b.SeenAt.Compare(a.SeenAt) })
+	slices.SortStableFunc(sorted, func(a, b scanprogress.UnmatchedFile) int { return b.SeenAt.Compare(a.SeenAt) })
 	if len(sorted) > maxUnmatched {
 		sorted = sorted[:maxUnmatched]
 	}

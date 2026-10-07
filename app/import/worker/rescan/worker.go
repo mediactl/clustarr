@@ -33,6 +33,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
+	"github.com/mediactl/clustarr/app/import/scanprogress"
 	"github.com/mediactl/clustarr/app/import/worker/fileimport"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -190,7 +191,7 @@ type scanState struct {
 	scan     *catalogv1alpha1.LibraryScan
 	root     *catalogv1alpha1.RootFolder
 	movies   []MovieCandidate
-	progress Progress
+	progress scanprogress.Progress
 
 	// nonVideo holds the candidates of a music, book, audiobook or comic
 	// root folder; nil for a movie root.
@@ -246,7 +247,7 @@ func (s *scanState) incremental() bool {
 // newest maxUnmatched entries. The scanner never guesses: this is the only
 // thing that happens to a file MatchMovie declined.
 func (s *scanState) unmatched(path, code, reason string, candidates []string, at time.Time) {
-	s.progress.Unmatched = append(s.progress.Unmatched, UnmatchedFile{
+	s.progress.Unmatched = append(s.progress.Unmatched, scanprogress.UnmatchedFile{
 		Path:       path,
 		Reason:     reason,
 		Candidates: candidates,
@@ -439,14 +440,14 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 // outlived the gap -- walks from the top; the LibraryScan controller never
 // lets that restarted tally lower a counter it has already reported.
 func (w *Worker) resume(ctx context.Context, st *scanState) (done bool, err error) {
-	entry, err := w.Bus.KV(events.BucketProgress).Get(ctx, ProgressKey(w.scanUID(st)))
+	entry, err := w.Bus.KV(events.BucketProgress).Get(ctx, scanprogress.ProgressKey(w.scanUID(st)))
 	switch {
 	case errors.Is(err, events.ErrKeyNotFound):
 		return false, nil
 	case err != nil:
 		return false, fmt.Errorf("rescan: read progress checkpoint: %w", err)
 	}
-	prev, err := DecodeProgress(entry.Value)
+	prev, err := scanprogress.DecodeProgress(entry.Value)
 	if err != nil {
 		// An undecodable checkpoint cannot be resumed from; a fresh walk
 		// overwrites it.
@@ -752,7 +753,7 @@ func (w *Worker) checkpoint(ctx context.Context, st *scanState, force bool) erro
 	// The controller renders unmatched newest-first and truncates; sorting
 	// here means a mid-walk checkpoint and the final one agree on which 200
 	// entries survive.
-	sorted := make([]UnmatchedFile, len(st.progress.Unmatched))
+	sorted := make([]scanprogress.UnmatchedFile, len(st.progress.Unmatched))
 	copy(sorted, st.progress.Unmatched)
 	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].SeenAt.After(sorted[j].SeenAt) })
 	snapshot := st.progress
@@ -762,7 +763,7 @@ func (w *Worker) checkpoint(ctx context.Context, st *scanState, force bool) erro
 	if err != nil {
 		return err
 	}
-	if _, err := w.Bus.KV(events.BucketProgress).Put(ctx, ProgressKey(w.scanUID(st)), data); err != nil {
+	if _, err := w.Bus.KV(events.BucketProgress).Put(ctx, scanprogress.ProgressKey(w.scanUID(st)), data); err != nil {
 		err = fmt.Errorf("rescan: checkpoint progress: %w", err)
 		if force {
 			return err

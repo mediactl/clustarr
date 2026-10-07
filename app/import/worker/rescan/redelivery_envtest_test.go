@@ -31,6 +31,7 @@ import (
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	"github.com/mediactl/clustarr/app/import/scanprogress"
 	"github.com/mediactl/clustarr/app/import/worker/rescan"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -50,11 +51,11 @@ func threeFilms(t *testing.T, f *fixture) []string {
 	return paths
 }
 
-func (f *fixture) putCheckpoint(t *testing.T, ctx context.Context, p rescan.Progress) {
+func (f *fixture) putCheckpoint(t *testing.T, ctx context.Context, p scanprogress.Progress) {
 	t.Helper()
 	data, err := p.Encode()
 	require.NoError(t, err)
-	_, err = f.bus.KV(events.BucketProgress).Put(ctx, rescan.ProgressKey(string(f.scan.UID)), data)
+	_, err = f.bus.KV(events.BucketProgress).Put(ctx, scanprogress.ProgressKey(string(f.scan.UID)), data)
 	require.NoError(t, err)
 }
 
@@ -76,9 +77,9 @@ func TestHandleResumesARedeliveredScanFromItsCheckpoint(t *testing.T) {
 	films := threeFilms(t, f)
 
 	// The first delivery got through two films before it died.
-	f.putCheckpoint(t, ctx, rescan.Progress{
+	f.putCheckpoint(t, ctx, scanprogress.Progress{
 		FilesSeen: 2, FilesMatched: 2, ItemsCreated: 2, Resume: films[1],
-		Unmatched: []rescan.UnmatchedFile{{Path: "carried.mkv", Reason: "from the first delivery"}},
+		Unmatched: []scanprogress.UnmatchedFile{{Path: "carried.mkv", Reason: "from the first delivery"}},
 	})
 
 	msg := newFakeMessage(t, f.task(false))
@@ -103,7 +104,7 @@ func TestHandleARedeliveryAfterTheFinalCheckpointIsANoOp(t *testing.T) {
 	ctx := context.Background()
 	f := newFixture(t, ctx, "rw-done", catalogv1alpha1.RootFolderKindMovie, "hd-bluray-web", catalogv1alpha1.ScanModeFull)
 	threeFilms(t, f)
-	f.putCheckpoint(t, ctx, rescan.Progress{Done: true, FilesSeen: 7, FilesMatched: 7})
+	f.putCheckpoint(t, ctx, scanprogress.Progress{Done: true, FilesSeen: 7, FilesMatched: 7})
 
 	msg := newFakeMessage(t, f.task(false))
 	msg.attempt = 2

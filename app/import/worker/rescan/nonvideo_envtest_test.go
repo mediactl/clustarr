@@ -33,6 +33,7 @@ import (
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/app/import/scanprogress"
 	"github.com/mediactl/clustarr/app/import/worker/rescan"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
@@ -68,8 +69,8 @@ func mediaFilesIn(t *testing.T, ctx context.Context, c client.Client, ns string,
 }
 
 // unmatchedByPath indexes a checkpoint's unmatched entries.
-func unmatchedByPath(p rescan.Progress) map[string]rescan.UnmatchedFile {
-	out := map[string]rescan.UnmatchedFile{}
+func unmatchedByPath(p scanprogress.Progress) map[string]scanprogress.UnmatchedFile {
+	out := map[string]scanprogress.UnmatchedFile{}
 	for _, u := range p.Unmatched {
 		out[u.Path] = u
 	}

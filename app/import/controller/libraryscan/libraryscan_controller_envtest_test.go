@@ -35,6 +35,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/app/import/controller/libraryscan"
+	"github.com/mediactl/clustarr/app/import/scanprogress"
 	"github.com/mediactl/clustarr/app/import/worker/rescan"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -182,9 +183,9 @@ func TestReconcilePendingDoesNotReleaseTheRestOfTheStatus(t *testing.T) {
 
 	// 2. A real poll apply, so the counters and the unmatched list are
 	//    populated by importarr too.
-	putProgress(t, ctx, bus, string(scan.UID), rescan.Progress{
+	putProgress(t, ctx, bus, string(scan.UID), scanprogress.Progress{
 		FilesSeen: 12, FilesMatched: 9, ItemsCreated: 3, ItemsUpdated: 6, FilesSkipped: 2,
-		Unmatched: []rescan.UnmatchedFile{{
+		Unmatched: []scanprogress.UnmatchedFile{{
 			Path: "orphan.mkv", Reason: "no id, no title match", SeenAt: time.Now(),
 		}},
 	})
@@ -244,15 +245,15 @@ func TestReconcilePollAggregatesProgressAndCapsUnmatchedAt200(t *testing.T) {
 		catalogv1alpha1.LibraryScanStatus{Phase: catalogv1alpha1.ScanPhaseRunning, StartedAt: &started})
 
 	bus := newBus(t, ctx)
-	unmatched := make([]rescan.UnmatchedFile, 0, 250)
+	unmatched := make([]scanprogress.UnmatchedFile, 0, 250)
 	for i := range 250 {
-		unmatched = append(unmatched, rescan.UnmatchedFile{
+		unmatched = append(unmatched, scanprogress.UnmatchedFile{
 			Path:   fmt.Sprintf("file-%03d.mkv", i),
 			Reason: "no id, no title match",
 			SeenAt: started.Add(time.Duration(i) * time.Second),
 		})
 	}
-	putProgress(t, ctx, bus, string(scan.UID), rescan.Progress{
+	putProgress(t, ctx, bus, string(scan.UID), scanprogress.Progress{
 		Done: true, FilesSeen: 250, Unmatched: unmatched,
 	})
 
@@ -283,7 +284,7 @@ func TestReconcilePollKeepsRunningUntilTheWorkerIsDone(t *testing.T) {
 		catalogv1alpha1.LibraryScanStatus{Phase: catalogv1alpha1.ScanPhaseRunning, StartedAt: &started})
 
 	bus := newBus(t, ctx)
-	putProgress(t, ctx, bus, string(scan.UID), rescan.Progress{FilesSeen: 7, FilesMatched: 5, FilesSkipped: 1})
+	putProgress(t, ctx, bus, string(scan.UID), scanprogress.Progress{FilesSeen: 7, FilesMatched: 5, FilesSkipped: 1})
 
 	r := &libraryscan.Reconciler{Client: c, Bus: bus, Clock: time.Now}
 	res, err := r.Reconcile(ctx, request(ns, scan.Name))
@@ -313,12 +314,12 @@ func TestReconcilePollWithNoCheckpointLeavesTheStatusIntact(t *testing.T) {
 	r := &libraryscan.Reconciler{Client: c, Bus: bus, Clock: time.Now}
 
 	// Drive it to a populated steady state through a real poll first.
-	putProgress(t, ctx, bus, string(scan.UID), rescan.Progress{FilesSeen: 11, FilesMatched: 8, FilesSkipped: 3})
+	putProgress(t, ctx, bus, string(scan.UID), scanprogress.Progress{FilesSeen: 11, FilesMatched: 8, FilesSkipped: 3})
 	require.NoError(t, errOf(r.Reconcile(ctx, request(ns, scan.Name))))
 	require.Equal(t, int64(11), getScan(t, ctx, c, ns, scan.Name).Status.FilesSeen)
 
 	// Then take the checkpoint away, the way the bucket's own TTL would.
-	require.NoError(t, bus.KV(events.BucketProgress).Delete(ctx, rescan.ProgressKey(string(scan.UID))))
+	require.NoError(t, bus.KV(events.BucketProgress).Delete(ctx, scanprogress.ProgressKey(string(scan.UID))))
 	res, err := r.Reconcile(ctx, request(ns, scan.Name))
 	require.NoError(t, err)
 	assert.Positive(t, res.RequeueAfter)
@@ -342,7 +343,7 @@ func TestReconcilePollReportsAFailedWalk(t *testing.T) {
 		catalogv1alpha1.LibraryScanStatus{Phase: catalogv1alpha1.ScanPhaseRunning, StartedAt: &started})
 
 	bus := newBus(t, ctx)
-	putProgress(t, ctx, bus, string(scan.UID), rescan.Progress{
+	putProgress(t, ctx, bus, string(scan.UID), scanprogress.Progress{
 		Done: true, Error: "walk: permission denied", FilesSeen: 2, FilesSkipped: 1,
 	})
 

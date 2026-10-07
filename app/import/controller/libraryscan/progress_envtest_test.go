@@ -30,6 +30,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/app/import/controller/libraryscan"
+	"github.com/mediactl/clustarr/app/import/scanprogress"
 	"github.com/mediactl/clustarr/app/import/worker/rescan"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -66,16 +67,16 @@ func TestReconcilePollNeverDrivesCountersBackwards(t *testing.T) {
 	bus := newBus(t, ctx)
 	r := &libraryscan.Reconciler{Client: c, Bus: bus, Clock: time.Now}
 
-	putProgress(t, ctx, bus, string(scan.UID), rescan.Progress{
+	putProgress(t, ctx, bus, string(scan.UID), scanprogress.Progress{
 		FilesSeen: 40, FilesMatched: 30, ItemsCreated: 5, ItemsUpdated: 25, FilesSkipped: 9,
-		Unmatched: []rescan.UnmatchedFile{{Path: "early.mkv", Reason: "no match", SeenAt: started.Time}},
+		Unmatched: []scanprogress.UnmatchedFile{{Path: "early.mkv", Reason: "no match", SeenAt: started.Time}},
 	})
 	require.NoError(t, errOf(r.Reconcile(ctx, request(ns, scan.Name))))
 
 	// The redelivery, restarted from the top.
-	putProgress(t, ctx, bus, string(scan.UID), rescan.Progress{
+	putProgress(t, ctx, bus, string(scan.UID), scanprogress.Progress{
 		FilesSeen: 3, FilesMatched: 2, ItemsUpdated: 2, FilesSkipped: 1,
-		Unmatched: []rescan.UnmatchedFile{{Path: "late.mkv", Reason: "no match", SeenAt: started.Add(time.Minute)}},
+		Unmatched: []scanprogress.UnmatchedFile{{Path: "late.mkv", Reason: "no match", SeenAt: started.Add(time.Minute)}},
 	})
 	require.NoError(t, errOf(r.Reconcile(ctx, request(ns, scan.Name))))
 
@@ -92,7 +93,7 @@ func TestReconcilePollNeverDrivesCountersBackwards(t *testing.T) {
 	assert.Equal(t, []string{"late.mkv", "early.mkv"}, paths, "newest first, the earlier entry kept")
 
 	// And the restarted walk overtaking the old tally is reported as is.
-	putProgress(t, ctx, bus, string(scan.UID), rescan.Progress{Done: true, FilesSeen: 44, FilesMatched: 33})
+	putProgress(t, ctx, bus, string(scan.UID), scanprogress.Progress{Done: true, FilesSeen: 44, FilesMatched: 33})
 	require.NoError(t, errOf(r.Reconcile(ctx, request(ns, scan.Name))))
 	done := getScan(t, ctx, c, ns, scan.Name).Status
 	assert.Equal(t, catalogv1alpha1.ScanPhaseCompleted, done.Phase)
@@ -116,11 +117,11 @@ func TestReconcileNoProgressTimeoutRunsFromTheLastCheckpoint(t *testing.T) {
 	r := &libraryscan.Reconciler{Client: c, Bus: bus, Clock: clk.Now}
 
 	// A two-hour walk, checkpointing.
-	putProgress(t, ctx, bus, string(scan.UID), rescan.Progress{FilesSeen: 900})
+	putProgress(t, ctx, bus, string(scan.UID), scanprogress.Progress{FilesSeen: 900})
 	require.NoError(t, errOf(r.Reconcile(ctx, request(ns, scan.Name))))
 
 	// The worker dies; ten minutes on the bucket's TTL takes the key.
-	require.NoError(t, bus.KV(events.BucketProgress).Delete(ctx, rescan.ProgressKey(string(scan.UID))))
+	require.NoError(t, bus.KV(events.BucketProgress).Delete(ctx, scanprogress.ProgressKey(string(scan.UID))))
 	clk.now = clk.now.Add(10 * time.Minute)
 	require.NoError(t, errOf(r.Reconcile(ctx, request(ns, scan.Name))))
 	assert.Equal(t, catalogv1alpha1.ScanPhaseRunning, getScan(t, ctx, c, ns, scan.Name).Status.Phase,
@@ -128,7 +129,7 @@ func TestReconcileNoProgressTimeoutRunsFromTheLastCheckpoint(t *testing.T) {
 
 	// A redelivery resumes and checkpoints: the clock starts over.
 	clk.now = clk.now.Add(15 * time.Minute)
-	putProgress(t, ctx, bus, string(scan.UID), rescan.Progress{FilesSeen: 950})
+	putProgress(t, ctx, bus, string(scan.UID), scanprogress.Progress{FilesSeen: 950})
 	require.NoError(t, errOf(r.Reconcile(ctx, request(ns, scan.Name))))
 	clk.now = clk.now.Add(25 * time.Minute)
 	require.NoError(t, errOf(r.Reconcile(ctx, request(ns, scan.Name))))
@@ -209,7 +210,7 @@ func TestReconcileCarriesTheRenamePass(t *testing.T) {
 	bus := newBus(t, ctx)
 	r := &libraryscan.Reconciler{Client: c, Bus: bus, Clock: time.Now}
 
-	putProgress(t, ctx, bus, string(scan.UID), rescan.Progress{FilesRenamed: 2, Renamed: []rescan.RenamedFile{
+	putProgress(t, ctx, bus, string(scan.UID), scanprogress.Progress{FilesRenamed: 2, Renamed: []scanprogress.RenamedFile{
 		{From: "/data/media/m/a.mkv", To: "/data/media/m/A.mkv"},
 		{From: "/data/media/m/b.mkv", To: "/data/media/m/B.mkv"},
 		{From: "/data/media/m/c.mkv", To: "/data/media/m/C.mkv", Reason: rescan.RenameCollision},
@@ -218,7 +219,7 @@ func TestReconcileCarriesTheRenamePass(t *testing.T) {
 
 	// The redelivery, restarted from the top: the moved files are no longer
 	// candidates, and the third is refused for another reason this time.
-	putProgress(t, ctx, bus, string(scan.UID), rescan.Progress{Renamed: []rescan.RenamedFile{
+	putProgress(t, ctx, bus, string(scan.UID), scanprogress.Progress{Renamed: []scanprogress.RenamedFile{
 		{From: "/data/media/m/c.mkv", To: "/data/media/m/C.mkv", Reason: rescan.RenameHeld},
 	}})
 	require.NoError(t, errOf(r.Reconcile(ctx, request(ns, scan.Name))))
@@ -235,7 +236,7 @@ func TestReconcileCarriesTheRenamePass(t *testing.T) {
 		assert.Equal(t, []string{string(k8s.ManagerImportarr)}, managersFor(t, after.ManagedFields, "status", field), field)
 	}
 
-	require.NoError(t, bus.KV(events.BucketProgress).Delete(ctx, rescan.ProgressKey(string(scan.UID))))
+	require.NoError(t, bus.KV(events.BucketProgress).Delete(ctx, scanprogress.ProgressKey(string(scan.UID))))
 	var cur catalogv1alpha1.LibraryScan
 	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(scan), &cur))
 	patch := client.MergeFrom(cur.DeepCopy())
@@ -259,7 +260,7 @@ func TestReconcileReportsTheBreakdownInTheReadyMessage(t *testing.T) {
 	scan := seedScan(t, ctx, c, ns, catalogv1alpha1.LibraryScanSpec{RootFolderRef: "movies"},
 		catalogv1alpha1.LibraryScanStatus{Phase: catalogv1alpha1.ScanPhaseRunning, StartedAt: &started})
 	bus := newBus(t, ctx)
-	p := rescan.Progress{Done: true, FilesSeen: 5, FilesMatched: 3, FilesSkipped: 2, Unchanged: 2, NotMedia: 4, Samples: 1}
+	p := scanprogress.Progress{Done: true, FilesSeen: 5, FilesMatched: 3, FilesSkipped: 2, Unchanged: 2, NotMedia: 4, Samples: 1}
 	putProgress(t, ctx, bus, string(scan.UID), p)
 	require.NoError(t, errOf((&libraryscan.Reconciler{Client: c, Bus: bus, Clock: time.Now}).Reconcile(ctx, request(ns, scan.Name))))
 

@@ -36,6 +36,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	"github.com/mediactl/clustarr/app/import/scanprogress"
 	"github.com/mediactl/clustarr/app/import/worker/rescan"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
@@ -262,11 +263,11 @@ func getScan(t *testing.T, ctx context.Context, c client.Client, ns, name string
 }
 
 // putProgress writes a worker checkpoint the controller will poll.
-func putProgress(t *testing.T, ctx context.Context, bus events.Bus, scanUID string, p rescan.Progress) {
+func putProgress(t *testing.T, ctx context.Context, bus events.Bus, scanUID string, p scanprogress.Progress) {
 	t.Helper()
 	data, err := p.Encode()
 	require.NoError(t, err)
-	_, err = bus.KV(events.BucketProgress).Put(ctx, rescan.ProgressKey(scanUID), data)
+	_, err = bus.KV(events.BucketProgress).Put(ctx, scanprogress.ProgressKey(scanUID), data)
 	require.NoError(t, err)
 }
 
