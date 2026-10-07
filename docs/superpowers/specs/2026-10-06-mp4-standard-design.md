@@ -1,0 +1,200 @@
+# One MP4 for every player: the transcode standard's new layout
+
+Status: design, for the owner's approval (2026-10-06).
+
+## 1. Goal
+
+Every transcoded file is a single `.mp4` that every Plex player, browsers
+included, plays natively, with no server-side transcode:
+
+- the video is HEVC tagged `hvc1`;
+- each language has one or two audio tracks: AC-3 5.1 plus an AAC 2.0
+  companion for a surround source, or AAC alone for mono or stereo;
+- every subtitle is text that Plex shows everywhere.
+
+The video pipeline stays the in-process ffgo engine (`pkg/transcode/engine`),
+streaming packets into `ffgo.MuxerStream`s, one output file per run.
+
+## 2. The owner's decisions (2026-10-06)
+
+| Question | Decision |
+|---|---|
+| Container | MP4 always, `hvc1`, faststart. |
+| Surround audio (more than 2 channels) | AC-3 5.1 at 640 kbps, **whatever the source codec**: E-AC-3 and Atmos included. A 7.1 source is downmixed to 5.1. AC-3 5.1 sources are copied. |
+| Companion | Every surround track gets an AAC 2.0 companion in the same language. |
+| Mono or stereo audio | AAC only: copied when already AAC, else encoded. |
+| Subtitles MP4 cannot hold | Sidecars. ASS/SSA are written as `.ass` beside the video, and their attached fonts are lost. |
+| Image subtitles (PGS, DVD) | OCR'd to text and muxed as `mov_text`. Plex ignores external `.sup` files ([Plex support](https://support.plex.tv/articles/200471133-adding-local-subtitles-to-your-media/)). |
+| Files already transcoded (HEVC in MKV) | Remuxed once to the new layout, without re-encoding the video. |
+
+The library on 2026-10-06 (11,958 probed files):
+
+- **Surround audio:** 7,273 E-AC-3 tracks and 937 AC-3, with 363 DTS, 30
+  FLAC and 9 TrueHD.
+- **Subtitles:** 8,450 files with SRT, 1,425 with ASS, 492 with PGS, 9 with
+  DVD subtitles. 612 files carry attached fonts.
+- **Image subtitle tracks by language:** 832 English, 137 Spanish, 143
+  Chinese, 106 German, 91 French, 63 Japanese, then a long tail.
+- **Video:** 4,111 files (6.0 TB) are already HEVC or AV1 in MKV, and 7,800
+  (13.9 TB) are not yet HEVC.
+
+## 3. Audio (`standard.planAudio`)
+
+These rules apply per language, after the profile's `audio.languages`
+filter (unchanged):
+
+1. **The primary track** is the language's track with the most channels,
+   the first such track at a tie, never a commentary track.
+2. **A primary with more than 2 channels** becomes two tracks:
+   - **AC-3 5.1 at 640 kbps:** copied when the source is AC-3 with at most
+     6 channels, otherwise decoded and encoded with FFmpeg's `ac3` encoder,
+     downmixed by channel position.
+   - **AAC 2.0 at 160 kbps**, downmixed from the same decoded audio.
+3. **A primary with 1 or 2 channels** becomes one AAC track at its own
+   channel count: copied when AAC, otherwise encoded.
+4. **Commentary tracks** become AAC 2.0, one each, flagged as comment.
+5. **Other tracks in the same language are dropped.** "1 or 2 audio streams
+   per language" leaves no room for alternative mixes.
+6. **Default flag:** the first kept language's first track (AC-3 or AAC)
+   carries it, as the standard orders languages today.
+
+One decoded source feeding two encoders is new to the engine: a stage that
+fans the decoded frames out to two resamplers and encoders (§6).
+
+A grafted dub follows the same rules. A surround donor dub becomes AC-3 5.1
+plus AAC 2.0; a stereo one becomes AAC 2.0. It has to be re-encoded anyway,
+since its rate and segments change.
+
+## 4. Subtitles
+
+| Source | In the MP4 | Beside it |
+|---|---|---|
+| SRT, WebVTT, `mov_text` | `mov_text`, converted (styling tags dropped) | none |
+| ASS, SSA | none | `<stem>.<lang>[.forced].ass`, the stream copied out |
+| PGS, DVD (VobSub) | `mov_text` from OCR (§5) | none |
+
+- **Sidecar names** follow `pkg/subtitles.SidecarName`, so captionarr's
+  sidecar scan and catalogarr's `status.sidecars` see them as subtitle
+  sidecars.
+- **The ASS styling stays, but its fonts are lost.** Plex renders such a
+  sidecar with its own fonts, and some clients burn it in.
+- **Attachments are dropped**, since MP4 cannot carry them. **Chapters are
+  kept** as MP4 chapters.
+- **Forced and SDH flags** are kept as `mov_text` dispositions and in the
+  sidecar names.
+
+## 5. OCR of image subtitles (`pkg/subtitles/ocr`)
+
+- **Models:** PaddleOCR's recognition models (PP-OCR rec, Apache 2.0) for
+  Latin, Chinese, Japanese and Korean scripts, run on ONNX Runtime through
+  purego, as `pkg/segments/textdet` runs PaddleOCR's detection model. The
+  four scripts cover 1,200 of the library's ~1,300 image subtitle tracks.
+  Tracks in other scripts (Greek, Thai, Arabic, Hindi, Cyrillic, ~40 tracks)
+  are dropped, and the file's transcode records which were.
+- **Pipeline:**
+  1. Decode the subtitle stream's bitmaps with timings (ffgo's subtitle
+     decoder).
+  2. Binarise each bitmap from its palette's alpha.
+  3. Split it into lines by horizontal projection.
+  4. Recognise each line with the track language's model, with greedy CTC
+     decoding over the model's dictionary.
+  5. Keep lines above a confidence floor and join them into one cue per
+     bitmap.
+  6. Encode the cues to `mov_text`.
+- **Where it runs:** in the transcode run itself, in `squasharr-worker`. The
+  transcoder image gains `libonnxruntime.so` and the four models, about
+  40 MB.
+- **Its cost** is a few seconds per subtitle track on CPU.
+- **A track whose OCR fails or reads mostly nothing** is dropped and
+  recorded, never mangled into the file.
+
+## 6. Engine (`pkg/transcode/engine`)
+
+These need ffgo capabilities to be confirmed in the plan's first task (a
+spike against ffgo `v0.0.0-clustarr.11`):
+
+- **Fan-out audio:** one decoder feeding an AC-3 encoder and an AAC encoder
+  through their own resamplers. ffgo's `AudioEncoder` takes an encoder name;
+  FFmpeg's native `ac3` encoder takes FLTP.
+- **Text subtitles to `mov_text`:** decode, then encode with the `mov_text`
+  encoder. Subtitle encoding is not used by the engine today.
+- **ASS out to a sidecar:** a copy mux into FFmpeg's `ass` muxer, one small
+  file per track.
+- **PGS and DVD bitmaps out of the decoder,** for §5.
+- **MP4 with `hvc1`, faststart and `use_metadata_tags`** already works.
+
+If ffgo lacks one of these, the gap is closed in the fork (a new
+`v0.0.0-clustarr.N` tag), as earlier engine work did.
+
+## 7. Planning (`pkg/transcode/standard`)
+
+- **`standard.Plan`** always outputs MP4, whatever the profile's
+  `container`, which the plan ignores and the CRD documents as ignored.
+- **`standard.Version` is raised,** so untranscoded files are planned under
+  the new layout.
+- **The plan's audio list, subtitle actions, sidecar list and OCR list**
+  are part of the plan and its hash.
+- **The output name** is `<stem>.mp4`. The swap is already a container
+  change (gap fix R-11): the source is retired and the MediaFile follows the
+  new path.
+- **Sidecars are placed beside the output** before the swap. The verify step
+  checks their count and that they are non-empty.
+
+## 8. The remux of already-transcoded files
+
+- **What's in scope:** a file that is `Transcoded()` (by squasharr, or
+  elsewhere: Tdarr's HEVC) but not in the new layout. Its probe reads a
+  container other than MP4, or audio that does not follow §3.
+- **The plan** is the existing remux decision (`DecisionCopyVideo`): the
+  video is copied, and the audio and subtitles follow §3 and §4.
+- **"A transcoded file is final" still holds for the video.** It is never
+  re-encoded and never upgraded automatically. The layout is converted once.
+- **The remux is idempotent:** an MP4 in the new layout is never remuxed
+  again.
+- **The TranscodeProfile controller selects these files.** They queue
+  through the same job window (`--job-window`) and pools; a remux takes a
+  CPU slot.
+- **The volume** is 4,111 files and 6.0 TB rewritten at copy speed, bounded
+  by the window.
+
+## 9. What changes downstream
+
+- **catalogarr** follows the new path (R-11) and re-probes. The probe hash
+  changes, so captionarr, segment detection and TheIntroDB markers see a new
+  file. Markers are re-fetched and segments re-analysed once per file.
+- **Plex** sees the file at `<stem>.mp4` and rescans. Watched state belongs
+  to the metadata item, not the file. Existing `<stem>.<lang>.srt` sidecars
+  keep matching, since the stem does not change.
+- **`naming.renameTranscoded`** is unaffected: the stem stays.
+- **Audio grafts** on an MP4 target work as they do on an MKV one.
+  `engine.CopyPlan` already writes MP4.
+- **CLAUDE.md's transcoding section** is rewritten for the new standard. Its
+  "every subtitle, attachment and chapter kept" no longer holds.
+
+## 10. Phases
+
+Each phase gets its own plan, gate and deploy, as the anime phases did.
+
+1. **MP4 layout:**
+   - the container;
+   - the audio rules, with the fan-out stage;
+   - text subtitles to `mov_text`;
+   - ASS sidecars, and dropping attachments;
+   - `standard.Version` raised.
+
+   Files with image subtitles are held back, as Planned with a reason, until
+   phase 2.
+2. **OCR** of PGS and DVD subtitles (§5), releasing the held files.
+3. **The remux** of already-transcoded files (§8).
+
+## 11. Risks
+
+- **ASS without its fonts.** Anime typesetting (signs, karaoke) degrades in
+  Plex. This is the owner's accepted cost.
+- **OCR errors** in recognised subtitles: a wrong word, italic markers lost.
+  A track that reads poorly is dropped rather than kept.
+- **AC-3 from E-AC-3** loses Atmos and E-AC-3's efficiency at 640 kbps, and
+  is a lossy-to-lossy re-encode. This is the owner's decision.
+- **The I/O:** 6 TB of remux and 14 TB of transcodes rewrite the library
+  over weeks, bounded by the job window.
+- **ffgo gaps** (§6) may need fork releases before phase 1 can finish.
