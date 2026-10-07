@@ -27,6 +27,7 @@ import (
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -182,7 +183,7 @@ func (w *Worker) attributeMediaFile(ctx context.Context, st *scanState, path str
 		return w.assignManually(ctx, st, path, rel, info, existing)
 	case existing != nil:
 		if !st.task.DryRun {
-			if err := w.applyObserved(ctx, st.scan.Namespace, existing, existing.Spec.MediaRef, path, info, mediafilespec.Frozen{}); err != nil {
+			if _, err := w.applyObserved(ctx, st.scan.Namespace, existing, existing.Spec.MediaRef, path, info, mediafilespec.Frozen{}); err != nil {
 				return err
 			}
 		}
@@ -261,9 +262,11 @@ func (w *Worker) attributeMediaFile(ctx context.Context, st *scanState, path str
 		}
 		parsed.Quality = q
 		fresh := w.freshVideoSpec(ctx, st, path, parsed, profile, originalLanguage)
-		if err := w.applyObserved(ctx, st.scan.Namespace, nil, ref, path, info, fresh); err != nil {
+		applied, err := w.applyObserved(ctx, st.scan.Namespace, nil, ref, path, info, fresh)
+		if err != nil {
 			return err
 		}
+		w.seedProbe(ctx, st.scan.Namespace, applied, path, info, probe.probed())
 	}
 	st.progress.FilesMatched++
 	logging.FromContext(ctx).Debug("attributed a scanned file",
@@ -515,10 +518,13 @@ func (w *Worker) catalogue() *catalogue.Catalogue {
 // An apply to an existing MediaFile carries the resourceVersion it was read
 // at, and a refusal for that reason comes back as a *mediafilespec.StaleReadError; see
 // handleMediaFile.
+//
+// It returns the applied MediaFile's name and UID, under which a new file's
+// probe record is seeded (seedProbe).
 func (w *Worker) applyObserved(
 	ctx context.Context, namespace string, existing *catalogv1alpha1.MediaFile,
 	ref commonv1.MediaRef, path string, info os.FileInfo, fresh mediafilespec.Frozen,
-) error {
+) (appliedFile, error) {
 	name, rv := k8s.ChildName(ref.Name, "mediafile", path), ""
 	if existing != nil {
 		name, rv = existing.Name, existing.ResourceVersion
@@ -527,7 +533,14 @@ func (w *Worker) applyObserved(
 	} else if fresh.Track != "" {
 		ref.Track = fresh.Track
 	}
-	return mediafilespec.Apply(ctx, w.Client, namespace, name, rv, ref, path, info, fresh)
+	uid, err := mediafilespec.Apply(ctx, w.Client, namespace, name, rv, ref, path, info, fresh)
+	return appliedFile{Name: name, UID: uid}, err
+}
+
+// appliedFile is the MediaFile an apply wrote.
+type appliedFile struct {
+	Name string
+	UID  types.UID
 }
 
 // resolveIMDb asks the metadata gateway to turn an IMDb id into a TMDB one.

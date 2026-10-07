@@ -409,9 +409,11 @@ func (w *Worker) importEpisodeFile(
 		spec = spec.WithLanguages(parsed.Languages...)
 	}
 	mfName := k8s.ChildName(ref.Name, "mediafile", dest)
-	if err := w.applyMediaFile(ctx, mfName, spec, plan.namespace); err != nil {
+	uid, err := w.applyMediaFile(ctx, mfName, spec, plan.namespace)
+	if err != nil {
 		return nil, rejection{}, err
 	}
+	w.seedProbe(ctx, plan.namespace, mfName, uid, dest, destInfo, mi)
 
 	// The covered episodes' previous files are replaced, as a movie's is.
 	// A previous multi-episode file goes whole, as Sonarr's upgrade does:

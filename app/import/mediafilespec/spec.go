@@ -26,6 +26,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
@@ -119,10 +120,13 @@ type Frozen struct {
 // (see [RenameFile]). A non-empty rv is the resourceVersion the caller read,
 // sent as a precondition, and a refusal for that reason comes back as a
 // *[StaleReadError].
+//
+// It returns the applied MediaFile's UID: the rescan seeds its probe record
+// under it (spec 2026-10-06 §6.6).
 func Apply(
 	ctx context.Context, c client.Client, namespace, name, rv string,
 	ref commonv1.MediaRef, path string, info os.FileInfo, f Frozen,
-) error {
+) (types.UID, error) {
 	spec := catalogac.MediaFileSpec().
 		WithMediaRef(ref).
 		WithPath(path)
@@ -167,16 +171,17 @@ func Apply(
 	if rv != "" {
 		ac = ac.WithResourceVersion(rv)
 	}
-	if _, err := k8s.Apply(ctx, c, FieldManager, ac); err != nil {
+	applied, err := k8s.Apply(ctx, c, FieldManager, ac)
+	if err != nil {
 		if rv != "" && apierrors.IsConflict(err) {
-			return &StaleReadError{
+			return "", &StaleReadError{
 				Key: types.NamespacedName{Namespace: namespace, Name: name}, RV: rv,
 				Err: fmt.Errorf("rescan: apply media file %s: %w", name, err),
 			}
 		}
-		return fmt.Errorf("rescan: apply media file %s: %w", name, err)
+		return "", fmt.Errorf("rescan: apply media file %s: %w", name, err)
 	}
-	return nil
+	return ptr.Deref(applied.UID, ""), nil
 }
 
 // ReassertFrozen reads every field this manager owns back off an existing

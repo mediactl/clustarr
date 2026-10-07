@@ -412,9 +412,11 @@ func (pc *processConfig) processFile(
 		spec = spec.WithLanguages(parsed.Languages...)
 	}
 
-	if err := pc.worker.applyMediaFile(ctx, mfName, spec, pc.movie.Namespace); err != nil {
+	uid, err := pc.worker.applyMediaFile(ctx, mfName, spec, pc.movie.Namespace)
+	if err != nil {
 		return nil, rejection{}, err
 	}
+	pc.worker.seedProbe(ctx, pc.movie.Namespace, mfName, uid, dest, destInfo, mi)
 
 	// Every file the movie had is replaced (a movie holds one file), as the
 	// episode path replaces each file of the episodes it covers. A file

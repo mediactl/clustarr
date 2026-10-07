@@ -28,6 +28,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/catalog/v1alpha1"
@@ -44,6 +45,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/naming/catalogctx"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
+	"github.com/mediactl/clustarr/pkg/probestore"
 	"github.com/mediactl/clustarr/pkg/quality"
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
 )
@@ -127,15 +129,24 @@ type Worker struct {
 	// NewWorker sets fsops.DefaultSampleMaxBytes; a Worker built as a
 	// literal without it has the rule off.
 	SampleMaxBytes int64
+
+	// Probes records the probe an import ran on a file it placed as that
+	// MediaFile's probe record, so catalogarr does not probe the same bytes
+	// again (spec 2026-10-06 §6.6). NewWorker sets it; nil seeds nothing.
+	Probes *probestore.Store
 }
 
 // NewWorker builds a Worker with the production catalogue, clock and sample
 // threshold.
 func NewWorker(c client.Client, bus events.Bus) *Worker {
-	return &Worker{
+	w := &Worker{
 		Client: c, Bus: bus, Catalogue: catalogue.LoadedCatalogue(), Clock: time.Now,
 		ProbeAudio: ffprobeexec.ProbeAudio, SampleMaxBytes: fsops.DefaultSampleMaxBytes,
 	}
+	if bus != nil {
+		w.Probes = probestore.New(bus)
+	}
+	return w
 }
 
 func (w *Worker) now() time.Time {
@@ -398,13 +409,14 @@ func (w *Worker) existingMovieFiles(ctx context.Context, namespace, name string)
 
 // applyMediaFile creates or re-asserts the MediaFile for one imported file,
 // under [FieldManager]. It writes MediaFileSpec only, per CLAUDE.md's
-// invariant: nothing here touches MediaFileStatus.
-func (w *Worker) applyMediaFile(ctx context.Context, name string, spec *catalogac.MediaFileSpecApplyConfiguration, namespace string) error {
-	if _, err := k8s.Apply(ctx, w.Client, FieldManager,
-		catalogac.MediaFile(name, namespace).WithSpec(spec)); err != nil {
-		return fmt.Errorf("fileimport: apply media file %s: %w", name, err)
+// invariant: nothing here touches MediaFileStatus. It returns the applied
+// MediaFile's UID, under which the import seeds its probe record (seedProbe).
+func (w *Worker) applyMediaFile(ctx context.Context, name string, spec *catalogac.MediaFileSpecApplyConfiguration, namespace string) (types.UID, error) {
+	applied, err := k8s.Apply(ctx, w.Client, FieldManager, catalogac.MediaFile(name, namespace).WithSpec(spec))
+	if err != nil {
+		return "", fmt.Errorf("fileimport: apply media file %s: %w", name, err)
 	}
-	return nil
+	return ptr.Deref(applied.UID, ""), nil
 }
 
 // finalAttempt reports whether this delivery is the last one

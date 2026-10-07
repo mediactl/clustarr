@@ -43,6 +43,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/metrics"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
+	"github.com/mediactl/clustarr/pkg/probestore"
 	"github.com/mediactl/clustarr/pkg/quality"
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
 )
@@ -139,6 +140,11 @@ type Worker struct {
 	// sets fsops.DefaultSampleMaxBytes; a Worker built as a literal without
 	// it has the rule off.
 	SampleMaxBytes int64
+
+	// Probes records the probe a scan ran on a file it attributed as that
+	// MediaFile's probe record, so catalogarr does not probe the same bytes
+	// again (spec 2026-10-06 §6.6). NewWorker sets it; nil seeds nothing.
+	Probes *probestore.Store
 }
 
 // The rescan worker's RBAC. It is the sole writer of MediaFileSpec (spec §8.4)
@@ -164,11 +170,15 @@ type Worker struct {
 // NewWorker builds a Worker with the production clock, timeout and sample
 // threshold.
 func NewWorker(c client.Client, bus events.Bus) *Worker {
-	return &Worker{
+	w := &Worker{
 		Client: c, Bus: bus, Clock: time.Now, MetadataTimeout: defaultMetadataTimeout,
 		Catalogue: catalogue.LoadedCatalogue(), ProbeAudio: ffprobeexec.ProbeAudio,
 		ProbeVideo: probeVideo, SampleMaxBytes: fsops.DefaultSampleMaxBytes,
 	}
+	if bus != nil {
+		w.Probes = probestore.New(bus)
+	}
+	return w
 }
 
 func (w *Worker) now() time.Time {

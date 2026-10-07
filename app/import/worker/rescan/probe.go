@@ -99,6 +99,15 @@ func (p *fileProbe) result(ctx context.Context) (mi *commonv1.MediaInfo, probeEr
 	return p.mi, p.err, nil
 }
 
+// probed is the summary the file's probe returned, or nil when it did not run
+// or failed.
+func (p *fileProbe) probed() *commonv1.MediaInfo {
+	if p == nil || !p.ran || p.err != nil {
+		return nil
+	}
+	return p.mi
+}
+
 // probedQuality corrects a name-derived quality from the file's probe
 // (quality.AugmentFromMediaInfo): the resolution the stream really has,
 // onto the quality ladder, under the name's source. A probe failure never

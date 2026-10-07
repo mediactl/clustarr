@@ -293,7 +293,7 @@ func (w *Worker) recordAttribution(
 		return nil
 	}
 	if !st.task.DryRun {
-		if err := w.applyObserved(ctx, st.scan.Namespace, existing, ref, path, info, fresh); err != nil {
+		if _, err := w.applyObserved(ctx, st.scan.Namespace, existing, ref, path, info, fresh); err != nil {
 			return err
 		}
 	}

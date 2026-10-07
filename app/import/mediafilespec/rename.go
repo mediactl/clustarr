@@ -262,7 +262,8 @@ func applyRenamed(ctx context.Context, c client.Client, mf *catalogv1alpha1.Medi
 	if mf.Spec.Original != nil && !*mf.Spec.Original {
 		info, f.Original = nil, nil
 	}
-	return Apply(ctx, c, mf.Namespace, mf.Name, mf.ResourceVersion, mf.Spec.MediaRef, to, info, f)
+	_, err := Apply(ctx, c, mf.Namespace, mf.Name, mf.ResourceVersion, mf.Spec.MediaRef, to, info, f)
+	return err
 }
 
 // moveBack undoes a move whose apply failed. It never replaces a file that

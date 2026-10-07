@@ -350,7 +350,7 @@ func (w *Worker) importNonVideoFile(
 		spec = spec.WithQuality(q)
 	}
 	mfName := k8s.ChildName(plan.ref.Name, "mediafile", dest)
-	if err := w.applyMediaFile(ctx, mfName, spec, plan.namespace); err != nil {
+	if _, err := w.applyMediaFile(ctx, mfName, spec, plan.namespace); err != nil {
 		return nil, rejection{}, err
 	}
 
