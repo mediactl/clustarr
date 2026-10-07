@@ -28,11 +28,12 @@ import (
 
 // Rank stable-sorts a copy of ds best-first: QualityIndex asc, Revision
 // desc (only if PreferRevision), FormatScore desc, PreferredProtocolMatch
-// desc, EpisodeCount desc, indexer priority asc (from o.IndexerPriority),
-// indexer-flag score desc, seeders/age desc, then size (Disagreement 7).
-// Callers typically pass only the Approved decisions; ds with a zero
-// RankKey (never Evaluated as Approved) sort by that zero value like any
-// other -- Rank does not filter Rejected decisions itself.
+// desc, CompareEpisodeCount (a whole season first, then anime more
+// episodes and any other series fewer), indexer priority asc (from
+// o.IndexerPriority), indexer-flag score desc, seeders/age desc, then size
+// (Disagreement 7). Evaluate fills a RankKey for every decision whose title
+// parsed, approved or not, so a caller ranks each band (BandOf) by the same
+// comparator; Rank does not filter Rejected decisions itself.
 func Rank(ds []Decision, o Options) []Decision {
 	out := make([]Decision, len(ds))
 	copy(out, ds)
@@ -68,8 +69,8 @@ func less(a, b Decision, o Options) bool {
 	if a.Rank.PreferredProtocolMatch != b.Rank.PreferredProtocolMatch {
 		return a.Rank.PreferredProtocolMatch
 	}
-	if a.Rank.EpisodeCount != b.Rank.EpisodeCount {
-		return a.Rank.EpisodeCount > b.Rank.EpisodeCount
+	if c := CompareEpisodeCount(a.Rank.WholeSeason(), a.Rank.EpisodeCount, b.Rank.WholeSeason(), b.Rank.EpisodeCount, a.Rank.Anime); c != 0 {
+		return c < 0
 	}
 	if pa, pb := indexerPriority(o, a.Release.IndexerRef), indexerPriority(o, b.Release.IndexerRef); pa != pb {
 		return pa < pb
@@ -85,6 +86,31 @@ func less(a, b Decision, o Options) bool {
 	}
 	return a.Rank.SizeDeltaBucket < b.Rank.SizeDeltaBucket
 }
+
+// CompareEpisodeCount is Sonarr's DownloadDecisionComparer.CompareEpisodeCount
+// (series search design §6.4): a whole-season release ranks first; then an
+// anime series prefers more episodes and any other series fewer. <0 when a
+// ranks first, 0 on a tie.
+func CompareEpisodeCount(aWhole bool, aCount int, bWhole bool, bCount int, anime bool) int {
+	if aWhole != bWhole {
+		if aWhole {
+			return -1
+		}
+		return 1
+	}
+	if aCount == bCount {
+		return 0
+	}
+	if (aCount > bCount) == anime {
+		return -1
+	}
+	return 1
+}
+
+// WholeSeason reports the season-pack sentinel EpisodeCount carries: a
+// FullSeason release, or a season search's release covering every episode
+// of the season (an anime batch).
+func (k RankKey) WholeSeason() bool { return k.EpisodeCount == math.MaxInt32 }
 
 // defaultIndexerPriority is indexers.md's documented default: "Priority int
 // -- 1 (highest) … 50; used as the dedup tiebreaker ... default 25".

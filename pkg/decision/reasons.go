@@ -92,7 +92,21 @@ var (
 	// Search controller exempts this one rejection for such a pick. It is
 	// Permanent, so no later automatic run revisits it.
 	ReasonTranscodedFinal = Reason{"TranscodedFinal", common.RejectionPermanent}
+
+	// ReasonFullSeasonNotAired is Sonarr's FullSeasonSpecification (Wave S):
+	// a full-season release of a season that has an episode not yet aired
+	// is incomplete or mislabelled. Evaluate does not run it: the grab
+	// planner and the Search controller apply it from item state
+	// (FullSeasonNotAired). Permanent, so a person can still take one
+	// through Search.spec.override, and a person's own pick passes it.
+	ReasonFullSeasonNotAired = Reason{"FullSeasonNotAired", common.RejectionPermanent}
 )
+
+// FullSeasonNotAired is the rejection of a full-season release of season,
+// which has an episode not yet aired (Sonarr's FullSeasonSpecification).
+func FullSeasonNotAired(season int) common.Rejection {
+	return newRejection(ReasonFullSeasonNotAired, "full season pack of season %d, which has not finished airing", season)
+}
 
 // Of reports whether rej was raised for r: newRejection renders every
 // rejection as "<Code>: <detail>".

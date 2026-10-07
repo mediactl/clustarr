@@ -203,18 +203,35 @@ func evaluateOne(ctx context.Context, t Target, originalLanguage string, an audi
 		Score:               score,
 		Matched:             matched,
 	}
-	if d.Approved {
-		d.Rank = buildRankKey(p, o, t, parsed, rel, score)
-		d.Rank.LanguagesComplete = languagesComplete
-	}
+	// Every parsed decision is ranked, approved or not (Wave S): a caller
+	// orders the rejected band by the same comparator.
+	d.Rank = buildRankKey(p, o, t, parsed, rel, score)
+	d.Rank.LanguagesComplete = languagesComplete
 	if t.Kind == common.MediaKindEpisode || t.Kind == common.MediaKindSeries {
 		// What the release covers, through the identity index's scene
 		// table (Wave S): the search agent records it, and the grab
 		// planner judges a pack by it without reparsing.
-		cov := releaseCoverage(parsed, idx.scene).export()
+		c := releaseCoverage(parsed, idx.scene)
+		if wholeSeasonOf(t.Identity, c) {
+			d.Rank.EpisodeCount = math.MaxInt32
+		}
+		cov := c.export()
 		d.Coverage = &cov
 	}
 	return d
+}
+
+// wholeSeasonOf reports a season search's release covering every episode
+// of the searched season, in-season or by absolute number: an anime batch
+// ranks as the whole season it is (CompareEpisodeCount).
+func wholeSeasonOf(id Identity, c coverage) bool {
+	if !id.SeasonSearch || len(id.Episodes) == 0 {
+		return false
+	}
+	if c.coversInSeason(id.Season, id.Episodes) {
+		return true
+	}
+	return len(id.Absolute) == len(id.Episodes) && len(c.absolutes) > 0 && c.coversAbsolute(id.Absolute)
 }
 
 // videoItemState is a video release's item-state rules, in Evaluate's
@@ -277,8 +294,9 @@ func buildRankKey(p quality.Profile, o Options, t Target, parsed *release.Parsed
 	switch {
 	case parsed.FullSeason:
 		episodeCount = math.MaxInt32
-	case len(parsed.Episodes) > 1:
-		episodeCount = len(parsed.Episodes)
+	case len(parsed.Episodes) > 1 || len(parsed.Absolute) > 1:
+		// An anime release numbers by absolute range.
+		episodeCount = max(len(parsed.Episodes), len(parsed.Absolute))
 	}
 
 	sl := p.Sizes[rel.Quality.Name]
@@ -289,6 +307,7 @@ func buildRankKey(p quality.Profile, o Options, t Target, parsed *release.Parsed
 		FormatScore:            score,
 		PreferredProtocolMatch: protocolMatch,
 		EpisodeCount:           episodeCount,
+		Anime:                  t.Anime,
 	}
 	if preferLargest(sl) {
 		key.PreferLargestSize = true

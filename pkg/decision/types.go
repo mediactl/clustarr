@@ -262,8 +262,9 @@ type Options struct {
 
 // RankKey is the part of a Decision's rank Evaluate can compute (it alone
 // has Profile and Target); Rank combines it with the parts that only need
-// Options and the Decision's own Release/Parsed at sort time. Only
-// populated when Approved is true.
+// Options and the Decision's own Release/Parsed at sort time. Populated for
+// every decision whose title parsed, approved or rejected (Wave S), so the
+// rejected band sorts by the same comparator.
 type RankKey struct {
 	QualityIndex           int
 	PreferRevision         bool // false when Profile.ProperPolicy == "doNotPrefer"
@@ -283,6 +284,9 @@ type RankKey struct {
 	// SizeBytes (smaller first), instead of by quality and format score.
 	Donor        bool
 	DonorLineage int
+	// Anime is Target.Anime: CompareEpisodeCount prefers more episodes for
+	// an anime series and fewer for any other.
+	Anime bool
 }
 
 // Decision is one release's verdict against one Target. Its shape matches
