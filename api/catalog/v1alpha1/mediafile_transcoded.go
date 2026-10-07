@@ -17,6 +17,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 package v1alpha1
 
+import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 // Transcoded reports whether mf is a transcoded file. This is the one place
 // the rule lives, here beside the type so every service reads the same
 // predicate without importing another's: catalogarr through
@@ -67,4 +69,27 @@ func (mf *MediaFile) Transcoded() bool {
 	}
 	mi := mf.Status.MediaInfo
 	return mi != nil && (mi.TranscodeProfile != "" || mi.TranscodedElsewhere())
+}
+
+// ProbeCurrent reports whether status.mediaInfo describes the bytes the file
+// holds now: a probe was incorporated (probeHash and mediaInfo set) and no
+// probe of changed bytes is pending (Probed is not False for
+// MediaFileReasonProbePending). status.probeHash moves only when catalogarr
+// incorporates a probe, so while a probe of replaced bytes is queued a check
+// that compares hashes still passes; a reader that plans from the summary
+// holds off on this instead (spec 2026-10-06 §6.5.3). The remediation loop's
+// planners are its readers (ADR-0016, loop spec §8.3, F3.2); until they land,
+// the workers' own re-probe and probe-hash checks are the backstop. A
+// version-only re-probe changes no condition, so the file stays current
+// through it. It is a plain Go method and generates nothing.
+func (mf *MediaFile) ProbeCurrent() bool {
+	if mf == nil || mf.Status.ProbeHash == "" || mf.Status.MediaInfo == nil {
+		return false
+	}
+	for i := range mf.Status.Conditions {
+		if c := &mf.Status.Conditions[i]; c.Type == MediaFileConditionProbed {
+			return c.Status != metav1.ConditionFalse || c.Reason != MediaFileReasonProbePending
+		}
+	}
+	return true
 }

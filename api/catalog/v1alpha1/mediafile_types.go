@@ -29,6 +29,12 @@ const (
 	MediaFileConditionProbed = "Probed"
 	// MediaFileConditionReady is True when the file is present and usable.
 	MediaFileConditionReady = "Ready"
+
+	// MediaFileReasonProbePending is the Probed and Ready reason while a probe
+	// of changed bytes, a new file or a transcode swap's target is queued
+	// (spec 2026-10-06 §6.5.3): status.mediaInfo, if any, describes bytes the
+	// file may no longer hold.
+	MediaFileReasonProbePending = "ProbePending"
 )
 
 // TranscodeResult is the outcome of the most recent transcode of a file.
