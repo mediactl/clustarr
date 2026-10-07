@@ -33,7 +33,7 @@ import (
 	"sync"
 	"time"
 
-	ctrl "sigs.k8s.io/controller-runtime"
+	crlog "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -46,8 +46,8 @@ import (
 // drain, which has already completed by the time this runs.
 const tracingShutdownTimeout = 5 * time.Second
 
-// setLoggerOnce guards ctrl.SetLogger, which is process-wide AND
-// single-shot.
+// setLoggerOnce guards controller-runtime's log.SetLogger (ctrl.SetLogger is
+// an alias of it), which is process-wide AND single-shot.
 //
 // controller-runtime's delegating log sink fulfils its promise exactly once:
 // loggerPromise.Fulfill sets promise = nil, and delegatingLogSink.Fulfill is
@@ -73,9 +73,10 @@ var setLoggerOnce sync.Once
 //
 //   - builds the root *slog.Logger from lo and installs it on ctx, so
 //     logging.FromContext works everywhere below;
-//   - bridges that logger to controller-runtime with ctrl.SetLogger, exactly
-//     once per process, so ctrl.LoggerFrom and controller-runtime's own
-//     output join the same stream in the same format (amendment §A2.1);
+//   - bridges that logger to controller-runtime with controller-runtime's
+//     log.SetLogger (ctrl.SetLogger is an alias of it), exactly once per
+//     process, so ctrl.LoggerFrom and controller-runtime's own output join
+//     the same stream in the same format (amendment §A2.1);
 //   - installs the process-wide TracerProvider via tracing.Setup.
 //
 // The returned shutdown flushes and closes the tracing exporter, bounded by
@@ -88,7 +89,7 @@ var setLoggerOnce sync.Once
 // Run returns it.
 func Bootstrap(ctx context.Context, lo logging.Options, to tracing.Options) (context.Context, func(), error) {
 	logger := logging.New(lo)
-	setLoggerOnce.Do(func() { ctrl.SetLogger(logging.LogrBridge(logger)) })
+	setLoggerOnce.Do(func() { crlog.SetLogger(logging.LogrBridge(logger)) })
 	ctx = logging.NewContext(ctx, logger)
 
 	shutdown, err := tracing.Setup(ctx, to)
