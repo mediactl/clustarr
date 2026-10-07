@@ -197,11 +197,20 @@ func (r *Reconciler) reconcileFile(ctx context.Context, nn types.NamespacedName)
 	v.Stale = ks.stale(mf.UID, v.Prev, now.Time)
 	v.Draft = v.Prev.DeepCopy()
 
-	// 3. Gather.
+	// 3. Gather. A planner after the probe gathers nothing while the stored
+	// probe is pending: it would read a summary of bytes that are gone
+	// (§3.5's structural gate; W4.14's replacement).
+	gated := r.gate()
+	prevCurrent := (&catalogv1alpha1.MediaFile{Status: *v.Prev}).ProbeCurrent()
 	ins := make([]any, len(r.planners))
 	fails := make([]outcome, len(r.planners))
+	skipped := make([]bool, len(r.planners))
 	for i, p := range r.planners {
 		if !p.Applies(v.File) {
+			continue
+		}
+		if gated[i] && !prevCurrent {
+			skipped[i] = true
 			continue
 		}
 		fails[i] = r.isolate(ctx, p.Name(), "gather", gatherTimeout(p.Name()), func(ctx context.Context) error {
@@ -216,6 +225,11 @@ func (r *Reconciler) reconcileFile(ctx context.Context, nn types.NamespacedName)
 	for i, p := range r.planners {
 		next := v.Draft.DeepCopy()
 		switch {
+		case gated[i] && !v.ProbeCurrent():
+			p.Copy(v.Prev, next) // §3.5: its last block, while the probe is pending
+		case gated[i] && skipped[i]:
+			p.Copy(v.Prev, next) // the probe landed this pass; its Gather did not run
+			results[i] = Result{Again: true}
 		case !p.Applies(v.File):
 			p.Copy(&catalogv1alpha1.MediaFileStatus{}, next)
 		case fails[i].failed():
@@ -472,6 +486,20 @@ func anyAgain(rs []Result) bool {
 // set no condition and retry on their own timers.
 func anyFailed(os []outcome) bool {
 	return slices.ContainsFunc(os, func(o outcome) bool { return o.failed() && !o.transient() && !o.casMiss() })
+}
+
+// gate marks every planner after the probe planner in Order, when one is
+// bound (§3.5's structural gate; TestNoPlannerPlansFromAPendingProbe).
+func (r *Reconciler) gate() []bool {
+	out := make([]bool, len(r.planners))
+	probe := slices.IndexFunc(r.planners, func(p Bound) bool { return p.Name() == PlannerProbe })
+	if probe < 0 {
+		return out
+	}
+	for i := probe + 1; i < len(r.planners); i++ {
+		out[i] = true
+	}
+	return out
 }
 
 // SetupWithManager registers the loop as controller "mediafile": S1, then

@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"time"
@@ -239,7 +240,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	swap := latestUnincorporatedTranscode(jobs, mf.Status.ProbedAt)
+	swap := LatestUnincorporatedTranscode(jobs, mf.Status.ProbedAt)
 	// An audio graft rewrote the file in place (anime dual-audio spec
 	// §7.2): not a transcode -- spec.original stays -- but the file's bytes
 	// are new, so it is probed and catalogarr takes over the size, mtime and
@@ -248,7 +249,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	transcodeRunning := transcodeInFlight(jobs)
+	transcodeRunning := TranscodeInFlight(jobs)
 	path, kept := swapTarget(&mf, swap)
 	if kept != nil {
 		swap = nil
@@ -298,11 +299,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			// the next one's to request, a second from now.
 			res = sooner(res, time.Second)
 		}
-	case keptNeedsNoProbe(&mf, ps, kept != nil):
+	case keptNeedsNoProbe(&mf, ps, kept != nil, probeVersion):
 		if inc, err = r.incorporate(ctx, &mf, &conditions, known, in, mf.Status.MediaInfo, mf.Status.ProbeVersion); err != nil {
 			return ctrl.Result{}, err
 		}
-	case swapOrKept || probeDue(mf.Status.ProbeHash, mf.Status.ProbeVersion, ps):
+	case swapOrKept || probeDue(mf.Status.ProbeHash, mf.Status.ProbeVersion, ps, probeVersion):
 		if r.Probes == nil {
 			return ctrl.Result{}, errors.New("mediafile: the reconciler has no probe store")
 		}
@@ -469,18 +470,37 @@ func (r *Reconciler) planSegments(ctx context.Context, mf *catalogv1alpha1.Media
 // deleting the kept source later reads as FileMissing, not as licence to
 // adopt the copy.
 func swapTarget(mf *catalogv1alpha1.MediaFile, swap *transcodev1alpha1.TranscodeJob) (path string, kept *transcodev1alpha1.TranscodeJob) {
+	path, kept, err := SwapTarget(mf, swap, os.Stat)
+	if err != nil {
+		// Before the loop any stat failure read as the source being gone.
+		return swap.Status.Result.OutputPath, nil
+	}
+	return path, kept
+}
+
+// SwapTarget is swapTarget with the source's stat made by stat -- the
+// remediation loop's /data I/O executor (loop spec §3.17), so a hung mount
+// never pins a loop worker -- and a stat that failed for any reason but the
+// file being absent returned as err, never read as "the source is gone".
+func SwapTarget(mf *catalogv1alpha1.MediaFile, swap *transcodev1alpha1.TranscodeJob,
+	stat func(string) (fs.FileInfo, error),
+) (path string, kept *transcodev1alpha1.TranscodeJob, err error) {
 	path = mf.Spec.Path
 	if swap == nil || swap.Status.Result == nil {
-		return path, nil
+		return path, nil, nil
 	}
 	out := swap.Status.Result.OutputPath
 	if out == "" || out == mf.Spec.Path {
-		return path, nil
+		return path, nil, nil
 	}
-	if _, err := os.Stat(mf.Spec.Path); err == nil {
-		return path, swap
+	switch _, err := stat(mf.Spec.Path); {
+	case err == nil:
+		return path, swap, nil
+	case errors.Is(err, fs.ErrNotExist):
+		return out, nil, nil
+	default:
+		return path, nil, err
 	}
-	return out, nil
 }
 
 // staleTranscodeState is t with the compliance verdict dropped: Compliant
@@ -681,7 +701,7 @@ func RegisterIndexes(ctx context.Context, idx client.FieldIndexer) error {
 const MaxConcurrentReconciles = 8
 
 // transcodeJobsOf lists the TranscodeJobs whose spec.mediaFileRef names mf,
-// once per reconcile: latestUnincorporatedTranscode and transcodeInFlight
+// once per reconcile: LatestUnincorporatedTranscode and TranscodeInFlight
 // both read the result.
 //
 // It selects on the field rather than listing the namespace: run.go hands
@@ -694,20 +714,26 @@ const MaxConcurrentReconciles = 8
 // stands in for it (rawClient). TODO: give TranscodeJob the same
 // selectablefield marker once api/transcode is free, and drop that shim.
 func (r *Reconciler) transcodeJobsOf(ctx context.Context, mf *catalogv1alpha1.MediaFile) ([]transcodev1alpha1.TranscodeJob, error) {
+	return TranscodeJobsOf(ctx, r.Client, mf)
+}
+
+// TranscodeJobsOf lists mf's TranscodeJobs through the spec.mediaFileRef
+// index, reading through c (the manager's cache).
+func TranscodeJobsOf(ctx context.Context, c client.Reader, mf *catalogv1alpha1.MediaFile) ([]transcodev1alpha1.TranscodeJob, error) {
 	var list transcodev1alpha1.TranscodeJobList
-	if err := r.List(ctx, &list, client.InNamespace(mf.Namespace),
+	if err := c.List(ctx, &list, client.InNamespace(mf.Namespace),
 		client.MatchingFields{transcodeJobMediaFileRefIndex: mf.Name}); err != nil {
 		return nil, fmt.Errorf("mediafile: list TranscodeJobs: %w", err)
 	}
 	return list.Items, nil
 }
 
-// latestUnincorporatedTranscode returns the most recently finished
+// LatestUnincorporatedTranscode returns the most recently finished
 // Succeeded job in jobs whose FinishedAt is after probedAt (every Succeeded
 // one when probedAt is nil), or nil if none. This is what tells Reconcile
 // "a transcode swap happened and I have not folded it in yet" without
 // needing to know which watch woke it up.
-func latestUnincorporatedTranscode(jobs []transcodev1alpha1.TranscodeJob, probedAt *metav1.Time) *transcodev1alpha1.TranscodeJob {
+func LatestUnincorporatedTranscode(jobs []transcodev1alpha1.TranscodeJob, probedAt *metav1.Time) *transcodev1alpha1.TranscodeJob {
 	var latest *transcodev1alpha1.TranscodeJob
 	for i := range jobs {
 		tj := &jobs[i]
@@ -724,12 +750,12 @@ func latestUnincorporatedTranscode(jobs []transcodev1alpha1.TranscodeJob, probed
 	return latest
 }
 
-// transcodeInFlight reports whether any of jobs has not reached a terminal
+// TranscodeInFlight reports whether any of jobs has not reached a terminal
 // phase (Succeeded, Failed or Skipped) -- including one squasharr has not
 // yet given a phase at all. Such a job holds the file: its worker re-probes
 // spec.sourcePath and swaps its output over it, so a rename underneath it
 // would fail the encode or strand the output under the old name (spec D6).
-func transcodeInFlight(jobs []transcodev1alpha1.TranscodeJob) bool {
+func TranscodeInFlight(jobs []transcodev1alpha1.TranscodeJob) bool {
 	for i := range jobs {
 		switch jobs[i].Status.Phase {
 		case transcodev1alpha1.TranscodeJobPhaseSucceeded,
@@ -749,8 +775,12 @@ func (r *Reconciler) transcodeProfileTag(ctx context.Context, tj *transcodev1alp
 	if err := r.Get(ctx, types.NamespacedName{Name: tj.Spec.ProfileRef}, &tp); err != nil {
 		return "", fmt.Errorf("mediafile: get TranscodeProfile %s: %w", tj.Spec.ProfileRef, err)
 	}
-	return fmt.Sprintf("%s@%s", tj.Spec.ProfileRef, tp.Status.Hash), nil
+	return ProfileTag(tj.Spec.ProfileRef, tp.Status.Hash), nil
 }
+
+// ProfileTag renders §4.5's "<profile>@<hash>", the CLUSTARR_PROFILE value
+// a transcode under profile at revision hash carries.
+func ProfileTag(profile, hash string) string { return profile + "@" + hash }
 
 // scanSidecars derives status.sidecars from the SubtitleRequest for mf,
 // reporting whether one was found at all. One SubtitleRequest per video

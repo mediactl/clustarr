@@ -170,41 +170,61 @@ func TaskOf(rec schema.ProbeRecord) schema.ProbeTask {
 	}
 }
 
-// Request writes a requested record for want at prev's revision, with Seq
-// records.NextSeq(prev's, 0, now) (loop spec §4.6, §4.12) and prev's
-// AbandonedCount when prev describes the same path and hash. A lost
-// compare-and-swap is ErrConflict. The caller then Publishes the task.
-func (s *Store) Request(ctx context.Context, want Want, prev Current) (schema.ProbeRecord, error) {
+// NewRequest is the requested record Request writes for want over prev:
+// Seq records.NextSeq(prev's, 0, now) (loop spec §4.6, §4.12), prev's
+// AbandonedCount when prev describes the same path and hash (the probe's
+// Carry), RequestedAt now. The remediation loop's probe planner writes it as
+// an effect after its ProbePending apply (loop spec §3.8).
+func NewRequest(want Want, prev Current, now time.Time) schema.ProbeRecord {
+	now = now.UTC()
+	rec := schema.ProbeRecord{
+		RecordHeader: schema.RecordHeader{MediaFile: want.MediaFile, State: schema.ProbeRequested, RequestedAt: now},
+		Path:         want.Path, ProbeHash: want.ProbeHash, RequestedVersion: want.ProbeVersion, Lane: lane(want.Lane),
+	}
 	var prevSeq int64
 	if prev.OK {
 		prevSeq = prev.Record.Seq
+		if prev.Record.Path == rec.Path && prev.Record.ProbeHash == rec.ProbeHash {
+			rec.AbandonedCount = prev.Record.AbandonedCount
+		}
 	}
-	now := s.now()
-	rec := &schema.ProbeRecord{
-		RecordHeader: schema.RecordHeader{MediaFile: want.MediaFile, Seq: records.NextSeq(prevSeq, 0, now), RequestedAt: now},
-		Path:         want.Path, ProbeHash: want.ProbeHash, RequestedVersion: want.ProbeVersion, Lane: lane(want.Lane),
+	rec.Seq = records.NextSeq(prevSeq, 0, now)
+	return rec
+}
+
+// TaskMessage is the subject, Msg-Id and envelope Publish sends for rec.
+func TaskMessage(rec schema.ProbeRecord, now time.Time) (subject, msgID string, env *events.Envelope, err error) {
+	name, data, err := schema.Encode(TaskOf(rec))
+	if err != nil {
+		return "", "", nil, err
 	}
-	if _, err := s.q.Request(ctx, events.ProbeKey(want.MediaFile.UID), prev.Revision, rec); err != nil {
+	msgID = events.MsgIDForProbe(rec.MediaFile.UID, rec.ProbeHash, rec.RequestedVersion, rec.Seq)
+	env = &events.Envelope{
+		ID: msgID, Type: "importarr.ProbeTask", Schema: name, Source: "catalogarr@" + version.String(),
+		Key: rec.MediaFile.Key(), Time: now.UTC(), Data: data,
+	}
+	subject = events.WorkProbeSubject(events.Priority(rec.Lane),
+		events.MediaKey("mediafile", rec.MediaFile.Namespace, rec.MediaFile.Name))
+	return subject, msgID, env, nil
+}
+
+// Request writes NewRequest(want, prev, now) at prev's revision. A lost
+// compare-and-swap is ErrConflict. The caller then Publishes the task.
+func (s *Store) Request(ctx context.Context, want Want, prev Current) (schema.ProbeRecord, error) {
+	rec := NewRequest(want, prev, s.now())
+	if _, err := s.q.Request(ctx, events.ProbeKey(want.MediaFile.UID), prev.Revision, &rec); err != nil {
 		return schema.ProbeRecord{}, err
 	}
-	return *rec, nil
+	return rec, nil
 }
 
 // Publish puts rec's task on its lane under its Msg-Id. A republish inside
 // the stream's one-hour window is absorbed; a full queue is events.ErrQueueFull.
 func (s *Store) Publish(ctx context.Context, rec schema.ProbeRecord) error {
-	task := TaskOf(rec)
-	name, data, err := schema.Encode(task)
+	subject, id, env, err := TaskMessage(rec, s.now())
 	if err != nil {
 		return err
 	}
-	id := events.MsgIDForProbe(rec.MediaFile.UID, rec.ProbeHash, rec.RequestedVersion, rec.Seq)
-	env := &events.Envelope{
-		ID: id, Type: "importarr.ProbeTask", Schema: name, Source: "catalogarr@" + version.String(),
-		Key: rec.MediaFile.Key(), Time: s.now(), Data: data,
-	}
-	subject := events.WorkProbeSubject(events.Priority(rec.Lane),
-		events.MediaKey("mediafile", rec.MediaFile.Namespace, rec.MediaFile.Name))
 	if _, err := s.bus.Publish(ctx, subject, env, events.WithMsgID(id), events.WithExpectStream(events.StreamWorkProbe)); err != nil {
 		return fmt.Errorf("probestore: publish the probe of %s: %w", rec.MediaFile, err)
 	}

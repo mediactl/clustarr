@@ -56,11 +56,12 @@ func evaluateProbe(path string, statSize int64, statMod time.Time, currentHash s
 
 // probeDue reports whether the file must be probed: it never was, its
 // bytes changed (ps.Stale), or an older probe version described it and
-// missed a field this one records. The last leaves ps.Hash as it was, so
+// missed a field want (the probe version a pass asks for) records. The last
+// leaves ps.Hash as it was, so
 // nothing that keys on the hash -- captionarr's subtitle history,
 // squasharr's source identity -- sees a different file.
-func probeDue(currentHash string, version int32, ps probeState) bool {
-	return currentHash == "" || ps.Stale || version < probeVersion
+func probeDue(currentHash string, version int32, ps probeState, want int32) bool {
+	return currentHash == "" || ps.Stale || version < want
 }
 
 // bytesChanged reports whether the file's bytes changed since mf recorded
@@ -78,22 +79,22 @@ func bytesChanged(mf *catalogv1alpha1.MediaFile, ps probeState) bool {
 
 // The probe queue's timing (spec 2026-10-06 §6.5.3).
 const (
-	// probeRequestTimeoutHigh and probeRequestTimeoutLow are how long a
+	// ProbeRequestTimeoutHigh and ProbeRequestTimeoutLow are how long a
 	// request waits for its answer before it is asked again, by lane.
-	probeRequestTimeoutHigh = 6 * time.Hour
-	probeRequestTimeoutLow  = 72 * time.Hour
-	// probeRepublishWindow is how long a pending request republishes its
+	ProbeRequestTimeoutHigh = 6 * time.Hour
+	ProbeRequestTimeoutLow  = 72 * time.Hour
+	// ProbeRepublishWindow is how long a pending request republishes its
 	// task under the same Msg-Id, which the stream's one-hour dedup window
 	// absorbs: it covers a publish that failed after the record was written.
-	probeRepublishWindow = 50 * time.Minute
-	// probeTransientRetry and probeFailedRetry are how long a failed probe
+	ProbeRepublishWindow = 50 * time.Minute
+	// ProbeTransientRetry and ProbeFailedRetry are how long a failed probe
 	// waits before it is asked again (OD47; it was 30 s, forever).
-	probeTransientRetry = 5 * time.Minute
-	probeFailedRetry    = time.Hour
-	// probeSkewRetry is how long an answer from an agent older than this
+	ProbeTransientRetry = 5 * time.Minute
+	ProbeFailedRetry    = time.Hour
+	// ProbeSkewRetry is how long an answer from an agent older than this
 	// manager stands before the file is asked again: re-asking sooner would
 	// loop while the old agent still answers (a rollout, a draining pod).
-	probeSkewRetry = 30 * time.Minute
+	ProbeSkewRetry = 30 * time.Minute
 	// probeAbandonLimit is how many consecutive abandoned probes of the same
 	// bytes are tried before the reconciler gives up on them.
 	probeAbandonLimit = 3
@@ -130,9 +131,9 @@ type judgement struct {
 // requestTimeout is how long a request on lane waits for its answer.
 func requestTimeout(lane clustarrevents.Priority) time.Duration {
 	if lane == clustarrevents.PriorityLow {
-		return probeRequestTimeoutLow
+		return ProbeRequestTimeoutLow
 	}
-	return probeRequestTimeoutHigh
+	return ProbeRequestTimeoutHigh
 }
 
 // judgeProbe decides what a reconcile does with rec (ok false: there is
@@ -141,7 +142,7 @@ func requestTimeout(lane clustarrevents.Priority) time.Duration {
 // hash are want's. Pure, so every row is a unit test.
 //
 // The third row (an older agent answered a current request) waits only until
-// ProbedAt + probeSkewRetry, so it never shadows the fourth (ask again then);
+// ProbedAt + ProbeSkewRetry, so it never shadows the fourth (ask again then);
 // incorporating a new file's answer as is applies at any time.
 func judgeProbe(rec schema.ProbeRecord, ok bool, want probestore.Want, statusProbeHash string, now time.Time) judgement {
 	request := func(lane clustarrevents.Priority) judgement {
@@ -158,7 +159,7 @@ func judgeProbe(rec schema.ProbeRecord, ok bool, want probestore.Want, statusPro
 	}
 	answered := rec.State == schema.ProbeProbed || rec.State == schema.ProbeFailed
 	skew := answered && rec.ProbeVersion < want.ProbeVersion && rec.RequestedVersion >= want.ProbeVersion
-	skewUntil := rec.ProbedAt.Add(probeSkewRetry)
+	skewUntil := rec.ProbedAt.Add(ProbeSkewRetry)
 	switch {
 	case rec.State == schema.ProbeProbed && rec.ProbeVersion >= want.ProbeVersion:
 		return judgement{verdict: verdictIncorporate}
@@ -176,9 +177,9 @@ func judgeProbe(rec schema.ProbeRecord, ok bool, want probestore.Want, statusPro
 	case rec.State == schema.ProbeFailed && rec.AbandonedCount >= probeAbandonLimit:
 		return judgement{verdict: verdictGiveUp, failure: fmt.Sprintf("probe abandoned %d times: %s", rec.AbandonedCount, rec.Failure)}
 	case rec.State == schema.ProbeFailed:
-		retryAt := rec.ProbedAt.Add(probeFailedRetry)
+		retryAt := rec.ProbedAt.Add(ProbeFailedRetry)
 		if rec.Transient {
-			retryAt = rec.ProbedAt.Add(probeTransientRetry)
+			retryAt = rec.ProbedAt.Add(ProbeTransientRetry)
 		}
 		if now.Before(retryAt) {
 			return judgement{verdict: verdictFailed, requeueAt: retryAt, failure: rec.Failure}
@@ -189,7 +190,7 @@ func judgeProbe(rec schema.ProbeRecord, ok bool, want probestore.Want, statusPro
 		if now.Sub(rec.RequestedAt) < timeout {
 			return judgement{
 				verdict: verdictPending, requeueAt: rec.RequestedAt.Add(timeout),
-				republish: now.Sub(rec.RequestedAt) < probeRepublishWindow,
+				republish: now.Sub(rec.RequestedAt) < ProbeRepublishWindow,
 			}
 		}
 	}
@@ -228,10 +229,11 @@ func versionOnly(mf *catalogv1alpha1.MediaFile, ps probeState, swapOrKept bool) 
 }
 
 // keptNeedsNoProbe reports a kept job (replaceSource=false) whose source the
-// current summary still describes: it is recorded from that summary.
-func keptNeedsNoProbe(mf *catalogv1alpha1.MediaFile, ps probeState, kept bool) bool {
+// current summary, at probe version want or newer, still describes: it is
+// recorded from that summary.
+func keptNeedsNoProbe(mf *catalogv1alpha1.MediaFile, ps probeState, kept bool, want int32) bool {
 	return kept && !ps.Stale && mf.Status.ProbeHash != "" && mf.Status.MediaInfo != nil &&
-		mf.Status.ProbeVersion >= probeVersion
+		mf.Status.ProbeVersion >= want
 }
 
 // sooner is res, requeued after d if that is sooner than res asks.

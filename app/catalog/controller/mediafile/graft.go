@@ -24,10 +24,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
 // +kubebuilder:rbac:groups=transcode.clustarr.io,resources=audiografts,verbs=get;list;watch
@@ -45,12 +47,23 @@ func indexAudioGraftByMediaFileRef(o client.Object) []string {
 }
 
 // mediaFileForAudioGraft wakes the file a graft names.
-func mediaFileForAudioGraft(_ context.Context, o client.Object) []reconcile.Request {
+func mediaFileForAudioGraft(ctx context.Context, o client.Object) []reconcile.Request {
+	return requestsOf(FileOfAudioGraft(ctx, o))
+}
+
+// FileOfAudioGraft is the file a graft names (status.mediaFileRef).
+func FileOfAudioGraft(_ context.Context, o client.Object) []types.NamespacedName {
 	g, ok := o.(*transcodev1alpha1.AudioGraft)
 	if !ok || g.Status.MediaFileRef == "" {
 		return nil
 	}
-	return []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: g.Namespace, Name: g.Status.MediaFileRef}}}
+	return []types.NamespacedName{{Namespace: g.Namespace, Name: g.Status.MediaFileRef}}
+}
+
+// AudioGraftDoneChanged is the predicate a graft's file is woken through:
+// its phase or completion time moved.
+func AudioGraftDoneChanged() predicate.Predicate {
+	return k8s.StatusFieldChanged(extractAudioGraftDone)
 }
 
 // extractAudioGraftDone is what about a graft wakes its file: its phase and
@@ -70,8 +83,15 @@ func extractAudioGraftDone(o client.Object) string {
 // unincorporatedGraft is a graft that swapped mf's file after its last
 // probe: Succeeded with a graft tag, finished after probedAt. nil when none.
 func (r *Reconciler) unincorporatedGraft(ctx context.Context, mf *catalogv1alpha1.MediaFile) (*transcodev1alpha1.AudioGraft, error) {
+	return UnincorporatedGraft(ctx, r.Client, mf)
+}
+
+// UnincorporatedGraft is a graft that swapped mf's file after its last
+// probe, read through c (the manager's cache): Succeeded with a graft tag,
+// finished after probedAt. nil when none.
+func UnincorporatedGraft(ctx context.Context, c client.Reader, mf *catalogv1alpha1.MediaFile) (*transcodev1alpha1.AudioGraft, error) {
 	var l transcodev1alpha1.AudioGraftList
-	if err := r.List(ctx, &l, client.InNamespace(mf.Namespace), client.MatchingFields{audioGraftMediaFileRefIndex: mf.Name}); err != nil {
+	if err := c.List(ctx, &l, client.InNamespace(mf.Namespace), client.MatchingFields{audioGraftMediaFileRefIndex: mf.Name}); err != nil {
 		return nil, fmt.Errorf("mediafile: list AudioGrafts: %w", err)
 	}
 	var best *transcodev1alpha1.AudioGraft

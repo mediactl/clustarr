@@ -32,6 +32,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
 
@@ -101,12 +102,37 @@ func extractSubtitleItemsSignature(o client.Object) string {
 // object straight to its named MediaFile -- both spec types carry the ref
 // directly, so no List/field-index round trip is needed here (the index
 // above is for the reverse direction, used inside Reconcile).
-func (r *Reconciler) mediaFileForTranscodeJob(_ context.Context, o client.Object) []reconcile.Request {
+func (r *Reconciler) mediaFileForTranscodeJob(ctx context.Context, o client.Object) []reconcile.Request {
+	return requestsOf(FileOfTranscodeJob(ctx, o))
+}
+
+// FileOfTranscodeJob is the file a TranscodeJob names (spec.mediaFileRef).
+func FileOfTranscodeJob(_ context.Context, o client.Object) []types.NamespacedName {
 	tj, ok := o.(*transcodev1alpha1.TranscodeJob)
 	if !ok || tj.Spec.MediaFileRef == "" {
 		return nil
 	}
-	return []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: tj.Namespace, Name: tj.Spec.MediaFileRef}}}
+	return []types.NamespacedName{{Namespace: tj.Namespace, Name: tj.Spec.MediaFileRef}}
+}
+
+// TranscodeJobPhaseChanged is the predicate a TranscodeJob's file is woken
+// through: every phase transition, since a transcode that starts or stops
+// running holds or releases the rename (TranscodePending, ruling R18), and a
+// Succeeded one is a swap to incorporate.
+func TranscodeJobPhaseChanged() predicate.Predicate {
+	return k8s.StatusFieldChanged(extractTranscodeJobPhase)
+}
+
+// requestsOf is nns as reconcile requests.
+func requestsOf(nns []types.NamespacedName) []reconcile.Request {
+	if len(nns) == 0 {
+		return nil
+	}
+	out := make([]reconcile.Request, 0, len(nns))
+	for _, nn := range nns {
+		out = append(out, reconcile.Request{NamespacedName: nn})
+	}
+	return out
 }
 
 func (r *Reconciler) mediaFileForSubtitleRequest(_ context.Context, o client.Object) []reconcile.Request {

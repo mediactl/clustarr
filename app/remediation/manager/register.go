@@ -28,9 +28,13 @@ import (
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
+	"github.com/mediactl/clustarr/app/catalog/controller/mediafile"
 	"github.com/mediactl/clustarr/app/remediation"
+	"github.com/mediactl/clustarr/app/remediation/probe"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/obs/metrics"
+	"github.com/mediactl/clustarr/pkg/probestore"
 	"github.com/mediactl/clustarr/pkg/records"
 )
 
@@ -73,8 +77,15 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 }
 
 // Planners is every planner the loop binds; the loop sorts them by Order.
-// F3.2, F3.3 and F3.4 add the probe, naming and markers planners.
-func Planners(_ Deps) []remediation.Bound { return nil }
+// F3.3 and F3.4 add the naming and markers planners.
+func Planners(d Deps) []remediation.Bound {
+	probes := probestore.New(d.Env.Bus, probestore.WithErrors(func(op string) {
+		metrics.RecordErrorsTotal.WithLabelValues("probe", op).Inc()
+	}))
+	return []remediation.Bound{
+		remediation.Bind[mediafile.ProbeInput](probe.New(probe.Options{Bus: d.Env.Bus, Probes: probes})),
+	}
+}
 
 // Actuators is every actuator; F3.3 adds rename, F3.5 replay.
 func Actuators(_ ctrl.Manager, _ Deps) []remediation.Actuator { return nil }
