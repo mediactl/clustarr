@@ -27,6 +27,7 @@ later change can tell whether its premise still holds.
 | [0015](0015-no-cuda-image.md) | There is no CUDA image: nvidia pools run the transcoder image, the NVIDIA container runtime injecting the driver's libraries (NVENC, NVDEC, CUDA) from the host | Accepted, 2026-10-01 |
 | [0016](0016-per-file-work-is-mediafile-status.md) | Per-file work (subtitles, transcode, graft) is MediaFile status written by one remediation loop; SubtitleRequest, TranscodeJob and AudioGraft go, Download stays (supersedes 0004) | Accepted, 2026-10-06 |
 | [0019](0019-agents-never-write-kubernetes.md) | The manager is the control plane: every lifecycle is a state machine in its reconcile loop, it routes and admits every task, and it is the only writer of every CR; agents execute tasks, report over NATS and never write the Kubernetes API; the Download kind is removed, a grab is an entry in its owner's status and converges with its transfer, and the blocklist lives in the release index (reverses 0016's "Download stays") | Accepted, 2026-10-07 |
+| [0020](0020-nats-client-resilience.md) | NATS client resilience: graceful drain (`Bus.Drain`, responders drained, `busconn.Shutdown` then `nc.Drain`), explicit pending limits on every core subscription, slow consumers shed and alerted (not readiness), request errors classified, object store chunk size per store and orphan purge over every store, reconnect backoff with jitter; implemented as Wave N after the current plan | Accepted, 2026-10-07 |
 
 Refinements that did not change a decision are recorded in the spec, not here:
 
