@@ -21,7 +21,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // detection). Its subpackages do the detecting.
 package segments
 
-import "strconv"
+import (
+	"fmt"
+	"strconv"
+	"strings"
+)
 
 // AnalyzerVersion is recorded in status.markers.analysis.version; raise it
 // when detection changes, and every file is analyzed once more. 2: credits
@@ -33,15 +37,35 @@ const AnalyzerVersion int32 = 3
 
 // FingerprintVersion versions the clustarr-fingerprints cache keys. 1 stands
 // for the unversioned keys the ffmpeg(1) decoder wrote; 2 is the in-process
-// ffgo decoder (spec 2026-10-06 §7.2.7, OD48). Raise it whenever decode
-// output can change: pkg/segments/decode, the fork's decode path, or the
-// native image's libavcodec minor. Old objects age out under the store's
-// 90-day MaxAge.
+// ffgo decoder (spec 2026-10-06 §7.2.7, OD48). Raise it whenever a cached
+// fingerprint would differ: decode output (pkg/segments/decode, the fork's
+// decode path, or the native image's libavcodec minor), the window lengths
+// (startWindow, endWindow) or the Chromaprint configuration (split §7.2.7 as
+// amended 2026-10-07). A detection-only change raises AnalyzerVersion alone
+// and keeps the cache. Old objects age out under the store's 90-day MaxAge.
 const FingerprintVersion int32 = 2
 
-// FingerprintKey is a window's object name in the fingerprint cache.
+// FingerprintKey is a window's object name in the fingerprint cache: the only
+// builder of one (the bucket's key scheme is events.FingerprintKeyScheme,
+// recorded in its metadata). It panics on an empty part or one holding '/'
+// or '.', which would forge a segment of the name: both parts are values the
+// caller controls (a probe hash, "start" or "end"), never user input.
 func FingerprintKey(probeHash, which string) string {
-	return probeHash + "." + which + ".v" + strconv.Itoa(int(FingerprintVersion))
+	return fingerprintKeyAt(FingerprintVersion, probeHash, which)
+}
+
+// fingerprintKeyAt is FingerprintKey at version v: the legacy unversioned
+// "<probeHash>.<which>" at 1, "<probeHash>.<which>.v<N>" from 2 on.
+func fingerprintKeyAt(v int32, probeHash, which string) string {
+	for _, p := range []string{probeHash, which} {
+		if p == "" || strings.ContainsAny(p, "/.") {
+			panic(fmt.Sprintf("segments: fingerprint key part %q is empty or holds '/' or '.'", p))
+		}
+	}
+	if v <= 1 {
+		return probeHash + "." + which
+	}
+	return probeHash + "." + which + ".v" + strconv.Itoa(int(v))
 }
 
 // Kind is a segment's kind. The values are api/catalog/v1alpha1.MarkerKind's
