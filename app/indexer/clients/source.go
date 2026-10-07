@@ -175,19 +175,21 @@ const (
 // this default.
 //
 // The obvious construction is ratelimit.New(ratelimit.Config{}) -- every real
-// per-host config arrives later, from the Indexer reconciler's SetConfig, so
-// the default looks like it is never consulted. It is: pkg/ratelimit falls
+// per-host config arrives later, from [ApplyRateLimit] (the Indexer
+// reconciler's in the manager, the ClientCache's in the index agent), so the
+// default looks like it is never consulted. It is: pkg/ratelimit falls
 // back to the Limiter's `defaults` for any key without its own Config, and
 // Config.RPS <= 0 is rate.Inf. Every window in which a host has no Config yet
 // is therefore a window with NO pacing at all -- the whole interval between
-// process start and that Indexer's first reconcile, a fresh host added by an
-// edit, and any key spelled differently from the reconciler's. Against a
-// private tracker that is a ban, not a slowdown.
+// process start and that Indexer's first reconcile or client build, a fresh
+// host added by an edit, and any key spelled differently from the writer's.
+// Against a private tracker that is a ban, not a slowdown.
 //
 // The rate is derived from the CRD's own default for spec.requestDelay
 // ([defaultRequestDelay]) rather than from a fresh literal, so an operator who
 // changes the default in api/index/v1alpha1 moves this too (and
-// TestIndexerSpecDefaultsMatchTheCRD fails if the mirror ever stops matching).
+// TestDefaultLimiterConfigPacesAtTheCRDDefault fails if the mirror ever stops
+// matching).
 func DefaultLimiterConfig() ratelimit.Config {
 	return ratelimit.Config{RPS: 1 / defaultRequestDelay.Seconds(), Burst: 1}
 }
@@ -244,15 +246,13 @@ func rpsFor(delay metav1.Duration) float64 {
 }
 
 // ApplyRateLimit installs spec.requestDelay as this indexer HOST's bucket
-// config. It is called from Reconcile and from nowhere else.
+// config. Two callers write it, each into its own process's limiter: the
+// Indexer reconciler in the manager, and clientcache.ClientCache.ApplyRateLimit
+// in the index agent, gated on generation so a stale object cannot revert an
+// edit. Nothing else writes it.
 //
-// It is deliberately NOT part of [BuildClient]. BuildClient is shared with
-// ClientCache, which the search fan-out and the RSS poll call on every
-// query; folding the write in there would make both of them WRITERS of
-// limiter config, breaking "this reconciler is the only writer of a key's
-// Config" -- and worse, each would re-apply spec.requestDelay from its own,
-// possibly stale, cached Indexer, so an operator lowering the delay would see
-// it silently reverted by the next search.
+// The search fan-out, RSS poll and download verb only Wait. In the agent
+// their ClientCache writes on their behalf, once per Indexer generation.
 //
 // The key is the indexer HOST, not the object name, and it is spelled by
 // ratelimit.HostKey rather than by reaching for u.Host (ruling R38). A second

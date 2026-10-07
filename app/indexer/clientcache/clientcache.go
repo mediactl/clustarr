@@ -69,12 +69,14 @@ const DefaultClientCacheTTL = 5 * time.Minute
 // while status reported the proxy Ready. Sharing one builder makes that
 // impossible rather than merely unlikely.
 //
-// It notably does NOT write limiter config. That is
-// [idxclients.ApplyRateLimit], called only from the Indexer reconciler's
-// Reconcile: that reconciler is the only reader of spec.requestDelay, and a fan-out re-applying it from a cached Indexer would
-// silently revert an operator's edit. The cache only ever READS the limiter
-// onto the client it builds, so every caller still draws on one bucket per
-// host.
+// It writes limiter config only through [ClientCache.ApplyRateLimit], gated
+// on the Indexer's generation. In the index agent nothing else would write
+// it, because the Indexer reconciler runs in the manager and paces that
+// process's own limiter (§5.12). Without the gate, a search holding a
+// pre-edit *Indexer would miss the resourceVersion lookup, rebuild, and
+// re-apply the old spec.requestDelay over an operator's edit. Every client
+// the cache builds reads the one limiter, so every caller still draws on one
+// bucket per host.
 //
 // # Why it caches
 //
@@ -116,6 +118,12 @@ type ClientCache struct {
 
 	mu      sync.Mutex
 	entries map[types.UID]clientEntry
+	// applied is the newest generation of each Indexer whose requestDelay
+	// this cache has written to its limiter. It outlives an entry's Forget
+	// (a session change) and is dropped only when Prune sees the Indexer
+	// gone, so an object read before an edit can never put the old delay
+	// back.
+	applied map[types.UID]int64
 }
 
 // clientEntry is one Indexer's built client and what it was built from.
@@ -128,6 +136,7 @@ type ClientCache struct {
 // informer on every For, which is a cached List, and a changed one rebuilds.
 type clientEntry struct {
 	resourceVersion string
+	generation      int64
 	proxies         string
 	client          idxclients.Client
 	builtAt         time.Time
@@ -137,7 +146,33 @@ type clientEntry struct {
 // limiters. limiters is the one process-wide instance; a nil one disables
 // pacing rather than panicking, matching the Indexer reconciler's Limiters.
 func NewClientCache(c client.Client, limiters *ratelimit.Limiter) *ClientCache {
-	return &ClientCache{client: c, limiters: limiters, entries: map[types.UID]clientEntry{}}
+	return &ClientCache{
+		client: c, limiters: limiters,
+		entries: map[types.UID]clientEntry{}, applied: map[types.UID]int64{},
+	}
+}
+
+// ApplyRateLimit writes idx's spec.requestDelay, raised to floor (a
+// definition's own requestDelay), onto this cache's limiter. It skips the
+// write when it has already applied a NEWER generation of the same Indexer,
+// and reports whether it wrote. An equal generation applies again. A
+// status-only change, a proxy change or a definition edit leaves generation
+// alone, and re-applying the same spec is harmless.
+func (cc *ClientCache) ApplyRateLimit(idx *indexv1alpha1.Indexer, def *cardigann.Definition, floor time.Duration) bool {
+	if idx == nil || cc.limiters == nil {
+		return false
+	}
+	cc.mu.Lock()
+	defer cc.mu.Unlock()
+	if cc.applied == nil {
+		cc.applied = map[types.UID]int64{}
+	}
+	if last, ok := cc.applied[idx.UID]; ok && idx.Generation < last {
+		return false
+	}
+	idxclients.ApplyRateLimit(idx.Spec, def, cc.limiters, floor)
+	cc.applied[idx.UID] = idx.Generation
+	return true
 }
 
 func (cc *ClientCache) now() time.Time {
@@ -186,7 +221,8 @@ func (cc *ClientCache) For(ctx context.Context, idx *indexv1alpha1.Indexer) (idx
 	if sessions == nil {
 		sessions = idxclients.NewSessionStore(cc.client, nil, k8s.ManagerIndexarrWorker)
 	}
-	built, err := buildWireClientFor(ctx, cc.client, idx, sel, cc.limiters, sessions)
+	built, err := buildWireClientFor(ctx, cc.client, idx, sel, cc.limiters, sessions,
+		func(def *cardigann.Definition, floor time.Duration) { cc.ApplyRateLimit(idx, def, floor) })
 	if err != nil {
 		return nil, err
 	}
@@ -228,11 +264,18 @@ func buildWireClient(
 	if err != nil {
 		return nil, err
 	}
-	return buildWireClientFor(ctx, c, idx, sel, lim, sessions)
+	return buildWireClientFor(ctx, c, idx, sel, lim, sessions, nil)
 }
 
 // buildWireClientFor is buildWireClient for a proxy selection already made,
 // so ClientCache.For selects once and both caches and builds from it.
+//
+// pace, when non-nil, writes the Indexer's limiter config: ClientCache.For
+// passes its generation-gated [ClientCache.ApplyRateLimit]. It runs before
+// the Secret read for a generic Indexer, so a failing build still paces its
+// host, and once the definition is resolved for a Cardigann one, whose own
+// requestDelay is the floor. buildWireClient passes nil, so a direct build
+// writes no limiter config.
 func buildWireClientFor(
 	ctx context.Context,
 	c client.Client,
@@ -240,10 +283,14 @@ func buildWireClientFor(
 	sel proxy.Selection,
 	lim *ratelimit.Limiter,
 	sessions *idxclients.SessionStore,
+	pace func(def *cardigann.Definition, floor time.Duration),
 ) (idxclients.Client, error) {
 	kind, err := idxclients.ResolveSource(idx.Spec)
 	if err != nil {
 		return nil, err
+	}
+	if kind == idxclients.SourceGeneric && pace != nil {
+		pace(nil, 0) // before the Secret read, so a failing build still paces its host
 	}
 	secret, err := idxclients.ReadSecret(ctx, c, idx.Namespace, idx.Spec.SecretRef)
 	if err != nil {
@@ -265,6 +312,9 @@ func buildWireClientFor(
 	def, err := idxclients.ResolveDefinition(ctx, c, idx.Spec)
 	if err != nil {
 		return nil, err
+	}
+	if pace != nil {
+		pace(def, idxclients.DefinitionDelay(def.RequestDelay))
 	}
 	sess, err := sessions.Load(ctx, idx)
 	if err != nil {
@@ -345,8 +395,12 @@ func (cc *ClientCache) store(idx *indexv1alpha1.Indexer, proxies string, built i
 	if cc.entries == nil {
 		cc.entries = map[types.UID]clientEntry{}
 	}
+	if e, ok := cc.entries[idx.UID]; ok && idx.Generation < e.generation {
+		return // a stale object's client never replaces a newer one's
+	}
 	cc.entries[idx.UID] = clientEntry{
 		resourceVersion: idx.ResourceVersion,
+		generation:      idx.Generation,
 		proxies:         proxies,
 		client:          built,
 		builtAt:         cc.now(),
@@ -354,10 +408,9 @@ func (cc *ClientCache) store(idx *indexv1alpha1.Indexer, proxies string, built i
 }
 
 // Limiters is the one process-wide limiter this cache paces its clients with.
-// It is exposed so the wiring hands the SAME instance to the reconciler (which
-// writes each host's Config) and to the download verb's fetcher (which only
-// Waits), rather than threading a second variable alongside the cache and
-// leaving room for the two to diverge.
+// It is exposed so the wiring hands the same instance to the download verb's
+// generic fetcher, which only Waits, rather than threading a second variable
+// alongside the cache and leaving room for the two to diverge.
 func (cc *ClientCache) Limiters() *ratelimit.Limiter { return cc.limiters }
 
 // Forget drops idx's entry. The Indexer reconciler calls it on delete
