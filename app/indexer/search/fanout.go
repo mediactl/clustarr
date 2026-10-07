@@ -30,16 +30,14 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	indexac "github.com/mediactl/clustarr/api/applyconfiguration/index/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
+	"github.com/mediactl/clustarr/app/indexer/health"
 	"github.com/mediactl/clustarr/app/indexer/limits"
 	idxstatus "github.com/mediactl/clustarr/app/indexer/status"
 	"github.com/mediactl/clustarr/app/indexer/worker/rss"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
-	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/metrics"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
@@ -63,7 +61,7 @@ const (
 	DefaultIndexerTimeout = 30 * time.Second
 
 	// replyMargin is reserved out of the budget for merging, marshalling and
-	// the per-indexer status applies, so the reply is written before the
+	// the per-indexer health records, so the reply is written before the
 	// caller's own clock runs out.
 	replyMargin = 2 * time.Second
 
@@ -72,11 +70,11 @@ const (
 	minFanoutBudget = time.Second
 
 	// sideEffectTimeout bounds the work that happens AFTER an indexer
-	// answered -- the local-index upsert and the status apply. It is
+	// answered -- the local-index upsert and the health record. It is
 	// deliberately not the per-indexer timeout: that one is already expired
 	// on the path that matters most, the indexer that timed out, and an
-	// expired context would silently skip recording the failure that the
-	// escalation ladder exists to react to.
+	// expired context would silently skip reporting the failure that the
+	// manager's escalation ladder exists to react to.
 	sideEffectTimeout = 10 * time.Second
 
 	// maxOutcomeError bounds one failure message. catalog truncates at
@@ -199,7 +197,7 @@ func truncateUTF8(s string, maxBytes int) string {
 // whichever comes first. Stragglers are NOT abandoned: their context is
 // rooted at context.WithoutCancel(ctx), so returning from the RPC handler --
 // which the bus cancels the moment the reply is written -- does not kill a
-// status apply or a relindex upsert halfway through. They stay bounded by
+// health record or a relindex upsert halfway through. They stay bounded by
 // their own per-indexer deadline and by the service lifetime, through
 // context.AfterFunc(s.srvCtx, ...).
 func (s *Service) fanOut(
@@ -291,9 +289,10 @@ func (s *Service) fanOut(
 //
 // ctx here is the fan-out's straggler-safe work context, NOT the handler's.
 // The per-indexer timeout is applied inside, around the outbound call alone,
-// so the status apply for an indexer that TIMED OUT still has a live context
-// to run on -- recording that failure is the whole input to the escalation
-// ladder, and an already-expired context would skip it silently.
+// so the health record for an indexer that TIMED OUT still has a live
+// context to run on -- reporting that failure is the whole input to the
+// manager's escalation ladder, and an already-expired context would skip it
+// silently.
 func (s *Service) queryOne(
 	ctx context.Context,
 	idx *indexv1alpha1.Indexer,
@@ -322,14 +321,14 @@ func (s *Service) queryOne(
 		// D1-9's e2e and the contract tests can drive the fan-out without a
 		// bus. A nil factory there would panic inside a worker goroutine and
 		// take the whole process down rather than failing one search.
-		return s.failOutcome(ctx, out, started, nil,
+		return s.failOutcome(ctx, idx, out, started, nil,
 			errors.New("app/indexer/search: no indexer client factory is configured")), nil
 	}
 	cli, err := s.ClientFor(bctx, idx)
 	if err != nil {
 		// No request reached the indexer, so no query is counted -- but the
 		// failure is still the indexer's configuration and still escalates.
-		return s.failOutcome(ctx, out, started, nil, err), nil
+		return s.failOutcome(ctx, idx, out, started, nil, err), nil
 	}
 
 	// Reserved BEFORE the request, because a request that times out still
@@ -364,14 +363,14 @@ func (s *Service) queryOne(
 		return pacedOutcome(out), nil
 	}
 	if err != nil {
-		return s.failOutcome(ctx, out, started, queries, err), nil
+		return s.failOutcome(ctx, idx, out, started, queries, err), nil
 	}
 
 	rels := s.project(idx, raw)
 
 	// The side effects run on their own clock. qctx may be nearly spent by a
 	// slow-but-successful indexer, and dropping the index write or the
-	// status apply on that account would lose work the indexer already did.
+	// health record on that account would lose work the indexer already did.
 	sideCtx, sideCancel := context.WithTimeout(ctx, sideEffectTimeout)
 	defer sideCancel()
 
@@ -379,7 +378,7 @@ func (s *Service) queryOne(
 	metrics.IndexerQueriesTotal.WithLabelValues(idx.Name, metricOK).Inc()
 	metrics.IndexerReleasesReturned.WithLabelValues(idx.Name).Observe(float64(len(rels)))
 
-	if err := s.recordOutcome(sideCtx, out.IndexerRef, true, "", queries, inserted); err != nil {
+	if err := s.recordOutcome(sideCtx, idx, true, "", "", queries, inserted); err != nil {
 		logging.FromContext(ctx).Warn("app/indexer/search: recording a successful query failed",
 			"indexer", idx.Name, "err", err)
 	}
@@ -409,11 +408,12 @@ func pacedOutcome(out schema.SearchOutcome) schema.SearchOutcome {
 	return out
 }
 
-// failOutcome classifies one failure, counts it and records the escalation.
-// It is the single place a failed query becomes both a metric and a status
-// write, so the two can never disagree about what happened.
+// failOutcome classifies one failure, counts it and reports it. It is the
+// single place a failed query becomes both a metric and a health record, so
+// the two can never disagree about what happened.
 func (s *Service) failOutcome(
 	ctx context.Context,
+	idx *indexv1alpha1.Indexer,
 	out schema.SearchOutcome,
 	started time.Time,
 	queries *int32,
@@ -424,7 +424,7 @@ func (s *Service) failOutcome(
 
 	sideCtx, cancel := context.WithTimeout(ctx, sideEffectTimeout)
 	defer cancel()
-	if rerr := s.recordOutcome(sideCtx, out.IndexerRef, false, msg, queries, 0); rerr != nil {
+	if rerr := s.recordOutcome(sideCtx, idx, false, failureClass(metric), msg, queries, 0); rerr != nil {
 		logging.FromContext(ctx).Warn("app/indexer/search: recording a failed query failed",
 			"indexer", out.IndexerRef.Name, "err", rerr)
 	}
@@ -606,77 +606,55 @@ func (s *Service) reserveQuery(ctx context.Context, idx *indexv1alpha1.Indexer) 
 	return &r.Count, true
 }
 
-// reader is the uncached reader recordOutcome's compare-and-swap reads
-// through: Reader when the process supplied one, Client otherwise.
-func (s *Service) reader() client.Reader {
-	if s.Reader != nil {
-		return s.Reader
-	}
-	return s.Client
-}
-
-// recordOutcome runs the escalation ladder and applies the result under
-// k8s.ManagerIndexWorker, as a compare-and-swap.
+// recordOutcome reports one query's outcome in clustarr-indexer-health
+// (ADR-0019 §7.5): the agent writes no Indexer status and runs no ladder.
+// The Indexer controller reads the record, runs the escalation ladder and
+// writes status.disabledUntil, which the next selection reads from the
+// cache; until that verdict, a failure suppresses the indexer locally
+// (health.Suppress, armed by the writer).
 //
-// A fan-out is an HTTP round trip per indexer -- seconds, not milliseconds --
-// and every replica runs one, beside the RSS poll under the same manager. An
-// apply seeded from any read but the latest would roll back what another
-// writer did in between: an indexedReleases increment, the RSS poll's
-// lastRssAt, or -- the one that turns a lost update into a correctness bug --
-// a disabledUntil another writer had just set, which WorkerFields emits only
-// when non-nil, so a stale nil CLEARS it and re-enables an indexer in
-// backoff. A re-read before the apply narrowed that window but did not close
-// it; app/indexer/status.PatchCAS does, by applying with the read's
-// resourceVersion and redoing the ladder step and the increment from a new
-// read on a Conflict.
-//
-// queries is the window count when this query counted one, for the limited
-// event; newlyIndexed is what relindex.Upsert actually inserted, so
-// indexedReleases counts distinct releases seen rather than rows returned.
+// queries is the window count when this query's reservation filled the
+// query ring, for the limited event, which this process publishes itself:
+// it alone saw the reservation. newlyIndexed is what relindex.Upsert
+// actually inserted, so indexedReleases counts distinct releases seen rather
+// than rows returned.
 func (s *Service) recordOutcome(
 	ctx context.Context,
-	ref schema.Ref,
+	idx *indexv1alpha1.Indexer,
 	ok bool,
-	reason string,
+	class, reason string,
 	queries *int32,
 	newlyIndexed int64,
 ) error {
-	if s.Client == nil {
-		return errors.New("app/indexer/search: no client is configured")
-	}
-	key := client.ObjectKey{Namespace: ref.Namespace, Name: ref.Name}
-	now := s.now()
-	var esc idxstatus.Escalation
-
-	// ONE apply, through app/indexer/status, so the index-worker owned set
-	// is declared in exactly one place (ruling R14). PatchCAS seeds every
-	// field this manager owns from the fresh read; the mutate changes only
-	// what this query moved, computed from that same read. ApplyEscalation
-	// is the only thing that can UNDO that seed -- a recovered indexer's
-	// cleared disabledUntil has to remove the seeded value rather than carry
-	// it forward, which no generated With* helper can express.
-	prev, _, err := idxstatus.PatchCAS(ctx, s.reader(), s.Client, k8s.ManagerIndexWorker, key,
-		func(fresh *indexv1alpha1.Indexer, ac *indexac.IndexerStatusApplyConfiguration) bool {
-			if ok {
-				esc = idxstatus.RecordSuccess(fresh.Status, now)
-			} else {
-				esc = idxstatus.RecordFailure(fresh.Status, now, reason)
-			}
-			if newlyIndexed > 0 {
-				ac.WithIndexedReleases(fresh.Status.IndexedReleases + newlyIndexed)
-			}
-			idxstatus.ApplyEscalation(ac, esc, fresh.Status)
-			return false
+	if queries != nil {
+		idxstatus.PublishTransitions(ctx, s.Bus, idx, idxstatus.Transition{
+			Prev: idx.Status, Queries: queries, At: s.now(),
 		})
-	if err != nil {
-		return fmt.Errorf("app/indexer/search: record the outcome on %s: %w", key, err)
 	}
-	// After the apply, never before: the status is the record, the event
-	// is history. prev is the read the applied escalation was measured from.
-	idxstatus.PublishTransitions(ctx, s.Bus, prev, idxstatus.Transition{
-		Prev: prev.Status, Escalation: &esc, Failed: !ok, Queries: queries, At: now,
-	})
+	if s.Health == nil {
+		return errors.New("app/indexer/search: no health writer is configured")
+	}
+	ref := schema.ItemRef{
+		Kind: health.IndexerKind,
+		Ref:  schema.Ref{Namespace: idx.Namespace, Name: idx.Name, UID: string(idx.UID)},
+	}
+	if err := s.Health.Outcome(ctx, ref, ok, class, reason, newlyIndexed); err != nil {
+		return fmt.Errorf("app/indexer/search: report the outcome on %s/%s: %w", idx.Namespace, idx.Name, err)
+	}
 	return nil
+}
+
+// failureClass maps classifyFailure's closed metric label onto the health
+// record's failure class.
+func failureClass(metric string) string {
+	switch metric {
+	case metricTimeout:
+		return schema.IndexerFailureTimeout
+	case metricRateLimited:
+		return schema.IndexerFailureRateLimited
+	default:
+		return schema.IndexerFailureError
+	}
 }
 
 // intsOf converts the wire's []int32 categories to the index's []int,

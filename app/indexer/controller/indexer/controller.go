@@ -31,7 +31,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	k8sevents "k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/workqueue"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -44,14 +43,16 @@ import (
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	idxclients "github.com/mediactl/clustarr/app/indexer/clients"
 	"github.com/mediactl/clustarr/app/indexer/limits"
-	"github.com/mediactl/clustarr/app/indexer/rssschedule"
 	idxstatus "github.com/mediactl/clustarr/app/indexer/status"
+	"github.com/mediactl/clustarr/app/indexer/status/statuspatch"
 	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/metrics"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/pkg/ratelimit"
+	"github.com/mediactl/clustarr/pkg/records"
 )
 
 const (
@@ -70,12 +71,17 @@ const (
 )
 
 // Reconciler reconciles an Indexer: it validates the spec, probes caps and
-// derives the conditions. It is the ONLY writer of status.conditions,
-// .protocol, .privacy, .caps, .observedGeneration and .sessionSecretRef, and
-// it writes NONE of the escalation or counter fields -- see this package's
-// doc comment.
+// derives the conditions under k8s.ManagerIndex, and -- since ADR-0019 A6.3
+// -- incorporates the index agent's clustarr-indexer-health record into the
+// escalation and RSS fields under k8s.ManagerIndexWorker and schedules every
+// RSS poll. See this package's doc comment.
 type Reconciler struct {
 	Client client.Client
+
+	// APIReader is the uncached reader the health incorporation's
+	// compare-and-swap reads through. SetupWithManager fills it from the
+	// manager when it is nil; nil falls back to Client.
+	APIReader client.Reader
 
 	// Recorder is optional; a nil Recorder disables events rather than
 	// panicking, which is what lets a unit test construct a Reconciler with
@@ -107,14 +113,16 @@ type Reconciler struct {
 	// a handful of bytes bounded by the size of the cluster's indexer set.
 	Limiters *ratelimit.Limiter
 
-	// Bus seeds the RSS poll chain (ruling R36). Nothing else in this
-	// reconciler publishes.
+	// Bus schedules every RSS poll (rulings R36, R18), carries the
+	// clustarr-indexer-health records this reconciler incorporates, and the
+	// ladder's events.
 	//
 	// Like Recorder and Limiters it is optional, so a unit test can build a
 	// Reconciler with nothing but a client -- but unlike them, a nil Bus
 	// disables something an operator would notice: the indexer would never
-	// be polled at all. It therefore logs a warning every time it would have
-	// seeded, rather than skipping in silence.
+	// be polled at all, and its health never incorporated. It therefore logs
+	// a warning every time it would have scheduled, rather than skipping in
+	// silence.
 	Bus events.Bus
 
 	// Sessions persists Cardigann login sessions (clustarr-indexer-sessions
@@ -129,6 +137,11 @@ type Reconciler struct {
 
 	mu       sync.Mutex
 	capsSeen map[types.UID]capsMemo
+	// health reads clustarr-indexer-health; healthSeen and rssSlots are the
+	// leader-local memos of health.go.
+	health     *records.Reader[*schema.IndexerHealthRecord]
+	healthSeen map[types.UID]healthSeen
+	rssSlots   map[types.UID]rssSlot
 }
 
 // capsMemo records when this process last probed an Indexer's caps, and at
@@ -161,6 +174,9 @@ func NewReconciler(
 		Bus:      bus,
 		Sessions: idxclients.NewSessionStore(c, bus, k8s.ManagerIndex),
 		capsSeen: map[types.UID]capsMemo{},
+		// The two memos of health.go.
+		healthSeen: map[types.UID]healthSeen{},
+		rssSlots:   map[types.UID]rssSlot{},
 	}
 }
 
@@ -188,9 +204,11 @@ func (r *Reconciler) forget(uid types.UID) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	delete(r.capsSeen, uid)
+	delete(r.healthSeen, uid)
+	delete(r.rssSlots, uid)
 }
 
-func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl.Result, error) {
+func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (res ctrl.Result, err error) {
 	ctx, span := tracing.Start(ctx, "indexer.Reconcile")
 	defer span.End()
 	log := logging.FromContext(ctx).With("indexer", req.NamespacedName)
@@ -221,6 +239,21 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		// prunes a deleted Indexer itself (clientcache.ClientCache.Prune).
 		r.forget(idx.UID)
 		return ctrl.Result{}, nil
+	}
+
+	// The index agent's query outcomes first (ADR-0019 §7.5, ruling R19):
+	// the ladder's verdict lands under the worker manager and on the local
+	// copy, so this pass's Healthy, Ready, requeue and RSS schedule derive
+	// from it. A failure here never skips the pass's own apply -- an early
+	// return is the partial-status bug -- it is returned after it.
+	if herr := r.incorporateHealth(ctx, &idx); herr != nil {
+		tracing.RecordError(span, herr)
+		log.Warn("incorporating the health record failed", "error", herr)
+		defer func() {
+			if err == nil {
+				res, err = ctrl.Result{}, herr
+			}
+		}()
 	}
 
 	conditions := append([]metav1.Condition(nil), idx.Status.Conditions...)
@@ -395,13 +428,17 @@ func (r *Reconciler) finish(
 			"%s", firstNonEmpty(outcome.Message, "backing off"))
 	}
 
-	// Seed BEFORE the patch, but do not return on its error: the status
+	// Schedule BEFORE the patch, but do not return on its error: the status
 	// write is unconditional on every path through Reconcile, and an early
 	// return here would be exactly the partial-status bug this package is
 	// built to avoid. The bus failure is surfaced after the write instead.
-	seedErr := r.seedRSSSchedule(ctx, idx, healthy, windows.query, now)
+	recheck, seedErr := r.scheduleRSS(ctx, idx, windows.query, now)
 
-	res, err := r.patch(ctx, idx, conditions, ctrl.Result{RequeueAfter: r.requeueAfter(idx.Status, outcome, windows, now)})
+	requeue := r.requeueAfter(idx.Status, outcome, windows, now)
+	if recheck.After(now) && recheck.Sub(now) < requeue {
+		requeue = recheck.Sub(now)
+	}
+	res, err := r.patch(ctx, idx, conditions, ctrl.Result{RequeueAfter: requeue})
 	if err != nil {
 		return res, err
 	}
@@ -413,66 +450,6 @@ func (r *Reconciler) finish(
 		return ctrl.Result{}, seedErr
 	}
 	return res, nil
-}
-
-// seedRSSSchedule starts this Indexer's RSS poll chain.
-//
-// Nothing else does. The worker schedules the NEXT poll at the end of every
-// poll it performs, which keeps an already-running chain alive but cannot
-// begin one -- so before ruling R36 the release firehose never started in a
-// real cluster, and the worker's disabled path, which acknowledges without
-// rescheduling precisely because "re-enabling bumps the generation and the
-// reconciler seeds a fresh schedule", silenced an indexer permanently the
-// first time an operator toggled spec.enabled.
-//
-// The gate is the worker's own gate, spelled the same way, so the seed and
-// the poll agree on what "this indexer polls" means. The spec.enabled half is
-// also checked by Reconcile, which returns before reaching here; it is
-// repeated rather than assumed because the two conditions are one rule.
-//
-// Publishing on EVERY reconcile is safe, and deliberately so rather than
-// guarded by a "have I seeded this one?" memo, which would be a second
-// in-memory truth about a cluster-wide fact and would be wrong after every
-// restart. rssschedule.NextPollAt returns the slot the worker's own reschedule
-// already chose, rssschedule.TaskMsgID quantises it to the second, and
-// CLUSTARR_WORK_INDEX deduplicates for an hour (pkg/events/topology.go's
-// work() helper, Duplicates: time.Hour), so the duplicate seed stores
-// nothing. Where it does store something -- a slot past the dedup window, or
-// a genuinely new slot -- the scheduled publish carries Nats-Rollup: sub, so
-// it REPLACES the pending poll rather than adding a second one.
-//
-// queryRetry is when a full query window next has room, zero when it has
-// room now. A poll seeded before then would only be refused by its own
-// reservation, so the seed waits for it.
-func (r *Reconciler) seedRSSSchedule(
-	ctx context.Context,
-	idx *indexv1alpha1.Indexer,
-	healthy bool,
-	queryRetry time.Time,
-	now time.Time,
-) error {
-	if !ptr.Deref(idx.Spec.Enabled, true) || !ptr.Deref(idx.Spec.EnableRss, true) {
-		return nil
-	}
-	if !healthy {
-		// Backing off, or the caps probe just failed. The ladder's window
-		// exists to stop queries, and the worker's own backoff path already
-		// holds the chain open by scheduling the poll that lands when the
-		// window expires. requeueAfter brings this reconciler back a second
-		// after disabledUntil, which is when seeding becomes useful again.
-		return nil
-	}
-	if r.Bus == nil {
-		logging.FromContext(ctx).Warn(
-			"no bus is wired; this Indexer's RSS poll chain cannot be seeded and it will never be polled",
-			"indexer", client.ObjectKeyFromObject(idx))
-		return nil
-	}
-	at := rssschedule.NextPollAt(idx, now)
-	if queryRetry.After(at) {
-		at = queryRetry
-	}
-	return rssschedule.ScheduleNext(ctx, r.Bus, idx, at)
 }
 
 // rateLimited derives the RateLimited condition from spec.limits and
@@ -586,9 +563,9 @@ func firstNonEmpty(vals ...string) string {
 // patch is the ONLY status write in this package. Every return path in
 // Reconcile goes through it; do not add a second one.
 //
-// It routes through app/indexer/status.Patch (ruling R31), which holds the one
-// declaration of what k8s.ManagerIndex owns on Indexer.status and seeds
-// the apply configuration from idx.Status. Conditions are supplied here and
+// It routes through app/indexer/status/statuspatch.Patch (ruling R31), which
+// applies app/indexer/status's one declaration of what k8s.ManagerIndex owns
+// on Indexer.status, seeded from idx.Status. Conditions are supplied here and
 // ONLY here: ControllerFields deliberately does not seed them, and the
 // generated WithConditions appends rather than replaces, so setting them in
 // both places is rejected with `duplicate entries for key [type="Ready"]`.
@@ -603,7 +580,7 @@ func (r *Reconciler) patch(
 	// this manager's complete set on every path -- early returns included --
 	// and is removed once an operator deletes the annotation.
 	k8s.MarkDeadLettered(idx, &conditions)
-	err := idxstatus.Patch(ctx, r.Client, k8s.ManagerIndex, idx,
+	err := statuspatch.Patch(ctx, r.Client, k8s.ManagerIndex, idx,
 		func(ac *indexac.IndexerStatusApplyConfiguration) {
 			ac.WithConditions(k8s.ConditionACs(conditions)...)
 		})
@@ -643,8 +620,13 @@ func (r *Reconciler) patch(
 // enqueues it too ([Reconciler.limitsSource]), so the window counts on status
 // follow the traffic rather than the 15-minute tick. With a bus it also
 // watches clustarr-indexer-sessions ([Reconciler.sessionsSource]), so a
-// session the index agent dropped is logged in again at once.
+// session the index agent dropped is logged in again at once, and
+// clustarr-indexer-health ([HealthRecordSource]), so a query outcome reaches
+// the ladder and the RSS schedule at once (ADR-0019 §7.5).
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
+	if r.APIReader == nil {
+		r.APIReader = mgr.GetAPIReader()
+	}
 	b := ctrl.NewControllerManagedBy(mgr).
 		Named("indexer").
 		For(&indexv1alpha1.Indexer{}, builder.WithPredicates(
@@ -661,7 +643,8 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 			RecoverPanic:          new(true),
 		})
 	if r.Bus != nil {
-		b = b.WatchesRawSource(r.limitsSource()).WatchesRawSource(r.sessionsSource())
+		b = b.WatchesRawSource(r.limitsSource()).WatchesRawSource(r.sessionsSource()).
+			WatchesRawSource(HealthRecordSource(r.Bus))
 	}
 	return b.Complete(r)
 }

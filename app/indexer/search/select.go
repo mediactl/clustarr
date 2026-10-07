@@ -124,6 +124,31 @@ func selectCandidates(
 	return out
 }
 
+// suppressLocally skips, as unhealthy, every candidate the agent suppressed
+// after a failure the manager has not yet decided on (ADR-0019 §7.5, P87):
+// at most health.SuppressFor, ended early by status.lastFailureAt naming the
+// failure, after which status.disabledUntil -- which selectCandidates has
+// already read -- is the verdict.
+func (s *Service) suppressLocally(cands []candidate, now time.Time) []candidate {
+	if s.Health == nil || s.Health.Suppress == nil {
+		return cands
+	}
+	sup := s.Health.Suppress
+	for i := range cands {
+		c := &cands[i]
+		if c.Skip != "" {
+			continue
+		}
+		if at := c.Indexer.Status.LastFailureAt; at != nil {
+			sup.Decided(c.Indexer.UID, at.Time)
+		}
+		if sup.Suppressed(c.Indexer.UID, now) {
+			c.Skip = skipUnhealthy
+		}
+	}
+	return cands
+}
+
 // inProtocols reports whether the indexer's resolved protocol is one the
 // request asked for.
 func inProtocols(want map[commonv1.Protocol]struct{}, got commonv1.Protocol) bool {

@@ -31,6 +31,7 @@ import (
 
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	"github.com/mediactl/clustarr/app/indexer/blocklist"
+	"github.com/mediactl/clustarr/app/indexer/health"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -88,15 +89,16 @@ type BlocklistFn func(ctx context.Context, req schema.BlocklistRequest) schema.B
 
 // Service answers index's three RPC verbs.
 type Service struct {
-	// Client reads Indexer objects and writes their status. It is the
-	// manager's cached client.
-	Client client.Client
+	// Client reads Indexer objects. It is the agent's cached client, and it
+	// only reads: since ADR-0019 A6.3 a query's outcome is a health record
+	// (Health), and the Indexer controller writes status.
+	Client client.Reader
 
-	// Reader is an uncached reader -- manager.GetAPIReader() -- for the
-	// compare-and-swap status write after each query: a read from the cache
-	// lags the write it raced and would conflict again on every attempt. nil
-	// falls back to Client.
-	Reader client.Reader
+	// Health reports every query's outcome in clustarr-indexer-health and
+	// suppresses a failed indexer locally until the manager's verdict. The
+	// agent shares one with the RSS poll. A nil Health reports nothing; the
+	// search still answers.
+	Health *health.Writer
 
 	// ClientFor builds the wire client for one Indexer.
 	ClientFor ClientFor
@@ -214,7 +216,7 @@ func (s *Service) Search(ctx context.Context, req schema.SearchRequest) schema.S
 		}}}
 	}
 
-	cands := selectCandidates(list.Items, req, mode, s.now())
+	cands := s.suppressLocally(selectCandidates(list.Items, req, mode, s.now()), s.now())
 	outcomes, results := s.fanOut(ctx, cands, req, mode, budget)
 
 	fetched := 0

@@ -79,18 +79,12 @@ func TaskMsgID(uid string, generation int64, slot time.Time) string {
 }
 
 // NextPollAt is the slot a poll of idx should be scheduled for, read off the
-// status the last poll left behind. It exists so the Indexer reconciler can
-// seed the chain (ruling R36) without inventing a cadence of its own.
-//
-// The arithmetic is chosen so a reconciler seed and the worker's own
-// reschedule CONVERGE ON ONE SLOT rather than fighting. The worker stamps
-// status.lastRssAt with the same instant it schedules from, so
-// lastRssAt + Interval is byte-for-byte the slot the worker already asked
-// for; [TaskMsgID] quantises to the second and the work stream deduplicates
-// for an hour, so the reconciler's publish stores nothing at all. Seeding at
-// `now` on every pass instead would look equally correct and would quietly
-// override spec.rssInterval with reprobeInterval -- polling a tracker that
-// asked for hourly every fifteen minutes.
+// status the last poll left behind: lastRssAt + Interval. The Indexer
+// controller seeds with it (ruling R36), so a seed after a restart keeps the
+// cadence the last read implies rather than polling at once; seeding at
+// `now` on every pass would quietly override spec.rssInterval with the
+// reconcile tick -- polling a tracker that asked for hourly every fifteen
+// minutes.
 //
 // A never-polled Indexer, or one whose slot has already passed because the
 // chain died, gets `now`: that is the seed, and it is also the repair.
@@ -113,14 +107,12 @@ func NextPollAt(idx *indexv1alpha1.Indexer, now time.Time) time.Time {
 // ScheduleNext publishes the next RssTask for idx, held on the schedule
 // subject until at.
 //
-// Two callers, one function, so the subject and the msg-id cannot be built
-// two ways. The Indexer reconciler seeds the chain for an enabled, healthy
-// Indexer at [NextPollAt]; the worker schedules the next one at the end of
-// EVERY poll, success or failure. Both are needed. Without the worker's,
-// polling would stop until the next reconcile; without the reconciler's,
-// nothing would ever start it -- which is exactly what shipped before ruling
-// R36, so the release firehose never began in a real cluster, and an indexer
-// disabled and re-enabled never polled again.
+// Since ADR-0019 A6.3 its one caller is the Indexer controller, which
+// publishes every poll (P91, ruling R18): it seeds at [NextPollAt] and, after
+// each poll's outcome reaches it in clustarr-indexer-health, schedules the
+// next. The index agent's poll no longer chains itself. Before ruling R36
+// nothing started a chain at all, so the release firehose never began in a
+// real cluster.
 func ScheduleNext(ctx context.Context, bus events.Bus, idx *indexv1alpha1.Indexer, at time.Time) error {
 	if idx.UID == "" {
 		// The work subject is keyed by uid. An empty token would publish to

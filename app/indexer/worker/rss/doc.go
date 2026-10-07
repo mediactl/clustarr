@@ -48,14 +48,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // "the name of the Indexer object", so the envelope key's second segment,
 // the subject's second token and Info.IndexerRef are all the same string.
 //
-// # Status
+// # Health and scheduling (ADR-0019 §7.5, W35, P91)
 //
-// Indexer.status is split by field manager, and this package writes only as
-// k8s.ManagerIndexWorker, through app/indexer/status.Patch. That package
-// holds the single declaration of what the manager owns (WorkerFields);
-// this one never builds an apply configuration of its own, because two
-// callers hand-rolling one manager's apply is precisely how each releases
-// the other's fields.
+// This package writes no Indexer status and schedules no poll. Each poll's
+// outcome -- lastRssAt, lastRssNewCount, the releases newly indexed, or the
+// failure and its class -- is a record in clustarr-indexer-health, through
+// the app/indexer/health writer the search fan-out shares. The Indexer
+// controller (manager) incorporates it into status under the worker field
+// manager, runs the escalation ladder, and publishes the next scheduled
+// RssTask; a poll inside a backoff window or at its query limit is
+// acknowledged with nothing to report.
 //
 // # Registration
 //
@@ -70,12 +72,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // limiter, never writes one's Config and never lists Indexers. One message is
 // one indexer, which is what keeps a broken indexer from starving the rest.
 //
-// The markers below are package-level on purpose: controller-gen collects
+// The marker below is package-level on purpose: controller-gen collects
 // RBAC only from package-level comments and silently ignores one attached to
-// a function. The worker reads Indexer and writes only its /status
-// subresource; the status write itself goes through app/indexer/status, which
-// declares the same pair.
+// a function. The worker only reads Indexer.
 //
 // +kubebuilder:rbac:groups=index.clustarr.io,resources=indexers,verbs=get;list;watch
-// +kubebuilder:rbac:groups=index.clustarr.io,resources=indexers/status,verbs=get;update;patch
 package rss

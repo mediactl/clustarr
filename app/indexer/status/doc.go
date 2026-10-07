@@ -15,14 +15,9 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// The RBAC markers live here, on the package that actually performs the
-// write, rather than on whichever controller happens to call it. They are
-// package-level comments on purpose: controller-gen collects markers only
-// from package-level comments and silently ignores one attached to a
-// function, which in Phase C meant four controllers' rules were never
-// generated at all -- and every envtest still passed, because envtest does
-// not enforce RBAC.
-//
-// +kubebuilder:rbac:groups=index.clustarr.io,resources=indexers,verbs=get;list;watch
-// +kubebuilder:rbac:groups=index.clustarr.io,resources=indexers/status,verbs=get;update;patch
+// No RBAC marker lives here: this package declares the owned sets, runs the
+// ladder and publishes its events, and writes nothing to the apiserver. The
+// writer is app/indexer/status/statuspatch, which carries the grants (ADR-0019
+// A6.3: the index agent links this package, so it must hold no Kubernetes
+// writer).
 package status

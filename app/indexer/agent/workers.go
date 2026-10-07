@@ -20,6 +20,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"os"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -29,13 +30,17 @@ import (
 	"github.com/mediactl/clustarr/app/indexer/clientcache"
 	"github.com/mediactl/clustarr/app/indexer/download"
 	"github.com/mediactl/clustarr/app/indexer/facade"
+	"github.com/mediactl/clustarr/app/indexer/health"
 	"github.com/mediactl/clustarr/app/indexer/query"
 	"github.com/mediactl/clustarr/app/indexer/search"
 	"github.com/mediactl/clustarr/app/indexer/worker/rss"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/pkg/records"
+	"github.com/mediactl/clustarr/pkg/records/agentrecords"
 	"github.com/mediactl/clustarr/pkg/relindex"
+	"github.com/mediactl/clustarr/pkg/version"
 )
 
 // registerWorkers registers the three RPC verbs, the RSS poll consumer and the
@@ -77,9 +82,14 @@ func registerWorkers(
 	}
 	q := &query.Service{Store: store}
 	bl := &blocklist.Service{Store: store}
+	// ONE health writer for the fan-out and the RSS poll (ADR-0019 §7.5):
+	// their read-modify-writes of an indexer's record are one in-process
+	// compare-and-swap, and a failure either reports suppresses the indexer
+	// for the fan-out until the manager's verdict.
+	hw := newHealthWriter(bus)
 	svc := &search.Service{
 		Client: c,
-		Reader: mgr.GetAPIReader(),
+		Health: hw,
 		ClientFor: func(ctx context.Context, idx *indexv1alpha1.Indexer) (search.IndexerClient, error) {
 			cli, err := cc.For(ctx, idx)
 			if err != nil {
@@ -113,7 +123,7 @@ func registerWorkers(
 		return verbs{}, fmt.Errorf("index: add the RPC responder: %w", err)
 	}
 
-	if err := rss.NewWorker(rssDeps(c, mgr.GetAPIReader(), bus, store, cc)).SetupWithManager(mgr, bus); err != nil {
+	if err := rss.NewWorker(rssDeps(c, hw, bus, store, cc)).SetupWithManager(mgr, bus); err != nil {
 		return verbs{}, fmt.Errorf("index: subscribe rss: %w", err)
 	}
 
@@ -127,16 +137,16 @@ func registerWorkers(
 // rssDeps is the RSS poll's wiring. It is a function so a test can assert
 // what production hands the worker rather than a copy of it.
 //
-// Bus is not optional in production: besides the firehose and the schedule,
-// it is the clustarr-indexer-limits query ring each of the poll's up to four
-// requests reserves on -- the ring the search fan-out reserves on -- so
-// spec.limits.queryLimit holds against the indexer's whole traffic. Reader
-// is the uncached reader the poll's compare-and-swap status write reads
-// through.
-func rssDeps(c client.Client, r client.Reader, bus events.Bus, store relindex.Store, cc *clientcache.ClientCache) rss.Deps {
+// Bus is not optional in production: besides the firehose, it is the
+// clustarr-indexer-limits query ring each of the poll's up to four requests
+// reserves on -- the ring the search fan-out reserves on -- so
+// spec.limits.queryLimit holds against the indexer's whole traffic. hw is
+// the health writer the fan-out shares; the poll reports through it and
+// writes no status (ADR-0019 §7.5).
+func rssDeps(c client.Reader, hw *health.Writer, bus events.Bus, store relindex.Store, cc *clientcache.ClientCache) rss.Deps {
 	return rss.Deps{
 		Client: c,
-		Reader: r,
+		Health: hw,
 		Bus:    bus,
 		Index:  store,
 		SearcherFor: func(ctx context.Context, idx *indexv1alpha1.Indexer) (rss.Searcher, error) {
@@ -146,6 +156,17 @@ func rssDeps(c client.Client, r client.Reader, bus events.Bus, store relindex.St
 			}
 			return cli, nil
 		},
+	}
+}
+
+// newHealthWriter is the index agent's one clustarr-indexer-health writer,
+// stamping this pod's name and version on every record, with the local
+// suppression the fan-out reads.
+func newHealthWriter(bus events.Bus) *health.Writer {
+	pod, _ := os.Hostname()
+	return &health.Writer{
+		Records:  records.NewWriter(bus.KV(events.BucketIndexerHealth), agentrecords.IndexerHealth(), pod, version.String()),
+		Suppress: &health.Suppress{},
 	}
 }
 

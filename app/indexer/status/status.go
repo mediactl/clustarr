@@ -18,24 +18,24 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Package status is the single place index declares what each field
 // manager owns on Indexer.status.
 //
-// It exists because Indexer.status has three writer paths where the design
-// spec's §2 table assumed one: the Indexer reconciler, the RSS poll, and the
-// search fan-out. Server-side apply replaces a field manager's ownership set
-// on every apply rather than merging into it, so any field a manager sent
-// before and omits now is released -- which reads as "reset to zero" on the
-// object. That hazard took eight distinct forms in Phase C, and the remedy
-// that worked twice was distinct managers with disjoint ownership.
+// Indexer.status has two field managers. Server-side apply replaces a field
+// manager's ownership set on every apply rather than merging into it, so any
+// field a manager sent before and omits now is released -- which reads as
+// "reset to zero" on the object. That hazard took eight distinct forms in
+// Phase C, and the remedy that worked twice was distinct managers with
+// disjoint ownership.
 //
-// The reconciler writes as k8s.ManagerIndex. Both worker paths share
-// k8s.ManagerIndexWorker, so they cannot be separated by manager name --
-// they are separated instead by having exactly one definition of what that
-// manager owns, WorkerFields, which both call. Two callers hand-building
-// their own apply configurations for one manager is precisely how each
-// deletes the other's fields. And because every replica runs both paths, a
-// worker apply is also a compare-and-swap ([PatchCAS]): a declaration seeded
-// from a read another writer has since overtaken would not release its
-// fields, it would roll them back -- an indexedReleases increment lost, a
-// disabledUntil cleared.
+// The Indexer controller writes its own fields as k8s.ManagerIndex and, since
+// ADR-0019 A6.3, the escalation and RSS fields as k8s.ManagerIndexWorker: it
+// incorporates the index agent's clustarr-indexer-health records (ruling
+// R19), so the search fan-out and the RSS poll report outcomes and write no
+// status. Each manager's set is declared here exactly once (ControllerFields,
+// WorkerFields), and app/indexer/status/statuspatch is the one writer that
+// applies them -- a separate package, because the index agent links this
+// one for its predicates and must link no Kubernetes writer (§9.2). The
+// worker set is still applied as a compare-and-swap (statuspatch.PatchCAS):
+// a declaration seeded from a read another writer has since overtaken would
+// not release its fields, it would roll them back.
 //
 // # The window counts are the reconciler's (2026-10-01)
 //
@@ -70,20 +70,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // event.go publishes design spec §5's clustarr.evt.index.indexer.
 // <disabled|recovered|limited>.<uid> from those same transitions:
-// [PublishTransitions] is called by each worker writer after its apply lands,
-// with the status the apply was seeded from, so the event and the status
-// cannot disagree about what changed.
+// [PublishTransitions] is called by the Indexer controller after its
+// incorporation apply lands, with the status the apply was seeded from, so
+// the event and the status cannot disagree about what changed; the index
+// agent still publishes the limited event of a query or grab ring it filled
+// (it alone sees the reservation).
 package status
 
 import (
-	"context"
-	"fmt"
-
-	"sigs.k8s.io/controller-runtime/pkg/client"
-
 	indexac "github.com/mediactl/clustarr/api/applyconfiguration/index/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
-	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
 // ControllerFields returns the complete set k8s.ManagerIndex owns, seeded
@@ -135,11 +131,12 @@ func ControllerFields(st indexv1alpha1.IndexerStatus) *indexac.IndexerStatusAppl
 // WorkerFields returns the complete set k8s.ManagerIndexWorker owns,
 // seeded from the live status.
 //
-// Every apply under that manager starts here, from BOTH the RSS poll and the
-// search fan-out. If the two declared different sets, each apply would
-// release whatever the other had written -- the RSS worker's lastRssAt would
-// vanish on the next search, and the search's escalation on the next poll,
-// with nothing logged either time.
+// Every apply under that manager starts here. Since ADR-0019 A6.3 its one
+// caller is the Indexer controller's incorporation of the index agent's
+// health record (statuspatch.PatchCAS), which moves the escalation and the
+// RSS fields together; a second caller declaring a different set would
+// release whatever the other had written -- lastRssAt vanishing on the next
+// escalation, with nothing logged.
 //
 // It does NOT carry queriesInWindow or grabsInWindow, which the reconciler
 // owns (see the package doc). An apply that still sent them would take them
@@ -170,8 +167,8 @@ func WorkerFields(st indexv1alpha1.IndexerStatus) *indexac.IndexerStatusApplyCon
 //
 // It is the one mapping from the escalation ladder to the apply, and it lives
 // beside WorkerFields because it is the only thing that can UNDO that seed.
-// The RSS poll, the search fan-out and the download verb all reach it here
-// rather than each keeping a copy, which is the same argument that put
+// The Indexer controller's incorporation reaches it here (ADR-0019 A6.3)
+// rather than keeping a copy, which is the same argument that put
 // WorkerFields in one place: two hand-rolled versions of one manager's write
 // is exactly how each releases the other's fields.
 //
@@ -198,83 +195,6 @@ func ApplyEscalation(
 	ac.DisabledUntil = esc.DisabledUntil
 	ac.LastFailureAt = esc.LastFailureAt
 	ac.InitialFailureAt = esc.InitialFailure(cur)
-}
-
-// Patch applies a complete status declaration under mgr.
-//
-// The caller mutates the seeded apply configuration rather than building one,
-// which is what makes the complete-declaration rule enforceable in one place.
-// mgr must be k8s.ManagerIndex or k8s.ManagerIndexWorker; anything else
-// is a programming error and is refused rather than allowed to claim fields
-// no part of the split accounts for.
-func Patch(
-	ctx context.Context,
-	c client.Client,
-	mgr k8s.FieldManager,
-	idx *indexv1alpha1.Indexer,
-	mutate func(*indexac.IndexerStatusApplyConfiguration),
-) error {
-	seed, err := seedFor(mgr)
-	if err != nil {
-		return err
-	}
-	ac := seed(idx.Status)
-	if mutate != nil {
-		mutate(ac)
-	}
-
-	obj := indexac.Indexer(idx.Name, idx.Namespace).WithStatus(ac)
-	_, err = k8s.PatchStatus(ctx, c, mgr, obj)
-	return err
-}
-
-// PatchCAS is [Patch] as a compare-and-swap, for the worker paths: it reads
-// key fresh through r (an uncached reader), seeds mgr's complete set from
-// that read, lets mutate change it, and applies with the read's
-// resourceVersion, redoing all of it from a new read on a Conflict.
-//
-// mutate is handed the FRESH object and must derive everything it sets from
-// it -- indexedReleases as fresh.Status.IndexedReleases + n, the escalation
-// from RecordSuccess/RecordFailure(fresh.Status) -- because a redo is a new
-// read. It returns skip to apply nothing. The returned object is the read
-// the applied mutate was given: the "before" PublishTransitions measures
-// from.
-func PatchCAS(
-	ctx context.Context,
-	r client.Reader,
-	c client.Client,
-	mgr k8s.FieldManager,
-	key client.ObjectKey,
-	mutate func(fresh *indexv1alpha1.Indexer, ac *indexac.IndexerStatusApplyConfiguration) (skip bool),
-) (*indexv1alpha1.Indexer, bool, error) {
-	seed, err := seedFor(mgr)
-	if err != nil {
-		return nil, false, err
-	}
-	return k8s.PatchStatusCAS(ctx, r, c, mgr, key,
-		func() *indexv1alpha1.Indexer { return &indexv1alpha1.Indexer{} },
-		func(fresh *indexv1alpha1.Indexer) (*indexac.IndexerApplyConfiguration, bool, error) {
-			ac := seed(fresh.Status)
-			if mutate != nil && mutate(fresh, ac) {
-				return nil, true, nil
-			}
-			return indexac.Indexer(fresh.Name, fresh.Namespace).WithStatus(ac), false, nil
-		}, casAttempts)
-}
-
-// casAttempts bounds PatchCAS. Contention is a search, a poll and a grab
-// landing on one Indexer at once, from any replica.
-const casAttempts = 8
-
-func seedFor(mgr k8s.FieldManager) (func(indexv1alpha1.IndexerStatus) *indexac.IndexerStatusApplyConfiguration, error) {
-	switch mgr {
-	case k8s.ManagerIndex:
-		return ControllerFields, nil
-	case k8s.ManagerIndexWorker:
-		return WorkerFields, nil
-	default:
-		return nil, fmt.Errorf("status: %q owns no part of Indexer.status", mgr)
-	}
 }
 
 // capsAC renders status.caps as an apply configuration, and renders EVERY

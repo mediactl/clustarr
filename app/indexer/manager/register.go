@@ -66,10 +66,10 @@ type Options struct {
 // grabs on its own ClientCache's limiter, in another process (R8, §5.12).
 //
 // bus is not optional, even though indexer.NewReconciler tolerates nil by
-// logging a warning. The reconciler SEEDS the first RssTask (ruling R36) and
-// the RSS worker schedules every one after it, so a nil bus means no chain
-// ever starts and the release firehose publishes nothing -- which is the
-// entire point of the worker. TestTheIndexerReconcilerGetsARealBus turns
+// logging a warning. The reconciler publishes every RssTask (rulings R36,
+// R18) and incorporates the index agent's clustarr-indexer-health records
+// (ADR-0019 A6.3), so a nil bus means no poll is ever scheduled and no
+// indexer ever backs off. TestTheIndexerReconcilerGetsARealBus turns
 // "someone notices a warning" into a failing test.
 //
 // The Cardigann login and the owned session Secret (plan task G1-1) live

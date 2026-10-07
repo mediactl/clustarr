@@ -23,11 +23,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // The health and backoff ladder -- RecordFailure, RecordSuccess, Healthy,
 // StartupGrace, EscalationTable -- is NOT here. It lives in app/indexer/status,
 // beside the declaration of the very fields it computes (ruling R35). It
-// moved because index's RSS poll, search fan-out and download verb all
-// need it while this package imports app/indexer/status, so a ladder here could
-// never share a home with app/indexer/status.ApplyEscalation, the one mapping
-// from an Escalation onto an apply. This package only READS the result, to
-// derive the Healthy condition and the requeue delay.
+// moved there when index's RSS poll, search fan-out and download verb all
+// ran it. Since ADR-0019 A6.3 this package is the ladder's one caller: the
+// index agent reports outcomes in clustarr-indexer-health (health.go here
+// incorporates them, ruling R19), and the agent only reads the verdict,
+// status.disabledUntil.
 //
 // [status.SupportsMode] followed it there for the same reason (ruling R39):
 // this package WRITES status.caps, but asking "does this indexer advertise
@@ -39,16 +39,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # Field-manager split (design spec §2, Phase D1 rulings R6 and R31)
 //
-// Two writers reach IndexerStatus and each owns a disjoint set, because
-// server-side apply REPLACES a manager's ownership set on every apply rather
-// than merging it -- one shared name means each writer silently releases the
-// other's fields.
+// Two field managers reach IndexerStatus and each owns a disjoint set,
+// because server-side apply REPLACES a manager's ownership set on every
+// apply rather than merging it -- one shared name means each writer silently
+// releases the other's fields. Since ADR-0019 A6.3 both are this package's:
 //
-//	k8s.ManagerIndex ("index", this package):
+//	k8s.ManagerIndex ("index", the reconcile's own apply):
 //	    observedGeneration, conditions, protocol, privacy, caps,
 //	    sessionSecretRef, queriesInWindow, grabsInWindow
-//	k8s.ManagerIndexWorker ("index-worker", index's RSS poll and
-//	search fan-out):
+//	k8s.ManagerIndexWorker ("index-worker", the incorporation of the
+//	index agent's clustarr-indexer-health record, health.go):
 //	    escalationLevel, disabledUntil, initialFailureAt, lastFailureAt,
 //	    lastFailure, lastRssAt, lastRssNewCount, indexedReleases
 //
@@ -59,16 +59,18 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // full window next has room -- so RateLimited clears with no traffic, where
 // it used to latch until something counted again.
 //
-// This package never applies as ManagerIndexWorker. It reads the worker's
-// fields to derive conditions and a requeue delay, nothing more.
+// The two are separate applies, each a complete declaration of its own set:
+// the incorporation is a compare-and-swap through statuspatch.PatchCAS,
+// seeded with WorkerFields, and runs first in a pass, so the rest of the
+// pass derives its conditions, requeue and RSS schedule from the verdict.
 //
 // # One declaration of the owned set, and it is not here (ruling R31)
 //
 // The table above is documentation. The single machine-readable declaration
 // of what k8s.ManagerIndex owns lives in app/indexer/status.ControllerFields,
-// and every apply this package makes goes through app/indexer/status.Patch,
-// which seeds the apply configuration from the live status and then runs this
-// package's mutate. Two places declaring one manager's owned set is precisely
+// and every apply this package makes goes through
+// app/indexer/status/statuspatch.Patch, which seeds the apply configuration
+// from the live status and then runs this package's mutate. Two places declaring one manager's owned set is precisely
 // how the two drift apart, silently, which is the release bug in its ninth
 // form; Phase C found eight.
 //
@@ -98,16 +100,17 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // sending "" an apiserver rejection, so it is omitted. It must never vary
 // with a transient OUTCOME.
 //
-// # This reconciler never writes an escalation field
+// # The escalation ladder runs here (ADR-0019 A6.3, ruling R19)
 //
 // escalationLevel, disabledUntil, initialFailureAt, lastFailureAt,
-// lastFailure, lastRssAt, lastRssNewCount and indexedReleases belong to
-// index-worker. This package READS them (to derive the Healthy condition
-// and to choose a requeue delay); the workers compute the next set with app/indexer/status's
-// RecordFailure/RecordSuccess and apply it themselves. A
-// caps-probe failure therefore moves conditions and the requeue delay and
-// does not move escalationLevel: writing the escalation set here under
-// index-worker would release the counters this reconciler does not know.
+// lastFailure, lastRssAt, lastRssNewCount and indexedReleases are the
+// worker manager's set, and this package writes them from the index agent's
+// health record by timestamps: a record failure newer than
+// status.lastFailureAt applies RecordFailure at the failure's instant, a
+// success after it applies RecordSuccess, several of either between two
+// passes being one rung. A caps-probe failure still moves conditions and the
+// requeue delay and not escalationLevel: the probe is the reconciler's own
+// request, not a query the ladder counts.
 //
 // # Cardigann-defined Indexers (Phase G, G1-1)
 //
@@ -154,20 +157,18 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // client cache keys on the selection's fingerprint and this reconciler
 // watches IndexerProxy, so a proxy change reaches both at once.
 //
-// # What this controller does NOT do
+// # Events and RSS scheduling
 //
-// No domain events -- §8.2's indexer.disabled|recovered|limited fire where
-// the escalation transition is applied, which is the worker, not here.
+// §8.2's indexer.disabled|recovered events fire where the escalation
+// transition is applied, which is here since ADR-0019 A6.3; the limited
+// event stays with the index agent, which alone sees the reservation that
+// fills a window.
 //
-// It DOES seed the RSS poll chain, and that is the only thing it publishes
-// (ruling R36). This sentence previously read "No RSS scheduling (that is the
-// RSS worker's WithScheduleAt)" while rssschedule.ScheduleNext's own doc said
-// the reconciler seeded the first one; neither did, so nothing ever started a
-// chain and the release firehose never ran in a real cluster. The division is
-// now: this reconciler seeds a poll for an enabled, healthy Indexer at
-// rssschedule.NextPollAt on every pass, and the worker schedules the next one
-// at the end of every poll. The seed is idempotent by msg-id rather than by memory --
-// see [Reconciler.seedRSSSchedule].
+// It schedules EVERY RSS poll (rulings R36, R18; P91). Before ruling R36
+// nothing started a chain; until A6.3 the reconciler seeded one and the
+// worker continued it at the end of every poll. Now the worker reports and
+// this reconciler publishes each poll after the previous one's outcome --
+// see [Reconciler.scheduleRSS].
 //
 // The RBAC markers below are package-level comments, separated from the
 // package clause by a blank line. controller-gen collects +kubebuilder:rbac
@@ -176,10 +177,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // config/rbac/role.yaml, and no envtest could see it because envtest does not
 // enforce RBAC. cmd/clustarr's TestRBACMarkersArePackageLevel is the guard.
 //
-// indexers/status is deliberately NOT granted here. app/indexer/status/doc.go
-// carries it, on the package that actually performs the write, which is the
-// convention D1-0 set and the same reasoning as R31: one declaration, in the
-// place that does the thing.
+// indexers/status is deliberately NOT granted here.
+// app/indexer/status/statuspatch/doc.go carries it, on the package that
+// actually performs the write, which is the convention D1-0 set and the same
+// reasoning as R31: one declaration, in the place that does the thing.
 //
 // The Recorder is a k8s.io/client-go/tools/events.EventRecorder, handed in by
 // mgr.GetEventRecorder, and it writes events.k8s.io/v1 -- so events.k8s.io is

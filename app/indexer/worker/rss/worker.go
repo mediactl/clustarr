@@ -26,16 +26,14 @@ import (
 	"unicode/utf8"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	indexac "github.com/mediactl/clustarr/api/applyconfiguration/index/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	"github.com/mediactl/clustarr/app/indexer/blocklist"
+	"github.com/mediactl/clustarr/app/indexer/health"
 	"github.com/mediactl/clustarr/app/indexer/limits"
-	"github.com/mediactl/clustarr/app/indexer/rssschedule"
 	idxstatus "github.com/mediactl/clustarr/app/indexer/status"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -75,25 +73,13 @@ const (
 	// before the next pod picks it up.
 	retryAfterShutdown = 30 * time.Second
 
-	// statusRetry is how long to wait after a failed status apply. The write
-	// is against the apiserver, so a failure there is a blip or a conflict,
-	// and the whole poll is idempotent on redelivery.
-	statusRetry = 10 * time.Second
+	// reportRetry is how long to wait after the poll's outcome could not be
+	// reported or its releases not indexed or published: a bus or storage
+	// blip, and the whole poll is idempotent on redelivery.
+	reportRetry = 10 * time.Second
 
 	// readRetry is how long to wait after a failed Indexer read.
 	readRetry = 5 * time.Second
-
-	// minFailureRetry is the floor for a redelivery after a failed poll. The
-	// ladder's first step is a zero period (Prowlarr does not disable on the
-	// first failure), and hammering the indexer immediately is exactly what
-	// the ladder exists to prevent.
-	minFailureRetry = time.Minute
-
-	// maxFailureRetry caps the redelivery delay. Past this the SCHEDULED
-	// task, not the redelivery, is what keeps the indexer's cadence, and a
-	// delivery held open for hours only burns one of MaxDeliver's four
-	// attempts.
-	maxFailureRetry = 15 * time.Minute
 )
 
 // Searcher is one indexer's search call. The Indexer reconciler supplies the
@@ -108,20 +94,21 @@ type Searcher interface {
 
 // Deps is everything the worker needs from the process around it.
 type Deps struct {
-	// Client reads Indexer objects and writes their status.
-	Client client.Client
+	// Client reads Indexer objects. It only reads: the poll's outcome is a
+	// health record (Health), and the Indexer controller writes status and
+	// schedules every poll (ADR-0019 §7.5, P91).
+	Client client.Reader
 
-	// Reader is an uncached reader -- manager.GetAPIReader() -- for the
-	// compare-and-swap status write at the end of a poll: a read from the
-	// cache lags the write it raced and would conflict again on every
-	// attempt. nil falls back to Client.
-	Reader client.Reader
+	// Health reports the poll's outcome in clustarr-indexer-health. It is
+	// the one the search fan-out shares, so their records are one
+	// in-process compare-and-swap.
+	Health *health.Writer
 
-	// Bus carries the release firehose and the next scheduled poll, and the
-	// clustarr-indexer-limits query ring every page reserves on before it
-	// is requested -- the ring the search fan-out reserves on, so
-	// spec.limits.queryLimit is the indexer's whole traffic, as Prowlarr
-	// counts IndexerQuery and IndexerRss together.
+	// Bus carries the release firehose and the clustarr-indexer-limits
+	// query ring every page reserves on before it is requested -- the ring
+	// the search fan-out reserves on, so spec.limits.queryLimit is the
+	// indexer's whole traffic, as Prowlarr counts IndexerQuery and
+	// IndexerRss together.
 	Bus events.Bus
 
 	// Index is the local release index. Its Upsert is the source of
@@ -149,13 +136,6 @@ type errQueryLimit struct{ retryAt time.Time }
 
 func (e *errQueryLimit) Error() string {
 	return "rss: query limit reached; next room at " + e.retryAt.UTC().Format(time.RFC3339)
-}
-
-func (w *Worker) reader() client.Reader {
-	if w.Deps.Reader != nil {
-		return w.Deps.Reader
-	}
-	return w.Deps.Client
 }
 
 func (w *Worker) now() time.Time {
@@ -240,9 +220,8 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 	now := w.now()
 
 	// The operator's switches. Acknowledge without polling and WITHOUT a
-	// status write: nothing observed, nothing to record. No reschedule
-	// either -- re-enabling bumps the generation, the reconciler reconciles
-	// and seeds a fresh schedule.
+	// record: nothing observed, nothing to report. Re-enabling bumps the
+	// generation, and the Indexer controller schedules a fresh poll.
 	if !ptr.Deref(idx.Spec.Enabled, true) || !ptr.Deref(idx.Spec.EnableRss, true) {
 		log.Debug("rss: indexer does not poll", "enabled", ptr.Deref(idx.Spec.Enabled, true),
 			"enableRss", ptr.Deref(idx.Spec.EnableRss, true))
@@ -250,14 +229,14 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 	}
 
 	// Inside the escalation ladder's backoff window. Do not query -- that is
-	// the whole point of the window -- but keep the cadence by scheduling
-	// the poll that lands when the window expires.
+	// the whole point of the window. The Indexer controller holds the next
+	// poll at disabledUntil (ADR-0019 §7.5, P91); this delivery is
+	// acknowledged with nothing to report. Local suppression (health.Suppress)
+	// is the search fan-out's alone: a poll the controller scheduled is one
+	// request, not a burst, and a skipped one would wait a whole interval for
+	// the next.
 	if !idxstatus.Healthy(idx.Status, now) {
-		at := idx.Status.DisabledUntil.Time
-		log.Debug("rss: indexer is backing off; not querying", "until", at)
-		if err := rssschedule.ScheduleNext(ctx, w.Deps.Bus, &idx, at); err != nil {
-			return events.Retry(statusRetry, err)
-		}
+		log.Debug("rss: indexer is backing off; not querying", "until", idx.Status.DisabledUntil)
 		return nil
 	}
 
@@ -276,32 +255,21 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 	var limited *errQueryLimit
 	if errors.As(pollErr, &limited) {
 		// At the limit before the first page. Nothing was asked and nothing
-		// observed, so nothing is recorded -- a budget is not a failure, and
-		// lastRssAt must keep saying when the feed was last READ. The chain
-		// is held open at the poll's own cadence, or at the moment the
-		// window next has room if that is later; a poll sooner would only be
-		// refused again.
-		at := now.Add(rssschedule.Interval(&idx))
-		if limited.retryAt.After(at) {
-			at = limited.retryAt
-		}
-		log.Info("rss: query limit reached; not polling", "next", at)
-		if err := rssschedule.ScheduleNext(ctx, w.Deps.Bus, &idx, at); err != nil {
-			return events.Retry(statusRetry, err)
-		}
+		// observed, so nothing is reported -- a budget is not a failure, and
+		// lastRssAt must keep saying when the feed was last READ. The Indexer
+		// controller reads the same ring and holds the next poll until the
+		// window has room (ADR-0019 §7.5, P91).
+		log.Info("rss: query limit reached; not polling", "roomAt", limited.retryAt)
 		return nil
 	}
 
-	var (
-		inserted int
-		esc      idxstatus.Escalation
-	)
+	var inserted int
 	if pollErr == nil {
 		var published, dropped int
 		var err error
 		inserted, published, dropped, err = w.indexAndPublish(ctx, &idx, fetched, now)
 		if err != nil {
-			return events.Retry(statusRetry, err)
+			return events.Retry(reportRetry, err)
 		}
 		// dropped counts rows the INDEX refused. Some of them are still
 		// published -- see indexAndPublish -- so dropped and published are
@@ -310,67 +278,37 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 			"inserted", inserted, "published", published, "dropped", dropped)
 	}
 
-	// ONE apply, whatever happened, and it goes through app/indexer/status so
-	// the index-worker owned set is declared in exactly one place. Never
-	// an early return with a partial status: the early return is usually the
-	// transient case, which is exactly when a healthy object would be gutted
-	// by a blip.
-	//
-	// And a compare-and-swap. idx was read before the poll, and a poll is up
-	// to maxPages requests of spec.timeout each -- minutes -- while the
-	// search fan-out writes under this same manager from every replica. An
-	// apply seeded from any read but the latest rolls back what landed in
-	// between (a lost update, which no release test can see); PatchCAS seeds
-	// from a fresh read, applies with its resourceVersion, and on a Conflict
-	// redoes the ladder step and the indexedReleases increment from a new
-	// one.
-	prev, _, err := idxstatus.PatchCAS(ctx, w.reader(), w.Deps.Client, k8s.ManagerIndexWorker, key,
-		func(fresh *indexv1alpha1.Indexer, ac *indexac.IndexerStatusApplyConfiguration) bool {
-			if pollErr != nil {
-				esc = idxstatus.RecordFailure(fresh.Status, now, pollErr.Error())
-			} else {
-				esc = idxstatus.RecordSuccess(fresh.Status, now)
-				ac.WithLastRssAt(metav1.NewTime(now)).
-					WithLastRssNewCount(int32(inserted)). //nolint:gosec // bounded by maxPages*pageSize
-					WithIndexedReleases(fresh.Status.IndexedReleases + int64(inserted))
-			}
-			idxstatus.ApplyEscalation(ac, esc, fresh.Status)
-			return false
-		})
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			log.Debug("rss: indexer was deleted during the poll")
-			return nil
-		}
-		return events.Retry(statusRetry, err)
+	// ONE report, whatever happened (ADR-0019 §7.5): the outcome goes to
+	// clustarr-indexer-health and the Indexer controller runs the escalation
+	// ladder, writes status and schedules the next poll. No status write and
+	// no self-scheduled next poll here (P91): a poll that chained itself
+	// would be the agent deciding when an indexer is polled.
+	ref := schema.ItemRef{
+		Kind: health.IndexerKind,
+		Ref:  schema.Ref{Namespace: idx.Namespace, Name: idx.Name, UID: string(idx.UID)},
 	}
-	// indexer.disabled|recovered|limited, after the apply landed and measured
-	// from the read the apply was seeded from.
-	idxstatus.PublishTransitions(ctx, w.Deps.Bus, prev, idxstatus.Transition{
-		Prev: prev.Status, Escalation: &esc, Failed: pollErr != nil, Queries: queries, At: now,
-	})
-
-	// Reschedule BEFORE returning the poll error, so a failing indexer keeps
-	// its cadence and recovers on its own rather than waiting for the next
-	// reconcile.
-	if err := rssschedule.ScheduleNext(ctx, w.Deps.Bus, prev, now.Add(rssschedule.Interval(prev))); err != nil {
-		return events.Retry(statusRetry, err)
+	var class, reason string
+	if pollErr != nil {
+		class, reason = health.Classify(pollErr), pollErr.Error()
+	}
+	if w.Deps.Health == nil {
+		return events.Retry(reportRetry, errors.New("rss: no health writer is configured"))
+	}
+	//nolint:gosec // inserted is bounded by maxPages*pageSize
+	if err := w.Deps.Health.RSS(ctx, ref, now, int32(inserted), pollErr == nil, class, reason); err != nil {
+		return events.Retry(reportRetry, err)
+	}
+	// The limited event is the ring's, and only this process saw the
+	// reservation that filled it.
+	if queries != nil {
+		idxstatus.PublishTransitions(ctx, w.Deps.Bus, &idx, idxstatus.Transition{
+			Prev: idx.Status, Queries: queries, At: now,
+		})
 	}
 	if pollErr != nil {
-		return events.Retry(retryAfterFailure(esc, now), pollErr)
+		log.Warn("rss: poll failed; reported", "class", class, "err", pollErr)
 	}
 	return nil
-}
-
-// retryAfterFailure derives the redelivery delay from the escalation the
-// failure produced, so the redelivery lands when the ladder next permits a
-// query rather than on a schedule that knows nothing about it.
-func retryAfterFailure(esc idxstatus.Escalation, now time.Time) time.Duration {
-	d := minFailureRetry
-	if esc.DisabledUntil != nil {
-		d = esc.DisabledUntil.Sub(now)
-	}
-	return min(max(d, minFailureRetry), maxFailureRetry)
 }
 
 // pollOnce reads up to maxPages of the indexer's newest rows, heartbeating so
@@ -548,12 +486,12 @@ func (w *Worker) indexAndPublish(
 		}
 		// ONE hostile row must not take the page down with it. Upsert
 		// validates the whole batch before it opens its transaction and
-		// fails all of it, and this poll would then return before both the
-		// status write and ScheduleNext -- so nothing publishes, no failure
-		// is recorded (the Indexer reads perfectly healthy), and after
-		// MaxDeliver the delivery is dead-lettered with no pending schedule
-		// left. The junk row is still in the feed next time and nothing
-		// re-seeds the chain. That is permanent, silent, and reachable from
+		// fails all of it, and this poll would then return before its
+		// health report -- so nothing publishes, no failure is recorded
+		// (the Indexer reads perfectly healthy), and after MaxDeliver the
+		// delivery is dead-lettered. The junk row is still in the feed next
+		// time, so every later poll fails the same way. That is permanent,
+		// silent, and reachable from
 		// upstream XML: TitleNorm("???") is "" -- a title of punctuation and
 		// symbols alone has no letter or digit in any script -- and
 		// pkg/torznab does not backfill an absent GUID.

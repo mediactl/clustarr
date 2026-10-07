@@ -208,19 +208,20 @@ func (r *Reconciler) proxyUnavailable(
 // counts are not among them: they are this reconciler's own projection,
 // made at the top of the pass.
 //
-// This reconciler applies only k8s.ManagerIndex's fields and is their only
-// writer, so its own apply cannot roll another writer back. What it CAN do is
-// derive Healthy, RateLimited, Ready and the requeue delay from a worker
-// snapshot a search or an RSS poll has moved on from in the seconds a login
-// or a caps probe took -- reporting Healthy=True over an indexer the fan-out
-// just put into backoff, and requeueing at the wrong time. The read-slow-
-// apply rule (CLAUDE.md, "A lost update is not an SSA release") applies to
-// what the apply is DERIVED from as much as to what it carries.
+// The ManagerIndex apply cannot roll another writer back. What it CAN do is
+// derive Healthy, RateLimited, Ready, the requeue delay and the RSS schedule
+// from a worker snapshot that has moved on in the seconds a login or a caps
+// probe took -- since ADR-0019 A6.3 this controller's own incorporation of
+// a health record, landed by a concurrent pass under the worker manager.
+// The read-slow-apply rule (CLAUDE.md, "A lost update is not an SSA
+// release") applies to what the apply is DERIVED from as much as to what it
+// carries. The read is uncached: the cache can lag the incorporation this
+// pass made itself, and taking its older fields would undo them locally.
 //
 // gone is true when the Indexer was deleted meanwhile; the caller returns.
 func (r *Reconciler) refreshWorkerFields(ctx context.Context, idx *indexv1alpha1.Indexer) (gone bool, err error) {
 	var live indexv1alpha1.Indexer
-	if err := r.Client.Get(ctx, client.ObjectKeyFromObject(idx), &live); err != nil {
+	if err := r.apiReader().Get(ctx, client.ObjectKeyFromObject(idx), &live); err != nil {
 		if apierrors.IsNotFound(err) {
 			return true, nil
 		}

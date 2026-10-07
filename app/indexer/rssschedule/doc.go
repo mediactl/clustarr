@@ -16,9 +16,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 // Package rssschedule is the RSS poll chain's schedule: when an Indexer's
-// next poll is due, the per-slot Msg-ID that collapses a reconciler seed
-// and a worker reschedule onto one delivery, and the scheduled publish
-// itself. The Indexer reconciler seeds the chain and the RSS worker
-// continues it; this package is what both share, without the release
-// index, so the manager links no SQLite or Postgres (spec §4.3 X1).
+// next poll is due, the per-slot Msg-ID that collapses two publishes of one
+// slot onto one delivery, and the scheduled publish itself. Since ADR-0019
+// A6.3 the Indexer controller publishes every poll (P91); the package links
+// no release index, so the manager links no SQLite or Postgres (spec §4.3
+// X1).
 package rssschedule

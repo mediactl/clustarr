@@ -85,8 +85,8 @@ func truncate(s string, n int) string {
 // package for the same reason the ladder does -- the transition and the
 // declaration of the fields it writes belong together.
 //
-// The struct is pinned by the Phase D1 interface contract; the RSS worker,
-// the search fan-out and the download verb all build their applies from it.
+// The struct is pinned by the Phase D1 interface contract; the Indexer
+// controller builds its incorporation apply from it (ADR-0019 A6.3).
 type Escalation struct {
 	// FailureLevel is status.escalationLevel, already clamped to the
 	// ladder's bounds.
@@ -124,9 +124,10 @@ func (e Escalation) InitialFailure(cur indexv1alpha1.IndexerStatus) *metav1.Time
 // RecordFailure returns the escalation fields the caller must apply.
 //
 // It is pure: it reads cur and returns the next set, and never touches the
-// apiserver, so the caller decides which field manager applies it. The
-// Indexer reconciler never does -- the escalation set belongs to
-// k8s.ManagerIndexWorker, and the reconciler applies as
+// apiserver, so the caller decides which field manager applies it. Since
+// ADR-0019 A6.3 the caller is the Indexer controller, incorporating the
+// index agent's health record; it applies the result under
+// k8s.ManagerIndexWorker, the escalation set's manager, never under
 // k8s.ManagerIndex.
 func RecordFailure(cur indexv1alpha1.IndexerStatus, now time.Time, reason string) Escalation {
 	level := cur.EscalationLevel
@@ -162,8 +163,7 @@ func RecordFailure(cur indexv1alpha1.IndexerStatus, now time.Time, reason string
 // the indexer was already healthy, so a caller can skip a no-op apply.
 //
 // It is pure, like RecordFailure, and like RecordFailure the Indexer
-// reconciler never applies the result -- the escalation set belongs to
-// k8s.ManagerIndexWorker.
+// controller applies the result under k8s.ManagerIndexWorker.
 func RecordSuccess(cur indexv1alpha1.IndexerStatus, now time.Time) Escalation {
 	_ = now // the ladder de-escalates by step, not by elapsed time
 	if cur.EscalationLevel <= 0 && cur.DisabledUntil == nil &&

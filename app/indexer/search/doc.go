@@ -46,31 +46,17 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // instead, and only a request that cannot be decoded at all is answered with
 // a handler error.
 //
-// # Status ownership
+// # Health, not status (ADR-0019 §7.5, W34, P87)
 //
-// This package writes Indexer.status as k8s.ManagerIndexWorker, through
-// app/indexer/status.PatchCAS and nothing else. Server-side apply REPLACES a
-// field manager's ownership set on every apply rather than merging into it,
-// so an apply must declare all eight fields that manager owns even though a
-// search changes a few:
-//
-//	escalationLevel  disabledUntil  initialFailureAt  lastFailureAt  lastFailure
-//	lastRssAt  lastRssNewCount  indexedReleases
-//
-// status.WorkerFields is the single declaration of that set (ruling R14) and
-// status.ApplyEscalation is the only thing that can undo its seed; this
-// package calls both and hand-rolls neither. The RSS poll shares the
-// manager, so a set declared here that differed from its would silently
-// release its fields.
-//
-// Every apply is a compare-and-swap: seeded from a fresh read, applied with
-// that read's resourceVersion, and redone -- ladder step and indexedReleases
-// increment included -- from a new read on a Conflict. A fan-out is an HTTP
-// round trip per indexer, every replica runs one, and an apply seeded from
-// any read but the latest rolls back what another writer did meanwhile: a
-// lost update rather than an SSA release, which no "manager X released field
-// Y" test can see. A re-read before the apply narrowed that window; only the
-// precondition closes it.
+// This package writes no Indexer status. Each query's outcome is a record in
+// clustarr-indexer-health, through the app/indexer/health writer the RSS poll
+// shares: a success, or a failure with its class and message, plus the
+// releases the query newly indexed. The Indexer controller (manager) reads
+// the record, runs Prowlarr's escalation ladder and writes the worker field
+// set; selection reads the verdict, status.disabledUntil, from the agent's
+// cache. Between a failure and that verdict the writer suppresses the
+// indexer locally for at most health.SuppressFor, which selection reads as
+// "unhealthy or in backoff".
 //
 // queriesInWindow and grabsInWindow are not this package's: they are the
 // Indexer reconciler's projection of the clustarr-indexer-limits rings. A
@@ -78,7 +64,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // the moment before it is sent, and an indexer at spec.limits.queryLimit is
 // skipped there, not by reading status -- the projection may be behind, and
 // the gate that read it latched an indexer out of every search for good once
-// it went quiet at its limit.
+// it went quiet at its limit. A reservation that fills the window publishes
+// the limited event from here, since only this process saw it.
 //
 // # Two things this package must not build
 //
@@ -92,9 +79,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # RBAC
 //
-// No +kubebuilder:rbac marker lives here. The reads this package makes
-// (indexers get;list;watch) and the writes it makes (indexers/status
-// get;update;patch) are already granted by app/indexer/controller/indexer and
-// app/indexer/status respectively, on the packages that declare them; restating
-// a rule generates the same role and puts a second place to change.
+// No +kubebuilder:rbac marker lives here. The one read this package makes
+// (indexers list) is already granted by app/indexer/controller/indexer and
+// app/indexer/clients; it makes no write.
 package search
