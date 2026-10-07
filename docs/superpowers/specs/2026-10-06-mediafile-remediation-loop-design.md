@@ -2,6 +2,11 @@
 
 **Status:** Accepted for implementation on branch `unify-manager-agent`, 2026-10-06.
 
+**Amended 2026-10-07 (NATS research, `.superpowers/unify/research/nats-object-store.md`).** §4.9 and
+§4.15 carry dated notes: object-store watches take the same `WatchOption`s as KV watches (the option
+types land in the split plan's Wave 4f, before F1), and a bucket re-created under an object watch is
+skipped silently, as under a KV watch.
+
 **Reconciled with main `80175fdc`, 2026-10-07.** The branch is rebased onto it (the 28
 commits `0d3ae234..80175fdc`, §8.1). What changed here: the MP4 standard's phase 1 is on
 the branch, so the transcode planner plans MP4 under `standard.Version` 2 and names the
@@ -2444,6 +2449,17 @@ leader.
 This replaces split §6.5.3's "replays every record at start" (about 12k records the informer already
 enqueues) and "re-opens the watch after 5 s" (which misses or replays every update in the gap).
 
+**Amended 2026-10-07 (NATS research; `.superpowers/unify/research/nats-object-store.md` §4.1, E9).**
+An object-store watch has the same skip-on-recreate hazard as the "records bucket lost" case above,
+and nothing in nats.go reports it: a bucket deleted and created again under a running
+`ObjectStore.Watch` is resumed at the old stream's last sequence + 1, so every object below it is
+silently skipped (E9: 20 objects, delete and re-create, 5 new objects delivered nothing in 25 s; 20
+more delivered only the last five). The ui's artwork index (`pkg/events/objindex`, artwork design
+§B.8 as amended) handles it as this waker does, by the bucket's creation time
+(`ObjectStore.Status().Created`, checked every 60 s, reopening with a full replay on a change); the
+reaper's artwork audit (§B.5 as amended) re-runs when it changes. `KeepTopology` re-creating a lost
+bucket on kind is the live trigger. No loop source watches an object store.
+
 ### 4.10 Incorporation
 
 | Remediation | When the loop reads its record |
@@ -2787,6 +2803,37 @@ by the guards below.
   `TestRecordsBucketsOpenOnlyThroughTheirStores`, `TestNoV1TaskProducers`.
 
 Every new test is falsified: revert the fix and watch it fail by name.
+
+**Amended 2026-10-07 (NATS research; `.superpowers/unify/research/nats-object-store.md` §4.1, §6.10,
+§7; the artwork design `2026-09-24-index-artwork-ratings-plex-design.md` §B.1 as amended).** Object
+stores get a watch, with the same options as `KV.Watch`:
+
+- **`ObjectStore.Watch(ctx, opts ...WatchOption) (<-chan ObjectEvent, error)`** takes the same
+  `WatchOption` set as `KV.Watch`. Only `WatchUpdatesOnly` is meaningful (it skips the replay and its
+  `Synced` end marker). `WatchFromRevision` on an object store is refused with
+  `events.ErrWatchOptionUnsupported`, because nats.go accepts `ResumeFromRevision` (and `MetaOnly`)
+  on an object store and silently ignores both, delivering the full replay (E6); a reader that needs
+  to resume replays instead (10,000 metas in about 120 ms).
+- **The option types land first, in the split plan's Wave 4f** (W4.102, before F0): `WatchOption`,
+  `WatchOptions`, `WatchUpdatesOnly`, `WatchFromRevision` and `ResolveWatchOptions` are in
+  `pkg/events/bus.go` before F1 runs, with the object-store watch, `ObjectEvent`,
+  `ObjectStore.Status` (`ObjectStoreStatus{Bucket, Created, Bytes}`) and `ErrWatchOptionUnsupported`.
+  F1.3 therefore adds only the KV half: `KV.Watch`'s variadic options, `KV.Keys`, `KV.Status` and
+  `KVStatus`, and the membus KV queue.
+- **membus parity, unbounded and never dropping:** its object watch replays the latest info of every
+  object (tombstones as `Deleted`), sends `Synced`, then every change, through a per-watcher queue
+  drained by its own goroutine, the same shape as its KV watcher after F1.3. natsbus relays nats.go's
+  blocking 32-slot callback through the same kind of queue, so a slow reader never stalls the
+  ordered consumer.
+- **Contract cases** (both buses, landed by W4.101-W4.104): `ObjectStoreMetadataRoundTrip`,
+  `ObjectStorePutReplacesMetadata`, `ObjectStoreSetMetaKeepsContent`,
+  `ObjectStoreSetMetaOnDeletedIsNotFound`, `ObjectStoreWatchReplaysThenSynced`,
+  `ObjectStoreWatchSeesSetMeta`, `ObjectStoreWatchSeesDeleteAsTombstone`,
+  `ObjectStoreWatchUpdatesOnlyHasNoSynced`, `ObjectStoreWatchRefusesFromRevision`,
+  `ObjectStoreWatchDeliversPastTheBuffer` (1,000 puts with a slow reader) and
+  `ObjectStoreStatusReportsCreation`; on the real server, `TestObjectWatchSurvivesAServerRestart`
+  (E10), `TestObjectIndexRebuildsWhenTheBucketIsRecreated` (E9, through `objindex`),
+  `TestPurgeOrphanChunksReclaimsALostRace` (E8) and `TestPurgeOrphanChunksSparesAPutInProgress`.
 
 ---
 

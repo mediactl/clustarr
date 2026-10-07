@@ -9,6 +9,20 @@ engine (ADR-0010); amendment 1 §A3.4's "the metadata gateway caches art on
 `/data`" (ADR-0011); the library page design's decision 1, "cover art is
 hotlinked" (this document, §B.6).
 
+**Amended 2026-10-07** (research note
+`.superpowers/unify/research/nats-object-store.md`, experiments E1-E16 on
+nats-server v2.15.0 and nats.go v1.53.1; the owner's decisions of that day):
+§B.1-§B.9 carry dated "Amended 2026-10-07" notes, and the body above each stays
+the record. The owner decided that fast lookups use deterministic names plus a
+full, versioned metadata map on every object, with **no object-store links**
+(held by a guard), and that the ui pushes cover changes to open pages with an
+SSE `art` event fed by its read-only watch. Since the manager/agent split
+(`2026-10-06-manager-agent-split-design.md`) the gateway runs in agent
+`metadata`, the renderer in agent `catalog` and the reaper in the manager
+(`app/catalog/artwork.Reaper`, split R9); the notes use those homes. The plan
+carries the work as Wave 4f (W4.101-W4.112 of
+`docs/superpowers/plans/2026-10-06-manager-agent-split.md`).
+
 **Research:** `docs/research/plex-metadata-provider.md` (verified against
 Plex's official example and developer.plex.tv). The MDBList and OMDb
 response shapes are recorded as fixtures during implementation (§C.3); no
@@ -236,6 +250,93 @@ from NATS's `SHA-256=<base64url>` form. The contract suite in
 proves a 20 MiB object round-trips (the `max_payload` limit does not apply,
 JetStream chunks).
 
+> **Amended 2026-10-07** (`nats-object-store.md` §3, §4, §6.5-§6.6, §7). The
+> contract becomes:
+>
+> ```go
+> type ObjectMeta struct {
+>     Headers  map[string]string // how to serve the bytes, where they came from (§B.2)
+>     Metadata map[string]string // whose bytes they are (§B.2's keys); ObjectMeta.Metadata in NATS
+> }
+> type ObjectInfo struct { /* ...as above... */ Metadata map[string]string }
+> type ObjectEvent struct {
+>     Info    ObjectInfo
+>     Deleted bool // a tombstone: Info carries only the name
+>     Synced  bool // the replay's end marker; Info is zero
+> }
+> type ObjectStoreStatus struct {
+>     Bucket  string
+>     Created time.Time // a bucket deleted and created again has a new one
+>     Bytes   uint64
+> }
+> type ObjectStore interface {
+>     Get(ctx context.Context, name string) (ObjectInfo, io.ReadCloser, error)
+>     Put(ctx context.Context, name string, r io.Reader, meta ObjectMeta) (ObjectInfo, error) // replaces the headers map
+>     SetMeta(ctx context.Context, name string, meta ObjectMeta) error // new: metadata only, chunks untouched
+>     Delete(ctx context.Context, name string) error
+>     Info(ctx context.Context, name string) (ObjectInfo, error)
+>     List(ctx context.Context, prefix string) ([]ObjectInfo, error)
+>     Watch(ctx context.Context, opts ...WatchOption) (<-chan ObjectEvent, error) // new
+>     Status(ctx context.Context) (ObjectStoreStatus, error)                     // new
+> }
+> // ObjectStoreAdmin is optional (natsbus implements it; membus has no chunks
+> // and returns 0).
+> type ObjectStoreAdmin interface {
+>     PurgeOrphanChunks(ctx context.Context, bucket string, grace time.Duration) (purged int, bytes uint64, err error)
+> }
+> ```
+>
+> - **`Put` is a complete declaration.** NATS `Put` replaces the whole
+>   `ObjectMeta`, so metadata set any other way is gone after the next `Put` that
+>   does not send it again (E3) -- the object-store twin of CLAUDE.md's
+>   server-side-apply rule. Each writer renders its complete set through one
+>   function (§B.2).
+> - **`SetMeta`** is NATS `UpdateMeta` with the name unchanged, so no rename can
+>   happen (a rename purges the old meta subject without a tombstone, E5). It
+>   rewrites no chunk and opens no stall window, but it has **no
+>   compare-and-swap** (`publishMeta` sends no expected sequence): an `UpdateMeta`
+>   that read NUID X before a racing `Put` stored Y and purged X would republish
+>   X, whose chunks are gone. So it is called only by the variant's writer, under
+>   that writer's per-item lock (§B.3). A deleted object is `ErrObjectNotFound`
+>   (nats.go's `ErrUpdateMetaDeleted`).
+> - **`Watch`** wraps nats.go's `ObjectStore.Watch` (an ordered push consumer on
+>   `$O.<bucket>.M.>`): a replay of every object's latest meta, tombstones
+>   included, then `Synced`, then one event per change: every `Put`, re-`Put`,
+>   `SetMeta` and `Delete` (a chunk write, a stream purge and a link's target
+>   changing fire none). It takes the loop spec's `WatchOption`s (§4.15 as
+>   amended): `WatchUpdatesOnly` skips the replay and the `Synced` marker;
+>   `WatchFromRevision` is refused with `events.ErrWatchOptionUnsupported`,
+>   because nats.go accepts `ResumeFromRevision` and `MetaOnly` on an object
+>   store and silently ignores both (E6). nats.go's callback blocks on a 32-slot
+>   channel, so natsbus relays through an unbounded per-watcher queue and never
+>   stalls the subscription; membus does the same and never drops. The channel
+>   closes only on ctx, `Close` or a reset that cannot recover, not on a plain
+>   reconnect (E10: a server restart resumes with no second replay).
+> - **A bucket deleted and created again under a running watch is silently
+>   skipped:** the ordered consumer resumes at the old stream's last sequence + 1
+>   (E9: 25 new objects, then only the last five delivered). `Status().Created`
+>   is how a reader notices; `pkg/events/objindex` (§B.8) checks it.
+> - **`PurgeOrphanChunks`** (§B.5) reclaims what two concurrent `Put`s of one
+>   name leak: each writes its chunks under a new NUID and purges only the NUID
+>   it read before it started, so the loser's chunks are never referenced again
+>   (E8: 30 rounds of two racing `Put`s left 30 orphaned chunk sets, 18 MB from
+>   600 KiB objects); a `Put` that crashes between its chunks and its meta leaks
+>   the same way. The meta-level `List` cannot see them, and the artwork bucket
+>   has no `MaxAge` and is `DiscardNew`, so a leak ends as refused `Put`s at 5 GiB.
+> - **No links in the contract** (owner decision (a)). nats.go's `AddLink` and
+>   `AddBucketLink` are not exposed, and the guard `TestNoObjectLinks` bans
+>   them repo-wide. A link fires no watch event when its target changes, carries
+>   no size, digest or headers of its own (E3), still `GetInfo`s as live after
+>   its target is deleted (E4), costs every `Get` one more meta read, and cannot
+>   be created over any name a regular object ever held, even a deleted one,
+>   which deviates from ADR-20 (E1). The deterministic `ArtworkKey` already
+>   resolves in one direct get and fires a watch event on every change.
+> - `ObjectStoreSpec` gains `Metadata map[string]string`, mapped into
+>   `jetstream.ObjectStoreConfig.Metadata` and ensured by `Ensure` (§B.2).
+> - natsbus's `objectError` maps `ErrUpdateMetaDeleted` to `ErrObjectNotFound`,
+>   and `ErrCantGetBucket` (a bucket link, which nothing creates) to an error
+>   that names it rather than a bare 500 cause.
+
 ### B.2 Bucket and keys
 
 One bucket, `events.BucketArtwork = "clustarr-artwork"`, file storage, three
@@ -253,6 +354,50 @@ func ArtworkKey(kind commonv1.MediaKind, uid types.UID, imageType, variant strin
 `Clustarr-Source-URL`; and on overlays `Clustarr-Rendered-From`, the inputs
 digest of §C.6.
 
+> **Amended 2026-10-07** (`nats-object-store.md` §2, §3, §6.1-§6.2; owner
+> decision (a)). **The name is the key; there are no links.** `ArtworkKey` stays
+> the stable per-item, per-type lookup key: one direct get resolves it, `Put`
+> keeps it pointing at the current bytes, and every change to it is a watch
+> event. Content-addressed blobs behind per-item links, a "served" alias per
+> item and type, and aliases by provider id were all weighed and rejected (§B.1
+> as amended; research §2.4): each adds a hop or a third writer, and none fires
+> a watch event when its target changes.
+>
+> **Every object carries a full, versioned metadata map**, sent whole on every
+> `Put` by its variant's one writer, so an object describes itself: a reader
+> needs no name parsing and no Kubernetes read. In `ObjectMeta.Metadata`:
+>
+> | Key | Value | Variants |
+> |---|---|---|
+> | `clustarr.io/meta-version` | `"1"` (`events.ArtworkMetaVersion`); raised when the set changes, and the backfill (§B.5) keys on it | both |
+> | `clustarr.io/kind` | the item's `commonv1.MediaKind` (repeats the name) | both |
+> | `clustarr.io/uid` | the item's UID (repeats the name) | both |
+> | `clustarr.io/namespace`, `clustarr.io/name` | the item's key, which the name does not carry | both |
+> | `clustarr.io/image-type` | `catalogv1.ImageType` (repeats the name) | both |
+> | `clustarr.io/variant` | `original` or `overlay` (repeats the name) | both |
+> | `clustarr.io/language` | ISO 639-1 of the provider image (`Image.Language`); omitted when empty or for a custom override. Not part of the key while the store keeps one image per type | both |
+> | `clustarr.io/width`, `clustarr.io/height` | decimal pixels: the original's from the `image.DecodeConfig` the gateway already runs, the overlay's from the rendered bounds | both |
+> | `clustarr.io/profile` | the winning OverlayProfile's name | overlay |
+> | `clustarr.io/original-digest` | hex digest of the original it was drawn on, so a reader can tell an overlay is behind its original without reading status | overlay |
+>
+> The headers stay exactly as above: they say how to serve the bytes and where
+> they came from; the metadata says whose bytes they are. Each fact lives in one
+> place: titles and anything else a metadata refresh changes never go in
+> metadata, nor do provider URLs (they stay in `Clustarr-Source-URL`).
+> `Description` is not used. The key constants live in `pkg/events`
+> (`subjects.go`, beside `ArtworkKey`). Readers never depend on the metadata
+> being present: the index (§B.8) parses names, so the order of rollout does not
+> matter.
+>
+> **Bucket metadata** records the key scheme, ensured by `Ensure` through
+> `ObjectStoreSpec.Metadata`: `clustarr-artwork` carries
+> `clustarr.io/key-scheme: "<kind>/<uid>/<imageType>/<variant>"` and
+> `clustarr.io/meta-version: "1"` (the scheme the writers use, not a claim that
+> the backfill has finished); `clustarr-fingerprints` carries
+> `clustarr.io/key-scheme: "<probeHash>.<start|end>[.v<FingerprintVersion>]"`.
+> Fingerprints get no per-object metadata; their version is in the name
+> (split spec §7.2.7 as amended, `segments.FingerprintKey`).
+
 ### B.3 Writers
 
 Two writers, split by variant, the same discipline as spec versus status on
@@ -265,6 +410,31 @@ MediaFile:
 
 Neither reads, writes or deletes the other's variant, except the reaper
 (§B.5).
+
+> **Amended 2026-10-07** (`nats-object-store.md` §1.3 G3, §6.3). "Neither
+> writes the other's variant" now covers metadata too, and three rules join it:
+>
+> - **The renderer serialises per item.** It had two render slots and no
+>   per-item lock, so two `RenderOverlay` tasks for one item with different
+>   Msg-Ids (one from the gateway's pass, one from the OverlayProfile
+>   controller) could `Put` one name at once and leak a full copy (§B.1 as
+>   amended). An in-process keyed lock, the shape of the gateway's
+>   `Fetcher.Lock`, now spans plan, draw, `Put` or `Delete`, and the status
+>   record: the second task finds the overlay current at §C.6 step 3. That
+>   closes the leak while the `catalog` domain runs one replica (its HPA is
+>   0..1, split §9.1.1); the reaper's orphan purge bounds it if it ever runs more.
+>   The gateway's writes were already serialised by `Fetcher.Lock` on its one
+>   replica.
+> - **`SetMeta` is the owner's alone**: called only by the variant's writer, on
+>   its own variant, under its per-item lock, since it has no compare-and-swap.
+> - **The reaper** keeps its role as the only code that deletes both variants,
+>   and gains the orphan-chunk purge and the artwork audit (§B.5 as amended). It
+>   never `Put`s and never calls `SetMeta`.
+> - **The ui writes nothing**: its watch (§B.8) is a read.
+>
+> `TestArtworkWritersAreTheTwoVariantOwners` (split §5.15 as amended) holds the
+> writers; `TestRendererSerialisesOneItem` (two concurrent tasks for one item
+> leave one chunk subject) holds the lock.
 
 ### B.4 Fetching originals
 
@@ -301,6 +471,23 @@ one `RenderOverlay` task (§C.6) for the item.
 > "no original" branch (§C.6 step 1) is what actually deletes `poster/overlay`
 > and clears `status.overlay` — the gateway never deletes an `overlay`
 > object itself.
+>
+> **Amended 2026-10-07** (`nats-object-store.md` §6.2, §6.9). Step 3's `Put`
+> sends the complete set of §B.2 as amended, built by
+> `app/catalog/artwork.ObjectMeta` (the light package both writers and the
+> reaper already import) from the item's identity, the image type, the variant,
+> the resolved source (`artwork.Source` gains `Language`) and the decoded
+> dimensions. **Backfill is lazy and the owner's:** in `Sync`'s keep-verbatim
+> branch, the `Info` that `stale()` already makes is returned to `Sync`, and an
+> object whose `clustarr.io/meta-version` is below `events.ArtworkMetaVersion`
+> gets one `SetMeta` with the full set, under `Fetcher.Lock`: no refetch, no
+> chunk rewrite, about 0.7 KB of meta per object. An old object carries no
+> dimensions and status has none, so the backfill reads the object's first
+> 64 KiB for `image.DecodeConfig` and closes the reader (the research's
+> backfill assumed `SetMeta` alone could send the whole set). `SetMeta`, not a re-`Put` of
+> the same bytes, because it rewrites no chunks, opens no stall window for
+> readers (§B.8 as amended) and needs no transient double space in a
+> `DiscardNew` bucket.
 
 ### B.5 Reaper
 
@@ -309,6 +496,61 @@ gateway, every 6 hours lists the bucket and deletes every object whose
 `<kind>/<uid>` prefix names no live item of that kind, after a 30-minute
 grace period from the object's `ModTime`, following `grabarr`'s reapers. It
 is the only code that deletes both variants.
+
+> **Amended 2026-10-07** (`nats-object-store.md` §1.3 G1 and G3, §6.6, §6.9).
+> The reaper is `app/catalog/artwork.Reaper`, leader-only in the manager (split
+> R9, §5.13). Two duties join the delete, both inside the sweep that already
+> lists the whole bucket; neither is a watch (D5: every legitimate change is
+> followed by a status apply the manager already watches, and what only the
+> store can show needs repair within hours, not seconds):
+>
+> 1. **Orphan-chunk purge.** `events.ObjectStoreAdmin.PurgeOrphanChunks(ctx,
+>    bucket, grace)` (§B.1 as amended), natsbus only: it lists the chunk
+>    subjects `$O.<bucket>.C.>` from STREAM.INFO and the live NUIDs from the
+>    library's `List`, and purges each chunk subject whose NUID no live meta
+>    names **and** whose last message is older than the grace (the existing 30
+>    minutes, which covers a `Put` in progress, since chunks precede their meta).
+>    It runs for `clustarr-artwork` and `clustarr-fingerprints`, and counts
+>    `clustarr_object_orphan_chunks_purged_total{bucket}` and
+>    `clustarr_object_orphan_bytes_purged_total{bucket}`. Chunks leaked before the
+>    fix are purged by the first sweep after rollout. (Sizing the live leak first
+>    is two read-only `nats` CLI commands on kind-cluster-plex, which wait for the
+>    owner's OK.)
+> 2. **The artwork audit.** For every item in the manager's synced cache (the
+>    eight kinds with `status.artwork`, and Movie and Series for
+>    `status.overlay`), it compares the recorded digests with the listing:
+>    - an `original` that is missing or carries another digest gets an
+>      `ArtworkFetchTask`; the schema needs no change, because the gateway's
+>      fetch handler runs a full pass whatever the drift and `stale()` refetches
+>      a missing or mismatched object. Until now nothing repaired a lost object
+>      until the item's next metadata refresh, 7 to 30 days later (a NATS volume
+>      wiped and the bucket re-created by `KeepTopology`, a manual
+>      `nats object rm`, a crash between a `Put` and its status apply);
+>    - an `overlay` that is missing or carries another digest while
+>      `status.overlay` is set gets a `RenderOverlay` task;
+>    - an object whose `clustarr.io/meta-version` is below current gets its
+>      variant's task too, which finishes the backfill (§B.4 as amended, §C.6 as
+>      amended) promptly instead of at each item's next refresh.
+>
+>    Msg-Ids are `schema.MsgIDForArtworkFetch(uid, "audit-"+reason+"-"+gen)` and
+>    `schema.MsgIDForRenderOverlay(uid, "audit-"+reason+"-"+gen)`, `gen` being the
+>    bucket's creation time, so a re-created bucket is audited afresh and a quiet
+>    one publishes nothing twice. **Publishing is paced against consumer lag**
+>    (`NumPending + NumAckPending`, split §9.0): only while
+>    `catalogarr-artwork-fetch` (or `-render`) lags fewer than 256, leaving the
+>    rest for the next tick. After a bucket loss the audit is the whole library,
+>    about 16,000 items, and `CLUSTARR_WORK_CATALOGARR` is a 7 MiB discard-oldest
+>    memory stream on single-node NATS, where queueing by the thousand silently
+>    drops the neighbours' work (CLAUDE.md). It counts
+>    `clustarr_artwork_audit_tasks_total{variant,reason}` and sets
+>    `clustarr_artwork_objects{variant,meta_version}` (backfill progress).
+> 3. **When.** Every sweep (6 hours); at once when `Status().Created` differs from
+>    the last sweep's (checked every minute, one STREAM.INFO); and every 10
+>    minutes while a paced backlog remains.
+>
+> The audit reads status from the manager's cache, which is synced before
+> leader-only runnables start; the delete's metadata-only, uncached liveness
+> lists stay as they are.
 
 ### B.6 API
 
@@ -368,6 +610,10 @@ disjoint sets; `managedFields` tests hold each manager to its set.
 
 `status.metadata.images` is unchanged and keeps the provider URLs.
 
+> **Amended 2026-10-07.** No API change: the object metadata of §B.2 as amended
+> lives on the object, never in status, and no status field records the
+> metadata version.
+
 ### B.7 Triggering a re-fetch
 
 The item's reconciler compares `spec.artwork` against `status.artwork`: any
@@ -392,6 +638,13 @@ placeholder once the ui stopped hotlinking. The fetch task now backfills
 them from the stored images without refetching metadata, and retries a
 provider image whose fetch failed once per duplicate window, as a custom
 URL already was.
+
+> **Amended 2026-10-07** (`nats-object-store.md` §6.6). A second, level-driven
+> trigger joins the item reconciler's drift: the reaper's artwork audit (§B.5 as
+> amended) publishes the same `ArtworkFetchTask` for an item whose recorded
+> original is missing from the bucket, carries another digest, or carries
+> metadata below `events.ArtworkMetaVersion`. Drift compares sources with
+> status; only the audit asks whether the object is still there.
 
 ### B.8 Serving
 
@@ -426,11 +679,107 @@ exists. Hotlinking of provider URLs is removed from every template.
 > every Deployment whose command takes `--nats-url`, the ui logs once at
 > startup when the bus is not yet connected, and it closes the connection
 > on shutdown.
+>
+> **Amended 2026-10-07** (`nats-object-store.md` §1.2, §1.3 G2 and G4, §4.3, §5,
+> §6.4-§6.5; owner decision (b)). The ui holds **one read-only watch** on
+> `clustarr-artwork` per process, and `/art` stops streaming objects straight
+> from NATS into responses.
+>
+> **Why.** A `Get` is a direct get of the meta subject plus the creation and
+> deletion of an ordered consumer on the chunks (2.1 ms for a 300 KiB poster,
+> loopback); `/art` made one even for a 304, because it read the object before
+> its `If-None-Match` check, and probed the overlay first for the eight kinds
+> that never have one. Worse, `Put` purges the old chunks as soon as the new meta
+> is stored, so a reader streaming an object that is overwritten mid-read stops
+> receiving chunks and fails only at its context deadline (5 s by default) with
+> `read pipe: i/o timeout`, never a digest error (E14, E14b), after `/art` had
+> already sent a 200 with its `Content-Length`: a truncated image. (The DeepWiki
+> claim that a new NUID protects in-flight reads of the old object is wrong.)
+>
+> **The index.** `pkg/events/objindex` (generic, importable by `ui/`):
+> `objindex.New(store events.ObjectStore) *Index`, started by `ui.Run` when
+> `Options.Artwork` is non-nil. It keeps `name -> {Digest, Size, ContentType,
+> ModTime, Metadata}` for live objects and drops names on tombstones;
+> `Lookup(name)`; `Synced()` is true from the replay's end marker until a reopen;
+> `Subscribe()` delivers `(name, oldDigest, newDigest)` changes. On a channel
+> close it reopens with a full replay after a backoff of 1 s doubling to 30 s,
+> building the new map aside and swapping it in at the end marker (a full replay
+> of 10,000 metas is about 120 ms and 7 MB, so resuming is not worth nats.go's
+> missing revision support). Every 60 s it compares `Status().Created` and
+> reopens on a change: a bucket re-created under a running watch is otherwise
+> skipped silently (§B.1 as amended, E9). (The research also proposed reopening
+> when a replay holds far fewer objects than the index; a reopen's replay
+> replaces the map anyway, and the creation time is what detects a re-created
+> bucket, so that rule is not adopted.) `Subscribe` never blocks the index: a
+> subscriber whose buffer is full loses changes, which the 5 s projection tick
+> repairs. About 250 bytes per object.
+>
+> **`GET /art/{kind}/{uid}/{type}`:**
+>
+> 1. **Choose the variant.** Only `movie` and `series` posters can have an
+>    overlay; every other kind and type goes straight to `original`. With the
+>    index synced: the overlay entry if present, else the original, else 404 with
+>    no NATS call. Unsynced, or with no entry: `Info` (the overlay first only
+>    where one can exist, then the original). The index never makes a miss
+>    authoritative on its own.
+> 2. **ETag and caching** come from the chosen entry's digest, **before any
+>    byte is read**: an `If-None-Match` that matches answers 304 with no `Get`;
+>    `?v=<digest>` that matches gets `immutable`, as before.
+> 3. **Bytes come from a digest-keyed LRU** (`--art-cache-bytes`, default
+>    64 MiB; the key is the digest, so an entry is never stale and needs no
+>    invalidation). On a miss the object is read **whole**, bounded by
+>    `events.ArtworkMaxImageBytes + 1` (20 MiB, the gateway's cap moved into
+>    `pkg/events` so the ui can name it) and a 10 s deadline, and its digest is
+>    checked against the one chosen. On an `i/o timeout`, a digest mismatch or a
+>    changed digest (overwritten mid-read), it re-resolves once and retries; only
+>    then are the headers and body written. A 200 never begins before the bytes
+>    are in hand.
+> 4. **The SSE `art` event** (owner decision (b)). The index's changes map to
+>    `(kind, uid, type) -> served digest`: the overlay if present, else the
+>    original. A change to an original under an existing overlay changes nothing
+>    served and emits nothing until the renderer `Put`s. `GET
+>    /events/library/{tab}` emits `event: art` with
+>    `data: {"key":"movie/<uid>/poster","v":"<digest>"}` for items on the
+>    subscriber's page; the item page, which has no stream today (the research
+>    assumed one), gets `GET /events/art?key=<kind>/<uid>/<type>` (up to 16
+>    keys), emitting the same event for those keys only. A few lines in
+>    `ui/static/art.js` swap `img[data-art="<key>"]`'s `src` to
+>    `/art/<key>?v=<digest>`; the templates that render an `/art` URL gain
+>    `data-art`. The 5 s projection tick still re-renders cards from status and
+>    lands on the same URL harmlessly; the event makes the swap sub-second.
+>
+> Nothing here writes: `Watch`, `Status`, `Info` and `Get` are reads, so "the UI
+> may hold a bus connection for reads plus one request" stands. The guard list
+> grows (split §4.5.2 as amended): `TestUINeverWrites` adds `PutString`,
+> `PutFile`, `AddBucketLink`, `SetMeta`, `CreateObjectStore`,
+> `UpdateObjectStore`, `CreateOrUpdateObjectStore`, `DeleteObjectStore` and
+> `PurgeOrphanChunks`, and bans importing `nats.go` or `nats.go/jetstream` under
+> `ui/`. The Plex provider (`ui/plex`) may consult the index to omit an image
+> whose object the synced index does not hold (§D.5, "omitted, never blanked");
+> that is optional and not planned.
+>
+> **Cross-repo, not done on this branch: cluster-plex.** Its watcher decides
+> whether to refresh Plex by hashing `status.metadata`, `status.overlay`,
+> `status.title`, `status.overview` and `status.airDate`
+> (`cluster-plex/pkg/clustarrwatch/fields.go:46-53`, compared at
+> `watcher.go:302`), not `status.artwork`. A custom override (`spec.artwork`) or
+> an audit backfill changes `status.artwork` alone, which changes the `?v=` URL
+> the Plex provider would answer with, but Plex never asks again and keeps the
+> old poster. The fix is `{"status","artwork"}` in `shown` (`Trim` already keeps
+> every `shown` path) with `TestMetadataHashCoversArtwork`; cluster-plex has no
+> NATS connection, so a watch is not an option there. The owner schedules it in
+> cluster-plex.
 
 ### B.9 ADR-0011
 
 "Artwork lives in a JetStream object store, one bucket, two writers split
 by variant." Supersedes amendment 1 §A3.4's disk cache.
+
+> **Amended 2026-10-07.** A partial change, not a supersession
+> (`docs/adr/README.md`, "Lifecycle"): the decision stands, and the ADR index
+> records a one-line refinement under ADR-0011: "2026-10-07: no object links;
+> objects carry versioned metadata; the ui indexes the bucket by watch; the
+> reaper audits and purges orphan chunks."
 
 ## C. Ratings and overlays
 
@@ -705,6 +1054,21 @@ leader-elected and scales by consumer.
 > render tasks for Movie and Series only, and the renderer acknowledges a
 > task for any other kind instead of discarding it, which had
 > dead-lettered one per non-video poster.
+>
+> **Amended 2026-10-07** (`nats-object-store.md` §6.3, §6.9, §7; §B.3 as
+> amended). The four steps run under a per-item in-process lock (key
+> `<kind>/<namespace>/<name>`). Step 4's `Put` sends the complete overlay set of
+> §B.2 as amended (`artwork.ObjectMeta`, with the profile, the original's digest
+> and the rendered bounds). Step 3, finding the overlay current, calls `SetMeta`
+> with the full set when its `clustarr.io/meta-version` is below current (the
+> backfill; the overlay's dimensions come from a 64 KiB `image.DecodeConfig`
+> read, as the gateway's do). Step 4 reads the original whole under a 30 s
+> deadline and treats a timed-out read like a changed original,
+> `ErrInputsMoved`, which retries: an original overwritten mid-read otherwise
+> held a render slot until the read's deadline (§B.8 as amended). The renderer
+> stays on its durable `RenderOverlay` work queue and never watches the bucket:
+> a watch cannot wake a domain at zero, has no ack, redelivery or dead letter,
+> and cannot see the ratings and profile changes that also trigger a render.
 
 ## D. Plex Metadata Provider
 

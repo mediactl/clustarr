@@ -87,6 +87,34 @@ onto it).** Each item names the sections it changed:
   the existing `ui/actions` calls, so no grant, ui option or `cmd/ui` link
   changes (§3.6, §4.7).
 
+**NATS research, 2026-10-07.** Three read-only research notes, written after
+Waves 0-4e were built, amend this spec in place. Every amended passage is marked
+**Amended 2026-10-07 (NATS research)** and names the note it rests on; the body
+before each mark stays as the record of what was decided first:
+
+- `.superpowers/unify/research/nats-hpa-metrics.md` (where the HPA's number
+  comes from): §9.0, §9.2, §9.3 (`ConsumerState`), §9.4, §9.8, §9.9, §12.
+- `.superpowers/unify/research/nats-worker-pools.md` (the pull loop and slow
+  consumers; its defects D1-D7 and recommendations M1, M2, S1-S11): §3.3,
+  §3.5.6, §9.2, §9.3, §9.6, §9.8, §9.9, §12. D1 (a saturated subscription
+  dead-letters healthy tasks it never ran) is Wave 4c's; D2 (a fired schedule
+  loses its ID, and its dead-letter copy is refused) is on main and predates this
+  branch.
+- `.superpowers/unify/research/nats-object-store.md` (artwork metadata, links
+  and watches): §3.6, §4.5.2, §5.13, §5.15, §7.2.7, §10.3.2, §12. The artwork
+  design (`2026-09-24-index-artwork-ratings-plex-design.md` §B) and the loop
+  spec (`2026-10-06-mediafile-remediation-loop-design.md` §4.9, §4.15) carry
+  the rest, amended the same day.
+
+The owner's answers of 2026-10-07 bind: **(a)** fast lookups use deterministic
+object names plus a full, versioned metadata map on every object, and there are
+no object-store links, held by a guard that nothing creates one; **(b)** the ui
+pushes cover changes to open pages with an SSE `art` event fed by its read-only
+object-store watch; **(c)** the HPA metric stays JetStream `CONSUMER.INFO`
+`NumPending + NumAckPending` per durable, not `/jsz` and not a stream's message
+count (§9.0 records why, with the live numbers). The plan carries the work as
+Wave 4f (W4.90-W4.115), between Waves 4e and 5.
+
 **Basis.**
 
 - Line references are to the worktree `/home/appkins/src/mediactl/clustarr-unify`,
@@ -319,6 +347,11 @@ HPAs are never templated by the chart. Topology owns `MaxAckPending`.
   cluster-scoped APIService, which then blocks every namespace deletion in the
   cluster. The manager deletes it on its way out when its own namespace is
   terminating (`extmetrics.NamespaceGuard`, §9.4).
+- **Amended 2026-10-07 (NATS research; owner decision (c)).** The metric and its
+  source are confirmed against the alternatives the owner raised (the
+  monitoring endpoint `/jsz`, a stream's `messages` count) with live numbers
+  (§9.0). The slot-gated pull this ruling depends on no longer parks what it
+  cannot run (§9.3, M1), and a fired schedule keeps its ID (§9.3, M2).
 
 **R6. Package layout.** Per service an exported controller-side registration
 package `app/<svc>/manager` and agent-side `app/<svc>/agent`, with leaf
@@ -507,6 +540,17 @@ and never reports a duplicate. Today `pkg/k8s.AddProbes`
 (`pkg/k8s/manager.go:314-326`) is called from six `run.go` files, each with
 `ping`, `jetstream` and `cache`; in one process the last caller's checks
 silently replace the earlier ones.
+
+**Amended 2026-10-07 (NATS research; `nats-worker-pools.md` §3.5, §7 S1).** One
+more local-fault liveness check, `bus`, beside `ffgo`, in the manager, every
+agent domain and markers (on its `/healthz`): it fails while any subscription of
+the process has sat at its lapsed cap (§9.3) for longer than its handler budget
+(`HandlerBudget()`, §3.5.6 as amended) plus its first-delivery deadline, which
+only handlers that ignore their context can cause, and which only a restart
+cures. It reads the bus's own state (`events.WedgeReporter`, §9.3
+"Handler budget"), never the broker, so a NATS outage never fails it. The table
+below gains `bus` in the healthz column of the manager, agent (every domain) and
+markers rows; transcode has none (its Job pod is fenced by its lease).
 
 **The design.**
 
@@ -996,6 +1040,24 @@ budget: catalogarr runs a 60 s grace beneath search's 120 s AckWait. (The
 autoscale draft's fixed 45 s drain and the installers draft's grace = AckWait
 are both replaced by this rule; §13 OD35.)
 
+**Amended 2026-10-07 (NATS research; `nats-worker-pools.md` D7, §7 S1).** The
+handler budget gets its own field, so `AckWait` keeps one meaning, the
+broker's. `events.ConsumerSpec.HandlerTimeout` is an explicit per-message
+handler budget, which the bus enforces (§9.3 as amended, "Handler budget");
+`ConsumerSpec.HandlerBudget()` returns it, else `AckWait`, and is what sizing
+reads: `--drain-timeout` defaults to the longest `HandlerBudget()` of the
+domain's durables, `TestGracePeriodsCoverAckWait` reads `HandlerBudget()`, and
+the `bus` liveness check (§3.3 as amended) uses it as its threshold. Every value
+above is unchanged. Enforcement is **opt-in**, unlike the research's S1, which
+made every consumer's budget its `AckWait`: fileimport (60 s `AckWait`,
+heartbeat 10 s) copies files across filesystems and the rescan (60 s, heartbeat
+3 s) walks whole libraries, both heartbeating past `AckWait` by design, so a
+budget at `AckWait` would cancel them. W4.97 sets `HandlerTimeout` only where a
+bound already exists by hand (`segmentarr-analyze`, 30 min, its `TaskTimeout`);
+each other consumer gets one when its `clustarr_work_duration_seconds` tail on
+the live cluster says what it should be. S3 (§9.6) needs it set on every
+consumer whose `AckWait` it changes.
+
 ### 3.6 cmd/ui
 
 `ui [flags]` and `ui version`. Flags unchanged from `services.go:625-673`, plus
@@ -1026,6 +1088,23 @@ log and tracing flags:
 5. `ui.Run`, which calls `obs.Bootstrap` with `ui`.
 
 The ui never ensures topology. Signals, umask and exit codes are §3.2.
+
+**Amended 2026-10-07 (NATS research; `nats-object-store.md` §6.5, §8;
+owner decision (b)).** One new flag and one new start step:
+
+| Flag | Default | Env |
+|---|---|---|
+| `--art-cache-bytes` | `67108864` (64 MiB, `ui.DefaultArtCacheBytes`): the digest-keyed artwork byte cache; `0` disables it | — |
+
+`ui.Run`, step 5, starts the artwork index (`pkg/events/objindex`) on
+`Options.Artwork` when it is non-nil, after step 4 (`buildBus` in
+`internal/cli/ui`) has bound the store: one
+read-only `ObjectStore.Watch` per ui process, feeding `/art`'s lookups, its
+byte cache and the SSE `art` event (artwork design §B.8 as amended). A watch is
+a read: the ui still writes nothing and ensures no topology, and `TestUIWiresEveryUIOption`
+holds `ArtCacheBytes` like every other option. The ui's 256 MiB memory limit
+(chart `ui.resources`) holds the 64 MiB cache and the index (about 250 bytes per
+object, 2.5 MB at 10,000 objects).
 
 **Links.** `cmd/ui` imports `internal/cli/ui`, `ui`, `ui/actions`,
 `ui/projection`, `pkg/events`, `pkg/events/schema`, `pkg/metadata/extended`,
@@ -1802,6 +1881,22 @@ planning); `pkg/overlay` (templates, badges, 64 KiB of logo PNGs);
 `pkg/k8s` imports under `ui/`, and this guard adds the transitive check it never
 had.
 
+**Amended 2026-10-07 (NATS research; `nats-object-store.md` §1.3 G7, §6.10).**
+`TestUINeverWrites` is extended, since the ui now holds a watch on the artwork
+bucket and its read-only status rests on the guard alone (neither installer
+configures NATS authorization):
+
+- `neverWriteSelectors` gains `PutString`, `PutFile`, `AddBucketLink`, `SetMeta`,
+  `CreateObjectStore`, `UpdateObjectStore`, `CreateOrUpdateObjectStore`,
+  `DeleteObjectStore` and `PurgeOrphanChunks`, beside today's `Put`, `PutBytes`,
+  `UpdateMeta`, `Seal`, `AddLink` and `Purge`.
+- No non-test file under `ui/` imports `github.com/nats-io/nats.go` or
+  `github.com/nats-io/nats.go/jetstream`: the ui reaches NATS only through
+  `pkg/events` and the bus `internal/cli/ui` hands it. This deps guard still
+  allows nats.go transitively, through `pkg/busconn`.
+
+`Watch`, `Status`, `Info`, `Get` and `List` stay allowed: they are reads.
+
 #### 4.5.3 cmd/agent
 
 `TestAgentLinksNoManagerRegistration`, `TestAgentKeepsTheCgoPieceCompletion`.
@@ -2462,6 +2557,19 @@ cmd/manager; the index agent reads IndexerDefinitions from its cache
 the manager must not link (§5.12). After these moves no agent holds a
 `NeedLeaderElection()==true` runnable.
 
+**Amended 2026-10-07 (NATS research; `nats-object-store.md` §6.6, §6.11).** The
+`artwork.Reaper` row's "Needs" column gains, for its two new duties (the
+orphan-chunk purge and the artwork audit, artwork design §B.5 as amended): the
+manager's **cache** (the audit reads `status.artwork` of the eight kinds and
+`status.overlay` of Movie and Series, synced before leader-only runnables
+start); an `events.Publisher` (paced `ArtworkFetchTask` and `RenderOverlay`
+repair tasks); `events.StreamAdmin.ConsumerState` (pacing against the lag of
+`catalogarr-artwork-fetch` and `catalogarr-artwork-render`); and
+`events.ObjectStoreAdmin` (`PurgeOrphanChunks` on `clustarr-artwork` and
+`clustarr-fingerprints`). It still never `Put`s or calls `SetMeta`, decodes no
+image (the audit compares digests), and keeps its metadata-only uncached
+liveness lists. The manager links no new decoder.
+
 ### 5.14 What the manager mounts, and why
 
 **`/data`, the RWX claim `clustarr-data`, read-write**, with the same identity as
@@ -2570,6 +2678,34 @@ ONNX or par2 library (R3).
 - **`TestControllerNamesAreUniqueAcrossTheBinary`**
   (cmd/clustarr/runnable_registration_test.go:702) moves and runs over the
   manager registration.
+- **Amended 2026-10-07 (NATS research; `nats-object-store.md` §6.10, owner
+  decision (a)).** Three object-store guards, each an AST scan of non-test files:
+  - **`TestNoObjectLinks`**: no `AddLink` or `AddBucketLink` selector anywhere in
+    the module. Links fire no watch event when their target changes, carry no
+    size, digest or headers, dangle silently when the target goes, and nats.go
+    refuses one over any name a regular object ever held, so the deterministic
+    name stays the only lookup key (artwork design §B.2 as amended).
+  - **`TestOnlyNatsbusTouchesJetStreamObjectStores`**: outside
+    `pkg/events/natsbus` and `pkg/events/topology_nats.go`, no file that imports
+    `github.com/nats-io/nats.go/jetstream` names a selector containing
+    `ObjectStore` or `ObjectMeta`. (`app/catalog/history/dlqstore.go` imports
+    jetstream for the DLQ stream reader and stays allowed: it names no object
+    store. The research's version of this guard banned every jetstream import
+    outside the bus packages and would fail on that file.)
+  - **`TestArtworkWritersAreTheTwoVariantOwners`**: `events.BucketArtwork` is
+    named only by `pkg/events`, the registration packages that bind the store
+    (`app/catalog/manager`, `app/catalog/agent/catalog`,
+    `app/catalog/agent/metadata`, `internal/cli/ui`); an object-store write
+    (`Put` with four arguments, `SetMeta`) appears only in
+    `app/catalog/metadata/artwork`, `app/catalog/worker/artwork`,
+    `app/segments/worker` (its own fingerprint bucket) and the two buses; an
+    object `Delete` in a file that names `events.ArtworkVariantOriginal` or
+    `ArtworkVariantOverlay` appears only in those two writers and
+    `app/catalog/artwork` (the reaper).
+- **`TestHeartbeatsFitTheirDeadline`** (amended 2026-10-07, `nats-worker-pools.md`
+  §2.4, S9): every handler heartbeat interval (each worker package's exported
+  `HeartbeatInterval`) is at most a third of its durable's
+  `events.AckDeadline(sub, 1)`, so two heartbeats can be lost before a lapse.
 
 ---
 ## 6. Probing without ffprobe
@@ -3497,6 +3633,29 @@ fraction of a percent; the library parity run (§7.2.10) must include every
   invalidates `clustarr-segments` records and changes result Msg-Ids. It is
   raised only if the library parity run crosses the owner's threshold (§13 OD20).
 - **Names unchanged:** consumer `segmentarr-analyze`, stream `CLUSTARR_WORK_SEGMENTARR`.
+
+**Amended 2026-10-07 (NATS research; `nats-object-store.md` §1.3 G6, §6.8).** The
+research found the live cache key unversioned (G6) and proposed a second scheme,
+`events.FingerprintKey` naming `<probeHash>.fp<N>.<start|end>`. This section
+already versions the key, so that scheme is not adopted: there is one key
+builder, `segments.FingerprintKey`, and one constant, `segments.FingerprintVersion`.
+What changes is when they land and what raises the constant:
+
+- **Land the builder now, at version 1** (plan W4.111, Wave 4f). Version 1 is the
+  CLI decoder's output and keeps its legacy name, `<probeHash>.<which>`, so
+  nothing is recomputed before the decoder changes; `FingerprintKey` appends
+  `.v<N>` only from version 2 on. W7.5 then raises the constant to 2 with the
+  ffgo decoder, exactly as above, and the names become `<probeHash>.<which>.v2`.
+- **Raise `FingerprintVersion` also** when the window lengths (`startWindow`,
+  `endWindow`) or the Chromaprint configuration change, not only decode output:
+  a cached fingerprint of another window is as wrong as one of another decoder.
+  A detection-only change raises `AnalyzerVersion` alone and reuses the cache.
+- **The bucket says so.** `clustarr-fingerprints` carries bucket metadata
+  (`ObjectStoreSpec.Metadata`, artwork design §B.1 as amended):
+  `clustarr.io/key-scheme: "<probeHash>.<start|end>[.v<FingerprintVersion>]"`.
+  Fingerprint objects carry no per-object metadata and no links; the reaper's
+  orphan-chunk purge covers this bucket too (§5.13 as amended), since two
+  markers pods racing one `Put` leak a copy until the 90-day `MaxAge`.
 
 #### 7.2.8 Cancellation, threads, memory, concurrency
 
@@ -4701,6 +4860,81 @@ the consumer-wide `MaxAckPending`. Live-cluster facts come from kind-cluster-ple
 - **KEDA is deleted** (§10.2.7). `TestCaptionarrScaledObjectCountsTheRealFetchConsumers`
   retires in favour of the domain and topology guards (§9.9, §10.3.2).
 
+**Amended 2026-10-07 (NATS research; `nats-hpa-metrics.md` §1, §2, §5; owner
+decision (c)).** The metric stays as decided; this states it precisely and
+records why the two NATS-native alternatives the owner raised are not used.
+
+**The metric, per durable.** `clustarr_consumer_lag{stream,consumer}` =
+`ConsumerInfo.NumPending + ConsumerInfo.NumAckPending`, where:
+
+- `NumPending` is the messages matching the durable's filters after its
+  delivered sequence. A `WithScheduleAt` hold sits on a `.sched.` subject no
+  filter matches and counts only once it fires, so a delay-profile grab wakes
+  its domain when it is due, not when it is queued.
+- `NumAckPending` is delivered and unsettled: running in a handler, waiting out
+  a delayed nak, or lapsed and waiting to be redelivered (a crashed pod's
+  delivery). That is what wakes a domain at zero for a retry, and what keeps
+  the last pod while it holds work.
+- Neither counts a message past `MaxDeliver` that waits for its dead-letter copy
+  (nats-server v2.15.0 `consumer.go:2427-2453`), nor `NumRedelivered` (a subset,
+  not additive) or `NumWaiting` (idle pull requests, the inverse of demand).
+
+**The source is `$JS.API.CONSUMER.INFO.<stream>.<durable>`**, which only the
+consumer's leader answers (`jetstream_api.go:5556`, "we need to be the consumer
+leader to proceed", and `:5649`), so it is right on the chart's 3-node R3
+cluster by construction. It rides the manager's NATS connection, needs no
+monitoring port, and costs 897 bytes and 0.23-0.83 ms per durable (measured
+live). `CONSUMER.LIST` is not used: in a cluster it reports a durable whose
+leader does not answer within 4 s only as `missing`, which nats.go's
+`ListConsumers` drops, so a slow leader would read as lag 0.
+
+**Why not `/jsz`.** Live, kind-cluster-plex, 2026-10-07 08:21 UTC
+(`nats:2.14.6-alpine`, one node, account `$G`):
+
+- `num_pending` is authoritative only on the consumer leader: `setLeader` resets
+  it on a step-down ("these are only authoritative on the leader",
+  `consumer.go:1728-1729`) and only the leader counts new messages
+  (`consumer.go:7082-7084`), so a follower reads 0. On the chart's 3-node R3
+  default a `/jsz` read that lands on a follower, with no pods running and so no
+  ack-pending, would leave a domain at zero asleep while its leader holds
+  thousands of tasks; kind runs one server, the leader of everything, so every
+  e2e would pass. KEDA's scaler reads `/jsz` and needs a `/varz` walk of every
+  node to find the leader (2 + 2N calls per leader change).
+- Port 8222 is unauthenticated, and the chart exposes it only per pod, through
+  the headless Service.
+- An `acc` that names no account answers HTTP 200 with no `account_details` at
+  all (`monitor.go:3391-3408`; reproduced live with `acc=NOPE`): the silent
+  failure behind KEDA issue #8165.
+- It is a whole-account dump: 45,913 bytes and about 6 ms for 26 streams and 45
+  consumers (110,325 bytes with `config=true`), against 897 bytes per
+  `CONSUMER.INFO`.
+
+**Why not a stream's `messages` count.** Same reading:
+
+| Stream (retention) | `state.messages` | Lag of its durable(s) | The gap |
+| --- | ---: | --- | --- |
+| `CLUSTARR_WORK_SEGMENTARR` (WorkQueue) | 18,897 | `segmentarr-analyze` 16,559 + 4 = 16,563; the other three 0 | 2,334 TheIntroDB holds on `clustarr.work.segmentarr.sched.markers.*`, exactly |
+| `CLUSTARR_RELEASES` (limits, 72 h) | 10,137 | `catalogarr-rss-matcher` 0 | the retention window, not work |
+| `CLUSTARR_EVENTS` (limits, 168 h) | 346 | `catalogarr-history` 0, `catalogarr-redownload` 0 | the retention window |
+| `CLUSTARR_WORK_INDEXARR` (WorkQueue) | 3 | `indexarr-rss` 0 | scheduled RSS polls on `.sched.` |
+
+It counts future and dead work, measures retention on limits streams, and cannot
+say which domain a shared stream's work is for (`CLUSTARR_WORK_CATALOGARR` feeds
+the autoscaled `catalog` and the fixed `metadata`). `num_pending` alone is wrong
+the other way: it never wakes a domain for a retry and scales down mid-handler
+(the defect KEDA fixed in PR #3809, 2022).
+
+**No NATS-native Kubernetes metrics adapter exists**: nothing in nats-io serves
+`external.metrics.k8s.io` or `custom.metrics.k8s.io`, nats-server has no
+`/metrics` route, and every published route to an HPA goes through Prometheus or
+KEDA. So the manager's own External Metrics API (§9.4) stays, and nothing in
+this section reads port 8222 or adds Prometheus. The deleted ScaledObject's
+comment that KEDA "cannot yet read the two counters together… until
+kedacore/keda#8166 ships" was wrong (KEDA has summed both since 2022; #8166 is
+the `accounts=true` fix), and its PromQL summed every server's series without
+`is_consumer_leader="true"`, which would have tripled ack-pending on R3:
+`docs/autoscaling.md` (§12) must not carry the claim.
+
 ### 9.1 What the code does today (verified)
 
 **Consumers** (`pkg/events/topology.go:651-870`). "MAP" is `MaxAckPending`, today
@@ -4920,6 +5154,71 @@ and the constants `LabelDomain = "autoscale.clustarr.io/domain"`,
 `MetricConsumerLag = "clustarr_consumer_lag"`. `internal/cli/agent/domains.go`
 composes units per domain from it (§4.2.1).
 
+**Amended 2026-10-07 (NATS research; `nats-hpa-metrics.md` §6, `nats-worker-pools.md`
+§7).** `pkg/events` gains, in the order Wave 4f lands them:
+
+```go
+// envelope.go (M2): the envelope ID also rides in a clustarr header, because a
+// fired schedule loses Nats-Msg-Id (nats-server scheduler.go:214-231).
+const HeaderID = "Clustarr-Id"
+// EnvelopeFromHeaders reads Nats-Msg-Id, else Clustarr-Id, and drops every
+// transport header (case-insensitively): Nats-Schedule*, Nats-Scheduler,
+// Nats-Expected-*, Nats-TTL, Nats-Rollup. ToHeaders writes both ID headers.
+
+// bus.go (S5): the broker's timing of a bound durable.
+type Timing struct {
+	AckWait    time.Duration
+	Backoff    []time.Duration
+	MaxDeliver int
+}
+func (s Subscription) Timing() Timing
+func (s Subscription) WithTiming(t Timing) Subscription // AckDeadline, nakDelay and Settle read it
+func (t Timing) Equal(u Timing) bool                    // compares the deadlines AckDeadline derives
+
+// topology.go and bus.go (S1): the handler budget, §3.5.6 as amended.
+type ConsumerSpec struct{ /* ... */ HandlerTimeout time.Duration }
+func (c ConsumerSpec) HandlerBudget() time.Duration // HandlerTimeout, else AckWait
+type Subscription struct{ /* ... */ HandlerTimeout time.Duration } // the explicit budget only; 0: no bus heartbeat, no deadline
+var ErrLapsed = errors.New("events: delivery lapsed; the broker has redelivered it")
+var ErrHandlerBudget = errors.New("events: handler budget spent")
+// WedgeReporter is implemented by both buses; the `bus` liveness check (§3.3) reads it.
+type WedgeReporter interface{ Wedged() error }
+
+// consumerstate.go (HPA): the counters QueueGauge exports separately.
+type ConsumerState struct {
+	Pending, AckPending uint64
+	Waiting             int // NumWaiting: open pull requests; never part of Lag
+	MaxAckPending       int
+	ObservedAt          time.Time
+}
+// ErrConsumerUnavailable: the broker answered without the durable's cluster
+// placement while the connection is to a cluster -- the "assigned, no Raft node
+// yet" answer, whose zero state is not the durable's (nats-server
+// jetstream_api.go:5675-5688). extmetrics answers 503 for it, as for any error.
+var ErrConsumerUnavailable = errors.New("events: consumer state unavailable")
+
+// streamfill.go (S10): an optional interface both buses implement.
+type StreamFill struct{ Bytes, MaxBytes, Messages uint64 }
+type StreamStater interface {
+	StreamFill(ctx context.Context, stream string) (StreamFill, error)
+}
+
+// could-defer (S3, S4): an application retry schedule apart from the broker's
+// BackOff, and the attempt a scheduled retry carries.
+type ConsumerSpec struct{ /* ... */ Retry []time.Duration }
+type Subscription struct{ /* ... */ Retry []time.Duration } // Settle's schedule; Backoff when empty
+const HeaderAttempt = "Clustarr-Attempt"
+```
+
+`ConsumerState`'s doc comment states the metric as §9.0 amended does. A guard,
+`TestAutoscaledDurablesNeverExpire` (§9.9), holds that no `ConsumerSpec` and no
+rendered `jetstream.ConsumerConfig` sets `InactiveThreshold`: an autoscaled
+durable must outlive zero replicas, or its metric becomes `ErrConsumerNotFound`
+for good and its domain can never wake. Nothing sets it today
+(`docs/research/queue.md:235`); the guard keeps it so. `ConsumerSpec.Heartbeat`
+and `Subscription.Heartbeat` stay dead fields (D6; `ConsumerConfig` never renders
+them): deleting them is the research's C6, not planned.
+
 ### 9.3 natsbus and membus: per-pod slots under a cluster-wide cap
 
 R5's "stop writing per-pod MaxInFlight into MaxAckPending" is unsafe alone (R5
@@ -4982,6 +5281,151 @@ at natsbus.go:340):
   `CachedInfo()`, mapping `jetstream.ErrStreamNotFound` and
   `jetstream.ErrConsumerNotFound` to the events sentinels.
 
+**Amended 2026-10-07 (NATS research; `nats-worker-pools.md` §0, §3, §6, §7).**
+The research ran the built Wave 4c loop against an embedded nats-server v2.15.0
+(the chart's 2.14.6 has byte-identical `deliveryCount`, `hasMaxDeliveries`,
+`progressUpdate`, `processNak` and `checkPending`). What it changes here, in
+priority order:
+
+- **M1. Fetch only for free slots; never park** (D1, must). The pull-loop
+  clause "Once `lapsed == slots` … it keeps exactly one `Fetch(1)` open and
+  parks whatever arrives", the State's `parked` map, and The bound's sentence
+  "Parked messages run nothing; they lapse at the broker's deadline and are
+  redelivered, and what one pod holds in total stays bounded by the consumer's
+  `MaxAckPending`" are **withdrawn**. Each redelivery of a parked message spends
+  an attempt, so at the lapsed cap a pod drew message after message into one
+  `Fetch(1)` and held each, never `InProgress`ed, until the attempt past
+  `MaxDeliver`; the watcher then dead-lettered it as "acknowledgement timed out"
+  without it ever running. In E11 (one deaf handler on a one-slot durable), 0 of
+  8 healthy tasks ran and all 8 were dead-lettered within 17 s; a pod could hold
+  `MaxAckPending - 2 x slots` such messages (1,536 for `catalogarr-rss-matcher`).
+  Parking also dated a parked message's deadline from its start, not its
+  delivery. Now `next()` returns `slots - live` when positive and **0**
+  otherwise: at saturation the loop has no pull outstanding, and a message the
+  pod cannot run stays `NumPending`, spends no attempt and stays available to
+  other replicas. The bound is simply `live <= slots` and `lapsed <= slots`.
+  `dispatch` never parks: a delivery that finds no free slot (it cannot, since a
+  fetch asks only for free slots and slots only free up meanwhile), or one that
+  arrives while the subscription stops, is handed back with a plain `Nak` so
+  another replica gets it at once (C8). membus never parked and is unchanged.
+- **The MAX_DELIVERIES account, corrected** (D4, S6). The Reclaim bullet's "a
+  free slot always means an outstanding Fetch, which is what lets JetStream
+  raise MAX_DELIVERIES" is withdrawn as a reason. The cause is an off-by-one:
+  `deliveryCount` returns redeliveries (deliveries - 1, `consumer.go:4841-4849`),
+  so the ack-timer path in `checkPending` (`:6187-6192`) catches a lapsed final
+  delivery only for `MaxDeliver` 1, and for 2 or more only `getNextMsg`
+  (`:4970-4990`), which runs only for a waiting pull request (`:5468`), raises it
+  (E1). Until then the message holds a `MaxAckPending` place and counts as lag.
+  A pull a stopping pod abandons does not stand in for a live one: nats.go
+  unsubscribes its inbox when its context ends, and any `CONSUMER.INFO` prunes it
+  (`consumer.go:3650-3653`), which the manager's QueueGauge sends every 30 s
+  (E5: the advisory fired without an INFO and never after one). What rescues the
+  message is the next pull from any replica, and, for a domain at zero, the lag
+  metric's ack-pending, which wakes a pod; a final-attempt handler that does
+  return is dead-lettered in process by `Settle`. If a prompt dead letter while
+  saturated is ever wanted, the research's C1 (an overflow-group sentinel pull
+  that never takes work) is the tool, not a pull that does. The comments at
+  `natsbus/subscription.go`'s type doc and `fetch`, and `deadletter.go:77-80`,
+  say this instead.
+- **S2. A lapsed delivery is muted** (D3). The server keys `InProgress`, `Ack`
+  and `Nak` by stream sequence, not by delivery (`consumer.go:2838-2893`,
+  `:3249-3326`): a lapsed handler that heartbeats keeps its redelivered copy from
+  ever timing out, even when that copy's handler hangs (E3), and its `Nak` moves
+  the live copy's deadline. Once the reaper marks a delivery lapsed, its
+  `InProgress` and `Nak` become local no-ops, logged at debug and counted
+  (`clustarr_bus_muted_total{durable,op}`). `Ack` still goes (the work is done,
+  and settling the live copy is right), and so does `Term` from `Discard`.
+  membus mutes the same two calls on a delivery its sweep released.
+- **S5. Timing comes from the bound durable** (D5). With `Subscribe` bind-only,
+  the broker's `AckWait`, `BackOff` and `MaxDeliver` are the topology's, yet
+  `AckDeadline`, `nakDelay` and `Settle` read the caller's compiled
+  `Subscription`, so an older agent bound to a newer topology lapsed early or
+  late and terminated on the wrong attempt, silently. `bindConsumer` returns the
+  durable's `events.Timing` from `CachedInfo().Config` (on every bind and
+  re-bind), and the subscription uses `sub.WithTiming(bound)` for all three; a
+  caller whose timing differs gets one warning per bind, naming the skew. membus
+  binds each topology durable with its timing and does the same.
+- **Handler budget (S1).** For a subscription with `HandlerTimeout > 0`
+  (`ConsumerSpec.Subscription()` copies the consumer's explicit `HandlerTimeout`,
+  never the `AckWait` fallback, so a consumer without one, and every hand-built
+  `Subscription`, keeps today's behaviour; §3.5.6 as amended says why), the bus,
+  for each running delivery:
+  (a) sends `InProgress` every `AckDeadline(timing, attempt)/3` while the handler
+  runs and its budget is not spent, so long work needs no per-handler keep-alive
+  (the six that exist stay harmless, and S2 mutes them after a lapse); (b) runs
+  the handler under a context whose deadline is the budget, with cause
+  `events.ErrHandlerBudget`; (c) once the reaper marks the delivery lapsed (now
+  only a crashed process, a wedged runtime or a spent budget can cause one),
+  cancels its context with cause `events.ErrLapsed` one `AckDeadline` later.
+  Gauges `clustarr_bus_lapsed_handlers{durable}` and
+  `clustarr_bus_saturated{durable}` (1 while `lapsed == slots`), for every
+  subscription. Both buses implement `events.WedgeReporter`, also for every
+  subscription: `Wedged()` names one that has sat at its lapsed cap for longer
+  than `HandlerBudget()` plus its first-delivery deadline (a heartbeating handler
+  never lapses, so only deaf, silent handlers fill the cap), and the `bus`
+  liveness check (§3.3 as amended) fails on it, the only remedy for a goroutine
+  that ignores its context. The transcode pools' lease renewal and segments' `TaskTimeout` already
+  follow this pattern by hand; S1 makes it the bus's rule.
+- **Heartbeats (S9).** Until S1 lands, and for every handler that keeps its own
+  keep-alive, a heartbeat goes at most every third of the delivery's deadline, so
+  two can be lost before a lapse: segments 30 s becomes 20 s (deadline 1 min,
+  `BackOff[0]`), caption fetch 20 s becomes 10 s (`BackOff[0]` 30 s); fileimport
+  10 s, rescan 3 s, artwork 10 s, RSS 20 s and transcode 20 s already fit.
+  `TestHeartbeatsFitTheirDeadline` holds it (§5.15 as amended).
+- **M2. A scheduled task keeps its ID** (D2, must; on main before this branch).
+  When a schedule fires, the server copies the hold's headers, strips
+  `Nats-Schedule*`, `Nats-Expected-*`, `Nats-Msg-Id`, `Nats-TTL` and
+  `Nats-Rollup`, and adds `Nats-Scheduler` and `Nats-Schedule-Next: purge`
+  (`scheduler.go:214-231`). So the handler saw `ID == ""`, the two broker
+  headers fell into `Envelope.Headers`, and any copy published with them onto a
+  stream without schedules was read as a request to purge a schedule and refused
+  with 10188 "message schedules is disabled" (`jetstream_batching.go:889-904`):
+  the in-process dead-letter path terminated the message without a copy, and the
+  watcher's `copyLapsed` failed on every retry and, at `MaxDeliver -1`, naked for
+  ever without deleting the WorkQueue original (E7, E12: the handler saw
+  `["" ""]`; `CLUSTARR_DLQ` held 0). Had only the headers been fixed, every such
+  dead letter on one durable would have shared the Msg-Id
+  `dlq:<durable>:<attempts>` and all but the first been dropped as duplicates.
+  Fix (§9.2 as amended): `ToHeaders` also writes the ID to `Clustarr-Id`,
+  `EnvelopeFromHeaders` falls back to it and drops every transport header, so
+  `DeadLetterEnvelope` and `replayEnvelope` clone clean headers; natsbus keeps
+  `WithMsgID` for dedupe (which still applies at schedule time, E7). It covers
+  every `WithScheduleAt` caller: delay-profile grabs (`grab/decide.go`),
+  TheIntroDB re-asks (`markers/publish.go`), segment plans
+  (`segmentplan/plan.go`) and RSS schedules (`rssschedule/schedule.go`). It is
+  S4's prerequisite. Transcode tasks were never affected:
+  `CLUSTARR_WORK_SQUASHARR` is DiscardNew and allows no schedules.
+- **Slow consumers are reported (S7).** No `nats.ErrorHandler` was installed
+  (`pkg/busconn/busconn.go:104-110`, both worker mains), so a core-NATS
+  slow-consumer drop on a `Serve` responder, a KV watcher or a Fetch inbox was
+  silent. `natsbus.New` installs `nc.SetErrorHandler` and
+  `nc.SetDisconnectErrHandler` when the connection has none, counts
+  `clustarr_nats_async_errors_total{kind}` (`slow_consumer`, `permission`,
+  `disconnect`, `other`; never labelled by subject) and logs once per kind and
+  subject per minute through `natsbus.WithLogger`. Every process gets it, since
+  `busconn.Connect`, cmd/markers and cmd/transcode all build their bus with
+  `natsbus.New`.
+- **`ConsumerState` reads the consumer leader** (`nats-hpa-metrics.md` §2.1,
+  §6.2). It is answered by the consumer leader only (`jetstream_api.go:5556,5649`),
+  so it is accurate on an R3 cluster, where `/jsz` on a follower reads
+  `num_pending` 0 (§9.0 as amended). One hardening: when the connection is to a
+  cluster (`nc.ConnectedClusterName() != ""`) and the answer carries no
+  `Cluster` placement, it returns `events.ErrConsumerUnavailable` rather than
+  zero state; only the "assigned, no Raft node yet" answer looks like that
+  (`jetstream_api.go:5675-5688`). It also fills `Waiting` from `NumWaiting`.
+  membus never reports unavailable; its `Waiting` counts open `Subscribe` slots
+  with no claim.
+
+Not adopted from the research: C1 (sentinel pull), C2 (an application attempt
+check at receipt), C3 (consumer pause: `EnsureTopology` would undo a pause
+unless the rendered config carried `PauseUntil`, and extmetrics would have to
+report 0 for a paused durable), C4 (`Nats-Expected-Last-Subject-Sequence` as a
+one-queued-task-per-file guard; a candidate for the fold's transcode dispatch),
+C5 (per-message TTL), C6, C7 and C9; overflow priority groups beside the HPA,
+`pinned_client` for the single-replica domains, counters, and a return to
+`Consume`. S3 and S4 are §9.6's, and S11 (one nats-server version: the chart
+runs 2.14.6, kustomize and the tests 2.15.0) is left to the installers wave.
+
 **membus parity:** Subscribe acquires a slot before `claimNext` (today it claims
 first, membus.go:301-321); a delivery whose `cs.ackDeadline` passes while its
 handler runs releases its slot once (the sweep that calls `deadLetterLapsed`
@@ -5029,6 +5473,49 @@ durable is `ErrConsumerNotFound`.
   `SubscribeWaitsForAMissingDurable` (§5.9).
 - `MissingNamesEveryAbsentTopologyObject` (§3.5.2).
 - The existing hung-handler cases (contracttest.go:66-82) are unchanged and still pass.
+
+**Amended 2026-10-07 (NATS research; `nats-worker-pools.md` §7 S8,
+`nats-hpa-metrics.md` §6.6).** None of the cases above is in the tree yet (W4.42's
+`contracttest.Bind` and W4.43-W4.45's cases wait for the test batch); D1, D2 and
+D3 would each have failed one of the new ones. Added, on both buses:
+
+- `SaturatedSubscriptionNeverDeadLettersAnUnrunTask` (M1; E11 as a test): one
+  slot, a handler deaf to its context on every delivery of one message; eight
+  healthy tasks published once the slot is wedged stay `Pending`, none reaches
+  `CLUSTARR_DLQ`, and all eight run once the deaf handlers return.
+- `AScheduledTaskKeepsItsIDAndItsDeadLetter` (M2; E12): two `WithScheduleAt`
+  tasks whose handler discards them; the handler saw both IDs, and the DLQ holds
+  two copies on two subjects. Its watcher variant,
+  `AScheduledTasksLapsedFinalDeliveryIsDeadLettered`: a hung handler on a
+  scheduled task with `MaxDeliver` 2; the copy lands and the WorkQueue original
+  is deleted.
+- `ALapsedDeliveryCannotExtendItsRedelivery` (S2; E3): delivery 1 lapses and
+  keeps heartbeating, delivery 2 hangs silent, delivery 3 still arrives on the
+  broker's schedule.
+- `TimingComesFromTheBoundDurable` (S5): a durable bound with a 1 s deadline and
+  `MaxDeliver` 2, subscribed with a caller's 30 s and 5; the hung handler's slot
+  is reclaimed after about 2 s, and a failing task is dead-lettered at attempt 2.
+- `TheBusHeartbeatsARunningHandler` and `AHandlerPastItsBudgetIsCancelled` (S1):
+  with `HandlerTimeout` set, a handler running three deadlines is never
+  redelivered, and one past its budget sees `context.Cause == events.ErrHandlerBudget`;
+  a deaf one is cancelled with `events.ErrLapsed` one deadline after it lapses,
+  and `Wedged()` names its subscription once it has sat at the lapsed cap past
+  the budget.
+- `ConsumerStateExcludesExhaustedMessages` (HPA): a WorkQueue message past
+  `MaxDeliver` is in neither count before the dead-letter path removes it (the
+  existing case already covers a `WithScheduleAt` hold). This one runs on the
+  real server only (`pkg/events/natsbus`), on a raw consumer with no
+  dead-letter watcher, since a bus subscription's own watcher closes the window
+  at once; membus has no such window (its sweep dead-letters a lapsed final
+  delivery in place).
+
+`ALapsedFinalDeliveryIsDeadLetteredWithABindOnlySubscribe`'s second variant
+changes (D4): it no longer relies on the pull the stopped subscription
+abandoned. After the stop it reads `ConsumerState` (the `CONSUMER.INFO` that
+prunes that pull), then brings a replica back (a second `Subscribe` whose
+handler succeeds): the backstop copies the message once that replica's pull
+lets JetStream raise the advisory, as `testLapseWhileUnwatchedToDLQ` already
+does. Named `ByTheBackstopOnceAReplicaPullsAgain`.
 
 ### 9.4 The External Metrics API inside `cmd/manager`
 
@@ -5136,6 +5623,35 @@ deletes every HPA in its namespace labelled `autoscale.clustarr.io/domain` once
 at start),
 `--external-metrics-bind-address`, `--external-metrics-service`,
 `--external-metrics-secret`.
+
+**Amended 2026-10-07 (NATS research; `nats-hpa-metrics.md` §5.4, §6.3, §6.4;
+`nats-worker-pools.md` S10).**
+
+- **One read path with a singleflight.** The per-series cache moves out of the
+  `Handler` into `extmetrics.StateCache` (5 s TTL, 5 s timeout per read), which
+  puts a `golang.org/x/sync/singleflight` group in front of each
+  `(stream, consumer)`: a burst of aggregator retries, or several HPAs asking at
+  once, makes one `CONSUMER.INFO`. The `Handler` and `QueueGauge` share the one
+  cache in a process, so the leader never double-polls. Cadence stays
+  negligible: the HPA controller syncs every 15 s, §9.1.1's five HPAs carry 17
+  External series, so at most 17 requests per 15 s reach the broker whatever the
+  number of manager replicas, plus the gauge's static consumers (about 30) every
+  30 s on the leader: about 2 requests and 2 KB per second, each under a
+  millisecond, on an info queue whose limit is 10,000. No other background
+  poller is added.
+- **`QueueGauge` exports each counter.** Beside `clustarr_work_queue_pending`
+  (the lag, unchanged), it sets `clustarr_consumer_pending`,
+  `clustarr_consumer_ack_pending`, `clustarr_consumer_waiting` and
+  `clustarr_consumer_max_ack_pending`, each `{stream,consumer}` (cardinality
+  fixed by the topology), and deletes all five series of a consumer it cannot
+  read. A durable stalled at its cap by long delayed naks
+  (`ack_pending == max_ack_pending` with `waiting > 0`) is then visible without
+  an exporter; it is a diagnostic, not a scaling input.
+- **`QueueGauge` sets `clustarr_stream_fill_ratio{stream}`** (S10) for every
+  stream of the topology, from `events.StreamStater.StreamFill` (STREAM.INFO:
+  bytes over `MaxBytes`). Lag cannot show a single-node memory stream silently
+  discarding its oldest messages: the 2026-10-01 incident dropped 12,161 unseen.
+  `docs/observability.md` documents an alert at 0.8.
 
 ### 9.5 The autoscale reconciler
 
@@ -5275,6 +5791,47 @@ ServiceAccount (§10.2.2).
   adds to it: the External Metrics API serves before the manager's caches sync
   (§9.4).
 
+**Amended 2026-10-07 (NATS research; `nats-worker-pools.md` §3.2, §4.4, §7 S3,
+S4). Could-defer: these change consumer config on durables that are live, so
+they land last (plan W4.114, W4.115, after the wave gate W4.113) and may wait past release N with the
+owner's say.**
+
+- **S3. Work durables drop the broker `BackOff`.** `BackOff` replaces `AckWait`
+  and doubles as the first delivery's processing deadline (1 s for
+  `catalogarr-rss-matcher`, 5 s for history), it makes every delayed nak wait
+  `BackOff[n-1] - BackOff[0]` longer than asked (E6: asked 1 s, got 3 s; the
+  compensation `natsbus.nakDelay` exists only for it), and it makes the broker
+  discard declared `AckWait`s (D7: `segmentarr-analyze` declares 30 m and the
+  broker stores 1 m). Instead the retry spacing moves to `ConsumerSpec.Retry`,
+  which `Settle` reads for `NakWithDelay` (it reads `Backoff` today), and
+  `AckWait` becomes the one broker deadline. Each consumer keeps its present
+  `AckWait`, which is then both its declared budget and its crash-detection
+  deadline (a non-heartbeating handler is redelivered after its full budget
+  rather than after `BackOff[0]`; a heartbeating one, fileimport or the rescan,
+  is unaffected), except where a heartbeating handler declared a budget far
+  above its crash-detection need: `segmentarr-analyze` gets `AckWait` 1 m, its
+  30 m budget already being its explicit `HandlerTimeout` (§3.5.6 as amended,
+  W4.97), so `HandlerBudget()` and everything sized from it are unchanged. The
+  transcode durables already work this way (`topology.go:157-177`). Both fields
+  update in place on a live durable; no recreation. Cost: a crash loop is
+  redelivered every `AckWait` rather than on a growing schedule, still capped by
+  `MaxDeliver`, and a crashed search or grab is noticed after its `AckWait`
+  (120 s, 60 s) rather than after `BackOff[0]` (30 s, 10 s).
+- **S4. Long retries become scheduled republishes** (needs M2 and S3). For a
+  retry delay of 5 minutes or more (the 1 h and 6 h steps of metadata, artwork,
+  markers and caption; import-list's 30 min and 2 h), `Settle`'s nak becomes:
+  republish the envelope with `WithScheduleAt(now+d)`, the attempt in
+  `Clustarr-Attempt` (a republish restarts JetStream's delivery count), under the
+  Msg-Id `<id>/retry/<attempt>`; then `Ack`. The attempt `Settle` judges is the
+  larger of the broker's and the header's. A waiting retry then holds no
+  `MaxAckPending` place and is not lag, so `caption` and `catalog` scale to zero
+  during a 6 h backoff instead of idling one pod (the "NakWithDelay backoff"
+  bullet's accepted over-provisioning, OD27, goes), and the `catalogarr-markers`
+  stall the topology's comment describes ends. Only streams that allow schedules
+  take it: the DiscardNew `CLUSTARR_WORK_SQUASHARR` and `CLUSTARR_WORK_PROBE`
+  keep `NakWithDelay`. A memory stream loses a scheduled retry on a NATS restart
+  exactly as it loses a naked one, so this is no weaker.
+
 ### 9.7 Installers
 
 The chart and kustomize side (the `autoscaling.enabled` value, the domain label
@@ -5296,6 +5853,22 @@ with the reconciler's maxReplicas) is §10.2.2; the KEDA removal list is §10.2.
 | Another external-metrics provider (KEDA, prometheus-adapter) | one APIService per group per cluster | Helm refuses to adopt the existing object (loud); set `autoscaling.enabled=false`. A kustomize overwrite is caught by CertManager's `spec.service` check |
 | HPAScaleToZero off | minReplicas 0 rejected | re-applied with min 1 and Event `ScaleToZeroUnavailable` |
 | No node matches | maxReplicas 1, pod Pending | Event `NoMatchingNodes` |
+
+**Amended 2026-10-07 (NATS research; `nats-hpa-metrics.md` §5.5, §6.5;
+`nats-worker-pools.md` §6, §7).** Rows added:
+
+| Failure | Effect | Handling |
+| --- | --- | --- |
+| Consumer leader election (R3) | `CONSUMER.INFO` times out, or members answer 10008 (`JSClusterNotAvail`), for the seconds the election takes; the new leader recomputes `NumPending` at takeover (`consumer.go:1811-1812`) | that series is a 503: the HPA scales up on the others and holds any scale-down (`horizontal.go:354`) |
+| Consumer assigned, Raft node not yet up | a member answers with the config and zero state (`jetstream_api.go:5675-5688`) | `ConsumerState` returns `ErrConsumerUnavailable` when the connection is to a cluster and the answer has no placement (§9.3 as amended); the ≥300 s scale-down window would absorb it anyway |
+| NATS monitoring port closed, or `http_port` unset | none | the design never reads it (§9.0 as amended) |
+| A durable expires while its domain is at zero | its metric would be `ErrConsumerNotFound` for good, and the domain could never wake | no `ConsumerSpec` sets `InactiveThreshold`, held by `TestAutoscaledDurablesNeverExpire` (§9.9) |
+| A durable stalls at `MaxAckPending` behind long delayed naks | lag at or above the cap, `waiting > 0`, nothing delivered; the HPA keeps pods that receive nothing | a diagnostic, not a scaling concern: `QueueGauge`'s separate gauges show `ack_pending == max_ack_pending` (§9.4 as amended); S4 (§9.6) removes the cause for long retries |
+| Every slot of a pod held by handlers deaf to their context | before M1: the pod drew and parked messages it could not run until each was dead-lettered unrun (E11) | M1: it fetches nothing; queued work stays `Pending` for other replicas; S1's `bus` liveness check restarts the pod once it has sat at the lapsed cap past the handler budget (§3.3, §9.3 as amended) |
+| A lapsed handler still heartbeats or naks | before S2: it kept the live copy from ever timing out (E3) | S2: muted after the lapse |
+| A scheduled task fires | before M2: no ID, and its dead-letter copy refused with 10188; the watcher naked for ever | M2: `Clustarr-Id`, transport headers dropped |
+| A core-NATS slow consumer (a `Serve` responder, a KV watch, a Fetch inbox) | the client drops messages | S7: counted in `clustarr_nats_async_errors_total{kind}` and logged |
+| A single-node memory stream fills and discards its oldest | silent; lag cannot show it | S10: `clustarr_stream_fill_ratio{stream}`, alert at 0.8 |
 
 ### 9.9 Tests
 
@@ -5363,6 +5936,31 @@ consumers; the manager's ban on `k8s.io/apiserver`, `k8s.io/kube-aggregator`,
 
 **Phase H e2e:** `test/e2e/zzz_scale_from_zero_test.go`
 `TestCaptionAgentScalesFromZero`, specified in §10.4.
+
+**Amended 2026-10-07 (NATS research; `nats-hpa-metrics.md` §6.6,
+`nats-worker-pools.md` §7 S8).** Added (the contract cases are listed in §9.3 as
+amended; each new test is falsified, reverting its fix and watching it fail by
+name):
+
+- **Real NATS, a 3-node embedded cluster** (`pkg/events/natsbus`):
+  `TestConsumerStateReadsTheConsumerLeader`: publish N to an R3 WorkQueue
+  stream, step the consumer leader down
+  (`$JS.API.CONSUMER.LEADER.STEPDOWN.<stream>.<durable>`), and `ConsumerState`
+  still reads N once a leader answers. This is KEDA #3564's failure, and the
+  only test that sees the gap between kind (one server) and the chart's R3
+  default. `TestConsumerStateRefusesAnAnswerWithoutPlacement` drives
+  `stateOf(info, clustered)` with a placement-less info.
+- **Guard, `pkg/events`:** `TestAutoscaledDurablesNeverExpire`: no field of
+  `ConsumerSpec` names an inactivity threshold, and `ConsumerConfig(c)` renders
+  `InactiveThreshold == 0` for every consumer of `events.Default()`.
+- **Unit, `app/autoscale/extmetrics`:** `TestStateCacheMakesOneReadPerSeriesUnderABurst`
+  (100 concurrent reads of one series through a blocking fake make one call);
+  `TestQueueGaugeAndTheAPIShareOneRead`; `TestQueueGaugeExportsEachCounter`
+  (all five series per consumer, and all five deleted on an error);
+  `TestQueueGaugeSetsStreamFill`.
+- **natsbus:** `TestAsyncErrorsAreCounted` (a core subscription with a pending
+  limit of 1 overflows; `slow_consumer` counts).
+- **Guard, `test/guards`:** `TestHeartbeatsFitTheirDeadline` (§5.15 as amended).
 
 ---
 ## 10. Images, installers, RBAC and tests
@@ -6135,6 +6733,13 @@ writers (§5.15), probe (§6.8), decode (§7.7), par2 (§8.9), autoscale (§9.9)
 | `images_test.go` `TestEveryContainerNamesItsBinary` | every installer container, engine container (`downloadclient.EngineCommand`) and pool container (`pool.Template`) runs a `binpath` constant its image ships; `clustarr` ships manager and ui, `native` agent, markers and transcode, read from each Dockerfile's `COPY --from=build /out/<bin> /usr/bin/` and `stage.sh`'s `trace` line |
 | `images_test.go` `TestGOMEMLIMITIsItsShareOfTheLimit` | each kustomize `GOMEMLIMIT` literal is `round(limit × pct)`, matching the chart's computed value |
 
+**Amended 2026-10-07 (NATS research).** Four more, owned by §5.15 as amended:
+`objectstore_test.go` `TestNoObjectLinks`, `TestOnlyNatsbusTouchesJetStreamObjectStores`
+and `TestArtworkWritersAreTheTwoVariantOwners` (`nats-object-store.md` §6.10,
+owner decision (a)); `heartbeat_test.go` `TestHeartbeatsFitTheirDeadline`
+(`nats-worker-pools.md` S9). `ui/guard_test.go`'s `TestUINeverWrites` gains the
+selectors and the nats.go import ban of §4.5.2 as amended.
+
 #### 10.3.3 Where every test goes: `cmd/clustarr` (40 test files)
 
 | file | tests | new home | change |
@@ -6368,6 +6973,15 @@ parallel agent and never with `go mod tidy`.
 | 12 | par2 integration (`pkg/par2child`, usenet `Repairer`, dispatch); the agent deps guard gains `Require` `pkg/par2child` and par2go; the image's par2 stage, `trace` entry, `ENV PAR2GO_LIB`, `self-check:par2-child` and the par2go part of `agent --self-check` | 0b, 0c, 8, 9 (same reason) | §8 |
 | 13 | Exec guard allow-list down to `pkg/par2child/exec.go` | 10-12 | §4.5.6 |
 | 14 | Docs and ADRs | all | §12 |
+
+**Amended 2026-10-07 (NATS research).** A step **7b**, the NATS follow-ups
+(plan Wave 4f): M1 and M2 first, then S2, S5, S7, S9, S10 and S1, the HPA
+additions of §9.4 and §9.3, the object-store work (artwork design §B as amended,
+loop spec §4.15 as amended), the guards, and last the could-defer S3 and S4. It
+depends on 6 and 7 (and on 8 only where it wires a flag, a liveness check or a
+guard into `internal/cli`, `cmd/markers` or `test/guards`), runs beside 8, and is
+green before the fold's first wave, whose records waker and `KV.Watch` options
+build on its `events.WatchOption` (loop spec §4.15 as amended).
 
 ### 11.2 Gates before any deploy
 
@@ -6607,6 +7221,79 @@ its number, since the plan's code cites it from Wave 0 on.
   `captionarrWorker.ackWaitSeconds`) and the GOMEMLIMIT, Cardigann and Postgres
   sections are rewritten to §10.2.5's keys. `images/distroless/README.md` and
   `config/README.md` (§10.1.3, §10.2.6).
+
+**Amended 2026-10-07 (NATS research).** The docs wave (plan W10.5, W10.7) also
+writes:
+
+- **`docs/autoscaling.md`**, "The metric": §9.0 as amended, with its numbers:
+  why `CONSUMER.INFO` (answered by the consumer leader; 897 bytes, under a
+  millisecond) and not `/jsz` (followers read `num_pending` 0; an unauthenticated
+  port; HTTP 200 with no data on a wrong `acc`; 46-110 KB per server) or a
+  stream's `messages` (18,897 against a lag of 16,563 on
+  `CLUSTARR_WORK_SEGMENTARR`, 10,137 against 0 on `CLUSTARR_RELEASES`), and that
+  no NATS-native metrics adapter exists. It does **not** repeat the deleted
+  ScaledObject's claim about KEDA and kedacore/keda#8166. Failure modes take §9.8
+  as amended.
+- **`docs/observability.md`**, the metric catalogue gains:
+  `clustarr_consumer_pending`, `clustarr_consumer_ack_pending`,
+  `clustarr_consumer_waiting`, `clustarr_consumer_max_ack_pending` (§9.4 as
+  amended); `clustarr_stream_fill_ratio{stream}` with an alert at 0.8;
+  `clustarr_nats_async_errors_total{kind}`; `clustarr_bus_lapsed_handlers`,
+  `clustarr_bus_saturated` and `clustarr_bus_muted_total{durable,op}` (§9.3 as
+  amended); `clustarr_object_orphan_chunks_purged_total{bucket}`,
+  `clustarr_object_orphan_bytes_purged_total{bucket}`,
+  `clustarr_artwork_objects{variant,meta_version}` and
+  `clustarr_artwork_audit_tasks_total{variant,reason}` (artwork design §B.5 as
+  amended); and the `bus` liveness check in the readiness table (§3.3 as amended).
+- **CLAUDE.md:**
+  - The invariant "Artwork objects have two writers split by variant" ends:
+    "…and of its metadata. Each `Put` sends the variant's complete header and
+    metadata set (`artwork.ObjectMeta`), and `SetMeta` is the owner's alone,
+    under its per-item lock. No code creates object links
+    (`TestNoObjectLinks`). The ui watches the bucket read-only. The reaper is the
+    only code that deletes both, and it also purges orphan chunks and audits
+    status against the bucket."
+  - The MAX_DELIVERIES gotcha gains its cause and loses its remedy: nats-server's
+    `deliveryCount` returns redeliveries, so the ack-timer path catches a lapsed
+    final delivery only for `MaxDeliver` 1 and for 2 or more the advisory waits
+    for the next waiting pull from any replica (`consumer.go:4841-4849,
+    2427-2457, 6187-6192`); a pull a stopping pod abandons is pruned by the next
+    `CONSUMER.INFO` and is not relied on; and a subscription never fetches more
+    than its free slots and never parks (M1), because each redelivery of a
+    parked message spends an attempt and Wave 4c's parking dead-lettered healthy
+    tasks unrun.
+  - New gotcha, **a fired schedule has no `Nats-Msg-Id`** and carries
+    `Nats-Scheduler` and `Nats-Schedule-Next: purge`; a copy published with them
+    onto a stream without schedules is refused with 10188. The envelope ID rides
+    in `Clustarr-Id` too, and `EnvelopeFromHeaders` drops every transport header
+    (M2).
+  - New gotcha, **the broker keys `InProgress`, `Ack` and `Nak` by stream
+    sequence**, so a lapsed handler can extend or settle the copy another worker
+    runs; the bus mutes `InProgress` and `Nak` after a lapse (S2), and double
+    ack plus Msg-Id dedupe is not exactly-once: the record fence is.
+  - New gotcha, **object stores:** `Put` replaces an object's whole metadata;
+    two concurrent `Put`s of one name leak a full copy for good, which only an
+    orphan-chunk purge reclaims, since the meta-level `List` cannot see it; a
+    reader whose object is overwritten mid-`Get` stalls until its deadline and
+    fails with `i/o timeout`, never a digest mismatch; a link fires no watch
+    event when its target changes, and nats.go refuses a link over any name a
+    regular object ever held; `ObjectStore.Watch` ignores `ResumeFromRevision`
+    and `MetaOnly`; a bucket re-created under a running watcher is skipped
+    silently, so `objindex` compares the bucket's creation time.
+  - The autoscaling text says the HPA reads `CONSUMER.INFO`, never `/jsz` or a
+    stream's message count, and why in one line.
+- **ADR index** (`docs/adr/README.md`): a one-line refinement under ADR-0011,
+  written with this amendment: "2026-10-07: no object links; objects carry
+  versioned metadata; the ui indexes the bucket by watch; the reaper audits and
+  purges orphan chunks." A partial change, not a supersession.
+- **Not on this branch: cluster-plex.** Its watcher hashes `status.metadata`,
+  `status.overlay`, `status.title`, `status.overview` and `status.airDate` to
+  decide whether to refresh Plex (`cluster-plex/pkg/clustarrwatch/fields.go:46-53`,
+  compared at `watcher.go:302`), but not `status.artwork`, so a custom override or
+  a backfilled original changes the `?v=` URL the Plex provider answers with and
+  Plex never asks again. The fix (`{"status","artwork"}` in `shown`,
+  `TestMetadataHashCoversArtwork`) is a cross-repo item for the owner to schedule
+  in cluster-plex (artwork design §B.8 as amended).
 
 ---
 ## 13. Owner decisions

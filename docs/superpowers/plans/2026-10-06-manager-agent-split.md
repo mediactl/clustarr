@@ -12,6 +12,8 @@
 
 **Fold spec (ADR-0016):** `docs/superpowers/specs/2026-10-06-mediafile-remediation-loop-design.md` (the loop spec; its §8 says, task by task, what the fold changes here: §8.3 the disposition, §8.4 the ffgo tag, §8.5 the MP4 standard, §8.6 the fold waves F0-F9, §8.7 the execution order) and `docs/adr/0016-per-file-work-is-mediafile-status.md`. The owner's ADR-0016 answers in `.superpowers/unify/rulings.md` bind: all three kinds fold; everything that watches MediaFile merges into the loop; the fold lands after `cmd/manager` exists, and the split never moves the three kinds' controllers, squasharr's results consumer or the `catalogarr-markers` and segment-result status writes only to delete them; D3 is taken as the loop spec reads it (the loop has file and item keys; the slim TranscodeProfile and SubtitleProfile reconcilers and `transcode-admission` stay outside it and never watch MediaFile); public pushes and live-cluster actions wait for the owner. The loop spec's §9 decisions are taken except those it marks open (D19, D26, D27's push and every rollout).
 
+**NATS research (2026-10-07):** three research notes, `.superpowers/unify/research/nats-hpa-metrics.md`, `nats-worker-pools.md` and `nats-object-store.md`, amend the split spec (its header's "NATS research, 2026-10-07" paragraph lists the sections: §3.3, §3.5.6, §3.6, §4.5.2, §5.13, §5.15, §7.2.7, §9.0, §9.2, §9.3, §9.4, §9.6, §9.8, §9.9, §10.3.2, §11.1 step 7b, §12), the artwork design `docs/superpowers/specs/2026-09-24-index-artwork-ratings-plex-design.md` (§B.1-§B.9, §C.6) and the loop spec (§4.9, §4.15), each passage marked "Amended 2026-10-07". Wave 4f (W4.90-W4.115) carries them. The owner's answers of that day bind: deterministic object names plus full versioned metadata and no object-store links (a guard holds it); an SSE `art` event fed by the ui's read-only watch; and the HPA metric stays `CONSUMER.INFO` `NumPending + NumAckPending`, not `/jsz` and not a stream's message count.
+
 ---
 
 ## Global Constraints
@@ -84,8 +86,9 @@ The waves follow spec §11.1. The wave numbers are this plan's; the spec's step 
 | 4b: indexarr split (R8) | W4.20-W4.29 (10) | 5 | Wave 3 | Waves 4a, 4c and 4d. Its commits name files (Wave 4b's rules), and W4.42, the one other task that edits under `app/indexer`, runs between two 4b tasks. |
 | 4d: autoscaling, manager side | W4.60-W4.75 (16) | 7, plus the recycle half of 4 (OD36) | W0.27, Wave 3, Wave 4a (W4.2), Wave 4c | Wave 4b |
 | 4e: writers, OD13, the import prober, OD46 | W4.80-W4.88 (9) | 8's prerequisites (§5.3.4, §5.3.5, §5.5, §5.8, §6.6, §9.1.1) | Waves 4a, 4b and 4d (W4.75 green) | — (lands before W5.1) |
-| 5: binaries | W5.1-W5.19 (19) | 8 | Waves 1 to 4 (4e included) | — |
-| F0-F8: the fold, the remediation loop (ADR-0016; release N) | F0.1-F8.12 (51) | loop spec §8.6 | W5.18 and W5.19 (F0.1 checks them, that `cmd/clustarr` is gone and that ffgo is `.13`); F6 also needs MP4 phase 1's gate commit (`dea6d010`) on local main and on the branch (F6.1, D28) | — (serial: every fold wave edits the loop) |
+| 4f: NATS follow-ups (research 2026-10-07) | W4.90-W4.115 (26; W4.114 and W4.115 could-defer) | 7b (split §11.1 as amended 2026-10-07) | Wave 4e (W4.88 green); its edges into Wave 5: W4.98 after W5.10 and W5.12, W4.110 after W5.11, W4.112 after W5.15 and W5.17 | Wave 5, except at those edges (the wave's **Beside Wave 5** paragraph) |
+| 5: binaries | W5.1-W5.19 (19) | 8 | Waves 1 to 4 (4e included) | Wave 4f |
+| F0-F8: the fold, the remediation loop (ADR-0016; release N) | F0.1-F8.12 (51) | loop spec §8.6 | W5.18 and W5.19 (F0.1 checks them, that `cmd/clustarr` is gone and that ffgo is `.13`); the Wave 4f gate W4.113 (F1.3 builds on W4.102's `WatchOption`); F6 also needs MP4 phase 1's gate commit (`dea6d010`) on local main and on the branch (F6.1, D28) | — (serial: every fold wave edits the loop) |
 | 6: images, installers, RBAC, KEDA removal, e2e renames | W6.1-W6.17 (17) | 9 | Waves 0 and 5, and the fold: W6.1 depends on F8.12 (loop spec §8.7) | — (W6.7 may be hoisted ahead of Wave 6 if an earlier wave needs the native assets) |
 | 6b: test media without the CLI | W6.18-W6.24 (7) | guide U2.1, U2.3 | Wave 6 (W6.17 green), W0.29, W0.30 | — |
 | 7: markers decode on ffgo | W7.1-W7.11 (11) | 10 | Wave 0, W2.9, W2.10, W5.12, W5.14, Wave 6, Wave 6b (the goldens) | — |
@@ -94,7 +97,7 @@ The waves follow spec §11.1. The wave numbers are this plan's; the spec's step 
 | 10: exec guard, docs and ADRs, the U2/U3 close-out | W10.1-W10.11 (11) | 13, 14; guide U2.4-U2.7 | Waves 7 to 9 (W10.1, W10.9-W10.11); every wave (W10.2-W10.8) | — |
 | F9: kind removal (release N+1) | F9.1-F9.5 (5) | loop spec §8.6, §7.4 | W10.8 | — |
 
-278 tasks in total: the split's 223 (201 as assembled, plus the 22 the upgrade-guide revision added: W0.29, W0.30, W4.80-W4.88, W5.19, W6.18-W6.24, W10.9-W10.11), less W4.14 (dropped by ADR-0016; its heading stays as a stub), plus the fold's 56 (F0.1-F0.3, F1.1-F1.5, F2.1-F2.4, F3.1-F3.6, F4.1-F4.4, F5.1-F5.5, F6.1-F6.7, F7.1-F7.5, F8.1-F8.12, F9.1-F9.5; loop spec §8.6, §8.7; F7.4, the records and v1 guards, added by the review of 2026-10-07).
+304 tasks in total: the split's 223 (201 as assembled, plus the 22 the upgrade-guide revision added: W0.29, W0.30, W4.80-W4.88, W5.19, W6.18-W6.24, W10.9-W10.11), less W4.14 (dropped by ADR-0016; its heading stays as a stub), plus the fold's 56 (F0.1-F0.3, F1.1-F1.5, F2.1-F2.4, F3.1-F3.6, F4.1-F4.4, F5.1-F5.5, F6.1-F6.7, F7.1-F7.5, F8.1-F8.12, F9.1-F9.5; loop spec §8.6, §8.7; F7.4, the records and v1 guards, added by the review of 2026-10-07), plus Wave 4f's 26 (W4.90-W4.115, the NATS research of 2026-10-07; W4.114 and W4.115 could-defer).
 
 ### Order inside each wave
 
@@ -122,6 +125,7 @@ The waves follow spec §11.1. The wave numbers are this plan's; the spec's step 
   - Then the controller lane (W4.64, W4.65, W4.66) and the extmetrics lane (W4.67 to W4.73) may run in parallel, with one edge between them: **W4.70 waits for W4.66.** W4.66 owns the `Makefile` edit `RBAC_PATHS_squasharr := ./app/squash/... ./app/autoscale/...`; before it, `make manifests` ignores W4.70's `app/autoscale/extmetrics` markers and W4.70's `TestEveryPackageWithRBACMarkersIsInARole` fails. W4.70 re-runs `make manifests` and the chart sync on top of W4.66's commit.
   - W4.74 runs after W4.66 and W4.73. W4.75 runs last.
 - **Wave 4e.** After W4.75. W4.80 then W4.81 (both edit `pkg/k8s`); W4.82; then W4.83, W4.84, W4.85 and W4.86 serially (the import agent: W4.84 and W4.86 both edit `app/import/worker/fileimport/worker.go`); W4.87; W4.88 is the gate.
+- **Wave 4f.** After W4.88, beside Wave 5, in the lanes of the wave's **Order** table: one owner for the bus lane (W4.90, W4.91, W4.92, W4.93, W4.94, W4.96, W4.97, W4.99, W4.100, W4.101, W4.102, W4.103, each editing `pkg/events` or natsbus); W4.95 at any time; the artwork lane W4.104-W4.107 and the ui lane W4.108-W4.109 once their bus tasks land; W4.98 after W5.10 and W5.12; W4.110 after W5.11; W4.111 after W4.101; W4.112 after W5.15 and W5.17; W4.113 is the gate, green before F0.1. W4.114 and W4.115 (S3, S4) are could-defer, after the gate.
 - **Waves 5 to 10, and the fold.** In task order, with five exceptions: W5.19 runs after W5.17 and before the gate W5.18; the fold's F0.1-F8.12 run after W5.18 and before W6.1, serially (every fold wave edits the loop, so there are no parallel lanes; F6.1 also waits for MP4 phase 1's gate commit; loop spec §8.6), each fold wave's preamble giving its order; Wave 6b (W6.18-W6.24) runs after W6.17 and before W7.1; W10.9-W10.11 run after W10.7 and before the gate W10.8, which closes release N; F9.1-F9.5 (release N+1) run after W10.8. `cmd/clustarr` keeps compiling until W5.17 deletes it.
 - **Rebasing (R14).** Local main moved after the basis: `4377f49f` and `013b0eb8` (the upgrade guide this revision folds in), and `2cbbb2c1` (a transcode can carry a graft in one pass: `task.Task.Graft`, `worker.GraftEngine`, `TranscodeJob status.graft`, grafttask's reduce mode, and `grafttask.{LogicalDataRoot, LocalPath, Within}`), then the rest of the graft and donor work up to `0d3ae234` (`6e44ba35` reduce Jobs, `app/squash/graftstate` and `audiograft.JoinTask`; `56e80397`, `5a0685a0`, `33b63c3a`, `142d0d4b`; `ae6e0ed9`, `e8134264`, `04fdb47c`, `c0b8d0ab` on the catalog and import side). The branch was rebased onto `0d3ae234` on 2026-10-06 and this plan reconciled with it: the tasks those commits touch name the code as it is there. The branch already carries `2cbbb2c1`..`0d3ae234`, so the **2cbbb2c1 notes** (W2.30, W8.3, W8.5) apply as written. Main has moved again since, to `adf9372c` (17 commits past `0d3ae234`, re-read 2026-10-06; loop spec §8.1). The ones tasks touch:
   - `ebbb2322` pins ffgo `v0.0.0-clustarr.12` (`a184557`) at go.mod:218, the line W0.25 replaces; the fork is cut from that tag (W0.1).
@@ -144,6 +148,7 @@ The waves follow spec §11.1. The wave numbers are this plan's; the spec's step 
 | the R5 bus wave | 4c |
 | the R5 manager wave, the autoscaling wave, the `pkg/agentdomain` task | 4d (W4.63 for the domain table) |
 | the writers wave | 4e (W4.80-W4.88) |
+| the NATS follow-ups, the NATS research wave | 4f (W4.90-W4.115) |
 | testmedia, the goldens, the U2 wave | 6b (W6.18-W6.24) |
 | the installers wave, the images wave, the RBAC wave, §11.1 step 9 | 6 |
 | markers decode, §11.1 step 10 | 7 |
@@ -196,6 +201,15 @@ Found while assembling, then closed by the plan review of 2026-10-06. Where a ga
     - **The manager's binary size.** W5.18's hand-off says F8.12 measures the manager binary again (the loop must not pull worker code into it); F8.12's text does not yet run `make build` and `ls -l bin/manager` against W5.18's recorded size.
     - **The DLQ projector's file.** Wave F5's tables name `app/catalog/history/dlq.go`; after W2.11 it is `app/catalog/worker/history/dlq.go` (and `replay.go` is `app/catalog/history/replay/replay.go`), as F8.6 uses. *Closed by the review of 2026-10-07:* Wave F5's table, F5.2 (`sink.go`), F5.4 (`dlq_rbac_test.go`, the conditional marker) and F5.5 name the moved files; W4.3 owns the `mediafiles` grant, which F3.5 now only checks.
 16. **Open: fold-internal API shapes.** The fold's planning files were written in parallel. Wave F1 builds `pkg/records` as its table "Names the later fold files assumed, against what F1 builds" shows (`Requester.Get` returning `(R, uint64, bool, error)`; `Claim`, `Defer` and `Answer` returning a `records.Verdict`; `Pacer.Reserve(class, key)`; a generic `recordsource.New[K]` with `WithDecoder[K]`; no `records.ErrDropped`), and Wave F3's "Reconciling with the other fold files" table settles F3's shapes (`KindMediaFile` only in F3.1, the item kinds in F4.1; `SetupWithManager` in `app/remediation/reconciler.go`; `remediation.NewReconciler`; `Withdraw{UID, Seq, Sub}`, `RecordWrite.Pace`, `Env.{Reader, APIReader, Bus, IO, Pacer}`). Where Waves F4-F7 still name another shape (Wave F5's and F6's "Names this wave takes" tables; F4.1 deleting `app/caption/itemindex` while Wave F5's table expected it until F5.3, closed by the review of 2026-10-07: Wave F5's table, F5.1's `AllowApp` and F5.3's deletions and `TestManagerFieldIndexes` row now follow F4.1; `mfindex.Item`/`ItemKey`, which F4.1 creates and Waves F5 and F6 attribute to F3.1; the `catalogv1alpha1.SubtitleState*` constants F5 needs from F2.1; F5.4 produces `catalogv1alpha1.ValidNonce` and its own `invalid-%08x` fnv32 mark, while F2.1 already produces `ValidNonce` and `HandledNonce`, whose mark is `invalid-` plus 16 hex digits of a sha256, so F5.4 must use F2.1's pair and its test's `^invalid-[0-9a-f]{8}$` follows `HandledNonce`), the controlling session aligns the later task with the earlier one as built before it runs.
+17. **Wave 4f and the later waves** (the NATS research of 2026-10-07, added after Waves 0-4e were built and while Wave 5 ran). Each later task named here carries a **Wave 4f note** with the change:
+    - **F1.3** finds `WatchOption`, `WatchOptions`, `WatchUpdatesOnly`, `WatchFromRevision` and `ResolveWatchOptions` already in `pkg/events/bus.go` (W4.102, for the object-store watch) and adds only the KV half (loop spec §4.15 as amended). **F0.1** also checks the Wave 4f gate W4.113.
+    - **W7.5** finds `segments.FingerprintVersion` (1) and `segments.FingerprintKey` already built (W4.111: version 1 keeps the legacy `<probeHash>.<which>`); it raises the constant to 2 and keeps W4.111's builder.
+    - **W5.9** (the agent's `--drain-timeout` default) and **W6.11** (`TestGracePeriodsCoverAckWait`) may read `ConsumerSpec.HandlerBudget()` (W4.97) instead of `AckWait`: the values are equal until a consumer gets an explicit `HandlerTimeout` (today only `segmentarr-analyze`, whose budget equals its `AckWait`). If W4.114 (S3) lands, both must read it, since `segmentarr-analyze`'s `AckWait` drops to 1 min.
+    - **W5.11** creates `internal/cli/ui`; W4.110 adds `--art-cache-bytes` there afterwards. `ui.Options.ArtCacheBytes` (W4.108) is an `int64`, which `TestUIWiresEveryUIOption`'s nil check does not see; W4.110's own test holds the wiring.
+    - **W5.7, W5.9, W5.12** create the manager's and agents' probe assembly and `cmd/markers`; W4.98 adds the `bus` liveness check to all three (split §3.3 as amended). W5.15 creates `test/guards`; W4.95 and W4.112 add guards to it. W5.17 rewords `ui/guard_test.go`; W4.112 extends it after.
+    - **W10.5** and **W10.7** write the docs text of split §12 as amended (the metric's why with the live numbers in `docs/autoscaling.md`; the new metrics and the `bus` check in `docs/observability.md`; the CLAUDE.md invariant and gotchas).
+    - **The installers wave** owns S11 (one nats-server version: the chart's subchart runs 2.14.6, kustomize and the tests 2.15.0); nothing in Wave 4f depends on it, since the consumer functions behind every finding are byte-identical in both.
+    - **cluster-plex** (another repository) hashing `status.artwork` is the owner's to schedule (artwork design §B.8 as amended); no task on this branch does it.
 
 Three wrong task references in Wave 5 were corrected here: `binpath.Agent` comes from W1.10, the `pkg/k8s` bus wrappers from W1.4, and `DataReadyChecker` moved in W1.5. Waves 1 and 4d called the installers wave "Wave 9"; it reads "Wave 6" here. References to the planning fragments' file names now name the wave or task. The same holds for the fold waves F0-F9, assembled from their own planning files on 2026-10-07: where one named another's file, it now names the wave (for example Wave F1's table "Names the later fold files assumed, against what F1 builds"), and their loop-spec defects are under **Spec defects found while planning**.
 
@@ -34568,6 +34582,3413 @@ Expected: no generated change; build, vet, `make test` (envtest included; check 
 
 ---
 
+## Wave 4f: NATS follow-ups (research 2026-10-07)
+
+**Spec:** the split spec as amended 2026-10-07 (its header's "NATS research, 2026-10-07" paragraph lists every amended section: §3.3, §3.5.6, §3.6, §4.5.2, §5.13, §5.15, §7.2.7, §9.0, §9.2, §9.3, §9.4, §9.6, §9.8, §9.9, §10.3.2, §11.1 step 7b and §12); the artwork design `docs/superpowers/specs/2026-09-24-index-artwork-ratings-plex-design.md` §B.1-§B.9 and §C.6 as amended 2026-10-07; the loop spec §4.9 and §4.15 as amended 2026-10-07. Read the research each task cites, in full: `.superpowers/unify/research/nats-worker-pools.md` (defects D1-D7, recommendations M1, M2, S1-S11, experiments E1-E12), `.superpowers/unify/research/nats-hpa-metrics.md` (§5, §6), `.superpowers/unify/research/nats-object-store.md` (§6-§8, experiments E1-E16). The owner's answers of 2026-10-07 bind: **(a)** deterministic object names plus a full, versioned metadata map on every object, no object-store links, and a guard that nothing creates one; **(b)** the ui pushes cover changes by an SSE `art` event fed by its read-only object-store watch; **(c)** the HPA metric stays JetStream `CONSUMER.INFO` `NumPending + NumAckPending`, not `/jsz` and not a stream's message count.
+
+**Why a wave here.** Waves 4c and 4d are built, and the research found two must-fix defects in the bus they leave: D1 (Wave 4c: at the lapsed cap a subscription keeps a `Fetch(1)` open and parks what arrives; each redelivery of a parked message spends an attempt, so healthy tasks are dead-lettered without running; E11: 0 of 8 ran, all 8 dead-lettered in 17 s) and D2 (on main: a fired schedule has no `Nats-Msg-Id`, and its dead-letter copy is refused with 10188, so the in-process path terminates without a copy and the watcher naks for ever). Both must land before anything deploys (release N) and before the fold's records waker builds on the bus; the rest follows in the research's priority order.
+
+**Test mode (owner, 2026-10-07; ledger "Mode change").** Implement first, test the batch later. An executing agent runs Step 3 and the build half of Step 4 (`go build ./... && go vet ./...`, plus `make generate manifests` where a marker or API type moves), skips Steps 1 and 2 and the test half of Step 4, and records every skipped test in `.superpowers/unify/progress.md` by task id and test name. Step 1 keeps its code for that batch, which writes it, runs it and falsifies it (revert the fix, watch the test fail by name). Where a Step 3 signature change leaves an existing test file not compiling, the task names it under **Non-compiling tests**, and the batch fixes it, as Waves 3-4e did.
+
+**Order.**
+
+| Lane | Tasks, in order | Waits for |
+| --- | --- | --- |
+| bus (one owner: each task edits `pkg/events` or `pkg/events/natsbus`) | W4.90, W4.91, W4.92, W4.93, W4.94, W4.96, W4.97, W4.99, W4.100, W4.101, W4.102, W4.103 | W4.88 green |
+| heartbeats | W4.95 (Step 3 at any time; its guard is the test batch's, in `test/guards` after W5.15) | W4.88 |
+| liveness wiring | W4.98 | W4.97, **W5.10**, **W5.12** |
+| artwork | W4.104 (`objindex`), W4.105, W4.106, W4.107 | W4.104: W4.102. W4.105: W4.101. W4.106: W4.105. W4.107: W4.103 and W4.105 |
+| ui | W4.108, then W4.109 | W4.104 and W4.105 |
+| ui flag | W4.110 | W4.108, **W5.11** (it creates `internal/cli/ui`) |
+| fingerprints | W4.111 | W4.101 |
+| guards | W4.112 | W4.101-W4.109, **W5.15** (`test/guards`), **W5.17** (it edits `ui/guard_test.go`) |
+| gate | W4.113 | every task above |
+| could-defer | W4.114 (S3), then W4.115 (S4), after the gate | W4.113; the owner may defer both past release N |
+
+**Beside Wave 5.** Wave 5 runs concurrently in this worktree. Wave 4f edits no file a Wave 5 task edits, except at the bolded edges above: `internal/cli/ui` (W5.11 creates it, W4.110 adds a flag), `internal/cli/agent` and `cmd/markers` (W5.9, W5.12; W4.98 wires a liveness check into both), `test/guards` (W5.14-W5.16 create it; W4.95's and W4.112's guards land after W5.15), and `ui/guard_test.go` (W5.17 rewords a message; W4.112 extends the lists after it). No task here edits `cmd/clustarr`, `app/<svc>/run.go` or a registration package Wave 5 moves; W4.107's wiring edit is in `app/catalog/manager/register.go`, which no Wave 5 task edits. Commit each task's paths at once with a pathspec (Global Constraints): another session commits in the same index. The fold's F0.1 checks that W4.113 is green, and F1.3 consumes W4.102's watch options (its **Wave 4f note**).
+
+**Not in this wave.** cluster-plex hashing `status.artwork` (artwork design §B.8 as amended): a cross-repo change for the owner to schedule (`cluster-plex/pkg/clustarrwatch/fields.go` gains `{"status","artwork"}` in `shown`, with `TestMetadataHashCoversArtwork`). Every CLAUDE.md, `docs/autoscaling.md` and `docs/observability.md` text the amendments call for, S6's CLAUDE.md half included: W10.5 and W10.7 carry it (their **Wave 4f notes**). S11 (one nats-server version; the chart runs 2.14.6, kustomize and the tests 2.15.0): the installers wave's. C1-C9 and the research's "not recommended" list (split §9.3 as amended, "Not adopted"). The Plex provider consulting the artwork index (optional). Sizing the live chunk leak on kind-cluster-plex (two read-only `nats` commands, which wait for the owner's OK). Anything reported upstream.
+
+**Names this wave produces.**
+
+| Name | Task | Consumed by |
+| --- | --- | --- |
+| `events.HeaderID` (`Clustarr-Id`); `EnvelopeFromHeaders` drops transport headers | W4.91 | W4.115 |
+| `events.Timing`, `Subscription.Timing`, `Subscription.WithTiming`, `Timing.Equal`; `bindConsumer` returning the durable's `Timing` | W4.93 | W4.97 |
+| `natsbus.WithLogger`; `metrics.NATSAsyncErrorsTotal` | W4.94 | — |
+| `HeartbeatInterval` exported by `fileimport`, `rescan`, `app/segments/worker`, `app/indexer/worker/rss`, `app/caption/worker/fetch` | W4.95 | W4.112's batch guard `TestHeartbeatsFitTheirDeadline` |
+| `events.StreamFill`, `events.StreamStater`; `metrics.StreamFillRatio` | W4.96 | W4.99 |
+| `ConsumerSpec.HandlerTimeout`, `ConsumerSpec.HandlerBudget`, `Subscription.HandlerTimeout`; `events.ErrLapsed`, `events.ErrHandlerBudget`; `events.WedgeReporter`; `busconn.WedgeChecker`; `metrics.BusLapsedHandlers`, `BusSaturated`, `BusMutedTotal` | W4.97 (`BusMutedTotal`: W4.92) | W4.98, W4.114, W5.9 (`--drain-timeout` default reads `HandlerBudget`), W6.11 (`TestGracePeriodsCoverAckWait` reads it) |
+| `extmetrics.StateCache`, `extmetrics.NewStateCache`; `ConsumerState.Waiting`; `metrics.ConsumerPending`, `ConsumerAckPending`, `ConsumerWaiting`, `ConsumerMaxAckPending` | W4.99 | — |
+| `events.ErrConsumerUnavailable`; natsbus `stateOf` | W4.100 | — |
+| `events.ObjectMeta`, `ObjectInfo.Metadata`, `ObjectStore.SetMeta`, `ObjectStoreSpec.Metadata`; `events.ArtworkMetaVersion`, `events.ArtworkMaxImageBytes`, the `events.ArtworkMeta*` key constants | W4.101 | W4.105-W4.108, W4.111 |
+| `events.WatchOption`, `WatchOptions`, `WatchUpdatesOnly`, `WatchFromRevision`, `ResolveWatchOptions`, `ErrWatchOptionUnsupported`; `ObjectStore.Watch`, `ObjectEvent`, `ObjectStore.Status`, `ObjectStoreStatus` | W4.102 | W4.104, W4.107, **F1.3** |
+| `events.ObjectStoreAdmin`, `PurgeOrphanChunks`; `metrics.ObjectOrphanChunksPurgedTotal`, `ObjectOrphanBytesPurgedTotal` | W4.103 | W4.107 |
+| `objindex.Index`, `objindex.New`, `objindex.Entry`, `objindex.Change` | W4.104 | W4.108, W4.109 |
+| `artwork.ObjectRef`, `artwork.RefOf`, `artwork.Facts`, `artwork.OverlayFacts`, `artwork.ObjectMeta`, `artwork.MetaCurrent`; `artwork.Source.Language` | W4.105 | W4.106, W4.107 |
+| `artwork.Reaper{Cache, Publisher, Lag, Admin}`; `metrics.ArtworkObjects`, `ArtworkAuditTasksTotal` | W4.107 | — |
+| `ui.Options.ArtCacheBytes`, `ui.DefaultArtCacheBytes` | W4.108 | W4.110 |
+| `segments.FingerprintVersion` (1), `segments.FingerprintKey` | W4.111 | **W7.5** (raises it to 2) |
+
+---
+
+### Task W4.90: M1: a subscription fetches only for free slots and never parks
+
+**Spec:** split §9.3 as amended 2026-10-07 (M1; "The MAX_DELIVERIES account, corrected"), §9.8 as amended (the saturated-pod row); `nats-worker-pools.md` D1, D4, §3.4, §7 M1, S6, C8, experiments E1, E5, E11.
+**Files:**
+- Modify: `pkg/events/natsbus/subscription.go` (`next`, `dispatch`, `finish`, `reap`, `drainOnStop`, the `subscription` type's doc comment, `fetch`'s doc comment; delete `parkedMsg`, the `parked` field, `startParkedLocked` and `seqRunningLocked`)
+- Modify: `pkg/events/natsbus/deadletter.go` (the comment at `:77-80` that relies on an abandoned pull)
+- Test: Create `pkg/events/contracttest/saturation.go`; Modify `pkg/events/contracttest/contracttest.go` (register the case; W4.45's `testBindOnlyDeadLetters`, second variant); Create or Modify `pkg/events/natsbus/subscription_internal_test.go` (W4.44's file)
+
+**Interfaces:**
+- Consumes: W4.44's `subscription` (`slots`, `live`, `lapsed`, `running`, `reap`, `finish`, `signalLocked`); W4.42's `contracttest.Bind`, `admin`; W4.43's `consumerState`; W4.45's `testBindOnlyDeadLetters`.
+- Produces: `(*subscription).next() int` returns `max(slots-live, 0)`; `dispatch` never parks. No exported name changes.
+
+- [ ] **Step 1: Write the failing tests.** `pkg/events/natsbus/subscription_internal_test.go`:
+
+```go
+// TestNextFetchesOnlyFreeSlots: the pull loop asks for exactly the free slots
+// and nothing at saturation -- no Fetch(1) kept open at the lapsed cap, since
+// each redelivery of a message it parked spent an attempt (split §9.3 as
+// amended 2026-10-07, M1).
+func TestNextFetchesOnlyFreeSlots(t *testing.T) {
+	for _, tc := range []struct {
+		name                  string
+		slots, live, lapsed   int
+		want                  int
+	}{
+		{"idle", 2, 0, 0, 2},
+		{"one slot free", 2, 1, 0, 1},
+		{"every slot live", 2, 2, 0, 0},
+		{"lapsed cap, every slot live", 2, 2, 2, 0},
+		{"lapsed cap, one slot free", 2, 1, 2, 1},
+		{"one slot, wedged", 1, 1, 1, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &subscription{slots: tc.slots, live: tc.live, lapsed: tc.lapsed, running: map[*delivery]struct{}{}}
+			if got := s.next(); got != tc.want {
+				t.Errorf("next() = %d, want %d", got, tc.want)
+			}
+		})
+	}
+}
+```
+
+  Create `pkg/events/contracttest/saturation.go` (GPL header), and register it in `RunBusContract` after `LapsedHandlersDoNotMultiplyConcurrency`:
+  `t.Run("SaturatedSubscriptionNeverDeadLettersAnUnrunTask", func(t *testing.T) { testSaturatedNeverDeadLettersUnrun(t, newBus) })`
+
+```go
+package contracttest
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/mediactl/clustarr/pkg/events"
+)
+
+// testSaturatedNeverDeadLettersUnrun is E11 of the worker-pool research
+// (2026-10-07) as a test. A one-slot subscription whose slot, live and under
+// the lapsed cap, is held by a handler deaf to its context fetches nothing
+// more: queued tasks stay Pending, spend no delivery attempt and are never
+// dead-lettered, and each runs once the deaf handlers return. Wave 4c's loop
+// kept a Fetch(1) open at the lapsed cap and parked what arrived; every
+// redelivery spent an attempt, and all eight were dead-lettered unrun in 17 s.
+func testSaturatedNeverDeadLettersUnrun(t *testing.T, newBus func() events.Bus) {
+	ctx, bus := setupFor(t, newBus, 90*time.Second)
+	dlq := subscribeDLQ(ctx, t, bus)
+	sa := admin(t, bus)
+	sub := events.Subscription{
+		Stream: events.StreamWorkIndexarr, Durable: "ct-saturated",
+		Filters: []string{events.FilterIndexRSS},
+		AckWait: time.Second, MaxDeliver: 3, Backoff: []time.Duration{time.Second},
+		MaxInFlight: 1, MaxAckPending: 16,
+	}
+	Bind(ctx, t, bus, Topology(), sub)
+	release := make(chan struct{})
+	var once sync.Once
+	var ran atomic.Int32
+	stop, err := bus.Subscribe(ctx, sub, func(_ context.Context, m events.Message) error {
+		if strings.HasPrefix(m.Envelope().ID, "sat-hang") {
+			<-release // deaf to its context, on every delivery
+			return nil
+		}
+		ran.Add(1)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+	t.Cleanup(stop)
+	t.Cleanup(func() { once.Do(func() { close(release) }) }) // runs before stop
+	publish := func(id string, i int) {
+		t.Helper()
+		if _, err := bus.Publish(ctx, events.WorkRSSSubject("idx-"+id), envelope(id, "index.RssTask.v1", i)); err != nil {
+			t.Fatalf("Publish %s: %v", id, err)
+		}
+	}
+	publish("sat-hang-1", 0)
+	// Delivery 1 lapses after about 2 s and its redelivery hangs too: one
+	// live, one lapsed, the cap reached with the one slot held.
+	time.Sleep(5 * time.Second)
+	for i := range 8 {
+		publish(fmt.Sprintf("sat-work-%d", i), i+1)
+	}
+	time.Sleep(12 * time.Second) // E11 had dead-lettered all eight by now
+	if n := ran.Load(); n != 0 {
+		t.Fatalf("%d healthy tasks ran while a deaf handler held the slot; want 0", n)
+	}
+	for i := range dlq.len() {
+		if e, _ := dlq.at(i); strings.HasPrefix(e.Header(events.HeaderDLQMsgID), "sat-work") {
+			t.Fatalf("%s was dead-lettered without ever running: %s",
+				e.Header(events.HeaderDLQMsgID), e.Header(events.HeaderDLQReason))
+		}
+	}
+	if st := consumerState(ctx, t, sa, sub); st.Pending != 8 {
+		t.Errorf("Pending = %d, want the 8 queued tasks left at the broker for other replicas", st.Pending)
+	}
+	once.Do(func() { close(release) })
+	waitUntil(t, "every queued task to run once the deaf handlers returned", func() bool { return ran.Load() == 8 })
+}
+```
+
+  In `contracttest.go`, W4.45's `testBindOnlyDeadLetters` second variant, `ByTheBackstopAfterTheSubscriptionStopped`, becomes `ByTheBackstopOnceAReplicaPullsAgain` (D4): keep its setup and its stop in a goroutine, then, before `WatchDeadLetters`:
+
+```go
+		// The CONSUMER.INFO the manager's QueueGauge sends every 30 s prunes
+		// the pull the stopped subscription abandoned (nats-server
+		// consumer.go:3650-3653; worker-pool research E5): nothing raises
+		// MAX_DELIVERIES on it.
+		consumerState(ctx, t, sa, sub)
+```
+
+  and after `stopWatch` is deferred:
+
+```go
+		// A replica comes back. Its pull is what lets JetStream raise the
+		// advisory (getNextMsg; MaxDeliver 2 is past the ack timer's reach).
+		stop2, err := bus.Subscribe(ctx, sub, func(context.Context, events.Message) error { return nil })
+		if err != nil {
+			t.Fatalf("Subscribe the second replica: %v", err)
+		}
+		t.Cleanup(stop2)
+		dlq.waitFor(t, 1, "the backstop's copy, once a replica pulled again")
+```
+
+  The variant's comment names E5 and says the abandoned pull is not relied on.
+
+- [ ] **Step 2: Run them and watch them fail.**
+  Run: `go test ./pkg/events/natsbus/ -count=1 -run 'TestNextFetchesOnlyFreeSlots|TestBusContract/SaturatedSubscriptionNeverDeadLettersAnUnrunTask' -v`
+  Expected: `TestNextFetchesOnlyFreeSlots/lapsed_cap,_every_slot_live` and `one_slot,_wedged` fail (`next() = 1, want 0`); the contract case fails with `sat-work-… was dead-lettered without ever running: max deliveries exceeded (3): acknowledgement timed out`. On membus (`go test ./pkg/events/membus/ -run 'TestBusContract/Saturated'`) it passes: membus never parked.
+
+- [ ] **Step 3: Implement.** In `pkg/events/natsbus/subscription.go`:
+
+```go
+// next says how many messages to fetch: the free slots, and none at
+// saturation. A message this process cannot run stays Pending at the broker,
+// spends no delivery attempt and stays available to other replicas (split
+// §9.3 as amended 2026-10-07, M1). Keeping a Fetch(1) open at the lapsed cap,
+// as Wave 4c did, drew message after message into a park where each lapsed and
+// was redelivered, an attempt spent per redelivery, until it was dead-lettered
+// without ever running.
+func (s *subscription) next() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return max(s.slots-s.live, 0)
+}
+
+// dispatch starts a handler for m. A fetch asks only for free slots and slots
+// only free up while it waits, so a slot is always free here; if one is not, or
+// the subscription is stopping, m goes straight back with a plain Nak, so
+// another replica gets it now rather than after its deadline (research C8). A
+// fresh delivery starts even while an earlier delivery of the same message
+// runs: JetStream has given up on that one.
+func (s *subscription) dispatch(m jetstream.Msg) {
+	var seq, attempt uint64 = 0, 1
+	if md, err := m.Metadata(); err == nil {
+		seq = md.Sequence.Stream
+		attempt = max(md.NumDelivered, 1)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.stopping || s.live >= s.slots {
+		if !s.stopping {
+			logging.FromContext(s.loopCtx).Warn("bus: a fetch returned more than the free slots; handing the message back",
+				"durable", s.sub.Durable, "stream_seq", seq)
+		}
+		_ = m.Nak()
+		return
+	}
+	s.startLocked(m, seq, attempt)
+}
+```
+
+  Delete `parkedMsg`, the `parked` field, `startParkedLocked` and `seqRunningLocked`; drop the `s.startParkedLocked()` calls from `finish` and `reap` (each keeps `s.signalLocked()`, which wakes the loop to fetch for the freed slot) and the `s.parked = nil` line from `drainOnStop`. Rewrite the type's doc comment: the "Slots" paragraph keeps its first three sentences and ends "At saturation it fetches nothing."; the "Lapses" paragraph is unchanged; the paragraph starting "A free slot always means an outstanding Fetch" becomes:
+
+```go
+// MAX_DELIVERIES. JetStream raises the advisory from which the dead-letter
+// watcher copies a message whose final delivery lapsed only when it next
+// tries to deliver to a waiting pull, for MaxDeliver 2 or more: nats-server's
+// deliveryCount returns redeliveries, so the ack timer (checkPending) catches
+// only MaxDeliver 1, and getNextMsg raises the rest. This loop keeps no pull
+// open for it. The next pull from any replica, or from this one once a slot
+// frees, raises it; the lag metric's ack-pending wakes a domain at zero; and a
+// final-attempt handler that returns is dead-lettered in process by Settle.
+// A pull this process abandons does not stand in for one: nats.go
+// unsubscribes its inbox, and any CONSUMER.INFO -- the manager's QueueGauge,
+// every 30 s -- prunes it (worker-pool research, 2026-10-07, D4 and E5).
+```
+
+  and the "Drain" paragraph drops "drops what it parked (the broker delivers it again after its deadline)" for "hands back with a Nak any delivery still arriving". `fetch`'s comment loses its last clause ("which is how a stopped pod's last pull still lets JetStream raise MAX_DELIVERIES") and says instead that an abandoned request is pruned by the next CONSUMER.INFO. In `pkg/events/natsbus/deadletter.go`, the comment at `:77-80` that relies on a stopping replica's pull is rewritten the same way (the advisory fires on the next pull anywhere; an abandoned pull is pruned by any CONSUMER.INFO).
+
+- [ ] **Step 4: Run and pass.**
+  Run: `go build ./... && go vet ./pkg/events/... && go test ./pkg/events/natsbus/ ./pkg/events/membus/ -count=1 -run 'TestNextFetchesOnlyFreeSlots|TestBusContract' && ! grep -n 'parked\|startParkedLocked\|seqRunningLocked' pkg/events/natsbus/*.go`
+  Expected: `ok` for both packages; the grep prints nothing.
+
+- [ ] **Step 5: Commit.**
+
+```bash
+git add pkg/events/contracttest/saturation.go pkg/events/natsbus/subscription_internal_test.go
+git commit -m "fix(natsbus): a subscription fetches only for free slots and never parks -- each redelivery of a parked message spent an attempt, so a saturated pod dead-lettered healthy tasks it never ran (E11: 0 of 8 ran, 8 dead-lettered in 17 s); the MAX_DELIVERIES comments name the real cause (NATS research 2026-10-07, M1, D1, D4)" -- pkg/events/natsbus/subscription.go pkg/events/natsbus/deadletter.go pkg/events/contracttest/saturation.go pkg/events/contracttest/contracttest.go pkg/events/natsbus/subscription_internal_test.go
+```
+
+---
+
+### Task W4.91: M2: a scheduled task keeps its ID, and no transport header reaches the envelope
+
+**Spec:** split §9.2 and §9.3 as amended 2026-10-07 (M2), §9.8 as amended; `nats-worker-pools.md` D2, §4.4, §7 M2, experiments E7, E12. This predates Wave 4c and is live on main.
+**Files:**
+- Modify: `pkg/events/envelope.go` (`HeaderID`, `Header`, `ToHeaders`, `EnvelopeFromHeaders`, `transportHeader`)
+- Test: `pkg/events/events_test.go` (two cases); Create `pkg/events/contracttest/schedule.go`; Modify `pkg/events/contracttest/contracttest.go` (registration); `pkg/events/natsbus/natsbus_test.go` (`TestEveryScheduledSubjectKeepsItsID`)
+
+**Interfaces:**
+- Consumes: W4.42's `Bind`; W4.45's `admin`, `subscribeDLQ`; W4.90 (so the watcher variant's pod never parks).
+- Produces: `const events.HeaderID = "Clustarr-Id"`; `Envelope.Header(HeaderID)` is the ID; `ToHeaders` writes both `Nats-Msg-Id` and `Clustarr-Id`; `EnvelopeFromHeaders` reads `Nats-Msg-Id`, else `Clustarr-Id`, and drops every transport header. W4.115 (S4) builds on it.
+
+- [ ] **Step 1: Write the failing tests.** `pkg/events/events_test.go`:
+
+```go
+// TestEnvelopeFromHeadersKeepsTheIDOfAFiredSchedule: what nats-server's
+// scheduler hands a consumer (scheduler.go:214-231) -- the producer's headers
+// without Nats-Msg-Id, plus Nats-Scheduler and Nats-Schedule-Next -- decodes
+// to the producer's ID and carries neither broker header (M2, E7).
+func TestEnvelopeFromHeadersKeepsTheIDOfAFiredSchedule(t *testing.T) {
+	h := (&events.Envelope{ID: "grab-movie-a", Type: "catalog.grab", Schema: "catalog.GrabTask.v1"}).ToHeaders()
+	require.Equal(t, "grab-movie-a", h[events.HeaderID])
+	delete(h, events.HeaderMsgID)
+	h["Nats-Scheduler"] = "clustarr.work.catalogarr.sched.grab.movie-a"
+	h["Nats-Schedule-Next"] = "purge"
+	e := events.EnvelopeFromHeaders(h, nil)
+	assert.Equal(t, "grab-movie-a", e.ID)
+	assert.Empty(t, e.Headers, "a transport header in the envelope rides on every copy, and CLUSTARR_DLQ refuses it (10188)")
+}
+
+func TestEnvelopeFromHeadersDropsTransportHeaders(t *testing.T) {
+	for _, name := range []string{
+		"Nats-Schedule", "Nats-Schedule-Target", "Nats-Schedule-Next", "Nats-Schedule-TTL", "Nats-Scheduler",
+		"nats-schedule-time-zone", "Nats-Expected-Stream", "Nats-Expected-Last-Subject-Sequence", "Nats-TTL", "Nats-Rollup",
+	} {
+		e := events.EnvelopeFromHeaders(map[string]string{name: "x", "Clustarr-Other": "kept"}, nil)
+		assert.Equal(t, map[string]string{"Clustarr-Other": "kept"}, e.Headers, name)
+	}
+	e := events.EnvelopeFromHeaders(map[string]string{events.HeaderMsgID: "a", events.HeaderID: "b"}, nil)
+	assert.Equal(t, "a", e.ID, "Nats-Msg-Id wins when both are present")
+}
+```
+
+  Create `pkg/events/contracttest/schedule.go` (GPL header) and register, after `ScheduledPublish`:
+  `t.Run("AScheduledTaskKeepsItsIDAndItsDeadLetter", …testScheduledTaskKeepsItsID…)` and
+  `t.Run("AScheduledTasksLapsedFinalDeliveryIsDeadLettered", …testScheduledLapseIsDeadLettered…)`:
+
+```go
+package contracttest
+
+import (
+	"context"
+	"errors"
+	"slices"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/mediactl/clustarr/pkg/events"
+)
+
+// testScheduledTaskKeepsItsID is E12 of the worker-pool research: two grabs
+// published WithScheduleAt and refused by their handler. The handler sees each
+// task's own ID, and CLUSTARR_DLQ holds two copies on two subjects. Before M2
+// it saw ["" ""] and the DLQ held none: both copies carried
+// Nats-Schedule-Next and were refused with 10188.
+func testScheduledTaskKeepsItsID(t *testing.T, newBus func() events.Bus) {
+	ctx, bus := setup(t, newBus)
+	dlq := subscribeDLQ(ctx, t, bus)
+	sub := events.Subscription{
+		Stream: events.StreamWorkCatalogarr, Durable: "ct-sched-id",
+		Filters: []string{events.FilterCatalogGrab},
+		AckWait: 5 * time.Second, MaxDeliver: 3, Backoff: []time.Duration{time.Second},
+		MaxInFlight: 2,
+	}
+	Bind(ctx, t, bus, Topology(), sub)
+	var mu sync.Mutex
+	var seen []string
+	stop, err := bus.Subscribe(ctx, sub, func(_ context.Context, m events.Message) error {
+		mu.Lock()
+		seen = append(seen, m.Envelope().ID)
+		mu.Unlock()
+		return events.Discard("refused", nil)
+	})
+	if err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+	t.Cleanup(stop)
+	due := time.Now().Add(time.Second)
+	for _, id := range []string{"grab-movie-a", "grab-movie-b"} {
+		if _, err := bus.Publish(ctx, events.WorkGrabSubject(id), envelope(id, "catalog.GrabTask.v1", 0), events.WithScheduleAt(due)); err != nil {
+			t.Fatalf("Publish %s: %v", id, err)
+		}
+	}
+	dlq.waitFor(t, 2, "both scheduled tasks' dead-letter copies")
+	mu.Lock()
+	got := slices.Sorted(slices.Values(seen))
+	mu.Unlock()
+	if !slices.Equal(got, []string{"grab-movie-a", "grab-movie-b"}) {
+		t.Errorf("the handler saw IDs %q, want each task's own", got)
+	}
+	subjects := map[string]bool{}
+	for i := range dlq.len() {
+		e, subject := dlq.at(i)
+		subjects[subject] = true
+		for k := range e.Headers {
+			if strings.HasPrefix(strings.ToLower(k), "nats-schedule") {
+				t.Errorf("dead letter %s carries the transport header %s", subject, k)
+			}
+		}
+	}
+	if len(subjects) != 2 {
+		t.Errorf("the two copies landed on %d subject(s), want 2: %v", len(subjects), subjects)
+	}
+}
+
+// testScheduledLapseIsDeadLettered: a scheduled task whose final delivery
+// lapses is copied by the dead-letter watcher and its WorkQueue original
+// deleted. Before M2 copyLapsed was refused on every retry and, at
+// MaxDeliver -1, naked for ever.
+func testScheduledLapseIsDeadLettered(t *testing.T, newBus func() events.Bus) {
+	ctx, bus := setup(t, newBus)
+	dlq := subscribeDLQ(ctx, t, bus)
+	sa := admin(t, bus)
+	sub := events.Subscription{
+		Stream: events.StreamWorkCatalogarr, Durable: "ct-sched-lapse",
+		Filters: []string{events.FilterCatalogGrab},
+		AckWait: 500 * time.Millisecond, MaxDeliver: 2, Backoff: []time.Duration{500 * time.Millisecond},
+		MaxInFlight: 3, // a slot stays free after the final delivery, so a pull waits
+	}
+	Bind(ctx, t, bus, Topology(), sub)
+	release := make(chan struct{})
+	var once sync.Once
+	stop, err := bus.Subscribe(ctx, sub, func(context.Context, events.Message) error {
+		<-release
+		return errors.New("hung")
+	})
+	if err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+	t.Cleanup(stop)
+	t.Cleanup(func() { once.Do(func() { close(release) }) })
+	if _, err := bus.Publish(ctx, events.WorkGrabSubject("movie-sched-lapse"), envelope("grab-sched-lapse", "catalog.GrabTask.v1", 0),
+		events.WithScheduleAt(time.Now().Add(time.Second))); err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+	dlq.waitFor(t, 1, "the dead-letter copy of a scheduled task whose final delivery lapsed")
+	if e, _ := dlq.at(0); e.Header(events.HeaderDLQMsgID) != "grab-sched-lapse" {
+		t.Errorf("the copy names the original %q, want grab-sched-lapse", e.Header(events.HeaderDLQMsgID))
+	}
+	waitUntil(t, "the original removed from its work queue", func() bool {
+		s, err := sa.Subjects(ctx, sub.Stream, events.FilterCatalogGrab)
+		return err == nil && len(s) == 0
+	})
+}
+```
+
+  `pkg/events/natsbus/natsbus_test.go`, the sweep over every scheduled publisher (real server; the four callers are `app/catalog/worker/grab/decide.go`, `app/catalog/markers/publish.go`, `app/catalog/segmentplan/plan.go`, `app/indexer/rssschedule/schedule.go`):
+
+```go
+// TestEveryScheduledSubjectKeepsItsID publishes WithScheduleAt on each subject
+// family a production caller schedules, through its own durable from
+// events.Default(), and asserts the handler sees the ID (M2's sweep).
+func TestEveryScheduledSubjectKeepsItsID(t *testing.T) {
+	bus, err := natsbus.New(connect(t)) // the package's embedded-server helper
+	require.NoError(t, err)
+	ctx := context.Background()
+	require.NoError(t, bus.Ensure(ctx, events.Default().ForSingleNode()))
+	for _, tc := range []struct{ durable, subject string }{
+		{events.ConsumerCatalogGrab, events.WorkGrabSubject("movie-x")},
+		{events.ConsumerCatalogMarkers, events.WorkMarkersSubject("movie-x")},
+		{events.ConsumerCatalogSegmentsPlan, events.WorkSegmentsPlanSubject("series-x")},
+		{events.ConsumerIndexRSS, events.WorkRSSSubject("idx-x")},
+	} {
+		t.Run(tc.durable, func(t *testing.T) {
+			spec, ok := events.Default().Consumer(tc.durable)
+			require.True(t, ok)
+			got := make(chan string, 1)
+			stop, err := bus.Subscribe(ctx, spec.Subscription(), func(_ context.Context, m events.Message) error {
+				select {
+				case got <- m.Envelope().ID:
+				default:
+				}
+				return nil
+			})
+			require.NoError(t, err)
+			defer stop()
+			id := "sched-" + tc.durable
+			_, err = bus.Publish(ctx, tc.subject, &events.Envelope{ID: id, Schema: "test.Task.v1", Data: []byte(`{}`)},
+				events.WithScheduleAt(time.Now().Add(time.Second)))
+			require.NoError(t, err)
+			select {
+			case gotID := <-got:
+				assert.Equal(t, id, gotID)
+			case <-time.After(20 * time.Second):
+				t.Fatal("the scheduled task was never delivered")
+			}
+		})
+	}
+}
+```
+
+  (Use the constants `subjects.go` defines for the four durables; `grep -n 'ConsumerCatalog\|ConsumerIndexRSS' pkg/events/subjects.go` names them.)
+
+- [ ] **Step 2: Run them and watch them fail.**
+  Run: `go test ./pkg/events/ -run 'TestEnvelopeFromHeaders' && go test ./pkg/events/natsbus/ -count=1 -run 'TestEveryScheduledSubjectKeepsItsID|TestBusContract/AScheduled' -v`
+  Expected: `undefined: events.HeaderID`; then, once it compiles against a stub, natsbus fails with `the handler saw IDs ["" ""]` and `TestEveryScheduledSubjectKeepsItsID/*` with `expected "sched-…", actual ""`; membus passes.
+
+- [ ] **Step 3: Implement.** In `pkg/events/envelope.go`, after `HeaderMsgID`:
+
+```go
+	// HeaderID carries the envelope's ID beside Nats-Msg-Id. When a
+	// JetStream schedule fires, the server strips Nats-Msg-Id from the copy
+	// (nats-server scheduler.go:214-231), so without this a scheduled task
+	// reached its handler with no ID and its dead-letter copies shared one
+	// Msg-Id (split spec §9.3 as amended 2026-10-07, M2).
+	HeaderID = "Clustarr-Id"
+```
+
+  `Header`'s first case becomes `case HeaderMsgID, HeaderID: return e.ID`; `ToHeaders`' name list gains `HeaderID` after `HeaderMsgID`. `EnvelopeFromHeaders`:
+
+```go
+func EnvelopeFromHeaders(h map[string]string, data []byte) *Envelope {
+	e := &Envelope{Data: data}
+	rest := make(map[string]string, len(h))
+	var msgID, clustarrID string
+	for k, v := range h {
+		switch {
+		case k == HeaderMsgID:
+			msgID = v
+		case k == HeaderID:
+			clustarrID = v
+		case k == HeaderType:
+			e.Type = v
+		// ... the other named fields exactly as today ...
+		case transportHeader(k):
+			// How the message travelled, not what it is: never copied on.
+		default:
+			rest[k] = v
+		}
+	}
+	e.ID = cmp.Or(msgID, clustarrID)
+	if len(rest) > 0 {
+		e.Headers = rest
+	}
+	return e
+}
+
+// transportHeader reports a header the broker adds or reads in transit: a
+// schedule's (Nats-Schedule*, Nats-Scheduler), an expectation's
+// (Nats-Expected-*), a per-message TTL or a rollup. A copy published with
+// Nats-Schedule-Next onto a stream that allows no schedules is refused with
+// 10188, so none may ride into an envelope (M2).
+func transportHeader(name string) bool {
+	n := strings.ToLower(name)
+	return strings.HasPrefix(n, "nats-schedule") ||
+		strings.HasPrefix(n, "nats-expected-") ||
+		n == "nats-ttl" || n == "nats-rollup"
+}
+```
+
+  (Keep the switch's existing cases for `HeaderType`, `HeaderSchema`, `HeaderSource`, `HeaderKey`, `HeaderTrace`, `HeaderContentType` and `HeaderTime` as they are, rewritten as `case k == …:`.) natsbus `Publish` keeps `jetstream.WithMsgID(o.MsgID)`; `DeadLetterEnvelope` and `app/catalog/history/replay.replayEnvelope` need no change, since they clone an envelope that now carries clean headers. Both buses decode through `EnvelopeFromHeaders` (natsbus `newMessage`, `copyLapsed`), so nothing else changes.
+
+- [ ] **Step 4: Run and pass.**
+  Run: `go build ./... && go vet ./pkg/events/... && go test ./pkg/events/ ./pkg/events/natsbus/ ./pkg/events/membus/ -count=1 -run 'TestEnvelopeFromHeaders|TestEveryScheduledSubjectKeepsItsID|TestBusContract'`
+  Expected: `ok` for all three.
+
+- [ ] **Step 5: Commit.**
+
+```bash
+git add pkg/events/contracttest/schedule.go
+git commit -m "fix(events): a scheduled task keeps its ID (Clustarr-Id beside Nats-Msg-Id, which a fired schedule loses) and no transport header reaches the envelope, so its dead-letter copy is no longer refused with 10188 (NATS research 2026-10-07, M2, D2, E7, E12)" -- pkg/events/envelope.go pkg/events/events_test.go pkg/events/contracttest/schedule.go pkg/events/contracttest/contracttest.go pkg/events/natsbus/natsbus_test.go
+```
+
+---
+
+### Task W4.92: S2: a lapsed delivery's InProgress and Nak are muted
+
+**Spec:** split §9.3 as amended 2026-10-07 (S2), §9.8 as amended; `nats-worker-pools.md` D3, §7 S2, experiment E3.
+**Files:**
+- Modify: `pkg/events/natsbus/subscription.go` (the `run` callback carries a `deliveryHooks`), `pkg/events/natsbus/natsbus.go` (`Subscribe`, `receive`, `handle` take `deliveryHooks`), `pkg/events/natsbus/message.go` (`muted`), `pkg/events/natsbus/pull.go` (`receive(..., deliveryHooks{})`)
+- Modify: `pkg/events/membus/membus.go` (a released delivery's message is muted), `pkg/obs/metrics/domain.go` (`BusMutedTotal`)
+- Test: `pkg/events/contracttest/saturation.go` (`testLapsedCannotExtend`), `pkg/events/contracttest/contracttest.go` (registration)
+
+**Interfaces:**
+- Consumes: W4.90's subscription.
+- Produces: natsbus `type deliveryHooks struct{ onProgress func(); lapsed func() bool }`; `message.InProgress` and `message.Nak` return nil without sending when `lapsed()` is true; `metrics.BusMutedTotal` (`clustarr_bus_muted_total{durable,op}`, `op` `in_progress` or `nak`). `Ack` and `Term` are never muted.
+
+- [ ] **Step 1: Write the failing test.** Register `t.Run("ALapsedDeliveryCannotExtendItsRedelivery", …testLapsedCannotExtend…)` and add to `saturation.go`:
+
+```go
+// testLapsedCannotExtend is E3 of the worker-pool research: the broker keys
+// InProgress by stream sequence, so a lapsed handler that keeps heartbeating
+// kept its redelivered copy from ever timing out. Delivery 1 lapses and
+// heartbeats; delivery 2 hangs silent; delivery 3 must still arrive on the
+// broker's schedule (S2).
+func testLapsedCannotExtend(t *testing.T, newBus func() events.Bus) {
+	ctx, bus := setupFor(t, newBus, 60*time.Second)
+	const deadline = time.Second
+	sub := events.Subscription{
+		Stream: events.StreamWorkIndexarr, Durable: "ct-muted",
+		Filters: []string{events.FilterIndexRSS},
+		AckWait: deadline, MaxDeliver: 5, Backoff: []time.Duration{deadline},
+		MaxInFlight: 2, MaxAckPending: 8,
+	}
+	Bind(ctx, t, bus, Topology(), sub)
+	release := make(chan struct{})
+	var once, began sync.Once
+	redelivered := make(chan struct{})
+	second := make(chan time.Time, 1)
+	third := make(chan time.Time, 1)
+	stop, err := bus.Subscribe(ctx, sub, func(hctx context.Context, m events.Message) error {
+		switch m.Attempt() {
+		case 1:
+			<-redelivered // silent until the broker redelivered it: delivery 1 has lapsed
+			for {         // then heartbeats, deaf to its context, as E3's stale delivery did
+				select {
+				case <-release:
+					return nil
+				case <-time.After(300 * time.Millisecond):
+					_ = m.InProgress(context.WithoutCancel(hctx))
+				}
+			}
+		case 2:
+			began.Do(func() { close(redelivered) })
+			second <- time.Now()
+			<-release // silent
+			return nil
+		default:
+			select {
+			case third <- time.Now():
+			default:
+			}
+			return nil
+		}
+	})
+	if err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+	t.Cleanup(stop)
+	t.Cleanup(func() { once.Do(func() { close(release) }) })
+	if _, err := bus.Publish(ctx, events.WorkRSSSubject("idx-muted"), envelope("muted-1", "index.RssTask.v1", 0)); err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+	var at2 time.Time
+	select {
+	case at2 = <-second:
+	case <-time.After(10 * deadline):
+		t.Fatal("delivery 2 never came: delivery 1 did not lapse")
+	}
+	select {
+	case at3 := <-third:
+		if d := at3.Sub(at2); d > 4*deadline {
+			t.Errorf("delivery 3 came %v after delivery 2, want within 4x the %v deadline", d, deadline)
+		}
+	case <-time.After(5 * deadline):
+		t.Fatal("delivery 3 never came: the lapsed delivery's InProgress kept the live copy from timing out")
+	}
+}
+```
+
+- [ ] **Step 2: Run it and watch it fail.**
+  Run: `go test ./pkg/events/natsbus/ -count=1 -run 'TestBusContract/ALapsedDeliveryCannotExtendItsRedelivery' -v`
+  Expected: `delivery 3 never came: the lapsed delivery's InProgress kept the live copy from timing out`.
+
+- [ ] **Step 3: Implement.** In `subscription.go`, `run` becomes `func(ctx context.Context, m jetstream.Msg, h deliveryHooks)`, and `startLocked` passes
+
+```go
+deliveryHooks{
+	onProgress: func() { s.progress(d) },
+	lapsed:     func() bool { s.mu.Lock(); defer s.mu.Unlock(); return d.lapsed },
+}
+```
+
+  `Subscribe`, `receive` and `handle` in `natsbus.go` take `deliveryHooks` instead of `onProgress func()`; `receive` sets `msg.onProgress = h.onProgress` and `msg.lapsed = h.lapsed`; `pull.go`'s call passes `deliveryHooks{}`. In `message.go`, beside `onProgress`:
+
+```go
+	// lapsed, when set, reports that the subscription has given this
+	// delivery's slot back: the broker has redelivered it, and InProgress and
+	// Nak, which the server keys by stream sequence, would act on the live
+	// copy another handler runs (research D3, E3). Both are muted then; Ack
+	// and Term still go -- the work is done, or the message is poison.
+	lapsed  func() bool
+	durable string // for the muted count's label
+```
+
+  and at the top of `InProgress` and `Nak`:
+
+```go
+	if m.lapsed != nil && m.lapsed() {
+		metrics.BusMutedTotal.WithLabelValues(m.durable, "in_progress").Inc() // "nak" in Nak
+		logging.FromContext(ctx).Debug("bus: a lapsed delivery's InProgress was not sent", "durable", m.durable)
+		return nil
+	}
+```
+
+  (`newMessage` takes the durable, from `sub.Durable`.) In `pkg/obs/metrics/domain.go`, in the work-queue block:
+
+```go
+	// BusMutedTotal counts InProgress and Nak calls the bus did not send
+	// because their delivery had lapsed and been redelivered, by durable
+	// and op (in_progress, nak).
+	BusMutedTotal = newCounterVec(
+		"clustarr_bus_muted_total",
+		"Settlements a lapsed delivery attempted and the bus muted, by durable and op.",
+		"durable", "op",
+	)
+```
+
+  membus: the message of a delivery whose slot the sweep released (`memSub`'s lapse release) gets the same `lapsed` check before `InProgress` and `Nak` touch the claim; find the release with `grep -n 'lapsed\|release' pkg/events/membus/membus.go`.
+
+- [ ] **Step 4: Run and pass.**
+  Run: `go build ./... && go vet ./pkg/events/... ./pkg/obs/... && go test ./pkg/events/natsbus/ ./pkg/events/membus/ ./pkg/obs/metrics/ -count=1 -run 'TestBusContract|Test'`
+  Expected: `ok` (`pkg/obs/metrics`' label guard accepts `durable` and `op`: both bounded).
+
+- [ ] **Step 5: Commit.**
+
+```bash
+git commit -m "fix(bus): a lapsed delivery's InProgress and Nak are muted, so a stale handler can no longer keep its redelivered copy from timing out or move its deadline (NATS research 2026-10-07, S2, D3, E3)" -- pkg/events/natsbus/subscription.go pkg/events/natsbus/natsbus.go pkg/events/natsbus/message.go pkg/events/natsbus/pull.go pkg/events/membus/membus.go pkg/obs/metrics/domain.go pkg/events/contracttest/saturation.go pkg/events/contracttest/contracttest.go
+```
+
+---
+
+### Task W4.93: S5: lapse, nak and settle timing comes from the bound durable
+
+**Spec:** split §9.2 and §9.3 as amended 2026-10-07 (S5); `nats-worker-pools.md` D5, §7 S5.
+**Files:**
+- Modify: `pkg/events/bus.go` (`Timing`, `Subscription.Timing`, `Subscription.WithTiming`, `Timing.Equal`)
+- Modify: `pkg/events/natsbus/bind.go` (`bindConsumer` returns the durable's `events.Timing`), `pkg/events/natsbus/subscription.go` (`timing`, `effective`), `pkg/events/natsbus/natsbus.go` (`handle` gets the effective subscription), `pkg/events/natsbus/deadletter.go` (the watcher loop's `bindConsumer` call ignores the timing)
+- Modify: `pkg/events/membus/membus.go`, `pkg/events/membus/admin.go` (`bindDurable` stores the topology consumer's timing; `Subscribe` uses it)
+- Test: `pkg/events/events_test.go` (`TestTimingEqualComparesDeadlines`), `pkg/events/contracttest/saturation.go` (`testBoundTiming`), `pkg/events/contracttest/contracttest.go` (registration)
+
+**Interfaces:**
+- Consumes: W4.44's `bindConsumer`, `pullLoop`; W4.92's `deliveryHooks`.
+- Produces:
+
+```go
+// Timing is how the broker times a durable's deliveries.
+type Timing struct {
+	AckWait    time.Duration
+	Backoff    []time.Duration
+	MaxDeliver int
+}
+func (s Subscription) Timing() Timing
+func (s Subscription) WithTiming(t Timing) Subscription
+// Equal compares what AckDeadline derives for attempts 1..len(Backoff)+1, and
+// MaxDeliver, so an AckWait the broker replaced with Backoff[0] is no skew.
+func (t Timing) Equal(u Timing) bool
+```
+
+  natsbus `(*Bus).bindConsumer(ctx, stream, durable) (jetstream.Consumer, events.Timing, error)`.
+
+- [ ] **Step 1: Write the failing tests.** `pkg/events/events_test.go`:
+
+```go
+func TestTimingEqualComparesDeadlines(t *testing.T) {
+	declared := events.Timing{AckWait: 30 * time.Minute, Backoff: []time.Duration{time.Minute, 10 * time.Minute}, MaxDeliver: 3}
+	stored := events.Timing{AckWait: time.Minute, Backoff: []time.Duration{time.Minute, 10 * time.Minute}, MaxDeliver: 3} // E4
+	assert.True(t, declared.Equal(stored), "the broker stores AckWait = BackOff[0]; that is no skew")
+	assert.False(t, declared.Equal(events.Timing{AckWait: time.Minute, Backoff: []time.Duration{time.Minute}, MaxDeliver: 3}))
+	assert.False(t, declared.Equal(events.Timing{AckWait: 30 * time.Minute, Backoff: declared.Backoff, MaxDeliver: 5}))
+}
+```
+
+  Register `t.Run("TimingComesFromTheBoundDurable", …testBoundTiming…)` and add to `saturation.go`:
+
+```go
+// testBoundTiming: a subscriber whose compiled Subscription disagrees with
+// the durable it binds -- an older agent on a newer topology -- times lapses
+// and settles on the broker's numbers, not its own (S5, D5).
+func testBoundTiming(t *testing.T, newBus func() events.Bus) {
+	ctx, bus := setupFor(t, newBus, 60*time.Second)
+	dlq := subscribeDLQ(ctx, t, bus)
+	bound := events.Subscription{
+		Stream: events.StreamWorkIndexarr, Durable: "ct-bound-timing",
+		Filters: []string{events.FilterIndexRSS},
+		AckWait: time.Second, MaxDeliver: 2, Backoff: []time.Duration{time.Second},
+		MaxInFlight: 1, MaxAckPending: 8,
+	}
+	Bind(ctx, t, bus, Topology(), bound)
+	caller := bound
+	caller.AckWait, caller.Backoff, caller.MaxDeliver = 30*time.Second, []time.Duration{30 * time.Second}, 5
+	release := make(chan struct{})
+	var once sync.Once
+	handled := make(chan time.Time, 1)
+	stop, err := bus.Subscribe(ctx, caller, func(_ context.Context, m events.Message) error {
+		switch m.Envelope().ID {
+		case "bound-hung":
+			if m.Attempt() == 1 {
+				<-release
+			}
+			return nil
+		case "bound-next":
+			select {
+			case handled <- time.Now():
+			default:
+			}
+			return nil
+		default: // bound-fail
+			return errors.New("fails every time")
+		}
+	})
+	if err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+	t.Cleanup(stop)
+	t.Cleanup(func() { once.Do(func() { close(release) }) })
+	publish := func(id string) {
+		t.Helper()
+		if _, err := bus.Publish(ctx, events.WorkRSSSubject("idx-"+id), envelope(id, "index.RssTask.v1", 0)); err != nil {
+			t.Fatalf("Publish: %v", err)
+		}
+	}
+	publish("bound-hung")
+	time.Sleep(200 * time.Millisecond)
+	start := time.Now()
+	publish("bound-next")
+	select {
+	case at := <-handled:
+		if d := at.Sub(start); d > 5*time.Second {
+			t.Errorf("the next task ran after %v: the slot was timed on the caller's 30 s, not the durable's 1 s", d)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the hung handler's slot was never reclaimed on the durable's 1 s deadline")
+	}
+	publish("bound-fail")
+	dlq.waitFor(t, 1, "the failing task dead-lettered at the durable's MaxDeliver 2")
+	// Settle, judging on the bound MaxDeliver 2, dead-letters in process with
+	// the handler's error. Judging on the caller's 5 it would nak for 30 s and
+	// leave the broker to give up, and the watcher's copy would read
+	// "acknowledgement timed out".
+	if e, _ := dlq.at(0); !strings.Contains(e.Header(events.HeaderDLQReason), "fails every time") {
+		t.Errorf("dead-lettered with %q, want Settle's own reason at the bound durable's MaxDeliver 2", e.Header(events.HeaderDLQReason))
+	}
+}
+```
+
+- [ ] **Step 2: Run them and watch them fail.**
+  Run: `go test ./pkg/events/ -run TestTimingEqual && go test ./pkg/events/natsbus/ -count=1 -run 'TestBusContract/TimingComesFromTheBoundDurable' -v`
+  Expected: `undefined: events.Timing`; then the contract case fails on the caller's 30 s.
+
+- [ ] **Step 3: Implement.**
+  1. `pkg/events/bus.go`, after `AckDeadline`: `Timing`, `Subscription.Timing()` (copies the three fields), `Subscription.WithTiming(t)` (returns a copy with them replaced) and `Timing.Equal(u)` (equal `MaxDeliver`, and `AckDeadline` equal for every attempt from 1 to `max(len(t.Backoff), len(u.Backoff))+1`).
+  2. `natsbus/bind.go`: `bindConsumer` returns, beside the consumer,
+
+```go
+	cfg := c.CachedInfo().Config
+	return c, events.Timing{AckWait: cfg.AckWait, Backoff: cfg.BackOff, MaxDeliver: cfg.MaxDeliver}, nil
+```
+
+  3. `natsbus/subscription.go`: the `subscription` gains `timing events.Timing` (under `mu`) and `warnedSkew bool`; `pullLoop`, after each successful bind, stores it and, when `!s.sub.Timing().Equal(bound)`, logs once per bind at warn: "bus: the durable's timing differs from this process's; using the durable's (version skew?)" with both values. `func (s *subscription) effectiveLocked() events.Subscription { return s.sub.WithTiming(s.timing) }` (and `effective()` locking around it). `startLocked` and `progress` compute deadlines with `events.AckDeadline(s.effectiveLocked(), attempt)`; `run` is called with `s.effective()`, so `Subscribe`'s closure becomes `func(hctx context.Context, eff events.Subscription, m jetstream.Msg, h deliveryHooks) { b.handle(hctx, eff, handler, m, h) }`, and `handle`'s `newMessage(jm, sub.Backoff, …)` and `events.Settle(err, msg.Attempt(), sub)` read the broker's numbers.
+  4. `natsbus/deadletter.go`: the watcher loop's `bindConsumer` call takes `c, _, err :=`.
+  5. membus: `bindDurable` gains the timing (`Ensure` binds each topology consumer with `spec.Subscription().Timing()`), and `Subscribe` replaces the caller's timing with the bound durable's the same way, warning once on skew.
+
+- [ ] **Step 4: Run and pass.**
+  Run: `go build ./... && go vet ./pkg/events/... && go test ./pkg/events/ ./pkg/events/natsbus/ ./pkg/events/membus/ -count=1 -run 'TestTiming|TestBusContract'`
+  Expected: `ok`.
+
+- [ ] **Step 5: Commit.**
+
+```bash
+git commit -m "fix(bus): lapse, nak and settle timing comes from the durable the subscription binds, not the caller's compiled copy, with one warning per bind on a skew (NATS research 2026-10-07, S5, D5)" -- pkg/events/bus.go pkg/events/events_test.go pkg/events/natsbus/bind.go pkg/events/natsbus/subscription.go pkg/events/natsbus/natsbus.go pkg/events/natsbus/deadletter.go pkg/events/membus/membus.go pkg/events/membus/admin.go pkg/events/contracttest/saturation.go pkg/events/contracttest/contracttest.go
+```
+
+---
+
+### Task W4.94: S7: every NATS connection reports its asynchronous errors
+
+**Spec:** split §9.3 as amended 2026-10-07 ("Slow consumers are reported"), §9.8 as amended; `nats-worker-pools.md` §3.1, §7 S7.
+**Files:**
+- Modify: `pkg/events/natsbus/natsbus.go` (`New` installs the handlers; `WithLogger`), Create `pkg/events/natsbus/asyncerr.go`
+- Modify: `pkg/obs/metrics/domain.go` (`NATSAsyncErrorsTotal`)
+- Test: `pkg/events/natsbus/asyncerr_internal_test.go` (`TestAsyncErrorKinds`), `pkg/events/natsbus/natsbus_test.go` (`TestAsyncErrorsAreCounted`)
+
+**Interfaces:**
+- Consumes: nothing new.
+- Produces: `func natsbus.WithLogger(l *slog.Logger) Option`; `natsbus.New` calls `nc.SetErrorHandler` and `nc.SetDisconnectErrHandler` when `nc.Opts.AsyncErrorCB` (resp. `DisconnectedErrCB`) is nil; `metrics.NATSAsyncErrorsTotal` (`clustarr_nats_async_errors_total{kind}`, `kind` in `slow_consumer`, `permission`, `disconnect`, `other`). Every process gets it through `natsbus.New` (`busconn.Connect`, and the markers and transcode mains), so no `cmd` file changes; passing `natsbus.WithLogger(log)` there is optional and not done here.
+
+- [ ] **Step 1: Write the failing tests.** `pkg/events/natsbus/asyncerr_internal_test.go`:
+
+```go
+func TestAsyncErrorKinds(t *testing.T) {
+	assert.Equal(t, "slow_consumer", asyncErrorKind(nats.ErrSlowConsumer))
+	assert.Equal(t, "slow_consumer", asyncErrorKind(fmt.Errorf("wrapped: %w", nats.ErrSlowConsumer)))
+	assert.Equal(t, "permission", asyncErrorKind(errors.New(`nats: permissions violation for subscription to "x"`)))
+	assert.Equal(t, "other", asyncErrorKind(errors.New("nats: something else")))
+}
+```
+
+  `pkg/events/natsbus/natsbus_test.go`:
+
+```go
+// TestAsyncErrorsAreCounted: a core subscription that falls behind its
+// pending limit drops messages; the connection's async error callback counts
+// it, where before no handler was installed and the drop was silent (S7).
+func TestAsyncErrorsAreCounted(t *testing.T) {
+	nc := connect(t) // the package's embedded-server helper
+	_, err := natsbus.New(nc)
+	require.NoError(t, err)
+	before := testutil.ToFloat64(metrics.NATSAsyncErrorsTotal.WithLabelValues("slow_consumer"))
+	block := make(chan struct{})
+	t.Cleanup(func() { close(block) })
+	sub, err := nc.Subscribe("asyncerr.test", func(*nats.Msg) { <-block })
+	require.NoError(t, err)
+	require.NoError(t, sub.SetPendingLimits(1, 1024))
+	for range 100 {
+		require.NoError(t, nc.Publish("asyncerr.test", []byte("x")))
+	}
+	require.NoError(t, nc.Flush())
+	assert.Eventually(t, func() bool {
+		return testutil.ToFloat64(metrics.NATSAsyncErrorsTotal.WithLabelValues("slow_consumer")) > before
+	}, 5*time.Second, 50*time.Millisecond)
+}
+```
+
+- [ ] **Step 2: Run them and watch them fail.** Run: `go test ./pkg/events/natsbus/ -count=1 -run 'TestAsyncError' -v` / Expected: `undefined: asyncErrorKind`, `undefined: metrics.NATSAsyncErrorsTotal`.
+
+- [ ] **Step 3: Implement.** `pkg/obs/metrics/domain.go`, in the work-queue block:
+
+```go
+	// NATSAsyncErrorsTotal counts a NATS connection's asynchronous errors by
+	// kind: a slow consumer dropping messages (a Serve responder, a KV watch,
+	// a Fetch inbox), a permission violation, a disconnect with an error, or
+	// anything else. Never labelled by subject: subjects carry media keys.
+	NATSAsyncErrorsTotal = newCounterVec(
+		"clustarr_nats_async_errors_total",
+		"Asynchronous NATS connection errors, by kind.",
+		"kind",
+	)
+```
+
+  `pkg/events/natsbus/asyncerr.go` (GPL header):
+
+```go
+package natsbus
+
+// asyncErrorEvery bounds the log to one line per kind and subject a minute;
+// the counter sees every one.
+const asyncErrorEvery = time.Minute
+
+func asyncErrorKind(err error) string {
+	switch {
+	case errors.Is(err, nats.ErrSlowConsumer):
+		return "slow_consumer"
+	case strings.Contains(strings.ToLower(err.Error()), "permissions violation"):
+		return "permission"
+	default:
+		return "other"
+	}
+}
+
+// asyncErrors reports a connection's asynchronous errors: nats.go drops
+// messages for a slow consumer and calls only this callback, which nothing
+// installed before the NATS research of 2026-10-07 (S7).
+type asyncErrors struct {
+	log  *slog.Logger
+	mu   sync.Mutex
+	last map[string]time.Time // kind + "\x00" + subject
+}
+
+func (a *asyncErrors) onError(_ *nats.Conn, sub *nats.Subscription, err error) {
+	if err == nil {
+		return
+	}
+	kind := asyncErrorKind(err)
+	metrics.NATSAsyncErrorsTotal.WithLabelValues(kind).Inc()
+	subject := ""
+	if sub != nil {
+		subject = sub.Subject
+	}
+	if a.due(kind, subject) {
+		a.log.Warn("nats: asynchronous error", "kind", kind, "subject", subject, "error", err)
+	}
+}
+
+func (a *asyncErrors) onDisconnect(_ *nats.Conn, err error) {
+	if err == nil {
+		return // a clean close
+	}
+	metrics.NATSAsyncErrorsTotal.WithLabelValues("disconnect").Inc()
+	if a.due("disconnect", "") {
+		a.log.Warn("nats: disconnected", "error", err)
+	}
+}
+
+func (a *asyncErrors) due(kind, subject string) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	k := kind + "\x00" + subject
+	if time.Since(a.last[k]) < asyncErrorEvery {
+		return false
+	}
+	a.last[k] = time.Now()
+	return true
+}
+```
+
+  `natsbus.go`: `options` gains `log *slog.Logger`; `WithLogger(l)` sets it; `New`, after the options are applied:
+
+```go
+	log := o.log
+	if log == nil {
+		log = slog.Default()
+	}
+	ae := &asyncErrors{log: log, last: map[string]time.Time{}}
+	if nc.Opts.AsyncErrorCB == nil {
+		nc.SetErrorHandler(ae.onError)
+	}
+	if nc.Opts.DisconnectedErrCB == nil {
+		nc.SetDisconnectErrHandler(ae.onDisconnect)
+	}
+```
+
+  `pkg/obs/metrics` imports only prometheus, so the markers and transcode deps guards (§4.5.4, §4.5.5) stay green; check with `CGO_ENABLED=0 go list -deps ./cmd/squasharr-worker | grep -E 'controller-runtime|clustarr/pkg/obs$'` (or `./cmd/transcode` after W5.12), which must print nothing.
+
+- [ ] **Step 4: Run and pass.**
+  Run: `go build ./... && go vet ./pkg/events/natsbus/ ./pkg/obs/... && go test ./pkg/events/natsbus/ ./pkg/obs/metrics/ -count=1 -run 'TestAsyncError|Test'`
+  Expected: `ok`.
+
+- [ ] **Step 5: Commit.**
+
+```bash
+git add pkg/events/natsbus/asyncerr.go pkg/events/natsbus/asyncerr_internal_test.go
+git commit -m "feat(natsbus): every connection reports its asynchronous errors -- a slow consumer's dropped messages, permission violations and error disconnects are counted (clustarr_nats_async_errors_total{kind}) and logged once a minute, where no handler was installed before (NATS research 2026-10-07, S7)" -- pkg/events/natsbus/asyncerr.go pkg/events/natsbus/asyncerr_internal_test.go pkg/events/natsbus/natsbus.go pkg/events/natsbus/natsbus_test.go pkg/obs/metrics/domain.go
+```
+
+---
+
+### Task W4.95: S9: every handler heartbeat fits a third of its deadline
+
+**Spec:** split §9.3 as amended 2026-10-07 ("Heartbeats"), §5.15 as amended (`TestHeartbeatsFitTheirDeadline`); `nats-worker-pools.md` §2.4, §7 S9.
+**Files:**
+- Modify: `app/segments/worker/worker.go` (`heartbeat` 30 s becomes exported `HeartbeatInterval = 20 * time.Second`; its use at `:376`), `app/caption/worker/fetch/worker.go` (`heartbeatInterval` 20 s becomes `HeartbeatInterval = 10 * time.Second`, and its uses)
+- Modify (export only, values unchanged): `app/import/worker/fileimport/worker.go` (`HeartbeatInterval`, 10 s; its uses, `recyclebin.go:105` among them), `app/import/worker/rescan/worker.go` (`HeartbeatInterval`, 3 s), `app/indexer/worker/rss/worker.go` (`HeartbeatInterval`, 20 s). `app/catalog/metadata/artwork.HeartbeatInterval` (10 s) is already exported.
+- Test: Create `test/guards/heartbeat_test.go` (after W5.15 creates `test/guards`; the test batch's)
+
+**Interfaces:**
+- Consumes: `events.AckDeadline`, `events.Default()`.
+- Produces: the exported `HeartbeatInterval` of the five packages above. W4.97's bus heartbeat applies the same third for consumers with a budget.
+
+- [ ] **Step 1: Write the failing test.** `test/guards/heartbeat_test.go` (GPL header):
+
+```go
+package guards
+
+import (
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	fetch "github.com/mediactl/clustarr/app/caption/worker/fetch"
+	gateway "github.com/mediactl/clustarr/app/catalog/metadata/artwork"
+	"github.com/mediactl/clustarr/app/import/worker/fileimport"
+	"github.com/mediactl/clustarr/app/import/worker/rescan"
+	"github.com/mediactl/clustarr/app/indexer/worker/rss"
+	segworker "github.com/mediactl/clustarr/app/segments/worker"
+	"github.com/mediactl/clustarr/pkg/events"
+)
+
+// TestHeartbeatsFitTheirDeadline: a handler that heartbeats does so at most
+// every third of its durable's first-delivery deadline, so two heartbeats can
+// be lost before the broker redelivers (NATS research 2026-10-07, S9; split
+// §5.15 as amended). Segments (30 s against 1 min) and caption fetch (20 s
+// against 30 s) were below the margin.
+func TestHeartbeatsFitTheirDeadline(t *testing.T) {
+	top := events.Default()
+	for _, tc := range []struct {
+		pkg      string
+		interval time.Duration
+		durables []string
+	}{
+		{"app/import/worker/fileimport", fileimport.HeartbeatInterval, []string{events.ConsumerImportFile, events.ConsumerImportRecycle}},
+		{"app/import/worker/rescan", rescan.HeartbeatInterval, []string{events.ConsumerImportScan}},
+		{"app/segments/worker", segworker.HeartbeatInterval, []string{events.ConsumerSegmentarrAnalyze}},
+		{"app/indexer/worker/rss", rss.HeartbeatInterval, []string{events.ConsumerIndexRSS}},
+		{"app/caption/worker/fetch", fetch.HeartbeatInterval, []string{events.ConsumerCaptionFetchHigh, events.ConsumerCaptionFetchNormal}},
+		{"app/catalog/metadata/artwork", gateway.HeartbeatInterval, []string{
+			events.ConsumerCatalogMetadata, events.ConsumerCatalogArtworkFetch, events.ConsumerCatalogArtworkRender,
+		}},
+	} {
+		for _, d := range tc.durables {
+			c, ok := top.Consumer(d)
+			require.True(t, ok, d)
+			deadline := events.AckDeadline(c.Subscription(), 1)
+			assert.LessOrEqualf(t, tc.interval, deadline/3,
+				"%s heartbeats every %v against %s's %v first-delivery deadline; at most a third", tc.pkg, tc.interval, d, deadline)
+		}
+	}
+}
+```
+
+  (Use the consumer constants `pkg/events/subjects.go` defines; `grep -n 'Consumer[A-Z][A-Za-z]* *=' pkg/events/subjects.go` names them. If a later wave makes one of these packages link ffgo, which maps FFmpeg at package init, read that package's constant with `go/types` through `astutil_test.go`'s loader instead of importing it.)
+
+- [ ] **Step 2: Run it and watch it fail.** Run: `go test ./test/guards/ -run TestHeartbeatsFitTheirDeadline` / Expected: build failure (`undefined: fileimport.HeartbeatInterval`), then, with the exports alone, two failures: `app/segments/worker heartbeats every 30s against segmentarr-analyze's 1m0s` and `app/caption/worker/fetch heartbeats every 20s against captionarr-fetch-high's 30s`.
+
+- [ ] **Step 3: Implement.** Rename each constant to `HeartbeatInterval` with a doc comment naming the rule ("at most a third of the durable's first-delivery deadline, `events.AckDeadline(sub, 1)`, so two heartbeats can be lost before a lapse; NATS research 2026-10-07, S9; held by `test/guards.TestHeartbeatsFitTheirDeadline`"), and update every use (`grep -rn 'heartbeatInterval\|\bheartbeat\b' app/segments/worker app/caption/worker/fetch app/import/worker app/indexer/worker/rss --include='*.go'`). Set segments to `20 * time.Second` and caption fetch to `10 * time.Second`.
+
+- [ ] **Step 4: Run and pass.** Run: `go build ./... && go vet ./app/... && go test ./app/segments/worker/ ./app/caption/worker/fetch/ ./app/import/worker/... ./app/indexer/worker/rss/ && go test ./test/guards/ -run TestHeartbeatsFitTheirDeadline` / Expected: `ok`.
+
+- [ ] **Step 5: Commit.**
+
+```bash
+git add test/guards/heartbeat_test.go
+git commit -m "fix(workers): heartbeats fit a third of their deadline -- segments 30 s to 20 s, caption fetch 20 s to 10 s -- and every interval is exported for the guard that holds it (NATS research 2026-10-07, S9)" -- app/segments/worker/worker.go app/caption/worker/fetch/worker.go app/import/worker/fileimport/worker.go app/import/worker/fileimport/recyclebin.go app/import/worker/rescan/worker.go app/indexer/worker/rss/worker.go test/guards/heartbeat_test.go <every other file Step 3's grep changed>
+```
+
+  (Name files, never these directories: W5.17 edits `app/import/worker/fileimport/index.go` and `app/import/worker/rescan/index.go` in the same index, and a directory pathspec would sweep its uncommitted hunks.)
+
+---
+
+### Task W4.96: S10: a stream-fill gauge
+
+**Spec:** split §9.2 and §9.4 as amended 2026-10-07 (`StreamStater`, `clustarr_stream_fill_ratio`), §9.8 as amended; `nats-worker-pools.md` §7 S10; CLAUDE.md's single-node discard gotcha (12,161 messages dropped unseen on 2026-10-01).
+**Files:**
+- Create: `pkg/events/streamfill.go` (`StreamFill`, `StreamStater`)
+- Modify: `pkg/events/natsbus/admin.go` (`StreamFill`), `pkg/events/membus/admin.go` (`StreamFill`), `app/autoscale/extmetrics/gauge.go` (`QueueGauge.Streams`), `app/autoscale/register.go` (passes `Streams`), `pkg/obs/metrics/domain.go` (`StreamFillRatio`)
+- Test: `pkg/events/contracttest/contracttest.go` (`StreamFillReportsBytesAndTheLimit`), `app/autoscale/extmetrics/gauge_test.go` (`TestQueueGaugeSetsStreamFill`)
+
+**Interfaces:**
+- Consumes: natsbus `lookupStream` (`admin.go:37`).
+- Produces:
+
+```go
+// StreamFill is a stream's size against its limit (STREAM.INFO).
+type StreamFill struct{ Bytes, MaxBytes, Messages uint64 }
+
+// StreamStater is implemented by both buses. It is optional, so fakes of
+// events.StreamAdmin need not grow a method.
+type StreamStater interface {
+	StreamFill(ctx context.Context, stream string) (StreamFill, error)
+}
+```
+
+  `QueueGauge.Streams events.StreamStater` (nil skips the series); `metrics.StreamFillRatio` (`clustarr_stream_fill_ratio{stream}`).
+
+- [ ] **Step 1: Write the failing tests.** Contract case, registered after `ConsumerStateCountsPendingAndAckPending`:
+
+```go
+// testStreamFill: StreamFill reports a stream's bytes and its MaxBytes, the
+// ratio QueueGauge exports because lag cannot show a memory stream discarding
+// its oldest messages (S10).
+func testStreamFill(t *testing.T, newBus func() events.Bus) {
+	ctx, bus := setup(t, newBus)
+	ss, ok := bus.(events.StreamStater)
+	if !ok {
+		t.Fatalf("%T does not implement events.StreamStater", bus)
+	}
+	spec, _ := Topology().Stream(events.StreamWorkIndexarr)
+	for i := range 3 {
+		if _, err := bus.Publish(ctx, events.WorkRSSSubject(fmt.Sprintf("fill-%d", i)), envelope(fmt.Sprintf("fill-%d", i), "index.RssTask.v1", i)); err != nil {
+			t.Fatalf("Publish: %v", err)
+		}
+	}
+	f, err := ss.StreamFill(ctx, events.StreamWorkIndexarr)
+	if err != nil {
+		t.Fatalf("StreamFill: %v", err)
+	}
+	if f.Messages != 3 || f.Bytes == 0 || f.MaxBytes != uint64(spec.MaxBytes) {
+		t.Errorf("StreamFill = %+v, want 3 messages, some bytes and MaxBytes %d", f, spec.MaxBytes)
+	}
+	if _, err := ss.StreamFill(ctx, "NO_SUCH_STREAM"); !errors.Is(err, events.ErrStreamNotFound) {
+		t.Errorf("a missing stream: %v, want ErrStreamNotFound", err)
+	}
+}
+```
+
+  (If `Topology` has no `Stream(name)` accessor, find the spec in `Topology().Streams`; if the contract topology's stream sets no `MaxBytes`, assert `MaxBytes == 0` instead and give one stream a limit in `contracttest.Topology()`.) `app/autoscale/extmetrics/gauge_test.go`:
+
+```go
+func TestQueueGaugeSetsStreamFill(t *testing.T) {
+	top := events.Topology{Streams: []events.StreamSpec{{Name: "S1", MaxBytes: 1000}, {Name: "S2"}}}
+	g := &extmetrics.QueueGauge{States: fakeStates{}, Topology: top,
+		Streams: fakeFill{"S1": {Bytes: 800, MaxBytes: 1000}, "S2": {Bytes: 5}}}
+	g.Update(context.Background())
+	assert.InDelta(t, 0.8, testutil.ToFloat64(metrics.StreamFillRatio.WithLabelValues("S1")), 1e-9)
+	assert.Equal(t, 0, testutil.CollectAndCount(metrics.StreamFillRatio, "clustarr_stream_fill_ratio")-1,
+		"a stream without MaxBytes has no ratio")
+}
+```
+
+  (`fakeStates` and `fakeFill` are small fakes in the test file; `fakeFill` implements `StreamFill` from a map.)
+
+- [ ] **Step 2: Run them and watch them fail.** Run: `go test ./app/autoscale/extmetrics/ -run TestQueueGaugeSetsStreamFill && go test ./pkg/events/membus/ -run 'TestBusContract/StreamFill'` / Expected: `undefined: events.StreamStater`, `undefined: metrics.StreamFillRatio`.
+
+- [ ] **Step 3: Implement.** `pkg/events/streamfill.go` as in Interfaces. natsbus:
+
+```go
+// StreamFill implements events.StreamStater: one STREAM.INFO.
+func (b *Bus) StreamFill(ctx context.Context, stream string) (events.StreamFill, error) {
+	s, err := b.lookupStream(ctx, stream)
+	if err != nil {
+		return events.StreamFill{}, err
+	}
+	info := s.CachedInfo()
+	return events.StreamFill{
+		Bytes:    info.State.Bytes,
+		MaxBytes: uint64(max(info.Config.MaxBytes, 0)),
+		Messages: info.State.Msgs,
+	}, nil
+}
+```
+
+  membus sums the stored messages' payload and header bytes of the named stream, with the spec's `MaxBytes`; a missing stream is `ErrStreamNotFound`. `metrics.StreamFillRatio = newGaugeVec("clustarr_stream_fill_ratio", "A stream's stored bytes over its MaxBytes, by stream; 1 means a DiscardOld stream is dropping its oldest messages.", "stream")`. `QueueGauge.Update`, after the consumers:
+
+```go
+	if q.Streams != nil {
+		for _, s := range q.Topology.Streams {
+			if s.MaxBytes <= 0 {
+				metrics.StreamFillRatio.DeleteLabelValues(s.Name)
+				continue
+			}
+			cctx, cancel := context.WithTimeout(ctx, timeout)
+			f, err := q.Streams.StreamFill(cctx, s.Name)
+			cancel()
+			if err != nil || f.MaxBytes == 0 {
+				metrics.StreamFillRatio.DeleteLabelValues(s.Name)
+				continue
+			}
+			metrics.StreamFillRatio.WithLabelValues(s.Name).Set(float64(f.Bytes) / float64(f.MaxBytes))
+		}
+	}
+```
+
+  `app/autoscale/register.go`: `g := &extmetrics.QueueGauge{States: admin, Topology: events.Default()}; if ss, ok := admin.(events.StreamStater); ok { g.Streams = ss }`. The gauge runs on the leader, so the series is the leader's; the alert at 0.8 is documented by W10.5.
+
+- [ ] **Step 4: Run and pass.** Run: `go build ./... && go vet ./pkg/events/... ./app/autoscale/... && go test ./pkg/events/natsbus/ ./pkg/events/membus/ ./app/autoscale/extmetrics/ -count=1` / Expected: `ok`.
+
+- [ ] **Step 5: Commit.**
+
+```bash
+git add pkg/events/streamfill.go
+git commit -m "feat(autoscale): QueueGauge sets clustarr_stream_fill_ratio{stream} from STREAM.INFO, so a single-node memory stream discarding its oldest messages is visible, which lag cannot show (NATS research 2026-10-07, S10)" -- pkg/events/streamfill.go pkg/events/natsbus/admin.go pkg/events/membus/admin.go pkg/events/contracttest/contracttest.go app/autoscale/extmetrics/gauge.go app/autoscale/extmetrics/gauge_test.go app/autoscale/register.go pkg/obs/metrics/domain.go
+```
+
+---
+
+### Task W4.97: S1: a bus-owned handler budget, and a wedge the bus can report
+
+**Spec:** split §3.3, §3.5.6, §9.2 and §9.3 as amended 2026-10-07 ("Handler budget"; enforcement is opt-in), §9.8 as amended; `nats-worker-pools.md` §2.4(b), §3.5, §7 S1.
+**Files:**
+- Modify: `pkg/events/topology.go` (`ConsumerSpec.HandlerTimeout`, `HandlerBudget`, `Subscription()` and `SubscriptionSpec` carry `HandlerTimeout`; `segmentarr-analyze` gets `HandlerTimeout: 30 * m`), `pkg/events/bus.go` (`Subscription.HandlerTimeout`, `WedgeReporter`), `pkg/events/errors.go` (`ErrLapsed`, `ErrHandlerBudget`)
+- Modify: `pkg/events/natsbus/subscription.go` (budget, bus heartbeat, cancel after a lapse, saturation), `pkg/events/natsbus/natsbus.go` (`(*Bus).Wedged`; a stopped subscription leaves `b.subs`)
+- Modify: `pkg/events/membus/membus.go` (parity and `Wedged`), `pkg/busconn/busconn.go` (`WedgeChecker`), `pkg/obs/metrics/domain.go` (`BusLapsedHandlers`, `BusSaturated`)
+- Test: Create `pkg/events/contracttest/budget.go`; Modify `pkg/events/contracttest/contracttest.go` (registration); Create `pkg/events/budget_test.go`, `pkg/busconn/wedge_test.go`
+
+**Interfaces:**
+- Consumes: W4.92 (`deliveryHooks`, the muted `InProgress`), W4.93 (`effective`, the bound timing).
+- Produces:
+
+```go
+type ConsumerSpec struct{ /* ... */ HandlerTimeout time.Duration }
+// HandlerBudget is the explicit HandlerTimeout, else AckWait: what drain,
+// grace and the wedge threshold size from (split §3.5.6 as amended).
+func (c ConsumerSpec) HandlerBudget() time.Duration
+type Subscription struct{ /* ... */ HandlerTimeout time.Duration } // explicit only; 0: no bus heartbeat, no deadline
+var ErrLapsed = errors.New("events: delivery lapsed; the broker has redelivered it")
+var ErrHandlerBudget = errors.New("events: handler budget spent")
+type WedgeReporter interface{ Wedged() error } // natsbus and membus
+func busconn.WedgeChecker(r events.WedgeReporter) healthz.Checker
+```
+
+  `metrics.BusLapsedHandlers` (`clustarr_bus_lapsed_handlers{durable}`), `metrics.BusSaturated` (`clustarr_bus_saturated{durable}`). W4.98 registers the checker; W5.9's `--drain-timeout` default and W6.11's `TestGracePeriodsCoverAckWait` may read `HandlerBudget()` (equal values today).
+
+- [ ] **Step 1: Write the failing tests.** `pkg/events/budget_test.go`:
+
+```go
+func TestHandlerBudgetFallsBackToAckWait(t *testing.T) {
+	assert.Equal(t, time.Minute, events.ConsumerSpec{AckWait: time.Minute}.HandlerBudget())
+	assert.Equal(t, time.Hour, events.ConsumerSpec{AckWait: time.Minute, HandlerTimeout: time.Hour}.HandlerBudget())
+}
+
+// TestOnlyExplicitBudgetsAreEnforced: Subscription() copies the explicit
+// HandlerTimeout, never the AckWait fallback. fileimport (60 s AckWait) and the
+// rescan heartbeat past their AckWait by design; a budget there would cancel a
+// cross-filesystem copy or a library walk (split §3.5.6 as amended).
+func TestOnlyExplicitBudgetsAreEnforced(t *testing.T) {
+	for _, c := range events.Default().Consumers {
+		sub := c.Subscription()
+		assert.Equal(t, c.HandlerTimeout, sub.HandlerTimeout, c.Name)
+		if c.Name == events.ConsumerSegmentarrAnalyze {
+			assert.Equal(t, 30*time.Minute, c.HandlerTimeout, "segments' budget is its TaskTimeout")
+			continue
+		}
+		assert.Zero(t, c.HandlerTimeout, "%s: set a budget only from its clustarr_work_duration_seconds tail", c.Name)
+	}
+}
+```
+
+  `pkg/events/contracttest/budget.go` (GPL header), registered as `TheBusHeartbeatsARunningHandler` and `AHandlerPastItsBudgetIsCancelled`:
+
+```go
+// testBusHeartbeats: with a budget, the bus sends InProgress every third of
+// the deadline, so a handler running three deadlines is never redelivered.
+func testBusHeartbeats(t *testing.T, newBus func() events.Bus) {
+	ctx, bus := setupFor(t, newBus, 60*time.Second)
+	sub := events.Subscription{
+		Stream: events.StreamWorkIndexarr, Durable: "ct-budget-hb",
+		Filters: []string{events.FilterIndexRSS},
+		AckWait: time.Second, MaxDeliver: 5, Backoff: []time.Duration{time.Second},
+		MaxInFlight: 1, MaxAckPending: 8, HandlerTimeout: 30 * time.Second,
+	}
+	Bind(ctx, t, bus, Topology(), sub)
+	var mu sync.Mutex
+	attempts := []uint64{}
+	done := make(chan struct{})
+	stop, err := bus.Subscribe(ctx, sub, func(_ context.Context, m events.Message) error {
+		mu.Lock()
+		attempts = append(attempts, m.Attempt())
+		mu.Unlock()
+		time.Sleep(3500 * time.Millisecond) // three and a half deadlines, no heartbeat of its own
+		close(done)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+	t.Cleanup(stop)
+	if _, err := bus.Publish(ctx, events.WorkRSSSubject("idx-budget-hb"), envelope("budget-hb", "index.RssTask.v1", 0)); err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+	<-done
+	time.Sleep(time.Second)
+	mu.Lock()
+	defer mu.Unlock()
+	if len(attempts) != 1 {
+		t.Errorf("deliveries %v, want exactly one: the bus heartbeats a budgeted handler", attempts)
+	}
+}
+
+// testBudgetCancels: a handler past its budget sees ErrHandlerBudget as its
+// context's cause; a deaf one is cancelled with ErrLapsed one deadline after
+// it lapses; and Wedged names the subscription once it has sat at the lapsed
+// cap past its budget.
+func testBudgetCancels(t *testing.T, newBus func() events.Bus) {
+	ctx, bus := setupFor(t, newBus, 60*time.Second)
+	sub := events.Subscription{
+		Stream: events.StreamWorkIndexarr, Durable: "ct-budget-cut",
+		Filters: []string{events.FilterIndexRSS},
+		AckWait: time.Second, MaxDeliver: 10, Backoff: []time.Duration{time.Second},
+		MaxInFlight: 1, MaxAckPending: 8, HandlerTimeout: 2 * time.Second,
+	}
+	Bind(ctx, t, bus, Topology(), sub)
+	causes := make(chan error, 4)
+	release := make(chan struct{})
+	var once sync.Once
+	stop, err := bus.Subscribe(ctx, sub, func(hctx context.Context, m events.Message) error {
+		if m.Envelope().ID == "budget-polite" {
+			<-hctx.Done()
+			causes <- context.Cause(hctx)
+			return hctx.Err()
+		}
+		<-release // deaf
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+	t.Cleanup(stop)
+	t.Cleanup(func() { once.Do(func() { close(release) }) })
+	if _, err := bus.Publish(ctx, events.WorkRSSSubject("idx-polite"), envelope("budget-polite", "index.RssTask.v1", 0)); err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+	select {
+	case c := <-causes:
+		if !errors.Is(c, events.ErrHandlerBudget) {
+			t.Errorf("cause %v, want ErrHandlerBudget", c)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("a handler past its 2 s budget was never cancelled")
+	}
+	w, ok := bus.(events.WedgeReporter)
+	if !ok {
+		t.Fatalf("%T does not implement events.WedgeReporter", bus)
+	}
+	if _, err := bus.Publish(ctx, events.WorkRSSSubject("idx-deaf"), envelope("budget-deaf", "index.RssTask.v1", 1)); err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+	waitUntil(t, "Wedged to name the subscription held by deaf handlers", func() bool {
+		err := w.Wedged()
+		return err != nil && strings.Contains(err.Error(), "ct-budget-cut")
+	})
+	once.Do(func() { close(release) })
+	waitUntil(t, "Wedged to clear once the deaf handlers return", func() bool { return w.Wedged() == nil })
+}
+```
+
+  `pkg/busconn/wedge_test.go`:
+
+```go
+type wedged struct{ err error }
+
+func (w wedged) Wedged() error { return w.err }
+
+func TestWedgeCheckerReportsTheBus(t *testing.T) {
+	assert.NoError(t, busconn.WedgeChecker(wedged{})(nil))
+	assert.EqualError(t, busconn.WedgeChecker(wedged{errors.New("x wedged")})(nil), "x wedged")
+}
+```
+
+- [ ] **Step 2: Run them and watch them fail.** Run: `go test ./pkg/events/ ./pkg/busconn/ -run 'TestHandlerBudget|TestOnlyExplicitBudgets|TestWedgeChecker' && go test ./pkg/events/natsbus/ -count=1 -run 'TestBusContract/(TheBusHeartbeats|AHandlerPastItsBudget)' -v` / Expected: `unknown field HandlerTimeout`, `undefined: events.WedgeReporter`, `undefined: busconn.WedgeChecker`.
+
+- [ ] **Step 3: Implement.**
+  1. `pkg/events`: the fields, `HandlerBudget()`, `ErrLapsed`, `ErrHandlerBudget`, `WedgeReporter` as in Interfaces, each documented with split §3.5.6 and §9.3 as amended; `Subscription()` sets `HandlerTimeout: c.HandlerTimeout`; `SubscriptionSpec` copies it back; `segmentarr-analyze`'s spec gains `HandlerTimeout: 30 * m` with the comment "its TaskTimeout (app/segments/worker); every other consumer's budget waits for its clustarr_work_duration_seconds tail".
+  2. `natsbus/subscription.go`. A `delivery` gains `cancel context.CancelCauseFunc`, `lapsedAt time.Time` and `cancelled bool`; the `subscription` gains `saturatedSince time.Time`. In `startLocked`, when `s.sub.HandlerTimeout > 0`:
+
+```go
+	hctx, cancel := context.WithCancelCause(s.handlerCtx)
+	hctx, stopBudget := context.WithDeadlineCause(hctx, time.Now().Add(s.sub.HandlerTimeout), events.ErrHandlerBudget)
+	d.cancel = cancel
+	beat := make(chan struct{})
+	go s.heartbeat(hctx, m, d, beat) // until beat closes or hctx ends
+	// ...run the handler on hctx; then close(beat), stopBudget(), cancel(nil)...
+```
+
+  with
+
+```go
+// heartbeat is the bus's keep-alive for a budgeted delivery: InProgress every
+// third of its deadline while the handler runs, its budget is unspent and it
+// has not lapsed (split §9.3 as amended, S1).
+func (s *subscription) heartbeat(ctx context.Context, m jetstream.Msg, d *delivery, done <-chan struct{}) {
+	s.mu.Lock()
+	every := events.AckDeadline(s.effectiveLocked(), d.attempt) / 3
+	s.mu.Unlock()
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-done:
+			return
+		case <-ctx.Done():
+			return // the budget is spent, or the delivery was cancelled
+		case <-t.C:
+			s.mu.Lock()
+			lapsed := d.lapsed
+			s.mu.Unlock()
+			if lapsed {
+				return
+			}
+			_ = m.InProgress()
+			s.progress(d)
+		}
+	}
+}
+```
+
+  Without a budget nothing changes: no heartbeat goroutine, no deadline. `reap` stamps `d.lapsedAt = now` when it marks a delivery lapsed, and on later ticks cancels a budgeted lapsed delivery once `now` is past `d.lapsedAt` plus its `AckDeadline`: `d.cancel(events.ErrLapsed); d.cancelled = true`. Both `reap` and `finish` then keep saturation current and the gauges set:
+
+```go
+	if s.lapsed >= s.slots {
+		if s.saturatedSince.IsZero() {
+			s.saturatedSince = now
+		}
+	} else {
+		s.saturatedSince = time.Time{}
+	}
+	metrics.BusLapsedHandlers.WithLabelValues(s.sub.Durable).Set(float64(s.lapsed))
+	metrics.BusSaturated.WithLabelValues(s.sub.Durable).Set(boolGauge(s.lapsed >= s.slots))
+```
+
+  and
+
+```go
+// wedged reports a subscription whose every slot lapsed handlers have held for
+// longer than its budget plus a first-delivery deadline: handlers that ignore
+// their context, which only a restart frees (split §3.3, §9.3 as amended).
+func (s *subscription) wedged(now time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.stopping || s.saturatedSince.IsZero() {
+		return nil
+	}
+	budget := cmp.Or(s.sub.HandlerTimeout, s.sub.AckWait, events.DefaultAckWait)
+	limit := budget + events.AckDeadline(s.effectiveLocked(), 1)
+	if held := now.Sub(s.saturatedSince); held > limit {
+		return fmt.Errorf("bus: every slot of %s has been held by lapsed handlers for %v (limit %v): they ignore their context",
+			s.sub.Durable, held.Round(time.Second), limit)
+	}
+	return nil
+}
+```
+
+  3. `natsbus/natsbus.go`: `func (b *Bus) Wedged() error` joins `s.wedged(time.Now())` over a copy of `b.subs`; a stopped subscription removes itself from `b.subs` (add that to `stop` if it does not already). `var _ events.WedgeReporter = (*Bus)(nil)`.
+  4. membus: the same rules on `memSub` (a budgeted delivery's context, a heartbeat that keeps its claim's deadline, cancel after a lapse, saturation, `(*Bus).Wedged`).
+  5. `pkg/busconn/busconn.go`: `WedgeChecker` as in Interfaces, doc: "the `bus` liveness check (split §3.3 as amended): a local fault a restart cures; it reads the bus's own state, never the broker, so a NATS outage never fails it."
+  6. `pkg/obs/metrics/domain.go`: the two gauges, `{durable}`.
+
+- [ ] **Step 4: Run and pass.** Run: `go build ./... && go vet ./pkg/... && go test ./pkg/events/ ./pkg/busconn/ ./pkg/events/natsbus/ ./pkg/events/membus/ ./pkg/obs/metrics/ -count=1` / Expected: `ok`; the existing `LapsedHandlerFreesItsSlot` and `LapsedHandlersDoNotMultiplyConcurrency` still pass (their subscriptions set no budget).
+
+- [ ] **Step 5: Commit.**
+
+```bash
+git add pkg/events/contracttest/budget.go pkg/events/budget_test.go pkg/busconn/wedge_test.go
+git commit -m "feat(bus): an explicit handler budget the bus enforces -- InProgress every third of the deadline, a context deadline at the budget, cancel one deadline after a lapse -- and a wedge report (Wedged, busconn.WedgeChecker) for the bus liveness check; enforcement is opt-in, segmentarr-analyze's 30 min first (NATS research 2026-10-07, S1)" -- pkg/events/topology.go pkg/events/bus.go pkg/events/errors.go pkg/events/budget_test.go pkg/events/natsbus/subscription.go pkg/events/natsbus/natsbus.go pkg/events/membus/membus.go pkg/busconn/busconn.go pkg/busconn/wedge_test.go pkg/obs/metrics/domain.go pkg/events/contracttest/budget.go pkg/events/contracttest/contracttest.go
+```
+
+---
+
+### Task W4.98: S1: the `bus` liveness check in the manager, every agent and markers
+
+**Spec:** split §3.3 as amended 2026-10-07 (`bus` beside `ffgo`); `nats-worker-pools.md` §7 S1 ("fail a liveness check").
+**Order:** after W4.97, and after Wave 5 has created the three processes: W5.7 (`internal/cli/manager`), W5.9 and W5.10 (`internal/cli/agent`), W5.12 (`cmd/markers`).
+**Files:**
+- Modify: the file of `internal/cli/manager` and of `internal/cli/agent` that builds the process's liveness `*k8s.Checks` before `k8s.AddProbes` (`grep -rn 'AddProbes' internal/cli` finds both call sites; the `live` set is built just above each)
+- Modify: `cmd/markers/main.go` (its `/healthz` handler)
+- Test: `internal/cli/manager/probes_internal_test.go` and `internal/cli/agent/probes_internal_test.go` (`TestTheBusLivenessCheckIsRegistered`), `cmd/markers/healthz_test.go` (`TestHealthzFailsOnAWedgedBus`)
+
+**Interfaces:**
+- Consumes: W4.97's `busconn.WedgeChecker`, `events.WedgeReporter`; W3.1's `k8s.Checks`; the processes' bus (a `*natsbus.Bus`, which implements `events.WedgeReporter`).
+- Produces: a liveness check named `bus` in the manager and every agent domain; markers' `/healthz` answers 500 naming the wedged durable. cmd/markers may not link `pkg/busconn` (§4.5.4), so it calls `bus.Wedged()` itself.
+
+- [ ] **Step 1: Write the failing tests.** In each of `internal/cli/manager` and `internal/cli/agent`, a package-internal test that runs the probe assembly the package exposes to its own tests (the function W5.7 and W5.9 wrote around `AddProbes`) against a recording manager and asserts the healthz set is exactly `ping`, `bus` (plus `ffgo` for `import` and `caption`). `cmd/markers/healthz_test.go`:
+
+```go
+type stubWedge struct{ err error }
+
+func (s stubWedge) Wedged() error { return s.err }
+
+func TestHealthzFailsOnAWedgedBus(t *testing.T) {
+	h := healthzHandler(stubWedge{errors.New("bus: every slot of segmentarr-analyze has been held …")})
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+	assert.Contains(t, rec.Body.String(), "segmentarr-analyze")
+	rec = httptest.NewRecorder()
+	healthzHandler(stubWedge{}).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+```
+
+  (If markers' `/healthz` is an inline closure, Step 3 extracts it as `healthzHandler(events.WedgeReporter) http.Handler`.)
+
+- [ ] **Step 2: Run them and watch them fail.** Run: `go test ./internal/cli/manager/ ./internal/cli/agent/ ./cmd/markers/ -run 'TestTheBusLivenessCheckIsRegistered|TestHealthzFailsOnAWedgedBus'` / Expected: the `bus` check is missing; `undefined: healthzHandler`.
+
+- [ ] **Step 3: Implement.** Beside each `live.Add("ffgo", …)` or where `live` is built: `if err := live.Add("bus", busconn.WedgeChecker(bus)); err != nil { return err }`, where `bus` is the process's `*natsbus.Bus` (a nil bus, when the process runs without NATS, adds nothing). markers: `healthzHandler(w events.WedgeReporter) http.Handler` returns 200 "ok", or 500 with `w.Wedged()`'s text, and is served at `/healthz`. Update §3.3's table where `docs/observability.md` copies it (W10.5 carries that).
+
+- [ ] **Step 4: Run and pass.** Run: `go build ./... && go vet ./internal/cli/... ./cmd/markers/ && go test ./internal/cli/manager/ ./internal/cli/agent/ ./cmd/markers/ -run 'Bus|Healthz'` and markers' deps guard (`go test ./test/guards/ -run TestMarkersImportsNoKubernetesClient`) / Expected: `ok`; markers still links no `pkg/busconn`.
+
+- [ ] **Step 5: Commit.** `git commit -m "feat(probes): the bus liveness check -- the manager, every agent domain and markers restart when handlers that ignore their context have held every slot past their budget (split spec §3.3 as amended 2026-10-07, S1)" -- <the two internal/cli files> internal/cli/manager/probes_internal_test.go internal/cli/agent/probes_internal_test.go cmd/markers/main.go cmd/markers/healthz_test.go` (run `git add` for the new test files first).
+
+---
+
+### Task W4.99: HPA: one cached read path with a singleflight, and QueueGauge exports each counter
+
+**Spec:** split §9.2 and §9.4 as amended 2026-10-07 (`StateCache`, the four gauges, `ConsumerState.Waiting`); `nats-hpa-metrics.md` §5.4, §6.3, §6.4.
+**Files:**
+- Create: `app/autoscale/extmetrics/cache.go` (`StateCache`, `NewStateCache`)
+- Modify: `app/autoscale/extmetrics/api.go` (`Handler.Cache`; its private map goes), `app/autoscale/extmetrics/server.go` (`ServerOptions.Cache`), `app/autoscale/extmetrics/gauge.go` (`QueueGauge.Cache`; four more gauges), `app/autoscale/register.go` (one cache for the server and the gauge)
+- Modify: `pkg/events/consumerstate.go` (`Waiting`; the doc comment of §9.0 as amended), `pkg/events/natsbus/admin.go` (`Waiting: info.NumWaiting`), `pkg/events/membus/admin.go` (`Waiting`), `pkg/obs/metrics/domain.go` (`ConsumerPending`, `ConsumerAckPending`, `ConsumerWaiting`, `ConsumerMaxAckPending`)
+- Test: Create `app/autoscale/extmetrics/cache_test.go`; Modify `app/autoscale/extmetrics/gauge_test.go`
+
+**Interfaces:**
+- Consumes: W4.68's `Handler`, W4.72's `QueueGauge`, W4.74's `Register`.
+- Produces:
+
+```go
+type StateCache struct {
+	States  ConsumerStater
+	TTL     time.Duration // 0 means 5 s
+	Timeout time.Duration // 0 means 5 s
+	Now     func() time.Time
+	// unexported: a singleflight.Group, a mutex and the map
+}
+func NewStateCache(states ConsumerStater) *StateCache
+func (c *StateCache) Get(ctx context.Context, s Series) (events.ConsumerState, error)
+```
+
+  `Handler.Cache *StateCache` (nil: one is made from `States` on first use, so W4.68's tests still build), `ServerOptions.Cache *StateCache`, `QueueGauge.Cache *StateCache` (nil: reads `States` directly); `events.ConsumerState.Waiting int`.
+
+- [ ] **Step 1: Write the failing tests.** `cache_test.go`:
+
+```go
+// blockingStates counts calls and holds each until released.
+type blockingStates struct {
+	calls   atomic.Int32
+	release chan struct{}
+}
+
+func (b *blockingStates) ConsumerState(ctx context.Context, stream, durable string) (events.ConsumerState, error) {
+	b.calls.Add(1)
+	<-b.release
+	return events.ConsumerState{Pending: 7}, nil
+}
+
+// TestStateCacheMakesOneReadPerSeriesUnderABurst: a hundred concurrent reads
+// of one series -- aggregator retries, several HPAs -- make one CONSUMER.INFO
+// (split §9.4 as amended 2026-10-07).
+func TestStateCacheMakesOneReadPerSeriesUnderABurst(t *testing.T) {
+	b := &blockingStates{release: make(chan struct{})}
+	c := extmetrics.NewStateCache(b)
+	s := extmetrics.Series{Stream: "S", Consumer: "c"}
+	var wg sync.WaitGroup
+	for range 100 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			st, err := c.Get(context.Background(), s)
+			assert.NoError(t, err)
+			assert.Equal(t, uint64(7), st.Pending)
+		}()
+	}
+	time.Sleep(100 * time.Millisecond)
+	close(b.release)
+	wg.Wait()
+	assert.Equal(t, int32(1), b.calls.Load())
+}
+
+func TestStateCacheExpires(t *testing.T) {
+	now := time.Unix(0, 0)
+	b := &blockingStates{release: make(chan struct{})}
+	close(b.release)
+	c := &extmetrics.StateCache{States: b, Now: func() time.Time { return now }}
+	s := extmetrics.Series{Stream: "S", Consumer: "c"}
+	_, _ = c.Get(context.Background(), s)
+	_, _ = c.Get(context.Background(), s)
+	assert.Equal(t, int32(1), b.calls.Load(), "within the TTL")
+	now = now.Add(6 * time.Second)
+	_, _ = c.Get(context.Background(), s)
+	assert.Equal(t, int32(2), b.calls.Load(), "past the 5 s TTL")
+}
+```
+
+  `gauge_test.go`:
+
+```go
+// TestQueueGaugeExportsEachCounter: the gauge sets the lag and the four
+// counters behind it, and drops all five for a consumer it cannot read.
+func TestQueueGaugeExportsEachCounter(t *testing.T) {
+	top := events.Topology{Consumers: []events.ConsumerSpec{{Name: "c1", Stream: "S"}, {Name: "c2", Stream: "S"}}}
+	states := mapStates{
+		"c1": {Pending: 3, AckPending: 2, Waiting: 1, MaxAckPending: 16},
+		"c2": {err: errors.New("unavailable")},
+	}
+	(&extmetrics.QueueGauge{States: states, Topology: top}).Update(context.Background())
+	assert.Equal(t, 5.0, testutil.ToFloat64(metrics.WorkQueuePending.WithLabelValues("S", "c1")))
+	assert.Equal(t, 3.0, testutil.ToFloat64(metrics.ConsumerPending.WithLabelValues("S", "c1")))
+	assert.Equal(t, 2.0, testutil.ToFloat64(metrics.ConsumerAckPending.WithLabelValues("S", "c1")))
+	assert.Equal(t, 1.0, testutil.ToFloat64(metrics.ConsumerWaiting.WithLabelValues("S", "c1")))
+	assert.Equal(t, 16.0, testutil.ToFloat64(metrics.ConsumerMaxAckPending.WithLabelValues("S", "c1")))
+	for _, g := range []*prometheus.GaugeVec{metrics.WorkQueuePending, metrics.ConsumerPending, metrics.ConsumerAckPending, metrics.ConsumerWaiting, metrics.ConsumerMaxAckPending} {
+		assert.False(t, g.DeleteLabelValues("S", "c2"), "c2's series must already be gone")
+	}
+}
+
+// TestQueueGaugeAndTheAPIShareOneRead: with one StateCache, a gauge update
+// right after an API read asks the broker nothing more.
+func TestQueueGaugeAndTheAPIShareOneRead(t *testing.T) { /* a counting fake; Handler and QueueGauge on one cache; one call */ }
+```
+
+  (`mapStates` is a fake whose entries may carry an `err`.)
+
+- [ ] **Step 2: Run them and watch them fail.** Run: `go test ./app/autoscale/extmetrics/ -run 'TestStateCache|TestQueueGauge'` / Expected: `undefined: extmetrics.NewStateCache`, `unknown field Waiting`, `undefined: metrics.ConsumerPending`.
+
+- [ ] **Step 3: Implement.** `cache.go`:
+
+```go
+// StateCache is the one read path from the External Metrics API and
+// QueueGauge to the broker (split §9.4 as amended 2026-10-07): a 5 s cache per
+// (stream, consumer) behind a singleflight, so a burst of aggregator retries,
+// or several HPAs asking at once, makes one CONSUMER.INFO, and the leader's
+// gauge and API never double-poll.
+type StateCache struct {
+	States  ConsumerStater
+	TTL     time.Duration
+	Timeout time.Duration
+	Now     func() time.Time
+
+	group singleflight.Group
+	mu    sync.Mutex
+	cache map[Series]cached
+}
+
+func NewStateCache(states ConsumerStater) *StateCache { return &StateCache{States: states} }
+
+func (c *StateCache) Get(ctx context.Context, s Series) (events.ConsumerState, error) {
+	c.mu.Lock()
+	if v, ok := c.cache[s]; ok && c.now().Sub(v.at) < c.ttl() {
+		c.mu.Unlock()
+		return v.state, nil
+	}
+	c.mu.Unlock()
+	v, err, _ := c.group.Do(s.Stream+"\x00"+s.Consumer, func() (any, error) {
+		// Its own context: one caller giving up must not fail the read the
+		// others share. The timeout bounds it.
+		rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), c.timeout())
+		defer cancel()
+		st, err := c.States.ConsumerState(rctx, s.Stream, s.Consumer)
+		if err != nil {
+			return events.ConsumerState{}, err
+		}
+		c.mu.Lock()
+		if c.cache == nil {
+			c.cache = map[Series]cached{}
+		}
+		c.cache[s] = cached{state: st, at: c.now()}
+		c.mu.Unlock()
+		return st, nil
+	})
+	if err != nil {
+		return events.ConsumerState{}, err
+	}
+	return v.(events.ConsumerState), nil
+}
+```
+
+  (`now`, `ttl`, `timeout` and the `cached` type move from `api.go`; `golang.org/x/sync` is already in go.mod, used by `ui/projection`.) `api.go`: `Handler.state` becomes `h.cache().Get(ctx, s)`, where `cache()` returns `h.Cache` or, once, `&StateCache{States: h.States, TTL: h.TTL, Timeout: h.Timeout, Now: h.Now}`. `server.go`: `NewServer` passes `o.Cache` into the `Handler`. `gauge.go`: `Update` reads through `q.Cache` when set (keying `Series{c.Stream, c.Name}`), else `q.States`; on success it sets `WorkQueuePending` (the lag, unchanged) and the four new gauges; on error it deletes all five. `register.go`:
+
+```go
+	cache := extmetrics.NewStateCache(admin)
+	g := &extmetrics.QueueGauge{States: admin, Cache: cache, Topology: events.Default()}
+	// ... and ServerOptions{..., Cache: cache}
+```
+
+  `pkg/obs/metrics/domain.go`, beside `WorkQueuePending`: four `newGaugeVec`s named `clustarr_consumer_pending`, `clustarr_consumer_ack_pending`, `clustarr_consumer_waiting`, `clustarr_consumer_max_ack_pending`, each `"stream", "consumer"`, with help text from §9.0 as amended (pending: undelivered and matching; ack_pending: delivered, unsettled; waiting: open pull requests, idle capacity; max_ack_pending: the cap). `consumerstate.go`: `Waiting int` with its comment, and the type's doc states the metric as §9.0 as amended does (a `.sched.` hold counts once it fires; a message past `MaxDeliver` counts in neither; the stream's `messages` count is never used, with the 2026-10-07 numbers). natsbus `ConsumerState` sets `Waiting: info.NumWaiting`; membus sets it to the free slots of the subscriptions bound to the durable, its nearest equivalent.
+
+- [ ] **Step 4: Run and pass.** Run: `go build ./... && go vet ./app/autoscale/... ./pkg/events/... ./pkg/obs/... && go test ./app/autoscale/... ./pkg/events/natsbus/ ./pkg/events/membus/ ./pkg/obs/metrics/ -count=1` / Expected: `ok`; W4.68's handler tests still pass through the lazily built cache.
+
+- [ ] **Step 5: Commit.**
+
+```bash
+git add app/autoscale/extmetrics/cache.go app/autoscale/extmetrics/cache_test.go
+git commit -m "feat(autoscale): one cached read path with a singleflight for the External Metrics API and QueueGauge, and QueueGauge exports pending, ack-pending, waiting and max-ack-pending beside the lag (NATS research 2026-10-07; split §9.4 as amended)" -- app/autoscale/extmetrics/cache.go app/autoscale/extmetrics/cache_test.go app/autoscale/extmetrics/api.go app/autoscale/extmetrics/server.go app/autoscale/extmetrics/gauge.go app/autoscale/extmetrics/gauge_test.go app/autoscale/register.go pkg/events/consumerstate.go pkg/events/natsbus/admin.go pkg/events/membus/admin.go pkg/obs/metrics/domain.go
+```
+
+---
+
+### Task W4.100: HPA: the consumer leader's answer only, a past-MaxDeliver message counts nowhere, and no durable expires
+
+**Spec:** split §9.0, §9.3 (`ConsumerState`), §9.8 and §9.9 as amended 2026-10-07; `nats-hpa-metrics.md` §2.1, §5.5, §6.2, §6.6.
+**Files:**
+- Modify: `pkg/events/errors.go` (`ErrConsumerUnavailable`), `pkg/events/natsbus/admin.go` (`stateOf`; `ConsumerState` uses it)
+- Test: Create `pkg/events/natsbus/admin_internal_test.go` (`TestConsumerStateRefusesAnAnswerWithoutPlacement`), `pkg/events/natsbus/cluster_test.go` (`TestConsumerStateReadsTheConsumerLeader`, `TestConsumerStateExcludesExhaustedMessages`), `pkg/events/expiry_test.go` (`TestAutoscaledDurablesNeverExpire`)
+
+**Interfaces:**
+- Consumes: W4.43's `ConsumerState`; W4.99's `Waiting`.
+- Produces: `var events.ErrConsumerUnavailable`; natsbus `stateOf(info *jetstream.ConsumerInfo, clustered bool) (events.ConsumerState, error)`. extmetrics answers 503 for it, as for any error (§9.4).
+
+- [ ] **Step 1: Write the failing tests.** `admin_internal_test.go`:
+
+```go
+// TestConsumerStateRefusesAnAnswerWithoutPlacement: in a cluster, a
+// CONSUMER.INFO answer with no Cluster placement is the "assigned, no Raft node
+// yet" answer a member gives with zero state (nats-server
+// jetstream_api.go:5675-5688); it is unavailable, never lag 0.
+func TestConsumerStateRefusesAnAnswerWithoutPlacement(t *testing.T) {
+	info := &jetstream.ConsumerInfo{NumPending: 0, NumAckPending: 0}
+	_, err := stateOf(info, true)
+	assert.ErrorIs(t, err, events.ErrConsumerUnavailable)
+	st, err := stateOf(info, false)
+	assert.NoError(t, err, "a single server never reports placement")
+	assert.Zero(t, st.Lag())
+	info.Cluster = &jetstream.ClusterInfo{Leader: "n2"}
+	info.NumPending, info.NumAckPending, info.NumWaiting = 5, 2, 1
+	st, err = stateOf(info, true)
+	assert.NoError(t, err)
+	assert.Equal(t, uint64(7), st.Lag())
+	assert.Equal(t, 1, st.Waiting)
+}
+```
+
+  `cluster_test.go` (real 3-node embedded cluster; slow, skipped under `-short`):
+
+```go
+// TestConsumerStateReadsTheConsumerLeader: on an R3 cluster ConsumerState
+// reads the leader's NumPending through a leader change -- the KEDA #3564
+// failure, and the one gap between kind (one server, leader of everything)
+// and the chart's 3-node default that no other test can see.
+func TestConsumerStateReadsTheConsumerLeader(t *testing.T) {
+	if testing.Short() {
+		t.Skip("starts a 3-node cluster")
+	}
+	urls := startCluster(t, 3) // three servers, routes to each other, JetStream, distinct ServerName and StoreDir
+	nc, err := nats.Connect(strings.Join(urls, ","))
+	require.NoError(t, err)
+	t.Cleanup(nc.Close)
+	bus, err := natsbus.New(nc)
+	require.NoError(t, err)
+	ctx := context.Background()
+	top := events.Topology{
+		Streams:   []events.StreamSpec{{Name: "R3", Subjects: []string{"r3.>"}, Retention: events.RetentionWorkQueue, Storage: events.StorageFile, Replicas: 3}},
+		Consumers: []events.ConsumerSpec{{Name: "r3c", Stream: "R3", Filters: []string{"r3.>"}, AckWait: time.Minute, MaxDeliver: 3, MaxAckPending: 8, Slots: 1}},
+	}
+	require.Eventually(t, func() bool { return bus.Ensure(ctx, top) == nil }, 30*time.Second, 500*time.Millisecond)
+	const n = 25
+	for i := range n {
+		_, err := bus.Publish(ctx, fmt.Sprintf("r3.%d", i), &events.Envelope{ID: fmt.Sprintf("m%d", i), Schema: "t.v1", Data: []byte("{}")})
+		require.NoError(t, err)
+	}
+	read := func() uint64 {
+		st, err := bus.ConsumerState(ctx, "R3", "r3c")
+		if err != nil {
+			return 0
+		}
+		return st.Pending
+	}
+	require.Eventually(t, func() bool { return read() == n }, 10*time.Second, 200*time.Millisecond)
+	_, err = nc.Request("$JS.API.CONSUMER.LEADER.STEPDOWN.R3.r3c", nil, 5*time.Second)
+	require.NoError(t, err)
+	assert.Eventually(t, func() bool { return read() == n }, 30*time.Second, 200*time.Millisecond,
+		"after a leader change ConsumerState must read the new leader's %d, never a follower's 0", n)
+}
+```
+
+  (`startCluster` is a helper in the same file: three `natsserver.Options` with `Cluster{Name: "c", Host: "127.0.0.1", Port: -1}`; build the route URLs once the first ports are known, or pick three free ports first; wait for `ReadyForConnections` and for a JetStream meta leader; `t.Cleanup` shuts each down. Use the field names `events.StreamSpec` has: `grep -n 'type StreamSpec' -A20 pkg/events/topology.go`.)
+
+  `pkg/events/expiry_test.go`:
+
+```go
+// TestAutoscaledDurablesNeverExpire: no consumer may set an inactivity
+// threshold. A durable must outlive zero replicas, or its metric becomes
+// ErrConsumerNotFound for good and its domain can never wake (split §9.8 as
+// amended 2026-10-07).
+func TestAutoscaledDurablesNeverExpire(t *testing.T) {
+	if _, ok := reflect.TypeOf(events.ConsumerSpec{}).FieldByName("InactiveThreshold"); ok {
+		t.Fatal("ConsumerSpec grew an InactiveThreshold field")
+	}
+	for _, c := range events.Default().Consumers {
+		assert.Zero(t, events.ConsumerConfig(c).InactiveThreshold, c.Name)
+	}
+}
+```
+
+  `pkg/events/natsbus/cluster_test.go` also holds the past-`MaxDeliver` case, on one server and a raw consumer (no bus subscription, so no dead-letter watcher closes the window; E1's setup):
+
+```go
+// TestConsumerStateExcludesExhaustedMessages: a WorkQueue message whose final
+// delivery lapsed counts in neither NumPending nor NumAckPending once the
+// broker gives up on it, though it stays in the stream until the dead-letter
+// path deletes it (nats-server consumer.go:2427-2453).
+func TestConsumerStateExcludesExhaustedMessages(t *testing.T) {
+	nc := connect(t)
+	bus, err := natsbus.New(nc)
+	require.NoError(t, err)
+	js, err := jetstream.New(nc)
+	require.NoError(t, err)
+	ctx := context.Background()
+	st, err := js.CreateStream(ctx, jetstream.StreamConfig{Name: "EX", Subjects: []string{"ex.>"}, Retention: jetstream.WorkQueuePolicy})
+	require.NoError(t, err)
+	cons, err := st.CreateOrUpdateConsumer(ctx, jetstream.ConsumerConfig{Durable: "exc", AckPolicy: jetstream.AckExplicitPolicy, AckWait: 500 * time.Millisecond, MaxDeliver: 2})
+	require.NoError(t, err)
+	_, err = js.Publish(ctx, "ex.1", []byte("x"))
+	require.NoError(t, err)
+	for range 2 { // both deliveries, never acked
+		b, err := cons.Fetch(1, jetstream.FetchMaxWait(3*time.Second))
+		require.NoError(t, err)
+		for range b.Messages() {
+		}
+		time.Sleep(700 * time.Millisecond)
+	}
+	// A waiting pull is what makes getNextMsg give up on it (E1).
+	b, err := cons.Fetch(1, jetstream.FetchMaxWait(2*time.Second))
+	require.NoError(t, err)
+	for range b.Messages() {
+		t.Fatal("a message past MaxDeliver was delivered again")
+	}
+	cs, err := bus.ConsumerState(ctx, "EX", "exc")
+	require.NoError(t, err)
+	assert.Zero(t, cs.Lag(), "an exhausted message is not work: %+v", cs)
+	info, err := st.Info(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, uint64(1), info.State.Msgs, "it stays in the stream until the dead-letter path deletes it")
+}
+```
+
+- [ ] **Step 2: Run them and watch them fail.** Run: `go test ./pkg/events/ ./pkg/events/natsbus/ -count=1 -run 'TestConsumerStateRefuses|TestConsumerStateReadsTheConsumerLeader|TestConsumerStateExcludesExhaustedMessages|TestAutoscaledDurablesNeverExpire' -v` / Expected: `undefined: stateOf`, `undefined: events.ErrConsumerUnavailable`; the guard, the exhausted-message case and the 3-node case already pass (they hold today's behaviour; falsify each by setting an `InactiveThreshold` in `ConsumerConfig`, and by reading a follower's `/jsz`-style state).
+
+- [ ] **Step 3: Implement.** `pkg/events/errors.go`:
+
+```go
+// ErrConsumerUnavailable is a consumer state the broker could not vouch for:
+// the connection is to a cluster, and the answer carried no placement -- the
+// "assigned, no Raft node yet" answer, with zero state that is not the
+// durable's (split §9.3 as amended 2026-10-07).
+var ErrConsumerUnavailable = errors.New("events: consumer state unavailable")
+```
+
+  natsbus `admin.go`:
+
+```go
+func (b *Bus) ConsumerState(ctx context.Context, stream, durable string) (events.ConsumerState, error) {
+	c, err := b.js.Consumer(ctx, stream, durable)
+	if err != nil {
+		return events.ConsumerState{}, lookupError(stream, durable, err)
+	}
+	st, err := stateOf(c.CachedInfo(), b.nc.ConnectedClusterName() != "")
+	if err != nil {
+		return events.ConsumerState{}, fmt.Errorf("natsbus: consumer %s on %s: %w", durable, stream, err)
+	}
+	return st, nil
+}
+
+// stateOf reads a CONSUMER.INFO answer, which only the consumer's leader
+// gives (nats-server jetstream_api.go:5556, 5649), so it is right on an R3
+// cluster where /jsz on a follower reads NumPending 0 (split §9.0 as amended).
+func stateOf(info *jetstream.ConsumerInfo, clustered bool) (events.ConsumerState, error) {
+	if clustered && info.Cluster == nil {
+		return events.ConsumerState{}, events.ErrConsumerUnavailable
+	}
+	return events.ConsumerState{
+		Pending:       info.NumPending,
+		AckPending:    uint64(max(info.NumAckPending, 0)),
+		Waiting:       info.NumWaiting,
+		MaxAckPending: info.Config.MaxAckPending,
+		ObservedAt:    info.TimeStamp,
+	}, nil
+}
+```
+
+  Check on the 3-node case that a leader's answer for an R3 durable carries `Cluster` (it does: `js.clusterInfo(rg)`); if an R1 durable on a clustered server ever comes back without it, narrow the rule to `info.Config.Replicas > 1` and record why.
+
+- [ ] **Step 4: Run and pass.** Run: `go build ./... && go vet ./pkg/events/... && go test ./pkg/events/ ./pkg/events/natsbus/ ./pkg/events/membus/ -count=1` / Expected: `ok` (the 3-node case takes about 10-30 s).
+
+- [ ] **Step 5: Commit.**
+
+```bash
+git add pkg/events/natsbus/admin_internal_test.go pkg/events/natsbus/cluster_test.go pkg/events/expiry_test.go
+git commit -m "feat(events): ConsumerState trusts only the consumer leader's answer -- one without placement on a cluster is ErrConsumerUnavailable -- with a 3-node leader-change test, a past-MaxDeliver case and a guard that no durable expires (NATS research 2026-10-07; split §9.3, §9.8, §9.9 as amended)" -- pkg/events/errors.go pkg/events/natsbus/admin.go pkg/events/natsbus/admin_internal_test.go pkg/events/natsbus/cluster_test.go pkg/events/expiry_test.go
+```
+
+---
+
+### Task W4.101: Object stores: metadata on every object, `Put` takes an `ObjectMeta`, `SetMeta`, and bucket metadata
+
+**Spec:** artwork design §B.1 and §B.2 as amended 2026-10-07; split §7.2.7 as amended (the fingerprints bucket's key scheme); `nats-object-store.md` §3, §6.1, §6.2, §7, experiments E2, E3, E5, E7, E16.
+**Files:**
+- Modify: `pkg/events/bus.go` (`ObjectMeta`; `ObjectInfo.Metadata`; `ObjectStore.Put` takes an `ObjectMeta`; `ObjectStore.SetMeta`)
+- Modify: `pkg/events/subjects.go` (`ArtworkMetaVersion`, `ArtworkMaxImageBytes`, the `ArtworkMeta*` key constants, `ArtworkKeyScheme`, `FingerprintKeyScheme`)
+- Modify: `pkg/events/topology.go` (`ObjectStoreSpec.Metadata`; both buckets' metadata), `pkg/events/topology_nats.go` (`ObjectStoreConfig` maps `Metadata`)
+- Modify: `pkg/events/natsbus/objectstore.go` (`Put`, `SetMeta`, `objectInfoOf`, `objectError`), `pkg/events/membus/objectstore.go` (metadata, `SetMeta`)
+- Modify (mechanical; the same headers, now in an `ObjectMeta`): `app/catalog/metadata/artwork/fetcher.go` (the `Put` at `:358`; `MaxImageBytes = events.ArtworkMaxImageBytes`), `app/catalog/worker/artwork/handler.go` (the `Put` at `:462`), `app/segments/worker/cache.go` (the `Put` at `:62`)
+- Test: `pkg/events/contracttest/contracttest.go` (four cases), `pkg/events/topology_objects_test.go` (`TestObjectStoresCarryTheirKeyScheme`)
+- Non-compiling tests (the batch fixes them): every test that calls an object store's `Put` with a header map or `nil`, or implements `events.ObjectStore`: `grep -rln --include='*_test.go' -E 'Put\(ctx, [^,]+, [^,]+, (map\[string\]string|nil|h|headers)\)' .`; at `7e0e1c0a` that is `app/catalog/worker/artwork/handler_test.go` (`countingStore.Put`, and the calls at `:588`, `:694`), `ui/art_test.go` (`putArt`), `pkg/events/contracttest/contracttest.go`, `app/catalog/artwork/reaper_test.go`, `app/catalog/metadata/artwork/fetcher_test.go` and `app/segments/worker/worker_test.go`. Each becomes `events.ObjectMeta{Headers: …}`; `countingStore` also forwards `SetMeta`.
+
+**Interfaces:**
+- Consumes: nothing new.
+- Produces:
+
+```go
+// ObjectMeta is everything an object carries besides its bytes. A Put sends
+// all of it: NATS replaces an object's whole meta on every Put (E3).
+type ObjectMeta struct {
+	Headers  map[string]string // how to serve the bytes and where they came from
+	Metadata map[string]string // whose bytes they are (artwork design §B.2 as amended)
+}
+type ObjectInfo struct{ /* ... */ Metadata map[string]string }
+type ObjectStore interface {
+	// ... Get, Delete, Info, List unchanged ...
+	Put(ctx context.Context, name string, r io.Reader, meta ObjectMeta) (ObjectInfo, error)
+	// SetMeta replaces name's headers and metadata without touching its bytes
+	// (NATS UpdateMeta with the name unchanged). It has no compare-and-swap:
+	// only the object's one writer calls it, under its per-item lock. A missing
+	// or deleted object is ErrObjectNotFound.
+	SetMeta(ctx context.Context, name string, meta ObjectMeta) error
+}
+type ObjectStoreSpec struct{ /* ... */ Metadata map[string]string }
+
+const ArtworkMetaVersion = "1"
+const ArtworkMaxImageBytes = 20 << 20
+const (
+	ArtworkMetaKeyVersion        = "clustarr.io/meta-version"
+	ArtworkMetaKeyKind           = "clustarr.io/kind"
+	ArtworkMetaKeyUID            = "clustarr.io/uid"
+	ArtworkMetaKeyNamespace      = "clustarr.io/namespace"
+	ArtworkMetaKeyName           = "clustarr.io/name"
+	ArtworkMetaKeyImageType      = "clustarr.io/image-type"
+	ArtworkMetaKeyVariant        = "clustarr.io/variant"
+	ArtworkMetaKeyLanguage       = "clustarr.io/language"
+	ArtworkMetaKeyWidth          = "clustarr.io/width"
+	ArtworkMetaKeyHeight         = "clustarr.io/height"
+	ArtworkMetaKeyProfile        = "clustarr.io/profile"
+	ArtworkMetaKeyOriginalDigest = "clustarr.io/original-digest"
+	BucketMetaKeyKeyScheme       = "clustarr.io/key-scheme"
+)
+const ArtworkKeyScheme = "<kind>/<uid>/<imageType>/<variant>"
+const FingerprintKeyScheme = "<probeHash>.<start|end>[.v<FingerprintVersion>]"
+```
+
+- [ ] **Step 1: Write the failing tests.** In `RunBusContract`, after `ObjectStoreListByPrefix`:
+
+```go
+	t.Run("ObjectStoreMetadataRoundTrip", func(t *testing.T) { testObjectMetadataRoundTrip(t, newBus) })
+	t.Run("ObjectStorePutReplacesMetadata", func(t *testing.T) { testObjectPutReplacesMetadata(t, newBus) })
+	t.Run("ObjectStoreSetMetaKeepsContent", func(t *testing.T) { testObjectSetMetaKeepsContent(t, newBus) })
+	t.Run("ObjectStoreSetMetaOnDeletedIsNotFound", func(t *testing.T) { testObjectSetMetaOnDeleted(t, newBus) })
+```
+
+```go
+func testObjectMetadataRoundTrip(t *testing.T, newBus func() events.Bus) {
+	ctx, bus := setup(t, newBus)
+	store := bus.ObjectStore(events.BucketArtwork)
+	meta := events.ObjectMeta{
+		Headers:  map[string]string{"Content-Type": "image/png"},
+		Metadata: map[string]string{events.ArtworkMetaKeyUID: "uid-1", events.ArtworkMetaKeyVersion: events.ArtworkMetaVersion},
+	}
+	put, err := store.Put(ctx, "movie/uid-1/poster/original", strings.NewReader("png"), meta)
+	if err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	for _, info := range []events.ObjectInfo{put, mustInfo(ctx, t, store, "movie/uid-1/poster/original")} {
+		if !maps.Equal(info.Metadata, meta.Metadata) || info.Headers["Content-Type"] != "image/png" {
+			t.Errorf("info %+v, want the metadata and headers Put sent", info)
+		}
+	}
+}
+
+// testObjectPutReplacesMetadata: E3 -- a key SetMeta added is gone after a
+// Put that omits it. Every Put is a complete declaration.
+func testObjectPutReplacesMetadata(t *testing.T, newBus func() events.Bus) {
+	ctx, bus := setup(t, newBus)
+	store := bus.ObjectStore(events.BucketArtwork)
+	name := "movie/uid-2/poster/original"
+	mustPut(ctx, t, store, name, "v1", events.ObjectMeta{Metadata: map[string]string{"a": "1"}})
+	if err := store.SetMeta(ctx, name, events.ObjectMeta{Metadata: map[string]string{"a": "1", "b": "2"}}); err != nil {
+		t.Fatalf("SetMeta: %v", err)
+	}
+	mustPut(ctx, t, store, name, "v2", events.ObjectMeta{Metadata: map[string]string{"a": "1"}})
+	if got := mustInfo(ctx, t, store, name).Metadata; got["b"] != "" {
+		t.Errorf("metadata %v after a Put that omitted b, want b released", got)
+	}
+}
+
+// testObjectSetMetaKeepsContent: E2 -- SetMeta rewrites no chunk: the digest
+// and the bytes are what Put stored.
+func testObjectSetMetaKeepsContent(t *testing.T, newBus func() events.Bus) {
+	ctx, bus := setup(t, newBus)
+	store := bus.ObjectStore(events.BucketArtwork)
+	name := "movie/uid-3/poster/original"
+	before := mustPut(ctx, t, store, name, "bytes", events.ObjectMeta{Headers: map[string]string{"Content-Type": "image/jpeg"}})
+	if err := store.SetMeta(ctx, name, events.ObjectMeta{Headers: map[string]string{"Content-Type": "image/jpeg"}, Metadata: map[string]string{"k": "v"}}); err != nil {
+		t.Fatalf("SetMeta: %v", err)
+	}
+	info, r, err := store.Get(ctx, name)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	defer r.Close()
+	b, _ := io.ReadAll(r)
+	if string(b) != "bytes" || info.Digest != before.Digest || info.Metadata["k"] != "v" {
+		t.Errorf("after SetMeta: %q %+v, want the same bytes and digest with the new metadata", b, info)
+	}
+}
+
+func testObjectSetMetaOnDeleted(t *testing.T, newBus func() events.Bus) {
+	ctx, bus := setup(t, newBus)
+	store := bus.ObjectStore(events.BucketArtwork)
+	name := "movie/uid-4/poster/original"
+	mustPut(ctx, t, store, name, "x", events.ObjectMeta{})
+	if err := store.Delete(ctx, name); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	for _, n := range []string{name, "movie/never/poster/original"} {
+		if err := store.SetMeta(ctx, n, events.ObjectMeta{}); !errors.Is(err, events.ErrObjectNotFound) {
+			t.Errorf("SetMeta(%s) = %v, want ErrObjectNotFound", n, err)
+		}
+	}
+}
+```
+
+  (`mustPut` and `mustInfo` are small helpers beside them.) `topology_objects_test.go`:
+
+```go
+func TestObjectStoresCarryTheirKeyScheme(t *testing.T) {
+	want := map[string]map[string]string{
+		events.BucketArtwork: {events.BucketMetaKeyKeyScheme: events.ArtworkKeyScheme, events.ArtworkMetaKeyVersion: events.ArtworkMetaVersion},
+		events.ObjectStoreFingerprints: {events.BucketMetaKeyKeyScheme: events.FingerprintKeyScheme},
+	}
+	for _, o := range events.Default().ObjectStores {
+		assert.Equal(t, want[o.Name], o.Metadata, o.Name)
+		assert.Equal(t, o.Metadata, events.ObjectStoreConfig(o).Metadata, o.Name)
+	}
+}
+```
+
+- [ ] **Step 2: Run them and watch them fail.** Run: `go test ./pkg/events/ ./pkg/events/membus/ -run 'TestObjectStoresCarryTheirKeyScheme|TestBusContract/ObjectStore'` / Expected: `undefined: events.ObjectMeta`, `store.SetMeta undefined`.
+
+- [ ] **Step 3: Implement.**
+  1. `pkg/events`: the types, methods and constants of Interfaces, documented with the artwork design §B.1 and §B.2 as amended; `Default()` gives `clustarr-artwork` `Metadata: {key-scheme: ArtworkKeyScheme, meta-version: ArtworkMetaVersion}` and `clustarr-fingerprints` `Metadata: {key-scheme: FingerprintKeyScheme}`; `ObjectStoreConfig` copies `Metadata` (clone the map). `ArtworkMaxImageBytes` is the 20 MiB cap the gateway names as `MaxImageBytes`, moved so the ui (W4.108) can name it.
+  2. natsbus `Put`: `store.Put(ctx, jetstream.ObjectMeta{Name: name, Headers: mapToHeader(meta.Headers), Metadata: maps.Clone(meta.Metadata)}, r)`. `SetMeta`:
+
+```go
+// SetMeta is NATS UpdateMeta with the name unchanged: no rename can happen
+// (a rename purges the old name with no tombstone, E5). It rewrites no chunk.
+// It has no compare-and-swap (publishMeta sends no expected sequence), so only
+// the object's one writer calls it, under its per-item lock (artwork design
+// §B.3 as amended).
+func (o *objectHandle) SetMeta(ctx context.Context, name string, meta events.ObjectMeta) error {
+	store, err := o.resolve(ctx)
+	if err != nil {
+		return err
+	}
+	err = store.UpdateMeta(ctx, name, jetstream.ObjectMeta{
+		Name: name, Headers: mapToHeader(meta.Headers), Metadata: maps.Clone(meta.Metadata),
+	})
+	if err != nil {
+		return objectError("set meta", o.name, name, err)
+	}
+	return nil
+}
+```
+
+  `objectInfoOf` copies `info.Metadata`; `objectError` maps `jetstream.ErrUpdateMetaDeleted` to `events.ErrObjectNotFound` too.
+  3. membus: `memObject` gains `metadata map[string]string`; `Put` stores a clone of both maps; `SetMeta` replaces both on a live object (`ErrObjectNotFound` otherwise) and keeps `data`, `digest` and `modTime` (`modTime` becomes now, as a NATS meta publish does).
+  4. The three production `Put` callers wrap their header map: `events.ObjectMeta{Headers: …}`; segments passes `events.ObjectMeta{}`. W4.105 and W4.106 make the artwork writers send the full metadata. `app/catalog/metadata/artwork`'s `MaxImageBytes` becomes `= events.ArtworkMaxImageBytes`.
+
+- [ ] **Step 4: Run and pass.** Run: `go build ./... && go vet ./pkg/events/... && go test ./pkg/events/ ./pkg/events/natsbus/ ./pkg/events/membus/ -count=1 -run 'TestObjectStoresCarry|TestBusContract/ObjectStore|TestEnsure'` / Expected: `ok`; `go vet ./...` reports the test files listed under Non-compiling tests and nothing else (record them).
+
+- [ ] **Step 5: Commit.**
+
+```bash
+git commit -m "feat(events): object stores carry a metadata map -- Put sends a complete ObjectMeta, SetMeta updates it without touching the bytes, and each bucket records its key scheme (NATS research 2026-10-07; artwork design §B.1, §B.2 as amended)" -- pkg/events/bus.go pkg/events/subjects.go pkg/events/topology.go pkg/events/topology_nats.go pkg/events/topology_objects_test.go pkg/events/natsbus/objectstore.go pkg/events/membus/objectstore.go pkg/events/contracttest/contracttest.go app/catalog/metadata/artwork/fetcher.go app/catalog/worker/artwork/handler.go app/segments/worker/cache.go
+```
+
+---
+
+### Task W4.102: Object stores: `Watch`, `Status`, and the shared `WatchOption`s
+
+**Spec:** artwork design §B.1 as amended 2026-10-07 (`Watch`, `ObjectEvent`, `Status`); loop spec §4.15 as amended (the options land here, before F1; `WatchFromRevision` is refused on an object store); `nats-object-store.md` §4.1, §4.3, §7, experiments E2, E6, E9, E10.
+**Files:**
+- Modify: `pkg/events/bus.go` (`WatchOptions`, `WatchOption`, `WatchUpdatesOnly`, `WatchFromRevision`, `ResolveWatchOptions`; `ObjectEvent`; `ObjectStoreStatus`; `ObjectStore.Watch`, `ObjectStore.Status`), `pkg/events/errors.go` (`ErrWatchOptionUnsupported`)
+- Modify: `pkg/events/natsbus/objectstore.go` (`Watch`, `Status`), `pkg/events/membus/objectstore.go` (`Watch`, `Status`, the watcher queue), `pkg/events/membus/membus.go` (the bucket's creation time)
+- Test: `pkg/events/contracttest/contracttest.go` (seven cases), `pkg/events/natsbus/objectstore_contract_test.go` (`TestObjectWatchSurvivesAServerRestart`)
+- Non-compiling tests: `countingStore` in `app/catalog/worker/artwork/handler_test.go` embeds `events.ObjectStore`, so it keeps compiling; any other fake implementing it gains the two methods.
+
+**Interfaces:**
+- Consumes: W4.101's `ObjectInfo.Metadata`.
+- Produces (these are F1.3's option types too; F1.3 then adds only the KV half):
+
+```go
+// WatchOptions is the resolved effect of a list of WatchOption values.
+type WatchOptions struct {
+	UpdatesOnly  bool   // skip the current values (and an object watch's Synced marker)
+	FromRevision uint64 // start at this revision; a KV watch only (F1.3)
+}
+type WatchOption func(*WatchOptions)
+func WatchUpdatesOnly() WatchOption
+func WatchFromRevision(rev uint64) WatchOption
+func ResolveWatchOptions(opts []WatchOption) WatchOptions
+
+// ObjectEvent is one object-store watch delivery.
+type ObjectEvent struct {
+	Info    ObjectInfo
+	Deleted bool // a tombstone: Info carries only Name
+	Synced  bool // the replay's end marker: Info is zero
+}
+type ObjectStoreStatus struct {
+	Bucket  string
+	Created time.Time // a bucket deleted and created again has a new one
+	Bytes   uint64
+}
+// ErrWatchOptionUnsupported: an option the watch cannot honour. nats.go accepts
+// ResumeFromRevision on an object store and ignores it (E6), so it is refused.
+var ErrWatchOptionUnsupported = errors.New("events: watch option unsupported")
+
+type ObjectStore interface {
+	// ...
+	// Watch replays the latest info of every object (a natsbus replay may
+	// include tombstones for names deleted earlier; membus keeps none), sends
+	// one Synced event, then one event per Put, SetMeta or Delete, in the order
+	// the bucket recorded them, never dropping one and never blocking a writer.
+	// The channel closes on ctx, Close, or a watch the broker cannot resume --
+	// not on a plain reconnect. A bucket re-created under a running watch is
+	// skipped silently: compare Status().Created (E9).
+	Watch(ctx context.Context, opts ...WatchOption) (<-chan ObjectEvent, error)
+	Status(ctx context.Context) (ObjectStoreStatus, error)
+}
+```
+
+- [ ] **Step 1: Write the failing tests.** Register after the W4.101 cases:
+
+```go
+	t.Run("ObjectStoreWatchReplaysThenSynced", func(t *testing.T) { testObjectWatchReplays(t, newBus) })
+	t.Run("ObjectStoreWatchSeesSetMeta", func(t *testing.T) { testObjectWatchSeesSetMeta(t, newBus) })
+	t.Run("ObjectStoreWatchSeesDeleteAsTombstone", func(t *testing.T) { testObjectWatchSeesDelete(t, newBus) })
+	t.Run("ObjectStoreWatchUpdatesOnlyHasNoSynced", func(t *testing.T) { testObjectWatchUpdatesOnly(t, newBus) })
+	t.Run("ObjectStoreWatchRefusesFromRevision", func(t *testing.T) { testObjectWatchRefusesFromRevision(t, newBus) })
+	t.Run("ObjectStoreWatchDeliversPastTheBuffer", func(t *testing.T) { testObjectWatchPastTheBuffer(t, newBus) })
+	t.Run("ObjectStoreStatusReportsCreation", func(t *testing.T) { testObjectStoreStatus(t, newBus) })
+```
+
+```go
+// nextObjectEvent waits for one watch delivery.
+func nextObjectEvent(t *testing.T, ch <-chan events.ObjectEvent) events.ObjectEvent {
+	t.Helper()
+	select {
+	case e, ok := <-ch:
+		if !ok {
+			t.Fatal("the object watch closed")
+		}
+		return e
+	case <-time.After(Timeout):
+		t.Fatal("timed out waiting for an object watch delivery")
+	}
+	return events.ObjectEvent{}
+}
+
+func testObjectWatchReplays(t *testing.T, newBus func() events.Bus) {
+	ctx, bus := setup(t, newBus)
+	store := bus.ObjectStore(events.BucketArtwork)
+	for _, n := range []string{"movie/a/poster/original", "movie/b/poster/original"} {
+		mustPut(ctx, t, store, n, n, events.ObjectMeta{})
+	}
+	wctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	ch, err := store.Watch(wctx)
+	if err != nil {
+		t.Fatalf("Watch: %v", err)
+	}
+	seen := map[string]bool{}
+	for {
+		e := nextObjectEvent(t, ch)
+		if e.Synced {
+			break
+		}
+		if !e.Deleted {
+			seen[e.Info.Name] = true
+		}
+	}
+	if len(seen) != 2 {
+		t.Fatalf("replay before Synced: %v, want both objects", seen)
+	}
+	mustPut(ctx, t, store, "movie/c/poster/original", "c", events.ObjectMeta{})
+	if e := nextObjectEvent(t, ch); e.Info.Name != "movie/c/poster/original" || e.Synced || e.Deleted {
+		t.Errorf("after Synced: %+v, want the new Put", e)
+	}
+}
+
+// testObjectWatchSeesSetMeta: E2 -- a metadata-only change is a watch event.
+func testObjectWatchSeesSetMeta(t *testing.T, newBus func() events.Bus) { /* Watch(UpdatesOnly); SetMeta; one event carrying the new metadata and the old digest */ }
+
+func testObjectWatchSeesDelete(t *testing.T, newBus func() events.Bus) { /* Watch(UpdatesOnly); Delete; one event with Deleted and the name */ }
+
+func testObjectWatchUpdatesOnly(t *testing.T, newBus func() events.Bus) { /* objects exist; Watch(UpdatesOnly); a Put; the first event is that Put, never Synced */ }
+
+// testObjectWatchRefusesFromRevision: nats.go would silently replay from the
+// start (E6), so the bus refuses rather than pretend.
+func testObjectWatchRefusesFromRevision(t *testing.T, newBus func() events.Bus) {
+	ctx, bus := setup(t, newBus)
+	if _, err := bus.ObjectStore(events.BucketArtwork).Watch(ctx, events.WatchFromRevision(1000)); !errors.Is(err, events.ErrWatchOptionUnsupported) {
+		t.Fatalf("Watch(FromRevision) = %v, want ErrWatchOptionUnsupported", err)
+	}
+}
+
+// testObjectWatchPastTheBuffer: a reader that falls 1,000 changes behind
+// loses none, in order (nats.go's callback blocks on 32 slots; the bus relays
+// through an unbounded queue).
+func testObjectWatchPastTheBuffer(t *testing.T, newBus func() events.Bus) { /* Watch(UpdatesOnly); 1,000 Puts of distinct names with nobody reading; then read 1,000 events, names in Put order */ }
+
+func testObjectStoreStatus(t *testing.T, newBus func() events.Bus) {
+	ctx, bus := setup(t, newBus)
+	store := bus.ObjectStore(events.BucketArtwork)
+	a, err := store.Status(ctx)
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	mustPut(ctx, t, store, "movie/s/poster/original", "s", events.ObjectMeta{})
+	b, _ := store.Status(ctx)
+	if a.Created.IsZero() || !a.Created.Equal(b.Created) || a.Bucket != events.BucketArtwork {
+		t.Errorf("Status %+v then %+v, want one non-zero creation time", a, b)
+	}
+}
+```
+
+  (Write the four bodies sketched in comments in full, in the style of the others.) `objectstore_contract_test.go`, real server:
+
+```go
+// TestObjectWatchSurvivesAServerRestart: E10 -- a watch resumes after the
+// server restarts on the same store, delivering what was put since, with no
+// second replay and no second Synced.
+func TestObjectWatchSurvivesAServerRestart(t *testing.T) { /* start a server on a fixed port and StoreDir; Ensure; Watch; Synced; Shutdown; start again on the same port and dir; three Puts; three events, none Synced */ }
+```
+
+- [ ] **Step 2: Run them and watch them fail.** Run: `go test ./pkg/events/membus/ ./pkg/events/natsbus/ -count=1 -run 'TestBusContract/ObjectStore(Watch|Status)|TestObjectWatchSurvives'` / Expected: `store.Watch undefined`, `undefined: events.ErrWatchOptionUnsupported`.
+
+- [ ] **Step 3: Implement.**
+  1. `pkg/events/bus.go`: the option types after `ResolveKVOptions`, exactly as F1.3's Step 3a prints them, with `WatchOption`'s doc saying "modifies a KV.Watch or an ObjectStore.Watch", and `FromRevision`'s that an object store refuses it; `ObjectEvent`, `ObjectStoreStatus` and the two methods.
+  2. natsbus:
+
+```go
+func (o *objectHandle) Watch(ctx context.Context, opts ...events.WatchOption) (<-chan events.ObjectEvent, error) {
+	wo := events.ResolveWatchOptions(opts)
+	if wo.FromRevision != 0 {
+		return nil, fmt.Errorf("natsbus: watch %s from revision %d: %w", o.name, wo.FromRevision, events.ErrWatchOptionUnsupported)
+	}
+	store, err := o.resolve(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var jo []jetstream.WatchOpt
+	if wo.UpdatesOnly {
+		jo = append(jo, jetstream.UpdatesOnly())
+	}
+	w, err := store.Watch(ctx, jo...)
+	if err != nil {
+		return nil, objectError("watch", o.name, "", err)
+	}
+	out := make(chan events.ObjectEvent)
+	q := newEventQueue[events.ObjectEvent]()
+	// The pump drains nats.go's channel at once -- its callback blocks on 32
+	// slots and would stall the ordered consumer -- into an unbounded queue;
+	// the relay hands it on at the reader's pace.
+	go func() {
+		defer q.close()
+		defer func() { _ = w.Stop() }()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case info, ok := <-w.Updates():
+				if !ok {
+					return
+				}
+				switch {
+				case info == nil:
+					q.push(events.ObjectEvent{Synced: true})
+				case info.Deleted:
+					q.push(events.ObjectEvent{Deleted: true, Info: events.ObjectInfo{Name: info.Name}})
+				default:
+					if oi, err := objectInfoOf(o.name, info); err == nil {
+						q.push(events.ObjectEvent{Info: oi})
+					}
+				}
+			}
+		}
+	}()
+	go q.relay(ctx, out) // closes out once the queue is closed and drained, or on ctx
+	return out, nil
+}
+
+func (o *objectHandle) Status(ctx context.Context) (events.ObjectStoreStatus, error) {
+	store, err := o.resolve(ctx)
+	if err != nil {
+		return events.ObjectStoreStatus{}, err
+	}
+	st, err := store.Status(ctx)
+	if err != nil {
+		return events.ObjectStoreStatus{}, objectError("status", o.name, "", err)
+	}
+	return events.ObjectStoreStatus{Bucket: o.name, Created: st.StreamInfo().Created, Bytes: st.Size()}, nil
+}
+```
+
+  `newEventQueue` is the unbounded queue natsbus's KV watch uses (`kv.go`'s watch relay), made generic if it is not already; reuse it rather than writing a second. Check nats.go v1.53.1's `ObjectBucketStatus` for the `StreamInfo()` and `Size()` names (`$GOMODCACHE/github.com/nats-io/nats.go@v1.53.1/jetstream/object.go`). An `Updates()` that closes without ctx ending means nats.go gave up resetting: the relay closes `out`, and the reader reopens (W4.104).
+  3. membus: the object bucket keeps its `created` time (stamped when `Ensure` creates it) and a list of watchers, each an unbounded queue with a relay goroutine (the shape F1.3 gives membus's KV watcher); `Put`, `SetMeta` and `Delete` push to every watcher after the change, outside the bucket's lock; `Watch` replays the live objects in name order, then `Synced` unless `UpdatesOnly`. `Status` reports `created` and the summed sizes.
+
+- [ ] **Step 4: Run and pass.** Run: `go build ./... && go vet ./pkg/events/... && go test ./pkg/events/ ./pkg/events/natsbus/ ./pkg/events/membus/ -count=1 -run 'TestBusContract/ObjectStore|TestObjectWatch'` / Expected: `ok`.
+
+- [ ] **Step 5: Commit.**
+
+```bash
+git commit -m "feat(events): object-store Watch (replay, Synced, every change, never dropping) and Status, and the WatchOption set KV watches will share; WatchFromRevision is refused on an object store, which nats.go silently ignores (NATS research 2026-10-07; loop spec §4.15 as amended)" -- pkg/events/bus.go pkg/events/errors.go pkg/events/natsbus/objectstore.go pkg/events/natsbus/objectstore_contract_test.go pkg/events/membus/objectstore.go pkg/events/membus/membus.go pkg/events/contracttest/contracttest.go
+```
+
+---
+
+### Task W4.103: Object stores: `PurgeOrphanChunks`
+
+**Spec:** artwork design §B.1 and §B.5 as amended 2026-10-07; split §5.13 as amended; `nats-object-store.md` §1.3 G3, §6.6, experiment E8.
+**Files:**
+- Modify: `pkg/events/bus.go` (`ObjectStoreAdmin`), `pkg/events/natsbus/objectstore.go` (`PurgeOrphanChunks`), `pkg/events/membus/objectstore.go` (`PurgeOrphanChunks`, a no-op), `pkg/obs/metrics/domain.go` (two counters)
+- Test: `pkg/events/natsbus/objectstore_contract_test.go` (`TestPurgeOrphanChunksReclaimsALostRace`, `TestPurgeOrphanChunksSparesAPutInProgress`)
+
+**Interfaces:**
+- Consumes: natsbus `lookupStream`, the jetstream `ObjectStore.List` (which carries each object's NUID).
+- Produces:
+
+```go
+// ObjectStoreAdmin is implemented by both buses; membus has no chunks.
+type ObjectStoreAdmin interface {
+	// PurgeOrphanChunks purges every chunk subject of bucket whose NUID no
+	// live object names and whose newest message is older than grace (a Put
+	// writes its chunks before its meta, so grace covers one in progress).
+	PurgeOrphanChunks(ctx context.Context, bucket string, grace time.Duration) (purged int, bytes uint64, err error)
+}
+```
+
+  `metrics.ObjectOrphanChunksPurgedTotal` (`clustarr_object_orphan_chunks_purged_total{bucket}`), `metrics.ObjectOrphanBytesPurgedTotal` (`clustarr_object_orphan_bytes_purged_total{bucket}`), both counted by natsbus.
+
+- [ ] **Step 1: Write the failing tests.**
+
+```go
+// TestPurgeOrphanChunksReclaimsALostRace is E8: two concurrent Puts of one
+// name each write a full chunk set under a new NUID, and each purges only the
+// NUID it read before it started, so the loser's set is never referenced and
+// never reclaimed (30 rounds left 30 orphaned sets, 18 MB from 600 KiB
+// objects). The purge leaves exactly the live set, and Get still works.
+func TestPurgeOrphanChunksReclaimsALostRace(t *testing.T) {
+	bus, err := natsbus.New(connect(t))
+	require.NoError(t, err)
+	ctx := context.Background()
+	require.NoError(t, bus.Ensure(ctx, events.Topology{ObjectStores: []events.ObjectStoreSpec{{Name: "leak", Storage: events.StorageFile, MaxBytes: 1 << 30}}}))
+	store := bus.ObjectStore("leak")
+	body := bytes.Repeat([]byte("x"), 600<<10)
+	for range 10 {
+		var wg sync.WaitGroup
+		for range 2 {
+			wg.Add(1)
+			go func() { defer wg.Done(); _, _ = store.Put(ctx, "poster/overlay", bytes.NewReader(body), events.ObjectMeta{}) }()
+		}
+		wg.Wait()
+	}
+	chunks := func() int {
+		s, err := bus.Subjects(ctx, "OBJ_leak", "$O.leak.C.>")
+		require.NoError(t, err)
+		return len(s)
+	}
+	require.Greater(t, chunks(), 1, "the race should have leaked at least one chunk set")
+	purged, bytes, err := bus.PurgeOrphanChunks(ctx, "leak", 0)
+	require.NoError(t, err)
+	assert.Positive(t, purged)
+	assert.Positive(t, bytes)
+	assert.Equal(t, 1, chunks(), "only the live object's chunks remain")
+	_, r, err := store.Get(ctx, "poster/overlay")
+	require.NoError(t, err)
+	b, _ := io.ReadAll(r)
+	r.Close()
+	assert.Len(t, b, len(body))
+}
+
+// TestPurgeOrphanChunksSparesAPutInProgress: chunks with no meta yet, younger
+// than the grace, are a Put in progress and stay.
+func TestPurgeOrphanChunksSparesAPutInProgress(t *testing.T) {
+	/* Ensure the bucket; publish two raw messages on "$O.leak.C.<a NUID>" with the
+	   connection (chunks without meta); PurgeOrphanChunks(grace 1h) purges 0 and the
+	   subject stays; PurgeOrphanChunks(grace 0) purges it. */
+}
+```
+
+  (`bus.Subjects` is W4.43's `StreamAdmin.Subjects`; if it lists subjects only with messages, as it should, it counts chunk sets.)
+
+- [ ] **Step 2: Run them and watch them fail.** Run: `go test ./pkg/events/natsbus/ -count=1 -run TestPurgeOrphanChunks -v` / Expected: `bus.PurgeOrphanChunks undefined`.
+
+- [ ] **Step 3: Implement.** natsbus:
+
+```go
+// PurgeOrphanChunks implements events.ObjectStoreAdmin (artwork design §B.5 as
+// amended 2026-10-07). It needs the object store's stream layout ($O.<bucket>.C.
+// <nuid> chunks, the OBJ_<bucket> stream; ADR-20), which is why it lives only
+// here. The meta-level List cannot see an orphan, since no meta names it.
+func (b *Bus) PurgeOrphanChunks(ctx context.Context, bucket string, grace time.Duration) (int, uint64, error) {
+	store, err := (&objectHandle{bus: b, name: bucket}).resolve(ctx)
+	if err != nil {
+		return 0, 0, err
+	}
+	live := map[string]bool{}
+	all, err := store.List(ctx)
+	if err != nil && !errors.Is(err, jetstream.ErrNoObjectsFound) {
+		return 0, 0, objectError("list", bucket, "", err)
+	}
+	for _, info := range all {
+		live[info.NUID] = true
+	}
+	s, err := b.lookupStream(ctx, "OBJ_"+bucket)
+	if err != nil {
+		return 0, 0, err
+	}
+	prefix := "$O." + bucket + ".C."
+	info, err := s.Info(ctx, jetstream.WithSubjectFilter(prefix+">"))
+	if err != nil {
+		return 0, 0, fmt.Errorf("natsbus: chunk subjects of %s: %w", bucket, err)
+	}
+	var purged int
+	var freed uint64
+	var errs []error
+	for subject, msgs := range info.State.Subjects {
+		if live[strings.TrimPrefix(subject, prefix)] {
+			continue
+		}
+		last, err := s.GetLastMsgForSubject(ctx, subject)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		if time.Since(last.Time) < grace {
+			continue // a Put in progress: chunks precede their meta
+		}
+		if err := s.Purge(ctx, jetstream.WithPurgeSubject(subject)); err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		purged++
+		freed += msgs * uint64(len(last.Data)) // the chunk size; the last chunk may be shorter
+	}
+	metrics.ObjectOrphanChunksPurgedTotal.WithLabelValues(bucket).Add(float64(purged))
+	metrics.ObjectOrphanBytesPurgedTotal.WithLabelValues(bucket).Add(float64(freed))
+	return purged, freed, errors.Join(errs...)
+}
+```
+
+  A `List` read before a racing `Put` replaced X with Y lists X; Y's chunks are then not in `live` but younger than the grace, so they stay. membus returns `0, 0, nil`. The two counters go in `pkg/obs/metrics/domain.go` under a new "Object stores" block, labelled by bucket (two values).
+
+- [ ] **Step 4: Run and pass.** Run: `go build ./... && go vet ./pkg/events/... ./pkg/obs/... && go test ./pkg/events/natsbus/ ./pkg/obs/metrics/ -count=1 -run 'TestPurgeOrphanChunks|Test'` / Expected: `ok`.
+
+- [ ] **Step 5: Commit.**
+
+```bash
+git commit -m "feat(natsbus): PurgeOrphanChunks reclaims the full copy two racing Puts of one name leak, which no meta names and the bucket never ages out, sparing a Put still in progress (NATS research 2026-10-07, E8; artwork design §B.5 as amended)" -- pkg/events/bus.go pkg/events/natsbus/objectstore.go pkg/events/natsbus/objectstore_contract_test.go pkg/events/membus/objectstore.go pkg/obs/metrics/domain.go
+```
+
+---
+
+### Task W4.104: `pkg/events/objindex`: a read-only index of a bucket, kept by one watch
+
+**Spec:** artwork design §B.8 as amended 2026-10-07 ("The index"); loop spec §4.9 as amended (a re-created bucket); `nats-object-store.md` §4.1, §6.5, experiments E9, E10.
+**Files:**
+- Create: `pkg/events/objindex/objindex.go`
+- Test: Create `pkg/events/objindex/objindex_test.go` (on membus), `pkg/events/natsbus/objindex_test.go` (`TestObjectIndexRebuildsWhenTheBucketIsRecreated`, real server)
+
+**Interfaces:**
+- Consumes: W4.102's `ObjectStore.Watch`, `Status`; W4.101's `ObjectInfo.Metadata`.
+- Produces:
+
+```go
+package objindex // imports only pkg/events, so ui/ may import it
+
+type Entry struct {
+	Digest      string
+	Size        int64
+	ContentType string // the Content-Type header
+	ModTime     time.Time
+	Metadata    map[string]string
+}
+
+// Change is one name whose digest changed; NewDigest is "" on a delete.
+type Change struct{ Name, OldDigest, NewDigest string }
+
+type Index struct{ /* unexported */ }
+
+func New(store events.ObjectStore, opts ...Option) *Index
+func WithCheckEvery(d time.Duration) Option // the creation-time check; 60 s by default
+func (x *Index) Run(ctx context.Context) error // blocks until ctx ends; returns nil then
+func (x *Index) Lookup(name string) (Entry, bool)
+func (x *Index) Synced() bool
+// Subscribe returns a buffered channel of changes and a cancel func. A full
+// subscriber loses changes rather than block the index.
+func (x *Index) Subscribe() (<-chan Change, func())
+```
+
+- [ ] **Step 1: Write the failing tests.** `objindex_test.go`, each against a membus bus that `Ensure`d `events.BucketArtwork`:
+
+```go
+func TestIndexReplaysThenSyncs(t *testing.T)            // two objects put before Run: Synced turns true, Lookup finds both with digest, size, Content-Type and metadata
+func TestIndexAppliesPutsSetMetaAndDeletes(t *testing.T) // after Synced: a Put adds, a SetMeta updates the metadata, a Delete removes
+func TestIndexEmitsChanges(t *testing.T)                 // a re-Put of new bytes emits {name, old, new}; a SetMeta (same digest) emits nothing; a Delete emits {name, old, ""}
+func TestIndexKeepsServingWhileItReopens(t *testing.T)  // a store whose watch channel closes once: Lookup keeps answering from the old map, Synced is false until the new replay ends, then true
+func TestIndexNeverBlocksOnASlowSubscriber(t *testing.T) // a subscriber that never reads; 1,000 Puts; Lookup is current
+```
+
+  `pkg/events/natsbus/objindex_test.go`:
+
+```go
+// TestObjectIndexRebuildsWhenTheBucketIsRecreated is E9 through the index: a
+// bucket deleted and created again under a running watch is skipped silently
+// by nats.go's ordered consumer; the index notices the new creation time and
+// reopens, so it serves the new bucket's objects and none of the old.
+func TestObjectIndexRebuildsWhenTheBucketIsRecreated(t *testing.T) {
+	nc := connect(t)
+	bus, err := natsbus.New(nc)
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	top := events.Topology{ObjectStores: []events.ObjectStoreSpec{{Name: "idx", Storage: events.StorageFile, MaxBytes: 1 << 30}}}
+	require.NoError(t, bus.Ensure(ctx, top))
+	store := bus.ObjectStore("idx")
+	for i := range 20 {
+		_, err := store.Put(ctx, fmt.Sprintf("old%d", i), strings.NewReader("o"), events.ObjectMeta{})
+		require.NoError(t, err)
+	}
+	x := objindex.New(store, objindex.WithCheckEvery(200*time.Millisecond))
+	go func() { _ = x.Run(ctx) }()
+	require.Eventually(t, x.Synced, 10*time.Second, 50*time.Millisecond)
+	js, err := jetstream.New(nc)
+	require.NoError(t, err)
+	require.NoError(t, js.DeleteObjectStore(ctx, "idx"))
+	require.NoError(t, bus.Ensure(ctx, top))
+	for i := range 5 {
+		_, err := store.Put(ctx, fmt.Sprintf("new%d", i), strings.NewReader("n"), events.ObjectMeta{})
+		require.NoError(t, err)
+	}
+	assert.Eventually(t, func() bool {
+		_, oldThere := x.Lookup("old0")
+		_, newThere := x.Lookup("new0")
+		return x.Synced() && !oldThere && newThere
+	}, 15*time.Second, 100*time.Millisecond)
+}
+```
+
+- [ ] **Step 2: Run them and watch them fail.** Run: `go test ./pkg/events/objindex/ ./pkg/events/natsbus/ -run 'TestIndex|TestObjectIndex'` / Expected: `no Go files in …/objindex`.
+
+- [ ] **Step 3: Implement.** `objindex.go` (GPL header; a package doc naming the artwork design §B.8 as amended):
+  - `Run` loops while ctx is live: read `store.Status` (remember `Created`); open `store.Watch(wctx)` on a child context; build a fresh map from the replay until `Synced`, then swap it in under the write lock, set `synced`, and emit a `Change` for each name whose digest differs between the old and new maps (a reopen); then apply live events, emitting changes. Every `CheckEvery` (60 s), `Status` again: a different `Created` cancels the watch and reopens at once (E9). A closed channel while ctx is live sets `synced` false, keeps the old map serving, and reopens after a backoff of 1 s doubling to 30 s (reset after a successful `Synced`). A `Status` or `Watch` error backs off the same way.
+  - `Lookup` and `Synced` take the read lock; entries copy their metadata map on write, never on read.
+  - `Subscribe` registers a channel of 256; emitting is a non-blocking send to each.
+  - About 250 bytes per object; the doc says so.
+
+- [ ] **Step 4: Run and pass.** Run: `go build ./... && go vet ./pkg/events/... && go test ./pkg/events/objindex/ ./pkg/events/natsbus/ -count=1 -run 'TestIndex|TestObjectIndex' && go list -deps ./pkg/events/objindex | grep -E 'clustarr/(app|pkg/k8s)'` / Expected: `ok`; the grep prints nothing.
+
+- [ ] **Step 5: Commit.**
+
+```bash
+git add pkg/events/objindex pkg/events/natsbus/objindex_test.go
+git commit -m "feat(events): objindex, a read-only index of an object-store bucket kept by one watch -- lookups, a synced flag, digest changes -- that reopens when the bucket is re-created under it, which nats.go skips silently (NATS research 2026-10-07, E9; artwork design §B.8 as amended)" -- pkg/events/objindex pkg/events/natsbus/objindex_test.go
+```
+
+---
+
+### Task W4.105: `artwork.ObjectMeta`, and the gateway writes and backfills the originals' metadata
+
+**Spec:** artwork design §B.2, §B.3 and §B.4 as amended 2026-10-07; `nats-object-store.md` §6.2, §6.3, §6.9.
+**Files:**
+- Create: `app/catalog/artwork/meta.go` (`ObjectRef`, `RefOf`, `Facts`, `OverlayFacts`, `ObjectMeta`, `MetaCurrent`; the header names `HeaderSource`, `HeaderSourceURL`, `HeaderRenderedFrom` and the value `SourceRender`, moved here from the gateway and the renderer, so the light package both writers and the reaper import can build the whole set; the old names stay as aliases there)
+- Modify: `app/catalog/artwork/sources.go` (`Source.Language`; `ResolveSources` sets it from `Image.Language`)
+- Modify: `app/catalog/metadata/artwork/fetcher.go` (`Sync` builds the ref; `fetchAndPut` `Put`s the full set; `stale` returns the `Info`; the keep-verbatim branch backfills)
+- Test: Create `app/catalog/artwork/meta_test.go`; Modify `app/catalog/metadata/artwork/fetcher_test.go` (`TestEveryOriginalPutCarriesTheFullMetadata`, `TestBackfillUsesSetMetaNotPut`)
+
+**Interfaces:**
+- Consumes: W4.101 (`events.ObjectMeta`, `SetMeta`, the key constants, `ArtworkMetaVersion`).
+- Produces:
+
+```go
+type ObjectRef struct {
+	Kind            commonv1.MediaKind
+	UID             types.UID
+	Namespace, Name string
+}
+func RefOf(obj client.Object, kind commonv1.MediaKind) ObjectRef
+
+type OverlayFacts struct {
+	Profile        string // the winning OverlayProfile
+	OriginalDigest string // hex digest of the original it was drawn on
+	RenderedFrom   string // the inputs digest, header Clustarr-Rendered-From
+}
+type Facts struct {
+	ContentType   string
+	Source        string // header Clustarr-Source: provider, custom, or render (an overlay)
+	SourceURL     string // header Clustarr-Source-URL; an overlay carries its original's
+	Language      string // ISO 639-1 of a provider image; "" leaves the key out
+	Width, Height int
+	Overlay       *OverlayFacts // nil for an original
+}
+// ObjectMeta is the complete header and metadata set of one artwork object
+// (artwork design §B.2 as amended). Every Put and SetMeta sends all of it.
+func ObjectMeta(ref ObjectRef, t catalogv1alpha1.ImageType, variant string, f Facts) events.ObjectMeta
+// MetaCurrent reports whether info's metadata is at events.ArtworkMetaVersion.
+func MetaCurrent(info events.ObjectInfo) bool
+```
+
+- [ ] **Step 1: Write the failing tests.** `meta_test.go`:
+
+```go
+func TestObjectMetaIsTheCompleteSet(t *testing.T) {
+	ref := artwork.ObjectRef{Kind: commonv1.MediaKindMovie, UID: "u1", Namespace: "media", Name: "heat-1995"}
+	m := artwork.ObjectMeta(ref, catalogv1alpha1.ImageTypePoster, events.ArtworkVariantOriginal, artwork.Facts{
+		ContentType: "image/jpeg", Source: "provider", SourceURL: "https://image.tmdb.org/p.jpg", Language: "en", Width: 1000, Height: 1500,
+	})
+	assert.Equal(t, map[string]string{
+		"Content-Type": "image/jpeg", artwork.HeaderSource: "provider", artwork.HeaderSourceURL: "https://image.tmdb.org/p.jpg",
+	}, m.Headers)
+	assert.Equal(t, map[string]string{
+		events.ArtworkMetaKeyVersion: events.ArtworkMetaVersion, events.ArtworkMetaKeyKind: "movie", events.ArtworkMetaKeyUID: "u1",
+		events.ArtworkMetaKeyNamespace: "media", events.ArtworkMetaKeyName: "heat-1995", events.ArtworkMetaKeyImageType: "poster",
+		events.ArtworkMetaKeyVariant: "original", events.ArtworkMetaKeyLanguage: "en",
+		events.ArtworkMetaKeyWidth: "1000", events.ArtworkMetaKeyHeight: "1500",
+	}, m.Metadata)
+}
+
+func TestObjectMetaOfAnOverlay(t *testing.T) { /* Overlay facts add profile, original-digest and the Clustarr-Rendered-From header; Source "render"; no language when empty */ }
+
+func TestMetaCurrent(t *testing.T) {
+	assert.False(t, artwork.MetaCurrent(events.ObjectInfo{}))
+	assert.True(t, artwork.MetaCurrent(events.ObjectInfo{Metadata: map[string]string{events.ArtworkMetaKeyVersion: events.ArtworkMetaVersion}}))
+}
+
+func TestResolveSourcesCarriesTheImageLanguage(t *testing.T) { /* a provider image with Language "ja" resolves with it; an override has none */ }
+```
+
+  `fetcher_test.go`, on the package's existing fetcher fixture (an httptest image server and a membus store):
+
+```go
+// TestEveryOriginalPutCarriesTheFullMetadata: a pass stores each original
+// with the whole §B.2 set -- a Put that omits a key releases it (E3).
+func TestEveryOriginalPutCarriesTheFullMetadata(t *testing.T) { /* Sync a Movie with a provider poster; Info(original).Metadata has all ten keys, width and height those of the served image */ }
+
+// TestBackfillUsesSetMetaNotPut: an object stored before metadata existed is
+// backfilled in Sync's keep-verbatim branch with SetMeta: its digest is
+// unchanged, nothing is fetched, and the metadata is the full set.
+func TestBackfillUsesSetMetaNotPut(t *testing.T) { /* Put an original with headers only; an entry recording it; Sync: zero HTTP requests, Info digest unchanged, MetaCurrent true; a second Sync makes no SetMeta (a counting store) */ }
+```
+
+- [ ] **Step 2: Run them and watch them fail.** Run: `go test ./app/catalog/artwork/ ./app/catalog/metadata/artwork/ -run 'TestObjectMeta|TestMetaCurrent|TestResolveSourcesCarries|TestEveryOriginalPut|TestBackfillUsesSetMeta'` / Expected: `undefined: artwork.ObjectMeta`.
+
+- [ ] **Step 3: Implement.**
+  1. `meta.go` as in Interfaces (the header names are defined today in `app/catalog/metadata/artwork/fetcher.go:70-72`, `HeaderContentType` aside, which is `events.HeaderContentType`'s value, and in `app/catalog/worker/artwork/handler.go:59-63`); `ObjectMeta` always sets the version, kind, uid, namespace, name, image type and variant; sets width and height when positive; language when non-empty; profile and original digest for an overlay; headers `Content-Type`, `Clustarr-Source`, `Clustarr-Source-URL` (when non-empty) and, for an overlay, `Clustarr-Rendered-From`. `HeaderSource`, `HeaderSourceURL`, `HeaderRenderedFrom` and `SourceRender` move here; `app/catalog/metadata/artwork` keeps `const HeaderSource = catalogartwork.HeaderSource` (and the others), and so does `app/catalog/worker/artwork`, so no caller changes. `RefOf` reads `GetUID`, `GetNamespace`, `GetName`.
+  2. `sources.go`: `Source` gains `Language string`; `ResolveSources` sets `Language: img.Language` for a provider image.
+  3. `fetcher.go`: `Sync` computes `ref := catalogartwork.RefOf(obj, kind)` once and passes it to `fetchOne`/`fetchAndPut`, whose `Put` sends `catalogartwork.ObjectMeta(ref, t, events.ArtworkVariantOriginal, catalogartwork.Facts{ContentType: stored, Source: string(src.Kind), SourceURL: src.URL, Language: src.Language, Width: cfg.Width, Height: cfg.Height})`. `stale` returns `(stale bool, info events.ObjectInfo, have bool)`. In the keep-verbatim branch, `if have && !catalogartwork.MetaCurrent(info) { f.backfill(ctx, key, ref, t, src, info) }`:
+
+```go
+// backfill gives an original stored before object metadata existed its full
+// set with SetMeta (artwork design §B.4 as amended): no refetch, no chunk
+// rewrite. Status records no dimensions, so it reads the object's first 64 KiB
+// for image.DecodeConfig and closes the reader. Callers hold Fetcher.Lock for
+// the item, which SetMeta, having no compare-and-swap, relies on.
+func (f *Fetcher) backfill(ctx context.Context, key string, ref catalogartwork.ObjectRef, t catalogv1alpha1.ImageType,
+	src catalogartwork.Source, info events.ObjectInfo,
+) {
+	var w, h int
+	if _, rc, err := f.Store.Get(ctx, key); err == nil {
+		if cfg, _, err := image.DecodeConfig(io.LimitReader(rc, 64<<10)); err == nil {
+			w, h = cfg.Width, cfg.Height
+		}
+		_ = rc.Close()
+	}
+	meta := catalogartwork.ObjectMeta(ref, t, events.ArtworkVariantOriginal, catalogartwork.Facts{
+		ContentType: info.Headers[events.HeaderContentType], Source: string(src.Kind), SourceURL: src.URL,
+		Language: src.Language, Width: w, Height: h,
+	})
+	if err := f.Store.SetMeta(ctx, key, meta); err != nil && !errors.Is(err, events.ErrObjectNotFound) {
+		logging.FromContext(ctx).Warn("artwork: backfill an original's metadata", "key", key, "err", err)
+	}
+}
+```
+
+  The manager links `app/catalog/artwork` and must not link image decoders (§4.5.1): `meta.go` imports no `image` package; the decoding stays in the gateway.
+
+- [ ] **Step 4: Run and pass.** Run: `go build ./... && go vet ./app/catalog/... && go test ./app/catalog/artwork/ ./app/catalog/metadata/artwork/ -count=1 && go list -deps ./app/catalog/artwork | grep -E 'golang.org/x/image|^image/(jpeg|png)$'` / Expected: `ok`; the grep prints nothing.
+
+- [ ] **Step 5: Commit.**
+
+```bash
+git add app/catalog/artwork/meta.go app/catalog/artwork/meta_test.go
+git commit -m "feat(artwork): artwork.ObjectMeta renders an object's complete header and metadata set, and the gateway Puts every original with it and backfills older ones with SetMeta under its item lock (NATS research 2026-10-07; artwork design §B.2-§B.4 as amended)" -- app/catalog/artwork/meta.go app/catalog/artwork/meta_test.go app/catalog/artwork/sources.go app/catalog/artwork/sources_test.go app/catalog/metadata/artwork/fetcher.go app/catalog/metadata/artwork/fetcher_test.go app/catalog/worker/artwork/handler.go
+```
+
+  (`app/catalog/worker/artwork/handler.go` only turns its two moved constants into aliases.)
+
+---
+
+### Task W4.106: The renderer serialises per item, writes and backfills the overlay's metadata, and reads the original under a deadline
+
+**Spec:** artwork design §B.3 and §C.6 as amended 2026-10-07; `nats-object-store.md` §1.3 G3 and G4, §6.3, §6.9, §7, experiments E8, E14.
+**Files:**
+- Create: `app/catalog/artwork/lock.go` (`KeyedLock`, the gateway's `Fetcher.Lock` shape made reusable)
+- Modify: `app/catalog/worker/artwork/handler.go` (`Render` under the lock; `draw` `Put`s the full set and reads the original under a 30 s deadline; step 3 backfills)
+- Test: `app/catalog/artwork/lock_test.go`; `app/catalog/worker/artwork/handler_test.go` (`TestRendererSerialisesOneItem`, `TestEveryOverlayPutCarriesTheFullMetadata`, `TestAnOverlayIsBackfilledWithSetMeta`, `TestATimedOutOriginalReadIsInputsMoved`)
+
+**Interfaces:**
+- Consumes: W4.101 (`SetMeta`), W4.105 (`ObjectMeta`, `Facts`, `OverlayFacts`, `MetaCurrent`, `RefOf`).
+- Produces: `catalogartwork.KeyedLock` with `Lock(ctx, key string) (unlock func(), err error)` (the gateway may move `Fetcher.Lock` onto it later; not required); the renderer's `Handler` holds one, keyed `<kind>/<namespace>/<name>`.
+
+- [ ] **Step 1: Write the failing tests.** `handler_test.go`, on the package's `newFixture`:
+
+```go
+// TestRendererSerialisesOneItem: two render tasks for one item running at
+// once (the gateway's pass and the OverlayProfile controller publish under
+// different Msg-Ids) leave one chunk set: the second finds the overlay
+// current. Unserialised, two concurrent Puts of one name leaked a full copy
+// for good (E8). Real server: the leak is only visible in the chunks.
+func TestRendererSerialisesOneItem(t *testing.T) { /* a natsbus store; two Render calls for one item concurrently; Subjects("OBJ_clustarr-artwork", "$O.clustarr-artwork.C.>") counts the original's set and one overlay set */ }
+
+func TestEveryOverlayPutCarriesTheFullMetadata(t *testing.T) { /* Render; Info(overlay).Metadata has the version, ref, image type poster, variant overlay, width and height of the rendered JPEG, profile, original-digest; Clustarr-Rendered-From the inputs digest */ }
+
+func TestAnOverlayIsBackfilledWithSetMeta(t *testing.T) { /* an overlay stored with headers only and status recording it; Render: OutcomeUnchanged, digest unchanged, MetaCurrent true; a second Render makes no SetMeta */ }
+
+// TestATimedOutOriginalReadIsInputsMoved: an original whose read stalls (a
+// store whose reader blocks past the deadline) is ErrInputsMoved, which
+// retries, not a slot held until the read's own deadline (E14).
+func TestATimedOutOriginalReadIsInputsMoved(t *testing.T) { /* a store wrapping the fixture's whose Get returns a reader that blocks until ctx ends; draw with the deadline shortened by a package var; errors.Is(err, ErrInputsMoved) */ }
+```
+
+  `lock_test.go`: `TestKeyedLockSerialisesOneKeyAndNotTwo` (two holders of one key run one after the other; two keys run together; a cancelled waiter returns ctx's error and leaves no entry).
+
+- [ ] **Step 2: Run them and watch them fail.** Run: `go test ./app/catalog/artwork/ ./app/catalog/worker/artwork/ -run 'TestKeyedLock|TestRendererSerialises|TestEveryOverlayPut|TestAnOverlayIsBackfilled|TestATimedOut'` / Expected: `undefined: artwork.KeyedLock`, then the serialisation and metadata cases fail.
+
+- [ ] **Step 3: Implement.**
+  1. `lock.go`: `KeyedLock` is `Fetcher.Lock`'s code (`app/catalog/metadata/artwork/fetcher.go:143-191`) as a type: a map of reference-counted one-slot channels under a mutex; `Lock` blocks until the key is free or ctx ends.
+  2. `handler.go`: `Handler` gains `locks catalogartwork.KeyedLock`. `Render` starts with `unlock, err := h.locks.Lock(ctx, string(kind)+"/"+key.Namespace+"/"+key.Name); if err != nil { return "", err }; defer unlock()`, so plan, draw, `Put` or `Delete`, and `record` run under it.
+  3. `draw`: the original's read becomes
+
+```go
+	rctx, cancel := context.WithTimeout(ctx, originalReadTimeout) // 30 s
+	defer cancel()
+	info, rc, err := h.Store.Get(rctx, originalKey)
+	// ... the not-found and changed-digest checks as today ...
+	raw, err := io.ReadAll(io.LimitReader(rc, gateway.MaxImageBytes+1))
+	if err != nil {
+		if errors.Is(err, os.ErrDeadlineExceeded) || errors.Is(err, context.DeadlineExceeded) {
+			// An original overwritten mid-read stalls the reader until its
+			// deadline (E14): treat it as the change it is, and retry.
+			return nil, fmt.Errorf("%w: %s was overwritten while it was read", ErrInputsMoved, originalKey)
+		}
+		return nil, fmt.Errorf("artwork: read %s: %w", originalKey, err)
+	}
+```
+
+  (`originalReadTimeout` is a package `var` so the test can shorten it.) The overlay `Put` sends `catalogartwork.ObjectMeta(catalogartwork.RefOf(it.Object, it.Kind), catalogv1alpha1.ImageTypePoster, events.ArtworkVariantOverlay, catalogartwork.Facts{ContentType: ContentTypeJPEG, Source: SourceRender, SourceURL: info.Headers[gateway.HeaderSourceURL], Width: img.Bounds().Dx(), Height: img.Bounds().Dy(), Overlay: &catalogartwork.OverlayFacts{Profile: want.Profile.Name, OriginalDigest: info.Digest, RenderedFrom: want.InputsDigest}})`.
+  4. Step 3 of `Render` (the overlay current): when `!catalogartwork.MetaCurrent(current)`, `SetMeta` the full set, the overlay's dimensions from a 64 KiB `image.DecodeConfig` read of the overlay (as the gateway's backfill does), the original's digest `want.OriginalDigest`, the profile `want.Profile.Name`; a failure is logged and the outcome stays `OutcomeUnchanged` or `OutcomeRecorded`.
+
+- [ ] **Step 4: Run and pass.** Run: `go build ./... && go vet ./app/catalog/... && go test ./app/catalog/artwork/ ./app/catalog/worker/artwork/ -count=1` / Expected: `ok` (the serialisation case runs on the embedded server).
+
+- [ ] **Step 5: Commit.**
+
+```bash
+git add app/catalog/artwork/lock.go app/catalog/artwork/lock_test.go
+git commit -m "fix(artwork): the renderer serialises each item, so two render tasks no longer Put one overlay at once and leak a full copy; it Puts the overlay's complete metadata, backfills older overlays with SetMeta, and treats an original read that stalls as moved inputs (NATS research 2026-10-07, E8, E14; artwork design §B.3, §C.6 as amended)" -- app/catalog/artwork/lock.go app/catalog/artwork/lock_test.go app/catalog/worker/artwork/handler.go app/catalog/worker/artwork/handler_test.go
+```
+
+---
+
+### Task W4.107: The reaper purges orphan chunks and audits status against the bucket, paced by consumer lag
+
+**Spec:** artwork design §B.5 and §B.7 as amended 2026-10-07; split §5.13 as amended; loop spec §4.9 as amended (a re-created bucket); `nats-object-store.md` §1.3 G1 and G3, §6.6, §6.9; CLAUDE.md's single-node discard gotcha.
+**Files:**
+- Modify: `app/catalog/artwork/reaper.go` (new fields; `Start`'s three clocks; `Sweep` purges and audits), Create `app/catalog/artwork/audit.go` (`audit`, the per-kind lists, pacing), `app/catalog/artwork/item.go` (`NewList(kind)`), `app/catalog/artwork/drift.go` (`PublishFetchFor`, a fetch task under a caller's Msg-Id token)
+- Modify: `app/catalog/manager/register.go` (the Reaper's new fields), `pkg/obs/metrics/domain.go` (`ArtworkObjects`, `ArtworkAuditTasksTotal`)
+- Test: `app/catalog/artwork/audit_test.go` (unit, on membus and a fake lag), `app/catalog/artwork/reaper_envtest_test.go` (`TestAuditRequeuesAnItemWhoseOriginalVanished`, `TestAuditRunsWhenTheBucketIsRecreated`)
+
+**Interfaces:**
+- Consumes: W4.102 (`Status`), W4.103 (`ObjectStoreAdmin`), W4.105 (`MetaCurrent`); `artwork.ItemOf`, `PublishRender`, `schema.MsgIDForArtworkFetch`; W4.43's `StreamAdmin.ConsumerState`.
+- Produces:
+
+```go
+type Reaper struct {
+	Store  events.ObjectStore
+	Client client.Reader // APIReader: the liveness lists, unchanged
+	Interval, Grace time.Duration
+	Clock  clockwork.Clock
+
+	// New (artwork design §B.5 as amended 2026-10-07). Each nil disables its duty.
+	Cache     client.Reader          // the manager's cached client: status.artwork and status.overlay
+	Publisher events.Publisher       // the paced repair and backfill tasks
+	Lag       LagReader              // pacing; events.StreamAdmin is one
+	Admin     events.ObjectStoreAdmin // PurgeOrphanChunks
+	Buckets   []string               // purged each sweep; default BucketArtwork and ObjectStoreFingerprints
+	Pace      int                    // publish while a consumer's lag is below it; default 256
+	Check     time.Duration          // the bucket-creation check; default 1 min
+	Backlog   time.Duration          // re-audit while tasks wait; default 10 min
+}
+// LagReader reads one durable's backlog (split §9.0): the audit publishes only
+// while its consumer's lag is below Pace.
+type LagReader interface {
+	ConsumerState(ctx context.Context, stream, durable string) (events.ConsumerState, error)
+}
+// PublishFetchFor publishes an ArtworkFetchTask for obj under
+// schema.MsgIDForArtworkFetch(uid, token), whatever its drift.
+func PublishFetchFor(ctx context.Context, bus events.Publisher, obj client.Object, kind commonv1.MediaKind, token string) error
+func NewList(kind commonv1.MediaKind) (client.ObjectList, error)
+```
+
+- [ ] **Step 1: Write the failing tests.** `audit_test.go`, on membus with the Reaper's `Cache` a fake client holding items already in their steady state (`status.artwork` and `status.overlay` recorded), the store holding their objects:
+
+```go
+func TestAuditPublishesNothingWhenEverythingIsThere(t *testing.T)      // full metadata, matching digests: zero tasks
+func TestAuditRequeuesAMissingOriginal(t *testing.T)                    // delete one original: one ArtworkFetchTask for that item, Msg-Id "<uid>/artwork/audit-missing-<gen>"; a second audit publishes a duplicate (deduped), not a new id
+func TestAuditRequeuesAnOriginalWithAnotherDigest(t *testing.T)         // reason "digest"
+func TestAuditRequeuesAMissingOverlayOnlyWhileStatusHasOne(t *testing.T) // a RenderOverlay task; none when status.overlay is nil
+func TestAuditBackfillsStaleMetadata(t *testing.T)                      // an object without meta-version: its variant's task, reason "meta"
+func TestAuditPacesAgainstConsumerLag(t *testing.T)                     // a fake lag of 250 against Pace 256: six tasks published, the rest left for the backlog tick; lag 0: all
+func TestTheSweepPurgesOrphanChunksInEveryBucket(t *testing.T)         // a recording ObjectStoreAdmin sees both buckets with the reaper's grace
+```
+
+  `reaper_envtest_test.go` (envtest plus an embedded NATS, an item already in its steady state):
+
+```go
+// TestAuditRequeuesAnItemWhoseOriginalVanished: an original lost from the
+// store (a wiped volume, a manual rm, a crash between Put and apply) gets one
+// fetch task within one sweep, where before nothing repaired it until the
+// item's next metadata refresh, 7 to 30 days later; the second sweep publishes
+// nothing new.
+func TestAuditRequeuesAnItemWhoseOriginalVanished(t *testing.T)
+
+// TestAuditRunsWhenTheBucketIsRecreated: deleting and re-creating
+// clustarr-artwork triggers an audit within the creation-check period, under
+// the new bucket's generation, without waiting for the 6 h sweep.
+func TestAuditRunsWhenTheBucketIsRecreated(t *testing.T)
+```
+
+- [ ] **Step 2: Run them and watch them fail.** Run: `go test ./app/catalog/artwork/ -run 'TestAudit|TestTheSweepPurges'` / Expected: `unknown field Cache in struct literal of type artwork.Reaper`.
+
+- [ ] **Step 3: Implement.**
+  1. `Start` runs three clocks: the sweep every `Interval` (6 h); `Status` every `Check` (1 min), and a `Created` different from the last sweep's runs a sweep at once (the new generation); and, while the last audit left tasks unpublished, a sweep every `Backlog` (10 min).
+  2. `Sweep`, after today's delete pass: for each of `Buckets`, `Admin.PurgeOrphanChunks(ctx, bucket, grace)` (its errors join the sweep's); then `audit(ctx, objects, gen)` with the listing it already has and `gen` the bucket's `Created` (`strconv.FormatInt(created.Unix(), 10)`).
+  3. `audit.go`: index the listing by name; for each of the eight kinds, `List` it from `Cache` (`NewList`, then `meta.ExtractList`) and read each item with `ItemOf`; for each `status.artwork` entry, the original's name is `events.ArtworkKey(kind, uid, type, original)`: absent is reason `missing`, another digest is `digest`, `!MetaCurrent` is `meta`; the item gets one `ArtworkFetchTask` (its first reason) through `PublishFetchFor(ctx, pub, obj, kind, "audit-"+reason+"-"+gen)`. For Movie and Series with `status.overlay`, the poster overlay gets the same three checks and `PublishRender(ctx, pub, obj, kind, "audit-"+reason+"-"+gen)`. **Pacing:** before each publish, `Lag.ConsumerState(ctx, events.StreamWorkCatalogarr, events.ConsumerCatalogArtworkFetch)` (or `…ArtworkRender`), read once per 50 publishes; at or above `Pace`, stop and record a backlog. Count `ArtworkAuditTasksTotal{variant,reason}`, and set `ArtworkObjects{variant,meta_version}` from the listing (backfill progress).
+  4. `drift.go`: `PublishFetchFor` is `PublishFetch`'s body without the drift check and with the given token in `MsgIDForArtworkFetch`; `PublishFetch` keeps its behaviour by calling it with the spec hash.
+  5. `item.go`: `NewList(kind)` returns the eight kinds' list types (`ErrNoArtwork` otherwise), beside `NewObject`.
+  6. `app/catalog/manager/register.go`: the `artwork.Reaper` literal gains `Cache: mgr.GetClient()`, `Publisher: bus`, and, by type assertion on `bus`, `Lag` (`events.StreamAdmin`) and `Admin` (`events.ObjectStoreAdmin`); a bus that is neither leaves the duty off. The reaper's comment there names the new duties. No RBAC change: the manager already lists and watches the eight kinds and publishes on `CLUSTARR_WORK_CATALOGARR`; prove it with `make manifests && git diff --exit-code -- config/rbac charts/clustarr/templates/rbac.yaml`.
+  7. `pkg/obs/metrics/domain.go`, the "Object stores" block: `clustarr_artwork_objects{variant,meta_version}` (gauge) and `clustarr_artwork_audit_tasks_total{variant,reason}` (counter; reasons `missing`, `digest`, `meta`).
+
+- [ ] **Step 4: Run and pass.** Run: `go build ./... && go vet ./app/catalog/... ./pkg/obs/... && go test ./app/catalog/artwork/ -count=1 && KUBEBUILDER_ASSETS="$(setup-envtest use 1.37.0 -p path)" go test ./app/catalog/artwork/ -count=1 -run 'TestAudit' -v && make manifests && git diff --exit-code -- config/rbac charts/clustarr/templates/rbac.yaml` / Expected: `ok`; the envtest cases `--- PASS`, not SKIP; no RBAC diff.
+
+- [ ] **Step 5: Commit.**
+
+```bash
+git add app/catalog/artwork/audit.go app/catalog/artwork/audit_test.go
+git commit -m "feat(artwork): the reaper purges orphan chunks in both buckets and audits status against the bucket -- a lost, mismatched or metadata-stale object gets its fetch or render task within a sweep, paced below 256 of consumer lag, and at once when the bucket is re-created (NATS research 2026-10-07; artwork design §B.5 as amended)" -- app/catalog/artwork/reaper.go app/catalog/artwork/audit.go app/catalog/artwork/audit_test.go app/catalog/artwork/item.go app/catalog/artwork/drift.go app/catalog/artwork/reaper_envtest_test.go app/catalog/manager/register.go pkg/obs/metrics/domain.go
+```
+
+---
+
+### Task W4.108: `/art` reads the index first, answers 304 before any read, and serves whole objects from a digest cache
+
+**Spec:** artwork design §B.8 as amended 2026-10-07 (steps 1-3); split §3.6 as amended (`ArtCacheBytes`); `nats-object-store.md` §1.2, §1.3 G2 and G4, §5, §6.5, experiments E14, E14b.
+**Files:**
+- Modify: `ui/server.go` (`Options.ArtCacheBytes`, `DefaultArtCacheBytes`; `NewServer` starts the artwork index when `Artwork` is set), `ui/art.go` (`handleArt` rewritten; `getArt` goes)
+- Create: `ui/artcache.go` (the digest-keyed byte cache), `ui/artindex.go` (the variant choice over `objindex`)
+- Test: `ui/art_test.go` (five cases; `putArt` already moved to `events.ObjectMeta` by W4.101's batch fix), Create `ui/artcache_test.go`
+
+**Interfaces:**
+- Consumes: W4.104's `objindex`; W4.101's `events.ArtworkMaxImageBytes`.
+- Produces: `ui.Options.ArtCacheBytes int64` (0 disables the cache) and `const ui.DefaultArtCacheBytes = 64 << 20`, which W4.110 wires to `--art-cache-bytes`; `Server.artIndex *objindex.Index` (nil without `Artwork`), which W4.109 subscribes to.
+
+**The guard is syntactic.** `TestUINeverWrites` bans every selector call named `Put`, `PutBytes`, `UpdateMeta`, `Seal`, `AddLink`, `Purge`, `Update`, `Apply`, `Publish` and `Serve` anywhere under `ui/`, whatever the receiver (W4.112 adds `SetMeta` and more). Name the cache's methods `get` and `add`, never `Put` or `Update`.
+
+- [ ] **Step 1: Write the failing tests.** `ui/art_test.go`:
+
+```go
+// countingStore counts the reads that cost a NATS round trip.
+type countingStore struct {
+	events.ObjectStore
+	gets, infos atomic.Int32
+}
+
+func (c *countingStore) Get(ctx context.Context, n string) (events.ObjectInfo, io.ReadCloser, error) {
+	c.gets.Add(1)
+	return c.ObjectStore.Get(ctx, n)
+}
+
+func (c *countingStore) Info(ctx context.Context, n string) (events.ObjectInfo, error) {
+	c.infos.Add(1)
+	return c.ObjectStore.Info(ctx, n)
+}
+
+// TestArt304MakesNoStoreCalls: with the index synced, a matching
+// If-None-Match answers 304 from the index alone. /art used to Get the whole
+// object -- a direct get plus an ordered consumer created and deleted -- before
+// it checked the header.
+func TestArt304MakesNoStoreCalls(t *testing.T) {
+	store := &countingStore{ObjectStore: newArtStore(t)}
+	info := putArt(t, store.ObjectStore, events.ArtworkKey(commonv1.MediaKindMovie, "u1", "poster", events.ArtworkVariantOriginal), "image/png", "png")
+	s := newArtServer(t, store) // NewServer with Options.Artwork; waits for the index to sync
+	req := httptest.NewRequest(http.MethodGet, "/art/movie/u1/poster", nil)
+	req.Header.Set("If-None-Match", `"`+info.Digest+`"`)
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusNotModified, rec.Code)
+	assert.Zero(t, store.gets.Load()+store.infos.Load(), "a 304 must cost no store call")
+}
+
+// TestArtSkipsOverlayForKindsWithoutOverlays: only movie and series posters
+// can have an overlay; with no index, an artist poster asks for the original
+// alone.
+func TestArtSkipsOverlayForKindsWithoutOverlays(t *testing.T) { /* Options.Artwork set but the index not yet synced (a store whose Watch blocks); GET /art/artist/u2/poster; the store saw Info only for ".../original" */ }
+
+// TestArtMissWithUnsyncedIndexAsksTheStore: an unsynced index never makes a
+// miss authoritative.
+func TestArtMissWithUnsyncedIndexAsksTheStore(t *testing.T) { /* an object the index has not seen: 200 with its bytes */ }
+
+// TestArtServesFromTheDigestCache: the second request for one digest makes
+// no Get; an object larger than a quarter of the cache is served but not kept.
+func TestArtServesFromTheDigestCache(t *testing.T) { /* two GETs; gets == 1 */ }
+
+// TestArtRetriesAnObjectOverwrittenMidRead is E14: an object overwritten while
+// /art reads it stalls the reader until its deadline, then fails with
+// "i/o timeout", never a digest error. /art reads whole objects under a
+// deadline and retries once with a fresh lookup, so the client gets a 200 with
+// the new bytes, never a truncated 200. Real server.
+func TestArtRetriesAnObjectOverwrittenMidRead(t *testing.T) {
+	/* natsbus on connect(t)-style embedded server (copy the helper); Put 8 MiB under a
+	   movie poster key; a store wrapper whose first Get returns a reader that, after
+	   128 KiB, Puts new 1 KiB bytes under the same name before reading on; shorten
+	   the read deadline through the package var to 2 s; GET /art/...: 200, body equals
+	   the new bytes, ETag is their digest. */
+}
+```
+
+  `ui/artcache_test.go`: `TestArtCacheEvictsByBytes` (adds beyond the budget evict the least recently used; a `get` refreshes recency; an entry over a quarter of the budget is refused; a 0 budget keeps nothing).
+
+- [ ] **Step 2: Run them and watch them fail.** Run: `go test ./ui/ -run 'TestArt'` / Expected: `undefined: newArtCache`; then the 304 case fails (`a 304 must cost no store call`) and the cache case fails (a Get per request).
+
+- [ ] **Step 3: Implement.**
+  1. `ui/server.go`: `Options` gains
+
+```go
+	// ArtCacheBytes bounds the digest-keyed byte cache /art serves from
+	// (artwork design §B.8 as amended 2026-10-07); 0 disables it. cmd/ui's
+	// --art-cache-bytes sets it, DefaultArtCacheBytes by default.
+	ArtCacheBytes int64
+```
+
+  and `const DefaultArtCacheBytes = 64 << 20`. `NewServer`, when `opts.Artwork != nil`, builds `s.artIndex = objindex.New(opts.Artwork)` and starts `go s.artIndex.Run(ctx)` (ctx is `NewServer`'s, which `Run` cancels on shutdown), and `s.artCache = newArtCache(opts.ArtCacheBytes)`.
+  2. `ui/artindex.go`:
+
+```go
+// overlaid reports whether kind/t can have an overlay: movie and series
+// posters only (artwork design §B.3).
+func overlaid(kind commonv1.MediaKind, t catalogv1.ImageType) bool
+
+// chooseArt picks the variant /art serves: from the synced index, the
+// overlay entry if present, else the original, else not found with no NATS
+// call; unsynced, or with no entry, Info -- the overlay first only where one
+// can exist. The index never makes a miss authoritative on its own.
+func (s *Server) chooseArt(ctx context.Context, kind commonv1.MediaKind, uid types.UID, t catalogv1.ImageType) (name string, e objindex.Entry, err error)
+```
+
+  3. `ui/artcache.go`: a byte-bounded LRU over `container/list`, keyed by digest (`get(digest) ([]byte, bool)`, `add(digest string, b []byte)`), under a mutex; an entry larger than a quarter of the budget is not kept. A digest names its bytes, so nothing is ever invalidated.
+  4. `ui/art.go`'s `handleArt` after validation:
+
+```go
+	name, e, err := s.chooseArt(ctx, kind, uid, imgType)
+	// ErrObjectNotFound: 404; another error: 500, as today
+	etag := `"` + e.Digest + `"`
+	if inm := r.Header.Get("If-None-Match"); inm == etag {
+		setArtCaching(w, r, e.Digest, etag)
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	body, e, err := s.artBytes(ctx, kind, uid, imgType, name, e)
+	// errors as above
+	setArtCaching(w, r, e.Digest, `"`+e.Digest+`"`)
+	if e.ContentType != "" {
+		w.Header().Set("Content-Type", e.ContentType)
+	}
+	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(body)
+```
+
+  `artBytes` serves from the cache by digest; on a miss it `Get`s under `artReadTimeout` (a package `var`, 10 s), reads `io.LimitReader(r, events.ArtworkMaxImageBytes+1)` whole, refuses an over-long object, and checks that the info's digest is the chosen one and that the SHA-256 of the bytes is it. On an `os.ErrDeadlineExceeded` or `context.DeadlineExceeded`, a digest mismatch, or a changed digest, it re-resolves once (`chooseArt`) and retries; then it adds the bytes to the cache and returns them with the entry it served, so the ETag names the bytes actually sent. A 200 never begins before the bytes are in hand. `setArtCaching` keeps today's rule: `immutable` when `?v=` equals the digest, `no-cache` otherwise.
+
+- [ ] **Step 4: Run and pass.** Run: `go build ./... && go vet ./ui/... && go test ./ui/ -count=1 -run 'TestArt|TestUINeverWrites'` / Expected: `ok`; `TestUINeverWrites` still passes (the cache's methods are `get` and `add`).
+
+- [ ] **Step 5: Commit.**
+
+```bash
+git add ui/artcache.go ui/artcache_test.go ui/artindex.go
+git commit -m "feat(ui): /art chooses the variant from a read-only index of the artwork bucket, answers 304 before any read, and serves whole, verified objects from a digest cache, retrying once instead of truncating a 200 when an object is overwritten mid-read (NATS research 2026-10-07, E14; artwork design §B.8 as amended)" -- ui/server.go ui/art.go ui/artcache.go ui/artcache_test.go ui/artindex.go ui/art_test.go
+```
+
+---
+
+### Task W4.109: The SSE `art` event pushes a changed cover to open pages
+
+**Spec:** artwork design §B.8 as amended 2026-10-07 (step 4); owner decision (b); `nats-object-store.md` §6.4, §6.5.
+**Files:**
+- Create: `ui/artevents.go` (the served-digest map and its broadcaster), `ui/static/art.js`
+- Modify: `ui/sse.go` (`handleLibraryEvents` emits `art` for its page's items; `handleArtEvents`), `ui/routes.go` (`GET /events/art`), `ui/projection/library.go` (`LibraryItem.ArtKey` beside `Poster`), the templates that render an `/art` URL (`grep -rn 'Poster\|imageOf\|ArtURL' ui/views/*.templ ui/components --include='*.templ'` lists them: `img` gains `data-art`), the item page's template (a hidden `sse-connect="/events/art?key=…"` element), the layout that loads scripts (`art.js`)
+- Test: `ui/artevents_test.go`, `ui/sse_test.go` (`TestLibraryStreamCarriesArtEventsForItsPage`, `TestArtEventsStreamOnlyTheAskedKeys`)
+
+**Interfaces:**
+- Consumes: W4.108's `Server.artIndex`; W4.104's `Index.Subscribe`.
+- Produces: SSE `event: art` with `data: {"key":"<kind>/<uid>/<type>","v":"<digest>"}` on `GET /events/library/{tab}` (items on the subscriber's page) and on `GET /events/art?key=<kind>/<uid>/<type>` (up to 16 keys, each validated as `/art` validates its path); `projection.LibraryItem.ArtKey`.
+
+- [ ] **Step 1: Write the failing tests.** `artevents_test.go`:
+
+```go
+// TestArtEventOnlyForServedDigestChanges: the event follows the digest /art
+// serves -- the overlay if present, else the original. An original re-Put
+// under an existing overlay serves nothing new and emits nothing; the
+// renderer's overlay Put then emits once.
+func TestArtEventOnlyForServedDigestChanges(t *testing.T) {
+	/* membus store; an original and an overlay for movie/u1/poster; a Server with the
+	   index synced; subscribe to the art broadcaster; re-Put the original: no event
+	   within 500 ms; re-Put the overlay: one event {movie/u1/poster, newDigest}; delete
+	   the overlay: one event naming the original's digest. */
+}
+```
+
+  `sse_test.go`: `TestLibraryStreamCarriesArtEventsForItsPage` (a library page holding movie `u1` but not `u2`: a change to `u1`'s poster arrives as `event: art`, one to `u2` does not) and `TestArtEventsStreamOnlyTheAskedKeys` (`/events/art?key=movie/u1/poster`: only that key's events; a malformed key is 400; more than 16 keys is 400).
+
+- [ ] **Step 2: Run them and watch them fail.** Run: `go test ./ui/ -run 'TestArtEvent|TestLibraryStreamCarriesArtEvents'` / Expected: `undefined` symbols.
+
+- [ ] **Step 3: Implement.**
+  1. `artevents.go`: a goroutine started with the index subscribes to its changes; for a change to `<kind>/<uid>/<type>/<variant>` it recomputes that image's served digest (overlay entry if present, else original, else none) and, if it differs from the last it emitted for that key, hands `artEvent{Key, V}` to every subscriber (`subscribe() (<-chan artEvent, func())`, buffered, non-blocking, a full subscriber losing events the next projection tick repairs). Name the fan-out `broadcast`, never `Publish` (`TestUINeverWrites`).
+  2. `sse.go`: `handleLibraryEvents` selects on the art subscription too and writes `event: art` for keys whose `<kind>/<uid>` is on the page it last rendered for this subscriber; `handleArtEvents` parses up to 16 `key` values, validates each as `/art` does (`validArtKinds`, `validArtTypes`, a non-empty uid), and streams only their events. Both write `data:` as one JSON line.
+  3. `ui/static/art.js`:
+
+```js
+// The SSE `art` event (artwork design §B.8 as amended 2026-10-07): swap every
+// image of the changed key to the new digest's URL. htmx's SSE extension
+// dispatches htmx:sseMessage for every message on an sse-connect element.
+document.addEventListener("htmx:sseMessage", (e) => {
+  if (e.detail.type !== "art") return;
+  let msg;
+  try { msg = JSON.parse(e.detail.data); } catch { return; }
+  document.querySelectorAll(`img[data-art="${CSS.escape(msg.key)}"]`).forEach((img) => {
+    img.src = `/art/${msg.key}?v=${encodeURIComponent(msg.v)}`;
+  });
+});
+```
+
+  4. `projection.LibraryItem` gains `ArtKey` (`<kind>/<uid>/poster`), set where `Poster` is; each `img` that renders an `/art` URL gains `data-art={ key }`; the item page gains `<div hidden hx-ext="sse" sse-connect={ "/events/art?key=" + … }></div>` for the images it shows; the layout loads `/static/art.js`. Run `make templ` after editing `.templ` files and commit the regenerated `*_templ.go`.
+
+- [ ] **Step 4: Run and pass.** Run: `make templ && go build ./... && go vet ./ui/... && go test ./ui/... -count=1` / Expected: `ok`; `git status --short -- ui` shows only this task's files.
+
+- [ ] **Step 5: Commit.**
+
+```bash
+git add ui/artevents.go ui/artevents_test.go ui/static/art.js
+git commit -m "feat(ui): an SSE art event, fed by the ui's read-only watch of the artwork bucket, swaps a changed cover on open library and item pages within a second, and only when the digest /art serves changes (owner decision 2026-10-07; artwork design §B.8 as amended)" -- ui/artevents.go ui/artevents_test.go ui/static/art.js ui/sse.go ui/sse_test.go ui/routes.go ui/projection/library.go <each .templ and *_templ.go file changed>
+```
+
+---
+
+### Task W4.110: `cmd/ui`'s `--art-cache-bytes`
+
+**Spec:** split §3.6 as amended 2026-10-07; artwork design §B.8 as amended.
+**Order:** after W4.108 and **W5.11**, which creates `internal/cli/ui` (package `uicli`) and `cmd/ui`.
+**Files:**
+- Modify: the `internal/cli/ui` file holding the ui command's flags (W5.11 moved `services.go:634-661` there; `grep -n 'pipeline-history' internal/cli/ui/*.go` finds it)
+- Test: `cmd/ui/wiring_test.go` (`TestUIWiresTheArtCacheFlag`)
+
+**Interfaces:**
+- Consumes: W4.108's `ui.Options.ArtCacheBytes`, `ui.DefaultArtCacheBytes`; W5.11's `uicli.NewCommandWith`.
+- Produces: `--art-cache-bytes` (int64, default `ui.DefaultArtCacheBytes`, no env), setting `ui.Options.ArtCacheBytes`.
+
+- [ ] **Step 1: Write the failing test.** `cmd/ui/wiring_test.go`:
+
+```go
+func TestUIWiresTheArtCacheFlag(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want int64
+	}{
+		{nil, ui.DefaultArtCacheBytes},
+		{[]string{"--art-cache-bytes=1048576"}, 1 << 20},
+		{[]string{"--art-cache-bytes=0"}, 0},
+	} {
+		var got ui.Options
+		cmd := uicli.NewCommandWith(func(_ context.Context, o ui.Options) error { got = o; return nil })
+		cmd.SetArgs(append([]string{"--auth-mode=none"}, tc.args...)) // whatever W5.11's tests pass to satisfy --auth-mode
+		require.NoError(t, cmd.Execute())
+		assert.Equal(t, tc.want, got.ArtCacheBytes, tc.args)
+	}
+}
+```
+
+- [ ] **Step 2: Run it and watch it fail.** Run: `go test ./cmd/ui/ -run TestUIWiresTheArtCacheFlag` / Expected: `unknown flag: --art-cache-bytes`.
+
+- [ ] **Step 3: Implement.** Beside `--pipeline-history`: `root.Flags().Int64Var(&o.ArtCacheBytes, "art-cache-bytes", ui.DefaultArtCacheBytes, "bytes of artwork the ui keeps in memory, by digest; 0 disables the cache")`. No installer change: the default is the chart's intent (the 256 MiB ui limit holds it, split §3.6 as amended).
+
+- [ ] **Step 4: Run and pass.** Run: `go build ./... && go vet ./cmd/ui/ ./internal/cli/ui/ && go test ./cmd/ui/ ./internal/cli/ui/ -run 'TestUIWires|TestUIWiresEveryUIOption'` / Expected: `ok`.
+
+- [ ] **Step 5: Commit.** `git commit -m "feat(ui): --art-cache-bytes sizes the artwork byte cache, 64 MiB by default (split spec §3.6 as amended 2026-10-07)" -- <the internal/cli/ui file> cmd/ui/wiring_test.go`
+
+---
+
+### Task W4.111: The fingerprint key has one builder and a version, which keeps the legacy name at 1
+
+**Spec:** split §7.2.7 as amended 2026-10-07; artwork design §B.2 as amended (the fingerprints bucket's key scheme); `nats-object-store.md` §1.3 G6, §6.8 (its `.fp<N>.` scheme is not adopted: §7.2.7 already versions the key, W7.5 builds it).
+**Files:**
+- Modify: `pkg/segments/segments.go` (`FingerprintVersion`, `FingerprintKey`, `fingerprintKeyAt`), `app/segments/worker/cache.go` (`window` names its object with `segments.FingerprintKey`)
+- Test: Create `pkg/segments/fingerprintkey_internal_test.go`
+
+**Interfaces:**
+- Consumes: W4.101's `events.FingerprintKeyScheme` (the bucket metadata already says `[.v<FingerprintVersion>]`).
+- Produces: `const segments.FingerprintVersion int32 = 1`; `func segments.FingerprintKey(probeHash, which string) string`, which is `<probeHash>.<which>` at version 1 and `<probeHash>.<which>.v<N>` from 2 on, and panics on an empty part or one holding `/` or `.`. **W7.5 then only raises the constant to 2** (its **Wave 4f note**).
+
+- [ ] **Step 1: Write the failing test.**
+
+```go
+package segments
+
+// The legacy name is version 1: CLI-decoded fingerprints keep their objects
+// until W7.5 raises the version with the ffgo decoder (split §7.2.7 as
+// amended 2026-10-07).
+func TestFingerprintKeyKeepsTheLegacyNameAtVersionOne(t *testing.T) {
+	assert.Equal(t, "h1.start", fingerprintKeyAt(1, "h1", "start"))
+	assert.Equal(t, "h1.end.v2", fingerprintKeyAt(2, "h1", "end"))
+	assert.Equal(t, fingerprintKeyAt(FingerprintVersion, "h1", "start"), FingerprintKey("h1", "start"))
+	for _, bad := range [][2]string{{"", "start"}, {"h1", ""}, {"a/b", "start"}, {"h1", "st.art"}} {
+		assert.Panics(t, func() { FingerprintKey(bad[0], bad[1]) }, "%q", bad)
+	}
+}
+```
+
+- [ ] **Step 2: Run it and watch it fail.** Run: `go test ./pkg/segments/ -run TestFingerprintKey` / Expected: `undefined: fingerprintKeyAt`.
+
+- [ ] **Step 3: Implement.** `pkg/segments/segments.go`, beside `AnalyzerVersion`:
+
+```go
+// FingerprintVersion versions the clustarr-fingerprints cache keys (split
+// §7.2.7 as amended 2026-10-07). Raise it whenever a cached fingerprint would
+// differ: decode output, the window lengths (startWindow, endWindow) or the
+// Chromaprint configuration. A detection-only change raises AnalyzerVersion
+// alone and keeps the cache. Version 1 is the CLI decoder's, under its legacy
+// unversioned names; W7.5 raises it to 2 with the ffgo decoder.
+const FingerprintVersion int32 = 1
+
+// FingerprintKey is a window's object name in the fingerprint cache: the only
+// builder of one (the bucket's key scheme is events.FingerprintKeyScheme).
+func FingerprintKey(probeHash, which string) string {
+	return fingerprintKeyAt(FingerprintVersion, probeHash, which)
+}
+
+func fingerprintKeyAt(v int32, probeHash, which string) string {
+	for _, p := range []string{probeHash, which} {
+		if p == "" || strings.ContainsAny(p, "/.") {
+			panic(fmt.Sprintf("segments: fingerprint key part %q is empty or holds '/' or '.'", p))
+		}
+	}
+	if v <= 1 {
+		return probeHash + "." + which
+	}
+	return probeHash + "." + which + ".v" + strconv.Itoa(int(v))
+}
+```
+
+  `app/segments/worker/cache.go`'s `window`: `name := segments.FingerprintKey(f.ProbeHash, which)`. Names are unchanged at version 1, so nothing is recomputed.
+
+- [ ] **Step 4: Run and pass.** Run: `go build ./... && go vet ./pkg/segments/ ./app/segments/... && go test ./pkg/segments/ ./app/segments/worker/ -count=1` / Expected: `ok`.
+
+- [ ] **Step 5: Commit.**
+
+```bash
+git add pkg/segments/fingerprintkey_internal_test.go
+git commit -m "feat(segments): one builder for the fingerprint cache key with a version that keeps the legacy name at 1, raised for window or Chromaprint changes as well as decode output (NATS research 2026-10-07, G6; split §7.2.7 as amended)" -- pkg/segments/segments.go pkg/segments/fingerprintkey_internal_test.go app/segments/worker/cache.go
+```
+
+---
+
+### Task W4.112: Guards: no object links, only the bus touches object stores, the artwork writers are the two owners, and the ui's extended list
+
+**Spec:** split §4.5.2, §5.15 and §10.3.2 as amended 2026-10-07; owner decision (a); `nats-object-store.md` §1.3 G7, §6.10.
+**Order:** after W4.101-W4.109, **W5.15** (it creates `test/guards` and its AST helpers) and **W5.17** (it rewords a message in `ui/guard_test.go`).
+**Files:**
+- Create: `test/guards/objectstore_test.go`
+- Modify: `ui/guard_test.go` (`neverWriteSelectors` gains nine names; a nats.go import ban)
+
+**Interfaces:**
+- Consumes: W5.15's `test/guards` package (its module walker; if it has none this guard can use, copy `ui/guard_test.go`'s `parseNonTestGoFiles` and `selectorCalls`, widened to the module root).
+- Produces: `TestNoObjectLinks`, `TestOnlyNatsbusTouchesJetStreamObjectStores`, `TestArtworkWritersAreTheTwoVariantOwners`; `TestUINeverWrites` extended.
+
+- [ ] **Step 1: Write the failing tests.** These are guards: they pass on a correct tree. Falsify each by adding the forbidden call to a scratch non-test file, watching the guard name it, and deleting the file.
+
+```go
+package guards
+
+// TestNoObjectLinks: nothing creates an object-store link (owner decision of
+// 2026-10-07). A link fires no watch event when its target changes, carries no
+// size, digest or headers, dangles silently when the target goes, and nats.go
+// refuses one over any name a regular object ever held; the deterministic name
+// is the lookup key (artwork design §B.2 as amended).
+func TestNoObjectLinks(t *testing.T) {
+	for _, f := range moduleNonTestFiles(t) {
+		for _, c := range selectorCalls(f) {
+			if c.name == "AddLink" || c.name == "AddBucketLink" {
+				t.Errorf("%s:%d: calls .%s(...); clustarr creates no object links", f.path, c.line, c.name)
+			}
+		}
+	}
+}
+
+// TestOnlyNatsbusTouchesJetStreamObjectStores: a file outside the bus that
+// imports nats.go/jetstream names no object-store type or call, so the raw
+// write half (UpdateMeta, AddLink, PutString, Seal...) stays behind
+// events.ObjectStore. app/catalog/history/dlqstore.go imports jetstream for
+// the DLQ stream reader and names no object store.
+func TestOnlyNatsbusTouchesJetStreamObjectStores(t *testing.T) {
+	allowed := func(p string) bool {
+		return strings.HasPrefix(p, "pkg/events/natsbus/") || p == "pkg/events/topology_nats.go"
+	}
+	for _, f := range moduleNonTestFiles(t) {
+		if allowed(f.path) || !importsPath(f, "github.com/nats-io/nats.go/jetstream") {
+			continue
+		}
+		for _, sel := range selectorNames(f) { // every X.Y, calls and types alike
+			if strings.Contains(sel.name, "ObjectStore") || strings.Contains(sel.name, "ObjectMeta") {
+				t.Errorf("%s:%d: names %s; only pkg/events/natsbus touches jetstream object stores", f.path, sel.line, sel.name)
+			}
+		}
+	}
+}
+
+// TestArtworkWritersAreTheTwoVariantOwners: the metadata gateway writes
+// originals and the renderer overlays (artwork design §B.3 as amended); the
+// reaper alone deletes both. Syntactic, like TestUINeverWrites: it finds the
+// packages that bind the artwork bucket, and every object-store write.
+func TestArtworkWritersAreTheTwoVariantOwners(t *testing.T) {
+	binders := map[string]bool{"pkg/events": true, "app/catalog/manager": true, "app/catalog/agent/catalog": true,
+		"app/catalog/agent/metadata": true, "internal/cli/ui": true}
+	writers := map[string]bool{"app/catalog/metadata/artwork": true, "app/catalog/worker/artwork": true,
+		"app/segments/worker": true, "pkg/events/natsbus": true, "pkg/events/membus": true}
+	deleters := map[string]bool{"app/catalog/metadata/artwork": true, "app/catalog/worker/artwork": true, "app/catalog/artwork": true}
+	for _, f := range moduleNonTestFiles(t) {
+		pkg := path.Dir(f.path)
+		if namesSelector(f, "events", "BucketArtwork") && !binders[pkg] {
+			t.Errorf("%s binds the artwork bucket; only the registration packages do", f.path)
+		}
+		for _, c := range selectorCalls(f) {
+			if (c.name == "SetMeta" || (c.name == "Put" && c.args == 4)) && !writers[pkg] {
+				t.Errorf("%s:%d: an object-store write (.%s) outside the two artwork writers and the buses", f.path, c.line, c.name)
+			}
+			if c.name == "Delete" && (namesSelector(f, "events", "ArtworkVariantOriginal") || namesSelector(f, "events", "ArtworkVariantOverlay")) && !deleters[pkg] {
+				t.Errorf("%s:%d: deletes artwork; only the two writers and the reaper do", f.path, c.line)
+			}
+		}
+	}
+}
+```
+
+  (`moduleNonTestFiles`, `selectorCalls` (with an argument count), `selectorNames`, `importsPath` and `namesSelector` are the helpers named above.) `ui/guard_test.go`: add to `neverWriteSelectors` `"PutString"`, `"PutFile"`, `"AddBucketLink"`, `"SetMeta"`, `"CreateObjectStore"`, `"UpdateObjectStore"`, `"CreateOrUpdateObjectStore"`, `"DeleteObjectStore"` and `"PurgeOrphanChunks"`, with the comment naming the artwork design §B.8 as amended (the ui now holds a watch, and no installer configures NATS authorization, so the guard is the read-only status); and a subtest:
+
+```go
+	t.Run("no direct nats.go or jetstream import under ui/", func(t *testing.T) {
+		for _, f := range files {
+			for _, imp := range f.file.Imports {
+				p := strings.Trim(imp.Path.Value, `"`)
+				if p == "github.com/nats-io/nats.go" || strings.HasPrefix(p, "github.com/nats-io/nats.go/") {
+					t.Errorf("%s imports %s; ui/ reaches NATS only through pkg/events and the bus internal/cli/ui hands it", f.path, p)
+				}
+			}
+		}
+	})
+```
+
+  (Use whatever field the file's parsed `*ast.File` sits in; `parseNonTestGoFiles` returns it.)
+
+- [ ] **Step 2: Run them and watch them fail.** Run: `go test ./test/guards/ -run 'TestNoObjectLinks|TestOnlyNatsbusTouches|TestArtworkWriters' && go test ./ui/ -run TestUINeverWrites` / Expected: `undefined` helpers until written; then pass; then the falsification above fails each by name.
+
+- [ ] **Step 3: Implement.** The test code above is the implementation; no production code changes. If `TestArtworkWritersAreTheTwoVariantOwners` names a real site, fix the site (or, for a binder Wave 5 placed elsewhere, add it to `binders` with a comment), never the rule.
+
+- [ ] **Step 4: Run and pass.** Run: `go vet ./test/guards/ ./ui/ && go test ./test/guards/ -run 'TestNoObjectLinks|TestOnlyNatsbusTouches|TestArtworkWriters' && go test ./ui/ -run TestUINeverWrites` / Expected: `ok`.
+
+- [ ] **Step 5: Commit.**
+
+```bash
+git add test/guards/objectstore_test.go
+git commit -m "test(guards): no object links anywhere, only natsbus touches jetstream object stores, the artwork writers are the two variant owners, and the ui bans the object store's remaining write calls and any direct nats.go import (NATS research 2026-10-07; owner decision (a))" -- test/guards/objectstore_test.go ui/guard_test.go
+```
+
+---
+
+### Task W4.113: Wave 4f gate
+
+**Spec:** split §11.1 step 7b as amended 2026-10-07.
+**Files:** none.
+**Interfaces:** Consumes W4.90-W4.112; produces the green baseline F0.1 checks. Under the owner's test mode the full suite is the final test batch's; this gate runs what the mode keeps.
+
+- [ ] **Step 1: The gate is the existing suite.** Nothing to write.
+- [ ] **Step 2: Run the gate.**
+
+```bash
+cd /home/appkins/src/mediactl/clustarr-unify
+make generate manifests && git diff --exit-code -- config charts/clustarr/templates/rbac.yaml
+go build ./... && go vet ./...   # the only failures allowed are the test files the ledger lists as non-compiling
+! grep -n 'parked\|startParkedLocked' pkg/events/natsbus/*.go
+grep -q 'HeaderID' pkg/events/envelope.go && grep -q 'transportHeader' pkg/events/envelope.go
+for s in StreamStater WedgeReporter ErrConsumerUnavailable ObjectMeta ObjectStoreAdmin WatchUpdatesOnly ErrWatchOptionUnsupported ArtworkMetaVersion; do go doc ./pkg/events "$s" >/dev/null || echo "MISSING events.$s"; done
+go doc ./pkg/events/objindex Index >/dev/null || echo "MISSING objindex.Index"
+go doc ./app/catalog/artwork ObjectMeta >/dev/null || echo "MISSING artwork.ObjectMeta"
+go doc ./pkg/segments FingerprintKey >/dev/null || echo "MISSING segments.FingerprintKey"
+! grep -rn --include='*.go' -E '\.(AddLink|AddBucketLink)\(' . | grep -v _test.go
+CGO_ENABLED=0 go list -deps ./app/catalog/artwork | grep -E 'golang.org/x/image|^image/(jpeg|png)$' && echo "the manager would link a decoder" || true
+```
+
+  Expected: no generated change; build and vet green outside the recorded test files; no `MISSING` line; no link call; no decoder in `app/catalog/artwork`. When the test batch runs, it adds `make test && make lint` here (envtest, real NATS and the 3-node case included; check no new SKIP).
+- [ ] **Step 3: Implement.** Nothing.
+- [ ] **Step 4: Run and pass.** As Step 2.
+- [ ] **Step 5: Commit.** Nothing. Record the gate in the ledger with the skipped tests of W4.90-W4.112.
+
+---
+
+### Task W4.114: S3 (could-defer): work durables drop the broker `BackOff`
+
+**Could-defer.** It changes consumer config on durables that are live; it runs after the gate, and the owner may defer it past release N. If it runs, it re-runs W4.113's Step 2.
+**Spec:** split §9.6 as amended 2026-10-07 (S3), §3.5.6 as amended; `nats-worker-pools.md` §3.2, D7, §7 S3, experiments E4, E6.
+**Files:**
+- Modify: `pkg/events/topology.go` (`ConsumerSpec.Retry`; every work consumer moves its `BackOff` into `Retry`, keeps its `AckWait`, except `segmentarr-analyze`: `AckWait: 1 * m`; `ConsumerConfig` renders no `BackOff`; `Subscription()` copies `Retry`), `pkg/events/bus.go` (`Subscription.Retry`), `pkg/events/errors.go` (`Settle` reads `Retry`, else `Backoff`), `pkg/events/topology.go`'s `Validate` (`MaxDeliver > len(Retry)`; a work consumer with `BackOff` is refused, the advisories watchers aside)
+- Modify: `pkg/events/natsbus/message.go` (`nakDelay` keeps its rule for a bound durable that still has a `BackOff`: an older topology during a rollout)
+- Test: `pkg/events/retry_test.go` (`TestWorkConsumersCarryNoBrokerBackOff`, `TestSettleSpacesRetriesFromRetry`), the contract case `ANakWaitsWhatItAsks` (a delayed nak waits its delay, not `BackOff[n-1] - BackOff[0]` more: E6)
+
+**Interfaces:**
+- Consumes: W4.93 (timing from the bound durable, so an agent on the old topology still naks right), W4.97 (`HandlerTimeout` on `segmentarr-analyze`).
+- Produces: `ConsumerSpec.Retry`, `Subscription.Retry`; no consumer of `events.Default()` renders a `BackOff`.
+
+- [ ] **Step 1: Write the failing tests.**
+
+```go
+func TestWorkConsumersCarryNoBrokerBackOff(t *testing.T) {
+	for _, c := range events.Default().Consumers {
+		if c.Stream == events.StreamAdvisories {
+			continue
+		}
+		assert.Empty(t, events.ConsumerConfig(c).BackOff, "%s: BackOff replaces AckWait and inflates every delayed nak (E4, E6)", c.Name)
+		assert.NotZero(t, c.HandlerBudget(), c.Name)
+	}
+	seg, _ := events.Default().Consumer(events.ConsumerSegmentarrAnalyze)
+	assert.Equal(t, time.Minute, seg.AckWait)
+	assert.Equal(t, 30*time.Minute, seg.HandlerBudget(), "drain and grace still size from 30 min")
+}
+
+func TestSettleSpacesRetriesFromRetry(t *testing.T) {
+	sub := events.Subscription{MaxDeliver: 4, Retry: []time.Duration{time.Minute, 10 * time.Minute}}
+	assert.Equal(t, time.Minute, events.Settle(errors.New("x"), 1, sub).Delay)
+	assert.Equal(t, 10*time.Minute, events.Settle(errors.New("x"), 3, sub).Delay)
+}
+```
+
+  `ANakWaitsWhatItAsks`: a durable bound with no `BackOff`, `AckWait` 5 s; a handler that fails with `events.Retry(time.Second, …)` at attempt 2; attempt 3 arrives between 1 s and 2 s after attempt 2's nak (with `BackOff [1s 3s]` it took 3 s, E6).
+
+- [ ] **Step 2: Run them and watch them fail.** Run: `go test ./pkg/events/ -run 'TestWorkConsumersCarryNoBrokerBackOff|TestSettleSpacesRetries'` / Expected: `unknown field Retry`; then every work consumer listed with its `BackOff`.
+
+- [ ] **Step 3: Implement.** Move each work consumer's `BackOff` list into `Retry` unchanged, keep `AckWait`, and give `segmentarr-analyze` `AckWait: 1 * m` (its 30 min budget is `HandlerTimeout`, W4.97). `ConsumerConfig` stops rendering `BackOff` for them; `Subscription()` copies `Retry` into `Subscription.Retry` and leaves `Backoff` empty; `Settle` uses `Backoff(cmp.Or(s.Retry, s.Backoff), attempt)` for the default delay (write `cmp.Or` on slices out by hand). `AckDeadline` then returns `AckWait` for every work consumer. `KeepTopology` updates the live durables in place on the next ensure (both fields update in place; no recreation): an agent still bound to the old config reads the durable's `BackOff` through W4.93 and keeps compensating its naks until it restarts. Update the topology's comments that describe a `BackOff` deadline (rss-matcher's 1 s, history's 5 s, the `catalogarr-markers` stall).
+
+- [ ] **Step 4: Run and pass.** Run: `go build ./... && go vet ./pkg/events/... && go test ./pkg/events/... -count=1` / Expected: `ok`; then W4.113's Step 2.
+
+- [ ] **Step 5: Commit.** `git add pkg/events/retry_test.go && git commit -m "feat(events): work durables drop the broker BackOff -- retries are spaced by the consumer's Retry schedule through NakWithDelay, AckWait is the one broker deadline, segmentarr-analyze's is 1 min under its 30 min budget (NATS research 2026-10-07, S3, D7, E4, E6)" -- pkg/events/topology.go pkg/events/bus.go pkg/events/errors.go pkg/events/natsbus/message.go pkg/events/retry_test.go pkg/events/contracttest/contracttest.go`
+
+---
+
+### Task W4.115: S4 (could-defer): retries of 5 minutes or more become scheduled republishes
+
+**Could-defer**, after W4.114, under the same rule.
+**Spec:** split §9.6 as amended 2026-10-07 (S4); `nats-worker-pools.md` §4.4, §7 S4.
+**Files:**
+- Modify: `pkg/events/errors.go` (`Settle` returns `SettleReschedule` for a delay of 5 minutes or more on a stream that allows schedules; the attempt it judges is `max(broker attempt, Clustarr-Attempt)`), `pkg/events/envelope.go` (`HeaderAttempt`), `pkg/events/natsbus/natsbus.go` and `pkg/events/membus/membus.go` (`handle` performs `SettleReschedule`: republish with `WithScheduleAt(now+d)`, `Clustarr-Attempt` the next attempt, Msg-Id `<id>/retry/<attempt>`, then `Ack`; a republish that fails naks with the delay instead)
+- Test: contract cases `ALongRetryIsAScheduledRepublish` (a 10 min retry: the original is acked, the durable's `AckPending` and `Pending` are 0, a hold exists on `.sched.`), `AScheduledRetryKeepsItsAttemptCount` (the attempt survives the republish and the message is dead-lettered at `MaxDeliver` by attempt, not by broker deliveries)
+
+**Interfaces:**
+- Consumes: W4.91 (`Clustarr-Id`, clean headers), W4.114 (`Retry`).
+- Produces: `events.SettleReschedule`, `events.HeaderAttempt`, `events.RescheduleAfter = 5 * time.Minute`. A stream that allows no schedules (`CLUSTARR_WORK_SQUASHARR`, `CLUSTARR_WORK_PROBE`, both DiscardNew) keeps `NakWithDelay`: `Settle` learns it from the subscription (`Subscription.Schedulable`, set by `ConsumerSpec.Subscription()` from the stream spec through `events.Default()`).
+
+- [ ] **Step 1: Write the failing tests.** The two contract cases, on both buses, in the style of W4.91's: a durable on `CLUSTARR_WORK_CATALOGARR` whose handler returns `events.Retry(10*time.Minute, …)`; read `ConsumerState` and the `.sched.` subjects through `StreamAdmin.Subjects`.
+- [ ] **Step 2: Run them and watch them fail.** Expected: `AckPending 1` (a delayed nak holds its place and counts as lag, OD27).
+- [ ] **Step 3: Implement** as in Files. The republished envelope is the received one (W4.91 cleaned its headers) with `Clustarr-Attempt` set; `deadLetter` uses the judged attempt for `Clustarr-DLQ-Attempts`. Document on `Settle` that a scheduled retry holds no `MaxAckPending` place and is not lag, so `caption` and `catalog` scale to zero during a long backoff, and that a memory stream loses it on a NATS restart exactly as it loses a naked message.
+- [ ] **Step 4: Run and pass.** Run: `go build ./... && go vet ./pkg/events/... && go test ./pkg/events/... -count=1` / Expected: `ok`; then W4.113's Step 2.
+- [ ] **Step 5: Commit.** `git commit -m "feat(bus): a retry of 5 minutes or more is acked and republished on a schedule carrying its attempt, so a waiting retry holds no MaxAckPending place and is not lag, and a domain scales to zero during a long backoff (NATS research 2026-10-07, S4)" -- pkg/events/errors.go pkg/events/envelope.go pkg/events/bus.go pkg/events/topology.go pkg/events/natsbus/natsbus.go pkg/events/membus/membus.go pkg/events/contracttest/contracttest.go`
+
+---
+
 ## Wave 5: binaries
 
 **Spec:** §3 (all), §4.3 Wave 5 (5.1-5.6), §4.5 (dependency guards, exec guard),
@@ -39673,6 +43094,8 @@ reconciles them with this wave's API before F3.1 runs:
 **Spec:** loop spec §8.6 "F0.1", §8.2 rules 1-2, §8.4 (the `.13` tag); split plan W5.1's gate
 format.
 
+> **Wave 4f note (NATS research 2026-10-07).** The gate also checks that the Wave 4f gate W4.113 is green (run its Step 2 once more): F1 builds on W4.102's `events.WatchOption` and on the bus Wave 4f fixed (M1, M2). W4.114 and W4.115 (S3, S4) are could-defer and not required here.
+
 **Files:** none (read-only check).
 
 **Interfaces:**
@@ -42799,6 +46222,8 @@ git commit -m "feat(events): the records buckets (clustarr-transcodes, -grafts, 
 contract tests `KVWatchUpdatesOnly`, `KVWatchFromRevision`, `KVKeys`,
 `KVWatchDeliversPastTheBuffer`), §4.9 (the waker reads the bucket's last sequence and creation
 time: `KV.Status`), §4.11 (`events.KV.Keys` for the segments sweeper), §8.6 "F1.3".
+
+> **Wave 4f note (NATS research 2026-10-07; loop spec §4.15 as amended).** W4.102 already added `WatchOptions`, `WatchOption`, `WatchUpdatesOnly`, `WatchFromRevision` and `ResolveWatchOptions` to `pkg/events/bus.go`, exactly as Step 3a prints them (its `WatchOption` doc says "a KV.Watch or an ObjectStore.Watch"), together with the object-store watch, `events.ErrWatchOptionUnsupported` and membus's object-watcher queue. Step 3a adds only `KVStatus`; Steps 3b-3d add the KV half (the `KV` interface's variadic options, `Keys` and `Status`, membus's KV queue, natsbus's KV options). Do not declare the option types again. membus's KV queue may reuse the queue type W4.102 wrote for object watches.
 
 **Files:**
 - Modify: `pkg/events/bus.go` (`KV` interface; `WatchOption`, `WatchOptions`, `WatchUpdatesOnly`, `WatchFromRevision`, `ResolveWatchOptions`; `KVStatus`)
@@ -90367,6 +93792,8 @@ func Due(mf *catalogv1alpha1.MediaFile, now time.Time) bool {
 ### Task W7.5: `FingerprintVersion` 2 keys the fingerprint cache; `AnalyzerVersion` stays 3 until OD20
 
 **Spec:** §7.2.7, §13 OD48 (adopted), §13 OD20
+> **Wave 4f note (NATS research 2026-10-07; split §7.2.7 as amended).** W4.111 already landed `segments.FingerprintVersion` at **1** and `segments.FingerprintKey`, whose `fingerprintKeyAt` keeps the legacy `<probeHash>.<which>` at version 1 and appends `.v<N>` from 2 on (panicking on an empty part or one holding `/` or `.`), and `app/segments/worker/cache.go` already names its objects with it. This task raises the constant to 2 (its doc: 2 is the ffgo decoder) and adds `TestFingerprintKeysCarryTheDecoderVersion`; Step 3's `FingerprintKey` body is not added again, and the `cache.go` edit is already done. The raise rule also covers the window lengths and the Chromaprint configuration now.
+
 **Files:**
 - Modify: `pkg/segments/segments.go`, `app/segments/worker/cache.go`, `app/segments/worker/worker_test.go`
 - Test: `pkg/segments/version_test.go`
@@ -95833,6 +99260,8 @@ echo OK
 ### Task W10.5: `docs/autoscaling.md`, `docs/observability.md`, `docs/gpu-nodes.md` and the top-level README
 
 **Spec:** §12 (`docs/autoscaling.md`; `docs/observability.md`; `README.md`; `docs/gpu-nodes.md`), §9.0, §9.8, §10.2.2, §10.2.7 ("Edit these comments": `README.md:109-111`)
+> **Wave 4f note (NATS research 2026-10-07; split §3.3, §9.0, §9.4, §9.8 and §12 as amended).** Also, each added to the check script: `docs/autoscaling.md`'s "The metric" section says why `CONSUMER.INFO` and not `/jsz` or a stream's `messages` count, with split §9.0's live numbers (897 bytes and 0.23-0.83 ms per durable; `/jsz` 45,913 bytes and about 6 ms, a follower reading `num_pending` 0, port 8222 unauthenticated, HTTP 200 with no data on a wrong `acc`; `CLUSTARR_WORK_SEGMENTARR` 18,897 messages against a lag of 16,563, the gap being 2,334 TheIntroDB holds; `CLUSTARR_RELEASES` 10,137 against 0), says no NATS-native metrics adapter exists, and does **not** repeat the deleted ScaledObject's claim about KEDA and kedacore/keda#8166 (`! grep -q 8166 docs/autoscaling.md`); its failure modes take §9.8's added rows. `docs/observability.md`'s catalogue gains `clustarr_consumer_pending`, `clustarr_consumer_ack_pending`, `clustarr_consumer_waiting`, `clustarr_consumer_max_ack_pending`, `clustarr_stream_fill_ratio` (with an alert at 0.8), `clustarr_nats_async_errors_total`, `clustarr_bus_lapsed_handlers`, `clustarr_bus_saturated`, `clustarr_bus_muted_total`, `clustarr_object_orphan_chunks_purged_total`, `clustarr_object_orphan_bytes_purged_total`, `clustarr_artwork_objects` and `clustarr_artwork_audit_tasks_total`, and its readiness table the `bus` liveness check. If W4.115 (S4) was deferred, the `NakWithDelay` text keeps OD27 (a domain in a long backoff stays at 1); if it landed, it says a long retry is a scheduled republish that is not lag.
+
 **Files:**
 - Create: `docs/autoscaling.md` (if the installers wave has not created it; if it
   has, check it against the outline below and fill what is missing)
@@ -96010,6 +99439,15 @@ echo OK
 ### Task W10.7: CLAUDE.md
 
 **Spec:** §12 (CLAUDE.md: services table, commands, invariants, guard successors, Transcoding paragraph, gotchas, status), R3 amendment (the MediaFile split per field manager)
+> **Wave 4f note (NATS research 2026-10-07; split §12 as amended).** Also, each added to the check script's `fresh` list (`TestNoObjectLinks`, `Clustarr-Id`, `PurgeOrphanChunks`, `deliveryCount`, `objindex`):
+>
+> 1. The invariant "Artwork objects have two writers split by variant" ends: "…and of its metadata. Each `Put` sends the variant's complete header and metadata set (`artwork.ObjectMeta`), and `SetMeta` is the owner's alone, under its per-item lock. No code creates object links (`TestNoObjectLinks`). The ui watches the bucket read-only (`pkg/events/objindex`). The reaper is the only code that deletes both, and it also purges orphan chunks (`PurgeOrphanChunks`) and audits status against the bucket." Step 3's edit of "the renderer (`catalogarr --role artwork`," stands.
+> 2. The gotcha "JetStream raises a pull consumer's MAX_DELIVERIES advisory only on its next delivery attempt…" gains its cause and loses its remedy: nats-server's `deliveryCount` returns redeliveries, so the ack-timer path (`checkPending`) catches a lapsed final delivery only for `MaxDeliver` 1, and for 2 or more `getNextMsg` raises it on the next waiting pull from any replica (`consumer.go:4841-4849, 2427-2457, 6187-6192`); a pull a stopping pod abandons is pruned by the next `CONSUMER.INFO` (the manager's QueueGauge, every 30 s) and is never relied on; a subscription fetches only for free slots and never parks (Wave 4c's parking spent an attempt per redelivery and dead-lettered healthy tasks it never ran, E11), so nothing keeps a pull open at saturation; membus's sweep dead-letters a lapsed final delivery in place.
+> 3. New gotcha, **a fired schedule has no `Nats-Msg-Id`**: nats-server strips it and adds `Nats-Scheduler` and `Nats-Schedule-Next: purge` (`scheduler.go:214-231`); a copy published with those onto a stream without schedules is refused with 10188, which lost every scheduled task's dead letter until 2026-10-07. The envelope ID rides in `Clustarr-Id` too, and `EnvelopeFromHeaders` drops every transport header (`Nats-Schedule*`, `Nats-Expected-*`, `Nats-TTL`, `Nats-Rollup`).
+> 4. New gotcha, **the broker keys `InProgress`, `Ack` and `Nak` by stream sequence, not by delivery**: a lapsed handler could keep its redelivered copy from timing out or move its deadline, so the bus mutes a lapsed delivery's `InProgress` and `Nak` (`Ack` and `Term` still go); double ack plus Msg-Id dedupe is not exactly-once after a lapse, the record fence is.
+> 5. New gotcha, **object stores**: `Put` replaces an object's whole metadata (every `Put` is a complete declaration, like an SSA apply); two concurrent `Put`s of one name leak a full copy for good, which only `PurgeOrphanChunks` reclaims, since the meta-level `List` cannot see it; a reader whose object is overwritten mid-`Get` stalls until its deadline and fails with `i/o timeout`, never a digest mismatch, so `/art` reads whole objects under a deadline before it answers; a link fires no watch event when its target changes, and nats.go refuses a link over any name a regular object ever held; `ObjectStore.Watch` ignores `ResumeFromRevision` and `MetaOnly` (the bus refuses `WatchFromRevision`); a bucket re-created under a running watch is skipped silently, so `objindex` compares `Status().Created`.
+> 6. Where step 1's text describes the agents' HPAs, it says they read JetStream `CONSUMER.INFO` pending + ack-pending per durable, never `/jsz` (only the consumer leader's `num_pending` is right) or a stream's message count (it counts schedule holds and retention).
+
 **Files:**
 - Modify: `CLAUDE.md`
 **Interfaces:** Consumes everything above; the guard names below must exist

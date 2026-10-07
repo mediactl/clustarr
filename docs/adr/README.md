@@ -40,6 +40,10 @@ Refinements that did not change a decision are recorded in the spec, not here:
   `MediaFile.status.transcode` rather than from TranscodeJobs, and is the one
   writer squasharr was; the pools, the JetStream queue and the task lease are
   unchanged.
+- **0011:** 2026-10-07: no object links; objects carry versioned metadata; the
+  ui indexes the bucket by watch; the reaper audits and purges orphan chunks
+  (`docs/superpowers/specs/2026-09-24-index-artwork-ratings-plex-design.md` §B,
+  amended 2026-10-07).
 
 ## Writing one
 
