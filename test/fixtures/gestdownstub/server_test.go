@@ -34,6 +34,7 @@ import (
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/subtitles"
+	"github.com/mediactl/clustarr/pkg/subtitles/postprocess"
 	"github.com/mediactl/clustarr/pkg/subtitles/providers/gestdown"
 )
 
@@ -68,7 +69,7 @@ func TestSearchAndDownloadRoundTripThroughTheRealClient(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, name, ".srt")
 
-	out, err := subtitles.PostProcess(raw, "en", nil, true)
+	out, err := postprocess.PostProcess(raw, "en", nil, true)
 	require.NoError(t, err)
 	assert.Contains(t, string(out), "Hello from the Gestdown fixture provider.")
 }

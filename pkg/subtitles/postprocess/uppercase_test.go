@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package subtitles_test
+package postprocess_test
 
 import (
 	"bytes"
@@ -28,6 +28,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/mediactl/clustarr/pkg/subtitles"
+	"github.com/mediactl/clustarr/pkg/subtitles/postprocess"
 )
 
 // TestCapitalizeUppercaseMatchesBazarr pins the capitalisation step to
@@ -56,7 +57,7 @@ func TestCapitalizeUppercaseMatchesBazarr(t *testing.T) {
 		"HELLO.\u00a0WORLD": "Hello.\u00a0World",
 		"HELLO.\vWORLD":     "Hello.\vWorld",
 	} {
-		assert.Equal(t, want, subtitles.CapitalizeUppercase(in), "input %q", in)
+		assert.Equal(t, want, postprocess.CapitalizeUppercase(in), "input %q", in)
 	}
 }
 
@@ -79,7 +80,7 @@ func repeat(text string, n int) []string {
 
 func postProcessItems(t *testing.T, raw []byte, mods ...string) []*astisub.Item {
 	t.Helper()
-	out, err := subtitles.PostProcess(raw, "en", mods, true)
+	out, err := postprocess.PostProcess(raw, "en", mods, true)
 	require.NoError(t, err)
 	subs, err := astisub.ReadFromSRT(bytes.NewReader(out))
 	require.NoError(t, err)
@@ -163,7 +164,7 @@ func TestFixUppercaseSamplesOnlyTheFirstFiftyEntries(t *testing.T) {
 // the one interaction it has with the others -- validation still rejects
 // an unknown mod, and listing fixUppercase does not change that.
 func TestFixUppercaseDoesNotRelaxModValidation(t *testing.T) {
-	_, err := subtitles.PostProcess(srtOf(shouted), "en", []string{subtitles.ModFixUppercase, "bogus"}, true)
+	_, err := postprocess.PostProcess(srtOf(shouted), "en", []string{subtitles.ModFixUppercase, "bogus"}, true)
 	require.Error(t, err)
 	assert.True(t, strings.Contains(err.Error(), "unknown mod"), "got %v", err)
 }

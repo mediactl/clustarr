@@ -105,8 +105,8 @@ const (
 )
 
 // fixtureSRT is the subtitle body /files/fixture.srt serves: a real, valid
-// SRT document (two cues), so pkg/subtitles.PostProcess's astisub.ReadFromSRT
-// parses it exactly as it would parse a real download.
+// SRT document (two cues), so pkg/subtitles/postprocess.PostProcess's
+// astisub.ReadFromSRT parses it exactly as it would parse a real download.
 const fixtureSRT = "1\n00:00:01,000 --> 00:00:04,000\nHello from the OpenSubtitles.com fixture provider.\n\n" +
 	"2\n00:00:05,000 --> 00:00:08,000\nThis line proves the sidecar came from opensubtitles-stub.\n"
 

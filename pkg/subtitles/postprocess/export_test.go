@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package subtitles
+package postprocess
 
 // CapitalizeUppercase exposes fixUppercase's capitalisation step to the
 // external test package, which pins it against Bazarr's own output.

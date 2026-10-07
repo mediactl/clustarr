@@ -43,19 +43,22 @@ const (
 // sound.
 var soundCueKeywords = regexp.MustCompile(`(?i)LAUGH|APPLAU|CHEER|MUSIC|GASP|SIGH|GROAN|COUGH|SCREAM|SHOUT|WHISPER|PHONE|DOOR|KNOCK|FOOTSTEP|THUNDER|EXPLOSION|GUNSHOT|SIREN`)
 
-// hiBrackets matches a bracketed sound cue anywhere in the line, e.g.
+// HIBrackets matches a bracketed sound cue anywhere in the line, e.g.
 // "I heard [a noise] outside." -> "I heard  outside." (regexp2 port of
 // Bazarr's HI_brackets, research note §6.3; TAG's optional-style-tag
 // wrapper is dropped — this package's inputs are already-decoded plain
-// text by the time mods run).
-var hiBrackets = mustHI(`-?["']*\[(?=[^\[\]]{3,})[A-Za-zÀ-ž0-9\s'".:_&+-]+[)\]]["']*[\s:]*`, regexp2.None)
+// text by the time mods run). Exported for pkg/subtitles/postprocess's
+// mostlyUppercase, which strips the same markers before counting case.
+var HIBrackets = mustHI(`-?["']*\[(?=[^\[\]]{3,})[A-Za-zÀ-ž0-9\s'".:_&+-]+[)\]]["']*[\s:]*`, regexp2.None)
 
 // hiBracketsFull matches a line that is *entirely* a bracketed cue.
 var hiBracketsFull = mustHI(`^-?[([].+[)\]]$`, regexp2.Singleline)
 
-// hiSpeakerLabel matches an upper-case "NAME:" label at the start of a line
+// HISpeakerLabel matches an upper-case "NAME:" label at the start of a line
 // (a simplified, RE2-portable core of Bazarr's HI_before_colon_caps).
-var hiSpeakerLabel = mustHI(`^[A-ZÀ-Ž][A-ZÀ-Ž0-9 '&+-]{1,30}:\s*`, regexp2.None)
+// Exported for pkg/subtitles/postprocess's mostlyUppercase, which strips the
+// same markers before counting case.
+var HISpeakerLabel = mustHI(`^[A-ZÀ-Ž][A-ZÀ-Ž0-9 '&+-]{1,30}:\s*`, regexp2.None)
 
 func mustHI(pattern string, opts regexp2.RegexOptions) *regexp2.Regexp {
 	re := regexp2.MustCompile(pattern, opts)
@@ -73,8 +76,8 @@ func replaceAll(re *regexp2.Regexp, s, repl string) (string, error) {
 // remaining patterns from the same note section (before-colon-noncaps,
 // starting-upper-then-sentence, JP_parentheses, music symbols) are
 // deliberately deferred — the same "add a real implementation + test once
-// one is needed" posture PostProcess's switch below takes for
-// ModRemoveTags/ModOCRFixes/ModReverseRTL/ModColor — and would port the
+// one is needed" posture pkg/subtitles/postprocess.PostProcess's switch
+// takes for ModRemoveTags/ModOCRFixes/ModReverseRTL/ModColor — and would port the
 // same way: a new package-level *regexp2.Regexp plus a case in the loop
 // below.
 func RemoveHI(text string) (string, error) {
@@ -93,11 +96,11 @@ func RemoveHI(text string) (string, error) {
 		if isAllCapsSoundCue(trimmed) {
 			continue
 		}
-		line, err := replaceAll(hiBrackets, line, "")
+		line, err := replaceAll(HIBrackets, line, "")
 		if err != nil {
 			return "", err
 		}
-		line, err = replaceAll(hiSpeakerLabel, line, "")
+		line, err = replaceAll(HISpeakerLabel, line, "")
 		if err != nil {
 			return "", err
 		}

@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package subtitles
+package postprocess
 
 import (
 	"regexp"
@@ -24,6 +24,9 @@ import (
 	"unicode/utf8"
 
 	"github.com/asticode/go-astisub"
+	"github.com/dlclark/regexp2"
+
+	"github.com/mediactl/clustarr/pkg/subtitles"
 )
 
 // This file ports Bazarr's fix_uppercase mod (ModFixUppercase), from
@@ -122,10 +125,10 @@ func mostlyUppercase(items []*astisub.Item) (bool, error) {
 		lines := strings.Split(text, "\n")
 		for i, line := range lines {
 			var err error
-			if line, err = replaceAll(hiSpeakerLabel, line, ""); err != nil {
+			if line, err = replaceAll(subtitles.HISpeakerLabel, line, ""); err != nil {
 				return false, err
 			}
-			if line, err = replaceAll(hiBrackets, line, ""); err != nil {
+			if line, err = replaceAll(subtitles.HIBrackets, line, ""); err != nil {
 				return false, err
 			}
 			lines[i] = line
@@ -148,4 +151,10 @@ func mostlyUppercase(items []*astisub.Item) (bool, error) {
 	}
 	total := upper + lower
 	return total > 0 && upper > uppercaseMinCount && upper*100 >= uppercaseMinPercentage*total, nil
+}
+
+// replaceAll is pkg/subtitles' helper of the same name (himods.go): every
+// match of re in s replaced by repl.
+func replaceAll(re *regexp2.Regexp, s, repl string) (string, error) {
+	return re.Replace(s, repl, -1, -1)
 }

@@ -80,7 +80,7 @@ func isSidecarExt(ext string) bool {
 // videoPath, for langKey key, honouring hiExt (the profile's HIExtension,
 // normalised via normalizeHIExt). Spec §7's exact signature; always writes
 // a ".srt" — the profile's originalFormat option is a post-processing
-// concern (pkg/subtitles.PostProcess's toSRT flag), not a naming one.
+// concern (pkg/subtitles/postprocess.PostProcess's toSRT flag), not a naming one.
 //
 // Forced wins over HI: research note §3.2's writing rule, and ParseLangKey
 // already enforces the two are mutually exclusive on key.

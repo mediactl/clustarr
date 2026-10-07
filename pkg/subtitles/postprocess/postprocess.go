@@ -15,7 +15,10 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package subtitles
+// Package postprocess rewrites a downloaded subtitle: charset to UTF-8,
+// Bazarr's mods, and SRT or ASS output through go-astisub. Only the fetch
+// worker links it (spec §4.3 step 1.5).
+package postprocess
 
 import (
 	"bytes"
@@ -31,6 +34,8 @@ import (
 	"golang.org/x/text/encoding/simplifiedchinese"
 	"golang.org/x/text/encoding/traditionalchinese"
 	"golang.org/x/text/encoding/unicode"
+
+	"github.com/mediactl/clustarr/pkg/subtitles"
 )
 
 // languageEncodings is research note §6.1's per-language candidate table,
@@ -206,9 +211,9 @@ func applyMods(subs *astisub.Subtitles, mods []string) error {
 	fixUpper := false
 	for _, mod := range mods {
 		switch mod {
-		case ModFixUppercase:
+		case subtitles.ModFixUppercase:
 			fixUpper = true
-		case ModRemoveHI, ModRemoveTags, ModOCRFixes, ModCommon, ModReverseRTL, ModColor:
+		case subtitles.ModRemoveHI, subtitles.ModRemoveTags, subtitles.ModOCRFixes, subtitles.ModCommon, subtitles.ModReverseRTL, subtitles.ModColor:
 		default:
 			return fmt.Errorf("subtitles: unknown mod %q", mod)
 		}
@@ -226,15 +231,15 @@ func applyMods(subs *astisub.Subtitles, mods []string) error {
 		text := FixMojibake(itemText(item))
 		for _, mod := range mods {
 			switch mod {
-			case ModRemoveHI:
+			case subtitles.ModRemoveHI:
 				var err error
-				text, err = RemoveHI(text)
+				text, err = subtitles.RemoveHI(text)
 				if err != nil {
 					return fmt.Errorf("subtitles: removeHI: %w", err)
 				}
-			case ModFixUppercase:
+			case subtitles.ModFixUppercase:
 				// Applied after the loop, gated on mostlyUppercase.
-			case ModRemoveTags, ModOCRFixes, ModCommon, ModReverseRTL, ModColor:
+			case subtitles.ModRemoveTags, subtitles.ModOCRFixes, subtitles.ModCommon, subtitles.ModReverseRTL, subtitles.ModColor:
 				// Deferred: no fixture-verified behaviour for these yet.
 				// Recognised (not an error) so a profile listing them does
 				// not fail PostProcess; add a real implementation + test

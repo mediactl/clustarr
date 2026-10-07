@@ -34,7 +34,8 @@ type Capabilities struct {
 // (this task's explicit ask). Download returns the served file name
 // alongside the bytes — spec's literal 3-return signature
 // ([]byte, string, error) — because OpenSubtitles' /download response
-// carries file_name for format/extension sniffing before PostProcess runs.
+// carries file_name for format/extension sniffing before
+// postprocess.PostProcess runs.
 type Provider interface {
 	Name() string
 	Capabilities() Capabilities

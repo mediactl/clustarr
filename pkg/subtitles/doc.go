@@ -16,10 +16,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 // Package subtitles implements subtitle-provider search, Bazarr-equivalent
-// scoring, and post-processing (charset, format conversion, hearing-impaired
-// stripping). It has no Kubernetes dependency: Query/Candidate are plain Go
-// mirrors of the corresponding api/subtitle/v1alpha1 shapes (never imported —
-// see the task's Scope note) except for Query.Release, which is the real
+// scoring, and hearing-impaired stripping; charset and format
+// post-processing is pkg/subtitles/postprocess. It has no Kubernetes
+// dependency: Query/Candidate are plain Go mirrors of the corresponding
+// api/subtitle/v1alpha1 shapes (never imported — see the task's Scope note) except for Query.Release, which is the real
 // *release.ParsedRelease (pkg/release, wave 1). The missing-subtitle planner
 // and sidecar-path naming are out of scope here; they belong to the
 // captionarr controller and pkg/naming respectively, and are deferred to

@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package subtitles_test
+package postprocess_test
 
 import (
 	"os"
@@ -29,31 +29,32 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/mediactl/clustarr/pkg/subtitles"
+	"github.com/mediactl/clustarr/pkg/subtitles/postprocess"
 )
 
 func TestFixMojibakeRepairsUTF8MisdecodedAsCP1252(t *testing.T) {
-	got := subtitles.FixMojibake("Welcome to the cafÃ©.")
+	got := postprocess.FixMojibake("Welcome to the cafÃ©.")
 	assert.Equal(t, "Welcome to the café.", got)
 }
 
 func TestFixMojibakeLeavesCleanUTF8Alone(t *testing.T) {
-	got := subtitles.FixMojibake("Welcome to the café.")
+	got := postprocess.FixMojibake("Welcome to the café.")
 	assert.Equal(t, "Welcome to the café.", got)
 }
 
 func TestDecodeToUTF8HandlesUTF8BOM(t *testing.T) {
 	raw := append([]byte{0xEF, 0xBB, 0xBF}, []byte("hello")...)
-	out, err := subtitles.PostProcess(wrapSRT(raw), "en", nil, true)
+	out, err := postprocess.PostProcess(wrapSRT(raw), "en", nil, true)
 	require.NoError(t, err)
 	assert.True(t, utf8.Valid(out))
 	assert.NotContains(t, string(out), string([]byte{0xEF, 0xBB, 0xBF}), "BOM must be stripped")
 }
 
 func TestPostProcessOnAMojibakeFixture(t *testing.T) {
-	raw, err := os.ReadFile("../../test/data/subtitles/postprocess/mojibake_latin1.srt")
+	raw, err := os.ReadFile("../../../test/data/subtitles/postprocess/mojibake_latin1.srt")
 	require.NoError(t, err)
 
-	out, err := subtitles.PostProcess(raw, "en", nil, true)
+	out, err := postprocess.PostProcess(raw, "en", nil, true)
 	require.NoError(t, err)
 	assert.Contains(t, string(out), "café")
 	assert.True(t, utf8.Valid(out))
@@ -66,10 +67,10 @@ func wrapSRT(text []byte) []byte {
 }
 
 func TestPostProcessConvertsASSToSRTAndAppliesRemoveHI(t *testing.T) {
-	raw, err := os.ReadFile("../../test/data/subtitles/postprocess/hi_sample.ass")
+	raw, err := os.ReadFile("../../../test/data/subtitles/postprocess/hi_sample.ass")
 	require.NoError(t, err)
 
-	out, err := subtitles.PostProcess(raw, "en", []string{subtitles.ModRemoveHI}, true)
+	out, err := postprocess.PostProcess(raw, "en", []string{subtitles.ModRemoveHI}, true)
 	require.NoError(t, err)
 
 	text := string(out)
@@ -80,10 +81,10 @@ func TestPostProcessConvertsASSToSRTAndAppliesRemoveHI(t *testing.T) {
 }
 
 func TestPostProcessKeepsOriginalFormatWhenToSRTIsFalse(t *testing.T) {
-	raw, err := os.ReadFile("../../test/data/subtitles/postprocess/hi_sample.ass")
+	raw, err := os.ReadFile("../../../test/data/subtitles/postprocess/hi_sample.ass")
 	require.NoError(t, err)
 
-	out, err := subtitles.PostProcess(raw, "en", nil, false)
+	out, err := postprocess.PostProcess(raw, "en", nil, false)
 	require.NoError(t, err)
 	assert.Contains(t, string(out), "[Script Info]", "originalFormat must skip SRT conversion")
 }
@@ -128,7 +129,7 @@ func TestPostProcessDropsAWhollyHICueAndKeepsCueStructureValid(t *testing.T) {
 		"2\n00:00:03,000 --> 00:00:04,000\n[door slams]\n\n" +
 		"3\n00:00:05,000 --> 00:00:06,000\nGoodbye.\n"
 
-	out, err := subtitles.PostProcess([]byte(threeCueSRT), "en", []string{subtitles.ModRemoveHI}, true)
+	out, err := postprocess.PostProcess([]byte(threeCueSRT), "en", []string{subtitles.ModRemoveHI}, true)
 	require.NoError(t, err)
 
 	subs := assertWellFormedSRT(t, out, 2)
@@ -138,10 +139,10 @@ func TestPostProcessDropsAWhollyHICueAndKeepsCueStructureValid(t *testing.T) {
 }
 
 func TestPostProcessOnHISampleASSProducesAWellFormedSingleCueSRT(t *testing.T) {
-	raw, err := os.ReadFile("../../test/data/subtitles/postprocess/hi_sample.ass")
+	raw, err := os.ReadFile("../../../test/data/subtitles/postprocess/hi_sample.ass")
 	require.NoError(t, err)
 
-	out, err := subtitles.PostProcess(raw, "en", []string{subtitles.ModRemoveHI}, true)
+	out, err := postprocess.PostProcess(raw, "en", []string{subtitles.ModRemoveHI}, true)
 	require.NoError(t, err)
 
 	// The [door slams] cue must be dropped entirely (research note's HI
@@ -180,7 +181,7 @@ func TestPostProcessMalformedInputsDoNotPanic(t *testing.T) {
 			var out []byte
 			var err error
 			require.NotPanics(t, func() {
-				out, err = subtitles.PostProcess(tt.raw, "en", nil, true)
+				out, err = postprocess.PostProcess(tt.raw, "en", nil, true)
 			})
 			// Every case above parses to zero usable cues (or a genuine
 			// structural parse failure for the truncated-ASS case), so
@@ -201,7 +202,7 @@ func TestPostProcessTruncatedSRTWithRecoverableTextDoesNotPanicAndSucceeds(t *te
 	var out []byte
 	var err error
 	require.NotPanics(t, func() {
-		out, err = subtitles.PostProcess([]byte("1\n00:00:01,000 --> 00:00:02,000\nHello"), "en", nil, true)
+		out, err = postprocess.PostProcess([]byte("1\n00:00:01,000 --> 00:00:02,000\nHello"), "en", nil, true)
 	})
 	require.NoError(t, err)
 	assertWellFormedSRT(t, out, 1)

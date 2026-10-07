@@ -36,6 +36,7 @@ import (
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/subtitles"
+	"github.com/mediactl/clustarr/pkg/subtitles/postprocess"
 	"github.com/mediactl/clustarr/pkg/subtitles/providers/opensubtitlescom"
 )
 
@@ -80,7 +81,7 @@ func TestModeOKServesACandidateTheRealClientAcceptsAndDownloads(t *testing.T) {
 	// PostProcess is what the fetch worker actually runs over a download
 	// before writing the sidecar -- proving THIS decodes and parses is what
 	// makes the fixture srt body a real guard rail, not merely valid JSON.
-	out, err := subtitles.PostProcess(raw, "en", nil, true)
+	out, err := postprocess.PostProcess(raw, "en", nil, true)
 	require.NoError(t, err)
 	assert.Contains(t, string(out), "Hello from the OpenSubtitles.com fixture provider.")
 }

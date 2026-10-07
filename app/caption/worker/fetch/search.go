@@ -42,6 +42,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/pkg/subtitles"
+	"github.com/mediactl/clustarr/pkg/subtitles/postprocess"
 )
 
 // searchPlan is everything one task's provider walk needs.
@@ -357,7 +358,7 @@ func (w *Worker) fetchOne(ctx context.Context, m events.Message, kv events.KV, p
 		}
 		return nil, false, nil
 	}
-	content, err := subtitles.PostProcess(raw, p.want.lang, p.mods, p.toSRT)
+	content, err := postprocess.PostProcess(raw, p.want.lang, p.mods, p.toSRT)
 	if err != nil {
 		// A subtitle file that does not decode or parse is that
 		// candidate's defect; the next one may be fine.

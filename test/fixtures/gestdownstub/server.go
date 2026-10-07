@@ -58,8 +58,8 @@ const (
 const fixtureDownloadURI = "/subtitles/download/" + FixtureSubtitleID
 
 // fixtureSRT is the subtitle body the download route serves: a real, valid
-// SRT document, so pkg/subtitles.PostProcess's astisub.ReadFromSRT parses it
-// exactly as it would parse a real download.
+// SRT document, so pkg/subtitles/postprocess.PostProcess's
+// astisub.ReadFromSRT parses it exactly as it would parse a real download.
 const fixtureSRT = "1\n00:00:02,000 --> 00:00:05,000\nHello from the Gestdown fixture provider.\n\n" +
 	"2\n00:00:06,000 --> 00:00:09,000\nThis line proves the fallthrough reached Gestdown.\n"
 
