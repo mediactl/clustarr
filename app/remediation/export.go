@@ -39,3 +39,17 @@ func NewIOExecutorWith(workers int, timeout time.Duration, stat func(string) (fs
 	}
 	return x
 }
+
+// NewIOExecutorFuncs is NewIOExecutor with stat and readDir in place of
+// os.Stat and os.ReadDir (nil keeps the default), so a test can count or hang
+// the calls a planner's Gather makes. Test seam.
+func NewIOExecutorFuncs(workers int, stat func(string) (fs.FileInfo, error), readDir func(string) ([]fs.DirEntry, error)) *IOExecutor {
+	x := NewIOExecutor(workers)
+	if stat != nil {
+		x.stat = stat
+	}
+	if readDir != nil {
+		x.readDir = readDir
+	}
+	return x
+}
