@@ -36,6 +36,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"sync"
 	"time"
@@ -66,6 +67,7 @@ type options struct {
 	requestTimeout time.Duration
 	hooks          events.Hooks
 	serveLimits    events.ServeLimits
+	log            *slog.Logger
 }
 
 // Option configures the bus.
@@ -93,6 +95,12 @@ func WithRequestTimeout(d time.Duration) Option {
 // (events.DefaultServeConcurrency, events.DefaultServeQueue).
 func WithServeLimits(l events.ServeLimits) Option {
 	return func(o *options) { o.serveLimits = l }
+}
+
+// WithLogger sets the logger the connection's asynchronous errors are
+// reported on (asyncErrors). The default is slog.Default().
+func WithLogger(l *slog.Logger) Option {
+	return func(o *options) { o.log = l }
 }
 
 // WithHooks installs the observability hooks called around every publish and
@@ -132,6 +140,21 @@ func New(nc *nats.Conn, opts ...Option) (*Bus, error) {
 	o := options{requestTimeout: DefaultRequestTimeout}
 	for _, fn := range opts {
 		fn(&o)
+	}
+	// Report the connection's asynchronous errors -- a slow consumer's
+	// dropped messages above all, which nats.go reports nowhere else -- unless
+	// the caller installed its own handler (S7).
+	log := o.log
+	if log == nil {
+		log = slog.Default()
+	}
+	ae := &asyncErrors{log: log, last: map[string]time.Time{}}
+	if nc.Opts.AsyncErrorCB == nil {
+		nc.SetErrorHandler(ae.onError)
+	}
+	// A DisconnectedErrCB silences a DisconnectedCB, so neither is replaced.
+	if nc.Opts.DisconnectedErrCB == nil && nc.Opts.DisconnectedCB == nil {
+		nc.SetDisconnectErrHandler(ae.onDisconnect)
 	}
 	var (
 		js  jetstream.JetStream

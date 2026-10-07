@@ -280,6 +280,16 @@ var (
 		"Settlements a lapsed delivery attempted and the bus muted, by durable and op.",
 		"durable", "op",
 	)
+
+	// NATSAsyncErrorsTotal counts a NATS connection's asynchronous errors by
+	// kind: a slow consumer dropping messages (a Serve responder, a KV watch,
+	// a Fetch inbox), a permission violation, a disconnect with an error, or
+	// anything else. Never labelled by subject: subjects carry media keys.
+	NATSAsyncErrorsTotal = newCounterVec(
+		"clustarr_nats_async_errors_total",
+		"Asynchronous NATS connection errors, by kind.",
+		"kind",
+	)
 )
 
 // Controller telemetry, shared by every reconciler alongside
