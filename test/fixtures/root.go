@@ -42,6 +42,7 @@ func NewRootCommand() *cobra.Command {
 	root.AddCommand(newGestdownStubCommand())
 	root.AddCommand(newCardigannStubCommand())
 	root.AddCommand(newImportListStubCommand())
+	root.AddCommand(newIPTVStubCommand())
 	root.AddCommand(newNonVideoStubCommand())
 	root.AddCommand(newHTTPProxyStubCommand())
 	root.AddCommand(newEgressProbeCommand())

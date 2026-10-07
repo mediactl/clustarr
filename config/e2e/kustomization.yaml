@@ -24,6 +24,7 @@ resources:
 - cardigann-stub.yaml
 - httpproxy-stub.yaml
 - importlist-stub.yaml
+- iptv-stub.yaml
 - nonvideo-stub.yaml
 - quality-profile.yaml
 - metadata-providers.yaml

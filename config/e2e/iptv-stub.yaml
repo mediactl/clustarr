@@ -1,0 +1,82 @@
+# The in-cluster IPTV provider for scenario 19 (test/fixtures/iptvstub): an
+# m3u_plus playlist of three channels, an XMLTV guide and endless MPEG-TS
+# streams, plus /stats, the open upstream connections per channel. The
+# manager's Live TV tuner reaches it by its Service; its playlist builds
+# stream URLs on --base, http://iptv-stub.clustarr-system.svc.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: iptv-stub
+  namespace: clustarr-system
+  labels:
+    app.kubernetes.io/name: clustarr
+    app.kubernetes.io/part-of: clustarr
+    app.kubernetes.io/component: iptv-stub
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: iptv-stub
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: clustarr
+        app.kubernetes.io/part-of: clustarr
+        app.kubernetes.io/component: iptv-stub
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: iptv-stub
+          image: ghcr.io/mediactl/clustarr/e2e-fixtures:dev
+          imagePullPolicy: IfNotPresent
+          args: ["iptv-stub", "--addr=:8080"]
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /stats
+              port: http
+            initialDelaySeconds: 1
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /stats
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: iptv-stub
+  namespace: clustarr-system
+  labels:
+    app.kubernetes.io/name: clustarr
+    app.kubernetes.io/part-of: clustarr
+    app.kubernetes.io/component: iptv-stub
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/component: iptv-stub
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP

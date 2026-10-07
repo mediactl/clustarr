@@ -82,10 +82,10 @@ const (
 	// installs and every scenario's Movie/Series references.
 	QualityProfileName = "e2e-any"
 
-	// expectedCRDCount is config/crd/kustomization.yaml's 27 entries (the
-	// smoke test of 2026-10-07 counted 27 installed; at 26 the gate refused
-	// every run).
-	expectedCRDCount = 27
+	// expectedCRDCount is config/crd/kustomization.yaml's 29 entries (the
+	// smoke test of 2026-10-07 counted 27 installed; IPTVProvider and
+	// IPTVChannel make 29).
+	expectedCRDCount = 29
 
 	// gateTimeout bounds each individual readiness poll.
 	gateTimeout = 5 * time.Minute
@@ -250,7 +250,7 @@ var deploymentRoster = []string{
 	"agent-import", "agent-index", "agent-caption", "markers", "ui",
 	"tmdb-stub", "tvdb-stub", "torznab-stub", "seeder", "nntp-stub-a", "nntp-stub-b",
 	"opensubtitles-stub", "gestdown-stub", "cardigann-stub", "importlist-stub",
-	"nonvideo-stub", "httpproxy-stub",
+	"nonvideo-stub", "httpproxy-stub", "iptv-stub",
 }
 
 // deploymentsAvailable reports whether every Deployment named in
