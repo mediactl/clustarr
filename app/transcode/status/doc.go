@@ -36,8 +36,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // transcode-admission's own read access, batch/v1 Jobs, MediaFile reads --
 // sit on those controllers. This package's markers cover exactly what it
 // writes: TranscodeProfile's /status subresource, plus the read access its
-// callers need to Get before applying. Nothing writes TranscodeJob status
-// any more (ADR-0016).
+// callers need to Get before applying. A file's transcode is MediaFile
+// status, which the remediation loop writes (ADR-0016).
 //
 // +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodeprofiles,verbs=get;list;watch
 // +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodeprofiles/status,verbs=get;update;patch

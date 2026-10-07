@@ -57,8 +57,7 @@ var dottedRuns = regexp.MustCompile(`[.-]*\.[.-]*`)
 // The digest is a naming device, not a security or integrity claim: it exists
 // so that the same input always produces the same object name and a controller
 // can create-if-absent without keeping a side table. §5 names Downloads
-// `<target>-<sha1(guid)[:10]>` and §6.4 creates TranscodeJobs "by deterministic
-// name" on the same basis.
+// `<target>-<sha1(guid)[:10]>` on that basis.
 func HashSuffix(parts ...string) string {
 	sum := sha1.Sum([]byte(strings.Join(parts, "|"))) //nolint:gosec // naming only
 	return hex.EncodeToString(sum[:])[:HashSuffixLength]

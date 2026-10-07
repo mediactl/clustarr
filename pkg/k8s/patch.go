@@ -96,7 +96,7 @@ func PatchStatus[T ApplyConfiguration](
 }
 
 // Apply is PatchStatus' counterpart for the main resource. Controllers use it
-// to create or update the objects they own -- a transcode TranscodeJob, a
+// to create or update the objects they own -- a transcode pool Job, a
 // grab StatefulSet -- without a read-modify-write race. It is not subject to
 // the single-writer rule, but it shares the field-manager vocabulary so
 // `kubectl get -o yaml --show-managed-fields` reads the same either way.

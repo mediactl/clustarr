@@ -188,9 +188,9 @@ var (
 
 // Transcode telemetry, used by transcode.
 var (
-	// TranscodeJobsActive is the number of transcode Jobs currently
+	// TranscodesActive is the number of transcodes currently
 	// running, by tier (cpu, gpu).
-	TranscodeJobsActive = newGaugeVec(
+	TranscodesActive = newGaugeVec(
 		"clustarr_transcode_jobs_active",
 		"Number of transcode jobs currently active, by tier.",
 		"tier",

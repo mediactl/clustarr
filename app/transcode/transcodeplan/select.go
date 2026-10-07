@@ -230,7 +230,7 @@ func ManagedFiles(files []catalogv1alpha1.MediaFile, items map[ItemKey]bool) []c
 // reports, from tp's point of view:
 //
 //   - matching: the files tp itself wins (these are what status.matchingFiles
-//     counts and what the caller creates TranscodeJobs for).
+//     counts and what the caller plans transcodes for).
 //   - overlapped: true when tp's own selector matched at least one file it
 //     did NOT win -- another profile's selector matched the same file and
 //     beat it under ProfileLess. tp still wins every file SelectFiles

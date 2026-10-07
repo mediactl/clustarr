@@ -187,13 +187,6 @@ func TestAFileNoLongerDueIsLeftAlone(t *testing.T) {
 	assert.Empty(t, applied)
 }
 
-// The handler applies as catalog-markers through k8s.PatchStatus, which
-// refuses a manager missing from k8s.FieldManagers: every apply failed
-// that way on the first deploy while the injected Apply hid it here.
-func TestTheMarkersManagerIsOnePatchStatusAccepts(t *testing.T) {
-	require.NoError(t, k8s.ManagerCatalogMarkers.Validate())
-}
-
 // No markers provider in the registry -- a disabled theintrodb, or the
 // gateway built before the seed existed -- is neither a result nor a
 // retry: an Error would park every file for a day, and a retry cycles

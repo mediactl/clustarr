@@ -27,7 +27,7 @@ import (
 )
 
 // logTail keeps the last bytes of FFmpeg's warnings and errors, for the
-// TranscodeJob's status.stderrTail (the argv engine kept ffmpeg's stderr).
+// file's status.transcode.stderrTail (the argv engine kept ffmpeg's stderr).
 type logTail struct {
 	mu  sync.Mutex
 	max int

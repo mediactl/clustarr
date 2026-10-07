@@ -24,8 +24,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // a MediaFile (D3): it counts files through the
 // remediation.mediafile.transcodeProfile index, which its SetupWithManager
 // registers (mfindex.RegisterTranscodeProfile, as subtitleprofile registers
-// its own), and is woken by the ledger's profileWake. Nothing creates a
-// TranscodeJob any more.
+// its own), and is woken by the ledger's profileWake. A file's transcode is
+// its own status.transcode (ADR-0016).
 package transcodeprofile
 
 import (

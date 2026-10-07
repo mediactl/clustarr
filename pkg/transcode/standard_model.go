@@ -37,7 +37,7 @@ const (
 // MaxStreamsPerKind is the audio, and the subtitle, stream count at which a
 // source is refused: pkg/mediainfo.MaxStreamsPerKind, the cap on the probe
 // summary catalog stores (MediaInfo.Audio and .Subtitles, MaxItems=64).
-// The TranscodeJob controller plans from that summary and the worker from a
+// The transcode planner plans from that summary and the worker from a
 // live probe of every stream, so past the cap the two would plan different
 // streams, and a summary at the cap cannot say whether any were cut. A
 // count of MaxStreamsPerKind or more reads the same in both -- the summary
@@ -70,11 +70,9 @@ func EightBitTarget(v VideoStream) bool {
 	return hdrClass(v.HDR.Format) == hdrNone && v.Height > 0 && v.Height <= 1080
 }
 
-// Progress mirrors TranscodeJobStatus.Progress's scaled-int fields exactly
-// -- FPSMilli, SpeedMilli, OutTimeMillis, Percent, BitrateKbps -- so a
-// progress sample copies straight into the CRD status without a float
-// anywhere in between. OutputBytes has no status field; it feeds the 1 Hz
-// schema.TranscodeProgress telemetry.
+// Progress is an encode's progress in scaled ints -- FPSMilli, SpeedMilli,
+// OutTimeMillis, Percent, BitrateKbps, OutputBytes -- with no float anywhere
+// (CLAUDE.md); it feeds the 1 Hz schema.TranscodeProgress telemetry.
 type Progress struct {
 	Frame         int64
 	FPSMilli      int32

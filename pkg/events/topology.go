@@ -728,12 +728,9 @@ func Default() Topology {
 		Consumers:    withDeadLetterWatchers(append(defaultConsumers(), probeConsumers()...)),
 		Buckets:      append(append(defaultBuckets(), probeBucket()), recordBuckets()...),
 		ObjectStores: defaultObjectStores(),
-		Retired: []RetiredConsumer{
-			// loop spec §4.12: segment results are clustarr-segments records
-			// cmd/markers writes by CAS; the consumer that applied them is
-			// gone. Ensure deletes the durable and purges what it left.
-			{Stream: StreamWorkMarkers, Durable: ConsumerCatalogSegmentsResult, Purge: FilterCatalogSegmentsResult},
-		},
+		// Retired is empty: the one install that ran the previous release
+		// is cut over by docs/runbooks/unify-cold-cutover.md, which deletes
+		// its old durables and streams.
 	})
 }
 

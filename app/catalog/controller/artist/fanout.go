@@ -307,9 +307,9 @@ type DesiredAlbum struct {
 }
 
 // AlbumName renders "<artist>-<releasegroup-uid8>" per design §4.2.
-// k8s.HashSuffixLength (the §5 Download/TranscodeJob-general convention) is
-// ten hex characters; Album follows the spec's own literal eight-character
-// form instead (matching §4.2's other explicit truncation, TranscodeJob's
+// k8s.HashSuffixLength (the §5 general convention) is ten hex characters;
+// Album follows the spec's own literal eight-character form instead
+// (matching §4.2's other explicit truncation, the design of record's
 // "<mediafile>-<profileHash[:8]>"), so this slices k8s.HashSuffix's ten hex
 // characters down to eight rather than adding a second hashing primitive to
 // pkg/k8s for one caller.

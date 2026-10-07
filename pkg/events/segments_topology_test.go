@@ -38,7 +38,6 @@ func TestSegmentsTopology(t *testing.T) {
 	}{
 		{ConsumerCatalogSegmentsPlan, FilterCatalogSegmentsPlan, 8},
 		{ConsumerMarkersAnalyze, FilterCatalogSegmentsAnalyze, 4},
-		{ConsumerCatalogSegmentsResult, FilterCatalogSegmentsResult, 32},
 	} {
 		spec, ok := top.Consumer(c.name)
 		require.True(t, ok, c.name)

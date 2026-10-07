@@ -134,7 +134,7 @@ func RegisterIndexes(ctx context.Context, idx client.FieldIndexer) error {
 // §3.12; S2, S9, S10): every watch that wakes a Movie except its files',
 // which the loop's file signature (S1') wakes it for -- its file's graft
 // block included (loop spec §2.14: status.audio.graft reads the file's
-// status.graft, not an AudioGraft).
+// status.graft).
 func (r *Reconciler) Watches() []rollup.Watch {
 	return []rollup.Watch{
 		{Object: &catalogv1alpha1.Movie{}, Map: rollup.Self, Predicates: []predicate.Predicate{moviePredicate()}},

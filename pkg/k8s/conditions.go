@@ -72,7 +72,7 @@ const (
 	ReasonTerminating = "Terminating"
 
 	// ReasonSucceeded is the terminal success reason for one-shot kinds
-	// (Search, TranscodeJob, SubtitleRequest).
+	// (Search).
 	ReasonSucceeded = "Succeeded"
 
 	// ReasonFailed is the terminal failure reason for one-shot kinds.

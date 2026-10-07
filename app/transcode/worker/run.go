@@ -78,8 +78,8 @@ func ContextWithTraceParent(ctx context.Context, traceparent string) context.Con
 }
 
 // TraceParent renders ctx's span context as a W3C traceparent, "" when ctx
-// carries none. The TranscodeJob controller stamps it on each Job it creates
-// as [TraceParentEnv].
+// carries none. The pool Job's renderer stamps it on each Job it creates as
+// [TraceParentEnv].
 func TraceParent(ctx context.Context) string {
 	carrier := propagation.MapCarrier{}
 	propagation.TraceContext{}.Inject(ctx, carrier)

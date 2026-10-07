@@ -31,10 +31,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // silence. There is no loud failure waiting to catch a mistake here. The
 // declaration below is the only thing enforcing it.
 //
-// TranscodeJob.status has no writer any more: a file's transcode is its
-// MediaFile's status.transcode, which the remediation loop alone writes
-// (ADR-0016, loop spec §5.14). The TranscodeJob kind stays installed until
-// the folded-kinds removal, with nothing reading or writing it.
+// A file's transcode is its MediaFile's status.transcode, which the
+// remediation loop alone writes (ADR-0016, loop spec §5.14).
 //
 // # TranscodeProfile has one writer
 //

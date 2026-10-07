@@ -42,7 +42,8 @@ const (
 )
 
 // Next is the next step for an answered dispatch (spec §18.3): the
-// next-step table's answer, re-typed from the TranscodeJob controller's.
+// next-step table's answer, re-typed from the controller that kept it
+// before ADR-0016.
 type Next struct {
 	Phase       catalogv1alpha1.TranscodePhase
 	Reason      string

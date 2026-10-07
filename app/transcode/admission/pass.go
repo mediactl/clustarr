@@ -295,7 +295,7 @@ func (l *Ledger) metricsLocked(profiles map[string]ProfileView, now time.Time) {
 	}
 	for class, n := range active {
 		if class != "" {
-			metrics.TranscodeJobsActive.WithLabelValues(class).Set(float64(n))
+			metrics.TranscodesActive.WithLabelValues(class).Set(float64(n))
 		}
 	}
 	for name := range profiles {

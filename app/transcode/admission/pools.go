@@ -35,8 +35,8 @@ const HeldPrefix = "waiting for pool "
 // PoolState is what the ledger keeps of one pool between passes: the time
 // its pods became unschedulable is marked until, the recreation backoff of
 // a Failed pool, and the recreate mark of a pool the apiserver will not
-// change (the TranscodeJob controller's recreate, poolBackoff and
-// unschedulable maps). Only admission and the slim TranscodeProfile
+// change (the recreate, poolBackoff and unschedulable maps a controller kept
+// before ADR-0016). Only admission and the slim TranscodeProfile
 // reconciler touch it.
 type PoolState struct {
 	UnschedulableUntil     time.Time
@@ -128,8 +128,8 @@ func (l *Ledger) unschedulableLocked(now time.Time) func(profile string) map[tra
 }
 
 // Holding is the set of pools admission dispatches nothing new to in this
-// pass, each with the message its held files carry (the TranscodeJob
-// controller's holding, re-typed): stored is every pool Job by name, as the
+// pass, each with the message its held files carry (the holding a
+// controller kept before ADR-0016, re-typed): stored is every pool Job by name, as the
 // cache holds them; cfg the deployment-level half of every pool. A pool is
 // held while its template drifted and its pods may still run (it must drain
 // first), while it failed or waits out its recreation backoff, and while

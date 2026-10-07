@@ -83,10 +83,10 @@ func keptOutputName(base string) (stem, profile string, ok bool) {
 	return stem, profile, true
 }
 
-// keptOutput decides a media file that no Succeeded TranscodeJob names but
-// that may still be transcode's replaceSource=false output: its job can be
-// gone (deleted by hand, or garbage-collected with its owner) while the
-// derived copy stays beside the kept source for good. Adopting it would
+// keptOutput decides a media file that no file's status.transcode.result
+// names but that may still be transcode's replaceSource=false output: the
+// record of it can be gone (a later transcode moved on) while the derived
+// copy stays beside the kept source for good. Adopting it would
 // record a second file for the item, which catalog deliberately never
 // does (its swapTarget: the copy is a version a media server shows, not the
 // catalog's file).
@@ -101,7 +101,7 @@ func keptOutputName(base string) (stem, profile string, ok bool) {
 //     a version of, and the file is the item's own, adopted as usual;
 //   - transcode's record says it wrote that profile's output: the kept
 //     source's status.transcode.profileTag names the profile (catalog
-//     sets it when it incorporates a kept job), or, when that record has
+//     sets it when it incorporates a kept output), or, when that record has
 //     moved on (a later transcode of the source by another profile), the
 //     file's own CLUSTARR_PROFILE tag names it. The probe runs only then,
 //     so an ordinary rescan of a library of kept copies probes nothing;
@@ -110,12 +110,12 @@ func keptOutputName(base string) (stem, profile string, ok bool) {
 //     attributed.
 //
 // A recognised output is reported with its relation and the profile, as one
-// a TranscodeJob names is, and the manager's scan applier leaves it alone,
+// a status.transcode.result names is, and the manager's scan applier leaves it alone,
 // counting it in Progress.TranscodeOutputs. A file that passes the first two and
 // cannot be probed is reported unmatched ([CodeUnconfirmedTranscodeOutput])
 // rather than guessed at either way. An output given an explicit
-// spec.outputPath follows no naming convention, so it is recognised only
-// while its TranscodeJob exists.
+// output path follows no naming convention, so it is recognised only while
+// its file's status.transcode.result names it.
 func (w *Worker) keptOutput(ctx context.Context, st *scanState, path string, info os.FileInfo, probe *fileProbe) (skip bool, err error) {
 	if k := st.root.Spec.Kind; k != catalogv1alpha1.RootFolderKindMovie && k != catalogv1alpha1.RootFolderKindSeries {
 		return false, nil

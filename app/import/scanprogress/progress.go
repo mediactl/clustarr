@@ -162,10 +162,10 @@ type Progress struct {
 	Deferred int64 `json:"deferred,omitempty"`
 
 	// TranscodeOutputs counts files transcode wrote that no MediaFile
-	// records: a container change's new file, named by its Succeeded
-	// TranscodeJob, before catalog moves spec.path to it; or a
-	// replaceSource=false output kept beside its source, named by its job
-	// or, once the job is gone, recognised by its name and tag (keptOutput).
+	// records: a container change's new file, named by its file's
+	// status.transcode.result, before the loop moves spec.path to it; or a
+	// replaceSource=false output kept beside its source, recognised by its
+	// name and tag (keptOutput).
 	// They belong to the item whose file was transcoded; adopting one would
 	// make a duplicate or an unmatched entry.
 	TranscodeOutputs int64 `json:"transcodeOutputs,omitempty"`

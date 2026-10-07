@@ -23,7 +23,7 @@ func TestFieldManagersAreTheOnesTheSpecLists(t *testing.T) {
 	want := []string{
 		"catalog", "catalog-series", "catalog-worker",
 		"catalog-metadata", "catalog-grab", "catalog-fanout",
-		"catalog-artwork", "catalog-markers", "catalog-classify",
+		"catalog-artwork", "catalog-classify",
 		"import", "import-worker",
 		"index",
 		"index-worker", "grab", "grab-engine",

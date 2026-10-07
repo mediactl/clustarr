@@ -345,7 +345,7 @@ func (s *Stage) donorWant(ctx context.Context, item client.Object, entries []cat
 		return nil, nil
 	}
 	// The donors a graft of the item already failed with are the item's own
-	// (loop spec §2.14), not an AudioGraft's.
+	// (loop spec §2.14), in its status.audio.
 	want := &schema.DonorWant{
 		Languages: append([]string(nil), audio.Missing...), Anchor: anchor,
 		Rejected: slices.Clone(audio.RejectedReleases),

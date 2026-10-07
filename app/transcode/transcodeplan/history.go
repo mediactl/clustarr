@@ -34,7 +34,7 @@ type HistoryEvent struct {
 
 // Terminal is a dispatch that just became terminal after running: the R9
 // transcode metrics are observed once, on the apply that makes it so
-// (§5.16; the TranscodeJob controller's observeFinished, re-typed).
+// (§5.16; the observeFinished a controller ran before ADR-0016, re-typed).
 type Terminal struct {
 	Class      string
 	Succeeded  bool

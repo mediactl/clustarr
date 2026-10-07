@@ -30,7 +30,7 @@ import (
 // SetControllerReference makes owner the controlling owner of controlled, so
 // that deleting the owner garbage-collects it and an Owns() watch maps it back.
 // This is how Series owns Episodes, Comic owns Issues, DownloadClient owns its
-// engine StatefulSet and TranscodeJob owns its batch Job (§6).
+// engine StatefulSet and a TranscodeProfile owns its pool Jobs (§6).
 //
 // It fails if controlled already has a different controller, which is the
 // check that catches two reconcilers claiming the same child.

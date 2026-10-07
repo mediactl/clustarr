@@ -99,8 +99,8 @@ type colourTags struct{ primaries, transfer, space, rng string }
 // thing distribution produces.
 //
 // The source's own tags are deliberately not read. They are absent from
-// the probe summary MediaFile.status stores, which the TranscodeJob
-// controller plans from, so a renderer that read them would give the
+// the probe summary MediaFile.status stores, which the transcode planner
+// plans from, so a renderer that read them would give the
 // controller's status.plan and the worker's argv different HDR arguments
 // for the same file (gap-fix item "the HDR arguments it renders into
 // status.plan may differ from the worker's"). Keying them on the HDR
@@ -217,8 +217,8 @@ type MediaInfo struct {
 
 // FromSummary builds Plan's input model from the probe summary alone --
 // the api/common/v1alpha1.MediaInfo that MediaFile.status.mediaInfo stores
-// -- for the file at path. It is what the TranscodeJob controller plans
-// from (it does not mount /data, so it cannot probe; Phase E ruling R3).
+// -- for the file at path. It is what the transcode planner plans from (the
+// manager does not mount /data, so it cannot probe; Phase E ruling R3).
 //
 // Everything Plan's DECISION and every argument Args renders is derivable
 // from the summary, so a plan made here renders the same argv as one made

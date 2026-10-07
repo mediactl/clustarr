@@ -956,7 +956,7 @@ func testMaxInFlightConcurrency(t *testing.T, newBus func() events.Bus) {
 	for i := range published {
 		if _, err := bus.Publish(ctx, events.WorkFetchSubject(events.PriorityNormal,
 			fmt.Sprintf("req-%d", i), "en"),
-			envelope(fmt.Sprintf("conc-%d", i), "subtitle.FetchTask.v1", i)); err != nil {
+			envelope(fmt.Sprintf("conc-%d", i), "subtitle.FetchTask.v2", i)); err != nil {
 			t.Fatalf("Publish %d: %v", i, err)
 		}
 	}
@@ -1073,7 +1073,7 @@ func testAckRemoves(t *testing.T, newBus func() events.Bus) {
 		subject := events.WorkFetchSubject(events.PriorityNormal,
 			fmt.Sprintf("req-%d", i), "en")
 		if _, err := bus.Publish(ctx, subject,
-			envelope(fmt.Sprintf("fetch-%d", i), "subtitle.FetchTask.v1",
+			envelope(fmt.Sprintf("fetch-%d", i), "subtitle.FetchTask.v2",
 				map[string]int{"i": i})); err != nil {
 			t.Fatalf("Publish %d: %v", i, err)
 		}

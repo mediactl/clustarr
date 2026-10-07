@@ -26,10 +26,6 @@ import (
 // SubtitleEventType is the Clustarr-Type header of every subtitle event.
 const SubtitleEventType = "subtitle.SubtitleEvent"
 
-// SubtitleEventV1Schema names the SubtitleRequest-keyed event the fold
-// retires; its dead letters resolve to their namespace.
-const SubtitleEventV1Schema = "subtitle.SubtitleEvent.v1"
-
 // SubtitleEvent reports a subtitle being downloaded, upgraded or failing
 // (loop spec §6.7.4). Subject:
 // clustarr.evt.subtitle.subtitle.<downloaded|upgraded|failed>.<mediafile-uid>.
@@ -75,10 +71,6 @@ func (SubtitleEvent) Schema() string { return "subtitle.SubtitleEvent.v2" }
 
 // FetchTaskType is the Clustarr-Type header of every fetch task.
 const FetchTaskType = "subtitle.FetchTask"
-
-// FetchTaskV1Schema names the SubtitleRequest-keyed task the fold retires;
-// the fetch worker acks one as stale (loop spec §6.7.2).
-const FetchTaskV1Schema = "subtitle.FetchTask.v1"
 
 // FetchTask asks a fetch worker to look for one language of one MediaFile
 // (loop spec §6.7.1). Subject:

@@ -47,7 +47,8 @@ func (l *Ledger) InFlightOrGranted(uid types.UID) bool {
 }
 
 // sweep runs at the first pass and with every resync (loop spec §5.6
-// "Sweep"; the TranscodeJob controller's, re-keyed on MediaFile UIDs): a
+// "Sweep"; the sweep a controller ran before ADR-0016, re-keyed on
+// MediaFile UIDs): a
 // stored task whose last token is a UID no cached MediaFile has is the task
 // of a file deleted while the manager was down, and is withdrawn with
 // WithdrawAll; a live file's task that is neither in flight nor granted is

@@ -47,7 +47,7 @@ const MaxStreamsPerKind = 64
 // MaxStreamToken and MaxStreamTitle are the MaxLengths loop spec §2.11.2
 // gives MediaInfo's container, codec, profile, pixel format and language
 // names, and its stream titles. The apiserver refuses a status apply carrying
-// a longer value WHOLE, on MediaFile and on TranscodeJob's result alike, so
+// a longer value WHOLE, on MediaFile and anywhere else a MediaInfo is, so
 // toMediaInfo cuts one on a rune boundary. A stored status holds no such
 // value (it could not have been applied), so this does not raise
 // ProbeVersion.

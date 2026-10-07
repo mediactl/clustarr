@@ -349,8 +349,8 @@ func partPath(out string, c transcode.Container) string {
 func (r *runner) encodeFFgo(ctx context.Context, plan standard.Result, tier transcode.Tier, local, part string, durationMillis int64,
 	graft *joinedGraft,
 ) error {
-	metrics.TranscodeJobsActive.WithLabelValues(r.tier).Inc()
-	defer metrics.TranscodeJobsActive.WithLabelValues(r.tier).Dec()
+	metrics.TranscodesActive.WithLabelValues(r.tier).Inc()
+	defer metrics.TranscodesActive.WithLabelValues(r.tier).Dec()
 	r.started = r.o.Now()
 
 	var pod *schema.Ref

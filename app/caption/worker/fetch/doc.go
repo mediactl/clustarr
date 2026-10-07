@@ -29,24 +29,23 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Movie, Episode, Series or RootFolder (§6.2 decision 8). In order
 // (§6.7.2):
 //
-//  1. A v1 task names a SubtitleRequest: acked, the loop re-plans.
-//  2. The record in clustarr-subtitles supersedes the task (a newer
+//  1. The record in clustarr-subtitles supersedes the task (a newer
 //     request, a withdrawal or an answer at its Seq): acked unworked.
-//  3. The SubtitleProfile, from the cache: gone, or the language gone, or
+//  2. The SubtitleProfile, from the cache: gone, or the language gone, or
 //     a newer generation answers dropped; an older one is the cache lagging
 //     and retries in 30 s; filters that do not compile answer failed.
-//  4. A path off the /data volume is poison.
-//  5. Stat and probe hash: a changed file answers dropped; a failed stat
+//  3. A path off the /data volume is poison.
+//  4. Stat and probe hash: a changed file answers dropped; a failed stat
 //     retries in 5 m and answers failed on the last delivery.
-//  6. The query is the task's plus the size, the moviehash and the parsed
+//  5. The query is the task's plus the size, the moviehash and the parsed
 //     release.
-//  7. The namespace's providers are pooled the way Bazarr does
+//  6. The namespace's providers are pooled the way Bazarr does
 //     ([Worker.search]): every eligible provider searched, each skipping an
 //     active throttle window and taking a token from its shared bucket
 //     (app/caption/throttle) first, candidates scored and ranked together,
 //     the best downloaded with fall-through. Local providers (embedded, for
 //     the task's Extract streams) go first.
-//  8. The winner is post-processed, the video re-stated (a moved or
+//  7. The winner is post-processed, the video re-stated (a moved or
 //     replaced video answers dropped), and the sidecar written atomically
 //     next to it under pkg/subtitles.SidecarName with the task's mode.
 //

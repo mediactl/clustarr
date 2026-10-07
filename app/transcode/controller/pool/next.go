@@ -41,7 +41,7 @@ const (
 )
 
 // Next decides one admission pass for one pool. dispatched counts the pool's
-// Queued and Running TranscodeJobs; admission never dispatches past the
+// files whose status.transcode is Queued or Running; admission never dispatches past the
 // class's slots or the profile's maxConcurrent, so it is already the size.
 func Next(stored *batchv1.Job, dispatched int32, drift Drift) (Desired, Action) {
 	if stored == nil {

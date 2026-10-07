@@ -57,7 +57,7 @@ func pullBus(t *testing.T, bus events.Bus) (events.PullSubscriber, events.Stream
 func publishTask(ctx context.Context, t *testing.T, bus events.Bus, profile, job string) {
 	t.Helper()
 	subj := events.WorkTranscodeTaskSubject(profile, "cpu", job)
-	if _, err := bus.Publish(ctx, subj, envelope(job, "transcode.Task.v1", job)); err != nil {
+	if _, err := bus.Publish(ctx, subj, envelope(job, "transcode.Task.v2", job)); err != nil {
 		t.Fatalf("Publish %s: %v", subj, err)
 	}
 }

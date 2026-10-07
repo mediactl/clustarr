@@ -17,9 +17,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 // Package status is the single place caption declares what its field
 // manager owns on the two subtitle.clustarr.io kinds it still writes:
-// SubtitleProfile and SubtitleProvider. (SubtitleRequest and its two-manager
-// split are gone: a file's subtitles are MediaFile status.subtitles, written
-// by the remediation loop, loop spec §6.11.)
+// SubtitleProfile and SubtitleProvider. (A file's subtitles are MediaFile
+// status.subtitles, written by the remediation loop since ADR-0016, loop
+// spec §6.11.)
 //
 // SubtitleProfile and SubtitleProvider have one writer each -- the profile
 // and provider reconcilers, both k8s.ManagerCaption -- and are declared

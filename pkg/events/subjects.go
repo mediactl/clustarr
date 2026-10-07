@@ -111,11 +111,9 @@ const (
 	FilterCatalogArtworkFetch = "clustarr.work.catalog.artwork.fetch.>"
 	FilterCatalogMarkers      = "clustarr.work.markers.markers.>"
 	// Segment detection (spec 2026-10-01): a season's or a movie's plan and
-	// the analysis task the worker takes. FilterCatalogSegmentsResult is the
-	// retired results durable's, purged by Topology.Retired until F9.4.
+	// the analysis task the worker takes.
 	FilterCatalogSegmentsPlan    = "clustarr.work.markers.plan.>"
 	FilterCatalogSegmentsAnalyze = "clustarr.work.markers.analyze.>"
-	FilterCatalogSegmentsResult  = "clustarr.work.markers.result.>"
 	FilterCatalogArtworkRender   = "clustarr.work.catalog.artwork.render.>"
 	// FilterImportRecycle is the recycle-bin sweep the manager queues
 	// (spec 2026-10-06 §3.5.3). It lies inside FilterWorkImport, so the
@@ -142,11 +140,9 @@ const (
 	ConsumerCatalogArtworkRender = "catalog-artwork-render"
 	ConsumerCatalogMarkers       = "catalog-markers"
 	// ConsumerCatalogSegmentsPlan is catalog's; ConsumerMarkersAnalyze
-	// is markers-worker's. ConsumerCatalogSegmentsResult is retired
-	// (loop spec §4.12): Topology.Retired names it until F9.4.
-	ConsumerCatalogSegmentsPlan   = "catalog-segments-plan"
-	ConsumerMarkersAnalyze        = "markers-analyze"
-	ConsumerCatalogSegmentsResult = "catalog-segments-result"
+	// is markers-worker's.
+	ConsumerCatalogSegmentsPlan = "catalog-segments-plan"
+	ConsumerMarkersAnalyze      = "markers-analyze"
 )
 
 // Key/value bucket names. NATS bucket names may not contain dots.
@@ -355,15 +351,18 @@ func DownloadEventSubject(action, uid string) string {
 	return fmt.Sprintf("clustarr.evt.download.download.%s.%s", tok(action), tok(uid))
 }
 
-// TranscodeJobSubject builds clustarr.evt.transcode.job.<action>.<uid>.
-func TranscodeJobSubject(action, uid string) string {
-	return fmt.Sprintf("clustarr.evt.transcode.job.%s.%s", tok(action), tok(uid))
+// TranscodeEventSubject builds
+// clustarr.evt.transcode.job.<action>.<mediafile-uid>, where the remediation
+// loop publishes a file's transcode history (loop spec §5.16). The subject
+// keeps its "job" token, so history consumers are unchanged (R7).
+func TranscodeEventSubject(action, mediaFileUID string) string {
+	return fmt.Sprintf("clustarr.evt.transcode.job.%s.%s", tok(action), tok(mediaFileUID))
 }
 
 // SubtitleEventSubject builds
-// clustarr.evt.subtitle.subtitle.<action>.<request-uid>.
-func SubtitleEventSubject(action, requestUID string) string {
-	return fmt.Sprintf("clustarr.evt.subtitle.subtitle.%s.%s", tok(action), tok(requestUID))
+// clustarr.evt.subtitle.subtitle.<action>.<mediafile-uid>.
+func SubtitleEventSubject(action, mediaFileUID string) string {
+	return fmt.Sprintf("clustarr.evt.subtitle.subtitle.%s.%s", tok(action), tok(mediaFileUID))
 }
 
 // WorkSearchSubject builds
@@ -537,11 +536,6 @@ func ProgressDownloadSubject(uid string) string {
 	return "clustarr.progress.download." + tok(uid)
 }
 
-// ProgressTranscodeSubject builds clustarr.progress.transcode.<uid>.
-func ProgressTranscodeSubject(uid string) string {
-	return "clustarr.progress.transcode." + tok(uid)
-}
-
 // DLQSubject builds clustarr.dlq.<service>.<task>.<id>.
 func DLQSubject(service, task, id string) string {
 	return fmt.Sprintf("clustarr.dlq.%s.%s.%s", tok(service), tok(task), tok(id))
@@ -594,8 +588,8 @@ const TranscodeLeaseTTL = 90 * time.Second
 // MediaFile's transcode dispatch for the pool of its profile and hardware
 // class (loop spec §4.12): the profile's UID, the class, and the MediaFile's
 // UID. Profile and file are UIDs because a profile name may contain ".".
-func WorkTranscodeTaskSubject(profileUID, class, fileUID string) string {
-	return fmt.Sprintf("clustarr.work.transcode.task.%s.%s.%s", tok(profileUID), tok(class), tok(fileUID))
+func WorkTranscodeTaskSubject(profileUID, class, mediaFileUID string) string {
+	return fmt.Sprintf("clustarr.work.transcode.task.%s.%s.%s", tok(profileUID), tok(class), tok(mediaFileUID))
 }
 
 // WorkTranscodeTaskSubjectAnyPool is a MediaFile's task subject with
@@ -604,8 +598,8 @@ func WorkTranscodeTaskSubject(profileUID, class, fileUID string) string {
 // most one live seq). Withdrawal purges with it (loop spec §5.10), and the
 // lost-worker check asks whether a task is still stored with it (§5.9). It
 // is for PurgeSubject and Subjects.
-func WorkTranscodeTaskSubjectAnyPool(fileUID string) string {
-	return "clustarr.work.transcode.task.*.*." + tok(fileUID)
+func WorkTranscodeTaskSubjectAnyPool(mediaFileUID string) string {
+	return "clustarr.work.transcode.task.*.*." + tok(mediaFileUID)
 }
 
 // FilterTranscodeTasks is one pool's share of CLUSTARR_WORK_TRANSCODE.
@@ -623,8 +617,8 @@ func TranscodeTaskConsumerName(profileUID, class string) string {
 }
 
 // TranscodeLeaseKey is a MediaFile's transcode lease in
-// clustarr-transcode-leases.
-func TranscodeLeaseKey(fileUID string) string { return "lease." + KVKeyToken(fileUID) }
+// clustarr-transcode-leases (loop spec §4.12).
+func TranscodeLeaseKey(mediaFileUID string) string { return "lease." + KVKeyToken(mediaFileUID) }
 
 // MsgIDForTranscodeTask is a transcode dispatch's Msg-Id,
 // "transcode/<mfUID>/<seq>" (loop spec §5.3): a republish of one seq inside

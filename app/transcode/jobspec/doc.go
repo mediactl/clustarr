@@ -17,7 +17,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 // Package jobspec is what the transcode reconcilers and the transcode
 // worker must agree on about a job without either linking the other:
-// the task a TranscodeJob dispatches (BuildTask), the output and data
+// the task a file's transcode dispatches (BuildTask), the output and data
 // paths, the profile's hash, hardware and policy accessors, the
 // standard's inputs and tier, the CPU-limit environment variable, and the
 // worker's process exit codes. It links no ffgo and runs nothing (spec

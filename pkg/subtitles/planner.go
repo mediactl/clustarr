@@ -64,8 +64,8 @@ type Profile struct {
 // Existing is one subtitle already present for the media file — an embedded
 // stream or a parsed sidecar — reduced to the (language, forced, hi)
 // identity the missing-subtitle computation compares (research note §2.2's
-// Language.__eq__). Building the list is the caller's job: caption's
-// SubtitleRequest controller calls ParseSidecar over the media file's
+// Language.__eq__). Building the list is the caller's job: the remediation
+// loop's subtitles planner calls ParseSidecar over the media file's
 // directory for the sidecar half and derives the embedded half itself from
 // the probed MediaInfo (api/common/v1alpha1.MediaInfo.Subtitles), honouring
 // the profile's embedded policy (ignorePGS/ignoreVobSub/ignoreASS,
@@ -98,7 +98,7 @@ func existingTriple(e Existing) (langTriple, bool) {
 }
 
 // Plan is Bazarr's missing-subtitle computation (research note §2.2,
-// design spec §6.5's "subtitlerequest" clause), over this package's own
+// design spec §6.5's per-file subtitles clause), over this package's own
 // plain types: wanted is profile's languages minus existing, honouring
 // audioExclude/audioOnlyInclude against audioLangs (the file's audio-track
 // languages), the forced/HI identity of each entry, and the cutoff. Once

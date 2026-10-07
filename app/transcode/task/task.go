@@ -19,9 +19,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // pools (spec §6, §17.5, §18.1; loop spec §4.12): the Task the remediation
 // loop publishes for one MediaFile's dispatch, the Lease a worker holds in
 // clustarr-transcode-leases, and the Record a worker answers through in
-// clustarr-transcodes. It imports no Kubernetes client. [TaskV1Schema] names
-// the TranscodeJob-keyed task the fold retired, which a worker acks unread
-// (until F9.4 removes the stale-ack branch).
+// clustarr-transcodes. It imports no Kubernetes client. A task of an older
+// schema fails to decode and is dead-lettered like any undecodable payload.
 package task
 
 import (
@@ -100,11 +99,6 @@ type Lease struct {
 
 // Schema implements schema.Payload.
 func (Lease) Schema() string { return "transcode.Lease.v2" }
-
-// TaskV1Schema names the TranscodeJob-keyed task (one dispatch of one
-// TranscodeJob) the fold retired: nothing publishes one, and a worker acks a
-// leftover delivery unread (loop spec §4.12; F9.4 deletes the branch).
-const TaskV1Schema = "transcode.Task.v1"
 
 // EngineFFgo is the engine every task runs on, in-process. (status.plan's
 // engine enum still admits "ffmpeg": a plan recorded by the deleted argv

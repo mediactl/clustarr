@@ -67,7 +67,7 @@ type Applier struct {
 	// Client writes: MediaFile spec and annotation, items, deletes, the
 	// re-observing LibraryScan.
 	Client client.Client
-	// Reader is the manager's cache: root folders, items, TranscodeJobs.
+	// Reader is the manager's cache: root folders, items, media files.
 	Reader client.Reader
 	// APIReader reads straight from the apiserver immediately before a
 	// write decided on it (CLAUDE.md's lost-update rule): the MediaFile a

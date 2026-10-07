@@ -51,7 +51,7 @@ func StandardTier(hw transcode.Hardware) transcode.Tier {
 
 // CPULimitEnv carries x265's pools= size (§6.4): x265 otherwise sizes its
 // pool from the host's CPU count, not the cgroup quota (note §3.7). The
-// TranscodeJob controller wires it from the Downward API's limits.cpu when
+// pool Job's renderer wires it from the Downward API's limits.cpu when
 // the Job's container has a CPU limit, and otherwise writes the stated
 // default it planned with (its threadsFromResources) as a literal, because
 // the Downward API would then report the node's CPUs.

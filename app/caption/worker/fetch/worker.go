@@ -187,10 +187,6 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 	ctx = tracing.Extract(ctx, env)
 	ctx, span := tracing.Start(ctx, "fetch.Worker.Handle")
 	defer span.End()
-	if env != nil && env.Schema == schema.FetchTaskV1Schema {
-		logging.FromContext(ctx).Info("fetch: a v1 task names a SubtitleRequest; the loop re-plans", "key", env.Key)
-		return nil
-	}
 	t, err := decodeTask(env)
 	if err != nil {
 		tracing.RecordError(span, err)

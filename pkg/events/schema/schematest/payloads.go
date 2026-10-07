@@ -55,7 +55,6 @@ func Payloads() []schema.Payload {
 		schema.DownloadEvent{},
 		schema.DownloadProgress{},
 		schema.JobEvent{},
-		schema.JobEventV1{},
 		schema.TranscodeProgress{},
 		schema.SubtitleEvent{},
 		schema.FetchTask{},

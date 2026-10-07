@@ -32,10 +32,11 @@ import (
 	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
 
-// ProfileHardware is the class a profile's job plans for: the job's
-// spec.hardware when it pins one, else the profile's; auto or gpu with no
-// class chosen yet plans for the CPU. The TranscodeJob controller and the worker
-// both ask here, so their plans hash alike.
+// ProfileHardware is the class a profile's transcode plans for: the
+// dispatch's class (or the file's transcode.clustarr.io/hardware) when it
+// pins one, else the profile's; auto or gpu with no class chosen yet plans
+// for the CPU. The transcode planner and the worker both ask here, so their
+// plans hash alike.
 func ProfileHardware(spec transcodev1alpha1.TranscodeProfileSpec, hardware *transcodev1alpha1.Hardware) transcode.Hardware {
 	hw := spec.Hardware
 	choose := func(h transcodev1alpha1.Hardware) bool {
@@ -80,7 +81,7 @@ func ProfileHash(spec transcodev1alpha1.TranscodeProfileSpec) string {
 // replaceSource/recycleBin decide where a transcode runs and what happens
 // to the source, never whether or what it writes, so they do not reach it.
 //
-// The hash names each TranscodeJob and is the CLUSTARR_PROFILE tag, but a
+// The hash is in each file's status.transcode and the CLUSTARR_PROFILE tag, but a
 // new one re-transcodes nothing: a file that carries any transcode tag, or
 // another tool's HEVC encode, is final (catalogv1alpha1.MediaFile.Transcoded).
 func ProfileHashAt(spec transcodev1alpha1.TranscodeProfileSpec, version int) string {

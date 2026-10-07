@@ -74,8 +74,8 @@ var apiKeyParam = regexp.MustCompile(`(api_key=)[^&\s"]+`)
 
 // redact strips the API key from s (Bazarr's _redact): SubDL takes the key
 // in the query string, so it is in every request URL, and Go's *url.Error
-// quotes the URL in its message -- which caption writes into a
-// SubtitleRequest's status.
+// quotes the URL in its message -- which ends up in a file's
+// status.subtitles.items[].lastError.
 func redact(s string) string { return apiKeyParam.ReplaceAllString(s, "${1}<redacted>") }
 
 // get performs one GET with the caller's limiter and maps the response per

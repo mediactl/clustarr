@@ -145,15 +145,6 @@ const (
 	// role's apply silently release the other's fields.
 	ManagerCatalogArtwork FieldManager = "catalog-artwork"
 
-	// ManagerCatalogMarkers is RETIRED (loop spec 2026-10-06 §2.12,
-	// §3.14): it was the metadata gateway's marker worker, the writer of
-	// MediaFile status.markers until the remediation loop took every status
-	// leaf under ManagerCatalog. No writer may use it; Validate still
-	// accepts it (RetiredFieldManagers) because release N's one release
-	// apply of every MediaFile's catalog-markers entry runs under it
-	// (§7.3.8, F8.4). F9.4 removes it.
-	ManagerCatalogMarkers FieldManager = "catalog-markers"
-
 	// ManagerCatalogClassify is the Series reconciler's one-time anime
 	// classification: it merge-patches spec.seriesType and
 	// spec.qualityProfileRef once, never again for that Series. Distinct
@@ -327,12 +318,10 @@ func FieldManagers() []FieldManager {
 }
 
 // RetiredFieldManagers are names no writer may use any more but Validate
-// still accepts: release N's one release apply of every MediaFile's
-// catalog-markers entry runs under it (loop spec §7.3.8, F8.4). F9.4 empties
-// the list. grab-engine went with the Download kind (ADR-0019 A9.1).
-func RetiredFieldManagers() []FieldManager {
-	return []FieldManager{ManagerCatalogMarkers}
-}
+// still accepts while a migration writes as them. There is none: the cold
+// cutover (docs/runbooks/unify-cold-cutover.md) cleans the old managers'
+// managedFields up by hand, so a retired name is deleted, not kept valid.
+func RetiredFieldManagers() []FieldManager { return nil }
 
 // String returns the manager name as the apiserver sees it.
 func (f FieldManager) String() string { return string(f) }

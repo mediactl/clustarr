@@ -149,7 +149,7 @@ func history(mf *catalogv1alpha1.MediaFile, b *catalogv1alpha1.TranscodeState, h
 	id := uid + "/transcode/" + strconv.FormatInt(h.Seq, 10) + "/" + h.Action
 	name, data, _ := schema.Encode(ev) // strings, ints and times: Encode cannot fail
 	return remediation.History{
-		Subject: events.TranscodeJobSubject(h.Action, uid), MsgID: id,
+		Subject: events.TranscodeEventSubject(h.Action, uid), MsgID: id,
 		Envelope: &events.Envelope{
 			ID: id, Type: "transcode.JobEvent", Schema: name, Source: "manager@" + version.String(),
 			Key: mf.Namespace + "/" + mf.Name, Time: now, Data: data,
