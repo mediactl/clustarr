@@ -724,6 +724,12 @@ func sidecarParts(path string) []string {
 func placeSidecars(ctx context.Context, plan standard.Result, part, out string) error {
 	for _, s := range plan.Sidecars {
 		from, to := fsops.SidecarPath(part, s.Suffix), fsops.SidecarPath(out, s.Suffix)
+		if st, err := os.Stat(from); err == nil && st.Size() == 0 {
+			// A track with no cues: nothing to place (final review I3).
+			logging.FromContext(ctx).InfoContext(ctx, "squasharr worker: a subtitle track had no cues; its sidecar is dropped", "sidecar", to)
+			_ = os.Remove(from)
+			continue
+		}
 		if _, err := os.Lstat(to); err == nil {
 			logging.FromContext(ctx).InfoContext(ctx, "squasharr worker: a sidecar already exists; keeping it", "sidecar", to)
 			_ = os.Remove(from)

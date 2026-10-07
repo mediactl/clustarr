@@ -133,6 +133,14 @@ func (r *runner) ffgoJob(ctx context.Context, info transcode.MediaInfo, sw swap,
 				"planHash", r.t.PlanHash, "localPlanHash", got)
 		}
 	}
+	// A task rendered for another container -- dispatched before the MP4
+	// standard, its output <stem>.mkv -- must not get MP4 under that name
+	// (final review I4): refused as retriable, so the dispatcher plans the
+	// job again under the standard it runs.
+	if want := "." + string(plan.Container); !strings.EqualFold(filepath.Ext(sw.localOut), want) {
+		return encodeJob{}, retriable("squasharr worker: the task's output %s is not the %s the standard writes "+
+			"(a task rendered under another container); the next dispatch plans it again", sw.out, plan.Container)
+	}
 	plan = withX265Pools(plan, r.o.Threads)
 	r.tier = string(tier)
 	part := uniquePartPath(partPath(sw.localOut, plan.Container), r.t.Job.UID, r.t.Attempt)
@@ -164,9 +172,11 @@ func (r *runner) ffgoJob(ctx context.Context, info transcode.MediaInfo, sw swap,
 				return rep, err
 			}
 			// The plan's sidecars are part of the output (MP4 standard §4.1).
+			// An empty one -- a track with no cues -- is not a fault: the
+			// placement drops it.
 			for _, s := range plan.Sidecars {
-				if st, err := os.Stat(fsops.SidecarPath(part, s.Suffix)); err != nil || st.Size() == 0 {
-					rep.Problems = append(rep.Problems, fmt.Sprintf("sidecar %s missing or empty", s.Suffix))
+				if _, err := os.Stat(fsops.SidecarPath(part, s.Suffix)); err != nil {
+					rep.Problems = append(rep.Problems, fmt.Sprintf("sidecar %s missing", s.Suffix))
 					rep.OK = false
 				}
 			}

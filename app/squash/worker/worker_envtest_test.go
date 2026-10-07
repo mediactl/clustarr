@@ -1301,3 +1301,60 @@ func TestARetryAfterPlacingTheSidecarsDoesNotDuplicateThem(t *testing.T) {
 	assert.Equal(t, "first attempt", string(b))
 	assert.Empty(t, f.partFiles(t))
 }
+
+// emptySidecarEngine writes every planned sidecar empty, as the engine
+// does for a subtitle track with no cues.
+type emptySidecarEngine struct{ fakeEngine }
+
+func (e emptySidecarEngine) Encode(ctx context.Context, plan standard.Result, tier transcode.Tier, input, output string,
+	progress func(transcode.Progress),
+) (string, error) {
+	if tail, err := e.fakeEngine.Encode(ctx, plan, tier, input, output, progress); err != nil {
+		return tail, err
+	}
+	for _, s := range plan.Sidecars {
+		if err := os.WriteFile(fsops.SidecarPath(output, s.Suffix), nil, 0o644); err != nil {
+			return "", err
+		}
+	}
+	return "", nil
+}
+
+// A subtitle track with no cues gives an empty sidecar: it is dropped, not
+// a failed transcode (final review I3: verify failed it, exit 4, and the
+// file was blocked for good).
+func TestAnEmptySidecarIsDroppedNotFailed(t *testing.T) {
+	c := requireCluster(t)
+	requireFFmpeg(t)
+	f := newFixtureWith(t, c, fixtureOptions{fileName: "Film.2020.1080p.mkv", writeSource: withASSAndForcedSRT})
+	out := f.processWith(t, c, f.withEngine(emptySidecarEngine{fakeEngine{report: &transcode.Report{OK: true}}}))
+	require.NoError(t, out.Err)
+	_, err := os.Stat(filepath.Join(filepath.Dir(f.local), "Film.2020.1080p.en.ass"))
+	assert.ErrorIs(t, err, os.ErrNotExist, "an empty sidecar never reaches the library")
+	assert.Empty(t, f.partFiles(t))
+}
+
+// A task rendered for another container -- queued before the MP4 standard,
+// its output <stem>.mkv -- is refused as retriable rather than writing MP4
+// under an .mkv name (final review I4); the dispatcher plans it again.
+func TestATaskForAnotherContainerIsRetried(t *testing.T) {
+	c := requireCluster(t)
+	requireFFmpeg(t)
+	f := newFixtureWith(t, c, fixtureOptions{fileName: "Film.2020.1080p.mkv"})
+	ctx := context.Background()
+	tj := f.get(t, c)
+	var tp transcodev1alpha1.TranscodeProfile
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: tj.Spec.ProfileRef}, &tp))
+	var mf catalogv1alpha1.MediaFile
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: tj.Namespace, Name: tj.Spec.MediaFileRef}, &mf))
+	var folders catalogv1alpha1.RootFolderList
+	require.NoError(t, c.List(ctx, &folders, client.InNamespace(tj.Namespace)))
+	tk, err := BuildTask(tj, &tp, &mf, folders.Items, 1, tp.Spec.Hardware)
+	require.NoError(t, err)
+	tk.OutputPath = f.logical // what a Version 1 dispatcher rendered: in place, .mkv
+	out := Process(ctx, tk, f.options())
+	require.Error(t, out.Err)
+	assert.Equal(t, ExitRetriable, out.Code)
+	assert.Contains(t, out.Err.Error(), "container")
+	f.requireSourceUntouched(t)
+}
