@@ -16,11 +16,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 // Package inprocess is the squasharr worker's in-process engine:
-// pkg/transcode/engine on ffgo, behind worker.Engine. Only
-// cmd/transcode imports it. The worker package never does, because
-// cmd/clustarr imports the worker package for planning, and ffgo loads
-// FFmpeg through purego, which makes the Go linker emit a dynamically
-// linked binary that the distroless controller image cannot start.
+// pkg/transcode/engine on ffgo, behind worker.Engine, probing through
+// pkg/mediainfo/native. Only cmd/transcode imports it. The worker package
+// never does: ffgo loads FFmpeg through purego, which makes the Go linker
+// emit a dynamically linked binary, so the worker's interfaces stay free of
+// it and the binary that supplies the engine chooses to link it.
 package inprocess
 
 import (
@@ -30,29 +30,25 @@ import (
 
 	"github.com/obinnaokechukwu/ffgo"
 
+	"github.com/mediactl/clustarr/pkg/mediainfo/native"
 	"github.com/mediactl/clustarr/pkg/transcode"
 	"github.com/mediactl/clustarr/pkg/transcode/engine"
 	"github.com/mediactl/clustarr/pkg/transcode/selfcheck"
 	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
 
-// Engine runs the standard's plans in-process.
-type Engine struct{}
+// Engine runs the standard's plans in-process; it probes through prober.
+type Engine struct{ prober *native.Prober }
 
-// New loads FFmpeg and checks it can run the engine: FFmpeg 9 with an ffgo
-// shim built for it, which the transcoder image carries. The
-// error names what is missing; the worker then runs no ffgo task.
+// New loads FFmpeg 9 and the shim (pkg/ffruntime, through native.New) and
+// builds the in-process prober. The error names what is missing; the worker
+// then runs no ffgo task.
 func New() (Engine, error) {
-	if err := ffgo.Init(); err != nil {
-		return Engine{}, fmt.Errorf("load FFmpeg: %w", err)
+	p, err := native.New()
+	if err != nil {
+		return Engine{}, err
 	}
-	if _, avc, _ := ffgo.Version(); avc>>16 != 63 {
-		return Engine{}, fmt.Errorf("libavcodec %d is not FFmpeg 9's (63)", avc>>16)
-	}
-	if d := ffgo.Diagnose(); !d.ShimLoaded {
-		return Engine{}, fmt.Errorf("no ffgo shim for FFmpeg 9 loaded: %s", d.ShimError)
-	}
-	return Engine{}, nil
+	return Engine{prober: p}, nil
 }
 
 // Encode runs plan from input to output on tier's device, calling progress

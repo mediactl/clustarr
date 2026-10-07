@@ -15,20 +15,9 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package inprocess
-
-import (
-	"context"
-	"errors"
-
-	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	"github.com/mediactl/clustarr/pkg/mediainfo"
-)
-
-// Probe reads path through the in-process prober (pkg/mediainfo/native).
-func (e Engine) Probe(ctx context.Context, path string) (*commonv1.MediaInfo, *mediainfo.Raw, error) {
-	if e.prober == nil {
-		return nil, nil, errors.New("inprocess: Engine{} has no prober: build it with New")
-	}
-	return e.prober.Probe(ctx, path)
-}
+// Package native is the in-process probe: what ffprobe printed for every
+// field clustarr stores, read through ffgo (spec 2026-10-06 §6). Only
+// app/import/agent and app/squash/worker/inprocess import it, so only
+// cmd/agent and cmd/transcode link it; it touches no FFmpeg log callback
+// (the binaries route it through pkg/ffruntime).
+package native
