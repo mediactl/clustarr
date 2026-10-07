@@ -102,7 +102,7 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 		"Most files per TranscodeProfile in a window phase (Pending, Planned, Queued, Running, Swapping); "+
 			"0 is unlimited.")
 	fs.IntVar(&d.GraftConcurrency, "graft-concurrency", d.GraftConcurrency,
-		"Most audio grafts (AudioGraft Jobs, each a CPU pod of a cpu pool's size) running at once.")
+		"Most standalone audio grafts (graft Jobs, each a CPU pod of a cpu pool's size) running at once per namespace: the admission ledger's graft slots.")
 
 	fs.StringVar(&d.CardigannDefinitionsDir, "cardigann-definitions-dir",
 		cli.EnvOr(cli.EnvCardigannDefinitionsDir, d.CardigannDefinitionsDir),

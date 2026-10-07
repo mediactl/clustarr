@@ -34,8 +34,8 @@ import (
 
 	"github.com/mediactl/clustarr/app/grab/controller/downloadclient"
 	"github.com/mediactl/clustarr/app/remediation"
-	"github.com/mediactl/clustarr/app/transcode/controller/audiograft"
 	"github.com/mediactl/clustarr/app/transcode/controller/pool"
+	"github.com/mediactl/clustarr/app/transcode/graftplan"
 	transcodemanager "github.com/mediactl/clustarr/app/transcode/manager"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -119,7 +119,7 @@ func DefaultOptions() Options {
 	o.Slots = transcodemanager.DefaultSlots()
 	o.NodeLabelNVIDIA, o.NodeLabelIntel = pool.DefaultNodeLabelNVIDIA, pool.DefaultNodeLabelIntel
 	o.JobWindow = transcodemanager.DefaultJobWindow
-	o.GraftConcurrency = audiograft.DefaultConcurrency
+	o.GraftConcurrency = graftplan.DefaultConcurrency
 	o.CardigannBundled = true
 	o.FacadeAPIKeySecret = DefaultFacadeAPIKeySecret
 	o.RemediationConcurrency = remediation.DefaultConcurrency

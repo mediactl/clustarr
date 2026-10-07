@@ -28,7 +28,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
-	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 )
 
 // AnnotationObservedFingerprint is how import's library rescan tells the
@@ -81,8 +80,5 @@ func SwapTarget(mf *catalogv1alpha1.MediaFile, t *catalogv1alpha1.TranscodeState
 // unchanged names: app/remediation.RegisterIndexes calls it, so the index
 // names and extractors live in one place.
 func RegisterIndexes(ctx context.Context, idx client.FieldIndexer) error {
-	if err := idx.IndexField(ctx, &transcodev1alpha1.AudioGraft{}, AudioGraftMediaFileRefIndex, indexAudioGraftByMediaFileRef); err != nil {
-		return err
-	}
 	return registerNamingIndexes(ctx, idx)
 }

@@ -165,12 +165,11 @@ func (r *runner) ffgoJob(ctx context.Context, info transcode.MediaInfo, sw swap,
 			// reads status.graft), so the transcode is never lost to it.
 			res := graft.engine.CheckGraft(ctx, graft.prepared, part, graft.index, graft.index+graft.prepared.Tracks())
 			if res.Phase != "" {
-				res.Graft = r.t.Graft.Graft
 				r.out.Graft = &res
 				return nil, fmt.Errorf("the grafted dub failed its check: %s", res.Message)
 			}
 			done := graft.prepared.Aligned()
-			done.Phase, done.Reason, done.Graft = grafttask.PhaseSucceeded, grafttask.ReasonGrafted, r.t.Graft.Graft
+			done.Phase, done.Reason = grafttask.PhaseSucceeded, grafttask.ReasonGrafted
 			r.out.Graft = &done
 			return rep, nil
 		},
@@ -195,7 +194,6 @@ func (r *runner) prepareGraft(ctx context.Context, local string, plan standard.R
 	ge, ok := r.o.Engine.(GraftEngine)
 	if !ok {
 		res := grafttask.Failed(grafttask.ReasonError, "this worker's engine cannot graft")
-		res.Graft = r.t.Graft.Graft
 		r.out.Graft = &res
 		return nil, plan
 	}
@@ -203,7 +201,6 @@ func (r *runner) prepareGraft(ctx context.Context, local string, plan standard.R
 	if prepared == nil {
 		logging.FromContext(ctx).InfoContext(ctx, "transcode worker: the joined graft is not grafted",
 			"reason", res.Reason, "message", res.Message)
-		res.Graft = r.t.Graft.Graft
 		r.out.Graft = &res
 		return nil, plan
 	}

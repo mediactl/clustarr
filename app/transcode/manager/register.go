@@ -18,11 +18,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Package manager is transcode's manager-side registration (spec §4.2.1;
 // loop spec §3.1 "Registration changes"): transcode-admission, the pools and
 // the slim TranscodeProfile reconciler, on the admission ledger the
-// remediation loop shares, plus (until F7.3) the AudioGraft controller, which
-// runs graft and donor-reduce Jobs on the cpu pool's pod template. A file's
-// transcode is its MediaFile's status.transcode, which the loop alone writes
-// (ADR-0016); nothing here reads or writes a TranscodeJob. The pool pods run
-// cmd/transcode.
+// remediation loop shares. A file's transcode is its MediaFile's
+// status.transcode and its audio graft its status.graft, which the loop
+// alone writes (ADR-0016): grafts are the loop's graft planner's
+// (app/remediation/graft), and GraftConcurrency sizes the admission
+// ledger's graft slots. The pool and graft pods run cmd/transcode.
 package manager
 
 import (
@@ -34,7 +34,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	"github.com/mediactl/clustarr/app/transcode/admission"
-	"github.com/mediactl/clustarr/app/transcode/controller/audiograft"
 	"github.com/mediactl/clustarr/app/transcode/controller/pool"
 	"github.com/mediactl/clustarr/app/transcode/controller/transcodeprofile"
 	"github.com/mediactl/clustarr/app/transcode/task"
@@ -55,7 +54,7 @@ type Options struct {
 	NodeLabelNVIDIA   string            // the label marking an NVIDIA node
 	NodeLabelIntel    string            // the label marking an Intel GPU node
 	JobWindow         int               // most files per profile in a window phase (--job-window, loop spec §5.11)
-	GraftConcurrency  int               // most audio grafts running at once (--graft-concurrency)
+	GraftConcurrency  int               // most standalone audio grafts running at once per namespace (--graft-concurrency): the ledger's graft slots
 	Ledger            *admission.Ledger // shared with the remediation loop (the manager command builds it once)
 	Logging           logging.Options   // rendered onto the pool workers' args
 	Tracing           tracing.Options   // likewise
@@ -70,9 +69,8 @@ func namespacesOf(o k8s.Options) []string {
 	return []string{o.Namespace}
 }
 
-// Register adds transcode-admission, the slim TranscodeProfile reconciler
-// (pools and status) and, until F7.3, the AudioGraft controller (loop spec
-// §5.6, §5.12, §5.14).
+// Register adds transcode-admission and the slim TranscodeProfile
+// reconciler (pools and status) (loop spec §5.6, §5.12, §5.14).
 //
 // The ledger is the one the remediation loop takes grants from: admission
 // rebuilds and resyncs it, passes over it and wakes the loop; the slim
@@ -113,12 +111,6 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	}
 	if err := profiles.SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("transcode: transcodeprofile: %w", err)
-	}
-	grafts := &audiograft.Reconciler{
-		Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Pool: cfg, Concurrency: o.GraftConcurrency,
-	}
-	if err := grafts.SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("transcode: audiograft: %w", err)
 	}
 	return nil
 }

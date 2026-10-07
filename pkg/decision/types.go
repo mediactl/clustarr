@@ -111,7 +111,7 @@ type Donor struct {
 	Languages []string
 	Anchor    string
 	// Rejected are donor releases a graft of this item already failed with
-	// (AudioGraft status.rejectedReleases): never taken again.
+	// (the item's status.audio.rejectedReleases): never taken again.
 	Rejected []string
 	// Source and Edition are the video's (the current file's quality
 	// source and edition): a donor of the same lineage ranks first.

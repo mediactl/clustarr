@@ -92,12 +92,6 @@ rules:
   - list
   - watch
 - apiGroups:
-  - catalog.clustarr.io
-  resources:
-  - rootfolders
-  verbs:
-  - list
-- apiGroups:
   - events.k8s.io
   resources:
   - events
@@ -107,7 +101,6 @@ rules:
 - apiGroups:
   - transcode.clustarr.io
   resources:
-  - audiografts
   - transcodeprofiles
   verbs:
   - get
@@ -116,7 +109,6 @@ rules:
 - apiGroups:
   - transcode.clustarr.io
   resources:
-  - audiografts/status
   - transcodeprofiles/status
   verbs:
   - get

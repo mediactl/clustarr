@@ -24,8 +24,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package grafttask
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -64,9 +62,6 @@ type Task struct {
 	Item   string     `json:"item,omitempty"`
 	Seq    int64      `json:"seq,omitempty"`
 	Inputs Inputs     `json:"inputs,omitzero"`
-	// Graft names the AudioGraft (<namespace>/<name>), for logs (until
-	// F7.3 retires the AudioGraft controller that sets it).
-	Graft string `json:"graft,omitempty"`
 	// Target is the library file the dub is muxed into, and
 	// TargetProbeHash its probe hash when the graft was planned: a file
 	// that changed since is not swapped.
@@ -79,8 +74,8 @@ type Task struct {
 	Donor string `json:"donor"`
 	// Language is the track to graft, Anchor the language both files carry
 	// (BCP-47); Default makes the grafted track the default. Languages are
-	// every language the AudioGraft wants: the donor's reduction keeps them
-	// all, so a later graft can take another from it.
+	// every language the item is missing: a donor not yet reduced keeps
+	// them all, so a later graft can take another from it.
 	Language  string   `json:"language"`
 	Languages []string `json:"languages,omitempty"`
 	Anchor    string   `json:"anchor"`
@@ -88,13 +83,7 @@ type Task struct {
 	// RecycleBin receives the target's original name before the swap; empty
 	// is none.
 	RecycleBin string `json:"recycleBin,omitempty"`
-	// Mode is ModeReduce for a reduce-only run: the donor is cut down to
-	// its audio and nothing is grafted. Empty is a graft.
-	Mode string `json:"mode,omitempty"`
 }
-
-// ModeReduce is Task.Mode for a reduce-only run.
-const ModeReduce = "reduce"
 
 // Validate reports a Task the worker cannot run.
 func (t Task) Validate() error {
@@ -119,7 +108,6 @@ const (
 const (
 	ReasonGrafted            = "Grafted"
 	ReasonPresent            = "Present" // the target already carries the language
-	ReasonReduced            = "Reduced" // a reduce run cut the donor to its audio
 	ReasonInvalidTask        = "InvalidTask"
 	ReasonUnsupported        = "UnsupportedContainer"
 	ReasonTargetChanged      = "TargetChanged"
@@ -140,8 +128,6 @@ type Segment struct {
 
 // Result is what a graft run reports.
 type Result struct {
-	// Graft names the AudioGraft (<namespace>/<name>) the result is for.
-	Graft           string    `json:"graft,omitempty"`
 	Phase           string    `json:"phase"`
 	Reason          string    `json:"reason"`
 	Message         string    `json:"message,omitempty"`
@@ -158,13 +144,9 @@ type Result struct {
 	OutputSizeBytes int64  `json:"outputSizeBytes,omitempty"`
 }
 
-// MaxMessage bounds Result.Message, and MaxEncoded the whole Result as
-// encoded: the termination message it travels in is 4096 bytes, and the
-// AudioGraft's status.message 2048.
-const (
-	MaxMessage = 1024
-	MaxEncoded = 4000
-)
+// MaxMessage bounds Result.Message: status.graft.message's MaxLength, and
+// what keeps a record within clustarr-grafts' value cap (MaxRecordBytes).
+const MaxMessage = 1024
 
 // Failed is a failed Result.
 func Failed(reason string, format string, args ...any) Result {
@@ -186,36 +168,6 @@ func clampTo(s string, n int) string {
 		s = s[:len(s)-1]
 	}
 	return s
-}
-
-// Encode is the Result as the termination message carries it, at most
-// MaxEncoded bytes: HTML is not escaped (each "<" would be six bytes), and
-// a message that still does not fit is cut further.
-func (r Result) Encode() []byte {
-	r.Message = Clamp(r.Message)
-	for {
-		var buf bytes.Buffer
-		enc := json.NewEncoder(&buf)
-		enc.SetEscapeHTML(false)
-		_ = enc.Encode(r)
-		b := bytes.TrimSpace(buf.Bytes())
-		if len(b) <= MaxEncoded || r.Message == "" {
-			return b
-		}
-		r.Message = clampTo(r.Message, len(r.Message)-(len(b)-MaxEncoded)-16)
-	}
-}
-
-// Decode reads a termination message.
-func Decode(b []byte) (Result, error) {
-	var r Result
-	if err := json.Unmarshal(b, &r); err != nil {
-		return r, fmt.Errorf("grafttask: decode result: %w", err)
-	}
-	if r.Phase != PhaseSucceeded && r.Phase != PhaseFailed {
-		return r, fmt.Errorf("grafttask: result phase %q", r.Phase)
-	}
-	return r, nil
 }
 
 // LogicalDataRoot is where every path a Task names lives (as

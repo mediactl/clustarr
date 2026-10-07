@@ -40,7 +40,7 @@ type Joinable struct {
 }
 
 // Join is the graft a transcode of the file would carry, over the file's
-// own state (the AudioGraft controller's JoinTask, folded): the graft rides
+// own state (anime dual-audio, phase 4 addendum): the graft rides
 // along when its block could exist, no standalone graft holds the file, no
 // donor fault stands for this donor and these bytes, a language is missing
 // and the file lies under a RootFolder. v.Draft is the transcode planner's

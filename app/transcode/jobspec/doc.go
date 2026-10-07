@@ -21,7 +21,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // paths, the profile's hash, hardware and policy accessors, the
 // standard's inputs and tier, the CPU-limit environment variable, and the
 // worker's process exit codes. It links no ffgo and runs nothing (spec
-// §4.3 S1); the AudioGraft controller takes its root-folder
+// §4.3 S1); the remediation loop's graft adapter takes its root-folder
 // helpers (RootFolderFor, RecycleBinOf) from here too; the graft run maps
 // its paths with app/transcode/grafttask's own LocalPath and Within.
 package jobspec

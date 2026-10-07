@@ -16,15 +16,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 // Package graft runs one audio graft in a graft Job's pod (anime dual-audio
-// spec §7.2): reduce the donor to its audio, align its anchor track to the
-// target's (pkg/audioalign), mux the dub in beside every copied stream of
-// the target (pkg/transcode/engine), verify the muxed track, and swap the
-// result into place as a transcode swaps. It links FFmpeg through the
-// engine, so only cmd/transcode imports it.
+// spec §7.2; loop spec §4.12): reduce a donor the import did not reduce to
+// its audio, align its anchor track to the target's (pkg/audioalign), mux
+// the dub in beside every copied stream of the target
+// (pkg/transcode/engine), verify the muxed track, and swap the result into
+// place as a transcode swaps. It links FFmpeg through the engine, so only
+// cmd/transcode imports it.
 package graft
 
 import (
-	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -67,14 +67,10 @@ type Options struct {
 	Thresholds audioalign.Thresholds
 }
 
-// Run performs t and reports what happened: a reduce (t.Mode reduce)
-// leaves the donor's audio as <stem>.mka; a graft muxes the dub into the
+// Run performs t and reports what happened: it muxes the dub into the
 // target, which is untouched unless the Result is Succeeded with reason
-// Grafted.
+// Grafted. A donor not yet reduced to its audio is reduced first.
 func Run(ctx context.Context, t grafttask.Task, o Options) grafttask.Result {
-	if t.Mode == grafttask.ModeReduce {
-		return Reduce(ctx, t, o)
-	}
 	if err := t.Validate(); err != nil {
 		return grafttask.Failed(grafttask.ReasonInvalidTask, "%v", err)
 	}
@@ -93,25 +89,7 @@ func newRun(ctx context.Context, t grafttask.Task, o Options) *run {
 	if o.Thresholds == (audioalign.Thresholds{}) {
 		o.Thresholds = audioalign.DefaultThresholds
 	}
-	return &run{t: t, o: o, log: logging.FromContext(ctx).With("graft", cmp.Or(t.File.Name, t.Graft))}
-}
-
-// Reduce reduces t's donor to its audio, the anchor and every language the
-// AudioGraft wants: the reduce Job a new donor gets at once, so its video
-// leaves the disk however long the graft itself waits.
-func Reduce(ctx context.Context, t grafttask.Task, o Options) grafttask.Result {
-	if t.Donor == "" || t.Root == "" || t.Language == "" || t.Anchor == "" {
-		return grafttask.Failed(grafttask.ReasonInvalidTask, "grafttask: a reduce needs a donor, a root, a language and an anchor")
-	}
-	r := newRun(ctx, t, o)
-	donor, err := r.local(t.Donor)
-	if err != nil {
-		return grafttask.Failed(grafttask.ReasonInvalidTask, "donor: %v", err)
-	}
-	if _, res, ok := r.reduceDonor(ctx, donor); !ok {
-		return res
-	}
-	return grafttask.Result{Phase: grafttask.PhaseSucceeded, Reason: grafttask.ReasonReduced, DonorAudio: donoraudio.ReducedPath(t.Donor)}
+	return &run{t: t, o: o, log: logging.FromContext(ctx).With("graft", t.File.Name)}
 }
 
 type run struct {

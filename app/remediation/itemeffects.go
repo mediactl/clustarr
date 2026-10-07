@@ -140,8 +140,7 @@ type CountGrab struct {
 }
 
 // ApplyObject applies one object a pass owes through Apply, which renders
-// the manager's complete set (an AudioGraft under import-worker until
-// F7.1, R26). Desc names it in an error.
+// the manager's complete set. Desc names it in an error.
 type ApplyObject struct {
 	Desc  string
 	Apply func(ctx context.Context, c client.Client) error

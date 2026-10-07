@@ -91,7 +91,7 @@ type Covered struct {
 	Wanted  bool
 	Current *decision.Current
 	// DonorRejected are the donor releases a graft of this item already
-	// failed with (AudioGraft status.rejectedReleases).
+	// failed with (the item's status.audio.rejectedReleases).
 	DonorRejected []string
 }
 

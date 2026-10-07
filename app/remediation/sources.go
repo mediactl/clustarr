@@ -47,7 +47,7 @@ var intentAnnotations = catalogv1alpha1.IntentAnnotations()
 
 // Source is one watch a planner or actuator adds to the loop's controller:
 // Raw for a records waker (WatchesRawSource), else Object with Handler.
-// Name dedups a source two planners both need ("S23/AudioGraft").
+// Name dedups a source two planners both need ("S2'/Movie").
 type Source struct {
 	Name       string
 	Object     client.Object
