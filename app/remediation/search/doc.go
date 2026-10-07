@@ -37,4 +37,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // container. wantedcron's sweep wakes every candidate at low priority
 // (ItemReconciler.WantedWakes). LedgerSource rebuilds the ledger's
 // outstanding searches after a leader change.
+//
+// On a Series it is the season planner (Wave S, series search design §4):
+// a person's series or season search -- a Search with grabBest on a series,
+// found through seriessearch's index and woken by S31 -- is served from
+// status.seasonSearch by searchplan.DecideSeasons, one season task in
+// flight behind the namespace's live-search pace and admitted on
+// catalog-search-high, its record read at the series' season key.
+// seasonSearch and lastSearchedAt join catalog-grab's set beside the grab
+// stage's pendingGrabs. SeasonLedgerSource rebuilds the season dispatches
+// after a leader change. An Episode reads its Series' state: it waits for
+// a pending season and folds an answered one once. Nothing here publishes
+// an Episode search for a season.
 package search

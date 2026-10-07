@@ -177,6 +177,16 @@ var (
 		"kind", "decision", "reason",
 	)
 
+	// SeasonSearchesTotal counts the seasons of a person's series or season
+	// search that reached a final phase (Wave S), by trigger (series,
+	// season, interactive) and outcome (answered, skipped, failed,
+	// timedOut, paced, canceled). No label names a series.
+	SeasonSearchesTotal = newCounterVec(
+		"clustarr_season_searches_total",
+		"Season searches that reached a final phase, by trigger and outcome.",
+		"trigger", "outcome",
+	)
+
 	// MetadataCacheHitsTotal counts metadata gateway cache lookups. The tier
 	// is the whole cardinality budget: never label this by title or id.
 	MetadataCacheHitsTotal = newCounterVec(

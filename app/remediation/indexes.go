@@ -31,6 +31,7 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/controller/mediafile"
 	"github.com/mediactl/clustarr/app/catalog/controller/movie"
 	"github.com/mediactl/clustarr/app/catalog/controller/series"
+	"github.com/mediactl/clustarr/app/catalog/seriessearch"
 	"github.com/mediactl/clustarr/app/remediation/dlindex"
 	"github.com/mediactl/clustarr/app/remediation/mfindex"
 )
@@ -77,6 +78,11 @@ func RegisterIndexes(ctx context.Context, idx client.FieldIndexer) error {
 	// remediation.item.download (ADR-0019 §6.11): grab entries by id, uid
 	// and pinned engine, on the six owner kinds.
 	if err := dlindex.Register(ctx, idx); err != nil {
+		return err
+	}
+	// remediation.search.series (Wave S): the planned Searches a Series
+	// serves, read by the search stage and the Search controller.
+	if err := seriessearch.RegisterIndexes(ctx, idx); err != nil {
 		return err
 	}
 	return mediafile.RegisterIndexes(ctx, idx)

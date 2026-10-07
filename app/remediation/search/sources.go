@@ -23,8 +23,12 @@ import (
 	"fmt"
 	"strings"
 
+	"k8s.io/client-go/util/workqueue"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/priorityqueue"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/history"
@@ -40,9 +44,11 @@ import (
 // Sources implements remediation.Watcher: S29, clustarr-searches (A4.2
 // step 3). A record whose item is a searchable kind wakes it -- the search
 // stage incorporates the answer -- and its container too (an Episode's
-// Series, an Issue's Comic), whose grab stage reads it (R7). A record of a
-// Search (an interactive search) wakes no item: the Search controller has
-// its own source.
+// Series, an Issue's Comic), whose grab stage reads it (R7); a season
+// record's item is its Series (Wave S), whose search stage incorporates it
+// and whose grab stage reads it. A record of a Search (an interactive
+// search) wakes no item: the Search controller has its own source. And
+// S31: a planned Search wakes the Series it names.
 func (s *Stage) Sources(ctrl.Manager) ([]remediation.Source, error) {
 	src := recordsource.NewItems(s.o.Bus, events.BucketSearches, func(item schema.ItemRef, value []byte) []remediation.Key {
 		var keys []remediation.Key
@@ -57,7 +63,44 @@ func (s *Stage) Sources(ctrl.Manager) ([]remediation.Source, error) {
 		}
 		return keys
 	})
-	return []remediation.Source{{Name: "S29/" + events.BucketSearches, Raw: src}}, nil
+	return []remediation.Source{
+		{Name: "S29/" + events.BucketSearches, Raw: src},
+		// S31 (Wave S): a planned Search -- a series or season search with
+		// grabBest -- created, changed (its phase settling is the
+		// handshake) or deleted wakes the Series it names, at once.
+		{Name: "S31/Search", Object: &catalogv1alpha1.Search{}, Handler: plannedSearchWakes()},
+	}, nil
+}
+
+// plannedSearchWakes is S31's handler: the Series a planned Search names,
+// at PriorityUser, on any create, update or delete (an update's old or new
+// spec may be the planned one).
+func plannedSearchWakes() handler.TypedEventHandler[client.Object, remediation.Key] {
+	add := func(q workqueue.TypedRateLimitingInterface[remediation.Key], objs ...client.Object) {
+		for _, o := range objs {
+			srch, ok := o.(*catalogv1alpha1.Search)
+			if !ok || !srch.Spec.PlannedBySeries() || srch.Spec.MediaRef.Name == "" {
+				continue
+			}
+			k := remediation.Key{Kind: remediation.KindSeries, Namespace: srch.Namespace, Name: srch.Spec.MediaRef.Name}
+			if pq, ok := q.(priorityqueue.PriorityQueue[remediation.Key]); ok {
+				pq.AddWithOpts(priorityqueue.AddOpts{Priority: new(remediation.PriorityUser)}, k)
+				continue
+			}
+			q.Add(k)
+		}
+	}
+	return handler.TypedFuncs[client.Object, remediation.Key]{
+		CreateFunc: func(_ context.Context, e event.TypedCreateEvent[client.Object], q workqueue.TypedRateLimitingInterface[remediation.Key]) {
+			add(q, e.Object)
+		},
+		UpdateFunc: func(_ context.Context, e event.TypedUpdateEvent[client.Object], q workqueue.TypedRateLimitingInterface[remediation.Key]) {
+			add(q, e.ObjectOld, e.ObjectNew)
+		},
+		DeleteFunc: func(_ context.Context, e event.TypedDeleteEvent[client.Object], q workqueue.TypedRateLimitingInterface[remediation.Key]) {
+			add(q, e.Object)
+		},
+	}
 }
 
 // itemKey is a record item's loop key: a searchable kind, or a Series or

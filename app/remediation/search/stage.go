@@ -44,11 +44,11 @@ import (
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/records"
 	"github.com/mediactl/clustarr/pkg/records/agentrecords"
-	"github.com/mediactl/clustarr/pkg/version"
 )
 
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series;episodes;albums;books;audiobooks;comics;issues;artists;authors,verbs=get;list;watch
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies/status;episodes/status;albums/status;books/status;audiobooks/status;issues/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies/status;series/status;episodes/status;albums/status;books/status;audiobooks/status;issues/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=searches,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=qualityprofiles,verbs=get;list;watch
 // +kubebuilder:rbac:groups=download.clustarr.io,resources=downloadclients,verbs=get;list;watch
 // +kubebuilder:rbac:groups=index.clustarr.io,resources=indexers,verbs=get;list;watch
@@ -95,17 +95,26 @@ func New(o Options) *Stage {
 // Name implements remediation.ItemStage.
 func (s *Stage) Name() remediation.ItemStageName { return remediation.StageSearch }
 
-// Applies implements remediation.ItemStage: the searchable kinds (R12).
-func (s *Stage) Applies(k remediation.KeyKind) bool { return itemread.Searchable(string(k)) }
+// Applies implements remediation.ItemStage: the searchable kinds (R12),
+// and a Series, whose person-requested series and season searches it
+// plans (Wave S, planSeries).
+func (s *Stage) Applies(k remediation.KeyKind) bool {
+	return itemread.Searchable(string(k)) || k == remediation.KindSeries
+}
 
 // DeclaresSets implements remediation.SetDeclarer: searchDispatch,
-// lastSearchedAt and the attempt counters, in catalog-grab's set.
+// lastSearchedAt and the attempt counters, in catalog-grab's set -- on a
+// Series, seasonSearch and lastSearchedAt beside the grab stage's
+// pendingGrabs.
 func (s *Stage) DeclaresSets(remediation.KeyKind) []k8s.FieldManager {
 	return []k8s.FieldManager{k8s.ManagerCatalogGrab}
 }
 
 // Plan implements remediation.ItemStage.
 func (s *Stage) Plan(ctx context.Context, env *remediation.Env, v *remediation.ItemView) (remediation.ItemResult, error) {
+	if v.Key.Kind == remediation.KindSeries {
+		return s.planSeries(ctx, env, v)
+	}
 	item := v.Item
 	now := v.Now.Time
 	sv, err := s.gather(ctx, item, v, now)
@@ -165,7 +174,7 @@ func (s *Stage) result(sv searchplan.View, plan searchplan.Plan, class string) r
 			// have spent it since, which costs one search over it.
 			s.o.Budget.Take(sv.Item.Namespace)
 		}
-		if eff, ok := publish(sv, t, class); ok {
+		if eff, ok := publishTask(t, sv.Key, sv.Item, searchplan.Durable, class, sv.Item.UID); ok {
 			res.Effects = append(res.Effects, eff)
 			s.published.set(sv.Key, t)
 		}
@@ -179,29 +188,6 @@ func nilIf(absent bool, v any) any {
 		return nil
 	}
 	return v
-}
-
-// publish is t's DispatchPublish: the ledger confirms its slot when it
-// lands, and a live search consumes its pacing reservation.
-func publish(sv searchplan.View, t *searchplan.Task, class string) (remediation.Effect, bool) {
-	name, data, err := schema.Encode(t.Payload)
-	if err != nil {
-		return nil, false
-	}
-	eff := remediation.DispatchPublish{
-		Publish: remediation.Publish{
-			Subject: t.Subject, MsgID: t.MsgID,
-			Envelope: &events.Envelope{
-				ID: t.MsgID, Type: "catalog.SearchTask", Schema: name, Source: "manager@" + version.String(),
-				Key: sv.Item.Namespace + "/" + sv.Item.Name, Time: t.At.UTC(), Data: data,
-			},
-		},
-		Durable: searchplan.Durable, Ledger: sv.Key, Seq: t.Payload.Seq,
-	}
-	if t.Live {
-		eff.Pace, eff.PaceKey = class, sv.Item.UID
-	}
-	return eff, true
 }
 
 // gather builds searchplan's view of one item from the cache, its record
@@ -236,6 +222,11 @@ func (s *Stage) gather(ctx context.Context, item client.Object, v *remediation.I
 		sv.Scope = schema.BlockScopeOf(oref)
 		if oref.UID != ref.UID {
 			sv.Container = &oref
+		}
+		if ep, ok := item.(*catalogv1alpha1.Episode); ok {
+			// Its Series' season search (Wave S, §7): wait for a pending
+			// season, fold an answered one.
+			sv.SeasonPending, sv.SeasonAnsweredAt = seasonOf(owner, ep)
 		}
 	}
 	cfg, err := itemread.ConfigOf(ctx, r, item)

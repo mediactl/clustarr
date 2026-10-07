@@ -218,3 +218,55 @@ func CoveredIssues(entries []catalogv1alpha1.DownloadEntry, pending []catalogv1a
 	}
 	return out
 }
+
+// SeasonSearchSignature hashes a Series' season search as season -> phase
+// (and reason, so an answer that counts for no episode differs): S24's
+// second signature (Wave S, series search design §7). A change wakes the
+// changed seasons' Episodes, which fold the answer or stop waiting for it.
+func SeasonSearchSignature(s *catalogv1alpha1.SeasonSearchState) uint64 {
+	h := fnv.New64a()
+	if s == nil {
+		return h.Sum64()
+	}
+	_, _ = h.Write([]byte(s.Request.UID))
+	_, _ = h.Write([]byte{0})
+	for _, se := range s.Seasons {
+		_, _ = h.Write([]byte(strconv.Itoa(int(se.Number)) + ":" + string(se.Phase) + ":" + string(se.Reason)))
+		_, _ = h.Write([]byte{0})
+	}
+	return h.Sum64()
+}
+
+// SeasonsChanged are the seasons whose phase or reason differs between o
+// and n (a season present in only one of them counts), ascending.
+func SeasonsChanged(o, n *catalogv1alpha1.SeasonSearchState) []int32 {
+	type ps struct {
+		phase  catalogv1alpha1.SeasonSearchPhase
+		reason catalogv1alpha1.SeasonSearchReason
+	}
+	read := func(s *catalogv1alpha1.SeasonSearchState) map[int32]ps {
+		out := map[int32]ps{}
+		if s == nil {
+			return out
+		}
+		for _, se := range s.Seasons {
+			out[se.Number] = ps{se.Phase, se.Reason}
+		}
+		return out
+	}
+	om, nm := read(o), read(n)
+	replaced := o != nil && n != nil && o.Request.UID != n.Request.UID
+	var out []int32
+	for num, v := range nm {
+		if w, ok := om[num]; !ok || w != v || replaced {
+			out = append(out, num)
+		}
+	}
+	for num := range om {
+		if _, ok := nm[num]; !ok {
+			out = append(out, num)
+		}
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
+}

@@ -127,7 +127,8 @@ func intentWakes(kind KeyKind) handler.TypedEventHandler[client.Object, Key] {
 // containerWakes is S24 (§6.11): a Series or Comic status change whose
 // DownloadsSignature changed enqueues every covered Episode or Issue of the
 // old and the new object, so each re-renders its view of the container's
-// entries.
+// entries; a Series whose SeasonSearchSignature changed (Wave S) enqueues
+// the changed seasons' Episodes at low priority.
 func containerWakes(c client.Reader, kind KeyKind) handler.TypedEventHandler[client.Object, Key] {
 	return handler.TypedFuncs[client.Object, Key]{
 		UpdateFunc: func(ctx context.Context, e event.TypedUpdateEvent[client.Object], q workqueue.TypedRateLimitingInterface[Key]) {
@@ -137,6 +138,14 @@ func containerWakes(c client.Reader, kind KeyKind) handler.TypedEventHandler[cli
 				n, ok2 := e.ObjectNew.(*catalogv1alpha1.Series)
 				if !ok1 || !ok2 {
 					return
+				}
+				// The season search's second signature (Wave S, §7): a
+				// changed season wakes its Episodes at low priority, so
+				// they fold the answer or stop waiting for it.
+				if rollup.SeasonSearchSignature(o.Status.SeasonSearch) != rollup.SeasonSearchSignature(n.Status.SeasonSearch) {
+					for _, k := range seasonEpisodeKeys(ctx, c, n, rollup.SeasonsChanged(o.Status.SeasonSearch, n.Status.SeasonSearch)) {
+						addWithPriority(q, k, handler.LowPriority)
+					}
 				}
 				if rollup.DownloadsSignature(o.Status.Downloads, o.Status.PendingGrabs) == rollup.DownloadsSignature(n.Status.Downloads, n.Status.PendingGrabs) {
 					return
@@ -189,6 +198,27 @@ func coveredEpisodeKeys(ctx context.Context, c client.Reader, s *catalogv1alpha1
 		ep := &list.Items[i]
 		n := catalogv1alpha1.EpisodeNumber{Season: ep.Spec.SeasonNumber, Number: ep.Spec.EpisodeNumber}
 		if slices.Contains(covered, n) {
+			out = append(out, Key{Kind: KindEpisode, Namespace: ep.Namespace, Name: ep.Name})
+		}
+	}
+	return out
+}
+
+// seasonEpisodeKeys lists s's Episodes through .spec.seriesRef and keeps
+// those of the given seasons.
+func seasonEpisodeKeys(ctx context.Context, c client.Reader, s *catalogv1alpha1.Series, seasons []int32) []Key {
+	if len(seasons) == 0 {
+		return nil
+	}
+	var list catalogv1alpha1.EpisodeList
+	if err := c.List(ctx, &list, client.InNamespace(s.Namespace), client.MatchingFields{series.EpisodeBySeriesRefIndex: s.Name}); err != nil {
+		logging.FromContext(ctx).Warn("remediation: S24 could not list a series' episodes", "series", s.Name, "error", err)
+		return nil
+	}
+	var out []Key
+	for i := range list.Items {
+		ep := &list.Items[i]
+		if slices.Contains(seasons, ep.Spec.SeasonNumber) {
 			out = append(out, Key{Kind: KindEpisode, Namespace: ep.Namespace, Name: ep.Name})
 		}
 	}

@@ -157,6 +157,9 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 		// catalog-search-normal's outstanding searches, rebuilt from the
 		// items' searchDispatch after a leader change (A4.2 step 4).
 		o.Dispatch.Register(searchstage.LedgerSource{})
+		// catalog-search-high's outstanding season tasks, rebuilt from
+		// every Series' seasonSearch.dispatch (Wave S).
+		o.Dispatch.Register(searchstage.SeasonLedgerSource{})
 	}
 	admin, ok := bus.(events.StreamAdmin)
 	if !ok {
