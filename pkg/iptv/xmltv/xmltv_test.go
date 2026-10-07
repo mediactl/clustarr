@@ -156,3 +156,33 @@ func (r *repeat) Read(p []byte) (int, error) {
 	}
 	return n, nil
 }
+
+func TestParseFuncChoosesTheWantedSetFromTheChannels(t *testing.T) {
+	var seen []string
+	g, err := xmltv.ParseFunc(bytes.NewReader(open(t)), func(chans []xmltv.Channel) map[string]bool {
+		for _, c := range chans {
+			seen = append(seen, c.ID)
+		}
+		return map[string]bool{"news.uk": true}
+	}, from, from.AddDate(0, 0, 7))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"bbc1.uk", "news.uk"}, seen, "every channel is read before the first programme")
+	assert.Len(t, g.Programmes["news.uk"], 1)
+	assert.Empty(t, g.Programmes["bbc1.uk"])
+}
+
+func TestTheIndexAnswersAsAutoMapDoes(t *testing.T) {
+	g, err := xmltv.Parse(bytes.NewReader(open(t)), nil, from, from.AddDate(0, 0, 7))
+	require.NoError(t, err)
+	other := xmltv.Guide{Channels: []xmltv.Channel{{ID: "bbc1.uk", DisplayNames: []string{"BBC One"}}}}
+	guides := map[string]xmltv.Guide{"main": g, "a-first": other}
+	ix := xmltv.NewIndex(guides)
+	for _, q := range [][2]string{{"bbc1.uk", ""}, {"", "News Live"}, {"", "bbc one"}, {"", "nothing"}, {"news.uk", "BBC One"}} {
+		want, wok := xmltv.AutoMap(q[0], q[1], guides)
+		got, gok := ix.AutoMap(q[0], q[1])
+		assert.Equal(t, wok, gok, q)
+		assert.Equal(t, want, got, q)
+	}
+	m, _ := ix.AutoMap("bbc1.uk", "")
+	assert.Equal(t, "a-first", m.Guide, "guides are taken in name order")
+}

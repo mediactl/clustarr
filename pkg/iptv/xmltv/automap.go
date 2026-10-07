@@ -23,37 +23,57 @@ import (
 	"github.com/mediactl/clustarr/pkg/release"
 )
 
-// AutoMap finds a guide channel for a playlist entry: first a channel whose
-// id is the entry's tvg-id, then one with a display name equal to the
-// entry's name under release.TitleNorm. Guides are searched in name order,
-// so the answer is stable.
-func AutoMap(tvgID, name string, guides map[string]Guide) (Mapping, bool) {
+// Index answers AutoMap for many channels at once: built once per set of
+// guides, each lookup is a map read rather than a scan of every channel.
+type Index struct {
+	byID   map[string]Mapping // the first guide (in name order) holding the id
+	byNorm map[string]Mapping // the first channel whose display name normalises to the key
+}
+
+// NewIndex indexes guides for AutoMap's rules: an id match first, then a
+// display name equal under release.TitleNorm, guides taken in name order.
+func NewIndex(guides map[string]Guide) *Index {
 	names := make([]string, 0, len(guides))
 	for n := range guides {
 		names = append(names, n)
 	}
 	slices.Sort(names)
-	if tvgID != "" {
-		for _, gn := range names {
-			for _, c := range guides[gn].Channels {
-				if c.ID == tvgID {
-					return Mapping{Guide: gn, ChannelID: c.ID}, true
+	ix := &Index{byID: map[string]Mapping{}, byNorm: map[string]Mapping{}}
+	for _, gn := range names {
+		for _, c := range guides[gn].Channels {
+			if _, ok := ix.byID[c.ID]; !ok {
+				ix.byID[c.ID] = Mapping{Guide: gn, ChannelID: c.ID}
+			}
+			for _, dn := range c.DisplayNames {
+				n := release.TitleNorm(dn)
+				if _, ok := ix.byNorm[n]; !ok && n != "" {
+					ix.byNorm[n] = Mapping{Guide: gn, ChannelID: c.ID}
 				}
 			}
 		}
 	}
-	want := release.TitleNorm(name)
-	if want == "" {
-		return Mapping{}, false
+	return ix
+}
+
+// AutoMap is the package AutoMap over the indexed guides.
+func (ix *Index) AutoMap(tvgID, name string) (Mapping, bool) {
+	if tvgID != "" {
+		if m, ok := ix.byID[tvgID]; ok {
+			return m, true
+		}
 	}
-	for _, gn := range names {
-		for _, c := range guides[gn].Channels {
-			for _, dn := range c.DisplayNames {
-				if release.TitleNorm(dn) == want {
-					return Mapping{Guide: gn, ChannelID: c.ID}, true
-				}
-			}
+	if n := release.TitleNorm(name); n != "" {
+		if m, ok := ix.byNorm[n]; ok {
+			return m, true
 		}
 	}
 	return Mapping{}, false
+}
+
+// AutoMap finds a guide channel for a playlist entry: first a channel whose
+// id is the entry's tvg-id, then one with a display name equal to the
+// entry's name under release.TitleNorm. Guides are searched in name order,
+// so the answer is stable.
+func AutoMap(tvgID, name string, guides map[string]Guide) (Mapping, bool) {
+	return NewIndex(guides).AutoMap(tvgID, name)
 }

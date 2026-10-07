@@ -87,6 +87,14 @@ func (c *cappedReader) Read(p []byte) (int, error) {
 // channel ids want names, the programmes overlapping [from, to). A nil want
 // parses channels only.
 func Parse(r io.Reader, want map[string]bool, from, to time.Time) (Guide, error) {
+	return ParseFunc(r, func([]Channel) map[string]bool { return want }, from, to)
+}
+
+// ParseFunc is Parse with the wanted set chosen from the guide's own
+// channels: XMLTV lists every <channel> before any <programme> (its DTD),
+// so wantFn runs once, at the first programme, with every channel read, and
+// one pass serves auto-mapping (Live TV spec §4.3) without a second fetch.
+func ParseFunc(r io.Reader, wantFn func([]Channel) map[string]bool, from, to time.Time) (Guide, error) {
 	br := bufio.NewReaderSize(r, 64<<10)
 	var src io.Reader = br
 	if magic, err := br.Peek(2); err == nil && magic[0] == 0x1f && magic[1] == 0x8b {
@@ -102,6 +110,10 @@ func Parse(r io.Reader, want map[string]bool, from, to time.Time) (Guide, error)
 	d.CharsetReader = charsetReader
 	g := Guide{Programmes: map[string][]Programme{}}
 	sawTV := false
+	var (
+		want  map[string]bool
+		chose bool
+	)
 	for {
 		tok, err := d.Token()
 		if errors.Is(err, io.EOF) {
@@ -142,6 +154,9 @@ func Parse(r io.Reader, want map[string]bool, from, to time.Time) (Guide, error)
 			}
 			g.Channels = append(g.Channels, ch)
 		case "programme":
+			if !chose {
+				want, chose = wantFn(g.Channels), true
+			}
 			channel := attr(se, "channel")
 			if !want[channel] {
 				if err := d.Skip(); err != nil {
