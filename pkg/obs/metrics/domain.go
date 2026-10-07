@@ -255,6 +255,39 @@ var (
 		"stream", "consumer",
 	)
 
+	// ConsumerPending is a durable's NumPending: undelivered messages
+	// matching its filters (split §9.0 as amended 2026-10-07). Set beside
+	// WorkQueuePending by QueueGauge.
+	ConsumerPending = newGaugeVec(
+		"clustarr_consumer_pending",
+		"Messages matching a durable's filters not yet delivered (NumPending), by stream and consumer.",
+		"stream", "consumer",
+	)
+
+	// ConsumerAckPending is a durable's NumAckPending: delivered and not
+	// settled -- in a handler, waiting out a delayed nak, or lapsed.
+	ConsumerAckPending = newGaugeVec(
+		"clustarr_consumer_ack_pending",
+		"Messages delivered and not settled (NumAckPending), by stream and consumer.",
+		"stream", "consumer",
+	)
+
+	// ConsumerWaiting is a durable's NumWaiting: open pull requests, idle
+	// capacity, never part of the lag.
+	ConsumerWaiting = newGaugeVec(
+		"clustarr_consumer_waiting",
+		"Open pull requests on a durable (NumWaiting), idle capacity, by stream and consumer.",
+		"stream", "consumer",
+	)
+
+	// ConsumerMaxAckPending is a durable's MaxAckPending: its cap on
+	// unsettled deliveries across every process.
+	ConsumerMaxAckPending = newGaugeVec(
+		"clustarr_consumer_max_ack_pending",
+		"A durable's cap on unsettled deliveries across every process (MaxAckPending), by stream and consumer.",
+		"stream", "consumer",
+	)
+
 	// StreamFillRatio is a stream's stored bytes over its MaxBytes, by
 	// stream: the manager's leader sets it every 30 s (QueueGauge) from
 	// STREAM.INFO. A single-node memory stream is DiscardOld, so at 1 it

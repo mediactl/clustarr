@@ -75,6 +75,7 @@ func (b *Bus) ConsumerState(_ context.Context, stream, durable string) (events.C
 	if !ok {
 		return events.ConsumerState{}, fmt.Errorf("membus: consumer %s on %s: %w", durable, stream, events.ErrConsumerNotFound)
 	}
+	cs.Waiting = b.freeSlots(stream, durable)
 	return cs, nil
 }
 

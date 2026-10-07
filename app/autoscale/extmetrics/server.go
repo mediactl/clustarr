@@ -58,6 +58,9 @@ type ServerOptions struct {
 	Series        []Series
 	Reload        time.Duration // 0 means DefaultReload
 	Now           func() time.Time
+	// Cache is the read path shared with QueueGauge; nil builds the
+	// handler's own (split §9.4 as amended 2026-10-07).
+	Cache *StateCache
 }
 
 // Server is the TLS listener for external.metrics.k8s.io. It needs only
@@ -94,7 +97,7 @@ func NewServer(o ServerOptions, reader client.Reader, states ConsumerStater) (*S
 		o.AuthConfigMap = types.NamespacedName{Namespace: AuthConfigMapNamespace, Name: AuthConfigMapName}
 	}
 	s := &Server{opts: o, reader: reader}
-	api := &Handler{Namespace: o.Namespace, Series: o.Series, States: states, Now: o.Now}
+	api := &Handler{Namespace: o.Namespace, Series: o.Series, Cache: o.Cache, States: states, Now: o.Now}
 	s.handler = FrontProxyAuth(func() *AuthConfig {
 		m := s.current.Load()
 		if m == nil {

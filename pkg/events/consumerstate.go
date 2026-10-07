@@ -19,7 +19,15 @@ package events
 
 import "time"
 
-// ConsumerState is one durable's backlog as the broker reports it (spec §9.2).
+// ConsumerState is one durable's backlog as the broker reports it (spec §9.2),
+// from $JS.API.CONSUMER.INFO, which only the consumer's leader answers. Its
+// Lag is the autoscaling metric (split §9.0 as amended 2026-10-07): a
+// WithScheduleAt hold on a .sched. subject counts only once it fires; a
+// message past MaxDeliver waiting for its dead-letter copy counts in neither
+// Pending nor AckPending; and a stream's message count is never used -- on
+// 2026-10-07 CLUSTARR_WORK_SEGMENTARR held 18,897 messages against a lag of
+// 16,563, the gap exactly its 2,334 scheduled TheIntroDB holds, and a limits
+// stream's count is its retention window, not work.
 type ConsumerState struct {
 	// Pending is JetStream's NumPending: matching messages not yet delivered.
 	// A message a schedule still holds is on a subject no filter matches and
@@ -28,6 +36,9 @@ type ConsumerState struct {
 	// AckPending is NumAckPending: delivered and not settled -- in a handler,
 	// waiting out a delayed nak, or lapsed.
 	AckPending uint64
+	// Waiting is NumWaiting: pull requests open on the durable, idle
+	// capacity -- the inverse of demand, so never part of Lag.
+	Waiting int
 	// MaxAckPending is the durable's cap across every process.
 	MaxAckPending int
 	// ObservedAt is when the broker gathered the numbers.

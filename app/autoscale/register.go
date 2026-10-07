@@ -81,7 +81,10 @@ func Register(mgr ctrl.Manager, admin events.StreamAdmin, o Options) error {
 	if err := o.Validate(); err != nil {
 		return err
 	}
-	g := &extmetrics.QueueGauge{States: admin, Topology: events.Default()}
+	// One read path for the gauge and the API (split §9.4 as amended
+	// 2026-10-07): a burst of HPA reads and the gauge's tick share a read.
+	cache := extmetrics.NewStateCache(admin)
+	g := &extmetrics.QueueGauge{States: admin, Cache: cache, Topology: events.Default()}
 	if ss, ok := admin.(events.StreamStater); ok {
 		g.Streams = ss
 	}
@@ -111,7 +114,7 @@ func Register(mgr ctrl.Manager, admin events.StreamAdmin, o Options) error {
 		return err
 	}
 	srv, err := extmetrics.NewServer(extmetrics.ServerOptions{
-		Namespace: o.Namespace, BindAddress: o.BindAddress, SecretName: o.SecretName, Series: series,
+		Namespace: o.Namespace, BindAddress: o.BindAddress, SecretName: o.SecretName, Series: series, Cache: cache,
 	}, mgr.GetAPIReader(), admin)
 	if err != nil {
 		return err

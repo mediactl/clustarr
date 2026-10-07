@@ -78,18 +78,17 @@ var discovery = metav1.APIResourceList{
 type Handler struct {
 	Namespace string
 	Series    []Series
-	States    ConsumerStater
-	Now       func() time.Time
-	TTL       time.Duration // 0 means 5 s
-	Timeout   time.Duration // 0 means 5 s
+	// Cache is the read path to the broker, shared with QueueGauge (split
+	// §9.4 as amended 2026-10-07). Nil: one is built from States, Now, TTL
+	// and Timeout on first use.
+	Cache   *StateCache
+	States  ConsumerStater
+	Now     func() time.Time
+	TTL     time.Duration // 0 means 5 s; for the cache built when Cache is nil
+	Timeout time.Duration // 0 means 5 s; likewise
 
-	mu    sync.Mutex
-	cache map[Series]cached
-}
-
-type cached struct {
-	state events.ConsumerState
-	at    time.Time
+	once  sync.Once
+	built *StateCache
 }
 
 // ServeHTTP routes GET only; everything outside the two routes is a 404,
@@ -142,26 +141,18 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) state(ctx context.Context, s Series) (events.ConsumerState, error) {
-	now := h.now()
-	h.mu.Lock()
-	if c, ok := h.cache[s]; ok && now.Sub(c.at) < h.ttl() {
-		h.mu.Unlock()
-		return c.state, nil
+	return h.cache().Get(ctx, s)
+}
+
+// cache is h.Cache, or the one built from h's own fields when it is nil.
+func (h *Handler) cache() *StateCache {
+	if h.Cache != nil {
+		return h.Cache
 	}
-	h.mu.Unlock()
-	ctx, cancel := context.WithTimeout(ctx, h.timeout())
-	defer cancel()
-	st, err := h.States.ConsumerState(ctx, s.Stream, s.Consumer)
-	if err != nil {
-		return events.ConsumerState{}, err
-	}
-	h.mu.Lock()
-	if h.cache == nil {
-		h.cache = map[Series]cached{}
-	}
-	h.cache[s] = cached{state: st, at: now}
-	h.mu.Unlock()
-	return st, nil
+	h.once.Do(func() {
+		h.built = &StateCache{States: h.States, TTL: h.TTL, Timeout: h.Timeout, Now: h.Now}
+	})
+	return h.built
 }
 
 func (h *Handler) now() time.Time {
@@ -169,20 +160,6 @@ func (h *Handler) now() time.Time {
 		return h.Now()
 	}
 	return time.Now()
-}
-
-func (h *Handler) ttl() time.Duration {
-	if h.TTL > 0 {
-		return h.TTL
-	}
-	return defaultTTL
-}
-
-func (h *Handler) timeout() time.Duration {
-	if h.Timeout > 0 {
-		return h.Timeout
-	}
-	return defaultTimeout
 }
 
 func clamp(v uint64) int64 {

@@ -114,6 +114,7 @@ func (b *Bus) ConsumerState(ctx context.Context, stream, durable string) (events
 	return events.ConsumerState{
 		Pending:       info.NumPending,
 		AckPending:    uint64(max(info.NumAckPending, 0)),
+		Waiting:       info.NumWaiting,
 		MaxAckPending: info.Config.MaxAckPending,
 		ObservedAt:    info.TimeStamp,
 	}, nil

@@ -328,6 +328,29 @@ func (b *Bus) Subscribe(ctx context.Context, sub events.Subscription,
 	}, nil
 }
 
+// freeSlots is the free slots of every running Subscribe on stream's durable:
+// membus's nearest equivalent of NumWaiting, a pull request open per free
+// slot.
+func (b *Bus) freeSlots(stream, durable string) int {
+	b.mu.Lock()
+	subs := make([]*memSub, 0, len(b.subs))
+	for ms := range b.subs {
+		if ms.sub.Stream == stream && ms.sub.Durable == durable {
+			subs = append(subs, ms)
+		}
+	}
+	b.mu.Unlock()
+	n := 0
+	for _, ms := range subs {
+		ms.mu.Lock()
+		if !ms.stopping {
+			n += max(ms.slots-ms.live, 0)
+		}
+		ms.mu.Unlock()
+	}
+	return n
+}
+
 var _ events.WedgeReporter = (*Bus)(nil)
 
 // Wedged implements events.WedgeReporter as natsbus does: it names every

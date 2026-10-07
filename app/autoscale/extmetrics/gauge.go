@@ -21,6 +21,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/metrics"
@@ -30,11 +32,16 @@ import (
 const DefaultGaugeInterval = 30 * time.Second
 
 // QueueGauge sets metrics.WorkQueuePending{stream,consumer} to every work
-// consumer's lag (§9.4), and, with Streams, metrics.StreamFillRatio{stream}
-// to every byte-limited stream's fill (S10). Leader-only: one replica asks
-// the broker.
+// consumer's lag (§9.4), the four counters behind it (ConsumerPending,
+// ConsumerAckPending, ConsumerWaiting, ConsumerMaxAckPending), and, with
+// Streams, metrics.StreamFillRatio{stream} to every byte-limited stream's
+// fill (S10). Leader-only: one replica asks the broker.
 type QueueGauge struct {
-	States   ConsumerStater
+	States ConsumerStater
+	// Cache, when set, is the read path shared with the External Metrics
+	// API, so the two never double-poll (split §9.4 as amended 2026-10-07);
+	// nil reads States directly.
+	Cache    *StateCache
 	Topology events.Topology
 	// Streams reads each stream's fill; nil skips the series.
 	Streams  events.StreamStater
@@ -63,6 +70,23 @@ func (q *QueueGauge) Start(ctx context.Context) error {
 	}
 }
 
+// consumerGauges are the five per-consumer series Update sets together and
+// drops together.
+var consumerGauges = []*prometheus.GaugeVec{
+	metrics.WorkQueuePending, metrics.ConsumerPending, metrics.ConsumerAckPending,
+	metrics.ConsumerWaiting, metrics.ConsumerMaxAckPending,
+}
+
+// read is c's state through the shared Cache, else straight from States.
+func (q *QueueGauge) read(ctx context.Context, c events.ConsumerSpec, timeout time.Duration) (events.ConsumerState, error) {
+	if q.Cache != nil {
+		return q.Cache.Get(ctx, Series{Stream: c.Stream, Consumer: c.Name})
+	}
+	cctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	return q.States.ConsumerState(cctx, c.Stream, c.Name)
+}
+
 // Update reads every non-advisory consumer once. A consumer it cannot read
 // loses its series.
 func (q *QueueGauge) Update(ctx context.Context) {
@@ -74,15 +98,19 @@ func (q *QueueGauge) Update(ctx context.Context) {
 		if c.Stream == events.StreamAdvisories {
 			continue
 		}
-		cctx, cancel := context.WithTimeout(ctx, timeout)
-		st, err := q.States.ConsumerState(cctx, c.Stream, c.Name)
-		cancel()
+		st, err := q.read(ctx, c, timeout)
 		if err != nil {
-			metrics.WorkQueuePending.DeleteLabelValues(c.Stream, c.Name)
+			for _, g := range consumerGauges {
+				g.DeleteLabelValues(c.Stream, c.Name)
+			}
 			logging.FromContext(ctx).Debug("extmetrics: queue gauge could not read a consumer", "stream", c.Stream, "consumer", c.Name, "error", err)
 			continue
 		}
 		metrics.WorkQueuePending.WithLabelValues(c.Stream, c.Name).Set(float64(st.Lag()))
+		metrics.ConsumerPending.WithLabelValues(c.Stream, c.Name).Set(float64(st.Pending))
+		metrics.ConsumerAckPending.WithLabelValues(c.Stream, c.Name).Set(float64(st.AckPending))
+		metrics.ConsumerWaiting.WithLabelValues(c.Stream, c.Name).Set(float64(st.Waiting))
+		metrics.ConsumerMaxAckPending.WithLabelValues(c.Stream, c.Name).Set(float64(st.MaxAckPending))
 	}
 	if q.Streams != nil {
 		for _, s := range q.Topology.Streams {
