@@ -34,7 +34,6 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	toolscache "k8s.io/client-go/tools/cache"
@@ -43,17 +42,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
-	"github.com/mediactl/clustarr/app/import/controller/importexclusion"
-	importlistctrl "github.com/mediactl/clustarr/app/import/controller/importlist"
-	"github.com/mediactl/clustarr/app/import/controller/librarydelete"
-	"github.com/mediactl/clustarr/app/import/controller/libraryscan"
-	"github.com/mediactl/clustarr/app/import/controller/rename"
-	"github.com/mediactl/clustarr/app/import/controller/retrigger"
-	"github.com/mediactl/clustarr/app/import/controller/rootfolderschedule"
-	"github.com/mediactl/clustarr/app/import/worker/fileimport"
-	"github.com/mediactl/clustarr/app/import/worker/importlist"
-	"github.com/mediactl/clustarr/app/import/worker/rescan"
-	"github.com/mediactl/clustarr/pkg/events"
+	catalogagent "github.com/mediactl/clustarr/app/catalog/agent"
+	importagent "github.com/mediactl/clustarr/app/import/agent"
+	importmanager "github.com/mediactl/clustarr/app/import/manager"
 	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs"
@@ -214,6 +205,24 @@ func (o Options) dataPath() string {
 	return DefaultDataPath
 }
 
+// managerOptions is what the import manager registration takes from o.
+func managerOptions(o Options) importmanager.Options {
+	return importmanager.Options{Options: o.Options, TraktBaseURL: o.TraktBaseURL}
+}
+
+// agentOptions is what the import domain's registration takes from o: the
+// data path with [Options.dataPath]'s fallback, and the sample size floor
+// exactly as given, since 0 disables it.
+func agentOptions(o Options) importagent.Options {
+	return importagent.Options{
+		Options:        o.Options,
+		DataDir:        o.dataPath(),
+		SampleMaxBytes: o.SampleMaxBytes,
+		TraktBaseURL:   o.TraktBaseURL,
+		PlexBaseURL:    o.PlexBaseURL,
+	}
+}
+
 // Validate checks the options before anything touches the cluster.
 func (o Options) Validate() error {
 	if !o.Role.Valid() {
@@ -350,25 +359,38 @@ func Run(ctx context.Context, o Options) error {
 	if err := ready.Add("cache", cacheReady); err != nil {
 		return err
 	}
-	// A scan or import worker that cannot write the library must not
-	// accept work (amendment §A1.6), and neither may the controllers, whose
-	// rename controller moves library files.
-	if err := ready.Add("data", k8s.DataReadyChecker(o.dataPath())); err != nil {
-		return err
-	}
-	if err := k8s.AddProbes(mgr, &ready, nil); err != nil {
-		return err
-	}
-
 	if o.Role.RunsControllers() {
-		if err := setupControllers(mgr, bus, o); err != nil {
-			return err
+		if err := importmanager.Register(mgr, bus, managerOptions(o)); err != nil {
+			return fmt.Errorf("importarr: %w", err)
 		}
 	}
 	if o.Role.RunsWorkers() {
-		if err := setupWorkers(mgr, bus, o); err != nil {
+		// A scan or import worker that cannot write the library must not
+		// accept work (amendment §A1.6): the import domain's import.data
+		// check, which also covers the controllers in --role all.
+		reg, err := importagent.Register(ctx, mgr, bus, agentOptions(o))
+		if err != nil {
+			return fmt.Errorf("importarr: %w", err)
+		}
+		if err := ready.Merge(reg.Ready); err != nil {
 			return err
 		}
+		if err := catalogagent.RegisterIndexes(ctx, mgr.GetFieldIndexer(), reg.Indexes); err != nil {
+			return fmt.Errorf("importarr: %w", err)
+		}
+		if err := catalogagent.AssertIndexes(mgr, reg.Indexes); err != nil {
+			return fmt.Errorf("importarr: %w", err)
+		}
+	} else {
+		// The controller role's own /data gate, kept for importarr's
+		// controller Deployment until cmd/manager drops it (spec §3.3, OD7).
+		// Its rename controller moves library files.
+		if err := ready.Add("data", k8s.DataReadyChecker(o.dataPath())); err != nil {
+			return err
+		}
+	}
+	if err := k8s.AddProbes(mgr, &ready, nil); err != nil {
+		return err
 	}
 
 	log.Info("starting", "role", o.Role, "leaderElection", o.ManagerOptions().LeaderElection)
@@ -376,233 +398,4 @@ func Run(ctx context.Context, o Options) error {
 		return fmt.Errorf("importarr: manager: %w", err)
 	}
 	return nil
-}
-
-// setupControllers registers importarr's leader-elected reconcilers
-// (amendment §A1.2, §A1.3, §A1.6; §16 M1). Each call is the one its package's
-// doc.go prescribes.
-func setupControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
-	if err := (&libraryscan.Reconciler{
-		Client: mgr.GetClient(),
-		Bus:    bus,
-		Clock:  time.Now,
-	}).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("importarr: libraryscan: %w", err)
-	}
-
-	// The streaming rename pass (probe-driven naming spec §5): moves a file
-	// to the path catalogarr proposes in status.naming when its RootFolder
-	// sets renameFiles. It reads the MediaFile past the cache immediately
-	// before each move (the lost-update rule), hence the APIReader, and it
-	// moves files, so it needs the library mounted where spec.path says.
-	if err := (&rename.Reconciler{
-		Client:    mgr.GetClient(),
-		APIReader: mgr.GetAPIReader(),
-		Recorder:  mgr.GetEventRecorder("rename"),
-	}).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("importarr: rename: %w", err)
-	}
-
-	// mgr.GetEventRecorder, not the deprecated mgr.GetEventRecorderFor: the
-	// Recorder field is a k8s.io/client-go/tools/events.EventRecorder and
-	// writes events.k8s.io/v1, which is what the package's RBAC marker
-	// grants. See catalogarr's setupControllers for why the two must move
-	// together.
-	if err := (&rootfolderschedule.Reconciler{
-		Client:   mgr.GetClient(),
-		Recorder: mgr.GetEventRecorder("rootfolderschedule"),
-		Clock:    time.Now,
-	}).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("importarr: rootfolderschedule: %w", err)
-	}
-
-	if err := (&importexclusion.Reconciler{
-		Client: mgr.GetClient(),
-		Bus:    bus,
-	}).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("importarr: importexclusion: %w", err)
-	}
-
-	// The library delete (docs/superpowers/specs/2026-09-30-library-delete-
-	// design.md): carries out catalog.clustarr.io/delete on a library item,
-	// removing its folder on disk for "files", so it runs here, where the
-	// library is mounted, under the lease.
-	if err := librarydelete.SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("importarr: librarydelete: %w", err)
-	}
-
-	// The ImportList controller (plan task G1-3): schedules one
-	// work.importarr.list.<name> task per spec.refreshInterval, drives
-	// Trakt's device-code flow, and is the sole writer of ImportList.status,
-	// which it projects from the list worker's clustarr-progress checkpoint
-	// below. HTTPClient and Clock are left nil on purpose: both default
-	// (http.DefaultClient, bounded by the reconcile context; time.Now).
-	if err := newImportListReconciler(mgr.GetClient(), bus, o).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("importarr: importlist: %w", err)
-	}
-
-	// The retrigger controller (app/import/controller/retrigger; plan task
-	// G2-4 built it, G2-5 wires it), with the call its own doc comment gives. grabarr publishes a Download's
-	// ImportTask once, on completion, and the file-import worker acks a
-	// Blocked outcome, so without this nothing ever looks again at the
-	// catalog.clustarr.io/import-target or import-override annotation a user
-	// adds to a Blocked Download -- manual import, design §8.4, would be a
-	// documented instruction that does nothing. It publishes to
-	// work.importarr.fileimport rather than importing itself, so it needs no
-	// /data and runs here, under the lease, not on importarr-worker.
-	if err := (&retrigger.Reconciler{Client: mgr.GetClient(), Bus: bus}).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("importarr: fileimport retrigger: %w", err)
-	}
-
-	return nil
-}
-
-// setupWorkers registers the work.importarr.* consumers (amendment §A1.6):
-// scan, fileimport and list.
-//
-// The list worker creates Movie and Series only today; a spec.kinds entry
-// naming a kind its provider cannot yield is refused at admission (R-10),
-// and one it can yield but no catalog writer exists for fails on status
-// (app/import/worker/importlist's syncKind), rather than being skipped.
-//
-// Both file-reading workers get o.SampleMaxBytes through [newScanWorker] and
-// [newImportWorker]; see Options.SampleMaxBytes.
-func setupWorkers(mgr ctrl.Manager, bus events.Bus, o Options) error {
-	// The spec.path field index the incremental fingerprint check reads. It
-	// must be registered before the manager starts, which is why it is here
-	// and not inside the worker's own Handle.
-	if err := rescan.IndexMediaFileByPath(context.Background(), mgr); err != nil {
-		return fmt.Errorf("importarr: index mediafile path: %w", err)
-	}
-
-	spec, ok := o.BusTopology().Consumer(events.ConsumerImportScan)
-	if !ok {
-		return fmt.Errorf("importarr: consumer %s missing from topology", events.ConsumerImportScan)
-	}
-	worker := newScanWorker(mgr.GetClient(), mgr.GetAPIReader(), bus, o)
-	sub := spec.Subscription()
-	// k8s.EveryReplica, not manager.RunnableFunc: amendment §A1.6 runs the
-	// scan consumer on EVERY replica of importarr-worker, and a bare
-	// RunnableFunc has no NeedLeaderElection method, so controller-runtime
-	// puts it behind the leader lease. importarr-worker does not run leader
-	// election, and with it disabled controller-runtime treats the process as
-	// elected and starts those runnables anyway -- so the subscription did
-	// open there. The exposure is any importarr replica that DOES elect:
-	// exactly one of them would have opened the subscription.
-	if err := mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
-		stop, err := bus.Subscribe(ctx, sub, worker.Handle)
-		if err != nil {
-			return fmt.Errorf("importarr: subscribe %s: %w", events.ConsumerImportScan, err)
-		}
-		defer stop()
-		<-ctx.Done()
-		return nil
-	})); err != nil {
-		return fmt.Errorf("importarr: add %s consumer: %w", events.ConsumerImportScan, err)
-	}
-
-	// The completed-download import worker (amendment §A1.2, §A1.6; plan
-	// tasks D2-7/D2-8), on ConsumerImportFile ("importarr-fileimport",
-	// R6). Wiring exactly as fileimport's own doc.go prescribes: the
-	// spec.mediaRef.target field index must be registered before the
-	// manager starts, and the subscription runs on EVERY replica for the
-	// same reason the scan consumer above does.
-	if err := fileimport.IndexMediaFileByTarget(context.Background(), mgr); err != nil {
-		return fmt.Errorf("importarr: index mediafile target: %w", err)
-	}
-	importSpec, ok := o.BusTopology().Consumer(events.ConsumerImportFile)
-	if !ok {
-		return fmt.Errorf("importarr: consumer %s missing from topology", events.ConsumerImportFile)
-	}
-	importWorker := newImportWorker(mgr.GetClient(), mgr.GetAPIReader(), bus, o)
-	importSub := importSpec.Subscription()
-	if err := mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
-		stop, err := bus.Subscribe(ctx, importSub, importWorker.Handle)
-		if err != nil {
-			return fmt.Errorf("importarr: subscribe %s: %w", events.ConsumerImportFile, err)
-		}
-		defer stop()
-		<-ctx.Done()
-		return nil
-	})); err != nil {
-		return fmt.Errorf("importarr: add %s consumer: %w", events.ConsumerImportFile, err)
-	}
-
-	// The import-list sync worker (amendment §A1.3, §A1.6; plan task G1-3),
-	// on ConsumerImportList ("importarr-list"): fetch, dedupe, drop what an
-	// ImportExclusion blocks, then create or update catalog items under
-	// k8s.ManagerImportarrWorker. It never writes ImportList.status -- it
-	// checkpoints a Result to clustarr-progress for the controller above to
-	// project. EVERY replica, for the same reason as the two consumers above.
-	listSpec, ok := o.BusTopology().Consumer(events.ConsumerImportList)
-	if !ok {
-		return fmt.Errorf("importarr: consumer %s missing from topology", events.ConsumerImportList)
-	}
-	listWorker := newListWorker(mgr.GetClient(), bus, o)
-	listSub := listSpec.Subscription()
-	if err := mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
-		stop, err := bus.Subscribe(ctx, listSub, listWorker.Handle)
-		if err != nil {
-			return fmt.Errorf("importarr: subscribe %s: %w", events.ConsumerImportList, err)
-		}
-		defer stop()
-		<-ctx.Done()
-		return nil
-	})); err != nil {
-		return fmt.Errorf("importarr: add %s consumer: %w", events.ConsumerImportList, err)
-	}
-
-	// The recycle-bin sweeper (task X7a built it, X14 wires it): the one
-	// consumer of RootFolder.spec.recycleBin.cleanupDays, emptying each bin
-	// of the dated folders past retention. It reads and deletes under /data,
-	// so it runs here on the worker role -- the importarr controller
-	// Deployment mounts no /data -- and on every replica: a sweep only
-	// removes date-named folders past retention, so two replicas racing on
-	// one folder cost a harmless second RemoveAll, and a leader lease would
-	// buy nothing but a replica that never sweeps.
-	if err := mgr.Add(k8s.EveryReplica(fileimport.NewRecycleSweeper(mgr.GetClient()).Run)); err != nil {
-		return fmt.Errorf("importarr: add the recycle-bin sweeper: %w", err)
-	}
-
-	return nil
-}
-
-// newScanWorker builds the work.importarr.scan handler with o's sample size
-// floor. rescan.NewWorker already defaults the floor, so the assignment
-// matters exactly when o carries a different one -- a non-default
-// --sample-max-bytes, or 0 to disable the rule. It also gets the manager's
-// API reader, which a scan's rename pass re-reads each MediaFile through
-// (rescan.Worker.APIReader).
-func newScanWorker(c client.Client, api client.Reader, bus events.Bus, o Options) *rescan.Worker {
-	w := rescan.NewWorker(c, bus)
-	w.APIReader = api
-	w.SampleMaxBytes = o.SampleMaxBytes
-	return w
-}
-
-// newListWorker builds the work.importarr.list handler with o's Trakt and
-// Plex base URLs; see Options.TraktBaseURL.
-func newListWorker(c client.Client, bus events.Bus, o Options) *importlist.Worker {
-	w := importlist.NewWorker(c, bus)
-	w.TraktBaseURL = o.TraktBaseURL
-	w.PlexBaseURL = o.PlexBaseURL
-	return w
-}
-
-// newImportListReconciler builds the ImportList controller with o's Trakt
-// base URL, the same host newListWorker gives the list worker, so the
-// device-code flow it drives authorizes the host the syncs then reach.
-func newImportListReconciler(c client.Client, bus events.Bus, o Options) *importlistctrl.Reconciler {
-	return &importlistctrl.Reconciler{Client: c, Bus: bus, TraktBaseURL: o.TraktBaseURL}
-}
-
-// newImportWorker builds the work.importarr.fileimport handler with o's
-// sample size floor, for the reason [newScanWorker] gives, and the
-// manager's API reader, which a movie's existing files are read through
-// (fileimport.Worker.APIReader).
-func newImportWorker(c client.Client, api client.Reader, bus events.Bus, o Options) *fileimport.Worker {
-	w := fileimport.NewWorker(c, bus)
-	w.APIReader = api
-	w.SampleMaxBytes = o.SampleMaxBytes
-	return w
 }
