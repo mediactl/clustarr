@@ -34,7 +34,7 @@ import (
 	"github.com/mediactl/clustarr/app/caption/controller/subtitleprofile"
 	"github.com/mediactl/clustarr/app/caption/controller/subtitleprovider"
 	"github.com/mediactl/clustarr/app/caption/controller/subtitlerequest"
-	"github.com/mediactl/clustarr/app/caption/providerset"
+	"github.com/mediactl/clustarr/app/caption/providerset/build"
 	"github.com/mediactl/clustarr/app/caption/worker/fetch"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -280,11 +280,11 @@ func setupControllers(mgr ctrl.Manager, bus events.Bus, o Options) error {
 // The provider builder lives as long as the process: its client cache is
 // what keeps an OpenSubtitles login across fetch tasks, and its KV -- the
 // clustarr-provider-throttle bucket -- is what shares that login across
-// worker replicas (providerset.TokenCache, throttle.SetAuth). It reads
+// worker replicas (build.TokenCache, throttle.SetAuth). It reads
 // Secrets, and the worker re-reads each SubtitleRequest before its status
 // apply, through the API reader.
 func setupWorkers(mgr ctrl.Manager, bus events.Bus, o Options) error {
-	providers := providerset.NewBuilder(mgr.GetClient(), mgr.GetAPIReader())
+	providers := build.NewBuilder(mgr.GetClient(), mgr.GetAPIReader())
 	providers.KV = bus.KV(events.BucketProviderThrottle)
 	providers.Extract = execextract.New("")
 	worker := fetch.NewWorker(mgr.GetClient(), mgr.GetAPIReader(), bus, providers, o.DataDir)

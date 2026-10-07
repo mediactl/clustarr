@@ -88,7 +88,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Nothing here registers itself. captionarr's setupWorkers (plan task F-6)
 // wires it for the worker role with:
 //
-//	providers := providerset.NewBuilder(mgr.GetClient(), mgr.GetAPIReader())
+//	providers := build.NewBuilder(mgr.GetClient(), mgr.GetAPIReader())
 //	providers.Extract = execextract.New("")
 //	worker := fetch.NewWorker(mgr.GetClient(), mgr.GetAPIReader(), bus, providers, o.DataDir)
 //	if err := worker.SetupWithManager(mgr, o.BusTopology()); err != nil {

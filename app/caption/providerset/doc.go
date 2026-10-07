@@ -20,12 +20,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // It is a separate package from app/caption/worker/fetch so that the
 // SubtitleProvider controller can validate a provider ([Validate]) with
-// exactly the checks the fetch worker's [Builder.Entry] runs before building
-// a client -- one switch over SubtitleProviderType, not two that drift.
+// exactly the checks the fetch worker's build.Builder.Entry runs before
+// building a client -- one switch over SubtitleProviderType, not two that
+// drift. The clients themselves are built by app/caption/providerset/build,
+// which only the caption agent links (spec §4.3 P1).
 //
 // # What it builds
 //
-// [Builder.Build] lists the enabled SubtitleProviders in a namespace and
+// build.Builder.Build lists the enabled SubtitleProviders in a namespace and
 // returns one [Entry] per provider that has a client, ordered by
 // spec.priority ascending, ties broken by name. One provider type has no
 // client: whisper, which the design of record defers (gap-fix ruling R-1;
@@ -40,13 +42,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // OpenSubtitles client holds its login token in memory, and OpenSubtitles
 // rate-limits logins far harder than searches, so a client built per task
 // would log in once per subtitle. Across replicas the token is shared too:
-// with [Builder.KV] set, each OpenSubtitles client stores and adopts it
-// through [TokenCache], the provider's entry in the
+// with build.Builder.KV set, each OpenSubtitles client stores and adopts it
+// through build.TokenCache, the provider's entry in the
 // clustarr-provider-throttle bucket.
 //
 // Static facts about a type -- the Secret keys it needs ([NeedsSecrets]) and
 // whether its hearing-impaired flag is trustworthy ([HIVerifiable]) -- are
-// read from the client itself, never from a second table kept elsewhere.
+// read from a static table (capabilities.go) that build's
+// TestCapabilityTableMatchesTheClients holds to each client, so the manager
+// reports them without linking a client (spec §13 OD9).
 //
 // The local provider (embedded) reads the media file itself, so it cannot
 // be built until the file is known. Its [Entry] carries a constructor
@@ -62,7 +66,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // # Secrets
 //
-// Secrets are read through [Builder.SecretReader], which the wiring task
+// Secrets are read through build.Builder.SecretReader, which the wiring task
 // should point at the manager's API reader (mgr.GetAPIReader()), not its
 // cached client: a cached Get of a Secret starts a cluster-wide Secret
 // informer, which needs list/watch on every Secret and holds all of them in

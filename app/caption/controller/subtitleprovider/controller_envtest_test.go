@@ -38,7 +38,7 @@ import (
 
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
 	"github.com/mediactl/clustarr/app/caption/controller/subtitleprovider"
-	"github.com/mediactl/clustarr/app/caption/providerset"
+	"github.com/mediactl/clustarr/app/caption/providerset/build"
 	"github.com/mediactl/clustarr/app/caption/throttle"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
@@ -263,7 +263,7 @@ func TestReconcileUnsupportedProviderTypeNeverErrorsOrAuthenticates(t *testing.T
 
 // TestReadyAgreesWithTheFetchWorkersBuilder is plan task F-6's one-validator
 // rule at the controller: for every provider, Ready=True exactly when the
-// fetch worker's builder (app/caption/providerset.Builder.Build) would search
+// fetch worker's builder (app/caption/providerset/build.Builder.Build) would search
 // it. The gestdown provider whose secretRef names a missing Secret is the
 // case the controller's former, separate check got wrong: gestdown needs no
 // credentials, so it reported Authenticated and Ready, while the builder
@@ -297,7 +297,7 @@ func TestReadyAgreesWithTheFetchWorkersBuilder(t *testing.T) {
 		require.NoError(t, err, name)
 	}
 
-	entries, err := providerset.NewBuilder(c, c).Build(ctx, ns)
+	entries, err := build.NewBuilder(c, c).Build(ctx, ns)
 	require.NoError(t, err)
 	searched := map[string]bool{}
 	for _, e := range entries {

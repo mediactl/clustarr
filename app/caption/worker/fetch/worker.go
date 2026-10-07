@@ -82,7 +82,8 @@ const (
 )
 
 // ProviderSource yields the SubtitleProviders a namespace's fetches may use,
-// in priority order. *providerset.Builder is the production implementation.
+// in priority order. *build.Builder (app/caption/providerset/build) is the
+// production implementation.
 type ProviderSource interface {
 	Build(ctx context.Context, namespace string) ([]providerset.Entry, error)
 }
