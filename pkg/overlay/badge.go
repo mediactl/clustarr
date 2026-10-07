@@ -25,9 +25,9 @@ import "image"
 // for it, and the source's Logo. Badges are drawn bottom-up along the
 // chosen corner (OverlayBadge's doc comment,
 // api/catalog/v1alpha1/overlayprofile_types.go): index 0 in the slice
-// Render receives is nearest the anchored corner.
+// render.Render receives is nearest the anchored corner.
 //
-// Render does not call FormatScore or Logo itself -- the caller (the
+// render.Render does not call FormatScore or Logo itself -- the caller (the
 // artwork-render role, spec §C.6) builds each Badge from an item's ratings,
 // omitting a badge whose source has no rating (FormatScore's ok==false)
 // rather than passing one with an empty Score.

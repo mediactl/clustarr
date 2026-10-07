@@ -15,14 +15,13 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// This file is `package overlay`, not `overlay_test` -- a deliberate
+// This file is `package render`, not `render_test` -- a deliberate
 // exception to the rest of this repo's convention of an `_internal_test.go`
-// suffix for white-box tests (pkg/transcode/x265params_internal_test.go).
-// The task brief names this file render_test.go exactly and requires it to
-// assert DefaultTemplate() against template.go's named, unexported
-// defaultWidthPct et al. constants directly (so a drift between them is a
-// named test failure), which only a same-package test can reach.
-package overlay
+// suffix for white-box tests (pkg/transcode/x265params_internal_test.go). It
+// reaches the rasteriser's unexported layoutBoxes, faceForCapHeight and the
+// box geometry directly. The template tests that read template.go's
+// unexported defaults stay with it in pkg/overlay/template_test.go.
+package render
 
 import (
 	"bytes"
@@ -38,113 +37,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/overlay"
 )
 
 var updateGolden = flag.Bool("update", false, "update golden PNG fixtures under test/data/overlay")
-
-// --- DefaultTemplate / TemplateSpec / TemplateHash -------------------------
-
-func TestDefaultTemplateMatchesNamedConstants(t *testing.T) {
-	// Pin the literal values the task brief specifies, independently of
-	// DefaultTemplate's own use of them -- a change to the constants
-	// themselves is then a failure here, not just a silent flow-through.
-	require.Equal(t, 19, defaultWidthPct)
-	require.Equal(t, 2, defaultRadiusPct)
-	require.Equal(t, 2, defaultPaddingPct)
-	require.Equal(t, 60, defaultLogoPct)
-	require.Equal(t, 27, defaultScorePct)
-	require.Equal(t, 80, defaultOpacityPct)
-
-	want := Template{
-		Corner:     CornerBottomRight,
-		WidthPct:   defaultWidthPct,
-		RadiusPct:  defaultRadiusPct,
-		PaddingPct: defaultPaddingPct,
-		LogoPct:    defaultLogoPct,
-		ScorePct:   defaultScorePct,
-		OpacityPct: defaultOpacityPct,
-	}
-	require.Equal(t, want, DefaultTemplate())
-}
-
-func TestTemplateSpecOfAZeroValueSpecMatchesDefaultTemplate(t *testing.T) {
-	// A Go-built OverlayProfileSpec{} -- no Corner, no Geometry -- is
-	// exactly what a client sends before any apiserver round trip fills in
-	// +kubebuilder:default=bottomRight. TemplateSpec must read it the same
-	// way DefaultTemplate() does (the typed-client defaulting trap,
-	// CLAUDE.md), not as a "" corner or a nil-pointer-panic geometry.
-	got := TemplateSpec(catalogv1alpha1.OverlayProfileSpec{})
-	require.Equal(t, DefaultTemplate(), got)
-}
-
-func TestTemplateSpecReadsExplicitCornerAndGeometry(t *testing.T) {
-	width := int32(20)
-	radius := int32(4)
-	spec := catalogv1alpha1.OverlayProfileSpec{
-		Corner: catalogv1alpha1.OverlayCornerTopLeft,
-		Geometry: &catalogv1alpha1.OverlayGeometry{
-			WidthPercent:  &width,
-			RadiusPercent: &radius,
-		},
-	}
-	got := TemplateSpec(spec)
-	require.Equal(t, CornerTopLeft, got.Corner)
-	require.Equal(t, 20, got.WidthPct)
-	require.Equal(t, 4, got.RadiusPct)
-	// Fields the spec's Geometry left nil still fall back to the named
-	// defaults, per-field (OverlayGeometry's *OrDefault accessors).
-	require.Equal(t, defaultPaddingPct, got.PaddingPct)
-	require.Equal(t, defaultLogoPct, got.LogoPct)
-	require.Equal(t, defaultScorePct, got.ScorePct)
-	require.Equal(t, defaultOpacityPct, got.OpacityPct)
-}
-
-func TestTemplateSpecCornerMapping(t *testing.T) {
-	cases := []struct {
-		in   catalogv1alpha1.OverlayCorner
-		want Corner
-	}{
-		{catalogv1alpha1.OverlayCornerBottomRight, CornerBottomRight},
-		{catalogv1alpha1.OverlayCornerBottomLeft, CornerBottomLeft},
-		{catalogv1alpha1.OverlayCornerTopRight, CornerTopRight},
-		{catalogv1alpha1.OverlayCornerTopLeft, CornerTopLeft},
-		{"", CornerBottomRight}, // the Go zero value, defaulted by hand
-	}
-	for _, tc := range cases {
-		t.Run(string(tc.in), func(t *testing.T) {
-			got := TemplateSpec(catalogv1alpha1.OverlayProfileSpec{Corner: tc.in})
-			require.Equal(t, tc.want, got.Corner)
-		})
-	}
-}
-
-func TestTemplateHashChangesWithEveryField(t *testing.T) {
-	base := DefaultTemplate()
-	baseHash := TemplateHash(base)
-	require.Equal(t, baseHash, TemplateHash(base), "the same Template must hash the same every time")
-
-	mutate := func(f func(*Template)) Template {
-		v := base
-		f(&v)
-		return v
-	}
-	variants := []Template{
-		mutate(func(v *Template) { v.Corner = CornerTopLeft }),
-		mutate(func(v *Template) { v.WidthPct++ }),
-		mutate(func(v *Template) { v.RadiusPct++ }),
-		mutate(func(v *Template) { v.PaddingPct++ }),
-		mutate(func(v *Template) { v.LogoPct++ }),
-		mutate(func(v *Template) { v.ScorePct++ }),
-		mutate(func(v *Template) { v.OpacityPct++ }),
-	}
-	seen := map[string]bool{baseHash: true}
-	for i, v := range variants {
-		h := TemplateHash(v)
-		require.Falsef(t, seen[h], "variant %d (%+v) collided with an earlier Template's hash", i, v)
-		seen[h] = true
-	}
-}
 
 // --- Small-poster floor (Review Focus 4) ------------------------------------
 
@@ -159,12 +55,12 @@ func TestTheDefaultBadgeIsPlexsEpisodeCountBox(t *testing.T) {
 	base := image.NewNRGBA(image.Rect(0, 0, 1249, 1869))
 	draw.Draw(base, base.Bounds(), image.NewUniform(grey), image.Point{}, draw.Src)
 
-	tpl := DefaultTemplate()
-	tpl.Corner = CornerTopLeft
+	tpl := overlay.DefaultTemplate()
+	tpl.Corner = overlay.CornerTopLeft
 	boxes := layoutBoxes(base.Bounds(), 1, tpl)
 	require.Equal(t, image.Rect(0, 0, 237, 207), boxes[0], "Plex's box, flush with the top-left corner")
 
-	got, err := Render(base, []Badge{{Source: SourceMetacritic, Score: "665"}}, tpl)
+	got, err := Render(base, []overlay.Badge{{Source: overlay.SourceMetacritic, Score: "665"}}, tpl)
 	require.NoError(t, err)
 
 	dimmed := color.NRGBA{R: 20, G: 30, B: 40, A: 255} // 0.2 x grey: black at 80%
@@ -197,9 +93,9 @@ func TestTheDefaultBadgeIsPlexsEpisodeCountBox(t *testing.T) {
 
 	// With the Metacritic logo above it, the score keeps Plex's height and
 	// the logo-and-score pair is centred in the box both ways.
-	logo, ok := Logo(SourceMetacritic)
+	logo, ok := overlay.Logo(overlay.SourceMetacritic)
 	require.True(t, ok)
-	got, err = Render(base, []Badge{{Source: SourceMetacritic, Score: "75", Logo: logo}}, tpl)
+	got, err = Render(base, []overlay.Badge{{Source: overlay.SourceMetacritic, Score: "75", Logo: logo}}, tpl)
 	require.NoError(t, err)
 	// The pair is the logo's gold ring and white glyphs; the box, the
 	// poster and their anti-aliased blend at the rounded corner all have a
@@ -233,7 +129,7 @@ func TestTheDefaultBadgeIsPlexsEpisodeCountBox(t *testing.T) {
 
 func TestLayoutBoxesClampsToMinBoxPxOnASmallPoster(t *testing.T) {
 	bounds := image.Rect(0, 0, 60, 90)
-	boxes := layoutBoxes(bounds, 4, DefaultTemplate())
+	boxes := layoutBoxes(bounds, 4, overlay.DefaultTemplate())
 	require.Len(t, boxes, 4)
 	for i, b := range boxes {
 		require.GreaterOrEqualf(t, b.Dx(), minBoxPx, "badge %d width", i)
@@ -249,11 +145,11 @@ func TestFaceForCapHeightNeverGoesBelowMinFontSizePx(t *testing.T) {
 
 func TestRenderOnASmallPosterDoesNotPanicAndKeepsPosterBounds(t *testing.T) {
 	base := syntheticPoster(60, 90)
-	badges := []Badge{
-		testBadge(t, SourceMetacritic, 7600),
-		testBadge(t, SourceIMDb, 810),
-		testBadge(t, SourceRTCritic, 9400),
-		testBadge(t, SourceTMDB, 730),
+	badges := []overlay.Badge{
+		testBadge(t, overlay.SourceMetacritic, 7600),
+		testBadge(t, overlay.SourceIMDb, 810),
+		testBadge(t, overlay.SourceRTCritic, 9400),
+		testBadge(t, overlay.SourceTMDB, 730),
 	}
 
 	var got *image.NRGBA
@@ -264,7 +160,7 @@ func TestRenderOnASmallPosterDoesNotPanicAndKeepsPosterBounds(t *testing.T) {
 				t.Fatalf("Render panicked on a 60x90 poster with 4 badges: %v", r)
 			}
 		}()
-		got, err = Render(base, badges, DefaultTemplate())
+		got, err = Render(base, badges, overlay.DefaultTemplate())
 	}()
 	require.NoError(t, err)
 
@@ -293,7 +189,7 @@ func TestRenderOnASmallPosterDoesNotPanicAndKeepsPosterBounds(t *testing.T) {
 // test.
 func TestRenderOnASmallPosterBadgeBoxesStayInBounds(t *testing.T) {
 	bounds := image.Rect(0, 0, 60, 90)
-	tmpl := DefaultTemplate()
+	tmpl := overlay.DefaultTemplate()
 
 	// The one-badge case is the task brief's literal wording ("a 60x90
 	// poster renders ... the badge stays within bounds", singular): one
@@ -387,13 +283,13 @@ func TestRenderOnASmallPosterPixelsNeverLeaveThePosterRectangle(t *testing.T) {
 		}
 	}
 
-	tmpl := DefaultTemplate()
+	tmpl := overlay.DefaultTemplate()
 	box := layoutBoxes(posterBounds, 1, tmpl)[0] // 1 badge: TestRenderOnASmallPosterBadgeBoxesStayInBounds proves this box is fully inside posterBounds
 	require.Truef(t, box.In(posterBounds), "precondition: the badge box %v must be inside the poster rectangle %v for this test to prove anything", box, posterBounds)
 
 	paddingPx := scalePct(posterW, tmpl.PaddingPct)
 	radiusPx := scalePct(posterW, tmpl.RadiusPct)
-	badge := testBadge(t, SourceMetacritic, 7600)
+	badge := testBadge(t, overlay.SourceMetacritic, 7600)
 	require.NoError(t, drawBadge(canvas, box, paddingPx, radiusPx, badge, tmpl))
 
 	var touchedOutside int
@@ -418,14 +314,14 @@ func TestRenderOnASmallPosterPixelsNeverLeaveThePosterRectangle(t *testing.T) {
 
 func TestRenderBadgeWithNoLogoOrScoreDrawsOnlyTheBox(t *testing.T) {
 	base := syntheticPoster(400, 600)
-	badges := []Badge{{Source: SourceIMDb}} // no Score, no Logo
-	got, err := Render(base, badges, DefaultTemplate())
+	badges := []overlay.Badge{{Source: overlay.SourceIMDb}} // no Score, no Logo
+	got, err := Render(base, badges, overlay.DefaultTemplate())
 	require.NoError(t, err)
 	require.Equal(t, base.Bounds(), got.Bounds())
 
 	// The badge box itself should still have been drawn: its near-opaque
 	// dark fill must appear somewhere in the bottom-right corner region.
-	box := layoutBoxes(base.Bounds(), 1, DefaultTemplate())[0]
+	box := layoutBoxes(base.Bounds(), 1, overlay.DefaultTemplate())[0]
 	center := got.NRGBAAt(box.Min.X+box.Dx()/2, box.Min.Y+box.Dy()/2)
 	require.Lessf(t, int(center.R), 0x60, "expected the badge fill's dark grey at the box center, got %+v", center)
 }
@@ -434,21 +330,21 @@ func TestRenderBadgeWithNoLogoOrScoreDrawsOnlyTheBox(t *testing.T) {
 
 func TestRenderGoldenOneMetacriticBadge(t *testing.T) {
 	base := syntheticPoster(400, 600)
-	badges := []Badge{testBadge(t, SourceMetacritic, 7600)}
-	got, err := Render(base, badges, DefaultTemplate())
+	badges := []overlay.Badge{testBadge(t, overlay.SourceMetacritic, 7600)}
+	got, err := Render(base, badges, overlay.DefaultTemplate())
 	require.NoError(t, err)
 	assertGolden(t, "one_metacritic_badge", got)
 }
 
 func TestRenderGoldenFourBadgesStacked(t *testing.T) {
 	base := syntheticPoster(400, 600)
-	badges := []Badge{
-		testBadge(t, SourceMetacritic, 7600),
-		testBadge(t, SourceIMDb, 810),
-		testBadge(t, SourceRTCritic, 9400),
-		testBadge(t, SourceTMDB, 730),
+	badges := []overlay.Badge{
+		testBadge(t, overlay.SourceMetacritic, 7600),
+		testBadge(t, overlay.SourceIMDb, 810),
+		testBadge(t, overlay.SourceRTCritic, 9400),
+		testBadge(t, overlay.SourceTMDB, 730),
 	}
-	got, err := Render(base, badges, DefaultTemplate())
+	got, err := Render(base, badges, overlay.DefaultTemplate())
 	require.NoError(t, err)
 	assertGolden(t, "four_badges", got)
 }
@@ -456,19 +352,19 @@ func TestRenderGoldenFourBadgesStacked(t *testing.T) {
 func TestRenderGoldenEachCorner(t *testing.T) {
 	corners := []struct {
 		name   string
-		corner Corner
+		corner overlay.Corner
 	}{
-		{"bottom_right", CornerBottomRight},
-		{"bottom_left", CornerBottomLeft},
-		{"top_right", CornerTopRight},
-		{"top_left", CornerTopLeft},
+		{"bottom_right", overlay.CornerBottomRight},
+		{"bottom_left", overlay.CornerBottomLeft},
+		{"top_right", overlay.CornerTopRight},
+		{"top_left", overlay.CornerTopLeft},
 	}
 	for _, tc := range corners {
 		t.Run(tc.name, func(t *testing.T) {
 			base := syntheticPoster(400, 600)
-			tmpl := DefaultTemplate()
+			tmpl := overlay.DefaultTemplate()
 			tmpl.Corner = tc.corner
-			badges := []Badge{testBadge(t, SourceTrakt, 880)}
+			badges := []overlay.Badge{testBadge(t, overlay.SourceTrakt, 880)}
 			got, err := Render(base, badges, tmpl)
 			require.NoError(t, err)
 			assertGolden(t, "corner_"+tc.name, got)
@@ -478,8 +374,8 @@ func TestRenderGoldenEachCorner(t *testing.T) {
 
 func TestRenderGoldenAlphaBase(t *testing.T) {
 	base := syntheticPosterWithAlpha(400, 600)
-	badges := []Badge{testBadge(t, SourceLetterboxd, 420)}
-	got, err := Render(base, badges, DefaultTemplate())
+	badges := []overlay.Badge{testBadge(t, overlay.SourceLetterboxd, 420)}
+	got, err := Render(base, badges, overlay.DefaultTemplate())
 	require.NoError(t, err)
 	assertGolden(t, "alpha_base", got)
 }
@@ -540,13 +436,13 @@ func syntheticPosterWithAlpha(w, h int) image.Image {
 // shaped like the answer cannot fail"): if FormatScore or Logo regresses,
 // every golden test using this helper regresses with it instead of quietly
 // keeping its own separately-computed "correct" values.
-func testBadge(t *testing.T, source string, centis int32) Badge {
+func testBadge(t *testing.T, source string, centis int32) overlay.Badge {
 	t.Helper()
-	score, ok := FormatScore(source, centis)
+	score, ok := overlay.FormatScore(source, centis)
 	require.True(t, ok, "FormatScore(%s, %d) reported no score", source, centis)
-	logo, ok := Logo(source)
+	logo, ok := overlay.Logo(source)
 	require.True(t, ok, "no embedded logo for source %s", source)
-	return Badge{Source: source, Score: score, Logo: logo}
+	return overlay.Badge{Source: source, Score: score, Logo: logo}
 }
 
 // goldenTolerance is applied per RGBA channel, out of 255. See assertGolden.
@@ -554,7 +450,7 @@ const goldenTolerance = 24
 
 // assertGolden compares got against the PNG fixture at
 // test/data/overlay/<name>.png, or writes got there when -update is passed
-// (go test ./pkg/overlay/... -run <TestName> -update; review the PNG by
+// (go test ./pkg/overlay/render/... -run <TestName> -update; review the PNG by
 // hand before committing it -- the task report records the exact commands
 // used to generate this package's own goldens).
 //
@@ -573,7 +469,7 @@ const goldenTolerance = 24
 // more than a handful of edge levels.
 func assertGolden(t *testing.T, name string, got *image.NRGBA) {
 	t.Helper()
-	path := filepath.Join("..", "..", "test", "data", "overlay", name+".png")
+	path := filepath.Join("..", "..", "..", "test", "data", "overlay", name+".png")
 
 	if *updateGolden {
 		f, err := os.Create(path)
@@ -584,7 +480,7 @@ func assertGolden(t *testing.T, name string, got *image.NRGBA) {
 	}
 
 	f, err := os.Open(path)
-	require.NoErrorf(t, err, "missing golden %s -- run `go test ./pkg/overlay/... -run %s -update` once, then hand-review the PNG before committing it", path, t.Name())
+	require.NoErrorf(t, err, "missing golden %s -- run `go test ./pkg/overlay/render/... -run %s -update` once, then hand-review the PNG before committing it", path, t.Name())
 	defer func() { _ = f.Close() }()
 	wantImg, err := png.Decode(f)
 	require.NoError(t, err)

@@ -69,7 +69,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // embedded-postgres for real (TestPostgresStoreContract, spec §A.2).
 //
 // x/image, also pre-added in W0-1, was retired the same way by C2:
-// pkg/overlay/overlay.go imports golang.org/x/image/draw,
+// pkg/overlay/overlay.go (pkg/overlay/render/render.go since the
+// manager/agent split) imports golang.org/x/image/draw,
 // golang.org/x/image/font, golang.org/x/image/font/gofont/gobold,
 // golang.org/x/image/font/opentype and golang.org/x/image/math/fixed for
 // real (Render, faceForCapHeight).

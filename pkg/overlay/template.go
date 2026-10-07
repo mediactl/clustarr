@@ -70,8 +70,9 @@ type Template struct {
 	// PaddingPct is, per api/catalog/v1alpha1/overlayprofile_types.go's
 	// OverlayGeometry.PaddingPercent doc comment, "the padding inside each
 	// badge" -- and per spec §C.5's prose, also the gap between stacked
-	// badges. This package reuses one poster-width-relative pixel value for
-	// both: layoutBoxes' inter-badge gap and drawBadge's internal margin.
+	// badges. pkg/overlay/render reuses one poster-width-relative pixel value
+	// for both: render.layoutBoxes' inter-badge gap and render.drawBadge's
+	// internal margin.
 	PaddingPct int
 	// LogoPct is the logo's width, as a percentage of the badge's content
 	// width (the box width less its internal margins); the logo sits above

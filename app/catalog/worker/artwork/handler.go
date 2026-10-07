@@ -48,6 +48,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/metrics"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/pkg/overlay"
+	overlayrender "github.com/mediactl/clustarr/pkg/overlay/render"
 )
 
 // The overlay object's headers beyond the gateway's (spec §B.2).
@@ -158,7 +159,7 @@ const DefaultMaxConcurrentRenders = 2
 
 // MaxRenderWidth is the widest an overlay is drawn: a decoded original
 // wider than this is downscaled to it, aspect preserved, before
-// overlay.Render (see MaxConcurrentRenders for the memory it bounds). A
+// overlayrender.Render (see MaxConcurrentRenders for the memory it bounds). A
 // poster is shown at a few hundred pixels wide by every client this serves
 // (the library grid, Plex), and TMDB's own "original" size is 2000 wide,
 // so the cap costs nothing visible. Changing it changes every render's
@@ -439,7 +440,7 @@ func (h *Handler) draw(ctx context.Context, it Item, want Want) (*catalogv1alpha
 	// here on, so it can be collected before Render allocates its canvas.
 	base = FitWidth(base, MaxRenderWidth)
 
-	img, err := overlay.Render(base, want.Badges, overlay.TemplateSpec(want.Profile.Spec))
+	img, err := overlayrender.Render(base, want.Badges, overlay.TemplateSpec(want.Profile.Spec))
 	if err != nil {
 		return nil, fmt.Errorf("%w: render %s: %w", errUndecodable, originalKey, err)
 	}

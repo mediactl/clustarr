@@ -45,7 +45,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //     ratings sorted by source.
 //  3. If the stored overlay's Clustarr-Rendered-From is that digest,
 //     render nothing; record it in status.overlay if it is not already.
-//  4. Otherwise decode the original, overlay.Render, encode JPEG q90, Put
+//  4. Otherwise decode the original, render.Render, encode JPEG q90, Put
 //     poster/overlay with Content-Type image/jpeg, Clustarr-Source render
 //     and Clustarr-Rendered-From, and record it. An original that does not
 //     decode is "no overlay", as in step 1.

@@ -55,6 +55,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/overlay"
+	overlayrender "github.com/mediactl/clustarr/pkg/overlay/render"
 )
 
 var (
@@ -487,7 +488,7 @@ func TestABadgeWithoutARatingIsOmitted(t *testing.T) {
 	tmdbLogo, _ := overlay.Logo(overlay.SourceTMDB)
 	imdbLogo, _ := overlay.Logo(overlay.SourceIMDb)
 	render := func(badges ...overlay.Badge) string {
-		img, err := overlay.Render(base, badges, overlay.TemplateSpec(f.profile().Spec))
+		img, err := overlayrender.Render(base, badges, overlay.TemplateSpec(f.profile().Spec))
 		require.NoError(t, err)
 		var buf bytes.Buffer
 		require.NoError(t, jpeg.Encode(&buf, img, &jpeg.Options{Quality: 90}))

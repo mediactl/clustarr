@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package overlay is the pure poster badge renderer (spec §C.5): given a
+// Package render is the pure poster badge renderer (spec §C.5): given a
 // base poster image, a stack of rating Badges and a Template, it draws one
 // rounded-rect box per badge -- the source's logo on top, the score in bold
 // white beneath -- in the chosen corner, and returns the composited image.
@@ -42,7 +42,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // alternative would need a "which layout position am I" flag threaded
 // through the drawing code. The four-badge golden this package ships
 // (test/data/overlay/four_badges.png) shows the result.
-package overlay
+//
+// The badge model (Badge, Template, the logos and FormatScore) is
+// pkg/overlay's; this package draws it and is the only one that links
+// golang.org/x/image.
+package render
 
 import (
 	_ "embed"
@@ -58,6 +62,8 @@ import (
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/opentype"
 	"golang.org/x/image/math/fixed"
+
+	"github.com/mediactl/clustarr/pkg/overlay"
 )
 
 // minBoxPx and minFontSizePx are Review Focus 4's small-poster floor: a
@@ -96,7 +102,7 @@ const (
 // to the destination's own bounds, so a box or glyph computed partly or
 // wholly off-canvas simply draws the part that is on-canvas -- never out of
 // bounds, never a runtime error.
-func Render(base image.Image, badges []Badge, t Template) (*image.NRGBA, error) {
+func Render(base image.Image, badges []overlay.Badge, t overlay.Template) (*image.NRGBA, error) {
 	if base == nil {
 		return nil, errors.New("overlay: base image is nil")
 	}
@@ -142,7 +148,7 @@ func scalePct(v, pct int) int {
 // rounded -- deterministic across architectures, unlike this package's
 // glyph rendering (see render_test.go's golden comparison for why that one
 // needs a tolerance).
-func roundedRectMask(w, h, radius int, anchor Corner) *image.Alpha {
+func roundedRectMask(w, h, radius int, anchor overlay.Corner) *image.Alpha {
 	if radius < 0 {
 		radius = 0
 	}
@@ -166,21 +172,21 @@ func roundedRectMask(w, h, radius int, anchor Corner) *image.Alpha {
 // only rounded corner is the one diagonally opposite anchor. A pixel
 // outside that corner's radius x radius box is fully covered; a pixel
 // inside it is covered by distance from the corner's circle centre.
-func cornerCoverage(x, y, w, h, radius int, anchor Corner) float64 {
+func cornerCoverage(x, y, w, h, radius int, anchor overlay.Corner) float64 {
 	var cx, cy float64
 	var rounded bool
 	switch {
 	case x < radius && y < radius:
-		rounded = anchor == CornerBottomRight
+		rounded = anchor == overlay.CornerBottomRight
 		cx, cy = float64(radius), float64(radius)
 	case x >= w-radius && y < radius:
-		rounded = anchor == CornerBottomLeft
+		rounded = anchor == overlay.CornerBottomLeft
 		cx, cy = float64(w-radius), float64(radius)
 	case x < radius && y >= h-radius:
-		rounded = anchor == CornerTopRight
+		rounded = anchor == overlay.CornerTopRight
 		cx, cy = float64(radius), float64(h-radius)
 	case x >= w-radius && y >= h-radius:
-		rounded = anchor == CornerTopLeft
+		rounded = anchor == overlay.CornerTopLeft
 		cx, cy = float64(w-radius), float64(h-radius)
 	default:
 		return 1
@@ -209,7 +215,7 @@ func cornerCoverage(x, y, w, h, radius int, anchor Corner) float64 {
 // boxH+gap, per badge, along the vertical axis only -- the horizontal
 // position (flush with the corner's vertical edge) never changes across the
 // stack.
-func layoutBoxes(bounds image.Rectangle, n int, t Template) []image.Rectangle {
+func layoutBoxes(bounds image.Rectangle, n int, t overlay.Template) []image.Rectangle {
 	posterW := bounds.Dx()
 	boxW := scalePct(posterW, t.WidthPct)
 	if boxW < minBoxPx {
@@ -220,7 +226,7 @@ func layoutBoxes(bounds image.Rectangle, n int, t Template) []image.Rectangle {
 
 	var x int
 	switch t.Corner {
-	case CornerBottomLeft, CornerTopLeft:
+	case overlay.CornerBottomLeft, overlay.CornerTopLeft:
 		x = bounds.Min.X
 	default: // CornerBottomRight, CornerTopRight
 		x = bounds.Max.X - boxW
@@ -230,7 +236,7 @@ func layoutBoxes(bounds image.Rectangle, n int, t Template) []image.Rectangle {
 	for i := range boxes {
 		var y int
 		switch t.Corner {
-		case CornerTopLeft, CornerTopRight:
+		case overlay.CornerTopLeft, overlay.CornerTopRight:
 			y = bounds.Min.Y + i*(boxH+gap)
 		default: // CornerBottomLeft, CornerBottomRight
 			y = bounds.Max.Y - boxH - i*(boxH+gap)
@@ -244,7 +250,7 @@ func layoutBoxes(bounds image.Rectangle, n int, t Template) []image.Rectangle {
 // paddingPx is reused both between badges (layoutBoxes' gap) and inside one
 // badge (this function's internal margin) -- see Template.PaddingPct's doc
 // comment.
-func drawBadge(canvas *image.NRGBA, box image.Rectangle, paddingPx, radiusPx int, b Badge, t Template) error {
+func drawBadge(canvas *image.NRGBA, box image.Rectangle, paddingPx, radiusPx int, b overlay.Badge, t overlay.Template) error {
 	boxW, boxH := box.Dx(), box.Dy()
 
 	mask := roundedRectMask(boxW, boxH, radiusPx, t.Corner)
