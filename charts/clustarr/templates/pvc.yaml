@@ -34,6 +34,10 @@ metadata:
   name: {{ include "clustarr.fullname" . }}-index
   labels:
     {{- include "clustarr.labels" . | nindent 4 }}
+  annotations:
+    # Keep the release index when the release goes away: its PV reclaims with
+    # Delete, and every RSS-collected release lives in it (OD39).
+    helm.sh/resource-policy: keep
 spec:
   accessModes:
   - ReadWriteOnce

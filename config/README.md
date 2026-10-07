@@ -1,9 +1,9 @@
 # config
 
 The plain-kustomize install, dependency-free: `kustomize build config/default
-| kubectl apply --server-side -f -` renders the 29 CRDs, RBAC, the ten
-service Deployments and a single-node dev NATS StatefulSet into the
-`clustarr-system` namespace. `hack/e2e.sh` and local kind clusters use it
+| kubectl apply --server-side -f -` renders the 27 CRDs, RBAC, the manager,
+six agent Deployments, markers and the ui, the External Metrics APIService
+and a single-node dev NATS StatefulSet into the `clustarr-system` namespace. `hack/e2e.sh` and local kind clusters use it
 directly (`config/e2e` layers fixture services and smaller resource requests
 on top). Prefer `charts/clustarr` for anything real -- it swaps the dev NATS
 here for the clustered upstream chart; see that chart's own README.
@@ -13,10 +13,11 @@ here for the clustered upstream chart; see that chart's own README.
 | Dir | What it is |
 | --- | --- |
 | `crd/` | Every generated CustomResourceDefinition (`make manifests`). |
-| `rbac/` | Generated ClusterRoles/RoleBindings plus the hand-written `ui` role. |
-| `manager/` | One Deployment + ServiceAccount + Service per service Kind (§3's process-topology table). The reference: `charts/clustarr/templates/deployments.yaml` is the parameterised form of the same shapes, and `cmd/clustarr`'s `TestChartAndKustomizeAgreePerComponent` holds the two to each other. |
+| `rbac/` | One generated ClusterRole per identity (the manager, each agent, the engine pods) with its binding, plus the hand-written `ui` and leader-election roles. |
+| `manager/` | One Deployment + ServiceAccount + Service per workload of spec 2026-10-06 §10.2.1 (`manager`, `agent-<domain>`, `markers`, `ui`). The reference: `charts/clustarr/templates/deployments.yaml` is the parameterised form of the same shapes, and `test/guards`' `TestInstallersRenderTheTopology` and `TestChartAndKustomizeAgreePerComponent` hold the two to each other. |
+| `autoscaling/` | The External Metrics `APIService`, its `external-metrics` Service and the `kube-system` binding the manager's autoscaler needs. Included by `default`. |
 | `nats/` | Single-node dev NATS with JetStream on a PVC. Included by `default`; swap for the `nats` chart dependency in production. |
-| `default/` | The deployable install: `namespace.yaml`, `pvc.yaml` (the two PVCs, §11) plus `crd`, `rbac`, `manager` and `nats`. |
+| `default/` | The deployable install: `namespace.yaml`, `pvc.yaml` (the two PVCs, §11) plus `crd`, `rbac`, `manager`, `autoscaling` and `nats`. |
 | `e2e/` | `hack/e2e.sh`'s overlay: `default` plus every fixture stub service, sample CRs and smaller resource requests. |
 | `prometheus/`, `postgres/` | Optional overlays/components, each documented below and in its own README where one exists. Never referenced by `default` -- add the ones your cluster's operators support. |
 | `samples/` | Empty by design; see its own README. |
@@ -28,14 +29,14 @@ operator it needs and how to apply it.
 
 - **`prometheus/`** -- `ServiceMonitor`s (needs the Prometheus Operator
   CRDs). Read `config/prometheus/README.md` first.
-- **`postgres/`** -- indexarr's release index on a CloudNativePG `Cluster`
+- **`postgres/`** -- the index agent's release index on a CloudNativePG `Cluster`
   instead of local SQLite (design spec 2026-09-24 §A; ADR-0010). Read on.
 
 ### `postgres/`: the Postgres release index component
 
 `config/postgres` is a kustomize [`Component`](https://kubernetes.io/docs/tasks/manage-kubernetes-objects/kustomization/#components)
 (`kind: Component`, not `Kustomization`), so it composes INTO an overlay that
-already carries `config/default`'s `indexarr` Deployment for it to patch,
+already carries `config/default`'s `agent-index` Deployment for it to patch,
 rather than building on its own. A minimal overlay:
 
 ```yaml
@@ -68,11 +69,8 @@ kubectl wait --for=condition=Available deployment/cnpg-controller-manager \
 ```
 
 What the component does: adds the `Cluster`, and a strategic-merge patch
-(`config/postgres/indexarr-patch.yaml`) on the `indexarr` Deployment that
+(`config/postgres/agent-index-patch.yaml`) on the `agent-index` Deployment that
 adds `CLUSTARR_INDEX_DSN` (from the Secret CNPG's `bootstrap.initdb` creates,
-`clustarr-postgres-app`, key `uri`), removes the local SQLite volume and
-volume mount, and drops the `Recreate` update strategy back to the `apps/v1`
-default. `indexarr.replicas` may then be raised above `1` (indexarr's own
-leader election is keyed on `CLUSTARR_INDEX_DSN` being set, not a flag) by
-editing `config/manager/indexarr.yaml`'s `spec.replicas` or layering your own
-patch over this component's.
+`clustarr-postgres-app`, key `uri`) and removes the local SQLite volume and
+volume mount. The agent stays one replica with strategy `Recreate`: its RPC
+responders, facade and per-host limiter are one process.
