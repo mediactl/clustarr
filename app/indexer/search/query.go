@@ -131,12 +131,25 @@ func queryCategories(requested []int32, caps *indexv1alpha1.Caps) []newznab.Cate
 // no new schema version was needed for an already-existing, already-optional
 // field.
 //
-// Anime arrives as an absolute number in Episode with Season nil and no
-// flag: catalog's BuildSearchRequest drops the season for an anime series
-// and puts the absolute number in Episode. That shape is the only signal on
-// the wire, so it is the inference -- an episode request with Episode set
-// and Season nil also searches the indexer's spec.animeCategories, which
+// Anime arrives as req.Anime (Wave S), or, from an older producer, as an
+// absolute number in Episode with Season nil: catalog's BuildSearchRequest
+// drops the season for an anime episode and puts the absolute number in
+// Episode. Either searches the indexer's spec.animeCategories too, which
 // newznab.ByKind cannot reach.
+//
+// The id half is decided first, then the season parameter. A season
+// request (Season set, Episode nil; series search design §5.3):
+//
+//	indexer's tv-search caps   standard series                    anime series
+//	tvdbid (and season)        t=tvsearch&tvdbid=<tvdb>&season=<n>  the same
+//	text only, season listed   t=tvsearch&q=<title>&season=<n>      t=tvsearch&q=<title> + animeCategories
+//	text only, no season       t=tvsearch&q=<title>                 t=tvsearch&q=<title> + animeCategories
+//	neither                    skipped (no id, no text)             the same
+//
+// so the season parameter goes on an id query, and on a text query only
+// for a request that is not anime: anime packs are named by absolute range
+// or "Batch", never S01, and a definition renders the parameter into its
+// keywords. An episode parameter is sent as before.
 func buildQuery(
 	req schema.SearchRequest,
 	idx *indexv1alpha1.Indexer,
@@ -164,7 +177,9 @@ func buildQuery(
 	if v := req.IDs[commonv1.IDKeyTVDB]; v != "" && paramSupported(caps, mode, "tvdbid") {
 		q.TVDBID, anyID = v, true
 	}
-	if req.Season != nil && paramSupported(caps, mode, "season") {
+	// The season parameter only on an id query, or on a text query for a
+	// series that is not anime (see the table above).
+	if req.Season != nil && paramSupported(caps, mode, "season") && (anyID || !isAnimeRequest(req)) {
 		s := int(*req.Season)
 		q.Season = &s
 	}
@@ -181,8 +196,12 @@ func buildQuery(
 	return q, false, ""
 }
 
-// isAnimeRequest reports the absolute-numbering shape: an episode request
-// with an episode number and no season.
+// isAnimeRequest reports an anime request: req.Anime, or the older
+// absolute-numbering shape -- an episode request with an episode number
+// and no season.
 func isAnimeRequest(req schema.SearchRequest) bool {
+	if req.Anime {
+		return true
+	}
 	return req.Kind == commonv1.MediaKindEpisode && req.Episode != nil && req.Season == nil
 }
