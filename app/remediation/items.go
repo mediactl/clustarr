@@ -22,13 +22,18 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
+	"time"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	k8sevents "k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/workqueue"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -36,7 +41,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	"github.com/mediactl/clustarr/app/catalog/controller/itempass"
+	"github.com/mediactl/clustarr/app/catalog/controller/itemstatus"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
+	cataloghistory "github.com/mediactl/clustarr/app/catalog/history"
+	"github.com/mediactl/clustarr/app/dispatch"
+	"github.com/mediactl/clustarr/app/intake"
+	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/metrics"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
@@ -45,9 +57,39 @@ import (
 // per item kind, reconciled by its own ReconcileItem, woken by its own
 // non-file watches adapted to Key and by the item arm of the MediaFile
 // source (S1, S1'), which replaced every item kind's MediaFile watch.
+//
+// Since ADR-0019 (A3.3, ruling R5) a pass also runs the item stages around
+// ReconcileItem: each stage plans beside the rollups, its catalogarr
+// contribution rides the context into the kind's one catalogarr apply
+// (itempass), and every other manager's set is applied here, chained on
+// the resourceVersion the apply before it returned (§7.0); then the stages'
+// effects run, then their Events.
 type ItemReconciler struct {
-	Items map[KeyKind]rollup.Item
+	Items  map[KeyKind]rollup.Item
+	Stages []ItemStage
+	Env    *Env
+	// Dispatch is the admission ledger DispatchPublish and DispatchAnswered
+	// confirm; Book the delivery book planners render from.
+	Dispatch *dispatch.Ledger
+	Book     *dispatch.DeliveryBook
+	// Inbox is the candidate inbox: S30's wakes and SettleCandidate.
+	Inbox *intake.Inbox
+	// DeliveryWakes are the advisory intake's wakes (a resolved nak or term).
+	DeliveryWakes <-chan cataloghistory.Target
+	// Client writes the item's finalizer, the other managers' sets and the
+	// effects' objects.
+	Client client.Client
+	// Recorder is mgr.GetEventRecorder: an ItemEvent's recorder by name.
+	Recorder func(name string) k8sevents.EventRecorder
+	// SpecWriter applies a placed file's MediaFile spec (A3.8).
+	SpecWriter SpecWriter
+	// Clock is the pass's clock; nil is time.Now.
+	Clock func() time.Time
 }
+
+// itemEffectRetry is when a pass whose item effect failed transiently runs
+// again.
+const itemEffectRetry = 5 * time.Second
 
 // Reconcile runs k's item path. A timer the item asks for (an air date, an
 // availability date, a conflict requeue) is a Due requeue, at PriorityTimed
@@ -63,7 +105,15 @@ func (ir *ItemReconciler) Reconcile(ctx context.Context, k Key) (reconcile.Resul
 		attribute.String("key.kind", string(k.Kind)),
 		attribute.String("key.namespace", k.Namespace), attribute.String("key.name", k.Name)))
 	defer span.End()
-	res, err := it.ReconcileItem(ctx, types.NamespacedName{Namespace: k.Namespace, Name: k.Name})
+	var (
+		res reconcile.Result
+		err error
+	)
+	if len(ir.Stages) == 0 || ir.Env == nil {
+		res, err = it.ReconcileItem(ctx, types.NamespacedName{Namespace: k.Namespace, Name: k.Name})
+	} else {
+		res, err = ir.staged(ctx, it, k)
+	}
 	outcome := passApplied
 	if err != nil {
 		outcome = passError
@@ -75,11 +125,263 @@ func (ir *ItemReconciler) Reconcile(ctx context.Context, k Key) (reconcile.Resul
 	return res, err
 }
 
+// staged is one item pass with its stages (A3.3 step 3).
+func (ir *ItemReconciler) staged(ctx context.Context, it rollup.Item, k Key) (reconcile.Result, error) {
+	nn := types.NamespacedName{Namespace: k.Namespace, Name: k.Name}
+	clock := ir.Clock
+	if clock == nil {
+		clock = time.Now
+	}
+
+	// 1. Load. A key NotFound in the cache is decided on the APIReader's
+	// answer only when a stage holds evidence for it (§6.7).
+	item, ok := newItemObject(k.Kind)
+	if !ok {
+		return it.ReconcileItem(ctx, nn)
+	}
+	if err := ir.Env.Reader.Get(ctx, nn, item); err != nil {
+		if !apierrors.IsNotFound(err) {
+			return reconcile.Result{RequeueAfter: itemEffectRetry, Priority: new(0)}, nil
+		}
+		return ir.ownerGone(ctx, k)
+	}
+
+	// 2. Stages, in StageOrder, each in isolation.
+	v := &ItemView{Key: k, Item: item.DeepCopyObject().(client.Object), Now: metav1.NewTime(clock().UTC().Truncate(time.Second))}
+	var (
+		merged         itempass.Contribution
+		sets           = map[k8s.FieldManager]itempass.Set{}
+		results        = map[ItemStageName]ItemResult{}
+		failed         bool
+		stageTransient bool
+		order          []ItemStageName
+	)
+	for _, name := range StageOrder {
+		for _, s := range ir.Stages {
+			if s.Name() != name || !s.Applies(k.Kind) {
+				continue
+			}
+			so := runStage(ctx, ir.Env, s, v)
+			if so.failed.failed() {
+				if so.failed.transient() {
+					stageTransient = true
+				} else {
+					failed = true
+				}
+				logging.FromContext(ctx).Warn("remediation: item stage failed; its stored values stand this pass",
+					"stage", name, "reason", so.failed.reason, "error", so.failed.message)
+				continue
+			}
+			// 3. Merge: each field from at most one stage.
+			if err := mergeContribution(&merged, so.res.Contribution, name); err != nil {
+				panic(err)
+			}
+			if err := mergeSets(sets, so.res.Sets, name); err != nil {
+				panic(err)
+			}
+			if name == StageGrab {
+				v.NewEntries = so.res.NewEntries
+			}
+			if so.res.Downloads != nil {
+				v.Downloads = so.res.Downloads
+			}
+			results[name] = so.res
+			order = append(order, name)
+		}
+	}
+
+	// 4. The kind's own pass, with the contribution on its context. A pass
+	// that did not land (a conflict, an error, a path that returned before
+	// applying) stops here: no set, no effect.
+	pass := &itempass.Pass{Contribution: merged}
+	res, err := it.ReconcileItem(itempass.With(ctx, pass), nn)
+	rv, landed := pass.LandedRV()
+	if err != nil || !landed {
+		return res, err
+	}
+
+	// 5. Every other manager's set, CAS-chained, skipped when equal at its
+	// own paths.
+	for _, s := range orderedSets(sets) {
+		if itemstatus.SetEqual(item, s) {
+			continue
+		}
+		next, conflicted, err := itemstatus.ApplySet(ctx, ir.Client, item, rv, s)
+		if err != nil {
+			return reconcile.Result{}, fmt.Errorf("remediation: %s set: %w", s.Manager, err)
+		}
+		if conflicted {
+			return reconcile.Result{RequeueAfter: time.Second, Priority: new(0)}, nil
+		}
+		rv = next
+	}
+
+	// 6. Effects, in StageOrder, each stage's in its own order; the first
+	// failure stops that stage's batch. Then the Events.
+	transient, effectFailed := false, false
+	for _, name := range order {
+		for _, eff := range results[name].Effects {
+			o := ir.isolateEffect(ctx, name, item, eff)
+			if !o.failed() {
+				continue
+			}
+			if o.transient() || o.casMiss() {
+				transient = true
+			} else {
+				effectFailed = true
+				logging.FromContext(ctx).Warn("remediation: item effect failed", "stage", name, "effect", eff.Kind(), "error", o.message)
+			}
+			break
+		}
+	}
+	for _, name := range order {
+		ir.emitItemEvents(item, k, results[name].Events)
+	}
+
+	// 7. Requeue at the earliest of the kind's result, every stage's Due,
+	// Again, a failed effect's backoff and a failed stage's retry.
+	now := v.Now.Time
+	after := res.RequeueAfter
+	prio := res.Priority
+	shorten := func(d time.Duration, p int) {
+		if after == 0 || d < after {
+			after, prio = d, new(p)
+		}
+	}
+	for _, name := range order {
+		r := results[name]
+		if !r.Due.IsZero() {
+			shorten(max(r.Due.Sub(now), time.Second), PriorityTimed)
+		}
+		if r.Again {
+			shorten(time.Second, 0)
+		}
+	}
+	if transient || stageTransient {
+		shorten(itemEffectRetry, 0)
+	}
+	if failed || effectFailed {
+		shorten(plannerFailedRetry, PriorityTimed)
+	}
+	res.RequeueAfter, res.Priority = after, prio
+	return res, nil
+}
+
+// ownerGone is a NotFound key's pass: a stage that holds evidence for it
+// decides on the APIReader's answer and owes effects; otherwise nothing
+// (F4.2's behaviour).
+func (ir *ItemReconciler) ownerGone(ctx context.Context, k Key) (reconcile.Result, error) {
+	for _, s := range ir.Stages {
+		og, ok := s.(OwnerGone)
+		if !ok || !og.Holds(k) {
+			continue
+		}
+		effs, evs, err := og.Gone(ctx, ir.Env, k)
+		if err != nil {
+			return reconcile.Result{RequeueAfter: itemEffectRetry, Priority: new(0)}, nil
+		}
+		transient := false
+		for _, eff := range effs {
+			o := ir.isolateEffect(ctx, s.Name(), nil, eff)
+			if o.failed() {
+				transient = true
+				break
+			}
+		}
+		ir.emitItemEvents(nil, k, evs)
+		if transient {
+			return reconcile.Result{RequeueAfter: itemEffectRetry, Priority: new(0)}, nil
+		}
+	}
+	return reconcile.Result{}, nil
+}
+
+// isolateEffect runs one item effect under recover and classifies it.
+func (ir *ItemReconciler) isolateEffect(ctx context.Context, stage ItemStageName, item client.Object, eff Effect) (o outcome) {
+	defer func() {
+		if p := recover(); p != nil {
+			o = outcome{reason: failPanic, message: fmt.Sprintf("effect panicked: %v", p)}
+		}
+		label := "ok"
+		if o.failed() {
+			label = o.reason
+		}
+		metrics.RemediationEffectsTotal.WithLabelValues("item."+string(stage), string(eff.Kind()), label).Inc()
+	}()
+	err := ir.runItemEffect(ctx, item, eff)
+	switch {
+	case err == nil:
+		return outcome{}
+	case IsCASMiss(err):
+		return outcome{reason: failCASMiss, message: err.Error()}
+	case IsTransient(err):
+		return outcome{reason: failTransient, message: err.Error()}
+	default:
+		return outcome{reason: failError, message: err.Error()}
+	}
+}
+
+// emitItemEvents records each stage's Events: on the event's object, else
+// the item; under the event's recorder, else the kind's (its lower-cased
+// name, the recorders' convention).
+func (ir *ItemReconciler) emitItemEvents(item client.Object, k Key, evs []ItemEvent) {
+	if ir.Recorder == nil {
+		return
+	}
+	for _, e := range evs {
+		on := e.On
+		if on == nil {
+			on = item
+		}
+		if on == nil {
+			continue
+		}
+		name := e.Recorder
+		if name == "" {
+			name = strings.ToLower(string(k.Kind))
+		}
+		rec := ir.Recorder(name)
+		if rec == nil {
+			continue
+		}
+		action := e.Action
+		if action == "" {
+			action = e.Reason
+		}
+		rec.Eventf(on, nil, e.Type, e.Reason, action, "%s", e.Message)
+	}
+}
+
+// newItemObject is an empty object of an item kind.
+func newItemObject(kind KeyKind) (client.Object, bool) {
+	switch kind {
+	case KindMovie:
+		return &catalogv1alpha1.Movie{}, true
+	case KindEpisode:
+		return &catalogv1alpha1.Episode{}, true
+	case KindAlbum:
+		return &catalogv1alpha1.Album{}, true
+	case KindBook:
+		return &catalogv1alpha1.Book{}, true
+	case KindAudiobook:
+		return &catalogv1alpha1.Audiobook{}, true
+	case KindIssue:
+		return &catalogv1alpha1.Issue{}, true
+	case KindSeries:
+		return &catalogv1alpha1.Series{}, true
+	case KindComic:
+		return &catalogv1alpha1.Comic{}, true
+	}
+	return nil, false
+}
+
 // Watch adds the item path's sources to b: the item arm of the MediaFile
-// source, then each item kind's Watches, in kind order.
-func (ir *ItemReconciler) Watch(b *builder.TypedBuilder[Key]) *builder.TypedBuilder[Key] {
+// source, then each item kind's Watches, in kind order, then the stages'
+// sources (S24, S30, the delivery wakes and each Watcher stage's own),
+// deduplicated by name against seen.
+func (ir *ItemReconciler) Watch(mgr ctrl.Manager, b *builder.TypedBuilder[Key], seen map[string]bool) (*builder.TypedBuilder[Key], error) {
 	if len(ir.Items) == 0 {
-		return b
+		return b, nil
 	}
 	b = b.Watches(&catalogv1alpha1.MediaFile{}, ir.fileWakes())
 	for _, kind := range slices.Sorted(maps.Keys(ir.Items)) {
@@ -87,7 +389,22 @@ func (ir *ItemReconciler) Watch(b *builder.TypedBuilder[Key]) *builder.TypedBuil
 			b = b.Watches(w.Object, itemHandler(kind, w.Map), builder.WithPredicates(w.Predicates...))
 		}
 	}
-	return b
+	srcs, err := ir.sources(mgr)
+	if err != nil {
+		return nil, err
+	}
+	for _, s := range srcs {
+		if seen[s.Name] {
+			continue
+		}
+		seen[s.Name] = true
+		if s.Raw != nil {
+			b = b.WatchesRawSource(s.Raw)
+			continue
+		}
+		b = b.Watches(s.Object, s.Handler, builder.WithPredicates(s.Predicates...))
+	}
+	return b, nil
 }
 
 // itemHandler adapts an item package's map function to kind's keys.

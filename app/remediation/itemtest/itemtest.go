@@ -39,7 +39,10 @@ import (
 // starts mgr.
 func Start(mgr manager.Manager, items map[remediation.KeyKind]rollup.Item) error {
 	ir := &remediation.ItemReconciler{Items: items}
-	return ir.Watch(builder.TypedControllerManagedBy[remediation.Key](mgr).Named("itemtest")).
-		WithOptions(controller.TypedOptions[remediation.Key]{SkipNameValidation: new(true), RecoverPanic: new(true)}).
+	b, err := ir.Watch(mgr, builder.TypedControllerManagedBy[remediation.Key](mgr).Named("itemtest"), map[string]bool{})
+	if err != nil {
+		return err
+	}
+	return b.WithOptions(controller.TypedOptions[remediation.Key]{SkipNameValidation: new(true), RecoverPanic: new(true)}).
 		Complete(ir)
 }

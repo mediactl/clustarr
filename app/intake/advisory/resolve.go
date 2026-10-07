@@ -28,6 +28,7 @@ import (
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	cataloghistory "github.com/mediactl/clustarr/app/catalog/history"
 	"github.com/mediactl/clustarr/app/dispatch"
+	"github.com/mediactl/clustarr/app/remediation/dlindex"
 	"github.com/mediactl/clustarr/app/remediation/mfindex"
 	"github.com/mediactl/clustarr/pkg/events"
 )
@@ -66,9 +67,11 @@ type UIDResolver interface {
 }
 
 // CacheResolver resolves through the manager's cache: a MediaFile by the
-// remediation loop's UID index, a TranscodeJob by listing. An item's, a
-// Search's or an entry's UID is not indexed yet (A3 and A4 add those), so
-// such a term resolves only from a nak the intake indexed first.
+// remediation loop's UID index, a TranscodeJob by listing, a grab entry
+// (an engine command's or an import's) by remediation.item.download to its
+// owner (A3.3, ruling A2-2). An item's or a Search's UID is not indexed yet
+// (A4 adds those), so such a term resolves only from a nak the intake
+// indexed first.
 type CacheResolver struct {
 	Reader client.Reader
 }
@@ -77,6 +80,16 @@ type CacheResolver struct {
 func (r CacheResolver) ResolveUID(ctx context.Context, id cataloghistory.DispatchID) (cataloghistory.Target, bool) {
 	if r.Reader == nil || id.UID == "" {
 		return cataloghistory.Target{}, false
+	}
+	if id.Entry {
+		owner, ok, err := dlindex.OwnerOf(ctx, r.Reader, "", id.UID)
+		if err != nil || !ok {
+			return cataloghistory.Target{}, false
+		}
+		return cataloghistory.Target{
+			Namespace: owner.Namespace, Name: owner.Name,
+			Kind: owner.Kind, APIVersion: catalogv1alpha1.GroupVersion.String(),
+		}, true
 	}
 	switch id.Kind {
 	case "MediaFile":

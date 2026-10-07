@@ -273,6 +273,9 @@ func register(mgr ctrl.Manager, bus events.Bus, o Options) ([]string, error) {
 				Options: o.Options, DataDir: o.DataDir,
 				Concurrency: o.RemediationConcurrency, BulkWritesPerSecond: o.RemediationBulkWritesPerSecond,
 				IOWorkers: o.RemediationIOWorkers,
+				// The planes the item stages admit, settle and wake through
+				// (ADR-0019 A3.3; A2's hand-off).
+				Dispatch: p.ledger, Inbox: p.inbox, DeliveryWakes: p.tasks.Wakes(), Book: p.book,
 			})
 		}},
 		// The autoscale step runs whatever --autoscale says (§9.4): QueueGauge

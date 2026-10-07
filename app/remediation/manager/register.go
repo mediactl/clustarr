@@ -32,6 +32,8 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/controller/mediafile"
 	"github.com/mediactl/clustarr/app/catalog/history"
 	"github.com/mediactl/clustarr/app/catalog/history/replay"
+	"github.com/mediactl/clustarr/app/dispatch"
+	"github.com/mediactl/clustarr/app/intake"
 	"github.com/mediactl/clustarr/app/remediation"
 	markersplanner "github.com/mediactl/clustarr/app/remediation/markers"
 	"github.com/mediactl/clustarr/app/remediation/naming"
@@ -52,12 +54,24 @@ type Options struct {
 	Concurrency         int // --remediation-concurrency
 	BulkWritesPerSecond int // --remediation-bulk-writes-per-second
 	IOWorkers           int // --remediation-io-workers
+
+	// The manager's admission and intake planes (ADR-0019 §5.4, §8.1),
+	// handed to the item stages (A3.3): the dispatch ledger, the candidate
+	// inbox, the advisory intake's wakes and its delivery book. nil leaves
+	// the item path without stages' admission, S30 or delivery wakes.
+	Dispatch      *dispatch.Ledger
+	Inbox         *intake.Inbox
+	DeliveryWakes <-chan history.Target
+	Book          *dispatch.DeliveryBook
 }
 
-// Deps is what Planners and Actuators build from.
+// Deps is what Planners, Actuators and Stages build from.
 type Deps struct {
 	Env     *remediation.Env
 	Options Options
+	// Manager is the controller manager, for the stages that need its
+	// clients and recorders.
+	Manager ctrl.Manager
 }
 
 // Register adds the loop, its indexes and its sources: the file path's
@@ -74,7 +88,7 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 		IO:    remediation.NewIOExecutor(max(o.IOWorkers, 1)),
 		Pacer: records.NewPacer(records.DefaultRates(), time.Now), DataDir: o.DataDir,
 	}
-	d := Deps{Env: env, Options: o}
+	d := Deps{Env: env, Options: o, Manager: mgr}
 	r, err := remediation.NewReconciler(mgr.GetClient(), env, mgr.GetEventRecorder(remediation.ControllerName),
 		remediation.Config{Concurrency: o.Concurrency, BulkWritesPerSecond: o.BulkWritesPerSecond},
 		Planners(d), Actuators(mgr, d)...)
@@ -84,8 +98,24 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	// mgr.GetEventRecorder returns controller-runtime's recorder.EventRecorder,
 	// which embeds the events.k8s.io EventRecorder the item reconcilers hold.
 	recorder := func(name string) k8sevents.EventRecorder { return mgr.GetEventRecorder(name) }
-	r.Items = remediation.ItemReconciler{Items: items(mgr.GetClient(), mgr.GetScheme(), recorder, bus)}
+	r.Items = remediation.ItemReconciler{
+		Items:    items(mgr.GetClient(), mgr.GetScheme(), recorder, bus),
+		Stages:   Stages(d),
+		Env:      env,
+		Dispatch: o.Dispatch, Book: o.Book, Inbox: o.Inbox, DeliveryWakes: o.DeliveryWakes,
+		Client:   mgr.GetClient(),
+		Recorder: recorder,
+	}
 	return r.SetupWithManager(mgr)
+}
+
+// Stages is every item stage the loop runs around the kinds' rollups
+// (ADR-0019 A3.3, ruling R5): A3.5 adds the downloads stage, A4 grab and
+// search, A5 metadata, artwork and overlay. The loop orders them by
+// remediation.StageOrder.
+func Stages(d Deps) []remediation.ItemStage {
+	_ = d
+	return nil
 }
 
 // Planners is every planner the loop binds; the loop sorts them by Order.

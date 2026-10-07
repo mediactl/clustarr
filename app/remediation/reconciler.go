@@ -543,7 +543,10 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 			b = b.Watches(s.Object, s.Handler, builder.WithPredicates(s.Predicates...))
 		}
 	}
-	b = r.Items.Watch(b)
+	b, err := r.Items.Watch(mgr, b, seen)
+	if err != nil {
+		return err
+	}
 	return b.WithOptions(controller.TypedOptions[Key]{
 		MaxConcurrentReconciles: r.cfg.Concurrency,
 		RecoverPanic:            new(true),

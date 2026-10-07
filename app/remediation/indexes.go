@@ -31,6 +31,7 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/controller/mediafile"
 	"github.com/mediactl/clustarr/app/catalog/controller/movie"
 	"github.com/mediactl/clustarr/app/catalog/controller/series"
+	"github.com/mediactl/clustarr/app/remediation/dlindex"
 	"github.com/mediactl/clustarr/app/remediation/mfindex"
 )
 
@@ -72,6 +73,11 @@ func RegisterIndexes(ctx context.Context, idx client.FieldIndexer) error {
 		return err
 	}
 	if err := comic.RegisterIndexes(ctx, idx); err != nil {
+		return err
+	}
+	// remediation.item.download (ADR-0019 §6.11): grab entries by id, uid
+	// and pinned engine, on the six owner kinds.
+	if err := dlindex.Register(ctx, idx); err != nil {
 		return err
 	}
 	return mediafile.RegisterIndexes(ctx, idx)
