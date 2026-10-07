@@ -453,8 +453,14 @@ counts, filters and previews the UI shows are the ones Plex gets.
   - `#EXTVLCOPT:http-user-agent=` (per-entry user agent).
 - **What it tolerates:** a BOM, CRLF line ends, unquoted attributes and
   commas inside quotes.
-- **Caps:** 64 MiB read through `io.LimitReader` with an
-  `ErrResponseTooLarge`, and 200,000 entries.
+- **Caps:** 1 GiB read through `io.LimitReader` with an
+  `ErrResponseTooLarge`, and 200,000 live entries.
+- **Xtream VOD is skipped** (amended 2026-10-07): an entry whose URL path
+  starts `/movie/` or `/series/` is not an entry. An Xtream Codes
+  `m3u_plus` lists the panel's whole catalogue: the owner's provider sent
+  328 MiB and 1.24 million entries, of which 28,527 are live, and the first
+  caps (64 MiB, 200,000 entries) refused it. The read is line by line and
+  only live entries are kept: 1.2 s and 17 MiB of heap for that playlist.
 - **`EntryKey`:**
   - `t:` plus tvg-id, when the tvg-id is unique within the playlist;
   - otherwise `n:` plus a base32 SHA-256 of (group, name), truncated to 26
