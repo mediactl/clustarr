@@ -1,7 +1,14 @@
 # The manager is the control plane; agents report over NATS; the Download kind is removed (ADR-0019)
 
-**Status:** Proposed, 2026-10-07. For the owner's review; nothing here is implemented, and the
-plan is revised only after the review (§11).
+**Status:** Accepted, 2026-10-07: the owner reviewed it and answered §12. Nothing here is
+implemented; the plan is revised from it (§11).
+
+**Amended 2026-10-07 (the owner's answers to §12).** Orphans are not a state: a transfer and
+its grab entry converge both ways, resumed or removed on positive evidence only (§6.4, §6.7,
+§6.8, §10.2, D7). The blocklist moves from item status into the release index, beside the
+release information, decided by the manager and marked on every index answer (§6.14, D9;
+`status.blocklist[]` is gone from §6.2 and §6.3). Q2, Q3, Q4, Q6 and Q7 take the
+recommendations (§12).
 
 **Basis:**
 
@@ -76,9 +83,9 @@ if wrong.
 | D4 | A grab is an entry in its owner's `status.downloads[]`; a Series owns every episode grab (single episodes too), a Comic every issue grab; Series and Comic become loop item keys | §6.1 | Series status size; moving single-episode grabs later is a migration |
 | D5 | Field manager names stay (R7); a loop item pass makes one apply per manager whose set it owns on the kind, each CAS-chained; no ownership migration | §7.0 | up to four applies per pass where sets change together |
 | D6 | The grab decision, the delay profile and the keep-best pending candidate are the owner key's; the KV grab lease, `clustarr-pending`, scheduled grab messages and the redownload consumer retire | §6.6 | one more hop per automatic grab |
-| D7 | Engines execute whole desired-state commands, seq-fenced, from `CLUSTARR_WORK_ENGINE` (the default kept, for its delivery signals); they report transfer and engine records; they never remove on absence; orphans are reported, not reaped | §6.7 | if KV desired state proves simpler, the command transport changes; the records do not |
-| D8 | Imports run in two phases, inspect then execute, with the decision between them in the manager | §6.9 | Q4 |
-| D9 | The blocklist is a capped list in the owner's status with today's 90-day TTL | §6.2 | Q5 |
+| D7 | Engines execute whole desired-state commands, seq-fenced, from `CLUSTARR_WORK_ENGINE` (the default kept, for its delivery signals); they report transfer and engine records, each transfer carrying its claim. The manager converges both ways, with no orphan state: a transfer no entry claims is resumed under its owner if the owner still wants it, else removed; an entry with no transfer is re-added; removal only on positive evidence (the owner's state machine, the apiserver), never on an absent record | §6.7 | if KV desired state proves simpler, the command transport changes; the records do not |
+| D8 | Imports run in two phases, inspect then execute, with the decision between them in the manager | §6.9 | an extra task round trip per import (accepted, Q4) |
+| D9 | The blocklist lives in the release index (`pkg/relindex`), beside the release info, in its own table with a 90-day expiry; the manager decides every block and unblock and the index agent persists it on the manager's `clustarr.rpc.indexarr.blocklist` call; every index answer carries each release's block state | §6.14 | the blocklist shares the index domain's single replica (when it is down, searching is down too) |
 | D10 | Admission bounds every dispatched durable at 2 × `MaxAckPending` outstanding; the rest waits as visible state; the HPA metric is unchanged | §5.4 | a budget too low starves a domain's scale-up; it is one constant |
 | D11 | `MSG_NAKED` and `MSG_TERMINATED` go to a new small stream, `CLUSTARR_TASK_EVENTS`; a task's delivery state is written to its CR on transitions only | §8 | stale `delivery` fields after a lost advisory |
 | D12 | The DLQ projector and the history sink move into the manager; the `events` domain keeps only the RSS matcher | §7.7 | none expected |
@@ -283,7 +290,7 @@ Paths: `w/` is `app/catalog/worker/`, `cat/` `app/catalog/agent/catalog/`, `imp/
 | P5 | `w/search/worker.go:357-368` | live search or the local release index, by `task.IndexOnly` | Stay (mechanism): executes the flag; the flag is P12 |
 | P6 | `w/search/worker.go:394-402`; `w/grab/kindops.go:364,393` | count a search attempt unless every indexer was paced | Move: rendered from the answer (§7.3) |
 | P7 | `w/search/worker.go:668-687` | which protocols are enabled (from DownloadClients) | Move: the task carries them |
-| P8 | `w/search/worker.go:416` → `pkg/decision/evaluate.go:44` | approve or reject each release: quality, custom-format score, identity, language **and** blocklist, queue, current file, `TranscodedFinal` | **Split**: release evaluation (parse, quality, regexp2 scoring, profile approval, identity) stays; the item-state rules move to the grab planner (§6.6) |
+| P8 | `w/search/worker.go:416` → `pkg/decision/evaluate.go:44` | approve or reject each release: quality, custom-format score, identity, language **and** blocklist, queue, current file, `TranscodedFinal` | **Split**: release evaluation (parse, quality, regexp2 scoring, profile approval, identity) stays; the item-state rules move to the grab planner (§6.6); the block state comes with the index's answer (§6.14) |
 | P9 | `w/search/rank.go:50` | rank and cap at 200 | Stay (computation). Finding: no `IndexerPriority` is passed, so every indexer ranks at 25; the task carries the priorities |
 | P10 | `w/search/worker.go:425-428` | interactive: write Search status; automatic: hand to `grab.Sink` | Move: both answer in a record (§7.4) |
 | P11 | `controller/wantedcron/runnable.go:179`, `backoff.go:49` | which namespaces to wake; backoff 6 h · 2^n to 7 d | Manager (its per-item half is P12) |
@@ -418,7 +425,7 @@ Paths: `w/` is `app/catalog/worker/`, `cat/` `app/catalog/agent/catalog/`, `imp/
 | P120 | `dl/usenet/segment.go:658`; `client.go:913`; `unpack.go:51` | stall, encryption or disk full → a failure reason | Split: facts stay; the verdict moves |
 | P121 | `dl/usenet/priority.go:35,66` | a lower priority waits while a higher one transfers | Stay (mechanism) over the command's priority |
 | P122 | `eng/usenet/engine.go:301,356` | keep health-paused jobs paused; remove after import | Split: the pause stays; the removal moves |
-| P123 | `eng/torrent/reaper.go:57,255`; `eng/engine.go:118`; `usenet/reaper.go:251-285` | reap transfers no Download names after 10 min | Move: orphans are reported, removed only by intent (§6.7) |
+| P123 | `eng/torrent/reaper.go:57,255`; `eng/engine.go:118`; `usenet/reaper.go:251-285` | reap transfers no Download names after 10 min | Move: convergence in the manager (§6.7); a transfer with no claim at all is still removed after 10 min with its bytes kept, now on the manager's command |
 
 **Markers: `cmd/markers`** (5)
 
@@ -464,7 +471,7 @@ the cache, records and intake messages.
 | Resource (key) | State (status) | Tasks it issues (effects) | Answers it reads |
 |---|---|---|---|
 | MediaFile (loop file key) | the fold's blocks: probe, naming, subtitles, transcode, graft, markers | probe, subtitle fetch, transcode, graft Job, TheIntroDB, segment plan | `clustarr-probes`, `-subtitles`, `-transcodes`, `-grafts`, `-markers`, `-segments` (loop spec §4) |
-| Movie, Album, Book, Audiobook (loop item keys) | the fold's rollups; **`downloads`, `blocklist`, `downloadPhase`, `downloadNonces`** (`catalogarr`); **`pendingGrab`, `searchDispatch`, attempts** (`catalogarr-grab`); `metadata`, `artwork` (`catalogarr-metadata`); `overlay` on Movie (`catalogarr-artwork`) | search, engine commands, import inspect and execute, metadata, artwork fetch, overlay render (Movie) | `clustarr-searches`, `-transfers`, `-imports`, `-item-metadata`; artwork objects; candidates (intake) |
+| Movie, Album, Book, Audiobook (loop item keys) | the fold's rollups; **`downloads`, `downloadPhase`, `downloadNonces`** (`catalogarr`); **`pendingGrab`, `searchDispatch`, attempts** (`catalogarr-grab`); `metadata`, `artwork` (`catalogarr-metadata`); `overlay` on Movie (`catalogarr-artwork`) | search, engine commands, import inspect and execute, metadata, artwork fetch, overlay render (Movie) | `clustarr-searches`, `-transfers`, `-imports`, `-item-metadata`; artwork objects; candidates (intake) |
 | Series, Comic (loop item keys, **new**) | as above, for every episode or issue grab; plus the Series and Comic reconcilers' own state | as above, plus Episode and Issue creation (today's) | as above |
 | Episode, Issue (loop item keys) | the fold's rollups; `activeDownloadRef`, `downloadPhase` from the container; search state | search | `clustarr-searches` |
 | Artist, Author | `metadata`, `artwork` | metadata, artwork fetch | `clustarr-item-metadata`; artwork objects |
@@ -472,7 +479,7 @@ the cache, records and intake messages.
 | LibraryScan | phase, counters, `unmatched` (today's, `importarr`) | scan | observations (intake); the tally in `clustarr-progress` |
 | ImportList | sync status, `auth` (`importarr`) | list sync; recycle for `removeAndDelete` | `clustarr-importlist` snapshot |
 | Indexer | controller fields (`indexarr`); `WorkerFields` (`indexarr-worker`); the session Secret | caps probe and login (manager-side today), **RSS poll** | `clustarr-indexer-health`; `clustarr-indexer-sessions` |
-| DownloadClient | engines, counts, `EngineReady`, `DiskSpaceOK`, **`ProxyUDPUnavailable`, `OrphansPresent`** (`grabarr`) | engine workloads; per-engine durables; orphan removal | `clustarr-engines` |
+| DownloadClient | engines, counts, `EngineReady`, `DiskSpaceOK`, **`ProxyUDPUnavailable`, `unidentifiedTransfers`** (`grabarr`) | engine workloads; per-engine durables; resync; removal of unidentified transfers | `clustarr-engines` |
 | TranscodeProfile, SubtitleProfile | the fold's slim status | pool Jobs | `clustarr-progress` encoder limits |
 
 ### 4.2 Agents are executors
@@ -559,8 +566,10 @@ transcode and probe buckets are counted at full size.
 - **CPU.** The manager runs only item-state rules (comparisons over parsed facts), never
   regexp2 scoring: release evaluation stays in the search agent and the RSS matcher. The grab
   planner's input is at most 200 ranked candidates per search answer, usually a handful.
-- **Blocking.** No moved decision makes an RPC or touches a provider inside a reconcile. The
-  import planner's `/data` facts arrive in the inspect record; the only `/data` work the
+- **Blocking.** No moved decision makes an RPC or touches a provider inside a reconcile. One
+  effect does: the owed `clustarr.rpc.indexarr.blocklist` call after a `Blocklisted` or
+  unblock transition (§6.14), after the apply, with a 5 s timeout and the loop's transient
+  backoff on failure. The import planner's `/data` facts arrive in the inspect record; the only `/data` work the
   manager adds is `fsops.SafeRemove` of a removed grab's payload, through the loop's I/O
   executor (loop spec §3.17), as the Download controller does today.
 - **Throughput.** A full library scan or a large list arrives as thousands of intake messages;
@@ -597,6 +606,7 @@ manager chooses at dispatch and records in the CR's dispatch block (`Dispatch.de
 | list sync | ImportList | `…list.<uid>` | `importarr-list` (import) | | ConsumerState | one per list |
 | recycle sweep, file removal | `recyclesweep`; ImportList; loop (orphan parts) | `…recycle.{sweep,files}.<id>` | `importarr-recycle` (import) | | ConsumerState | 2 × MAP |
 | RSS poll | **Indexer** (P91; was the agent's self-chain) | `CLUSTARR_WORK_INDEXARR`; `…rss.<uid>` | `indexarr-rss` (index) | | ConsumerState | one per indexer |
+| blocklist write | owner key; a person's `unblock` (§6.14) | RPC `clustarr.rpc.indexarr.blocklist` | queue group `indexarr` (index) | scope (item or global) | the reply | one call per owed effect, 5 s timeout |
 | engine command | owner key (§6.7) | `CLUSTARR_WORK_ENGINE`; `…engine.<client>.<ordinal>.<entry uid>` | `grabarr-engine-<client>-<ordinal>` (engine instance) | **DownloadClient**, **ordinal** | engine records; `EngineReady` | MAP 4 per engine; the engine queues past `maxActive` |
 
 Choosing a **DownloadClient**: today's `pickClient` (`app/grab/controller/download/controller.go:666`:
@@ -626,7 +636,7 @@ transcode, and the engine choice does the same for engines that are not Ready.
 | `StreamAdmin.ConsumerState` (`pkg/events/consumerstate.go:31-50`) through the autoscale `StateCache` | per durable: `Pending`, `AckPending`, `Waiting` (open pulls: the only sign a consumer is alive and idle), `MaxAckPending` | 5 s cache, leader-answered (W4.100) |
 | **agent presence**, new: `clustarr-progress` key `agent.<domain>.<KVKeyToken(pod)>` | `domain`, `pod`, `node`, `version`, `slots` per durable, bound durables, capabilities (`ffgo` and its FFmpeg version, configured providers, `/data` mounted), `at` | written at start and every 30 s; the bucket's 10 min TTL retires it |
 | encoder limits and health (`app/squash/task/limits.go:114`, `encoder-limits.<class>`) | per class and node: limits, NVDEC, healthy | republished within 10 min |
-| engine records (§6.7) | per engine instance: ready, counts, free bytes, proxy UDP, orphans | 60 s |
+| engine records (§6.7) | per engine instance: ready, re-attached, `resyncSeq`, counts, free bytes, proxy UDP, unidentified transfers | 60 s |
 | Kubernetes | Deployment and StatefulSet ready replicas, HPA state, Node labels and allocatable, pool Job state | informers |
 | the manager's own dispatch ledger (§5.4) | per durable: tasks it published and not yet seen answered | exact, leader-local |
 
@@ -726,7 +736,7 @@ goes, how the state machine runs, what engines do, and how the readers change.
 
 **Single-episode grabs live on the Series** (decided, not an owner question). Putting them on
 the Episode would give one transfer two possible homes depending on its shape, two
-blocklists to consult for one episode, and a cross-object comparison whenever a pack
+item scopes to block a release under for one episode, and a cross-object comparison whenever a pack
 supersedes queued single episodes. The cost is that every episode grab writes the Series'
 status, which is bounded (§6.3), and that Series and Comic join the loop as item keys, moved as
 F4.2 moved Movie and Episode (`ReconcileItem`, `Watches()`; the Series reconciler's episode
@@ -832,6 +842,23 @@ type DownloadEntry struct {
 	// +optional
 	// +kubebuilder:validation:MaxLength=1024
 	Message string `json:"message,omitempty"`
+	// Block is the blocklist write this entry owes the release index
+	// (§6.14): set on the Blocklisted transition; ConfirmedAt when the
+	// index answered. A Blocklisted entry is dropped only after its transfer
+	// is removed and its block confirmed, and then after BlockQuarantine.
+	// +optional
+	Block *EntryBlock `json:"block,omitempty"`
+}
+
+type EntryBlock struct {
+	// +kubebuilder:validation:Enum=item;global
+	Scope  BlockScope                     `json:"scope"`
+	Reason commonv1.DownloadFailureReason `json:"reason"`
+	// Seq fences block and unblock writes on the release index row.
+	// +kubebuilder:validation:Minimum=1
+	Seq int64 `json:"seq"`
+	// +optional
+	ConfirmedAt *metav1.Time `json:"confirmedAt,omitempty"`
 }
 
 type EpisodeNumber struct {
@@ -909,27 +936,6 @@ type DownloadImportSummary struct {
 	// Dispatch fences the inspect and execute tasks (§6.9).
 	Dispatch Dispatch `json:"dispatch"`
 }
-
-// BlocklistEntry is a release this item never grabs again before Until.
-type BlocklistEntry struct {
-	// +kubebuilder:validation:MaxLength=512
-	Title string `json:"title"`
-	// +optional
-	// +kubebuilder:validation:MaxLength=1024
-	GUID string `json:"guid,omitempty"`
-	// +optional
-	InfoHash string `json:"infoHash,omitempty"`
-	// +optional
-	// +kubebuilder:validation:MaxLength=253
-	IndexerRef string `json:"indexerRef,omitempty"`
-	Protocol commonv1.Protocol `json:"protocol"`
-	Reason commonv1.DownloadFailureReason `json:"reason"`
-	// +optional
-	// +kubebuilder:validation:MaxLength=253
-	EntryID string     `json:"entryID,omitempty"`
-	At      metav1.Time `json:"at"`
-	Until   metav1.Time `json:"until"`
-}
 ```
 
 **On the owner kinds** (Movie, Series, Album, Book, Audiobook, Comic), under `catalogarr`:
@@ -937,9 +943,11 @@ type BlocklistEntry struct {
 | Field | Type, cap | Notes |
 |---|---|---|
 | `status.downloads` | `[]DownloadEntry`, MaxItems 8 (Movie, Album, Book, Audiobook), 24 (Series, Comic) | live entries only (§6.4) |
-| `status.blocklist` | `[]BlocklistEntry`, MaxItems 32 (Movie, Album, Book, Audiobook), 64 (Series, Comic) | oldest dropped past the cap, with a Normal Event `BlocklistEntryDropped` |
 | `status.downloadPhase` | `DownloadPhase` | the active entry's phase, `""` when none; print column and selectable field |
-| `status.downloadNonces` | `{remove, resume, import}`, each MaxLength 63 | the one-shot intent last handled (§6.10) |
+| `status.downloadNonces` | `{remove, resume, import, unblock}`, each MaxLength 63 | the one-shot intent last handled (§6.10) |
+
+There is no blocklist in item status: blocks live in the release index (§6.14), and the
+owner's view of one is the `Blocklisted` entry until its quarantine ends.
 
 **On Episode and Issue**, under `catalogarr`: `status.downloadPhase` (new), and
 `activeDownloadRef`, whose value becomes the covering entry's `id` on the Series or Comic
@@ -984,17 +992,16 @@ kubectl get movie heat-1995 -o jsonpath='{.status.downloads}'
 
 Worst case per entry at every cap: ids and names ≈ 0.8 KB, release ≈ 2.4 KB, source ≈ 4.4 KB
 (a 4,096-byte magnet), 200 episode numbers ≈ 6 KB (an issue list ≈ 4 KB), output path 4.1 KB,
-message and import summary ≈ 2.4 KB, dispatches ≈ 0.4 KB: **≈ 20.5 KB**. A blocklist entry is
-≈ 2.2 KB.
+message and import summary ≈ 2.4 KB, dispatches and the block ≈ 0.5 KB: **≈ 20.6 KB**.
 
-| Owner | downloads | blocklist | added worst case |
-|---|---|---|---|
-| Movie, Album, Book, Audiobook | 8 × 20.5 KB | 32 × 2.2 KB | ≈ 235 KB |
-| Series, Comic | 24 × 20.5 KB | 64 × 2.2 KB | ≈ 633 KB |
+| Owner | downloads | added worst case |
+|---|---|---|
+| Movie, Album, Book, Audiobook | 8 × 20.6 KB | ≈ 165 KB |
+| Series, Comic | 24 × 20.6 KB | ≈ 495 KB |
 
 Typical: an entry is about 1.2 KB (a 300-byte magnet, an 80-byte title, a 120-byte path, one
 to 24 episodes), so a Series with three live grabs grows by about 4 KB. Against etcd's
-1.5 MiB the Series worst case leaves about 900 KB for the rest of its status and spec; the
+1.5 MiB the Series worst case leaves about 1 MB for the rest of its status and spec; the
 `seasons` list (200) and `metadata` are the other large parts.
 
 `pkg/crdcheck.TestItemAtEveryCapFitsTheBudget` (envtest), the loop spec's
@@ -1007,8 +1014,7 @@ before lowering any string cap. `TestEveryStatusListIsCapped` covers the new lis
 
 ### 6.4 The state machine
 
-`app/grab/lifecycle` is the planner (pure: a view in, the next entries, blocklist and effects
-out), with the loop's adapter in `app/remediation/downloads`. It replaces
+`app/grab/lifecycle` is the planner (pure: a view in, the next entries and effects out), with the loop's adapter in `app/remediation/downloads`. It replaces
 `app/grab/controller/download` (phase derivation `phase.go:97-165`, assignment, the import
 publish, blocklisting, teardown) and `app/grab/status`. Phases keep today's names
 (`download_types.go:71`), so the ui and `pkg/pipeline` mappings carry over; `Removing`, which
@@ -1026,15 +1032,20 @@ nothing writes today, becomes real.
 | `Completed` | import record imported, and `Files` MediaFiles name this `id` | `Imported`, or `Seeding` while a torrent seeds | command with `imported: true` |
 | `Seeding` (or `Imported`, usenet) | record `seedGoalReached` (torrent) or the import done (usenet), and the effective removal policy (`removeOnImport`, the client's `removeCompleted`) says remove | `Removing` | command `absent@seq+1`, `removeData: removeDataOnDelete`. The library holds its own copy or hard link, so the payload is a leftover; today it stays on disk until the Download is deleted, but an entry is dropped once removed, so the payload goes with it (Q6) |
 | `Seeding` | the client's `removeCompleted` is false | stays `Seeding` | none: the entry is kept until a person removes it |
-| `Completed` | import verdict `releaseFault` after its last walk (§6.9) | `Blocklisted` | blocklist entry; command `absent`, `removeData: removeDataOnDelete`; `evt download failed`; a redownload search (§6.6) |
+| `Completed` | import verdict `releaseFault` after its last walk (§6.9) | `Blocklisted` | `entry.block` (item scope, §6.14) and its owed `block` call to the release index; command `absent`, `removeData: removeDataOnDelete`; `evt download failed`; a redownload search (§6.6) |
 | `Completed` | import held past `ImportHoldRetention` (24 h) | `Failed`, `importExpired` | command `absent`, `removeData: removeDataOnDelete`; never blocklisted or searched again (CLAUDE.md, 2026-10-07) |
-| `Queued`, `Downloading` | record `engineFailureReason` (a release fault: `missingArticles`, `encrypted`, `payloadMismatch`, `stalled`) | `Blocklisted` | as the import release fault |
+| `Queued`, `Downloading` | record `engineFailureReason` (a release fault: `missingArticles`, `encrypted`, `payloadMismatch`, `stalled`, `payloadUnavailable`) | `Blocklisted` | as the import release fault, the block's scope by its reason (§6.14) |
 | `Queued`, `Downloading` | record `engineFailureReason` `diskFull` or `writeError` (a local fault) | `Failed` | command `absent`; no blocklist, no redownload (Radarr) |
 | `Downloading` | no progress for the client's `stallTimeout` (the record's `lastProgressAt`) | `Blocklisted`, `stalled` | the manager decides the stall; the engine only reports progress (§3.5, P111) |
-| any | user remove (`download.clustarr.io/remove`) | `Removing` | command `absent`, `removeData` as asked; a blocklist entry if asked |
+| any | user remove (`download.clustarr.io/remove`) | `Removing`, or `Blocklisted` when the intent asks to block | command `absent`, `removeData` as asked; when asked, `entry.block` (item scope, reason `manual`) |
 | any | the owner is being deleted | `Removing` | command `absent`, `removeData: removeDataOnDelete` (§6.8) |
 | `Removing` | record state `removed` at the command's seq | entry dropped | `fsops.SafeRemove(DataDir, outputPath)` first when `removeData`; history event |
-| `Failed`, `Blocklisted` | record `removed` | entry dropped | as above; the blocklist entry stays |
+| `Failed` | record `removed` | entry dropped | as above |
+| `Blocklisted` | record `removed`, and `block.confirmedAt` set | tombstone, then dropped after `BlockQuarantine` (1 h) | as above; the block stays in the release index |
+| — | a transfer record no entry claims, whose owner still wants it (§6.7) | the phase the record implies | the entry is re-created under the claim's `id` and `uid`; command `present@seq` resumes the transfer |
+| — | a transfer record no entry claims, whose owner no longer wants it or is gone (§6.7) | no entry | command `absent`, `removeData` from the claim's `removeDataOnDelete` |
+| any live before `Removing` | the engine re-attached and resynced, and holds no transfer for the entry (§6.7) | unchanged | command `present@seq+1`: the transfer is re-added, re-fetching its payload when needed |
+| `Imported`, `Seeding` | record `failed`, `payloadUnavailable` (a re-add found nothing to fetch) | entry dropped | Event `SeedingLost`; nothing is blocked, nothing searched |
 
 - **Every effect is owed until the record shows it** (loop spec §3.8): a command whose seq the
   transfer record has not reached is republished with the same Msg-Id while inside the dedupe
@@ -1043,7 +1054,9 @@ nothing writes today, becomes real.
   minutes with its engine gone (§6.8). So `status.downloads` holds every transfer the system
   is responsible for, and nothing else.
 - **A Failed or Blocklisted entry with no transfer** (it failed before the engine added it) is
-  dropped on its next pass.
+  dropped on its next pass, a Blocklisted one only once its block is confirmed.
+- **No orphan state on either side.** A transfer without an entry and an entry without a
+  transfer are both converged (§6.7): resumed, re-added or removed on positive evidence.
 
 ### 6.5 Where every Download field goes
 
@@ -1071,7 +1084,7 @@ nothing writes today, becomes real.
 | `phase` | `entry.phase` | the manager's state |
 | `engine` | `entry.engine` | pinned once, as `status.engine` was |
 | `failureReason`, `engineFailureReason` | `entry.failureReason`; the engine's in the transfer record | |
-| `blocklistedUntil` | `blocklist[].until` | |
+| `blocklistedUntil` | the release-index row's `until` (§6.14) | the blocklist lives beside the release info |
 | `startedAt`, `completedAt`, `seedGoalMetAt` | the entry | |
 | `stage` | `entry.stage` | coarse, changes a few times per grab |
 | `downloadID`, `contentRoot`, `files[]`, `isEncrypted`, `canMoveFiles`, `canBeRemoved`, `health`, `healthPaused`, `seedGoalReached` | transfer record (§6.7) | engine-observed; `files` alone can be 820 KB |
@@ -1081,8 +1094,8 @@ nothing writes today, becomes real.
 | `import` | `entry.import` (summary) and the `clustarr-imports` record (detail) | the per-file lists are up to 400 entries |
 
 **Labels and annotations:** `download.clustarr.io/engine` and `client` become `entry.engine`
-and `entry.client`; `download.clustarr.io/blocklisted` becomes the blocklist; an operator's
-hand-set blocklist is the `remove … blocklist` intent (§6.10).
+and `entry.client`; `download.clustarr.io/blocklisted` becomes a row in the release index's
+blocklist (§6.14); an operator's hand-set blocklist is the `remove … blocklist` intent (§6.10).
 `catalog.clustarr.io/import-target` and `import-override` become the
 `download.clustarr.io/import` intent. `clustarr.io/dead-lettered` lands on the owner, where
 every resolver now points (§8.5).
@@ -1104,7 +1117,8 @@ the decision is the owner key's:
    ranking; the result carries the score, quality, languages and every rejection reason.
 2. **The owner key decides.** The grab planner (`app/catalog/grabplan`, pure) re-checks each
    approved candidate against the owner's fresh state, with the cheap item-state rules of
-   `pkg/decision` only (no regexp2): the blocklist, the live entries (the queue preference),
+   `pkg/decision` only (no regexp2): the block state the index answered with (§6.14) and the
+   owner's `Blocklisted` tombstones, the live entries (the queue preference),
    the current file and its cutoff, `TranscodedFinal`, wrong language, monitoring, the delay
    profile. It then grabs now (a new `Pending` entry), keeps the best as `status.pendingGrab`
    with `grabAt` (a `RequeueAfter`, replacing the scheduled grab message), or ignores it.
@@ -1114,13 +1128,13 @@ the decision is the owner key's:
 4. **A user's pick still wins.** Search `spec.grab` is resolved by the Search controller
    (`resolveGrab`, `app/catalog/controller/search/grab.go`), which sends the pick to the owner
    as a `Candidate` marked `manual`; the grab planner exempts it from `TranscodedFinal` exactly
-   as `resolveGrab` does today.
+   as `resolveGrab` does today, and from `Blocklisted` when the Search sets `spec.override`.
 5. **Redownload is the planner's.** On an entry's `Blocklisted` transition the planner itself
    decides the next search (the owner's search planner, §5) instead of the
    `catalogarr-redownload` consumer freeing leases and publishing; that consumer retires with
    the leases. `evt download failed` is still published, for history.
 
-Field managers: the entry list and blocklist are `catalogarr`'s; `pendingGrab`,
+Field managers: the entry list is `catalogarr`'s; `pendingGrab`,
 `lastSearchedAt`, `searchAttempts`, `donorSearchAttempts` and `searchDispatch` stay
 `catalogarr-grab`'s (R7), applied by the same item pass as a second apply (§7.0).
 
@@ -1156,7 +1170,9 @@ Msg-Id `engine/<entry uid>/<seq>`; a resync after an engine restart uses
 **Records.** `clustarr-transfers`, key `RecordKey(entry uid)`, one writer: the engine holding
 the transfer. `schema.TransferRecord` (`download.Transfer.v1`) embeds the header (§4.3) with
 `item` = the owner, `seq` = the last command applied, and `state`
-(`present` | `removed` | `failed`), plus every engine field of §6.5: `downloadID`, `stage`,
+(`present` | `removed` | `failed`), the transfer's **`claim`** (§6.7, "Claims"), `claimed`
+(a command has named its entry since the engine's boot), plus every engine field of §6.5:
+`downloadID`, `stage`,
 `outputPath`, `contentRoot`, `files` (clamped to a 384 KiB budget, with `filesTruncated`),
 sizes and counters, `health`, `isEncrypted`, `canMoveFiles`, `canBeRemoved`,
 `seedGoalReached`, `healthPaused`, `engineFailureReason`, `message` (2048), `startedAt`,
@@ -1166,49 +1182,101 @@ day while the transfer lives (the bucket's 7-day TTL retires only dead transfers
 
 `clustarr-engines`, key `RecordSubKey(DownloadClient uid, ordinal)`, one writer per key: that
 engine pod. `schema.EngineRecord`: `client`, `ordinal`, `pod`, `bootID`, `version`, `ready`,
-`reattached`, counts (`active`, `queued`, `seeding`), `freeBytes` of scratch and publish
-directories, `proxyUDP` (`available` | `unavailable` | `n/a`), `orphans` (≤ 32: `downloadID`,
-`name`, `addedAt`, `sizeBytes`), `at`; written at start, on change and every 60 s.
+`reattached`, `resyncSeq`, counts (`active`, `queued`, `seeding`), `freeBytes` of scratch and
+publish directories, `proxyUDP` (`available` | `unavailable` | `n/a`), `unidentified` (≤ 64
+transfers with no claim: `downloadID`, `name`, `addedAt`, `sizeBytes`; past 64, a count),
+`at`; written at start, on change and every 60 s.
 
 **What the manager does with them.** The owner key incorporates a transfer record into its
 entry (phase, stage, timestamps, output path, message, `dispatch.answeredSeq`). The
 DownloadClient controller renders `status.engine`, `active`, `queued`, `seeding`, `freeBytes`,
 `EngineReady` (ready replicas **and** a fresh engine record), `DiskSpaceOK` (from the engine's
 own `freeBytes`, not the manager's statfs of its own mount, `controller.go:204-208`), a new
-`ProxyUDPUnavailable` condition with its Event (W40), and `OrphansPresent` with the orphan
-count. A new `bootID` on an engine record enqueues every owner with an entry pinned to that
-engine, which republishes each entry's desired state (the resync).
+`ProxyUDPUnavailable` condition with its Event (W40), and `unidentifiedTransfers`, the count.
+A new `bootID` on an engine record enqueues every owner with an entry pinned to that engine,
+which republishes each entry's desired state (the resync).
 
 **Re-attach and the journal.** The torrent engine's `.state` directory already holds, per
 transfer, the metainfo and a descriptor naming the Download, its magnet, priority, pause, seed
 criteria, selection, `addedAt` and seed counters (`app/grab/engine/torrent/state.go:40-90`,
-on the RWX volume at `<DataDir>/torrents/.state/`). It gains `entryUID`, `owner`, the last
-applied `seq`, `imported` and the failure verdict, the two things it re-derives from Download
-status today (`phase.go:66-69`, `pkg/download/torrent/client.go:555-567`). The usenet
+on the RWX volume at `<DataDir>/torrents/.state/`). It gains the transfer's `claim`, the last
+applied `seq`, and the failure verdict and `imported` flag it re-derives from Download status
+today (`phase.go:66-69`, `pkg/download/torrent/client.go:555-567`). The usenet
 manifest (`pkg/download/usenet/client.go:312-341`) gains the same fields. At start an engine
 re-attaches from its journal exactly as today (`torrent/engine.go:90-128`, `usenet
 client.go:221-306`), rewrites a transfer record for every transfer, writes its engine record
 with a new `bootID`, and only then reports ready. Piece completion stays where R13 keeps it,
 so nothing rehashes.
 
+**Claims.** Every transfer carries the claim it was added under, in the engine's journal and
+in its transfer record: the owner (kind, namespace, name, UID, and the provider id the owner
+had at grab time, such as `tmdb:603`), the entry `id` and `uid`, the release identity (info
+hash, indexer, guid, title), `purpose`, `removeDataOnDelete` and `imported`. The claim comes
+in every command. A pre-journal transfer (release N's first boot) holds only its Download
+name, which is the adopted entry's `id` (§10.2).
+
+**Convergence, both ways.** The owner (decision of 2026-10-07): there is no value in an
+orphaned claim, or an orphaned transfer, so neither is a state. The manager converges each
+side to the other.
+
+*A transfer no entry claims.* A transfer record reads `claimed: false` when no command has
+named its entry since the engine's boot, ten minutes after the boot (time for the resync on
+the new `bootID`) or after the transfer was added. `recordsource` (S27) routes it to the key
+of its claim's owner, which decides on this evidence, in order:
+
+| Evidence | Decision |
+|---|---|
+| the owner exists with the claim's UID | the grab planner asks whether the owner still wants the release (§6.6): monitored, not blocked for it (§6.14), and either no live entry of that purpose and no file at or above the release's quality, or `imported` with its seed goal not met (the seeding obligation), or still an upgrade over the current file. **Wanted:** the entry is re-created under the claim's `id` and `uid` (its records and progress keys continue) in the phase the record implies, and a `present` command at a new seq resumes it. **Not wanted** (a better file imported, the item unmonitored, the grab replaced or removed): command `absent`, `removeData` from the claim |
+| the UID differs, the same-named object exists, and its provider id equals the claim's, or the claim recorded none | the same owner after an etcd restore or a re-create: item names are built from the provider id (`names.Movie`, `names.Series`), so a name match is the same media unless the ids disagree. Decided as the row above; the next command writes the new UID into the journal |
+| the UID differs and the same-named object's provider id differs | a different item reusing the name: the owner is gone (next row) |
+| an APIReader `Get` of the claim's kind, namespace and name returns NotFound | the owner is gone: command `absent`, `removeData` from the claim's `removeDataOnDelete`; Event `TransferOwnerGone` on the DownloadClient |
+| any other apiserver error | nothing; the key retries on the loop's backoff. No evidence, no action |
+
+An item key that is NotFound in the cache returns at once (loop spec §3.4 step 1) unless the
+leader-local index S27 keeps of unclaimed transfers holds one for it; then it makes that one
+APIReader `Get`, so the evidence is the apiserver's, never a lagging cache's.
+
+*A transfer with no claim at all* (added by hand; an unreadable journal entry; a pre-journal
+transfer whose name matches no Download once release N's adoption is complete) is listed in
+the engine record's `unidentified`. Ten minutes later (today's grace, `torrent/reaper.go:57`)
+the DownloadClient controller commands its removal with `removeData: false`, addressed by
+`downloadID`: the transfer goes and its bytes stay, as today's reapers do
+(`torrent/reaper.go:255-296`; the usenet reaper's removal of the job's scratch directory,
+`usenet/reaper.go:251-285`, is kept), with Event `UnidentifiedTransferRemoved`. In release N
+the grace starts only once that client's Downloads are all adopted or dismissed (§10.2).
+
+*An entry with no transfer.* An engine reports `reattached: true` at its `bootID`, and its
+`resyncSeq` reaches the one the manager last asked for (below); from then on every transfer it
+holds has a record at that `bootID`. A live entry before `Removing`, pinned to it, whose record
+is absent or older two minutes after that point, is not held by the engine: the owner key
+republishes its `present` command at a new seq (Msg-Id `engine/<uid>/<seq>/<bootID>`), and the
+engine re-adds it, re-fetching the payload through `clustarr.rpc.indexarr.download` when it
+needs to and reusing any bytes on disk (piece completion, the usenet manifest). When the
+payload can no longer be fetched (the release gone from its indexer), the engine answers
+`failed`, `engineFailureReason: payloadUnavailable` (new), and the entry takes the normal
+path: before import a release fault (`Blocklisted`, item scope, and a redownload search);
+after import (`Imported`, `Seeding`) it is dropped with Event `SeedingLost`.
+
+*Resync.* A new `bootID` enqueues every owner with an entry pinned to that engine, which
+republishes each entry's desired state. When `recordsource` finds `clustarr-transfers`
+recreated (a NATS data loss), the DownloadClient controller sends each engine
+`desired: resync` at a new `resyncSeq`; the engine rewrites every transfer record, then
+reports that `resyncSeq`. Until then no entry is judged to be missing its transfer.
+
 **Data safety.**
 
 1. An engine removes a transfer, or any byte of data, only on a command `absent` at a seq
-   above its journal's. Nothing else removes: not a missing record, not a missing command, not
-   an expired bucket, not an unknown owner.
-2. A transfer the engine holds that no command has named since its boot, after a 10-minute
-   grace, is an **orphan**: listed in the engine record, never removed. Today's reapers
-   (`torrent/reaper.go:255-296`, `usenet/reaper.go:251-285`) become orphan reporters. An orphan
-   is removed only by the DownloadClient's `download.clustarr.io/remove-orphan` intent
-   (§6.10), which the DownloadClient controller turns into an `absent` command for that
-   transfer (open question Q1).
-3. A NATS data loss loses no intent: the entries are in etcd; their records are rebuilt by the
-   engines' re-attach; their commands are owed and republished on the next pass of each owner,
-   which the recreated-bucket rule of `recordsource` enqueues (loop spec §4.9).
-4. The usenet engine with an `emptyDir` scratch (`downloadclient_types.go:347-402`) loses its
-   journal with its pod, as it loses its partial data today. The resync re-adds by name
-   (`usenet.Client.Add` dedupes on `AddRequest.Name`, CLAUDE.md); a re-fetch of the payload is
-   counted by the indexer, as today.
+   above its journal's, and the manager issues one only on positive evidence: the owner's
+   state machine (a removal, a seed goal, a failure, a claim it no longer wants), the
+   apiserver's NotFound for a claim's owner, or a transfer with no claim at all after its grace,
+   whose bytes are kept. Nothing removes because a record, a KV key, a command or a bucket is
+   absent.
+2. A NATS data loss loses no intent: entries are in etcd; their records are rebuilt by
+   re-attach and resync; their commands are owed and republished.
+3. The usenet engine with an `emptyDir` scratch (`downloadclient_types.go:347-402`) loses its
+   journal and partial data with its pod, as today; its entries then have no transfer at the
+   new `bootID` and are re-added by name (`usenet.Client.Add` dedupes on `AddRequest.Name`,
+   CLAUDE.md), and the re-fetched payload counts as a grab at the indexer, as today.
 
 **Engine-side choices that move** (§3.5, P111-P123): the torrent engine's own removal when
 `CanBeRemoved && removeOnImport && removeCompleted` (`torrent/reconciler.go:355-367`) and the
@@ -1235,7 +1303,9 @@ goes when the list is empty.
 
 Before this design, deleting an item cascaded to its Downloads by owner reference and each
 Download's finalizers ran. After it, nothing cascades: the owner's own finalizer does the
-same work with the same timeout.
+same work with the same timeout. An owner that disappears without its finalizer running (a
+finalizer removed by hand, an etcd restore) leaves transfers whose claim names it; they are
+converged as §6.7's "owner is gone" row, on the apiserver's NotFound.
 
 ### 6.9 Imports: inspect, decide, execute
 
@@ -1286,12 +1356,12 @@ nonce is recorded on the pass that sees it; an invalid one is recorded with a Wa
 | `download.clustarr.io/remove` | one-shot | `<nonce> <id> [data] [blocklist]` | `downloadNonces.remove` | deleting a Download; labelling it blocklisted |
 | `download.clustarr.io/resume` | one-shot | `<nonce> <id>` | `downloadNonces.resume` | toggling `spec.paused` to release a health hold |
 | `download.clustarr.io/import` | one-shot | `<nonce> <id> [target=<kind>/<name>[/<key>]] [override]` | `downloadNonces.import` | `catalog.clustarr.io/import-target`, `import-override` and the retrigger controller |
+| `download.clustarr.io/unblock` | one-shot | `<nonce> <infoHash>` or `<nonce> <indexer>/<guid>`, `[global]` | `downloadNonces.unblock`, recorded only after the release index confirms (§6.14) | deleting a blocklisted Download |
 
-On the DownloadClient: `download.clustarr.io/remove-orphan`, one-shot,
-`<nonce> <engine> <downloadID> [data]`, recorded in `status.handledOrphanNonce`.
+There is no orphan intent: a transfer no entry claims is converged (§6.7).
 
-The ui's Downloads page offers pause, resume, remove (with data and blocklist choices) and
-retry-import through these; `ui/actions` gains the patches, and the ui role gains `patch` on
+The ui's Downloads page offers pause, resume, remove (with data and blocklist choices),
+retry-import and, on the item page, unblock through these; `ui/actions` gains the patches, and the ui role gains `patch` on
 any owner kind it does not already patch (`TestUIRoleGrantsOnlyReadsAndActionWrites` holds the
 role to `actions.Grants()`).
 
@@ -1302,13 +1372,17 @@ role to `actions.Grants()`).
 | `rollup.DownloadNonTerminal`, `ActiveDownload`, `DonorDownloading`, `DownloadOverlay` | the same rules over `[]DownloadEntry`; Episode and Issue keys read their container's entries |
 | the six `.spec.target.<kind>` indexes; S9 (loop spec §3.3) | a new index `remediation.item.download` on the six owner kinds (values: entry ids and uids); S9 is replaced by S24: a Series or Comic status change whose `DownloadsSignature` (covered numbers and phases) changed enqueues the covered Episode or Issue keys |
 | `grabsource.Covers` | over entries |
-| search worker blocklist, queue, donor queue, current file | the grab planner in the manager (§6.6); the agent's evaluation no longer reads them |
+| search worker blocklist (`LoadBlocklist`, a label selector over Downloads) | the block state every index answer carries (§6.14) |
+| search worker queue, donor queue, current file | the grab planner in the manager (§6.6); the agent's evaluation no longer reads them |
 | grab guard and lease holders | retired (§6.6) |
-| RSS matcher's blocklist, current file, queue | the grab planner; the matcher sends candidates |
+| RSS matcher's blocklist | the block state on each firehose release (§6.14) |
+| RSS matcher's current file, queue | the grab planner; the matcher sends candidates |
 | redownload `awaitBlocklist` | retired with the consumer (§6.6) |
 | history target resolution | the owner, through `remediation.item.download` |
 | fileimport's Download read | the inspect and execute tasks carry what it read (§6.9) |
 | DownloadClient Active/Queued | the engine records (§6.7) |
+| `BlocklistSweeper` (`downloadclient/blocklist.go:96-128`) | the release index's own expiry sweep (§6.14) |
+| torrent and usenet reapers | convergence (§6.7) |
 | `directgrab` | the `Assigned` transition's effect counts a direct-source grab (`limits.CountGrabAt`), idempotent by entry uid (the ring's entry is keyed by it) |
 | Search controller `inFlightDownload` and `resolveGrab` | a `Candidate` to the owner (§6.6) |
 | retrigger | the import intent (§6.9) |
@@ -1341,8 +1415,88 @@ Scenarios 1-4, 6, 14 and 15 create Downloads directly today
 (`:1393`) becomes the `remove … blocklist` intent. `test/e2e/main_test.go`'s
 `expectedCRDCount` drops by one in N+1. A new scenario, `TestEngineRestartKeepsSeeding`,
 deletes a torrent engine pod mid-seed and asserts the transfer is re-attached, its record
-rewritten, no piece rehashed and nothing removed. Like every scenario since Phase C, these are
-written and run in Phase H.
+rewritten, no piece rehashed and nothing removed. `TestAnUnclaimedTransferIsResumedOrRemoved`
+deletes an entry from a Movie's status by hand while its transfer seeds and asserts the entry
+comes back; then deletes the Movie and asserts the transfer is removed only after the
+apiserver says NotFound. `TestABlockedReleaseShowsBlockedInASearch` blocks a fixture release,
+runs an interactive Search and asserts its row is rejected `Blocklisted` and that
+`spec.override` grabs it. Like every scenario since Phase C, these are written and run in
+Phase H.
+
+### 6.14 The blocklist, in the release index
+
+**Where release information lives today.** The index domain's release index (`pkg/relindex`:
+SQLite on the index agent's PVC, or Postgres with `--index-dsn`, ADR-0010) holds every release
+the agents have seen: the live fan-out upserts each result (`app/indexer/search/fanout.go:478-510`,
+`Store.Upsert`, `pkg/relindex/store.go:66`), RSS polls do the same, and the sweeper keeps
+them 72 hours (`app/indexer/agent/sweeper.go:35`). An interactive search's ranked results are
+Search `status.results` (MaxItems 200, `api/catalog/v1alpha1/search_types.go:242`), each a
+`ReleaseDecision` with its rejections. `pkg/decision` already rejects `ReasonBlocklisted`
+through `Target.Blocklist` (`pkg/decision/checks.go:159-160`). The blocklist moves beside the
+release information, where results are produced.
+
+**The table.** `blocklist`, in both engines (`pkg/relindex/schema.go`, `postgres_schema.go`,
+held together by `storetest.Run`), outside the 72-hour release retention: `scope` (`*` for
+global, else `<kind>/<namespace>/<name>/<uid>` of the item), `info_hash`, `indexer`, `guid`,
+`title`, `protocol`, `reason`, `entry_id`, `seq`, `blocked_at`, `until`. Unique on
+(`scope`, `info_hash`) when the hash is known, and on (`scope`, `indexer`, `guid`). The index
+sweeper deletes a row at its `until`, in a pass of its own. `Store` gains `Block`, `Unblock`,
+`BlockState(releases, scope)` and `ListBlocks(scope)`.
+
+**Scope, decided by reason.**
+
+| Reason | Scope | Why |
+|---|---|---|
+| `encrypted`, `payloadMismatch`, `missingArticles` | global | facts about the payload itself, true for any item the release could match (a fake labelled as one film is still fake when a title match offers it for another) |
+| `importRejected` | item | judged against this item: the wrong item, the wrong language, a probed quality its profile does not allow |
+| `stalled` | item | a swarm's state at the time, which may recover |
+| `payloadUnavailable` | item | the release vanished from its indexer; harmless to keep for 90 days |
+| `manual` | item | a person's choice for this item |
+
+Every row expires after 90 days, today's `DefaultBlocklistTTL` (`download_types.go:66`).
+
+**Who decides, who persists.** Only the manager decides a block (the owner key's `Blocklisted`
+transition, a person's `remove … blocklist`) or an unblock (a person's
+`download.clustarr.io/unblock`). The index agent persists a row only when the manager calls
+`clustarr.rpc.indexarr.blocklist`, a new verb beside `search`, `download` and `query`
+(queue group `indexarr`), with op `block`, `unblock` or `list`. It is request and reply,
+not a stream: the index domain's interface is already RPC, and the manager needs a
+confirmation before it lets go of the intent. The call is idempotent (an upsert or delete on
+the row key) and fenced by `seq` (`records.NextSeq` over the entry's `block.seq`): a write
+whose seq is below the row's is a no-op, so a late block cannot undo a later unblock. It is
+an owed effect with a 5 s timeout: the `Blocklisted` entry keeps `block` until the reply sets
+`confirmedAt`, and an unblock's nonce is recorded only after its reply.
+
+**No regrab in the gap.** A search answer or RSS candidate computed before a block cannot
+carry it. The confirmed `Blocklisted` entry therefore stays as a tombstone for
+`BlockQuarantine` (1 hour, longer than any answer stays in flight: the candidate inbox's 60 s
+budget, a search's 120 s `AckWait`), and the grab planner rejects a candidate matching a
+tombstone of its owner.
+
+**Every index answer carries block state.** A search fan-out request and a query
+(`IndexOnly`) request name the item's scope; each release in the reply carries
+`blocked{scope, reason, until}` when a row for that scope or the global scope matches. Each
+RSS firehose release (`clustarr.rel.*`) carries `blocks[]`, every scope that blocks it (almost
+always none), since the firehose does not know the item; the RSS matcher keeps those that
+name the matched item or are global. The search agent and the RSS matcher pass block state
+through into records and candidates, and `pkg/decision`'s `Target.Blocklist` becomes a lookup
+over it. So an automatic grab rejects the release as `Blocklisted` in the agent's evaluation
+and again in the grab planner, and an interactive Search's `status.results` row shows the
+`Blocklisted` rejection with its reason and `until`; `spec.override` still lets a person take
+it, as today.
+
+**The dependency.** The index domain is one fixed replica (split §3.5.3; with Postgres it may
+run more, and the table is shared). While it is down, searches, RSS polls and payload fetches
+are down as well, so an unreadable blocklist costs nothing more; blocks wait as owed effects
+on their entries, which are few, since a grab cannot fetch its payload either.
+
+**Alternatives considered.** A capped `status.blocklist[]` on the item (this design's first
+draft, Q5): visible to `kubectl` but capped at 32 or 64, so an old block could fall off and the
+release be grabbed again, and applied only after the agents had already scored the release. A
+KV bucket keyed by info hash with a TTL: unbounded, but lost with NATS and invisible. The
+release index wins on all three counts that matter: it is durable on the index store, not lost
+with NATS; it is unbounded; and it is applied where results are produced, so a blocked
+release is marked in every answer, interactive ones included.
 
 ---
 
@@ -1367,7 +1521,7 @@ Every field manager an agent wrote under keeps its name (R7) and is written from
 | `grabarr-engine` | nothing | retired with Download (`k8s.RetiredFieldManagers()` in N, deleted in N+1) |
 
 **One pass, one apply per manager.** A loop item pass renders, in this order, the
-`catalogarr` set (the fold's rollups plus §6's entries, blocklist and nonces), then each other
+`catalogarr` set (the fold's rollups plus §6's entries and nonces), then each other
 manager's set it owns on that kind. Each set goes in its own `k8s.PatchStatusCAS`, each a
 complete declaration of that manager's set (CLAUDE.md, "Server-side apply replaces a field
 manager's ownership set on every apply"), each preconditioned on the resourceVersion the
@@ -1452,11 +1606,14 @@ task uid otherwise): `schema.SearchRecord`: `seq`, `finishedAt`, `indexerOutcome
 `queryMode`, and the ranked candidates (≤ 200), each with its release, decision, score and
 rejection reasons. The Search controller incorporates an interactive one into Search status
 under `catalogarr-worker` (CAS); the item key's grab planner reads an automatic one (§6.6).
-The search agent no longer reads blocklist, queue or current file (§6.11): it evaluates the
-release against the profile and the item's identity; the item-state rules run in the manager.
+The search agent no longer reads a blocklist, queue or current file (§6.11): it evaluates the
+release against the profile and the item's identity, with the block state the index answered
+with (§6.14); the item-state rules run in the manager.
 
 ### 7.5 Indexers (W31-W35)
 
+- **The blocklist** is the release index's (§6.14): the index agent persists rows on the
+  manager's `clustarr.rpc.indexarr.blocklist` call and marks every answer with them.
 - **Health and backoff.** The fan-out and the RSS poll report each query's outcome in
   `clustarr-indexer-health`, key `RecordKey(indexer uid)`: counters, the last failure and its
   class, `indexedReleases`, `lastRssAt`, `lastRssNewCount`. One writer: the index agent is one
@@ -1532,7 +1689,8 @@ No agent emits a Kubernetes Event. The manager emits:
 | one per domain event | `catalogarr-history` | the history sink, now a leader-only consumer in the manager on `CLUSTARR_EVENTS` |
 | `ArtworkFetchFailed` | `metadata-gateway` (name kept) | a failure in the item's metadata record or object metadata, on the transition |
 | `ProxyUDPUnavailable` | `grabarr-engine` (name kept) | the engine record's `proxyUDP` turning `unavailable` |
-| `DownloadAddFailed`, `EngineGone`, `BlocklistEntryDropped`, `CommandRetrying` | `downloads` | the owner key's transitions |
+| `DownloadAddFailed`, `EngineGone`, `SeedingLost`, `CommandRetrying` | `downloads` | the owner key's transitions |
+| `TransferOwnerGone`, `UnidentifiedTransferRemoved` | `grabarr-engine` | convergence (§6.7) |
 
 The `events` domain keeps the RSS matcher; the redownload consumer retires (§6.6), and the DLQ
 projector and history sink move out, so its `minReplicas 1` (split §3.5.4) now protects only
@@ -1544,6 +1702,7 @@ projector and history sink move out, so its `minReplicas 1` (split §3.5.4) now 
 |---|---|---|---|---|---|---|
 | W1, W5 | search answers; RSS candidates | `clustarr-searches`; `clustarr.intake.candidate.>` | item key (grab and search planners) | `catalogarr-grab` | Seq in `searchDispatch`; candidate Msg-Id | one reconcile |
 | W2, W6 | candidates (the grab is the manager's) | as W1 | item key | `catalogarr` | owner reconcile serialises | one reconcile, plus the delay profile |
+| the blocklist (today Download labels) | none: the manager commands it | RPC `clustarr.rpc.indexarr.blocklist`; the release index | item key | none (not a CR) | row `seq`; owed until the reply | one RPC per block |
 | W3 | search answer | `clustarr-searches` | Search controller | `catalogarr-worker` | Seq; CAS | one reconcile |
 | W4 | overlay object metadata | `clustarr-artwork` (object) | item key via `objindex` | `catalogarr-artwork` | the object's inputs digest | object watch, one reconcile |
 | W7, W8 | DLQ envelopes | `CLUSTARR_DLQ` | DLQ projector (manager) | `clustarr-dlq-projector` | durable consumer | none |
@@ -1589,6 +1748,7 @@ runnable), and the process exits on lease loss (split §5.8).
 | `CLUSTARR_EVENTS` | `catalogarr-history`, moved from agent `events` | history sink | Kubernetes Events |
 | `CLUSTARR_ADVISORIES` (`MAX_DELIVERIES`) | the `clustarr-dlq-watch-*` durables, unchanged | `busconn.WatchDeadLetters` and every `Subscribe` | DLQ copies |
 | PubAck of every manager publish | the publish call | the planner's effect | `Dispatch.delivery.state: published`; the dispatch ledger |
+| the reply to `clustarr.rpc.indexarr.blocklist` | request and reply | the owner key's effect | `entry.block.confirmedAt`; an unblock nonce recorded |
 
 **New loop sources** (numbered after the loop spec's S1-S23): **S24** a Series or Comic
 status change whose `DownloadsSignature` (covered numbers, phases, pending candidates) changed
@@ -1807,8 +1967,8 @@ kind-cluster-plex step needs the owner's explicit OK.
 On 2026-10-06 kind-cluster-plex held 122 Downloads (ADR-0016's Context): seeding torrents,
 finished usenet jobs, blocklisted releases with `blocklistedUntil`, possibly held imports, and
 any user `spec.paused` or `spec.priority`. Seeding must not stop, no torrent may rehash, no
-payload may be deleted, no blocklist entry may be lost, a held import must keep its 24-hour
-clock, and a user's pause must hold. The release-N report (§10.2) counts each before anything
+payload may be deleted except as Q6 decides, no blocked release may be forgotten, a held
+import must keep its 24-hour clock, and a user's pause must hold. The release-N report (§10.2) counts each before anything
 is changed.
 
 ### 10.2 Release N: adopt; the Download kind becomes read-only
@@ -1830,7 +1990,10 @@ is changed.
     removal flags, `phase`, `stage`, `failureReason`, `outputPath`, the timestamps, the import
     summary from `status.import`, and `dispatch.seq = records.NextSeq(0, 0, now)` with
     `answeredSeq` 0, so the first command is owed;
-  - **blocklisted:** a blocklist entry with `until` = `blocklistedUntil`;
+  - **blocklisted:** a row in the release index's blocklist (§6.14), written through
+    `clustarr.rpc.indexarr.blocklist` with its scope from the Download's `failureReason`
+    (a labelled Download with none, an operator's, is `manual`, item scope) and `until` =
+    `blocklistedUntil`; the adoption records `outcome: blocklisted` only after the reply;
   - **terminal with no transfer and no payload** (`Failed`, or `Imported` with its transfer
     removed and nothing at `outputPath`): nothing, recorded as dismissed;
   - **`Imported`, transfer removed, payload still on disk** (today's leftover, kept until the
@@ -1846,7 +2009,9 @@ is changed.
   which is the entry `id`), writes a transfer record for each transfer, and waits for
   commands. The first command for an adopted entry fills the journal's `entryUID` and `seq`.
   The torrent `imported` flag, which only Download status held, arrives in the command.
-  Nothing is removed: an entry nobody adopted is an orphan (§6.7), reported, kept.
+  Nothing is judged before adoption completes: a transfer no adopted entry claims is then
+  converged as §6.7 rules (its claim's owner decides; a transfer with no claim and no
+  matching Download is unidentified and removed after the grace, bytes kept).
 - **The Migrator** (leader-only, field manager `clustarr-legacy-fold` for annotations, the
   default owner for finalizer Updates), every 60 s:
   1. **Intent:** copies a non-default `spec.paused` or `spec.priority` into the owner's
@@ -1862,9 +2027,10 @@ is changed.
      and `download.clustarr.io/engine` from that Download, so deleting it later runs nothing.
   5. **Census and deletion:** deletes an adopted Download only after `retain` and only with
      both finalizers gone.
-- **Report.** `manager legacy-fold report` gains Downloads: counts by phase, blocklisted, held
-  imports, intents carried, the adoption plan per owner, owners over cap, and transfers no
-  Download names.
+- **Report.** `manager legacy-fold report` gains Downloads: counts by phase; blocklisted
+  Downloads and the release-index rows they become, by scope; held imports; intents carried;
+  the adoption plan per owner; owners over cap; transfers no Download names (which will be
+  removed with their bytes kept); and the leftover payloads Q6 removes, with their bytes.
 - **Runbook** (amends loop spec §7.5): step 5's quiesce stops grabs and searches under the old
   release (scale its search, grab and RSS consumers to zero) and lets running imports finish;
   the engines keep seeding until the DownloadClient controller re-renders them with the new
@@ -1894,7 +2060,7 @@ is changed.
 |---|---|---|---|
 | N (`hold`) → previous | any time | Lossless: nothing adopted or stripped; the previous engines re-attach from the Downloads | the fold's §7.6 steps 1-6 |
 | N (`apply`) → previous | within `retain` | Adopted Downloads are present and frozen at adoption, without finalizers (the previous controllers re-add theirs on their first reconcile, `controller.go:173`, `torrent/reconciler.go:160`). Grabs made under N have no Download, and the previous reapers would remove their transfers (torrent: the transfer, not its data; usenet: its scratch directory) | **before** starting the previous engines: `bin/manager downloads export --namespace <ns>`, which creates a Download for every entry that has none (spec from the entry; status phase, engine, output path and import from the entry and its records) under `catalogarr-grab`; then §7.6 |
-| N (`apply`) → previous | after deletion | Lossless for live transfers with the export, which recreates every Download from the entries; blocklist entries are exported as blocklisted Downloads | as above |
+| N (`apply`) → previous | after deletion | Lossless for live transfers with the export, which recreates every Download from the entries; the release index's blocklist rows (`op: list`) are exported as labelled blocklisted Downloads | as above |
 | N+1 → N | | Lossless: the entries hold everything | re-apply N's CRDs (`git show`), then `helm rollback` |
 
 `manager downloads export` is the only code that writes a Download in N or N+1; it runs from
@@ -1908,7 +2074,8 @@ lease.
 The plan (`docs/superpowers/plans/2026-10-06-manager-agent-split.md`) and its ledger
 (`.superpowers/unify/progress.md`) are not edited here; the plan is revised after the owner
 reviews this design. State on 2026-10-07: Waves 0-5, 4f, 7 and 8 are built; the fold's F0 is
-done, F1 and F2 are in progress (records core, MediaFile types), F3 runs next.
+done, F1 and F2 are in progress (records core, MediaFile types), F3 runs next. After the
+owner's review, F4 is being implemented with §11.1's three notes.
 
 ### 11.1 Planned tasks this design changes
 
@@ -1943,12 +2110,12 @@ done, F1 and F2 are in progress (records core, MediaFile types), F3 runs next.
 | Wave | Content | Depends on |
 |---|---|---|
 | **A0** | Owner review of this design; plan revision (tasks for A1-A9, the amendments of §11.1) | — |
-| **A1** API and topology (serial, one owner) | item status fields of §6.2 and §6.10; `DownloadSource` and the enums to `api/common`; MediaFile `importedFrom.infoHash`; `Dispatch.destination`, `delivery`; `schema` types (`Candidate`, `ScanObservation`, `EngineCommand`, `TransferRecord`, `EngineRecord`, the import, search, metadata and indexer-health records); `RecordHeader.Item`; the six buckets, `CLUSTARR_INTAKE`, `CLUSTARR_WORK_ENGINE`, `CLUSTARR_TASK_EVENTS`; `ConsumerSpec.SampleFrequency`; `StreamAdmin.EnsureConsumer`/`DeleteConsumer`; `k8s.ReadOnly`; the budget test | F4.4 |
+| **A1** API and topology (serial, one owner) | item status fields of §6.2 and §6.10 (no blocklist in status); `EntryBlock`; the `payloadUnavailable` failure reason; `DownloadSource` and the enums to `api/common`; MediaFile `importedFrom.infoHash`; `Dispatch.destination`, `delivery`; `schema` types (`Candidate`, `ScanObservation`, `EngineCommand`, `TransferRecord`, `EngineRecord`, the import, search, metadata and indexer-health records); `RecordHeader.Item`; the six buckets, `CLUSTARR_INTAKE`, `CLUSTARR_WORK_ENGINE`, `CLUSTARR_TASK_EVENTS`; `ConsumerSpec.SampleFrequency`; `StreamAdmin.EnsureConsumer`/`DeleteConsumer`; `k8s.ReadOnly`; the budget test | F4.4 |
 | **A2** manager intake and acks | `app/intake` (the candidate inbox with ack-after-decision, the scan-applier skeleton), `app/dispatch` (ledger, `Admit`, budgets, unattended detection), agent presence (writer in every agent, reader in the manager), the task-events intake, natsbus `TermWithReason`, the DLQ projector and history sink moved into the manager | A1 |
-| **A3** downloads | Series and Comic as loop keys; `app/grab/lifecycle`; entries, blocklist and intents on the owners; engines on commands, records, journal and presence; the DownloadClient controller from engine records with per-engine durables; the two-phase import (`importplan`); readers (§6.11), S24; the ui Downloads page | A2 |
+| **A3** downloads | the release-index blocklist first (the table in both engines, the `blocklist` RPC verb, block state in every search, query and firehose answer); Series and Comic as loop keys; `app/grab/lifecycle`; entries and intents on the owners; convergence (claims in the journal and records, resync, unclaimed and unidentified transfers); engines on commands, records, journal and presence; the DownloadClient controller from engine records with per-engine durables; the two-phase import (`importplan`); readers (§6.11), S24; the ui Downloads page | A2 |
 | **A4** grab and search policy | `app/catalog/grabplan` (candidates, delay, `pendingGrab`); the search planner (the per-item wanted sweep, `IndexOnly`, the donor cap, the `search` Pacer class); search answers in records; RSS candidates; the Search controller on records and candidates; leases, pending, scheduled grabs and redownload retired | A3 |
 | **A5** metadata and artwork | metadata records; the manager's `objindex`; the fetch and overlay plans in the item key; Events from the manager | A2 (beside A4, after A3 for the item keys) |
-| **A6** import, lists, indexers | scan observations and `scanapply`; the rescan rename pass retired; the list diff in the ImportList controller; Trakt tokens in the manager; the Indexer health ladder and RSS scheduling in the Indexer controller; the session mirror; the facade key in the manager | A2 (parallel with A4 and A5: no shared packages) |
+| **A6** import, lists, indexers | scan observations and `scanapply`; the rescan rename pass retired; the list diff in the ImportList controller; Trakt tokens in the manager; the Indexer health ladder and RSS scheduling in the Indexer controller; the session mirror; the facade key in the manager | A3 (it shares `app/indexer` with A3's blocklist verb); parallel with A4 and A5 |
 | **A7** RBAC and guards | §9's roles and guards | A3-A6; before W6.1 |
 | **A8** release N migration | adoption, the Migrator's Download part, the report, `downloads export`, the runbook, e2e | A3-A6; runs inside F8 |
 | **A9** release N+1 removal | §10.3 | F9's position (after W10.8) |
@@ -1962,55 +2129,43 @@ F7) keeps the fold's momentum and costs one amendment each to F7.1 and the F8 Mi
 
 ---
 
-## 12. Open questions for the owner
+## 12. The owner's answers (2026-10-07), and what is still open
 
-Only decisions that are the owner's; each with a recommendation.
+**Q1. Orphan transfers — resolved: converge, no orphan state.** The owner: "I'm okay with
+auto-removal in certain instances, but can't we simply resume the download and re-assign the
+grab claim? I don't see much value in an orphaned claim for a download instance that doesn't
+exist." Every transfer carries its claim; a transfer no entry claims is resumed under its
+owner when the owner still wants it, and removed (data per `removeDataOnDelete`) when the
+owner is positively gone or no longer wants it; a transfer with no claim at all is removed
+after today's 10-minute grace with its bytes kept; an entry with no transfer is re-added, or
+fails as `payloadUnavailable` when its payload is gone. Removal only on positive evidence
+from the owner's state machine or the apiserver (§6.7, §6.4, D7).
 
-**Q1. Orphan transfers.** A transfer an engine holds that no entry claims (after an etcd
-restore, a bug, a hand-added torrent). Today the reapers remove it after 10 minutes (the
-torrent transfer but not its data; the usenet scratch directory). **Recommend report-only:**
-listed on the DownloadClient (`OrphansPresent`, the count, an Event), removed only by the
-`download.clustarr.io/remove-orphan` intent, which the ui offers. Data safety (owner decision:
-never delete user data on an absence) outweighs a few idle transfers. The alternative is a
-per-DownloadClient opt-in, `spec.orphans: remove`, after 24 hours.
+**Q2. Which release — resolved: the fold's release N** (§10.2).
 
-**Q2. Which release.** **Recommend the fold's release N:** one quiesce, one runbook, one
-Migrator, and the engines roll once at cutover anyway (split §3.5.5). The alternative, a
-separate pair after N, lowers release N's blast radius and needs its own quiesce and its own
-two rollouts.
+**Q3. Wave order — resolved: A1-A6 between F4 and F5** (§11.2). F4 is being implemented now
+with §11.1's three notes.
 
-**Q3. Wave order.** **Recommend A1-A6 between F4 and F5** (§11.2). The alternative is after
-F7.
+**Q4. Imports in two phases — resolved: accepted** (§6.9).
 
-**Q4. Imports in two phases.** Decision 4 puts "attribute, create or delete this file" in the
-manager, which splits fileimport into inspect and execute (§6.9) and adds a task round trip
-per import, about a second. **Recommend accepting it.** The alternative is an explicit
-exception: fileimport keeps deciding with inputs the manager sends in the task, and the
-manager only accepts or rejects the finished import, which keeps one round trip but leaves
-the upgrade and remediation rules in an agent.
+**Q5. Blocklist — resolved: the release index.** The owner asked what stores search results
+and release information, and whether a blocked result should disappear from a search or be
+marked there. Release information lives in the index domain's release index; interactive
+results in Search `status.results`. The blocklist moves into the release index, in its own
+table with a 90-day expiry, scoped to the item it was blocked for (global for faults of the
+payload itself); the manager decides and commands it; every index answer marks a blocked
+release, so automatic grabs reject it and an interactive search shows it blocked, with
+`spec.override` still able to take it (§6.14, D9). `status.blocklist[]` is gone from item
+status.
 
-**Q5. Blocklist cap.** A per-item blocklist in status must be capped: 32 entries for a movie,
-album, book or audiobook and 64 for a series or comic, each kept until its 90-day `until`
-(today's TTL), the oldest dropped first with an Event. A dropped release could be grabbed
-again. **Recommend these caps;** an item with 32 bad releases in 90 days is already a case
-for a person. The alternative is a KV blocklist keyed by info hash and guid with a TTL, which
-is unbounded but invisible to `kubectl` and lost with NATS.
+**Q6. Leftover payloads — resolved: removed with the transfer** (§6.4, §10.2).
 
-**Q6. Leftover payloads of imported grabs.** Today a torrent removed after its seed goal
-(`removeCompleted`), or a usenet job removed on import, leaves its payload on disk until the
-Download object is deleted, which in practice is when its item is deleted. A grab entry is
-dropped once its transfer is removed, so this design removes the payload with the transfer
-when `removeDataOnDelete` is true (the default): the library holds its own hard link or copy,
-so only the download area shrinks. At release N the leftovers of earlier imports would be
-removed in the same way (§10.2), after the pre-flight report has counted them and their bytes.
-**Recommend this** (Sonarr's "Remove Completed" removes the data too). The alternative keeps
-each payload as a retained, transfer-less entry until the item is deleted, which grows every
-owner's status by an entry per upgrade.
+**Q7. `kubectl get downloads` — resolved:** the print column and selectable field; the
+read-only `bin/manager downloads list` stays optional (§6.2).
 
-**Q7. `kubectl get downloads`.** It goes. **Recommend** the `Download` print column and the
-`status.downloadPhase` selectable field on every item kind (§6.2), plus the ui's Downloads
-page. A small read-only `bin/manager downloads list` (all entries across kinds, from the
-cache) is cheap to add if a single table matters on the command line.
+**Still open:** none of the owner's. Two values are this design's and can be tuned without a
+design change: `BlockQuarantine` (1 h) and the unclaimed-transfer grace (10 minutes after a
+boot or an add).
 
 ---
 
@@ -2026,8 +2181,18 @@ cache) is cheap to add if a single table matters on the command line.
   budget test holds the size; cluster-plex's Series handlers must ignore `status.downloads`
   (its `SeedKey` is metadata only; verify in cluster-plex before release N, read-only).
 - **Engine re-attach by name at adoption.** The first release-N engine maps journal entries to
-  entries by the Download name. A name mismatch would make an orphan, which is kept, not
-  removed (§6.7); `TestEngineRestartKeepsSeeding` and the adoption e2e hold it.
+  entries by the Download name. A transfer whose name matches no Download becomes
+  unidentified and, once adoption is complete and its grace has passed, is removed with its
+  bytes kept (§6.7); the pre-flight report lists every such transfer before anything runs, and
+  `TestEngineRestartKeepsSeeding` and the adoption e2e hold the mapping.
+- **Convergence removes a wanted transfer.** The "owner no longer wants it" row removes data
+  per `removeDataOnDelete`. It runs only on a live owner read by the planner from its own
+  status; after an etcd restore an older status can make a recent upgrade look unwanted, which
+  is why "still an upgrade over the current file" and "seeding obligation not met" both keep
+  the transfer. `TestAnUnclaimedTransferIsResumedOrRemoved` covers both rows.
+- **The blocklist depends on the index domain.** A block is confirmed only by the index
+  agent; while it is down, blocks wait on their entries (§6.14). Searching waits with it, so
+  nothing is grabbed past a block meanwhile.
 - **Two-phase imports** add a state the import planner must get right (an inspect answered,
   then the item changed before execute). The execute task carries the plan's basis (the
   MediaFiles it replaces, by UID and resourceVersion), the agent refuses a stale plan, and the

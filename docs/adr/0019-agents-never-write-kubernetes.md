@@ -1,8 +1,8 @@
 # ADR-0019: The manager is the control plane; agents execute tasks and never write the Kubernetes API; the Download kind is removed
 
 **Status:** Accepted, 2026-10-07 (the owner's decisions; the design,
-`docs/superpowers/specs/2026-10-07-agents-report-over-nats-design.md`, is under the owner's
-review before any implementation)
+`docs/superpowers/specs/2026-10-07-agents-report-over-nats-design.md`, reviewed by the owner
+and amended with the answers the same day)
 
 ## Context
 
@@ -97,11 +97,23 @@ Album, Book or Audiobook owns its own grabs; a Series owns every grab of its epi
 episodes included; a Comic owns every grab of its issues. The entry holds the intent (release,
 source, client, engine instance, purpose, seed criteria, removal policy) in etcd, so a NATS
 loss loses no intent. Engines take whole desired-state commands, fenced by sequence, from a
-work stream only the manager publishes to, and report transfer records. An engine never
-removes a transfer or its data because something is absent; only an explicit command
-removes. Deleting an item publishes the removals and waits for them behind an item finalizer,
-with R-6's ten minutes when the engine is gone. The blocklist is a capped list in the item's
-status.
+work stream only the manager publishes to, and report transfer records, each carrying the
+claim it was added under (owner, entry, release, purpose). There is no orphan state on either
+side: the manager resumes a transfer no entry claims under its owner when the owner still
+wants it and removes it when the owner is positively gone or no longer wants it; it re-adds
+the transfer of an entry its engine no longer holds; a transfer with no claim at all is
+removed after a grace with its bytes kept. Nothing is removed because a record, a key or a
+command is absent: only on the owner's state machine or the apiserver's answer. Deleting an
+item publishes the removals and waits for them behind an item finalizer, with R-6's ten
+minutes when the engine is gone.
+
+**The blocklist lives in the release index**, beside the release information
+(`pkg/relindex`), in a table of its own with a 90-day expiry, scoped to the item a release
+was blocked for, or global for a fault of the payload itself. The manager decides every block
+and unblock; the index agent persists one only on the manager's
+`clustarr.rpc.indexarr.blocklist` call, and marks every answer it gives (searches, queries,
+the RSS firehose) with each release's block state, so an automatic grab rejects a blocked
+release and an interactive search shows it blocked.
 
 **The manager consumes acknowledgements.** Besides records and intake acks, the manager
 consumes JetStream's `MSG_NAKED`, `MSG_TERMINATED` and `MAX_DELIVERIES` advisories for the
@@ -148,6 +160,19 @@ progress (already in `clustarr-progress`), a transfer's file list, an import's p
 detail, a search's candidate list, and the engine's own state, which the engine rebuilds after
 a NATS loss.
 
+**A capped blocklist in the item's status.** The design's first draft: visible to `kubectl`,
+but capped at 32 or 64 entries per item, so an old block could fall off and its release be
+grabbed again, and applied only after agents had scored the release. The release index wins:
+it is durable on the index store and not lost with NATS, it is unbounded, and it is applied
+where results are produced, so every answer, an interactive one included, marks the release.
+Its cost is that the blocklist shares the index domain's single replica; while that is down,
+searching is down too, so nothing is grabbed past a block meanwhile.
+
+**Orphans reported and kept.** The first draft listed a transfer no entry claimed on its
+DownloadClient and removed it only on a person's intent. The owner saw no value in an
+orphaned claim for a transfer that does not exist, or in a transfer nobody claims, and chose
+convergence.
+
 **Engines read desired state from a KV bucket instead of a command stream.** Level-triggered
 and simpler to resync, but it gives the manager no per-command delivery signal (no nak, no
 `MAX_DELIVERIES`, no dead letter), which the owner's third decision asks for. The design keeps
@@ -167,8 +192,12 @@ sequence, and the engine applies only the newest.
 - The unfenced writes the audit found are fenced on the way: MediaFile and item deletes carry
   UID preconditions, the import verdict is compare-and-swap, the two dual-written Secrets have
   one writer.
-- A grab's whole life is on the item it is for. The Downloading overlay, `activeDownloadRef`,
-  the donor state and the blocklist read the item's own status instead of a second kind.
+- A grab's whole life is on the item it is for. The Downloading overlay, `activeDownloadRef`
+  and the donor state read the item's own status instead of a second kind, and a transfer and
+  its entry always converge.
+- A block is kept where releases are: durable on the index store, unbounded, and visible in
+  every answer, interactive searches included, where `spec.override` still lets a person take
+  it.
 - Engines need no Kubernetes write and no catalog read: their command carries the file
   selection, and their own journal (`<data>/torrents/.state`, the usenet manifest) carries
   re-attach.
@@ -189,8 +218,10 @@ sequence, and the engine applies only the newest.
 - More NATS state: six Durable records buckets, a Durable intake stream and a Durable engine
   command stream, about 1.3 GiB of file-store reservations, and one small memory stream for
   task advisories.
-- Item status grows: a Series holds up to 24 grab entries and 64 blocklist entries, each
-  string capped; a budget test holds the worst case under etcd's limit.
+- Item status grows: a Series holds up to 24 grab entries, each string capped; a budget test
+  holds the worst case under etcd's limit.
+- The blocklist depends on the index domain (one replica under SQLite): a block is confirmed
+  only by its reply, so blocks wait on their entries while it is down, as searches do.
 - Series and Comic become loop item keys, so their reconcilers move into the loop as Movie's
   and Episode's did.
 - `kubectl get downloads` goes. The queue is `status.downloadPhase`, a print column and
@@ -209,3 +240,5 @@ sequence, and the engine applies only the newest.
   loss that also loses intent the status should have held).
 - An item's status outgrows its size budget, or a Series routinely holds more grabs than its
   cap.
+- Convergence removes a transfer its owner wanted, or the index domain runs more than one
+  replica on SQLite (the blocklist would split).
