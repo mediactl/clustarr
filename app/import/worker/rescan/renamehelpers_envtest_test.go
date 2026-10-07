@@ -44,7 +44,6 @@ type staleFile struct {
 	name     string
 	path     string // spec.path, where the file is
 	expected string // status.naming.expectedPath
-	sidecar  string // a .en.srt next to the file, listed in status.sidecars
 }
 
 // seedNamingStatus applies catalogarr's status as its MediaFile reconciler
