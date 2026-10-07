@@ -60,7 +60,8 @@ object; so are `Indexer`, `QualityProfile`, `RootFolder`, `Download`, `Transcode
 `SubtitleRequest`. The default coupling between components is a watch: a controller reacts to
 objects changing, and each object's status has exactly one controller allowed to write it, which
 makes ownership provable rather than conventional
-([ADR-0004](docs/adr/0004-one-cr-per-human-visible-unit.md)). The message bus carries what does
+([ADR-0004](docs/adr/0004-one-cr-per-human-visible-unit.md), carried into
+[ADR-0016](docs/adr/0016-per-file-work-is-mediafile-status.md)). The message bus carries what does
 not belong in etcd — short, high-churn tasks, rate-limited outbound work like indexer searches and
 metadata refreshes, delayed work such as grab delay windows, and durable domain events other
 services replay ([ADR-0001](docs/adr/0001-nats-jetstream-for-events-and-work-queues.md)).
@@ -124,7 +125,8 @@ docs/
   - [ADR-0001 — NATS JetStream for events and work queues](docs/adr/0001-nats-jetstream-for-events-and-work-queues.md)
   - [ADR-0002 — GPL-3.0 licence](docs/adr/0002-gpl-3-0-licence.md)
   - [ADR-0003 — Release index on SQLite FTS5](docs/adr/0003-release-index-sqlite-fts5.md)
-  - [ADR-0004 — One custom resource per human-visible unit](docs/adr/0004-one-cr-per-human-visible-unit.md)
+  - [ADR-0004 — One custom resource per human-visible unit](docs/adr/0004-one-cr-per-human-visible-unit.md),
+    superseded by [ADR-0016 — Per-file work is MediaFile status](docs/adr/0016-per-file-work-is-mediafile-status.md)
   - [ADR-0005 — Transcodes as batch/v1 Jobs](docs/adr/0005-transcodes-as-batch-jobs.md)
   - [ADR-0006 — One RWX volume at /data](docs/adr/0006-single-rwx-data-volume.md)
   - [ADR-0007 — Single-replica metadata gateway](docs/adr/0007-single-replica-metadata-gateway.md)

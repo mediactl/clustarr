@@ -1,6 +1,6 @@
 # ADR-0004: One custom resource per human-visible unit, one controller-writer per resource
 
-**Status:** Accepted, 2026-09-18
+**Status:** Superseded by ADR-0016, 2026-10-06
 
 ## Context
 

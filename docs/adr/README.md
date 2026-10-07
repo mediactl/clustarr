@@ -13,7 +13,7 @@ later change can tell whether its premise still holds.
 | [0001](0001-nats-jetstream-for-events-and-work-queues.md) | NATS JetStream is the event bus and the distributed work queue | Accepted, 2026-09-18 |
 | [0002](0002-gpl-3-0-licence.md) | The project is licensed GPL-3.0 | Accepted, 2026-09-18 |
 | [0003](0003-release-index-sqlite-fts5.md) | The release index is SQLite FTS5 on an RWO volume, behind a Store interface | Superseded by ADR-0010, 2026-09-24 |
-| [0004](0004-one-cr-per-human-visible-unit.md) | One custom resource per human-visible unit, one controller-writer per resource | Accepted, 2026-09-18 |
+| [0004](0004-one-cr-per-human-visible-unit.md) | One custom resource per human-visible unit, one controller-writer per resource | Superseded by ADR-0016, 2026-10-06 |
 | [0005](0005-transcodes-as-batch-jobs.md) | Transcodes run as batch/v1 Jobs gated by suspend and slot budgets | Superseded by ADR-0009, 2026-09-24 |
 | [0006](0006-single-rwx-data-volume.md) | Storage is one RWX volume at `/data`, TRaSH layout, hardlink-else-copy | Accepted, 2026-09-18 |
 | [0007](0007-single-replica-metadata-gateway.md) | The metadata gateway is a single replica that owns all outbound provider clients | Accepted, 2026-09-18 |
@@ -25,6 +25,7 @@ later change can tell whether its premise still holds.
 | [0013](0013-per-service-controllers-until-production.md) | Controllers stay one Deployment per service until production ready, then unify into one manager (design recorded, deferred) | Accepted, 2026-09-24 |
 | [0014](0014-download-working-areas-on-the-shared-volume.md) | Download working areas live on the shared data volume (`scratch.path`, `publishDir`), not on node-local scratch; the single shared volume stays the pattern for both engines | Accepted, 2026-09-24 |
 | [0015](0015-no-cuda-image.md) | There is no CUDA image: nvidia pools run the transcoder image, the NVIDIA container runtime injecting the driver's libraries (NVENC, NVDEC, CUDA) from the host | Accepted, 2026-10-01 |
+| [0016](0016-per-file-work-is-mediafile-status.md) | Per-file work (subtitles, transcode, graft) is MediaFile status written by one remediation loop; SubtitleRequest, TranscodeJob and AudioGraft go, Download stays (supersedes 0004) | Accepted, 2026-10-06 |
 
 Refinements that did not change a decision are recorded in the spec, not here:
 
@@ -35,6 +36,10 @@ Refinements that did not change a decision are recorded in the spec, not here:
 - **0008:** the lease bucket has no TTL. The grab path reclaims a lease whose
   holder Download is terminal, being deleted, or missing for ten minutes, and
   re-enters one it holds itself (gap fix X4a, spec §5 and §8.2).
+- **0009:** under ADR-0016 the remediation loop admits transcodes from
+  `MediaFile.status.transcode` rather than from TranscodeJobs, and is the one
+  writer squasharr was; the pools, the JetStream queue and the task lease are
+  unchanged.
 
 ## Writing one
 
