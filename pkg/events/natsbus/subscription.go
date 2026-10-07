@@ -47,16 +47,8 @@ type delivery struct {
 	lapsed       bool
 }
 
-// parkedMsg is a delivery waiting for a slot.
-type parkedMsg struct {
-	msg jetstream.Msg
-	// seq is the message's stream sequence, 0 when its metadata is
-	// unreadable, which parks it without replacing anything.
-	seq, attempt uint64
-}
-
-// A subscription is one Subscribe call's running state: a slot-gated pull,
-// the handlers it has started, and what it has parked (spec §9.3).
+// A subscription is one Subscribe call's running state: a slot-gated pull
+// and the handlers it has started (spec §9.3).
 //
 // Slots. The subscription runs at most slots handlers (Subscription.MaxInFlight)
 // at once in this process, and it asks the broker only for as many messages
@@ -64,8 +56,8 @@ type parkedMsg struct {
 // different number, the cap across every process that consumes it, which the
 // topology sets. JetStream's Consume, which this replaced, pulled again as
 // soon as its callback returned, so one process took as much of that cap as
-// the broker would hand it and parked what it could not run, starving the
-// other replicas.
+// the broker would hand it and held what it could not run, starving the
+// other replicas. At saturation it fetches nothing.
 //
 // Lapses. A handler past the broker's acknowledgement deadline for its
 // delivery (events.AckDeadline: Backoff[n-1] for delivery n, else AckWait;
@@ -79,22 +71,23 @@ type parkedMsg struct {
 // at most slots lapsed. A lapsed handler keeps running with its context; its
 // late settlement behaves as any late settlement does.
 //
-// A free slot always means an outstanding Fetch. JetStream raises the
-// MAX_DELIVERIES advisory, from which the dead-letter watcher copies a
-// message whose final delivery lapsed, only when it next tries to deliver,
-// which it does only to a waiting pull request (nats-server getNextMsg;
-// CLAUDE.md's gotcha). So the pull loop keeps a Fetch open whenever a slot
-// is free, and once the lapsed cap is reached with every slot held it keeps
-// one Fetch(1) open regardless, parking what arrives. Parked deliveries run
-// nothing: each one starts when a slot frees, or lapses at the broker and is
-// delivered again, and a later delivery of a message already parked replaces
-// it. What one process holds stays bounded by the durable's MaxAckPending.
+// MAX_DELIVERIES. JetStream raises the advisory from which the dead-letter
+// watcher copies a message whose final delivery lapsed only when it next
+// tries to deliver to a waiting pull, for MaxDeliver 2 or more: nats-server's
+// deliveryCount returns redeliveries, so the ack timer (checkPending) catches
+// only MaxDeliver 1, and getNextMsg raises the rest. This loop keeps no pull
+// open for it. The next pull from any replica, or from this one once a slot
+// frees, raises it; the lag metric's ack-pending wakes a domain at zero; and a
+// final-attempt handler that returns is dead-lettered in process by Settle.
+// A pull this process abandons does not stand in for one: nats.go
+// unsubscribes its inbox, and any CONSUMER.INFO -- the manager's QueueGauge,
+// every 30 s -- prunes it (worker-pool research, 2026-10-07, D4 and E5).
 //
 // Drain. Once the subscription stops -- its context ends or its stop
-// function is called -- it fetches nothing more, drops what it parked (the
-// broker delivers it again after its deadline), and lets running handlers
-// keep their context for up to Subscription.Drain before cancelling it.
-// Close halts at once, without a drain.
+// function is called -- it fetches nothing more, hands back with a Nak any
+// delivery still arriving, and lets running handlers keep their context for
+// up to Subscription.Drain before cancelling it. Close halts at once, without
+// a drain.
 //
 // Re-binding. The pull loop binds a durable it never creates
 // (Bus.bindConsumer), and the dead-letter watcher loop binds the durable's
@@ -119,9 +112,8 @@ type subscription struct {
 	mu       sync.Mutex
 	stopping bool
 	running  map[*delivery]struct{}
-	live     int // running deliveries not lapsed: they hold the slots
-	lapsed   int // running deliveries past their deadline: at most slots
-	parked   []parkedMsg
+	live     int           // running deliveries not lapsed: they hold the slots
+	lapsed   int           // running deliveries past their deadline: at most slots
 	wake     chan struct{} // capacity 1
 	handlers sync.WaitGroup
 	loops    sync.WaitGroup
@@ -156,21 +148,17 @@ func (s *subscription) start() {
 	go s.drainOnStop()
 }
 
-// next starts what parked deliveries it can and says how many messages to
-// fetch: the free slots; one at the lapsed cap even with every slot held, so
-// a pull always waits for JetStream to raise MAX_DELIVERIES on; else none.
+// next says how many messages to fetch: the free slots, and none at
+// saturation. A message this process cannot run stays Pending at the broker,
+// spends no delivery attempt and stays available to other replicas (split
+// §9.3 as amended 2026-10-07, M1). Keeping a Fetch(1) open at the lapsed cap,
+// as Wave 4c did, drew message after message into a park where each lapsed and
+// was redelivered, an attempt spent per redelivery, until it was dead-lettered
+// without ever running.
 func (s *subscription) next() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.startParkedLocked()
-	switch {
-	case s.live < s.slots:
-		return s.slots - s.live
-	case s.lapsed >= s.slots:
-		return 1
-	default:
-		return 0
-	}
+	return max(s.slots-s.live, 0)
 }
 
 func (s *subscription) pullLoop() {
@@ -214,9 +202,9 @@ func (s *subscription) pullLoop() {
 }
 
 // fetch asks for n messages and dispatches each as it arrives. Its request
-// waits up to fetchWait at the broker; one this process abandons stays there
-// until then, which is how a stopped pod's last pull still lets JetStream
-// raise MAX_DELIVERIES.
+// waits up to fetchWait at the broker; one this process abandons is pruned by
+// the next CONSUMER.INFO (nats-server consumer.go; worker-pool research E5),
+// so nothing relies on it.
 func (s *subscription) fetch(ctx context.Context, cons jetstream.Consumer, n int) error {
 	fctx, cancel := context.WithTimeout(ctx, fetchWait)
 	defer cancel()
@@ -230,8 +218,11 @@ func (s *subscription) fetch(ctx context.Context, cons jetstream.Consumer, n int
 	return batch.Error()
 }
 
-// dispatch starts a handler for m when a slot is free and parks it otherwise.
-// A fresh delivery starts even while an earlier delivery of the same message
+// dispatch starts a handler for m. A fetch asks only for free slots and slots
+// only free up while it waits, so a slot is always free here; if one is not, or
+// the subscription is stopping, m goes straight back with a plain Nak, so
+// another replica gets it now rather than after its deadline (research C8). A
+// fresh delivery starts even while an earlier delivery of the same message
 // runs: JetStream has given up on that one.
 func (s *subscription) dispatch(m jetstream.Msg) {
 	var seq, attempt uint64 = 0, 1
@@ -241,46 +232,15 @@ func (s *subscription) dispatch(m jetstream.Msg) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.stopping {
-		return // left unsettled: JetStream makes it again after its deadline
-	}
-	if s.live < s.slots {
-		s.startLocked(m, seq, attempt)
+	if s.stopping || s.live >= s.slots {
+		if !s.stopping {
+			logging.FromContext(s.loopCtx).Warn("bus: a fetch returned more than the free slots; handing the message back",
+				"durable", s.sub.Durable, "stream_seq", seq)
+		}
+		_ = m.Nak()
 		return
 	}
-	p := parkedMsg{msg: m, seq: seq, attempt: attempt}
-	if seq != 0 {
-		for i := range s.parked {
-			if s.parked[i].seq == seq {
-				s.parked[i] = p // a later delivery of a message already waiting
-				return
-			}
-		}
-	}
-	s.parked = append(s.parked, p)
-}
-
-// startParkedLocked starts parked deliveries, oldest first, while a slot is
-// free, skipping any whose message still has a handler running.
-func (s *subscription) startParkedLocked() {
-	for i := 0; i < len(s.parked) && s.live < s.slots && !s.stopping; {
-		p := s.parked[i]
-		if p.seq != 0 && s.seqRunningLocked(p.seq) {
-			i++
-			continue
-		}
-		s.parked = append(s.parked[:i], s.parked[i+1:]...)
-		s.startLocked(p.msg, p.seq, p.attempt)
-	}
-}
-
-func (s *subscription) seqRunningLocked(seq uint64) bool {
-	for d := range s.running {
-		if d.seq == seq {
-			return true
-		}
-	}
-	return false
+	s.startLocked(m, seq, attempt)
 }
 
 func (s *subscription) startLocked(m jetstream.Msg, seq, attempt uint64) {
@@ -295,8 +255,8 @@ func (s *subscription) startLocked(m jetstream.Msg, seq, attempt uint64) {
 	}()
 }
 
-// finish returns d's slot, or its place under the lapsed cap, and hands a
-// free slot to the oldest startable parked delivery.
+// finish returns d's slot, or its place under the lapsed cap, and wakes the
+// loop to fetch for the freed slot.
 func (s *subscription) finish(d *delivery) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -306,7 +266,6 @@ func (s *subscription) finish(d *delivery) {
 	} else {
 		s.live--
 	}
-	s.startParkedLocked()
 	s.signalLocked()
 }
 
@@ -336,7 +295,6 @@ func (s *subscription) reap(now time.Time) {
 		changed = true
 	}
 	if changed {
-		s.startParkedLocked()
 		s.signalLocked()
 	}
 }
@@ -371,7 +329,6 @@ func (s *subscription) drainOnStop() {
 	}
 	s.mu.Lock()
 	s.stopping = true
-	s.parked = nil
 	s.mu.Unlock()
 	if d := s.sub.Drain; d > 0 {
 		idle := make(chan struct{})

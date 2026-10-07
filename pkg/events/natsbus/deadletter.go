@@ -76,10 +76,11 @@ var _ events.DeadLetterWatcher = (*Bus)(nil)
 // events.StreamAdvisories, which captures them as JetStream publishes them,
 // through a durable filtered to sub's own advisory subject. So an advisory
 // fired while no replica of sub's consumer is subscribed -- JetStream fires
-// it when it next tries to deliver, and a pull request a stopping replica
-// left behind is enough for that -- waits for a watcher instead of being
-// lost, and one whose copy fails is naked onto watchRetry rather than
-// dropped.
+// it when it next tries to deliver to a waiting pull, from any replica; a
+// pull a stopping replica abandoned is no such pull, since any CONSUMER.INFO
+// prunes it (worker-pool research, 2026-10-07, D4 and E5) -- waits for a
+// watcher instead of being lost, and one whose copy fails is naked onto
+// watchRetry rather than dropped.
 //
 // Every process consuming sub's durable runs it, and the manager runs it too
 // as a backstop (WatchDeadLetters), for a domain at zero replicas. They all
