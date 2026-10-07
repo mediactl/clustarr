@@ -23,6 +23,7 @@ import (
 	"encoding/binary"
 	"io"
 
+	"github.com/mediactl/clustarr/pkg/segments"
 	"github.com/mediactl/clustarr/pkg/segments/chromaprint"
 )
 
@@ -42,7 +43,7 @@ func (h *Handler) fingerprint(ctx context.Context, f *file) {
 }
 
 func (h *Handler) window(ctx context.Context, f *file, which string, fromS, lenS float64) ([]uint32, error) {
-	name := f.ProbeHash + "." + which
+	name := segments.FingerprintKey(f.ProbeHash, which)
 	if fp, ok := h.cached(ctx, name); ok {
 		return fp, nil
 	}

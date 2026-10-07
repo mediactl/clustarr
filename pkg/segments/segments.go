@@ -21,6 +21,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // detection). Its subpackages do the detecting.
 package segments
 
+import "strconv"
+
 // AnalyzerVersion is recorded in status.markers.analysis.version; raise it
 // when detection changes, and every file is analyzed once more. 2: credits
 // reach the end past the last keyframe, the DNN is asked whenever no
@@ -28,6 +30,19 @@ package segments
 // preview (2026-10-01). 3: a credits chapter wholly titled as credits is
 // 100 and outranks TheIntroDB, any other chapter 90 (2026-10-01).
 const AnalyzerVersion int32 = 3
+
+// FingerprintVersion versions the clustarr-fingerprints cache keys. 1 stands
+// for the unversioned keys the ffmpeg(1) decoder wrote; 2 is the in-process
+// ffgo decoder (spec 2026-10-06 §7.2.7, OD48). Raise it whenever decode
+// output can change: pkg/segments/decode, the fork's decode path, or the
+// native image's libavcodec minor. Old objects age out under the store's
+// 90-day MaxAge.
+const FingerprintVersion int32 = 2
+
+// FingerprintKey is a window's object name in the fingerprint cache.
+func FingerprintKey(probeHash, which string) string {
+	return probeHash + "." + which + ".v" + strconv.Itoa(int(FingerprintVersion))
+}
 
 // Kind is a segment's kind. The values are api/catalog/v1alpha1.MarkerKind's
 // (TestLocalEnumsAreTheAPIs); they are declared here so cmd/markers links no
