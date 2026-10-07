@@ -52,6 +52,14 @@ func DeviceID(namespace, name string) string {
 	return strings.ToUpper(hex.EncodeToString(sum[:4]))
 }
 
+// BlockDeviceID is the device id of the block starting at start in provider
+// namespace/name (Live TV spec §3.1): eight uppercase hex digits of a SHA-256
+// of "namespace/name/start", so a recreated provider gives the same devices.
+func BlockDeviceID(namespace, name, start string) string {
+	sum := sha256.Sum256([]byte(namespace + "/" + name + "/" + start))
+	return strings.ToUpper(hex.EncodeToString(sum[:4]))
+}
+
 type discover struct {
 	FriendlyName    string `json:"FriendlyName"`
 	Manufacturer    string `json:"Manufacturer"`
