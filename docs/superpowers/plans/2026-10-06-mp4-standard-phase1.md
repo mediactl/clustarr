@@ -17,6 +17,19 @@ The squasharr worker places the sidecars before the video swap, and every caller
 
 **Spec:** `docs/superpowers/specs/2026-10-06-mp4-standard-design.md` (approved 2026-10-06, with the owner's E-AC-3 correction the same day).
 
+> **Amended 2026-10-06, mid-execution, by the owner (spec §4.1):** every
+> subtitle becomes a sidecar in Plex's layout:
+>
+> - **Task 4:** every text subtitle (SubRip, WebVTT, `mov_text`, plain
+>   text) is a `SidecarSRT` named `<lang>[.forced|.sdh].srt`, with the
+>   language as `lang.Normalize`'s base. ASS is a `SidecarASS`, and
+>   `Result.Subtitles` is always empty in `Plan`.
+> - **Task 6 is withdrawn,** and ruling R6 with it.
+> - **Task 7:** its SRT sink copy-muxes a SubRip source into ffgo's `srt`
+>   muxer, the ffgo `-map 0:s:0 out.srt`, and writes WebVTT, `mov_text`
+>   and text through the Go writer.
+> - **R2 and R3 stand.**
+
 ## Global Constraints
 
 - GPL-3.0 header from `hack/boilerplate.go.txt` on every new Go file.

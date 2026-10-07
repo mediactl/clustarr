@@ -92,6 +92,48 @@ donor dub becomes AC-3 5.1 plus AAC 2.0; a stereo one becomes AAC 2.0.
 - **Forced and SDH flags** are kept as `mov_text` dispositions and in the
   sidecar names.
 
+### 4.1 The owner's correction: every subtitle beside the file (2026-10-06)
+
+The owner asked for subtitle extraction inside the transcode's own pass,
+into Plex's local-subtitle layout:
+
+```
+/Movies/Avatar (2009)/Avatar (2009).mkv
+                      Avatar (2009).eng.srt
+                      Avatar (2009).en.forced.ass
+                      Avatar (2009).en.sdh.srt
+                      Avatar (2009).de.srt
+TV Shows/Show_Name/Season XX/Show_Name SxxEyy.[Language_Code].ext
+```
+
+`[Language_Code]` is ISO 639-1, or ISO 639-2/B where a language has no
+two-letter code.
+
+This replaces the table above:
+
+- **Text subtitles become `.srt` sidecars:** SubRip, WebVTT, `mov_text` and
+  plain text. Nothing is embedded as `mov_text`, and the MP4 carries no
+  subtitle stream.
+- **ASS and SSA become `.ass` sidecars,** as before.
+- **The name** is `<stem>.<lang>[.forced|.sdh].<ext>`:
+  - the language is `pkg/lang.Normalize`'s base, the 639-1 code where one
+    exists, its region dropped;
+  - a forced track, or one titled "Signs" or "Songs", takes `.forced`;
+  - a hearing-impaired track takes `.sdh`;
+  - a second track that would take a name already planned is dropped and
+    recorded.
+- **The ffgo equivalent of `ffmpeg -i input.mkv -map 0:s:0 output.srt`:**
+  ffmpeg picks the `srt` muxer from the extension, and a SubRip track's
+  packets reach it unchanged. In ffgo that is `NewMuxer(path, "srt")`,
+  `AddCopyStream` with the stream's codec parameters, one `WritePacket`
+  per packet as the transcode's demuxer reads them, then `WriteTrailer`.
+  For WebVTT or `mov_text`, ffmpeg's CLI would decode and re-encode, and
+  ffgo binds no subtitle encoder, so the engine writes SubRip itself from
+  each packet's text, without markup.
+- **Sidecars are written as parts beside the output** and placed at their
+  final names before the video swap. An existing file at a final name is
+  kept.
+
 ## 5. OCR of image subtitles (`pkg/subtitles/ocr`)
 
 - **Models:** PaddleOCR's recognition models (PP-OCR rec, Apache 2.0) for
