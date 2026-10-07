@@ -244,9 +244,11 @@ var (
 
 // Work-queue telemetry, shared by every NATS consumer across services.
 var (
-	// WorkQueuePending is the number of messages waiting to be handled, by
-	// stream and consumer. This is the KEDA scaling input as well as the
-	// backpressure signal for operators.
+	// WorkQueuePending is the backlog of a durable consumer, by stream and
+	// consumer: NumPending + NumAckPending, the autoscaling input. The
+	// manager's leader sets it every 30 s (app/autoscale/extmetrics.
+	// QueueGauge) from the same ConsumerInfo the External Metrics API
+	// serves as clustarr_consumer_lag.
 	WorkQueuePending = newGaugeVec(
 		"clustarr_work_queue_pending",
 		"Pending messages in the work queue, by stream and consumer.",
