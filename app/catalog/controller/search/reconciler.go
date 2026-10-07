@@ -44,6 +44,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -100,7 +101,8 @@ const queueFullRequeue = time.Minute
 
 // Reconciler reconciles Search. It is the sole writer of Search's
 // status.phase, status.conditions, status.observedGeneration,
-// status.startedAt and status.grabbed.
+// status.startedAt and status.grabbed -- and, on a planned series Search
+// (Wave S), status.seasons and status.finishedAt.
 //
 // status.results, status.indexerOutcomes and status.finishedAt split by
 // mode. For a mediaRef-mode Search the search worker owns them, under
@@ -198,6 +200,9 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		// A container Search owns its children (container.go): each
 		// child's change reconciles the parent, which counts them.
 		Owns(&catalogv1alpha1.Search{}).
+		// A planned series Search mirrors its Series' season search
+		// (series.go): the Series' change reconciles its Searches.
+		Watches(&catalogv1alpha1.Series{}, handler.EnqueueRequestsFromMapFunc(r.searchesOfSeries)).
 		WithOptions(controller.Options{RecoverPanic: new(true), ReconciliationTimeout: 5 * time.Minute})
 	if r.RecordsBus != nil {
 		// The search agent's answers (ADR-0019 §7.4).
@@ -233,7 +238,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	// search in flight.
 	// An interactive search's answer arrives in clustarr-searches: write it
 	// into status, and the next reconcile completes the Search.
-	if s.Spec.MediaRef != nil && !isContainer(s) && s.Status.Phase != "" && s.Status.FinishedAt == nil {
+	if s.Spec.MediaRef != nil && !isContainer(s) && !s.Spec.PlannedBySeries() && s.Status.Phase != "" && s.Status.FinishedAt == nil {
 		if wrote, err := r.incorporate(ctx, s); err != nil {
 			return ctrl.Result{}, err
 		} else if wrote {
@@ -243,6 +248,10 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	switch {
 	case r.ttlExpired(s):
 		return r.deleteExpired(ctx, s)
+	case s.Spec.PlannedBySeries():
+		// A series or season search with grabBest: the Series plans it,
+		// and this Search mirrors the Series' season search (Wave S).
+		return r.reconcileSeriesSearch(ctx, s)
 	case s.Spec.MediaRef != nil && catalogv1alpha1.ContainerKind(s.Spec.MediaRef.Kind):
 		return r.reconcileContainer(ctx, s)
 	case s.Status.Phase == "" && s.Spec.Query != nil:
@@ -292,6 +301,11 @@ type statusUpdate struct {
 	// container Search's finishedAt is this manager's too, since no worker
 	// ever writes one.
 	children *catalogv1alpha1.SearchChildren
+
+	// seasons is a planned series Search's mirror of its Series' season
+	// search (series.go, Wave S), carried forward on every apply; its
+	// finishedAt is this manager's too, since no worker writes one.
+	seasons []catalogv1alpha1.SearchSeason
 }
 
 // isContainer reports whether s searches an author's, artist's or comic's
@@ -319,8 +333,11 @@ func newStatusUpdate(s *catalogv1alpha1.Search) *statusUpdate {
 		u.indexerOutcomes = append([]catalogv1alpha1.IndexerOutcome(nil), s.Status.IndexerOutcomes...)
 		u.results = append([]commonv1.ReleaseDecision(nil), s.Status.Results...)
 	}
-	if isContainer(s) {
+	if isContainer(s) || s.Spec.PlannedBySeries() {
 		u.finishedAt = s.Status.FinishedAt
+	}
+	if s.Spec.PlannedBySeries() {
+		u.seasons = append([]catalogv1alpha1.SearchSeason(nil), s.Status.Seasons...)
 	}
 	u.children = s.Status.Children.DeepCopy()
 	return u
@@ -374,8 +391,15 @@ func (r *Reconciler) apply(ctx context.Context, s *catalogv1alpha1.Search, u *st
 			statusAC = statusAC.WithFinishedAt(*u.finishedAt)
 		}
 	}
-	if isContainer(s) && u.finishedAt != nil {
+	if (isContainer(s) || s.Spec.PlannedBySeries()) && u.finishedAt != nil {
 		statusAC = statusAC.WithFinishedAt(*u.finishedAt)
+	}
+	if s.Spec.PlannedBySeries() {
+		seasons, err := k8s.ApplyConfigurationsFrom[catalogac.SearchSeasonApplyConfiguration](u.seasons)
+		if err != nil {
+			return err
+		}
+		statusAC = statusAC.WithSeasons(seasons...)
 	}
 	if c := u.children; c != nil {
 		statusAC = statusAC.WithChildren(catalogac.SearchChildren().WithTotal(c.Total).WithRunning(c.Running).
@@ -729,8 +753,9 @@ func grabGUIDs(s *catalogv1alpha1.Search) []string {
 
 // bestApproved is spec.grabBest's pick, or "" without one.
 func bestApproved(s *catalogv1alpha1.Search) string {
-	if !s.Spec.GrabBest || s.Spec.MediaRef == nil {
-		// A query-mode Search has no item to grab for.
+	if !s.Spec.GrabBest || s.Spec.MediaRef == nil || s.Spec.PlannedBySeries() {
+		// A query-mode Search has no item to grab for; a planned series
+		// Search has no results -- its grabs are the Series' own.
 		return ""
 	}
 	for _, r := range s.Status.Results {

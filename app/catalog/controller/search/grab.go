@@ -63,6 +63,12 @@ func resolveGrab(guid string, results []commonv1.ReleaseDecision, override bool)
 			if decision.ReasonTranscodedFinal.Of(rej) {
 				continue
 			}
+			// Likewise a full-season pack of a season still airing (Wave
+			// S): the grab planner refuses it automatically and takes a
+			// person's pick.
+			if decision.ReasonFullSeasonNotAired.Of(rej) {
+				continue
+			}
 			if rej.Type == commonv1.RejectionPermanent && !override {
 				return grabDecision{
 					Release: r.ReleaseInfo,

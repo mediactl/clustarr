@@ -187,6 +187,15 @@ var (
 		"trigger", "outcome",
 	)
 
+	// SearchResultsTotal counts the interactive search results the Search
+	// controller incorporated (Wave S), by band: approved, rejected,
+	// otherTitles. No label names a release or a title.
+	SearchResultsTotal = newCounterVec(
+		"clustarr_search_results_total",
+		"Interactive search results incorporated, by band.",
+		"band",
+	)
+
 	// MetadataCacheHitsTotal counts metadata gateway cache lookups. The tier
 	// is the whole cardinality budget: never label this by title or id.
 	MetadataCacheHitsTotal = newCounterVec(

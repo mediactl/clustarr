@@ -40,7 +40,9 @@ import (
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/obs/metrics"
 	"github.com/mediactl/clustarr/pkg/quality"
+	"github.com/mediactl/clustarr/pkg/records"
 	"github.com/mediactl/clustarr/pkg/records/agentrecords"
 	"github.com/mediactl/clustarr/pkg/records/recordsource"
 	"github.com/mediactl/clustarr/pkg/version"
@@ -80,7 +82,17 @@ func (r *Reconciler) incorporate(ctx context.Context, s *catalogv1alpha1.Search)
 	if !ok || rec.Seq < taskSeq(s) {
 		return false, nil
 	}
-	results := r.withItemState(ctx, s, rec.Candidates)
+	var (
+		results []commonv1.ReleaseDecision
+		other   int32
+	)
+	if s.Spec.Season != nil {
+		// An interactive season search (Wave S): each result judged as the
+		// Series' grab planner would judge it.
+		results, other = r.seasonItemState(ctx, s, rec.Candidates)
+	} else {
+		results, other = r.withItemState(ctx, s, rec.Candidates)
+	}
 	outcomes := searchoutcome.Map(rec.IndexerOutcomes)
 	finished := metav1.NewTime(rec.FinishedAt.UTC())
 	_, applied, err := k8s.PatchStatusCAS(ctx, r.apiReader(), r.Client, k8s.ManagerCatalogWorker,
@@ -93,21 +105,45 @@ func (r *Reconciler) incorporate(ctx context.Context, s *catalogv1alpha1.Search)
 			if err != nil {
 				return nil, false, err
 			}
-			st := catalogac.SearchStatus().WithFinishedAt(finished).WithIndexerOutcomes(oacs...).WithResults(results...)
+			st := catalogac.SearchStatus().WithFinishedAt(finished).WithIndexerOutcomes(oacs...).WithResults(results...).
+				WithOtherTitles(other)
 			return catalogac.Search(fresh.Name, fresh.Namespace).WithStatus(st), false, nil
 		}, incorporateAttempts)
+	if err == nil && applied {
+		countAnswer(s, rec, results)
+	}
 	return applied, err
+}
+
+// countAnswer counts an incorporated interactive answer: its results by
+// band, and an interactive season search's season.
+func countAnswer(s *catalogv1alpha1.Search, rec *schema.SearchRecord, results []commonv1.ReleaseDecision) {
+	for i := range results {
+		metrics.SearchResultsTotal.WithLabelValues(decision.BandOf(results[i].Approved, results[i].Rejections).String()).Inc()
+	}
+	if s.Spec.Season == nil {
+		return
+	}
+	outcome := "answered"
+	switch {
+	case rec.State == records.StateFailed:
+		outcome = "failed"
+	case rec.AllPaced:
+		outcome = "paced"
+	}
+	metrics.SeasonSearchesTotal.WithLabelValues("interactive", outcome).Inc()
 }
 
 // withItemState is an interactive answer's results for status: the
 // release decisions the search agent ranked, each with the rejections the
 // target item's fresh state adds (R24: the queue, the current file and its
-// cutoff, TranscodedFinal, the blocklist), approved ahead of rejected and
-// capped at the Search's keep limit.
-func (r *Reconciler) withItemState(ctx context.Context, s *catalogv1alpha1.Search, cands []schema.ScoredRelease) []commonv1.ReleaseDecision {
+// cutoff, TranscodedFinal, the blocklist), banded approved, rejected, other
+// titles (Wave S) and capped at the Search's keep limit; the second result
+// is how many of them, at their end, are other titles.
+func (r *Reconciler) withItemState(ctx context.Context, s *catalogv1alpha1.Search, cands []schema.ScoredRelease) ([]commonv1.ReleaseDecision, int32) {
 	limit := keepLimit(s)
 	target, profile := r.itemTarget(ctx, s)
-	var approved, rejected []commonv1.ReleaseDecision
+	out := make([]commonv1.ReleaseDecision, 0, len(cands))
 	for _, sr := range cands {
 		rd := *sr.Decision.DeepCopy()
 		if profile != nil {
@@ -125,21 +161,9 @@ func (r *Reconciler) withItemState(ctx context.Context, s *catalogv1alpha1.Searc
 				rd.TemporarilyRejected = allTemporary(rd.Rejections)
 			}
 		}
-		if rd.Approved {
-			approved = append(approved, rd)
-		} else {
-			rejected = append(rejected, rd)
-		}
+		out = append(out, rd)
 	}
-	out := make([]commonv1.ReleaseDecision, 0, len(approved)+len(rejected))
-	out = append(append(out, approved...), rejected...)
-	if len(out) > limit {
-		out = out[:limit]
-	}
-	for i := range out {
-		out[i].Rank = int32(i + 1) //nolint:gosec // capped at MaxResults
-	}
-	return out
+	return banded(out, limit)
 }
 
 func allTemporary(rs []commonv1.Rejection) bool {
@@ -343,6 +367,11 @@ func (r *Reconciler) publishPick(ctx context.Context, s *catalogv1alpha1.Search,
 	}
 	if iref := itemread.Ref(item); iref.UID != oref.UID {
 		c.Targets = []schema.ItemRef{iref}
+	} else if s.Spec.Season != nil {
+		// An interactive season search's pick (Wave S): no Targets, the
+		// Series resolves what it covers from its coverage.
+		n := *s.Spec.Season
+		c.Season = &n
 	}
 	name, data, err := schema.Encode(c)
 	if err != nil {
@@ -411,6 +440,12 @@ func (r *Reconciler) interactiveTask(ctx context.Context, s *catalogv1alpha1.Sea
 		MediaRef: ref, Keys: ref.Keys, Reason: schema.SearchReasonInteractive,
 		SearchRef:   &schema.Ref{Namespace: s.Namespace, Name: s.Name, UID: string(s.UID)},
 		UserInvoked: true, Seq: taskSeq(s),
+	}
+	if s.Spec.Season != nil {
+		// An interactive season search (Wave S): the Series is the item,
+		// with no container.
+		n := *s.Spec.Season
+		task.Season = &n
 	}
 	protocols, err := itemread.Protocols(ctx, r.Client, s.Namespace)
 	if err != nil {
