@@ -284,7 +284,7 @@ func (w *Worker) importNonVideoFile(
 	var hbErr error
 	q, known := FrozenFileQuality(ctx, w.audioProbe(m, &hbErr), kind, srcPath, dl.Spec.Release.Title, rel)
 	if hbErr != nil {
-		return nil, "", hbErr
+		return nil, rejection{}, hbErr
 	}
 	switch {
 	case known && !plan.profile.Allowed(q):
