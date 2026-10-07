@@ -46,9 +46,6 @@ import (
 	"github.com/mediactl/clustarr/pkg/iptv/xmltv"
 )
 
-// bucket is events.BucketLiveTV, named literally until Task 8 adds it.
-const bucket = "clustarr-livetv"
-
 var (
 	key = types.NamespacedName{Namespace: "media", Name: "news"}
 	now = time.Date(2026, 10, 7, 0, 0, 0, 0, time.UTC)
@@ -143,10 +140,8 @@ func config(srv string) tuner.Config {
 
 func newStore(t *testing.T) events.ObjectStore {
 	bus := membus.New(nil)
-	topo := events.Default().ForSingleNode()
-	topo.ObjectStores = append(topo.ObjectStores, events.ObjectStoreSpec{Name: bucket, Storage: events.StorageFile, MaxBytes: 1 << 30, Replicas: 1})
-	require.NoError(t, bus.Ensure(context.Background(), topo))
-	return bus.ObjectStore(bucket)
+	require.NoError(t, bus.Ensure(context.Background(), events.Default().ForSingleNode()))
+	return bus.ObjectStore(events.BucketLiveTV)
 }
 
 type harness struct {

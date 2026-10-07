@@ -190,6 +190,18 @@ const ArtworkChunkSize uint32 = 1 << 20
 // window, so room for some 25,000 files.
 const FingerprintsMaxBytes int64 = 1 * GiB
 
+// BucketLiveTV holds the Live TV tuner's objects (spec 2026-10-07 §5.4):
+// each provider's playlist (without stream URLs), each guide's channel list
+// and the rendered XEPG guide. The tuner writes it alone; the ui only reads.
+const BucketLiveTV = "clustarr-livetv"
+
+// LiveTVMaxBytes bounds BucketLiveTV.
+const LiveTVMaxBytes int64 = 1 * GiB
+
+// LiveTVKeyScheme is BucketLiveTV's key scheme, recorded in the bucket's
+// metadata.
+const LiveTVKeyScheme = "playlist/<ns>/<name> | guide-channels/<ns>/<name>/<guide> | guide/<ns>/<name>"
+
 // ArtworkVariant is "original" or "overlay", the last token of an
 // ArtworkKey and the Clustarr-Rendered-From-bearing half of the split
 // between the metadata gateway and the renderer (spec §B.2, §B.3).

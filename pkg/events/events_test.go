@@ -624,8 +624,18 @@ func TestDefaultObjectStoreIsArtwork(t *testing.T) {
 	for _, o := range top.ObjectStores {
 		names[o.Name] = o
 	}
-	if len(names) != 2 {
-		t.Fatalf("ObjectStores = %+v, want artwork and fingerprints", top.ObjectStores)
+	if len(names) != 3 {
+		t.Fatalf("ObjectStores = %+v, want artwork, fingerprints and livetv", top.ObjectStores)
+	}
+	lt, ok := names[events.BucketLiveTV]
+	if !ok {
+		t.Fatalf("no %s object store: the Live TV bucket is part of the default topology", events.BucketLiveTV)
+	}
+	if lt.Storage != events.StorageFile || lt.MaxBytes != events.LiveTVMaxBytes {
+		t.Errorf("%s = %+v, want file storage and %d bytes", events.BucketLiveTV, lt, events.LiveTVMaxBytes)
+	}
+	if lt.Metadata[events.BucketMetaKeyKeyScheme] != events.LiveTVKeyScheme {
+		t.Errorf("%s key scheme = %q, want %q", events.BucketLiveTV, lt.Metadata[events.BucketMetaKeyKeyScheme], events.LiveTVKeyScheme)
 	}
 	if _, ok := names[events.ObjectStoreFingerprints]; !ok {
 		t.Errorf("no %s object store", events.ObjectStoreFingerprints)

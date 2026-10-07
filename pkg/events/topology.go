@@ -1217,5 +1217,15 @@ func defaultObjectStores() []ObjectStoreSpec {
 				ArtworkMetaKeyVersion:  ArtworkMetaVersion,
 			},
 		},
+		{
+			// Live TV's playlists and guides: rebuilt from the provider at
+			// the next fetch, so a lost bucket costs one fetch each.
+			Name:        BucketLiveTV,
+			Description: "Live TV playlists and guides",
+			Storage:     StorageFile,
+			MaxBytes:    LiveTVMaxBytes,
+			Replicas:    3,
+			Metadata:    map[string]string{BucketMetaKeyKeyScheme: LiveTVKeyScheme},
+		},
 	}
 }
