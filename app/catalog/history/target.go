@@ -170,6 +170,7 @@ var resolvers = map[string]resolver{
 	schema.SegmentsPlanTask{}.Schema():  resolveSegmentsPlanTask,
 	schema.AnalyzeTask{}.Schema():       resolveAnalyzeTask,
 	schema.SegmentsResult{}.Schema():    resolveSegmentsResult,
+	schema.ProbeTask{}.Schema():         resolveProbeTask,
 }
 
 // Resolve establishes the CR a domain event or dead-lettered envelope
@@ -299,6 +300,15 @@ func resolveSegmentsResult(key string, data []byte) Target {
 		return Target{Namespace: namespaceOf(key)}
 	}
 	return mediaFileTarget(namespaceOf(key), p.MediaFile)
+}
+
+// resolveProbeTask is the import domain's probe of one MediaFile.
+func resolveProbeTask(key string, data []byte) Target {
+	var p schema.ProbeTask
+	if err := schema.Decode(p.Schema(), data, &p); err != nil {
+		return Target{Namespace: namespaceOf(key)}
+	}
+	return mediaFileTarget(p.MediaFile.Namespace, p.MediaFile.Name)
 }
 
 func resolveMetadataTask(key string, data []byte) Target {

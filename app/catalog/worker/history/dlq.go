@@ -72,7 +72,7 @@ func (d DLQDeps) now() time.Time {
 }
 
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series;episodes;artists;albums;authors;books;audiobooks;comics;issues;importlists;libraryscans,verbs=patch
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies;series;episodes;artists;albums;authors;books;audiobooks;comics;issues;importlists;libraryscans;mediafiles,verbs=patch
 // +kubebuilder:rbac:groups=index.clustarr.io,resources=indexers,verbs=patch
 // +kubebuilder:rbac:groups=download.clustarr.io,resources=downloads,verbs=patch
 // +kubebuilder:rbac:groups=transcode.clustarr.io,resources=transcodejobs,verbs=patch
