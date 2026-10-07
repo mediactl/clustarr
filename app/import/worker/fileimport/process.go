@@ -47,8 +47,8 @@ import (
 	"github.com/mediactl/clustarr/pkg/release"
 )
 
-// videoProbeTimeout bounds probeVideo's two ffprobe runs (container, then
-// first frame). A healthy file answers in well under a second, even over a
+// videoProbeTimeout bounds probeVideo's probe (the container, then the first
+// frame, read in-process by the domain's Prober). A healthy file answers in well under a second, even over a
 // network mount; one that hangs -- a stalled mount, a pathological file --
 // must not hold the import handler past its delivery's acknowledgement
 // deadline, ConsumerImportFile's BackOff[0] (30s; HeartbeatInterval says

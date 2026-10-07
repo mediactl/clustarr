@@ -36,7 +36,6 @@ import (
 	"github.com/mediactl/clustarr/app/import/worker/rescan"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
-	"github.com/mediactl/clustarr/pkg/mediainfo/ffprobeexec"
 )
 
 // Options is what the import domain's Register takes.
@@ -53,8 +52,10 @@ type Options struct {
 	TraktBaseURL, PlexBaseURL string
 }
 
-// Register adds the four import consumers and the two probe lanes, declares
-// the two MediaFile indexes they read, and returns the import.data check.
+// Register builds the domain's in-process prober, adds the four import
+// consumers and the two probe lanes, declares the two MediaFile indexes they
+// read, and returns the import.data readiness check and the process-level
+// ffgo liveness check.
 //
 // The consumers are the work.importarr.* queues (amendment §A1.6): scan,
 // fileimport, list and recycle. The list worker creates Movie and Series only today;
@@ -65,7 +66,7 @@ type Options struct {
 //
 // Both file-reading workers get o.SampleMaxBytes through [newScanWorker] and
 // [newImportWorker]; see Options.SampleMaxBytes.
-func Register(_ context.Context, mgr ctrl.Manager, bus events.Bus, o Options) (catalogagent.Registration, error) {
+func Register(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options) (catalogagent.Registration, error) {
 	if bus == nil {
 		return catalogagent.Registration{}, errors.New("import domain: Register needs the bus")
 	}
@@ -76,10 +77,14 @@ func Register(_ context.Context, mgr ctrl.Manager, bus events.Bus, o Options) (c
 	c, api := mgr.GetClient(), mgr.GetAPIReader()
 	// The import domain's one prober (spec 2026-10-06 §6.6): the probe
 	// worker, the file-import worker and the rescan all read files through
-	// it. It answers through ffprobe until the native probe lands (spec
-	// §6.9 step 2), which replaces ffprobeexec.Prober{} here, and only
-	// here, with native.New().
-	prober := ffprobeexec.Prober{}
+	// it. It answers through the domain's one in-process prober
+	// (registerProbe, spec §6.6), built before any worker subscribes: a
+	// domain that cannot probe does not start.
+	var live k8s.Checks
+	prober, err := registerProbe(ctx, &live)
+	if err != nil {
+		return catalogagent.Registration{}, err
+	}
 	for _, cons := range []struct {
 		durable string
 		handle  events.Handler
@@ -150,6 +155,7 @@ func Register(_ context.Context, mgr ctrl.Manager, bus events.Bus, o Options) (c
 	}
 	return catalogagent.Registration{
 		Ready:   &ready,
+		Live:    &live,
 		Indexes: append(rescan.FieldIndexes(), fileimport.FieldIndexes()...),
 	}, nil
 }
