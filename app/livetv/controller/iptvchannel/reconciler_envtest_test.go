@@ -93,7 +93,9 @@ type countingClient struct {
 	n *atomic.Int64
 }
 
-func (c countingClient) Status() client.SubResourceWriter { return countingWriter{c.Client.Status(), c.n} }
+func (c countingClient) Status() client.SubResourceWriter {
+	return countingWriter{c.Client.Status(), c.n}
+}
 
 type countingWriter struct {
 	client.SubResourceWriter

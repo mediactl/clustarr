@@ -88,7 +88,9 @@ func (f *fakeTuner) Remove(key types.NamespacedName) {
 	delete(f.applied, key)
 }
 
-func (*fakeTuner) Snapshot(types.NamespacedName) (tuner.Snapshot, bool) { return tuner.Snapshot{}, false }
+func (*fakeTuner) Snapshot(types.NamespacedName) (tuner.Snapshot, bool) {
+	return tuner.Snapshot{}, false
+}
 
 func (f *fakeTuner) last(key types.NamespacedName) (tuner.Config, bool) {
 	f.mu.Lock()
@@ -148,7 +150,9 @@ func setup(t *testing.T) *harness {
 	return h
 }
 
-func (h *harness) key(name string) types.NamespacedName { return types.NamespacedName{Namespace: h.ns, Name: name} }
+func (h *harness) key(name string) types.NamespacedName {
+	return types.NamespacedName{Namespace: h.ns, Name: name}
+}
 
 func (h *harness) provider(t *testing.T, name string, mutate ...func(*clustarrv1.IPTVProvider)) {
 	t.Helper()
@@ -321,7 +325,7 @@ func TestTheOlderProviderKeepsAPortClaimedTwice(t *testing.T) {
 
 	// b's status claims a's port, as a lost update would have written it.
 	b.Status.Blocks[0].Port = a.Status.Blocks[0].Port
-	require.NoError(t, h.c.Status().Update(h.ctx, b))
+	require.NoError(t, h.c.Status().Update(h.ctx, b)) //nolint:forbidigo // simulating a lost update
 	h.events <- event.GenericEvent{Object: &clustarrv1.IPTVProvider{ObjectMeta: metav1.ObjectMeta{Name: "b", Namespace: h.ns}}}
 	b = h.until(t, "b", func(p *clustarrv1.IPTVProvider) bool {
 		return len(p.Status.Blocks) == 1 && p.Status.Blocks[0].Port != a.Status.Blocks[0].Port
@@ -435,4 +439,57 @@ func TestOnlyTheLiveTVManagerWritesTheProvidersStatus(t *testing.T) {
 	}
 	assert.Equal(t, []string{string(k8s.ManagerLiveTV)}, managers)
 	assert.False(t, strings.Contains(fmt.Sprint(p.Status), "p.example"), "no playlist URL in status")
+}
+
+func TestChannelsReachTheTunerThroughTheIndex(t *testing.T) {
+	h := setup(t)
+	h.provider(t, "news")
+	h.provider(t, "other", func(p *clustarrv1.IPTVProvider) { p.Spec.ChannelNumberStart = ptr.To(int32(5000)) })
+	mk := func(name, provider, number string, epg *clustarrv1.ChannelEPG) {
+		require.NoError(t, h.c.Create(h.ctx, &clustarrv1.IPTVChannel{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: h.ns},
+			Spec:       clustarrv1.IPTVChannelSpec{ProviderRef: provider, Key: "t:" + name, Number: number, Active: true, EPG: epg},
+		}))
+	}
+	mk("bbc1", "news", "1001", &clustarrv1.ChannelEPG{Guide: "main", ChannelID: "bbc1.uk"})
+	mk("filler", "news", "1002", &clustarrv1.ChannelEPG{Dummy: true, DummyMinutes: ptr.To(int32(30))})
+	mk("cnn", "other", "5001", nil)
+	require.Eventually(t, func() bool { c, _ := h.tuner.last(h.key("news")); return len(c.Channels) == 2 }, 15*time.Second, 50*time.Millisecond)
+	c, _ := h.tuner.last(h.key("news"))
+	byObject := map[string]tuner.ChannelConfig{}
+	for _, ch := range c.Channels {
+		byObject[ch.Object] = ch
+	}
+	assert.Equal(t, "t:bbc1", byObject["bbc1"].Key)
+	assert.Equal(t, "1001", byObject["bbc1"].Number)
+	assert.True(t, byObject["bbc1"].Active)
+	require.NotNil(t, byObject["bbc1"].Map)
+	assert.Equal(t, "bbc1.uk", byObject["bbc1"].Map.ChannelID)
+	assert.Nil(t, byObject["filler"].Map)
+	assert.Equal(t, 30, byObject["filler"].DummyMinutes)
+	assert.NotContains(t, byObject, "cnn", "another provider's channel")
+
+	mk("itv", "news", "1003", nil)
+	require.Eventually(t, func() bool { c, _ := h.tuner.last(h.key("news")); return len(c.Channels) == 3 }, 15*time.Second, 50*time.Millisecond)
+}
+
+func TestADisabledProviderIsRemovedFromTheTunerAndReadsDisabled(t *testing.T) {
+	h := setup(t)
+	h.provider(t, "news")
+	h.channels(t, "news", 1000)
+	h.until(t, "news", hasChannels(1), "a block")
+	_, ok := h.tuner.last(h.key("news"))
+	require.True(t, ok)
+
+	p := h.get(t, "news")
+	p.Spec.Enabled = ptr.To(false)
+	require.NoError(t, h.c.Update(h.ctx, p))
+	got := h.until(t, "news", func(p *clustarrv1.IPTVProvider) bool {
+		c := ready(p)
+		return c != nil && c.Reason == clustarrv1.ReasonDisabled
+	}, "Ready=False Disabled")
+	assert.Equal(t, metav1.ConditionFalse, ready(got).Status)
+	_, ok = h.tuner.last(h.key("news"))
+	assert.False(t, ok, "the tuner no longer serves it")
+	assert.Len(t, got.Status.Blocks, 1, "its blocks, and so its DVRs, are kept")
 }

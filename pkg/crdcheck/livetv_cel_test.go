@@ -64,6 +64,37 @@ func TestLiveTVCEL(t *testing.T) {
 	_, err = providers.Create(ctx, provider("neither", map[string]any{}), metav1.CreateOptions{})
 	require.ErrorContains(t, err, "set exactly one of url and urlFrom")
 
+	// spec.device.id is eight uppercase hex digits; spec.dvr.maxChannels
+	// is 1-450 (PMS takes ~454 channels in one device's map, recorded).
+	with := func(name string, path []string, v any) *unstructured.Unstructured {
+		p := provider(name, map[string]any{"url": "http://p.example"})
+		require.NoError(t, unstructured.SetNestedField(p.Object, v, append([]string{"spec"}, path...)...))
+		return p
+	}
+	for _, c := range []struct {
+		name string
+		path []string
+		v    any
+		ok   bool
+	}{
+		{"id-ok", []string{"device", "id"}, "CAFE0001", true},
+		{"id-lower", []string{"device", "id"}, "cafe0001", false},
+		{"id-short", []string{"device", "id"}, "CAFE001", false},
+		{"id-long", []string{"device", "id"}, "CAFE00011", false},
+		{"id-not-hex", []string{"device", "id"}, "CAFEXYZ1", false},
+		{"max-1", []string{"dvr", "maxChannels"}, int64(1), true},
+		{"max-450", []string{"dvr", "maxChannels"}, int64(450), true},
+		{"max-0", []string{"dvr", "maxChannels"}, int64(0), false},
+		{"max-451", []string{"dvr", "maxChannels"}, int64(451), false},
+	} {
+		_, err := providers.Create(ctx, with(c.name, c.path, c.v), metav1.CreateOptions{})
+		if c.ok {
+			require.NoError(t, err, c.name)
+		} else {
+			require.Error(t, err, c.name)
+		}
+	}
+
 	channel := func(name string, epg map[string]any) *unstructured.Unstructured {
 		spec := map[string]any{"providerRef": "by-url", "key": "t:bbc1.uk", "number": "1001", "active": true}
 		if epg != nil {
