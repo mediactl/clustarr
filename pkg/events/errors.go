@@ -61,6 +61,11 @@ var (
 	// ErrKeyNotFound is returned by KV.Get and KV.Update for a missing key.
 	ErrKeyNotFound = errors.New("events: key not found")
 
+	// ErrMessageNotFound is returned by StreamAdmin.Message for a sequence
+	// the stream no longer holds (acked off a WorkQueue, terminated, aged
+	// out or purged).
+	ErrMessageNotFound = errors.New("events: message not found")
+
 	// ErrKeyExists is returned by KV.Create when the key is already present.
 	// It is the double-grab guard used by the clustarr-leases bucket.
 	ErrKeyExists = errors.New("events: key exists")

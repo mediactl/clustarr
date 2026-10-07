@@ -163,6 +163,19 @@ func (s *stream) publish(now time.Time, subject string, env *events.Envelope,
 	return events.Receipt{Stream: s.spec.Name, Seq: m.seq}, nil
 }
 
+// message is the message stored at seq, unless it was removed: its subject
+// and a copy of its envelope.
+func (s *stream) message(seq uint64) (string, *events.Envelope, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, m := range s.msgs {
+		if m.seq == seq && !m.removed {
+			return m.subject, m.env.Clone(), true
+		}
+	}
+	return "", nil, false
+}
+
 // expireLocked drops messages past MaxAge and deduplication records past the
 // duplicate window. The caller holds s.mu.
 func (s *stream) expireLocked(now time.Time) {

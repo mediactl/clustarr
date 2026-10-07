@@ -115,6 +115,9 @@ func probeConsumers() []ConsumerSpec {
 			BackOff:       []time.Duration{60 * time.Second, 5 * time.Minute, 30 * time.Minute},
 			Slots:         probeSlots,
 			MaxAckPending: probeSlots * AutoscaleReplicaCeiling,
+			// Dispatched by the remediation loop (ADR-0019 §5.1).
+			SampleFrequency: SampleFrequencyDispatched,
+			Dispatched:      true,
 		}
 	}
 	return []ConsumerSpec{

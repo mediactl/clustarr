@@ -150,6 +150,11 @@ type Subscription struct {
 	// (split §9.3 as amended 2026-10-07, "Handler budget"). Zero: no bus
 	// heartbeat, no deadline.
 	HandlerTimeout time.Duration
+
+	// SampleFrequency is ConsumerSpec.SampleFrequency, which Pull writes
+	// into the durable it creates (a transcode pool's); Subscribe never
+	// writes consumer config.
+	SampleFrequency string
 }
 
 // Validate reports whether the subscription is internally consistent.
@@ -321,12 +326,28 @@ type StreamAdmin interface {
 	// ruling R15); DeleteSubscription removes both. A missing stream is
 	// ErrStreamNotFound.
 	EnsureConsumer(ctx context.Context, c ConsumerSpec) error
+	// Message reads the message stored at seq on stream: its subject and
+	// envelope, rebuilt from its headers (EnvelopeFromHeaders). It is how the
+	// manager's advisory intake finds the task a MSG_NAKED advisory names
+	// (ADR-0019 §8.2, ruling R16). A sequence the stream no longer holds is
+	// ErrMessageNotFound, a missing stream ErrStreamNotFound.
+	Message(ctx context.Context, stream string, seq uint64) (subject string, env *Envelope, err error)
 	// Missing names every stream, consumer, KV bucket and object store of t
 	// that does not exist, as TopologyObject.String spells it, in
 	// Topology.Objects order. It is empty when everything exists. Agents wait
 	// on it at start (pkg/busconn.AwaitTopology): they never create topology,
 	// the manager does (spec §5.9). Only a failure to ask is an error.
 	Missing(ctx context.Context, t Topology) ([]string, error)
+}
+
+// CoreSubscriber subscribes to a core NATS subject, no stream and no
+// durable: the manager's ack-metric sampling of JetStream's
+// $JS.EVENT.METRIC.CONSUMER.ACK subjects (ADR-0019 §8.2, ruling R16). h runs
+// on the connection's delivery goroutine, so it must not block. The stop
+// function unsubscribes; so does ctx ending. Optional: natsbus implements
+// it, membus does not (it publishes no JetStream metrics).
+type CoreSubscriber interface {
+	SubscribeCore(ctx context.Context, subject string, h func(subject string, data []byte)) (stop func(), err error)
 }
 
 // Requester is the micro-style request/reply half of the bus: a single reply

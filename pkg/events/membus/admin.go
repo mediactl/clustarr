@@ -104,6 +104,21 @@ func (b *Bus) ConsumerState(_ context.Context, stream, durable string) (events.C
 	return cs, nil
 }
 
+// Message implements events.StreamAdmin: the message still stored at seq.
+func (b *Bus) Message(_ context.Context, stream string, seq uint64) (string, *events.Envelope, error) {
+	b.mu.Lock()
+	st := b.streams[stream]
+	b.mu.Unlock()
+	if st == nil {
+		return "", nil, fmt.Errorf("membus: stream %s: %w", stream, events.ErrStreamNotFound)
+	}
+	subject, env, ok := st.message(seq)
+	if !ok {
+		return "", nil, fmt.Errorf("membus: %s seq %d: %w", stream, seq, events.ErrMessageNotFound)
+	}
+	return subject, env, nil
+}
+
 var _ events.StreamStater = (*Bus)(nil)
 
 // StreamFill implements events.StreamStater: the stored messages' payload and

@@ -103,10 +103,64 @@ func (d DLQDeps) now() time.Time {
 // that against a real apiserver's managedFields, not just this comment.
 type DLQProjector struct {
 	Deps DLQDeps
+
+	// seen reports the original Clustarr-Id of every dead letter Handle
+	// processed, for the manager's advisory intake (Seen).
+	seen chan string
 }
 
+// seenBuffer bounds Seen's channel; a full channel drops the report (the
+// advisory intake then annotates through Annotate, which is idempotent).
+const seenBuffer = 1024
+
 // NewDLQProjector returns a DLQProjector over d.
-func NewDLQProjector(d DLQDeps) *DLQProjector { return &DLQProjector{Deps: d} }
+func NewDLQProjector(d DLQDeps) *DLQProjector {
+	return &DLQProjector{Deps: d, seen: make(chan string, seenBuffer)}
+}
+
+// Seen is the original Clustarr-Id (the dead letter's Clustarr-DLQ-Msg-Id)
+// of every DLQ copy Handle processed: the advisory intake's proof that a
+// terminated task's copy arrived (ADR-0019 §8.5). Reports never block
+// Handle: with no reader, or a slow one, they are dropped.
+func (p *DLQProjector) Seen() <-chan string { return p.seen }
+
+// reportSeen sends id on Seen without blocking.
+func (p *DLQProjector) reportSeen(id string) {
+	if p.seen == nil || id == "" {
+		return
+	}
+	select {
+	case p.seen <- id:
+	default:
+	}
+}
+
+// Annotate is the second net for a terminated task with no DLQ copy
+// (ADR-0019 §8.5, the research's M2 case): it applies the dead-lettered
+// annotation to t, under k8s.ManagerDLQProjector, exactly as Handle does for
+// a copy, naming the dispatch seq instead of the original subject, and
+// records the same Warning Event. A t that no longer exists is nothing to
+// mark; one whose kind is unknown is refused.
+func (p *DLQProjector) Annotate(ctx context.Context, t cataloghistory.Target, seq int64) error {
+	if !t.KindKnown() {
+		return fmt.Errorf("dlqprojector: cannot annotate %s/%s: its kind is unknown", t.Namespace, t.Name)
+	}
+	origin := fmt.Sprintf("dispatch %d (terminated, no dead-letter copy)", seq)
+	value := origin + "@" + p.Deps.now().UTC().Format(time.RFC3339)
+	applied, err := p.applyAnnotation(ctx, t, value, 0)
+	if apierrors.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if p.Deps.Recorder != nil {
+		p.Deps.Recorder.Eventf(applied, nil, corev1.EventTypeWarning, "DeadLettered", origin,
+			"a task about this object was terminated and no dead-letter copy arrived within a minute; "+
+				"it cannot be replayed from CLUSTARR_DLQ")
+	}
+	return nil
+}
 
 // Subscription is the clustarr-dlq-projector durable consumer from §5's
 // table (AckWait 30s, MaxDeliver 3, BackOff 5s/30s, 64 slots per pod;
@@ -191,6 +245,10 @@ func (p *DLQProjector) handle(ctx context.Context, m events.Message) error {
 	value += "@" + p.Deps.now().UTC().Format(time.RFC3339)
 	note := fmt.Sprintf("dead-lettered by %s after %s attempts: %s", consumer, attempts, reason)
 	seq := p.sequenceOf(ctx, m.Subject())
+
+	// Before the outcome: a copy whose annotation fails is still a copy, so
+	// the advisory intake must not annotate it a second way.
+	p.reportSeen(env.Header(events.HeaderDLQMsgID))
 
 	switch {
 	case target.KindKnown():

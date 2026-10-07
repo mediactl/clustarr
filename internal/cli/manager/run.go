@@ -34,6 +34,7 @@ import (
 	importmanager "github.com/mediactl/clustarr/app/import/manager"
 	indexermanager "github.com/mediactl/clustarr/app/indexer/manager"
 	"github.com/mediactl/clustarr/app/intake"
+	"github.com/mediactl/clustarr/app/intake/advisory"
 	remediationmanager "github.com/mediactl/clustarr/app/remediation/manager"
 	squashmanager "github.com/mediactl/clustarr/app/squash/manager"
 	"github.com/mediactl/clustarr/pkg/busconn"
@@ -162,6 +163,10 @@ type planes struct {
 	ledger *dispatch.Ledger
 	// inbox holds grab candidates for their owners' passes (S30).
 	inbox *intake.Inbox
+	// book is the leader-local nak and term record planners render
+	// Dispatch.delivery from (R8); tasks is the intake that fills it.
+	book  *dispatch.DeliveryBook
+	tasks *advisory.Intake
 }
 
 // newPlanes builds the shared planes and adds the leader-only runnables
@@ -194,6 +199,17 @@ func newPlanes(mgr ctrl.Manager, bus events.Bus, o Options) (planes, error) {
 	}
 	if err := mgr.Add(&intake.ScanConsumer{Bus: bus, Topology: top}); err != nil {
 		return planes{}, fmt.Errorf("manager: add the scan intake: %w", err)
+	}
+	// The task-events intake (§8.2): nak and term advisories of every
+	// dispatched task into the delivery book, and ack sampling for metrics.
+	// Its DLQ projector (the second net) is the history step's, A2.5.
+	p.book = dispatch.NewDeliveryBook()
+	p.tasks = &advisory.Intake{
+		Bus: bus, Admin: admin, Book: p.book, Topology: top,
+		ByUID: advisory.CacheResolver{Reader: mgr.GetClient()},
+	}
+	if err := mgr.Add(p.tasks); err != nil {
+		return planes{}, fmt.Errorf("manager: add the task-events intake: %w", err)
 	}
 	return p, nil
 }

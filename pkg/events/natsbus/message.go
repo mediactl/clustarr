@@ -142,15 +142,46 @@ func nakDelay(want time.Duration, backoff []time.Duration, attempt uint64) time.
 	return max(want-(backoff[i]-backoff[0]), time.Nanosecond)
 }
 
-// Term stops redelivery and records reason in the server advisory.
+// Term stops redelivery and records reason in the server advisory. The
+// reason carries the message's Clustarr-Id first, then one space (ADR-0019
+// §8.2, ruling R10): on a WorkQueue stream a terminated message is gone, so
+// the manager's advisory intake resolves the task from the reason's first
+// field.
 func (m *message) Term(_ context.Context, reason string) error {
 	if !m.markSettled() {
 		return nil
 	}
+	reason = termReason(m.clustarrID(), reason)
 	if reason == "" {
 		return m.jm.Term()
 	}
 	return m.jm.TermWithReason(reason)
+}
+
+// clustarrID is the delivery's Clustarr-Id header, else its envelope's ID
+// (Nats-Msg-Id): the same value for every clustarr publish.
+func (m *message) clustarrID() string {
+	if h := m.jm.Headers(); h != nil {
+		if id := h.Get(events.HeaderID); id != "" {
+			return id
+		}
+	}
+	if m.env != nil {
+		return m.env.ID
+	}
+	return ""
+}
+
+// termReason is "<id> <reason>", or id alone with no reason, or reason
+// alone with no id.
+func termReason(id, reason string) string {
+	switch {
+	case id == "":
+		return reason
+	case reason == "":
+		return id
+	}
+	return id + " " + reason
 }
 
 // InProgress resets the server's redelivery timer for this delivery, and the

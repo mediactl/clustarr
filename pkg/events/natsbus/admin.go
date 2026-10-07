@@ -171,6 +171,27 @@ func (b *Bus) Subjects(ctx context.Context, stream, filter string) ([]string, er
 	return out, nil
 }
 
+// Message implements events.StreamAdmin: one STREAM.MSG.GET by sequence
+// (jetstream.Stream.GetMsg), its headers rebuilt into an envelope.
+func (b *Bus) Message(ctx context.Context, stream string, seq uint64) (string, *events.Envelope, error) {
+	st, err := b.lookupStream(ctx, stream)
+	if err != nil {
+		return "", nil, err
+	}
+	raw, err := st.GetMsg(ctx, seq)
+	if err != nil {
+		if errors.Is(err, jetstream.ErrMsgNotFound) {
+			return "", nil, fmt.Errorf("natsbus: %s seq %d: %w", stream, seq, events.ErrMessageNotFound)
+		}
+		return "", nil, fmt.Errorf("natsbus: %s seq %d: %w", stream, seq, err)
+	}
+	h := make(map[string]string, len(raw.Header))
+	for k := range raw.Header {
+		h[k] = raw.Header.Get(k)
+	}
+	return raw.Subject, events.EnvelopeFromHeaders(h, raw.Data), nil
+}
+
 // Missing implements events.StreamAdmin. Each object is looked up afresh by
 // name: the bus's bound KV and object-store handles are not consulted, because
 // a NATS restart can delete a memory-backed bucket under a live handle.

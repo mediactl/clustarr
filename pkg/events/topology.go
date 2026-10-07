@@ -155,16 +155,17 @@ const AutoscaleReplicaCeiling = 8
 // Subscriber.Subscribe, so worker code never restates the tuning.
 func (c ConsumerSpec) Subscription() Subscription {
 	return Subscription{
-		Stream:         c.Stream,
-		Durable:        c.Name,
-		Filters:        append([]string(nil), c.Filters...),
-		AckWait:        c.AckWait,
-		MaxDeliver:     c.MaxDeliver,
-		Backoff:        append([]time.Duration(nil), c.BackOff...),
-		MaxInFlight:    c.Slots,
-		MaxAckPending:  c.MaxAckPending,
-		Heartbeat:      c.Heartbeat,
-		HandlerTimeout: c.HandlerTimeout,
+		Stream:          c.Stream,
+		Durable:         c.Name,
+		Filters:         append([]string(nil), c.Filters...),
+		AckWait:         c.AckWait,
+		MaxDeliver:      c.MaxDeliver,
+		Backoff:         append([]time.Duration(nil), c.BackOff...),
+		MaxInFlight:     c.Slots,
+		MaxAckPending:   c.MaxAckPending,
+		Heartbeat:       c.Heartbeat,
+		HandlerTimeout:  c.HandlerTimeout,
+		SampleFrequency: c.SampleFrequency,
 	}
 }
 
@@ -176,16 +177,17 @@ func (c ConsumerSpec) Subscription() Subscription {
 func SubscriptionSpec(s Subscription) ConsumerSpec {
 	slots := max(s.MaxInFlight, 1)
 	return ConsumerSpec{
-		Name:           s.Durable,
-		Stream:         s.Stream,
-		Filters:        append([]string(nil), s.Filters...),
-		AckWait:        s.AckWait,
-		MaxDeliver:     s.MaxDeliver,
-		BackOff:        append([]time.Duration(nil), s.Backoff...),
-		MaxAckPending:  cmp.Or(s.MaxAckPending, slots),
-		Slots:          slots,
-		Heartbeat:      s.Heartbeat,
-		HandlerTimeout: s.HandlerTimeout,
+		Name:            s.Durable,
+		Stream:          s.Stream,
+		Filters:         append([]string(nil), s.Filters...),
+		AckWait:         s.AckWait,
+		MaxDeliver:      s.MaxDeliver,
+		BackOff:         append([]time.Duration(nil), s.Backoff...),
+		MaxAckPending:   cmp.Or(s.MaxAckPending, slots),
+		Slots:           slots,
+		Heartbeat:       s.Heartbeat,
+		HandlerTimeout:  s.HandlerTimeout,
+		SampleFrequency: s.SampleFrequency,
 	}
 }
 
@@ -219,6 +221,11 @@ func TranscodeTaskConsumer(profileUID, class string) ConsumerSpec {
 		MaxDeliver:    16,
 		MaxAckPending: 64,
 		Slots:         1,
+		// A task the manager dispatches (ADR-0019 §5.1): its nak and term
+		// advisories reach CLUSTARR_TASK_EVENTS through the stream's
+		// "<prefix>.CLUSTARR_WORK_SQUASHARR.*" wildcard.
+		SampleFrequency: SampleFrequencyDispatched,
+		Dispatched:      true,
 	}
 }
 
@@ -886,9 +893,11 @@ func defaultConsumers() []ConsumerSpec {
 			Name: ConsumerCatalogSearchHigh, Stream: StreamWorkCatalogarr,
 			Filters: []string{"clustarr.work.catalogarr.search.high.>"},
 			AckWait: 120 * s, MaxDeliver: 5,
-			BackOff:       []time.Duration{30 * s, 2 * m, 10 * m},
-			MaxAckPending: 8,
-			Slots:         8,
+			BackOff:         []time.Duration{30 * s, 2 * m, 10 * m},
+			MaxAckPending:   8,
+			Slots:           8,
+			SampleFrequency: SampleFrequencyDispatched,
+			Dispatched:      true,
 		},
 		{
 			Name: ConsumerCatalogSearchNorm, Stream: StreamWorkCatalogarr,
@@ -898,9 +907,11 @@ func defaultConsumers() []ConsumerSpec {
 				FilterCatalogWanted,
 			},
 			AckWait: 120 * s, MaxDeliver: 5,
-			BackOff:       []time.Duration{30 * s, 2 * m, 10 * m, 1 * h},
-			MaxAckPending: 8,
-			Slots:         8,
+			BackOff:         []time.Duration{30 * s, 2 * m, 10 * m, 1 * h},
+			MaxAckPending:   8,
+			Slots:           8,
+			SampleFrequency: SampleFrequencyDispatched,
+			Dispatched:      true,
 		},
 		{
 			Name: ConsumerCatalogGrab, Stream: StreamWorkCatalogarr,
@@ -914,9 +925,11 @@ func defaultConsumers() []ConsumerSpec {
 			Name: ConsumerCatalogMetadata, Stream: StreamWorkCatalogarr,
 			Filters: []string{FilterCatalogMetadata},
 			AckWait: 60 * s, MaxDeliver: 8,
-			BackOff:       []time.Duration{30 * s, 2 * m, 10 * m, 1 * h, 6 * h},
-			MaxAckPending: 32,
-			Slots:         32,
+			BackOff:         []time.Duration{30 * s, 2 * m, 10 * m, 1 * h, 6 * h},
+			MaxAckPending:   32,
+			Slots:           32,
+			SampleFrequency: SampleFrequencyDispatched,
+			Dispatched:      true,
 		},
 		{
 			// The metadata gateway's ImportArtwork durable (spec §B.7). Same
@@ -926,9 +939,11 @@ func defaultConsumers() []ConsumerSpec {
 			Name: ConsumerCatalogArtworkFetch, Stream: StreamWorkCatalogarr,
 			Filters: []string{FilterCatalogArtworkFetch},
 			AckWait: 60 * s, MaxDeliver: 8,
-			BackOff:       []time.Duration{30 * s, 2 * m, 10 * m, 1 * h, 6 * h},
-			MaxAckPending: 32,
-			Slots:         32,
+			BackOff:         []time.Duration{30 * s, 2 * m, 10 * m, 1 * h, 6 * h},
+			MaxAckPending:   32,
+			Slots:           32,
+			SampleFrequency: SampleFrequencyDispatched,
+			Dispatched:      true,
 		},
 		{
 			// The renderer role's durable (spec §C.6), same tuning again:
@@ -938,9 +953,11 @@ func defaultConsumers() []ConsumerSpec {
 			Name: ConsumerCatalogArtworkRender, Stream: StreamWorkCatalogarr,
 			Filters: []string{FilterCatalogArtworkRender},
 			AckWait: 60 * s, MaxDeliver: 8,
-			BackOff:       []time.Duration{30 * s, 2 * m, 10 * m, 1 * h, 6 * h},
-			MaxAckPending: 4 * AutoscaleReplicaCeiling,
-			Slots:         4,
+			BackOff:         []time.Duration{30 * s, 2 * m, 10 * m, 1 * h, 6 * h},
+			MaxAckPending:   4 * AutoscaleReplicaCeiling,
+			Slots:           4,
+			SampleFrequency: SampleFrequencyDispatched,
+			Dispatched:      true,
 		},
 		{
 			// The metadata gateway's marker worker (plex-analyze-bypass
@@ -952,9 +969,11 @@ func defaultConsumers() []ConsumerSpec {
 			Name: ConsumerCatalogMarkers, Stream: StreamWorkSegmentarr,
 			Filters: []string{FilterCatalogMarkers},
 			AckWait: 60 * s, MaxDeliver: 8,
-			BackOff:       []time.Duration{30 * s, 2 * m, 10 * m, 1 * h, 6 * h},
-			MaxAckPending: 32,
-			Slots:         32,
+			BackOff:         []time.Duration{30 * s, 2 * m, 10 * m, 1 * h, 6 * h},
+			MaxAckPending:   32,
+			Slots:           32,
+			SampleFrequency: SampleFrequencyDispatched,
+			Dispatched:      true,
 		},
 		{
 			// Segment detection (spec 2026-10-01 §4.2): catalogarr's planner
@@ -962,9 +981,11 @@ func defaultConsumers() []ConsumerSpec {
 			Name: ConsumerCatalogSegmentsPlan, Stream: StreamWorkSegmentarr,
 			Filters: []string{FilterCatalogSegmentsPlan},
 			AckWait: 60 * s, MaxDeliver: 5,
-			BackOff:       []time.Duration{30 * s, 2 * m},
-			MaxAckPending: 8,
-			Slots:         8,
+			BackOff:         []time.Duration{30 * s, 2 * m},
+			MaxAckPending:   8,
+			Slots:           8,
+			SampleFrequency: SampleFrequencyDispatched,
+			Dispatched:      true,
 		},
 		{
 			// segmentarr-worker: a season task decodes and analyzes up to
@@ -977,7 +998,9 @@ func defaultConsumers() []ConsumerSpec {
 			Slots:         1,
 			// Its TaskTimeout (app/segments/worker); every other consumer's
 			// budget waits for its clustarr_work_duration_seconds tail.
-			HandlerTimeout: 30 * m,
+			HandlerTimeout:  30 * m,
+			SampleFrequency: SampleFrequencyDispatched,
+			Dispatched:      true,
 		},
 		{
 			Name: ConsumerCatalogHistory, Stream: StreamEvents,
@@ -1029,6 +1052,8 @@ func defaultConsumers() []ConsumerSpec {
 			AckWait: 60 * s, MaxDeliver: 4,
 			BackOff:       []time.Duration{30 * s, 2 * m, 10 * m},
 			MaxAckPending: 4 * AutoscaleReplicaCeiling, Slots: 4, Heartbeat: 30 * s,
+			SampleFrequency: SampleFrequencyDispatched,
+			Dispatched:      true,
 		},
 		{
 			Name: ConsumerImportList, Stream: StreamWorkImportarr,
@@ -1036,6 +1061,8 @@ func defaultConsumers() []ConsumerSpec {
 			AckWait: 60 * s, MaxDeliver: 4,
 			BackOff:       []time.Duration{5 * m, 30 * m, 2 * h},
 			MaxAckPending: 2 * AutoscaleReplicaCeiling, Slots: 2, Heartbeat: 30 * s,
+			SampleFrequency: SampleFrequencyDispatched,
+			Dispatched:      true,
 		},
 		{
 			// A file import is retried on this backoff when it could not
@@ -1050,6 +1077,8 @@ func defaultConsumers() []ConsumerSpec {
 			AckWait: 60 * s, MaxDeliver: 4,
 			BackOff:       []time.Duration{1 * m, 10 * m, 45 * m},
 			MaxAckPending: 4 * AutoscaleReplicaCeiling, Slots: 4, Heartbeat: 30 * s,
+			SampleFrequency: SampleFrequencyDispatched,
+			Dispatched:      true,
 		},
 		{
 			// The recycle-bin sweep (spec 2026-10-06 §3.5.3, OD36): one
@@ -1064,6 +1093,8 @@ func defaultConsumers() []ConsumerSpec {
 			BackOff:       []time.Duration{5 * m, 30 * m},
 			Slots:         1,
 			MaxAckPending: 1 * AutoscaleReplicaCeiling, Heartbeat: 30 * s,
+			SampleFrequency: SampleFrequencyDispatched,
+			Dispatched:      true,
 		},
 		{
 			// AckWait is 60s, the floor set by indexarr's
@@ -1079,18 +1110,22 @@ func defaultConsumers() []ConsumerSpec {
 			Name: ConsumerIndexRSS, Stream: StreamWorkIndexarr,
 			Filters: []string{FilterIndexRSS},
 			AckWait: 60 * s, MaxDeliver: 4,
-			BackOff:       []time.Duration{1 * m, 5 * m, 15 * m},
-			MaxAckPending: 4,
-			Slots:         4,
-			Heartbeat:     30 * s,
+			BackOff:         []time.Duration{1 * m, 5 * m, 15 * m},
+			MaxAckPending:   4,
+			Slots:           4,
+			Heartbeat:       30 * s,
+			SampleFrequency: SampleFrequencyDispatched,
+			Dispatched:      true,
 		},
 		{
 			Name: ConsumerCaptionFetchHigh, Stream: StreamWorkCaptionarr,
 			Filters: []string{"clustarr.work.captionarr.fetch.high.>"},
 			AckWait: 90 * s, MaxDeliver: 8,
-			BackOff:       []time.Duration{30 * s, 2 * m, 10 * m, 1 * h, 6 * h},
-			MaxAckPending: 16,
-			Slots:         16,
+			BackOff:         []time.Duration{30 * s, 2 * m, 10 * m, 1 * h, 6 * h},
+			MaxAckPending:   16,
+			Slots:           16,
+			SampleFrequency: SampleFrequencyDispatched,
+			Dispatched:      true,
 		},
 		{
 			Name: ConsumerCaptionFetchNormal, Stream: StreamWorkCaptionarr,
@@ -1099,9 +1134,11 @@ func defaultConsumers() []ConsumerSpec {
 				"clustarr.work.captionarr.fetch.low.>",
 			},
 			AckWait: 90 * s, MaxDeliver: 8,
-			BackOff:       []time.Duration{30 * s, 2 * m, 10 * m, 1 * h, 6 * h},
-			MaxAckPending: 16,
-			Slots:         16,
+			BackOff:         []time.Duration{30 * s, 2 * m, 10 * m, 1 * h, 6 * h},
+			MaxAckPending:   16,
+			Slots:           16,
+			SampleFrequency: SampleFrequencyDispatched,
+			Dispatched:      true,
 		},
 		{
 			Name: ConsumerSquasharrResults, Stream: StreamWorkSquasharr,

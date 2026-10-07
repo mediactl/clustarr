@@ -129,6 +129,7 @@ func Fixed() map[string]string {
 		events.ConsumerSquasharrResults:    "manager: squasharr's ResultsConsumer shares TranscodeJob.status's one compare-and-swap path with its reconciler",
 		events.ConsumerIntakeCandidate:     "manager: the leader-only candidate inbox, acked after the owner's pass decides (app/intake, ADR-0019 §8.4)",
 		events.ConsumerIntakeScan:          "manager: the leader-only scan intake, acked after the scan applier writes (app/intake, ADR-0019 §8.4)",
+		events.ConsumerTaskEvents:          "manager: the leader-only advisory intake, nak and term advisories to delivery state (app/intake/advisory, ADR-0019 §8.2)",
 	}
 }
 

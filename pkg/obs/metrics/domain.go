@@ -498,3 +498,37 @@ var (
 		"kind", "outcome",
 	)
 )
+
+// Task events (ADR-0019 §8.2): JetStream's nak and term advisories and its
+// sampled ack metrics of every task the manager dispatches, read by the
+// leader's advisory intake. consumer is a durable's name (a transcode pool's
+// or an engine instance's included: bounded by profiles, classes and
+// DownloadClients, never by an item).
+var (
+	// TaskEventsTotal counts advisories by consumer, kind (nak, term) and
+	// outcome: recorded (delivery state written to the book), stale (a
+	// newer dispatch exists), unresolved (no CR found), metricsOnly (a nak
+	// between the first and the last).
+	TaskEventsTotal = newCounterVec(
+		"clustarr_task_events_total",
+		"Nak and term advisories of dispatched tasks, by consumer, kind and outcome.",
+		"consumer", "kind", "outcome",
+	)
+	// TaskAckDelay is the sampled time from delivery to ack, by consumer
+	// (SampleFrequency: 10% of a dispatched durable's acks, all of an
+	// engine's).
+	TaskAckDelay = newHistogramVec(
+		"clustarr_task_ack_delay_seconds",
+		"Sampled delivery-to-ack time of dispatched tasks in seconds, by consumer.",
+		durationBucketsLong,
+		"consumer",
+	)
+	// TaskDeliveries is the sampled delivery count of an acked task, by
+	// consumer.
+	TaskDeliveries = newHistogramVec(
+		"clustarr_task_deliveries",
+		"Sampled deliveries an acked dispatched task took, by consumer.",
+		[]float64{1, 2, 3, 4, 5, 8, 12, 16, 20},
+		"consumer",
+	)
+)

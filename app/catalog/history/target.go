@@ -174,6 +174,13 @@ var resolvers = map[string]resolver{
 	schema.AnalyzeTask{}.Schema():       resolveAnalyzeTask,
 	schema.MarkersTask{}.Schema():       resolveMarkersTask,
 	schema.ProbeTask{}.Schema():         resolveProbeTask,
+	// ADR-0019's tasks and intake (dispatch.go): each resolves to its
+	// owner, or to the LibraryScan of a scan observation.
+	schema.EngineCommand{}.Schema():     resolveEngineCommand,
+	schema.ImportInspectTask{}.Schema(): resolveImportInspect,
+	schema.ImportExecuteTask{}.Schema(): resolveImportExecute,
+	schema.Candidate{}.Schema():         resolveCandidate,
+	schema.ScanObservation{}.Schema():   resolveScanObservation,
 }
 
 // Resolve establishes the CR a domain event or dead-lettered envelope
