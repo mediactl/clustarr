@@ -82,7 +82,7 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	if bus == nil {
 		return errors.New("transcode manager: Register needs the bus")
 	}
-	profiles := transcodeprofile.NewReconciler(mgr.GetClient(), mgr.GetScheme(), mgr.GetEventRecorder("transcodeprofile"))
+	profiles := transcodeprofile.NewLegacyReconciler(mgr.GetClient(), mgr.GetScheme(), mgr.GetEventRecorder("transcodeprofile"))
 	profiles.Window, profiles.Retention = o.JobWindow, o.JobRetention
 	profiles.Progress = bus.KV(events.BucketProgress)
 	if err := profiles.SetupWithManager(mgr); err != nil {

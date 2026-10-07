@@ -301,7 +301,8 @@ func ProfileFields(st transcodev1alpha1.TranscodeProfileStatus) *transcodeac.Tra
 		WithHash(st.Hash).
 		WithMatchingFiles(st.MatchingFiles).
 		WithPendingJobs(st.PendingJobs).
-		WithRunningJobs(st.RunningJobs)
+		WithRunningJobs(st.RunningJobs).
+		WithWaitingFiles(st.WaitingFiles)
 	for _, l := range st.EncoderLimits {
 		e := transcodeac.EncoderLimit().WithClass(l.Class).WithNode(l.Node)
 		if len(l.NVDEC) > 0 {

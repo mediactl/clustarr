@@ -24,6 +24,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/mediafile"
+	"github.com/mediactl/clustarr/app/transcode/admission"
 	"github.com/mediactl/clustarr/pkg/records"
 )
 
@@ -36,7 +37,12 @@ type View struct {
 	Stale bool                             // the cache has not caught up with the loop's own last apply
 	// Main is the takeover the probe planner decided this pass, set once it
 	// has planned; later planners read SpecPath (D-F3-4).
-	Main     *MainIntent
+	Main *MainIntent
+	// Ledger is the file's transcode admission state at the start of the
+	// pass (admission.Snapshot, loop spec §3.5): a grant the transcode
+	// planner may take, a directive, the wait reason admission wants
+	// written. The zero value grants nothing.
+	Ledger   admission.Snapshot
 	seqFloor int64
 }
 

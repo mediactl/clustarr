@@ -108,3 +108,29 @@ func RegisterSubtitleProfile(ctx context.Context, idx client.FieldIndexer) error
 	}
 	return nil
 }
+
+// TranscodeProfile indexes a MediaFile by the TranscodeProfile its
+// transcode block names, and by "<profile>/<phase>" (loop spec §3.16): the
+// slim TranscodeProfile reconciler's counts.
+const TranscodeProfile = "remediation.mediafile.transcodeProfile"
+
+// TranscodeProfileValues is TranscodeProfile's extractor.
+func TranscodeProfileValues(o client.Object) []string {
+	mf, ok := o.(*catalogv1alpha1.MediaFile)
+	if !ok || mf.Status.Transcode == nil || mf.Status.Transcode.Profile == "" {
+		return nil
+	}
+	t := mf.Status.Transcode
+	return []string{t.Profile, t.Profile + "/" + string(t.Phase)}
+}
+
+// RegisterTranscodeProfile registers TranscodeProfile on idx. The slim
+// TranscodeProfile reconciler's registration, the index's one reader, calls
+// it, so app/transcode/manager starts without the loop (as
+// RegisterSubtitleProfile does for caption).
+func RegisterTranscodeProfile(ctx context.Context, idx client.FieldIndexer) error {
+	if err := idx.IndexField(ctx, &catalogv1alpha1.MediaFile{}, TranscodeProfile, TranscodeProfileValues); err != nil {
+		return fmt.Errorf("mfindex: register %s: %w", TranscodeProfile, err)
+	}
+	return nil
+}

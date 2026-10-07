@@ -308,17 +308,26 @@ type TranscodeProfileStatus struct {
 	// +optional
 	Hash string `json:"hash,omitempty"`
 
-	// MatchingFiles is the number of MediaFiles selected by this profile.
+	// MatchingFiles is the number of MediaFiles this profile wins: those
+	// whose status.transcode names it, plus its backlog (waitingFiles).
 	// +optional
 	MatchingFiles int32 `json:"matchingFiles,omitempty"`
 
-	// PendingJobs is the number of TranscodeJobs for this profile not yet running.
+	// PendingJobs is the number of files of this profile in the window but
+	// not yet running: status.transcode Pending, Planned or Queued.
 	// +optional
 	PendingJobs int32 `json:"pendingJobs,omitempty"`
 
-	// RunningJobs is the number of TranscodeJobs for this profile currently running.
+	// RunningJobs is the number of files of this profile transcoding now:
+	// status.transcode Running or Swapping.
 	// +optional
 	RunningJobs int32 `json:"runningJobs,omitempty"`
+
+	// WaitingFiles is the profile's backlog beyond the window: eligible files
+	// admission holds in memory and has not planned yet (--job-window, loop
+	// spec §5.11). It is a count, never a list (D4).
+	// +optional
+	WaitingFiles int32 `json:"waitingFiles,omitempty"`
 
 	// Conditions holds Ready and Invalid.
 	// EncoderLimits are the encoder device limits each GPU node measured by
@@ -354,6 +363,7 @@ type TranscodeProfileStatus struct {
 // +kubebuilder:printcolumn:name="Matching",type="integer",JSONPath=".status.matchingFiles"
 // +kubebuilder:printcolumn:name="Pending",type="integer",JSONPath=".status.pendingJobs"
 // +kubebuilder:printcolumn:name="Running",type="integer",JSONPath=".status.runningJobs"
+// +kubebuilder:printcolumn:name="Waiting",type="integer",JSONPath=".status.waitingFiles"
 // +kubebuilder:printcolumn:name="Hash",type="string",JSONPath=".status.hash",priority=1
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 type TranscodeProfile struct {

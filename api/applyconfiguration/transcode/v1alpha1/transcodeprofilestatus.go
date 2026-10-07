@@ -36,12 +36,19 @@ type TranscodeProfileStatusApplyConfiguration struct {
 	// A new hash plans new jobs only for files not yet transcoded: a
 	// transcoded file is final, whatever hash it carries.
 	Hash *string `json:"hash,omitempty"`
-	// MatchingFiles is the number of MediaFiles selected by this profile.
+	// MatchingFiles is the number of MediaFiles this profile wins: those
+	// whose status.transcode names it, plus its backlog (waitingFiles).
 	MatchingFiles *int32 `json:"matchingFiles,omitempty"`
-	// PendingJobs is the number of TranscodeJobs for this profile not yet running.
+	// PendingJobs is the number of files of this profile in the window but
+	// not yet running: status.transcode Pending, Planned or Queued.
 	PendingJobs *int32 `json:"pendingJobs,omitempty"`
-	// RunningJobs is the number of TranscodeJobs for this profile currently running.
+	// RunningJobs is the number of files of this profile transcoding now:
+	// status.transcode Running or Swapping.
 	RunningJobs *int32 `json:"runningJobs,omitempty"`
+	// WaitingFiles is the profile's backlog beyond the window: eligible files
+	// admission holds in memory and has not planned yet (--job-window, loop
+	// spec §5.11). It is a count, never a list (D4).
+	WaitingFiles *int32 `json:"waitingFiles,omitempty"`
 	// Conditions holds Ready and Invalid.
 	// EncoderLimits are the encoder device limits each GPU node measured by
 	// trial encodes and published within the last ten minutes, per class and
@@ -95,6 +102,14 @@ func (b *TranscodeProfileStatusApplyConfiguration) WithPendingJobs(value int32) 
 // If called multiple times, the RunningJobs field is set to the value of the last call.
 func (b *TranscodeProfileStatusApplyConfiguration) WithRunningJobs(value int32) *TranscodeProfileStatusApplyConfiguration {
 	b.RunningJobs = &value
+	return b
+}
+
+// WithWaitingFiles sets the WaitingFiles field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the WaitingFiles field is set to the value of the last call.
+func (b *TranscodeProfileStatusApplyConfiguration) WithWaitingFiles(value int32) *TranscodeProfileStatusApplyConfiguration {
+	b.WaitingFiles = &value
 	return b
 }
 

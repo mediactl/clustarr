@@ -22,14 +22,12 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"strings"
 	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
@@ -95,15 +93,8 @@ func (r *Reconciler) poolJobs(ctx context.Context) (map[string]*batchv1.Job, err
 	return out, nil
 }
 
-// ownerProfileUID is the UID of the TranscodeProfile that is j's controller
-// owner, or "" when none is.
-func ownerProfileUID(j *batchv1.Job) types.UID {
-	if ref := metav1.GetControllerOf(j); ref != nil && ref.Kind == "TranscodeProfile" &&
-		strings.HasPrefix(ref.APIVersion, transcodev1alpha1.GroupVersion.Group+"/") {
-		return ref.UID
-	}
-	return ""
-}
+// ownerProfileUID is pool.OwnerProfileUID.
+func ownerProfileUID(j *batchv1.Job) types.UID { return pool.OwnerProfileUID(j) }
 
 // drift is how far the stored pool cur is from want: [pool.Classify], or
 // DriftRecreate for a pool the apiserver refused a gang on (r.recreate).
@@ -117,11 +108,8 @@ func (r *Reconciler) drift(cur *batchv1.Job, want pool.Spec) pool.Drift {
 	return pool.Classify(cur, want)
 }
 
-// poolClasses are the hardware classes a pool can be for: every class a
-// task is dispatched to (auto is resolved before dispatch).
-var poolClasses = []transcodev1alpha1.Hardware{
-	transcodev1alpha1.HardwareCPU, transcodev1alpha1.HardwareNVIDIA, transcodev1alpha1.HardwareIntel,
-}
+// poolClasses is pool.Classes.
+var poolClasses = pool.Classes
 
 // storedPools is the key of every pool Job of a current profile: the
 // profile's pool name for a class, found among stored. A pool is identified
@@ -585,46 +573,8 @@ func (r *Reconciler) poolBackoffOver(name string) bool {
 	return !ok || !r.now().Time.Before(b.until)
 }
 
-// PoolJobCache is the one way transcode's manager may cache batch/v1 Jobs
-// (R21): the pool Jobs alone -- those in namespace, the pools' own, labelled
-// managed-by=transcode -- rather than every Job in the cluster. The pool Job
-// watch (SetupWithManager) is what needs the informer; the pools are read
-// through Reader (poolJobs), never the cache.
-//
-// A Job read through the cached client would therefore silently miss every
-// other Job: a restricted cache answers NotFound for an object it does not
-// hold, which is indistinguishable from a Job that does not exist. Read any
-// other Job through the APIReader, or widen this first.
-func PoolJobCache(namespace string) cache.ByObject {
-	b := cache.ByObject{Label: labels.SelectorFromSet(labels.Set{pool.LabelManagedBy: pool.ManagedByValue})}
-	if namespace != "" {
-		b.Namespaces = map[string]cache.Config{namespace: {}}
-	}
-	return b
-}
+// PoolJobCache is pool.PoolJobCache.
+func PoolJobCache(namespace string) cache.ByObject { return pool.PoolJobCache(namespace) }
 
-// isPoolJob passes the Jobs transcode's pools are.
-func isPoolJob(o client.Object) bool {
-	l := o.GetLabels()
-	_, ok := l[pool.LabelProfile]
-	return ok && l[pool.LabelManagedBy] == pool.ManagedByValue
-}
-
-// poolSignal is what an admission pass acts on in a pool Job: its suspend,
-// whether its pods are running and started (a template may change only once
-// both are clear), whether it failed, and its template hash.
-func poolSignal(o client.Object) string {
-	j, ok := o.(*batchv1.Job)
-	if !ok {
-		return ""
-	}
-	return fmt.Sprintf("suspend=%t active=%d started=%t failed=%t hash=%s",
-		ptr.Deref(j.Spec.Suspend, false), j.Status.Active, j.Status.StartTime != nil, pool.Failed(j),
-		j.Labels[pool.LabelTemplateHash])
-}
-
-// poolJobPredicate passes a pool Job's creation, deletion and every change
-// to its [poolSignal], and nothing about any other Job.
-func poolJobPredicate() predicate.Predicate {
-	return k8s.And(predicate.NewPredicateFuncs(isPoolJob), k8s.StatusFieldChanged(poolSignal))
-}
+// poolJobPredicate is pool.JobPredicate.
+func poolJobPredicate() predicate.Predicate { return pool.JobPredicate() }

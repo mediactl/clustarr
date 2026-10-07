@@ -20,10 +20,10 @@ package transcodejob
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sort"
 
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
+	"github.com/mediactl/clustarr/app/transcode/admission"
 	"github.com/mediactl/clustarr/app/transcode/controller/pool"
 	"github.com/mediactl/clustarr/app/transcode/task"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -31,43 +31,14 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
 
-// gpuClasses are the GPU classes an auto job may be sent to, in the priority
-// order spec §18.5 gives them: nvidia, then intel. cpu is what is left.
-var gpuClasses = []transcodev1alpha1.Hardware{transcodev1alpha1.HardwareNVIDIA, transcodev1alpha1.HardwareIntel}
+// gpuClasses is admission.GPUClasses.
+var gpuClasses = admission.GPUClasses
 
-// ChooseClass picks the class of a job that chooses one per dispatch (spec
-// §18.5): the first GPU class, in priority order, with a labelled GPU node,
-// a free slot and a schedulable pool; else cpu. A recorded fallback reason
-// pins cpu.
-//
-// gpuOnly is hardware: gpu (2026-10-01): when a GPU class could take the job
-// but none has a free slot, the answer is "" -- wait -- rather than cpu. It
-// is still cpu when no GPU class is usable at all (no labelled node, or
-// every pool unschedulable), since the job would otherwise wait for good.
-//
-// free counts this pass's own dispatches: the caller takes a slot from it
-// for each job it expects admission to dispatch, so the next job sees what
-// is left.
+// ChooseClass is admission.ChooseClass.
 func ChooseClass(gpuNodes, unschedulable map[transcodev1alpha1.Hardware]bool,
 	free map[transcodev1alpha1.Hardware]int32, fallback, gpuOnly bool,
 ) transcodev1alpha1.Hardware {
-	if fallback {
-		return transcodev1alpha1.HardwareCPU
-	}
-	usable := false
-	for _, c := range gpuClasses {
-		if !gpuNodes[c] || unschedulable[c] {
-			continue
-		}
-		usable = true
-		if free[c] > 0 {
-			return c
-		}
-	}
-	if gpuOnly && usable {
-		return ""
-	}
-	return transcodev1alpha1.HardwareCPU
+	return admission.ChooseClass(gpuNodes, unschedulable, free, fallback, gpuOnly)
 }
 
 // hardwareFor is the hardware tj asks for under its profile tp: its own
@@ -101,7 +72,7 @@ func gpuOnlyFor(tj *transcodev1alpha1.TranscodeJob, tp *transcodev1alpha1.Transc
 }
 
 // waitingForGPU is the message a gpu job admission passes over carries.
-const waitingForGPU = "waiting for a free GPU slot (hardware: gpu)"
+const waitingForGPU = admission.WaitingForGPU
 
 // encodesVideo reports whether plan p runs a video encoder, which is all a
 // GPU is for: a remux copies the video and takes a CPU slot
@@ -225,23 +196,9 @@ func (r *Reconciler) unhealthyClasses(ctx context.Context) map[transcodev1alpha1
 	return out
 }
 
-// unhealthyMessage reports whether every node in health reported class's
-// device unusable, with a message naming the first such node (by name) and
-// its reason. No report is not unhealthy.
+// unhealthyMessage is admission.UnhealthyMessage.
 func unhealthyMessage(class transcodev1alpha1.Hardware, health map[string]task.NodeHealth) (string, bool) {
-	if len(health) == 0 {
-		return "", false
-	}
-	nodes := make([]string, 0, len(health))
-	for n, h := range health {
-		if h.Healthy {
-			return "", false
-		}
-		nodes = append(nodes, n)
-	}
-	sort.Strings(nodes)
-	return fmt.Sprintf("waiting for a usable %s device: every node that measured one reported it unusable (%s: %s)",
-		class, nodes[0], health[nodes[0]].Error), true
+	return admission.UnhealthyMessage(class, health)
 }
 
 // rerouteUnhealthy takes every auto job Queued on a GPU class reported

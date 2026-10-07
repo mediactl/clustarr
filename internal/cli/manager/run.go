@@ -42,6 +42,7 @@ import (
 	"github.com/mediactl/clustarr/app/intake/advisory"
 	"github.com/mediactl/clustarr/app/remediation"
 	remediationmanager "github.com/mediactl/clustarr/app/remediation/manager"
+	"github.com/mediactl/clustarr/app/transcode/admission"
 	transcodemanager "github.com/mediactl/clustarr/app/transcode/manager"
 	"github.com/mediactl/clustarr/pkg/busconn"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -270,6 +271,11 @@ func register(mgr ctrl.Manager, bus events.Bus, o Options) ([]string, error) {
 	// The loop signals the slim SubtitleProfile reconciler through one Wake
 	// (loop spec §2.13): caption registers it, the loop calls Signal.
 	wake := subtitleprofile.NewWake(subtitleprofile.WakeDebounce)
+	// The transcode admission ledger (loop spec §5.5), built once: the loop
+	// observes into it and takes grants from it, transcode-admission
+	// rebuilds and passes it, and the slim TranscodeProfile reconciler
+	// sizes the pools from it.
+	ledger := admission.NewLedger(admission.Options{Slots: o.Slots, Window: o.JobWindow})
 	steps := []step{
 		{"catalog", func() error {
 			return catalogmanager.Register(mgr, bus, catalogmanager.Options{
@@ -320,6 +326,7 @@ func register(mgr ctrl.Manager, bus events.Bus, o Options) ([]string, error) {
 				// The search planner's (A4.2).
 				WantedWakes: p.wanted, DonorBudget: p.budget, SearchLivePerMinute: o.SearchLivePerMinute,
 				SubtitleProfileWake: wake.Signal,
+				Ledger:              ledger,
 			})
 		}},
 		// The autoscale step runs whatever --autoscale says (§9.4): QueueGauge

@@ -35,6 +35,9 @@ spec:
     - jsonPath: .status.runningJobs
       name: Running
       type: integer
+    - jsonPath: .status.waitingFiles
+      name: Waiting
+      type: integer
     - jsonPath: .status.hash
       name: Hash
       priority: 1
@@ -544,8 +547,9 @@ spec:
                   transcoded file is final, whatever hash it carries.
                 type: string
               matchingFiles:
-                description: MatchingFiles is the number of MediaFiles selected by
-                  this profile.
+                description: |-
+                  MatchingFiles is the number of MediaFiles this profile wins: those
+                  whose status.transcode names it, plus its backlog (waitingFiles).
                 format: int32
                 type: integer
               observedGeneration:
@@ -554,13 +558,22 @@ spec:
                 format: int64
                 type: integer
               pendingJobs:
-                description: PendingJobs is the number of TranscodeJobs for this profile
-                  not yet running.
+                description: |-
+                  PendingJobs is the number of files of this profile in the window but
+                  not yet running: status.transcode Pending, Planned or Queued.
                 format: int32
                 type: integer
               runningJobs:
-                description: RunningJobs is the number of TranscodeJobs for this profile
-                  currently running.
+                description: |-
+                  RunningJobs is the number of files of this profile transcoding now:
+                  status.transcode Running or Swapping.
+                format: int32
+                type: integer
+              waitingFiles:
+                description: |-
+                  WaitingFiles is the profile's backlog beyond the window: eligible files
+                  admission holds in memory and has not planned yet (--job-window, loop
+                  spec §5.11). It is a count, never a list (D4).
                 format: int32
                 type: integer
             type: object

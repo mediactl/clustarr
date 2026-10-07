@@ -24,6 +24,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	"github.com/mediactl/clustarr/app/transcode/transcodeplan"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
@@ -93,6 +94,10 @@ type Result struct {
 	Events  []Event      // Kubernetes Events, for transitions Prev -> out only
 	Unpaced bool         // the change is exempt from the status-write limiter (§3.7)
 	Records []RecordNote // record outcomes, counted after the apply
+	// Eligibility is the transcode planner's membership answer this pass
+	// (§5.11), which the loop hands the admission ledger with the applied
+	// status; nil from every other planner.
+	Eligibility *transcodeplan.Eligibility
 }
 
 // Bound is a Planner with its input type erased, so Order holds every

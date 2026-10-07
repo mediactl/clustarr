@@ -221,6 +221,30 @@ var (
 		ratioBuckets,
 		"tier", "resolution",
 	)
+
+	// TranscodeBacklogFiles is each profile's backlog beyond the window
+	// (loop spec §5.16): eligible files admission holds in memory and has
+	// not planned yet. The profile is bounded configuration, not a title.
+	TranscodeBacklogFiles = newGaugeVec(
+		"clustarr_transcode_backlog_files",
+		"Files eligible for a profile's window that admission holds in memory.",
+		"profile",
+	)
+
+	// TranscodeLedgerCorrections counts resync corrections: an observation
+	// the admission ledger missed (loop spec §5.6).
+	TranscodeLedgerCorrections = newCounterVec(
+		"clustarr_transcode_ledger_corrections_total",
+		"Admission ledger entries a resync's quorum read corrected.",
+	)
+
+	// TranscodeDispatches counts transcode dispatches by class and outcome
+	// (published, republished, unclaimed, withdrawn, lost).
+	TranscodeDispatches = newCounterVec(
+		"clustarr_transcode_dispatches_total",
+		"Transcode dispatches by class and outcome.",
+		"class", "outcome",
+	)
 )
 
 // Subtitle telemetry, used by caption.

@@ -17,7 +17,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 package transcodeplan
 
-import transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
+import (
+	"k8s.io/apimachinery/pkg/types"
+
+	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
+)
 
 // GrantKind is what admission granted a file (loop spec §5.5).
 type GrantKind int
@@ -41,6 +45,9 @@ type Ledger struct {
 	WaitReason string // the Planned message admission wants written
 	WaitCause  string // its reason constant
 	Device     Device // the granted class's device
+	// PublishFailed is the last task publish failure admission holds for
+	// the file's in-flight dispatch (§5.8 "Republish"), "" when none.
+	PublishFailed string
 }
 
 // DirectiveKind is what admission directs the planner to do with a file
@@ -60,4 +67,15 @@ type Directive struct {
 	Seq     int64
 	Reason  string
 	KeepGPU bool // hardware gpu: no fallbackReason, so the file chooses among the GPU classes again
+}
+
+// Admission is the ledger as the transcode adapter uses it; the
+// *admission.Ledger implements it, so transcodeplan never imports admission
+// (§5.3).
+type Admission interface {
+	Snapshot(uid types.UID) Ledger
+	TakeGrant(uid types.UID) (Ledger, bool)
+	Confirm(uid types.UID, seq int64)
+	Release(uid types.UID)
+	Device(class transcodev1alpha1.Hardware) Device
 }

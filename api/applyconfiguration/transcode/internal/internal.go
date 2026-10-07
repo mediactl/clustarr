@@ -37,9 +37,10 @@ func Parser() *typed.Parser {
 	return parser
 }
 
-var parserOnce sync.Once
-var parser *typed.Parser
-var schemaYAML = typed.YAMLObject(`types:
+var (
+	parserOnce sync.Once
+	parser     *typed.Parser
+	schemaYAML = typed.YAMLObject(`types:
 - name: com.github.mediactl.clustarr.api.common.v1alpha1.AudioStream
   map:
     fields:
@@ -828,6 +829,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: runningJobs
       type:
         scalar: numeric
+    - name: waitingFiles
+      type:
+        scalar: numeric
 - name: io.k8s.api.core.v1.ResourceClaim
   map:
     fields:
@@ -1119,3 +1123,4 @@ var schemaYAML = typed.YAMLObject(`types:
       namedType: __untyped_deduced_
     elementRelationship: separable
 `)
+)

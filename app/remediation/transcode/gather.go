@@ -30,12 +30,18 @@ import (
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/remediation"
 	"github.com/mediactl/clustarr/app/transcode/graftstate"
+	"github.com/mediactl/clustarr/app/transcode/transcodeplan"
 )
 
-// Gather reads the profiles, whether the file's item exists and whether a
-// standalone graft holds the file, from the manager cache.
+// Gather takes the file's admission grant when it holds one (an in-use
+// grant never expires, and the pass confirms or releases it), and reads the
+// profiles, whether the file's item exists and whether a standalone graft
+// holds the file, from the manager cache.
 func (a *Adapter) Gather(ctx context.Context, env *remediation.Env, v *remediation.View) (In, error) {
-	in := In{Read: true}
+	in := In{Read: true, Ledger: v.Ledger}
+	if a.o.Ledger != nil && v.Ledger.Grant != transcodeplan.GrantNone {
+		in.Ledger, in.Took = a.o.Ledger.TakeGrant(v.File.UID)
+	}
 	var profiles transcodev1alpha1.TranscodeProfileList
 	if err := env.Reader.List(ctx, &profiles, client.UnsafeDisableDeepCopy); err != nil {
 		return in, remediation.Transient(fmt.Errorf("transcode: list TranscodeProfiles: %w", err))

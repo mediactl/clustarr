@@ -41,6 +41,8 @@ import (
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/app/remediation/mediafilestatus"
+	"github.com/mediactl/clustarr/app/transcode/admission"
+	"github.com/mediactl/clustarr/app/transcode/transcodeplan"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -92,6 +94,10 @@ type Reconciler struct {
 	// Items is the item path (loop spec §3.12): the loop's second key type.
 	// app/remediation/manager.Register sets it before SetupWithManager.
 	Items ItemReconciler
+	// Ledger is the transcode admission ledger the loop observes into and
+	// takes grants from (loop spec §5.5); app/remediation/manager.Register
+	// sets it, and transcode-admission shares it. Nil observes nothing.
+	Ledger *admission.Ledger
 	// SubtitleProfileWake is S1''s subtitleProfileWake (loop spec §2.13):
 	// called when a file's subtitles profile or phase changes, never
 	// blocking. app/remediation/manager.Register sets it; nil signals
@@ -191,6 +197,7 @@ func (r *Reconciler) reconcileFile(ctx context.Context, nn types.NamespacedName)
 	if err := r.env.Reader.Get(ctx, nn, &mf); err != nil {
 		if apierrors.IsNotFound(err) {
 			r.keys.forget(nn)
+			r.forgetTranscode(ctx, nn)
 			return reconcile.Result{}, nil
 		}
 		return r.count(passError, reconcile.Result{RequeueAfter: ks.transientBackoff(), Priority: new(0)}), nil
@@ -202,6 +209,12 @@ func (r *Reconciler) reconcileFile(ctx context.Context, nn types.NamespacedName)
 	// 2. View.
 	now := metav1.NewTime(r.Clock().UTC().Truncate(time.Second))
 	v := &View{File: mf.DeepCopy(), Now: now, seqFloor: mf.Status.LastSeq}
+	if r.Ledger != nil {
+		v.Ledger = r.Ledger.Snapshot(mf.UID)
+		// A grant the transcode planner took but did not confirm -- a
+		// conflict, an error, a panic -- goes back (§5.5).
+		defer r.Ledger.ReleaseUnconfirmed(mf.UID)
+	}
 	v.Prev = &v.File.Status
 	v.Stale = ks.stale(mf.UID, v.Prev, now.Time)
 	v.Draft = v.Prev.DeepCopy()
@@ -300,6 +313,7 @@ func (r *Reconciler) reconcileFile(ctx context.Context, nn types.NamespacedName)
 	}
 	outcomeLabel := passUnchanged
 	appliedStatus := v.Prev
+	observed := v.Prev
 	if changed {
 		_, ok, err := k8s.PatchStatusCAS(ctx, viewReader{obj: v.File, rv: viewRV, gen: viewGen}, r.c, k8s.ManagerCatalog,
 			nn, newMediaFile, func(fresh *catalogv1alpha1.MediaFile) (*catalogac.MediaFileApplyConfiguration, bool, error) {
@@ -317,6 +331,7 @@ func (r *Reconciler) reconcileFile(ctx context.Context, nn types.NamespacedName)
 		case err != nil:
 			return reconcile.Result{}, fmt.Errorf("remediation: status apply: %w", err)
 		}
+		observed = rendered // applied now, or already what is stored
 		if ok {
 			ks.remember(mf.UID, rendered, now.Time)
 			appliedStatus, outcomeLabel = rendered, passApplied
@@ -328,6 +343,10 @@ func (r *Reconciler) reconcileFile(ctx context.Context, nn types.NamespacedName)
 		// quiet pass now would end on a view that is behind (§3.7).
 		return r.count(passStale, reconcile.Result{RequeueAfter: ks.conflictBackoff(), Priority: new(0)}), nil
 	}
+
+	// The admission ledger counts the file from the status that is stored
+	// now, never from a stale view (§3.4 step 8, §5.5).
+	r.observeTranscode(&mf, observed, results)
 
 	// 8. Effects, in Order, after the status that owes them landed.
 	var casMissed, transient bool
@@ -557,4 +576,29 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		RecoverPanic:            new(true),
 		ReconciliationTimeout:   5 * time.Minute,
 	}).Complete(r)
+}
+
+// observeTranscode hands the admission ledger the file's view from st, the
+// status that is stored after this pass, with the transcode planner's
+// eligibility when it ran.
+func (r *Reconciler) observeTranscode(mf *catalogv1alpha1.MediaFile, st *catalogv1alpha1.MediaFileStatus, results []Result) {
+	if r.Ledger == nil {
+		return
+	}
+	var e *transcodeplan.Eligibility
+	for i := range results {
+		if results[i].Eligibility != nil {
+			e = results[i].Eligibility
+		}
+	}
+	r.Ledger.Observe(admission.FileViewOf(mf, st, e))
+}
+
+// forgetTranscode handles a NotFound pass for the admission ledger: the
+// file's entry and grant go (§5.10's withdrawAll follows in F6.5).
+func (r *Reconciler) forgetTranscode(_ context.Context, nn types.NamespacedName) {
+	if r.Ledger == nil {
+		return
+	}
+	r.Ledger.Forget(nn)
 }

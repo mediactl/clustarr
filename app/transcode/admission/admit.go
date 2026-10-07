@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package transcodejob
+package admission
 
 import (
 	"sort"
@@ -27,7 +27,7 @@ import (
 // (queued). It carries nothing Kubernetes-shaped, so [Admit] can be
 // table-tested without a cluster.
 type Slot struct {
-	// Key identifies the TranscodeJob, "<namespace>/<name>". It is the
+	// Key identifies the file, "<namespace>/<name>". It is the
 	// tie-breaker of last resort, which is what makes [Admit] deterministic
 	// when priority and creation time are equal.
 	Key string
@@ -96,7 +96,7 @@ func Admit(queued, running []Slot, budget Budget) []Slot {
 
 	order := make([]Slot, len(queued))
 	copy(order, queued)
-	sort.SliceStable(order, func(i, j int) bool { return admitsBefore(order[i], order[j]) })
+	sort.SliceStable(order, func(i, j int) bool { return AdmitsBefore(order[i], order[j]) })
 
 	var admitted []Slot
 	seen := map[string]bool{}
@@ -118,11 +118,11 @@ func Admit(queued, running []Slot, budget Budget) []Slot {
 	return admitted
 }
 
-// admitsBefore is [Admit]'s order over queued transcodes: priority
+// AdmitsBefore is [Admit]'s order over queued transcodes: priority
 // (higher first), then creation time (older first), then Key. The class
 // assignment that runs before Admit (assignClasses) takes candidates in the
 // same order, through this one function, so the two cannot disagree.
-func admitsBefore(a, b Slot) bool {
+func AdmitsBefore(a, b Slot) bool {
 	if a.Priority != b.Priority {
 		return a.Priority > b.Priority
 	}

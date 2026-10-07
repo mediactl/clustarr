@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"time"
 
+	"k8s.io/apimachinery/pkg/types"
 	k8sevents "k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -52,6 +53,7 @@ import (
 	searchstage "github.com/mediactl/clustarr/app/remediation/search"
 	"github.com/mediactl/clustarr/app/remediation/subtitles"
 	"github.com/mediactl/clustarr/app/remediation/transcode"
+	"github.com/mediactl/clustarr/app/transcode/admission"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/objindex"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -93,6 +95,11 @@ type Options struct {
 	DonorBudget         *searchplan.DonorBudget
 	SearchLivePerMinute int
 
+	// Ledger is the transcode admission ledger the loop shares with
+	// transcode-admission (loop spec §5.5): internal/cli/manager builds it
+	// once and hands both the same one. Required.
+	Ledger *admission.Ledger
+
 	// SubtitleProfileWake is the slim SubtitleProfile reconciler's
 	// subtitleProfileWake (loop spec §2.13): the loop calls it when a file's
 	// subtitles profile or phase changes. internal/cli/manager hands the
@@ -117,6 +124,9 @@ type Deps struct {
 func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	if bus == nil {
 		return errors.New("remediation manager: Register needs the bus")
+	}
+	if o.Ledger == nil {
+		return errors.New("remediation manager: Register needs the transcode admission ledger transcode-admission shares")
 	}
 	if err := remediation.RegisterIndexes(context.Background(), mgr.GetFieldIndexer()); err != nil {
 		return fmt.Errorf("remediation: indexes: %w", err)
@@ -151,6 +161,7 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 		return err
 	}
 	r.SubtitleProfileWake = o.SubtitleProfileWake
+	r.Ledger = o.Ledger
 	// mgr.GetEventRecorder returns controller-runtime's recorder.EventRecorder,
 	// which embeds the events.k8s.io EventRecorder the item reconcilers hold.
 	recorder := func(name string) k8sevents.EventRecorder { return mgr.GetEventRecorder(name) }
@@ -224,9 +235,7 @@ func Planners(d Deps) []remediation.Bound {
 	return []remediation.Bound{
 		remediation.Bind[mediafile.ProbeInput](probe.New(probe.Options{Bus: d.Env.Bus, Probes: probes})),
 		// The transcode planner (loop spec §5.8-§5.11).
-		remediation.Bind[transcode.In](transcode.New(transcode.Options{
-			Bus: d.Env.Bus, AudioGraftIndex: mediafile.AudioGraftMediaFileRefIndex,
-		})),
+		remediation.Bind[transcode.In](transcode.New(transcodeOptions(d))),
 		remediation.Bind[naming.Input](naming.New(naming.Options{})),
 		// The subtitles planner (loop spec §6.4); its adapter is also the
 		// Withdrawer of the withdrawals it emits.
@@ -245,4 +254,18 @@ func Actuators(mgr ctrl.Manager, d Deps) []remediation.Actuator {
 		})))
 	}
 	return acts
+}
+
+// transcodeOptions is the transcode planner's: the ledger it takes grants
+// from (through transcodeplan.Admission) and S22, admission's wake of the
+// loop's queue.
+func transcodeOptions(d Deps) transcode.Options {
+	o := transcode.Options{Bus: d.Env.Bus, AudioGraftIndex: mediafile.AudioGraftMediaFileRefIndex}
+	if l := d.Options.Ledger; l != nil {
+		o.Ledger = l
+		o.LoopSource = admission.LoopSource(l, func(nn types.NamespacedName) remediation.Key {
+			return remediation.Key{Kind: remediation.KindMediaFile, Namespace: nn.Namespace, Name: nn.Name}
+		})
+	}
+	return o
 }

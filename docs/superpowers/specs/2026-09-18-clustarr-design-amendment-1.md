@@ -302,6 +302,9 @@ Naming follows the Prometheus conventions: `clustarr_` prefix, base units
 | `clustarr_transcode_duration_seconds` | histogram | `tier`, `resolution`, `outcome` | Encode cost per class of file |
 | `clustarr_transcode_speed_ratio` | gauge | `tier` | Encode speed against real time |
 | `clustarr_transcode_size_ratio` | histogram | `tier`, `resolution` | The space actually saved, the point of the service |
+| `clustarr_transcode_backlog_files` | gauge | `profile` | The backlog a profile edit or a `standard.Version` raise makes, beyond the window |
+| `clustarr_transcode_ledger_corrections_total` | counter | — | An admission observation the ledger missed (a resync corrected it) |
+| `clustarr_transcode_dispatches_total` | counter | `class`, `outcome` | Withdrawals, unclaimed dispatches and lost workers, by class |
 | `clustarr_subtitle_fetches_total` | counter | `provider`, `language`, `outcome` | Provider health and quota burn |
 | `clustarr_provider_quota_remaining` | gauge | `provider` | Daily limits before they bite |
 | `clustarr_work_queue_pending` | gauge | `stream`, `consumer` | Backpressure, and the KEDA scaling input |

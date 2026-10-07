@@ -37,7 +37,6 @@ import (
 	"github.com/mediactl/clustarr/app/remediation"
 	"github.com/mediactl/clustarr/app/transcode/controller/audiograft"
 	"github.com/mediactl/clustarr/app/transcode/controller/pool"
-	"github.com/mediactl/clustarr/app/transcode/controller/transcodejob"
 	transcodemanager "github.com/mediactl/clustarr/app/transcode/manager"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -185,7 +184,7 @@ func managerOptions(o Options) ctrl.Options {
 	opts := o.Options.ManagerOptions(LeaderElectionID, o.LeaderElect)
 	opts.Client.FieldOwner = string(k8s.DefaultFieldOwner)
 	opts.Client.Cache = &client.CacheOptions{DisableFor: []client.Object{&corev1.Secret{}, &corev1.ConfigMap{}}}
-	opts.Cache.ByObject = map[client.Object]cache.ByObject{&batchv1.Job{}: transcodejob.PoolJobCache(o.Namespace)}
+	opts.Cache.ByObject = map[client.Object]cache.ByObject{&batchv1.Job{}: pool.PoolJobCache(o.Namespace)}
 	if o.SkipNameValidation {
 		opts.Controller.SkipNameValidation = new(true)
 	}

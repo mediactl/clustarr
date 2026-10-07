@@ -18,6 +18,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package transcode
 
 import (
+	"sigs.k8s.io/controller-runtime/pkg/source"
+
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/remediation"
@@ -32,6 +34,12 @@ type Options struct {
 	// AudioGraftIndex is the AudioGraft index by status.mediaFileRef
 	// graftstate.StandaloneFor reads (until F7.2); "" reads none.
 	AudioGraftIndex string
+	// Ledger is the admission ledger (*admission.Ledger), through
+	// transcodeplan.Admission; nil grants nothing.
+	Ledger transcodeplan.Admission
+	// LoopSource is S22, admission's wake of the loop's queue
+	// (admission.LoopSource); nil adds none.
+	LoopSource source.TypedSource[remediation.Key]
 }
 
 // Adapter is the transcode planner.
@@ -46,6 +54,7 @@ type In struct {
 	ItemExists      bool
 	StandaloneGraft bool
 	Ledger          transcodeplan.Ledger
+	Took            bool // Gather took a grant (TakeGrant): Plan confirms or releases it
 	Read            bool // Gather ran
 }
 
@@ -68,12 +77,25 @@ func (a *Adapter) Plan(v *remediation.View, in In, out *catalogv1alpha1.MediaFil
 		MF: v.File, Labels: v.Labels(), Status: v.Draft, ProbeCurrent: v.ProbeCurrent(),
 		ItemExists: in.ItemExists, StandaloneGraft: in.StandaloneGraft,
 	}
+	e := transcodeplan.Eligible(f, in.Profiles)
 	d := transcodeplan.Plan(transcodeplan.Inputs{
 		File: v.File, Prev: v.Prev.Transcode, Draft: v.Draft, ProbeCurrent: f.ProbeCurrent,
-		Eligibility: transcodeplan.Eligible(f, in.Profiles), Ledger: in.Ledger, Now: v.Now,
+		Eligibility: e, Ledger: in.Ledger, Now: v.Now,
 	})
 	out.Transcode = d.Block
-	return remediation.Result{Due: d.Due, Again: d.Again, Events: kubeEvents(d.Events)}, nil
+	res := remediation.Result{Due: d.Due, Again: d.Again, Events: kubeEvents(d.Events), Eligibility: &e}
+	if in.Took {
+		// Acting on a held grant is exempt from the status-write limiter
+		// (§3.7): the grant would expire behind it.
+		res.Unpaced = true
+		switch d.Grant {
+		case transcodeplan.GrantConfirm:
+			res.Effects = append(res.Effects, remediation.LedgerConfirm{UID: v.File.UID})
+		default:
+			res.Effects = append(res.Effects, remediation.LedgerRelease{UID: v.File.UID})
+		}
+	}
+	return res, nil
 }
 
 // Copy is transcode's row of §3.5's table: status.transcode and

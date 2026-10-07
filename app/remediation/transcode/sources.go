@@ -37,14 +37,20 @@ import (
 )
 
 // Sources: S12 (a TranscodeProfile's create, delete or generation: every
-// movie and episode file, at low priority, loop spec §3.3, §3.11). Only
-// files whose block changes are written, through the status-write limiter.
+// movie and episode file, at low priority, loop spec §3.3, §3.11; only files
+// whose block changes are written, through the status-write limiter) and
+// S22 (admission's grants, directives and changed wait reasons, at
+// admission.GrantPriority).
 func (a *Adapter) Sources(mgr ctrl.Manager) ([]remediation.Source, error) {
 	c := mgr.GetClient()
 	low := func(ctx context.Context, q workqueue.TypedRateLimitingInterface[remediation.Key]) {
 		videoFilesLow(ctx, c, q)
 	}
-	return []remediation.Source{
+	var srcs []remediation.Source
+	if a.o.LoopSource != nil {
+		srcs = append(srcs, remediation.Source{Name: "S22/admission", Raw: a.o.LoopSource})
+	}
+	return append(srcs, []remediation.Source{
 		{
 			Name: "S12/TranscodeProfile", Object: &transcodev1alpha1.TranscodeProfile{},
 			Handler: handler.TypedFuncs[client.Object, remediation.Key]{
@@ -60,7 +66,7 @@ func (a *Adapter) Sources(mgr ctrl.Manager) ([]remediation.Source, error) {
 			},
 			Predicates: []predicate.Predicate{k8s.GenerationChanged()},
 		},
-	}, nil
+	}...), nil
 }
 
 // videoFilesLow enqueues every movie and episode file at handler.LowPriority.

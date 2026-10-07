@@ -23,6 +23,8 @@ import (
 	"fmt"
 	"time"
 
+	"k8s.io/apimachinery/pkg/types"
+
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/obs/metrics"
 	"github.com/mediactl/clustarr/pkg/probestore"
@@ -87,6 +89,30 @@ type History struct {
 	Subject, MsgID string
 	Envelope       *events.Envelope
 }
+
+// LedgerConfirm confirms the file's admission grant once the apply that
+// used it landed (§5.5): a dispatch grant became dispatch Seq, a window
+// grant (Seq 0) a block in the window.
+type LedgerConfirm struct {
+	UID types.UID
+	Seq int64
+}
+
+// LedgerRelease gives the file's admission grant back unused.
+type LedgerRelease struct{ UID types.UID }
+
+// Observation runs once its apply landed: the R9 transcode metrics of a
+// dispatch that just became terminal (§5.16).
+type Observation struct{ Observe func() }
+
+// Kind implements Effect.
+func (LedgerConfirm) Kind() EffectKind { return EffectLedger }
+
+// Kind implements Effect.
+func (LedgerRelease) Kind() EffectKind { return EffectLedger }
+
+// Kind implements Effect.
+func (Observation) Kind() EffectKind { return EffectObserve }
 
 // Kind implements Effect.
 func (RecordWrite) Kind() EffectKind { return EffectRecord }
@@ -174,6 +200,21 @@ func (r *Reconciler) runEffect(ctx context.Context, uid string, p Bound, eff Eff
 	case History:
 		if _, err := r.env.Bus.Publish(ctx, e.Subject, e.Envelope, events.WithMsgID(e.MsgID)); err != nil {
 			return Transient(fmt.Errorf("history %s: %w", e.Subject, err))
+		}
+		return nil
+	case LedgerConfirm:
+		if r.Ledger != nil {
+			r.Ledger.Confirm(e.UID, e.Seq)
+		}
+		return nil
+	case LedgerRelease:
+		if r.Ledger != nil {
+			r.Ledger.Release(e.UID)
+		}
+		return nil
+	case Observation:
+		if e.Observe != nil {
+			e.Observe()
 		}
 		return nil
 	case Withdraw:
