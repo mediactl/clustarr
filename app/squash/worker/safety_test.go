@@ -134,8 +134,8 @@ type safetyCase struct {
 func newSafetyCase(t *testing.T, planned, live string) *safetyCase {
 	t.Helper()
 	dataDir := t.TempDir()
-	logical := "/data/media/movies/Film (2020)/Film.2020.2160p.mkv"
-	local := filepath.Join(dataDir, "media/movies/Film (2020)/Film.2020.2160p.mkv")
+	logical := "/data/media/movies/Film (2020)/Film.2020.2160p.mp4"
+	local := filepath.Join(dataDir, "media/movies/Film (2020)/Film.2020.2160p.mp4")
 	require.NoError(t, os.MkdirAll(filepath.Dir(local), 0o755))
 	require.NoError(t, os.WriteFile(local, []byte("the original, byte for byte"), 0o644))
 	st, err := os.Stat(local)
