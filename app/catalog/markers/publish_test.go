@@ -24,17 +24,16 @@ import (
 
 	"github.com/jonboulle/clockwork"
 	"github.com/stretchr/testify/require"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/markers"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 )
 
-// Publish puts one MarkersTask for the file on the catalog-markers
-// durable's subject, keyed <namespace>/<name> as every worker parses it.
+// A request's task (TaskMessage, which the remediation loop publishes since
+// F3.4) reaches the catalog-markers durable, keyed <namespace>/<name> as
+// every worker parses it, under the request's Msg-Id.
 func TestPublishReachesTheMarkersConsumer(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -51,17 +50,22 @@ func TestPublishReachesTheMarkersConsumer(t *testing.T) {
 	require.NoError(t, err)
 	defer stop()
 
-	mf := file(commonv1.MediaKindEpisode, true, nil)
-	mf.Name, mf.Namespace, mf.UID = "andor-s01e02", "media", "uid-7"
-	require.NoError(t, markers.Publish(ctx, bus, mf, metav1.Now().Time))
+	var rec schema.MarkersRecord
+	rec.MediaFile = schema.Ref{Namespace: "media", Name: "andor-s01e02", UID: "uid-7"}
+	rec.Seq = 3
+	rec.Inputs.ProbeHash = "hash-1"
+	subject, id, env, err := markers.TaskMessage(rec, time.Now())
+	require.NoError(t, err)
+	_, err = bus.Publish(ctx, subject, env, events.WithMsgID(id))
+	require.NoError(t, err)
 
 	select {
 	case env := <-got:
 		require.Equal(t, "media/andor-s01e02", env.Key)
-		require.Equal(t, markers.MsgID(mf), env.ID)
+		require.Equal(t, events.MsgIDForMarkers("uid-7", 3), env.ID)
 		var task schema.MarkersTask
 		require.NoError(t, schema.Decode(env.Schema, env.Data, &task))
-		require.Equal(t, "andor-s01e02", task.MediaFile)
+		require.Equal(t, "andor-s01e02", task.File.Name)
 	case <-ctx.Done():
 		t.Fatal("no MarkersTask reached catalog-markers")
 	}

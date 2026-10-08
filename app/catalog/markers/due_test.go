@@ -22,11 +22,13 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/markers"
+	"github.com/mediactl/clustarr/pkg/events/schema"
 )
 
 func file(kind commonv1.MediaKind, probed bool, m *catalogv1alpha1.FileMarkers) *catalogv1alpha1.MediaFile {
@@ -88,15 +90,24 @@ func TestDue(t *testing.T) {
 	}
 }
 
-// Each fetch of a file has its own message id: the file and the fetch it
-// replaces, so a re-fetch 30 days on is not absorbed as a duplicate of the
-// first, and a republish of the same pending fetch is.
+// Each fetch of a file has its own message id: the file and the loop's
+// request it answers (F3.4: TaskMessage, events.MsgIDForMarkers), so a
+// re-fetch 30 days on -- a new request, the next Seq -- is not absorbed as a
+// duplicate of the first, and a republish of the same pending request is.
 func TestMsgIDNamesTheFileAndTheFetchItReplaces(t *testing.T) {
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
-	fresh := file(commonv1.MediaKindMovie, true, nil)
-	fresh.UID = "uid-1"
-	assert.Equal(t, "uid-1:0:markers-hash-1-0", markers.MsgID(fresh))
-	again := file(commonv1.MediaKindMovie, true, fetched(catalogv1alpha1.MarkersFound, "hash-1", 31*24*time.Hour, now))
-	again.UID = "uid-1"
-	assert.NotEqual(t, markers.MsgID(fresh), markers.MsgID(again))
+	var rec schema.MarkersRecord
+	rec.MediaFile = schema.Ref{Namespace: "media", Name: "item", UID: "uid-1"}
+	rec.Seq = 1
+	rec.Inputs.ProbeHash = "hash-1"
+	_, first, _, err := markers.TaskMessage(rec, now)
+	require.NoError(t, err)
+	assert.Equal(t, "markers/uid-1/1", first)
+	_, republished, _, err := markers.TaskMessage(rec, now.Add(time.Hour))
+	require.NoError(t, err)
+	assert.Equal(t, first, republished, "a republish of the same pending request")
+	rec.Seq = 2
+	_, again, _, err := markers.TaskMessage(rec, now.Add(31*24*time.Hour))
+	require.NoError(t, err)
+	assert.NotEqual(t, first, again)
 }
