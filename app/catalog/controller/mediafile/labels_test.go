@@ -30,7 +30,7 @@ func TestMirrorLabels(t *testing.T) {
 	q := commonv1.Quality{Name: "Bluray-1080p", Source: commonv1.SourceBluray, Resolution: commonv1.Resolution1080p, Modifier: commonv1.ModifierNone}
 	mi := &commonv1.MediaInfo{VideoCodec: "hevc", Hdr: commonv1.HdrFormatHDR10}
 
-	got := mirrorLabels(commonv1.MediaKindMovie, q, mi, true)
+	got := MirrorLabels(commonv1.MediaKindMovie, q, mi, true)
 
 	assert.Equal(t, "movie", got[catalogv1alpha1.LabelKind])
 	assert.Equal(t, "1080", got[catalogv1alpha1.LabelResolution])
@@ -42,7 +42,7 @@ func TestMirrorLabels(t *testing.T) {
 }
 
 func TestMirrorLabelsNilMediaInfoOmitsCodecAndHdr(t *testing.T) {
-	got := mirrorLabels(commonv1.MediaKindEpisode, commonv1.Quality{}, nil, false)
+	got := MirrorLabels(commonv1.MediaKindEpisode, commonv1.Quality{}, nil, false)
 	assert.Equal(t, "episode", got[catalogv1alpha1.LabelKind])
 	assert.Equal(t, "false", got[catalogv1alpha1.LabelOriginal])
 	_, ok := got[catalogv1alpha1.LabelVideoCodec]

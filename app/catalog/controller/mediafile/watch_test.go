@@ -21,25 +21,28 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	ctrl "sigs.k8s.io/controller-runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/event"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	seriesctl "github.com/mediactl/clustarr/app/catalog/controller/series"
+	"github.com/mediactl/clustarr/app/remediation/mfindex"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
 // namingFixture is a library of two root folders: a movie under "movies",
 // and under "tv" a series whose first two episodes share one multi-episode
 // file, beside another series under another root with a file of its own.
-func namingFixture(t *testing.T) *Reconciler {
+// The client carries the indexes the map functions read: the loop's item
+// index (mfindex.Item), the Series controller's episode index and this
+// package's two root-folder indexes.
+func namingFixture(t *testing.T) client.Client {
 	t.Helper()
 	const ns = "media"
 	meta := func(name string) metav1.ObjectMeta { return metav1.ObjectMeta{Name: name, Namespace: ns} }
@@ -62,15 +65,17 @@ func namingFixture(t *testing.T) *Reconciler {
 		file("other-file", commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: "other-s01e01"}),
 	}
 	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).WithObjects(objs...).
-		WithIndex(&catalogv1alpha1.MediaFile{}, mediaFileByOwnerIndex, indexMediaFileByOwner).
-		WithIndex(&catalogv1alpha1.Episode{}, episodeBySeriesIndex, indexEpisodeBySeries).
+		WithIndex(&catalogv1alpha1.MediaFile{}, mfindex.Item, mfindex.Extract).
+		WithIndex(&catalogv1alpha1.Episode{}, seriesctl.EpisodeBySeriesRefIndex, func(o client.Object) []string {
+			return []string{o.(*catalogv1alpha1.Episode).Spec.SeriesRef}
+		}).
 		WithIndex(&catalogv1alpha1.Movie{}, movieByRootFolderIndex, indexMovieByRootFolder).
 		WithIndex(&catalogv1alpha1.Series{}, seriesByRootFolderIndex, indexSeriesByRootFolder).
 		Build()
-	return &Reconciler{Client: c}
+	return c
 }
 
-func requestNames(reqs []reconcile.Request) []string {
+func requestNames(reqs []types.NamespacedName) []string {
 	out := make([]string, 0, len(reqs))
 	for _, r := range reqs {
 		out = append(out, r.Namespace+"/"+r.Name)
@@ -80,33 +85,33 @@ func requestNames(reqs []reconcile.Request) []string {
 }
 
 // TestNamingWatchesMapToTheFilesTheyRename covers the four naming map
-// functions, each through the index SetupWithManager registers: an item's
+// functions, each through the index the loop registers: an item's
 // own files, a series' episodes' files (the multi-episode file once, not
 // once per episode) and a root folder's every item's files, and nothing of
 // another series or root folder.
 func TestNamingWatchesMapToTheFilesTheyRename(t *testing.T) {
-	r := namingFixture(t)
+	c := namingFixture(t)
 	meta := func(name string) metav1.ObjectMeta { return metav1.ObjectMeta{Name: name, Namespace: "media"} }
 	ctx := t.Context()
 
 	assert.Equal(t, []string{"media/heat-file"},
-		requestNames(r.mediaFilesForMovie(ctx, &catalogv1alpha1.Movie{ObjectMeta: meta("heat")})))
+		requestNames(FilesForMovie(ctx, c, &catalogv1alpha1.Movie{ObjectMeta: meta("heat")})))
 	assert.Equal(t, []string{"media/firefly-e01e02-file"},
-		requestNames(r.mediaFilesForEpisode(ctx, &catalogv1alpha1.Episode{ObjectMeta: meta("firefly-s01e02")})),
+		requestNames(FilesForEpisode(ctx, c, &catalogv1alpha1.Episode{ObjectMeta: meta("firefly-s01e02")})),
 		"a multi-episode file is reached through every episode it covers, not only the one it names")
 	assert.Equal(t, []string{"media/firefly-e01e02-file"},
-		requestNames(r.mediaFilesForSeries(ctx, &catalogv1alpha1.Series{ObjectMeta: meta("firefly")})))
+		requestNames(FilesForSeries(ctx, c, &catalogv1alpha1.Series{ObjectMeta: meta("firefly")})))
 	assert.Equal(t, []string{"media/firefly-e01e02-file"},
-		requestNames(r.mediaFilesForRootFolder(ctx, &catalogv1alpha1.RootFolder{ObjectMeta: meta("tv")})))
+		requestNames(FilesForRootFolder(ctx, c, &catalogv1alpha1.RootFolder{ObjectMeta: meta("tv")})))
 	assert.Equal(t, []string{"media/heat-file"},
-		requestNames(r.mediaFilesForRootFolder(ctx, &catalogv1alpha1.RootFolder{ObjectMeta: meta("movies")})))
-	assert.Empty(t, r.mediaFilesForRootFolder(ctx, &catalogv1alpha1.RootFolder{ObjectMeta: meta("music")}))
-	assert.Empty(t, r.mediaFilesForMovie(ctx, &catalogv1alpha1.Series{ObjectMeta: meta("heat")}), "wrong type maps to nothing")
+		requestNames(FilesForRootFolder(ctx, c, &catalogv1alpha1.RootFolder{ObjectMeta: meta("movies")})))
+	assert.Empty(t, FilesForRootFolder(ctx, c, &catalogv1alpha1.RootFolder{ObjectMeta: meta("music")}))
+	assert.Empty(t, FilesForMovie(ctx, c, &catalogv1alpha1.Series{ObjectMeta: meta("heat")}), "wrong type maps to nothing")
 }
 
 // TestNamingInputsIgnoreStatusChurn holds the naming watches' predicates to
-// the fields renderNaming reads: a Movie's phase moving must not wake every
-// file's reconcile, a title change must.
+// the fields RenderNaming reads: a Movie's phase moving must not wake every
+// file's pass, a title change must.
 func TestNamingInputsIgnoreStatusChurn(t *testing.T) {
 	movie := func(title string, phase catalogv1alpha1.MoviePhase) *catalogv1alpha1.Movie {
 		return &catalogv1alpha1.Movie{Status: catalogv1alpha1.MovieStatus{
@@ -114,13 +119,13 @@ func TestNamingInputsIgnoreStatusChurn(t *testing.T) {
 			Metadata: &catalogv1alpha1.MovieMetadata{Title: title, Year: 1995},
 		}}
 	}
-	assert.Equal(t, movieNamingInputs(movie("Heat", "")), movieNamingInputs(movie("Heat", catalogv1alpha1.MoviePhaseDownloading)))
-	assert.NotEqual(t, movieNamingInputs(movie("Heat", "")), movieNamingInputs(movie("Heat (Director's Cut)", "")))
+	assert.Equal(t, movieFileInputs(movie("Heat", "")), movieFileInputs(movie("Heat", catalogv1alpha1.MoviePhaseDownloading)))
+	assert.NotEqual(t, movieFileInputs(movie("Heat", "")), movieFileInputs(movie("Heat (Director's Cut)", "")))
 
 	series := func(path string) *catalogv1alpha1.Series {
 		return &catalogv1alpha1.Series{Status: catalogv1alpha1.SeriesStatus{Path: path}}
 	}
-	assert.NotEqual(t, seriesNamingInputs(series("/data/media/tv/A")), seriesNamingInputs(series("/data/media/tv/B")),
+	assert.NotEqual(t, seriesFileInputs(series("/data/media/tv/A")), seriesFileInputs(series("/data/media/tv/B")),
 		"the series folder is part of every episode's path")
 
 	episode := func(title string) *catalogv1alpha1.Episode {
@@ -147,7 +152,7 @@ func TestMarkNamingCurrent(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			mf := &catalogv1alpha1.MediaFile{}
 			conditions := []metav1.Condition{{Type: catalogv1alpha1.ConditionNamingCurrent, Status: metav1.ConditionTrue, Reason: "Current"}}
-			markNamingCurrent(mf, &conditions, tc.naming)
+			MarkNamingCurrent(mf, &conditions, tc.naming)
 			assert.Len(t, conditions, 1, "the condition is replaced, never appended beside the old one")
 			got := k8s.FindCondition(conditions, catalogv1alpha1.ConditionNamingCurrent)
 			assert.Equal(t, tc.status, got.Status)
@@ -159,7 +164,7 @@ func TestMarkNamingCurrent(t *testing.T) {
 	}
 
 	var none []metav1.Condition
-	markNamingCurrent(&catalogv1alpha1.MediaFile{}, &none, nil)
+	MarkNamingCurrent(&catalogv1alpha1.MediaFile{}, &none, nil)
 	assert.Empty(t, none, "a kind this phase does not name gets no condition")
 }
 
@@ -199,23 +204,21 @@ func TestKeepNamingRejudgesCurrent(t *testing.T) {
 	held := &catalogv1alpha1.NamingStatus{Reason: catalogv1alpha1.NamingReasonProbePending}
 	assert.Equal(t, held, keepNaming(held, "/tmp/x.mkv"))
 	assert.Nil(t, keepNaming(nil, "/tmp/x.mkv"))
-
-	assert.Equal(t, 30*time.Second, withNamingRetry(ctrl.Result{}, true).RequeueAfter)
-	assert.Equal(t, 30*time.Second, withNamingRetry(ctrl.Result{RequeueAfter: TranscodedRecheckInterval}, true).RequeueAfter)
-	assert.Equal(t, 10*time.Second, withNamingRetry(ctrl.Result{RequeueAfter: 10 * time.Second}, true).RequeueAfter)
-	assert.Equal(t, TranscodedRecheckInterval, withNamingRetry(ctrl.Result{RequeueAfter: TranscodedRecheckInterval}, false).RequeueAfter)
+	// The retry a kept proposal asks for is the naming planner's Due now
+	// (app/remediation/naming, namingRetry): withNamingRetry went with the
+	// MediaFile reconciler (F3.4).
 }
 
 // TestNamingOwnerOfAnEpisodeRefNamingNothing: an episode reference with no
 // name and no keys covers no episode; it is Unrenderable, not a panic on
 // the first of none.
 func TestNamingOwnerOfAnEpisodeRefNamingNothing(t *testing.T) {
-	r := namingFixture(t)
+	c := namingFixture(t)
 	mf := &catalogv1alpha1.MediaFile{
 		ObjectMeta: metav1.ObjectMeta{Name: "orphan", Namespace: "media"},
 		Spec:       catalogv1alpha1.MediaFileSpec{MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindEpisode}},
 	}
-	owner, reason, err := r.namingOwner(t.Context(), mf)
+	owner, reason, err := namingOwnerOf(t.Context(), c, mf)
 	assert.NoError(t, err)
 	assert.Nil(t, owner)
 	assert.Equal(t, catalogv1alpha1.NamingReasonUnrenderable, reason)

@@ -58,9 +58,10 @@ func TestProbeDueForAnOlderProbeVersion(t *testing.T) {
 	current := ps.Hash
 	ps = evaluateProbe(path, 1024, mt, current)
 	assert.False(t, ps.Stale)
-	assert.True(t, probeDue(current, 0, ps), "probed by a version that did not record everything")
-	assert.False(t, probeDue(current, mediainfo.ProbeVersion, ps), "probed by this version, unchanged")
-	assert.True(t, probeDue("", mediainfo.ProbeVersion, ps), "never probed")
+	want := mediainfo.ProbeVersion
+	assert.True(t, probeDue(current, 0, ps, want), "probed by a version that did not record everything")
+	assert.False(t, probeDue(current, mediainfo.ProbeVersion, ps, want), "probed by this version, unchanged")
+	assert.True(t, probeDue("", mediainfo.ProbeVersion, ps, want), "never probed")
 	assert.Positive(t, mediainfo.ProbeVersion)
 }
 
