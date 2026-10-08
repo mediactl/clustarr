@@ -87,7 +87,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // keys come from a Kubernetes Secret: the manager creates
 // --facade-api-key-secret with one random key when it is absent
 // (app/indexer/manager, ADR-0019 §7.5), and the index agent re-reads every
-// non-blank entry of it ([KeysOf]) every 30 s (app/indexer/agent's
+// non-blank entry of it (pkg/facadekey.KeysOf) every 30 s (app/indexer/agent's
 // facadekey.go); this package takes plain strings so it does not need a
 // client.Client just to read one.
 //

@@ -31,7 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/mediactl/clustarr/app/indexer/facade"
+	"github.com/mediactl/clustarr/pkg/facadekey"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
@@ -52,9 +52,9 @@ const facadeAPIKeyBytes = 32
 const facadeKeyRetry = 30 * time.Second
 
 // EnsureFacadeKey creates Secret namespace/name with one random key under
-// facade.APIKeyField when it does not exist (ADR-0019 §7.5, W31): create-only,
-// under k8s.ManagerIndex. The index agent's Torznab facade fails closed and
-// answers 503 until it exists, then reads it by name.
+// facadekey.APIKeyField when it does not exist (ADR-0019 §7.5, W31):
+// create-only, under k8s.ManagerIndex. The index agent's Torznab facade
+// fails closed and answers 503 until it exists, then reads it by name.
 //
 // # Why generate rather than require
 //
@@ -91,15 +91,15 @@ func EnsureFacadeKey(ctx context.Context, c client.Client, namespace, name strin
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
-			Labels:    map[string]string{"app.kubernetes.io/component": facade.SecretComponent},
+			Labels:    map[string]string{"app.kubernetes.io/component": facadekey.SecretComponent},
 		},
 		Type: corev1.SecretTypeOpaque,
-		Data: map[string][]byte{facade.APIKeyField: []byte(generated)},
+		Data: map[string][]byte{facadekey.APIKeyField: []byte(generated)},
 	}
 	switch err := c.Create(ctx, &sec, client.FieldOwner(k8s.ManagerIndex.String())); {
 	case err == nil:
 		logging.FromContext(ctx).Info("index: generated the Torznab facade's API key; read it from the Secret",
-			"secret", key.String(), "field", facade.APIKeyField)
+			"secret", key.String(), "field", facadekey.APIKeyField)
 		return nil
 	case apierrors.IsAlreadyExists(err):
 		// An operator created it between the Get and the Create: theirs wins.

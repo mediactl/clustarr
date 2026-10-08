@@ -15,7 +15,12 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package facade
+// Package facadekey is the Torznab facade's API-key Secret as both of its
+// sides read it: the manager creates it, create-only, with one generated key
+// (app/indexer/manager), and the index agent re-reads its keys by name
+// (app/indexer/agent). A leaf, so the manager links none of the facade the
+// agent serves (test/guards' TestManagerLinksNoAgentCode).
+package facadekey
 
 import (
 	"sort"

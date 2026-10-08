@@ -40,11 +40,11 @@ import (
 
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
-	"github.com/mediactl/clustarr/app/indexer/facade"
 	"github.com/mediactl/clustarr/internal/cli/agent"
 	"github.com/mediactl/clustarr/pkg/agentdomain"
 	"github.com/mediactl/clustarr/pkg/busconn"
 	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/facadekey"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/presence"
 	"github.com/mediactl/clustarr/test/starttest"
@@ -261,7 +261,7 @@ func TestEveryDomainStartsServesProbesAndStopsOnSignal(t *testing.T) {
 			o.FacadeBindAddress = facadeAddr
 			require.NoError(t, admin.Create(context.Background(), &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{Name: o.FacadeAPIKeySecret, Namespace: "default"},
-				Data:       map[string][]byte{facade.APIKeyField: []byte(facadeKey)},
+				Data:       map[string][]byte{facadekey.APIKeyField: []byte(facadeKey)},
 			}))
 		}, verify: func(t *testing.T) { verifyFacade(t, facadeAddr, facadeKey) }},
 		{domain: "caption", prepare: func(t *testing.T, o *agent.Options) { o.DataDir = t.TempDir() }},

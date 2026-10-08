@@ -28,7 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/mediactl/clustarr/app/indexer/facade"
+	"github.com/mediactl/clustarr/pkg/facadekey"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
 
@@ -38,9 +38,9 @@ import (
 //
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get
 
-// FacadeAPIKeyField is facade.APIKeyField, the data key the manager stores a
+// FacadeAPIKeyField is facadekey.APIKeyField, the data key the manager stores a
 // generated key under.
-const FacadeAPIKeyField = facade.APIKeyField
+const FacadeAPIKeyField = facadekey.APIKeyField
 
 // FacadeKeyRereadInterval is how often the index agent re-reads the facade's
 // API-key Secret (ADR-0019 §7.5): until the manager has created it the
@@ -98,7 +98,7 @@ func (k *FacadeKeys) Run(ctx context.Context, r client.Reader, namespace, name s
 }
 
 // ReadFacadeAPIKeys reads Secret namespace/name by name and returns its
-// non-blank values (facade.KeysOf); an absent Secret is no key, not an
+// non-blank values (facadekey.KeysOf); an absent Secret is no key, not an
 // error.
 func ReadFacadeAPIKeys(ctx context.Context, r client.Reader, namespace, name string) ([]string, error) {
 	var sec corev1.Secret
@@ -109,5 +109,5 @@ func ReadFacadeAPIKeys(ctx context.Context, r client.Reader, namespace, name str
 		}
 		return nil, fmt.Errorf("index: read the facade API-key Secret %s: %w", key, err)
 	}
-	return facade.KeysOf(&sec), nil
+	return facadekey.KeysOf(&sec), nil
 }
