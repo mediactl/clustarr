@@ -62,7 +62,8 @@ func useUnreachableKubeconfig(t *testing.T) {
 	t.Setenv("KUBECONFIG", kubeconfig)
 }
 
-// TestBothUICommandsWireEveryUIOption is the behavioural half of
+// TestUIWiresEveryUIOption (the loop spec's TestBothUICommandsWireEveryUIOption,
+// renamed with the binary split, W5.11) is the behavioural half of
 // wiring_projection_test.go. That test reads internal/cli/ui as text, which
 // is cheap and names the gap precisely, but a text match passes for a field
 // that is named and never reaches the run -- F-6 found exactly that shape.
@@ -91,10 +92,19 @@ func useUnreachableKubeconfig(t *testing.T) {
 // a real cluster. With no kubeconfig at all, a nil Reader and a nil Actions
 // are the correct result rather than a wiring gap, which is why this test
 // supplies one.
-func TestBothUICommandsWireEveryUIOption(t *testing.T) {
+//
+// A3.9 names two of the fields the walk covers: TransferProgress and
+// ImportDetail, the Downloads page's reads of clustarr-progress and
+// clustarr-imports over the read-only bus, which replaced the Download List.
+// Both are asserted by name as well, so the walk's premise (that a nil func
+// field is a wiring gap) cannot be loosened for them without this test
+// saying so.
+func TestUIWiresEveryUIOption(t *testing.T) {
 	useUnreachableKubeconfig(t)
 	o := captureUIOptions(t, "--bind-address", "127.0.0.1:0", "--auth-mode", "anonymous")
 	requireEveryUIOptionWired(t, "ui", o)
+	require.NotNil(t, o.TransferProgress, "ui.Options.TransferProgress: the Downloads page's transfer telemetry (A3.9)")
+	require.NotNil(t, o.ImportDetail, "ui.Options.ImportDetail: an entry's import records (A3.9)")
 }
 
 // uicliCommandRecording is the ui command with run in place of ui.Run.
@@ -139,8 +149,7 @@ func runUICommand(t *testing.T, argv ...string) (ui.Options, error) {
 	return got, err
 }
 
-// requireEveryUIOptionWired is TestBothUICommandsWireEveryUIOption's
-// assertion, shared by both commands.
+// requireEveryUIOptionWired is TestUIWiresEveryUIOption's assertion.
 func requireEveryUIOptionWired(t *testing.T, command string, o ui.Options) {
 	t.Helper()
 
@@ -187,7 +196,7 @@ func requireEveryUIOptionWired(t *testing.T, command string, o ui.Options) {
 
 // The ui command signs Plex's photo URLs with the key the installer puts in
 // $CLUSTARR_ART_SIGNING_KEY, so the URLs Plex stores outlive a restart.
-func TestBothUICommandsReadTheArtSigningKey(t *testing.T) {
+func TestUIReadsTheArtSigningKey(t *testing.T) {
 	useUnreachableKubeconfig(t)
 	key := strings.Repeat("0123456789abcdef", 4)
 	t.Setenv(cli.EnvArtSigningKey, key)
@@ -209,7 +218,7 @@ func TestArtSigningKeyRefusesAShortKey(t *testing.T) {
 }
 
 // --plex-guids reaches the Plex provider, on by default.
-func TestBothUICommandsPassPlexGUIDs(t *testing.T) {
+func TestUIPassesPlexGUIDs(t *testing.T) {
 	useUnreachableKubeconfig(t)
 	for _, tc := range []struct {
 		argv []string
@@ -221,5 +230,23 @@ func TestBothUICommandsPassPlexGUIDs(t *testing.T) {
 		o := captureUIOptions(t, tc.argv...)
 		require.NotNil(t, o.Plex, "%v", tc.argv)
 		require.Equal(t, tc.want, o.Plex.PlexGUIDs, "%v", tc.argv)
+	}
+}
+
+// TestUIWiresTheArtCacheFlag: --art-cache-bytes sizes /art's digest-keyed
+// byte cache (W4.110; artwork design §B.8 as amended 2026-10-07), with
+// ui.DefaultArtCacheBytes when unset and 0 turning the cache off.
+func TestUIWiresTheArtCacheFlag(t *testing.T) {
+	useUnreachableKubeconfig(t)
+	for _, tc := range []struct {
+		args []string
+		want int64
+	}{
+		{nil, ui.DefaultArtCacheBytes},
+		{[]string{"--art-cache-bytes=1048576"}, 1 << 20},
+		{[]string{"--art-cache-bytes=0"}, 0},
+	} {
+		o := captureUIOptions(t, append([]string{"--bind-address", "127.0.0.1:0", "--auth-mode", "anonymous"}, tc.args...)...)
+		require.Equal(t, tc.want, o.ArtCacheBytes, "%v", tc.args)
 	}
 }

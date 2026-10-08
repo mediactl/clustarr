@@ -35,13 +35,13 @@ import (
 	"github.com/mediactl/clustarr/ui"
 )
 
-// TestUICommandsHandTheChosenAuthModeToRunUI pins §A3.5's explicit
+// TestUIHandsTheChosenAuthModeToRunUI pins §A3.5's explicit
 // authentication mode where the process chooses it: `ui --auth-mode` (the
 // `clustarr all --ui-auth-mode` leg went with `clustarr all`, §3.10). The
 // flag has no default, so a bare command hands its run options whose
 // Validate -- the check ui.Run makes before it binds -- refuses to serve and
 // says which flag to set.
-func TestUICommandsHandTheChosenAuthModeToRunUI(t *testing.T) {
+func TestUIHandsTheChosenAuthModeToRunUI(t *testing.T) {
 	useUnreachableKubeconfig(t)
 
 	for name, tc := range map[string]struct {

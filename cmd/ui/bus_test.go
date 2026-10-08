@@ -19,6 +19,7 @@ package main
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 	"testing"
 	"time"
@@ -26,15 +27,25 @@ import (
 	natsserver "github.com/nats-io/nats-server/v2/server"
 	"github.com/stretchr/testify/require"
 
+	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/ui"
 )
 
-// TestUICommandsCloseTheirBusOnShutdown proves `ui` holds its artwork
-// connection open for as long as its run runs, and closes it once the run
-// returns rather than leaving it to process exit (the `clustarr all` leg
+// TestUICommandClosesItsBusOnShutdown proves `ui` holds its artwork
+// connection open for as long as its run runs, and shuts it down once the
+// run returns rather than leaving it to process exit (the `clustarr all` leg
 // went with `clustarr all`, §3.10). The server's own client count is the
 // observation: nothing else in the command dials it.
-func TestUICommandsCloseTheirBusOnShutdown(t *testing.T) {
+//
+// It also holds the command to ADR-0020 decision 1 as built: the shutdown is
+// busconn.Shutdown's drain -- the bus's pulls, then its responders (the ui
+// has neither), then the connection -- inside the command's budget, never
+// the hard Close it falls back to once the budget is spent. That fallback is
+// the one thing the path logs ("bus shutdown fell back to closing", on the
+// command context's logger), so a clean drain logs no such line. (The
+// unreachable kubeconfig makes the cluster reader warn too; those are not
+// this test's subject.)
+func TestUICommandClosesItsBusOnShutdown(t *testing.T) {
 	useUnreachableKubeconfig(t)
 	srv := startCountingNATS(t)
 
@@ -49,7 +60,8 @@ func TestUICommandsCloseTheirBusOnShutdown(t *testing.T) {
 		return nil
 	})
 	root.SetArgs([]string{"--bind-address", "127.0.0.1:0", "--auth-mode", "anonymous", "--nats-url", srv.ClientURL()})
-	ctx, cancel := context.WithCancel(context.Background())
+	logs := &warnings{}
+	ctx, cancel := context.WithCancel(logging.NewContext(context.Background(), slog.New(logs)))
 	t.Cleanup(cancel)
 	require.NoError(t, root.ExecuteContext(ctx))
 
@@ -60,6 +72,40 @@ func TestUICommandsCloseTheirBusOnShutdown(t *testing.T) {
 	waitFor(t, "ui's NATS connection to close after the run returned", func() bool {
 		return srv.NumClients() == 0
 	})
+	for _, line := range logs.lines() {
+		require.NotContains(t, line, "bus shutdown",
+			"ui's bus shutdown fell back to Close: busconn.Shutdown drains the connection within the "+
+				"command's budget (ADR-0020 §1), and only a spent budget or a failed drain aborts it")
+	}
+}
+
+// warnings is a slog.Handler recording every record at warn or above.
+type warnings struct {
+	mu  sync.Mutex
+	got []string
+}
+
+func (w *warnings) Enabled(_ context.Context, l slog.Level) bool { return l >= slog.LevelWarn }
+
+func (w *warnings) Handle(_ context.Context, r slog.Record) error {
+	line := r.Message
+	r.Attrs(func(a slog.Attr) bool {
+		line += " " + a.String()
+		return true
+	})
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.got = append(w.got, line)
+	return nil
+}
+
+func (w *warnings) WithAttrs([]slog.Attr) slog.Handler { return w }
+func (w *warnings) WithGroup(string) slog.Handler      { return w }
+
+func (w *warnings) lines() []string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return append([]string(nil), w.got...)
 }
 
 // startCountingNATS runs an embedded JetStream server and returns it, so a

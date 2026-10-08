@@ -32,10 +32,10 @@ import (
 	"github.com/mediactl/clustarr/ui"
 )
 
-// TestEveryProjectionStreamIsWiredIntoBothUICommands guards the gap that
+// TestEveryProjectionStreamIsWiredIntoTheUICommand guards the gap that
 // closed this file's own reason for existing. Since the binary split the one
 // production entry point is internal/cli/ui (`clustarr ui` and `clustarr
-// all` are gone, §3.10), so the name's "both" is historical.
+// all` are gone, §3.10; the test was TestEveryProjectionStreamIsWiredIntoBothUICommands).
 //
 // ui/projection.Projection exposes one Subscribe* method per SSE stream, and
 // ui.Options has a matching field per stream. Both are optional: a nil field
@@ -63,7 +63,7 @@ import (
 // *Projection method that shares its name with a ui.Options field is held to
 // the same rule. wiring_test.go is the behavioural half: it executes the
 // command and inspects the Options it builds.
-func TestEveryProjectionStreamIsWiredIntoBothUICommands(t *testing.T) {
+func TestEveryProjectionStreamIsWiredIntoTheUICommand(t *testing.T) {
 	root, err := filepath.Abs("../..")
 	require.NoError(t, err)
 
