@@ -64,7 +64,7 @@ func newReapFixture(t *testing.T) *reapFixture {
 func (fx *reapFixture) put(t *testing.T, kind commonv1.MediaKind, uid types.UID, imageType, variant string) string {
 	t.Helper()
 	name := events.ArtworkKey(kind, uid, imageType, variant)
-	_, err := fx.store.Put(fx.ctx, name, strings.NewReader("img"), map[string]string{"Content-Type": "image/png"})
+	_, err := fx.store.Put(fx.ctx, name, strings.NewReader("img"), events.ObjectMeta{Headers: map[string]string{"Content-Type": "image/png"}})
 	require.NoError(t, err)
 	return name
 }
@@ -159,7 +159,7 @@ func TestReaperLeavesKeysItDoesNotUnderstand(t *testing.T) {
 	fx := newReapFixture(t)
 	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).Build()
 	episode := fx.put(t, commonv1.MediaKindEpisode, "u1", "thumb", events.ArtworkVariantOriginal)
-	_, err := fx.store.Put(fx.ctx, "stray", strings.NewReader("x"), nil)
+	_, err := fx.store.Put(fx.ctx, "stray", strings.NewReader("x"), events.ObjectMeta{})
 	require.NoError(t, err)
 	fx.clock.Advance(grace + time.Minute)
 
