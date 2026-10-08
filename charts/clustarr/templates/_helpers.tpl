@@ -163,6 +163,9 @@ Guard rails. These are correctness invariants from the design spec, not
 preferences, so they fail the render rather than warn.
 */}}
 {{- define "clustarr.validate" -}}
+{{- if and (or .Values.postgres.enabled (index .Values "cluster-plex" "enabled")) (index .Values "cloudnative-pg" "enabled") .Release.IsInstall -}}
+{{- fail "postgres.enabled or cluster-plex.enabled (whose database is a CloudNativePG Cluster too) cannot be set with cloudnative-pg.enabled on a first `helm install`: CNPG's admission webhook fails closed until the operator this chart would install is Ready. Install the operator first (cloudnative-pg.enabled=true alone, --wait), then upgrade with postgres.enabled or cluster-plex.enabled." -}}
+{{- end -}}
 {{- if and .Values.postgres.enabled (index .Values "cloudnative-pg" "enabled") .Release.IsInstall -}}
 {{- fail "postgres.enabled and cloudnative-pg.enabled cannot both be true on a first `helm install`: CNPG's admission webhook fails closed until the operator this chart would install is actually Ready, and a first install submits every rendered object -- including the Cluster -- in one pass, before that operator can possibly be running yet. Install in two steps instead: `helm install ... --set cloudnative-pg.enabled=true --set postgres.enabled=false --wait` (waits for the bundled operator's own resources to be Ready), then `helm upgrade ... --set cloudnative-pg.enabled=true --set postgres.enabled=true` to add the Cluster once its webhook is up. If CloudNativePG is already running elsewhere in the cluster, leave cloudnative-pg.enabled=false and set only postgres.enabled=true -- there is no ordering problem to guard against then, just `kubectl wait --for=condition=Available deployment/cnpg-controller-manager -n cnpg-system` first." -}}
 {{- end -}}

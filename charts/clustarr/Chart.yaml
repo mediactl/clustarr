@@ -48,3 +48,12 @@ dependencies:
   version: 0.29.1
   repository: https://cloudnative-pg.github.io/charts
   condition: cloudnative-pg.enabled
+# Plex, through cluster-plex (github.com/mediactl/clusterplex): every pod runs
+# Plex against one library in PostgreSQL, clustarr is its metadata provider,
+# and it seeds clustarr's probes and markers. Off by default. Its database is
+# templates/plex-db.yaml's CloudNativePG Cluster, and it reads the library
+# from storage.data's claim. Published by cluster-plex's `make chart-push`.
+- name: cluster-plex
+  version: 0.2.0
+  repository: oci://ghcr.io/mediactl/charts
+  condition: cluster-plex.enabled

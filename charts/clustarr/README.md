@@ -386,6 +386,27 @@ helm upgrade --install clustarr charts/clustarr -n clustarr-system \
   --set ui.plex.externalURL=http://clustarr-ui.clustarr-system.svc.cluster.local:8080
 ```
 
+## Plex (cluster-plex)
+
+`cluster-plex.enabled=true` installs Plex beside clustarr, in the release's
+namespace, from cluster-plex's chart (`oci://ghcr.io/mediactl/charts/cluster-plex`,
+a dependency pinned in `Chart.yaml`; its own `values.yaml` documents every key
+under `cluster-plex:`). Every Plex pod runs against one library in PostgreSQL:
+`templates/plex-db.yaml` renders the CloudNativePG Cluster `<release>-plex-db`
+(Postgres 15, `plexDatabase`), kept on uninstall like the release index's.
+CloudNativePG must be Ready first, exactly as for `postgres.enabled` above.
+
+The defaults wire it to this release: clustarr's ui as the movie and TV metadata
+providers, the two libraries on them, the library read-only from
+`storage.data`'s claim at `/media` (clustarr's `/data/media`), and
+cluster-plex following clustarr's catalog in this namespace with the plex.tv
+account in Secret `plex-token`. Values that name this release's resources are
+templates assuming the default fullname; set `cluster-plex.storage.media.existingClaim`
+to `storage.data.existingClaim` when you bring your own claim (the default is
+`<release>-data`). Pin `cluster-plex.plex.machineIdentifier` to keep a server
+identity clients already know, and set `cluster-plex.image.tag` and
+`cluster-plex.remux.image.tag` to the images you run.
+
 ## Values
 
 The full reference is `values.yaml` itself -- every value has a comment

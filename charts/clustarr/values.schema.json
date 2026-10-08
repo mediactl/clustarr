@@ -87,6 +87,26 @@
       "required": ["enabled"],
       "properties": { "enabled": { "type": "boolean" } }
     },
+    "cluster-plex": {
+      "type": "object",
+      "description": "Passes through to the cluster-plex subchart (its values.yaml); checked only shallowly.",
+      "required": ["enabled"],
+      "properties": { "enabled": { "type": "boolean" } }
+    },
+    "plexDatabase": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "instances": { "type": "integer", "minimum": 1 },
+        "imageName": { "type": "string", "minLength": 1 },
+        "storage": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "size": { "$ref": "#/$defs/quantity" }, "storageClass": { "type": "string" } }
+        },
+        "parameters": { "type": "object", "additionalProperties": { "type": "string" } }
+      }
+    },
 
     "metrics": {
       "type": "object",

@@ -5,5 +5,8 @@ dependencies:
 - name: cloudnative-pg
   repository: https://cloudnative-pg.github.io/charts
   version: 0.29.1
-digest: sha256:d803b714a6032a86f3849903bf81bd31abb2b0a799444dcbf1ea8e405df6de07
-generated: "2026-10-07T06:58:34.029913783-05:00"
+- name: cluster-plex
+  repository: oci://ghcr.io/mediactl/charts
+  version: 0.2.0
+digest: sha256:63d8e2a861f1fb5ed25221dafd6485299cc866d6f629da71ec067404ba2b5b6c
+generated: "2026-10-08T02:03:44.341307994-05:00"

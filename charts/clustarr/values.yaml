@@ -110,6 +110,68 @@ postgres:
   # this to point the index agent at a Postgres CNPG did not create.
   existingSecret: ""
 
+# Plex's library database, for cluster-plex below: a CloudNativePG Cluster
+# named <release>-plex-db (database and owner "plex"), rendered when
+# cluster-plex.enabled. Like postgres.enabled, it needs CloudNativePG Ready
+# first. Postgres 15: the shim's schema is dumped from 15, and a dump does not
+# necessarily restore into a newer server. max_connections covers the shim's
+# poolMax (100) times Plex's replicas (3), with room left.
+plexDatabase:
+  instances: 1
+  imageName: ghcr.io/cloudnative-pg/postgresql:15.19-standard-trixie
+  storage:
+    size: 5Gi
+    storageClass: ""
+  parameters:
+    max_connections: "400"
+    shared_buffers: 256MB
+    work_mem: 16MB
+    maintenance_work_mem: 128MB
+
+# Plex (cluster-plex's chart, a dependency; its own values.yaml documents
+# every key). Each value below that names one of this release's resources is
+# rendered as a template, and assumes the default fullname, which is the
+# release name when it contains "clustarr": set them yourself under a
+# fullnameOverride. Plex reads the library from storage.data's claim,
+# read-only, at /media; clustarr's /data/media is Plex's /media.
+cluster-plex:
+  enabled: false
+  fullnameOverride: plex
+  postgres:
+    host: '{{ .Release.Name }}-plex-db-rw'
+    passwordSecret:
+      name: '{{ .Release.Name }}-plex-db-app'
+      key: password
+  storage:
+    media:
+      # storage.data.existingClaim when you bring your own.
+      existingClaim: '{{ .Release.Name }}-data'
+      subPath: media
+      readOnly: true
+  plex:
+    metadataProviders:
+      - uri: 'http://{{ .Release.Name }}-ui.{{ .Release.Namespace }}.svc.cluster.local:8080/plex/movies'
+      - uri: 'http://{{ .Release.Name }}-ui.{{ .Release.Namespace }}.svc.cluster.local:8080/plex/tv'
+    libraries:
+      - name: Clustarr Movies
+        type: movie
+        provider: tv.plex.agents.custom.clustarr.movies
+        language: en-US
+        locations: [/media/movies]
+      - name: Clustarr TV
+        type: show
+        provider: tv.plex.agents.custom.clustarr.tv
+        language: en-US
+        locations: [/media/tv]
+    clustarr:
+      enabled: true
+      namespace: '{{ .Release.Namespace }}'
+      # The server's plex.tv account, kept by cluster-plex; clustarr's Plex
+      # watchlist ImportList reads its token.
+      tokenSecret: plex-token
+      pathMappings:
+        - {clustarr: /data/media, plex: /media}
+
 # CloudNativePG: the Postgres operator itself. A separate toggle from
 # postgres.enabled on purpose -- most clusters install an operator like this
 # one once, cluster-wide, rather than per Clustarr release; enable this only

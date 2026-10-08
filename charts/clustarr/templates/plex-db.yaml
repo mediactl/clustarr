@@ -1,0 +1,42 @@
+{{/*
+Plex's library database (cluster-plex's shim), a CloudNativePG Cluster. Rendered
+when cluster-plex.enabled. Named after the release, not clustarr.fullname: the
+cluster-plex subchart's values reach it as "{{ .Release.Name }}-plex-db-rw" and
+"{{ .Release.Name }}-plex-db-app", and a subchart's templates see only .Release.
+
+Kept on uninstall, like the release index's Cluster (postgres-cluster.yaml) and
+/data: it is the whole Plex library. A normal resource, never a hook (CLAUDE.md,
+the Helm hook gotcha). CNPG's bootstrap.initdb creates database and owner
+"plex" and Secret <name>-app, whose key "password" the subchart reads; the shim
+creates its schema on first start.
+*/}}
+{{- if index .Values "cluster-plex" "enabled" }}
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ .Release.Name }}-plex-db
+  labels:
+    {{- include "clustarr.labels" . | nindent 4 }}
+    app.kubernetes.io/component: plex-db
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  instances: {{ .Values.plexDatabase.instances }}
+  imageName: {{ .Values.plexDatabase.imageName }}
+  {{- with .Values.plexDatabase.parameters }}
+  postgresql:
+    parameters:
+      {{- range $k, $v := . }}
+      {{ $k }}: {{ $v | quote }}
+      {{- end }}
+  {{- end }}
+  storage:
+    size: {{ .Values.plexDatabase.storage.size | quote }}
+    {{- with .Values.plexDatabase.storage.storageClass }}
+    storageClass: {{ . }}
+    {{- end }}
+  bootstrap:
+    initdb:
+      database: plex
+      owner: plex
+{{- end }}
