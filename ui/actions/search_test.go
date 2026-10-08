@@ -137,3 +137,73 @@ func TestSearchActionsWrapTheAPIServersErrorAndNeedAWriter(t *testing.T) {
 		})
 	}
 }
+
+// TestSearchSeasonAndInteractiveSeasonSearchCreateTheRightSpec: a season
+// row's two buttons (Wave S S10) each create one labelled Search on the
+// Series with spec.season, under the ui's field manager -- the magnifier
+// with grabBest, which the Series plans; the person without, its results
+// for a person to pick from. Season 0 is the specials; a negative season,
+// or a Series with no namespace or name, is refused without a write; with
+// no writer the methods refuse.
+func TestSearchSeasonAndInteractiveSeasonSearchCreateTheRightSpec(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		create   func(c actions.Creator, ns, series string, season int32) (*catalogv1alpha1.Search, error)
+		grabBest bool
+	}{
+		{"the magnifier", func(c actions.Creator, ns, series string, season int32) (*catalogv1alpha1.Search, error) {
+			return actions.SearchSeason(t.Context(), c, ns, series, season)
+		}, true},
+		{"the person", func(c actions.Creator, ns, series string, season int32) (*catalogv1alpha1.Search, error) {
+			return actions.InteractiveSeasonSearch(t.Context(), c, ns, series, season)
+		}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, season := range []int32{2, 0} {
+				w := &fakeWriter{}
+				s, err := tc.create(w, "media", "andor", season)
+				require.NoError(t, err)
+				require.Len(t, w.creates, 1)
+				require.Same(t, s, w.creates[0].obj)
+				require.Equal(t, actions.FieldManager, w.creates[0].opts.FieldManager)
+				require.Equal(t, "andor-", s.GenerateName)
+				require.Equal(t, "media", s.Namespace)
+				require.Equal(t, map[string]string{actions.LabelOrigin: actions.OriginUI}, s.Labels)
+				require.Equal(t, catalogv1alpha1.SearchSpec{
+					MediaRef: &commonv1.MediaRef{Kind: commonv1.MediaKindSeries, Name: "andor"},
+					Season:   &season,
+					GrabBest: tc.grabBest,
+				}, s.Spec, "season %d", season)
+			}
+
+			for name, args := range map[string]struct {
+				ns, series string
+				season     int32
+			}{
+				"a negative season": {"media", "andor", -1},
+				"no namespace":      {"", "andor", 1},
+				"no series":         {"media", "", 1},
+			} {
+				w := &fakeWriter{}
+				_, err := tc.create(w, args.ns, args.series, args.season)
+				require.ErrorIs(t, err, actions.ErrInvalid, name)
+				require.Empty(t, w.creates, "%s: refused, so nothing is created", name)
+			}
+		})
+	}
+
+	var none *actions.Actions
+	_, err := none.SearchSeason(t.Context(), "media", "andor", 1)
+	require.ErrorIs(t, err, actions.ErrNoWriter)
+	_, err = actions.New(nil).InteractiveSeasonSearch(t.Context(), "media", "andor", 1)
+	require.ErrorIs(t, err, actions.ErrNoWriter)
+
+	w := &fakeWriter{}
+	_, err = actions.New(w).SearchSeason(t.Context(), "media", "andor", 3)
+	require.NoError(t, err)
+	_, err = actions.New(w).InteractiveSeasonSearch(t.Context(), "media", "andor", 3)
+	require.NoError(t, err)
+	require.Len(t, w.creates, 2, "each method writes through the Actions' writer")
+	require.True(t, w.creates[0].obj.(*catalogv1alpha1.Search).Spec.GrabBest)
+	require.False(t, w.creates[1].obj.(*catalogv1alpha1.Search).Spec.GrabBest)
+}
