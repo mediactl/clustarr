@@ -21,6 +21,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -34,9 +35,12 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/app/import/controller/libraryscan"
+	"github.com/mediactl/clustarr/app/import/manager/scanapply"
 	"github.com/mediactl/clustarr/app/import/scanprogress"
 	"github.com/mediactl/clustarr/app/import/worker/rescan"
+	"github.com/mediactl/clustarr/app/intake"
 	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
@@ -418,8 +422,10 @@ func TestReconcileIgnoresADeletingScan(t *testing.T) {
 	assert.Zero(t, res.RequeueAfter)
 }
 
-// The whole chain, with the real controller and the real worker: a planted
-// file becomes a Movie and a MediaFile owned by import, and a planted file
+// The whole chain, with the real controller, the real worker and the
+// manager's real scan applier behind the import-intake-scan consumer
+// (ADR-0019 §7.6: the walk reports, the applier writes): a planted file
+// becomes a Movie and a MediaFile owned by import, and a planted file
 // nothing can attribute lands in status.unmatched with a reason.
 func TestScanEndToEndCreatesMediaFileAndRecordsUnmatched(t *testing.T) {
 	ctx := context.Background()
@@ -440,8 +446,17 @@ func TestScanEndToEndCreatesMediaFileAndRecordsUnmatched(t *testing.T) {
 	bus := newBus(t, ctx)
 	r := &libraryscan.Reconciler{Client: c, Bus: bus, Clock: time.Now}
 
-	// The three actors run.go wires together, driven directly so the test
-	// needs no NATS process and no network.
+	// The manager's half: the import-intake-scan consumer hands every
+	// observation the walk publishes to the scan applier, as
+	// internal/cli/manager wires them.
+	applier := &countingApplier{ScanApplier: &scanapply.Applier{Client: c, Reader: cachedClient, APIReader: c, Bus: bus}}
+	consumerCtx, stopConsumer := context.WithCancel(ctx)
+	defer stopConsumer()
+	consumer := &intake.ScanConsumer{Bus: bus, Applier: applier, Topology: events.Default()}
+	go func() { _ = consumer.Start(consumerCtx) }()
+
+	// The four actors the manager and the agent wire together, driven
+	// directly so the test needs no NATS process and no network.
 	require.NoError(t, errOf(r.Reconcile(ctx, request(ns, scan.Name))))
 	_, msg := drainOneScanTask(t, ctx, bus)
 	// The worker needs the cache-backed client: its per-file lookup goes
@@ -450,7 +465,11 @@ func TestScanEndToEndCreatesMediaFileAndRecordsUnmatched(t *testing.T) {
 		var got catalogv1alpha1.LibraryScan
 		return cachedClient.Get(ctx, client.ObjectKeyFromObject(scan), &got) == nil
 	})
-	require.NoError(t, rescan.NewWorker(cachedClient, bus).Handle(ctx, msg))
+	require.NoError(t, rescan.NewWorker(cachedClient, bus, nil).Handle(ctx, msg))
+	// The walk is done when Handle returns; the applier's tally, which the
+	// poll adds to the walk's, lands once the one attributed file's
+	// observation is applied.
+	waitFor(t, 20*time.Second, func() bool { return applier.present.Load() == 1 })
 
 	var after catalogv1alpha1.LibraryScan
 	waitFor(t, 20*time.Second, func() bool {
@@ -479,9 +498,23 @@ func TestScanEndToEndCreatesMediaFileAndRecordsUnmatched(t *testing.T) {
 	assert.Equal(t, good, mf.Spec.Path)
 	assert.Equal(t, movies.Items[0].Name, mf.Spec.MediaRef.Name)
 	assert.Equal(t, string(rescan.FieldManager), managerFor(t, mf.ManagedFields, "", "spec.path"),
-		"the rescan worker writes MediaFileSpec under its own manager, not import's controller one")
+		"the scan applier records a scanned file's MediaFileSpec under import's worker manager, not its controller one")
 	assert.Empty(t, managerFor(t, mf.ManagedFields, "status", "status"),
 		"catalog owns MediaFileStatus; import must not have written it")
+}
+
+// countingApplier counts the present observations its applier applied.
+type countingApplier struct {
+	intake.ScanApplier
+	present atomic.Int64
+}
+
+func (a *countingApplier) Apply(ctx context.Context, obs schema.ScanObservation) error {
+	err := a.ScanApplier.Apply(ctx, obs)
+	if err == nil && obs.Kind == schema.ScanObservationPresent {
+		a.present.Add(1)
+	}
+	return err
 }
 
 // errOf drops a Reconcile result, for the calls that only assert on the error.

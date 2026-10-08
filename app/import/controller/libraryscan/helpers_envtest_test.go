@@ -89,9 +89,11 @@ func TestMain(m *testing.M) {
 			fmt.Fprintf(os.Stderr, "build manager: %v\n", err)
 			return 1
 		}
-		if err := rescan.IndexMediaFileByPath(ctx, mgr); err != nil {
-			fmt.Fprintf(os.Stderr, "index media files: %v\n", err)
-			return 1
+		for _, fi := range rescan.FieldIndexes() {
+			if err := mgr.GetFieldIndexer().IndexField(ctx, fi.Object, fi.Name, fi.Extract); err != nil {
+				fmt.Fprintf(os.Stderr, "index media files: %v\n", err)
+				return 1
+			}
 		}
 		go func() { _ = mgr.Start(ctx) }()
 		if !mgr.GetCache().WaitForCacheSync(ctx) {
