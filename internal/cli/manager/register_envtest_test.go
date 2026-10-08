@@ -97,7 +97,6 @@ func testOptions() Options {
 	return o
 }
 
-
 func TestManagerFieldIndexes(t *testing.T) {
 	env := starttest.StartEnv(t)
 	o := testOptions()
@@ -185,4 +184,38 @@ func TestRegisterWiresAutoscaleByTheFlag(t *testing.T) {
 		"exactly one more controller, the HPA reconciler \"autoscale\", with --autoscale")
 	assert.Equal(t, len(off.added)-1+4, len(on.added),
 		"--autoscale swaps the one cleanup for the reconciler, the server, CertManager and NamespaceGuard")
+}
+
+// TestIntakeConsumersRunOnlyOnTheLeader (ADR-0019 §8.1, §8.4): the intake
+// is leader-local -- the candidate inbox parks a message until its owner's
+// pass settles it, and only the leader runs passes -- so the candidate and
+// scan intakes, the task-events intake and the dispatch ledger are each added
+// once, as runnables controller-runtime starts only after the lease is won,
+// never wrapped into something that runs on every replica.
+func TestIntakeConsumersRunOnlyOnTheLeader(t *testing.T) {
+	env := starttest.StartEnv(t)
+	o := testOptions()
+	o.Autoscale = false
+	mgr, err := ctrl.NewManager(env.Config, managerOptions(o))
+	require.NoError(t, err)
+	rec := newRecordingManager(mgr)
+	_, err = register(rec, membus.New(clockwork.NewRealClock()), o)
+	require.NoError(t, err)
+
+	leaderOnly := map[string]int{}
+	for i, r := range rec.runnable {
+		typ := rec.added[i]
+		switch typ {
+		case "*intake.CandidateConsumer", "*intake.ScanConsumer", "*advisory.Intake", "*dispatch.Ledger":
+		default:
+			continue
+		}
+		le, ok := r.(manager.LeaderElectionRunnable)
+		require.True(t, ok, "%s does not say whether it needs the lease: controller-runtime would run it on every replica", typ)
+		assert.True(t, le.NeedLeaderElection(), "%s runs on every replica", typ)
+		leaderOnly[typ]++
+	}
+	assert.Equal(t, map[string]int{
+		"*intake.CandidateConsumer": 1, "*intake.ScanConsumer": 1, "*advisory.Intake": 1, "*dispatch.Ledger": 1,
+	}, leaderOnly)
 }
