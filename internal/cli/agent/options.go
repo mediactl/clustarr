@@ -110,6 +110,13 @@ func (o Options) Validate() error {
 		}
 	}
 	switch o.Domain {
+	case "import":
+		if o.SampleMaxBytes < 0 {
+			// The workers read a negative floor as "disabled", exactly as
+			// they read zero (fsops.IsSuspectedSample); a negative flag is a
+			// typo, not a request for that.
+			errs = append(errs, fmt.Errorf("--sample-max-bytes must be 0 (disabled) or more, got %d", o.SampleMaxBytes))
+		}
 	case "torrent-engine":
 		if o.Engine == "" {
 			errs = append(errs, errors.New("--domain torrent-engine needs exactly one of --engine or --download-client"))
