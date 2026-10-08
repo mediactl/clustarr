@@ -143,8 +143,8 @@ func newSafetyCase(t *testing.T, planned, live string) *safetyCase {
 	require.NoError(t, err)
 
 	tk := task.Task{
-		Job:     schema.Ref{Namespace: "media", Name: "film-abc", UID: safetyJobUID},
-		Attempt: 2, Class: "cpu",
+		File: schema.Ref{Namespace: "media", Name: "film-abc", UID: safetyJobUID},
+		Seq:  2, Class: "cpu",
 		Profile:    task.Profile{Name: "hevc", Hash: "abc", Spec: transcodev1alpha1.TranscodeProfileSpec{}},
 		SourcePath: logical, SourceProbeHash: mediainfo.ProbeHash(logical, st.Size(), st.ModTime()),
 		SourceSizeBytes: st.Size(), OutputPath: logical,
@@ -286,7 +286,7 @@ func TestTheOutputIsSyncedBeforeItReplacesTheSource(t *testing.T) {
 		require.Len(t, synced, 1)
 		p, ok := fsopsPart(filepath.Base(synced[0]))
 		require.True(t, ok, "the attempt's part is what is synced: %s", synced[0])
-		assert.Equal(t, 2, p.Attempt)
+		assert.Equal(t, int64(2), p.Seq)
 		got, err := os.ReadFile(c.local)
 		require.NoError(t, err)
 		assert.Equal(t, "transcoded", string(got))

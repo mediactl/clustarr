@@ -39,6 +39,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
+	"github.com/mediactl/clustarr/pkg/records"
 	"github.com/mediactl/clustarr/pkg/transcode"
 	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
@@ -127,20 +128,25 @@ func (m *trackingMessage) Term(ctx context.Context, reason string) error {
 	return m.Message.Term(ctx, reason)
 }
 
+// The harness's dispatch: one MediaFile, whose record the loop requests
+// before it publishes each seq (loop spec §4.12).
+const fileUID = "fuid"
+
+var harnessFile = schema.Ref{Namespace: "media", Name: "mf", UID: fileUID}
+
 type harness struct {
-	t         *testing.T
-	ctx       context.Context
-	cancel    context.CancelFunc
-	clock     *clockwork.FakeClock
-	bus       events.Bus
-	tracking  *trackingBus
-	leases    events.KV
-	calls     atomic.Int32
-	release   chan Outcome // unbuffered: a send means the stub took it
-	started   chan struct{}
-	ended     chan struct{}
-	events    chan task.StatusEvent
-	decodeErr chan error
+	t        *testing.T
+	ctx      context.Context
+	cancel   context.CancelFunc
+	clock    *clockwork.FakeClock
+	bus      events.Bus
+	tracking *trackingBus
+	leases   events.KV
+	records  events.KV
+	calls    atomic.Int32
+	release  chan Outcome // unbuffered: a send means the stub took it
+	started  chan struct{}
+	ended    chan struct{}
 
 	// cancelOutcome is what the stub Process returns when its ctx is done
 	// instead of receiving on release. Tests that need Serve's drain path to
@@ -166,7 +172,6 @@ func newHarness(t *testing.T) *harness {
 	h := &harness{
 		t: t, clock: clockwork.NewFakeClock(), release: make(chan Outcome),
 		started: make(chan struct{}, 8), ended: make(chan struct{}, 8),
-		events: make(chan task.StatusEvent, 64), decodeErr: make(chan error, 1),
 		cancelOutcome: Outcome{Code: ExitRetriable},
 		doneCh:        make(chan struct{}),
 	}
@@ -176,38 +181,11 @@ func newHarness(t *testing.T) *harness {
 	h.bus = h.tracking
 	require.NoError(t, h.bus.Ensure(h.ctx, events.Default().ForSingleNode()))
 	h.leases = h.bus.KV(events.BucketTranscodeLeases)
-	rc, ok := events.Default().Consumer(events.ConsumerTranscodeResults)
-	require.True(t, ok)
-	// item 9: this handler runs on membus's own goroutine, not the test's,
-	// so a decode failure is reported through a channel instead of
-	// require/assert.FailNow, which is unsafe to call off the test
-	// goroutine.
-	stop, err := h.bus.Subscribe(context.Background(), rc.Subscription(), func(_ context.Context, m events.Message) error {
-		var ev task.StatusEvent
-		if derr := schema.Decode(m.Envelope().Schema, m.Envelope().Data, &ev); derr != nil {
-			select {
-			case h.decodeErr <- derr:
-			default:
-			}
-			return derr
-		}
-		h.events <- ev
-		return nil
-	})
-	require.NoError(t, err)
+	h.records = h.bus.KV(events.BucketTranscodes)
 
 	// Cleanups run LIFO. Registered in this order, they execute: join (cancel
 	// ctx, wait for Serve to actually return -- item 9) first, then stop the
-	// clock pump, then stop the results subscription, then check for a
-	// decode failure nothing already asserted on.
-	t.Cleanup(func() {
-		select {
-		case e := <-h.decodeErr:
-			t.Errorf("a status event failed to decode: %v", e)
-		default:
-		}
-	})
-	t.Cleanup(stop)
+	// clock pump.
 	t.Cleanup(pumpClock(t, h.clock, 2*time.Millisecond))
 	t.Cleanup(func() {
 		h.cancel()
@@ -267,13 +245,10 @@ func (h *harness) serveOnBus(bus events.Bus) {
 func (h *harness) serveOnBusWithOptions(bus events.Bus, mutate func(*ServeOptions)) {
 	process := h.processOverride
 	if process == nil {
-		process = func(ctx context.Context, _ task.Task, o Options) Outcome {
+		process = func(ctx context.Context, _ task.Task, _ Options) Outcome {
 			h.calls.Add(1)
 			h.started <- struct{}{}
 			defer func() { h.ended <- struct{}{} }()
-			if o.OnProgress != nil {
-				_ = o.OnProgress(ctx, transcodev1alpha1.Progress{Percent: 40})
-			}
 			select {
 			case out := <-h.release:
 				return out
@@ -289,7 +264,7 @@ func (h *harness) serveOnBusWithOptions(bus events.Bus, mutate func(*ServeOption
 	o := ServeOptions{
 		ProfileUID: "puid", Class: "cpu", Node: "n1",
 		Options: Options{PodName: "pool-abc"},
-		Leases:  h.leases, Clock: h.clock,
+		Leases:  h.leases, Records: h.records, Clock: h.clock,
 		Process: process,
 	}
 	if mutate != nil {
@@ -318,46 +293,76 @@ func (h *harness) waitDone(within time.Duration) error {
 	}
 }
 
-func (h *harness) publish(attempt int32, deadline time.Duration) {
+// request writes the loop's requested record at seq, as the loop does before
+// it publishes the dispatch (loop spec §4.8).
+func (h *harness) request(seq int64) {
 	h.t.Helper()
-	tk := task.Task{Job: schema.Ref{Namespace: "media", Name: "tj", UID: "juid"}, Attempt: attempt, Class: "cpu"}
+	reqs := task.Requests(h.records)
+	key := events.RecordKey(fileUID)
+	_, rev, _, err := reqs.Get(h.ctx, key)
+	require.NoError(h.t, err)
+	_, err = reqs.Request(h.ctx, key, rev, &task.Record{
+		RecordHeader: schema.RecordHeader{Schema: task.RecordSchema, MediaFile: harnessFile, Seq: seq, State: records.StateRequested},
+		Inputs:       task.Inputs{Class: "cpu"},
+	})
+	require.NoError(h.t, err)
+}
+
+// publish requests seq and publishes its task.
+func (h *harness) publish(seq int64, deadline time.Duration) {
+	h.t.Helper()
+	h.request(seq)
+	tk := task.Task{File: harnessFile, Seq: seq, Class: "cpu", Inputs: task.Inputs{Class: "cpu"}}
 	tk.Deadline.Duration = deadline
 	sch, data, err := schema.Encode(tk)
 	require.NoError(h.t, err)
-	id := events.MsgIDForTranscodeTask("juid", attempt)
-	_, err = h.bus.Publish(h.ctx, events.WorkTranscodeTaskSubject("puid", "cpu", "juid"),
+	id := events.MsgIDForTranscodeTask(fileUID, seq)
+	_, err = h.bus.Publish(h.ctx, events.WorkTranscodeTaskSubject("puid", "cpu", fileUID),
 		&events.Envelope{ID: id, Schema: sch, Data: data}, events.WithMsgID(id))
 	require.NoError(h.t, err)
 }
 
-// next waits for the next event of kind, skipping others.
-func (h *harness) next(kind task.EventKind) task.StatusEvent {
+// record is the file's transcode record as it stands.
+func (h *harness) record() *task.Record {
 	h.t.Helper()
-	deadline := time.After(5 * time.Second)
-	for {
-		select {
-		case ev := <-h.events:
-			if ev.Kind == kind {
-				return ev
-			}
-		case <-deadline:
-			h.t.Fatalf("no %s event within 5s", kind)
-		}
+	r, _, ok, err := task.Requests(h.records).Get(context.Background(), events.RecordKey(fileUID))
+	require.NoError(h.t, err)
+	if !ok {
+		return nil
 	}
+	return r
 }
 
-func (h *harness) noEvent(kind task.EventKind, within time.Duration) {
+// waitRecord waits for the record to reach state, the worker's claim or its
+// answer (the status events of the v1 protocol, loop spec §4.12).
+func (h *harness) waitRecord(state string) *task.Record {
 	h.t.Helper()
-	deadline := time.After(within)
-	for {
-		select {
-		case ev := <-h.events:
-			if ev.Kind == kind {
-				h.t.Fatalf("unexpected %s event: %+v", kind, ev)
-			}
-		case <-deadline:
-			return
+	var r *task.Record
+	require.Eventually(h.t, func() bool {
+		r = h.record()
+		return r != nil && r.State == state
+	}, 5*time.Second, 5*time.Millisecond, "the record never reached %s", state)
+	return r
+}
+
+// answer waits for the worker's answer.
+func (h *harness) answer() *task.Record {
+	h.t.Helper()
+	r := h.waitRecord(records.StateAnswered)
+	require.NotNil(h.t, r.Answer)
+	return r
+}
+
+// stays asserts the record stays in state for within: the worker claimed
+// nothing, or answered nothing.
+func (h *harness) stays(state string, within time.Duration) {
+	h.t.Helper()
+	deadline := time.Now().Add(within)
+	for time.Now().Before(deadline) {
+		if r := h.record(); r == nil || r.State != state {
+			h.t.Fatalf("the record left %s: %+v", state, r)
 		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 
@@ -377,46 +382,46 @@ func (h *harness) nextSettlement() settlement {
 func (h *harness) putLease(l task.Lease) {
 	h.t.Helper()
 	b, _ := json.Marshal(l)
-	_, err := h.leases.Put(h.ctx, events.TranscodeLeaseKey("juid"), b)
+	_, err := h.leases.Put(h.ctx, events.TranscodeLeaseKey(fileUID), b)
 	require.NoError(h.t, err)
 }
 
 func (h *harness) leaseGone() bool {
-	_, err := h.leases.Get(context.Background(), events.TranscodeLeaseKey("juid"))
+	_, err := h.leases.Get(context.Background(), events.TranscodeLeaseKey(fileUID))
 	return err != nil
 }
 
+// The worker claims the record while it runs and answers in it (the v1
+// claimed and finished events, loop spec §4.12); progress goes only to
+// clustarr-progress, which telemetry_test.go covers.
 func TestServeReportsClaimedProgressFinishedAndAcks(t *testing.T) {
 	h := newHarness(t)
 	h.serve()
 	h.publish(1, 0)
-	claimed := h.next(task.EventClaimed)
-	assert.Equal(t, uint64(1), claimed.Seq)
-	assert.Equal(t, "pool-abc", claimed.Pod)
-	assert.Equal(t, "n1", claimed.Node)
-	assert.Equal(t, int32(1), claimed.Attempt)
-	assert.Equal(t, transcodev1alpha1.HardwareCPU, claimed.Class, "every event names the class the task was dispatched to")
+	<-h.started
+	claimed := h.waitRecord(records.StateClaimed)
+	assert.Equal(t, int64(1), claimed.Seq)
+	assert.Equal(t, "pool-abc", claimed.Writer)
+	assert.NotNil(t, claimed.ClaimedAt)
 	assert.False(t, h.leaseGone(), "the lease is held while Process runs")
-	progress := h.next(task.EventProgress)
-	assert.Equal(t, uint64(2), progress.Seq)
-	assert.Equal(t, int32(40), progress.Progress.Percent)
-	assert.Equal(t, transcodev1alpha1.HardwareCPU, progress.Class)
 
 	h.release <- Outcome{Code: ExitOK, Result: &task.Result{OutputPath: "/data/x.mkv"}}
-	fin := h.next(task.EventFinished)
-	assert.Equal(t, task.OutcomeSucceeded, fin.Outcome)
-	assert.Equal(t, "/data/x.mkv", fin.Result.OutputPath)
-	assert.Equal(t, uint64(3), fin.Seq)
-	assert.Equal(t, transcodev1alpha1.HardwareCPU, fin.Class)
+	fin := h.answer()
+	assert.Equal(t, int64(1), fin.Seq)
+	assert.Equal(t, task.OutcomeSucceeded, fin.Answer.Outcome)
+	assert.Equal(t, "/data/x.mkv", fin.Answer.Result.OutputPath)
+	assert.Equal(t, "pool-abc", fin.Answer.Pod)
+	assert.Equal(t, "n1", fin.Answer.Node)
+	assert.Equal(t, string(transcodev1alpha1.HardwareCPU), fin.Answer.Class, "the answer names the class the task was dispatched to")
 	assert.Equal(t, settleAck, h.nextSettlement().kind)
-	require.Eventually(t, h.leaseGone, 5*time.Second, 10*time.Millisecond, "the lease is released after finished")
+	require.Eventually(t, h.leaseGone, 5*time.Second, 10*time.Millisecond, "the lease is released after the answer")
 	h.clock.Advance(2 * time.Minute) // past AckWait: an acked task never returns
 	time.Sleep(100 * time.Millisecond)
 	assert.Equal(t, int32(1), h.calls.Load())
 }
 
-// The queue retries nothing: every outcome is reported and acked, and
-// transcode decides what happens next (spec §18.3).
+// The queue retries nothing: every outcome is answered and acked, and the
+// loop decides what happens next (spec §18.3).
 func TestServeReportsEveryOutcomeAndAcks(t *testing.T) {
 	for _, tc := range []struct {
 		out    Outcome
@@ -435,78 +440,84 @@ func TestServeReportsEveryOutcomeAndAcks(t *testing.T) {
 			h.publish(1, 0)
 			<-h.started
 			h.release <- tc.out
-			fin := h.next(task.EventFinished)
-			assert.Equal(t, task.OutcomeFailed, fin.Outcome)
-			assert.Equal(t, tc.reason, fin.Reason)
-			assert.Equal(t, tc.out.StderrTail, fin.StderrTail)
+			fin := h.answer()
+			assert.Equal(t, task.OutcomeFailed, fin.Answer.Outcome)
+			assert.Equal(t, tc.reason, fin.Answer.Reason)
+			assert.Equal(t, tc.out.StderrTail, fin.Answer.StderrTail)
 			assert.Equal(t, settleAck, h.nextSettlement().kind)
 			h.clock.Advance(time.Hour)
 			time.Sleep(100 * time.Millisecond)
-			assert.Equal(t, int32(1), h.calls.Load(), "a reported task is acked, never redelivered")
+			assert.Equal(t, int32(1), h.calls.Load(), "an answered task is acked, never redelivered")
 		})
 	}
 }
 
 func TestServeNaksATaskAnotherWorkerHolds(t *testing.T) {
 	h := newHarness(t)
-	h.putLease(task.Lease{Job: schema.Ref{UID: "juid"}, Attempt: 1, State: task.LeaseHeld, Pod: "other"})
+	h.putLease(task.Lease{File: schema.Ref{UID: fileUID}, Seq: 1, State: task.LeaseHeld, Pod: "other"})
 	h.serve()
 	h.publish(1, 0)
-	h.noEvent(task.EventClaimed, 300*time.Millisecond)
-	assert.Zero(t, h.calls.Load(), "Process must not run while another worker's lease lives")
 	s := h.nextSettlement()
 	assert.Equal(t, settleNak, s.kind)
 	assert.Equal(t, 30*time.Second, s.delay, "the default HeldRetry")
+	assert.Zero(t, h.calls.Load(), "Process must not run while another worker's lease lives")
+	assert.Equal(t, records.StateRequested, h.record().State, "nothing was claimed")
 }
 
 // Review Focus 3.
 func TestServeReplacesACancelledLeaseFromAnEarlierAttempt(t *testing.T) {
 	h := newHarness(t)
-	h.putLease(task.Lease{Job: schema.Ref{UID: "juid"}, Attempt: 1, State: task.LeaseCancelled})
+	h.putLease(task.Lease{File: schema.Ref{UID: fileUID}, Seq: 1, State: task.LeaseCancelled})
 	h.serve()
 	h.publish(2, 0)
-	assert.Equal(t, int32(2), h.next(task.EventClaimed).Attempt, "attempt 2 was dropped by attempt 1's cancel marker")
 	<-h.started
+	assert.Equal(t, int64(2), h.waitRecord(records.StateClaimed).Seq, "seq 2 was not dropped by seq 1's cancel marker")
 	h.release <- Outcome{Code: ExitOK, Result: &task.Result{}}
-	assert.Equal(t, int32(2), h.next(task.EventFinished).Attempt)
+	assert.Equal(t, int64(2), h.answer().Seq)
 	assert.Equal(t, settleAck, h.nextSettlement().kind)
 }
 
 func TestServeDropsATaskCancelledForItsOwnAttempt(t *testing.T) {
 	h := newHarness(t)
-	h.putLease(task.Lease{Job: schema.Ref{UID: "juid"}, Attempt: 2, State: task.LeaseCancelled})
+	h.putLease(task.Lease{File: schema.Ref{UID: fileUID}, Seq: 2, State: task.LeaseCancelled})
 	h.serve()
 	h.publish(2, 0)
-	h.noEvent(task.EventClaimed, 300*time.Millisecond)
-	assert.Zero(t, h.calls.Load())
 	assert.Equal(t, settleAck, h.nextSettlement().kind)
+	assert.Zero(t, h.calls.Load())
+	assert.Equal(t, records.StateRequested, h.record().State, "nothing was claimed")
 }
 
 // Fix round 1, item 6: a lease already held (or cancelled) for a later
-// attempt than the one just delivered means this delivery is stale --
-// transcode moved on without waiting for it -- so it settles as done, not as
+// dispatch than the one just delivered means this delivery is stale -- the
+// loop moved on without waiting for it -- so it settles as done, not as
 // something to keep retrying.
 func TestServeAcksATaskSupersededByALaterAttempt(t *testing.T) {
 	h := newHarness(t)
-	h.putLease(task.Lease{Job: schema.Ref{UID: "juid"}, Attempt: 2, State: task.LeaseHeld, Pod: "other"})
+	h.putLease(task.Lease{File: schema.Ref{UID: fileUID}, Seq: 2, State: task.LeaseHeld, Pod: "other"})
 	h.serve()
-	h.publish(1, 0) // an older, now-stale attempt
-	h.noEvent(task.EventClaimed, 300*time.Millisecond)
-	assert.Zero(t, h.calls.Load(), "a superseded attempt must never run")
+	h.publish(1, 0) // an older, now-stale dispatch
 	assert.Equal(t, settleAck, h.nextSettlement().kind)
+	assert.Zero(t, h.calls.Load(), "a superseded dispatch must never run")
+	assert.Equal(t, records.StateRequested, h.record().State, "nothing was claimed")
 }
 
+// A withdrawal (the loop's cancel marker on the lease) stops the running
+// work, which answers nothing -- the loop already closed the dispatch -- and
+// releases the lease and acks (loop spec §4.12; v1 reported it cancelled).
 func TestServeCancelsRunningWorkWhenTheLeaseIsCancelled(t *testing.T) {
 	h := newHarness(t)
 	h.serve()
 	h.publish(1, 0)
 	<-h.started
-	h.putLease(task.Lease{Job: schema.Ref{UID: "juid"}, Attempt: 1, State: task.LeaseCancelled})
+	h.putLease(task.Lease{File: schema.Ref{UID: fileUID}, Seq: 1, State: task.LeaseCancelled})
 	h.clock.Advance(20 * time.Second) // the next renewal sees the revision change
-	fin := h.next(task.EventFinished)
-	assert.Equal(t, task.OutcomeCancelled, fin.Outcome)
-	assert.Equal(t, task.ReasonCancelled, fin.Reason)
+	select {
+	case <-h.ended: // Process saw its context cancelled
+	case <-time.After(5 * time.Second):
+		t.Fatal("a withdrawn dispatch kept running")
+	}
 	assert.Equal(t, settleAck, h.nextSettlement().kind)
+	assert.Equal(t, records.StateClaimed, h.record().State, "a withdrawn dispatch answers nothing")
 }
 
 func TestServeSelfFencesWhenRenewalsFail(t *testing.T) {
@@ -526,10 +537,10 @@ func TestServeSelfFencesWhenRenewalsFail(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("a worker that cannot renew its lease kept encoding past FenceAfter")
 	}
-	h.noEvent(task.EventFinished, 300*time.Millisecond) // a fenced worker reports nothing
 	s := h.nextSettlement()
 	assert.Equal(t, settleNak, s.kind)
 	assert.Zero(t, s.delay)
+	h.stays(records.StateClaimed, 300*time.Millisecond) // a fenced worker answers nothing
 	assert.False(t, h.leaseGone(), "a fenced worker's lease is left to lapse, not released")
 }
 
@@ -553,8 +564,7 @@ func TestServeAdoptsARevisionAfterALostUpdateReply(t *testing.T) {
 	default:
 	}
 	h.release <- Outcome{Code: ExitOK, Result: &task.Result{}}
-	fin := h.next(task.EventFinished)
-	assert.Equal(t, task.OutcomeSucceeded, fin.Outcome)
+	assert.Equal(t, task.OutcomeSucceeded, h.answer().Answer.Outcome)
 	assert.Equal(t, settleAck, h.nextSettlement().kind)
 }
 
@@ -566,7 +576,7 @@ func TestServeFinishesASucceededTaskDespiteDrain(t *testing.T) {
 	<-h.started
 	h.release <- Outcome{Code: ExitOK, Result: &task.Result{OutputPath: "/data/x.mkv"}}
 	h.cancel() // SIGTERM lands as Process returns
-	assert.Equal(t, task.OutcomeSucceeded, h.next(task.EventFinished).Outcome)
+	assert.Equal(t, task.OutcomeSucceeded, h.answer().Answer.Outcome)
 	assert.Equal(t, settleAck, h.nextSettlement().kind)
 	assert.ErrorIs(t, h.waitDone(5*time.Second), context.Canceled)
 }
@@ -578,18 +588,18 @@ func TestServeDrainNaksUnfinishedWork(t *testing.T) {
 	<-h.started
 	h.cancel()
 	assert.ErrorIs(t, h.waitDone(5*time.Second), context.Canceled)
-	h.noEvent(task.EventFinished, 300*time.Millisecond)
-	assert.True(t, h.leaseGone(), "drained work releases its lease so the next pod can start at once")
 	s := h.nextSettlement()
 	assert.Equal(t, settleNak, s.kind)
 	assert.Zero(t, s.delay)
+	h.stays(records.StateClaimed, 300*time.Millisecond)
+	assert.True(t, h.leaseGone(), "drained work releases its lease so the next pod can start at once")
 }
 
 // Fix round 1, item 1: a drain that lands while Process is still probing --
 // returning a classified failure code, not ExitRetriable -- must still win
-// as a drain: release the lease and Nak(0) with no finished event, rather
-// than report the task Failed and ack it, which would block the job for
-// good (a healthy task never gets to run again).
+// as a drain: release the lease and Nak(0) with no answer, rather than
+// answer the task Failed and ack it, which would block the file for good (a
+// healthy task never gets to run again).
 func TestServeDrainDuringAClassifiedFailureReleasesTheLeaseWithoutReporting(t *testing.T) {
 	h := newHarness(t)
 	h.cancelOutcome = Outcome{Code: ExitInvalidSource}
@@ -598,11 +608,11 @@ func TestServeDrainDuringAClassifiedFailureReleasesTheLeaseWithoutReporting(t *t
 	<-h.started
 	h.cancel()
 	assert.ErrorIs(t, h.waitDone(5*time.Second), context.Canceled)
-	h.noEvent(task.EventFinished, 300*time.Millisecond)
-	assert.True(t, h.leaseGone(), "a drained probe releases its lease so the next pod can start at once")
 	s := h.nextSettlement()
 	assert.Equal(t, settleNak, s.kind)
 	assert.Zero(t, s.delay)
+	h.stays(records.StateClaimed, 300*time.Millisecond)
+	assert.True(t, h.leaseGone(), "a drained probe releases its lease so the next pod can start at once")
 }
 
 func TestServeEnforcesTheTaskDeadline(t *testing.T) {
@@ -611,9 +621,9 @@ func TestServeEnforcesTheTaskDeadline(t *testing.T) {
 	h.publish(1, time.Minute)
 	<-h.started
 	h.clock.Advance(61 * time.Second)
-	fin := h.next(task.EventFinished)
-	assert.Equal(t, task.OutcomeFailed, fin.Outcome)
-	assert.Equal(t, task.ReasonDeadlineExceeded, fin.Reason)
+	fin := h.answer()
+	assert.Equal(t, task.OutcomeFailed, fin.Answer.Outcome)
+	assert.Equal(t, task.ReasonDeadlineExceeded, fin.Answer.Reason)
 	assert.Equal(t, settleAck, h.nextSettlement().kind)
 }
 
@@ -625,13 +635,10 @@ func TestServeReportsSuccessEvenAfterTheDeadlineFired(t *testing.T) {
 	// never reach this scenario: Process ignores the deadline (its own
 	// encode/verify/swap was already past the point of checking ctx) and
 	// still reports success once it is actually done.
-	h.processOverride = func(ctx context.Context, _ task.Task, o Options) Outcome {
+	h.processOverride = func(_ context.Context, _ task.Task, _ Options) Outcome {
 		h.calls.Add(1)
 		h.started <- struct{}{}
 		defer func() { h.ended <- struct{}{} }()
-		if o.OnProgress != nil {
-			_ = o.OnProgress(ctx, transcodev1alpha1.Progress{Percent: 40})
-		}
 		return <-h.release
 	}
 	h.serve()
@@ -640,63 +647,64 @@ func TestServeReportsSuccessEvenAfterTheDeadlineFired(t *testing.T) {
 	h.clock.Advance(61 * time.Second)
 	time.Sleep(20 * time.Millisecond) // let the deadline timer fire and cancel work
 	h.release <- Outcome{Code: ExitOK, Result: &task.Result{OutputPath: "/data/x.mkv"}}
-	fin := h.next(task.EventFinished)
-	assert.Equal(t, task.OutcomeSucceeded, fin.Outcome)
-	assert.Equal(t, "/data/x.mkv", fin.Result.OutputPath)
+	fin := h.answer()
+	assert.Equal(t, task.OutcomeSucceeded, fin.Answer.Outcome)
+	assert.Equal(t, "/data/x.mkv", fin.Answer.Result.OutputPath)
 	assert.Equal(t, settleAck, h.nextSettlement().kind)
 }
 
 // Fix round 1, item 2: a claim that races the marker replace it needs
 // (another writer already moved or expired it) must retry, not silently ack
-// an attempt that is still perfectly runnable.
+// a dispatch that is still perfectly runnable.
 func TestServeRetriesAClaimAfterALostMarkerReplace(t *testing.T) {
 	h := newHarness(t)
-	h.putLease(task.Lease{Job: schema.Ref{UID: "juid"}, Attempt: 1, State: task.LeaseCancelled})
+	h.putLease(task.Lease{File: schema.Ref{UID: fileUID}, Seq: 1, State: task.LeaseCancelled})
 	failFirst := &failFirstUpdate{KV: h.leases}
 	h.leases = failFirst
 	h.serve()
 	h.publish(2, 0)
-	claimed := h.next(task.EventClaimed)
-	assert.Equal(t, int32(2), claimed.Attempt, "the claim retried after its first replace attempt's reply was lost")
-	assert.True(t, failFirst.failed.Load())
 	<-h.started
+	assert.Equal(t, int64(2), h.waitRecord(records.StateClaimed).Seq, "the claim retried after its first replace attempt's reply was lost")
+	assert.True(t, failFirst.failed.Load())
 	h.release <- Outcome{Code: ExitOK, Result: &task.Result{}}
-	assert.Equal(t, int32(2), h.next(task.EventFinished).Attempt)
+	assert.Equal(t, int64(2), h.answer().Seq)
 	assert.Equal(t, settleAck, h.nextSettlement().kind)
 }
 
-// Fix round 1, item 8: a finished event that fails to publish must still
-// release the lease, so a redelivery is not held to the full lease TTL.
-func TestServeReleasesTheLeaseWhenTheFinishedPublishFails(t *testing.T) {
+// Fix round 1, item 8: an answer that fails to be recorded must still
+// release the lease, so a redelivery is not held to the full lease TTL. (A
+// success is a fact, retried in-process instead: settleFact.)
+func TestServeReleasesTheLeaseWhenTheAnswerIsNotRecorded(t *testing.T) {
 	h := newHarness(t)
-	fb := &failFinishedPublish{trackingBus: h.tracking, jobUID: "juid"}
-	fb.fail.Store(true)
-	h.serveOnBus(fb)
+	failing := &failFirstAnswer{KV: h.records}
+	failing.fail.Store(true)
+	h.records = failing
+	h.serve()
 	h.publish(1, 0)
 	<-h.started
-	h.release <- Outcome{Code: ExitOK, Result: &task.Result{}}
+	h.release <- Outcome{Code: ExitVerifyFailed}
 	s := h.nextSettlement()
 	assert.Equal(t, settleNak, s.kind)
 	assert.Zero(t, s.delay)
-	h.noEvent(task.EventFinished, 300*time.Millisecond)
+	assert.Equal(t, records.StateClaimed, h.record().State, "the answer was not recorded")
 
 	// Nak(0) redelivers at once: the retry reclaims a fresh lease (item 8's
 	// release made that possible instead of leaving the redelivery to wait
-	// out the lease TTL) and this time the publish succeeds.
+	// out the lease TTL) and this time the answer is recorded.
 	<-h.started
-	h.release <- Outcome{Code: ExitOK, Result: &task.Result{}}
-	fin := h.next(task.EventFinished)
-	assert.Equal(t, task.OutcomeSucceeded, fin.Outcome)
+	h.release <- Outcome{Code: ExitVerifyFailed}
+	fin := h.answer()
+	assert.Equal(t, task.ReasonVerifyFailed, fin.Answer.Reason)
 	assert.Equal(t, settleAck, h.nextSettlement().kind)
-	assert.True(t, h.leaseGone(), "the lease is released once the retry's finished event is stored")
+	assert.True(t, h.leaseGone(), "the lease is released once the retry's answer is recorded")
 }
 
 // I2c: Serve wires Options.BeforeSwap to reassertBeforeSwap, so a process
 // stub that calls it right where run() would -- immediately before the
 // swap -- gets exactly renew's own settlement when it finds a confirmed
-// cancel marker for this attempt: cancelled, reported, acked. (run.go's own
-// envtest, TestRunAbortsTheSwapAndRemovesThePartWhenBeforeSwapFails, proves
-// the filesystem side with a real encode; this proves the settlement
+// cancel marker for this dispatch: withdrawn, answered nothing, acked.
+// (run.go's own envtest, TestRunAbortsTheSwapAndRemovesThePartWhenBeforeSwapFails,
+// proves the filesystem side with a real encode; this proves the settlement
 // plumbing against the fake bus and clock, cheaply.)
 func TestServeSettlesAsCancelledWhenBeforeSwapFindsAConfirmedCancelMarker(t *testing.T) {
 	h := newHarness(t)
@@ -704,11 +712,11 @@ func TestServeSettlesAsCancelledWhenBeforeSwapFindsAConfirmedCancelMarker(t *tes
 		h.calls.Add(1)
 		h.started <- struct{}{}
 		defer func() { h.ended <- struct{}{} }()
-		// transcode withdrew this attempt between the last renewal and the
+		// The loop withdrew this dispatch between the last renewal and the
 		// swap -- the window I2c closes.
-		h.putLease(task.Lease{Job: schema.Ref{UID: "juid"}, Attempt: 1, State: task.LeaseCancelled})
+		h.putLease(task.Lease{File: schema.Ref{UID: fileUID}, Seq: 1, State: task.LeaseCancelled})
 		err := o.BeforeSwap(ctx)
-		assert.Error(t, err, "the hook must abort once the marker names this attempt")
+		assert.Error(t, err, "the hook must abort once the marker names this dispatch")
 		// A real run() never reaches ExitOK once BeforeSwap aborts the swap;
 		// the stub mirrors that so the switch is exercised the way handle()
 		// would actually see it.
@@ -718,16 +726,14 @@ func TestServeSettlesAsCancelledWhenBeforeSwapFindsAConfirmedCancelMarker(t *tes
 	h.publish(1, 0)
 	<-h.started
 	<-h.ended
-	fin := h.next(task.EventFinished)
-	assert.Equal(t, task.OutcomeCancelled, fin.Outcome)
-	assert.Equal(t, task.ReasonCancelled, fin.Reason)
 	assert.Equal(t, settleAck, h.nextSettlement().kind)
+	assert.Equal(t, records.StateClaimed, h.record().State, "a withdrawn dispatch answers nothing")
 }
 
 // I2c, the other branch: BeforeSwap finding a healthy lease held by
-// somebody else -- a second worker adopted the job after fencing this one
+// somebody else -- a second worker adopted the file after fencing this one
 // out, without this pod's own renewal noticing yet -- settles exactly as a
-// renewal-time fence would: nothing reported, Nak(0), the lease left for
+// renewal-time fence would: nothing answered, Nak(0), the lease left for
 // its holder rather than released.
 func TestServeSettlesAsFencedWhenBeforeSwapFindsAnotherWorkersLease(t *testing.T) {
 	h := newHarness(t)
@@ -735,7 +741,7 @@ func TestServeSettlesAsFencedWhenBeforeSwapFindsAnotherWorkersLease(t *testing.T
 		h.calls.Add(1)
 		h.started <- struct{}{}
 		defer func() { h.ended <- struct{}{} }()
-		h.putLease(task.Lease{Job: schema.Ref{UID: "juid"}, Attempt: 1, State: task.LeaseHeld, Pod: "other"})
+		h.putLease(task.Lease{File: schema.Ref{UID: fileUID}, Seq: 1, State: task.LeaseHeld, Pod: "other"})
 		err := o.BeforeSwap(ctx)
 		assert.Error(t, err, "the hook must abort once another pod holds the lease")
 		return Outcome{Code: ExitRetriable, Err: err}
@@ -744,10 +750,10 @@ func TestServeSettlesAsFencedWhenBeforeSwapFindsAnotherWorkersLease(t *testing.T
 	h.publish(1, 0)
 	<-h.started
 	<-h.ended
-	h.noEvent(task.EventFinished, 300*time.Millisecond)
 	s := h.nextSettlement()
 	assert.Equal(t, settleNak, s.kind)
 	assert.Zero(t, s.delay)
+	h.stays(records.StateClaimed, 300*time.Millisecond)
 	assert.False(t, h.leaseGone(), "a fenced worker's lease is left to lapse, not released")
 }
 
@@ -767,7 +773,7 @@ func TestServeDeadLettersAnUndecodableTask(t *testing.T) {
 
 	h.serve()
 	id := "garbage-1"
-	_, err = h.bus.Publish(h.ctx, events.WorkTranscodeTaskSubject("puid", "cpu", "juid"),
+	_, err = h.bus.Publish(h.ctx, events.WorkTranscodeTaskSubject("puid", "cpu", fileUID),
 		&events.Envelope{ID: id, Schema: task.Task{}.Schema(), Data: []byte("not json")}, events.WithMsgID(id))
 	require.NoError(t, err)
 
@@ -803,8 +809,7 @@ func TestServeRetriesTransientPullErrorsThenClaimsTheTask(t *testing.T) {
 	h.publish(1, 0)
 	<-h.started
 	h.release <- Outcome{Code: ExitOK, Result: &task.Result{}}
-	fin := h.next(task.EventFinished)
-	assert.Equal(t, task.OutcomeSucceeded, fin.Outcome)
+	assert.Equal(t, task.OutcomeSucceeded, h.answer().Answer.Outcome)
 	assert.Equal(t, settleAck, h.nextSettlement().kind)
 	assert.LessOrEqual(t, flaky.nextFails.Load(), int32(0), "the injected failures were exhausted before the task was pulled")
 	assert.GreaterOrEqual(t, flaky.pullCalls.Load(), int32(2), "a failed Next recreates the puller, so Pull ran more than once")
@@ -907,8 +912,7 @@ func TestServeRetriesTheInitialPull(t *testing.T) {
 	h.publish(1, 0)
 	<-h.started
 	h.release <- Outcome{Code: ExitOK, Result: &task.Result{}}
-	fin := h.next(task.EventFinished)
-	assert.Equal(t, task.OutcomeSucceeded, fin.Outcome)
+	assert.Equal(t, task.OutcomeSucceeded, h.answer().Answer.Outcome)
 	assert.Equal(t, settleAck, h.nextSettlement().kind)
 	assert.Zero(t, flaky.pullFails.Load(), "both injected initial-Pull failures were consumed before Serve gave up")
 }
@@ -1022,30 +1026,20 @@ func (f *failFirstUpdate) Update(ctx context.Context, key string, val []byte, re
 	return f.KV.Update(ctx, key, val, rev)
 }
 
-// failFinishedPublish makes exactly the finished status-event publish fail,
-// so a test can prove handle still releases the lease before Nak(0) instead
-// of leaving it to lapse.
-type failFinishedPublish struct {
-	*trackingBus
-	jobUID string
-	fail   atomic.Bool
+// failFirstAnswer fails the first write of an answered record into
+// clustarr-transcodes while fail is set, so a test can prove handle still
+// releases the lease before Nak(0) instead of leaving it to lapse.
+type failFirstAnswer struct {
+	events.KV
+	fail atomic.Bool
 }
 
-func (f *failFinishedPublish) Publish(ctx context.Context, subject string, e *events.Envelope,
-	opts ...events.PublishOption,
-) (events.Receipt, error) {
-	if subject == events.WorkTranscodeResultSubject(f.jobUID) {
-		var ev task.StatusEvent
-		if err := schema.Decode(e.Schema, e.Data, &ev); err == nil && ev.Kind == task.EventFinished {
-			// Fail exactly the first finished publish. A Nak(0) after it
-			// redelivers at once, and that retry must not fail forever, or
-			// the test could never observe the ack half of the recovery.
-			if f.fail.CompareAndSwap(true, false) {
-				return events.Receipt{}, events.ErrClosed
-			}
-		}
+func (f *failFirstAnswer) Update(ctx context.Context, key string, val []byte, rev uint64) (uint64, error) {
+	var h schema.RecordHeader
+	if json.Unmarshal(val, &h) == nil && h.State == records.StateAnswered && f.fail.CompareAndSwap(true, false) {
+		return 0, events.ErrClosed
 	}
-	return f.trackingBus.Publish(ctx, subject, e, opts...)
+	return f.KV.Update(ctx, key, val, rev)
 }
 
 // measuringEngine is a worker.Engine whose Measure answers from measure;
@@ -1083,7 +1077,7 @@ func TestAPodWhoseDeviceWillNotOpenPullsNothingAndReportsIt(t *testing.T) {
 		o.Engine, o.Telemetry, o.RemeasureEvery = eng, progress, time.Hour
 	})
 	h.publish(1, 0)
-	h.noEvent(task.EventClaimed, 300*time.Millisecond)
+	h.stays(records.StateRequested, 300*time.Millisecond)
 	assert.Equal(t, int32(0), h.calls.Load(), "no task was processed")
 
 	health, err := task.ReadEncoderHealth(h.ctx, progress, "cpu", h.clock.Now())
@@ -1109,7 +1103,8 @@ func TestAPodRecoversWhenItsDeviceOpens(t *testing.T) {
 		o.Engine, o.Telemetry, o.RemeasureEvery = eng, progress, 50*time.Millisecond
 	})
 	h.publish(1, 0)
-	h.next(task.EventClaimed)
+	<-h.started
+	h.waitRecord(records.StateClaimed)
 	assert.GreaterOrEqual(t, eng.calls.Load(), int32(2))
 	health, err := task.ReadEncoderHealth(h.ctx, progress, "cpu", h.clock.Now())
 	require.NoError(t, err)
@@ -1126,7 +1121,7 @@ func TestAPodRecoversWhenItsDeviceOpens(t *testing.T) {
 	require.NoError(t, json.Unmarshal(entry.Value, &limits))
 	assert.Contains(t, limits.Nodes, task.Reporter("n1", "pool-abc"))
 	h.release <- Outcome{Code: ExitOK}
-	h.next(task.EventFinished)
+	h.answer()
 }
 
 // A healthy pod keeps its report fresh for its whole life (final review

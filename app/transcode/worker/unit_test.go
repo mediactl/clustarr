@@ -33,7 +33,6 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
-	"github.com/mediactl/clustarr/pkg/transcode"
 )
 
 // Every classification helper must produce the code its name promises,
@@ -99,31 +98,25 @@ func (h *recordingHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 
 func (h *recordingHandler) WithGroup(string) slog.Handler { return h }
 
-// Process must enrich its context's logger with the task's job before doing
-// anything else -- run() logs off this ctx throughout, and once Process
-// used to read Options.JobName/Namespace to do exactly this before it lost
-// that pair, every worker log line silently stopped carrying the job.
+// Process must enrich its context's logger with the task's MediaFile and
+// dispatch before doing anything else -- run() logs off this ctx throughout,
+// and once Process used to read Options.JobName/Namespace to do exactly this
+// before it lost that pair, every worker log line silently stopped carrying
+// its subject.
 // Asserting this holds even when Process fails immediately (no engine)
 // proves logging.With runs unconditionally before run(), not only on some
 // success path.
 func TestProcessLogsWithTheTaskJob(t *testing.T) {
 	h := &recordingHandler{}
 	ctx := logging.NewContext(context.Background(), slog.New(h))
-	tk := task.Task{Job: schema.Ref{Namespace: "media", Name: "film-hevc"}}
+	tk := task.Task{File: schema.Ref{Namespace: "media", Name: "film-hevc"}, Seq: 3}
 	Process(ctx, tk, Options{})
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	require.NotEmpty(t, h.calls, "Process must call logging.With before run()")
-	assert.Contains(t, h.calls[0], slog.String("transcodeJob", "media/film-hevc"))
-}
-
-func TestPercentOf(t *testing.T) {
-	assert.Equal(t, int32(0), percentOf(transcode.Progress{OutTimeMillis: 500}, 0), "no duration, no percentage")
-	assert.Equal(t, int32(25), percentOf(transcode.Progress{OutTimeMillis: 250}, 1000))
-	assert.Equal(t, int32(99), percentOf(transcode.Progress{OutTimeMillis: 1200}, 1000), "only progress=end says 100")
-	assert.Equal(t, int32(100), percentOf(transcode.Progress{Percent: 100}, 1000))
-	assert.Equal(t, int32(0), percentOf(transcode.Progress{OutTimeMillis: -5}, 1000))
+	assert.Contains(t, h.calls[0], slog.String("mediaFile", "media/film-hevc"))
+	assert.Contains(t, h.calls[0], slog.Int64("seq", 3))
 }
 
 // The controller stamps its span's traceparent on each Job, and the worker
@@ -149,11 +142,11 @@ func TestTraceParentRoundTrips(t *testing.T) {
 	}
 }
 
-// I2a: the physical scratch file one attempt writes to is unique per job
-// and attempt, so a withdrawn attempt's cleanup -- it learns of
+// I2a: the physical scratch file one dispatch writes to is unique per
+// MediaFile and seq, so a withdrawn dispatch's cleanup -- it learns of
 // cancellation only at its next 20s renewal -- can never unlink a
-// different attempt's in-progress file, and an old- and a new-hash job for
-// the same source never encode into the same inode.
+// different dispatch's in-progress file, and two files' transcodes into one
+// folder never encode into the same inode.
 func TestUniquePartPathIsDistinctPerJobAndAttempt(t *testing.T) {
 	const generic = "/data/media/movies/Film (2020)/Film.2020.1080p.part.mkv"
 	const jobA, jobB = "a1b2c3d4-e5f6-7890-abcd-ef1234567890", "ffffffff-e5f6-7890-abcd-ef1234567890"
@@ -162,8 +155,8 @@ func TestUniquePartPathIsDistinctPerJobAndAttempt(t *testing.T) {
 	p2 := uniquePartPath(generic, jobA, 2)
 	other := uniquePartPath(generic, jobB, 1)
 
-	assert.NotEqual(t, p1, p2, "two attempts of the same job must never share a part path")
-	assert.NotEqual(t, p1, other, "two jobs must never share a part path")
+	assert.NotEqual(t, p1, p2, "two dispatches of the same file must never share a part path")
+	assert.NotEqual(t, p1, other, "two files must never share a part path")
 	assert.Equal(t, "/data/media/movies/Film (2020)/Film.2020.1080p.part-a1b2c3d4-1.mkv", p1)
 	assert.Equal(t, "/data/media/movies/Film (2020)/Film.2020.1080p.part-a1b2c3d4-2.mkv", p2)
 	for _, p := range []string{p1, p2, other} {
