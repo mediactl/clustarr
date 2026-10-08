@@ -7,7 +7,7 @@
 # but the next point stands) -- and a marker can only ADD verbs; there is no marker that
 # expresses "and never write status". The UI's write limits (CLAUDE.md: "The
 # UI never writes status and owns no CRD") are therefore a property of THIS
-# document, not of controller-gen's output, and cmd/clustarr/ui_rbac_test.go
+# document, not of controller-gen's output, and test/guards/ui_rbac_test.go
 # parses it to assert they hold.
 #
 # Reads: get/list/watch over the catalog, download, transcode and subtitle

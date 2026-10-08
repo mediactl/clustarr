@@ -3,7 +3,7 @@
 # charts/clustarr/templates/postgres-cluster.yaml, minus the Helm templating:
 # instances, storage size, and the bootstrap database/owner match that
 # template's defaults so TestChartAndKustomizePostgresAgree
-# (cmd/clustarr/postgres_parity_test.go) can compare the two Cluster specs
+# (test/guards/postgres_test.go) can compare the two Cluster specs
 # directly.
 #
 # Requires the CloudNativePG operator installed and Ready FIRST -- see
