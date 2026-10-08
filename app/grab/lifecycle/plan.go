@@ -145,9 +145,12 @@ func activePhase(entries []catalogv1alpha1.DownloadEntry) commonv1.DownloadPhase
 	return best.Phase
 }
 
-// nonTerminal is rollup.EntryNonTerminal's rule.
+// nonTerminal is rollup.EntryNonTerminal's rule: a held, expired or
+// finished import is terminal, so a torrent Seeding after its import is not
+// the owner's active download.
 func nonTerminal(e *catalogv1alpha1.DownloadEntry) bool {
-	if imp := e.Import; imp != nil && (imp.Phase == catalogv1alpha1.ImportPhaseHeld || imp.Phase == catalogv1alpha1.ImportPhaseExpired) {
+	if imp := e.Import; imp != nil && (imp.Phase == catalogv1alpha1.ImportPhaseHeld ||
+		imp.Phase == catalogv1alpha1.ImportPhaseExpired || imp.Phase == catalogv1alpha1.ImportPhaseImported) {
 		return false
 	}
 	switch e.Phase {

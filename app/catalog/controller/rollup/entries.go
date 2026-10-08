@@ -37,13 +37,19 @@ import (
 // Blocklisted and Removing are terminal, and so is a held import (import
 // phase held or expired): the entry keeps its files for a person's decision
 // but nothing more comes of it on its own, so a transcoded movie reads
-// Transcoded, not Downloading, while it waits. Completed and Seeding are not
-// terminal: the content is one import away.
+// Transcoded, not Downloading, while it waits. So is a finished import
+// (import phase imported): a torrent entry stays Seeding after its import
+// (app/grab/lifecycle's afterImport) until its seed goal, and its content is
+// already the owner's, so the owner reads Downloaded or Transcoded, not
+// Downloading, for the whole seeding period (found by the smoke test,
+// 2026-10-07). Completed, and Seeding before the import, are not terminal:
+// the content is one import away.
 func EntryNonTerminal(e *catalogv1alpha1.DownloadEntry) bool {
 	if e == nil {
 		return false
 	}
-	if imp := e.Import; imp != nil && (imp.Phase == catalogv1alpha1.ImportPhaseHeld || imp.Phase == catalogv1alpha1.ImportPhaseExpired) {
+	if imp := e.Import; imp != nil && (imp.Phase == catalogv1alpha1.ImportPhaseHeld ||
+		imp.Phase == catalogv1alpha1.ImportPhaseExpired || imp.Phase == catalogv1alpha1.ImportPhaseImported) {
 		return false
 	}
 	switch e.Phase {
