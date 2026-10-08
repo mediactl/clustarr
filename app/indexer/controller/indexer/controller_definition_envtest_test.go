@@ -39,7 +39,7 @@ import (
 	indexac "github.com/mediactl/clustarr/api/applyconfiguration/index/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	idxclients "github.com/mediactl/clustarr/app/indexer/clients"
-	idxstatus "github.com/mediactl/clustarr/app/indexer/status"
+	"github.com/mediactl/clustarr/app/indexer/status/statuspatch"
 	"github.com/mediactl/clustarr/pkg/cardigann"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -211,10 +211,11 @@ func TestARejectedLoginIsCredentialsRejectedAndWritesNoSession(t *testing.T) {
 	require.True(t, apierrors.IsNotFound(err), "a rejected login wrote a session Secret")
 }
 
-// The read-slow-apply rule. The login is seconds of network I/O, and a
-// search fan-out can put the indexer into backoff meanwhile -- here a REAL
-// second writer does exactly that, under the worker's manager, from inside
-// the tracker's login handler. Deriving Healthy from the pre-login snapshot
+// The read-slow-apply rule. The login is seconds of network I/O, and the
+// incorporation of a failed search's health record can put the indexer into
+// backoff meanwhile (ADR-0019 A6.3) -- here a REAL second writer does
+// exactly that, under the worker's manager, from inside the tracker's login
+// handler. Deriving Healthy from the pre-login snapshot
 // would report Healthy=True over an indexer the fan-out just disabled.
 func TestConditionsAfterALoginAreDerivedFromAFreshRead(t *testing.T) {
 	ctx := context.Background()
@@ -227,7 +228,7 @@ func TestConditionsAfterALoginAreDerivedFromAFreshRead(t *testing.T) {
 	until := metav1.NewTime(time.Now().Add(time.Hour).Truncate(time.Second))
 	tracker.onSubmit = func() {
 		live := mustGet(t, c, name)
-		require.NoError(t, idxstatus.Patch(ctx, c, k8s.ManagerIndexWorker, &live,
+		require.NoError(t, statuspatch.Patch(ctx, c, k8s.ManagerIndexWorker, &live,
 			func(ac *indexac.IndexerStatusApplyConfiguration) {
 				ac.WithEscalationLevel(2).WithDisabledUntil(until).WithLastFailure("search.error: rate limited")
 			}))

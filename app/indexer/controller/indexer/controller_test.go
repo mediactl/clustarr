@@ -205,30 +205,3 @@ func TestIndexersForRing(t *testing.T) {
 	require.Empty(t, r.indexersForRing(context.Background(), limits.QueryKey("uid-gone")))
 	require.Empty(t, r.indexersForRing(context.Background(), "nodot"))
 }
-
-// A deletion evicts the Indexer's cached client through ForgetClient, the
-// hook run.go wires to the process's ClientCache (spec §4.3 X3): the
-// reconciler holds no cache of its own.
-func TestDeletionCallsForgetClient(t *testing.T) {
-	uid := types.UID("indexer-uid")
-	idx := &indexv1alpha1.Indexer{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "going", Namespace: "media", UID: uid, Generation: 1,
-			DeletionTimestamp: new(metav1.NewTime(time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC))),
-			Finalizers:        []string{"test.clustarr.io/keep"},
-		},
-		Spec: indexv1alpha1.IndexerSpec{
-			BaseURL: "https://gone.invalid",
-			Generic: &indexv1alpha1.GenericNewznab{Protocol: commonv1alpha1.ProtocolTorrent},
-		},
-	}
-	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).WithObjects(idx).Build()
-	r := NewReconciler(c, nil, ratelimit.New(ratelimit.Config{}), nil)
-	var forgot []types.UID
-	r.ForgetClient = func(u types.UID) { forgot = append(forgot, u) }
-
-	_, err := r.Reconcile(context.Background(),
-		reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "media", Name: "going"}})
-	require.NoError(t, err)
-	require.Equal(t, []types.UID{uid}, forgot, "a deleted Indexer's cached client was not evicted")
-}

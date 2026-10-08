@@ -43,7 +43,9 @@ var storage = []string{
 }
 
 // managerSide is every index package the manager links, with what each
-// must not (spec §4.3 X1-X4, §5.12). `test/guards` (W5.14) overlaps it.
+// must not (spec §4.3 X1-X3, §5.12). `test/guards` (W5.14) overlaps it.
+// X4's app/indexer/controller/directgrab went with the Download kind
+// (ADR-0019 A3.7).
 var managerSide = map[string][]string{
 	"github.com/mediactl/clustarr/app/indexer/controller/indexer": append(append([]string(nil), storage...), // X1, X3
 		"github.com/mediactl/clustarr/app/indexer/download",
@@ -59,11 +61,6 @@ var managerSide = map[string][]string{
 		"github.com/mediactl/clustarr/app/indexer/facade",
 		"github.com/mediactl/clustarr/app/indexer/controller",
 		"github.com/mediactl/clustarr/app/indexer/clientcache",
-	),
-	"github.com/mediactl/clustarr/app/indexer/controller/directgrab": append(append([]string(nil), storage...), // X4
-		"github.com/mediactl/clustarr/app/indexer/download",
-		"github.com/mediactl/clustarr/app/indexer/clientcache",
-		"github.com/mediactl/clustarr/app/indexer/search",
 	),
 }
 
