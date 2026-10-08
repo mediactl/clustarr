@@ -111,8 +111,13 @@ func TestShutdownDrainsPullsThenRespondersThenTheConnection(t *testing.T) {
 		defer cancel()
 		reply <- peer.Request(rctx, verb, map[string]string{}, &got)
 	}()
-	<-pulled
-	<-answering
+	for what, ch := range map[string]chan struct{}{"the task to be pulled": pulled, "the request to be answered": answering} {
+		select {
+		case <-ch:
+		case <-time.After(20 * time.Second):
+			t.Fatalf("waited 20 s for %s", what)
+		}
+	}
 
 	done := make(chan error, 1)
 	go func() {
