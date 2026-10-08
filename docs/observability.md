@@ -24,9 +24,10 @@ per process that has one:
 | transcode pool and graft pods (`cmd/transcode`) | `transcode` | none: the manager records the transcode series from the records it incorporates | none (Jobs) |
 | `ui` (`cmd/ui`) | `ui` | none: it registers no collectors | on its one HTTP address |
 
-The chart's and `config/prometheus`'s ServiceMonitors scrape the manager and the agent
-Deployments; `config/prometheus` adds markers. A scrape needs a bearer token whose subject may
-`get /metrics` (`clustarr-metrics-reader`, see `config/prometheus/README.md`).
+The chart's (`metrics.serviceMonitor.enabled`) and `config/prometheus`'s ServiceMonitors
+scrape the manager, the six agent Deployments and markers; nothing scrapes the download
+engines' pods yet, and the ui serves no metrics. A scrape of `:8443` needs a bearer token whose
+subject may `get /metrics` (`clustarr-metrics-reader`, see `config/prometheus/README.md`).
 
 ## Status: what is wired today
 
