@@ -18,10 +18,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package torrent
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -30,6 +30,7 @@ import (
 
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/download"
+	"github.com/mediactl/clustarr/pkg/events/schema"
 )
 
 // TestLoadDescriptorsOnAFreshStateDirIsEmptyNotAnError proves a brand new
@@ -112,17 +113,37 @@ func TestRemoveDescriptorOfUnknownIDIsIdempotent(t *testing.T) {
 	require.NoError(t, removeDescriptor(dir, "never-existed"))
 }
 
+// heldTransfers re-attaches the descriptors under dir into a fresh fake
+// client and returns the Transfers over them.
+func heldTransfers(t *testing.T, dir string) (*Transfers, *fakeClient) {
+	t.Helper()
+	fc := newFakeClient()
+	e := &Engine{Client: fc, StateDir: dir}
+	_, err := e.ReAttach(context.Background())
+	require.NoError(t, err)
+	return &Transfers{Engine: e}, fc
+}
+
 // TestUpdateDescriptorStateRefreshesPausedAndSeedCriteria proves a
-// mid-lifecycle pause/seed-criteria change is persisted, so a restart
-// re-attaches in the CURRENT state rather than the state Add originally saw.
+// mid-lifecycle pause/seed-criteria change -- a present command for a held
+// transfer -- is persisted, so a restart re-attaches in the CURRENT state
+// rather than the state Add originally saw.
 func TestUpdateDescriptorStateRefreshesPausedAndSeedCriteria(t *testing.T) {
+	ctx := context.Background()
 	dir := t.TempDir()
-	require.NoError(t, saveDescriptor(dir, "id1", nil, descriptor{Name: "movie", Magnet: "magnet:?xt=urn:btih:id1"}))
+	id := fakeID(download.AddRequest{Magnet: "magnet:?xt=urn:btih:id1"})
+	require.NoError(t, saveDescriptor(dir, id, nil, descriptor{Name: "movie", Magnet: "magnet:?xt=urn:btih:id1"}))
+	tr, _ := heldTransfers(t, dir)
+	held, err := tr.List(ctx)
+	require.NoError(t, err)
+	require.Len(t, held, 1)
 
 	ratio := resource.MustParse("1.5")
-	require.NoError(t, updateDescriptorState(dir, "id1", descriptorState{
+	_, err = tr.Apply(ctx, schema.EngineCommand{
+		Seq: 1, Entry: schema.EntryRef{ID: "movie", UID: "uid-movie"}, Desired: schema.EngineDesiredPresent,
 		Paused: true, SeedCriteria: &commonv1alpha1.SeedCriteria{Ratio: &ratio},
-	}, time.Now()))
+	}, &held[0])
+	require.NoError(t, err)
 
 	got, errs := loadDescriptors(dir)
 	require.Empty(t, errs)
@@ -134,12 +155,20 @@ func TestUpdateDescriptorStateRefreshesPausedAndSeedCriteria(t *testing.T) {
 	assert.Zero(t, got[0].Desc.SeedCriteria.Ratio.Cmp(ratio))
 }
 
-// TestUpdateDescriptorStateOnUnknownIDIsANoOp proves refreshing a descriptor
-// that was already removed (or never existed) does not fabricate one --
-// updateDescriptorState must never resurrect a removed transfer's state.
+// TestUpdateDescriptorStateOnUnknownIDIsANoOp proves observing a transfer
+// that has no descriptor (already removed, or never journalled) does not
+// fabricate one -- the observation must never resurrect a removed
+// transfer's state.
 func TestUpdateDescriptorStateOnUnknownIDIsANoOp(t *testing.T) {
+	ctx := context.Background()
 	dir := t.TempDir()
-	require.NoError(t, updateDescriptorState(dir, "never-existed", descriptorState{Paused: true}, time.Now()))
+	tr, fc := heldTransfers(t, dir)
+	_, err := fc.Add(ctx, download.AddRequest{Name: "never-journalled", Magnet: "magnet:?xt=urn:btih:never"})
+	require.NoError(t, err)
+
+	held, err := tr.List(ctx)
+	require.NoError(t, err)
+	require.Len(t, held, 1)
 	got, errs := loadDescriptors(dir)
 	assert.Empty(t, errs)
 	assert.Empty(t, got)
@@ -165,16 +194,25 @@ func TestLoadDescriptorsSkipsACorruptEntryAndKeepsTheRest(t *testing.T) {
 // it out of scratch), and hands it back on re-attach, so a changed
 // publishDir or scratch resumes it in place instead of downloading again.
 func TestUpdateDescriptorStateRecordsTheContentRoot(t *testing.T) {
+	ctx := context.Background()
 	dir := t.TempDir()
-	require.NoError(t, saveDescriptor(dir, "id1", nil, descriptor{Name: "movie", Magnet: "magnet:?xt=urn:btih:id1"}))
+	id := fakeID(download.AddRequest{Magnet: "magnet:?xt=urn:btih:id1"})
+	require.NoError(t, saveDescriptor(dir, id, nil, descriptor{Name: "movie", Category: "movies", Magnet: "magnet:?xt=urn:btih:id1"}))
+	tr, fc := heldTransfers(t, dir)
 
-	require.NoError(t, updateDescriptorState(dir, "id1", descriptorState{
-		Item: download.Item{ContentRoot: "/data/torrents/movies/movie"},
-	}, time.Now()))
+	// The publish moved the content.
+	fc.mu.Lock()
+	item := fc.items[id]
+	item.ContentRoot = "/data/torrents/complete/movies/movie"
+	fc.items[id] = item
+	fc.mu.Unlock()
+
+	_, err := tr.List(ctx)
+	require.NoError(t, err)
 
 	got, errs := loadDescriptors(dir)
 	require.Empty(t, errs)
 	require.Len(t, got, 1)
-	assert.Equal(t, "/data/torrents/movies/movie", got[0].Desc.ContentRoot)
-	assert.Equal(t, "/data/torrents/movies/movie", got[0].addRequest().ContentRoot)
+	assert.Equal(t, "/data/torrents/complete/movies/movie", got[0].Desc.ContentRoot)
+	assert.Equal(t, "/data/torrents/complete/movies/movie", got[0].addRequest().ContentRoot)
 }

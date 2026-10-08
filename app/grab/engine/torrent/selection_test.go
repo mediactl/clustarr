@@ -18,50 +18,29 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package torrent
 
 import (
-	"context"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
-	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/events/schema"
 )
 
-func episode(ns, name string, season, number int32, mutate func(*catalogv1alpha1.Episode)) *catalogv1alpha1.Episode {
-	ep := &catalogv1alpha1.Episode{
-		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name},
-		Spec:       catalogv1alpha1.EpisodeSpec{SeriesRef: "show", SeasonNumber: season, EpisodeNumber: number},
-	}
-	if mutate != nil {
-		mutate(ep)
-	}
-	return ep
-}
-
-func episodeReader(objs ...client.Object) client.Reader {
-	return fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).WithObjects(objs...).Build()
-}
+// The catalog half of a selection -- reading each covered Episode's scene
+// numbering, absolute number and UTC air date (a day either side) -- moved
+// to the manager with ADR-0019 §6.7 (app/remediation/downloads'
+// enrichSelection); the engine builds its selector from what the command
+// carries (selectionFrom). These tests hold the engine's half.
 
 // TestSelectionWantsOnlyTheTargetedEpisodes is the carried item's case end
 // to end through the pure half: a season pack grabbed for S01E03 alone
 // wants S01E03's video and its subtitle, skips the other episodes, and keeps
 // what names no episode at all.
 func TestSelectionWantsOnlyTheTargetedEpisodes(t *testing.T) {
-	r := episodeReader(episode("tv", "show-s01e03", 1, 3, nil))
-	sel, err := resolveSelection(context.Background(), r, downloadTarget{
-		namespace: "tv",
-		target:    commonv1alpha1.MediaRef{Kind: commonv1alpha1.MediaKindEpisode, Name: "show-s01e03"},
-	})
-	require.NoError(t, err)
+	sel := selectionFrom(&schema.TransferSelection{Episodes: []schema.EpisodeNo{{Season: 1, Number: 3}}})
 	want := sel.selector()
-	require.NotNil(t, want)
+	if !assert.NotNil(t, want) {
+		return
+	}
 
 	cases := map[string]bool{
 		"Show.S01.1080p.WEB-DL/Show.S01E03.1080p.WEB-DL.mkv":         true,
@@ -79,23 +58,16 @@ func TestSelectionWantsOnlyTheTargetedEpisodes(t *testing.T) {
 }
 
 // TestSelectionAcceptsSceneAndAbsoluteNumbering proves the selection is the
-// union of every numbering the catalog knows, because a pack's release group
-// chose one of them and nothing here can tell which.
+// union of every numbering the command carries (official and scene episode
+// numbers, official and scene absolutes), because a pack's release group
+// chose one of them and nothing here can tell which; the persisted form is
+// sorted and de-duplicated.
 func TestSelectionAcceptsSceneAndAbsoluteNumbering(t *testing.T) {
-	r := episodeReader(
-		episode("tv", "show-s01e04", 1, 4, func(ep *catalogv1alpha1.Episode) {
-			ep.Status.AbsoluteNumber = ptr.To[int32](16)
-			ep.Status.SceneNumbering = &catalogv1alpha1.SceneNumbering{Episode: ptr.To[int32](3), Absolute: ptr.To[int32](15)}
-		}),
-		episode("tv", "show-s01e05", 1, 5, nil),
-	)
-	sel, err := resolveSelection(context.Background(), r, downloadTarget{
-		namespace: "tv",
-		target: commonv1alpha1.MediaRef{
-			Kind: commonv1alpha1.MediaKindSeries, Name: "show", Keys: []string{"show-s01e04", "show-s01e05"},
-		},
+	sel := selectionFrom(&schema.TransferSelection{
+		// S01E04 (scene S01E03, absolute 16, scene absolute 15) and S01E05.
+		Episodes:  []schema.EpisodeNo{{Season: 1, Number: 4}, {Season: 1, Number: 5}, {Season: 1, Number: 3}, {Season: 1, Number: 4}},
+		Absolutes: []int32{16, 15, 16},
 	})
-	require.NoError(t, err)
 	assert.Equal(t, []EpisodeNumber{{1, 3}, {1, 4}, {1, 5}}, sel.Episodes)
 	assert.Equal(t, []int{15, 16}, sel.Absolutes)
 
@@ -108,20 +80,14 @@ func TestSelectionAcceptsSceneAndAbsoluteNumbering(t *testing.T) {
 	assert.False(t, want("[Group] Show - 17 [1080p].mkv", 1))
 }
 
-// TestSelectionMatchesDailyEpisodesByAirDate uses the UTC calendar day of
-// status.airDate, with a day either side, whatever zone it decoded into.
+// TestSelectionMatchesDailyEpisodesByAirDate: a daily episode is matched by
+// the air dates the command carries (the manager sends the UTC calendar day
+// with a day either side).
 func TestSelectionMatchesDailyEpisodesByAirDate(t *testing.T) {
-	west := time.FixedZone("UTC-8", -8*3600)
-	// 2026-01-01 00:30 UTC reads as 2025-12-31 in UTC-8.
-	aired := metav1.NewTime(time.Date(2026, 1, 1, 0, 30, 0, 0, time.UTC).In(west))
-	r := episodeReader(episode("tv", "show-2026-01-01", 2026, 1, func(ep *catalogv1alpha1.Episode) {
-		ep.Status.AirDate = &aired
-	}))
-	sel, err := resolveSelection(context.Background(), r, downloadTarget{
-		namespace: "tv",
-		target:    commonv1alpha1.MediaRef{Kind: commonv1alpha1.MediaKindEpisode, Name: "show-2026-01-01"},
+	sel := selectionFrom(&schema.TransferSelection{
+		Episodes: []schema.EpisodeNo{{Season: 2026, Number: 1}},
+		AirDates: []string{"2026-01-02", "2025-12-31", "2026-01-01"},
 	})
-	require.NoError(t, err)
 	assert.Equal(t, []string{"2025-12-31", "2026-01-01", "2026-01-02"}, sel.AirDates)
 
 	want := sel.selector()
@@ -130,35 +96,14 @@ func TestSelectionMatchesDailyEpisodesByAirDate(t *testing.T) {
 }
 
 // TestResolveSelectionLeavesNonEpisodeTargetsWhole covers every "no
-// selection" answer: a movie, a pack with no keys, no reader configured.
+// selection" answer: a command with no selection (a movie, a pack with no
+// covered episodes, an album) and an empty one.
 func TestResolveSelectionLeavesNonEpisodeTargetsWhole(t *testing.T) {
-	r := episodeReader()
-	for name, tc := range map[string]struct {
-		reader client.Reader
-		target commonv1alpha1.MediaRef
-	}{
-		"movie":            {r, commonv1alpha1.MediaRef{Kind: commonv1alpha1.MediaKindMovie, Name: "arrival"}},
-		"series, no keys":  {r, commonv1alpha1.MediaRef{Kind: commonv1alpha1.MediaKindSeries, Name: "show"}},
-		"album":            {r, commonv1alpha1.MediaRef{Kind: commonv1alpha1.MediaKindAlbum, Name: "album"}},
-		"no reader at all": {nil, commonv1alpha1.MediaRef{Kind: commonv1alpha1.MediaKindEpisode, Name: "show-s01e01"}},
+	for name, sel := range map[string]*schema.TransferSelection{
+		"no selection":    nil,
+		"empty selection": {},
 	} {
-		sel, err := resolveSelection(context.Background(), tc.reader, downloadTarget{namespace: "tv", target: tc.target})
-		require.NoError(t, err, name)
-		assert.Nil(t, sel.selector(), name)
+		assert.Nil(t, selectionFrom(sel), name)
+		assert.Nil(t, selectionFrom(sel).selector(), name)
 	}
-}
-
-// TestResolveSelectionFailsWholeOnAMissingEpisode: a selection built from
-// part of a pack would skip the files of the episodes it could not read, so
-// one unreadable key is an error the caller degrades to "every file".
-func TestResolveSelectionFailsWholeOnAMissingEpisode(t *testing.T) {
-	r := episodeReader(episode("tv", "show-s01e01", 1, 1, nil))
-	sel, err := resolveSelection(context.Background(), r, downloadTarget{
-		namespace: "tv",
-		target: commonv1alpha1.MediaRef{
-			Kind: commonv1alpha1.MediaKindSeries, Name: "show", Keys: []string{"show-s01e01", "show-s01e02"},
-		},
-	})
-	require.Error(t, err)
-	assert.Nil(t, sel)
 }
