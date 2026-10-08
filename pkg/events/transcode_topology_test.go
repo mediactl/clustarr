@@ -49,14 +49,14 @@ func TestTranscodeTopology(t *testing.T) {
 	assert.Equal(t, DiscardNew, st.Discard, "a full queue must refuse a task, not drop an admitted one")
 	assert.False(t, st.AllowMsgSchedules, "DiscardNew cannot be combined with schedules")
 
+	// The result subject and its durable are retired (F6.6): the worker
+	// answers into clustarr-transcodes by compare-and-swap.
+	// TestTheResultsDurableIsRetired holds that half.
 	task := WorkTranscodeTaskSubject("6f1c-uid", "nvidia", "a1b2-uid")
-	result := WorkTranscodeResultSubject("a1b2-uid")
 	assert.Len(t, strings.Split(task, "."), 7, "UIDs only: a profile name with dots cannot change the shape")
-	for _, subj := range []string{task, result} {
-		got, ok := top.StreamForSubject(subj)
-		require.True(t, ok, subj)
-		assert.Equal(t, StreamWorkTranscode, got.Name)
-	}
+	got, ok := top.StreamForSubject(task)
+	require.True(t, ok, task)
+	assert.Equal(t, StreamWorkTranscode, got.Name)
 
 	c := TranscodeTaskConsumer("6f1c-uid", "nvidia")
 	require.NoError(t, c.Subscription().Validate())
@@ -64,14 +64,6 @@ func TestTranscodeTopology(t *testing.T) {
 	assert.True(t, matches(c.Filters[0], task))
 	assert.False(t, matches(c.Filters[0], WorkTranscodeTaskSubject("6f1c-uid", "cpu", "a1b2-uid")),
 		"one class's pool must never receive another class's task")
-	assert.False(t, matches(c.Filters[0], result))
-
-	rc, ok := top.Consumer(ConsumerTranscodeResults)
-	require.True(t, ok, "transcode-results is missing from Default()")
-	assert.Equal(t, StreamWorkTranscode, rc.Stream)
-	assert.Equal(t, 1, rc.MaxAckPending, "one event at a time: status writes stay ordered")
-	assert.True(t, matches(rc.Filters[0], result))
-	assert.False(t, matches(rc.Filters[0], task), "work-queue filters must not overlap")
 
 	var leases *BucketSpec
 	for i := range top.Buckets {
@@ -85,5 +77,4 @@ func TestTranscodeTopology(t *testing.T) {
 
 	assert.True(t, ValidKVKey(TranscodeLeaseKey("a1b2-uid")))
 	assert.Equal(t, "a1b2-uid/3", MsgIDForTranscodeTask("a1b2-uid", 3))
-	assert.Equal(t, "a1b2-uid/2/3/4", MsgIDForTranscodeEvent("a1b2-uid", 2, 3, 4))
 }

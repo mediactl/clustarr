@@ -50,7 +50,6 @@ func TestSegmentsTopology(t *testing.T) {
 
 	assert.Equal(t, "clustarr.work.markers.plan.normal.media-dexter-s01", WorkSegmentsPlanSubject("media/dexter-s01"))
 	assert.Equal(t, "clustarr.work.markers.analyze.normal.k", WorkSegmentsAnalyzeSubject("k"))
-	assert.Equal(t, "clustarr.work.markers.result.normal.k", WorkSegmentsResultSubject("k"))
 	assert.Equal(t, "clustarr.work.markers.markers.normal.k", WorkMarkersSubject("k"))
 	markers, _ := top.Consumer(ConsumerCatalogMarkers)
 	assert.Equal(t, StreamWorkMarkers, markers.Stream, "TheIntroDB's tasks, rescheduled by the thousand to an allowance reset, live beside the segment work")

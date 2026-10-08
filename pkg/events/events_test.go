@@ -169,7 +169,7 @@ func TestTopologyValidateCatchesBadConsumer(t *testing.T) {
 	top.Consumers = append(top.Consumers, events.ConsumerSpec{
 		Name:       "broken",
 		Stream:     events.StreamWorkCatalog,
-		Filters:    []string{events.FilterCatalogGrab},
+		Filters:    []string{events.FilterCatalogSearch},
 		MaxDeliver: 2,
 		BackOff:    []time.Duration{time.Second, time.Second},
 	})
@@ -181,7 +181,7 @@ func TestTopologyValidateCatchesBadConsumer(t *testing.T) {
 	top.Consumers = append(top.Consumers, events.ConsumerSpec{
 		Name:       "stray",
 		Stream:     events.StreamWorkIndex,
-		Filters:    []string{events.FilterCatalogGrab},
+		Filters:    []string{events.FilterCatalogSearch},
 		MaxDeliver: 3,
 	})
 	if err := top.Validate(); err == nil {
@@ -242,11 +242,13 @@ func TestSubjectMatches(t *testing.T) {
 	}
 }
 
-// TestScheduleSubjectAvoidsConsumerFilters is the property the whole delayed
-// grab mechanism rests on: the holding subject must sit inside the work
-// stream yet match no consumer, or a scheduled task would be handled twice.
+// TestScheduleSubjectAvoidsConsumerFilters is the property every delayed
+// task rests on: the holding subject must sit inside the work stream yet
+// match no consumer, or a scheduled task would be handled twice. (It held
+// the delayed grab until the grab subject left the bus, ADR-0019 A9.2; a
+// search is the catalog work stream's task now.)
 func TestScheduleSubjectAvoidsConsumerFilters(t *testing.T) {
-	target := events.WorkGrabSubject("movie-1")
+	target := events.WorkSearchSubject(events.PriorityNormal, "movie-1")
 	hold, err := events.ScheduleSubject(target)
 	if err != nil {
 		t.Fatalf("ScheduleSubject: %v", err)
@@ -381,17 +383,10 @@ func TestMsgIDsAreDeterministic(t *testing.T) {
 	if a == events.MsgIDForRelease("nzb.su", "guid-2") {
 		t.Error("MsgIDForRelease collided on different GUIDs")
 	}
-	if got := events.MsgIDForSubtitle("r1", "en:hi", "h9", 3); got != "r1/en:hi/h9/3" {
-		t.Errorf("MsgIDForSubtitle = %q", got)
-	}
-	if got := events.MsgIDForForcedSubtitle("r1", "en:hi", "h9", 3); got != "r1/en:hi/h9/force-3" {
-		t.Errorf("MsgIDForForcedSubtitle = %q", got)
-	}
-	// A scheduled attempt and a forced search at the same number must never
-	// share an ID: either would absorb the other.
-	if events.MsgIDForSubtitle("r1", "en", "h9", 3) == events.MsgIDForForcedSubtitle("r1", "en", "h9", 3) {
-		t.Error("a scheduled and a forced subtitle task collided")
-	}
+	// The subtitle IDs (MsgIDForSubtitle, MsgIDForForcedSubtitle) went
+	// with FetchTask v1 (F5.1, F9.4): a v2 dispatch carries the loop's
+	// sequence, so a forced search is a new seq rather than a second ID
+	// family. TestMsgIDForSubtitleFetchCarriesTheSequence holds it.
 }
 
 // TestSubjectTokensAreSanitised guards against a media key with a dot in it

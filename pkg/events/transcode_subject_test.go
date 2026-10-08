@@ -39,7 +39,6 @@ func TestWorkTranscodeTaskSubjectAnyPoolMatchesEveryTaskOfTheJob(t *testing.T) {
 	}
 	for _, subject := range []string{
 		events.WorkTranscodeTaskSubject("profA", "cpu", "job.2"),
-		events.WorkTranscodeResultSubject("job.1"),
 	} {
 		assert.False(t, events.SubjectMatches(filter, subject), "%s must not match %s", filter, subject)
 	}
