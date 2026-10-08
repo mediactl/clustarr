@@ -33,24 +33,19 @@ import (
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1 "github.com/mediactl/clustarr/api/download/v1alpha1"
-	subtitlev1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
-	transcodev1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/pipeline"
 	"github.com/mediactl/clustarr/ui/projection"
 )
 
 // testScheme registers every kind buildRelatedIndex and listItems list:
 // corev1 is not needed here, unlike ui.NewReaderScheme, since projection
-// never lists Pods, Nodes or anything else outside the five Clustarr API
-// groups it actually reads.
+// never lists Pods, Nodes or anything outside the catalog API group, the
+// one group it reads since the Download kind and the per-file transcode
+// and subtitle kinds were folded into their owners (ADR-0016, ADR-0019).
 func testScheme(t *testing.T) *runtime.Scheme {
 	t.Helper()
 	s := runtime.NewScheme()
 	require.NoError(t, catalogv1.AddToScheme(s))
-	require.NoError(t, downloadv1.AddToScheme(s))
-	require.NoError(t, transcodev1.AddToScheme(s))
-	require.NoError(t, subtitlev1.AddToScheme(s))
 	return s
 }
 
@@ -68,28 +63,23 @@ func (r *countingReader) List(ctx context.Context, list client.ObjectList, opts 
 	return r.Reader.List(ctx, list, opts...)
 }
 
-// listCallsPerTick is buildRelatedIndex's five List calls (MediaFile,
-// Download, Search, TranscodeJob, SubtitleRequest) plus listItems' ten
-// (Movie, Series, Episode, Album, Artist, Author, Book, Audiobook, Comic,
-// Issue) -- pkg/pipeline/project.go's own describeItem type-switch names
-// exactly those ten catalog kinds -- plus two more: project's own
-// listLibraryScans call (Task G3-3, the one new List the Unmatched stream
-// adds to the shared round) and its listImportLists call (Task G3-4, the one
-// new List the Import Lists stream adds), neither running a ticker of its
-// own.
-const listCallsPerTick = 5 + 10 + 1 + 1
+// listCallsPerTick is buildRelatedIndex's two List calls (MediaFile,
+// Search) plus listItems' ten (Movie, Series, Episode, Album, Artist,
+// Author, Book, Audiobook, Comic, Issue) -- pkg/pipeline/project.go's own
+// describeItem type-switch names exactly those ten catalog kinds, and the
+// grab entries the pipeline and Downloads streams read are on them -- plus
+// two more: project's own listLibraryScans call (Task G3-3, the one new
+// List the Unmatched stream adds to the shared round) and its
+// listImportLists call (Task G3-4, the one new List the Import Lists stream
+// adds), neither running a ticker of its own.
+const listCallsPerTick = 2 + 10 + 1 + 1
 
-// ownerRef builds a controlling OwnerReference to owner, the same shape
-// app/catalog/worker/grab/perform.go's k8s.OwnerReferenceAC produces for a
-// real Download -- the one production writer this repo has today that sets
-// an owner reference on anything relatedIndex reads.
-func ownerRef(owner client.Object, kind string) metav1.OwnerReference {
-	return metav1.OwnerReference{
-		APIVersion: catalogv1.GroupVersion.String(),
-		Kind:       kind,
-		Name:       owner.GetName(),
-		UID:        owner.GetUID(),
-		Controller: new(true),
+// grabEntry is a minimal grab entry in phase on its owner's status.downloads.
+func grabEntry(id string, phase commonv1.DownloadPhase) catalogv1.DownloadEntry {
+	return catalogv1.DownloadEntry{
+		ID: id, UID: id + "-uid", Phase: phase,
+		Release:   catalogv1.DownloadRelease{Title: id, Protocol: commonv1.ProtocolTorrent},
+		GrabbedAt: metav1.NewTime(time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)),
 	}
 }
 
@@ -120,7 +110,7 @@ func receiveNonEmpty(t *testing.T, ch <-chan []pipeline.Entry, timeout time.Dura
 // SubscribeDownloads' channel, for the identical reason: Subscribe(Downloads)
 // delivers the current snapshot immediately, which can race the Projection's
 // own first tick and arrive empty.
-func receiveNonEmptyDownloads(t *testing.T, ch <-chan []downloadv1.Download, timeout time.Duration) []downloadv1.Download {
+func receiveNonEmptyDownloads(t *testing.T, ch <-chan []projection.DownloadRow, timeout time.Duration) []projection.DownloadRow {
 	t.Helper()
 	deadline := time.After(timeout)
 	for {
@@ -177,9 +167,9 @@ func TestSubscribersShareOneListRound(t *testing.T) {
 
 // TestDownloadsSubscribersShareThePipelineListRound is Task D3-3's
 // generalisation of TestSubscribersShareOneListRound (ruling R4): a
-// SubscribeDownloads subscriber must see the Download list gathered by the
-// SAME tick that already feeds Subscribe -- buildRelatedIndex's one List of
-// Download, kept for ownership resolution -- not a List call of its own.
+// SubscribeDownloads subscriber must see the grab rows read by the SAME tick
+// that already feeds Subscribe -- the owners' status.downloads entries off
+// listItems' Lists (ADR-0019 §6.12) -- not a List call of its own.
 // interval is an hour, exactly as above, so listCallsPerTick stays an exact
 // bound with both a pipeline and a downloads subscriber attached at once.
 func TestDownloadsSubscribersShareThePipelineListRound(t *testing.T) {
@@ -187,19 +177,8 @@ func TestDownloadsSubscribersShareThePipelineListRound(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "shawshank-redemption", Namespace: "default", UID: "movie-uid"},
 		Status:     catalogv1.MovieStatus{Metadata: &catalogv1.MovieMetadata{Title: "The Shawshank Redemption"}},
 	}
-	download := &downloadv1.Download{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:            "shawshank-download",
-			Namespace:       "default",
-			OwnerReferences: []metav1.OwnerReference{ownerRef(movie, "Movie")},
-		},
-		Spec: downloadv1.DownloadSpec{
-			Protocol: commonv1.ProtocolTorrent,
-			Target:   commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: movie.Name},
-		},
-		Status: downloadv1.DownloadStatus{Phase: commonv1.DownloadPhaseDownloading, ProgressPercent: 10},
-	}
-	fakeClient := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(movie, download).Build()
+	movie.Status.Downloads = []catalogv1.DownloadEntry{grabEntry("shawshank-download", commonv1.DownloadPhaseDownloading)}
+	fakeClient := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(movie).Build()
 
 	var calls atomic.Int64
 	reader := &countingReader{Reader: fakeClient, calls: &calls}
@@ -219,7 +198,8 @@ func TestDownloadsSubscribersShareThePipelineListRound(t *testing.T) {
 
 	gotDownloads := receiveNonEmptyDownloads(t, downloadsCh, 2*time.Second)
 	require.Len(t, gotDownloads, 1)
-	require.Equal(t, "shawshank-download", gotDownloads[0].Name)
+	require.Equal(t, "shawshank-download", gotDownloads[0].Entry.ID)
+	require.Equal(t, "shawshank-redemption", gotDownloads[0].Owner.Name)
 
 	// Give any errant extra tick or extra List a moment to happen before
 	// asserting the call count, exactly as TestSubscribersShareOneListRound
@@ -265,10 +245,10 @@ func TestUnsubscribeStopsDelivery(t *testing.T) {
 }
 
 // TestOwnershipIndexingPutsADownloadUnderTheRightMovie is the ownership
-// half of the D3-1 brief: a Download owned (via metav1.OwnerReference.UID,
-// never by matching spec.target's Name) by Movie A must show up in Movie
-// A's pipeline row and must not leak into Movie B's, which has no Download
-// at all.
+// half of the D3-1 brief: a grab entry in Movie A's status.downloads (the
+// owner holds it since ADR-0019; there is no Download object to resolve)
+// must show up in Movie A's pipeline row and must not leak into Movie B's,
+// which has no grab at all.
 func TestOwnershipIndexingPutsADownloadUnderTheRightMovie(t *testing.T) {
 	movieA := &catalogv1.Movie{
 		ObjectMeta: metav1.ObjectMeta{Name: "movie-a", Namespace: "default", UID: "movie-a-uid"},
@@ -278,24 +258,10 @@ func TestOwnershipIndexingPutsADownloadUnderTheRightMovie(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "movie-b", Namespace: "default", UID: "movie-b-uid"},
 		Status:     catalogv1.MovieStatus{Metadata: &catalogv1.MovieMetadata{Title: "Movie B"}},
 	}
-	download := &downloadv1.Download{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:            "movie-a-download",
-			Namespace:       "default",
-			OwnerReferences: []metav1.OwnerReference{ownerRef(movieA, "Movie")},
-		},
-		Spec: downloadv1.DownloadSpec{
-			Protocol: commonv1.ProtocolTorrent,
-			Target:   commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: movieA.Name},
-		},
-		Status: downloadv1.DownloadStatus{
-			Phase:           commonv1.DownloadPhaseDownloading,
-			ProgressPercent: 50,
-		},
-	}
+	movieA.Status.Downloads = []catalogv1.DownloadEntry{grabEntry("movie-a-download", commonv1.DownloadPhaseDownloading)}
 
 	fakeClient := fake.NewClientBuilder().WithScheme(testScheme(t)).
-		WithObjects(movieA, movieB, download).Build()
+		WithObjects(movieA, movieB).Build()
 
 	proj := projection.New(fakeClient, time.Hour)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -316,8 +282,9 @@ func TestOwnershipIndexingPutsADownloadUnderTheRightMovie(t *testing.T) {
 	a, ok := byName["movie-a"]
 	require.True(t, ok, "movie-a must have a pipeline entry")
 	require.Equal(t, pipeline.StageDownloading, a.Stage,
-		"movie-a owns the Download and must show its Downloading stage")
-	require.EqualValues(t, 50, a.Percent)
+		"movie-a holds the grab entry and must show its Downloading stage")
+	require.EqualValues(t, -1, a.Percent,
+		"a grab entry carries no byte counters (clustarr-progress does): the pipeline percent stays unknown")
 
 	b, ok := byName["movie-b"]
 	require.True(t, ok, "movie-b must have a pipeline entry")
