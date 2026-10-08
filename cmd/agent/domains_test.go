@@ -30,8 +30,8 @@ import (
 // TestTheRendererRunsInTheCatalogDomain: the overlay renderer is the catalog
 // domain's; artwork fetch is the metadata domain's (R4), so the two writers
 // of the artwork object store (one per variant) never share a process.
-// Successor to TestBothInstallersRunTheRendererOnTheCatalogarrDeployment's
-// code half.
+// Successor to the code half of the old installer test that ran the
+// renderer on the catalog Deployment.
 func TestTheRendererRunsInTheCatalogDomain(t *testing.T) {
 	homes := map[string][]string{}
 	for _, d := range agentdomain.Domains() {
