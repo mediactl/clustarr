@@ -357,6 +357,8 @@ github.com/mediactl/ffgo v0.0.0-clustarr.11 h1:lLw7NOYB7j8aeR9fpJuitl+eorX5sQ3ap
 github.com/mediactl/ffgo v0.0.0-clustarr.11/go.mod h1:fAufbyKRrEfVGXJOYiqAW5MSeU+JFTuUG7BFxJhy5cQ=
 github.com/mediactl/ffgo v0.0.0-clustarr.12 h1:n0LazykWgU5DdKxGHzwZWrtgjTEnAWNIiJNR5LVdJ2Q=
 github.com/mediactl/ffgo v0.0.0-clustarr.12/go.mod h1:fAufbyKRrEfVGXJOYiqAW5MSeU+JFTuUG7BFxJhy5cQ=
+github.com/mediactl/par2go v0.1.1 h1:hwGl4ZBCbtWW3SGnLgmMt/OOgr2FXSLl2X56qmJMU9w=
+github.com/mediactl/par2go v0.1.1/go.mod h1:MTA/CCB+8t5igKeQtFDLQVKe6EUpKQKWGmtVQmEiedA=
 github.com/minio/highwayhash v1.0.4 h1:asJizugGgchQod2ja9NJlGOWq4s7KsAWr5XUc9Clgl4=
 github.com/minio/highwayhash v1.0.4/go.mod h1:GGYsuwP/fPD6Y9hMiXuapVvlIUEhFhMTh0rxU3ik1LQ=
 github.com/minio/sha256-simd v1.0.0 h1:v1ta+49hkWZyvaKwrQB8elexRqm6Y0aMLjCNsrYxo6g=
