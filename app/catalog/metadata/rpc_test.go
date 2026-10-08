@@ -62,7 +62,7 @@ func TestServeRPCLookupReturnsTheProviderDocument(t *testing.T) {
 
 	reg := &pkgmetadata.Registry{Movies: []pkgmetadata.MovieProvider{cl}}
 	bus := newTestBus(t)
-	require.NoError(t, ServeRPC(bus, reg))
+	mustServeRPC(t, bus, reg)
 
 	var resp schema.MetadataResponse
 	req := schema.MetadataRequest{Kind: commonv1.MediaKindMovie, IDs: map[string]string{"tmdb": "27205"}}
@@ -77,7 +77,7 @@ func TestServeRPCLookupReturnsTheProviderDocument(t *testing.T) {
 func TestServeRPCLookupReturnsAnErrorStringOnFailure(t *testing.T) {
 	reg := &pkgmetadata.Registry{} // no providers configured
 	bus := newTestBus(t)
-	require.NoError(t, ServeRPC(bus, reg))
+	mustServeRPC(t, bus, reg)
 
 	var resp schema.MetadataResponse
 	req := schema.MetadataRequest{Kind: commonv1.MediaKindMovie, IDs: map[string]string{"tmdb": "1"}}
@@ -113,7 +113,7 @@ func TestServeRPCSearchDispatchesByKind(t *testing.T) {
 		Artists: []pkgmetadata.ArtistProvider{stubArtistProvider{hit: pkgmetadata.SearchHit{Title: "Radiohead"}}},
 	}
 	bus := newTestBus(t)
-	require.NoError(t, ServeRPC(bus, reg))
+	mustServeRPC(t, bus, reg)
 
 	var resp schema.MetadataResponse
 	req := schema.MetadataRequest{Kind: commonv1.MediaKindArtist, Text: "Radiohead"}
@@ -127,7 +127,7 @@ func TestServeRPCSearchDispatchesByKind(t *testing.T) {
 func TestServeRPCSearchReportsUnsupportedKinds(t *testing.T) {
 	reg := &pkgmetadata.Registry{}
 	bus := newTestBus(t)
-	require.NoError(t, ServeRPC(bus, reg))
+	mustServeRPC(t, bus, reg)
 
 	var resp schema.MetadataResponse
 	req := schema.MetadataRequest{Kind: commonv1.MediaKindEpisode, Text: "anything"}
@@ -140,7 +140,7 @@ func TestServeRPCSearchReportsUnsupportedKinds(t *testing.T) {
 // no provider of it is a configuration gap, not an unsupported kind.
 func TestServeRPCSearchSaysWhenNoProviderIsConfigured(t *testing.T) {
 	bus := newTestBus(t)
-	require.NoError(t, ServeRPC(bus, &pkgmetadata.Registry{}))
+	mustServeRPC(t, bus, &pkgmetadata.Registry{})
 
 	var resp schema.MetadataResponse
 	req := schema.MetadataRequest{Kind: commonv1.MediaKindMovie, Text: "Inception"}
@@ -171,7 +171,7 @@ func TestServeRPCSearchSurfacesEveryProviderFailure(t *testing.T) {
 		failingSearchArtistProvider{name: "mirror", err: fmt.Errorf("dial tcp: connection refused")},
 	}}
 	bus := newTestBus(t)
-	require.NoError(t, ServeRPC(bus, reg))
+	mustServeRPC(t, bus, reg)
 
 	var resp schema.MetadataResponse
 	req := schema.MetadataRequest{Kind: commonv1.MediaKindArtist, Text: "Radiohead"}
@@ -191,7 +191,7 @@ func TestServeRPCSearchFallsThroughAFailingProviderToTheNext(t *testing.T) {
 		stubArtistProvider{hit: pkgmetadata.SearchHit{Title: "Radiohead"}},
 	}}
 	bus := newTestBus(t)
-	require.NoError(t, ServeRPC(bus, reg))
+	mustServeRPC(t, bus, reg)
 
 	var resp schema.MetadataResponse
 	req := schema.MetadataRequest{Kind: commonv1.MediaKindArtist, Text: "Radiohead"}
@@ -213,7 +213,7 @@ func TestServeRPCSearchReportsAlbumAsUnsupported(t *testing.T) {
 		Artists: []pkgmetadata.ArtistProvider{stubArtistProvider{hit: pkgmetadata.SearchHit{Title: "Radiohead"}}},
 	}
 	bus := newTestBus(t)
-	require.NoError(t, ServeRPC(bus, reg))
+	mustServeRPC(t, bus, reg)
 
 	var resp schema.MetadataResponse
 	req := schema.MetadataRequest{Kind: commonv1.MediaKindAlbum, Text: "OK Computer"}
@@ -234,7 +234,7 @@ func TestServeRPCResolveMergesEveryResolver(t *testing.T) {
 		stubResolver{add: pkgmetadata.ExternalIDs{"imdb": "tt1375666"}},
 	}}
 	bus := newTestBus(t)
-	require.NoError(t, ServeRPC(bus, reg))
+	mustServeRPC(t, bus, reg)
 
 	var resp schema.MetadataResponse
 	req := schema.MetadataRequest{Kind: commonv1.MediaKindMovie, IDs: map[string]string{"tmdb": "27205"}}
@@ -276,7 +276,7 @@ func TestServeRPCLookupListsEpisodesForTaskC6(t *testing.T) {
 		},
 	}}}
 	bus := newTestBus(t)
-	require.NoError(t, ServeRPC(bus, reg))
+	mustServeRPC(t, bus, reg)
 
 	var resp schema.MetadataResponse
 	req := schema.MetadataRequest{
@@ -296,7 +296,7 @@ func TestServeRPCLookupListsEpisodesForTaskC6(t *testing.T) {
 func TestServeRPCLookupEpisodesRequiresATVDBID(t *testing.T) {
 	reg := &pkgmetadata.Registry{}
 	bus := newTestBus(t)
-	require.NoError(t, ServeRPC(bus, reg))
+	mustServeRPC(t, bus, reg)
 
 	var resp schema.MetadataResponse
 	req := schema.MetadataRequest{Kind: commonv1.MediaKindEpisode, IDs: map[string]string{"order": "official"}}
@@ -361,7 +361,7 @@ func TestServeRPCLookupListsIssuesForComicFanout(t *testing.T) {
 		},
 	}}}
 	bus := newTestBus(t)
-	require.NoError(t, ServeRPC(bus, reg))
+	mustServeRPC(t, bus, reg)
 
 	var resp schema.MetadataResponse
 	req := schema.MetadataRequest{Kind: commonv1.MediaKindIssue, IDs: map[string]string{"comicvine": "4050-12345"}}
@@ -386,7 +386,7 @@ func TestServeRPCLookupIssuesHandsEachIDOnlyToProvidersOfItsKey(t *testing.T) {
 		stubComicProvider{calls: &calls, name: "mangadex", lookupBy: []string{"mangadex"}, issues: []pkgmetadata.ComicIssue{{Number: "41"}, {Number: "42"}}},
 	}}
 	bus := newTestBus(t)
-	require.NoError(t, ServeRPC(bus, reg))
+	mustServeRPC(t, bus, reg)
 
 	var resp schema.MetadataResponse
 	req := schema.MetadataRequest{Kind: commonv1.MediaKindIssue, IDs: map[string]string{"mangadex": "801513ba-a712-498c-8f57-cae55b38cc92"}}
@@ -410,7 +410,7 @@ func TestServeRPCLookupIssuesNamesEveryProvidersFailure(t *testing.T) {
 		stubComicProvider{name: "metron", lookupBy: []string{"metron", "comicvine"}, err: pkgmetadata.ErrNotFound},
 	}}
 	bus := newTestBus(t)
-	require.NoError(t, ServeRPC(bus, reg))
+	mustServeRPC(t, bus, reg)
 
 	var resp schema.MetadataResponse
 	req := schema.MetadataRequest{Kind: commonv1.MediaKindIssue, IDs: map[string]string{"comicvine": "4050-12345"}}
@@ -422,7 +422,7 @@ func TestServeRPCLookupIssuesNamesEveryProvidersFailure(t *testing.T) {
 func TestServeRPCLookupIssuesRequiresAComicVineVolumeID(t *testing.T) {
 	reg := &pkgmetadata.Registry{}
 	bus := newTestBus(t)
-	require.NoError(t, ServeRPC(bus, reg))
+	mustServeRPC(t, bus, reg)
 
 	var resp schema.MetadataResponse
 	req := schema.MetadataRequest{Kind: commonv1.MediaKindIssue, IDs: map[string]string{}}
@@ -475,7 +475,7 @@ func TestServeRPCLookupListsAlbumsForArtistFanout(t *testing.T) {
 		},
 	}}}
 	bus := newTestBus(t)
-	require.NoError(t, ServeRPC(bus, reg))
+	mustServeRPC(t, bus, reg)
 
 	var resp schema.MetadataResponse
 	req := schema.MetadataRequest{
@@ -502,7 +502,7 @@ func TestServeRPCLookupListsAlbumsForArtistFanout(t *testing.T) {
 func TestServeRPCLookupAlbumStillUsesRegistryLookupForAReleaseGroupID(t *testing.T) {
 	reg := &pkgmetadata.Registry{Artists: []pkgmetadata.ArtistProvider{stubArtistProvider{}}}
 	bus := newTestBus(t)
-	require.NoError(t, ServeRPC(bus, reg))
+	mustServeRPC(t, bus, reg)
 
 	var resp schema.MetadataResponse
 	req := schema.MetadataRequest{Kind: commonv1.MediaKindAlbum, IDs: map[string]string{pkgmetadata.KeyMBReleaseGroup: "rg-1"}}
@@ -517,7 +517,7 @@ func TestServeRPCLookupAlbumStillUsesRegistryLookupForAReleaseGroupID(t *testing
 func TestServeRPCLookupAlbumWithNoIDsFallsThroughToRegistryLookup(t *testing.T) {
 	reg := &pkgmetadata.Registry{}
 	bus := newTestBus(t)
-	require.NoError(t, ServeRPC(bus, reg))
+	mustServeRPC(t, bus, reg)
 
 	var resp schema.MetadataResponse
 	req := schema.MetadataRequest{Kind: commonv1.MediaKindAlbum, IDs: map[string]string{}}
@@ -574,7 +574,7 @@ func TestServeRPCLookupListsBooksForAuthorFanout(t *testing.T) {
 		},
 	}}}
 	bus := newTestBus(t)
-	require.NoError(t, ServeRPC(bus, reg))
+	mustServeRPC(t, bus, reg)
 
 	var resp schema.MetadataResponse
 	req := schema.MetadataRequest{
@@ -601,7 +601,7 @@ func TestServeRPCLookupListsBooksForAuthorFanout(t *testing.T) {
 func TestServeRPCLookupBookStillUsesRegistryLookupForAWorkID(t *testing.T) {
 	reg := &pkgmetadata.Registry{Books: []pkgmetadata.BookProvider{stubBookListProvider{}}}
 	bus := newTestBus(t)
-	require.NoError(t, ServeRPC(bus, reg))
+	mustServeRPC(t, bus, reg)
 
 	var resp schema.MetadataResponse
 	req := schema.MetadataRequest{Kind: commonv1.MediaKindBook, IDs: map[string]string{pkgmetadata.KeyOpenLibraryWork: "OL45883W"}}
@@ -619,7 +619,7 @@ func TestServeRPCLookupBookStillUsesRegistryLookupForAWorkID(t *testing.T) {
 func TestServeRPCLookupBookWithNoIDsFallsThroughToRegistryLookup(t *testing.T) {
 	reg := &pkgmetadata.Registry{Books: []pkgmetadata.BookProvider{stubBookListProvider{}}}
 	bus := newTestBus(t)
-	require.NoError(t, ServeRPC(bus, reg))
+	mustServeRPC(t, bus, reg)
 
 	var resp schema.MetadataResponse
 	req := schema.MetadataRequest{Kind: commonv1.MediaKindBook, IDs: map[string]string{}}
@@ -677,7 +677,7 @@ func TestServeRPCHandlersCreateASpanPerVerb(t *testing.T) {
 		Resolvers: []pkgmetadata.IDResolver{stubResolver{add: pkgmetadata.ExternalIDs{"imdb": "tt1375666"}}},
 	}
 	bus := newTestBus(t)
-	require.NoError(t, ServeRPC(bus, reg))
+	mustServeRPC(t, bus, reg)
 
 	var resp schema.MetadataResponse
 	require.NoError(t, bus.Request(context.Background(), events.RPCMetadataLookup,
@@ -729,7 +729,7 @@ func TestServeRPCSearchesSeriesAndAuthors(t *testing.T) {
 		Books:  []pkgmetadata.BookProvider{stubAuthorSearcher{hit: pkgmetadata.SearchHit{Title: "Jane Austen", IDs: pkgmetadata.ExternalIDs{"olauthor": "OL21594A"}}}},
 	}
 	bus := newTestBus(t)
-	require.NoError(t, ServeRPC(bus, reg))
+	mustServeRPC(t, bus, reg)
 
 	for kind, want := range map[commonv1.MediaKind]string{commonv1.MediaKindSeries: "Breaking Bad", commonv1.MediaKindAuthor: "Jane Austen"} {
 		var resp schema.MetadataResponse
@@ -752,7 +752,7 @@ func (nonSearchingSeries) Name() string { return "no-search" }
 func TestServeRPCSeriesSearchSkipsProvidersThatCannotSearch(t *testing.T) {
 	reg := &pkgmetadata.Registry{Series: []pkgmetadata.SeriesProvider{nonSearchingSeries{}}}
 	bus := newTestBus(t)
-	require.NoError(t, ServeRPC(bus, reg))
+	mustServeRPC(t, bus, reg)
 
 	var resp schema.MetadataResponse
 	require.NoError(t, bus.Request(context.Background(), events.RPCMetadataSearch, schema.MetadataRequest{Kind: commonv1.MediaKindSeries, Text: "q"}, &resp))
@@ -784,7 +784,7 @@ func TestServeRPCLookupEpisodesCarriesPlexIDs(t *testing.T) {
 		}}},
 	}
 	bus := newTestBus(t)
-	require.NoError(t, ServeRPC(bus, reg))
+	mustServeRPC(t, bus, reg)
 	var resp schema.MetadataResponse
 	req := schema.MetadataRequest{Kind: commonv1.MediaKindEpisode, IDs: map[string]string{"tvdb": "78874", "order": "official"}}
 	require.NoError(t, bus.Request(context.Background(), events.RPCMetadataLookup, req, &resp))
@@ -803,10 +803,19 @@ func TestServeRPCLookupEpisodesSurvivesPlexFailing(t *testing.T) {
 		Plex:   []pkgmetadata.PlexProvider{stubPlexProvider{gotIDs: &gotIDs, err: pkgmetadata.ErrRateLimited}},
 	}
 	bus := newTestBus(t)
-	require.NoError(t, ServeRPC(bus, reg))
+	mustServeRPC(t, bus, reg)
 	var resp schema.MetadataResponse
 	req := schema.MetadataRequest{Kind: commonv1.MediaKindEpisode, IDs: map[string]string{"tvdb": "78874"}}
 	require.NoError(t, bus.Request(context.Background(), events.RPCMetadataLookup, req, &resp))
 	require.Empty(t, resp.Error)
 	require.Len(t, resp.Results, 1)
+}
+
+// mustServeRPC serves the gateway's RPC verbs on bus for the test and drains
+// them when it ends (ServeRPC returns its stop since ADR-0020 §1).
+func mustServeRPC(t *testing.T, bus events.Requester, reg *pkgmetadata.Registry) {
+	t.Helper()
+	stop, err := ServeRPC(bus, reg)
+	require.NoError(t, err)
+	t.Cleanup(stop)
 }

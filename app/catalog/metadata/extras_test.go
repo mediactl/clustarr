@@ -91,7 +91,7 @@ func newExtrasHarness(t *testing.T) extrasHarness {
 	bus := newTestBus(t)
 	plex := &fakeExtras{extras: []json.RawMessage{teaser}}
 	reg := &pkgmetadata.Registry{Plex: []pkgmetadata.PlexProvider{plex}}
-	require.NoError(t, ServeExtras(bus, bus.KV(events.BucketPlexExtras), reg, clock))
+	mustServeExtras(t, bus, bus.KV(events.BucketPlexExtras), reg, clock)
 	return extrasHarness{bus: bus, clock: clock, plex: plex}
 }
 
@@ -186,7 +186,7 @@ func TestNoExtrasAreStoredAndServedAsAnEmptyList(t *testing.T) {
 
 func TestExtrasWithoutAPlexProviderAreAnError(t *testing.T) {
 	bus := newTestBus(t)
-	require.NoError(t, ServeExtras(bus, bus.KV(events.BucketPlexExtras), &pkgmetadata.Registry{}, clockwork.NewRealClock()))
+	mustServeExtras(t, bus, bus.KV(events.BucketPlexExtras), &pkgmetadata.Registry{}, clockwork.NewRealClock())
 	var resp schema.PlexExtrasResponse
 	require.NoError(t, bus.Request(context.Background(), events.RPCMetadataExtras, schema.PlexExtrasRequest{PlexID: extrasPlexID}, &resp))
 	require.Contains(t, resp.Error, "no plex metadata provider")
@@ -197,4 +197,13 @@ func TestExtrasRefuseAnEmptyPlexID(t *testing.T) {
 	got := h.ask(t, "")
 	require.NotEmpty(t, got.Error)
 	require.Equal(t, 0, h.plex.asked())
+}
+
+// mustServeExtras serves rpc.catalog.metadata.extras on bus for the test and
+// drains it when it ends (ServeExtras returns its stop since ADR-0020 §1).
+func mustServeExtras(t *testing.T, bus events.Requester, kv events.KV, reg *pkgmetadata.Registry, clock clockwork.Clock) {
+	t.Helper()
+	stop, err := ServeExtras(bus, kv, reg, clock)
+	require.NoError(t, err)
+	t.Cleanup(stop)
 }
