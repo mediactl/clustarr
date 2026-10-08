@@ -480,4 +480,3 @@ func fourcc(tag uint32) string {
 	}
 	return b.String()
 }
-
