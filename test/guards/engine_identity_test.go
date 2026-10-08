@@ -64,8 +64,8 @@ func engineRenders(t *testing.T) map[string]installtest.Rendered {
 	}
 }
 
-// TestGrabEnginesMountAClaimTheInstallerCreates (plan task G1-5, found by
-// E-4): the DownloadClient controller stamps a /data PersistentVolumeClaim
+// TestManagerStampsAClaimTheInstallerCreates (plan task G1-5, found by
+// E-4; W5.16): the manager's DownloadClient controller stamps a /data PersistentVolumeClaim
 // onto every engine StatefulSet and Deployment it creates. That name was the
 // constant "clustarr-data" -- config/'s claim -- while the chart names its
 // claim "<release fullname>-data", so under any release name other than
@@ -79,7 +79,7 @@ func engineRenders(t *testing.T) map[string]installtest.Rendered {
 // -- engines and the controller that sizes them share one volume. The other
 // half of the seam, that the variable reaches the manager's options, is
 // cmd/manager's own test (W5.7).
-func TestGrabEnginesMountAClaimTheInstallerCreates(t *testing.T) {
+func TestManagerStampsAClaimTheInstallerCreates(t *testing.T) {
 	for name, r := range engineRenders(t) {
 		t.Run(name, func(t *testing.T) {
 			dep, env := engineRenderer(t, r)
@@ -100,8 +100,8 @@ func TestGrabEnginesMountAClaimTheInstallerCreates(t *testing.T) {
 	}
 }
 
-// TestGrabEnginesRunAsAnAccountTheInstallerBinds is the engine
-// ServiceAccount's half of the test above (X14, found by X9): the engine
+// TestEnginesRunAsAnAccountTheInstallerBinds is the engine
+// ServiceAccount's half of the test above (X14, found by X9; W5.16): the engine
 // pods the DownloadClient controller creates named no serviceAccountName, so
 // they ran as the namespace's "default" account, which nothing binds, and
 // were denied their own DownloadClient on a real cluster. envtest schedules
@@ -111,7 +111,7 @@ func TestGrabEnginesMountAClaimTheInstallerCreates(t *testing.T) {
 // every engine pod from its literal env (or the flag's default). That
 // account must be one the installer creates, bound to exactly one
 // ClusterRole whose grants are exactly the engines' generated role.
-func TestGrabEnginesRunAsAnAccountTheInstallerBinds(t *testing.T) {
+func TestEnginesRunAsAnAccountTheInstallerBinds(t *testing.T) {
 	want := installtest.SortedGrants(installtest.GrantsOf(
 		installtest.ReadRole(t, installtest.RepoRoot(t), "grab_engine_role.yaml").Rules))
 	for name, r := range engineRenders(t) {
@@ -136,6 +136,38 @@ func TestGrabEnginesRunAsAnAccountTheInstallerBinds(t *testing.T) {
 				account, boundTo[0], name)
 			require.Equal(t, want, installtest.SortedGrants(installtest.GrantsOf(role.Rules)),
 				"the ClusterRole engine pods run under is not the generated engine role")
+		})
+	}
+}
+
+// TestGrabEnginesRunAsAnAccountTheInstallerBinds (U3): the account the
+// manager stamps onto the engine pods is the one each installer names after
+// downloadclient.DefaultEngineServiceAccount -- the bare name in
+// config/default, where the manager may run without
+// CLUSTARR_ENGINE_SERVICE_ACCOUNT (make run-dev, an e2e override), and
+// "<release fullname>-grab-engine" in the chart, which must then pass the
+// variable. A rename on one side (the Wave U grab-engine rename was one)
+// leaves engine pods on an account nothing creates.
+func TestGrabEnginesRunAsAnAccountTheInstallerBinds(t *testing.T) {
+	for name, tc := range map[string]struct {
+		render  installtest.Rendered
+		account string
+		viaEnv  bool
+	}{
+		"helm template clustarr":   {installtest.DecodeRendered(t, installtest.RenderChart(t)), "clustarr-" + downloadclient.DefaultEngineServiceAccount, true},
+		"helm template media":      {installtest.DecodeRendered(t, installtest.Run(t, installtest.RepoRoot(t), installtest.FindTool(t, "helm"), "template", "media", "charts/clustarr")), "media-clustarr-" + downloadclient.DefaultEngineServiceAccount, true},
+		"kustomize config/default": {installtest.DecodeRendered(t, installtest.BuildKustomize(t, "config/default")), downloadclient.DefaultEngineServiceAccount, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, env := engineRenderer(t, tc.render)
+			stamped, set := env[cli.EnvEngineServiceAccount]
+			if tc.viaEnv {
+				require.True(t, set, "the chart's manager must pass %s: its account is not the binary's default", cli.EnvEngineServiceAccount)
+			} else if !set {
+				stamped = downloadclient.DefaultEngineServiceAccount
+			}
+			require.Equal(t, tc.account, stamped, "the engine account %s's manager stamps", name)
+			require.True(t, tc.render.ServiceAccounts[stamped], "%s creates no ServiceAccount %q", name, stamped)
 		})
 	}
 }

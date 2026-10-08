@@ -24,6 +24,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mediactl/clustarr/test/installtest"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/yaml"
 )
@@ -206,4 +208,21 @@ func assertKustomizeFsGroup(t *testing.T, root string) {
 	require.Positive(t, checked,
 		"no PVC-mounting workload was found under config/manager; this guard is not looking "+
 			"where it thinks it is")
+}
+
+// TestEveryChartClaimOutlivesTheRelease (OD39): the chart's PVCs carry
+// helm.sh/resource-policy: keep. The library is obvious; the release index
+// is not, and its live PV reclaims with Delete, so `helm uninstall` or a
+// botched upgrade would lose every release the RSS feeds collected.
+func TestEveryChartClaimOutlivesTheRelease(t *testing.T) {
+	objs := installtest.Objects(t, installtest.RenderChart(t))
+	var claims int
+	for _, o := range objs {
+		if o.GetKind() != "PersistentVolumeClaim" {
+			continue
+		}
+		claims++
+		assert.Equal(t, "keep", o.GetAnnotations()["helm.sh/resource-policy"], "PVC %s", o.GetName())
+	}
+	assert.Equal(t, 2, claims, "the chart renders the data and index claims by default")
 }

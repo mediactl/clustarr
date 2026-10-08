@@ -27,14 +27,12 @@ import (
 	"github.com/mediactl/clustarr/test/installtest"
 )
 
-// TestChartIntelRenderGroupsReachTheController follows the chart's
-// manager.intelRenderGroups value (X14) through what the chart renders: the
-// Deployment that renders the transcode pools (the one carrying
-// CLUSTARR_NATIVE_IMAGE) must carry the same GIDs in
-// CLUSTARR_INTEL_RENDER_GROUPS, in the form the flag parses -- and no value
-// must give none, since the render GID is per host install. That the
-// variable reaches --intel-render-groups is cmd/manager's own test (W5.7).
-func TestChartIntelRenderGroupsReachTheController(t *testing.T) {
+// TestIntelRenderGroupsReachTheManager: manager.intelRenderGroups renders
+// the manager's CLUSTARR_INTEL_RENDER_GROUPS in the form --intel-render-groups
+// parses (X14), which the manager stamps onto every Intel transcode pod as
+// supplementalGroups; unset renders nothing, since the render GID is per
+// host install. cmd/manager parses it (W5.7).
+func TestIntelRenderGroupsReachTheManager(t *testing.T) {
 	for name, tc := range map[string]struct {
 		args []string
 		want []int64
@@ -43,24 +41,11 @@ func TestChartIntelRenderGroupsReachTheController(t *testing.T) {
 		"unset": {},
 	} {
 		t.Run(name, func(t *testing.T) {
-			var got []int64
-			var found bool
-			for _, d := range installtest.DecodeRendered(t, installtest.RenderChart(t, tc.args...)).Deployments {
-				env := map[string]string{}
-				for _, e := range d.Spec.Template.Spec.Containers[0].Env {
-					env[e.Name] = e.Value
-				}
-				if _, ok := env[cli.EnvNativeImage]; !ok {
-					continue
-				}
-				found = true
-				var err error
-				got, err = ctrlflags.ParseGIDs(env[cli.EnvIntelRenderGroups])
-				require.NoError(t, err)
-			}
-			require.True(t, found, "no Deployment renders the transcode pools")
-			require.Equal(t, tc.want, got,
-				"the chart's manager.intelRenderGroups did not reach the pools' renderer's --intel-render-groups")
+			c := installtest.Container(t, installtest.DecodeRendered(t, installtest.RenderChart(t, tc.args...)), "manager")
+			v, _ := containerEnv(c, cli.EnvIntelRenderGroups)
+			got, err := ctrlflags.ParseGIDs(v)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got, "the chart's manager.intelRenderGroups did not reach the manager's --intel-render-groups")
 		})
 	}
 }
