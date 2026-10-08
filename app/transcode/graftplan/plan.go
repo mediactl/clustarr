@@ -652,7 +652,10 @@ func idle(v View, in Input, out *catalogv1alpha1.MediaFileStatus, d *Decision) {
 	q.Phase, q.Reason, q.JobName = catalogv1alpha1.GraftPhaseQueued, "", JobName(v.File.Name, s)
 	q.Message = fmt.Sprintf("attempt %d: graft Job %s", s, q.JobName)
 	q.Dispatch = &catalogv1alpha1.Dispatch{Seq: s, DispatchedAt: v.Now}
-	if base.Dispatch != nil {
+	if base.Dispatch != nil && !base.Dispatch.Withdrawn {
+		// What the block incorporated through. A withdrawn dispatch was
+		// closed, not incorporated: its fact may still land under this
+		// request and must be incorporated (§4.7, §4.10).
 		q.Dispatch.AnsweredSeq = base.Dispatch.AnsweredSeq
 	}
 	q.StartedAt, q.CompletedAt = nil, nil
