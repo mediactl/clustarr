@@ -34,12 +34,9 @@ import (
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	downloadac "github.com/mediactl/clustarr/api/applyconfiguration/download/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
-	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
-	"github.com/mediactl/clustarr/app/import/importtarget"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/test/starttest"
 )
 
 // The non-video probes are keyed by the ids test/data/metadata's fixtures
@@ -311,7 +308,7 @@ func verifyNonVideoCatalog(t *testing.T, cfg *rest.Config, fake *fakeMetadataPro
 
 	// Artist -> Album.
 	var album catalogv1alpha1.Album
-	waitForLong(t, "the Artist controller to fan out an Album from the gateway's release-group listing", func() bool {
+	starttest.WaitForLong(t, "the Artist controller to fan out an Album from the gateway's release-group listing", func() bool {
 		var list catalogv1alpha1.AlbumList
 		if c.List(ctx, &list, client.InNamespace("default")) != nil {
 			return false
@@ -327,19 +324,19 @@ func verifyNonVideoCatalog(t *testing.T, cfg *rest.Config, fake *fakeMetadataPro
 	if ref := metav1.GetControllerOf(&album); ref == nil || ref.Kind != "Artist" || ref.Name != artist.Name {
 		t.Errorf("Album %s is controlled by %+v, want Artist %s", album.Name, ref, artist.Name)
 	}
-	waitForLong(t, "the Artist's own MetadataTask to fill its metadata", func() bool {
+	starttest.WaitForLong(t, "the Artist's own MetadataTask to fill its metadata", func() bool {
 		var got catalogv1alpha1.Artist
 		return c.Get(ctx, client.ObjectKeyFromObject(artist), &got) == nil &&
 			got.Status.Metadata != nil && got.Status.Metadata.Name == "Radiohead"
 	})
-	waitForLong(t, "the Album controller to fetch its metadata and write its phase", func() bool {
+	starttest.WaitForLong(t, "the Album controller to fetch its metadata and write its phase", func() bool {
 		var got catalogv1alpha1.Album
 		return c.Get(ctx, client.ObjectKeyFromObject(&album), &got) == nil &&
 			got.Status.Metadata != nil && got.Status.Metadata.Title == "Kid A" && got.Status.Phase != ""
 	})
 	// Its tracks are Kid A's, from a Kid A release the fixture carries.
 	var gotAlbum catalogv1alpha1.Album
-	waitForLong(t, "the Album controller to select a release and write its tracks", func() bool {
+	starttest.WaitForLong(t, "the Album controller to select a release and write its tracks", func() bool {
 		return c.Get(ctx, client.ObjectKeyFromObject(&album), &gotAlbum) == nil && len(gotAlbum.Status.Tracks) > 0 &&
 			gotAlbum.Status.Metadata != nil && gotAlbum.Status.Metadata.SelectedReleaseID != ""
 	})
@@ -363,7 +360,7 @@ func verifyNonVideoCatalog(t *testing.T, cfg *rest.Config, fake *fakeMetadataPro
 
 	// Author -> Book.
 	var book catalogv1alpha1.Book
-	waitForLong(t, "the Author controller to fan out a Book from the gateway's works listing", func() bool {
+	starttest.WaitForLong(t, "the Author controller to fan out a Book from the gateway's works listing", func() bool {
 		var list catalogv1alpha1.BookList
 		if c.List(ctx, &list, client.InNamespace("default")) != nil {
 			return false
@@ -376,7 +373,7 @@ func verifyNonVideoCatalog(t *testing.T, cfg *rest.Config, fake *fakeMetadataPro
 		}
 		return false
 	})
-	waitForLong(t, "the Book controller to fetch its metadata and write its phase", func() bool {
+	starttest.WaitForLong(t, "the Book controller to fetch its metadata and write its phase", func() bool {
 		var got catalogv1alpha1.Book
 		return c.Get(ctx, client.ObjectKeyFromObject(&book), &got) == nil &&
 			got.Status.Metadata != nil && got.Status.Phase != ""
@@ -384,7 +381,7 @@ func verifyNonVideoCatalog(t *testing.T, cfg *rest.Config, fake *fakeMetadataPro
 
 	// Comic -> Issue: two managers on one Issue's status.
 	var iss catalogv1alpha1.Issue
-	waitForLong(t, "the Comic controller to fan out an Issue and write its provider fields", func() bool {
+	starttest.WaitForLong(t, "the Comic controller to fan out an Issue and write its provider fields", func() bool {
 		var list catalogv1alpha1.IssueList
 		if c.List(ctx, &list, client.InNamespace("default")) != nil {
 			return false
@@ -397,10 +394,10 @@ func verifyNonVideoCatalog(t *testing.T, cfg *rest.Config, fake *fakeMetadataPro
 		}
 		return false
 	})
-	waitForLong(t, "the Issue controller to set the fanned-out Issue's state", func() bool {
+	starttest.WaitForLong(t, "the Issue controller to set the fanned-out Issue's state", func() bool {
 		return c.Get(ctx, client.ObjectKeyFromObject(&iss), &iss) == nil && iss.Status.State != ""
 	})
-	if got := statusManagers(iss.ManagedFields); !got[string(k8s.ManagerCatalogFanout)] || !got[string(k8s.ManagerCatalog)] {
+	if got := starttest.StatusManagers(iss.ManagedFields); !got[string(k8s.ManagerCatalogFanout)] || !got[string(k8s.ManagerCatalog)] {
 		t.Errorf("Issue %s status is applied by %v, want both %s (Comic's fan-out) and %s (the Issue controller)",
 			iss.Name, got, k8s.ManagerCatalogFanout, k8s.ManagerCatalog)
 	}
@@ -408,7 +405,7 @@ func verifyNonVideoCatalog(t *testing.T, cfg *rest.Config, fake *fakeMetadataPro
 	// could publish only once it handed the reconciler the bus (X14; until
 	// then a nil Bus published nothing, silently). This case also runs the
 	// history sink, which turns that event into an Event on the Issue.
-	waitForLong(t, "the Issue controller's item event to reach the history sink", func() bool {
+	starttest.WaitForLong(t, "the Issue controller's item event to reach the history sink", func() bool {
 		var list eventsv1.EventList
 		if c.List(ctx, &list, client.InNamespace("default")) != nil {
 			return false
@@ -423,95 +420,12 @@ func verifyNonVideoCatalog(t *testing.T, cfg *rest.Config, fake *fakeMetadataPro
 	})
 
 	// Audiobook, through the region it names.
-	waitForLong(t, "the Audiobook controller's MetadataTask to reach Audnexus for its own region", func() bool {
+	starttest.WaitForLong(t, "the Audiobook controller's MetadataTask to reach Audnexus for its own region", func() bool {
 		return fake.saw(catalogv1alpha1.MetadataProviderAudnexus, "/books/"+nvASIN, "region", string(nvRegion))
 	})
-	waitForLong(t, "the Audiobook controller to write its phase over the fetched metadata", func() bool {
+	starttest.WaitForLong(t, "the Audiobook controller to write its phase over the fetched metadata", func() bool {
 		var got catalogv1alpha1.Audiobook
 		return c.Get(ctx, client.ObjectKeyFromObject(audiobook), &got) == nil &&
 			got.Status.Metadata != nil && got.Status.Phase != ""
 	})
-}
-
-// statusManagers is the set of field managers with an entry on the status
-// subresource.
-func statusManagers(entries []metav1.ManagedFieldsEntry) map[string]bool {
-	out := map[string]bool{}
-	for _, e := range entries {
-		if e.Subresource == "status" {
-			out[e.Manager] = true
-		}
-	}
-	return out
-}
-
-// verifyRetrigger gives fileimport's Retrigger (registered by plan task
-// G2-5) its first piece of work on the leader app/import/all has become: a
-// Blocked Download gains an import-target annotation, the Retrigger re-queues
-// its ImportTask, and the file-import worker in the same process re-runs the
-// import against the new target -- which does not exist, so it blocks again
-// with a message naming it. Nothing else in this case publishes an
-// ImportTask (grab is not running), so the new message is the proof.
-func verifyRetrigger(t *testing.T, cfg *rest.Config) {
-	t.Helper()
-	ctx := context.Background()
-	c, err := client.New(cfg, client.Options{Scheme: k8s.MustNewScheme()})
-	if err != nil {
-		t.Fatalf("build client: %v", err)
-	}
-	magnet := "magnet:?xt=urn:btih:" + strings.Repeat("b", 40)
-	dl := &downloadv1alpha1.Download{
-		ObjectMeta: metav1.ObjectMeta{Name: "retrigger-probe", Namespace: "default"},
-		Spec: downloadv1alpha1.DownloadSpec{
-			Protocol: commonv1alpha1.ProtocolTorrent,
-			Source:   commonv1alpha1.DownloadSource{MagnetURL: &magnet},
-			Release: commonv1alpha1.ReleaseInfo{
-				GUID: "retrigger-probe", IndexerRef: "idx", IndexerName: "Example",
-				Title: "Retrigger Probe 2020 1080p WEB-DL x264-GRP", Protocol: commonv1alpha1.ProtocolTorrent,
-				// Set although optional: the CRD's release-identity CEL rule
-				// reads it unguarded on every status apply (see
-				// app/import/worker/fileimport's envtest fixture).
-				InfoHash: strings.Repeat("b", 40),
-			},
-			Target: commonv1alpha1.MediaRef{Kind: commonv1alpha1.MediaKindMovie, Name: "retrigger-probe"},
-		},
-	}
-	if err := c.Create(ctx, dl); err != nil {
-		t.Fatalf("create Download: %v", err)
-	}
-	t.Cleanup(func() { _ = c.Delete(context.Background(), dl) })
-
-	// The state an earlier import left behind: completed, and Blocked.
-	if _, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadac.Download(dl.Name, dl.Namespace).
-		WithStatus(downloadac.DownloadStatus().
-			WithPhase(commonv1alpha1.DownloadPhaseCompleted).
-			WithContentRoot("/data/downloads/retrigger-probe"))); err != nil {
-		t.Fatalf("complete the Download: %v", err)
-	}
-	const seeded = "seeded by the start test"
-	if _, err := k8s.PatchStatus(ctx, c, k8s.ManagerImport, downloadac.Download(dl.Name, dl.Namespace).
-		WithStatus(downloadac.DownloadStatus().WithImport(downloadac.ImportState().
-			WithState(downloadv1alpha1.ImportPhaseBlocked).WithMessage(seeded)))); err != nil {
-		t.Fatalf("block the Download's import: %v", err)
-	}
-
-	// The user's instruction.
-	var cur downloadv1alpha1.Download
-	if err := c.Get(ctx, client.ObjectKeyFromObject(dl), &cur); err != nil {
-		t.Fatalf("get Download: %v", err)
-	}
-	patch := client.MergeFrom(cur.DeepCopy())
-	cur.Annotations = map[string]string{importtarget.AnnotationImportTarget: "movie/retrigger-target"}
-	if err := c.Patch(ctx, &cur, patch); err != nil {
-		t.Fatalf("annotate the Download: %v", err)
-	}
-
-	var got downloadv1alpha1.Download
-	waitFor(t, "the Retrigger to re-queue the blocked import and the worker to re-run it", func() bool {
-		return c.Get(ctx, client.ObjectKeyFromObject(dl), &got) == nil && got.Status.Import != nil &&
-			strings.Contains(got.Status.Import.Message, `"retrigger-target"`)
-	})
-	if got.Status.Import.State != downloadv1alpha1.ImportPhaseBlocked {
-		t.Errorf("status.import.state = %q (%q), want Blocked on the missing target", got.Status.Import.State, got.Status.Import.Message)
-	}
 }
