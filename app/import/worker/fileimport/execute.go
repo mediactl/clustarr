@@ -44,7 +44,8 @@ import (
 // handleExecute carries out one ImportExecuteTask (ADR-0019 §6.9, step 3):
 // it checks the plan's basis -- every MediaFile it replaces, re-read
 // through the APIReader, must still be the UID and resourceVersion the plan
-// was made against -- then the free space, places each file (containment,
+// was made against -- and that every file it replaces lies under the root
+// folder, then the free space, places each file (containment,
 // a recycle link for an existing destination, never an overwrite), recycles
 // each replaced file, places an audio donor and reduces it to its audio
 // (loop spec §4.12), and writes the record at RecordSubKey(entry,
@@ -108,6 +109,10 @@ func (w *Worker) execute(ctx context.Context, m events.Message, task *schema.Imp
 		x.Refused = schema.ImportRefusedStale
 		return x, why, nil
 	}
+	if why := outsideRoot(plan); why != "" {
+		x.Refused = schema.ImportRefusedOutsideRoot
+		return x, why, nil
+	}
 
 	var need int64
 	for _, mv := range plan.Moves {
@@ -160,7 +165,8 @@ func (w *Worker) execute(ctx context.Context, m events.Message, task *schema.Imp
 
 	// The files the plan replaces go to the recycle bin (P61); one already
 	// gone is replaced all the same. A file that cannot be recycled is left
-	// in place, and so is its MediaFile.
+	// in place, and so is its MediaFile. Every one lies under the root
+	// folder (outsideRoot, above).
 	bin := fsops.RecycleBinPath(plan.RecycleBin)
 	for _, b := range plan.Replaces {
 		if dests[b.Path] {
@@ -229,6 +235,23 @@ func place(ctx context.Context, plan schema.ImportPlan, src, dest string, mode f
 		return schema.ImportRefusedOverwrite, err.Error(), nil
 	}
 	return "", err.Error(), err
+}
+
+// outsideRoot is why the plan replaces a file that does not lie strictly
+// under its root folder, "" when every one does. Such a file is never
+// recycled, and its MediaFile never deleted, whatever the plan says (the
+// librarydelete rule; smoke T2): the whole plan is refused before anything
+// is placed, so the item is not left with the new file beside the old one,
+// and the manager holds the import for a person (outsideRoot is
+// needsPerson).
+func outsideRoot(plan schema.ImportPlan) string {
+	for _, b := range plan.Replaces {
+		if !fsops.StrictlyUnder(b.Path, plan.RootFolder) {
+			return fmt.Sprintf("refused to recycle %s (media file %s), which is not inside root folder path %q: "+
+				"a file outside the root folder is never touched", b.Path, b.Name, plan.RootFolder)
+		}
+	}
+	return ""
 }
 
 // stale re-reads every MediaFile the plan replaces through the APIReader

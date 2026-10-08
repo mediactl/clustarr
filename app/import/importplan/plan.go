@@ -476,7 +476,9 @@ func (p *planner) imported() {
 // is no library file to materialise -- the item key records the reduced
 // audio the execute reports in the item's status.audio.donor -- so the entry
 // is imported at once, and a donor it supersedes (the item's recorded one)
-// is removed from disk with the audio a graft reduced it to.
+// is removed from disk with the audio a graft reduced it to, only when it
+// lies under the root folder's donor folder (smoke T2: nothing outside the
+// root folder is touched).
 func (p *planner) materialiseDonor(x *schema.ImportExecution) {
 	d := p.in.Donor
 	if d == nil || x.DonorPath == "" {
@@ -484,17 +486,33 @@ func (p *planner) materialiseDonor(x *schema.ImportExecution) {
 		return
 	}
 	if old := d.RecordedDonor; old != "" && old != x.DonorPath {
-		var gone []string
-		for _, f := range []string{old, strings.TrimSuffix(old, filepath.Ext(old)) + ".mka"} {
-			if f != x.DonorPath && !slices.Contains(gone, f) {
-				gone = append(gone, f)
+		// The removal is fsops.SafeRemove under the data root, not the root
+		// folder: only a donor the planner could have placed there goes.
+		if folder := p.donorFolder(); !contained(old, folder) {
+			p.sum.Message = fmt.Sprintf("kept the superseded donor %s: it is not inside the root folder's donor folder %q",
+				old, folder)
+		} else {
+			var gone []string
+			for _, f := range []string{old, strings.TrimSuffix(old, filepath.Ext(old)) + ".mka"} {
+				if f != x.DonorPath && !slices.Contains(gone, f) {
+					gone = append(gone, f)
+				}
 			}
+			p.dec.Materialise = append(p.dec.Materialise, lifecycle.Materialise{Remove: gone})
 		}
-		p.dec.Materialise = append(p.dec.Materialise, lifecycle.Materialise{Remove: gone})
 	}
 	p.sum.Files = 0
 	p.sum.Class = ""
 	p.dec.Verdict = lifecycle.ImportImported
+}
+
+// donorFolder is the root folder's donor folder, <root>/.clustarr/donors,
+// from the inspection the plan was made from; "" when that is gone.
+func (p *planner) donorFolder() string {
+	if r := p.in.Inspect; r != nil && r.Inspect != nil && r.Inspect.RootFolder != "" {
+		return filepath.Join(r.Inspect.RootFolder, DonorDir)
+	}
+	return ""
 }
 
 // conclude settles an import that imports nothing, by its class (P67,
@@ -728,6 +746,12 @@ func (p *planner) planFrom(insp *schema.ImportInspection) planResult {
 			}
 		}
 	}
+	if b, ok := outsideRoot(replaces, insp.RootFolder); ok {
+		return planResult{class: commonv1.ImportClassNeedsPerson, message: fmt.Sprintf(
+			"refused to replace media file %s at %s, which is not inside root folder path %q: a file outside "+
+				"the root folder is never recycled; move it into the root folder or delete its MediaFile, then import by hand (%s)",
+			b.Name, b.Path, insp.RootFolder, overrideHint)}
+	}
 	plan := schema.ImportPlan{
 		Mode: p.mode(), Moves: moves, Replaces: replaces,
 		RootFolder: insp.RootFolder, RecycleBin: insp.RecycleBin, MinFreeBytes: insp.MinFreeBytes,
@@ -833,6 +857,21 @@ func appendUnique(out, add []catalogv1alpha1.MediaFile) []catalogv1alpha1.MediaF
 		}
 	}
 	return out
+}
+
+// outsideRoot is the first replaced file whose path does not lie strictly
+// under root (smoke T2): the agent would recycle it out of a folder the
+// library does not own, and the manager delete its MediaFile. A path outside
+// the root folder is never touched (the librarydelete rule), so such an
+// import holds for a person rather than replace it or leave it beside the
+// new file.
+func outsideRoot(replaces []schema.MediaFileBasis, root string) (schema.MediaFileBasis, bool) {
+	for _, b := range replaces {
+		if !contained(b.Path, root) {
+			return b, true
+		}
+	}
+	return schema.MediaFileBasis{}, false
 }
 
 func basisOf(mf *catalogv1alpha1.MediaFile) schema.MediaFileBasis {

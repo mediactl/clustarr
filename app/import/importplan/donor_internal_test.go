@@ -35,7 +35,7 @@ func TestReplacingADonorKeepsTheNewOne(t *testing.T) {
 	const dir = "/data/media/tv/.clustarr/donors/9b2c"
 	placed := filepath.Join(dir, "monster-s01e02.mka")
 	removed := func(recorded string) []string {
-		p := &planner{in: Input{Donor: &DonorItem{RecordedDonor: recorded}}}
+		p := &planner{in: Input{Donor: &DonorItem{RecordedDonor: recorded}, Inspect: inspected("/data/media/tv")}}
 		p.materialiseDonor(&schema.ImportExecution{DonorPath: placed})
 		require.Equal(t, lifecycle.ImportImported, p.dec.Verdict)
 		var out []string
@@ -51,4 +51,38 @@ func TestReplacingADonorKeepsTheNewOne(t *testing.T) {
 
 	other := filepath.Join(dir, "old.mkv")
 	require.ElementsMatch(t, []string{other, filepath.Join(dir, "old.mka")}, removed(other))
+}
+
+// inspected is an inspect record of an import under root.
+func inspected(root string) *schema.ImportRecord {
+	return &schema.ImportRecord{Inspect: &schema.ImportInspection{RootFolder: root}}
+}
+
+// TestASupersededDonorOutsideTheDonorFolderIsKept is smoke T2's sweep of the
+// import's other removals: the donor a newer one supersedes is removed by
+// the manager (fsops.SafeRemove under the data root, not the root folder),
+// so a recorded donor path that is not under the root folder's donor folder
+// -- a library file, another root folder, a path the planner cannot place --
+// is never removed; the import is still imported, and says what it kept.
+func TestASupersededDonorOutsideTheDonorFolderIsKept(t *testing.T) {
+	const root = "/data/media/tv"
+	placed := filepath.Join(root, ".clustarr/donors/9b2c/monster-s01e02.mka")
+	for _, recorded := range []string{
+		"/data/media/tv/Monster/Season 01/Monster - S01E02.mkv",
+		"/data/media/movies/.clustarr/donors/9b2c/monster-s01e02.mkv",
+		"/data/downloads/monster-s01e02.mkv",
+		"/data/media/tv/.clustarr/donors/../../Monster/Season 01/Monster - S01E02.mkv",
+	} {
+		p := &planner{in: Input{Donor: &DonorItem{RecordedDonor: recorded}, Inspect: inspected(root)}}
+		p.materialiseDonor(&schema.ImportExecution{DonorPath: placed})
+		require.Equal(t, lifecycle.ImportImported, p.dec.Verdict, recorded)
+		require.Empty(t, p.dec.Materialise, "%s is never removed", recorded)
+		require.Contains(t, p.sum.Message, recorded)
+	}
+
+	// Without the inspection naming the root folder, nothing is removed.
+	p := &planner{in: Input{Donor: &DonorItem{RecordedDonor: filepath.Join(root, ".clustarr/donors/9b2c/old.mkv")}}}
+	p.materialiseDonor(&schema.ImportExecution{DonorPath: placed})
+	require.Equal(t, lifecycle.ImportImported, p.dec.Verdict)
+	require.Empty(t, p.dec.Materialise)
 }

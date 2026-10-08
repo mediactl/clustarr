@@ -45,7 +45,8 @@ const (
 	ImportRefusedDiskFull = "diskFull"
 	// ImportRefusedOverwrite: a destination exists and is not replaced.
 	ImportRefusedOverwrite = "overwrite"
-	// ImportRefusedOutsideRoot: a destination is outside the RootFolder.
+	// ImportRefusedOutsideRoot: a destination, or a file the plan replaces,
+	// is outside the RootFolder; nothing was placed or recycled.
 	ImportRefusedOutsideRoot = "outsideRoot"
 	// ImportRefusedDonorLacksLanguage: the placed donor, reduced to its
 	// audio, lacks the anchor or a missing language (the demuxer read its
