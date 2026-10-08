@@ -29,6 +29,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
@@ -37,12 +38,67 @@ import (
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	uicli "github.com/mediactl/clustarr/internal/cli/ui"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/test/starttest"
 	"github.com/mediactl/clustarr/ui/actions"
 )
 
-// verifyUI proves a running ui process -- `clustarr ui` or `clustarr all`'s
-// ui, whichever the case started -- reads the cluster on the pages Task G3-3
+// TestUIStartsAndServes starts the real ui command (cmd/ui's root, ui.Run
+// behind it) against an envtest apiserver and an embedded JetStream server,
+// as the ui identity under only the role its installers bind
+// (config/rbac/ui_role.yaml): an informer the role cannot list never syncs,
+// so /readyz never answers, and a write the role cannot make fails verifyUI.
+// It waits for /healthz and /readyz on the one bind address, runs verifyUI
+// -- the pages, their streams and both halves of the action writer -- and
+// then cancels the command's context, as SIGTERM does through cli.Main,
+// and requires a clean return and a closed listener (W5.11, from
+// cmd/clustarr's start_ui_envtest_test.go and its `clustarr ui` case; the
+// `clustarr all` case went with `clustarr all`, §3.10).
+func TestUIStartsAndServes(t *testing.T) {
+	env := starttest.StartEnv(t)
+	natsURL := starttest.EmbeddedNATS(t)
+	t.Setenv("KUBECONFIG", starttest.IdentityKubeconfigs(t, env, []string{"ui"})["ui"])
+	addr := starttest.FreeAddress(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	// A verify that fails calls t.Fatalf before the cancel below, which
+	// would leave the ui running and envtest's apiserver unable to stop.
+	t.Cleanup(cancel)
+	root := uicli.NewCommand()
+	root.SetArgs([]string{"--bind-address", addr, "--auth-mode", "anonymous", "--nats-url", natsURL})
+	done := make(chan error, 1)
+	go func() { done <- root.ExecuteContext(ctx) }()
+
+	// A wiring failure returns before anything listens: surface it rather
+	// than wait out the probe deadline.
+	select {
+	case err := <-done:
+		cancel()
+		t.Fatalf("ui returned before serving: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	starttest.WaitForProbe(t, "http://"+addr+"/healthz")
+	// /readyz waits on the cache's sync and the projection's first round.
+	starttest.WaitForProbe(t, "http://"+addr+"/readyz")
+
+	verifyUI(t, env.Config, addr, "cmd")
+
+	cancel()
+	select {
+	case err := <-done:
+		require.NoError(t, err, "ui returned an error on a clean shutdown")
+	case <-time.After(30 * time.Second):
+		t.Fatal("ui did not return within 30s of its context being cancelled")
+	}
+	if resp, err := http.Get("http://" + addr + "/healthz"); err == nil { //nolint:noctx // liveness of a closed listener
+		_ = resp.Body.Close()
+		t.Error("the ui still listens after shutdown")
+	}
+}
+
+// verifyUI proves a running ui process reads the cluster on the pages Task G3-3
 // and G3-4 built, streams them, and writes through the actions Task G3-1
 // built. Until plan task G3-5 none of that was reachable in production:
 // the Library, Unmatched and Import Lists accessors and streams were wired
