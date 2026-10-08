@@ -73,7 +73,7 @@ func TestWorkerObservabilityArgsParse(t *testing.T) {
 // that does not hand device ownership to the pod.
 func TestPoolConfigCarriesTheControllerOptions(t *testing.T) {
 	t.Setenv("UMASK", "002")
-	o := DefaultOptions()
+	o := Options{}
 	o.Namespace = "rel-ns"
 	o.WorkerImage = "media:1"
 	o.DataClaimName, o.DataDir = "rel-data", "/data"

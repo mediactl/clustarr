@@ -22,35 +22,28 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	batchv1 "k8s.io/api/batch/v1"
 	"k8s.io/apimachinery/pkg/labels"
 
 	"github.com/mediactl/clustarr/app/transcode/controller/pool"
 )
 
-// R21: transcode's manager caches the pool Jobs -- in the namespace the pools
-// are created in, labelled managed-by=transcode -- and no other Job in the
-// cluster.
-func TestTheManagerCachesOnlyThePoolJobs(t *testing.T) {
-	o := DefaultOptions()
+// R21: the manager caches the pool Jobs -- in the namespace the pools are
+// created in, labelled managed-by=transcode -- and no other Job in the
+// cluster. internal/cli/manager installs pool.PoolJobCache(o.Namespace) as
+// the batch/v1 Job cache, the namespace poolConfig renders the pools into
+// (W5.17: app/transcode's cache_test moved here; the manager's own cache
+// options are internal/cli/manager's).
+func TestCacheSelectsOnlyThePoolJobs(t *testing.T) {
+	o := Options{}
 	o.Namespace = "rel-ns"
 	o.WatchNamespaces = []string{"media"}
-	opts := o.ManagerOptions()
+	by := pool.PoolJobCache(o.Namespace)
 
-	var found bool
-	for obj, by := range opts.Cache.ByObject {
-		if _, ok := obj.(*batchv1.Job); !ok {
-			continue
-		}
-		found = true
-		assert.Equal(t, []string{poolConfig(o).Namespace}, keys(by.Namespaces), "only the pools' namespace")
-		require.NotNil(t, by.Label)
-		assert.True(t, by.Label.Matches(labels.Set{pool.LabelManagedBy: pool.ManagedByValue, pool.LabelProfile: "hevc"}),
-			"a pool Job is cached")
-		assert.False(t, by.Label.Matches(labels.Set{"app": "backup"}), "another application's Job is not")
-	}
-	assert.True(t, found, "no cache restriction for batch/v1 Jobs")
-	assert.Contains(t, opts.Cache.DefaultNamespaces, "media", "the rest of the cache keeps --watch-namespaces")
+	assert.Equal(t, []string{poolConfig(o).Namespace}, keys(by.Namespaces), "only the pools' namespace")
+	require.NotNil(t, by.Label)
+	assert.True(t, by.Label.Matches(labels.Set{pool.LabelManagedBy: pool.ManagedByValue, pool.LabelProfile: "hevc"}),
+		"a pool Job is cached")
+	assert.False(t, by.Label.Matches(labels.Set{"app": "backup"}), "another application's Job is not")
 }
 
 func keys[V any](m map[string]V) []string {
