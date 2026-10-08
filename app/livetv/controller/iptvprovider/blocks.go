@@ -164,11 +164,19 @@ func (r *Reconciler) planBlocks(ctx context.Context, p *clustarrv1.IPTVProvider,
 		return plan{}, err
 	}
 
-	// The rules across providers: the provider created later loses.
+	// The rule across providers: a span another provider has published
+	// stands, so the provider whose edit would overlap it is refused, older
+	// or younger. Only when the published spans already overlap (a status
+	// lost and re-packed) does age decide: the younger is refused.
 	if len(next) > 0 {
 		first, last := next[0].Numbers[0], next[len(next)-1].Numbers[len(next[len(next)-1].Numbers)-1]
+		pf, pl, published := span(p.Status.Blocks)
 		for _, o := range others {
-			if of, ol, ok := span(o.Status.Blocks); ok && overlaps(first, last, of, ol) && older(o, p) {
+			of, ol, ok := span(o.Status.Blocks)
+			if !ok || !overlaps(first, last, of, ol) {
+				continue
+			}
+			if already := published && overlaps(pf, pl, of, ol); !already || older(o, p) {
 				return keep(clustarrv1.ReasonNumberRangeOverlap,
 					fmt.Sprintf("numbers %s-%s overlap provider %s/%s's %s-%s", first, last, o.Namespace, o.Name, of, ol)), nil
 			}

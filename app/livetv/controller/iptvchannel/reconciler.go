@@ -27,9 +27,11 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
@@ -44,9 +46,14 @@ import (
 // reasonPending is a channel whose provider the tuner has not rendered yet.
 const reasonPending = "Pending"
 
+// reasonKeep is place's answer for a channel whose status stands as it is.
+const reasonKeep = ""
+
 // Snapshots is what the reconciler needs of app/livetv/tuner.
 type Snapshots interface {
-	Snapshot(types.NamespacedName) (tuner.Snapshot, bool)
+	// Channel is one channel as the tuner last rendered it: one lookup per
+	// reconcile, never a copy of the provider's whole snapshot.
+	Channel(key types.NamespacedName, object string) (tuner.ChannelView, bool)
 }
 
 // Reconciler reconciles IPTVChannel status.
@@ -65,6 +72,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	reason, guide := r.place(ctx, &ch)
+	if reason == reasonKeep {
+		return ctrl.Result{}, nil
+	}
 	status := metav1.ConditionFalse
 	switch reason {
 	case clustarrv1.ReasonActive:
@@ -97,7 +107,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 // place is the channel's Ready reason and the guide it uses.
 func (r *Reconciler) place(ctx context.Context, ch *clustarrv1.IPTVChannel) (string, string) {
 	key := types.NamespacedName{Namespace: ch.Namespace, Name: ch.Spec.ProviderRef}
-	snap, ok := r.Snapshots.Snapshot(key)
+	view, ok := r.Snapshots.Channel(key, ch.Name)
 	if !ok {
 		var p clustarrv1.IPTVProvider
 		if err := r.Client.Get(ctx, key, &p); apierrors.IsNotFound(err) {
@@ -107,8 +117,12 @@ func (r *Reconciler) place(ctx context.Context, ch *clustarrv1.IPTVChannel) (str
 		}
 		return reasonPending, ""
 	}
-	st, has := snap.Channels[ch.Name]
+	st, has := view.State, view.Listed
 	switch {
+	case !has && !view.PlaylistFetched && meta.FindStatusCondition(ch.Status.Conditions, clustarrv1.ConditionReady) != nil:
+		// The tuner has not fetched since it (re)started: what the status
+		// says is the best there is until it has.
+		return reasonKeep, ""
 	case !has:
 		return reasonPending, ""
 	case st.Missing:
@@ -163,7 +177,10 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	b := ctrl.NewControllerManagedBy(mgr).
 		Named("iptvchannel").
 		For(&clustarrv1.IPTVChannel{}).
-		Watches(&clustarrv1.IPTVProvider{}, handler.EnqueueRequestsFromMapFunc(channelsOf))
+		// A channel's status reads the tuner and whether its provider
+		// exists, not the provider's status, which changes with every tune.
+		Watches(&clustarrv1.IPTVProvider{}, handler.EnqueueRequestsFromMapFunc(channelsOf),
+			builder.WithPredicates(predicate.GenerationChangedPredicate{}))
 	if r.Events != nil {
 		b = b.WatchesRawSource(source.Channel(r.Events, handler.EnqueueRequestsFromMapFunc(channelsOf)))
 	}

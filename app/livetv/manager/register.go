@@ -99,23 +99,16 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	}
 	providerEvents := make(chan event.GenericEvent, notifyBuffer)
 	channelEvents := make(chan event.GenericEvent, notifyBuffer)
-	notify := func(key types.NamespacedName) {
-		ev := event.GenericEvent{Object: &clustarrv1.IPTVProvider{ObjectMeta: metav1.ObjectMeta{Namespace: key.Namespace, Name: key.Name}}}
-		for _, ch := range []chan event.GenericEvent{providerEvents, channelEvents} {
-			select {
-			case ch <- ev:
-			default:
-			}
-		}
-	}
+	notify, notifyTuners := notifiers(providerEvents, channelEvents)
 	tn := tuner.New(tuner.Options{
 		BindAddress: o.BindAddress,
 		Store:       bus.ObjectStore(events.BucketLiveTV),
 		// No overall timeout: streams are long. Headers must come within 10 s.
-		HTTP:     &http.Client{Transport: transport()},
-		Now:      time.Now,
-		Debounce: 2 * time.Second,
-		Notify:   notify,
+		HTTP:         &http.Client{Transport: transport()},
+		Now:          time.Now,
+		Debounce:     2 * time.Second,
+		Notify:       notify,
+		NotifyTuners: notifyTuners,
 	})
 	if err := mgr.Add(tn); err != nil {
 		return fmt.Errorf("livetv: tuner: %w", err)
@@ -138,4 +131,23 @@ func transport() *http.Transport {
 	t := http.DefaultTransport.(*http.Transport).Clone()
 	t.ResponseHeaderTimeout = 10 * time.Second
 	return t
+}
+
+// notifiers are the tuner's two notices: a snapshot change wakes both
+// controllers; a change in tuners in use, which only the provider's status
+// shows, wakes the provider controller alone. A full channel drops a notice:
+// the next change notifies again.
+func notifiers(providers, channels chan event.GenericEvent) (notify, notifyTuners func(types.NamespacedName)) {
+	send := func(key types.NamespacedName, to ...chan event.GenericEvent) {
+		ev := event.GenericEvent{Object: &clustarrv1.IPTVProvider{ObjectMeta: metav1.ObjectMeta{Namespace: key.Namespace, Name: key.Name}}}
+		for _, ch := range to {
+			select {
+			case ch <- ev:
+			default:
+			}
+		}
+	}
+	notify = func(key types.NamespacedName) { send(key, providers, channels) }
+	notifyTuners = func(key types.NamespacedName) { send(key, providers) }
+	return notify, notifyTuners
 }

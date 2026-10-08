@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package iptvprovider
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 
@@ -61,7 +62,10 @@ func (r *Reconciler) resolveURLs(ctx context.Context, p *clustarrv1.IPTVProvider
 				Message: fmt.Sprintf("Secret %s/%s cannot be read: %v", p.Namespace, sel.Name, err),
 			}
 		}
+		// kubectl --from-file and a YAML "|" block both end the value in a
+		// newline, which no URL carries.
 		v, has := s.Data[sel.Key]
+		v = bytes.TrimSpace(v)
 		if !has || len(v) == 0 {
 			return "", &metav1.Condition{
 				Type: clustarrv1.ConditionValid, Status: metav1.ConditionFalse, Reason: clustarrv1.ReasonSecretKeyNotFound,

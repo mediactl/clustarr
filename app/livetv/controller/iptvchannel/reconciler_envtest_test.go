@@ -72,13 +72,31 @@ func TestMain(m *testing.M) {
 type snapshots struct {
 	mu    sync.Mutex
 	snaps map[types.NamespacedName]tuner.Snapshot
+	// asked counts Channel calls by provider: one per reconcile of its
+	// channels. By provider, since earlier tests' channels live on in the
+	// apiserver and every test's manager reconciles them too.
+	asked map[types.NamespacedName]int
 }
 
-func (s *snapshots) Snapshot(key types.NamespacedName) (tuner.Snapshot, bool) {
+func (s *snapshots) askedFor(key types.NamespacedName) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.asked[key]
+}
+
+func (s *snapshots) Channel(key types.NamespacedName, object string) (tuner.ChannelView, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.asked == nil {
+		s.asked = map[types.NamespacedName]int{}
+	}
+	s.asked[key]++
 	v, ok := s.snaps[key]
-	return v, ok
+	if !ok {
+		return tuner.ChannelView{}, false
+	}
+	st, listed := v.Channels[object]
+	return tuner.ChannelView{State: st, Listed: listed, PlaylistFetched: v.PlaylistFetched}, true
 }
 
 func (s *snapshots) set(key types.NamespacedName, v tuner.Snapshot) {
@@ -277,4 +295,45 @@ func TestAnUnchangedSnapshotWritesNothingAcross3000Channels(t *testing.T) {
 		}
 	}
 	assert.Equal(t, []string{string(k8s.ManagerLiveTVChannel)}, managers, "one manager writes a channel's status")
+}
+
+func TestAChannelKeepsItsStatusUntilTheTunersFirstFetch(t *testing.T) {
+	// A manager restart: the tuner serves the provider again but has not
+	// fetched its playlist, so it lists no channel. Writing each channel
+	// Pending, then Active again, would be two writes per channel.
+	h := setup(t)
+	key := h.provider(t, "news")
+	h.channel(t, "bbc1", "news", "1001", true)
+	h.snaps.set(key, tuner.Snapshot{PlaylistFetched: true, Channels: map[string]tuner.ChannelState{"bbc1": {Guide: "main/bbc1.uk"}}})
+	h.wake(key)
+	before := h.until(t, "bbc1", clustarrv1.ReasonActive)
+
+	h.snaps.set(key, tuner.Snapshot{})
+	asked := h.snaps.askedFor(key)
+	h.wake(key)
+	require.Eventually(t, func() bool { return h.snaps.askedFor(key) > asked }, 10*time.Second, 10*time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
+	after := h.get(t, "bbc1")
+	assert.Equal(t, before.ResourceVersion, after.ResourceVersion, "no write before the first fetch")
+	assert.Equal(t, clustarrv1.ReasonActive, reason(after))
+}
+
+func TestAProvidersStatusWriteWakesNoChannel(t *testing.T) {
+	// The provider's status changes with every tune; a channel's status
+	// reads only the tuner and whether the provider exists.
+	h := setup(t)
+	key := h.provider(t, "news")
+	h.channel(t, "bbc1", "news", "1001", true)
+	h.snaps.set(key, tuner.Snapshot{PlaylistFetched: true, Channels: map[string]tuner.ChannelState{"bbc1": {}}})
+	h.wake(key)
+	h.until(t, "bbc1", clustarrv1.ReasonActive)
+	time.Sleep(200 * time.Millisecond)
+	asked := h.snaps.askedFor(key)
+
+	var p clustarrv1.IPTVProvider
+	require.NoError(t, h.c.Get(h.ctx, key, &p))
+	p.Status.Address = "livetv.clustarr-system.svc:80"
+	require.NoError(t, h.c.Status().Update(h.ctx, &p)) //nolint:forbidigo // the provider controller's write, simulated
+	time.Sleep(500 * time.Millisecond)
+	assert.Equal(t, asked, h.snaps.askedFor(key), "no channel reconciled")
 }

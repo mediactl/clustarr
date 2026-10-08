@@ -116,8 +116,11 @@ func withBlocks(st *clustarrac.IPTVProviderStatusApplyConfiguration, p *clustarr
 		if b.Owner != "" {
 			ac.WithOwner(b.Owner)
 		}
+		// A tuner that has not fetched yet (a manager just started) has no
+		// hashes: the status keeps the last ones, or cluster-plex would
+		// save every block's map and reload its guide again.
 		lineupHash, guideHash := known[b.Start].LineupHash, known[b.Start].GuideHash
-		if rb, has := rendered[b.Start]; has {
+		if rb, has := rendered[b.Start]; has && snap.PlaylistFetched {
 			lineupHash, guideHash = rb.LineupHash, rb.GuideHash
 		}
 		if lineupHash != "" {

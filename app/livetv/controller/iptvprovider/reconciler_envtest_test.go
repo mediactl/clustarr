@@ -493,3 +493,45 @@ func TestADisabledProviderIsRemovedFromTheTunerAndReadsDisabled(t *testing.T) {
 	assert.False(t, ok, "the tuner no longer serves it")
 	assert.Len(t, got.Status.Blocks, 1, "its blocks, and so its DVRs, are kept")
 }
+
+func TestTheProviderWhoseEditOverlapsIsRefusedWhicheverIsOlder(t *testing.T) {
+	// Older a gains a channel inside younger b's span: a's edit is the one
+	// refused. b, which nobody touched, keeps its blocks and stays Ready,
+	// and no number sits in two DVRs.
+	h := setup(t)
+	h.provider(t, "a")
+	h.channels(t, "a", run(1000, 1009)...)
+	a := h.until(t, "a", hasChannels(10), "a's blocks")
+	h.provider(t, "b")
+	h.channels(t, "b", run(2000, 2009)...)
+	b := h.until(t, "b", hasChannels(10), "b's blocks")
+
+	h.channels(t, "a", 2005) // inside b's span
+	got := h.until(t, "a", func(p *clustarrv1.IPTVProvider) bool {
+		c := ready(p)
+		return c != nil && c.Reason == clustarrv1.ReasonNumberRangeOverlap
+	}, "a's span would overlap b's")
+	assert.Equal(t, a.Status.Blocks, got.Status.Blocks, "a's blocks as they were")
+
+	h.channels(t, "b", 2010) // b reconciles against a's published span, which a's edit left
+	after := h.until(t, "b", hasChannels(11), "b takes its own new channel")
+	assert.NotEqual(t, clustarrv1.ReasonNumberRangeOverlap, ready(after).Reason, "b is not the one refused")
+	assert.Equal(t, b.Status.Blocks[0].Port, after.Status.Blocks[0].Port)
+}
+
+func TestASecretURLsTrailingNewlineIsTrimmed(t *testing.T) {
+	// kubectl create secret --from-file and a YAML "|" block both end the
+	// value in a newline; an untrimmed URL never fetches, and its error
+	// once carried the credentials.
+	h := setup(t)
+	require.NoError(t, h.c.Create(h.ctx, &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "polutv", Namespace: h.ns},
+		Data:       map[string][]byte{"url": []byte("http://p.example/get.php?username=a&password=b\n")},
+	}))
+	h.provider(t, "polutv", func(p *clustarrv1.IPTVProvider) {
+		p.Spec.Playlist = clustarrv1.PlaylistSource{URLFrom: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "polutv"}, Key: "url"}}
+	})
+	require.Eventually(t, func() bool { _, ok := h.tuner.last(h.key("polutv")); return ok }, 10*time.Second, 20*time.Millisecond)
+	c, _ := h.tuner.last(h.key("polutv"))
+	assert.Equal(t, "http://p.example/get.php?username=a&password=b", c.PlaylistURL)
+}
