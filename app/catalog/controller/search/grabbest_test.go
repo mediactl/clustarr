@@ -31,7 +31,6 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/decision"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/quality"
@@ -76,66 +75,25 @@ func reconcileSearch(t *testing.T, r *Reconciler, name string) {
 	require.NoError(t, err)
 }
 
-// TestGrabBestGrabsTheTopApprovedReleaseOnce: with grabBest a completed
-// Search grabs its best approved release as the automatic search would --
-// grabbedBy search, not manual -- and a second reconcile grabs nothing more.
-func TestGrabBestGrabsTheTopApprovedReleaseOnce(t *testing.T) {
-	r, c := fakeReconciler(t, completedBookSearch(
+// TestGrabBestPicksTheTopApprovedRelease: with grabBest a completed Search
+// picks its best approved release, skipping a rejected one ranked above it.
+// Since ADR-0019 (A4.3) the pick is sent to the owner as an automatic
+// search's Candidate (grabbedBy search, not manual) and the owner's grab
+// planner makes the grab, so what this package decides is the pick.
+func TestGrabBestPicksTheTopApprovedRelease(t *testing.T) {
+	s := completedBookSearch(
 		release("rejected-first", false, commonv1.Rejection{Reason: "WrongItem", Type: commonv1.RejectionPermanent}),
-		release("best", true), release("second", true)))
-
-	reconcileSearch(t, r, "the-idiot-x")
-	reconcileSearch(t, r, "the-idiot-x")
-
-	var dls downloadv1alpha1.DownloadList
-	require.NoError(t, c.List(context.Background(), &dls))
-	require.Len(t, dls.Items, 1)
-	dl := dls.Items[0]
-	require.Equal(t, "best", dl.Spec.Release.GUID)
-	require.Equal(t, commonv1.GrabSourceSearch, dl.Spec.GrabbedBy)
-	require.False(t, dl.Spec.Manual, "an automatic pick is not a person's: the importer keeps its upgrade rules")
-
-	var s catalogv1alpha1.Search
-	require.NoError(t, c.Get(context.Background(), types.NamespacedName{Namespace: "media", Name: "the-idiot-x"}, &s))
-	require.Len(t, s.Status.Grabbed, 1)
-	require.Equal(t, dl.Name, s.Status.Grabbed[0].DownloadRef)
+		release("best", true), release("second", true))
+	require.Equal(t, []string{"best"}, grabGUIDs(s))
 }
 
-// TestGrabBestNeverGrabsARejectedRelease: a temporary rejection ("already
+// TestGrabBestNeverPicksARejectedRelease: a temporary rejection ("already
 // in the queue") is a human's call on an interactive Search, never an
 // automatic grab's.
-func TestGrabBestNeverGrabsARejectedRelease(t *testing.T) {
-	r, c := fakeReconciler(t, completedBookSearch(
-		release("queued", false, commonv1.Rejection{Reason: "AlreadyQueued", Type: commonv1.RejectionTemporary})))
-	reconcileSearch(t, r, "the-idiot-x")
-	var dls downloadv1alpha1.DownloadList
-	require.NoError(t, c.List(context.Background(), &dls))
-	require.Empty(t, dls.Items)
-}
-
-// TestGrabBestSkipsAnItemAlreadyDownloading: the worker's "already queued"
-// rejection is from before a search that can take tens of seconds; an
-// automatic grab or a second container search can land meanwhile, so the
-// auto-grab looks again, uncached, right before it applies (final review,
-// 2026-09-30). A person's spec.grab pick is not held back.
-func TestGrabBestSkipsAnItemAlreadyDownloading(t *testing.T) {
-	inFlight := &downloadv1alpha1.Download{
-		ObjectMeta: metav1.ObjectMeta{Name: "the-idiot-other", Namespace: "media"},
-		Spec: downloadv1alpha1.DownloadSpec{
-			Target: commonv1.MediaRef{Kind: commonv1.MediaKindBook, Name: "the-idiot"},
-		},
-		Status: downloadv1alpha1.DownloadStatus{Phase: commonv1.DownloadPhaseDownloading},
-	}
-	r, c := fakeReconciler(t, completedBookSearch(release("best", true)), inFlight)
-	reconcileSearch(t, r, "the-idiot-x")
-
-	var dls downloadv1alpha1.DownloadList
-	require.NoError(t, c.List(context.Background(), &dls))
-	require.Len(t, dls.Items, 1, "no second Download for the book")
-	var s catalogv1alpha1.Search
-	require.NoError(t, c.Get(context.Background(), types.NamespacedName{Namespace: "media", Name: "the-idiot-x"}, &s))
-	require.Len(t, s.Status.Grabbed, 1)
-	require.Contains(t, s.Status.Grabbed[0].Error, "the-idiot-other")
+func TestGrabBestNeverPicksARejectedRelease(t *testing.T) {
+	s := completedBookSearch(
+		release("queued", false, commonv1.Rejection{Reason: "AlreadyQueued", Type: commonv1.RejectionTemporary}))
+	require.Empty(t, grabGUIDs(s))
 }
 
 // TestSearchNowNeverGrabsOverATranscodedFileButAPersonsPickMay builds its

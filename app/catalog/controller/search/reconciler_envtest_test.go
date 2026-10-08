@@ -20,6 +20,7 @@ package search_test
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -36,9 +37,9 @@ import (
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/search"
 	"github.com/mediactl/clustarr/app/catalog/searchoutcome"
+	"github.com/mediactl/clustarr/app/remediation/itemtest"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -114,6 +115,24 @@ func (f *fixture) createSearch(t *testing.T, name string, spec catalogv1alpha1.S
 
 func movieRef(name string) *commonv1.MediaRef {
 	return &commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: name}
+}
+
+// candidates decodes every pick the reconciler sent to an owner's candidate
+// intake (ADR-0019 §6.6 step 4, A4.3): the Search controller creates no
+// Download any more; the owner's grab planner makes the grab.
+func (f *fixture) candidates(t *testing.T) []schema.Candidate {
+	t.Helper()
+	subjects, envs := f.pub.snapshot()
+	var out []schema.Candidate
+	for i, subj := range subjects {
+		if !strings.HasPrefix(subj, "clustarr.intake.candidate.") {
+			continue
+		}
+		var c schema.Candidate
+		require.NoError(t, schema.Decode(envs[i].Schema, envs[i].Data, &c))
+		out = append(out, c)
+	}
+	return out
 }
 
 func TestReconcilePublishesOneInteractiveSearchTaskAtHighPriority(t *testing.T) {
@@ -294,9 +313,7 @@ func TestHandleGrabsRejectsAQueryModeSearch(t *testing.T) {
 	require.Equal(t, "guid-1", got.Status.Grabbed[0].GUID)
 	require.Contains(t, got.Status.Grabbed[0].Error, "spec.mediaRef")
 
-	var dls downloadv1alpha1.DownloadList
-	require.NoError(t, f.c.List(context.Background(), &dls, client.InNamespace(f.ns)))
-	require.Empty(t, dls.Items, "no Download should be created for a query-mode grab")
+	require.Empty(t, f.candidates(t), "no pick is sent for a query-mode grab")
 }
 
 func TestReconcileQueueFullLeavesThePhaseUnsetAndRequeues(t *testing.T) {
@@ -430,28 +447,23 @@ func TestReconcileHandlesSpecGrab(t *testing.T) {
 	require.NotNil(t, got.Status.StartedAt)
 	require.Len(t, got.Status.Grabbed, 2)
 	require.Equal(t, "g1", got.Status.Grabbed[0].GUID)
-	require.Equal(t, k8s.ChildName("the-matrix", "g1"), got.Status.Grabbed[0].DownloadRef)
+	require.Empty(t, got.Status.Grabbed[0].DownloadRef, "sent; the owner has made no entry yet")
 	require.Empty(t, got.Status.Grabbed[0].Error)
 	require.Equal(t, "g2", got.Status.Grabbed[1].GUID)
 	require.Empty(t, got.Status.Grabbed[1].DownloadRef)
 	require.Contains(t, got.Status.Grabbed[1].Error, "spec.override")
 
-	var dls downloadv1alpha1.DownloadList
-	require.NoError(t, f.c.List(ctx, &dls, client.InNamespace(f.ns)))
-	require.Len(t, dls.Items, 1, "a permanently rejected release must not be grabbed without override")
-	dl := dls.Items[0]
-	require.Equal(t, k8s.ChildName("the-matrix", "g1"), dl.Name)
-	require.Equal(t, commonv1.ProtocolTorrent, dl.Spec.Protocol)
-	require.NotNil(t, dl.Spec.Source.IndexerDownload)
-	require.Equal(t, "g1", dl.Spec.Source.IndexerDownload.GUID)
-	require.Equal(t, commonv1.GrabSourceInteractive, dl.Spec.GrabbedBy)
-	require.True(t, dl.Spec.Manual,
+	cands := f.candidates(t)
+	require.Len(t, cands, 1, "a permanently rejected release must not be sent without override")
+	c := cands[0]
+	require.Equal(t, "g1", c.Release.Decision.GUID)
+	require.Equal(t, commonv1.GrabSourceInteractive, c.GrabbedBy)
+	require.True(t, c.Manual,
 		"a hand-picked grab must skip the importer's monitored and availability gates, or it downloads in full and is thrown away")
-	require.Equal(t, "hd-bluray-web", dl.Spec.QualityProfileRef)
-	require.Len(t, dl.OwnerReferences, 1, "a Download is owned by its catalog item, never by the Search")
-	require.Equal(t, "Movie", dl.OwnerReferences[0].Kind)
+	require.Equal(t, "Movie", c.Owner.Kind, "a grab is owned by its catalog item, never by the Search")
+	require.Equal(t, "the-matrix", c.Owner.Name)
 
-	// Flipping spec.override retries the failed entry without editing spec.grab.
+	// Flipping spec.override sends the failed pick without editing spec.grab.
 	got.Spec.Override = true
 	require.NoError(t, f.c.Update(ctx, got))
 	f.reconcile(t, "srch")
@@ -459,23 +471,33 @@ func TestReconcileHandlesSpecGrab(t *testing.T) {
 	after := f.get(t, "srch")
 	require.Len(t, after.Status.Grabbed, 2)
 	require.Empty(t, after.Status.Grabbed[1].Error)
-	require.Equal(t, k8s.ChildName("the-matrix", "g2"), after.Status.Grabbed[1].DownloadRef)
-	require.NoError(t, f.c.List(ctx, &dls, client.InNamespace(f.ns)))
-	require.Len(t, dls.Items, 2)
+	cands = f.candidates(t)
+	require.Len(t, cands, 2)
+	require.Equal(t, "g2", cands[1].Release.Decision.GUID)
+	require.True(t, cands[1].Override)
 
-	// A further reconcile is idempotent: server-side apply re-sends the same
-	// immutable spec, which the CEL rules accept.
+	// A further reconcile is idempotent: a sent pick waits for its entry or
+	// the owner's refusal and is not sent again.
 	f.reconcile(t, "srch")
-	require.NoError(t, f.c.List(ctx, &dls, client.InNamespace(f.ns)))
-	require.Len(t, dls.Items, 2)
+	require.Len(t, f.candidates(t), 2)
+
+	// Once the owner's planner has made the grab, the Search names its entry.
+	var movie catalogv1alpha1.Movie
+	require.NoError(t, f.c.Get(ctx, client.ObjectKey{Namespace: f.ns, Name: "the-matrix"}, &movie))
+	e := itemtest.Entry(k8s.ChildName("the-matrix", "g1"), commonv1.DownloadPhasePending)
+	e.Release.GUID = "g1"
+	require.NoError(t, itemtest.SeedEntries(ctx, f.c, &movie, e))
+	f.reconcile(t, "srch")
+	require.Equal(t, k8s.ChildName("the-matrix", "g1"), f.get(t, "srch").Status.Grabbed[0].DownloadRef)
 }
 
 // TestReconcileGrabsANonVideoItemUnderItsInheritedProfile: an interactive
-// grab of an album or an issue creates a Download owned by that item and
-// ranked against the profile the search worker used -- the album's
-// artist's, the issue's comic's. Before non-video search, resolveTarget knew
-// only movies and episodes, so such a Download had no owner (nothing cascades
-// it away with its item) and no profile (the importer could not judge it).
+// grab of an album or an issue is sent to that item's grab owner -- the
+// album itself, the issue's comic, naming the issue as its target. Before
+// non-video search, resolveTarget knew only movies and episodes, so such a
+// grab had no owner (nothing cascades it away with its item). The profile
+// the grab is judged under is the owner's planner's since A4.3 (the entry's
+// qualityProfileRef), not the Search's.
 func TestReconcileGrabsANonVideoItemUnderItsInheritedProfile(t *testing.T) {
 	ctx := context.Background()
 	f := newFixture(t, "search-grab-nonvideo")
@@ -502,11 +524,12 @@ func TestReconcileGrabsANonVideoItemUnderItsInheritedProfile(t *testing.T) {
 	}))
 
 	cases := []struct {
-		search, owner, ownerKind, profile string
-		ref                               commonv1.MediaRef
+		search, owner, ownerKind string
+		ref                      commonv1.MediaRef
+		targets                  []string
 	}{
-		{"srch-album", "radiohead-kid-a", "Album", "music-lossless", commonv1.MediaRef{Kind: commonv1.MediaKindAlbum, Name: "radiohead-kid-a"}},
-		{"srch-issue", "saga-050", "Issue", "comic", commonv1.MediaRef{Kind: commonv1.MediaKindIssue, Name: "saga-050"}},
+		{"srch-album", "radiohead-kid-a", "Album", commonv1.MediaRef{Kind: commonv1.MediaKindAlbum, Name: "radiohead-kid-a"}, nil},
+		{"srch-issue", "saga", "Comic", commonv1.MediaRef{Kind: commonv1.MediaKindIssue, Name: "saga-050"}, []string{"Issue/saga-050"}},
 	}
 	for _, c := range cases {
 		t.Run(c.ownerKind, func(t *testing.T) {
@@ -518,13 +541,20 @@ func TestReconcileGrabsANonVideoItemUnderItsInheritedProfile(t *testing.T) {
 			require.NoError(t, f.c.Patch(ctx, before, patch))
 			f.reconcile(t, c.search)
 
-			dl := &downloadv1alpha1.Download{}
-			require.NoError(t, f.c.Get(ctx, client.ObjectKey{Namespace: f.ns, Name: k8s.ChildName(c.owner, "g-"+c.search)}, dl))
-			require.Equal(t, c.profile, dl.Spec.QualityProfileRef, "the profile the worker ranked against")
-			require.Len(t, dl.OwnerReferences, 1)
-			require.Equal(t, c.ownerKind, dl.OwnerReferences[0].Kind)
-			require.Equal(t, c.owner, dl.OwnerReferences[0].Name)
-			require.Equal(t, c.ref, dl.Spec.Target)
+			var sent *schema.Candidate
+			for _, cand := range f.candidates(t) {
+				if cand.Release.Decision.GUID == "g-"+c.search {
+					sent = &cand
+				}
+			}
+			require.NotNil(t, sent, "the pick was sent to the item's owner")
+			require.Equal(t, c.ownerKind, sent.Owner.Kind)
+			require.Equal(t, c.owner, sent.Owner.Name)
+			var targets []string
+			for _, tg := range sent.Targets {
+				targets = append(targets, tg.Kind+"/"+tg.Name)
+			}
+			require.Equal(t, c.targets, targets)
 		})
 	}
 }

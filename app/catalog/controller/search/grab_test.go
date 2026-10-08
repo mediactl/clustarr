@@ -18,54 +18,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package search
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	"github.com/mediactl/clustarr/app/catalog/grabsource"
 	"github.com/mediactl/clustarr/pkg/decision"
 )
-
-// TestBuildDownloadSourceIsTheGrabWorkersMapping pins the interactive path to
-// grabsource.ResolveSource, the mapping the automatic grab path applies. The
-// two name a Download identically and spec.source is immutable, so any
-// release they map differently is a release a user's grab and an automatic
-// grab cannot both apply -- the carried "two grab paths disagree" failure.
-func TestBuildDownloadSourceIsTheGrabWorkersMapping(t *testing.T) {
-	const hash = "0123456789abcdef0123456789abcdef01234567"
-	for _, rel := range []commonv1.ReleaseInfo{
-		{
-			Protocol: commonv1.ProtocolTorrent, GUID: "g1", IndexerRef: "idx",
-			MagnetURL: "magnet:?xt=urn:btih:abc", DownloadURL: "https://idx.example/dl/g1", InfoHash: hash,
-		},
-		{
-			Protocol: commonv1.ProtocolTorrent, GUID: "g2", IndexerRef: "idx",
-			DownloadURL: "https://idx.example/dl/g2", InfoHash: strings.ToUpper(hash),
-		},
-		{Protocol: commonv1.ProtocolUsenet, GUID: "g3", IndexerRef: "idx", DownloadURL: "https://idx.example/nzb/g3"},
-		{Protocol: commonv1.ProtocolTorrent, GUID: "g4", DownloadURL: "https://tracker.example/g4.torrent"},
-	} {
-		want, err := grabsource.ResolveSource(rel)
-		require.NoError(t, err)
-		require.Equalf(t, want, BuildDownloadSource(rel), "release %s", rel.GUID)
-		require.Equalf(t, grabsource.SourceApplyConfiguration(want), toDownloadSourceAC(BuildDownloadSource(rel)),
-			"release %s", rel.GUID)
-	}
-
-	magnet := BuildDownloadSource(commonv1.ReleaseInfo{
-		Protocol: commonv1.ProtocolTorrent, GUID: "g1", IndexerRef: "idx",
-		MagnetURL: "magnet:?xt=urn:btih:abc", InfoHash: hash,
-	})
-	require.NotNil(t, magnet.MagnetURL)
-	require.Nil(t, magnet.IndexerDownload, "IndexerDownload set alongside MagnetURL violates the source CEL rule")
-	require.NotNil(t, magnet.ExpectedInfoHash, "the info-hash guard rides along on the interactive path too")
-	require.Equal(t, hash, *magnet.ExpectedInfoHash)
-
-	require.Equal(t, commonv1.DownloadSource{}, BuildDownloadSource(commonv1.ReleaseInfo{GUID: "nothing"}),
-		"a release with no source maps to an empty one, which the apiserver refuses on apply")
-}
 
 func TestResolveGrab(t *testing.T) {
 	permanent := commonv1.ReleaseDecision{
