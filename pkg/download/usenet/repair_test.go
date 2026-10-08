@@ -19,50 +19,24 @@ package usenet
 
 import (
 	"context"
-	"fmt"
 	"math/rand"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	par2 "github.com/mediactl/par2go"
 	"github.com/stretchr/testify/require"
 
 	"github.com/mediactl/clustarr/pkg/par2child"
+	"github.com/mediactl/clustarr/test/par2test"
 )
 
-// createSet runs `par2 c -q -b<blocks> -r<pct> [-n<files>] -- <index> <files>`
-// in dir: par2go has no creator by design, so test sets come from the par2
-// CLI (spec 2026-10-06 §8.8, OD26). It has test/par2test.CreateSet's
-// signature, which replaces it once that package exists (the test batch's
-// T2a). A box without the CLI skips the test.
-func createSet(t testing.TB, dir, index string, files []string, blocks, redundancyPercent, recoveryFiles uint32) {
-	t.Helper()
-	bin, err := exec.LookPath("par2")
-	if err != nil {
-		t.Skip("the par2 CLI that makes test sets is not present on this box")
-	}
-	args := []string{"c", "-q", fmt.Sprintf("-b%d", blocks), fmt.Sprintf("-r%d", redundancyPercent)}
-	if recoveryFiles > 0 {
-		args = append(args, fmt.Sprintf("-n%d", recoveryFiles))
-	}
-	args = append(append(args, "--", index), files...)
-	cmd := exec.Command(bin, args...)
-	cmd.Dir = dir
-	out, err := cmd.CombinedOutput()
-	require.NoErrorf(t, err, "par2 create: %s", out)
-}
-
 // libraryRepairer is the repairer the real-par2 tests use: par2go
-// in-process. A box where the library cannot load (PAR2GO_LIB) skips, the
-// contract the exec'd par2 binary's tests had.
+// in-process. A box where the library cannot load (PAR2GO_LIB) skips, or
+// fails under PAR2GO_REQUIRE=1 (make test).
 func libraryRepairer(t *testing.T) *LibraryRepairer {
 	t.Helper()
-	if err := par2.Available(); err != nil {
-		t.Skipf("par2go is unavailable on this box: %v", err)
-	}
+	par2test.RequireLibrary(t)
 	return &LibraryRepairer{Runner: par2child.InProcess{}}
 }
 
@@ -78,7 +52,7 @@ func TestLibraryRepairerVerifiesAnIntactSet(t *testing.T) {
 	// -b caps the block count: par2cmdline's default of 2000 blocks over a
 	// small file makes the Reed-Solomon matrix enormous and the test minutes
 	// long, which is a property of the tool and not of anything under test.
-	createSet(t, dir, "movie.mkv.par2", []string{"movie.mkv"}, 16, 20, 0)
+	par2test.CreateSet(t, dir, "movie.mkv.par2", []string{"movie.mkv"}, 16, 20, 0)
 
 	res, err := r.Repair(context.Background(), dir, "movie.mkv.par2")
 	require.NoError(t, err)
@@ -96,7 +70,7 @@ func TestLibraryRepairerRepairsADamagedFile(t *testing.T) {
 	target := filepath.Join(dir, "movie.mkv")
 	require.NoError(t, os.WriteFile(target, data, 0o644))
 
-	createSet(t, dir, "movie.mkv.par2", []string{"movie.mkv"}, 16, 50, 0)
+	par2test.CreateSet(t, dir, "movie.mkv.par2", []string{"movie.mkv"}, 16, 50, 0)
 
 	// Corrupt a slice in the middle.
 	damaged := append([]byte(nil), data...)
@@ -129,7 +103,7 @@ func TestLibraryRepairerRepairsASetWhoseFilesCarryOtherNames(t *testing.T) {
 	_, _ = rnd.Read(data)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "movie.mkv"), data, 0o644))
 
-	createSet(t, dir, "movie.mkv.par2", []string{"movie.mkv"}, 16, 20, 0)
+	par2test.CreateSet(t, dir, "movie.mkv.par2", []string{"movie.mkv"}, 16, 20, 0)
 
 	// The poster's subject named it differently from the par2 set.
 	require.NoError(t, os.Rename(filepath.Join(dir, "movie.mkv"),

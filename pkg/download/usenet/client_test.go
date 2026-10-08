@@ -34,6 +34,7 @@ import (
 	"time"
 
 	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/test/par2test"
 
 	"github.com/javi11/rapidyenc"
 	"github.com/stretchr/testify/require"
@@ -749,7 +750,7 @@ func TestClientRepairsAReleaseWithAMissingArticle(t *testing.T) {
 	_, _ = rnd.Read(content)
 	require.NoError(t, os.WriteFile(filepath.Join(stage, "movie.mkv"), content, 0o644))
 
-	createSet(t, stage, "movie.mkv.par2", []string{"movie.mkv"}, 16, 50, 0)
+	par2test.CreateSet(t, stage, "movie.mkv.par2", []string{"movie.mkv"}, 16, 50, 0)
 
 	entries, err := os.ReadDir(stage)
 	require.NoError(t, err)

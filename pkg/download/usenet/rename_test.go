@@ -28,6 +28,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/mediactl/clustarr/test/par2test"
 )
 
 // An obfuscated post names its files one way on the wire and another in the
@@ -42,7 +44,7 @@ func TestRenameObfuscatedRestoresNamesFromThePar2Set(t *testing.T) {
 	data := make([]byte, 200<<10)
 	_, _ = rand.New(rand.NewSource(7)).Read(data)
 	require.NoError(t, os.WriteFile(filepath.Join(work, "Some.Movie.2026.1080p.mkv"), data, 0o644))
-	createSet(t, work, "Some.Movie.2026.1080p.par2", []string{"Some.Movie.2026.1080p.mkv"}, 16, 10, 0)
+	par2test.CreateSet(t, work, "Some.Movie.2026.1080p.par2", []string{"Some.Movie.2026.1080p.mkv"}, 16, 10, 0)
 
 	descs := func() []par2FileDesc {
 		f, err := os.Open(filepath.Join(work, "Some.Movie.2026.1080p.par2"))
@@ -155,7 +157,7 @@ func TestRenameObfuscatedMatchesADamagedFileByAnIntactSlice(t *testing.T) {
 	data := make([]byte, 200<<10)
 	_, _ = rand.New(rand.NewSource(11)).Read(data)
 	require.NoError(t, os.WriteFile(filepath.Join(work, "Some.Movie.2026.1080p.mkv"), data, 0o644))
-	createSet(t, work, "Some.Movie.2026.1080p.par2", []string{"Some.Movie.2026.1080p.mkv"}, 16, 50, 0)
+	par2test.CreateSet(t, work, "Some.Movie.2026.1080p.par2", []string{"Some.Movie.2026.1080p.mkv"}, 16, 50, 0)
 
 	nzb := nzbWith(t, "", "z75QORTuwk9NHlDJbb53izyP7TQqFzG4", "Some.Movie.2026.1080p.par2", "Some.Movie.2026.1080p.vol00+8.par2")
 	parsed, err := parseNZB(nzb, defaultMaxNZBBytes)
@@ -212,7 +214,7 @@ func TestAdoptRepairedSetTakesTheTargetsParRebuiltUnderTheSetsName(t *testing.T)
 	}
 	p1 := part("2ef6f194995e4a11b055d0f2354ef0ba.part01.rar")
 	p2 := part("2ef6f194995e4a11b055d0f2354ef0ba.part02.rar")
-	createSet(t, work, "set.par2",
+	par2test.CreateSet(t, work, "set.par2",
 		[]string{"2ef6f194995e4a11b055d0f2354ef0ba.part01.rar", "2ef6f194995e4a11b055d0f2354ef0ba.part02.rar"}, 16, 200, 1)
 
 	nzb := nzbWith(t, "", "A.Scanner.Darkly.part01.rar", "A.Scanner.Darkly.part02.rar", "set.par2", "set.vol00+32.par2")
@@ -267,7 +269,7 @@ func TestPar2ParseResynchronisesPastAHoleAndDropsACorruptPacket(t *testing.T) {
 		_, _ = rng.Read(b)
 		require.NoError(t, os.WriteFile(filepath.Join(work, n), b, 0o644))
 	}
-	createSet(t, work, "set.par2", []string{"Some.Movie.part01.rar", "Some.Movie.part02.rar"}, 8, 50, 1)
+	par2test.CreateSet(t, work, "set.par2", []string{"Some.Movie.part01.rar", "Some.Movie.part02.rar"}, 8, 50, 1)
 	vols, _ := filepath.Glob(filepath.Join(work, "set.vol*.par2"))
 	require.Len(t, vols, 1)
 	raw, err := os.ReadFile(vols[0])
