@@ -77,7 +77,11 @@ create_cluster() {
   # scheduler's gang plugin rides GenericWorkload, and a GPU pool's
   # schedulingConstraints.topology needs TopologyAwareWorkloadScheduling
   # (spec §18.5). All four are shared-registry names the 1.37 apiserver
-  # lists, so every component accepts them.
+  # lists, so every component accepts them. scheduling.k8s.io/v1beta1 too:
+  # under these gates the 1.37 kube-scheduler and kube-controller-manager
+  # watch v1beta1 PodGroup and Workload, and with only v1alpha3 served the
+  # scheduler's caches never sync, so no pod -- CNI and CoreDNS included --
+  # is ever scheduled (found by the smoke test, 2026-10-07).
   kind create cluster --name "${CLUSTER_NAME}" --wait 120s --config=- <<KIND
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
@@ -87,6 +91,7 @@ featureGates:
   TopologyAwareWorkloadScheduling: true
 runtimeConfig:
   "scheduling.k8s.io/v1alpha3": "true"
+  "scheduling.k8s.io/v1beta1": "true"
 nodes:
 - role: control-plane
 ${image_line}
