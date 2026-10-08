@@ -28,16 +28,20 @@ import (
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	seriesctl "github.com/mediactl/clustarr/app/catalog/controller/series"
+	"github.com/mediactl/clustarr/app/remediation/mfindex"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
-// builderIndexer registers RegisterIndexes' indexes on a fake client builder.
+// builderIndexer registers the indexes the Episode's item path reads on a
+// fake client builder: its own (RegisterIndexes), the loop's MediaFile
+// indexes (mfindex) and the Series' Episodes (seriesctl.RegisterIndexes),
+// which the remediation loop registers in production.
 type builderIndexer struct{ b *fake.ClientBuilder }
 
 func (i builderIndexer) IndexField(_ context.Context, obj client.Object, field string, fn client.IndexerFunc) error {
@@ -51,6 +55,8 @@ func newFakeClient(t *testing.T, objs ...client.Object) client.Client {
 		WithStatusSubresource(&catalogv1alpha1.Episode{}, &catalogv1alpha1.Series{}).
 		WithObjects(objs...)
 	require.NoError(t, RegisterIndexes(context.Background(), builderIndexer{b}))
+	require.NoError(t, mfindex.Register(context.Background(), builderIndexer{b}))
+	require.NoError(t, seriesctl.RegisterIndexes(context.Background(), builderIndexer{b}))
 	return b.Build()
 }
 
@@ -88,7 +94,7 @@ func TestEpisodeOfAnUnmonitoredSeriesIsUnmonitored(t *testing.T) {
 	} {
 		c := newFakeClient(t, testSeries("show", tc.seriesMonitored), testEpisode("show-s01e01", "show"))
 		r := &Reconciler{Client: c, Scheme: c.Scheme()}
-		_, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "tv", Name: "show-s01e01"}})
+		_, err := r.ReconcileItem(context.Background(), types.NamespacedName{Namespace: "tv", Name: "show-s01e01"})
 		require.NoError(t, err)
 		var got catalogv1alpha1.Episode
 		require.NoError(t, c.Get(context.Background(), types.NamespacedName{Namespace: "tv", Name: "show-s01e01"}, &got))

@@ -38,11 +38,13 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
-	downloadac "github.com/mediactl/clustarr/api/applyconfiguration/download/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/episode"
+	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 	"github.com/mediactl/clustarr/app/catalog/controller/wantedcron"
+	"github.com/mediactl/clustarr/app/remediation"
+	"github.com/mediactl/clustarr/app/remediation/itemtest"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -93,17 +95,66 @@ func testSeries(ns, name, qualityProfileRef string) *catalogv1alpha1.Series {
 	}
 }
 
-func downloadStatusAC(name, ns string, phase commonv1.DownloadPhase) *downloadac.DownloadApplyConfiguration {
-	return downloadac.Download(name, ns).WithStatus(downloadac.DownloadStatus().WithPhase(phase))
+// seriesEntry is a grab entry on a Series covering the given episodes of
+// season 1 (ADR-0019 §6.1: an Episode's grabs are its Series' entries).
+func seriesEntry(id string, phase commonv1.DownloadPhase, episodes ...int32) catalogv1alpha1.DownloadEntry {
+	e := itemtest.Entry(id, phase)
+	for _, n := range episodes {
+		e.Episodes = append(e.Episodes, catalogv1alpha1.EpisodeNumber{Season: 1, Number: n})
+	}
+	return e
+}
+
+// seedEntries applies entries as the Series' whole status.downloads, the
+// way the grab and downloads stages' entries land (itemtest.SeedEntries,
+// under k8s.ManagerGrab), and waits for the cached client to see each entry
+// at its phase. No item harness source wakes the covered Episodes on that
+// write (the stages decide entries inside the pass that applies them), so
+// the caller reconciles them itself.
+func seedEntries(t *testing.T, ctx context.Context, c client.Client, series string, entries ...catalogv1alpha1.DownloadEntry) {
+	t.Helper()
+	s := &catalogv1alpha1.Series{ObjectMeta: metav1.ObjectMeta{Namespace: "ep-ns", Name: series}}
+	require.NoError(t, itemtest.SeedEntries(ctx, c, s, entries...))
+	require.Eventually(t, func() bool {
+		var got catalogv1alpha1.Series
+		if err := c.Get(ctx, client.ObjectKeyFromObject(s), &got); err != nil {
+			return false
+		}
+		for _, want := range entries {
+			seen := false
+			for _, have := range got.Status.Downloads {
+				seen = seen || (have.ID == want.ID && have.Phase == want.Phase)
+			}
+			if !seen {
+				return false
+			}
+		}
+		return true
+	}, 5*time.Second, 10*time.Millisecond, "the cache must see the seeded entries")
+}
+
+// reconcileUntil reconciles the named Episode and reads it back into got
+// until cond holds. One call is not enough: a ReconcileItem that read a
+// cache older than the last write is refused by itemstatus.Apply's
+// compare-and-swap and asks for a requeue, which here is the next poll.
+func reconcileUntil(t *testing.T, ctx context.Context, c client.Client, r *episode.Reconciler, name string, got *catalogv1alpha1.Episode, cond func() bool, msgAndArgs ...any) {
+	t.Helper()
+	nn := types.NamespacedName{Namespace: "ep-ns", Name: name}
+	require.Eventually(t, func() bool {
+		if _, err := r.ReconcileItem(ctx, nn); err != nil {
+			return false
+		}
+		return c.Get(ctx, nn, got) == nil && cond()
+	}, 5*time.Second, 20*time.Millisecond, msgAndArgs...)
 }
 
 // startManager wires a real episode.Reconciler into a real ctrl.Manager
-// backed by the envtest apiserver, starts it, and waits for the cache to
-// sync. controller-runtime enforces controller-name uniqueness with a
-// process-global registry (see the movie/series packages' identical note),
-// so every scenario needing the real, auto-wired controller lives as a
-// t.Run under one Test function that calls this exactly once.
-func startManager(t *testing.T, ctx context.Context, cfg *rest.Config) client.Client {
+// backed by the envtest apiserver, as the remediation loop's item path runs
+// it (itemtest.Start), starts it, and waits for the cache to sync. Every
+// scenario needing the real, auto-wired controller lives as a t.Run under
+// one Test function that calls this exactly once. It returns the reconciler
+// too, for the legs that reconcile an Episode themselves.
+func startManager(t *testing.T, ctx context.Context, cfg *rest.Config) (client.Client, *episode.Reconciler) {
 	t.Helper()
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme:                 k8s.MustNewScheme(),
@@ -117,11 +168,12 @@ func startManager(t *testing.T, ctx context.Context, cfg *rest.Config) client.Cl
 		Scheme:   mgr.GetScheme(),
 		Recorder: mgr.GetEventRecorder("episode"), // matches run.go's registration line verbatim
 	}
-	require.NoError(t, r.SetupWithManager(mgr))
+	require.NoError(t, remediation.RegisterIndexes(ctx, mgr.GetFieldIndexer()))
+	require.NoError(t, itemtest.Start(mgr, map[remediation.KeyKind]rollup.Item{remediation.KindEpisode: r}))
 
 	go func() { _ = mgr.Start(ctx) }()
 	require.True(t, mgr.GetCache().WaitForCacheSync(ctx))
-	return mgr.GetClient()
+	return mgr.GetClient(), r
 }
 
 func waitForPhase(t *testing.T, ctx context.Context, c client.Client, ns, name string) catalogv1alpha1.Episode {
@@ -143,7 +195,7 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	cfg := newTestConfig(t)
-	c := startManager(t, ctx, cfg)
+	c, r := startManager(t, ctx, cfg)
 	require.NoError(t, c.Create(ctx, testNamespace("ep-ns")))
 
 	t.Run("finalizer add does not early-return; Unaired then Wanted once the air date passes", func(t *testing.T) {
@@ -534,76 +586,63 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 			"the phase column must not read CutoffUnmet for a file never ranked against a cutoff")
 	})
 
-	// Ruling R-5, single-episode grab: the Download is created the way the
-	// grab path creates it (an apply under k8s.ManagerCatalogGrab, owned
-	// by the Episode) and nothing writes the ref, so the ref can only come
-	// from the Download watch and the derivation. managedFields proves the
-	// handover: exactly one owner, the Episode reconciler.
-	t.Run("an owned single-episode Download sets and clears the ref with no grab-worker write", func(t *testing.T) {
+	// Ruling R-5 under ADR-0019, single-episode grab: the entry lands on the
+	// Series the way the grab stage's does (status.downloads under
+	// k8s.ManagerGrab, covering S01E02) and nothing writes the Episode's
+	// ref, so the ref can only come from the derivation. managedFields
+	// proves the handover: exactly one owner, the Episode reconciler.
+	t.Run("a single-episode grab entry on the Series sets and clears the ref with no grab-stage write of it", func(t *testing.T) {
 		ep := &catalogv1alpha1.Episode{
 			ObjectMeta: metav1.ObjectMeta{Name: "the-wire-s01e02", Namespace: "ep-ns"},
 			Spec:       catalogv1alpha1.EpisodeSpec{SeriesRef: "the-wire", SeasonNumber: 1, EpisodeNumber: 2},
 		}
 		require.NoError(t, c.Create(ctx, ep))
-		live := waitForPhase(t, ctx, c, "ep-ns", "the-wire-s01e02")
+		waitForPhase(t, ctx, c, "ep-ns", "the-wire-s01e02")
 
-		dl := grabPathDownload(t, ctx, c, &live, "the-wire-s01e02-abc1234567",
-			commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: "the-wire-s01e02"})
+		entry := seriesEntry("the-wire-s01e02-abc1234567", commonv1.DownloadPhasePending, 2)
+		seedEntries(t, ctx, c, "the-wire", entry)
 
 		var got catalogv1alpha1.Episode
-		require.Eventually(t, func() bool {
-			if err := c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: "the-wire-s01e02"}, &got); err != nil {
-				return false
-			}
-			return got.Status.ActiveDownloadRef != nil
-		}, 5*time.Second, 20*time.Millisecond, "a new owned Download must reach the ref through the Download watch alone")
-		assert.Equal(t, dl, *got.Status.ActiveDownloadRef)
+		reconcileUntil(t, ctx, c, r, "the-wire-s01e02", &got, func() bool { return got.Status.ActiveDownloadRef != nil },
+			"a new covering entry must reach the ref through the derivation alone")
+		assert.Equal(t, entry.ID, *got.Status.ActiveDownloadRef)
 		assert.Equal(t, []string{k8s.ManagerCatalog.String()}, statusFieldOwners(t, &got, "activeDownloadRef"))
 
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadStatusAC(dl, "ep-ns", commonv1.DownloadPhaseAssigned))
-		require.NoError(t, err)
-		require.Eventually(t, func() bool {
-			if err := c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: "the-wire-s01e02"}, &got); err != nil {
-				return false
-			}
-			return got.Status.Phase == catalogv1alpha1.EpisodePhaseDownloading
-		}, 5*time.Second, 20*time.Millisecond)
+		entry.Phase = commonv1.DownloadPhaseAssigned
+		seedEntries(t, ctx, c, "the-wire", entry)
+		reconcileUntil(t, ctx, c, r, "the-wire-s01e02", &got, func() bool { return got.Status.Phase == catalogv1alpha1.EpisodePhaseDownloading })
 
-		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadStatusAC(dl, "ep-ns", commonv1.DownloadPhaseImported))
-		require.NoError(t, err)
-		require.Eventually(t, func() bool {
-			if err := c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: "the-wire-s01e02"}, &got); err != nil {
-				return false
-			}
-			return got.Status.ActiveDownloadRef == nil
-		}, 5*time.Second, 20*time.Millisecond, "an Imported Download must clear the ref")
+		entry.Phase = commonv1.DownloadPhaseImported
+		seedEntries(t, ctx, c, "the-wire", entry)
+		reconcileUntil(t, ctx, c, r, "the-wire-s01e02", &got, func() bool { return got.Status.ActiveDownloadRef == nil },
+			"an Imported entry must clear the ref")
 	})
 
 	// Anime dual-audio spec §6.1: an audio donor is no video grab. It moves
 	// neither status.activeDownloadRef nor the phase (status.audio.graft
 	// reads grabbed instead, rollup.TestAudioStateForGraftStates).
-	t.Run("a donor Download leaves the ref and the phase alone", func(t *testing.T) {
+	t.Run("a donor entry leaves the ref and the phase alone", func(t *testing.T) {
 		ep := &catalogv1alpha1.Episode{
 			ObjectMeta: metav1.ObjectMeta{Name: "the-wire-s01e05", Namespace: "ep-ns"},
 			Spec:       catalogv1alpha1.EpisodeSpec{SeriesRef: "the-wire", SeasonNumber: 1, EpisodeNumber: 5},
 		}
 		require.NoError(t, c.Create(ctx, ep))
 		live := waitForPhase(t, ctx, c, "ep-ns", "the-wire-s01e05")
-		ref, err := k8s.OwnerReferenceAC(&live, k8s.MustNewScheme())
-		require.NoError(t, err)
-		_, err = k8s.Apply(ctx, c, k8s.ManagerCatalogGrab, downloadac.Download("the-wire-s01e05-donor", "ep-ns").
-			WithOwnerReferences(ref).
-			WithSpec(downloadac.DownloadSpec().
-				WithProtocol(commonv1.ProtocolUsenet).WithPurpose(commonv1.DownloadPurposeAudioDonor).
-				WithSource(downloadac.DownloadSource().WithNZBURL("http://indexer.example/donor.nzb")).
-				WithRelease(commonv1.ReleaseInfo{GUID: "donor", IndexerRef: "example", Title: "The.Wire.S01E05.DVDRip.DL", Protocol: commonv1.ProtocolUsenet}).
-				WithTarget(commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: "the-wire-s01e05"})))
-		require.NoError(t, err)
-		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadStatusAC("the-wire-s01e05-donor", "ep-ns", commonv1.DownloadPhaseDownloading))
-		require.NoError(t, err)
+		donor := seriesEntry("the-wire-s01e05-donor", commonv1.DownloadPhaseDownloading, 5)
+		donor.Purpose = commonv1.DownloadPurposeAudioDonor
+		donor.Release.Protocol = commonv1.ProtocolUsenet
+		donor.Release.InfoHash = ""
+		donor.Release.Title = "The.Wire.S01E05.DVDRip.DL"
+		nzb := "http://indexer.example/donor.nzb"
+		donor.Source = commonv1.DownloadSource{NZBURL: &nzb}
+		seedEntries(t, ctx, c, "the-wire", donor)
 		require.Never(t, func() bool {
 			var got catalogv1alpha1.Episode
-			if err := c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: "the-wire-s01e05"}, &got); err != nil {
+			nn := types.NamespacedName{Namespace: "ep-ns", Name: "the-wire-s01e05"}
+			if _, err := r.ReconcileItem(ctx, nn); err != nil {
+				return false
+			}
+			if err := c.Get(ctx, nn, &got); err != nil {
 				return false
 			}
 			return got.Status.ActiveDownloadRef != nil || got.Status.Phase != live.Status.Phase
@@ -627,13 +666,10 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 		settled := func(t *testing.T, step string, want catalogv1alpha1.EpisodePhase, dl string) {
 			t.Helper()
 			var got catalogv1alpha1.Episode
-			require.Eventually(t, func() bool {
-				if err := c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: name}, &got); err != nil {
-					return false
-				}
+			reconcileUntil(t, ctx, c, r, name, &got, func() bool {
 				hasRef := got.Status.ActiveDownloadRef != nil && *got.Status.ActiveDownloadRef == dl
 				return got.Status.Phase == want && hasRef == (want == catalogv1alpha1.EpisodePhaseDownloading)
-			}, 5*time.Second, 20*time.Millisecond, "%s: want phase %s", step, want)
+			}, "%s: want phase %s", step, want)
 
 			cands, err := wantedcron.ListCandidates(ctx, c, func(k commonv1.MediaKind) bool { return k == commonv1.MediaKindEpisode },
 				time.Now(), client.InNamespace("ep-ns"))
@@ -652,13 +688,15 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 		}
 		settled(t, "steady state", catalogv1alpha1.EpisodePhaseWanted, "")
 
-		live := waitForPhase(t, ctx, c, "ep-ns", name)
-		dl := grabPathDownload(t, ctx, c, &live, name+"-abc1234567", commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: name})
-		settled(t, "a Download with no phase yet", catalogv1alpha1.EpisodePhaseDownloading, dl)
+		waitForPhase(t, ctx, c, "ep-ns", name)
+		entry := seriesEntry(name+"-abc1234567", commonv1.DownloadPhasePending, 3)
+		dl := entry.ID
+		seedEntries(t, ctx, c, "the-wire", entry)
+		settled(t, "a grab entry just admitted (Pending)", catalogv1alpha1.EpisodePhaseDownloading, dl)
 
 		set := func(p commonv1.DownloadPhase) {
-			_, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadStatusAC(dl, "ep-ns", p))
-			require.NoError(t, err)
+			entry.Phase = p
+			seedEntries(t, ctx, c, "the-wire", entry)
 		}
 		for _, p := range []commonv1.DownloadPhase{
 			commonv1.DownloadPhasePending, commonv1.DownloadPhaseAssigned,
@@ -726,10 +764,10 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 		}
 	})
 
-	// A season pack names the Series as target and owner and lists the
-	// covered Episodes in spec.target.keys. Every covered Episode gets the
-	// ref; an Episode of the same Series outside the keys does not.
-	t.Run("a season pack owned by the Series sets the ref on exactly the episodes it covers", func(t *testing.T) {
+	// A season pack is one entry on the Series listing the covered
+	// Episodes' numbers in episodes[]. Every covered Episode gets the ref;
+	// an Episode of the same Series outside the list does not.
+	t.Run("a season pack on the Series sets the ref on exactly the episodes it covers", func(t *testing.T) {
 		require.NoError(t, c.Create(ctx, testSeries("ep-ns", "pack-show", "none")))
 		var series catalogv1alpha1.Series
 		require.Eventually(t, func() bool {
@@ -744,36 +782,30 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 			waitForPhase(t, ctx, c, "ep-ns", name)
 		}
 
-		dl := grabPathDownload(t, ctx, c, &series, "pack-show-s01-abc1234567", commonv1.MediaRef{
-			Kind: commonv1.MediaKindSeries, Name: "pack-show",
-			Keys: []string{"pack-show-s01e01", "pack-show-s01e02"},
-		})
+		pack := seriesEntry("pack-show-s01-abc1234567", commonv1.DownloadPhasePending, 1, 2)
+		seedEntries(t, ctx, c, "pack-show", pack)
 
 		for _, name := range []string{"pack-show-s01e01", "pack-show-s01e02"} {
-			require.Eventually(t, func() bool {
-				var got catalogv1alpha1.Episode
-				if err := c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: name}, &got); err != nil {
-					return false
-				}
-				return got.Status.ActiveDownloadRef != nil && *got.Status.ActiveDownloadRef == dl
-			}, 5*time.Second, 20*time.Millisecond, "%s is covered by the pack", name)
+			var got catalogv1alpha1.Episode
+			reconcileUntil(t, ctx, c, r, name, &got, func() bool {
+				return got.Status.ActiveDownloadRef != nil && *got.Status.ActiveDownloadRef == pack.ID
+			}, "%s is covered by the pack", name)
 		}
 		require.Never(t, func() bool {
 			var got catalogv1alpha1.Episode
-			return c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: "pack-show-s01e03"}, &got) == nil &&
-				got.Status.ActiveDownloadRef != nil
-		}, 500*time.Millisecond, 50*time.Millisecond, "an episode outside the pack's keys is not covered")
+			nn := types.NamespacedName{Namespace: "ep-ns", Name: "pack-show-s01e03"}
+			if _, err := r.ReconcileItem(ctx, nn); err != nil {
+				return false
+			}
+			return c.Get(ctx, nn, &got) == nil && got.Status.ActiveDownloadRef != nil
+		}, 500*time.Millisecond, 50*time.Millisecond, "an episode outside the pack's episodes is not covered")
 
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadStatusAC(dl, "ep-ns", commonv1.DownloadPhaseFailed))
-		require.NoError(t, err)
+		pack.Phase = commonv1.DownloadPhaseFailed
+		seedEntries(t, ctx, c, "pack-show", pack)
 		for _, name := range []string{"pack-show-s01e01", "pack-show-s01e02"} {
-			require.Eventually(t, func() bool {
-				var got catalogv1alpha1.Episode
-				if err := c.Get(ctx, types.NamespacedName{Namespace: "ep-ns", Name: name}, &got); err != nil {
-					return false
-				}
-				return got.Status.ActiveDownloadRef == nil
-			}, 5*time.Second, 20*time.Millisecond, "a Failed pack clears %s", name)
+			var got catalogv1alpha1.Episode
+			reconcileUntil(t, ctx, c, r, name, &got, func() bool { return got.Status.ActiveDownloadRef == nil },
+				"a Failed pack clears %s", name)
 		}
 	})
 
@@ -981,30 +1013,6 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 			return c.Get(ctx, key, &got) == nil && got.Status.Audio != nil && len(got.Status.Audio.Missing) == 1
 		}, 5*time.Second, 20*time.Millisecond, "the profile change never reached the episode")
 	})
-}
-
-// grabPathDownload creates a Download the way the grab path does: one
-// server-side apply under k8s.ManagerCatalogGrab with an ownerReference
-// to owner (the Episode for a single-episode grab, the Series for a pack)
-// and nothing written to any Episode. It returns the Download's name.
-func grabPathDownload(t *testing.T, ctx context.Context, c client.Client, owner client.Object, name string, target commonv1.MediaRef) string {
-	t.Helper()
-	ref, err := k8s.OwnerReferenceAC(owner, k8s.MustNewScheme())
-	require.NoError(t, err)
-	dl := downloadac.Download(name, owner.GetNamespace()).
-		WithOwnerReferences(ref).
-		WithSpec(downloadac.DownloadSpec().
-			WithProtocol(commonv1.ProtocolTorrent).
-			WithSource(downloadac.DownloadSource().WithMagnetURL("magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567")).
-			WithRelease(commonv1.ReleaseInfo{
-				GUID: "https://indexer.example/" + name, IndexerRef: "example", IndexerName: "Example",
-				Title: "Fixture.S01.1080p", Protocol: commonv1.ProtocolTorrent,
-				InfoHash: "0123456789abcdef0123456789abcdef01234567",
-			}).
-			WithTarget(target))
-	_, err = k8s.Apply(ctx, c, k8s.ManagerCatalogGrab, dl)
-	require.NoError(t, err)
-	return name
 }
 
 // statusFieldOwners returns the field managers whose managedFields entry
