@@ -20,56 +20,32 @@ package graft_test
 import (
 	"context"
 	"crypto/sha256"
-	"encoding/binary"
-	"encoding/json"
 	"math"
 	"math/rand/v2"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/obinnaokechukwu/ffgo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/mediactl/clustarr/app/transcode/grafttask"
 	"github.com/mediactl/clustarr/app/transcode/worker/graft"
+	"github.com/mediactl/clustarr/internal/testmedia"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
 	"github.com/mediactl/clustarr/pkg/transcode/engine"
 )
 
-const clip = 120 // seconds: four 20 s alignment windows, 30 s apart
+const (
+	clip = 120   // seconds: four 20 s alignment windows, 30 s apart
+	rate = 48000 // the bursts' sample rate
+)
 
-func ffmpegOrSkip(t *testing.T) {
-	t.Helper()
-	for _, bin := range []string{"ffmpeg", "ffprobe"} {
-		if _, err := exec.LookPath(bin); err != nil {
-			t.Skipf("no %s to make test clips", bin)
-		}
-	}
-	if err := ffgo.Init(); err != nil {
-		t.Skipf("no FFmpeg libraries: %v", err)
-	}
-	if _, avc, _ := ffgo.Version(); avc>>16 != 63 {
-		t.Skip("not FFmpeg 9")
-	}
-}
-
-func ffmpeg(t *testing.T, args ...string) {
-	t.Helper()
-	out, err := exec.Command("ffmpeg", append([]string{"-hide_banner", "-loglevel", "error", "-y"}, args...)...).CombinedOutput()
-	require.NoError(t, err, "ffmpeg %s\n%s", strings.Join(args, " "), out)
-}
-
-// bursts writes seconds of seeded random tone bursts, 48 kHz mono WAV.
-func bursts(t *testing.T, seed uint64, seconds float64) string {
-	t.Helper()
-	const rate = 48000
+// bursts is seconds of seeded random tone bursts, 48 kHz mono.
+func bursts(seed uint64, seconds float64) []float64 {
 	r := rand.New(rand.NewPCG(seed, seed^0x9e3779b97f4a7c15))
 	x := make([]float64, int(seconds*rate))
 	for at := 0.0; at < seconds; at += 0.1 + r.Float64()*0.3 {
@@ -78,31 +54,31 @@ func bursts(t *testing.T, seed uint64, seconds float64) string {
 			x[start+i] += amp * math.Exp(-float64(i)/(rate/20)) * math.Sin(2*math.Pi*f*float64(i)/rate)
 		}
 	}
-	b := make([]byte, 44+2*len(x))
-	copy(b, "RIFF")
-	binary.LittleEndian.PutUint32(b[4:], uint32(36+2*len(x)))
-	copy(b[8:], "WAVEfmt ")
-	for i, v := range []uint32{16} {
-		binary.LittleEndian.PutUint32(b[16+4*i:], v)
+	return x
+}
+
+// delayed is x behind lead seconds of silence (ffmpeg's adelay).
+func delayed(x []float64, lead float64) []float64 {
+	return append(make([]float64, int(lead*rate)), x...)
+}
+
+// mixed is a*x + b*y sample by sample, as long as the longer (amix
+// normalize=0 over volume-scaled inputs).
+func mixed(a float64, x []float64, b float64, y []float64) []float64 {
+	out := make([]float64, max(len(x), len(y)))
+	for i := range out {
+		if i < len(x) {
+			out[i] += a * x[i]
+		}
+		if i < len(y) {
+			out[i] += b * y[i]
+		}
 	}
-	binary.LittleEndian.PutUint16(b[20:], 1)
-	binary.LittleEndian.PutUint16(b[22:], 1)
-	binary.LittleEndian.PutUint32(b[24:], rate)
-	binary.LittleEndian.PutUint32(b[28:], rate*2)
-	binary.LittleEndian.PutUint16(b[32:], 2)
-	binary.LittleEndian.PutUint16(b[34:], 16)
-	copy(b[36:], "data")
-	binary.LittleEndian.PutUint32(b[40:], uint32(2*len(x)))
-	for i, v := range x {
-		binary.LittleEndian.PutUint16(b[44+2*i:], uint16(int16(max(-1, min(1, v))*32000)))
-	}
-	p := filepath.Join(t.TempDir(), "b"+strconv.FormatUint(seed, 10)+".wav")
-	require.NoError(t, os.WriteFile(p, b, 0o644))
-	return p
+	return out
 }
 
 // library lays out /data under a temp dir: the tv root folder, the target
-// episode (H.264 + Japanese AAC of bursts mne, plus tracks from extra), and
+// episode (H.264 + Japanese AAC of bursts 1, plus tracks from extra), and
 // a donor -- video, Japanese and English, delayed by lead -- placed as
 // import places one.
 type library struct {
@@ -112,55 +88,42 @@ type library struct {
 
 func newLibrary(t *testing.T, donorAudio []string, lead float64, targetExtra ...string) library {
 	t.Helper()
-	ffmpegOrSkip(t)
+	testmedia.Require(t)
 	data := t.TempDir()
 	show := filepath.Join(data, "tv", "Monster", "Season 01")
 	donors := filepath.Join(data, "tv", ".clustarr", "donors", "uid-1")
 	require.NoError(t, os.MkdirAll(show, 0o755))
 	require.NoError(t, os.MkdirAll(donors, 0o755))
+	video := testmedia.Video{Source: "testsrc2=size=160x90:rate=24", Encoder: "libx264", Options: map[string]string{"preset": "ultrafast"}}
+
 	target := filepath.Join(show, "Monster - S01E02.mkv")
-	d := strconv.Itoa(clip)
-	args := []string{"-f", "lavfi", "-i", "testsrc2=size=160x90:rate=24:duration=" + d, "-i", bursts(t, 1, clip)}
-	maps := []string{"-map", "0", "-map", "1"}
-	meta := []string{"-metadata:s:a:0", "language=jpn"}
+	audio := []testmedia.Audio{{Samples: &testmedia.Samples{Rate: rate, Mono: bursts(1, clip)}, Encoder: "aac",
+		Stream: testmedia.Stream{Language: "jpn"}}}
 	for i, e := range targetExtra {
-		args = append(args, "-i", bursts(t, 50+uint64(i), clip))
-		maps = append(maps, "-map", strconv.Itoa(2+i))
-		meta = append(meta, "-metadata:s:a:"+strconv.Itoa(1+i), "language="+e)
+		audio = append(audio, testmedia.Audio{Samples: &testmedia.Samples{Rate: rate, Mono: bursts(50+uint64(i), clip)},
+			Encoder: "aac", Stream: testmedia.Stream{Language: e}})
 	}
-	args = append(append(append(args, maps...), "-t", d, "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac"), meta...)
-	ffmpeg(t, append(args, target)...)
+	require.NoError(t, testmedia.Write(target, testmedia.Spec{Duration: clip * time.Second, Video: []testmedia.Video{video}, Audio: audio}))
 
 	// The donor: each of donorAudio is "jpn" (the target's bursts), "eng"
-	// (a dub: the bursts under other dialogue) or "other" (unrelated).
+	// (a dub: the bursts under other dialogue), "other" (unrelated, tagged
+	// jpn) or "other-eng" (unrelated, tagged eng); AC-3 stereo, lead late.
 	donor := filepath.Join(donors, "monster-s01e02.mkv")
-	ms := strconv.Itoa(int(lead * 1000))
-	dargs := []string{
-		"-f", "lavfi", "-i", "testsrc2=size=160x90:rate=24:duration=" + strconv.Itoa(clip+2),
-		"-i", bursts(t, 1, clip), "-i", bursts(t, 2, clip), "-i", bursts(t, 7, clip),
-	}
-	var graph []string
-	var dmaps, dmeta []string
-	for i, a := range donorAudio {
-		out := "a" + strconv.Itoa(i)
+	var dub []testmedia.Audio
+	for _, a := range donorAudio {
+		x, lang := bursts(7, clip), "jpn"
 		switch a {
 		case "jpn":
-			graph = append(graph, "[1:a]adelay="+ms+"["+out+"]")
+			x = bursts(1, clip)
 		case "eng":
-			graph = append(graph, "[1:a]volume=0.5[m"+out+"];[2:a]volume=0.8[d"+out+"];[m"+out+"][d"+out+"]amix=inputs=2:normalize=0,adelay="+ms+"["+out+"]")
-		default:
-			graph = append(graph, "[3:a]adelay="+ms+"["+out+"]")
-			a = "jpn"
+			x, lang = mixed(0.5, bursts(1, clip), 0.8, bursts(2, clip)), "eng"
+		case "other-eng":
+			lang = "eng"
 		}
-		dmaps = append(dmaps, "-map", "["+out+"]")
-		if donorAudio[i] == "other-eng" {
-			a = "eng"
-		}
-		dmeta = append(dmeta, "-metadata:s:a:"+strconv.Itoa(i), "language="+a)
+		dub = append(dub, testmedia.Audio{Samples: &testmedia.Samples{Rate: rate, Mono: delayed(x, lead)},
+			Encoder: "ac3", Layout: "stereo", Stream: testmedia.Stream{Language: lang}})
 	}
-	dargs = append(append(dargs, "-filter_complex", strings.Join(graph, ";"), "-map", "0"), dmaps...)
-	dargs = append(append(dargs, "-t", strconv.Itoa(clip+2), "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "ac3", "-ac", "2"), dmeta...)
-	ffmpeg(t, append(dargs, donor)...)
+	require.NoError(t, testmedia.Write(donor, testmedia.Spec{Duration: (clip + 2) * time.Second, Video: []testmedia.Video{video}, Audio: dub}))
 
 	logical := func(p string) string { return "/data" + strings.TrimPrefix(p, data) }
 	st, err := os.Stat(target)
@@ -204,16 +167,9 @@ func TestAGraftSwapsInTheAlignedDub(t *testing.T) {
 	assert.Equal(t, "English (dub, grafted)", tracks[1].Title)
 	assert.True(t, tracks[1].Default)
 
-	out, err := exec.Command("ffprobe", "-v", "error", "-show_format", "-of", "json", target).Output()
-	require.NoError(t, err)
-	var p struct {
-		Format struct {
-			Tags map[string]string `json:"tags"`
-		} `json:"format"`
-	}
-	require.NoError(t, json.Unmarshal(out, &p))
-	assert.Equal(t, res.GraftTag, p.Format.Tags["CLUSTARR_GRAFT"])
-	assert.Empty(t, p.Format.Tags["CLUSTARR_PROFILE"], "a graft is not a transcode")
+	tags := testmedia.Inspect(t, target).Tags
+	assert.Equal(t, res.GraftTag, tags["CLUSTARR_GRAFT"])
+	assert.Empty(t, tags["CLUSTARR_PROFILE"], "a graft is not a transcode")
 
 	_, err = os.Stat(l.path(l.task.Donor))
 	assert.ErrorIs(t, err, os.ErrNotExist, "the donor's video is gone")
@@ -280,11 +236,11 @@ func TestAPathOutsideTheRootIsRefused(t *testing.T) {
 // grafts one per run; the donor reduced by the first keeps the second.
 func TestTheReducedDonorKeepsEveryWantedLanguage(t *testing.T) {
 	l := newLibrary(t, []string{"jpn", "eng", "other-eng"}, 0)
-	// The third track, tagged eng above, stands in for a French dub.
-	out, err := exec.Command("ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", l.path(l.task.Donor),
-		"-map", "0", "-c", "copy", "-metadata:s:a:2", "language=fre", l.path(l.task.Donor)+".fre.mkv").CombinedOutput()
-	require.NoError(t, err, "%s", out)
-	require.NoError(t, os.Rename(l.path(l.task.Donor)+".fre.mkv", l.path(l.task.Donor)))
+	// The third track, tagged eng above, stands in for a French dub: stream
+	// 3, the third audio track behind the video.
+	fre := testmedia.Remux(t, l.path(l.task.Donor), "donor.fre.mkv",
+		testmedia.Retag{StreamMetadata: map[int]map[string]string{3: {"language": "fre"}}})
+	require.NoError(t, os.Rename(fre, l.path(l.task.Donor)))
 	l.task.Languages = []string{"en", "fr"}
 	res := graft.Run(context.Background(), l.task, graft.Options{DataDir: l.dataDir})
 	require.Equal(t, grafttask.PhaseSucceeded, res.Phase, res.Message)
