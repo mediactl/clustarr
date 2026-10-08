@@ -9,8 +9,11 @@
 # refuses to run otherwise) -- every step below is what makes that true.
 #
 # Requires: kind, kubectl, docker, go, make, kustomize. The machine needs Internet
-# for the one-time image builds (apt, Go modules); nothing that runs INSIDE
-# the cluster ever reaches the network.
+# for the one-time image builds (apt, Go modules, BtbN's FFmpeg); nothing that
+# runs INSIDE the cluster ever reaches the network: config/e2e's NetworkPolicy
+# (network-policy.yaml, enforced by kind's default CNI, kindnet) allows the
+# namespace's pods only each other, cluster DNS and the apiserver, and
+# test/e2e/egress_test.go proves it on every run.
 #
 # Environment:
 #   KIND_CLUSTER_NAME   cluster name                    (default: clustarr)

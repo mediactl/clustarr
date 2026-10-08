@@ -35,7 +35,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // # What it refuses to do
 //
 // A scenario never installs anything. TestMain gates on the cluster already
-// being complete -- 26 CRDs, a ready NATS StatefulSet, every Clustarr
+// being complete -- 27 CRDs, a ready NATS StatefulSet, every Clustarr
 // Deployment Available -- and exits non-zero with an explanation otherwise.
 // That gate is structurally impossible to exercise under envtest, which runs
 // no kube-controller-manager and therefore never populates
@@ -53,6 +53,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -81,8 +82,10 @@ const (
 	// installs and every scenario's Movie/Series references.
 	QualityProfileName = "e2e-any"
 
-	// expectedCRDCount is config/crd/kustomization.yaml's 26 entries.
-	expectedCRDCount = 26
+	// expectedCRDCount is config/crd/kustomization.yaml's 27 entries (the
+	// smoke test of 2026-10-07 counted 27 installed; at 26 the gate refused
+	// every run).
+	expectedCRDCount = 27
 
 	// gateTimeout bounds each individual readiness poll.
 	gateTimeout = 5 * time.Minute
@@ -123,6 +126,11 @@ func gate() int {
 	// here rather than widening the production scheme.
 	if err := apiextensionsv1.AddToScheme(scheme); err != nil {
 		fmt.Fprintf(os.Stderr, "e2e: register apiextensions scheme: %v\n", err)
+		return 1
+	}
+	// networking/v1 likewise, for egress_test.go's NetworkPolicy check.
+	if err := networkingv1.AddToScheme(scheme); err != nil {
+		fmt.Fprintf(os.Stderr, "e2e: register networking scheme: %v\n", err)
 		return 1
 	}
 
@@ -186,7 +194,7 @@ func checkDataDir() error {
 	return nil
 }
 
-// waitReady is the "TestMain refuses to run" gate: 26 CRDs installed, NATS's
+// waitReady is the "TestMain refuses to run" gate: 27 CRDs installed, NATS's
 // StatefulSet has a ready replica, and every Clustarr Deployment reports
 // Available=True. It cannot be exercised under envtest (docs/research/k8s.md
 // §8: no kube-controller-manager, so Deployment.status.conditions never

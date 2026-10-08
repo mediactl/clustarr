@@ -2,8 +2,9 @@
 # deploy`'s plain config/default: everything config/default has, plus the
 # fixture services, the sample QualityProfile and MetadataProviders every
 # scenario references, smaller resource requests so the suite fits kind's
-# node and the 60-minute `make e2e` timeout, and a one-replica floor on every
-# autoscaled workload.
+# node and the 60-minute `make e2e` timeout, a one-replica floor on every
+# autoscaled workload, and a NetworkPolicy that keeps every pod in the
+# namespace off the Internet.
 #
 # The one-fixture-per-file layout is deliberate: Phase D adds
 # config/e2e/torznab-stub.yaml and one line below without editing anything
@@ -27,6 +28,10 @@ resources:
 - quality-profile.yaml
 - metadata-providers.yaml
 - metrics-reader.yaml
+# Nothing in the namespace reaches the Internet: egress to the namespace's
+# own pods, cluster DNS and the apiserver only (enforced by kindnet;
+# test/e2e/egress_test.go proves it).
+- network-policy.yaml
 
 patches:
 - target:

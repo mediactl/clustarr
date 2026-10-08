@@ -22,8 +22,9 @@ import "github.com/spf13/cobra"
 // NewRootCommand wires one subcommand per fixture Deployment: seeder and
 // nntp-stub (Phase D), opensubtitles-stub and gestdown-stub (Phase F,
 // F-7), cardigann-stub, importlist-stub, nonvideo-metadata-stub and
-// http-proxy-stub (Phase G, G4-1). Each subcommand owns its own flags and
-// never imports another fixture's package.
+// http-proxy-stub (Phase G, G4-1), and egress-probe, the e2e suite's check
+// that config/e2e's NetworkPolicy keeps the cluster off the Internet. Each
+// subcommand owns its own flags.
 func NewRootCommand() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "clustarr-e2e-fixtures",
@@ -43,5 +44,6 @@ func NewRootCommand() *cobra.Command {
 	root.AddCommand(newImportListStubCommand())
 	root.AddCommand(newNonVideoStubCommand())
 	root.AddCommand(newHTTPProxyStubCommand())
+	root.AddCommand(newEgressProbeCommand())
 	return root
 }

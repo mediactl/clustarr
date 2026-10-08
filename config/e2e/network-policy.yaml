@@ -1,0 +1,73 @@
+# Nothing inside the e2e cluster reaches the network (CLAUDE.md, hack/e2e.sh):
+# every pod in clustarr-system -- the manager, the agents, markers, the ui,
+# NATS, every stub, and the download engines and transcode pools the manager
+# creates at runtime -- may open connections only to pods in this namespace,
+# to cluster DNS, and to the kube-apiserver. Before this policy the rule was
+# a convention, and the smoke test of 2026-10-07 found it broken: the keyless
+# MetadataProviders the manager seeds (TheIntroDB, AniList, Kitsu, MangaDex,
+# Anime-Lists, Cover Art Archive) carry no baseURL, read Ready against the
+# real services, and TheIntroDB returned real markers for Inception. Under
+# this policy they read NotReady, which is the honest state of a provider no
+# stub stands in for; no scenario depends on them.
+#
+# Ruling (2026-10-08): enforce it with this NetworkPolicy, on kind's default
+# CNI. kindnet has implemented NetworkPolicy since kind v0.24 (the embedded
+# kube-network-policies controller, on by default): the default-cni.yaml in
+# the kindest/node image kind v0.33 starts grants the kindnet ServiceAccount
+# list/watch on networking.k8s.io networkpolicies for exactly that, so
+# hack/kind.sh keeps kind's default CNI rather than installing another.
+# test/e2e/egress_test.go's TestTheClusterReachesNoInternet proves the
+# enforcement on every run: a pod in this namespace must reach a stub and
+# must not reach an Internet address.
+#
+# DNS stays allowed: CoreDNS (kube-system, outside this policy) still
+# resolves outside names, so a refused connection, not a failed lookup, is
+# what a pod that tries sees. The apiserver is allowed by port to private
+# addresses only: the kubernetes Service is DNATed to the control-plane
+# node's address (6443), which is no pod, and whether a policy sees the
+# Service address (443) or the node's depends on where the CNI hooks, so
+# both ports are listed. A private range is never the Internet.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: e2e-no-internet
+  namespace: clustarr-system
+  labels:
+    app.kubernetes.io/name: clustarr
+    app.kubernetes.io/part-of: clustarr
+    app.kubernetes.io/component: e2e
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    # Every pod in this namespace: NATS, the stubs, the seeder's peer port,
+    # the engines, the manager's webhooks and metrics.
+    - to:
+        - podSelector: {}
+    # Cluster DNS.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # The kube-apiserver, by its Service port and the node's.
+    - to:
+        - ipBlock:
+            cidr: 10.0.0.0/8
+        - ipBlock:
+            cidr: 172.16.0.0/12
+        - ipBlock:
+            cidr: 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443
