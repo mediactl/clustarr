@@ -88,7 +88,8 @@ func verdictMessage(v quality.Verdict) string {
 
 // notAllowedRejection is a file whose (probe-corrected) quality the profile
 // does not allow: the grab approved the release's advertised quality, so
-// the file is the release's fault (P57).
+// the file is the release's fault (P57). An override import never makes it,
+// and a person's import is never blocklisted for it (conclude).
 func notAllowedRejection(rel string, q commonv1.Quality) Rejection {
 	return releaseFaultRejection("%s: quality %s is not allowed by the quality profile", rel, q.Name)
 }

@@ -28,15 +28,18 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // override; the quality profile is the entry's; a suspected sample is a
 // person's call unless real media is beside it; the best file fills each
 // single-file item (quality, revision, size); a probe-corrected quality the
-// profile does not allow is the release's fault; an automatic grab never
+// profile does not allow is the release's fault, unless the import intent
+// says override; an automatic grab never
 // replaces a transcoded file (MessageExistingFileFinal); a file must be an
 // upgrade over each it replaces unless it carries the language a
 // wrong-language file lacks; a multi-file item with files needs a person,
 // and a manual one is replaced all or nothing. An import that imports
 // nothing is classed (Classify) and retried, held or blocked by its class:
 // transient at 1 m, 10 m and 45 m, then held; a release fault inspected once
-// more, then blocklisted; itemState and needsPerson held at once; a hold
-// expires after lifecycle.ImportHoldRetention, never blocklisted.
+// more, then blocklisted -- except a person's import (a pick, or the intent
+// with override or a target), held as needsPerson; itemState and
+// needsPerson held at once; a hold expires after
+// lifecycle.ImportHoldRetention, never blocklisted.
 //
 // A missing record is never a verdict: an unanswered task is republished
 // under its Msg-Id inside RepublishWindow and re-issued at a new seq past

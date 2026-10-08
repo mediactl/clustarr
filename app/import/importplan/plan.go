@@ -139,6 +139,11 @@ func (p *planner) at(t time.Time) {
 
 func (p *planner) manual() bool { return p.in.Entry.Manual || p.sum.Override }
 
+// person reports an import a person made: a pick (manual), or the import
+// intent with override or a target. Its failure is that person's to settle,
+// never the release's to be blocklisted for (smoke T2).
+func (p *planner) person() bool { return p.manual() || p.sum.Target != "" }
+
 func (p *planner) donor() bool { return p.in.Entry.Purpose == commonv1.DownloadPurposeAudioDonor }
 
 func (p *planner) decide() {
@@ -518,8 +523,16 @@ func (p *planner) donorFolder() string {
 // conclude settles an import that imports nothing, by its class (P67,
 // P68): transient retries at RetryLadder by attempt, then holds; a release
 // fault is inspected once more, then blocked; itemState and needsPerson hold
-// at once. Attempts and nextAttemptAt are status, not stream state.
+// at once. A person's import (person) is never a release fault: it holds as
+// needsPerson. Attempts and nextAttemptAt are status, not stream state.
 func (p *planner) conclude(class commonv1.ImportRejectionClass, message string) {
+	if class == commonv1.ImportClassReleaseFault && p.person() {
+		// A person's import is held for that person, at once: never
+		// inspected again "before the release is blocklisted", never
+		// blocklisted.
+		class = commonv1.ImportClassNeedsPerson
+		message += "; the import is a person's, so the release is not blocklisted"
+	}
 	attempts := p.sum.Attempts + 1
 	p.sum.Attempts = min(attempts, 1000)
 	p.sum.Class, p.sum.Files = class, 0
@@ -662,7 +675,9 @@ func (p *planner) planFrom(insp *schema.ImportInspection) planResult {
 			continue
 		}
 		switch {
-		case q != nil && !prof.Allowed(*q):
+		case q != nil && !prof.Allowed(*q) && !p.sum.Override:
+			// An override import is a person's "this file, for this item":
+			// it takes a quality the profile does not allow (smoke T2).
 			rs = append(rs, notAllowedRejection(rel, *q))
 			continue
 		case q == nil && nonVideoKind(c.kind) && !manual:
