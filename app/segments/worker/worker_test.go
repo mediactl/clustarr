@@ -24,6 +24,7 @@ import (
 	"hash/fnv"
 	"math"
 	"math/rand/v2"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -32,7 +33,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/app/segments/worker"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
@@ -148,23 +148,49 @@ func (d *countingDetector) Density([]byte, int, int) (int32, error) {
 	return 0, nil
 }
 
-type published struct {
-	results []schema.SegmentsResult
+// written is the clustarr-segments bucket, noting every record the worker
+// writes (F3.4: the worker answers by record, not by a published result).
+type written struct {
+	events.KV
+	mu      sync.Mutex
+	records []segments.Record
 }
 
-func (p *published) Publish(_ context.Context, _ string, e *events.Envelope, _ ...events.PublishOption) (events.Receipt, error) {
-	var r schema.SegmentsResult
-	if err := schema.Decode(e.Schema, e.Data, &r); err != nil {
-		return events.Receipt{}, err
+func (w *written) note(val []byte, err error) {
+	var r segments.Record
+	if err != nil || json.Unmarshal(val, &r) != nil {
+		return
 	}
-	p.results = append(p.results, r)
-	return events.Receipt{}, nil
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.records = append(w.records, r)
 }
 
-func (p *published) byFile() map[string]schema.SegmentsResult {
-	out := map[string]schema.SegmentsResult{}
-	for _, r := range p.results {
-		out[r.MediaFile] = r
+func (w *written) Create(ctx context.Context, key string, val []byte, opts ...events.KVOption) (uint64, error) {
+	rev, err := w.KV.Create(ctx, key, val, opts...)
+	w.note(val, err)
+	return rev, err
+}
+
+func (w *written) Update(ctx context.Context, key string, val []byte, rev uint64) (uint64, error) {
+	next, err := w.KV.Update(ctx, key, val, rev)
+	w.note(val, err)
+	return next, err
+}
+
+func (w *written) Put(ctx context.Context, key string, val []byte) (uint64, error) {
+	rev, err := w.KV.Put(ctx, key, val)
+	w.note(val, err)
+	return rev, err
+}
+
+// byFile is the last record written for each MediaFile.
+func (w *written) byFile() map[string]segments.Record {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	out := map[string]segments.Record{}
+	for _, r := range w.records {
+		out[r.File.Name] = r
 	}
 	return out
 }
@@ -192,23 +218,23 @@ func taskOf(t *testing.T, kind string, files ...string) events.Message {
 	return message{&events.Envelope{Key: "media/show-s01", Schema: s, Data: data}}
 }
 
-func handler(t *testing.T, dec *fakeDecoder, det *countingDetector) (*worker.Handler, *published) {
+func handler(t *testing.T, dec *fakeDecoder, det *countingDetector) (*worker.Handler, *written) {
 	t.Helper()
 	bus := membus.New(clockwork.NewRealClock())
 	require.NoError(t, bus.Ensure(context.Background(), events.Default()))
 	t.Cleanup(func() { _ = bus.Close() })
-	pub := &published{}
-	h := &worker.Handler{Decoder: dec, Fingerprints: bus.ObjectStore(events.ObjectStoreFingerprints), Bus: pub, KV: bus.KV(events.BucketSegments)}
+	pub := &written{KV: bus.KV(events.BucketSegments)}
+	h := &worker.Handler{Decoder: dec, Fingerprints: bus.ObjectStore(events.ObjectStoreFingerprints), Records: segments.NewStore(pub)}
 	if det != nil {
 		h.Detector = det
 	}
 	return h, pub
 }
 
-func kinds(r schema.SegmentsResult) map[string]schema.SegmentJSON {
-	out := map[string]schema.SegmentJSON{}
+func kinds(r segments.Record) map[string]segments.Segment {
+	out := map[string]segments.Segment{}
 	for _, s := range r.Segments {
-		out[s.Kind] = s
+		out[string(s.Kind)] = s
 	}
 	return out
 }
@@ -232,7 +258,7 @@ func TestASeasonGetsIntrosAndCredits(t *testing.T) {
 		assert.InDelta(t, (at+40)*1000, in.EndMs, 2000, "%s intro end", f)
 		cr := kinds(r)["credits"]
 		assert.InDelta(t, (duration-30)*1000, cr.StartMs, 2000, "%s credits", f)
-		assert.Equal(t, "analysis", cr.Source)
+		assert.Equal(t, segments.SourceAnalysis, cr.Source)
 	}
 }
 
@@ -255,7 +281,8 @@ func TestADecodeFailureIsThatFilesError(t *testing.T) {
 	require.NoError(t, h.Handle(context.Background(), taskOf(t, "episode", "e1", "e2", "e3")))
 	got := pub.byFile()
 	assert.Equal(t, "Error", got["e2"].Result)
-	assert.Contains(t, got["e2"].Message, "Invalid data")
+	require.NotNil(t, got["e2"].LastError)
+	assert.Contains(t, got["e2"].LastError.Message, "Invalid data")
 	assert.Equal(t, "Found", got["e1"].Result, "its siblings go on")
 	assert.Contains(t, kinds(got["e1"]), "intro", "two decodable files still share an intro")
 }
@@ -322,11 +349,14 @@ func TestTheDNNIsAskedWhenNoCandidateHolds(t *testing.T) {
 	assert.Positive(t, det.calls)
 }
 
-func record(t *testing.T, h *worker.Handler, uid string, rec segments.Record) {
+// record seeds uid's record in the bucket, unnoted by w.
+func record(t *testing.T, w *written, uid string, rec segments.Record) {
 	t.Helper()
+	rec.Schema = segments.RecordSchema
+	rec.File = schema.Ref{Namespace: "media", Name: strings.TrimPrefix(uid, "uid-"), UID: uid}
 	b, err := json.Marshal(rec)
 	require.NoError(t, err)
-	_, err = h.KV.Put(context.Background(), events.KVKeyToken(uid), b)
+	_, err = w.KV.Put(context.Background(), events.RecordKey(uid), b)
 	require.NoError(t, err)
 }
 
@@ -336,8 +366,8 @@ func record(t *testing.T, h *worker.Handler, uid string, rec segments.Record) {
 func TestAFileAlreadyAnalyzedIsSkipped(t *testing.T) {
 	dec := &fakeDecoder{introAt: map[string]float64{"e1": 10, "e2": 10}, black: map[string]int{"e1": 30, "e2": 30}}
 	h, pub := handler(t, dec, nil)
-	intro := segments.Segment{Kind: catalogv1alpha1.MarkerIntro, StartMs: 10_000, EndMs: 50_000, Source: catalogv1alpha1.SegmentSourceAnalysis, Confidence: 70}
-	record(t, h, "uid-e1", segments.Record{ProbeHash: "hash-e1", Version: segments.AnalyzerVersion, Result: "Found", Segments: []segments.Segment{intro}})
+	intro := segments.Segment{Kind: segments.KindIntro, StartMs: 10_000, EndMs: 50_000, Source: segments.SourceAnalysis, Confidence: 70}
+	record(t, pub, "uid-e1", segments.Record{ProbeHash: "hash-e1", Version: segments.AnalyzerVersion, Result: "Found", Segments: []segments.Segment{intro}})
 	require.NoError(t, h.Handle(context.Background(), taskOf(t, "episode", "e1", "e2")))
 	assert.NotContains(t, pub.byFile(), "e1")
 	assert.Contains(t, pub.byFile(), "e2")
@@ -349,8 +379,8 @@ func TestAFileAlreadyAnalyzedIsSkipped(t *testing.T) {
 func TestAnIntroFoundLaterIsAddedToAnAnalyzedEpisode(t *testing.T) {
 	dec := &fakeDecoder{introAt: map[string]float64{"e1": 10, "e2": 30}, black: map[string]int{"e1": 30, "e2": 30}}
 	h, pub := handler(t, dec, nil)
-	creditsSeg := segments.Segment{Kind: catalogv1alpha1.MarkerCredits, StartMs: 370_000, EndMs: 400_000, Source: catalogv1alpha1.SegmentSourceAnalysis, Confidence: 80}
-	record(t, h, "uid-e1", segments.Record{ProbeHash: "hash-e1", Version: segments.AnalyzerVersion, Result: "Found", Segments: []segments.Segment{creditsSeg}})
+	creditsSeg := segments.Segment{Kind: segments.KindCredits, StartMs: 370_000, EndMs: 400_000, Source: segments.SourceAnalysis, Confidence: 80}
+	record(t, pub, "uid-e1", segments.Record{ProbeHash: "hash-e1", Version: segments.AnalyzerVersion, Result: "Found", Segments: []segments.Segment{creditsSeg}})
 	m := taskOf(t, "episode", "e1", "e2")
 	var task schema.AnalyzeTask
 	require.NoError(t, schema.Decode(m.Envelope().Schema, m.Envelope().Data, &task))
