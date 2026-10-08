@@ -284,15 +284,15 @@ func episodeRow(ep *catalogv1.Episode, now time.Time) views.EpisodeRow {
 // case that applies: a grab in flight, a grab waiting out its delay, the
 // file's quality (warned below the cutoff), no air date yet, not aired,
 // unmonitored, else missing.
-func episodeStatus(ep *catalogv1.Episode, monitored bool, now time.Time) views.EpisodeStatus {
+func episodeStatus(ep *catalogv1.Episode, monitored bool, now time.Time) views.RowStatus {
 	st := ep.Status
 	switch {
 	case st.Phase == catalogv1.EpisodePhaseDownloading || st.ActiveDownloadRef != nil:
-		return views.EpisodeStatus{Kind: "downloading", Label: "Downloading", Title: "Episode is downloading"}
+		return views.RowStatus{Kind: "downloading", Label: "Downloading", Title: "Episode is downloading"}
 	case st.Phase == catalogv1.EpisodePhaseDelayed || st.PendingGrab != nil:
-		return views.EpisodeStatus{Kind: "pending", Label: "Pending", Title: "A release waits out its delay profile"}
+		return views.RowStatus{Kind: "pending", Label: "Pending", Title: "A release waits out its delay profile"}
 	case st.HasFile:
-		s := views.EpisodeStatus{Kind: "file", Label: "Unknown", Title: "Episode on disk"}
+		s := views.RowStatus{Kind: "file", Label: "Unknown", Title: "Episode on disk"}
 		if st.FileQuality != nil && st.FileQuality.Name != "" {
 			s.Label = st.FileQuality.Name
 		}
@@ -306,13 +306,13 @@ func episodeStatus(ep *catalogv1.Episode, monitored bool, now time.Time) views.E
 		}
 		return s
 	case st.AirDate == nil:
-		return views.EpisodeStatus{Kind: "tba", Label: "TBA", Title: "Air date to be announced"}
+		return views.RowStatus{Kind: "tba", Label: "TBA", Title: "Air date to be announced"}
 	case st.Phase == catalogv1.EpisodePhaseUnaired || st.AirDate.After(now):
-		return views.EpisodeStatus{Kind: "unaired", Label: "Unaired", Title: "Episode has not aired"}
+		return views.RowStatus{Kind: "unaired", Label: "Unaired", Title: "Episode has not aired"}
 	case !monitored:
-		return views.EpisodeStatus{Kind: "unmonitored", Label: "Unmonitored", Title: "Episode is not monitored"}
+		return views.RowStatus{Kind: "unmonitored", Label: "Unmonitored", Title: "Episode is not monitored"}
 	default:
-		return views.EpisodeStatus{Kind: "missing", Label: "Missing", Title: "Episode missing from disk"}
+		return views.RowStatus{Kind: "missing", Label: "Missing", Title: "Episode missing from disk"}
 	}
 }
 

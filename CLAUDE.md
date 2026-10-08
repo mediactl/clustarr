@@ -163,6 +163,15 @@ conflicts; `spec.override` for a permanent rejection, after a confirm).
 The ui role patches `searches` for it. A season has no search of its own:
 a Series is not a Search fan-out kind, and N episode searches at once is
 the indexer burst the wanted-sweep gotcha forbids.
+An author's books are the same table (2026-10-07, `ui/book.go`,
+`ui/views/book.templ`): bookmark, title opening the book's modal
+(`/library/{ns}/book/{name}/details`, `#book-modal`), release date,
+`bookStatus` (an episode's cases with `unreleased` for TBA and unaired --
+an undated book reads missing) and both searches, the interactive one
+through the same `startInteractiveSearch` and `/searches` routes. The
+episode and book templates share `searchButtons`, `searchTab`,
+`fileTable` and `statusCell` (`views.RowStatus`); an artist's albums are
+still `ChildRows`.
 Series monitoring is Sonarr's (2026-09-29): an episode is searched only
 when its Series and the episode itself are monitored (the Episode
 reconciler reads its Series, a Series' `spec.monitored` change wakes its

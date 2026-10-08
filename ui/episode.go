@@ -71,23 +71,36 @@ func (s *Server) handleInteractiveSearch(w http.ResponseWriter, r *http.Request)
 		http.NotFound(w, r)
 		return
 	}
-	search, err := s.opts.Actions.InteractiveSearch(r.Context(), ns, commonv1.MediaKindEpisode, name)
+	panel, ok := s.startInteractiveSearch(w, r, ns, commonv1.MediaKindEpisode, name)
+	if !ok {
+		return
+	}
+	d.Tab, d.Search = "search", panel
+	s.renderEpisode(w, r, d, series)
+}
+
+// startInteractiveSearch starts an interactive search for the item
+// kind/name, an episode's or a book's. For htmx it returns the results
+// panel the item's modal shows on its Search tab, a failure to start
+// rendered inside it. A form post it answers itself -- sent to the
+// panel's page, or the failure -- and it returns false.
+func (s *Server) startInteractiveSearch(
+	w http.ResponseWriter, r *http.Request, ns string, kind commonv1.MediaKind, name string,
+) (*views.SearchPanel, bool) {
+	search, err := s.opts.Actions.InteractiveSearch(r.Context(), ns, kind, name)
 	if !isHTMX(r) {
 		if err != nil {
 			s.finishAction(w, r, err)
-			return
+			return nil, false
 		}
 		http.Redirect(w, r, searchPanelURL(search), http.StatusSeeOther)
-		return
+		return nil, false
 	}
-	d.Tab = "search"
 	if err != nil {
-		d.Search = &views.SearchPanel{Phase: string(catalogv1.SearchPhaseFailed), Failed: "the search was not started", Error: failureOf(r, err)}
-	} else {
-		p := searchPanel(search, time.Now())
-		d.Search = &p
+		return &views.SearchPanel{Phase: string(catalogv1.SearchPhaseFailed), Failed: "the search was not started", Error: failureOf(r, err)}, true
 	}
-	s.renderEpisode(w, r, d, series)
+	p := searchPanel(search, time.Now())
+	return &p, true
 }
 
 // handleSearchPanel serves GET /searches/{namespace}/{name}: an

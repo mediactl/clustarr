@@ -71,6 +71,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /library/{namespace}/{kind}/{name}/search", s.handleSearchNow)
 	mux.HandleFunc("GET /library/{namespace}/episode/{name}/details", s.handleEpisodeDetails)
 	mux.HandleFunc("POST /library/{namespace}/episode/{name}/search/interactive", s.handleInteractiveSearch)
+	mux.HandleFunc("GET /library/{namespace}/book/{name}/details", s.handleBookDetails)
+	mux.HandleFunc("POST /library/{namespace}/book/{name}/search/interactive", s.handleBookInteractiveSearch)
 	mux.HandleFunc("GET /searches/{namespace}/{name}", s.handleSearchPanel)
 	mux.HandleFunc("POST /searches/{namespace}/{name}/grab", s.handleGrabRelease)
 	mux.HandleFunc("POST /library/{namespace}/{kind}/{name}/refresh", s.handleRefreshMetadata)
@@ -367,7 +369,10 @@ func (s *Server) handleSetMonitored(w http.ResponseWriter, r *http.Request) {
 		case commonv1.MediaKindEpisode:
 			s.replyEpisodeRow(w, r, r.PathValue("namespace"), r.PathValue("name"), patched, err)
 			return
-		case commonv1.MediaKindAlbum, commonv1.MediaKindBook:
+		case commonv1.MediaKindBook:
+			s.replyBookRow(w, r, r.PathValue("namespace"), r.PathValue("name"), patched, err)
+			return
+		case commonv1.MediaKindAlbum:
 			s.replyChildRow(w, r, r.PathValue("namespace"), kind, r.PathValue("name"), patched, err)
 			return
 		}

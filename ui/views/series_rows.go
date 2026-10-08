@@ -107,19 +107,20 @@ type EpisodeRow struct {
 	Quality string
 	Phase   string
 	// Status is the status cell (ui.episodeStatus).
-	Status EpisodeStatus
+	Status RowStatus
 	// Audio is the episode's status.audio as a note (ui.audioNote).
 	Audio AudioNote
 	// Error is set on a row rendered as the reply to a toggle that failed.
 	Error ActionFailure
 }
 
-// EpisodeStatus is Sonarr's episode status cell (EpisodeStatus.tsx), the
-// first that applies: downloading, a pending grab, the file's quality,
-// no air date yet (TBA), not aired, unmonitored, else missing.
-type EpisodeStatus struct {
+// RowStatus is Sonarr's status cell (EpisodeStatus.tsx) on an episode's
+// row and Readarr's on a book's: the first that applies of downloading, a
+// pending grab, the file's quality, no air date yet (TBA), not aired or
+// released, unmonitored, else missing.
+type RowStatus struct {
 	// Kind is the case: "downloading", "pending", "file", "tba",
-	// "unaired", "unmonitored" or "missing".
+	// "unaired", "unreleased", "unmonitored" or "missing".
 	Kind string
 	// Label is the cell's text; Title its tooltip.
 	Label string
@@ -258,19 +259,18 @@ type AudioNote struct {
 	Warn  bool
 }
 
-// ChildRow is one child of an artist or an author -- an album or a book --
-// on the parent's children component: the episode row's shape for a kind
-// with a title and a year instead of a number.
+// ChildRow is one album on an artist's children component: the episode
+// row's old shape for a kind with a title and a year instead of a number.
+// An author's books are [BookRow]s, the season table's shape.
 type ChildRow struct {
 	Namespace string
 	Name      string
-	Kind      string // "album" or "book", the per-item action's kind
+	Kind      string // "album", the per-item action's kind
 	Title     string
 	Year      int32
 	Monitored bool
 	HasFile   bool
-	// Quality is the album's quality name or the book's file format, ""
-	// without a file.
+	// Quality is the album's quality name, "" without a file.
 	Quality string
 	Phase   string
 	Error   ActionFailure

@@ -20,15 +20,17 @@ package views
 import (
 	"fmt"
 
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/ui/components/badge"
 	"github.com/mediactl/clustarr/ui/components/item"
+	"github.com/mediactl/clustarr/ui/projection"
 )
 
 // ParentDetail is an artist's or an author's page (spec
 // 2026-09-23-library-page-design): the item header and one component that
-// loads the children -- albums or books -- on first expand, the series
-// page's shape with one component instead of one per season. label names
-// the children ("Albums", "Books").
+// loads the children -- albums, or an author's books table -- on first
+// expand, the series page's shape with one component instead of one per
+// season. label names the children ("Albums", "Books").
 templ ParentDetail(d Detail, label string) {
 	{{ li := d.Item }}
 	@Shell(Chrome{Title: li.Title, Crumbs: itemCrumbs(li), Tab: li.Tab}) {
@@ -44,29 +46,44 @@ templ ParentDetail(d Detail, label string) {
 				<summary class="cursor-pointer px-4 py-3 font-medium">
 					<a href={ templ.URL(ChildrenURL(li.Ref.Namespace, string(li.Kind), li.Ref.Name)) } class="hover:underline">{ label }</a>
 				</summary>
-				<div class="children border-t border-border px-4 py-3 text-sm text-muted-foreground">Loading…</div>
+				<div class="children border-t border-border text-sm text-muted-foreground">
+					<p class="px-4 py-3">Loading…</p>
+				</div>
 			</details>
 		</div>
+		@childRegions(li)
 	}
 }
 
-// ChildrenPage is a parent's children on their own page.
-templ ChildrenPage(d Detail, label string, children []ChildRow) {
+// ChildrenPage is a parent's children on their own page: children is the
+// children component, ChildRows for an artist's albums, BookRows for an
+// author's books.
+templ ChildrenPage(d Detail, label string, children templ.Component) {
 	{{ li := d.Item }}
 	@Shell(Chrome{Title: fmt.Sprintf("%s · %s", li.Title, label), Crumbs: childCrumbs(li, label), Tab: li.Tab}) {
 		@itemToolbar(d)
 		@hero(d)
-		<div class="mt-6 rounded-md border border-border bg-card">
+		<div class="mt-6 overflow-hidden rounded-md border border-border bg-card">
 			<h2 class="px-4 py-3 font-medium">{ label }</h2>
 			<div class="children border-t border-border">
-				@ChildRows(children)
+				@children
 			</div>
 		</div>
+		@childRegions(li)
 	}
 }
 
-// ChildRows is the children component: what a parent's first expand
-// fetches, and what the children page renders inline.
+// childRegions are what an author's book rows answer into (bookRegions);
+// an artist's album rows answer in place and need none.
+templ childRegions(li projection.LibraryItem) {
+	if li.Kind == commonv1.MediaKindAuthor {
+		@bookRegions()
+	}
+}
+
+// ChildRows is an artist's albums component: what the artist's first
+// expand fetches, and what the children page renders inline. An author's
+// books are BookRows.
 templ ChildRows(children []ChildRow) {
 	if len(children) == 0 {
 		<p class="px-4 py-3 text-sm text-muted-foreground">Nothing here yet.</p>
@@ -79,8 +96,8 @@ templ ChildRows(children []ChildRow) {
 	}
 }
 
-// ChildRowView is one album or book row, and what its monitor toggle swaps
-// in place.
+// ChildRowView is one album row, and what its monitor toggle swaps in
+// place.
 templ ChildRowView(child ChildRow) {
 	@item.Item(item.Props{
 		Size:  item.SizeSm,

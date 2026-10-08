@@ -293,7 +293,7 @@ templ EpisodeRowView(ep EpisodeRow) {
 			}
 		}
 		@table.Cell() {
-			@episodeStatusCell(ep.Status)
+			@statusCell(ep.Status)
 		}
 		@table.Cell(table.CellProps{Class: "py-1"}) {
 			<span class="flex justify-end">
@@ -311,29 +311,36 @@ func rowTone(monitored bool) string {
 	return "text-muted-foreground"
 }
 
-// episodeSearchButtons are Sonarr's two row actions: the magnifier is the
-// automatic search, answered into #action-status; the person is the
-// interactive search, which opens the episode's modal on its results.
-// Both are forms, so a browser without JavaScript still gets there.
+// episodeSearchButtons are an episode row's two searches.
 templ episodeSearchButtons(ep EpisodeRow) {
-	<form hx-post={ ep.SearchURL() } hx-target="#action-status" method="post" action={ templ.URL(ep.SearchURL()) } class="contents">
-		<input type="hidden" name="return" value={ ep.ReturnURL() }/>
+	@searchButtons("episode", ep.SearchURL(), ep.InteractiveSearchURL(), ep.ReturnURL())
+}
+
+// searchButtons are Sonarr's two row actions, on an episode's row or a
+// book's (kind names which): the magnifier is the automatic search,
+// answered into #action-status; the person is the interactive search,
+// which opens the item's modal, #<kind>-modal, on its results. Both are
+// forms, so a browser without JavaScript still gets there.
+templ searchButtons(kind, searchURL, interactiveURL, returnURL string) {
+	<form hx-post={ searchURL } hx-target="#action-status" method="post" action={ templ.URL(searchURL) } class="contents">
+		<input type="hidden" name="return" value={ returnURL }/>
 		@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantGhost, Size: button.SizeIconSm,
-			Attributes: templ.Attributes{"data-action": "episode-search", "aria-label": "Automatic Search", "title": "Automatic Search"}}) {
+			Attributes: templ.Attributes{"data-action": kind + "-search", "aria-label": "Automatic Search", "title": "Automatic Search"}}) {
 			@icon.Icon("search")()
 		}
 	</form>
-	<form hx-post={ ep.InteractiveSearchURL() } hx-target="#episode-modal" hx-swap="innerHTML" method="post" action={ templ.URL(ep.InteractiveSearchURL()) } class="contents">
+	<form hx-post={ interactiveURL } hx-target={ "#" + kind + "-modal" } hx-swap="innerHTML" method="post" action={ templ.URL(interactiveURL) } class="contents">
 		@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantGhost, Size: button.SizeIconSm,
-			Attributes: templ.Attributes{"data-action": "episode-interactive-search", "aria-label": "Interactive Search", "title": "Interactive Search"}}) {
+			Attributes: templ.Attributes{"data-action": kind + "-interactive-search", "aria-label": "Interactive Search", "title": "Interactive Search"}}) {
 			@icon.Icon("user-search")()
 		}
 	</form>
 }
 
-// episodeStatusCell is Sonarr's status cell: the file's quality as a
-// badge (amber below the cutoff), or what the episode is waiting on.
-templ episodeStatusCell(s EpisodeStatus) {
+// statusCell is Sonarr's status cell, an episode's or a book's: the
+// file's quality as a badge (amber below the cutoff), or what the item is
+// waiting on.
+templ statusCell(s RowStatus) {
 	switch s.Kind {
 		case "file":
 			@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: fileTone(s.Warn), Attributes: templ.Attributes{"title": s.Title}}) { { s.Label } }
