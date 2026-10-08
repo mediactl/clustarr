@@ -22,3 +22,17 @@ import "time"
 // SetAddSearchTimeoutForTest shortens Add New's search deadline so a test
 // of the "not responding" answer does not wait the real 10 s.
 func SetAddSearchTimeoutForTest(s *Server, d time.Duration) { s.addSearchTimeout = d }
+
+// ArtIndexSyncedForTest reports whether s's artwork index has finished its
+// replay, so a test can make /art choose from the index rather than the
+// store.
+func ArtIndexSyncedForTest(s *Server) bool { return s.artIndex != nil && s.artIndex.Synced() }
+
+// SetArtReadTimeoutForTest shortens /art's whole-object read deadline for
+// the test's lifetime, so the overwritten-mid-read case (research E14)
+// stalls for seconds rather than the real ten.
+func SetArtReadTimeoutForTest(t interface{ Cleanup(func()) }, d time.Duration) {
+	prev := artReadTimeout
+	artReadTimeout = d
+	t.Cleanup(func() { artReadTimeout = prev })
+}
