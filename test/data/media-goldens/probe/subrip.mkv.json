@@ -1,0 +1,132 @@
+{
+  "mediaInfo": {
+    "container": "mkv",
+    "videoCodec": "h264",
+    "videoProfile": "Constrained Baseline",
+    "pixelFormat": "yuv420p",
+    "videoBitDepth": 8,
+    "width": 160,
+    "height": 120,
+    "fpsMilli": 10000,
+    "videoBitrateKbps": 24,
+    "hdr": "none",
+    "runtimeMillis": 2900,
+    "subtitles": [
+      {
+        "index": 1,
+        "codec": "subrip"
+      }
+    ]
+  },
+  "raw": {
+    "Format": {
+      "filename": "<path>",
+      "nb_streams": 2,
+      "nb_programs": 0,
+      "format_name": "matroska,webm",
+      "format_long_name": "Matroska / WebM",
+      "start_time": "0",
+      "duration": "2.9",
+      "size": "9038",
+      "bit_rate": "24932",
+      "probe_score": 100,
+      "tags": {
+        "encoder": "Lavf"
+      }
+    },
+    "Streams": [
+      {
+        "index": 0,
+        "id": "",
+        "codec_name": "h264",
+        "codec_long_name": "H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10",
+        "codec_type": "video",
+        "codec_time_base": "",
+        "codec_tag_string": "[0][0][0][0]",
+        "codec_tag": "0x0000",
+        "r_frame_rate": "10/1",
+        "avg_frame_rate": "10/1",
+        "time_base": "1/1000",
+        "start_pts": 0,
+        "start_time": "0.000000",
+        "duration_ts": 0,
+        "duration": "",
+        "bit_rate": "",
+        "bits_per_raw_sample": "8",
+        "nb_frames": "",
+        "disposition": {
+          "default": 0,
+          "dub": 0,
+          "original": 0,
+          "comment": 0,
+          "lyrics": 0,
+          "karaoke": 0,
+          "forced": 0,
+          "hearing_impaired": 0,
+          "visual_impaired": 0,
+          "clean_effects": 0,
+          "attached_pic": 0
+        },
+        "tags": {
+          "DURATION": "00:00:02.900000000"
+        },
+        "field_order": "progressive",
+        "profile": "Constrained Baseline",
+        "width": 160,
+        "height": 120,
+        "pix_fmt": "yuv420p",
+        "level": 10
+      },
+      {
+        "index": 1,
+        "id": "",
+        "codec_name": "subrip",
+        "codec_long_name": "SubRip subtitle",
+        "codec_type": "subtitle",
+        "codec_time_base": "",
+        "codec_tag_string": "[0][0][0][0]",
+        "codec_tag": "0x0000",
+        "r_frame_rate": "0/0",
+        "avg_frame_rate": "0/0",
+        "time_base": "1/1000",
+        "start_pts": 500,
+        "start_time": "0.500000",
+        "duration_ts": 0,
+        "duration": "",
+        "bit_rate": "",
+        "bits_per_raw_sample": "",
+        "nb_frames": "",
+        "disposition": {
+          "default": 0,
+          "dub": 0,
+          "original": 0,
+          "comment": 0,
+          "lyrics": 0,
+          "karaoke": 0,
+          "forced": 0,
+          "hearing_impaired": 0,
+          "visual_impaired": 0,
+          "clean_effects": 0,
+          "attached_pic": 0
+        },
+        "tags": {
+          "DURATION": "00:00:02.400000000"
+        },
+        "width": 0,
+        "height": 0
+      }
+    ],
+    "Chapters": [],
+    "ColorPrimaries": "",
+    "ColorTransfer": "",
+    "ColorSpace": "",
+    "ColorRange": "",
+    "Dovi": null,
+    "HasHDR10Plus": false,
+    "MasteringDisplay": null,
+    "ContentLight": null,
+    "FrameErr": null
+  },
+  "audio": null,
+  "audioError": "mediainfo: probe <path>: mediainfo: no audio stream"
+}

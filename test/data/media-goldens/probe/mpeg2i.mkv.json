@@ -1,0 +1,102 @@
+{
+  "mediaInfo": {
+    "container": "mkv",
+    "videoCodec": "mpeg2video",
+    "videoProfile": "Main",
+    "pixelFormat": "yuv420p",
+    "videoBitDepth": 8,
+    "width": 720,
+    "height": 576,
+    "fpsMilli": 25000,
+    "videoBitrateKbps": 1160,
+    "hdr": "none",
+    "runtimeMillis": 1960
+  },
+  "raw": {
+    "Format": {
+      "filename": "<path>",
+      "nb_streams": 1,
+      "nb_programs": 0,
+      "format_name": "matroska,webm",
+      "format_long_name": "Matroska / WebM",
+      "start_time": "0",
+      "duration": "1.96",
+      "size": "284315",
+      "bit_rate": "1160469",
+      "probe_score": 100,
+      "tags": {
+        "encoder": "Lavf"
+      }
+    },
+    "Streams": [
+      {
+        "index": 0,
+        "id": "",
+        "codec_name": "mpeg2video",
+        "codec_long_name": "MPEG-2 video",
+        "codec_type": "video",
+        "codec_time_base": "",
+        "codec_tag_string": "[0][0][0][0]",
+        "codec_tag": "0x0000",
+        "r_frame_rate": "25/1",
+        "avg_frame_rate": "25/1",
+        "time_base": "1/1000",
+        "start_pts": 0,
+        "start_time": "0.000000",
+        "duration_ts": 0,
+        "duration": "",
+        "bit_rate": "",
+        "bits_per_raw_sample": "",
+        "nb_frames": "",
+        "disposition": {
+          "default": 0,
+          "dub": 0,
+          "original": 0,
+          "comment": 0,
+          "lyrics": 0,
+          "karaoke": 0,
+          "forced": 0,
+          "hearing_impaired": 0,
+          "visual_impaired": 0,
+          "clean_effects": 0,
+          "attached_pic": 0
+        },
+        "tags": {
+          "DURATION": "00:00:01.960000000"
+        },
+        "field_order": "tt",
+        "profile": "Main",
+        "width": 720,
+        "height": 576,
+        "has_b_frames": 1,
+        "sample_aspect_ratio": "1:1",
+        "display_aspect_ratio": "5:4",
+        "pix_fmt": "yuv420p",
+        "level": 8,
+        "color_range": "tv",
+        "side_data_list": [
+          {
+            "avg_bitrate": 0,
+            "buffer_size": 49152,
+            "max_bitrate": 0,
+            "min_bitrate": 0,
+            "side_data_type": "CPB properties",
+            "vbv_delay": -1
+          }
+        ]
+      }
+    ],
+    "Chapters": [],
+    "ColorPrimaries": "",
+    "ColorTransfer": "",
+    "ColorSpace": "",
+    "ColorRange": "tv",
+    "Dovi": null,
+    "HasHDR10Plus": false,
+    "MasteringDisplay": null,
+    "ContentLight": null,
+    "FrameErr": null
+  },
+  "audio": null,
+  "audioError": "mediainfo: probe <path>: mediainfo: no audio stream"
+}

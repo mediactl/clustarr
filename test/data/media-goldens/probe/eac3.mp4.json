@@ -1,0 +1,154 @@
+{
+  "mediaInfo": {
+    "container": "mp4",
+    "videoCodec": "h264",
+    "videoProfile": "Constrained Baseline",
+    "pixelFormat": "yuv420p",
+    "videoBitDepth": 8,
+    "width": 320,
+    "height": 180,
+    "fpsMilli": 24000,
+    "videoBitrateKbps": 153,
+    "hdr": "none",
+    "runtimeMillis": 1979,
+    "audio": [
+      {
+        "index": 1,
+        "codec": "eac3",
+        "language": "und",
+        "channels": 6,
+        "channelLayout": "5.1(side)",
+        "bitrateKbps": 384,
+        "default": true
+      }
+    ]
+  },
+  "raw": {
+    "Format": {
+      "filename": "<path>",
+      "nb_streams": 2,
+      "nb_programs": 0,
+      "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+      "format_long_name": "QuickTime / MOV",
+      "start_time": "0",
+      "duration": "1.978667",
+      "size": "134873",
+      "bit_rate": "545308",
+      "probe_score": 100,
+      "tags": {
+        "compatible_brands": "isomdby1iso2avc1mp41",
+        "major_brand": "isom",
+        "minor_version": "512"
+      }
+    },
+    "Streams": [
+      {
+        "index": 0,
+        "id": "0x1",
+        "codec_name": "h264",
+        "codec_long_name": "H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10",
+        "codec_type": "video",
+        "codec_time_base": "",
+        "codec_tag_string": "avc1",
+        "codec_tag": "0x31637661",
+        "r_frame_rate": "24/1",
+        "avg_frame_rate": "1152/47",
+        "time_base": "1/12288",
+        "start_pts": 0,
+        "start_time": "0.000000",
+        "duration_ts": 24064,
+        "duration": "1.958333",
+        "bit_rate": "153032",
+        "bits_per_raw_sample": "8",
+        "nb_frames": "48",
+        "disposition": {
+          "default": 1,
+          "dub": 0,
+          "original": 0,
+          "comment": 0,
+          "lyrics": 0,
+          "karaoke": 0,
+          "forced": 0,
+          "hearing_impaired": 0,
+          "visual_impaired": 0,
+          "clean_effects": 0,
+          "attached_pic": 0
+        },
+        "tags": {
+          "handler_name": "VideoHandler",
+          "language": "und"
+        },
+        "field_order": "progressive",
+        "profile": "Constrained Baseline",
+        "width": 320,
+        "height": 180,
+        "pix_fmt": "yuv420p",
+        "level": 12
+      },
+      {
+        "index": 1,
+        "id": "0x2",
+        "codec_name": "eac3",
+        "codec_long_name": "ATSC A/52B (AC-3, E-AC-3)",
+        "codec_type": "audio",
+        "codec_time_base": "",
+        "codec_tag_string": "ec-3",
+        "codec_tag": "0x332d6365",
+        "r_frame_rate": "0/0",
+        "avg_frame_rate": "0/0",
+        "time_base": "1/48000",
+        "start_pts": 0,
+        "start_time": "0.000000",
+        "duration_ts": 94976,
+        "duration": "1.978667",
+        "bit_rate": "384000",
+        "bits_per_raw_sample": "",
+        "nb_frames": "62",
+        "disposition": {
+          "default": 1,
+          "dub": 0,
+          "original": 0,
+          "comment": 0,
+          "lyrics": 0,
+          "karaoke": 0,
+          "forced": 0,
+          "hearing_impaired": 0,
+          "visual_impaired": 0,
+          "clean_effects": 0,
+          "attached_pic": 0
+        },
+        "tags": {
+          "handler_name": "SoundHandler",
+          "language": "und"
+        },
+        "width": 0,
+        "height": 0,
+        "sample_fmt": "fltp",
+        "sample_rate": "48000",
+        "channels": 6,
+        "channel_layout": "5.1(side)",
+        "side_data_list": [
+          {
+            "service_type": 0,
+            "side_data_type": "Audio Service Type"
+          }
+        ]
+      }
+    ],
+    "Chapters": [],
+    "ColorPrimaries": "",
+    "ColorTransfer": "",
+    "ColorSpace": "",
+    "ColorRange": "",
+    "Dovi": null,
+    "HasHDR10Plus": false,
+    "MasteringDisplay": null,
+    "ContentLight": null,
+    "FrameErr": null
+  },
+  "audio": {
+    "Codec": "eac3",
+    "BitrateKbps": 384,
+    "SampleBits": 0
+  }
+}

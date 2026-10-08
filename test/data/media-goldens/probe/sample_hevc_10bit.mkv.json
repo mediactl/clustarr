@@ -1,0 +1,194 @@
+{
+  "mediaInfo": {
+    "container": "mkv",
+    "videoCodec": "hevc",
+    "videoProfile": "Main 10",
+    "pixelFormat": "yuv420p10le",
+    "videoBitDepth": 10,
+    "width": 320,
+    "height": 240,
+    "fpsMilli": 24000,
+    "videoBitrateKbps": 226,
+    "hdr": "none",
+    "runtimeMillis": 1006,
+    "audio": [
+      {
+        "index": 1,
+        "codec": "ac3",
+        "channels": 1,
+        "channelLayout": "mono",
+        "bitrateKbps": 128
+      }
+    ],
+    "subtitles": [
+      {
+        "index": 2,
+        "codec": "subrip"
+      }
+    ],
+    "videoEncoder": "Lavc63.1.101 libx265"
+  },
+  "raw": {
+    "Format": {
+      "filename": "<path>",
+      "nb_streams": 3,
+      "nb_programs": 0,
+      "format_name": "matroska,webm",
+      "format_long_name": "Matroska / WebM",
+      "start_time": "0",
+      "duration": "1.006",
+      "size": "44636",
+      "bit_rate": "354958",
+      "probe_score": 100,
+      "tags": {
+        "ENCODER": "Lavf63.1.101"
+      }
+    },
+    "Streams": [
+      {
+        "index": 0,
+        "id": "",
+        "codec_name": "hevc",
+        "codec_long_name": "H.265 / HEVC (High Efficiency Video Coding)",
+        "codec_type": "video",
+        "codec_time_base": "",
+        "codec_tag_string": "[0][0][0][0]",
+        "codec_tag": "0x0000",
+        "r_frame_rate": "24/1",
+        "avg_frame_rate": "24/1",
+        "time_base": "1/1000",
+        "start_pts": 0,
+        "start_time": "0.000000",
+        "duration_ts": 0,
+        "duration": "",
+        "bit_rate": "",
+        "bits_per_raw_sample": "",
+        "nb_frames": "",
+        "disposition": {
+          "default": 0,
+          "dub": 0,
+          "original": 0,
+          "comment": 0,
+          "lyrics": 0,
+          "karaoke": 0,
+          "forced": 0,
+          "hearing_impaired": 0,
+          "visual_impaired": 0,
+          "clean_effects": 0,
+          "attached_pic": 0
+        },
+        "tags": {
+          "DURATION": "00:00:01.000000000",
+          "ENCODER": "Lavc63.1.101 libx265"
+        },
+        "field_order": "progressive",
+        "profile": "Main 10",
+        "width": 320,
+        "height": 240,
+        "has_b_frames": 2,
+        "sample_aspect_ratio": "1:1",
+        "display_aspect_ratio": "4:3",
+        "pix_fmt": "yuv420p10le",
+        "level": 60,
+        "color_range": "tv"
+      },
+      {
+        "index": 1,
+        "id": "",
+        "codec_name": "ac3",
+        "codec_long_name": "ATSC A/52A (AC-3)",
+        "codec_type": "audio",
+        "codec_time_base": "",
+        "codec_tag_string": "[0][0][0][0]",
+        "codec_tag": "0x0000",
+        "r_frame_rate": "0/0",
+        "avg_frame_rate": "0/0",
+        "time_base": "1/1000",
+        "start_pts": 0,
+        "start_time": "0.000000",
+        "duration_ts": 0,
+        "duration": "",
+        "bit_rate": "128000",
+        "bits_per_raw_sample": "",
+        "nb_frames": "",
+        "disposition": {
+          "default": 0,
+          "dub": 0,
+          "original": 0,
+          "comment": 0,
+          "lyrics": 0,
+          "karaoke": 0,
+          "forced": 0,
+          "hearing_impaired": 0,
+          "visual_impaired": 0,
+          "clean_effects": 0,
+          "attached_pic": 0
+        },
+        "tags": {
+          "DURATION": "00:00:01.006000000",
+          "ENCODER": "Lavc63.1.101 ac3"
+        },
+        "width": 0,
+        "height": 0,
+        "sample_fmt": "fltp",
+        "sample_rate": "44100",
+        "channels": 1,
+        "channel_layout": "mono"
+      },
+      {
+        "index": 2,
+        "id": "",
+        "codec_name": "subrip",
+        "codec_long_name": "SubRip subtitle",
+        "codec_type": "subtitle",
+        "codec_time_base": "",
+        "codec_tag_string": "[0][0][0][0]",
+        "codec_tag": "0x0000",
+        "r_frame_rate": "0/0",
+        "avg_frame_rate": "0/0",
+        "time_base": "1/1000",
+        "start_pts": 0,
+        "start_time": "0.000000",
+        "duration_ts": 1006,
+        "duration": "1.006000",
+        "bit_rate": "",
+        "bits_per_raw_sample": "",
+        "nb_frames": "",
+        "disposition": {
+          "default": 0,
+          "dub": 0,
+          "original": 0,
+          "comment": 0,
+          "lyrics": 0,
+          "karaoke": 0,
+          "forced": 0,
+          "hearing_impaired": 0,
+          "visual_impaired": 0,
+          "clean_effects": 0,
+          "attached_pic": 0
+        },
+        "tags": {
+          "DURATION": "00:00:01.000000000",
+          "ENCODER": "Lavc63.1.101 srt"
+        },
+        "width": 0,
+        "height": 0
+      }
+    ],
+    "Chapters": [],
+    "ColorPrimaries": "",
+    "ColorTransfer": "",
+    "ColorSpace": "",
+    "ColorRange": "tv",
+    "Dovi": null,
+    "HasHDR10Plus": false,
+    "MasteringDisplay": null,
+    "ContentLight": null,
+    "FrameErr": null
+  },
+  "audio": {
+    "Codec": "ac3",
+    "BitrateKbps": 128,
+    "SampleBits": 0
+  }
+}

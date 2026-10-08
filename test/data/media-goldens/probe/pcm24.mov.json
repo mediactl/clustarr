@@ -1,0 +1,148 @@
+{
+  "mediaInfo": {
+    "container": "mov",
+    "videoCodec": "h264",
+    "videoProfile": "Constrained Baseline",
+    "pixelFormat": "yuv420p",
+    "videoBitDepth": 8,
+    "width": 320,
+    "height": 180,
+    "fpsMilli": 24000,
+    "videoBitrateKbps": 153,
+    "hdr": "none",
+    "runtimeMillis": 1963,
+    "audio": [
+      {
+        "index": 1,
+        "codec": "pcm_s24le",
+        "channels": 1,
+        "channelLayout": "mono",
+        "bitrateKbps": 1152,
+        "default": true
+      }
+    ]
+  },
+  "raw": {
+    "Format": {
+      "filename": "<path>",
+      "nb_streams": 2,
+      "nb_programs": 0,
+      "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+      "format_long_name": "QuickTime / MOV",
+      "start_time": "0",
+      "duration": "1.962667",
+      "size": "322009",
+      "bit_rate": "1312536",
+      "probe_score": 100,
+      "tags": {
+        "compatible_brands": "qt  ",
+        "major_brand": "qt  ",
+        "minor_version": "512"
+      }
+    },
+    "Streams": [
+      {
+        "index": 0,
+        "id": "0x1",
+        "codec_name": "h264",
+        "codec_long_name": "H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10",
+        "codec_type": "video",
+        "codec_time_base": "",
+        "codec_tag_string": "avc1",
+        "codec_tag": "0x31637661",
+        "r_frame_rate": "24/1",
+        "avg_frame_rate": "1152/47",
+        "time_base": "1/12288",
+        "start_pts": 0,
+        "start_time": "0.000000",
+        "duration_ts": 24064,
+        "duration": "1.958333",
+        "bit_rate": "153032",
+        "bits_per_raw_sample": "8",
+        "nb_frames": "48",
+        "disposition": {
+          "default": 1,
+          "dub": 0,
+          "original": 0,
+          "comment": 0,
+          "lyrics": 0,
+          "karaoke": 0,
+          "forced": 0,
+          "hearing_impaired": 0,
+          "visual_impaired": 0,
+          "clean_effects": 0,
+          "attached_pic": 0
+        },
+        "tags": {
+          "handler_name": "VideoHandler",
+          "vendor_id": "FFMP"
+        },
+        "field_order": "progressive",
+        "profile": "Constrained Baseline",
+        "width": 320,
+        "height": 180,
+        "pix_fmt": "yuv420p",
+        "level": 12
+      },
+      {
+        "index": 1,
+        "id": "0x2",
+        "codec_name": "pcm_s24le",
+        "codec_long_name": "PCM signed 24-bit little-endian",
+        "codec_type": "audio",
+        "codec_time_base": "",
+        "codec_tag_string": "in24",
+        "codec_tag": "0x34326e69",
+        "r_frame_rate": "0/0",
+        "avg_frame_rate": "0/0",
+        "time_base": "1/48000",
+        "start_pts": 0,
+        "start_time": "0.000000",
+        "duration_ts": 94208,
+        "duration": "1.962667",
+        "bit_rate": "1152000",
+        "bits_per_raw_sample": "24",
+        "nb_frames": "94208",
+        "disposition": {
+          "default": 1,
+          "dub": 0,
+          "original": 0,
+          "comment": 0,
+          "lyrics": 0,
+          "karaoke": 0,
+          "forced": 0,
+          "hearing_impaired": 0,
+          "visual_impaired": 0,
+          "clean_effects": 0,
+          "attached_pic": 0
+        },
+        "tags": {
+          "handler_name": "SoundHandler",
+          "vendor_id": "[0][0][0][0]"
+        },
+        "width": 0,
+        "height": 0,
+        "sample_fmt": "s32",
+        "sample_rate": "48000",
+        "channels": 1,
+        "channel_layout": "mono",
+        "bits_per_sample": 24
+      }
+    ],
+    "Chapters": [],
+    "ColorPrimaries": "",
+    "ColorTransfer": "",
+    "ColorSpace": "",
+    "ColorRange": "",
+    "Dovi": null,
+    "HasHDR10Plus": false,
+    "MasteringDisplay": null,
+    "ContentLight": null,
+    "FrameErr": null
+  },
+  "audio": {
+    "Codec": "pcm_s24le",
+    "BitrateKbps": 1152,
+    "SampleBits": 24
+  }
+}

@@ -1,0 +1,106 @@
+{
+  "mediaInfo": {
+    "container": "mkv",
+    "videoCodec": "hevc",
+    "videoProfile": "Main 10",
+    "pixelFormat": "yuv420p10le",
+    "videoBitDepth": 10,
+    "width": 640,
+    "height": 480,
+    "fpsMilli": 25000,
+    "videoBitrateKbps": 147,
+    "hdr": "hdr10",
+    "runtimeMillis": 1960
+  },
+  "raw": {
+    "Format": {
+      "filename": "<path>",
+      "nb_streams": 1,
+      "nb_programs": 0,
+      "format_name": "matroska,webm",
+      "format_long_name": "Matroska / WebM",
+      "start_time": "0",
+      "duration": "1.96",
+      "size": "36082",
+      "bit_rate": "147273",
+      "probe_score": 100,
+      "tags": {
+        "encoder": "Lavf"
+      }
+    },
+    "Streams": [
+      {
+        "index": 0,
+        "id": "",
+        "codec_name": "hevc",
+        "codec_long_name": "H.265 / HEVC (High Efficiency Video Coding)",
+        "codec_type": "video",
+        "codec_time_base": "",
+        "codec_tag_string": "[0][0][0][0]",
+        "codec_tag": "0x0000",
+        "r_frame_rate": "25/1",
+        "avg_frame_rate": "25/1",
+        "time_base": "1/1000",
+        "start_pts": 0,
+        "start_time": "0.000000",
+        "duration_ts": 0,
+        "duration": "",
+        "bit_rate": "",
+        "bits_per_raw_sample": "",
+        "nb_frames": "",
+        "disposition": {
+          "default": 0,
+          "dub": 0,
+          "original": 0,
+          "comment": 0,
+          "lyrics": 0,
+          "karaoke": 0,
+          "forced": 0,
+          "hearing_impaired": 0,
+          "visual_impaired": 0,
+          "clean_effects": 0,
+          "attached_pic": 0
+        },
+        "tags": {
+          "DURATION": "00:00:01.960000000"
+        },
+        "profile": "Main 10",
+        "width": 640,
+        "height": 480,
+        "has_b_frames": 2,
+        "pix_fmt": "yuv420p10le",
+        "level": 90,
+        "color_range": "tv",
+        "color_space": "bt2020nc",
+        "color_transfer": "smpte2084",
+        "color_primaries": "bt2020"
+      }
+    ],
+    "Chapters": [],
+    "ColorPrimaries": "bt2020",
+    "ColorTransfer": "smpte2084",
+    "ColorSpace": "bt2020nc",
+    "ColorRange": "tv",
+    "Dovi": null,
+    "HasHDR10Plus": false,
+    "MasteringDisplay": {
+      "GreenX": 13250,
+      "GreenY": 34500,
+      "BlueX": 7500,
+      "BlueY": 3000,
+      "RedX": 34000,
+      "RedY": 16000,
+      "WhiteX": 15635,
+      "WhiteY": 16450,
+      "MaxLuminance": 10000000,
+      "MinLuminance": 1
+    },
+    "ContentLight": {
+      "MaxCLL": 1000,
+      "MaxFALL": 400
+    },
+    "FrameErr": null
+  },
+  "audio": null,
+  "audioError": "mediainfo: probe <path>: mediainfo: no audio stream"
+}

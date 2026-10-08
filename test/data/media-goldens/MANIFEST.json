@@ -1,0 +1,307 @@
+[
+  {
+    "name": "h264.mkv",
+    "path": "test/data/media-goldens/clips/h264.mkv",
+    "kinds": [
+      "decode",
+      "probe"
+    ],
+    "sha256": "39f26ed8ee358e8224710bdc5b424ec2a1034d43756401c1a0a91b917c9dd8e7",
+    "spec": "testmedia.Spec{Format:\"\", MuxerOptions:map[string]string(nil), Duration:0, Shortest:true, StartOffset:0, Video:[]testmedia.Video{testmedia.Video{Source:\"testsrc2=d=30:s=320x180:r=25\", Encoder:\"libx264\", PixFmt:\"\", Options:map[string]string{\"bf\":\"3\", \"crf\":\"51\", \"g\":\"25\", \"preset\":\"ultrafast\"}, Color:testmedia.Color{Primaries:\"\", Transfer:\"\", Matrix:\"\", Range:\"\"}, HDR10:(*testmedia.HDR10)(nil), Frames:0, Stream:testmedia.Stream{Language:\"\", Title:\"\", Disposition:[]string(nil), Metadata:map[string]string(nil)}}}, Audio:[]testmedia.Audio{testmedia.Audio{Source:\"sine=d=30:f=440\", Samples:(*testmedia.Samples)(nil), Encoder:\"aac\", SampleFmt:\"\", Layout:\"\", SampleRate:0, BitrateKbps:32, Options:map[string]string(nil), Offset:0, Stream:testmedia.Stream{Language:\"\", Title:\"\", Disposition:[]string(nil), Metadata:map[string]string(nil)}}}, Subtitles:[]testmedia.Subtitle(nil), Attachments:[]testmedia.Attachment(nil), Chapters:[]testmedia.Chapter(nil), Tags:map[string]string(nil)}"
+  },
+  {
+    "name": "hevc709.mkv",
+    "path": "test/data/media-goldens/clips/hevc709.mkv",
+    "kinds": [
+      "decode",
+      "probe"
+    ],
+    "sha256": "904437546d55a1fc353708fead9b50f58e9866e8260f85f3585ceba515e85606",
+    "spec": "testmedia.Spec{Format:\"\", MuxerOptions:map[string]string(nil), Duration:0, Shortest:true, StartOffset:0, Video:[]testmedia.Video{testmedia.Video{Source:\"testsrc2=d=30:s=320x180:r=24\", Encoder:\"libx265\", PixFmt:\"yuv420p10le\", Options:map[string]string{\"crf\":\"51\", \"preset\":\"ultrafast\", \"x265-params\":\"log-level=error:keyint=24\"}, Color:testmedia.Color{Primaries:\"bt709\", Transfer:\"bt709\", Matrix:\"bt709\", Range:\"\"}, HDR10:(*testmedia.HDR10)(nil), Frames:0, Stream:testmedia.Stream{Language:\"\", Title:\"\", Disposition:[]string(nil), Metadata:map[string]string(nil)}}}, Audio:[]testmedia.Audio{testmedia.Audio{Source:\"sine=d=30:f=330\", Samples:(*testmedia.Samples)(nil), Encoder:\"ac3\", SampleFmt:\"\", Layout:\"5.1(side)\", SampleRate:0, BitrateKbps:96, Options:map[string]string(nil), Offset:0, Stream:testmedia.Stream{Language:\"\", Title:\"\", Disposition:[]string(nil), Metadata:map[string]string(nil)}}}, Subtitles:[]testmedia.Subtitle(nil), Attachments:[]testmedia.Attachment(nil), Chapters:[]testmedia.Chapter(nil), Tags:map[string]string(nil)}"
+  },
+  {
+    "name": "hevcpq.mkv",
+    "path": "test/data/media-goldens/clips/hevcpq.mkv",
+    "kinds": [
+      "decode",
+      "probe"
+    ],
+    "sha256": "4875756992ac6409146dc0dfb8f926bf20c0da790793e673d1067d8e65496378",
+    "spec": "testmedia.Spec{Format:\"\", MuxerOptions:map[string]string(nil), Duration:0, Shortest:true, StartOffset:0, Video:[]testmedia.Video{testmedia.Video{Source:\"testsrc2=d=30:s=320x180:r=24\", Encoder:\"libx265\", PixFmt:\"yuv420p10le\", Options:map[string]string{\"crf\":\"51\", \"preset\":\"ultrafast\", \"x265-params\":\"log-level=error:keyint=24\"}, Color:testmedia.Color{Primaries:\"bt2020\", Transfer:\"smpte2084\", Matrix:\"bt2020nc\", Range:\"\"}, HDR10:(*testmedia.HDR10)(nil), Frames:0, Stream:testmedia.Stream{Language:\"\", Title:\"\", Disposition:[]string(nil), Metadata:map[string]string(nil)}}}, Audio:[]testmedia.Audio{testmedia.Audio{Source:\"sine=d=30:f=330\", Samples:(*testmedia.Samples)(nil), Encoder:\"ac3\", SampleFmt:\"\", Layout:\"5.1(side)\", SampleRate:0, BitrateKbps:96, Options:map[string]string(nil), Offset:0, Stream:testmedia.Stream{Language:\"\", Title:\"\", Disposition:[]string(nil), Metadata:map[string]string(nil)}}}, Subtitles:[]testmedia.Subtitle(nil), Attachments:[]testmedia.Attachment(nil), Chapters:[]testmedia.Chapter(nil), Tags:map[string]string(nil)}"
+  },
+  {
+    "name": "ac3mix.mkv",
+    "path": "test/data/media-goldens/clips/ac3mix.mkv",
+    "kinds": [
+      "decode",
+      "probe"
+    ],
+    "sha256": "c14f984a22cc0a08ed88daa34b94046b39f06670ac5415d6975a3fb5a2a9ec76",
+    "spec": "testmedia.Spec{Format:\"\", MuxerOptions:map[string]string(nil), Duration:0, Shortest:true, StartOffset:0, Video:[]testmedia.Video{testmedia.Video{Source:\"testsrc2=d=30:s=320x180:r=25\", Encoder:\"libx264\", PixFmt:\"\", Options:map[string]string{\"crf\":\"51\", \"g\":\"25\", \"preset\":\"ultrafast\"}, Color:testmedia.Color{Primaries:\"\", Transfer:\"\", Matrix:\"\", Range:\"\"}, HDR10:(*testmedia.HDR10)(nil), Frames:0, Stream:testmedia.Stream{Language:\"\", Title:\"\", Disposition:[]string(nil), Metadata:map[string]string(nil)}}}, Audio:[]testmedia.Audio{testmedia.Audio{Source:\"sine=d=30:f=550\", Samples:(*testmedia.Samples)(nil), Encoder:\"ac3\", SampleFmt:\"\", Layout:\"5.1(side)\", SampleRate:0, BitrateKbps:96, Options:map[string]string{\"center_mixlev\":\"0.5\", \"surround_mixlev\":\"0.5\"}, Offset:0, Stream:testmedia.Stream{Language:\"\", Title:\"\", Disposition:[]string(nil), Metadata:map[string]string(nil)}}}, Subtitles:[]testmedia.Subtitle(nil), Attachments:[]testmedia.Attachment(nil), Chapters:[]testmedia.Chapter(nil), Tags:map[string]string(nil)}"
+  },
+  {
+    "name": "late.mkv",
+    "path": "test/data/media-goldens/clips/late.mkv",
+    "kinds": [
+      "decode",
+      "probe"
+    ],
+    "sha256": "56e9af55c3968ef73721a825063a5b22a5701af15de23b9193661e9e001ef280",
+    "spec": "testmedia.Spec{Format:\"\", MuxerOptions:map[string]string(nil), Duration:0, Shortest:false, StartOffset:0, Video:[]testmedia.Video{testmedia.Video{Source:\"testsrc2=d=30:s=320x180:r=25\", Encoder:\"libx264\", PixFmt:\"\", Options:map[string]string{\"crf\":\"51\", \"g\":\"25\", \"preset\":\"ultrafast\"}, Color:testmedia.Color{Primaries:\"\", Transfer:\"\", Matrix:\"\", Range:\"\"}, HDR10:(*testmedia.HDR10)(nil), Frames:0, Stream:testmedia.Stream{Language:\"\", Title:\"\", Disposition:[]string(nil), Metadata:map[string]string(nil)}}}, Audio:[]testmedia.Audio{testmedia.Audio{Source:\"sine=d=29:f=440\", Samples:(*testmedia.Samples)(nil), Encoder:\"aac\", SampleFmt:\"\", Layout:\"\", SampleRate:0, BitrateKbps:32, Options:map[string]string(nil), Offset:700000000, Stream:testmedia.Stream{Language:\"\", Title:\"\", Disposition:[]string(nil), Metadata:map[string]string(nil)}}}, Subtitles:[]testmedia.Subtitle(nil), Attachments:[]testmedia.Attachment(nil), Chapters:[]testmedia.Chapter(nil), Tags:map[string]string(nil)}"
+  },
+  {
+    "name": "h264.mp4",
+    "path": "test/data/media-goldens/clips/h264.mp4",
+    "kinds": [
+      "decode",
+      "probe"
+    ],
+    "sha256": "e7076e9990d8327792808c16d4672c40cadb619770164ff85f8d035967359fcc",
+    "spec": "testmedia.Spec{Format:\"\", MuxerOptions:map[string]string(nil), Duration:0, Shortest:true, StartOffset:0, Video:[]testmedia.Video{testmedia.Video{Source:\"testsrc2=d=30:s=320x180:r=25\", Encoder:\"libx264\", PixFmt:\"\", Options:map[string]string{\"crf\":\"51\", \"g\":\"25\", \"preset\":\"ultrafast\"}, Color:testmedia.Color{Primaries:\"\", Transfer:\"\", Matrix:\"\", Range:\"\"}, HDR10:(*testmedia.HDR10)(nil), Frames:0, Stream:testmedia.Stream{Language:\"\", Title:\"\", Disposition:[]string(nil), Metadata:map[string]string(nil)}}}, Audio:[]testmedia.Audio{testmedia.Audio{Source:\"sine=d=30:f=440\", Samples:(*testmedia.Samples)(nil), Encoder:\"aac\", SampleFmt:\"\", Layout:\"\", SampleRate:0, BitrateKbps:32, Options:map[string]string(nil), Offset:0, Stream:testmedia.Stream{Language:\"\", Title:\"\", Disposition:[]string(nil), Metadata:map[string]string(nil)}}}, Subtitles:[]testmedia.Subtitle(nil), Attachments:[]testmedia.Attachment(nil), Chapters:[]testmedia.Chapter(nil), Tags:map[string]string(nil)}"
+  },
+  {
+    "name": "offset.ts",
+    "path": "test/data/media-goldens/clips/offset.ts",
+    "kinds": [
+      "decode",
+      "probe"
+    ],
+    "sha256": "5876c546b58d396b4e15afd83b412100cbcdce06db301b7ef18ffd416212bd2e",
+    "spec": "testmedia.Spec{Format:\"mpegts\", MuxerOptions:map[string]string(nil), Duration:0, Shortest:true, StartOffset:1400000000, Video:[]testmedia.Video{testmedia.Video{Source:\"testsrc2=d=30:s=320x180:r=25\", Encoder:\"libx264\", PixFmt:\"\", Options:map[string]string{\"crf\":\"51\", \"g\":\"25\", \"preset\":\"ultrafast\"}, Color:testmedia.Color{Primaries:\"\", Transfer:\"\", Matrix:\"\", Range:\"\"}, HDR10:(*testmedia.HDR10)(nil), Frames:0, Stream:testmedia.Stream{Language:\"\", Title:\"\", Disposition:[]string(nil), Metadata:map[string]string(nil)}}}, Audio:[]testmedia.Audio{testmedia.Audio{Source:\"sine=d=30:f=440\", Samples:(*testmedia.Samples)(nil), Encoder:\"aac\", SampleFmt:\"\", Layout:\"\", SampleRate:0, BitrateKbps:32, Options:map[string]string(nil), Offset:0, Stream:testmedia.Stream{Language:\"\", Title:\"\", Disposition:[]string(nil), Metadata:map[string]string(nil)}}}, Subtitles:[]testmedia.Subtitle(nil), Attachments:[]testmedia.Attachment(nil), Chapters:[]testmedia.Chapter(nil), Tags:map[string]string(nil)}"
+  },
+  {
+    "name": "everything.mkv",
+    "path": "test/data/media-goldens/clips/everything.mkv",
+    "kinds": [
+      "probe",
+      "extract"
+    ],
+    "sha256": "36dd03c9eeae56cf54a870e79a926f6c8b7fb3a2d2221d1697b435d98cc67b37",
+    "spec": "testmedia.Spec{Format:\"\", MuxerOptions:map[string]string(nil), Duration:0, Shortest:false, StartOffset:0, Video:[]testmedia.Video{testmedia.Video{Source:\"testsrc2=size=320x180:rate=24:duration=2\", Encoder:\"libx264\", PixFmt:\"\", Options:map[string]string{\"crf\":\"40\", \"preset\":\"ultrafast\"}, Color:testmedia.Color{Primaries:\"\", Transfer:\"\", Matrix:\"\", Range:\"\"}, HDR10:(*testmedia.HDR10)(nil), Frames:0, Stream:testmedia.Stream{Language:\"\", Title:\"\", Disposition:[]string(nil), Metadata:map[string]string(nil)}}}, Audio:[]testmedia.Audio{testmedia.Audio{Source:\"sine=frequency=440:sample_rate=48000:duration=2,aformat=channel_layouts=5.1\", Samples:(*testmedia.Samples)(nil), Encoder:\"ac3\", SampleFmt:\"\", Layout:\"\", SampleRate:0, BitrateKbps:0, Options:map[string]string(nil), Offset:0, Stream:testmedia.Stream{Language:\"eng\", Title:\"\", Disposition:[]string{\"default\"}, Metadata:map[string]string(nil)}}, testmedia.Audio{Source:\"sine=frequency=880:sample_rate=48000:duration=2\", Samples:(*testmedia.Samples)(nil), Encoder:\"aac\", SampleFmt:\"\", Layout:\"\", SampleRate:0, BitrateKbps:0, Options:map[string]string(nil), Offset:0, Stream:testmedia.Stream{Language:\"fre\", Title:\"Commentary\", Disposition:[]string{\"comment\"}, Metadata:map[string]string(nil)}}, testmedia.Audio{Source:\"sine=frequency=660:sample_rate=48000:duration=2,aformat=channel_layouts=5.1(side)\", Samples:(*testmedia.Samples)(nil), Encoder:\"eac3\", SampleFmt:\"\", Layout:\"\", SampleRate:0, BitrateKbps:0, Options:map[string]string(nil), Offset:0, Stream:testmedia.Stream{Language:\"ger\", Title:\"\", Disposition:[]string(nil), Metadata:map[string]string(nil)}}}, Subtitles:[]testmedia.Subtitle{testmedia.Subtitle{Codec:\"subrip\", Header:\"\", Events:[]testmedia.Event{testmedia.Event{Start:500000000, End:1500000000, Text:\"Hello\"}}, Stream:testmedia.Stream{Language:\"eng\", Title:\"\", Disposition:[]string{\"forced\"}, Metadata:map[string]string(nil)}}}, Attachments:[]testmedia.Attachment{testmedia.Attachment{Name:\"f.ttf\", MIMEType:\"application/x-truetype-font\", Data:[]uint8{0x6e, 0x6f, 0x74, 0x20, 0x72, 0x65, 0x61, 0x6c, 0x6c, 0x79, 0x20, 0x61, 0x20, 0x66, 0x6f, 0x6e, 0x74}}}, Chapters:[]testmedia.Chapter{testmedia.Chapter{Start:0, End:1000, TimeBase:[2]int{1, 1000}, Title:\"One\"}, testmedia.Chapter{Start:1000, End:2000, TimeBase:[2]int{1, 1000}, Title:\"Two\"}}, Tags:map[string]string{\"CLUSTARR_PROFILE\":\"p@h\", \"title\":\"Clip\"}}"
+  },
+  {
+    "name": "hdr10.mkv",
+    "path": "test/data/media-goldens/clips/hdr10.mkv",
+    "kinds": [
+      "probe"
+    ],
+    "sha256": "067963c8ddf736daf67436aa6981da0f58d7d3621959f62abbf3e9ac451fe91c",
+    "spec": "testmedia.Spec{Format:\"\", MuxerOptions:map[string]string(nil), Duration:0, Shortest:false, StartOffset:0, Video:[]testmedia.Video{testmedia.Video{Source:\"testsrc2=duration=2:size=640x480:rate=25\", Encoder:\"libx265\", PixFmt:\"yuv420p10le\", Options:map[string]string{\"crf\":\"40\", \"preset\":\"ultrafast\", \"x265-params\":\"log-level=error:colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc:master-display=G(13250,34500)B(7500,3000)R(34000,16000)WP(15635,16450)L(10000000,1):max-cll=1000,400\"}, Color:testmedia.Color{Primaries:\"\", Transfer:\"\", Matrix:\"\", Range:\"\"}, HDR10:(*testmedia.HDR10)(nil), Frames:0, Stream:testmedia.Stream{Language:\"\", Title:\"\", Disposition:[]string(nil), Metadata:map[string]string(nil)}}}, Audio:[]testmedia.Audio(nil), Subtitles:[]testmedia.Subtitle(nil), Attachments:[]testmedia.Attachment(nil), Chapters:[]testmedia.Chapter(nil), Tags:map[string]string(nil)}"
+  },
+  {
+    "name": "hlg.mkv",
+    "path": "test/data/media-goldens/clips/hlg.mkv",
+    "kinds": [
+      "probe"
+    ],
+    "sha256": "b9f1fedb62dcaeeba74174c7b717394d3fcc014d94c8248ab9553fbf8cd300cc",
+    "spec": "testmedia.Spec{Format:\"\", MuxerOptions:map[string]string(nil), Duration:0, Shortest:false, StartOffset:0, Video:[]testmedia.Video{testmedia.Video{Source:\"testsrc2=duration=2:size=640x480:rate=25\", Encoder:\"libx265\", PixFmt:\"yuv420p10le\", Options:map[string]string{\"crf\":\"40\", \"preset\":\"ultrafast\", \"x265-params\":\"log-level=error:colorprim=bt2020:transfer=arib-std-b67:colormatrix=bt2020nc\"}, Color:testmedia.Color{Primaries:\"\", Transfer:\"\", Matrix:\"\", Range:\"\"}, HDR10:(*testmedia.HDR10)(nil), Frames:0, Stream:testmedia.Stream{Language:\"\", Title:\"\", Disposition:[]string(nil), Metadata:map[string]string(nil)}}}, Audio:[]testmedia.Audio(nil), Subtitles:[]testmedia.Subtitle(nil), Attachments:[]testmedia.Attachment(nil), Chapters:[]testmedia.Chapter(nil), Tags:map[string]string(nil)}"
+  },
+  {
+    "name": "hi10p.mkv",
+    "path": "test/data/media-goldens/clips/hi10p.mkv",
+    "kinds": [
+      "probe"
+    ],
+    "sha256": "7a8fe1c1c2200ae484ff33d49c05cd1a42a1420117e39f24354c9f58aa932797",
+    "spec": "testmedia.Spec{Format:\"\", MuxerOptions:map[string]string(nil), Duration:0, Shortest:false, StartOffset:0, Video:[]testmedia.Video{testmedia.Video{Source:\"testsrc2=duration=2:size=320x180:rate=24\", Encoder:\"libx264\", PixFmt:\"yuv420p10le\", Options:map[string]string{\"crf\":\"40\", \"preset\":\"ultrafast\"}, Color:testmedia.Color{Primaries:\"\", Transfer:\"\", Matrix:\"\", Range:\"\"}, HDR10:(*testmedia.HDR10)(nil), Frames:0, Stream:testmedia.Stream{Language:\"\", Title:\"\", Disposition:[]string(nil), Metadata:map[string]string(nil)}}}, Audio:[]testmedia.Audio(nil), Subtitles:[]testmedia.Subtitle(nil), Attachments:[]testmedia.Attachment(nil), Chapters:[]testmedia.Chapter(nil), Tags:map[string]string(nil)}"
+  },
+  {
+    "name": "clip.mp4",
+    "path": "test/data/media-goldens/clips/clip.mp4",
+    "kinds": [
+      "probe"
+    ],
+    "sha256": "293e04bdec4f1e81e790cec28539f31ce1a0f47e73c3b6a8ce5c8f7895ee0005",
+    "spec": "testmedia.Spec{Format:\"\", MuxerOptions:map[string]string(nil), Duration:0, Shortest:false, StartOffset:0, Video:[]testmedia.Video{testmedia.Video{Source:\"testsrc2=duration=2:size=320x180:rate=24\", Encoder:\"libx264\", PixFmt:\"\", Options:map[string]string{\"crf\":\"40\", \"preset\":\"ultrafast\"}, Color:testmedia.Color{Primaries:\"\", Transfer:\"\", Matrix:\"\", Range:\"\"}, HDR10:(*testmedia.HDR10)(nil), Frames:0, Stream:testmedia.Stream{Language:\"\", Title:\"\", Disposition:[]string(nil), Metadata:map[string]string(nil)}}}, Audio:[]testmedia.Audio{testmedia.Audio{Source:\"sine=duration=2\", Samples:(*testmedia.Samples)(nil), Encoder:\"aac\", SampleFmt:\"\", Layout:\"\", SampleRate:0, BitrateKbps:32, Options:map[string]string(nil), Offset:0, Stream:testmedia.Stream{Language:\"\", Title:\"\", Disposition:[]string(nil), Metadata:map[string]string(nil)}}}, Subtitles:[]testmedia.Subtitle(nil), Attachments:[]testmedia.Attachment(nil), Chapters:[]testmedia.Chapter(nil), Tags:map[string]string(nil)}"
+  },
+  {
+    "name": "pcm.mkv",
+    "path": "test/data/media-goldens/clips/pcm.mkv",
+    "kinds": [
+      "probe"
+    ],
+    "sha256": "24d06d00a7a6b3345e84331879394b46d5edf2412e9d6f98f7da105131acaf5e",
+    "spec": "testmedia.Spec{Format:\"\", MuxerOptions:map[string]string(nil), Duration:0, Shortest:true, StartOffset:0, Video:[]testmedia.Video{testmedia.Video{Source:\"testsrc2=d=2:s=320x180:r=24\", Encoder:\"libx264\", PixFmt:\"\", Options:map[string]string{\"crf\":\"40\", \"preset\":\"ultrafast\"}, Color:testmedia.Color{Primaries:\"\", Transfer:\"\", Matrix:\"\", Range:\"\"}, HDR10:(*testmedia.HDR10)(nil), Frames:0, Stream:testmedia.Stream{Language:\"\", Title:\"\", Disposition:[]string(nil), Metadata:map[string]string(nil)}}}, Audio:[]testmedia.Audio{testmedia.Audio{Source:\"sine=d=2:sample_rate=48000\", Samples:(*testmedia.Samples)(nil), Encoder:\"pcm_s16le\", SampleFmt:\"\", Layout:\"\", SampleRate:0, BitrateKbps:0, Options:map[string]string(nil), Offset:0, Stream:testmedia.Stream{Language:\"\", Title:\"\", Disposition:[]string(nil), Metadata:map[string]string(nil)}}}, Subtitles:[]testmedia.Subtitle(nil), Attachments:[]testmedia.Attachment(nil), Chapters:[]testmedia.Chapter(nil), Tags:map[string]string(nil)}"
+  },
+  {
+    "name": "chapters9300.mkv",
+    "path": "test/data/media-goldens/clips/chapters9300.mkv",
+    "kinds": [
+      "probe"
+    ],
+    "sha256": "2784ec3c565573b3fea270136bc49f34643f71ca74ad04e6f43293cbd241ba41",
+    "spec": "testmedia.Spec{Format:\"\", MuxerOptions:map[string]string(nil), Duration:0, Shortest:false, StartOffset:0, Video:[]testmedia.Video{testmedia.Video{Source:\"testsrc2=d=2:s=320x180:r=24\", Encoder:\"libx264\", PixFmt:\"\", Options:map[string]string{\"crf\":\"40\", \"preset\":\"ultrafast\"}, Color:testmedia.Color{Primaries:\"\", Transfer:\"\", Matrix:\"\", Range:\"\"}, HDR10:(*testmedia.HDR10)(nil), Frames:0, Stream:testmedia.Stream{Language:\"\", Title:\"\", Disposition:[]string(nil), Metadata:map[string]string(nil)}}}, Audio:[]testmedia.Audio(nil), Subtitles:[]testmedia.Subtitle(nil), Attachments:[]testmedia.Attachment(nil), Chapters:[]testmedia.Chapter{testmedia.Chapter{Start:9300000000000, End:9400000000000, TimeBase:[2]int{1, 1000000000}, Title:\"Late\"}}, Tags:map[string]string(nil)}"
+  },
+  {
+    "name": "interlaced.ts",
+    "path": "test/data/media-goldens/clips/interlaced.ts",
+    "kinds": [
+      "probe"
+    ],
+    "sha256": "fc6b527111543809bb906e52e50c9e05b02c27e6e54c7e16f5d381e263e1a5ce",
+    "spec": "testmedia.Spec{Format:\"mpegts\", MuxerOptions:map[string]string(nil), Duration:0, Shortest:false, StartOffset:0, Video:[]testmedia.Video{testmedia.Video{Source:\"testsrc2=d=2:s=720x576:r=25,setfield=tff\", Encoder:\"libx264\", PixFmt:\"\", Options:map[string]string{\"crf\":\"40\", \"flags\":\"+ildct+ilme\", \"preset\":\"ultrafast\", \"x264-params\":\"tff=1\"}, Color:testmedia.Color{Primaries:\"\", Transfer:\"\", Matrix:\"\", Range:\"\"}, HDR10:(*testmedia.HDR10)(nil), Frames:0, Stream:testmedia.Stream{Language:\"\", Title:\"\", Disposition:[]string(nil), Metadata:map[string]string(nil)}}}, Audio:[]testmedia.Audio(nil), Subtitles:[]testmedia.Subtitle(nil), Attachments:[]testmedia.Attachment(nil), Chapters:[]testmedia.Chapter(nil), Tags:map[string]string(nil)}"
+  },
+  {
+    "name": "dts.mkv",
+    "path": "test/data/media-goldens/clips/dts.mkv",
+    "kinds": [
+      "probe"
+    ],
+    "sha256": "fd3dbb5ef78e151ec7aa4aae06828bd130848a297e0146f63fbdfa455b321940",
+    "spec": "testmedia.Spec{Format:\"\", MuxerOptions:map[string]string(nil), Duration:0, Shortest:true, StartOffset:0, Video:[]testmedia.Video{testmedia.Video{Source:\"testsrc2=d=2:s=320x180:r=24\", Encoder:\"libx264\", PixFmt:\"\", Options:map[string]string{\"crf\":\"40\", \"preset\":\"ultrafast\"}, Color:testmedia.Color{Primaries:\"\", Transfer:\"\", Matrix:\"\", Range:\"\"}, HDR10:(*testmedia.HDR10)(nil), Frames:0, Stream:testmedia.Stream{Language:\"\", Title:\"\", Disposition:[]string(nil), Metadata:map[string]string(nil)}}}, Audio:[]testmedia.Audio{testmedia.Audio{Source:\"sine=d=2:sample_rate=48000,aformat=channel_layouts=5.1\", Samples:(*testmedia.Samples)(nil), Encoder:\"dca\", SampleFmt:\"\", Layout:\"5.1(side)\", SampleRate:0, BitrateKbps:1411, Options:map[string]string{\"strict\":\"-2\"}, Offset:0, Stream:testmedia.Stream{Language:\"\", Title:\"\", Disposition:[]string(nil), Metadata:map[string]string(nil)}}}, Subtitles:[]testmedia.Subtitle(nil), Attachments:[]testmedia.Attachment(nil), Chapters:[]testmedia.Chapter(nil), Tags:map[string]string(nil)}"
+  },
+  {
+    "name": "eac3.mp4",
+    "path": "test/data/media-goldens/clips/eac3.mp4",
+    "kinds": [
+      "probe"
+    ],
+    "sha256": "ce02b398add2a2a2d200a5a052a1dc1460f68d53f513ae57d14a6675766c84d8",
+    "spec": "testmedia.Spec{Format:\"\", MuxerOptions:map[string]string(nil), Duration:0, Shortest:true, StartOffset:0, Video:[]testmedia.Video{testmedia.Video{Source:\"testsrc2=d=2:s=320x180:r=24\", Encoder:\"libx264\", PixFmt:\"\", Options:map[string]string{\"crf\":\"40\", \"preset\":\"ultrafast\"}, Color:testmedia.Color{Primaries:\"\", Transfer:\"\", Matrix:\"\", Range:\"\"}, HDR10:(*testmedia.HDR10)(nil), Frames:0, Stream:testmedia.Stream{Language:\"\", Title:\"\", Disposition:[]string(nil), Metadata:map[string]string(nil)}}}, Audio:[]testmedia.Audio{testmedia.Audio{Source:\"sine=d=2:sample_rate=48000,aformat=channel_layouts=5.1\", Samples:(*testmedia.Samples)(nil), Encoder:\"eac3\", SampleFmt:\"\", Layout:\"\", SampleRate:0, BitrateKbps:0, Options:map[string]string(nil), Offset:0, Stream:testmedia.Stream{Language:\"\", Title:\"\", Disposition:[]string(nil), Metadata:map[string]string(nil)}}}, Subtitles:[]testmedia.Subtitle(nil), Attachments:[]testmedia.Attachment(nil), Chapters:[]testmedia.Chapter(nil), Tags:map[string]string(nil)}"
+  },
+  {
+    "name": "truehd.mkv",
+    "path": "test/data/media-goldens/clips/truehd.mkv",
+    "kinds": [
+      "probe"
+    ],
+    "sha256": "bd057f69af0d6dc19d158425b502afdf6cc9bdb07c94b5e8c3b1df145921f28d",
+    "spec": "testmedia.Spec{Format:\"\", MuxerOptions:map[string]string(nil), Duration:0, Shortest:true, StartOffset:0, Video:[]testmedia.Video{testmedia.Video{Source:\"testsrc2=d=2:s=320x180:r=24\", Encoder:\"libx264\", PixFmt:\"\", Options:map[string]string{\"crf\":\"40\", \"preset\":\"ultrafast\"}, Color:testmedia.Color{Primaries:\"\", Transfer:\"\", Matrix:\"\", Range:\"\"}, HDR10:(*testmedia.HDR10)(nil), Frames:0, Stream:testmedia.Stream{Language:\"\", Title:\"\", Disposition:[]string(nil), Metadata:map[string]string(nil)}}}, Audio:[]testmedia.Audio{testmedia.Audio{Source:\"sine=d=2:sample_rate=48000,aformat=channel_layouts=5.1(side)\", Samples:(*testmedia.Samples)(nil), Encoder:\"truehd\", SampleFmt:\"\", Layout:\"5.1(side)\", SampleRate:0, BitrateKbps:0, Options:map[string]string{\"strict\":\"-2\"}, Offset:0, Stream:testmedia.Stream{Language:\"\", Title:\"\", Disposition:[]string(nil), Metadata:map[string]string(nil)}}}, Subtitles:[]testmedia.Subtitle(nil), Attachments:[]testmedia.Attachment(nil), Chapters:[]testmedia.Chapter(nil), Tags:map[string]string(nil)}"
+  },
+  {
+    "name": "vfr.mkv",
+    "path": "test/data/media-goldens/clips/vfr.mkv",
+    "kinds": [
+      "probe"
+    ],
+    "sha256": "7d0afd2eb2b025a68994517d1f3c0d3ca059e6bfb032cd9b450a6d261164864e",
+    "spec": "testmedia.Spec{Format:\"\", MuxerOptions:map[string]string(nil), Duration:0, Shortest:false, StartOffset:0, Video:[]testmedia.Video{testmedia.Video{Source:\"testsrc2=d=4:s=320x180:r=30,select='not(mod(n\\\\,3))'\", Encoder:\"libx264\", PixFmt:\"\", Options:map[string]string{\"crf\":\"40\", \"preset\":\"ultrafast\"}, Color:testmedia.Color{Primaries:\"\", Transfer:\"\", Matrix:\"\", Range:\"\"}, HDR10:(*testmedia.HDR10)(nil), Frames:0, Stream:testmedia.Stream{Language:\"\", Title:\"\", Disposition:[]string(nil), Metadata:map[string]string(nil)}}}, Audio:[]testmedia.Audio(nil), Subtitles:[]testmedia.Subtitle(nil), Attachments:[]testmedia.Attachment(nil), Chapters:[]testmedia.Chapter(nil), Tags:map[string]string(nil)}"
+  },
+  {
+    "name": "mpeg2i.mkv",
+    "path": "test/data/media-goldens/clips/mpeg2i.mkv",
+    "kinds": [
+      "probe"
+    ],
+    "sha256": "2d87aab155ef13fc53eb0bc47c086cf2aa3e88597e086fa3bb479e304a7b9e10",
+    "spec": "testmedia.Spec{Format:\"\", MuxerOptions:map[string]string(nil), Duration:0, Shortest:false, StartOffset:0, Video:[]testmedia.Video{testmedia.Video{Source:\"testsrc2=d=2:s=720x576:r=25,setfield=tff\", Encoder:\"mpeg2video\", PixFmt:\"\", Options:map[string]string{\"flags\":\"+ildct+ilme\"}, Color:testmedia.Color{Primaries:\"\", Transfer:\"\", Matrix:\"\", Range:\"\"}, HDR10:(*testmedia.HDR10)(nil), Frames:0, Stream:testmedia.Stream{Language:\"\", Title:\"\", Disposition:[]string(nil), Metadata:map[string]string(nil)}}}, Audio:[]testmedia.Audio(nil), Subtitles:[]testmedia.Subtitle(nil), Attachments:[]testmedia.Attachment(nil), Chapters:[]testmedia.Chapter(nil), Tags:map[string]string(nil)}"
+  },
+  {
+    "name": "mp3.avi",
+    "path": "test/data/media-goldens/clips/mp3.avi",
+    "kinds": [
+      "probe"
+    ],
+    "sha256": "cd4e84e781ad4b70cbbf2dee625f9e6b97dffb5c3827d20092b390526070ded1",
+    "spec": "testmedia.Spec{Format:\"\", MuxerOptions:map[string]string(nil), Duration:0, Shortest:true, StartOffset:0, Video:[]testmedia.Video{testmedia.Video{Source:\"testsrc2=d=2:s=320x180:r=24\", Encoder:\"mpeg4\", PixFmt:\"\", Options:map[string]string(nil), Color:testmedia.Color{Primaries:\"\", Transfer:\"\", Matrix:\"\", Range:\"\"}, HDR10:(*testmedia.HDR10)(nil), Frames:0, Stream:testmedia.Stream{Language:\"\", Title:\"\", Disposition:[]string(nil), Metadata:map[string]string(nil)}}}, Audio:[]testmedia.Audio{testmedia.Audio{Source:\"sine=d=2:sample_rate=48000\", Samples:(*testmedia.Samples)(nil), Encoder:\"libmp3lame\", SampleFmt:\"\", Layout:\"\", SampleRate:0, BitrateKbps:0, Options:map[string]string(nil), Offset:0, Stream:testmedia.Stream{Language:\"\", Title:\"\", Disposition:[]string(nil), Metadata:map[string]string(nil)}}}, Subtitles:[]testmedia.Subtitle(nil), Attachments:[]testmedia.Attachment(nil), Chapters:[]testmedia.Chapter(nil), Tags:map[string]string(nil)}"
+  },
+  {
+    "name": "pcm24.mov",
+    "path": "test/data/media-goldens/clips/pcm24.mov",
+    "kinds": [
+      "probe"
+    ],
+    "sha256": "84fd85a980e77e41e2934c7d2566a3d8a1c6274ad64c1a0f4ccca82494232a25",
+    "spec": "testmedia.Spec{Format:\"\", MuxerOptions:map[string]string(nil), Duration:0, Shortest:true, StartOffset:0, Video:[]testmedia.Video{testmedia.Video{Source:\"testsrc2=d=2:s=320x180:r=24\", Encoder:\"libx264\", PixFmt:\"\", Options:map[string]string{\"crf\":\"40\", \"preset\":\"ultrafast\"}, Color:testmedia.Color{Primaries:\"\", Transfer:\"\", Matrix:\"\", Range:\"\"}, HDR10:(*testmedia.HDR10)(nil), Frames:0, Stream:testmedia.Stream{Language:\"\", Title:\"\", Disposition:[]string(nil), Metadata:map[string]string(nil)}}}, Audio:[]testmedia.Audio{testmedia.Audio{Source:\"sine=d=2:sample_rate=48000\", Samples:(*testmedia.Samples)(nil), Encoder:\"pcm_s24le\", SampleFmt:\"\", Layout:\"\", SampleRate:0, BitrateKbps:0, Options:map[string]string(nil), Offset:0, Stream:testmedia.Stream{Language:\"\", Title:\"\", Disposition:[]string(nil), Metadata:map[string]string(nil)}}}, Subtitles:[]testmedia.Subtitle(nil), Attachments:[]testmedia.Attachment(nil), Chapters:[]testmedia.Chapter(nil), Tags:map[string]string(nil)}"
+  },
+  {
+    "name": "alac24.m4a",
+    "path": "test/data/media-goldens/clips/alac24.m4a",
+    "kinds": [
+      "probe"
+    ],
+    "sha256": "7e393b148bc8029da6489af8434404b822e2695c0f3bac7d0e53d642595db61f",
+    "spec": "testmedia.Spec{Format:\"ipod\", MuxerOptions:map[string]string(nil), Duration:0, Shortest:false, StartOffset:0, Video:[]testmedia.Video(nil), Audio:[]testmedia.Audio{testmedia.Audio{Source:\"sine=d=2:sample_rate=96000\", Samples:(*testmedia.Samples)(nil), Encoder:\"alac\", SampleFmt:\"\", Layout:\"\", SampleRate:0, BitrateKbps:0, Options:map[string]string{\"bits_per_raw_sample\":\"24\"}, Offset:0, Stream:testmedia.Stream{Language:\"\", Title:\"\", Disposition:[]string(nil), Metadata:map[string]string(nil)}}}, Subtitles:[]testmedia.Subtitle(nil), Attachments:[]testmedia.Attachment(nil), Chapters:[]testmedia.Chapter(nil), Tags:map[string]string(nil)}"
+  },
+  {
+    "name": "tagged.mp4",
+    "path": "test/data/media-goldens/clips/tagged.mp4",
+    "kinds": [
+      "probe"
+    ],
+    "sha256": "0006a6a89185de91b8738fc441aebbc491de1b385865c8adf0f647379dd67319",
+    "spec": "testmedia.Spec{Format:\"\", MuxerOptions:map[string]string{\"movflags\":\"+use_metadata_tags\"}, Duration:0, Shortest:false, StartOffset:0, Video:[]testmedia.Video{testmedia.Video{Source:\"testsrc2=d=2:s=320x180:r=24\", Encoder:\"libx264\", PixFmt:\"\", Options:map[string]string{\"crf\":\"40\", \"preset\":\"ultrafast\"}, Color:testmedia.Color{Primaries:\"\", Transfer:\"\", Matrix:\"\", Range:\"\"}, HDR10:(*testmedia.HDR10)(nil), Frames:0, Stream:testmedia.Stream{Language:\"\", Title:\"\", Disposition:[]string(nil), Metadata:map[string]string(nil)}}}, Audio:[]testmedia.Audio(nil), Subtitles:[]testmedia.Subtitle(nil), Attachments:[]testmedia.Attachment(nil), Chapters:[]testmedia.Chapter(nil), Tags:map[string]string{\"CLUSTARR_PROFILE\":\"p@h\"}}"
+  },
+  {
+    "name": "bps.mkv",
+    "path": "test/data/media-goldens/clips/bps.mkv",
+    "kinds": [
+      "probe"
+    ],
+    "sha256": "1821797af21c60a22c6a3460702f4d66536d2608be6631c3b1b10d48e91bed3c",
+    "spec": "testmedia.Spec{Format:\"\", MuxerOptions:map[string]string(nil), Duration:0, Shortest:true, StartOffset:0, Video:[]testmedia.Video{testmedia.Video{Source:\"testsrc2=d=2:s=320x180:r=24\", Encoder:\"libx264\", PixFmt:\"\", Options:map[string]string{\"crf\":\"40\", \"preset\":\"ultrafast\"}, Color:testmedia.Color{Primaries:\"\", Transfer:\"\", Matrix:\"\", Range:\"\"}, HDR10:(*testmedia.HDR10)(nil), Frames:0, Stream:testmedia.Stream{Language:\"\", Title:\"\", Disposition:[]string(nil), Metadata:map[string]string{\"BPS\":\"1234567\", \"BPS-eng\":\"1234567\"}}}}, Audio:[]testmedia.Audio{testmedia.Audio{Source:\"sine=d=2:sample_rate=48000\", Samples:(*testmedia.Samples)(nil), Encoder:\"aac\", SampleFmt:\"\", Layout:\"\", SampleRate:0, BitrateKbps:32, Options:map[string]string(nil), Offset:0, Stream:testmedia.Stream{Language:\"\", Title:\"\", Disposition:[]string(nil), Metadata:map[string]string(nil)}}}, Subtitles:[]testmedia.Subtitle(nil), Attachments:[]testmedia.Attachment(nil), Chapters:[]testmedia.Chapter(nil), Tags:map[string]string(nil)}"
+  },
+  {
+    "name": "cover.mp4",
+    "path": "test/data/media-goldens/clips/cover.mp4",
+    "kinds": [
+      "probe"
+    ],
+    "sha256": "9de5fc23fdf11cef77d7c6b0d91dee2e8991c16873463be6edaa14ec318cacb3",
+    "spec": "testmedia.Spec{Format:\"\", MuxerOptions:map[string]string(nil), Duration:0, Shortest:false, StartOffset:0, Video:[]testmedia.Video{testmedia.Video{Source:\"testsrc2=d=2:s=320x180:r=24\", Encoder:\"libx264\", PixFmt:\"\", Options:map[string]string{\"crf\":\"40\", \"preset\":\"ultrafast\"}, Color:testmedia.Color{Primaries:\"\", Transfer:\"\", Matrix:\"\", Range:\"\"}, HDR10:(*testmedia.HDR10)(nil), Frames:0, Stream:testmedia.Stream{Language:\"\", Title:\"\", Disposition:[]string(nil), Metadata:map[string]string(nil)}}, testmedia.Video{Source:\"color=c=red:s=16x16:d=1\", Encoder:\"mjpeg\", PixFmt:\"yuvj420p\", Options:map[string]string(nil), Color:testmedia.Color{Primaries:\"\", Transfer:\"\", Matrix:\"\", Range:\"\"}, HDR10:(*testmedia.HDR10)(nil), Frames:1, Stream:testmedia.Stream{Language:\"\", Title:\"\", Disposition:[]string{\"attached_pic\"}, Metadata:map[string]string(nil)}}}, Audio:[]testmedia.Audio(nil), Subtitles:[]testmedia.Subtitle(nil), Attachments:[]testmedia.Attachment(nil), Chapters:[]testmedia.Chapter(nil), Tags:map[string]string(nil)}"
+  },
+  {
+    "name": "badutf8.mkv",
+    "path": "test/data/media-goldens/clips/badutf8.mkv",
+    "kinds": [
+      "probe"
+    ],
+    "sha256": "e4afc4233f9c2edfbb24bb9ca66964dc1c055899f50cce8ff7d59b655a974260",
+    "spec": "testmedia.Spec{Format:\"\", MuxerOptions:map[string]string(nil), Duration:0, Shortest:true, StartOffset:0, Video:[]testmedia.Video{testmedia.Video{Source:\"testsrc2=d=2:s=320x180:r=24\", Encoder:\"libx264\", PixFmt:\"\", Options:map[string]string{\"crf\":\"40\", \"preset\":\"ultrafast\"}, Color:testmedia.Color{Primaries:\"\", Transfer:\"\", Matrix:\"\", Range:\"\"}, HDR10:(*testmedia.HDR10)(nil), Frames:0, Stream:testmedia.Stream{Language:\"\", Title:\"a\\xc0\\xafb\", Disposition:[]string(nil), Metadata:map[string]string(nil)}}}, Audio:[]testmedia.Audio{testmedia.Audio{Source:\"sine=d=2:sample_rate=48000\", Samples:(*testmedia.Samples)(nil), Encoder:\"aac\", SampleFmt:\"\", Layout:\"\", SampleRate:0, BitrateKbps:0, Options:map[string]string(nil), Offset:0, Stream:testmedia.Stream{Language:\"\", Title:\"a\\xed\\xa0\\x80b\", Disposition:[]string(nil), Metadata:map[string]string{\"comment\":\"a\\ufffeb\"}}}}, Subtitles:[]testmedia.Subtitle(nil), Attachments:[]testmedia.Attachment(nil), Chapters:[]testmedia.Chapter{testmedia.Chapter{Start:0, End:1000, TimeBase:[2]int{1, 1000}, Title:\"\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\\xe9\"}}, Tags:map[string]string{\"title\":\"Caf\\xe9\"}}"
+  },
+  {
+    "name": "subrip.mkv",
+    "path": "test/data/media-goldens/clips/subrip.mkv",
+    "kinds": [
+      "extract",
+      "probe"
+    ],
+    "sha256": "cef6c9c42f2b11dccc643865ae3a64aa9b91d23477f7a753d4e485a0a7ba7b84",
+    "spec": "testmedia.Spec{Format:\"\", MuxerOptions:map[string]string(nil), Duration:0, Shortest:false, StartOffset:0, Video:[]testmedia.Video{testmedia.Video{Source:\"testsrc=d=3:s=160x120:r=10\", Encoder:\"libx264\", PixFmt:\"\", Options:map[string]string{\"crf\":\"40\", \"preset\":\"ultrafast\"}, Color:testmedia.Color{Primaries:\"\", Transfer:\"\", Matrix:\"\", Range:\"\"}, HDR10:(*testmedia.HDR10)(nil), Frames:0, Stream:testmedia.Stream{Language:\"\", Title:\"\", Disposition:[]string(nil), Metadata:map[string]string(nil)}}}, Audio:[]testmedia.Audio(nil), Subtitles:[]testmedia.Subtitle{testmedia.Subtitle{Codec:\"subrip\", Header:\"\", Events:[]testmedia.Event{testmedia.Event{Start:500000000, End:1500000000, Text:\"\u003ci\u003eHello\u003c/i\u003e there\"}, testmedia.Event{Start:1600000000, End:2400000000, Text:\"Second\"}}, Stream:testmedia.Stream{Language:\"\", Title:\"\", Disposition:[]string(nil), Metadata:map[string]string(nil)}}}, Attachments:[]testmedia.Attachment(nil), Chapters:[]testmedia.Chapter(nil), Tags:map[string]string(nil)}"
+  },
+  {
+    "name": "ass.mkv",
+    "path": "test/data/media-goldens/clips/ass.mkv",
+    "kinds": [
+      "extract",
+      "probe"
+    ],
+    "sha256": "7aec482b38de843b35722472b5996331a850cdb7588fa6e9404f6a9923ef54cd",
+    "spec": "testmedia.Spec{Format:\"\", MuxerOptions:map[string]string(nil), Duration:0, Shortest:false, StartOffset:0, Video:[]testmedia.Video{testmedia.Video{Source:\"testsrc=d=3:s=160x120:r=10\", Encoder:\"libx264\", PixFmt:\"\", Options:map[string]string{\"crf\":\"40\", \"preset\":\"ultrafast\"}, Color:testmedia.Color{Primaries:\"\", Transfer:\"\", Matrix:\"\", Range:\"\"}, HDR10:(*testmedia.HDR10)(nil), Frames:0, Stream:testmedia.Stream{Language:\"\", Title:\"\", Disposition:[]string(nil), Metadata:map[string]string(nil)}}}, Audio:[]testmedia.Audio(nil), Subtitles:[]testmedia.Subtitle{testmedia.Subtitle{Codec:\"ass\", Header:\"[Script Info]\\nScriptType: v4.00+\\n\\n[V4+ Styles]\\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\\nStyle: Default,Arial,20,\u0026H00FFFFFF,\u0026H000000FF,\u0026H00000000,\u0026H00000000,0,-1,0,0,100,100,0,0,1,1,0,2,10,10,10,1\\n\\n[Events]\\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\\n\", Events:[]testmedia.Event{testmedia.Event{Start:500000000, End:1500000000, Text:\"Hello there\"}}, Stream:testmedia.Stream{Language:\"\", Title:\"\", Disposition:[]string(nil), Metadata:map[string]string(nil)}}}, Attachments:[]testmedia.Attachment(nil), Chapters:[]testmedia.Chapter(nil), Tags:map[string]string(nil)}"
+  },
+  {
+    "name": "edges.mkv",
+    "path": "test/data/media-goldens/clips/edges.mkv",
+    "kinds": [
+      "extract",
+      "probe"
+    ],
+    "sha256": "67d25d474ffd5b9a5a3f5b02443394e55b4bc5df16ed1d14ae497e53ad79db28",
+    "spec": "testmedia.Spec{Format:\"\", MuxerOptions:map[string]string(nil), Duration:0, Shortest:false, StartOffset:0, Video:[]testmedia.Video{testmedia.Video{Source:\"testsrc=d=3:s=160x120:r=10\", Encoder:\"libx264\", PixFmt:\"\", Options:map[string]string{\"crf\":\"40\", \"preset\":\"ultrafast\"}, Color:testmedia.Color{Primaries:\"\", Transfer:\"\", Matrix:\"\", Range:\"\"}, HDR10:(*testmedia.HDR10)(nil), Frames:0, Stream:testmedia.Stream{Language:\"\", Title:\"\", Disposition:[]string(nil), Metadata:map[string]string(nil)}}}, Audio:[]testmedia.Audio(nil), Subtitles:[]testmedia.Subtitle{testmedia.Subtitle{Codec:\"subrip\", Header:\"\", Events:[]testmedia.Event{testmedia.Event{Start:500000000, End:1500000000, Text:\"First\"}, testmedia.Event{Start:1600000000, End:1700000000, Text:\" \"}, testmedia.Event{Start:40000000000, End:41500000000, Text:\"After a long gap\"}}, Stream:testmedia.Stream{Language:\"eng\", Title:\"\", Disposition:[]string(nil), Metadata:map[string]string(nil)}}, testmedia.Subtitle{Codec:\"subrip\", Header:\"\", Events:[]testmedia.Event{testmedia.Event{Start:12000000000, End:13000000000, Text:\"Late start\"}}, Stream:testmedia.Stream{Language:\"fre\", Title:\"\", Disposition:[]string(nil), Metadata:map[string]string(nil)}}}, Attachments:[]testmedia.Attachment(nil), Chapters:[]testmedia.Chapter(nil), Tags:map[string]string(nil)}"
+  },
+  {
+    "name": "audio_flac_24bit.flac",
+    "path": "test/data/mediainfo/audio_flac_24bit.flac",
+    "kinds": [
+      "probe"
+    ],
+    "sha256": "4dd33183505ad35e1f327ee9a5c45cf782df0259b46a759b2e90a0e7cc36988d"
+  },
+  {
+    "name": "sample_h264_8bit.mp4",
+    "path": "test/data/mediainfo/sample_h264_8bit.mp4",
+    "kinds": [
+      "probe"
+    ],
+    "sha256": "6440af7c840b9ece25a550ae745819f8283169f5343e5344076c6f4f21d3b184"
+  },
+  {
+    "name": "sample_hevc_10bit.mkv",
+    "path": "test/data/mediainfo/sample_hevc_10bit.mkv",
+    "kinds": [
+      "probe"
+    ],
+    "sha256": "b1e6f6ecb46e97d6b31371299a09e5e47cc2cac6aad2461e0deebf0160f4bdea"
+  }
+]

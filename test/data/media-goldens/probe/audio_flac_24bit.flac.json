@@ -1,0 +1,88 @@
+{
+  "mediaInfo": {
+    "container": "flac",
+    "hdr": "none",
+    "runtimeMillis": 1000,
+    "audio": [
+      {
+        "codec": "flac",
+        "channels": 1,
+        "channelLayout": "mono"
+      }
+    ]
+  },
+  "raw": {
+    "Format": {
+      "filename": "<path>",
+      "nb_streams": 1,
+      "nb_programs": 0,
+      "format_name": "flac",
+      "format_long_name": "raw FLAC",
+      "start_time": "0",
+      "duration": "1",
+      "size": "25303",
+      "bit_rate": "202424",
+      "probe_score": 100,
+      "tags": {
+        "encoder": "Lavf63.1.101"
+      }
+    },
+    "Streams": [
+      {
+        "index": 0,
+        "id": "",
+        "codec_name": "flac",
+        "codec_long_name": "FLAC (Free Lossless Audio Codec)",
+        "codec_type": "audio",
+        "codec_time_base": "",
+        "codec_tag_string": "[0][0][0][0]",
+        "codec_tag": "0x0000",
+        "r_frame_rate": "0/0",
+        "avg_frame_rate": "0/0",
+        "time_base": "1/48000",
+        "start_pts": 0,
+        "start_time": "0.000000",
+        "duration_ts": 48000,
+        "duration": "1.000000",
+        "bit_rate": "",
+        "bits_per_raw_sample": "24",
+        "nb_frames": "",
+        "disposition": {
+          "default": 0,
+          "dub": 0,
+          "original": 0,
+          "comment": 0,
+          "lyrics": 0,
+          "karaoke": 0,
+          "forced": 0,
+          "hearing_impaired": 0,
+          "visual_impaired": 0,
+          "clean_effects": 0,
+          "attached_pic": 0
+        },
+        "tags": null,
+        "width": 0,
+        "height": 0,
+        "sample_fmt": "s32",
+        "sample_rate": "48000",
+        "channels": 1,
+        "channel_layout": "mono"
+      }
+    ],
+    "Chapters": [],
+    "ColorPrimaries": "",
+    "ColorTransfer": "",
+    "ColorSpace": "",
+    "ColorRange": "",
+    "Dovi": null,
+    "HasHDR10Plus": false,
+    "MasteringDisplay": null,
+    "ContentLight": null,
+    "FrameErr": null
+  },
+  "audio": {
+    "Codec": "flac",
+    "BitrateKbps": 202,
+    "SampleBits": 24
+  }
+}
