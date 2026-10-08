@@ -23,6 +23,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/nats-io/nats.go"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 
@@ -47,6 +48,7 @@ import (
 	transcodemanager "github.com/mediactl/clustarr/app/transcode/manager"
 	"github.com/mediactl/clustarr/pkg/busconn"
 	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/events/natsbus"
 	"github.com/mediactl/clustarr/pkg/events/objindex"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -120,23 +122,9 @@ func Run(ctx context.Context, o Options) error {
 		return fmt.Errorf("manager: add the dead-letter watcher: %w", err)
 	}
 
-	// 7. Process-level checks. `bus` is the liveness check of split §3.3 as
-	// amended 2026-10-07: handlers that ignore their context have held a
-	// subscription's every slot past its budget, which only a restart cures.
-	var ready, live k8s.Checks
-	if err := ready.Add("jetstream", busconn.ReadyChecker(nc, bus)); err != nil {
-		return err
-	}
-	if bus != nil {
-		if err := live.Add("bus", busconn.WedgeChecker(bus)); err != nil {
-			return err
-		}
-	}
-	cacheReady, err := k8s.CacheSyncChecker(mgr)
+	// 7. Process-level checks.
+	ready, live, err := processChecks(mgr, nc, bus)
 	if err != nil {
-		return err
-	}
-	if err := ready.Add("cache", cacheReady); err != nil {
 		return err
 	}
 
@@ -147,7 +135,7 @@ func Run(ctx context.Context, o Options) error {
 	}
 
 	// 9. The one probe registration.
-	if err := k8s.AddProbes(mgr, &ready, &live); err != nil {
+	if err := k8s.AddProbes(mgr, ready, live); err != nil {
 		return err
 	}
 
@@ -157,6 +145,31 @@ func Run(ctx context.Context, o Options) error {
 		return fmt.Errorf("manager: %w", err)
 	}
 	return nil
+}
+
+// processChecks is the manager's process-level probe set (spec §3.3):
+// readiness on JetStream and the cache sync, and `bus` as the liveness check
+// of split §3.3 as amended 2026-10-07 -- handlers that ignore their context
+// have held a subscription's every slot past its budget, which only a
+// restart cures. A nil bus (no NATS) adds no `bus` check.
+func processChecks(mgr ctrl.Manager, nc *nats.Conn, bus *natsbus.Bus) (ready, live *k8s.Checks, err error) {
+	ready, live = k8s.NewChecks(), k8s.NewChecks()
+	if err := ready.Add("jetstream", busconn.ReadyChecker(nc, bus)); err != nil {
+		return nil, nil, err
+	}
+	if bus != nil {
+		if err := live.Add("bus", busconn.WedgeChecker(bus)); err != nil {
+			return nil, nil, err
+		}
+	}
+	cacheReady, err := k8s.CacheSyncChecker(mgr)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := ready.Add("cache", cacheReady); err != nil {
+		return nil, nil, err
+	}
+	return ready, live, nil
 }
 
 // planes are the manager's shared admission and intake planes (ADR-0019
