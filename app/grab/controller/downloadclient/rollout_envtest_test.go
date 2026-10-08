@@ -38,15 +38,11 @@ import (
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/app/grab/controller/downloadclient"
-	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
 func newRolloutReconciler(c client.Client) *downloadclient.Reconciler {
 	r := downloadclient.NewReconciler(c, events.NewFakeRecorder(10), "/data", "/scratch", "img")
-	r.DiskUsage = func(string) (fsops.Usage, error) {
-		return fsops.Usage{Total: 100 << 30, Free: 50 << 30, Available: 50 << 30}, nil
-	}
 	return r
 }
 

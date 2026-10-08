@@ -20,8 +20,11 @@ package downloadclient_test
 import (
 	"context"
 	"os"
+	"strconv"
 	"testing"
+	"time"
 
+	"github.com/jonboulle/clockwork"
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -38,8 +41,12 @@ import (
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/app/grab/controller/downloadclient"
-	"github.com/mediactl/clustarr/pkg/fsops"
+	cevents "github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/events/membus"
+	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/records"
+	"github.com/mediactl/clustarr/pkg/records/agentrecords"
 )
 
 func newTestClient(t *testing.T) client.Client {
@@ -67,6 +74,29 @@ func newTestClient(t *testing.T) client.Client {
 	return c
 }
 
+// engineFreeBytes points r at a clustarr-engines bucket holding a fresh,
+// ready record for each of dc's ordinals reporting free bytes: DiskSpaceOK
+// reads the engines' own free bytes from their records (ADR-0019 §6.7), not
+// a filesystem probe in the controller pod.
+func engineFreeBytes(t *testing.T, r *downloadclient.Reconciler, dc *downloadv1alpha1.DownloadClient, free int64) {
+	t.Helper()
+	ctx := context.Background()
+	bus := membus.New(clockwork.NewRealClock())
+	require.NoError(t, bus.Ensure(ctx, cevents.Default()))
+	kv := bus.KV(cevents.BucketEngines)
+	w := records.NewWriter(kv, agentrecords.Engines(), "engine-test", "test")
+	item := schema.ItemRef{Kind: "DownloadClient", Ref: schema.Ref{Namespace: dc.Namespace, Name: dc.Name, UID: string(dc.UID)}}
+	for o := range max(dc.Spec.Replicas, 1) {
+		_, err := w.Write(ctx, agentrecords.EngineKey(string(dc.UID), o), &schema.EngineRecord{
+			RecordHeader: schema.RecordHeader{Item: &item, Sub: strconv.Itoa(int(o)), Seq: 1, State: schema.TransferStatePresent},
+			Client:       dc.Name, Ordinal: o, Ready: true, Reattached: true,
+			PublishFreeBytes: free, At: time.Now().UTC(),
+		})
+		require.NoError(t, err)
+	}
+	r.Engines = records.NewReader(kv, agentrecords.Engines())
+}
+
 func reconcileOK(t *testing.T, r *downloadclient.Reconciler, ns, name string) {
 	t.Helper()
 	_, err := r.Reconcile(context.Background(), reconcile.Request{NamespacedName: types.NamespacedName{Namespace: ns, Name: name}})
@@ -88,9 +118,7 @@ func TestReconcileTorrentClientCreatesStatefulSet(t *testing.T) {
 	require.NoError(t, c.Create(ctx, dc))
 
 	r := downloadclient.NewReconciler(c, events.NewFakeRecorder(10), "/data", "/scratch", "ghcr.io/x/engine:dev")
-	r.DiskUsage = func(string) (fsops.Usage, error) {
-		return fsops.Usage{Total: 100 << 30, Free: 50 << 30, Available: 50 << 30}, nil
-	}
+	engineFreeBytes(t, r, dc, 50<<30)
 	reconcileOK(t, r, "default", "qbit")
 
 	var sts appsv1.StatefulSet
@@ -134,9 +162,7 @@ func TestReconcileUsenetClientCreatesDeployment(t *testing.T) {
 	require.NoError(t, c.Create(ctx, dc))
 
 	r := downloadclient.NewReconciler(c, events.NewFakeRecorder(10), "/data", "/scratch", "ghcr.io/x/engine:dev")
-	r.DiskUsage = func(string) (fsops.Usage, error) {
-		return fsops.Usage{Total: 100 << 30, Free: 50 << 30, Available: 50 << 30}, nil
-	}
+	engineFreeBytes(t, r, dc, 50<<30)
 	reconcileOK(t, r, "default", "sab")
 
 	var dep appsv1.Deployment
@@ -189,9 +215,7 @@ func TestAnExistingEngineWorkloadGainsThePodSecurity(t *testing.T) {
 	require.NoError(t, err)
 
 	r := downloadclient.NewReconciler(c, events.NewFakeRecorder(10), "/data", "/scratch", "img")
-	r.DiskUsage = func(string) (fsops.Usage, error) {
-		return fsops.Usage{Total: 100 << 30, Free: 50 << 30, Available: 50 << 30}, nil
-	}
+	engineFreeBytes(t, r, dc, 50<<30)
 	reconcileOK(t, r, "default", "legacy")
 
 	var sts appsv1.StatefulSet
@@ -245,9 +269,7 @@ func TestReconcileBelowMinFreeIsNotReady(t *testing.T) {
 
 	r := downloadclient.NewReconciler(c, events.NewFakeRecorder(10), "/data", "/scratch", "img")
 	r.MinFreeBytes = 10 << 30
-	r.DiskUsage = func(string) (fsops.Usage, error) {
-		return fsops.Usage{Total: 100 << 30, Free: 1 << 30, Available: 1 << 30}, nil
-	}
+	engineFreeBytes(t, r, dc, 1<<30)
 	reconcileOK(t, r, "default", "full")
 
 	var got downloadv1alpha1.DownloadClient

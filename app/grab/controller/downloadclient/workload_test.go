@@ -36,6 +36,7 @@ import (
 
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/binpath"
 )
 
 func fakeOwnerRef() *metav1ac.OwnerReferenceApplyConfiguration {
@@ -110,12 +111,8 @@ func TestBuildStatefulSetShape(t *testing.T) {
 	c := sts.Spec.Template.Spec.Containers[0]
 	assert.Equal(t, "engine", *c.Name)
 	assert.Equal(t, "ghcr.io/x/engine:dev", *c.Image)
-	require.Equal(t, []string{"/bin/sh", "-c"}, c.Command)
-	require.Len(t, c.Args, 1)
-	assert.Contains(t, c.Args[0], "ordinal=${HOSTNAME##*-}")
-	assert.Contains(t, c.Args[0], "--role torrent-engine")
-	assert.Contains(t, c.Args[0], "--data-dir /data")
-	assert.Contains(t, c.Args[0], "--engine sab-${ordinal}")
+	assert.Equal(t, []string{binpath.Agent}, c.Command)
+	assert.Equal(t, []string{"--domain=torrent-engine", "--download-client=sab", "--data-dir=/data"}, c.Args)
 
 	require.Len(t, c.Ports, 1)
 	assert.Equal(t, int32(51413), *c.Ports[0].ContainerPort)
@@ -147,12 +144,8 @@ func TestBuildDeploymentShape(t *testing.T) {
 
 	require.Len(t, dep.Spec.Template.Spec.Containers, 1)
 	c := dep.Spec.Template.Spec.Containers[0]
-	assert.Nil(t, c.Command, "usenet container should let the image entrypoint run")
-	assert.Equal(t, []string{
-		"grab", "--role", "usenet-engine",
-		"--data-dir", "/data", "--scratch-dir", "/scratch",
-		"--engine", "nzb-0",
-	}, c.Args)
+	assert.Equal(t, []string{binpath.Agent}, c.Command)
+	assert.Equal(t, []string{"--domain=usenet-engine", "--engine=nzb-0", "--data-dir=/data", "--scratch-dir=/scratch"}, c.Args)
 
 	require.Len(t, c.VolumeMounts, 3)
 	require.Len(t, dep.Spec.Template.Spec.Volumes, 3)
@@ -195,12 +188,9 @@ func TestScratchPathOnTheDataMountMountsNoScratchVolume(t *testing.T) {
 
 	dep := buildDeployment(dc, "nzb-engine", "img", "/data", "/scratch", "clustarr-data", EngineRuntime{}, nil, fakeOwnerRef())
 	c := dep.Spec.Template.Spec.Containers[0]
-	assert.Equal(t, []string{
-		"grab", "--role", "usenet-engine",
-		"--data-dir", "/data", "--scratch-dir", "/data/usenet/incomplete",
-		"--publish-dir", "/data/usenet/complete",
-		"--engine", "nzb-0",
-	}, c.Args)
+	assert.Equal(t, []string{binpath.Agent}, c.Command)
+	assert.Equal(t, []string{"--domain=usenet-engine", "--engine=nzb-0", "--data-dir=/data",
+		"--scratch-dir=/data/usenet/incomplete", "--publish-dir=/data/usenet/complete"}, c.Args)
 	require.Len(t, c.VolumeMounts, 2, "data and /tmp only")
 	require.Len(t, dep.Spec.Template.Spec.Volumes, 2)
 	for _, v := range dep.Spec.Template.Spec.Volumes {
@@ -330,7 +320,6 @@ func TestEnginePodsGetTheRuntimeTheyNeed(t *testing.T) {
 	rt := EngineRuntime{
 		ServiceAccountName: "media-clustarr-grab-engine",
 		NATSURL:            "nats://nats.clustarr-system.svc:4222",
-		BusSingleNode:      true,
 		Umask:              "002",
 	}
 	torrent := torrentClient("sab", 1)
@@ -357,11 +346,12 @@ func TestEnginePodsGetTheRuntimeTheyNeed(t *testing.T) {
 			c := tc.spec.Containers[0]
 			assert.Equal(t, map[string]string{
 				"POD_NAMESPACE": "fieldRef:metadata.namespace",
+				"POD_NAME":      "fieldRef:metadata.name",
 				"NATS_URL":      rt.NATSURL,
 				"UMASK":         "002",
 				"GOMEMLIMIT":    tc.memLimit,
 			}, envOf(c.Env))
-			assert.Contains(t, strings.Join(append(c.Command, c.Args...), " "), "--nats-single-node")
+			assert.NotContains(t, strings.Join(append(c.Command, c.Args...), " "), "nats-single-node")
 		})
 	}
 
@@ -369,9 +359,12 @@ func TestEnginePodsGetTheRuntimeTheyNeed(t *testing.T) {
 		bare := buildStatefulSet(torrentClient("sab", 1), "sab-engine", "img", "/data", "/scratch", "clustarr-data",
 			EngineRuntime{ServiceAccountName: DefaultEngineServiceAccount}, nil, fakeOwnerRef())
 		c := bare.Spec.Template.Spec.Containers[0]
-		assert.Equal(t, map[string]string{"POD_NAMESPACE": "fieldRef:metadata.namespace"}, envOf(c.Env),
+		assert.Equal(t, map[string]string{
+			"POD_NAMESPACE": "fieldRef:metadata.namespace",
+			"POD_NAME":      "fieldRef:metadata.name",
+		}, envOf(c.Env),
 			"GOMEMLIMIT, NATS_URL and UMASK are set only when there is something to set them to")
-		assert.NotContains(t, c.Args[0], "--nats-single-node")
+		assert.NotContains(t, strings.Join(append(c.Command, c.Args...), " "), "nats-single-node")
 	})
 
 	t.Run("NewReconciler defaults the engine ServiceAccount", func(t *testing.T) {
@@ -441,7 +434,7 @@ func TestTorrentWithoutScratchIsUnchanged(t *testing.T) {
 	sts := buildStatefulSet(dc, "qb-engine", "img", "/data", "/scratch", "clustarr-data", EngineRuntime{}, nil, fakeOwnerRef())
 	assert.Empty(t, sts.Spec.VolumeClaimTemplates)
 	assert.NotContains(t, volumeNames(sts), scratchVolumeName)
-	assert.NotContains(t, sts.Spec.Template.Spec.Containers[0].Args[0], "--scratch-dir")
+	assert.NotContains(t, strings.Join(sts.Spec.Template.Spec.Containers[0].Args, " "), "--scratch-dir")
 	assert.False(t, needsScratchClaim(dc))
 }
 
@@ -462,14 +455,14 @@ func TestTorrentScratchStorageClassIsAClaimPerReplica(t *testing.T) {
 
 	c := sts.Spec.Template.Spec.Containers[0]
 	assert.Equal(t, "/scratch", mountAt(c, scratchVolumeName))
-	assert.Contains(t, c.Args[0], "--scratch-dir /scratch")
+	assert.Contains(t, c.Args, "--scratch-dir=/scratch")
 }
 
 func TestTorrentScratchPathIsADirectoryOnTheDataMount(t *testing.T) {
 	dc, sts := torrentScratch(3, downloadv1alpha1.ScratchSpec{Path: "/data/torrents/incomplete"})
 	assert.Empty(t, sts.Spec.VolumeClaimTemplates)
 	assert.NotContains(t, volumeNames(sts), scratchVolumeName)
-	assert.Contains(t, sts.Spec.Template.Spec.Containers[0].Args[0], "--scratch-dir /data/torrents/incomplete")
+	assert.Contains(t, sts.Spec.Template.Spec.Containers[0].Args, "--scratch-dir=/data/torrents/incomplete")
 	assert.False(t, needsScratchClaim(dc))
 }
 
