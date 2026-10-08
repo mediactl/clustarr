@@ -75,7 +75,7 @@ func TestObjectStoreRoundTripsPastMaxPayload(t *testing.T) {
 	name := "movie/uid-chunked/fanart/original"
 
 	putInfo, err := store.Put(ctx, name, bytes.NewReader(data),
-		map[string]string{"Content-Type": "image/jpeg"})
+		events.ObjectMeta{Headers: map[string]string{"Content-Type": "image/jpeg"}})
 	if err != nil {
 		t.Fatalf("Put %d bytes: %v", len(data), err)
 	}
