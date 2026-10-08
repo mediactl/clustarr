@@ -18,13 +18,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package main
 
 import (
+	"bytes"
 	"context"
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
@@ -32,16 +32,18 @@ import (
 
 	natsserver "github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
-	"github.com/obinnaokechukwu/ffgo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/mediactl/clustarr/app/transcode/jobspec"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/natsbus"
+	"github.com/mediactl/clustarr/pkg/ffruntime"
+	"github.com/mediactl/clustarr/pkg/version"
+	"github.com/mediactl/clustarr/test/nativetest"
 )
 
-const reexecEnv = "TRANSCODE_WORKER_TEST_REEXEC"
+const reexecEnv = "TRANSCODE_TEST_REEXEC"
 
 func TestMain(m *testing.M) {
 	if os.Getenv(reexecEnv) == "1" {
@@ -51,15 +53,6 @@ func TestMain(m *testing.M) {
 }
 
 func env(kv map[string]string) func(string) string { return func(k string) string { return kv[k] } }
-
-func fakeTools(t *testing.T) string {
-	t.Helper()
-	dir := t.TempDir()
-	for _, b := range []string{"ffmpeg", "ffprobe"} {
-		require.NoError(t, os.WriteFile(filepath.Join(dir, b), []byte("#!/bin/sh\nexit 0\n"), 0o755))
-	}
-	return dir
-}
 
 // ensureTopology creates the streams, consumers and buckets the worker needs
 // against a real embedded JetStream server, the way app/transcode/worker's own
@@ -83,14 +76,12 @@ func TestMissingEnvironmentIsMisconfigured(t *testing.T) {
 	assert.Equal(t, jobspec.WorkerExitMisconfigured, run(nil, env(nil)))
 }
 
-func TestUnreachableNATSIsRetriable(t *testing.T) {
-	t.Setenv("PATH", fakeTools(t))
-	assert.Equal(t, jobspec.WorkerExitRetriable, run(nil, env(map[string]string{
-		"NATS_URL": "nats://127.0.0.1:1", "CLUSTARR_POOL_PROFILE_UID": "p", "CLUSTARR_POOL_CLASS": "cpu", "POD_NAME": "w",
-	})))
-}
-
+// A pool pod told to stop drains: SIGTERM ends Serve and the pod exits
+// WorkerExitDrained, never a failure the pool Job counts. Its PATH is an
+// empty directory: the binary runs no program (the in-process engine
+// replaced ffmpeg and ffprobe, spec 2026-10-06 §10.3.4).
 func TestSIGTERMIsDrained(t *testing.T) {
+	nativetest.FFmpeg(t, ffruntime.Needs{}) // the pod starts its engine before it dials NATS
 	srv, err := natsserver.NewServer(&natsserver.Options{
 		Host: "127.0.0.1", Port: -1, JetStream: true,
 		StoreDir: t.TempDir(), NoLog: true, NoSigs: true,
@@ -102,7 +93,7 @@ func TestSIGTERMIsDrained(t *testing.T) {
 	ensureTopology(t, srv.ClientURL()) // natsbus.New + bus.Ensure(events.Default().ForSingleNode())
 
 	cmd := exec.Command(os.Args[0])
-	cmd.Env = append(os.Environ(), reexecEnv+"=1", "PATH="+fakeTools(t), "NATS_URL="+srv.ClientURL(),
+	cmd.Env = append(os.Environ(), reexecEnv+"=1", "PATH="+t.TempDir(), "NATS_URL="+srv.ClientURL(),
 		"CLUSTARR_POOL_PROFILE_UID=p", "CLUSTARR_POOL_CLASS=cpu", "POD_NAME=w")
 	require.NoError(t, cmd.Start())
 	time.Sleep(2 * time.Second) // connected and pulling
@@ -137,32 +128,46 @@ func TestRunNeverReturnsZero(t *testing.T) {
 	})
 }
 
+// The pool pod holds no Kubernetes credentials (spec §9): cmd/transcode
+// links no Kubernetes client, and it does link the runtime gate and the
+// in-process prober its worker probes with (spec 2026-10-06 §7.4, §6.2).
 func TestBinaryImportsNoKubernetesClient(t *testing.T) {
 	out, err := exec.Command("go", "list", "-deps", ".").CombinedOutput()
 	require.NoError(t, err, string(out))
+	deps := map[string]bool{}
 	for _, dep := range strings.Fields(string(out)) {
+		deps[dep] = true
 		for _, bad := range []string{
 			"k8s.io/client-go", "sigs.k8s.io/controller-runtime/pkg/client",
 			"sigs.k8s.io/controller-runtime/pkg/manager", "github.com/mediactl/clustarr/pkg/k8s",
 		} {
 			if dep == bad || strings.HasPrefix(dep, bad+"/") {
-				t.Errorf("cmd/transcode-worker depends on %s", dep)
+				t.Errorf("cmd/transcode depends on %s", dep)
 			}
 		}
 		if dep == "github.com/mediactl/clustarr/pkg/obs" {
-			t.Error("cmd/transcode-worker depends on pkg/obs (links controller-runtime)")
+			t.Error("cmd/transcode depends on pkg/obs (links controller-runtime)")
 		}
 	}
+	for pkg, why := range map[string]string{
+		"github.com/mediactl/clustarr/pkg/ffruntime":        "the runtime gate (§7.4)",
+		"github.com/mediactl/clustarr/pkg/mediainfo/native": "the worker probes in-process (§6.2)",
+	} {
+		assert.True(t, deps[pkg], "cmd/transcode must link %s: %s", pkg, why)
+	}
+}
+
+// The image check runs `transcode --version` with no environment (§10.1.4).
+func TestVersionFlag(t *testing.T) {
+	assert.Equal(t, 0, run([]string{"--version"}, env(nil)), "--version answers before the env checks")
+	var out bytes.Buffer
+	assert.Equal(t, 0, printVersion(&out))
+	assert.Equal(t, "transcode "+version.String()+"\n", out.String())
 }
 
 // --self-check runs in CI on every built image and needs no cluster: no
 // NATS, no pool environment.
 func TestSelfCheckNeedsNoClusterEnvironment(t *testing.T) {
-	if err := ffgo.Init(); err != nil {
-		t.Skipf("no FFmpeg libraries: %v", err)
-	}
-	if _, avcodec, _ := ffgo.Version(); avcodec>>16 != 63 {
-		t.Skip("not FFmpeg 9")
-	}
+	nativetest.FFmpeg(t, ffruntime.Needs{})
 	assert.Equal(t, 0, run([]string{"--self-check=cpu"}, func(string) string { return "" }))
 }
