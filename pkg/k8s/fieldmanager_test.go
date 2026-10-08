@@ -17,18 +17,28 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 package k8s
 
-import "testing"
+import (
+	"regexp"
+	"slices"
+	"testing"
+)
 
 func TestFieldManagersAreTheOnesTheSpecLists(t *testing.T) {
+	// The managers as built: the fold retired catalog-markers (F3.4) and
+	// caption-worker (F5.3), ADR-0019 deleted grab-engine (A3.6, A9.1), and
+	// the cold turkey deleted each outright rather than keeping it valid
+	// (TestRetiredFieldManagersStayValid). clustarr-autoscale joined last
+	// (W4.62); Wave U unbranded every value (U3).
 	want := []string{
 		"catalog", "catalog-series", "catalog-worker",
 		"catalog-metadata", "catalog-grab", "catalog-fanout",
 		"catalog-artwork", "catalog-classify",
 		"import", "import-worker",
-		"index",
-		"index-worker", "grab", "grab-engine",
-		"transcode", "transcode-pool", "caption", "caption-worker",
-		"clustarr-dlq-projector", "clustarr-ui",
+		"index", "index-worker",
+		"grab",
+		"transcode", "transcode-pool",
+		"caption",
+		"clustarr-dlq-projector", "clustarr-ui", "clustarr-autoscale",
 	}
 	got := FieldManagers()
 	if len(got) != len(want) {
@@ -47,5 +57,85 @@ func TestFieldManagersAreTheOnesTheSpecLists(t *testing.T) {
 	}
 	if FieldManager("kubectl").Validate() == nil {
 		t.Error("an unlisted field manager was accepted")
+	}
+}
+
+// retiredNames are the managers the fold and ADR-0019 retired: the markers
+// writer (F3.4), the subtitle fetch worker (F5.3) and the grab engines
+// (A3.6), in their unbranded spelling (Wave U §2.5). The cold turkey
+// (docs/runbooks/unify-cold-cutover.md) cleans their managedFields up by
+// hand, so none of them is kept valid for a release.
+var retiredNames = []FieldManager{"catalog-markers", "caption-worker", "grab-engine"}
+
+// TestRetiredFieldManagersStayValid: under the cold turkey nothing stays
+// valid once retired. RetiredFieldManagers is empty, and every name the fold
+// and ADR-0019 retired is refused by Validate, so a writer left behind that
+// still applies as one fails at its first write instead of reappearing in
+// managedFields.
+func TestRetiredFieldManagersStayValid(t *testing.T) {
+	if got := RetiredFieldManagers(); len(got) != 0 {
+		t.Errorf("retired managers = %v, want none: a retired name is deleted, not kept valid", got)
+	}
+	for _, m := range retiredNames {
+		if slices.Contains(FieldManagers(), m) {
+			t.Errorf("%s is still a live field manager", m)
+		}
+		if m.Valid() {
+			t.Errorf("%s is still valid", m)
+		}
+		if m.Validate() == nil {
+			t.Errorf("%s still validates", m)
+		}
+	}
+}
+
+// TestCaptionWorkerIsRetired: the subtitle fetch worker answers in
+// clustarr-subtitles and writes no Kubernetes object (loop spec §6.7.5), so
+// caption-worker is neither a live nor a retired manager, and no longer
+// validates.
+func TestCaptionWorkerIsRetired(t *testing.T) {
+	const captionWorker = FieldManager("caption-worker")
+	if slices.Contains(FieldManagers(), captionWorker) {
+		t.Errorf("caption-worker is still a live field manager")
+	}
+	if slices.Contains(RetiredFieldManagers(), captionWorker) {
+		t.Errorf("caption-worker is kept among the retired field managers; the cold turkey deletes it")
+	}
+	if captionWorker.Validate() == nil {
+		t.Errorf("caption-worker still validates: the fetch worker writes nothing (loop spec §6.7.5)")
+	}
+	if !slices.Contains(FieldManagers(), ManagerCaption) {
+		t.Errorf("the caption controller's manager %q is gone with its worker's", ManagerCaption)
+	}
+}
+
+// brandStems are the services whose *arr names Wave U retired; brandRE
+// matches each stem's branded spelling and the transcoder's old name. It is
+// spelled so it does not match itself, as hack/brand-gate.sh's pattern is.
+var (
+	brandStems = []string{"catalog", "import", "index", "grab", "caption", "segment"}
+	brandRE    = regexp.MustCompile(`(?i)(catalog|import|index|grab|caption|segment)arr|squas[h]`)
+)
+
+// TestFieldManagerValuesAreUnbranded: every manager name is stored in the
+// managedFields of every object it writes, so a branded value would outlive
+// the rename on every object in the cluster (Wave U spec §2.5). No live or
+// retired manager, and not the default field owner, names a brand.
+func TestFieldManagerValuesAreUnbranded(t *testing.T) {
+	for _, stem := range brandStems {
+		if !brandRE.MatchString(stem + "arr") {
+			t.Fatalf("brandRE misses the %s brand: the check below would pass vacuously", stem)
+		}
+	}
+	if !brandRE.MatchString("squas" + "h-pool") {
+		t.Fatal("brandRE misses the transcoder's old name")
+	}
+
+	names := append(append([]FieldManager{}, FieldManagers()...), RetiredFieldManagers()...)
+	names = append(names, FieldManager(DefaultFieldOwner))
+	for _, m := range names {
+		if brandRE.MatchString(m.String()) {
+			t.Errorf("field manager %q names a retired brand (Wave U §2.5)", m)
+		}
 	}
 }
