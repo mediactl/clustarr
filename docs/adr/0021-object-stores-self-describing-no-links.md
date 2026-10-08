@@ -45,7 +45,8 @@ creates a consumer over the chunk subjects.
 
 2. **Every object is self-describing, through one builder per store.**
    - **Each store's builder:** artwork's is `app/catalog/artwork.ObjectMeta`. Fingerprints gain
-     `pkg/segments.FingerprintMeta`.
+     `pkg/segments.FingerprintMeta`, since 2026-10-08 `pkg/segments/fingerprintmeta.Build`: a
+     leaf of its own, so the manager's backfill links no Chromaprint (T2's deps guards).
    - **Keys for fingerprints:** `clustarr.io/meta-version`, `clustarr.io/kind: fingerprint`,
      `clustarr.io/probe-hash`, `clustarr.io/window: start|end`,
      `clustarr.io/fingerprint-version`, the analyzer's parameters (window seconds, sample rate,

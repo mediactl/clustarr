@@ -266,10 +266,10 @@ const FingerprintMetaVersion = "1"
 const FingerprintMetaKind = "fingerprint"
 
 // The metadata keys of a fingerprint object (ADR-0021 §2), built only by
-// pkg/segments.FingerprintMeta: the probe hash and window ("start" or "end")
-// its name also carries, the FingerprintVersion it was computed under, and
-// the analyzer's parameters -- the window's length in seconds, the sample
-// rate and channels the audio was decoded to.
+// pkg/segments/fingerprintmeta.Build: the probe hash and window ("start" or
+// "end") its name also carries, the FingerprintVersion it was computed
+// under, and the analyzer's parameters -- the window's length in seconds,
+// the sample rate and channels the audio was decoded to.
 const (
 	FingerprintMetaKeyProbeHash     = "clustarr.io/probe-hash"
 	FingerprintMetaKeyWindow        = "clustarr.io/window"

@@ -37,6 +37,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/natsbus"
 	"github.com/mediactl/clustarr/pkg/segments"
 	"github.com/mediactl/clustarr/pkg/segments/chromaprint"
+	"github.com/mediactl/clustarr/pkg/segments/fingerprintmeta"
 )
 
 // natsBus is a JetStream bus on an embedded server, with the raw connection
@@ -136,7 +137,7 @@ func TestBackfillFingerprintMetaSetsTheCompleteMap(t *testing.T) {
 	m := &maintenance.ObjectStores{Admin: bus, Topology: top, Audits: []maintenance.Audit{{
 		Name: events.ObjectStoreFingerprints,
 		Run: func(ctx context.Context) (int, error) {
-			return segments.BackfillFingerprintMeta(ctx, store, writtenBy)
+			return fingerprintmeta.BackfillStore(ctx, store, writtenBy)
 		},
 	}}}
 
@@ -150,7 +151,7 @@ func TestBackfillFingerprintMetaSetsTheCompleteMap(t *testing.T) {
 	partial := put("abc123.end.v2", events.ObjectMeta{Metadata: map[string]string{
 		events.ObjectMetaKeyWrittenBy: "segments@v0.0.0-old",
 	}})
-	currentMeta := segments.FingerprintMeta("def456", "start", 90, "segments@v0.0.0-new")
+	currentMeta := fingerprintmeta.Build("def456", "start", 90, "segments@v0.0.0-new")
 	current := put(segments.FingerprintKey("def456", "start"), currentMeta)
 	stranger := put("not-a-fingerprint", events.ObjectMeta{})
 
@@ -164,7 +165,7 @@ func TestBackfillFingerprintMetaSetsTheCompleteMap(t *testing.T) {
 			"clustarr.io/window":              which,
 			"clustarr.io/fingerprint-version": version,
 			"clustarr.io/sample-rate":         strconv.Itoa(chromaprint.SampleRate),
-			"clustarr.io/channels":            strconv.Itoa(segments.FingerprintChannels),
+			"clustarr.io/channels":            strconv.Itoa(fingerprintmeta.Channels),
 			"clustarr.io/written-by":          writtenBy,
 		}
 	}
@@ -194,7 +195,7 @@ func TestBackfillFingerprintMetaSetsTheCompleteMap(t *testing.T) {
 		assert.Equal(t, "fingerprint of "+tc.before.Name, string(b))
 	}
 
-	n, err := segments.BackfillFingerprintMeta(ctx, store, writtenBy)
+	n, err := fingerprintmeta.BackfillStore(ctx, store, writtenBy)
 	require.NoError(t, err)
 	assert.Zero(t, n, "a backfilled object carries its meta-version: nothing is left to backfill")
 }

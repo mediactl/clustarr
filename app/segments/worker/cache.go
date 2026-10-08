@@ -26,6 +26,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/segments"
 	"github.com/mediactl/clustarr/pkg/segments/chromaprint"
+	"github.com/mediactl/clustarr/pkg/segments/fingerprintmeta"
 	"github.com/mediactl/clustarr/pkg/version"
 )
 
@@ -59,7 +60,7 @@ func (h *Handler) window(ctx context.Context, f *file, which string, fromS, lenS
 	if h.Fingerprints != nil {
 		// Self-describing, through the store's one builder (ADR-0021 §2). A
 		// cache: a failed write is recomputed next time.
-		meta := segments.FingerprintMeta(f.ProbeHash, which, lenS, h.writtenBy())
+		meta := fingerprintmeta.Build(f.ProbeHash, which, lenS, h.writtenBy())
 		_, _ = h.Fingerprints.Put(ctx, name, &buf, meta)
 	}
 	return fp, nil
@@ -87,7 +88,7 @@ func (h *Handler) cached(ctx context.Context, name string, lenS float64) ([]uint
 	if err != nil { // ErrObjectNotFound, or a store blip: decode instead
 		return nil, false
 	}
-	if why := segments.FingerprintMetaMismatch(info, lenS); why != "" {
+	if why := fingerprintmeta.Mismatch(info, lenS); why != "" {
 		logging.FromContext(ctx).Debug("segments: cached fingerprint does not match; recomputing", "name", name, "why", why)
 		return nil, false
 	}

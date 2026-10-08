@@ -55,7 +55,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/presence"
-	"github.com/mediactl/clustarr/pkg/segments"
+	"github.com/mediactl/clustarr/pkg/segments/fingerprintmeta"
 	"github.com/mediactl/clustarr/pkg/version"
 )
 
@@ -403,7 +403,7 @@ func objectStoreMaintenance(bus events.Bus, o Options) *maintenance.ObjectStores
 	m.Audits = append(m.Audits, maintenance.Audit{
 		Name: events.ObjectStoreFingerprints,
 		Run: func(ctx context.Context) (int, error) {
-			return segments.BackfillFingerprintMeta(ctx, fingerprints, writtenBy)
+			return fingerprintmeta.BackfillStore(ctx, fingerprints, writtenBy)
 		},
 	})
 	return m
