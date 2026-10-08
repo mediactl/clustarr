@@ -24,15 +24,16 @@ import (
 
 // planItems decides which items the block keeps (§6.4.4): an item for a
 // profile key that is wanted or has a subtitle on disk (downloadedAt or
-// name), re-adopting one a profile edit dropped so its history survives a
-// language dropped and restored; one appended for every wanted key with
-// none; the rest returned as dropped, which the caller withdraws when a
-// dispatch is in flight. A profile language the plan no longer wants and
-// that never downloaded a subtitle is dropped too: audioExclude now matching
-// the file's audio or its item's original language leaves nothing to search
-// for. Order is preserved and new items are appended.
+// name, or an answer this pass incorporates that downloaded one:
+// downloading), re-adopting one a profile edit dropped so its history
+// survives a language dropped and restored; one appended for every wanted
+// key with none; the rest returned as dropped, which the caller withdraws
+// when a dispatch is in flight. A profile language the plan no longer wants
+// and that never downloaded a subtitle is dropped too: audioExclude now
+// matching the file's audio or its item's original language leaves nothing
+// to search for. Order is preserved and new items are appended.
 func planItems(items []catalogv1alpha1.SubtitleItemStatus, profileKeys map[string]bool,
-	wanted []subtitles.LangKey,
+	wanted []subtitles.LangKey, downloading map[string]bool,
 ) (kept, dropped []catalogv1alpha1.SubtitleItemStatus) {
 	want := make(map[string]bool, len(wanted))
 	for _, k := range wanted {
@@ -40,7 +41,7 @@ func planItems(items []catalogv1alpha1.SubtitleItemStatus, profileKeys map[strin
 	}
 	have := make(map[string]bool, len(items))
 	for _, it := range items {
-		neverDownloaded := it.DownloadedAt == nil && it.Name == ""
+		neverDownloaded := it.DownloadedAt == nil && it.Name == "" && !downloading[it.LangKey]
 		if !profileKeys[it.LangKey] || (!want[it.LangKey] && neverDownloaded) {
 			dropped = append(dropped, it)
 			continue

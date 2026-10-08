@@ -235,17 +235,22 @@ func (p *pass) plan() {
 	if b == nil {
 		b = &catalogv1alpha1.SubtitlesStatus{}
 	}
-	items, dropped := planItems(b.Items, profileKeys(pp), wantedKeys)
+	// New bytes: every language's history describes a file that is gone;
+	// what is in flight is closed and withdrawn below unless this pass
+	// dispatches it again.
+	newBytes := b.ProbeHash != "" && b.ProbeHash != st.ProbeHash
+	downloading := map[string]bool{}
+	if !newBytes {
+		downloading = p.downloading(b.Items)
+	}
+	items, dropped := planItems(b.Items, profileKeys(pp), wantedKeys, downloading)
 	for _, it := range dropped {
 		if inFlight(it) {
 			p.d.Withdraws = append(p.d.Withdraws, Withdraw{LangKey: it.LangKey, Seq: it.Dispatch.Seq})
 		}
 	}
-	// New bytes: every language's history describes a file that is gone;
-	// what is in flight is closed and withdrawn below unless this pass
-	// dispatches it again.
 	stale := map[string]int64{}
-	if b.ProbeHash != "" && b.ProbeHash != st.ProbeHash {
+	if newBytes {
 		for i := range items {
 			it := &items[i]
 			it.Attempts, it.NextSearchAt = commonv1.Attempts{}, nil
@@ -385,6 +390,31 @@ func (p *pass) consider(it *catalogv1alpha1.SubtitleItemStatus) bool {
 	}
 	p.dispatch(it, e, upgrade, false)
 	return true
+}
+
+// downloading is the langKeys of items whose dispatch in flight the record
+// at their key answers with a subtitle for these bytes -- the answers
+// incorporate applies as a download this pass -- so planItems keeps them
+// as items with a subtitle on disk. The listing that very answer asks for
+// (gate 2) holds the sidecar the worker wrote, so the language is no longer
+// wanted; before this, the item, never downloaded until incorporated, was
+// dropped and its answered dispatch withdrawn first, and the block read
+// Satisfied with no items (smoke finding O2). A Needs run asks for each
+// record, which incorporate reads anyway.
+func (p *pass) downloading(items []catalogv1alpha1.SubtitleItemStatus) map[string]bool {
+	out := map[string]bool{}
+	for _, it := range items {
+		if !inFlight(it) {
+			continue
+		}
+		e, read := p.record(it.LangKey)
+		rec := e.Record
+		if read && e.OK && rec.State == records.StateAnswered && rec.Verdict == schema.SubtitleVerdictDownloaded &&
+			rec.Seq > it.Dispatch.AnsweredSeq && rec.ProbeHash == p.in.File.Status.ProbeHash {
+			out[it.LangKey] = true
+		}
+	}
+	return out
 }
 
 // incorporate is §6.6's incorporation table for an item in flight.
