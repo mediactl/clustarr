@@ -19,6 +19,8 @@ package importlist_test
 
 import (
 	"context"
+	"encoding/json"
+	"strconv"
 	"testing"
 	"time"
 
@@ -35,8 +37,8 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	importlist "github.com/mediactl/clustarr/app/import/controller/importlist"
 	"github.com/mediactl/clustarr/app/import/importliststate"
-	workerimportlist "github.com/mediactl/clustarr/app/import/worker/importlist"
 	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
@@ -51,12 +53,45 @@ func stevenLuList(ns, name string) *catalogv1alpha1.ImportList {
 	}
 }
 
-// putResult checkpoints res as the worker does for il.
-func putResult(t *testing.T, ctx context.Context, bus events.Bus, uid types.UID, res importliststate.Result) {
+// putSnapshot writes the import agent's report of one sync of il, as its
+// list worker does (ADR-0019 §7.6): a one-chunk schema.ListSnapshot of the
+// movie kind, fetched items, in clustarr-importlist.
+func putSnapshot(t *testing.T, ctx context.Context, bus events.Bus, il *catalogv1alpha1.ImportList,
+	syncedAt time.Time, fetched int32, items ...schema.ListedItem,
+) {
 	t.Helper()
-	data, err := res.Encode()
+	snap := schema.ListSnapshot{
+		List:     schema.ItemRef{Kind: "ImportList", Ref: schema.Ref{Namespace: il.Namespace, Name: il.Name, UID: string(il.UID)}},
+		SyncedAt: syncedAt.UTC().Truncate(time.Second),
+		Chunk:    0, Chunks: 1,
+		Kinds: []schema.ListKindSnapshot{{Kind: "movie", Fetched: fetched, Items: items}},
+	}
+	data, err := json.Marshal(snap)
 	require.NoError(t, err)
-	_, err = bus.KV(events.BucketProgress).Put(ctx, importliststate.ResultKey(string(uid)), data)
+	_, err = bus.KV(events.BucketImportList).Put(ctx, importliststate.SnapshotKey(string(il.UID), 0), data)
+	require.NoError(t, err)
+}
+
+// unresolvedItems is n listed movies whose TMDB id the agent could not
+// resolve: fetched, and neither added nor excluded.
+func unresolvedItems(n int) []schema.ListedItem {
+	items := make([]schema.ListedItem, n)
+	for i := range items {
+		items[i] = schema.ListedItem{
+			IDs: map[string]string{"imdb": "tt9" + strconv.Itoa(1000000+i)}, Title: "Unresolved " + strconv.Itoa(i), Unresolved: true,
+		}
+	}
+	return items
+}
+
+// exclude records an ImportExclusion of the TMDB id in the exclusion index,
+// the lookup contract events.ExclusionEntry documents.
+func exclude(t *testing.T, ctx context.Context, bus events.Bus, ns string, tmdbID int64) {
+	t.Helper()
+	data, err := events.ExclusionEntry{Namespace: ns, Name: "excluded", Kind: "movie", Reason: "test"}.Encode()
+	require.NoError(t, err)
+	_, err = bus.KV(events.BucketImportExclusions).Put(ctx,
+		events.ExclusionKey(catalogv1alpha1.ExclusionIDKeyTMDB, strconv.FormatInt(tmdbID, 10)), data)
 	require.NoError(t, err)
 }
 
@@ -80,9 +115,11 @@ func noListTask(t *testing.T, ctx context.Context, bus events.Bus, d time.Durati
 }
 
 // steadyList creates a stevenLu list, reconciles it at now (publishing and
-// draining its first task), checkpoints a worker Result, and reconciles
-// again a minute later so the list carries Ready, Synced, counts and
-// nextSyncAt: the state every test below changes.
+// draining its first task), writes the agent's snapshot of five movies --
+// two it adds, one an ImportExclusion names, two whose id the agent could
+// not resolve -- and reconciles again a minute later so the list carries
+// Ready, Synced, non-zero counts and nextSyncAt: the state every test below
+// changes.
 func steadyList(t *testing.T, ctx context.Context, c client.Client, bus events.Bus, r *importlist.Reconciler,
 	clock *time.Time, ns string,
 ) *catalogv1alpha1.ImportList {
@@ -94,9 +131,12 @@ func steadyList(t *testing.T, ctx context.Context, c client.Client, bus events.B
 	require.NoError(t, err)
 	recvListTask(t, ctx, bus, 5*time.Second)
 
-	putResult(t, ctx, bus, il.UID, importliststate.Result{
-		SyncedAt: clock.Add(30 * time.Second), Fetched: 5, Added: 2, Excluded: 1,
-	})
+	exclude(t, ctx, bus, ns, 105)
+	putSnapshot(t, ctx, bus, il, clock.Add(30*time.Second), 5, append([]schema.ListedItem{
+		{IDs: map[string]string{"tmdb": "603"}, Title: "The Matrix", Year: 1999, ResolvedID: 603},
+		{IDs: map[string]string{"tmdb": "604"}, Title: "The Matrix Reloaded", Year: 2003, ResolvedID: 604},
+		{IDs: map[string]string{"tmdb": "105"}, Title: "Back to the Future", Year: 1985, ResolvedID: 105},
+	}, unresolvedItems(2)...)...)
 	*clock = clock.Add(time.Minute)
 	_, err = r.Reconcile(ctx, req)
 	require.NoError(t, err)
@@ -104,6 +144,8 @@ func steadyList(t *testing.T, ctx context.Context, c client.Client, bus events.B
 	var got catalogv1alpha1.ImportList
 	require.NoError(t, c.Get(ctx, req.NamespacedName, &got))
 	require.Equal(t, int32(5), got.Status.ItemCount)
+	require.Equal(t, int32(2), got.Status.AddedCount)
+	require.Equal(t, int32(1), got.Status.ExcludedCount)
 	require.NotNil(t, got.Status.NextSyncAt)
 	require.Equal(t, metav1.ConditionTrue, findCondition(got.Status.Conditions, catalogv1alpha1.ImportListConditionReady).Status)
 	require.Equal(t, metav1.ConditionTrue, findCondition(got.Status.Conditions, catalogv1alpha1.ImportListConditionSynced).Status)
@@ -195,8 +237,8 @@ func TestReconcileFoldsTheDeadLetteredAnnotation(t *testing.T) {
 
 // TestAFinishedSyncReachesStatusWithoutWaitingForNextSyncAt runs the real
 // controller: once the first reconcile has scheduled a sync, nothing but
-// the worker's stamp (or the DLQ projector's annotation) can wake it before
-// nextSyncAt, a day away for StevenLu.
+// the agent's snapshot write (SnapshotSource) or the DLQ projector's
+// annotation can wake it before nextSyncAt, a day away for StevenLu.
 func TestAFinishedSyncReachesStatusWithoutWaitingForNextSyncAt(t *testing.T) {
 	c := requireEnvtest(t)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -231,10 +273,11 @@ func TestAFinishedSyncReachesStatusWithoutWaitingForNextSyncAt(t *testing.T) {
 	require.True(t, got.Status.NextSyncAt.After(time.Now().Add(time.Hour)))
 
 	// Two syncs finish in turn; each must be projected on its own.
-	for _, fetched := range []int32{3, 7} {
-		at := time.Now().UTC()
-		putResult(t, ctx, bus, il.UID, importliststate.Result{SyncedAt: at, Fetched: fetched, Added: 1})
-		require.NoError(t, workerimportlist.StampSynced(ctx, c, il, at))
+	for i, fetched := range []int32{3, 7} {
+		// A snapshot's SyncedAt is in seconds, and only a newer one is
+		// diffed: the second sync finishes a second after the first.
+		at := time.Now().UTC().Add(time.Duration(i) * time.Second)
+		putSnapshot(t, ctx, bus, il, at, fetched, unresolvedItems(int(fetched))...)
 		require.Eventually(t, func() bool {
 			if c.Get(ctx, key, &got) != nil {
 				return false
@@ -246,6 +289,9 @@ func TestAFinishedSyncReachesStatusWithoutWaitingForNextSyncAt(t *testing.T) {
 
 	// The DLQ projector's annotation alone must reach the reconcile too.
 	require.NoError(t, c.Get(ctx, key, &got))
+	if got.Annotations == nil {
+		got.Annotations = map[string]string{}
+	}
 	got.Annotations[k8s.AnnotationDeadLettered] = "clustarr.evt.catalog.importlist.synced.x@2026-09-23T10:00:00Z"
 	require.NoError(t, c.Update(ctx, &got))
 	require.Eventually(t, func() bool {
@@ -257,8 +303,8 @@ func TestAFinishedSyncReachesStatusWithoutWaitingForNextSyncAt(t *testing.T) {
 	}, 10*time.Second, 50*time.Millisecond, "the dead-lettered annotation was not folded")
 }
 
-// The worker's checkpoint expires ten minutes after a sync (clustarr-progress
-// TTL); a later reconcile must not report the list as never synced.
+// The agent's snapshot expires with clustarr-importlist's TTL after a sync;
+// a later reconcile must not report the list as never synced.
 func TestReconcileKeepsSyncedOnceTheCheckpointHasExpired(t *testing.T) {
 	c := requireEnvtest(t)
 	ctx := context.Background()
@@ -270,7 +316,7 @@ func TestReconcileKeepsSyncedOnceTheCheckpointHasExpired(t *testing.T) {
 	il := steadyList(t, ctx, c, bus, r, &clock, ns)
 	before := findCondition(il.Status.Conditions, catalogv1alpha1.ImportListConditionSynced).DeepCopy()
 
-	require.NoError(t, bus.KV(events.BucketProgress).Delete(ctx, importliststate.ResultKey(string(il.UID))))
+	require.NoError(t, bus.KV(events.BucketImportList).Delete(ctx, importliststate.SnapshotKey(string(il.UID), 0)))
 	clock = clock.Add(time.Hour)
 	_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: ns, Name: il.Name}})
 	require.NoError(t, err)

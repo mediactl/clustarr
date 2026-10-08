@@ -28,7 +28,7 @@ import (
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
-	"github.com/mediactl/clustarr/app/import/worker/importlist"
+	importlist "github.com/mediactl/clustarr/app/import/controller/importlist"
 	pkgimportlist "github.com/mediactl/clustarr/pkg/importlist"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
@@ -44,7 +44,7 @@ func TestAListReApplyKeepsAClassifiedSeries(t *testing.T) {
 	defaults := catalogv1alpha1.ListDefaults{QualityProfileRef: "web-1080p", RootFolderRef: "tv"}
 	item := pkgimportlist.Item{Title: "Naruto"}
 
-	name, err := importlist.ApplySeries(ctx, c, ns, "trakt", "naruto", item, defaults, 78857)
+	name, err := importlist.ApplySeries(ctx, c, c, ns, "trakt", "naruto", item, defaults, 78857)
 	require.NoError(t, err)
 	key := types.NamespacedName{Namespace: ns, Name: name}
 
@@ -58,14 +58,14 @@ func TestAListReApplyKeepsAClassifiedSeries(t *testing.T) {
 			WithQualityProfileRef("anime-web-1080p").WithSeriesType(catalogv1alpha1.SeriesTypeAnime))))
 	require.NoError(t, err)
 
-	_, err = importlist.ApplySeries(ctx, c, ns, "trakt", "naruto", item, defaults, 78857)
+	_, err = importlist.ApplySeries(ctx, c, c, ns, "trakt", "naruto", item, defaults, 78857)
 	require.NoError(t, err)
 	require.NoError(t, c.Get(ctx, key, &s))
 	require.Equal(t, "anime-web-1080p", s.Spec.QualityProfileRef, "a list re-apply must not undo the anime classification")
 	require.Equal(t, catalogv1alpha1.SeriesTypeAnime, s.Spec.SeriesType)
 
 	// An unclassified series still takes the list's defaults.
-	other, err := importlist.ApplySeries(ctx, c, ns, "trakt", "the-wire", pkgimportlist.Item{Title: "The Wire"}, defaults, 79126)
+	other, err := importlist.ApplySeries(ctx, c, c, ns, "trakt", "the-wire", pkgimportlist.Item{Title: "The Wire"}, defaults, 79126)
 	require.NoError(t, err)
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: other}, &s))
 	require.Equal(t, "web-1080p", s.Spec.QualityProfileRef)
