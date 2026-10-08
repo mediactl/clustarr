@@ -42,12 +42,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
-	downloadac "github.com/mediactl/clustarr/api/applyconfiguration/download/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/audiobook"
+	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 	catalogmetadata "github.com/mediactl/clustarr/app/catalog/metadata"
+	"github.com/mediactl/clustarr/app/remediation"
+	"github.com/mediactl/clustarr/app/remediation/itemtest"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -89,15 +90,12 @@ func newBareTestClient(t *testing.T) client.Client {
 
 // startCacheOnly starts a real ctrl.Manager's cache (so the MediaFile and
 // Audiobook field indices this reconciler's List/MatchingFields calls
-// depend on actually work) WITHOUT wiring an audiobook.Reconciler's watches
-// to it, so nothing auto-reconciles and SetupWithManager (and its
-// process-global "audiobook" controller name) is never touched. Mirrors
-// movie.startCacheOnly's identical split, including its reasoning for why a
-// manually invoked Reconcile must not race an auto-wired one. The index
-// keys are repeated here as literal strings rather than imported: they are
-// unexported in package audiobook, and this file mirrors
-// audiobook.Reconciler.SetupWithManager's own registration by inspection,
-// same as movie_test's copy does for movie's.
+// depend on actually work) WITHOUT starting the Audiobook's item path on
+// it, so nothing auto-reconciles. Mirrors movie.startCacheOnly's identical
+// split, including its reasoning for why a manually invoked ReconcileItem
+// must not race an auto-wired one. The indexes are the remediation loop's
+// own (mfindex and every item kind's), registered as the loop registers
+// them.
 func startCacheOnly(t *testing.T, ctx context.Context, cfg *rest.Config) client.Client {
 	t.Helper()
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
@@ -106,31 +104,7 @@ func startCacheOnly(t *testing.T, ctx context.Context, cfg *rest.Config) client.
 		HealthProbeBindAddress: "0",
 	})
 	require.NoError(t, err)
-
-	require.NoError(t, mgr.GetFieldIndexer().IndexField(ctx, &catalogv1alpha1.MediaFile{}, ".spec.mediaRef.audiobook",
-		func(o client.Object) []string {
-			mf, ok := o.(*catalogv1alpha1.MediaFile)
-			if !ok || mf.Spec.MediaRef.Kind != commonv1.MediaKindAudiobook {
-				return nil
-			}
-			return []string{mf.Spec.MediaRef.Name}
-		}))
-	require.NoError(t, mgr.GetFieldIndexer().IndexField(ctx, &downloadv1alpha1.Download{}, ".spec.target.audiobook",
-		func(o client.Object) []string {
-			dl, ok := o.(*downloadv1alpha1.Download)
-			if !ok || dl.Spec.Target.Kind != commonv1.MediaKindAudiobook {
-				return nil
-			}
-			return []string{dl.Spec.Target.Name}
-		}))
-	require.NoError(t, mgr.GetFieldIndexer().IndexField(ctx, &catalogv1alpha1.Audiobook{}, ".spec.qualityProfileRef",
-		func(o client.Object) []string {
-			a, ok := o.(*catalogv1alpha1.Audiobook)
-			if !ok || a.Spec.QualityProfileRef == "" {
-				return nil
-			}
-			return []string{a.Spec.QualityProfileRef}
-		}))
+	require.NoError(t, remediation.RegisterIndexes(ctx, mgr.GetFieldIndexer()))
 
 	go func() { _ = mgr.Start(ctx) }()
 	require.True(t, mgr.GetCache().WaitForCacheSync(ctx))
@@ -142,12 +116,12 @@ type reconcileCounter struct{ n atomic.Int64 }
 
 func (c *reconcileCounter) inc() { c.n.Add(1) }
 
-// startManager wires a real audiobook.Reconciler into a real ctrl.Manager,
-// per movie.startManager's doc comment -- including its "exactly once"
-// constraint (controller-runtime's process-global controller-name
-// registry), which is why every scenario needing the real, auto-wired
-// controller lives as a t.Run under TestAudiobookReconcilerRealController.
-func startManager(t *testing.T, ctx context.Context, cfg *rest.Config, bus events.Publisher) (client.Client, *reconcileCounter) {
+// startManager runs a real audiobook.Reconciler on a real ctrl.Manager as
+// the remediation loop runs it (itemtest.Start), per movie.startManager's
+// doc comment; every scenario needing the auto-wired item path lives as a
+// t.Run under TestAudiobookReconcilerRealController. The Reconciler is
+// returned so a scenario can drive a pass no watch wakes (a grab entry).
+func startManager(t *testing.T, ctx context.Context, cfg *rest.Config, bus events.Publisher) (client.Client, *audiobook.Reconciler, *reconcileCounter) {
 	t.Helper()
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme:                 k8s.MustNewScheme(),
@@ -164,11 +138,12 @@ func startManager(t *testing.T, ctx context.Context, cfg *rest.Config, bus event
 		Bus:         bus,
 		OnReconcile: counter.inc,
 	}
-	require.NoError(t, r.SetupWithManager(mgr))
+	require.NoError(t, remediation.RegisterIndexes(ctx, mgr.GetFieldIndexer()))
+	require.NoError(t, itemtest.Start(mgr, map[remediation.KeyKind]rollup.Item{remediation.KindAudiobook: r}))
 
 	go func() { _ = mgr.Start(ctx) }()
 	require.True(t, mgr.GetCache().WaitForCacheSync(ctx))
-	return mgr.GetClient(), counter
+	return mgr.GetClient(), r, counter
 }
 
 // waitForCachedMetadata polls the cached client until it observes
@@ -226,10 +201,6 @@ func testQualityProfile(ns, name string, tierQualities ...string) *catalogv1alph
 			},
 		},
 	}
-}
-
-func downloadStatusAC(name, ns string, phase commonv1.DownloadPhase) *downloadac.DownloadApplyConfiguration {
-	return downloadac.Download(name, ns).WithStatus(downloadac.DownloadStatus().WithPhase(phase))
 }
 
 // fakePublisher is a tiny local Publisher that always returns err, used to
@@ -326,7 +297,7 @@ func TestAudiobookRegionReachesTheMetadataGateway(t *testing.T) {
 	r := &audiobook.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10), Bus: pub}
 	req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "region-ns", Name: "guards-guards"}}
 
-	_, err := r.Reconcile(ctx, req)
+	_, err := r.ReconcileItem(ctx, req.NamespacedName)
 	require.NoError(t, err)
 	require.Len(t, pub.envelopes, 1, "a fresh Audiobook must publish exactly one MetadataTask")
 
@@ -360,7 +331,7 @@ func TestAudiobookRegionReachesTheMetadataGateway(t *testing.T) {
 	// This reconciler's own second pass must see the fresh metadata and
 	// flip MetadataReady -- proving the round trip closes the loop back to
 	// the controller under test, not only the gateway package in isolation.
-	_, err = r.Reconcile(ctx, req)
+	_, err = r.ReconcileItem(ctx, req.NamespacedName)
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		if err := c.Get(ctx, req.NamespacedName, &got); err != nil {
@@ -408,7 +379,7 @@ func TestAudiobookRegionDefaultsToUSWhenUnset(t *testing.T) {
 	pub := &capturingPublisher{}
 	r := &audiobook.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10), Bus: pub}
 	req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "region-default-ns", Name: "guards-guards"}}
-	_, err := r.Reconcile(ctx, req)
+	_, err := r.ReconcileItem(ctx, req.NamespacedName)
 	require.NoError(t, err)
 	require.Len(t, pub.envelopes, 1)
 
@@ -428,7 +399,7 @@ func TestAudiobookReconcilerRealController(t *testing.T) {
 	cfg := newTestConfig(t)
 	bus := events.Publisher(fakePublisher{})
 
-	c, _ := startManager(t, ctx, cfg, bus)
+	c, r, _ := startManager(t, ctx, cfg, bus)
 	require.NoError(t, c.Create(ctx, testNamespace("finalizer-ns")))
 	require.NoError(t, c.Create(ctx, testNamespace("path-ns")))
 	require.NoError(t, c.Create(ctx, testNamespace("bookref-ns")))
@@ -598,9 +569,9 @@ func TestAudiobookReconcilerRealController(t *testing.T) {
 
 	// N audio parts become N MediaFiles (design §771); they must roll up
 	// into status.fileRefs in path order with a single status.quality/
-	// cutoffMet verdict, and a Download's phase must drive Phase=Downloading
+	// cutoffMet verdict, and a grab entry's phase must drive Phase=Downloading
 	// and clear status.activeDownloadRef once it reaches a terminal phase.
-	t.Run("multiple MediaFiles roll up into fileRefs, and a Download drives the overlay", func(t *testing.T) {
+	t.Run("multiple MediaFiles roll up into fileRefs, and a grab entry drives the overlay", func(t *testing.T) {
 		m := &catalogv1alpha1.Audiobook{
 			ObjectMeta: metav1.ObjectMeta{Name: "guards-guards", Namespace: "rollup-ns"},
 			Spec: catalogv1alpha1.AudiobookSpec{
@@ -648,47 +619,32 @@ func TestAudiobookReconcilerRealController(t *testing.T) {
 		assert.True(t, got.Status.CutoffMet)
 		assert.Equal(t, catalogv1alpha1.AudiobookPhaseImported, got.Status.Phase)
 
-		// status.activeDownloadRef is derived from the Audiobook's own
-		// non-terminal Downloads (gap-fix ruling R-5): nothing seeds it.
-		// A Download that targets this Audiobook but is not owned by it --
-		// one left behind by a deleted Audiobook of the same name -- is
-		// never adopted.
+		// status.activeDownloadRef is derived from the grab entries on the
+		// Audiobook's own status.downloads (gap-fix ruling R-5, ADR-0019
+		// §6.11): nothing else seeds it. No item watch wakes on an entry
+		// write (the stages decide entries inside the pass that applies
+		// them), so each step seeds the entries, waits for the cache to see
+		// them, and reconciles the Audiobook itself.
 		key := types.NamespacedName{Namespace: "rollup-ns", Name: "guards-guards"}
 		require.NoError(t, c.Get(ctx, key, &got))
-		magnet := "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567"
-		newDownload := func(name string, owner *catalogv1alpha1.Audiobook) *downloadv1alpha1.Download {
-			d := &downloadv1alpha1.Download{
-				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "rollup-ns"},
-				Spec: downloadv1alpha1.DownloadSpec{
-					Protocol: commonv1.ProtocolTorrent,
-					Source:   commonv1.DownloadSource{MagnetURL: &magnet},
-					Release:  commonv1.ReleaseInfo{},
-					Target:   commonv1.MediaRef{Kind: commonv1.MediaKindAudiobook, Name: "guards-guards"},
-				},
-			}
-			if owner != nil {
-				controller := true
-				d.OwnerReferences = []metav1.OwnerReference{{
-					APIVersion: catalogv1alpha1.GroupVersion.String(), Kind: "Audiobook",
-					Name: owner.Name, UID: owner.UID, Controller: &controller,
-				}}
-			}
-			require.NoError(t, c.Create(ctx, d))
-			return d
+		seed := func(phase commonv1.DownloadPhase) {
+			t.Helper()
+			require.NoError(t, itemtest.SeedEntries(ctx, c, &got, itemtest.Entry("guards-guards-dl", phase)))
+			require.Eventually(t, func() bool {
+				var g catalogv1alpha1.Audiobook
+				return c.Get(ctx, key, &g) == nil && len(g.Status.Downloads) == 1 && g.Status.Downloads[0].Phase == phase
+			}, 5*time.Second, 20*time.Millisecond, "the cache never saw the seeded entry")
+			_, err := r.ReconcileItem(ctx, key)
+			require.NoError(t, err)
 		}
-		newDownload("stranger-dl", nil)
-		require.Never(t, func() bool {
-			var g catalogv1alpha1.Audiobook
-			return c.Get(ctx, key, &g) == nil && g.Status.ActiveDownloadRef != nil
-		}, 500*time.Millisecond, 20*time.Millisecond, "a Download this Audiobook does not own must never become its ref")
 
-		// The grab's own Download: owned, just created, no phase yet.
-		newDownload("guards-guards-dl", &got)
+		// The grab's own entry, just dispatched.
+		seed(commonv1.DownloadPhasePending)
 		require.Eventually(t, func() bool {
 			var g catalogv1alpha1.Audiobook
 			return c.Get(ctx, key, &g) == nil && g.Status.ActiveDownloadRef != nil &&
 				*g.Status.ActiveDownloadRef == "guards-guards-dl" && g.Status.Phase == catalogv1alpha1.AudiobookPhaseDownloading
-		}, 5*time.Second, 20*time.Millisecond, "an owned Download must set the ref and drive Phase=Downloading, overriding Imported")
+		}, 5*time.Second, 20*time.Millisecond, "a non-terminal entry must set the ref and drive Phase=Downloading, overriding Imported")
 
 		// This reconciler is the field's only writer: one manager, catalog.
 		require.NoError(t, c.Get(ctx, key, &got))
@@ -701,20 +657,18 @@ func TestAudiobookReconcilerRealController(t *testing.T) {
 		assert.Equal(t, []string{string(k8s.ManagerCatalog)}, refOwners)
 
 		// Completed is on disk and awaiting import: still this item's
-		// Download (R-12).
-		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadStatusAC("guards-guards-dl", "rollup-ns", commonv1.DownloadPhaseCompleted))
-		require.NoError(t, err)
+		// grab (R-12).
+		seed(commonv1.DownloadPhaseCompleted)
 		require.Never(t, func() bool {
 			var g catalogv1alpha1.Audiobook
 			return c.Get(ctx, key, &g) == nil && (g.Status.ActiveDownloadRef == nil || g.Status.Phase != catalogv1alpha1.AudiobookPhaseDownloading)
-		}, 500*time.Millisecond, 20*time.Millisecond, "a Completed Download is still working on the item")
+		}, 500*time.Millisecond, 20*time.Millisecond, "a Completed entry is still working on the item")
 
-		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadStatusAC("guards-guards-dl", "rollup-ns", commonv1.DownloadPhaseImported))
-		require.NoError(t, err)
+		seed(commonv1.DownloadPhaseImported)
 		require.Eventually(t, func() bool {
 			var g catalogv1alpha1.Audiobook
 			return c.Get(ctx, key, &g) == nil && g.Status.ActiveDownloadRef == nil
-		}, 5*time.Second, 20*time.Millisecond, "a terminal Download phase must clear activeDownloadRef")
+		}, 5*time.Second, 20*time.Millisecond, "a terminal entry phase must clear activeDownloadRef")
 
 		require.NoError(t, c.Get(ctx, key, &got))
 		assert.Equal(t, catalogv1alpha1.AudiobookPhaseImported, got.Status.Phase, "once the download clears, the item reports its file state again")
@@ -768,7 +722,7 @@ func TestAudiobookReconcilerQueueFull(t *testing.T) {
 		Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10),
 		Bus: fakePublisher{err: events.ErrQueueFull},
 	}
-	res, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "queuefull-ns", Name: "guards-guards-2"}})
+	res, err := r.ReconcileItem(ctx, types.NamespacedName{Namespace: "queuefull-ns", Name: "guards-guards-2"})
 	require.NoError(t, err)
 	assert.Equal(t, time.Minute, res.RequeueAfter)
 
@@ -824,7 +778,7 @@ func TestAudiobookReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 
 		req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "transient-ns", Name: name}}
 		r := &audiobook.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10), Bus: fakePublisher{}}
-		_, err = r.Reconcile(ctx, req)
+		_, err = r.ReconcileItem(ctx, req.NamespacedName)
 		require.NoError(t, err)
 
 		mf := &catalogv1alpha1.MediaFile{
@@ -841,7 +795,7 @@ func TestAudiobookReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 			return c.Get(ctx, types.NamespacedName{Namespace: "transient-ns", Name: mf.Name}, &got) == nil
 		}, 5*time.Second, 10*time.Millisecond)
 
-		_, err = r.Reconcile(ctx, req)
+		_, err = r.ReconcileItem(ctx, req.NamespacedName)
 		require.NoError(t, err)
 
 		var got catalogv1alpha1.Audiobook
@@ -891,7 +845,7 @@ func TestAudiobookReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 			Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10),
 			Bus: fakePublisher{err: events.ErrQueueFull},
 		}
-		res, err := r2.Reconcile(ctx, req)
+		res, err := r2.ReconcileItem(ctx, req.NamespacedName)
 		require.NoError(t, err)
 		assert.Equal(t, time.Minute, res.RequeueAfter)
 
@@ -932,7 +886,7 @@ func TestAudiobookReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 		}, 5*time.Second, 10*time.Millisecond)
 
 		r2 := &audiobook.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10), Bus: fakePublisher{}}
-		res, err := r2.Reconcile(ctx, req)
+		res, err := r2.ReconcileItem(ctx, req.NamespacedName)
 		require.NoError(t, err)
 		assert.Equal(t, time.Minute, res.RequeueAfter)
 
