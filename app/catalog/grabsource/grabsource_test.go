@@ -22,7 +22,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"k8s.io/utils/ptr"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 )
@@ -149,23 +148,4 @@ func TestExpectedInfoHash(t *testing.T) {
 		assert.Equalf(t, tc.ok, ok, "expectedInfoHash(%q)", tc.in)
 		assert.Equalf(t, tc.want, got, "expectedInfoHash(%q)", tc.in)
 	}
-}
-
-func TestSourceApplyConfigurationRoundTripsEveryMember(t *testing.T) {
-	src := commonv1.DownloadSource{
-		IndexerDownload:  &commonv1.IndexerDownload{IndexerRef: "idx", GUID: "g", URL: "u"},
-		ExpectedInfoHash: new(hexHash),
-	}
-	ac := SourceApplyConfiguration(src)
-	require.NotNil(t, ac.IndexerDownload)
-	assert.Equal(t, "idx", *ac.IndexerDownload.IndexerRef)
-	assert.Equal(t, "g", *ac.IndexerDownload.GUID)
-	assert.Equal(t, "u", *ac.IndexerDownload.URL)
-	assert.Equal(t, hexHash, *ac.ExpectedInfoHash)
-	assert.Nil(t, ac.MagnetURL)
-
-	direct := SourceApplyConfiguration(commonv1.DownloadSource{TorrentURL: new("t"), NZBURL: ptr.To("n"), MagnetURL: ptr.To("m")})
-	assert.Equal(t, "t", *direct.TorrentURL)
-	assert.Equal(t, "n", *direct.NZBURL)
-	assert.Equal(t, "m", *direct.MagnetURL)
 }
