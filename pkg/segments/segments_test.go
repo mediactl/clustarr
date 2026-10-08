@@ -147,6 +147,10 @@ func TestAnimePreviewAfterCredits(t *testing.T) {
 	assert.False(t, ok, "credits within 5 s of the end leave no preview")
 }
 
+// episodeMs is the runtime the precedence cases merge against: every
+// segment of theirs lies within it.
+const episodeMs = 2_700_000
+
 func TestMergePrecedence(t *testing.T) {
 	got := segments.Merge(
 		[]segments.Segment{seg(intro, 60_000, 90_000, tidb, 100)},
@@ -156,7 +160,7 @@ func TestMergePrecedence(t *testing.T) {
 			seg(recap, 0, 50_000, chap, 100),
 			seg(recap, 0, 40_000, anal, 70),
 			seg(preview, 2_690_000, 2_700_000, anal, 55),
-		})
+		}, episodeMs)
 	assert.Equal(t, []segments.Segment{
 		seg(recap, 0, 50_000, chap, 100),
 		seg(intro, 60_000, 90_000, tidb, 100),
@@ -169,22 +173,46 @@ func TestMergePrecedence(t *testing.T) {
 	assert.Equal(t, []segments.Segment{seg(credits, 2_178_000, 2_403_000, chap, 100)},
 		segments.Merge(
 			[]segments.Segment{seg(credits, 2_301_000, 2_403_000, tidb, 100)},
-			[]segments.Segment{seg(credits, 2_178_000, 2_403_000, chap, 100), seg(credits, 2_300_000, 2_403_000, anal, 90)}),
+			[]segments.Segment{seg(credits, 2_178_000, 2_403_000, chap, 100), seg(credits, 2_300_000, 2_403_000, anal, 90)}, episodeMs),
 		"an exact credits chapter over TheIntroDB")
 	assert.Equal(t, []segments.Segment{seg(credits, 2_301_000, 2_403_000, tidb, 100)},
 		segments.Merge(
 			[]segments.Segment{seg(credits, 2_301_000, 2_403_000, tidb, 100)},
-			[]segments.Segment{seg(credits, 2_178_000, 2_403_000, chap, 90)}),
+			[]segments.Segment{seg(credits, 2_178_000, 2_403_000, chap, 90)}, episodeMs),
 		"TheIntroDB over a pattern-only chapter")
 	assert.Equal(t, []segments.Segment{seg(credits, 2_178_000, 2_403_000, chap, 90)},
-		segments.Merge(nil, []segments.Segment{seg(credits, 2_178_000, 2_403_000, chap, 90), seg(credits, 2_300_000, 2_403_000, anal, 90)}),
+		segments.Merge(nil, []segments.Segment{seg(credits, 2_178_000, 2_403_000, chap, 90), seg(credits, 2_300_000, 2_403_000, anal, 90)}, episodeMs),
 		"a pattern-only chapter over analysis")
 
 	many := make([]segments.Segment, 30)
 	for i := range many {
 		many[i] = seg(credits, int64(i)*1000, int64(i)*1000+500, tidb, 100)
 	}
-	assert.Len(t, segments.Merge(many, nil), 20)
+	assert.Len(t, segments.Merge(many, nil, episodeMs), 20)
+}
+
+// TestMergeKeepsSegmentsWithinTheRuntime is smoke finding 6: TheIntroDB's
+// timings for another cut of a title (its intro at 0-38 s and 437-538 s on
+// 10 s files) reached status.markers and Plex. Merge drops a segment that
+// starts at or past the probe's runtime and ends one past it at the
+// runtime, before precedence, so a source's segment past the end leaves its
+// kind to the next source; an unknown runtime (0) keeps every segment.
+func TestMergeKeepsSegmentsWithinTheRuntime(t *testing.T) {
+	const fileMs = 10_031
+	assert.Equal(t, []segments.Segment{seg(intro, 0, fileMs, tidb, 100)},
+		segments.Merge([]segments.Segment{seg(intro, 0, 38_000, tidb, 100)}, nil, fileMs),
+		"an end past the runtime is clamped to it")
+	assert.Empty(t, segments.Merge([]segments.Segment{seg(intro, 437_388, 537_777, tidb, 100)}, nil, fileMs),
+		"a segment starting past the end is dropped")
+	assert.Empty(t, segments.Merge([]segments.Segment{seg(credits, fileMs, 12_000, tidb, 100)}, nil, fileMs),
+		"a segment starting at the end is dropped")
+	assert.Equal(t, []segments.Segment{seg(intro, 1_000, 6_000, anal, 90)},
+		segments.Merge([]segments.Segment{seg(intro, 437_388, 537_777, tidb, 100)},
+			[]segments.Segment{seg(intro, 1_000, 6_000, anal, 90)}, fileMs),
+		"TheIntroDB's intro past the end leaves the intro to analysis")
+	assert.Equal(t, []segments.Segment{seg(intro, 437_388, 537_777, tidb, 100)},
+		segments.Merge([]segments.Segment{seg(intro, 437_388, 537_777, tidb, 100)}, nil, 0),
+		"an unknown runtime keeps what it has")
 }
 
 // An anime episode's ED ends before its preview; with no preview chapter

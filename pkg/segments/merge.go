@@ -35,7 +35,15 @@ var kinds = []Kind{
 // theintrodb holds TheIntroDB's segments; analysis holds the chapter and
 // analysis segments, told apart by Source. The result is ordered by start
 // and capped at 20.
-func Merge(theintrodb, analysis []Segment) []Segment {
+//
+// Every segment is first held to durationMs, the probe's runtime (Within):
+// TheIntroDB times another cut of a title at will (smoke finding 6: an intro
+// at 437-538 s on a 10 s file), so a source's segment past the end leaves
+// its kind to the next source. Merge is where every source meets on its way
+// to status.markers -- its one caller is the markers planner -- so the
+// bound is kept here, not at each intake (ruling, smoke finding 6).
+func Merge(theintrodb, analysis []Segment, durationMs int64) []Segment {
+	theintrodb, analysis = Within(theintrodb, durationMs), Within(analysis, durationMs)
 	var out []Segment
 	for _, k := range kinds {
 		switch {
@@ -70,4 +78,35 @@ func of(s []Segment, k Kind, src Source, minConf int32) []Segment {
 		}
 	}
 	return out
+}
+
+// Within is s held to a file of durationMs: a segment starting at or past
+// the end is dropped, and an end past it is clamped to it. A durationMs of
+// zero or less (the runtime unknown) keeps s as it is.
+func Within(s []Segment, durationMs int64) []Segment {
+	if durationMs <= 0 {
+		return s
+	}
+	out := make([]Segment, 0, len(s))
+	for _, x := range s {
+		if x.StartMs >= durationMs {
+			continue
+		}
+		x.EndMs = min(x.EndMs, durationMs)
+		out = append(out, x)
+	}
+	return out
+}
+
+// PastTheEnd reports whether s holds a segment Within would drop or clamp.
+func PastTheEnd(s []Segment, durationMs int64) bool {
+	if durationMs <= 0 {
+		return false
+	}
+	for _, x := range s {
+		if x.StartMs >= durationMs || x.EndMs > durationMs {
+			return true
+		}
+	}
+	return false
 }

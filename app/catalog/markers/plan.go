@@ -169,10 +169,13 @@ func Plan(in Input) Decision {
 			d.Notes = append(d.Notes, Note{TimedOut: true})
 		}
 	}
-	if !changed {
+	// A stored segment past the probe's runtime -- merged before the merge
+	// held segments to it (smoke finding 6) -- is merged again, though
+	// nothing else changed.
+	if !changed && !segments.PastTheEnd(storedSegments(m), in.DurationMs) {
 		return d
 	}
-	m.Segments = markerSegments(segments.Merge(theintrodb, analysed))
+	m.Segments = markerSegments(segments.Merge(theintrodb, analysed, in.DurationMs))
 	d.Markers = m
 	return d
 }
@@ -247,6 +250,15 @@ func theIntroDBSegments(m *catalogv1alpha1.FileMarkers) []segments.Segment {
 				Source: segments.SourceTheIntroDB, Confidence: conf,
 			})
 		}
+	}
+	return out
+}
+
+// storedSegments are status's segments, every source, as Merge reads them.
+func storedSegments(m *catalogv1alpha1.FileMarkers) []segments.Segment {
+	out := make([]segments.Segment, 0, len(m.Segments))
+	for _, s := range m.Segments {
+		out = append(out, segments.Segment{Kind: segments.Kind(s.Kind), StartMs: s.StartMs, EndMs: s.EndMs})
 	}
 	return out
 }
