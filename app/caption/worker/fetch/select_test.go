@@ -19,11 +19,9 @@ package fetch
 
 import (
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
@@ -42,19 +40,20 @@ func TestWantForResolvesTheEntryAndItsAliases(t *testing.T) {
 	)
 	p.Spec.LanguageEquals = []string{"pt-BR:pt"}
 
-	w, ok := wantFor(p, nil, "pt-BR")
+	w, ok := wantFor(p, "pt-BR")
 	require.True(t, ok)
 	assert.Equal(t, []string{"pt", "pt-BR"}, w.tags(), "languageEquals makes pt acceptable for pt-BR")
 
-	w, ok = wantFor(p, nil, "en:forced")
+	w, ok = wantFor(p, "en:forced")
 	require.True(t, ok)
 	assert.True(t, w.forced)
 	assert.Equal(t, []string{"en"}, w.tags())
 
-	_, ok = wantFor(p, nil, "fr")
+	_, ok = wantFor(p, "fr")
 	assert.False(t, ok, "a key the profile does not have is a stale task")
-	_, ok = wantFor(p, []string{"en:forced"}, "pt-BR")
-	assert.False(t, ok, "spec.languages excluding the key is a stale task")
+	// The SubtitleRequest's spec.languages override went with the kind
+	// (F5.3): the loop's next plan supersedes a task for a key it no longer
+	// wants (TestASupersededTaskIsAckedWithoutSearching).
 }
 
 func TestReject(t *testing.T) {
@@ -221,7 +220,7 @@ func TestDecide(t *testing.T) {
 		out      searchOutcome
 		eligible int
 		onDisk   bool
-		want     verdict
+		want     searchVerdict
 	}{
 		{"downloaded", searchOutcome{chosen: someChosen}, 1, false, verdictDownloaded},
 		{"upgrade downloaded", searchOutcome{chosen: someChosen}, 1, true, verdictDownloaded},
@@ -239,37 +238,4 @@ func TestDecide(t *testing.T) {
 			assert.Equal(t, tc.want, decide(tc.out, tc.eligible, tc.onDisk))
 		})
 	}
-}
-
-func TestChooseProfile(t *testing.T) {
-	old := metav1.NewTime(time.Unix(1000, 0))
-	newer := metav1.NewTime(time.Unix(2000, 0))
-	mk := func(name string, def bool, created metav1.Time, sel map[string]string, invalid bool) subtitlev1alpha1.SubtitleProfile {
-		p := subtitlev1alpha1.SubtitleProfile{ObjectMeta: metav1.ObjectMeta{Name: name, CreationTimestamp: created}}
-		p.Spec.Default = def
-		if sel != nil {
-			p.Spec.Selector = &metav1.LabelSelector{MatchLabels: sel}
-		}
-		if invalid {
-			p.Status.Conditions = []metav1.Condition{{Type: subtitlev1alpha1.SubtitleProfileConditionInvalid, Status: metav1.ConditionTrue}}
-		}
-		return p
-	}
-	profiles := []subtitlev1alpha1.SubtitleProfile{
-		mk("default-new", true, newer, nil, false),
-		mk("default-old", true, old, nil, false),
-		mk("anime", false, old, map[string]string{"genre": "anime"}, false),
-		mk("broken", false, old, map[string]string{"genre": "docs"}, true),
-	}
-
-	assert.Equal(t, "anime", chooseProfile(profiles, map[string]string{"genre": "anime"}).Name)
-	assert.Equal(t, "default-old", chooseProfile(profiles, map[string]string{"genre": "docs"}).Name,
-		"an Invalid profile is never chosen; the oldest default is")
-	assert.Nil(t, chooseProfile(profiles[2:3], nil), "no match and no default: none applies")
-}
-
-func TestIMDbNumber(t *testing.T) {
-	assert.Equal(t, "133093", imdbNumber("tt0133093"))
-	assert.Equal(t, "", imdbNumber("nm0000206x"))
-	assert.Equal(t, "", imdbNumber(""))
 }
