@@ -82,15 +82,41 @@ func eligibleFile(st *catalogv1alpha1.MediaFileStatus) File {
 // inputs is one pass's Inputs for a movie file whose draft is draft and
 // whose stored block is prev, under the default profile hevc, holding
 // grant: Eligibility is the real Eligible's.
+//
+// As in app/remediation/transcode, the draft carries the stored block (the
+// loop's draft starts as a copy of the stored status) and Eligibility is
+// Eligible over that draft.
 func inputs(prev *catalogv1alpha1.TranscodeState, draft *catalogv1alpha1.MediaFileStatus, grant GrantKind) Inputs {
-	hevc := newProfile("hevc", true, t0, nil)
+	draft.Transcode = prev.DeepCopy()
 	f := eligibleFile(draft)
 	f.MF.Status.Transcode = prev
-	return Inputs{
+	in := Inputs{
 		File: f.MF, Prev: prev, Draft: draft, ProbeCurrent: true,
-		Eligibility: Eligible(f, []transcodev1alpha1.TranscodeProfile{hevc}),
-		Ledger:      Ledger{Grant: grant}, Now: metav1.NewTime(t0),
+		Ledger: Ledger{Grant: grant}, Now: metav1.NewTime(t0),
 	}
+	relook(&in)
+	return in
+}
+
+// hevcProfiles is the one default profile the helpers plan under.
+func hevcProfiles() []transcodev1alpha1.TranscodeProfile {
+	return []transcodev1alpha1.TranscodeProfile{newProfile("hevc", true, t0, nil)}
+}
+
+// relook is the adapter's Eligible for in's next pass: over the draft
+// carrying in.Prev, as the loop's draft does.
+func relook(in *Inputs) {
+	draft := in.Draft.DeepCopy()
+	draft.Transcode = in.Prev.DeepCopy()
+	in.Eligibility = Eligible(File{MF: in.File, Status: draft, ProbeCurrent: in.ProbeCurrent, ItemExists: true}, hevcProfiles())
+}
+
+// pass is one transcode planner pass as the adapter runs it: Plan over a
+// draft that carries the stored block in.Prev.
+func pass(in Inputs) Decision {
+	in.Draft = in.Draft.DeepCopy()
+	in.Draft.Transcode = in.Prev.DeepCopy()
+	return Plan(in)
 }
 
 // dispatchIn is a Planned file holding a cpu dispatch grant, with the
@@ -98,10 +124,11 @@ func inputs(prev *catalogv1alpha1.TranscodeState, draft *catalogv1alpha1.MediaFi
 func dispatchIn(t *testing.T) Inputs {
 	t.Helper()
 	in := inputs(nil, probed("ph-1"), GrantWindow)
-	in.Prev = Plan(in).Block // Planned
+	in.Prev = pass(in).Block // Planned
 	if in.Prev == nil || in.Prev.Phase != catalogv1alpha1.TranscodePhasePlanned {
 		t.Fatalf("the window grant did not plan the file: %+v", in.Prev)
 	}
+	relook(&in)
 	in.Ledger = Ledger{Grant: GrantDispatch, Class: transcodev1alpha1.HardwareCPU}
 	in.Folders = []catalogv1alpha1.RootFolder{{Spec: catalogv1alpha1.RootFolderSpec{Path: "/data/media/movies"}}}
 	floor := int64(41)
@@ -114,11 +141,12 @@ func dispatchIn(t *testing.T) Inputs {
 func queuedIn(t *testing.T) Inputs {
 	t.Helper()
 	in := dispatchIn(t)
-	q := Plan(in)
+	q := pass(in)
 	if q.Block == nil || q.Block.Phase != catalogv1alpha1.TranscodePhaseQueued || q.Request == nil {
 		t.Fatalf("the dispatch grant did not queue the file: %+v", q.Block)
 	}
 	in.Prev, in.Ledger, in.Record = q.Block, Ledger{}, q.Request
+	relook(&in)
 	in.Profiles = map[string]*transcodev1alpha1.TranscodeProfile{"hevc": in.Eligibility.Profile}
 	return in
 }

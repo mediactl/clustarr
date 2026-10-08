@@ -84,7 +84,7 @@ func TestWithdrawalTakesTwoPasses(t *testing.T) {
 			}
 			was := in.Prev.Phase
 			tc.mutate(&in)
-			first := Plan(in)
+			first := pass(in)
 			require.NotNil(t, first.Block)
 			assert.Equal(t, was, first.Block.Phase, "pass 1 keeps the phase")
 			assert.Equal(t, tc.reason, first.Block.Reason)
@@ -98,13 +98,13 @@ func TestWithdrawalTakesTwoPasses(t *testing.T) {
 			if first.Nonces != nil {
 				in.Nonces = *first.Nonces
 			}
-			again := Plan(in)
+			again := pass(in)
 			require.NotNil(t, again.Block)
 			assert.Equal(t, int64(42), again.Withdraw, "a pass before the withdrawal landed withdraws again")
 			assert.Equal(t, was, again.Block.Phase)
 
 			in.Record = withdrawnAt42()
-			second := Plan(in)
+			second := pass(in)
 			b := second.Block
 			require.NotNil(t, b)
 			assert.Equal(t, tc.phase, b.Phase)
@@ -133,23 +133,23 @@ func TestWithdrawalTakesTwoPasses(t *testing.T) {
 func TestAFactAfterTheClosingWithdrawalIsIncorporated(t *testing.T) {
 	in := queuedIn(t)
 	in.Intents.Cancel = "1"
-	first := Plan(in)
+	first := pass(in)
 	require.NotNil(t, first.Nonces)
 	require.Equal(t, int64(42), first.Withdraw)
 	in.Prev, in.Nonces = first.Block, *first.Nonces
 	in.Record = withdrawnAt42()
-	closed := Plan(in)
+	closed := pass(in)
 	require.Equal(t, catalogv1alpha1.TranscodePhaseSkipped, closed.Block.Phase)
 	require.True(t, closed.Block.Dispatch.Withdrawn)
 	in.Prev = closed.Block
-	assert.Equal(t, closed.Block, Plan(in).Block, "a withdrawn record changes nothing more")
+	assert.Equal(t, closed.Block, pass(in).Block, "a withdrawn record changes nothing more")
 
 	done := t0.Add(2 * time.Hour)
 	in.Now = metav1.NewTime(done.Add(time.Minute))
 	in.Record = &task.Record{RecordHeader: schema.RecordHeader{Seq: 42, State: records.StateAnswered, AnsweredAt: &done},
 		Answer: &task.Answer{Outcome: task.OutcomeSucceeded, FinishedAt: &done,
 			Result: &task.Result{OutputPath: "/data/media/movies/Heat (1995)/Heat (1995).mp4", OutputSizeBytes: 3 << 30}}}
-	d := Plan(in)
+	d := pass(in)
 	b := d.Block
 	assert.Equal(t, catalogv1alpha1.TranscodePhaseSwapping, b.Phase)
 	assert.False(t, b.Dispatch.Withdrawn)
@@ -161,14 +161,78 @@ func TestAFactAfterTheClosingWithdrawalIsIncorporated(t *testing.T) {
 	other := *in.Record
 	other.Seq = 41
 	in.Record = &other
-	assert.Equal(t, catalogv1alpha1.TranscodePhaseSkipped, Plan(in).Block.Phase, "a fact at another seq is not the withdrawn dispatch's")
+	assert.Equal(t, catalogv1alpha1.TranscodePhaseSkipped, pass(in).Block.Phase, "a fact at another seq is not the withdrawn dispatch's")
 
 	fact := &task.Record{RecordHeader: schema.RecordHeader{Seq: 42, State: records.StateAnswered, AnsweredAt: &done},
 		Answer: &task.Answer{Outcome: task.OutcomeSucceeded, FinishedAt: &done,
 			Result: &task.Result{OutputPath: "/data/media/movies/Heat (1995)/Heat (1995).mp4", OutputSizeBytes: 3 << 30}}}
 	in.Record = fact
 	in.Now = metav1.NewTime(t0.Add(FactWindow(jobspec.DefaultActiveDeadline) + time.Second))
-	assert.Equal(t, catalogv1alpha1.TranscodePhaseSkipped, Plan(in).Block.Phase, "past the fact window the record is not read")
+	assert.Equal(t, catalogv1alpha1.TranscodePhaseSkipped, pass(in).Block.Phase, "past the fact window the record is not read")
+}
+
+// TestAFactAfterTheClosingWithdrawalIsIncorporated's retry rows (the
+// graftplan defect of 584c3822, checked here): a dispatch withdrawn as
+// Unclaimed is dispatched again, and the withdrawn attempt's fact lands
+// late -- before the retry's dispatch grant is used, or after the retry's
+// Queued apply but before its request replaced the record (the request's
+// compare-and-swap misses, and records never replace an unincorporated
+// fact). Either way the fact is incorporated: the retry's dispatch starts
+// answeredSeq at 0, so the withdrawn seq is never read as incorporated.
+func TestALateFactOfAWithdrawnAttemptSurvivesItsRetry(t *testing.T) {
+	done := t0.Add(51 * time.Minute)
+	fact42 := func() *task.Record {
+		return &task.Record{RecordHeader: schema.RecordHeader{Seq: 42, State: records.StateAnswered, AnsweredAt: &done},
+			Answer: &task.Answer{Outcome: task.OutcomeSucceeded, FinishedAt: &done,
+				Result: &task.Result{OutputPath: "/data/media/movies/Heat (1995)/Heat (1995).mp4", OutputSizeBytes: 3 << 30}}}
+	}
+	// withdrawn is the file once attempt 42 was withdrawn as Unclaimed:
+	// Planned, its dispatch closed and withdrawn, holding a dispatch grant.
+	withdrawn := func(t *testing.T) Inputs {
+		in := queuedIn(t)
+		in.Now = metav1.NewTime(t0.Add(records.RepublishWindow + time.Second))
+		first := pass(in)
+		require.Equal(t, ReasonUnclaimed, first.Block.Reason)
+		in.Prev, in.Record = first.Block, withdrawnAt42()
+		closed := pass(in)
+		require.Equal(t, catalogv1alpha1.TranscodePhasePlanned, closed.Block.Phase)
+		require.True(t, closed.Block.Dispatch.Withdrawn)
+		in.Prev = closed.Block
+		relook(&in)
+		in.Ledger = Ledger{Grant: GrantDispatch, Class: transcodev1alpha1.HardwareCPU}
+		in.Now = metav1.NewTime(done.Add(time.Minute))
+		return in
+	}
+
+	t.Run("before the retry is dispatched", func(t *testing.T) {
+		in := withdrawn(t)
+		in.Record = fact42()
+		d := pass(in)
+		assert.Equal(t, catalogv1alpha1.TranscodePhaseSwapping, d.Block.Phase, "never dispatched over a fact")
+		assert.Equal(t, int64(42), d.Block.Dispatch.Seq)
+		assert.False(t, d.Block.Dispatch.Withdrawn)
+		assert.Nil(t, d.Request)
+		assert.NotEqual(t, GrantConfirm, d.Grant, "the grant is not used (the adapter releases one it took)")
+	})
+
+	t.Run("after the retry's Queued apply", func(t *testing.T) {
+		in := withdrawn(t)
+		retry := pass(in)
+		require.Equal(t, catalogv1alpha1.TranscodePhaseQueued, retry.Block.Phase)
+		require.Equal(t, int64(43), retry.Block.Dispatch.Seq)
+		require.Zero(t, retry.Block.Dispatch.AnsweredSeq, "a new dispatch carries no incorporated seq forward")
+		require.False(t, retry.Block.Dispatch.Withdrawn)
+		in.Prev, in.Ledger, in.Record = retry.Block, Ledger{}, fact42()
+		relook(&in)
+		d := pass(in)
+		b := d.Block
+		assert.Equal(t, catalogv1alpha1.TranscodePhaseSwapping, b.Phase, "the late fact of 42 is incorporated")
+		require.NotNil(t, b.Result)
+		assert.Equal(t, "/data/media/movies/Heat (1995)/Heat (1995).mp4", b.Result.OutputPath)
+		assert.Equal(t, int64(43), b.Dispatch.AnsweredSeq, "the retry, which published nothing, is closed")
+		assert.Nil(t, d.Request, "the record holds the fact: nothing is requested over it")
+		assert.Nil(t, d.Publish)
+	})
 }
 
 // TestFileMissingRecoversTheSwapFromTheRecord is §5.9's FileMissing row:
@@ -181,7 +245,7 @@ func TestFileMissingRecoversTheSwapFromTheRecord(t *testing.T) {
 	in.Record = &task.Record{RecordHeader: schema.RecordHeader{Seq: 42, State: records.StateClaimed}, Inputs: in.Record.Inputs} // the answer never landed
 	require.NotEqual(t, in.File.Spec.Path, in.Record.Inputs.OutputPath, "the output has a name of its own")
 	in.SpecPathMissing, in.OutputExists, in.OutputSize = true, true, 2<<30
-	d := Plan(in)
+	d := pass(in)
 	b := d.Block
 	assert.Equal(t, catalogv1alpha1.TranscodePhaseSwapping, b.Phase)
 	require.NotNil(t, b.Result)
@@ -196,11 +260,11 @@ func TestFileMissingRecoversTheSwapFromTheRecord(t *testing.T) {
 	noOutput := queuedIn(t)
 	noOutput.Prev.Phase = catalogv1alpha1.TranscodePhaseRunning
 	noOutput.SpecPathMissing = true
-	assert.NotEqual(t, catalogv1alpha1.TranscodePhaseSwapping, Plan(noOutput).Block.Phase, "no output on disk, nothing to recover")
+	assert.NotEqual(t, catalogv1alpha1.TranscodePhaseSwapping, pass(noOutput).Block.Phase, "no output on disk, nothing to recover")
 
 	present := queuedIn(t)
 	present.OutputExists, present.OutputSize = true, 2<<30
-	assert.Equal(t, catalogv1alpha1.TranscodePhaseQueued, Plan(present).Block.Phase, "spec.path still there: no swap happened")
+	assert.Equal(t, catalogv1alpha1.TranscodePhaseQueued, pass(present).Block.Phase, "spec.path still there: no swap happened")
 }
 
 // TestOrphanAndDeadlineRows: a dispatch whose pool is no longer its
@@ -213,11 +277,11 @@ func TestOrphanAndDeadlineRows(t *testing.T) {
 	recreated.UID = "uid-hevc-2"
 	in.Profiles = map[string]*transcodev1alpha1.TranscodeProfile{"hevc": recreated}
 	in.Eligibility.Profile = recreated
-	first := Plan(in)
+	first := pass(in)
 	assert.Equal(t, ReasonOrphaned, first.Block.Reason)
 	assert.Equal(t, int64(42), first.Withdraw)
 	in.Prev, in.Record = first.Block, withdrawnAt42()
-	b := Plan(in).Block
+	b := pass(in).Block
 	assert.Equal(t, catalogv1alpha1.TranscodePhasePlanned, b.Phase)
 	assert.Equal(t, ReasonOrphaned, b.Reason)
 	assert.True(t, b.Dispatch.Withdrawn)
@@ -227,13 +291,13 @@ func TestOrphanAndDeadlineRows(t *testing.T) {
 	claimedAt := t0
 	in.Record = &task.Record{RecordHeader: schema.RecordHeader{Seq: 42, State: records.StateClaimed, ClaimedAt: &claimedAt}, Inputs: in.Record.Inputs}
 	in.Now = metav1.NewTime(t0.Add(jobspec.DefaultActiveDeadline + deadlineGrace - time.Second))
-	assert.Zero(t, Plan(in).Withdraw, "inside the deadline and its grace")
+	assert.Zero(t, pass(in).Withdraw, "inside the deadline and its grace")
 	in.Now = metav1.NewTime(t0.Add(jobspec.DefaultActiveDeadline + deadlineGrace + time.Second)) // the profile's 48 h default
-	late := Plan(in)
+	late := pass(in)
 	assert.Equal(t, ReasonDeadlineExceeded, late.Block.Reason)
 	assert.Equal(t, int64(42), late.Withdraw)
 	in.Prev, in.Record = late.Block, withdrawnAt42()
-	done := Plan(in).Block
+	done := pass(in).Block
 	assert.Equal(t, catalogv1alpha1.TranscodePhaseFailed, done.Phase)
 	assert.False(t, done.Blocked, "a deadline is not a verdict for good")
 }

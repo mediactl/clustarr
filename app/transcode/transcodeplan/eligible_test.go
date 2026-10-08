@@ -62,6 +62,20 @@ func TestEligibleFollowsTheWinningProfile(t *testing.T) {
 	urgent.Priority = new(int32(100))
 	assert.Equal(t, int32(100), Eligible(urgent, all).Priority, "the file's priority intent outranks the profile's")
 
+	// A block of the winning profile that records no transcode -- in the
+	// window, or a verdict -- carries the tag it was planned under: the
+	// file stays eligible (the window and the verdict rules decide).
+	for _, ph := range []catalogv1alpha1.TranscodePhase{
+		catalogv1alpha1.TranscodePhasePending, catalogv1alpha1.TranscodePhasePlanned, catalogv1alpha1.TranscodePhaseQueued,
+		catalogv1alpha1.TranscodePhaseRunning, catalogv1alpha1.TranscodePhaseSwapping,
+		catalogv1alpha1.TranscodePhaseSkipped, catalogv1alpha1.TranscodePhaseFailed,
+	} {
+		f := eligibleFile(probed("ph-1"))
+		f.Status.Transcode = &catalogv1alpha1.TranscodeState{Phase: ph, Profile: "hevc", ProfileTag: tagOf(hevc)}
+		got := Eligible(f, all)
+		assert.True(t, got.Eligible, "a %s block records no transcode: %s", ph, got.Why)
+	}
+
 	for _, tc := range []struct {
 		name    string
 		mutate  func(*File)
@@ -78,6 +92,9 @@ func TestEligibleFollowsTheWinningProfile(t *testing.T) {
 		{name: "another tool encoded HEVC", mutate: func(f *File) { f.Status.MediaInfo.VideoEncoder = "Lavc61.19.100 hevc_qsv" }},
 		{name: "a kept copy was recorded under any hash", mutate: func(f *File) {
 			f.Status.Transcode = &catalogv1alpha1.TranscodeState{Phase: catalogv1alpha1.TranscodePhaseSucceeded, ProfileTag: "hevc@0ld"}
+		}},
+		{name: "a legacy block records a transcode", mutate: func(f *File) {
+			f.Status.Transcode = &catalogv1alpha1.TranscodeState{ProfileTag: "hevc@0ld", Compliant: true}
 		}},
 		{name: "no profile at all", profs: []transcodev1alpha1.TranscodeProfile{}},
 		{name: "its winner is an Invalid duplicate default", mutate: func(f *File) { f.Labels = map[string]string{"tier": "uhd"} },

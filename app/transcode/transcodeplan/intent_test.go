@@ -34,34 +34,34 @@ import (
 func TestIntentsAreRecordedOnce(t *testing.T) {
 	in := inputs(nil, probed("ph-1"), GrantNone)
 	in.Intents = Intents{Retry: "1759752000", Cancel: "1759752001"}
-	d := Plan(in)
+	d := pass(in)
 	require.NotNil(t, d.Nonces)
 	assert.Equal(t, "1759752000", d.Nonces.TranscodeRetry)
 	assert.Equal(t, "1759752001", d.Nonces.TranscodeCancel)
 	assert.ElementsMatch(t, []string{ReasonNothingToRetry, ReasonNothingToCancel}, reasons(d.Events))
 
 	in.Nonces = *d.Nonces
-	again := Plan(in)
+	again := pass(in)
 	assert.Nil(t, again.Nonces, "nothing pending: the stored nonces are kept")
 	assert.Empty(t, again.Events, "a handled nonce is not handled again")
 
 	in.Intents.Retry = "not a nonce!"
-	bad := Plan(in)
+	bad := pass(in)
 	require.NotNil(t, bad.Nonces)
 	assert.Equal(t, catalogv1alpha1.HandledNonce("not a nonce!"), bad.Nonces.TranscodeRetry, "an invalid one-shot is recorded")
 	assert.Equal(t, "1759752001", bad.Nonces.TranscodeCancel, "the other leaf is kept")
 	assert.Equal(t, []string{ReasonInvalidAnnotation}, reasons(bad.Events))
 	in.Nonces = *bad.Nonces
-	assert.Empty(t, Plan(in).Events, "an invalid value warns once")
+	assert.Empty(t, pass(in).Events, "an invalid value warns once")
 
 	held := inputs(nil, probed("ph-1"), GrantNone)
 	held.ProbeCurrent = false
 	held.Intents.Retry = "1759752009"
-	assert.Nil(t, Plan(held).Nonces, "a nonce on a held file waits for the hold to lift")
+	assert.Nil(t, pass(held).Nonces, "a nonce on a held file waits for the hold to lift")
 	grafting := inputs(nil, probed("ph-1"), GrantNone)
 	grafting.Eligibility.Pending = ReasonGrafting
 	grafting.Intents.Cancel = "1759752010"
-	assert.Nil(t, Plan(grafting).Nonces, "a standalone graft holds the nonce too")
+	assert.Nil(t, pass(grafting).Nonces, "a standalone graft holds the nonce too")
 }
 
 // TestRetryClearsAVerdictForTheCurrentTag is D14: retry clears a Failed or
@@ -74,18 +74,18 @@ func TestRetryClearsAVerdictForTheCurrentTag(t *testing.T) {
 		Profile: "hevc", ProfileHash: in.Eligibility.Hash, ProfileTag: in.Eligibility.Tag, ProbeHash: "ph-1", Attempts: 5,
 		Dispatch: &catalogv1alpha1.Dispatch{Seq: 77, AnsweredSeq: 77, DispatchedAt: metav1.NewTime(t0)}}
 	in.Prev, in.Intents.Retry = blocked, "1759752000"
-	d := Plan(in)
+	d := pass(in)
 	assert.Nil(t, d.Block, "the verdict goes; the file is backlog again")
 	require.NotNil(t, d.Nonces)
 	assert.Equal(t, "1759752000", d.Nonces.TranscodeRetry)
 	assert.Equal(t, []string{ReasonRetried}, reasons(d.Events))
 
 	in.Nonces = *d.Nonces
-	assert.Equal(t, blocked, Plan(in).Block, "a handled nonce retries nothing")
+	assert.Equal(t, blocked, pass(in).Block, "a handled nonce retries nothing")
 
 	window := inputs(blocked, probed("ph-1"), GrantWindow)
 	window.Intents.Retry = "1759752001"
-	w := Plan(window)
+	w := pass(window)
 	require.NotNil(t, w.Block)
 	assert.Equal(t, catalogv1alpha1.TranscodePhasePlanned, w.Block.Phase, "the window takes the retried file at once")
 	assert.Zero(t, w.Block.Attempts)
@@ -96,7 +96,7 @@ func TestRetryClearsAVerdictForTheCurrentTag(t *testing.T) {
 	stale.ProfileHash, stale.ProfileTag = "0ld", "hevc@0ld"
 	other := inputs(stale, probed("ph-1"), GrantNone)
 	other.Intents.Retry = "1759752002"
-	o := Plan(other)
+	o := pass(other)
 	assert.Equal(t, stale, o.Block, "a verdict for another tag is not this profile's to retry")
 	assert.Equal(t, []string{ReasonNothingToRetry}, reasons(o.Events))
 }
@@ -108,7 +108,7 @@ func TestRetryClearsAVerdictForTheCurrentTag(t *testing.T) {
 func TestStandingIntentsAreRecordedInTheBlock(t *testing.T) {
 	in := inputs(nil, probed("ph-1"), GrantWindow)
 	in.Intents = Intents{Priority: "50", Hardware: "nvidia", Suspend: "true"}
-	d := Plan(in)
+	d := pass(in)
 	b := d.Block
 	require.NotNil(t, b)
 	assert.Equal(t, int32(50), b.Priority)
@@ -120,12 +120,12 @@ func TestStandingIntentsAreRecordedInTheBlock(t *testing.T) {
 
 	resumed := inputs(b, probed("ph-1"), GrantNone)
 	resumed.Intents = Intents{Priority: "50", Hardware: "nvidia"}
-	r := Plan(resumed).Block
+	r := pass(resumed).Block
 	assert.False(t, r.Suspended)
 	assert.Equal(t, ReasonWaitingForSlot, r.Reason, "unsuspended, it waits for a slot again")
 
 	in.Intents = Intents{Priority: "urgent", Hardware: "quantum"}
-	bad := Plan(in)
+	bad := pass(in)
 	assert.Equal(t, []string{ReasonInvalidAnnotation, ReasonInvalidAnnotation}, reasons(bad.Events),
 		"a bad standing value is ignored with a Warning")
 	assert.Equal(t, in.Eligibility.Profile.Spec.Priority, bad.Block.Priority)
@@ -136,5 +136,5 @@ func TestStandingIntentsAreRecordedInTheBlock(t *testing.T) {
 		Profile: "hevc", ProfileHash: in.Eligibility.Hash, ProbeHash: "ph-1"}
 	v := inputs(verdict, probed("ph-1"), GrantNone)
 	v.Intents = Intents{Priority: "50", Hardware: "nvidia", Suspend: "true"}
-	assert.Equal(t, verdict, Plan(v).Block, "a verdict holds no window place to record them on")
+	assert.Equal(t, verdict, pass(v).Block, "a verdict holds no window place to record them on")
 }

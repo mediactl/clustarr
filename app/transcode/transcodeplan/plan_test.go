@@ -39,7 +39,7 @@ func TestPlanNormalisesALegacyBlock(t *testing.T) {
 		Compliant: true, ProfileTag: "hevc@0ld", ProbeHash: "ph-0ld", Message: "transcoded by job heat-1995-0ld00000",
 	}
 	for _, grant := range []GrantKind{GrantNone, GrantWindow} {
-		d := Plan(inputs(legacy, probed("ph-1"), grant))
+		d := pass(inputs(legacy, probed("ph-1"), grant))
 		require.NotNil(t, d.Block)
 		assert.Equal(t, &catalogv1alpha1.TranscodeState{
 			Phase: catalogv1alpha1.TranscodePhaseSucceeded, Compliant: true, ProfileTag: "hevc@0ld",
@@ -47,7 +47,7 @@ func TestPlanNormalisesALegacyBlock(t *testing.T) {
 	}
 
 	tagless := &catalogv1alpha1.TranscodeState{Message: "the job failed"}
-	assert.Nil(t, Plan(inputs(tagless, probed("ph-1"), GrantNone)).Block)
+	assert.Nil(t, pass(inputs(tagless, probed("ph-1"), GrantNone)).Block)
 }
 
 // TestAVerdictHoldsOnlyForItsTagAndProbe is §5.11 "Verdicts" and D13: with no
@@ -63,9 +63,9 @@ func TestAVerdictHoldsOnlyForItsTagAndProbe(t *testing.T) {
 	failed := cur.DeepCopy()
 	failed.Phase, failed.Reason, failed.Blocked = catalogv1alpha1.TranscodePhaseFailed, ReasonRetriesExhausted, true
 
-	assert.Equal(t, cur, Plan(inputs(cur, probed("ph-1"), GrantNone)).Block)
-	assert.Equal(t, stale, Plan(inputs(stale, probed("ph-1"), GrantNone)).Block, "untouched until the window takes it")
-	assert.Equal(t, cur, Plan(inputs(cur, probed("ph-2"), GrantNone)).Block, "new bytes make it eligible; the block waits for the window too")
+	assert.Equal(t, cur, pass(inputs(cur, probed("ph-1"), GrantNone)).Block)
+	assert.Equal(t, stale, pass(inputs(stale, probed("ph-1"), GrantNone)).Block, "untouched until the window takes it")
+	assert.Equal(t, cur, pass(inputs(cur, probed("ph-2"), GrantNone)).Block, "new bytes make it eligible; the block waits for the window too")
 
 	for name, b := range map[string]*catalogv1alpha1.TranscodeState{"a stale tag": stale, "new bytes": cur} {
 		t.Run(name, func(t *testing.T) {
@@ -73,7 +73,7 @@ func TestAVerdictHoldsOnlyForItsTagAndProbe(t *testing.T) {
 			if name == "new bytes" {
 				probe = "ph-2"
 			}
-			d := Plan(inputs(b, probed(probe), GrantWindow))
+			d := pass(inputs(b, probed(probe), GrantWindow))
 			require.NotNil(t, d.Block)
 			assert.Equal(t, catalogv1alpha1.TranscodePhasePlanned, d.Block.Phase)
 			assert.Equal(t, probe, d.Block.ProbeHash)
@@ -81,7 +81,7 @@ func TestAVerdictHoldsOnlyForItsTagAndProbe(t *testing.T) {
 		})
 	}
 	for name, b := range map[string]*catalogv1alpha1.TranscodeState{"Skipped": cur, "Failed": failed} {
-		d := Plan(inputs(b, probed("ph-1"), GrantWindow))
+		d := pass(inputs(b, probed("ph-1"), GrantWindow))
 		assert.Equal(t, GrantRelease, d.Grant, "a current %s verdict takes no place", name)
 		assert.Equal(t, b, d.Block, "a current %s verdict is not rewritten", name)
 	}
@@ -93,7 +93,7 @@ func TestAVerdictHoldsOnlyForItsTagAndProbe(t *testing.T) {
 // hardware; a pending file takes its place as Pending.
 func TestAWindowGrantPlansFromTheStoredProbe(t *testing.T) {
 	in := inputs(nil, probed("ph-1"), GrantWindow)
-	d := Plan(in)
+	d := pass(in)
 	require.NotNil(t, d.Block)
 	b := d.Block
 	assert.Equal(t, catalogv1alpha1.TranscodePhasePlanned, b.Phase)
@@ -124,7 +124,7 @@ func TestAWindowGrantPlansFromTheStoredProbe(t *testing.T) {
 	f := eligibleFile(pending.Draft)
 	f.ProbeCurrent = false
 	pending.Eligibility = Eligible(f, []transcodev1alpha1.TranscodeProfile{newProfile("hevc", true, t0, nil)})
-	pd := Plan(pending)
+	pd := pass(pending)
 	require.NotNil(t, pd.Block)
 	assert.Equal(t, catalogv1alpha1.TranscodePhasePending, pd.Block.Phase)
 	assert.Equal(t, ReasonProbePending, pd.Block.Reason)
@@ -133,7 +133,7 @@ func TestAWindowGrantPlansFromTheStoredProbe(t *testing.T) {
 
 	gone := inputs(nil, probed("ph-1"), GrantWindow)
 	gone.Eligibility.Eligible, gone.Eligibility.Why = false, "its movie is gone"
-	gd := Plan(gone)
+	gd := pass(gone)
 	assert.Nil(t, gd.Block)
 	assert.Equal(t, GrantRelease, gd.Grant)
 }
@@ -145,7 +145,7 @@ func TestAWindowGrantOnAHeldFileIsSkipped(t *testing.T) {
 	st := probed("ph-1")
 	st.MediaInfo.Subtitles = []commonv1.SubtitleStream{{Index: 2, Codec: "hdmv_pgs_subtitle", Language: "eng", Bitmap: true}}
 	in := inputs(nil, st, GrantWindow)
-	d := Plan(in)
+	d := pass(in)
 	require.NotNil(t, d.Block)
 	assert.Equal(t, catalogv1alpha1.TranscodePhaseSkipped, d.Block.Phase)
 	assert.Equal(t, ReasonPlanSkip, d.Block.Reason)
@@ -156,7 +156,7 @@ func TestAWindowGrantOnAHeldFileIsSkipped(t *testing.T) {
 	assert.Equal(t, GrantConfirm, d.Grant)
 
 	again := inputs(d.Block, st, GrantWindow)
-	assert.Equal(t, GrantRelease, Plan(again).Grant, "the verdict holds for its (profileHash, probeHash)")
+	assert.Equal(t, GrantRelease, pass(again).Grant, "the verdict holds for its (profileHash, probeHash)")
 }
 
 // TestThePlanNamesTheSubtitlesItDrops is D44 (loop spec §2.5, §5.8):
@@ -178,7 +178,7 @@ func TestThePlanNamesTheSubtitlesItDrops(t *testing.T) {
 	st := probed("ph-1")
 	st.MediaInfo.Subtitles = []commonv1.SubtitleStream{{Index: 2, Codec: "subrip", Language: "eng"},
 		{Index: 3, Codec: "subrip", Language: "eng"}, {Index: 4, Codec: "dvb_teletext", Language: "ger"}}
-	d := Plan(inputs(nil, st, GrantWindow))
+	d := pass(inputs(nil, st, GrantWindow))
 	require.NotNil(t, d.Block)
 	require.NotNil(t, d.Block.Plan)
 	require.Len(t, d.Block.Plan.Dropped, 2, "%q", d.Block.Plan.Dropped)
@@ -189,23 +189,23 @@ func TestThePlanNamesTheSubtitlesItDrops(t *testing.T) {
 // TestAPlannedFileLeavesTheWindowWhenItStopsBeingEligible is §5.11 "Leaving
 // the window"; a profile edit does not evict a Planned file.
 func TestAPlannedFileLeavesTheWindowWhenItStopsBeingEligible(t *testing.T) {
-	planned := Plan(inputs(nil, probed("ph-1"), GrantWindow)).Block
+	planned := pass(inputs(nil, probed("ph-1"), GrantWindow)).Block
 	require.NotNil(t, planned)
 	require.Equal(t, catalogv1alpha1.TranscodePhasePlanned, planned.Phase)
 	in := inputs(planned, probed("ph-1"), GrantNone)
-	assert.Equal(t, planned, Plan(in).Block, "an eligible Planned file keeps its place untouched")
+	assert.Equal(t, planned, pass(in).Block, "an eligible Planned file keeps its place untouched")
 	in.Eligibility.Eligible, in.Eligibility.Why = false, "item gone"
-	assert.Nil(t, Plan(in).Block)
+	assert.Nil(t, pass(in).Block)
 
 	edited := planned.DeepCopy()
 	edited.ProfileHash, edited.ProfileTag = "0ld", "hevc@0ld"
-	assert.Equal(t, edited, Plan(inputs(edited, probed("ph-1"), GrantNone)).Block, "re-planned at dispatch, not evicted")
+	assert.Equal(t, edited, pass(inputs(edited, probed("ph-1"), GrantNone)).Block, "re-planned at dispatch, not evicted")
 
 	pending := planned.DeepCopy()
 	pending.Phase, pending.Reason, pending.Plan, pending.PlannedAt = catalogv1alpha1.TranscodePhasePending, ReasonProbePending, nil, nil
 	gone := inputs(pending, probed("ph-1"), GrantNone)
 	gone.Eligibility = Eligibility{Why: "its movie is gone"}
-	assert.Nil(t, Plan(gone).Block, "a Pending file leaves the window too")
+	assert.Nil(t, pass(gone).Block, "a Pending file leaves the window too")
 }
 
 // TestASwapIsIncorporatedWithTheDispatchedTag is §5.9 "The swap": Swapping
@@ -221,14 +221,14 @@ func TestASwapIsIncorporatedWithTheDispatchedTag(t *testing.T) {
 	}
 	notYet := inputs(swapping, probed("ph-1"), GrantNone)
 	require.NotEqual(t, "d1spatched", notYet.Eligibility.Hash, "the profile's current hash is another")
-	assert.Equal(t, swapping, Plan(notYet).Block, "Swapping waits for the probe of its output")
+	assert.Equal(t, swapping, pass(notYet).Block, "Swapping waits for the probe of its output")
 
 	for name, at := range map[string]time.Time{"a second later": t0.Add(time.Second), "the same second": t0} {
 		t.Run(name, func(t *testing.T) {
 			landed := probed("ph-out")
 			landed.ProbedAt = new(metav1.NewTime(at)) // the catalog's !finishedAt.After(probedAt)
 			landed.MediaInfo.TranscodeProfile = "hevc@d1spatched"
-			d := Plan(inputs(swapping, landed, GrantNone))
+			d := pass(inputs(swapping, landed, GrantNone))
 			b := d.Block
 			require.NotNil(t, b)
 			assert.Equal(t, catalogv1alpha1.TranscodePhaseSucceeded, b.Phase)
@@ -244,13 +244,13 @@ func TestASwapIsIncorporatedWithTheDispatchedTag(t *testing.T) {
 	early := probed("ph-out")
 	early.ProbedAt = new(metav1.NewTime(t0.Add(-time.Second)))
 	early.MediaInfo.TranscodeProfile = "hevc@d1spatched"
-	assert.Equal(t, catalogv1alpha1.TranscodePhaseSwapping, Plan(inputs(swapping, early, GrantNone)).Block.Phase,
+	assert.Equal(t, catalogv1alpha1.TranscodePhaseSwapping, pass(inputs(swapping, early, GrantNone)).Block.Phase,
 		"a probe from before the worker finished is the source's")
 
 	wrong := probed("ph-out")
 	wrong.ProbedAt = new(metav1.NewTime(t0.Add(time.Second)))
 	wrong.MediaInfo.TranscodeProfile = "other@abc"
-	d := Plan(inputs(swapping, wrong, GrantNone))
+	d := pass(inputs(swapping, wrong, GrantNone))
 	b := d.Block
 	assert.Equal(t, catalogv1alpha1.TranscodePhaseFailed, b.Phase)
 	assert.True(t, b.Blocked)
@@ -266,8 +266,8 @@ func TestASwapIsIncorporatedWithTheDispatchedTag(t *testing.T) {
 func TestNewBytesOnASucceededFileDropItsVerdict(t *testing.T) {
 	done := &catalogv1alpha1.TranscodeState{Phase: catalogv1alpha1.TranscodePhaseSucceeded, Compliant: true,
 		ProfileTag: "hevc@d1spatched", ProbeHash: "ph-out"}
-	assert.Equal(t, done, Plan(inputs(done, probed("ph-out"), GrantNone)).Block)
-	b := Plan(inputs(done, probed("ph-remuxed"), GrantNone)).Block
+	assert.Equal(t, done, pass(inputs(done, probed("ph-out"), GrantNone)).Block)
+	b := pass(inputs(done, probed("ph-remuxed"), GrantNone)).Block
 	assert.Equal(t, &catalogv1alpha1.TranscodeState{Phase: catalogv1alpha1.TranscodePhaseSucceeded, ProbeHash: "ph-out"}, b)
-	assert.Equal(t, b, Plan(inputs(b, probed("ph-remuxed"), GrantNone)).Block, "dropped once, then kept")
+	assert.Equal(t, b, pass(inputs(b, probed("ph-remuxed"), GrantNone)).Block, "dropped once, then kept")
 }

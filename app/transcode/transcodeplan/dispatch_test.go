@@ -41,7 +41,7 @@ import (
 // task's inputs the record's.
 func TestADispatchRendersQueuedThenOwesTheRecordAndThePublish(t *testing.T) {
 	in := dispatchIn(t)
-	d := Plan(in)
+	d := pass(in)
 	require.NotNil(t, d.Block)
 	b := d.Block
 	assert.Equal(t, catalogv1alpha1.TranscodePhaseQueued, b.Phase)
@@ -98,7 +98,7 @@ func TestADispatchGrantOnAStaleViewChangesNothing(t *testing.T) {
 	in.Record = &task.Record{RecordHeader: schema.RecordHeader{Seq: 42, State: records.StateRequested, RequestedAt: t0}}
 	in.RecordRev = 3
 	in.Profiles = map[string]*transcodev1alpha1.TranscodeProfile{"hevc": in.Eligibility.Profile}
-	d := Plan(in)
+	d := pass(in)
 	assert.Equal(t, GrantRelease, d.Grant)
 	assert.Nil(t, d.Request, "the record is already at 42")
 	assert.Zero(t, d.ConfirmSeq)
@@ -117,7 +117,7 @@ func TestADispatchRewritesTheDroppedSubtitles(t *testing.T) {
 	in.Prev = in.Prev.DeepCopy()
 	in.Prev.Plan.Dropped = []string{"subtitle 9 (dvb_teletext): a codec the MP4 standard does not carry"}
 	in.Draft.MediaInfo.Subtitles = []commonv1.SubtitleStream{{Index: 2, Codec: "subrip", Language: "eng"}, {Index: 3, Codec: "subrip", Language: "eng"}}
-	d := Plan(in)
+	d := pass(in)
 	require.NotNil(t, d.Block)
 	require.Equal(t, catalogv1alpha1.TranscodePhaseQueued, d.Block.Phase)
 	require.NotNil(t, d.Block.Plan)
@@ -132,7 +132,7 @@ func TestADispatchRewritesTheDroppedSubtitles(t *testing.T) {
 func TestRepublishStopsAtTheWindow(t *testing.T) {
 	in := queuedIn(t)
 	in.Now = metav1.NewTime(t0.Add(10 * time.Minute))
-	d := Plan(in)
+	d := pass(in)
 	require.NotNil(t, d.Publish, "republished")
 	assert.True(t, d.Republish)
 	assert.Equal(t, int64(42), d.Publish.Seq)
@@ -141,13 +141,13 @@ func TestRepublishStopsAtTheWindow(t *testing.T) {
 	assert.Equal(t, in.Prev, d.Block, "a republish writes nothing")
 
 	in.Ledger.PublishFailed = "nats: connection closed"
-	failing := Plan(in)
+	failing := pass(in)
 	require.NotNil(t, failing.Publish)
 	assert.Equal(t, "attempt 42: publish failed: nats: connection closed; retrying", failing.Block.Message)
 
 	in.Ledger.PublishFailed = ""
 	in.Now = metav1.NewTime(t0.Add(records.RepublishWindow + time.Second))
-	late := Plan(in)
+	late := pass(in)
 	assert.Nil(t, late.Publish, "past the window the dedupe would not absorb it")
 	assert.Equal(t, int64(42), late.Withdraw, "it is withdrawn instead")
 	assert.Equal(t, ReasonUnclaimed, late.Block.Reason)
@@ -164,7 +164,7 @@ func TestTheRecordMovesTheBlock(t *testing.T) {
 	in.Record = &task.Record{RecordHeader: schema.RecordHeader{Seq: 42, State: records.StateClaimed, ClaimedAt: &claimedAt, Writer: "pool-0"},
 		Inputs: inputs}
 	in.Now = metav1.NewTime(t0.Add(2 * time.Minute))
-	rd := Plan(in)
+	rd := pass(in)
 	r := rd.Block
 	assert.Equal(t, catalogv1alpha1.TranscodePhaseRunning, r.Phase)
 	assert.Equal(t, "pool-0", r.WorkerPod)
@@ -174,14 +174,14 @@ func TestTheRecordMovesTheBlock(t *testing.T) {
 	assert.Nil(t, rd.Publish, "a claimed seq is never published again")
 
 	in.Prev = r
-	assert.Empty(t, Plan(in).History, "started is owed once")
+	assert.Empty(t, pass(in).History, "started is owed once")
 
 	done := t0.Add(time.Hour)
 	in.Record = &task.Record{RecordHeader: schema.RecordHeader{Seq: 42, State: records.StateAnswered, AnsweredAt: &done},
 		Inputs: inputs, Answer: &task.Answer{Outcome: task.OutcomeSucceeded, FinishedAt: &done,
 			Result: &task.Result{OutputPath: "/data/media/movies/Heat (1995)/Heat (1995).mp4", OutputSizeBytes: 3 << 30, OutputToSourcePercent: 38}}}
 	in.Now = metav1.NewTime(done.Add(time.Minute))
-	s := Plan(in)
+	s := pass(in)
 	assert.Equal(t, catalogv1alpha1.TranscodePhaseSwapping, s.Block.Phase)
 	assert.Equal(t, int64(42), s.Block.Dispatch.AnsweredSeq)
 	assert.Equal(t, metav1.NewTime(done), *s.Block.FinishedAt, "timestamps come from the record (§4.10 determinism)")
@@ -195,12 +195,12 @@ func TestTheRecordMovesTheBlock(t *testing.T) {
 	assert.Equal(t, time.Hour-time.Minute, s.Observe.Wall)
 	assert.InDelta(t, 0.38, s.Observe.SizeRatio, 1e-9)
 	assert.Equal(t, "hd", s.Observe.Resolution)
-	assert.Equal(t, s, Plan(in), "incorporating twice is byte-identical")
+	assert.Equal(t, s, pass(in), "incorporating twice is byte-identical")
 
 	stale := *in.Record
 	stale.Seq = 41
 	in.Record = &stale
-	assert.Equal(t, catalogv1alpha1.TranscodePhaseRunning, Plan(in).Block.Phase, "an answer for 41 is not 42's")
+	assert.Equal(t, catalogv1alpha1.TranscodePhaseRunning, pass(in).Block.Phase, "an answer for 41 is not 42's")
 }
 
 // TestAFinalDeliveryFailureIsRetriableWithItsCause is §5.9's `failed` row:
@@ -209,7 +209,7 @@ func TestAFinalDeliveryFailureIsRetriableWithItsCause(t *testing.T) {
 	in := queuedIn(t)
 	in.Record = &task.Record{RecordHeader: schema.RecordHeader{Seq: 42, State: records.StateFailed,
 		Failure: "nats: no responders", Transient: true}, Inputs: in.Record.Inputs}
-	d := Plan(in)
+	d := pass(in)
 	b := d.Block
 	assert.Equal(t, catalogv1alpha1.TranscodePhasePlanned, b.Phase)
 	assert.Equal(t, string(task.ReasonRetriable), b.Reason)
@@ -232,14 +232,14 @@ func TestALostWorkerIsRetriedAfterTheGrace(t *testing.T) {
 	in.Lease = LeaseView{Missing: true, MissingSince: t0}
 	in.Now = metav1.NewTime(t0.Add(leaseLostGrace - time.Second))
 	in.TaskStored = new(false)
-	assert.Equal(t, catalogv1alpha1.TranscodePhaseRunning, Plan(in).Block.Phase, "inside the grace")
+	assert.Equal(t, catalogv1alpha1.TranscodePhaseRunning, pass(in).Block.Phase, "inside the grace")
 	in.Now = metav1.NewTime(t0.Add(leaseLostGrace + time.Second))
 	in.TaskStored = nil
-	assert.Equal(t, catalogv1alpha1.TranscodePhaseRunning, Plan(in).Block.Phase, "the stream was not asked")
+	assert.Equal(t, catalogv1alpha1.TranscodePhaseRunning, pass(in).Block.Phase, "the stream was not asked")
 	in.TaskStored = new(true)
-	assert.Equal(t, catalogv1alpha1.TranscodePhaseRunning, Plan(in).Block.Phase, "JetStream will redeliver it")
+	assert.Equal(t, catalogv1alpha1.TranscodePhaseRunning, pass(in).Block.Phase, "JetStream will redeliver it")
 	in.TaskStored = new(false)
-	d := Plan(in)
+	d := pass(in)
 	b := d.Block
 	assert.Equal(t, catalogv1alpha1.TranscodePhasePlanned, b.Phase)
 	assert.Equal(t, ReasonWorkerLost, b.Reason)
@@ -250,7 +250,7 @@ func TestALostWorkerIsRetriedAfterTheGrace(t *testing.T) {
 	assert.Equal(t, ReasonWorkerLost, d.History[0].Reason)
 
 	in.Prev.Attempts = MaxAttempts
-	exhausted := Plan(in).Block
+	exhausted := pass(in).Block
 	assert.Equal(t, catalogv1alpha1.TranscodePhaseFailed, exhausted.Phase)
 	assert.Equal(t, ReasonRetriesExhausted, exhausted.Reason)
 	assert.True(t, exhausted.Blocked)
