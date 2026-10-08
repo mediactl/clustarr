@@ -31,6 +31,8 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/app/import/worker/fileimport"
+	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/events/schema"
 )
 
 // The carried "spec.recycleBin.cleanupDays has no consumer: nothing empties
@@ -84,4 +86,52 @@ func TestRecycleSweeperEmptiesExpiredDays(t *testing.T) {
 	assert.True(t, exists(filepath.Join(shared, "keep-me")), "a folder that is not a day is never guessed at")
 	assert.True(t, exists(filepath.Join(off, day(100))), "cleanupDays 0 keeps everything")
 	assert.True(t, exists(filepath.Join(library, day(400))), "a bin that is a library is not swept")
+}
+
+// TestRecycleSweeperHandlesTheSweepTask (W4.61): the sweep is queued work
+// (spec 2026-10-06 §3.5.3): one RecycleSweepTask runs SweepOnce, and a
+// payload that is not one is dead-lettered at once, since no retry makes it
+// decodable.
+func TestRecycleSweeperHandlesTheSweepTask(t *testing.T) {
+	ctx := context.Background()
+	c := requireEnvtest(t)
+	ns := createNamespace(t, ctx, c, "fi-sweep-task")
+	now := time.Date(2026, 10, 6, 18, 0, 0, 0, time.UTC)
+	bin := dataDir(t, "recycle")
+	expired := filepath.Join(bin, now.AddDate(0, 0, -40).Format("2006-01-02"))
+	kept := filepath.Join(bin, now.AddDate(0, 0, -2).Format("2006-01-02"))
+	require.NoError(t, os.MkdirAll(expired, 0o755))
+	require.NoError(t, os.MkdirAll(kept, 0o755))
+	require.NoError(t, c.Create(ctx, &catalogv1alpha1.RootFolder{
+		ObjectMeta: metav1.ObjectMeta{Name: "movies", Namespace: ns},
+		Spec: catalogv1alpha1.RootFolderSpec{
+			Path: dataDir(t, "media"), Kind: catalogv1alpha1.RootFolderKindMovie,
+			RecycleBin: catalogv1alpha1.RecycleBin{Path: bin, CleanupDays: new(int32(7))},
+		},
+	}))
+	waitFor(t, 5*time.Second, func() bool {
+		var list catalogv1alpha1.RootFolderList
+		return c.List(ctx, &list, client.InNamespace(ns)) == nil && len(list.Items) == 1
+	})
+
+	s := &fileimport.RecycleSweeper{Client: c, Clock: func() time.Time { return now }, Namespace: ns}
+	name, data, err := schema.Encode(schema.RecycleSweepTask{Period: now})
+	require.NoError(t, err)
+	msg := &fakeMessage{env: &events.Envelope{Schema: name, Data: data}}
+	require.NoError(t, s.Handle(ctx, msg))
+	assert.NoDirExists(t, expired, "a 40-day-old day is past the 7-day retention")
+	assert.DirExists(t, kept, "a 2-day-old day is inside it")
+
+	// The recycle consumer routes a sweep task to the sweeper too.
+	require.NoError(t, os.MkdirAll(expired, 0o755))
+	route := fileimport.RecycleHandler(s, fileimport.NewRecycleFiles(c))
+	require.NoError(t, route(ctx, &fakeMessage{env: &events.Envelope{Schema: name, Data: data}}))
+	assert.NoDirExists(t, expired, "the recycle consumer's handler swept")
+
+	_, data, err = schema.Encode(schema.ListTask{ListRef: schema.Ref{Name: "trakt"}})
+	require.NoError(t, err)
+	err = s.Handle(ctx, &fakeMessage{env: &events.Envelope{Schema: schema.ListTask{}.Schema(), Data: data}})
+	var discard *events.DiscardError
+	require.ErrorAs(t, err, &discard, "a foreign payload is dead-lettered, not retried")
+	assert.DirExists(t, kept, "and sweeps nothing")
 }
