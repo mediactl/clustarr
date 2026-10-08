@@ -49,7 +49,7 @@ import (
 //
 // Every settings kind gets its own entry in [Grants] (patch, alongside the
 // group's existing read grants in config/rbac/ui_role.yaml) and its own
-// envtest-free unit coverage in actions_test.go; cmd/clustarr/ui_rbac_test.go
+// envtest-free unit coverage in actions_test.go; test/guards/ui_rbac_test.go
 // holds config/rbac/ui_role.yaml's write verbs to exactly what [Grants]
 // declares, so a settings action with no matching grant fails that test
 // rather than only failing silently in a real cluster.

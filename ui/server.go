@@ -77,7 +77,7 @@ const authWarning = "ui authentication mode is anonymous: every request is serve
 	"(design amendment §A3.5, docs/superpowers/specs/2026-09-18-clustarr-design-amendment-1.md)"
 
 // PlexOptions configures the Plex Custom Metadata Provider (design spec
-// §D.1), ui/plex's own Options threaded through from cmd/clustarr.
+// §D.1), ui/plex's own Options threaded through from cmd/ui.
 type PlexOptions struct {
 	// ExternalURL is the absolute base every thumb, art and Image[].url the
 	// provider hands Plex is built on (`--external-url`, env
@@ -115,7 +115,7 @@ type Options struct {
 	BindAddress string
 
 	// AuthMode is the authentication mode the operator chose (`--auth-mode`
-	// on `clustarr ui`, `--ui-auth-mode` on `clustarr all`, the chart's
+	// on `ui` (cmd/ui), the chart's
 	// `ui.auth.mode`). It has no default: [Validate] refuses an empty or
 	// unknown mode, and [Run] validates before it binds, so the ui never
 	// serves by omission. [NewServer] does not check it -- a test builds
@@ -149,13 +149,13 @@ type Options struct {
 	// RootFolders behind the Library page's rescan toolbar, the Settings
 	// page's lists and the library-scan detail page -- and, when
 	// SubscribeDownloads is nil, NewServer's per-connection poll.
-	// cmd/clustarr hands the same reader to ui/projection, which backs
+	// cmd/ui hands the same reader to ui/projection, which backs
 	// Entries, Library, Unmatched and ImportLists and their streams.
 	Reader client.Reader
 
 	// Artwork is the object store GET /art (ui/art.go's handleArt) serves
 	// every artwork image from -- B1's events.ObjectStore bound to
-	// events.BucketArtwork, connected in cmd/clustarr (ui never imports
+	// events.BucketArtwork, connected in cmd/ui (ui never imports
 	// pkg/k8s, ui/guard_test.go), and handed here as an interface so this
 	// package still needs nothing from pkg/events/natsbus. It is the one
 	// seam through which any catalog item's poster, fanart or other image
@@ -176,7 +176,7 @@ type Options struct {
 	ArtCacheBytes int64
 
 	// MetadataSearch asks catalog's metadata gateway to search one kind
-	// by title (Add New, 2026-09-29). cmd/clustarr binds it to
+	// by title (Add New, 2026-09-29). cmd/ui binds it to
 	// rpc.catalog.metadata.search; the ui never holds a bus requester,
 	// so it can ask nothing else (ui/guard_test.go). nil renders the Add
 	// page's search as unavailable.
@@ -184,7 +184,7 @@ type Options struct {
 
 	// PlexExtended reads an item's people and similar titles from the
 	// clustarr-metadata-extended bucket for the Plex provider (full-metadata
-	// spec 2026-09-30 §4). cmd/clustarr builds it as a closure over the ui's
+	// spec 2026-09-30 §4). cmd/ui builds it as a closure over the ui's
 	// read-only bus connection, so ui never holds a KV handle it could write
 	// through (ui/guard_test.go). nil serves no people.
 	PlexExtended func(ctx context.Context, kind commonv1.MediaKind, uid types.UID) (extended.Doc, bool, error)
@@ -192,7 +192,7 @@ type Options struct {
 	// PlexExtras asks catalog's metadata gateway for the extras Plex's
 	// metadata service holds for a Plex id, which the gateway answers from
 	// the clustarr-plex-extras bucket and fetches from Plex on a miss.
-	// cmd/clustarr binds it to rpc.catalog.metadata.extras, so the ui
+	// cmd/ui binds it to rpc.catalog.metadata.extras, so the ui
 	// holds neither a requester nor a Plex token (ui/guard_test.go). nil
 	// answers the Plex provider's extras route 503 for an item Plex knows.
 	PlexExtras func(ctx context.Context, plexID string) ([]json.RawMessage, error)
@@ -200,7 +200,7 @@ type Options struct {
 	// ArtSigningKey signs the /art/search URLs the ui hands out. Plex
 	// stores the provider photo URLs it is given and loads them later, so
 	// the key must outlive the process and be shared by every replica:
-	// cmd/clustarr reads it from $CLUSTARR_ART_SIGNING_KEY, which the chart
+	// cmd/ui reads it from $CLUSTARR_ART_SIGNING_KEY, which the chart
 	// fills from a Secret it creates once. Empty signs with a per-process
 	// key, good until the ui restarts.
 	ArtSigningKey []byte
@@ -214,7 +214,7 @@ type Options struct {
 	// not exist yet" shape Options.Actions and Options.Artwork already
 	// have, one level up (a whole feature rather than one dependency).
 	//
-	// cmd/clustarr builds a non-nil *PlexOptions whenever `--plex-provider`
+	// cmd/ui builds a non-nil *PlexOptions whenever `--plex-provider`
 	// is on (the default), whatever `--external-url` holds -- an empty
 	// ExternalURL is a legal, if unusable, value: the provider roots
 	// answer 503 for it (spec §D.1) rather than the flag's absence
@@ -231,8 +231,8 @@ type Options struct {
 	// anything else; ui/guard_test.go bans those calls outside ui/actions and
 	// bans every status write everywhere in ui/, ui/actions included.
 	//
-	// cmd/clustarr builds it (actions.New over a client.Client) in both
-	// `clustarr ui` and `clustarr all` whenever a kubeconfig resolves.
+	// cmd/ui builds it (actions.New over a client.Client) whenever a
+	// kubeconfig resolves.
 	// A nil Actions is legal -- no cluster configured, or a test that only
 	// reads -- and every method on it returns actions.ErrNoWriter.
 	Actions *actions.Actions
@@ -258,7 +258,7 @@ type Options struct {
 	// interval, which is exactly what /events/pipeline did before Task
 	// D3-1 existed. That keeps Entries the one seam a test needs to inject
 	// cluster state, same as before; Subscribe only needs setting in
-	// production, where cmd/clustarr wires both it and Entries to the same
+	// production, where cmd/ui wires both it and Entries to the same
 	// *projection.Projection.
 	Subscribe func() (<-chan []pipeline.Entry, func())
 
@@ -361,7 +361,7 @@ type Options struct {
 	Tracing tracing.Options
 }
 
-// Validate is what [Run] checks before it binds, and what cmd/clustarr's
+// Validate is what [Run] checks before it binds, and what the installer guards'
 // deploy-manifest test calls on the options every Deployment's argv
 // produces. The one rule is the explicit authentication mode: an empty
 // AuthMode is refused with the flag to set and the modes that exist, and

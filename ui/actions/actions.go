@@ -99,7 +99,7 @@ type monitorable struct {
 // catalog kinds with a top-level spec.monitored, and the set a Search's
 // spec.mediaRef.kind may name. The resource names are RBAC's; the envtest
 // holds them to the resource the apiserver actually routes each object to,
-// and cmd/clustarr/ui_rbac_test.go holds the role to them.
+// and test/guards/ui_rbac_test.go holds the role to them.
 var monitorables = map[commonv1.MediaKind]monitorable{
 	commonv1.MediaKindMovie:     {"movies", func() client.Object { return &catalogv1alpha1.Movie{} }},
 	commonv1.MediaKindSeries:    {"series", func() client.Object { return &catalogv1alpha1.Series{} }},
@@ -139,7 +139,7 @@ type Grant struct {
 // Settings page -- patch on each kind [settingsGrants] (settings.go) names.
 // It is a declaration, not a computation -- the envtest proves the §A3.2
 // actions hit exactly their share of this on a real apiserver, and
-// cmd/clustarr/ui_rbac_test.go proves ui_role.yaml grants exactly this whole
+// test/guards/ui_rbac_test.go proves ui_role.yaml grants exactly this whole
 // set as its only write verbs. envtest does not enforce RBAC, so without
 // that pair an action the role does not cover would pass every test and
 // fail only in a cluster.
@@ -388,7 +388,7 @@ type Actions struct {
 	w Writer
 }
 
-// New returns an [Actions] over w. cmd/clustarr builds w from a
+// New returns an [Actions] over w. cmd/ui (internal/cli/ui) builds w from a
 // controller-runtime client.Client; tests pass a fake.
 func New(w Writer) *Actions {
 	return &Actions{w: w}

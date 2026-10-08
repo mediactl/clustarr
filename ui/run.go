@@ -38,7 +38,7 @@ const shutdownGrace = 5 * time.Second
 // Run(ctx, Options) entrypoints (see caption.Run, transcode.Run, ...),
 // even though ui needs no controller-runtime manager: it has no CRD of its
 // own. Run itself never touches the cluster -- Options.Reader and
-// Options.WaitForSync are built by the caller (cmd/clustarr, via
+// Options.WaitForSync are built by the caller (cmd/ui, via
 // [NewClusterReader]) before Run is called, and are already whatever they
 // are going to be, nil included, by the time Options reaches here. Run just
 // hands them to [NewServer] along with everything else.

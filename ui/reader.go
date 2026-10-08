@@ -94,7 +94,7 @@ func MustNewReaderScheme() *runtime.Scheme {
 // writes nothing.
 //
 // ui deliberately runs no controller-runtime manager (design plan ruling
-// R1, cmd/clustarr/all.go and config/manager/ui.yaml): a manager would
+// R1, internal/cli/ui and config/manager/ui.yaml): a manager would
 // reintroduce the metrics port, the health port and leader election that
 // both of those files record ui as intentionally without, for a process
 // that only ever reads. cache.New plus a goroutine gives informer-backed
@@ -111,7 +111,7 @@ func MustNewReaderScheme() *runtime.Scheme {
 // The error log on a Start failure reads through ctx's logger
 // (pkg/obs/logging.FromContext, per CLAUDE.md -- no package-level logger).
 // Callers that build a reader before their own obs.Bootstrap runs (both
-// cmd/clustarr call sites do, so the reader's lifetime matches the whole
+// cmd/ui does, in internal/cli/ui's buildCluster, so the reader's lifetime matches the whole
 // process rather than only the request that happens to trigger obs.Bootstrap
 // first) will find that line goes to the discard logger for the ordinary
 // case where Start never errors; a genuine failure is also visible through

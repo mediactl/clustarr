@@ -674,7 +674,7 @@ func rootFoldersFor(folders []catalogv1.RootFolder, tab projection.Tab) []catalo
 // actions.ErrNoWriter, 400 for actions.ErrInvalid, 500 otherwise -- so the
 // error is visible to whatever submitted the form. ErrNoWriter is what a ui
 // process with no cluster configured answers; until Task G3-5 wired
-// Options.Actions in cmd/clustarr, it was what every production process
+// Options.Actions in the binary of the time, it was what every production process
 // answered.
 func (s *Server) finishAction(w http.ResponseWriter, r *http.Request, err error) {
 	s.finishActionWith(w, r, err, "Done")

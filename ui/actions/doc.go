@@ -63,7 +63,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //     every *Status write helper everywhere -- this package included -- and
 //     bans Update, Delete, DeleteAllOf and Apply everywhere, because the
 //     role below grants no verb that would let them succeed.
-//   - cmd/clustarr/ui_rbac_test.go holds config/rbac/ui_role.yaml to reads
+//   - test/guards/ui_rbac_test.go holds config/rbac/ui_role.yaml to reads
 //     plus exactly [Grants]: create on searches and libraryscans, patch on
 //     the ten catalog kinds that have a spec.monitored and on each of the
 //     eight Settings-page kinds (settings.go), no */status resource, no
