@@ -23,6 +23,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Note that test/data/metadata/tmdb/movie_27205.json records *Inception*,
 // not Fight Club: 27205 is Inception's TMDB id and tmdb_test.go asserts
 // that title. Anything planting files for this id must name them Inception.
+//
+// It also answers /movie/603, The Matrix: the tmdb MetadataProvider's health
+// probe looks that id up (app/catalog/controller/metadataprovider's
+// probeTMDBMovieID), and without it config/e2e's tmdb provider read
+// Ready=False ("metadata: not found") while every lookup it served worked
+// (found by the smoke test, 2026-10-07).
 package tmdbstub
 
 import (
@@ -33,11 +39,18 @@ import (
 	"path/filepath"
 )
 
+//go:embed testdata/movie_603.json
+var movie603 []byte
+
 //go:embed testdata/movie_900100.json
 var movie900100 []byte
 
 //go:embed testdata/movie_900101.json
 var movie900101 []byte
+
+// ProbeMovieID is the TMDB id the tmdb MetadataProvider's health probe looks
+// up: app/catalog/controller/metadataprovider's probeTMDBMovieID, The Matrix.
+const ProbeMovieID = "603"
 
 // NewHandler builds the stub. recordedDir holds TMDB's movie/find JSON
 // copied verbatim from test/data/metadata/tmdb (images/Dockerfile.e2e-fixtures
@@ -61,6 +74,10 @@ func NewHandler(recordedDir string, logger *slog.Logger) http.Handler {
 	// from recordedDir because they are this package's own data, exactly as
 	// tvdbstub's fixture-owned series 900001/900002 are.
 	mux.HandleFunc("GET /movie/900100", serveBytes(movie900100))
+	// The provider's health probe (ProbeMovieID): The Matrix, in the shape
+	// of the recorded movie_27205.json. Embedded, not read from
+	// recordedDir: the stub, not the tmdb client's tests, needs it.
+	mux.HandleFunc("GET /movie/"+ProbeMovieID, serveBytes(movie603))
 	mux.HandleFunc("GET /movie/900101", serveBytes(movie900101))
 	mux.HandleFunc("/", notFound(logger))
 	return mux

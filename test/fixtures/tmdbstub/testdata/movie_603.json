@@ -1,0 +1,34 @@
+{
+  "id": 603,
+  "title": "The Matrix",
+  "original_title": "The Matrix",
+  "original_language": "en",
+  "overview": "Set in the 22nd century, The Matrix tells the story of a computer hacker who joins a group of underground insurgents fighting the vast and powerful computers who now rule the earth.",
+  "release_date": "1999-03-31",
+  "runtime": 136,
+  "status": "Released",
+  "vote_average": 8.2,
+  "vote_count": 26412,
+  "genres": [{"id": 28, "name": "Action"}, {"id": 878, "name": "Science Fiction"}],
+  "belongs_to_collection": null,
+  "release_dates": {
+    "results": [
+      {
+        "iso_3166_1": "US",
+        "release_dates": [
+          {"type": 3, "release_date": "1999-03-31T00:00:00.000Z", "certification": "R", "note": "", "iso_639_1": "en"},
+          {"type": 5, "release_date": "1999-09-21T00:00:00.000Z", "certification": "R", "note": "DVD", "iso_639_1": "en"}
+        ]
+      }
+    ]
+  },
+  "external_ids": {"imdb_id": "tt0133093", "wikidata_id": "Q83495"},
+  "alternative_titles": {
+    "titles": [
+      {"iso_3166_1": "DE", "title": "Matrix", "type": ""},
+      {"iso_3166_1": "FR", "title": "Matrix", "type": ""},
+      {"iso_3166_1": "RU", "title": "Матрица", "type": ""},
+      {"iso_3166_1": "CN", "title": "黑客帝国", "type": ""}
+    ]
+  }
+}
