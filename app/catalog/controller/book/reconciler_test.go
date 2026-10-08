@@ -42,9 +42,9 @@ import (
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	authorctrl "github.com/mediactl/clustarr/app/catalog/controller/author"
 	"github.com/mediactl/clustarr/app/catalog/controller/book"
+	"github.com/mediactl/clustarr/app/remediation"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -71,10 +71,11 @@ func newTestConfig(t *testing.T) *rest.Config {
 	return cfg
 }
 
-// startCacheOnly starts a real ctrl.Manager's cache, registering the same
-// field indices book.Reconciler.SetupWithManager registers, WITHOUT wiring
-// any watches -- so nothing auto-reconciles and every scenario drives
-// r.Reconcile() directly for tight, synchronous control. Mirrors
+// startCacheOnly starts a real ctrl.Manager's cache, registering the
+// remediation loop's indexes (mfindex and every item kind's, as the loop
+// registers them), WITHOUT starting the Book's item path -- so nothing
+// auto-reconciles and every scenario drives r.ReconcileItem() directly for
+// tight, synchronous control. Mirrors
 // movie/reconciler_test.go's identical helper and its rationale.
 func startCacheOnly(t *testing.T, ctx context.Context, cfg *rest.Config) client.Client {
 	t.Helper()
@@ -85,22 +86,7 @@ func startCacheOnly(t *testing.T, ctx context.Context, cfg *rest.Config) client.
 	})
 	require.NoError(t, err)
 
-	require.NoError(t, mgr.GetFieldIndexer().IndexField(ctx, &catalogv1alpha1.MediaFile{}, ".spec.mediaRef.book",
-		func(o client.Object) []string {
-			mf, ok := o.(*catalogv1alpha1.MediaFile)
-			if !ok || mf.Spec.MediaRef.Kind != commonv1.MediaKindBook {
-				return nil
-			}
-			return []string{mf.Spec.MediaRef.Name}
-		}))
-	require.NoError(t, mgr.GetFieldIndexer().IndexField(ctx, &downloadv1alpha1.Download{}, ".spec.target.book",
-		func(o client.Object) []string {
-			dl, ok := o.(*downloadv1alpha1.Download)
-			if !ok || dl.Spec.Target.Kind != commonv1.MediaKindBook {
-				return nil
-			}
-			return []string{dl.Spec.Target.Name}
-		}))
+	require.NoError(t, remediation.RegisterIndexes(ctx, mgr.GetFieldIndexer()))
 	// author.Reconciler's own index, needed here too because this test file
 	// also drives a real author.Reconciler directly against the same cache
 	// (TestBookReconcilerFieldManagerNeverIncludesFanout).
@@ -268,7 +254,7 @@ func TestBookReconcilerStandalone(t *testing.T) {
 
 	r := &book.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10), Bus: fakePublisher{}}
 	req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "book-standalone-ns", Name: "standalone-hobbit"}}
-	_, err := r.Reconcile(ctx, req)
+	_, err := r.ReconcileItem(ctx, req.NamespacedName)
 	require.NoError(t, err)
 
 	got := waitForPhase(t, ctx, c, "book-standalone-ns", "standalone-hobbit")
@@ -327,7 +313,7 @@ func TestBookReconcilerOwnedInheritsAuthorRootFolderAndName(t *testing.T) {
 
 	r := &book.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10), Bus: fakePublisher{}}
 	req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "book-owned-ns", Name: "tolkien-hobbit"}}
-	_, err = r.Reconcile(ctx, req)
+	_, err = r.ReconcileItem(ctx, req.NamespacedName)
 	require.NoError(t, err)
 
 	got := waitForPhase(t, ctx, c, "book-owned-ns", "tolkien-hobbit")
@@ -354,7 +340,7 @@ func TestBookReconcilerStandaloneWithNoRootFolderRefIsUnresolved(t *testing.T) {
 
 	r := &book.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10), Bus: fakePublisher{}}
 	req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "book-unresolved-ns", Name: "orphan-book"}}
-	res, err := r.Reconcile(ctx, req)
+	res, err := r.ReconcileItem(ctx, req.NamespacedName)
 	require.NoError(t, err)
 	assert.Equal(t, time.Minute, res.RequeueAfter)
 
@@ -389,7 +375,7 @@ func TestBookReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 
 	r := &book.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10), Bus: fakePublisher{}}
 	req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "book-transient-ns", Name: "steady-book"}}
-	_, err := r.Reconcile(ctx, req)
+	_, err := r.ReconcileItem(ctx, req.NamespacedName)
 	require.NoError(t, err)
 
 	var before catalogv1alpha1.Book
@@ -402,7 +388,7 @@ func TestBookReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 	require.Equal(t, "/data/media/books", before.Status.Path)
 
 	r2 := &book.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10), Bus: fakePublisher{err: events.ErrQueueFull}}
-	res, err := r2.Reconcile(ctx, req)
+	res, err := r2.ReconcileItem(ctx, req.NamespacedName)
 	require.NoError(t, err)
 	assert.Equal(t, time.Minute, res.RequeueAfter)
 
@@ -475,7 +461,7 @@ func TestBookReconcilerRealQualityCutoffEvaluation(t *testing.T) {
 		bk := newBook("cutoff-met-book")
 		newMediaFile("cutoff-met-book-mf", bk.Name, "MOBI")
 		req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "book-cutoff-ns", Name: bk.Name}}
-		_, err := r.Reconcile(ctx, req)
+		_, err := r.ReconcileItem(ctx, req.NamespacedName)
 		require.NoError(t, err)
 
 		got := waitForPhase(t, ctx, c, "book-cutoff-ns", bk.Name)
@@ -491,7 +477,7 @@ func TestBookReconcilerRealQualityCutoffEvaluation(t *testing.T) {
 		bk := newBook("cutoff-unmet-book")
 		newMediaFile("cutoff-unmet-book-mf", bk.Name, "PDF")
 		req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "book-cutoff-ns", Name: bk.Name}}
-		_, err := r.Reconcile(ctx, req)
+		_, err := r.ReconcileItem(ctx, req.NamespacedName)
 		require.NoError(t, err)
 
 		got := waitForPhase(t, ctx, c, "book-cutoff-ns", bk.Name)
@@ -567,7 +553,7 @@ func TestBookReconcilerFieldManagerNeverIncludesFanout(t *testing.T) {
 
 	br := &book.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10), Bus: fakePublisher{}}
 	breq := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "book-fanout-ns", Name: bookName}}
-	_, err = br.Reconcile(ctx, breq)
+	_, err = br.ReconcileItem(ctx, breq.NamespacedName)
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool {
