@@ -217,7 +217,7 @@ func hangConsumer(ctx context.Context, t *testing.T, bus *natsbus.Bus, nc *nats.
 	t.Cleanup(func() { _ = adv.Unsubscribe() })
 
 	release := make(chan struct{})
-	stop, err := bus.Subscribe(ctx, events.Subscription{
+	sub := events.Subscription{
 		Stream:      stream,
 		Durable:     durable,
 		Filters:     []string{filter},
@@ -225,7 +225,9 @@ func hangConsumer(ctx context.Context, t *testing.T, bus *natsbus.Bus, nc *nats.
 		MaxDeliver:  2,
 		Backoff:     []time.Duration{200 * time.Millisecond},
 		MaxInFlight: 3,
-	}, func(ctx context.Context, _ events.Message) error {
+	}
+	contracttest.Bind(ctx, t, bus, contracttest.Topology(), sub)
+	stop, err := bus.Subscribe(ctx, sub, func(ctx context.Context, _ events.Message) error {
 		select {
 		case <-release:
 		case <-ctx.Done():

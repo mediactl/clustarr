@@ -114,7 +114,7 @@ func TestConnectCarriesTheTraceWhenBuiltTheWayAServiceBuildsIt(t *testing.T) {
 		ctxSpan  trace.SpanContext
 	}
 	got := make(chan delivery, 1)
-	stop, err := bus.Subscribe(ctx, events.Subscription{
+	sub := events.Subscription{
 		Stream:      events.StreamEvents,
 		Durable:     "bushooks",
 		Filters:     []string{events.FilterAllEvents},
@@ -122,7 +122,9 @@ func TestConnectCarriesTheTraceWhenBuiltTheWayAServiceBuildsIt(t *testing.T) {
 		MaxDeliver:  3,
 		Backoff:     []time.Duration{50 * time.Millisecond},
 		MaxInFlight: 4,
-	}, func(ctx context.Context, m events.Message) error {
+	}
+	contracttest.Bind(ctx, t, bus, contracttest.Topology(), sub)
+	stop, err := bus.Subscribe(ctx, sub, func(ctx context.Context, m events.Message) error {
 		select {
 		case got <- delivery{
 			envTrace: m.Envelope().Trace,
@@ -203,7 +205,7 @@ func TestConnectWithoutHooksCarriesNoTrace(t *testing.T) {
 	require.NoError(t, busconn.EnsureTopology(ctx, bus, contracttest.Topology()))
 
 	got := make(chan string, 1)
-	stop, err := bus.Subscribe(ctx, events.Subscription{
+	sub := events.Subscription{
 		Stream:      events.StreamEvents,
 		Durable:     "bushooks-off",
 		Filters:     []string{events.FilterAllEvents},
@@ -211,7 +213,9 @@ func TestConnectWithoutHooksCarriesNoTrace(t *testing.T) {
 		MaxDeliver:  3,
 		Backoff:     []time.Duration{50 * time.Millisecond},
 		MaxInFlight: 4,
-	}, func(_ context.Context, m events.Message) error {
+	}
+	contracttest.Bind(ctx, t, bus, contracttest.Topology(), sub)
+	stop, err := bus.Subscribe(ctx, sub, func(_ context.Context, m events.Message) error {
 		select {
 		case got <- m.Envelope().Trace:
 		default:

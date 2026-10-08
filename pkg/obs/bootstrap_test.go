@@ -31,6 +31,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/events/contracttest"
 	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
@@ -221,7 +222,7 @@ func TestBusHooksCarryOneTraceAcrossPublishAndConsume(t *testing.T) {
 	}
 	got := make(chan observed, 1)
 
-	stop, err := bus.Subscribe(ctx, events.Subscription{
+	sub := events.Subscription{
 		Stream:      events.StreamEvents,
 		Durable:     "bushooks-consumer",
 		Filters:     []string{events.FilterAllEvents},
@@ -229,7 +230,9 @@ func TestBusHooksCarryOneTraceAcrossPublishAndConsume(t *testing.T) {
 		MaxDeliver:  3,
 		Backoff:     []time.Duration{50 * time.Millisecond},
 		MaxInFlight: 1,
-	}, func(ctx context.Context, _ events.Message) error {
+	}
+	contracttest.Bind(ctx, t, bus, top, sub)
+	stop, err := bus.Subscribe(ctx, sub, func(ctx context.Context, _ events.Message) error {
 		parent := trace.SpanContextFromContext(ctx)
 		_, span := tracing.Start(ctx, "consume")
 		defer span.End()

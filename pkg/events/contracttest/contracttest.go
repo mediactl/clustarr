@@ -44,10 +44,10 @@ import (
 // JetStream run starts a real server.
 const Timeout = 30 * time.Second
 
-// Topology is the layout the suite applies. It is the production topology
-// shrunk to a single node, with the durable consumers removed: the suite
-// creates its own consumers with test-sized ack waits and backoffs, and
-// JetStream refuses two consumers with overlapping filters on the same
+// Topology is the layout the suite applies: the production topology shrunk
+// to a single node, with every durable consumer and dead-letter watcher
+// removed. A case binds the consumers it subscribes with Bind, sized for the
+// test, since JetStream refuses two consumers with overlapping filters on one
 // work-queue stream.
 func Topology() events.Topology {
 	t := events.Default().ForSingleNode()
@@ -67,9 +67,6 @@ func RunBusContract(t *testing.T, newBus func() events.Bus) {
 	t.Run("WorkQueueMaxDeliverToDLQ", func(t *testing.T) { testMaxDeliverToDLQ(t, newBus) })
 	t.Run("WorkQueueHungHandlerToDLQ", func(t *testing.T) {
 		testHungHandlerToDLQ(t, newBus, hungMaxDeliver)
-	})
-	t.Run("WorkQueueHungHandlerSaturatedToDLQ", func(t *testing.T) {
-		testHungHandlerToDLQ(t, newBus, 1)
 	})
 	t.Run("WorkQueueLapseWhileUnwatchedToDLQ", func(t *testing.T) {
 		testLapseWhileUnwatchedToDLQ(t, newBus)
@@ -109,6 +106,7 @@ func RunBusContract(t *testing.T, newBus func() events.Bus) {
 		testServeDeadlineFollowsCaller(t, newBus)
 	})
 	t.Run("UnknownSubject", func(t *testing.T) { testUnknownSubject(t, newBus) })
+	t.Run("BindCreatesTheDurableAndItsWatcher", func(t *testing.T) { testBindCreatesTheDurableAndItsWatcher(t, newBus) })
 }
 
 // Run is the name the design document gives the suite entry point. It is an
@@ -233,7 +231,7 @@ func testPublishSubscribe(t *testing.T, newBus func() events.Bus) {
 	ctx, bus := setup(t, newBus)
 	got := newCollector()
 
-	stop, err := bus.Subscribe(ctx, events.Subscription{
+	sub := events.Subscription{
 		Stream:      events.StreamEvents,
 		Durable:     "ct-events",
 		Filters:     []string{events.FilterAllEvents},
@@ -241,7 +239,9 @@ func testPublishSubscribe(t *testing.T, newBus func() events.Bus) {
 		MaxDeliver:  3,
 		Backoff:     []time.Duration{50 * time.Millisecond},
 		MaxInFlight: 8,
-	}, func(_ context.Context, m events.Message) error {
+	}
+	Bind(ctx, t, bus, Topology(), sub)
+	stop, err := bus.Subscribe(ctx, sub, func(_ context.Context, m events.Message) error {
 		got.add(m)
 		return nil
 	})
@@ -267,9 +267,9 @@ func testPublishSubscribe(t *testing.T, newBus func() events.Bus) {
 	}
 
 	got.waitFor(t, 1, "deliveries")
-	e, sub := got.at(0)
-	if sub != subject {
-		t.Errorf("Subject = %q, want %q", sub, subject)
+	e, gotSubject := got.at(0)
+	if gotSubject != subject {
+		t.Errorf("Subject = %q, want %q", gotSubject, subject)
 	}
 	if e.ID != "evt-1" {
 		t.Errorf("Envelope.ID = %q, want %q", e.ID, "evt-1")
@@ -325,7 +325,7 @@ func testDeduplication(t *testing.T, newBus func() events.Bus) {
 func subscribeDLQ(ctx context.Context, t *testing.T, bus events.Bus) *collector {
 	t.Helper()
 	got := newCollector()
-	stop, err := bus.Subscribe(ctx, events.Subscription{
+	sub := events.Subscription{
 		Stream:      events.StreamDLQ,
 		Durable:     "ct-dlq",
 		Filters:     []string{events.FilterAllDLQ},
@@ -333,7 +333,9 @@ func subscribeDLQ(ctx context.Context, t *testing.T, bus events.Bus) *collector 
 		MaxDeliver:  3,
 		Backoff:     []time.Duration{50 * time.Millisecond},
 		MaxInFlight: 8,
-	}, func(_ context.Context, m events.Message) error {
+	}
+	Bind(ctx, t, bus, Topology(), sub)
+	stop, err := bus.Subscribe(ctx, sub, func(_ context.Context, m events.Message) error {
 		got.add(m)
 		return nil
 	})
@@ -352,7 +354,7 @@ func testRetryThenAck(t *testing.T, newBus func() events.Bus) {
 	var attempts []uint64
 	done := make(chan struct{})
 
-	stop, err := bus.Subscribe(ctx, events.Subscription{
+	sub := events.Subscription{
 		Stream:      events.StreamWorkCatalog,
 		Durable:     "ct-search-high",
 		Filters:     []string{"clustarr.work.catalog.search.high.>"},
@@ -360,7 +362,9 @@ func testRetryThenAck(t *testing.T, newBus func() events.Bus) {
 		MaxDeliver:  4,
 		Backoff:     []time.Duration{50 * time.Millisecond},
 		MaxInFlight: 1,
-	}, func(ctx context.Context, m events.Message) error {
+	}
+	Bind(ctx, t, bus, Topology(), sub)
+	stop, err := bus.Subscribe(ctx, sub, func(ctx context.Context, m events.Message) error {
 		mu.Lock()
 		attempts = append(attempts, m.Attempt())
 		n := len(attempts)
@@ -411,7 +415,7 @@ func testDiscardToDLQ(t *testing.T, newBus func() events.Bus) {
 
 	var mu sync.Mutex
 	deliveries := 0
-	stop, err := bus.Subscribe(ctx, events.Subscription{
+	sub := events.Subscription{
 		Stream:      events.StreamWorkImport,
 		Durable:     "ct-import",
 		Filters:     []string{events.FilterImportFile},
@@ -419,7 +423,9 @@ func testDiscardToDLQ(t *testing.T, newBus func() events.Bus) {
 		MaxDeliver:  5,
 		Backoff:     []time.Duration{50 * time.Millisecond},
 		MaxInFlight: 1,
-	}, func(_ context.Context, _ events.Message) error {
+	}
+	Bind(ctx, t, bus, Topology(), sub)
+	stop, err := bus.Subscribe(ctx, sub, func(_ context.Context, _ events.Message) error {
 		mu.Lock()
 		deliveries++
 		mu.Unlock()
@@ -475,7 +481,7 @@ func testMaxDeliverToDLQ(t *testing.T, newBus func() events.Bus) {
 
 	var mu sync.Mutex
 	var attempts []uint64
-	stop, err := bus.Subscribe(ctx, events.Subscription{
+	sub := events.Subscription{
 		Stream:      events.StreamWorkIndex,
 		Durable:     "ct-rss",
 		Filters:     []string{events.FilterIndexRSS},
@@ -483,7 +489,9 @@ func testMaxDeliverToDLQ(t *testing.T, newBus func() events.Bus) {
 		MaxDeliver:  3,
 		Backoff:     []time.Duration{20 * time.Millisecond, 20 * time.Millisecond},
 		MaxInFlight: 1,
-	}, func(_ context.Context, m events.Message) error {
+	}
+	Bind(ctx, t, bus, Topology(), sub)
+	stop, err := bus.Subscribe(ctx, sub, func(_ context.Context, m events.Message) error {
 		mu.Lock()
 		attempts = append(attempts, m.Attempt())
 		mu.Unlock()
@@ -533,11 +541,14 @@ const hungMaxDeliver = 2
 // ack-deadline sweep -- exactly once, and a hung handler that finally returns
 // an error must not add a second copy.
 //
-// It runs with inFlight handler slots. With one per delivery, every delivery
-// hangs in its own handler. With one slot (the saturated case) the first
-// delivery's hung handler holds it, so the final delivery is made but can
-// never start: the copy must come from the lapse all the same, and not wait
-// for a slot to free, which a hung handler never does.
+// It runs with inFlight handler slots, one per delivery, so every delivery
+// hangs in its own handler. The one-slot variant this case once had
+// (WorkQueueHungHandlerSaturatedToDLQ) asserted that a saturated
+// subscription still has its final delivery made and dead-lettered; split
+// §9.3 as amended 2026-10-07 (M1, W4.90) reversed that: a saturated
+// subscription fetches nothing, so the final delivery is never made while
+// the slot is held, and SaturatedSubscriptionNeverDeadLettersAnUnrunTask
+// holds the new rule.
 func testHungHandlerToDLQ(t *testing.T, newBus func() events.Bus, inFlight int) {
 	ctx, bus := setup(t, newBus)
 	dlq := subscribeDLQ(ctx, t, bus)
@@ -554,7 +565,7 @@ func testHungHandlerToDLQ(t *testing.T, newBus func() events.Bus, inFlight int) 
 	var mu sync.Mutex
 	var attempts []uint64
 	returned := 0
-	stop, err := bus.Subscribe(ctx, events.Subscription{
+	sub := events.Subscription{
 		Stream:  events.StreamWorkIndex,
 		Durable: "ct-hung",
 		Filters: []string{events.FilterIndexRSS},
@@ -565,7 +576,9 @@ func testHungHandlerToDLQ(t *testing.T, newBus func() events.Bus, inFlight int) 
 		MaxDeliver:  maxDeliver,
 		Backoff:     []time.Duration{ackWait},
 		MaxInFlight: inFlight,
-	}, func(ctx context.Context, m events.Message) error {
+	}
+	Bind(ctx, t, bus, Topology(), sub)
+	stop, err := bus.Subscribe(ctx, sub, func(ctx context.Context, m events.Message) error {
 		mu.Lock()
 		attempts = append(attempts, m.Attempt())
 		mu.Unlock()
@@ -679,6 +692,7 @@ func testLapseWhileUnwatchedToDLQ(t *testing.T, newBus func() events.Bus) {
 		Backoff:     []time.Duration{deadline},
 		MaxInFlight: maxDeliver,
 	}
+	Bind(ctx, t, bus, Topology(), sub)
 	var mu sync.Mutex
 	var attempts []uint64
 	stop, err := bus.Subscribe(ctx, sub, func(_ context.Context, m events.Message) error {
@@ -787,7 +801,7 @@ func testNakRedeliveryFollowsBackoff(t *testing.T, newBus func() events.Bus) {
 	var mu sync.Mutex
 	var at []time.Time
 	done := make(chan struct{})
-	stop, err := bus.Subscribe(ctx, events.Subscription{
+	sub := events.Subscription{
 		Stream:      events.StreamWorkIndex,
 		Durable:     "ct-nak-backoff",
 		Filters:     []string{events.FilterIndexRSS},
@@ -795,7 +809,9 @@ func testNakRedeliveryFollowsBackoff(t *testing.T, newBus func() events.Bus) {
 		MaxDeliver:  maxDeliver,
 		Backoff:     []time.Duration{first, later},
 		MaxInFlight: 1,
-	}, func(context.Context, events.Message) error {
+	}
+	Bind(ctx, t, bus, Topology(), sub)
+	stop, err := bus.Subscribe(ctx, sub, func(context.Context, events.Message) error {
 		mu.Lock()
 		defer mu.Unlock()
 		at = append(at, time.Now())
@@ -858,7 +874,7 @@ func testHungRedeliveryFollowsBackoff(t *testing.T, newBus func() events.Bus) {
 
 	var mu sync.Mutex
 	var at []time.Time
-	stop, err := bus.Subscribe(ctx, events.Subscription{
+	sub := events.Subscription{
 		Stream:     events.StreamWorkIndex,
 		Durable:    "ct-backoff",
 		Filters:    []string{events.FilterIndexRSS},
@@ -867,7 +883,9 @@ func testHungRedeliveryFollowsBackoff(t *testing.T, newBus func() events.Bus) {
 		Backoff:    []time.Duration{first, second},
 		// Every delivery hangs, so each needs its own handler.
 		MaxInFlight: maxDeliver,
-	}, func(ctx context.Context, _ events.Message) error {
+	}
+	Bind(ctx, t, bus, Topology(), sub)
+	stop, err := bus.Subscribe(ctx, sub, func(ctx context.Context, _ events.Message) error {
 		mu.Lock()
 		at = append(at, time.Now())
 		mu.Unlock()
@@ -924,7 +942,7 @@ func testMaxInFlightConcurrency(t *testing.T, newBus func() events.Bus) {
 
 	var mu sync.Mutex
 	running, most, started, finished := 0, 0, 0, 0
-	stop, err := bus.Subscribe(ctx, events.Subscription{
+	sub := events.Subscription{
 		Stream:      events.StreamWorkCaption,
 		Durable:     "ct-concurrent",
 		Filters:     []string{events.FilterCaptionFetch},
@@ -932,7 +950,9 @@ func testMaxInFlightConcurrency(t *testing.T, newBus func() events.Bus) {
 		MaxDeliver:  3,
 		Backoff:     []time.Duration{10 * time.Second},
 		MaxInFlight: inFlight,
-	}, func(ctx context.Context, _ events.Message) error {
+	}
+	Bind(ctx, t, bus, Topology(), sub)
+	stop, err := bus.Subscribe(ctx, sub, func(ctx context.Context, _ events.Message) error {
 		mu.Lock()
 		running++
 		started++
@@ -1005,7 +1025,7 @@ func testHungHandlerDoesNotStall(t *testing.T, newBus func() events.Bus) {
 	const hungID = "stall-hung"
 	const others = 5
 	got := newCollector()
-	stop, err := bus.Subscribe(ctx, events.Subscription{
+	sub := events.Subscription{
 		Stream:      events.StreamWorkIndex,
 		Durable:     "ct-stall",
 		Filters:     []string{events.FilterIndexRSS},
@@ -1013,7 +1033,9 @@ func testHungHandlerDoesNotStall(t *testing.T, newBus func() events.Bus) {
 		MaxDeliver:  5,
 		Backoff:     []time.Duration{20 * time.Second},
 		MaxInFlight: 2,
-	}, func(ctx context.Context, m events.Message) error {
+	}
+	Bind(ctx, t, bus, Topology(), sub)
+	stop, err := bus.Subscribe(ctx, sub, func(ctx context.Context, m events.Message) error {
 		if m.Envelope().ID == hungID {
 			select {
 			case <-release:
@@ -1052,7 +1074,7 @@ func testAckRemoves(t *testing.T, newBus func() events.Bus) {
 	ctx, bus := setup(t, newBus)
 	got := newCollector()
 
-	stop, err := bus.Subscribe(ctx, events.Subscription{
+	sub := events.Subscription{
 		Stream:      events.StreamWorkCaption,
 		Durable:     "ct-fetch",
 		Filters:     []string{events.FilterCaptionFetch},
@@ -1060,7 +1082,9 @@ func testAckRemoves(t *testing.T, newBus func() events.Bus) {
 		MaxDeliver:  3,
 		Backoff:     []time.Duration{50 * time.Millisecond},
 		MaxInFlight: 4,
-	}, func(_ context.Context, m events.Message) error {
+	}
+	Bind(ctx, t, bus, Topology(), sub)
+	stop, err := bus.Subscribe(ctx, sub, func(_ context.Context, m events.Message) error {
 		got.add(m)
 		return nil
 	})
@@ -1100,7 +1124,7 @@ func testScheduledPublish(t *testing.T, newBus func() events.Bus) {
 	}
 	got := make(chan delivery, 4)
 
-	stop, err := bus.Subscribe(ctx, events.Subscription{
+	sub := events.Subscription{
 		Stream:      events.StreamWorkCatalog,
 		Durable:     "ct-scheduled",
 		Filters:     []string{events.FilterCatalogSearch},
@@ -1108,7 +1132,9 @@ func testScheduledPublish(t *testing.T, newBus func() events.Bus) {
 		MaxDeliver:  3,
 		Backoff:     []time.Duration{50 * time.Millisecond},
 		MaxInFlight: 1,
-	}, func(_ context.Context, m events.Message) error {
+	}
+	Bind(ctx, t, bus, Topology(), sub)
+	stop, err := bus.Subscribe(ctx, sub, func(_ context.Context, m events.Message) error {
 		select {
 		case got <- delivery{at: time.Now(), subject: m.Subject()}:
 		default:
@@ -1586,7 +1612,7 @@ type hookDelivery struct {
 func subscribeForHooks(t *testing.T, ctx context.Context, bus events.Bus, durable string) chan hookDelivery {
 	t.Helper()
 	got := make(chan hookDelivery, 1)
-	stop, err := bus.Subscribe(ctx, events.Subscription{
+	sub := events.Subscription{
 		Stream:      events.StreamEvents,
 		Durable:     durable,
 		Filters:     []string{events.FilterAllEvents},
@@ -1594,7 +1620,9 @@ func subscribeForHooks(t *testing.T, ctx context.Context, bus events.Bus, durabl
 		MaxDeliver:  3,
 		Backoff:     []time.Duration{50 * time.Millisecond},
 		MaxInFlight: 4,
-	}, func(ctx context.Context, m events.Message) error {
+	}
+	Bind(ctx, t, bus, Topology(), sub)
+	stop, err := bus.Subscribe(ctx, sub, func(ctx context.Context, m events.Message) error {
 		v, ok := ctx.Value(hooksCtxKey{}).(string)
 		select {
 		case got <- hookDelivery{envTrace: m.Envelope().Trace, ctxTrace: v, ctxSet: ok}:

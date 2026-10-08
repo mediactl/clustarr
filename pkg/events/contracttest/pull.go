@@ -258,7 +258,7 @@ func testDeleteSubscription(t *testing.T, newBus func() events.Bus) {
 }
 
 // testSubscriptions is what transcode's pool sweep stands on (final-review
-// M1): Subscriptions lists every durable a Pull or a Subscribe created on a
+// M1): Subscriptions lists every durable a Pull created or Ensure declared on a
 // stream -- after its puller or subscription stopped, since a durable
 // outlives both -- and a durable DeleteSubscription removed is gone from
 // the list, while a sibling on the same stream is not.
@@ -273,6 +273,7 @@ func testSubscriptions(t *testing.T, newBus func() events.Bus) {
 		t.Fatalf("Pull %s: %v", gone.Durable, err)
 	}
 	p.Stop()
+	Bind(ctx, t, bus, Topology(), kept)
 	stop, err := bus.Subscribe(ctx, kept, func(context.Context, events.Message) error { return nil })
 	if err != nil {
 		t.Fatalf("Subscribe %s: %v", kept.Durable, err)
