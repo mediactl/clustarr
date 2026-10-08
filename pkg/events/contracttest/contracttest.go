@@ -107,6 +107,17 @@ func RunBusContract(t *testing.T, newBus func() events.Bus) {
 	})
 	t.Run("UnknownSubject", func(t *testing.T) { testUnknownSubject(t, newBus) })
 	t.Run("BindCreatesTheDurableAndItsWatcher", func(t *testing.T) { testBindCreatesTheDurableAndItsWatcher(t, newBus) })
+	t.Run("ConsumerStateCountsPendingAndAckPending", func(t *testing.T) { testConsumerState(t, newBus) })
+	t.Run("MaxAckPendingCapsEveryReplicaTogether", func(t *testing.T) { testMaxAckPendingCapsEveryReplica(t, newBus) })
+	t.Run("SubscriptionHoldsNoMoreThanItsSlots", func(t *testing.T) { testHoldsNoMoreThanItsSlots(t, newBus) })
+	t.Run("ReplicasShareMaxAckPendingBeyondOneSlotCount", func(t *testing.T) { testReplicasShareTheCap(t, newBus) })
+	t.Run("LapsedHandlerFreesItsSlot", func(t *testing.T) { testLapsedHandlerFreesItsSlot(t, newBus) })
+	t.Run("LapsedHandlersDoNotMultiplyConcurrency", func(t *testing.T) { testLapsesAreBounded(t, newBus) })
+	t.Run("DrainLetsRunningHandlersFinish", func(t *testing.T) { testDrain(t, newBus) })
+	t.Run("SubscribeRebindsAVanishedDurable", func(t *testing.T) { testRebind(t, newBus) })
+	t.Run("SubscribeBindsAndNeverWritesConsumerConfig", func(t *testing.T) { testBindsNeverWrites(t, newBus) })
+	t.Run("SubscribeWaitsForAMissingDurable", func(t *testing.T) { testWaitsForMissingDurable(t, newBus) })
+	t.Run("ALapsedFinalDeliveryIsDeadLetteredWithABindOnlySubscribe", func(t *testing.T) { testBindOnlyDeadLetters(t, newBus) })
 }
 
 // Run is the name the design document gives the suite entry point. It is an
@@ -133,7 +144,14 @@ func RunHooksContract(t *testing.T, newBus func() events.Bus,
 // shutdown.
 func setup(t *testing.T, newBus func() events.Bus) (context.Context, events.Bus) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), Timeout)
+	return setupFor(t, newBus, Timeout)
+}
+
+// setupFor is setup with a context of d instead of Timeout, for a case that
+// runs longer than the suite's usual bound.
+func setupFor(t *testing.T, newBus func() events.Bus, d time.Duration) (context.Context, events.Bus) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), d)
 	t.Cleanup(cancel)
 	bus := newBus()
 	t.Cleanup(func() {
