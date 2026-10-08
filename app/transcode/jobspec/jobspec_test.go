@@ -181,65 +181,44 @@ func assertNoZeroLeaf(t *testing.T, v reflect.Value, path string) {
 }
 
 // OutputPath is gap-fix ruling R-11's output location, shared by the
-// controller's plan and the worker's write.
+// transcode planner's plan and the worker's write. (The TranscodeJob's
+// explicit spec.outputPath went with the kind, F9.2: its four cases are gone.)
 func TestOutputPath(t *testing.T) {
 	const src = "/data/media/movies/Film (2020)/Film (2020).mkv"
-	spec := func(source string, out *string) transcodev1alpha1.TranscodeJobSpec {
-		return transcodev1alpha1.TranscodeJobSpec{SourcePath: source, OutputPath: out}
-	}
 	for _, tc := range []struct {
 		name      string
-		spec      transcodev1alpha1.TranscodeJobSpec
+		source    string
 		container transcodev1alpha1.Container
 		replace   bool
 		want      string
 		wantErr   string
 	}{
-		{name: "same container replaces in place", spec: spec(src, nil), container: "mkv", replace: true, want: src},
-		{name: "an empty container is mkv", spec: spec(src, nil), replace: true, want: src},
+		{name: "same container replaces in place", source: src, container: "mkv", replace: true, want: src},
+		{name: "an empty container is mkv", source: src, replace: true, want: src},
 		{
-			name: "case does not make a change", spec: spec("/data/media/movies/F/F.MKV", nil), container: "mkv", replace: true,
+			name: "case does not make a change", source: "/data/media/movies/F/F.MKV", container: "mkv", replace: true,
 			want: "/data/media/movies/F/F.MKV",
 		},
 		{
-			name: "container change gets the new extension", spec: spec("/data/media/movies/F/F.mp4", nil), container: "mkv", replace: true,
+			name: "container change gets the new extension", source: "/data/media/movies/F/F.mp4", container: "mkv", replace: true,
 			want: "/data/media/movies/F/F.mkv",
 		},
 		{
-			name: "mkv to mp4", spec: spec(src, nil), container: "mp4", replace: true,
+			name: "mkv to mp4", source: src, container: "mp4", replace: true,
 			want: "/data/media/movies/Film (2020)/Film (2020).mp4",
 		},
 		{
-			name: "a kept source takes a version name", spec: spec(src, nil), container: "mkv", replace: false,
+			name: "a kept source takes a version name", source: src, container: "mkv", replace: false,
 			want: "/data/media/movies/Film (2020)/Film (2020) - hevc.mkv",
 		},
 		{
-			name: "a kept source across a container change", spec: spec("/data/media/movies/F/F.avi", nil), container: "mkv", replace: false,
+			name: "a kept source across a container change", source: "/data/media/movies/F/F.avi", container: "mkv", replace: false,
 			want: "/data/media/movies/F/F - hevc.mkv",
 		},
-		{
-			name: "spec.outputPath wins", spec: spec(src, new("/data/media/movies/Other/Film.mkv")), container: "mkv", replace: true,
-			want: "/data/media/movies/Other/Film.mkv",
-		},
-		{
-			name: "spec.outputPath is cleaned", spec: spec(src, new("/data/media/movies/./Other//Film.mkv")), container: "mkv", replace: false,
-			want: "/data/media/movies/Other/Film.mkv",
-		},
-		{
-			name: "spec.outputPath must match the container", spec: spec(src, new("/data/media/x.mp4")), container: "mkv", replace: true,
-			wantErr: "extension",
-		},
-		{
-			name: "spec.outputPath must be absolute", spec: spec(src, new("x.mkv")), container: "mkv", replace: true,
-			wantErr: "not absolute",
-		},
-		{
-			name: "a kept source cannot be the output", spec: spec(src, new(src)), container: "mkv", replace: false,
-			wantErr: "keeps the source",
-		},
+		{name: "the source must be absolute", source: "x.mkv", container: "mkv", replace: true, wantErr: "not absolute"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := OutputPath(tc.spec, "hevc", tc.container, tc.replace)
+			got, err := OutputPath(tc.source, "hevc", tc.container, tc.replace)
 			if tc.wantErr != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tc.wantErr)
