@@ -261,7 +261,10 @@ func runGraft(taskJSON, dataDir string, getenv func(string) string, log *slog.Lo
 		log.ErrorContext(ctx, "nats connect", "error", err)
 		return 1
 	}
-	bus, err := natsbus.New(nc)
+	bus, err := natsbus.New(nc, natsbus.WithHooks(events.Hooks{
+		BeforePublish: tracing.Inject,
+		AfterReceive:  tracing.Extract,
+	}))
 	if err != nil {
 		log.ErrorContext(ctx, "bus", "error", err)
 		busconn.ShutdownAfter(ctx, shutdownBudget, nil, nc)()
