@@ -114,8 +114,8 @@ func TestResolve_CatalogMediaKinds(t *testing.T) {
 	})
 
 	t.Run("unrecognised MediaKind leaves Kind empty but keeps the namespace", func(t *testing.T) {
-		env := envelopeFor(t, "default/mystery", schema.GrabTask{
-			MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKind("podcast"), Name: "mystery"},
+		env := envelopeFor(t, "default/mystery", schema.RenderOverlayTask{
+			MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKind("podcast"), Name: "mystery"}, Reason: "original",
 		})
 		got := history.Resolve(env)
 		require.False(t, got.KindKnown())
