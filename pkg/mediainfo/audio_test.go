@@ -64,7 +64,7 @@ func TestAudioProbeFrom(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var pd ffprobe.ProbeData
 			require.NoError(t, json.Unmarshal([]byte(tc.json), &pd))
-			got, err := AudioProbeFrom(&pd)
+			got, err := AudioProbeFromRaw(&Raw{Format: pd.Format, Streams: pd.Streams})
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, got)
 		})
@@ -72,6 +72,6 @@ func TestAudioProbeFrom(t *testing.T) {
 
 	var video ffprobe.ProbeData
 	require.NoError(t, json.Unmarshal([]byte(`{"streams":[{"codec_type":"video","codec_name":"h264"}]}`), &video))
-	_, err := AudioProbeFrom(&video)
+	_, err := AudioProbeFromRaw(&Raw{Format: video.Format, Streams: video.Streams})
 	require.ErrorIs(t, err, ErrNoAudioStream)
 }

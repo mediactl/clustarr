@@ -32,8 +32,7 @@ import (
 // TestMediainfoRunsNoProgram keeps pkg/mediainfo to the model and the mapping
 // (spec §4.3 step 1.7). The manager links it for MediaInfo, Raw and
 // ProbeVersion and never probes (R3), so no non-test file here may import
-// os/exec or call go-ffprobe's Probe*. The ffprobe-backed probe is
-// pkg/mediainfo/ffprobeexec.
+// os/exec or call go-ffprobe's Probe*. pkg/mediainfo/native probes.
 func TestMediainfoRunsNoProgram(t *testing.T) {
 	files, err := filepath.Glob("*.go")
 	require.NoError(t, err)
@@ -50,7 +49,7 @@ func TestMediainfoRunsNoProgram(t *testing.T) {
 			ip, _ := strconv.Unquote(imp.Path.Value)
 			switch ip {
 			case "os/exec":
-				t.Errorf("%s imports os/exec: the ffprobe exec lives in pkg/mediainfo/ffprobeexec", p)
+				t.Errorf("%s imports os/exec: pkg/mediainfo runs no program; pkg/mediainfo/native probes", p)
 			case "gopkg.in/vansante/go-ffprobe.v2":
 				ffprobeName = "ffprobe"
 				if imp.Name != nil {
@@ -71,7 +70,7 @@ func TestMediainfoRunsNoProgram(t *testing.T) {
 				return true
 			}
 			if x, ok := sel.X.(*ast.Ident); ok && x.Name == ffprobeName && strings.HasPrefix(sel.Sel.Name, "Probe") {
-				t.Errorf("%s calls %s.%s, which runs ffprobe: probe through pkg/mediainfo/ffprobeexec", p, x.Name, sel.Sel.Name)
+				t.Errorf("%s calls %s.%s, which runs ffprobe: pkg/mediainfo/native probes", p, x.Name, sel.Sel.Name)
 			}
 			return true
 		})

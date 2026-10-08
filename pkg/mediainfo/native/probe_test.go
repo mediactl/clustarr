@@ -15,31 +15,24 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package ffprobeexec
+package native
 
 import (
-	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	"github.com/mediactl/clustarr/pkg/mediainfo"
 )
 
-func TestProbeAudioReadsTheFixtures(t *testing.T) {
-	skipIfNoFFprobe(t)
-	ctx := context.Background()
-
-	mp3, err := ProbeAudio(ctx, "../../../test/data/mediainfo/audio_mp3_cbr320.mp3")
-	require.NoError(t, err)
-	assert.Equal(t, mediainfo.AudioProbe{Codec: "mp3", BitrateKbps: 320}, mp3)
-
-	flac, err := ProbeAudio(ctx, "../../../test/data/mediainfo/audio_flac_24bit.flac")
-	require.NoError(t, err)
-	assert.Equal(t, "flac", flac.Codec)
-	assert.Equal(t, 24, flac.SampleBits)
-
-	_, err = ProbeAudio(ctx, "../../../test/data/mediainfo/does-not-exist.mp3")
-	require.Error(t, err)
+// FFmpeg 9's AVDOVIDecoderConfigurationRecord is nine bytes: the eight
+// ISO/IEC flags and dv_md_compression, which ffprobe prints by name.
+func TestDoviRecordReadsEveryField(t *testing.T) {
+	got := doviRecord([]byte{1, 0, 8, 3, 1, 0, 1, 1, 1})
+	assert.Equal(t, &mediainfo.DoviRecord{
+		VersionMajor: 1, Profile: 8, Level: 3, RPUPresent: true, BLPresent: true,
+		BLSignalCompatibilityID: 1, MDCompression: "limited",
+	}, got)
+	assert.Equal(t, "none", doviRecord([]byte{1, 0, 7, 6, 1, 1, 1, 6, 0}).MDCompression)
+	assert.Equal(t, "", doviRecord([]byte{1, 0, 5, 3, 1, 0, 1, 0}).MDCompression, "an eight-byte record names none")
 }

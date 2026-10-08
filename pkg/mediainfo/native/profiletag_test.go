@@ -15,20 +15,17 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package ffprobeexec_test
+package native
 
 import (
 	"context"
-	"os/exec"
 	"path/filepath"
 	"testing"
 
-	"github.com/obinnaokechukwu/ffgo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/mediactl/clustarr/pkg/mediainfo"
-	"github.com/mediactl/clustarr/pkg/mediainfo/ffprobeexec"
 	"github.com/mediactl/clustarr/pkg/transcode"
 	"github.com/mediactl/clustarr/pkg/transcode/engine"
 	"github.com/mediactl/clustarr/pkg/transcode/standard"
@@ -36,7 +33,7 @@ import (
 
 // TestProbeReadsTheTagTranscodeWrites builds its input through the real
 // producer: the in-process engine (pkg/transcode/engine) running a plan
-// that carries the CLUSTARR_PROFILE tag, read back by the real Probe. A
+// that carries the CLUSTARR_PROFILE tag, read back by the native Probe. A
 // fixture shaped like the answer -- a hand-written ffprobe JSON with the key
 // already in it -- would pass whatever the muxer actually does with the tag.
 //
@@ -47,15 +44,7 @@ import (
 // transcode would read back as an untouched original and stay upgradeable
 // forever.
 func TestProbeReadsTheTagTranscodeWrites(t *testing.T) {
-	if _, err := exec.LookPath("ffprobe"); err != nil {
-		t.Skip("ffprobe not on PATH")
-	}
-	if err := ffgo.Init(); err != nil {
-		t.Skipf("no FFmpeg libraries: %v", err)
-	}
-	if _, avc, _ := ffgo.Version(); avc>>16 != 63 {
-		t.Skip("not FFmpeg 9")
-	}
+	p := testProber(t)
 
 	const tag = "hevc-main10@0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 	src := "../../../test/data/mediainfo/sample_hevc_10bit.mkv"
@@ -78,13 +67,13 @@ func TestProbeReadsTheTagTranscodeWrites(t *testing.T) {
 			_, err := engine.Run(t.Context(), plan, src, out, engine.Options{})
 			require.NoError(t, err)
 
-			mi, _, err := ffprobeexec.Probe(context.Background(), out)
+			mi, _, err := p.Probe(context.Background(), out)
 			require.NoError(t, err)
 			assert.Equal(t, tag, mi.TranscodeProfile, "a file transcode wrote must read back as transcoded")
 		})
 	}
 
-	untagged, _, err := ffprobeexec.Probe(context.Background(), src)
+	untagged, _, err := p.Probe(context.Background(), src)
 	require.NoError(t, err)
 	assert.Empty(t, untagged.TranscodeProfile, "the untouched source carries no tag")
 }

@@ -15,12 +15,10 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package ffprobeexec
+package native
 
 import (
 	"context"
-	"os/exec"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -52,12 +50,8 @@ import (
 // exists to catch it if it ever regresses.
 //
 // The chromaticity/luminance/max-CLL values are
-// docs/research/transcode.md §2.2's own worked example, so a correctly
-// generated clip decodes to the exact side data
-// pkg/mediainfo/ffprobe_test.go's hdr10FrameJSON fixture already
-// hand-authored from a real ffprobe capture.
+// docs/research/transcode.md §2.2's own worked example.
 var hdr10FixtureArgs = []string{
-	"-hide_banner", "-loglevel", "error", "-y",
 	"-f", "lavfi", "-i", "testsrc2=duration=3:size=640x480:rate=25",
 	"-c:v", "libx265", "-pix_fmt", "yuv420p10le",
 	"-x265-params", "colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc:" +
@@ -66,7 +60,7 @@ var hdr10FixtureArgs = []string{
 
 // TestHDR10FixtureClassifiesAsHDR10 generates images/Dockerfile.e2e-fixtures's
 // HDR10 clip with a real ffmpeg and proves the full, real
-// pkg/mediainfo/ffprobeexec.Probe -> ClassifyHDR path reads it back as HDR10
+// pkg/mediainfo/native Probe -> ClassifyHDR path reads it back as HDR10
 // -- not PQ10 (which is what a clip with the colour transfer but no
 // mastering-display metadata would classify as), not SDR (what a clip whose
 // colour tags never reached the bitstream at all would classify as), and not
@@ -74,20 +68,10 @@ var hdr10FixtureArgs = []string{
 // meaningful: a clip ffmpeg writes but ClassifyHDR reads as SDR proves
 // nothing about the fixture image.
 func TestHDR10FixtureClassifiesAsHDR10(t *testing.T) {
-	if _, err := exec.LookPath("ffmpeg"); err != nil {
-		t.Skip("ffmpeg not on PATH")
-	}
-	skipIfNoFFprobe(t)
+	p := testProber(t)
+	path := hdr10Clip(t)
 
-	dir := t.TempDir()
-	path := filepath.Join(dir, "hdr10.mkv")
-	args := append(append([]string{}, hdr10FixtureArgs...), path)
-
-	cmd := exec.Command("ffmpeg", args...)
-	out, err := cmd.CombinedOutput()
-	require.NoError(t, err, "ffmpeg: %s", out)
-
-	mi, raw, err := Probe(context.Background(), path)
+	mi, raw, err := p.Probe(context.Background(), path)
 	require.NoError(t, err)
 
 	require.Equal(t, "hevc", mi.VideoCodec)

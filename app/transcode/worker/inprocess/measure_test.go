@@ -32,7 +32,7 @@ import (
 
 func ffmpeg9OrSkip(t *testing.T) {
 	t.Helper()
-	if _, err := New(); err != nil {
+	if _, err := New(transcode.HardwareCPU); err != nil {
 		t.Skipf("no FFmpeg 9 with its shim: %v", err)
 	}
 }

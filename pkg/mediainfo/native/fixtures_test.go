@@ -15,11 +15,10 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package ffprobeexec
+package native
 
 import (
 	"context"
-	"os/exec"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -28,17 +27,12 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 )
 
-func skipIfNoFFprobe(t *testing.T) {
-	t.Helper()
-	if _, err := exec.LookPath("ffprobe"); err != nil {
-		t.Skip("ffprobe not on PATH")
-	}
-}
+// The committed fixtures, read by the in-process probe as ffprobe read them
+// (moved from pkg/mediainfo/ffprobeexec with its probe, spec 2026-10-06 §6.8;
+// "Constrained Baseline" and "Main 10" prove F11a).
 
 func TestProbeH264MP4(t *testing.T) {
-	skipIfNoFFprobe(t)
-
-	mi, raw, err := Probe(context.Background(), "../../../test/data/mediainfo/sample_h264_8bit.mp4")
+	mi, raw, err := testProber(t).Probe(context.Background(), "../../../test/data/mediainfo/sample_h264_8bit.mp4")
 	require.NoError(t, err)
 
 	assert.Equal(t, "mp4", mi.Container)
@@ -59,9 +53,7 @@ func TestProbeH264MP4(t *testing.T) {
 }
 
 func TestProbeHEVC10bitMKV(t *testing.T) {
-	skipIfNoFFprobe(t)
-
-	mi, raw, err := Probe(context.Background(), "../../../test/data/mediainfo/sample_hevc_10bit.mkv")
+	mi, raw, err := testProber(t).Probe(context.Background(), "../../../test/data/mediainfo/sample_hevc_10bit.mkv")
 	require.NoError(t, err)
 
 	assert.Equal(t, "mkv", mi.Container)
@@ -81,8 +73,6 @@ func TestProbeHEVC10bitMKV(t *testing.T) {
 }
 
 func TestProbeMissingFileReturnsWrappedError(t *testing.T) {
-	skipIfNoFFprobe(t)
-
-	_, _, err := Probe(context.Background(), "../../../test/data/mediainfo/does-not-exist.mkv")
+	_, _, err := testProber(t).Probe(context.Background(), "../../../test/data/mediainfo/does-not-exist.mkv")
 	require.Error(t, err)
 }
