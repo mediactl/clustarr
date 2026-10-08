@@ -47,6 +47,9 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/comic"
+	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
+	"github.com/mediactl/clustarr/app/remediation"
+	"github.com/mediactl/clustarr/app/remediation/itemtest"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -171,12 +174,11 @@ type reconcileCounter struct{ n atomic.Int64 }
 func (c *reconcileCounter) inc()         { c.n.Add(1) }
 func (c *reconcileCounter) count() int64 { return c.n.Load() }
 
-// startManager wires a real comic.Reconciler into a real ctrl.Manager backed
-// by the envtest apiserver, starts it, and waits for the cache to sync.
-// controller-runtime enforces controller-name uniqueness with a
-// process-global registry, so every scenario needing the real, auto-wired
-// controller lives as a t.Run under one Test function that calls this
-// exactly once -- the same constraint series_test's startManager documents.
+// startManager runs a real comic.Reconciler on a real ctrl.Manager backed by
+// the envtest apiserver as the remediation loop runs it (itemtest.Start),
+// starts it, and waits for the cache to sync. Every scenario needing the
+// auto-wired item path lives as a t.Run under one Test function that calls
+// this once.
 func startManager(t *testing.T, ctx context.Context, cfg *rest.Config, bus combinedBus) (client.Client, *reconcileCounter) {
 	t.Helper()
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
@@ -194,7 +196,8 @@ func startManager(t *testing.T, ctx context.Context, cfg *rest.Config, bus combi
 		Bus:         bus,
 		OnReconcile: counter.inc,
 	}
-	require.NoError(t, r.SetupWithManager(mgr))
+	require.NoError(t, remediation.RegisterIndexes(ctx, mgr.GetFieldIndexer()))
+	require.NoError(t, itemtest.Start(mgr, map[remediation.KeyKind]rollup.Item{remediation.KindComic: r}))
 
 	go func() { _ = mgr.Start(ctx) }()
 	require.True(t, mgr.GetCache().WaitForCacheSync(ctx))
@@ -202,11 +205,10 @@ func startManager(t *testing.T, ctx context.Context, cfg *rest.Config, bus combi
 }
 
 // startCacheOnly starts a real ctrl.Manager's cache (so syncIssues' field-
-// indexed List works) WITHOUT wiring a comic.Reconciler's watches to it, so
-// nothing auto-reconciles and SetupWithManager's process-global "comic"
-// controller name is never touched. Used by tests that call r.Reconcile()
-// directly. The one field index registered here must stay in sync with
-// comic.Reconciler.SetupWithManager's own registration.
+// indexed List works) WITHOUT starting the Comic's item path on it, so
+// nothing auto-reconciles. Used by tests that call r.ReconcileItem()
+// directly. The index is the one comic.RegisterIndexes registers for the
+// remediation loop.
 func startCacheOnly(t *testing.T, ctx context.Context, cfg *rest.Config) client.Client {
 	t.Helper()
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
@@ -216,14 +218,7 @@ func startCacheOnly(t *testing.T, ctx context.Context, cfg *rest.Config) client.
 	})
 	require.NoError(t, err)
 
-	require.NoError(t, mgr.GetFieldIndexer().IndexField(ctx, &catalogv1alpha1.Issue{}, ".spec.comicRef",
-		func(o client.Object) []string {
-			iss, ok := o.(*catalogv1alpha1.Issue)
-			if !ok {
-				return nil
-			}
-			return []string{iss.Spec.ComicRef}
-		}))
+	require.NoError(t, comic.RegisterIndexes(ctx, mgr.GetFieldIndexer()))
 
 	go func() { _ = mgr.Start(ctx) }()
 	require.True(t, mgr.GetCache().WaitForCacheSync(ctx))
@@ -238,8 +233,7 @@ func mustGetComic(t *testing.T, ctx context.Context, c client.Client, ns, name s
 }
 
 // TestComicReconcilerRealController is the one Test function that starts a
-// real, auto-wired comic.Reconciler (see startManager's doc for why there
-// can only be one per test binary).
+// real, auto-wired comic.Reconciler (startManager).
 func TestComicReconcilerRealController(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -419,7 +413,7 @@ func TestComicReconcilerRealController(t *testing.T) {
 		}, 5*time.Second, 10*time.Millisecond, "setup: the cache never observed the created Comic")
 
 		req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "comic-mangadex-ns", Name: "one-piece-manga"}}
-		_, err := r.Reconcile(ctx, req)
+		_, err := r.ReconcileItem(ctx, req.NamespacedName)
 		require.NoError(t, err)
 
 		assert.Equal(t, map[string]string{"mangadex": uuid}, mdRequester.requestedIDs(),
@@ -490,11 +484,11 @@ func TestComicReconcilerRealController(t *testing.T) {
 			return got
 		}
 
-		_, err := r.Reconcile(ctx, req)
+		_, err := r.ReconcileItem(ctx, req.NamespacedName)
 		require.NoError(t, err)
 		require.Eventually(t, func() bool { return len(listIssues()) == len(numbers) }, 5*time.Second, 10*time.Millisecond,
 			"12, 12a, 12b and 12.HU must each get an Issue")
-		_, err = r.Reconcile(ctx, req)
+		_, err = r.ReconcileItem(ctx, req.NamespacedName)
 		require.NoError(t, err)
 		require.Never(t, func() bool { return len(listIssues()) != len(numbers) }, 500*time.Millisecond, 20*time.Millisecond,
 			"a re-fanout must not add an Issue beside an existing one")
@@ -526,7 +520,7 @@ func TestComicReconcilerRealController(t *testing.T) {
 		req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "comic-keepid-ns", Name: "saga"}}
 		require.Eventually(t, func() bool { return keepClient.Get(ctx, req.NamespacedName, &catalogv1alpha1.Comic{}) == nil },
 			5*time.Second, 10*time.Millisecond)
-		_, err := r.Reconcile(ctx, req)
+		_, err := r.ReconcileItem(ctx, req.NamespacedName)
 		require.NoError(t, err)
 
 		issKey := types.NamespacedName{Namespace: "comic-keepid-ns", Name: comic.IssueName("saga", "1")}
@@ -537,7 +531,7 @@ func TestComicReconcilerRealController(t *testing.T) {
 
 		// Metron answers this time: its issues carry a metron id only.
 		rq.issues = []metadata.ComicIssue{{IDs: metadata.ExternalIDs{"metron": "55"}, Number: "1", Title: "One"}}
-		_, err = r.Reconcile(ctx, req)
+		_, err = r.ReconcileItem(ctx, req.NamespacedName)
 		require.NoError(t, err)
 		require.Never(t, func() bool {
 			var iss catalogv1alpha1.Issue
@@ -665,7 +659,7 @@ func TestComicReconcilerQueueFull(t *testing.T) {
 		Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10),
 		Bus: combinedBus{Publisher: &fakePublisher{err: events.ErrQueueFull}, requester: &fakeIssueRPC{}},
 	}
-	res, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "comic-queuefull-ns", Name: "queuefull-comic"}})
+	res, err := r.ReconcileItem(ctx, types.NamespacedName{Namespace: "comic-queuefull-ns", Name: "queuefull-comic"})
 	require.NoError(t, err)
 	assert.Equal(t, time.Minute, res.RequeueAfter)
 
@@ -728,7 +722,7 @@ func TestComicReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 		}}
 		bus := combinedBus{Publisher: &fakePublisher{}, requester: requester}
 		r := &comic.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10), Bus: bus}
-		_, err = r.Reconcile(ctx, req)
+		_, err = r.ReconcileItem(ctx, req.NamespacedName)
 		require.NoError(t, err)
 
 		iss1Key := types.NamespacedName{Namespace: "comic-transient-ns", Name: name + "-001.0"}
@@ -750,7 +744,7 @@ func TestComicReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 			return got.Status.HasFile
 		}, 5*time.Second, 10*time.Millisecond)
 
-		_, err = r.Reconcile(ctx, req)
+		_, err = r.ReconcileItem(ctx, req.NamespacedName)
 		require.NoError(t, err)
 
 		var got catalogv1alpha1.Comic
@@ -790,7 +784,7 @@ func TestComicReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 			Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10),
 			Bus: combinedBus{Publisher: &fakePublisher{err: events.ErrQueueFull}, requester: &fakeIssueRPC{}},
 		}
-		res, err := r2.Reconcile(ctx, req)
+		res, err := r2.ReconcileItem(ctx, req.NamespacedName)
 		require.NoError(t, err)
 		assert.Equal(t, time.Minute, res.RequeueAfter)
 
@@ -829,7 +823,7 @@ func TestComicReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 			Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10),
 			Bus: combinedBus{Publisher: &fakePublisher{}, requester: &fakeIssueRPC{}},
 		}
-		res, err := r2.Reconcile(ctx, req)
+		res, err := r2.ReconcileItem(ctx, req.NamespacedName)
 		require.NoError(t, err)
 		assert.Equal(t, time.Minute, res.RequeueAfter)
 
@@ -884,7 +878,7 @@ func TestComicIssueFieldManagersStayDisjoint(t *testing.T) {
 	require.NoError(t, c.Create(ctx, cm))
 
 	req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "comic-fieldmanager-ns", Name: "field-manager-comic"}}
-	_, err := r.Reconcile(ctx, req)
+	_, err := r.ReconcileItem(ctx, req.NamespacedName)
 	require.NoError(t, err)
 
 	issKey := types.NamespacedName{Namespace: "comic-fieldmanager-ns", Name: "field-manager-comic-001.0"}
@@ -957,7 +951,7 @@ func TestComicIssueFieldManagersStayDisjoint(t *testing.T) {
 	// A second Comic reconcile (re-fanout with the same provider data) must
 	// not erase the Issue-owned fields the simulated write just set --
 	// proving the split needs no ongoing re-assertion from either side.
-	_, err = r.Reconcile(ctx, req)
+	_, err = r.ReconcileItem(ctx, req.NamespacedName)
 	require.NoError(t, err)
 
 	require.NoError(t, c.Get(ctx, issKey, &iss))

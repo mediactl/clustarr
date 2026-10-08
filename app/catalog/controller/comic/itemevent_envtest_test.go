@@ -29,7 +29,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8sevents "k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
@@ -94,7 +93,7 @@ func TestComicReconcilerPublishesItemEvents(t *testing.T) {
 	r := &comic.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10), Bus: combinedBus{Publisher: pub, requester: &fakeIssueRPC{}}}
 	reconcileOnce := func() {
 		t.Helper()
-		_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+		_, err := r.ReconcileItem(ctx, key)
 		require.NoError(t, err)
 	}
 
