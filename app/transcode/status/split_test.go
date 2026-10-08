@@ -34,7 +34,7 @@ import (
 // but the field list is still worth asserting complete, so a field added
 // later cannot silently go unsent by [status.ProfileFields].
 var profileOwned = []string{
-	"ObservedGeneration", "Hash", "MatchingFiles", "PendingJobs", "RunningJobs", "Conditions", "EncoderLimits",
+	"ObservedGeneration", "Hash", "MatchingFiles", "PendingJobs", "RunningJobs", "WaitingFiles", "Conditions", "EncoderLimits",
 }
 
 // fullProfileStatus is fullJobStatus's counterpart for TranscodeProfileStatus.
@@ -45,6 +45,7 @@ func fullProfileStatus() transcodev1alpha1.TranscodeProfileStatus {
 		MatchingFiles:      12,
 		PendingJobs:        3,
 		RunningJobs:        1,
+		WaitingFiles:       40,
 		Conditions:         []metav1.Condition{{Type: transcodev1alpha1.TranscodeProfileConditionReady}},
 		EncoderLimits:      []transcodev1alpha1.EncoderLimit{{Class: transcodev1alpha1.HardwareNVIDIA, Node: "n1"}},
 	}
@@ -81,7 +82,7 @@ func TestEveryTranscodeProfileStatusFieldIsAccountedFor(t *testing.T) {
 		name := typ.Field(i).Name
 		assert.Equalf(t, 1, claimed[name], "TranscodeProfileStatus.%s is claimed %d times; want exactly 1", name, claimed[name])
 	}
-	require.Len(t, profileOwned, 7)
+	require.Len(t, profileOwned, 8)
 	assert.Equal(t, typ.NumField(), len(profileOwned))
 }
 
