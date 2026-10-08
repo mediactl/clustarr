@@ -26,10 +26,9 @@ import (
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
-// pkg/k8s's bus names are wrappers over pkg/busconn until Wave 5 deletes their
-// last callers (spec §4.3 step 1.3).
+// pkg/k8s's bus names are pkg/busconn's (spec §4.3 step 1.3). Wave 5 deleted
+// the ConnectBus wrapper with its last caller; the manager options' default
+// NATS URL is the one name left, and it must stay busconn's.
 func TestTheBusWrappersAreBusconn(t *testing.T) {
-	_, _, err := k8s.ConnectBus("", "catalog")
-	require.ErrorContains(t, err, "busconn: empty NATS url")
 	require.Equal(t, busconn.DefaultNATSURL, k8s.DefaultNATSURL)
 }

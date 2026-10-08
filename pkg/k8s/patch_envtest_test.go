@@ -28,9 +28,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
-	downloadac "github.com/mediactl/clustarr/api/applyconfiguration/download/v1alpha1"
+	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
+	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
@@ -65,37 +65,30 @@ func newTestClient(t *testing.T) client.Client {
 	return c
 }
 
-func newDownload(t *testing.T, ctx context.Context, c client.Client, ns, name string) *downloadv1alpha1.Download {
+// newMovie creates the object the status tests apply to. It was a
+// Download until the ADR-0019 cold turkey deleted that kind (A9.1); a Movie
+// carries status from two catalog managers -- ManagerCatalog's phase and
+// path, ManagerCatalogGrab's search attempts -- which is what these tests
+// need.
+func newMovie(t *testing.T, ctx context.Context, c client.Client, ns, name string) *catalogv1alpha1.Movie {
 	t.Helper()
 
 	if err := c.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}}); err != nil && !isAlreadyExists(err) {
 		t.Fatalf("create namespace: %v", err)
 	}
 
-	magnet := "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567"
-	d := &downloadv1alpha1.Download{
+	m := &catalogv1alpha1.Movie{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
-		Spec: downloadv1alpha1.DownloadSpec{
-			Protocol: commonv1alpha1.ProtocolTorrent,
-			Source:   commonv1alpha1.DownloadSource{MagnetURL: &magnet},
-			Release: commonv1alpha1.ReleaseInfo{
-				GUID:        "https://indexer.example/details/1",
-				IndexerRef:  "example",
-				IndexerName: "Example",
-				Title:       "Inception.2010.2160p.UHD.BluRay.x265-GROUP",
-				Protocol:    commonv1alpha1.ProtocolTorrent,
-				InfoHash:    "0123456789abcdef0123456789abcdef01234567",
-			},
-			Target: commonv1alpha1.MediaRef{
-				Kind: commonv1alpha1.MediaKindMovie,
-				Name: "inception",
-			},
+		Spec: catalogv1alpha1.MovieSpec{
+			TmdbID:            27205,
+			QualityProfileRef: "hd-bluray-web",
+			RootFolderRef:     "movies",
 		},
 	}
-	if err := c.Create(ctx, d); err != nil {
-		t.Fatalf("create Download: %v", err)
+	if err := c.Create(ctx, m); err != nil {
+		t.Fatalf("create Movie: %v", err)
 	}
-	return d
+	return m
 }
 
 func isAlreadyExists(err error) bool {
@@ -110,98 +103,97 @@ func TestPatchStatusAppliesToTheStatusSubresource(t *testing.T) {
 	c := newTestClient(t)
 	const ns, name = "patchstatus", "inception-abc1234567"
 
-	newDownload(t, ctx, c, ns, name)
+	newMovie(t, ctx, c, ns, name)
 
-	ac := downloadac.Download(name, ns).WithStatus(
-		downloadac.DownloadStatus().
-			WithPhase("Assigned").
-			WithEngine("qbit-0").
+	ac := catalogac.Movie(name, ns).WithStatus(
+		catalogac.MovieStatus().
+			WithPhase(catalogv1alpha1.MoviePhaseWanted).
+			WithPath("/data/media/movies/Inception (2010)").
 			WithObservedGeneration(1),
 	)
-	if _, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrab, ac); err != nil {
+	if _, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, ac); err != nil {
 		t.Fatalf("PatchStatus: %v", err)
 	}
 
-	var got downloadv1alpha1.Download
+	var got catalogv1alpha1.Movie
 	if err := c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &got); err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	if got.Status.Phase != "Assigned" {
-		t.Errorf("phase = %q, want Assigned", got.Status.Phase)
+	if got.Status.Phase != catalogv1alpha1.MoviePhaseWanted {
+		t.Errorf("phase = %q, want Wanted", got.Status.Phase)
 	}
-	if got.Status.Engine != "qbit-0" {
-		t.Errorf("engine = %q, want qbit-0", got.Status.Engine)
+	if got.Status.Path != "/data/media/movies/Inception (2010)" {
+		t.Errorf("path = %q", got.Status.Path)
 	}
-	if got.Spec.Release.Title == "" {
+	if got.Spec.TmdbID != 27205 {
 		t.Error("the spec was cleared by a status apply")
 	}
 
-	if !managesField(got.ManagedFields, "grab", "status") {
-		t.Errorf("no grab-owned status entry in managedFields: %+v", fieldManagerNames(got.ManagedFields))
+	if !managesField(got.ManagedFields, "catalog", "status") {
+		t.Errorf("no catalog-owned status entry in managedFields: %+v", fieldManagerNames(got.ManagedFields))
 	}
 }
 
 // TestPatchStatusTwoManagersDoNotClobber is §3's single-writer rule as the
-// apiserver enforces it: grab owns phase and engine, grab-engine owns
-// the telemetry, and each may re-apply its own fields with force-ownership
-// without erasing the other's.
+// apiserver enforces it: catalog owns phase and path, catalog-grab owns the
+// search attempts, and each may re-apply its own fields with
+// force-ownership without erasing the other's.
 func TestPatchStatusTwoManagersDoNotClobber(t *testing.T) {
 	ctx := context.Background()
 	c := newTestClient(t)
 	const ns, name = "noclobber", "inception-abc1234567"
 
-	newDownload(t, ctx, c, ns, name)
+	newMovie(t, ctx, c, ns, name)
 
-	controller := downloadac.Download(name, ns).WithStatus(
-		downloadac.DownloadStatus().WithPhase("Downloading").WithEngine("qbit-0"),
+	controller := catalogac.Movie(name, ns).WithStatus(
+		catalogac.MovieStatus().WithPhase(catalogv1alpha1.MoviePhaseWanted).WithPath("/data/media/movies/Inception (2010)"),
 	)
-	if _, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrab, controller); err != nil {
+	if _, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, controller); err != nil {
 		t.Fatalf("controller PatchStatus: %v", err)
 	}
 
-	engine := downloadac.Download(name, ns).WithStatus(
-		downloadac.DownloadStatus().
-			WithDownloadedBytes(1024).
-			WithDownloadRateBps(512).
-			WithProgressPercent(10),
+	searched := metav1.Now()
+	grab := catalogac.Movie(name, ns).WithStatus(
+		catalogac.MovieStatus().
+			WithLastSearchedAt(searched).
+			WithSearchAttempts(commonv1alpha1.Attempts{Count: 1}),
 	)
-	if _, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrabEngine, engine); err != nil {
-		t.Fatalf("engine PatchStatus: %v", err)
+	if _, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogGrab, grab); err != nil {
+		t.Fatalf("grab PatchStatus: %v", err)
 	}
 
-	var got downloadv1alpha1.Download
+	var got catalogv1alpha1.Movie
 	if err := c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &got); err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	if got.Status.Phase != "Downloading" {
-		t.Errorf("the engine's apply erased the controller's phase: %q", got.Status.Phase)
+	if got.Status.Phase != catalogv1alpha1.MoviePhaseWanted {
+		t.Errorf("the grab stage's apply erased the controller's phase: %q", got.Status.Phase)
 	}
-	if got.Status.DownloadedBytes != 1024 {
-		t.Errorf("downloadedBytes = %d, want 1024", got.Status.DownloadedBytes)
+	if got.Status.SearchAttempts.Count != 1 {
+		t.Errorf("searchAttempts.count = %d, want 1", got.Status.SearchAttempts.Count)
 	}
 
-	// The engine keeps reporting telemetry; the controller's fields survive.
-	engine = downloadac.Download(name, ns).WithStatus(
-		downloadac.DownloadStatus().
-			WithDownloadedBytes(2048).
-			WithDownloadRateBps(512).
-			WithProgressPercent(20),
+	// The grab stage keeps counting; the controller's fields survive.
+	grab = catalogac.Movie(name, ns).WithStatus(
+		catalogac.MovieStatus().
+			WithLastSearchedAt(searched).
+			WithSearchAttempts(commonv1alpha1.Attempts{Count: 2}),
 	)
-	if _, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrabEngine, engine); err != nil {
-		t.Fatalf("second engine PatchStatus: %v", err)
+	if _, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogGrab, grab); err != nil {
+		t.Fatalf("second grab PatchStatus: %v", err)
 	}
 	if err := c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &got); err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	if got.Status.Phase != "Downloading" || got.Status.Engine != "qbit-0" {
-		t.Errorf("controller fields lost after a second engine apply: phase=%q engine=%q",
-			got.Status.Phase, got.Status.Engine)
+	if got.Status.Phase != catalogv1alpha1.MoviePhaseWanted || got.Status.Path != "/data/media/movies/Inception (2010)" {
+		t.Errorf("controller fields lost after a second grab apply: phase=%q path=%q",
+			got.Status.Phase, got.Status.Path)
 	}
-	if got.Status.DownloadedBytes != 2048 {
-		t.Errorf("downloadedBytes = %d, want 2048", got.Status.DownloadedBytes)
+	if got.Status.SearchAttempts.Count != 2 {
+		t.Errorf("searchAttempts.count = %d, want 2", got.Status.SearchAttempts.Count)
 	}
 
-	for _, want := range []string{"grab", "grab-engine"} {
+	for _, want := range []string{"catalog", "catalog-grab"} {
 		if !managesField(got.ManagedFields, want, "status") {
 			t.Errorf("no %q status entry in managedFields: %+v", want, fieldManagerNames(got.ManagedFields))
 		}
@@ -216,38 +208,38 @@ func TestPatchStatusReleasesItsOwnFieldsOnly(t *testing.T) {
 	c := newTestClient(t)
 	const ns, name = "release", "inception-abc1234567"
 
-	newDownload(t, ctx, c, ns, name)
+	newMovie(t, ctx, c, ns, name)
 
-	if _, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrabEngine,
-		downloadac.Download(name, ns).WithStatus(
-			downloadac.DownloadStatus().WithDownloadedBytes(1024).WithSeeders(5),
+	if _, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogGrab,
+		catalogac.Movie(name, ns).WithStatus(
+			catalogac.MovieStatus().WithSearchAttempts(commonv1alpha1.Attempts{Count: 1}).WithLastSearchedAt(metav1.Now()),
 		)); err != nil {
-		t.Fatalf("engine PatchStatus: %v", err)
+		t.Fatalf("grab PatchStatus: %v", err)
 	}
-	if _, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrab,
-		downloadac.Download(name, ns).WithStatus(
-			downloadac.DownloadStatus().WithPhase("Downloading"),
+	if _, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalog,
+		catalogac.Movie(name, ns).WithStatus(
+			catalogac.MovieStatus().WithPhase(catalogv1alpha1.MoviePhaseWanted),
 		)); err != nil {
 		t.Fatalf("controller PatchStatus: %v", err)
 	}
 
-	// The engine stops reporting seeders.
-	if _, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrabEngine,
-		downloadac.Download(name, ns).WithStatus(
-			downloadac.DownloadStatus().WithDownloadedBytes(2048),
+	// The grab stage stops reporting lastSearchedAt.
+	if _, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalogGrab,
+		catalogac.Movie(name, ns).WithStatus(
+			catalogac.MovieStatus().WithSearchAttempts(commonv1alpha1.Attempts{Count: 2}),
 		)); err != nil {
-		t.Fatalf("second engine PatchStatus: %v", err)
+		t.Fatalf("second grab PatchStatus: %v", err)
 	}
 
-	var got downloadv1alpha1.Download
+	var got catalogv1alpha1.Movie
 	if err := c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &got); err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	if got.Status.Seeders != 0 {
-		t.Errorf("seeders = %d, want 0 after the engine stopped sending it", got.Status.Seeders)
+	if got.Status.LastSearchedAt != nil {
+		t.Errorf("lastSearchedAt = %v, want nil after the grab stage stopped sending it", got.Status.LastSearchedAt)
 	}
-	if got.Status.Phase != "Downloading" {
-		t.Errorf("the controller's phase was dropped along with the engine's field: %q", got.Status.Phase)
+	if got.Status.Phase != catalogv1alpha1.MoviePhaseWanted {
+		t.Errorf("the controller's phase was dropped along with the grab stage's field: %q", got.Status.Phase)
 	}
 }
 
@@ -256,26 +248,26 @@ func TestPatchStatusRejectsBadInput(t *testing.T) {
 	c := newTestClient(t)
 	const ns, name = "badinput", "inception-abc1234567"
 
-	newDownload(t, ctx, c, ns, name)
+	newMovie(t, ctx, c, ns, name)
 
-	good := downloadac.Download(name, ns).WithStatus(downloadac.DownloadStatus().WithPhase("Assigned"))
+	good := catalogac.Movie(name, ns).WithStatus(catalogac.MovieStatus().WithPhase(catalogv1alpha1.MoviePhaseWanted))
 
 	if _, err := k8s.PatchStatus(ctx, c, k8s.FieldManager("kubectl"), good); err == nil {
 		t.Error("an unlisted field manager was accepted")
 	}
-	if _, err := k8s.PatchStatus[*downloadac.DownloadApplyConfiguration](
-		ctx, c, k8s.ManagerGrab, nil); err == nil {
+	if _, err := k8s.PatchStatus[*catalogac.MovieApplyConfiguration](
+		ctx, c, k8s.ManagerCatalog, nil); err == nil {
 		t.Error("a nil apply configuration was accepted")
 	}
-	if _, err := k8s.PatchStatus(ctx, nil, k8s.ManagerGrab, good); err == nil {
+	if _, err := k8s.PatchStatus(ctx, nil, k8s.ManagerCatalog, good); err == nil {
 		t.Error("a nil client was accepted")
 	}
 
 	// A configuration built by hand rather than through the generated
 	// constructor has no name, and would otherwise be sent to the collection
 	// endpoint.
-	nameless := &downloadac.DownloadApplyConfiguration{}
-	if _, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrab, nameless); err == nil {
+	nameless := &catalogac.MovieApplyConfiguration{}
+	if _, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, nameless); err == nil {
 		t.Error("a nameless apply configuration was accepted")
 	}
 }

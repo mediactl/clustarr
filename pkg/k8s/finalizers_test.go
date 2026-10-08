@@ -36,9 +36,9 @@ import (
 )
 
 func TestFinalizerNameMatchesTheSpec(t *testing.T) {
-	// §2: `<group>/<kind-lowercase>`, e.g. download.clustarr.io/download.
-	got := FinalizerName(schema.GroupKind{Group: "download.clustarr.io", Kind: "Download"})
-	if got != "download.clustarr.io/download" {
+	// §2: `<group>/<kind-lowercase>`, e.g. download.clustarr.io/downloadclient.
+	got := FinalizerName(schema.GroupKind{Group: "download.clustarr.io", Kind: "DownloadClient"})
+	if got != "download.clustarr.io/downloadclient" {
 		t.Fatalf("FinalizerName = %q", got)
 	}
 }
@@ -46,11 +46,11 @@ func TestFinalizerNameMatchesTheSpec(t *testing.T) {
 func TestFinalizerForResolvesThroughTheScheme(t *testing.T) {
 	s := MustNewScheme()
 
-	got, err := FinalizerFor(&downloadv1alpha1.Download{}, s)
+	got, err := FinalizerFor(&downloadv1alpha1.DownloadClient{}, s)
 	if err != nil {
 		t.Fatalf("FinalizerFor: %v", err)
 	}
-	if got != "download.clustarr.io/download" {
+	if got != "download.clustarr.io/downloadclient" {
 		t.Fatalf("FinalizerFor = %q", got)
 	}
 
@@ -82,7 +82,7 @@ func isClustarrGroup(group string) bool {
 }
 
 func TestFinalizerForRejectsAnUnregisteredType(t *testing.T) {
-	if _, err := FinalizerFor(&downloadv1alpha1.Download{}, nil); err == nil {
+	if _, err := FinalizerFor(&downloadv1alpha1.DownloadClient{}, nil); err == nil {
 		t.Fatal("a nil scheme was accepted")
 	}
 }
@@ -90,10 +90,10 @@ func TestFinalizerForRejectsAnUnregisteredType(t *testing.T) {
 func TestEnsureAndRemoveFinalizer(t *testing.T) {
 	ctx := context.Background()
 	s := MustNewScheme()
-	const want = "download.clustarr.io/download"
+	const want = "download.clustarr.io/downloadclient"
 
-	d := &downloadv1alpha1.Download{
-		ObjectMeta: metav1.ObjectMeta{Name: "inception-abc1234567", Namespace: "media"},
+	d := &downloadv1alpha1.DownloadClient{
+		ObjectMeta: metav1.ObjectMeta{Name: "qbit", Namespace: "media"},
 	}
 	c := fake.NewClientBuilder().WithScheme(s).WithObjects(d).Build()
 
@@ -145,7 +145,7 @@ func TestEnsureFinalizerSkipsADeletingObject(t *testing.T) {
 	s := MustNewScheme()
 	now := metav1.Now()
 
-	d := &downloadv1alpha1.Download{
+	d := &downloadv1alpha1.DownloadClient{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:              "inception-abc1234567",
 			Namespace:         "media",
@@ -155,7 +155,7 @@ func TestEnsureFinalizerSkipsADeletingObject(t *testing.T) {
 	}
 	c := fake.NewClientBuilder().WithScheme(s).WithObjects(d).Build()
 
-	wrote, err := EnsureFinalizer(ctx, c, d, "download.clustarr.io/download")
+	wrote, err := EnsureFinalizer(ctx, c, d, "download.clustarr.io/downloadclient")
 	if err != nil {
 		t.Fatalf("EnsureFinalizer on a deleting object: %v", err)
 	}
@@ -169,7 +169,7 @@ func TestEnsureFinalizerSkipsADeletingObject(t *testing.T) {
 
 func TestEnsureFinalizerRejectsBadInput(t *testing.T) {
 	ctx := context.Background()
-	d := &downloadv1alpha1.Download{ObjectMeta: metav1.ObjectMeta{Name: "d", Namespace: "media"}}
+	d := &downloadv1alpha1.DownloadClient{ObjectMeta: metav1.ObjectMeta{Name: "d", Namespace: "media"}}
 	c := fake.NewClientBuilder().WithScheme(MustNewScheme()).Build()
 
 	if _, err := EnsureFinalizer(ctx, nil, d, "a/b"); err == nil {
@@ -184,27 +184,29 @@ func TestIsDeleting(t *testing.T) {
 	if IsDeleting(nil) {
 		t.Error("IsDeleting(nil) = true")
 	}
-	if IsDeleting(&downloadv1alpha1.Download{}) {
+	if IsDeleting(&downloadv1alpha1.DownloadClient{}) {
 		t.Error("IsDeleting = true for a live object")
 	}
 }
 
 // An engine adding its finalizer to a Download the controller had just
 // applied status to got a Conflict, and a routine reconcile logged a
-// "Reconciler error". The add re-reads and retries instead.
+// "Reconciler error". The add re-reads and retries instead. (The Download
+// kind is gone, ADR-0019 A9.1; any object the add races a writer on will
+// do.)
 func TestEnsureFinalizerRetriesAConflict(t *testing.T) {
 	ctx := context.Background()
 	s := MustNewScheme()
 	const want = "download.clustarr.io/engine"
-	d := &downloadv1alpha1.Download{
-		ObjectMeta: metav1.ObjectMeta{Name: "inception-abc1234567", Namespace: "media"},
+	d := &downloadv1alpha1.DownloadClient{
+		ObjectMeta: metav1.ObjectMeta{Name: "qbit", Namespace: "media"},
 	}
 	conflicts := 1
 	c := fake.NewClientBuilder().WithScheme(s).WithObjects(d).WithInterceptorFuncs(interceptor.Funcs{
 		Update: func(ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
 			if conflicts > 0 {
 				conflicts--
-				return apierrors.NewConflict(schema.GroupResource{Group: "download.clustarr.io", Resource: "downloads"},
+				return apierrors.NewConflict(schema.GroupResource{Group: "download.clustarr.io", Resource: "downloadclients"},
 					obj.GetName(), errors.New("the object has been modified"))
 			}
 			return cl.Update(ctx, obj, opts...)
@@ -218,7 +220,7 @@ func TestEnsureFinalizerRetriesAConflict(t *testing.T) {
 	if !wrote || !HasFinalizer(d, want) {
 		t.Fatal("the finalizer was not added after the conflict cleared")
 	}
-	var got downloadv1alpha1.Download
+	var got downloadv1alpha1.DownloadClient
 	if err := c.Get(ctx, client.ObjectKeyFromObject(d), &got); err != nil || !HasFinalizer(&got, want) {
 		t.Fatalf("the finalizer is not persisted: %v", err)
 	}

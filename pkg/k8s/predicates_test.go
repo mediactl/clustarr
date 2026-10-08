@@ -25,8 +25,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
-	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 )
 
 func probeHash(o client.Object) string {
@@ -90,71 +88,74 @@ func TestStatusFieldChangedHandlesMissingObjects(t *testing.T) {
 	}
 }
 
-func downloadPhase(o client.Object) commonv1.DownloadPhase {
-	d, ok := o.(*downloadv1alpha1.Download)
+// moviePhase and movieIn are the status-field fixtures. They were a
+// Download's phase until the ADR-0019 cold turkey deleted that kind (A9.1);
+// the predicates read any status field, and a Movie's phase is one.
+func moviePhase(o client.Object) catalogv1alpha1.MoviePhase {
+	m, ok := o.(*catalogv1alpha1.Movie)
 	if !ok {
 		return ""
 	}
-	return d.Status.Phase
+	return m.Status.Phase
 }
 
-func download(phase commonv1.DownloadPhase) *downloadv1alpha1.Download {
-	d := &downloadv1alpha1.Download{
+func movieIn(phase catalogv1alpha1.MoviePhase) *catalogv1alpha1.Movie {
+	m := &catalogv1alpha1.Movie{
 		ObjectMeta: metav1.ObjectMeta{Name: "inception-abc1234567", Namespace: "media"},
 	}
-	d.Status.Phase = phase
-	return d
+	m.Status.Phase = phase
+	return m
 }
 
 func TestStatusFieldInIsTheImporterWatch(t *testing.T) {
-	// §10: catalog's importer watches Downloads in phase Completed,
-	// Seeding or Failed.
-	p := StatusFieldIn(downloadPhase,
-		commonv1.DownloadPhase("Completed"),
-		commonv1.DownloadPhase("Seeding"),
-		commonv1.DownloadPhase("Failed"),
+	// §10: a watch wakes only on entry into the phases it wants. It was
+	// the importer's Download watch (Completed, Seeding or Failed) until
+	// A9.1 deleted the kind; a Movie's file-bearing phases stand in.
+	p := StatusFieldIn(moviePhase,
+		catalogv1alpha1.MoviePhaseImported,
+		catalogv1alpha1.MoviePhaseTranscoded,
+		catalogv1alpha1.MoviePhaseCutoffUnmet,
 	)
 
-	if !p.Create(event.CreateEvent{Object: download("Completed")}) {
-		t.Error("a Completed create was filtered out")
+	if !p.Create(event.CreateEvent{Object: movieIn(catalogv1alpha1.MoviePhaseImported)}) {
+		t.Error("an Imported create was filtered out")
 	}
-	if p.Create(event.CreateEvent{Object: download("Downloading")}) {
+	if p.Create(event.CreateEvent{Object: movieIn(catalogv1alpha1.MoviePhaseDownloading)}) {
 		t.Error("a Downloading create passed")
 	}
-	if !p.Update(event.UpdateEvent{ObjectOld: download("Downloading"), ObjectNew: download("Completed")}) {
-		t.Error("the transition into Completed was filtered out")
+	if !p.Update(event.UpdateEvent{ObjectOld: movieIn(catalogv1alpha1.MoviePhaseDownloading), ObjectNew: movieIn(catalogv1alpha1.MoviePhaseImported)}) {
+		t.Error("the transition into Imported was filtered out")
 	}
-	if p.Update(event.UpdateEvent{ObjectOld: download("Completed"), ObjectNew: download("Completed")}) {
-		t.Error("telemetry churn inside Completed woke the importer")
+	if p.Update(event.UpdateEvent{ObjectOld: movieIn(catalogv1alpha1.MoviePhaseImported), ObjectNew: movieIn(catalogv1alpha1.MoviePhaseImported)}) {
+		t.Error("churn inside Imported woke the watch")
 	}
-	if !p.Update(event.UpdateEvent{ObjectOld: download("Completed"), ObjectNew: download("Seeding")}) {
+	if !p.Update(event.UpdateEvent{ObjectOld: movieIn(catalogv1alpha1.MoviePhaseImported), ObjectNew: movieIn(catalogv1alpha1.MoviePhaseTranscoded)}) {
 		t.Error("a move between two wanted phases was filtered out")
 	}
-	if p.Update(event.UpdateEvent{ObjectOld: download("Completed"), ObjectNew: download("Downloading")}) {
+	if p.Update(event.UpdateEvent{ObjectOld: movieIn(catalogv1alpha1.MoviePhaseImported), ObjectNew: movieIn(catalogv1alpha1.MoviePhaseDownloading)}) {
 		t.Error("a move out of a wanted phase passed")
 	}
 }
 
 func TestLabelSelector(t *testing.T) {
-	// §6.3: an engine replica watches only the Downloads labelled for it.
+	// A TranscodeProfile selects only the MediaFiles its labels name. (This
+	// was an engine replica's Download selector until A9.1.)
 	sel := metav1.LabelSelector{MatchLabels: map[string]string{
-		downloadv1alpha1.LabelEngine: "qbit-0",
+		catalogv1alpha1.LabelResolution: "2160p",
 	}}
 	p, err := LabelSelector(sel)
 	if err != nil {
 		t.Fatalf("LabelSelector: %v", err)
 	}
 
-	mine := download("Downloading")
-	mine.Labels = map[string]string{downloadv1alpha1.LabelEngine: "qbit-0"}
-	theirs := download("Downloading")
-	theirs.Labels = map[string]string{downloadv1alpha1.LabelEngine: "qbit-1"}
+	mine := mediaFile("a", map[string]string{catalogv1alpha1.LabelResolution: "2160p"})
+	theirs := mediaFile("a", map[string]string{catalogv1alpha1.LabelResolution: "1080p"})
 
 	if !p.Create(event.CreateEvent{Object: mine}) {
-		t.Error("the engine's own Download was filtered out")
+		t.Error("a selected MediaFile was filtered out")
 	}
 	if p.Create(event.CreateEvent{Object: theirs}) {
-		t.Error("a sibling engine's Download passed")
+		t.Error("an unselected MediaFile passed")
 	}
 }
 
@@ -166,19 +167,18 @@ func TestLabelSelectorRejectsAMalformedSelector(t *testing.T) {
 		}},
 	})
 	if err == nil {
-		t.Fatal("a malformed selector was accepted; an engine would then watch every Download")
+		t.Fatal("a malformed selector was accepted; a watch would then see every object")
 	}
 }
 
 func TestHasLabel(t *testing.T) {
-	p := HasLabel(downloadv1alpha1.LabelClient, "qbit")
-	with := download("Queued")
-	with.Labels = map[string]string{downloadv1alpha1.LabelClient: "qbit"}
+	p := HasLabel(catalogv1alpha1.LabelVideoCodec, "hevc")
+	with := mediaFile("a", map[string]string{catalogv1alpha1.LabelVideoCodec: "hevc"})
 
 	if !p.Create(event.CreateEvent{Object: with}) {
 		t.Error("a matching object was filtered out")
 	}
-	if p.Create(event.CreateEvent{Object: download("Queued")}) {
+	if p.Create(event.CreateEvent{Object: mediaFile("a", nil)}) {
 		t.Error("an unlabelled object passed")
 	}
 }
@@ -186,14 +186,14 @@ func TestHasLabel(t *testing.T) {
 func TestDeleting(t *testing.T) {
 	p := Deleting()
 	now := metav1.Now()
-	doomed := download("Completed")
+	doomed := movieIn(catalogv1alpha1.MoviePhaseImported)
 	doomed.DeletionTimestamp = &now
-	doomed.Finalizers = []string{"download.clustarr.io/download"}
+	doomed.Finalizers = []string{"catalog.clustarr.io/movie"}
 
-	if !p.Update(event.UpdateEvent{ObjectOld: download("Completed"), ObjectNew: doomed}) {
+	if !p.Update(event.UpdateEvent{ObjectOld: movieIn(catalogv1alpha1.MoviePhaseImported), ObjectNew: doomed}) {
 		t.Error("a deleting object was filtered out")
 	}
-	if p.Update(event.UpdateEvent{ObjectOld: download("Completed"), ObjectNew: download("Completed")}) {
+	if p.Update(event.UpdateEvent{ObjectOld: movieIn(catalogv1alpha1.MoviePhaseImported), ObjectNew: movieIn(catalogv1alpha1.MoviePhaseImported)}) {
 		t.Error("a live object passed")
 	}
 }
@@ -201,9 +201,9 @@ func TestDeleting(t *testing.T) {
 func TestGenerationChangedIgnoresStatusWrites(t *testing.T) {
 	p := GenerationChanged()
 
-	old := download("Downloading")
+	old := movieIn(catalogv1alpha1.MoviePhaseDownloading)
 	old.Generation = 3
-	updated := download("Completed")
+	updated := movieIn(catalogv1alpha1.MoviePhaseImported)
 	updated.Generation = 3
 
 	if p.Update(event.UpdateEvent{ObjectOld: old, ObjectNew: updated}) {
@@ -217,29 +217,29 @@ func TestGenerationChangedIgnoresStatusWrites(t *testing.T) {
 }
 
 func TestCombinators(t *testing.T) {
-	mine := download("Completed")
-	mine.Labels = map[string]string{downloadv1alpha1.LabelClient: "qbit"}
+	mine := movieIn(catalogv1alpha1.MoviePhaseImported)
+	mine.Labels = map[string]string{catalogv1alpha1.LabelSource: "bluray"}
 
 	both := And(
-		HasLabel(downloadv1alpha1.LabelClient, "qbit"),
-		StatusFieldIn(downloadPhase, commonv1.DownloadPhase("Completed")),
+		HasLabel(catalogv1alpha1.LabelSource, "bluray"),
+		StatusFieldIn(moviePhase, catalogv1alpha1.MoviePhaseImported),
 	)
 	if !both.Create(event.CreateEvent{Object: mine}) {
 		t.Error("And filtered out an object matching both predicates")
 	}
-	if both.Create(event.CreateEvent{Object: download("Completed")}) {
+	if both.Create(event.CreateEvent{Object: movieIn(catalogv1alpha1.MoviePhaseImported)}) {
 		t.Error("And passed an object matching only one predicate")
 	}
 
 	either := Or(
-		HasLabel(downloadv1alpha1.LabelClient, "sabnzbd"),
-		StatusFieldIn(downloadPhase, commonv1.DownloadPhase("Completed")),
+		HasLabel(catalogv1alpha1.LabelSource, "webdl"),
+		StatusFieldIn(moviePhase, catalogv1alpha1.MoviePhaseImported),
 	)
-	if !either.Create(event.CreateEvent{Object: download("Completed")}) {
+	if !either.Create(event.CreateEvent{Object: movieIn(catalogv1alpha1.MoviePhaseImported)}) {
 		t.Error("Or filtered out an object matching one predicate")
 	}
 
-	if Not(HasLabel(downloadv1alpha1.LabelClient, "qbit")).Create(event.CreateEvent{Object: mine}) {
+	if Not(HasLabel(catalogv1alpha1.LabelSource, "bluray")).Create(event.CreateEvent{Object: mine}) {
 		t.Error("Not did not invert")
 	}
 }

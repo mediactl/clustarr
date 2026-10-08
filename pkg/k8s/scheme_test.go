@@ -42,7 +42,7 @@ func TestSchemeKnowsEveryGroupAServiceTouches(t *testing.T) {
 		// The five Clustarr groups.
 		"catalog":   &catalogv1alpha1.Movie{},
 		"index":     &indexv1alpha1.Indexer{},
-		"download":  &downloadv1alpha1.Download{},
+		"download":  &downloadv1alpha1.DownloadClient{},
 		"transcode": &transcodev1alpha1.TranscodeProfile{},
 		"subtitle":  &subtitlev1alpha1.SubtitleProfile{},
 
