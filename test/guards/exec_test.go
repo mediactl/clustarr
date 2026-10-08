@@ -140,7 +140,9 @@ func execFindings(rel string, f *ast.File) []string {
 // TestTheWorkerNeverExecsFFmpeg and pkg/mediainfo's half of it.
 func TestNoProductionCodeStartsAProcess(t *testing.T) {
 	found, checked := scanForExec(installtest.RepoRoot(t))
-	assert.Empty(t, found)
+	for _, f := range found {
+		t.Error(f)
+	}
 	require.Greater(t, checked, 500, "the walk found too few files; it is not looking where it thinks it is")
 	_, err := os.Stat(filepath.Join(installtest.RepoRoot(t), execAllowed))
 	require.NoError(t, err, "the one allowed exec moved: the allow-list names a file that is gone")
