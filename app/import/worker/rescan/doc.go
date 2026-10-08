@@ -63,9 +63,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // # Root folder kinds
 //
 //   - movie: [MatchMovie]; a file carrying a tmdb or imdb id may create its
-//     Movie. A file whose name does not parse (an obfuscated download
-//     name) is attributed by its item folder, "Title (Year) {tmdb-N}", and
-//     by that folder alone: its own tmdb or imdb id counts exactly as a
+//     Movie. Only a Movie of the scanned root folder is matched: an id or
+//     title naming another root folder's Movie is unmatched
+//     ([CodeOtherRootFolder]), never attached to it nor proposed again. A
+//     file whose name does not parse (an obfuscated download name) is
+//     attributed by its item folder, "Title (Year) {tmdb-N}", and by that
+//     folder alone: its own tmdb or imdb id counts exactly as a
 //     filename's would, an id on a further ancestor (a collection folder)
 //     never does, and without one the folder's title and year match an
 //     existing Movie or nothing. A newly recorded file is probed once, and

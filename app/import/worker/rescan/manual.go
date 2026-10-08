@@ -112,7 +112,7 @@ func (w *Worker) itemRootFolder(ctx context.Context, ns string, t importtarget.I
 			}
 			return "", nil, fmt.Errorf("rescan: get movie %s/%s: %w", ns, ref.Name, err)
 		}
-		c := candidateFor(&m)
+		c := candidateFor(&m, m.Spec.RootFolderRef)
 		return m.Spec.RootFolderRef, &c, nil
 	}
 	root, err := w.nonMovieRootFolder(ctx, ns, t)

@@ -400,7 +400,7 @@ func (w *Worker) Handle(ctx context.Context, m events.Message) error {
 	case st.manual != nil:
 		// A manual assignment matches nothing, so it loads no candidates.
 	case root.Spec.Kind == catalogv1alpha1.RootFolderKindMovie:
-		if err := w.loadMovies(ctx, &st.movies, scan.Namespace); err != nil {
+		if err := w.loadMovies(ctx, &st.movies, scan.Namespace, root.Name); err != nil {
 			return w.abort(ctx, m, st, err)
 		}
 	case root.Spec.Kind == catalogv1alpha1.RootFolderKindSeries:
@@ -849,27 +849,33 @@ func (w *Worker) finalAttempt(m events.Message) bool {
 	return m.Attempt() >= uint64(spec.MaxDeliver) //nolint:gosec // MaxDeliver is a small positive constant
 }
 
-// loadMovies reduces every Movie in the namespace to what MatchMovie needs.
+// loadMovies reduces every Movie in the namespace to what MatchMovie needs,
+// a Movie stored under another root folder than root marked so: MatchMovie
+// attributes nothing to it, and proposes no second Movie for its id.
 // It is read once per walk rather than per file: the cache-backed client
 // serves the List locally, and one snapshot keeps the tally's
 // created-versus-updated split coherent across the walk.
-func (w *Worker) loadMovies(ctx context.Context, out *[]MovieCandidate, namespace string) error {
+func (w *Worker) loadMovies(ctx context.Context, out *[]MovieCandidate, namespace, root string) error {
 	var movies catalogv1alpha1.MovieList
 	if err := w.Client.List(ctx, &movies, client.InNamespace(namespace)); err != nil {
 		return fmt.Errorf("rescan: list movies in %s: %w", namespace, err)
 	}
 	*out = make([]MovieCandidate, 0, len(movies.Items))
 	for i := range movies.Items {
-		*out = append(*out, candidateFor(&movies.Items[i]))
+		*out = append(*out, candidateFor(&movies.Items[i], root))
 	}
 	return nil
 }
 
-// candidateFor projects a Movie onto a MovieCandidate. Title and year come
-// from status.metadata, which the metadata gateway fills in; a movie the
-// gateway has not reached yet still matches by tmdb id, just not by title.
-func candidateFor(m *catalogv1alpha1.Movie) MovieCandidate {
+// candidateFor projects a Movie onto a MovieCandidate of a scan of root.
+// Title and year come from status.metadata, which the metadata gateway
+// fills in; a movie the gateway has not reached yet still matches by tmdb
+// id, just not by title.
+func candidateFor(m *catalogv1alpha1.Movie, root string) MovieCandidate {
 	c := MovieCandidate{Name: m.Name, TmdbID: m.Spec.TmdbID, QualityProfileRef: m.Spec.QualityProfileRef}
+	if m.Spec.RootFolderRef != root {
+		c.OtherRootFolder = m.Spec.RootFolderRef
+	}
 	if m.Status.Metadata != nil {
 		c.Title = m.Status.Metadata.Title
 		c.Year = int(m.Status.Metadata.Year)

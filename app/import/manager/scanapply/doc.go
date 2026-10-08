@@ -28,10 +28,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //     an existing object whose provider id differs (unmatched,
 //     nameCollision); validate a person's manual target again (P45); refuse
 //     to re-point a path recorded against another item (P41,
-//     recorded_elsewhere); record the MediaFile spec through
-//     specwrite.ApplyFacts under import-worker, re-asserting an existing
-//     one's frozen fields; and hand a post-transcode change to catalog by
-//     the observed-fingerprint annotation under import (P42, W17).
+//     recorded_elsewhere); refuse a new file of an item, existing or
+//     proposed, stored under another root folder (other_root_folder: a
+//     scan attributes only to the items of the root folder it scans);
+//     record the MediaFile spec through specwrite.ApplyFacts under
+//     import-worker, re-asserting an existing one's frozen fields; and
+//     hand a post-transcode change to catalog by the observed-fingerprint
+//     annotation under import (P42, W17).
 //   - present, a transcode's output (P44): never adopted, only counted.
 //   - stale basis: the MediaFile the agent read moved since (its spec no
 //     longer hashes to the observation's basis): nothing is applied; the

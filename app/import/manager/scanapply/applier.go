@@ -56,7 +56,21 @@ const (
 	CodeNoItem = "no_item"
 	// CodeManualTarget: a person's manual target no longer fits (P45).
 	CodeManualTarget = "manual_target_invalid"
+	// CodeOtherRootFolder: the item the file names is stored under another
+	// root folder (smoke finding O4): a scan attributes a file only to an
+	// item of the root folder it scans, never guessing which item a file
+	// outside its item's root folder belongs to.
+	CodeOtherRootFolder = "other_root_folder"
 )
+
+// otherRootFolder lists a file whose attributed item is stored under
+// itemRoot, another root folder than the scan's.
+func (a *Applier) otherRootFolder(t *tally, root *catalogv1alpha1.RootFolder, rel string, ref commonv1.MediaRef, itemRoot string) {
+	t.unmatched(root, rel, CodeOtherRootFolder, fmt.Sprintf(
+		"the file names %s %s, which is stored under root folder %q, not %q: a scan attributes a file only to "+
+			"an item of the root folder it scans; move the file under %q to import it",
+		ref.Kind, ref.Name, itemRoot, root.Name, itemRoot), []string{ref.Name}, a.now())
+}
 
 // errMalformed marks an observation the applier cannot act on: the intake
 // dead-letters it (not transient).
@@ -214,12 +228,17 @@ func (a *Applier) present(ctx context.Context, obs schema.ScanObservation, t *ta
 			return nil
 		}
 	} else if existing == nil {
-		_, ok, err := itemRootFolder(ctx, a.reader(), obs.Scan.Namespace, ref)
+		itemRoot, ok, err := itemRootFolder(ctx, a.reader(), obs.Scan.Namespace, ref)
 		if err != nil {
 			return err
 		}
 		if !ok {
 			t.unmatched(root, rel, CodeNoItem, fmt.Sprintf("attributed to %s/%s, which no longer exists", ref.Kind, ref.Name), nil, a.now())
+			return nil
+		}
+		if itemRoot != root.Name {
+			// O4: never a new MediaFile outside its item's root folder.
+			a.otherRootFolder(t, root, rel, ref, itemRoot)
 			return nil
 		}
 	}

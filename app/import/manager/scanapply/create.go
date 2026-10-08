@@ -60,9 +60,10 @@ func createName(c *schema.ItemCreate) string {
 // unmatched: an ImportExclusion names the provider id (P37); the root
 // folder sets no default qualityProfileRef, which a new item requires
 // (P38); an object of that name exists with another provider id, which is
-// never overwritten (nameCollision). created is true when this call created
-// it; an item already there with the same id is used as it is, never
-// re-applied.
+// never overwritten (nameCollision), or with the same id under another root
+// folder, whose files are never attributed from this one (otherRootFolder,
+// smoke finding O4). created is true when this call created it; an item
+// already there with the same id is used as it is, never re-applied.
 func (a *Applier) ensureItem(
 	ctx context.Context, obs schema.ScanObservation, root *catalogv1alpha1.RootFolder, c *schema.ItemCreate,
 	rel string, t *tally,
@@ -72,7 +73,7 @@ func (a *Applier) ensureItem(
 	var (
 		provider, id string
 		obj          client.Object
-		idOf         func() string
+		idOf, rootOf func() string
 	)
 	switch commonv1.MediaKind(c.Kind) {
 	case commonv1.MediaKindMovie:
@@ -82,6 +83,7 @@ func (a *Applier) ensureItem(
 		provider, id = catalogv1alpha1.ExclusionIDKeyTMDB, strconv.FormatInt(c.TmdbID, 10)
 		m := &catalogv1alpha1.Movie{}
 		obj, idOf = m, func() string { return strconv.FormatInt(m.Spec.TmdbID, 10) }
+		rootOf = func() string { return m.Spec.RootFolderRef }
 	case commonv1.MediaKindSeries:
 		if c.TvdbID <= 0 {
 			return false, false, fmt.Errorf("%w: a series proposal without a TheTVDB id", errMalformed)
@@ -89,6 +91,7 @@ func (a *Applier) ensureItem(
 		provider, id = catalogv1alpha1.ExclusionIDKeyTVDB, strconv.FormatInt(c.TvdbID, 10)
 		s := &catalogv1alpha1.Series{}
 		obj, idOf = s, func() string { return strconv.FormatInt(s.Spec.TvdbID, 10) }
+		rootOf = func() string { return s.Spec.RootFolderRef }
 	default:
 		return false, false, fmt.Errorf("%w: a %q proposal; scans create movies and series only", errMalformed, c.Kind)
 	}
@@ -101,6 +104,10 @@ func (a *Applier) ensureItem(
 			t.unmatched(root, rel, CodeNameCollision, fmt.Sprintf(
 				"the file names %s id %s, but %s %s exists with %s id %s; it is never overwritten",
 				provider, id, c.Kind, name, provider, got), []string{name}, a.now())
+			return false, false, nil
+		}
+		if itemRoot := rootOf(); itemRoot != root.Name {
+			a.otherRootFolder(t, root, rel, commonv1.MediaRef{Kind: commonv1.MediaKind(c.Kind), Name: name}, itemRoot)
 			return false, false, nil
 		}
 		return true, false, nil

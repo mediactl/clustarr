@@ -72,6 +72,13 @@ const (
 	// could not list, a file it could not stat. The walk goes on without
 	// it; the reason carries the filesystem's error.
 	CodeUnreadable = "unreadable"
+
+	// CodeOtherRootFolder means the file's provider id, or its title, names
+	// a movie stored under another root folder than the one scanned. A
+	// scan attributes a file only to an item of the root folder it scans:
+	// attaching it would record a file outside its item's root folder, and
+	// proposing a second movie for the same id would duplicate the item.
+	CodeOtherRootFolder = "other_root_folder"
 )
 
 // MovieCandidate is one existing Movie, reduced to what matching needs. The
@@ -102,6 +109,12 @@ type MovieCandidate struct {
 	// the language an untagged file of this movie takes, and the one
 	// custom-format scoring compares against. MatchMovie does not read it.
 	OriginalLanguage string
+
+	// OtherRootFolder is Movie.spec.rootFolderRef when that is not the root
+	// folder being scanned, and empty when it is. MatchMovie never
+	// attributes a file to such a movie, and never proposes another for
+	// its id: the file is unmatched, CodeOtherRootFolder.
+	OtherRootFolder string
 }
 
 // ResolveIMDb turns an IMDb id into a TMDB id, normally by asking the
@@ -147,6 +160,11 @@ type MatchResult struct {
 //  3. otherwise the cleaned title -- plus the year when both sides know one
 //     -- is compared against the existing movies, and only an unambiguous
 //     single hit matches.
+//
+// Only a movie of the root folder being scanned is ever matched: an id or
+// a title that names a movie stored under another root folder
+// ([MovieCandidate.OtherRootFolder]) is an unmatched file, never an
+// attribution to that movie nor a proposal of a second one.
 //
 // What it deliberately does not do is resolve a bare, id-less title by
 // searching the metadata gateway. §A1.5's "then against the metadata
@@ -208,15 +226,45 @@ func tmdbID(parsed *release.ParsedRelease) int64 {
 	return id
 }
 
-// matchByTmdbID binds a known identity to an existing Movie when one carries
-// it, and otherwise reports the identity a new Movie should be created with.
+// matchByTmdbID binds a known identity to an existing Movie of the scanned
+// root folder when one carries it; reports a Movie of another root folder
+// carrying it as unmatched; and otherwise reports the identity a new Movie
+// should be created with.
 func matchByTmdbID(id int64, existing []MovieCandidate) MatchResult {
+	var elsewhere []MovieCandidate
 	for _, c := range existing {
-		if c.TmdbID == id {
+		switch {
+		case c.TmdbID != id:
+		case c.OtherRootFolder != "":
+			elsewhere = append(elsewhere, c)
+		default:
 			return MatchResult{TmdbID: id, ExistingName: c.Name}
 		}
 	}
+	if len(elsewhere) > 0 {
+		return otherRootFolder(fmt.Sprintf("tmdb id %d", id), elsewhere)
+	}
 	return MatchResult{TmdbID: id}
+}
+
+// otherRootFolder is the unmatched verdict for a file whose id or title
+// (what) only movies of other root folders carry.
+func otherRootFolder(what string, elsewhere []MovieCandidate) MatchResult {
+	slices.SortFunc(elsewhere, func(a, b MovieCandidate) int { return strings.Compare(a.Name, b.Name) })
+	elsewhere = elsewhere[:min(len(elsewhere), MaxCandidates)]
+	owners := make([]string, 0, len(elsewhere))
+	names := make([]string, 0, len(elsewhere))
+	for _, c := range elsewhere {
+		owners = append(owners, fmt.Sprintf("movie %s under root folder %q", c.Name, c.OtherRootFolder))
+		names = append(names, c.Name)
+	}
+	return MatchResult{
+		Unmatched: true,
+		Code:      CodeOtherRootFolder,
+		Reason: fmt.Sprintf("%s belongs to %s, not to this root folder: a scan attributes a file only to "+
+			"an item of the root folder it scans", what, strings.Join(owners, ", ")),
+		Candidates: names,
+	}
 }
 
 // matchByTitle is step 3: exact cleaned-title equality against the existing
@@ -233,7 +281,7 @@ func matchByTitle(parsed *release.ParsedRelease, existing []MovieCandidate) Matc
 		}
 	}
 
-	var hits []MovieCandidate
+	var hits, elsewhere []MovieCandidate
 	for _, c := range existing {
 		if release.CleanTitle(c.Title) != want {
 			continue
@@ -244,6 +292,10 @@ func matchByTitle(parsed *release.ParsedRelease, existing []MovieCandidate) Matc
 		if parsed.Year != 0 && c.Year != 0 && parsed.Year != c.Year {
 			continue
 		}
+		if c.OtherRootFolder != "" {
+			elsewhere = append(elsewhere, c)
+			continue
+		}
 		hits = append(hits, c)
 	}
 
@@ -251,6 +303,9 @@ func matchByTitle(parsed *release.ParsedRelease, existing []MovieCandidate) Matc
 	case 1:
 		return MatchResult{TmdbID: hits[0].TmdbID, ExistingName: hits[0].Name}
 	case 0:
+		if len(elsewhere) > 0 {
+			return otherRootFolder(fmt.Sprintf("title %q", parsed.Title), elsewhere)
+		}
 		return MatchResult{
 			Unmatched: true,
 			Code:      CodeNoMatch,

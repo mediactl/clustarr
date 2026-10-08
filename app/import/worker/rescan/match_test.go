@@ -152,6 +152,33 @@ func TestMatchMovie(t *testing.T) {
 			reasonContains: "1 existing movies",
 		},
 		{
+			name: "an embedded tmdb id of another root folder's movie is unmatched, never attached nor proposed again",
+			path: "/data/media/movies-4k/Heat (1995) [tmdbid-949]/Heat (1995) [tmdbid-949].mkv",
+			existing: []rescan.MovieCandidate{
+				{Name: "heat-1995", TmdbID: 949, Title: "Heat", Year: 1995, OtherRootFolder: "movies"},
+			},
+			want:           rescan.MatchResult{Unmatched: true, Code: rescan.CodeOtherRootFolder, Candidates: []string{"heat-1995"}},
+			reasonContains: `movie heat-1995 under root folder "movies"`,
+		},
+		{
+			name: "a title only another root folder's movie carries is unmatched",
+			path: "/data/media/movies-4k/Heat (1995)/Heat (1995).mkv",
+			existing: []rescan.MovieCandidate{
+				{Name: "heat-1995", TmdbID: 949, Title: "Heat", Year: 1995, OtherRootFolder: "movies"},
+			},
+			want:           rescan.MatchResult{Unmatched: true, Code: rescan.CodeOtherRootFolder, Candidates: []string{"heat-1995"}},
+			reasonContains: `root folder "movies"`,
+		},
+		{
+			name: "the scanned root folder's movie is matched, whatever another root folder holds",
+			path: "/data/media/movies/Poltergeist (1982)/Poltergeist (1982).mkv",
+			existing: []rescan.MovieCandidate{
+				{Name: "poltergeist-1982-4k", TmdbID: 11663, Title: "Poltergeist", Year: 1982, OtherRootFolder: "movies-4k"},
+				{Name: "poltergeist-1982", TmdbID: 11663, Title: "Poltergeist", Year: 1982},
+			},
+			want: rescan.MatchResult{TmdbID: 11663, ExistingName: "poltergeist-1982"},
+		},
+		{
 			name:           "an empty catalog leaves an id-less file unmatched",
 			path:           "/data/media/movies/Some Unknown Film (2024)/Some Unknown Film (2024).mkv",
 			want:           rescan.MatchResult{Unmatched: true, Code: rescan.CodeNoMatch},
