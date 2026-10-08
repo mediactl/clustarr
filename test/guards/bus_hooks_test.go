@@ -19,116 +19,83 @@ package guards
 
 import (
 	"go/ast"
-	"go/parser"
-	"go/token"
-	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// busSource is one file this test holds to the k8s.WithBusHooks(obs.BusHooks())
-// (or busconn.WithHooks(obs.BusHooks())) rule: name is what t.Run reports it
-// under, path is where to find it.
-type busSource struct {
-	name string
-	path string
-}
-
-// busServiceSources are the files where each process that holds a
-// controller-runtime manager connects to the bus: the manager's and the
-// agent's run.go (internal/cli/manager, internal/cli/agent), and the ui's
-// read-only bus (internal/cli/ui/bus.go), which has no manager of its own
-// (ui itself never imports pkg/k8s, ui/guard_test.go). They were the six
-// app/<svc>/run.go files and cmd/clustarr/services.go until the manager and
-// agent split (spec 2026-10-06 §10.3.3).
-var busServiceSources = []busSource{
-	{"internal/cli/manager", filepath.Join("..", "..", "internal/cli/manager", "run.go")},
-	{"internal/cli/agent", filepath.Join("..", "..", "internal/cli/agent", "run.go")},
-	{"internal/cli/ui (bus.go)", filepath.Join("..", "..", "internal/cli/ui", "bus.go")},
-}
-
-// TestEveryServicePassesBusHooks is the guard behind Task C12a's step 2b
-// decision.
+// TestEveryBusConnectionCarriesTraceHooks: every bus connection in
+// production code carries the trace hooks -- busconn.Connect with
+// busconn.WithHooks(obs.BusHooks()), and natsbus.New (markers and
+// transcode, which must not link pkg/obs) with the inline
+// natsbus.WithHooks(events.Hooks{BeforePublish: tracing.Inject,
+// AfterReceive: tracing.Extract}). pkg/busconn's own natsbus.New is the
+// implementation of Connect and is exempt. Discovered over every production
+// file, not listed (split design §10.3.3, W5.15).
 //
-// pkg/k8s deliberately does not import pkg/obs (see busconn.WithHooks for the
-// two reasons), so the trace hooks are something each service's Run passes
-// in -- and therefore something a new service can forget. That is not a
-// hypothetical: it is exactly how Clustarr shipped a complete W3C
-// propagation implementation in pkg/events, a matching pair of hooks in
-// pkg/obs, and not one production call site that joined them. The
-// propagation existed and never ran, and every unit test passed, because
-// every unit test built its own bus.
-//
-// This test reads each source file and insists that every k8s.ConnectBus
-// call site passes obs.BusHooks() through k8s.WithBusHooks, and every
-// busconn.Connect call site through busconn.WithHooks. It is
-// source-level rather than behavioural because there is nothing to observe
-// at runtime: a missing hook is silence, not an error.
-func TestEveryServicePassesBusHooks(t *testing.T) {
-	for _, src := range busServiceSources {
-		t.Run(src.name, func(t *testing.T) {
-			path := src.path
-			fset := token.NewFileSet()
-			file, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
-			require.NoError(t, err, "parse %s", path)
-
-			var calls int
-			ast.Inspect(file, func(n ast.Node) bool {
-				call, ok := n.(*ast.CallExpr)
-				if !ok {
-					return true
-				}
-				conn, ok := connectorOf(call.Fun)
-				if !ok {
-					return true
-				}
-				calls++
-
-				var hooked bool
-				for _, arg := range call.Args {
-					inner, ok := arg.(*ast.CallExpr)
-					if !ok || !isSelector(inner.Fun, conn.pkg, conn.hooks) {
-						continue
-					}
-					for _, hookArg := range inner.Args {
-						if hookCall, ok := hookArg.(*ast.CallExpr); ok &&
-							isSelector(hookCall.Fun, "obs", "BusHooks") {
-							hooked = true
-						}
-					}
-				}
-				require.True(t, hooked,
-					"%s:%d: %s.%s is called without %s.%s(obs.BusHooks()); "+
-						"this service publishes and consumes with no trace propagation, silently",
-					path, fset.Position(call.Pos()).Line, conn.pkg, conn.connect, conn.pkg, conn.hooks)
+// pkg/events keeps its hooks as plain function fields so the bus layer never
+// depends on the observability layer, so the hooks are something each
+// process passes in -- and therefore something a new call site can forget.
+// That is how Clustarr once shipped a complete W3C propagation in
+// pkg/events, a matching pair of hooks in pkg/obs, and not one production
+// call site that joined them. A missing hook is silence, not an error.
+func TestEveryBusConnectionCarriesTraceHooks(t *testing.T) {
+	var connects, news int
+	for p, f := range productionFiles(t) {
+		busconnAlias := importAlias(f, mod+"pkg/busconn", "busconn")
+		obsAlias := importAlias(f, mod+"pkg/obs", "obs")
+		natsbusAlias := importAlias(f, mod+"pkg/events/natsbus", "natsbus")
+		tracingAlias := importAlias(f, mod+"pkg/obs/tracing", "tracing")
+		eventsAlias := importAlias(f, mod+"pkg/events", "events")
+		ast.Inspect(f, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
 				return true
-			})
-
-			require.Positive(t, calls,
-				"%s has no k8s.ConnectBus or busconn.Connect call; either the service stopped using the bus "+
-					"(remove it from busServiceSources) or the call moved elsewhere "+
-					"(this guard must move with it)", path)
+			}
+			switch {
+			case busconnAlias != "" && isSelector(call.Fun, busconnAlias, "Connect"):
+				connects++
+				assert.True(t, hasCall(call.Args, busconnAlias, "WithHooks", func(c *ast.CallExpr) bool {
+					return hasCall(c.Args, obsAlias, "BusHooks", nil)
+				}), "%s: busconn.Connect without busconn.WithHooks(obs.BusHooks()): this process publishes and consumes with no trace propagation, silently", p)
+			case natsbusAlias != "" && isSelector(call.Fun, natsbusAlias, "New") && !strings.HasPrefix(p, "pkg/busconn/"):
+				news++
+				assert.True(t, hasCall(call.Args, natsbusAlias, "WithHooks", func(c *ast.CallExpr) bool {
+					return inlineTraceHooks(c, eventsAlias, tracingAlias)
+				}), "%s: natsbus.New without natsbus.WithHooks(events.Hooks{BeforePublish: tracing.Inject, AfterReceive: tracing.Extract})", p)
+			}
+			return true
 		})
 	}
+	require.GreaterOrEqual(t, connects, 3, "found %d busconn.Connect calls; the manager, the agent and the ui connect through busconn", connects)
+	require.GreaterOrEqual(t, news, 2, "found %d natsbus.New calls; markers and transcode build their bus by hand", news)
 }
 
-// busConnector is a bus constructor the guard follows, with the option that
-// installs the trace hooks on it.
-type busConnector struct{ pkg, connect, hooks string }
-
-// busConnectors are pkg/k8s's wrappers and the pkg/busconn functions they
-// forward to; the processes call busconn.Connect directly since Wave 5.
-var busConnectors = []busConnector{
-	{"k8s", "ConnectBus", "WithBusHooks"},
-	{"busconn", "Connect", "WithHooks"},
-}
-
-func connectorOf(e ast.Expr) (busConnector, bool) {
-	for _, c := range busConnectors {
-		if isSelector(e, c.pkg, c.connect) {
-			return c, true
+// inlineTraceHooks reports whether c's one argument is an
+// events.Hooks{...} literal with BeforePublish: tracing.Inject and
+// AfterReceive: tracing.Extract.
+func inlineTraceHooks(c *ast.CallExpr, eventsAlias, tracingAlias string) bool {
+	if len(c.Args) != 1 || tracingAlias == "" {
+		return false
+	}
+	lit, ok := c.Args[0].(*ast.CompositeLit)
+	if !ok || !isSelector(lit.Type, eventsAlias, "Hooks") {
+		return false
+	}
+	var inject, extract bool
+	for _, e := range lit.Elts {
+		kv, ok := e.(*ast.KeyValueExpr)
+		if !ok {
+			continue
+		}
+		switch {
+		case isIdent(kv.Key, "BeforePublish") && isSelector(kv.Value, tracingAlias, "Inject"):
+			inject = true
+		case isIdent(kv.Key, "AfterReceive") && isSelector(kv.Value, tracingAlias, "Extract"):
+			extract = true
 		}
 	}
-	return busConnector{}, false
+	return inject && extract
 }
