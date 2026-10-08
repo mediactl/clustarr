@@ -37,7 +37,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
-	searchworker "github.com/mediactl/clustarr/app/catalog/worker/search"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/release"
@@ -291,11 +290,12 @@ func TestCapOutcomes(t *testing.T) {
 	require.Len(t, capOutcomes(in[:10]), 10)
 }
 
-// The two constants describe the same limit from opposite ends of one RPC.
-// This is a TEST-ONLY import of the caller: production code in the index
-// domain must never import the catalog domain.
+// The two constants describe the same limit from opposite ends of one RPC:
+// the caller clamps the search record's outcomes to
+// schema.MaxIndexerOutcomes (ADR-0019 A4.3), so this side must choose which
+// hundred survive.
 func TestOutcomeCapMatchesTheCaller(t *testing.T) {
-	require.Equal(t, searchworker.MaxIndexerOutcomes, maxOutcomes)
+	require.Equal(t, schema.MaxIndexerOutcomes, maxOutcomes)
 }
 
 // --------------------------------------------------------------- fanout ---

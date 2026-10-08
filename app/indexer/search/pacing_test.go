@@ -125,7 +125,7 @@ func TestAQueryTheLimiterCannotSendInTheBudgetIsSkippedNotFailed(t *testing.T) {
 		switch {
 		case o.Status == schema.SearchOutcomeOK:
 			ok++
-		case o.Status == schema.SearchOutcomeSkipped && o.Error == skipPaced:
+		case o.Status == schema.SearchOutcomeSkipped && o.Error == schema.SkipReasonPaced:
 			paced++
 		default:
 			t.Errorf("outcome %s (%s): a query that was never sent is neither an error nor a timeout", o.Status, o.Error)

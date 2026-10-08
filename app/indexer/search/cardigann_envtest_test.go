@@ -35,6 +35,7 @@ import (
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	"github.com/mediactl/clustarr/app/indexer/clientcache"
 	"github.com/mediactl/clustarr/app/indexer/controller/indexer"
+	"github.com/mediactl/clustarr/app/indexer/health"
 	"github.com/mediactl/clustarr/app/indexer/search"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/ratelimit"
@@ -83,13 +84,14 @@ func cardigannIndexer(t *testing.T, ctx context.Context, c client.Client, ns, na
 	return idx
 }
 
-// cardigannService is the fan-out wired the way app/indexer/run.go wires it:
+// cardigannService is the fan-out wired the way app/indexer/agent wires it:
 // ClientFor is the production ClientCache, not a stub, so the Cardigann
 // engine is reached through the SAME seam a Torznab client is (ruling R5).
-func cardigannService(c client.Client) *search.Service {
+func cardigannService(c client.Client, hw *health.Writer) *search.Service {
 	cc := clientcache.NewClientCache(c, ratelimit.New(ratelimit.Config{}))
 	return &search.Service{
 		Client: c,
+		Health: hw,
 		ClientFor: func(ctx context.Context, idx *indexv1alpha1.Indexer) (search.IndexerClient, error) {
 			cli, err := cc.For(ctx, idx)
 			if err != nil {
@@ -97,7 +99,6 @@ func cardigannService(c client.Client) *search.Service {
 			}
 			return cli, nil
 		},
-		Now: pastTheStartupGrace(),
 	}
 }
 
@@ -105,17 +106,19 @@ func cardigannService(c client.Client) *search.Service {
 // ("you are rate limited") used to parse as zero rows -- a successful search
 // with nothing in it -- so the escalation ladder never saw a failure and a
 // failing tracker was queried at full rate forever. It must now be an error
-// outcome AND a recorded failure that escalates the indexer.
+// outcome AND a failure recorded in the indexer's health record, which the
+// Indexer controller's ladder escalates (ADR-0019 A6.3).
 func TestACardigannErrorPageEscalatesTheIndexer(t *testing.T) {
 	ctx := t.Context()
 	c := requireEnvtest(t)
+	bus, hw := healthKit(t)
 	tracker := cardigannTracker(t, "search-error.html")
 	idx := cardigannIndexer(t, ctx, c, "search-cardigann-err", "ratelimited", tracker.URL)
 	require.Zero(t, idx.Status.EscalationLevel)
 
 	req := searchRequest(idx.Namespace)
 	req.Text = "Inception"
-	resp := cardigannService(c).Search(ctx, req)
+	resp := cardigannService(c, hw).Search(ctx, req)
 
 	require.Len(t, resp.Outcomes, 1)
 	out := resp.Outcomes[0]
@@ -124,12 +127,11 @@ func TestACardigannErrorPageEscalatesTheIndexer(t *testing.T) {
 	require.Contains(t, out.Error, "rate limited")
 	require.Empty(t, resp.Releases)
 
-	var got indexv1alpha1.Indexer
-	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(idx), &got))
-	require.Equal(t, int32(1), got.Status.EscalationLevel, "the failure did not escalate the indexer")
-	require.NotNil(t, got.Status.DisabledUntil, "the escalation did not start a backoff")
-	require.NotNil(t, got.Status.LastFailureAt)
-	require.Contains(t, got.Status.LastFailure, "Too many requests")
+	rec := healthRecord(t, ctx, healthKV(bus), idx)
+	require.Equal(t, int64(1), rec.Failures, "the failure was not recorded for the ladder")
+	require.Zero(t, rec.Successes, "a tracker error page was recorded as a success")
+	require.NotNil(t, rec.LastFailureAt)
+	require.Contains(t, rec.LastFailure, "Too many requests")
 }
 
 // The mirror: the same definition against a results page is an ordinary
@@ -138,12 +140,13 @@ func TestACardigannErrorPageEscalatesTheIndexer(t *testing.T) {
 func TestACardigannResultsPageIsAnOrdinarySearch(t *testing.T) {
 	ctx := t.Context()
 	c := requireEnvtest(t)
+	bus, hw := healthKit(t)
 	tracker := cardigannTracker(t, "search-error-results.html")
 	idx := cardigannIndexer(t, ctx, c, "search-cardigann-ok", "healthy", tracker.URL)
 
 	req := searchRequest(idx.Namespace)
 	req.Text = "Some Movie"
-	resp := cardigannService(c).Search(ctx, req)
+	resp := cardigannService(c, hw).Search(ctx, req)
 
 	require.Len(t, resp.Outcomes, 1)
 	require.Equal(t, schema.SearchOutcomeOK, resp.Outcomes[0].Status, resp.Outcomes[0].Error)
@@ -153,7 +156,7 @@ func TestACardigannResultsPageIsAnOrdinarySearch(t *testing.T) {
 		require.Equal(t, "healthy", r.Info.IndexerRef)
 	}
 
-	var got indexv1alpha1.Indexer
-	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(idx), &got))
-	require.Zero(t, got.Status.EscalationLevel)
+	rec := healthRecord(t, ctx, healthKV(bus), idx)
+	require.Equal(t, int64(1), rec.Successes)
+	require.Zero(t, rec.Failures)
 }

@@ -72,11 +72,12 @@ func historyEvents(t *testing.T, bus events.Bus) func() []schema.IndexerEvent {
 	}
 }
 
-// The search fan-out is where most escalations are applied, so it is where
-// §5's indexer.disabled|recovered|limited events come from: a failure that
-// opens a backoff window announces it, the first success after it announces
-// the recovery, and the query that fills spec.limits.queryLimit announces the
-// limit -- each once, after the status apply.
+// The search fan-out announces the one transition only it can see: the
+// query whose reservation fills spec.limits.queryLimit publishes §5's
+// indexer.limited, once. Since ADR-0019 A6.3 the escalation ladder runs in
+// the Indexer controller, which publishes disabled and recovered after its
+// incorporation apply (TestTheLadderRunsInTheController), so a failed query
+// here announces nothing.
 func TestTheFanOutPublishesIndexerTransitions(t *testing.T) {
 	ctx := context.Background()
 	bus := membus.New(nil)
@@ -90,7 +91,6 @@ func TestTheFanOutPublishesIndexerTransitions(t *testing.T) {
 	c := newFakeClient(&idx)
 	cli := &flakyClient{}
 	cli.failing.Store(true)
-	// Past the ladder's startup grace, so a failure escalates at all.
 	clock := time.Now().Add(time.Hour)
 	s := &Service{
 		Client: c, Bus: bus, Now: func() time.Time { return clock },
@@ -105,24 +105,23 @@ func TestTheFanOutPublishesIndexerTransitions(t *testing.T) {
 		return out
 	}
 
+	// A failure is a health record, not an announcement: the controller
+	// decides whether it disables the indexer.
 	s.Search(ctx, movieRequest())
-	require.Eventually(t, func() bool { return len(received()) == 1 }, 5*time.Second, 10*time.Millisecond)
-	require.Equal(t, []string{events.ActionDisabled}, actions())
-	dis := received()[0]
-	require.Equal(t, "uid-flaky", dis.IndexerRef.UID)
-	require.Contains(t, dis.Reason, "connection refused")
-	require.NotNil(t, dis.Until)
+	require.Never(t, func() bool { return len(received()) > 0 }, 500*time.Millisecond, 10*time.Millisecond,
+		"the agent announced a transition the controller's ladder owns")
 
-	// The window lapses and the indexer answers: recovered, and the second
-	// query fills the queryLimit of 2, so limited too.
+	// The indexer answers, and the second query fills the queryLimit of 2:
+	// limited, once.
 	clock = clock.Add(2 * time.Minute)
 	cli.failing.Store(false)
 	s.Search(ctx, movieRequest())
-	require.Eventually(t, func() bool { return len(received()) == 3 }, 5*time.Second, 10*time.Millisecond)
-	require.ElementsMatch(t, []string{events.ActionDisabled, events.ActionRecovered, events.ActionLimited}, actions())
+	require.Eventually(t, func() bool { return len(received()) == 1 }, 5*time.Second, 10*time.Millisecond)
+	require.Equal(t, []string{events.ActionLimited}, actions())
+	require.Equal(t, "uid-flaky", received()[0].IndexerRef.UID)
 
 	// A further healthy query changes nothing worth announcing.
 	clock = clock.Add(time.Minute)
 	s.Search(ctx, movieRequest())
-	require.Never(t, func() bool { return len(received()) > 3 }, 500*time.Millisecond, 10*time.Millisecond)
+	require.Never(t, func() bool { return len(received()) > 1 }, 500*time.Millisecond, 10*time.Millisecond)
 }

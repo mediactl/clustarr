@@ -32,12 +32,16 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	searchworker "github.com/mediactl/clustarr/app/catalog/worker/search"
+	"github.com/mediactl/clustarr/app/indexer/health"
 	"github.com/mediactl/clustarr/app/indexer/limits"
 	"github.com/mediactl/clustarr/app/indexer/search"
 	idxstatus "github.com/mediactl/clustarr/app/indexer/status"
+	"github.com/mediactl/clustarr/app/indexer/status/statuspatch"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/records"
+	"github.com/mediactl/clustarr/pkg/records/agentrecords"
 	"github.com/mediactl/clustarr/pkg/relindex"
 	"github.com/mediactl/clustarr/pkg/torznab"
 )
@@ -51,18 +55,16 @@ func searchRequest(ns string) schema.SearchRequest {
 }
 
 // steadyState creates an Indexer and drives its status to a REAL steady
-// state: a completed RSS poll (lastRssAt, lastRssNewCount), a release count
-// and a grab count, all applied under the SAME index-worker manager the
-// search path uses, exactly as app/indexer/worker/rss and app/indexer/download
-// would leave it.
+// state under both of the Indexer controller's managers, and its
+// clustarr-indexer-health record to a completed RSS poll (lastRssAt,
+// lastRssNewCount, indexedReleases), exactly as app/indexer/worker/rss would
+// leave it (ADR-0019 A6.3: the index agent reports outcomes in the record
+// and writes no Indexer status).
 //
-// A test that skips this and acts on a blank object CANNOT observe a
-// field-manager release, because there is nothing to release. There is also
-// deliberately no second writer of these fields: two managers applying the
-// same value CO-OWN it, so a release by one would leave the field standing
-// and the test would pass whether or not the apply released it.
+// A test that skips this and acts on a blank object or an absent record
+// CANNOT observe a lost field, because there is nothing to lose.
 func steadyState(
-	t *testing.T, ctx context.Context, c client.Client, ns, name string,
+	t *testing.T, ctx context.Context, c client.Client, bus events.Bus, hw *health.Writer, ns, name string,
 ) *indexv1alpha1.Indexer {
 	t.Helper()
 	newNamespace(t, ctx, c, ns)
@@ -76,10 +78,10 @@ func steadyState(
 	}
 	require.NoError(t, c.Create(ctx, idx))
 
-	// The Indexer reconciler's half, under ITS manager. It must survive
-	// every apply this package makes: that disjointness is what ruling R6's
-	// split exists for.
-	require.NoError(t, idxstatus.Patch(ctx, c, k8s.ManagerIndex, idx,
+	// The Indexer controller's two halves, each under its own manager. The
+	// search path must leave every one of them alone: the agent writes no
+	// status at all.
+	require.NoError(t, statuspatch.Patch(ctx, c, k8s.ManagerIndex, idx,
 		func(ac *indexac.IndexerStatusApplyConfiguration) {
 			*ac = *idxstatus.ControllerFields(indexv1alpha1.IndexerStatus{
 				ObservedGeneration: 1,
@@ -105,7 +107,7 @@ func steadyState(
 	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(idx), idx))
 
 	rssAt := metav1.NewTime(time.Now().Add(-time.Hour).Truncate(time.Second))
-	require.NoError(t, idxstatus.Patch(ctx, c, k8s.ManagerIndexWorker, idx,
+	require.NoError(t, statuspatch.Patch(ctx, c, k8s.ManagerIndexWorker, idx,
 		func(ac *indexac.IndexerStatusApplyConfiguration) {
 			*ac = *idxstatus.WorkerFields(indexv1alpha1.IndexerStatus{
 				LastRssAt:       &rssAt,
@@ -116,33 +118,73 @@ func steadyState(
 	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(idx), idx))
 	require.Equal(t, int32(5), idx.Status.QueriesInWindow, "the steady state did not take")
 	require.NotNil(t, idx.Status.Caps, "the steady state did not take")
+
+	// The agent's own half: a completed RSS poll in the health record.
+	require.NoError(t, hw.RSS(ctx, indexerRef(idx), rssAt.Time, 7, true, "", ""))
+	rec := healthRecord(t, ctx, healthKV(bus), idx)
+	require.Equal(t, int32(7), rec.LastRssNewCount, "the steady state did not take")
 	return idx
 }
 
-func failingService(c client.Client, err error) *search.Service {
+// healthKit is one agent's health writer over a fresh bus, as
+// app/indexer/agent builds it (newHealthWriter).
+func healthKit(t *testing.T) (events.Bus, *health.Writer) {
+	t.Helper()
+	bus := newBus(t)
+	return bus, &health.Writer{
+		Records:  records.NewWriter(healthKV(bus), agentrecords.IndexerHealth(), "index-test", "test"),
+		Suppress: &health.Suppress{},
+	}
+}
+
+func healthKV(bus events.Bus) events.KV { return bus.KV(events.BucketIndexerHealth) }
+
+func indexerRef(idx *indexv1alpha1.Indexer) schema.ItemRef {
+	return schema.ItemRef{
+		Kind: health.IndexerKind,
+		Ref:  schema.Ref{Namespace: idx.Namespace, Name: idx.Name, UID: string(idx.UID)},
+	}
+}
+
+// readHealth reads idx's clustarr-indexer-health record; ok is false when
+// none was ever written.
+func readHealth(t *testing.T, ctx context.Context, kv events.KV, idx *indexv1alpha1.Indexer) (*schema.IndexerHealthRecord, bool) {
+	t.Helper()
+	rec, _, ok, err := records.NewReader(kv, agentrecords.IndexerHealth()).
+		Get(ctx, agentrecords.IndexerHealthKey(string(idx.UID)))
+	require.NoError(t, err)
+	return rec, ok
+}
+
+func healthRecord(t *testing.T, ctx context.Context, kv events.KV, idx *indexv1alpha1.Indexer) *schema.IndexerHealthRecord {
+	t.Helper()
+	rec, ok := readHealth(t, ctx, kv, idx)
+	require.True(t, ok, "no health record for %s/%s", idx.Namespace, idx.Name)
+	return rec
+}
+
+func failingService(c client.Client, hw *health.Writer, err error) *search.Service {
 	return &search.Service{
 		Client: c,
+		Health: hw,
 		ClientFor: func(context.Context, *indexv1alpha1.Indexer) (search.IndexerClient, error) {
 			return errClient{err: err}, nil
 		},
 	}
 }
 
-// pastTheStartupGrace moves the service's clock beyond
-// idxstatus.StartupGrace. Inside that window a failure deliberately does NOT
-// escalate -- a restart must not disable every indexer at once -- and the
-// test process has only just started, so a real clock would exercise the
-// non-escalating branch and prove nothing about the escalating one.
-func pastTheStartupGrace() func() time.Time {
-	return func() time.Time { return time.Now().Add(idxstatus.StartupGrace + time.Minute) }
-}
-
 // insertingStore reports every row it is given as newly inserted, which is
-// what status.indexedReleases counts.
+// what the record's indexedReleases counts.
 type insertingStore struct{ relindex.Store }
 
 func (insertingStore) Upsert(_ context.Context, rels []relindex.Release) (int, error) {
 	return len(rels), nil
+}
+
+// BlockState holds no block, so the answer marks no release blocked
+// (ADR-0019 §6.14: every answer reads the blocklist).
+func (insertingStore) BlockState(context.Context, []relindex.BlockKey, time.Time) (map[int][]relindex.Block, error) {
+	return nil, nil
 }
 
 type errClient struct{ err error }
@@ -151,215 +193,187 @@ func (e errClient) Search(context.Context, torznab.Query) ([]torznab.Release, er
 	return nil, e.err
 }
 
-// Server-side apply REPLACES a manager's ownership set on every apply. The
-// search fan-out and the RSS poll share k8s.ManagerIndexWorker, so an
-// apply from here that declared less than the complete set would release
-// whatever the poll had written -- silently, and reading as zero on the
-// object.
-func TestAFailingSearchDoesNotReleaseTheRSSFields(t *testing.T) {
-	ctx := t.Context()
-	c := requireEnvtest(t)
-	idx := steadyState(t, ctx, c, "search-ssa", "nzbgeek")
-
-	svc := failingService(c, errors.New("tracker exploded"))
-	svc.Now = pastTheStartupGrace()
-	resp := svc.Search(ctx, searchRequest(idx.Namespace))
-	require.Len(t, resp.Outcomes, 1)
-	require.Equal(t, schema.SearchOutcomeError, resp.Outcomes[0].Status)
-
-	var got indexv1alpha1.Indexer
-	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(idx), &got))
-
-	// The escalation landed ...
-	require.Equal(t, int32(1), got.Status.EscalationLevel)
-	require.NotNil(t, got.Status.DisabledUntil)
-	require.NotNil(t, got.Status.LastFailureAt)
-	require.NotNil(t, got.Status.InitialFailureAt)
-	require.Contains(t, got.Status.LastFailure, "tracker exploded")
-
-	// ... and NOTHING else this manager owns was released.
-	require.NotNil(t, got.Status.LastRssAt, "lastRssAt was released by a partial apply")
-	require.Equal(t, int32(7), got.Status.LastRssNewCount, "released by a partial apply")
-	require.Equal(t, int64(1234), got.Status.IndexedReleases, "released by a partial apply")
-	require.Equal(t, int32(3), got.Status.GrabsInWindow, "released by a partial apply")
-	require.Equal(t, int32(5), got.Status.QueriesInWindow, "released by a partial apply")
-}
-
-// The mirror: the reconciler's own fields, under the OTHER manager, are
-// untouched by a search. Two managers, disjoint sets, no re-assertion --
-// which is what ruling R6's split was added for.
-func TestASearchDoesNotTouchTheReconcilersFields(t *testing.T) {
-	ctx := t.Context()
-	c := requireEnvtest(t)
-	idx := steadyState(t, ctx, c, "search-split", "nzbgeek")
-
-	svc := failingService(c, errors.New("tracker exploded"))
-	_ = svc.Search(ctx, searchRequest(idx.Namespace))
-
-	var got indexv1alpha1.Indexer
-	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(idx), &got))
+// requireStatusUntouched holds every leaf the steady state wrote: the search
+// path writes no Indexer status (ADR-0019 A6.3), so not one of them moves.
+// Every leaf of caps, not just the parent: server-side apply tracks
+// ownership per leaf inside a struct.
+func requireStatusUntouched(t *testing.T, got indexv1alpha1.Indexer) {
+	t.Helper()
 	require.Equal(t, int64(1), got.Status.ObservedGeneration)
 	require.Equal(t, commonv1.ProtocolUsenet, got.Status.Protocol)
 	require.Equal(t, "private", got.Status.Privacy)
 	require.Equal(t, "nzbgeek-session", got.Status.SessionSecretRef)
 	require.Len(t, got.Status.Conditions, 1)
-
-	// Every leaf of caps, not just the parent: server-side apply tracks
-	// ownership per leaf inside a struct, so an assertion that caps is
-	// non-nil cannot see four of its five fields being released.
 	require.NotNil(t, got.Status.Caps)
 	require.Equal(t, map[string][]string{"movie": {"imdbid", "q", "tmdbid"}}, got.Status.Caps.Modes)
 	require.Equal(t, []indexv1alpha1.Category{{ID: 2000, Name: "Movies"}}, got.Status.Caps.Categories)
 	require.Equal(t, int32(100), got.Status.Caps.LimitsMax)
 	require.Equal(t, int32(50), got.Status.Caps.LimitsDefault)
 	require.False(t, got.Status.Caps.SupportsRawSearch)
+	require.Equal(t, int32(3), got.Status.GrabsInWindow)
+	require.Equal(t, int32(5), got.Status.QueriesInWindow)
+	require.NotNil(t, got.Status.LastRssAt)
+	require.Equal(t, int32(7), got.Status.LastRssNewCount)
+	require.Equal(t, int64(1234), got.Status.IndexedReleases)
+	require.Zero(t, got.Status.EscalationLevel)
+	require.Nil(t, got.Status.DisabledUntil)
+	require.Empty(t, got.Status.LastFailure)
 }
 
-// A recovered indexer must have its disable CLEARED, and a With* helper
-// cannot express that: WorkerFields seeds disabledUntil from the LIVE status
-// and only omits it when nil, so a hand-rolled apply would carry the stale
-// disable forward for ever. Nothing else clears it, nothing logs it, and the
-// indexer would never be queried again.
+// The health record is one read-modify-write shared by the search fan-out
+// and the RSS poll, so a failure the search reports must keep what the poll
+// recorded. (Before A6.3 this was the same hazard on Indexer.status under
+// one shared field manager; the escalation the failure drives is the
+// Indexer controller's ladder now, TestTheLadderRunsInTheController.)
+func TestAFailingSearchDoesNotReleaseTheRSSFields(t *testing.T) {
+	ctx := t.Context()
+	c := requireEnvtest(t)
+	bus, hw := healthKit(t)
+	idx := steadyState(t, ctx, c, bus, hw, "search-ssa", "nzbgeek")
+
+	svc := failingService(c, hw, errors.New("tracker exploded"))
+	resp := svc.Search(ctx, searchRequest(idx.Namespace))
+	require.Len(t, resp.Outcomes, 1)
+	require.Equal(t, schema.SearchOutcomeError, resp.Outcomes[0].Status)
+
+	rec := healthRecord(t, ctx, healthKV(bus), idx)
+
+	// The failure landed ...
+	require.Equal(t, int64(1), rec.Failures)
+	require.NotNil(t, rec.LastFailureAt)
+	require.Equal(t, schema.IndexerFailureError, rec.LastFailureClass)
+	require.Contains(t, rec.LastFailure, "tracker exploded")
+
+	// ... and NOTHING the poll recorded was lost.
+	require.NotNil(t, rec.LastRssAt, "lastRssAt was lost by the failure's write")
+	require.Equal(t, int32(7), rec.LastRssNewCount, "lost by the failure's write")
+	require.Equal(t, int64(7), rec.IndexedReleases, "lost by the failure's write")
+	require.Equal(t, int64(1), rec.Successes, "the poll's success was lost by the failure's write")
+}
+
+// The mirror: every field of Indexer.status, under either of the
+// controller's managers, is untouched by a search. The agent reports
+// outcomes and writes no status (ADR-0019 A6.3).
+func TestASearchDoesNotTouchTheReconcilersFields(t *testing.T) {
+	ctx := t.Context()
+	c := requireEnvtest(t)
+	bus, hw := healthKit(t)
+	idx := steadyState(t, ctx, c, bus, hw, "search-split", "nzbgeek")
+
+	svc := failingService(c, hw, errors.New("tracker exploded"))
+	_ = svc.Search(ctx, searchRequest(idx.Namespace))
+
+	var got indexv1alpha1.Indexer
+	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(idx), &got))
+	requireStatusUntouched(t, got)
+}
+
+// A successful search after a run of failures reports the success and what
+// it indexed, and keeps the failure history: counters only grow, so the
+// Indexer controller can tell a recovery from a record it has not seen.
+// Clearing the escalation is the controller's ladder now
+// (TestTheLadderRunsInTheController).
 func TestASuccessfulSearchClearsTheEscalation(t *testing.T) {
 	ctx := t.Context()
 	c := requireEnvtest(t)
-	idx := steadyState(t, ctx, c, "search-recover", "nzbgeek")
+	bus, hw := healthKit(t)
+	idx := steadyState(t, ctx, c, bus, hw, "search-recover", "nzbgeek")
 
-	// Drive it into backoff first, the way a run of failures would.
-	until := metav1.NewTime(time.Now().Add(-time.Minute).Truncate(time.Second))
-	failedAt := metav1.NewTime(time.Now().Add(-2 * time.Minute).Truncate(time.Second))
-	require.NoError(t, idxstatus.Patch(ctx, c, k8s.ManagerIndexWorker, idx,
-		func(ac *indexac.IndexerStatusApplyConfiguration) {
-			st := idx.Status
-			st.EscalationLevel = 1
-			st.DisabledUntil = &until // already expired, so Healthy is true again
-			st.InitialFailureAt = &failedAt
-			st.LastFailureAt = &failedAt
-			st.LastFailure = "tracker exploded"
-			*ac = *idxstatus.WorkerFields(st)
-		}))
-	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(idx), idx))
-	require.NotNil(t, idx.Status.DisabledUntil, "the backoff state did not take")
+	// A failure first, the way a run of failures would leave the record.
+	require.NoError(t, hw.Outcome(ctx, indexerRef(idx), false, schema.IndexerFailureError, "tracker exploded", 0))
+	failed := healthRecord(t, ctx, healthKV(bus), idx)
+	require.Equal(t, int64(1), failed.Failures, "the failure did not take")
 
 	svc := &search.Service{
 		Client:    c,
+		Health:    hw,
 		Store:     insertingStore{},
 		ClientFor: stubClientFor(stub{releases: twoReleases()}),
 	}
+	// The failure armed the local suppression; the manager's verdict would
+	// end it. Let it lapse so the search queries the indexer.
+	hw.Suppress.Decided(idx.UID, failed.LastFailureAt.Add(time.Second))
 	resp := svc.Search(ctx, searchRequest(idx.Namespace))
 	require.Len(t, resp.Outcomes, 1)
 	require.Equal(t, schema.SearchOutcomeOK, resp.Outcomes[0].Status)
 
-	var got indexv1alpha1.Indexer
-	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(idx), &got))
-	require.Zero(t, got.Status.EscalationLevel)
-	require.Nil(t, got.Status.DisabledUntil, "a stale disable survived a successful search")
-	require.Nil(t, got.Status.InitialFailureAt)
-	require.Nil(t, got.Status.LastFailureAt)
-	require.Empty(t, got.Status.LastFailure)
+	rec := healthRecord(t, ctx, healthKV(bus), idx)
+	require.Equal(t, int64(2), rec.Successes, "the poll's success and the search's")
+	require.NotNil(t, rec.LastSuccessAt)
+	require.False(t, rec.LastSuccessAt.Before(*rec.LastFailureAt), "the success is not the latest outcome")
+	require.Equal(t, int64(1), rec.Failures, "the failure history was lost")
 
-	// ... and the rest of the manager's set is still standing.
-	require.NotNil(t, got.Status.LastRssAt)
-	require.Equal(t, int32(7), got.Status.LastRssNewCount)
-	require.Equal(t, int32(3), got.Status.GrabsInWindow)
-	require.Equal(t, int64(1236), got.Status.IndexedReleases,
+	// ... and the rest of the record is still standing.
+	require.NotNil(t, rec.LastRssAt)
+	require.Equal(t, int32(7), rec.LastRssNewCount)
+	require.Equal(t, int64(7+2), rec.IndexedReleases,
 		"indexedReleases must grow by what the store inserted, and by nothing else")
 }
 
-// interleavingClient writes to the SAME object, under the SAME field
-// manager, WHILE the search is in flight -- exactly as the RSS poll or a
-// grab does in production, where a fan-out is seconds long.
+// interleavingClient reports an RSS poll through a SECOND health writer on
+// the same bucket WHILE the search is in flight -- a poll landing during a
+// fan-out that is seconds long. A second writer, not the shared one, so the
+// race is the bucket's compare-and-swap rather than one process's.
 type interleavingClient struct {
 	t   *testing.T
-	c   client.Client
-	key client.ObjectKey
+	hw  *health.Writer
+	idx *indexv1alpha1.Indexer
 	err error
 }
 
 func (i interleavingClient) Search(ctx context.Context, _ torznab.Query) ([]torznab.Release, error) {
-	var live indexv1alpha1.Indexer
-	require.NoError(i.t, i.c.Get(ctx, i.key, &live))
-
-	until := metav1.NewTime(time.Now().Add(30 * time.Minute).Truncate(time.Second))
-	rssAt := metav1.NewTime(time.Now().Truncate(time.Second))
-	require.NoError(i.t, idxstatus.Patch(ctx, i.c, k8s.ManagerIndexWorker, &live,
-		func(ac *indexac.IndexerStatusApplyConfiguration) {
-			st := live.Status
-			st.LastRssAt = &rssAt
-			st.LastRssNewCount = 42
-			st.IndexedReleases = 9999
-			// A run of failures another writer recorded. It is the tell:
-			// inside the startup grace RecordFailure keeps whatever level
-			// it is HANDED, so a fresh read escalates from 3 and a stale
-			// one from 0 -- and only one of those disables the indexer.
-			st.EscalationLevel = 3
-			st.DisabledUntil = &until
-			st.InitialFailureAt = &rssAt
-			st.LastFailureAt = &rssAt
-			st.LastFailure = "http 503"
-			*ac = *idxstatus.WorkerFields(st)
-		}))
+	require.NoError(i.t, i.hw.RSS(ctx, indexerRef(i.idx), time.Now(), 42, true, "", ""))
 	return nil, i.err
 }
 
-// The failure no release-regression test can see.
-//
-// Both applies declare every field the manager owns; the stale one just
-// declares OLDER VALUES. disabledUntil is what turns it from a counter blip
-// into a correctness bug: WorkerFields emits it only when non-nil, so a
-// snapshot taken before another writer set the backoff does not roll it
-// back, it CLEARS it -- silently re-enabling an indexer that was just put
-// into backoff and undoing the thing that stops us hammering a failing
-// tracker.
-//
-// The second writer is REAL and runs mid-fan-out, rather than being a
-// sequence arranged around the call: a test that writes before or after the
-// search cannot observe a lost update at all.
+// The failure no release-regression test can see: a write seeded from a
+// read taken before another writer's landed rolls it back. The record is a
+// compare-and-swap (records.Writer.Update), so the search's failure is
+// decided again on the newer record. The second writer is REAL and runs
+// mid-fan-out: a test that writes before or after the search cannot observe
+// a lost update at all.
 func TestASearchDoesNotRollBackAWriteThatLandedDuringTheFanOut(t *testing.T) {
 	ctx := t.Context()
 	c := requireEnvtest(t)
-	idx := steadyState(t, ctx, c, "search-interleave", "nzbgeek")
-	key := client.ObjectKeyFromObject(idx)
+	bus, hw := healthKit(t)
+	idx := steadyState(t, ctx, c, bus, hw, "search-interleave", "nzbgeek")
 
+	other := &health.Writer{
+		Records: records.NewWriter(healthKV(bus), agentrecords.IndexerHealth(), "index-other", "test"),
+	}
 	svc := &search.Service{
 		Client: c,
+		Health: hw,
 		ClientFor: func(context.Context, *indexv1alpha1.Indexer) (search.IndexerClient, error) {
-			return interleavingClient{t: t, c: c, key: key, err: errors.New("tracker exploded")}, nil
+			return interleavingClient{t: t, hw: other, idx: idx, err: errors.New("tracker exploded")}, nil
 		},
 	}
 	resp := svc.Search(ctx, searchRequest(idx.Namespace))
 	require.Len(t, resp.Outcomes, 1)
 	require.Equal(t, schema.SearchOutcomeError, resp.Outcomes[0].Status)
 
-	var got indexv1alpha1.Indexer
-	require.NoError(t, c.Get(ctx, key, &got))
-
-	require.Equal(t, int32(42), got.Status.LastRssNewCount,
+	rec := healthRecord(t, ctx, healthKV(bus), idx)
+	require.Equal(t, int32(42), rec.LastRssNewCount,
 		"the stale snapshot rolled back a write that landed during the fan-out")
-	require.Equal(t, int64(9999), got.Status.IndexedReleases, "rolled back by a stale snapshot")
-
-	// The escalation continued the run the other writer had started rather
-	// than beginning a new one from zero. A stale snapshot would have read
-	// level 0 here and produced no disable at all -- silently leaving an
-	// indexer that has failed four times in a row fully in service.
-	require.Equal(t, int32(3), got.Status.EscalationLevel, "the escalation run restarted from a stale level")
-	require.NotNil(t, got.Status.DisabledUntil, "the stale snapshot lost the backoff entirely")
-	require.NotNil(t, got.Status.InitialFailureAt, "the run's start was lost with the stale snapshot")
+	require.Equal(t, int64(7+42), rec.IndexedReleases, "rolled back by a stale snapshot")
+	require.Equal(t, int64(2), rec.Successes, "rolled back by a stale snapshot")
+	require.Equal(t, int64(1), rec.Failures, "the search's failure was lost")
+	require.Contains(t, rec.LastFailure, "tracker exploded")
 }
 
 // A search counts its query on the ring and nowhere else.
 // status.queriesInWindow is the Indexer reconciler's projection of the ring
-// (it owns the field since 2026-10-01); a search that still wrote it would
-// take it back under ForceOwnership and pin a count the reconciler had moved
-// on from.
+// (it owns the field since 2026-10-01), and the agent writes no status at
+// all (A6.3): no index-worker apply may come from a search.
 func TestASearchCountsOnTheRingAndLeavesTheProjectionAlone(t *testing.T) {
 	ctx := t.Context()
 	c := requireEnvtest(t)
-	idx := steadyState(t, ctx, c, "search-queries", "nzbgeek")
+	bus, hw := healthKit(t)
+	idx := steadyState(t, ctx, c, bus, hw, "search-queries", "nzbgeek")
 
-	bus := newBus(t)
 	svc := &search.Service{
 		Client:    c,
+		Health:    hw,
 		Bus:       bus,
 		ClientFor: stubClientFor(stub{releases: twoReleases()}),
 	}
@@ -372,72 +386,67 @@ func TestASearchCountsOnTheRingAndLeavesTheProjectionAlone(t *testing.T) {
 
 	var got indexv1alpha1.Indexer
 	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(idx), &got))
-	require.Equal(t, int32(5), got.Status.QueriesInWindow, "the search wrote the reconciler's projection")
-	require.Equal(t, int32(3), got.Status.GrabsInWindow)
+	requireStatusUntouched(t, got)
 	for _, mf := range got.ManagedFields {
 		if mf.Manager == k8s.ManagerIndexWorker.String() && mf.FieldsV1 != nil {
 			require.NotContains(t, mf.FieldsV1.GetRawString(), "f:queriesInWindow", "the worker manager claimed queriesInWindow")
 			require.NotContains(t, mf.FieldsV1.GetRawString(), "f:grabsInWindow", "the worker manager claimed grabsInWindow")
 		}
 	}
-
-	// ... and the rest of the manager's set survived both.
-	require.NotNil(t, got.Status.LastRssAt)
-	require.Equal(t, int32(7), got.Status.LastRssNewCount)
 }
 
-// racingReader is recordOutcome's uncached reader with a second writer in
-// the one window a re-read cannot close: between the read the outcome is
-// seeded from and its apply. On its first Get it lets the read return and
-// then applies another search's outcome -- 100 newly indexed releases --
-// under the same manager.
-type racingReader struct {
-	client.Reader
-	c     client.Client
+// racingKV is the health bucket with a second writer in the one window a
+// re-read cannot close: between the read the outcome is seeded from and its
+// write. On its first Get it lets the read return and then reports another
+// search's outcome -- 100 newly indexed releases -- through a second writer.
+type racingKV struct {
+	events.KV
+	t     *testing.T
+	other *health.Writer
+	idx   *indexv1alpha1.Indexer
 	raced bool
 }
 
-func (r *racingReader) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-	if err := r.Reader.Get(ctx, key, obj, opts...); err != nil {
-		return err
+func (r *racingKV) Get(ctx context.Context, key string) (events.Entry, error) {
+	e, err := r.KV.Get(ctx, key)
+	if err != nil {
+		return e, err
 	}
 	if !r.raced {
 		r.raced = true
-		_, _, err := idxstatus.PatchCAS(ctx, r.Reader, r.c, k8s.ManagerIndexWorker, key,
-			func(fresh *indexv1alpha1.Indexer, ac *indexac.IndexerStatusApplyConfiguration) bool {
-				ac.WithIndexedReleases(fresh.Status.IndexedReleases + 100)
-				return false
-			})
-		if err != nil {
-			return err
-		}
+		require.NoError(r.t, r.other.Outcome(ctx, indexerRef(r.idx), true, "", "", 100))
 	}
-	return nil
+	return e, nil
 }
 
-// Two outcome writers on one Indexer lose no increment. A re-read before the
-// apply -- which is all recordOutcome had -- leaves the window between that
-// read and the apply open, and an outcome landing in it was overwritten with
-// a count computed before it: indexedReleases went back by its increment.
-// The apply is now a compare-and-swap, redone from a fresh read.
+// Two outcome writers on one Indexer lose no increment: the record's write
+// is a compare-and-swap, redone from a fresh read, so an outcome landing
+// between the read and the write is not overwritten with a count computed
+// before it.
 func TestTwoOutcomeWritersLoseNoIndexedReleases(t *testing.T) {
 	ctx := t.Context()
 	c := requireEnvtest(t)
-	idx := steadyState(t, ctx, c, "search-cas", "nzbgeek")
+	bus, hw := healthKit(t)
+	idx := steadyState(t, ctx, c, bus, hw, "search-cas", "nzbgeek")
 
+	kv := healthKV(bus)
+	racing := &racingKV{
+		KV: kv, t: t, idx: idx,
+		other: &health.Writer{Records: records.NewWriter(kv, agentrecords.IndexerHealth(), "index-other", "test")},
+	}
 	svc := &search.Service{
 		Client:    c,
-		Reader:    &racingReader{Reader: c, c: c},
+		Health:    &health.Writer{Records: records.NewWriter(racing, agentrecords.IndexerHealth(), "index-test", "test")},
 		Store:     insertingStore{},
 		ClientFor: stubClientFor(stub{releases: twoReleases()}),
 	}
 	resp := svc.Search(ctx, searchRequest(idx.Namespace))
 	require.Equal(t, schema.SearchOutcomeOK, resp.Outcomes[0].Status)
+	require.True(t, racing.raced, "the second writer never ran")
 
-	var got indexv1alpha1.Indexer
-	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(idx), &got))
-	require.Equal(t, int64(1234+100+2), got.Status.IndexedReleases,
-		"an increment was lost between the outcome's read and its apply")
+	rec := healthRecord(t, ctx, healthKV(bus), idx)
+	require.Equal(t, int64(7+100+2), rec.IndexedReleases,
+		"an increment was lost between the outcome's read and its write")
 }
 
 // And without a contrived window: concurrent searches, every one of which
@@ -445,10 +454,12 @@ func TestTwoOutcomeWritersLoseNoIndexedReleases(t *testing.T) {
 func TestConcurrentSearchesLoseNoIndexedReleases(t *testing.T) {
 	ctx := t.Context()
 	c := requireEnvtest(t)
-	idx := steadyState(t, ctx, c, "search-concurrent", "nzbgeek")
+	bus, hw := healthKit(t)
+	idx := steadyState(t, ctx, c, bus, hw, "search-concurrent", "nzbgeek")
 
 	svc := &search.Service{
 		Client:    c,
+		Health:    hw,
 		Store:     insertingStore{},
 		ClientFor: stubClientFor(stub{releases: twoReleases()}),
 	}
@@ -459,33 +470,33 @@ func TestConcurrentSearchesLoseNoIndexedReleases(t *testing.T) {
 	}
 	wg.Wait()
 
-	var got indexv1alpha1.Indexer
-	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(idx), &got))
-	require.Equal(t, int64(1234+2*searches), got.Status.IndexedReleases)
+	rec := healthRecord(t, ctx, healthKV(bus), idx)
+	require.Equal(t, int64(7+2*searches), rec.IndexedReleases)
+	require.Equal(t, int64(1+searches), rec.Successes)
 }
 
 // An indexer that is skipped is never queried, so nothing about it changes:
-// an apply that does not happen can neither release nor roll back.
+// a report that does not happen can neither lose nor roll back anything.
 func TestASkippedIndexerIsNotWrittenAtAll(t *testing.T) {
 	ctx := t.Context()
 	c := requireEnvtest(t)
-	idx := steadyState(t, ctx, c, "search-skipped", "nzbgeek")
+	bus, hw := healthKit(t)
+	idx := steadyState(t, ctx, c, bus, hw, "search-skipped", "nzbgeek")
+	before := healthRecord(t, ctx, healthKV(bus), idx)
 
 	// Disable it through the spec, which is the operator's switch.
 	idx.Spec.Enabled = new(bool)
 	require.NoError(t, c.Update(ctx, idx))
 
-	svc := failingService(c, errors.New("must not be called"))
+	svc := failingService(c, hw, errors.New("must not be called"))
 	resp := svc.Search(ctx, searchRequest(idx.Namespace))
 	require.Len(t, resp.Outcomes, 1)
 	require.Equal(t, schema.SearchOutcomeSkipped, resp.Outcomes[0].Status)
 
+	require.Equal(t, before, healthRecord(t, ctx, healthKV(bus), idx), "a skipped indexer's record was written")
 	var got indexv1alpha1.Indexer
 	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(idx), &got))
-	require.Zero(t, got.Status.EscalationLevel)
-	require.Equal(t, int32(5), got.Status.QueriesInWindow)
-	require.Equal(t, int64(1234), got.Status.IndexedReleases)
-	require.NotNil(t, got.Status.LastRssAt)
+	requireStatusUntouched(t, got)
 }
 
 // hangingClient never answers, so the per-indexer deadline is what ends the
@@ -500,25 +511,24 @@ func (hangingClient) Search(ctx context.Context, _ torznab.Query) ([]torznab.Rel
 // An indexer that TIMED OUT must still have its failure recorded.
 //
 // This is the regression test for the per-indexer timeout bounding only the
-// outbound call. If the status apply ran on that same context it would be
-// ALREADY EXPIRED on exactly this path: the Get would fail instantly,
-// recordOutcome would log a warning and return, and an indexer that hangs on
-// every request would never escalate, never be disabled and never stop being
-// queried -- while the reply still, misleadingly, said "timeout".
-//
-// The clock is past idxstatus.StartupGrace so the ladder actually steps; the
-// non-escalating in-grace branch would pass whether or not the apply landed.
+// outbound call. If the record's write ran on that same context it would be
+// ALREADY EXPIRED on exactly this path: the read would fail instantly, the
+// outcome would be logged and dropped, and an indexer that hangs on every
+// request would never reach the Indexer controller's ladder, never be
+// disabled and never stop being queried -- while the reply still,
+// misleadingly, said "timeout".
 func TestATimedOutIndexerStillRecordsItsEscalation(t *testing.T) {
 	ctx := t.Context()
 	c := requireEnvtest(t)
-	idx := steadyState(t, ctx, c, "search-timeout", "nzbgeek")
+	bus, hw := healthKit(t)
+	idx := steadyState(t, ctx, c, bus, hw, "search-timeout", "nzbgeek")
 
 	idx.Spec.Timeout = metav1.Duration{Duration: 100 * time.Millisecond}
 	require.NoError(t, c.Update(ctx, idx))
 
 	svc := &search.Service{
 		Client: c,
-		Now:    pastTheStartupGrace(),
+		Health: hw,
 		ClientFor: func(context.Context, *indexv1alpha1.Indexer) (search.IndexerClient, error) {
 			return hangingClient{}, nil
 		},
@@ -527,17 +537,14 @@ func TestATimedOutIndexerStillRecordsItsEscalation(t *testing.T) {
 	require.Len(t, resp.Outcomes, 1)
 	require.Equal(t, schema.SearchOutcomeTimeout, resp.Outcomes[0].Status)
 
-	var got indexv1alpha1.Indexer
-	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(idx), &got))
-	require.Equal(t, int32(1), got.Status.EscalationLevel,
-		"a timed-out indexer never escalated: the status apply ran on the expired query context")
-	require.NotNil(t, got.Status.DisabledUntil,
-		"a timed-out indexer was never backed off, so it will be hammered on every search")
-	require.NotEmpty(t, got.Status.LastFailure, "the timeout was not recorded at all")
-	require.NotNil(t, got.Status.InitialFailureAt)
+	rec := healthRecord(t, ctx, healthKV(bus), idx)
+	require.Equal(t, int64(1), rec.Failures,
+		"a timed-out indexer's failure was never recorded: the write ran on the expired query context")
+	require.Equal(t, schema.IndexerFailureTimeout, rec.LastFailureClass)
+	require.NotEmpty(t, rec.LastFailure, "the timeout was not recorded at all")
+	require.NotNil(t, rec.LastFailureAt)
 
-	// ... and the shared manager's other fields survived it.
-	require.NotNil(t, got.Status.LastRssAt)
-	require.Equal(t, int32(7), got.Status.LastRssNewCount)
-	require.Equal(t, int32(3), got.Status.GrabsInWindow)
+	// ... and the poll's fields survived it.
+	require.NotNil(t, rec.LastRssAt)
+	require.Equal(t, int32(7), rec.LastRssNewCount)
 }

@@ -33,11 +33,14 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	searchworker "github.com/mediactl/clustarr/app/catalog/worker/search"
+	"github.com/mediactl/clustarr/app/indexer/health"
 	"github.com/mediactl/clustarr/app/indexer/search"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/records"
+	"github.com/mediactl/clustarr/pkg/records/agentrecords"
 	"github.com/mediactl/clustarr/pkg/torznab"
 )
 
@@ -356,21 +359,21 @@ func TestStopIsIdempotentAndDrains(t *testing.T) {
 	}
 }
 
-// hangingGetClient blocks every Get on its context. That is exactly where a
-// straggler sits after the reply has gone out: its status apply re-reads the
-// Indexer before applying.
-type hangingGetClient struct {
-	client.Client
+// hangingGetKV blocks every Get on its context. That is exactly where a
+// straggler sits after the reply has gone out: its health record's
+// read-modify-write reads the record before writing it (ADR-0019 A6.3; it
+// was the status apply's re-read of the Indexer before the agent stopped
+// writing status).
+type hangingGetKV struct {
+	events.KV
 	reached chan struct{}
 	once    sync.Once
 }
 
-func (h *hangingGetClient) Get(
-	ctx context.Context, _ client.ObjectKey, _ client.Object, _ ...client.GetOption,
-) error {
+func (h *hangingGetKV) Get(ctx context.Context, _ string) (events.Entry, error) {
 	h.once.Do(func() { close(h.reached) })
 	<-ctx.Done()
-	return ctx.Err()
+	return events.Entry{}, ctx.Err()
 }
 
 // stop must CANCEL the stragglers, not merely wait for them.
@@ -381,20 +384,21 @@ func (h *hangingGetClient) Get(
 // the instant fanOut returns -- which is precisely when the stragglers it
 // exists to bound are still running -- so cancelling the service would reach
 // nothing and every straggler would hold the drain open for its full
-// sideEffectTimeout against an apiserver that may already be gone.
+// sideEffectTimeout against a bus that may already be gone.
 //
 // TestStopIsIdempotentAndDrains cannot see this: there the straggler is
 // bounded by its own per-indexer deadline, which expires long before the
-// drain allowance either way. Here the straggler is blocked in its status
-// apply, which only the service context can end.
+// drain allowance either way. Here the straggler is blocked in its health
+// record's write, which only the service context can end.
 func TestStopCancelsAStragglerRatherThanWaitingForIt(t *testing.T) {
 	ctx := t.Context()
 	bus := newBus(t)
 	idx := usenetIndexer()
 
-	hang := &hangingGetClient{Client: fakeClientWith(idx), reached: make(chan struct{})}
+	hang := &hangingGetKV{KV: bus.KV(events.BucketIndexerHealth), reached: make(chan struct{})}
 	svc := &search.Service{
-		Client:    hang,
+		Client:    fakeClientWith(idx),
+		Health:    &health.Writer{Records: records.NewWriter(hang, agentrecords.IndexerHealth(), "index-test", "test")},
 		ClientFor: stubClientFor(stub{releases: twoReleases()}),
 	}
 	stop, err := search.Serve(ctx, bus, svc)
@@ -410,7 +414,7 @@ func TestStopCancelsAStragglerRatherThanWaitingForIt(t *testing.T) {
 	select {
 	case <-hang.reached:
 	case <-time.After(5 * time.Second):
-		t.Fatal("the straggler never reached its status apply, so the drain proves nothing")
+		t.Fatal("the straggler never reached its health record write, so the drain proves nothing")
 	}
 
 	done := make(chan struct{})
