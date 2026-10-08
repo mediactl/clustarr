@@ -28,7 +28,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/fsops"
 )
 
-// TestEveryCommandAppliesUMASK is design §11's "UMASK 002 in every
+// TestUMASKIsApplied is design §11's "UMASK 002 in every
 // media-touching pod", which until X14 nothing in the binary applied: the
 // manifests set $UMASK and every service ignored it, so files were created
 // under the image's default 022 and another service in the shared fsGroup
@@ -42,7 +42,7 @@ import (
 // pkg/fsops.ParseUmask itself is tested in pkg/fsops/umask_test.go; this
 // test is left here because it exercises the root command's
 // PersistentPreRunE wiring to fsops.ApplyUmaskFromEnv, not the parser.
-func TestEveryCommandAppliesUMASK(t *testing.T) {
+func TestUMASKIsApplied(t *testing.T) {
 	previous := syscall.Umask(0o022)
 	t.Cleanup(func() { syscall.Umask(previous) })
 

@@ -18,12 +18,30 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package main
 
 import (
+	"bytes"
+	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/mediactl/clustarr/internal/cli/manager"
+	"github.com/mediactl/clustarr/pkg/version"
 )
+
+// TestVersionFlag: both spellings print "manager <version>" first, through
+// the real command (NewCommand, not a stub), and start nothing.
+func TestVersionFlag(t *testing.T) {
+	for _, args := range [][]string{{"--version"}, {"version"}} {
+		var out bytes.Buffer
+		cmd := manager.NewCommand()
+		cmd.SetOut(&out)
+		cmd.SetErr(&out)
+		cmd.SetArgs(args)
+		require.NoError(t, cmd.Execute(), args)
+		assert.True(t, strings.HasPrefix(out.String(), "manager "+version.String()+"\n"), out.String())
+	}
+}
 
 // TestVersionHasNoShorthand is a regression guard: -v belongs to log
 // verbosity by klog and zap convention, and an operator who writes -v into a
