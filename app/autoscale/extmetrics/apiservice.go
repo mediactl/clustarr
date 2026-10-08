@@ -17,38 +17,39 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 package extmetrics
 
-// apiServiceCABundle is the one apply configuration the manager sends to
+import (
+	"context"
+	"encoding/base64"
+
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/mediactl/clustarr/pkg/k8s"
+)
+
+// newAPIServiceCABundle is the one object the manager applies to
 // v1beta1.external.metrics.k8s.io: apiVersion, kind, name and
-// spec.caBundle. It implements k8s.ApplyConfiguration by hand, since
-// controller-runtime's typed Apply needs only the four getters and a REST
-// mapping (client/typed_client.go:151-186), so k8s.io/kube-aggregator is
-// not linked.
-type apiServiceCABundle struct {
-	Kind       *string            `json:"kind,omitempty"`
-	APIVersion *string            `json:"apiVersion,omitempty"`
-	Metadata   apiServiceMetadata `json:"metadata"`
-	Spec       apiServiceSpec     `json:"spec"`
+// spec.caBundle (base64, as the API's []byte field encodes). It is
+// unstructured, so k8s.io/kube-aggregator is not linked.
+func newAPIServiceCABundle(ca []byte) *unstructured.Unstructured {
+	u := &unstructured.Unstructured{Object: map[string]any{
+		"spec": map[string]any{"caBundle": base64.StdEncoding.EncodeToString(ca)},
+	}}
+	u.SetGroupVersionKind(APIServiceGVK)
+	u.SetName(APIServiceName)
+	return u
 }
 
-type apiServiceMetadata struct {
-	Name *string `json:"name,omitempty"`
+// applyCABundle server-side applies newAPIServiceCABundle under
+// clustarr-autoscale with force-ownership, as k8s.Apply does for a typed
+// configuration. It goes through the client's unstructured path, never
+// k8s.Apply's typed one: the typed client encodes PatchOptions through the
+// scheme's parameter codec, and the manager's scheme has no
+// apiregistration.k8s.io/v1, so every injection was refused ("v1.PatchOptions
+// is not suitable for converting to apiregistration.k8s.io/v1"; found by
+// TestCAInjectorOwnsOnlyCABundle). The unstructured client sends the
+// options unconverted.
+func applyCABundle(ctx context.Context, c client.Client, ca []byte) error {
+	return c.Apply(ctx, client.ApplyConfigurationFromUnstructured(newAPIServiceCABundle(ca)),
+		client.FieldOwner(k8s.ManagerAutoscale.String()), client.ForceOwnership)
 }
-
-type apiServiceSpec struct {
-	CABundle []byte `json:"caBundle,omitempty"`
-}
-
-func newAPIServiceCABundle(ca []byte) *apiServiceCABundle {
-	kind, apiVersion, name := APIServiceGVK.Kind, APIServiceGVK.GroupVersion().String(), APIServiceName
-	return &apiServiceCABundle{
-		Kind: &kind, APIVersion: &apiVersion,
-		Metadata: apiServiceMetadata{Name: &name},
-		Spec:     apiServiceSpec{CABundle: ca},
-	}
-}
-
-func (*apiServiceCABundle) IsApplyConfiguration()    {}
-func (a *apiServiceCABundle) GetName() *string       { return a.Metadata.Name }
-func (*apiServiceCABundle) GetNamespace() *string    { return nil }
-func (a *apiServiceCABundle) GetKind() *string       { return a.Kind }
-func (a *apiServiceCABundle) GetAPIVersion() *string { return a.APIVersion }

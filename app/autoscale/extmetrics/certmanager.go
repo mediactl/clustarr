@@ -166,7 +166,7 @@ func (m *CertManager) InjectCABundle(ctx context.Context, sec *corev1.Secret) er
 	if current, _, _ := unstructured.NestedString(u.Object, "spec", "caBundle"); current == base64.StdEncoding.EncodeToString(ca) {
 		return nil
 	}
-	if _, err := k8s.Apply(ctx, m.Client, k8s.ManagerAutoscale, newAPIServiceCABundle(ca)); err != nil {
+	if err := applyCABundle(ctx, m.Client, ca); err != nil {
 		return fmt.Errorf("extmetrics: inject the caBundle: %w", err)
 	}
 	return nil
