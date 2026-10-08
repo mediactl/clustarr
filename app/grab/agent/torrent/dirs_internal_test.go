@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package manager
+package torrent
 
 import (
 	"testing"
@@ -23,45 +23,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
-
-	"github.com/mediactl/clustarr/app/grab/controller/downloadclient"
 )
-
-// TestEngineRuntimeCarriesTheControllerOptions holds the link from
-// grab's options and environment to what the DownloadClient controller
-// stamps onto every engine pod (X14): the engine ServiceAccount, this
-// process's bus address and single-node setting, and $UMASK. Each has a
-// legal empty value that fails only on a real node, where envtest never
-// schedules one, so the value itself is the only proof it arrives.
-// downloadclient's TestEnginePodsGetTheRuntimeTheyNeed holds the next link,
-// the runtime into the pod spec.
-func TestEngineRuntimeCarriesTheControllerOptions(t *testing.T) {
-	t.Setenv("UMASK", "002")
-	o := DefaultOptions()
-	o.EngineServiceAccount = "media-clustarr-grab-engine"
-	o.NATSURL = "nats://nats.media.svc:4222"
-	o.BusSingleNode = true
-
-	require.Equal(t, downloadclient.EngineRuntime{
-		ServiceAccountName: "media-clustarr-grab-engine",
-		NATSURL:            "nats://nats.media.svc:4222",
-		BusSingleNode:      true,
-		Umask:              "002",
-	}, engineRuntime(o))
-
-	require.Equal(t, downloadclient.DefaultEngineServiceAccount, DefaultOptions().EngineServiceAccount,
-		"config/'s engine ServiceAccount is the flag's default")
-
-	o.EngineImage = "img"
-	o.EngineServiceAccount = ""
-	require.ErrorContains(t, o.Validate(), "--engine-service-account",
-		"a controller that would stamp no ServiceAccount onto its engines was accepted")
-}
 
 // A torrent engine publishes to spec.torrent.publishDir, else
 // <data>/torrents as it always has, and has a working area only when
 // spec.torrent.scratch is set: the --scratch-dir flag always carries a
-// default, so its presence says nothing.
+// default, so its presence says nothing. Moved from app/grab (W3.11).
 func TestTorrentEngineDirs(t *testing.T) {
 	o := Options{DataDir: "/data", ScratchDir: "/scratch"}
 	pub, scratch := torrentEngineDirs(o, &downloadv1alpha1.TorrentSpec{})
