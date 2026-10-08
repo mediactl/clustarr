@@ -309,14 +309,14 @@ func (s *Server) handleDownloadAction(w http.ResponseWriter, r *http.Request) {
 			r.FormValue("data") == "true", r.FormValue("blocklist") == "true")
 		done = "Removal queued"
 	case "retry-import":
-		var target *schema.ItemRef
+		var target *actions.ImportTarget
 		if t := r.FormValue("target"); t != "" {
 			k, n, ok := strings.Cut(t, "/")
 			if !ok {
 				s.finishAction(w, r, fmt.Errorf("%w: target wants <kind>/<name>", actions.ErrInvalid))
 				return
 			}
-			target = &schema.ItemRef{Kind: k, Ref: schema.Ref{Name: n}}
+			target = &actions.ImportTarget{Kind: commonv1.MediaKind(strings.ToLower(k)), Name: n}
 		}
 		err = s.opts.Actions.RetryImport(ctx, ns, kind, owner, entry, target, r.FormValue("override") == "true")
 		done = "Import queued"

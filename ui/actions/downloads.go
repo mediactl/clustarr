@@ -31,7 +31,6 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
@@ -203,12 +202,23 @@ func ResumeDownload(ctx context.Context, p Patcher, ns string, kind commonv1.Med
 	return err
 }
 
+// ImportTarget is the item a retried import puts the file in -- an Episode
+// or Issue of a pack, by kind and name -- as the import annotation's
+// "target=<kind>/<name>" spells it (catalogv1alpha1.AnnotationDownloadImport).
+// It is this package's own type, in the API's vocabulary, rather than the
+// bus schema's ItemRef: an intent is an annotation patch, not a bus message,
+// and ui/actions imports nothing from pkg/events (TestUINeverWrites).
+type ImportTarget struct {
+	Kind commonv1.MediaKind
+	Name string
+}
+
 // RetryImport imports the owner's entry entryID again
 // (download.clustarr.io/import, one-shot): to target when set (an Episode
 // or Issue names one of a pack), as a person's import with override.
 func RetryImport(
 	ctx context.Context, p Patcher, ns string, kind commonv1.MediaKind, owner, entryID string,
-	target *schema.ItemRef, override bool, now time.Time,
+	target *ImportTarget, override bool, now time.Time,
 ) error {
 	ctx, span := tracing.Start(ctx, "ui.actions.RetryImport")
 	defer span.End()
@@ -217,10 +227,10 @@ func RetryImport(
 	}
 	v := nonce(now) + " " + entryID
 	if target != nil {
-		if target.Kind == "" || target.Name == "" || strings.ContainsAny(target.Kind+target.Name, " /\t\n") {
-			return fmt.Errorf("%w: an import target wants a kind and a name", ErrInvalid)
+		if _, ok := monitorables[target.Kind]; !ok || target.Name == "" || strings.ContainsAny(target.Name, " /\t\n") {
+			return fmt.Errorf("%w: an import target wants a catalog media kind and a name", ErrInvalid)
 		}
-		v += " target=" + strings.ToLower(target.Kind) + "/" + target.Name
+		v += " target=" + string(target.Kind) + "/" + target.Name
 	}
 	if override {
 		v += " override"
@@ -290,7 +300,7 @@ func (a *Actions) ResumeDownload(ctx context.Context, ns string, kind commonv1.M
 
 // RetryImport is [RetryImport] over the Actions' writer, now.
 func (a *Actions) RetryImport(
-	ctx context.Context, ns string, kind commonv1.MediaKind, owner, entryID string, target *schema.ItemRef, override bool,
+	ctx context.Context, ns string, kind commonv1.MediaKind, owner, entryID string, target *ImportTarget, override bool,
 ) error {
 	if a == nil || a.w == nil {
 		return ErrNoWriter
