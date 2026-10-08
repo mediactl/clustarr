@@ -26,8 +26,12 @@ import (
 
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 
+	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/healthz"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
 func TestDefaultOptionsMatchTheSpec(t *testing.T) {
@@ -272,4 +276,59 @@ func TestWithBaseContextCarriesTheServicesLoggerToRunnables(t *testing.T) {
 	if got := logging.FromContext(opts.BaseContext()); got != logger {
 		t.Fatal("the runnables' base context does not carry the service's logger")
 	}
+}
+
+// probeRecorder records probe registrations. Every other ctrl.Manager method
+// is the nil embedded interface's, which AddProbes never calls.
+type probeRecorder struct {
+	ctrl.Manager
+	healthz, readyz []string
+}
+
+func (p *probeRecorder) AddHealthzCheck(name string, _ healthz.Checker) error {
+	p.healthz = append(p.healthz, name)
+	return nil
+}
+
+func (p *probeRecorder) AddReadyzCheck(name string, _ healthz.Checker) error {
+	p.readyz = append(p.readyz, name)
+	return nil
+}
+
+func TestAddProbesRegistersPingThenEachSetInOrder(t *testing.T) {
+	var ready, live Checks
+	require.NoError(t, ready.Add("jetstream", healthz.Ping))
+	require.NoError(t, ready.Add("cache", healthz.Ping))
+	require.NoError(t, ready.Add("import.data", healthz.Ping))
+	require.NoError(t, live.Add("ffgo", healthz.Ping))
+
+	rec := &probeRecorder{}
+	require.NoError(t, AddProbes(rec, &ready, &live))
+	require.Equal(t, []string{"ping", "jetstream", "cache", "import.data"}, rec.readyz)
+	require.Equal(t, []string{"ping", "ffgo"}, rec.healthz)
+
+	rec = &probeRecorder{}
+	require.NoError(t, AddProbes(rec, nil, nil), "a process with no checks of its own still serves ping")
+	require.Equal(t, []string{"ping"}, rec.readyz)
+	require.Equal(t, []string{"ping"}, rec.healthz)
+}
+
+// AddProbes registers ping itself; a set that names it again would replace
+// liveness's one rule (an external outage never restarts a pod) silently.
+func TestAddProbesRejectsDuplicates(t *testing.T) {
+	var set Checks
+	require.NoError(t, set.Add("ping", healthz.Ping))
+	require.ErrorContains(t, AddProbes(&probeRecorder{}, &set, nil), "AddProbes' own")
+	require.ErrorContains(t, AddProbes(&probeRecorder{}, nil, &set), "AddProbes' own")
+}
+
+func TestLeaderOnlyWaitsForTheLease(t *testing.T) {
+	var ran bool
+	var r manager.Runnable = LeaderOnly(func(context.Context) error { ran = true; return nil })
+	le, ok := r.(manager.LeaderElectionRunnable)
+	require.True(t, ok, "LeaderOnly must declare NeedLeaderElection, or controller-runtime decides for it")
+	require.True(t, le.NeedLeaderElection())
+	require.NoError(t, r.Start(context.Background()))
+	require.True(t, ran)
+	require.False(t, EveryReplica(func(context.Context) error { return nil }).NeedLeaderElection())
 }
