@@ -174,6 +174,10 @@ func Decide(v View, admit func(durable string, seq int64) dispatch.Decision, pac
 		p.LastSearchedAt = &t
 		p.Attempts = bump(p.Attempts, t)
 	}
+	// Due-ness is decided on the bookkeeping this pass writes: a fold is
+	// the Episode's search, so its backoff starts at the season's answer and
+	// its next search is IndexOnly -- not a live search in the same pass.
+	v.Attempts, v.LastSearched = p.Attempts, p.LastSearchedAt
 
 	// 2. A dispatch nobody answered closes as timed out, uncounted.
 	if d.InFlight() && now.Sub(d.DispatchedAt.Time) >= Timeout {
