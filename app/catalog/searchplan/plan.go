@@ -151,15 +151,16 @@ func Decide(v View, admit func(durable string, seq int64) dispatch.Decision, pac
 		d.AnsweredSeq, d.Withdrawn, d.Delivery = d.Seq, false, nil
 		donor := v.Record.Purpose == schema.SearchPurposeAudioDonor
 		if !v.Record.AllPaced {
-			// A search no indexer was asked is not an attempt (P6).
+			// A search no indexer was asked is not an attempt (P6), nor
+			// a search: lastSearchedAt is read as one (wantedcron folds it
+			// into the attempts), and an item whose only live search was
+			// paced must still get its one live search (P12).
 			if donor {
 				p.DonorAttempts = bump(p.DonorAttempts, at)
 			} else {
 				p.Attempts = bump(p.Attempts, at)
+				p.LastSearchedAt = &at
 			}
-		}
-		if !donor {
-			p.LastSearchedAt = &at
 		}
 		p.Answered, p.AnsweredSeq = true, d.Seq
 	}
