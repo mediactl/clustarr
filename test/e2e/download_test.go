@@ -473,13 +473,20 @@ func waitForEntry(
 }
 
 // waitForEntryImported waits until the grab's import is imported: as many
-// MediaFiles as its plan places name the entry. A failed, blocklisted or
-// removed entry, or an import blocked, held or expired, fails at once with
-// the entry's message.
+// MediaFiles as its plan places name the entry. An imported entry counts
+// whatever its phase: a finished usenet transfer (removeCompleted) goes
+// Removing ("removing: imported") right after its import, with no Seeding
+// to wait in, and the smoke re-verification of 2026-10-08 saw scenario 6
+// fail on exactly that. A failed, blocklisted or removed entry that never
+// imported, or an import blocked, held or expired, fails at once with the
+// entry's message.
 func waitForEntryImported(ctx context.Context, t *testing.T, movie *catalogv1alpha1.Movie, id string) catalogv1alpha1.DownloadEntry {
 	t.Helper()
 	return waitForEntry(ctx, t, client.ObjectKeyFromObject(movie), id, downloadCompleteTimeout+importAttemptTimeout, "imported",
 		func(e *catalogv1alpha1.DownloadEntry) (bool, error) {
+			if e.Import != nil && e.Import.Phase == catalogv1alpha1.ImportPhaseImported {
+				return true, nil
+			}
 			if entryPhaseRank(e.Phase) < 0 {
 				return false, fmt.Errorf("entry %s reached %s (%s): %s", e.ID, e.Phase, e.FailureReason, e.Message)
 			}
@@ -490,7 +497,7 @@ func waitForEntryImported(ctx context.Context, t *testing.T, movie *catalogv1alp
 			case catalogv1alpha1.ImportPhaseBlocked, catalogv1alpha1.ImportPhaseHeld, catalogv1alpha1.ImportPhaseExpired:
 				return false, fmt.Errorf("entry %s's import is %s (%s): %s", e.ID, e.Import.Phase, e.Import.Class, e.Import.Message)
 			}
-			return e.Import.Phase == catalogv1alpha1.ImportPhaseImported, nil
+			return false, nil
 		})
 }
 
