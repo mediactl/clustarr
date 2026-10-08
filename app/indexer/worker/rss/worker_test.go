@@ -36,12 +36,15 @@ import (
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
+	"github.com/mediactl/clustarr/app/indexer/health"
 	"github.com/mediactl/clustarr/app/indexer/rssschedule"
 	"github.com/mediactl/clustarr/app/indexer/worker/rss"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/records"
+	"github.com/mediactl/clustarr/pkg/records/agentrecords"
 	"github.com/mediactl/clustarr/pkg/release"
 	"github.com/mediactl/clustarr/pkg/relindex"
 	"github.com/mediactl/clustarr/pkg/torznab"
@@ -164,6 +167,18 @@ func (s *fakeStore) Search(context.Context, relindex.Query) ([]relindex.Release,
 func (s *fakeStore) Prune(context.Context, time.Time) (int, error) { return 0, nil }
 func (s *fakeStore) Stats(context.Context) (relindex.Stats, error) { return relindex.Stats{}, nil }
 
+// The blocklist methods (ADR-0019 §6.14): this fake holds no block, so the
+// firehose marks no release blocked.
+func (s *fakeStore) Block(context.Context, relindex.Block) (bool, error)   { return false, nil }
+func (s *fakeStore) Unblock(context.Context, relindex.Block) (bool, error) { return false, nil }
+func (s *fakeStore) BlockState(context.Context, []relindex.BlockKey, time.Time) (map[int][]relindex.Block, error) {
+	return nil, nil
+}
+func (s *fakeStore) ListBlocks(context.Context, string, int, int) ([]relindex.Block, error) {
+	return nil, nil
+}
+func (s *fakeStore) PruneBlocks(context.Context, time.Time) (int, error) { return 0, nil }
+
 func (s *fakeStore) rows() []relindex.Release {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -215,6 +230,34 @@ func newTestBus(t *testing.T) events.Bus {
 	require.NoError(t, bus.Ensure(t.Context(), events.Default().ForSingleNode()))
 	t.Cleanup(func() { _ = bus.Close() })
 	return bus
+}
+
+// healthOn is the agent's health writer over bus, as app/indexer/agent
+// builds it (newHealthWriter): the poll's outcome is a record in
+// clustarr-indexer-health, never Indexer status (ADR-0019 A6.3).
+func healthOn(bus events.Bus) *health.Writer {
+	return &health.Writer{
+		Records:  records.NewWriter(bus.KV(events.BucketIndexerHealth), agentrecords.IndexerHealth(), "index-test", "test"),
+		Suppress: &health.Suppress{},
+	}
+}
+
+// healthRecord reads uid's clustarr-indexer-health record from bus; ok is
+// false when nothing was ever reported.
+func healthRecord(t *testing.T, bus events.Bus, uid types.UID) (*schema.IndexerHealthRecord, bool) {
+	t.Helper()
+	rec, _, ok, err := records.NewReader(bus.KV(events.BucketIndexerHealth), agentrecords.IndexerHealth()).
+		Get(t.Context(), agentrecords.IndexerHealthKey(string(uid)))
+	require.NoError(t, err)
+	return rec, ok
+}
+
+// mustHealthRecord is healthRecord for a poll that must have reported.
+func mustHealthRecord(t *testing.T, bus events.Bus, uid types.UID) *schema.IndexerHealthRecord {
+	t.Helper()
+	rec, ok := healthRecord(t, bus, uid)
+	require.True(t, ok, "the poll reported nothing in clustarr-indexer-health")
+	return rec
 }
 
 func newFakeClient(objs ...client.Object) client.Client {
@@ -326,11 +369,10 @@ func TestPollAtSigtermRetriesWithoutEscalatingTheIndexer(t *testing.T) {
 	var r *events.RetryError
 	require.ErrorAs(t, err, &r, "a cancelled poll is unfinished work, not a failed indexer")
 
-	var got indexv1alpha1.Indexer
-	require.NoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: "media", Name: "idx"}, &got))
-	require.Zero(t, got.Status.EscalationLevel, "a rollout must not escalate every indexer at once")
-	require.Nil(t, got.Status.LastFailureAt)
-	require.Nil(t, got.Status.InitialFailureAt)
+	// Nothing reaches the Indexer controller's ladder: a rollout must not
+	// escalate every indexer at once.
+	_, reported := healthRecord(t, w.Deps.Bus, idx.UID)
+	require.False(t, reported, "a cancelled poll reported a failure")
 }
 
 func TestLastRssNewCountComesFromTheIndexNotTheFeed(t *testing.T) {
@@ -343,12 +385,11 @@ func TestLastRssNewCountComesFromTheIndexNotTheFeed(t *testing.T) {
 
 	require.NoError(t, w.Handle(t.Context(), rssTaskMessage(t, "media", "idx")))
 
-	var got indexv1alpha1.Indexer
-	require.NoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: "media", Name: "idx"}, &got))
-	require.Equal(t, int32(1), got.Status.LastRssNewCount, "new means new to the index, not fetched")
-	require.Equal(t, int64(1), got.Status.IndexedReleases, "the running total advances by the insert count")
-	require.NotNil(t, got.Status.LastRssAt)
-	require.Equal(t, t0, got.Status.LastRssAt.UTC())
+	got := mustHealthRecord(t, w.Deps.Bus, idx.UID)
+	require.Equal(t, int32(1), got.LastRssNewCount, "new means new to the index, not fetched")
+	require.Equal(t, int64(1), got.IndexedReleases, "the running total advances by the insert count")
+	require.NotNil(t, got.LastRssAt)
+	require.Equal(t, t0, got.LastRssAt.UTC())
 	require.Len(t, store.rows(), 5, "every fetched row is offered to the index; the store decides")
 }
 
@@ -397,12 +438,12 @@ func TestHandleNeverListsIndexers(t *testing.T) {
 
 	require.NoError(t, w.Handle(t.Context(), rssTaskMessage(t, "media", "idx")))
 	require.Zero(t, rec.lists.Load(), "one message is one indexer")
-	// Exactly two: once before the poll, and once again immediately before
-	// the status apply so a minutes-long poll does not seed that apply from
-	// a stale snapshot. Pinned rather than left open, because a Get PER
+	// Exactly one, before the poll: the outcome is a health record and the
+	// worker applies no status, so there is no re-read before an apply
+	// (ADR-0019 A6.3). Pinned rather than left open, because a Get PER
 	// RELEASE would also satisfy "never lists" while being a very different
 	// thing.
-	require.Equal(t, int32(2), rec.gets.Load())
+	require.Equal(t, int32(1), rec.gets.Load())
 }
 
 func TestHandleSkipsIndexersTheOperatorTurnedOff(t *testing.T) {
@@ -424,11 +465,8 @@ func TestHandleSkipsIndexersTheOperatorTurnedOff(t *testing.T) {
 			require.NoError(t, w.Handle(t.Context(), rssTaskMessage(t, "media", "idx")))
 			require.Zero(t, searcher.calls(), "a disabled indexer is never queried")
 
-			var got indexv1alpha1.Indexer
-			require.NoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: "media", Name: "idx"}, &got))
-			require.Equal(t, int32(7), got.Status.LastRssNewCount,
-				"nothing was observed, so nothing is recorded -- and nothing is erased either")
-			require.Nil(t, got.Status.LastRssAt)
+			_, reported := healthRecord(t, w.Deps.Bus, idx.UID)
+			require.False(t, reported, "nothing was observed, so nothing is recorded")
 		})
 	}
 }
@@ -445,31 +483,30 @@ func TestHandleDoesNotQueryAnIndexerInsideItsBackoffWindow(t *testing.T) {
 	require.NoError(t, w.Handle(t.Context(), rssTaskMessage(t, "media", "idx")))
 	require.Zero(t, searcher.calls(), "the backoff window exists precisely to stop the query")
 
-	var got indexv1alpha1.Indexer
-	require.NoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: "media", Name: "idx"}, &got))
-	require.Equal(t, int32(3), got.Status.EscalationLevel, "not querying is not a failure")
-	require.Nil(t, got.Status.LastRssAt)
+	_, reported := healthRecord(t, w.Deps.Bus, idx.UID)
+	require.False(t, reported, "not querying is neither a failure nor a poll")
 }
 
+// A failed poll is reported in the health record and acknowledged: the
+// Indexer controller runs the ladder on the record and holds the next poll
+// at its window (ADR-0019 A6.3, P91), so the worker asks for no redelivery
+// of its own (it did before A6.3, and this test's name records that).
 func TestFailedPollRecordsTheFailureAndAsksForARedelivery(t *testing.T) {
 	idx := testIndexer("media", "idx")
 	c := newFakeClient(idx)
 	w := newTestWorkerWithClient(t, newFakeClock(tNow),
 		&fakeSearcher{err: errors.New("indexer returned 503")}, c, &fakeStore{})
 
-	err := w.Handle(t.Context(), rssTaskMessage(t, "media", "idx"))
-	var r *events.RetryError
-	require.ErrorAs(t, err, &r, "a failed poll is retried")
-	require.GreaterOrEqual(t, r.After, time.Minute,
-		"the redelivery must land no sooner than the ladder permits another query")
+	require.NoError(t, w.Handle(t.Context(), rssTaskMessage(t, "media", "idx")),
+		"a failed poll is reported, not redelivered: the controller schedules the next one")
 
-	var got indexv1alpha1.Indexer
-	require.NoError(t, c.Get(t.Context(), client.ObjectKey{Namespace: "media", Name: "idx"}, &got))
-	require.Equal(t, int32(1), got.Status.EscalationLevel)
-	require.Equal(t, "indexer returned 503", got.Status.LastFailure)
-	require.NotNil(t, got.Status.InitialFailureAt,
-		"Escalation.InitialFailure defines the 0->1 transition and it must reach the object")
-	require.NotNil(t, got.Status.LastFailureAt)
+	got := mustHealthRecord(t, w.Deps.Bus, idx.UID)
+	require.Equal(t, int64(1), got.Failures)
+	require.Equal(t, "indexer returned 503", got.LastFailure)
+	require.Equal(t, schema.IndexerFailureError, got.LastFailureClass)
+	require.NotNil(t, got.LastFailureAt)
+	require.Equal(t, tNow, got.LastFailureAt.UTC())
+	require.Nil(t, got.LastRssAt, "a failed poll did not read the feed")
 }
 
 func TestScheduleNextDedupsPerSlotAndAdvancesBetweenSlots(t *testing.T) {
@@ -556,9 +593,13 @@ func newTestWorkerWithClient(
 	t *testing.T, clock *fakeClock, s rss.Searcher, c client.Client, store relindex.Store,
 ) *rss.Worker {
 	t.Helper()
+	bus := newTestBus(t)
+	hw := healthOn(bus)
+	hw.Now = clock.Now
 	return rss.NewWorker(rss.Deps{
 		Client: c,
-		Bus:    newTestBus(t),
+		Health: hw,
+		Bus:    bus,
 		Index:  store,
 		SearcherFor: func(context.Context, *indexv1alpha1.Indexer) (rss.Searcher, error) {
 			return s, nil
