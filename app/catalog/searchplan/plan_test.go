@@ -378,3 +378,55 @@ func TestTheEpisodeFoldsASeasonAnswerOnce(t *testing.T) {
 		require.Zero(t, searchplan.Decide(v, admitAll, func() time.Time { return t0 }).Attempts.Count)
 	})
 }
+
+// TestManyItemsTurnedWantedAtOnceQueueBehindThePace is the burst guard
+// smoke finding O1's wake rests on: a cold start, or an import list, that
+// turns a thousand never-searched items Wanted at once wakes every one of
+// them (S32), and each pass reserves its own slot in the namespace's
+// live-search pace (the default rate) rather than dispatching -- one search
+// per slot, a pass repeated before its slot reserving no other, and none
+// of them ahead of the rate.
+func TestManyItemsTurnedWantedAtOnceQueueBehindThePace(t *testing.T) {
+	const n = 1000
+	c := &clock{now: t0}
+	rate := records.DefaultRates()[records.PaceSearch]
+	_, pace := pacerFor(c, rate)
+	every := time.Minute / time.Duration(rate)
+
+	views := make([]searchplan.View, n)
+	published := 0
+	for i := range views {
+		views[i] = itemView(fmt.Sprintf("ep-%d", i), t0)
+		p := searchplan.Decide(views[i], admitAll, pace(views[i]))
+		if p.Publish != nil {
+			published++
+			continue
+		}
+		require.Equal(t, catalogv1alpha1.DeliveryReasonPaced, p.Waiting, "item %d", i)
+		require.Equal(t, t0.Add(time.Duration(i)*every), p.Due, "item %d waits for its own slot", i)
+	}
+	require.Equal(t, 1, published, "one live search goes at once; the rest wait their slots")
+
+	// Woken again before their slots (another wake, a requeue): no item
+	// takes a second slot or goes early.
+	for i := 1; i < n; i++ {
+		p := searchplan.Decide(views[i], admitAll, pace(views[i]))
+		require.Nil(t, p.Publish, "item %d went before its slot", i)
+		require.Equal(t, t0.Add(time.Duration(i)*every), p.Due, "item %d", i)
+	}
+
+	// A minute on, the rate's worth have gone and no more.
+	published = 0
+	for step := every; step <= time.Minute; step += every {
+		c.now = t0.Add(step)
+		for i := 1; i < n; i++ {
+			v := views[i]
+			v.Now = c.now
+			if p := searchplan.Decide(v, admitAll, pace(v)); p.Publish != nil {
+				published++
+				views[i].Searchable = false // dispatched: its next pass is the record's
+			}
+		}
+	}
+	require.Equal(t, rate, published, "a minute releases the namespace's rate of live searches, not the backlog")
+}

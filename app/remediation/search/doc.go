@@ -33,9 +33,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // DispatchPublish of the SearchTask v2, a DispatchAnswered on
 // incorporation, and its Due.
 //
-// Its source is S29 (clustarr-searches): a record wakes its item and its
-// container. wantedcron's sweep wakes every candidate at low priority
-// (ItemReconciler.WantedWakes). LedgerSource rebuilds the ledger's
+// Its sources are S29 (clustarr-searches): a record wakes its item and its
+// container; and S32: an item's own status write that moves its sweep
+// reason or its donor want wakes it at low priority, since this stage runs
+// before the kind's pass that writes the phase. wantedcron's sweep wakes
+// every candidate at low priority (ItemReconciler.WantedWakes). LedgerSource rebuilds the ledger's
 // outstanding searches after a leader change.
 //
 // On a Series it is the season planner (Wave S, series search design §4):

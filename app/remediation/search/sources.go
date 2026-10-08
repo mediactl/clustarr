@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"k8s.io/client-go/util/workqueue"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -31,6 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	"github.com/mediactl/clustarr/app/catalog/controller/wantedcron"
 	"github.com/mediactl/clustarr/app/catalog/history"
 	"github.com/mediactl/clustarr/app/catalog/itemread"
 	"github.com/mediactl/clustarr/app/catalog/searchplan"
@@ -47,8 +49,9 @@ import (
 // Series, an Issue's Comic), whose grab stage reads it (R7); a season
 // record's item is its Series (Wave S), whose search stage incorporates it
 // and whose grab stage reads it. A record of a Search (an interactive
-// search) wakes no item: the Search controller has its own source. And
-// S31: a planned Search wakes the Series it names.
+// search) wakes no item: the Search controller has its own source.
+// S31: a planned Search wakes the Series it names. And S32: a searchable
+// item's own status write that turns it wanted, or not, wakes it.
 func (s *Stage) Sources(ctrl.Manager) ([]remediation.Source, error) {
 	src := recordsource.NewItems(s.o.Bus, events.BucketSearches, func(item schema.ItemRef, value []byte) []remediation.Key {
 		var keys []remediation.Key
@@ -63,13 +66,83 @@ func (s *Stage) Sources(ctrl.Manager) ([]remediation.Source, error) {
 		}
 		return keys
 	})
-	return []remediation.Source{
+	out := []remediation.Source{
 		{Name: "S29/" + events.BucketSearches, Raw: src},
 		// S31 (Wave S): a planned Search -- a series or season search with
 		// grabBest -- created, changed (its phase settling is the
 		// handshake) or deleted wakes the Series it names, at once.
 		{Name: "S31/Search", Object: &catalogv1alpha1.Search{}, Handler: plannedSearchWakes()},
-	}, nil
+	}
+	// S32: a searchable item's own status write that moves what this stage
+	// reads of it wakes it (wantedWakes).
+	for _, w := range []struct {
+		kind remediation.KeyKind
+		obj  client.Object
+	}{
+		{remediation.KindMovie, &catalogv1alpha1.Movie{}},
+		{remediation.KindEpisode, &catalogv1alpha1.Episode{}},
+		{remediation.KindAlbum, &catalogv1alpha1.Album{}},
+		{remediation.KindBook, &catalogv1alpha1.Book{}},
+		{remediation.KindAudiobook, &catalogv1alpha1.Audiobook{}},
+		{remediation.KindIssue, &catalogv1alpha1.Issue{}},
+	} {
+		out = append(out, remediation.Source{Name: "S32/" + string(w.kind), Object: w.obj, Handler: wantedWakes(w.kind, s.o.Clock)})
+	}
+	return out, nil
+}
+
+// wantedWakes is S32's handler (smoke finding O1): an item whose own status
+// write moved what the search stage reads of it -- its sweep reason
+// (missing, cutoff unmet or neither) or whether an audio donor is wanted,
+// both wantedcron.CandidateOf's -- is woken, so the stage plans over what
+// the kind's pass just wrote. The stage runs before the kind's own pass in
+// one item pass (remediation.StageOrder), so the pass that turns an item Wanted -- its
+// metadata arriving, its availability or air date passing, its file going --
+// searched it from the phase before; and the kinds' own watches never wake
+// an item for its own phase (moviePredicate's self-loop rule), so a new
+// Movie waited for the twelve-hourly sweep. The next pass reads the same
+// phase, so the wake settles after one pass.
+//
+// Updates only: a create moves nothing, and the cache's initial list wakes
+// every item through the kinds' own watches already. At low priority, the
+// wanted sweep's: a cold start or an import list that turns many items
+// Wanted at once queues behind a person's work, and each item's first,
+// live, search still reserves the namespace's pace slot before it
+// dispatches (searchplan.Decide, ADR-0019 §5.4) -- an item searched before
+// goes IndexOnly -- so the wakes release no indexer burst.
+func wantedWakes(kind remediation.KeyKind, clock func() time.Time) handler.TypedEventHandler[client.Object, remediation.Key] {
+	if clock == nil {
+		clock = time.Now
+	}
+	return handler.TypedFuncs[client.Object, remediation.Key]{
+		UpdateFunc: func(_ context.Context, e event.TypedUpdateEvent[client.Object], q workqueue.TypedRateLimitingInterface[remediation.Key]) {
+			if e.ObjectOld == nil || e.ObjectNew == nil {
+				return
+			}
+			now := clock()
+			if searchReading(e.ObjectOld, now) == searchReading(e.ObjectNew, now) {
+				return
+			}
+			k := remediation.Key{Kind: kind, Namespace: e.ObjectNew.GetNamespace(), Name: e.ObjectNew.GetName()}
+			if pq, ok := q.(priorityqueue.PriorityQueue[remediation.Key]); ok {
+				pq.AddWithOpts(priorityqueue.AddOpts{Priority: new(handler.LowPriority)}, k)
+				return
+			}
+			q.Add(k)
+		},
+	}
+}
+
+// reading is what the search stage reads of an item's own status.
+type reading struct {
+	reason schema.SearchReason
+	donor  bool
+}
+
+// searchReading is o's reading at now.
+func searchReading(o client.Object, now time.Time) reading {
+	c, _ := wantedcron.CandidateOf(o, now)
+	return reading{reason: c.Reason, donor: c.Donor}
 }
 
 // plannedSearchWakes is S31's handler: the Series a planned Search names,
