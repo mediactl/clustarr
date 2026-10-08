@@ -29,7 +29,6 @@ import (
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/worker/rssmatcher"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -249,7 +248,9 @@ func TestMatch_NonVideoAmbiguousNamesMatchNothing(t *testing.T) {
 
 // TestHandler_NonVideoReleaseTakesTheGrabPath is the non-video half of
 // §8.7's clause end to end, through the REAL decision engine: a matched
-// album release is decided against the album's identity and grabbed for it.
+// album release is decided against the album's identity and sent to the
+// album as an RSS Candidate. The profile it is judged under is the owner
+// grab planner's since A4.4 (the entry's qualityProfileRef).
 func TestHandler_NonVideoReleaseTakesTheGrabPath(t *testing.T) {
 	ctx := context.Background()
 	mgr := newTestManager(t)
@@ -277,8 +278,9 @@ func TestHandler_NonVideoReleaseTakesTheGrabPath(t *testing.T) {
 	album := nonVideoRSSRelease(commonv1.MediaKindAlbum, "Radiohead - Kid A (2000) [FLAC]", "Radiohead - Kid A")
 	album.Artist, album.Album = "Radiohead", "Kid A"
 
-	h := rssmatcher.NewHandler(rssmatcher.Deps{Client: c, Reader: mgr.GetAPIReader(), Bus: newTestBus(t), Now: func() time.Time { return relNow }})
-	eventually(t, 15*time.Second, "the album release to be matched, approved and grabbed", func() bool {
+	bus := newRecordingBus(t)
+	h := rssmatcher.NewHandler(rssmatcher.Deps{Client: c, Bus: bus, Now: func() time.Time { return relNow }})
+	eventually(t, 15*time.Second, "the album release to be matched, approved and sent", func() bool {
 		var profile catalogv1alpha1.QualityProfile
 		if c.Get(ctx, client.ObjectKey{Name: qp.Name}, &profile) != nil {
 			return false
@@ -286,16 +288,12 @@ func TestHandler_NonVideoReleaseTakesTheGrabPath(t *testing.T) {
 		if err := h.Handle(ctx, releaseMessage(t, ns, "my-indexer", album)); err != nil {
 			t.Fatalf("Handle: %v", err)
 		}
-		var downloads downloadv1alpha1.DownloadList
-		return c.List(ctx, &downloads, client.InNamespace(ns)) == nil && len(downloads.Items) == 1
+		return len(bus.candidates()) > 0
 	})
 
-	var downloads downloadv1alpha1.DownloadList
-	require.NoError(t, mgr.GetAPIReader().List(ctx, &downloads, client.InNamespace(ns)))
-	require.Len(t, downloads.Items, 1)
-	dl := downloads.Items[0]
-	assert.Equal(t, commonv1.MediaRef{Kind: commonv1.MediaKindAlbum, Name: lib.album}, dl.Spec.Target)
-	assert.Equal(t, commonv1.GrabSourceRSS, dl.Spec.GrabbedBy)
-	assert.Equal(t, qp.Name, dl.Spec.QualityProfileRef, "the album ranks under its artist's profile")
-	assert.Equal(t, "FLAC", dl.Spec.Release.Quality.Name)
+	cand := bus.candidates()[0]
+	assert.Equal(t, "Album", cand.Owner.Kind)
+	assert.Equal(t, lib.album, cand.Owner.Name)
+	assert.Equal(t, commonv1.GrabSourceRSS, cand.GrabbedBy)
+	assert.Equal(t, "FLAC", cand.Release.Decision.Quality.Name, "decided under its artist's profile")
 }

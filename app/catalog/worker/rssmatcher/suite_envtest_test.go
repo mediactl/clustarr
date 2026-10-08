@@ -38,7 +38,6 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/worker/rssmatcher"
-	"github.com/mediactl/clustarr/app/catalog/worker/search"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -91,8 +90,9 @@ func newTestManager(t *testing.T) ctrl.Manager {
 		HealthProbeBindAddress: k8s.DisabledBindAddress,
 	})
 	require.NoError(t, err)
-	require.NoError(t, rssmatcher.IndexFields(context.Background(), mgr.GetFieldIndexer()))
-	require.NoError(t, search.RegisterDownloadIndexes(context.Background(), mgr.GetFieldIndexer()))
+	for _, ix := range rssmatcher.FieldIndexes() {
+		require.NoError(t, mgr.GetFieldIndexer().IndexField(context.Background(), ix.Object, ix.Name, ix.Extract))
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
