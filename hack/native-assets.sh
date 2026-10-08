@@ -13,9 +13,9 @@
 # so the tests load what the image ships; libffshim from the ffgo module
 # go.mod resolves (the shim/ffshim.c the Go side is built against);
 # libpar2shim from par2go's release asset for the go.mod version, checked
-# against hack/par2go/SHA256SUMS (upgrade guide U1; skipped, with a note,
-# while go.mod does not require par2go); the par2 CLI from PAR2_CLI_VERSION
-# below.
+# against hack/par2go/SHA256SUMS (upgrade guide U1), the same asset the
+# native image's par2 stage downloads, whose PAR2GO_VERSION default must
+# equal go.mod's; the par2 CLI from PAR2_CLI_VERSION below.
 #
 # Idempotent: DIR/.stamp records every input, and a matching stamp exits at
 # once. The work happens under mktemp -d in $TMPDIR (scratch areas are
@@ -46,8 +46,12 @@ ORT_VERSION=$(arg ORT_VERSION)
 ORT_SHA256=$(arg "ORT_SHA256_${arch}")
 par2_sha="PAR2_CLI_SHA256_${arch}"
 PAR2_CLI_SHA256=${!par2_sha}
-# Empty until go.mod requires par2go (plan W0.26).
-PAR2GO_VERSION=$(cd "${repo}" && go list -m -f '{{.Version}}' github.com/mediactl/par2go 2>/dev/null || true)
+PAR2GO_VERSION=$(cd "${repo}" && go list -m -f '{{.Version}}' github.com/mediactl/par2go)
+[[ -n "${PAR2GO_VERSION}" ]] || { echo "native-assets: go.mod does not require github.com/mediactl/par2go" >&2; exit 1; }
+[[ "$(arg PAR2GO_VERSION)" == "${PAR2GO_VERSION}" ]] || {
+  echo "native-assets: images/Dockerfile.native's PAR2GO_VERSION default is $(arg PAR2GO_VERSION), go.mod's par2go is ${PAR2GO_VERSION}" >&2
+  exit 1
+}
 PAR2GO_SUMS="${repo}/hack/par2go/SHA256SUMS"
 pins=(FFMPEG_RELEASE FFMPEG_VERSION FFMPEG_BRANCH FFMPEG_SHA256 ORT_VERSION ORT_SHA256 PAR2_CLI_VERSION PAR2_CLI_SHA256 PAR2GO_VERSION)
 
@@ -106,15 +110,11 @@ echo "${PAR2_CLI_SHA256}  ${work}/par2.zip" | sha256sum -c - >/dev/null
 unzip -p "${work}/par2.zip" par2 > "${out}/bin/par2"
 chmod 0755 "${out}/bin/par2"
 
-if [[ -n "${PAR2GO_VERSION}" ]]; then
-  echo "native-assets: libpar2shim ${PAR2GO_VERSION} (the par2go release asset)" >&2
-  curl -fsSL -o "${work}/libpar2shim-linux-${p2}.so" \
-    "https://github.com/mediactl/par2go/releases/download/${PAR2GO_VERSION}/libpar2shim-linux-${p2}.so"
-  grep " libpar2shim-linux-${p2}.so\$" "${PAR2GO_SUMS}" | (cd "${work}" && sha256sum -c - >/dev/null)
-  install -m 0644 "${work}/libpar2shim-linux-${p2}.so" "${out}/lib/libpar2shim.so"
-else
-  echo "native-assets: go.mod does not require github.com/mediactl/par2go yet; no libpar2shim" >&2
-fi
+echo "native-assets: libpar2shim ${PAR2GO_VERSION} (the par2go release asset)" >&2
+curl -fsSL -o "${work}/libpar2shim-linux-${p2}.so" \
+  "https://github.com/mediactl/par2go/releases/download/${PAR2GO_VERSION}/libpar2shim-linux-${p2}.so"
+grep " libpar2shim-linux-${p2}.so\$" "${PAR2GO_SUMS}" | (cd "${work}" && sha256sum -c - >/dev/null)
+install -m 0644 "${work}/libpar2shim-linux-${p2}.so" "${out}/lib/libpar2shim.so"
 
 printf '%s\n' "${stamp}" > "${out}/.stamp"
 next=$(mktemp -d "${dir}.new.XXXXXX")

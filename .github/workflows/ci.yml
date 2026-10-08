@@ -162,9 +162,9 @@ jobs:
           # native serves every pool, cpu, nvidia and intel (ADR 0015): on
           # amd64 it carries the Intel runtime and is checked for all three.
           - { image: native, file: images/Dockerfile.native, target: native, arch: amd64, runner: ubuntu-24.04,
-              checks: "self-check:transcode:cpu self-check:transcode:cuda self-check:transcode:intel self-check:agent self-check:markers version:agent version:markers version:transcode no-shell" }
+              checks: "self-check:transcode:cpu self-check:transcode:cuda self-check:transcode:intel self-check:agent self-check:markers self-check:par2-child version:agent version:markers version:transcode no-shell" }
           - { image: native, file: images/Dockerfile.native, target: native, arch: arm64, runner: ubuntu-24.04-arm,
-              checks: "self-check:transcode:cpu self-check:agent self-check:markers version:agent version:markers version:transcode no-shell" }
+              checks: "self-check:transcode:cpu self-check:agent self-check:markers self-check:par2-child version:agent version:markers version:transcode no-shell" }
           - { image: native-debug, file: images/Dockerfile.native, target: native-debug, arch: amd64, runner: ubuntu-24.04,
               checks: "notices no-media-executables ffmpeg-libraries" }
     steps:

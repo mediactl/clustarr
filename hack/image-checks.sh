@@ -17,7 +17,6 @@ usage="usage: hack/image-checks.sh IMAGE CHECK..."
 img=${1:?$usage}
 shift
 [[ $# -gt 0 ]] || { echo "${usage}" >&2; exit 2; }
-# The par2 integration (§11.1 step 12) adds par2cmdline-turbo's and par2go's notices.
 notices=(
   /usr/share/licenses/ffmpeg/LICENSE.txt
   /usr/share/licenses/ffmpeg/SOURCE
@@ -25,6 +24,10 @@ notices=(
   /usr/share/licenses/ffgo/LICENSE
   /usr/share/licenses/ffgo/SOURCE
   /usr/share/licenses/onnxruntime/LICENSE
+  /usr/share/licenses/par2cmdline-turbo/COPYING
+  /usr/share/licenses/par2cmdline-turbo/AUTHORS
+  /usr/share/licenses/par2cmdline-turbo/SOURCE
+  /usr/share/licenses/par2go/LICENSE
   /usr/share/doc/libc6/copyright
 )
 locked() { docker run --rm --read-only --cap-drop=ALL --user 1000:1000 "$@"; }

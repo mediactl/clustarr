@@ -45,8 +45,7 @@ FIXTURES_IMG ?= ghcr.io/mediactl/clustarr/e2e-fixtures:dev
 # FFGO_LOCAL is the directory go.mod names (empty once go.mod replaces with a
 # published version). par2go is a published module with no replace (upgrade
 # guide U1): PAR2GO_VERSION is go.mod's version of it, which native-assets
-# and the native image's par2 stage download the release asset of (empty
-# until go.mod requires par2go).
+# and the native image's par2 stage download the release asset of.
 FFGO_LOCAL := $(shell sed -nE 's#^replace github.com/obinnaokechukwu/ffgo => \.\./(.+)$$#\1#p' go.mod)
 FFGO_DIR ?= ../$(or $(FFGO_LOCAL),ffgo)
 FFGO_REF ?= v0.0.0-clustarr.13
@@ -235,22 +234,22 @@ build: fork-status ## Build bin/manager, bin/ui, bin/agent, bin/markers and bin/
 .PHONY: docker-build
 docker-build: contexts ## Build the clustarr (manager, ui) and native (agent, markers, transcode) images.
 	docker build $(LOCAL_CONTEXTS) --build-arg VERSION=$(IMAGE_VERSION) -f images/Dockerfile.clustarr --target clustarr -t $(IMG) .
-	docker build $(LOCAL_CONTEXTS) --build-arg VERSION=$(IMAGE_VERSION) -f images/Dockerfile.native --target native -t $(NATIVE_IMG) .
+	docker build $(LOCAL_CONTEXTS) --build-arg VERSION=$(IMAGE_VERSION) --build-arg PAR2GO_VERSION=$(PAR2GO_VERSION) -f images/Dockerfile.native --target native -t $(NATIVE_IMG) .
 
 # There is no CUDA image (docs/adr/0015-no-cuda-image.md): nvidia pools run
 # the native image, the NVIDIA container runtime injecting the driver.
 .PHONY: docker-build-native
 docker-build-native: contexts ## Build the native image and its -debug twin.
-	docker build $(LOCAL_CONTEXTS) --build-arg VERSION=$(IMAGE_VERSION) -f images/Dockerfile.native --target native -t $(NATIVE_IMG) .
-	docker build $(LOCAL_CONTEXTS) --build-arg VERSION=$(IMAGE_VERSION) -f images/Dockerfile.native --target native-debug -t $(NATIVE_DEBUG_IMG) .
+	docker build $(LOCAL_CONTEXTS) --build-arg VERSION=$(IMAGE_VERSION) --build-arg PAR2GO_VERSION=$(PAR2GO_VERSION) -f images/Dockerfile.native --target native -t $(NATIVE_IMG) .
+	docker build $(LOCAL_CONTEXTS) --build-arg VERSION=$(IMAGE_VERSION) --build-arg PAR2GO_VERSION=$(PAR2GO_VERSION) -f images/Dockerfile.native --target native-debug -t $(NATIVE_DEBUG_IMG) .
 
 # The classes the native image is self-checked for: it serves every pool,
 # cpu, nvidia and intel (ADR 0015). NATIVE_CHECKS is the native image's list
-# for hack/image-checks.sh; the par2 integration (spec §11.1 step 12) adds
-# self-check:par2-child. The debug image's list adds ffmpeg-libraries
-# (upgrade guide U3).
+# for hack/image-checks.sh, self-check:par2-child included (the usenet
+# engine's repair child, spec §8.7). The debug image's list adds
+# ffmpeg-libraries (upgrade guide U3).
 NATIVE_CLASSES ?= cpu cuda intel
-NATIVE_CHECKS ?= $(foreach c,$(NATIVE_CLASSES),self-check:transcode:$(c)) self-check:agent self-check:markers version:agent version:markers version:transcode no-shell
+NATIVE_CHECKS ?= $(foreach c,$(NATIVE_CLASSES),self-check:transcode:$(c)) self-check:agent self-check:markers self-check:par2-child version:agent version:markers version:transcode no-shell
 
 .PHONY: docker-build-fixtures
 docker-build-fixtures: contexts ## Build the e2e fixture image.
