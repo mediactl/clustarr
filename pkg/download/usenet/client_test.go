@@ -392,6 +392,60 @@ func TestPar2DeadlineTurnsAWedgedRepairIntoAFailure(t *testing.T) {
 	require.Equal(t, commonv1alpha1.DownloadFailureWriteError, it.FailureReason, "a wedged par2 is a local fault")
 }
 
+// §8.1's defect: a stop during a repair used to come back as a failed
+// repair -- the killed par2 reported "signal: killed" -- and the job was
+// checkpointed missingArticles and its release blocklisted on every engine
+// roll. A stop is never a verdict on the release: the next client re-attaches
+// the job and finishes it.
+func TestAnEngineStoppedDuringRepairResumesTheJob(t *testing.T) {
+	srv := newStubServer(t)
+	nzb := buildNZB(t, srv, "Stopped", []fileSpec{
+		{name: "movie.mkv", parts: [][]byte{partPayload(1, 900), partPayload(2, 512)}},
+		{name: "movie.par2", parts: [][]byte{partPayload(9, 100)}},
+	})
+	srv.refuse["f0-p1@clustarr.test"] = 430 // one article missing, so repair runs
+	root := t.TempDir()
+	started := make(chan struct{})
+	var once sync.Once
+	cfg := Config{
+		Providers:  []Provider{srv.provider("solo", 2, 1)},
+		ScratchDir: filepath.Join(root, "scratch"), DataDir: filepath.Join(root, "data"),
+		PostProcess: PostProcess{Par2: true}, ArticleRetryDelay: -1,
+		Repairer: fakeRepairer{available: true, repair: func(ctx context.Context, _, _ string) (Par2Result, error) {
+			once.Do(func() { close(started) })
+			<-ctx.Done()
+			return Par2Result{}, fmt.Errorf("%w: signal: killed", ErrRepairFailed) // what the exec'd par2 reported
+		}},
+	}
+	first, err := New(cfg)
+	require.NoError(t, err)
+	id, err := first.Add(context.Background(), download.AddRequest{Name: "Stopped", Payload: nzb, Category: "movies"})
+	require.NoError(t, err)
+	select {
+	case <-started:
+	case <-time.After(20 * time.Second):
+		t.Fatal("repair never started")
+	}
+	require.NoError(t, first.Close())
+
+	repaired := make(chan struct{}, 1)
+	cfg.Repairer = fakeRepairer{available: true, repair: func(context.Context, string, string) (Par2Result, error) {
+		repaired <- struct{}{}
+		return Par2Result{Repaired: true}, nil
+	}}
+	second, err := New(cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = second.Close() })
+	it := waitForTerminal(t, second, id)
+	require.Equal(t, download.StatusCompleted, it.Status, "re-attach resumed the job: %s (%s)", it.Message, it.FailureReason)
+	require.False(t, it.FailureReason.IsFailure(), "a stop is no verdict on the release: %s", it.FailureReason)
+	select {
+	case <-repaired:
+	default:
+		t.Fatal("the resumed job never repaired the set")
+	}
+}
+
 // A provider that answers but never completes an article stalls the job;
 // with StallTimeout set the job fails as stalled instead of sitting in
 // transferring for good -- the torrent engine's rule, now for usenet.
