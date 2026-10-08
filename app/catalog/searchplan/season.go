@@ -199,9 +199,15 @@ func (p *SeasonPlan) step(v SeasonView, st *catalogv1alpha1.SeasonSearchState, n
 			default:
 				cur.Phase, cur.AnsweredAt = catalogv1alpha1.SeasonSearchAnswered, &at
 				cur.Candidates, cur.Approved = counts(rec)
-				if rec.AllPaced {
+				switch {
+				case rec.AllPaced:
 					// Counts for no episode (§7).
 					cur.Reason = catalogv1alpha1.SeasonSearchAllPaced
+				case rec.NoIndexer:
+					// No indexer to ask: answered at once, since asking
+					// again asks no one, and counts for no episode either
+					// (smoke finding 7).
+					cur.Reason = catalogv1alpha1.SeasonSearchNoIndexer
 				}
 			}
 			cur = nil

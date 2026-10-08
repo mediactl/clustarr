@@ -284,6 +284,29 @@ func TestDecideSeasonsRequeuesAnAllPacedSeasonOnce(t *testing.T) {
 	require.NotNil(t, p.State.FinishedAt)
 }
 
+// TestDecideSeasonsAnswersANoIndexerSeasonForNoEpisode is smoke finding 7
+// on a season: a season answered with no indexer to ask is Answered,
+// NoIndexer -- not requeued, since asking again asks no one -- and counts
+// for no episode (the Episode's fold skips it, as it skips AllPaced).
+func TestDecideSeasonsAnswersANoIndexerSeasonForNoEpisode(t *testing.T) {
+	now := t0
+	v := seasonView(now, request("s1", seasonN(1), now))
+	p := searchplan.DecideSeasons(v, admitAll, paceNow(now))
+	require.Equal(t, int32(1), *p.Publish.Payload.Season)
+
+	now = now.Add(time.Minute)
+	v = next(v, p, now)
+	rec := seasonAnswer(p, now, records.StateAnswered, false, 0)
+	rec.NoIndexer = true
+	v.Records[1] = rec
+	p = searchplan.DecideSeasons(v, admitAll, paceNow(now))
+	require.Equal(t, catalogv1alpha1.SeasonSearchAnswered, p.State.Seasons[0].Phase)
+	require.Equal(t, catalogv1alpha1.SeasonSearchNoIndexer, p.State.Seasons[0].Reason)
+	require.EqualValues(t, 1, p.State.Seasons[0].Attempts, "not requeued")
+	require.Nil(t, p.Publish)
+	require.NotNil(t, p.State.FinishedAt)
+}
+
 // TestDecideSeasonsTimesOutAndGoesOn is design §4.4 step 2: a season no
 // record answers within Timeout fails TimedOut, the ledger is told, and the
 // next season is dispatched in the same pass; in between, the task is

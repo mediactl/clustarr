@@ -717,6 +717,7 @@ spec:
                       - AllDownloading
                       - NoSuchSeason
                       - AllPaced
+                      - NoIndexer
                       - TimedOut
                       - AgentFailed
                       - SearchDeleted

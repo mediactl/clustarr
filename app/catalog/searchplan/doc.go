@@ -35,9 +35,20 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // The record at the item's key answers the dispatch at its seq: Decide
 // incorporates it -- answeredSeq, lastSearchedAt, the attempt counter
-// unless every indexer was paced (P6) -- and the item key's grab planner
+// unless no indexer was asked (P6): every one paced, or none to ask, no
+// Indexer in the namespace yet or every one disabled, unprobed or in
+// backoff (NoIndexer, smoke finding 7) -- and the item key's grab planner
 // reads its candidates (grabplan, R7). A dispatch outstanding past Timeout
 // closes without counting.
+//
+// No Indexer becoming Ready wakes an item still due its first live search
+// (ruling, smoke finding 7). Its uncounted dispatch holds
+// wantedcron.MinimumGap, as a paced one does, so a wake inside it would find
+// nothing due; past it, the twelve-hourly sweep wakes every item still at
+// zero attempts, which then searches live. A watch fanning an Indexer out
+// to its namespace's never-searched items would List the namespace per event
+// and enqueue a whole library at once (the map-function gotcha) to save at
+// most one sweep period.
 //
 // DecideSeasons is the planner's second mode (Wave S, series search design
 // §4): the Series key serves a person's series or season search -- a

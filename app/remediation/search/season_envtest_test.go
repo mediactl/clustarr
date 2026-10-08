@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -182,15 +183,24 @@ func searchTasks(t *testing.T, l *looptest.Loop) []schema.SearchTask {
 // answerSeason writes the search agent's answer to the season task.
 func answerSeason(t *testing.T, f *fixture, ser *catalogv1alpha1.Series, task schema.SearchTask, allPaced bool) {
 	t.Helper()
+	answerSeasonWith(t, f, ser, task, func(r *schema.SearchRecord) { r.AllPaced = allPaced })
+}
+
+// answerSeasonWith writes the search agent's answer to the season task,
+// shaped by with.
+func answerSeasonWith(t *testing.T, f *fixture, ser *catalogv1alpha1.Series, task schema.SearchTask, with func(*schema.SearchRecord)) {
+	t.Helper()
 	w := records.NewWriter(f.Bus.KV(events.BucketSearches), agentrecords.Searches(), "search-agent-0", "test")
 	season := *task.Season
-	_, err := w.Write(f.Ctx, agentrecords.SeasonSearchKey(string(ser.UID), season), &schema.SearchRecord{
+	rec := &schema.SearchRecord{
 		RecordHeader: schema.RecordHeader{
 			Item: &schema.ItemRef{Kind: "Series", Ref: schema.Ref{Namespace: f.ns, Name: ser.Name, UID: string(ser.UID)}},
 			Sub:  schema.SeasonSub(season), Seq: task.Seq, State: records.StateAnswered,
 		},
-		Task: string(ser.UID), FinishedAt: f.Clock.Now(), AllPaced: allPaced, Season: &season,
-	})
+		Task: string(ser.UID), FinishedAt: f.Clock.Now(), Season: &season,
+	}
+	with(rec)
+	_, err := w.Write(f.Ctx, agentrecords.SeasonSearchKey(string(ser.UID), season), rec)
 	require.NoError(t, err)
 }
 
@@ -442,21 +452,31 @@ func TestTheSeriesSetIsCompleteOnEveryPath(t *testing.T) {
 // TestAPacedSeasonAnswerCountsForNoEpisode is design §7: a season every
 // indexer paced twice reads Answered, AllPaced, and no Episode of it folds
 // that answer as a search -- nothing was queried -- while one the indexers
-// answered is folded once.
+// answered is folded once. A season answered with no indexer to ask reads
+// Answered, NoIndexer, and is folded by no Episode either (smoke finding 7).
 func TestAPacedSeasonAnswerCountsForNoEpisode(t *testing.T) {
-	for _, paced := range []bool{true, false} {
-		t.Run(fmt.Sprintf("allPaced=%t", paced), func(t *testing.T) {
-			f := newFixture(t, fmt.Sprintf("rs-paced-%t", paced), looptest.Options{})
+	for _, tc := range []struct {
+		name              string
+		paced, noIndexer  bool
+		answers           int
+		reason            catalogv1alpha1.SeasonSearchReason
+		foldsIntoEpisodes bool
+	}{
+		// Paced: once to the back of the queue, then Answered.
+		{name: "allPaced=true", paced: true, answers: 2, reason: catalogv1alpha1.SeasonSearchAllPaced},
+		{name: "allPaced=false", answers: 1, foldsIntoEpisodes: true},
+		{name: "noIndexer", noIndexer: true, answers: 1, reason: catalogv1alpha1.SeasonSearchNoIndexer},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t, "rs-paced-"+strings.ReplaceAll(strings.ToLower(tc.name), "=", "-"), looptest.Options{})
 			ser := f.series(t, 1, 2)
 			f.plannedSearch(t, "season-1", new(int32(1)))
 			f.Pass(t, remediation.KindSeries, f.ns, "breaking-bad")
-			answers := 1
-			if paced {
-				answers = 2 // once to the back of the queue, then Answered
-			}
-			for range answers {
+			for range tc.answers {
 				tasks := searchTasks(t, f.Loop)
-				answerSeason(t, f, ser, tasks[len(tasks)-1], paced)
+				answerSeasonWith(t, f, ser, tasks[len(tasks)-1], func(r *schema.SearchRecord) {
+					r.AllPaced, r.NoIndexer = tc.paced, tc.noIndexer
+				})
 				f.Clock.Advance(3 * time.Second)
 				f.Synced(t, ser)
 				f.Pass(t, remediation.KindSeries, f.ns, "breaking-bad")
@@ -468,15 +488,13 @@ func TestAPacedSeasonAnswerCountsForNoEpisode(t *testing.T) {
 			}
 			se := ser.Status.SeasonSearch.Seasons[0]
 			require.Equal(t, catalogv1alpha1.SeasonSearchAnswered, se.Phase)
-			if paced {
-				require.Equal(t, catalogv1alpha1.SeasonSearchAllPaced, se.Reason)
-			}
+			require.Equal(t, tc.reason, se.Reason)
 
 			ep := &catalogv1alpha1.Episode{ObjectMeta: metav1.ObjectMeta{Name: "breaking-bad-s01e01", Namespace: f.ns}}
 			f.Pass(t, remediation.KindEpisode, f.ns, ep.Name)
 			f.get(t, ep)
-			if paced {
-				require.Zero(t, ep.Status.SearchAttempts.Count, "an all-paced season answer is no episode's search")
+			if !tc.foldsIntoEpisodes {
+				require.Zero(t, ep.Status.SearchAttempts.Count, "a season answer no indexer gave is no episode's search")
 				require.Nil(t, ep.Status.LastSearchedAt)
 			} else {
 				require.EqualValues(t, 1, ep.Status.SearchAttempts.Count, "the season's answer is the episode's search, once")

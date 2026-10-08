@@ -183,6 +183,21 @@ const (
 // (spec 2026-10-06 §9.1.1).
 const SkipReasonPaced = "paced: no request slot within the search's deadline"
 
+// The skip reasons of an indexer no query could reach, for the indexer's own
+// state rather than the request's: switched off (spec.enabled, or its
+// automatic or interactive search), not Ready yet (caps not probed), or
+// unhealthy or in backoff. index sets them (app/indexer/search); the search
+// worker reads them (SearchOutcome.Unavailable): a search of the indexers
+// answered by these alone, or by no indexer at all, asked nothing and is no
+// search attempt (P6, smoke finding 7).
+const (
+	SkipReasonDisabled            = "disabled"
+	SkipReasonAutomaticDisabled   = "automatic search disabled"
+	SkipReasonInteractiveDisabled = "interactive search disabled"
+	SkipReasonNoCaps              = "caps not probed"
+	SkipReasonUnhealthy           = "unhealthy or in backoff"
+)
+
 // SearchQueryMode names which parameter set a per-indexer query used.
 type SearchQueryMode string
 
@@ -225,6 +240,21 @@ type SearchOutcome struct {
 	// an outcome that never reached query construction (skipped, or still
 	// running when the reply had to be sent).
 	QueryMode SearchQueryMode `json:"queryMode,omitempty"`
+}
+
+// Unavailable reports whether o is the skip of an indexer no query could
+// reach (SkipReasonDisabled and its kin): it says the indexer was not there
+// to ask, not that the request did not suit it.
+func (o SearchOutcome) Unavailable() bool {
+	if o.Status != SearchOutcomeSkipped {
+		return false
+	}
+	switch o.Error {
+	case SkipReasonDisabled, SkipReasonAutomaticDisabled, SkipReasonInteractiveDisabled,
+		SkipReasonNoCaps, SkipReasonUnhealthy:
+		return true
+	}
+	return false
 }
 
 // SearchRequest is the request half of the federated search RPC.

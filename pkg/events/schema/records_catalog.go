@@ -55,6 +55,11 @@ type SearchRecord struct {
 	QueryMode  SearchQueryMode `json:"queryMode,omitempty"`
 	// AllPaced is true when every indexer was paced: not a search attempt.
 	AllPaced bool `json:"allPaced,omitempty"`
+	// NoIndexer is true when a search of the indexers had none to ask: the
+	// namespace has no Indexer, or every one was skipped as unavailable
+	// (SearchOutcome.Unavailable). Not a search attempt either (P6, smoke
+	// finding 7). An index-only search never sets it.
+	NoIndexer bool `json:"noIndexer,omitempty"`
 	// IndexerOutcomes has at most MaxIndexerOutcomes entries.
 	IndexerOutcomes []SearchOutcome `json:"indexerOutcomes,omitempty"`
 	// Candidates are the ranked releases, at most MaxSearchCandidates.

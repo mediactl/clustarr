@@ -351,7 +351,8 @@ func (s *Stage) seasonFacts(ctx context.Context, ser *catalogv1alpha1.Series, v 
 
 // seasonOf is the Episode's season inputs (series search design §7): its
 // season pending in the Series' season search (Queued or Searching), and
-// when the season was answered (not AllPaced).
+// when the season was answered (not AllPaced or NoIndexer: no indexer was
+// asked, so it is no episode's search).
 func seasonOf(owner client.Object, ep *catalogv1alpha1.Episode) (pending bool, answeredAt *metav1.Time) {
 	ser, ok := owner.(*catalogv1alpha1.Series)
 	if !ok || ser.Status.SeasonSearch == nil {
@@ -365,7 +366,8 @@ func seasonOf(owner client.Object, ep *catalogv1alpha1.Episode) (pending bool, a
 		case catalogv1alpha1.SeasonSearchQueued, catalogv1alpha1.SeasonSearchSearching:
 			return true, nil
 		case catalogv1alpha1.SeasonSearchAnswered:
-			if se.Reason != catalogv1alpha1.SeasonSearchAllPaced && se.AnsweredAt != nil {
+			if se.Reason != catalogv1alpha1.SeasonSearchAllPaced && se.Reason != catalogv1alpha1.SeasonSearchNoIndexer &&
+				se.AnsweredAt != nil {
 				at := *se.AnsweredAt
 				return false, &at
 			}

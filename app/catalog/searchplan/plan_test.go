@@ -200,6 +200,48 @@ func TestAPacedAnswerDoesNotCountAnAttempt(t *testing.T) {
 	})
 }
 
+// TestASearchWithNoIndexerDoesNotCountAnAttempt is smoke finding 7: an item
+// searched before any Indexer existed -- or while every one was disabled --
+// was answered by no indexer, so that answer is no attempt and sets no
+// lastSearchedAt, and once an indexer exists the item's next search is
+// still its one live search, not IndexOnly on the backoff.
+func TestASearchWithNoIndexerDoesNotCountAnAttempt(t *testing.T) {
+	for _, kind := range []string{"video", "donor"} {
+		t.Run(kind, func(t *testing.T) {
+			v := itemView("ep", t0)
+			if kind == "donor" {
+				v.Wanted = false
+				v.Donor = &schema.DonorWant{Languages: []string{"en"}, Anchor: "ja"}
+				v.DonorBudget = true
+			}
+			first := searchplan.Decide(v, admitAll, func() time.Time { return t0 })
+			require.NotNil(t, first.Publish)
+			require.True(t, first.Publish.Live)
+
+			// No Indexer in the namespace: the agent answers with none asked.
+			v = carry(v, first, t0.Add(time.Minute))
+			v.Record = answer(first, t0.Add(30*time.Second), false)
+			v.Record.NoIndexer = true
+			if kind == "donor" {
+				v.Record.Purpose = schema.SearchPurposeAudioDonor
+			}
+			empty := searchplan.Decide(v, admitAll, func() time.Time { return v.Now })
+			require.True(t, empty.Answered, "the answer closes the dispatch")
+			require.Zero(t, empty.Attempts.Count, "no indexer was asked: not an attempt")
+			require.Zero(t, empty.DonorAttempts.Count, "nor a donor attempt")
+			require.Nil(t, empty.LastSearchedAt, "nor a search")
+			require.Nil(t, empty.Publish, "the backoff's floor still holds the dispatch")
+
+			// An Indexer is added; the next pass past the floor searches live.
+			v = carry(v, empty, t0.Add(wantedcron.MinimumGap+time.Minute))
+			next := searchplan.Decide(v, admitAll, func() time.Time { return v.Now })
+			require.NotNil(t, next.Publish)
+			require.True(t, next.Publish.Live, "the item's one live search")
+			require.False(t, next.Publish.Payload.IndexOnly)
+		})
+	}
+}
+
 // TestTheDonorBudgetCapsFirstTimeLiveDonorSearchesPerSweep is P4 and §7.3:
 // an item's first donor search is live, and at most
 // DonorSearchesPerSweep of them go per namespace per sweep; a donor

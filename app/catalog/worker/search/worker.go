@@ -337,7 +337,8 @@ func (w *Worker) handleSearchTask(ctx context.Context, span trace.Span, m events
 // write answers the task: the ranked candidates (at most
 // schema.MaxSearchCandidates), every indexer's outcome (at most
 // schema.MaxIndexerOutcomes, with the truncation marker when index cut the
-// reply), and whether every indexer was paced.
+// reply), whether every indexer it could ask was paced, and whether a search
+// of the indexers had none to ask (neither is an attempt, P6).
 func (w *Worker) write(ctx context.Context, a answer, resp schema.SearchResponse, ds []decision.Decision, opts decision.Options) error {
 	outcomes := resp.Outcomes
 	if len(outcomes) > schema.MaxIndexerOutcomes {
@@ -349,6 +350,9 @@ func (w *Worker) write(ctx context.Context, a answer, resp schema.SearchResponse
 	rec := w.record(a)
 	rec.QueryMode = queryMode(resp.Outcomes)
 	rec.AllPaced = allPaced(resp.Outcomes)
+	// An index-only search asks the release index, not the indexers, and
+	// reports no outcomes: it counts.
+	rec.NoIndexer = !(a.task.IndexOnly && w.Index != nil) && noIndexer(resp.Outcomes)
 	rec.IndexerOutcomes = outcomes
 	rec.Candidates = RankScored(ds, opts, resp.Releases, schema.MaxSearchCandidates)
 	return w.store(ctx, a, rec)
@@ -464,15 +468,35 @@ func Searchable(kind commonv1.MediaKind) bool {
 	}
 }
 
-// allPaced reports whether outs is non-empty and every outcome is a paced
-// skip: index sent no query at all, so the search is no attempt (P6). An
-// index-only search reports no outcomes and counts.
+// allPaced reports whether every indexer index could ask was paced: at
+// least one paced skip, and every other outcome an unavailable indexer's
+// (schema.SearchOutcome.Unavailable). index sent no query at all, so the
+// search is no attempt (P6). An index-only search reports no outcomes and
+// counts.
 func allPaced(outs []schema.SearchOutcome) bool {
-	if len(outs) == 0 {
-		return false
-	}
+	paced := false
 	for _, o := range outs {
-		if o.Status != schema.SearchOutcomeSkipped || o.Error != schema.SkipReasonPaced {
+		switch {
+		case o.Status == schema.SearchOutcomeSkipped && o.Error == schema.SkipReasonPaced:
+			paced = true
+		case o.Unavailable():
+		default:
+			return false
+		}
+	}
+	return paced
+}
+
+// noIndexer reports whether a search of the indexers had none to ask: no
+// outcome at all (the namespace has no Indexer), or every one an
+// unavailable indexer's skip -- disabled, its automatic or interactive
+// search off, not yet probed, or in backoff. Nothing was asked, so it is no
+// attempt (P6, smoke finding 7: an item added before its indexers was
+// otherwise IndexOnly ever after). A skip for the request (protocol,
+// category, id parameter, query limit) is an indexer that was there.
+func noIndexer(outs []schema.SearchOutcome) bool {
+	for _, o := range outs {
+		if !o.Unavailable() {
 			return false
 		}
 	}

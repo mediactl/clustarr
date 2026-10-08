@@ -96,8 +96,9 @@ type View struct {
 	// episode. A redownload does not wait.
 	SeasonPending bool
 	// SeasonAnsweredAt is when its Series' season search answered the
-	// Episode's season (Answered, not AllPaced): a season answer newer than
-	// the Episode's lastSearchedAt counts once as its search (§7).
+	// Episode's season (Answered, not AllPaced or NoIndexer): a season
+	// answer newer than the Episode's lastSearchedAt counts once as its
+	// search (§7).
 	SeasonAnsweredAt *metav1.Time
 }
 
@@ -150,11 +151,13 @@ func Decide(v View, admit func(durable string, seq int64) dispatch.Decision, pac
 		}
 		d.AnsweredSeq, d.Withdrawn, d.Delivery = d.Seq, false, nil
 		donor := v.Record.Purpose == schema.SearchPurposeAudioDonor
-		if !v.Record.AllPaced {
-			// A search no indexer was asked is not an attempt (P6), nor
-			// a search: lastSearchedAt is read as one (wantedcron folds it
-			// into the attempts), and an item whose only live search was
-			// paced must still get its one live search (P12).
+		if !v.Record.AllPaced && !v.Record.NoIndexer {
+			// A search no indexer was asked -- every one paced, or none
+			// to ask (no Indexer yet, or every one disabled, unprobed or in
+			// backoff: smoke finding 7) -- is not an attempt (P6), nor a
+			// search: lastSearchedAt is read as one (wantedcron folds it
+			// into the attempts), and an item whose only live search asked
+			// no indexer must still get its one live search (P12).
 			if donor {
 				p.DonorAttempts = bump(p.DonorAttempts, at)
 			} else {

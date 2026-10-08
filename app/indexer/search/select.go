@@ -47,18 +47,19 @@ type candidate struct {
 // into an operator's dashboard, so none of them may ever interpolate an
 // indexer-supplied string. The one exception is the mode name, which is one
 // of torznab.SearchMode's six constants and is ours, not the indexer's.
-// The paced skip is schema.SkipReasonPaced (pacedOutcome), exported because
-// the search worker reads it: a search whose every query was paced is not an
-// attempt.
+// The paced skip is schema.SkipReasonPaced (pacedOutcome), and the skips of
+// an indexer no query could reach are schema's too, exported because the
+// search worker reads them: a search whose every query was paced, or that
+// had no indexer to ask, is not an attempt.
 const (
-	skipDisabled      = "disabled"
-	skipNoAuto        = "automatic search disabled"
-	skipNoInteractive = "interactive search disabled"
+	skipDisabled      = schema.SkipReasonDisabled
+	skipNoAuto        = schema.SkipReasonAutomaticDisabled
+	skipNoInteractive = schema.SkipReasonInteractiveDisabled
 	skipProtocol      = "protocol not requested"
-	skipNoCaps        = "caps not probed"
+	skipNoCaps        = schema.SkipReasonNoCaps
 	skipNoCategory    = "no requested category is served by this indexer"
 	skipNoIDParam     = "no supported id parameter for this request"
-	skipUnhealthy     = "unhealthy or in backoff"
+	skipUnhealthy     = schema.SkipReasonUnhealthy
 	// skipQueryLimit is given at the last moment, by the query's own
 	// reservation on the ring (Service.reserveQuery), not here: selection
 	// reads only the Indexer object, and the object's queriesInWindow is a

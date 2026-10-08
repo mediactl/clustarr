@@ -80,7 +80,7 @@ func (p SeasonSearchPhase) Final() bool {
 }
 
 // SeasonSearchReason says why a season was skipped, failed or canceled.
-// +kubebuilder:validation:Enum=NotMonitored;NothingWanted;AllDownloading;NoSuchSeason;AllPaced;TimedOut;AgentFailed;SearchDeleted
+// +kubebuilder:validation:Enum=NotMonitored;NothingWanted;AllDownloading;NoSuchSeason;AllPaced;NoIndexer;TimedOut;AgentFailed;SearchDeleted
 type SeasonSearchReason string
 
 // Season search reasons.
@@ -99,6 +99,10 @@ const (
 	// SeasonSearchAllPaced: every indexer was paced twice; the answer
 	// counts for no episode.
 	SeasonSearchAllPaced SeasonSearchReason = "AllPaced"
+	// SeasonSearchNoIndexer: no indexer could be asked -- none in the
+	// namespace, or every one disabled, not yet probed or in backoff; the
+	// answer counts for no episode (smoke finding 7).
+	SeasonSearchNoIndexer SeasonSearchReason = "NoIndexer"
 	// SeasonSearchTimedOut: no answer came within the dispatch timeout.
 	SeasonSearchTimedOut SeasonSearchReason = "TimedOut"
 	// SeasonSearchAgentFailed: the search agent could not run the search.
