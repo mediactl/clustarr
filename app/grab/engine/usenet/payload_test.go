@@ -60,8 +60,8 @@ func (f *fakeRequester) Request(_ context.Context, subject string, in, out any) 
 	return nil
 }
 
-func (f *fakeRequester) Serve(string, string, func(context.Context, []byte) ([]byte, error)) error {
-	return errors.New("fakeRequester: Serve is not implemented")
+func (f *fakeRequester) Serve(string, string, func(context.Context, []byte) ([]byte, error)) (func(), error) {
+	return nil, errors.New("fakeRequester: Serve is not implemented")
 }
 
 func TestResolveNZBURLFetchesDirectly(t *testing.T) {
