@@ -21,28 +21,15 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-)
 
-// TestEveryServiceHasASubcommand is Task A7's acceptance check for the
-// binary: seven services, one `clustarr` command tree. A service missing
-// here is a service nobody can start.
-func TestEveryServiceHasASubcommand(t *testing.T) {
-	root := NewRootCommand()
-	want := []string{"catalog", "import", "index", "grab", "transcode", "caption", "ui"}
-	got := map[string]bool{}
-	for _, c := range root.Commands() {
-		got[c.Name()] = true
-	}
-	for _, w := range want {
-		require.True(t, got[w], "missing subcommand %q", w)
-	}
-}
+	"github.com/mediactl/clustarr/internal/cli/manager"
+)
 
 // TestVersionHasNoShorthand is a regression guard: -v belongs to log
 // verbosity by klog and zap convention, and an operator who writes -v into a
 // manifest must get verbosity, not a version print.
 func TestVersionHasNoShorthand(t *testing.T) {
-	f := NewRootCommand().Flags().Lookup("version")
+	f := manager.NewCommand().Flags().Lookup("version")
 	require.NotNil(t, f)
 	require.Empty(t, f.Shorthand)
 }

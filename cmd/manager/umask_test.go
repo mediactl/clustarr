@@ -32,9 +32,10 @@ import (
 // media-touching pod", which until X14 nothing in the binary applied: the
 // manifests set $UMASK and every service ignored it, so files were created
 // under the image's default 022 and another service in the shared fsGroup
-// could not rewrite them. The root command applies it before any
-// subcommand runs, so it is proven here through a real file create -- the
-// only observable that matters -- rather than by reading the mask back.
+// could not rewrite them. The manager's root command applies it before any
+// subcommand runs (its PersistentPreRunE, cli.ApplyUmask), so it is proven
+// here through a real file create -- the only observable that matters --
+// rather than by reading the mask back.
 //
 // The umask is process state, so the test restores the one it found.
 //
@@ -47,14 +48,14 @@ func TestEveryCommandAppliesUMASK(t *testing.T) {
 
 	t.Setenv(fsops.UmaskEnv, "002")
 	if _, err := execute(t, "version"); err != nil {
-		t.Fatalf("clustarr version: %v", err)
+		t.Fatalf("manager version: %v", err)
 	}
 	path := filepath.Join(t.TempDir(), "probe")
 	require.NoError(t, os.WriteFile(path, nil, 0o666))
 	st, err := os.Stat(path)
 	require.NoError(t, err)
 	require.Equal(t, os.FileMode(0o664), st.Mode().Perm(),
-		"a file created after `clustarr` started with UMASK=002 is not group-writable: the umask was not applied")
+		"a file created after `manager` started with UMASK=002 is not group-writable: the umask was not applied")
 
 	t.Setenv(fsops.UmaskEnv, "nonsense")
 	_, err = execute(t, "version")
