@@ -27,7 +27,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	"github.com/mediactl/clustarr/app/grab/engine"
 	"github.com/mediactl/clustarr/internal/cli"
 	"github.com/mediactl/clustarr/pkg/busconn"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -120,7 +119,7 @@ func buildBus(ctx context.Context, natsURL string) uiBus {
 	progress := func(ctx context.Context, entryUID string) (schema.DownloadProgress, bool, error) {
 		ctx, cancel := context.WithTimeout(ctx, busReadTimeout)
 		defer cancel()
-		e, err := progressKV.Get(ctx, engine.ProgressKey(entryUID))
+		e, err := progressKV.Get(ctx, transferProgressKey(entryUID))
 		if errors.Is(err, events.ErrKeyNotFound) {
 			return schema.DownloadProgress{}, false, nil
 		}
@@ -182,6 +181,16 @@ func buildBus(ctx context.Context, natsURL string) uiBus {
 		// the connection -- its watches and outbound buffer -- and closes it.
 		close: busconn.ShutdownAfter(ctx, busShutdownBudget, bus, nc),
 	}
+}
+
+// transferProgressKey is a grab entry's transfer telemetry key in
+// clustarr-progress, "download.<KVKeyToken(uid)>": app/grab/engine's
+// ProgressKey, restated so cmd/ui links no app/ package and so neither
+// pkg/k8s nor controller-runtime's manager (spec §4.5.2), the way the
+// transcode closure restates its "transcode." key. A test pins the two
+// together.
+func transferProgressKey(entryUID string) string {
+	return "download." + events.KVKeyToken(entryUID)
 }
 
 // idempotentRetries is the ui's own backoff for a busy metadata verb: a
