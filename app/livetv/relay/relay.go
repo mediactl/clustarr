@@ -90,6 +90,11 @@ type Relay struct {
 	tuners  int
 	inUse   int
 	viewers int
+	// buffer, linger and userAgent are Options', changed by Configure for
+	// later streams.
+	buffer    int
+	linger    time.Duration
+	userAgent string
 }
 
 type stream struct {
@@ -102,6 +107,7 @@ type stream struct {
 	dead      bool   // removed from the relay
 	cancel    context.CancelFunc
 	linger    *time.Timer
+	userAgent string
 }
 
 // New returns a Relay.
@@ -124,7 +130,7 @@ func New(o Options) *Relay {
 	if o.ReadyTimeout <= 0 {
 		o.ReadyTimeout = 15 * time.Second
 	}
-	return &Relay{o: o, streams: map[string]*stream{}, tuners: o.Tuners}
+	return &Relay{o: o, streams: map[string]*stream{}, tuners: o.Tuners, buffer: o.Buffer, linger: o.Linger, userAgent: o.UserAgent}
 }
 
 // InUse is the tuners streaming now.
@@ -146,6 +152,17 @@ func (r *Relay) SetTuners(n int) {
 	r.mu.Lock()
 	r.tuners = n
 	r.mu.Unlock()
+}
+
+// Configure sets the limit, buffer, linger and user agent for later
+// streams; no stream is ended.
+func (r *Relay) Configure(tuners, buffer int, linger time.Duration, userAgent string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.tuners, r.linger, r.userAgent = tuners, linger, userAgent
+	if buffer > 0 {
+		r.buffer = buffer
+	}
 }
 
 // Close ends every stream.
@@ -190,18 +207,36 @@ func (r *Relay) Serve(w http.ResponseWriter, req *http.Request, channel, upstrea
 	r.mu.Lock()
 	s, ok := r.streams[channel]
 	if !ok {
+		var evicted *stream
 		if r.inUse >= r.tuners {
-			r.mu.Unlock()
-			http.Error(w, "all tuners in use", http.StatusServiceUnavailable)
-			return
+			// An unwatched stream only lingers in case its viewer comes
+			// back: a viewer who changed channel takes its tuner, or a
+			// one-connection account answers 503 for the whole linger.
+			evicted = r.lingering()
+			if evicted == nil {
+				r.mu.Unlock()
+				http.Error(w, "all tuners in use", http.StatusServiceUnavailable)
+				return
+			}
+			if evicted.linger != nil {
+				evicted.linger.Stop()
+				evicted.linger = nil
+			}
+			r.remove(evicted)
 		}
 		ctx, cancel := context.WithCancel(r.o.Context)
-		s = &stream{channel: channel, ring: newRing(r.o.Buffer), ready: make(chan struct{}), cancel: cancel}
+		s = &stream{channel: channel, ring: newRing(r.buffer), ready: make(chan struct{}), cancel: cancel, userAgent: r.userAgent}
 		r.streams[channel] = s
 		r.inUse++
 		inUse := r.inUse
-		go r.pump(ctx, s, upstream)
 		r.mu.Unlock()
+		if evicted != nil {
+			// Closed before the new upstream opens: the account's one
+			// connection is free when it asks.
+			evicted.cancel()
+			evicted.ring.close(io.EOF)
+		}
+		go r.pump(ctx, s, upstream)
 		r.changed(inUse)
 		r.mu.Lock()
 	}
@@ -258,8 +293,19 @@ func (r *Relay) leave(s *stream) {
 	s.viewers--
 	r.viewers--
 	if s.viewers == 0 && !s.dead {
-		s.linger = time.AfterFunc(r.o.Linger, func() { r.expire(s) })
+		s.linger = time.AfterFunc(r.linger, func() { r.expire(s) })
 	}
+}
+
+// lingering is a stream no one watches, or nil;
+// r.mu is held.
+func (r *Relay) lingering() *stream {
+	for _, s := range r.streams {
+		if s.viewers == 0 && !s.dead {
+			return s
+		}
+	}
+	return nil
 }
 
 // expire ends an unwatched stream once its linger has passed.
@@ -349,8 +395,8 @@ func (r *Relay) fetch(ctx context.Context, s *stream, upstream string) (reason s
 	if err != nil {
 		return ReasonRefused, true, false
 	}
-	if r.o.UserAgent != "" {
-		req.Header.Set("User-Agent", r.o.UserAgent)
+	if s.userAgent != "" {
+		req.Header.Set("User-Agent", s.userAgent)
 	}
 	resp, err := r.o.HTTP.Do(req)
 	if err != nil {

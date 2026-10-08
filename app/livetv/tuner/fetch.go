@@ -24,6 +24,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -80,9 +81,16 @@ func (t *Tuner) fetchPlaylist(ctx context.Context, p *provider, url, ua string) 
 
 	p.mu.Lock()
 	delete(p.fetching, "playlist")
+	if err == nil && len(pl.Entries) == 0 && len(p.entries) > 0 {
+		// A panel in maintenance or an expired line answers #EXTM3U alone:
+		// that is a failed fetch, not a provider with no channels.
+		err = errNoLiveEntries
+	}
 	if err != nil {
 		p.playlist.Error = clamp(iptv.RedactError(fmt.Errorf("fetch playlist: %w", err)))
 		logging.FromContext(ctx).Warn("livetv: playlist fetch failed", "provider", label(p.key), "err", p.playlist.Error)
+		p.playlistBackoff = nextBackoff(p.playlistBackoff, p.cfg.PlaylistRefresh)
+		p.playlistNext = t.o.Now().Add(p.playlistBackoff)
 	} else {
 		p.entries = pl.Entries
 		p.playlistFetched = true
@@ -90,11 +98,30 @@ func (t *Tuner) fetchPlaylist(ctx context.Context, p *provider, url, ua string) 
 		p.playlist.Hash = sum
 		p.playlist.Error = ""
 		t.markWantedGuidesDue(p)
+		p.playlistBackoff = 0
+		p.playlistNext = t.o.Now().Add(p.cfg.PlaylistRefresh)
 	}
-	p.playlistNext = t.o.Now().Add(p.cfg.PlaylistRefresh)
 	p.mu.Unlock()
 	t.scheduleRender(p)
 	t.poke()
+}
+
+// errNoLiveEntries is a fetch that parsed but held no live entry, after one
+// that did.
+var errNoLiveEntries = errors.New("the playlist holds no live channel; serving the last one")
+
+// nextBackoff is the wait after another failed fetch: retryStart, doubling
+// to retryMax, and never past the refresh interval.
+func nextBackoff(prev, refresh time.Duration) time.Duration {
+	next := retryStart
+	if prev > 0 {
+		next = 2 * prev
+	}
+	next = min(next, retryMax)
+	if refresh > 0 {
+		next = min(next, refresh)
+	}
+	return next
 }
 
 // wantSource is what choosing a guide's wanted channels needs of one active
@@ -181,7 +208,9 @@ func (t *Tuner) fetchGuide(ctx context.Context, p *provider, name string) {
 
 	ctx, cancel := context.WithTimeout(ctx, fetchTimeout)
 	defer cancel()
-	now := t.o.Now()
+	// From the day's start, as the guides are built (guideFrom), and a day
+	// past their end, so the last day stays covered until the next fetch.
+	from := guideFrom(t.o.Now())
 	var (
 		parsed xmltv.Guide
 		want   map[string]bool
@@ -191,7 +220,7 @@ func (t *Tuner) fetchGuide(ctx context.Context, p *provider, name string) {
 		parsed, err = xmltv.ParseFunc(body, func(chans []xmltv.Channel) map[string]bool {
 			want = wanted(name, chans, src)
 			return want
-		}, now, now.AddDate(0, 0, guideDays))
+		}, from, from.AddDate(0, 0, guideDays+1))
 		_ = body.Close()
 		if want == nil {
 			want = wanted(name, parsed.Channels, src) // a guide with no programmes
@@ -217,7 +246,13 @@ func (t *Tuner) fetchGuide(ctx context.Context, p *provider, name string) {
 		}
 		g.state = GuideState{Name: name, Channels: len(parsed.Channels), Programmes: n, FetchedAt: t.o.Now()}
 	}
-	g.next = t.o.Now().Add(g.cfg.Refresh)
+	if err != nil {
+		g.backoff = nextBackoff(g.backoff, g.cfg.Refresh)
+		g.next = t.o.Now().Add(g.backoff)
+	} else {
+		g.backoff = 0
+		g.next = t.o.Now().Add(g.cfg.Refresh)
+	}
 	p.mu.Unlock()
 	if err == nil {
 		t.putGuideChannels(ctx, p, name, parsed.Channels)

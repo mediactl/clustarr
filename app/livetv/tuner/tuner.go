@@ -28,6 +28,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -52,6 +53,10 @@ const (
 	fetchTimeout = 10 * time.Minute
 	// guideDays is how far ahead the XEPG guide reaches.
 	guideDays = 7
+	// retryStart and retryMax bound the wait after a failed fetch: a fetch
+	// that failed once is not left for a whole refresh interval.
+	retryStart = 30 * time.Second
+	retryMax   = 15 * time.Minute
 )
 
 // Options configures a Tuner.
@@ -70,6 +75,11 @@ type Options struct {
 	Debounce time.Duration
 	// Notify is told a provider's snapshot changed.
 	Notify func(types.NamespacedName)
+	// NotifyTuners is told a provider's tuners in use changed, at most every
+	// TunersDebounce (default 5s). Only the provider's status shows it, so
+	// it is not a snapshot change.
+	NotifyTuners   func(types.NamespacedName)
+	TunersDebounce time.Duration
 }
 
 // Tuner serves every provider.
@@ -119,16 +129,25 @@ type provider struct {
 	playlistFetched bool
 	playlistDue     bool
 	playlistNext    time.Time
+	// playlistBackoff is the wait after a failed fetch, doubling to
+	// retryMax; zero after a success.
+	playlistBackoff time.Duration
 	fetching        map[string]bool
 
 	guides map[string]*guide
 
 	streams map[string]string // number -> upstream URL
-	// guideXML is the whole provider's guide, for the UI and curl.
-	guideXML  []byte
-	guideHash string
+	// lineupChans, loaded and guideFrom are the last render's inputs to the
+	// whole provider's guide, which is built on request (for the ui and
+	// curl) rather than held.
+	lineupChans []xmltv.LineupChannel
+	loaded      map[string]xmltv.Guide
+	guideFrom   time.Time
 	// blocks are each block's surface, by start.
 	blocks map[string]*surface
+	// renderGen counts renders; one that finds a newer started drops its
+	// result.
+	renderGen uint64
 
 	snap        Snapshot
 	notified    *Snapshot
@@ -141,13 +160,14 @@ type provider struct {
 }
 
 type guide struct {
-	cfg    GuideConfig
-	g      xmltv.Guide
-	loaded bool
-	wanted map[string]bool // the channel ids g was parsed for
-	state  GuideState
-	due    bool
-	next   time.Time
+	cfg     GuideConfig
+	g       xmltv.Guide
+	loaded  bool
+	wanted  map[string]bool // the channel ids g was parsed for
+	state   GuideState
+	due     bool
+	next    time.Time
+	backoff time.Duration
 }
 
 // New returns a Tuner.
@@ -164,6 +184,12 @@ func New(o Options) *Tuner {
 	if o.Notify == nil {
 		o.Notify = func(types.NamespacedName) {}
 	}
+	if o.NotifyTuners == nil {
+		o.NotifyTuners = func(types.NamespacedName) {}
+	}
+	if o.TunersDebounce <= 0 {
+		o.TunersDebounce = tunersDebounce
+	}
 	registerMetrics()
 	base, cancel := context.WithCancel(context.Background())
 	return &Tuner{o: o, base: base, cancelBase: cancel, wake: make(chan struct{}, 1), providers: map[types.NamespacedName]*provider{}, ports: map[int32]blockRef{}}
@@ -176,6 +202,7 @@ func (t *Tuner) NeedLeaderElection() bool { return true }
 // Apply sets a provider's configuration: a new provider, or a change to one.
 // It never blocks on a fetch.
 func (t *Tuner) Apply(c Config) {
+	c = cloneConfig(c)
 	t.mu.Lock()
 	p, ok := t.providers[c.Key]
 	if !ok {
@@ -183,6 +210,15 @@ func (t *Tuner) Apply(c Config) {
 		t.providers[c.Key] = p
 	}
 	t.mu.Unlock()
+
+	// The controller applies on every reconcile, and cluster-plex's Lease
+	// writes wake it: an unchanged configuration renders nothing.
+	p.mu.Lock()
+	same := p.relay != nil && reflect.DeepEqual(p.cfg, c)
+	p.mu.Unlock()
+	if same {
+		return
+	}
 
 	// A block the tuner has not served before starts from its stored guide.
 	p.mu.Lock()
@@ -209,7 +245,7 @@ func (t *Tuner) Apply(c Config) {
 			OnBytes:  func(n int) { streamBytes.WithLabelValues(label(key)).Add(float64(n)) },
 		})
 	} else {
-		p.relay.SetTuners(c.Tuners)
+		p.relay.Configure(c.Tuners, c.Buffer, c.Linger, c.UserAgent)
 	}
 	refreshed := !first && c.Refresh != p.cfg.Refresh
 	if c.PlaylistURL != p.cfg.PlaylistURL || refreshed {
@@ -313,6 +349,31 @@ func (t *Tuner) Snapshot(key types.NamespacedName) (Snapshot, bool) {
 		s.TunersInUse = p.relay.InUse()
 	}
 	return s, true
+}
+
+// ChannelView is one channel as the tuner last rendered it.
+type ChannelView struct {
+	State ChannelState
+	// Listed is the channel being in the render; PlaylistFetched is the
+	// render having had a playlist. Before the first fetch nothing is
+	// listed.
+	Listed, PlaylistFetched bool
+}
+
+// Channel is one channel's view, without copying the provider's snapshot:
+// the channel controller asks once per channel, and a provider holds
+// thousands. false for a provider the tuner does not serve.
+func (t *Tuner) Channel(key types.NamespacedName, object string) (ChannelView, bool) {
+	t.mu.Lock()
+	p := t.providers[key]
+	t.mu.Unlock()
+	if p == nil {
+		return ChannelView{}, false
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	st, listed := p.snap.Channels[object]
+	return ChannelView{State: st, Listed: listed, PlaylistFetched: p.snap.PlaylistFetched}, true
 }
 
 // Start listens on BindAddress and runs the fetch scheduler until ctx ends,
@@ -426,13 +487,13 @@ func (t *Tuner) tunersChanged(p *provider, inUse int) {
 	if p.tunersTimer != nil || p.removed {
 		return
 	}
-	p.tunersTimer = time.AfterFunc(tunersDebounce, func() {
+	p.tunersTimer = time.AfterFunc(t.o.TunersDebounce, func() {
 		p.mu.Lock()
 		p.tunersTimer = nil
 		removed := p.removed
 		p.mu.Unlock()
 		if !removed {
-			t.o.Notify(p.key)
+			t.o.NotifyTuners(p.key)
 		}
 	})
 }
@@ -448,4 +509,26 @@ func cloneSnapshot(s Snapshot) Snapshot {
 		out.Channels[k] = v
 	}
 	return out
+}
+
+// cloneConfig copies c's slices and pointers: the tuner keeps c and compares
+// the next Apply with it, so it must not share them with the caller.
+func cloneConfig(c Config) Config {
+	c.Blocks = slices.Clone(c.Blocks)
+	for i := range c.Blocks {
+		c.Blocks[i].Numbers = slices.Clone(c.Blocks[i].Numbers)
+	}
+	c.Guides = slices.Clone(c.Guides)
+	c.Filters = slices.Clone(c.Filters)
+	for i := range c.Filters {
+		c.Filters[i].Include, c.Filters[i].Exclude = slices.Clone(c.Filters[i].Include), slices.Clone(c.Filters[i].Exclude)
+	}
+	c.Channels = slices.Clone(c.Channels)
+	for i := range c.Channels {
+		if m := c.Channels[i].Map; m != nil {
+			mm := *m
+			c.Channels[i].Map = &mm
+		}
+	}
+	return c
 }

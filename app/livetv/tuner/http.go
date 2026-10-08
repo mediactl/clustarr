@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package tuner
 
 import (
+	"bytes"
 	"net"
 	"net/http"
 	"strconv"
@@ -141,15 +142,20 @@ func (t *Tuner) serveHTTP(w http.ResponseWriter, r *http.Request) {
 
 // serveProviderGuide answers /livetv/<ns>/<name>/xmltv.xml: every block's
 // channels in one guide.
+// It is built on request from the last render's inputs, not held: the
+// blocks' guides already hold every programme once.
 func (t *Tuner) serveProviderGuide(w http.ResponseWriter, r *http.Request, p *provider) {
 	p.mu.Lock()
-	pms, guideXML := p.cfg.EPGSource == "PMS", p.guideXML
+	pms, fetched := p.cfg.EPGSource == "PMS", p.snap.PlaylistFetched
+	lc, loaded, from := p.lineupChans, p.loaded, p.guideFrom
 	p.mu.Unlock()
-	if pms || guideXML == nil {
+	if pms || !fetched {
 		http.NotFound(w, r)
 		return
 	}
-	writeBody(w, "application/xml", guideXML)
+	var b bytes.Buffer
+	_ = buildGuide(&b, lc, loaded, from, guideDays)
+	writeBody(w, "application/xml", b.Bytes())
 }
 
 func writeBody(w http.ResponseWriter, contentType string, b []byte) {

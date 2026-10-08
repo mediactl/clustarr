@@ -55,10 +55,11 @@ var (
 // rewritten to this server), the XMLTV fixture, and an endless TS stream at
 // every /live/ path. It counts requests per path.
 type provider struct {
-	srv          *httptest.Server
-	hits         sync.Map // path -> *atomic.Int32
-	failPlaylist atomic.Bool
-	failGuide    atomic.Bool
+	srv           *httptest.Server
+	hits          sync.Map // path -> *atomic.Int32
+	failPlaylist  atomic.Bool
+	failGuide     atomic.Bool
+	emptyPlaylist atomic.Bool // #EXTM3U alone: a panel in maintenance, an expired line
 }
 
 func newProvider(t *testing.T) *provider {
@@ -74,6 +75,10 @@ func newProvider(t *testing.T) *provider {
 		case r.URL.Path == "/get.php":
 			if p.failPlaylist.Load() {
 				http.Error(w, "down", http.StatusInternalServerError)
+				return
+			}
+			if p.emptyPlaylist.Load() {
+				_, _ = w.Write([]byte("#EXTM3U\n"))
 				return
 			}
 			_, _ = w.Write(bytes.ReplaceAll(m3uBody, []byte("http://provider.example"), []byte(p.srv.URL)))
@@ -164,14 +169,24 @@ type harness struct {
 	tn      *tuner.Tuner
 	front   *httptest.Server
 	notifed atomic.Int32
+	tuners  atomic.Int32 // tuners-in-use notices
+	clock   atomic.Int64 // UnixNano; the tuner's Now
 }
 
 func start(t *testing.T, store events.ObjectStore, cfg tuner.Config) *harness {
+	return startAt(t, store, cfg, now)
+}
+
+// startAt starts a tuner whose clock reads at, until the test moves it.
+func startAt(t *testing.T, store events.ObjectStore, cfg tuner.Config, at time.Time) *harness {
 	h := &harness{}
+	h.clock.Store(at.UnixNano())
 	h.tn = tuner.New(tuner.Options{
 		BindAddress: "127.0.0.1:0", Store: store, HTTP: http.DefaultClient,
-		Now: func() time.Time { return now }, Debounce: 10 * time.Millisecond,
-		Notify: func(types.NamespacedName) { h.notifed.Add(1) },
+		Now: func() time.Time { return time.Unix(0, h.clock.Load()).UTC() }, Debounce: 10 * time.Millisecond,
+		TunersDebounce: 10 * time.Millisecond,
+		Notify:         func(types.NamespacedName) { h.notifed.Add(1) },
+		NotifyTuners:   func(types.NamespacedName) { h.tuners.Add(1) },
 	})
 	h.tn.Apply(cfg)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -515,4 +530,105 @@ func TestRemoveEndsTheProvider(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, code)
 	_, ok := h.tn.Snapshot(key)
 	assert.False(t, ok)
+}
+
+func TestAFailedFirstFetchIsRetriedLongBeforeTheRefresh(t *testing.T) {
+	// A manager restart whose first fetch fails once (a 5xx, a timeout, DNS
+	// not ready) must not leave Live TV down until the next refresh.
+	p := newProvider(t)
+	p.failPlaylist.Store(true)
+	p.failGuide.Store(true)
+	cfg := config(p.srv.URL)
+	cfg.PlaylistRefresh, cfg.Guides[0].Refresh = 24*time.Hour, 12*time.Hour
+	h := start(t, newStore(t), cfg)
+	require.Eventually(t, func() bool { s, _ := h.tn.Snapshot(key); return s.Playlist.Error != "" }, 5*time.Second, 10*time.Millisecond)
+
+	p.failPlaylist.Store(false)
+	h.clock.Add(int64(time.Minute))
+	require.Eventually(t, func() bool { s, _ := h.tn.Snapshot(key); return s.PlaylistFetched }, 5*time.Second, 10*time.Millisecond, "the playlist is retried within a minute")
+	require.Eventually(t, func() bool { s, _ := h.tn.Snapshot(key); return len(s.Guides) == 1 && s.Guides[0].Error != "" }, 5*time.Second, 10*time.Millisecond)
+	p.failGuide.Store(false)
+	h.clock.Add(int64(time.Minute))
+	require.Eventually(t, func() bool {
+		s, _ := h.tn.Snapshot(key)
+		return len(s.Guides) == 1 && !s.Guides[0].FetchedAt.IsZero()
+	}, 5*time.Second, 10*time.Millisecond, "and so is the guide")
+}
+
+func TestAPlaylistWithNoLiveEntriesKeepsTheLastOne(t *testing.T) {
+	// An Xtream panel in maintenance, or a line just expired, answers
+	// #EXTM3U and nothing else; that is a failed fetch, not an empty lineup.
+	p := newProvider(t)
+	cfg := config(p.srv.URL)
+	h := start(t, newStore(t), cfg)
+	before := h.fetched(t)
+	_, lineup := h.get(t, hostA, "/lineup.json")
+
+	p.emptyPlaylist.Store(true)
+	cfg.PlaylistURL += "&type=m3u_plus"
+	h.tn.Apply(cfg)
+	var s tuner.Snapshot
+	require.Eventually(t, func() bool { s, _ = h.tn.Snapshot(key); return s.Playlist.Error != "" }, 5*time.Second, 10*time.Millisecond)
+	assert.Equal(t, before.Playlist.Entries, s.Playlist.Entries)
+	assert.Equal(t, before.Channels, s.Channels, "no channel goes Missing")
+	_, again := h.get(t, hostA, "/lineup.json")
+	assert.Equal(t, lineup, again)
+}
+
+func TestTheGuideHashMovesWithTheGuideNotTheClock(t *testing.T) {
+	// cluster-plex reloads a DVR's guide whenever its hash changes, and each
+	// reload is a provider.epg.load in PMS: a hash that changes as
+	// programmes end would reload every guide all day.
+	p := newProvider(t)
+	cfg := config(p.srv.URL)
+	h := startAt(t, newStore(t), cfg, now.Add(10*time.Hour))
+	before := h.fetched(t)
+	time.Sleep(50 * time.Millisecond)
+	notified := h.notifed.Load()
+
+	h.clock.Add(int64(9*time.Hour + 30*time.Minute)) // 19:30: one programme has ended, the dummy hours moved
+	h.tn.Apply(cfg)
+	time.Sleep(100 * time.Millisecond)
+	assert.Equal(t, notified, h.notifed.Load(), "an unchanged configuration renders nothing")
+
+	cfg.Tuners = 2 // a change that does not touch the guide
+	h.tn.Apply(cfg)
+	time.Sleep(100 * time.Millisecond)
+	s, _ := h.tn.Snapshot(key)
+	require.Len(t, s.Blocks, 2)
+	assert.Equal(t, before.Blocks[0].GuideHash, s.Blocks[0].GuideHash)
+	assert.Equal(t, before.Blocks[1].GuideHash, s.Blocks[1].GuideHash, "the dummy guide's hours are the day's")
+}
+
+func TestNoChannelReadsMissingBeforeTheFirstFetch(t *testing.T) {
+	// After a manager restart every channel would otherwise flip to Missing
+	// and back: a status write each way per channel.
+	tn := tuner.New(tuner.Options{Store: newStore(t), HTTP: http.DefaultClient, Now: func() time.Time { return now }, Debounce: time.Millisecond})
+	tn.Apply(config("http://127.0.0.1:1"))
+	var s tuner.Snapshot
+	require.Eventually(t, func() bool { var ok bool; s, ok = tn.Snapshot(key); return ok && len(s.Blocks) == 2 }, 2*time.Second, time.Millisecond)
+	assert.False(t, s.PlaylistFetched)
+	for name, st := range s.Channels {
+		assert.False(t, st.Missing, "%s: not Missing before the playlist is fetched", name)
+	}
+	assert.Zero(t, s.Lineup.Missing)
+}
+
+func TestATunerCountChangeIsItsOwnNotice(t *testing.T) {
+	// A tune changes no channel's status: it must not wake every channel.
+	p := newProvider(t)
+	h := start(t, newStore(t), config(p.srv.URL))
+	h.fetched(t)
+	time.Sleep(50 * time.Millisecond)
+	snapshots := h.notifed.Load()
+
+	req, err := http.NewRequest(http.MethodGet, h.front.URL+"/stream/1001", nil)
+	require.NoError(t, err)
+	req.Host = hostA
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	_, _ = io.CopyN(io.Discard, resp.Body, 4096)
+	require.Eventually(t, func() bool { return h.tuners.Load() > 0 }, 2*time.Second, 10*time.Millisecond)
+	_ = resp.Body.Close()
+	assert.Equal(t, snapshots, h.notifed.Load(), "no snapshot notice for a tune")
 }

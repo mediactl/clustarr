@@ -39,6 +39,8 @@ type upstream struct {
 	conns sync.Map // path -> *atomic.Int32
 	gen   atomic.Int32
 	hls   atomic.Bool
+	// userAgent is the last request's User-Agent.
+	userAgent atomic.Value
 }
 
 // newUpstream serves an endless MPEG-TS-like stream (188-byte packets, sync
@@ -49,6 +51,7 @@ func newUpstream(t *testing.T) *upstream {
 	u.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c, _ := u.conns.LoadOrStore(r.URL.Path, new(atomic.Int32))
 		c.(*atomic.Int32).Add(1)
+		u.userAgent.Store(r.Header.Get("User-Agent"))
 		if u.hls.Load() {
 			w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 			_, _ = io.WriteString(w, "#EXTM3U\n#EXT-X-TARGETDURATION:6\n")
@@ -244,4 +247,40 @@ func TestAPanickingUpstreamEndsOnlyItsStream(t *testing.T) {
 	assert.Equal(t, http.StatusBadGateway, bad.StatusCode)
 	_, err := io.CopyN(io.Discard, good.Body, 1<<20)
 	assert.NoError(t, err, "the other channel keeps streaming")
+}
+
+func TestAChannelChangeOnOneTunerTakesTheLingeringStreamsTuner(t *testing.T) {
+	// A one-connection account (the owner's): leaving 1001 for 1002 must
+	// not answer "all tuners in use" for the whole linger.
+	u := newUpstream(t)
+	r := newRelay(t, 1, 10*time.Second)
+	a, cancel := watch(t, r, "1001", u.srv.URL+"/1001.ts")
+	_, _ = io.CopyN(io.Discard, a.Body, 1<<16)
+	cancel()
+	require.Eventually(t, func() bool { return r.Viewers() == 0 }, 2*time.Second, 10*time.Millisecond)
+	b, _ := watch(t, r, "1002", u.srv.URL+"/1002.ts")
+	assert.Equal(t, http.StatusOK, b.StatusCode, "the unwatched stream gives up its tuner")
+	_, err := io.CopyN(io.Discard, b.Body, 1<<16)
+	require.NoError(t, err)
+	assert.Equal(t, 1, r.InUse())
+}
+
+func TestAWatchedStreamIsNeverTakenForAnother(t *testing.T) {
+	u := newUpstream(t)
+	r := newRelay(t, 1, 10*time.Second)
+	a, _ := watch(t, r, "1001", u.srv.URL+"/1001.ts")
+	_, _ = io.CopyN(io.Discard, a.Body, 1<<16)
+	b, _ := watch(t, r, "1002", u.srv.URL+"/1002.ts")
+	assert.Equal(t, http.StatusServiceUnavailable, b.StatusCode)
+}
+
+func TestConfigureReachesStreamsStartedAfterIt(t *testing.T) {
+	u := newUpstream(t)
+	r := newRelay(t, 1, 10*time.Second)
+	r.Configure(1, 1<<20, 0, "clustarr-configured")
+	a, cancel := watch(t, r, "1001", u.srv.URL+"/1001.ts")
+	_, _ = io.CopyN(io.Discard, a.Body, 1<<16)
+	cancel()
+	require.Eventually(t, func() bool { return r.InUse() == 0 }, 2*time.Second, 10*time.Millisecond, "a linger of 0 frees the tuner at once")
+	assert.Equal(t, "clustarr-configured", u.userAgent.Load(), "the new user agent reaches the upstream")
 }
