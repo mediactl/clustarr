@@ -24,6 +24,7 @@ require (
 	github.com/javi11/rapidyenc v0.0.0-20260215144528-f0dac5a39d34
 	github.com/jonboulle/clockwork v0.5.0
 	github.com/lithammer/fuzzysearch v1.1.8
+	github.com/mediactl/par2go v0.1.1
 	github.com/moistari/rls v0.6.0
 	github.com/nats-io/nats-server/v2 v2.15.0
 	github.com/nats-io/nats.go v1.53.1
@@ -136,7 +137,6 @@ require (
 	github.com/klauspost/cpuid/v2 v2.2.3 // indirect
 	github.com/lib/pq v1.10.9 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
-	github.com/mediactl/par2go v0.1.1 // indirect
 	github.com/minio/highwayhash v1.0.4 // indirect
 	github.com/minio/sha256-simd v1.0.0 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect

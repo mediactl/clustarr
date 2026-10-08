@@ -51,9 +51,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // media image of the time shipped par2cmdline-turbo v1.5.0, which
 // pkg/download/usenet exec'd. ADR-0017 replaces the exec with par2go
 // (github.com/mediactl/par2go, par2cmdline-turbo as a library) in a re-exec'd
-// child of the agent, once go.mod can require it (the split plan's Wave 9;
-// par2go v0.1.0's module zip is refused for a fixture name, 2026-10-07): it is
-// then a real import, not an entry here. The full D2-0 record, including why
+// child of the agent: pkg/par2child imports it for real (the split plan's
+// W9.3, at v0.1.1, since v0.1.0's module zip is refused for a fixture name),
+// so it was never an entry here. The full D2-0 record, including why
 // the cgo NNTP pool the research note recommends was never added
 // (javi11/nntppool/v4 is cgo-only, and the controller binary of the time,
 // cmd/clustarr, built with CGO_ENABLED=0), is in
