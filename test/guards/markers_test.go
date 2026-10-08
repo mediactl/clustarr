@@ -18,61 +18,43 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package guards
 
 import (
-	"bytes"
-	"errors"
-	"io"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
+
+	"github.com/mediactl/clustarr/pkg/binpath"
+	"github.com/mediactl/clustarr/test/installtest"
 )
 
-func objects(t *testing.T, in []byte) []*unstructured.Unstructured {
-	t.Helper()
-	dec := utilyaml.NewYAMLOrJSONDecoder(bytes.NewReader(in), 4096)
-	var out []*unstructured.Unstructured
-	for {
-		var m map[string]any
-		err := dec.Decode(&m)
-		if errors.Is(err, io.EOF) {
-			return out
-		}
-		require.NoError(t, err)
-		if len(m) > 0 {
-			out = append(out, &unstructured.Unstructured{Object: m})
-		}
-	}
-}
-
-// markers-worker reads /data and talks NATS, nothing else: its pod
-// mounts no ServiceAccount token and no binding names its account, in
-// either installer (spec 2026-10-01 segment detection §4.1).
+// markers (cmd/markers, the markers-worker Deployment until the installers
+// wave) reads /data and talks NATS, nothing else: its pod mounts no
+// ServiceAccount token and no binding names its account, in either
+// installer (spec 2026-10-01 segment detection §4.1).
 func TestMarkersWorkerHasNoCredentials(t *testing.T) {
-	helm, kustomize := findTool(t, "helm"), findTool(t, "kustomize")
+	helm, kustomize := installtest.FindTool(t, "helm"), installtest.FindTool(t, "kustomize")
 	root, err := filepath.Abs("../..")
 	require.NoError(t, err)
 	for name, docs := range map[string][]byte{
-		"chart":     run(t, root, helm, "template", "clustarr", "charts/clustarr"),
-		"kustomize": run(t, root, kustomize, "build", "config/default"),
+		"chart":     installtest.Run(t, root, helm, "template", "clustarr", "charts/clustarr"),
+		"kustomize": installtest.Run(t, root, kustomize, "build", "config/default"),
 	} {
 		t.Run(name, func(t *testing.T) {
 			var dep *unstructured.Unstructured
 			var sa string
-			for _, o := range objects(t, docs) {
-				if o.GetKind() == "Deployment" && strings.HasSuffix(o.GetName(), "markers-worker") {
+			for _, o := range installtest.Objects(t, docs) {
+				if o.GetKind() == "Deployment" && o.GetLabels()["app.kubernetes.io/component"] == "markers" {
 					dep = o
 				}
 			}
-			require.NotNil(t, dep, "no markers-worker Deployment")
+			require.NotNil(t, dep, "no markers Deployment")
 			spec, _, _ := unstructured.NestedMap(dep.Object, "spec", "template", "spec")
 			assert.Equal(t, false, spec["automountServiceAccountToken"], "no ServiceAccount token")
 			sa, _ = spec["serviceAccountName"].(string)
 			require.NotEmpty(t, sa)
-			for _, o := range objects(t, docs) {
+			for _, o := range installtest.Objects(t, docs) {
 				if k := o.GetKind(); k != "RoleBinding" && k != "ClusterRoleBinding" {
 					continue
 				}
@@ -84,7 +66,7 @@ func TestMarkersWorkerHasNoCredentials(t *testing.T) {
 			containers, _, _ := unstructured.NestedSlice(spec, "containers")
 			require.Len(t, containers, 1)
 			c := containers[0].(map[string]any)
-			assert.Equal(t, []any{"/usr/local/bin/markers-worker"}, c["command"])
+			assert.Equal(t, []any{binpath.Markers}, c["command"])
 			env := map[string]bool{}
 			for _, e := range c["env"].([]any) {
 				env[e.(map[string]any)["name"].(string)] = true

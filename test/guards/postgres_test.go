@@ -29,6 +29,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
+
+	"github.com/mediactl/clustarr/test/installtest"
 )
 
 // Task A3 (design spec 2026-09-24 §A.3-A.4; ADR-0010) taught index a
@@ -212,26 +214,27 @@ func buildPostgresKustomizeOverlay(t *testing.T, root string) string {
 
 // TestChartAndKustomizePostgresAgree is TestChartAndKustomizeAgreePerComponent's
 // sibling for the postgres-enabled render (design spec 2026-09-24 §A.3-A.4;
-// ADR-0010): both installers must give index the same CLUSTARR_INDEX_DSN
-// shape, no index PVC or volume, no Recreate strategy, and the same
+// ADR-0010): both installers must give the index agent (the index
+// Deployment until the manager and agent split) the same CLUSTARR_INDEX_DSN
+// shape, no index PVC or volume, the same Recreate strategy, and the same
 // CloudNativePG Cluster spec.
 func TestChartAndKustomizePostgresAgree(t *testing.T) {
-	helm := findTool(t, "helm")
-	kustomize := findTool(t, "kustomize")
+	helm := installtest.FindTool(t, "helm")
+	kustomize := installtest.FindTool(t, "kustomize")
 
 	root, err := filepath.Abs("../..")
 	require.NoError(t, err)
 
-	chartDocs := splitDocs(t, run(t, root, helm,
+	chartDocs := splitDocs(t, installtest.Run(t, root, helm,
 		"template", "clustarr", "charts/clustarr",
 		"--set", "postgres.enabled=true"))
 
 	overlay := buildPostgresKustomizeOverlay(t, root)
-	kzDocs := splitDocs(t, run(t, root, kustomize, "build", overlay))
+	kzDocs := splitDocs(t, installtest.Run(t, root, kustomize, "build", overlay))
 
 	var chartDeploy, kzDeploy indexDeploy
-	findDoc(t, chartDocs, "Deployment", "clustarr-index", &chartDeploy)
-	findDoc(t, kzDocs, "Deployment", "index", &kzDeploy)
+	findDoc(t, chartDocs, "Deployment", "clustarr-agent-index", &chartDeploy)
+	findDoc(t, kzDocs, "Deployment", "agent-index", &kzDeploy)
 
 	var chartCluster, kzCluster cnpgCluster
 	findDoc(t, chartDocs, "Cluster", "clustarr-postgres", &chartCluster)
@@ -245,9 +248,14 @@ func TestChartAndKustomizePostgresAgree(t *testing.T) {
 		{"kustomize", kzDeploy},
 	} {
 		t.Run(tc.installer, func(t *testing.T) {
-			require.NotEqual(t, "Recreate", tc.d.Spec.Strategy.Type,
-				"%s still pins index to Recreate under postgres.enabled; "+
-					"only the SQLite shape needs it (§A.3-A.4)", tc.installer)
+			// Until the manager and agent split only the SQLite shape
+			// needed Recreate (§A.3-A.4); the index agent is now one process
+			// under both engines -- its RPC responders, facade and per-host
+			// limiter (spec 2026-10-06 R4 amendment) -- so both installers
+			// keep it Recreate under postgres.enabled too.
+			require.Equal(t, "Recreate", tc.d.Spec.Strategy.Type,
+				"%s does not pin the index agent to Recreate under postgres.enabled; "+
+					"it is one process under both engines (spec 2026-10-06 R4 amendment)", tc.installer)
 
 			require.False(t, hasNamed(tc.d.Spec.Template.Spec.Volumes, "index"),
 				"%s still gives index a volume named \"index\" under postgres.enabled; "+

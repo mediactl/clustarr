@@ -24,6 +24,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/mediactl/clustarr/test/installtest"
 )
 
 // chartRBACSentinels are the comments that bracket one generated role's
@@ -58,14 +60,14 @@ func TestChartRBACMatchesTheGeneratedRoles(t *testing.T) {
 	chart, err := os.ReadFile(filepath.Join(root, "charts", "clustarr", "templates", "rbac.yaml"))
 	require.NoError(t, err)
 
-	for _, r := range rbacRoles(t, root) {
-		t.Run(r.name, func(t *testing.T) {
-			generated, err := os.ReadFile(filepath.Join(root, "config", "rbac", r.file()))
+	for _, r := range installtest.RBACRoles(t, root) {
+		t.Run(r.Name, func(t *testing.T) {
+			generated, err := os.ReadFile(filepath.Join(root, "config", "rbac", r.File()))
 			require.NoError(t, err)
 			_, want, found := strings.Cut(string(generated), "\nrules:\n")
-			require.True(t, found, "config/rbac/%s has no rules: block", r.file())
+			require.True(t, found, "config/rbac/%s has no rules: block", r.File())
 
-			begin, end := chartRBACSentinels(r.file())
+			begin, end := chartRBACSentinels(r.File())
 			require.Equal(t, 1, strings.Count(string(chart), begin),
 				"charts/clustarr/templates/rbac.yaml must carry the %q sentinel exactly once; "+
 					"every generated role needs its copy in the chart", begin)
@@ -76,7 +78,7 @@ func TestChartRBACMatchesTheGeneratedRoles(t *testing.T) {
 			require.Equal(t, strings.TrimRight(want, "\n"), strings.TrimRight(got, "\n"),
 				"the Helm chart's %s ClusterRole has drifted from config/rbac/%s.\n"+
 					"Run `make manifests`, then copy the rules: list from config/rbac/%s into\n"+
-					"charts/clustarr/templates/rbac.yaml between its BEGIN/END sentinels.", r.name, r.file(), r.file())
+					"charts/clustarr/templates/rbac.yaml between its BEGIN/END sentinels.", r.Name, r.File(), r.File())
 		})
 	}
 }

@@ -18,7 +18,6 @@ package guards
 
 import (
 	"bytes"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
@@ -26,67 +25,66 @@ import (
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+
+	"github.com/mediactl/clustarr/internal/cli"
+	"github.com/mediactl/clustarr/test/installtest"
 )
 
 // TestChartIndexCardigannReachesIndex pins what the chart renders for
-// index.cardigann.* (X16 verified it with `helm template` by hand only):
-// each value's env var, volume and mount on the index Deployment, then
-// that container's env and args run through the real command tree, so a
-// renamed env var or flag on either side fails here rather than on a
-// cluster. The default render adds nothing -- the binary's own defaults
-// (bundled on, no directory) are what an unconfigured chart means.
+// manager.cardigann.* (X16 verified it with `helm template` by hand only;
+// the values moved from index to the manager, whose bundle loader applies
+// the definitions, in the installers wave): each value's env var, volume and
+// mount on the manager Deployment, so a renamed env var, volume or key fails
+// here rather than on a cluster. The default render adds nothing -- the
+// binary's own defaults (bundled on, no directory) are what an unconfigured
+// chart means. That the variables reach --cardigann-bundled and
+// --cardigann-definitions-dir is cmd/manager's own test (W5.7); the
+// command-tree half this test had parsed the retired clustarr binary.
 func TestChartIndexCardigannReachesIndex(t *testing.T) {
-	helm := findTool(t, "helm")
+	helm := installtest.FindTool(t, "helm")
 	root, err := filepath.Abs("../..")
 	require.NoError(t, err)
 
 	const dir = "/etc/clustarr/cardigann"
 	for name, tc := range map[string]struct {
-		args        []string
-		env         map[string]string // the cardigann env vars rendered, exactly
-		volume      *corev1.VolumeSource
-		mount       *corev1.VolumeMount
-		wantBundled bool
-		wantDir     string
+		args   []string
+		env    map[string]string // the cardigann env vars rendered, exactly
+		volume *corev1.VolumeSource
+		mount  *corev1.VolumeMount
 	}{
-		"defaults": {env: map[string]string{}, wantBundled: true},
+		"defaults": {env: map[string]string{}},
 		"bundled off": {
-			args:        []string{"--set", "index.cardigann.bundled=false"},
-			env:         map[string]string{cardigannBundledEnv: "false"},
-			wantBundled: false,
+			args: []string{"--set", "manager.cardigann.bundled=false"},
+			env:  map[string]string{cli.EnvCardigannBundled: "false"},
 		},
 		"configMap": {
-			args:        []string{"--set", "index.cardigann.definitions.configMap=cardigann-defs"},
-			env:         map[string]string{cardigannDefinitionsDirEnv: dir},
-			volume:      &corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: "cardigann-defs"}}},
-			mount:       &corev1.VolumeMount{Name: "cardigann", MountPath: dir, ReadOnly: true},
-			wantBundled: true,
-			wantDir:     dir,
+			args:   []string{"--set", "manager.cardigann.definitions.configMap=cardigann-defs"},
+			env:    map[string]string{cli.EnvCardigannDefinitionsDir: dir},
+			volume: &corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: "cardigann-defs"}}},
+			mount:  &corev1.VolumeMount{Name: "cardigann", MountPath: dir, ReadOnly: true},
 		},
 		"existingClaim with subPath": {
 			args: []string{
-				"--set", "index.cardigann.definitions.existingClaim=cardigann-pvc",
-				"--set", "index.cardigann.definitions.subPath=v11",
+				"--set", "manager.cardigann.definitions.existingClaim=cardigann-pvc",
+				"--set", "manager.cardigann.definitions.subPath=v11",
 			},
-			env:         map[string]string{cardigannDefinitionsDirEnv: dir},
-			volume:      &corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: "cardigann-pvc", ReadOnly: true}},
-			mount:       &corev1.VolumeMount{Name: "cardigann", MountPath: dir, ReadOnly: true, SubPath: "v11"},
-			wantBundled: true,
-			wantDir:     dir,
+			env:    map[string]string{cli.EnvCardigannDefinitionsDir: dir},
+			volume: &corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: "cardigann-pvc", ReadOnly: true}},
+			mount:  &corev1.VolumeMount{Name: "cardigann", MountPath: dir, ReadOnly: true, SubPath: "v11"},
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			out := run(t, root, helm, append([]string{"template", "clustarr", "charts/clustarr"}, tc.args...)...)
-			dep := indexDeployment(t, decodeRendered(t, out).deployments)
+			out := installtest.Run(t, root, helm, append([]string{"template", "clustarr", "charts/clustarr"}, tc.args...)...)
+			dep := managerDeployment(t, installtest.DecodeRendered(t, out).Deployments)
 			ctr := dep.Spec.Template.Spec.Containers[0]
 
 			got := map[string]string{}
 			for _, e := range ctr.Env {
-				if e.Name == cardigannBundledEnv || e.Name == cardigannDefinitionsDirEnv {
+				if e.Name == cli.EnvCardigannBundled || e.Name == cli.EnvCardigannDefinitionsDir {
 					got[e.Name] = e.Value
 				}
 			}
-			require.Equal(t, tc.env, got, "the cardigann env vars on the index container")
+			require.Equal(t, tc.env, got, "the cardigann env vars on the manager container")
 
 			var vol *corev1.Volume
 			for i := range dep.Spec.Template.Spec.Volumes {
@@ -109,53 +107,36 @@ func TestChartIndexCardigannReachesIndex(t *testing.T) {
 				require.NotNil(t, mount)
 				require.Equal(t, *tc.mount, *mount)
 			}
-
-			// The rendered container, through the command tree.
-			for _, k := range []string{cardigannBundledEnv, cardigannDefinitionsDirEnv} {
-				t.Setenv(k, "")
-				require.NoError(t, os.Unsetenv(k))
-			}
-			for _, e := range ctr.Env {
-				if e.ValueFrom == nil {
-					t.Setenv(e.Name, e.Value)
-				}
-			}
-			t.Setenv(namespaceEnv, "clustarr-system")
-			opts := stub(t, &runIndex)
-			_, err := execute(t, ctr.Args...)
-			require.NoError(t, err)
-			require.Equal(t, tc.wantBundled, opts.CardigannBundled, "--cardigann-bundled")
-			require.Equal(t, tc.wantDir, opts.CardigannDefinitionsDir, "--cardigann-definitions-dir")
 		})
 	}
 }
 
-// TestChartRefusesTwoCardigannDefinitionSources: index loads one
+// TestChartRefusesTwoCardigannDefinitionSources: the manager loads one
 // definitions directory, so a configMap and an existingClaim together fail
 // the render (clustarr.validate) instead of mounting one and ignoring the
 // other.
 func TestChartRefusesTwoCardigannDefinitionSources(t *testing.T) {
-	helm := findTool(t, "helm")
+	helm := installtest.FindTool(t, "helm")
 	root, err := filepath.Abs("../..")
 	require.NoError(t, err)
 
 	cmd := exec.Command(helm, "template", "clustarr", "charts/clustarr",
-		"--set", "index.cardigann.definitions.configMap=a",
-		"--set", "index.cardigann.definitions.existingClaim=b")
+		"--set", "manager.cardigann.definitions.configMap=a",
+		"--set", "manager.cardigann.definitions.existingClaim=b")
 	cmd.Dir = root
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	require.Error(t, cmd.Run(), "a render with both definition sources must fail")
-	require.Contains(t, stderr.String(), "index.cardigann.definitions: set configMap or existingClaim, not both")
+	require.Contains(t, stderr.String(), "manager.cardigann.definitions: set configMap or existingClaim, not both")
 }
 
-func indexDeployment(t *testing.T, deps []appsv1.Deployment) *appsv1.Deployment {
+func managerDeployment(t *testing.T, deps []appsv1.Deployment) *appsv1.Deployment {
 	t.Helper()
 	for i := range deps {
-		if deps[i].Spec.Template.Labels["app.kubernetes.io/component"] == "index" {
+		if deps[i].Spec.Template.Labels["app.kubernetes.io/component"] == "manager" {
 			return &deps[i]
 		}
 	}
-	t.Fatal("no index Deployment rendered")
+	t.Fatal("no manager Deployment rendered")
 	return nil
 }

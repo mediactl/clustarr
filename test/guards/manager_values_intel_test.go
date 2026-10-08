@@ -18,53 +18,49 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package guards
 
 import (
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	appsv1 "k8s.io/api/apps/v1"
+
+	"github.com/mediactl/clustarr/internal/cli"
+	"github.com/mediactl/clustarr/internal/cli/ctrlflags"
+	"github.com/mediactl/clustarr/test/installtest"
 )
 
 // TestChartIntelRenderGroupsReachTheController follows the chart's
-// transcode.intelRenderGroups value (X14) through what the chart renders:
-// the transcode Deployment's env, run through the real command tree, must
-// give transcode the same GIDs -- and no value must give none, since the
-// render GID is per host install.
+// manager.intelRenderGroups value (X14) through what the chart renders: the
+// Deployment that renders the transcode pools (the one carrying
+// CLUSTARR_NATIVE_IMAGE) must carry the same GIDs in
+// CLUSTARR_INTEL_RENDER_GROUPS, in the form the flag parses -- and no value
+// must give none, since the render GID is per host install. That the
+// variable reaches --intel-render-groups is cmd/manager's own test (W5.7).
 func TestChartIntelRenderGroupsReachTheController(t *testing.T) {
-	helm := findTool(t, "helm")
-	root, err := filepath.Abs("../..")
-	require.NoError(t, err)
-
 	for name, tc := range map[string]struct {
 		args []string
 		want []int64
 	}{
-		"set":   {args: []string{"--set", "transcode.intelRenderGroups={44,109}"}, want: []int64{44, 109}},
+		"set":   {args: []string{"--set", "manager.intelRenderGroups={44,109}"}, want: []int64{44, 109}},
 		"unset": {},
 	} {
 		t.Run(name, func(t *testing.T) {
-			out := run(t, root, helm, append([]string{"template", "clustarr", "charts/clustarr"}, tc.args...)...)
-			r := decodeRendered(t, out)
-			var dep *appsv1.Deployment
-			for i := range r.deployments {
-				if r.deployments[i].Spec.Template.Labels["app.kubernetes.io/component"] == "transcode" {
-					dep = &r.deployments[i]
+			var got []int64
+			var found bool
+			for _, d := range installtest.DecodeRendered(t, installtest.RenderChart(t, tc.args...)).Deployments {
+				env := map[string]string{}
+				for _, e := range d.Spec.Template.Spec.Containers[0].Env {
+					env[e.Name] = e.Value
 				}
-			}
-			require.NotNil(t, dep, "no transcode Deployment rendered")
-			ctr := dep.Spec.Template.Spec.Containers[0]
-			t.Setenv(intelRenderGroupsEnv, "")
-			for _, e := range ctr.Env {
-				if e.ValueFrom == nil {
-					t.Setenv(e.Name, e.Value)
+				if _, ok := env[cli.EnvNativeImage]; !ok {
+					continue
 				}
+				found = true
+				var err error
+				got, err = ctrlflags.ParseGIDs(env[cli.EnvIntelRenderGroups])
+				require.NoError(t, err)
 			}
-			t.Setenv(namespaceEnv, "clustarr-system")
-			got := stub(t, &runTranscode)
-			_, err := execute(t, ctr.Args...)
-			require.NoError(t, err)
-			require.Equal(t, tc.want, got.IntelRenderGroups,
-				"the chart's transcode.intelRenderGroups did not reach transcode's --intel-render-groups")
+			require.True(t, found, "no Deployment renders the transcode pools")
+			require.Equal(t, tc.want, got,
+				"the chart's manager.intelRenderGroups did not reach the pools' renderer's --intel-render-groups")
 		})
 	}
 }

@@ -30,6 +30,7 @@ import (
 	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
 	"sigs.k8s.io/yaml"
 
+	"github.com/mediactl/clustarr/test/installtest"
 	"github.com/mediactl/clustarr/ui/actions"
 )
 
@@ -337,8 +338,8 @@ type uiRBACDoc struct {
 // action ever reached the apiserver, so nothing could have noticed the role's
 // write verbs being unreachable.
 func TestUIRoleIsBoundToTheUIServiceAccount(t *testing.T) {
-	helm := findTool(t, "helm")
-	kustomize := findTool(t, "kustomize")
+	helm := installtest.FindTool(t, "helm")
+	kustomize := installtest.FindTool(t, "kustomize")
 
 	root, err := filepath.Abs("../..")
 	require.NoError(t, err)
@@ -361,12 +362,12 @@ func TestUIRoleIsBoundToTheUIServiceAccount(t *testing.T) {
 		{
 			name:      "helm template charts/clustarr",
 			namespace: releaseNamespace,
-			docs: decodeUIRBACDocs(t, run(t, root, helm,
+			docs: decodeUIRBACDocs(t, installtest.Run(t, root, helm,
 				"template", "clustarr", "charts/clustarr", "--namespace", releaseNamespace)),
 		},
 		{
 			name: "kustomize build config/default",
-			docs: decodeUIRBACDocs(t, run(t, root, kustomize, "build", "config/default")),
+			docs: decodeUIRBACDocs(t, installtest.Run(t, root, kustomize, "build", "config/default")),
 		},
 	}
 

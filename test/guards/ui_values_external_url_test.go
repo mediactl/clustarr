@@ -23,10 +23,13 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	appsv1 "k8s.io/api/apps/v1"
 	"sigs.k8s.io/yaml"
+
+	"github.com/mediactl/clustarr/test/installtest"
 )
 
-// TestExternalURLFlagReachesTheChart holds cmd/clustarr/flags.go's own
+// TestExternalURLFlagReachesTheChart holds ui's --external-url flag's own
 // claim -- that the chart passes ui's --external-url through
 // `ui.plex.externalURL` -- to the chart actually doing it, the same way
 // TestChartUIAuthModeReachesUI holds --auth-mode to `ui.auth.mode`.
@@ -57,12 +60,24 @@ func TestExternalURLFlagReachesTheChart(t *testing.T) {
 			"this test starts asserting for real once that lands")
 	}
 
-	helm := findTool(t, "helm")
+	helm := installtest.FindTool(t, "helm")
 	const wantExternalURL = "https://x.example"
-	out := run(t, root, helm, "template", "clustarr", "charts/clustarr",
+	out := installtest.Run(t, root, helm, "template", "clustarr", "charts/clustarr",
 		"--set", "ui.plex.externalURL="+wantExternalURL)
 
-	dep := uiDeployment(t, decodeRendered(t, out).deployments)
+	dep := uiDeployment(t, installtest.DecodeRendered(t, out).Deployments)
 	argv := dep.Spec.Template.Spec.Containers[0].Args
 	require.Contains(t, argv, "--external-url="+wantExternalURL, "argv %v", argv)
+}
+
+// uiDeployment is the rendered ui Deployment.
+func uiDeployment(t *testing.T, deps []appsv1.Deployment) *appsv1.Deployment {
+	t.Helper()
+	for i := range deps {
+		if deps[i].Spec.Template.Labels["app.kubernetes.io/component"] == "ui" {
+			return &deps[i]
+		}
+	}
+	t.Fatal("no ui Deployment rendered")
+	return nil
 }

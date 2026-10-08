@@ -109,11 +109,14 @@ func TestChartImagesMatchConfig(t *testing.T) {
 	}
 }
 
-// TestTranscoderImagesAreWhatTranscodeStampsOntoPools holds the chart's
-// image.transcoder repository, and config/manager/transcode.yaml's
-// CLUSTARR_WORKER_IMAGE, to the image images/Dockerfile.transcoder builds,
-// and keeps the CUDA image gone: nvidia pools run the same image, the NVIDIA
-// container runtime injecting the driver's libraries from the host
+// TestTranscoderImagesAreWhatTheTranscodeControllerStampsOntoPools holds the
+// chart's image.native repository, and config/manager/manager.yaml's
+// CLUSTARR_NATIVE_IMAGE, to the image images/Dockerfile.native builds (the
+// one image every transcode pool and download engine runs since the
+// installers wave, spec 2026-10-06 §3.11; it was image.transcoder and
+// config/manager/transcode.yaml's CLUSTARR_WORKER_IMAGE), and keeps the CUDA
+// image gone: nvidia pools run the same image, the NVIDIA container runtime
+// injecting the driver's libraries from the host
 // (docs/adr/0015-no-cuda-image.md). No Dockerfile builds a *-cuda target,
 // none sets NVIDIA_VISIBLE_DEVICES (all would hand every GPU to any pod
 // running the image under the nvidia runtime, bypassing the device plugin),
@@ -130,17 +133,22 @@ func TestTranscoderImagesAreWhatTheTranscodeControllerStampsOntoPools(t *testing
 	}
 	require.NoError(t, yaml.Unmarshal(raw, &values), "parse the chart values")
 
-	entry, ok := values.Image["transcoder"].(map[string]any)
-	require.True(t, ok, "charts/clustarr/values.yaml has no image.transcoder")
-	require.Equal(t, "mediactl/clustarr/transcoder", entry["repository"],
-		"charts/clustarr/values.yaml's image.transcoder.repository")
+	entry, ok := values.Image["native"].(map[string]any)
+	require.True(t, ok, "charts/clustarr/values.yaml has no image.native")
+	require.Equal(t, "mediactl/clustarr/native", entry["repository"],
+		"charts/clustarr/values.yaml's image.native.repository")
 	require.NotContains(t, values.Image, "transcoderCuda", "there is no CUDA image (ADR 0015)")
 
-	manifest, err := os.ReadFile(filepath.Join(root, "config", "manager", "transcode.yaml"))
-	require.NoError(t, err, "read config/manager/transcode.yaml")
-	require.Contains(t, string(manifest), "ghcr.io/mediactl/clustarr/transcoder:dev")
+	manifest, err := os.ReadFile(filepath.Join(root, "config", "manager", "manager.yaml"))
+	require.NoError(t, err, "read config/manager/manager.yaml")
+	require.Regexp(t, `(?m)- name: CLUSTARR_NATIVE_IMAGE\n\s+value: ghcr\.io/mediactl/clustarr/native:dev\n`, string(manifest),
+		"config/manager/manager.yaml's CLUSTARR_NATIVE_IMAGE")
 	require.NotContains(t, string(manifest), "CLUSTARR_WORKER_IMAGE_CUDA", "there is no CUDA image (ADR 0015)")
+	require.NotContains(t, string(manifest), "native-cuda")
 	require.NotContains(t, string(manifest), "transcoder-cuda")
+
+	_, ok = stageOf(t, filepath.Join(root, "images", "Dockerfile.native"), "native")
+	require.True(t, ok, "images/Dockerfile.native builds no native target")
 
 	dockerfiles, err := filepath.Glob(filepath.Join(root, "images", "Dockerfile*"))
 	require.NoError(t, err)
@@ -160,36 +168,49 @@ func TestTranscoderImagesAreWhatTheTranscodeControllerStampsOntoPools(t *testing
 	require.True(t, os.IsNotExist(err), "Dockerfile.media-cuda stays gone")
 }
 
-// The transcoder image carries no ffmpeg or ffprobe executable: the worker
-// runs every transcode and probe in-process (ffgo Phase 5), and
-// app/transcode's TestTheWorkerNeverExecsFFmpeg keeps it from exec'ing one.
-// Neither the Dockerfile nor stage.sh may put one in the image, and
-// stage.sh's last step refuses one that arrives some other way (a package
-// the Intel runtime pulls in, say). The Wolfi image that carried them, the
-// last to be named transcoder before this one, stays gone.
+// stageOf reads the Dockerfile at path and reports whether it declares the
+// stage named name.
+func stageOf(t *testing.T, path, name string) (string, bool) {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	require.NoError(t, err)
+	from, _, ok := dockerStage(string(b), name)
+	return from, ok
+}
+
+// The image the transcode pools run -- the native image since the
+// installers wave (W6.5; it was the transcoder image) -- carries no ffmpeg or
+// ffprobe executable: the worker runs every transcode and probe in-process
+// (ffgo Phase 5), and app/transcode's TestTheWorkerNeverExecsFFmpeg keeps it
+// from exec'ing one. Neither the Dockerfile nor stage.sh may put one in the
+// image, and stage.sh's last step refuses one that arrives some other way (a
+// package the Intel runtime pulls in, say). The Wolfi image that carried
+// them, and the transcoder image after it, stay gone.
 func TestTheTranscoderImageCarriesNoFFmpegExecutable(t *testing.T) {
 	root, err := filepath.Abs("../..")
 	require.NoError(t, err)
 	installs := regexp.MustCompile(`(?m)^[^#\n]*(/usr/bin/ff(mpeg|probe)|bin/ff(mpeg|probe)\s+\S*/usr/bin)`)
-	for _, f := range []string{"images/Dockerfile.transcoder", "images/distroless/stage.sh"} {
+	for _, f := range []string{"images/Dockerfile.native", "images/distroless/stage.sh"} {
 		b, err := os.ReadFile(filepath.Join(root, f))
 		require.NoError(t, err)
 		if m := installs.Find(b); m != nil {
-			t.Errorf("%s puts an FFmpeg executable in the transcoder image: %q", f, m)
+			t.Errorf("%s puts an FFmpeg executable in the native image: %q", f, m)
 		}
 	}
 	stage, err := os.ReadFile(filepath.Join(root, "images", "distroless", "stage.sh"))
 	require.NoError(t, err)
-	assert.Regexp(t, `(?s)for f in ffmpeg ffprobe; do.*exit 1`, string(stage), "stage.sh refuses a staged ffmpeg or ffprobe")
-	_, err = os.Stat(filepath.Join(root, "images", "Dockerfile.transcoder-distroless"))
-	assert.True(t, os.IsNotExist(err), "Dockerfile.transcoder-distroless became Dockerfile.transcoder")
-	df, err := os.ReadFile(filepath.Join(root, "images", "Dockerfile.transcoder"))
+	assert.Regexp(t, `(?s)for f in ffmpeg ffprobe\b[^;]*; do.*exit 1`, string(stage), "stage.sh refuses a staged ffmpeg or ffprobe")
+	for _, gone := range []string{"Dockerfile.transcoder-distroless", "Dockerfile.transcoder"} {
+		_, err = os.Stat(filepath.Join(root, "images", gone))
+		assert.True(t, os.IsNotExist(err), "%s became Dockerfile.native", gone)
+	}
+	df, err := os.ReadFile(filepath.Join(root, "images", "Dockerfile.native"))
 	require.NoError(t, err)
-	for _, name := range []string{"transcoder", "transcoder-amd64", "transcoder-arm64", "transcoder-base"} {
+	for _, name := range []string{"native", "native-amd64", "native-arm64", "native-base"} {
 		from, _, ok := dockerStage(string(df), name)
 		require.True(t, ok, "the %s stage", name)
-		if name == "transcoder-base" {
-			assert.Equal(t, "scratch", from, "the transcoder is the FROM-scratch image")
+		if name == "native-base" {
+			assert.Equal(t, "scratch", from, "the native image is a FROM-scratch image")
 		}
 	}
 }
@@ -209,40 +230,41 @@ func dockerStage(df, name string) (from, body string, ok bool) {
 	return df[loc[2]:loc[3]], body, true
 }
 
-// Every pool, Intel's included, runs the one transcoder image (ADR 0015),
-// so that image carries the Intel media runtime -- the iHD VAAPI driver
-// and both QSV runtimes, which nothing injects at run time the way the
-// NVIDIA runtime injects NVIDIA's -- and no Intel-only target remains.
-// The runtime is amd64's alone, and so is the environment pointing libva
-// at it: transcoder picks its architecture's stage, and arm64's, which
-// stages no libva, sets none of libva's environment.
+// Every pool, Intel's included, runs the one native image (ADR 0015; the
+// transcoder image until the installers wave, W6.5), so that image carries
+// the Intel media runtime -- the iHD VAAPI driver and both QSV runtimes,
+// which nothing injects at run time the way the NVIDIA runtime injects
+// NVIDIA's -- and no Intel-only target remains. The runtime is amd64's
+// alone, and so is the environment pointing libva at it: native picks its
+// architecture's stage, and arm64's, which stages no libva, sets none of
+// libva's environment.
 func TestTheOneTranscoderImageCarriesTheIntelStack(t *testing.T) {
 	root, err := filepath.Abs("../..")
 	require.NoError(t, err)
-	b, err := os.ReadFile(filepath.Join(root, "images", "Dockerfile.transcoder"))
+	b, err := os.ReadFile(filepath.Join(root, "images", "Dockerfile.native"))
 	require.NoError(t, err)
 	df := string(b)
-	assert.NotRegexp(t, `(?im)^FROM\s+\S+\s+AS\s+transcoder-intel`, df, "no Intel-only target")
+	assert.NotRegexp(t, `(?im)^FROM\s+\S+\s+AS\s+\S*-intel\b`, df, "no Intel-only target")
 
-	from, _, ok := dockerStage(df, "transcoder")
-	require.True(t, ok, "the transcoder target")
-	assert.Equal(t, "transcoder-${TARGETARCH}", from, "the transcoder target is its architecture's stage")
+	from, _, ok := dockerStage(df, "native")
+	require.True(t, ok, "the native target")
+	assert.Equal(t, "native-${TARGETARCH}", from, "the native target is its architecture's stage")
 	for _, arch := range []string{"amd64", "arm64"} {
-		from, _, ok := dockerStage(df, "transcoder-"+arch)
-		require.True(t, ok, "the transcoder-%s stage", arch)
-		assert.Equal(t, "transcoder-base", from, "transcoder-%s builds on transcoder-base", arch)
+		from, _, ok := dockerStage(df, "native-"+arch)
+		require.True(t, ok, "the native-%s stage", arch)
+		assert.Equal(t, "native-base", from, "native-%s builds on native-base", arch)
 	}
-	_, amd64, _ := dockerStage(df, "transcoder-amd64")
+	_, amd64, _ := dockerStage(df, "native-amd64")
 	assert.Contains(t, amd64, "LIBVA_DRIVERS_PATH=/usr/lib/x86_64-linux-gnu/dri", "amd64 points libva at iHD")
 	assert.Contains(t, amd64, "LIBVA_DRIVER_NAME=iHD", "amd64 names the iHD driver")
-	_, arm64, _ := dockerStage(df, "transcoder-arm64")
+	_, arm64, _ := dockerStage(df, "native-arm64")
 	assert.NotContains(t, arm64, "LIBVA_", "arm64 stages no libva, so it sets none of its environment")
 
-	_, base, ok := dockerStage(df, "transcoder-base")
-	require.True(t, ok, "the transcoder-base stage")
+	_, base, ok := dockerStage(df, "native-base")
+	require.True(t, ok, "the native-base stage")
 	assert.NotContains(t, base, "LIBVA_", "libva's environment is amd64's, not every architecture's")
 	staging := regexp.MustCompile(`COPY --from=(\S+) /staging/ /`).FindStringSubmatch(base)
-	require.NotNil(t, staging, "transcoder-base copies a staging tree")
+	require.NotNil(t, staging, "native-base copies a staging tree")
 	_, m, ok := dockerStage(df, staging[1])
 	require.True(t, ok, "the %s stage", staging[1])
 	for _, pkg := range []string{"intel-media-va-driver-non-free", "libmfx-gen1.2", "libmfx1/bookworm"} {

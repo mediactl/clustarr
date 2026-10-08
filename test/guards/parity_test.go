@@ -22,14 +22,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
-	"time"
 
 	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
+
+	"github.com/mediactl/clustarr/test/installtest"
 )
 
 // Clustarr ships two installers for the same topology: config/ (kustomize)
@@ -45,12 +45,6 @@ import (
 //
 // TestChartAndKustomizeAgreePerComponent renders both and asserts they name
 // the same components for each of the four per-service objects.
-
-// renderTimeout bounds each helm/kustomize invocation. Both are local,
-// offline renders (the chart's subcharts are vendored under
-// charts/clustarr/charts), so anything slower than this is a hang, not a slow
-// machine.
-const renderTimeout = 2 * time.Minute
 
 // parityKinds are the per-service objects both installers must declare for
 // exactly the same set of components. Each is a silent failure when it goes
@@ -170,8 +164,8 @@ func subjectAccount(doc manifestDoc) string {
 }
 
 func TestChartAndKustomizeAgreePerComponent(t *testing.T) {
-	helm := findTool(t, "helm")
-	kustomize := findTool(t, "kustomize")
+	helm := installtest.FindTool(t, "helm")
+	kustomize := installtest.FindTool(t, "kustomize")
 
 	root, err := filepath.Abs("../..")
 	if err != nil {
@@ -187,8 +181,8 @@ func TestChartAndKustomizeAgreePerComponent(t *testing.T) {
 	// Every role identity either installer may bind: the generated ones
 	// (the Makefile's RBAC_ROLES) and ui's hand-written one.
 	identities := map[string]bool{"ui": true}
-	for _, role := range rbacRoles(t, root) {
-		identities[role.name] = true
+	for _, role := range installtest.RBACRoles(t, root) {
+		identities[role.Name] = true
 	}
 	identityOf := func(prefix, suffix string) func(string) (string, bool) {
 		return func(name string) (string, bool) {
@@ -206,7 +200,7 @@ func TestChartAndKustomizeAgreePerComponent(t *testing.T) {
 		prefix:             "clustarr-",
 		roleIdentity:       identityOf("clustarr-", ""),
 		leaderElectionRole: "clustarr-leader-election",
-		docs: decodeManifests(t, run(t, root, helm,
+		docs: decodeManifests(t, installtest.Run(t, root, helm,
 			"template", "clustarr", "charts/clustarr",
 			"--set", "metrics.serviceMonitor.enabled=true")),
 	}
@@ -214,8 +208,8 @@ func TestChartAndKustomizeAgreePerComponent(t *testing.T) {
 	// kustomize names its ServiceAccounts after the component with no
 	// prefix, and its ServiceMonitors likewise; only the RBAC objects carry
 	// "clustarr-", and those are reached through subjects/labels above.
-	kz := run(t, root, kustomize, "build", "config/default")
-	kz = append(kz, run(t, root, kustomize, "build", "config/prometheus")...)
+	kz := installtest.Run(t, root, kustomize, "build", "config/default")
+	kz = append(kz, installtest.Run(t, root, kustomize, "build", "config/prometheus")...)
 	kustom := renderer{
 		name:               "kustomize build config/default + config/prometheus",
 		prefix:             "",
@@ -247,53 +241,6 @@ func TestChartAndKustomizeAgreePerComponent(t *testing.T) {
 			}
 		}
 	}
-}
-
-// findTool resolves name on PATH, then in GOPATH/bin (where the Makefile
-// installs kustomize), and skips the test with a usable message when it is
-// absent -- this test is about two installers agreeing, and it cannot say
-// anything at all without the binaries that render them.
-func findTool(t *testing.T, name string) string {
-	t.Helper()
-	if p, err := exec.LookPath(name); err == nil {
-		return p
-	}
-	out, err := exec.Command("go", "env", "GOPATH").Output()
-	if err == nil {
-		p := filepath.Join(strings.TrimSpace(string(out)), "bin", name)
-		if _, err := exec.LookPath(p); err == nil {
-			return p
-		}
-	}
-	t.Skipf("%s is not installed (PATH or $(go env GOPATH)/bin); "+
-		"chart/kustomize parity cannot be checked without it", name)
-	return ""
-}
-
-// run executes bin in the repo root and returns its stdout.
-func run(t *testing.T, dir, bin string, args ...string) []byte {
-	t.Helper()
-	cmd := exec.Command(bin, args...)
-	cmd.Dir = dir
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	done := make(chan error, 1)
-	if err := cmd.Start(); err != nil {
-		t.Fatalf("%s %s: %v", bin, strings.Join(args, " "), err)
-	}
-	go func() { done <- cmd.Wait() }()
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("%s %s: %v\n%s", bin, strings.Join(args, " "), err, stderr.String())
-		}
-	case <-time.After(renderTimeout):
-		_ = cmd.Process.Kill()
-		t.Fatalf("%s %s: still running after %s", bin, strings.Join(args, " "), renderTimeout)
-	}
-	return stdout.Bytes()
 }
 
 // decodeManifests splits a multi-document YAML stream into manifestDocs,

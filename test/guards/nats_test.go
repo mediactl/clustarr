@@ -21,6 +21,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"testing"
+
+	"github.com/mediactl/clustarr/test/installtest"
 )
 
 // TestBothInstallersRaiseTheNATSMaxPayload holds the chart's NATS
@@ -33,21 +35,21 @@ import (
 // differently (the subchart emits JSON, kustomize a conf block), so this
 // matches each in its own spelling rather than comparing documents.
 func TestBothInstallersRaiseTheNATSMaxPayload(t *testing.T) {
-	helm := findTool(t, "helm")
-	kustomize := findTool(t, "kustomize")
+	helm := installtest.FindTool(t, "helm")
+	kustomize := installtest.FindTool(t, "kustomize")
 
 	root, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatalf("locate repo root: %v", err)
 	}
 
-	chart := run(t, root, helm, "template", "clustarr", "charts/clustarr")
+	chart := installtest.Run(t, root, helm, "template", "clustarr", "charts/clustarr")
 	if want := regexp.MustCompile(`"max_payload":\s*8Mi\b`); !want.Match(chart) {
 		t.Errorf("helm template charts/clustarr renders no NATS max_payload of 8Mi; "+
 			"nats.config.merge.max_payload in charts/clustarr/values.yaml must be %q", "<< 8Mi >>")
 	}
 
-	kz := run(t, root, kustomize, "build", "config/default")
+	kz := installtest.Run(t, root, kustomize, "build", "config/default")
 	if want := regexp.MustCompile(`(?m)^\s*max_payload:\s*8Mi\b`); !want.Match(kz) {
 		t.Errorf("kustomize build config/default renders no NATS max_payload of 8Mi; " +
 			"config/nats/configmap.yaml must keep it")

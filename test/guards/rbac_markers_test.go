@@ -29,64 +29,13 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/yaml"
 
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/test/installtest"
 )
-
-// rbacRole is one ClusterRole `make manifests` generates: its name in the
-// Makefile's RBAC_ROLES and the package patterns RBAC_PATHS_<name> hands
-// controller-gen. Since task X14 there is one per identity (design §10), not
-// one union role for every service.
-type rbacRole struct {
-	name  string
-	paths []string
-}
-
-// file is the generated role's file under config/rbac.
-func (r rbacRole) file() string { return strings.ReplaceAll(r.name, "-", "_") + "_role.yaml" }
-
-// rbacRoles reads RBAC_ROLES and each RBAC_PATHS_<role> out of the Makefile
-// -- what controller-gen is actually pointed at -- rather than restating
-// them. A second copy here could drift from the generator's real input,
-// which is precisely the class of bug these guards exist to catch.
-func rbacRoles(t *testing.T, root string) []rbacRole {
-	t.Helper()
-	raw, err := os.ReadFile(filepath.Join(root, "Makefile"))
-	require.NoError(t, err)
-
-	vars := map[string][]string{}
-	for _, line := range strings.Split(string(raw), "\n") {
-		name, value, found := strings.Cut(line, ":=")
-		if !found {
-			continue
-		}
-		vars[strings.TrimSpace(name)] = strings.Fields(value)
-	}
-	names := vars["RBAC_ROLES"]
-	require.NotEmpty(t, names, "the Makefile has no RBAC_ROLES; this guard no longer knows what controller-gen is given")
-	out := make([]rbacRole, 0, len(names))
-	for _, name := range names {
-		paths := vars["RBAC_PATHS_"+name]
-		require.NotEmpty(t, paths, "RBAC_ROLES names %q but the Makefile has no RBAC_PATHS_%s", name, name)
-		out = append(out, rbacRole{name: name, paths: paths})
-	}
-	return out
-}
-
-// patternCovers reports whether a controller-gen paths= pattern covers the
-// package in dir (slash-separated, relative to the repo root): "./x/..." is
-// x and everything beneath it, "./x" is x alone.
-func patternCovers(pattern, dir string) bool {
-	pattern = strings.TrimPrefix(pattern, "./")
-	if base, ok := strings.CutSuffix(pattern, "/..."); ok {
-		return dir == base || strings.HasPrefix(dir, base+"/")
-	}
-	return dir == pattern
-}
 
 // goSources returns the non-test .go files directly in dir.
 func goSources(t *testing.T, dir string) []string {
@@ -105,7 +54,7 @@ func goSources(t *testing.T, dir string) []string {
 
 // roleSources returns every non-test .go file in the packages r's patterns
 // cover: exactly what controller-gen reads markers from for r.
-func roleSources(t *testing.T, root string, r rbacRole) []string {
+func roleSources(t *testing.T, root string, r installtest.RBACRole) []string {
 	t.Helper()
 	var out []string
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -120,8 +69,8 @@ func roleSources(t *testing.T, root string, r rbacRole) []string {
 		}
 		rel, _ := filepath.Rel(root, path)
 		rel = filepath.ToSlash(rel)
-		for _, pattern := range r.paths {
-			if patternCovers(pattern, rel) {
+		for _, pattern := range r.Paths {
+			if installtest.PatternCovers(pattern, rel) {
 				out = append(out, goSources(t, path)...)
 				break
 			}
@@ -129,7 +78,7 @@ func roleSources(t *testing.T, root string, r rbacRole) []string {
 		return nil
 	})
 	require.NoError(t, err)
-	require.NotEmpty(t, out, "RBAC_PATHS_%s %v covers no Go source", r.name, r.paths)
+	require.NotEmpty(t, out, "RBAC_PATHS_%s %v covers no Go source", r.Name, r.Paths)
 	return out
 }
 
@@ -153,7 +102,7 @@ func hasMarkerLine(raw []byte) bool {
 func TestEveryPackageWithRBACMarkersIsInARole(t *testing.T) {
 	root, err := filepath.Abs("../..")
 	require.NoError(t, err)
-	roles := rbacRoles(t, root)
+	roles := installtest.RBACRoles(t, root)
 
 	var found int
 	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -182,8 +131,8 @@ func TestEveryPackageWithRBACMarkersIsInARole(t *testing.T) {
 		rel, _ := filepath.Rel(root, path)
 		rel = filepath.ToSlash(rel)
 		for _, r := range roles {
-			for _, pattern := range r.paths {
-				if patternCovers(pattern, rel) {
+			for _, pattern := range r.Paths {
+				if installtest.PatternCovers(pattern, rel) {
 					return nil
 				}
 			}
@@ -210,9 +159,9 @@ func TestEveryGeneratedRoleMatchesItsMarkers(t *testing.T) {
 	root, err := filepath.Abs("../..")
 	require.NoError(t, err)
 
-	for _, r := range rbacRoles(t, root) {
-		t.Run(r.name, func(t *testing.T) {
-			want := map[rbacGrant]bool{}
+	for _, r := range installtest.RBACRoles(t, root) {
+		t.Run(r.Name, func(t *testing.T) {
+			want := map[installtest.Grant]bool{}
 			for _, src := range roleSources(t, root, r) {
 				raw, err := os.ReadFile(src)
 				require.NoError(t, err)
@@ -230,32 +179,21 @@ func TestEveryGeneratedRoleMatchesItsMarkers(t *testing.T) {
 					for _, g := range fields["groups"] {
 						for _, res := range fields["resources"] {
 							for _, v := range fields["verbs"] {
-								want[rbacGrant{g, res, v}] = true
+								want[installtest.Grant{Group: g, Resource: res, Verb: v}] = true
 							}
 						}
 					}
 				}
 			}
-			require.NotEmpty(t, want, "no +kubebuilder:rbac markers in %v; this guard is looking in the wrong place", r.paths)
+			require.NotEmpty(t, want, "no +kubebuilder:rbac markers in %v; this guard is looking in the wrong place", r.Paths)
 
-			got := grantsOf(readRole(t, root, r.file()).Rules)
-			require.Equal(t, sortedGrants(want), sortedGrants(got),
+			got := installtest.GrantsOf(installtest.ReadRole(t, root, r.File()).Rules)
+			require.Equal(t, installtest.SortedGrants(want), installtest.SortedGrants(got),
 				"config/rbac/%s no longer matches the +kubebuilder:rbac markers in %v.\n"+
 					"Run `make manifests`, then copy its rules into charts/clustarr/templates/rbac.yaml "+
-					"between its BEGIN/END sentinels.", r.file(), r.paths)
+					"between its BEGIN/END sentinels.", r.File(), r.Paths)
 		})
 	}
-}
-
-// readRole reads one generated ClusterRole from config/rbac.
-func readRole(t *testing.T, root, file string) rbacv1.ClusterRole {
-	t.Helper()
-	raw, err := os.ReadFile(filepath.Join(root, "config", "rbac", file))
-	require.NoError(t, err)
-	var role rbacv1.ClusterRole
-	require.NoError(t, yaml.Unmarshal(raw, &role))
-	require.NotEmpty(t, role.Rules, "config/rbac/%s has no rules", file)
-	return role
 }
 
 // TestRBACMarkersArePackageLevel catches the silent failure that let four
@@ -280,7 +218,7 @@ func TestRBACMarkersArePackageLevel(t *testing.T) {
 
 	var checked int
 	seen := map[string]bool{}
-	for _, r := range rbacRoles(t, root) {
+	for _, r := range installtest.RBACRoles(t, root) {
 		for _, path := range roleSources(t, root, r) {
 			if seen[path] {
 				continue
@@ -362,13 +300,13 @@ func TestGeneratedRolesCoverEveryStatusWriter(t *testing.T) {
 
 	granted := map[string]bool{}
 	coreEvents := map[string]bool{}
-	for _, r := range rbacRoles(t, root) {
-		for _, rule := range readRole(t, root, r.file()).Rules {
+	for _, r := range installtest.RBACRoles(t, root) {
+		for _, rule := range installtest.ReadRole(t, root, r.File()).Rules {
 			for _, group := range rule.APIGroups {
 				for _, resource := range rule.Resources {
 					granted[group+"/"+resource] = true
 					if group == "" && resource == "events" {
-						coreEvents[r.file()] = true
+						coreEvents[r.File()] = true
 					}
 				}
 			}
@@ -442,8 +380,8 @@ func TestEveryCRDKindAControllerTouchesHasAnRBACMarker(t *testing.T) {
 	plurals := crdPlurals(t, root)
 	require.NotEmpty(t, plurals, "no CRDs were read; run `make manifests`")
 
-	for _, r := range rbacRoles(t, root) {
-		dir := r.name + " role " + strings.Join(r.paths, " ")
+	for _, r := range installtest.RBACRoles(t, root) {
+		dir := r.Name + " role " + strings.Join(r.Paths, " ")
 		sources := roleSources(t, root, r)
 		granted := markerResources(t, sources)
 		for _, path := range sources {
@@ -610,8 +548,8 @@ func TestEveryBuiltinKindAControllerTouchesHasAnRBACMarker(t *testing.T) {
 	require.NotEmpty(t, known, "the scheme registered nothing; this guard has no universe to check against")
 
 	var checked int
-	for _, r := range rbacRoles(t, root) {
-		dir := r.name + " role " + strings.Join(r.paths, " ")
+	for _, r := range installtest.RBACRoles(t, root) {
+		dir := r.Name + " role " + strings.Join(r.Paths, " ")
 		sources := roleSources(t, root, r)
 		granted := markerResources(t, sources)
 		for _, path := range sources {

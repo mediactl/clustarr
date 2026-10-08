@@ -21,23 +21,31 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+
+	"github.com/mediactl/clustarr/test/installtest"
 )
 
-// clustarr ships in a distroless static image with no dynamic loader, so
-// the binary must link statically: purego (ffgo's way of loading FFmpeg)
-// makes the Go linker emit a dynamically linked executable, and the image's
-// index and ui failed to start with "exec /clustarr: no such file or
-// directory" (2026-10-01). The in-process engine belongs to
-// cmd/transcode-worker alone.
+// clustarr ships manager and ui in a distroless static image
+// (images/Dockerfile.clustarr) with no dynamic loader, so both binaries must
+// link statically: purego (ffgo's way of loading FFmpeg) makes the Go linker
+// emit a dynamically linked executable, and the image's index and ui failed
+// to start with "exec /clustarr: no such file or directory" (2026-10-01).
+// The in-process engine belongs to the native image's binaries alone. This
+// held cmd/clustarr until the manager and agent split; it holds its two
+// successors in the static image now.
 func TestClustarrNeverLinksADynamicLoader(t *testing.T) {
-	out, err := exec.Command("go", "list", "-deps", ".").Output()
-	if err != nil {
-		t.Fatalf("go list -deps: %v", err)
-	}
-	for _, dep := range strings.Fields(string(out)) {
-		for _, banned := range []string{"github.com/ebitengine/purego", "github.com/obinnaokechukwu/ffgo"} {
-			if dep == banned || strings.HasPrefix(dep, banned+"/") {
-				t.Errorf("cmd/clustarr depends on %s, which needs a dynamic loader", dep)
+	for _, bin := range []string{"./cmd/manager", "./cmd/ui"} {
+		cmd := exec.Command("go", "list", "-deps", bin)
+		cmd.Dir = installtest.RepoRoot(t)
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("go list -deps %s: %v", bin, err)
+		}
+		for _, dep := range strings.Fields(string(out)) {
+			for _, banned := range []string{"github.com/ebitengine/purego", "github.com/obinnaokechukwu/ffgo"} {
+				if dep == banned || strings.HasPrefix(dep, banned+"/") {
+					t.Errorf("%s depends on %s, which needs a dynamic loader", bin, dep)
+				}
 			}
 		}
 	}

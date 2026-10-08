@@ -36,7 +36,7 @@ import (
 // bus-hooks guard, it is source-level because silence is not observable.
 func TestEveryServiceGivesTheManagerItsBaseContext(t *testing.T) {
 	for _, src := range busServiceSources {
-		if src.name == "cmd/clustarr/services.go (ui)" {
+		if src.name == "internal/cli/ui (bus.go)" {
 			continue // ui builds a cache, not a manager
 		}
 		t.Run(src.name, func(t *testing.T) {

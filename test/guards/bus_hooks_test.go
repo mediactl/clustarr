@@ -35,18 +35,17 @@ type busSource struct {
 	path string
 }
 
-// busServiceSources are the service packages whose Run connects to the bus,
-// plus cmd/clustarr's own services.go, which connects ui's read-only bus
-// (Task B3, buildUIBus) -- ui itself is still absent: it has no bus of
-// its own, and never imports pkg/k8s (ui/guard_test.go).
+// busServiceSources are the files where each process that holds a
+// controller-runtime manager connects to the bus: the manager's and the
+// agent's run.go (internal/cli/manager, internal/cli/agent), and the ui's
+// read-only bus (internal/cli/ui/bus.go), which has no manager of its own
+// (ui itself never imports pkg/k8s, ui/guard_test.go). They were the six
+// app/<svc>/run.go files and cmd/clustarr/services.go until the manager and
+// agent split (spec 2026-10-06 §10.3.3).
 var busServiceSources = []busSource{
-	{"app/catalog", filepath.Join("..", "..", "app/catalog", "run.go")},
-	{"app/import", filepath.Join("..", "..", "app/import", "run.go")},
-	{"app/indexer", filepath.Join("..", "..", "app/indexer", "run.go")},
-	{"app/grab", filepath.Join("..", "..", "app/grab", "run.go")},
-	{"app/transcode", filepath.Join("..", "..", "app/transcode", "run.go")},
-	{"app/caption", filepath.Join("..", "..", "app/caption", "run.go")},
-	{"cmd/clustarr/services.go (ui)", "services.go"},
+	{"internal/cli/manager", filepath.Join("..", "..", "internal/cli/manager", "run.go")},
+	{"internal/cli/agent", filepath.Join("..", "..", "internal/cli/agent", "run.go")},
+	{"internal/cli/ui (bus.go)", filepath.Join("..", "..", "internal/cli/ui", "bus.go")},
 }
 
 // TestEveryServicePassesBusHooks is the guard behind Task C12a's step 2b
@@ -118,8 +117,8 @@ func TestEveryServicePassesBusHooks(t *testing.T) {
 // installs the trace hooks on it.
 type busConnector struct{ pkg, connect, hooks string }
 
-// busConnectors are pkg/k8s's wrappers, which the app/<svc> roots call until
-// Wave 5, and the pkg/busconn functions they forward to.
+// busConnectors are pkg/k8s's wrappers and the pkg/busconn functions they
+// forward to; the processes call busconn.Connect directly since Wave 5.
 var busConnectors = []busConnector{
 	{"k8s", "ConnectBus", "WithBusHooks"},
 	{"busconn", "Connect", "WithHooks"},

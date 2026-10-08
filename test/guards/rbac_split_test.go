@@ -24,6 +24,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 	rbacv1 "k8s.io/api/rbac/v1"
+
+	"github.com/mediactl/clustarr/test/installtest"
 )
 
 // TestEachServiceAccountHoldsExactlyItsOwnRole is the X14 split's guard,
@@ -35,23 +37,23 @@ import (
 // rootfolders update, grab's StatefulSet writes and index's Secret
 // creates belonged to every process.
 //
-// A component runs under the role of the same name, or -- for a service's
-// second Deployment (catalog-metadata, import-worker,
-// caption-worker) -- under its service's: the name before its last
-// "-<suffix>". The engine pods (grab-engine) have a role of their own;
+// A component runs under the role of the same name (manager, agent-<domain>,
+// ui), or under the name before its last "-<suffix>" for a second
+// Deployment of one identity, as the per-service topology had. The engine
+// pods (grab-engine) have a role of their own;
 // the transcode Jobs the pool renderer creates carry no ServiceAccount at
 // all (X14: transcode is the only writer of TranscodeJob.status, over NATS,
 // so the pool pods need no Kubernetes credentials). The chart is rendered
 // under two release names, since its names carry the fullname.
 func TestEachServiceAccountHoldsExactlyItsOwnRole(t *testing.T) {
-	helm := findTool(t, "helm")
-	kustomize := findTool(t, "kustomize")
+	helm := installtest.FindTool(t, "helm")
+	kustomize := installtest.FindTool(t, "kustomize")
 	root, err := filepath.Abs("../..")
 	require.NoError(t, err)
 
-	want := map[string][]string{"ui": sortedGrants(grantsOf(readRole(t, root, "ui_role.yaml").Rules))}
-	for _, r := range rbacRoles(t, root) {
-		want[r.name] = sortedGrants(grantsOf(readRole(t, root, r.file()).Rules))
+	want := map[string][]string{"ui": installtest.SortedGrants(installtest.GrantsOf(installtest.ReadRole(t, root, "ui_role.yaml").Rules))}
+	for _, r := range installtest.RBACRoles(t, root) {
+		want[r.Name] = installtest.SortedGrants(installtest.GrantsOf(installtest.ReadRole(t, root, r.File()).Rules))
 	}
 	identityOf := func(component string) string {
 		if _, ok := want[component]; ok {
@@ -69,12 +71,12 @@ func TestEachServiceAccountHoldsExactlyItsOwnRole(t *testing.T) {
 		out    []byte
 		prefix string
 	}{
-		"helm template clustarr":   {run(t, root, helm, "template", "clustarr", "charts/clustarr"), "clustarr-"},
-		"helm template media":      {run(t, root, helm, "template", "media", "charts/clustarr"), "media-clustarr-"},
-		"kustomize config/default": {run(t, root, kustomize, "build", "config/default"), ""},
+		"helm template clustarr":   {installtest.Run(t, root, helm, "template", "clustarr", "charts/clustarr"), "clustarr-"},
+		"helm template media":      {installtest.Run(t, root, helm, "template", "media", "charts/clustarr"), "media-clustarr-"},
+		"kustomize config/default": {installtest.Run(t, root, kustomize, "build", "config/default"), ""},
 	} {
 		t.Run(name, func(t *testing.T) {
-			r := decodeRendered(t, tc.out)
+			r := installtest.DecodeRendered(t, tc.out)
 
 			// Every component some pod runs as: the Deployments' own
 			// ServiceAccounts, plus the one identity no Deployment of
@@ -83,21 +85,25 @@ func TestEachServiceAccountHoldsExactlyItsOwnRole(t *testing.T) {
 			accounts := map[string]string{
 				tc.prefix + "grab-engine": "grab-engine",
 			}
-			for _, d := range r.deployments {
+			for _, d := range r.Deployments {
 				component := d.Spec.Template.Labels["app.kubernetes.io/component"]
 				if identityOf(component) == "" {
 					continue // a fixture or subchart workload, not a Clustarr identity
 				}
 				accounts[d.Spec.Template.Spec.ServiceAccountName] = component
 			}
-			require.GreaterOrEqual(t, len(accounts), 11,
-				"found only %d Clustarr identities; this guard is not reading what it thinks it is", len(accounts))
+			// One account per identity: every generated role plus ui's
+			// (the manager, six agent domains, the engines and ui since
+			// the installers wave; eleven service accounts before it).
+			require.GreaterOrEqual(t, len(accounts), len(want),
+				"found only %d Clustarr identities for %d roles; this guard is not reading what it thinks it is",
+				len(accounts), len(want))
 
 			for account, component := range accounts {
-				require.True(t, r.serviceAccounts[account], "%s runs as ServiceAccount %q, which %s does not create",
+				require.True(t, r.ServiceAccounts[account], "%s runs as ServiceAccount %q, which %s does not create",
 					component, account, name)
 				var boundTo []string
-				for _, b := range r.bindings {
+				for _, b := range r.Bindings {
 					for _, s := range b.Subjects {
 						if s.Kind == rbacv1.ServiceAccountKind && s.Name == account {
 							boundTo = append(boundTo, b.RoleRef.Name)
@@ -106,11 +112,11 @@ func TestEachServiceAccountHoldsExactlyItsOwnRole(t *testing.T) {
 				}
 				require.Len(t, boundTo, 1, "ServiceAccount %q (%s) must be bound to exactly its own role, and is "+
 					"bound to %v", account, component, boundTo)
-				role, ok := r.roles[boundTo[0]]
+				role, ok := r.Roles[boundTo[0]]
 				require.True(t, ok, "ServiceAccount %q is bound to ClusterRole %q, which %s does not render",
 					account, boundTo[0], name)
 				identity := identityOf(component)
-				require.Equal(t, want[identity], sortedGrants(grantsOf(role.Rules)),
+				require.Equal(t, want[identity], installtest.SortedGrants(installtest.GrantsOf(role.Rules)),
 					"ServiceAccount %q (%s) holds ClusterRole %q, whose grants are not %s's own generated role",
 					account, component, boundTo[0], identity)
 			}
@@ -129,28 +135,28 @@ func TestEachServiceAccountHoldsExactlyItsOwnRole(t *testing.T) {
 // installer actually renders, using the same run/decodeRendered helpers
 // TestEachServiceAccountHoldsExactlyItsOwnRole uses.
 func TestNoInstallerShipsATranscodeWorkerIdentity(t *testing.T) {
-	helm := findTool(t, "helm")
-	kustomize := findTool(t, "kustomize")
+	helm := installtest.FindTool(t, "helm")
+	kustomize := installtest.FindTool(t, "kustomize")
 	root, err := filepath.Abs("../..")
 	require.NoError(t, err)
 
 	cases := map[string][]byte{
-		"helm template clustarr":   run(t, root, helm, "template", "clustarr", "charts/clustarr"),
-		"helm template media":      run(t, root, helm, "template", "media", "charts/clustarr"),
-		"kustomize config/default": run(t, root, kustomize, "build", "config/default"),
+		"helm template clustarr":   installtest.Run(t, root, helm, "template", "clustarr", "charts/clustarr"),
+		"helm template media":      installtest.Run(t, root, helm, "template", "media", "charts/clustarr"),
+		"kustomize config/default": installtest.Run(t, root, kustomize, "build", "config/default"),
 	}
 	for name, out := range cases {
 		t.Run(name, func(t *testing.T) {
-			r := decodeRendered(t, out)
-			for sa := range r.serviceAccounts {
+			r := installtest.DecodeRendered(t, out)
+			for sa := range r.ServiceAccounts {
 				require.NotContains(t, sa, "transcode-worker",
 					"%s still renders ServiceAccount %q: pool pods run with no ServiceAccount token", name, sa)
 			}
-			for roleName := range r.roles {
+			for roleName := range r.Roles {
 				require.NotContains(t, roleName, "transcode-worker",
 					"%s still renders ClusterRole %q: pool pods run with no ServiceAccount token", name, roleName)
 			}
-			for _, b := range r.bindings {
+			for _, b := range r.Bindings {
 				require.NotContains(t, b.Name, "transcode-worker",
 					"%s still renders ClusterRoleBinding %q: pool pods run with no ServiceAccount token", name, b.Name)
 			}
