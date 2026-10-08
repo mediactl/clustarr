@@ -326,7 +326,7 @@ func (s *subscription) startLocked(m jetstream.Msg, seq, attempt uint64) {
 		defer s.handlers.Done()
 		s.run(hctx, eff, m, deliveryHooks{
 			onProgress: func() { s.progress(d) },
-			lapsed:     func() bool { s.mu.Lock(); defer s.mu.Unlock(); return d.lapsed },
+			lapsed:     func() bool { return s.stale(d, time.Now()) },
 		})
 		done()
 		s.finish(d)
@@ -413,6 +413,18 @@ func (s *subscription) wedged(now time.Time) error {
 			s.sub.Durable, held.Round(time.Second), limit)
 	}
 	return nil
+}
+
+// stale reports whether d's InProgress and Nak must be muted (S2): once d
+// has lapsed, and already once its deadline has passed. The broker redelivers
+// at the deadline and keys InProgress and Nak by stream sequence, so a late
+// heartbeat from d would move the redelivered copy's timer -- and, through
+// progress, d's own deadline, so d would never lapse. The slot is reclaimed
+// only lapseGrace later (reap), but the settlement is stale at once.
+func (s *subscription) stale(d *delivery, now time.Time) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return d.lapsed || now.After(d.deadline)
 }
 
 // progress moves d's deadline on an InProgress. A lapsed delivery stays
