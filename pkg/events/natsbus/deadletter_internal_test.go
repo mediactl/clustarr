@@ -81,3 +81,21 @@ func TestMaxDeliveriesAdvisoryMatchesServer(t *testing.T) {
 		t.Errorf("advisory subject = %q", subj)
 	}
 }
+
+// TestWatcherAckWaitCoversItsBatch: the watcher's AckWait covers the
+// MaxAckPending advisories one pull holds, each allowed deadLetterTimeout and
+// handled one at a time, twice over (spec §5.9 keeps the tuning), and one
+// watchOnce fetches no more than that batch.
+func TestWatcherAckWaitCoversItsBatch(t *testing.T) {
+	want := 2 * time.Duration(events.DeadLetterWatcherMaxAckPending) * deadLetterTimeout
+	if events.DeadLetterWatcherAckWait != want {
+		t.Errorf("DeadLetterWatcherAckWait = %v, want %v", events.DeadLetterWatcherAckWait, want)
+	}
+	w := events.DeadLetterWatcherSpec(events.ConsumerSpec{
+		Name: "index-rss", Stream: events.StreamWorkIndex, Filters: []string{events.FilterIndexRSS},
+	})
+	if w.AckWait != events.DeadLetterWatcherAckWait || w.MaxAckPending != events.DeadLetterWatcherMaxAckPending {
+		t.Errorf("watcher spec AckWait %v MaxAckPending %d, want %v and %d",
+			w.AckWait, w.MaxAckPending, events.DeadLetterWatcherAckWait, events.DeadLetterWatcherMaxAckPending)
+	}
+}
