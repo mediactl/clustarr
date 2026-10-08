@@ -65,5 +65,27 @@ func Payloads() []schema.Payload {
 		schema.RenderOverlayTask{},
 		schema.ProbeTask{},
 		schema.ProbeRecord{},
+		schema.PlexExtrasRequest{},
+		schema.PlexExtrasResponse{},
+		// ADR-0019's payloads (A1.4): engine commands and the transfer and
+		// engine records, intake, the import tasks and record, the search,
+		// metadata and indexer-health records, the blocklist RPC, presence
+		// and the import-list snapshot.
+		schema.EngineCommand{},
+		schema.TransferRecord{},
+		schema.EngineRecord{},
+		schema.Candidate{},
+		schema.ScanObservation{},
+		schema.ImportInspectTask{},
+		schema.ImportExecuteTask{},
+		schema.ImportRecord{},
+		schema.SearchRecord{},
+		schema.ItemMetadataRecord{},
+		schema.IndexerHealthRecord{},
+		schema.BlocklistRequest{},
+		schema.BlocklistResponse{},
+		schema.AgentPresence{},
+		schema.ListSnapshot{},
+		schema.RecycleFilesTask{},
 	}
 }

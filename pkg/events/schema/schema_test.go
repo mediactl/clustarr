@@ -124,8 +124,8 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 }
 
 func TestDecodeRejectsMismatchedSchema(t *testing.T) {
-	var out schema.GrabTask
-	if err := schema.Decode("catalog.SearchTask.v1", []byte("{}"), &out); err == nil {
+	var out schema.MetadataTask
+	if err := schema.Decode(schema.SearchTask{}.Schema(), []byte("{}"), &out); err == nil {
 		t.Fatal("Decode accepted a payload declared as another schema")
 	}
 	// An absent header is tolerated, for messages published before the
@@ -137,10 +137,14 @@ func TestDecodeRejectsMismatchedSchema(t *testing.T) {
 
 // TestOmitEmptyKeepsPayloadsSmall checks the JSON shape of a minimal task:
 // work payloads ride in a 1 GiB work-queue stream, so unset fields must not
-// be serialised.
+// be serialised. (It encoded the v1 ImportTask until the ADR-0019 cold
+// turkey deleted it; SearchTask is a task with a Ref and a v2 tail of
+// optional fields.)
 func TestOmitEmptyKeepsPayloadsSmall(t *testing.T) {
-	_, data, err := schema.Encode(schema.ImportTask{
-		DownloadRef: schema.Ref{Namespace: "media", Name: "dl-1"},
+	_, data, err := schema.Encode(schema.SearchTask{
+		MediaRef:  commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "heat"},
+		Reason:    schema.SearchReasonMissing,
+		SearchRef: &schema.Ref{Namespace: "media", Name: "search-1"},
 	})
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
@@ -149,10 +153,10 @@ func TestOmitEmptyKeepsPayloadsSmall(t *testing.T) {
 	if err := json.Unmarshal(data, &m); err != nil {
 		t.Fatalf("Unmarshal: %v", err)
 	}
-	if len(m) != 1 {
-		t.Errorf("minimal ImportTask encoded %d fields: %s", len(m), data)
+	if len(m) != 3 {
+		t.Errorf("minimal SearchTask encoded %d fields: %s", len(m), data)
 	}
-	ref, _ := m["downloadRef"].(map[string]any)
+	ref, _ := m["searchRef"].(map[string]any)
 	if _, ok := ref["uid"]; ok {
 		t.Errorf("an unset uid was serialised: %s", data)
 	}
@@ -180,23 +184,5 @@ func TestProgressUsesScaledIntegers(t *testing.T) {
 	}
 	if !strings.Contains(string(data), `"percentMilli":42500`) {
 		t.Errorf("percentMilli was not encoded as an integer: %s", data)
-	}
-}
-
-func TestSegmentsResultRoundTrip(t *testing.T) {
-	in := schema.SegmentsResult{
-		MediaFile: "andor-s01e02", ProbeHash: "h", Version: 1, Result: "Found",
-		Segments: []schema.SegmentJSON{{Kind: "intro", StartMs: 60_000, EndMs: 90_000, Source: "analysis", Confidence: 90}},
-	}
-	name, data, err := schema.Encode(in)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var out schema.SegmentsResult
-	if err := schema.Decode(name, data, &out); err != nil {
-		t.Fatal(err)
-	}
-	if out.Segments[0] != in.Segments[0] || name != "catalog.SegmentsResult.v1" {
-		t.Errorf("round trip: %+v as %s", out, name)
 	}
 }
