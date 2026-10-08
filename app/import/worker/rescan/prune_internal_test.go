@@ -29,12 +29,10 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events/schema"
-	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
 var pruneNow = time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
@@ -54,15 +52,15 @@ func recordFor(name, path string, missingFor time.Duration) *catalogv1alpha1.Med
 	return mf
 }
 
+// pruneScan is a scan of root/subpath whose missing observations the
+// manager's scan applier applies as they are published: since A6.1 the walk
+// reports a record of a file gone from disk and the applier deletes it.
 func pruneScan(t *testing.T, root, subpath string, objs ...client.Object) (*Worker, *scanState) {
 	t.Helper()
-	w := &Worker{
-		Client: fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).WithObjects(objs...).Build(),
-		Clock:  func() time.Time { return pruneNow },
-	}
+	w, _, _ := applyingWorker(t, context.Background(), func() time.Time { return pruneNow }, objs...)
 	st := &scanState{
 		task: schema.ScanTask{Path: filepath.Join(root, subpath)},
-		scan: &catalogv1alpha1.LibraryScan{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "tv-x"}},
+		scan: &catalogv1alpha1.LibraryScan{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "tv-x", UID: "tv-x-uid"}},
 		root: &catalogv1alpha1.RootFolder{
 			ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "tv"},
 			Spec:       catalogv1alpha1.RootFolderSpec{Path: root, Kind: catalogv1alpha1.RootFolderKindSeries},
@@ -105,7 +103,7 @@ func TestTheScanRemovesRecordsOfFilesGoneFromDisk(t *testing.T) {
 	assert.True(t, exists(t, w, "gone-unflagged"), "the reconciler has not seen it missing")
 	assert.True(t, exists(t, w, "gone-just-now"), "within the grace: a share's blip")
 	assert.True(t, exists(t, w, "present-but-flagged"), "on disk now")
-	assert.EqualValues(t, 1, st.progress.FilesRemoved)
+	assert.EqualValues(t, 1, appliedTally(t, context.Background(), w.Bus, st.scan).FilesRemoved)
 }
 
 // A scan of one folder removes only records under it.

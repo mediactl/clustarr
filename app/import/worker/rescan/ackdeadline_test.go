@@ -47,7 +47,7 @@ func ackDeadline(t *testing.T, consumer string) time.Duration {
 	return c.AckWait
 }
 
-// Between two in-progress acks the walk may wait out heartbeatInterval,
+// Between two in-progress acks the walk may wait out HeartbeatInterval,
 // resolve an imdb id and probe a file, each bounded, plus its own work. All
 // of it must land inside ConsumerImportScan's acknowledgement deadline, or
 // the scan is redelivered while it is still walking and a second replica
@@ -56,9 +56,9 @@ func ackDeadline(t *testing.T, consumer string) time.Duration {
 // consumer's BackOff or AckWait, or to any of the three, trips it.
 func TestTheWalkFitsTheScanConsumersAckDeadline(t *testing.T) {
 	deadline := ackDeadline(t, events.ConsumerImportScan)
-	worst := heartbeatInterval + defaultMetadataTimeout + videoProbeTimeout + walkSlack
+	worst := HeartbeatInterval + defaultMetadataTimeout + videoProbeTimeout + walkSlack
 	assert.LessOrEqual(t, worst, deadline,
-		"heartbeatInterval %s + defaultMetadataTimeout %s + videoProbeTimeout %s + slack %s must fit inside %s's "+
-			"ack deadline %s", heartbeatInterval, defaultMetadataTimeout, videoProbeTimeout, walkSlack,
+		"HeartbeatInterval %s + defaultMetadataTimeout %s + videoProbeTimeout %s + slack %s must fit inside %s's "+
+			"ack deadline %s", HeartbeatInterval, defaultMetadataTimeout, videoProbeTimeout, walkSlack,
 		events.ConsumerImportScan, deadline)
 }

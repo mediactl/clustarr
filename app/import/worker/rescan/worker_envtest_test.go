@@ -45,8 +45,10 @@ type fixture struct {
 	root string
 	scan *catalogv1alpha1.LibraryScan
 	rf   *catalogv1alpha1.RootFolder
-	bus  events.Bus
-	c    client.Client
+	// bus is raw with the scan applier wired in (scanBus); raw is the bus
+	// alone, for a test that wires its own applier.
+	bus, raw events.Bus
+	c        client.Client
 }
 
 func newFixture(t *testing.T, ctx context.Context, name string, kind catalogv1alpha1.RootFolderKind, profile string, mode catalogv1alpha1.ScanMode) *fixture {
@@ -82,7 +84,8 @@ func newFixture(t *testing.T, ctx context.Context, name string, kind catalogv1al
 		return c.Get(ctx, types.NamespacedName{Namespace: ns, Name: "movies"}, &got) == nil
 	})
 
-	return &fixture{ns: ns, root: root, scan: scan, rf: rf, bus: newBus(t, ctx), c: c}
+	raw := newBus(t, ctx)
+	return &fixture{ns: ns, root: root, scan: scan, rf: rf, bus: scanBus(raw, c, c), raw: raw, c: c}
 }
 
 func (f *fixture) task(dryRun bool) schema.ScanTask {
@@ -115,7 +118,7 @@ func TestHandleSkipsPartExtraAndSampleFiles(t *testing.T) {
 	mustWriteFile(t, filepath.Join(dir, "notes.txt"), 16)
 
 	msg := newFakeMessage(t, f.task(false))
-	require.NoError(t, rescan.NewWorker(f.c, f.bus).Handle(ctx, msg))
+	require.NoError(t, rescan.NewWorker(f.c, f.bus, nil).Handle(ctx, msg))
 
 	got := readProgress(t, ctx, f.bus, string(f.scan.UID))
 	assert.True(t, got.Done)
@@ -149,7 +152,7 @@ func TestHandleCreatesMovieAndMediaFileSpecForAConfidentMatch(t *testing.T) {
 	require.NoError(t, err)
 
 	msg := newFakeMessage(t, f.task(false))
-	require.NoError(t, rescan.NewWorker(f.c, f.bus).Handle(ctx, msg))
+	require.NoError(t, rescan.NewWorker(f.c, f.bus, nil).Handle(ctx, msg))
 
 	got := readProgress(t, ctx, f.bus, string(f.scan.UID))
 	assert.Equal(t, int64(1), got.FilesSeen)
@@ -219,7 +222,7 @@ func TestHandleIncrementalSkipsAnUnchangedFingerprint(t *testing.T) {
 	path := filepath.Join(f.root, "Heat (1995) [tmdbid-949]", "Heat (1995) [tmdbid-949] - Bluray-1080p.mkv")
 	mustWriteFile(t, path, sampleFloor)
 
-	w := rescan.NewWorker(f.c, f.bus)
+	w := rescan.NewWorker(f.c, f.bus, nil)
 	require.NoError(t, w.Handle(ctx, newFakeMessage(t, f.task(false))))
 	first := readProgress(t, ctx, f.bus, string(f.scan.UID))
 	require.Equal(t, int64(1), first.FilesMatched)
@@ -268,7 +271,7 @@ func TestHandleRecordsAnUnattributableFileWithAReason(t *testing.T) {
 	rel := filepath.Join("Some Unknown Film (2024)", "Some Unknown Film (2024).mkv")
 	mustWriteFile(t, filepath.Join(f.root, rel), sampleFloor)
 
-	require.NoError(t, rescan.NewWorker(f.c, f.bus).Handle(ctx, newFakeMessage(t, f.task(false))))
+	require.NoError(t, rescan.NewWorker(f.c, f.bus, nil).Handle(ctx, newFakeMessage(t, f.task(false))))
 
 	got := readProgress(t, ctx, f.bus, string(f.scan.UID))
 	assert.Equal(t, int64(1), got.FilesSeen)
@@ -298,7 +301,7 @@ func TestHandleRecordsUnmatchedPathsRelativeToTheRootFolderNotTheSubpath(t *test
 	// recorded paths could actually be told apart.
 	mustWriteFile(t, filepath.Join(f.root, "Some Unknown Film (2024)", "Some Unknown Film (2024).mkv"), sampleFloor)
 
-	require.NoError(t, rescan.NewWorker(f.c, f.bus).Handle(ctx, newFakeMessage(t, f.taskForSubpath(subpath, false))))
+	require.NoError(t, rescan.NewWorker(f.c, f.bus, nil).Handle(ctx, newFakeMessage(t, f.taskForSubpath(subpath, false))))
 
 	got := readProgress(t, ctx, f.bus, string(f.scan.UID))
 	assert.Equal(t, int64(1), got.FilesSeen, "only the subpath is walked")
@@ -316,7 +319,7 @@ func TestHandleReportsAMissingDefaultQualityProfile(t *testing.T) {
 
 	mustWriteFile(t, filepath.Join(f.root, "Heat (1995) [tmdbid-949]", "Heat (1995) [tmdbid-949].mkv"), sampleFloor)
 
-	require.NoError(t, rescan.NewWorker(f.c, f.bus).Handle(ctx, newFakeMessage(t, f.task(false))))
+	require.NoError(t, rescan.NewWorker(f.c, f.bus, nil).Handle(ctx, newFakeMessage(t, f.task(false))))
 
 	got := readProgress(t, ctx, f.bus, string(f.scan.UID))
 	require.Len(t, got.Unmatched, 1)
@@ -334,7 +337,7 @@ func TestHandleDryRunChangesNothing(t *testing.T) {
 
 	mustWriteFile(t, filepath.Join(f.root, "Heat (1995) [tmdbid-949]", "Heat (1995) [tmdbid-949].mkv"), sampleFloor)
 
-	require.NoError(t, rescan.NewWorker(f.c, f.bus).Handle(ctx, newFakeMessage(t, f.task(true))))
+	require.NoError(t, rescan.NewWorker(f.c, f.bus, nil).Handle(ctx, newFakeMessage(t, f.task(true))))
 
 	got := readProgress(t, ctx, f.bus, string(f.scan.UID))
 	assert.Equal(t, int64(1), got.FilesMatched)
@@ -353,7 +356,7 @@ func TestHandleDryRunChangesNothing(t *testing.T) {
 func TestHandleDiscardsATaskWithNoLiveScan(t *testing.T) {
 	ctx := context.Background()
 	f := newFixture(t, ctx, "rw-discard", catalogv1alpha1.RootFolderKindMovie, "hd-bluray-web", catalogv1alpha1.ScanModeFull)
-	w := rescan.NewWorker(f.c, f.bus)
+	w := rescan.NewWorker(f.c, f.bus, nil)
 
 	gone := f.task(false)
 	gone.LibraryScanRef.Name = "no-such-scan"
@@ -379,7 +382,7 @@ func TestHandleReportsAFailedWalkOnTheFinalDelivery(t *testing.T) {
 	// item folder finishes empty (scanMissingFolder), a missing root fails.
 	task := f.task(false)
 	require.NoError(t, os.RemoveAll(f.root))
-	w := rescan.NewWorker(f.c, f.bus)
+	w := rescan.NewWorker(f.c, f.bus, nil)
 
 	// An early delivery is simply retried; nothing final is reported.
 	early := newFakeMessage(t, task)

@@ -60,7 +60,7 @@ func TestHandleRecordsASuspectedSampleAsUnmatched(t *testing.T) {
 	f := newFixture(t, ctx, "rw-suspect", catalogv1alpha1.RootFolderKindMovie, "hd-bluray-web", catalogv1alpha1.ScanModeFull)
 	film, sample := plantShortFilm(t, f)
 
-	w := rescan.NewWorker(f.c, f.bus)
+	w := rescan.NewWorker(f.c, f.bus, nil)
 	require.Equal(t, fsops.DefaultSampleMaxBytes, w.SampleMaxBytes, "NewWorker keeps the 50 MiB default")
 	require.NoError(t, w.Handle(ctx, newFakeMessage(t, f.task(false))))
 
@@ -93,7 +93,7 @@ func TestHandleSampleMaxBytesZeroDisablesTheSizeRule(t *testing.T) {
 	f := newFixture(t, ctx, "rw-suspect-off", catalogv1alpha1.RootFolderKindMovie, "hd-bluray-web", catalogv1alpha1.ScanModeFull)
 	film, _ := plantShortFilm(t, f)
 
-	w := rescan.NewWorker(f.c, f.bus)
+	w := rescan.NewWorker(f.c, f.bus, nil)
 	w.SampleMaxBytes = 0
 	require.NoError(t, w.Handle(ctx, newFakeMessage(t, f.task(false))))
 
@@ -126,13 +126,13 @@ func TestHandleSuspectedSampleCanBeAssignedByHand(t *testing.T) {
 	require.NoError(t, f.c.Create(ctx, movie))
 	waitCached(t, ctx, f.c, movie, func() bool { return true })
 
-	require.NoError(t, rescan.NewWorker(f.c, f.bus).Handle(ctx, newFakeMessage(t, f.task(false))))
+	require.NoError(t, rescan.NewWorker(f.c, f.bus, nil).Handle(ctx, newFakeMessage(t, f.task(false))))
 	first := readProgress(t, ctx, f.bus, string(f.scan.UID))
 	require.Contains(t, unmatchedByPath(first), film, "setup: the film is listed as a suspected sample")
 	assert.Zero(t, first.FilesMatched, "an existing Movie with the file's tmdb id does not overrule the size floor either")
 
 	scan, msg := f.assignScan(t, ctx, "assign-short", "movie/"+movie.Name, film)
-	require.NoError(t, rescan.NewWorker(f.c, f.bus).Handle(ctx, msg))
+	require.NoError(t, rescan.NewWorker(f.c, f.bus, nil).Handle(ctx, msg))
 
 	assigned := readProgress(t, ctx, f.bus, string(scan.UID))
 	require.Empty(t, assigned.Error)
@@ -147,7 +147,7 @@ func TestHandleSuspectedSampleCanBeAssignedByHand(t *testing.T) {
 
 	// The next scheduled scan: the MediaFile is the file's attribution.
 	next, nextMsg := f.nextScan(t, ctx, "tick-2")
-	require.NoError(t, rescan.NewWorker(f.c, f.bus).Handle(ctx, nextMsg))
+	require.NoError(t, rescan.NewWorker(f.c, f.bus, nil).Handle(ctx, nextMsg))
 	again := readProgress(t, ctx, f.bus, string(next.UID))
 	require.Empty(t, again.Error)
 	assert.Empty(t, again.Unmatched, "an attributed file is not a suspected sample")

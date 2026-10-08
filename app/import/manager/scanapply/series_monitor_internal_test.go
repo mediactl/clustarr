@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package rescan
+package scanapply
 
 import (
 	"context"
@@ -23,7 +23,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -34,17 +33,12 @@ import (
 // A series the scan finds on disk starts with nothing monitored: its files
 // import regardless, and the owner turns on the seasons they want searched.
 // Before, it took the CRD's old default, every episode, and a library of 147
-// shows queued 5,718 episode searches.
+// shows queued 5,718 episode searches. (A6.1: the scan applier creates it,
+// no longer the rescan.)
 func TestApplySeriesMonitorsNothing(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).Build()
-	w := &Worker{Client: c}
-	st := &scanState{
-		scan: &catalogv1alpha1.LibraryScan{ObjectMeta: metav1.ObjectMeta{Namespace: "tv", Name: "scan"}},
-		root: &catalogv1alpha1.RootFolder{ObjectMeta: metav1.ObjectMeta{Namespace: "tv", Name: "shows"}},
-	}
-	require.NoError(t, w.applySeries(context.Background(), st, SeriesCandidate{
-		Name: "andor-393189", TvdbID: 393189, Folder: "Andor (2022)", QualityProfileRef: "hd",
-	}))
+	a := &Applier{Client: c}
+	require.NoError(t, a.applySeries(context.Background(), "tv", "andor-393189", 393189, "hd", "shows", "Andor (2022)"))
 	var s catalogv1alpha1.Series
 	require.NoError(t, c.Get(context.Background(), client.ObjectKey{Namespace: "tv", Name: "andor-393189"}, &s))
 	assert.Equal(t, catalogv1alpha1.SeriesMonitorNone, s.Spec.AddOptions.Monitor)

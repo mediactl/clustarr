@@ -93,7 +93,7 @@ func TestHandleAttributesEpisodeFilesUnderASeriesRoot(t *testing.T) {
 		mustWriteFile(t, filepath.Join(f.root, rel), sampleFloor)
 	}
 
-	require.NoError(t, rescan.NewWorker(f.c, f.bus).Handle(ctx, newFakeMessage(t, f.task(false))))
+	require.NoError(t, rescan.NewWorker(f.c, f.bus, nil).Handle(ctx, newFakeMessage(t, f.task(false))))
 	got := readProgress(t, ctx, f.bus, string(f.scan.UID))
 	require.Empty(t, got.Error)
 	assert.Equal(t, int64(5), got.FilesSeen)
@@ -139,7 +139,7 @@ func TestHandleCreatesASeriesFromTheTvdbIDInItsFolder(t *testing.T) {
 		mustWriteFile(t, filepath.Join(f.root, rel), sampleFloor)
 	}
 
-	require.NoError(t, rescan.NewWorker(f.c, f.bus).Handle(ctx, newFakeMessage(t, f.task(false))))
+	require.NoError(t, rescan.NewWorker(f.c, f.bus, nil).Handle(ctx, newFakeMessage(t, f.task(false))))
 	got := readProgress(t, ctx, f.bus, string(f.scan.UID))
 	require.Empty(t, got.Error)
 	assert.Equal(t, int64(3), got.FilesSeen)
@@ -180,7 +180,7 @@ func TestALaterScanAttributesTheFilesOfASeriesAScanCreated(t *testing.T) {
 		mustWriteFile(t, filepath.Join(f.root, folder, "Season 1",
 			fmt.Sprintf("Bobs Burgers (2011) - S01E%02d [WEBDL-1080p]-GRP.mkv", i)), sampleFloor)
 	}
-	w := rescan.NewWorker(f.c, f.bus)
+	w := rescan.NewWorker(f.c, f.bus, nil)
 	require.NoError(t, w.Handle(ctx, newFakeMessage(t, f.task(false))))
 	name := k8s.ChildName("Bob's Burgers", "series", "194031")
 	waitFor(t, 10*time.Second, func() bool {
@@ -226,7 +226,7 @@ func TestADryRunReportsTheSeriesItWouldCreate(t *testing.T) {
 	f := newFixture(t, ctx, "rw-series-dry", catalogv1alpha1.RootFolderKindSeries, "web-1080p", catalogv1alpha1.ScanModeFull)
 	mustWriteFile(t, filepath.Join(f.root, "The Wire [tvdbid-79126]", "The.Wire.S01E01.1080p.BluRay.x264-GRP.mkv"), sampleFloor)
 
-	require.NoError(t, rescan.NewWorker(f.c, f.bus).Handle(ctx, newFakeMessage(t, f.task(true))))
+	require.NoError(t, rescan.NewWorker(f.c, f.bus, nil).Handle(ctx, newFakeMessage(t, f.task(true))))
 	got := readProgress(t, ctx, f.bus, string(f.scan.UID))
 	require.Empty(t, got.Error)
 	assert.Equal(t, int64(1), got.ItemsCreated)
@@ -246,7 +246,7 @@ func TestHandleManualAssignmentToAnEpisode(t *testing.T) {
 	mustWriteFile(t, filepath.Join(f.root, rel), sampleFloor)
 
 	scan, msg := f.assignScan(t, ctx, "assign-ep", "series/breaking-bad/breaking-bad-s01e02", rel)
-	require.NoError(t, rescan.NewWorker(f.c, f.bus).Handle(ctx, msg))
+	require.NoError(t, rescan.NewWorker(f.c, f.bus, nil).Handle(ctx, msg))
 	got := readProgress(t, ctx, f.bus, string(scan.UID))
 	require.Empty(t, got.Error)
 	assert.Equal(t, int64(1), got.FilesMatched)
@@ -258,6 +258,6 @@ func TestHandleManualAssignmentToAnEpisode(t *testing.T) {
 	// An episode of another series is refused, not followed.
 	createSeries(t, ctx, f, "the-wire", "The Wire", 2002, 79126, 1)
 	scan2, msg2 := f.assignScan(t, ctx, "assign-wrong", "series/breaking-bad/the-wire-s01e01", rel)
-	require.NoError(t, rescan.NewWorker(f.c, f.bus).Handle(ctx, msg2))
+	require.NoError(t, rescan.NewWorker(f.c, f.bus, nil).Handle(ctx, msg2))
 	assert.Contains(t, readProgress(t, ctx, f.bus, string(scan2.UID)).Error, "belongs to series \"the-wire\"")
 }

@@ -21,7 +21,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -57,13 +56,4 @@ func TestWalkOrderLessMatchesWalkDir(t *testing.T) {
 		}
 	}
 	assert.False(t, "a/b" < "a-c", "setup: the plain string order disagrees here")
-}
-
-// A reason is clamped to the CRD's MaxLength, which counts characters, on a
-// character boundary.
-func TestClampRunes(t *testing.T) {
-	assert.Equal(t, "abc", rescan.ClampRunes("abc", 3))
-	assert.Equal(t, "ab", rescan.ClampRunes("abc", 2))
-	assert.Equal(t, "日本", rescan.ClampRunes("日本語", 2))
-	assert.Equal(t, strings.Repeat("é", 256), rescan.ClampRunes(strings.Repeat("é", 300), 256))
 }

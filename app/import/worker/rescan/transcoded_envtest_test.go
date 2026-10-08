@@ -101,7 +101,7 @@ func TestHandleHandsAChangedPostTranscodeFileToCatalog(t *testing.T) {
 	require.NoError(t, takeOver(ctx, f.c, f.ns, name, 999, stale))
 	f.waitOriginal(t, ctx, name, false)
 
-	require.NoError(t, rescan.NewWorker(f.c, f.bus).Handle(ctx, newFakeMessage(t, f.task(false))))
+	require.NoError(t, rescan.NewWorker(f.c, f.bus, nil).Handle(ctx, newFakeMessage(t, f.task(false))))
 
 	got := readProgress(t, ctx, f.bus, string(f.scan.UID))
 	assert.Equal(t, int64(1), got.HandedOver)
@@ -131,7 +131,7 @@ func TestHandleHandsAChangedPostTranscodeFileToCatalog(t *testing.T) {
 
 	// The next scan finds the same bytes: nothing is written again.
 	next, msg := f.nextScan(t, ctx, "tick-2")
-	require.NoError(t, rescan.NewWorker(f.c, f.bus).Handle(ctx, msg))
+	require.NoError(t, rescan.NewWorker(f.c, f.bus, nil).Handle(ctx, msg))
 	assert.Equal(t, int64(1), readProgress(t, ctx, f.bus, string(next.UID)).HandedOver)
 	var again catalogv1alpha1.MediaFile
 	require.NoError(t, f.c.Get(ctx, types.NamespacedName{Namespace: f.ns, Name: name}, &again))
@@ -147,7 +147,7 @@ func TestHandleLeavesAnUnchangedPostTranscodeFileAlone(t *testing.T) {
 	require.NoError(t, takeOver(ctx, f.c, f.ns, name, info.Size(), info.ModTime()))
 	f.waitOriginal(t, ctx, name, false)
 
-	require.NoError(t, rescan.NewWorker(f.c, f.bus).Handle(ctx, newFakeMessage(t, f.task(false))))
+	require.NoError(t, rescan.NewWorker(f.c, f.bus, nil).Handle(ctx, newFakeMessage(t, f.task(false))))
 
 	got := readProgress(t, ctx, f.bus, string(f.scan.UID))
 	assert.Equal(t, int64(1), got.Transcoded)
@@ -161,8 +161,8 @@ func TestHandleLeavesAnUnchangedPostTranscodeFileAlone(t *testing.T) {
 }
 
 // takeoverOnApply is the cluster between a rescan's read of a MediaFile and
-// its apply: the first time the worker applies the MediaFile, catalog's
-// transcode takeover lands first.
+// its apply -- the scan applier's since A6.1: the first time the MediaFile
+// is applied, catalog's transcode takeover lands first.
 type takeoverOnApply struct {
 	client.Client
 	ns, name string
@@ -182,20 +182,26 @@ func (c *takeoverOnApply) Apply(ctx context.Context, obj runtime.ApplyConfigurat
 }
 
 // The swap-versus-rescan race: a transcode takeover that lands between the
-// walk reading a MediaFile (still original) and applying it. Without the
-// resourceVersion precondition the forced apply put spec.original back to
-// true and the pre-transcode size back; with it the apiserver refuses the
-// stale apply, and the walk re-reads and leaves the swapped file to
-// catalog.
+// walk reading a MediaFile (still original) and the scan applier applying
+// what it observed. Without the resourceVersion precondition the forced
+// apply put spec.original back to true and the pre-transcode size back;
+// with it the apiserver refuses the stale apply, and the swapped file is
+// left to catalog.
 func TestHandleNeverRevertsATakeoverThatLandsMidScan(t *testing.T) {
 	ctx := context.Background()
 	f := newFixture(t, ctx, "rw-race", catalogv1alpha1.RootFolderKindMovie, "hd-bluray-web", catalogv1alpha1.ScanModeFull)
-	name, _, info := f.importedFile(t, ctx)
+	name, path, info := f.importedFile(t, ctx)
 	f.waitOriginal(t, ctx, name, true)
+	// The scan applier writes only what changed -- a full scan's unchanged
+	// file re-asserts nothing -- so the file is touched: the walk reports
+	// the change, and the applier's apply is the one the takeover races.
+	touched := info.ModTime().Add(time.Minute)
+	require.NoError(t, os.Chtimes(path, touched, touched))
 
 	swapped := info.ModTime().Add(time.Hour)
 	racy := &takeoverOnApply{Client: f.c, ns: f.ns, name: name, size: 12345, mod: swapped}
-	require.NoError(t, rescan.NewWorker(racy, f.bus).Handle(ctx, newFakeMessage(t, f.task(false))))
+	bus := scanBus(f.raw, racy, f.c)
+	require.NoError(t, rescan.NewWorker(f.c, bus, nil).Handle(ctx, newFakeMessage(t, f.task(false))))
 	require.True(t, racy.fired.Load(), "setup: the takeover raced the walk's apply")
 
 	var after catalogv1alpha1.MediaFile

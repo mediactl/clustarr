@@ -39,7 +39,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
-	"github.com/mediactl/clustarr/pkg/mediainfo/ffprobeexec"
+	"github.com/mediactl/clustarr/pkg/mediainfo/native"
 	"github.com/mediactl/clustarr/pkg/obs/metrics"
 	"github.com/mediactl/clustarr/pkg/quality"
 )
@@ -82,11 +82,23 @@ func plantCopy(t *testing.T, clip, path string) {
 	require.NoError(t, os.WriteFile(path, b, 0o644)) //nolint:gosec // a test library file
 }
 
+// nativeProber is the import domain's one prober, in-process
+// (pkg/mediainfo/native, W8): a named skip when FFmpeg 9's libraries cannot
+// be loaded, a missing prerequisite like ffmpeg on PATH.
+func nativeProber(t *testing.T) *native.Prober {
+	t.Helper()
+	p, err := native.New()
+	if err != nil {
+		t.Skipf("the native prober cannot load FFmpeg 9 (%v); run `make native-assets`", err)
+	}
+	return p
+}
+
 // probedResolution is the resolution the real probe reads off clip: the
 // expectation every test here builds from, never a hard-coded number.
 func probedResolution(t *testing.T, ctx context.Context, clip string) int32 {
 	t.Helper()
-	mi, _, err := ffprobeexec.Probe(ctx, clip)
+	mi, _, err := nativeProber(t).Probe(ctx, clip)
 	require.NoError(t, err)
 	// What the scan does to a name that says nothing about quality:
 	// Radarr's bucketing, by width or height and 480p at the least, not
@@ -100,8 +112,9 @@ func probedResolution(t *testing.T, ctx context.Context, clip string) int32 {
 // clipWorker is NewWorker with the size floor off: a probeable clip is a
 // few hundred KiB, under fsops.DefaultSampleMaxBytes, and that rule has its
 // own test (sample_envtest_test.go).
-func clipWorker(f *fixture) *rescan.Worker {
-	w := rescan.NewWorker(f.c, f.bus)
+func clipWorker(t *testing.T, f *fixture) *rescan.Worker {
+	t.Helper()
+	w := rescan.NewWorker(f.c, f.bus, nativeProber(t))
 	w.SampleMaxBytes = 0
 	return w
 }
@@ -127,7 +140,7 @@ func TestHandleAttributesAJunkNamedFileByItsItemFolder(t *testing.T) {
 	path := filepath.Join(f.root, "A Scanner Darkly (2006) {tmdb-3509}", junkName)
 	plantCopy(t, hevcFixture, path)
 
-	require.NoError(t, clipWorker(f).Handle(ctx, newFakeMessage(t, f.task(false))))
+	require.NoError(t, clipWorker(t, f).Handle(ctx, newFakeMessage(t, f.task(false))))
 	got := readProgress(t, ctx, f.bus, string(f.scan.UID))
 	require.Empty(t, got.Error)
 	assert.Empty(t, got.Unmatched)
@@ -155,7 +168,7 @@ func TestHandleLeavesAJunkNamedFileInAnUnknownFolderUnmatched(t *testing.T) {
 	plantCopy(t, hevcFixture, filepath.Join(f.root, "Waking Life (2001)", junkName))
 
 	before := noMatches(t)
-	require.NoError(t, clipWorker(f).Handle(ctx, newFakeMessage(t, f.task(false))))
+	require.NoError(t, clipWorker(t, f).Handle(ctx, newFakeMessage(t, f.task(false))))
 	got := readProgress(t, ctx, f.bus, string(f.scan.UID))
 	require.Empty(t, got.Error)
 	_, ok := unmatchedByPath(got)[filepath.Join("Waking Life (2001)", junkName)]
@@ -174,7 +187,7 @@ func TestHandleLeavesAJunkNamedFileInAnUnknownFolderUnmatched(t *testing.T) {
 func serveImdbResolve(t *testing.T, f *fixture, tmdbID string) *atomic.Int64 {
 	t.Helper()
 	var calls atomic.Int64
-	require.NoError(t, f.bus.Serve(events.RPCMetadataResolve, "test",
+	stop, err := f.bus.Serve(events.RPCMetadataResolve, "test",
 		func(_ context.Context, data []byte) ([]byte, error) {
 			calls.Add(1)
 			var req schema.MetadataRequest
@@ -184,7 +197,9 @@ func serveImdbResolve(t *testing.T, f *fixture, tmdbID string) *atomic.Int64 {
 			_, out, err := schema.Encode(schema.MetadataResponse{Kind: req.Kind, IDs: map[string]string{"tmdb": tmdbID}})
 			assert.NoError(t, err)
 			return out, err
-		}))
+		})
+	require.NoError(t, err)
+	t.Cleanup(stop)
 	return &calls
 }
 
@@ -209,7 +224,7 @@ func TestHandleCreatesAMovieFromItsFoldersOwnID(t *testing.T) {
 			// fails on it and leaves the name-derived quality.
 			mustWriteFile(t, filepath.Join(f.root, tc.folder, junkName), sampleFloor)
 
-			require.NoError(t, rescan.NewWorker(f.c, f.bus).Handle(ctx, newFakeMessage(t, f.task(false))))
+			require.NoError(t, rescan.NewWorker(f.c, f.bus, nil).Handle(ctx, newFakeMessage(t, f.task(false))))
 			got := readProgress(t, ctx, f.bus, string(f.scan.UID))
 			require.Empty(t, got.Error)
 			assert.Empty(t, got.Unmatched)
@@ -237,7 +252,7 @@ func TestHandleNeverReadsAGrandparentsIDForAJunkNamedFile(t *testing.T) {
 		mustWriteFile(t, filepath.Join(f.root, rel), sampleFloor)
 
 		before := noMatches(t)
-		require.NoError(t, rescan.NewWorker(f.c, f.bus).Handle(ctx, newFakeMessage(t, f.task(false))))
+		require.NoError(t, rescan.NewWorker(f.c, f.bus, nil).Handle(ctx, newFakeMessage(t, f.task(false))))
 		got := readProgress(t, ctx, f.bus, string(f.scan.UID))
 		require.Empty(t, got.Error)
 		_, ok := unmatchedByPath(got)[rel]
@@ -268,7 +283,7 @@ func TestHandleNeverReadsAGrandparentsIDForAJunkNamedFile(t *testing.T) {
 		waitCached(t, ctx, f.c, alien, func() bool { return alien.Status.Metadata != nil })
 		mustWriteFile(t, filepath.Join(f.root, rel), sampleFloor)
 
-		require.NoError(t, rescan.NewWorker(f.c, f.bus).Handle(ctx, newFakeMessage(t, f.task(false))))
+		require.NoError(t, rescan.NewWorker(f.c, f.bus, nil).Handle(ctx, newFakeMessage(t, f.task(false))))
 		got := readProgress(t, ctx, f.bus, string(f.scan.UID))
 		require.Empty(t, got.Error)
 		assert.Empty(t, got.Unmatched)
@@ -292,7 +307,7 @@ func TestHandleCorrectsANamedQualityFromTheProbe(t *testing.T) {
 	res := probedResolution(t, ctx, clip)
 	plantCopy(t, clip, filepath.Join(f.root, "The Matrix (1999) {tmdb-603}", "The.Matrix.1999.2160p.BluRay.x265-GRP.mkv"))
 
-	require.NoError(t, clipWorker(f).Handle(ctx, newFakeMessage(t, f.task(false))))
+	require.NoError(t, clipWorker(t, f).Handle(ctx, newFakeMessage(t, f.task(false))))
 	got := readProgress(t, ctx, f.bus, string(f.scan.UID))
 	require.Empty(t, got.Error)
 	assert.Empty(t, got.Unmatched)
@@ -333,7 +348,7 @@ func TestHandleHeartbeatsImmediatelyBeforeAProbe(t *testing.T) {
 
 	msg := newFakeMessage(t, f.task(false))
 	var atProbe []int64
-	w := rescan.NewWorker(f.c, f.bus)
+	w := rescan.NewWorker(f.c, f.bus, nil)
 	w.ProbeVideo = func(context.Context, string) (*commonv1.MediaInfo, error) {
 		atProbe = append(atProbe, msg.heartbeats.Load())
 		return &commonv1.MediaInfo{Width: 1920, Height: 1080}, nil

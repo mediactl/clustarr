@@ -22,6 +22,3 @@ var WalkOrderLess = walkOrderLess
 
 // KeptOutputName exposes keptOutputName to the external test package.
 var KeptOutputName = keptOutputName
-
-// ClampRunes exposes clampRunes to the external test package.
-var ClampRunes = clampRunes

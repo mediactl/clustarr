@@ -84,7 +84,7 @@ func TestHandleResumesARedeliveredScanFromItsCheckpoint(t *testing.T) {
 
 	msg := newFakeMessage(t, f.task(false))
 	msg.attempt = 2
-	require.NoError(t, rescan.NewWorker(f.c, f.bus).Handle(ctx, msg))
+	require.NoError(t, rescan.NewWorker(f.c, f.bus, nil).Handle(ctx, msg))
 
 	got := readProgress(t, ctx, f.bus, string(f.scan.UID))
 	require.True(t, got.Done)
@@ -108,7 +108,7 @@ func TestHandleARedeliveryAfterTheFinalCheckpointIsANoOp(t *testing.T) {
 
 	msg := newFakeMessage(t, f.task(false))
 	msg.attempt = 2
-	require.NoError(t, rescan.NewWorker(f.c, f.bus).Handle(ctx, msg))
+	require.NoError(t, rescan.NewWorker(f.c, f.bus, nil).Handle(ctx, msg))
 
 	got := readProgress(t, ctx, f.bus, string(f.scan.UID))
 	assert.Equal(t, int64(7), got.FilesSeen, "the final tally stands")
@@ -127,7 +127,7 @@ func TestHandleDiscardsATaskForASettledScan(t *testing.T) {
 	require.NoError(t, err)
 	waitCached(t, ctx, f.c, f.scan, func() bool { return f.scan.Status.Phase == catalogv1alpha1.ScanPhaseFailed })
 
-	assertDiscarded(t, rescan.NewWorker(f.c, f.bus).Handle(ctx, newFakeMessage(t, f.task(false))))
+	assertDiscarded(t, rescan.NewWorker(f.c, f.bus, nil).Handle(ctx, newFakeMessage(t, f.task(false))))
 	assert.Zero(t, movieCount(t, ctx, f.c, f.ns))
 }
 
@@ -145,7 +145,7 @@ func TestHandleCarriesOnPastAnUnreadableFolder(t *testing.T) {
 	require.NoError(t, os.Chmod(locked, 0))
 	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
 
-	require.NoError(t, rescan.NewWorker(f.c, f.bus).Handle(ctx, newFakeMessage(t, f.task(false))))
+	require.NoError(t, rescan.NewWorker(f.c, f.bus, nil).Handle(ctx, newFakeMessage(t, f.task(false))))
 
 	got := readProgress(t, ctx, f.bus, string(f.scan.UID))
 	require.True(t, got.Done)
@@ -179,7 +179,7 @@ func TestHandleManualFolderAssignmentLeavesThePromoClipBehind(t *testing.T) {
 	mustWriteFile(t, filepath.Join(f.root, "Short", "short-film.mkv"), shortFilmBytes)
 
 	scan, msg := f.assignScan(t, ctx, "assign-folder", "movie/"+movie.Name, "Unsorted")
-	require.NoError(t, rescan.NewWorker(f.c, f.bus).Handle(ctx, msg))
+	require.NoError(t, rescan.NewWorker(f.c, f.bus, nil).Handle(ctx, msg))
 	got := readProgress(t, ctx, f.bus, string(scan.UID))
 	require.Empty(t, got.Error)
 	assert.Equal(t, int64(1), got.FilesMatched, "the feature")
@@ -190,7 +190,7 @@ func TestHandleManualFolderAssignmentLeavesThePromoClipBehind(t *testing.T) {
 	assert.Equal(t, filepath.Join(f.root, "Unsorted", "feature.mkv"), files[0].Spec.Path)
 
 	scan2, msg2 := f.assignScan(t, ctx, "assign-short", "movie/"+movie.Name, "Short")
-	require.NoError(t, rescan.NewWorker(f.c, f.bus).Handle(ctx, msg2))
+	require.NoError(t, rescan.NewWorker(f.c, f.bus, nil).Handle(ctx, msg2))
 	got2 := readProgress(t, ctx, f.bus, string(scan2.UID))
 	assert.Empty(t, got2.Unmatched, "a folder whose only video is small is what the person assigned")
 	assert.Equal(t, int64(1), got2.FilesMatched)

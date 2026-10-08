@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
+	"github.com/mediactl/clustarr/app/import/manager/scanapply"
 	"github.com/mediactl/clustarr/app/import/scanprogress"
 	"github.com/mediactl/clustarr/app/import/worker/rescan"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -56,7 +57,7 @@ const sampleFloor = 60 << 20
 // know to skip.
 //
 // One shared envtest and one shared manager, rather than one per test:
-// rescan.IndexMediaFileByPath registers a field index, and an index only
+// rescan.FieldIndexes declares a field index, and an index only
 // exists on a manager's cache, so a bare client.New cannot serve the
 // MatchingFields lookup the worker makes on every file.
 var testClient client.Client
@@ -92,9 +93,11 @@ func TestMain(m *testing.M) {
 			fmt.Fprintf(os.Stderr, "build manager: %v\n", err)
 			return 1
 		}
-		if err := rescan.IndexMediaFileByPath(ctx, mgr); err != nil {
-			fmt.Fprintf(os.Stderr, "index media files: %v\n", err)
-			return 1
+		for _, fi := range rescan.FieldIndexes() {
+			if err := mgr.GetFieldIndexer().IndexField(ctx, fi.Object, fi.Name, fi.Extract); err != nil {
+				fmt.Fprintf(os.Stderr, "index media files: %v\n", err)
+				return 1
+			}
 		}
 		go func() { _ = mgr.Start(ctx) }()
 		if !mgr.GetCache().WaitForCacheSync(ctx) {
@@ -190,6 +193,15 @@ func newBus(t *testing.T, ctx context.Context) events.Bus {
 	return bus
 }
 
+// scanBus is raw with the manager's scan applier, writing through w and
+// reading the cache through r, applying every observation the walk
+// publishes as it lands (rescan.ApplyingBus): since A6.1 the walk reports
+// and writes nothing (ADR-0019 §7.6), so the items and MediaFiles these
+// tests assert on are the applier's.
+func scanBus(raw events.Bus, w client.Client, r client.Reader) events.Bus {
+	return rescan.ApplyingBus(raw, &scanapply.Applier{Client: w, Reader: r, APIReader: testAPI, Bus: raw})
+}
+
 // fakeMessage is an events.Message over a locally encoded envelope, so a test
 // can call Handle directly without a live subscription. It records the
 // heartbeats the walk sends.
@@ -224,13 +236,24 @@ func (m *fakeMessage) Nak(context.Context, time.Duration) error {
 func (m *fakeMessage) Term(context.Context, string) error { m.terms.Add(1); return nil }
 func (m *fakeMessage) InProgress(context.Context) error   { m.heartbeats.Add(1); return nil }
 
-// readProgress decodes the worker's checkpoint for a scan.
+// readProgress decodes the worker's checkpoint for a scan, with the scan
+// applier's tally added as the LibraryScan controller adds it
+// (scanprogress.AppliedKey, Progress.Merge): the walk counts what it saw,
+// the applier what it decided.
 func readProgress(t *testing.T, ctx context.Context, bus events.Bus, scanUID string) scanprogress.Progress {
 	t.Helper()
 	entry, err := bus.KV(events.BucketProgress).Get(ctx, scanprogress.ProgressKey(scanUID))
 	require.NoError(t, err, "no progress checkpoint was written")
 	got, err := scanprogress.DecodeProgress(entry.Value)
 	require.NoError(t, err)
+	switch applied, err := bus.KV(events.BucketProgress).Get(ctx, scanprogress.AppliedKey(scanUID)); {
+	case err == nil:
+		q, err := scanprogress.DecodeProgress(applied.Value)
+		require.NoError(t, err)
+		got = got.Merge(q)
+	default:
+		require.ErrorIs(t, err, events.ErrKeyNotFound)
+	}
 	return got
 }
 

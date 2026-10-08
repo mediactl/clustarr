@@ -20,7 +20,6 @@ package rescan_test
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -71,7 +70,7 @@ func TestHandleScoresAScannedMovieFileAgainstItsProfile(t *testing.T) {
 	path := filepath.Join(f.root, "Heat (1995) [tmdbid-949]", "Heat.1995.1080p.BluRay.x264-CtrlHD [tmdbid-949].mkv")
 	mustWriteFile(t, path, sampleFloor)
 
-	require.NoError(t, rescan.NewWorker(f.c, f.bus).Handle(ctx, newFakeMessage(t, f.task(false))))
+	require.NoError(t, rescan.NewWorker(f.c, f.bus, nil).Handle(ctx, newFakeMessage(t, f.task(false))))
 	got := readProgress(t, ctx, f.bus, string(f.scan.UID))
 	require.Empty(t, got.Unmatched)
 	require.Equal(t, int64(1), got.FilesMatched)
@@ -94,9 +93,7 @@ func TestHandleScoresAScannedMovieFileAgainstItsProfile(t *testing.T) {
 // 320 MP3 is Lidarr's MP3-320, on the High tier. Without the probe its
 // quality was unknown.
 func TestHandleFreezesAProbedLossyTrack(t *testing.T) {
-	if _, err := exec.LookPath("ffprobe"); err != nil {
-		t.Skip("ffprobe not on PATH")
-	}
+	prober := nativeProber(t)
 	ctx := context.Background()
 	f := newFixture(t, ctx, "rw-probe", catalogv1alpha1.RootFolderKindMusic, "", catalogv1alpha1.ScanModeFull)
 	createArtistAlbum(t, ctx, f)
@@ -106,7 +103,7 @@ func TestHandleFreezesAProbedLossyTrack(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Dir(track), 0o755))
 	require.NoError(t, os.WriteFile(track, fixture, 0o644))
 
-	require.NoError(t, rescan.NewWorker(f.c, f.bus).Handle(ctx, newFakeMessage(t, f.task(false))))
+	require.NoError(t, rescan.NewWorker(f.c, f.bus, prober).Handle(ctx, newFakeMessage(t, f.task(false))))
 	require.Equal(t, int64(1), readProgress(t, ctx, f.bus, string(f.scan.UID)).FilesMatched)
 	mf := mediaFilesIn(t, ctx, f.c, f.ns, 1)[0]
 	assert.Equal(t, "High", mf.Spec.Quality.Name)
@@ -125,7 +122,7 @@ func TestHandleScoresReleaseTitleFormatsFromTheFileName(t *testing.T) {
 	mustWriteFile(t, filepath.Join(f.root, "Heat (1995) [tmdbid-949]",
 		"Heat.1995.REPACK.1080p.BluRay.HDR.x264-CtrlHD [tmdbid-949].mkv"), sampleFloor)
 
-	require.NoError(t, rescan.NewWorker(f.c, f.bus).Handle(ctx, newFakeMessage(t, f.task(false))))
+	require.NoError(t, rescan.NewWorker(f.c, f.bus, nil).Handle(ctx, newFakeMessage(t, f.task(false))))
 	require.Equal(t, int64(1), readProgress(t, ctx, f.bus, string(f.scan.UID)).FilesMatched)
 
 	resolved, errs := quality.FromCRD(qp, catalogue.LoadedCatalogue())

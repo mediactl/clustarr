@@ -118,7 +118,7 @@ func TestHandleKeepsAKeptSourcesOutputOnceItsJobIsGone(t *testing.T) {
 			mustWriteFile(t, kept, sampleFloor)
 
 			var probes atomic.Int64
-			w := rescan.NewWorker(f.c, f.bus)
+			w := rescan.NewWorker(f.c, f.bus, nil)
 			w.ProbeVideo = func(_ context.Context, path string) (*commonv1.MediaInfo, error) {
 				probes.Add(1)
 				assert.Equal(t, kept, path)

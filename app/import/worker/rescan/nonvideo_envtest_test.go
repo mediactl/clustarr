@@ -146,7 +146,7 @@ func TestHandleAttributesAMusicFileToAnExistingAlbumOnly(t *testing.T) {
 	mustWriteFile(t, filepath.Join(f.root, "Unknown Band", "Some Album (2001)", "01.flac"), smallFile)
 	mustWriteFile(t, filepath.Join(f.root, "Radiohead", "01 - Loose Track.flac"), smallFile)
 
-	require.NoError(t, rescan.NewWorker(f.c, f.bus).Handle(ctx, newFakeMessage(t, f.task(false))))
+	require.NoError(t, rescan.NewWorker(f.c, f.bus, nil).Handle(ctx, newFakeMessage(t, f.task(false))))
 
 	got := readProgress(t, ctx, f.bus, string(f.scan.UID))
 	require.Empty(t, got.Error)
@@ -218,7 +218,7 @@ func TestHandleAttributesAComicFileToAnExistingIssueOnly(t *testing.T) {
 	mustWriteFile(t, filepath.Join(f.root, "Saga", "Saga 001 (2012).cbz"), 2*smallFile)
 	mustWriteFile(t, filepath.Join(f.root, "Saga", "Saga 099 (2012).cbz"), 2*smallFile)
 
-	require.NoError(t, rescan.NewWorker(f.c, f.bus).Handle(ctx, newFakeMessage(t, f.task(false))))
+	require.NoError(t, rescan.NewWorker(f.c, f.bus, nil).Handle(ctx, newFakeMessage(t, f.task(false))))
 
 	got := readProgress(t, ctx, f.bus, string(f.scan.UID))
 	assert.Equal(t, int64(2), got.FilesSeen)
@@ -255,7 +255,7 @@ func TestHandleMatchesAnEmbeddedASINAndNeverCreatesFromOne(t *testing.T) {
 	mustWriteFile(t, filepath.Join(f.root, "Terry Goodkind", "Wizard's First Rule [B002V0QK4C]", "01.mp3"), smallFile)
 	mustWriteFile(t, filepath.Join(f.root, "Terry Goodkind", "Stone of Tears [B00UNKNOWN]", "01.mp3"), smallFile)
 
-	require.NoError(t, rescan.NewWorker(f.c, f.bus).Handle(ctx, newFakeMessage(t, f.task(false))))
+	require.NoError(t, rescan.NewWorker(f.c, f.bus, nil).Handle(ctx, newFakeMessage(t, f.task(false))))
 
 	got := readProgress(t, ctx, f.bus, string(f.scan.UID))
 	assert.Equal(t, int64(1), got.FilesMatched)
@@ -302,7 +302,7 @@ func TestHandleAttributesABookFileToAnExistingBookOnly(t *testing.T) {
 	mustWriteFile(t, filepath.Join(f.root, "Frank Herbert", "Dune", "Frank Herbert.epub"), smallFile)
 	mustWriteFile(t, filepath.Join(f.root, "Frank Herbert", "Children of Dune", "Frank Herbert.epub"), smallFile)
 
-	require.NoError(t, rescan.NewWorker(f.c, f.bus).Handle(ctx, newFakeMessage(t, f.task(false))))
+	require.NoError(t, rescan.NewWorker(f.c, f.bus, nil).Handle(ctx, newFakeMessage(t, f.task(false))))
 
 	got := readProgress(t, ctx, f.bus, string(f.scan.UID))
 	assert.Equal(t, int64(2), got.FilesSeen)
@@ -361,7 +361,7 @@ func TestHandleRescanReassertsFrozenImportFields(t *testing.T) {
 			len(list.Items) == 1 && list.Items[0].Status.ProbeHash == "probe-1"
 	})
 
-	require.NoError(t, rescan.NewWorker(f.c, f.bus).Handle(ctx, newFakeMessage(t, f.task(false))))
+	require.NoError(t, rescan.NewWorker(f.c, f.bus, nil).Handle(ctx, newFakeMessage(t, f.task(false))))
 	got := readProgress(t, ctx, f.bus, string(f.scan.UID))
 	assert.Equal(t, int64(1), got.FilesMatched)
 	assert.Empty(t, got.Unmatched, "a file that already has a MediaFile is never re-matched")
@@ -423,11 +423,11 @@ func TestHandleManualAssignmentRecordsOneFileAgainstTheNamedItem(t *testing.T) {
 	mustWriteFile(t, filepath.Join(f.root, "Misc", "untitled", "track 2.flac"), smallFile)
 
 	// The unmatched listing first, as the UI would see it.
-	require.NoError(t, rescan.NewWorker(f.c, f.bus).Handle(ctx, newFakeMessage(t, f.task(false))))
+	require.NoError(t, rescan.NewWorker(f.c, f.bus, nil).Handle(ctx, newFakeMessage(t, f.task(false))))
 	require.Contains(t, unmatchedByPath(readProgress(t, ctx, f.bus, string(f.scan.UID))), rel)
 
 	scan, msg := f.assignScan(t, ctx, "assign-1", "album/"+album.Name, rel)
-	require.NoError(t, rescan.NewWorker(f.c, f.bus).Handle(ctx, msg))
+	require.NoError(t, rescan.NewWorker(f.c, f.bus, nil).Handle(ctx, msg))
 
 	got := readProgress(t, ctx, f.bus, string(scan.UID))
 	require.Empty(t, got.Error)
@@ -471,7 +471,7 @@ func TestHandleManualAssignmentRefusesWhatItCannotHonour(t *testing.T) {
 		{"album/" + album.Name, "../elsewhere", "outside root folder"},
 	} {
 		scan, msg := f.assignScan(t, ctx, "bad-"+string(rune('a'+i)), tc.target, tc.subpath)
-		require.NoError(t, rescan.NewWorker(f.c, f.bus).Handle(ctx, msg), tc.target)
+		require.NoError(t, rescan.NewWorker(f.c, f.bus, nil).Handle(ctx, msg), tc.target)
 		got := readProgress(t, ctx, f.bus, string(scan.UID))
 		assert.True(t, got.Done, tc.target)
 		assert.Contains(t, got.Error, tc.want, tc.target)
@@ -494,7 +494,7 @@ func TestHandleManualAssignmentRefusesWhatItCannotHonour(t *testing.T) {
 			client.MatchingFields{rescan.MediaFilePathIndexKey: other}) == nil && len(list.Items) == 1
 	})
 	scan, msg := f.assignScan(t, ctx, "elsewhere", "album/"+album.Name, rel)
-	require.NoError(t, rescan.NewWorker(f.c, f.bus).Handle(ctx, msg))
+	require.NoError(t, rescan.NewWorker(f.c, f.bus, nil).Handle(ctx, msg))
 	got := readProgress(t, ctx, f.bus, string(scan.UID))
 	require.Empty(t, got.Error)
 	u := unmatchedByPath(got)[rel]
@@ -540,7 +540,7 @@ func TestHandleReadsReleaseYearsInUTC(t *testing.T) {
 	require.Equal(t, 1996, album.Status.Metadata.ReleaseDate.Year(), "the premise: decoded west of UTC it reads 1996")
 
 	mustWriteFile(t, filepath.Join(f.root, "Someone", "New Year (1997)", "01.flac"), smallFile)
-	require.NoError(t, rescan.NewWorker(f.c, f.bus).Handle(ctx, newFakeMessage(t, f.task(false))))
+	require.NoError(t, rescan.NewWorker(f.c, f.bus, nil).Handle(ctx, newFakeMessage(t, f.task(false))))
 
 	got := readProgress(t, ctx, f.bus, string(f.scan.UID))
 	assert.Empty(t, got.Unmatched, "a 1997 folder matches a 1 January 1997 UTC release")
