@@ -106,13 +106,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // # Extending download scenario 1
 //
 // TestDownloadScenario1TranscodeLeg (this file) drives scenario 1's
-// download-import route to a real MediaFile and through a real
-// TranscodeJob. It used to be a permanent skip -- the download-import
-// route could never reach a MediaFile at all, because test/fixtures/seeder
-// and test/fixtures/nntpstub named their content "clustarr-fixture.bin",
-// outside pkg/fsops.MediaExtensions -- until X12c (docs/superpowers/plans/
-// 2026-09-23-gap-fixes.md) fixed both fixtures (test/fixtures/**, out of
-// E-5's own file scope but squarely X12c's).
+// download-import route -- a Search pick of the torznab stub's seeder
+// release -- to a real MediaFile and through a real transcode of it.
 package e2e
 
 import (
@@ -130,11 +125,13 @@ import (
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
+	"github.com/mediactl/clustarr/test/fixtures/torznabstub"
 )
 
 const (
@@ -494,56 +491,82 @@ func TestTranscodeDolbyVisionSkipped(t *testing.T) {
 }
 
 // TestDownloadScenario1TranscodeLeg is scenario 1's transcode leg
-// ("MediaFile -> TranscodeJob Succeeded") through the REAL download-import
-// route: a torrent grab against test/fixtures/seeder, a real import to a
-// MediaFile, then a real TranscodeJob through Succeeded. It used to be a
-// permanent skip: the download-import route could never reach a MediaFile
-// at all, because test/fixtures/seeder always named its content
-// "clustarr-fixture.bin", outside pkg/fsops.MediaExtensions -- see this
-// file's git history for the former doc comment recording that in full.
-// X12c (docs/superpowers/plans/2026-09-23-gap-fixes.md) closed the
-// fixture-shape gap (seeder.ContentName's own doc comment); this now
-// drives the real pipeline instead of documenting why it could not.
+// ("MediaFile -> transcode Succeeded") through the real download-import
+// route: a person's pick of the seeder's release from a real Search, a real
+// transfer and import to a MediaFile, then a real transcode of that file
+// through its own status.transcode (ADR-0016 folded the TranscodeJob kind
+// into it) to a swapped, re-probed HEVC file.
 //
-// It starts its OWN independent Movie/Download -- see
-// TestDownloadScenario1SubtitleLeg's identical doc comment paragraph
-// (subtitle_test.go) for why sharing download_test.go's
-// TestDownloadTorrentGrabToImportAttempt's objects would be the wrong
-// choice here, not an oversight.
+// It starts its OWN grab -- see TestDownloadScenario1SubtitleLeg's
+// identical paragraph (subtitle_test.go) for why sharing download_test.go's
+// objects would be the wrong choice.
 //
-// newTranscodeProfile is scoped to (1080, Bluray) -- reusing
-// libraryscan_test.go's fixtureMovieFile's own (resolution, source), same
-// as TestDownloadScenario1SubtitleLeg's SubtitleProfile and for the
-// identical reason: see waitForImportOutcome's doc comment
-// (helpers_test.go) for why the shared download fixture always parses to
-// that quality, and why the reuse is safe under this suite's sequential,
-// alphabetical-by-filename test ordering.
+// newTranscodeProfile is scoped to (1080, Bluray): the imported file's
+// quality, the seeder's 1080p clip under a Bluray name. No other scenario's
+// file carries it while this one runs: libraryscan_test.go's
+// fixtureMovieFile does too, but this suite runs one test at a time and
+// every scenario deletes its MediaFiles when it passes.
 //
-// This function also closes Phase H's scenario 1 trace check ("one
-// trace_id appears in the logs of catalog, index, grab and
-// import for the same grab", remaining-work.md) -- HONESTLY scoped, not
-// as written: see sharedTraceID's own doc comment (helpers_test.go) for
-// why this suite's direct-create Download flow structurally never reaches
-// catalog's search/grab worker or index at all, so a real, full
-// four-service trace needs a different scenario (a real Search-driven
-// grab, matching indexer_test.go's scenario 17 shape) that no task has
-// built yet. What this DOES prove for real: the bus hop between grab
-// (publishing an ImportTask on Download completion) and import-worker
-// (consuming it and creating the MediaFile) carries ONE shared
-// Clustarr-Trace-derived trace_id, which is the one hop in this flow where
-// propagation could silently break without a same-process call stack to
-// carry it -- see sharedTraceID's own reasoning for why the other legs of
-// this flow (grab's own watch-driven Download reconcile, catalog's
-// watch-driven MediaFile/TranscodeJob reconciles) need no such proof:
-// there is no message-queue hop there for propagation to fail across.
+// It also keeps the grab-to-import trace check this leg had: the manager
+// plans the import and the import agent executes it over the bus, and the
+// two Deployments' logs must share a trace_id since the scenario started
+// (Clustarr-Trace propagation through pkg/events' hooks). It is scoped to
+// that one hop, not the four services scenario 1's text names.
 //
-// TestTranscodeMediaFileThroughTranscodeJob (this file) is scenario 12's
-// own, more thorough TranscodeJob leg, through the LibraryScan route.
+// TestTranscodeContainerChangeMovesTheFile (this file) is scenario 12's
+// own transcode leg, through the LibraryScan route.
 func TestDownloadScenario1TranscodeLeg(t *testing.T) {
-	// The Download kind is gone (A9.1): a grab is a status.downloads[] entry on its item,
-	// started by a Search with spec.grab naming the fixture release (spec §6.13), and the
-	// transcode state is the MediaFile's status.transcode (ADR-0016). The body this leg had,
-	// with its grab-to-import trace check, is at the T1 base,
-	// git show 10f1a491:test/e2e/transcode_test.go; F8.9 rewrites it in T2.
-	t.Skip("T2: scenario 1's transcode leg starts from a Search pick and reads status.transcode (A8.4, F8.9)")
+	ctx, cancel := context.WithTimeout(context.Background(), scenarioTimeout)
+	defer cancel()
+	requireFixtureService(ctx, t, fixtureSeederService)
+	requireFixtureService(ctx, t, fixtureTorznabService)
+	t0 := time.Now().Add(-time.Minute)
+
+	rf := newRootFolder(ctx, t, "e2e-dl1tj-rf", catalogv1alpha1.RootFolderKindMovie, "movies")
+	movie := newMovie(ctx, t, "e2e-dl1tj-movie", fixtureTmdbID, QualityProfileName, rf.Name, catalogv1alpha1.MinimumAvailabilityAnnounced)
+	waitForMovieSettled(ctx, t, movie, "Inception")
+	newTorrentDownloadClientE2E(ctx, t, "e2e-dl1tj-dc")
+	idx := newDownloadIndexer(ctx, t, "e2e-dl1tj-idx", commonv1.ProtocolTorrent)
+
+	s := searchAndGrab(ctx, t, movie, idx, false, torznabstub.GUIDSeeder)
+	id := grabbedRef(t, &s, torznabstub.GUIDSeeder)
+	waitForEntryImported(ctx, t, movie, id)
+	imported := mediaFileForEntry(ctx, t, id)
+	mfKey := client.ObjectKeyFromObject(&imported)
+	mf := waitForMediaFileProbed(ctx, t, mfKey)
+	require.Equal(t, "1080", mf.Labels[catalogv1alpha1.LabelResolution],
+		"the loop's mirrored labels carry the imported file's frozen resolution")
+	require.Equal(t, "bluray", mf.Labels[catalogv1alpha1.LabelSource])
+
+	newTranscodeProfile(ctx, t, "e2e-dl1tj-profile", 1080, commonv1.SourceBluray, transcodev1alpha1.ContainerMKV)
+
+	planned := waitForTranscodePhase(ctx, t, mfKey, transcodeJobPlannedTimeout+transcodeJobSucceededTimeout,
+		catalogv1alpha1.TranscodePhasePlanned, catalogv1alpha1.TranscodePhaseQueued, catalogv1alpha1.TranscodePhaseRunning,
+		catalogv1alpha1.TranscodePhaseSwapping, catalogv1alpha1.TranscodePhaseSucceeded,
+		catalogv1alpha1.TranscodePhaseFailed, catalogv1alpha1.TranscodePhaseSkipped)
+	tr := planned.Status.Transcode
+	require.NotContains(t, []catalogv1alpha1.TranscodePhase{catalogv1alpha1.TranscodePhaseFailed, catalogv1alpha1.TranscodePhaseSkipped},
+		tr.Phase, "the transcode %s: %s %s", tr.Phase, tr.Reason, tr.Message)
+	require.NotNil(t, tr.Plan)
+	require.Equal(t, catalogv1alpha1.TranscodeModeTranscode, tr.Plan.Mode,
+		"the H.264/AAC clip must plan a real encode under the standard, not a skip or a remux")
+
+	done := waitForTranscodePhase(ctx, t, mfKey, transcodeJobSucceededTimeout+transcodeSwapIncorporatedTimeout,
+		catalogv1alpha1.TranscodePhaseSucceeded, catalogv1alpha1.TranscodePhaseFailed)
+	require.Equal(t, catalogv1alpha1.TranscodePhaseSucceeded, done.Status.Transcode.Phase,
+		"%s %s", done.Status.Transcode.Reason, done.Status.Transcode.Message)
+	require.True(t, done.Status.Transcode.Compliant, "the swapped file meets the standard")
+	require.NotEmpty(t, done.Status.Transcode.ProfileTag, "the output carries CLUSTARR_PROFILE")
+	require.NotNil(t, done.Status.MediaInfo)
+	require.Equal(t, "hevc", done.Status.MediaInfo.VideoCodec, "the re-probe reads the swapped HEVC file")
+	require.False(t, ptr.Deref(done.Spec.Original, true), "the loop takes spec.original over once the swap is incorporated")
+
+	t.Run("the import hop carries one trace", func(t *testing.T) {
+		managerIDs := deploymentTraceIDsSince(ctx, t, "manager", t0)
+		agentIDs := deploymentTraceIDsSince(ctx, t, "agent-import", t0)
+		require.NotEmptyf(t, sharedTraceID(managerIDs, agentIDs),
+			"no trace_id is common to the manager's and agent-import's logs since %s (the manager logged %d, the agent %d): "+
+				"Clustarr-Trace propagation across the import task's bus hop (pkg/events hooks) may be broken",
+			t0.Format(time.RFC3339), len(managerIDs), len(agentIDs))
+	})
 }

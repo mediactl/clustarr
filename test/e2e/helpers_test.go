@@ -1046,9 +1046,9 @@ func runSearch(ctx context.Context, t *testing.T, m *catalogv1alpha1.Movie, inde
 // own doc comment for why 1MiB and not nntpstub.DefaultSegmentBytes) and
 // `--request-log=/data/.e2e-fixtures/nntp-a/requests.jsonl`; nntp-stub-b
 // needs no --deny and `--request-log=/data/.e2e-fixtures/nntp-b/requests.jsonl`.
-// Both serve /fixture.nzb over --http-addr so a Download's
-// spec.source.nzbURL can name either one directly (the engine fetches it
-// in-cluster; this test process never does).
+// Both serve /fixture.nzb over --http-addr; the torznab stub's usenet
+// release links to nntp-stub-a's (the engine fetches it in-cluster; this
+// test process never does).
 const (
 	fixtureSeederService    = "seeder"
 	fixtureNNTPStubAService = "nntp-stub-a"
@@ -1091,13 +1091,11 @@ const (
 	// networking even at real size.
 	downloadCompleteTimeout = 6 * time.Minute
 
-	// importAttemptTimeout bounds waitForImportOutcome's poll for
-	// status.import to reach a terminal state. grab's own publish
-	// happens on the SAME reconcile that first observes completion, so by
-	// the time a caller reaches this wait -- after waitForDownloadPhase
-	// AtLeast(Completed) already returned -- the publish has very likely
-	// already happened; this budgets for the consumer's own delivery and
-	// this suite's poll interval, not a redelivery ladder.
+	// importAttemptTimeout budgets a grab entry's import after its
+	// transfer completed (download_test.go's waitForEntryImported adds it
+	// to downloadCompleteTimeout): the manager's inspect and execute tasks,
+	// the import agent's delivery of each, and this suite's poll interval,
+	// not a redelivery ladder.
 	importAttemptTimeout = 3 * time.Minute
 )
 
@@ -1367,21 +1365,11 @@ func deploymentTraceIDsSince(ctx context.Context, t *testing.T, deployment strin
 // sharedTraceID returns one trace_id present in every one of deployments'
 // log sets since t0, or "" if none is. Scenario 1's Phase H text
 // (remaining-work.md) asks for "one trace_id appears in the logs of
-// catalog, index, grab and import for the same grab" -- this
-// suite's download-path scenarios create their Download directly rather
-// than through a real Search-driven grab decision (newTorrentDownloadE2E's
-// own doc comment explains why: the fixture indexer's canned releases do
-// not point at test/fixtures/seeder, so there is no real grab to drive
-// instead), which means catalog's own search/grab worker and index
-// are never reached by that flow at all -- there is structurally no trace
-// to find in either service's logs for THIS grab. What the direct-create
-// flow DOES exercise for real is the bus hop pkg/events' hooks propagate
-// through (CLAUDE.md: "propagation rides the Clustarr-Trace header"):
-// grab's Download controller publishing an ImportTask on completion,
-// and import-worker's fileimport worker consuming it and creating the
-// MediaFile -- see TestDownloadScenario1TranscodeLeg's own call for
-// exactly which two Deployments it checks and why, honestly, not the four
-// the spec text names.
+// catalog, index, grab and import for the same grab";
+// TestDownloadScenario1TranscodeLeg checks the one bus hop of a grab whose
+// two ends are separate Deployments it can name -- the manager planning the
+// import, the import agent executing it -- not the four the spec text
+// names.
 func sharedTraceID(deployments ...map[string]struct{}) string {
 	if len(deployments) == 0 {
 		return ""

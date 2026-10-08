@@ -77,10 +77,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // written, library rescan refused every file under a series root folder;
 // since gap-fix task X7a it attributes them (series_test.go's
 // TestSeriesRootFolderScanAttributesEpisodes), but the direct-create keeps
-// this scenario independent of the rescan's own matching. It is the same
-// technique newTorrentDownloadE2E/newUsenetDownloadE2E and
-// test/e2e/ui_test.go's newUIDownload use to stand in for a real decision:
-// everything AFTER the MediaFile exists -- catalog's real ffprobe, the
+// this scenario independent of the rescan's own matching: everything
+// AFTER the MediaFile exists -- catalog's real ffprobe, the
 // real SubtitleProfile/SubtitleRequest controllers, the real fetch worker,
 // the real (mocked) providers -- runs for real, against a real Series and
 // Episode created through catalog's own real controllers
@@ -90,11 +88,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // TestDownloadScenario1SubtitleLeg (this file, mirroring
 // transcode_test.go's TestDownloadScenario1TranscodeLeg) drives scenario
-// 1's download-import route for real: X12c (docs/superpowers/plans/
-// 2026-09-23-gap-fixes.md) fixed test/fixtures/seeder and
-// test/fixtures/nntpstub to serve real, ffprobe-able media under a real,
-// parseable movie-release name (see seeder.ContentName's own doc comment),
-// closing the permanent wall this section used to document here.
+// 1's download-import route for real, from a Search pick of the torznab
+// stub's seeder release (download_test.go).
 package e2e
 
 import (
@@ -125,6 +120,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/subtitles"
 	"github.com/mediactl/clustarr/test/fixtures/gestdownstub"
 	"github.com/mediactl/clustarr/test/fixtures/opensubtitlesstub"
+	"github.com/mediactl/clustarr/test/fixtures/torznabstub"
 )
 
 const (
@@ -641,51 +637,102 @@ func describeSubtitleProvider(key client.ObjectKey) func() string {
 // ---------------------------------------------------------------------------
 
 // TestDownloadScenario1SubtitleLeg is scenario 1's subtitle leg
-// ("MediaFile -> SubtitleRequest satisfied") through the REAL download-
-// import route: a torrent grab against test/fixtures/seeder, a real
-// import to a MediaFile, then a real SubtitleRequest satisfied against the
-// mocked OpenSubtitles.com fixture. It used to be permanently blocked --
-// see TestDownloadScenario1TranscodeLegBlocked's git history and this
-// file's own former doc comment here -- because
-// test/fixtures/seeder always named its downloaded content
-// "clustarr-fixture.bin", an extension outside pkg/fsops.MediaExtensions,
-// so app/import/worker/fileimport could never classify it as importable and
-// caption's SubtitleProfile controller (which watches MediaFile, not
-// Download) had structurally nothing to attach a SubtitleRequest to. X12c
-// (docs/superpowers/plans/2026-09-23-gap-fixes.md) closed that fixture-shape
-// gap (seeder.ContentName's own doc comment), so this now drives the real
-// pipeline instead of documenting why it could not.
+// ("MediaFile -> subtitles Satisfied") through the real download-import
+// route: a person's pick of the seeder's release from a real Search, a real
+// transfer and import to a MediaFile, then that file's own status.subtitles
+// (ADR-0016 folded the SubtitleRequest kind into it) satisfied from the
+// mocked OpenSubtitles.com provider, its sidecar beside the file.
 //
-// It deliberately starts its OWN independent Movie/Download rather than
-// reusing download_test.go's TestDownloadTorrentGrabToImportAttempt or
-// transcode_test.go's TestDownloadScenario1TranscodeLeg: a shared object
-// would make a failure in one leg mask or block the other two, and Go
-// test functions in different files already run one at a time in this
-// suite (no t.Parallel() anywhere in test/e2e), so nothing is saved by
+// It deliberately starts its OWN grab rather than reusing download_test.go's
+// TestDownloadTorrentGrabToImportAttempt or transcode_test.go's
+// TestDownloadScenario1TranscodeLeg: a shared object would make a failure in
+// one leg mask or block the other two, and the suite runs one test at a
+// time (no t.Parallel() anywhere in test/e2e), so nothing is saved by
 // sharing.
 //
-// The SubtitleProfile here is scoped to (1080, Bluray) -- the SAME
-// (resolution, source) pair as libraryscan_test.go's fixtureMovieFile and
-// import_test.go's TestFileImportUpgradeAttempt, deliberately: see
-// waitForImportOutcome's doc comment (helpers_test.go) for why the shared
-// download fixture's content always parses to that quality, and why
-// reusing it for a selector here is safe under this suite's sequential,
-// alphabetical-by-filename test ordering (download < import < ... <
-// subtitle, so both of those have already run and cleaned up their own
-// Bluray-1080p Movie/MediaFile by the time this test's own profile exists)
-// plus this test's own cleanup before ui_test.go (later alphabetically)
-// ever creates one.
+// The SubtitleProfile is scoped to (1080, Bluray), the imported file's
+// quality. libraryscan_test.go's fixtureMovieFile carries it too, which is
+// safe for the same reason as newTranscodeProfile's scope in the transcode
+// leg: one test at a time, and a passing scenario deletes its MediaFiles.
+// The profile's own languages override the seeded default "english"
+// profile, which wants nothing for an English original (the clip's audio is
+// untagged, so it reads as the item's original language).
 //
 // TestSubtitleRequestSidecarPipelineAndLanguageRemoval (this file) is
-// scenario 13's own, more thorough MediaFile leg, through the LibraryScan
-// route -- multi-language, withdrawal, the pipeline page. This function
-// does not repeat that depth; it proves the one thing that route cannot:
-// that the chain starting from a real grabbed-and-imported Download reaches
-// a satisfied SubtitleRequest at all.
+// scenario 13's own, more thorough leg, through the LibraryScan route --
+// multi-language, withdrawal, the pipeline page. This proves the one thing
+// that route cannot: that a real grabbed-and-imported file reaches satisfied
+// subtitles at all.
 func TestDownloadScenario1SubtitleLeg(t *testing.T) {
-	// The Download kind is gone (A9.1): a grab is a status.downloads[] entry on its item,
-	// started by a Search with spec.grab naming the fixture release (spec §6.13), and the
-	// subtitle state is the MediaFile's status.subtitles (ADR-0016). The body this leg had is
-	// at the T1 base, git show 10f1a491:test/e2e/subtitle_test.go; F8.9 rewrites it in T2.
-	t.Skip("T2: scenario 1's subtitle leg starts from a Search pick and reads status.subtitles (A8.4, F8.9)")
+	ctx, cancel := context.WithTimeout(context.Background(), scenarioTimeout)
+	defer cancel()
+	requireFixtureService(ctx, t, fixtureSeederService)
+	requireFixtureService(ctx, t, fixtureTorznabService)
+
+	setOpenSubtitlesMode(ctx, t, opensubtitlesstub.ModeOK)
+	t.Cleanup(func() { setOpenSubtitlesMode(context.Background(), t, opensubtitlesstub.ModeOK) })
+
+	rf := newRootFolder(ctx, t, "e2e-dl1sub-rf", catalogv1alpha1.RootFolderKindMovie, "movies")
+	movie := newMovie(ctx, t, "e2e-dl1sub-movie", fixtureTmdbID, QualityProfileName, rf.Name, catalogv1alpha1.MinimumAvailabilityAnnounced)
+	waitForMovieSettled(ctx, t, movie, "Inception")
+	newTorrentDownloadClientE2E(ctx, t, "e2e-dl1sub-dc")
+	idx := newDownloadIndexer(ctx, t, "e2e-dl1sub-idx", commonv1.ProtocolTorrent)
+
+	s := searchAndGrab(ctx, t, movie, idx, false, torznabstub.GUIDSeeder)
+	id := grabbedRef(t, &s, torznabstub.GUIDSeeder)
+	waitForEntryImported(ctx, t, movie, id)
+	imported := mediaFileForEntry(ctx, t, id)
+	mfKey := client.ObjectKeyFromObject(&imported)
+	mf := waitForMediaFileProbed(ctx, t, mfKey)
+	require.Equal(t, "1080", mf.Labels[catalogv1alpha1.LabelResolution],
+		"the loop's mirrored labels carry the imported file's frozen resolution")
+	require.Equal(t, "bluray", mf.Labels[catalogv1alpha1.LabelSource])
+
+	provider := &subtitlev1alpha1.SubtitleProvider{
+		ObjectMeta: metav1.ObjectMeta{Name: uniqueName("e2e-dl1sub-os"), Namespace: Namespace},
+		Spec: subtitlev1alpha1.SubtitleProviderSpec{
+			Type: subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom, Enabled: new(true), Priority: 10,
+			SecretRef: &corev1.LocalObjectReference{Name: "opensubtitles-fixture-credentials"},
+			Endpoint:  new("http://opensubtitles-stub." + Namespace + ".svc"),
+		},
+	}
+	require.NoError(t, k8sClient.Create(ctx, provider))
+	cleanupUnlessFailed(t, func() { _ = k8sClient.Delete(context.Background(), provider) })
+
+	profile := &subtitlev1alpha1.SubtitleProfile{
+		ObjectMeta: metav1.ObjectMeta{Name: uniqueName("e2e-dl1sub-profile")},
+		Spec: subtitlev1alpha1.SubtitleProfileSpec{
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{
+				catalogv1alpha1.LabelKind:       string(commonv1.MediaKindMovie),
+				catalogv1alpha1.LabelResolution: "1080",
+				catalogv1alpha1.LabelSource:     "bluray",
+			}},
+			Languages:       []subtitlev1alpha1.LanguageItem{{Key: "en", Language: "en"}},
+			MinScorePercent: subtitlev1alpha1.ScorePct{Movie: 10, Episode: 10},
+			Providers:       []string{provider.Name},
+		},
+	}
+	require.NoError(t, k8sClient.Create(ctx, profile))
+	cleanupUnlessFailed(t, func() { _ = k8sClient.Delete(context.Background(), profile) })
+	waitForSubtitleProfileReady(ctx, t, profile.Name)
+
+	waitFor(t, ctx, subtitleFetchTimeout, "MediaFile "+mf.Name+" en downloaded",
+		func(ctx context.Context) (bool, error) {
+			var live catalogv1alpha1.MediaFile
+			if err := k8sClient.Get(ctx, mfKey, &live); err != nil {
+				//nolint:nilerr // keep polling
+				return false, nil
+			}
+			return itemDownloaded(subtitleItemOf(&live, "en")), nil
+		}, describeSubtitles(mfKey))
+
+	var live catalogv1alpha1.MediaFile
+	require.NoError(t, k8sClient.Get(ctx, mfKey, &live))
+	require.Equal(t, catalogv1alpha1.SubtitlesPhaseSatisfied, live.Status.Subtitles.Phase)
+	require.Equal(t, profile.Name, live.Status.Subtitles.Profile)
+	en := subtitleItemOf(&live, "en")
+	require.NotNil(t, en)
+	require.Equal(t, provider.Name, en.Provider, "the mocked OpenSubtitles.com provider must be the one credited")
+	wantEnPath := subtitles.SidecarName(live.Spec.Path, "en", string(profile.Spec.HIExtension))
+	require.FileExists(t, hostPath(wantEnPath), "the en sidecar must exist under SidecarName's own path")
 }
