@@ -28,7 +28,6 @@ import (
 	"log/slog"
 	"math/rand"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -308,10 +307,22 @@ func TestBareContentWithMissingArticlesIsNotPublished(t *testing.T) {
 	require.True(t, os.IsNotExist(err), "nothing is published past the gate")
 }
 
+// fakeRepairer is a Repairer whose Repair is the test's.
+type fakeRepairer struct {
+	available bool
+	repair    func(ctx context.Context, dir, index string) (Par2Result, error)
+}
+
+func (f fakeRepairer) Available() bool { return f.available }
+
+func (f fakeRepairer) Repair(ctx context.Context, dir, index string) (Par2Result, error) {
+	return f.repair(ctx, dir, index)
+}
+
 // Every article's pcrc32 is verified on receipt, so a set that arrived whole
 // needs no par2: a full verify would read every byte again (10 GB over NFS)
-// to learn what the transfer already proved. The fake par2 here fails if
-// run at all.
+// to learn what the transfer already proved. The fake repairer here fails
+// if run at all.
 func TestPar2IsSkippedWhenEveryArticleArrived(t *testing.T) {
 	srv := newStubServer(t)
 	parts := [][]byte{partPayload(1, 900), partPayload(2, 512)}
@@ -320,10 +331,12 @@ func TestPar2IsSkippedWhenEveryArticleArrived(t *testing.T) {
 		{name: "movie.par2", parts: [][]byte{partPayload(9, 100)}},
 		{name: "movie.vol000+01.par2", parts: [][]byte{partPayload(8, 100)}},
 	})
-	fake := filepath.Join(t.TempDir(), "par2")
-	require.NoError(t, os.WriteFile(fake, []byte("#!/bin/sh\necho 'par2 must not run'; exit 3\n"), 0o755))
+	fake := fakeRepairer{available: true, repair: func(context.Context, string, string) (Par2Result, error) {
+		t.Error("par2 must not run")
+		return Par2Result{}, nil
+	}}
 
-	c, _, _ := newTestClient(t, Config{Providers: []Provider{srv.provider("solo", 2, 1)}, Par2Path: fake, PostProcess: PostProcess{Par2: true}})
+	c, _, _ := newTestClient(t, Config{Providers: []Provider{srv.provider("solo", 2, 1)}, Repairer: fake, PostProcess: PostProcess{Par2: true}})
 	id, err := c.Add(context.Background(), download.AddRequest{Name: "Whole.Set", Payload: nzb, Category: "movies"})
 	require.NoError(t, err)
 	it := waitForTerminal(t, c, id)
@@ -364,10 +377,12 @@ func TestPar2DeadlineTurnsAWedgedRepairIntoAFailure(t *testing.T) {
 		{name: "movie.par2", parts: [][]byte{partPayload(9, 100)}},
 	})
 	srv.refuse["f0-p1@clustarr.test"] = 430 // one article missing, so par2 runs
-	sleeper := filepath.Join(t.TempDir(), "par2")
-	require.NoError(t, os.WriteFile(sleeper, []byte("#!/bin/sh\nsleep 30\n"), 0o755))
+	sleeper := fakeRepairer{available: true, repair: func(ctx context.Context, _, _ string) (Par2Result, error) {
+		<-ctx.Done()
+		return Par2Result{}, ctx.Err()
+	}}
 
-	c, _, _ := newTestClient(t, Config{Providers: []Provider{srv.provider("solo", 2, 1)}, Par2Path: sleeper, PostProcess: PostProcess{Par2: true}})
+	c, _, _ := newTestClient(t, Config{Providers: []Provider{srv.provider("solo", 2, 1)}, Repairer: sleeper, PostProcess: PostProcess{Par2: true}})
 	id, err := c.Add(context.Background(), download.AddRequest{Name: "Wedged", Payload: nzb, Category: "movies"})
 	require.NoError(t, err)
 	it := waitForTerminal(t, c, id)
@@ -725,7 +740,7 @@ func TestClientRepairsAReleaseWithAMissingArticle(t *testing.T) {
 	// serve leaves a hole in the file, par2cmdline rebuilds it from the
 	// recovery volumes in the same NZB, and what reaches the library is
 	// byte-identical to what was posted.
-	bin := par2Binary(t)
+	repairer := libraryRepairer(t)
 
 	// Build the release on disk first, so par2 sees the real bytes.
 	stage := t.TempDir()
@@ -734,10 +749,7 @@ func TestClientRepairsAReleaseWithAMissingArticle(t *testing.T) {
 	_, _ = rnd.Read(content)
 	require.NoError(t, os.WriteFile(filepath.Join(stage, "movie.mkv"), content, 0o644))
 
-	create := exec.Command(bin, "c", "-q", "-b16", "-r50", "--", "movie.mkv.par2", "movie.mkv")
-	create.Dir = stage
-	out, err := create.CombinedOutput()
-	require.NoErrorf(t, err, "par2 create failed: %s", out)
+	createSet(t, stage, "movie.mkv.par2", []string{"movie.mkv"}, 16, 50, 0)
 
 	entries, err := os.ReadDir(stage)
 	require.NoError(t, err)
@@ -772,7 +784,7 @@ func TestClientRepairsAReleaseWithAMissingArticle(t *testing.T) {
 
 	c, _, dataDir := newTestClient(t, Config{
 		Providers:          []Provider{srv.provider("solo", 4, 1)},
-		Par2Path:           bin,
+		Repairer:           repairer,
 		PostProcess:        PostProcess{Par2: true, DeleteArchives: true},
 		AbortHealthPercent: 50,
 	})

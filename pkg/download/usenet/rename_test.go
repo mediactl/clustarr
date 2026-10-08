@@ -23,7 +23,6 @@ import (
 	"encoding/binary"
 	"math/rand"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -36,7 +35,6 @@ import (
 // the MD5 of its first 16 KiB, so par2 and the unpacker find what they
 // expect without copying anything.
 func TestRenameObfuscatedRestoresNamesFromThePar2Set(t *testing.T) {
-	bin := par2Binary(t)
 	c, _, _ := newTestClient(t, Config{Providers: []Provider{{Name: "p", Host: "127.0.0.1", Port: 1, Connections: 1}}})
 
 	// Build a set with real par2, then obfuscate the data file's name.
@@ -44,10 +42,7 @@ func TestRenameObfuscatedRestoresNamesFromThePar2Set(t *testing.T) {
 	data := make([]byte, 200<<10)
 	_, _ = rand.New(rand.NewSource(7)).Read(data)
 	require.NoError(t, os.WriteFile(filepath.Join(work, "Some.Movie.2026.1080p.mkv"), data, 0o644))
-	create := exec.Command(bin, "c", "-q", "-b16", "-r10", "--", "Some.Movie.2026.1080p.par2", "Some.Movie.2026.1080p.mkv")
-	create.Dir = work
-	out, err := create.CombinedOutput()
-	require.NoErrorf(t, err, "par2 create: %s", out)
+	createSet(t, work, "Some.Movie.2026.1080p.par2", []string{"Some.Movie.2026.1080p.mkv"}, 16, 10, 0)
 
 	descs := func() []par2FileDesc {
 		f, err := os.Open(filepath.Join(work, "Some.Movie.2026.1080p.par2"))
@@ -154,17 +149,13 @@ func TestFailedInsideArchiveLooksOnlyAtArchiveVolumes(t *testing.T) {
 // every slice of it, and any intact slice names it -- which is what stops
 // par2 from rebuilding it under the set's name beside the holed copy.
 func TestRenameObfuscatedMatchesADamagedFileByAnIntactSlice(t *testing.T) {
-	bin := par2Binary(t)
-	c, _, _ := newTestClient(t, Config{Providers: []Provider{{Name: "p", Host: "127.0.0.1", Port: 1, Connections: 1}}, Par2Path: bin})
+	c, _, _ := newTestClient(t, Config{Providers: []Provider{{Name: "p", Host: "127.0.0.1", Port: 1, Connections: 1}}, Repairer: libraryRepairer(t)})
 
 	work := t.TempDir()
 	data := make([]byte, 200<<10)
 	_, _ = rand.New(rand.NewSource(11)).Read(data)
 	require.NoError(t, os.WriteFile(filepath.Join(work, "Some.Movie.2026.1080p.mkv"), data, 0o644))
-	create := exec.Command(bin, "c", "-q", "-b16", "-r50", "--", "Some.Movie.2026.1080p.par2", "Some.Movie.2026.1080p.mkv")
-	create.Dir = work
-	out, err := create.CombinedOutput()
-	require.NoErrorf(t, err, "par2 create: %s", out)
+	createSet(t, work, "Some.Movie.2026.1080p.par2", []string{"Some.Movie.2026.1080p.mkv"}, 16, 50, 0)
 
 	nzb := nzbWith(t, "", "z75QORTuwk9NHlDJbb53izyP7TQqFzG4", "Some.Movie.2026.1080p.par2", "Some.Movie.2026.1080p.vol00+8.par2")
 	parsed, err := parseNZB(nzb, defaultMaxNZBBytes)
@@ -209,8 +200,7 @@ func TestRenameObfuscatedMatchesADamagedFileByAnIntactSlice(t *testing.T) {
 // wire names, started from the holed copy and could not follow the chain.
 // After a repair the set's files are the content.
 func TestAdoptRepairedSetTakesTheTargetsParRebuiltUnderTheSetsName(t *testing.T) {
-	bin := par2Binary(t)
-	c, _, _ := newTestClient(t, Config{Providers: []Provider{{Name: "p", Host: "127.0.0.1", Port: 1, Connections: 1}}, Par2Path: bin})
+	c, _, _ := newTestClient(t, Config{Providers: []Provider{{Name: "p", Host: "127.0.0.1", Port: 1, Connections: 1}}, Repairer: libraryRepairer(t)})
 
 	work := t.TempDir()
 	rng := rand.New(rand.NewSource(13))
@@ -222,11 +212,8 @@ func TestAdoptRepairedSetTakesTheTargetsParRebuiltUnderTheSetsName(t *testing.T)
 	}
 	p1 := part("2ef6f194995e4a11b055d0f2354ef0ba.part01.rar")
 	p2 := part("2ef6f194995e4a11b055d0f2354ef0ba.part02.rar")
-	create := exec.Command(bin, "c", "-q", "-b16", "-r200", "-n1", "--", "set.par2",
-		"2ef6f194995e4a11b055d0f2354ef0ba.part01.rar", "2ef6f194995e4a11b055d0f2354ef0ba.part02.rar")
-	create.Dir = work
-	out, err := create.CombinedOutput()
-	require.NoErrorf(t, err, "par2 create: %s", out)
+	createSet(t, work, "set.par2",
+		[]string{"2ef6f194995e4a11b055d0f2354ef0ba.part01.rar", "2ef6f194995e4a11b055d0f2354ef0ba.part02.rar"}, 16, 200, 1)
 
 	nzb := nzbWith(t, "", "A.Scanner.Darkly.part01.rar", "A.Scanner.Darkly.part02.rar", "set.par2", "set.vol00+32.par2")
 	parsed, err := parseNZB(nzb, defaultMaxNZBBytes)
@@ -273,7 +260,6 @@ func TestAdoptRepairedSetTakesTheTargetsParRebuiltUnderTheSetsName(t *testing.T)
 // the first or taking a FileDesc's holed name at face value (parchive-go's
 // packet scan, reviewed 2026-09-24).
 func TestPar2ParseResynchronisesPastAHoleAndDropsACorruptPacket(t *testing.T) {
-	bin := par2Binary(t)
 	work := t.TempDir()
 	rng := rand.New(rand.NewSource(17))
 	for _, n := range []string{"Some.Movie.part01.rar", "Some.Movie.part02.rar"} {
@@ -281,10 +267,7 @@ func TestPar2ParseResynchronisesPastAHoleAndDropsACorruptPacket(t *testing.T) {
 		_, _ = rng.Read(b)
 		require.NoError(t, os.WriteFile(filepath.Join(work, n), b, 0o644))
 	}
-	create := exec.Command(bin, "c", "-q", "-b8", "-r50", "-n1", "--", "set.par2", "Some.Movie.part01.rar", "Some.Movie.part02.rar")
-	create.Dir = work
-	out, err := create.CombinedOutput()
-	require.NoErrorf(t, err, "par2 create: %s", out)
+	createSet(t, work, "set.par2", []string{"Some.Movie.part01.rar", "Some.Movie.part02.rar"}, 8, 50, 1)
 	vols, _ := filepath.Glob(filepath.Join(work, "set.vol*.par2"))
 	require.Len(t, vols, 1)
 	raw, err := os.ReadFile(vols[0])
