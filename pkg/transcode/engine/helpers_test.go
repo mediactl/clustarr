@@ -29,7 +29,7 @@ import (
 
 	"github.com/obinnaokechukwu/ffgo"
 
-	"github.com/mediactl/clustarr/pkg/mediainfo/ffprobeexec"
+	"github.com/mediactl/clustarr/pkg/mediainfo/native"
 	"github.com/mediactl/clustarr/pkg/transcode"
 )
 
@@ -137,11 +137,23 @@ func (p probed) seconds(t *testing.T) float64 {
 	return d
 }
 
+// realProber is the in-process probe the worker plans from, skipping without
+// FFmpeg 9 and the shim; T2a's nativetest.FFmpeg(t, native.Needs) replaces
+// the skip (W8.7).
+func realProber(t *testing.T) *native.Prober {
+	t.Helper()
+	p, err := native.New()
+	if err != nil {
+		t.Skipf("no FFmpeg 9 with its shim: %v", err)
+	}
+	return p
+}
+
 // probeInfo is the plan input the worker builds for path: a live probe
-// through mediainfo, mapped by transcode.FromProbe.
+// through pkg/mediainfo/native, mapped by transcode.FromProbe.
 func probeInfo(t *testing.T, path string) transcode.MediaInfo {
 	t.Helper()
-	mi, raw, err := ffprobeexec.Probe(context.Background(), path)
+	mi, raw, err := realProber(t).Probe(context.Background(), path)
 	if err != nil {
 		t.Fatalf("probe %s: %v", path, err)
 	}

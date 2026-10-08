@@ -27,9 +27,21 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/mediactl/clustarr/pkg/mediainfo/ffprobeexec"
+	"github.com/mediactl/clustarr/pkg/mediainfo/native"
 	"github.com/mediactl/clustarr/pkg/transcode"
 )
+
+// realProber is the in-process probe the worker plans from, skipping without
+// FFmpeg 9 and the shim; T2a's nativetest.FFmpeg(t, native.Needs) replaces
+// the skip (W8.7).
+func realProber(t *testing.T) *native.Prober {
+	t.Helper()
+	p, err := native.New()
+	if err != nil {
+		t.Skipf("no FFmpeg 9 with its shim: %v", err)
+	}
+	return p
+}
 
 // clip makes a 2 s file with ffmpeg, skipping without ffmpeg or libx265.
 func clip(t *testing.T, name string, args ...string) string {
@@ -71,7 +83,7 @@ func TestTheSummaryAndTheProbePlanTheSameStandard(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			src := c.src()
-			mi, raw, err := ffprobeexec.Probe(context.Background(), src)
+			mi, raw, err := realProber(t).Probe(context.Background(), src)
 			require.NoError(t, err)
 			live, err := transcode.FromProbe(mi, raw)
 			require.NoError(t, err)
@@ -127,7 +139,7 @@ func TestTheSummaryAndTheProbePlanSubtitlesAlike(t *testing.T) {
 	if err != nil {
 		t.Skipf("ffmpeg cannot make the clip: %v\n%s", err, b)
 	}
-	mi, raw, err := ffprobeexec.Probe(context.Background(), out)
+	mi, raw, err := realProber(t).Probe(context.Background(), out)
 	require.NoError(t, err)
 	live, err := transcode.FromProbe(mi, raw)
 	require.NoError(t, err)

@@ -18,7 +18,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package catalogctx_test
 
 import (
-	"os/exec"
 	"strconv"
 	"testing"
 
@@ -26,7 +25,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	"github.com/mediactl/clustarr/pkg/mediainfo/ffprobeexec"
+	"github.com/mediactl/clustarr/pkg/mediainfo/native"
 	"github.com/mediactl/clustarr/pkg/naming/catalogctx"
 )
 
@@ -92,13 +91,10 @@ func TestContainerExt(t *testing.T) {
 
 // TestContainerExtReadsWhatTheProbeRecords runs the real producer: a
 // literal MediaInfo{Container: "matroska"} is what ffprobe calls the
-// format, but not what pkg/mediainfo/ffprobeexec.Probe writes into MediaInfo.Container,
-// so only a real probe shows the mapping is reachable.
+// format, but not what the probe (pkg/mediainfo/native) writes into
+// MediaInfo.Container, so only a real probe shows the mapping is reachable.
 func TestContainerExtReadsWhatTheProbeRecords(t *testing.T) {
-	if _, err := exec.LookPath("ffprobe"); err != nil {
-		t.Skip("ffprobe not on PATH")
-	}
-	mi, _, err := ffprobeexec.Probe(t.Context(), "../../../test/data/mediainfo/sample_hevc_10bit.mkv")
+	mi, _, err := realProber(t).Probe(t.Context(), "../../../test/data/mediainfo/sample_hevc_10bit.mkv")
 	require.NoError(t, err)
 	require.Equal(t, ".mkv", catalogctx.ContainerExt(mi, "x.mp4"), "container %q", mi.Container)
 }
@@ -333,4 +329,15 @@ func TestFileNamesAnAnimeEpisodeWithAnimeFormats(t *testing.T) {
 	require.True(t, base.Anime)
 	spec := &catalogv1alpha1.MediaFileSpec{MatchedFormats: []string{"repack-proper", "v2"}}
 	require.Equal(t, []string{"v2"}, catalogctx.File(t.Context(), base, spec, nil).CustomFormats)
+}
+
+// realProber is the in-process probe, skipping without FFmpeg 9 and the
+// shim; T2a's nativetest.FFmpeg(t, native.Needs) replaces the skip (W8.7).
+func realProber(t *testing.T) *native.Prober {
+	t.Helper()
+	p, err := native.New()
+	if err != nil {
+		t.Skipf("no FFmpeg 9 with its shim: %v", err)
+	}
+	return p
 }
