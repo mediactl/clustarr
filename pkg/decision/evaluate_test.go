@@ -257,3 +257,115 @@ func TestEvaluateADualAudioReleaseNamesItsLanguages(t *testing.T) {
 	require.True(t, ds[0].Approved, "%+v", ds[0].Rejections)
 	require.True(t, ds[0].Rank.LanguagesComplete)
 }
+
+// TestRejectedDecisionsCarryARankKey is series search design §8.2: Evaluate
+// fills a RankKey for every decision whose title parsed, approved or not, so
+// the rejected band sorts by the same comparator; an unparsed title has
+// none.
+func TestRejectedDecisionsCarryARankKey(t *testing.T) {
+	bluray1080, _ := quality.Lookup("video", "Bluray-1080p")
+	p := quality.Profile{Tiers: [][]quality.Definition{{bluray1080}}, LanguageName: "any", ProperPolicy: "preferAndUpgrade"}
+	tg := decision.Target{Kind: common.MediaKindEpisode, Available: true, Anime: true, Identity: decision.Identity{
+		Titles: []string{"Breaking Bad"}, Season: 1, Episodes: []int{5}, SingleEpisodeSearch: true,
+	}}
+	o := decision.Options{UserInvoked: true, ProtocolsEnabled: map[string]bool{"torrent": true}}
+	rels := []common.ReleaseInfo{
+		{GUID: "wrong", IndexerRef: "i", Protocol: common.ProtocolTorrent, Title: "Breaking.Bad.S02E05.1080p.BluRay.x264-GRP"},
+		{GUID: "pack", IndexerRef: "i", Protocol: common.ProtocolTorrent, Title: "Breaking.Bad.S01.1080p.BluRay.x264-GRP"},
+		{GUID: "double", IndexerRef: "i", Protocol: common.ProtocolTorrent, Title: "Breaking.Bad.S01E05E06.1080p.BluRay.x264-GRP"},
+		{GUID: "unparsed", IndexerRef: "i", Protocol: common.ProtocolTorrent, Title: "????"},
+	}
+	ds := decision.Evaluate(context.Background(), tg, p, &catalogue.Catalogue{}, rels, o)
+	require.Len(t, ds, 4)
+	require.False(t, ds[0].Approved, "another season")
+	require.Equal(t, 1, ds[0].Rank.EpisodeCount)
+	require.True(t, ds[0].Rank.PreferRevision, "the rank key is filled, not left zero")
+	require.True(t, ds[0].Rank.Anime)
+	require.False(t, ds[1].Approved, "R-3 refuses the pack")
+	require.True(t, ds[1].Rank.WholeSeason())
+	require.True(t, ds[2].Approved)
+	require.Equal(t, 2, ds[2].Rank.EpisodeCount)
+	require.Nil(t, ds[3].Parsed)
+	require.Equal(t, decision.RankKey{}, ds[3].Rank, "an unparsed title has nothing to rank by")
+}
+
+// decisionSplitCases is the corpus TestDecisionSplitIsBehaviourPreserving
+// runs: the full-pipeline fixture against no file, a lower file, a
+// transcoded one, a queue and a blocklist, so every item-state rule fires
+// somewhere.
+func decisionSplitCases(t *testing.T) []struct {
+	name string
+	tg   decision.Target
+} {
+	bluray1080, _ := quality.Lookup("video", "Bluray-1080p")
+	webdl720, _ := quality.Lookup("video", "WEBDL-720p")
+	base := decision.Target{
+		Kind: common.MediaKindMovie, Available: true, OriginalLanguageTag: "en",
+		Identity: decision.Identity{Titles: []string{"Arrival"}, Year: 2016},
+	}
+	with := func(f func(*decision.Target)) decision.Target {
+		tg := base
+		f(&tg)
+		return tg
+	}
+	return []struct {
+		name string
+		tg   decision.Target
+	}{
+		{"no file", base},
+		{"a lower file", with(func(tg *decision.Target) { tg.Current = &decision.Current{Quality: webdl720.Quality} })},
+		{"the cutoff met", with(func(tg *decision.Target) { tg.Current = &decision.Current{Quality: bluray1080.Quality} })},
+		{"a transcoded file", with(func(tg *decision.Target) {
+			tg.Current = &decision.Current{Quality: webdl720.Quality, Transcoded: true}
+		})},
+		{"a better queued grab", with(func(tg *decision.Target) {
+			tg.Queue = []decision.Queued{{Quality: bluray1080.Quality, Revision: common.Revision{Version: 2}}}
+		})},
+		{"a blocklist", with(func(tg *decision.Target) {
+			tg.Blocklist = func(_, title string) bool { return title != "" }
+		})},
+	}
+}
+
+// TestDecisionSplitIsBehaviourPreserving is ADR-0019 A4.1 step 1: Evaluate
+// is EvaluateRelease followed by ItemStateRejections (folded by
+// WithItemState), over the existing corpus and every item state.
+func TestDecisionSplitIsBehaviourPreserving(t *testing.T) {
+	bluray1080, _ := quality.Lookup("video", "Bluray-1080p")
+	webdl720, _ := quality.Lookup("video", "WEBDL-720p")
+	p := quality.Profile{
+		Tiers: [][]quality.Definition{{bluray1080}, {webdl720}}, CutoffIndex: 0, UpgradeAllowed: true,
+		CutoffFormatScore: 10000, MinUpgradeFormatScore: 1, ProperPolicy: "preferAndUpgrade",
+		LanguageName: "any", Sizes: quality.MovieSizeTable(), PreferredProtocol: "torrent",
+	}
+	o := decision.Options{UserInvoked: true, ProtocolsEnabled: map[string]bool{"torrent": true, "usenet": true}}
+	ctx := context.Background()
+	rels := loadReleases(t)
+	itemRejections := 0
+	for _, tc := range decisionSplitCases(t) {
+		t.Run(tc.name, func(t *testing.T) {
+			whole := decision.Evaluate(ctx, tc.tg, p, &catalogue.Catalogue{}, rels, o)
+			split := decision.EvaluateRelease(ctx, tc.tg, p, &catalogue.Catalogue{}, rels, o)
+			require.Len(t, split, len(whole))
+			for i := range whole {
+				extra := decision.ItemStateRejections(ctx, tc.tg, p, split[i], o)
+				itemRejections += len(extra)
+				got := decision.WithItemState(split[i], extra)
+				require.Equal(t, whole[i].Rejections, got.Rejections, whole[i].Release.Title)
+				require.Equal(t, whole[i].Approved, got.Approved, whole[i].Release.Title)
+				require.Equal(t, whole[i].TemporarilyRejected, got.TemporarilyRejected)
+				require.Equal(t, whole[i].Rank, got.Rank)
+				require.Equal(t, whole[i].Score, got.Score)
+
+				// A decision rebuilt from a record (no Parsed) gets the same
+				// item-state verdict: the planner re-checks records.
+				rebuilt := split[i]
+				rebuilt.Parsed = nil
+				if split[i].Parsed != nil {
+					require.Equal(t, extra, decision.ItemStateRejections(ctx, tc.tg, p, rebuilt, o), whole[i].Release.Title)
+				}
+			}
+		})
+	}
+	require.Positive(t, itemRejections, "the corpus must exercise the item-state half, or the split is untested")
+}

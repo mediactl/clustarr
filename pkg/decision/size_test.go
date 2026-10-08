@@ -103,3 +103,36 @@ func TestSizeRejections(t *testing.T) {
 		require.Empty(t, sizeRejections(tg, p, &release.ParsedRelease{}, rel))
 	})
 }
+
+// TestASeasonSearchSizesBySumOfCoveredRuntimes is series search design §6.1
+// step 3: a season search measures a release against the runtimes of the
+// episodes of the season it covers (RuntimeByEpisode, 45 minutes per
+// unknown episode), so a single is not measured against the whole season
+// nor a pack against one episode. Releases go through the real parser.
+func TestASeasonSearchSizesBySumOfCoveredRuntimes(t *testing.T) {
+	tg := Target{Kind: common.MediaKindSeries, Identity: Identity{
+		Titles: []string{"Breaking Bad"}, Season: 1, Episodes: []int{1, 2, 3, 4}, SeasonSearch: true,
+	}, RuntimeByEpisode: map[int]int{1: 58, 2: 48, 3: 0, 4: 47}}
+	minutes := func(tg Target, title string) int {
+		t.Helper()
+		p, err := release.Parse(title, release.Options{Kind: common.MediaKindEpisode})
+		require.NoError(t, err)
+		m, ok := targetRuntimeMinutes(tg, p)
+		require.True(t, ok)
+		return m
+	}
+
+	require.Equal(t, 48, minutes(tg, "Breaking.Bad.S01E02.720p.HDTV.x264-GRP"), "a single is its own episode's runtime")
+	require.Equal(t, 45, minutes(tg, "Breaking.Bad.S01E03.720p.HDTV.x264-GRP"), "an unknown runtime falls back to 45 minutes")
+	require.Equal(t, 48+45, minutes(tg, "Breaking.Bad.S01E02E03.720p.HDTV.x264-GRP"), "a multi-episode release sums the episodes it covers")
+	require.Equal(t, 58+48+45+47, minutes(tg, "Breaking.Bad.S01.720p.BluRay.x264-GRP"), "a full-season pack sums every episode of the season")
+	require.Equal(t, 2*(58+48+45+47), minutes(tg, "Breaking.Bad.S01-S02.720p.BluRay.x264-GRP"), "a multi-season pack is measured as that many seasons")
+	require.Equal(t, 45, minutes(tg, "Breaking.Bad.S02E01.720p.HDTV.x264-GRP"), "covering nothing of the season is one fallback episode")
+
+	// Every other path is unchanged: without SeasonSearch the per-release
+	// EpisodeRuntimes rule runs, and RuntimeByEpisode is not read.
+	other := tg
+	other.Identity.SeasonSearch = false
+	other.EpisodeRuntimes = []int{30}
+	require.Equal(t, 30, minutes(other, "Breaking.Bad.S01E02.720p.HDTV.x264-GRP"))
+}

@@ -18,12 +18,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package decision_test
 
 import (
+	"context"
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	common "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/decision"
+	"github.com/mediactl/clustarr/pkg/quality"
+	"github.com/mediactl/clustarr/pkg/quality/catalogue"
 )
 
 func TestRankPrimaryKey(t *testing.T) {
@@ -64,11 +68,16 @@ func TestRankSecondaryKeys(t *testing.T) {
 		require.Equal(t, "torrent", ranked[0].Release.GUID)
 	})
 
-	t.Run("higher episode count (season pack) ranks above a single episode", func(t *testing.T) {
+	// Rewritten in the test batch (D2, Wave S S3): Sonarr's
+	// CompareEpisodeCount ranks a whole season first, but between two
+	// partial releases a standard series prefers FEWER episodes, so an
+	// eight-episode release no longer outranks a single on a tie.
+	t.Run("a whole season ranks above a single episode; a standard series prefers the single over a partial multi-episode release", func(t *testing.T) {
 		single := decision.Decision{Release: common.ReleaseInfo{GUID: "single"}, Rank: decision.RankKey{EpisodeCount: 1}}
-		pack := decision.Decision{Release: common.ReleaseInfo{GUID: "pack"}, Rank: decision.RankKey{EpisodeCount: 8}}
-		ranked := decision.Rank([]decision.Decision{single, pack}, decision.Options{})
-		require.Equal(t, "pack", ranked[0].Release.GUID)
+		multi := decision.Decision{Release: common.ReleaseInfo{GUID: "multi"}, Rank: decision.RankKey{EpisodeCount: 8}}
+		pack := decision.Decision{Release: common.ReleaseInfo{GUID: "pack"}, Rank: decision.RankKey{EpisodeCount: math.MaxInt32}}
+		ranked := decision.Rank([]decision.Decision{multi, single, pack}, decision.Options{})
+		require.Equal(t, []string{"pack", "single", "multi"}, guids(ranked))
 	})
 
 	t.Run("lower indexer-priority number wins -- indexers.md: Priority 1 (highest) .. 50, default 25", func(t *testing.T) {
@@ -120,3 +129,87 @@ func TestRankSecondaryKeys(t *testing.T) {
 }
 
 func seeders(n int32) int32 { return n }
+
+func guids(ds []decision.Decision) []string {
+	out := make([]string, 0, len(ds))
+	for _, d := range ds {
+		out = append(out, d.Release.GUID)
+	}
+	return out
+}
+
+// TestCompareEpisodeCountIsSonarrs is Sonarr's
+// DownloadDecisionComparer.CompareEpisodeCount (series search design §6.4):
+// a whole season first; then an anime series prefers more episodes and any
+// other series fewer.
+func TestCompareEpisodeCountIsSonarrs(t *testing.T) {
+	const whole = true
+	require.Negative(t, decision.CompareEpisodeCount(whole, 0, !whole, 1, false), "a pack beats a single")
+	require.Positive(t, decision.CompareEpisodeCount(!whole, 1, whole, 0, false))
+	require.Negative(t, decision.CompareEpisodeCount(whole, 0, !whole, 2, true), "and beats an anime batch short of the season")
+	require.Negative(t, decision.CompareEpisodeCount(!whole, 1, !whole, 2, false), "a standard series prefers the single")
+	require.Positive(t, decision.CompareEpisodeCount(!whole, 2, !whole, 1, false))
+	require.Negative(t, decision.CompareEpisodeCount(!whole, 2, !whole, 1, true), "anime prefers the two-episode release")
+	require.Positive(t, decision.CompareEpisodeCount(!whole, 1, !whole, 2, true))
+	require.Zero(t, decision.CompareEpisodeCount(!whole, 2, !whole, 2, false))
+	require.Zero(t, decision.CompareEpisodeCount(whole, 0, whole, 0, true))
+}
+
+// seasonRank evaluates titles as a season search of Breaking Bad's first
+// seven episodes through the REAL Evaluate (so the rank keys, the pack
+// sentinel included, are Evaluate's own) and returns them ranked.
+func seasonRank(t *testing.T, anime bool, titles ...string) []decision.Decision {
+	t.Helper()
+	tg := seasonTarget([]string{"Breaking Bad"}, 1, seq(1, 7), nil, nil)
+	tg.Anime = anime
+	rels := make([]common.ReleaseInfo, 0, len(titles))
+	for _, title := range titles {
+		rels = append(rels, common.ReleaseInfo{GUID: title, IndexerRef: textIndexer, Title: title, Protocol: common.ProtocolTorrent})
+	}
+	ds := decision.Evaluate(context.Background(), tg, identityProfile(t), &catalogue.Catalogue{}, rels, identityOptions())
+	for _, d := range ds {
+		require.True(t, d.Approved, "%s: %+v", d.Release.Title, d.Rejections)
+	}
+	return decision.Rank(ds, identityOptions())
+}
+
+// TestRankPutsAPackFirstOnATie is design §6.4 through Evaluate: at the same
+// quality a season pack ranks above its singles and multi-episode releases,
+// for a standard and an anime series alike, and below it the standard
+// series takes the single and the anime one the multi-episode release.
+func TestRankPutsAPackFirstOnATie(t *testing.T) {
+	const (
+		single = "Breaking.Bad.S01E05.720p.HDTV.x264-GRP"
+		double = "Breaking.Bad.S01E05E06.720p.HDTV.x264-GRP"
+		pack   = "Breaking.Bad.S01.720p.HDTV.x264-GRP"
+	)
+	require.Equal(t, []string{pack, single, double}, guids(seasonRank(t, false, single, double, pack)))
+	require.Equal(t, []string{pack, double, single}, guids(seasonRank(t, true, single, double, pack)))
+}
+
+// TestRankKeepsQualityAheadOfPacks: the episode count is a tie-break, never
+// a reason to take a worse quality -- a 1080p single outranks a 720p pack.
+func TestRankKeepsQualityAheadOfPacks(t *testing.T) {
+	const (
+		single1080 = "Breaking.Bad.S01E05.1080p.BluRay.x264-GRP"
+		pack720    = "Breaking.Bad.S01.720p.HDTV.x264-GRP"
+	)
+	tg := seasonTarget([]string{"Breaking Bad"}, 1, seq(1, 7), nil, nil)
+	var tier1080, tier720 []quality.Definition
+	for name, tier := range map[string]*[]quality.Definition{"Bluray-1080p": &tier1080, "HDTV-720p": &tier720} {
+		d, ok := quality.Lookup("video", name)
+		require.True(t, ok, name)
+		*tier = append(*tier, d)
+	}
+	p := quality.Profile{Tiers: [][]quality.Definition{tier1080, tier720}, LanguageName: "any", ProperPolicy: "preferAndUpgrade"}
+	rels := []common.ReleaseInfo{
+		{GUID: pack720, IndexerRef: textIndexer, Title: pack720, Protocol: common.ProtocolTorrent},
+		{GUID: single1080, IndexerRef: textIndexer, Title: single1080, Protocol: common.ProtocolTorrent},
+	}
+	ds := decision.Evaluate(context.Background(), tg, p, &catalogue.Catalogue{}, rels, identityOptions())
+	for _, d := range ds {
+		require.True(t, d.Approved, "%s: %+v", d.Release.Title, d.Rejections)
+	}
+	require.True(t, ds[0].Rank.WholeSeason(), "the pack carries the whole-season sentinel")
+	require.Equal(t, []string{single1080, pack720}, guids(decision.Rank(ds, identityOptions())))
+}
