@@ -35,7 +35,7 @@ import (
 	indexac "github.com/mediactl/clustarr/api/applyconfiguration/index/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
-	"github.com/mediactl/clustarr/app/indexer/status"
+	"github.com/mediactl/clustarr/app/indexer/status/statuspatch"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
@@ -87,7 +87,7 @@ func TestTheTwoManagersDoNotReleaseEachOthersFields(t *testing.T) {
 	require.NoError(t, c.Create(ctx, idx))
 
 	// Steady state, half written by each manager.
-	require.NoError(t, status.Patch(ctx, c, k8s.ManagerIndex, idx,
+	require.NoError(t, statuspatch.Patch(ctx, c, k8s.ManagerIndex, idx,
 		func(ac *indexac.IndexerStatusApplyConfiguration) {
 			ac.WithObservedGeneration(1).
 				WithPrivacy("private").
@@ -106,7 +106,7 @@ func TestTheTwoManagersDoNotReleaseEachOthersFields(t *testing.T) {
 
 	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(idx), idx))
 	now := metav1.NewTime(time.Now().Truncate(time.Second))
-	require.NoError(t, status.Patch(ctx, c, k8s.ManagerIndexWorker, idx,
+	require.NoError(t, statuspatch.Patch(ctx, c, k8s.ManagerIndexWorker, idx,
 		func(ac *indexac.IndexerStatusApplyConfiguration) {
 			ac.WithEscalationLevel(3).
 				WithIndexedReleases(41).
@@ -124,7 +124,7 @@ func TestTheTwoManagersDoNotReleaseEachOthersFields(t *testing.T) {
 
 	// Now each manager applies again, changing only its own field. Neither
 	// may disturb the other's half.
-	require.NoError(t, status.Patch(ctx, c, k8s.ManagerIndex, &seeded,
+	require.NoError(t, statuspatch.Patch(ctx, c, k8s.ManagerIndex, &seeded,
 		func(ac *indexac.IndexerStatusApplyConfiguration) { ac.WithObservedGeneration(2) }))
 
 	var afterController indexv1alpha1.Indexer
@@ -134,7 +134,7 @@ func TestTheTwoManagersDoNotReleaseEachOthersFields(t *testing.T) {
 	assert.NotNil(t, afterController.Status.LastRssAt, "the controller apply released lastRssAt")
 	assert.Equal(t, "boom", afterController.Status.LastFailure, "the controller apply released lastFailure")
 
-	require.NoError(t, status.Patch(ctx, c, k8s.ManagerIndexWorker, &afterController,
+	require.NoError(t, statuspatch.Patch(ctx, c, k8s.ManagerIndexWorker, &afterController,
 		func(ac *indexac.IndexerStatusApplyConfiguration) { ac.WithIndexedReleases(42) }))
 
 	var afterWorker indexv1alpha1.Indexer
@@ -196,7 +196,7 @@ func TestTheTwoManagersDoNotReleaseEachOthersFields(t *testing.T) {
 // A manager outside the split must be refused rather than allowed to claim
 // fields that neither half accounts for.
 func TestPatchRefusesAManagerOutsideTheSplit(t *testing.T) {
-	err := status.Patch(context.Background(), nil, k8s.ManagerCatalog,
+	err := statuspatch.Patch(context.Background(), nil, k8s.ManagerCatalog,
 		&indexv1alpha1.Indexer{ObjectMeta: metav1.ObjectMeta{Name: "x", Namespace: "y"}}, nil)
 	require.ErrorContains(t, err, "owns no part of Indexer.status")
 }
@@ -234,8 +234,8 @@ func TestTheWindowCountsAreOwnedByTheControllerAlone(t *testing.T) {
 	// After it: one reconcile and one worker apply, in either order.
 	require.NoError(t, c.Get(ctx, key, idx))
 	idx.Status.QueriesInWindow, idx.Status.GrabsInWindow = 3, 1
-	require.NoError(t, status.Patch(ctx, c, k8s.ManagerIndex, idx, nil))
-	_, _, err = status.PatchCAS(ctx, c, c, k8s.ManagerIndexWorker, key,
+	require.NoError(t, statuspatch.Patch(ctx, c, k8s.ManagerIndex, idx, nil))
+	_, _, err = statuspatch.PatchCAS(ctx, c, c, k8s.ManagerIndexWorker, key,
 		func(fresh *indexv1alpha1.Indexer, ac *indexac.IndexerStatusApplyConfiguration) bool {
 			ac.WithIndexedReleases(fresh.Status.IndexedReleases + 1)
 			return false

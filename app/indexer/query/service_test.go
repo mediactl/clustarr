@@ -50,6 +50,18 @@ func (f *fakeStore) Upsert(context.Context, []relindex.Release) (int, error) { r
 func (f *fakeStore) Prune(context.Context, time.Time) (int, error)           { return 0, nil }
 func (f *fakeStore) Stats(context.Context) (relindex.Stats, error)           { return relindex.Stats{}, nil }
 
+// The blocklist methods (ADR-0019 §6.14): this fake holds no block, so a
+// query answer is never marked blocked here.
+func (f *fakeStore) Block(context.Context, relindex.Block) (bool, error)   { return false, nil }
+func (f *fakeStore) Unblock(context.Context, relindex.Block) (bool, error) { return false, nil }
+func (f *fakeStore) BlockState(context.Context, []relindex.BlockKey, time.Time) (map[int][]relindex.Block, error) {
+	return nil, nil
+}
+func (f *fakeStore) ListBlocks(context.Context, string, int, int) ([]relindex.Block, error) {
+	return nil, nil
+}
+func (f *fakeStore) PruneBlocks(context.Context, time.Time) (int, error) { return 0, nil }
+
 func row(t *testing.T, guid string) relindex.Release {
 	t.Helper()
 	b, err := json.Marshal(schema.Release{
