@@ -32,9 +32,6 @@ import (
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
-	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	"github.com/mediactl/clustarr/pkg/events"
-	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
@@ -60,14 +57,6 @@ func newTestClient(t *testing.T) client.Client {
 	return c
 }
 
-func newTestBus(t *testing.T) events.Bus {
-	t.Helper()
-	bus := membus.New(nil)
-	require.NoError(t, bus.Ensure(context.Background(), events.Default().ForSingleNode()))
-	t.Cleanup(func() { _ = bus.Close() })
-	return bus
-}
-
 func createWantedMovie(t *testing.T, ctx context.Context, c client.Client, ns, name string) {
 	t.Helper()
 	require.NoError(t, client.IgnoreAlreadyExists(c.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}})))
@@ -81,14 +70,17 @@ func createWantedMovie(t *testing.T, ctx context.Context, c client.Client, ns, n
 	require.NoError(t, err)
 }
 
-// TestRunOnce_PublishesOneWantedScanPerEligibleNamespace is the sweep end to
-// end against a real apiserver and a real bus: a Wanted movie in one
-// namespace, an Imported one in another, and exactly one WantedScan.
-func TestRunOnce_PublishesOneWantedScanPerEligibleNamespace(t *testing.T) {
+// TestRunOnce_WakesTheDueItemsOfEachEligibleNamespace is the sweep end to
+// end against a real apiserver: a Wanted movie in one namespace, an Imported
+// one in another, and exactly one wake -- the Wanted movie's, at the loop's
+// low priority (A4.2: the sweep publishes nothing; the loop's search
+// planner decides). Before A4.2 it published one WantedScan per eligible
+// namespace; a re-fired epoch was absorbed by the stream's Msg-Id, which
+// went with the scan.
+func TestRunOnce_WakesTheDueItemsOfEachEligibleNamespace(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	c := newTestClient(t)
-	bus := newTestBus(t)
 
 	createWantedMovie(t, ctx, c, "media", "the-thing-1982")
 
@@ -102,86 +94,25 @@ func TestRunOnce_PublishesOneWantedScanPerEligibleNamespace(t *testing.T) {
 		catalogac.MovieStatus().WithPhase(catalogv1alpha1.MoviePhaseImported)))
 	require.NoError(t, err)
 
-	received := make(chan schema.WantedScan, 4)
-	spec, ok := events.Default().Consumer(events.ConsumerCatalogSearchNorm)
-	require.True(t, ok)
-	stop, err := bus.Subscribe(ctx, spec.Subscription(), func(_ context.Context, m events.Message) error {
-		var scan schema.WantedScan
-		if err := schema.Decode(m.Envelope().Schema, m.Envelope().Data, &scan); err != nil {
-			return err
-		}
-		received <- scan
-		return nil
-	})
-	require.NoError(t, err)
-	defer stop()
-
+	wakes := make(chan schema.ItemRef, 4)
 	at := time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC)
-	r := &Runnable{Client: c, Bus: bus, Now: func() time.Time { return at }}
-	published, err := r.runOnce(ctx, at)
+	r := &Runnable{Client: c, Wakes: wakes, Now: func() time.Time { return at }}
+	woken, err := r.runOnce(ctx, at)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"media"}, published, "only the namespace with a Wanted item is woken")
+	assert.Equal(t, []string{"media"}, woken, "only the namespace with a Wanted item is woken")
 
 	select {
-	case scan := <-received:
-		assert.Equal(t, "media", scan.Namespace)
-		assert.Equal(t, []commonv1.MediaKind{
-			commonv1.MediaKindMovie, commonv1.MediaKindEpisode,
-			commonv1.MediaKindAlbum, commonv1.MediaKindBook, commonv1.MediaKindAudiobook, commonv1.MediaKindIssue,
-		}, scan.Kinds, "every searchable kind, non-video included")
-		assert.True(t, scan.CutoffUnmet)
-		assert.Equal(t, at.Unix(), scan.Epoch)
-	case <-time.After(10 * time.Second):
-		t.Fatal("no WantedScan delivered")
-	}
-
-	select {
-	case scan := <-received:
-		t.Fatalf("a second WantedScan was published: %+v", scan)
-	case <-time.After(200 * time.Millisecond):
-	}
-}
-
-// TestRunOnce_RepublishInsideTheDedupWindowIsAbsorbed proves the Msg-Id does
-// its job: a leader flapping between replicas re-fires the same epoch and the
-// stream stores nothing new.
-func TestRunOnce_RepublishInsideTheDedupWindowIsAbsorbed(t *testing.T) {
-	ctx := context.Background()
-	c := newTestClient(t)
-	bus := newTestBus(t)
-	createWantedMovie(t, ctx, c, "media", "the-thing-1982")
-
-	at := time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC)
-	r := &Runnable{Client: c, Bus: bus, Now: func() time.Time { return at }}
-	published, err := r.runOnce(ctx, at)
-	require.NoError(t, err)
-	require.Equal(t, []string{"media"}, published)
-
-	// The second sweep at the same instant publishes the same Msg-Id.
-	published, err = r.runOnce(ctx, at)
-	require.NoError(t, err)
-	require.Equal(t, []string{"media"}, published)
-
-	// One consumer, drained with a short deadline: exactly one delivery.
-	spec, ok := events.Default().Consumer(events.ConsumerCatalogSearchNorm)
-	require.True(t, ok)
-	count := make(chan struct{}, 8)
-	stop, err := bus.Subscribe(ctx, spec.Subscription(), func(context.Context, events.Message) error {
-		count <- struct{}{}
-		return nil
-	})
-	require.NoError(t, err)
-	defer stop()
-
-	select {
-	case <-count:
-	case <-time.After(10 * time.Second):
-		t.Fatal("no WantedScan delivered at all")
+	case ref := <-wakes:
+		assert.Equal(t, "Movie", ref.Kind)
+		assert.Equal(t, "media", ref.Namespace)
+		assert.Equal(t, "the-thing-1982", ref.Name)
+	default:
+		t.Fatal("the Wanted movie was not woken")
 	}
 	select {
-	case <-count:
-		t.Fatal("the duplicate sweep was NOT absorbed by the stream's deduplication window")
-	case <-time.After(300 * time.Millisecond):
+	case ref := <-wakes:
+		t.Fatalf("a second item was woken: %+v", ref)
+	default:
 	}
 }
 
@@ -190,12 +121,11 @@ func TestRunOnce_RepublishInsideTheDedupWindowIsAbsorbed(t *testing.T) {
 func TestRunOnce_NamespaceScopedListing(t *testing.T) {
 	ctx := context.Background()
 	c := newTestClient(t)
-	bus := newTestBus(t)
 	createWantedMovie(t, ctx, c, "media", "the-thing-1982")
 	createWantedMovie(t, ctx, c, "other", "the-thing-1982")
 
 	at := time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC)
-	r := &Runnable{Client: c, Bus: bus, Now: func() time.Time { return at }, Namespaces: []string{"other"}}
+	r := &Runnable{Client: c, Now: func() time.Time { return at }, Namespaces: []string{"other"}}
 	published, err := r.runOnce(ctx, at)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"other"}, published)
@@ -208,13 +138,11 @@ func TestStart_FiresOnTheSchedule(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	c := newTestClient(t)
-	bus := newTestBus(t)
 	createWantedMovie(t, ctx, c, "media", "the-thing-1982")
 
 	ticks := make(chan []string, 8)
 	r := &Runnable{
 		Client:   c,
-		Bus:      bus,
 		Schedule: everyMillisecond{},
 		OnTick:   func(published []string, err error) { ticks <- published },
 	}
@@ -271,7 +199,6 @@ func TestNeedLeaderElection(t *testing.T) {
 func TestRunOnce_WakesANamespaceHoldingOnlyNonVideoItems(t *testing.T) {
 	ctx := context.Background()
 	c := newTestClient(t)
-	bus := newTestBus(t)
 
 	require.NoError(t, client.IgnoreAlreadyExists(c.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "music-only"}})))
 	require.NoError(t, c.Create(ctx, &catalogv1alpha1.Album{
@@ -283,7 +210,7 @@ func TestRunOnce_WakesANamespaceHoldingOnlyNonVideoItems(t *testing.T) {
 	require.NoError(t, err)
 
 	at := time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC)
-	r := &Runnable{Client: c, Bus: bus, Now: func() time.Time { return at }, Namespaces: []string{"music-only"}}
+	r := &Runnable{Client: c, Now: func() time.Time { return at }, Namespaces: []string{"music-only"}}
 	published, err := r.runOnce(ctx, at)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"music-only"}, published)
