@@ -1,0 +1,1702 @@
+domain	target_package	test_name	source	status
+D1	app/dispatch	TestAdmitHoldsTheBudgetAndReportsTheReason	A2.2	deferred
+D1	app/dispatch	TestAdmitRefusesUntilRebuilt	A2.2	deferred
+D1	app/dispatch	TestAnUnconfirmedReservationLapses	A2.2	deferred
+D1	app/dispatch	TestNoRespondersReadsAsTheDomainsNoAgent	Wave N N4 (ledger)	deferred
+D1	app/dispatch	TestRenderFollowsTheDeliveryTable	A2.2	deferred
+D1	app/dispatch	TestTheLedgerIsRebuiltFromStatusNeverTrusted	A2.2	deferred
+D1	app/dispatch	TestUnattendedNeedsTwoQuietMinutesOrNoPresence	A2.2	deferred
+D1	app/maintenance	TestBackfillFingerprintMetaSetsTheCompleteMap	Wave N N7 (ledger)	deferred
+D1	app/maintenance	TestEveryObjectStoreIsPurgedOfOrphans	ADR-0020 (N5)	deferred
+D1	pkg/agentdomain	TestAgentDomainIsALeaf	W4.63	deferred
+D1	pkg/agentdomain	TestAutoscaledConsumersSizeMaxAckPendingForTheCeiling	W4.63	deferred
+D1	pkg/agentdomain	TestDomainsCoverEveryTopologyConsumer	W4.63	deferred
+D1	pkg/agentdomain	TestFixedConsumersKeepMaxAckPendingEqualSlots	W4.63	deferred
+D1	pkg/agentdomain	TestMinZeroDomainsConsumeOnlyWorkQueueStreams	W4.63	deferred
+D1	pkg/agentdomain	TestTheDomainTable	W4.63	deferred
+D1	pkg/busconn	TestKeepTopologyEnsuresAtTheLeaseAndReplacesWhatGoesMissing	W4.46	deferred
+D1	pkg/busconn	TestKeepTopologyNeedsABusThatCanReportWhatIsMissing	W4.46	deferred
+D1	pkg/busconn	TestKeepTopologyReEnsuresWhenNATSReconnects	W4.46	deferred
+D1	pkg/busconn	TestReconnectDelayBacksOffWithJitter	ADR-0020 (N6)	deferred
+D1	pkg/busconn	TestShutdownDrainsPullsThenRespondersThenTheConnection	ADR-0020 (N1)	deferred
+D1	pkg/busconn	TestValidateURLAcceptsAPool	Wave N N6 (ledger)	deferred
+D1	pkg/busconn	TestWatchDeadLettersNeedsABusThatCanWatch	W4.46	deferred
+D1	pkg/busconn	TestWatchDeadLettersWatchesEveryStaticConsumerUntilCancelled	W4.46	deferred
+D1	pkg/busconn	TestWedgeCheckerReportsTheBus	W4.97	deferred
+D1	pkg/events	TestAPoolDurableKeepsItsCapThroughItsSubscription	W4.40	deferred
+D1	pkg/events	TestAckDeadline	W4.40	deferred
+D1	pkg/events	TestAgentRecordBucketsAreDurableHistoryOneAndBounded	A1.6	deferred
+D1	pkg/events	TestAutoscaledDurablesNeverExpire	W4.100	deferred
+D1	pkg/events	TestClassifyRequestError	ADR-0020 (N4)	deferred
+D1	pkg/events	TestConsumerStateLagCountsDeliveredAndUndelivered	W4.43	deferred
+D1	pkg/events	TestDeadLetterWatcherSpecKeepsTheLiveConfig	W4.41	deferred
+D1	pkg/events	TestDefaultConsumersCarryTheirSlots	W4.40	deferred
+D1	pkg/events	TestEngineConsumerNamesAreInjectiveAndKVSafe	A1.6	deferred
+D1	pkg/events	TestEnvelopeFromHeadersDropsTransportHeaders	W4.91	deferred
+D1	pkg/events	TestEnvelopeFromHeadersKeepsTheIDOfAFiredSchedule	W4.91	deferred
+D1	pkg/events	TestEveryStaticConsumerHasOneDeadLetterWatcher	W4.41	deferred
+D1	pkg/events	TestHandlerBudgetFallsBackToAckWait	W4.97	deferred
+D1	pkg/events	TestIntakeAndCommandStreamsAreDurableAndDiscardNew	A1.6	deferred
+D1	pkg/events	TestMergeRetiredKeepsTheReportThatSawTheDurable	F1.2	deferred
+D1	pkg/events	TestMsgIDForProbeNamesTheRequest	W4.2	deferred
+D1	pkg/events	TestMsgIDForSubtitleFetchCarriesTheSequence	F5.1	deferred
+D1	pkg/events	TestNoTopologyNameIsBranded	U4	deferred
+D1	pkg/events	TestObjectStoresCarryTheirKeyScheme	W4.101	deferred
+D1	pkg/events	TestOnlyExplicitBudgetsAreEnforced	W4.97	deferred
+D1	pkg/events	TestParseKVKeyTokenInvertsKVKeyToken	F1.1	deferred
+D1	pkg/events	TestParseSlotOverrides	W4.40	deferred
+D1	pkg/events	TestRecordKeysAreUIDTokens	F1.1	deferred
+D1	pkg/events	TestRecordsBucketsAreDurableHistoryOneAndBounded	F1.2	deferred
+D1	pkg/events	TestRecycleSweepConsumer	W4.60	deferred
+D1	pkg/events	TestSlotsFor	W4.40	deferred
+D1	pkg/events	TestSubscriptionSpecInvertsSubscription	W4.40	deferred
+D1	pkg/events	TestTaskEventSubjectsListOnlyDispatchedConsumersAndNeverGt	A1.6	deferred
+D1	pkg/events	TestTheFoldsRetiredBusNamesAreGone	F9.4	deferred
+D1	pkg/events	TestTheProbeBucketKeepsARecordForAWeek	W4.2	deferred
+D1	pkg/events	TestTheProbeConsumersAreOnTheProbeStream	W4.2	deferred
+D1	pkg/events	TestTheProbeStreamIsDurableAndRefusesWhenFull	W4.2	deferred
+D1	pkg/events	TestTheResultsDurableIsRetired	F6.6 [cold turkey: rewritten to assert the durable is gone]	deferred
+D1	pkg/events	TestTheTranscodeAndSubtitleBuildersAreKeyedByTheFile	F9.4	deferred
+D1	pkg/events	TestTimingEqualComparesDeadlines	W4.93	deferred
+D1	pkg/events	TestTranscodePoolDurableNamesAreKVSafe	U4	deferred
+D1	pkg/events	TestValidateAdmitsUnlimitedDeliveryOnlyForWatchers	W4.41	deferred
+D1	pkg/events	TestValidateChecksRetiredConsumers	F1.2, A9.2	deferred
+D1	pkg/events	TestValidateExemptsDiscardNewWorkQueuesFromSchedules	W4.40	deferred
+D1	pkg/events	TestValidateHoldsEveryRecordsBucketToTheRule	F1.2	deferred
+D1	pkg/events	TestValidateHoldsSlotsUnderTheCap	W4.40	deferred
+D1	pkg/events	TestValidateRefusesAChunkOverOneMiB	ADR-0020 (N5)	deferred
+D1	pkg/events	TestWorkFetchSubjectAnyPriorityMatchesEveryLane	F5.1	deferred
+D1	pkg/events	TestConsumerSpecSubscription	W4.40, W4.40, W4.63 (ledger: expected red) [edit per plan]	rewrite
+D1	pkg/events	TestDeadLetterSubjectNamesTheFailedTask	W4.2 [edit per plan]	rewrite
+D1	pkg/events	TestEveryConsumerHasDeliveryHeadroom	W4.41, W4.41 (ledger: expected red) [edit per plan]	rewrite
+D1	pkg/events	TestEveryWorkStreamHasAConsumer	W4.41 [edit per plan]	rewrite
+D1	pkg/events	TestForSingleNodeKeepsDurableBucketsOnFile	F1.2 [edit per plan]	rewrite
+D1	pkg/events	TestKVKeyBuildersAreInjective	W4.2, F1.1 (ledger: 2 rows) [edit per plan]	rewrite
+D1	pkg/events	TestSegmentsTopology	W4.63, F9.4 (ledger: expected red) [analyze cap 8; retired-results row gone]	rewrite
+D1	pkg/events	TestTranscodeTopology	F6.6 [edit per plan]	rewrite
+D1	pkg/events	TestWorkStreamsAllowSchedules	W3.15, W4.40 [edit per plan]	rewrite
+D1	pkg/events	TestLegacyFoldAdoptsThenDeletes	W10.8 [cold-turkey revision: no task writes it]	dropped-excluded
+D1	pkg/events	TestSettleSpacesRetriesFromRetry	W4.114 [could-defer task not built]	dropped-excluded
+D1	pkg/events	TestWorkConsumersCarryNoBrokerBackOff	W4.114 [could-defer task not built]	dropped-excluded
+D1	pkg/events/contracttest	TestBusContract/AHandlerPastItsBudgetIsCancelled	W4.97 [contract case, run by natsbus and membus]	deferred
+D1	pkg/events/contracttest	TestBusContract/ALapsedDeliveryCannotExtendItsRedelivery	W4.92 [contract case, run by natsbus and membus]	deferred
+D1	pkg/events/contracttest	TestBusContract/ALapsedFinalDeliveryIsDeadLetteredWithABindOnlySubscribe	W4.45 [contract case, run by natsbus and membus]	deferred
+D1	pkg/events/contracttest	TestBusContract/AScheduledTaskKeepsItsIDAndItsDeadLetter	W4.91 [contract case, run by natsbus and membus]	deferred
+D1	pkg/events/contracttest	TestBusContract/AScheduledTasksLapsedFinalDeliveryIsDeadLettered	W4.91 [contract case, run by natsbus and membus]	deferred
+D1	pkg/events/contracttest	TestBusContract/BindCreatesTheDurableAndItsWatcher	W4.42 [contract case, run by natsbus and membus]	deferred
+D1	pkg/events/contracttest	TestBusContract/ConsumerStateCountsPendingAndAckPending	W4.43 [contract case, run by natsbus and membus]	deferred
+D1	pkg/events/contracttest	TestBusContract/DrainLetsRunningHandlersFinish	W4.44 [contract case, run by natsbus and membus]	deferred
+D1	pkg/events/contracttest	TestBusContract/EnsureConsumerIsIdempotentAndBindsTheWatcher	A1.6 [contract case, run by natsbus and membus]	deferred
+D1	pkg/events/contracttest	TestBusContract/KVKeys	F1.3 [contract case, run by natsbus and membus]	deferred
+D1	pkg/events/contracttest	TestBusContract/KVStatus	F1.3 [contract case, run by natsbus and membus]	deferred
+D1	pkg/events/contracttest	TestBusContract/KVWatchDeliversPastTheBuffer	F1.3 [contract case, run by natsbus and membus]	deferred
+D1	pkg/events/contracttest	TestBusContract/KVWatchFromRevision	F1.3 [contract case, run by natsbus and membus]	deferred
+D1	pkg/events/contracttest	TestBusContract/KVWatchUpdatesOnly	F1.3 [contract case, run by natsbus and membus]	deferred
+D1	pkg/events/contracttest	TestBusContract/LapsedHandlerFreesItsSlot	W4.44 [contract case, run by natsbus and membus]	deferred
+D1	pkg/events/contracttest	TestBusContract/LapsedHandlersDoNotMultiplyConcurrency	W4.44 [contract case, run by natsbus and membus]	deferred
+D1	pkg/events/contracttest	TestBusContract/MaxAckPendingCapsEveryReplicaTogether	W4.43 [contract case, run by natsbus and membus]	deferred
+D1	pkg/events/contracttest	TestBusContract/ObjectStoreMetadataRoundTrip	W4.101 [contract case, run by natsbus and membus]	deferred
+D1	pkg/events/contracttest	TestBusContract/ObjectStorePutReplacesMetadata	W4.101 [contract case, run by natsbus and membus]	deferred
+D1	pkg/events/contracttest	TestBusContract/ObjectStoreSetMetaKeepsContent	W4.101 [contract case, run by natsbus and membus]	deferred
+D1	pkg/events/contracttest	TestBusContract/ObjectStoreSetMetaOnDeletedIsNotFound	W4.101 [contract case, run by natsbus and membus]	deferred
+D1	pkg/events/contracttest	TestBusContract/ObjectStoreStatusReportsCreation	W4.102 [contract case, run by natsbus and membus]	deferred
+D1	pkg/events/contracttest	TestBusContract/ObjectStoreWatchDeliversPastTheBuffer	W4.102 [contract case, run by natsbus and membus]	deferred
+D1	pkg/events/contracttest	TestBusContract/ObjectStoreWatchRefusesFromRevision	W4.102 [contract case, run by natsbus and membus]	deferred
+D1	pkg/events/contracttest	TestBusContract/ObjectStoreWatchReplaysThenSynced	W4.102 [contract case, run by natsbus and membus]	deferred
+D1	pkg/events/contracttest	TestBusContract/ObjectStoreWatchSeesDeleteAsTombstone	W4.102 [contract case, run by natsbus and membus]	deferred
+D1	pkg/events/contracttest	TestBusContract/ObjectStoreWatchSeesSetMeta	W4.102 [contract case, run by natsbus and membus]	deferred
+D1	pkg/events/contracttest	TestBusContract/ObjectStoreWatchUpdatesOnlyHasNoSynced	W4.102 [contract case, run by natsbus and membus]	deferred
+D1	pkg/events/contracttest	TestBusContract/ReplicasShareMaxAckPendingBeyondOneSlotCount	W4.44 [contract case, run by natsbus and membus]	deferred
+D1	pkg/events/contracttest	TestBusContract/RetiredConsumersAreDeletedAndPurged	F1.2 [contract case, run by natsbus and membus]	deferred
+D1	pkg/events/contracttest	TestBusContract/SaturatedSubscriptionNeverDeadLettersAnUnrunTask	W4.90 [contract case, run by natsbus and membus]	deferred
+D1	pkg/events/contracttest	TestBusContract/SetMetaSendsTheCompleteMap	N8; ADR-0021 [a contract case on both buses; plan name TestSetMetaSendsTheCompleteMap]	deferred
+D1	pkg/events/contracttest	TestBusContract/StreamFillReportsBytesAndTheLimit	W4.96 [contract case, run by natsbus and membus]	deferred
+D1	pkg/events/contracttest	TestBusContract/SubscribeBindsAndNeverWritesConsumerConfig	W4.45 [contract case, run by natsbus and membus]	deferred
+D1	pkg/events/contracttest	TestBusContract/SubscribeRebindsAVanishedDurable	W4.44 [contract case, run by natsbus and membus]	deferred
+D1	pkg/events/contracttest	TestBusContract/SubscribeWaitsForAMissingDurable	W4.45 [contract case, run by natsbus and membus]	deferred
+D1	pkg/events/contracttest	TestBusContract/SubscriptionHoldsNoMoreThanItsSlots	W4.44 [contract case, run by natsbus and membus]	deferred
+D1	pkg/events/contracttest	TestBusContract/TheBusHeartbeatsARunningHandler	W4.97 [contract case, run by natsbus and membus]	deferred
+D1	pkg/events/contracttest	TestBusContract/TimingComesFromTheBoundDurable	W4.93 [contract case, run by natsbus and membus]	deferred
+D1	pkg/events/contracttest	TestBusContract/ALongRetryIsAScheduledRepublish	W4.114/W4.115 [could-defer task not built]	dropped-excluded
+D1	pkg/events/contracttest	TestBusContract/ANakWaitsWhatItAsks	W4.114/W4.115 [could-defer task not built]	dropped-excluded
+D1	pkg/events/membus	TestAWatcherThatNeverReadsBlocksNoWriter	F1.3	deferred
+D1	pkg/events/membus	TestMembusDrainWaitsForCalls	Wave N N1 (ledger)	deferred
+D1	pkg/events/natsbus	TestASlowResponderLeavesItsQueueGroupOnlyWithAPeer	ADR-0020 (N3)	deferred
+D1	pkg/events/natsbus	TestArtworkPutsUseTheStoresChunkSize	ADR-0020 (N5)	deferred
+D1	pkg/events/natsbus	TestAsyncErrorKinds	W4.94	deferred
+D1	pkg/events/natsbus	TestAsyncErrorsAreCounted	W4.94	deferred
+D1	pkg/events/natsbus	TestCloseStillHaltsAtOnce	ADR-0020 (N1)	deferred
+D1	pkg/events/natsbus	TestConsumerStateExcludesExhaustedMessages	W4.100	deferred
+D1	pkg/events/natsbus	TestConsumerStateReadsTheConsumerLeader	W4.100	deferred
+D1	pkg/events/natsbus	TestConsumerStateRefusesAnAnswerWithoutPlacement	W4.100	deferred
+D1	pkg/events/natsbus	TestDrainAnswersEveryBufferedRequest	ADR-0020 (N1)	deferred
+D1	pkg/events/natsbus	TestEveryScheduledSubjectKeepsItsID	W4.91	deferred
+D1	pkg/events/natsbus	TestIndexAppliesPutsSetMetaAndDeletes	W4.104	deferred
+D1	pkg/events/natsbus	TestIndexEmitsChanges	W4.104	deferred
+D1	pkg/events/natsbus	TestIndexKeepsServingWhileItReopens	W4.104	deferred
+D1	pkg/events/natsbus	TestIndexNeverBlocksOnASlowSubscriber	W4.104	deferred
+D1	pkg/events/natsbus	TestIndexReplaysThenSyncs	W4.104	deferred
+D1	pkg/events/natsbus	TestKVMaxValueSize	F1.2	deferred
+D1	pkg/events/natsbus	TestLapsedDeliveriesNeverExceedTheSlots	W4.44	deferred
+D1	pkg/events/natsbus	TestMessageReadsANakedMessageByStreamSeq	A2.4	deferred
+D1	pkg/events/natsbus	TestNextFetchesOnlyFreeSlots	W4.90	deferred
+D1	pkg/events/natsbus	TestObjectIndexRebuildsWhenTheBucketIsRecreated	W4.104	deferred
+D1	pkg/events/natsbus	TestObjectWatchSurvivesAServerRestart	W4.102	deferred
+D1	pkg/events/natsbus	TestOnlyPullWritesConsumerConfig	W4.45	deferred
+D1	pkg/events/natsbus	TestPublishReconnectBufExceededIsTransient	Wave N N6 (ledger)	deferred
+D1	pkg/events/natsbus	TestPullWritesTheSubscriptionsCapNotItsSlots	W4.40	deferred
+D1	pkg/events/natsbus	TestPurgeOrphanChunksReclaimsALostRace	W4.103	deferred
+D1	pkg/events/natsbus	TestPurgeOrphanChunksSparesAPutInProgress	W4.103	deferred
+D1	pkg/events/natsbus	TestSampleFrequencyReachesTheConsumerConfig	A1.6	deferred
+D1	pkg/events/natsbus	TestSubscribeRebindsAfterItsStreamIsDeleted	W4.44	deferred
+D1	pkg/events/natsbus	TestTermWithReasonCarriesTheClustarrID	A2.4	deferred
+D1	pkg/events/natsbus	TestTranscodeTaskMsgIDDedupesOnTheRealServer	F6.4	deferred
+D1	pkg/events/natsbus	TestWatcherAckWaitCoversItsBatch	W4.41	deferred
+D1	pkg/events/natsbus	TestEnsureDefaultTopology	W4.40 [edit per plan]	rewrite
+D1	pkg/events/natsbus	TestEnsureSingleNodeTopologyFitsTheKindServersLimits	A1.6	rewrite
+D1	pkg/events/natsbus	TestKVKeyBuildersProduceKeysARealServerAccepts	W4.2, F1.2 [edit per plan]	rewrite
+D1	pkg/events/schema	TestBlockScopeOfIsInjective	A1.4	deferred
+D1	pkg/events/schema	TestEveryPayloadRoundTrips	A1.4	deferred
+D1	pkg/events/schema	TestEveryRecordHeaderKeyIsOptionalButTheProbes	F1.1	deferred
+D1	pkg/events/schema	TestMarkersTaskRoundTrip	F3.4 (ledger)	deferred
+D1	pkg/events/schema	TestProbeRecordWireFormatIsUnchanged	F1.1, A1.4	deferred
+D1	pkg/events/schema	TestProbeTaskAndRecordRoundTrip	W4.3	deferred
+D1	pkg/events/schema	TestRecycleSweepTaskEncodeDecodeRoundTrip	W4.60	deferred
+D1	pkg/events/schema	TestSubtitleEventIsV2AndNamesTheMediaFile	F5.2	deferred
+D1	pkg/events/schema	TestSubtitleRecordKeepsTheHeaderFlat	F5.1	deferred
+D1	pkg/events/schema	TestSegmentsResultRoundTrip	F3.4 [edit per plan]	rewrite
+D1	pkg/events/schema	TestFetchTaskIsV2AndTheV1NameIsKept	F5.1 [F9.4 (cold turkey) deleted the v1 schemas]	dropped-excluded
+D1	pkg/events/schema	TestV1SearchAndMetadataTasksStillDecode	A1.4 [cold-turkey revision: no task writes it]	dropped-excluded
+D1	pkg/k8s	TestANilChecksIsEmpty	W3.1	deferred
+D1	pkg/k8s	TestAddProbesRegistersPingThenEachSetInOrder	W3.1	deferred
+D1	pkg/k8s	TestAddProbesRejectsDuplicates	W3.1	deferred
+D1	pkg/k8s	TestAgentManagerOptionsNeverElect	W5.3	deferred
+D1	pkg/k8s	TestAnUntaggedWriteRecordsTheDefaultFieldOwner	W4.80	deferred
+D1	pkg/k8s	TestCaptionWorkerIsRetired	F5.3 [cold turkey: rewritten to assert the name is gone; plan name TestCaptionarrWorkerIsRetired (the brand gate refuses it)]	deferred
+D1	pkg/k8s	TestChecksKeepTheirOrder	W3.1	deferred
+D1	pkg/k8s	TestChecksMergeKeepsOrderAndRejectsACollision	W3.1	deferred
+D1	pkg/k8s	TestChecksRejectWhatControllerRuntimeWouldSilentlyOverwrite	W3.1	deferred
+D1	pkg/k8s	TestClampTextNeverSplitsARune	F2.2	deferred
+D1	pkg/k8s	TestFieldManagerValuesAreUnbranded	U3	deferred
+D1	pkg/k8s	TestGraftJobsCarryTheTranscodeLabels	U3	deferred
+D1	pkg/k8s	TestLeaderOnlyWaitsForTheLease	W3.1	deferred
+D1	pkg/k8s	TestManagerOptionsPinTheDefaultFieldOwner	W4.80	deferred
+D1	pkg/k8s	TestPoolJobsCarryTheTranscodeLabels	U3	deferred
+D1	pkg/k8s	TestReadOnlyRefusesEveryWriterAndCounts	A1.7	deferred
+D1	pkg/k8s	TestRetiredFieldManagersStayValid	F3.4, F5.3 [cold turkey: rewritten to assert the retired names are gone]	deferred
+D1	pkg/k8s	TestSanitizeTextReplacesWhatTheApplyDecoderRefuses	F2.2	deferred
+D1	pkg/k8s	TestScaleToWritesTheScaleSubresource	W4.62	deferred
+D1	pkg/k8s	TestTheDefaultFieldOwnerIsNoFieldManager	W4.80	deferred
+D1	pkg/k8s	TestFieldManagersAreTheOnesTheSpecLists	F3.4, W4.62, F9.4, U3 (ledger: expected red) [edit per plan; catalog-markers row gone]	rewrite
+D1	pkg/k8s	TestOptionsValidate	W4.74	rewrite
+D1	pkg/k8s	TestAReplacementRefusesADeletingClaimPolicy	U3 [Wave U cold turkey (ledger: not kept)]	dropped-excluded
+D1	pkg/k8s	TestASelectorChangeReplacesTheEngineWorkloadKeepingItsClaims	U3 [Wave U cold turkey (ledger: not kept)]	dropped-excluded
+D1	pkg/k8s	TestClassifiedSeriesKeepsItsValuesBeforeTheRename	U3 [Wave U cold turkey (ledger: not kept)]	dropped-excluded
+D1	pkg/k8s	TestGatedLeaseLockWaitsForLegacyLeases	W4.81 [legacy-lease gate removed (cold turkey)]	dropped-excluded
+D1	pkg/k8s	TestHeldReadsHolderRenewAndDuration	W4.81 [legacy-lease gate removed (cold turkey)]	dropped-excluded
+D1	pkg/k8s	TestManagedFieldsAreReadThroughOwnedBy	U3 [Wave U cold turkey (ledger: not kept)]	dropped-excluded
+D1	pkg/k8s	TestOwnedByReadsTheLegacyName	U3 [Wave U cold turkey (ledger: not kept)]	dropped-excluded
+D1	pkg/k8s	TestSearchOutcomesReadBothNames	U3 [Wave U cold turkey (ledger: not kept)]	dropped-excluded
+D1	pkg/obs/metrics	TestCatalogueMatchesTheAmendmentTable	A1.7, S7, S9, F1.1, A1.7, A2.2 (ledger: wantSeries) [wantSeries rows for every new metric]	rewrite
+D1	pkg/obs/metrics	TestOnlyLegacyFoldAppliesAsCatalogarrMarkers	F9.1 [task dropped by the cold-turkey revision]	dropped-excluded
+D1	pkg/obs/metrics	TestOnlyLegacyFoldNamesTheFoldedKinds	F9.1 [task dropped by the cold-turkey revision]	dropped-excluded
+D1	pkg/obs/metrics	TestTheLegacyFoldFamiliesAreGone	F9.1 [task dropped by the cold-turkey revision]	dropped-excluded
+D1	pkg/presence	TestPresenceLinksNoKubernetes	A2.1	deferred
+D1	pkg/presence	TestPresenceWritesAtStartAndEveryInterval	A2.1	deferred
+D1	pkg/presence	TestThePresenceReaderCachesForFiveSeconds	A2.1	deferred
+D1	pkg/probestore	TestAFailureIsClippedOnARuneBoundary	W4.4	deferred
+D1	pkg/probestore	TestASeedAnswersAnOutstandingRequest	W4.4	deferred
+D1	pkg/probestore	TestAnOversizedAnswerIsRecordedAsAFailure	F1.1	deferred
+D1	pkg/probestore	TestDecodeSkipsDeletesAndGarbage	W4.4	deferred
+D1	pkg/probestore	TestSeedNeverOverwritesAMatchingResult	W4.4	deferred
+D1	pkg/probestore	TestTheProbeStoreLinksNoProberAndNoClient	W4.4	deferred
+D1	pkg/probestore	TestTheProbeStoreRefusesWhatTheBucketWould	F1.2	deferred
+D1	pkg/probestore	TestTheRecordProtocolHoldsOnARealServer	W4.4	deferred
+D1	pkg/probestore	TestTheStoreCountsUnreadableRecords	F1.1	deferred
+D1	pkg/probestore	TestPublishPutsTheTaskOnItsLaneOnce	W4.4 [superseded: A7.1 deleted probestore Publish]	dropped-excluded
+D1	pkg/probestore	TestRequestLosesToAConcurrentWrite	W4.4 [superseded: A7.1 deleted probestore Request]	dropped-excluded
+D1	pkg/probestore	TestRequestSequencesAndCarriesTheAbandonedCount	W4.4 [superseded: A7.1 deleted probestore Request (F3.2 TestNewRequestIsWhatRequestWrites)]	dropped-excluded
+D1	pkg/records	TestAnswerReReadsBeforeItsCAS	F1.1	deferred
+D1	pkg/records	TestAnswerRules	F1.1	deferred
+D1	pkg/records	TestKeyOfGovernsTheKeyCheck	A1.5	deferred
+D1	pkg/records	TestNextSeqIsMonotoneAcrossExpiry	F1.1	deferred
+D1	pkg/records	TestOversizedRecordIsRefused	F1.1	deferred
+D1	pkg/records	TestRecordsLinksNoKubernetes	F1.1, A1.5	deferred
+D1	pkg/records	TestRequestIsACompareAndSwapAtTheReadRevision	F1.1	deferred
+D1	pkg/records	TestRequestNeverOverwritesAnUnincorporatedFact	F1.1	deferred
+D1	pkg/records	TestThePacerReservesOneSlotPerKey	F1.1	deferred
+D1	pkg/records	TestTheSearchClassPacesPerNamespace	A1.5	deferred
+D1	pkg/records	TestUndecodableRecordReadsAbsent	F1.1	deferred
+D1	pkg/records	TestWithdrawRules	F1.1	deferred
+D1	pkg/records	TestWriterDropsALowerSeqAndAllowsARepeatedOne	A1.5	deferred
+D1	pkg/records	TestWriterRereadsAfterACASMiss	A1.5	deferred
+D1	pkg/records/agentrecords	TestSearchRecordKeyOfCarriesTheSub	S1	deferred
+D1	pkg/records/agentrecords	TestSeasonSearchKeyIsAValidKVKeyAndInjective	S1	deferred
+D1	pkg/records/recordsource	TestNewItemsEnqueuesEveryKeyAndSkipsDeletes	A1.5	deferred
+D1	pkg/records/recordsource	TestSourceResumesFromRevisionAfterAClose	F1.4	deferred
+D1	pkg/records/recordsource	TestSourceSkipsTheLoopsOwnWrites	F1.4	deferred
+D1	pkg/records/recordsource	TestSourceSurvivesABucketRecreatedUnderIt	F1.4	deferred
+D1	pkg/records/recordsource	TestStartFailsWhenTheBucketNeverAppears	F1.4	deferred
+D2	app/catalog	TestRolesMapOntoDomains	W3.6 [superseded: W5.17 deleted the app/<svc> roots; internal/cli tests cover the mapping]	dropped-excluded
+D2	app/catalog/agent	TestAssertIndexesFailsWhenTheIndexesAreMissing	W3.3	deferred
+D2	app/catalog/agent	TestAssertIndexesPassesOnceRegistered	W3.3	deferred
+D2	app/catalog/agent	TestNewSceneMapsBuildsASource	W3.6	deferred
+D2	app/catalog/agent	TestRegisterIndexes	W3.3	deferred
+D2	app/catalog/agent/catalog	TestQueueWorkersShareTheDomainsWiring	W3.6	deferred
+D2	app/catalog/agent/catalog	TestRegisterRequiresTheBus	W3.6	deferred
+D2	app/catalog/agent/catalog	TestRegisterWiresTheCatalogDomain	W3.6	deferred
+D2	app/catalog/agent/catalog	TestTheDomainLeavesTheBlocklistPathLive	W5.17 [from app/catalog/wiring_envtest_test.go]	deferred
+D2	app/catalog/agent/catalog	TestRegisterWorkerIndexesIsTheOnlyRegistrar	W3.6 [edit per plan]	rewrite
+D2	app/catalog/agent/catalog	TestSetupControllersRegistersEveryCatalogController	W3.8 [edit per plan]	rewrite
+D2	app/catalog/agent/catalog	TestSetupWorkersSkipsTheQueueWorkersForRoleMetadata	W3.6, W3.7 [edit per plan]	rewrite
+D2	app/catalog/agent/events	TestRegisterWiresTheEventsDomain	W3.6	deferred
+D2	app/catalog/agent/events	TestTheEventsDomainRunsOnlyTheRSSMatcher	A2.5, A4.4	deferred
+D2	app/catalog/agent/metadata	TestTheMetadataDomainSubscribesNoQueueWorker	W3.7	deferred
+D2	app/catalog/artwork	TestKeyedLockSerialisesOneKeyAndNotTwo	W4.106 [lock_test.go]	deferred
+D2	app/catalog/artwork	TestMetaCurrent	W4.105	deferred
+D2	app/catalog/artwork	TestObjectMetaIsTheCompleteSet	W4.105	deferred
+D2	app/catalog/artwork	TestObjectMetaOfAnOverlay	W4.105	deferred
+D2	app/catalog/artwork	TestResolveSourcesCarriesTheImageLanguage	W4.105	deferred
+D2	app/catalog/artwork	TestReaperAgainstARealAPIServer	W10.8 [edit per plan]	rewrite
+D2	app/catalog/artwork	TestAuditBackfillsStaleMetadata	W4.107 [superseded: A5 R7 retired the reaper status audit]	dropped-excluded
+D2	app/catalog/artwork	TestAuditPacesAgainstConsumerLag	W4.107 [superseded: A5 R7 retired the reaper status audit]	dropped-excluded
+D2	app/catalog/artwork	TestAuditPublishesNothingWhenEverythingIsThere	W4.107 [superseded: A5 R7 retired the reaper status audit]	dropped-excluded
+D2	app/catalog/artwork	TestAuditRequeuesAMissingOriginal	W4.107 [superseded: A5 R7 retired the reaper status audit]	dropped-excluded
+D2	app/catalog/artwork	TestAuditRequeuesAMissingOverlayOnlyWhileStatusHasOne	W4.107 [superseded: A5 R7 retired the reaper status audit]	dropped-excluded
+D2	app/catalog/artwork	TestAuditRequeuesAnItemWhoseOriginalVanished	W4.107 [superseded: A5 R7 retired the reaper status audit]	dropped-excluded
+D2	app/catalog/artwork	TestAuditRequeuesAnOriginalWithAnotherDigest	W4.107 [superseded: A5 R7 retired the reaper status audit]	dropped-excluded
+D2	app/catalog/artwork	TestAuditRunsWhenTheBucketIsRecreated	W4.107 [superseded: A5 R7 retired the reaper status audit]	dropped-excluded
+D2	app/catalog/artwork	TestTheSweepPurgesOrphanChunksInEveryBucket	W4.107 [superseded: N5 moved orphan purges to app/maintenance (TestEveryObjectStoreIsPurgedOfOrphans)]	dropped-excluded
+D2	app/catalog/controller/album	TestAlbumWatchesEverythingButItsFiles	F4.3	deferred
+D2	app/catalog/controller/album	TestAnAlbumReconcileWithoutAMetadataChangeMakesNoRPC	F4.3	deferred
+D2	app/catalog/controller/album	TestReleaseCacheIsBounded	F4.3	deferred
+D2	app/catalog/controller/album	TestReleaseCacheKeysOnTheAlbumItsGroupAndItsRefresh	F4.3	deferred
+D2	app/catalog/controller/audiobook	TestAudiobookWatchesEverythingButItsFiles	F4.3	deferred
+D2	app/catalog/controller/book	TestBookWatchesEverythingButItsFiles	F4.3	deferred
+D2	app/catalog/controller/episode	TestAnEpisodeOfAMultiEpisodeFileIsNeverGrafted	F7.1	deferred
+D2	app/catalog/controller/episode	TestEpisodeWatchesEverythingButItsFiles	F4.2	deferred
+D2	app/catalog/controller/episode	TestMapSeriesEnqueuesItsEpisodes	F4.1 [edit per plan]	rewrite
+D2	app/catalog/controller/issue	TestIssueWatchesEverythingButItsFiles	F4.3	deferred
+D2	app/catalog/controller/itemstatus	TestApplyRefusesAStaleViewAndLandsAFreshOne	F4.2	deferred
+D2	app/catalog/controller/itemstatus	TestApplySetReleasesAFieldItStopsSending	A3.3	deferred
+D2	app/catalog/controller/movie	TestMovieWatchesEverythingButItsFiles	F4.2	deferred
+D2	app/catalog/controller/movie	TestTheMovieRecordsItsDonorAndRejectsAFaultedRelease	F7.1	deferred
+D2	app/catalog/controller/rollup	TestAppendRejectedAddsADonorFaultOnceAndKeepsTheNewest16	F7.1	deferred
+D2	app/catalog/controller/rollup	TestAudioStateACBoundsWhatItSends	F2.3	deferred
+D2	app/catalog/controller/rollup	TestAudioStateACIsLossless	F2.3	deferred
+D2	app/catalog/controller/rollup	TestAudioStateCarriesTheDonorWithoutAFile	F7.1	deferred
+D2	app/catalog/controller/rollup	TestAudioStateForReadsTheFilesGraftBlock	F7.1	deferred
+D2	app/catalog/controller/rollup	TestDonorIgnoresAVideoGrabAnUnfinishedImportAndAnotherOwner	F7.1	deferred
+D2	app/catalog/controller/rollup	TestDonorIsCarriedForwardWhenItsDownloadIsGone	F7.1	deferred
+D2	app/catalog/controller/rollup	TestDonorIsTheNewestImportedDonorDownload	F7.1	deferred
+D2	app/catalog/controller/rollup	TestDownloadPredicateSeesAnImportHeldForAPerson	F4.2	deferred
+D2	app/catalog/controller/rollup	TestEntryRollupsMatchTheDownloadRollups	A3.5	deferred
+D2	app/catalog/controller/rollup	TestSelfMapsAnItemToItself	F4.2	deferred
+D2	app/catalog/controller/rollup	TestAdoptLegacyDonorFillsOnlyWhatIsMissing	F8.4 [task dropped by the cold-turkey revision]	dropped-excluded
+D2	app/catalog/controller/rollup	TestAudioStateForGraftStates	F7 (f7-tests.txt, deleted) [F7: deleted with the code F7 deletes]	dropped-excluded
+D2	app/catalog/controller/search	TestAPickBecomesAManualCandidateForTheOwner	A4.3	deferred
+D2	app/catalog/controller/search	TestAPlannedSearchFailsWhenStalled	S9	deferred
+D2	app/catalog/controller/search	TestAPlannedSearchMirrorsTheSeries	S9	deferred
+D2	app/catalog/controller/search	TestAPlannedSearchNeverPicks	S9	deferred
+D2	app/catalog/controller/search	TestAQueuedPlannedSearchWaitsAndThenRuns	S9	deferred
+D2	app/catalog/controller/search	TestASeasonPickReachesTheSeriesWithItsSeason	S9	deferred
+D2	app/catalog/controller/search	TestASeasonResultIsRejectedAsThePlannerWould	S9	deferred
+D2	app/catalog/controller/search	TestBandedPutsOtherTitlesLastAndCountsThem	S9	deferred
+D2	app/catalog/controller/search	TestCoversSeasonMarksPacksAndBatches	S9	deferred
+D2	app/catalog/controller/search	TestIncorporateWritesOtherTitlesWithResults	S9	deferred
+D2	app/catalog/controller/search	TestInteractiveResultsStillShowItemStateRejections	A4.3	deferred
+D2	app/catalog/controller/search	TestTheSearchControllerIncorporatesTheRecordByCAS	A4.3	deferred
+D2	app/catalog/controller/search	TestTranscodedFinalBindsGrabBestButNotAPick	A4.3	deferred
+D2	app/catalog/controller/wantedcron	TestWantedcronOnlyEnqueues	A4.2	deferred
+D2	app/catalog/grabplan	TestADelayedGrabIsMadeFromStatusAlone	A4.1	deferred
+D2	app/catalog/grabplan	TestAFullSeasonPackWithAnUnairedEpisodeIsRefused	S8	deferred
+D2	app/catalog/grabplan	TestALiveGrabRefusesAnOverlappingReleaseUnlessItUpgrades	S8	deferred
+D2	app/catalog/grabplan	TestAManualPickIsExemptFromTranscodedFinalAndOverrideFromBlocklisted	A4.1	deferred
+D2	app/catalog/grabplan	TestAMultiSeasonPackIsJudgedAgainstEveryEpisode	S8	deferred
+D2	app/catalog/grabplan	TestAPackIsNarrowedToTheWantedEpisodes	A4.1, S8	deferred
+D2	app/catalog/grabplan	TestAPackOverTwoHundredEpisodesIsRefused	S8	deferred
+D2	app/catalog/grabplan	TestASeasonAnswerGrabsAPackOverSinglesOnATie	S8	deferred
+D2	app/catalog/grabplan	TestASeasonPickWithoutTargetsCoversByCoverage	S8	deferred
+D2	app/catalog/grabplan	TestATombstoneRejectsACandidateFromBeforeTheBlock	A4.1	deferred
+D2	app/catalog/grabplan	TestAnOwnerAtItsCapPendsNeverTruncates	A4.1	deferred
+D2	app/catalog/grabplan	TestBetterSinglesWinAndThePackIsThenRefused	S8	deferred
+D2	app/catalog/grabplan	TestCoverageReadsSceneMappedNumbers	S8	deferred
+D2	app/catalog/grabplan	TestGrabplanReChecksAgainstFreshState	A4.1	deferred
+D2	app/catalog/grabplan	TestStillWantsKeepsAnUpgradeAndAnUnmetSeedObligation	A4.1	deferred
+D2	app/catalog/grabsource	TestSourceApplyConfigurationRoundTripsEveryMember	A1.1 (ledger) [DownloadSource has no apply configuration (A1.1 ruling)]	rewrite
+D2	app/catalog/history	TestEveryDispatchedSubjectHasAResolver	A2.4	deferred
+D2	app/catalog/history	TestHistoryResolvesADownloadEventToItsOwner	A3.5	deferred
+D2	app/catalog/history	TestParseDispatchIDReadsASeasonSearch	S1	deferred
+D2	app/catalog/history	TestRecycleSweepTaskResolvesToNoObject	W4.60	deferred
+D2	app/catalog/history	TestResolve_ProbeTask	W4.3	deferred
+D2	app/catalog/history	TestEveryPayloadHasAResolver	W10.8, A1 (ledger: ProbeRecord red) [edit per plan]	rewrite
+D2	app/catalog/history	TestResolve_SelfContainedRefs	F5.1 [edit per plan]	rewrite
+D2	app/catalog/history	TestResolve_V1FoldedKindPayloadsAreNamespaceOnly	F8.6 [cold-turkey revision: no task writes it]	dropped-excluded
+D2	app/catalog/history	TestRetiredV1SchemasResolveToTheirNamespace	F9.4 [cold-turkey revision: no task writes it]	dropped-excluded
+D2	app/catalog/history/replay	TestReplayKindsAreTheAnnotatableItemsOnly	F8.6	deferred
+D2	app/catalog/legacyfold	TestAGarbageCollectedTranscodeJobIsReleased	F8.3 [task dropped by the cold-turkey revision]	dropped-excluded
+D2	app/catalog/legacyfold	TestARecreatedObjectSurvivesTheUIDPrecondition	F8.3 [task dropped by the cold-turkey revision]	dropped-excluded
+D2	app/catalog/legacyfold	TestARetiredDurableIsReportedUndrainedAndHoldsCompletion	F8.3 [task dropped by the cold-turkey revision]	dropped-excluded
+D2	app/catalog/legacyfold	TestApplyPreparesOnceWithoutOverwritingTheUser	F8.3 [task dropped by the cold-turkey revision]	dropped-excluded
+D2	app/catalog/legacyfold	TestDeletionNeedsTheRecordAndTheRetentionAndWithdrawsBeforeTheFinalizer	F8.3 [task dropped by the cold-turkey revision]	dropped-excluded
+D2	app/catalog/legacyfold	TestGraftRules	F8.2 [task dropped by the cold-turkey revision]	dropped-excluded
+D2	app/catalog/legacyfold	TestHoldModeAndTooMany	F8.2 [task dropped by the cold-turkey revision]	dropped-excluded
+D2	app/catalog/legacyfold	TestHoldWithdrawsAnnotatesAndDeletesNothing	F8.3 [task dropped by the cold-turkey revision]	dropped-excluded
+D2	app/catalog/legacyfold	TestIntentAndPreparation	F8.2 [task dropped by the cold-turkey revision]	dropped-excluded
+D2	app/catalog/legacyfold	TestLeaseV1IsTheShapeAPreviousWorkerHonours	F8.3 [task dropped by the cold-turkey revision]	dropped-excluded
+D2	app/catalog/legacyfold	TestLegacyJobNameIsTranscodeprofilesName	F8.2 [task dropped by the cold-turkey revision]	dropped-excluded
+D2	app/catalog/legacyfold	TestMarkersPendingWakesEveryFileOnce	F8.3 [task dropped by the cold-turkey revision]	dropped-excluded
+D2	app/catalog/legacyfold	TestPlanReproducesTheLiveTotals	F8.2 [task dropped by the cold-turkey revision]	dropped-excluded
+D2	app/catalog/legacyfold	TestRegisterIndexesTakesOverTheThreeNames	F8.4 [task dropped by the cold-turkey revision]	dropped-excluded
+D2	app/catalog/legacyfold	TestRestoreMarkersMakesARollbackLossless	F8.4 [task dropped by the cold-turkey revision]	dropped-excluded
+D2	app/catalog/legacyfold	TestSubtitleRules	F8.2 [task dropped by the cold-turkey revision]	dropped-excluded
+D2	app/catalog/legacyfold	TestTheLiveProfileIsTheDefaultSpec	F8.2 [task dropped by the cold-turkey revision]	dropped-excluded
+D2	app/catalog/legacyfold	TestTheNamedLiveObjects	F8.2 [task dropped by the cold-turkey revision]	dropped-excluded
+D2	app/catalog/legacyfold	TestThePreviousReleasesStatusApplyIsAccepted	F8.4 [task dropped by the cold-turkey revision]	dropped-excluded
+D2	app/catalog/legacyfold	TestTranscodeRules	F8.2 [task dropped by the cold-turkey revision]	dropped-excluded
+D2	app/catalog/legacyfold	TestWriteGoldens	F8.4 [task dropped by the cold-turkey revision]	dropped-excluded
+D2	app/catalog/manager	TestRegisterAddsEveryCatalogController	W3.8	deferred
+D2	app/catalog/manager	TestRegisterRequiresTheBus	W3.8	deferred
+D2	app/catalog/manager	TestRegisterRunsTheR9Runnables	W3.8	deferred
+D2	app/catalog/markers	TestMarkersPlan	F3.4	deferred
+D2	app/catalog/metadata	TestMetadataJSONRoundTripsEveryKindsBlock	A5.1	deferred
+D2	app/catalog/metadata	TestTheGatewayAnswersOnlyInARecord	A5.1	deferred
+D2	app/catalog/metadata/artwork	TestBackfillUsesSetMetaNotPut	W4.105	deferred
+D2	app/catalog/metadata/artwork	TestEveryOriginalPutCarriesTheFullMetadata	W4.105	deferred
+D2	app/catalog/metadata/artwork	TestTheFetcherWritesObjectsOnlyAndRecordsFailures	A5.2	deferred
+D2	app/catalog/searchplan	TestAPacedSeasonAnswerCountsForNoEpisode	S6	deferred
+D2	app/catalog/searchplan	TestAnEpisodeWaitsForItsPendingSeason	S6	deferred
+D2	app/catalog/searchplan	TestAnIndexOnlySearchIsNotPacedAndALiveOneIs	A4.2	deferred
+D2	app/catalog/searchplan	TestDecideSeasonsCancelsWhenTheSearchIsDeleted	S6	deferred
+D2	app/catalog/searchplan	TestDecideSeasonsDispatchesOneSeasonAtATime	S6	deferred
+D2	app/catalog/searchplan	TestDecideSeasonsRequeuesAnAllPacedSeasonOnce	S6	deferred
+D2	app/catalog/searchplan	TestDecideSeasonsServesRequestsInOrderAfterTheHandshake	S6	deferred
+D2	app/catalog/searchplan	TestDecideSeasonsSkipsWhatCannotGrab	S6	deferred
+D2	app/catalog/searchplan	TestDecideSeasonsTimesOutAndGoesOn	S6	deferred
+D2	app/catalog/searchplan	TestDecideSeasonsWaitsForAdmission	S6	deferred
+D2	app/catalog/searchplan	TestDecideSeasonsWaitsForItsPaceSlot	S6	deferred
+D2	app/catalog/searchplan	TestTheEpisodeFoldsASeasonAnswerOnce	S6	deferred
+D2	app/catalog/searchplan	TestTheSearchPlannerFollowsTheBackoffLadder	A4.2	deferred
+D2	app/catalog/segmentplan	TestTheSweeperDeletesRecordsOfDeadFiles	F3.4	deferred
+D2	app/catalog/worker/artwork	TestATimedOutOriginalReadIsInputsMoved	W4.106	deferred
+D2	app/catalog/worker/artwork	TestAnOverlayIsBackfilledWithSetMeta	W4.106	deferred
+D2	app/catalog/worker/artwork	TestEveryOverlayPutCarriesTheFullMetadata	W4.106	deferred
+D2	app/catalog/worker/artwork	TestRendererSerialisesOneItem	W4.106	deferred
+D2	app/catalog/worker/artwork	TestTheRendererWritesNoStatus	A5.3	deferred
+D2	app/catalog/worker/history	TestADeadLetteredTranscodeTaskMarksItsMediaFile	F8.6	deferred
+D2	app/catalog/worker/history	TestDLQProjectorAnnotatesAMediaFile	F3.5, A2.5	deferred
+D2	app/catalog/worker/history	TestTheDLQProjectorMayAnnotateAMediaFile	F5.4	deferred
+D2	app/catalog/worker/history	TestTheProjectorMayPatchEveryKindAResolverNames	W4.3	deferred
+D2	app/catalog/worker/history	TestTheProjectorMayPatchExactlyTheKindsItAnnotates	F8.6	deferred
+D2	app/catalog/worker/history	TestAV1DeadLetterFilesANamespaceEventAndPatchesNothing	F8.6 [cold-turkey revision: no task writes it]	dropped-excluded
+D2	app/catalog/worker/markers	TestALongLimitDefersAndRepublishesAtTheReset	F3.4	deferred
+D2	app/catalog/worker/markers	TestASupersededTaskIsAckedUnasked	F3.4	deferred
+D2	app/catalog/worker/markers	TestTheHandlerAnswersByRecord	F3.4	deferred
+D2	app/catalog/worker/markers	TestTheLastDeliveryAnswersFailed	F3.4	deferred
+D2	app/catalog/worker/markers	TestTheLoopsNotAskedMessagesMatchTheWorkers	F3.4	deferred
+D2	app/catalog/worker/markers	TestTheMarkerWorkerLinksNoKubernetesClient	F3.4	deferred
+D2	app/catalog/worker/markers	TestALongLimitDefersTheTaskToItsReset	A7.1 (ledger) [the markers deferral is republished by the loop]	rewrite
+D2	app/catalog/worker/markers	TestAV1TaskIsAckedAsStale	F3.4 [F9.4 (cold turkey) deleted the v1 stale-ack branches]	dropped-excluded
+D2	app/catalog/worker/markers	TestTheMarkersManagerIsOnePatchStatusAccepts	F8.6-F9.4 (removal-deleted-tests.txt) [deleted with its subject (a removed kind or v1 payload)]	dropped-excluded
+D2	app/catalog/worker/rssmatcher	TestFieldIndexesDeclareTheThirteenMatchingIndexes	W3.4	deferred
+D2	app/catalog/worker/rssmatcher	TestTheRSSMatcherKeepsOnlyItsItemsAndGlobalBlocks	A3.1	deferred
+D2	app/catalog/worker/rssmatcher	TestTheRSSMatcherSendsCandidatesAndWritesNothing	A4.4	deferred
+D2	app/catalog/worker/search	TestADonorSearchSkipsTheReleasesItsGraftsRejected	F7.1	deferred
+D2	app/catalog/worker/search	TestASeasonRequestIsTitleAloneWithTheSceneSeason	S5	deferred
+D2	app/catalog/worker/search	TestASeasonTaskAnswersAtItsSeasonKey	S5	deferred
+D2	app/catalog/worker/search	TestASupersededSearchTaskIsDropped	A4.3	deferred
+D2	app/catalog/worker/search	TestAnAllPacedSearchIsNotRecordedAsAnAttempt	W4.87	deferred
+D2	app/catalog/worker/search	TestCurrentFileReadsTheImportedInfoHash	A3.9	deferred
+D2	app/catalog/worker/search	TestFieldIndexesDeclareTheQueueIndex	W3.4	deferred
+D2	app/catalog/worker/search	TestNamesakesFindsAnotherLibraryItemByTitle	S5	deferred
+D2	app/catalog/worker/search	TestRankAndCapBandsBeforeTheCap	S5	deferred
+D2	app/catalog/worker/search	TestSceneSeasonIsTheMajorityMapping	S5	deferred
+D2	app/catalog/worker/search	TestTheRecordCarriesCoverage	S5	deferred
+D2	app/catalog/worker/search	TestTheSearchAgentAnswersOnlyInARecord	A4.3	deferred
+D2	app/catalog/worker/search	TestTheSearchWorkerRejectsABlockedReleaseFromTheAnswer	A3.1	deferred
+D2	app/catalog/worker/search	TestTheSearchWorkersQueueReadsTheOwnersEntries	A3.9	deferred
+D2	app/intake	TestACandidateIsAckedOnlyAfterItsOwnerSettlesIt	A2.3	deferred
+D2	app/intake	TestALeaderCrashRedeliversTheParkedCandidate	A2.3	deferred
+D2	app/intake	TestAnUnsettledCandidateIsNakedAfterTheBudget	A2.3	deferred
+D2	app/intake	TestTheScanConsumerWritesBeforeItAcks	A2.3	deferred
+D2	app/intake/advisory	TestANakAdvisoryBecomesRetryingOnTheFirstAndLastNakOnly	A2.4	deferred
+D2	app/intake/advisory	TestAStaleAdvisoryIsAckedAndDropped	A2.4	deferred
+D2	app/intake/advisory	TestATermAdvisoryResolvesFromTheReasonsClustarrID	A2.4	deferred
+D2	app/intake/advisory	TestATermWithNoDLQCopyIsAnnotatedAfterSixtySeconds	A2.4	deferred
+D2	app/intake/advisory	TestAckSamplingIsMetricsOnly	A2.4	deferred
+D2	app/remediation/artwork	TestALostBucketReadsAsNoArtworkAndRefetches	A5.2	deferred
+D2	app/remediation/artwork	TestARendererReplicaNeverRollsBackAnotherReplicasOverlay	A5.3	deferred
+D2	app/remediation/artwork	TestAnUnchangedDigestPublishesNoRender	A5.3	deferred
+D2	app/remediation/artwork	TestArtworkFetchFailedIsOneEventPerNewFailure	A5.2	deferred
+D2	app/remediation/artwork	TestArtworkStatusIsRenderedFromObjectMetadata	A5.2	deferred
+D2	app/remediation/artwork	TestOverlayStatusIsRenderedFromTheOverlayObject	A5.3	deferred
+D2	app/remediation/grab	TestAnRSSCandidateBecomesAnEntryThroughTheOwner	A4.4	deferred
+D2	app/remediation/grab	TestEveryIntakeCandidateIsSettled	A4.1	deferred
+D2	app/remediation/grab	TestTheGrabStageReadsAnsweredSeasonsInsideTheWindow	S8	deferred
+D2	app/remediation/markers	TestADeferredMarkersRecordIsRepublishedAtItsReset	A7.1 (ledger)	deferred
+D2	app/remediation/markers	TestAMarkersRequestLeavesStatusMarkersUntouched	F3.4	deferred
+D2	app/remediation/markers	TestASeasonAmendmentIncrementsAmend	F3.4 (ledger)	deferred
+D2	app/remediation/markers	TestTheFirstLoopPassKeepsEverySeedKey	F8.4 [cold-turkey open item, kept as recommended; re-homed to the F3.4 markers planner; needs the owner's read-only clustarr-segments dump]	deferred
+D2	app/remediation/markers	TestTheSegmentPlanIsPublishedWhenAnalysisIsDue	F3.4	deferred
+D2	app/remediation/metadata	TestAMetadataRecordIsIncorporatedOnlyForTheCurrentInputs	A5.1	deferred
+D2	app/remediation/metadata	TestAnOlderRefreshNeverRollsBackANewerOne	A5.1	deferred
+D2	app/remediation/metadata	TestArtistAndAuthorIncorporateTheirRecords	A5.1	deferred
+D2	app/remediation/metadata	TestTheMetadataSetDeclaresMetadataAndArtworkTogether	A5.1	deferred
+D2	app/remediation/search	TestABlocklistedEntryMakesItsItemsDueAtOnce	A4.2	deferred
+D2	app/remediation/search	TestAPacedAnswerDoesNotCountAnAttempt	A4.2	deferred
+D2	app/remediation/search	TestASeriesSearchPlansOneSeasonAtATime	S7	deferred
+D2	app/remediation/search	TestAnEpisodeSearchRecordWakesTheEpisodeAndItsSeries	A4.2	deferred
+D2	app/remediation/search	TestNoBurstOfLiveSearchesReachesAnIndexer	A4.2	deferred
+D2	app/remediation/search	TestNoEpisodeSearchIsPublishedForASeason	S7	deferred
+D2	app/remediation/search	TestS24WakesTheChangedSeasonsEpisodes	S7	deferred
+D2	app/remediation/search	TestS31WakesTheSeriesOnAPlannedSearch	S7	deferred
+D2	app/remediation/search	TestTheDonorBudgetCapsFirstTimeLiveDonorSearchesPerSweep	A4.2	deferred
+D2	app/remediation/search	TestTheSeasonLedgerRebuildsAfterALeaderChange	S7	deferred
+D2	app/remediation/search	TestTheSeriesSetIsCompleteOnEveryPath	S7	deferred
+D2	app/segments/worker	TestAnAbandonedDecodeDeadLettersTheTask	W7.8	deferred
+D2	app/segments/worker	TestAnUnversionedFingerprintIsNotRead	W7.5	deferred
+D2	app/segments/worker	TestFingerprintCacheRecomputesOnMismatch	Wave N N7 (ledger)	deferred
+D2	cmd/markers	TestABadSlotOverrideExitsMisconfigured	W5.12	deferred
+D2	cmd/markers	TestABadUMASKExitsMisconfigured	W5.12	deferred
+D2	cmd/markers	TestASelfCheckWithoutONNXRuntimeFails	W7.9	deferred
+D2	cmd/markers	TestConcurrencyIsNoLongerAFlag	W5.12	deferred
+D2	cmd/markers	TestDecodeThreadsFollowTheSlots	W7.9	deferred
+D2	cmd/markers	TestHealthzFailsOnAWedgedBus	W4.98	deferred
+D2	cmd/markers	TestInstallerArgsParseAsMarkers	W6.11	deferred
+D2	cmd/markers	TestMarkersSelfCheckNeedsNoClusterEnvironment	W7.9	deferred
+D2	cmd/markers	TestReadyOnceSubscribedAndDrainedOnSIGTERM	W5.12	deferred
+D2	cmd/markers	TestTheFFmpegFlagsAreGone	W7.9	deferred
+D2	pkg/decision	TestASeasonSearchSizesBySumOfCoveredRuntimes	S2	deferred
+D2	pkg/decision	TestAYearlessNamesakeIsUnknownItem	S2	deferred
+D2	pkg/decision	TestBandOfPutsIdentityRejectionsLast	S3	deferred
+D2	pkg/decision	TestCompareEpisodeCountIsSonarrs	S3	deferred
+D2	pkg/decision	TestCoverageOfMatchesTheNumberingHalf	S2	deferred
+D2	pkg/decision	TestDecisionSplitIsBehaviourPreserving	A4.1	deferred
+D2	pkg/decision	TestRankKeepsQualityAheadOfPacks	S3	deferred
+D2	pkg/decision	TestRankPutsAPackFirstOnATie	S3	deferred
+D2	pkg/decision	TestRejectedDecisionsCarryARankKey	S3	deferred
+D2	pkg/decision	TestSeasonSearchAcceptsAnySingleOfTheSeason	S2	deferred
+D2	pkg/decision	TestSeasonSearchReadsSceneNumbers	S2	deferred
+D2	pkg/decision	TestSingleEpisodeSearchIsUnchanged	S2	deferred
+D2	pkg/segments	TestFingerprintKeyKeepsTheLegacyNameAtVersionOne	W4.111	deferred
+D2	pkg/segments	TestFingerprintKeysCarryTheDecoderVersion	W7.5	deferred
+D2	pkg/segments	TestLocalEnumsAreTheAPIs	W7.4	deferred
+D2	pkg/segments	TestSegmentsLinksNoKubernetesAPI	W7.4	deferred
+D2	pkg/segments	TestStoreReadsV1RecordsAsV2	F3.4	deferred
+D2	pkg/segments	TestTheDecoderSwapDoesNotRaiseTheAnalyzerVersion	W7.5	deferred
+D2	pkg/segments	TestUpdateIsACompareAndSwap	F3.4	deferred
+D2	pkg/segments	TestDue	W7.4 [edit per plan]	rewrite
+D2	pkg/segments/decode	TestACancelledDecodeReturnsWithinTheGrace	W7.7	deferred
+D2	pkg/segments/decode	TestAMissingStreamIsNamed	W7.7	deferred
+D2	pkg/segments/decode	TestAudioTSFollowsFFmpeg	W7.7	deferred
+D2	pkg/segments/decode	TestConcurrentDecodesAreRaceFree	W7.7	deferred
+D2	pkg/segments/decode	TestAFailureCarriesFFmpegsMessage	W7.7	rewrite
+D2	pkg/segments/decode	TestAudioDecodesTheWindow	W7.7	rewrite
+D2	pkg/segments/decode	TestFrameIsOneRGBFrame	W7.7	rewrite
+D2	pkg/segments/decode	TestFramesDecodeKeyframesOnly	W7.7	rewrite
+D2	pkg/segments/decode	TestFramesOnePerSecondToTheEnd	W7.7	rewrite
+D2	test/parity/segments	TestTheDecoderMatchesTheGoldens	W7.6 [parity tag; reads test/goldens]	deferred
+D2	test/parity/segments	TestTheFFgoDecoderMatchesFFmpeg	W7.6 [superseded: W7.6 as amended by W6b compares with goldens (TestTheDecoderMatchesTheGoldens), no exec decoder]	dropped-excluded
+D3	app/catalog/controller/mediafile	TestAProbeRecordOutlivesItsRequest	W4.11	deferred
+D3	app/catalog/controller/mediafile	TestJudgeProbe	W4.11	deferred
+D3	app/catalog/controller/mediafile	TestPlanProbe	F3.2	deferred
+D3	app/catalog/controller/mediafile	TestProbeLane	W4.11	deferred
+D3	app/catalog/controller/mediafile	TestRenderNaming	F3.3	deferred
+D3	app/catalog/controller/mediafile	TestSoonerAndRequeueAt	W4.11	deferred
+D3	app/catalog/controller/mediafile	TestTheProbeShortcuts	W4.11	deferred
+D3	app/catalog/controller/mediafile	TestTheRepublishWindowIsInsideTheDedupWindow	W4.11	deferred
+D3	app/catalog/controller/mediafile	TestExtractTranscodeJobPhase	F8.6-F9.4 (removal-deleted-tests.txt) [deleted with its subject (a removed kind or v1 payload)]	dropped-excluded
+D3	app/catalog/controller/mediafile	TestMediaFileForTranscodeJob	F8.6-F9.4 (removal-deleted-tests.txt) [deleted with its subject (a removed kind or v1 payload)]	dropped-excluded
+D3	app/catalog/controller/mediafile	TestTheMediaFileReconcilerLinksNoProbe	W4.13 [superseded: F3.4 replaced the MediaFile reconciler with the loop]	dropped-excluded
+D3	app/catalog/controller/mediafile	TestTheProbeRecordsSourceEnqueuesResultsOnly	W4.12 [superseded: F1.4 replaced the W4.12 waker with recordsource]	dropped-excluded
+D3	app/catalog/controller/mediafile	TestTheProbeRecordsSourceReopensAClosedWatch	W4.12 [superseded: F1.4 replaced the W4.12 waker with recordsource]	dropped-excluded
+D3	app/catalog/controller/mediafile	TestTranscodeHolds	F8.6-F9.4 (removal-deleted-tests.txt) [deleted with its subject (a removed kind or v1 payload)]	dropped-excluded
+D3	app/remediation	TestAClaimArrivingBeforeTheCacheSeesQueuedIsIncorporated	F2.4 (loop spec 3.20)	deferred
+D3	app/remediation	TestADeadLetteredAnnotationFoldsIntoTheLoopsCondition	F3.5	deferred
+D3	app/remediation	TestADispatchCarriesTheJoinableGraft	F7.2	deferred
+D3	app/remediation	TestADispatchWaitsForTheJoinedGraftToBeRecorded	F7.2	deferred
+D3	app/remediation	TestAGraftJobWakesTheFileThatOwnsIt	F7.2	deferred
+D3	app/remediation	TestAHungMountNeverStallsItemsOrGrants	F2.4 (loop spec 3.20) [needs F4/F6 (built)]	deferred
+D3	app/remediation	TestAHungMountNeverStallsOtherFiles	F3.1	deferred
+D3	app/remediation	TestAHungStatSaturatesThePoolNotTheCaller	F3.1	deferred
+D3	app/remediation	TestAMultiEpisodeFileWakesEveryEpisode	F2.4 (loop spec 3.20)	deferred
+D3	app/remediation	TestAPanickingEffectDoesNotStopOtherPlannersEffects	F3.1	deferred
+D3	app/remediation	TestAPanickingPlannerKeepsItsBlock	F3.1	deferred
+D3	app/remediation	TestAProbeThatChangesTheCodecPicksTheWinnerInTheSamePass	F2.4 (loop spec 3.20)	deferred
+D3	app/remediation	TestASetEqualAtItsPathsIsSkipped	A3.3	deferred
+D3	app/remediation	TestAStageThatPanicsKeepsItsStoredValues	A3.3	deferred
+D3	app/remediation	TestAStaleViewRequeuesInsteadOfEndingAsANoOp	F3.1	deferred
+D3	app/remediation	TestATransientErrorWritesNothing	F3.1	deferred
+D3	app/remediation	TestAWriterBetweenGatherAndApplyIsNotRolledBack	F3.1	deferred
+D3	app/remediation	TestAZeroRateDisablesTheLimiter	F3.1	deferred
+D3	app/remediation	TestAnEpisodeHasFileFlipWakesItsSeriesKey	A3.2	deferred
+D3	app/remediation	TestAnImportHeldForAPersonWakesTheItem	F4.2	deferred
+D3	app/remediation	TestAnUnchangedPassAppliesNothing	F3.1	deferred
+D3	app/remediation	TestBulkWritesArePaced	F3.1	deferred
+D3	app/remediation	TestC1ControlsNeverReachTheApply	F3.1	deferred
+D3	app/remediation	TestEachIsolatedPhaseIsAChildSpan	F3.1	deferred
+D3	app/remediation	TestEveryCatalogApplySendsTheDownloads	A3.3 [plan name TestEveryCatalogarrApplySendsTheDownloads (the brand gate refuses it)]	deferred
+D3	app/remediation	TestFileKeyOfARef	F3.1	deferred
+D3	app/remediation	TestFileSignatureMovesWithTheGraftBlock	F7.1	deferred
+D3	app/remediation	TestGraftJobNameIsTheDispatchIdentity	F7.2	deferred
+D3	app/remediation	TestIsolateClassifiesOutcomes	F3.1	deferred
+D3	app/remediation	TestItemKeysAreTheItemsAFileCovers	F4.1	deferred
+D3	app/remediation	TestItemKindCoversTheSixItemKinds	F4.1	deferred
+D3	app/remediation	TestItemReconcilerDispatchesByKind	F4.2	deferred
+D3	app/remediation	TestItemWakeKeys	F4.2	deferred
+D3	app/remediation	TestLoopLabelKeysAreWhatMirrorLabelsWrites	F3.1 (ledger)	deferred
+D3	app/remediation	TestNewReconcilerSortsPlannersAndRefusesStrangers	F3.1	deferred
+D3	app/remediation	TestNoPlannerPlansFromAPendingProbe	F3.2	deferred
+D3	app/remediation	TestNormalizeTreatsNilAndEmptyAlikeAndSortsLists	F3.1	deferred
+D3	app/remediation	TestOneApplyPerManagerCASChained	A3.3	deferred
+D3	app/remediation	TestOwnStatusWritesNeverEnqueueTheFile	F3.1	deferred
+D3	app/remediation	TestPlannerOrder	F3.1	deferred
+D3	app/remediation	TestS1WakesOnTheWatchedChanges	F3.1	deferred
+D3	app/remediation	TestS24WakesOnlyTheCoveredEpisodes	A3.3	deferred
+D3	app/remediation	TestSeriesAndComicAreItemKeys	A3.2	deferred
+D3	app/remediation	TestStatusApplyIsLossless	F3.1	deferred
+D3	app/remediation	TestSubtitleProfileSignature	F5.3	deferred
+D3	app/remediation	TestTheBreakerOpensAfterFiveTimeoutsAndHalfOpens	F3.1	deferred
+D3	app/remediation	TestTheCaptionBacklogGate	F5.1	deferred
+D3	app/remediation	TestTheItemArmWakesTheItemsAFileCovers	F4.2	deferred
+D3	app/remediation	TestTheLoopLinksNoWorkerCode	F3.1	deferred
+D3	app/remediation	TestTheWriteLimiterReservesOneSlotPerKey	F3.1	deferred
+D3	app/remediation	TestRenderCheckSeesOnlyWhatTheFirstRenderWouldChange	F8.5 [task dropped by the cold-turkey revision]	dropped-excluded
+D3	app/remediation	TestSeedPrevLeavesTheCachedObjectAlone	F8.4 [task dropped by the cold-turkey revision]	dropped-excluded
+D3	app/remediation/adopt	TestAHeldImportKeepsItsClock	A8.1 [task dropped by the cold-turkey revision]	dropped-excluded
+D3	app/remediation/adopt	TestAWriterBetweenReadAndApplyConflictsAndTheAdoptionIsRedone	F8.4 [task dropped by the cold-turkey revision]	dropped-excluded
+D3	app/remediation/adopt	TestAdoptionIntoASteadyStateFileKeepsEveryPriorLeaf	F8.4 [task dropped by the cold-turkey revision]	dropped-excluded
+D3	app/remediation/adopt	TestAdoptionIsIdempotent	A8.1 [task dropped by the cold-turkey revision]	dropped-excluded
+D3	app/remediation/adopt	TestAdoptionRules	A8.1 [task dropped by the cold-turkey revision]	dropped-excluded
+D3	app/remediation/adopt	TestAfterTheReleaseCatalogarrAloneOwnsTheMarkers	F8.4 [task dropped by the cold-turkey revision]	dropped-excluded
+D3	app/remediation/adopt	TestAnAdoptedObjectIsNeverAdoptedAgain	F8.4 [task dropped by the cold-turkey revision]	dropped-excluded
+D3	app/remediation/adopt	TestAnOwnerOverItsCapIsHeldNotTruncated	A8.1 [task dropped by the cold-turkey revision]	dropped-excluded
+D3	app/remediation/adopt	TestOnlyLegacyFoldAppliesAsCatalogarrMarkers	F8.4 [task dropped by the cold-turkey revision]	dropped-excluded
+D3	app/remediation/graft	TestTheGraftJobRunsTheTranscodeBinary	F7.2	deferred
+D3	app/remediation/manager	TestALoopPassDoesNotReleaseOwnerStatus	F3.4	deferred
+D3	app/remediation/manager	TestItemsRunEveryItemKind	F4.3	deferred
+D3	app/remediation/manager	TestItemsRunMovieAndEpisode	F4.2	deferred
+D3	app/remediation/manager	TestMediaFileStatusIsOwnedByCatalogAlone	F3.4 [plan name TestMediaFileStatusIsOwnedByCatalogarrAlone]	deferred
+D3	app/remediation/manager	TestPlannerCopyPartitionsTheStatus	F3.1	deferred
+D3	app/remediation/manager	TestRegisterAddsTheMediaFileLoop	F3.1	deferred
+D3	app/remediation/mediafilestatus	TestAC1ControlCharacterNeverBlocksTheStatusApply	F2.2	deferred
+D3	app/remediation/mediafilestatus	TestRenderCapsTheDroppedSubtitles	F2.2	deferred
+D3	app/remediation/mediafilestatus	TestRenderCarriesStoredValuesForward	F2.2	deferred
+D3	app/remediation/mediafilestatus	TestRenderClampsEveryBoundedString	F2.2	deferred
+D3	app/remediation/mediafilestatus	TestRenderSortsAndDedupes	F2.2	deferred
+D3	app/remediation/mfindex	TestExtractNamesTheItemAndEveryKey	F4.1	deferred
+D3	app/remediation/mfindex	TestFilesOfListsThroughTheIndex	F4.1	deferred
+D3	app/remediation/mfindex	TestIndexDeclaresTheOneName	F4.1	deferred
+D3	app/remediation/mfindex	TestItemKey	F4.1	deferred
+D3	app/remediation/naming	TestTheLoopRenamesOnThePassThatMakesTheFileRenameable	F3.3	deferred
+D3	app/remediation/naming	TestTheTemporaryListingFindsEverySidecar	F3.3	deferred
+D3	app/remediation/naming	TestNamingEpisodeRendersThroughItsSeries	F3.3 [F3.3 copy; old file deleted in F3.4 before the copy was made; source app/catalog/controller/mediafile/naming_envtest_test.go]	rebuild-from-f37cbf54^
+D3	app/remediation/naming	TestNamingFollowsTheMoviesTitle	F3.3 [F3.3 copy; old file deleted in F3.4 before the copy was made; source app/catalog/controller/mediafile/naming_envtest_test.go]	rebuild-from-f37cbf54^
+D3	app/remediation/naming	TestNamingHoldsAStaleFileWhoseProbeFailed	F3.3 [F3.3 copy; old file deleted in F3.4 before the copy was made; source app/catalog/controller/mediafile/naming_envtest_test.go]	rebuild-from-f37cbf54^
+D3	app/remediation/naming	TestNamingHoldsWhileATranscodeRuns	F3.3 [F3.3 copy; old file deleted in F3.4 before the copy was made; source app/catalog/controller/mediafile/naming_envtest_test.go]	rebuild-from-f37cbf54^
+D3	app/remediation/naming	TestNamingKeepsItsProposalOverALookupFailure	F3.3 [F3.3 copy; old file deleted in F3.4 before the copy was made; source app/catalog/controller/mediafile/naming_envtest_test.go]	rebuild-from-f37cbf54^
+D3	app/remediation/naming	TestNamingProposesTheCanonicalPath	F3.3 [F3.3 copy; old file deleted in F3.4 before the copy was made; source app/catalog/controller/mediafile/naming_envtest_test.go]	rebuild-from-f37cbf54^
+D3	app/remediation/naming	TestNamingReportsWhyItCannotRender	F3.3 [F3.3 copy; old file deleted in F3.4 before the copy was made; source app/catalog/controller/mediafile/naming_envtest_test.go]	rebuild-from-f37cbf54^
+D3	app/remediation/naming	TestNamingSurvivesAMissingFile	F3.3 [F3.3 copy; old file deleted in F3.4 before the copy was made; source app/catalog/controller/mediafile/naming_envtest_test.go]	rebuild-from-f37cbf54^
+D3	app/remediation/naming	TestNamingUnrenderableClearsThePath	F3.3 [F3.3 copy; old file deleted in F3.4 before the copy was made; source app/catalog/controller/mediafile/naming_envtest_test.go]	rebuild-from-f37cbf54^
+D3	app/remediation/probe	TestACrashBetweenTheApplyAndTheRequestHeals	F3.2	deferred
+D3	app/remediation/probe	TestAFailedProbeRetriesOnItsBackoff	W4.13 [W4.13 envtest re-homed onto the loop probe adapter (the MediaFile reconciler is gone, F3.4)]	deferred
+D3	app/remediation/probe	TestAGraftIsIncorporatedOnlyFromARecordOfItsNewBytes	W4.13 [W4.13 envtest re-homed onto the loop probe adapter (the MediaFile reconciler is gone, F3.4)]	deferred
+D3	app/remediation/probe	TestAGraftedOriginalKeepsItsSpecOnEveryMainApply	F3.2	deferred
+D3	app/remediation/probe	TestAPendingProbeKeepsEveryOtherStatusField	W4.13 [W4.13 envtest re-homed onto the loop probe adapter (the MediaFile reconciler is gone, F3.4)]	deferred
+D3	app/remediation/probe	TestAProbeAbandonedThreeTimesIsGivenUp	W4.13 [W4.13 envtest re-homed onto the loop probe adapter (the MediaFile reconciler is gone, F3.4)]	deferred
+D3	app/remediation/probe	TestAProbeRequestIsRepublishedOnlyInsideTheDedupWindow	W4.13 [W4.13 envtest re-homed onto the loop probe adapter (the MediaFile reconciler is gone, F3.4)]	deferred
+D3	app/remediation/probe	TestAProbeVersionRaiseReprobesAFreshlySeededFile	W4.13 [W4.13 envtest re-homed onto the loop probe adapter (the MediaFile reconciler is gone, F3.4)]	deferred
+D3	app/remediation/probe	TestARecreatedProbeBucketWakesEveryPendingProbe	F1.4	deferred
+D3	app/remediation/probe	TestARenamedFileStaysReadyWithoutAProbe	W4.13 [W4.13 envtest re-homed onto the loop probe adapter (the MediaFile reconciler is gone, F3.4)]	deferred
+D3	app/remediation/probe	TestAStaleProbeRecordIsNeverIncorporated	W4.13 [W4.13 envtest re-homed onto the loop probe adapter (the MediaFile reconciler is gone, F3.4)]	deferred
+D3	app/remediation/probe	TestASwapIsIncorporatedOnlyFromARecordForItsTarget	W4.13 [W4.13 envtest re-homed onto the loop probe adapter (the MediaFile reconciler is gone, F3.4)]	deferred
+D3	app/remediation/probe	TestAnOlderAgentsResultIsNotRequestedAgainAtOnce	W4.13 [W4.13 envtest re-homed onto the loop probe adapter (the MediaFile reconciler is gone, F3.4)]	deferred
+D3	app/remediation/probe	TestNewRequestIsWhatRequestWrites	F3.2 (ledger)	deferred
+D3	app/remediation/probe	TestTheProbeAdaptersSources	F3.2	deferred
+D3	app/remediation/probe	TestTheProbeRequestFollowsTheProbePendingApply	F3.2	deferred
+D3	app/remediation/probe	TestAFileBackFromMissingIsReadyAgainWithoutAProbe	F3.2 [F3.2 copy (loop coverage of the old MediaFile controller); old file deleted in F3.4 before the copy was made; source app/catalog/controller/mediafile/ready_test.go]	rebuild-from-f37cbf54^
+D3	app/remediation/probe	TestContainerChangeMovesSpecPath	F3.2 [F3.2 copy (loop coverage of the old MediaFile controller); old file deleted in F3.4 before the copy was made; source app/catalog/controller/mediafile/transcoded_envtest_test.go]	rebuild-from-f37cbf54^
+D3	app/remediation/probe	TestLookupsSelectThroughTheManagerCachesIndex	F3.2 [F3.2 copy (loop coverage of the old MediaFile controller); old file deleted in F3.4 before the copy was made; source app/catalog/controller/mediafile/lookup_envtest_test.go]	rebuild-from-f37cbf54^
+D3	app/remediation/probe	TestObservedFingerprintIsImportsKey	F3.2, F3.4 (ledger) [F3.2 copy (loop coverage of the old MediaFile controller); old file deleted in F3.4 before the copy was made; source app/catalog/controller/mediafile/transcoded_envtest_test.go; plan name TestObservedFingerprintIsImporta]	rebuild-from-f37cbf54^
+D3	app/remediation/probe	TestObservedFingerprintWakesTheController	F3.2 [F3.2 copy (loop coverage of the old MediaFile controller); old file deleted in F3.4 before the copy was made; source app/catalog/controller/mediafile/transcoded_envtest_test.go]	rebuild-from-f37cbf54^
+D3	app/remediation/probe	TestReconcileRecordsAnEarlierInstallsTranscode	F3.2 [F3.2 copy (loop coverage of the old MediaFile controller); old file deleted in F3.4 before the copy was made; source app/catalog/controller/mediafile/mediafile_envtest_test.go]	rebuild-from-f37cbf54^
+D3	app/remediation/probe	TestReplaceSourceFalseIsNotASwap	F3.2 [F3.2 copy (loop coverage of the old MediaFile controller); old file deleted in F3.4 before the copy was made; source app/catalog/controller/mediafile/transcoded_envtest_test.go]	rebuild-from-f37cbf54^
+D3	app/remediation/probe	TestTranscodeJobWatchTriggersReconcile	F3.2 [plan body; last copy in app/catalog/controller/mediafile]	rebuild-from-f37cbf54^
+D3	app/remediation/probe	TestTranscodedFileBytesChangedOnDisk	F3.2 [F3.2 copy (loop coverage of the old MediaFile controller); old file deleted in F3.4 before the copy was made; source app/catalog/controller/mediafile/transcoded_envtest_test.go]	rebuild-from-f37cbf54^
+D3	app/remediation/probe	TestTransientFileFailuresPreserveProbedStatus	F3.2 [F3.2 copy (loop coverage of the old MediaFile controller); old file deleted in F3.4 before the copy was made; source app/catalog/controller/mediafile/mediafile_envtest_test.go]	rebuild-from-f37cbf54^
+D3	app/remediation/probe	TestAnImportsSeedIsIncorporatedWithoutAProbe	W4.13 [superseded: A3.8/A6.1 dropped probe seeding]	dropped-excluded
+D3	app/remediation/rename	TestTheActuatorRemembersARefusedProposal	F3.3	deferred
+D3	app/remediation/rename	TestATranscodedFileIsRenamedInItsOwnFolder	F3.3 [F3.3 copy; old file deleted in F3.4 before the copy was made; source app/import/controller/rename/transcoded_test.go]	rebuild-from-f37cbf54^
+D3	app/remediation/rename	TestReconcileHoldsOnlyForAScanWhoseSubpathCoversTheFolder	F3.3 [F3.3 copy; old file deleted in F3.4 before the copy was made; source app/import/controller/rename/controller_envtest_test.go]	rebuild-from-f37cbf54^
+D3	app/remediation/rename	TestReconcileHoldsWhileAScanWalksTheFolder	F3.3 [F3.3 copy; old file deleted in F3.4 before the copy was made; source app/import/controller/rename/controller_envtest_test.go]	rebuild-from-f37cbf54^
+D3	app/remediation/rename	TestReconcileLeavesAFileAlone	F3.3 [F3.3 copy; old file deleted in F3.4 before the copy was made; source app/import/controller/rename/controller_envtest_test.go]	rebuild-from-f37cbf54^
+D3	app/remediation/rename	TestReconcileRenamesAFileItsRootFolderAllows	F3.3 [F3.3 copy; old file deleted in F3.4 before the copy was made; source app/import/controller/rename/controller_envtest_test.go]	rebuild-from-f37cbf54^
+D3	app/remediation/rename	TestReconcileReportsACollision	F3.3 [F3.3 copy; old file deleted in F3.4 before the copy was made; source app/import/controller/rename/controller_envtest_test.go]	rebuild-from-f37cbf54^
+D3	app/remediation/rename	TestReconcileRequeuesAChangedFile	F3.3 [F3.3 copy; old file deleted in F3.4 before the copy was made; source app/import/controller/rename/controller_envtest_test.go]	rebuild-from-f37cbf54^
+D3	app/remediation/replay	TestAReplayAnnotationOnAMediaFileIsActedOnByTheLoop	F3.5	deferred
+D3	app/remediation/replay	TestAnUnparsableReplayOnAMediaFileIsRefusedAndConsumed	F3.5	deferred
+D3	app/remediation/transcode	TestAClearedBlockFreesItsSlot	F6.5	deferred
+D3	app/remediation/transcode	TestACrashBetweenEffectsNeverHidesADispatch	F6.4	deferred
+D3	app/remediation/transcode	TestAFactAfterTheClosingWithdrawalPassIsIncorporated	F6.5	deferred
+D3	app/remediation/transcode	TestAFinalDeliveryFailureShowsItsCause	F6.4	deferred
+D3	app/remediation/transcode	TestAStaleAnswerIsNotIncorporated	F6.4	deferred
+D3	app/remediation/transcode	TestASwapIsIncorporatedInThreeApplies	F6.2	deferred
+D3	app/remediation/transcode	TestCancelRecordsAVerdictAndRetryClearsIt	F6.5	deferred
+D3	app/remediation/transcode	TestCopyTakesTheTranscodeBlockAndItsNoncesOnly	F6.2	deferred
+D3	app/remediation/transcode	TestDeletedFileTaskIsWithdrawnAtOnce	F6.5	deferred
+D3	app/remediation/transcode	TestDispatchPublishesOneTaskPerSeq	F6.4	deferred
+D3	app/remediation/transcode	TestHardwareIntentAppliesAtTheNextDispatch	F6.5	deferred
+D3	app/remediation/transcode	TestHeldFilesAreWrittenOnlyOnChange	F6.4	deferred
+D3	app/remediation/transcode	TestLostWorkerIsRedispatched	F6.4	deferred
+D3	app/remediation/transcode	TestOrphanPartKeysOnTheFilesInFlightTranscode	F6.4	deferred
+D3	app/remediation/transcode	TestPriorityIntentOrdersWindowAndAdmission	F6.5	deferred
+D3	app/remediation/transcode	TestQueuedWithoutARecordIsDispatched	F6.4	deferred
+D3	app/remediation/transcode	TestRepublishStopsOnceClaimed	F6.4	deferred
+D3	app/remediation/transcode	TestRequestedWithoutATaskIsRepublished	F6.4	deferred
+D3	app/remediation/transcode	TestSuspendKeepsAWindowPlace	F6.5	deferred
+D3	app/remediation/transcode	TestTwoFilesNeverShareTheLastSlot	F6.4	deferred
+D3	app/remediation/transcode	TestUnclaimedDispatchIsWithdrawnAfterTheWindow	F6.5	deferred
+D3	app/remediation/transcode	TestWithdrawalPrecedesThePlannedWrite	F6.5	deferred
+D3	app/transcode	TestManagerOptionsCarryTheSquasharrOptions	W3.12 [superseded: W5.17 deleted the app/<svc> roots; internal/cli tests cover the mapping]	dropped-excluded
+D3	app/transcode/admission	FuzzLedgerNeverOverAdmits	F6.3	deferred
+D3	app/transcode/admission	TestAJoinedGraftIsNeverAGraftSlotCandidate	F7.2	deferred
+D3	app/transcode/admission	TestAnAbsentBlockFreesItsSlot	F6.3	deferred
+D3	app/transcode/admission	TestExpiredGrantBacksOff	F6.3	deferred
+D3	app/transcode/admission	TestFillWindowTakesPriorityThenName	F6.3	deferred
+D3	app/transcode/admission	TestGraftGrantsFillFreeSlotsByDonorImportedAtThenKey	F7.2	deferred
+D3	app/transcode/admission	TestGraftSlotsCountJobsStatusAndGrants	F7.2	deferred
+D3	app/transcode/admission	TestGrantInUseNeverExpires	F6.3	deferred
+D3	app/transcode/admission	TestObserveIgnoresAStaleObservation	F6.3	deferred
+D3	app/transcode/admission	TestRebuildCountsEveryInFlightFileFromTheAPIServer	F6.3	deferred
+D3	app/transcode/admission	TestRebuildSeesALastMomentDispatch	F6.3	deferred
+D3	app/transcode/admission	TestSweepWithdrawsADeletedFilesTaskAfterRestart	F6.5	deferred
+D3	app/transcode/admission	TestTheLedgerGrantsAGraftSlotAndTheLoopTakesIt	F7.2	deferred
+D3	app/transcode/admission	TestWaitReasonEnqueuesOnlyOnChange	F6.3	deferred
+D3	app/transcode/admission	TestWindowCountsWindowPhasesAndGrants	F6.3	deferred
+D3	app/transcode/admission	TestAClassIsUnhealthyOnlyWhenEveryReportSaysSo	F6.3 [F6.3 move (git mv) the implementer turned into a delete; subject survives; source app/transcode/controller/transcodejob/class_test.go]	rebuild-from-39379a8d^
+D3	app/transcode/admission	TestAdmitDoesNotMutateItsInput	F6.3 [F6.3 move (git mv) the implementer turned into a delete; subject survives; source app/transcode/controller/transcodejob/admit_test.go]	rebuild-from-39379a8d^
+D3	app/transcode/admission	TestAdmitNeverExceedsBudget	F6.3 [F6.3 move (git mv) the implementer turned into a delete; subject survives; was TestAdmit; source app/transcode/controller/transcodejob/admit_test.go]	rebuild-from-39379a8d^
+D3	app/transcode/admission	TestChooseClassGPUOnlyWaitsWhileAGPUIsUsable	F6.3 [F6.3 move (git mv) the implementer turned into a delete; subject survives; was TestChooseClass; source app/transcode/controller/transcodejob/class_test.go]	rebuild-from-39379a8d^
+D3	app/transcode/controller/audiograft	TestAFailedGraftRejectsTheDonorAndStaysFailed	F7 (f7-tests.txt, deleted) [F7: deleted with the code F7 deletes]	dropped-excluded
+D3	app/transcode/controller/audiograft	TestAFailureThatIsNotTheDonorsKeepsTheDonor	F7 (f7-tests.txt, deleted) [F7: deleted with the code F7 deletes]	dropped-excluded
+D3	app/transcode/controller/audiograft	TestAFileMissingTheLanguageGetsAGraftJob	F7 (f7-tests.txt, deleted) [F7: deleted with the code F7 deletes]	dropped-excluded
+D3	app/transcode/controller/audiograft	TestAFileWithTheLanguageIsPresent	F7 (f7-tests.txt, deleted) [F7: deleted with the code F7 deletes]	dropped-excluded
+D3	app/transcode/controller/audiograft	TestAFinishedGraftIsNotRunAgainFromAStaleCache	F7 (f7-tests.txt, deleted) [F7: deleted with the code F7 deletes]	dropped-excluded
+D3	app/transcode/controller/audiograft	TestAGraftMirrorsTheTranscodeItJoined	F7 (f7-tests.txt, deleted) [F7: deleted with the code F7 deletes]	dropped-excluded
+D3	app/transcode/controller/audiograft	TestAGraftWaitsForTheTranscodeItsFileIsDue	F7 (f7-tests.txt, deleted) [F7: deleted with the code F7 deletes]	dropped-excluded
+D3	app/transcode/controller/audiograft	TestAGraftsResultLandsInStatus	F7 (f7-tests.txt, deleted) [F7: deleted with the code F7 deletes]	dropped-excluded
+D3	app/transcode/controller/audiograft	TestANewDonorIsReducedAtOnce	F7 (f7-tests.txt, deleted) [F7: deleted with the code F7 deletes]	dropped-excluded
+D3	app/transcode/controller/audiograft	TestAPodThatLeftNoResultFailsTheGraft	F7 (f7-tests.txt, deleted) [F7: deleted with the code F7 deletes]	dropped-excluded
+D3	app/transcode/controller/audiograft	TestAPresentResultDoesNotPoll	F7 (f7-tests.txt, deleted) [F7: deleted with the code F7 deletes]	dropped-excluded
+D3	app/transcode/controller/audiograft	TestATranscodeTheCacheHasNotSeenHoldsTheGraft	F7 (f7-tests.txt, deleted) [F7: deleted with the code F7 deletes]	dropped-excluded
+D3	app/transcode/controller/audiograft	TestAnOpenTranscodeHoldsTheGraft	F7 (f7-tests.txt, deleted) [F7: deleted with the code F7 deletes]	dropped-excluded
+D3	app/transcode/controller/audiograft	TestGraftingNamesTheFilesUnderAGraft	F7 (f7-tests.txt, deleted) [F7: deleted with the code F7 deletes]	dropped-excluded
+D3	app/transcode/controller/audiograft	TestGraftsWaitForASlot	F7 (f7-tests.txt, deleted) [F7: deleted with the code F7 deletes]	dropped-excluded
+D3	app/transcode/controller/pool	TestPoolJobPredicate	F6.3 [F6.3 move (git mv) the implementer turned into a delete; subject survives; source app/transcode/controller/transcodejob/predicate_test.go]	rebuild-from-39379a8d^
+D3	app/transcode/controller/pool	TestTemplateRunsTheTranscodeBinary	W5.6 [superseded: F7.3 removed the AudioGraft controller; F7.2 TestTheGraftJobRunsTheTranscodeBinary]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestAClaimFromAnotherClassCorrectsTheRecord	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestADeadLetteredTaskBlocksTheJob	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestADeletedProfilesQueuedJobFailsAndFreesItsSlot	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestADispatchAdoptedFirstStillRecordsItsReplan	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestADispatchCarriesTheItemsGraft	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestAFileUnderAGraftIsNotPlanned	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestAGPUEncodeFailureMovesAnAutoJobToCPU	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestAGPUJobRoutedOffAnUnschedulablePoolKeepsNoFallback	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestAGPUJobWaitsForAGPUSlotNotACPUOne	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestAGateEnabledLaterDrainsAndRecreatesThePool	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestAJobRecordedWithAnArgvPlanIsReplannedAtDispatch	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestAJobsReconcileWakesAdmissionInsteadOfRunningIt	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestALongProfileNameGetsAWorkingPool	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestALostDispatchWriteIsAdoptedFromTheWorkersEvent	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestAMovieReturningWakesTheProfile	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestANewHashRequeuesNothingTranscoded	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestAPinnedGPUJobNeverFallsBack	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestAPoolJobChangeWakesAdmission	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestAPoolJobItDoesNotOwnHoldsItsWork	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestAPoolWithAnOlderFailurePolicyIsRecreatedForItsWork	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestAPoolWithoutItsAppliedTemplateIsReplaced	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestAProfileEditLeavesAnOpenJobAlone	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestAProfileEditReplansAPlannedJobAtDispatch	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestAProfileKeepsAWindowOfJobsAndRetiresIncorporatedSuccesses	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestAProfileStoredUnderTheOldSchemaIsPrunedOnceTheCutIsInstalled	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestAQueuedAutoJobLeavesAClassReportedUnhealthy	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestAQueuedTaskKeepsItsClassPoolAwake	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestARecreatedProfilesJobIsRequeuedToTheNewPool	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestAReplanThatSkipsPublishesNothing	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestARerouteRacingAClaimDoesNotWedgeTheJob	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestAResultEventRacingAReconcileIsNotLost	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestASourceChangedJobIsReplacedForTheNewFile	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestASourceUnderNoRootFolderBlocksAtDispatch	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestAStaleEventChangesNothing	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestAStaleUnhealthyReportLeavesTheClassEligible	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestAStoredProfileWithRemovedFieldsStillReconciles	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestAWorkersGraftResultLandsInStatusGraft	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestAdmissionHonoursProfileMaxConcurrent	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestAdmissionHonoursTheBudget	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestAnAutoGPUFailureFallsBackToCPU	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestAnAutoJobAvoidsAnUnhealthyGPUClass	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestAnAutoJobIsHeldOnlyForThePoolItWouldUse	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestAnOrphanedMediaFileIsNotTranscoded	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestAnUnschedulableGPUPoolReroutesItsQueuedJobs	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestApplyDecisionRequeue	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestApplyDecisionSanitisesWhatTheWorkerSent	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestAssignClasses	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestAutoFallsBackToCPUWithoutAGPUNodeOrSlot	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestAutoGoesToTheGPUPoolWhenOneIsFree	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestChoosesClassForAutoAndGPU	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestClassFor	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestClassForAPinnedGPUJob	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestDeadLetteredFoldsIntoTranscodeJobStatus	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestDecide	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestDeleteAfterALostQueuedWriteWithdrawsTheUnrecordedAttempt	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestDeleteReleasesTheFinalizerAfterTheTimeoutWhenNATSIsDown	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestDeleteWithdrawsThenReleasesTheFinalizer	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestDispatchPublishesTheTaskThenQueues	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestDrainingPoolHoldsNewWorkThenReshapes	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestFailedPoolIsRecreatedWithBackoff	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestGPUNodesReadTheConfiguredLabels	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestHardwareForEncoder	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestImageChangeRecreatesTheIdlePool	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestIsPoolDurable	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestJobEventsFollowTheLifecycle	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestNoQueuedWithoutAPublish	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestOrphaned	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestPendingUntilDependenciesAndSourceChange	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestPlanRunsIn	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestPoolFollowsDispatch	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestReconcileCreatesJobsIdempotently	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestReconcileSkipsAFileAlreadyTaggedWithTheCurrentHash	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestRetriableRequeuesWithBackoffThenBlocks	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestSkipAndRejectAreSkipped	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestSkippedAndFailedEventsCarryTheReason	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestStatusEventsDriveStatusAndOneManagerOwnsIt	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestStatusPlanRemuxTakesACPUSlot	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestSuspendWithdrawsAQueuedTaskAndRedispatchesAsANewAttempt	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestSweepDeletesTheDurablesOfDeletedProfiles	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestSweepPurgesTasksOfDeletedJobs	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestTerminalMetricsObservedOnce	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestTheControllerPlansIntelWithTheTierItsPodsMeasured	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestTheControllerPlansWithThePublishedDeviceLimits	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestTheControllerRecordsTheStandardPlan	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestThePlannedConditionNamesDroppedSubtitles	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed (replaced by F6.2 TestThePlanNamesTheSubtitlesItDrops)]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestTheStandardEncodesDolbyVisionOnTheProfilesGPU	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestTheTaskCarriesTheReconcileTrace	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestTheUnschedulableMarkLastsThirtyMinutesAndIsInMemory	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestTranscodeJobPredicateWakesOnADeadLetterAnnotation	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestTransientFailureDoesNotReleaseStatus	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestUnschedulableSince	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestVerifyFailedBlocks	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestWatchesWakeTheController	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodejob	TestWithdrawPurgesTheTaskWhenTheProfileIsGone	F6.6 (f66-deleted-tests.txt) [F6.6: deleted with the TranscodeJob controller; subject removed]	dropped-excluded
+D3	app/transcode/controller/transcodeprofile	TestARestartedManagerNeverSuspendsARunningPool	F6.3	deferred
+D3	app/transcode/controller/transcodeprofile	TestTheProfileStatusCountsFilesAndTheBacklog	F6.3	deferred
+D3	app/transcode/controller/transcodeprofile	TestAProfileShowsEachNodesDeviceHealth	F6.3 [F6.3 move (git mv) the implementer turned into a delete; subject survives; source app/transcode/controller/transcodeprofile/window_test.go]	rebuild-from-39379a8d^
+D3	app/transcode/controller/transcodeprofile	TestAProfileShowsThePublishedEncoderLimits	F6.3 [F6.3 move (git mv) the implementer turned into a delete; subject survives; source app/transcode/controller/transcodeprofile/window_test.go]	rebuild-from-39379a8d^
+D3	app/transcode/controller/transcodeprofile	TestReconcileMarksTheNewerOfTwoDefaultsInvalid	F6.3 [F6.3 move (git mv) the implementer turned into a delete; subject survives; source app/transcode/controller/transcodeprofile/controller_envtest_test.go]	rebuild-from-39379a8d^
+D3	app/transcode/controller/transcodeprofile	TestReconcileSurfacesSelectorOverlapWithoutDoubleCreating	F6.3 [F6.3 move (git mv) the implementer turned into a delete; subject survives; source app/transcode/controller/transcodeprofile/controller_envtest_test.go]	rebuild-from-39379a8d^
+D3	app/transcode/controller/transcodeprofile	TestASucceededJobHoldsItsFileUntilTheSwapIsIncorporated	F8.6-F9.4 (removal-deleted-tests.txt) [deleted with its subject (a removed kind or v1 payload)]	dropped-excluded
+D3	app/transcode/controller/transcodeprofile	TestTranscodeJobNameIsDeterministicOnFileAndHash	F8.6-F9.4 (removal-deleted-tests.txt) [deleted with its subject (a removed kind or v1 payload)]	dropped-excluded
+D3	app/transcode/controller/transcodeprofile	TestTranscodeJobNameTruncatesOnlyWhenOverLimit	F8.6-F9.4 (removal-deleted-tests.txt) [deleted with its subject (a removed kind or v1 payload)]	dropped-excluded
+D3	app/transcode/graftplan	TestAClaimedRecordIsRunning	F7.2	deferred
+D3	app/transcode/graftplan	TestADonorFaultFailsForGoodAndOtherFailuresBackOff	F7.2	deferred
+D3	app/transcode/graftplan	TestAFactAfterTheWithdrawalIsIncorporated	F7.2	deferred
+D3	app/transcode/graftplan	TestAFactUnderTheNextRequestClosesItAndIsIncorporated	F7.2	deferred
+D3	app/transcode/graftplan	TestAFileMissingTheDonorsLanguageWaitsForASlot	F7.2	deferred
+D3	app/transcode/graftplan	TestAFileUnderNoRootFolderFails	F7.2	deferred
+D3	app/transcode/graftplan	TestAGraftBlockExistsOnlyWhereAGraftCan	F7.2	deferred
+D3	app/transcode/graftplan	TestAGraftJobWithoutARecordFailsJobLost	F7.2	deferred
+D3	app/transcode/graftplan	TestAGraftWaitsForTheFilesTranscodeAtMostSixHours	F7.2	deferred
+D3	app/transcode/graftplan	TestAGrantedGraftIsQueuedThenRecordedThenItsJobCreated	F7.2	deferred
+D3	app/transcode/graftplan	TestAJoinedGraftRunsWithItsTranscodeAndTakesItsResult	F7.2	deferred
+D3	app/transcode/graftplan	TestALostJobIsWithdrawnBeforeItFails	F7.2	deferred
+D3	app/transcode/graftplan	TestAPanickingGraftPlannerNeverLeavesAJoinedTaskBesideAWaitingBlock	F7.2	deferred
+D3	app/transcode/graftplan	TestAnAnsweredGraftSwapsThenSucceedsOnItsProbe	F7.2	deferred
+D3	app/transcode/graftplan	TestAnInFlightBlockOutlivesItsConditions	F7.2	deferred
+D3	app/transcode/graftplan	TestEveryPlannerKeepsItsBlockWhileTheProbeIsPending	F7.2	deferred
+D3	app/transcode/graftplan	TestGraftplanIsPure	F7.2	deferred
+D3	app/transcode/graftplan	TestJobNameIsLabelSafeAndTheDispatchIdentity	F7.2	deferred
+D3	app/transcode/graftplan	TestJoinCarriesTheGraftOfAJoinableFile	F7.2	deferred
+D3	app/transcode/graftplan	TestJoinPendingHoldsTheNextDispatchUntilTheGraftRecordsItsResult	F7.2	deferred
+D3	app/transcode/graftplan	TestJoinRefusesWhatCannotRideAlong	F7.2	deferred
+D3	app/transcode/graftplan	TestOwedEffectsAreEmittedAgain	F7.2	deferred
+D3	app/transcode/graftplan	TestTheFileCarryingTheLanguageIsPresent	F7.2	deferred
+D3	app/transcode/graftstate	TestStandaloneForReadsOnlyTheFilesGrafts	F6.2 [superseded: F7.3 retired graftstate]	dropped-excluded
+D3	app/transcode/grafttask	TestAGraftRecordFitsItsBucket	F7.2	deferred
+D3	app/transcode/grafttask	TestATaskV2RoundTripsAndAJoinedTaskCarriesNoRecordFields	F7.2	deferred
+D3	app/transcode/grafttask	TestServeClaimsRunsThenAnswers	F7.2	deferred
+D3	app/transcode/grafttask	TestServeDoesNothingForASupersededTask	F7.2	deferred
+D3	app/transcode/grafttask	TestServeRetriesItsAnswer	F7.2	deferred
+D3	app/transcode/grafttask	TestServeWaitsForItsRecord	F7.2	deferred
+D3	app/transcode/grafttask	TestTheGraftFactIsAGraftedSuccess	F7.2	deferred
+D3	app/transcode/grafttask	TestAResultFitsATerminationMessage	F7 (f7-tests.txt, deleted) [F7: deleted with the code F7 deletes]	dropped-excluded
+D3	app/transcode/jobspec	TestEveryTranscodeWritesMP4	F6.1	deferred
+D3	app/transcode/jobspec	TestNoManagerSideCodeNamesTheWorkersOutputContainer	F6.1	deferred
+D3	app/transcode/jobspec	TestBuildTask	F9.2 [removal-deleted-tests.txt: re-home on a MediaFile-keyed fixture; source app/transcode/jobspec/buildtask_test.go]	rebuild-from-0beb88d6^
+D3	app/transcode/manager	TestCacheSelectsOnlyThePoolJobs	W5.17 [from app/squash/cache_test.go]	deferred
+D3	app/transcode/manager	TestRegisterAddsEveryTranscodeController	W3.12, F6.6 [plan name TestRegisterAddsEverySquasharrController]	deferred
+D3	app/transcode/manager	TestRegisterRefusesNoLedger	F6.6	deferred
+D3	app/transcode/manager	TestRegisterRequiresTheBus	W3.12	deferred
+D3	app/transcode/manager	TestFormatSlotsRoundTrips	W5.17 [delete per plan]	rewrite
+D3	app/transcode/manager	TestParseSlots	W5.17 [delete per plan]	rewrite
+D3	app/transcode/manager	TestParseSlotsDefaultsToTheSpecBudget	W5.17 [delete per plan]	rewrite
+D3	app/transcode/manager	TestParseSlotsRejectsBadInput	W5.17 [delete per plan]	rewrite
+D3	app/transcode/manager	TestRolesAndValidate	W5.17 [delete per plan]	rewrite
+D3	app/transcode/status	TestControllerFieldsDeclaresExactlyItsOwnSet	F8.6-F9.4 (removal-deleted-tests.txt) [deleted with its subject (a removed kind or v1 payload)]	dropped-excluded
+D3	app/transcode/status	TestEveryTranscodeJobStatusFieldIsAccountedFor	F8.6-F9.4 (removal-deleted-tests.txt) [deleted with its subject (a removed kind or v1 payload)]	dropped-excluded
+D3	app/transcode/status	TestPatchCASRejectsAStaleResourceVersion	F8.6-F9.4 (removal-deleted-tests.txt) [deleted with its subject (a removed kind or v1 payload)]	dropped-excluded
+D3	app/transcode/status	TestTheJobDeclarationIsComplete	F8.6-F9.4 (removal-deleted-tests.txt) [deleted with its subject (a removed kind or v1 payload)]	dropped-excluded
+D3	app/transcode/task	TestASucceededAnswerIsAFact	F6.4	deferred
+D3	app/transcode/task	TestResultKeepsTheWireFormat	F9.2	deferred
+D3	app/transcode/task	TestTaskV2NamesTheFileAndItsSeq	F6.4	deferred
+D3	app/transcode/transcodeplan	TestADispatchGrantOnAStaleViewChangesNothing	F6.4	deferred
+D3	app/transcode/transcodeplan	TestADispatchRendersQueuedThenOwesTheRecordAndThePublish	F6.4	deferred
+D3	app/transcode/transcodeplan	TestADispatchRewritesTheDroppedSubtitles	F6.4	deferred
+D3	app/transcode/transcodeplan	TestAFactAfterTheClosingWithdrawalIsIncorporated	F6.5	deferred
+D3	app/transcode/transcodeplan	TestAFinalDeliveryFailureIsRetriableWithItsCause	F6.4	deferred
+D3	app/transcode/transcodeplan	TestALostWorkerIsRetriedAfterTheGrace	F6.4	deferred
+D3	app/transcode/transcodeplan	TestAPlannedFileLeavesTheWindowWhenItStopsBeingEligible	F6.2	deferred
+D3	app/transcode/transcodeplan	TestASwapIsIncorporatedWithTheDispatchedTag	F6.2	deferred
+D3	app/transcode/transcodeplan	TestAVerdictHoldsOnlyForItsTagAndProbe	F6.2	deferred
+D3	app/transcode/transcodeplan	TestAWindowGrantOnAHeldFileIsSkipped	F6.2	deferred
+D3	app/transcode/transcodeplan	TestAWindowGrantPlansFromTheStoredProbe	F6.2	deferred
+D3	app/transcode/transcodeplan	TestEligibleFollowsTheWinningProfile	F6.2	deferred
+D3	app/transcode/transcodeplan	TestFileMissingRecoversTheSwapFromTheRecord	F6.5	deferred
+D3	app/transcode/transcodeplan	TestIntentsAreRecordedOnce	F6.5	deferred
+D3	app/transcode/transcodeplan	TestNewBytesOnASucceededFileDropItsVerdict	F6.2	deferred
+D3	app/transcode/transcodeplan	TestOrphanAndDeadlineRows	F6.5	deferred
+D3	app/transcode/transcodeplan	TestPlanNormalisesALegacyBlock	F6.2	deferred
+D3	app/transcode/transcodeplan	TestRepublishStopsAtTheWindow	F6.4	deferred
+D3	app/transcode/transcodeplan	TestRetryClearsAVerdictForTheCurrentTag	F6.5	deferred
+D3	app/transcode/transcodeplan	TestStandingIntentsAreRecordedInTheBlock	F6.5	deferred
+D3	app/transcode/transcodeplan	TestThePlanNamesTheSubtitlesItDrops	F6.2	deferred
+D3	app/transcode/transcodeplan	TestTheRecordMovesTheBlock	F6.4	deferred
+D3	app/transcode/transcodeplan	TestTranscodePlanIsPure	F6.2	deferred
+D3	app/transcode/transcodeplan	TestWithdrawalTakesTwoPasses	F6.5	deferred
+D3	app/transcode/transcodeplan	TestStatusPlanIsTheArgvTheWorkerRenders	F6.6 [ledger F6.6: rebuild the parity envtest into transcodeplan; source app/transcode/controller/transcodejob/parity_envtest_test.go]	rebuild-from-39379a8d^
+D3	app/transcode/worker	TestAFactAnswerIsRetried	F6.5	deferred
+D3	app/transcode/worker	TestAFactIsAnsweredBeforeSuperseded	F6.5	deferred
+D3	app/transcode/worker	TestServeAcksASupersededTask	F6.4	deferred
+D3	app/transcode/worker	TestServeAnswersTheRecord	F6.4	deferred
+D3	app/transcode/worker	TestServeWaitsForTheOwedRecord	F6.4	deferred
+D3	app/transcode/worker	TestAFailedVerifyLeavesNoSidecar	F9.2 [removal-deleted-tests.txt: re-home on a MediaFile-keyed fixture; source app/transcode/worker/worker_envtest_test.go]	rebuild-from-0beb88d6^
+D3	app/transcode/worker	TestAMissingSidecarFailsVerification	F9.2 [removal-deleted-tests.txt: re-home on a MediaFile-keyed fixture; source app/transcode/worker/worker_envtest_test.go]	rebuild-from-0beb88d6^
+D3	app/transcode/worker	TestARetryAfterPlacingTheSidecarsDoesNotDuplicateThem	F9.2 [removal-deleted-tests.txt: re-home on a MediaFile-keyed fixture; source app/transcode/worker/worker_envtest_test.go]	rebuild-from-0beb88d6^
+D3	app/transcode/worker	TestARunThatAbortsNeverTouchesAnotherAttemptsPartFile	F9.2 [removal-deleted-tests.txt: re-home on a MediaFile-keyed fixture; source app/transcode/worker/worker_envtest_test.go]	rebuild-from-0beb88d6^
+D3	app/transcode/worker	TestATaskForAnotherContainerIsRetried	F9.2 [removal-deleted-tests.txt: re-home on a MediaFile-keyed fixture; source app/transcode/worker/worker_envtest_test.go]	rebuild-from-0beb88d6^
+D3	app/transcode/worker	TestAnEmptySidecarIsDroppedNotFailed	F9.2 [removal-deleted-tests.txt: re-home on a MediaFile-keyed fixture; source app/transcode/worker/worker_envtest_test.go]	rebuild-from-0beb88d6^
+D3	app/transcode/worker	TestAnFFgoTaskOnAWorkerWithoutTheEngineIsRetriable	F9.2 [removal-deleted-tests.txt: re-home on a MediaFile-keyed fixture; source app/transcode/worker/worker_envtest_test.go]	rebuild-from-0beb88d6^
+D3	app/transcode/worker	TestProcessReportsSourceChangedWhenTheSourceIsEditedAfterPlanning	F9.2 [removal-deleted-tests.txt: re-home on a MediaFile-keyed fixture; source app/transcode/worker/worker_envtest_test.go]	rebuild-from-0beb88d6^
+D3	app/transcode/worker	TestRunAbortsTheSwapAndRemovesThePartWhenBeforeSwapFails	F9.2 [removal-deleted-tests.txt: re-home on a MediaFile-keyed fixture; source app/transcode/worker/worker_envtest_test.go]	rebuild-from-0beb88d6^
+D3	app/transcode/worker	TestRunAfterACrashFinishesUnderAnEarlierHashOfTheProfile	F9.2 [removal-deleted-tests.txt: re-home on a MediaFile-keyed fixture; source app/transcode/worker/worker_envtest_test.go]	rebuild-from-0beb88d6^
+D3	app/transcode/worker	TestRunAfterACrashPostPlaceRetiresTheSourceWithoutTranscoding	F9.2 [removal-deleted-tests.txt: re-home on a MediaFile-keyed fixture; source app/transcode/worker/worker_envtest_test.go]	rebuild-from-0beb88d6^
+D3	app/transcode/worker	TestRunAfterACrashPostSwapRecordsTheResultWithoutTranscodingAgain	F9.2 [removal-deleted-tests.txt: re-home on a MediaFile-keyed fixture; source app/transcode/worker/worker_envtest_test.go]	rebuild-from-0beb88d6^
+D3	app/transcode/worker	TestRunChangesTheContainerAndRetiresTheSource	F9.2 [removal-deleted-tests.txt: re-home on a MediaFile-keyed fixture; source app/transcode/worker/worker_envtest_test.go]	rebuild-from-0beb88d6^
+D3	app/transcode/worker	TestRunClassifiesInputFailures	F9.2 [removal-deleted-tests.txt: re-home on a MediaFile-keyed fixture; source app/transcode/worker/worker_envtest_test.go]	rebuild-from-0beb88d6^
+D3	app/transcode/worker	TestRunExitsThreeBeforeRunningFFmpegWhenTheSourceChanged	F9.2 [removal-deleted-tests.txt: re-home on a MediaFile-keyed fixture; source app/transcode/worker/worker_envtest_test.go]	rebuild-from-0beb88d6^
+D3	app/transcode/worker	TestRunPlacesTheSidecarsAndKeepsAnExistingOne	F9.2 [removal-deleted-tests.txt: re-home on a MediaFile-keyed fixture; source app/transcode/worker/worker_envtest_test.go]	rebuild-from-0beb88d6^
+D3	app/transcode/worker	TestRunRefusesToOverwriteAnUnrelatedFileAtTheOutputPath	F9.2 [removal-deleted-tests.txt: re-home on a MediaFile-keyed fixture; source app/transcode/worker/worker_envtest_test.go]	rebuild-from-0beb88d6^
+D3	app/transcode/worker	TestRunTranscodesVerifiesAndSwapsOverTheSource	F9.2 [removal-deleted-tests.txt: re-home on a MediaFile-keyed fixture; source app/transcode/worker/worker_envtest_test.go]	rebuild-from-0beb88d6^
+D3	app/transcode/worker	TestRunUnderTheCRDDefaultOutputLimitSwapsANormalTranscode	F9.2 [removal-deleted-tests.txt: re-home on a MediaFile-keyed fixture; source app/transcode/worker/worker_envtest_test.go]	rebuild-from-0beb88d6^
+D3	app/transcode/worker	TestRunWithRecycleBinOffSwapsWithoutRecycling	F9.2 [removal-deleted-tests.txt: re-home on a MediaFile-keyed fixture; source app/transcode/worker/worker_envtest_test.go]	rebuild-from-0beb88d6^
+D3	app/transcode/worker	TestRunWithReplaceSourceFalseKeepsTheSource	F9.2 [removal-deleted-tests.txt: re-home on a MediaFile-keyed fixture; source app/transcode/worker/worker_envtest_test.go]	rebuild-from-0beb88d6^
+D3	app/transcode/worker	TestRunWithTheInProcessEngineTranscodesVerifiesAndSwaps	F9.2 [removal-deleted-tests.txt: re-home on a MediaFile-keyed fixture; source app/transcode/worker/worker_envtest_test.go]	rebuild-from-0beb88d6^
+D3	app/transcode/worker	TestRunWritesAnExplicitOutputPath	F9.2 [removal-deleted-tests.txt: re-home on a MediaFile-keyed fixture; source app/transcode/worker/worker_envtest_test.go]	rebuild-from-0beb88d6^
+D3	app/transcode/worker	TestTheAPIAdmitsReplaceSourceFalse	F9.2 [removal-deleted-tests.txt: re-home on a MediaFile-keyed fixture; source app/transcode/worker/worker_envtest_test.go]	rebuild-from-0beb88d6^
+D3	app/transcode/worker	TestTheEnginesFailuresAreClassified	F9.2 [removal-deleted-tests.txt: re-home on a MediaFile-keyed fixture; source app/transcode/worker/worker_envtest_test.go]	rebuild-from-0beb88d6^
+D3	app/transcode/worker	TestTheFFgoJobUsesTheMeasuredTier	F9.2 [removal-deleted-tests.txt: re-home on a MediaFile-keyed fixture; source app/transcode/worker/worker_envtest_test.go]	rebuild-from-0beb88d6^
+D3	app/transcode/worker	TestAJoinedGraftThatWillNotAlignLeavesTheTranscodeAlone	W8.5 [edit per plan]	rewrite
+D3	app/transcode/worker	TestATranscodeCarriesAJoinedGraftInOnePass	W8.5 [edit per plan]	rewrite
+D3	app/transcode/worker	TestAV1TaskIsAckedAsStale	F6.4 [F9.4 (cold turkey) deleted the v1 stale-ack branches]	dropped-excluded
+D3	app/transcode/worker	TestProgressReporterRetriesAFailedApplyAndAppliesNothingWhenIdle	F8.6-F9.4 (removal-deleted-tests.txt) [deleted with its subject (a removed kind or v1 payload)]	dropped-excluded
+D3	app/transcode/worker	TestProgressReporterThrottlesAndFlushesTheLastSample	F8.6-F9.4 (removal-deleted-tests.txt) [deleted with its subject (a removed kind or v1 payload)]	dropped-excluded
+D3	app/transcode/worker/graft	TestTheReducedDonorKeepsEveryWantedLanguage	W6.21 [edit per plan]	rewrite
+D3	app/transcode/worker/inprocess	TestNewRequiresItsClassesEncoders	W8.5	deferred
+D3	app/transcode/worker/inprocess	TestDoviRecordReadsEveryField	W8.3 [edit per plan]	rewrite
+D3	app/transcode/worker/inprocess	TestTheInProcessProbeAgreesWithFFprobe	W8.3, W8.4 [edit per plan]	rewrite
+D3	cmd/transcode	TestAGraftLoadsFFmpegThroughTheGate	W8.5	deferred
+D3	cmd/transcode	TestAGraftPodNeedsNATSAndItsName	F7.2	deferred
+D3	cmd/transcode	TestAGraftTaskAnswersInTheRecordsBucket	F7.2	deferred
+D3	cmd/transcode	TestASupersededGraftTaskExitsWithoutRunning	F7.2	deferred
+D3	cmd/transcode	TestPoolAndGraftArgsParse	W5.12	deferred
+D3	cmd/transcode	TestTheTerminationLogFlagIsGone	F7.2	deferred
+D3	cmd/transcode	TestUMASKIsAppliedBeforeAGraft	W5.12	deferred
+D3	cmd/transcode	TestVersionFlag	W5.12	deferred
+D3	cmd/transcode	TestBinaryImportsNoKubernetesClient	W5.12, W5.14 [edit per plan; delete per plan]	rewrite
+D3	cmd/transcode	TestSIGTERMIsDrained	W5.12 [edit per plan]	rewrite
+D3	cmd/transcode	TestUnreachableNATSIsRetriable	W5.12 [delete per plan]	rewrite
+D3	cmd/transcode	TestAGraftTaskWritesItsResultToTheTerminationLog	F7 (f7-tests.txt, deleted) [F7: deleted with the code F7 deletes]	dropped-excluded
+D3	internal/testmedia	TestAClipCarriesWhatItsSpecSays	W6.18	deferred
+D3	internal/testmedia	TestHDR10AndTenBitHEVC	W6.18	deferred
+D3	internal/testmedia	TestNoBinaryLinksTestmedia	W6.18	deferred
+D3	internal/testmedia	TestTheInspectorsReadWhatTheConvertedTestsAssert	W6.18	deferred
+D3	internal/testmedia	TestTruncateAndTheSameSpecWritesTheSameBytes	W6.18	deferred
+D3	pkg/ffruntime	TestABodyThatStopsInsideTheGraceIsNotAbandoned	W7.2	deferred
+D3	pkg/ffruntime	TestACancelledCallReturnsWithinTheGraceAndIsCountedUntilItReturns	W7.2	deferred
+D3	pkg/ffruntime	TestCaptureSeesEveryLineUntilReleased	W7.2	deferred
+D3	pkg/ffruntime	TestDoNeverStartsAfterItsContextEnded	W7.2	deferred
+D3	pkg/ffruntime	TestDoReturnsTheBodysResult	W7.2	deferred
+D3	pkg/ffruntime	TestErrorsReachSlogRateLimited	W7.2	deferred
+D3	pkg/ffruntime	TestFFRuntimeImportsOnlyFFgo	W7.2	deferred
+D3	pkg/ffruntime	TestLoadReportsFFmpeg9AndTheShim	W7.3	deferred
+D3	pkg/ffruntime	TestMappedFindsTheLoadedLibraries	W7.2	deferred
+D3	pkg/ffruntime	TestMaxAbandonedWedgesTheProcess	W7.2	deferred
+D3	pkg/ffruntime	TestMuteSilencesSlogButNotCaptures	W7.2	deferred
+D3	pkg/ffruntime	TestRequireNamesWhatIsMissing	W7.3	deferred
+D3	pkg/ffruntime	TestShimAPIMatchesTheFork	W7.3	deferred
+D3	pkg/ffruntime/ffmetrics	TestRegisterExportsTheAbandonedCallsGauge	W7.3	deferred
+D3	pkg/mediainfo	TestAtPathRederivesOnlyTheContainer	W4.1	deferred
+D3	pkg/mediainfo	TestErrProbeAbandonedSurvivesWrapping	W4.1	deferred
+D3	pkg/mediainfo	TestMediainfoKeepsOnlyTheModel	W8.7	deferred
+D3	pkg/mediainfo	TestToMediaInfoClampsEveryStreamString	F2.2	deferred
+D3	pkg/mediainfo/ffprobeexec	TestProbeMissingFileReturnsWrappedError	W8.3	rewrite
+D3	pkg/mediainfo/ffprobeexec	TestTheExecProberProbesTheFixtures	W4.1 [superseded: W8 deleted the ffprobe exec prober]	dropped-excluded
+D3	pkg/mediainfo/native	TestAbandonedProbesFailHealth	W8.3	deferred
+D3	pkg/mediainfo/native	TestCodecNameDropsWhatFFprobeOmits	W8.4	deferred
+D3	pkg/mediainfo/native	TestFFprobeTime	W8.4	deferred
+D3	pkg/mediainfo/native	TestNativeProbeMatchesTheCorpusGoldens	W8.4 (as amended by W6.23) [replaces TestNativeProbeMatchesFFprobeOnACorpus]	deferred
+D3	pkg/mediainfo/native	TestNativeProbeMatchesTheGoldens	W8.4 (as amended by W6.23) [replaces TestNativeProbeMatchesFFprobe]	deferred
+D3	pkg/mediainfo/native	TestNativeProbesInParallel	W8.3	deferred
+D3	pkg/mediainfo/native	TestProbeHonoursItsContext	W8.3	deferred
+D3	pkg/mediainfo/native	TestValidStringMatchesFFprobe	W8.4	deferred
+D3	pkg/mediainfo/native	TestNativeProbeMatchesFFprobe	W8.4 [superseded: W8.4 as amended by W6b (TestNativeProbeMatchesTheGoldens)]	dropped-excluded
+D3	pkg/mediainfo/native	TestNativeProbeMatchesFFprobeOnACorpus	W8.4 [superseded: W8.4 as amended by W6b (TestNativeProbeMatchesTheCorpusGoldens)]	dropped-excluded
+D3	pkg/transcode/donoraudio	TestKeepTakesTheAnchorThenTheLanguagesOnce	F7.1	deferred
+D3	pkg/transcode/donoraudio	TestPickComparesTheBaseLanguage	F7.1	deferred
+D3	pkg/transcode/donoraudio	TestReduceReturnsAMatroskaAudioDonorUnopened	F7.1	deferred
+D3	pkg/transcode/donoraudio	TestReduceReusesAnEarlierReduction	F7.1	deferred
+D3	pkg/transcode/donoraudio	TestReducedPathIsTheStemAsMatroskaAudio	F7.1	deferred
+D3	pkg/transcode/engine	TestTheLogTailIsACaptureOfTheProcessLog	W8.5	deferred
+D3	pkg/transcode/engine	TestAGraftedTrackIsInterleavedWithTheVideo	W6.20 [edit per plan]	rewrite
+D3	pkg/transcode/engine	TestASourceWhoseTimestampsGoBackwardsStillEncodes	W6.20 [edit per plan]	rewrite
+D3	pkg/transcode/engine	TestEAC3IsCopiedIntoMP4	W6.20 [edit per plan]	rewrite
+D3	pkg/transcode/engine	TestExtractAudioKeepsTheNamedTracks	W6.20 [edit per plan]	rewrite
+D3	pkg/transcode/engine	TestTheAC3EncoderOpensAtFivePointOne	W6.20 [edit per plan]	rewrite
+D3	pkg/transcode/selfcheck	TestCheckNamesTheFirstMissingMuxer	W8.5	deferred
+D3	test/goldens	TestTheGoldensAreCompleteAndIntact	W6.23	deferred
+D3	test/nativetest	TestPinnedRefusesAHostFFmpeg	W7.3	deferred
+D3	test/nativetest	TestRequiredFollowsTheEnvironment	W7.3	deferred
+D3	test/nativetest	TestTheFFgoRequirementCoversFFmpeg	W7.3	deferred
+D3	test/nativetest	TestVersionLineReadsLibavcodec	W7.3	deferred
+D4	app/caption/agent	TestRegisterSubscribesBothFetchConsumers	W3.13	deferred
+D4	app/caption/agent	TestTheCaptionDomainExtractsInProcess	W8.9	deferred
+D4	app/caption/agent	TestTheCaptionDomainRefusesToStartWithoutTheSRTEncoder	W8.9	deferred
+D4	app/caption/controller/subtitleprofile	TestAnInvalidFilterMarksTheProfileInvalid	F5.3	deferred
+D4	app/caption/controller/subtitleprofile	TestAnUnchangedStatusIsNotApplied	F5.3	deferred
+D4	app/caption/controller/subtitleprofile	TestMatchingFilesCountsTheFilesPlannedWithTheProfile	F5.3	deferred
+D4	app/caption/controller/subtitleprofile	TestOverlapIsTrueWhenAnotherProfileWinsAFileThisOneSelects	F5.3	deferred
+D4	app/caption/controller/subtitleprofile	TestSignalsWithinTheDebounceCollapseIntoOneEvent	F5.3	deferred
+D4	app/caption/controller/subtitleprofile	TestTheNewerOfTwoDefaultsIsInvalid	F5.3	deferred
+D4	app/caption/controller/subtitleprofile	TestValidateProfileFlagsAnInvalidFilter	F5.3 (ledger)	deferred
+D4	app/caption/controller/subtitleprovider	TestTheQuotaGaugeFollowsTheThrottleState	F5.2	deferred
+D4	app/caption/manager	TestRegisterAddsEveryCaptionController	W3.13 [plan name TestRegisterAddsEveryCaptionarrController (the brand gate refuses it)]	deferred
+D4	app/caption/manager	TestRegisterRequiresTheBus	W3.13	deferred
+D4	app/caption/manager	TestRegisterRequiresTheWake	F5.3 (ledger)	deferred
+D4	app/caption/status	TestAWithdrawnItemIsDeletedByTheWorkersNextApply	F8.6-F9.4 (removal-deleted-tests.txt) [deleted with its subject (a removed kind or v1 payload)]	dropped-excluded
+D4	app/caption/status	TestEverySubtitleItemFieldIsAccountedFor	F8.6-F9.4 (removal-deleted-tests.txt) [deleted with its subject (a removed kind or v1 payload)]	dropped-excluded
+D4	app/caption/status	TestEverySubtitleRequestStatusFieldIsAccountedFor	F8.6-F9.4 (removal-deleted-tests.txt) [deleted with its subject (a removed kind or v1 payload)]	dropped-excluded
+D4	app/caption/status	TestIsLiveAndLiveItemKeys	F8.6-F9.4 (removal-deleted-tests.txt) [deleted with its subject (a removed kind or v1 payload)]	dropped-excluded
+D4	app/caption/status	TestPatchRequestAgainstARealAPIServerRefusesAManagerOutsideTheSplit	F8.6-F9.4 (removal-deleted-tests.txt) [deleted with its subject (a removed kind or v1 payload)]	dropped-excluded
+D4	app/caption/status	TestPatchRequestRefusesAManagerOutsideTheSplit	F8.6-F9.4 (removal-deleted-tests.txt) [deleted with its subject (a removed kind or v1 payload)]	dropped-excluded
+D4	app/caption/status	TestRequestControllerFieldsDeclaresExactlyItsOwnSet	F8.6-F9.4 (removal-deleted-tests.txt) [deleted with its subject (a removed kind or v1 payload)]	dropped-excluded
+D4	app/caption/status	TestRequestControllerFieldsRendersOnlyLiveItems	F8.6-F9.4 (removal-deleted-tests.txt) [deleted with its subject (a removed kind or v1 payload)]	dropped-excluded
+D4	app/caption/status	TestRequestWorkerFieldsDeclaresExactlyItsOwnSet	F8.6-F9.4 (removal-deleted-tests.txt) [deleted with its subject (a removed kind or v1 payload)]	dropped-excluded
+D4	app/caption/status	TestRequestWorkerFieldsRendersOnlyLiveItems	F8.6-F9.4 (removal-deleted-tests.txt) [deleted with its subject (a removed kind or v1 payload)]	dropped-excluded
+D4	app/caption/status	TestTheItemDeclarationsAreDisjointOutsideTheSharedKey	F8.6-F9.4 (removal-deleted-tests.txt) [deleted with its subject (a removed kind or v1 payload)]	dropped-excluded
+D4	app/caption/status	TestTheRequestManagersDoNotReleaseEachOthersItemLeaves	F8.6-F9.4 (removal-deleted-tests.txt) [deleted with its subject (a removed kind or v1 payload)]	dropped-excluded
+D4	app/caption/subtitleplan	TestAFailedRecordWriteAfterTheApplyIsRedispatched	F5.1	deferred
+D4	app/caption/subtitleplan	TestAFirstPlanWantsGermanAndDispatchesIt	F5.1	deferred
+D4	app/caption/subtitleplan	TestAForcedNonceWaitsOutABlock	F5.4	deferred
+D4	app/caption/subtitleplan	TestAForcedSearchRacingAnInFlightAnswerKeepsBoth	F5.4	deferred
+D4	app/caption/subtitleplan	TestAForcedSearchSupersedesADispatchInFlight	F5.4	deferred
+D4	app/caption/subtitleplan	TestALateAnswerForAnOlderSeqIsIgnored	F5.1	deferred
+D4	app/caption/subtitleplan	TestANewProbeHashResetsAttemptsAndWithdraws	F5.1	deferred
+D4	app/caption/subtitleplan	TestAPendingProbeHoldsTheBlock	F5.1	deferred
+D4	app/caption/subtitleplan	TestARecordAheadOfStatusIsAdoptedNotRedispatched	F5.1	deferred
+D4	app/caption/subtitleplan	TestARemovedSidecarIsWantedAgain	F5.1	deferred
+D4	app/caption/subtitleplan	TestARenamedSidecarIsRebound	F5.1	deferred
+D4	app/caption/subtitleplan	TestATimedOutRequestIsWithdrawnThenClosed	F5.1	deferred
+D4	app/caption/subtitleplan	TestAnAnsweredRecordIsIncorporated	F5.1	deferred
+D4	app/caption/subtitleplan	TestAnInvalidNonceIsRecordedWithAWarning	F5.4	deferred
+D4	app/caption/subtitleplan	TestAnInvalidWinnerStillWins	F5.1 [profile_test.go]	deferred
+D4	app/caption/subtitleplan	TestBlockedRowsKeepTheItemsVerbatim	F5.1	deferred
+D4	app/caption/subtitleplan	TestForcedSearchIsHandledOnce	F5.4	deferred
+D4	app/caption/subtitleplan	TestItemFromMovieCarriesIDsAndTheOriginalLanguage	F5.1 [item_test.go]	deferred
+D4	app/caption/subtitleplan	TestNeedsListsOnlyWhenAGateOpens	F5.1	deferred
+D4	app/caption/subtitleplan	TestNotWantedNeedsNoItemAndNoProbeTag	F5.1	deferred
+D4	app/caption/subtitleplan	TestNothingToSearchIsRecorded	F5.4	deferred
+D4	app/caption/subtitleplan	TestSubtitleLanguageStateMirrorsTheFetchVerdicts	F1.5 -> F5.1	deferred
+D4	app/caption/subtitleplan	TestTheBacklogGateDefersScheduledDispatches	F5.1	deferred
+D4	app/caption/subtitleplan	TestTheBacklogGateDefersScheduledNotForced	F5.4	deferred
+D4	app/caption/subtitleplan	TestThePlannerImportsNoIO	F5.1	deferred
+D4	app/caption/subtitleplan	TestUntaggedAudioUsesTheItemsOriginalLanguage	F5.1	deferred
+D4	app/caption/subtitleplan	TestUpgradableFollowsTheProfilesMinDeltaPoints	F5.1	deferred
+D4	app/caption/subtitleplan	TestAdaptiveGate	F5.1 [F5.1 port into subtitleplan, with the edits F5.1 names; source app/caption/controller/subtitlerequest/schedule_test.go]	rebuild-from-f9839e34^
+D4	app/caption/subtitleplan	TestBuildExistingFiltersToTheProfileAndCaps	F5.1 [F5.1 port into subtitleplan, with the edits F5.1 names; source app/caption/controller/subtitlerequest/existing_test.go]	rebuild-from-f9839e34^
+D4	app/caption/subtitleplan	TestCadenceDefaultsAZeroDuration	F5.1 [F5.1 port into subtitleplan, with the edits F5.1 names; source app/caption/controller/subtitlerequest/schedule_test.go]	rebuild-from-f9839e34^
+D4	app/caption/subtitleplan	TestEmbeddedEntriesAreTheProvidersTheWorkerWouldTask	F5.1 [F5.1 port into subtitleplan, with the edits F5.1 names; was TestExtractorsAreTheProvidersTheWorkerWouldTask; source app/caption/controller/subtitlerequest/existing_test.go]	rebuild-from-f9839e34^
+D4	app/caption/subtitleplan	TestEmbeddedPolicy	F5.1 [F5.1 port into subtitleplan, with the edits F5.1 names; source app/caption/controller/subtitlerequest/existing_test.go]	rebuild-from-f9839e34^
+D4	app/caption/subtitleplan	TestExtractableStreams	F5.1 [F5.1 port into subtitleplan, with the edits F5.1 names; source app/caption/controller/subtitlerequest/existing_test.go]	rebuild-from-f9839e34^
+D4	app/caption/subtitleplan	TestISO6392AudioTripsAudioExclude	F5.1 [F5.1 port into subtitleplan, with the edits F5.1 names; source app/caption/controller/subtitlerequest/existing_test.go]	rebuild-from-f9839e34^
+D4	app/caption/subtitleplan	TestISO6392StreamLanguagesCountAsExisting	F5.1 [F5.1 port into subtitleplan, with the edits F5.1 names; source app/caption/controller/subtitlerequest/existing_test.go]	rebuild-from-f9839e34^
+D4	app/caption/subtitleplan	TestItemFromEpisodeTakesTheSeriesIDsAsParents	F5.1 [F5.1 port into subtitleplan, with the edits F5.1 names; was TestOriginalLanguageReadsTheMovieOrTheEpisodesSeries; source app/caption/controller/subtitlerequest/originallang_test.go]	rebuild-from-f9839e34^
+D4	app/caption/subtitleplan	TestMinScoreFor	F5.1 [F5.1 port into subtitleplan, with the edits F5.1 names; source app/caption/controller/subtitlerequest/existing_test.go]	rebuild-from-f9839e34^
+D4	app/caption/subtitleplan	TestNormalizeKeyKeepsSuffixes	F5.1 [F5.1 port into subtitleplan, with the edits F5.1 names; source app/caption/controller/subtitlerequest/existing_test.go]	rebuild-from-f9839e34^
+D4	app/caption/subtitleplan	TestPlanItemsWithdrawsAnUnwantedLanguageThatNeverDownloaded	F5.1 [F5.1 port into subtitleplan, with the edits F5.1 names; source app/caption/controller/subtitlerequest/items_test.go]	rebuild-from-f9839e34^
+D4	app/caption/subtitleplan	TestPlannerProfileOverrideAndNormalisation	F5.1 [F5.1 port into subtitleplan, with the edits F5.1 names; source app/caption/controller/subtitlerequest/existing_test.go]	rebuild-from-f9839e34^
+D4	app/caption/subtitleplan	TestSidecarExisting	F5.1 [F5.1 port into subtitleplan, with the edits F5.1 names; source app/caption/controller/subtitlerequest/existing_test.go]	rebuild-from-f9839e34^
+D4	app/caption/subtitleplan	TestStamp	F5.1 [F5.1 port into subtitleplan, with the edits F5.1 names; source app/caption/controller/subtitlerequest/schedule_test.go]	rebuild-from-f9839e34^
+D4	app/caption/subtitleplan	TestUpgradeCandidate	F5.1 [F5.1 port into subtitleplan, with the edits F5.1 names; source app/caption/controller/subtitlerequest/schedule_test.go]	rebuild-from-f9839e34^
+D4	app/caption/subtitleplan	TestUpgradeCheckAt	F5.1 [F5.1 port into subtitleplan, with the edits F5.1 names; source app/caption/controller/subtitlerequest/schedule_test.go]	rebuild-from-f9839e34^
+D4	app/caption/subtitleplan	TestUpgradeMinScore	F5.1 [F5.1 port into subtitleplan, with the edits F5.1 names; source app/caption/controller/subtitlerequest/schedule_test.go]	rebuild-from-f9839e34^
+D4	app/caption/subtitleplan	TestUpgradeScheduled	F5.1 [F5.1 port into subtitleplan, with the edits F5.1 names; source app/caption/controller/subtitlerequest/schedule_test.go]	rebuild-from-f9839e34^
+D4	app/caption/subtitleplan	TestWantedDueAt	F5.1 [F5.1 port into subtitleplan, with the edits F5.1 names; source app/caption/controller/subtitlerequest/schedule_test.go]	rebuild-from-f9839e34^
+D4	app/caption/worker/fetch	TestAFileChangedSincePlannedAnswersDropped	F5.2	deferred
+D4	app/caption/worker/fetch	TestAForeignOrUndecodableRecordReadsAbsent	F5.1	deferred
+D4	app/caption/worker/fetch	TestASupersededTaskIsAckedWithoutSearching	F5.2	deferred
+D4	app/caption/worker/fetch	TestAVideoReplacedDuringTheSearchAnswersDropped	F5.2	deferred
+D4	app/caption/worker/fetch	TestAWithdrawalDuringTheSearchDropsANonDownloadAnswer	F5.2	deferred
+D4	app/caption/worker/fetch	TestAnInvalidFilterAnswersFailed	F5.2	deferred
+D4	app/caption/worker/fetch	TestAnUpgradeReplacesTheSubtitleOnDiskAndRecordsIt	F5.2	deferred
+D4	app/caption/worker/fetch	TestAnswerRefusesASupersededSeq	F5.1	deferred
+D4	app/caption/worker/fetch	TestEachLanguageHasItsOwnKey	F5.1	deferred
+D4	app/caption/worker/fetch	TestFetchWritesTheBestAcceptableSubtitleAndAnswers	F5.2	deferred
+D4	app/caption/worker/fetch	TestNothingBetterThanTheSubtitleOnDiskAnswersKept	F5.2	deferred
+D4	app/caption/worker/fetch	TestRequestNeverOverwritesAnUnincorporatedDownload	F5.1	deferred
+D4	app/caption/worker/fetch	TestTheLastDeliveryAnswersFailed	F5.2	deferred
+D4	app/caption/worker/fetch	TestTheProfileFencesTheTask	F5.2	deferred
+D4	app/caption/worker/fetch	TestThrottledProvidersAnswerThrottledWithTheirWindow	F5.2	deferred
+D4	app/caption/worker/fetch	TestWithdrawBeatsALateAnswer	F5.1	deferred
+D4	app/caption/worker/fetch	TestASecondAccountOfOneTypeBacksTheFirstsDownloadQuota	F5.2 [F5.2 rewrite: asserts on the answer record; source app/caption/worker/fetch/pool_envtest_test.go]	rebuild-from-31a62b70^
+D4	app/caption/worker/fetch	TestAnExtractableEmbeddedTrackIsWrittenWithoutAskingARemoteProvider	F5.2 [F5.2 rewrite: asserts on the answer record; source app/caption/worker/fetch/pool_envtest_test.go]	rebuild-from-31a62b70^
+D4	app/caption/worker/fetch	TestPoolingDownloadsTheBestCandidateOfEveryProvider	F5.2 [F5.2 rewrite: asserts on the answer record; source app/caption/worker/fetch/pool_envtest_test.go]	rebuild-from-31a62b70^
+D4	app/caption/worker/fetch	TestProviderErrorsGoToTheSharedThrottleNeverToSubtitleProviderStatus	F5.2 [F5.2 rewrite: asserts on the answer record; source app/caption/worker/fetch/worker_envtest_test.go]	rebuild-from-31a62b70^
+D4	app/caption/worker/fetch	TestTheSidecarTakesTheTasksFileMode	F5.2 [F5.2 rewrite: asserts on the answer record; was TestTheSidecarTakesItsRootFoldersFileMode; source app/caption/worker/fetch/pool_envtest_test.go]	rebuild-from-31a62b70^
+D4	app/caption/worker/fetch	TestChooseProfile	F5.2 [edit per plan]	rewrite
+D4	app/caption/worker/fetch	TestIMDbNumber	F5.2 [edit per plan]	rewrite
+D4	app/caption/worker/fetch	TestSidecarModeComesFromTheContainingRootFolder	F5.2 [edit per plan]	rewrite
+D4	app/caption/worker/fetch	TestWantForResolvesTheEntryAndItsAliases	F5.2 [edit per plan]	rewrite
+D4	app/caption/worker/fetch	TestAV1TaskIsAckedAsStale	F5.2 [F9.4 (cold turkey) deleted the v1 stale-ack branches]	dropped-excluded
+D4	app/caption/worker/fetch	TestMinScore	F8.6-F9.4 (removal-deleted-tests.txt) [deleted with its subject (a removed kind or v1 payload)]	dropped-excluded
+D4	app/grab	TestManagerOptionsCarryTheGrabarrOptions	W3.11 [superseded: W5.17 deleted the app/<svc> roots; internal/cli tests cover the mapping]	dropped-excluded
+D4	app/grab	TestValidateRequiresTheEngineServiceAccount	W3.11 [superseded: W5.17 deleted the app/<svc> roots; internal/cli tests cover the mapping]	dropped-excluded
+D4	app/grab/agent/torrent	TestEngineIdentity	W5.5	deferred
+D4	app/grab/agent/torrent	TestPodNamePrefersTheDownwardAPI	W5.5	deferred
+D4	app/grab/agent/torrent	TestRegisterReattachesAndAddsNoLeaderOnlyRunnable	W3.11	deferred
+D4	app/grab/agent/torrent	TestRegisterRequiresTheBus	W3.11	deferred
+D4	app/grab/agent/usenet	TestBuildConfigMapsTheConnectionBudget	W9.6	deferred
+D4	app/grab/agent/usenet	TestTheUsenetDirectClientIsReadOnly	A7.1 (ledger)	deferred
+D4	app/grab/controller/downloadclient	TestARecreatedTransfersBucketStartsAResync	A3.7	deferred
+D4	app/grab/controller/downloadclient	TestAScaledDownOrdinalsDurableGoesOnlyWhenNothingIsPinned	A3.7	deferred
+D4	app/grab/controller/downloadclient	TestAnUnidentifiedTransferIsRemovedAfterTheGraceWithItsBytesKept	A3.7	deferred
+D4	app/grab/controller/downloadclient	TestDiskSpaceOKReadsTheEnginesFreeBytes	A3.7	deferred
+D4	app/grab/controller/downloadclient	TestEngineCommandRunsTheAgentWithOneDomain	W5.5	deferred
+D4	app/grab/controller/downloadclient	TestEngineReadyNeedsAFreshEngineRecord	A3.7	deferred
+D4	app/grab/controller/downloadclient	TestEveryRenderedOrdinalHasItsDurable	A3.7	deferred
+D4	app/grab/controller/downloadclient	TestProxyUDPUnavailableIsAConditionAndOneEvent	A3.7	deferred
+D4	app/grab/controller/downloadclient	TestBuildDeploymentShape	W5.5 [edit per plan]	rewrite
+D4	app/grab/controller/downloadclient	TestBuildStatefulSetShape	W5.5 [edit per plan]	rewrite
+D4	app/grab/controller/downloadclient	TestEnginePodsGetTheRuntimeTheyNeed	W5.5 [edit per plan]	rewrite
+D4	app/grab/controller/downloadclient	TestHoldModeAdoptsNothing	A8.1 [task dropped by the cold-turkey revision]	dropped-excluded
+D4	app/grab/controller/downloadclient	TestTheGateHoldsUnidentifiedRemovalUntilAdoptionCompletes	A3.7 [cold-turkey revision: no task writes it]	dropped-excluded
+D4	app/grab/controller/downloadclient	TestTheUnidentifiedGateWaitsForAdoption	A8.1 [task dropped by the cold-turkey revision]	dropped-excluded
+D4	app/grab/engine	TestACommandAtOrBelowTheJournalSeqIsDropped	A3.6	deferred
+D4	app/grab/engine	TestAPreJournalTransferIsMatchedByNameAndClaimed	A3.6 [plan name TestAPreJournalTransferIsMatchedByNameAndAdopted]	deferred
+D4	app/grab/engine	TestAnUnclaimedTransferReadsClaimedFalseAfterTheGrace	A3.6	deferred
+D4	app/grab/engine	TestDownloadTimeoutReReadsBeforeAskingAgain	Wave N N4 (ledger)	deferred
+D4	app/grab/engine	TestResyncRewritesEveryRecordThenReportsTheSeq	A3.6	deferred
+D4	app/grab/engine	TestTheEngineAcksOnlyAfterTheRecordShowsTheSeq	A3.6	deferred
+D4	app/grab/engine	TestTransferRecordFilesAreClampedToTheBudget	A3.6	deferred
+D4	app/grab/engine	TestAPreJournalTransferIsClaimedByItsAdoptedEntry	A8.1 [task dropped by the cold-turkey revision]	dropped-excluded
+D4	app/grab/engine/torrent	TestPayloadUnavailableIsReportedNotRetriedForever	A3.6	deferred
+D4	app/grab/engine/torrent	TestTheEngineRemovesNothingWithoutAnAbsentCommand	A3.6	deferred
+D4	app/grab/engine/usenet	TestTheEngineRepairsInAChildOfItself	W9.6	deferred
+D4	app/grab/engine/usenet	TestTheUnreapedChildrenGaugeRegistersOnce	W9.6	deferred
+D4	app/grab/lifecycle	TestABlocklistedEntryIsDroppedOnlyAfterConfirmationAndQuarantine	A3.4	deferred
+D4	app/grab/lifecycle	TestAFailedEntryWaitsForItsRedownloadSearch	A3.4	deferred
+D4	app/grab/lifecycle	TestAnEntryIsNotJudgedMissingBeforeResync	A3.4	deferred
+D4	app/grab/lifecycle	TestAnOwedCommandIsRepublishedWithTheSameMsgIDInsideTheWindow	A3.4	deferred
+D4	app/grab/lifecycle	TestChooseClientPrefersTheIndexersClient	A3.4	deferred
+D4	app/grab/lifecycle	TestChooseOrdinalBalancesThenHashes	A3.4	deferred
+D4	app/grab/lifecycle	TestEngineGoneDropsAfterTenMinutes	A3.4	deferred
+D4	app/grab/lifecycle	TestEveryRowOfTheStateMachine	A3.4	deferred
+D4	app/grab/lifecycle	TestIntentsParseAndRecordEveryNonce	A3.4	deferred
+D4	app/grab/lifecycle	TestNothingRemovesOnAbsence	A3.4	deferred
+D4	app/grab/lifecycle	TestScopeByReason	A3.4	deferred
+D4	app/grab/lifecycle	TestTheClaimEvidenceOrder	A3.4	deferred
+D4	app/grab/manager	TestEngineRuntimeCarriesTheControllerOptions	W3.11	rewrite
+D4	app/grab/manager	TestTorrentEngineDirs	W3.11 [edit per plan]	rewrite
+D4	app/import	TestAgentOptionsCarryTheImportarrOptions	W3.9 [superseded: W5.17 deleted the app/<svc> roots; internal/cli tests cover the mapping]	dropped-excluded
+D4	app/import	TestManagerOptionsCarryTheTraktBaseURL	W3.9 [superseded: W5.17 deleted the app/<svc> roots; internal/cli tests cover the mapping]	dropped-excluded
+D4	app/import/agent	TestRegisterWiresTheImportDomain	W3.9	deferred
+D4	app/import/agent	TestTheImportAgentAnswersBothProbeLanes	W4.7	deferred
+D4	app/import/agent	TestTheImportDomainProbesInProcess	W8.6	deferred
+D4	app/import/agent	TestTheImportDomainRefusesToStartWithoutAProber	W8.6	deferred
+D4	app/import/agent	TestTheProbeWorkerIsNamedForItsPod	W4.7	deferred
+D4	app/import/agent	TestAllRoleLeaderElectsWhenAsked	W5.17 [delete per plan]	rewrite
+D4	app/import/agent	TestImportListsGetTheirBaseURLs	W3.9 [edit per plan]	rewrite
+D4	app/import/agent	TestManagerOptionsNeverCacheSecretsOrConfigMaps	W5.17 [delete per plan]	rewrite
+D4	app/import/agent	TestRunRejectsAnUnknownRole	W5.17 [delete per plan]	rewrite
+D4	app/import/agent	TestScanWorkerGetsTheAPIReader	W3.9 [edit per plan]	rewrite
+D4	app/import/agent	TestTheControllerRoleCachesMediaFilesWithoutMediaInfo	W5.17 [delete per plan]	rewrite
+D4	app/import/agent	TestTheListWorkerGetsItsBaseURLs	W3.9 [rename of TestImportListsGetTheirBaseURLs]	rewrite
+D4	app/import/agent	TestValidateRejectsAnEmptyDataPath	W5.17 [delete per plan]	rewrite
+D4	app/import/agent	TestValidateRequiresTheBus	W5.17 [delete per plan]	rewrite
+D4	app/import/agent	TestWorkerRoleDoesNotLeaderElect	W5.17 [delete per plan]	rewrite
+D4	app/import/controller/importlist	TestADeviceCodeSaveNeverRollsBackARefreshedToken	W4.83	deferred
+D4	app/import/controller/importlist	TestAListSyncRacingTheClassifierKeepsTheAnimeProfile	W4.85	deferred
+D4	app/import/controller/importlist	TestAPartialSnapshotIsNotDiffed	A6.2	deferred
+D4	app/import/controller/importlist	TestARefusedRefreshedTokenStartsADeviceFlow	A6.2 (ledger) [the controller is the sole Trakt token writer]	deferred
+D4	app/import/controller/importlist	TestATranscodePartWithoutABinIsRemovedOutright	A6.2 (ledger) [recycle via task; the list controller]	deferred
+D4	app/import/controller/importlist	TestOneRefresherRotatesTheTraktToken	A6.2	deferred
+D4	app/import/controller/importlist	TestRemoveAndDeleteRecyclesThenDeletesWithPreconditions	A6.2	deferred
+D4	app/import/controller/importlist	TestTheDiffWritesOnlyTheItemsTheListAddedItself	A6.2	deferred
+D4	app/import/controller/recyclesweep	TestPublishOnceQueuesOneSweepPerSlot	W4.61	deferred
+D4	app/import/controller/recyclesweep	TestSlotsAreSixHourUTCWindows	W4.61	deferred
+D4	app/import/controller/recyclesweep	TestStartPublishesAtOnceAndRetriesAFailure	W4.61	deferred
+D4	app/import/controller/recyclesweep	TestTheTaskNamesItsSlot	W4.61	deferred
+D4	app/import/importplan	TestAHeldImportExpiresAfterTwentyFourHoursAndIsNeverBlocklisted	A3.8	deferred
+D4	app/import/importplan	TestATransientImportRetriesOnStatusNotStreamState	A3.8	deferred
+D4	app/import/importplan	TestImportplanCarriesEveryRuleOfFileimport	A3.8	deferred
+D4	app/import/manager	TestRegisterRequiresTheBus	W3.9	deferred
+D4	app/import/manager	TestRegisterSubscribesNothing	W3.9	deferred
+D4	app/import/manager	TestTheImportListControllerGetsTheTraktBaseURL	W3.9	deferred
+D4	app/import/manager/scanapply	TestAMissingFileIsDeletedAfterTenMinutesWithPreconditions	A6.1	deferred
+D4	app/import/manager/scanapply	TestAStaleBasisIsReobservedNotApplied	A6.1	deferred
+D4	app/import/manager/scanapply	TestAnExistingItemWithAnotherProviderIDIsNeverOverwritten	A6.1	deferred
+D4	app/import/manager/scanapply	TestCreatesAndDeletesArePaced	A6.1	deferred
+D4	app/import/manager/scanapply	TestTheScannerNeverGuesses	A6.1	deferred
+D4	app/import/mediafilespec	TestReassertFrozenKeepsTheInfoHash	A1.3	deferred
+D4	app/import/worker/fileimport	TestADonorIsReducedBesideTheLibraryAtImport	F7.1	deferred
+D4	app/import/worker/fileimport	TestADonorLackingALanguageAtReductionIsTheReleasesFault	F7.1	deferred
+D4	app/import/worker/fileimport	TestADonorThatCannotBeReducedIsRetriedThenBlocked	F7.1	deferred
+D4	app/import/worker/fileimport	TestANewDonorRemovesTheItemsRecordedOne	F7.1	deferred
+D4	app/import/worker/fileimport	TestAnAudioProbeHeartbeatsAndIsBounded	W4.86	deferred
+D4	app/import/worker/fileimport	TestAnAudioProbeIsBounded	W4.9	deferred
+D4	app/import/worker/fileimport	TestFieldIndexesDeclareTheMediaFileTargetIndex	W3.4	deferred
+D4	app/import/worker/fileimport	TestFrozenReleaseFitsTheMediaFileBounds	F2.2	deferred
+D4	app/import/worker/fileimport	TestInspectAndExecuteWriteNoKubernetesObject	A3.8	deferred
+D4	app/import/worker/fileimport	TestRecycleFilesRefusesAPathOutsideTheRootFolder	A6.2	deferred
+D4	app/import/worker/fileimport	TestRecycleSweeperHandlesTheSweepTask	W4.61	deferred
+D4	app/import/worker/fileimport	TestTheAudioProbeFitsTheFileConsumersAckDeadline	W4.9	deferred
+D4	app/import/worker/fileimport	TestTheExecuteTaskRefusesAStaleBasis	A3.8	deferred
+D4	app/import/worker/fileimport	TestAMediaFileApplyIsACompareAndSwap	W4.84 [superseded: A3.8 deleted fileimport.applyMediaFile (specwrite; TestMaterialiseDeletesReplacedFilesWithAUIDPrecondition)]	dropped-excluded
+D4	app/import/worker/fileimport	TestAnImportSeedsTheProbeRecord	W4.8 [superseded: A3.8/A6.1 dropped probe seeding at import and scan]	dropped-excluded
+D4	app/import/worker/fileimport	TestAnUnprobedImportSeedsNothing	W4.8 [superseded: A3.8/A6.1 dropped probe seeding at import and scan]	dropped-excluded
+D4	app/import/worker/importlist	TestTheListAgentWritesOnlyASnapshot	A6.2	deferred
+D4	app/import/worker/probe	TestADrainingWorkerLeavesTheTaskForAnotherReplica	W4.6	deferred
+D4	app/import/worker/probe	TestAFileThatChangesWhileProbedIsTransient	W4.6	deferred
+D4	app/import/worker/probe	TestAPathOutsideTheDataMountIsRefused	W4.6	deferred
+D4	app/import/worker/probe	TestASupersededTaskIsAckedWithoutProbing	W4.6	deferred
+D4	app/import/worker/probe	TestATimedOutOrIncompleteProbeIsTransient	W4.6	deferred
+D4	app/import/worker/probe	TestAnAbandonedProbeIsNotTransient	W4.6	deferred
+D4	app/import/worker/probe	TestAnUndecodableTaskIsDeadLettered	W4.6	deferred
+D4	app/import/worker/probe	TestTheProbeFitsTheProbeConsumersAckDeadline	W4.6	deferred
+D4	app/import/worker/probe	TestTheProbeWorkerAnswersARealFile	W4.6	deferred
+D4	app/import/worker/probe	TestTheProbeWorkerAnswersOnlyTheCurrentRequest	W4.6	deferred
+D4	app/import/worker/probe	TestTheProbeWorkerLinksNoProberAndNoClient	W4.6	deferred
+D4	app/import/worker/rescan	TestFieldIndexesDeclareTheMediaFilePathIndex	W3.4	deferred
+D4	app/import/worker/rescan	TestTheAudioProbeFitsTheScanConsumersAckDeadline	W4.9	deferred
+D4	app/import/worker/rescan	TestTheRescanPublishesObservationsAndWritesNothing	A6.1	deferred
+D4	app/import/worker/rescan	TestARescanRemovesAnAbandonedTranscodeAttemptsPartFile	F9.2 [removal-deleted-tests.txt: re-home on a MediaFile-keyed fixture; source app/import/worker/rescan/orphanpart_envtest_test.go]	rebuild-from-0beb88d6^
+D4	app/import/worker/rescan	TestHandleLeavesTranscodeOutputsToCatalog	F9.2 [removal-deleted-tests.txt: re-home on a MediaFile-keyed fixture; source app/import/worker/rescan/transcodeoutput_envtest_test.go]	rebuild-from-0beb88d6^
+D4	app/import/worker/rescan	TestARescanSeedsTheProbeRecordForANewFile	W4.8 [superseded: A3.8/A6.1 dropped probe seeding at import and scan]	dropped-excluded
+D4	app/import/worker/rescan	TestARescanWithoutAProbeSeedsNothing	W4.8 [superseded: A3.8/A6.1 dropped probe seeding at import and scan]	dropped-excluded
+D4	app/indexer/agent	TestAgentClientCacheAppliesRateLimit	W4.25	deferred
+D4	app/indexer/agent	TestAgentForgetsClientOnSessionChange	W4.25	deferred
+D4	app/indexer/agent	TestAgentGrabAppliesTheIndexersRequestDelay	W4.25	deferred
+D4	app/indexer/agent	TestEveryComponentIsRegistered	W5.17 [from TestIndexarrWiringRegistersEveryComponent]	deferred
+D4	app/indexer/agent	TestIndexAgentLinksNoManagerCode	W4.26	deferred
+D4	app/indexer/agent	TestIndexSweeperRunsOnEveryReplica	W4.28	deferred
+D4	app/indexer/agent	TestRegisterRequiresTheBus	W3.10	deferred
+D4	app/indexer/agent	TestRegisterServesTheIndexDomain	W3.10	deferred
+D4	app/indexer/agent	TestTheFacadeFailsClosedUntilTheManagerCreatesItsKey	A6.4	deferred
+D4	app/indexer/agent	TestTheReleaseIndexIsSwept	W3.10	deferred
+D4	app/indexer/agent	TestAnExplicitZeroRequestDelayStaysUnpaced	W4.25 [edit per plan]	rewrite
+D4	app/indexer/agent	TestIndexSweeperIsLeaderElected	W3.10, W4.28, W5.17 [delete per plan]	rewrite
+D4	app/indexer/agent	TestIndexSweeperPrunesOnceOnStartBeforeTicking	W3.10, W5.17 [edit per plan; delete per plan]	rewrite
+D4	app/indexer/agent	TestIndexerSpecDefaultsMatchTheCRD	W3.10, W4.22, W4.25 [delete per plan; edit per plan]	rewrite
+D4	app/indexer/agent	TestLeaderElectionIsGatedOnIndexDSN	W5.17 [delete per plan]	rewrite
+D4	app/indexer/agent	TestReadinessPassesOnANonLeaderReplica	W3.10 [edit per plan]	rewrite
+D4	app/indexer/agent	TestTheIndexReadinessCheckFailsOnAClosedStore	W3.10	rewrite
+D4	app/indexer/agent	TestTheFacadeKeySecretIsCreatedAsIndexarrWorker	W4.20 [superseded: A6.4, the manager creates the facade key (TestTheFacadeFailsClosedUntilTheManagerCreatesItsKey)]	dropped-excluded
+D4	app/indexer/blocklist	TestAQueryAnswerMarksABlockedRelease	A3.1	deferred
+D4	app/indexer/blocklist	TestASearchAnswerMarksABlockedRelease	A3.1	deferred
+D4	app/indexer/blocklist	TestTheBlocklistVerbPersistsWhatItIsAsked	A3.1	deferred
+D4	app/indexer/clientcache	TestANewerGenerationAppliesAfterAnOlderOne	W4.22	deferred
+D4	app/indexer/clientcache	TestAStaleIndexerDoesNotRevertANewerRequestDelay	W4.22	deferred
+D4	app/indexer/clientcache	TestClientCacheAppliesTheIndexersRequestDelay	W4.22	deferred
+D4	app/indexer/clientcache	TestForgetKeepsTheAppliedGeneration	W4.23	deferred
+D4	app/indexer/clientcache	TestPruneDropsExpiredEntriesAndDeletedIndexers	W4.23	deferred
+D4	app/indexer/clientcache	TestWatchSessionsForgetsTheIndexerWhoseSessionChanged	W4.23	deferred
+D4	app/indexer/clients	TestAFailedReLoginKeepsASessionTheManagerSavedMeanwhile	W4.21	deferred
+D4	app/indexer/clients	TestDefaultLimiterConfigPacesAtTheCRDDefault	W4.22	deferred
+D4	app/indexer/clients	TestSessionDropDoesNotWipeANewerSave	W4.21, A6.4	deferred
+D4	app/indexer/clients	TestSessionDropInKV	W4.21	deferred
+D4	app/indexer/clients	TestTheAgentWritesNoSecret	A6.4	deferred
+D4	app/indexer/clients	TestASessionStoreWithoutAManagerRefusesToWrite	W4.20 [superseded: A6.4 made the session store KV only (A plan amendment W4.20)]	dropped-excluded
+D4	app/indexer/clients	TestNewSessionStoreKeepsItsManager	W4.20 [superseded: A6.4 made the session store KV only (A plan amendment W4.20)]	dropped-excluded
+D4	app/indexer/clients	TestSessionSaveRecordsItsFieldManager	W4.20 [superseded: A6.4 made the session store KV only (A plan amendment W4.20)]	dropped-excluded
+D4	app/indexer/controller/indexer	TestADroppedSessionLogsInAgainAtOnce	W4.24	deferred
+D4	app/indexer/controller/indexer	TestIndexersForSession	W4.24	deferred
+D4	app/indexer/controller/indexer	TestSessionsSourceEnqueuesOnlyADroppedSession	W4.24	deferred
+D4	app/indexer/controller/indexer	TestTheControllerMirrorsTheKVSessionIntoTheSecret	A6.4	deferred
+D4	app/indexer/controller/indexer	TestTheControllerSchedulesTheNextPollAfterAnOutcome	A6.3	deferred
+D4	app/indexer/controller/indexer	TestTheIndexerReconcilerHoldsNoClientCacheHook	W4.25	deferred
+D4	app/indexer/controller/indexer	TestTheLadderRunsInTheController	A6.3	deferred
+D4	app/indexer/controller/indexer	TestAFailedReLoginFailsTheSearchAndDropsTheSession	W4.21 [edit per plan]	rewrite
+D4	app/indexer/controller/indexer	TestDeletionCallsForgetClient	W10.8 [edit per plan]	rewrite
+D4	app/indexer/controller/indexer	TestDeletionPrunesTheCapsMemoButNotTheSharedBucket	W4.25 [delete per plan]	rewrite
+D4	app/indexer/health	TestLocalSuppressionLastsAtMostThirtySeconds	A6.3	deferred
+D4	app/indexer/manager	TestBundleLoaderIsLeaderOnly	W4.27	deferred
+D4	app/indexer/manager	TestEveryComponentIsRegistered	W5.17 [from TestEveryIndexarrRunnableIsRegistered]	deferred
+D4	app/indexer/manager	TestIndexerManagerLinksNoAgentState	W4.26	deferred
+D4	app/indexer/manager	TestRegisterAddsNoConsumerAndOneLeaderOnlyLoader	W3.10	deferred
+D4	app/indexer/search	TestAnEpisodeQueryIsUnchanged	S4	deferred
+D4	app/indexer/search	TestBuildQueryForASeason	S4	deferred
+D4	app/indexer/search	TestTheIndexAgentWritesOutcomesNotStatus	A6.3	deferred
+D4	app/indexer/worker/rss	TestNoPollChainsItself	A6.3	deferred
+D4	app/indexer/worker/rss	TestTheFirehoseCarriesEveryScopeThatBlocksARelease	A3.1	deferred
+D4	app/remediation/dlindex	TestDlindexFindsTheOwnerByEntryIDOrUID	A3.3	deferred
+D4	app/remediation/downloads	TestARefusedImportOverATranscodedFileStopsReadingDownloading	A3.5	deferred
+D4	app/remediation/downloads	TestAnEpisodeReadsItsSeriesEntries	A3.5	deferred
+D4	app/remediation/downloads	TestAnUnclaimedTransferIsResumedUnderItsOwner	A3.5	deferred
+D4	app/remediation/downloads	TestMaterialiseDeletesReplacedFilesWithAUIDPrecondition	A3.8	deferred
+D4	app/remediation/downloads	TestOwnerGoneNeedsTheAPIReadersNotFound	A3.5	deferred
+D4	app/remediation/downloads	TestTheDownloadsStageRunsTheTableOnAnOwnerAlreadyInItsSteadyState	A3.5	deferred
+D4	app/remediation/downloads	TestTheEntryReadsImportedOnlyWhenEveryPlacedFileHasItsMediaFile	A3.8	deferred
+D4	app/remediation/downloads	TestTheFinalizerHoldsDeletionUntilEveryTransferIsRemoved	A3.5	deferred
+D4	app/remediation/downloads	TestTheImportIntentReissuesTheInspect	A3.8	deferred
+D4	app/remediation/subtitles	TestAProfileEditThatWantsNothingNewWritesNoMediaFile	F5.1	deferred
+D4	app/remediation/subtitles	TestARepublishOfAnEvictedTaskTakesAFreshMsgID	F5.1	deferred
+D4	app/remediation/subtitles	TestAnnotatingTheMediaFileForcesASearch	F5.4	deferred
+D4	app/remediation/subtitles	TestCopyTakesOnlyTheSubtitlesFields	F5.1	deferred
+D4	app/remediation/subtitles	TestEffectsWithdrawBeforeTheyRequest	F5.1	deferred
+D4	app/remediation/subtitles	TestSubtitlesSurviveABlockedPass	F5.1	deferred
+D4	app/remediation/subtitles	TestTheLoopIncorporatesAnAnsweredRecord	F5.1	deferred
+D4	pkg/download/torrent	TestImportedSurvivesARestart	A3.6	deferred
+D4	pkg/download/usenet	TestAnEngineStoppedDuringRepairResumesTheJob	W9.5	deferred
+D4	pkg/download/usenet	TestLibraryRepairerCountsTheBlocksItNeeds	W9.4	deferred
+D4	pkg/download/usenet	TestLibraryRepairerRepairsASetWhoseFilesCarryOtherNames	W10.7 [runs real par2go]	deferred
+D4	pkg/download/usenet	TestLibraryRepairerReportsAMissingLibrary	W9.4	deferred
+D4	pkg/download/usenet	TestLibraryRepairerResolvesTargetsAgainstTheJobDir	W9.4	deferred
+D4	pkg/download/usenet	TestPar2ExtrasAreAbsoluteAndSkipEmptyFiles	W9.4	deferred
+D4	pkg/download/usenet	TestPar2VerdictMapsEveryOutcome	W9.4	deferred
+D4	pkg/download/usenet	TestTheUsenetClientExecsNothing	W9.5	deferred
+D4	pkg/download/usenet	TestClientRepairsAReleaseWithAMissingArticle	W9.5 [edit per plan]	rewrite
+D4	pkg/download/usenet	TestPar2RunnerRepairsASetWhoseFilesCarryOtherNames	W10.7 [edit per plan]	rewrite
+D4	pkg/download/usenet	TestPar2RunnerReportsAMissingBinary	W9.5 [edit per plan]	rewrite
+D4	pkg/download/usenet	TestTailWriterBoundsASubprocessThatTalksTooMuch	W9.5 [delete per plan]	rewrite
+D4	pkg/par2child	TestChildRunsTheLibrary	W9.3	deferred
+D4	pkg/par2child	TestExecCancelsTheChildCooperatively	W9.3	deferred
+D4	pkg/par2child	TestExecKillsAChildThatIgnoresCancel	W9.3	deferred
+D4	pkg/par2child	TestExecPassesTheChildOnlyItsEnvironment	W9.3	deferred
+D4	pkg/par2child	TestExecReportsAChildThatDiedWithoutAResult	W9.3	deferred
+D4	pkg/par2child	TestExecReportsAMissingBinary	W9.3	deferred
+D4	pkg/par2child	TestExecReturnsTheChildsResult	W9.3	deferred
+D4	pkg/par2child	TestExecSendsNamesByteForByte	W9.3	deferred
+D4	pkg/par2child	TestInProcessCancelReturnsPromptly	W9.3	deferred
+D4	pkg/par2child	TestInProcessResolvesAgainstDirNotCwd	W9.3	deferred
+D4	pkg/par2child	TestInProcessVerdicts	W9.3	deferred
+D4	pkg/par2child	TestResultErrorWrapsTheLibrarySentinel	W9.3	deferred
+D4	pkg/par2child	TestTailBufferBoundsAChildThatTalksTooMuch	W9.3 [moved from pkg/download/usenet TestTailWriterBoundsASubprocessThatTalksTooMuch]	deferred
+D4	pkg/par2child	TestTheOnlyExecIsTheRepairChild	W9.3	deferred
+D4	pkg/relindex	TestTheMigrationFromVersionOneAddsTheBlocklist	A3.1	deferred
+D4	pkg/subtitles/providers/embedded/native	TestExtractCapsItsOutput	W8.8	deferred
+D4	pkg/subtitles/providers/embedded/native	TestExtractConvertsEveryTextCodecToSRT	W8.8	deferred
+D4	pkg/subtitles/providers/embedded/native	TestExtractRefusesAStreamThatIsNotText	W8.8	deferred
+D4	test/par2test	TestCreateSetMakesAnIndexAndVolumes	W9.2	deferred
+D5	app/autoscale	TestAutoscaleLinksNoAPIServerLibraries	W4.74	deferred
+D5	app/autoscale	TestRegisterWithAutoscaleOffDeletesTheManagedHPAs	W4.74	deferred
+D5	app/autoscale/controller	TestDeleteManagedHPAs	W4.66	deferred
+D5	app/autoscale/controller	TestMatchingNodes	W4.64	deferred
+D5	app/autoscale/controller	TestMatchingNodesReportsAnUnparseableAffinity	W4.64	deferred
+D5	app/autoscale/controller	TestReconcilerBuildsTheHPA	W4.66	deferred
+D5	app/autoscale/controller	TestRenderHPA	W4.65	deferred
+D5	app/autoscale/controller	TestRenderHPAGolden	W4.65	deferred
+D5	app/autoscale/extmetrics	TestCAInjectorOwnsOnlyCABundle	W4.71	deferred
+D5	app/autoscale/extmetrics	TestCANeedsRenewal	W4.67	deferred
+D5	app/autoscale/extmetrics	TestCertManagerCreatesTheSecretOnceAndRenews	W4.71	deferred
+D5	app/autoscale/extmetrics	TestCertManagerReplacesAnUnusableCA	W4.71	deferred
+D5	app/autoscale/extmetrics	TestDiscovery	W4.69	deferred
+D5	app/autoscale/extmetrics	TestErrors	W4.69	deferred
+D5	app/autoscale/extmetrics	TestFrontProxyAuth	W4.68	deferred
+D5	app/autoscale/extmetrics	TestIssueServingNamesTheServiceFourWaysForOneYear	W4.67	deferred
+D5	app/autoscale/extmetrics	TestListGolden	W4.69	deferred
+D5	app/autoscale/extmetrics	TestNamespaceGuardDeletesTheAPIServiceOnlyWhileItsNamespaceTerminates	W4.73	deferred
+D5	app/autoscale/extmetrics	TestNewCAIsAP256CAForTenYears	W4.67	deferred
+D5	app/autoscale/extmetrics	TestNewSecretDataHoldsFourKeys	W4.67	deferred
+D5	app/autoscale/extmetrics	TestNewServerRefusesAnIncompleteConfig	W4.70	deferred
+D5	app/autoscale/extmetrics	TestParseAuthConfig	W4.68	deferred
+D5	app/autoscale/extmetrics	TestQueueGaugeAndTheAPIShareOneRead	W4.99	deferred
+D5	app/autoscale/extmetrics	TestQueueGaugeExportsDispatchWaitingAndUnattended	A2.2	deferred
+D5	app/autoscale/extmetrics	TestQueueGaugeExportsEachCounter	W4.99	deferred
+D5	app/autoscale/extmetrics	TestQueueGaugeSetsStreamFill	W4.96	deferred
+D5	app/autoscale/extmetrics	TestQueueGaugeSetsTheLagOfEveryWorkConsumer	W4.72	deferred
+D5	app/autoscale/extmetrics	TestRenewalReason	W4.67	deferred
+D5	app/autoscale/extmetrics	TestSelection	W4.69	deferred
+D5	app/autoscale/extmetrics	TestServableSeriesRefusesAnUndeclaredConsumer	W4.69	deferred
+D5	app/autoscale/extmetrics	TestStateCacheExpires	W4.99	deferred
+D5	app/autoscale/extmetrics	TestStateCacheMakesOneReadPerSeriesUnderABurst	W4.99	deferred
+D5	app/autoscale/extmetrics	TestStatesAreCachedForFiveSeconds	W4.69	deferred
+D5	app/autoscale/extmetrics	TestTheServerAnswersBeforeTheCachesSync	W4.70	deferred
+D5	app/autoscale/extmetrics	TestTheServerAuthenticatesTheFrontProxy	W4.70	deferred
+D5	app/autoscale/extmetrics	TestTheServerRefusesHandshakesUntilItsMaterialLoads	W4.70	deferred
+D5	app/autoscale/extmetrics	TestTheServerReloadsTheFrontProxyCA	W4.70	deferred
+D5	cmd/agent	TestASelfCheckReportsAMissingDecoder	W8.10	deferred
+D5	cmd/agent	TestAgentManagersNeverElect	W5.9	deferred
+D5	cmd/agent	TestDomainFlagsNeedTheirDomain	W5.9	deferred
+D5	cmd/agent	TestDomainsMatchAgentdomain	W5.9	deferred
+D5	cmd/agent	TestEngineArgvParses	W5.9	deferred
+D5	cmd/agent	TestEngineDomainsNeedAnIdentity	W5.9	deferred
+D5	cmd/agent	TestEveryDomainIsAccepted	W5.9	deferred
+D5	cmd/agent	TestEveryDomainStartsServesProbesAndStopsOnSignal	W5.10	deferred
+D5	cmd/agent	TestFacadeSettings	W5.9	deferred
+D5	cmd/agent	TestImportDomainOptions	W5.9	deferred
+D5	cmd/agent	TestImportDomainRejectsAnEmptyDataDir	W5.9	deferred
+D5	cmd/agent	TestIndexDSNEnvDefault	W5.9	deferred
+D5	cmd/agent	TestIndexDSNFlagReachesTheIndexDomain	W5.9	deferred
+D5	cmd/agent	TestIndexDomainOptions	W5.9	deferred
+D5	cmd/agent	TestInstallerArgsParseAsTheirDomain	W6.11	deferred
+D5	cmd/agent	TestRetiredFlagsAreGone	W5.9	deferred
+D5	cmd/agent	TestSelfCheckNeedsNoDomain	W5.9	deferred
+D5	cmd/agent	TestThePar2ChildIsDispatchedBeforeCobra	W9.6	deferred
+D5	cmd/agent	TestTheRendererRunsInTheCatalogDomain	W5.9	deferred
+D5	cmd/agent	TestUnknownDomainIsRejected	W5.9	deferred
+D5	cmd/agent	TestDefaultFacadeBindAddressMatchesTheServicePort	W5.9	rewrite
+D5	cmd/agent	TestDefaultIndexPathMatchesTheManifest	W5.9	rewrite
+D5	cmd/agent	TestIndexDSNEmptyKeepsSQLite	W5.9	rewrite
+D5	cmd/manager	TestAutoscaleNeedsTheExternalMetricsAPI	W5.7	deferred
+D5	cmd/manager	TestCardigannSettingsComeFromTheEnvironment	W5.7	deferred
+D5	cmd/manager	TestDataClaimAndEngineServiceAccountComeFromTheEnvironment	W5.7	deferred
+D5	cmd/manager	TestGPUNodeLabelsMustBeQualifiedNames	W5.7	deferred
+D5	cmd/manager	TestGraftConcurrency	W5.7	deferred
+D5	cmd/manager	TestInstallerArgsParseAsTheManager	F9.1, W6.11 [task dropped by the cold-turkey revision]	deferred
+D5	cmd/manager	TestIntelRenderGroups	W5.7	deferred
+D5	cmd/manager	TestManagerCarriesTheFoldFlags	W6.11 [cold turkey: graft and remediation flags only]	deferred
+D5	cmd/manager	TestManagerFailsFastOnBadOptions	W5.8	deferred
+D5	cmd/manager	TestManagerOptions	W5.7	deferred
+D5	cmd/manager	TestManagerRejectsAnEmptyDataDir	W5.7	deferred
+D5	cmd/manager	TestManagerRequiresTheNativeImage	W5.7	deferred
+D5	cmd/manager	TestManagerStartsServesProbesAndStopsOnSignal	W5.8	deferred
+D5	cmd/manager	TestManagerValidatesTheRemediationFlags	F3.4	deferred
+D5	cmd/manager	TestRejectsABadSlotFlag	W5.7	deferred
+D5	cmd/manager	TestRetiredFlagsAreGone	W5.7	deferred
+D5	cmd/manager	TestTraktBaseURLReachesTheImportListDeviceFlow	W5.7	deferred
+D5	cmd/manager	TestVersionFlag	W5.7	deferred
+D5	cmd/manager	TestServiceFailsFastOnBadOptions	W5.8 [edit per plan]	rewrite
+D5	cmd/manager	TestVersionCommandTakesNoArguments	W5.2	rewrite
+D5	cmd/manager	TestLegacyFoldFlags	F8.5 [task dropped by the cold-turkey revision]	dropped-excluded
+D5	cmd/ui	TestEveryProjectionStreamIsWiredIntoTheUICommand	W5.11 [moved from cmd/clustarr ui_projection_wiring_test.go]	deferred
+D5	cmd/ui	TestExternalURLReachesTheUI	W5.11	deferred
+D5	cmd/ui	TestUICommandClosesItsBusOnShutdown	W5.11 [moved from cmd/clustarr nats_url_deploy_test.go]	deferred
+D5	cmd/ui	TestUIHandsTheChosenAuthModeToRunUI	W5.11 [moved from cmd/clustarr ui_auth_test.go]	deferred
+D5	cmd/ui	TestUIPassesPlexGUIDs	W5.11 [moved from cmd/clustarr ui_options test]	deferred
+D5	cmd/ui	TestUIReadsTheArtSigningKey	W5.11 [moved from cmd/clustarr ui_options test]	deferred
+D5	cmd/ui	TestUIStartsAndServes	W5.11 [from cmd/clustarr start_ui_envtest_test.go]	deferred
+D5	cmd/ui	TestUIWiresEveryUIOption	A3.9	deferred
+D5	cmd/ui	TestUIWiresTheArtCacheFlag	W4.110	deferred
+D5	cmd/ui	TestBothUICommandsWireEveryUIOption	A3.9	rewrite
+D5	cmd/ui	TestOnlyLegacyFoldAppliesAsCatalogarrMarkers	W10.8 [cold-turkey revision: no task writes it]	dropped-excluded
+D5	cmd/ui	TestOnlyLegacyFoldNamesTheFoldedKinds	W10.8 [cold-turkey revision: no task writes it]	dropped-excluded
+D5	internal/cli	TestCLIStaysLight	W5.2	deferred
+D5	internal/cli	TestEnvBoolOr	W5.2	deferred
+D5	internal/cli	TestEnvOr	W5.2	deferred
+D5	internal/cli	TestRootBindsTheObservabilityFlagsOnce	W5.2	deferred
+D5	internal/cli	TestVersionCommandPrintsTheBinaryAndToolchain	W5.2	deferred
+D5	internal/cli	TestVersionFlagHasNoShorthand	W5.2	rewrite
+D5	internal/cli/agent	TestAgentCacheNeverHoldsSecretsOrConfigMaps	W5.9	deferred
+D5	internal/cli/agent	TestAgentClientIsReadOnly	A7.1	deferred
+D5	internal/cli/agent	TestAgentsRegisterNoLeaderOnlyRunnable	W5.9	deferred
+D5	internal/cli/agent	TestDomainBusAppliesDrainAndSlotOverrides	W5.9	deferred
+D5	internal/cli/agent	TestDrainDefaultsToTheLongestAckWait	W5.9	deferred
+D5	internal/cli/agent	TestEngineClientSplitsAtTheLastHyphen	W5.9	deferred
+D5	internal/cli/agent	TestEveryAgentDomainWritesPresence	A2.1	deferred
+D5	internal/cli/agent	TestPieceCompletionMatchesTheBuild	W5.9	deferred
+D5	internal/cli/agent	TestTheAgentIsTheOnlyIndexRegistrar	W5.17	deferred
+D5	internal/cli/agent	TestTheBusLivenessCheckIsRegistered	W4.98 [probes_internal_test.go]	deferred
+D5	internal/cli/ctrlflags	TestBindAgentHasNoElectionOrTopologyFlags	W5.2	deferred
+D5	internal/cli/ctrlflags	TestBindManagerBindsElevenFlagsAndElectsByDefault	W5.2	deferred
+D5	internal/cli/ctrlflags	TestNATSURLAndNamespaceComeFromTheEnvironment	W5.2	deferred
+D5	internal/cli/ctrlflags	TestParseGIDs	W5.2	deferred
+D5	internal/cli/ctrlflags	TestRegisterMetricsIsIdempotent	W5.2	deferred
+D5	internal/cli/manager	TestAGraftedOriginalKeepsItsSpecWhenTheGraftBlockGoes	F7.2	deferred
+D5	internal/cli/manager	TestALostGraftJobIsWithdrawnAndFails	F7.2	deferred
+D5	internal/cli/manager	TestAStandaloneGraftIsDispatchedAndItsAnswerIncorporated	F7.2	deferred
+D5	internal/cli/manager	TestIntakeConsumersRunOnlyOnTheLeader	A2.3	deferred
+D5	internal/cli/manager	TestManagerCacheOptions	W5.7	deferred
+D5	internal/cli/manager	TestManagerFieldIndexes	W4.115, W5.7, F8.4 (dropped), F9.1 (dropped), A3.2, A3.3 [could-defer task not built]	deferred
+D5	internal/cli/manager	TestRegisterWiresAutoscaleByTheFlag	W5.7	deferred
+D5	internal/cli/manager	TestTheBusLivenessCheckIsRegistered	W4.98 [probes_internal_test.go]	deferred
+D5	internal/cli/manager	TestLegacyFoldReportIsReadOnlyAndCountsWhatTheRunbookChecks	F8.5 [task dropped by the cold-turkey revision]	dropped-excluded
+D5	internal/cli/manager	TestRestoreMarkersRefusesWhileTheManagerHoldsTheLease	F8.5 [task dropped by the cold-turkey revision]	dropped-excluded
+D5	internal/cli/ui	TestBuildBusLogsAnUnconnectedBus	W5.11 [moved from cmd/clustarr nats_url_deploy_test.go]	deferred
+D5	pkg/pipeline	TestCompleteNeedsATerminalTranscodeNotAJob	F8.7, F8.6-F9.4 (removal-deleted-tests.txt) (dropped)	deferred
+D5	pkg/pipeline	TestPipelineProjectsEntries	A3.9	deferred
+D5	pkg/pipeline	TestProjectMapsEveryDownloadPhase	A9.1 (ledger) [entries, not Downloads]	rewrite
+D5	pkg/pipeline	TestProjectMovieWithNoTranscodeJobDoesNotReachComplete	F8.6-F9.4 (removal-deleted-tests.txt) [deleted with its subject (a removed kind or v1 payload)]	dropped-excluded
+D5	ui	TestArt304MakesNoStoreCalls	W4.108	deferred
+D5	ui	TestArtCacheEvictsByBytes	W4.108 [artcache_test.go]	deferred
+D5	ui	TestArtEventOnlyForServedDigestChanges	W4.109	deferred
+D5	ui	TestArtEventsStreamOnlyTheAskedKeys	W4.109 [artevents_test.go]	deferred
+D5	ui	TestArtMissWithUnsyncedIndexAsksTheStore	W4.108	deferred
+D5	ui	TestArtRetriesAnObjectOverwrittenMidRead	W4.108	deferred
+D5	ui	TestArtServesFromTheDigestCache	W4.108	deferred
+D5	ui	TestArtSkipsOverlayForKindsWithoutOverlays	W4.108	deferred
+D5	ui	TestLibraryStreamCarriesArtEventsForItsPage	W4.109 [sse_test.go]	deferred
+D5	ui	TestMoviePageListsTheFilesSubtitlesAndItsTranscode	F8.7	deferred
+D5	ui	TestUINeverWrites	A3.9, S10, W4.108, F0.3 [edit per plan]	rewrite
+D5	ui/actions	TestDownloadActionsPatchOnlyTheOwnersAnnotations	A3.9	deferred
+D5	ui/actions	TestSearchSeasonAndInteractiveSeasonSearchCreateTheRightSpec	S10	deferred
+D5	ui/actions	TestThePanelCollapsesOtherTitles	S10	deferred
+D5	ui/actions	TestTheSeasonBadgeReadsTheSeriesState	S10	deferred
+D5	ui/actions	TestTheSeasonButtonsPostToTheirRoutes	S10	deferred
+D5	ui/actions	TestTheSeasonPanelDefaultsToPacks	S10	deferred
+D5	ui/actions	TestTheSeasonPanelOffersAllWhenNoPackExists	S10	deferred
+D5	ui/projection	TestRelatedFindsTheItemsFileBySpecMediaRef	F8.7	deferred
+D5	ui/projection	TestTheDownloadsPageRendersEntriesAndProgress	A3.9	deferred
+D5	ui/projection	TestTheProjectionBuildsOneRowPerEntry	A3.9	deferred
+D6	api/catalog/v1alpha1	TestAPhaselessTranscodeBlockSendsNoPhase	F2.1	deferred
+D6	api/catalog/v1alpha1	TestDispatchInFlight	F2.1	deferred
+D6	api/catalog/v1alpha1	TestDownloadEntryBoundsMatchTheCRD	A1.2	deferred
+D6	api/catalog/v1alpha1	TestHandledNonce	F2.1	deferred
+D6	api/catalog/v1alpha1	TestMediaFileFoldNames	F2.1	deferred
+D6	api/catalog/v1alpha1	TestMediaFileProbeCurrent	W4.10	deferred
+D6	api/catalog/v1alpha1	TestPathBesideJoinsTheNameToTheMediaFilesFolder	F9.2	deferred
+D6	api/catalog/v1alpha1	TestPathBesideRefusesANameThatLeavesTheFolder	F9.2	deferred
+D6	api/catalog/v1alpha1	TestValidNonce	F5.4	deferred
+D6	api/catalog/v1alpha1	TestLegacyFoldIsAbsentUntilAdoptionWritesIt	F8.1 [task dropped by the cold-turkey revision]	dropped-excluded
+D6	api/catalog/v1alpha1	TestMediaFileLegacyFoldIsBoundedAndClosed	F8.1 [task dropped by the cold-turkey revision]	dropped-excluded
+D6	api/common/v1alpha1	TestPayloadUnavailableIsAReleaseFault	A1.1	deferred
+D6	api/common/v1alpha1	TestReleaseAndLocalFaultsArePartitioned	A1.1	deferred
+D6	config/crd/bases	TestKustomizationListsEveryGeneratedCRD	F8.9	deferred
+D6	hack	TestTheFacadeKeyIsCopiedFromTheLegacySecret	U7 [cold-turkey revision: no task writes it]	dropped-excluded
+D6	pkg/crdcheck	TestAnItemsAudioDonorRoundTripsAndItsRejectedReleasesAreCapped	F2.3	deferred
+D6	pkg/crdcheck	TestAudioStateBoundsMatchTheCRD	F2.3	deferred
+D6	pkg/crdcheck	TestDownloadSourceAllowsExactlyOne	A9.1	deferred
+D6	pkg/crdcheck	TestEveryItemKindSelectsByDownloadPhase	A1.2	deferred
+D6	pkg/crdcheck	TestGraftSegmentsAreCappedAtSixteen	F9.2	deferred
+D6	pkg/crdcheck	TestItemAtEveryCapFitsTheBudget	A1.2	deferred
+D6	pkg/crdcheck	TestMediaFilePrintColumnsAndSelectableFields	F2.1	deferred
+D6	pkg/crdcheck	TestMediaFileStatusIsReleaseN1Shaped	F9.2 [cold turkey: phase+name required, sidecars atomic, 256/768 KiB]	deferred
+D6	pkg/crdcheck	TestMediaFileStatusPhasesAreSelectable	F2.1	deferred
+D6	pkg/crdcheck	TestMediaFileStringsAreBounded	F2.2	deferred
+D6	pkg/crdcheck	TestProbeAndImportBoundsMatchTheCRD	F2.2	deferred
+D6	pkg/crdcheck	TestSearchSeasonRules	S1	deferred
+D6	pkg/crdcheck	TestTheReleaseN1MediaFileCRDTakesOverReleaseNsStatus	F9.2 [cold turkey: re-based on chart 0.4.x stored MediaFiles, no rollback leg; the one proof of the ratcheting ruling]	deferred
+D6	pkg/crdcheck	TestTheSchemaAcceptsThePreviousReleasesMediaFileApply	F2.1, A1.3	deferred
+D6	pkg/crdcheck	TestTranscodeClassIsConcreteHardware	F2.1	deferred
+D6	pkg/crdcheck	TestTranscodeHardwareMirrorsTheProfileEnum	F2.1	deferred
+D6	pkg/crdcheck	TestEveryStatusListIsCapped	A1.2, A1.2 (ledger) [raise the minimum]	rewrite
+D6	pkg/crdcheck	TestMaxTranscodeProfileLengthMatchesTheCRD	F9.2	rewrite
+D6	pkg/crdcheck	TestMediaFileAtEveryCapFitsTheBudget	F2.2, A1.3, A1.3 (ledger: rerun)	rewrite
+D6	pkg/crdcheck	TestNoCRDDefaultIsUnreachableFromGo	A1.2, S1	rewrite
+D6	pkg/crdcheck	TestTheDownloadCRDIsUnchangedButPayloadUnavailable	A1.1 [cold-turkey revision: no task writes it]	dropped-excluded
+D6	pkg/crdcheck	TestThePreviousReleasesStatusApplyIsAccepted	F8.12 [cold-turkey revision: no task writes it]	dropped-excluded
+D6	test/e2e	TestABlockedReleaseShowsBlockedInASearch	A3.1, A8.4	deferred
+D6	test/e2e	TestAGraftRidesAFilesTranscode	F8.9	deferred
+D6	test/e2e	TestAnUnclaimedTransferIsResumedOrRemoved	A8.4	deferred
+D6	test/e2e	TestCaptionAgentScalesFromZero	W6.15	deferred
+D6	test/e2e	TestEngineRestartKeepsSeeding	A3.6, A8.4	deferred
+D6	test/e2e	TestForcedSubtitleSearchAnnotation	F8.9	deferred
+D6	test/e2e	TestSubtitlesSidecarPipelineAndLanguageRemoval	F8.9 [rename of TestSubtitleRequestSidecarPipelineAndLanguageRemoval]	deferred
+D6	test/e2e	TestTranscodeMediaFileThroughItsStatus	F8.9	deferred
+D6	test/e2e	TestClustarrAllSinglePodPassesScenarioOne	W5.17 [delete per plan]	rewrite
+D6	test/e2e	TestObservabilityMetricsNonZero	W10.8 [edit per plan]	rewrite
+D6	test/e2e	TestSubtitleRequestSidecarPipelineAndLanguageRemoval	F8.9, W6.15 [edit per plan]	rewrite
+D6	test/e2e	TestTranscodeDolbyVisionSkipped	F8.9	rewrite
+D6	test/e2e	TestLegacyFoldAdoptsThenDeletes	F8.9 [cold-turkey revision: no task writes it]	dropped-excluded
+D6	test/e2e	TestReleaseNGrantsOnTheFoldedKinds	F8.12 [cold-turkey revision: no task writes it]	dropped-excluded
+D6	test/e2e	TestUpgradeToReleaseNAndRollBack	F8.9 [cold-turkey revision: no task writes it]	dropped-excluded
+D6	test/fixtures/mkclips	TestTheE2EClipsAreTheOldRecipes	W10.11	deferred
+D6	test/guards	TestAdmissionWritesNoMediaFileStatus	F6.3	deferred
+D6	test/guards	TestAgentCaptionRoleHasNoWriteVerbs	F5.2	deferred
+D6	test/guards	TestAgentKeepsTheCgoPieceCompletion	W5.14	deferred
+D6	test/guards	TestAgentLinksNoManagerRegistration	W5.14, A7.1	deferred
+D6	test/guards	TestAgentLinksNoPlanner	A7.1	deferred
+D6	test/guards	TestAgentProbesAndExtractsInProcess	W8.10	deferred
+D6	test/guards	TestAgentRepairsWithPar2go	W9.6	deferred
+D6	test/guards	TestAgentsCallNoKubernetesWriter	A7.1	deferred
+D6	test/guards	TestAgentsPublishNoTask	A7.1	deferred
+D6	test/guards	TestArtworkWritersAreTheTwoVariantOwners	W4.112	deferred
+D6	test/guards	TestAutoscaledDeploymentsAreDeclared	W6.11	deferred
+D6	test/guards	TestCardigannValuesReachTheManager	W6.11	deferred
+D6	test/guards	TestConfigRBACHoldsOnlyKnownRoleFiles	W6.9	deferred
+D6	test/guards	TestConsumerSlotsNameOnlyTheDomainsConsumers	W6.13	deferred
+D6	test/guards	TestContextsExportsPinnedCleanTrees	W6.3	deferred
+D6	test/guards	TestCredentialLessWorkloadsHoldNoToken	W6.11	deferred
+D6	test/guards	TestDataMountsMatchTheTopology	W6.11	deferred
+D6	test/guards	TestDevRunStartsEveryProcess	W6.8	deferred
+D6	test/guards	TestEachRoleCoversTheMarkedPackagesItsHomeLinks	W6.9	deferred
+D6	test/guards	TestEnginesRunAsAnAccountTheInstallerBinds	W5.16	deferred
+D6	test/guards	TestEveryAgentDeploymentRunsOneDomain	W4.115, W6.11 [could-defer task not built]	deferred
+D6	test/guards	TestEveryBusConnectionCarriesTraceHooks	W5.15	deferred
+D6	test/guards	TestEveryChartClaimOutlivesTheRelease	W6.14	deferred
+D6	test/guards	TestEveryClustarrContainerCarriesNATSURL	W6.11	deferred
+D6	test/guards	TestEveryClustarrDeploymentCarriesNATSURL	W5.16	deferred
+D6	test/guards	TestEveryConsumerHasExactlyOneHome	W6.2, A2.5, A4.4	deferred
+D6	test/guards	TestEveryContainerNamesItsBinary	W6.11	deferred
+D6	test/guards	TestEveryCoreSubscriptionHasPendingLimits	ADR-0020 (N2) [AST guard plus a runtime PendingLimits() check]	deferred
+D6	test/guards	TestEveryFFgoGateHonoursTheRequirement	W10.9	deferred
+D6	test/guards	TestEveryFieldManagerHasItsHome	W4.115, W5.19, A7.2 [could-defer task not built]	deferred
+D6	test/guards	TestEveryGoBuildingDockerfileCarriesTheReplaceStages	W6.4	deferred
+D6	test/guards	TestEveryManagerGetsTheBaseContext	W5.15	deferred
+D6	test/guards	TestEveryNativeImageCheckRunsTheMarkersSelfCheck	W7.10	deferred
+D6	test/guards	TestEveryNativeImageCheckRunsThePar2Child	W9.7	deferred
+D6	test/guards	TestFoldedAgentsWriteNoPerFileWork	W6.9	deferred
+D6	test/guards	TestGOMEMLIMITIsItsShareOfTheLimit	W6.11	deferred
+D6	test/guards	TestGrabEngineRoleIsReadOnly	A3.6 [plan name TestGrabarrEngineRoleIsReadOnly (the brand gate refuses it)]	deferred
+D6	test/guards	TestGracePeriodsCoverAckWait	W6.11	deferred
+D6	test/guards	TestHeartbeatsFitTheirDeadline	W4.95	deferred
+D6	test/guards	TestInstallersRenderTheTopology	W4.115, W6.11 [could-defer task not built]	deferred
+D6	test/guards	TestIntelRenderGroupsReachTheManager	W5.16, W6.11	deferred
+D6	test/guards	TestLeaderOnlyRunnablesLiveInTheManager	W3.14, W5.15	deferred
+D6	test/guards	TestLifecycleIsPure	A3.4	deferred
+D6	test/guards	TestMakeBuildBuildsEachBinaryAsItsImageDoes	W6.8	deferred
+D6	test/guards	TestManagerLinksMetadataClientsOnlyToProbeThem	W5.14	deferred
+D6	test/guards	TestManagerLinksNoAgentCode	W5.14, F8.4 (dropped), A7.1	deferred
+D6	test/guards	TestManagerNeverLinksADynamicLoader	W5.14	deferred
+D6	test/guards	TestManagerStampsAClaimTheInstallerCreates	W5.16	deferred
+D6	test/guards	TestMarkersAndTranscodeLinkNoControllerRuntime	Wave N N1 (ledger) [busconn leaves the markers/transcode deny lists]	deferred
+D6	test/guards	TestMarkersHasNoCredentials	W6.11	deferred
+D6	test/guards	TestMarkersImportsNoKubernetesClient	W5.14, W7.9	deferred
+D6	test/guards	TestNativeAssetsReadsItsPinsFromTheNativeDockerfile	W6.7	deferred
+D6	test/guards	TestNativeImageIsWhatTheManagerStampsOntoPoolsAndEngines	W6.11	deferred
+D6	test/guards	TestNoAgentRoleGrantsAWriteVerb	A3.6, A7.2	deferred
+D6	test/guards	TestNoAgentRoleGrantsMediaFileStatus	W6.9	deferred
+D6	test/guards	TestNoBrandNameOutsideTheRecords	U7 [plan name TestNoBrandNameOutsideTheLegacyTable]	deferred
+D6	test/guards	TestNoCodeNamesTheFoldedKinds	F9.1 -> F9.2 [cold turkey: F9.1 guard moved into F9.2, kept as written]	deferred
+D6	test/guards	TestNoFoldedKindIsServed	F9.2	deferred
+D6	test/guards	TestNoGoFileRunsFFmpeg	W10.9	deferred
+D6	test/guards	TestNoIdentityWritesAsARetiredManager	F9.1 -> F9.2 [cold turkey: F9.1 guard moved into F9.2, kept as written]	deferred
+D6	test/guards	TestNoImageShipsAPar2Executable	W9.7	deferred
+D6	test/guards	TestNoInstallerRendersAnHPAOrKEDA	W6.2	deferred
+D6	test/guards	TestNoObjectLinks	W4.112, A5.2, W4.112, N8; ADR-0021 [must allow topology_nats.go CreateOrUpdateObjectStore]	deferred
+D6	test/guards	TestNoProductionCodeStartsAProcess	W5.14	deferred
+D6	test/guards	TestNoRenderedInstallerGrantsTheFoldedKinds	F9.3	deferred
+D6	test/guards	TestNoRoleGrantsTheFoldedKinds	F9.1 -> F9.2 [cold turkey: F9.1 guard moved into F9.2, kept as written]	deferred
+D6	test/guards	TestNoScriptRunsFFmpeg	W10.9	deferred
+D6	test/guards	TestNoShutdownPathClosesTheConnectionOutsideShutdown	ADR-0020 (N1)	deferred
+D6	test/guards	TestNoV1SchemaOfTheFoldedKindsRemains	F9.4	deferred
+D6	test/guards	TestNoV1TaskProducers	F7.4	deferred
+D6	test/guards	TestNothingAppliesAsARetiredManager	F9.1 -> F9.2 [cold turkey: F9.1 guard moved into F9.2, kept as written]	deferred
+D6	test/guards	TestNothingButHistoryNamesTheFoldedKinds	F9.2	deferred
+D6	test/guards	TestNothingNamesDownload	A3.9, A9.1 [plan name TestNothingButTheMigratorNamesDownload]	deferred
+D6	test/guards	TestNothingReconcilesAudioGrafts	F7.3	deferred
+D6	test/guards	TestObjectMetadataComesFromItsStoresBuilder	N8; ADR-0021	deferred
+D6	test/guards	TestOnlyNatsbusTouchesJetStreamObjectStores	W4.112	deferred
+D6	test/guards	TestOnlyPkgK8sRegistersProbes	W3.1, W5.15	deferred
+D6	test/guards	TestOnlyTheLoopWatchesMediaFile	F0.3, F8.4 (dropped), A3.5	deferred
+D6	test/guards	TestOnlyTheLoopWritesMediaFileStatus	F3.4, F8.4 (dropped), F9.1 (dropped)	deferred
+D6	test/guards	TestOnlyTheManagerEnsuresTopology	W5.17, A3.7	deferred
+D6	test/guards	TestOnlyTheManagerRegistersControllers	W5.15	deferred
+D6	test/guards	TestPar2LibraryComesOnlyFromPar2go	W9.7	deferred
+D6	test/guards	TestPar2childLinksNoClustarrCode	W9.3	deferred
+D6	test/guards	TestPlannerTagIsTheProfileStatusHash	F6.3	deferred
+D6	test/guards	TestRecordsBucketsOpenOnlyThroughTheirStores	F7.4, A7.2	deferred
+D6	test/guards	TestRecordsRequestersAreTheLoop	F7.4	deferred
+D6	test/guards	TestRecordsWritersAreTheirAgents	A7.2	deferred
+D6	test/guards	TestReleaseNsManagerValuesAreChecked	W6.13 [cold turkey: no manager.legacyFold cases]	deferred
+D6	test/guards	TestRenamesAreTheLoopsAlone	A6.1	deferred
+D6	test/guards	TestRetiredValuesKeysAreRejected	W6.13	deferred
+D6	test/guards	TestTheBrandGateAllowListIsExact	U7	deferred
+D6	test/guards	TestTheBrandGateDoesNotMatchItself	U7	deferred
+D6	test/guards	TestTheCRDReadmeCountsTheEmbeddedCRDs	F9.5	deferred
+D6	test/guards	TestTheChartREADMENamesOnlyLiveValuesKeys	W6.13	deferred
+D6	test/guards	TestTheClustarrImageIsStatic	W6.4	deferred
+D6	test/guards	TestTheDefaultValuesPassTheSchema	W6.13	deferred
+D6	test/guards	TestTheDesignOfRecordDefinesNoFoldedKind	F9.5	deferred
+D6	test/guards	TestTheE2EFixturesImageRunsNoFFmpeg	W10.11	deferred
+D6	test/guards	TestTheExecGuardAllowsOnlyTheRepairChild	W10.1	deferred
+D6	test/guards	TestTheFFmpegGuardCatchesEachShape	W10.9	deferred
+D6	test/guards	TestTheFFmpegGuardCatchesIndirectShapes	W10.9	deferred
+D6	test/guards	TestTheFetchWorkerWritesNoKubernetesObject	F5.2	deferred
+D6	test/guards	TestTheFoldsRetiredManagersAreGone	F9.1 -> F9.2 [cold turkey: F9.1 guard moved into F9.2, kept as written]	deferred
+D6	test/guards	TestTheMakefileChecksImagesThroughOneScript	W6.6	deferred
+D6	test/guards	TestTheMakefileDerivesItsContextsFromGoMod	W6.3	deferred
+D6	test/guards	TestTheMediaFileDomainLinksNoProbe	F3.4 [replaces W4.13 TestTheMediaFileReconcilerLinksNoProbe]	deferred
+D6	test/guards	TestTheNativeImageCarriesNoMediaExecutable	W6.5	deferred
+D6	test/guards	TestTheNativeImageCarriesTheIntelStack	W6.5	deferred
+D6	test/guards	TestTheNativeImageStagesEveryBinaryItBuilds	W6.5	deferred
+D6	test/guards	TestTheNativeImageStagesOnlyFFgosFFmpegLibraries	W6.5 (ledger)	deferred
+D6	test/guards	TestTheRetiredMediaFileIndexesAreGone	F4.1	deferred
+D6	test/guards	TestTheTestEnvironmentHasNoFFmpegProgram	W10.10	deferred
+D6	test/guards	TestTheTestTargetsLoadTheNativeAssets	W6.7	deferred
+D6	test/guards	TestTheWorkflowsCheckImagesThroughOneScript	W6.16	deferred
+D6	test/guards	TestTranscodeImportsNoKubernetesClient	W5.14	deferred
+D6	test/guards	TestTranscodePhaseIsSelectable	F6.3	deferred
+D6	test/guards	TestUILinksNoAppOrManagerCode	W5.14	deferred
+D6	test/guards	TestUINeverLinksADynamicLoader	W5.14	deferred
+D6	test/guards	TestChartAndKustomizeAgreePerComponent	W4.75, W5.16 [edit per plan]	rewrite
+D6	test/guards	TestChartImagesMatchConfig	W5.16 [edit per plan]	rewrite
+D6	test/guards	TestChartRBACMatchesTheGeneratedRoles	W6.11 [edit per plan]	rewrite
+D6	test/guards	TestChartRefusesTwoCardigannDefinitionSources	W6.11	rewrite
+D6	test/guards	TestControllerNamesAreUniqueAcrossTheBinary	W5.15, A3.2	rewrite
+D6	test/guards	TestEachServiceAccountHoldsExactlyItsOwnRole	W6.11	rewrite
+D6	test/guards	TestEnvironmentSuppliesDefaults	W5.7, W5.9	rewrite
+D6	test/guards	TestEveryManagerRunnableIsRegistered	W3.5, W4.47 [edit per plan]	rewrite
+D6	test/guards	TestEveryServiceComponentIsRegistered	W3.5, W4.47 [edit per plan]	rewrite
+D6	test/guards	TestForbidigoRejectsStatusWrites	W5.17 [edit per plan]	rewrite
+D6	test/guards	TestGrabEnginesRunAsAnAccountTheInstallerBinds	U3 [plan name TestGrabarrEnginesRunAsAnAccountTheInstallerBinds]	rewrite
+D6	test/guards	TestTheOneTranscoderImageCarriesTheIntelStack	W5.16, W6.5 (ledger) [edit per plan; delete: Dockerfile.transcoder is gone (W6.5)]	rewrite
+D6	test/guards	TestTheTranscoderImageCarriesNoFFmpegExecutable	W5.16, W6.5 (ledger) [edit per plan; delete: Dockerfile.transcoder is gone (W6.5)]	rewrite
+D6	test/guards	TestUIRoleChartMatchesConfig	A3.9	rewrite
+D6	test/guards	TestUIRoleGrantsOnlyReadsAndActionWrites	A3.9, S10	rewrite
+D6	test/guards	TestWorkerGracePeriodsCoverAckWait	W4.7, W6.11 [edit per plan; delete per plan]	rewrite
+D6	test/guards	TestMediaFileStatusCarriesNoLegacyFold	F9.1 [task dropped by the cold-turkey revision]	dropped-excluded
+D6	test/guards	TestNoInstallerPassesTheLegacyFoldFlags	F9.1 [task dropped by the cold-turkey revision]	dropped-excluded
+D6	test/guards	TestOnlyLegacyFoldAppliesAsCatalogarrMarkers	F8.10, F8.12 [cold-turkey revision: no task writes it]	dropped-excluded
+D6	test/guards	TestOnlyLegacyFoldNamesTheFoldedKinds	F8.10, F8.12, F9.5 [cold-turkey revision: no task writes it]	dropped-excluded
+D6	test/guards	TestReleaseNGrantsOnTheFoldedKinds	F8.8 [cold-turkey revision: no task writes it]	dropped-excluded
+D6	test/guards	TestTheManagerTakesNoLegacyFoldFlag	F9.1 [task dropped by the cold-turkey revision]	dropped-excluded
+D6	test/guards	TestThePreviousReleasesStatusApplyIsAccepted	F2.1 [cold-turkey revision: no task writes it]	dropped-excluded
+D6	test/guards	TestTheRemovalRunbookNamesTheThreeCRDs	F9.5 [cold-turkey revision: no task writes it]	dropped-excluded
+D6	test/guards	TestTheValuesSchemaRejectsLegacyFold	F9.3 [cold-turkey revision: no task writes it]	dropped-excluded
+D6	test/guards/depguard	TestRuleMatching	W5.14	deferred
+D6	test/guards/depguard	TestTheHelperFindsAKnownChain	W5.14	deferred
+D6	test/installtest	TestDecodeRenderedSortsEveryKind	W5.4	deferred
+D6	test/installtest	TestPatternCovers	W5.4	deferred
+D6	test/installtest	TestRBACRolesReadsTheMakefile	W5.4	deferred
+D6	test/starttest	TestManagersOfCoverEveryFieldManager	W5.4	deferred
+D6	test/starttest	TestRecordingBusRecordsEachDurable	W3.2	deferred
+D6	test/starttest	TestRecordingManagerSortsOutWhatWaitsForTheLease	W3.2	deferred
+D6	test/starttest	TestRolesForBridgesToTheGeneratedRoles	W5.4	deferred
+D6	test/starttest	TestRolesForIsTheIdentityItself	W6.11	deferred
+D6	test/system	TestAMediaFilesStatusCarriesOnlyCatalogAcrossTheManagerAndImport	F8.12 [cold turkey: starts from a MediaFile with no previous-release entry; plan name TestAMediaFilesStatusCarriesOnlyCatalogarrAcrossTheManagerAndImport (the brand gate refuses it)]	deferred
+D6	test/system	TestHistoryAcrossManagerAndEvents	W5.13	deferred
+D6	test/system	TestImportListAcrossManagerAndImport	W5.13	deferred
+D6	test/system	TestMediaFileProbeRoundTrip	W5.13	deferred
+D6	test/system	TestNonVideoCatalogAcrossManagerAndMetadata	W5.13	deferred
+D6	test/system	TestRendererThroughTheOverlayProfileController	W5.13	deferred
+D6	test/system	TestLegacyFoldAdoptsThenDeletes	F8.12 [cold-turkey revision: no task writes it]	dropped-excluded
+-	-	TestADisplacedStreamBlocksItsReplacementUntilRetired	U4 [Wave U cold turkey (ledger: not kept)]	dropped-excluded
+-	-	TestAHandoverBehindTheLegacyFloorIsRecreated	U4 [Wave U cold turkey (ledger: not kept)]	dropped-excluded
+-	-	TestAHandoverDurableStartsAfterTheLegacyAckFloor	U4 [Wave U cold turkey (ledger: not kept)]	dropped-excluded
+-	-	TestAHandoverKeepsItsDeliverPolicyOnUpdate	U4 [Wave U cold turkey (ledger: not kept)]	dropped-excluded
+-	-	TestAHeldImportIsSeededOnce	A8.2 [task dropped by the cold-turkey revision]	dropped-excluded
+-	-	TestAnAdoptedDownloadIsDeletedOnlyAfterRetention	A8.2 [task dropped by the cold-turkey revision]	dropped-excluded
+-	-	TestEveryLegacyFieldManagerMapsToALiveOne	U1 [Wave U cold turkey (ledger: not kept)]	dropped-excluded
+-	-	TestExportRecreatesEveryEntryAndEveryBlock	A8.3 [task dropped by the cold-turkey revision]	dropped-excluded
+-	-	TestExportRefusesWhileAManagerLeads	A8.3 [task dropped by the cold-turkey revision]	dropped-excluded
+-	-	TestFinalizersAreStrippedOnlyAfterAnOutcome	A8.2 [task dropped by the cold-turkey revision]	dropped-excluded
+-	-	TestKeepTopologyRetiresDisplacedStreamsOnlyOnTheLease	U4 [Wave U cold turkey (ledger: not kept)]	dropped-excluded
+-	-	TestLegacyAndNewNamesNeverCollide	U1 [Wave U cold turkey (ledger: not kept)]	dropped-excluded
+-	-	TestLegacyNamesAreWhatMainDeploys	U1 [Wave U cold turkey (ledger: not kept)]	dropped-excluded
+-	-	TestLegacyNamesImportsOnlyTheStandardLibrary	U1 [Wave U cold turkey (ledger: not kept)]	dropped-excluded
+-	-	TestLegacySchemasDecodeScanAndListTasks	U4 [Wave U cold turkey (ledger: not kept)]	dropped-excluded
+-	-	TestManagerSideSquashLinksNoWorker	U2 [Wave U cold turkey (ledger: not kept)]	dropped-excluded
+-	-	TestManagerSideTranscodeLinksNoWorker	U2 [Wave U cold turkey (ledger: not kept)]	dropped-excluded
+-	-	TestOnlyLegacyFoldAppliesAsCatalogarrMarkers	F8.11 [cold-turkey revision: no task writes it]	dropped-excluded
+-	-	TestOnlyLegacyFoldNamesTheFoldedKinds	F8.8, F8.11, W6.1, W6.17, W10.7 [cold-turkey revision: no task writes it]	dropped-excluded
+-	-	TestReleaseNGrantsOnTheFoldedKinds	F8.11 [cold-turkey revision: no task writes it]	dropped-excluded
+-	-	TestReplayRepublishesALegacySubjectUnderItsNewToken	U4 [Wave U cold turkey (ledger: not kept)]	dropped-excluded
+-	-	TestResolversResolveLegacyDeadLetters	U4 [Wave U cold turkey (ledger: not kept)]	dropped-excluded
+-	-	TestRestoreMarkersMakesARollbackLossless	W10.8 [cold-turkey revision: no task writes it]	dropped-excluded
+-	-	TestRetireStreamReportsTheCensusThenDeletes	U4 [Wave U cold turkey (ledger: not kept)]	dropped-excluded
+-	-	TestRetiredBucketsAreDeletedAfterTheDrainGate	A9.2 [cold-turkey revision: no task writes it]	dropped-excluded
+-	-	TestSubjectMapsOnlyTheThirdToken	U1 [Wave U cold turkey (ledger: not kept)]	dropped-excluded
+-	-	TestTheInfoHashIsBackfilledByCAS	A8.2 [task dropped by the cold-turkey revision]	dropped-excluded
+-	-	TestTheMigratorCarriesIntentBeforeAdoption	A8.2 [task dropped by the cold-turkey revision]	dropped-excluded
+-	-	TestThePreviousReleasesStatusApplyIsAccepted	W10.8 [cold-turkey revision: no task writes it]	dropped-excluded
+-	-	TestTheReportCountsDownloadsAndTheirPlan	A8.3 [task dropped by the cold-turkey revision]	dropped-excluded
+-	-	TestUIHelpTextNamesNoBrand	U5 [Wave U: folds into the brand-gate guard (U5)]	dropped-excluded
