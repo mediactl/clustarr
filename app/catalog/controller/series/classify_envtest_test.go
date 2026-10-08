@@ -79,7 +79,7 @@ func TestSeriesClassifiesAnimeOnce(t *testing.T) {
 	reconcileUntil := func(req reconcile.Request, what string, ok func(s catalogv1alpha1.Series) bool) catalogv1alpha1.Series {
 		var s catalogv1alpha1.Series
 		require.Eventually(t, func() bool {
-			_, _ = r.Reconcile(ctx, req)
+			_, _ = r.ReconcileItem(ctx, req.NamespacedName)
 			return c.Get(ctx, req.NamespacedName, &s) == nil && ok(s)
 		}, 10*time.Second, 50*time.Millisecond, what)
 		return s
@@ -118,7 +118,7 @@ func TestSeriesClassifiesAnimeOnce(t *testing.T) {
 		return c.Get(ctx, naruto.NamespacedName, &s) == nil && s.Spec.QualityProfileRef == "web-1080p"
 	}, 5*time.Second, 10*time.Millisecond)
 	for range 2 {
-		_, err = r.Reconcile(ctx, naruto)
+		_, err = r.ReconcileItem(ctx, naruto.NamespacedName)
 		require.NoError(t, err)
 	}
 	require.NoError(t, direct.Get(ctx, naruto.NamespacedName, &s))
@@ -133,7 +133,7 @@ func TestSeriesClassifiesAnimeOnce(t *testing.T) {
 	// Defaults that arrive later still classify (Review Focus 4).
 	late := newSeries("bleach", "plain-root", "Anime")
 	for range 2 {
-		_, _ = r.Reconcile(ctx, late)
+		_, _ = r.ReconcileItem(ctx, late.NamespacedName)
 	}
 	require.NoError(t, direct.Get(ctx, late.NamespacedName, &s))
 	require.Nil(t, s.Status.Classification, "no anime defaults: nothing may be recorded yet")

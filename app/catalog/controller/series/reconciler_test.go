@@ -45,7 +45,10 @@ import (
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 	"github.com/mediactl/clustarr/app/catalog/controller/series"
+	"github.com/mediactl/clustarr/app/remediation"
+	"github.com/mediactl/clustarr/app/remediation/itemtest"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -137,12 +140,6 @@ func (c combinedBus) Request(ctx context.Context, subject string, in, out any) e
 	return c.requester.Request(ctx, subject, in, out)
 }
 
-// startManager wires a real series.Reconciler into a real ctrl.Manager
-// backed by the envtest apiserver, starts it, and waits for the cache to
-// sync. controller-runtime enforces controller-name uniqueness with a
-// process-global registry (see the movie package's identical note), so
-// every scenario needing the real, auto-wired controller lives as a t.Run
-// under one Test function that calls this exactly once.
 // reconcileCounter counts Reconcile invocations across every object the
 // manager's controller processes, so a test can assert on the delta around
 // a specific operation without a data race.
@@ -151,6 +148,12 @@ type reconcileCounter struct{ n atomic.Int64 }
 func (c *reconcileCounter) inc()         { c.n.Add(1) }
 func (c *reconcileCounter) count() int64 { return c.n.Load() }
 
+// startManager wires a real series.Reconciler into a real ctrl.Manager
+// backed by the envtest apiserver, as the remediation loop's item path runs
+// it (itemtest.Start, over the indexes remediation.RegisterIndexes
+// registers), starts it, and waits for the cache to sync. Every scenario
+// needing the real, auto-wired controller lives as a t.Run under one Test
+// function that calls this exactly once.
 func startManager(t *testing.T, ctx context.Context, cfg *rest.Config, bus combinedBus) (client.Client, *reconcileCounter) {
 	t.Helper()
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
@@ -168,7 +171,8 @@ func startManager(t *testing.T, ctx context.Context, cfg *rest.Config, bus combi
 		Bus:         bus,
 		OnReconcile: counter.inc,
 	}
-	require.NoError(t, r.SetupWithManager(mgr))
+	require.NoError(t, remediation.RegisterIndexes(ctx, mgr.GetFieldIndexer()))
+	require.NoError(t, itemtest.Start(mgr, map[remediation.KeyKind]rollup.Item{remediation.KindSeries: r}))
 
 	go func() { _ = mgr.Start(ctx) }()
 	require.True(t, mgr.GetCache().WaitForCacheSync(ctx))
@@ -177,11 +181,10 @@ func startManager(t *testing.T, ctx context.Context, cfg *rest.Config, bus combi
 
 // startCacheOnly starts a real ctrl.Manager's cache (so syncEpisodes'
 // field-indexed List works) WITHOUT wiring a series.Reconciler's watches to
-// it, so nothing auto-reconciles and SetupWithManager (and its
-// process-global "series" controller name) is never touched. Used by tests
-// that call r.Reconcile() directly instead of going through a running
-// controller. The one field index registered here must stay in sync with
-// series.Reconciler.SetupWithManager's own registration.
+// it, so nothing auto-reconciles. Used by tests that call r.ReconcileItem()
+// directly instead of going through a running controller. The one field
+// index it reads is series.RegisterIndexes', the registration the
+// remediation loop makes.
 func startCacheOnly(t *testing.T, ctx context.Context, cfg *rest.Config) client.Client {
 	t.Helper()
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
@@ -191,14 +194,7 @@ func startCacheOnly(t *testing.T, ctx context.Context, cfg *rest.Config) client.
 	})
 	require.NoError(t, err)
 
-	require.NoError(t, mgr.GetFieldIndexer().IndexField(ctx, &catalogv1alpha1.Episode{}, ".spec.seriesRef",
-		func(o client.Object) []string {
-			ep, ok := o.(*catalogv1alpha1.Episode)
-			if !ok {
-				return nil
-			}
-			return []string{ep.Spec.SeriesRef}
-		}))
+	require.NoError(t, series.RegisterIndexes(ctx, mgr.GetFieldIndexer()))
 
 	go func() { _ = mgr.Start(ctx) }()
 	require.True(t, mgr.GetCache().WaitForCacheSync(ctx))
@@ -218,8 +214,7 @@ func waitForPhase(t *testing.T, ctx context.Context, c client.Client, ns, name s
 }
 
 // TestSeriesReconcilerRealController is the one Test function that starts a
-// real, auto-wired series.Reconciler (see startManager's doc for why there
-// can only be one per test binary).
+// real, auto-wired series.Reconciler (see startManager's doc).
 func TestSeriesReconcilerRealController(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -647,12 +642,12 @@ func TestSeriesEpisodeFieldManagersStayDisjoint(t *testing.T) {
 	require.NoError(t, c.Create(ctx, s))
 
 	req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "fieldmanager-ns", Name: "field-manager-series"}}
-	_, err := r.Reconcile(ctx, req)
+	_, err := r.ReconcileItem(ctx, req.NamespacedName)
 	require.NoError(t, err)
 
 	epKey := types.NamespacedName{Namespace: "fieldmanager-ns", Name: "field-manager-series-s01e01"}
 	var ep catalogv1alpha1.Episode
-	// The cache is eventually consistent: c.Get right after r.Reconcile
+	// The cache is eventually consistent: c.Get right after r.ReconcileItem
 	// (which wrote via k8s.PatchStatus, straight to the API server) can
 	// observe a resourceVersion older than what the server already has,
 	// until the informer's watch stream catches up. Poll rather than a
@@ -722,7 +717,7 @@ func TestSeriesEpisodeFieldManagersStayDisjoint(t *testing.T) {
 	// must not erase the Episode-owned fields the simulated write just
 	// set -- proving the split needs no ongoing re-assertion from either
 	// side, unlike the same-manager arrangement this replaces.
-	_, err = r.Reconcile(ctx, req)
+	_, err = r.ReconcileItem(ctx, req.NamespacedName)
 	require.NoError(t, err)
 
 	require.NoError(t, c.Get(ctx, epKey, &ep))
@@ -802,7 +797,7 @@ func TestSeriesReconcilerQueueFull(t *testing.T) {
 		Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10),
 		Bus: combinedBus{Publisher: fakePublisher{err: events.ErrQueueFull}, requester: fakeEpisodeRPC{}},
 	}
-	res, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "series-queuefull-ns", Name: "the-expanse"}})
+	res, err := r.ReconcileItem(ctx, types.NamespacedName{Namespace: "series-queuefull-ns", Name: "the-expanse"})
 	require.NoError(t, err)
 	assert.Equal(t, time.Minute, res.RequeueAfter)
 
@@ -877,7 +872,7 @@ func TestSeriesReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 		}}
 		bus := combinedBus{Publisher: fakePublisher{}, requester: requester}
 		r := &series.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10), Bus: bus}
-		_, err = r.Reconcile(ctx, req)
+		_, err = r.ReconcileItem(ctx, req.NamespacedName)
 		require.NoError(t, err)
 
 		epKey := types.NamespacedName{Namespace: "series-transient-ns", Name: name + "-s01e01"}
@@ -905,7 +900,7 @@ func TestSeriesReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 
 		// A second reconcile picks up the episode's HasFile in this pass's
 		// Rollup.
-		_, err = r.Reconcile(ctx, req)
+		_, err = r.ReconcileItem(ctx, req.NamespacedName)
 		require.NoError(t, err)
 
 		// Phase was already Ready after the FIRST reconcile (episodesSynced
@@ -970,7 +965,7 @@ func TestSeriesReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 			Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10),
 			Bus: combinedBus{Publisher: fakePublisher{err: events.ErrQueueFull}, requester: fakeEpisodeRPC{}},
 		}
-		res, err := r2.Reconcile(ctx, req)
+		res, err := r2.ReconcileItem(ctx, req.NamespacedName)
 		require.NoError(t, err)
 		assert.Equal(t, time.Minute, res.RequeueAfter)
 
@@ -1023,7 +1018,7 @@ func TestSeriesReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 			Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10),
 			Bus: combinedBus{Publisher: fakePublisher{}, requester: fakeEpisodeRPC{}},
 		}
-		res, err := r2.Reconcile(ctx, req)
+		res, err := r2.ReconcileItem(ctx, req.NamespacedName)
 		require.NoError(t, err)
 		assert.Equal(t, time.Minute, res.RequeueAfter)
 
@@ -1100,7 +1095,7 @@ func TestSeriesEnsureEpisodeProviderFieldRefresh(t *testing.T) {
 	require.NoError(t, c.Create(ctx, s))
 
 	req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "refresh-ns", Name: "refresh-series"}}
-	_, err := r.Reconcile(ctx, req)
+	_, err := r.ReconcileItem(ctx, req.NamespacedName)
 	require.NoError(t, err)
 
 	epKey := types.NamespacedName{Namespace: "refresh-ns", Name: "refresh-series-s01e01"}
@@ -1127,7 +1122,7 @@ func TestSeriesEnsureEpisodeProviderFieldRefresh(t *testing.T) {
 	requester.episodes = []metadata.Episode{
 		{SeasonNumber: 1, EpisodeNumber: 1, Title: "Pilot"},
 	}
-	_, err = r.Reconcile(ctx, req)
+	_, err = r.ReconcileItem(ctx, req.NamespacedName)
 	require.NoError(t, err)
 
 	// RuntimeMinutes 42 -> 0 is an unambiguous state transition (unlike
@@ -1227,7 +1222,7 @@ func TestSeriesRollupIsPostFanOut(t *testing.T) {
 	r := &series.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: rec, Bus: combinedBus{Publisher: pub, requester: requester}}
 	req := reconcile.Request{NamespacedName: client.ObjectKeyFromObject(s)}
 
-	res, err := r.Reconcile(ctx, req)
+	res, err := r.ReconcileItem(ctx, req.NamespacedName)
 	require.NoError(t, err)
 	assert.InDelta(t, (5 * day).Seconds(), res.RequeueAfter.Seconds(), 60,
 		"the reconcile must come back when the next episode airs, since nothing else wakes it then")
@@ -1262,7 +1257,7 @@ func TestSeriesRollupIsPostFanOut(t *testing.T) {
 		var left catalogv1alpha1.EpisodeList
 		return c.List(ctx, &left, client.InNamespace(ns)) == nil && len(left.Items) == 0
 	}, 5*time.Second, 10*time.Millisecond)
-	_, err = r.Reconcile(ctx, req)
+	_, err = r.ReconcileItem(ctx, req.NamespacedName)
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		return c.Get(ctx, req.NamespacedName, &got) == nil && got.Status.EpisodeCount == 0
@@ -1298,7 +1293,7 @@ func TestSeriesEpisodeStillIsWrittenAndReleased(t *testing.T) {
 	}
 	require.NoError(t, c.Create(ctx, s))
 	req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "still-ns", Name: "still-series"}}
-	_, err := r.Reconcile(ctx, req)
+	_, err := r.ReconcileItem(ctx, req.NamespacedName)
 	require.NoError(t, err)
 
 	epKey := types.NamespacedName{Namespace: "still-ns", Name: "still-series-s01e01"}
@@ -1310,7 +1305,7 @@ func TestSeriesEpisodeStillIsWrittenAndReleased(t *testing.T) {
 	assert.Equal(t, "Rose", ep.Status.Title)
 
 	requester.episodes = []metadata.Episode{{SeasonNumber: 1, EpisodeNumber: 1, Title: "Rose", Runtime: 44}}
-	_, err = r.Reconcile(ctx, req)
+	_, err = r.ReconcileItem(ctx, req.NamespacedName)
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		return c.Get(ctx, epKey, &ep) == nil && ep.Status.RuntimeMinutes == 44
@@ -1346,7 +1341,7 @@ func TestSeriesEnsureEpisodeKeepsItsPlexID(t *testing.T) {
 	req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "plexid-ns", Name: "firefly"}}
 	epKey := types.NamespacedName{Namespace: "plexid-ns", Name: "firefly-s01e01"}
 
-	_, err := r.Reconcile(ctx, req)
+	_, err := r.ReconcileItem(ctx, req.NamespacedName)
 	require.NoError(t, err)
 	var got catalogv1alpha1.Episode
 	require.Eventually(t, func() bool {
@@ -1355,7 +1350,7 @@ func TestSeriesEnsureEpisodeKeepsItsPlexID(t *testing.T) {
 
 	// The next list carries no Plex id, and a changed runtime to wait on.
 	requester.episodes = []metadata.Episode{{SeasonNumber: 1, EpisodeNumber: 1, Title: "Serenity", Runtime: 43}}
-	_, err = r.Reconcile(ctx, req)
+	_, err = r.ReconcileItem(ctx, req.NamespacedName)
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		return c.Get(ctx, epKey, &got) == nil && got.Status.RuntimeMinutes == 43
@@ -1377,7 +1372,7 @@ func TestSeriesEnsureEpisodeKeepsItsPlexID(t *testing.T) {
 	// Plex answered this time and has no id for the episode (renumbered,
 	// or now another episode's): the stale id is released, never kept.
 	requester.episodes = []metadata.Episode{{SeasonNumber: 1, EpisodeNumber: 1, Title: "Serenity", Runtime: 44, PlexConsulted: true}}
-	_, err = r.Reconcile(ctx, req)
+	_, err = r.ReconcileItem(ctx, req.NamespacedName)
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		return c.Get(ctx, epKey, &got) == nil && got.Status.RuntimeMinutes == 44

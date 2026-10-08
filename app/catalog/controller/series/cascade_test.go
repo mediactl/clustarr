@@ -95,7 +95,7 @@ func TestSeriesReconcilerCascadesASeasonOverrideOnce(t *testing.T) {
 		return ptr.Deref(got.Spec.Monitored, true)
 	}
 
-	_, err := r.Reconcile(ctx, req)
+	_, err := r.ReconcileItem(ctx, req.NamespacedName)
 	require.NoError(t, err)
 	assert.True(t, monitored(1, 1))
 	assert.True(t, monitored(1, 2))
@@ -114,7 +114,7 @@ func TestSeriesReconcilerCascadesASeasonOverrideOnce(t *testing.T) {
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name(1, 1)}, &e11))
 	e11.Spec.Monitored = new(false)
 	require.NoError(t, c.Update(ctx, &e11))
-	_, err = r.Reconcile(ctx, req)
+	_, err = r.ReconcileItem(ctx, req.NamespacedName)
 	require.NoError(t, err)
 	assert.False(t, monitored(1, 1))
 	assert.True(t, monitored(1, 2))
