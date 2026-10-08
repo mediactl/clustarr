@@ -23,6 +23,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mediactl/clustarr/test/installtest"
 )
 
 // forbidigoProbe is a package that violates the single-writer rule twice: once
@@ -62,19 +64,13 @@ func TestForbidigoRejectsStatusWrites(t *testing.T) {
 	if testing.Short() {
 		t.Skip("-short: this test shells out to golangci-lint")
 	}
-	lint, err := exec.LookPath("golangci-lint-v2")
-	if err != nil {
-		if lint, err = exec.LookPath("golangci-lint"); err != nil {
-			t.Skip("golangci-lint is not on PATH")
-		}
-	}
+	// The Makefile's golangci-lint-v2 (PATH or GOPATH/bin); a missing linter
+	// skips, and under CLUSTARR_REQUIRE_TOOLS=1 fails.
+	lint := installtest.FindTool(t, "golangci-lint-v2")
 
 	// The probe has to live inside the module for the linter to type-check
 	// it, and outside any directory .golangci.yml excludes.
-	root, err := filepath.Abs("../..")
-	if err != nil {
-		t.Fatalf("resolve the module root: %v", err)
-	}
+	root := installtest.RepoRoot(t)
 	dir, err := os.MkdirTemp(root, "forbidigoprobe")
 	if err != nil {
 		t.Fatalf("create the probe package: %v", err)
