@@ -41,7 +41,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
@@ -103,9 +102,9 @@ func (s *countingStore) Get(ctx context.Context, name string) (events.ObjectInfo
 	return s.ObjectStore.Get(ctx, name)
 }
 
-func (s *countingStore) Put(ctx context.Context, name string, r io.Reader, h map[string]string) (events.ObjectInfo, error) {
+func (s *countingStore) Put(ctx context.Context, name string, r io.Reader, meta events.ObjectMeta) (events.ObjectInfo, error) {
 	s.puts.Add(1)
-	info, err := s.ObjectStore.Put(ctx, name, r, h)
+	info, err := s.ObjectStore.Put(ctx, name, r, meta)
 	if s.onPut != nil {
 		s.onPut(name)
 	}
@@ -148,7 +147,10 @@ var critics = map[string]string{"overlay": "critics"}
 
 // fixture is one Movie or Series in the steady state the gateway leaves:
 // an original poster stored and recorded in status.artwork beside
-// status.metadata with ratings, both in the gateway's one apply.
+// status.metadata with ratings, both in the gateway's one apply. The
+// renderer reads the item uncached and writes objects only (ADR-0019 §7.2,
+// A5.3): its record is the overlay object's headers and metadata, which
+// the manager's item key renders status.overlay from.
 type fixture struct {
 	t       *testing.T
 	c       client.Client
@@ -173,7 +175,7 @@ func newFixture(t *testing.T, kind commonv1.MediaKind, ns string, badges ...cata
 	store := &countingStore{ObjectStore: bus.ObjectStore(events.BucketArtwork)}
 
 	f := &fixture{t: t, c: c, kind: kind, store: store, poster: posterPNG(t, 200, 300)}
-	f.h = &artwork.Handler{Client: c, Reader: c, Store: store}
+	f.h = &artwork.Handler{Reader: c, Store: store}
 
 	p := &catalogv1alpha1.OverlayProfile{
 		ObjectMeta: metav1.ObjectMeta{Name: "critics", Namespace: ns},
@@ -202,7 +204,7 @@ func newFixture(t *testing.T, kind commonv1.MediaKind, ns string, badges ...cata
 
 	var err error
 	f.info, err = store.ObjectStore.Put(ctx, events.ArtworkKey(kind, obj.GetUID(), "poster", events.ArtworkVariantOriginal),
-		bytes.NewReader(f.poster), map[string]string{"Content-Type": "image/png", "Clustarr-Source": "provider", "Clustarr-Source-URL": "https://img.example/p.png"})
+		bytes.NewReader(f.poster), events.ObjectMeta{Headers: map[string]string{"Content-Type": "image/png", "Clustarr-Source": "provider", "Clustarr-Source-URL": "https://img.example/p.png"}})
 	require.NoError(t, err)
 	f.gateway([]catalogv1alpha1.Rating{
 		{Source: catalogv1alpha1.RatingSourceTMDB, ValueCentis: 781, Votes: 5000},
@@ -290,28 +292,39 @@ func (f *fixture) setLabels(lbls map[string]string) {
 }
 
 // assertSplit holds each manager to its set on managedFields: the renderer
-// owns status.overlay's four leaves when an overlay is recorded and nothing
-// otherwise; the gateway owns status.metadata and status.artwork and no
-// overlay leaf.
+// owns no status at all (A5.3: it writes objects only, and the manager's
+// item key renders status.overlay from the overlay object); the gateway owns
+// status.metadata and status.artwork and no overlay leaf.
 func (f *fixture) assertSplit(it overlayplan.Item) {
 	f.t.Helper()
 	renderer, err := catalogstatus.OwnedStatusPaths(it.Object.GetManagedFields(), catalogstatus.RendererManager)
 	require.NoError(f.t, err)
-	if it.Overlay != nil {
-		want := sets.New[string]()
-		for _, leaf := range catalogstatus.OverlayEntryLeaves {
-			want.Insert("overlay." + leaf)
-		}
-		assert.Equal(f.t, want, renderer, "the renderer owns exactly status.overlay's leaves")
-	} else {
-		assert.Empty(f.t, renderer, "with no overlay the renderer owns nothing")
-	}
+	assert.Empty(f.t, renderer, "the renderer writes no status")
 	gateway, err := catalogstatus.OwnedStatusPaths(it.Object.GetManagedFields(), catalogstatus.GatewayManager)
 	require.NoError(f.t, err)
 	for p := range gateway {
 		assert.False(f.t, strings.HasPrefix(p, "overlay"), "the gateway co-owns %s", p)
 	}
 	assert.Contains(f.t, gateway, "metadata.title")
+}
+
+// overlay is the overlay object's Info -- the renderer's whole record --
+// and false when there is none.
+func (f *fixture) overlay() (events.ObjectInfo, bool) {
+	f.t.Helper()
+	info, err := f.store.Info(context.Background(), f.overlayKey())
+	if errors.Is(err, events.ErrObjectNotFound) {
+		return events.ObjectInfo{}, false
+	}
+	require.NoError(f.t, err)
+	return info, true
+}
+
+// renderedFrom is the overlay object's inputs digest, "" when there is none.
+func (f *fixture) renderedFrom() string {
+	f.t.Helper()
+	info, _ := f.overlay()
+	return info.Headers["Clustarr-Rendered-From"]
 }
 
 func TestRenderStoresAndRecordsTheOverlay(t *testing.T) {
@@ -335,12 +348,13 @@ func TestRenderStoresAndRecordsTheOverlay(t *testing.T) {
 			assert.Equal(t, "jpeg", format)
 			assert.Equal(t, image.Rect(0, 0, 200, 300), img.Bounds(), "the overlay is the poster's size")
 
+			assert.Equal(t, "critics", info.Metadata[events.ArtworkMetaKeyProfile])
+			assert.Equal(t, f.info.Digest, info.Metadata[events.ArtworkMetaKeyOriginalDigest])
+			assert.Equal(t, f.wantDigest(), info.Metadata[events.ArtworkMetaKeyRenderedFrom])
+			assert.NotEmpty(t, info.Metadata[events.ArtworkMetaKeyUpdatedAt],
+				"the manager renders status.overlay.updatedAt from the object")
 			got := f.get()
-			require.NotNil(t, got.Overlay)
-			assert.Equal(t, "critics", got.Overlay.ProfileRef)
-			assert.Equal(t, info.Digest, got.Overlay.Digest)
-			assert.Equal(t, f.wantDigest(), got.Overlay.RenderedFrom)
-			assert.False(t, got.Overlay.UpdatedAt.IsZero())
+			assert.Nil(t, got.Overlay, "the renderer records the overlay in its object, not in status (A5.3)")
 			assert.Equal(t, f.info.Digest, got.PosterDigest, "status.artwork is untouched")
 
 			orig, err := f.store.Info(ctx, f.originalKey())
@@ -356,6 +370,7 @@ func TestUnchangedInputsSkipTheRender(t *testing.T) {
 	f := newFixture(t, commonv1.MediaKindMovie, "render-skip", catalogv1alpha1.RatingSourceTMDB)
 	require.NoError(t, f.handle())
 	first := f.get()
+	firstFrom := f.renderedFrom()
 	require.EqualValues(t, 1, f.store.puts.Load())
 
 	require.NoError(t, f.handle())
@@ -367,11 +382,9 @@ func TestUnchangedInputsSkipTheRender(t *testing.T) {
 	f.gateway([]catalogv1alpha1.Rating{{Source: catalogv1alpha1.RatingSourceTMDB, ValueCentis: 802}}, true)
 	require.NoError(t, f.handle())
 	assert.EqualValues(t, 2, f.store.puts.Load())
-	moved := f.get()
-	require.NotNil(t, moved.Overlay)
-	assert.Equal(t, f.wantDigest(), moved.Overlay.RenderedFrom)
-	assert.NotEqual(t, first.Overlay.RenderedFrom, moved.Overlay.RenderedFrom)
-	f.assertSplit(moved)
+	assert.Equal(t, f.wantDigest(), f.renderedFrom())
+	assert.NotEqual(t, firstFrom, f.renderedFrom())
+	f.assertSplit(f.get())
 
 	// A vote count alone is not.
 	f.gateway([]catalogv1alpha1.Rating{{Source: catalogv1alpha1.RatingSourceTMDB, ValueCentis: 802, Votes: 77}}, true)
@@ -380,40 +393,39 @@ func TestUnchangedInputsSkipTheRender(t *testing.T) {
 }
 
 // Ruling (2): every task is judged against the current inputs, whatever it
-// says -- so an overlay whose object is current but whose status.overlay
-// was never written (a crash between the Put and the apply) is recorded
-// without a second render.
+// says -- so an overlay whose object is current is not drawn again; an
+// object stored under an older metadata set is backfilled in place
+// (SetMeta, no Put), and the manager renders status.overlay from it.
 func TestACurrentObjectIsRecordedWithoutARender(t *testing.T) {
 	ctx := context.Background()
 	f := newFixture(t, commonv1.MediaKindMovie, "render-repair", catalogv1alpha1.RatingSourceTMDB)
 	put, err := f.store.ObjectStore.Put(ctx, f.overlayKey(), bytes.NewReader([]byte("rendered-before-a-crash")),
-		map[string]string{"Content-Type": "image/jpeg", "Clustarr-Source": "render", "Clustarr-Rendered-From": f.wantDigest()})
+		events.ObjectMeta{Headers: map[string]string{"Content-Type": "image/jpeg", "Clustarr-Source": "render", "Clustarr-Rendered-From": f.wantDigest()}})
 	require.NoError(t, err)
 
 	require.NoError(t, f.handle())
 	assert.EqualValues(t, 0, f.store.puts.Load())
-	got := f.get()
-	require.NotNil(t, got.Overlay)
-	assert.Equal(t, put.Digest, got.Overlay.Digest)
-	assert.Equal(t, f.wantDigest(), got.Overlay.RenderedFrom)
-	f.assertSplit(got)
+	info, ok := f.overlay()
+	require.True(t, ok)
+	assert.Equal(t, put.Digest, info.Digest, "the current object was not redrawn")
+	assert.Equal(t, f.wantDigest(), info.Headers["Clustarr-Rendered-From"])
+	f.assertSplit(f.get())
 }
 
-// A stale object header re-renders even though status.overlay claims the
+// A stale object header re-renders even though an earlier render stored the
 // current inputs: the object is what the ui serves.
 func TestAStaleObjectIsReRenderedWhateverTheStatusSays(t *testing.T) {
 	ctx := context.Background()
 	f := newFixture(t, commonv1.MediaKindMovie, "render-stale-object", catalogv1alpha1.RatingSourceTMDB)
 	require.NoError(t, f.handle())
 	_, err := f.store.ObjectStore.Put(ctx, f.overlayKey(), bytes.NewReader([]byte("old")),
-		map[string]string{"Content-Type": "image/jpeg", "Clustarr-Source": "render", "Clustarr-Rendered-From": "stale"})
+		events.ObjectMeta{Headers: map[string]string{"Content-Type": "image/jpeg", "Clustarr-Source": "render", "Clustarr-Rendered-From": "stale"}})
 	require.NoError(t, err)
 
 	require.NoError(t, f.handle())
 	info, err := f.store.Info(ctx, f.overlayKey())
 	require.NoError(t, err)
 	assert.Equal(t, f.wantDigest(), info.Headers["Clustarr-Rendered-From"])
-	assert.Equal(t, info.Digest, f.get().Overlay.Digest)
 }
 
 func TestNoProfileRemovesTheOverlay(t *testing.T) {
@@ -430,9 +442,9 @@ func TestNoProfileRemovesTheOverlay(t *testing.T) {
 			ctx := context.Background()
 			f := newFixture(t, commonv1.MediaKindMovie, "render-none-"+strings.ReplaceAll(name, " ", "-"), catalogv1alpha1.RatingSourceTMDB)
 			require.NoError(t, f.handle())
-			steady := f.get()
-			require.NotNil(t, steady.Overlay, "the steady state has an overlay to remove")
-			f.assertSplit(steady)
+			_, ok := f.overlay()
+			require.True(t, ok, "the steady state has an overlay to remove")
+			f.assertSplit(f.get())
 
 			drop(f)
 			require.NoError(t, f.handle())
@@ -440,7 +452,6 @@ func TestNoProfileRemovesTheOverlay(t *testing.T) {
 			_, err := f.store.Info(ctx, f.overlayKey())
 			assert.ErrorIs(t, err, events.ErrObjectNotFound, "the overlay object is deleted")
 			got := f.get()
-			assert.Nil(t, got.Overlay, "status.overlay is cleared")
 			assert.Equal(t, f.info.Digest, got.PosterDigest, "status.artwork stands")
 			f.assertSplit(got)
 
@@ -459,7 +470,8 @@ func TestAMissingOriginalRemovesTheOverlay(t *testing.T) {
 	ctx := context.Background()
 	f := newFixture(t, commonv1.MediaKindSeries, "render-no-original", catalogv1alpha1.RatingSourceTMDB)
 	require.NoError(t, f.handle())
-	require.NotNil(t, f.get().Overlay)
+	_, ok := f.overlay()
+	require.True(t, ok)
 
 	// The gateway drops the poster: the object and its entry.
 	require.NoError(t, f.store.Delete(ctx, f.originalKey()))
@@ -468,9 +480,7 @@ func TestAMissingOriginalRemovesTheOverlay(t *testing.T) {
 
 	_, err := f.store.Info(ctx, f.overlayKey())
 	assert.ErrorIs(t, err, events.ErrObjectNotFound)
-	got := f.get()
-	assert.Nil(t, got.Overlay)
-	f.assertSplit(got)
+	f.assertSplit(f.get())
 }
 
 // A badge whose source has no rating is omitted, not drawn empty: the
@@ -503,77 +513,6 @@ func TestABadgeWithoutARatingIsOmitted(t *testing.T) {
 	assert.Equal(t, one, info.Digest, "imdb has no rating, so only the tmdb badge is drawn, at JPEG quality 90")
 }
 
-// CLAUDE.md: an over-claim is silent while a co-owner keeps applying the
-// same value, so each release is tested with the other manager's apply
-// deliberately in between. The gateway applies first, then the renderer;
-// the gateway then drops status.artwork from its apply -- if the renderer
-// had co-owned any artwork leaf, the entry would stand. And the renderer
-// clears status.overlay -- if the gateway had co-owned it, it would stand.
-func TestTheRendererAndTheGatewayNeverCoOwn(t *testing.T) {
-	f := newFixture(t, commonv1.MediaKindMovie, "render-split", catalogv1alpha1.RatingSourceTMDB)
-	require.NoError(t, f.handle())
-	steady := f.get()
-	require.NotNil(t, steady.Overlay)
-	require.NotEmpty(t, steady.PosterDigest)
-	f.assertSplit(steady)
-
-	// The gateway re-applies its complete set: the overlay is not its to
-	// release, and stands.
-	f.gateway(f.ratings, true)
-	got := f.get()
-	require.NotNil(t, got.Overlay, "the gateway's apply released the renderer's status.overlay")
-	assert.Equal(t, steady.Overlay.Digest, got.Overlay.Digest)
-
-	// The gateway drops status.artwork: with the renderer owning none of
-	// it, the entry goes.
-	f.gateway(f.ratings, false)
-	got = f.get()
-	assert.Empty(t, got.PosterDigest, "status.artwork stood after the gateway released it: the renderer co-owns it")
-	require.NotNil(t, got.Overlay, "the renderer's status.overlay stands through the gateway's apply")
-	assert.Equal(t, "Heat", got.Object.(*catalogv1alpha1.Movie).Status.Metadata.Title)
-
-	// The gateway restores it, and the renderer releases status.overlay.
-	f.gateway(f.ratings, true)
-	f.setLabels(nil)
-	require.NoError(t, f.handle())
-	got = f.get()
-	assert.Nil(t, got.Overlay, "status.overlay stood after the renderer released it: the gateway co-owns it")
-	assert.Equal(t, f.info.Digest, got.PosterDigest, "the renderer's release left the gateway's status.artwork")
-	assert.Equal(t, "Heat", got.Object.(*catalogv1alpha1.Movie).Status.Metadata.Title, "and its status.metadata")
-	f.assertSplit(got)
-}
-
-// A lost update is not an SSA release (CLAUDE.md): the render is slow work,
-// and a gateway apply landing in the middle of it must not be answered by a
-// status.overlay recording the inputs from before it. A real second writer
-// interleaves mid-render here: the gateway applies new ratings during the
-// renderer's Put.
-func TestInputsMovingMidRenderRetryInsteadOfRecordingAStaleOverlay(t *testing.T) {
-	f := newFixture(t, commonv1.MediaKindMovie, "render-interleave", catalogv1alpha1.RatingSourceTMDB)
-	stale := f.wantDigest()
-	var once sync.Once
-	f.store.onPut = func(string) {
-		once.Do(func() {
-			f.gateway([]catalogv1alpha1.Rating{{Source: catalogv1alpha1.RatingSourceTMDB, ValueCentis: 555}}, true)
-		})
-	}
-
-	err := f.handle()
-	require.Error(t, err)
-	var retry *events.RetryError
-	assert.True(t, errors.As(err, &retry), "a moved input retries the delivery: %v", err)
-	assert.ErrorIs(t, err, artwork.ErrInputsMoved)
-	got := f.get()
-	assert.Nil(t, got.Overlay, "no status.overlay records the inputs from before the gateway's apply")
-
-	require.NoError(t, f.handle(), "the redelivery renders the current inputs")
-	got = f.get()
-	require.NotNil(t, got.Overlay)
-	assert.NotEqual(t, stale, got.Overlay.RenderedFrom)
-	assert.Equal(t, f.wantDigest(), got.Overlay.RenderedFrom)
-	f.assertSplit(got)
-}
-
 // The original is replaced between the plan's Info and the draw's Get: the
 // render would draw the new poster under the old poster's inputs digest,
 // so it is not drawn at all -- the delivery retries and the retry judges
@@ -585,7 +524,7 @@ func TestAnOriginalReplacedBeforeTheDrawIsNotRenderedUnderItsOldDigest(t *testin
 	var once sync.Once
 	f.store.onGet = func(name string) {
 		once.Do(func() {
-			_, err := f.store.ObjectStore.Put(ctx, name, bytes.NewReader(replacement), map[string]string{"Content-Type": "image/png"})
+			_, err := f.store.ObjectStore.Put(ctx, name, bytes.NewReader(replacement), events.ObjectMeta{Headers: map[string]string{"Content-Type": "image/png"}})
 			require.NoError(t, err)
 		})
 	}
@@ -593,7 +532,8 @@ func TestAnOriginalReplacedBeforeTheDrawIsNotRenderedUnderItsOldDigest(t *testin
 	err := f.handle()
 	require.ErrorIs(t, err, artwork.ErrInputsMoved)
 	assert.EqualValues(t, 0, f.store.puts.Load(), "nothing was drawn from the replaced original")
-	assert.Nil(t, f.get().Overlay)
+	_, ok := f.overlay()
+	assert.False(t, ok)
 
 	require.NoError(t, f.handle())
 	info, err := f.store.Info(ctx, f.overlayKey())
@@ -601,7 +541,6 @@ func TestAnOriginalReplacedBeforeTheDrawIsNotRenderedUnderItsOldDigest(t *testin
 	sum := sha256.Sum256(replacement)
 	want := overlayplan.InputsDigest(hex.EncodeToString(sum[:]), overlayplan.ProfileHash(f.profile().Spec), f.ratings)
 	assert.Equal(t, want, info.Headers["Clustarr-Rendered-From"])
-	assert.Equal(t, want, f.get().Overlay.RenderedFrom)
 }
 
 // largePNG is a w x h opaque poster, filled directly rather than pixel by
@@ -624,7 +563,7 @@ func TestALargeOriginalIsDrawnAtMaxRenderWidth(t *testing.T) {
 	f := newFixture(t, commonv1.MediaKindMovie, "render-large", catalogv1alpha1.RatingSourceTMDB)
 	var err error
 	f.info, err = f.store.ObjectStore.Put(ctx, f.originalKey(), bytes.NewReader(largePNG(t, 4000, 6000)),
-		map[string]string{"Content-Type": "image/png", "Clustarr-Source": "provider", "Clustarr-Source-URL": "https://img.example/p.png"})
+		events.ObjectMeta{Headers: map[string]string{"Content-Type": "image/png", "Clustarr-Source": "provider", "Clustarr-Source-URL": "https://img.example/p.png"}})
 	require.NoError(t, err)
 	f.gateway(f.ratings, true) // status.artwork now records the large original
 
@@ -637,7 +576,7 @@ func TestALargeOriginalIsDrawnAtMaxRenderWidth(t *testing.T) {
 	assert.Equal(t, "jpeg", format)
 	assert.Equal(t, artwork.MaxRenderWidth, cfg.Width)
 	assert.Equal(t, 3000, cfg.Height, "the aspect ratio is kept")
-	assert.Equal(t, f.wantDigest(), f.get().Overlay.RenderedFrom)
+	assert.Equal(t, f.wantDigest(), f.renderedFrom())
 }
 
 // TestFitWidth: at or under the cap is returned as is; over it is scaled to
@@ -689,16 +628,16 @@ func TestAnUndecodableOriginalClearsTheOverlay(t *testing.T) {
 	ctx := context.Background()
 	f := newFixture(t, commonv1.MediaKindMovie, "render-undecodable", catalogv1alpha1.RatingSourceTMDB)
 	require.NoError(t, f.handle())
-	require.NotNil(t, f.get().Overlay, "the steady state has an overlay to remove")
+	_, ok := f.overlay()
+	require.True(t, ok, "the steady state has an overlay to remove")
 
-	_, err := f.store.ObjectStore.Put(ctx, f.originalKey(), strings.NewReader("<html>"), map[string]string{"Content-Type": "image/png"})
+	_, err := f.store.ObjectStore.Put(ctx, f.originalKey(), strings.NewReader("<html>"), events.ObjectMeta{Headers: map[string]string{"Content-Type": "image/png"}})
 	require.NoError(t, err)
 	require.NoError(t, f.handle(), "a clear is the task's outcome, not a failure to retry")
 
 	_, err = f.store.Info(ctx, f.overlayKey())
 	assert.ErrorIs(t, err, events.ErrObjectNotFound, "the overlay object is deleted")
 	got := f.get()
-	assert.Nil(t, got.Overlay, "status.overlay is cleared")
 	assert.Equal(t, f.info.Digest, got.PosterDigest, "status.artwork is the gateway's and stands")
 	f.assertSplit(got)
 
@@ -725,15 +664,14 @@ func (s staleProfiles) List(ctx context.Context, list client.ObjectList, opts ..
 	return s.Client.List(ctx, list, opts...)
 }
 
-// The render's decision -- and the recheck before its apply above all --
-// reads profiles uncached: a lagging informer must not get an overlay
-// recorded under a profile hash the profile no longer has.
+// The render's decision reads profiles uncached: a lagging informer must not
+// get an overlay drawn under a profile hash the profile no longer has.
 func TestProfilesAreReadUncached(t *testing.T) {
 	ctx := context.Background()
 	f := newFixture(t, commonv1.MediaKindMovie, "render-uncached", catalogv1alpha1.RatingSourceTMDB)
 	var before catalogv1alpha1.OverlayProfileList
 	require.NoError(t, f.c.List(ctx, &before, client.InNamespace(f.key.Namespace)))
-	f.h.Client = staleProfiles{Client: f.c, profiles: before.Items}
+	f.h.Reader = staleProfiles{Client: f.c, profiles: before.Items}
 
 	p := f.profile()
 	p.Spec.Corner = catalogv1alpha1.OverlayCornerTopLeft
@@ -743,12 +681,9 @@ func TestProfilesAreReadUncached(t *testing.T) {
 		"the edit moves the profile hash, so a stale list is visible")
 
 	require.NoError(t, f.handle())
-	got := f.get()
-	require.NotNil(t, got.Overlay)
-	assert.Equal(t, fresh, got.Overlay.RenderedFrom, "recorded under the profile as it is, not as the informer last saw it")
 	info, err := f.store.Info(ctx, f.overlayKey())
 	require.NoError(t, err)
-	assert.Equal(t, fresh, info.Headers["Clustarr-Rendered-From"])
+	assert.Equal(t, fresh, info.Headers["Clustarr-Rendered-From"], "drawn under the profile as it is, not as the informer last saw it")
 }
 
 // addMovie puts a second Movie beside the fixture's, in the same steady
@@ -762,7 +697,7 @@ func (f *fixture) addMovie(name string) types.NamespacedName {
 	}
 	require.NoError(f.t, f.c.Create(ctx, m))
 	info, err := f.store.ObjectStore.Put(ctx, events.ArtworkKey(commonv1.MediaKindMovie, m.UID, "poster", events.ArtworkVariantOriginal),
-		bytes.NewReader(f.poster), map[string]string{"Content-Type": "image/png"})
+		bytes.NewReader(f.poster), events.ObjectMeta{Headers: map[string]string{"Content-Type": "image/png"}})
 	require.NoError(f.t, err)
 	_, err = k8s.PatchStatus(ctx, f.c, catalogstatus.GatewayManager, catalogac.Movie(name, f.key.Namespace).WithStatus(catalogac.MovieStatus().
 		WithMetadata(catalogac.MovieMetadata().WithTitle(name).
