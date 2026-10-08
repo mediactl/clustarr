@@ -23,27 +23,40 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/mediactl/clustarr/pkg/ffruntime"
 	"github.com/mediactl/clustarr/pkg/segments/decode"
 )
 
-func ffmpeg(t *testing.T) string {
+// ready skips without FFmpeg 9 and the ffgo shim (NATIVE_ENV), and fails
+// instead under CLUSTARR_REQUIRE_TOOLS=1 (OD44). T2 replaces it with
+// nativetest.FFmpeg(t, decode.Needs).
+func ready(t *testing.T) {
 	t.Helper()
-	p, err := exec.LookPath("ffmpeg")
-	if err != nil {
-		t.Skip("ffmpeg is not on PATH")
+	if err := ffruntime.Require(decode.Needs); err != nil {
+		if os.Getenv("CLUSTARR_REQUIRE_TOOLS") == "1" {
+			t.Fatal(err)
+		}
+		t.Skip(err)
 	}
-	return p
 }
 
 // clip makes a 10 s Matroska file with a test picture and a tone, a
-// keyframe every second as real releases have one every few.
-func clip(t *testing.T, bin string) string {
+// keyframe every second as real releases have one every few. ffmpeg(1)
+// only makes the fixture (NATIVE_ENV puts the test-only CLI on PATH); T2
+// makes it through testmedia.Make.
+func clip(t *testing.T) string {
 	t.Helper()
+	bin, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		if os.Getenv("CLUSTARR_REQUIRE_TOOLS") == "1" {
+			t.Fatal("ffmpeg is not on PATH")
+		}
+		t.Skip("ffmpeg is not on PATH")
+	}
 	out := filepath.Join(t.TempDir(), "clip.mkv")
 	cmd := exec.Command(bin, "-v", "error", "-f", "lavfi", "-i", "testsrc=d=10:s=320x240:r=25",
 		"-f", "lavfi", "-i", "sine=d=10:f=440", "-c:v", "libx264", "-g", "25", "-c:a", "aac", "-shortest", out)
@@ -52,15 +65,15 @@ func clip(t *testing.T, bin string) string {
 }
 
 func TestAudioDecodesTheWindow(t *testing.T) {
-	bin := ffmpeg(t)
-	pcm, err := decode.Decoder{FFmpeg: bin}.Audio(context.Background(), clip(t, bin), 0, 2, 5)
+	ready(t)
+	pcm, err := decode.Decoder{}.Audio(context.Background(), clip(t), 0, 2, 5)
 	require.NoError(t, err)
 	assert.InDelta(t, 5*11025, len(pcm), 11025/10, "five seconds of mono 11,025 Hz")
 }
 
 func TestFramesOnePerSecondToTheEnd(t *testing.T) {
-	bin := ffmpeg(t)
-	frames, err := decode.Decoder{FFmpeg: bin}.Frames(context.Background(), clip(t, bin), 4)
+	ready(t)
+	frames, err := decode.Decoder{}.Frames(context.Background(), clip(t), 4)
 	require.NoError(t, err)
 	assert.InDelta(t, 6, len(frames), 1)
 	for _, f := range frames {
@@ -69,45 +82,31 @@ func TestFramesOnePerSecondToTheEnd(t *testing.T) {
 }
 
 func TestFrameIsOneRGBFrame(t *testing.T) {
-	bin := ffmpeg(t)
-	f, err := decode.Decoder{FFmpeg: bin}.Frame(context.Background(), clip(t, bin), 3)
+	ready(t)
+	f, err := decode.Decoder{}.Frame(context.Background(), clip(t), 3)
 	require.NoError(t, err)
 	assert.Len(t, f, decode.RGBW*decode.RGBH*3)
 }
 
-// A hung ffmpeg -- here a script whose child holds stdout open -- is killed
-// with its process group at the deadline, not waited on until the child
-// exits by itself.
-func TestAHungFFmpegIsKilledWithItsGroup(t *testing.T) {
-	script := filepath.Join(t.TempDir(), "ffmpeg")
-	require.NoError(t, os.WriteFile(script, []byte("#!/bin/sh\nsleep 60 &\nsleep 60\n"), 0o755))
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	start := time.Now()
-	_, err := decode.Decoder{FFmpeg: script}.Audio(ctx, "x.mkv", 0, 0, 1)
-	require.Error(t, err)
-	assert.Less(t, time.Since(start), 6*time.Second)
-}
-
 func TestAFailureCarriesFFmpegsMessage(t *testing.T) {
-	bin := ffmpeg(t)
-	_, err := decode.Decoder{FFmpeg: bin}.Audio(context.Background(), filepath.Join(t.TempDir(), "missing.mkv"), 0, 0, 1)
+	ready(t)
+	_, err := decode.Decoder{}.Audio(context.Background(), filepath.Join(t.TempDir(), "missing.mkv"), 0, 0, 1)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "No such file")
 }
 
 // End frames are sampled from keyframes only: decoding every frame of a
 // movie's last 15 minutes took 316 s of HEVC on the owner's cluster
-// (2026-10-01), where keyframes are a few hundred decodes.
+// (2026-10-01), where keyframes are a few hundred decodes. The clip has a
+// keyframe a second, so skip_frame=nokey decodes at most those from the
+// seek point on.
 func TestFramesDecodeKeyframesOnly(t *testing.T) {
-	dir := t.TempDir()
-	argsFile := filepath.Join(dir, "args")
-	script := filepath.Join(dir, "ffmpeg")
-	require.NoError(t, os.WriteFile(script, []byte("#!/bin/sh\necho \"$@\" > "+argsFile+"\n"), 0o755))
-	_, err := decode.Decoder{FFmpeg: script}.Frames(context.Background(), "movie.mkv", 100)
+	ready(t)
+	p := clip(t)
+	n, restore := decode.CountDecodedFrames()
+	defer restore()
+	_, err := decode.Decoder{}.Frames(context.Background(), p, 4)
 	require.NoError(t, err)
-	b, err := os.ReadFile(argsFile)
-	require.NoError(t, err)
-	args := string(b)
-	assert.Contains(t, args, "-skip_frame nokey -ss 100.000 -i movie.mkv", "keyframes only, set before the input")
+	assert.LessOrEqual(t, n(), 7, "keyframes from 4 s to 10 s, plus the one before the seek point")
+	assert.Positive(t, n())
 }
