@@ -32,14 +32,12 @@ import (
 	natsserver "github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 	"github.com/stretchr/testify/require"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/mediactl/clustarr/app/grab/engine"
 	"github.com/mediactl/clustarr/pkg/download"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/natsbus"
 	"github.com/mediactl/clustarr/pkg/events/schema"
-	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
 // startServer boots an embedded JetStream server under the test's temporary
@@ -80,7 +78,7 @@ func progressBucket(t *testing.T) events.KV {
 	return bus.KV(events.BucketProgress)
 }
 
-// A Download UID is a Kubernetes UUID in every real cluster, but nothing in
+// An entry UID is a Kubernetes UUID in every real cluster, but nothing in
 // the Go types says so; the key must survive Put, Get and Delete for anything.
 func TestProgressKeyIsAcceptedByARealServer(t *testing.T) {
 	kv := progressBucket(t)
@@ -104,17 +102,14 @@ func TestProgressKeyIsAcceptedByARealServer(t *testing.T) {
 }
 
 // The publisher end to end against the real clustarr-progress bucket: what
-// it writes is a schema.DownloadProgress under the Download's key.
+// it writes is a schema.DownloadProgress under the entry's key.
 func TestProgressPublisherWritesTheRealBucket(t *testing.T) {
 	kv := progressBucket(t)
 	ctx := context.Background()
-	lc := &listClient{}
-	lc.set(download.Item{ID: "aaaa", Status: download.StatusDownloading, TotalBytes: 100, DownloadedBytes: 50})
-	p := &engine.ProgressPublisher{
-		Client: fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).
-			WithObjects(progressDownload("real", "6f1c7e0e-3b4a-4f7e-9a51-0c2d6f4b8e11", "t-0", "aaaa")).Build(),
-		Download: lc, EngineID: "t-0", KV: kv,
-	}
+	lt := &listTransfers{}
+	lt.set(journalled("real", "6f1c7e0e-3b4a-4f7e-9a51-0c2d6f4b8e11",
+		download.Item{ID: "aaaa", Status: download.StatusDownloading, TotalBytes: 100, DownloadedBytes: 50}))
+	p := &engine.ProgressPublisher{Transfers: lt, EngineID: "t-0", KV: kv}
 	require.NoError(t, p.PublishOnce(ctx))
 
 	entry, err := kv.Get(ctx, engine.ProgressKey("6f1c7e0e-3b4a-4f7e-9a51-0c2d6f4b8e11"))

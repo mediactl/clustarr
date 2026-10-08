@@ -26,17 +26,12 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/app/grab/engine"
 	"github.com/mediactl/clustarr/pkg/download"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
-	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
 // countingKV is an events.KV that keeps the last value per key and counts
@@ -88,71 +83,89 @@ func (k *countingKV) DeleteRevision(context.Context, string, uint64) error {
 	panic("the progress publisher only puts")
 }
 
-func (k *countingKV) Watch(context.Context, string) (<-chan events.Entry, error) {
+func (k *countingKV) Watch(context.Context, string, ...events.WatchOption) (<-chan events.Entry, error) {
 	panic("the progress publisher only puts")
 }
 
-// listClient is a download.Client whose only live method is List.
-type listClient struct {
-	download.Client
-	mu    sync.Mutex
-	items []download.Item
+func (k *countingKV) Keys(context.Context) ([]string, error) {
+	panic("the progress publisher only puts")
 }
 
-func (l *listClient) set(items ...download.Item) {
+func (k *countingKV) Status(context.Context) (events.KVStatus, error) {
+	panic("the progress publisher only puts")
+}
+
+// listTransfers is an engine.Transfers whose only live method is List.
+type listTransfers struct {
+	mu   sync.Mutex
+	held []engine.Held
+}
+
+func (l *listTransfers) set(held ...engine.Held) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.items = items
+	l.held = held
 }
 
-func (l *listClient) List(context.Context) ([]download.Item, error) {
+func (l *listTransfers) List(context.Context) ([]engine.Held, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return append([]download.Item(nil), l.items...), nil
+	return append([]engine.Held(nil), l.held...), nil
 }
 
-func progressDownload(name, uid, engineID, downloadID string) *downloadv1alpha1.Download {
-	return &downloadv1alpha1.Download{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: name, Namespace: "media", UID: types.UID(uid),
-			Labels: map[string]string{downloadv1alpha1.LabelEngine: engineID},
+func (l *listTransfers) Apply(context.Context, schema.EngineCommand, *engine.Held) (engine.Held, error) {
+	panic("the progress publisher only lists")
+}
+
+func (l *listTransfers) RemoveByID(context.Context, string, bool) error {
+	panic("the progress publisher only lists")
+}
+
+// journalled is a transfer the client holds whose journal names its entry
+// (name, uid), claimed by a Movie in "media".
+func journalled(name, uid string, item download.Item) engine.Held {
+	return engine.Held{
+		Name: name,
+		Journal: engine.Journal{
+			EntryUID: uid,
+			Claim: &schema.TransferClaim{
+				Owner: schema.ItemRef{Kind: "Movie", Ref: schema.Ref{Namespace: "media", Name: "m"}},
+				Entry: schema.EntryRef{ID: name, UID: uid},
+			},
 		},
-		Spec: downloadv1alpha1.DownloadSpec{
-			Protocol: commonv1alpha1.ProtocolTorrent,
-			Target:   commonv1alpha1.MediaRef{Kind: commonv1alpha1.MediaKindMovie, Name: "m"},
-		},
-		Status: downloadv1alpha1.DownloadStatus{DownloadID: downloadID},
+		Item:  item,
+		Found: true,
 	}
 }
 
 // One write per change, none for an unchanged sample, none for a transfer
-// no Download of this engine claims, and a delete when a transfer leaves --
-// the bound that keeps a 1 Hz sampler from putting every transfer into a
-// replicated bucket every second.
+// whose journal names no entry (a pre-journal transfer) or that the client
+// no longer holds, and a delete when a transfer leaves -- the bound that
+// keeps a 1 Hz sampler from putting every transfer into a replicated bucket
+// every second.
 func TestProgressPublisherWritesOnlyWhatChanged(t *testing.T) {
 	ctx := context.Background()
 	kv := newCountingKV()
-	lc := &listClient{}
-	objs := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).WithObjects(
-		progressDownload("moving", "uid-moving", "torrents-0", "aaaa"),
-		progressDownload("idle", "uid-idle", "torrents-0", "bbbb"),
-		progressDownload("elsewhere", "uid-elsewhere", "torrents-1", "cccc"),
-	).Build()
+	lt := &listTransfers{}
 
 	now := time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC)
 	p := &engine.ProgressPublisher{
-		Client: objs, Download: lc, EngineID: "torrents-0", KV: kv,
+		Transfers: lt, EngineID: "torrents-0", KV: kv,
 		Now: func() time.Time { return now },
 	}
 	eta := 90 * time.Second
-	moving := download.Item{
+	movingItem := download.Item{
 		ID: "aaaa", Status: download.StatusDownloading, Stage: commonv1alpha1.DownloadStageTransferring,
 		TotalBytes: 3000, DownloadedBytes: 1000, DownRate: 500, ETA: &eta, Peers: 4, Seeders: 2,
 	}
-	idle := download.Item{ID: "bbbb", Status: download.StatusPaused, TotalBytes: 10, DownloadedBytes: 5}
-	orphan := download.Item{ID: "dddd", Status: download.StatusDownloading}
-	other := download.Item{ID: "cccc", Status: download.StatusDownloading}
-	lc.set(moving, idle, orphan, other)
+	moving := journalled("moving", "uid-moving", movingItem)
+	idle := journalled("idle", "uid-idle", download.Item{ID: "bbbb", Status: download.StatusPaused, TotalBytes: 10, DownloadedBytes: 5})
+	// A pre-journal transfer: no entry names it until a command does.
+	orphan := engine.Held{Name: "orphan", Item: download.Item{ID: "dddd", Status: download.StatusDownloading}, Found: true}
+	// A journalled transfer the client no longer holds.
+	gone := journalled("gone", "uid-gone", download.Item{ID: "cccc", Status: download.StatusDownloading})
+	gone.Found = false
+	lt.set(moving, idle, orphan, gone)
 
 	require.NoError(t, p.PublishOnce(ctx))
 	assert.Equal(t, 2, kv.puts, "the first sample writes each matched transfer once, and only those")
@@ -180,19 +193,19 @@ func TestProgressPublisherWritesOnlyWhatChanged(t *testing.T) {
 	assert.Equal(t, 2, kv.puts, "nothing changed, so nothing is written")
 
 	now = now.Add(time.Second)
-	moving.DownloadedBytes = 2000
-	lc.set(moving, idle, orphan, other)
+	moving.Item.DownloadedBytes = 2000
+	lt.set(moving, idle, orphan, gone)
 	require.NoError(t, p.PublishOnce(ctx))
 	assert.Equal(t, 3, kv.puts, "only the transfer that moved is written")
 
 	now = now.Add(100 * time.Millisecond)
-	moving.DownloadedBytes = 2500
-	lc.set(moving, idle, orphan, other)
+	moving.Item.DownloadedBytes = 2500
+	lt.set(moving, idle, orphan, gone)
 	require.NoError(t, p.PublishOnce(ctx))
 	assert.Equal(t, 3, kv.puts, "a second sample inside the interval waits for the next tick")
 
 	now = now.Add(time.Second)
-	lc.set(idle, orphan, other)
+	lt.set(idle, orphan, gone)
 	require.NoError(t, p.PublishOnce(ctx))
 	assert.Equal(t, 1, kv.deletes, "a transfer that left the client takes its key with it")
 	_, err = kv.Get(ctx, engine.ProgressKey("uid-moving"))
@@ -201,11 +214,10 @@ func TestProgressPublisherWritesOnlyWhatChanged(t *testing.T) {
 
 func TestProgressPublisherWaitsForReAttach(t *testing.T) {
 	kv := newCountingKV()
-	lc := &listClient{}
-	lc.set(download.Item{ID: "aaaa"})
+	lt := &listTransfers{}
+	lt.set(journalled("a", "uid-a", download.Item{ID: "aaaa"}))
 	p := &engine.ProgressPublisher{
-		Client:   fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).WithObjects(progressDownload("a", "uid-a", "t-0", "aaaa")).Build(),
-		Download: lc, EngineID: "t-0", KV: kv,
+		Transfers: lt, EngineID: "t-0", KV: kv,
 		Ready: func() bool { return false },
 	}
 	require.NoError(t, p.PublishOnce(context.Background()))
