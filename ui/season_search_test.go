@@ -52,8 +52,10 @@ func seasonSearchFixture(t *testing.T) (*ui.Server, client.Client) {
 		Spec:       catalogv1.SeriesSpec{TvdbID: 393189, QualityProfileRef: "web-1080p", RootFolderRef: "tv"},
 		Status: catalogv1.SeriesStatus{
 			Seasons: []catalogv1.SeasonStatus{
-				{Number: 1, Monitored: true, EpisodeCount: 12}, {Number: 2, Monitored: true, EpisodeCount: 12},
-				{Number: 3, Monitored: true, EpisodeCount: 12}, {Number: 4, Monitored: false, EpisodeCount: 12},
+				{Number: 1, Monitored: true, EpisodeCount: 12},
+				{Number: 2, Monitored: true, EpisodeCount: 12},
+				{Number: 3, Monitored: true, EpisodeCount: 12},
+				{Number: 4, Monitored: false, EpisodeCount: 12},
 			},
 			SeasonSearch: &catalogv1.SeasonSearchState{
 				Request:   catalogv1.SeasonSearchRequest{Name: "andor-x1", UID: "x1"},
