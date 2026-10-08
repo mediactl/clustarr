@@ -20,6 +20,8 @@ package natsbus
 import (
 	"errors"
 	"log/slog"
+	"reflect"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -44,6 +46,25 @@ func asyncErrorKind(err error) string {
 	default:
 		return "other"
 	}
+}
+
+// natsDefaultErrHandler is the runtime name of the handler nats.Connect
+// installs when its caller sets none (nats.go defaultErrHandler; the linker
+// escapes the dot in the "nats.go" path element): it prints to stderr and
+// counts nothing, so it is no handler of the caller's.
+const natsDefaultErrHandler = "github.com/nats-io/nats%2ego.defaultErrHandler"
+
+// callersErrorHandler reports whether cb is an asynchronous error handler the
+// caller installed: not nil and not nats.go's default. nats.Connect never
+// leaves AsyncErrorCB nil, so a nil check alone found every connection
+// already handled and New installed nothing (2026-10-07, found by
+// TestAsyncErrorsAreCounted).
+func callersErrorHandler(cb nats.ErrHandler) bool {
+	if cb == nil {
+		return false
+	}
+	fn := runtime.FuncForPC(reflect.ValueOf(cb).Pointer())
+	return fn == nil || fn.Name() != natsDefaultErrHandler
 }
 
 // asyncErrors reports a connection's asynchronous errors: nats.go drops

@@ -157,14 +157,15 @@ func New(nc *nats.Conn, opts ...Option) (*Bus, error) {
 		fn(&o)
 	}
 	// Report the connection's asynchronous errors -- a slow consumer's
-	// dropped messages above all, which nats.go reports nowhere else -- unless
-	// the caller installed its own handler (S7).
+	// dropped messages above all, which nats.go reports nowhere else but its
+	// default handler's stderr line -- unless the caller installed its own
+	// handler (S7).
 	log := o.log
 	if log == nil {
 		log = slog.Default()
 	}
 	ae := &asyncErrors{log: log, last: map[string]time.Time{}}
-	if nc.Opts.AsyncErrorCB == nil {
+	if !callersErrorHandler(nc.Opts.AsyncErrorCB) {
 		nc.SetErrorHandler(ae.onError)
 	}
 	// A DisconnectedErrCB silences a DisconnectedCB, so neither is replaced.
