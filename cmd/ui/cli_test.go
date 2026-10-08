@@ -19,46 +19,41 @@ package main
 
 import (
 	"bytes"
-	"os"
+	"errors"
+	"io"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
 
 	"github.com/mediactl/clustarr/ui"
 )
 
 // TestUICommandsHandTheChosenAuthModeToRunUI pins §A3.5's explicit
-// authentication mode at the two places a process chooses it: `clustarr ui
-// --auth-mode` and `clustarr all --ui-auth-mode`. Neither flag has a
-// default, so a bare command hands runUI options whose Validate -- the
-// check ui.Run makes before it binds -- refuses to serve and says which flag
-// to set. Both commands build ui.Options separately, hence both cases.
+// authentication mode where the process chooses it: `ui --auth-mode` (the
+// `clustarr all --ui-auth-mode` leg went with `clustarr all`, §3.10). The
+// flag has no default, so a bare command hands its run options whose
+// Validate -- the check ui.Run makes before it binds -- refuses to serve and
+// says which flag to set.
 func TestUICommandsHandTheChosenAuthModeToRunUI(t *testing.T) {
-	kubeconfig := filepath.Join(t.TempDir(), "kubeconfig")
-	require.NoError(t, os.WriteFile(kubeconfig, []byte(unreachableKubeconfig), 0o600))
-	t.Setenv("KUBECONFIG", kubeconfig)
+	useUnreachableKubeconfig(t)
 
 	for name, tc := range map[string]struct {
 		argv     []string
 		wantMode ui.AuthMode
 	}{
-		"clustarr ui --auth-mode anonymous": {
-			argv:     []string{"ui", "--bind-address", "127.0.0.1:0", "--auth-mode", "anonymous"},
+		"ui --auth-mode anonymous": {
+			argv:     []string{"--bind-address", "127.0.0.1:0", "--auth-mode", "anonymous"},
 			wantMode: ui.AuthModeAnonymous,
 		},
-		"clustarr all --ui-auth-mode anonymous": {
-			argv:     []string{"all", "--ui-auth-mode", "anonymous"},
-			wantMode: ui.AuthModeAnonymous,
-		},
-		"clustarr ui, no mode": {
-			argv: []string{"ui", "--bind-address", "127.0.0.1:0"},
-		},
-		"clustarr all, no mode": {
-			argv: []string{"all"},
+		"ui, no mode": {
+			argv: []string{"--bind-address", "127.0.0.1:0"},
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -77,27 +72,22 @@ func TestUICommandsHandTheChosenAuthModeToRunUI(t *testing.T) {
 
 // TestChartUIAuthModeReachesUI holds the chart to the same rule: its
 // default `ui.auth.mode: anonymous` renders the flag on the ui Deployment,
-// that argv runs through the real command tree to options ui.Run accepts,
-// and a mode the binary does not know fails `helm template` at the schema
-// rather than crash-looping a pod.
+// that argv runs through the real command to options ui.Run accepts, and a
+// mode the binary does not know fails `helm template` at the schema rather
+// than crash-looping a pod.
 func TestChartUIAuthModeReachesUI(t *testing.T) {
 	helm := findTool(t, "helm")
 	root, err := filepath.Abs("../..")
 	require.NoError(t, err)
+	useUnreachableKubeconfig(t)
 
 	t.Run("default renders anonymous", func(t *testing.T) {
-		out := run(t, root, helm, "template", "clustarr", "charts/clustarr")
-		dep := uiDeployment(t, decodeRendered(t, out).deployments)
+		out := runTool(t, root, helm, "template", "clustarr", "charts/clustarr")
+		dep := uiDeployment(t, deploymentsOf(t, out))
 		argv := dep.Spec.Template.Spec.Containers[0].Args
 		require.Contains(t, argv, "--auth-mode=anonymous", "argv %v", argv)
 
-		got := stubEveryService(t)
-		if out, err := execute(t, argv...); err != nil {
-			t.Fatalf("clustarr %v: %v (output %q)", argv, err, out)
-		}
-		require.NotNil(t, *got, "clustarr %v ran no service", argv)
-		o, ok := (*got).(ui.Options)
-		require.True(t, ok, "clustarr %v ran %T, want ui", argv, *got)
+		o := captureUIOptions(t, argv...)
 		require.Equal(t, ui.AuthModeAnonymous, o.AuthMode)
 		require.NoError(t, o.Validate())
 	})
@@ -124,4 +114,64 @@ func uiDeployment(t *testing.T, deps []appsv1.Deployment) *appsv1.Deployment {
 	}
 	t.Fatal("no ui Deployment rendered")
 	return nil
+}
+
+// findTool resolves name on PATH, then in GOPATH/bin, and skips the test
+// when it is absent: a chart cannot be checked without the binary that
+// renders it. (test/installtest takes these helpers over in T2, W5.11.)
+func findTool(t *testing.T, name string) string {
+	t.Helper()
+	if p, err := exec.LookPath(name); err == nil {
+		return p
+	}
+	if out, err := exec.Command("go", "env", "GOPATH").Output(); err == nil {
+		p := filepath.Join(strings.TrimSpace(string(out)), "bin", name)
+		if _, err := exec.LookPath(p); err == nil {
+			return p
+		}
+	}
+	t.Skipf("%s is not installed (PATH or $(go env GOPATH)/bin)", name)
+	return ""
+}
+
+// runTool executes bin in dir and returns its stdout, failing the test on an
+// error or after two minutes.
+func runTool(t *testing.T, dir, bin string, args ...string) []byte {
+	t.Helper()
+	cmd := exec.Command(bin, args...)
+	cmd.Dir = dir
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	require.NoError(t, cmd.Start(), "%s %s", bin, strings.Join(args, " "))
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	select {
+	case err := <-done:
+		require.NoError(t, err, "%s %s\n%s", bin, strings.Join(args, " "), stderr.String())
+	case <-time.After(2 * time.Minute):
+		_ = cmd.Process.Kill()
+		t.Fatalf("%s %s: still running after 2m", bin, strings.Join(args, " "))
+	}
+	return stdout.Bytes()
+}
+
+// deploymentsOf decodes the Deployments in a rendered multi-document stream.
+func deploymentsOf(t *testing.T, in []byte) []appsv1.Deployment {
+	t.Helper()
+	var out []appsv1.Deployment
+	dec := utilyaml.NewYAMLOrJSONDecoder(bytes.NewReader(in), 4096)
+	for {
+		var obj map[string]any
+		if err := dec.Decode(&obj); errors.Is(err, io.EOF) {
+			return out
+		} else if err != nil {
+			t.Fatalf("decode rendered manifests: %v", err)
+		}
+		if obj == nil || obj["kind"] != "Deployment" {
+			continue
+		}
+		var d appsv1.Deployment
+		require.NoError(t, runtime.DefaultUnstructuredConverter.FromUnstructured(obj, &d))
+		out = append(out, d)
+	}
 }

@@ -19,209 +19,51 @@ package main
 
 import (
 	"context"
-	"os"
-	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr"
-	"github.com/go-logr/logr/funcr"
 	natsserver "github.com/nats-io/nats-server/v2/server"
 	"github.com/stretchr/testify/require"
-	appsv1 "k8s.io/api/apps/v1"
 
-	captionapp "github.com/mediactl/clustarr/app/caption"
-	catalogapp "github.com/mediactl/clustarr/app/catalog"
-	grabapp "github.com/mediactl/clustarr/app/grab"
-	importapp "github.com/mediactl/clustarr/app/import"
-	indexapp "github.com/mediactl/clustarr/app/indexer"
-	transcodeapp "github.com/mediactl/clustarr/app/transcode"
 	"github.com/mediactl/clustarr/ui"
 )
 
-// TestEveryNATSDialingDeploymentCarriesNATSURL holds both installers to
-// giving NATS_URL to every Deployment whose command dials NATS.
-//
-// The set is derived from the command tree, not listed: a Deployment's argv
-// is resolved by the real root command, and a subcommand that defines
-// --nats-url reads $NATS_URL as that flag's default -- so its pod dials
-// whatever the variable says, or the binary's built-in default when it is
-// unset. That default is a Service name no installer creates, and
-// k8s.ConnectBus retries a failed connect in the background without ever
-// returning an error, so a missing variable is silence, not a crash: B3 gave
-// ui a bus for /art and neither installer gave ui the variable, so every
-// artwork and Plex image request hung and then 500ed, with every test green.
-//
-// Every value within one installer must also be the same endpoint.
-func TestEveryNATSDialingDeploymentCarriesNATSURL(t *testing.T) {
-	check := func(t *testing.T, installer string, deployments []appsv1.Deployment) {
-		t.Helper()
-		dialers := map[string]string{} // component -> NATS_URL
-		for _, d := range deployments {
-			containers := d.Spec.Template.Spec.Containers
-			if len(containers) == 0 || len(containers[0].Args) == 0 {
-				continue
-			}
-			root := NewRootCommand()
-			cmd, _, err := root.Find(containers[0].Args)
-			if err != nil || cmd == root {
-				// Not a clustarr command line: a subchart's operator.
-				continue
-			}
-			if cmd.Flags().Lookup("nats-url") == nil {
-				continue
-			}
-			component := d.Spec.Template.Labels["app.kubernetes.io/component"]
-			if component == "" {
-				component = d.Name
-			}
-			var url string
-			for _, e := range containers[0].Env {
-				if e.Name == natsURLEnv {
-					url = e.Value
-				}
-			}
-			require.NotEmptyf(t, url,
-				"%s: Deployment %q runs `clustarr %s`, which dials NATS, and sets no %s -- "+
-					"it would dial the binary's default %q, which no installer creates",
-				installer, d.Name, cmd.Name(), natsURLEnv, defaultNATSURLForTest())
-			dialers[component] = url
-		}
-
-		require.Contains(t, dialers, "ui",
-			"%s: the ui Deployment was not recognised as dialling NATS (serves /art from the object store)", installer)
-		require.Contains(t, dialers, "catalog", "%s: no catalog Deployment was checked", installer)
-		want := dialers["catalog"]
-		for component, url := range dialers {
-			require.Equalf(t, want, url, "%s: Deployment %q dials a different NATS endpoint from catalog",
-				installer, component)
-		}
-	}
-
-	t.Run("kustomize", func(t *testing.T) {
-		paths, err := filepath.Glob("../../config/manager/*.yaml")
-		require.NoError(t, err)
-		require.NotEmpty(t, paths)
-		var all []appsv1.Deployment
-		for _, p := range paths {
-			all = append(all, deploymentsIn(t, p)...)
-		}
-		check(t, "config/manager", all)
-	})
-
-	t.Run("chart", func(t *testing.T) {
-		helm := findTool(t, "helm")
-		root, err := filepath.Abs("../..")
-		require.NoError(t, err)
-		check(t, "charts/clustarr",
-			decodeRendered(t, run(t, root, helm, "template", "clustarr", "charts/clustarr")).deployments)
-	})
-}
-
-// defaultNATSURLForTest is the --nats-url default a pod with no NATS_URL
-// falls back to, read off the real flag so the failure message names it.
-func defaultNATSURLForTest() string {
-	cmd, _, err := NewRootCommand().Find([]string{"ui"})
-	if err != nil {
-		return ""
-	}
-	if f := cmd.Flags().Lookup("nats-url"); f != nil {
-		return f.DefValue
-	}
-	return ""
-}
-
-// TestUICommandsCloseTheirBusOnShutdown proves both `clustarr ui` and
-// `clustarr all` hold ui's artwork connection open for as long as runUI
-// runs, and close it once runUI returns rather than leaving it to process
-// exit. The server's own client count is the observation: nothing else in
-// either command dials it, since every other service is stubbed.
+// TestUICommandsCloseTheirBusOnShutdown proves `ui` holds its artwork
+// connection open for as long as its run runs, and closes it once the run
+// returns rather than leaving it to process exit (the `clustarr all` leg
+// went with `clustarr all`, §3.10). The server's own client count is the
+// observation: nothing else in the command dials it.
 func TestUICommandsCloseTheirBusOnShutdown(t *testing.T) {
-	kubeconfig := filepath.Join(t.TempDir(), "kubeconfig")
-	require.NoError(t, os.WriteFile(kubeconfig, []byte(unreachableKubeconfig), 0o600))
-	t.Setenv("KUBECONFIG", kubeconfig)
-
+	useUnreachableKubeconfig(t)
 	srv := startCountingNATS(t)
 
-	for _, argv := range [][]string{
-		{"ui", "--bind-address", "127.0.0.1:0", "--auth-mode", "anonymous", "--nats-url", srv.ClientURL()},
-		{"all", "--ui-auth-mode", "anonymous", "--nats-url", srv.ClientURL()},
-	} {
-		t.Run("clustarr "+argv[0], func(t *testing.T) {
-			var (
-				mu           sync.Mutex
-				whileRunning = -1
-			)
-			stubServicesExceptUI(t, func(context.Context, ui.Options) error {
-				mu.Lock()
-				defer mu.Unlock()
-				whileRunning = srv.NumClients()
-				return nil
-			})
-
-			out, err := execute(t, argv...)
-			require.NoError(t, err, out)
-
-			mu.Lock()
-			got := whileRunning
-			mu.Unlock()
-			require.Equal(t, 1, got, "ui's bus was not connected while runUI ran")
-			waitFor(t, "ui's NATS connection to close after runUI returned", func() bool {
-				return srv.NumClients() == 0
-			})
-		})
-	}
-}
-
-// TestBuildUIArtworkLogsAnUnconnectedBus: an endpoint nothing listens on is
-// not a ConnectBus error (it retries in the background), so the only signal
-// an operator gets is the one startup line naming the URL. A reachable
-// endpoint logs nothing of the kind.
-func TestBuildUIArtworkLogsAnUnconnectedBus(t *testing.T) {
-	capture := func(t *testing.T, url string) string {
-		t.Helper()
-		var (
-			mu    sync.Mutex
-			lines []string
-		)
-		sink := funcr.New(func(prefix, args string) {
-			mu.Lock()
-			defer mu.Unlock()
-			lines = append(lines, prefix+" "+args)
-		}, funcr.Options{})
-		ctx := logr.NewContext(context.Background(), sink)
-
-		b := buildUIBus(ctx, url)
-		require.NotNil(t, b.search)
-		require.NotNil(t, b.artwork)
-		require.NotNil(t, b.extended)
-		require.NotNil(t, b.extras)
-		require.NotNil(t, b.close)
-		b.close()
-
+	var (
+		mu           sync.Mutex
+		whileRunning = -1
+	)
+	root := uicliCommandRecording(func(context.Context, ui.Options) error {
 		mu.Lock()
 		defer mu.Unlock()
-		return strings.Join(lines, "\n")
-	}
-
-	t.Run("unreachable", func(t *testing.T) {
-		url := "nats://" + freeAddress(t)
-		logged := capture(t, url)
-		require.Contains(t, logged, "NATS is not connected yet")
-		require.Contains(t, logged, url, "the line must name the endpoint being dialled")
+		whileRunning = srv.NumClients()
+		return nil
 	})
+	root.SetArgs([]string{"--bind-address", "127.0.0.1:0", "--auth-mode", "anonymous", "--nats-url", srv.ClientURL()})
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	require.NoError(t, root.ExecuteContext(ctx))
 
-	t.Run("reachable", func(t *testing.T) {
-		srv := startCountingNATS(t)
-		require.NotContains(t, capture(t, srv.ClientURL()), "not connected")
+	mu.Lock()
+	got := whileRunning
+	mu.Unlock()
+	require.Equal(t, 1, got, "ui's bus was not connected while its run ran")
+	waitFor(t, "ui's NATS connection to close after the run returned", func() bool {
+		return srv.NumClients() == 0
 	})
 }
 
 // startCountingNATS runs an embedded JetStream server and returns it, so a
-// test can count the clients connected to it (start_envtest_test.go's
-// startEmbeddedNATS returns only the URL).
+// test can count the clients connected to it.
 func startCountingNATS(t *testing.T) *natsserver.Server {
 	t.Helper()
 	srv, err := natsserver.NewServer(&natsserver.Options{
@@ -240,21 +82,15 @@ func startCountingNATS(t *testing.T) *natsserver.Server {
 	return srv
 }
 
-// stubServicesExceptUI replaces every service entrypoint with a no-op and
-// runUI with uiRun, restoring them all when the test ends.
-func stubServicesExceptUI(t *testing.T, uiRun func(context.Context, ui.Options) error) {
+// waitFor polls cond until it holds or 30s pass.
+func waitFor(t *testing.T, what string, cond func() bool) {
 	t.Helper()
-	catalog, index, grab, transcode, caption, importa, origUI :=
-		runCatalog, runIndex, runGrab, runTranscode, runCaption, runImport, runUI
-	t.Cleanup(func() {
-		runCatalog, runIndex, runGrab, runTranscode, runCaption, runImport, runUI =
-			catalog, index, grab, transcode, caption, importa, origUI
-	})
-	runCatalog = func(context.Context, catalogapp.Options) error { return nil }
-	runIndex = func(context.Context, indexapp.Options) error { return nil }
-	runGrab = func(context.Context, grabapp.Options) error { return nil }
-	runTranscode = func(context.Context, transcodeapp.Options) error { return nil }
-	runCaption = func(context.Context, captionapp.Options) error { return nil }
-	runImport = func(context.Context, importapp.Options) error { return nil }
-	runUI = uiRun
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %s", what)
 }

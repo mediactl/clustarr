@@ -33,7 +33,9 @@ import (
 )
 
 // TestEveryProjectionStreamIsWiredIntoBothUICommands guards the gap that
-// closed this file's own reason for existing.
+// closed this file's own reason for existing. Since the binary split the one
+// production entry point is internal/cli/ui (`clustarr ui` and `clustarr
+// all` are gone, §3.10), so the name's "both" is historical.
 //
 // ui/projection.Projection exposes one Subscribe* method per SSE stream, and
 // ui.Options has a matching field per stream. Both are optional: a nil field
@@ -59,8 +61,8 @@ import (
 // ImportLists, whose nil defaults render the Library, Unmatched and Import
 // Lists pages with no rows at all. So beside every Subscribe* method, every
 // *Projection method that shares its name with a ui.Options field is held to
-// the same rule. ui_options_wiring_test.go is the behavioural half: it
-// executes both commands and inspects the Options they build.
+// the same rule. wiring_test.go is the behavioural half: it executes the
+// command and inspects the Options it builds.
 func TestEveryProjectionStreamIsWiredIntoBothUICommands(t *testing.T) {
 	root, err := filepath.Abs("../..")
 	require.NoError(t, err)
@@ -102,20 +104,29 @@ func TestEveryProjectionStreamIsWiredIntoBothUICommands(t *testing.T) {
 	require.NotEmpty(t, streams,
 		"found no Subscribe* methods on *projection.Projection; this test's premise has changed")
 
-	// Both production entry points must reference each of them.
-	for _, file := range []string{"services.go", "all.go"} {
-		src, err := os.ReadFile(filepath.Join(root, "cmd", "clustarr", file))
+	// The production entry point -- every non-test file of internal/cli/ui,
+	// read as one -- must reference each of them.
+	cliDir := filepath.Join(root, "internal", "cli", "ui")
+	files, err := os.ReadDir(cliDir)
+	require.NoError(t, err, "read internal/cli/ui")
+	var src strings.Builder
+	for _, e := range files {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") || strings.HasSuffix(e.Name(), "_test.go") {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join(cliDir, e.Name()))
 		require.NoError(t, err)
-		for _, m := range streams {
-			// strings.Contains rather than require.Contains, whose failure
-			// message prints the whole source file.
-			if !strings.Contains(string(src), "proj."+m) {
-				t.Errorf("cmd/clustarr/%s never wires projection.%s into ui.Options.\n"+
-					"A nil field is legal and silently falls back to a per-connection "+
-					"poll, or (for a page accessor) to no rows at all, so this is inert "+
-					"rather than broken -- no other test in the tree will fail. Wire it, "+
-					"or delete the method.", file, m)
-			}
+		src.Write(b)
+	}
+	for _, m := range streams {
+		// strings.Contains rather than require.Contains, whose failure
+		// message prints the whole source.
+		if !strings.Contains(src.String(), "proj."+m) {
+			t.Errorf("internal/cli/ui never wires projection.%s into ui.Options.\n"+
+				"A nil field is legal and silently falls back to a per-connection "+
+				"poll, or (for a page accessor) to no rows at all, so this is inert "+
+				"rather than broken -- no other test in the tree will fail. Wire it, "+
+				"or delete the method.", m)
 		}
 	}
 }

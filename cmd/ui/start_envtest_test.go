@@ -400,3 +400,29 @@ func rowAttr(html, anchor, attr string) string {
 	}
 	return m[1]
 }
+
+// statusManagers is the set of field managers with an entry on the status
+// subresource.
+func statusManagers(entries []metav1.ManagedFieldsEntry) map[string]bool {
+	out := map[string]bool{}
+	for _, e := range entries {
+		if e.Subresource == "status" {
+			out[e.Manager] = true
+		}
+	}
+	return out
+}
+
+// waitForLong is waitFor with room for a fresh ui process: its cache syncs
+// and its projection runs a first round before a page shows a new object.
+func waitForLong(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(90 * time.Second)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %s", what)
+}
