@@ -74,6 +74,12 @@ func (*Adapter) Plan(v *remediation.View, in Input, out *catalogv1alpha1.MediaFi
 	if !in.Read {
 		return res, nil
 	}
+	// A file the probe planner found missing keeps the proposal it had:
+	// nothing is rendered for a file that is not there (the MediaFile
+	// controller's FileMissing return), and out already carries it.
+	if fileMissing(v.Draft) {
+		return res, nil
+	}
 	// A transcode in flight holds the rename: its worker re-probes the
 	// source and swaps its output over it (spec D6).
 	if t := v.Draft.Transcode; t != nil {
@@ -100,6 +106,13 @@ func (*Adapter) Plan(v *remediation.View, in Input, out *catalogv1alpha1.MediaFi
 func probeFailed(s *catalogv1alpha1.MediaFileStatus) bool {
 	c := k8s.FindCondition(s.Conditions, catalogv1alpha1.MediaFileConditionProbed)
 	return c != nil && c.Status == metav1.ConditionFalse && c.Reason == "ProbeFailed"
+}
+
+// fileMissing reports the probe planner's FileMissing on the draft: Ready
+// False, reason FileMissing.
+func fileMissing(s *catalogv1alpha1.MediaFileStatus) bool {
+	c := k8s.FindCondition(s.Conditions, catalogv1alpha1.MediaFileConditionReady)
+	return c != nil && c.Status == metav1.ConditionFalse && c.Reason == "FileMissing"
 }
 
 // Copy is naming's row of §3.5's table.
