@@ -42,6 +42,9 @@ func TestDefaultTopologyIsValid(t *testing.T) {
 // its last attempt on a delay it never uses.
 func TestEveryConsumerHasDeliveryHeadroom(t *testing.T) {
 	for _, c := range events.Default().Consumers {
+		if c.Stream == events.StreamAdvisories {
+			continue // a watcher retries without limit (MaxDeliver -1)
+		}
 		if c.MaxDeliver <= len(c.BackOff) {
 			t.Errorf("consumer %s: MaxDeliver = %d, len(BackOff) = %d",
 				c.Name, c.MaxDeliver, len(c.BackOff))
@@ -51,10 +54,12 @@ func TestEveryConsumerHasDeliveryHeadroom(t *testing.T) {
 
 func TestWorkStreamsAllowSchedules(t *testing.T) {
 	for _, s := range events.Default().Streams {
-		// The advisory stream is WorkQueue for its retention, not a work
-		// stream: only JetStream publishes to it, never with a schedule.
-		// The transcode stream uses DiscardNew, so it has no schedules.
-		if s.Retention != events.RetentionWorkQueue || s.Name == events.StreamAdvisories || s.Name == events.StreamWorkTranscode {
+		// The advisory and task-events streams are WorkQueue for their
+		// retention, not work streams: only JetStream publishes to them,
+		// never with a schedule. A DiscardNew work queue (transcode, probe,
+		// intake, engine commands) cannot have schedules.
+		if s.Retention != events.RetentionWorkQueue || s.Name == events.StreamAdvisories ||
+			s.Name == events.StreamTaskEvents || s.Discard == events.DiscardNew {
 			continue
 		}
 		if !s.AllowMsgSchedules {
@@ -73,16 +78,24 @@ func TestWorkStreamsAllowSchedules(t *testing.T) {
 // a topology it could consume nothing from. Topology.Validate cannot check
 // this -- it only walks consumers towards streams, never the reverse.
 //
-// The advisory stream is the exception: natsbus creates its consumers, one
-// per watched durable, as each subscription starts.
+// The advisory stream is no exception: its consumers are the dead-letter
+// watchers, topology objects since spec §5.9. Two streams' durables come
+// and go with an object, so Default() cannot declare them: a transcode
+// pool's (TranscodeTaskConsumer, created by the worker's Pull) and an
+// engine instance's (EngineConsumer, ensured by the DownloadClient
+// controller). Their builders count as the stream's consumers.
 func TestEveryWorkStreamHasAConsumer(t *testing.T) {
 	top := events.Default()
+	consumers := append([]events.ConsumerSpec{
+		events.TranscodeTaskConsumer("6f1c-uid", "cpu"),
+		events.EngineConsumer("qbit", 0),
+	}, top.Consumers...)
 	for _, s := range top.Streams {
-		if s.Retention != events.RetentionWorkQueue || s.Name == events.StreamAdvisories {
+		if s.Retention != events.RetentionWorkQueue {
 			continue
 		}
 		found := false
-		for _, c := range top.Consumers {
+		for _, c := range consumers {
 			if c.Stream == s.Name {
 				found = true
 				break
@@ -430,8 +443,11 @@ func TestConsumerSpecSubscription(t *testing.T) {
 	if sub.Durable != spec.Name || sub.Stream != spec.Stream {
 		t.Errorf("Subscription = %+v", sub)
 	}
-	if sub.MaxInFlight != spec.MaxAckPending {
-		t.Errorf("MaxInFlight = %d, want %d", sub.MaxInFlight, spec.MaxAckPending)
+	if sub.MaxInFlight != spec.Slots {
+		t.Errorf("MaxInFlight = %d, want Slots %d", sub.MaxInFlight, spec.Slots)
+	}
+	if sub.MaxAckPending != spec.MaxAckPending {
+		t.Errorf("MaxAckPending = %d, want %d", sub.MaxAckPending, spec.MaxAckPending)
 	}
 	if err := sub.Validate(); err != nil {
 		t.Errorf("derived subscription is invalid: %v", err)
@@ -476,6 +492,10 @@ func TestDeadLetterSubjectNamesTheFailedTask(t *testing.T) {
 		{
 			"release, rss matcher", events.ReleaseSubject("torrent", "idx", 2000),
 			events.ConsumerCatalogRSSMatcher, events.DLQSubject("catalog", "rss-matcher", "id-1"),
+		},
+		{
+			"probe task names itself", events.WorkProbeSubject(events.PriorityHigh, "m1"),
+			events.ConsumerImportProbeHigh, events.DLQSubject("probe", "file", "id-1"),
 		},
 		{"durable without a task", failed, "loner", events.DLQSubject("loner", "unknown", "id-1")},
 		{"no durable", failed, "", events.DLQSubject("unknown", "unknown", "id-1")},

@@ -76,5 +76,36 @@ func TestTranscodeTopology(t *testing.T) {
 	assert.Equal(t, uint8(1), leases.History)
 
 	assert.True(t, ValidKVKey(TranscodeLeaseKey("a1b2-uid")))
-	assert.Equal(t, "a1b2-uid/3", MsgIDForTranscodeTask("a1b2-uid", 3))
+	// One dispatch per seq (loop spec §5.3): a republish of one seq is
+	// absorbed by the stream's Duplicates window, and the next seq never is.
+	assert.Equal(t, "transcode/a1b2-uid/3", MsgIDForTranscodeTask("a1b2-uid", 3))
+	assert.NotEqual(t, MsgIDForTranscodeTask("a1b2-uid", 3), MsgIDForTranscodeTask("a1b2-uid", 4))
+}
+
+// TestTheResultsDurableIsRetired is D25 under the cold cutover: the
+// transcode results durable and its result subject are gone, not retired.
+// The worker answers into clustarr-transcodes by compare-and-swap, so the
+// transcode stream's only consumers are the pool durables a worker's Pull
+// creates; nothing in Default() reads a result subject, and Topology.Retired
+// is empty because the cutover runbook deletes the old durable.
+func TestTheResultsDurableIsRetired(t *testing.T) {
+	top := Default()
+	require.NoError(t, top.Validate())
+	result := "clustarr.work.transcode.result.a1b2-uid"
+	for _, c := range top.Consumers {
+		assert.NotEqual(t, StreamWorkTranscode, c.Stream,
+			"%s: the transcode stream has no static consumer, only pool durables", c.Name)
+		for _, f := range c.Filters {
+			assert.False(t, SubjectMatches(f, result), "%s still reads transcode results (%s)", c.Name, f)
+		}
+	}
+	assert.Empty(t, top.Retired)
+
+	task := WorkTranscodeTaskSubject("6f1c-uid", "nvidia", "a1b2-uid")
+	got, ok := top.StreamForSubject(task)
+	require.True(t, ok)
+	assert.Equal(t, StreamWorkTranscode, got.Name)
+	pool := TranscodeTaskConsumer("6f1c-uid", "nvidia")
+	assert.Equal(t, StreamWorkTranscode, pool.Stream)
+	assert.True(t, SubjectMatches(pool.Filters[0], task), "the pool durable drains its own tasks")
 }

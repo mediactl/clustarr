@@ -118,6 +118,9 @@ func TestKVKeyBuildersAreInjective(t *testing.T) {
 		fn   func(string) string
 	}{
 		{"ExclusionKey", func(s string) string { return events.ExclusionKey("imdb", s) }},
+		{"ProbeKey", events.ProbeKey},
+		{"RecordKey", events.RecordKey},
+		{"RecordSubKey", func(s string) string { return events.RecordSubKey("u1", s) }},
 	} {
 		seen := make(map[string]string, len(inputs))
 		for _, in := range inputs {

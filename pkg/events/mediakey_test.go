@@ -111,11 +111,19 @@ func TestForSingleNodeFitsTheMemoryCeiling(t *testing.T) {
 // The extended metadata bucket stays on file storage on a single node: its
 // documents are rebuilt only at each item's next refresh, weeks apart, so a
 // memory bucket loses every item's people with any NATS restart, and it has
-// no TTL to keep it inside the shared memory store.
+// no TTL to keep it inside the shared memory store. So does every records
+// bucket (loop spec 2026-10-06 §4.3, ADR-0019 §4.3): it holds the only copy
+// of a worker's answer or an agent's report.
 func TestForSingleNodeKeepsDurableBucketsOnFile(t *testing.T) {
+	durable := map[string]bool{
+		BucketMetadataExtended: true, BucketSegments: true, BucketPlexExtras: true, BucketProbes: true,
+		BucketTranscodes: true, BucketGrafts: true, BucketSubtitles: true, BucketMarkers: true,
+		BucketTransfers: true, BucketEngines: true, BucketImports: true, BucketSearches: true,
+		BucketItemMetadata: true, BucketIndexerHealth: true,
+	}
 	for _, b := range Default().ForSingleNode().Buckets {
 		want := StorageMemory
-		if b.Name == BucketMetadataExtended || b.Name == BucketSegments || b.Name == BucketPlexExtras {
+		if durable[b.Name] {
 			want = StorageFile
 		}
 		assert.Equal(t, want, b.Storage, "bucket %s storage on a single node", b.Name)

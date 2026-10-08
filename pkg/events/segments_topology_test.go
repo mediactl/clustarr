@@ -25,9 +25,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Segment detection (spec 2026-10-01): plans, analysis tasks and results
-// ride the catalog work stream; raw results and fingerprints are kept on
-// file storage, since only re-analysis rebuilds them.
+// Segment detection (spec 2026-10-01): plans and analysis tasks ride the
+// markers work stream; raw results and fingerprints are kept on file storage,
+// since only re-analysis rebuilds them. A result is a clustarr-segments
+// record cmd/markers writes by compare-and-swap (loop spec §4.12), so no
+// result durable is left on the stream.
 func TestSegmentsTopology(t *testing.T) {
 	top := Default()
 	require.NoError(t, top.Validate())
@@ -37,7 +39,8 @@ func TestSegmentsTopology(t *testing.T) {
 		maxAck       int
 	}{
 		{ConsumerCatalogSegmentsPlan, FilterCatalogSegmentsPlan, 8},
-		{ConsumerMarkersAnalyze, FilterCatalogSegmentsAnalyze, 4},
+		// Slots 1 x AutoscaleReplicaCeiling (spec §9.1.1).
+		{ConsumerMarkersAnalyze, FilterCatalogSegmentsAnalyze, 1 * AutoscaleReplicaCeiling},
 	} {
 		spec, ok := top.Consumer(c.name)
 		require.True(t, ok, c.name)
@@ -47,6 +50,17 @@ func TestSegmentsTopology(t *testing.T) {
 	}
 	analyze, _ := top.Consumer(ConsumerMarkersAnalyze)
 	assert.Equal(t, 30*time.Minute, analyze.AckWait, "a season task runs up to 30 min, with heartbeats")
+	assert.Equal(t, 1, analyze.Slots)
+
+	var onMarkers []string
+	for _, c := range top.Consumers {
+		if c.Stream == StreamWorkMarkers {
+			onMarkers = append(onMarkers, c.Name)
+		}
+	}
+	assert.ElementsMatch(t, []string{ConsumerCatalogMarkers, ConsumerCatalogSegmentsPlan, ConsumerMarkersAnalyze}, onMarkers,
+		"the segment-result durable is gone: results are records")
+	assert.Empty(t, top.Retired, "the cold cutover deletes the old durables; nothing is retired")
 
 	assert.Equal(t, "clustarr.work.markers.plan.normal.media-dexter-s01", WorkSegmentsPlanSubject("media/dexter-s01"))
 	assert.Equal(t, "clustarr.work.markers.analyze.normal.k", WorkSegmentsAnalyzeSubject("k"))
@@ -64,6 +78,10 @@ func TestSegmentsTopology(t *testing.T) {
 	}
 	require.NotNil(t, bucket, BucketSegments)
 	assert.True(t, bucket.Durable)
+	assert.True(t, bucket.Records, "clustarr-segments is a records bucket that keeps its records (loop spec §4.3)")
+	assert.Zero(t, bucket.TTL)
+	assert.EqualValues(t, 128*MiB, bucket.MaxBytes)
+	assert.EqualValues(t, 16*KiB, bucket.MaxValueSize)
 
 	var store *ObjectStoreSpec
 	for i := range top.ObjectStores {
