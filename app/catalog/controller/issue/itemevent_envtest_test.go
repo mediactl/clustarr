@@ -32,12 +32,11 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/issue"
+	"github.com/mediactl/clustarr/app/remediation"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -77,8 +76,9 @@ func (p *itemRecorder) at(t *testing.T, i int) (string, *events.Envelope, schema
 	return p.subjects[i], p.envs[i], evt
 }
 
-// startIssueCache starts a manager's cache with the MediaFile index the
-// Issue reconciler lists through, and no controller.
+// startIssueCache starts a manager's cache with the remediation loop's
+// indexes (the MediaFile index the Issue reconciler lists through among
+// them), and no controller.
 func startIssueCache(t *testing.T, ctx context.Context, cfg *rest.Config) client.Client {
 	t.Helper()
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
@@ -87,22 +87,7 @@ func startIssueCache(t *testing.T, ctx context.Context, cfg *rest.Config) client
 		HealthProbeBindAddress: "0",
 	})
 	require.NoError(t, err)
-	require.NoError(t, mgr.GetFieldIndexer().IndexField(ctx, &catalogv1alpha1.MediaFile{}, ".spec.mediaRef.issue",
-		func(o client.Object) []string {
-			mf, ok := o.(*catalogv1alpha1.MediaFile)
-			if !ok || mf.Spec.MediaRef.Kind != commonv1.MediaKindIssue {
-				return nil
-			}
-			return []string{mf.Spec.MediaRef.Name}
-		}))
-	require.NoError(t, mgr.GetFieldIndexer().IndexField(ctx, &downloadv1alpha1.Download{}, ".spec.target.issue",
-		func(o client.Object) []string {
-			dl, ok := o.(*downloadv1alpha1.Download)
-			if !ok || dl.Spec.Target.Kind != commonv1.MediaKindIssue {
-				return nil
-			}
-			return []string{dl.Spec.Target.Name}
-		}))
+	require.NoError(t, remediation.RegisterIndexes(ctx, mgr.GetFieldIndexer()))
 	go func() { _ = mgr.Start(ctx) }()
 	require.True(t, mgr.GetCache().WaitForCacheSync(ctx))
 	return mgr.GetClient()
@@ -129,7 +114,7 @@ func TestIssueReconcilerPublishesItemEvents(t *testing.T) {
 	r := &issue.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10), Bus: pub}
 	reconcileOnce := func() {
 		t.Helper()
-		_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+		_, err := r.ReconcileItem(ctx, key)
 		require.NoError(t, err)
 	}
 

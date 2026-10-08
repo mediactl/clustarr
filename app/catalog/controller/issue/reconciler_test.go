@@ -38,11 +38,12 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
-	downloadac "github.com/mediactl/clustarr/api/applyconfiguration/download/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/issue"
+	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
+	"github.com/mediactl/clustarr/app/remediation"
+	"github.com/mediactl/clustarr/app/remediation/itemtest"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
@@ -77,12 +78,11 @@ type reconcileCounter struct{ n atomic.Int64 }
 func (c *reconcileCounter) inc()         { c.n.Add(1) }
 func (c *reconcileCounter) count() int64 { return c.n.Load() }
 
-// startManager wires a real issue.Reconciler into a real ctrl.Manager backed
-// by the envtest apiserver, starts it, and waits for the cache to sync. Only
-// one Test function in this package may call it, per controller-runtime's
-// process-global controller-name registry -- the same constraint
-// comic_test's startManager documents.
-func startManager(t *testing.T, ctx context.Context, cfg *rest.Config) (client.Client, *reconcileCounter) {
+// startManager runs a real issue.Reconciler on a real ctrl.Manager backed by
+// the envtest apiserver as the remediation loop runs it (itemtest.Start),
+// starts it, and waits for the cache to sync. The Reconciler is returned so
+// a scenario can drive a pass no watch wakes (its Comic's grab entries).
+func startManager(t *testing.T, ctx context.Context, cfg *rest.Config) (client.Client, *issue.Reconciler, *reconcileCounter) {
 	t.Helper()
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme:                 k8s.MustNewScheme(),
@@ -98,18 +98,13 @@ func startManager(t *testing.T, ctx context.Context, cfg *rest.Config) (client.C
 		Recorder:    mgr.GetEventRecorder("issue"), // matches run.go's registration line verbatim
 		OnReconcile: counter.inc,
 	}
-	require.NoError(t, r.SetupWithManager(mgr))
+	require.NoError(t, remediation.RegisterIndexes(ctx, mgr.GetFieldIndexer()))
+	require.NoError(t, itemtest.Start(mgr, map[remediation.KeyKind]rollup.Item{remediation.KindIssue: r}))
 
 	go func() { _ = mgr.Start(ctx) }()
 	require.True(t, mgr.GetCache().WaitForCacheSync(ctx))
-	return mgr.GetClient(), counter
+	return mgr.GetClient(), r, counter
 }
-
-func downloadStatusAC(name, ns string, phase commonv1.DownloadPhase) *downloadac.DownloadApplyConfiguration {
-	return downloadac.Download(name, ns).WithStatus(downloadac.DownloadStatus().WithPhase(phase))
-}
-
-func strPtr(s string) *string { return &s }
 
 // comicProfile is a cluster-scoped comic QualityProfile ranking CBZ over CBR,
 // with its cutoff at the named tier.
@@ -154,7 +149,7 @@ func TestIssueReconcilerRealController(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	cfg := newTestConfig(t)
-	c, counter := startManager(t, ctx, cfg)
+	c, r, counter := startManager(t, ctx, cfg)
 	require.NoError(t, c.Create(ctx, testNamespace("issue-ns")))
 
 	t.Run("finalizer add, HasFile from a watched MediaFile, State=Downloaded", func(t *testing.T) {
@@ -248,13 +243,18 @@ func TestIssueReconcilerRealController(t *testing.T) {
 			"this controller's own status patch must not re-trigger itself")
 	})
 
-	// Download watch and gap-fix ruling R-5: the Issue derives
-	// status.activeDownloadRef from the Downloads it owns -- the grab path
-	// (app/catalog/worker/grab) creates each one owned by the Issue it targets
-	// -- so nothing seeds the ref. State reads Snatched exactly while such a
-	// Download is not terminal (Completed included, R-12), and the ref goes
-	// with it.
-	t.Run("an owned Download snatches the issue and the ref follows it to a terminal phase", func(t *testing.T) {
+	// Gap-fix ruling R-5 (ADR-0019 §6.1): the Issue derives
+	// status.activeDownloadRef from its Comic's grab entries that cover its
+	// number -- the grab path records each one on the Comic's
+	// status.downloads -- so nothing seeds the ref. State reads Snatched
+	// exactly while such an entry is not terminal (Completed included,
+	// R-12), and the ref goes with it. No watch wakes the Issue on its
+	// Comic's entry write (the stages decide entries inside the pass that
+	// applies them), so each step seeds the entries, waits for the cache to
+	// see them, and reconciles the Issue itself.
+	t.Run("a covering grab entry snatches the issue and the ref follows it to a terminal phase", func(t *testing.T) {
+		cm := testComic("issue-ns", "batman", "issue-comic-batman")
+		require.NoError(t, c.Create(ctx, cm))
 		iss := &catalogv1alpha1.Issue{
 			ObjectMeta: metav1.ObjectMeta{Name: "batman-003.0", Namespace: "issue-ns"},
 			Spec:       catalogv1alpha1.IssueSpec{ComicRef: "batman", Number: "3", CalculatedNumberCentis: 300},
@@ -266,43 +266,44 @@ func TestIssueReconcilerRealController(t *testing.T) {
 			return c.Get(ctx, key, &got) == nil && got.Status.State == catalogv1alpha1.IssueStateWanted
 		}, 5*time.Second, 20*time.Millisecond, "setup: the Issue never settled at Wanted")
 
-		newDownload := func(name string, owner *catalogv1alpha1.Issue) {
-			dl := &downloadv1alpha1.Download{
-				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "issue-ns"},
-				Spec: downloadv1alpha1.DownloadSpec{
-					Protocol: commonv1.ProtocolTorrent,
-					Source:   commonv1.DownloadSource{MagnetURL: strPtr("magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567")},
-					Release: commonv1.ReleaseInfo{
-						GUID: "https://indexer.example/" + name, IndexerRef: "example", IndexerName: "Example",
-						Title: "Batman.003.CBZ", Protocol: commonv1.ProtocolTorrent,
-						InfoHash: "0123456789abcdef0123456789abcdef01234567",
-					},
-					Target: commonv1.MediaRef{Kind: commonv1.MediaKindIssue, Name: "batman-003.0"},
-				},
-			}
-			if owner != nil {
-				controller := true
-				dl.OwnerReferences = []metav1.OwnerReference{{
-					APIVersion: catalogv1alpha1.GroupVersion.String(), Kind: "Issue",
-					Name: owner.Name, UID: owner.UID, Controller: &controller,
-				}}
-			}
-			require.NoError(t, c.Create(ctx, dl))
+		entry := func(id string, phase commonv1.DownloadPhase) catalogv1alpha1.DownloadEntry {
+			e := itemtest.Entry(id, phase)
+			e.Issues = []string{"3"}
+			return e
+		}
+		seed := func(entries ...catalogv1alpha1.DownloadEntry) {
+			t.Helper()
+			require.NoError(t, itemtest.SeedEntries(ctx, c, cm, entries...))
+			require.Eventually(t, func() bool {
+				var g catalogv1alpha1.Comic
+				if c.Get(ctx, client.ObjectKeyFromObject(cm), &g) != nil || len(g.Status.Downloads) != len(entries) {
+					return false
+				}
+				for i := range entries {
+					if g.Status.Downloads[i].ID != entries[i].ID || g.Status.Downloads[i].Phase != entries[i].Phase {
+						return false
+					}
+				}
+				return true
+			}, 5*time.Second, 20*time.Millisecond, "the cache never saw the seeded entries")
+			_, err := r.ReconcileItem(ctx, key)
+			require.NoError(t, err)
 		}
 
-		// A Download for this issue that it does not own -- one left behind
-		// by a deleted Issue of the same name -- is never adopted.
-		newDownload("batman-003-stranger-dl", nil)
+		// An entry covering another issue of the Comic is not this one's.
+		other := itemtest.Entry("batman-007-dl", commonv1.DownloadPhaseDownloading)
+		other.Issues = []string{"7"}
+		seed(other)
 		require.Never(t, func() bool {
 			var g catalogv1alpha1.Issue
 			return c.Get(ctx, key, &g) == nil && (g.Status.ActiveDownloadRef != nil || g.Status.State != catalogv1alpha1.IssueStateWanted)
-		}, 500*time.Millisecond, 20*time.Millisecond, "a Download the Issue does not own must never become its ref")
+		}, 500*time.Millisecond, 20*time.Millisecond, "an entry covering another issue must never become this one's ref")
 
-		newDownload("batman-003-dl", &got)
+		seed(entry("batman-003-dl", commonv1.DownloadPhasePending))
 		require.Eventually(t, func() bool {
 			return c.Get(ctx, key, &got) == nil && got.Status.State == catalogv1alpha1.IssueStateSnatched &&
 				got.Status.ActiveDownloadRef != nil && *got.Status.ActiveDownloadRef == "batman-003-dl"
-		}, 5*time.Second, 20*time.Millisecond, "an owned Download must snatch the issue and set its ref")
+		}, 5*time.Second, 20*time.Millisecond, "a covering entry must snatch the issue and set its ref")
 
 		// This reconciler is the field's only writer.
 		var refOwners []string
@@ -315,42 +316,32 @@ func TestIssueReconcilerRealController(t *testing.T) {
 
 		// Downloading, then Completed: both still working on the issue.
 		for _, phase := range []commonv1.DownloadPhase{commonv1.DownloadPhaseDownloading, commonv1.DownloadPhaseCompleted} {
-			_, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadStatusAC("batman-003-dl", "issue-ns", phase))
-			require.NoError(t, err)
+			seed(entry("batman-003-dl", phase))
 			require.Never(t, func() bool {
 				var g catalogv1alpha1.Issue
 				return c.Get(ctx, key, &g) == nil && (g.Status.State != catalogv1alpha1.IssueStateSnatched || g.Status.ActiveDownloadRef == nil)
-			}, 500*time.Millisecond, 20*time.Millisecond, "a %s Download is still working on the issue", phase)
+			}, 500*time.Millisecond, 20*time.Millisecond, "a %s entry is still working on the issue", phase)
 		}
 
 		// Failed is terminal: the ref goes, and the issue is Wanted again.
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadStatusAC("batman-003-dl", "issue-ns", commonv1.DownloadPhaseFailed))
-		require.NoError(t, err)
+		failed := entry("batman-003-dl", commonv1.DownloadPhaseFailed)
+		seed(failed)
 		require.Eventually(t, func() bool {
 			return c.Get(ctx, key, &got) == nil && got.Status.State != catalogv1alpha1.IssueStateSnatched
 		}, 5*time.Second, 20*time.Millisecond)
-		assert.Nil(t, got.Status.ActiveDownloadRef, "a terminal Download phase must clear the ref")
+		assert.Nil(t, got.Status.ActiveDownloadRef, "a terminal entry phase must clear the ref")
 		assert.Equal(t, catalogv1alpha1.IssueStateWanted, got.Status.State, "no file and no active download: back to Wanted")
 
-		// A Download on its way out stops counting the moment it is marked
-		// for deletion, not when its finalizers (grab's teardown) let it
-		// go: the Download watch's deletion arm carries that edge.
-		newDownload("batman-003-regrab-dl", &got)
+		// A grab on its way out stops counting the moment it is marked
+		// Removing, before the engine lets go of its transfer.
+		seed(failed, entry("batman-003-regrab-dl", commonv1.DownloadPhasePending))
 		require.Eventually(t, func() bool {
 			return c.Get(ctx, key, &got) == nil && got.Status.ActiveDownloadRef != nil && *got.Status.ActiveDownloadRef == "batman-003-regrab-dl"
 		}, 5*time.Second, 20*time.Millisecond)
-		var regrab downloadv1alpha1.Download
-		dlKey := types.NamespacedName{Namespace: "issue-ns", Name: "batman-003-regrab-dl"}
-		require.NoError(t, c.Get(ctx, dlKey, &regrab))
-		regrab.Finalizers = append(regrab.Finalizers, "test.clustarr.io/hold")
-		require.NoError(t, c.Update(ctx, &regrab))
-		require.NoError(t, c.Delete(ctx, &regrab))
+		seed(failed, entry("batman-003-regrab-dl", commonv1.DownloadPhaseRemoving))
 		require.Eventually(t, func() bool {
 			return c.Get(ctx, key, &got) == nil && got.Status.ActiveDownloadRef == nil && got.Status.State == catalogv1alpha1.IssueStateWanted
-		}, 5*time.Second, 20*time.Millisecond, "a Download being deleted must stop being the issue's ref while its finalizer holds it")
-		require.NoError(t, c.Get(ctx, dlKey, &regrab))
-		regrab.Finalizers = nil
-		require.NoError(t, c.Update(ctx, &regrab))
+		}, 5*time.Second, 20*time.Millisecond, "a Removing entry must stop being the issue's ref")
 	})
 
 	// X15: the grab worker records a delayed grab in status.pendingGrab under
