@@ -159,11 +159,22 @@ func TestNewRequestIsWhatRequestWrites(t *testing.T) {
 	}
 	check(t, probestore.Current{})
 
-	// Over an answered record the next request takes the next Seq and keeps
-	// nothing of the answer.
-	h.AnswerWith(t, uid, schema.ProbeRecord{RecordHeader: schema.RecordHeader{State: schema.ProbeFailed, Failure: "boom"}, ProbedAt: clk.Now()})
+	// Over an abandoned answer for the same bytes the next request carries
+	// the abandon count (the probe's Carry).
+	h.AnswerWith(t, uid, schema.ProbeRecord{RecordHeader: schema.RecordHeader{State: schema.ProbeFailed, Failure: "stuck"}, Abandoned: true, ProbedAt: clk.Now()})
 	prev := h.Record(t, uid)
+	require.EqualValues(t, 1, prev.Record.AbandonedCount, "setup")
 	clk.Add(2 * time.Hour)
 	check(t, prev)
-	assert.Greater(t, h.Record(t, uid).Record.Seq, prev.Record.Seq)
+	assert.EqualValues(t, 1, h.Record(t, uid).Record.AbandonedCount)
+
+	// Over a record for other bytes whose Seq is ahead of the clock, the
+	// request still takes the next Seq after it.
+	ahead := h.Record(t, uid).Record
+	ahead.State, ahead.Path, ahead.Seq = schema.ProbeProbed, f.path+".old", clk.Now().UnixMilli()+1_000_000
+	h.PutRecord(t, uid, ahead)
+	prev = h.Record(t, uid)
+	clk.Add(time.Minute)
+	check(t, prev)
+	assert.Equal(t, ahead.Seq+1, h.Record(t, uid).Record.Seq)
 }

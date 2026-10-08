@@ -34,6 +34,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/import/mediafilespec"
+	"github.com/mediactl/clustarr/app/remediation"
 	"github.com/mediactl/clustarr/app/remediation/remediationtest"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
@@ -96,12 +97,17 @@ func newQueuedFile(t *testing.T, ns string) queuedFile {
 
 func newQueuedFileAt(t *testing.T, ns, file string, contents []byte, q commonv1.Quality) queuedFile {
 	t.Helper()
+	return newQueuedFileFor(t, ns, writeFile(t, t.TempDir(), file, contents), q)
+}
+
+// newQueuedFileFor is newQueuedFile over a file already at path.
+func newQueuedFileFor(t *testing.T, ns, path string, q commonv1.Quality) queuedFile {
+	t.Helper()
 	e := remediationtest.Start(t)
 	ctx := context.Background()
 	mustNamespace(t, ctx, e.Admin, ns)
 	mustQualityProfile(t, ctx, e.Admin, "qp-video")
 	mustMovie(t, ctx, e.Admin, ns, "inception", "qp-video")
-	path := writeFile(t, t.TempDir(), file, contents)
 	stat, err := os.Stat(path)
 	require.NoError(t, err)
 	const name = "inception-abc1234567"
@@ -166,3 +172,14 @@ func newClock() *clock { return &clock{now: time.Now().UTC().Truncate(time.Secon
 
 func (c *clock) Now() time.Time      { return c.now }
 func (c *clock) Add(d time.Duration) { c.now = c.now.Add(d) }
+
+// movieRef is a reference to the Movie name.
+func movieRef(name string) commonv1.MediaRef {
+	return commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: name}
+}
+
+// settle is remediationtest.Settle over f.
+func settle(t *testing.T, h *probeHarness, r *remediation.Reconciler, f queuedFile) {
+	t.Helper()
+	remediationtest.Settle(t, h, r, f.c, f.key)
+}
