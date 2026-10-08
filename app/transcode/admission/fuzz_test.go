@@ -43,6 +43,8 @@ func FuzzLedgerNeverOverAdmits(f *testing.F) {
 	f.Add([]byte{0, 0, 1, 0, 2, 0, 8, 0, 0, 1, 1, 0, 2, 1, 1, 0})
 	// A clear while a dispatch grant is outstanding.
 	f.Add([]byte{0, 0, 1, 0, 8, 0, 1, 0})
+	// Two passes while the first pass's grants are outstanding.
+	f.Add([]byte{0, 0, 0, 1, 0, 2, 0, 3, 1, 0, 1, 0})
 	f.Fuzz(func(t *testing.T, ops []byte) {
 		slots := map[string]int32{"cpu": 2, "nvidia": 1}
 		l, clk := newTestLedger(t, slots, 4)
