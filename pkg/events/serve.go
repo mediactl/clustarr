@@ -97,9 +97,15 @@ const DefaultServeQueue = 64
 const DefaultPendingBytes = 8 << 20
 
 // ServePendingPerSlot is how many requests per handler slot one Serve's
-// subscription buffers client-side by default (ServeLimits.MaxPending): 4 x
-// Concurrency. The callback never blocks (it admits or refuses at once), so
-// the buffer only rides out a burst the callback has not reached yet.
+// subscription buffers client-side by default beyond what its gate holds
+// (ServeLimits.MaxPending): Concurrency + Queue + 4 x Concurrency. The
+// callback never blocks (it admits or refuses at once), so the buffer only
+// rides out a burst the callback has not reached yet; it must hold at least
+// every request the gate can admit plus a burst to refuse, or a burst the
+// gate would answer with ErrResponderBusy at once is dropped as a slow
+// consumer and its callers wait out their deadlines instead (found by the
+// contract case RequestReplySaturatedIsBusy: 4 x Concurrency, 64, was below
+// the gate's 80).
 const ServePendingPerSlot = 4
 
 // ServeLimits bounds one Serve call's handlers. A zero field takes its
@@ -117,8 +123,8 @@ type ServeLimits struct {
 	// Subscription.SetPendingLimits; ADR-0020 §2). Past them nats.go drops
 	// the request as a slow consumer, which is counted and alerted on
 	// (clustarr_nats_async_errors_total{kind="slow_consumer"},
-	// clustarr_nats_dropped_messages). Defaults: ServePendingPerSlot x
-	// Concurrency messages and DefaultPendingBytes.
+	// clustarr_nats_dropped_messages). Defaults: Concurrency + Queue +
+	// ServePendingPerSlot x Concurrency messages and DefaultPendingBytes.
 	MaxPending      int
 	MaxPendingBytes int
 }
@@ -132,7 +138,7 @@ func (l ServeLimits) WithDefaults() ServeLimits {
 		l.Queue = DefaultServeQueue
 	}
 	if l.MaxPending <= 0 {
-		l.MaxPending = ServePendingPerSlot * l.Concurrency
+		l.MaxPending = l.Concurrency + l.Queue + ServePendingPerSlot*l.Concurrency
 	}
 	if l.MaxPendingBytes <= 0 {
 		l.MaxPendingBytes = DefaultPendingBytes
