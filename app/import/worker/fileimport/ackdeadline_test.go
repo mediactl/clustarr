@@ -49,7 +49,7 @@ func ackDeadline(t *testing.T, consumer string) time.Duration {
 }
 
 // Between two in-progress acks the file loop may wait out
-// heartbeatInterval and probe a file, each bounded, plus its own work. All
+// HeartbeatInterval and probe a file, each bounded, plus its own work. All
 // of it must land inside ConsumerImportFile's acknowledgement deadline, or
 // the import is redelivered while it is still running and a second replica
 // imports the same Download. The loop also beats immediately before each
@@ -57,8 +57,8 @@ func ackDeadline(t *testing.T, consumer string) time.Duration {
 // the consumer's BackOff or AckWait, or to either bound, trips it.
 func TestTheImportFitsTheFileConsumersAckDeadline(t *testing.T) {
 	deadline := ackDeadline(t, events.ConsumerImportFile)
-	worst := heartbeatInterval + videoProbeTimeout + importSlack
+	worst := HeartbeatInterval + videoProbeTimeout + importSlack
 	assert.LessOrEqual(t, worst, deadline,
-		"heartbeatInterval %s + videoProbeTimeout %s + slack %s must fit inside %s's ack deadline %s",
-		heartbeatInterval, videoProbeTimeout, importSlack, events.ConsumerImportFile, deadline)
+		"HeartbeatInterval %s + videoProbeTimeout %s + slack %s must fit inside %s's ack deadline %s",
+		HeartbeatInterval, videoProbeTimeout, importSlack, events.ConsumerImportFile, deadline)
 }

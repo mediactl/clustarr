@@ -15,31 +15,40 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package fileimport
+package importplan
 
 import (
-	"context"
-	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/mediactl/clustarr/app/grab/lifecycle"
+	"github.com/mediactl/clustarr/pkg/events/schema"
 )
 
 // TestReplacingADonorKeepsTheNewOne: an old donor <item>.mkv already reduced
 // to <item>.mka, replaced by a new donor that is itself <item>.mka -- the
 // old donor's removal must not take the file just placed (final review).
+// The removal is the planner's to name since A3.8 (materialiseDonor).
 func TestReplacingADonorKeepsTheNewOne(t *testing.T) {
-	dir := t.TempDir()
+	const dir = "/data/media/tv/.clustarr/donors/9b2c"
 	placed := filepath.Join(dir, "monster-s01e02.mka")
-	require.NoError(t, os.WriteFile(placed, []byte("the new donor"), 0o644))
-	removeDonor(context.Background(), filepath.Join(dir, "monster-s01e02.mkv"), placed)
-	require.FileExists(t, placed)
+	removed := func(recorded string) []string {
+		p := &planner{in: Input{Donor: &DonorItem{RecordedDonor: recorded}}}
+		p.materialiseDonor(&schema.ImportExecution{DonorPath: placed})
+		require.Equal(t, lifecycle.ImportImported, p.dec.Verdict)
+		var out []string
+		for _, m := range p.dec.Materialise {
+			out = append(out, m.Remove...)
+		}
+		return out
+	}
+
+	got := removed(filepath.Join(dir, "monster-s01e02.mkv"))
+	require.NotContains(t, got, placed)
+	require.Equal(t, []string{filepath.Join(dir, "monster-s01e02.mkv")}, got)
 
 	other := filepath.Join(dir, "old.mkv")
-	require.NoError(t, os.WriteFile(other, nil, 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "old.mka"), nil, 0o644))
-	removeDonor(context.Background(), other, placed)
-	require.NoFileExists(t, other)
-	require.NoFileExists(t, filepath.Join(dir, "old.mka"))
+	require.ElementsMatch(t, []string{other, filepath.Join(dir, "old.mka")}, removed(other))
 }

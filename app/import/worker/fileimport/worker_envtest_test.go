@@ -80,9 +80,11 @@ func TestMain(m *testing.M) {
 			fmt.Fprintf(os.Stderr, "build manager: %v\n", err)
 			return 1
 		}
-		if err := fileimport.IndexMediaFileByTarget(ctx, mgr); err != nil {
-			fmt.Fprintf(os.Stderr, "index media files: %v\n", err)
-			return 1
+		for _, fi := range fileimport.FieldIndexes() {
+			if err := mgr.GetFieldIndexer().IndexField(ctx, fi.Object, fi.Name, fi.Extract); err != nil {
+				fmt.Fprintf(os.Stderr, "index media files: %v\n", err)
+				return 1
+			}
 		}
 		go func() { _ = mgr.Start(ctx) }()
 		if !mgr.GetCache().WaitForCacheSync(ctx) {
@@ -258,7 +260,7 @@ func newFixture(t *testing.T, ns string) *fixture {
 	})
 
 	bus := newBus(t, ctx)
-	worker := fileimport.NewWorker(c, bus)
+	worker := fileimport.NewWorker(c, bus, nil)
 	worker.APIReader = testAPI
 
 	return &fixture{

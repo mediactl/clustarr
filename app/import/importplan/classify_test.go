@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package fileimport
+package importplan
 
 import (
 	"testing"
@@ -35,45 +35,31 @@ func TestClassifyHoldsOnAnyDoubtAndCondemnsOnlyAReleaseFault(t *testing.T) {
 		fault      = releaseFaultRejection("a.mkv: quality CAM is not allowed by the quality profile")
 		item       = itemStateRejection("a.mkv: not an upgrade")
 		person     = needsPersonRejection("a.mkv: could not parse the filename")
-		transient  = transientRejection("a.mkv: could not be read")
+		transient  = rejection(commonv1.ImportClassTransient, "a.mkv: could not be read")
 		incidental = incidentalRejection("b.mkv: already has a file from this download")
 	)
 	for _, c := range []struct {
 		name string
-		rs   []rejection
+		rs   []Rejection
 		want commonv1.ImportRejectionClass
 	}{
 		{"nothing walked holds no media: the release's fault", nil, commonv1.ImportClassReleaseFault},
-		{"only a promo clip is no media either", []rejection{incidental}, commonv1.ImportClassReleaseFault},
-		{"a release fault alone", []rejection{fault, incidental}, commonv1.ImportClassReleaseFault},
-		{"the item's state outweighs a fault", []rejection{fault, item}, commonv1.ImportClassItemState},
-		{"a person outweighs the item's state", []rejection{item, person}, commonv1.ImportClassNeedsPerson},
-		{"a transient failure outweighs everything", []rejection{fault, person, transient}, commonv1.ImportClassTransient},
+		{"only a promo clip is no media either", []Rejection{incidental}, commonv1.ImportClassReleaseFault},
+		{"a release fault alone", []Rejection{fault, incidental}, commonv1.ImportClassReleaseFault},
+		{"the item's state outweighs a fault", []Rejection{fault, item}, commonv1.ImportClassItemState},
+		{"a person outweighs the item's state", []Rejection{item, person}, commonv1.ImportClassNeedsPerson},
+		{"a transient failure outweighs everything", []Rejection{fault, person, transient}, commonv1.ImportClassTransient},
 	} {
-		t.Run(c.name, func(t *testing.T) { assert.Equal(t, c.want, classify(c.rs)) })
+		t.Run(c.name, func(t *testing.T) { assert.Equal(t, c.want, Classify(c.rs)) })
 	}
 }
 
-// TestASuspectedSampleDecidesOnlyAlone: beside real media it is the
-// release's promo clip; alone, a person must say whether it is a short film.
-func TestASuspectedSampleDecidesOnlyAlone(t *testing.T) {
-	sample := needsPersonRejection("clip.mkv: suspected sample")
-	sample.sample = true
-
-	alone := importOutcome{rejections: []rejection{sample}}
-	alone.sampleIsIncidental(0)
-	assert.Equal(t, commonv1.ImportClassNeedsPerson, classify(alone.rejections))
-
-	beside := importOutcome{rejections: []rejection{sample, itemStateRejection("movie.mkv: not an upgrade")}}
-	beside.sampleIsIncidental(1)
-	assert.Equal(t, commonv1.ImportClassItemState, classify(beside.rejections))
-}
-
 // TestRetriesFollowTheImportConsumersBackoff: the owner's three tries over
-// about an hour, which status.import.nextAttemptAt reports.
+// about an hour, which the summary's nextAttemptAt reports (A3.8: by
+// summary.attempts, no longer the import consumer's redelivery).
 func TestRetriesFollowTheImportConsumersBackoff(t *testing.T) {
-	assert.Equal(t, 4, maxDeliver(), "a first walk and three retries")
-	for attempt, want := range map[uint64]time.Duration{1: time.Minute, 2: 10 * time.Minute, 3: 45 * time.Minute, 9: 45 * time.Minute} {
-		assert.Equal(t, want, retryDelay(attempt), "after attempt %d", attempt)
+	assert.Equal(t, 4, len(RetryLadder)+1, "a first inspect and three retries")
+	for attempt, want := range map[int]time.Duration{1: time.Minute, 2: 10 * time.Minute, 3: 45 * time.Minute} {
+		assert.Equal(t, want, RetryLadder[attempt-1], "after attempt %d", attempt)
 	}
 }

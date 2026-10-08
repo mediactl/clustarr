@@ -24,7 +24,6 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/naming/catalogctx"
-	"github.com/mediactl/clustarr/pkg/quality"
 )
 
 func TestRelPath(t *testing.T) {
@@ -45,31 +44,6 @@ func TestCapMatchedFormats(t *testing.T) {
 	}
 	got := capMatchedFormats(long)
 	require.Len(t, got, 200)
-}
-
-func TestVerdictMessage(t *testing.T) {
-	// Every non-Upgrade verdict must render a non-empty, distinct message; a
-	// blank or identical rejection string across verdicts would leave an
-	// operator unable to tell two different rejections apart.
-	verdicts := []quality.Verdict{
-		quality.ExistingBetterQuality, quality.UpgradesNotAllowed, quality.ExistingBetterRevision,
-		quality.QualityCutoffMet, quality.FormatScoreNotHigher, quality.FormatCutoffMet,
-		quality.FormatIncrementTooSmall,
-	}
-	seen := map[string]bool{}
-	for _, v := range verdicts {
-		msg := verdictMessage(v)
-		require.NotEmpty(t, msg)
-		require.False(t, seen[msg], "verdict %d reused message %q", v, msg)
-		seen[msg] = true
-	}
-}
-
-func TestDedupKey(t *testing.T) {
-	require.Equal(t, "import.abc123", DedupKey("abc123"))
-	// Distinct inputs must never collapse onto the same key -- KVKeyToken's
-	// own injectivity contract, exercised through this package's use of it.
-	require.NotEqual(t, DedupKey("a:b"), DedupKey("a,b"))
 }
 
 func TestTargetKey(t *testing.T) {

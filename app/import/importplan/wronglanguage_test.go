@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package fileimport
+package importplan
 
 import (
 	"testing"
@@ -24,6 +24,8 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/decision"
+	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/quality"
 )
 
@@ -39,12 +41,16 @@ func TestReplacesWrongLanguage(t *testing.T) {
 	file := func(langs ...string) *catalogv1alpha1.MediaFile {
 		return &catalogv1alpha1.MediaFile{Status: catalogv1alpha1.MediaFileStatus{MediaInfo: probe(langs...)}}
 	}
-	require.True(t, replacesWrongLanguage(p, "ja", file("kor"), probe("jpn")), "a Japanese file replaces a Korean-only one")
-	require.True(t, replacesWrongLanguage(p, "ja", file("kor"), probe("eng", "jpn")), "dual audio carries it")
-	require.False(t, replacesWrongLanguage(p, "ja", file("kor"), probe("kor")), "the new file is wrong too")
-	require.False(t, replacesWrongLanguage(p, "ja", file("kor"), probe("jpn", "und")), "the new file's audio is not all known")
+	// The incoming file's probe as the inspect summarises it (A3.8).
+	summary := func(langs ...string) *schema.ProbeSummary {
+		return &schema.ProbeSummary{AudioLanguages: decision.AudioLanguages(probe(langs...))}
+	}
+	require.True(t, replacesWrongLanguage(p, "ja", file("kor"), summary("jpn")), "a Japanese file replaces a Korean-only one")
+	require.True(t, replacesWrongLanguage(p, "ja", file("kor"), summary("eng", "jpn")), "dual audio carries it")
+	require.False(t, replacesWrongLanguage(p, "ja", file("kor"), summary("kor")), "the new file is wrong too")
+	require.False(t, replacesWrongLanguage(p, "ja", file("kor"), summary("jpn", "und")), "the new file's audio is not all known")
 	require.False(t, replacesWrongLanguage(p, "ja", file("kor"), nil), "no probe of the new file")
-	require.False(t, replacesWrongLanguage(p, "ja", file("jpn"), probe("jpn")), "the existing file is right: the usual upgrade rule applies")
-	require.False(t, replacesWrongLanguage(p, "ja", file("und"), probe("jpn")), "the existing file's audio is unknown")
-	require.False(t, replacesWrongLanguage(quality.Profile{Language: "any"}, "ja", file("kor"), probe("jpn")), "the profile wants no language")
+	require.False(t, replacesWrongLanguage(p, "ja", file("jpn"), summary("jpn")), "the existing file is right: the usual upgrade rule applies")
+	require.False(t, replacesWrongLanguage(p, "ja", file("und"), summary("jpn")), "the existing file's audio is unknown")
+	require.False(t, replacesWrongLanguage(quality.Profile{Language: "any"}, "ja", file("kor"), summary("jpn")), "the profile wants no language")
 }
