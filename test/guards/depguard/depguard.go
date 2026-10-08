@@ -66,6 +66,8 @@ type listed struct {
 	ImportPath string
 	Imports    []string
 	Standard   bool
+	Dir        string
+	Module     *struct{ Path string }
 }
 
 // mod is the module path; Load runs from its root and AllowApp classifies
@@ -77,8 +79,9 @@ const mod = "github.com/mediactl/clustarr/"
 // graph is the one the binary is built with under those build settings.
 func Load(t testing.TB, pkg string, env ...string) Graph {
 	t.Helper()
-	cmd := exec.Command("go", "list", "-deps", "-json=ImportPath,Imports,Standard", pkg)
-	cmd.Dir = repoRoot(t)
+	root := repoRoot(t)
+	cmd := exec.Command("go", "list", "-deps", "-json=ImportPath,Imports,Standard,Dir,Module", pkg)
+	cmd.Dir = root
 	cmd.Env = append(os.Environ(), env...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -99,11 +102,42 @@ func Load(t testing.TB, pkg string, env ...string) Graph {
 		}
 		g.imports[p.ImportPath] = p.Imports
 		g.std[p.ImportPath] = p.Standard
+		if p.Module != nil && p.Module.Path == strings.TrimSuffix(mod, "/") {
+			RecordInputs(t, p.Dir)
+		}
 	}
+	RecordInputs(t, root, "go.mod", "go.sum")
 	if !g.Has(pkg) {
 		t.Fatalf("go list did not list %s", pkg)
 	}
 	return g
+}
+
+// RecordInputs makes `go test`'s result cache see what a subprocess read: it
+// lists dir (a new or removed file changes the listing's hash) and stats
+// each named file in it, or every .go file when none is named (an edit
+// changes its size or mtime). `go list` reads the module's sources in a
+// child process, which the test cache does not observe, so without this a
+// guard built on it can report a cached pass after the code it guards
+// changed.
+func RecordInputs(t testing.TB, dir string, files ...string) {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("record the inputs in %s: %v", dir, err)
+	}
+	if len(files) == 0 {
+		for _, e := range entries {
+			if !e.IsDir() && strings.HasSuffix(e.Name(), ".go") {
+				files = append(files, e.Name())
+			}
+		}
+	}
+	for _, f := range files {
+		if _, err := os.Stat(filepath.Join(dir, f)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("record the input %s: %v", filepath.Join(dir, f), err)
+		}
+	}
 }
 
 // repoRoot walks up from the working directory to the directory holding
