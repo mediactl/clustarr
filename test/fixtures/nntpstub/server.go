@@ -216,7 +216,11 @@ func (s *Server) handle(c net.Conn) {
 		case strings.HasPrefix(upper, "AUTHINFO USER"):
 			_, _ = w.WriteString("381 password required\r\n")
 		case strings.HasPrefix(upper, "AUTHINFO PASS"):
-			if strings.TrimSpace(cmd[len("AUTHINFO PASS"):]) == s.pass {
+			// With no credentials configured any login is taken: the e2e
+			// DownloadClients carry a secretRef (newNNTPCredsSecret), which
+			// config/e2e's stubs, started without --user, refused with 481
+			// (found by the smoke test, 2026-10-07).
+			if !s.authRequired || strings.TrimSpace(cmd[len("AUTHINFO PASS"):]) == s.pass {
 				authed = true
 				_, _ = w.WriteString("281 authenticated\r\n")
 			} else {

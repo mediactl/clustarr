@@ -182,6 +182,34 @@ func TestAuthinfoRequiredWhenCredentialsConfigured(t *testing.T) {
 	require.True(t, strings.HasPrefix(line, "222 "), "authenticated body: %q", line)
 }
 
+// TestAnyLoginIsTakenWithoutCredentials: config/e2e starts the stubs with
+// no --user, and the e2e DownloadClients still carry a secretRef, so the
+// engine sends AUTHINFO; a stub with no credentials takes any login rather
+// than answer 481 (found by the smoke test, 2026-10-07).
+func TestAnyLoginIsTakenWithoutCredentials(t *testing.T) {
+	fx := nntpstub.Build(256, 1)
+	srv, err := nntpstub.NewServer(fx, nntpstub.Options{Addr: "127.0.0.1:0", Logger: discardLogger()})
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { defer close(done); _ = srv.Serve(ctx) }()
+	t.Cleanup(func() { cancel(); <-done })
+
+	tc, _ := dial(t, srv.Addr())
+	require.NoError(t, tc.PrintfLine("AUTHINFO USER e2e"))
+	line, err := tc.ReadLine()
+	require.NoError(t, err)
+	require.True(t, strings.HasPrefix(line, "381 "), "authinfo user: %q", line)
+	require.NoError(t, tc.PrintfLine("AUTHINFO PASS e2e"))
+	line, err = tc.ReadLine()
+	require.NoError(t, err)
+	require.True(t, strings.HasPrefix(line, "281 "), "any password: %q", line)
+	require.NoError(t, tc.PrintfLine("BODY <%s>", fx.Articles[0].ID))
+	line, err = tc.ReadLine()
+	require.NoError(t, err)
+	require.True(t, strings.HasPrefix(line, "222 "), "body: %q", line)
+}
+
 func TestRequestLogRecordsServedAndDenied(t *testing.T) {
 	fx := nntpstub.Build(256, 2)
 	denyID := fx.Articles[0].ID
