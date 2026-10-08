@@ -13,8 +13,11 @@ What the transcode controller expects of a node:
 | `intel` | `intel.feature.node.kubernetes.io/gpu=true` (`--gpu-node-label-intel`) | `gpu.intel.com/i915` | the render group from `--intel-render-groups` |
 
 A node counts for a class only when it carries the label **and** has the
-resource allocatable (`transcodejob.gpuNodes`). Every pool, of every class,
-runs the one `transcoder` image ([ADR-0015](adr/0015-no-cuda-image.md)):
+resource allocatable (`gpuNodes` in `app/transcode/admission`, the
+`transcode-admission` controller's, since ADR-0016's fold). Every pool, of every
+class, runs the one `native` image ([ADR-0015](adr/0015-no-cuda-image.md),
+[ADR-0018](adr/0018-manager-agents-and-ui.md); `/usr/bin/transcode`, which the
+image shares with the agent and markers):
 NVIDIA's driver libraries are injected by its container runtime; Intel's
 media driver (iHD, libva, both QSV runtimes) is in the image, because Intel
 injects device nodes only ("firmware and kernel driver need to be on the host,
@@ -84,9 +87,10 @@ caps each class.
 
 Proven on kind-cluster-plex (2026-10-01): a pod requesting
 `gpu.intel.com/i915` received only `card1` and `renderD128` (the RTX is
-`card0`/`renderD129`), and the `transcoder` image's
-`--self-check=intel --trial` encoded `hevc_qsv` (through `vpp_qsv` to 10-bit)
-and `hevc_vaapi` on the UHD 630.
+`card0`/`renderD129`), and `--self-check=intel --trial` encoded `hevc_qsv`
+(through `vpp_qsv` to 10-bit) and `hevc_vaapi` on the UHD 630 -- then in the
+`transcoder` image, now `/usr/bin/transcode --self-check=intel --trial` in the
+`native` image, which `make docker-selfcheck` runs for `cpu`, `cuda` and `intel`.
 
 Two limits to know:
 

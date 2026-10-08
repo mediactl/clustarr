@@ -5,70 +5,82 @@ media collection end to end — finding releases on indexers, downloading them o
 BitTorrent, importing and naming the files, transcoding them to HEVC 10-bit with AAC audio, and
 fetching subtitles — with custom resources as the interface and a NATS JetStream bus underneath.
 
-`kubectl get movies,downloads,transcodejobs,subtitlerequests -A` is the ground truth: everything a
-user configures is a custom resource, everything a user waits on is a custom resource with a
-status and conditions. There is also a server-rendered web UI (templ + htmx + SSE) as a view over
-those same resources — it writes no status and owns no CRD of its own, so anything it does,
-`kubectl` can do too. At this stage it is a skeleton: a Pipeline page and its live SSE stream,
-wired to a placeholder that returns no rows until a real, cache-backed projection lands. Its
-authentication mode is chosen explicitly (`--auth-mode`; the chart's `ui.auth.mode`) and it refuses
-to serve without one; the only mode, `anonymous`, serves every request without a login, so it must
-sit behind whatever ingress authentication the cluster already runs.
+`kubectl get movies,series,mediafiles -A` is the ground truth: everything a user configures is a
+custom resource, and everything a user waits on is status on one — an item's grabs in its
+`status.downloads[]` (`kubectl get movies --field-selector status.downloadPhase!=` is the download
+queue), a file's transcode and subtitles in its MediaFile's status. There is also a
+server-rendered web UI (templ + htmx + SSE) as a view over those same resources — it writes no
+status and owns no CRD of its own, so anything it does, `kubectl` can do too. Its authentication
+mode is chosen explicitly (`--auth-mode`; the chart's `ui.auth.mode`) and it refuses to serve
+without one; the only mode, `anonymous`, serves every request without a login, so it must sit
+behind whatever ingress authentication the cluster already runs.
 
 It takes its domain logic from the projects that already got it right: release parsing, quality
 decisions and naming from Radarr/Sonarr/Lidarr/Readarr, indexer definitions from Prowlarr,
 subtitle scoring from Bazarr, and an opinionated quality model that is a strict subset of the
 TRaSH Guides.
 
-## Status: pre-alpha, incomplete
+## Status: pre-alpha
 
-Read this before evaluating anything else. **No controller reconciles anything yet.** What exists
-today is:
+Every service reconciles against envtest, and the unify branch has rebuilt the process topology
+around one manager (below). What that does **not** mean yet:
 
-- **API types** — 28 custom resource kinds across five API groups, with generated deepcopy and
-  server-side-apply configurations, CEL validation, and CRDs that install into a real apiserver
-  (verified in envtest).
-- **The event bus** — `pkg/events`: the JetStream abstraction, its stream/consumer topology, a
-  NATS implementation, an in-memory implementation, and a shared contract suite both pass.
-- **Deployment manifests** — kustomize bases, a Helm umbrella chart, NATS manifests, container
-  images and a kind script.
+- **Not proven end to end.** Only the first milestone's end-to-end scenarios have ever run on a
+  kind cluster; every scenario written since is in `test/e2e`, never executed.
+- **Tests are behind the code on this branch.** Its waves were built implementation-first (owner,
+  2026-10-07): the tests and guards they name are written in one batch afterwards, and until
+  then `go vet ./...` fails on the test packages they broke.
+- **Not deployed.** Moving a running 0.4.x install onto this branch is a one-time cold cutover,
+  done by hand ([`docs/runbooks/unify-cold-cutover.md`](docs/runbooks/unify-cold-cutover.md)).
 
-There is no catalog reconciliation, no indexer querying, no downloading, no importing, no
-transcoding and no subtitle fetching. Installing Clustarr today gets you CRDs and a NATS server.
-The ordered plan — M0 scaffold through M6 Prowlarr parity — is in
-[§16 of the design spec](docs/superpowers/specs/2026-09-18-clustarr-design.md); M0 is the part
-that is landing now.
+The ordered milestones are in
+[§16 of the design spec](docs/superpowers/specs/2026-09-18-clustarr-design.md).
 
 ## Services
 
-Seven services, one `clustarr` binary, invoked as `clustarr <service> --role <role>`:
+Eight services, five binaries: `cmd/manager` runs every reconciler, `cmd/agent --domain <d>`
+runs each domain's workers, `cmd/ui`, `cmd/markers` and `cmd/transcode`
+([ADR-0018](docs/adr/0018-manager-agents-and-ui.md)). The manager is the control plane and the
+only writer of every custom resource; agents execute the tasks it routes and report back over
+NATS, and never write the Kubernetes API
+([ADR-0019](docs/adr/0019-agents-never-write-kubernetes.md)).
 
-| Service | Responsibility |
-|---|---|
-| **catalog** | Inventory (movies, series, episodes, music, books, comics, audiobooks), the metadata gateway, and release decisions: quality/delay profiles, search, grab and RSS matching. |
-| **import** | Everything entering the library: root-folder rescan, import lists and completed-download import. |
-| **index** | Aggregates Torznab/Newznab and Cardigann indexers into one search API, with a local release index and RSS sync. |
-| **grab** | Download clients: the embedded anacrolix BitTorrent engine and an embedded usenet pipeline, plus download lifecycle and blocklisting. |
-| **transcode** | Transcoding to HEVC 10-bit + AAC on CPU (libx265) or GPU (hevc_nvenc) workers, with verification and replacement. |
-| **caption** | Subtitle search, scoring, fetching and post-processing across providers — Bazarr's behaviour, distributed. |
-| **ui** | Server-rendered web UI (templ + htmx + SSE) over the same custom resources `kubectl` sees; never writes status and owns no CRD. |
+| Service | Responsibility | Runs in |
+|---|---|---|
+| **catalog** | Inventory (movies, series, episodes, music, books, comics, audiobooks), the metadata gateway, and release decisions: quality/delay profiles, search, grab and RSS matching. | `manager` + agents `catalog`, `events`, `metadata` |
+| **import** | Everything entering the library: root-folder rescan, import lists and completed-download import. | `manager` + agent `import` |
+| **index** | Aggregates Torznab/Newznab and Cardigann indexers into one search API, with a local release index, its blocklist and RSS sync. | `manager` + agent `index` |
+| **grab** | Download clients: the embedded anacrolix BitTorrent engine and an embedded usenet pipeline; a grab is an entry in its item's status. | `manager` + agents `torrent-engine`, `usenet-engine` |
+| **transcode** | Transcoding to HEVC (MP4, AAC plus Dolby surround) in-process on FFmpeg 9 through ffgo, on CPU, NVIDIA or Intel worker pools, with verification and replacement. | `manager` + `transcode` pool and graft Jobs |
+| **caption** | Subtitle search, scoring, fetching and post-processing across providers — Bazarr's behaviour, distributed. | `manager` + agent `caption` |
+| **markers** | Skip-segment detection (intros, credits) for Plex, in-process on ffgo and ONNX Runtime. | `markers` |
+| **ui** | Server-rendered web UI (templ + htmx + SSE) and the Plex Custom Metadata Provider, over the same custom resources `kubectl` sees; never writes status and owns no CRD. | `ui` |
+
+Two images carry them: `ghcr.io/mediactl/clustarr` (distroless, static: `manager`, `ui`) and
+`ghcr.io/mediactl/clustarr/native` (FROM scratch: `agent`, `markers`, `transcode` on FFmpeg 9's
+shared libraries). No image ships or runs `ffmpeg`, `ffprobe` or `par2`
+([ADR-0017](docs/adr/0017-no-external-media-programs.md); usenet repair still runs a `par2`
+binary, which the image does not carry, until par2go lands as a library). The queue-driven
+agents scale to zero on HorizontalPodAutoscalers the manager drives from its own External
+Metrics API ([`docs/autoscaling.md`](docs/autoscaling.md)).
 
 ## Architecture
 
 Custom resources are the interface and the source of truth for desired state. A `Movie` is an
-object; so are `Indexer`, `QualityProfile`, `RootFolder`, `Download`, `TranscodeJob` and
-`SubtitleRequest`. The default coupling between components is a watch: a controller reacts to
-objects changing, and each object's status has exactly one controller allowed to write it, which
-makes ownership provable rather than conventional
-([ADR-0004](docs/adr/0004-one-cr-per-human-visible-unit.md), carried into
-[ADR-0016](docs/adr/0016-per-file-work-is-mediafile-status.md)). The message bus carries what does
-not belong in etcd — short, high-churn tasks, rate-limited outbound work like indexer searches and
-metadata refreshes, delayed work such as grab delay windows, and durable domain events other
-services replay ([ADR-0001](docs/adr/0001-nats-jetstream-for-events-and-work-queues.md)).
-Transcodes are neither: they run for hours and want a GPU, so each one is a `batch/v1` Job
-created suspended and unsuspended against a slot budget, which buys real scheduling, `kubectl
-logs` and cancellation for free ([ADR-0005](docs/adr/0005-transcodes-as-batch-jobs.md)). Media
-itself never travels over the bus — all services share one RWX volume at `/data`, so imports can
+object; so are `Indexer`, `QualityProfile`, `RootFolder`, `DownloadClient` and `MediaFile`,
+whose status carries each file's probe, transcode, subtitles and graft
+([ADR-0016](docs/adr/0016-per-file-work-is-mediafile-status.md)), while an item's status carries
+its grabs (ADR-0019). Every lifecycle is a state machine in the manager's reconcile loop, and
+each object's status has exactly one writer, which makes ownership provable rather than
+conventional. The message bus carries what does not belong in etcd — tasks the manager admits
+and routes to an agent domain, rate-limited outbound work like indexer searches and metadata
+refreshes, delayed work such as grab delay windows, the release firehose, and the workers'
+answers, which land in compare-and-swap records the manager incorporates
+([ADR-0001](docs/adr/0001-nats-jetstream-for-events-and-work-queues.md)). Transcodes run for
+hours and want a GPU, so they run on long-lived worker-pool Jobs per profile and hardware class,
+fed by a JetStream queue under the manager's admission
+([ADR-0009](docs/adr/0009-transcode-worker-pools-over-jetstream.md)). Media itself never travels
+over the bus — every process that touches files shares one RWX volume at `/data`, so imports can
 hardlink and moves stay atomic ([ADR-0006](docs/adr/0006-single-rwx-data-volume.md)).
 
 ## Quick start (kind)
@@ -77,8 +89,8 @@ Requires Go 1.27, Docker, `kind` and `kubectl`.
 
 ```sh
 make kind-up    # create a kind cluster, mount ./.data at /data, install NATS with JetStream
-make install    # server-side apply the 29 CRDs
-make deploy     # apply the namespace, PVC, RBAC, NATS and manager manifests
+make install    # server-side apply the 27 CRDs
+make deploy     # the namespace, PVCs, RBAC, NATS, the manager, six agents, markers and the ui
 ```
 
 Then:
@@ -88,49 +100,53 @@ kubectl api-resources --api-group=catalog.clustarr.io
 kubectl get crds | grep clustarr.io
 ```
 
-`make kind-down` tears the cluster back down. Note that `make deploy` currently gets you the
-deployment shape, not a working system — see the status section above.
+`make kind-down` tears the cluster back down. `make docker-build docker-build-native` builds the
+two images and `make kind-load` loads them; `make run-dev` instead runs the manager, one agent per
+domain and the ui as local processes against the current kube context and a NATS at `$NATS_URL`.
 
-Other useful targets: `make generate manifests` (regenerate deepcopy, apply configurations and
-CRDs), `make test` (unit plus envtest), `make lint`, `make build`, `make docker-build`.
-`make help` lists everything.
+Other useful targets: `make generate manifests` (regenerate deepcopy, apply configurations, CRDs
+and RBAC), `make native-assets` (FFmpeg 9's libraries and the ffgo shim the native tests load),
+`make test` (unit, envtest and native suites), `make lint`, `make build` (the five binaries into
+`bin/`), `make brand-gate`. `make help` lists everything.
 
 ## Repo layout
 
 ```
-api/                 API types, one directory per group, all v1alpha1
-  common/            shared Go types, no CRDs
+api/                  API types, one directory per group, all v1alpha1
+  common/             shared Go types, no CRDs
   catalog/ index/ download/ transcode/ subtitle/
-  applyconfiguration/  generated server-side-apply configurations
-cmd/clustarr/        the single cobra binary
+  applyconfiguration/ generated server-side-apply configurations, <group>/<version>
+cmd/{manager,agent,ui,markers,transcode}/  the five binaries (internal/cli holds their command trees)
+app/                  per service: manager/ and agent/ registrations over leaf packages;
+                      remediation/ (the MediaFile loop), dispatch/, intake/, autoscale/, maintenance/
 pkg/
-  events/            JetStream bus: topology, natsbus, membus, contract suite, typed payloads
-  crdcheck/          envtest CRD install verification
-  version/           build metadata
-config/              kustomize: crd, default, manager, rbac, nats, prometheus, samples
-charts/clustarr/     Helm umbrella chart (NATS, optional CloudNativePG)
-images/              Dockerfile.clustarr (manager, ui), Dockerfile.native (agent, markers, transcode), Dockerfile.e2e-fixtures
-hack/                kind.sh, licence boilerplate
+  events/             JetStream bus: topology, natsbus, membus, contract suite, typed payloads
+  records/            the compare-and-swap records workers answer in
+  ffruntime/          the one FFmpeg runtime gate
+  ...                 release parsing, quality, decisions, naming, metadata and subtitle clients
+ui/                   the web UI and the Plex provider
+config/               kustomize: crd, default, manager, rbac, autoscaling, nats, prometheus, postgres, e2e, samples
+charts/clustarr/      Helm umbrella chart (NATS, optional CloudNativePG)
+images/               Dockerfile.clustarr (manager, ui), Dockerfile.native (agent, markers, transcode), Dockerfile.e2e-fixtures
+hack/                 kind.sh, dev-run.sh, native-assets.sh, image-checks.sh, brand-gate.sh, licence boilerplate
 docs/
-  superpowers/specs/ the design spec
-  adr/               architecture decision records
-  research/          the research notes behind the spec
+  superpowers/specs/  the design spec, its amendment and the designs since
+  adr/                architecture decision records
+  research/           the research notes behind the spec
+  runbooks/           operator procedures
 ```
 
 ## Documentation
 
-- **[Design spec](docs/superpowers/specs/2026-09-18-clustarr-design.md)** — authoritative. API
-  shapes, controller contracts, subject grammar, milestones, deferred work and risks.
-- **Architecture decision records:**
-  - [ADR-0001 — NATS JetStream for events and work queues](docs/adr/0001-nats-jetstream-for-events-and-work-queues.md)
-  - [ADR-0002 — GPL-3.0 licence](docs/adr/0002-gpl-3-0-licence.md)
-  - [ADR-0003 — Release index on SQLite FTS5](docs/adr/0003-release-index-sqlite-fts5.md)
-  - [ADR-0004 — One custom resource per human-visible unit](docs/adr/0004-one-cr-per-human-visible-unit.md),
-    superseded by [ADR-0016 — Per-file work is MediaFile status](docs/adr/0016-per-file-work-is-mediafile-status.md)
-  - [ADR-0005 — Transcodes as batch/v1 Jobs](docs/adr/0005-transcodes-as-batch-jobs.md)
-  - [ADR-0006 — One RWX volume at /data](docs/adr/0006-single-rwx-data-volume.md)
-  - [ADR-0007 — Single-replica metadata gateway](docs/adr/0007-single-replica-metadata-gateway.md)
-  - [ADR-0008 — Delay-profile grab semantics](docs/adr/0008-delay-profile-grab-semantics.md)
+- **[Design spec](docs/superpowers/specs/2026-09-18-clustarr-design.md)** — authoritative for API
+  shapes, controller contracts, subject grammar, milestones, deferred work and risks; its dated
+  "as built on the unify branch" notes say where the code has moved on.
+- **[Architecture decision records](docs/adr/README.md)** — the index, from NATS JetStream
+  (ADR-0001) and GPL-3.0 (ADR-0002) through one manager and domain agents (ADR-0018) and agents
+  that never write Kubernetes (ADR-0019), with each one's status.
+- **Operations:** [autoscaling](docs/autoscaling.md), [observability](docs/observability.md),
+  [GPU nodes](docs/gpu-nodes.md), the [Helm chart](charts/clustarr/README.md) and the
+  [cold cutover runbook](docs/runbooks/unify-cold-cutover.md).
 - **[Research notes](docs/research/)** — the comparisons the spec is built on: queue, indexers,
   downloads, metadata, naming, quality, subtitles, transcode, Kubernetes.
 
