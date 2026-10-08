@@ -83,4 +83,9 @@ func TestVersionFlagHasNoShorthand(t *testing.T) {
 	require.NotNil(t, f)
 	require.Empty(t, f.Shorthand)
 	require.Empty(t, root.Version, "cobra's own --version would format through a text/template")
+
+	out, ran, err := rootWithHooks(t, "-v")
+	require.Error(t, err, "-v is no flag of the root: it must never print the version")
+	require.NotContains(t, out, "manager "+version.String()+"\n")
+	require.Empty(t, ran)
 }
