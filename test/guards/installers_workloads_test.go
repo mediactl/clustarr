@@ -137,7 +137,7 @@ func TestCredentialLessWorkloadsHoldNoToken(t *testing.T) {
 		}
 		require.GreaterOrEqual(t, len(names), 20, "%s renders only %d identities and bindings", name, len(names))
 		for _, n := range names {
-			for _, gone := range []string{"squasharr-worker", "segmentarr-worker", "transcode", "pool", "graft"} {
+			for _, gone := range []string{"worker", "transcode", "pool", "graft"} {
 				assert.NotContains(t, n, gone, "%s renders %s: the transcode pods hold no identity", name, n)
 			}
 		}
