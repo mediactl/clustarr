@@ -4,6 +4,13 @@
 # built without the embedded XML -- or with a key that no longer matches the
 # Secret below -- never goes Ready instead of failing scenario 17 ten
 # minutes later.
+#
+# A movie search for Inception answers releases whose links are real
+# payloads (test/fixtures/torznabstub/downloads.go): the seeder's .torrent,
+# advertised under the info hash of the clip the seeder seeds (the same
+# baked file, hashed here at start, so --torrent-content must be the
+# seeder's --content-path), nntp-stub-a's .nzb on the usenet personality
+# (/usenet/api), and one release whose link is this stub's own 404.
 apiVersion: v1
 kind: Secret
 metadata:
@@ -61,6 +68,10 @@ spec:
               "torznab-stub",
               "--addr=:8080",
               "--request-log=/data/.e2e-fixtures/torznab/requests.jsonl",
+              "--torrent-url=http://seeder.clustarr-system.svc/fixture.torrent",
+              "--torrent-content=/fixtures/media/tiny.mkv",
+              "--nzb-url=http://nntp-stub-a.clustarr-system.svc/fixture.nzb",
+              "--gone-url=http://torznab-stub.clustarr-system.svc/dl/gone/fixture-inception-gone.torrent",
             ]
           ports:
             - name: http

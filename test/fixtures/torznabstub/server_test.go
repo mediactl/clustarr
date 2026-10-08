@@ -148,7 +148,7 @@ func TestEmbeddedSizesClearTheProfileMinimums(t *testing.T) {
 func TestHandlerRoutes(t *testing.T) {
 	dir := t.TempDir()
 	logPath := filepath.Join(dir, "requests.jsonl")
-	srv := httptest.NewServer(NewHandler(logPath, discardLogger()))
+	srv := httptest.NewServer(NewHandler(logPath, discardLogger(), Payloads{}))
 	t.Cleanup(srv.Close)
 
 	get := func(t *testing.T, path, query string) (*http.Response, []byte) {
@@ -228,7 +228,7 @@ func TestHandlerRoutes(t *testing.T) {
 func TestRequestLogSkipsProbesAndRecordsRealRequests(t *testing.T) {
 	dir := t.TempDir()
 	logPath := filepath.Join(dir, "requests.jsonl")
-	srv := httptest.NewServer(NewHandler(logPath, discardLogger()))
+	srv := httptest.NewServer(NewHandler(logPath, discardLogger(), Payloads{}))
 	t.Cleanup(srv.Close)
 
 	probe, err := http.NewRequest(http.MethodGet, srv.URL+PathHealthy+"?t=caps&apikey="+APIKey, nil) //nolint:noctx // httptest

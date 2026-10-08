@@ -210,3 +210,40 @@ func TestRealClientCompletesATransferThroughTheTrackerAlone(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, got, contentBytes)
 }
+
+// InfoHash is the hash New seeds from the same bytes, whatever the content
+// file is called, and the hash anacrolix's own builder gives a copy named
+// ContentName -- so test/fixtures/torznabstub can advertise the seeder's
+// real hash from the baked clip without asking the seeder.
+func TestInfoHashIsWhatTheSeederSeeds(t *testing.T) {
+	dir := t.TempDir()
+	content := make([]byte, 5*256*1024+123)
+	_, err := rand.Read(content)
+	require.NoError(t, err)
+	clip := filepath.Join(dir, "tiny.mkv")
+	require.NoError(t, os.WriteFile(clip, content, 0o600))
+
+	got, err := seeder.InfoHash(clip)
+	require.NoError(t, err)
+
+	srv, err := seeder.New(seeder.Config{
+		BTAddr: "127.0.0.1:0", HTTPAddr: "127.0.0.1:0",
+		ContentPath: clip, DataDir: filepath.Join(dir, "data"), Logger: discardLogger(),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = srv.Close() })
+	require.Equal(t, srv.InfoHash(), got, "InfoHash differs from the hash the seeder seeds")
+
+	var mi metainfo.MetaInfo
+	require.NoError(t, bencode.Unmarshal(srv.TorrentBytes(), &mi))
+	require.Equal(t, got, mi.HashInfoBytes(), "the served .torrent carries another hash")
+
+	named := filepath.Join(dir, "named")
+	require.NoError(t, os.MkdirAll(named, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(named, seeder.ContentName), content, 0o600))
+	info := metainfo.Info{PieceLength: 256 * 1024}
+	require.NoError(t, info.BuildFromFilePath(filepath.Join(named, seeder.ContentName)))
+	b, err := bencode.Marshal(info)
+	require.NoError(t, err)
+	require.Equal(t, metainfo.HashBytes(b), got, "InfoHash is not anacrolix's BuildFromFilePath of the same file")
+}

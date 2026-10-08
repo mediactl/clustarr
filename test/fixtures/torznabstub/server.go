@@ -20,12 +20,19 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // XML in test/data/, parsed by pkg/torznab's own ParseCaps/ParseResults.
 // It never reaches the Internet; the e2e cluster has no egress.
 //
-// Three personalities, selected by path, so one Deployment covers every
-// shape scenario 17 needs:
+// Four personalities, selected by path, so one Deployment covers every
+// shape scenario 17 and the download scenarios need:
 //
 //	/api            the healthy indexer. Requires apikey; dispatches on t.
 //	/api/searchdown t=caps succeeds, every SEARCH fails with HTTP 500.
 //	/api/down       always HTTP 500, including t=caps.
+//	/usenet/api     a healthy Newznab indexer (protocol usenet) whose one
+//	                release is the NNTP stubs' post.
+//
+// The healthy torrent indexer and the usenet one answer a movie search for
+// Inception with releases whose links are real payloads (downloads.go):
+// the seeder's .torrent under its real info hash, the NNTP stub's .nzb,
+// and one whose link is gone on purpose (/dl/gone/, a 404).
 //
 // /api is the DEFAULT Indexer.spec.generic.apiPath, so the happy path
 // exercises the default; the other two are reachable only if index
@@ -98,13 +105,16 @@ const (
 )
 
 // NewHandler builds the stub. logPath is a file on the shared /data volume
-// that every non-probe request is appended to.
-func NewHandler(logPath string, logger *slog.Logger) http.Handler {
+// that every non-probe request is appended to; p are the real payloads the
+// download releases link to.
+func NewHandler(logPath string, logger *slog.Logger, p Payloads) http.Handler {
 	lg := newReqLog(logPath)
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET "+PathHealthy, api(lg, logger, true))
-	mux.HandleFunc("GET "+PathSearchDown, api(lg, logger, false))
+	mux.HandleFunc("GET "+PathHealthy, api(lg, logger, true, p))
+	mux.HandleFunc("GET "+PathSearchDown, api(lg, logger, false, p))
 	mux.HandleFunc("GET "+PathDown, down(lg, logger))
+	mux.HandleFunc("GET "+PathUsenet, usenet(lg, logger, p))
+	mux.HandleFunc("GET "+PathGone, gone(lg, logger))
 	mux.HandleFunc("/", notFound(lg, logger))
 	return mux
 }
@@ -113,7 +123,7 @@ func NewHandler(logPath string, logger *slog.Logger) http.Handler {
 // function other than t=caps fail with HTTP 500, which is what drives
 // index's RecordFailure path from a real HTTP failure rather than a
 // simulated one.
-func api(lg *reqLog, logger *slog.Logger, searchOK bool) http.HandlerFunc {
+func api(lg *reqLog, logger *slog.Logger, searchOK bool, p Payloads) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		if q.Get("apikey") != APIKey {
@@ -141,6 +151,10 @@ func api(lg *reqLog, logger *slog.Logger, searchOK bool) http.HandlerFunc {
 				write(w, lg, r, http.StatusOK, movie900100XML)
 				return
 			}
+			if isInception(q.Get("tmdbid"), q.Get("imdbid")) {
+				write(w, lg, r, http.StatusOK, feed("torznab", p.inceptionTorrents()))
+				return
+			}
 			// A real indexer answers an unknown id with an empty feed, not
 			// an error, and pkg/torznab must parse that as zero releases.
 			write(w, lg, r, http.StatusOK, emptyXML)
@@ -153,6 +167,38 @@ func api(lg *reqLog, logger *slog.Logger, searchOK bool) http.HandlerFunc {
 			logger.Warn("torznabstub: unsupported function", "t", q.Get("t"), "query", r.URL.RawQuery)
 			write(w, lg, r, http.StatusOK, error100XML)
 		}
+	}
+}
+
+// usenet is the Newznab personality: caps, and a movie search for
+// Inception answering the NNTP stubs' post; everything else is an empty
+// feed (the download scenarios turn its RSS off).
+func usenet(lg *reqLog, logger *slog.Logger, p Payloads) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if q.Get("apikey") != APIKey {
+			logger.Warn("torznabstub: bad or missing apikey", "path", r.URL.Path, "query", r.URL.RawQuery)
+			write(w, lg, r, http.StatusOK, error100XML)
+			return
+		}
+		switch t := q.Get("t"); {
+		case t == "caps":
+			write(w, lg, r, http.StatusOK, capsXML)
+		case t == "movie" && isInception(q.Get("tmdbid"), q.Get("imdbid")):
+			write(w, lg, r, http.StatusOK, feed("newznab", p.inceptionNZBs()))
+		default:
+			write(w, lg, r, http.StatusOK, emptyXML)
+		}
+	}
+}
+
+// gone answers every PathGone link 404, as an indexer does for a release it
+// has removed: a grab of GUIDGone fails payloadUnavailable.
+func gone(lg *reqLog, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		logger.Info("torznabstub: payload gone on purpose", "path", r.URL.Path)
+		lg.record(r, http.StatusNotFound)
+		http.Error(w, "this release's payload is gone on purpose", http.StatusNotFound)
 	}
 }
 

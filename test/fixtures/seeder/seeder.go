@@ -209,13 +209,9 @@ func New(cfg Config) (*Server, error) {
 		}
 	}
 
-	info := metainfo.Info{PieceLength: pieceLength}
-	if err := info.BuildFromFilePath(contentPath); err != nil {
-		return nil, fmt.Errorf("seeder: build torrent info: %w", err)
-	}
-	infoBytes, err := bencode.Marshal(info)
+	infoBytes, err := contentInfo(contentPath)
 	if err != nil {
-		return nil, fmt.Errorf("seeder: marshal info: %w", err)
+		return nil, err
 	}
 
 	httpAddr := cfg.HTTPAddr
@@ -347,6 +343,45 @@ func New(cfg Config) (*Server, error) {
 		logger:       logger,
 		dataDir:      dataDir,
 	}, nil
+}
+
+// InfoHash is the info hash of the torrent [New] seeds from content: a
+// single file named [ContentName] holding content's bytes, in
+// pieceLength pieces. The announce URL is outside the info dictionary, so
+// any seeder of the same bytes seeds this hash -- which is what lets
+// test/fixtures/torznabstub advertise the seeder's real hash in its feed
+// without asking the seeder (both run from the one fixture image, over the
+// one baked clip).
+func InfoHash(content string) (metainfo.Hash, error) {
+	b, err := contentInfo(content)
+	if err != nil {
+		return metainfo.Hash{}, err
+	}
+	return metainfo.HashBytes(b), nil
+}
+
+// contentInfo is the bencoded info dictionary of the fixture torrent over
+// content's bytes, named ContentName whatever content's own base name is.
+// It is metainfo.Info.BuildFromFilePath for one file, with the name fixed.
+func contentInfo(content string) ([]byte, error) {
+	st, err := os.Stat(content)
+	if err != nil {
+		return nil, fmt.Errorf("seeder: stat content: %w", err)
+	}
+	if st.IsDir() {
+		return nil, fmt.Errorf("seeder: content %s is a directory", content)
+	}
+	info := metainfo.Info{PieceLength: pieceLength, Name: ContentName, Length: st.Size()}
+	if err := info.GeneratePieces(func(metainfo.FileInfo) (io.ReadCloser, error) {
+		return os.Open(content) //nolint:gosec // fixture reads a path its own caller controls
+	}); err != nil {
+		return nil, fmt.Errorf("seeder: build torrent info: %w", err)
+	}
+	b, err := bencode.Marshal(info)
+	if err != nil {
+		return nil, fmt.Errorf("seeder: marshal info: %w", err)
+	}
+	return b, nil
 }
 
 // Serve accepts HTTP requests (the tracker and the .torrent file) until ctx
