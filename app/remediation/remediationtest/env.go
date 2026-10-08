@@ -19,9 +19,11 @@ package remediationtest
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io/fs"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -178,6 +180,30 @@ func (e *Env) Get(t testing.TB, nn types.NamespacedName) *catalogv1alpha1.MediaF
 // StatusPatches is how many status writes the loop's client has sent.
 func (e *Env) StatusPatches() int { return int(e.c.statusWrites.Load()) }
 
+// StatusApplies are the status applies the loop's client has sent, each as
+// the JSON object it sent (apiVersion, kind, metadata -- its name and the
+// resourceVersion it was preconditioned on -- and status), in order.
+func (e *Env) StatusApplies() []map[string]any {
+	e.c.mu.Lock()
+	defer e.c.mu.Unlock()
+	return slices.Clone(e.c.applies)
+}
+
+// Annotate merge-patches one annotation on the MediaFile nn through Admin
+// (field manager remediationtest); an empty value removes it.
+func (e *Env) Annotate(t testing.TB, nn types.NamespacedName, key, value string) {
+	t.Helper()
+	var v any = value
+	if value == "" {
+		v = nil
+	}
+	b, err := json.Marshal(map[string]any{"metadata": map[string]any{"annotations": map[string]any{key: v}}})
+	require.NoError(t, err)
+	mf := &catalogv1alpha1.MediaFile{}
+	mf.Namespace, mf.Name = nn.Namespace, nn.Name
+	require.NoError(t, e.Admin.Patch(context.Background(), mf, client.RawPatch(types.MergePatchType, b)))
+}
+
 // Freeze makes the loop's reader serve obj for nn, as a cache that has not
 // caught up would; Thaw ends it.
 func (e *Env) Freeze(nn types.NamespacedName, obj client.Object) { e.lag.freeze(nn, obj) }
@@ -291,6 +317,8 @@ type countingClient struct {
 	client.Client
 	env          *Env
 	statusWrites atomic.Int64
+	mu           sync.Mutex
+	applies      []map[string]any
 }
 
 // Status implements client.StatusClient.
@@ -362,6 +390,14 @@ func (s *countingStatus) Apply(ctx context.Context, obj runtime.ApplyConfigurati
 		named = mf
 	}
 	s.observe(named)
+	if b, err := json.Marshal(obj); err == nil {
+		var m map[string]any
+		if json.Unmarshal(b, &m) == nil {
+			s.c.mu.Lock()
+			s.c.applies = append(s.c.applies, m)
+			s.c.mu.Unlock()
+		}
+	}
 	return s.SubResourceWriter.Apply(ctx, obj, opts...)
 }
 
