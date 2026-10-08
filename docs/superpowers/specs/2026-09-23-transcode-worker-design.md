@@ -276,6 +276,14 @@ dying pods.
 
 ## 8. TranscodeJob controller
 
+> **Superseded by ADR-0016 (2026-10-07).** TranscodeJob is gone. The MediaFile remediation loop
+> plans `status.transcode`, `transcode-admission`'s ledger grants the slot, and dispatch writes
+> status first, then the `clustarr-transcodes` record, then the task publish (loop spec §5.2
+> decision 2, §5.8), the reverse of "ensure consumer, then publish, then status `Queued`" below:
+> a publish lost after the status apply is repaired by the loop's republish, and the worker
+> answers in the record, not on a results subject. This section stays as the record of the pool
+> design before the fold.
+
 **Phases** are unchanged in name. `Verifying` is never set under pools (the
 worker verifies inside Running); it stays in the enum as legacy (final fix
 round, D5).

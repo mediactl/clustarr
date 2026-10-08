@@ -40,12 +40,15 @@ Refinements that did not change a decision are recorded in the spec, not here:
   status between import and catalog (amendment §A1.3 erratum), and the
   one cross-service status field is `Download.status.import`, owned by
   import.
+  (As built on the unify branch, 2026-10-07: both MediaFile writers are in the manager, and
+  `Download.status.import` went with the Download kind, ADR-0019.)
 - **0008:** the lease bucket has no TTL. The grab path reclaims a lease whose
   holder Download is terminal, being deleted, or missing for ten minutes, and
   re-enters one it holds itself (gap fix X4a, spec §5 and §8.2).
 - **0008:** under ADR-0019 the delay profile and the keep-best pending grab are the owning
   item's state machine in the manager (`status.pendingGrab`); the KV grab lease and
   `clustarr-pending` retire, because one reconcile per owner serialises grabs (2026-10-07).
+- **0005:** TranscodeJob is gone (ADR-0016); ADR-0009's worker pools remain.
 - **0009:** under ADR-0016 the remediation loop admits transcodes from
   `MediaFile.status.transcode` rather than from TranscodeJobs, and is the one
   writer the transcode controller was; the pools, the JetStream queue and the task lease are
@@ -60,6 +63,12 @@ Refinements that did not change a decision are recorded in the spec, not here:
   amended 2026-10-07).
 - **0015:** the transcoder image is now the `native` image, which also carries the agent and
   markers (2026-10-06, ADR-0018).
+- **0016:** as built (2026-10-07): each remediation's records live in one Durable KV bucket;
+  segment analysis and markers are fenced by their inputs, not a loop-issued sequence; the
+  admission ledger rebuilds through the APIReader with a status selectable field, which the
+  apiserver accepts on 1.37, so no label fallback is built; user intent is nonce annotations for
+  one-shot actions and value annotations for standing preferences; planner failures are
+  per-planner conditions present only while failing, with conditions MaxItems 12.
 - **0016:** its "These stay resources: Download" is reversed by ADR-0019 (2026-10-07); the
   rest of 0016 stands. A grab now lives in its owning item's status, not on the MediaFile,
   for the reasons 0016 gave for not folding Download into per-file work.

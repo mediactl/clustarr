@@ -16,6 +16,15 @@ amendment wins.
 
 ---
 
+> **As built on the unify branch (2026-10-07).** The manager/agent split (ADR-0018), the
+> MediaFile fold (ADR-0016), agents that never write Kubernetes (ADR-0019) and the unbranded
+> names (Wave U) change parts of this amendment; each carries a dated "as built on the unify
+> branch" note, and §A3.3, which wins over the base design, is rewritten to what is built. The
+> service names below are the pre-Wave U ones: read them through
+> `2026-10-07-unbranded-names-design.md` §6 (`importarr` is `import`, `catalogarr` is
+> `catalog`, ...); the dated notes use the current names. The base design's own top note lists
+> the six decisions.
+
 ## A1. importarr
 
 ### A1.1 Why it is separate
@@ -102,6 +111,15 @@ apiserver enforces the split instead of convention.
 > reports changed bytes only through the `catalog.clustarr.io/observed-fingerprint`
 > annotation (base design §8.5).
 
+> **As built on the unify branch (2026-10-07, ADR-0016, ADR-0019).** Both MediaFile writers are
+> now in the manager: `import-worker` writes `MediaFileSpec` through the scan applier
+> (`app/import/manager/scanapply`) and the downloads stage's import materialisation, and
+> `catalog` writes all of `MediaFileStatus` through the remediation loop (`app/remediation`).
+> The import agent writes nothing: it reports scan observations, list snapshots and import
+> records over NATS. The `Download.status.import` row went with the Download kind: an import
+> is two tasks (inspect, execute) answering in `clustarr-imports`, summarised on the owner's
+> grab entry.
+
 ### A1.4 New kind: LibraryScan
 
 A short-lived resource, like `Search`, so a scan is observable with `kubectl` and
@@ -178,6 +196,17 @@ the existing tools.
 
 ### A1.6 Process topology
 
+*As built on the unify branch (2026-10-07, ADR-0018, ADR-0019):*
+
+| Deployment | Roles | Replicas |
+| --- | --- | --- |
+| `manager` | import's controllers (`ImportList`, `ImportExclusion`, `LibraryScan`, `RootFolder` schedule, library delete), the scan intake and its applier, and the recycle-sweep scheduler, beside every other service's | 1, leader-elected |
+| `agent --domain import` (`agent-import`) | `work.import.scan`, `work.import.list`, `work.import.fileimport` (inspect and execute), `work.import.recycle` and the probe tasks; writes no Kubernetes object | HPA 0..N |
+
+Only `agent-import` probes (in-process, `pkg/mediainfo/native`, ADR-0017); both it and the
+manager mount `/data`, the manager for the reconcilers that stat files. The recycle sweep is a
+task the manager publishes every 6 h (2026-10-06). The table this replaced, kept as the record:
+
 | Deployment | Roles | Replicas |
 |---|---|---|
 | `importarr` | controllers (`ImportList`, `ImportExclusion`, `LibraryScan`, `RootFolder` schedule) | 1, leader-elected |
@@ -188,7 +217,7 @@ hardlinks, probes and moves files.
 
 *As built:* only `importarr-worker` mounts `/data`; the controller Deployment
 does not, which is why the recycle-bin sweeper (`fileimport.RecycleSweeper`,
-`RootFolder.spec.recycleBin.cleanupDays`, gap fix X7a) runs on the worker role.
+`RootFolder.spec.recycleBin.cleanupDays`, gap fix X7a) ran on the worker role (as built on the unify branch it runs in the import agent, on the manager's task).
 The rescan attributes files under a series root folder to Series and Episodes
 (gap fix X7a). A series folder carrying a TheTVDB id no Series has creates that
 Series, pinned to the folder (`spec.folder`) and with neither add-time search,
@@ -204,6 +233,10 @@ Stream `CLUSTARR_WORK_IMPORTARR`, work-queue retention, subjects
 `work.importarr.scan.<rootfolder>`, `work.importarr.list.<importlist>`,
 `work.importarr.fileimport.<download>`. A scan of a large library is chunked by
 directory so one message is not a multi-hour unit of work.
+
+*As built on the unify branch:* `CLUSTARR_WORK_IMPORT`, `clustarr.work.import.scan.<rootfolder>`,
+`.list.<importlist>`, `.fileimport.inspect.<entry>` and `.fileimport.execute.<entry>`, and `.recycle.>` (Wave U, ADR-0019); a scan's observations go
+to the manager on `CLUSTARR_INTAKE`.
 
 ---
 
@@ -307,7 +340,7 @@ Naming follows the Prometheus conventions: `clustarr_` prefix, base units
 | `clustarr_transcode_dispatches_total` | counter | `class`, `outcome` | Withdrawals, unclaimed dispatches and lost workers, by class |
 | `clustarr_subtitle_fetches_total` | counter | `provider`, `language`, `outcome` | Provider health and quota burn |
 | `clustarr_provider_quota_remaining` | gauge | `provider` | Daily limits before they bite |
-| `clustarr_work_queue_pending` | gauge | `stream`, `consumer` | Backpressure, and the KEDA scaling input |
+| `clustarr_work_queue_pending` | gauge | `stream`, `consumer` | Backpressure (as built on the unify branch the autoscaling input is `clustarr_consumer_lag`, served by the manager's External Metrics API; KEDA is gone) |
 | `clustarr_work_handled_total` | counter | `consumer`, `outcome` | Throughput and dead-letter rate |
 | `clustarr_work_duration_seconds` | histogram | `consumer` | Which handlers are slow |
 | `clustarr_reconcile_errors_total` | counter | `controller` | Alongside controller-runtime's own |
@@ -326,6 +359,17 @@ Naming follows the Prometheus conventions: `clustarr_` prefix, base units
 queries. The brief asks for useful metrics to be discovered and documented, so
 the table above is the starting point and the document is where it grows.
 
+*As built on the unify branch (2026-10-07):* the catalogue has grown with the split, ADR-0019 and
+ADR-0020 -- the consumer and stream gauges the manager's queue gauge exports
+(`clustarr_consumer_pending`, `_ack_pending`, `_waiting`, `_max_ack_pending`,
+`clustarr_stream_fill_ratio`), the bus's (`clustarr_bus_lapsed_handlers`, `_saturated`,
+`_muted_total`, `clustarr_nats_async_errors_total`, `clustarr_nats_dropped_messages`), the
+control plane's (`clustarr_dispatch_waiting`, `_unattended`, `clustarr_intake_candidates_total`,
+`clustarr_intake_scan_total`, `clustarr_task_events_total`, `clustarr_task_ack_delay_seconds`,
+`clustarr_task_deliveries`, `clustarr_blocklist_calls_total`, `clustarr_engine_commands_total`,
+`clustarr_agent_write_refused_total`), the object stores' and artwork's, and
+`clustarr_ffgo_abandoned_calls`. `docs/observability.md` is the full list.
+
 ### A2.4 Health and readiness
 
 Already required by the base design; made concrete. `/healthz` is liveness and
@@ -339,6 +383,13 @@ for re-attach, and the `ui` for its cache sync **and** its first completed
 projection round (gap fix X14), so a fresh ui pod never reports Ready while it
 would serve empty pages. Every readiness runnable runs on every replica, not
 only the leader.
+
+*As built on the unify branch (2026-10-07, ADR-0018):* readiness is per process. The manager is
+ready on JetStream and its cache sync; every agent on JetStream, its cache and its domain's
+checks (`import.data`, `caption.data`, `index.releaseindex`, `torrent-engine.reattach`,
+`usenet-engine.reattach`); markers serves its own probes. Liveness adds `bus` (a subscription
+wedged by handlers that ignore their context) in the manager, the agents and markers, and `ffgo`
+(the FFmpeg runtime wedged at four abandoned calls) in the import and caption agents.
 
 ---
 
@@ -354,7 +405,7 @@ and Tailwind, and no client-side framework: the data model is Kubernetes
 resources, and HTML over the wire suits that far better than a JSON API plus a
 single-page app.
 
-Directory `ui/`, binary role `clustarr ui`, distroless static image, one
+Directory `ui/`, binary role `clustarr ui` (as built on the unify branch: `cmd/ui`, ADR-0018), distroless static image, one
 Deployment, replicas configurable because it holds no authoritative state.
 
 ### A3.2 Where its data comes from
@@ -368,6 +419,12 @@ Two sources, both already present:
    not in resource status, because writing download speed to etcd every second
    would be abusive. `progress.download.<id>` and `progress.transcode.<id>`
    already exist in the base design.
+
+*As built on the unify branch (2026-10-07):* the cache is the ui's own (`cmd/ui`), and the
+sub-second numbers are reads of the KV buckets (`clustarr-progress` for a transfer's and a
+transcode's progress, `clustarr-imports` for an import's detail) through closures over `Get`
+alone; the ui still holds a read-only bus connection, plus two requests (the metadata search and
+the Plex extras).
 
 The UI **never writes status**, holds no field manager, and owns no CRD. User
 actions create or patch spec: "search now" creates a `Search`; "rescan" creates a
@@ -383,7 +440,7 @@ actions create or patch spec: "search now" creates a `Search`; "rescan" creates 
 > Every UI write lives in `ui/actions`: "search now" and "rescan" create; the
 > Unmatched page's manual assignment creates an annotated `LibraryScan`; "monitor
 > this" and the Settings page's forms are JSON merge patches of a few spec
-> fields. `cmd/clustarr`'s start envtest performs a UI action through a running
+> fields. `cmd/clustarr`'s start envtest (as built on the unify branch, `cmd/ui`'s) performs a UI action through a running
 > `clustarr ui` and asserts `clustarr-ui` owns the spec leaf and nothing on
 > status. The rest of this paragraph stands.
 
@@ -442,9 +499,15 @@ derivation is where this kind of page usually rots.
 The mapping from the brief's stages to observable state is explicit: metadata
 stages come from the item's `MetadataReady` condition and `status.metadata`;
 release stages from an active `Search` and `status.lastSearchResult`; download
-stages from the owning `Download` phase and its progress subject; import from
-`Download.status.import`; subtitle stages from `SubtitleRequest` phases; and
-transcode from `TranscodeJob` phase plus its progress subject.
+stages from the item's grab entries (`status.downloads[]`, an Episode's or an
+Issue's from its Series' or Comic's) and the engine's transfer progress in
+`clustarr-progress`; import from the entry's import summary; subtitle stages
+from the MediaFile's `status.subtitles`; and transcode from its
+`status.transcode` phase plus `clustarr-progress`'s `transcode.<mediafile-uid>`
+key (as built on the unify branch, 2026-10-07, ADR-0019; `StageSubtitleFetching`
+is gone, since `status.subtitles` tells searching from on disk, not a chosen
+candidate still downloading; `pkg/pipeline.Related` carries the entries, the
+Search, the MediaFile and the transcode percent).
 
 ### A3.4 Pages
 
@@ -472,7 +535,7 @@ them.
 > URLs straight into `<img src>`. Cover art now lives in a JetStream object
 > store bucket (`clustarr-artwork`), not a `/data` disk cache: the metadata
 > gateway is the sole writer of provider-fetched `original` objects, a
-> renderer (`catalogarr --role artwork`) is the sole writer of rating-badge
+> renderer (`catalogarr --role artwork`; as built on the unify branch, the `catalog` agent) is the sole writer of rating-badge
 > `overlay` objects, and the UI serves both at
 > `GET /art/{kind}/{uid}/{type}` over a read-only NATS connection it did not
 > hold before — it still never mounts `/data` and still never writes
@@ -683,6 +746,9 @@ enumerates the modes so an unknown one fails `helm template` instead of
 crash-looping a pod; `config/manager/ui.yaml` passes `--auth-mode=anonymous`
 for the same reason. A second mode (a forwarded-user header from an
 authenticating proxy is the natural one) slots into the same flag.
+
+*As built on the unify branch (2026-10-07):* the flag is `ui --auth-mode` (`cmd/ui`); `clustarr all`
+is gone, and `make run-dev` starts the ui as its own process.
 
 ---
 

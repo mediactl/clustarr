@@ -1,11 +1,13 @@
 # One manager, domain workers: the unified controller topology
 
-**Status:** Designed and deferred, 2026-09-24. Not implemented. The owner's
-decision (ADR-0013) is to keep the per-service controller Deployments while
-the system is under active development, because one pod per component makes
-debugging and isolation cheap, and to adopt this topology once clustarr is
-production ready and battle tested. This document is the design to adopt
-then; it does not change anything that runs today.
+**Status:** Superseded by `2026-10-06-manager-agent-split-design.md` (ADR-0018, 2026-10-06). Kept as the record of the deferred design.
+
+The status it carried until then: "Designed and deferred, 2026-09-24. Not
+implemented. The owner's decision (ADR-0013) is to keep the per-service
+controller Deployments while the system is under active development, because
+one pod per component makes debugging and isolation cheap, and to adopt this
+topology once clustarr is production ready and battle tested. This document is
+the design to adopt then; it does not change anything that runs today."
 
 **Prior art examined:** Tinkerbell's unified binary
 (`cmd/tinkerbell/cmd.go` in `tinkerbell-community/tinkerbell`): one binary,
