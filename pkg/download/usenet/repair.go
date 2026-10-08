@@ -78,6 +78,39 @@ type Par2Result struct {
 	Output string
 }
 
+// Repairer verifies a par2 set and repairs it in place.
+type Repairer interface {
+	// Available reports whether repair can run at all; false makes a set
+	// that needs repair fail with ErrPar2Unavailable, a local fault
+	// (writeError).
+	Available() bool
+	// Repair verifies dir against indexFile (a name inside dir), scanning
+	// every other regular file in dir as a candidate target, and repairs
+	// when it can. A cancelled ctx returns an error wrapping ctx.Err().
+	Repair(ctx context.Context, dir, indexFile string) (Par2Result, error)
+}
+
+var (
+	_ Repairer = Par2Runner{}
+	_ Repairer = (*LibraryRepairer)(nil)
+	_ Repairer = noRepairer{}
+)
+
+// noRepairer is a client configured with no repairer.
+type noRepairer struct{}
+
+func (noRepairer) Available() bool { return false }
+
+func (noRepairer) Repair(context.Context, string, string) (Par2Result, error) {
+	return Par2Result{}, ErrPar2Unavailable
+}
+
+// ErrPar2Crashed is par2 ending without a verdict: out of memory, or a
+// repair child that died without a result. It says nothing about the
+// release, so it is a local fault, writeError, and never blocklists (split
+// spec 2026-10-06 §13 OD22, adopted).
+var ErrPar2Crashed = errors.New("usenet: par2 ended without a verdict")
+
 var (
 	par2AllCorrectRE = regexp.MustCompile(`(?i)All files are correct|Repair is not required`)
 	par2RepairedRE   = regexp.MustCompile(`(?i)Repair complete`)
