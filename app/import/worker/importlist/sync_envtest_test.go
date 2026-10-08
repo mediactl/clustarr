@@ -23,7 +23,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -38,6 +37,7 @@ import (
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	importlistctrl "github.com/mediactl/clustarr/app/import/controller/importlist"
 	"github.com/mediactl/clustarr/app/import/importliststate"
 	worker "github.com/mediactl/clustarr/app/import/worker/importlist"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -50,15 +50,6 @@ import (
 const seriesCSVFixture = `Const,Your Rating,Date Rated,Title,URL,Title Type,IMDb Rating,Runtime (mins),Year,Genres,Num Votes,Release Date,Directors
 tt0903747,,,Breaking Bad,https://www.imdb.com/title/tt0903747/,tvSeries,9.5,49,2008,"Crime, Drama",2000000,2008-01-20,
 `
-
-func lastResult(t *testing.T, ctx context.Context, bus events.Bus, uid types.UID) importliststate.Result {
-	t.Helper()
-	entry, err := bus.KV(events.BucketProgress).Get(ctx, importliststate.ResultKey(string(uid)))
-	require.NoError(t, err)
-	res, err := importliststate.DecodeResult(entry.Value)
-	require.NoError(t, err)
-	return res
-}
 
 func getList(t *testing.T, ctx context.Context, c client.Client, ns, name string) *catalogv1alpha1.ImportList {
 	t.Helper()
@@ -122,7 +113,7 @@ func newMediaFile(t *testing.T, ctx context.Context, c client.Client, ns, name s
 	}
 	st := catalogac.MediaFileStatus()
 	for _, p := range sidecars {
-		st = st.WithSidecars(catalogac.Sidecar().WithPath(p))
+		st = st.WithSidecars(catalogac.Sidecar().WithName(filepath.Base(p)))
 	}
 	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalog, catalogac.MediaFile(name, ns).WithStatus(st))
 	require.NoError(t, err)
@@ -131,36 +122,6 @@ func newMediaFile(t *testing.T, ctx context.Context, c client.Client, ns, name s
 // recycled returns the path fsops.Recycle moved base to under bin today.
 func recycled(bin, base string) string {
 	return filepath.Join(bin, time.Now().UTC().Format("2006-01-02"), base)
-}
-
-func TestHandleStampsTheListWhenASyncFinishes(t *testing.T) {
-	c := requireEnvtest(t)
-	ctx := context.Background()
-	ns := createNamespace(t, ctx, c, "il-stamp")
-	bus := newBus(t, ctx)
-	serveTmdbResolve(t, bus, "tmdb", "603")
-
-	newConfigMap(t, ctx, c, ns, "watchlist-csv", csvFixture)
-	il := newImdbCSVList(ns, "watchlist", "watchlist-csv", catalogv1alpha1.SyncLevelLogOnly)
-	require.NoError(t, c.Create(ctx, il))
-
-	w := worker.NewWorker(c, bus)
-	require.NoError(t, w.Handle(ctx, newTaskMessage(t, ns, il.Name, string(il.UID))))
-
-	res := lastResult(t, ctx, bus, il.UID)
-	got := getList(t, ctx, c, ns, il.Name)
-	require.Equal(t, res.SyncedAt.UTC().Format(time.RFC3339Nano), got.Annotations[importliststate.AnnotationSyncedAt],
-		"the stamp carries the checkpoint's SyncedAt, so each finished sync changes it")
-
-	var stampOwner string
-	for _, e := range got.ManagedFields {
-		if e.Subresource == "" && e.FieldsV1 != nil &&
-			strings.Contains(e.FieldsV1.GetRawString(), `"f:`+importliststate.AnnotationSyncedAt+`"`) {
-			stampOwner = e.Manager
-		}
-	}
-	require.Equal(t, "import-worker", stampOwner, "the stamp is the worker's field, never the controller's")
-	require.Empty(t, got.Status.Conditions, "the worker never writes ImportList.status")
 }
 
 func TestHandleSendsPlexAndTraktToTheirBaseURLOverrides(t *testing.T) {
@@ -220,22 +181,23 @@ func TestHandleSendsPlexAndTraktToTheirBaseURLOverrides(t *testing.T) {
 	}
 	require.NoError(t, c.Create(ctx, plexList))
 	require.NoError(t, c.Create(ctx, traktList))
-	require.NoError(t, importliststate.NewSecretTokenStore(c, traktList).Save(ctx,
+	// The ImportList controller is the token Secret's one writer (A6.2).
+	require.NoError(t, importlistctrl.NewSecretTokenStore(c, traktList, nil).Save(ctx,
 		pkgimportlist.Token{AccessToken: "access-tok", ExpiresAt: time.Now().Add(24 * time.Hour)}))
 
 	w := worker.NewWorker(c, bus)
 	w.PlexBaseURL, w.TraktBaseURL = plexSrv.URL, traktSrv.URL
-	require.NoError(t, w.Handle(ctx, newTaskMessage(t, ns, plexList.Name, string(plexList.UID))))
-	require.NoError(t, w.Handle(ctx, newTaskMessage(t, ns, traktList.Name, string(traktList.UID))))
+	syncList(t, ctx, c, bus, w, plexList)
+	syncList(t, ctx, c, bus, w, traktList)
 
-	plexRes := lastResult(t, ctx, bus, plexList.UID)
-	require.Empty(t, plexRes.Error)
-	require.Equal(t, int32(2), plexRes.Added)
+	plexRes := lastResult(t, ctx, c, plexList)
+	require.Empty(t, plexRes.LastError)
+	require.Equal(t, int32(2), plexRes.AddedCount)
 	require.Positive(t, plexHits.Load(), "the Plex fetch must reach the override")
 
-	traktRes := lastResult(t, ctx, bus, traktList.UID)
-	require.Empty(t, traktRes.Error)
-	require.Equal(t, int32(1), traktRes.Added)
+	traktRes := lastResult(t, ctx, c, traktList)
+	require.Empty(t, traktRes.LastError)
+	require.Equal(t, int32(1), traktRes.AddedCount)
 	require.Positive(t, traktHits.Load(), "the Trakt fetch must reach the override")
 
 	for _, name := range []string{
@@ -248,22 +210,16 @@ func TestHandleSendsPlexAndTraktToTheirBaseURLOverrides(t *testing.T) {
 	}
 }
 
-func TestHandleFailsAKindTheProviderCannotYieldInsteadOfSkippingIt(t *testing.T) {
+// A kind the list's provider can yield goes to the provider rather than
+// being skipped: Lidarr yields albums, the arr provider is spec-deferred,
+// and its own error reaches status. A kind the provider cannot yield is the
+// controller's to refuse from the spec (R-10; A6.2 leaves it out of the
+// agent's snapshot): TestReconcileRefusesAListWhoseProviderCannotYieldAKind.
+func TestHandleReportsAYieldableKindsProviderErrorOnStatus(t *testing.T) {
 	c := requireEnvtest(t)
 	ctx := context.Background()
 	ns := createNamespace(t, ctx, c, "il-unyieldable")
 	bus := newBus(t, ctx)
-	serveTmdbResolve(t, bus, "tmdb", "603")
-
-	newConfigMap(t, ctx, c, ns, "watchlist-csv", csvFixture)
-	il := newImdbCSVList(ns, "watchlist", "watchlist-csv", catalogv1alpha1.SyncLevelLogOnly)
-	il.Spec.Kinds = []string{"movie"}
-	require.NoError(t, c.Create(ctx, il))
-	// An imdbCSV list asking for albums is refused at admission since X14
-	// (R-10's CEL rules), so the one the worker must still defend against
-	// is a stale task for a list admitted before them: the worker reads it
-	// with "album" added, through a client whose Get stands in for it.
-	stale := staleKinds{Client: c, name: il.Name, kinds: []string{"movie", "album"}}
 
 	arr := &catalogv1alpha1.ImportList{
 		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "lidarr"},
@@ -277,20 +233,11 @@ func TestHandleFailsAKindTheProviderCannotYieldInsteadOfSkippingIt(t *testing.T)
 	}
 	require.NoError(t, c.Create(ctx, arr))
 
-	w := worker.NewWorker(stale, bus)
-	require.NoError(t, w.Handle(ctx, newTaskMessage(t, ns, il.Name, string(il.UID))))
-	require.NoError(t, w.Handle(ctx, newTaskMessage(t, ns, arr.Name, string(arr.UID))))
+	syncList(t, ctx, c, bus, worker.NewWorker(c, bus), arr)
 
-	res := lastResult(t, ctx, bus, il.UID)
-	require.Contains(t, res.Error, importliststate.ErrKindNotYieldable.Error(), "an imdbCSV album is a failure on status, not a skip")
-	require.Contains(t, res.Error, "album")
-	require.Equal(t, int32(1), res.Added, "the movie kind still syncs")
-
-	// Lidarr can yield albums, so the kind goes to the provider rather than
-	// being skipped; the arr provider is spec-deferred, and says so.
-	arrRes := lastResult(t, ctx, bus, arr.UID)
-	require.Contains(t, arrRes.Error, "arr not implemented yet", "the provider's own deferral reaches status")
-	require.NotContains(t, arrRes.Error, importliststate.ErrKindNotYieldable.Error())
+	arrRes := lastResult(t, ctx, c, arr)
+	require.Contains(t, arrRes.LastError, "arr not implemented yet", "the provider's own deferral reaches status")
+	require.NotContains(t, arrRes.LastError, importliststate.ErrKindNotYieldable.Error())
 }
 
 func TestHandleRemoveAndDeleteRecyclesTheFilesAndRemoveAndKeepLeavesThem(t *testing.T) {
@@ -313,7 +260,7 @@ func TestHandleRemoveAndDeleteRecyclesTheFilesAndRemoveAndKeepLeavesThem(t *test
 			il := newImdbCSVList(ns, "watchlist", "watchlist-csv", tc.level)
 			require.NoError(t, c.Create(ctx, il))
 			w := worker.NewWorker(c, bus)
-			require.NoError(t, w.Handle(ctx, newTaskMessage(t, ns, il.Name, string(il.UID))))
+			syncList(t, ctx, c, bus, w, il)
 
 			// Steady state: the movie was added and has a file and a
 			// subtitle, and an unrelated file sits beside them.
@@ -326,11 +273,11 @@ func TestHandleRemoveAndDeleteRecyclesTheFilesAndRemoveAndKeepLeavesThem(t *test
 			newMediaFile(t, ctx, c, ns, "matrix-file", commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: movie}, video, sub)
 
 			updateConfigMap(t, ctx, c, ns, "watchlist-csv", csvFixtureEmpty)
-			require.NoError(t, w.Handle(ctx, newTaskMessage(t, ns, il.Name, string(il.UID))))
+			syncList(t, ctx, c, bus, w, il)
 
-			res := lastResult(t, ctx, bus, il.UID)
-			require.Empty(t, res.Error)
-			require.Equal(t, int32(1), res.Removed)
+			res := lastResult(t, ctx, c, il)
+			require.Empty(t, res.LastError)
+			require.Equal(t, int32(1), res.RemovedCount)
 
 			var m catalogv1alpha1.Movie
 			require.True(t, apierrors.IsNotFound(c.Get(ctx, types.NamespacedName{Namespace: ns, Name: movie}, &m)),
@@ -369,7 +316,7 @@ func TestHandleRemoveAndDeleteTakesASeriesEpisodeFiles(t *testing.T) {
 	il.Spec.Defaults.RootFolderRef = "tv"
 	require.NoError(t, c.Create(ctx, il))
 	w := worker.NewWorker(c, bus)
-	require.NoError(t, w.Handle(ctx, newTaskMessage(t, ns, il.Name, string(il.UID))))
+	syncList(t, ctx, c, bus, w, il)
 
 	series := k8s.ChildName("Breaking Bad", "series", "81189")
 	ep := &catalogv1alpha1.Episode{
@@ -390,8 +337,8 @@ func TestHandleRemoveAndDeleteTakesASeriesEpisodeFiles(t *testing.T) {
 	newMediaFile(t, ctx, c, ns, "other-s01e01", commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: other.Name}, otherVideo)
 
 	updateConfigMap(t, ctx, c, ns, "shows-csv", csvFixtureEmpty)
-	require.NoError(t, w.Handle(ctx, newTaskMessage(t, ns, il.Name, string(il.UID))))
-	require.Empty(t, lastResult(t, ctx, bus, il.UID).Error)
+	syncList(t, ctx, c, bus, w, il)
+	require.Empty(t, lastResult(t, ctx, c, il).LastError)
 
 	require.NoFileExists(t, video)
 	require.FileExists(t, recycled(bin, filepath.Base(video)))
@@ -418,8 +365,8 @@ func TestHandleLeavesAnItemAnotherEnabledListStillHas(t *testing.T) {
 	require.NoError(t, c.Create(ctx, a))
 	require.NoError(t, c.Create(ctx, b))
 	w := worker.NewWorker(c, bus)
-	require.NoError(t, w.Handle(ctx, newTaskMessage(t, ns, a.Name, string(a.UID))))
-	require.NoError(t, w.Handle(ctx, newTaskMessage(t, ns, b.Name, string(b.UID))))
+	syncList(t, ctx, c, bus, w, a)
+	syncList(t, ctx, c, bus, w, b)
 
 	movie := movieName(t)
 	video := filepath.Join(root, "The Matrix (1999)", "The Matrix (1999).mkv")
@@ -428,15 +375,15 @@ func TestHandleLeavesAnItemAnotherEnabledListStillHas(t *testing.T) {
 
 	// List a drops the film; list b still has it.
 	updateConfigMap(t, ctx, c, ns, "a-csv", csvFixtureEmpty)
-	require.NoError(t, w.Handle(ctx, newTaskMessage(t, ns, a.Name, string(a.UID))))
+	syncList(t, ctx, c, bus, w, a)
 
 	var m catalogv1alpha1.Movie
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: movie}, &m),
 		"list b still wants the movie (design spec §8.7: absent from every enabled list)")
 	require.FileExists(t, video)
-	res := lastResult(t, ctx, bus, a.UID)
-	require.Empty(t, res.Error)
-	require.Zero(t, res.Removed)
+	res := lastResult(t, ctx, c, a)
+	require.Empty(t, res.LastError)
+	require.Zero(t, res.RemovedCount)
 }
 
 func TestHandleRemembersAnItemItCouldNotResolveThisCycle(t *testing.T) {
@@ -446,7 +393,7 @@ func TestHandleRemembersAnItemItCouldNotResolveThisCycle(t *testing.T) {
 	bus := newBus(t, ctx)
 
 	var failResolve atomic.Bool
-	require.NoError(t, bus.Serve(events.RPCMetadataResolve, "test", func(_ context.Context, data []byte) ([]byte, error) {
+	stop, err := bus.Serve(events.RPCMetadataResolve, "test", func(_ context.Context, data []byte) ([]byte, error) {
 		var req schema.MetadataRequest
 		if err := schema.Decode("", data, &req); err != nil {
 			return nil, err
@@ -457,44 +404,27 @@ func TestHandleRemembersAnItemItCouldNotResolveThisCycle(t *testing.T) {
 		}
 		_, out, err := schema.Encode(resp)
 		return out, err
-	}))
+	})
+	require.NoError(t, err)
+	t.Cleanup(stop)
 
 	newConfigMap(t, ctx, c, ns, "watchlist-csv", csvFixture)
 	il := newImdbCSVList(ns, "watchlist", "watchlist-csv", catalogv1alpha1.SyncLevelRemoveAndKeep)
 	require.NoError(t, c.Create(ctx, il))
 	w := worker.NewWorker(c, bus)
-	require.NoError(t, w.Handle(ctx, newTaskMessage(t, ns, il.Name, string(il.UID))))
+	syncList(t, ctx, c, bus, w, il)
 
 	// Still on the list, but the gateway cannot re-resolve it this cycle.
 	failResolve.Store(true)
-	require.NoError(t, w.Handle(ctx, newTaskMessage(t, ns, il.Name, string(il.UID))))
+	syncList(t, ctx, c, bus, w, il)
 
 	// Then it falls off: the list must still know it added it.
 	failResolve.Store(false)
 	updateConfigMap(t, ctx, c, ns, "watchlist-csv", csvFixtureEmpty)
-	require.NoError(t, w.Handle(ctx, newTaskMessage(t, ns, il.Name, string(il.UID))))
+	syncList(t, ctx, c, bus, w, il)
 
 	var m catalogv1alpha1.Movie
-	err := c.Get(ctx, types.NamespacedName{Namespace: ns, Name: movieName(t)}, &m)
+	err = c.Get(ctx, types.NamespacedName{Namespace: ns, Name: movieName(t)}, &m)
 	require.True(t, apierrors.IsNotFound(err), "removeAndKeep acts on an item a failed cycle carried forward, got %v", err)
-	require.Equal(t, int32(1), lastResult(t, ctx, bus, il.UID).Removed)
-}
-
-// staleKinds is a client whose Get returns the named ImportList with
-// spec.kinds replaced: an ImportList admitted before the CRD carried R-10's
-// CEL rules (task X14), which the apiserver would now refuse to store.
-type staleKinds struct {
-	client.Client
-	name  string
-	kinds []string
-}
-
-func (s staleKinds) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-	if err := s.Client.Get(ctx, key, obj, opts...); err != nil {
-		return err
-	}
-	if il, ok := obj.(*catalogv1alpha1.ImportList); ok && key.Name == s.name {
-		il.Spec.Kinds = append([]string(nil), s.kinds...)
-	}
-	return nil
+	require.Equal(t, int32(1), lastResult(t, ctx, c, il).RemovedCount)
 }

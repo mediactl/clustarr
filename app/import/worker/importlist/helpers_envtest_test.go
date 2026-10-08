@@ -21,7 +21,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/jonboulle/clockwork"
 	"github.com/stretchr/testify/require"
@@ -30,9 +32,15 @@ import (
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	importlistctrl "github.com/mediactl/clustarr/app/import/controller/importlist"
+	"github.com/mediactl/clustarr/app/import/worker/fileimport"
+	worker "github.com/mediactl/clustarr/app/import/worker/importlist"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
+	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
@@ -107,4 +115,54 @@ func managerFor(entries []metav1.ManagedFieldsEntry, subresource string) string 
 		}
 	}
 	return ""
+}
+
+// syncSeq makes every sync's SyncedAt at least a second later than the
+// last: the ImportList controller diffs only a snapshot newer than
+// status.lastSyncAt, which round-trips in seconds, and these tests sync one
+// list several times a second.
+var syncSeq atomic.Int64
+
+// syncList runs one sync of il end to end, as the import agent and the
+// manager run it (ADR-0019 §7.6): the list worker under test fetches and
+// reports a snapshot, and the ImportList controller (c, the real one) diffs
+// and applies it. A recycle-files task the controller publishes runs
+// through the agent's recycle consumer before its publish returns, so a
+// removeAndDelete has moved the files by the time the reconcile ends.
+func syncList(t *testing.T, ctx context.Context, c client.Client, bus events.Bus, w *worker.Worker, il *catalogv1alpha1.ImportList) {
+	t.Helper()
+	at := time.Now().UTC().Add(time.Duration(syncSeq.Add(1)) * time.Second)
+	w.Clock = func() time.Time { return at }
+	require.NoError(t, w.Handle(ctx, newTaskMessage(t, il.Namespace, il.Name, string(il.UID))))
+	r := &importlistctrl.Reconciler{
+		Client: c, APIReader: c, HTTPClient: w.HTTPClient, TraktBaseURL: w.TraktBaseURL,
+		Bus: agentBus{Bus: bus, recycle: fileimport.RecycleHandler(fileimport.NewRecycleSweeper(c), fileimport.NewRecycleFiles(c))},
+	}
+	_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(il)})
+	require.NoError(t, err)
+}
+
+// lastResult is il's status after its last sync: the counts and lastError
+// the ImportList controller computed from the agent's snapshot (A6.2: the
+// worker's own Result checkpoint retired).
+func lastResult(t *testing.T, ctx context.Context, c client.Client, il *catalogv1alpha1.ImportList) catalogv1alpha1.ImportListStatus {
+	t.Helper()
+	var got catalogv1alpha1.ImportList
+	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(il), &got))
+	return got.Status
+}
+
+// agentBus hands every recycle-files task published on it to the import
+// agent's recycle consumer once the publish lands.
+type agentBus struct {
+	events.Bus
+	recycle events.Handler
+}
+
+func (b agentBus) Publish(ctx context.Context, subject string, e *events.Envelope, opts ...events.PublishOption) (events.Receipt, error) {
+	r, err := b.Bus.Publish(ctx, subject, e, opts...)
+	if err != nil || e.Schema != (schema.RecycleFilesTask{}).Schema() {
+		return r, err
+	}
+	return r, b.recycle(ctx, &fakeMessage{env: e, attempt: 1})
 }

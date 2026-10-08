@@ -34,9 +34,12 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	"github.com/mediactl/clustarr/app/import/importliststate"
+	"github.com/mediactl/clustarr/app/import/manager/scanapply"
 	"github.com/mediactl/clustarr/app/import/scanprogress"
 	worker "github.com/mediactl/clustarr/app/import/worker/importlist"
 	"github.com/mediactl/clustarr/app/import/worker/rescan"
+	"github.com/mediactl/clustarr/app/intake"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 )
@@ -54,17 +57,17 @@ func TestHandleWithAutomaticAddOffListsTheEntriesButAddsNothing(t *testing.T) {
 	watch.Spec.AutomaticAdd = new(false)
 	require.NoError(t, c.Create(ctx, watch))
 	w := worker.NewWorker(c, bus)
-	require.NoError(t, w.Handle(ctx, newTaskMessage(t, ns, watch.Name, string(watch.UID))))
+	syncList(t, ctx, c, bus, w, watch)
 
 	// It syncs and reports what it found, and adds nothing.
 	var m catalogv1alpha1.Movie
 	require.True(t, apierrors.IsNotFound(c.Get(ctx, types.NamespacedName{Namespace: ns, Name: movie}, &m)),
 		"automaticAdd=false must not create the movie")
-	res := lastResult(t, ctx, bus, watch.UID)
-	require.Empty(t, res.Error)
-	require.Equal(t, int32(1), res.Fetched)
-	require.Zero(t, res.Added)
-	items, _, err := worker.LoadItems(ctx, bus.KV(events.BucketImportList), ns, watch.Name, "movie")
+	res := lastResult(t, ctx, c, watch)
+	require.Empty(t, res.LastError)
+	require.Equal(t, int32(1), res.ItemCount)
+	require.Zero(t, res.AddedCount)
+	items, _, err := importliststate.LoadItems(ctx, bus.KV(events.BucketImportList), ns, watch.Name, "movie")
 	require.NoError(t, err)
 	require.Len(t, items, 1, "the found entry is recorded, as Radarr's SyncMoviesForList records it")
 	require.True(t, items[0].ListedOnly)
@@ -76,20 +79,20 @@ func TestHandleWithAutomaticAddOffListsTheEntriesButAddsNothing(t *testing.T) {
 	newConfigMap(t, ctx, c, ns, "auto-csv", csvFixture)
 	auto := newImdbCSVList(ns, "auto", "auto-csv", catalogv1alpha1.SyncLevelRemoveAndKeep)
 	require.NoError(t, c.Create(ctx, auto))
-	require.NoError(t, w.Handle(ctx, newTaskMessage(t, ns, auto.Name, string(auto.UID))))
+	syncList(t, ctx, c, bus, w, auto)
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: movie}, &m))
 	updateConfigMap(t, ctx, c, ns, "auto-csv", csvFixtureEmpty)
-	require.NoError(t, w.Handle(ctx, newTaskMessage(t, ns, auto.Name, string(auto.UID))))
+	syncList(t, ctx, c, bus, w, auto)
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: movie}, &m),
 		"the non-automatic list still lists the movie")
 
 	// And the non-automatic list never removes what it did not add: the
 	// film falls off it too, under removeAndKeep, and the movie stays.
 	updateConfigMap(t, ctx, c, ns, "watch-csv", csvFixtureEmpty)
-	require.NoError(t, w.Handle(ctx, newTaskMessage(t, ns, watch.Name, string(watch.UID))))
+	syncList(t, ctx, c, bus, w, watch)
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: movie}, &m),
 		"an entry the list only listed is never its to remove")
-	require.Zero(t, lastResult(t, ctx, bus, watch.UID).Removed)
+	require.Zero(t, lastResult(t, ctx, c, watch).RemovedCount)
 }
 
 // scanMessage is the ScanTask the LibraryScan controller would publish for
@@ -105,6 +108,21 @@ func scanMessage(t *testing.T, scan *catalogv1alpha1.LibraryScan, rf *catalogv1a
 	name, data, err := schema.Encode(task)
 	require.NoError(t, err)
 	return &fakeMessage{env: &events.Envelope{Schema: name, Data: data, Type: "import.ScanTask"}, attempt: 1}
+}
+
+// observingBus hands every library-scan observation published on it to the
+// manager's import-intake-scan consumer once the publish lands.
+type observingBus struct {
+	events.Bus
+	intake *intake.ScanConsumer
+}
+
+func (b observingBus) Publish(ctx context.Context, subject string, e *events.Envelope, opts ...events.PublishOption) (events.Receipt, error) {
+	r, err := b.Bus.Publish(ctx, subject, e, opts...)
+	if err != nil || e.Schema != (schema.ScanObservation{}).Schema() {
+		return r, err
+	}
+	return r, b.intake.Handle(ctx, &fakeMessage{env: e, attempt: 1})
 }
 
 // TestRemoveAndKeepSurvivesALibraryRescan is the ruling on removeAndKeep:
@@ -127,7 +145,9 @@ func TestRemoveAndKeepSurvivesALibraryRescan(t *testing.T) {
 		Cache:                  cache.Options{DefaultNamespaces: map[string]cache.Config{ns: {}}},
 	})
 	require.NoError(t, err)
-	require.NoError(t, rescan.IndexMediaFileByPath(ctx, mgr))
+	for _, fi := range rescan.FieldIndexes() {
+		require.NoError(t, mgr.GetFieldIndexer().IndexField(ctx, fi.Object, fi.Name, fi.Extract))
+	}
 	done := make(chan error, 1)
 	go func() { done <- mgr.Start(ctx) }()
 	t.Cleanup(func() { cancel(); <-done })
@@ -152,6 +172,13 @@ func TestRemoveAndKeepSurvivesALibraryRescan(t *testing.T) {
 	require.NoError(t, f.Truncate(60<<20)) // clear the suspected-sample floor, sparsely
 	require.NoError(t, f.Close())
 
+	// The rescan reports observations and the manager's scan applier
+	// writes (ADR-0019 §7.6): every observation the walk publishes is
+	// applied before its publish returns, as the import-intake-scan
+	// consumer would.
+	scanBus := observingBus{Bus: bus, intake: &intake.ScanConsumer{
+		Bus: bus, Applier: &scanapply.Applier{Client: c, Reader: cached, APIReader: c, Bus: bus},
+	}}
 	rescanOnce := func(name string) scanprogress.Progress {
 		t.Helper()
 		scan := &catalogv1alpha1.LibraryScan{
@@ -163,12 +190,21 @@ func TestRemoveAndKeepSurvivesALibraryRescan(t *testing.T) {
 			var got catalogv1alpha1.LibraryScan
 			return cached.Get(ctx, client.ObjectKeyFromObject(scan), &got) == nil
 		}, 10*time.Second, 20*time.Millisecond)
-		require.NoError(t, rescan.NewWorker(cached, bus).Handle(ctx, scanMessage(t, scan, rf)))
+		require.NoError(t, rescan.NewWorker(cached, scanBus, nil).Handle(ctx, scanMessage(t, scan, rf)))
 		entry, err := bus.KV(events.BucketProgress).Get(ctx, scanprogress.ProgressKey(string(scan.UID)))
 		require.NoError(t, err)
 		p, err := scanprogress.DecodeProgress(entry.Value)
 		require.NoError(t, err)
 		require.Equal(t, int64(1), p.FilesSeen, "the walk must reach the kept file")
+		// The LibraryScan controller adds the applier's tally to the walk's.
+		switch entry, err := bus.KV(events.BucketProgress).Get(ctx, scanprogress.AppliedKey(string(scan.UID))); {
+		case err == nil:
+			applied, err := scanprogress.DecodeProgress(entry.Value)
+			require.NoError(t, err)
+			p = p.Merge(applied)
+		default:
+			require.ErrorIs(t, err, events.ErrKeyNotFound)
+		}
 		return p
 	}
 	movieKey := types.NamespacedName{Namespace: ns, Name: movieName(t)}
@@ -185,7 +221,7 @@ func TestRemoveAndKeepSurvivesALibraryRescan(t *testing.T) {
 	il := newImdbCSVList(ns, "watch", "watch-csv", catalogv1alpha1.SyncLevelRemoveAndKeep)
 	require.NoError(t, c.Create(ctx, il))
 	w := worker.NewWorker(c, bus)
-	require.NoError(t, w.Handle(ctx, newTaskMessage(t, ns, il.Name, string(il.UID))))
+	syncList(t, ctx, c, bus, w, il)
 	require.Eventually(t, cachedHas(true), 10*time.Second, 20*time.Millisecond)
 	rescanOnce("scan-1")
 	var files catalogv1alpha1.MediaFileList
@@ -195,7 +231,7 @@ func TestRemoveAndKeepSurvivesALibraryRescan(t *testing.T) {
 
 	// The film falls off the list: removeAndKeep.
 	updateConfigMap(t, ctx, c, ns, "watch-csv", csvFixtureEmpty)
-	require.NoError(t, w.Handle(ctx, newTaskMessage(t, ns, il.Name, string(il.UID))))
+	syncList(t, ctx, c, bus, w, il)
 	var m catalogv1alpha1.Movie
 	require.True(t, apierrors.IsNotFound(c.Get(ctx, movieKey, &m)))
 	require.Eventually(t, cachedHas(false), 10*time.Second, 20*time.Millisecond)
@@ -215,7 +251,7 @@ func TestRemoveAndKeepSurvivesALibraryRescan(t *testing.T) {
 	// file is its file again (Radarr: no exclusion; a re-added movie finds
 	// its file).
 	updateConfigMap(t, ctx, c, ns, "watch-csv", csvFixture)
-	require.NoError(t, w.Handle(ctx, newTaskMessage(t, ns, il.Name, string(il.UID))))
+	syncList(t, ctx, c, bus, w, il)
 	require.NoError(t, c.Get(ctx, movieKey, &m))
 	require.Equal(t, m.Name, files.Items[0].Spec.MediaRef.Name)
 }

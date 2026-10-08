@@ -90,12 +90,12 @@ func TestSyncFindsAHandAddedMovieByItsTmdbIDUnderAnotherTitle(t *testing.T) {
 	newConfigMap(t, ctx, c, ns, "csv", csvFixture)
 	il := newImdbCSVList(ns, "list", "csv", catalogv1alpha1.SyncLevelRemoveAndKeep)
 	require.NoError(t, c.Create(ctx, il))
-	require.NoError(t, worker.NewWorker(c, bus).Handle(ctx, newTaskMessage(t, ns, il.Name, string(il.UID))))
+	syncList(t, ctx, c, bus, worker.NewWorker(c, bus), il)
 
 	got := moviesWithTmdbID(t, ctx, c, ns, 603)
 	require.Len(t, got, 1, "one film, one Movie")
 	requireUntouched(t, got[0])
-	require.Zero(t, lastResult(t, ctx, bus, il.UID).Added)
+	require.Zero(t, lastResult(t, ctx, c, il).AddedCount)
 }
 
 // A list naming a film the owner added by hand under the same title --
@@ -113,17 +113,17 @@ func TestSyncLeavesAHandAddedMovieOfTheSameNameAlone(t *testing.T) {
 	il := newImdbCSVList(ns, "list", "csv", catalogv1alpha1.SyncLevelRemoveAndKeep)
 	require.NoError(t, c.Create(ctx, il))
 	w := worker.NewWorker(c, bus)
-	require.NoError(t, w.Handle(ctx, newTaskMessage(t, ns, il.Name, string(il.UID))))
+	syncList(t, ctx, c, bus, w, il)
 
 	var m catalogv1alpha1.Movie
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: movieName(t)}, &m))
 	requireUntouched(t, m)
 
 	updateConfigMap(t, ctx, c, ns, "csv", csvFixtureEmpty)
-	require.NoError(t, w.Handle(ctx, newTaskMessage(t, ns, il.Name, string(il.UID))))
+	syncList(t, ctx, c, bus, w, il)
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: movieName(t)}, &m),
 		"never the list's to remove")
-	require.Zero(t, lastResult(t, ctx, bus, il.UID).Removed)
+	require.Zero(t, lastResult(t, ctx, c, il).RemovedCount)
 }
 
 // A second list naming a film the first list added records it and leaves
@@ -143,12 +143,12 @@ func TestSyncLeavesAMovieAnotherListAddedToThatList(t *testing.T) {
 	require.NoError(t, c.Create(ctx, a))
 	require.NoError(t, c.Create(ctx, b))
 	w := worker.NewWorker(c, bus)
-	require.NoError(t, w.Handle(ctx, newTaskMessage(t, ns, a.Name, string(a.UID))))
-	require.NoError(t, w.Handle(ctx, newTaskMessage(t, ns, b.Name, string(b.UID))))
+	syncList(t, ctx, c, bus, w, a)
+	syncList(t, ctx, c, bus, w, b)
 
 	got := moviesWithTmdbID(t, ctx, c, ns, 603)
 	require.Len(t, got, 1)
 	require.Equal(t, "a", got[0].Spec.Source.ImportListRef)
 	require.Equal(t, "movies", got[0].Spec.RootFolderRef)
-	require.Zero(t, lastResult(t, ctx, bus, b.UID).Added)
+	require.Zero(t, lastResult(t, ctx, c, b).AddedCount)
 }

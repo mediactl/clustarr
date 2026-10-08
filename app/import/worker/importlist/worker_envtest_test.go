@@ -29,7 +29,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
-	"github.com/mediactl/clustarr/app/import/importliststate"
 	worker "github.com/mediactl/clustarr/app/import/worker/importlist"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -96,13 +95,15 @@ func newImdbCSVList(ns, name, configMap string, syncLevel catalogv1alpha1.SyncLe
 // provider.
 func serveTmdbResolve(t *testing.T, bus events.Bus, key, id string) {
 	t.Helper()
-	require.NoError(t, bus.Serve(events.RPCMetadataResolve, "test", func(_ context.Context, data []byte) ([]byte, error) {
+	stop, err := bus.Serve(events.RPCMetadataResolve, "test", func(_ context.Context, data []byte) ([]byte, error) {
 		var req schema.MetadataRequest
 		require.NoError(t, schema.Decode("", data, &req))
 		resp := schema.MetadataResponse{Kind: req.Kind, IDs: map[string]string{key: id}}
 		_, out, err := schema.Encode(resp)
 		return out, err
-	}))
+	})
+	require.NoError(t, err)
+	t.Cleanup(stop)
 }
 
 func newTaskMessage(t *testing.T, ns, name, uid string) *fakeMessage {
@@ -143,7 +144,7 @@ func TestHandleCreatesAMovieFromAnImdbCSVList(t *testing.T) {
 	require.NoError(t, c.Create(ctx, il))
 
 	w := worker.NewWorker(c, bus)
-	require.NoError(t, w.Handle(ctx, newTaskMessage(t, ns, il.Name, string(il.UID))))
+	syncList(t, ctx, c, bus, w, il)
 
 	name := movieName(t)
 	var m catalogv1alpha1.Movie
@@ -157,13 +158,10 @@ func TestHandleCreatesAMovieFromAnImdbCSVList(t *testing.T) {
 	specManager := managerFor(m.ManagedFields, "")
 	require.Equal(t, "import-worker", specManager, "MovieSpec must be owned by k8s.ManagerImportWorker")
 
-	entry, err := bus.KV(events.BucketProgress).Get(ctx, importliststate.ResultKey(string(il.UID)))
-	require.NoError(t, err, "the worker must checkpoint a result for the controller to poll")
-	res, err := importliststate.DecodeResult(entry.Value)
-	require.NoError(t, err)
-	require.Equal(t, int32(1), res.Fetched)
-	require.Equal(t, int32(1), res.Added)
-	require.Empty(t, res.Error)
+	res := lastResult(t, ctx, c, il)
+	require.Equal(t, int32(1), res.ItemCount)
+	require.Equal(t, int32(1), res.AddedCount)
+	require.Empty(t, res.LastError)
 }
 
 func TestHandleRespectsAnImportExclusion(t *testing.T) {
@@ -176,8 +174,9 @@ func TestHandleRespectsAnImportExclusion(t *testing.T) {
 	// The exclusion index is normally maintained by
 	// app/import/controller/importexclusion; this test writes the KV entry
 	// directly, the same lookup contract events.ExclusionEntry documents,
-	// so it does not need that controller running to prove this worker
-	// consults the bucket.
+	// so it does not need that controller running to prove the sync -- the
+	// ImportList controller's diff of the agent's snapshot -- consults the
+	// bucket.
 	entry := events.ExclusionEntry{Namespace: ns, Name: "blocked-matrix", Kind: "movie", Reason: "test"}
 	data, err := entry.Encode()
 	require.NoError(t, err)
@@ -189,18 +188,15 @@ func TestHandleRespectsAnImportExclusion(t *testing.T) {
 	require.NoError(t, c.Create(ctx, il))
 
 	w := worker.NewWorker(c, bus)
-	require.NoError(t, w.Handle(ctx, newTaskMessage(t, ns, il.Name, string(il.UID))))
+	syncList(t, ctx, c, bus, w, il)
 
 	var m catalogv1alpha1.Movie
 	err = c.Get(ctx, types.NamespacedName{Namespace: ns, Name: movieName(t)}, &m)
 	require.Error(t, err, "an excluded entry must never become a catalog item")
 
-	resEntry, err := bus.KV(events.BucketProgress).Get(ctx, importliststate.ResultKey(string(il.UID)))
-	require.NoError(t, err)
-	res, err := importliststate.DecodeResult(resEntry.Value)
-	require.NoError(t, err)
-	require.Equal(t, int32(1), res.Excluded)
-	require.Equal(t, int32(0), res.Added)
+	res := lastResult(t, ctx, c, il)
+	require.Equal(t, int32(1), res.ExcludedCount)
+	require.Equal(t, int32(0), res.AddedCount)
 }
 
 func TestHandleUnmonitorsAnItemThatFellOffTheList(t *testing.T) {
@@ -215,7 +211,7 @@ func TestHandleUnmonitorsAnItemThatFellOffTheList(t *testing.T) {
 	require.NoError(t, c.Create(ctx, il))
 
 	w := worker.NewWorker(c, bus)
-	require.NoError(t, w.Handle(ctx, newTaskMessage(t, ns, il.Name, string(il.UID))))
+	syncList(t, ctx, c, bus, w, il)
 
 	name := movieName(t)
 	var m catalogv1alpha1.Movie
@@ -224,15 +220,12 @@ func TestHandleUnmonitorsAnItemThatFellOffTheList(t *testing.T) {
 
 	// The item falls off the list.
 	updateConfigMap(t, ctx, c, ns, "watchlist-csv", csvFixtureEmpty)
-	require.NoError(t, w.Handle(ctx, newTaskMessage(t, ns, il.Name, string(il.UID))))
+	syncList(t, ctx, c, bus, w, il)
 
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &m))
 	require.NotNil(t, m.Spec.Monitored)
 	require.False(t, *m.Spec.Monitored, "syncLevel=keepAndUnmonitor must unmonitor an item that fell off the list")
 
-	resEntry, err := bus.KV(events.BucketProgress).Get(ctx, importliststate.ResultKey(string(il.UID)))
-	require.NoError(t, err)
-	res, err := importliststate.DecodeResult(resEntry.Value)
-	require.NoError(t, err)
-	require.Equal(t, int32(1), res.Removed)
+	res := lastResult(t, ctx, c, il)
+	require.Equal(t, int32(1), res.RemovedCount)
 }
