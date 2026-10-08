@@ -379,6 +379,12 @@ All tests run with `-race`.
 
 ## 8. Open questions for the integration spec (not this one)
 
+Answered by `docs/superpowers/specs/2026-10-06-manager-agent-split-design.md` §8: the binary
+is the agent (`agent par2-repair`, §8.4.4), crash isolation is a re-exec'd child (§8.4.2), and
+the mapping onto `Par2Result` and `status.engineFailureReason` is §8.5.3, with OD22's local
+classes (ADR-0017; built with the split plan's Wave 9, which waits on a par2go release whose
+module zip Go accepts, 2026-10-07).
+
 - The usenet engine's own binary and image, and the
   `TestClustarrNeverLinksADynamicLoader` boundary.
 - Whether repair runs in a child process of that engine, for crash isolation.

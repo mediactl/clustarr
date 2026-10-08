@@ -271,6 +271,8 @@ Uses in a downloader:
 3. Health: NZBGet `health = 1000 - failed_articles/total_articles*1000`; `critical health` = derived from available recovery blocks (par2 sizes) - below it the job cannot be repaired; `HealthCheck=park|pause|delete|none`. SABnzbd equivalent: `check_availability_ratio` vs `req_completion_rate` and `MAX_BAD_ARTICLES`, option "Abort jobs that cannot be completed".
 4. Repair: exec `par2 r <index.par2>` (SABnzbd parses "All files are correct", "Repair is required", "You need N more recovery blocks", "Repair is possible", "Repair complete", "Repairing: NN%"; extra flags `-m` memory, `-t` threads, `-T` verify threads, `-N` no data skipping, `-B <basepath>`). If more blocks are needed, fetch additional `.volNNN+MM.par2` files from the NZB (SABnzbd status `Fetching`), then retry.
 
+   > Superseded by ADR-0017 (2026-10-06): clustarr runs par2cmdline-turbo as a library through par2go, in a child of the agent; no image ships the par2 binary. (Until par2go is required by go.mod, split plan Wave 9, the usenet engine still execs `par2`, which the native image does not carry.)
+
 ### 2.5 RAR / 7z
 
 - Obfuscated releases are almost always multi-volume RAR (`name.part01.rar` ... or `name.rar`, `name.r00`, `name.r01` ...), sometimes password-protected or with encrypted headers; SABnzbd/NZBGet exec `unrar x -idp -o+ -p<pw>|-p- -y <first volume> <dest>` and parse "Cannot find volume", "CRC failed", "Incorrect password", "is not RAR archive", "checksum error". Direct Unpack (SABnzbd, auto-enabled when disk > 40 MB/s; NZBGet `DirectUnpack=no` default) starts unrar on the first volume while later volumes download; disabled for encrypted/passworded sets and aborted on bad articles (`MAX_BAD_ARTICLES`).
@@ -319,6 +321,8 @@ SABnzbd queue/history JSON used by Radarr: queue `nzo_id, filename, cat, mb, mbl
 | `github.com/Tensai75/nzb-monkey-go`, `Tensai75/subjectparser` | v0.3.3 / v0.1.1 | NZB search/indexer helpers, subject parsing | reference for subject regexes. |
 | `github.com/go-while/NZBreX`, `github.com/nzbdav/rapidyenc` v1.2.1 | | other Go usenet code / C library fork | reference only. |
 | `github.com/ricochet2200/go-disk-usage/du` | pseudo 2021 | free-space check | fine; or `golang.org/x/sys/unix.Statfs`. |
+
+> Superseded by ADR-0017 (the `par2cmdline-turbo (binary)` row above) (2026-10-06): clustarr runs par2cmdline-turbo as a library through par2go, in a child of the agent; no image ships the par2 binary. (Until par2go is required by go.mod, split plan Wave 9, the usenet engine still execs `par2`, which the native image does not carry.)
 
 Build verification (temp module): `CGO_ENABLED=1 go build` of a binary importing nntppool/v4 + anacrolix/torrent + rardecode + nzbparser succeeds but links dynamically to `libstdc++.so.6`, `libm`, `libgcc_s`, `libresolv` (base image must be glibc + libstdc++, e.g. `debian:bookworm-slim`/`gcr.io/distroless/cc`; or try `-ldflags '-extldflags "-static"'`). `CGO_ENABLED=0` (with or without `GOEXPERIMENT=simd`) **fails** for nntppool v4.23.0 (`rapidyenc.Format/State/Encoder undefined`), so nntppool is cgo-only today. Without nntppool the rest of the stack (torrent, storage, rardecode, nzbparser, Tensai75/nntp, gopar) builds fully static with `CGO_ENABLED=0`.
 

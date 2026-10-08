@@ -36,15 +36,19 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
 
-// PAR2 verification and repair is an EXEC, not a Go module, and that is a
-// recorded decision rather than an omission: hack/deps/deps.go's package
-// doc says so, images/Dockerfile.media already ships par2cmdline-turbo
-// v1.5.0, and the research note measured the only pure-Go alternative
-// (akalin/gopar) as too slow and too memory-hungry for a 50GB release -- it
-// reads everything into memory and has no SIMD.
+// PAR2 verification and repair is an EXEC, not a Go module. That was a
+// recorded decision -- the research note measured the only pure-Go
+// alternative (akalin/gopar) as too slow and too memory-hungry for a 50GB
+// release: it reads everything into memory and has no SIMD -- and ADR-0017
+// (2026-10-06) supersedes it: par2cmdline-turbo as a library through par2go,
+// in a re-exec'd child of the agent. That lands with the split plan's Wave 9,
+// once go.mod can require par2go. Until then this file is the one production
+// os/exec, and the native image ships no par2 binary (images/distroless/
+// stage.sh refuses one), so in a cluster a set with missing articles fails
+// with ErrPar2Unavailable, a local fault the engine never blocklists.
 //
-// Tests that need real repair therefore skip when the binary is absent, the
-// same way pkg/transcode's tests skip without ffmpeg.
+// Tests that need real repair therefore skip when the binary is absent;
+// `make native-assets` supplies a test-only par2 CLI.
 
 // ErrPar2Unavailable is returned when repair is required but no par2 binary
 // can be found. It is distinct from a failed repair: one is a deployment
@@ -83,8 +87,8 @@ var (
 
 // Par2Runner execs par2cmdline-turbo.
 type Par2Runner struct {
-	// Path is the par2 binary. Empty means look "par2" up on PATH, which is
-	// where images/Dockerfile.media puts it.
+	// Path is the par2 binary. Empty means look "par2" up on PATH. No image
+	// puts one there since the media image was retired (ADR-0017).
 	Path string
 }
 
