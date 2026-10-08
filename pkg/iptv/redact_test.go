@@ -20,6 +20,7 @@ package iptv_test
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"testing"
 
@@ -48,4 +49,23 @@ func TestRedactErrorRewritesTheURLInsideAURLError(t *testing.T) {
 	assert.NotContains(t, got, "pass")
 	assert.Equal(t, "plain", iptv.RedactError(errors.New("plain")))
 	assert.Equal(t, "", iptv.RedactError(nil))
+}
+
+func TestRedactErrorRedactsAURLWithAControlCharacter(t *testing.T) {
+	// A Secret made from a file ends in a newline. url.Error quotes its URL,
+	// so replacing the raw form never matched, and the credentials leaked.
+	for _, raw := range []string{
+		"http://provider.example/get.php?username=alice&password=s3cret&type=m3u_plus\n",
+		"http://provider.example/live/alice/s3cret/1001.ts\t",
+		`http://provider.example/get.php?username=alice&password=s3cret"`,
+	} {
+		_, err := http.NewRequest(http.MethodGet, raw, nil)
+		if err == nil {
+			err = &url.Error{Op: "Get", URL: raw, Err: errors.New("connection refused")}
+		}
+		got := iptv.RedactError(fmt.Errorf("fetch playlist: %w", err))
+		assert.NotContains(t, got, "alice", "%q", raw)
+		assert.NotContains(t, got, "s3cret", "%q", raw)
+		assert.Contains(t, got, "provider.example")
+	}
 }

@@ -20,6 +20,7 @@ package iptv
 import (
 	"errors"
 	"net/url"
+	"strconv"
 	"strings"
 )
 
@@ -32,7 +33,7 @@ const redactedURL = "<redacted url>"
 // the scheme, host and last segment, which is enough to tell sources apart
 // in a status message or a log.
 func Redact(raw string) string {
-	u, err := url.Parse(raw)
+	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil || u.Host == "" || u.Scheme == "" {
 		return redactedURL
 	}
@@ -66,6 +67,10 @@ func RedactError(err error) string {
 		if !errors.As(e, &ue) {
 			break
 		}
+		// url.Error prints its URL quoted (%q), so a URL with a control
+		// character, a Secret's trailing newline among them, appears only
+		// escaped: replace that form first, then the raw one.
+		msg = strings.ReplaceAll(msg, strconv.Quote(ue.URL), strconv.Quote(Redact(ue.URL)))
 		msg = strings.ReplaceAll(msg, ue.URL, Redact(ue.URL))
 		e = ue
 	}
