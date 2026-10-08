@@ -50,7 +50,10 @@ func planInFlight(in Inputs) Decision {
 		// An answer at the seq is incorporated, even over a withdrawal
 		// (§5.10: withdrawn writes nothing over it).
 		return incorporate(in, b, rec)
-	case withdrawing(b) && withdrawnAt(rec, seq):
+	case withdrawing(b) && withdrawnAt(rec, seq) && in.Ledger.WithdrawFailed == "":
+		// The record is the withdrawal's first step: a lease or purge step
+		// that failed after it keeps the block in flight, however the
+		// record reads (§5.10), until a withdrawal goes through.
 		d := finishWithdrawal(in, b)
 		d.Dispatched = "withdrawn"
 		return d

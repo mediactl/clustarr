@@ -127,6 +127,43 @@ func TestWithdrawalTakesTwoPasses(t *testing.T) {
 	}
 }
 
+// TestAFailedWithdrawalHoldsTheBlockHoweverTheRecordReads is §5.10's "if
+// any step fails, the block stays in flight with message `withdrawal
+// failed: <err>`": the record CAS is the first step, so a purge that failed
+// after it leaves the record withdrawn at S, and a pass that closed on the
+// record alone would write Planned over a task still stored. The block
+// closes only once the withdrawal that the ledger last saw went through.
+func TestAFailedWithdrawalHoldsTheBlockHoweverTheRecordReads(t *testing.T) {
+	in := queuedIn(t)
+	in.Prev.Phase = catalogv1alpha1.TranscodePhaseRunning
+	claimed := t0.Add(time.Minute)
+	in.Record = &task.Record{RecordHeader: schema.RecordHeader{Seq: 42, State: records.StateClaimed, ClaimedAt: &claimed}, Inputs: in.Record.Inputs}
+	in.Intents.Suspend = "true"
+	first := pass(in)
+	require.Equal(t, int64(42), first.Withdraw)
+
+	in.Prev = first.Block
+	in.Record = withdrawnAt42() // the record step landed
+	in.Ledger.WithdrawFailed = "nats: purge refused"
+	held := pass(in)
+	require.NotNil(t, held.Block)
+	assert.Equal(t, catalogv1alpha1.TranscodePhaseRunning, held.Block.Phase, "nothing leaves Running until the withdrawal succeeds")
+	assert.Equal(t, "withdrawal failed: nats: purge refused", held.Block.Message)
+	assert.Equal(t, int64(42), held.Withdraw, "the withdrawal is owed again")
+	assert.False(t, held.Block.Dispatch.Withdrawn)
+	assert.Zero(t, held.Block.Dispatch.AnsweredSeq)
+
+	in.Prev = held.Block
+	in.Ledger.WithdrawFailed = "" // the next withdrawal went through
+	closed := pass(in)
+	require.NotNil(t, closed.Block)
+	assert.Equal(t, catalogv1alpha1.TranscodePhasePlanned, closed.Block.Phase)
+	assert.Equal(t, ReasonSuspended, closed.Block.Reason)
+	assert.True(t, closed.Block.Dispatch.Withdrawn)
+	assert.Equal(t, int64(42), closed.Block.Dispatch.AnsweredSeq)
+	assert.Zero(t, closed.Withdraw)
+}
+
 // TestAFactAfterTheClosingWithdrawalIsIncorporated is §4.10 and D41: a
 // succeeded answer at the withdrawn seq, inside FactWindow, becomes
 // Swapping from whatever phase the withdrawal left, and clears withdrawn.
