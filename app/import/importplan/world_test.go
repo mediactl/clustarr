@@ -20,6 +20,7 @@ package importplan_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -129,11 +130,11 @@ func newWorld(t *testing.T) *world {
 		}},
 	}
 	episode := func(n int32) *catalogv1alpha1.Episode {
-		name := "the-wire-s01e0" + string(rune('0'+n))
+		name := fmt.Sprintf("the-wire-s01e%02d", n)
 		return &catalogv1alpha1.Episode{
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns, UID: types.UID(name + "-uid")},
 			Spec:       catalogv1alpha1.EpisodeSpec{SeriesRef: "the-wire", SeasonNumber: 1, EpisodeNumber: n},
-			Status:     catalogv1alpha1.EpisodeStatus{Title: "Episode " + string(rune('0'+n))},
+			Status:     catalogv1alpha1.EpisodeStatus{Title: fmt.Sprintf("Episode %d", n)},
 		}
 	}
 	artist := &catalogv1alpha1.Artist{
