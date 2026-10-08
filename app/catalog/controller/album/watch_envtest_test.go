@@ -32,11 +32,12 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
-	downloadac "github.com/mediactl/clustarr/api/applyconfiguration/download/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/album"
+	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
+	"github.com/mediactl/clustarr/app/remediation"
+	"github.com/mediactl/clustarr/app/remediation/itemtest"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
@@ -56,10 +57,10 @@ func musicProfile(name, cutoff string) *catalogv1alpha1.QualityProfile {
 	}
 }
 
-// TestAlbumControllerWakesOnInheritedProfileEdits runs the real, auto-wired
-// controller (the only test in this package that calls SetupWithManager --
-// controller names are process-global) against an Album with no profile
-// override of its own, so it is ranked against its Artist's. Both ways that
+// TestAlbumControllerWakesOnInheritedProfileEdits runs the Album's item
+// path as the remediation loop runs it (itemtest.Start) against an Album
+// with no profile override of its own, so it is ranked against its
+// Artist's. Both ways that
 // inherited profile changes must reach it without any other event: an edit
 // to the QualityProfile itself (mapQualityProfile's Artist hop), and the
 // Artist pointing at another profile (the Artist watch).
@@ -77,7 +78,8 @@ func TestAlbumControllerWakesOnInheritedProfileEdits(t *testing.T) {
 		Client: mgr.GetClient(), Scheme: mgr.GetScheme(), Recorder: mgr.GetEventRecorder("album"),
 		Bus: combinedBus{Publisher: fakePublisher{}, requester: fakeAlbumLookupRPC{}},
 	}
-	require.NoError(t, r.SetupWithManager(mgr))
+	require.NoError(t, remediation.RegisterIndexes(ctx, mgr.GetFieldIndexer()))
+	require.NoError(t, itemtest.Start(mgr, map[remediation.KeyKind]rollup.Item{remediation.KindAlbum: r}))
 	go func() { _ = mgr.Start(ctx) }()
 	require.True(t, mgr.GetCache().WaitForCacheSync(ctx))
 	c := mgr.GetClient()
@@ -162,42 +164,29 @@ func TestAlbumControllerWakesOnInheritedProfileEdits(t *testing.T) {
 		return c.Get(ctx, key, &got) == nil && k8s.FindCondition(got.Status.Conditions, k8s.ConditionDeadLettered) == nil
 	}, 10*time.Second, 20*time.Millisecond, "removing the annotation never cleared the condition")
 	// Gap-fix ruling R-5, on this steady-state Album: status.activeDownloadRef
-	// derives from the Downloads the Album owns -- the grab path creates each
-	// one owned by the item it targets -- and this reconciler is the field's
-	// only writer. A Download targeting the Album that it does not own (left
-	// behind by a deleted Album of the same name) is never adopted.
+	// derives from the grab entries on the Album's own status.downloads
+	// (ADR-0019 §6.11), and this reconciler is the field's only writer. No
+	// item watch wakes on an entry write (the stages decide entries inside
+	// the pass that applies them), so each leg seeds the entries, waits for
+	// the cache to see them, and reconciles the Album itself.
 	require.NoError(t, c.Get(ctx, key, &got))
 	steady := got.DeepCopy()
-	magnet := "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567"
-	newDownload := func(name string, owner *catalogv1alpha1.Album) {
-		d := &downloadv1alpha1.Download{
-			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
-			Spec: downloadv1alpha1.DownloadSpec{
-				Protocol: commonv1.ProtocolTorrent,
-				Source:   commonv1.DownloadSource{MagnetURL: &magnet},
-				Target:   commonv1.MediaRef{Kind: commonv1.MediaKindAlbum, Name: key.Name},
-			},
-		}
-		if owner != nil {
-			controller := true
-			d.OwnerReferences = []metav1.OwnerReference{{
-				APIVersion: catalogv1alpha1.GroupVersion.String(), Kind: "Album",
-				Name: owner.Name, UID: owner.UID, Controller: &controller,
-			}}
-		}
-		require.NoError(t, c.Create(ctx, d))
+	seed := func(phase commonv1.DownloadPhase) {
+		t.Helper()
+		require.NoError(t, itemtest.SeedEntries(ctx, c, &got, itemtest.Entry("ok-computer-dl", phase)))
+		require.Eventually(t, func() bool {
+			var g catalogv1alpha1.Album
+			return c.Get(ctx, key, &g) == nil && len(g.Status.Downloads) == 1 && g.Status.Downloads[0].Phase == phase
+		}, 10*time.Second, 20*time.Millisecond, "the cache never saw the seeded entry")
+		_, err := r.ReconcileItem(ctx, key)
+		require.NoError(t, err)
 	}
-	newDownload("ok-computer-dl-stranger", nil)
-	require.Never(t, func() bool {
-		var g catalogv1alpha1.Album
-		return c.Get(ctx, key, &g) == nil && g.Status.ActiveDownloadRef != nil
-	}, 500*time.Millisecond, 20*time.Millisecond, "a Download the Album does not own must never become its ref")
 
-	newDownload("ok-computer-dl", &got)
+	seed(commonv1.DownloadPhasePending)
 	require.Eventually(t, func() bool {
 		return c.Get(ctx, key, &got) == nil && got.Status.ActiveDownloadRef != nil &&
 			*got.Status.ActiveDownloadRef == "ok-computer-dl" && got.Status.Phase == catalogv1alpha1.AlbumPhaseDownloading
-	}, 10*time.Second, 20*time.Millisecond, "an owned Download must set the ref and read Downloading")
+	}, 10*time.Second, 20*time.Millisecond, "a non-terminal entry must set the ref and read Downloading")
 	assert.Equal(t, steady.Status.Quality, got.Status.Quality, "the ref's apply released status.quality")
 	assert.Equal(t, steady.Status.CutoffMet, got.Status.CutoffMet)
 	var refOwners []string
@@ -208,22 +197,18 @@ func TestAlbumControllerWakesOnInheritedProfileEdits(t *testing.T) {
 	}
 	assert.Equal(t, []string{string(k8s.ManagerCatalog)}, refOwners, "status.activeDownloadRef has one writer")
 
-	// Completed is on disk, awaiting import: still the item's Download (R-12).
-	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadac.Download("ok-computer-dl", ns).WithStatus(
-		downloadac.DownloadStatus().WithPhase(commonv1.DownloadPhaseCompleted)))
-	require.NoError(t, err)
+	// Completed is on disk, awaiting import: still the item's grab (R-12).
+	seed(commonv1.DownloadPhaseCompleted)
 	require.Never(t, func() bool {
 		var g catalogv1alpha1.Album
 		return c.Get(ctx, key, &g) == nil && (g.Status.ActiveDownloadRef == nil || g.Status.Phase != catalogv1alpha1.AlbumPhaseDownloading)
-	}, 500*time.Millisecond, 20*time.Millisecond, "a Completed Download is still working on the Album")
+	}, 500*time.Millisecond, 20*time.Millisecond, "a Completed entry is still working on the Album")
 
 	// Imported is terminal: the ref goes and the phase is the file's again.
-	_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadac.Download("ok-computer-dl", ns).WithStatus(
-		downloadac.DownloadStatus().WithPhase(commonv1.DownloadPhaseImported)))
-	require.NoError(t, err)
+	seed(commonv1.DownloadPhaseImported)
 	require.Eventually(t, func() bool {
 		return c.Get(ctx, key, &got) == nil && got.Status.ActiveDownloadRef == nil && got.Status.Phase == steady.Status.Phase
-	}, 10*time.Second, 20*time.Millisecond, "a terminal Download must clear the ref and give the phase back")
+	}, 10*time.Second, 20*time.Millisecond, "a terminal entry must clear the ref and give the phase back")
 
 	// A delayed grab (status.pendingGrab, written by the grab path) wakes the
 	// Album on its own and reads Delayed.

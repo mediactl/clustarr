@@ -27,7 +27,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	k8sevents "k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -101,7 +100,7 @@ func TestAlbumReconcilerRanksByEveryTrackFile(t *testing.T) {
 	}
 	reconcileOnce := func() {
 		t.Helper()
-		_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+		_, err := r.ReconcileItem(ctx, key)
 		require.NoError(t, err)
 	}
 	var got catalogv1alpha1.Album

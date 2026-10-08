@@ -44,8 +44,8 @@ import (
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/album"
+	"github.com/mediactl/clustarr/app/remediation"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -84,7 +84,9 @@ func newBareTestClient(t *testing.T) client.Client {
 
 // startCacheOnly starts a real ctrl.Manager's cache (so the MediaFile index
 // syncTracks-adjacent code paths need works) WITHOUT wiring an
-// album.Reconciler's watches to it. Mirrors artist_test.startCacheOnly.
+// album.Reconciler's watches to it. Mirrors artist_test.startCacheOnly. The
+// indexes are the remediation loop's own (mfindex and every item kind's),
+// registered as the loop registers them.
 func startCacheOnly(t *testing.T, ctx context.Context, cfg *rest.Config) client.Client {
 	t.Helper()
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
@@ -93,23 +95,7 @@ func startCacheOnly(t *testing.T, ctx context.Context, cfg *rest.Config) client.
 		HealthProbeBindAddress: "0",
 	})
 	require.NoError(t, err)
-
-	require.NoError(t, mgr.GetFieldIndexer().IndexField(ctx, &catalogv1alpha1.MediaFile{}, ".spec.mediaRef.album",
-		func(o client.Object) []string {
-			mf, ok := o.(*catalogv1alpha1.MediaFile)
-			if !ok || mf.Spec.MediaRef.Kind != commonv1.MediaKindAlbum {
-				return nil
-			}
-			return []string{mf.Spec.MediaRef.Name}
-		}))
-	require.NoError(t, mgr.GetFieldIndexer().IndexField(ctx, &downloadv1alpha1.Download{}, ".spec.target.album",
-		func(o client.Object) []string {
-			dl, ok := o.(*downloadv1alpha1.Download)
-			if !ok || dl.Spec.Target.Kind != commonv1.MediaKindAlbum {
-				return nil
-			}
-			return []string{dl.Spec.Target.Name}
-		}))
+	require.NoError(t, remediation.RegisterIndexes(ctx, mgr.GetFieldIndexer()))
 
 	go func() { _ = mgr.Start(ctx) }()
 	require.True(t, mgr.GetCache().WaitForCacheSync(ctx))
@@ -254,7 +240,7 @@ func TestAlbumReconcilerQueueFull(t *testing.T) {
 		Bus: combinedBus{Publisher: fakePublisher{err: events.ErrQueueFull}, requester: fakeAlbumLookupRPC{}},
 	}
 	req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "album-queuefull-ns", Name: "ok-computer"}}
-	res, err := r.Reconcile(ctx, req)
+	res, err := r.ReconcileItem(ctx, req.NamespacedName)
 	require.NoError(t, err)
 	assert.Equal(t, time.Minute, res.RequeueAfter)
 
@@ -288,7 +274,7 @@ func TestAlbumReconcilerArtistNotFound(t *testing.T) {
 		Bus: combinedBus{Publisher: fakePublisher{}, requester: fakeAlbumLookupRPC{}},
 	}
 	req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "album-noartist-ns", Name: "ok-computer"}}
-	res, err := r.Reconcile(ctx, req)
+	res, err := r.ReconcileItem(ctx, req.NamespacedName)
 	require.NoError(t, err)
 	assert.Equal(t, time.Minute, res.RequeueAfter)
 
@@ -332,7 +318,7 @@ func TestAlbumReconcilerNeverClaimsStatusMetadata(t *testing.T) {
 		Bus: combinedBus{Publisher: fakePublisher{}, requester: fakeAlbumLookupRPC{}},
 	}
 	req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: alb.Namespace, Name: alb.Name}}
-	_, err = r.Reconcile(ctx, req)
+	_, err = r.ReconcileItem(ctx, req.NamespacedName)
 	require.NoError(t, err)
 
 	var got catalogv1alpha1.Album
@@ -402,7 +388,7 @@ func TestAlbumReconcilerBuildsTracksFromTheExistingSingleLookupRPC(t *testing.T)
 		Bus: combinedBus{Publisher: fakePublisher{}, requester: fakeAlbumLookupRPC{album: fetched}},
 	}
 	req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: alb.Namespace, Name: alb.Name}}
-	_, err = r.Reconcile(ctx, req)
+	_, err = r.ReconcileItem(ctx, req.NamespacedName)
 	require.NoError(t, err)
 
 	var got catalogv1alpha1.Album
@@ -451,7 +437,7 @@ func TestAlbumReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 
 		req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "album-transient-ns", Name: name}}
 		r := &album.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10), Bus: combinedBus{Publisher: fakePublisher{}, requester: fakeAlbumLookupRPC{}}}
-		_, err = r.Reconcile(ctx, req)
+		_, err = r.ReconcileItem(ctx, req.NamespacedName)
 		require.NoError(t, err)
 
 		var got catalogv1alpha1.Album
@@ -488,7 +474,7 @@ func TestAlbumReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 			Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10),
 			Bus: combinedBus{Publisher: fakePublisher{err: events.ErrQueueFull}, requester: fakeAlbumLookupRPC{}},
 		}
-		res, err := r2.Reconcile(ctx, req)
+		res, err := r2.ReconcileItem(ctx, req.NamespacedName)
 		require.NoError(t, err)
 		assert.Equal(t, time.Minute, res.RequeueAfter)
 
@@ -536,7 +522,7 @@ func TestAlbumReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 
 		req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "album-transient-ns", Name: "noartist-steady"}}
 		r := &album.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10), Bus: combinedBus{Publisher: fakePublisher{}, requester: fakeAlbumLookupRPC{}}}
-		_, err = r.Reconcile(ctx, req)
+		_, err = r.ReconcileItem(ctx, req.NamespacedName)
 		require.NoError(t, err)
 
 		var before catalogv1alpha1.Album
@@ -559,7 +545,7 @@ func TestAlbumReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 			Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10),
 			Bus: combinedBus{Publisher: fakePublisher{}, requester: fakeAlbumLookupRPC{}},
 		}
-		res, err := r2.Reconcile(ctx, req)
+		res, err := r2.ReconcileItem(ctx, req.NamespacedName)
 		require.NoError(t, err)
 		assert.Equal(t, time.Minute, res.RequeueAfter)
 
@@ -670,7 +656,7 @@ func TestAlbumReconcilerSelectsAReleaseAndAttributesTracks(t *testing.T) {
 			Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10),
 			Bus: combinedBus{Publisher: fakePublisher{}, requester: rpc},
 		}
-		_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+		_, err := r.ReconcileItem(ctx, key)
 		require.NoError(t, err)
 	}
 
@@ -733,7 +719,7 @@ func TestAlbumReconcilerSelectsAReleaseAndAttributesTracks(t *testing.T) {
 		Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10),
 		Bus: combinedBus{Publisher: fakePublisher{err: events.ErrQueueFull}, requester: fakeAlbumLookupRPC{album: fetched}},
 	}
-	_, err = queueFull.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+	_, err = queueFull.ReconcileItem(ctx, key)
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		return c.Get(ctx, key, &got) == nil && k8s.IsConditionTrue(got.Status.Conditions, "QueueFull")
