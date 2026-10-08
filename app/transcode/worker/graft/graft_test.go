@@ -38,6 +38,7 @@ import (
 
 	"github.com/mediactl/clustarr/app/transcode/grafttask"
 	"github.com/mediactl/clustarr/app/transcode/worker/graft"
+	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
 	"github.com/mediactl/clustarr/pkg/transcode/engine"
 )
@@ -165,7 +166,7 @@ func newLibrary(t *testing.T, donorAudio []string, lead float64, targetExtra ...
 	st, err := os.Stat(target)
 	require.NoError(t, err)
 	return library{dataDir: data, task: grafttask.Task{
-		Graft: "clustarr-system/monster-s01e02-audiograft", Root: "/data/tv",
+		File: schema.Ref{Namespace: "clustarr-system", Name: "monster-s01e02", UID: "mf-uid"}, Root: "/data/tv",
 		Target: logical(target), TargetProbeHash: mediainfo.ProbeHash(logical(target), st.Size(), st.ModTime()),
 		Donor: logical(donor), Language: "en", Anchor: "ja", Default: true, RecycleBin: "/data/.recycle",
 	}}
