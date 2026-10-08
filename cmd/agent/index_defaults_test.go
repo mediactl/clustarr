@@ -15,15 +15,16 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package main_test
+package main
 
 import (
-	"os"
-	"regexp"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 
 	"github.com/mediactl/clustarr/internal/cli/agent"
 )
@@ -36,33 +37,63 @@ import (
 // by someone running the binary directly -- which is exactly the person least
 // equipped to diagnose a read-only filesystem or an unroutable port.
 //
-// These tests PARSE the manifest rather than restating its values. A test that
-// restates the value it guards cannot catch drift; that is how ValidKVKey
-// shipped permissive in Phase C, pinned against a regex copied into the test
-// file instead of against the server that rejects the key.
-const indexManifest = "../../config/manager/agent-index.yaml"
+// These tests read what BOTH installers render rather than restating its
+// values. A test that restates the value it guards cannot catch drift; that
+// is how ValidKVKey shipped permissive in Phase C, pinned against a regex
+// copied into the test file instead of against the server that rejects the
+// key.
 
 func TestDefaultIndexPathMatchesTheManifest(t *testing.T) {
-	b, err := os.ReadFile(indexManifest)
-	require.NoError(t, err)
-
-	m := regexp.MustCompile(`(?m)^\s*-\s*name:\s*CLUSTARR_INDEX_PATH\s*\n\s*value:\s*(\S+)\s*$`).
-		FindSubmatch(b)
-	require.Len(t, m, 2, "CLUSTARR_INDEX_PATH is not set in %s -- if it moved, this test must follow it", indexManifest)
-
-	assert.Equal(t, string(m[1]), agent.DefaultIndexPath,
-		"the compiled-in index path and the manifest's CLUSTARR_INDEX_PATH disagree; "+
-			"the pod runs readOnlyRootFilesystem, so a path outside the PVC mount cannot be written")
+	for name, r := range installerRenders(t) {
+		_, c := renderedContainer(t, r, "agent-index")
+		var got []string
+		for _, e := range c.Env {
+			if e.Name == "CLUSTARR_INDEX_PATH" {
+				got = append(got, e.Value)
+			}
+		}
+		require.Len(t, got, 1, "%s: the agent-index container sets CLUSTARR_INDEX_PATH once -- if it moved, this test must follow it", name)
+		assert.Equal(t, got[0], agent.DefaultIndexPath,
+			"%s: the compiled-in index path and the installer's CLUSTARR_INDEX_PATH disagree; "+
+				"the pod runs readOnlyRootFilesystem, so a path outside the PVC mount cannot be written", name)
+	}
 }
 
 func TestDefaultFacadeBindAddressMatchesTheServicePort(t *testing.T) {
-	b, err := os.ReadFile(indexManifest)
-	require.NoError(t, err)
+	for name, r := range installerRenders(t) {
+		d, c := renderedContainer(t, r, "agent-index")
+		var port int32
+		for _, p := range c.Ports {
+			if p.Name == "http" {
+				port = p.ContainerPort
+			}
+		}
+		require.NotZero(t, port, "%s: no named http port on agent-index -- if it was renamed, this test must follow it", name)
+		assert.Equal(t, fmt.Sprintf(":%d", port), agent.DefaultFacadeBindAddress,
+			"%s: the facade would bind a port the container does not expose, so it would be unreachable", name)
 
-	m := regexp.MustCompile(`(?m)^\s*-\s*name:\s*http\s*\n\s*containerPort:\s*(\d+)\s*$`).
-		FindSubmatch(b)
-	require.Len(t, m, 2, "no named http port in %s -- if it was renamed, this test must follow it", indexManifest)
+		// The Service in front of the index pods routes to that port.
+		var routed []corev1.ServicePort
+		for _, svc := range r.Services {
+			if len(svc.Spec.Selector) == 0 || !selects(svc.Spec.Selector, d.Spec.Template.Labels) {
+				continue
+			}
+			for _, sp := range svc.Spec.Ports {
+				if sp.TargetPort == intstr.FromString("http") || sp.TargetPort == intstr.FromInt32(port) {
+					routed = append(routed, sp)
+				}
+			}
+		}
+		assert.NotEmpty(t, routed, "%s: no Service selecting the agent-index pods routes the facade's port", name)
+	}
+}
 
-	assert.Equal(t, ":"+string(m[1]), agent.DefaultFacadeBindAddress,
-		"the facade would bind a port the Service does not route to, so it would be unreachable")
+// selects reports whether selector matches labels.
+func selects(selector, labels map[string]string) bool {
+	for k, v := range selector {
+		if got, ok := labels[k]; !ok || got != v {
+			return false
+		}
+	}
+	return true
 }

@@ -28,7 +28,14 @@ import (
 // the child is os.Executable(), which in a test is this test binary, and
 // without the dispatch the engine's start probe would run the package's
 // tests again as its own child (pkg/par2child.RunIfChild).
+//
+// With AGENT_TEST_RUN_MAIN=1 it runs the binary's own main instead, before
+// that dispatch, so TestThePar2ChildIsDispatchedBeforeCobra sees main's.
 func TestMain(m *testing.M) {
+	if os.Getenv(runMainEnv) == "1" {
+		main()
+		return
+	}
 	par2child.RunIfChild()
 	os.Exit(m.Run())
 }
