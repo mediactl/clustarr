@@ -1,0 +1,19 @@
+{
+  "mediaFile": {"namespace": "media", "name": "heat-abc", "uid": "u1"},
+  "seq": 2,
+  "state": "failed",
+  "path": "/data/media/movies/Heat (1995)/Heat (1995).mkv",
+  "probeHash": "h1",
+  "probeVersion": 3,
+  "requestedVersion": 3,
+  "lane": "high",
+  "requestedAt": "2026-10-06T20:00:00Z",
+  "probedAt": "2026-10-06T20:00:01Z",
+  "mediaInfo": {"container": "mkv", "videoCodec": "hevc"},
+  "failure": "stuck in the demuxer",
+  "transient": true,
+  "abandoned": true,
+  "abandonedCount": 2,
+  "source": "probe",
+  "prober": "import-worker-7c9"
+}

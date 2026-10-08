@@ -19,6 +19,7 @@ package schema_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -96,4 +97,20 @@ func TestListTaskRejectsAForeignSchemaHeader(t *testing.T) {
 
 	var out schema.ListTask
 	assert.Error(t, schema.Decode("import.ListTask.v2", data, &out))
+}
+
+// RecycleSweepTask names no object: one task sweeps every bin (spec
+// 2026-10-06 §3.5.3). Period only records which 6-hour slot queued it.
+func TestRecycleSweepTaskEncodeDecodeRoundTrip(t *testing.T) {
+	in := schema.RecycleSweepTask{Period: time.Date(2026, 10, 6, 18, 0, 0, 0, time.UTC)}
+	name, data, err := schema.Encode(in)
+	require.NoError(t, err)
+	assert.Equal(t, "import.RecycleSweepTask.v1", name)
+	assert.JSONEq(t, `{"period":"2026-10-06T18:00:00Z"}`, string(data))
+
+	var out schema.RecycleSweepTask
+	require.NoError(t, schema.Decode(name, data, &out))
+	assert.True(t, in.Period.Equal(out.Period))
+	assert.Error(t, schema.Decode(schema.ListTask{}.Schema(), data, &out),
+		"a RecycleSweepTask is never decoded from a message carrying another payload's header")
 }
