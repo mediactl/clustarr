@@ -154,11 +154,12 @@ type Plan struct {
 	Decisions map[string]int
 }
 
-// verdict is one candidate's re-check: the items it is taken for (items),
-// every item its coverage names (covered), or why it is refused (reason,
-// and the metric decision).
+// verdict is one candidate's re-check: the id its grab gets (id), the
+// items it is taken for (items), every item its coverage names (covered),
+// or why it is refused (reason, and the metric decision).
 type verdict struct {
 	c        Candidate
+	id       string
 	items    []Covered
 	covered  []Covered
 	reason   string
@@ -264,6 +265,8 @@ func (d *decider) settle(c Candidate, o intake.Outcome, decision string) {
 func (d *decider) check(c Candidate) verdict {
 	vd := verdict{c: c}
 	rel := c.Release.Decision.ReleaseInfo
+	id, free := d.entryID(c)
+	vd.id = id
 	switch {
 	case d.v.Profile == nil:
 		vd.reason = "the owner has no usable quality profile"
@@ -277,7 +280,7 @@ func (d *decider) check(c Candidate) verdict {
 		vd.reason = "the owner is not monitored"
 	case !d.protocolEnabled(rel.Protocol):
 		vd.reason = "no enabled DownloadClient or delay profile takes " + string(rel.Protocol)
-	case d.hasEntry(lifecycle.EntryID(d.v.Owner.Name, c.Purpose, rel.GUID)):
+	case !free:
 		vd.reason = "the release is already a grab of the owner"
 	}
 	if vd.reason != "" {
@@ -631,14 +634,40 @@ func candidateQuality(c Candidate) quality.Candidate {
 	return quality.Candidate{Quality: r.Quality, Revision: r.Revision, FormatScore: int(c.Release.Score)}
 }
 
-// hasEntry reports a stored entry of that id.
-func (d *decider) hasEntry(id string) bool {
+// entryID is the id c's grab gets, and whether no stored entry holds it.
+// It is lifecycle.EntryID, so a re-grab of a release -- a redelivered
+// candidate -- finds the earlier grab and is refused. A person's
+// spec.override pick of a release whose grab under that id is a
+// Blocklisted tombstone (kept lifecycle.BlockQuarantine after its transfer
+// is gone, so no answer from before the block regrabs it) is named after
+// the tombstone it overrides instead (lifecycle.OverrideEntryID), and again
+// past an override's own tombstone: the person's grab is a new entry beside
+// the tombstone, which still refuses every automatic answer (tombstoned) and
+// every pick without override (smoke T2).
+func (d *decider) entryID(c Candidate) (string, bool) {
+	id := lifecycle.EntryID(d.v.Owner.Name, c.Purpose, c.Release.Decision.GUID)
+	// Each step names a different stored entry, so the walk is bounded.
+	for range len(d.v.Entries) + 1 {
+		e := d.stored(id)
+		switch {
+		case e == nil:
+			return id, true
+		case !c.Override || e.Phase != commonv1.DownloadPhaseBlocklisted:
+			return id, false
+		}
+		id = lifecycle.OverrideEntryID(e.ID, e.UID)
+	}
+	return id, false
+}
+
+// stored is the stored entry of that id, nil for none.
+func (d *decider) stored(id string) *catalogv1alpha1.DownloadEntry {
 	for i := range d.v.Entries {
 		if d.v.Entries[i].ID == id {
-			return true
+			return &d.v.Entries[i]
 		}
 	}
-	return false
+	return nil
 }
 
 // protocolEnabled: an enabled DownloadClient serves the protocol and the
@@ -701,7 +730,7 @@ func (d *decider) entry(vd verdict) catalogv1alpha1.DownloadEntry {
 	rel := c.Release.Decision.ReleaseInfo
 	now := metav1.NewTime(d.now)
 	e := catalogv1alpha1.DownloadEntry{
-		ID:                 lifecycle.EntryID(d.v.Owner.Name, c.Purpose, rel.GUID),
+		ID:                 vd.id,
 		UID:                newUID(),
 		Purpose:            c.Purpose,
 		Release:            DownloadRelease(rel, c.Release.Score),

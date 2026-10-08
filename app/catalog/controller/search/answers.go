@@ -313,12 +313,15 @@ func (r *Reconciler) owner(ctx context.Context, s *catalogv1alpha1.Search) (clie
 }
 
 // entryFor is the id of the owner's video entry for guid covering item,
-// "" for none.
+// "" for none. A Blocklisted tombstone (kept lifecycle.BlockQuarantine after
+// its transfer is gone) is no grab of the pick: it would read "Grabbed" for
+// a release the owner refused, and keep a spec.override pick from ever
+// being sent (smoke T2).
 func entryFor(owner, item client.Object, guid string) string {
 	entries := dlindex.Entries(owner)
 	for i := range entries {
 		e := &entries[i]
-		if e.Release.GUID == guid && !rollup.IsDonor(e) && itemread.Covers(e, item) {
+		if e.Release.GUID == guid && e.Phase != commonv1.DownloadPhaseBlocklisted && !rollup.IsDonor(e) && itemread.Covers(e, item) {
 			return e.ID
 		}
 	}

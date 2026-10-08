@@ -102,6 +102,16 @@ func EntryID(target string, purpose commonv1.DownloadPurpose, guid string) strin
 	return names.ChildName(target, guid)
 }
 
+// OverrideEntryID is the id of a person's spec.override grab of a release
+// whose grab under id (EntryID) is a Blocklisted tombstone with uid, kept
+// BlockQuarantine after its transfer is gone: names.ChildName(id,
+// "override", uid). The new grab stands beside the tombstone, which keeps
+// refusing every automatic answer, and a redelivered override finds it
+// under the same id (smoke T2).
+func OverrideEntryID(id, uid string) string {
+	return names.ChildName(id, "override", uid)
+}
+
 func itoa(n int32) string {
 	if n == 0 {
 		return "0"

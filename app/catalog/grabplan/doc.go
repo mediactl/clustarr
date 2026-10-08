@@ -38,7 +38,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // A person's pick (Candidate.Manual) is exempt from TranscodedFinal and
 // from temporary rejections, as the Search controller's resolveGrab is;
 // spec.override (Candidate.Override) from every permanent one, the
-// Blocklisted tombstone included (§6.6 step 4).
+// Blocklisted tombstone included (§6.6 step 4): its grab is a new entry
+// beside a tombstone of the same release, under lifecycle.OverrideEntryID.
 //
 // On a Series (Wave S, series search design §6.2-§6.4) a candidate covers
 // every Episode the search agent's scene-mapped coverage names, a season

@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -312,4 +313,81 @@ func TestStillWantsKeepsAnUpgradeAndAnUnmetSeedObligation(t *testing.T) {
 	require.Empty(t, removed.Entries, "its seed goal met, nothing wants it")
 	require.Len(t, removed.Commands, 1)
 	require.Equal(t, schema.EngineDesiredAbsent, removed.Commands[0].Cmd.Desired)
+}
+
+// TestTheQuarantineTombstoneRefusesAutomaticGrabsButNotAnOverride is the
+// smoke test's T2 finding: a release's Blocklisted grab stays a tombstone
+// for lifecycle.BlockQuarantine after its transfer is gone, under the very
+// id a new grab of the release gets (lifecycle.EntryID), so a person's
+// spec.override pick of it read as "already a grab of the owner" for that
+// hour. The override is admitted as a new entry, named after the tombstone
+// it overrides, beside it; the tombstone still refuses every automatic
+// answer, and a person's pick without override.
+func TestTheQuarantineTombstoneRefusesAutomaticGrabsButNotAnOverride(t *testing.T) {
+	c := movieCandidate(t, "Heat.1995.1080p.BluRay.x264-GRP")
+	tomb := liveEntry(c, commonv1.DownloadPhaseBlocklisted)
+	tomb.ID = lifecycle.EntryID("heat", "", c.Release.Decision.GUID)
+	confirmed := metav1.NewTime(now.Add(-10 * time.Minute)) // inside lifecycle.BlockQuarantine
+	tomb.Block = &catalogv1alpha1.EntryBlock{
+		Scope: catalogv1alpha1.BlockScopeItem, Reason: commonv1.DownloadFailureImportRejected, Seq: 1, ConfirmedAt: &confirmed,
+	}
+	view := func(cand grabplan.Candidate, more ...catalogv1alpha1.DownloadEntry) grabplan.View {
+		v := movieView(t, nil, cand)
+		v.Entries = append([]catalogv1alpha1.DownloadEntry{tomb}, more...)
+		return v
+	}
+
+	for name, cand := range map[string]grabplan.Candidate{
+		"a search answer":                  c,
+		"an RSS match":                     parked(heatRef, "rss-1", c, false, false),
+		"a grabBest":                       parked(heatRef, "best-1", c, false, false),
+		"a person's pick without override": parked(heatRef, "pick-1", c, true, false),
+	} {
+		p := grabplan.Decide(view(cand))
+		require.Empty(t, p.NewEntries, "%s is refused in the quarantine", name)
+		if cand.MsgID != "" {
+			require.Equal(t, intake.Refused, p.Settle[cand.MsgID], name)
+		}
+	}
+
+	p := grabplan.Decide(view(parked(heatRef, "pick-2", c, true, true)))
+	require.Len(t, p.NewEntries, 1, "spec.override takes the release in its quarantine: %+v", p.Decisions)
+	e := p.NewEntries[0]
+	require.NotEqual(t, tomb.ID, e.ID, "a new entry, beside the tombstone")
+	require.NotEqual(t, tomb.UID, e.UID)
+	require.Equal(t, lifecycle.OverrideEntryID(tomb.ID, tomb.UID), e.ID, "named after the tombstone it overrides")
+	require.True(t, e.Manual)
+	require.Equal(t, c.Release.Decision.GUID, e.Release.GUID)
+	require.Equal(t, intake.Incorporated, p.Settle["pick-2"])
+
+	t.Run("the override is grabbed once", func(t *testing.T) {
+		p := grabplan.Decide(view(parked(heatRef, "pick-2", c, true, true), e))
+		require.Empty(t, p.NewEntries, "a redelivered override finds its grab")
+		require.Equal(t, intake.Refused, p.Settle["pick-2"])
+	})
+	t.Run("beside the override's grab, an automatic answer is still refused", func(t *testing.T) {
+		live := e
+		live.Phase = commonv1.DownloadPhaseDownloading
+		require.Empty(t, grabplan.Decide(view(parked(heatRef, "rss-2", c, false, false), live)).NewEntries)
+	})
+	t.Run("an override of the override's own tombstone is another new entry", func(t *testing.T) {
+		blocked := e
+		blocked.Phase = commonv1.DownloadPhaseBlocklisted
+		p := grabplan.Decide(view(parked(heatRef, "pick-3", c, true, true), blocked))
+		require.Len(t, p.NewEntries, 1, "%+v", p.Decisions)
+		require.Equal(t, lifecycle.OverrideEntryID(blocked.ID, blocked.UID), p.NewEntries[0].ID)
+		require.NotContains(t, []string{tomb.ID, e.ID}, p.NewEntries[0].ID)
+	})
+	t.Run("lifecycle admits the override's entry beside the tombstone", func(t *testing.T) {
+		got := lifecycle.Decide(lifecycle.View{
+			Owner: heatRef, Now: now, Stored: []catalogv1alpha1.DownloadEntry{tomb}, NewEntries: []catalogv1alpha1.DownloadEntry{e},
+			EntryCap: 100,
+		})
+		var ids []string
+		for _, x := range got.Entries {
+			ids = append(ids, x.ID)
+		}
+		require.Contains(t, ids, e.ID, "the person's grab is admitted")
+		require.Contains(t, ids, tomb.ID, "the tombstone keeps its quarantine")
+	})
 }
