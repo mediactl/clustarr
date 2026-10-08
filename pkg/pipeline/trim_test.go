@@ -28,7 +28,6 @@ import (
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/pipeline"
 )
 
@@ -107,13 +106,11 @@ func TestProjectSettledSinceIsWhenItSettled(t *testing.T) {
 	book := bookWith(t)
 	book.CreationTimestamp = metav1.NewTime(created)
 	entry := pipeline.Project(book, pipeline.Related{
-		Downloads: []downloadv1.Download{{
-			ObjectMeta: metav1.ObjectMeta{CreationTimestamp: metav1.NewTime(completed.Add(-time.Hour))},
-			Status: downloadv1.DownloadStatus{
-				Phase:       commonv1.DownloadPhaseImported,
-				CompletedAt: &metav1.Time{Time: completed},
-				Import:      &downloadv1.ImportState{ImportedAt: &metav1.Time{Time: imported}},
-			},
+		Entries: []catalogv1.DownloadEntry{{
+			GrabbedAt:   metav1.NewTime(completed.Add(-time.Hour)),
+			Phase:       commonv1.DownloadPhaseImported,
+			CompletedAt: &metav1.Time{Time: completed},
+			Import:      &catalogv1.DownloadImportSummary{Phase: catalogv1.ImportPhaseImported, ImportedAt: &metav1.Time{Time: imported}},
 		}},
 		MediaFile: &catalogv1.MediaFile{ObjectMeta: metav1.ObjectMeta{
 			Name: book.GetName(), CreationTimestamp: metav1.NewTime(imported.Add(-time.Minute)),

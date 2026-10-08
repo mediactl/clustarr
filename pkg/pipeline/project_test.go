@@ -30,7 +30,6 @@ import (
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/pipeline"
 )
@@ -127,7 +126,7 @@ func TestProjectDerivesTheStage(t *testing.T) {
 			name:  "download in flight",
 			movie: movieWith(t, ready(catalogv1.MovieConditionMetadataReady)),
 			related: pipeline.Related{
-				Downloads: []downloadv1.Download{{Status: downloadv1.DownloadStatus{Phase: commonv1.DownloadPhaseDownloading}}},
+				Entries: []catalogv1.DownloadEntry{{Phase: commonv1.DownloadPhaseDownloading}},
 			},
 			want: pipeline.StageDownloading,
 		},
@@ -135,7 +134,7 @@ func TestProjectDerivesTheStage(t *testing.T) {
 			name:  "download completed, import not started",
 			movie: movieWith(t, ready(catalogv1.MovieConditionMetadataReady)),
 			related: pipeline.Related{
-				Downloads: []downloadv1.Download{{Status: downloadv1.DownloadStatus{Phase: commonv1.DownloadPhaseCompleted}}},
+				Entries: []catalogv1.DownloadEntry{{Phase: commonv1.DownloadPhaseCompleted}},
 			},
 			want: pipeline.StageDownloaded,
 		},
@@ -143,10 +142,10 @@ func TestProjectDerivesTheStage(t *testing.T) {
 			name:  "import in progress",
 			movie: movieWith(t, ready(catalogv1.MovieConditionMetadataReady)),
 			related: pipeline.Related{
-				Downloads: []downloadv1.Download{{Status: downloadv1.DownloadStatus{
+				Entries: []catalogv1.DownloadEntry{{
 					Phase:  commonv1.DownloadPhaseCompleted,
-					Import: &downloadv1.ImportState{State: downloadv1.ImportPhaseImporting},
-				}}},
+					Import: &catalogv1.DownloadImportSummary{Phase: catalogv1.ImportPhaseApproved},
+				}},
 			},
 			want: pipeline.StageImporting,
 		},
@@ -159,12 +158,60 @@ func TestProjectDerivesTheStage(t *testing.T) {
 			want: pipeline.StageImported,
 		},
 
+		// --- subtitles: status.subtitles on the file ---------------------------
+		{
+			name:    "subtitles wanted, nothing on disk yet",
+			movie:   movieWith(t, ready(catalogv1.MovieConditionMetadataReady)),
+			related: withFile(subs(catalogv1.SubtitlesPhaseWanted), planned()),
+			want:    pipeline.StageSubtitleSearching,
+		},
+		{
+			name:  "one language on disk, another still wanted",
+			movie: movieWith(t, ready(catalogv1.MovieConditionMetadataReady)),
+			related: withFile(subs(catalogv1.SubtitlesPhaseSearching,
+				catalogv1.SubtitleItemStatus{LangKey: "en", State: catalogv1.SubtitleStateUpgradable},
+				catalogv1.SubtitleItemStatus{LangKey: "es", State: catalogv1.SubtitleStatePending}), planned()),
+			want: pipeline.StageSubtitleFound,
+		},
+		{
+			name:    "subtitles satisfied, the transcode still waiting for a slot",
+			movie:   movieWith(t, ready(catalogv1.MovieConditionMetadataReady)),
+			related: withFile(subs(catalogv1.SubtitlesPhaseSatisfied), planned()),
+			want:    pipeline.StageSubtitleDone,
+		},
+
+		// --- transcode: status.transcode on the file -----------------------------
+		{
+			name:    "a running transcode, with its percent",
+			movie:   movieWith(t, ready(catalogv1.MovieConditionMetadataReady)),
+			related: withPercent(withFile(subs(catalogv1.SubtitlesPhaseWanted), &catalogv1.TranscodeState{Phase: catalogv1.TranscodePhaseRunning}), 42),
+			want:    pipeline.StageTranscoding,
+		},
+		{
+			name:    "swapped, subtitles still wanted",
+			movie:   movieWith(t, ready(catalogv1.MovieConditionMetadataReady)),
+			related: withFile(subs(catalogv1.SubtitlesPhaseWanted), &catalogv1.TranscodeState{Phase: catalogv1.TranscodePhaseSucceeded}),
+			want:    pipeline.StageTranscodeDone,
+		},
+
 		// --- complete, failed, blocked ------------------------------------------
+		{
+			name:    "the profile skipped it and it wants no subtitles: complete",
+			movie:   movieWith(t, ready(catalogv1.MovieConditionMetadataReady)),
+			related: withFile(subs(catalogv1.SubtitlesPhaseNotWanted), &catalogv1.TranscodeState{Phase: catalogv1.TranscodePhaseSkipped, Reason: "Transcoded"}),
+			want:    pipeline.StageComplete,
+		},
+		{
+			name:    "subtitles blocked",
+			movie:   movieWith(t, ready(catalogv1.MovieConditionMetadataReady)),
+			related: withFile(&catalogv1.SubtitlesStatus{Phase: catalogv1.SubtitlesPhaseBlocked, Reason: "NoProfile"}, nil),
+			want:    pipeline.StageBlocked,
+		},
 		{
 			name:  "failure wins over everything",
 			movie: movieWith(t, ready(catalogv1.MovieConditionMetadataReady)),
 			related: pipeline.Related{
-				Downloads: []downloadv1.Download{{Status: downloadv1.DownloadStatus{Phase: commonv1.DownloadPhaseFailed}}},
+				Entries: []catalogv1.DownloadEntry{{Phase: commonv1.DownloadPhaseFailed}},
 			},
 			want: pipeline.StageFailed,
 		},
@@ -172,7 +219,7 @@ func TestProjectDerivesTheStage(t *testing.T) {
 			name:  "blocklisted release blocks the item",
 			movie: movieWith(t, ready(catalogv1.MovieConditionMetadataReady)),
 			related: pipeline.Related{
-				Downloads: []downloadv1.Download{{Status: downloadv1.DownloadStatus{Phase: commonv1.DownloadPhaseBlocklisted}}},
+				Entries: []catalogv1.DownloadEntry{{Phase: commonv1.DownloadPhaseBlocklisted}},
 			},
 			want: pipeline.StageBlocked,
 		},
@@ -203,6 +250,30 @@ func TestProjectDerivesTheStage(t *testing.T) {
 			require.Equal(t, tc.want, entry.Stage)
 		})
 	}
+}
+
+// subs is a file's status.subtitles block.
+func subs(phase catalogv1.SubtitlesPhase, items ...catalogv1.SubtitleItemStatus) *catalogv1.SubtitlesStatus {
+	return &catalogv1.SubtitlesStatus{Phase: phase, Items: items}
+}
+
+// planned is a transcode block waiting for admission.
+func planned() *catalogv1.TranscodeState {
+	return &catalogv1.TranscodeState{Phase: catalogv1.TranscodePhasePlanned}
+}
+
+// withFile relates the item to its MediaFile carrying the given blocks.
+func withFile(s *catalogv1.SubtitlesStatus, tr *catalogv1.TranscodeState) pipeline.Related {
+	return pipeline.Related{MediaFile: &catalogv1.MediaFile{
+		ObjectMeta: metav1.ObjectMeta{Name: "shawshank-redemption"},
+		Status:     catalogv1.MediaFileStatus{Subtitles: s, Transcode: tr},
+	}}
+}
+
+// withPercent sets a running transcode's clustarr-progress percent.
+func withPercent(r pipeline.Related, p int32) pipeline.Related {
+	r.TranscodePercent = &p
+	return r
 }
 
 // albumWith builds a minimal, metadata-synced Album -- a non-video kind that
@@ -257,33 +328,36 @@ func TestProjectNonVideoKindsCompleteOnImport(t *testing.T) {
 func TestProjectFillsInTheCommonFields(t *testing.T) {
 	movie := movieWith(t, ready(catalogv1.MovieConditionMetadataReady))
 	entry := pipeline.Project(movie, pipeline.Related{
-		Downloads: []downloadv1.Download{{Status: downloadv1.DownloadStatus{
-			Phase:           commonv1.DownloadPhaseDownloading,
-			ProgressPercent: 42,
-		}}},
+		Entries: []catalogv1.DownloadEntry{{
+			Phase: commonv1.DownloadPhaseDownloading,
+			Stage: commonv1.DownloadStageTransferring,
+		}},
 	})
 
 	require.Equal(t, "shawshank-redemption", entry.Ref.Name)
 	require.Equal(t, "default", entry.Ref.Namespace)
 	require.Equal(t, "The Shawshank Redemption", entry.Title)
 	require.Equal(t, pipeline.StageDownloading, entry.Stage)
-	require.EqualValues(t, 42, entry.Percent)
+	require.Equal(t, string(commonv1.DownloadStageTransferring), entry.Detail)
+	// A grab entry carries no byte counters (they are clustarr-progress'),
+	// so the percent stays unknown and the ui reads the 1 Hz record.
+	require.EqualValues(t, -1, entry.Percent)
 }
 
 // TestProjectMapsEveryDownloadPhase is gap-fix ruling R-12's re-read of the
-// pipeline's Download mapping against every real DownloadPhase (task X14),
-// with rows read from the generated CRD's enum so a phase added later
-// without a decision fails here. An imported Download is decided by its
-// status.import (or its MediaFile), not its phase, so an Imported phase
-// with neither shows no Download stage of its own.
+// pipeline's grab mapping against every real DownloadPhase (task X14), now
+// over the owner's grab entries (ADR-0019 §6.2, A9.1), with rows read from
+// the generated CRD's status.downloads[].phase enum so a phase added later
+// without a decision fails here. An Imported entry is the item imported,
+// whether or not its MediaFile is in the cache yet.
 func TestProjectMapsEveryDownloadPhase(t *testing.T) {
 	item := movieWith(t, ready(catalogv1.MovieConditionMetadataReady))
-	// What the item shows with no Download at all: a phase with no Download
+	// What the item shows with no entry at all: a phase with no download
 	// stage falls through to it.
 	fallback := pipeline.Project(item, pipeline.Related{}).Stage
 	want := map[commonv1.DownloadPhase]pipeline.Stage{
-		// The grab created it and grab has not reconciled it yet: the
-		// item is downloading, not still at ReleaseSelected.
+		// The grab created it and the downloads stage has not admitted it
+		// yet: the item is downloading, not still at ReleaseSelected.
 		"":                                pipeline.StageDownloading,
 		commonv1.DownloadPhasePending:     pipeline.StageDownloading,
 		commonv1.DownloadPhaseAssigned:    pipeline.StageDownloading,
@@ -292,28 +366,31 @@ func TestProjectMapsEveryDownloadPhase(t *testing.T) {
 		commonv1.DownloadPhasePaused:      pipeline.StageDownloading,
 		commonv1.DownloadPhaseCompleted:   pipeline.StageDownloaded,
 		commonv1.DownloadPhaseSeeding:     pipeline.StageDownloaded,
-		commonv1.DownloadPhaseImported:    fallback,
+		commonv1.DownloadPhaseImported:    pipeline.StageImported,
 		commonv1.DownloadPhaseFailed:      pipeline.StageFailed,
 		commonv1.DownloadPhaseBlocklisted: pipeline.StageBlocked,
-		// Being torn down: no Download stage; the item's own state shows.
+		// Being torn down: no download stage; the item's own state shows.
 		commonv1.DownloadPhaseRemoving: fallback,
 	}
 	for phase, stage := range want {
 		t.Run(string(phase), func(t *testing.T) {
 			entry := pipeline.Project(item, pipeline.Related{
-				Downloads: []downloadv1.Download{{Status: downloadv1.DownloadStatus{Phase: phase}}},
+				Entries: []catalogv1.DownloadEntry{{Phase: phase}},
 			})
 			require.Equal(t, stage, entry.Stage)
 		})
 	}
 
-	// Every phase the CRD admits has a row above.
-	raw, err := os.ReadFile("../../config/crd/bases/download.clustarr.io_downloads.yaml")
+	// Every phase the CRD admits on a grab entry has a row above.
+	raw, err := os.ReadFile("../../config/crd/bases/catalog.clustarr.io_movies.yaml")
 	require.NoError(t, err)
 	var crd apiextensionsv1.CustomResourceDefinition
 	require.NoError(t, yaml.Unmarshal(raw, &crd))
 	require.NotEmpty(t, crd.Spec.Versions)
-	enum := crd.Spec.Versions[0].Schema.OpenAPIV3Schema.Properties["status"].Properties["phase"].Enum
+	downloads := crd.Spec.Versions[0].Schema.OpenAPIV3Schema.Properties["status"].Properties["downloads"]
+	require.NotNil(t, downloads.Items, "status.downloads is a list")
+	require.NotNil(t, downloads.Items.Schema)
+	enum := downloads.Items.Schema.Properties["phase"].Enum
 	require.NotEmpty(t, enum)
 	for _, v := range enum {
 		var p string
