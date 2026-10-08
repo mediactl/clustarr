@@ -246,7 +246,7 @@ func (r *Reconciler) handlePicks(ctx context.Context, s *catalogv1alpha1.Search)
 				continue
 			}
 			if owner != nil {
-				if id := entryFor(owner, item, guid); id != "" {
+				if id := entryFor(s, owner, item, guid); id != "" {
 					grabbed[guid] = catalogv1alpha1.GrabResult{GUID: guid, DownloadRef: id}
 					r.event(s, "Grabbed", "the release is grab %s on %s", id, owner.GetName())
 					continue
@@ -313,17 +313,26 @@ func (r *Reconciler) owner(ctx context.Context, s *catalogv1alpha1.Search) (clie
 }
 
 // entryFor is the id of the owner's video entry for guid covering item,
-// "" for none. A Blocklisted tombstone (kept lifecycle.BlockQuarantine after
-// its transfer is gone) is no grab of the pick: it would read "Grabbed" for
-// a release the owner refused, and keep a spec.override pick from ever
-// being sent (smoke T2).
-func entryFor(owner, item client.Object, guid string) string {
+// "" for none. A Blocklisted tombstone grabbed before s was created (kept
+// lifecycle.BlockQuarantine after its transfer is gone) is no grab of the
+// pick: it would read "Grabbed" for a release the owner refused earlier,
+// and keep a spec.override pick from ever being sent (smoke T2). A
+// Blocklisted entry grabbed since is the pick's own grab, refused already
+// -- a payload the engine cannot fetch is blocklisted in the second it is
+// grabbed, before the Search looks again -- and without it the pick would
+// wait for an entry forever (smoke re-verification 2026-10-08, e2e
+// scenario 3).
+func entryFor(s *catalogv1alpha1.Search, owner, item client.Object, guid string) string {
 	entries := dlindex.Entries(owner)
 	for i := range entries {
 		e := &entries[i]
-		if e.Release.GUID == guid && e.Phase != commonv1.DownloadPhaseBlocklisted && !rollup.IsDonor(e) && itemread.Covers(e, item) {
-			return e.ID
+		if e.Release.GUID != guid || rollup.IsDonor(e) || !itemread.Covers(e, item) {
+			continue
 		}
+		if e.Phase == commonv1.DownloadPhaseBlocklisted && e.GrabbedAt.Before(&s.CreationTimestamp) {
+			continue
+		}
+		return e.ID
 	}
 	return ""
 }
