@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -157,4 +158,83 @@ func testMaxAckPendingCapsEveryReplica(t *testing.T, newBus func() events.Bus) {
 	}
 	g.open()
 	waitUntil(t, "every task handled", func() bool { _, _, f := g.read(); return f == published })
+}
+
+// testEnsureConsumer holds StreamAdmin.EnsureConsumer (ADR-0019 §8.5, ruling
+// R15): it creates a durable Default() cannot declare -- an engine
+// instance's -- with its dead-letter watcher, idempotently; a second call
+// with changed settings updates it; a Subscribe binds it; DeleteSubscription
+// removes both; and a missing stream is ErrStreamNotFound.
+func testEnsureConsumer(t *testing.T, newBus func() events.Bus) {
+	ctx, bus := setup(t, newBus)
+	sa := admin(t, bus)
+	c := events.EngineConsumer("ct-client", 0)
+	watcher := events.DeadLetterWatcherSpec(c)
+	full := Topology()
+	full.Consumers = append(full.Consumers, c, watcher)
+
+	for i := range 2 {
+		if err := sa.EnsureConsumer(ctx, c); err != nil {
+			t.Fatalf("EnsureConsumer (call %d): %v", i+1, err)
+		}
+	}
+	if missing, err := sa.Missing(ctx, full); err != nil || len(missing) != 0 {
+		t.Fatalf("Missing after EnsureConsumer = %v, %v; want the durable and its watcher both present", missing, err)
+	}
+	if st := consumerState(ctx, t, sa, c.Subscription()); st.MaxAckPending != c.MaxAckPending {
+		t.Errorf("MaxAckPending = %d, want the spec's %d", st.MaxAckPending, c.MaxAckPending)
+	}
+
+	// Ensure replaces the bus's remembered topology on membus: the durable
+	// EnsureConsumer made must survive a later Ensure, as it does on JetStream.
+	if err := bus.Ensure(ctx, Topology()); err != nil {
+		t.Fatalf("Ensure: %v", err)
+	}
+	if missing, err := sa.Missing(ctx, full); err != nil || len(missing) != 0 {
+		t.Fatalf("Missing after a later Ensure = %v, %v; want the ensured consumer kept", missing, err)
+	}
+
+	got := newCollector()
+	stop, err := bus.Subscribe(ctx, c.Subscription(), func(_ context.Context, m events.Message) error {
+		got.add(m)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+	subject := events.WorkEngineSubject("ct-client", 0, "entry-uid-1")
+	if _, err := bus.Publish(ctx, subject, envelope("engine-cmd-1", "download.EngineCommand.v1", 0)); err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+	got.waitFor(t, 1, "a command on the ensured engine durable")
+	if _, s := got.at(0); s != subject {
+		t.Errorf("delivered on %q, want %q", s, subject)
+	}
+	stop()
+
+	bigger := c
+	bigger.MaxAckPending, bigger.Slots = c.MaxAckPending+4, c.Slots+4
+	if err := sa.EnsureConsumer(ctx, bigger); err != nil {
+		t.Fatalf("EnsureConsumer with a larger cap: %v", err)
+	}
+	if st := consumerState(ctx, t, sa, c.Subscription()); st.MaxAckPending != bigger.MaxAckPending {
+		t.Errorf("MaxAckPending after an update = %d, want %d", st.MaxAckPending, bigger.MaxAckPending)
+	}
+
+	if err := sa.DeleteSubscription(ctx, c.Stream, c.Name); err != nil {
+		t.Fatalf("DeleteSubscription: %v", err)
+	}
+	want := []string{
+		events.TopologyObject{Kind: events.TopologyConsumer, Stream: c.Stream, Name: c.Name}.String(),
+		events.TopologyObject{Kind: events.TopologyConsumer, Stream: watcher.Stream, Name: watcher.Name}.String(),
+	}
+	if missing, err := sa.Missing(ctx, full); err != nil || !slices.Equal(missing, want) {
+		t.Errorf("Missing after DeleteSubscription = %v, %v; want the durable and its watcher both gone: %v", missing, err, want)
+	}
+
+	lost := c
+	lost.Stream = "CLUSTARR_NO_SUCH_STREAM"
+	if err := sa.EnsureConsumer(ctx, lost); !errors.Is(err, events.ErrStreamNotFound) {
+		t.Errorf("EnsureConsumer on a missing stream = %v, want ErrStreamNotFound", err)
+	}
 }
