@@ -459,6 +459,17 @@ func (w *Worker) inspectEpisodes(
 		rel := relPath(root, path)
 		f := schema.InspectedFile{Path: path, SizeBytes: info.Size()}
 		parsed, perr := parseMediaFile(path, plan.sceneName, commonv1.MediaKindEpisode)
+		if perr != nil && manual && plan.named != nil {
+			// A person named the episode, and a name no episode pattern reads
+			// carries no numbering either: it is the named episode's file,
+			// its quality read from the name as any title's is. Before, the
+			// rejection's own hint -- import it by hand with a target --
+			// could never take such a file (found by the smoke test,
+			// 2026-10-07).
+			if np, nerr := release.ParsePath(path, release.Options{Kind: commonv1.MediaKindMovie}); nerr == nil {
+				parsed, perr = np, nil
+			}
+		}
 		if perr != nil {
 			f.Rejections = append(f.Rejections, needsPersonRejection("%s: could not parse the filename: %v", rel, perr))
 			insp.Files = append(insp.Files, f)
