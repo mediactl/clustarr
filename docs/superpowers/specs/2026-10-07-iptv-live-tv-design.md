@@ -1238,9 +1238,26 @@ disagree, this one describes the code.
 - **A provider made invalid** (its Secret or key gone) keeps serving its
   last configuration, so deleting a Secret never takes a device off Plex;
   it reads Ready=False with the reason.
-- **Finalizers** are added and removed by optimistic-lock merge patches. A
-  channel the tuner has no snapshot entry for reads Ready=Unknown, reason
-  `Pending`.
+- **No finalizers.** A channel the tuner has not placed reads Ready=Unknown,
+  reason `Pending`. Before the tuner's first fetch after a manager start, a
+  channel keeps the status it has, and a block keeps its hashes.
+- **Fetches (§5.1):** a failed fetch is retried after 30 s, doubling to
+  15 min and never past the refresh interval. A playlist that parses but
+  holds no live entry, after one that did, counts as a failed fetch.
+- **Guide hashes (§6.1)** move with the guide, not the clock: every guide
+  starts at the UTC day's start, and an `Apply` of an unchanged
+  configuration renders nothing. Guides are built outside the provider's
+  lock, and the whole provider's guide is built on request, not held.
+- **A tune** notifies only the provider controller. A channel is read by one
+  lookup, and its provider's status writes do not wake it.
+- **One tuner (§5.2):** a new channel takes the tuner of a stream no one
+  watches, rather than waiting out its linger. Linger, buffer and user agent
+  reach the relay on every `Apply`.
+- **Overlaps (§6):** the provider whose edit would overlap another's
+  published span is refused, older or younger. Age decides only between
+  spans that already overlap.
+- **Secrets:** a URL read from a Secret is trimmed, and `RedactError` also
+  redacts the quoted form `url.Error` prints.
 - **Blocks (§3.1, §6):** a split never moves a surviving block's port (the
   test pass found it moving the next block's).
 - **The relay (§5.2)** has a fifth close reason, `panic`, and cuts off a
@@ -1254,7 +1271,10 @@ disagree, this one describes the code.
     whose `includeSelectors` labels would add clustarr's own labels to the
     policy's peer, and no Plex pod carries them;
   - the guards are `test/guards/livetv`, their own package, because
-    `test/guards` does not build on `unify-manager-agent`.
+    `test/guards` does not build on `unify-manager-agent`;
+  - the NetworkPolicy's default peer is cluster-plex's Plex pods in any
+    namespace (`namespaceSelector: {}`). The owner's run in `media`, not
+    clustarr's namespace, which §5.3 assumed.
 - **E2e scenario 19** (`test/e2e/livetv_test.go`, the `iptv-stub` fixture)
   is written and type-checks, but has never run: `unify-manager-agent`'s
   `test/e2e` does not build.
