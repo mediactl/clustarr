@@ -19,6 +19,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 // Task E-5 -- transcode fixtures and Phase H scenario 12 (M4, transcode).
 //
+// Since ADR-0016 the TranscodeJob kind is gone: a file's transcode -- its
+// plan, admission, dispatch and swap -- is its own MediaFile's
+// status.transcode, which every scenario here reads (describeTranscode,
+// waitForTranscodePhase). The history below predates that fold; F8.9
+// rewrites it in the test batch's T2, with scenario 12's main leg
+// (TestTranscodeMediaFileThroughItsStatus; the TranscodeJob-shaped
+// TestTranscodeMediaFileThroughTranscodeJob was deleted in T1).
+//
 // Phase E's code is complete and wired (E-4, 35c298e/b001001): transcode
 // registers the TranscodeProfile and TranscodeJob controllers and the slot
 // scheduler; config/manager/transcode.yaml (composed into config/e2e
@@ -110,28 +118,23 @@ package e2e
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"os"
 	"path"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	batchv1 "k8s.io/api/batch/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
-	transcodejobctrl "github.com/mediactl/clustarr/app/transcode/controller/transcodejob"
-	"github.com/mediactl/clustarr/pkg/pipeline"
 )
 
 const (
@@ -319,200 +322,39 @@ func describeTranscodeProfile(key client.ObjectKey) func() string {
 	}
 }
 
-// describeTranscodeJob renders one TranscodeJob's status for a failure
-// message.
-func describeTranscodeJob(key client.ObjectKey) func() string {
+// describeTranscode renders a MediaFile's status.transcode for a failure
+// message: the transcode state lives on the file since ADR-0016 folded the
+// TranscodeJob kind into it (F8.9).
+func describeTranscode(key client.ObjectKey) func() string {
 	return func() string {
-		var live transcodev1alpha1.TranscodeJob
-		if err := k8sClient.Get(context.Background(), key, &live); err != nil {
-			return fmt.Sprintf("TranscodeJob %s could not be read back: %v", key.Name, err)
+		var mf catalogv1alpha1.MediaFile
+		if err := k8sClient.Get(context.Background(), key, &mf); err != nil {
+			return fmt.Sprintf("MediaFile %s could not be read back: %v", key.Name, err)
 		}
-		mode := "<no plan>"
-		if live.Status.Plan != nil {
-			mode = string(live.Status.Plan.Mode)
+		tr := mf.Status.Transcode
+		if tr == nil {
+			return fmt.Sprintf("MediaFile %s has no status.transcode (spec.path=%s)", key.Name, mf.Spec.Path)
 		}
-		jobRef := "<none>"
-		if live.Status.JobRef != nil {
-			jobRef = *live.Status.JobRef
+		seq := int64(0)
+		if tr.Dispatch != nil {
+			seq = tr.Dispatch.Seq
 		}
-		out := fmt.Sprintf("TranscodeJob %s phase=%q plan.mode=%s jobRef=%s attempts=%d message=%q",
-			key.Name, live.Status.Phase, mode, jobRef, live.Status.Attempts, live.Status.Message)
-		if live.Status.Progress != nil {
-			out += fmt.Sprintf("\n    progress percent=%d frame=%d", live.Status.Progress.Percent, live.Status.Progress.Frame)
-		}
-		if live.Status.Result != nil {
-			out += fmt.Sprintf("\n    result outputPath=%q outputSizeBytes=%d outputToSourcePercent=%d",
-				live.Status.Result.OutputPath, live.Status.Result.OutputSizeBytes, live.Status.Result.OutputToSourcePercent)
-		}
-		if live.Status.StderrTail != "" {
-			out += fmt.Sprintf("\n    stderrTail=%s", live.Status.StderrTail)
-		}
-		for _, c := range live.Status.Conditions {
-			out += fmt.Sprintf("\n    condition %s=%s reason=%s message=%q", c.Type, c.Status, c.Reason, c.Message)
-		}
-		return out
+		return fmt.Sprintf("MediaFile %s transcode phase=%q reason=%q message=%q profile=%s@%s class=%s pool=%s worker=%s seq=%d attempts=%d suspended=%t path=%s",
+			key.Name, tr.Phase, tr.Reason, tr.Message, tr.Profile, tr.ProfileHash, tr.Class, tr.Pool, tr.WorkerPod, seq, tr.Attempts, tr.Suspended, mf.Spec.Path)
 	}
 }
 
-// transcodeJobsForMediaFile lists every TranscodeJob in namespace whose
-// spec.mediaFileRef is mediaFileName.
-func transcodeJobsForMediaFile(ctx context.Context, t *testing.T, namespace, mediaFileName string) []transcodev1alpha1.TranscodeJob {
-	t.Helper()
-	var list transcodev1alpha1.TranscodeJobList
-	require.NoError(t, k8sClient.List(ctx, &list, client.InNamespace(namespace)))
-	var out []transcodev1alpha1.TranscodeJob
-	for _, tj := range list.Items {
-		if tj.Spec.MediaFileRef == mediaFileName {
-			out = append(out, tj)
-		}
-	}
-	return out
-}
-
-// waitForTranscodeJobForMediaFile waits for transcodeprofile's mapper
-// (app/transcode/controller/transcodeprofile/controller.go's ensureTranscodeJob)
-// to create exactly one TranscodeJob for mediaFileName and returns it.
-// transcodeJobName is deterministic on (MediaFile, profile hash) precisely
-// so this is "exactly one", not "at least one".
-func waitForTranscodeJobForMediaFile(ctx context.Context, t *testing.T, namespace, mediaFileName string) transcodev1alpha1.TranscodeJob {
-	t.Helper()
-	var got transcodev1alpha1.TranscodeJob
-	waitFor(t, ctx, transcodeJobCreatedTimeout, "TranscodeJob for MediaFile "+mediaFileName,
-		func(ctx context.Context) (bool, error) {
-			jobs := transcodeJobsForMediaFile(ctx, t, namespace, mediaFileName)
-			if len(jobs) == 0 {
-				return false, nil
-			}
-			require.Lenf(t, jobs, 1, "transcodeprofile's mapper must name exactly one TranscodeJob "+
-				"per (MediaFile, profile hash) pair, deterministically: %+v", jobs)
-			got = jobs[0]
-			return true, nil
-		})
-	return got
-}
-
-// waitForTranscodeJobPhase waits for tj to reach EXACTLY want, failing fast
-// (rather than waiting out the full timeout) on an unexpected Failed unless
-// want IS Failed. Only for a phase that cannot be skipped past in the
-// apiserver's persisted status -- a terminal one (Succeeded, Failed,
-// Skipped), which advance() always returns from before its next status
-// apply. For an intermediate phase like Planned, use
-// waitForTranscodeJobPhaseAtLeast instead: app/transcode/controller/transcodejob's
-// advance() runs plan() and ensureJob() in the SAME Reconcile call when
-// nothing blocks either, so a fresh job's FIRST persisted status can already
-// read Queued (or later) -- Planned was true only for an instant inside that
-// one Go call and was never independently observable over the API.
-func waitForTranscodeJobPhase(ctx context.Context, t *testing.T, key client.ObjectKey, timeout time.Duration, want transcodev1alpha1.TranscodeJobPhase) transcodev1alpha1.TranscodeJob {
-	t.Helper()
-	var live transcodev1alpha1.TranscodeJob
-	waitFor(t, ctx, timeout, "TranscodeJob "+key.Name+" reaching phase "+string(want),
-		func(ctx context.Context) (bool, error) {
-			if err := k8sClient.Get(ctx, key, &live); err != nil {
-				//nolint:nilerr // keep polling
-				return false, nil
-			}
-			if live.Status.Phase == transcodev1alpha1.TranscodeJobPhaseFailed && want != transcodev1alpha1.TranscodeJobPhaseFailed {
-				return false, fmt.Errorf("TranscodeJob %s reached Failed (message=%q)", key.Name, live.Status.Message)
-			}
-			return live.Status.Phase == want, nil
-		}, describeTranscodeJob(key))
-	return live
-}
-
-// transcodeJobPhaseOrder is the normal, non-terminal-surprise lifecycle a
-// TranscodeJob progresses through on its way to Succeeded, mirroring
-// downloadPhaseOrder's (helpers_test.go) exact shape and the same reason for
-// it: Skipped sits outside it on purpose, a decision not to progress rather
-// than a step in progressing.
-var transcodeJobPhaseOrder = []transcodev1alpha1.TranscodeJobPhase{
-	transcodev1alpha1.TranscodeJobPhasePending,
-	transcodev1alpha1.TranscodeJobPhasePlanned,
-	transcodev1alpha1.TranscodeJobPhaseQueued,
-	transcodev1alpha1.TranscodeJobPhaseRunning,
-	transcodev1alpha1.TranscodeJobPhaseVerifying,
-	transcodev1alpha1.TranscodeJobPhaseSucceeded,
-}
-
-func transcodeJobPhaseIndex(p transcodev1alpha1.TranscodeJobPhase) int {
-	for i, v := range transcodeJobPhaseOrder {
-		if v == p {
-			return i
-		}
-	}
-	return -1
-}
-
-// waitForTranscodeJobPhaseAtLeast waits until tj.status.phase is threshold
-// or later in transcodeJobPhaseOrder -- see waitForTranscodeJobPhase's doc
-// comment for why an intermediate phase needs this rather than an exact
-// match. Failed and Skipped are always reported as errors (carrying
-// status.message), since neither is "not yet" relative to any entry in the
-// ordered list.
-func waitForTranscodeJobPhaseAtLeast(ctx context.Context, t *testing.T, key client.ObjectKey, timeout time.Duration, threshold transcodev1alpha1.TranscodeJobPhase) transcodev1alpha1.TranscodeJob {
-	t.Helper()
-	want := transcodeJobPhaseIndex(threshold)
-	require.GreaterOrEqualf(t, want, 0, "waitForTranscodeJobPhaseAtLeast: %q is not in transcodeJobPhaseOrder", threshold)
-	var live transcodev1alpha1.TranscodeJob
-	waitFor(t, ctx, timeout, fmt.Sprintf("TranscodeJob %s reaching phase %s or later", key.Name, threshold),
-		func(ctx context.Context) (bool, error) {
-			if err := k8sClient.Get(ctx, key, &live); err != nil {
-				//nolint:nilerr // keep polling
-				return false, nil
-			}
-			switch live.Status.Phase {
-			case transcodev1alpha1.TranscodeJobPhaseFailed:
-				return false, fmt.Errorf("TranscodeJob %s reached Failed (message=%q)", key.Name, live.Status.Message)
-			case transcodev1alpha1.TranscodeJobPhaseSkipped:
-				return false, fmt.Errorf("TranscodeJob %s reached Skipped unexpectedly (message=%q)", key.Name, live.Status.Message)
-			}
-			return transcodeJobPhaseIndex(live.Status.Phase) >= want, nil
-		}, describeTranscodeJob(key))
-	return live
-}
-
-// waitForTranscodeJobField polls tj's live status through get until it
-// returns a non-nil value, then returns that value. It is the generic
-// sibling of waitForTranscodeJobPhase for a status field a phase threshold
-// does not directly gate -- status.jobRef here, which dispatch.go sets in
-// the same write that takes a job to Queued, but a poll can still observe
-// between the two reads.
-func waitForTranscodeJobField[T any](ctx context.Context, t *testing.T, key client.ObjectKey, timeout time.Duration, name string, get func(transcodev1alpha1.TranscodeJobStatus) *T) *T {
-	t.Helper()
-	var got *T
-	waitFor(t, ctx, timeout, fmt.Sprintf("TranscodeJob %s field %s", key.Name, name),
-		func(ctx context.Context) (bool, error) {
-			var live transcodev1alpha1.TranscodeJob
-			if err := k8sClient.Get(ctx, key, &live); err != nil {
-				//nolint:nilerr // keep polling
-				return false, nil
-			}
-			if live.Status.Phase == transcodev1alpha1.TranscodeJobPhaseFailed {
-				return false, fmt.Errorf("TranscodeJob %s reached Failed waiting for field %s (message=%q)", key.Name, name, live.Status.Message)
-			}
-			got = get(live.Status)
-			return got != nil, nil
-		}, describeTranscodeJob(key))
-	return got
-}
-
-// waitForMediaFileSwapIncorporated waits until catalog's MediaFile
-// controller has incorporated a transcode swap: spec.original explicitly
-// false (mediafile_controller.go:255-258's WithOriginal(false), the one
-// field that only ever flips once a swap lands) AND status.probedAt has
-// advanced past sinceProbedAt, so a stale read racing the re-probe cannot
-// pass.
-func waitForMediaFileSwapIncorporated(ctx context.Context, t *testing.T, key client.ObjectKey, sinceProbedAt time.Time) catalogv1alpha1.MediaFile {
+// waitForTranscodePhase polls until status.transcode.phase is one of want.
+func waitForTranscodePhase(ctx context.Context, t *testing.T, key client.ObjectKey, timeout time.Duration, want ...catalogv1alpha1.TranscodePhase) catalogv1alpha1.MediaFile {
 	t.Helper()
 	var live catalogv1alpha1.MediaFile
-	waitFor(t, ctx, transcodeSwapIncorporatedTimeout, "MediaFile "+key.Name+" transcode swap incorporated",
-		func(ctx context.Context) (bool, error) {
-			if err := k8sClient.Get(ctx, key, &live); err != nil {
-				//nolint:nilerr // keep polling
-				return false, nil
-			}
-			return live.Spec.Original != nil && !*live.Spec.Original &&
-				live.Status.ProbedAt != nil && live.Status.ProbedAt.After(sinceProbedAt), nil
-		}, describeMediaFile(key))
+	waitFor(t, ctx, timeout, fmt.Sprintf("MediaFile %s status.transcode.phase in %v", key.Name, want), func(ctx context.Context) (bool, error) {
+		if err := k8sClient.Get(ctx, key, &live); err != nil {
+			//nolint:nilerr // keep polling
+			return false, nil
+		}
+		return live.Status.Transcode != nil && slices.Contains(want, live.Status.Transcode.Phase), nil
+	}, describeTranscode(key))
 	return live
 }
 
@@ -559,197 +401,6 @@ func pipelineRowStage(body string, kind commonv1.MediaKind, ref types.Namespaced
 	return m[1], true
 }
 
-// TestTranscodeMediaFileThroughTranscodeJob is Phase H scenario 12
-// (docs/superpowers/plans/2026-09-18-remaining-work.md): a MediaFile under a
-// matching TranscodeProfile is transcoded end to end. A LibraryScan
-// produces a real, probed MediaFile; a scoped TranscodeProfile
-// (newTranscodeProfile) picks it up; transcode's TranscodeProfile mapper
-// creates a TranscodeJob; transcode's TranscodeJob controller plans a real
-// encode (h264 -> the profile's CRD-default hevc/yuv420p10le) and dispatches
-// it to its (profile, class) pool -- a shared, long-lived batch Job that
-// scales up from suspended zero to take the task and back down to suspended
-// once it is the pool's only work (§7; there is no per-task Job any more,
-// X14). transcode's worker runs inside the pool's pod, transcodes, verifies,
-// and swaps (ruling R5: hard-link the original into the RootFolder's
-// recycle bin, then rename the output over the source path); catalog's
-// MediaFile controller notices the Succeeded TranscodeJob and incorporates
-// the swap, taking over spec.sizeBytes/modTime/original (§8.5); and the
-// pipeline page reflects the transcode stage via ui/views/pipeline.templ's
-// data-stage/data-ref attributes (D3 ruling R8: identify a row by a stable
-// attribute, never by prose that could change independently of the markup).
-//
-// See this file's package doc comment for why the source is the suite's
-// ordinary h264/AAC probe clip, not the HDR10 fixture this task also adds.
-func TestTranscodeMediaFileThroughTranscodeJob(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), scenarioTimeout)
-	defer cancel()
-
-	rf := newRootFolder(ctx, t, "e2e-tj-rf", catalogv1alpha1.RootFolderKindMovie, "movies")
-	filePath := path.Join(rf.Spec.Path, transcodeMovieFolder, transcodeMovieFile)
-	plantMedia(t, hostPath(filePath))
-	runScan(ctx, t, rf, catalogv1alpha1.ScanModeFull)
-
-	files := waitForMediaFileCount(ctx, t, rf.Spec.Path, 1)
-	mfKey := client.ObjectKeyFromObject(&files[0])
-	mf := waitForMediaFileProbed(ctx, t, mfKey)
-	require.Equal(t, int32(2160), mf.Spec.Quality.Resolution,
-		"pkg/release must have parsed the 2160p token from the planted filename")
-	require.Equal(t, commonv1.SourceWebDL, mf.Spec.Quality.Source,
-		"pkg/release must have parsed the WEB-DL token from the planted filename")
-	originalSizeBytes := mf.Spec.SizeBytes
-	require.EqualValues(t, len(sampleClip(t)), originalSizeBytes, "the planted file's frozen spec.sizeBytes must be the seeded clip's real size")
-	firstProbedAt := mf.Status.ProbedAt
-	require.NotNil(t, firstProbedAt)
-
-	movieName := mf.Spec.MediaRef.Name
-	cleanupUnlessFailed(t, func() {
-		_ = k8sClient.Delete(context.Background(), &catalogv1alpha1.Movie{
-			ObjectMeta: metav1.ObjectMeta{Name: movieName, Namespace: Namespace},
-		})
-	})
-
-	tp := newTranscodeProfile(ctx, t, "e2e-tj-profile", 2160, commonv1.SourceWebDL, transcodev1alpha1.ContainerMKV)
-
-	tj := waitForTranscodeJobForMediaFile(ctx, t, Namespace, mf.Name)
-	tjKey := client.ObjectKeyFromObject(&tj)
-	cleanupUnlessFailed(t, func() { _ = k8sClient.Delete(context.Background(), &tj) })
-
-	// Planned or later, not exactly Planned: see
-	// waitForTranscodeJobPhase's doc comment -- plan() and ensureJob() run
-	// in the same Reconcile call, so a fast reconcile's first PERSISTED
-	// status can already read Queued.
-	planned := waitForTranscodeJobPhaseAtLeast(ctx, t, tjKey, transcodeJobPlannedTimeout, transcodev1alpha1.TranscodeJobPhasePlanned)
-	require.NotNil(t, planned.Status.Plan)
-	require.Equal(t, transcodev1alpha1.PlanModeTranscode, planned.Status.Plan.Mode,
-		"an h264 source must plan a real encode under the standard, not a skip or remux")
-	require.Equal(t, "ffgo", planned.Status.Plan.Engine, "every plan is the standard's, run in-process")
-	require.NotEmpty(t, planned.Status.Plan.PlanHash)
-
-	// §7: the job's task went to its profile's pool, which scaled up from
-	// zero. status.jobRef names the pool Job -- transcode dispatches to a
-	// long-lived, shared (profile, class) pool now, never a per-task Job
-	// (X14; app/transcode/controller/pool.Name).
-	poolName := *waitForTranscodeJobField(ctx, t, tjKey, transcodeJobPlannedTimeout, "jobRef",
-		func(s transcodev1alpha1.TranscodeJobStatus) *string { return s.JobRef })
-	poolKey := types.NamespacedName{Namespace: Namespace, Name: poolName}
-	var poolJob batchv1.Job
-	waitFor(t, ctx, poolResumedTimeout, "pool "+poolName+" resumed from zero",
-		func(ctx context.Context) (bool, error) {
-			if err := k8sClient.Get(ctx, poolKey, &poolJob); err != nil {
-				//nolint:nilerr // keep polling
-				return false, nil
-			}
-			return !ptr.Deref(poolJob.Spec.Suspend, true), nil
-		})
-	assert.False(t, ptr.Deref(poolJob.Spec.Template.Spec.AutomountServiceAccountToken, true),
-		"a pool pod carries no ServiceAccount token (X14)")
-
-	running := waitForTranscodeJobPhaseAtLeast(ctx, t, tjKey, transcodeJobSucceededTimeout, transcodev1alpha1.TranscodeJobPhaseRunning)
-	assert.NotEmpty(t, running.Status.WorkerPod, "a running job names its worker pod")
-
-	succeeded := waitForTranscodeJobPhase(ctx, t, tjKey, transcodeJobSucceededTimeout, transcodev1alpha1.TranscodeJobPhaseSucceeded)
-	require.NotNil(t, succeeded.Status.Result)
-	require.NotEmpty(t, succeeded.Status.Result.OutputPath)
-	require.NotZero(t, succeeded.Status.Result.OutputSizeBytes)
-
-	// The pool drains and suspends back to zero once its only task has
-	// finished (app/transcode/controller/pool.Mutable's own gate; next.go).
-	waitFor(t, ctx, poolSuspendedTimeout, "pool "+poolName+" suspended after its only job finished",
-		func(ctx context.Context) (bool, error) {
-			if err := k8sClient.Get(ctx, poolKey, &poolJob); err != nil {
-				//nolint:nilerr // keep polling
-				return false, nil
-			}
-			return ptr.Deref(poolJob.Spec.Suspend, false), nil
-		})
-
-	// The original lands in the RootFolder's recycle bin (ruling R5 as
-	// superseded in mechanism by E-3, 797d9f3: RecycleLink hard-links the
-	// original into root/<today's UTC date>/<basename> BEFORE the output is
-	// renamed over the source path, so a crash mid-swap never strands a
-	// hole in the library). Its size must equal the ORIGINAL clip's size,
-	// not the (typically much smaller, re-encoded) output's -- proving this
-	// really is the pre-transcode file, not a copy of the swapped-in result.
-	recycled := hostPath(path.Join(defaultRecycleBinLogical, time.Now().UTC().Format("2006-01-02"), transcodeMovieFile))
-	waitFor(t, ctx, recycledOriginalTimeout, "recycled original at "+recycled, func(context.Context) (bool, error) {
-		info, err := os.Stat(recycled)
-		if err != nil {
-			//nolint:nilerr // keep polling
-			return false, nil
-		}
-		return info.Size() == originalSizeBytes, nil
-	})
-
-	// catalog re-probes the swapped-in output at the SAME path and takes
-	// over spec.sizeBytes/modTime/original.
-	swapped := waitForMediaFileSwapIncorporated(ctx, t, mfKey, firstProbedAt.Time)
-	require.NotEqual(t, originalSizeBytes, swapped.Spec.SizeBytes,
-		"spec.sizeBytes must be the transcoded output's size, not the original clip's")
-	require.NotNil(t, swapped.Status.Transcode, "status.transcode must be set once the swap is incorporated")
-	require.Equal(t, catalogv1alpha1.TranscodeResultSucceeded, swapped.Status.Transcode.LastResult)
-	require.NotEmpty(t, swapped.Status.Transcode.ProfileTag)
-	require.NotNil(t, swapped.Status.MediaInfo)
-	require.Equal(t, "hevc", swapped.Status.MediaInfo.VideoCodec, "the re-probe must read the transcoded output's real codec")
-	require.EqualValues(t, 8, swapped.Status.MediaInfo.VideoBitDepth,
-		"the standard encodes SDR at 1080p or less to HEVC Main, 8-bit (transcode.EightBitTarget)")
-	require.Equal(t, tp.Name+"@"+tp.Status.Hash, swapped.Status.MediaInfo.TranscodeProfile,
-		"the output carries the profile's CLUSTARR_PROFILE tag, which the re-probe reads")
-	require.True(t, swapped.Transcoded(), "a transcoded file is final")
-
-	// A profile edit gives the profile a new status.hash, and re-transcodes
-	// nothing (spec §5): the transcoded file gets no second job.
-	var live transcodev1alpha1.TranscodeProfile
-	require.NoError(t, k8sClient.Get(ctx, client.ObjectKeyFromObject(tp), &live))
-	oldHash := live.Status.Hash
-	live.Spec.Quality = ptr.To[int32](30)
-	require.NoError(t, k8sClient.Update(ctx, &live))
-	waitFor(t, ctx, transcodeProfileReadyTimeout, "TranscodeProfile "+tp.Name+" rehashed after the edit",
-		func(ctx context.Context) (bool, error) {
-			if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(tp), &live); err != nil {
-				//nolint:nilerr // keep polling
-				return false, nil
-			}
-			return live.Status.Hash != "" && live.Status.Hash != oldHash && live.Status.ObservedGeneration == live.Generation, nil
-		}, describeTranscodeProfile(client.ObjectKeyFromObject(tp)))
-	require.Len(t, transcodeJobsForMediaFile(ctx, t, Namespace, mf.Name), 1,
-		"a new hash plans nothing for a file already transcoded")
-
-	// The pipeline page reflects the transcode stage. pkg/pipeline.Project
-	// (project.go) reaches StageComplete, not StageTranscodeDone, once
-	// subtitles are ALSO satisfied -- but nothing in this scenario ever
-	// creates a satisfied SubtitleRequest (caption is Phase F's surface,
-	// out of scope here), so Complete is not a false read: it can only be
-	// reached if some OTHER agent's caption work is live in the deployed
-	// image and genuinely satisfied a request for this file, which is still
-	// "past the transcode stage" and an acceptable outcome for this
-	// assertion. Transcoding (caught mid-run) is the least likely of the
-	// three to observe by the time this poll runs -- the job has already
-	// reported Succeeded above -- but is accepted for the same reason.
-	base, stopPF := portForwardService(ctx, t, "ui", uiServicePort)
-	defer stopPF()
-	pageClient := &http.Client{Timeout: 15 * time.Second}
-	ref := types.NamespacedName{Namespace: Namespace, Name: movieName}
-	waitFor(t, ctx, uiPageWaitTimeout, "GET /pipeline shows Movie "+movieName+" at or past the transcode stage",
-		func(ctx context.Context) (bool, error) {
-			body, status, err := httpGetString(ctx, pageClient, base+"/pipeline")
-			if err != nil || status != http.StatusOK {
-				//nolint:nilerr // keep polling; a port-forward hiccup is transient
-				return false, nil
-			}
-			stage, ok := pipelineRowStage(body, commonv1.MediaKindMovie, ref)
-			if !ok {
-				return false, nil
-			}
-			t.Logf("pipeline row for %s: data-stage=%q", ref, stage)
-			switch pipeline.Stage(stage) {
-			case pipeline.StageTranscoding, pipeline.StageTranscodeDone, pipeline.StageComplete:
-				return true, nil
-			default:
-				return false, nil
-			}
-		})
-}
-
 // TestTranscodeContainerChangeMovesTheFile proves gap-fix ruling R-11: a
 // TranscodeProfile whose output container differs from the source's is
 // planned and run, not skipped. Under replaceSource=true (the profile's
@@ -785,25 +436,16 @@ func TestTranscodeContainerChangeMovesTheFile(t *testing.T) {
 		})
 	})
 
-	// mp4 output against a .mkv source: the container-change shape.
+	// mp4 output against a .mkv source: the container-change shape. The
+	// file's own status.transcode carries the plan and the swap since
+	// ADR-0016 (F8.9).
 	newTranscodeProfile(ctx, t, "e2e-tjcc-profile", 720, commonv1.SourceWebDL, transcodev1alpha1.ContainerMP4)
-
-	tj := waitForTranscodeJobForMediaFile(ctx, t, Namespace, mf.Name)
-	tjKey := client.ObjectKeyFromObject(&tj)
-	cleanupUnlessFailed(t, func() { _ = k8sClient.Delete(context.Background(), &tj) })
-
-	planned := waitForTranscodeJobPhaseAtLeast(ctx, t, tjKey, transcodeJobPlannedTimeout, transcodev1alpha1.TranscodeJobPhasePlanned)
-	require.NotNil(t, planned.Status.Plan, "a container change is planned, not skipped (R-11)")
-	cond := findCondition(planned.Status.Conditions, transcodev1alpha1.TranscodeJobConditionPlanned)
-	require.NotNil(t, cond, "Planned condition must be set")
-	require.Equal(t, metav1.ConditionTrue, cond.Status)
-	require.Equal(t, transcodejobctrl.ReasonContainerChange, cond.Reason)
-
-	succeeded := waitForTranscodeJobPhase(ctx, t, tjKey, transcodeJobSucceededTimeout, transcodev1alpha1.TranscodeJobPhaseSucceeded)
-	require.NotNil(t, succeeded.Status.Result)
+	done := waitForTranscodePhase(ctx, t, mfKey, transcodeJobSucceededTimeout+transcodeSwapIncorporatedTimeout, catalogv1alpha1.TranscodePhaseSucceeded)
 	wantOutput := strings.TrimSuffix(filePath, ".mkv") + ".mp4"
-	require.Equal(t, wantOutput, succeeded.Status.Result.OutputPath,
-		"replaceSource=true writes <stem>.<container> beside the source")
+	require.Equal(t, wantOutput, done.Spec.Path, "the loop takes spec.path over to the .mp4 (loop spec §3.10)")
+	require.Equal(t, "mp4", done.Status.MediaInfo.Container, "the re-probe must read the new container")
+	require.NotNil(t, done.Status.ProbedAt)
+	require.True(t, done.Status.ProbedAt.After(firstProbedAt.Time), "the swap is re-probed")
 
 	// On disk: the .mp4 is there and the .mkv has been retired.
 	waitFor(t, ctx, recycledOriginalTimeout, "the .mp4 output beside the retired source", func(context.Context) (bool, error) {
@@ -811,12 +453,7 @@ func TestTranscodeContainerChangeMovesTheFile(t *testing.T) {
 		_, srcErr := os.Stat(hostPath(filePath))
 		return outErr == nil && os.IsNotExist(srcErr), nil
 	})
-
-	// The catalog follows: catalog takes over spec.path in the same
-	// apply as the rest of the swap.
-	swapped := waitForMediaFileSwapIncorporated(ctx, t, mfKey, firstProbedAt.Time)
-	require.Equal(t, wantOutput, swapped.Spec.Path, "the MediaFile must follow the file to its new container")
-	require.Equal(t, "mp4", swapped.Status.MediaInfo.Container, "the re-probe must read the new container")
+	require.Nil(t, done.Status.Transcode.Result, "the swap is incorporated: the result is not kept for a replaced source")
 }
 
 // TestTranscodeDolbyVisionSkipped documents, rather than exercises, Dolby
@@ -900,54 +537,10 @@ func TestTranscodeDolbyVisionSkipped(t *testing.T) {
 // TestTranscodeMediaFileThroughTranscodeJob (this file) is scenario 12's
 // own, more thorough TranscodeJob leg, through the LibraryScan route.
 func TestDownloadScenario1TranscodeLeg(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), scenarioTimeout)
-	defer cancel()
-	requireFixtureService(ctx, t, fixtureSeederService)
-
-	t0 := time.Now().Add(-time.Minute)
-
-	rf := newRootFolder(ctx, t, "e2e-dl1tj-rf", catalogv1alpha1.RootFolderKindMovie, "movies")
-	movie := newMovie(ctx, t, "e2e-dl1tj-movie", fixtureTmdbID, QualityProfileName, rf.Name, catalogv1alpha1.MinimumAvailabilityAnnounced)
-	settled := waitForMovieSettled(ctx, t, movie, "Inception")
-
-	newTorrentDownloadClientE2E(ctx, t, "e2e-dl1tj-dc")
-	torrentURL := "http://" + fixtureSeederService + "." + Namespace + ".svc/fixture.torrent"
-	dl := newTorrentDownloadE2E(ctx, t, "e2e-dl1tj-dl", &settled, torrentURL, "guid-dl1tj-1", QualityProfileName)
-	waitForDownloadPhaseAtLeast(ctx, t, dl, downloadCompleteTimeout, commonv1.DownloadPhaseCompleted)
-
-	imp := waitForImportOutcome(ctx, t, dl, importAttemptTimeout)
-	require.Len(t, imp.Imported, 1)
-	mfKey := client.ObjectKey{Namespace: Namespace, Name: imp.Imported[0].MediaFileRef}
-	mf := waitForMediaFileProbed(ctx, t, mfKey)
-	require.Equal(t, "1080", mf.Labels[catalogv1alpha1.LabelResolution],
-		"catalog's mirrored labels must carry the imported file's real, frozen-at-import resolution")
-	require.Equal(t, "bluray", mf.Labels[catalogv1alpha1.LabelSource])
-
-	newTranscodeProfile(ctx, t, "e2e-dl1tj-profile", 1080, commonv1.SourceBluray, transcodev1alpha1.ContainerMKV)
-
-	tj := waitForTranscodeJobForMediaFile(ctx, t, Namespace, mf.Name)
-	tjKey := client.ObjectKeyFromObject(&tj)
-	cleanupUnlessFailed(t, func() { _ = k8sClient.Delete(context.Background(), &tj) })
-
-	planned := waitForTranscodeJobPhaseAtLeast(ctx, t, tjKey, transcodeJobPlannedTimeout, transcodev1alpha1.TranscodeJobPhasePlanned)
-	require.NotNil(t, planned.Status.Plan)
-	require.Equal(t, transcodev1alpha1.PlanModeTranscode, planned.Status.Plan.Mode,
-		"the baked probe clip (h264/AAC) must plan a real encode under the standard, not a skip or remux")
-
-	succeeded := waitForTranscodeJobPhase(ctx, t, tjKey, transcodeJobSucceededTimeout, transcodev1alpha1.TranscodeJobPhaseSucceeded)
-	require.NotNil(t, succeeded.Status.Result)
-	require.NotEmpty(t, succeeded.Status.Result.OutputPath)
-	require.NotZero(t, succeeded.Status.Result.OutputSizeBytes)
-
-	// The trace check: see this function's own doc comment for exactly
-	// what is and is not proven here.
-	grabIDs := deploymentTraceIDsSince(ctx, t, "grab", t0)
-	importIDs := deploymentTraceIDsSince(ctx, t, "import-worker", t0)
-	shared := sharedTraceID(grabIDs, importIDs)
-	require.NotEmptyf(t, shared,
-		"no trace_id is common to grab's and import-worker's logs since %s -- "+
-			"grab saw %d distinct trace_id(s), import-worker saw %d; Clustarr-Trace propagation "+
-			"across the ImportTask bus hop (pkg/events hooks) may be broken, or the two Deployments' "+
-			"logs for this specific grab were not both captured",
-		t0.Format(time.RFC3339), len(grabIDs), len(importIDs))
+	// The Download kind is gone (A9.1): a grab is a status.downloads[] entry on its item,
+	// started by a Search with spec.grab naming the fixture release (spec §6.13), and the
+	// transcode state is the MediaFile's status.transcode (ADR-0016). The body this leg had,
+	// with its grab-to-import trace check, is at the T1 base,
+	// git show 10f1a491:test/e2e/transcode_test.go; F8.9 rewrites it in T2.
+	t.Skip("T2: scenario 1's transcode leg starts from a Search pick and reads status.transcode (A8.4, F8.9)")
 }

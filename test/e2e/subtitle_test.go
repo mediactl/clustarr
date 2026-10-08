@@ -167,32 +167,38 @@ const (
 	subtitleFetchTimeout = 3 * time.Minute
 )
 
-// subtitleItem returns the item for langKey, or nil.
-func subtitleItem(items []subtitlev1alpha1.SubtitleItem, langKey string) *subtitlev1alpha1.SubtitleItem {
-	for i := range items {
-		if items[i].LangKey == langKey {
-			return &items[i]
+// subtitleItemOf returns mf's status.subtitles item for langKey, or nil.
+// The subtitle state lives on the MediaFile since ADR-0016 folded
+// SubtitleRequest into it.
+func subtitleItemOf(mf *catalogv1alpha1.MediaFile, langKey string) *catalogv1alpha1.SubtitleItemStatus {
+	if mf.Status.Subtitles == nil {
+		return nil
+	}
+	for i := range mf.Status.Subtitles.Items {
+		if mf.Status.Subtitles.Items[i].LangKey == langKey {
+			return &mf.Status.Subtitles.Items[i]
 		}
 	}
 	return nil
 }
 
-// describeSubtitleRequest renders one SubtitleRequest's phase, items and
-// conditions for a failure message, mirroring describeSearch/describeIndexer.
-func describeSubtitleRequest(key client.ObjectKey) func() string {
+// describeSubtitles renders a MediaFile's status.subtitles for a failure
+// message, mirroring describeSearch/describeIndexer.
+func describeSubtitles(key client.ObjectKey) func() string {
 	return func() string {
-		var live subtitlev1alpha1.SubtitleRequest
-		if err := k8sClient.Get(context.Background(), key, &live); err != nil {
-			return fmt.Sprintf("SubtitleRequest %s could not be read back: %v", key.Name, err)
+		var mf catalogv1alpha1.MediaFile
+		if err := k8sClient.Get(context.Background(), key, &mf); err != nil {
+			return fmt.Sprintf("MediaFile %s could not be read back: %v", key.Name, err)
 		}
-		out := fmt.Sprintf("SubtitleRequest %s phase=%q profileGeneration=%d probeHash=%q",
-			key.Name, live.Status.Phase, live.Status.ProfileGeneration, live.Status.ProbeHash)
-		for _, it := range live.Status.Items {
-			out += fmt.Sprintf("\n    item langKey=%q state=%q score=%d/%d provider=%q path=%q lastError=%q",
-				it.LangKey, it.State, it.Score, it.ScoreOutOf, it.Provider, it.Path, it.LastError)
+		s := mf.Status.Subtitles
+		if s == nil {
+			return fmt.Sprintf("MediaFile %s has no status.subtitles", key.Name)
 		}
-		for _, c := range live.Status.Conditions {
-			out += fmt.Sprintf("\n    condition %s=%s reason=%s message=%q", c.Type, c.Status, c.Reason, c.Message)
+		out := fmt.Sprintf("MediaFile %s subtitles phase=%q reason=%q profile=%q probeHash=%q wanted=%v",
+			key.Name, s.Phase, s.Reason, s.Profile, s.ProbeHash, s.Wanted)
+		for _, it := range s.Items {
+			out += fmt.Sprintf("\n    item langKey=%q state=%q score=%d/%d provider=%q name=%q lastError=%q",
+				it.LangKey, it.State, it.Score, it.ScoreOutOf, it.Provider, it.Name, it.LastError)
 		}
 		return out
 	}
@@ -295,16 +301,16 @@ func readGestdownRequestsSince(t *testing.T, t0 time.Time) []gestdownstub.Entry 
 // ---------------------------------------------------------------------------
 
 // TestSubtitleRequestSidecarPipelineAndLanguageRemoval is scenario 13's core
-// proof: a real, real-scanned video MediaFile gets exactly one
-// SubtitleRequest; two wanted languages are fetched from the mocked
-// OpenSubtitles.com provider; each sidecar lands next to the media file
-// under pkg/subtitles.SidecarName's own name; catalog surfaces both on
-// MediaFile.status.sidecars; the UI's pipeline page shows the subtitle
-// stage by data-stage (D3 ruling R8); and removing one language from the
-// profile withdraws exactly its item (and its mirrored sidecar) while the
-// other survives -- the item-liveness protocol F-4/F-5 built
-// (app/caption/status.IsLive), which CLAUDE.md's own "Gotchas" section
-// names as the part of Phase F most likely to regress.
+// proof: a real, real-scanned video MediaFile's own status.subtitles (the
+// SubtitleRequest kind until ADR-0016 folded it into the file) plans two
+// wanted languages, both fetched from the mocked OpenSubtitles.com
+// provider; each sidecar lands next to the media file under
+// pkg/subtitles.SidecarName's own name and is listed in
+// MediaFile.status.sidecars; the UI's pipeline page shows the subtitle stage
+// by data-stage (D3 ruling R8); and removing one language from the profile
+// withdraws exactly its item while the other survives (the sidecar stays on
+// disk and in status.sidecars, which lists the disk). F8.9 renames it
+// TestSubtitlesSidecarPipelineAndLanguageRemoval.
 func TestSubtitleRequestSidecarPipelineAndLanguageRemoval(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), scenarioTimeout)
 	defer cancel()
@@ -372,49 +378,27 @@ func TestSubtitleRequestSidecarPipelineAndLanguageRemoval(t *testing.T) {
 	cleanupUnlessFailed(t, func() { _ = k8sClient.Delete(context.Background(), profile) })
 	waitForSubtitleProfileReady(ctx, t, profile.Name)
 
-	reqKey := client.ObjectKey{Namespace: Namespace, Name: mf.Name}
-
-	// Exactly one SubtitleRequest for this MediaFile -- the deterministic
-	// name/owner ensureSubtitleRequest uses makes a duplicate structurally
-	// impossible, but listing rather than trusting that is what actually
-	// proves it from the apiserver's own state.
-	waitFor(t, ctx, subtitleFetchTimeout, "exactly one SubtitleRequest for MediaFile "+mf.Name,
-		func(ctx context.Context) (bool, error) {
-			var list subtitlev1alpha1.SubtitleRequestList
-			if err := k8sClient.List(ctx, &list, client.InNamespace(Namespace)); err != nil {
-				//nolint:nilerr // keep polling
-				return false, nil
-			}
-			n := 0
-			for _, sr := range list.Items {
-				if sr.Spec.MediaFileRef == mf.Name {
-					n++
-				}
-			}
-			return n == 1, nil
-		})
-	cleanupUnlessFailed(t, func() {
-		_ = k8sClient.Delete(context.Background(), &subtitlev1alpha1.SubtitleRequest{
-			ObjectMeta: metav1.ObjectMeta{Name: mf.Name, Namespace: Namespace},
-		})
-	})
+	// The file's own status.subtitles carries the plan and the items since
+	// ADR-0016 folded SubtitleRequest into the MediaFile (F8.9).
+	mfKey := client.ObjectKeyFromObject(&mf)
 
 	// Both wanted languages fetched from the mocked provider and written to
 	// disk.
-	waitFor(t, ctx, subtitleFetchTimeout, "SubtitleRequest "+mf.Name+" en and es both downloaded",
+	waitFor(t, ctx, subtitleFetchTimeout, "MediaFile "+mf.Name+" en and es both downloaded",
 		func(ctx context.Context) (bool, error) {
-			var live subtitlev1alpha1.SubtitleRequest
-			if err := k8sClient.Get(ctx, reqKey, &live); err != nil {
+			var live catalogv1alpha1.MediaFile
+			if err := k8sClient.Get(ctx, mfKey, &live); err != nil {
 				//nolint:nilerr // keep polling
 				return false, nil
 			}
-			en, es := subtitleItem(live.Status.Items, "en"), subtitleItem(live.Status.Items, "es")
-			return itemDownloaded(en) && itemDownloaded(es), nil
-		}, describeSubtitleRequest(reqKey))
+			return itemDownloaded(subtitleItemOf(&live, "en")) && itemDownloaded(subtitleItemOf(&live, "es")), nil
+		}, describeSubtitles(mfKey))
 
-	var withBoth subtitlev1alpha1.SubtitleRequest
-	require.NoError(t, k8sClient.Get(ctx, reqKey, &withBoth))
-	en := subtitleItem(withBoth.Status.Items, "en")
+	var withBoth catalogv1alpha1.MediaFile
+	require.NoError(t, k8sClient.Get(ctx, mfKey, &withBoth))
+	require.Equal(t, catalogv1alpha1.SubtitlesPhaseSatisfied, withBoth.Status.Subtitles.Phase)
+	require.Equal(t, profile.Name, withBoth.Status.Subtitles.Profile)
+	en := subtitleItemOf(&withBoth, "en")
 	require.NotNil(t, en)
 	require.Equal(t, provider.Name, en.Provider, "the mocked OpenSubtitles.com provider must be the one credited")
 
@@ -423,20 +407,12 @@ func TestSubtitleRequestSidecarPipelineAndLanguageRemoval(t *testing.T) {
 	// item (the mock never marks its candidate hi/forced).
 	wantEnPath := subtitles.SidecarName(mf.Spec.Path, "en", string(profile.Spec.HIExtension))
 	require.FileExists(t, hostPath(wantEnPath), "the en sidecar must exist under SidecarName's own path")
-	require.Equal(t, filepath.Base(wantEnPath), en.Path, "status.items[].path is relative to the media file's directory")
-
-	// catalog's own half: MediaFile.status.sidecars mirrors both
-	// downloaded items (sidecars.go, inside the same status apply that
-	// wrote status.mediaInfo).
-	waitFor(t, ctx, 2*time.Minute, "MediaFile "+mf.Name+" status.sidecars carries both en and es",
-		func(ctx context.Context) (bool, error) {
-			var live catalogv1alpha1.MediaFile
-			if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(&mf), &live); err != nil {
-				//nolint:nilerr // keep polling
-				return false, nil
-			}
-			return len(live.Status.Sidecars) == 2, nil
-		}, describeMediaFile(client.ObjectKeyFromObject(&mf)))
+	require.Equal(t, filepath.Base(wantEnPath), en.Name, "status.subtitles.items[].name is the sidecar's file name")
+	var names []string
+	for _, sc := range withBoth.Status.Sidecars {
+		names = append(names, sc.Name)
+	}
+	require.Contains(t, names, filepath.Base(wantEnPath), "status.sidecars lists what is on disk")
 
 	t.Run("pipeline page shows the subtitle stage", func(t *testing.T) {
 		base, stop := portForwardService(ctx, t, "ui", uiServicePort)
@@ -476,42 +452,31 @@ func TestSubtitleRequestSidecarPipelineAndLanguageRemoval(t *testing.T) {
 		live.Spec.Languages = []subtitlev1alpha1.LanguageItem{{Key: "en", Language: "en"}}
 		require.NoError(t, k8sClient.Patch(ctx, &live, patch))
 
-		waitFor(t, ctx, subtitleFetchTimeout, "SubtitleRequest "+mf.Name+" withdrew the es item",
-			func(ctx context.Context) (bool, error) {
-				var req subtitlev1alpha1.SubtitleRequest
-				if err := k8sClient.Get(ctx, reqKey, &req); err != nil {
-					//nolint:nilerr // keep polling
-					return false, nil
-				}
-				return subtitleItem(req.Status.Items, "es") == nil && subtitleItem(req.Status.Items, "en") != nil, nil
-			}, describeSubtitleRequest(reqKey))
-
-		var afterWithdraw subtitlev1alpha1.SubtitleRequest
-		require.NoError(t, k8sClient.Get(ctx, reqKey, &afterWithdraw))
-		require.Len(t, afterWithdraw.Status.Items, 1, "only the en item may remain")
-		require.Equal(t, subtitlev1alpha1.SubtitleItemDownloaded, afterWithdraw.Status.Items[0].State,
-			"withdrawing es must not disturb en's own downloaded state")
-
-		// The withdraw propagates through catalog's own mirror too --
-		// sidecarsFromSubtitleRequest only ever mirrors items the
-		// SubtitleRequest still carries.
-		waitFor(t, ctx, 2*time.Minute, "MediaFile "+mf.Name+" status.sidecars drops es",
+		waitFor(t, ctx, subtitleFetchTimeout, "MediaFile "+mf.Name+" status.subtitles dropped es",
 			func(ctx context.Context) (bool, error) {
 				var live catalogv1alpha1.MediaFile
-				if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(&mf), &live); err != nil {
+				if err := k8sClient.Get(ctx, mfKey, &live); err != nil {
 					//nolint:nilerr // keep polling
 					return false, nil
 				}
-				return len(live.Status.Sidecars) == 1, nil
-			}, describeMediaFile(client.ObjectKeyFromObject(&mf)))
+				return subtitleItemOf(&live, "es") == nil && subtitleItemOf(&live, "en") != nil, nil
+			}, describeSubtitles(mfKey))
+
+		var after catalogv1alpha1.MediaFile
+		require.NoError(t, k8sClient.Get(ctx, mfKey, &after))
+		require.Len(t, after.Status.Subtitles.Items, 1, "only the en item may remain")
+		require.Equal(t, catalogv1alpha1.SubtitleStateDownloaded, after.Status.Subtitles.Items[0].State,
+			"withdrawing es must not disturb en's own downloaded state")
+		// The es sidecar is still on disk, and status.sidecars lists the
+		// disk (loop spec §2.7): withdrawing a language deletes no file.
+		require.Len(t, after.Status.Sidecars, 2, "status.sidecars lists the disk, which still holds the es sidecar")
 	})
 }
 
-// itemDownloaded reports whether it is present, downloaded and carries a
-// sidecar path -- the shape hasSubtitle (app/caption/worker/fetch/worker.go)
-// itself checks before catalog's mirror will ever surface it.
-func itemDownloaded(it *subtitlev1alpha1.SubtitleItem) bool {
-	return it != nil && it.State == subtitlev1alpha1.SubtitleItemDownloaded && it.Path != ""
+// itemDownloaded reports whether it is present, downloaded and names its
+// sidecar file.
+func itemDownloaded(it *catalogv1alpha1.SubtitleItemStatus) bool {
+	return it != nil && it.State == catalogv1alpha1.SubtitleStateDownloaded && it.Name != ""
 }
 
 // ---------------------------------------------------------------------------
@@ -579,8 +544,8 @@ func TestSubtitleThrottleFallsThroughToGestdown(t *testing.T) {
 	require.NoError(t, k8sClient.Create(ctx, gdProvider))
 	cleanupUnlessFailed(t, func() { _ = k8sClient.Delete(context.Background(), gdProvider) })
 
-	// Set the throttle mode BEFORE the profile (and so the request, and so
-	// the first search) exists, so the very first task this test drives
+	// Set the throttle mode BEFORE the profile (and so the file's subtitle
+	// plan, and so the first search) exists, so the very first task this test drives
 	// already observes it -- no race with an "ok" search slipping through
 	// first.
 	setOpenSubtitlesMode(ctx, t, opensubtitlesstub.ModeThrottled)
@@ -605,23 +570,17 @@ func TestSubtitleThrottleFallsThroughToGestdown(t *testing.T) {
 	cleanupUnlessFailed(t, func() { _ = k8sClient.Delete(context.Background(), profile) })
 	waitForSubtitleProfileReady(ctx, t, profile.Name)
 
-	reqKey := client.ObjectKey{Namespace: Namespace, Name: probed.Name}
-	cleanupUnlessFailed(t, func() {
-		_ = k8sClient.Delete(context.Background(), &subtitlev1alpha1.SubtitleRequest{
-			ObjectMeta: metav1.ObjectMeta{Name: probed.Name, Namespace: Namespace},
-		})
-	})
-
-	waitFor(t, ctx, subtitleFetchTimeout, "SubtitleRequest "+probed.Name+" en downloaded from gestdown after opensubtitles throttled",
+	mfKey := client.ObjectKeyFromObject(&probed)
+	waitFor(t, ctx, subtitleFetchTimeout, "MediaFile "+probed.Name+" en downloaded from gestdown after opensubtitles throttled",
 		func(ctx context.Context) (bool, error) {
-			var live subtitlev1alpha1.SubtitleRequest
-			if err := k8sClient.Get(ctx, reqKey, &live); err != nil {
+			var live catalogv1alpha1.MediaFile
+			if err := k8sClient.Get(ctx, mfKey, &live); err != nil {
 				//nolint:nilerr // keep polling
 				return false, nil
 			}
-			en := subtitleItem(live.Status.Items, "en")
+			en := subtitleItemOf(&live, "en")
 			return itemDownloaded(en) && en.Provider == gdProvider.Name, nil
-		}, describeSubtitleRequest(reqKey))
+		}, describeSubtitles(mfKey))
 
 	// The shared throttle actually benched the OpenSubtitles.com provider --
 	// ruling R2's projection, not merely "the search happened to prefer
@@ -724,78 +683,9 @@ func describeSubtitleProvider(key client.ObjectKey) func() string {
 // that the chain starting from a real grabbed-and-imported Download reaches
 // a satisfied SubtitleRequest at all.
 func TestDownloadScenario1SubtitleLeg(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), scenarioTimeout)
-	defer cancel()
-	requireFixtureService(ctx, t, fixtureSeederService)
-
-	setOpenSubtitlesMode(ctx, t, opensubtitlesstub.ModeOK)
-	t.Cleanup(func() { setOpenSubtitlesMode(context.Background(), t, opensubtitlesstub.ModeOK) })
-
-	rf := newRootFolder(ctx, t, "e2e-dl1sub-rf", catalogv1alpha1.RootFolderKindMovie, "movies")
-	movie := newMovie(ctx, t, "e2e-dl1sub-movie", fixtureTmdbID, QualityProfileName, rf.Name, catalogv1alpha1.MinimumAvailabilityAnnounced)
-	settled := waitForMovieSettled(ctx, t, movie, "Inception")
-
-	newTorrentDownloadClientE2E(ctx, t, "e2e-dl1sub-dc")
-	torrentURL := "http://" + fixtureSeederService + "." + Namespace + ".svc/fixture.torrent"
-	dl := newTorrentDownloadE2E(ctx, t, "e2e-dl1sub-dl", &settled, torrentURL, "guid-dl1sub-1", QualityProfileName)
-	waitForDownloadPhaseAtLeast(ctx, t, dl, downloadCompleteTimeout, commonv1.DownloadPhaseCompleted)
-
-	imp := waitForImportOutcome(ctx, t, dl, importAttemptTimeout)
-	require.Len(t, imp.Imported, 1)
-	mfKey := client.ObjectKey{Namespace: Namespace, Name: imp.Imported[0].MediaFileRef}
-	mf := waitForMediaFileProbed(ctx, t, mfKey)
-	require.Equal(t, "1080", mf.Labels[catalogv1alpha1.LabelResolution],
-		"catalog's mirrored labels must carry the imported file's real, frozen-at-import resolution")
-	require.Equal(t, "bluray", mf.Labels[catalogv1alpha1.LabelSource])
-
-	provider := &subtitlev1alpha1.SubtitleProvider{
-		ObjectMeta: metav1.ObjectMeta{Name: uniqueName("e2e-dl1sub-os"), Namespace: Namespace},
-		Spec: subtitlev1alpha1.SubtitleProviderSpec{
-			Type: subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom, Enabled: new(true), Priority: 10,
-			SecretRef: &corev1.LocalObjectReference{Name: "opensubtitles-fixture-credentials"},
-			Endpoint:  new("http://opensubtitles-stub." + Namespace + ".svc"),
-		},
-	}
-	require.NoError(t, k8sClient.Create(ctx, provider))
-	cleanupUnlessFailed(t, func() { _ = k8sClient.Delete(context.Background(), provider) })
-
-	profile := &subtitlev1alpha1.SubtitleProfile{
-		ObjectMeta: metav1.ObjectMeta{Name: uniqueName("e2e-dl1sub-profile")},
-		Spec: subtitlev1alpha1.SubtitleProfileSpec{
-			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{
-				catalogv1alpha1.LabelKind:       string(commonv1.MediaKindMovie),
-				catalogv1alpha1.LabelResolution: "1080",
-				catalogv1alpha1.LabelSource:     "bluray",
-			}},
-			Languages:       []subtitlev1alpha1.LanguageItem{{Key: "en", Language: "en"}},
-			MinScorePercent: subtitlev1alpha1.ScorePct{Movie: 10, Episode: 10},
-			Providers:       []string{provider.Name},
-		},
-	}
-	require.NoError(t, k8sClient.Create(ctx, profile))
-	cleanupUnlessFailed(t, func() { _ = k8sClient.Delete(context.Background(), profile) })
-	waitForSubtitleProfileReady(ctx, t, profile.Name)
-
-	reqKey := client.ObjectKey{Namespace: Namespace, Name: mf.Name}
-	cleanupUnlessFailed(t, func() {
-		_ = k8sClient.Delete(context.Background(), &subtitlev1alpha1.SubtitleRequest{
-			ObjectMeta: metav1.ObjectMeta{Name: mf.Name, Namespace: Namespace},
-		})
-	})
-	waitFor(t, ctx, subtitleFetchTimeout, "SubtitleRequest "+mf.Name+" en downloaded",
-		func(ctx context.Context) (bool, error) {
-			var live subtitlev1alpha1.SubtitleRequest
-			if err := k8sClient.Get(ctx, reqKey, &live); err != nil {
-				//nolint:nilerr // keep polling
-				return false, nil
-			}
-			return itemDownloaded(subtitleItem(live.Status.Items, "en")), nil
-		}, describeSubtitleRequest(reqKey))
-
-	var live subtitlev1alpha1.SubtitleRequest
-	require.NoError(t, k8sClient.Get(ctx, reqKey, &live))
-	en := subtitleItem(live.Status.Items, "en")
-	require.NotNil(t, en)
-	wantEnPath := subtitles.SidecarName(mf.Spec.Path, "en", string(profile.Spec.HIExtension))
-	require.FileExists(t, hostPath(wantEnPath), "the en sidecar must exist under SidecarName's own path")
+	// The Download kind is gone (A9.1): a grab is a status.downloads[] entry on its item,
+	// started by a Search with spec.grab naming the fixture release (spec §6.13), and the
+	// subtitle state is the MediaFile's status.subtitles (ADR-0016). The body this leg had is
+	// at the T1 base, git show 10f1a491:test/e2e/subtitle_test.go; F8.9 rewrites it in T2.
+	t.Skip("T2: scenario 1's subtitle leg starts from a Search pick and reads status.subtitles (A8.4, F8.9)")
 }

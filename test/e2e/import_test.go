@@ -59,66 +59,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package e2e
 
 import (
-	"context"
-	"os"
-	"path"
 	"testing"
-	"time"
-
-	"github.com/stretchr/testify/require"
-
-	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
-	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 )
 
 // TestFileImportUpgradeAttempt is scenario 2's D2-relevant slice: see this
 // file's package doc comment for what it proves and what it cannot.
 func TestFileImportUpgradeAttempt(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), scenarioTimeout)
-	defer cancel()
-	requireFixtureService(ctx, t, fixtureSeederService)
-
-	// The pre-existing file: the same RootFolder -> plant -> full-scan route
-	// TestMediaFileTwoWriter and TestUIPipelineAndDownloadsPages both use, so
-	// pc.existing is non-nil (process.go) by the time the upgrade download
-	// completes -- without it, this would drive the FIRST-import path
-	// (already covered by TestDownloadTorrentGrabToImportAttempt), not the
-	// upgrade/recycle path this scenario is actually about.
-	rf := newRootFolder(ctx, t, "e2e-imp2-rf", catalogv1alpha1.RootFolderKindMovie, "movies")
-	filePath := path.Join(rf.Spec.Path, fixtureMovieFolder, fixtureMovieFile)
-	plantMedia(t, hostPath(filePath))
-	runScan(ctx, t, rf, catalogv1alpha1.ScanModeFull)
-
-	files := waitForMediaFileCount(ctx, t, rf.Spec.Path, 1)
-	existing := files[0]
-	movie := requireMovie(ctx, t, existing.Spec.MediaRef.Name)
-	cleanupUnlessFailed(t, func() { _ = k8sClient.Delete(context.Background(), &movie) })
-	waitForMovieSettled(ctx, t, &movie, "Inception")
-
-	newTorrentDownloadClientE2E(ctx, t, "e2e-imp2-dc")
-	torrentURL := "http://" + fixtureSeederService + "." + Namespace + ".svc/fixture.torrent"
-	dl := newTorrentDownloadE2E(ctx, t, "e2e-imp2-dl", &movie, torrentURL, "guid-imp2-upgrade-1", movie.Spec.QualityProfileRef)
-
-	waitForDownloadPhaseAtLeast(ctx, t, dl, downloadCompleteTimeout, commonv1.DownloadPhaseCompleted)
-	imp := waitForImportOutcome(ctx, t, dl, importAttemptTimeout)
-	require.Len(t, imp.Imported, 1)
-	require.NotEmpty(t, imp.Imported[0].MediaFileRef)
-
-	// The superseded original must land in the recycle bin, not just
-	// vanish: pkg/fsops.Recycle (root/<yyyy-mm-dd UTC>/<basename>, its own
-	// doc comment) is what process.go calls before applying the new
-	// MediaFile, ahead of deleting the old MediaFile object -- see this
-	// function's own doc comment for why pc.existing (the planted
-	// fixtureMovieFile) is non-nil here, which is what makes this the
-	// upgrade path rather than TestDownloadTorrentGrabToImportAttempt's
-	// first-import one.
-	recycled := hostPath(path.Join(defaultRecycleBinLogical, time.Now().UTC().Format("2006-01-02"), fixtureMovieFile))
-	waitFor(t, ctx, recycledOriginalTimeout, "recycled original at "+recycled, func(context.Context) (bool, error) {
-		info, err := os.Stat(recycled)
-		if err != nil {
-			//nolint:nilerr // keep polling
-			return false, nil
-		}
-		return info.Size() == existing.Spec.SizeBytes, nil
-	})
+	// The Download kind is gone (A9.1): a grab is a status.downloads[] entry on its item,
+	// started by a Search with spec.grab naming the fixture release (spec §6.13). The body
+	// this scenario had is at the T1 base, git show 10f1a491:test/e2e/import_test.go; A8.4, F8.9 and
+	// W6.15 rewrite it in T2.
+	t.Skip("T2: scenario 2's download becomes a Search pick (A8.4, F8.9)")
 }

@@ -78,6 +78,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/busconn"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -339,7 +340,7 @@ func TestObservabilityDLQPoisonMessage(t *testing.T) {
 	defer stop()
 	natsURL := strings.Replace(base, "http://", "nats://", 1)
 
-	bus, nc, err := k8s.ConnectBus(natsURL, "e2e-observability")
+	bus, nc, err := busconn.Connect(natsURL, "e2e-observability")
 	require.NoError(t, err)
 	defer nc.Close()
 	defer func() { _ = bus.Close() }()

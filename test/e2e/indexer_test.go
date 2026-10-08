@@ -52,7 +52,6 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	idxstatus "github.com/mediactl/clustarr/app/indexer/status"
 	"github.com/mediactl/clustarr/pkg/torznab"
@@ -406,13 +405,14 @@ func TestIndexerReleaseFirehose(t *testing.T) {
 			return live.Status.Phase == catalogv1alpha1.MoviePhaseDelayed, nil
 		}, describeMovie(client.ObjectKeyFromObject(movie)))
 
-	// Nothing was grabbed: this leg belongs to D1, and a Download here would
-	// mean the delay was bypassed and D2's scenarios are now racing an object
-	// they did not create.
-	var dls downloadv1alpha1.DownloadList
-	require.NoError(t, k8sClient.List(ctx, &dls, client.InNamespace(Namespace)))
-	for _, d := range dls.Items {
-		require.NotEqual(t, firehoseTitle, d.Spec.Release.Title,
+	// Nothing was grabbed: this leg belongs to D1, and a download entry here
+	// would mean the delay was bypassed and D2's scenarios are now racing a
+	// transfer they did not start. A grab is a status.downloads[] entry on
+	// its item since the Download kind went (A9.1).
+	var grabbed catalogv1alpha1.Movie
+	require.NoError(t, k8sClient.Get(ctx, client.ObjectKeyFromObject(movie), &grabbed))
+	for _, d := range grabbed.Status.Downloads {
+		require.NotEqual(t, firehoseTitle, d.Release.Title,
 			"the delayed release must not have been grabbed")
 	}
 }

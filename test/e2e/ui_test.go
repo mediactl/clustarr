@@ -183,15 +183,17 @@ func TestUIPipelineAndDownloadsPages(t *testing.T) {
 	require.NoError(t, k8sClient.Get(ctx, movieKey, &movie))
 	cleanupUnlessFailed(t, func() { _ = k8sClient.Delete(context.Background(), &movie) })
 
-	// --- Fixture: a Download targeting that Movie, created directly (see
-	// the package doc comment above for why there is no "real" grab flow to
-	// drive instead).
-	dl := newUIDownload(ctx, t, "e2e-ui-dl", &movie)
+	// The Download kind is gone (A9.1): a download row is an item's
+	// status.downloads[] entry, which only a grab creates (a Search with
+	// spec.grab, spec §6.13), so the downloads half of this scenario --
+	// the /downloads row, its never-writes check and the SSE progress
+	// frame -- is rewritten in T2 (A8.4, W6.15). The body it had is at the
+	// T1 base, git show 10f1a491:test/e2e/ui_test.go.
 
 	base, _ := portForwardService(ctx, t, "ui", uiServicePort)
 	pageClient := &http.Client{Timeout: 15 * time.Second}
 
-	t.Run("pipeline and downloads pages", func(t *testing.T) {
+	t.Run("pipeline page", func(t *testing.T) {
 		// pipeline.templ's row carries data-kind and data-stage (shared
 		// across every row of that kind/stage) but no per-row identifying
 		// data attribute the way downloads.templ's data-download does --
@@ -225,60 +227,23 @@ func TestUIPipelineAndDownloadsPages(t *testing.T) {
 				return strings.Contains(body, `data-kind="`+string(commonv1.MediaKindMovie)+`"`) &&
 					strings.Contains(body, title), nil
 			}, describeMovie(movieKey))
-
-		waitFor(t, ctx, uiPageWaitTimeout, "GET /downloads shows a row for Download "+dl.Name,
-			func(ctx context.Context) (bool, error) {
-				body, status, err := httpGetString(ctx, pageClient, base+"/downloads")
-				if err != nil || status != http.StatusOK {
-					//nolint:nilerr // keep polling
-					return false, nil
-				}
-				return strings.Contains(body, `data-download="`+dl.Name+`"`), nil
-			})
 	})
 
 	t.Run("never-writes invariant", func(t *testing.T) {
-		// Re-read all three live: this proves the CURRENT managedFields
+		// Re-read both live: this proves the CURRENT managedFields
 		// state, after every controller that has had a chance to write by
 		// now, not a snapshot from before the pages subtest ran.
 		var liveMovie catalogv1alpha1.Movie
 		require.NoError(t, k8sClient.Get(ctx, movieKey, &liveMovie))
 		requireNoUIManager(t, "Movie", &liveMovie)
 
-		var liveDL downloadv1alpha1.Download
-		require.NoError(t, k8sClient.Get(ctx, client.ObjectKeyFromObject(dl), &liveDL))
-		requireNoUIManager(t, "Download", &liveDL)
-
 		var liveMF catalogv1alpha1.MediaFile
 		require.NoError(t, k8sClient.Get(ctx, mediaFileKey, &liveMF))
 		requireNoUIManager(t, "MediaFile", &liveMF)
 	})
 
-	t.Run("downloads sse progress", func(t *testing.T) {
-		phase, gated := waitForNonEmptyPhase(ctx, dl, uiPhaseGateTimeout)
-		if !gated {
-			t.Skip("grab's Download controller never advanced status.phase off its zero value within " +
-				uiPhaseGateTimeout.String() + ": D2 (app/grab/controller/download) is what writes it, and the " +
-				"reaper/engine wiring that carries a Download past its first reconcile is still landing in this " +
-				"worktree as of Task D3-5 -- skipping rather than asserting on a signal that may not exist yet " +
-				"in the deployed image")
-		}
-		t.Logf("Download %s reached status.phase=%q via the API; checking /events/downloads reflects a "+
-			"non-empty phase for it", dl.Name, phase)
-
-		sseCtx, sseCancel := context.WithTimeout(ctx, uiSSEWaitTimeout)
-		defer sseCancel()
-		// No blanket http.Client.Timeout here: /events/downloads is a
-		// long-lived stream by design, and the bound this assertion wants
-		// is sseCtx's, not a fixed per-request deadline that would cut the
-		// connection off mid-stream regardless of progress.
-		sseClient := &http.Client{}
-		got, ok := sseDownloadsPhase(sseCtx, sseClient, base, dl.Name)
-		require.True(t, ok,
-			"no /events/downloads frame carried a non-empty data-phase for data-download=%q within %s, "+
-				"even though the API already reports status.phase=%q",
-			dl.Name, uiSSEWaitTimeout, phase)
-		require.NotEmpty(t, got)
+	t.Run("downloads page and sse progress", func(t *testing.T) {
+		t.Skip("T2: scenario 14's downloads half reads an item's status.downloads[] row, which a Search pick creates (A8.4, W6.15)")
 	})
 }
 
@@ -308,69 +273,6 @@ func requireNoUIManager(t *testing.T, kind string, obj client.Object) {
 			"%s %s/%s: field manager %s has a managedFields entry on the status subresource -- the UI never "+
 				"writes status (amendment A3.2, ruling R2)", kind, obj.GetNamespace(), obj.GetName(), e.Manager)
 	}
-}
-
-// newUIDownload creates a Download targeting movie and registers its
-// cleanup. Protocol, Source and Release are the exact shape
-// app/grab/controller/download/controller_envtest_test.go's own
-// newTorrentDownload fixture uses -- proven legal against
-// DownloadSource's magnetURL pattern, ReleaseInfo.InfoHash's 40-hex-char
-// pattern, and the "release identity is immutable" CEL rule (the rule that
-// made every usenet Download unwritable after creation until c5e54eeb).
-func newUIDownload(ctx context.Context, t *testing.T, prefix string, movie *catalogv1alpha1.Movie) *downloadv1alpha1.Download {
-	t.Helper()
-	name := uniqueName(prefix)
-	magnet := "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567"
-	dl := &downloadv1alpha1.Download{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: Namespace},
-		Spec: downloadv1alpha1.DownloadSpec{
-			Protocol: commonv1.ProtocolTorrent,
-			Source:   commonv1.DownloadSource{MagnetURL: &magnet},
-			Release: commonv1.ReleaseInfo{
-				GUID:        "e2e-ui-" + name,
-				IndexerRef:  "e2e-ui-fixture",
-				IndexerName: "e2e UI fixture",
-				Title:       "Fixture.UI.Download." + name,
-				Protocol:    commonv1.ProtocolTorrent,
-				InfoHash:    "0123456789abcdef0123456789abcdef01234567",
-			},
-			Target: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: movie.Name},
-		},
-	}
-	// DownloadSpec.Target's own doc comment: "It is also the ownerReference
-	// of this Download." Nothing in the tree sets this automatically yet --
-	// app/catalog/worker/search does not create Downloads at all as of this
-	// task -- so the creator does what that comment says the real grab
-	// decision eventually will.
-	require.NoError(t, k8s.SetControllerReference(movie, dl, k8sClient.Scheme()))
-	require.NoError(t, k8sClient.Create(ctx, dl))
-	cleanupUnlessFailed(t, func() { _ = k8sClient.Delete(context.Background(), dl) })
-	return dl
-}
-
-// waitForNonEmptyPhase polls dl's status.phase until it stops being the
-// empty-string zero value or until timeout, and reports which.
-//
-// It deliberately does NOT use the suite's waitFor, which calls t.Fatal on a
-// timeout: whether grab's Download controller has landed the code that
-// writes phase at all is exactly the fact under test here (see the D3-5
-// plan task text and this file's package doc comment), and the correct
-// response to "not yet" is a named t.Skip from the caller, not a failure.
-func waitForNonEmptyPhase(ctx context.Context, dl *downloadv1alpha1.Download, timeout time.Duration) (commonv1.DownloadPhase, bool) {
-	var phase commonv1.DownloadPhase
-	err := wait.PollUntilContextTimeout(ctx, pollInterval, timeout, true, func(ctx context.Context) (bool, error) {
-		var live downloadv1alpha1.Download
-		if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(dl), &live); err != nil {
-			//nolint:nilerr // keep polling
-			return false, nil
-		}
-		if live.Status.Phase == "" {
-			return false, nil
-		}
-		phase = live.Status.Phase
-		return true, nil
-	})
-	return phase, err == nil
 }
 
 // httpGetHTMX is httpGetString with the HX-Request header htmx sends, for

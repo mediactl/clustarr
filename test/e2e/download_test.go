@@ -78,17 +78,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package e2e
 
 import (
-	"context"
 	"testing"
-	"time"
-
-	"github.com/stretchr/testify/require"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
-	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
-	"github.com/mediactl/clustarr/test/fixtures/nntpstub"
 )
 
 // TestDownloadTorrentGrabToImportAttempt is scenario 1's grab+import
@@ -106,25 +96,11 @@ import (
 // download+import (not reusing this Movie/Download) so a failure in one
 // leg cannot mask or block the other two.
 func TestDownloadTorrentGrabToImportAttempt(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), scenarioTimeout)
-	defer cancel()
-	requireFixtureService(ctx, t, fixtureSeederService)
-
-	rf := newRootFolder(ctx, t, "e2e-dl1-rf", catalogv1alpha1.RootFolderKindMovie, "movies")
-	movie := newMovie(ctx, t, "e2e-dl1-movie", fixtureTmdbID, QualityProfileName, rf.Name, catalogv1alpha1.MinimumAvailabilityAnnounced)
-	settled := waitForMovieSettled(ctx, t, movie, "Inception")
-
-	newTorrentDownloadClientE2E(ctx, t, "e2e-dl1-dc")
-	torrentURL := "http://" + fixtureSeederService + "." + Namespace + ".svc/fixture.torrent"
-	dl := newTorrentDownloadE2E(ctx, t, "e2e-dl1-dl", &settled, torrentURL, "guid-dl1-1", QualityProfileName)
-
-	live := waitForDownloadPhaseAtLeast(ctx, t, dl, downloadCompleteTimeout, commonv1.DownloadPhaseCompleted)
-	require.NotEmpty(t, live.Status.ContentRoot, "a Completed/Seeding Download must publish status.contentRoot")
-	require.NotZero(t, live.Status.DownloadedBytes, "a Completed/Seeding Download must report bytes fetched")
-
-	imp := waitForImportOutcome(ctx, t, dl, importAttemptTimeout)
-	require.Len(t, imp.Imported, 1)
-	require.NotEmpty(t, imp.Imported[0].MediaFileRef)
+	// The Download kind is gone (A9.1): a grab is a status.downloads[] entry on its item,
+	// started by a Search with spec.grab naming the fixture release (spec §6.13). The body
+	// this scenario had is at the T1 base, git show 10f1a491:test/e2e/download_test.go; A8.4, F8.9 and
+	// W6.15 rewrite it in T2.
+	t.Skip("T2: scenario 1's download leg becomes a Search pick (A8.4, F8.9)")
 }
 
 // TestDownloadUsenetNoInfoHashWithCrossServerFailover is scenario 6: a
@@ -139,57 +115,11 @@ func TestDownloadTorrentGrabToImportAttempt(t *testing.T) {
 // building one is out of D2-10's file scope (test/e2e/*.go only, not
 // test/fixtures/*).
 func TestDownloadUsenetNoInfoHashWithCrossServerFailover(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), scenarioTimeout)
-	defer cancel()
-	requireFixtureService(ctx, t, fixtureNNTPStubAService)
-	requireFixtureService(ctx, t, fixtureNNTPStubBService)
-
-	rf := newRootFolder(ctx, t, "e2e-dl6-rf", catalogv1alpha1.RootFolderKindMovie, "movies")
-	movie := newMovie(ctx, t, "e2e-dl6-movie", fixtureTmdbID, QualityProfileName, rf.Name, catalogv1alpha1.MinimumAvailabilityAnnounced)
-	settled := waitForMovieSettled(ctx, t, movie, "Inception")
-
-	newUsenetDownloadClientE2E(ctx, t, "e2e-dl6-dc")
-
-	t0 := time.Now().Add(-time.Minute)
-	nzbURL := "http://" + fixtureNNTPStubAService + "." + Namespace + ".svc/fixture.nzb"
-	dl := newUsenetDownloadE2E(ctx, t, "e2e-dl6-dl", &settled, nzbURL, "guid-dl6-1", QualityProfileName)
-	require.Empty(t, dl.Spec.Release.InfoHash,
-		"usenet releases carry no infoHash -- this is the fixed-CEL-rule regression shape pkg/crdcheck guards (c5e86d5)")
-
-	live := waitForDownloadPhaseAtLeast(ctx, t, dl, downloadCompleteTimeout, commonv1.DownloadPhaseCompleted)
-	require.NotEmpty(t, live.Status.ContentRoot)
-
-	// Cross-server 430 failover: nntp-stub-a is expected (per
-	// config/e2e/nntp-stub.yaml and helpers_test.go's own section doc
-	// comment) to deny the fixture's first article, and nntp-stub-b to
-	// serve it after the primary refuses it.
-	// nntpstub.Build(fixtureNNTPSegmentBytes, 0) recomputes the exact
-	// article id deterministically -- Build and BuildFromFile share the
-	// identical "seg<n>.<segmentBytes>@clustarr.fixture.test" formula
-	// (BuildFromFile's own doc comment) -- rather than hard-coding it, so a
-	// change to fixtureNNTPSegmentBytes (which MUST track config/e2e/
-	// nntp-stub.yaml's --segment-bytes) cannot silently desync this
-	// assertion from what the fixture would actually deny. Build, not
-	// BuildFromFile, on purpose: the real baked clip nntp-stub-a's
-	// --content-path names lives only inside the fixture image, and this
-	// test process cannot reach it (main_test.go's own doc comment).
-	deniedID := nntpstub.Build(fixtureNNTPSegmentBytes, 0).Articles[0].ID
-	aEntries, aErr := readNNTPRequests(fixtureNNTPADir, t0)
-	require.NoError(t, aErr)
-	bEntries, bErr := readNNTPRequests(fixtureNNTPBDir, t0)
-	require.NoError(t, bErr)
-
-	require.Truef(t, nntpEntriesContain(aEntries, deniedID, "denied"),
-		"nntp-stub-a never logged denying %q -- config/e2e must start it with --deny=%s "+
-			"for this scenario's failover proof to mean anything.\n%s",
-		deniedID, deniedID, describeNNTPRequests(fixtureNNTPADir, t0)())
-	require.Truef(t, nntpEntriesContain(bEntries, deniedID, "served"),
-		"nntp-stub-b never logged serving %q after nntp-stub-a denied it.\n%s",
-		deniedID, describeNNTPRequests(fixtureNNTPBDir, t0)())
-
-	imp := waitForImportOutcome(ctx, t, dl, importAttemptTimeout)
-	require.Len(t, imp.Imported, 1)
-	require.NotEmpty(t, imp.Imported[0].MediaFileRef)
+	// The Download kind is gone (A9.1): a grab is a status.downloads[] entry on its item,
+	// started by a Search with spec.grab naming the fixture release (spec §6.13). The body
+	// this scenario had is at the T1 base, git show 10f1a491:test/e2e/download_test.go; A8.4, F8.9 and
+	// W6.15 rewrite it in T2.
+	t.Skip("T2: scenario 6 becomes a Search pick (A8.4, F8.9)")
 }
 
 // TestDownloadBlocklistThenRedownload is scenario 3: a failed download is
@@ -228,43 +158,11 @@ func TestDownloadUsenetNoInfoHashWithCrossServerFailover(t *testing.T) {
 // past any scenario timeout. blocklist_envtest_test.go proves the sweep.
 // This test proves grab's consumption of the label, not the sweep.
 func TestDownloadBlocklistThenRedownload(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), scenarioTimeout)
-	defer cancel()
-	requireFixtureService(ctx, t, fixtureSeederService)
-
-	rf := newRootFolder(ctx, t, "e2e-dlbl-rf", catalogv1alpha1.RootFolderKindMovie, "movies")
-	movie := newMovie(ctx, t, "e2e-dlbl-movie", fixtureTmdbID, QualityProfileName, rf.Name, catalogv1alpha1.MinimumAvailabilityAnnounced)
-	settled := waitForMovieSettled(ctx, t, movie, "Inception")
-
-	dc := newTorrentDownloadClientE2E(ctx, t, "e2e-dlbl-dc")
-	torrentURL := "http://" + fixtureSeederService + "." + Namespace + ".svc/fixture.torrent"
-
-	first := newTorrentDownloadE2E(ctx, t, "e2e-dlbl-dl1", &settled, torrentURL, "guid-dlbl-1", QualityProfileName)
-	waitForDownloadPhaseAtLeast(ctx, t, first, engineReadyTimeout, commonv1.DownloadPhaseAssigned)
-
-	patchDownloadLabel(ctx, t, first, downloadv1alpha1.LabelBlocklisted, downloadv1alpha1.LabelBlocklistedValue)
-	waitForDownloadPhaseExactly(ctx, t, first, engineReadyTimeout, commonv1.DownloadPhaseBlocklisted)
-
-	// Live, not degraded: blocklisting one Download is a label on that one
-	// object (this function's own doc comment -- "there is no field-manager
-	// race here, only a label"), and must not knock the SHARED
-	// DownloadClient's engine StatefulSet out of readiness. Re-fetching and
-	// asserting EngineReady is still True here, rather than trusting that
-	// the redownload below would fail loudly if it were not, is what turns
-	// "the engine happens to still work" into a proof: a degraded-but-not-
-	// yet-failing engine could still complete one more transfer while
-	// reporting unready, and the assertion below would never see that.
-	var liveDC downloadv1alpha1.DownloadClient
-	require.NoError(t, k8sClient.Get(ctx, client.ObjectKeyFromObject(dc), &liveDC))
-	require.True(t, isConditionTrue(liveDC.Status.Conditions, downloadv1alpha1.DownloadClientConditionEngineReady),
-		"DownloadClient %s must stay EngineReady after blocklisting an unrelated Download, not degrade:\n%s",
-		dc.Name, describeDownloadClient(client.ObjectKeyFromObject(dc))())
-
-	// Redownload: an independent Download for the same movie, a different
-	// release guid, proceeds normally -- the earlier blocklisted Download
-	// (a separate object) must not affect it.
-	second := newTorrentDownloadE2E(ctx, t, "e2e-dlbl-dl2", &settled, torrentURL, "guid-dlbl-2", QualityProfileName)
-	waitForDownloadPhaseAtLeast(ctx, t, second, downloadCompleteTimeout, commonv1.DownloadPhaseCompleted)
+	// The Download kind is gone (A9.1): a grab is a status.downloads[] entry on its item,
+	// started by a Search with spec.grab naming the fixture release (spec §6.13). The body
+	// this scenario had is at the T1 base, git show 10f1a491:test/e2e/download_test.go; A8.4, F8.9 and
+	// W6.15 rewrite it in T2.
+	t.Skip("T2: scenario 3 reads the remove-blocklist intent and status.downloads[] (A8.4; TestABlockedReleaseShowsBlockedInASearch)")
 }
 
 // TestDownloadEnginePinSurvivesControllerRestart is D2-10's slice of
@@ -284,33 +182,9 @@ func TestDownloadBlocklistThenRedownload(t *testing.T) {
 // here. TranscodeJob/SubtitleRequest duplication is Phase E/F's surface and
 // likewise out of scope for this task.
 func TestDownloadEnginePinSurvivesControllerRestart(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), scenarioTimeout)
-	defer cancel()
-	requireFixtureService(ctx, t, fixtureSeederService)
-
-	rf := newRootFolder(ctx, t, "e2e-restart-rf", catalogv1alpha1.RootFolderKindMovie, "movies")
-	movie := newMovie(ctx, t, "e2e-restart-movie", fixtureTmdbID, QualityProfileName, rf.Name, catalogv1alpha1.MinimumAvailabilityAnnounced)
-	settled := waitForMovieSettled(ctx, t, movie, "Inception")
-
-	newTorrentDownloadClientE2E(ctx, t, "e2e-restart-dc")
-	torrentURL := "http://" + fixtureSeederService + "." + Namespace + ".svc/fixture.torrent"
-	dl := newTorrentDownloadE2E(ctx, t, "e2e-restart-dl", &settled, torrentURL, "guid-restart-1", QualityProfileName)
-
-	before := waitForDownloadPhaseAtLeast(ctx, t, dl, engineReadyTimeout, commonv1.DownloadPhaseAssigned)
-	require.NotEmpty(t, before.Spec.ClientRef)
-	require.NotEmpty(t, before.Status.Engine)
-	beforeClientRef, beforeEngine := before.Spec.ClientRef, before.Status.Engine
-
-	kubectlRolloutRestart(ctx, t, "grab")
-
-	after := waitForDownloadPhaseAtLeast(ctx, t, dl, engineReadyTimeout, commonv1.DownloadPhaseAssigned)
-	require.Equal(t, beforeClientRef, after.Spec.ClientRef, "clientRef must not migrate across a controller restart")
-	require.Equal(t, beforeEngine, after.Status.Engine, "status.engine must not migrate across a controller restart")
-
-	// The restart must not have regressed progress either: a genuinely
-	// idempotent reconcile computes the SAME phase (or later, if the
-	// transfer kept moving across the restart) from the same telemetry, not
-	// an earlier one.
-	require.GreaterOrEqual(t, downloadPhaseIndex(after.Status.Phase), downloadPhaseIndex(before.Status.Phase),
-		"status.phase must not regress across a controller restart")
+	// The Download kind is gone (A9.1): a grab is a status.downloads[] entry on its item,
+	// started by a Search with spec.grab naming the fixture release (spec §6.13). The body
+	// this scenario had is at the T1 base, git show 10f1a491:test/e2e/download_test.go; A8.4, F8.9 and
+	// W6.15 rewrite it in T2.
+	t.Skip("T2: scenario 4's engine pin is the entry's engine field (A8.4; TestEngineRestartKeepsSeeding)")
 }

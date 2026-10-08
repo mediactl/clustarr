@@ -32,7 +32,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // only caption-worker's ScaledObject, which is scenario 13's concern
 // (test/e2e/subtitle_test.go), not this file's.
 //
-// The Helm-chart and clustarr-all legs are named here as SKIPPED, not
+// The `clustarr all` leg is gone with the binary (W5.17): no process runs
+// every service any more, so TestClustarrAllSinglePodPassesScenarioOne was
+// deleted with it.
+//
+// The Helm-chart and clustarr-all legs were named here as SKIPPED, not
 // implemented, for a structural reason rather than an oversight:
 // TestMain's own gate (main_test.go's package doc comment) requires 29
 // CRDs, NATS and every Deployment in deploymentRoster to ALREADY be
@@ -70,19 +74,4 @@ func TestHelmChartE2EValuesPassesScenarioOne(t *testing.T) {
 		"hack/e2e.sh mode (or sibling script) that installs the chart instead of `kustomize build " +
 		"config/e2e | kubectl apply` before re-running this suite's existing scenario 1 " +
 		"(TestDownloadTorrentGrabToImportAttempt) against it -- see this file's package doc comment.")
-}
-
-// TestClustarrAllSinglePodPassesScenarioOne documents, rather than runs,
-// scenario 16's `clustarr all` leg, for the identical structural reason as
-// TestHelmChartE2EValuesPassesScenarioOne, plus one more: a working
-// all-in-one Deployment needs a ServiceAccount bound to the UNION of every
-// service's ClusterRole, which is RBAC generation -- explicitly W2-only
-// per every W1 task's dispatch contract, not something config/e2e (this
-// task's own path) may add on its own.
-func TestClustarrAllSinglePodPassesScenarioOne(t *testing.T) {
-	t.Skip("needs a SEPARATE cluster stood up with a single `clustarr all` Deployment (a union " +
-		"ServiceAccount/ClusterRole across every service -- RBAC generation, W2-only per every W1 task's " +
-		"dispatch contract) before TestMain's gate would even let this package's tests run -- see this " +
-		"file's package doc comment. Needs: a config/e2e-adjacent manifest running `clustarr all` and " +
-		"the RBAC union it needs, from whichever task owns config/rbac and cmd/clustarr wiring.")
 }
