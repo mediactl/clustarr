@@ -33,16 +33,19 @@ import (
 // The RSS poll production builds reserves its requests on the SAME query
 // ring the search fan-out reserves on, through the bus it is handed -- a
 // poll with no bus would neither count nor honour spec.limits.queryLimit --
-// and writes its status through the uncached reader, which its
-// compare-and-swap needs: a cached read lags the write it raced.
-func TestTheRSSPollGetsTheBusAndAnUncachedReader(t *testing.T) {
+// and reports through the health writer the search fan-out shares, so their
+// read-modify-writes of an indexer's clustarr-indexer-health record are one
+// in-process compare-and-swap (ADR-0019 §7.5). It writes no status, so it
+// is handed no uncached reader any more (A6.3).
+func TestTheRSSPollGetsTheBusAndTheSharedHealthWriter(t *testing.T) {
 	bus := membus.New(nil)
 	require.NoError(t, bus.Ensure(t.Context(), events.Default().ForSingleNode()))
 	t.Cleanup(func() { _ = bus.Close() })
 	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).Build()
-	reader := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).Build()
+	hw := newHealthWriter(bus)
 
-	deps := rssDeps(c, reader, bus, nil, clientcache.NewClientCache(c, nil))
-	require.Equal(t, bus, deps.Bus, "run.go must hand the RSS poll the bus its query ring lives on")
-	require.Equal(t, client.Reader(reader), deps.Reader, "run.go must hand the RSS poll the uncached reader")
+	deps := rssDeps(c, hw, bus, nil, clientcache.NewClientCache(c, nil))
+	require.Equal(t, bus, deps.Bus, "the agent must hand the RSS poll the bus its query ring lives on")
+	require.Same(t, hw, deps.Health, "the agent must hand the RSS poll the search fan-out's health writer")
+	require.Equal(t, client.Reader(c), deps.Client)
 }
