@@ -31,12 +31,16 @@ var _ events.StreamAdmin = (*Bus)(nil)
 // idempotent, matching natsbus deleting an absent consumer.
 func (b *Bus) DeleteSubscription(_ context.Context, stream, durable string) error {
 	b.mu.Lock()
-	st := b.streams[stream]
+	st, adv := b.streams[stream], b.streams[events.StreamAdvisories]
 	b.mu.Unlock()
-	if st == nil {
-		return nil
+	if st != nil {
+		st.forgetDurable(durable)
 	}
-	st.forgetDurable(durable)
+	// Its dead-letter watcher goes with it, as natsbus deletes both: a
+	// watcher left behind keeps sweeping a durable that no longer exists.
+	if adv != nil {
+		adv.forgetDurable(events.DeadLetterWatcherName(stream, durable))
+	}
 	return nil
 }
 
