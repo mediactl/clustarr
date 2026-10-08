@@ -44,11 +44,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
-	downloadac "github.com/mediactl/clustarr/api/applyconfiguration/download/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/movie"
+	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 	"github.com/mediactl/clustarr/app/catalog/controller/wantedcron"
+	"github.com/mediactl/clustarr/app/remediation"
+	"github.com/mediactl/clustarr/app/remediation/itemtest"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -95,22 +97,20 @@ func (c *reconcileCounter) inc() { c.n.Add(1) }
 func (c *reconcileCounter) count() int64 { return c.n.Load() }
 
 // startManager wires a real movie.Reconciler into a real ctrl.Manager backed
-// by the envtest apiserver, starts it, and waits for the cache to sync. It
-// returns the manager's own cached client (required for the MediaFile and
-// Download field-indexed List calls the reconciler makes -- those indices
-// are registered on the manager's cache in SetupWithManager and are not
-// served by a bare client.New against the live apiserver) and a counter
-// wired to OnReconcile.
+// by the envtest apiserver, as the remediation loop's item path runs it
+// (itemtest.Start: the item's Watches and the loop's MediaFile wakes), starts
+// it, and waits for the cache to sync. It returns the manager's own cached
+// client (required for the MediaFile field-indexed List the reconciler makes
+// -- remediation.RegisterIndexes registers mfindex on the manager's cache,
+// which a bare client.New against the live apiserver does not serve), the
+// reconciler, for the legs that reconcile it themselves (a grab entry's write
+// wakes no item: the stages decide entries inside the pass that applies
+// them), and a counter wired to OnReconcile.
 //
-// controller-runtime enforces controller-name uniqueness with a
-// process-global registry (pkg/controller/name.go's checkName), not a
-// per-manager one, so calling this -- and therefore SetupWithManager, which
-// names the controller "movie" -- more than once in this test binary panics
-// with "controller with name movie already exists". Every scenario that
-// needs the real, auto-wired controller therefore lives as a t.Run under one
-// Test function, TestMovieReconcilerRealController, which calls this
-// exactly once.
-func startManager(t *testing.T, ctx context.Context, cfg *rest.Config, bus events.Publisher) (client.Client, *reconcileCounter) {
+// Every scenario that needs the real, auto-wired controller lives as a t.Run
+// under one Test function, TestMovieReconcilerRealController, which calls
+// this exactly once.
+func startManager(t *testing.T, ctx context.Context, cfg *rest.Config, bus events.Publisher) (client.Client, *movie.Reconciler, *reconcileCounter) {
 	t.Helper()
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme:                 k8s.MustNewScheme(),
@@ -127,24 +127,25 @@ func startManager(t *testing.T, ctx context.Context, cfg *rest.Config, bus event
 		Bus:         bus,
 		OnReconcile: counter.inc,
 	}
-	require.NoError(t, r.SetupWithManager(mgr))
+	require.NoError(t, remediation.RegisterIndexes(ctx, mgr.GetFieldIndexer()))
+	require.NoError(t, itemtest.Start(mgr, map[remediation.KeyKind]rollup.Item{remediation.KindMovie: r}))
 
 	go func() { _ = mgr.Start(ctx) }()
 	require.True(t, mgr.GetCache().WaitForCacheSync(ctx))
-	return mgr.GetClient(), counter
+	return mgr.GetClient(), r, counter
 }
 
-// startCacheOnly starts a real ctrl.Manager's cache (so the MediaFile and
-// Download field indices work) WITHOUT wiring a movie.Reconciler's watches
-// to it, so nothing auto-reconciles and SetupWithManager (and its
-// process-global "movie" controller name) is never touched. Tests that call
-// r.Reconcile() directly for tight, synchronous control over the return
+// startCacheOnly starts a real ctrl.Manager's cache (so the MediaFile field
+// indices work) WITHOUT wiring a movie.Reconciler's watches to it, so
+// nothing auto-reconciles. Tests that call r.ReconcileItem() directly for
+// tight, synchronous control over the return
 // value (RequeueAfter, a specific error) use this instead of startManager:
 // mixing a manually invoked Reconcile with an auto-wired controller racing
 // the SAME newly-created (finalizer-less) object is a genuine hazard -- both
 // would call k8s.EnsureFinalizer's plain, optimistic-concurrency Update
 // concurrently, and the loser gets a 409 conflict. The field indices come
-// from movie.RegisterIndexes, the same call SetupWithManager makes.
+// from remediation.RegisterIndexes, the loop's one registrar (mfindex and
+// every item kind's indexes).
 func startCacheOnly(t *testing.T, ctx context.Context, cfg *rest.Config) client.Client {
 	t.Helper()
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
@@ -154,7 +155,7 @@ func startCacheOnly(t *testing.T, ctx context.Context, cfg *rest.Config) client.
 	})
 	require.NoError(t, err)
 
-	require.NoError(t, movie.RegisterIndexes(ctx, mgr.GetFieldIndexer()))
+	require.NoError(t, remediation.RegisterIndexes(ctx, mgr.GetFieldIndexer()))
 
 	go func() { _ = mgr.Start(ctx) }()
 	require.True(t, mgr.GetCache().WaitForCacheSync(ctx))
@@ -162,7 +163,7 @@ func startCacheOnly(t *testing.T, ctx context.Context, cfg *rest.Config) client.
 }
 
 // waitForCachedMetadata polls the cached client until it observes
-// status.metadata set, so a subsequent manual r.Reconcile call reads an
+// status.metadata set, so a subsequent manual r.ReconcileItem call reads an
 // object whose cache entry is at least as new as the write this test just
 // made. Skipping this and reconciling immediately after a write is a known
 // hazard: the cache is eventually consistent, so a Get can return a
@@ -181,7 +182,7 @@ func waitForCachedMetadata(t *testing.T, ctx context.Context, c client.Client, n
 }
 
 // waitForPhase polls the cached client until it observes a non-empty
-// status.phase and returns the settled object. A manual r.Reconcile call, or
+// status.phase and returns the settled object. A manual r.ReconcileItem call, or
 // the auto-wired controller's own async pass, writes through PatchStatus
 // (server-side apply, direct to the API server); the cache-backed client
 // used for follow-up assertions or further writes only reflects that write
@@ -226,8 +227,45 @@ func testQualityProfile(ns, name string, tierQualities ...string) *catalogv1alph
 	}
 }
 
-func downloadStatusAC(name, ns string, phase commonv1.DownloadPhase) *downloadac.DownloadApplyConfiguration {
-	return downloadac.Download(name, ns).WithStatus(downloadac.DownloadStatus().WithPhase(phase))
+// seedEntries applies entries as m's whole status.downloads, the way the
+// grab and downloads stages' entries land (itemtest.SeedEntries, under
+// k8s.ManagerGrab), and waits for the cached client to see each entry at its
+// phase. No watch wakes the Movie on that write (ADR-0019: the stages decide
+// entries inside the pass that applies them), so the caller reconciles it
+// itself.
+func seedEntries(t *testing.T, ctx context.Context, c client.Client, m *catalogv1alpha1.Movie, entries ...catalogv1alpha1.DownloadEntry) {
+	t.Helper()
+	require.NoError(t, itemtest.SeedEntries(ctx, c, m, entries...))
+	require.Eventually(t, func() bool {
+		var got catalogv1alpha1.Movie
+		if err := c.Get(ctx, client.ObjectKeyFromObject(m), &got); err != nil {
+			return false
+		}
+		for _, want := range entries {
+			seen := false
+			for _, have := range got.Status.Downloads {
+				seen = seen || (have.ID == want.ID && have.Phase == want.Phase)
+			}
+			if !seen {
+				return false
+			}
+		}
+		return true
+	}, 5*time.Second, 10*time.Millisecond, "the cache must see the seeded entries")
+}
+
+// reconcileUntil reconciles nn and reads it back into got until cond holds.
+// One call is not enough: a ReconcileItem that read a cache older than the
+// last write is refused by itemstatus.Apply's compare-and-swap and asks for
+// a requeue, which here is the next poll.
+func reconcileUntil(t *testing.T, ctx context.Context, c client.Client, r *movie.Reconciler, nn types.NamespacedName, got *catalogv1alpha1.Movie, cond func() bool, msgAndArgs ...any) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		if _, err := r.ReconcileItem(ctx, nn); err != nil {
+			return false
+		}
+		return c.Get(ctx, nn, got) == nil && cond()
+	}, 5*time.Second, 20*time.Millisecond, msgAndArgs...)
 }
 
 // fakePublisher is a tiny local Publisher that always returns err, used to
@@ -239,11 +277,11 @@ func (f fakePublisher) Publish(_ context.Context, _ string, _ *events.Envelope, 
 }
 
 // TestMovieReconcilerRealController is the one Test function that starts a
-// real, auto-wired movie.Reconciler against a real envtest apiserver (see
-// startManager's doc for why there can only be one). Every subtest uses its
-// own namespace and require.Eventually rather than a manual r.Reconcile
-// call, so there is exactly one writer -- the auto-wired controller itself
-// -- touching each object.
+// real, auto-wired movie.Reconciler against a real envtest apiserver. Every
+// subtest uses its own namespace and require.Eventually; only the grab-entry
+// legs reconcile the Movie themselves (reconcileUntil), since an entry's
+// write wakes no item, and both writers apply through itemstatus.Apply's
+// compare-and-swap.
 func TestMovieReconcilerRealController(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -251,7 +289,7 @@ func TestMovieReconcilerRealController(t *testing.T) {
 	bus := membus.New(nil)
 	require.NoError(t, bus.Ensure(ctx, events.Default()))
 
-	c, counter := startManager(t, ctx, cfg, bus)
+	c, r, counter := startManager(t, ctx, cfg, bus)
 	require.NoError(t, c.Create(ctx, testNamespace("finalizer-ns")))
 	require.NoError(t, c.Create(ctx, testNamespace("metadata-ns")))
 	require.NoError(t, c.Create(ctx, testNamespace("avail-ns")))
@@ -867,16 +905,15 @@ func TestMovieReconcilerRealController(t *testing.T) {
 		stays(t, "dune-part-two")
 	})
 
-	// Ruling R-5: this reconciler is the only writer of
+	// Ruling R-5 under ADR-0019: this reconciler is the only writer of
 	// status.activeDownloadRef, deriving it from the Movie's own non-terminal
-	// Download. The Download is created the way the grab path creates one --
-	// a server-side apply under k8s.ManagerCatalogGrab carrying an
-	// ownerReference to the Movie -- and NOTHING writes the ref: the grab
-	// worker's old write is gone, so the ref can only come from the Download
-	// watch and the derivation. managedFields then proves the handover, not
-	// just the value: a stray co-owner would leave every value assertion
+	// grab entry (rollup.ActiveEntry). The entry lands the way the grab
+	// stage's does -- status.downloads under k8s.ManagerGrab
+	// (itemtest.SeedEntries) -- and NOTHING writes the ref, so the ref can
+	// only come from the derivation. managedFields then proves the handover,
+	// not just the value: a stray co-owner would leave every value assertion
 	// passing (CLAUDE.md, "A double-claim is silent").
-	t.Run("an owned Download sets and clears activeDownloadRef with no grab-worker write, and only catalog owns it", func(t *testing.T) {
+	t.Run("an owned grab entry sets and clears activeDownloadRef with no grab-stage write of it, and only catalog owns it", func(t *testing.T) {
 		m := &catalogv1alpha1.Movie{
 			ObjectMeta: metav1.ObjectMeta{Name: "arrival", Namespace: "avail-ns"},
 			Spec: catalogv1alpha1.MovieSpec{
@@ -886,40 +923,29 @@ func TestMovieReconcilerRealController(t *testing.T) {
 		}
 		require.NoError(t, c.Create(ctx, m))
 		live := waitForPhase(t, ctx, c, "avail-ns", "arrival")
-		require.Nil(t, live.Status.ActiveDownloadRef, "setup: no Download exists yet")
+		require.Nil(t, live.Status.ActiveDownloadRef, "setup: no grab entry exists yet")
+		nn := types.NamespacedName{Namespace: "avail-ns", Name: "arrival"}
 
-		dl := grabPathDownload(t, ctx, c, &live, "arrival-abc1234567")
+		entry := itemtest.Entry("arrival-abc1234567", commonv1.DownloadPhasePending)
+		seedEntries(t, ctx, c, &live, entry)
 
 		var got catalogv1alpha1.Movie
-		require.Eventually(t, func() bool {
-			if err := c.Get(ctx, types.NamespacedName{Namespace: "avail-ns", Name: "arrival"}, &got); err != nil {
-				return false
-			}
-			return got.Status.ActiveDownloadRef != nil
-		}, 5*time.Second, 20*time.Millisecond, "a new owned Download must reach the ref through the Download watch alone")
-		assert.Equal(t, dl, *got.Status.ActiveDownloadRef)
+		reconcileUntil(t, ctx, c, r, nn, &got, func() bool { return got.Status.ActiveDownloadRef != nil },
+			"a new grab entry must reach the ref through the derivation alone")
+		assert.Equal(t, entry.ID, *got.Status.ActiveDownloadRef)
 		assert.Equal(t, []string{k8s.ManagerCatalog.String()}, statusFieldOwners(t, &got, "activeDownloadRef"),
 			"status.activeDownloadRef must have exactly one owner, the Movie reconciler")
 
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadStatusAC(dl, "avail-ns", commonv1.DownloadPhaseAssigned))
-		require.NoError(t, err)
-		require.Eventually(t, func() bool {
-			if err := c.Get(ctx, types.NamespacedName{Namespace: "avail-ns", Name: "arrival"}, &got); err != nil {
-				return false
-			}
-			return got.Status.Phase == catalogv1alpha1.MoviePhaseDownloading
-		}, 5*time.Second, 20*time.Millisecond)
+		entry.Phase = commonv1.DownloadPhaseAssigned
+		seedEntries(t, ctx, c, &live, entry)
+		reconcileUntil(t, ctx, c, r, nn, &got, func() bool { return got.Status.Phase == catalogv1alpha1.MoviePhaseDownloading })
 		require.NotNil(t, got.Status.ActiveDownloadRef)
-		assert.Equal(t, dl, *got.Status.ActiveDownloadRef)
+		assert.Equal(t, entry.ID, *got.Status.ActiveDownloadRef)
 
-		_, err = k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadStatusAC(dl, "avail-ns", commonv1.DownloadPhaseImported))
-		require.NoError(t, err)
-		require.Eventually(t, func() bool {
-			if err := c.Get(ctx, types.NamespacedName{Namespace: "avail-ns", Name: "arrival"}, &got); err != nil {
-				return false
-			}
-			return got.Status.ActiveDownloadRef == nil
-		}, 5*time.Second, 20*time.Millisecond, "an Imported Download must clear the ref")
+		entry.Phase = commonv1.DownloadPhaseImported
+		seedEntries(t, ctx, c, &live, entry)
+		reconcileUntil(t, ctx, c, r, nn, &got, func() bool { return got.Status.ActiveDownloadRef == nil },
+			"an Imported entry must clear the ref")
 		assert.Empty(t, statusFieldOwners(t, &got, "activeDownloadRef"), "a cleared ref leaves no owner behind")
 
 		// The phase edges were reported as Events through the real recorder.
@@ -950,18 +976,15 @@ func TestMovieReconcilerRealController(t *testing.T) {
 					WithStatus(catalogv1alpha1.MovieReleaseStatusReleased).WithRefreshedAt(metav1.Now()))))
 		require.NoError(t, err)
 
-		// settled waits for the Movie to read want (and to hold the ref or
-		// not), then asserts the sweep's reason for it.
+		// settled reconciles the Movie until it reads want (and holds the
+		// ref or not), then asserts the sweep's reason for it.
 		settled := func(t *testing.T, step string, want catalogv1alpha1.MoviePhase, dl string) {
 			t.Helper()
 			var got catalogv1alpha1.Movie
-			require.Eventually(t, func() bool {
-				if err := c.Get(ctx, types.NamespacedName{Namespace: "avail-ns", Name: "prisoners"}, &got); err != nil {
-					return false
-				}
+			reconcileUntil(t, ctx, c, r, types.NamespacedName{Namespace: "avail-ns", Name: "prisoners"}, &got, func() bool {
 				hasRef := got.Status.ActiveDownloadRef != nil && *got.Status.ActiveDownloadRef == dl
 				return got.Status.Phase == want && hasRef == (want == catalogv1alpha1.MoviePhaseDownloading)
-			}, 5*time.Second, 20*time.Millisecond, "%s: want phase %s", step, want)
+			}, "%s: want phase %s", step, want)
 
 			cands, err := wantedcron.ListCandidates(ctx, c, func(k commonv1.MediaKind) bool { return k == commonv1.MediaKindMovie },
 				time.Now(), client.InNamespace("avail-ns"))
@@ -981,12 +1004,14 @@ func TestMovieReconcilerRealController(t *testing.T) {
 		settled(t, "steady state", catalogv1alpha1.MoviePhaseWanted, "")
 
 		live := waitForPhase(t, ctx, c, "avail-ns", "prisoners")
-		dl := grabPathDownload(t, ctx, c, &live, "prisoners-abc1234567")
-		settled(t, `a Download with no phase yet`, catalogv1alpha1.MoviePhaseDownloading, dl)
+		entry := itemtest.Entry("prisoners-abc1234567", commonv1.DownloadPhasePending)
+		dl := entry.ID
+		seedEntries(t, ctx, c, &live, entry)
+		settled(t, "a grab entry just admitted (Pending)", catalogv1alpha1.MoviePhaseDownloading, dl)
 
 		set := func(p commonv1.DownloadPhase) {
-			_, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadStatusAC(dl, "avail-ns", p))
-			require.NoError(t, err)
+			entry.Phase = p
+			seedEntries(t, ctx, c, &live, entry)
 		}
 		for _, p := range []commonv1.DownloadPhase{
 			commonv1.DownloadPhasePending, commonv1.DownloadPhaseAssigned,
@@ -1010,10 +1035,11 @@ func TestMovieReconcilerRealController(t *testing.T) {
 		}
 	})
 
-	// The two ways a Download must NOT become the ref: it belongs to a
-	// different Movie of the same name (a deleted predecessor the garbage
-	// collector has not reached), or it is terminal from the start.
-	t.Run("a Download owned by another object, or already terminal, never sets the ref", func(t *testing.T) {
+	// A grab entry that is terminal from the start must NOT become the ref.
+	// (The stranger leg -- a Download owned by another Movie of the same
+	// name -- is gone with the Download kind: an entry lives on its owner's
+	// own status, so there is nothing of another UID to adopt.)
+	t.Run("a grab entry already terminal never sets the ref", func(t *testing.T) {
 		m := &catalogv1alpha1.Movie{
 			ObjectMeta: metav1.ObjectMeta{Name: "sicario", Namespace: "avail-ns"},
 			Spec: catalogv1alpha1.MovieSpec{
@@ -1023,30 +1049,20 @@ func TestMovieReconcilerRealController(t *testing.T) {
 		}
 		require.NoError(t, c.Create(ctx, m))
 		live := waitForPhase(t, ctx, c, "avail-ns", "sicario")
+		nn := types.NamespacedName{Namespace: "avail-ns", Name: "sicario"}
 
-		// A stranger: same target name, owner UID of some other object.
-		stranger := live.DeepCopy()
-		stranger.UID = "00000000-0000-0000-0000-000000000000"
-		grabPathDownload(t, ctx, c, stranger, "sicario-stranger01")
-
-		terminal := grabPathDownload(t, ctx, c, &live, "sicario-failed0001")
-		_, err := k8s.PatchStatus(ctx, c, k8s.ManagerGrab, downloadStatusAC(terminal, "avail-ns", commonv1.DownloadPhaseFailed))
-		require.NoError(t, err)
+		seedEntries(t, ctx, c, &live, itemtest.Entry("sicario-failed0001", commonv1.DownloadPhaseFailed))
 
 		hasRef := func() bool {
 			var got catalogv1alpha1.Movie
-			if err := c.Get(ctx, types.NamespacedName{Namespace: "avail-ns", Name: "sicario"}, &got); err != nil {
+			if _, err := r.ReconcileItem(ctx, nn); err != nil {
+				return false
+			}
+			if err := c.Get(ctx, nn, &got); err != nil {
 				return false
 			}
 			return got.Status.ActiveDownloadRef != nil
 		}
-		// The terminal Download is created before its status can say
-		// Failed, and a just-created "" phase is in flight
-		// (rollup.DownloadNonTerminal), so a reconcile in that window may
-		// set the ref, rightly, until the Failed status lands. Settle
-		// first: the stranger never goes terminal, so had it set the ref
-		// this wait would fail too.
-		require.Eventually(t, func() bool { return !hasRef() }, 10*time.Second, 50*time.Millisecond)
 		require.Never(t, hasRef, time.Second, 50*time.Millisecond)
 	})
 
@@ -1289,30 +1305,6 @@ func TestMovieReconcilerRealController(t *testing.T) {
 	})
 }
 
-// grabPathDownload creates a Download for owner the way the grab path does:
-// one server-side apply under k8s.ManagerCatalogGrab, carrying an
-// ownerReference to the Movie and nothing on the Movie itself. It returns
-// the Download's name.
-func grabPathDownload(t *testing.T, ctx context.Context, c client.Client, owner *catalogv1alpha1.Movie, name string) string {
-	t.Helper()
-	ref, err := k8s.OwnerReferenceAC(owner, k8s.MustNewScheme())
-	require.NoError(t, err)
-	dl := downloadac.Download(name, owner.Namespace).
-		WithOwnerReferences(ref).
-		WithSpec(downloadac.DownloadSpec().
-			WithProtocol(commonv1.ProtocolTorrent).
-			WithSource(downloadac.DownloadSource().WithMagnetURL("magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567")).
-			WithRelease(commonv1.ReleaseInfo{
-				GUID: "https://indexer.example/" + name, IndexerRef: "example", IndexerName: "Example",
-				Title: "Fixture.2016.1080p", Protocol: commonv1.ProtocolTorrent,
-				InfoHash: "0123456789abcdef0123456789abcdef01234567",
-			}).
-			WithTarget(commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: owner.Name}))
-	_, err = k8s.Apply(ctx, c, k8s.ManagerCatalogGrab, dl)
-	require.NoError(t, err)
-	return name
-}
-
 // statusFieldOwners returns the field managers whose status-subresource
 // managedFields entry claims f:status.f:<field> on obj, sorted. This is the
 // one place an over-claim is visible at all: pkg/k8s forces ownership, so a
@@ -1375,8 +1367,7 @@ func newBareTestClient(t *testing.T) client.Client {
 // no controller wired to it at all -- the QueueFull branch returns before
 // reconcileNormal ever reaches the MediaFile field-indexed List, so no cache
 // is needed, and running without one keeps this the only reconciler ever
-// touching this object (no race with an auto-wired real-bus controller, and
-// no SetupWithManager call to collide with TestMovieReconcilerRealController's).
+// touching this object (no race with an auto-wired real-bus controller).
 func TestMovieReconcilerQueueFull(t *testing.T) {
 	ctx := context.Background()
 	c := newBareTestClient(t)
@@ -1392,7 +1383,7 @@ func TestMovieReconcilerQueueFull(t *testing.T) {
 		Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10),
 		Bus: fakePublisher{err: events.ErrQueueFull},
 	}
-	res, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "queuefull-ns", Name: "heat-2"}})
+	res, err := r.ReconcileItem(ctx, types.NamespacedName{Namespace: "queuefull-ns", Name: "heat-2"})
 	require.NoError(t, err)
 	assert.Equal(t, time.Minute, res.RequeueAfter)
 
@@ -1456,7 +1447,7 @@ func TestMovieReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 
 		req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "transient-ns", Name: name}}
 		r := &movie.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10), Bus: fakePublisher{}}
-		_, err = r.Reconcile(ctx, req)
+		_, err = r.ReconcileItem(ctx, req.NamespacedName)
 		require.NoError(t, err)
 		waitForPhase(t, ctx, c, "transient-ns", name)
 
@@ -1474,7 +1465,7 @@ func TestMovieReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 			return c.Get(ctx, types.NamespacedName{Namespace: "transient-ns", Name: mf.Name}, &got) == nil
 		}, 5*time.Second, 10*time.Millisecond)
 
-		_, err = r.Reconcile(ctx, req)
+		_, err = r.ReconcileItem(ctx, req.NamespacedName)
 		require.NoError(t, err)
 
 		var got catalogv1alpha1.Movie
@@ -1527,7 +1518,7 @@ func TestMovieReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 			Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10),
 			Bus: fakePublisher{err: events.ErrQueueFull},
 		}
-		res, err := r2.Reconcile(ctx, req)
+		res, err := r2.ReconcileItem(ctx, req.NamespacedName)
 		require.NoError(t, err)
 		assert.Equal(t, time.Minute, res.RequeueAfter)
 
@@ -1579,7 +1570,7 @@ func TestMovieReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 		}, 5*time.Second, 10*time.Millisecond)
 
 		r2 := &movie.Reconciler{Client: c, Scheme: k8s.MustNewScheme(), Recorder: k8sevents.NewFakeRecorder(10), Bus: fakePublisher{}}
-		res, err := r2.Reconcile(ctx, req)
+		res, err := r2.ReconcileItem(ctx, req.NamespacedName)
 		require.NoError(t, err)
 		assert.Equal(t, time.Minute, res.RequeueAfter)
 
@@ -1614,8 +1605,8 @@ func TestMovieReconcilerTransientFailuresPreserveSteadyState(t *testing.T) {
 // TestMovieReconcilerAvailabilityAndPath covers: with fresh cached metadata
 // and a resolvable RootFolder, status.available/path/phase are computed end
 // to end and RequeueAfter tracks availableAt (§Step 7). It uses
-// startCacheOnly (a real cache, no auto-wired controller, no
-// SetupWithManager call) and calls r.Reconcile directly so the RequeueAfter
+// startCacheOnly (a real cache, no auto-wired controller) and calls
+// r.ReconcileItem directly so the RequeueAfter
 // return value can be asserted precisely, without a second, auto-wired
 // reconciler racing these newly-created objects' first finalizer-add.
 func TestMovieReconcilerAvailabilityAndPath(t *testing.T) {
@@ -1656,7 +1647,7 @@ func TestMovieReconcilerAvailabilityAndPath(t *testing.T) {
 		waitForCachedMetadata(t, ctx, c, "avail-ns", "inception")
 
 		req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "avail-ns", Name: "inception"}}
-		_, err = r.Reconcile(ctx, req)
+		_, err = r.ReconcileItem(ctx, req.NamespacedName)
 		require.NoError(t, err)
 
 		got := waitForPhase(t, ctx, c, "avail-ns", "inception")
@@ -1693,7 +1684,7 @@ func TestMovieReconcilerAvailabilityAndPath(t *testing.T) {
 		waitForCachedMetadata(t, ctx, c, "avail-ns", "dune-part-three")
 
 		req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "avail-ns", Name: "dune-part-three"}}
-		res, err := r.Reconcile(ctx, req)
+		res, err := r.ReconcileItem(ctx, req.NamespacedName)
 		require.NoError(t, err)
 
 		got := waitForPhase(t, ctx, c, "avail-ns", "dune-part-three")
@@ -1724,7 +1715,7 @@ func TestMovieReconcilerAvailabilityAndPath(t *testing.T) {
 		waitForCachedMetadata(t, ctx, c, "avail-ns", "unknown-release")
 
 		req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "avail-ns", Name: "unknown-release"}}
-		res, err := r.Reconcile(ctx, req)
+		res, err := r.ReconcileItem(ctx, req.NamespacedName)
 		require.NoError(t, err)
 		assert.Zero(t, res.RequeueAfter, "a zero availableAt must never feed RequeueAfter")
 
@@ -1810,7 +1801,7 @@ func TestMovieReconcilerPublishesCatalogEvents(t *testing.T) {
 	reconcileUntil := func(what string, cond func(catalogv1alpha1.Movie) bool) {
 		t.Helper()
 		require.Eventually(t, func() bool {
-			if _, err := r.Reconcile(ctx, req); err != nil {
+			if _, err := r.ReconcileItem(ctx, req.NamespacedName); err != nil {
 				return false
 			}
 			var got catalogv1alpha1.Movie
@@ -1820,7 +1811,7 @@ func TestMovieReconcilerPublishesCatalogEvents(t *testing.T) {
 
 	reconcileUntil("first reconcile", func(got catalogv1alpha1.Movie) bool { return got.Status.AddOptionsApplied })
 	// A second pass over the same state announces nothing new.
-	_, err = r.Reconcile(ctx, req)
+	_, err = r.ReconcileItem(ctx, req.NamespacedName)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"clustarr.evt.catalog.movie.added"}, pub.catalogSubjects())
 
@@ -1867,7 +1858,7 @@ func TestMovieReconcilerPublishesCatalogEvents(t *testing.T) {
 		var got catalogv1alpha1.Movie
 		return c.Get(ctx, req.NamespacedName, &got) == nil && k8s.IsDeleting(&got)
 	}, 5*time.Second, 20*time.Millisecond)
-	_, err = r.Reconcile(ctx, req)
+	_, err = r.ReconcileItem(ctx, req.NamespacedName)
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{
