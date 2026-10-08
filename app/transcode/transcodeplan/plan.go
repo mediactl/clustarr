@@ -184,9 +184,18 @@ func plan(in Inputs) Decision {
 		return planInWindow(in)
 	case prev != nil && prev.Phase == catalogv1alpha1.TranscodePhaseSucceeded && prev.ProbeHash != "" &&
 		prev.ProbeHash != in.Draft.ProbeHash:
+		b := prev.DeepCopy()
+		if tag := succeededTag(prev); tag != "" && mediaTag(in.Draft) == tag {
+			// Moved, not changed: the probe hash hashes the path, so a rename
+			// (the naming planner's, renameTranscoded's) moves it, but the file
+			// still carries this transcode's CLUSTARR_PROFILE. The verdict
+			// follows the file, and a tag an earlier pass dropped is restored
+			// (found by the smoke test, 2026-10-07).
+			b.ProbeHash, b.ProfileTag, b.Compliant = in.Draft.ProbeHash, tag, true
+			return Decision{Block: b}
+		}
 		// staleTranscodeState, moved: the bytes the verdict described are gone
 		// (a re-mux, a hand edit); the file stays Transcoded() by spec.original.
-		b := prev.DeepCopy()
 		b.Compliant, b.ProfileTag = false, ""
 		return Decision{Block: b}
 	case prev != nil && prev.Reason == ReasonProfileGone && prev.Dispatch != nil && prev.Dispatch.Withdrawn:
@@ -194,6 +203,19 @@ func plan(in Inputs) Decision {
 		return Decision{Block: keepFact(in)}
 	}
 	return Decision{Block: prev.DeepCopy()} // verdicts and Succeeded stay untouched (§5.11)
+}
+
+// succeededTag is the CLUSTARR_PROFILE a Succeeded block's swap stamped:
+// its profileTag, or, once the stale rule dropped it, the profile and hash
+// it was dispatched under.
+func succeededTag(b *catalogv1alpha1.TranscodeState) string {
+	if b.ProfileTag != "" {
+		return b.ProfileTag
+	}
+	if b.Profile == "" || b.ProfileHash == "" {
+		return ""
+	}
+	return Tag(b.Profile, b.ProfileHash)
 }
 
 // legacy is §2.5 "Legacy objects": a phase-less block a 0.4.x install

@@ -271,3 +271,29 @@ func TestNewBytesOnASucceededFileDropItsVerdict(t *testing.T) {
 	assert.Equal(t, &catalogv1alpha1.TranscodeState{Phase: catalogv1alpha1.TranscodePhaseSucceeded, ProbeHash: "ph-out"}, b)
 	assert.Equal(t, b, pass(inputs(b, probed("ph-remuxed"), GrantNone)).Block, "dropped once, then kept")
 }
+
+// TestARenameKeepsASucceededFilesVerdict: the probe hash hashes the path, so
+// renaming a transcoded file to its canonical name moves it, but the bytes
+// still carry the swap's CLUSTARR_PROFILE. The verdict follows the file; on
+// kind a rename after the swap dropped profileTag and compliant (smoke test,
+// 2026-10-07), and a block that lost them that way gets them back.
+func TestARenameKeepsASucceededFilesVerdict(t *testing.T) {
+	done := &catalogv1alpha1.TranscodeState{Phase: catalogv1alpha1.TranscodePhaseSucceeded, Compliant: true,
+		Profile: "hevc", ProfileHash: "d1spatched", ProfileTag: "hevc@d1spatched", ProbeHash: "ph-out"}
+	renamed := probed("ph-renamed")
+	renamed.MediaInfo.TranscodeProfile = "hevc@d1spatched"
+
+	want := done.DeepCopy()
+	want.ProbeHash = "ph-renamed"
+	assert.Equal(t, want, pass(inputs(done, renamed, GrantNone)).Block)
+
+	dropped := done.DeepCopy()
+	dropped.Compliant, dropped.ProfileTag = false, ""
+	assert.Equal(t, want, pass(inputs(dropped, renamed.DeepCopy(), GrantNone)).Block, "a dropped verdict is restored")
+
+	other := probed("ph-renamed")
+	other.MediaInfo.TranscodeProfile = "other@abc"
+	gone := done.DeepCopy()
+	gone.Compliant, gone.ProfileTag = false, ""
+	assert.Equal(t, gone, pass(inputs(done, other, GrantNone)).Block, "another tag is new bytes")
+}
