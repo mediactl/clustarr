@@ -350,8 +350,14 @@ func (k *conflictKV) DeleteRevision(ctx context.Context, key string, rev uint64)
 	return k.inner.DeleteRevision(ctx, key, rev)
 }
 
-func (k *conflictKV) Watch(ctx context.Context, p string) (<-chan events.Entry, error) {
-	return k.inner.Watch(ctx, p)
+func (k *conflictKV) Watch(ctx context.Context, p string, opts ...events.WatchOption) (<-chan events.Entry, error) {
+	return k.inner.Watch(ctx, p, opts...)
+}
+
+func (k *conflictKV) Keys(ctx context.Context) ([]string, error) { return k.inner.Keys(ctx) }
+
+func (k *conflictKV) Status(ctx context.Context) (events.KVStatus, error) {
+	return k.inner.Status(ctx)
 }
 
 func TestGrabLimitedRecognisesOnlyTheRefusal(t *testing.T) {
