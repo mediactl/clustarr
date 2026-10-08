@@ -27,18 +27,51 @@ import (
 
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/ui"
 	"github.com/mediactl/clustarr/ui/paging"
+	"github.com/mediactl/clustarr/ui/projection"
 	"github.com/mediactl/clustarr/ui/views"
 )
 
-// allDownloadPhases is every value download_types.go's DownloadPhase enum
-// permits (download_types.go:75-98, eleven values, enforced there by
+// grabEntry is a minimal torrent grab entry with id in phase, as an owner's
+// status.downloads holds it (ADR-0019 §6.2).
+func grabEntry(id string, phase commonv1.DownloadPhase) catalogv1.DownloadEntry {
+	return catalogv1.DownloadEntry{
+		ID: id, UID: id + "-uid", Phase: phase,
+		Release: catalogv1.DownloadRelease{Title: "Example Release", Protocol: commonv1.ProtocolTorrent},
+	}
+}
+
+// grabRow is the Downloads-page row of a grab entry with id in phase, held
+// by a Movie of the same name.
+func grabRow(id string, phase commonv1.DownloadPhase) projection.DownloadRow {
+	return projection.DownloadRow{
+		Owner:     schema.ItemRef{Kind: "Movie", Ref: schema.Ref{Namespace: "default", Name: id, UID: id + "-owner"}},
+		OwnerKind: commonv1.MediaKindMovie,
+		Entry:     grabEntry(id, phase),
+	}
+}
+
+// grabbingMovie is a Movie named name whose status.downloads holds entries:
+// what a cluster reader lists for the Downloads page since the Download kind
+// was folded into its owners.
+func grabbingMovie(name string, entries ...catalogv1.DownloadEntry) *catalogv1.Movie {
+	return &catalogv1.Movie{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default", UID: types.UID(name + "-owner")},
+		Status:     catalogv1.MovieStatus{Downloads: entries},
+	}
+}
+
+// allDownloadPhases is every value the DownloadPhase enum permits
+// (api/common/v1alpha1/download_enums.go, eleven values, enforced there by
 // +kubebuilder:validation:Enum). It is spelled out explicitly rather than
 // derived from reflection so this test fails loudly -- "update this list" --
 // if a phase is ever added to or removed from that enum without a matching
@@ -62,28 +95,24 @@ var allDownloadPhases = []commonv1.DownloadPhase{
 // acceptance check for ruling R5's "envtest writes status directly, so
 // D3-2 ... get[s] full coverage against hand-written status covering all 11
 // DownloadPhase values" -- it does not need envtest to do it: DownloadRows
-// takes plain Go values, so a hand-built Download per phase is enough.
+// takes plain Go values, so a hand-built grab entry per phase is enough.
 //
 // Assertions are on the data-phase, data-protocol and data-download
 // attributes (ruling R8), not on visible copy such as a badge's label.
 func TestAllElevenDownloadPhasesRenderWithoutPanicking(t *testing.T) {
 	require.Len(t, allDownloadPhases, 11,
-		"download_types.go's DownloadPhase enum has 11 values; update allDownloadPhases if that changed")
+		"the DownloadPhase enum has 11 values; update allDownloadPhases if that changed")
 
 	for _, phase := range allDownloadPhases {
 		t.Run(string(phase), func(t *testing.T) {
-			d := downloadv1.Download{
-				ObjectMeta: metav1.ObjectMeta{Name: "release-" + string(phase), Namespace: "default"},
-				Spec: downloadv1.DownloadSpec{
-					Protocol: commonv1.ProtocolTorrent,
-					Release:  commonv1.ReleaseInfo{Title: "Example Release"},
-				},
-				Status: downloadv1.DownloadStatus{Phase: phase, ProgressPercent: 37},
+			d := views.DownloadView{
+				Row:      grabRow("release-"+string(phase), phase),
+				Progress: &schema.DownloadProgress{PercentMilli: 37000},
 			}
 
 			var buf bytes.Buffer
 			require.NotPanics(t, func() {
-				require.NoError(t, views.DownloadRows([]downloadv1.Download{d}).Render(context.Background(), &buf))
+				require.NoError(t, views.DownloadRows([]views.DownloadView{d}).Render(context.Background(), &buf))
 			})
 			require.Contains(t, buf.String(), `data-phase="`+string(phase)+`"`)
 			require.Contains(t, buf.String(), `data-protocol="torrent"`)
@@ -93,19 +122,19 @@ func TestAllElevenDownloadPhasesRenderWithoutPanicking(t *testing.T) {
 }
 
 // TestDownloadRowRendersTheZeroValueStatusWithoutError is R5's other half:
-// app/grab/ has no controller yet, so every Download in a live cluster today
-// sits at status.phase == "" with every other status field at its zero
-// value. The row must render, not panic and not error.
+// a grab entry the downloads stage has not admitted yet sits at phase ""
+// with every other field at its zero value, and no telemetry exists for it.
+// The row must render, not panic and not error.
 func TestDownloadRowRendersTheZeroValueStatusWithoutError(t *testing.T) {
-	d := downloadv1.Download{
-		ObjectMeta: metav1.ObjectMeta{Name: "unclaimed", Namespace: "default"},
-		Spec:       downloadv1.DownloadSpec{Protocol: commonv1.ProtocolTorrent},
-		// Status is deliberately the zero value.
-	}
+	d := views.DownloadView{Row: projection.DownloadRow{
+		OwnerKind: commonv1.MediaKindMovie,
+		// The entry is deliberately the zero value but for its id.
+		Entry: catalogv1.DownloadEntry{ID: "unclaimed"},
+	}}
 
 	var buf bytes.Buffer
 	require.NotPanics(t, func() {
-		require.NoError(t, views.DownloadRows([]downloadv1.Download{d}).Render(context.Background(), &buf))
+		require.NoError(t, views.DownloadRows([]views.DownloadView{d}).Render(context.Background(), &buf))
 	})
 	require.Contains(t, buf.String(), `data-phase=""`)
 	require.Contains(t, buf.String(), `data-download="unclaimed"`)
@@ -114,19 +143,18 @@ func TestDownloadRowRendersTheZeroValueStatusWithoutError(t *testing.T) {
 // TestDownloadRowWithNoMeaningfulPercentRendersNoProgressBar pins
 // downloadPercent's -1 sentinel (the same "no meaningful percentage"
 // convention pkg/pipeline.Entry.Percent uses) through to the row: a Pending
-// download has not started transferring, so status.progressPercent is not
-// meaningful yet, and helpers.go's clampPercent -- already relied on by the
-// Pipeline page for the identical sentinel -- must suppress the bar rather
-// than render a 0%-wide one.
+// grab has not started transferring, so no percent is meaningful yet, and
+// helpers.go's clampPercent -- already relied on by the Pipeline page for
+// the identical sentinel -- must suppress the bar rather than render a
+// 0%-wide one.
 func TestDownloadRowWithNoMeaningfulPercentRendersNoProgressBar(t *testing.T) {
-	d := downloadv1.Download{
-		ObjectMeta: metav1.ObjectMeta{Name: "not-started", Namespace: "default"},
-		Spec:       downloadv1.DownloadSpec{Protocol: commonv1.ProtocolTorrent},
-		Status:     downloadv1.DownloadStatus{Phase: commonv1.DownloadPhasePending, ProgressPercent: 0},
+	d := views.DownloadView{
+		Row:      grabRow("not-started", commonv1.DownloadPhasePending),
+		Progress: &schema.DownloadProgress{PercentMilli: 0},
 	}
 
 	var buf bytes.Buffer
-	require.NoError(t, views.DownloadRows([]downloadv1.Download{d}).Render(context.Background(), &buf))
+	require.NoError(t, views.DownloadRows([]views.DownloadView{d}).Render(context.Background(), &buf))
 	// "h-2 rounded-full bg-primary" is the progress-fill div's own class
 	// (downloads.templ's downloadRow); a bare "bg-primary" substring check
 	// would also match the phase badge's unrelated sky-blue default color.
@@ -181,24 +209,17 @@ func TestDownloadsPageRendersWithoutACluster(t *testing.T) {
 }
 
 // TestDownloadsPageListsThroughTheReader proves the handler wiring end to
-// end: a Download seeded into a fake, scheme-matched client.Reader (built
-// from ui.NewReaderScheme, the same seam ui.NewClusterReader itself uses,
-// rather than pkg/k8s.MustNewScheme -- ui/ must not import pkg/k8s at all)
-// shows up in the rendered page through Options.Reader, with no projection
-// package involved.
+// end: a grab entry on a Movie seeded into a fake, scheme-matched
+// client.Reader (built from ui.NewReaderScheme, the same seam
+// ui.NewClusterReader itself uses, rather than pkg/k8s.MustNewScheme -- ui/
+// must not import pkg/k8s at all) shows up in the rendered page through
+// Options.Reader (projection.ListDownloadRows), with no projection running.
 func TestDownloadsPageListsThroughTheReader(t *testing.T) {
 	scheme, err := ui.NewReaderScheme()
 	require.NoError(t, err)
 
-	d := &downloadv1.Download{
-		ObjectMeta: metav1.ObjectMeta{Name: "arrival", Namespace: "default"},
-		Spec: downloadv1.DownloadSpec{
-			Protocol: commonv1.ProtocolTorrent,
-			Release:  commonv1.ReleaseInfo{Title: "Arrival 2016"},
-		},
-		Status: downloadv1.DownloadStatus{Phase: commonv1.DownloadPhaseDownloading, ProgressPercent: 55},
-	}
-	reader := fake.NewClientBuilder().WithScheme(scheme).WithObjects(d).Build()
+	reader := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(grabbingMovie("arrival", grabEntry("arrival", commonv1.DownloadPhaseDownloading))).Build()
 
 	srv := ui.NewServer(t.Context(), ui.Options{Reader: reader})
 	rec := httptest.NewRecorder()

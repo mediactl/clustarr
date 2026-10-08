@@ -51,7 +51,7 @@ func newArtStore(t *testing.T) events.ObjectStore {
 func putArt(t *testing.T, store events.ObjectStore, key, contentType, body string) events.ObjectInfo {
 	t.Helper()
 	info, err := store.Put(t.Context(), key, strings.NewReader(body),
-		map[string]string{events.HeaderContentType: contentType})
+		events.ObjectMeta{Headers: map[string]string{events.HeaderContentType: contentType}})
 	require.NoError(t, err)
 	return info
 }

@@ -31,6 +31,7 @@ import (
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/pipeline"
 	"github.com/mediactl/clustarr/ui"
 	"github.com/mediactl/clustarr/ui/projection"
@@ -75,11 +76,7 @@ func TestPipelineRowsAreItems(t *testing.T) {
 func TestDownloadRowsAreItems(t *testing.T) {
 	scheme, err := ui.NewReaderScheme()
 	require.NoError(t, err)
-	d := &downloadv1.Download{
-		ObjectMeta: metav1.ObjectMeta{Name: "arrival", Namespace: "default"},
-		Spec:       downloadv1.DownloadSpec{Protocol: commonv1.ProtocolTorrent, Release: commonv1.ReleaseInfo{Title: "Arrival 2016"}},
-		Status:     downloadv1.DownloadStatus{Phase: commonv1.DownloadPhaseDownloading, ProgressPercent: 55},
-	}
+	d := grabbingMovie("arrival", grabEntry("arrival", commonv1.DownloadPhaseDownloading))
 	enabled := true
 	c := &downloadv1.DownloadClient{
 		ObjectMeta: metav1.ObjectMeta{Name: "qbittorrent", Namespace: "default"},
@@ -87,7 +84,14 @@ func TestDownloadRowsAreItems(t *testing.T) {
 		Status:     downloadv1.DownloadClientStatus{Active: 2, Queued: 1, Seeding: 3, FreeBytes: 1 << 30},
 	}
 	reader := fake.NewClientBuilder().WithScheme(scheme).WithObjects(d, c).Build()
-	srv := ui.NewServer(t.Context(), ui.Options{Reader: reader})
+	// The progress bar's percent is the transfer's clustarr-progress
+	// telemetry, not a field of the entry.
+	srv := ui.NewServer(t.Context(), ui.Options{
+		Reader: reader,
+		TransferProgress: func(_ context.Context, uid string) (schema.DownloadProgress, bool, error) {
+			return schema.DownloadProgress{PercentMilli: 55000}, uid == "arrival-uid", nil
+		},
+	})
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/downloads", nil))
 	require.Equal(t, http.StatusOK, rec.Code)

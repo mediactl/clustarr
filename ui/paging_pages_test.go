@@ -27,13 +27,11 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/pipeline"
 	"github.com/mediactl/clustarr/ui"
 	"github.com/mediactl/clustarr/ui/projection"
@@ -92,11 +90,8 @@ func downloadsReader(t *testing.T, n int) client.Reader {
 	require.NoError(t, err)
 	objs := make([]client.Object, n)
 	for i := range objs {
-		objs[i] = &downloadv1.Download{
-			ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("d-%03d", i), Namespace: "default"},
-			Spec:       downloadv1.DownloadSpec{Protocol: commonv1.ProtocolTorrent},
-			Status:     downloadv1.DownloadStatus{Phase: commonv1.DownloadPhaseDownloading},
-		}
+		id := fmt.Sprintf("d-%03d", i)
+		objs[i] = grabbingMovie(id, grabEntry(id, commonv1.DownloadPhaseDownloading))
 	}
 	return fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
 }
@@ -213,12 +208,9 @@ func TestListPagesTellTheirStreamWhichPageToPush(t *testing.T) {
 func TestListStreamsPushOnlyTheRequestedWindow(t *testing.T) {
 	// Every subscription gets a channel of its own holding one push, so a
 	// case never waits on a push an earlier case's handler took.
-	dl := make([]downloadv1.Download, 120)
+	dl := make([]projection.DownloadRow, 120)
 	for i := range dl {
-		dl[i] = downloadv1.Download{
-			ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("d-%03d", i)},
-			Spec:       downloadv1.DownloadSpec{Protocol: commonv1.ProtocolTorrent},
-		}
+		dl[i] = grabRow(fmt.Sprintf("d-%03d", i), "")
 	}
 
 	srv := ui.NewServer(t.Context(), ui.Options{
@@ -237,8 +229,8 @@ func TestListStreamsPushOnlyTheRequestedWindow(t *testing.T) {
 			ch <- unmatchedFixture(120)
 			return ch, func() {}
 		},
-		SubscribeDownloads: func() (<-chan []downloadv1.Download, func()) {
-			ch := make(chan []downloadv1.Download, 1)
+		SubscribeDownloads: func() (<-chan []projection.DownloadRow, func()) {
+			ch := make(chan []projection.DownloadRow, 1)
 			ch <- dl
 			return ch, func() {}
 		},

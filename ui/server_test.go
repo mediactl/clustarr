@@ -30,14 +30,13 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	downloadv1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/pipeline"
 	"github.com/mediactl/clustarr/ui"
 	"github.com/mediactl/clustarr/ui/paging"
+	"github.com/mediactl/clustarr/ui/projection"
 	"github.com/mediactl/clustarr/ui/views"
 )
 
@@ -167,15 +166,11 @@ func TestNewServerWarnsThroughTheContextLogger(t *testing.T) {
 // stable data-download/data-phase/data-protocol attributes downloads.templ
 // puts on every row, not on any visible copy.
 func TestDownloadsEventsStreamsServerSentEvents(t *testing.T) {
-	d := downloadv1.Download{
-		ObjectMeta: metav1.ObjectMeta{Name: "arrival"},
-		Spec:       downloadv1.DownloadSpec{Protocol: commonv1.ProtocolTorrent},
-		Status:     downloadv1.DownloadStatus{Phase: commonv1.DownloadPhaseDownloading, ProgressPercent: 42},
-	}
+	d := grabRow("arrival", commonv1.DownloadPhaseDownloading)
 	srv := ui.NewServer(t.Context(), ui.Options{
-		SubscribeDownloads: func() (<-chan []downloadv1.Download, func()) {
-			ch := make(chan []downloadv1.Download, 1)
-			ch <- []downloadv1.Download{d}
+		SubscribeDownloads: func() (<-chan []projection.DownloadRow, func()) {
+			ch := make(chan []projection.DownloadRow, 1)
+			ch <- []projection.DownloadRow{d}
 			return ch, func() {}
 		},
 	})
@@ -213,22 +208,14 @@ func TestDownloadsEventsStreamsServerSentEvents(t *testing.T) {
 // Download, one per simulated tick, exercises exactly that contract without
 // waiting on a real timer.
 func TestDownloadsEventsStreamReflectsAStatusChangeBetweenTicks(t *testing.T) {
-	pending := downloadv1.Download{
-		ObjectMeta: metav1.ObjectMeta{Name: "arrival"},
-		Spec:       downloadv1.DownloadSpec{Protocol: commonv1.ProtocolTorrent},
-		Status:     downloadv1.DownloadStatus{Phase: commonv1.DownloadPhasePending},
-	}
-	downloading := downloadv1.Download{
-		ObjectMeta: metav1.ObjectMeta{Name: "arrival"},
-		Spec:       downloadv1.DownloadSpec{Protocol: commonv1.ProtocolTorrent},
-		Status:     downloadv1.DownloadStatus{Phase: commonv1.DownloadPhaseDownloading, ProgressPercent: 10},
-	}
+	pending := grabRow("arrival", commonv1.DownloadPhasePending)
+	downloading := grabRow("arrival", commonv1.DownloadPhaseDownloading)
 
-	ch := make(chan []downloadv1.Download, 2)
-	ch <- []downloadv1.Download{pending}
+	ch := make(chan []projection.DownloadRow, 2)
+	ch <- []projection.DownloadRow{pending}
 
 	srv := ui.NewServer(t.Context(), ui.Options{
-		SubscribeDownloads: func() (<-chan []downloadv1.Download, func()) {
+		SubscribeDownloads: func() (<-chan []projection.DownloadRow, func()) {
 			return ch, func() {}
 		},
 	})
@@ -252,8 +239,8 @@ func TestDownloadsEventsStreamReflectsAStatusChangeBetweenTicks(t *testing.T) {
 	first := readSSEEvent(t, reader)
 	require.Contains(t, first, `data-phase="Pending"`)
 
-	// Simulate the next tick: the SAME Download, moved to Downloading.
-	ch <- []downloadv1.Download{downloading}
+	// Simulate the next tick: the SAME grab entry, moved to Downloading.
+	ch <- []projection.DownloadRow{downloading}
 
 	second := readSSEEvent(t, reader)
 	require.Contains(t, second, `data-phase="Downloading"`)
@@ -276,9 +263,9 @@ func TestDownloadsEventsStreamReflectsAStatusChangeBetweenTicks(t *testing.T) {
 // same handler code path without spinning up ui.Run.
 func TestDownloadsEventsStreamEndsOnRequestContextCancel(t *testing.T) {
 	srv := ui.NewServer(t.Context(), ui.Options{
-		SubscribeDownloads: func() (<-chan []downloadv1.Download, func()) {
-			ch := make(chan []downloadv1.Download, 1)
-			ch <- []downloadv1.Download{}
+		SubscribeDownloads: func() (<-chan []projection.DownloadRow, func()) {
+			ch := make(chan []projection.DownloadRow, 1)
+			ch <- []projection.DownloadRow{}
 			return ch, func() {}
 		},
 	})
@@ -326,20 +313,11 @@ func TestDownloadsEventsStreamEndsOnRequestContextCancel(t *testing.T) {
 // by this task) around that output, and asserts the wire frame equals that
 // byte-for-byte.
 func TestDownloadsEventPayloadIsExactlyViewsDownloadRows(t *testing.T) {
-	downloads := []downloadv1.Download{
-		{
-			ObjectMeta: metav1.ObjectMeta{Name: "arrival"},
-			Spec: downloadv1.DownloadSpec{
-				Protocol: commonv1.ProtocolTorrent,
-				Release:  commonv1.ReleaseInfo{Title: "Arrival 2016"},
-			},
-			Status: downloadv1.DownloadStatus{Phase: commonv1.DownloadPhaseDownloading, ProgressPercent: 55},
-		},
-	}
+	downloads := []projection.DownloadRow{grabRow("arrival", commonv1.DownloadPhaseDownloading)}
 
 	srv := ui.NewServer(t.Context(), ui.Options{
-		SubscribeDownloads: func() (<-chan []downloadv1.Download, func()) {
-			ch := make(chan []downloadv1.Download, 1)
+		SubscribeDownloads: func() (<-chan []projection.DownloadRow, func()) {
+			ch := make(chan []projection.DownloadRow, 1)
 			ch <- downloads
 			return ch, func() {}
 		},
@@ -363,7 +341,12 @@ func TestDownloadsEventPayloadIsExactlyViewsDownloadRows(t *testing.T) {
 	// pager -- for page 1 at the default size, exactly as GET /downloads
 	// first rendered it.
 	var direct bytes.Buffer
-	require.NoError(t, views.DownloadList(paging.Paginate(len(downloads), 1, paging.DefaultPer), downloads).Render(context.Background(), &direct))
+	// No TransferProgress is wired, so each view is its row alone.
+	dviews := make([]views.DownloadView, len(downloads))
+	for i := range downloads {
+		dviews[i] = views.DownloadView{Row: downloads[i]}
+	}
+	require.NoError(t, views.DownloadList(paging.Paginate(len(downloads), 1, paging.DefaultPer), dviews).Render(context.Background(), &direct))
 
 	var want bytes.Buffer
 	want.WriteString("event: downloads\n")
