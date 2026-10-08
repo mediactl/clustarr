@@ -40,9 +40,10 @@ import (
 
 // An artist's and an author's pages reuse the series page's shapes with
 // albums and books as the children (spec 2026-09-23-library-page-design):
-// one component that loads the children lazily, each row with title, year,
-// monitored, file and quality, a toggle through the existing item action
-// that swaps the row back, and never another parent's children.
+// one component that loads the children lazily -- album rows with title,
+// year, monitored, file and quality, an author's books the season table
+// (book_test.go) -- a toggle through the existing item action that swaps
+// the row back, and never another parent's children.
 func TestArtistAndAuthorPagesLoadTheirChildrenLazilyAndToggleThem(t *testing.T) {
 	year := func(y int) *metav1.Time {
 		tm := metav1.NewTime(time.Date(y, time.June, 1, 0, 0, 0, 0, time.UTC))
@@ -131,7 +132,8 @@ func TestArtistAndAuthorPagesLoadTheirChildrenLazilyAndToggleThem(t *testing.T) 
 	require.Equal(t, http.StatusOK, rec.Code)
 	books := rec.Body.String()
 	require.Contains(t, books, "<html", "a plain request gets the page")
-	requireTag(t, books, `data-child="dispossessed"`, `data-kind="book"`, `data-monitored="true"`, `data-hasfile="true"`, `data-quality="epub"`)
+	require.Contains(t, books, `data-book-table`, "an author's books are a table")
+	requireTag(t, books, `data-book="dispossessed"`, `data-slot="table-row"`, `data-monitored="true"`, `data-hasfile="true"`, `data-quality="epub"`)
 	require.Contains(t, books, "The Dispossessed")
 
 	rec = httptest.NewRecorder()

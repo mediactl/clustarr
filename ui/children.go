@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"sort"
 
+	"github.com/a-h/templ"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -35,8 +36,9 @@ import (
 // An artist's and an author's pages are the series page's shape with albums
 // and books as the children (spec 2026-09-23-library-page-design): one
 // component that loads them lazily, monitored through the existing item
-// action. Reads go through Options.Reader at request time, like the season
-// route; nothing here writes.
+// action -- an artist's albums as rows, an author's books as the season
+// table (book.go). Reads go through Options.Reader at request time, like
+// the season route; nothing here writes.
 
 // childrenLabel names a parent kind's children, and is false for a kind
 // that has no children page.
@@ -76,7 +78,17 @@ func (s *Server) handleChildren(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	rows, err := s.childRows(r.Context(), item)
+	var children templ.Component
+	var err error
+	if kind == commonv1.MediaKindAuthor {
+		var books []views.BookRow
+		books, err = s.bookRows(r.Context(), item)
+		children = views.BookRows(books)
+	} else {
+		var rows []views.ChildRow
+		rows, err = s.childRows(r.Context(), item)
+		children = views.ChildRows(rows)
+	}
 	if err != nil {
 		logging.FromContext(r.Context()).Error("list children", "parent", item.Ref.String(), "error", err)
 		http.Error(w, "could not list children", http.StatusInternalServerError)
@@ -84,44 +96,31 @@ func (s *Server) handleChildren(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if isHTMX(r) {
-		if err := views.ChildRows(rows).Render(r.Context(), w); err != nil {
+		if err := children.Render(r.Context(), w); err != nil {
 			logging.FromContext(r.Context()).Error("render children component", "error", err)
 		}
 		return
 	}
-	if err := views.ChildrenPage(s.itemDetail(r.Context(), item), label, rows).Render(r.Context(), w); err != nil {
+	if err := views.ChildrenPage(s.itemDetail(r.Context(), item), label, children).Render(r.Context(), w); err != nil {
 		logging.FromContext(r.Context()).Error("render children page", "error", err)
 	}
 }
 
-// childRows lists a parent's children through the reader -- an artist's
-// Albums by spec.artistRef, an author's Books by spec.authorRef -- oldest
-// first, then by title.
+// childRows lists an artist's Albums through the reader, by
+// spec.artistRef, oldest first, then by title. An author's Books are
+// bookRows.
 func (s *Server) childRows(ctx context.Context, item projection.LibraryItem) ([]views.ChildRow, error) {
 	if s.opts.Reader == nil {
 		return nil, nil
 	}
+	var list catalogv1.AlbumList
+	if err := s.opts.Reader.List(ctx, &list, client.InNamespace(item.Ref.Namespace)); err != nil {
+		return nil, err
+	}
 	var rows []views.ChildRow
-	switch item.Kind {
-	case commonv1.MediaKindArtist:
-		var list catalogv1.AlbumList
-		if err := s.opts.Reader.List(ctx, &list, client.InNamespace(item.Ref.Namespace)); err != nil {
-			return nil, err
-		}
-		for i := range list.Items {
-			if list.Items[i].Spec.ArtistRef == item.Ref.Name {
-				rows = append(rows, albumRow(&list.Items[i]))
-			}
-		}
-	case commonv1.MediaKindAuthor:
-		var list catalogv1.BookList
-		if err := s.opts.Reader.List(ctx, &list, client.InNamespace(item.Ref.Namespace)); err != nil {
-			return nil, err
-		}
-		for i := range list.Items {
-			if ref := list.Items[i].Spec.AuthorRef; ref != nil && *ref == item.Ref.Name {
-				rows = append(rows, bookRow(&list.Items[i]))
-			}
+	for i := range list.Items {
+		if list.Items[i].Spec.ArtistRef == item.Ref.Name {
+			rows = append(rows, albumRow(&list.Items[i]))
 		}
 	}
 	sort.SliceStable(rows, func(i, j int) bool {
@@ -150,34 +149,12 @@ func albumRow(a *catalogv1.Album) views.ChildRow {
 	return row
 }
 
-func bookRow(b *catalogv1.Book) views.ChildRow {
-	row := views.ChildRow{
-		Namespace: b.Namespace, Name: b.Name, Kind: string(commonv1.MediaKindBook), Title: b.Name,
-		Monitored: monitoredOrDefault(b.Spec.Monitored), HasFile: b.Status.HasFile,
-		Quality: b.Status.FileFormat, Phase: string(b.Status.Phase),
-	}
-	if md := b.Status.Metadata; md != nil {
-		row.Title = md.Title
-		if md.ReleaseDate != nil {
-			row.Year = int32(md.ReleaseDate.UTC().Year()) //nolint:gosec // a year
-		}
-	}
-	return row
-}
-
-// replyChildRow answers an htmx album or book toggle with the row
-// re-rendered, replyEpisodeRow's counterpart.
+// replyChildRow answers an htmx album toggle with the row re-rendered,
+// replyEpisodeRow's counterpart.
 func (s *Server) replyChildRow(w http.ResponseWriter, r *http.Request, ns string, kind commonv1.MediaKind, name string, patched client.Object, err error) {
 	var row views.ChildRow
-	switch {
-	case err == nil && kind == commonv1.MediaKindAlbum:
-		if a, ok := patched.(*catalogv1.Album); ok {
-			row = albumRow(a)
-		}
-	case err == nil && kind == commonv1.MediaKindBook:
-		if b, ok := patched.(*catalogv1.Book); ok {
-			row = bookRow(b)
-		}
+	if a, ok := patched.(*catalogv1.Album); ok && err == nil {
+		row = albumRow(a)
 	}
 	if row.Name == "" {
 		row = s.currentChildRow(r.Context(), ns, kind, name)
@@ -195,18 +172,10 @@ func (s *Server) replyChildRow(w http.ResponseWriter, r *http.Request, ns string
 // a bare row when it cannot be read.
 func (s *Server) currentChildRow(ctx context.Context, ns string, kind commonv1.MediaKind, name string) views.ChildRow {
 	key := types.NamespacedName{Namespace: ns, Name: name}
-	if s.opts.Reader != nil {
-		switch kind {
-		case commonv1.MediaKindAlbum:
-			var a catalogv1.Album
-			if err := s.opts.Reader.Get(ctx, key, &a); err == nil {
-				return albumRow(&a)
-			}
-		case commonv1.MediaKindBook:
-			var b catalogv1.Book
-			if err := s.opts.Reader.Get(ctx, key, &b); err == nil {
-				return bookRow(&b)
-			}
+	if s.opts.Reader != nil && kind == commonv1.MediaKindAlbum {
+		var a catalogv1.Album
+		if err := s.opts.Reader.Get(ctx, key, &a); err == nil {
+			return albumRow(&a)
 		}
 	}
 	return views.ChildRow{Namespace: ns, Name: name, Kind: string(kind), Title: name, Monitored: true}

@@ -119,10 +119,18 @@ templ episodeSummary(d EpisodeDetail) {
 			@audioBadge(d.Row.Audio)
 		</p>
 	}
-	if d.File == nil {
-		<p class="rounded-md border border-border px-4 py-3 text-muted-foreground" data-episode-file="">No file on disk.</p>
+	@fileTable("episode", d.File, d.Row.Status.Warn)
+}
+
+// fileTable is an episode's or a book's file in the details modal, kind
+// naming which (its data-<kind>-file attribute): the path relative to the
+// item's folder, size, languages, quality (amber below the cutoff when
+// warn), formats and score.
+templ fileTable(kind string, f *FileRow, warn bool) {
+	if f == nil {
+		<p class="rounded-md border border-border px-4 py-3 text-muted-foreground" { templ.Attributes{"data-" + kind + "-file": ""}... }>No file on disk.</p>
 	} else {
-		<div class="rounded-md border border-border" data-episode-file={ d.File.Name }>
+		<div class="rounded-md border border-border" { templ.Attributes{"data-" + kind + "-file": f.Name}... }>
 			@table.Table() {
 				@table.Header() {
 					@table.Row() {
@@ -136,28 +144,28 @@ templ episodeSummary(d EpisodeDetail) {
 				}
 				@table.Body() {
 					@table.Row() {
-						@table.Cell(table.CellProps{Class: "max-w-md break-all whitespace-normal"}) { { d.File.RelativePath } }
-						@table.Cell() { { formatBytes(d.File.SizeBytes) } }
+						@table.Cell(table.CellProps{Class: "max-w-md break-all whitespace-normal"}) { { f.RelativePath } }
+						@table.Cell() { { formatBytes(f.SizeBytes) } }
 						@table.Cell() {
 							<span class="flex flex-wrap gap-1">
-								for _, l := range d.File.Languages {
+								for _, l := range f.Languages {
 									@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) { { l } }
 								}
 							</span>
 						}
 						@table.Cell() {
-							if d.File.Quality != "" {
-								@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: fileTone(d.Row.Status.Warn)}) { { d.File.Quality } }
+							if f.Quality != "" {
+								@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: fileTone(warn)}) { { f.Quality } }
 							}
 						}
 						@table.Cell(table.CellProps{Class: "whitespace-normal"}) {
 							<span class="flex flex-wrap gap-1">
-								for _, f := range d.File.Formats {
-									@badge.Badge(badge.Props{Variant: badge.VariantOutline}) { { f } }
+								for _, format := range f.Formats {
+									@badge.Badge(badge.Props{Variant: badge.VariantOutline}) { { format } }
 								}
 							</span>
 						}
-						@table.Cell(table.CellProps{Class: "text-right tabular-nums"}) { { signed(d.File.Score) } }
+						@table.Cell(table.CellProps{Class: "text-right tabular-nums"}) { { signed(f.Score) } }
 					}
 				}
 			}
@@ -165,32 +173,38 @@ templ episodeSummary(d EpisodeDetail) {
 	}
 }
 
-// EpisodeSearchTab is Sonarr's EpisodeSearch: the two searches as large
-// buttons, or, once an interactive search runs, its results in their
-// place. #episode-search-body is what the Interactive Search button swaps
-// (htmx selects it out of the modal the action answers with).
+// EpisodeSearchTab is Sonarr's EpisodeSearch on the episode's modal.
 templ EpisodeSearchTab(d EpisodeDetail) {
-	<div id="episode-search-body" data-episode-search={ d.Row.Name }>
-		if d.Search != nil {
-			@SearchPanelView(*d.Search)
+	@searchTab("episode", d.Row.Name, d.Row.SearchURL(), d.Row.InteractiveSearchURL(), d.Row.ReturnURL(), d.Search)
+}
+
+// searchTab is Sonarr's EpisodeSearch, on an episode's modal or a book's
+// (kind names which): the two searches as large buttons, or, once an
+// interactive search runs, its results in their place.
+// #<kind>-search-body is what the Interactive Search button swaps (htmx
+// selects it out of the modal the action answers with).
+templ searchTab(kind, name, searchURL, interactiveURL, returnURL string, search *SearchPanel) {
+	<div id={ kind + "-search-body" } { templ.Attributes{"data-" + kind + "-search": name}... }>
+		if search != nil {
+			@SearchPanelView(*search)
 		} else {
 			<div class="flex flex-col items-center gap-3 py-10">
-				<form hx-post={ d.Row.SearchURL() } hx-target="#action-status" method="post" action={ templ.URL(d.Row.SearchURL()) }>
-					<input type="hidden" name="return" value={ d.Row.ReturnURL() }/>
-					@button.Button(button.Props{Type: button.TypeSubmit, Class: "w-56", Attributes: templ.Attributes{"data-action": "episode-search"}}) {
+				<form hx-post={ searchURL } hx-target="#action-status" method="post" action={ templ.URL(searchURL) }>
+					<input type="hidden" name="return" value={ returnURL }/>
+					@button.Button(button.Props{Type: button.TypeSubmit, Class: "w-56", Attributes: templ.Attributes{"data-action": kind + "-search"}}) {
 						@icon.Icon("search")()
 						Automatic Search
 					}
 				</form>
 				<form
-					hx-post={ d.Row.InteractiveSearchURL() }
-					hx-target="#episode-search-body"
-					hx-select="#episode-search-body"
+					hx-post={ interactiveURL }
+					hx-target={ "#" + kind + "-search-body" }
+					hx-select={ "#" + kind + "-search-body" }
 					hx-swap="outerHTML"
 					method="post"
-					action={ templ.URL(d.Row.InteractiveSearchURL()) }
+					action={ templ.URL(interactiveURL) }
 				>
-					@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantOutline, Class: "w-56", Attributes: templ.Attributes{"data-action": "episode-interactive-search"}}) {
+					@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantOutline, Class: "w-56", Attributes: templ.Attributes{"data-action": kind + "-interactive-search"}}) {
 						@icon.Icon("user-search")()
 						Interactive Search
 					}

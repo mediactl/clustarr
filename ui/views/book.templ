@@ -1,0 +1,229 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package views
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/mediactl/clustarr/ui/components/badge"
+	"github.com/mediactl/clustarr/ui/components/dialog"
+	"github.com/mediactl/clustarr/ui/components/table"
+	"github.com/mediactl/clustarr/ui/components/tabs"
+	"github.com/mediactl/clustarr/ui/projection"
+)
+
+// An author's books are the season table's shape (2026-10-07): a book's
+// row has the monitor bookmark, its title (opening the book's details
+// modal, Details and Search tabs), the release date, the status cell and
+// the automatic and interactive searches, exactly as an episode's does.
+
+// bookRegions are what a book's actions answer into on an author's page:
+// the modal's mount point and the action status.
+templ bookRegions() {
+	<div id="book-modal"></div>
+	@ActionStatusRegion()
+}
+
+// BookRows is an author's books table: what the author's Books first
+// expand fetches, and what the books page renders inline. Release dates
+// fold away on a narrow screen.
+templ BookRows(books []BookRow) {
+	if len(books) == 0 {
+		<p class="px-4 py-3 text-sm text-muted-foreground">Nothing here yet.</p>
+	} else {
+		@table.Table(table.Props{Attributes: templ.Attributes{"data-book-table": ""}}) {
+			@table.Header() {
+				@table.Row() {
+					@table.Head(table.HeadProps{Class: "w-10"}) { <span class="sr-only">Monitored</span> }
+					@table.Head() { Title }
+					@table.Head(table.HeadProps{Class: "hidden w-32 sm:table-cell"}) { Release Date }
+					@table.Head(table.HeadProps{Class: "w-36"}) { Status }
+					@table.Head(table.HeadProps{Class: "w-20"}) { <span class="sr-only">Actions</span> }
+				}
+			}
+			@table.Body() {
+				for _, b := range books {
+					@BookRowView(b)
+				}
+			}
+		}
+	}
+}
+
+// BookRowView is one book, and what its monitor toggle swaps in place: the
+// bookmark, the title (opening the book's details) with its reading order,
+// the release date, the status cell, and the automatic and interactive
+// searches. An unmonitored book reads dimmed.
+templ BookRowView(b BookRow) {
+	@table.Row(table.RowProps{
+		Class: rowTone(b.Monitored),
+		Attributes: templ.Attributes{
+			"data-book":      b.Name,
+			"data-monitored": fmt.Sprintf("%t", b.Monitored),
+			"data-hasfile":   fmt.Sprintf("%t", b.HasFile),
+			"data-quality":   b.Format,
+			"data-phase":     b.Phase,
+			"data-status":    b.Status.Kind,
+		},
+	}) {
+		@table.Cell(table.CellProps{Class: "py-1"}) {
+			<form hx-post={ b.MonitorURL() } hx-target="closest tr" hx-swap="outerHTML" method="post" action={ templ.URL(b.MonitorURL()) } class="contents">
+				<input type="hidden" name="return" value={ b.ReturnURL() }/>
+				<input type="hidden" name="monitored" value={ fmt.Sprintf("%t", !b.Monitored) }/>
+				@bookmarkToggle(b.Monitored, "set-monitored", false)
+			</form>
+		}
+		@table.Cell(table.CellProps{Class: "whitespace-normal"}) {
+			<span class="flex flex-wrap items-center gap-2">
+				<a
+					href={ templ.URL(b.DetailsURL()) }
+					hx-get={ b.DetailsURL() }
+					hx-target="#book-modal"
+					hx-swap="innerHTML"
+					class="font-medium hover:underline"
+					data-book-title
+				>
+					{ b.DisplayTitle() }
+				</a>
+				if b.Series != "" {
+					@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "border-sky-500/40 text-sky-300", Attributes: templ.Attributes{"data-book-series": b.Series}}) { { b.Series } }
+				}
+			</span>
+			@actionFailure(b.Error)
+		}
+		@table.Cell(table.CellProps{Class: "hidden text-muted-foreground sm:table-cell"}) {
+			if b.ReleaseDate != "" {
+				<time datetime={ b.ReleaseDate } title={ b.ReleaseDate }>{ b.ReleaseDateLabel }</time>
+			}
+		}
+		@table.Cell() {
+			@statusCell(b.Status)
+		}
+		@table.Cell(table.CellProps{Class: "py-1"}) {
+			<span class="flex justify-end">
+				@searchButtons("book", b.SearchURL(), b.InteractiveSearchURL(), b.ReturnURL())
+			</span>
+		}
+	}
+}
+
+// BookModal is a book's details modal, opened from its title or its
+// interactive search: "Author - Title", then the Details and Search tabs.
+// It is swapped into the page's #book-modal and opens as it lands; the
+// next one swapped in retires it.
+templ BookModal(d BookDetail) {
+	@dialog.Dialog(dialog.Props{DefaultOpen: true}) {
+		@dialog.Content(dialog.ContentProps{
+			Class:      "max-h-[90vh] overflow-y-auto sm:max-w-6xl",
+			Attributes: templ.Attributes{"data-book-modal": d.Row.Name},
+		}) {
+			@dialog.Header() {
+				@dialog.Title() { { bookHeading(d) } }
+				@dialog.Description() { { bookFacts(d) } }
+			}
+			@bookTabs(d)
+		}
+	}
+}
+
+// BookPage is the book's details as a page, for a browser without
+// JavaScript: the modal's tabs under the author's crumbs, or a standalone
+// book's own.
+templ BookPage(d BookDetail, parent projection.LibraryItem) {
+	@Shell(Chrome{Title: bookHeading(d), Crumbs: childCrumbs(parent, d.Row.DisplayTitle()), Tab: parent.Tab}) {
+		<div class="space-y-4" data-book-page={ d.Row.Name }>
+			<div>
+				<h1 class="text-xl font-semibold">{ bookHeading(d) }</h1>
+				<p class="text-sm text-muted-foreground">{ bookFacts(d) }</p>
+			</div>
+			@bookTabs(d)
+		</div>
+		@ActionStatusRegion()
+	}
+}
+
+// bookHeading is the modal's title: the author, then the book's title and
+// subtitle.
+func bookHeading(d BookDetail) string {
+	title := d.Row.DisplayTitle()
+	if d.Row.Subtitle != "" {
+		title += ": " + d.Row.Subtitle
+	}
+	if d.AuthorTitle == "" {
+		return title
+	}
+	return d.AuthorTitle + " - " + title
+}
+
+// bookFacts is the line under the title: release date, reading order,
+// status.
+func bookFacts(d BookDetail) string {
+	var facts []string
+	if d.Row.ReleaseDate != "" {
+		facts = append(facts, "Released "+d.Row.ReleaseDateLabel)
+	}
+	if d.Row.Series != "" {
+		facts = append(facts, d.Row.Series)
+	}
+	if d.Row.Status.Label != "" {
+		facts = append(facts, d.Row.Status.Label)
+	}
+	return strings.Join(facts, " · ")
+}
+
+// bookTabs are the modal's Details and Search tabs, d.Tab open.
+templ bookTabs(d BookDetail) {
+	@tabs.Tabs(tabs.Props{DefaultValue: d.Tab, Class: "min-w-0"}) {
+		@tabs.List() {
+			@tabs.Trigger(tabs.TriggerProps{Value: "details", Attributes: templ.Attributes{"data-tab": "details"}}) { Details }
+			@tabs.Trigger(tabs.TriggerProps{Value: "search", Attributes: templ.Attributes{"data-tab": "search"}}) { Search }
+		}
+		@tabs.Content(tabs.ContentProps{Value: "details", Class: "space-y-4 pt-2"}) {
+			@bookSummary(d)
+		}
+		@tabs.Content(tabs.ContentProps{Value: "search", Class: "pt-2"}) {
+			@BookSearchTab(d)
+		}
+	}
+}
+
+// bookSummary is the episode summary's counterpart: the overview, the
+// genres and the file.
+templ bookSummary(d BookDetail) {
+	<p class="leading-relaxed" data-book-overview>
+		if d.Overview != "" {
+			{ d.Overview }
+		} else {
+			<span class="text-muted-foreground">No overview.</span>
+		}
+	</p>
+	if len(d.Genres) > 0 {
+		<p class="flex flex-wrap gap-1">
+			for _, g := range d.Genres {
+				@badge.Badge(badge.Props{Variant: badge.VariantOutline}) { { g } }
+			}
+		</p>
+	}
+	@fileTable("book", d.File, d.Row.Status.Warn)
+}
+
+// BookSearchTab is the book's searches on its modal.
+templ BookSearchTab(d BookDetail) {
+	@searchTab("book", d.Row.Name, d.Row.SearchURL(), d.Row.InteractiveSearchURL(), d.Row.ReturnURL(), d.Search)
+}

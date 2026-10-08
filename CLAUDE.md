@@ -233,6 +233,15 @@ mismatches (`WrongItem`, `UnknownItem`, `UnableToParse`) last, counted by
 never dropped -- in the agent before its cap and again after the
 item-state rules; and a yearless, title-only match on a title another
 library item carries is `UnknownItem` (`decision.Identity.Namesakes`).
+An author's books are the same table (2026-10-07, `ui/book.go`,
+`ui/views/book.templ`): bookmark, title opening the book's modal
+(`/library/{ns}/book/{name}/details`, `#book-modal`), release date,
+`bookStatus` (an episode's cases with `unreleased` for TBA and unaired --
+an undated book reads missing) and both searches, the interactive one
+through the same `startInteractiveSearch` and `/searches` routes. The
+episode and book templates share `searchButtons`, `searchTab`,
+`fileTable` and `statusCell` (`views.RowStatus`); an artist's albums are
+still `ChildRows`.
 Series monitoring is Sonarr's (2026-09-29): an episode is searched only
 when its Series and the episode itself are monitored (the Episode
 reconciler reads its Series, a Series' `spec.monitored` change wakes its
