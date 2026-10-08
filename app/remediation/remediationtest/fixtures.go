@@ -54,18 +54,18 @@ func MustNamespace(t testing.TB, ctx context.Context, c client.Client, ns string
 	}
 }
 
-// ImportarrCreatesMediaFile stands in for the import domain's materialisation
-// of a placed file: ImportarrCreatesMediaFileFor a Movie "inception".
-func ImportarrCreatesMediaFile(t testing.TB, ctx context.Context, c client.Client, ns, name, path string, size int64, modTime time.Time, q commonv1.Quality) {
+// ImportCreatesMediaFile stands in for the import domain's materialisation
+// of a placed file: ImportCreatesMediaFileFor a Movie "inception".
+func ImportCreatesMediaFile(t testing.TB, ctx context.Context, c client.Client, ns, name, path string, size int64, modTime time.Time, q commonv1.Quality) {
 	t.Helper()
-	ImportarrCreatesMediaFileFor(t, ctx, c, ns, name,
+	ImportCreatesMediaFileFor(t, ctx, c, ns, name,
 		commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "inception"}, path, size, modTime, q)
 }
 
-// ImportarrCreatesMediaFileFor applies the full MediaFileSpec under
+// ImportCreatesMediaFileFor applies the full MediaFileSpec under
 // mediafilespec.FieldManager, the constant import's own writer uses, so the
 // split this proves is production's.
-func ImportarrCreatesMediaFileFor(t testing.TB, ctx context.Context, c client.Client, ns, name string, mediaRef commonv1.MediaRef, path string, size int64, modTime time.Time, q commonv1.Quality) {
+func ImportCreatesMediaFileFor(t testing.TB, ctx context.Context, c client.Client, ns, name string, mediaRef commonv1.MediaRef, path string, size int64, modTime time.Time, q commonv1.Quality) {
 	t.Helper()
 	ac := catalogac.MediaFile(name, ns).WithSpec(
 		catalogac.MediaFileSpec().

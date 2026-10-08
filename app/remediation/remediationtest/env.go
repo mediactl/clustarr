@@ -162,7 +162,7 @@ func (e *Env) File(t testing.TB, ns, name, path string) types.NamespacedName {
 	MustNamespace(t, ctx, e.Admin, ns)
 	MustQualityProfile(t, ctx, e.Admin, "hd")
 	MustMovie(t, ctx, e.Admin, ns, "heat", "hd")
-	ImportarrCreatesMediaFileFor(t, ctx, e.Admin, ns, name, commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "heat"},
+	ImportCreatesMediaFileFor(t, ctx, e.Admin, ns, name, commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "heat"},
 		path, 1000, time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC), Bluray1080p)
 	return types.NamespacedName{Namespace: ns, Name: name}
 }
