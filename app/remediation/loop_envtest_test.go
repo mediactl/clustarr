@@ -297,6 +297,41 @@ func TestAPanickingEffectDoesNotStopOtherPlannersEffects(t *testing.T) {
 	assert.Nil(t, k8s.FindCondition(e.Get(t, nn).Status.Conditions, catalogv1alpha1.MediaFileConditionMarkersPlannerError))
 }
 
+// A Withdraw effect that lands owes the closing pass that reads its
+// withdrawn record (§5.10), and nothing else would wake the file for it: its
+// status apply is status-only (§3.3's self-trigger rule) and the records
+// waker skips the loop's own `withdrawn` (S16 to S21). So the file requeues
+// in 1 s at priority 0, as Again does (§3.11), whatever the planner's Due;
+// a withdrawal that failed waits on the transient backoff instead.
+func TestALandedWithdrawalRequeuesForItsClosingPass(t *testing.T) {
+	e := remediationtest.Start(t)
+	withdrawing := func(path string) remediationtest.PlanFunc {
+		return func(v *remediation.View, in int, out *catalogv1alpha1.MediaFileStatus) (remediation.Result, error) {
+			res, err := naming(path)(v, in, out)
+			res.Due = v.Now.Add(time.Hour)
+			res.Effects = []remediation.Effect{remediation.Withdraw{UID: string(v.File.UID), Seq: 7}}
+			return res, err
+		}
+	}
+
+	landed := e.File(t, "withdraw", "landed", "/data/movies/landed.mkv")
+	ok := remediationtest.NamingFake(withdrawing("/data/movies/Landed.mkv"))
+	res := e.Pass(t, e.Reconciler(t, remediation.Bind[int](ok)), landed)
+	require.EqualValues(t, 1, ok.Withdraws.Load(), "setup: the withdrawal ran")
+	assert.Equal(t, time.Second, res.RequeueAfter, "the closing pass is owed at once, not at the planner's Due")
+	require.NotNil(t, res.Priority)
+	assert.Equal(t, 0, *res.Priority)
+
+	failed := e.File(t, "withdraw", "failed", "/data/movies/failed.mkv")
+	refused := remediationtest.NamingFake(withdrawing("/data/movies/Failed.mkv"))
+	refused.WithdrawFn = func(context.Context, *remediation.Env, remediation.Withdraw) error {
+		return remediation.Transient(errors.New("nats: purge refused"))
+	}
+	res = e.Pass(t, e.Reconciler(t, remediation.Bind[int](refused)), failed)
+	require.EqualValues(t, 1, refused.Withdraws.Load(), "setup: the withdrawal ran")
+	assert.Equal(t, 30*time.Second, res.RequeueAfter, "a failed withdrawal retries on the per-key backoff, never every second")
+}
+
 // Bulk status writes are paced at the limiter's rate while an exempt pass (a
 // worker answer, a grant, a nonce, a first probe) applies at once (§3.7).
 func TestBulkWritesArePaced(t *testing.T) {

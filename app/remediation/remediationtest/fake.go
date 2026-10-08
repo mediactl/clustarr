@@ -32,8 +32,11 @@ type Fake struct {
 	PlanFn    func(v *remediation.View, in int, out *catalogv1alpha1.MediaFileStatus) (remediation.Result, error)
 	CopyFn    func(from, into *catalogv1alpha1.MediaFileStatus)
 	AppliesFn func(mf *catalogv1alpha1.MediaFile) bool
-	Gathers   atomic.Int32
-	Plans     atomic.Int32
+	// WithdrawFn runs a Withdraw effect the fake emitted; nil succeeds.
+	WithdrawFn func(ctx context.Context, env *remediation.Env, w remediation.Withdraw) error
+	Gathers    atomic.Int32
+	Plans      atomic.Int32
+	Withdraws  atomic.Int32
 }
 
 // Name implements remediation.Planner.
@@ -64,6 +67,15 @@ func (f *Fake) Plan(v *remediation.View, in int, out *catalogv1alpha1.MediaFileS
 
 // Copy implements remediation.Planner.
 func (f *Fake) Copy(from, into *catalogv1alpha1.MediaFileStatus) { f.CopyFn(from, into) }
+
+// Withdraw implements remediation.Withdrawer.
+func (f *Fake) Withdraw(ctx context.Context, env *remediation.Env, w remediation.Withdraw) error {
+	f.Withdraws.Add(1)
+	if f.WithdrawFn == nil {
+		return nil
+	}
+	return f.WithdrawFn(ctx, env, w)
+}
 
 // PlanFunc is a Fake's Plan.
 type PlanFunc = func(*remediation.View, int, *catalogv1alpha1.MediaFileStatus) (remediation.Result, error)

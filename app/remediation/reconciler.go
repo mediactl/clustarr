@@ -350,7 +350,7 @@ func (r *Reconciler) reconcileFile(ctx context.Context, nn types.NamespacedName)
 	r.observeTranscode(&mf, observed, results)
 
 	// 8. Effects, in Order, after the status that owes them landed.
-	var casMissed, transient bool
+	var casMissed, transient, withdrew bool
 	for i, p := range r.planners {
 		if len(results[i].Effects) == 0 {
 			continue
@@ -358,6 +358,7 @@ func (r *Reconciler) reconcileFile(ctx context.Context, nn types.NamespacedName)
 		eo := r.runEffects(ctx, string(mf.UID), p, results[i].Effects)
 		casMissed = casMissed || eo.casMiss
 		transient = transient || eo.transient
+		withdrew = withdrew || eo.withdrew
 		if eo.failed.failed() {
 			ks.effectFailures[p.Name()] = eo.failed
 		} else {
@@ -387,8 +388,11 @@ func (r *Reconciler) reconcileFile(ctx context.Context, nn types.NamespacedName)
 		}
 	}
 
-	// 10. Result.
-	res := r.result(ks, now.Time, results, fails, wakes, casMissed, transient)
+	// 10. Result. A withdrawal that landed owes the pass that reads its
+	// withdrawn record and closes the block (§5.10), which nothing else
+	// wakes: this pass's apply is status-only (§3.3) and the records waker
+	// skips the loop's own withdrawn (S16 to S21). It requeues as Again does.
+	res := r.result(ks, now.Time, results, fails, wakes, casMissed || withdrew, transient)
 	if !casMissed && !transient && !slices.ContainsFunc(fails, outcome.failed) {
 		ks.clean()
 	}
@@ -396,10 +400,11 @@ func (r *Reconciler) reconcileFile(ctx context.Context, nn types.NamespacedName)
 }
 
 // result is §3.11: the earliest Due and actuator wake, floored at 1 s;
-// Again or a CAS miss in 1 s at priority 0; a transient fault on the per-key
-// backoff; a planner error or panic after plannerFailedRetry.
+// Again, a CAS miss or a landed withdrawal (soon) in 1 s at priority 0; a
+// transient fault on the per-key backoff; a planner error or panic after
+// plannerFailedRetry.
 func (r *Reconciler) result(ks *keyState, now time.Time, results []Result, fails []outcome, wakes []time.Duration,
-	casMissed, transient bool,
+	soon, transient bool,
 ) reconcile.Result {
 	var after time.Duration
 	shorten := func(d time.Duration) {
@@ -416,7 +421,7 @@ func (r *Reconciler) result(ks *keyState, now time.Time, results []Result, fails
 		shorten(w)
 	}
 	prio := PriorityTimed
-	if anyAgain(results) || casMissed || slices.ContainsFunc(fails, outcome.casMiss) {
+	if anyAgain(results) || soon || slices.ContainsFunc(fails, outcome.casMiss) {
 		shorten(time.Second)
 		prio = 0
 	}

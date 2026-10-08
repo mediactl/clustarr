@@ -28,6 +28,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/app/transcode/task"
@@ -35,6 +36,7 @@ import (
 	"github.com/mediactl/clustarr/app/transcode/worker"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
+	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/records"
 )
 
@@ -42,6 +44,11 @@ import (
 // worker claims seq S within RepublishWindow; S is withdrawn -- the record,
 // the purge -- and the file returns to Planned, reason Unclaimed, attempts
 // unchanged.
+//
+// The closing pass's write is read from a watch, not polled: with no slot
+// free, admission gives the requeued candidate its wait reason at once
+// (§5.7 step 7, §5.11), so Planned/Unclaimed is stored for one pass only
+// and a poll raced the next write (ruling, T2 finding).
 func TestUnclaimedDispatchIsWithdrawnAfterTheWindow(t *testing.T) {
 	h := newHarness(t, harnessOptions{slots: map[string]int32{"cpu": 1}})
 	mf := h.file(t, "heat-1995")
@@ -49,11 +56,20 @@ func TestUnclaimedDispatchIsWithdrawnAfterTheWindow(t *testing.T) {
 	seq := q.Status.Transcode.Dispatch.Seq
 	require.Eventually(t, func() bool { return h.storedTasks(t, q.UID) == 1 }, 10*time.Second, 50*time.Millisecond)
 	h.ledger.SetSlots(map[string]int32{"cpu": 0}) // so the requeued file is not dispatched again at once
+	closed := firstStored(t, h, mf, func(m *catalogv1alpha1.MediaFile) bool {
+		return m.Status.Transcode != nil && m.Status.Transcode.Reason == transcodeplan.ReasonUnclaimed &&
+			m.Status.Transcode.Phase == catalogv1alpha1.TranscodePhasePlanned
+	})
 	h.clock.Advance(records.RepublishWindow + time.Second)
 	h.poke(t, mf)
-	got := waitFile(t, h.c, mf, "Unclaimed", func(m *catalogv1alpha1.MediaFile) bool {
-		return m.Status.Transcode.Reason == transcodeplan.ReasonUnclaimed && m.Status.Transcode.Phase == catalogv1alpha1.TranscodePhasePlanned
-	})
+	var got *catalogv1alpha1.MediaFile
+	select {
+	case got = <-closed:
+	case <-time.After(60 * time.Second):
+		last := waitFile(t, h.c, mf, "read", func(*catalogv1alpha1.MediaFile) bool { return true })
+		b, _ := json.Marshal(last.Status.Transcode)
+		t.Fatalf("Planned, Unclaimed was never stored; status.transcode is %s", b)
+	}
 	assert.Equal(t, seq, got.Status.Transcode.Dispatch.AnsweredSeq)
 	assert.True(t, got.Status.Transcode.Dispatch.Withdrawn)
 	assert.Equal(t, int32(1), got.Status.Transcode.Attempts, "unchanged")
@@ -198,4 +214,27 @@ func TestAClearedBlockFreesItsSlot(t *testing.T) {
 	assert.Equal(t, qa.Status.Transcode.Dispatch.Seq, left.Status.Transcode.Dispatch.AnsweredSeq, "the dispatch was withdrawn")
 	assert.NotEqual(t, qa.Status.ProbeHash, left.Status.ProbeHash, "the new bytes were probed")
 	waitFile(t, h.c, b, "b dispatched into the freed slot", phase(catalogv1alpha1.TranscodePhaseQueued))
+}
+
+// firstStored watches mf from now on and delivers the first version the
+// apiserver stores that cond holds for: a state the next write may replace
+// before a poll could read it.
+func firstStored(t *testing.T, h *harness, mf *catalogv1alpha1.MediaFile, cond func(*catalogv1alpha1.MediaFile) bool) <-chan *catalogv1alpha1.MediaFile {
+	t.Helper()
+	w, err := client.NewWithWatch(h.cfg, client.Options{Scheme: k8s.MustNewScheme()})
+	require.NoError(t, err)
+	watch, err := w.Watch(context.Background(), &catalogv1alpha1.MediaFileList{}, client.InNamespace(mf.Namespace),
+		client.MatchingFields{"metadata.name": mf.Name})
+	require.NoError(t, err)
+	t.Cleanup(watch.Stop)
+	out := make(chan *catalogv1alpha1.MediaFile, 1)
+	go func() {
+		for ev := range watch.ResultChan() {
+			if m, ok := ev.Object.(*catalogv1alpha1.MediaFile); ok && cond(m) {
+				out <- m
+				return
+			}
+		}
+	}()
+	return out
 }

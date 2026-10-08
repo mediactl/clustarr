@@ -138,7 +138,10 @@ func IsCASMiss(err error) bool {
 // effectsOutcome is one planner's batch.
 type effectsOutcome struct {
 	casMiss, transient bool
-	failed             outcome // error or panic: remembered for the next pass
+	// withdrew reports a Withdraw that landed: its closing pass is owed
+	// (§5.10), and only the loop can schedule it.
+	withdrew bool
+	failed   outcome // error or panic: remembered for the next pass
 }
 
 // runEffects runs one planner's effects in order under isolate; the first
@@ -160,6 +163,9 @@ func (r *Reconciler) runEffects(ctx context.Context, uid string, p Bound, effs [
 		metrics.RemediationEffectsTotal.WithLabelValues(string(p.Name()), string(eff.Kind()), label).Inc()
 		if o.failed() {
 			break
+		}
+		if eff.Kind() == EffectWithdraw {
+			res.withdrew = true
 		}
 	}
 	return res
