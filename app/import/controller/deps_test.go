@@ -55,11 +55,10 @@ const importWorkers = "github.com/mediactl/clustarr/app/import/worker"
 // to spec §4.3 Wave 2: the reconcilers, and the leaves they read, link no
 // app/import/worker package (R6). `test/guards` (W5.14) overlaps it.
 func TestImportControllersLinkNoWorkerCode(t *testing.T) {
-	require.Contains(t, linked(t, "github.com/mediactl/clustarr/app/import/controller/..."),
-		"github.com/mediactl/clustarr/app/import/controller/retrigger",
-		"the retrigger reconciler moved under app/import/controller (I5)")
+	// The retrigger reconciler this guard once required went with the
+	// Download kind (ADR-0019 A3.8: the manager reissues the inspect).
 	for _, pkg := range []string{
-		"github.com/mediactl/clustarr/app/import/controller/...", // every import reconciler, retrigger included
+		"github.com/mediactl/clustarr/app/import/controller/...", // every import reconciler
 		"github.com/mediactl/clustarr/app/import/scanprogress",
 		"github.com/mediactl/clustarr/app/import/mediafilespec",
 		"github.com/mediactl/clustarr/app/import/importliststate",
