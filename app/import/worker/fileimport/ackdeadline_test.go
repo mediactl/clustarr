@@ -62,3 +62,14 @@ func TestTheImportFitsTheFileConsumersAckDeadline(t *testing.T) {
 		"HeartbeatInterval %s + videoProbeTimeout %s + slack %s must fit inside %s's ack deadline %s",
 		HeartbeatInterval, videoProbeTimeout, importSlack, events.ConsumerImportFile, deadline)
 }
+
+// TestTheAudioProbeFitsTheFileConsumersAckDeadline (W4.9): a non-video
+// import probes a music file instead of a video one, under its own bound,
+// after a heartbeat (Worker.audioProbe); the same arithmetic holds.
+func TestTheAudioProbeFitsTheFileConsumersAckDeadline(t *testing.T) {
+	deadline := ackDeadline(t, events.ConsumerImportFile)
+	worst := HeartbeatInterval + AudioProbeTimeout + importSlack
+	assert.LessOrEqual(t, worst, deadline,
+		"HeartbeatInterval %s + AudioProbeTimeout %s + slack %s must fit inside %s's ack deadline %s",
+		HeartbeatInterval, AudioProbeTimeout, importSlack, events.ConsumerImportFile, deadline)
+}
