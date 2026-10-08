@@ -90,13 +90,17 @@ spec:
               port: http
             initialDelaySeconds: 5
             periodSeconds: 20
+          # 512Mi: the stub holds the ~57 MiB clip and its yEnc articles in
+          # memory, and a transfer's parallel BODY reads took it past the
+          # 128Mi this had, OOMKilled mid-transfer (found by the smoke test,
+          # 2026-10-07).
           resources:
             requests:
               cpu: 10m
               memory: 32Mi
             limits:
               cpu: 150m
-              memory: 128Mi
+              memory: 512Mi
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -194,13 +198,17 @@ spec:
               port: http
             initialDelaySeconds: 5
             periodSeconds: 20
+          # 512Mi: the stub holds the ~57 MiB clip and its yEnc articles in
+          # memory, and a transfer's parallel BODY reads took it past the
+          # 128Mi this had, OOMKilled mid-transfer (found by the smoke test,
+          # 2026-10-07).
           resources:
             requests:
               cpu: 10m
               memory: 32Mi
             limits:
               cpu: 150m
-              memory: 128Mi
+              memory: 512Mi
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
