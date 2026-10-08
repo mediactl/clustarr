@@ -146,7 +146,7 @@ func TestProviderFieldsDeclaresExactlyItsOwnSet(t *testing.T) {
 // ---------------------------------------------------------------------
 
 func TestPatchProfileRefusesAManagerOutsideTheSplit(t *testing.T) {
-	for _, mgr := range []k8s.FieldManager{k8s.ManagerCatalog, k8s.ManagerCaptionWorker, ""} {
+	for _, mgr := range []k8s.FieldManager{k8s.ManagerCatalog, k8s.ManagerImportWorker, ""} {
 		err := status.PatchProfile(t.Context(), nil, mgr,
 			&subtitlev1alpha1.SubtitleProfile{}, nil)
 		require.ErrorContains(t, err, "owns no part of SubtitleProfile.status")
@@ -154,10 +154,11 @@ func TestPatchProfileRefusesAManagerOutsideTheSplit(t *testing.T) {
 }
 
 func TestPatchProviderRefusesAManagerOutsideTheSplit(t *testing.T) {
-	// caption-worker is deliberately in this list: ruling R2 forbids a
-	// worker from writing SubtitleProvider.status directly, even though it is
-	// a legitimate manager elsewhere in the project.
-	for _, mgr := range []k8s.FieldManager{k8s.ManagerCatalog, k8s.ManagerCaptionWorker, ""} {
+	// A worker manager is deliberately in this list: ruling R2 forbids a
+	// worker from writing SubtitleProvider.status directly. caption-worker is
+	// retired (the caption agent writes no Kubernetes object, ADR-0019), so
+	// import-worker, a legitimate manager elsewhere, stands in for it.
+	for _, mgr := range []k8s.FieldManager{k8s.ManagerCatalog, k8s.ManagerImportWorker, ""} {
 		err := status.PatchProvider(t.Context(), nil, mgr,
 			&subtitlev1alpha1.SubtitleProvider{}, nil)
 		require.ErrorContains(t, err, "owns no part of SubtitleProvider.status")

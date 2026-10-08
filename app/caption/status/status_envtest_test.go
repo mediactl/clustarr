@@ -122,6 +122,6 @@ func TestSubtitleProfileAndProviderRoundTripThroughManagerCaption(t *testing.T) 
 	assert.True(t, afterReapply.Status.HIVerifiable, "the re-apply released hiVerifiable")
 	assert.Equal(t, "5 errors in 120s", afterReapply.Status.ThrottleReason)
 
-	err := status.PatchProvider(ctx, c, k8s.ManagerCaptionWorker, provider, nil)
+	err := status.PatchProvider(ctx, c, k8s.ManagerImportWorker, provider, nil)
 	require.ErrorContains(t, err, "owns no part of SubtitleProvider.status")
 }
