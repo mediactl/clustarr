@@ -84,11 +84,26 @@ func Tag(profileName, profileHash string) string {
 // tool's HEVC or AV1 encode -- or catalog's record of a transcode by this
 // profile under any hash: a replaceSource=false job records it on the
 // source, whose own bytes stay untouched, and whose derived copy exists.
+// Only a block that records a transcode counts (RecordsATranscode): a
+// window block or a verdict carries the tag it was planned under.
 func AlreadyTranscoded(mf *catalogv1alpha1.MediaFile, profile string) bool {
 	if mf.Transcoded() {
 		return true
 	}
-	return mf.Status.Transcode != nil && strings.HasPrefix(mf.Status.Transcode.ProfileTag, Tag(profile, ""))
+	tr := mf.Status.Transcode
+	return RecordsATranscode(tr) && strings.HasPrefix(tr.ProfileTag, Tag(profile, ""))
+}
+
+// RecordsATranscode reports a status.transcode block whose profileTag
+// records a transcode catalog incorporated: Succeeded (a swap, or a kept
+// copy beside its source, §5.14), or a phase-less 0.4.x block, which reads
+// as Succeeded when it carries a profileTag (§2.5 "Legacy objects"). A
+// block in the window (Pending to Swapping) or a Skipped or Failed verdict
+// carries the tag it was planned under, which records nothing done: read
+// as a transcode, it would make the file ineligible on the pass after its
+// window grant, and its plan a skip.
+func RecordsATranscode(tr *catalogv1alpha1.TranscodeState) bool {
+	return tr != nil && (tr.Phase == catalogv1alpha1.TranscodePhaseSucceeded || tr.Phase == "")
 }
 
 // Probed reports whether mf has enough of a probe to plan a transcode from:

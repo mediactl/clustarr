@@ -63,15 +63,15 @@ func MediaInfoOf(path string, mf *catalogv1alpha1.MediaFile, st *catalogv1alpha1
 // recordedTag is the CLUSTARR_PROFILE catalog recorded for the file whose
 // status is st: the probe's read of the file's own tag (any profile, any
 // hash), else a transcode by tag's profile, under any hash, that catalog
-// incorporated (status.transcode.profileTag; a replaceSource=false copy
-// records it on the untouched source beside its derived copy). "" when
-// there is neither.
+// incorporated (status.transcode.profileTag of a block that records one,
+// RecordsATranscode; a replaceSource=false copy records it on the
+// untouched source beside its derived copy). "" when there is neither.
 func recordedTag(st *catalogv1alpha1.MediaFileStatus, tag string) string {
 	if mi := st.MediaInfo; mi != nil && mi.TranscodeProfile != "" {
 		return mi.TranscodeProfile
 	}
 	name, _, _ := strings.Cut(tag, "@")
-	if tr := st.Transcode; tr != nil && strings.HasPrefix(tr.ProfileTag, name+"@") {
+	if tr := st.Transcode; RecordsATranscode(tr) && strings.HasPrefix(tr.ProfileTag, name+"@") {
 		return tr.ProfileTag
 	}
 	return ""
