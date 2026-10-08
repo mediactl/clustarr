@@ -57,7 +57,7 @@ import (
 const (
 	// DefaultContentBytes clears pkg/fsops.IsSuspectedSample's 50MiB video
 	// size floor (fsops.DefaultSampleMaxBytes) with roughly the same margin
-	// images/Dockerfile.e2e-fixtures' clipgen stage uses for its own baked
+	// test/fixtures/mkclips uses for the image's own baked
 	// clip, so a transfer completed against this seeder's default content is
 	// classifiable as ClassMedia downstream rather than landing in
 	// status.unmatched as a suspected sample. A caller that only needs to

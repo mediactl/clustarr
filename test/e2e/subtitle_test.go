@@ -135,8 +135,8 @@ const (
 	// "1080p\|720p\|2160p\|480p\|BluRay\|WEB-DL\|WEBRip\|HDTV\|DVDRip"
 	// before choosing these tokens (transcode_test.go's own
 	// transcodeMovieFolder doc comment sets this precedent): 1080p/bluray
-	// is fixtureMovieFolder (libraryscan_test.go, the most common), 2160p/
-	// webdl is transcodeMovieFolder, 720p/webdl is
+	// is fixtureMovieFolder (libraryscan_test.go, the most common), 1080p/
+	// hdtv is transcodeMovieFolder, 1080p/webdl is
 	// transcodeContainerFolder. series_test.go's 720p files use
 	// plantFiller, never probed into a real MediaFile with real labels, so
 	// they cannot collide either. Reusing fixtureTmdbID (27205, Inception)

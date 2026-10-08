@@ -82,7 +82,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Deliberately NOT reused here: the source this scenario needs is one the
 // standard (pkg/transcode/standard, ffgo spec §1) decides to actually
 // ENCODE, so the real worker path gets exercised. The suite's ordinary
-// probe clip (test/fixtures/seed.ClipName) is H.264/AAC at 640x480, which
+// probe clip (test/fixtures/seed.ClipName) is H.264/AAC at 1920x1080, which
 // the standard encodes to HEVC Main (8-bit: SDR at 1080p or less). The
 // HDR10 clip, by contrast, IS already HEVC 10-bit -- what the standard
 // writes for HDR -- so it would be skipped ("already HEVC Main 10"), not
@@ -145,23 +145,26 @@ const (
 	// can answer for -- though this scenario never waits on that metadata
 	// (see the main test's own comment), only on the MediaFile.
 	//
-	// "2160p" + "WEB-DL" is chosen so pkg/release freezes
-	// spec.quality.{resolution,source} = {2160, webdl}: a signature no
-	// other scenario in this package ever plants a REAL (plantMedia + full
-	// scan) MediaFile with. Every other real MediaFile in test/e2e is
-	// 1080p/bluray (fixtureMovieFolder/File, libraryscan_test.go) --
-	// confirmed by grepping this package for "1080p\|720p\|2160p\|BluRay\|
-	// WEB-DL" before choosing these tokens, not assumed. series_test.go's
-	// 720p files use plantFiller, never probed into a real MediaFile, so
-	// they cannot collide with transcodeContainerFolder/File's 720p/webdl
-	// signature below either.
+	// "1080p" + "HDTV" is chosen so pkg/release freezes
+	// spec.quality.{resolution,source} = {1080, tv}: a signature no other
+	// scenario in this package ever plants a REAL (plantMedia + full scan)
+	// MediaFile with. The other real MediaFiles in test/e2e are
+	// 1080p/bluray (fixtureMovieFolder/File, libraryscan_test.go),
+	// 1080p/webrip (subtitle_test.go) and 1080p/webdl (below). Every one is
+	// 1080p because the probe corrects a name's resolution
+	// (quality.AugmentFromMediaInfo, in the rescan and the import alike)
+	// and the one probe clip is 1920x1080 (test/fixtures/mkclips' ruling):
+	// a "2160p" or "720p" name would freeze as 1080p and miss a selector
+	// written for the name. Only the source can tell them apart.
+	// series_test.go's 720p files use plantFiller, never probed into a
+	// real MediaFile, so they cannot collide.
 	transcodeMovieFolder = "Fixture Transcode Movie (2019) {tmdb-27205}"
-	transcodeMovieFile   = "Fixture.Transcode.Movie.2019.2160p.WEB-DL.x264-CLUSTARR.mkv"
+	transcodeMovieFile   = "Fixture.Transcode.Movie.2019.1080p.HDTV.x264-CLUSTARR.mkv"
 
 	// transcodeContainerFolder/File plant TestTranscodeContainerChangeMovesTheFile's
-	// file: a distinct (720, webdl) signature, same reasoning as above.
+	// file: a distinct (1080, webdl) signature, same reasoning as above.
 	transcodeContainerFolder = "Fixture Transcode Container Movie (2019) {tmdb-27205}"
-	transcodeContainerFile   = "Fixture.Transcode.Container.Movie.2019.720p.WEB-DL.x264-CLUSTARR.mkv"
+	transcodeContainerFile   = "Fixture.Transcode.Container.Movie.2019.1080p.WEB-DL.x264-CLUSTARR.mkv"
 
 	// defaultRecycleBinLogical mirrors RootFolderSpec.RecycleBin.Path's own
 	// CRD default (api/catalog/v1alpha1/rootfolder_types.go) and
@@ -204,12 +207,12 @@ const (
 	// TranscodeJobs, and this file's two scenarios are the only ones that
 	// create TranscodeProfiles), then transcode's worker actually running
 	// the in-process engine (libx265 at the standard's CPU settings) against the
-	// suite's ten-second 640x480 probe clip, verifying the output and
+	// suite's ten-second 1080p probe clip, verifying the output and
 	// swapping it over the source (R5: hard-link the original into the
 	// recycle bin, then rename the output over the source path). A
-	// ten-second 640x480 clip encodes in well under a minute on any real
-	// node at any x265 preset; this is sized for a loaded single kind node
-	// and a cold image pull, not the encode itself.
+	// ten-second 1080p test pattern encodes in a minute or two at the
+	// standard's x265 "slow" preset on a real node; this is sized for a
+	// loaded single kind node and a cold image pull as well.
 	transcodeJobSucceededTimeout = 10 * time.Minute
 
 	// recycledOriginalTimeout bounds the wait for the pre-transcode
@@ -424,7 +427,7 @@ func TestTranscodeContainerChangeMovesTheFile(t *testing.T) {
 	files := waitForMediaFileCount(ctx, t, rf.Spec.Path, 1)
 	mfKey := client.ObjectKeyFromObject(&files[0])
 	mf := waitForMediaFileProbed(ctx, t, mfKey)
-	require.Equal(t, int32(720), mf.Spec.Quality.Resolution)
+	require.Equal(t, int32(1080), mf.Spec.Quality.Resolution)
 	require.Equal(t, commonv1.SourceWebDL, mf.Spec.Quality.Source)
 	require.Equal(t, filePath, mf.Spec.Path)
 	firstProbedAt := mf.Status.ProbedAt
@@ -439,7 +442,7 @@ func TestTranscodeContainerChangeMovesTheFile(t *testing.T) {
 	// mp4 output against a .mkv source: the container-change shape. The
 	// file's own status.transcode carries the plan and the swap since
 	// ADR-0016 (F8.9).
-	newTranscodeProfile(ctx, t, "e2e-tjcc-profile", 720, commonv1.SourceWebDL, transcodev1alpha1.ContainerMP4)
+	newTranscodeProfile(ctx, t, "e2e-tjcc-profile", 1080, commonv1.SourceWebDL, transcodev1alpha1.ContainerMP4)
 	done := waitForTranscodePhase(ctx, t, mfKey, transcodeJobSucceededTimeout+transcodeSwapIncorporatedTimeout, catalogv1alpha1.TranscodePhaseSucceeded)
 	wantOutput := strings.TrimSuffix(filePath, ".mkv") + ".mp4"
 	require.Equal(t, wantOutput, done.Spec.Path, "the loop takes spec.path over to the .mp4 (loop spec §3.10)")

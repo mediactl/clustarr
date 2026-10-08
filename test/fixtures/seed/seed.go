@@ -16,11 +16,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 // Package seed copies the lavfi-generated clip baked into the fixture image
-// (by images/Dockerfile.e2e-fixtures's ffmpeg build stage) onto the shared
-// /data volume, so test/e2e can "plant" ffprobe-able media by a plain
-// filesystem copy -- no ffmpeg needed on the machine running `go test`, and
-// catalog's MediaFile controller probes real bytes with real ffprobe,
-// never a mock.
+// (by images/Dockerfile.e2e-fixtures's clipgen stage, test/fixtures/mkclips
+// on ffgo) onto the shared /data volume, so test/e2e can "plant" probeable
+// media by a plain filesystem copy -- no FFmpeg needed on the machine
+// running `go test`, and the import agent probes real bytes, never a mock.
+// The clip is 1920x1080, the 1080p every name it is planted under claims
+// (mkclips' package doc records why).
 //
 // # Why the clip is not tiny
 //
@@ -49,12 +50,12 @@ const BakedClipPath = "/fixtures/media/tiny.mkv"
 // ClipName is the basename Run writes under its destination directory.
 const ClipName = "tiny.mkv"
 
-// HDR10ClipBakedPath is where images/Dockerfile.e2e-fixtures's HDR10
-// clipgen stage places its generated clip in the final image (Task E-5:
-// HEVC 10-bit, BT.2020/PQ, mastering-display and content-light metadata,
-// built with the identical ffmpeg recipe
-// pkg/mediainfo/native/hdr10_fixture_test.go proves classifies as
-// HDR10). That unit test is this clip's whole proof obligation -- no
+// HDR10ClipBakedPath is where images/Dockerfile.e2e-fixtures's clipgen
+// stage places its HDR10 clip in the final image (Task E-5: HEVC 10-bit,
+// BT.2020/PQ, mastering-display and content-light metadata, the recipe
+// pkg/mediainfo/native/hdr10_fixture_test.go proves classifies as HDR10,
+// written by test/fixtures/mkclips). That unit test is this clip's whole
+// proof obligation -- no
 // scenario in test/e2e consumes it as of Phase E, deliberately (see
 // test/e2e/transcode_test.go's package doc comment for why scenario 12 uses
 // the plain probe clip instead) -- Run copies it out anyway so a future HDR-aware scenario has a

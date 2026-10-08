@@ -284,7 +284,11 @@ func waitForMediaFileProbed(ctx context.Context, t *testing.T, key client.Object
 		return live.Status.MediaInfo != nil && live.Status.ProbeHash != "", nil
 	}, describeMediaFile(key))
 	require.Equal(t, "h264", live.Status.MediaInfo.VideoCodec, "ffprobe read the seeded clip's real video stream")
-	require.EqualValues(t, 640, live.Status.MediaInfo.Width)
+	// The probe clip is 1080p (test/fixtures/mkclips' ruling): a planted
+	// name's resolution survives the probe's correction only when the clip
+	// is the resolution the name says.
+	require.EqualValues(t, 1920, live.Status.MediaInfo.Width)
+	require.EqualValues(t, 1080, live.Status.MediaInfo.Height)
 	require.True(t, isConditionTrue(live.Status.Conditions, catalogv1alpha1.MediaFileConditionProbed),
 		"MediaFile %s has a probe result but no Probed condition", key.Name)
 	return live
