@@ -234,12 +234,17 @@ func TestLiveTVPolicyListsEveryManagerPort(t *testing.T) {
 				if len(rule.From) > 0 {
 					guarded++
 					assert.Equal(t, map[string]bool{"livetv": true}, ports, "only the tuner port is limited to its peers")
-					// Exactly the default peer: kustomize's includeSelectors
-					// labels would add clustarr's own labels, which no Plex
-					// pod carries.
+					// Exactly the default peer: Plex's pods in any namespace
+					// (cluster-plex runs in its own, media on the owner's
+					// cluster), by cluster-plex's label alone; kustomize's
+					// includeSelectors labels would add clustarr's, which
+					// no Plex pod carries.
 					require.Len(t, rule.From, 1)
 					require.NotNil(t, rule.From[0].PodSelector)
 					assert.Equal(t, map[string]string{"app.kubernetes.io/component": "plex"}, rule.From[0].PodSelector.MatchLabels, "Plex's pods, by cluster-plex's label alone")
+					require.NotNil(t, rule.From[0].NamespaceSelector, "in any namespace, not only clustarr's")
+					assert.Empty(t, rule.From[0].NamespaceSelector.MatchLabels)
+					assert.Empty(t, rule.From[0].NamespaceSelector.MatchExpressions)
 				} else {
 					open++
 					assert.Equal(t, others, ports, "every other manager port stays open: %v", slices.Sorted(maps.Keys(others)))

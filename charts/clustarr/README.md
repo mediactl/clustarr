@@ -460,7 +460,7 @@ template.
 | `livetv.port` | The tuner's container port (`--livetv-bind-address=:<port>`). | `5004` |
 | `livetv.portRange` | The ports the blocks get (`--livetv-port-range`, `low-high`). cluster-plex serves each on a link-local address inside its Plex pods, never on a node. | `47000-47999` |
 | `livetv.networkPolicy.enabled` | A NetworkPolicy on the manager pod admitting the tuner port only from `allowFrom`; every other manager port stays open. `false` for a CNI that enforces none. | `true` |
-| `livetv.networkPolicy.allowFrom` | NetworkPolicyPeers allowed to reach the tuner port. With Plex in another namespace, give each a `namespaceSelector`. | Plex's pods (`app.kubernetes.io/component: plex`) in this namespace |
+| `livetv.networkPolicy.allowFrom` | NetworkPolicyPeers allowed to reach the tuner port. Narrow the default with a `namespaceSelector` naming Plex's namespace. | Plex's pods (`app.kubernetes.io/component: plex`) in any namespace |
 | `agents.<domain>.enabled` | Render that agent (`catalog`, `events`, `metadata`, `import`, `index`, `caption`). | `true` |
 | `agents.<domain>.replicas` | Replicas with `autoscaling.enabled=false` (`catalog`, `events`, `import`, `caption`). `metadata` and `index` always run one. | `1` |
 | `agents.<domain>.consumerSlots` | Per-pod handler slots by consumer (`CLUSTARR_CONSUMER_SLOTS`), also the HPA's per-pod target; only that domain's consumers. | `{}` |

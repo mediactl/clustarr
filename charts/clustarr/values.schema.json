@@ -263,7 +263,7 @@
           "required": ["enabled", "allowFrom"],
           "properties": {
             "enabled": { "type": "boolean", "description": "Render a NetworkPolicy on the manager pod admitting the tuner port only from allowFrom; every other manager port stays open." },
-            "allowFrom": { "type": "array", "minItems": 1, "items": { "type": "object" }, "description": "NetworkPolicyPeer list allowed to reach the tuner port. Default: Plex's pods (app.kubernetes.io/component: plex) in this namespace." }
+            "allowFrom": { "type": "array", "minItems": 1, "items": { "type": "object" }, "description": "NetworkPolicyPeer list allowed to reach the tuner port. Default: Plex's pods (app.kubernetes.io/component: plex) in any namespace." }
           }
         }
       }

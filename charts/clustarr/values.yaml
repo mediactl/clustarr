@@ -350,10 +350,12 @@ livetv:
     # that enforces no policies.
     enabled: true
     # Peers allowed to reach the tuner port (NetworkPolicyPeer list).
-    # Default: Plex's pods in this namespace. While Plex runs in another
-    # namespace, give each peer a namespaceSelector too.
+    # Default: cluster-plex's Plex pods, in whichever namespace Plex runs.
+    # Narrow it with a namespaceSelector naming that namespace, e.g.
+    # kubernetes.io/metadata.name: media.
     allowFrom:
-      - podSelector:
+      - namespaceSelector: {}
+        podSelector:
           matchLabels:
             app.kubernetes.io/component: plex
 
