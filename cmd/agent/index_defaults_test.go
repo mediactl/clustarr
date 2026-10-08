@@ -25,7 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	indexapp "github.com/mediactl/clustarr/app/indexer"
+	"github.com/mediactl/clustarr/internal/cli/agent"
 )
 
 // Both of these constants shipped disagreeing with the manifest, and neither
@@ -40,7 +40,7 @@ import (
 // restates the value it guards cannot catch drift; that is how ValidKVKey
 // shipped permissive in Phase C, pinned against a regex copied into the test
 // file instead of against the server that rejects the key.
-const indexManifest = "../../config/manager/index.yaml"
+const indexManifest = "../../config/manager/agent-index.yaml"
 
 func TestDefaultIndexPathMatchesTheManifest(t *testing.T) {
 	b, err := os.ReadFile(indexManifest)
@@ -50,7 +50,7 @@ func TestDefaultIndexPathMatchesTheManifest(t *testing.T) {
 		FindSubmatch(b)
 	require.Len(t, m, 2, "CLUSTARR_INDEX_PATH is not set in %s -- if it moved, this test must follow it", indexManifest)
 
-	assert.Equal(t, string(m[1]), indexapp.DefaultIndexPath,
+	assert.Equal(t, string(m[1]), agent.DefaultIndexPath,
 		"the compiled-in index path and the manifest's CLUSTARR_INDEX_PATH disagree; "+
 			"the pod runs readOnlyRootFilesystem, so a path outside the PVC mount cannot be written")
 }
@@ -63,6 +63,6 @@ func TestDefaultFacadeBindAddressMatchesTheServicePort(t *testing.T) {
 		FindSubmatch(b)
 	require.Len(t, m, 2, "no named http port in %s -- if it was renamed, this test must follow it", indexManifest)
 
-	assert.Equal(t, ":"+string(m[1]), indexapp.DefaultFacadeBindAddress,
+	assert.Equal(t, ":"+string(m[1]), agent.DefaultFacadeBindAddress,
 		"the facade would bind a port the Service does not route to, so it would be unreachable")
 }

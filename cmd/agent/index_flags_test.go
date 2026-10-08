@@ -18,132 +18,54 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package main
 
 import (
-	"context"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
-	captionapp "github.com/mediactl/clustarr/app/caption"
-	catalogapp "github.com/mediactl/clustarr/app/catalog"
-	grabapp "github.com/mediactl/clustarr/app/grab"
-	importapp "github.com/mediactl/clustarr/app/import"
-	indexapp "github.com/mediactl/clustarr/app/indexer"
-	transcodeapp "github.com/mediactl/clustarr/app/transcode"
-	"github.com/mediactl/clustarr/ui"
+	"github.com/mediactl/clustarr/internal/cli"
 )
 
-// wantDSN is the Postgres DSN both cases in TestIndexDSNFlagReachesIndexerOptions
-// pass on the command line. It is never dialled: the stubbed entrypoint never
-// calls index.Run.
+// wantDSN is the Postgres DSN the cases below pass. It is never dialled: the
+// recording run never opens the index.
 const wantDSN = "postgres://clustarr:secret@postgres.example:5432/clustarr?sslmode=disable"
 
-// TestIndexDSNFlagReachesIndexerOptions is A2's flag-wiring test, mirroring
-// ui_options_wiring_test.go's approach: execute the real command tree with
-// every service entrypoint stubbed, and assert on the indexer.Options the
-// stub actually received, rather than re-parsing argv by hand.
-//
-// It covers both places §A.3's --index-dsn is bound: `clustarr index`
-// (services.go) and `clustarr all` (all.go, the dev entry point) -- A2's
-// checklist calls out both by name, because index's other dev options
-// (facade address, Cardigann bundle) are wired into `all` only through
-// $CLUSTARR_* env defaults with no flag of their own, and --index-dsn is
-// deliberately NOT that: it is a first-class flag on both commands so a
-// developer can point `clustarr all` at a shared Postgres index without
-// exporting an environment variable.
+// TestIndexDSNFlagReachesIndexerOptions is A2's flag-wiring test: execute the
+// real command tree with a recording run and assert on the options the index
+// domain would start with, rather than re-parsing argv by hand. --index-dsn
+// is a first-class flag of `agent --domain=index` (spec §A.3). The old
+// `clustarr all` leg has no subject: one process runs one domain (§3.10).
 func TestIndexDSNFlagReachesIndexerOptions(t *testing.T) {
-	kubeconfig := filepath.Join(t.TempDir(), "kubeconfig")
-	require.NoError(t, os.WriteFile(kubeconfig, []byte(unreachableKubeconfig), 0o600))
-	t.Setenv("KUBECONFIG", kubeconfig)
 	// Clearing the environment variable makes the assertion about the FLAG
-	// reaching Options, not about the env default doing so -- the two are
-	// easy to conflate since the flag's own default reads the same variable.
-	t.Setenv(indexDSNEnv, "")
-
-	for _, argv := range [][]string{
-		{"index", "--index-dsn", wantDSN},
-		{"all", "--index-dsn", wantDSN, "--ui-auth-mode", "anonymous"},
-	} {
-		t.Run("clustarr "+argv[0], func(t *testing.T) {
-			got := captureIndexOptions(t, argv...)
-			require.Equal(t, wantDSN, got.IndexDSN,
-				"clustarr %v did not carry --index-dsn through to indexer.Options.IndexDSN", argv)
-		})
-	}
+	// reaching the options, not about the env default doing so -- the two
+	// are easy to conflate since the flag's own default reads the same
+	// variable.
+	t.Setenv(cli.EnvIndexDSN, "")
+	got, err := parse(t, "--domain=index", "--index-dsn", wantDSN)
+	require.NoError(t, err)
+	require.Equal(t, wantDSN, got.IndexDSN, "--index-dsn did not reach the index domain's options")
 }
 
 // TestIndexDSNEnvDefaultsBothCommands proves $CLUSTARR_INDEX_DSN is the
-// flag's default on both commands too, the way indexPathEnv already is for
-// --index-path.
+// flag's default, the way $CLUSTARR_INDEX_PATH is for --index-path.
 func TestIndexDSNEnvDefaultsBothCommands(t *testing.T) {
-	kubeconfig := filepath.Join(t.TempDir(), "kubeconfig")
-	require.NoError(t, os.WriteFile(kubeconfig, []byte(unreachableKubeconfig), 0o600))
-	t.Setenv("KUBECONFIG", kubeconfig)
-	t.Setenv(indexDSNEnv, wantDSN)
-
-	for _, argv := range [][]string{
-		{"index"},
-		{"all", "--ui-auth-mode", "anonymous"},
-	} {
-		t.Run("clustarr "+argv[0], func(t *testing.T) {
-			got := captureIndexOptions(t, argv...)
-			require.Equal(t, wantDSN, got.IndexDSN,
-				"clustarr %v did not default --index-dsn from $%s", argv, indexDSNEnv)
-		})
-	}
+	t.Setenv(cli.EnvIndexDSN, wantDSN)
+	got, err := parse(t, "--domain=index")
+	require.NoError(t, err)
+	require.Equal(t, wantDSN, got.IndexDSN, "--index-dsn did not default from $%s", cli.EnvIndexDSN)
 }
 
 // TestIndexDSNEmptyKeepsSQLite proves the zero value -- no flag, no env --
-// leaves IndexDSN empty on both commands, so index.Run's open-path pivot
-// takes the SQLite branch (spec §A.3: "empty keeps SQLite... the default").
+// leaves IndexDSN empty, so the index domain's open-path pivot takes the
+// SQLite branch (spec §A.3: "empty keeps SQLite... the default"), and that
+// SQLite then needs its file: an empty --index-path with no DSN is refused.
 func TestIndexDSNEmptyKeepsSQLite(t *testing.T) {
-	kubeconfig := filepath.Join(t.TempDir(), "kubeconfig")
-	require.NoError(t, os.WriteFile(kubeconfig, []byte(unreachableKubeconfig), 0o600))
-	t.Setenv("KUBECONFIG", kubeconfig)
-	t.Setenv(indexDSNEnv, "")
+	t.Setenv(cli.EnvIndexDSN, "")
+	t.Setenv(cli.EnvIndexPath, "")
+	got, err := parse(t, "--domain=index")
+	require.NoError(t, err)
+	require.Empty(t, got.IndexDSN, "IndexDSN set with neither --index-dsn nor $%s given", cli.EnvIndexDSN)
+	require.NotEmpty(t, got.IndexPath, "IndexPath must still default when IndexDSN is empty")
 
-	for _, argv := range [][]string{
-		{"index"},
-		{"all", "--ui-auth-mode", "anonymous"},
-	} {
-		t.Run("clustarr "+argv[0], func(t *testing.T) {
-			got := captureIndexOptions(t, argv...)
-			require.Empty(t, got.IndexDSN, "clustarr %v set IndexDSN with neither --index-dsn nor $%s given",
-				argv, indexDSNEnv)
-			require.NotEmpty(t, got.IndexPath, "IndexPath must still default when IndexDSN is empty")
-		})
-	}
-}
-
-// captureIndexOptions executes argv with every service entrypoint stubbed
-// (the `all` command starts all seven; `index` alone only ever calls its
-// own) and returns the indexer.Options runIndex was called with.
-func captureIndexOptions(t *testing.T, argv ...string) indexapp.Options {
-	t.Helper()
-
-	catalog, index, grab, transcode, caption, importa, uiRun :=
-		runCatalog, runIndex, runGrab, runTranscode, runCaption, runImport, runUI
-	t.Cleanup(func() {
-		runCatalog, runIndex, runGrab, runTranscode, runCaption, runImport, runUI =
-			catalog, index, grab, transcode, caption, importa, uiRun
-	})
-
-	var got indexapp.Options
-	var called bool
-	runCatalog = func(context.Context, catalogapp.Options) error { return nil }
-	runIndex = func(_ context.Context, o indexapp.Options) error {
-		got, called = o, true
-		return nil
-	}
-	runGrab = func(context.Context, grabapp.Options) error { return nil }
-	runTranscode = func(context.Context, transcodeapp.Options) error { return nil }
-	runCaption = func(context.Context, captionapp.Options) error { return nil }
-	runImport = func(context.Context, importapp.Options) error { return nil }
-	runUI = func(context.Context, ui.Options) error { return nil }
-
-	_, err := execute(t, argv...)
-	require.NoError(t, err, "clustarr %v", argv)
-	require.True(t, called, "clustarr %v never called runIndex", argv)
-	return got
+	_, err = parse(t, "--domain=index", "--index-path=")
+	require.ErrorContains(t, err, "--index-path")
 }
