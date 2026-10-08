@@ -19,25 +19,23 @@ package markers_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
 
+	"github.com/jonboulle/clockwork"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
-	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	catalogmarkers "github.com/mediactl/clustarr/app/catalog/markers"
 	"github.com/mediactl/clustarr/app/catalog/worker/markers"
 	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/events/schema"
-	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/metadata"
+	"github.com/mediactl/clustarr/pkg/records"
 )
 
 type stubProvider struct {
@@ -63,277 +61,230 @@ func (m message) Nak(context.Context, time.Duration) error { return nil }
 func (m message) Term(context.Context, string) error       { return nil }
 func (m message) InProgress(context.Context) error         { return nil }
 
-func task(t *testing.T, name string) events.Message {
-	t.Helper()
-	s, data, err := schema.Encode(schema.MarkersTask{MediaFile: name})
-	require.NoError(t, err)
-	return message{&events.Envelope{Key: "media/" + name, Schema: s, Data: data}}
-}
-
 var now = time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 
-func episodeWorld(order catalogv1alpha1.EpisodeOrder) []client.Object {
-	sr := &catalogv1alpha1.Series{ObjectMeta: metav1.ObjectMeta{Name: "bb", Namespace: "media"}}
-	sr.Spec.TvdbID = 81189
-	sr.Spec.EpisodeOrder = order
-	ep := &catalogv1alpha1.Episode{ObjectMeta: metav1.ObjectMeta{Name: "bb-s01e01", Namespace: "media"}}
-	ep.Spec.SeriesRef, ep.Spec.SeasonNumber, ep.Spec.EpisodeNumber = "bb", 1, 1
-	mf := &catalogv1alpha1.MediaFile{ObjectMeta: metav1.ObjectMeta{Name: "bb-file", Namespace: "media", UID: "u1"}}
-	mf.Spec.MediaRef = commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: "bb-s01e01"}
-	mf.Status.ProbeHash = "h1"
-	mf.Status.MediaInfo = &commonv1.MediaInfo{RuntimeMillis: 3480000}
-	return []client.Object{sr, ep, mf}
-}
-
-func handler(objs []client.Object, p *stubProvider, applied *[]*catalogac.MediaFileApplyConfiguration) *markers.Handler {
-	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).WithObjects(objs...).Build()
-	return &markers.Handler{
-		Reader: c, Providers: []metadata.MarkersProvider{p}, Clock: func() time.Time { return now },
-		Apply: func(_ context.Context, ac *catalogac.MediaFileApplyConfiguration) error {
-			*applied = append(*applied, ac)
-			return nil
-		},
+// episodeTask is the task the remediation loop builds for bb-file, an
+// episode of a series TVDB knows as 81189, in the aired order (the loop's
+// query, app/remediation/markers, since F3.4).
+func episodeTask(name, uid string, episode int32) schema.MarkersTask {
+	return schema.MarkersTask{
+		File: schema.Ref{Namespace: "media", Name: name, UID: uid}, Seq: 1,
+		Inputs: schema.MarkersInputs{ProbeHash: "h1", DurationMs: 3480000, Query: schema.MarkersQuery{
+			IDs: map[string]string{metadata.KeyTVDB: "81189"}, Season: 1, Episode: episode,
+		}},
+		SeriesKey: metadata.KeyTVDB + ":81189",
 	}
 }
 
+// world is a bus whose clustarr-markers holds the loop's requests for
+// tasks, and a handler asking p that answers into it.
+func world(t *testing.T, p *stubProvider, tasks ...schema.MarkersTask) (events.Bus, *markers.Handler) {
+	t.Helper()
+	bus := membus.New(clockwork.NewRealClock())
+	require.NoError(t, bus.Ensure(context.Background(), events.Default()))
+	t.Cleanup(func() { _ = bus.Close() })
+	for _, tk := range tasks {
+		request(t, bus, tk)
+	}
+	return bus, &markers.Handler{
+		Providers: []metadata.MarkersProvider{p}, Clock: func() time.Time { return now },
+		Answers: catalogmarkers.NewAnswers(bus, "metadata-0"),
+	}
+}
+
+// request writes tk's requested record, as the loop does before it
+// publishes the task.
+func request(t *testing.T, bus events.Bus, tk schema.MarkersTask) {
+	t.Helper()
+	rec := schema.MarkersRecord{Inputs: tk.Inputs, SeriesKey: tk.SeriesKey}
+	rec.Schema, rec.MediaFile, rec.Seq, rec.State, rec.RequestedAt = schema.MarkersRecordSchema, tk.File, tk.Seq, records.StateRequested, now
+	b, err := json.Marshal(rec)
+	require.NoError(t, err)
+	_, err = bus.KV(events.BucketMarkers).Put(context.Background(), events.RecordKey(tk.File.UID), b)
+	require.NoError(t, err)
+}
+
+func task(t *testing.T, tk schema.MarkersTask) events.Message {
+	t.Helper()
+	s, data, err := schema.Encode(tk)
+	require.NoError(t, err)
+	return message{&events.Envelope{Key: tk.File.Namespace + "/" + tk.File.Name, Schema: s, Data: data}}
+}
+
+// recordOf is uid's record in clustarr-markers.
+func recordOf(t *testing.T, bus events.Bus, uid string) *schema.MarkersRecord {
+	t.Helper()
+	rec, _, ok, err := catalogmarkers.NewRecords(bus).Get(context.Background(), uid)
+	require.NoError(t, err)
+	require.True(t, ok, "no record for %s", uid)
+	return rec
+}
+
+// answered is uid's answer; the record must hold one.
+func answered(t *testing.T, bus events.Bus, uid string) *schema.MarkersAnswer {
+	t.Helper()
+	rec := recordOf(t, bus, uid)
+	require.Equal(t, records.StateAnswered, rec.State)
+	require.NotNil(t, rec.Answer)
+	return rec.Answer
+}
+
+// unanswered asserts uid's record is still the loop's request.
+func unanswered(t *testing.T, bus events.Bus, uid string) {
+	t.Helper()
+	rec := recordOf(t, bus, uid)
+	assert.Equal(t, records.StateRequested, rec.State)
+	assert.Nil(t, rec.Answer)
+}
+
+// The worker asks the query the loop built (an episode by its series' TVDB
+// id, season and episode) verbatim and records TheIntroDB's segments as
+// the answer for the task's probe. Since F3.4 it reads no Kubernetes
+// object and applies nothing to the MediaFile: the loop incorporates the
+// record.
 func TestAnEpisodeIsAskedByItsSeriesAndRecordsItsSegments(t *testing.T) {
 	p := &stubProvider{segs: metadata.Segments{
 		Credits: []metadata.Segment{{StartMs: 3431000, EndMs: 3480000}},
 		Intro:   []metadata.Segment{{StartMs: 228664, EndMs: 246143}},
 	}}
-	var applied []*catalogac.MediaFileApplyConfiguration
-	require.NoError(t, handler(episodeWorld(""), p, &applied).Handle(context.Background(), task(t, "bb-file")))
+	tk := episodeTask("bb-file", "u1", 1)
+	bus, h := world(t, p, tk)
+	require.NoError(t, h.Handle(context.Background(), task(t, tk)))
 
 	require.Equal(t, []metadata.MarkersQuery{{
 		IDs: metadata.ExternalIDs{metadata.KeyTVDB: "81189"}, Season: 1, Episode: 1, DurationMs: 3480000,
 	}}, p.asked)
-	require.Len(t, applied, 1)
-	st := applied[0].Status
-	require.NotNil(t, st.Markers)
-	assert.Nil(t, st.MediaInfo, "the marker worker's apply carries status.markers only")
-	assert.Nil(t, st.ProbeHash)
-	m := st.Markers
-	assert.Equal(t, catalogv1alpha1.MarkersFound, *m.Result)
-	assert.Equal(t, "h1", *m.ForProbeHash)
-	assert.EqualValues(t, 3480000, *m.DurationMs)
-	require.Len(t, m.Segments, 2)
-	assert.Equal(t, catalogv1alpha1.MarkerIntro, *m.Segments[0].Kind, "ordered by start")
-	assert.Equal(t, catalogv1alpha1.MarkerCredits, *m.Segments[1].Kind)
+	rec := recordOf(t, bus, "u1")
+	assert.Equal(t, "h1", rec.Inputs.ProbeHash)
+	assert.EqualValues(t, 3480000, rec.Inputs.DurationMs)
+	ans := answered(t, bus, "u1")
+	assert.Equal(t, string(catalogv1alpha1.MarkersFound), ans.Result)
+	assert.True(t, now.Equal(ans.FetchedAt))
+	require.Len(t, ans.Segments, 2)
+	assert.Equal(t, string(catalogv1alpha1.MarkerIntro), ans.Segments[0].Kind)
+	assert.Equal(t, string(catalogv1alpha1.MarkerCredits), ans.Segments[1].Kind)
 }
 
 func TestAMovieIsAskedByItsTMDBID(t *testing.T) {
-	mv := &catalogv1alpha1.Movie{ObjectMeta: metav1.ObjectMeta{Name: "matrix", Namespace: "media"}}
-	mv.Spec.TmdbID = 603
-	mf := &catalogv1alpha1.MediaFile{ObjectMeta: metav1.ObjectMeta{Name: "matrix-file", Namespace: "media"}}
-	mf.Spec.MediaRef = commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "matrix"}
-	mf.Status.ProbeHash = "h"
-	mf.Status.MediaInfo = &commonv1.MediaInfo{RuntimeMillis: 8160000}
+	tk := schema.MarkersTask{
+		File: schema.Ref{Namespace: "media", Name: "matrix-file", UID: "u-matrix"}, Seq: 1,
+		Inputs: schema.MarkersInputs{ProbeHash: "h", DurationMs: 8160000, Query: schema.MarkersQuery{
+			IDs: map[string]string{metadata.KeyTMDB: "603"},
+		}},
+	}
 	p := &stubProvider{segs: metadata.Segments{Intro: []metadata.Segment{{EndMs: 40000}}}}
-	var applied []*catalogac.MediaFileApplyConfiguration
-	require.NoError(t, handler([]client.Object{mv, mf}, p, &applied).Handle(context.Background(), task(t, "matrix-file")))
+	bus, h := world(t, p, tk)
+	require.NoError(t, h.Handle(context.Background(), task(t, tk)))
 	require.Equal(t, []metadata.MarkersQuery{{IDs: metadata.ExternalIDs{metadata.KeyTMDB: "603"}, DurationMs: 8160000}}, p.asked)
-	require.Len(t, applied, 1)
+	assert.Equal(t, string(catalogv1alpha1.MarkersFound), answered(t, bus, "u-matrix").Result)
 }
 
 func TestATitleTheProviderLacksIsNotFound(t *testing.T) {
-	p := &stubProvider{err: metadata.ErrNotFound}
-	var applied []*catalogac.MediaFileApplyConfiguration
-	require.NoError(t, handler(episodeWorld(""), p, &applied).Handle(context.Background(), task(t, "bb-file")))
-	require.Len(t, applied, 1)
-	assert.Equal(t, catalogv1alpha1.MarkersNotFound, *applied[0].Status.Markers.Result)
-	assert.Empty(t, applied[0].Status.Markers.Segments)
+	tk := episodeTask("bb-file", "u1", 1)
+	bus, h := world(t, &stubProvider{err: metadata.ErrNotFound}, tk)
+	require.NoError(t, h.Handle(context.Background(), task(t, tk)))
+	ans := answered(t, bus, "u1")
+	assert.Equal(t, string(catalogv1alpha1.MarkersNotFound), ans.Result)
+	assert.Empty(t, ans.Segments)
 }
 
 func TestAProviderFailureIsRecordedAsAnError(t *testing.T) {
-	p := &stubProvider{err: errors.New("theintrodb: status 502")}
-	var applied []*catalogac.MediaFileApplyConfiguration
-	require.NoError(t, handler(episodeWorld(""), p, &applied).Handle(context.Background(), task(t, "bb-file")))
-	require.Len(t, applied, 1)
-	assert.Equal(t, catalogv1alpha1.MarkersError, *applied[0].Status.Markers.Result)
-	assert.Contains(t, *applied[0].Status.Markers.Message, "502")
+	tk := episodeTask("bb-file", "u1", 1)
+	bus, h := world(t, &stubProvider{err: errors.New("theintrodb: status 502")}, tk)
+	require.NoError(t, h.Handle(context.Background(), task(t, tk)))
+	ans := answered(t, bus, "u1")
+	assert.Equal(t, string(catalogv1alpha1.MarkersError), ans.Result)
+	assert.Contains(t, ans.Message, "502")
 }
 
 func TestARateLimitedProviderRetriesWithoutRecording(t *testing.T) {
-	p := &stubProvider{err: &metadata.RateLimitedError{Provider: "theintrodb", RetryAfter: time.Minute}}
-	var got []*catalogac.MediaFileApplyConfiguration
-	err := handler(episodeWorld(""), p, &got).Handle(context.Background(), task(t, "bb-file"))
+	tk := episodeTask("bb-file", "u1", 1)
+	bus, h := world(t, &stubProvider{err: &metadata.RateLimitedError{Provider: "theintrodb", RetryAfter: time.Minute}}, tk)
+	err := h.Handle(context.Background(), task(t, tk))
 	var retry *events.RetryError
 	require.ErrorAs(t, err, &retry)
-	assert.Empty(t, got, "a rate limit is not a result")
+	unanswered(t, bus, "u1") // a rate limit is not a result
 }
 
-// TheIntroDB numbers episodes in aired order: an episode of a DVD- or
-// absolute-ordered series is never asked about, and never given another
-// episode's segments.
-func TestAnEpisodeOutsideTheAiredOrderIsNotAsked(t *testing.T) {
-	p := &stubProvider{}
-	var applied []*catalogac.MediaFileApplyConfiguration
-	require.NoError(t, handler(episodeWorld(catalogv1alpha1.EpisodeOrderDVD), p, &applied).Handle(context.Background(), task(t, "bb-file")))
-	assert.Empty(t, p.asked)
-	require.Len(t, applied, 1)
-	assert.Equal(t, catalogv1alpha1.MarkersNotFound, *applied[0].Status.Markers.Result)
-	assert.Contains(t, *applied[0].Status.Markers.Message, "dvd")
-}
-
+// A duplicate or redelivered task -- its record already answered at its
+// Seq -- asks nothing and records nothing. (Before F3.4 the worker read the
+// MediaFile and asked Due; whether a file is due is the loop's now, and the
+// worker's guard is the record: Answers.Superseded.)
 func TestAFileNoLongerDueIsLeftAlone(t *testing.T) {
-	objs := episodeWorld("")
-	objs[2].(*catalogv1alpha1.MediaFile).Status.Markers = &catalogv1alpha1.FileMarkers{
-		Result: catalogv1alpha1.MarkersFound, ForProbeHash: "h1", FetchedAt: metav1.NewTime(now.Add(-time.Hour)),
-	}
+	tk := episodeTask("bb-file", "u1", 1)
 	p := &stubProvider{}
-	var applied []*catalogac.MediaFileApplyConfiguration
-	require.NoError(t, handler(objs, p, &applied).Handle(context.Background(), task(t, "bb-file")))
+	bus, h := world(t, p, tk)
+	require.NoError(t, h.Handle(context.Background(), task(t, tk)))
+	first := recordOf(t, bus, "u1")
+	p.asked = nil
+	require.NoError(t, h.Handle(context.Background(), task(t, tk)))
 	assert.Empty(t, p.asked, "a redelivered or duplicate task for a fresh file asks nothing")
-	assert.Empty(t, applied)
+	assert.Equal(t, first, recordOf(t, bus, "u1"))
 }
 
 // No markers provider in the registry -- a disabled theintrodb, or the
 // gateway built before the seed existed -- is neither a result nor a
 // retry: an Error would park every file for a day, and a retry cycles
-// every due file to the dead-letter stream. The task is acked; the file
-// stays due, and its next reconcile publishes it again.
+// every due file to the dead-letter stream. The task is acked; the record
+// stays requested, and the loop asks again after its request timeout.
 func TestNoProviderAcksWithoutRecording(t *testing.T) {
-	var applied []*catalogac.MediaFileApplyConfiguration
-	h := handler(episodeWorld(""), &stubProvider{}, &applied)
+	tk := episodeTask("bb-file", "u1", 1)
+	bus, h := world(t, &stubProvider{}, tk)
 	h.Providers = nil
-	require.NoError(t, h.Handle(context.Background(), task(t, "bb-file")))
-	assert.Empty(t, applied)
-}
-
-// A file holding several episodes is not asked about: its duration is
-// theirs together, so the first episode's open-ended credits would run to
-// the file's end -- a final "Skip Credits" over the second episode.
-func TestAMultiEpisodeFileIsNotAsked(t *testing.T) {
-	objs := episodeWorld("")
-	objs[2].(*catalogv1alpha1.MediaFile).Spec.MediaRef.Keys = []string{"bb-s01e01", "bb-s01e02"}
-	p := &stubProvider{}
-	var applied []*catalogac.MediaFileApplyConfiguration
-	require.NoError(t, handler(objs, p, &applied).Handle(context.Background(), task(t, "bb-file")))
-	assert.Empty(t, p.asked)
-	require.Len(t, applied, 1)
-	assert.Equal(t, catalogv1alpha1.MarkersNotFound, *applied[0].Status.Markers.Result)
-	assert.Contains(t, *applied[0].Status.Markers.Message, "episodes")
-}
-
-// A pack's key naming only the file's own episode is still one episode.
-func TestAFileKeyedToItsOwnEpisodeIsAsked(t *testing.T) {
-	objs := episodeWorld("")
-	objs[2].(*catalogv1alpha1.MediaFile).Spec.MediaRef.Keys = []string{"bb-s01e01"}
-	p := &stubProvider{}
-	var applied []*catalogac.MediaFileApplyConfiguration
-	require.NoError(t, handler(objs, p, &applied).Handle(context.Background(), task(t, "bb-file")))
-	assert.Len(t, p.asked, 1)
-}
-
-// A NotFound keeps the time TheIntroDB first had nothing for this probe,
-// which Due backs off from; a new probe starts it over.
-func TestANotFoundKeepsWhenItWasFirstMissing(t *testing.T) {
-	first := metav1.NewTime(now.Add(-40 * 24 * time.Hour))
-	objs := episodeWorld("")
-	objs[2].(*catalogv1alpha1.MediaFile).Status.Markers = &catalogv1alpha1.FileMarkers{
-		Result: catalogv1alpha1.MarkersNotFound, ForProbeHash: "h1",
-		FetchedAt: metav1.NewTime(now.Add(-30 * 24 * time.Hour)), NotFoundSince: &first,
-	}
-	var applied []*catalogac.MediaFileApplyConfiguration
-	require.NoError(t, handler(objs, &stubProvider{err: metadata.ErrNotFound}, &applied).Handle(context.Background(), task(t, "bb-file")))
-	require.Len(t, applied, 1)
-	assert.True(t, first.Equal(applied[0].Status.Markers.NotFoundSince))
-
-	objs = episodeWorld("")
-	applied = nil
-	require.NoError(t, handler(objs, &stubProvider{err: metadata.ErrNotFound}, &applied).Handle(context.Background(), task(t, "bb-file")))
-	require.Len(t, applied, 1)
-	require.NotNil(t, applied[0].Status.Markers.NotFoundSince)
-	assert.True(t, now.Equal(applied[0].Status.Markers.NotFoundSince.Time), "the first NotFound starts the clock")
-}
-
-// A Found result carries no notFoundSince.
-func TestAFoundHasNoNotFoundSince(t *testing.T) {
-	var applied []*catalogac.MediaFileApplyConfiguration
-	require.NoError(t, handler(episodeWorld(""), &stubProvider{}, &applied).Handle(context.Background(), task(t, "bb-file")))
-	require.Len(t, applied, 1)
-	assert.Nil(t, applied[0].Status.Markers.NotFoundSince)
+	require.NoError(t, h.Handle(context.Background(), task(t, tk)))
+	unanswered(t, bus, "u1")
 }
 
 // A series TheIntroDB has nothing for is asked about once: its other
 // episodes are NotFound without a request, saying why.
 func TestASeriesTheProviderLacksIsAskedOnce(t *testing.T) {
-	objs := episodeWorld("")
-	ep2 := &catalogv1alpha1.Episode{ObjectMeta: metav1.ObjectMeta{Name: "bb-s01e02", Namespace: "media"}}
-	ep2.Spec.SeriesRef, ep2.Spec.SeasonNumber, ep2.Spec.EpisodeNumber = "bb", 1, 2
-	mf2 := &catalogv1alpha1.MediaFile{ObjectMeta: metav1.ObjectMeta{Name: "bb-file-2", Namespace: "media", UID: "u2"}}
-	mf2.Spec.MediaRef = commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: "bb-s01e02"}
-	mf2.Status.ProbeHash = "h2"
-	mf2.Status.MediaInfo = &commonv1.MediaInfo{RuntimeMillis: 3480000}
+	t1, t2 := episodeTask("bb-file", "u1", 1), episodeTask("bb-file-2", "u2", 2)
 	p := &stubProvider{err: metadata.ErrNoTitle}
-	var applied []*catalogac.MediaFileApplyConfiguration
-	h := handler(append(objs, ep2, mf2), p, &applied)
-	require.NoError(t, h.Handle(context.Background(), task(t, "bb-file")))
-	require.NoError(t, h.Handle(context.Background(), task(t, "bb-file-2")))
+	bus, h := world(t, p, t1, t2)
+	require.NoError(t, h.Handle(context.Background(), task(t, t1)))
+	require.NoError(t, h.Handle(context.Background(), task(t, t2)))
 	assert.Len(t, p.asked, 1)
-	require.Len(t, applied, 2)
-	assert.Equal(t, catalogv1alpha1.MarkersNotFound, *applied[1].Status.Markers.Result)
-	assert.Contains(t, *applied[1].Status.Markers.Message, "series")
+	ans := answered(t, bus, "u2")
+	assert.Equal(t, string(catalogv1alpha1.MarkersNotFound), ans.Result)
+	assert.Contains(t, ans.Message, "series")
 }
 
 // An episode the provider lacks says nothing about the rest of the series.
 func TestAnEpisodeTheProviderLacksDoesNotSkipTheSeries(t *testing.T) {
-	objs := episodeWorld("")
-	ep2 := &catalogv1alpha1.Episode{ObjectMeta: metav1.ObjectMeta{Name: "bb-s01e02", Namespace: "media"}}
-	ep2.Spec.SeriesRef, ep2.Spec.SeasonNumber, ep2.Spec.EpisodeNumber = "bb", 1, 2
-	mf2 := &catalogv1alpha1.MediaFile{ObjectMeta: metav1.ObjectMeta{Name: "bb-file-2", Namespace: "media", UID: "u2"}}
-	mf2.Spec.MediaRef = commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: "bb-s01e02"}
-	mf2.Status.ProbeHash = "h2"
-	mf2.Status.MediaInfo = &commonv1.MediaInfo{RuntimeMillis: 3480000}
+	t1, t2 := episodeTask("bb-file", "u1", 1), episodeTask("bb-file-2", "u2", 2)
 	p := &stubProvider{err: metadata.ErrNotFound}
-	var applied []*catalogac.MediaFileApplyConfiguration
-	h := handler(append(objs, ep2, mf2), p, &applied)
-	require.NoError(t, h.Handle(context.Background(), task(t, "bb-file")))
-	require.NoError(t, h.Handle(context.Background(), task(t, "bb-file-2")))
+	_, h := world(t, p, t1, t2)
+	require.NoError(t, h.Handle(context.Background(), task(t, t1)))
+	require.NoError(t, h.Handle(context.Background(), task(t, t2)))
 	assert.Len(t, p.asked, 2)
 }
 
-type published struct {
-	subject string
-	env     *events.Envelope
-	opts    events.PublishOptions
-}
-
-type recorder struct{ got []published }
-
-func (r *recorder) Publish(_ context.Context, subject string, e *events.Envelope, opts ...events.PublishOption) (events.Receipt, error) {
-	r.got = append(r.got, published{subject, e, events.ResolvePublishOptions(e, opts)})
-	return events.Receipt{}, nil
-}
-
 // A key spent for hours (TheIntroDB's daily allowance) does not hold one
-// of the durable's in-flight slots until its reset: the task is published
-// again for the reset and acked, so files that need no request -- a series
-// known absent, a multi-episode file, a new import of one -- keep moving.
+// of the durable's in-flight slots until its reset: the record is deferred
+// to the reset and the task acked, so files that need no request keep
+// moving. Since ADR-0019 §5.6 the loop, not the worker, publishes the task
+// again at the reset (ResumeMessage), under its own message id.
 func TestALongLimitDefersTheTaskToItsReset(t *testing.T) {
-	p := &stubProvider{err: &metadata.RateLimitedError{Provider: "theintrodb", RetryAfter: 23 * time.Hour}}
-	var applied []*catalogac.MediaFileApplyConfiguration
-	h := handler(episodeWorld(""), p, &applied)
-	rec := &recorder{}
-	h.Bus = rec
-	require.NoError(t, h.Handle(context.Background(), task(t, "bb-file")))
-	assert.Empty(t, applied, "a limit is not a result")
-	require.Len(t, rec.got, 1)
-	assert.Equal(t, now.Add(23*time.Hour), rec.got[0].opts.ScheduleAt)
-	assert.Equal(t, "media/bb-file", rec.got[0].env.Key)
-	assert.Contains(t, rec.got[0].subject, "markers")
-	assert.NotEqual(t, catalogmarkers.MsgID(episodeWorld("")[2].(*catalogv1alpha1.MediaFile)), rec.got[0].opts.MsgID,
-		"its own message id, or the dedup window absorbs it")
+	tk := episodeTask("bb-file", "u1", 1)
+	bus, h := world(t, &stubProvider{err: &metadata.RateLimitedError{Provider: "theintrodb", RetryAfter: 23 * time.Hour}}, tk)
+	require.NoError(t, h.Handle(context.Background(), task(t, tk)))
+	rec := recordOf(t, bus, "u1")
+	assert.Nil(t, rec.Answer, "a limit is not a result")
+	assert.Equal(t, records.StateDeferred, rec.State)
+	require.NotNil(t, rec.DeferredUntil)
+	assert.True(t, now.Add(23*time.Hour).Equal(*rec.DeferredUntil))
+	subject, id, env, err := catalogmarkers.ResumeMessage(*rec, now.Add(23*time.Hour))
+	require.NoError(t, err)
+	assert.Equal(t, "media/bb-file", env.Key)
+	assert.Contains(t, subject, "markers")
+	assert.NotEqual(t, events.MsgIDForMarkers("u1", 1), id, "its own message id, or the dedup window absorbs it")
 }
 
 // A short limit (the 10-second rate window) is still a retry.
 func TestAShortLimitIsStillARetry(t *testing.T) {
-	p := &stubProvider{err: &metadata.RateLimitedError{Provider: "theintrodb", RetryAfter: 10 * time.Second}}
-	var applied []*catalogac.MediaFileApplyConfiguration
-	h := handler(episodeWorld(""), p, &applied)
-	rec := &recorder{}
-	h.Bus = rec
+	tk := episodeTask("bb-file", "u1", 1)
+	bus, h := world(t, &stubProvider{err: &metadata.RateLimitedError{Provider: "theintrodb", RetryAfter: 10 * time.Second}}, tk)
 	var retry *events.RetryError
-	require.ErrorAs(t, h.Handle(context.Background(), task(t, "bb-file")), &retry)
-	assert.Empty(t, rec.got)
+	require.ErrorAs(t, h.Handle(context.Background(), task(t, tk)), &retry)
+	unanswered(t, bus, "u1") // neither deferred nor answered
 }
