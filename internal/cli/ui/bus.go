@@ -119,7 +119,7 @@ func buildBus(ctx context.Context, natsURL string) uiBus {
 	progress := func(ctx context.Context, entryUID string) (schema.DownloadProgress, bool, error) {
 		ctx, cancel := context.WithTimeout(ctx, busReadTimeout)
 		defer cancel()
-		e, err := progressKV.Get(ctx, transferProgressKey(entryUID))
+		e, err := progressKV.Get(ctx, events.DownloadProgressKey(entryUID))
 		if errors.Is(err, events.ErrKeyNotFound) {
 			return schema.DownloadProgress{}, false, nil
 		}
@@ -133,12 +133,12 @@ func buildBus(ctx context.Context, natsURL string) uiBus {
 		return p, true, nil
 	}
 	// A running transcode's percent (loop spec §7.7): the transcode
-	// worker's 1 Hz record, keyed "transcode.<mediafile-uid>" as
-	// app/transcode/worker.ProgressKey builds it.
+	// worker's 1 Hz record, keyed "transcode.<mediafile-uid>" by
+	// events.TranscodeProgressKey, the builder the worker writes it under.
 	transcode := func(ctx context.Context, uid types.UID) (int32, bool, error) {
 		ctx, cancel := context.WithTimeout(ctx, busReadTimeout)
 		defer cancel()
-		e, err := progressKV.Get(ctx, "transcode."+events.KVKeyToken(string(uid)))
+		e, err := progressKV.Get(ctx, events.TranscodeProgressKey(string(uid)))
 		if errors.Is(err, events.ErrKeyNotFound) {
 			return 0, false, nil
 		}
@@ -181,16 +181,6 @@ func buildBus(ctx context.Context, natsURL string) uiBus {
 		// the connection -- its watches and outbound buffer -- and closes it.
 		close: busconn.ShutdownAfter(ctx, busShutdownBudget, bus, nc),
 	}
-}
-
-// transferProgressKey is a grab entry's transfer telemetry key in
-// clustarr-progress, "download.<KVKeyToken(uid)>": app/grab/engine's
-// ProgressKey, restated so cmd/ui links no app/ package and so neither
-// pkg/k8s nor controller-runtime's manager (spec §4.5.2), the way the
-// transcode closure restates its "transcode." key. A test pins the two
-// together.
-func transferProgressKey(entryUID string) string {
-	return "download." + events.KVKeyToken(entryUID)
 }
 
 // idempotentRetries is the ui's own backoff for a busy metadata verb: a

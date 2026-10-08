@@ -40,9 +40,9 @@ const DefaultTelemetryInterval = time.Second
 const telemetryPutTimeout = 2 * time.Second
 
 // ProgressKey is a MediaFile's transcode key in the clustarr-progress
-// bucket, "transcode.<mfUID>" (spec §5's reserved shape; loop spec §4.12),
-// the UID through events.KVKeyToken like every other KV key.
-func ProgressKey(mfUID string) string { return "transcode." + events.KVKeyToken(mfUID) }
+// bucket: events.TranscodeProgressKey, "transcode.<mfUID>" (spec §5's
+// reserved shape; loop spec §4.12), the one builder the ui reads it by.
+func ProgressKey(mfUID string) string { return events.TranscodeProgressKey(mfUID) }
 
 // telemetry mirrors the encode's progress into the clustarr-progress bucket
 // as schema.TranscodeProgress at most once per interval -- the 1 Hz

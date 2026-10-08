@@ -36,12 +36,11 @@ import (
 const DefaultProgressInterval = time.Second
 
 // ProgressKey is the clustarr-progress key a grab entry's live telemetry is
-// kept under: "download.<uid>", the key spec §5's KV table reserves. The uid
-// goes through events.KVKeyToken like every other key segment, and
-// kvkey_contract_test.go proves the shape against a real NATS server.
-func ProgressKey(downloadUID string) string {
-	return "download." + events.KVKeyToken(downloadUID)
-}
+// kept under: events.DownloadProgressKey, "download.<uid>", the key spec
+// §5's KV table reserves and the ui reads. The uid goes through
+// events.KVKeyToken like every other key segment, and kvkey_contract_test.go
+// proves the shape against a real NATS server.
+func ProgressKey(downloadUID string) string { return events.DownloadProgressKey(downloadUID) }
 
 // ProgressPublisher is the 1 Hz half of the download telemetry (§6.5):
 // once a second it samples every transfer its engine holds and puts a

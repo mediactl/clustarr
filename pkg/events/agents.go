@@ -258,6 +258,19 @@ func PresenceKey(domain, pod string) string {
 	return PresencePrefix + KVKeyToken(domain) + "." + KVKeyToken(pod)
 }
 
+// DownloadProgressKey is a grab entry's live transfer telemetry key in
+// BucketProgress, "download.<KVKeyToken(uid)>" (spec §5's KV table): the
+// grab engines write it (app/grab/engine.ProgressKey) and the ui's Downloads
+// page reads it. Both sides call this one builder, so the ui links no grab
+// engine code (split spec §4.5.2).
+func DownloadProgressKey(entryUID string) string { return "download." + KVKeyToken(entryUID) }
+
+// TranscodeProgressKey is a MediaFile's transcode telemetry key in
+// BucketProgress, "transcode.<KVKeyToken(mfUID)>" (spec §5; loop spec
+// §4.12): the pool worker writes it (app/transcode/worker.ProgressKey) and
+// the ui's pipeline projection reads it.
+func TranscodeProgressKey(mfUID string) string { return "transcode." + KVKeyToken(mfUID) }
+
 // NakAdvisorySubject and TermAdvisorySubject are one durable's MSG_NAKED
 // and MSG_TERMINATED advisory subjects.
 func NakAdvisorySubject(stream, durable string) string {

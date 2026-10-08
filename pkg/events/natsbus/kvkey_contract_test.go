@@ -90,6 +90,9 @@ func TestKVKeyBuildersProduceKeysARealServerAccepts(t *testing.T) {
 			// The transcode lease and an agent pod's presence key.
 			"TranscodeLeaseKey": events.TranscodeLeaseKey(id),
 			"PresenceKey":       events.PresenceKey("index", id),
+			// clustarr-progress' download and transcode telemetry keys.
+			"DownloadProgressKey":  events.DownloadProgressKey(id),
+			"TranscodeProgressKey": events.TranscodeProgressKey(id),
 		} {
 			t.Run(name+"/"+id, func(t *testing.T) {
 				// ValidKVKey is exported and callers will trust it, so pin

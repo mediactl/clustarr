@@ -131,6 +131,7 @@ func topologyNames(t *testing.T) []string {
 		events.WorkEngineIDSubject("qbit", 0, "dl1"),
 		events.EngineConsumerName("qbit", 0),
 		events.PresenceKey("catalog", "pod-0"),
+		events.DownloadProgressKey(uid), events.TranscodeProgressKey(uid),
 		events.ProbeKey(uid), events.RecordKey(uid), events.RecordSubKey(uid, "en"),
 		events.TranscodeLeaseKey(uid), events.ExclusionKey("imdb", "tt0113277"),
 		events.MediaKey("Movie", "media", "heat"),
