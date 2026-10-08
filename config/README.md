@@ -14,7 +14,7 @@ here for the clustered upstream chart; see that chart's own README.
 | --- | --- |
 | `crd/` | Every generated CustomResourceDefinition (`make manifests`). |
 | `rbac/` | One generated ClusterRole per identity (the manager, each agent, the engine pods) with its binding, plus the hand-written `ui` and leader-election roles. |
-| `manager/` | One Deployment + ServiceAccount + Service per workload of spec 2026-10-06 §10.2.1 (`manager`, `agent-<domain>`, `markers`, `ui`). The reference: `charts/clustarr/templates/deployments.yaml` is the parameterised form of the same shapes, and `test/guards`' `TestInstallersRenderTheTopology` and `TestChartAndKustomizeAgreePerComponent` hold the two to each other. |
+| `manager/` | One Deployment + ServiceAccount + Service per workload of spec 2026-10-06 §10.2.1 (`manager`, `agent-<domain>`, `markers`, `ui`). The reference: `charts/clustarr/templates/deployments.yaml` is the parameterised form of the same shapes, and `test/guards`' `TestChartAndKustomizeAgreePerComponent` holds the two to each other (and `TestInstallersRenderTheTopology`, once the test batch writes it). |
 | `autoscaling/` | The External Metrics `APIService`, its `external-metrics` Service and the `kube-system` binding the manager's autoscaler needs. Included by `default`. |
 | `nats/` | Single-node dev NATS with JetStream on a PVC. Included by `default`; swap for the `nats` chart dependency in production. |
 | `default/` | The deployable install: `namespace.yaml`, `pvc.yaml` (the two PVCs, §11) plus `crd`, `rbac`, `manager`, `autoscaling` and `nats`. |

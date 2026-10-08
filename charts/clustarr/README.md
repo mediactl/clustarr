@@ -120,8 +120,9 @@ hard `fail` here was considered and rejected: `helm lint`/`helm template`
 with the chart's own shipped values (no `--set` at all) is exactly the case
 CI protects (`.github/workflows/release.yml`'s `chart-lint` job) and the
 case `test/guards`' installer-parity tests render against
-(`TestChartAndKustomizeAgreePerComponent`,
-`TestManagerStampsAClaimTheInstallerCreates`, and friends) -- making
+(`TestChartAndKustomizeAgreePerComponent`, and
+`TestManagerStampsAClaimTheInstallerCreates` with its siblings once the test
+batch writes them) -- making
 the *shipped default* fail would break exactly the safety net meant to
 catch a real regression, and would leave this chart refusing to install
 where `config/default` installs fine, an installer disagreement rather than
@@ -154,8 +155,8 @@ FTS5 database on the `storage.index` PVC above (ADR-0003). Set
 `agent-index` gets `CLUSTARR_INDEX_DSN` from a Secret rather than a volume and
 the `storage.index` PVC is not rendered. It still runs exactly one replica
 with strategy `Recreate`: its search RPC, RSS polls, Torznab facade and
-per-host rate limiter are one process (spec 2026-10-06, R4 amendment), so a
-second replica would pace every tracker twice.
+per-host rate limiter are one process (spec 2026-10-06, R4 amendment; ADR-0018's
+refinement of ADR-0010), so a second replica would pace every tracker twice.
 
 This chart renders the `Cluster` itself
 (`templates/postgres-cluster.yaml`, named `<release>-postgres`) as a normal
@@ -220,7 +221,8 @@ Runtime allocations live outside the Go heap. The Downward API's
 share is computed here, from the same quantity `values.yaml` sets. Change a
 memory limit and its `GOMEMLIMIT` moves with it on the next `helm upgrade`;
 `config/manager` carries the same figures as literals, and
-`TestGOMEMLIMITIsItsShareOfTheLimit` holds the two installers together.
+`TestGOMEMLIMITIsItsShareOfTheLimit` (written by the test batch that follows the
+unify branch's implementation waves) is to hold the two installers together.
 
 This does **not** cover the torrent/usenet engine StatefulSets and
 Deployments the manager's DownloadClient controller creates per
@@ -262,7 +264,8 @@ per-pod handler count (`CLUSTARR_CONSUMER_SLOTS`), which is also the HPA's
 per-pod target, for example `--set markers.consumerSlots.markers-analyze=3`.
 If the manager is down, `kubectl delete ns` of its namespace can hang on the
 unavailable APIService; `kubectl delete apiservice v1beta1.external.metrics.k8s.io`
-releases it.
+releases it. The metric, the HPA's shape, who owns which object and the failure
+modes are [`docs/autoscaling.md`](../../docs/autoscaling.md) (ADR-0018).
 
 ## Ratings providers
 
