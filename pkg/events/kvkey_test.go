@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package events_test
 
 import (
+	"math/rand/v2"
 	"regexp"
 	"testing"
 
@@ -148,4 +149,43 @@ func TestKVKeyTokenLeavesOrdinaryIdentifiersRecognisable(t *testing.T) {
 	assert.Equal(t, "tt0113277", events.KVKeyToken("tt0113277"))
 	assert.Equal(t, "imdb.tt0113277", events.ExclusionKey("imdb", "tt0113277"))
 	assert.Equal(t, "the--matrix", events.KVKeyToken("the-matrix"))
+}
+
+// Records keys (loop spec §4.4): the UID's token, plus a sub-key token for a
+// subtitle language; neither token can forge the "." between them.
+func TestRecordKeysAreUIDTokens(t *testing.T) {
+	assert.Equal(t, events.KVKeyToken("4b0c5a7e-2f1d"), events.RecordKey("4b0c5a7e-2f1d"))
+	assert.Equal(t, events.ProbeKey("u1"), events.RecordKey("u1"), "the probe's key is a records key")
+	assert.Equal(t, "u1.en-3aforced", events.RecordSubKey("u1", "en:forced"))
+	assert.NotEqual(t, events.RecordSubKey("a.b", "c"), events.RecordSubKey("a", "b.c"))
+	assert.True(t, events.SubjectMatches(events.RecordKey("u1")+".*", events.RecordSubKey("u1", "en")),
+		"a Watch wildcard matches one sub-key token")
+	assert.False(t, events.SubjectMatches(events.RecordKey("u1")+".*", events.RecordSubKey("u1-x", "en")),
+		"and no other UID's")
+	assert.True(t, events.ValidKVKey(events.RecordSubKey("", "")))
+	assert.True(t, events.ValidKVKey(events.RecordKey("Amélie:2")))
+}
+
+// ParseKVKeyToken inverts KVKeyToken and refuses anything KVKeyToken never
+// emits; the segments sweeper and records' Withdraw read UIDs back with it.
+func TestParseKVKeyTokenInvertsKVKeyToken(t *testing.T) {
+	corpus := []string{"", "-", "--", "-0", "-00", "\x00", "a:b", "en:forced", "Amélie", "a.b",
+		"4b0c5a7e-2f1d-4c8e-9a3b-6d7e8f901234", "with space", "\xff", "Wall·E (2008)"}
+	r := rand.New(rand.NewPCG(1, 2))
+	for range 5000 {
+		b := make([]byte, r.IntN(24))
+		for i := range b {
+			b[i] = byte(r.IntN(256))
+		}
+		corpus = append(corpus, string(b))
+	}
+	for _, s := range corpus {
+		got, err := events.ParseKVKeyToken(events.KVKeyToken(s))
+		require.NoError(t, err, "%q", s)
+		require.Equal(t, s, got)
+	}
+	for _, bad := range []string{"", "-", "a-", "a-0", "-0x", "-zz", "-41", "-2d", "-3A", "a.b", "a b"} {
+		_, err := events.ParseKVKeyToken(bad)
+		assert.Error(t, err, "%q is no token KVKeyToken emits", bad)
+	}
 }
