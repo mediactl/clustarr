@@ -406,14 +406,30 @@ func openAudio(m *ffgo.Muxer, a Audio, d time.Duration, scratch string, n int) (
 		return nil, err
 	}
 	src.tb = src.dec.TimeBase()
-	src.inRate = as.SampleRate
+	// A lavfi stream names no layout before its first frame: decode it,
+	// and take the source's rate and layout from it.
+	if err := src.fill(); err != nil {
+		src.close()
+		return nil, err
+	}
+	if src.next == nil {
+		src.close()
+		return nil, fmt.Errorf("%s has no audio", name)
+	}
+	first := ffgo.WrapFrame(*src.next, ffgo.MediaTypeAudio)
+	src.inRate = first.SampleRate()
 	rate := a.SampleRate
 	if rate == 0 {
-		rate = as.SampleRate
+		rate = src.inRate
 	}
 	layout := a.Layout
 	if layout == "" {
-		layout = as.ChannelLayout
+		layout = src.next.ChannelLayout()
+	}
+	if layoutChannels(layout, 0) == 0 {
+		// An unnamed source layout ("1 channels"): FFmpeg's default for
+		// the count, as ffmpeg(1) picks for the encoder.
+		layout = defaultLayout(as.Channels)
 	}
 	enc := a.Encoder
 	if enc == "" {
@@ -694,6 +710,29 @@ func sampleFormatName(id int32) (string, bool) {
 		return "", false
 	}
 	return sampleFormats[id], true
+}
+
+// defaultLayout is av_channel_layout_default's layout for n channels.
+func defaultLayout(n int) string {
+	switch n {
+	case 1:
+		return "mono"
+	case 2:
+		return "stereo"
+	case 3:
+		return "2.1"
+	case 4:
+		return "4.0"
+	case 5:
+		return "5.0"
+	case 6:
+		return "5.1"
+	case 7:
+		return "6.1"
+	case 8:
+		return "7.1"
+	}
+	return ""
 }
 
 // layoutChannels counts a layout's channels by FFmpeg's standard names,

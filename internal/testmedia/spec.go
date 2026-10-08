@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package testmedia
 
 import (
+	"math/big"
 	"time"
 )
 
@@ -157,5 +158,7 @@ func (c Chapter) at(ts int64) time.Duration {
 	if num <= 0 || den <= 0 {
 		num, den = 1, 1000
 	}
-	return time.Duration(ts * int64(num) * int64(time.Second) / int64(den))
+	// ts·num·1e9/den overflows int64 for a chapter hours in at 1/1e9.
+	ns := new(big.Int).Mul(big.NewInt(ts), big.NewInt(int64(num)*int64(time.Second)))
+	return time.Duration(ns.Quo(ns, big.NewInt(int64(den))).Int64())
 }
