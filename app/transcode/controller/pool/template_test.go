@@ -19,6 +19,7 @@ package pool
 
 import (
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -74,25 +75,43 @@ func TestBuildJobPodSecurity(t *testing.T) {
 }
 
 // "Matching the Deployments" is a claim about config/manager, so read it: the
-// pool pod's two security contexts must equal transcode's own.
+// pool pod's two security contexts must equal those of every Deployment that
+// mounts the /data claim the pool mounts (the manager, the import and caption
+// agents, markers). config/manager/transcode.yaml went with the transcode
+// Deployment (W6); the pool's pods are the only transcode pods left.
 func TestJobPodSecurityMatchesTheDeployments(t *testing.T) {
-	raw, err := os.ReadFile("../../../../config/manager/transcode.yaml")
+	files, err := filepath.Glob("../../../../config/manager/*.yaml")
 	require.NoError(t, err)
-	var deploy *appsv1.Deployment
-	for _, doc := range strings.Split(string(raw), "\n---") {
-		var d appsv1.Deployment
-		if yaml.Unmarshal([]byte(doc), &d) == nil && d.Kind == "Deployment" {
-			deploy = &d
+	pod := Template(profile(), transcodev1alpha1.HardwareCPU, Config{}).Spec
+	var checked []string
+	for _, f := range files {
+		raw, err := os.ReadFile(f)
+		require.NoError(t, err)
+		for _, doc := range strings.Split(string(raw), "\n---") {
+			var d appsv1.Deployment
+			if yaml.Unmarshal([]byte(doc), &d) != nil || d.Kind != "Deployment" || !mountsTheDataClaim(d.Spec.Template.Spec) {
+				continue
+			}
+			checked = append(checked, d.Name)
+			assert.True(t, equality.Semantic.DeepEqual(d.Spec.Template.Spec.SecurityContext, pod.SecurityContext),
+				"pod securityContext\n job:   %+v\n %s: %+v", pod.SecurityContext, d.Name, d.Spec.Template.Spec.SecurityContext)
+			assert.True(t, equality.Semantic.DeepEqual(d.Spec.Template.Spec.Containers[0].SecurityContext, pod.Containers[0].SecurityContext),
+				"container securityContext\n job:   %+v\n %s: %+v", pod.Containers[0].SecurityContext, d.Name, d.Spec.Template.Spec.Containers[0].SecurityContext)
 		}
 	}
-	require.NotNil(t, deploy, "config/manager/transcode.yaml has no Deployment")
+	assert.Contains(t, checked, "manager", "config/manager has no manager Deployment mounting clustarr-data")
+	assert.GreaterOrEqual(t, len(checked), 2, "checked only %v", checked)
+}
 
-	pod := Template(profile(), transcodev1alpha1.HardwareCPU, Config{}).Spec
-	assert.True(t, equality.Semantic.DeepEqual(deploy.Spec.Template.Spec.SecurityContext, pod.SecurityContext),
-		"pod securityContext\n job:        %+v\n deployment: %+v", pod.SecurityContext, deploy.Spec.Template.Spec.SecurityContext)
-	assert.True(t, equality.Semantic.DeepEqual(deploy.Spec.Template.Spec.Containers[0].SecurityContext, pod.Containers[0].SecurityContext),
-		"container securityContext\n job:        %+v\n deployment: %+v",
-		pod.Containers[0].SecurityContext, deploy.Spec.Template.Spec.Containers[0].SecurityContext)
+// mountsTheDataClaim reports whether spec has the clustarr-data claim as a
+// volume, as the pool's pods do.
+func mountsTheDataClaim(spec corev1.PodSpec) bool {
+	for _, v := range spec.Volumes {
+		if v.PersistentVolumeClaim != nil && v.PersistentVolumeClaim.ClaimName == "clustarr-data" {
+			return true
+		}
+	}
+	return false
 }
 
 // The floors restate three +kubebuilder:default values. Read the generated
