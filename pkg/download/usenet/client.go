@@ -96,8 +96,10 @@ type Config struct {
 	// fsops.MoveAtomic falls back to a copy across filesystems.
 	PublishDir string
 
-	// Par2Path is the par2cmdline-turbo binary. Empty means look up "par2".
-	Par2Path string
+	// Repairer verifies and repairs par2 sets; nil means no repair (a set
+	// that needs one fails with ErrPar2Unavailable). The engine installs a
+	// LibraryRepairer that runs par2go in a child of the agent.
+	Repairer Repairer
 
 	// BaseContext carries the logger and tracer for the jobs New resumes
 	// from disk, which have no caller's context to inherit; nil means
@@ -202,7 +204,7 @@ type Client struct {
 	// freeBytes is Config.FreeBytes with its default applied.
 	freeBytes func(path string) (int64, error)
 	pool      *Pool
-	par2      Par2Runner
+	repairer  Repairer
 	// baseCtx is Config.BaseContext without its cancellation, for jobs
 	// resumed from disk.
 	baseCtx context.Context
@@ -290,10 +292,13 @@ func New(cfg Config) (download.Client, error) {
 		cfg:       cfg,
 		freeBytes: freeBytes,
 		pool:      pool,
-		par2:      Par2Runner{Path: cfg.Par2Path},
+		repairer:  cfg.Repairer,
 		baseCtx:   context.Background(),
 		workers:   workers,
 		jobs:      map[string]*job{},
+	}
+	if c.repairer == nil {
+		c.repairer = noRepairer{}
 	}
 	if cfg.BaseContext != nil {
 		c.baseCtx = context.WithoutCancel(cfg.BaseContext)
@@ -912,7 +917,8 @@ func (j *job) abort(ctx context.Context, err error) {
 //   - diskFull: the scratch or data volume is out of space (the statfs
 //     guard's [fsops.ErrInsufficientSpace], or ENOSPC/EDQUOT from a write).
 //   - writeError: anything else -- a filesystem error, and the local
-//     configuration faults (no par2 binary for a set that needs repair).
+//     configuration faults (no par2 library for a set that needs repair,
+//     or par2 ending without a verdict, [ErrPar2Crashed]).
 //
 // The first three blocklist the release; diskFull and writeError do not
 // (DownloadFailureReason.IsReleaseFault). An archive that fails to extract
@@ -1133,11 +1139,11 @@ func (j *job) repair(ctx context.Context) error {
 			"download", j.id)
 		return nil
 	}
-	if !j.client.par2.Available() {
-		// No binary and nothing missing: the quick-check equivalent. A set
+	if !j.client.repairer.Available() {
+		// No library and nothing missing: the quick-check equivalent. A set
 		// with every article present and correct -- every part's pcrc32
 		// verified on the way in -- does not need par2 at all, so a missing
-		// binary is only fatal when there is damage to repair.
+		// library is only fatal when there is damage to repair.
 		if j.failedArticles() == 0 {
 			return nil
 		}
@@ -1154,8 +1160,18 @@ func (j *job) repair(ctx context.Context) error {
 	// budget for the set's size.
 	repairCtx, cancel := context.WithTimeout(ctx, par2Deadline(j.nzb.TotalBytes))
 	defer cancel()
-	if _, err := j.client.par2.Repair(repairCtx, j.contentDir(), safeName(index)); err != nil {
-		if repairCtx.Err() != nil && ctx.Err() == nil {
+	if _, err := j.client.repairer.Repair(repairCtx, j.contentDir(), safeName(index)); err != nil {
+		if ctx.Err() != nil {
+			// The job was stopped (engine shutdown, Remove) or hit its own
+			// deadline: never a verdict on the release. A stopped par2 used
+			// to come back as a failed repair ("signal: killed"), be
+			// checkpointed missingArticles and blocklist a good release on
+			// every engine roll (split spec §8.1). abort ignores
+			// context.Canceled, so re-attach resumes the job; failureReason
+			// reads DeadlineExceeded as timeout.
+			return fmt.Errorf("usenet: par2 interrupted: %w", ctx.Err())
+		}
+		if repairCtx.Err() != nil {
 			return fmt.Errorf("%w: par2 did not finish within %s", ErrPar2Timeout, par2Deadline(j.nzb.TotalBytes))
 		}
 		return err

@@ -18,51 +18,34 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package usenet
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/mediactl/clustarr/pkg/fsops"
-	"github.com/mediactl/clustarr/pkg/obs/logging"
-	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
 
-// PAR2 verification and repair is an EXEC, not a Go module. That was a
-// recorded decision -- the research note measured the only pure-Go
-// alternative (akalin/gopar) as too slow and too memory-hungry for a 50GB
-// release: it reads everything into memory and has no SIMD -- and ADR-0017
-// (2026-10-06) supersedes it: par2cmdline-turbo as a library through par2go,
-// in a re-exec'd child of the agent. That lands with the split plan's Wave 9,
-// once go.mod can require par2go. Until then this file is the one production
-// os/exec, and the native image ships no par2 binary (images/distroless/
-// stage.sh refuses one), so in a cluster a set with missing articles fails
-// with ErrPar2Unavailable, a local fault the engine never blocklists.
-//
-// Tests that need real repair therefore skip when the binary is absent;
-// `make native-assets` supplies a test-only par2 CLI.
+// PAR2 verification and repair run par2cmdline-turbo as a library: par2go
+// (github.com/mediactl/par2go, libpar2shim.so through purego), in a short-
+// lived child of the agent so a crash or an uncancellable phase costs one
+// repair, not the engine (pkg/par2child; ADR-0017, which supersedes the
+// "PAR2 is an exec" decision). akalin/gopar stays rejected: too slow and too
+// memory-hungry for a 50 GB release. Tests that need real repair use
+// nativetest.Require(t, "par2go", ...) and make sets with test/par2test.
 
-// ErrPar2Unavailable is returned when repair is required but no par2 binary
-// can be found. It is distinct from a failed repair: one is a deployment
-// problem an operator fixes, the other is a download that cannot be saved.
-var ErrPar2Unavailable = errors.New("usenet: par2 binary not found")
+// ErrPar2Unavailable is returned when repair is required but the par2
+// library cannot be loaded. It is distinct from a failed repair: one is a
+// deployment problem an operator fixes, the other is a download that cannot
+// be saved.
+var ErrPar2Unavailable = errors.New("usenet: par2 library unavailable")
 
 // ErrRepairFailed is returned when par2 ran and could not repair the set.
 var ErrRepairFailed = errors.New("usenet: par2 repair failed")
-
-// par2OutputMax caps how much of par2's output is read. par2cmdline prints a
-// progress line per percent and the output of a badly damaged 50GB set is not
-// small; the same "read through a cap" rule applies to a subprocess pipe as to
-// an HTTP body.
-const par2OutputMax = 1 << 20
 
 // Par2Result is what one par2 run concluded.
 type Par2Result struct {
@@ -91,7 +74,6 @@ type Repairer interface {
 }
 
 var (
-	_ Repairer = Par2Runner{}
 	_ Repairer = (*LibraryRepairer)(nil)
 	_ Repairer = noRepairer{}
 )
@@ -110,120 +92,6 @@ func (noRepairer) Repair(context.Context, string, string) (Par2Result, error) {
 // release, so it is a local fault, writeError, and never blocklists (split
 // spec 2026-10-06 §13 OD22, adopted).
 var ErrPar2Crashed = errors.New("usenet: par2 ended without a verdict")
-
-var (
-	par2AllCorrectRE = regexp.MustCompile(`(?i)All files are correct|Repair is not required`)
-	par2RepairedRE   = regexp.MustCompile(`(?i)Repair complete`)
-	par2NeedBlocksRE = regexp.MustCompile(`(?i)You need (\d+) more recovery blocks`)
-	par2ImpossibleRE = regexp.MustCompile(`(?i)Repair is not possible`)
-)
-
-// Par2Runner execs par2cmdline-turbo.
-type Par2Runner struct {
-	// Path is the par2 binary. Empty means look "par2" up on PATH. No image
-	// puts one there since the media image was retired (ADR-0017).
-	Path string
-}
-
-// resolve finds the binary, or reports [ErrPar2Unavailable].
-func (r Par2Runner) resolve() (string, error) {
-	name := r.Path
-	if name == "" {
-		name = "par2"
-	}
-	p, err := exec.LookPath(name)
-	if err != nil {
-		return "", fmt.Errorf("%w: %q: %w", ErrPar2Unavailable, name, err)
-	}
-	return p, nil
-}
-
-// Available reports whether a par2 binary can be found. Tests use it to skip.
-func (r Par2Runner) Available() bool {
-	_, err := r.resolve()
-	return err == nil
-}
-
-// Repair runs "par2 r" over indexFile with dir as the working directory, and
-// interprets par2cmdline's output.
-//
-// The output is parsed rather than the exit status trusted alone: par2cmdline
-// and par2cmdline-turbo disagree about codes across versions, while the
-// strings SABnzbd has parsed for a decade ("All files are correct", "Repair
-// complete", "You need N more recovery blocks") are stable.
-func (r Par2Runner) Repair(ctx context.Context, dir, indexFile string) (Par2Result, error) {
-	ctx, span := tracing.Start(ctx, "usenet.par2.repair")
-	defer span.End()
-
-	bin, err := r.resolve()
-	if err != nil {
-		return Par2Result{}, err
-	}
-
-	// -q once: one level of quiet still prints the verdict lines but not the
-	// per-percent progress spam. "--" stops par2 reading a file name that
-	// begins with a dash as a flag; NZB-supplied names are untrusted.
-	//
-	// Every other file in the directory follows the index as an extra file
-	// to scan, the way SABnzbd and NZBGet run par2. A set whose recovery
-	// data describes obfuscated names ("z75QO...part070.rar") while the
-	// files on disk carry the subjects' names ("13th.2016...part070.rar")
-	// otherwise reports every target as missing and repair fails outright
-	// -- the first real grab on the owner's cluster, 2026-09-24, after a
-	// complete 10 GB transfer. Given the extras, par2 matches them by
-	// content and repairs under the recorded names.
-	args := append([]string{"r", "-q", "--", indexFile}, extraFiles(dir, indexFile)...)
-	cmd := exec.CommandContext(ctx, bin, args...)
-	cmd.Dir = dir
-	// On cancellation kill the whole process group, not just the leader,
-	// and stop waiting on the output pipes soon after: a par2 that spawned
-	// helpers (or a wrapper script) would otherwise hold Wait open until
-	// its children exit on their own -- the deadline's whole point lost.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
-	cmd.WaitDelay = 5 * time.Second
-
-	// A ring, not a cap that errors: an io.Writer that refuses further output
-	// makes exec.Cmd.Run return THAT error instead of par2's verdict, which
-	// would turn a long-but-successful repair into a failed download. The
-	// bound is still absolute -- par2 prints a line per percent and a badly
-	// damaged 50GB set is not small.
-	sink := &tailWriter{max: par2OutputMax}
-	cmd.Stdout = sink
-	cmd.Stderr = sink
-
-	runErr := cmd.Run()
-	text := sink.String()
-
-	logging.FromContext(ctx).DebugContext(ctx, "par2 finished",
-		"index", indexFile, "error", runErr, "bytes", len(text))
-
-	res := Par2Result{Output: tail(text, 2048)}
-	switch {
-	case par2RepairedRE.MatchString(text):
-		res.Repaired = true
-	case par2AllCorrectRE.MatchString(text):
-		res.AllCorrect = true
-	}
-	if m := par2NeedBlocksRE.FindStringSubmatch(text); m != nil {
-		res.BlocksNeeded, _ = strconv.Atoi(m[1])
-	}
-
-	if res.Repaired || res.AllCorrect {
-		return res, nil
-	}
-	if par2ImpossibleRE.MatchString(text) || res.BlocksNeeded > 0 {
-		return res, fmt.Errorf("%w: %s", ErrRepairFailed, res.Output)
-	}
-	if runErr != nil {
-		return res, fmt.Errorf("%w: %w: %s", ErrRepairFailed, runErr, res.Output)
-	}
-	// par2 exited 0 but said nothing this parser recognises. Treat it as
-	// success rather than failing a download on an unrecognised string, and
-	// keep the output so an operator can see what it actually said.
-	res.AllCorrect = true
-	return res, nil
-}
 
 // ErrPar2Timeout is returned when par2 did not finish within par2Deadline.
 // It is a local fault (writeError), never a verdict on the release.
@@ -359,27 +227,3 @@ func smallestPar2Volume(files []nzbFile) string {
 	}
 	return best
 }
-
-// tailWriter keeps at most max bytes, discarding from the front. It never
-// fails, so a subprocess that talks too much is bounded rather than killed.
-type tailWriter struct {
-	buf bytes.Buffer
-	max int
-}
-
-func (w *tailWriter) Write(p []byte) (int, error) {
-	n := len(p)
-	if len(p) > w.max {
-		p = p[len(p)-w.max:]
-	}
-	w.buf.Write(p)
-	if w.buf.Len() > w.max {
-		b := w.buf.Bytes()
-		keep := append([]byte(nil), b[w.buf.Len()-w.max:]...)
-		w.buf.Reset()
-		w.buf.Write(keep)
-	}
-	return n, nil
-}
-
-func (w *tailWriter) String() string { return w.buf.String() }
