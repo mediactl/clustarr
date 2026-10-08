@@ -80,6 +80,16 @@ func TestKVKeyBuildersProduceKeysARealServerAccepts(t *testing.T) {
 	for _, id := range hostile {
 		for name, key := range map[string]string{
 			"ExclusionKey": events.ExclusionKey("imdb", id),
+			// The probe store's and the records buckets' keys (W4.2, F1.2):
+			// a MediaFile UID, and a sub-key a provider or a language
+			// names.
+			"ProbeKey":          events.ProbeKey(id),
+			"RecordKey":         events.RecordKey(id),
+			"RecordSubKey":      events.RecordSubKey(id, "en:forced"),
+			"RecordSubKeyOfSub": events.RecordSubKey("4b0c5a7e-2f1d", id),
+			// The transcode lease and an agent pod's presence key.
+			"TranscodeLeaseKey": events.TranscodeLeaseKey(id),
+			"PresenceKey":       events.PresenceKey("index", id),
 		} {
 			t.Run(name+"/"+id, func(t *testing.T) {
 				// ValidKVKey is exported and callers will trust it, so pin

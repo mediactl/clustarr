@@ -139,11 +139,22 @@ func TestEnsureDefaultTopology(t *testing.T) {
 			t.Fatalf("stream %s: %v", spec.Name, err)
 		}
 		cfg := st.CachedInfo().Config
-		if cfg.Retention != events.StreamConfig(spec).Retention {
+		want := events.StreamConfig(spec)
+		if cfg.Retention != want.Retention {
 			t.Errorf("stream %s retention = %v", spec.Name, cfg.Retention)
 		}
-		if spec.Retention == events.RetentionWorkQueue && !cfg.AllowMsgSchedules &&
-			spec.Name != events.StreamAdvisories && spec.Name != events.StreamWorkTranscode {
+		if cfg.Discard != want.Discard || cfg.AllowMsgSchedules != want.AllowMsgSchedules {
+			t.Errorf("stream %s discard %v, schedules %v; want %v, %v",
+				spec.Name, cfg.Discard, cfg.AllowMsgSchedules, want.Discard, want.AllowMsgSchedules)
+		}
+		// Topology.Validate's rule, read back from the server: a work queue
+		// allows schedules unless JetStream alone publishes to it (the
+		// advisory and task-events streams) or it is DiscardNew (transcode,
+		// probe, intake, engine), which nats-server refuses to pair with
+		// schedules (W4.40).
+		exempt := spec.Name == events.StreamAdvisories || spec.Name == events.StreamTaskEvents ||
+			spec.Discard == events.DiscardNew
+		if spec.Retention == events.RetentionWorkQueue && !exempt && !cfg.AllowMsgSchedules {
 			t.Errorf("work stream %s does not allow message schedules", spec.Name)
 		}
 	}
