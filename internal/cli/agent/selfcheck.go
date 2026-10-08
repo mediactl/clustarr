@@ -21,10 +21,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"strings"
+
+	par2 "github.com/mediactl/par2go"
 
 	"github.com/mediactl/clustarr/pkg/ffruntime"
 	mediainfonative "github.com/mediactl/clustarr/pkg/mediainfo/native"
+	"github.com/mediactl/clustarr/pkg/par2child"
 	embeddednative "github.com/mediactl/clustarr/pkg/subtitles/providers/embedded/native"
 )
 
@@ -32,14 +36,16 @@ import (
 type selfCheckReport struct {
 	PieceCompletion string            `json:"pieceCompletion"`
 	FFmpeg          *ffruntime.Report `json:"ffmpeg,omitempty"`
+	Par2go          string            `json:"par2go,omitempty"`
 	Failures        []string          `json:"failures,omitempty"`
 	OK              bool              `json:"ok"`
 }
 
 // runSelfCheck is `agent --self-check` (§10.1.1): the cgo piece completion
-// (R13) and FFmpeg 9 with what the import and caption domains need, with no
-// domain, cluster or NATS. A bolt piece completion means a cgo-free build,
-// under which every seeding torrent would rehash. W9.6 adds par2go.
+// (R13), FFmpeg 9 with what the import and caption domains need, and par2go
+// (the usenet engine's repair child loads the same library), with no domain,
+// cluster or NATS. A bolt piece completion means a cgo-free build, under
+// which every seeding torrent would rehash.
 func runSelfCheck(w io.Writer) error {
 	return SelfCheckWith(w, mediainfonative.Needs, embeddednative.Needs)
 }
@@ -59,6 +65,11 @@ func SelfCheckWith(w io.Writer, needs ...ffruntime.Needs) error {
 	}
 	if err != nil {
 		r.Failures = append(r.Failures, err.Error())
+	}
+	if err := par2.Available(); err != nil {
+		r.Failures = append(r.Failures, fmt.Sprintf("par2go (PAR2GO_LIB=%q): %v", os.Getenv("PAR2GO_LIB"), err))
+	} else {
+		r.Par2go = par2child.Library()
 	}
 	r.OK = len(r.Failures) == 0
 	enc := json.NewEncoder(w)

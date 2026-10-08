@@ -23,17 +23,26 @@ import (
 	"strings"
 )
 
-// Library is the path of the libpar2shim.so this process mapped, "" before
+// Library is the path of the libpar2shim this process mapped, "" before
 // par2go has loaded it. par2go exports no accessor for it, so it is read
-// from /proc/self/maps, as ffruntime.Report does for FFmpeg.
+// from /proc/self/maps, as ffruntime.Report does for FFmpeg: the file
+// $PAR2GO_LIB names, or one whose name begins "libpar2shim" (the image's
+// libpar2shim.so, a release asset's libpar2shim-linux-<arch>.so).
 func Library() string {
 	b, err := os.ReadFile("/proc/self/maps")
 	if err != nil {
 		return ""
 	}
+	want := os.Getenv("PAR2GO_LIB")
+	if want != "" {
+		if abs, err := filepath.Abs(want); err == nil {
+			want = abs
+		}
+	}
 	for line := range strings.SplitSeq(string(b), "\n") {
 		if f := strings.Fields(line); len(f) >= 6 {
-			if p := strings.Join(f[5:], " "); strings.HasPrefix(filepath.Base(p), "libpar2shim.so") {
+			p := strings.Join(f[5:], " ")
+			if p == want || strings.HasPrefix(filepath.Base(p), "libpar2shim") {
 				return p
 			}
 		}

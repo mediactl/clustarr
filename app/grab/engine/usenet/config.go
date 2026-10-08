@@ -25,11 +25,13 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/download"
 	usenetclient "github.com/mediactl/clustarr/pkg/download/usenet"
+	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
 
 // PostProcessFromSpec resolves PostProcessSpec's *bool pointers against the
@@ -151,6 +153,11 @@ func BuildConfig(ctx context.Context, c client.Client, dc *downloadv1alpha1.Down
 // returning. That is what lets a caller gate engine readiness on BuildClient
 // having returned (plan ruling R4): an engine that reports ready before
 // re-attach completes could be handed a transfer it is already running.
+//
+// It also installs the repairer, par2go in a child of this binary (split
+// spec 2026-10-06 §8.6), and probes it once, in a child, so the log says at
+// start whether repair can run. The probe never gates readiness: only a
+// release that needs repair is affected by a missing library.
 func BuildClient(ctx context.Context, c client.Client, namespace, downloadClientName, dataDir, scratchDir, publishDir string) (download.Client, *downloadv1alpha1.DownloadClient, error) {
 	dc, err := LoadDownloadClient(ctx, c, namespace, downloadClientName)
 	if err != nil {
@@ -161,6 +168,17 @@ func BuildClient(ctx context.Context, c client.Client, namespace, downloadClient
 		return nil, nil, err
 	}
 	cfg.BaseContext = ctx
+	rep := newRepairer()
+	cfg.Repairer = rep
+	log := logging.FromContext(ctx)
+	if rep.Available() {
+		log.InfoContext(ctx, "par2 library ready")
+	} else {
+		log.ErrorContext(ctx, "par2 library unavailable: a release that needs repair fails as writeError")
+	}
+	if err := registerUnreaped(ctrlmetrics.Registry); err != nil {
+		return nil, nil, fmt.Errorf("usenetengine: register the par2 gauge: %w", err)
+	}
 	cl, err := usenetclient.New(cfg)
 	if err != nil {
 		return nil, nil, fmt.Errorf("usenetengine: build client: %w", err)

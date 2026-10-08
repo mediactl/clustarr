@@ -21,6 +21,13 @@ package main
 import (
 	"github.com/mediactl/clustarr/internal/cli"
 	"github.com/mediactl/clustarr/internal/cli/agent"
+	"github.com/mediactl/clustarr/pkg/par2child"
 )
 
-func main() { cli.Main(agent.NewCommand) }
+func main() {
+	// The usenet engine's par2 repair runs in a child of this binary
+	// ("agent par2-repair", pkg/par2child): dispatched before cobra, flags,
+	// logging or tracing exist (split spec 2026-10-06 §8.4.4).
+	par2child.RunIfChild()
+	cli.Main(agent.NewCommand)
+}
