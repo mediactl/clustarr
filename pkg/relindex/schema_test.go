@@ -42,7 +42,7 @@ func TestOpenStampsTheSchemaVersion(t *testing.T) {
 
 	var v int
 	require.NoError(t, db.QueryRow(`PRAGMA user_version`).Scan(&v))
-	require.Equal(t, 1, v)
+	require.Equal(t, 2, v, "version 2 added the blocklist (ADR-0019 §6.14, A3.1)")
 }
 
 func TestOpenRefusesADatabaseWrittenByANewerBuild(t *testing.T) {
