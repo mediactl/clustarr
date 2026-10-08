@@ -19,8 +19,6 @@ package search_test
 
 import (
 	"context"
-	"encoding/json"
-	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -32,12 +30,12 @@ import (
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	"github.com/mediactl/clustarr/app/catalog/controller/wantedcron"
-	"github.com/mediactl/clustarr/app/catalog/worker/grab"
+	"github.com/mediactl/clustarr/app/catalog/worker/search"
 	"github.com/mediactl/clustarr/pkg/decision"
-	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/records"
+	"github.com/mediactl/clustarr/pkg/records/agentrecords"
 )
 
 // musicProfile is Lidarr's lossless ladder, as the built-in music-lossless
@@ -128,8 +126,9 @@ func TestWorkerSearchesAnAlbumAndDecidesItByName(t *testing.T) {
 	require.NoError(t, f.worker.Handle(ctx, testMessage{env: f.envelope(t, schema.SearchTask{
 		MediaRef:    commonv1.MediaRef{Kind: commonv1.MediaKindAlbum, Name: "radiohead-kid-a"},
 		Reason:      schema.SearchReasonInteractive,
-		SearchRef:   &schema.Ref{Namespace: f.ns, Name: "srch-album"},
+		SearchRef:   &schema.Ref{Namespace: f.ns, Name: "srch-album", UID: string(srch.UID)},
 		UserInvoked: true,
+		Seq:         1,
 	})}))
 
 	reqs := f.rpc.Requests()
@@ -139,11 +138,10 @@ func TestWorkerSearchesAnAlbumAndDecidesItByName(t *testing.T) {
 	require.Equal(t, []int32{3000, 3010, 3040}, reqs[0].Categories)
 	require.Nil(t, reqs[0].IDs, "an album has no id an indexer takes")
 
-	got := &catalogv1alpha1.Search{}
-	require.NoError(t, f.api.Get(ctx, client.ObjectKey{Namespace: f.ns, Name: "srch-album"}, got))
+	rec := f.record(t, agentrecords.SearchKey(string(srch.UID)))
 	byGUID := map[string]commonv1.ReleaseDecision{}
-	for _, r := range got.Status.Results {
-		byGUID[r.GUID] = r
+	for _, c := range rec.Candidates {
+		byGUID[c.Decision.GUID] = c.Decision
 	}
 	require.Len(t, byGUID, 3)
 	require.True(t, byGUID["right"].Approved, "the right album is approved: %+v", byGUID["right"].Rejections)
@@ -177,93 +175,10 @@ func hasRejection(d commonv1.ReleaseDecision, code string) bool {
 	return false
 }
 
-// TestWorkerWantedScanIncludesNonVideoItems: a WantedScan naming no kinds
-// expands into searches for wanted albums and issues as well as movies. An
-// issue whose store date is still ahead is not searched.
-func TestWorkerWantedScanIncludesNonVideoItems(t *testing.T) {
-	ctx := context.Background()
-	f := newWorkerFixture(t, "worker-wantedscan-nonvideo")
-	pub := &recordingPublisher{}
-	f.worker.Publisher = pub
-	createKidA(t, ctx, f.mgr, f.ns, "music-anything")
-
-	require.NoError(t, f.mgr.Create(ctx, &catalogv1alpha1.Comic{
-		ObjectMeta: metav1.ObjectMeta{Name: "saga", Namespace: f.ns},
-		Spec: catalogv1alpha1.ComicSpec{
-			Source: catalogv1alpha1.ComicSourceProvider("comicvine"), SourceID: "46644",
-			QualityProfileRef: "comic", RootFolderRef: "comics",
-		},
-	}))
-	issue := func(name, number string, centis int32, date time.Time) {
-		require.NoError(t, f.mgr.Create(ctx, &catalogv1alpha1.Issue{
-			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: f.ns},
-			Spec:       catalogv1alpha1.IssueSpec{ComicRef: "saga", Number: number, CalculatedNumberCentis: centis},
-		}))
-		_, err := k8s.PatchStatus(ctx, f.mgr, k8s.ManagerCatalog, catalogac.Issue(name, f.ns).WithStatus(
-			catalogac.IssueStatus().WithState(catalogv1alpha1.IssueStateWanted).WithDate(metav1.NewTime(date))))
-		require.NoError(t, err)
-	}
-	issue("saga-050", "50", 5000, testNow.Add(-30*24*time.Hour))
-	issue("saga-070", "70", 7000, testNow.Add(90*24*time.Hour))
-	eventually(t, 10*time.Second, "both issues' state to reach the cache", func() bool {
-		var list catalogv1alpha1.IssueList
-		if err := f.mgr.List(ctx, &list, client.InNamespace(f.ns)); err != nil {
-			return false
-		}
-		n := 0
-		for i := range list.Items {
-			if list.Items[i].Status.State != "" {
-				n++
-			}
-		}
-		return n == 2
-	})
-
-	require.NoError(t, f.worker.Handle(ctx, testMessage{env: wantedScanEnvelope(t, schema.WantedScan{
-		Namespace: f.ns, CutoffUnmet: true, Epoch: 1700000001,
-	})}))
-
-	_, envs := pub.snapshot()
-	var got []string
-	for _, e := range envs {
-		var task schema.SearchTask
-		require.NoError(t, json.Unmarshal(e.Data, &task))
-		got = append(got, string(task.MediaRef.Kind)+"/"+task.MediaRef.Name)
-	}
-	sort.Strings(got)
-	// The wanted album and the released issue -- not the fixture's
-	// phaseless movie, not the unreleased issue -- each as soon as the grab
-	// path can grab its kind. Until then the sweep holds it back rather than
-	// spend an indexer query on a result nothing can grab (the worker's
-	// grabbable gate), which this expectation follows so the test needs no
-	// edit when the grab path grows the kind.
-	var want []string
-	for _, ref := range []commonv1.MediaRef{
-		{Kind: commonv1.MediaKindAlbum, Name: "radiohead-kid-a"},
-		{Kind: commonv1.MediaKindIssue, Name: "saga-050"},
-	} {
-		if _, err := grab.StatusTargets(ref, nil); err == nil {
-			want = append(want, string(ref.Kind)+"/"+ref.Name)
-		}
-	}
-	require.Equal(t, want, got)
-
-	// And the candidate half is live regardless: wantedcron lists both.
-	cands, err := wantedcron.ListCandidates(ctx, f.mgr, func(commonv1.MediaKind) bool { return true }, testNow, client.InNamespace(f.ns))
-	require.NoError(t, err)
-	var due []string
-	for _, c := range cands {
-		if c.Due(testNow, true) {
-			due = append(due, string(c.Ref.Kind)+"/"+c.Ref.Name)
-		}
-	}
-	sort.Strings(due)
-	require.Equal(t, []string{"album/radiohead-kid-a", "issue/saga-050"}, due)
-}
-
 // TestWorkerSkipsAnAutomaticSearchTheGrabPathCannotGrab: an automatic
-// search of a kind the grab path cannot grab costs no indexer query -- its
-// result would be dropped at the sink.
+// search of a kind the worker cannot search costs no indexer query. Since
+// A4.3 the task is answered in the item's record, failed -- the planner
+// closes the dispatch on it and backs off -- rather than dead-lettered.
 //
 // Since task X4a extended the grab path to albums, books, audiobooks and
 // issues, every kind the worker searches is one the grab path grabs, and
@@ -278,12 +193,15 @@ func TestWorkerSkipsAnAutomaticSearchTheGrabPathCannotGrab(t *testing.T) {
 	createKidA(t, ctx, f.mgr, f.ns, "music-anything")
 
 	ref := commonv1.MediaRef{Kind: commonv1.MediaKindArtist, Name: "radiohead"}
-	_, gerr := grab.StatusTargets(ref, nil)
-	require.ErrorIs(t, gerr, grab.ErrUnsupportedKind, "the grab path grabs artists now; point this at a kind it cannot")
+	require.False(t, search.Searchable(ref.Kind), "the worker searches artists now; point this at a kind it cannot")
 
-	err := f.worker.Handle(ctx, testMessage{env: f.envelope(t, schema.SearchTask{MediaRef: ref, Reason: schema.SearchReasonMissing})})
-	require.Error(t, err, "a container's search task must be discarded, not acked as done")
-	var discard *events.DiscardError
-	require.ErrorAs(t, err, &discard, "discarded, not retried: no redelivery makes a container searchable")
+	item := itemRef(t, ctx, f.mgr, "Artist", &catalogv1alpha1.Artist{}, client.ObjectKey{Namespace: f.ns, Name: "radiohead"})
+	err := f.worker.Handle(ctx, testMessage{env: f.envelope(t, schema.SearchTask{
+		MediaRef: ref, Reason: schema.SearchReasonMissing, Item: item, Seq: 1,
+	})})
+	require.NoError(t, err, "answered, not retried: no redelivery makes a container searchable")
+	rec := f.record(t, agentrecords.SearchKey(item.UID))
+	require.Equal(t, records.StateFailed, rec.State)
+	require.Contains(t, rec.Failure, "is not searchable")
 	require.Empty(t, f.rpc.Requests(), "no indexer query for a result nothing can grab")
 }

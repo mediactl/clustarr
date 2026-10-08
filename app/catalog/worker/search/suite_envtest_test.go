@@ -20,7 +20,6 @@ package search_test
 import (
 	"context"
 	"os"
-	"sync"
 	"testing"
 	"time"
 
@@ -33,8 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	"github.com/mediactl/clustarr/app/catalog/worker/search"
-	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/app/catalog/worker/titleindex"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
@@ -71,7 +69,9 @@ func requireEnvtest(t *testing.T) {
 }
 
 // newTestManager starts a manager against the shared control plane with the
-// search worker's Download field indexes registered, and returns it once its
+// search worker's field indexes registered (titleindex.SearchIndexes: the
+// namesake and season lookups; the Download indexes went with the Download
+// kind), and returns it once its
 // cache has synced. A real manager is required rather than a bare client:
 // field indexes are a controller-runtime cache feature and client.List with
 // MatchingFields fails outright against an unindexed client.
@@ -87,8 +87,10 @@ func newTestManager(t *testing.T) ctrl.Manager {
 	if err != nil {
 		t.Fatalf("build manager: %v", err)
 	}
-	if err := search.RegisterDownloadIndexes(context.Background(), mgr.GetFieldIndexer()); err != nil {
-		t.Fatalf("RegisterDownloadIndexes: %v", err)
+	for _, ix := range titleindex.SearchIndexes() {
+		if err := mgr.GetFieldIndexer().IndexField(context.Background(), ix.Object, ix.Name, ix.Extract); err != nil {
+			t.Fatalf("register %s: %v", ix.Name, err)
+		}
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -151,30 +153,4 @@ func newManagerWithoutIndexes(t *testing.T) ctrl.Manager {
 		t.Fatalf("build manager: %v", err)
 	}
 	return mgr
-}
-
-// recordingPublisher records every publish and can be told to fail, so the
-// WantedScan fan-out is observable without a broker.
-type recordingPublisher struct {
-	mu       sync.Mutex
-	subjects []string
-	envs     []*events.Envelope
-	err      error
-}
-
-func (p *recordingPublisher) Publish(_ context.Context, subject string, e *events.Envelope, _ ...events.PublishOption) (events.Receipt, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.err != nil {
-		return events.Receipt{}, p.err
-	}
-	p.subjects = append(p.subjects, subject)
-	p.envs = append(p.envs, e)
-	return events.Receipt{Seq: uint64(len(p.envs))}, nil
-}
-
-func (p *recordingPublisher) snapshot() ([]string, []*events.Envelope) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return append([]string(nil), p.subjects...), append([]*events.Envelope(nil), p.envs...)
 }

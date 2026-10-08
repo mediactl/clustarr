@@ -31,7 +31,6 @@ import (
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 	"github.com/mediactl/clustarr/app/catalog/worker/search"
 	"github.com/mediactl/clustarr/pkg/decision"
 	"github.com/mediactl/clustarr/pkg/events"
@@ -40,6 +39,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/metadata/scenemap"
 	"github.com/mediactl/clustarr/pkg/quality"
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
+	"github.com/mediactl/clustarr/pkg/records/agentrecords"
 )
 
 // targetCapture is an EvaluateFunc seam that records the decision.Target the
@@ -118,12 +118,6 @@ func TestWorkerSnapshotOfAnAnimeEpisodeWithAFile(t *testing.T) {
 			},
 		},
 	}))
-	newDownload(t, ctx, c, ns, downloadFixture{
-		name: "op-download", hash: "cccccccccccccccccccccccccccccccccccccccc",
-		title:  "One.Piece.S01E37.1080p.WEB-DL.x265-OLD",
-		target: commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: "one-piece-s01e37"},
-		phase:  commonv1.DownloadPhaseSeeding,
-	})
 
 	airDate := metav1.NewTime(time.Date(2000, 6, 4, 0, 0, 0, 0, time.UTC))
 	_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalog,
@@ -144,8 +138,8 @@ func TestWorkerSnapshotOfAnAnimeEpisodeWithAFile(t *testing.T) {
 	}}
 	w := search.NewWorker(c, rpc, catalogue.LoadedCatalogue())
 	w.Evaluate = capture.evaluate
-	w.Sink = newRecordingSink()
 	w.Clock = clockwork.NewFakeClockAt(testNow)
+	withRecords(t, w)
 	// TheXEM's table for the series: the target's row AND rows for other
 	// episodes, all of which must reach the identity (a row for another
 	// episode is what stops that episode's scene number reading literally
@@ -169,6 +163,9 @@ func TestWorkerSnapshotOfAnAnimeEpisodeWithAFile(t *testing.T) {
 	schemaName, data, err := schema.Encode(schema.SearchTask{
 		MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: "one-piece-s01e37"},
 		Reason:   schema.SearchReasonCutoffUnmet,
+		Item: itemRef(t, ctx, c, "Episode", &catalogv1alpha1.Episode{},
+			client.ObjectKey{Namespace: ns, Name: "one-piece-s01e37"}),
+		Seq: 1,
 	})
 	require.NoError(t, err)
 	require.NoError(t, w.Handle(ctx, testMessage{env: &events.Envelope{
@@ -186,14 +183,10 @@ func TestWorkerSnapshotOfAnAnimeEpisodeWithAFile(t *testing.T) {
 		"pkg/decision reads an episode's runtime from EpisodeRuntimes, not RuntimeMinutes")
 	require.Equal(t, 24, target.RuntimeMinutes)
 
-	require.NotNil(t, target.Current, "the item has a MediaFile")
-	require.Equal(t, "WEBDL-1080p", target.Current.Quality.Name)
-	require.Equal(t, 55, target.Current.FormatScore)
-	require.Equal(t, []string{"x265"}, target.Current.Formats)
-	require.Equal(t, "One.Piece.S01E37.1080p.WEB-DL.x265-OLD", target.Current.SourceTitle)
-	require.Equal(t, "cccccccccccccccccccccccccccccccccccccccc", target.Current.SourceHash,
-		"the info hash comes from the Download that produced the file, not from MediaFile")
-	require.False(t, target.Current.Transcoded, "an original file with no CLUSTARR_PROFILE tag is not transcoded")
+	// The current file, the queue and the blocklist are item state the
+	// owner's grab planner judges (A4.3: the worker applies the release
+	// rules only; itemread.Current reads the file).
+	require.Nil(t, target.Current, "the worker decides on release rules only")
 
 	// The identity the decision engine checks every release against. The
 	// series has no metadata in this fixture, so there is no title yet: the
@@ -213,9 +206,6 @@ func TestWorkerSnapshotOfAnAnimeEpisodeWithAFile(t *testing.T) {
 		},
 	}, target.Identity)
 
-	require.Len(t, target.Queue, 1, "a seeding Download still occupies the queue")
-	require.NotNil(t, target.Blocklist)
-	require.False(t, target.Blocklist("deadbeef", "Nothing.Blocklisted"), "nothing is blocklisted here")
 	require.Empty(t, opts.ProtocolsEnabled,
 		"an AUTOMATIC search fails closed when no DownloadClient exists: its ranked list goes straight to a grab")
 	require.False(t, opts.UserInvoked)
@@ -280,8 +270,8 @@ func TestWorkerSearchesASceneMappedEpisodeByItsSceneNumbering(t *testing.T) {
 	}}
 	w := search.NewWorker(c, rpc, catalogue.LoadedCatalogue())
 	w.Evaluate = capture.evaluate
-	w.Sink = newRecordingSink()
 	w.Clock = clockwork.NewFakeClockAt(testNow)
+	withRecords(t, w)
 	table := []scenemap.Mapping{
 		{Scene: scenemap.Numbering{Season: 1, Episode: 12, Absolute: 12}, TVDB: scenemap.Numbering{Season: 1, Episode: 12, Absolute: 12}},
 		{Scene: scenemap.Numbering{Season: 2, Episode: 1, Absolute: 13}, TVDB: scenemap.Numbering{Season: 1, Episode: 13, Absolute: 13}},
@@ -298,6 +288,9 @@ func TestWorkerSearchesASceneMappedEpisodeByItsSceneNumbering(t *testing.T) {
 	schemaName, data, err := schema.Encode(schema.SearchTask{
 		MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: "ika-musume-s01e13"},
 		Reason:   schema.SearchReasonMissing,
+		Item: itemRef(t, ctx, c, "Episode", &catalogv1alpha1.Episode{},
+			client.ObjectKey{Namespace: ns, Name: "ika-musume-s01e13"}),
+		Seq: 1,
 	})
 	require.NoError(t, err)
 	require.NoError(t, w.Handle(ctx, testMessage{env: &events.Envelope{
@@ -330,6 +323,7 @@ func TestWorkerSnapshotOfAMovieWithNoFileHasNoCurrent(t *testing.T) {
 	env := f.envelope(t, schema.SearchTask{
 		MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "the-matrix"},
 		Reason:   schema.SearchReasonAdd,
+		Item:     f.movie(t), Seq: 1,
 	})
 	require.NoError(t, f.worker.Handle(ctx, testMessage{env: env}))
 
@@ -342,75 +336,6 @@ func TestWorkerSnapshotOfAMovieWithNoFileHasNoCurrent(t *testing.T) {
 	require.Equal(t, map[string]string{commonv1.IDKeyTMDB: "603"}, target.Identity.IDs,
 		"with no metadata yet the movie is still identifiable by its spec tmdb id")
 	require.Empty(t, target.Identity.Titles)
-}
-
-// TestWorkerSnapshotMarksATranscodedCurrentFile: the snapshot reads the
-// item's MediaFile through rollup.Transcoded, so an automatic search hands
-// the decision engine a Current it will not upgrade (TranscodedFinal). Both
-// ways a file is transcoded are covered: the swap (spec.original false) and
-// the probe's CLUSTARR_PROFILE tag.
-func TestWorkerSnapshotMarksATranscodedCurrentFile(t *testing.T) {
-	ctx := context.Background()
-	f := newWorkerFixture(t, "snapshot-transcoded")
-	c := f.mgr
-
-	for _, tc := range []struct {
-		name, mfName string
-		mark         func(t *testing.T, mfName string)
-	}{
-		{name: "a transcode swap", mfName: "the-matrix-swapped", mark: func(t *testing.T, mfName string) {
-			var mf catalogv1alpha1.MediaFile
-			require.NoError(t, c.Get(ctx, client.ObjectKey{Namespace: f.ns, Name: mfName}, &mf))
-			patch := client.MergeFrom(mf.DeepCopy())
-			mf.Spec.Original = new(false)
-			require.NoError(t, c.Patch(ctx, &mf, patch))
-		}},
-		{name: "the probe's tag", mfName: "the-matrix-tagged", mark: func(t *testing.T, mfName string) {
-			_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalog,
-				catalogac.MediaFile(mfName, f.ns).WithStatus(catalogac.MediaFileStatus().
-					WithMediaInfo(commonv1.MediaInfo{VideoCodec: "hevc", TranscodeProfile: "default@abc"})))
-			require.NoError(t, err)
-		}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			mfName := tc.mfName
-			require.NoError(t, c.Create(ctx, &catalogv1alpha1.MediaFile{
-				ObjectMeta: metav1.ObjectMeta{Name: mfName, Namespace: f.ns},
-				Spec: catalogv1alpha1.MediaFileSpec{
-					MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "the-matrix"},
-					Path:     "/data/movies/The Matrix (1999)/" + mfName + ".mkv",
-					Quality:  commonv1.Quality{Name: "Bluray-1080p", Source: "bluray", Resolution: 1080},
-				},
-			}))
-			tc.mark(t, mfName)
-			_, err := k8s.PatchStatus(ctx, c, k8s.ManagerCatalog,
-				catalogac.Movie("the-matrix", f.ns).WithStatus(catalogac.MovieStatus().
-					WithPhase(catalogv1alpha1.MoviePhaseTranscoded).WithHasFile(true).WithFileRef(mfName)))
-			require.NoError(t, err)
-			eventually(t, 10*time.Second, "the transcoded file and the movie's fileRef to reach the cache", func() bool {
-				var mf catalogv1alpha1.MediaFile
-				var m catalogv1alpha1.Movie
-				if c.Get(ctx, client.ObjectKey{Namespace: f.ns, Name: mfName}, &mf) != nil ||
-					c.Get(ctx, client.ObjectKey{Namespace: f.ns, Name: "the-matrix"}, &m) != nil {
-					return false
-				}
-				return rollup.Transcoded(&mf) && m.Status.FileRef != nil && *m.Status.FileRef == mfName
-			})
-
-			capture := &targetCapture{}
-			f.worker.Evaluate = capture.evaluate
-			env := f.envelope(t, schema.SearchTask{
-				MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "the-matrix"},
-				Reason:   schema.SearchReasonCutoffUnmet,
-			})
-			require.NoError(t, f.worker.Handle(ctx, testMessage{env: env}))
-
-			target, opts, _ := capture.get(t)
-			require.NotNil(t, target.Current)
-			require.True(t, target.Current.Transcoded, "the decision engine must be told the current file is final")
-			require.False(t, opts.UserInvoked, "an automatic search, which TranscodedFinal applies to")
-		})
-	}
 }
 
 // TestWorkerSearchAtCRDDefaultsApprovesAnEnglishRelease is the search path's
@@ -469,15 +394,16 @@ func TestWorkerSearchAtCRDDefaultsApprovesAnEnglishRelease(t *testing.T) {
 	env := f.envelope(t, schema.SearchTask{
 		MediaRef:    commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "the-matrix"},
 		Reason:      schema.SearchReasonInteractive,
-		SearchRef:   &schema.Ref{Namespace: f.ns, Name: "srch"},
+		SearchRef:   &schema.Ref{Namespace: f.ns, Name: "srch", UID: string(srch.UID)},
 		UserInvoked: true,
+		Seq:         1,
 	})
 	require.NoError(t, f.worker.Handle(ctx, testMessage{env: env}))
 
-	got := &catalogv1alpha1.Search{}
-	require.NoError(t, f.api.Get(ctx, client.ObjectKey{Namespace: f.ns, Name: "srch"}, got))
-	require.Len(t, got.Status.Results, 2)
-	for _, r := range got.Status.Results {
+	rec := f.record(t, agentrecords.SearchKey(string(srch.UID)))
+	require.Len(t, rec.Candidates, 2)
+	for _, c := range rec.Candidates {
+		r := c.Decision
 		require.True(t, r.Approved,
 			"a profile at CRD defaults must approve an English release of an English movie; %s was rejected with %+v (score %d)",
 			r.GUID, r.Rejections, r.FormatScore)
@@ -554,15 +480,15 @@ func TestWorkerSearchRejectsAWrongFilmFromATextFallbackIndexer(t *testing.T) {
 	require.NoError(t, f.worker.Handle(ctx, testMessage{env: f.envelope(t, schema.SearchTask{
 		MediaRef:    commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "the-matrix"},
 		Reason:      schema.SearchReasonInteractive,
-		SearchRef:   &schema.Ref{Namespace: f.ns, Name: "srch"},
+		SearchRef:   &schema.Ref{Namespace: f.ns, Name: "srch", UID: string(srch.UID)},
 		UserInvoked: true,
+		Seq:         1,
 	})}))
 
-	got := &catalogv1alpha1.Search{}
-	require.NoError(t, f.api.Get(ctx, client.ObjectKey{Namespace: f.ns, Name: "srch"}, got))
+	rec := f.record(t, agentrecords.SearchKey(string(srch.UID)))
 	byGUID := map[string]commonv1.ReleaseDecision{}
-	for _, r := range got.Status.Results {
-		byGUID[r.GUID] = r
+	for _, c := range rec.Candidates {
+		byGUID[c.Decision.GUID] = c.Decision
 	}
 	require.Len(t, byGUID, 4)
 

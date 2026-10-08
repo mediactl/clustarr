@@ -25,12 +25,10 @@ import (
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/decision"
-	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/quality"
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
 )
@@ -105,43 +103,4 @@ func TestARemasterDatedYearsLaterMatchesItsAlbum(t *testing.T) {
 		"near no edition and beyond five years of the album")
 	require.NotEmpty(t, identityRejections(kidA(new(false), "cd-2000", nil), "Radiohead - Kid A (2009) [FLAC]"),
 		"an album that accepts only its selected 2000 release refuses the 2009 edition")
-}
-
-// TestAMultiTrackAlbumWithFilesHasACurrentFile: an album has a file when the
-// Album reconciler has rolled a quality up from its MediaFiles. Its
-// trackFileCount counts only files tied to a track -- which the importer
-// does for a one-track album alone -- so gating on it read every imported
-// multi-track album as empty, and the search grabbed it again.
-func TestAMultiTrackAlbumWithFilesHasACurrentFile(t *testing.T) {
-	flac := commonv1.Quality{Name: "FLAC"}
-	artist := &catalogv1alpha1.Artist{}
-	artist.Name, artist.Namespace = "radiohead", "default"
-	artist.Status.Metadata = &catalogv1alpha1.ArtistMetadata{Name: "Radiohead"}
-
-	for name, tc := range map[string]struct {
-		trackFiles int32
-		quality    *commonv1.Quality
-		want       *decision.Current
-	}{
-		"ten tracks, files imported, none tied to a track": {trackFiles: 0, quality: &flac, want: &decision.Current{Quality: flac, FormatScore: 7}},
-		"ten tracks, every one tied":                       {trackFiles: 10, quality: &flac, want: &decision.Current{Quality: flac, FormatScore: 7}},
-		"no file":                                          {trackFiles: 0, quality: nil, want: nil},
-	} {
-		t.Run(name, func(t *testing.T) {
-			album := kidA(nil, "cd-2000", nil)
-			album.Name, album.Namespace = "kid-a", "default"
-			album.Spec.ArtistRef = artist.Name
-			album.Status.TrackFileCount = tc.trackFiles
-			album.Status.Quality = tc.quality
-			album.Status.FormatScore = 7
-			for i := range 10 {
-				album.Status.Tracks = append(album.Status.Tracks, catalogv1alpha1.Track{RecordingID: string(rune('a' + i)), Number: int32(i + 1)})
-			}
-			c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).WithObjects(album, artist).Build()
-
-			v, err := ReadNonVideo(context.Background(), c, "default", commonv1.MediaRef{Kind: commonv1.MediaKindAlbum, Name: album.Name}, time.Now())
-			require.NoError(t, err)
-			require.Equal(t, tc.want, v.Current)
-		})
-	}
 }

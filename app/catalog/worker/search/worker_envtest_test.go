@@ -19,7 +19,6 @@ package search_test
 
 import (
 	"context"
-	"sync"
 	"testing"
 	"time"
 
@@ -32,6 +31,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/worker/search"
+	"github.com/mediactl/clustarr/app/catalog/worker/titleindex"
 	"github.com/mediactl/clustarr/pkg/decision"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
@@ -39,6 +39,8 @@ import (
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/quality"
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
+	"github.com/mediactl/clustarr/pkg/records"
+	"github.com/mediactl/clustarr/pkg/records/agentrecords"
 	"github.com/mediactl/clustarr/pkg/version"
 )
 
@@ -64,58 +66,36 @@ func (m testMessage) Nak(context.Context, time.Duration) error { return nil }
 func (m testMessage) Term(context.Context, string) error       { return nil }
 func (m testMessage) InProgress(context.Context) error         { return nil }
 
-// recordingSink captures what the worker hands to the automatic grab path. Its
-// method set is search.Sink, which is app/catalog/worker/grab.Sink's verbatim.
-type recordingSink struct {
-	mu         sync.Mutex
-	namespaces []string
-	targets    []commonv1.MediaRef
-	batches    [][]commonv1.ReleaseDecision
-	grabbedBy  []commonv1.GrabSource
-	purposes   []commonv1.DownloadPurpose
-	delivery   chan struct{}
+// withRecords wires w's records writer and reader over a fresh membus
+// clustarr-searches bucket and returns the reader: since A4.3 the worker
+// answers every search in its record and writes nothing else (ADR-0019
+// §7.4), so a test reads what it did from the record.
+func withRecords(t *testing.T, w *search.Worker) *records.Reader[*schema.SearchRecord] {
+	t.Helper()
+	bus := membus.New(nil)
+	t.Cleanup(func() { _ = bus.Close() })
+	require.NoError(t, bus.Ensure(context.Background(), events.Default().ForSingleNode()))
+	kv := bus.KV(events.BucketSearches)
+	w.Records = records.NewWriter(kv, agentrecords.Searches(), "test-pod", version.String())
+	w.Answers = records.NewReader(kv, agentrecords.Searches())
+	return w.Answers
 }
 
-func newRecordingSink() *recordingSink {
-	return &recordingSink{delivery: make(chan struct{}, 8)}
+// readRecord is the record stored at key; it fails the test when none is.
+func readRecord(t *testing.T, r *records.Reader[*schema.SearchRecord], key string) *schema.SearchRecord {
+	t.Helper()
+	rec, _, ok, err := r.Get(context.Background(), key)
+	require.NoError(t, err)
+	require.True(t, ok, "no record at %s", key)
+	return rec
 }
 
-func (s *recordingSink) Deliver(
-	_ context.Context, ns string, target commonv1.MediaRef, ranked []commonv1.ReleaseDecision, grabbedBy commonv1.GrabSource,
-	purpose commonv1.DownloadPurpose,
-) error {
-	s.mu.Lock()
-	s.purposes = append(s.purposes, purpose)
-	s.grabbedBy = append(s.grabbedBy, grabbedBy)
-	s.namespaces = append(s.namespaces, ns)
-	s.targets = append(s.targets, target)
-	s.batches = append(s.batches, ranked)
-	s.mu.Unlock()
-	select {
-	case s.delivery <- struct{}{}:
-	default:
-	}
-	return nil
-}
-
-func (s *recordingSink) last() (string, commonv1.MediaRef, []commonv1.ReleaseDecision, int) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if len(s.targets) == 0 {
-		return "", commonv1.MediaRef{}, nil, 0
-	}
-	n := len(s.targets)
-	return s.namespaces[n-1], s.targets[n-1], s.batches[n-1], n
-}
-
-// lastGrabbedBy is the grab source the latest delivery carried.
-func (s *recordingSink) lastGrabbedBy() commonv1.GrabSource {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if len(s.grabbedBy) == 0 {
-		return ""
-	}
-	return s.grabbedBy[len(s.grabbedBy)-1]
+// itemRef is the record key's item for the object c can see at key: its
+// kind, namespace, name and UID, as the manager's planner puts it on a task.
+func itemRef(t *testing.T, ctx context.Context, c client.Client, kind string, obj client.Object, key client.ObjectKey) schema.ItemRef {
+	t.Helper()
+	require.NoError(t, c.Get(ctx, key, obj))
+	return schema.ItemRef{Kind: kind, Ref: schema.Ref{Namespace: key.Namespace, Name: key.Name, UID: string(obj.GetUID())}}
 }
 
 // approveEverything is the EvaluateFunc seam standing in for pkg/decision, so
@@ -160,14 +140,27 @@ func rpcRelease(guid, title string, score int32) schema.Release {
 
 type workerFixture struct {
 	mgr client.Client
-	// api is the manager's uncached reader. Assertions use it: the worker
-	// writes through the apiserver, so a read through the shared informer
-	// cache can legitimately still show the previous version.
+	// api is the manager's uncached reader. Assertions use it: a read
+	// through the shared informer cache can legitimately still show the
+	// previous version.
 	api    client.Reader
 	worker *search.Worker
 	rpc    *search.FakeSearchRPC
-	sink   *recordingSink
-	ns     string
+	// answers reads the records the worker writes.
+	answers *records.Reader[*schema.SearchRecord]
+	ns      string
+}
+
+// movie is the record key's item for the fixture's movie, the-matrix.
+func (f *workerFixture) movie(t *testing.T) schema.ItemRef {
+	t.Helper()
+	return itemRef(t, context.Background(), f.mgr, "Movie", &catalogv1alpha1.Movie{}, client.ObjectKey{Namespace: f.ns, Name: "the-matrix"})
+}
+
+// record is the record the worker wrote at key.
+func (f *workerFixture) record(t *testing.T, key string) *schema.SearchRecord {
+	t.Helper()
+	return readRecord(t, f.answers, key)
 }
 
 // waitCached blocks until the manager's cache can see obj, so a test that
@@ -222,14 +215,12 @@ func newWorkerFixture(t *testing.T, ns string) *workerFixture {
 			Status: schema.SearchOutcomeOK, Releases: 2, ElapsedMillis: 120,
 		}},
 	}}
-	sink := newRecordingSink()
-
 	w := search.NewWorker(c, rpc, catalogue.LoadedCatalogue())
 	w.Evaluate = approveEverything
-	w.Sink = sink
 	w.Clock = clockwork.NewFakeClockAt(testNow)
+	answers := withRecords(t, w)
 
-	return &workerFixture{mgr: c, api: mgr.GetAPIReader(), worker: w, rpc: rpc, sink: sink, ns: ns}
+	return &workerFixture{mgr: c, api: mgr.GetAPIReader(), worker: w, rpc: rpc, answers: answers, ns: ns}
 }
 
 func (f *workerFixture) envelope(t *testing.T, task schema.SearchTask) *events.Envelope {
@@ -259,16 +250,16 @@ func TestWorkerHandleWritesAnInteractiveSearchesResults(t *testing.T) {
 	}
 	require.NoError(t, f.mgr.Create(ctx, srch))
 	waitCached(t, ctx, f.mgr, client.ObjectKey{Namespace: f.ns, Name: "srch"}, &catalogv1alpha1.Search{})
-	// The controller's half of the status, so the worker's apply is shown to
-	// leave it alone rather than release it. A blank object could not observe
-	// a server-side-apply release at all.
+	// The controller's half of the status, so the worker is shown to leave
+	// it alone. A blank object could not observe a release at all.
 	writeControllerStatus(t, ctx, f.mgr, f.ns, "srch")
 
 	env := f.envelope(t, schema.SearchTask{
 		MediaRef:    commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "the-matrix"},
 		Reason:      schema.SearchReasonInteractive,
-		SearchRef:   &schema.Ref{Namespace: f.ns, Name: "srch"},
+		SearchRef:   &schema.Ref{Namespace: f.ns, Name: "srch", UID: string(srch.UID)},
 		UserInvoked: true,
+		Seq:         1,
 	})
 	require.NoError(t, f.worker.Handle(ctx, testMessage{env: env}))
 
@@ -283,31 +274,31 @@ func TestWorkerHandleWritesAnInteractiveSearchesResults(t *testing.T) {
 	require.Len(t, reqs[0].IndexerRefs, 1)
 	require.Equal(t, "idx", reqs[0].IndexerRefs[0].Name)
 
+	// The answer is the Search's record (ADR-0019 §7.4), keyed by its UID;
+	// the Search controller incorporates it into status.
+	rec := f.record(t, agentrecords.SearchKey(string(srch.UID)))
+	require.False(t, rec.FinishedAt.IsZero())
+	require.Len(t, rec.Candidates, 2)
+	require.Equal(t, "g-high", rec.Candidates[0].Decision.GUID, "the better format score ranks first")
+	require.Equal(t, int32(1), rec.Candidates[0].Decision.Rank)
+	require.Equal(t, "g-low", rec.Candidates[1].Decision.GUID)
+	require.Equal(t, int32(2), rec.Candidates[1].Decision.Rank)
+	// A release with no publish date round-trips as absent rather than being
+	// rejected or invented (the defect three separate tasks hit when a
+	// non-pointer metav1.Time marshalled to null).
+	require.Nil(t, rec.Candidates[0].Decision.PublishedAt,
+		"an absent publish date must persist as absent rather than being rejected or invented")
+	require.Len(t, rec.IndexerOutcomes, 1)
+	require.Equal(t, schema.SearchOutcomeOK, rec.IndexerOutcomes[0].Status)
+	require.Equal(t, int64(120), rec.IndexerOutcomes[0].ElapsedMillis)
+
 	got := &catalogv1alpha1.Search{}
 	require.NoError(t, f.api.Get(ctx, client.ObjectKey{Namespace: f.ns, Name: "srch"}, got))
-	require.NotNil(t, got.Status.FinishedAt)
-	require.Len(t, got.Status.Results, 2)
-	require.Equal(t, "g-high", got.Status.Results[0].GUID, "the better format score ranks first")
-	require.Equal(t, int32(1), got.Status.Results[0].Rank)
-	require.Equal(t, "g-low", got.Status.Results[1].GUID)
-	require.Equal(t, int32(2), got.Status.Results[1].Rank)
-	// The apiserver accepts and round-trips a release with no publish date.
-	// This is the regression test for the defect three separate tasks hit:
-	// a non-pointer metav1.Time marshalled to null against a non-nullable
-	// schema, so the whole status apply was rejected and every grab of a
-	// dateless release hard-failed.
-	require.Nil(t, got.Status.Results[0].PublishedAt,
-		"an absent publish date must persist as absent rather than being rejected or invented")
-	require.Len(t, got.Status.IndexerOutcomes, 1)
-	require.Equal(t, catalogv1alpha1.IndexerOutcomeOK, got.Status.IndexerOutcomes[0].State)
-	require.Equal(t, int32(120), got.Status.IndexerOutcomes[0].DurationMs)
-
 	require.Equal(t, catalogv1alpha1.SearchPhaseRunning, got.Status.Phase,
-		"the worker owns a disjoint field set and must not release the controller's phase")
+		"the worker writes no status: the controller's phase stands")
 	require.NotNil(t, got.Status.StartedAt)
-
-	_, _, _, deliveries := f.sink.last()
-	require.Zero(t, deliveries, "an interactive search writes status instead of reaching the grab sink")
+	require.Nil(t, got.Status.FinishedAt, "the worker writes no status; the controller incorporates the record")
+	require.Empty(t, got.Status.Results)
 }
 
 // writeControllerStatus writes the controller-owned half of a Search's status
@@ -324,46 +315,28 @@ func writeControllerStatus(t *testing.T, ctx context.Context, c client.Client, n
 	require.NoError(t, err)
 }
 
-func TestWorkerHandleDeliversNonInteractiveResultsToTheSink(t *testing.T) {
+// TestWorkerHandleAnswersAnAutomaticSearchInTheItemsRecord: an automatic
+// search's answer is the item's record, keyed by the item's UID, which the
+// owner's grab planner reads (ADR-0019 §7.4). Before A4.3 the worker handed
+// it to the grab sink.
+func TestWorkerHandleAnswersAnAutomaticSearchInTheItemsRecord(t *testing.T) {
 	ctx := context.Background()
 	f := newWorkerFixture(t, "worker-sink")
 
+	item := f.movie(t)
 	env := f.envelope(t, schema.SearchTask{
 		MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "the-matrix"},
 		Reason:   schema.SearchReasonMissing,
+		Item:     item, Seq: 1,
 	})
 	require.NoError(t, f.worker.Handle(ctx, testMessage{env: env}))
 
-	ns, target, ranked, deliveries := f.sink.last()
-	require.Equal(t, 1, deliveries)
-	require.Equal(t, f.ns, ns, "grab.Sink cannot guess a namespace; the search worker supplies it")
-	require.Equal(t, commonv1.MediaKindMovie, target.Kind)
-	require.Equal(t, "the-matrix", target.Name)
-	require.Len(t, ranked, 2)
-	require.Equal(t, "g-high", ranked[0].GUID)
+	rec := f.record(t, agentrecords.SearchKey(item.UID))
+	require.Equal(t, "the-matrix", rec.Item.Name)
+	require.Equal(t, f.ns, rec.Item.Namespace, "the record names the item's namespace")
+	require.Len(t, rec.Candidates, 2)
+	require.Equal(t, "g-high", rec.Candidates[0].Decision.GUID)
 	require.False(t, f.rpc.Requests()[0].UserInvoked, "a cron-driven search is not user invoked")
-	require.Equal(t, commonv1.GrabSourceSearch, f.sink.lastGrabbedBy(),
-		"a wanted-sweep search's grab records grabbedBy=search")
-}
-
-// TestWorkerHandleHandsARedownloadSearchsGrabSourceToTheSink: a search that
-// app/catalog/worker/redownload published for a failed Download (spec §8.3)
-// must lead to a grab recorded as grabbedBy=redownload -- DownloadSpec's
-// enum value that had no producer until then.
-func TestWorkerHandleHandsARedownloadSearchsGrabSourceToTheSink(t *testing.T) {
-	ctx := context.Background()
-	f := newWorkerFixture(t, "worker-redownload")
-
-	env := f.envelope(t, schema.SearchTask{
-		MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "the-matrix"},
-		Reason:   schema.SearchReasonRedownload,
-	})
-	require.NoError(t, f.worker.Handle(ctx, testMessage{env: env}))
-
-	_, _, _, deliveries := f.sink.last()
-	require.Equal(t, 1, deliveries)
-	require.Equal(t, commonv1.GrabSourceRedownload, f.sink.lastGrabbedBy())
-	require.False(t, f.rpc.Requests()[0].UserInvoked, "a redownload is an automatic search")
 }
 
 func TestWorkerHandleDiscardsWhatItCannotServe(t *testing.T) {
@@ -375,10 +348,10 @@ func TestWorkerHandleDiscardsWhatItCannotServe(t *testing.T) {
 		env  func() *events.Envelope
 	}{
 		{
-			name: "a non-video kind is M6 scope",
+			name: "a task naming no record key has nowhere to answer",
 			env: func() *events.Envelope {
 				return f.envelope(t, schema.SearchTask{
-					MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindArtist, Name: "aphex-twin"},
+					MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "the-matrix"},
 					Reason:   schema.SearchReasonMissing,
 				})
 			},
@@ -426,23 +399,31 @@ func TestWorkerHandleRetriesAMissingObjectOnceThenDiscards(t *testing.T) {
 	f := newWorkerFixture(t, "worker-missing")
 
 	tests := []struct {
-		name string
-		task schema.SearchTask
+		name          string
+		task          schema.SearchTask
+		answersFailed bool
 	}{
 		{
 			name: "an interactive task whose Search is already TTL-deleted",
 			task: schema.SearchTask{
 				MediaRef:  commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "the-matrix"},
 				Reason:    schema.SearchReasonInteractive,
-				SearchRef: &schema.Ref{Namespace: f.ns, Name: "already-gone"},
+				SearchRef: &schema.Ref{Namespace: f.ns, Name: "already-gone", UID: "already-gone-uid"},
+				Seq:       1,
 			},
 		},
 		{
+			// Since A4.3 a redelivery that still finds no target answers in
+			// the item's record, failed, so the planner closes the dispatch
+			// and backs off, rather than dead-lettering.
 			name: "a target that no longer exists",
 			task: schema.SearchTask{
 				MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "deleted-movie"},
 				Reason:   schema.SearchReasonMissing,
+				Item:     schema.ItemRef{Kind: "Movie", Ref: schema.Ref{Namespace: f.ns, Name: "deleted-movie", UID: "deleted-movie-uid"}},
+				Seq:      1,
 			},
+			answersFailed: true,
 		},
 	}
 
@@ -455,6 +436,13 @@ func TestWorkerHandleRetriesAMissingObjectOnceThenDiscards(t *testing.T) {
 			require.ErrorAs(t, err, &re, "the first delivery must nak, not dead-letter")
 
 			err = f.worker.Handle(ctx, testMessage{env: env, attempt: 2})
+			if tc.answersFailed {
+				require.NoError(t, err)
+				rec := f.record(t, agentrecords.SearchKey(tc.task.Item.UID))
+				require.Equal(t, records.StateFailed, rec.State)
+				require.Contains(t, rec.Failure, "no longer exists")
+				return
+			}
 			var de *events.DiscardError
 			require.ErrorAs(t, err, &de, "a redelivery that still cannot find the object is dead-lettered")
 		})
@@ -470,11 +458,13 @@ func TestWorkerSetupWithManagerSubscribesBothSearchConsumers(t *testing.T) {
 	require.NoError(t, bus.Ensure(ctx, events.Default()))
 
 	// A second manager: newTestManager already registered the indexes on the
-	// first. Since Task C12a, SetupWithManager no longer registers them
-	// itself -- catalog's registerWorkerIndexes owns that, once, for every
-	// worker role -- so this test makes the same call the wiring does.
+	// first. SetupWithManager registers none itself -- the agent registers
+	// the catalog domain's declared indexes (titleindex.SearchIndexes) once --
+	// so this test makes the same calls the wiring does.
 	mgr := newManagerWithoutIndexes(t)
-	require.NoError(t, search.RegisterDownloadIndexes(ctx, mgr.GetFieldIndexer()))
+	for _, ix := range titleindex.SearchIndexes() {
+		require.NoError(t, mgr.GetFieldIndexer().IndexField(ctx, ix.Object, ix.Name, ix.Extract))
+	}
 	require.NoError(t, f.worker.SetupWithManager(mgr, bus))
 
 	runCtx, cancel := context.WithCancel(ctx)
@@ -488,36 +478,36 @@ func TestWorkerSetupWithManagerSubscribesBothSearchConsumers(t *testing.T) {
 
 	f.worker.Client = mgr.GetClient()
 
+	// Each task answers in the movie's record; the second carries a later
+	// seq, so its answer shows as the record's seq moving.
+	item := f.movie(t)
+	key := agentrecords.SearchKey(item.UID)
+	answeredSeq := func() int64 {
+		rec, _, ok, err := f.answers.Get(ctx, key)
+		if err != nil || !ok {
+			return 0
+		}
+		return rec.Seq
+	}
 	mediaKey := events.MediaKey(string(commonv1.MediaKindMovie), f.ns, "the-matrix")
 	env := f.envelope(t, schema.SearchTask{
 		MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "the-matrix"},
 		Reason:   schema.SearchReasonMissing,
+		Item:     item, Seq: 1,
 	})
 	_, err := bus.Publish(ctx, events.WorkSearchSubject(events.PriorityHigh, mediaKey), env)
 	require.NoError(t, err)
-
-	select {
-	case <-f.sink.delivery:
-	case <-time.After(20 * time.Second):
-		t.Fatal("the high-priority search consumer never delivered the task")
-	}
+	eventually(t, 20*time.Second, "the high-priority search consumer to answer the task", func() bool { return answeredSeq() == 1 })
 
 	env2 := f.envelope(t, schema.SearchTask{
 		MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "the-matrix"},
 		Reason:   schema.SearchReasonAdd,
+		Item:     item, Seq: 2,
 	})
 	env2.ID = "normal-priority"
 	_, err = bus.Publish(ctx, events.WorkSearchSubject(events.PriorityNormal, mediaKey), env2)
 	require.NoError(t, err)
-
-	select {
-	case <-f.sink.delivery:
-	case <-time.After(20 * time.Second):
-		t.Fatal("the normal-priority search consumer never delivered the task")
-	}
-
-	_, _, _, deliveries := f.sink.last()
-	require.GreaterOrEqual(t, deliveries, 2)
+	eventually(t, 20*time.Second, "the normal-priority search consumer to answer the task", func() bool { return answeredSeq() == 2 })
 }
 
 // TestWorkerProtocolFallbackIsGatedOnUserInvoked pins the asymmetry in
@@ -539,6 +529,7 @@ func TestWorkerProtocolFallbackIsGatedOnUserInvoked(t *testing.T) {
 	}
 	require.NoError(t, f.mgr.Create(ctx, srch))
 	waitCached(t, ctx, f.mgr, client.ObjectKey{Namespace: f.ns, Name: "srch"}, &catalogv1alpha1.Search{})
+	item := f.movie(t)
 
 	tests := []struct {
 		name        string
@@ -550,8 +541,9 @@ func TestWorkerProtocolFallbackIsGatedOnUserInvoked(t *testing.T) {
 			task: schema.SearchTask{
 				MediaRef:    commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "the-matrix"},
 				Reason:      schema.SearchReasonInteractive,
-				SearchRef:   &schema.Ref{Namespace: f.ns, Name: "srch"},
+				SearchRef:   &schema.Ref{Namespace: f.ns, Name: "srch", UID: string(srch.UID)},
 				UserInvoked: true,
+				Seq:         1,
 			},
 			wantEnabled: true,
 		},
@@ -560,6 +552,7 @@ func TestWorkerProtocolFallbackIsGatedOnUserInvoked(t *testing.T) {
 			task: schema.SearchTask{
 				MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "the-matrix"},
 				Reason:   schema.SearchReasonMissing,
+				Item:     item, Seq: 1,
 			},
 			wantEnabled: false,
 		},

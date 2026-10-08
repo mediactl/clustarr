@@ -29,6 +29,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/itemread"
+	"github.com/mediactl/clustarr/pkg/decision"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
@@ -83,5 +84,41 @@ func TestCurrentReadsTheMediaFile(t *testing.T) {
 		cur, err := itemread.Current(ctx, c, movie(c2.hasFile, c2.ref))
 		require.NoError(t, err, name)
 		assert.Nil(t, cur, name)
+	}
+}
+
+// TestAMultiTrackAlbumWithFilesHasACurrentFile: an album has a file when the
+// Album reconciler has rolled a quality up from its MediaFiles. Its
+// trackFileCount counts only files tied to a track -- which the importer
+// does for a one-track album alone -- so gating on it read every imported
+// multi-track album as empty, and the search grabbed it again. (Re-homed
+// from the search worker's snapshot, which no longer reads a current file:
+// the owner's grab planner judges against itemread.Current.)
+func TestAMultiTrackAlbumWithFilesHasACurrentFile(t *testing.T) {
+	flac := commonv1.Quality{Name: "FLAC"}
+	for name, tc := range map[string]struct {
+		trackFiles int32
+		quality    *commonv1.Quality
+		want       *decision.Current
+	}{
+		"ten tracks, files imported, none tied to a track": {trackFiles: 0, quality: &flac, want: &decision.Current{Quality: flac, FormatScore: 7}},
+		"ten tracks, every one tied":                       {trackFiles: 10, quality: &flac, want: &decision.Current{Quality: flac, FormatScore: 7}},
+		"no file":                                          {trackFiles: 0, quality: nil, want: nil},
+	} {
+		t.Run(name, func(t *testing.T) {
+			album := &catalogv1alpha1.Album{ObjectMeta: metav1.ObjectMeta{Name: "kid-a", Namespace: "default"}}
+			album.Spec.ArtistRef = "radiohead"
+			album.Status.TrackFileCount = tc.trackFiles
+			album.Status.Quality = tc.quality
+			album.Status.FormatScore = 7
+			for i := range 10 {
+				album.Status.Tracks = append(album.Status.Tracks, catalogv1alpha1.Track{RecordingID: string(rune('a' + i)), Number: int32(i + 1)})
+			}
+			c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).WithObjects(album).Build()
+
+			got, err := itemread.Current(context.Background(), c, album)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+		})
 	}
 }

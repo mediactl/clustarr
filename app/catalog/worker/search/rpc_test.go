@@ -39,12 +39,14 @@ func TestBusSearchRPCRoundTrips(t *testing.T) {
 	defer cancel()
 
 	var seen schema.SearchRequest
-	require.NoError(t, bus.Serve(events.RPCIndexSearch, "index", func(_ context.Context, data []byte) ([]byte, error) {
+	stop, err := bus.Serve(events.RPCIndexSearch, "index", func(_ context.Context, data []byte) ([]byte, error) {
 		if err := json.Unmarshal(data, &seen); err != nil {
 			return nil, err
 		}
 		return json.Marshal(schema.SearchResponse{Releases: []schema.Release{{ParsedTitle: "The Matrix"}}})
-	}))
+	})
+	require.NoError(t, err)
+	t.Cleanup(stop)
 
 	resp, err := NewBusSearchRPC(bus).Search(ctx, schema.SearchRequest{Kind: commonv1.MediaKindMovie})
 	require.NoError(t, err)
@@ -82,8 +84,8 @@ func (d *deadlineRequester) Request(ctx context.Context, _ string, _, _ any) err
 	return ctx.Err()
 }
 
-func (*deadlineRequester) Serve(string, string, func(context.Context, []byte) ([]byte, error)) error {
-	return errors.New("deadlineRequester serves nothing")
+func (*deadlineRequester) Serve(string, string, func(context.Context, []byte) ([]byte, error)) (func(), error) {
+	return nil, errors.New("deadlineRequester serves nothing")
 }
 
 // TestBusSearchRPCHonoursDeadlineMillis pins the carried D1 defect: the RPC

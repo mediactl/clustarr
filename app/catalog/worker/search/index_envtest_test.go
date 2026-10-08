@@ -19,7 +19,6 @@ package search_test
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 	"time"
 
@@ -33,45 +32,14 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/worker/search"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/records/agentrecords"
 )
 
-// The wanted sweep searches the local release index for an item it has
-// searched before (2026-10-06): every release an indexer's RSS feed delivered
-// is already there, so a repeat sweep spends no indexer query. A sweep of 104
-// items queried nzbgeek 104 times in one minute, and an earlier one grabbed
-// 73 releases in one hour. An item never searched gets one live search first.
-
-func TestWorkerWantedScanSearchesTheIndexForAnItemSearchedBefore(t *testing.T) {
-	ctx := context.Background()
-	f := newWorkerFixture(t, "worker-wantedscan-index")
-	pub := &recordingPublisher{}
-	f.worker.Publisher = pub
-
-	profile := "wf-worker-wantedscan-index"
-	createMovie(t, ctx, f.mgr, f.ns, "never-searched", profile)
-	createMovie(t, ctx, f.mgr, f.ns, "searched-before", profile)
-	setMoviePhase(t, ctx, f.mgr, f.ns, "never-searched", catalogv1alpha1.MoviePhaseWanted, nil)
-	weekAgo := metav1.NewTime(testNow.Add(-7 * 24 * time.Hour)) // the worker runs on testNow's clock
-	setMoviePhase(t, ctx, f.mgr, f.ns, "searched-before", catalogv1alpha1.MoviePhaseWanted, &weekAgo)
-	for _, name := range []string{"never-searched", "searched-before"} {
-		eventually(t, 10*time.Second, "the cache to see "+name+"'s phase", func() bool {
-			var m catalogv1alpha1.Movie
-			return f.mgr.Get(ctx, client.ObjectKey{Namespace: f.ns, Name: name}, &m) == nil && m.Status.Phase != ""
-		})
-	}
-
-	require.NoError(t, f.worker.Handle(ctx, testMessage{env: wantedScanEnvelope(t, schema.WantedScan{Namespace: f.ns, Epoch: 1700000000})}))
-
-	_, envs := pub.snapshot()
-	indexOnly := map[string]bool{}
-	for _, e := range envs {
-		var task schema.SearchTask
-		require.NoError(t, json.Unmarshal(e.Data, &task))
-		indexOnly[task.MediaRef.Name] = task.IndexOnly
-	}
-	require.Equal(t, map[string]bool{"never-searched": false, "searched-before": true}, indexOnly,
-		"an item searched before is searched in the index; one never searched gets one live search")
-}
+// An index-only task (the search planner marks an item it has searched
+// before, 2026-10-06) is answered from the local release index: every
+// release an indexer's RSS feed delivered is already there, so a repeat
+// sweep spends no indexer query. Which item gets one is the planner's call
+// since A4.2 (WantedScan retired).
 
 // setMatrixMetadata gives the fixture's movie a title and year, the search
 // text the index is queried with.
@@ -97,10 +65,12 @@ func TestWorkerSearchesTheIndexNotTheIndexersForAnIndexOnlyTask(t *testing.T) {
 	}}}
 	f.worker.Index = idx
 
+	item := f.movie(t)
 	env := f.envelope(t, schema.SearchTask{
 		MediaRef:  commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "the-matrix"},
 		Reason:    schema.SearchReasonMissing,
 		IndexOnly: true,
+		Item:      item, Seq: 1,
 	})
 	require.NoError(t, f.worker.Handle(ctx, testMessage{env: env}))
 
@@ -111,11 +81,10 @@ func TestWorkerSearchesTheIndexNotTheIndexersForAnIndexOnlyTask(t *testing.T) {
 	require.NotEmpty(t, reqs[0].Filters["category"], "narrowed to the request's categories")
 	require.Positive(t, reqs[0].Limit)
 
-	_, target, ranked, deliveries := f.sink.last()
-	require.Equal(t, 1, deliveries, "the index's releases are decided and offered to the grab path")
-	require.Equal(t, "the-matrix", target.Name)
-	require.Len(t, ranked, 1)
-	require.Equal(t, "g-local", ranked[0].GUID)
+	rec := f.record(t, agentrecords.SearchKey(item.UID))
+	require.Equal(t, "the-matrix", rec.Item.Name, "the index's releases are decided and answered for the item")
+	require.Len(t, rec.Candidates, 1)
+	require.Equal(t, "g-local", rec.Candidates[0].Decision.GUID)
 }
 
 func TestWorkerDoesNotQueryTheIndexWithoutATitle(t *testing.T) {
@@ -124,15 +93,17 @@ func TestWorkerDoesNotQueryTheIndexWithoutATitle(t *testing.T) {
 	idx := &search.FakeIndexQuery{}
 	f.worker.Index = idx
 
+	item := f.movie(t)
 	env := f.envelope(t, schema.SearchTask{
 		MediaRef:  commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "the-matrix"},
 		Reason:    schema.SearchReasonMissing,
 		IndexOnly: true,
+		Item:      item, Seq: 1,
 	})
 	require.NoError(t, f.worker.Handle(ctx, testMessage{env: env}))
 
 	require.Empty(t, idx.Requests(), "an empty index query matches every release")
 	require.Empty(t, f.rpc.Requests())
-	_, _, _, deliveries := f.sink.last()
-	require.Zero(t, deliveries)
+	rec := f.record(t, agentrecords.SearchKey(item.UID))
+	require.Empty(t, rec.Candidates, "answered empty, so the dispatch closes")
 }

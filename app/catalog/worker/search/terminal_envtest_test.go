@@ -30,17 +30,18 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/searchoutcome"
-	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
+	"github.com/mediactl/clustarr/pkg/records"
+	"github.com/mediactl/clustarr/pkg/records/agentrecords"
 )
 
 // TestWorkerReportsATerminalFailureOnTheSearchObject pins the fix for a
 // misleading status: a config error the worker can see -- here, a Movie with
 // no qualityProfileRef -- used to be dead-lettered in silence, leaving the
 // Search in Running until the reconciler's five-minute timeout reported
-// "Timeout: no results after 5m0s". The worker owns finishedAt,
-// indexerOutcomes and results, so it can say what really happened without
-// touching a single controller-owned field.
+// "Timeout: no results after 5m0s". Since A4.3 the worker answers it in the
+// Search's record, failed, with its own outcome saying why; the Search
+// controller projects the outcomes (searchoutcome.Map) into status.
 func TestWorkerReportsATerminalFailureOnTheSearchObject(t *testing.T) {
 	ctx := context.Background()
 	f := newWorkerFixture(t, "worker-terminal")
@@ -64,22 +65,26 @@ func TestWorkerReportsATerminalFailureOnTheSearchObject(t *testing.T) {
 	err := f.worker.Handle(ctx, testMessage{env: f.envelope(t, schema.SearchTask{
 		MediaRef:    commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "no-profile"},
 		Reason:      schema.SearchReasonInteractive,
-		SearchRef:   &schema.Ref{Namespace: f.ns, Name: "srch-terminal"},
+		SearchRef:   &schema.Ref{Namespace: f.ns, Name: "srch-terminal", UID: string(srch.UID)},
 		UserInvoked: true,
+		Seq:         1,
 	})})
 
-	var de *events.DiscardError
-	require.ErrorAs(t, err, &de, "a config error is still terminal for the message")
+	require.NoError(t, err, "a config error is answered, failed, so the dispatch closes")
+
+	rec := f.record(t, agentrecords.SearchKey(string(srch.UID)))
+	require.Equal(t, records.StateFailed, rec.State)
+	require.False(t, rec.FinishedAt.IsZero(), "finishedAt is the controller's completion trigger")
+	require.Empty(t, rec.Candidates)
+	outs := searchoutcome.Map(rec.IndexerOutcomes)
+	require.Len(t, outs, 1)
+	require.Equal(t, searchoutcome.WorkerOutcomeName, outs[0].Name)
+	require.Equal(t, catalogv1alpha1.IndexerOutcomeError, outs[0].State)
+	require.Contains(t, outs[0].Error, "qualityProfileRef")
 
 	got := &catalogv1alpha1.Search{}
 	require.NoError(t, f.api.Get(ctx, client.ObjectKey{Namespace: f.ns, Name: "srch-terminal"}, got))
-	require.NotNil(t, got.Status.FinishedAt, "finishedAt is the reconciler's completion trigger")
-	require.Empty(t, got.Status.Results)
-	require.Len(t, got.Status.IndexerOutcomes, 1)
-	require.Equal(t, searchoutcome.WorkerOutcomeName, got.Status.IndexerOutcomes[0].Name)
-	require.Equal(t, catalogv1alpha1.IndexerOutcomeError, got.Status.IndexerOutcomes[0].State)
-	require.Contains(t, got.Status.IndexerOutcomes[0].Error, "qualityProfileRef")
-	require.Empty(t, string(got.Status.Phase), "phase belongs to the reconciler; the worker never writes it")
+	require.Empty(t, string(got.Status.Phase), "the worker writes no status")
 }
 
 // TestWorkerReportsAnUnsupportedKindOnTheSearchObject covers the other
@@ -101,24 +106,26 @@ func TestWorkerReportsAnUnsupportedKindOnTheSearchObject(t *testing.T) {
 	err := f.worker.Handle(ctx, testMessage{env: f.envelope(t, schema.SearchTask{
 		MediaRef:    commonv1.MediaRef{Kind: commonv1.MediaKindArtist, Name: "aphex-twin"},
 		Reason:      schema.SearchReasonInteractive,
-		SearchRef:   &schema.Ref{Namespace: f.ns, Name: "srch-kind"},
+		SearchRef:   &schema.Ref{Namespace: f.ns, Name: "srch-kind", UID: string(srch.UID)},
 		UserInvoked: true,
+		Seq:         1,
 	})})
-	var de *events.DiscardError
-	require.ErrorAs(t, err, &de)
+	require.NoError(t, err, "answered, failed")
 
-	got := &catalogv1alpha1.Search{}
-	require.NoError(t, f.api.Get(ctx, client.ObjectKey{Namespace: f.ns, Name: "srch-kind"}, got))
-	require.NotNil(t, got.Status.FinishedAt)
-	require.Len(t, got.Status.IndexerOutcomes, 1)
-	require.Contains(t, got.Status.IndexerOutcomes[0].Error, "is not searchable")
+	rec := f.record(t, agentrecords.SearchKey(string(srch.UID)))
+	require.Equal(t, records.StateFailed, rec.State)
+	require.False(t, rec.FinishedAt.IsZero())
+	require.Len(t, rec.IndexerOutcomes, 1)
+	require.Contains(t, rec.IndexerOutcomes[0].Error, "is not searchable")
 }
 
-// TestWorkerCapsAndDedupesIndexerOutcomes proves the status write survives a
+// TestWorkerCapsAndDedupesIndexerOutcomes proves the status survives a
 // pathological reply. status.indexerOutcomes is listType=map keyed by name
 // with MaxItems=100, so a duplicate name or a 101st entry makes the apiserver
 // reject the WHOLE apply -- taking the results with it and stranding the
-// Search in Running until the reconciler's timeout.
+// Search in Running until the reconciler's timeout. The worker caps the
+// record; the Search controller's projection (searchoutcome.Map) names,
+// dedupes and caps what it applies.
 func TestWorkerCapsAndDedupesIndexerOutcomes(t *testing.T) {
 	ctx := context.Background()
 	f := newWorkerFixture(t, "worker-outcomes")
@@ -153,24 +160,26 @@ func TestWorkerCapsAndDedupesIndexerOutcomes(t *testing.T) {
 	require.NoError(t, f.worker.Handle(ctx, testMessage{env: f.envelope(t, schema.SearchTask{
 		MediaRef:    commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "the-matrix"},
 		Reason:      schema.SearchReasonInteractive,
-		SearchRef:   &schema.Ref{Namespace: f.ns, Name: "srch-outcomes"},
+		SearchRef:   &schema.Ref{Namespace: f.ns, Name: "srch-outcomes", UID: string(srch.UID)},
 		UserInvoked: true,
-	})}), "the apiserver rejects an over-long or duplicate-keyed list outright")
+		Seq:         1,
+	})}), "the record takes an over-long reply")
 
-	got := &catalogv1alpha1.Search{}
-	require.NoError(t, f.api.Get(ctx, client.ObjectKey{Namespace: f.ns, Name: "srch-outcomes"}, got))
-	require.LessOrEqual(t, len(got.Status.IndexerOutcomes), 100)
-	require.NotEmpty(t, got.Status.IndexerOutcomes)
-	require.Len(t, got.Status.Results, 1, "the results survived alongside the truncated outcomes")
+	rec := f.record(t, agentrecords.SearchKey(string(srch.UID)))
+	require.LessOrEqual(t, len(rec.IndexerOutcomes), schema.MaxIndexerOutcomes)
+	require.Len(t, rec.Candidates, 1, "the results survived alongside the truncated outcomes")
+	outs := searchoutcome.Map(rec.IndexerOutcomes)
+	require.LessOrEqual(t, len(outs), 100)
+	require.NotEmpty(t, outs)
 
 	seen := map[string]struct{}{}
-	for _, o := range got.Status.IndexerOutcomes {
+	for _, o := range outs {
 		require.NotEmpty(t, o.Name, "a nameless entry would break the listMapKey")
 		_, dup := seen[o.Name]
 		require.False(t, dup, "duplicate outcome name %q", o.Name)
 		seen[o.Name] = struct{}{}
 	}
-	require.Equal(t, catalogv1alpha1.IndexerOutcomeOK, got.Status.IndexerOutcomes[0].State,
+	require.Equal(t, catalogv1alpha1.IndexerOutcomeOK, outs[0].State,
 		"first entry wins on a duplicate name")
 }
 
@@ -179,7 +188,8 @@ func TestWorkerCapsAndDedupesIndexerOutcomes(t *testing.T) {
 // indexer that failed before it was named left no trace an operator could
 // see; and a truncated reply was only a boolean on an Info log line, so a
 // user reading status.results could not tell they were decided from a
-// partial set.
+// partial set. The worker's record keeps both; the Search controller's
+// projection (searchoutcome.Map) names them.
 func TestWorkerReportsNamelessOutcomesAndTruncation(t *testing.T) {
 	ctx := context.Background()
 	f := newWorkerFixture(t, "worker-nameless")
@@ -206,18 +216,19 @@ func TestWorkerReportsNamelessOutcomesAndTruncation(t *testing.T) {
 	require.NoError(t, f.worker.Handle(ctx, testMessage{env: f.envelope(t, schema.SearchTask{
 		MediaRef:    commonv1.MediaRef{Kind: commonv1.MediaKindMovie, Name: "the-matrix"},
 		Reason:      schema.SearchReasonInteractive,
-		SearchRef:   &schema.Ref{Namespace: f.ns, Name: "srch-nameless"},
+		SearchRef:   &schema.Ref{Namespace: f.ns, Name: "srch-nameless", UID: string(srch.UID)},
 		UserInvoked: true,
+		Seq:         1,
 	})}))
 
-	got := &catalogv1alpha1.Search{}
-	require.NoError(t, f.api.Get(ctx, client.ObjectKey{Namespace: f.ns, Name: "srch-nameless"}, got))
+	rec := f.record(t, agentrecords.SearchKey(string(srch.UID)))
+	outs := searchoutcome.Map(rec.IndexerOutcomes)
 	byName := map[string]catalogv1alpha1.IndexerOutcome{}
-	for _, o := range got.Status.IndexerOutcomes {
+	for _, o := range outs {
 		byName[o.Name] = o
 	}
-	require.Len(t, byName, 4, "one named indexer, two nameless ones and the truncation marker: %+v", got.Status.IndexerOutcomes)
-	require.Equal(t, "idx", got.Status.IndexerOutcomes[0].Name, "real outcomes keep the reply's order, first")
+	require.Len(t, byName, 4, "one named indexer, two nameless ones and the truncation marker: %+v", outs)
+	require.Equal(t, "idx", outs[0].Name, "real outcomes keep the reply's order, first")
 
 	first, ok := byName[searchoutcome.UnnamedOutcomeName(1)]
 	require.True(t, ok, "the first nameless outcome is reported, not dropped")
@@ -231,5 +242,5 @@ func TestWorkerReportsNamelessOutcomesAndTruncation(t *testing.T) {
 	require.True(t, ok, "a truncated reply is visible on the object")
 	require.Equal(t, catalogv1alpha1.IndexerOutcomeSkipped, marker.State)
 	require.Contains(t, marker.Error, fmt.Sprint(schema.MaxSearchReleases))
-	require.Len(t, got.Status.Results, 1, "the results are written alongside")
+	require.Len(t, rec.Candidates, 1, "the results are written alongside")
 }
