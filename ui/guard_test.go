@@ -78,16 +78,32 @@ var statusWriteSelectors = map[string]bool{
 // not by receiver type -- in case a future change reaches for the
 // underlying jetstream.ObjectStore's write half instead of the read-only
 // events.ObjectStore this package is handed.
+//
+// W4.112 (artwork design §B.8 as amended 2026-10-07) adds the rest of both
+// write halves: events.ObjectStore's SetMeta, jetstream's PutString,
+// PutFile and AddBucketLink, the bucket administration verbs, and
+// events.ObjectStoreAdmin's PurgeOrphanChunks. The ui now holds a watch on
+// the artwork bucket (the /art index), and no installer configures NATS
+// authorization, so this guard is what keeps that connection read-only.
 var neverWriteSelectors = map[string]bool{
-	"Update":      true,
-	"DeleteAllOf": true,
-	"Apply":       true,
-	"Put":         true,
-	"PutBytes":    true,
-	"UpdateMeta":  true,
-	"Seal":        true,
-	"AddLink":     true,
-	"Purge":       true,
+	"Update":                    true,
+	"DeleteAllOf":               true,
+	"Apply":                     true,
+	"Put":                       true,
+	"PutBytes":                  true,
+	"PutString":                 true,
+	"PutFile":                   true,
+	"UpdateMeta":                true,
+	"SetMeta":                   true,
+	"Seal":                      true,
+	"AddLink":                   true,
+	"AddBucketLink":             true,
+	"Purge":                     true,
+	"PurgeOrphanChunks":         true,
+	"CreateObjectStore":         true,
+	"UpdateObjectStore":         true,
+	"CreateOrUpdateObjectStore": true,
+	"DeleteObjectStore":         true,
 }
 
 // actionWriteSelectors are the three writes ui/actions exists to make --
@@ -121,6 +137,13 @@ const bannedK8sImport = modulePrefix + "pkg/k8s"
 // call named Patch -- which the selector checks above allow inside
 // ui/actions -- so an allowlist on imports, not a denylist on names, is what
 // keeps a status writer from being reached that way.
+//
+// pkg/events/schema is deliberately not on it (test batch D5 ruling,
+// 2026-10-07): the download intents (ADR-0019 §6.10) are annotation patches
+// on the grab's owner, never bus messages, and RetryImport's target is a
+// kind and a name in the API's own vocabulary (actions.ImportTarget), so
+// ui/actions has no use for the bus's wire schema. Admitting it would invite
+// building bus messages into the one package allowed to write.
 var actionsModuleImports = []string{
 	modulePrefix + "api/",
 	modulePrefix + "pkg/obs/",
@@ -140,7 +163,10 @@ var actionsModuleImports = []string{
 //     under ui/, ui/actions included;
 //   - Create and Patch are called only from ui/actions;
 //   - pkg/k8s is imported from nowhere under ui/, ui/actions included;
-//   - ui/actions imports nothing from this module but api/ and pkg/obs/;
+//   - ui/actions imports nothing from this module but api/, pkg/obs/ and
+//     pkg/names -- not the bus schema either;
+//   - nothing under ui/ calls Request, Publish or Serve, or any object-store
+//     write, or imports nats.go or jetstream directly;
 //   - and the ui/actions exemption points at real code that really writes,
 //     so it cannot quietly become an exemption for nothing.
 //
@@ -191,10 +217,23 @@ func TestUINeverWrites(t *testing.T) {
 		for _, f := range files {
 			for _, c := range selectorCalls(f) {
 				if busSelectors[c.name] {
-					t.Errorf("%s:%d: calls .%s(...). The ui's only bus use is Options.MetadataSearch, which "+
-						"cmd/clustarr binds to rpc.catalog.metadata.search (Add New, 2026-09-29), plus the "+
-						"artwork object store's reads; it never holds a requester, so it can never pick a subject",
+					t.Errorf("%s:%d: calls .%s(...). The ui's bus use is closures internal/cli/ui binds -- "+
+						"Options.MetadataSearch and PlexExtras (one request each), and KV and artwork reads -- "+
+						"so it never holds a requester and can never pick a subject",
 						f.path, c.line, c.name)
+				}
+			}
+		}
+	})
+
+	t.Run("no direct nats.go or jetstream import under ui/", func(t *testing.T) {
+		for _, f := range files {
+			for _, imp := range f.imports() {
+				if imp.path == "github.com/nats-io/nats.go" || strings.HasPrefix(imp.path, "github.com/nats-io/nats.go/") {
+					t.Errorf("%s:%d: imports %s. ui/ reaches NATS only through pkg/events and the read-only "+
+						"handles internal/cli/ui binds into ui.Options; a raw nats.go or jetstream handle "+
+						"carries the write half this guard bans by name (W4.112)",
+						f.path, imp.line, imp.path)
 				}
 			}
 		}
