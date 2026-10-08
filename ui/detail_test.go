@@ -25,6 +25,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -107,6 +108,16 @@ func movieFixture(t *testing.T, withActions bool) (*ui.Server, client.Client) {
 				Audio:      []commonv1.AudioStream{{Codec: "dts", Channels: 6, ChannelLayout: "5.1(side)", Language: "eng"}},
 			},
 			Sidecars: []catalogv1.Sidecar{{Name: "Nerve (2016) {tmdb-328387}.en.srt", Language: "en"}},
+			// The loop's blocks on the file (ADR-0016, F8.7): the item page's
+			// Subtitles table and the Files table's Transcode column.
+			Subtitles: &catalogv1.SubtitlesStatus{Phase: catalogv1.SubtitlesPhaseWanted, Items: []catalogv1.SubtitleItemStatus{
+				{LangKey: "en", State: catalogv1.SubtitleStateDownloaded, Score: 92, ScoreOutOf: 100, Provider: "opensubtitles"},
+				{
+					LangKey: "es", State: catalogv1.SubtitleStatePending, LastError: "every eligible provider is throttled",
+					NextSearchAt: new(metav1.NewTime(time.Date(2026, 10, 12, 0, 0, 0, 0, time.UTC))),
+				},
+			}},
+			Transcode: &catalogv1.TranscodeState{Phase: catalogv1.TranscodePhaseRunning},
 		},
 	}
 	rf := &catalogv1.RootFolder{
@@ -279,6 +290,41 @@ func TestMoviePageListsFilesExtrasAndTitles(t *testing.T) {
 	body = detailPage(t, srv, "/library/default/movie/nerve")
 	require.Contains(t, section(t, body, `data-section="extras"`), "No extra files to manage.")
 	require.NotContains(t, body, `data-section="titles"`)
+}
+
+// TestMoviePageListsTheFilesSubtitlesAndItsTranscode: the item page reads
+// the loop's blocks on its file (loop spec §6.9, §7.7; F8.7) -- a Subtitles
+// table with the block's phase and one row per language (state, score,
+// provider, next search, last error), and the Files table's Transcode
+// column from status.transcode.
+func TestMoviePageListsTheFilesSubtitlesAndItsTranscode(t *testing.T) {
+	srv, _ := movieFixture(t, false)
+	body := detailPage(t, srv, "/library/default/movie/nerve")
+	sub := section(t, body, `data-section="subtitles"`)
+	require.Contains(t, sub, ">Wanted<", "the block's phase")
+	en := subtitleRow(t, sub, "en")
+	require.Contains(t, en, ">downloaded<")
+	require.Contains(t, en, "92/100")
+	require.Contains(t, en, ">opensubtitles<")
+	es := subtitleRow(t, sub, "es")
+	require.Contains(t, es, ">pending<")
+	require.Contains(t, es, "2026-10-12")
+	require.Contains(t, es, "every eligible provider is throttled")
+	require.NotContains(t, es, "opensubtitles", "each row is its own language's")
+	require.Contains(t, section(t, body, `data-section="files"`), "Running", "the file's transcode phase")
+}
+
+// subtitleRow is the Subtitles table's row for lang, up to the next row.
+func subtitleRow(t *testing.T, sub, lang string) string {
+	t.Helper()
+	anchor := `data-subtitle="` + lang + `"`
+	at := strings.Index(sub, anchor)
+	require.GreaterOrEqual(t, at, 0, "no row carries %s", anchor)
+	rest := sub[at+len(anchor):]
+	if end := strings.Index(rest, `data-subtitle="`); end >= 0 {
+		rest = rest[:end]
+	}
+	return rest
 }
 
 func TestMoviePageWithoutAReaderStillRendersTheHero(t *testing.T) {
