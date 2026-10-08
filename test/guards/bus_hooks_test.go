@@ -132,13 +132,3 @@ func connectorOf(e ast.Expr) (busConnector, bool) {
 	}
 	return busConnector{}, false
 }
-
-// isSelector reports whether e is the expression `pkg.name`.
-func isSelector(e ast.Expr, pkg, name string) bool {
-	sel, ok := e.(*ast.SelectorExpr)
-	if !ok || sel.Sel.Name != name {
-		return false
-	}
-	ident, ok := sel.X.(*ast.Ident)
-	return ok && ident.Name == pkg
-}
