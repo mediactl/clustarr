@@ -154,16 +154,19 @@ func TestBuildConfigResolvesProvidersAndDefaultsPostProcess(t *testing.T) {
 	assert.True(t, cfg.PostProcess.Unpack)
 	assert.True(t, cfg.PostProcess.DeleteArchives)
 	assert.Zero(t, cfg.DownloadTimeout, "no downloadTimeout means no deadline")
-
-	dc.Spec.Usenet.DownloadTimeout = &metav1.Duration{Duration: 6 * time.Hour}
-	cfg, err = usenetengine.BuildConfig(t.Context(), c, dc, "/data", "/scratch", "")
-	require.NoError(t, err)
-	assert.Equal(t, 6*time.Hour, cfg.DownloadTimeout, "spec.usenet.downloadTimeout must reach the client")
 	assert.Zero(t, cfg.StallTimeout, "no stallTimeout means never")
+
+	// spec.usenet.downloadTimeout and stallTimeout are the manager's
+	// verdicts now, on the transfer record's startedAt and lastProgressAt
+	// (ADR-0019 §3.5 P111, ruling R21; agents-report-over-NATS A3.6 Step 4):
+	// set on the spec, they still never reach the client, so the engine
+	// can never fail a job as timeout or stalled on its own.
+	dc.Spec.Usenet.DownloadTimeout = &metav1.Duration{Duration: 6 * time.Hour}
 	dc.Spec.Usenet.StallTimeout = &metav1.Duration{Duration: 45 * time.Minute}
 	cfg, err = usenetengine.BuildConfig(t.Context(), c, dc, "/data", "/scratch", "")
 	require.NoError(t, err)
-	assert.Equal(t, 45*time.Minute, cfg.StallTimeout, "spec.usenet.stallTimeout must reach the client")
+	assert.Zero(t, cfg.DownloadTimeout, "spec.usenet.downloadTimeout is the manager's, never the client's")
+	assert.Zero(t, cfg.StallTimeout, "spec.usenet.stallTimeout is the manager's, never the client's")
 
 	assert.Empty(t, cfg.HealthAction, "unset is the client's pause, the CRD default")
 	dc.Spec.Usenet.HealthAction = downloadv1alpha1.HealthActionDelete
