@@ -34,6 +34,7 @@ import (
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -74,6 +75,7 @@ const ns = "default"
 // executor and the harness's probe agent read a logical /data path under
 // it, as the manager and import pods read their /data mounts.
 type harness struct {
+	cfg     *rest.Config
 	c       client.Client // uncached, field owner "transcode-test"
 	raw     *membus.Bus
 	bus     *harnessBus // what the loop and admission publish through
@@ -86,6 +88,7 @@ type harness struct {
 	down      atomic.Bool  // task publishes fail while set (NATS down)
 	failPurge atomic.Bool  // subject purges fail while set
 	pokes     atomic.Int32
+	swapTag   atomic.Value // string: the CLUSTARR_PROFILE an .mp4 probes with; "" is outputTag
 }
 
 // harnessBus counts and optionally fails the loop's task publishes, and
@@ -132,7 +135,7 @@ func newHarness(t *testing.T, o harnessOptions) *harness {
 		window = 32
 	}
 	h.ledger = admission.NewLedger(admission.Options{Slots: o.slots, Window: window, Clock: h.clock})
-	remediationtest.StartManager(t, func(mgr ctrl.Manager, bus events.Bus) error {
+	h.cfg = remediationtest.StartManager(t, func(mgr ctrl.Manager, bus events.Bus) error {
 		h.raw = bus.(*membus.Bus)
 		h.bus = &harnessBus{Bus: bus, StreamAdmin: h.raw, h: h}
 		c, err := client.New(mgr.GetConfig(), client.Options{Scheme: mgr.GetScheme()})
@@ -168,7 +171,7 @@ func newHarness(t *testing.T, o harnessOptions) *harness {
 			Options: k8s.Options{Namespace: ns}, Ledger: h.ledger,
 			WorkerImage: "native:test", DataClaimName: "clustarr-data", DataDir: jobspec.LogicalDataRoot,
 		})
-	})
+	}).Config
 	return h
 }
 
@@ -255,6 +258,9 @@ func (h *harness) probeAgent(t *testing.T) {
 // writes into its output: the profile's tag at its current hash.
 func (h *harness) outputTag(t *testing.T) string {
 	t.Helper()
+	if tag, _ := h.swapTag.Load().(string); tag != "" {
+		return tag
+	}
 	return transcodeplan.Tag(h.profile.Name, jobspec.ProfileHash(h.profile.Spec))
 }
 
@@ -265,6 +271,10 @@ func (h *harness) write(t *testing.T, name string) string {
 	logical := "/data/media/movies/" + name + "/" + name + ".mkv"
 	require.NoError(t, os.MkdirAll(filepath.Dir(h.local(logical)), 0o755))
 	require.NoError(t, os.WriteFile(h.local(logical), []byte("source "+name), 0o644))
+	// A whole second, as spec.modTime carries it: the probe hash of the
+	// seeded status is then the one the probe planner computes from a stat.
+	mt := time.Now().Truncate(time.Second)
+	require.NoError(t, os.Chtimes(h.local(logical), mt, mt))
 	return logical
 }
 
@@ -327,6 +337,7 @@ func (h *harness) blockFor(t *testing.T, mf *catalogv1alpha1.MediaFile, phase ca
 	st.LastSeq = seq
 	st.Transcode = &catalogv1alpha1.TranscodeState{Phase: phase, Profile: tp.Name, ProfileHash: hash,
 		ProfileTag: transcodeplan.Tag(tp.Name, hash), ProbeHash: st.ProbeHash, Class: "cpu", Attempts: 1, Hardware: "auto",
+		Priority: tp.Spec.Priority,
 		Pool:     pool.Name(pool.Key{Profile: tp.Name, ProfileUID: tp.UID, Class: transcodev1alpha1.HardwareCPU}),
 		Plan:     &catalogv1alpha1.TranscodePlan{Mode: catalogv1alpha1.TranscodeModeTranscode, Encoder: "libx265", PlanHash: "p"},
 		Dispatch: &catalogv1alpha1.Dispatch{Seq: seq, DispatchedAt: metav1.NewTime(h.clock.Now())}}
