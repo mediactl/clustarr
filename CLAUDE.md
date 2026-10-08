@@ -4,8 +4,10 @@ A distributed, event-driven media stack for Kubernetes: controllers and CRDs tha
 manage a media collection end to end, from wanting something through finding,
 downloading, importing, transcoding and subtitling it.
 
-Custom resources are the interface. `kubectl get movies,downloads,transcodejobs`
-is the UI, and the web UI is a view over the same resources.
+Custom resources are the interface. `kubectl get movies,series,mediafiles` is
+the UI -- an item's grabs are its `status.downloads[]` (`--field-selector
+status.downloadPhase!=` is the download queue), a file's transcode and subtitles
+its MediaFile's status -- and the web UI is a view over the same resources.
 
 ## Read before designing anything
 
@@ -14,8 +16,16 @@ is the UI, and the web UI is a view over the same resources.
 - `docs/superpowers/specs/2026-09-18-clustarr-design-amendment-1.md` — adds
   `import`, observability and the UI. **Where the two disagree, the amendment
   wins.**
-- `docs/adr/0001..0008` — why NATS, why GPL-3.0, why Jobs for transcode, and so on.
-  `docs/adr/README.md` is the index and the supersede lifecycle.
+- The unify branch's designs (2026-10-06/07), each with an "as built" record of
+  where the code moved: `2026-10-06-manager-agent-split-design.md` (ADR-0018,
+  ADR-0017), `2026-10-06-mediafile-remediation-loop-design.md` (ADR-0016),
+  `2026-10-07-agents-report-over-nats-design.md` (ADR-0019) and
+  `2026-10-07-unbranded-names-design.md` (Wave U; its §6 maps every old name to
+  its domain name). The design of record and the amendment carry dated "as built
+  on the unify branch" notes where these made them false.
+- `docs/adr/` — why NATS, why GPL-3.0, why worker pools for transcode, why one
+  manager, and so on. `docs/adr/README.md` is the index and the supersede
+  lifecycle.
 - `docs/research/*.md` — nine verified research notes (TRaSH quality model,
   Prowlarr/Cardigann, queue comparison, torrent/usenet, controller-runtime,
   ffmpeg, Bazarr, metadata providers, naming). Long: `grep -n '^#'` first, then
@@ -26,16 +36,34 @@ do not drop them.
 
 ## Services
 
-One Go module, one cobra binary: `clustarr <service> --role <role>`.
+One Go module, five binaries (ADR-0018,
+`docs/superpowers/specs/2026-10-06-manager-agent-split-design.md`):
+
+| Binary | Image | Runs |
+| --- | --- | --- |
+| `cmd/manager` (`internal/cli/manager`) | `clustarr` (static, distroless) | the control plane (ADR-0019): every reconciler and leader-only runnable of the six services, one lease (`manager.clustarr.io`) and one cache, registered by `app/<svc>/manager`; the MediaFile remediation loop with its file and item keys (`app/remediation`, ADR-0016) and transcode admission; task admission and routing (`app/dispatch`) and the intake of the agents' candidates, scan observations and advisories (`app/intake`); ensures the NATS topology; serves `external.metrics.k8s.io` and owns the agents' HPAs (`app/autoscale`); the object-store maintenance loop (`app/maintenance`) |
+| `cmd/agent --domain <d>` (`internal/cli/agent`) | `native` (cgo) | one domain per agent process, never leader-elected, registered by `app/<svc>/agent`, read-only to Kubernetes (`k8s.ReadOnly`): `catalog` (search answers, overlay renders), `events` (RSS matcher), `metadata` (gateway, TheIntroDB markers, artwork fetch), `import` (scan observations, inspect and execute imports, list snapshots, recycle sweep, probe tasks), `index` (release index and its blocklist, search/download/query/blocklist RPC, RSS poll, Torznab facade), `caption` (subtitle fetch, embedded extraction), `torrent-engine` and `usenet-engine` (rendered by the manager's DownloadClient controller: engine commands in, transfer and engine records out) |
+| `cmd/ui` (`internal/cli/ui`) | `clustarr` | the web UI and the Plex provider |
+| `cmd/markers` | `native` | segment detection (`app/segments/worker`) on ffgo and ONNX Runtime |
+| `cmd/transcode` | `native` | transcode pool and graft Jobs (`app/transcode/worker`) on ffgo |
+
+Both images UPX-pack every Go binary; `native` is FROM scratch with FFmpeg 9's
+shared libraries, the ffgo shim and ONNX Runtime, and neither ships `ffmpeg`,
+`ffprobe` or `par2` (ADR-0017). `make run-dev` runs the manager, one agent per
+domain and the ui as local processes; there is no `clustarr all`.
 
 | Dir | Owns |
 | --- | --- |
-| `app/catalog/` | Media domain (movies, series, music, books, comics, audiobooks), metadata gateway, release decisions, artwork render role (`--role artwork`) |
+| `app/catalog/` | Media domain (movies, series, music, books, comics, audiobooks), metadata gateway, release decisions, artwork render (agent `catalog`) |
 | `app/import/` | Everything entering the library: root-folder rescan, import lists, completed-download import |
 | `app/indexer/` | Indexer aggregation, Cardigann engine, local release index (SQLite FTS5) |
 | `app/grab/` | Download clients: torrent (anacrolix) and usenet engines |
-| `app/transcode/` | Transcode to HEVC 10-bit + AAC, as batch Jobs |
+| `app/transcode/` | Transcode to HEVC (the MP4 standard) on worker-pool and graft Jobs; admission (`app/transcode/admission`) |
 | `app/caption/` | Subtitles, Bazarr-equivalent, distributed |
+| `app/remediation/` | The MediaFile remediation loop (ADR-0016): file and item keys, the planners' adapters, records incorporation, the item stages (metadata, artwork, search, grab, downloads) |
+| `app/dispatch/`, `app/intake/` | Task admission and routing; the intake of grab candidates, scan observations and task advisories (ADR-0019) |
+| `app/autoscale/`, `app/maintenance/` | The agents' HPAs and the External Metrics API (ADR-0018); the object-store maintenance loop (ADR-0020) |
+| `app/segments/` | markers' segment analysis |
 | `ui/` | Server-rendered web UI (templ + htmx + SSE); serves artwork at `/art` and the Plex Metadata Provider roots over a read-only bus; never writes status |
 
 API groups: `{catalog,index,download,transcode,subtitle}.clustarr.io/v1alpha1`.
@@ -47,32 +75,34 @@ Bazarr logic verbatim — keep the header on every file).
 identifiers, field managers, streams, subjects, durables, RPC subjects,
 labels, Secrets and leases. The per-service *arr brands were swapped out
 cold turkey on 2026-10-07 (Wave U), with no migration of stored names and
-no code that reads an old one; `make brand-gate` (`hack/brand-gate.sh`)
-fails on any brand outside the dated docs and the installer files W6
-rewrites. `clustarr` itself is the product name and stays.
+no code that reads an old one; `make brand-gate` (`hack/brand-gate.sh`;
+`TestNoBrandNameOutsideTheRecords`†) fails on any brand outside the dated records
+(`docs/superpowers`, `docs/research`, the ADR bodies, the cold-cutover runbook and
+the chart README's "Upgrading from 0.4.x"). `clustarr` itself is the product
+name and stays.
 
 ## Transcoding
 
 A transcoded media file should be the final destination. If we detect a transcoded profile, we should not mark the media "CutoffUnmet" - instead it should be marked `Transcoded`.
 
-The predicate is `app/catalog/controller/rollup.Transcoded` -- `spec.original` false, or the probe's `status.mediaInfo.transcodeProfile` (the `CLUSTARR_PROFILE` tag), or a transcode the transcode controller did not make: `status.mediaInfo.videoEncoder` naming an ffmpeg HEVC or AV1 encoder (`commonv1.MediaInfo.TranscodedElsewhere`; Tdarr's `Lavc… hevc_qsv` on the owner's library, 2026-09-29) -- and such a Movie or Episode reads phase `Transcoded`, with `CutoffMet=True` reason `Transcoded`; `pkg/decision` rejects every release over it as `TranscodedFinal` (spec §4.2) -- a user-invoked search's too, since "Search now" grabs its best automatically, so only a person's own pick (Search `spec.grab`, exempt in the Search controller's `resolveGrab`) replaces it; an import refused for it reads `ImportMessageExistingFileFinal`, which grab never blocklists (2026-10-07: a refused 21 GB grab was blocklisted and its file deleted) -- and transcode never queues it again. A probe that learns a new field raises `mediainfo.ProbeVersion`, which re-probes every file once through `status.probeVersion` -- never by changing `probeHash`, which caption and transcode read as the file's identity.
+The predicate is `app/catalog/controller/rollup.Transcoded` -- `spec.original` false, or the probe's `status.mediaInfo.transcodeProfile` (the `CLUSTARR_PROFILE` tag), or a transcode the transcode controller did not make: `status.mediaInfo.videoEncoder` naming an ffmpeg HEVC or AV1 encoder (`commonv1.MediaInfo.TranscodedElsewhere`; Tdarr's `Lavc… hevc_qsv` on the owner's library, 2026-09-29) -- and such a Movie or Episode reads phase `Transcoded`, with `CutoffMet=True` reason `Transcoded`; `pkg/decision` rejects every release over it as `TranscodedFinal` (spec §4.2) -- a user-invoked search's too, since "Search now" grabs its best automatically, so only a person's own pick (Search `spec.grab`, exempt in the Search controller's `resolveGrab`) replaces it; an import refused for it reads `importplan.MessageExistingFileFinal`, which never blocklists (2026-10-07: a refused 21 GB grab was blocklisted and its file deleted) -- and transcode never queues it again. A probe that learns a new field raises `mediainfo.ProbeVersion`, which re-probes every file once through `status.probeVersion` -- never by changing `probeHash`, which caption and transcode read as the file's identity. Probing is `pkg/mediainfo/native` in the import agent (ADR-0017; it prints what ffprobe printed, so `ProbeVersion` stays 3): the remediation loop's probe planner (`app/remediation/probe`) asks for a probe on `CLUSTARR_WORK_PROBE` and incorporates the `clustarr-probes` record, and a `ProbeVersion` raise re-probes through the low lane.
 
 Backlogs are not an object per file (2026-09-30,
 `docs/superpowers/specs/2026-09-30-backlog-windowing-and-encoder-limits-design.md`):
-a TranscodeProfile keeps at most `--job-window` (32) non-terminal
-TranscodeJobs, the next matching files by name, and retires a Succeeded job
-after `--job-retention` (24h) once its MediaFile was re-probed (catalog
-reads the Succeeded job to incorporate the swap, so it must outlive that);
-a SubtitleRequest exists only for a probed file a subtitle may be wanted for
-(`subtitlerequest.MayWant`, the request controller's own planner on the
-tagged audio). **Every transcode is the fixed standard, run in-process**
+a TranscodeProfile admits at most `--job-window` (32) of its files at once
+into a window phase of `status.transcode` (Pending, Planned, Queued, Running,
+Swapping), the next matching files by name, and counts the rest in
+`status.waitingFiles` (`clustarr_transcode_backlog_files`); Succeeded retention
+went with TranscodeJob (ADR-0016); a MediaFile carries `status.subtitles` only
+when a subtitle may be wanted for it (the subtitles planner,
+`app/caption/subtitleplan`, on the tagged audio). **Every transcode is the fixed standard, run in-process**
 (2026-10-01, `docs/superpowers/specs/2026-09-30-ffgo-transcoding-design.md`
 and its "As built" section): `pkg/transcode/standard.Plan` decides (HEVC
 Main 10, or Main 8-bit for SDR at 1080p or less; Dolby Vision 7/8.1 as
 HDR10; since `standard.Version` 2 the MP4 layout,
 `docs/superpowers/specs/2026-10-06-mp4-standard-design.md`: one `.mp4`,
 HEVC tagged `hvc1`, whatever the profile's `container`
-(`worker.OutputContainer`); per language an AAC 2.0 160k track listed
+(`jobspec.OutputContainer`); per language an AAC 2.0 160k track listed
 first (it carries the default) and then a Dolby surround track -- E-AC-3
 or AC-3 copied, anything else AC-3 5.1 640k -- or AAC alone for mono or
 stereo, commentary AAC, other mixes dropped; every subtitle beside the file in Plex's layout
@@ -80,23 +110,25 @@ stereo, commentary AAC, other mixes dropped; every subtitle beside the file in P
 the `srt` muxer, WebVTT/`mov_text`/text converted, ASS through the `ass`
 muxer), written in the transcode's own pass and placed before the swap,
 never over an existing file; attachments dropped, chapters kept; a file
-with an image subtitle is Skipped, `standard.HoldImageSubtitles`, until
-phase 2's OCR) and
+with an image subtitle is `status.transcode` Skipped,
+`standard.HoldImageSubtitles`, until phase 2's OCR) and
 `pkg/transcode/engine` runs it on FFmpeg 9's libraries through the ffgo
 fork (`github.com/mediactl/ffgo`, tags `v0.0.0-clustarr.N`). There is no
-argv engine, no `--worker-engine`, and no `ffmpeg` or `ffprobe` in the
-transcoder image (`TestTheWorkerNeverExecsFFmpeg`,
-`TestTheTranscoderImageCarriesNoFFmpegExecutable`). A TranscodeProfile
+argv engine, no `--worker-engine`, and no `ffmpeg`, `ffprobe` or `par2` in
+any image (ADR-0017; `images/distroless/stage.sh` refuses all three;
+`TestTheNativeImageCarriesNoMediaExecutable`†). A TranscodeProfile
 names no encoder setting: `quality`, `container` (ignored since
 `standard.Version` 2), `audio.languages`,
 `policy.neverTranscodeModifiers`, `policy.minDuration` and
 `policy.maxOutputToSourcePercent` are the standard's inputs, and with
-`standard.Version` the only things `status.hash` covers. A job is planned
+`standard.Version` the only things `status.hash` covers. A file is planned
 again at dispatch whenever its plan would differ (a profile edit, another
 class, new limits). **A new hash
-re-transcodes nothing**: the profile controller skips a file that is
-`MediaFile.Transcoded()` or already has an open job of the profile, and
-the standard skips any `CLUSTARR_PROFILE`-tagged file. Raise
+re-transcodes nothing**: the transcode planner (`app/transcode/transcodeplan`)
+skips a file that is `MediaFile.Transcoded()` or whose `status.transcode` is
+already open for the profile, a verdict (Skipped or Failed) holds only for its
+profile hash and probe hash, and the standard skips any
+`CLUSTARR_PROFILE`-tagged file. Raise
 `standard.Version` when the standard's output changes, so untranscoded
 files plan under it. NVENC holds an encode under the source: with the
 probe summary's `videoBitrateKbps` known it runs VBR at `cq` = quality - 1
@@ -111,22 +143,27 @@ pool pod measures its own device at start through ffgo
 (`inprocess.Engine.Measure`), takes no work while it is unusable, and
 publishes `healthy` beside its limits; no work goes to a GPU class whose
 every fresh report is unhealthy. That engine lives in
-`app/transcode/worker/inprocess`, imported only by `cmd/transcode`: `cmd/clustarr`
-must never link ffgo or purego, which make it a dynamic binary the distroless controller
-image cannot start (`TestClustarrNeverLinksADynamicLoader`).
+`app/transcode/worker/inprocess`, imported only by `cmd/transcode`; `cmd/manager`
+and `cmd/ui` must never link ffgo or purego, which make a dynamic binary the
+distroless `clustarr` image cannot start (`TestManagerNeverLinksADynamicLoader`†,
+`TestUINeverLinksADynamicLoader`†). Every binary that links ffgo
+passes `pkg/ffruntime` (FFmpeg 9, the shim's API, one log trampoline, calls
+bounded by their context and a grace).
 `hardware: gpu` (2026-10-01) is `auto` without the CPU overflow: a job
 takes NVIDIA, then Intel, and waits Planned ("waiting for a free GPU slot")
 when both are busy, rather than encode with libx265; it goes to cpu only
 when no GPU class is usable at all or a GPU already refused it
 (`fallbackReason`), a remux still takes a cpu slot, and a reroute off an
 unschedulable or unusable GPU pool leaves it no `fallbackReason`
-(`transcodejob.ChooseClass`'s `gpuOnly`, `choosesClassFor`/`gpuOnlyFor`).
+(`admission.ChooseClass`'s `gpuOnly`, `app/transcode/admission`, the
+`transcode-admission` controller's since ADR-0016).
 How this cluster's GPU nodes are set up -- the NVIDIA device plugin and
 runtime class, NFD with Intel's rules and Intel's GPU plugin -- is
 `docs/gpu-nodes.md`.
 **There is no CUDA image** (2026-10-01, `docs/adr/0015-no-cuda-image.md`):
-every pool, nvidia's included, runs the one image `--worker-image` names
-(chart `image.transcoder`, built `FROM scratch` by `images/Dockerfile.transcoder`).
+every pool, nvidia's included, runs the one image `--native-image` names
+(chart `image.native`, built `FROM scratch` by `images/Dockerfile.native`, which
+also carries the agent and markers).
 FFmpeg's libraries `dlopen` `libcuda`, `libnvidia-encode`
 and `libnvcuvid`, which the NVIDIA container runtime injects from the host
 into a pod with `runtimeClassName: nvidia`, an `nvidia.com/gpu` request and
@@ -142,10 +179,11 @@ it from a release's values, so upgrade such a release once from
 `helm get values -o yaml` with the key deleted, passed with `-f`, not
 `--reuse-values`. Do not add a CUDA image, or set
 `NVIDIA_VISIBLE_DEVICES` in any image, without reopening the ADR;
-`TestTranscoderImagesAreWhatTheTranscodeControllerStampsOntoPools` fails on either.
+`TestNativeImageIsWhatTheManagerStampsOntoPoolsAndEngines`† is to fail on either.
 A RootFolder's `naming.renameTranscoded` renames a file
 the transcode controller transcoded (`status.transcode.profileTag`) to its canonical file
-name in the folder it is already in (`rescan.RenameFile`'s keepFolder), so
+name in the folder it is already in (the remediation loop's rename actuator,
+`app/remediation/rename`, through `specwrite.RenameFile`'s keepFolder), so
 a season is never split between "Season 3" and "Season 03"; `renameFiles`
 renames every file its own way and wins when both are on.
 
@@ -276,7 +314,7 @@ the default SubtitleProfile `english` (`subtitleprofile.SeedDefault`)
 when the cluster has no SubtitleProfile at all, with `audioExclude` so
 only media whose audio is not English is searched; a file with untagged or
 unprobed audio counts as its item's original language (the Movie's or the
-Series' `status.metadata.originalLanguage`, `subtitlerequest.audioLanguages`).
+Series' `status.metadata.originalLanguage`, `subtitleplan.audioLanguages`).
 Books take English titles as movies and TV do (2026-09-30): the Open
 Library client (`WithLanguage`, from MetadataProvider `spec.language`)
 lists an author's works through its search API with `lang`, titles each
@@ -350,17 +388,20 @@ failed refetch serves the stale entry. The ui holds no Plex token. An item
 without a Plex id answers none, and a gateway that cannot answer is 502/503,
 never an empty list.
 Skip segments come from TheIntroDB (2026-09-30,
-`docs/superpowers/specs/2026-09-30-plex-analyze-bypass-design.md`): a
+`docs/superpowers/specs/2026-09-30-plex-analyze-bypass-design.md`): for a
 probed movie or episode MediaFile whose `status.markers` are due
 (`app/catalog/markers.Due`: never fetched, a new probe hash, Found older
 than 30 days, Error than 1, NotFound than 7 the first time, then 30, then
 90 once TheIntroDB has had nothing for 90 days, from
-`status.markers.notFoundSince`) publishes a
-`catalog-markers` task from its reconciler; the metadata gateway's
-marker worker asks the keyless `theintrodb` MetadataProvider (a movie by
-TMDB id, an episode by its series' TVDB id, season and episode -- only in
-the aired order TheIntroDB numbers) with the probe's duration and writes
-`status.markers` alone, under `catalog-markers`. A series TheIntroDB
+`status.markers.notFoundSince`) the remediation loop's markers planner
+writes a request into the `clustarr-markers` record and publishes a
+`catalog-markers` task; the metadata agent's marker worker asks the keyless
+`theintrodb` MetadataProvider (a movie by TMDB id, an episode by its series'
+TVDB id, season and episode -- only in the aired order TheIntroDB numbers)
+with the probe's duration and answers in the record (`records.Answerer`), and
+the loop writes `status.markers` under `catalog` (ADR-0016; the
+`catalog-markers` field manager is gone, and a deferral to a key's reset is
+republished by the loop, ADR-0019). A series TheIntroDB
 lacks outright (`metadata.ErrNoTitle`, its `"media not found"` as against
 `"... for provided season/episode"`) answers its other episodes without a
 request for 24 hours; a file holding several episodes is not asked. Each
@@ -372,25 +413,30 @@ API can write neither (the spec's §2 is the proof).
 clustarr also detects segments itself (2026-10-01,
 `docs/superpowers/specs/2026-10-01-segment-detection-design.md`,
 `docs/research/segment-detection.md`), so Plex's pods run no detection
-(cluster-plex sets `MarkerSource=cloud`): `markers-worker`, a
-credential-less binary on the media image, takes a season's (or a movie's)
-`AnalyzeTask` from catalog's planner (controller role, through its
-Episode and MediaFile indexes), has ffmpeg decode, and analyzes in Go -- a
+(cluster-plex sets `MarkerSource=cloud`): `markers` (`cmd/markers`), a
+credential-less binary on the native image, decoding in-process on ffgo
+(`pkg/segments/decode`, ADR-0017), takes a season's (or a movie's)
+`AnalyzeTask` from the manager's segment planner (`app/catalog/segmentplan`,
+through its Episode and MediaFile indexes), and analyzes in Go -- a
 Chromaprint port bit-exact against ffmpeg's muxer for season-wide intros
 and ending themes, black/entropy/edge/scroll statistics of end frames, chapter
 names (Intro Skipper's patterns), and PaddleOCR text density on ONNX
 Runtime through purego only when the cheaper signals are weak. Fingerprints
-are cached in the `clustarr-fingerprints` object store and raw results in the
-`clustarr-segments` bucket; its work and TheIntroDB's ride the durable
-`CLUSTARR_WORK_MARKERS` stream (gotcha below); the metadata gateway merges them into
-`status.markers.segments` (each tagged `source` and `confidence`) under
+are cached in the `clustarr-fingerprints` object store (versioned keys and
+metadata, `segments.FingerprintVersion` 2) and raw results in the
+`clustarr-segments` bucket, written by compare-and-swap; its work and
+TheIntroDB's ride the durable `CLUSTARR_WORK_MARKERS` stream (gotcha below);
+the loop's markers planner merges them into `status.markers.segments` (each
+tagged `source` and `confidence`; `pkg/segments.Merge`) under
 TheIntroDB per kind, then chapters, then analysis at 60 or more -- except
 that a chapter wholly titled as credits ("Credits", "End Credits",
 "Ending", "Outro") outranks TheIntroDB's credits (2026-10-01: of 107 files
 with both, 36 disagreed by more than 5 s, the chapter right in the worst
-cases) -- through
-`app/catalog/segmenting.Applier` -- the one compare-and-swap path TheIntroDB's
-handler shares. Raise `pkg/segments.AnalyzerVersion` when detection changes.
+cases) -- in the loop's markers planner, which reads both records
+(TheIntroDB's in `clustarr-markers`, the analysis in `clustarr-segments`) and
+writes the merge in the loop's one apply (`app/catalog/segmenting.Applier`,
+the compare-and-swap path the two used to share, went with ADR-0016's fold).
+Raise `pkg/segments.AnalyzerVersion` when detection changes.
 The Plex provider (`ui/plex`, ADR-0012) matches a request by the file Plex
 names first (2026-09-30, rule 0 in `ui/plex/matchfile.go`): `filename`,
 relative to Plex's library folder, is matched as a path suffix of
@@ -433,9 +479,9 @@ untagged audio never lacks) reads `WrongLanguage` and CutoffUnmet, unless
 it is transcoded. Without a quality upgrade it is replaced only by a
 release whose title names its language (an untagged one merely assumes the
 original, the assumption that imported the wrong file) and only when the
-new file's own probe carries the language (`fileimport.replacesWrongLanguage`),
+new file's own probe carries the language (`importplan.replacesWrongLanguage`),
 so it never loops grab, reject and blocklist. The Movie and Episode
-controllers wake on a probe's audio languages
+item keys wake on a probe's audio languages
 (`rollup.AudioLanguagesObject`), and a RootFolder's spec edit wakes its
 unclassified series. A profile's `audio` (`languages`, `graft`, `default`;
 the anime built-ins want `[en, original]`, grafted) replaces its
@@ -446,32 +492,34 @@ anchor a graft aligns on), a complete one wins a tie, and TRaSH's
 "Dual Audio" title pattern reads as the original plus English under an
 anime score set. Items report `status.audio` (wanted, present, missing,
 graft); a missing dub never blocks the video. Grafting (phase 4): the
-wanted sweep queues a donor search (`SearchTask.Purpose: audioDonor`) for
+search planner queues a donor search (`SearchTask.Purpose: audioDonor`) for
 a monitored item whose graft reads `searching` or `failed`, on its own
-backoff (`status.donorSearchAttempts`), at most 20 live per sweep; a donor
-is judged on its languages, never its quality, and is grabbed as a Download
-with `spec.purpose: audioDonor` under a lease of its own (a donor and a
-video grab of one item coexist, and a donor moves neither
-`activeDownloadRef` nor the phase). import places it under
-`<RootFolder>/.clustarr/donors/<item-uid>/` (no walk enters `.clustarr`)
-and names it in the item's `AudioGraft` (transcode group; spec the import domain's,
-status the transcode controller's); the transcode controller runs one
-graft Job per AudioGraft -- `transcode --graft-task` on the cpu pool's pod template, at most
-`--graft-concurrency` (2), never beside an open TranscodeJob, its result in
-the pod's termination message -- which reduces the donor to an `.mka`,
-aligns the anchors (`pkg/audioalign`), muxes the dub in beside every copied
-stream (`engine.Options.Graft`), verifies the muxed track and swaps it in,
-tagged `CLUSTARR_GRAFT`. catalog re-probes it without making a
-transcode: `spec.original` stays, `status.graftTag` is recorded, and the
-size, mtime and path are catalog's from then on. A failed graft rejects
-that donor for the item (`AudioGraft.status.rejectedReleases`). A new donor is reduced to its `.mka` at once by a reduce Job
-(`status.donorAudioPath`), and a graft rides along with its file's
-transcode when one is due: the TranscodeJob dispatcher attaches the item's
-AudioGraft to the task (`task.Task.Graft`, `TranscodeJob.status.graft`), the
-pool worker aligns before it encodes and muxes the dub in the same pass
-(`worker.GraftEngine`), and the AudioGraft waits up to 6 h for such a
-transcode (`WaitingForTranscode`) before it grafts alone; only a standalone
-graft Job holds a transcode back (`app/transcode/graftstate`).
+backoff (`status.donorSearchAttempts`), at most 20 first-time live ones per
+namespace per sweep (`searchplan.DonorBudget`); a donor is judged on its
+languages, never its quality, and is grabbed as a grab entry with
+`purpose: audioDonor` (a donor and a video grab of one item coexist, and a
+donor moves neither `activeDownloadRef` nor the phase). The import agent's
+execute task places it under `<RootFolder>/.clustarr/donors/<item-uid>/` (no
+walk enters `.clustarr`) and reduces it to its `.mka` at once
+(`pkg/transcode/donoraudio`), and the item records it (`status.audio.donor`,
+derived by the item key from the entry's execute record). The remediation
+loop's graft planner (`app/transcode/graftplan`) runs one graft Job per file
+-- `transcode --graft-task` on the cpu pool's pod template, owned by its
+MediaFile, at most `--graft-concurrency` (2) ledger slots, never beside an
+open transcode of the file, answering in `clustarr-grafts` -- which aligns
+the anchors (`pkg/audioalign`), muxes the dub in beside every copied stream
+(`engine.Options.Graft`), verifies the muxed track and swaps it in, tagged
+`CLUSTARR_GRAFT`. catalog re-probes it without making a transcode:
+`spec.original` stays, `status.graftTag` is recorded, and the size, mtime and
+path are catalog's from then on. A failed graft rejects that donor for the
+item (`status.audio.rejectedReleases` on the item). A graft rides along with
+its file's transcode when one is due: the transcode dispatch carries the
+file's graft (`task.Task.Graft`, recorded as `status.transcode.joinedGraft`),
+the pool worker aligns before it encodes and muxes the dub in the same pass
+(`worker.GraftEngine`), and a graft waits up to 6 h for such a transcode
+(`graftplan.JoinWait`) before it grafts alone; only a standalone graft
+(`status.graft` Running) holds a transcode back. A multi-episode file is
+never grafted (`MultiItemFile` on the item).
 The movies provider has Plex's collection feature (2026-10-06; type 18,
 Feature `collection` at `/library/collections`, movie libraries only): a
 collection is a TMDB collection (`status.metadata.collection`), its items
@@ -485,12 +533,31 @@ which Plex's provider docs require.
 
 ## Invariants — do not break these
 
+A guard name marked † is the one the plan gives a guard the test batch has yet
+to write: the unify branch's waves were built implementation-first (owner,
+2026-10-07), and `.superpowers/unify/progress.md` lists every deferred test.
+Until the guard lands, review holds the invariant; drop the mark when it does.
+
+- **The manager is the only writer of every CR and Secret** (ADR-0019). Agents,
+  markers and transcode pods write no Kubernetes object: an agent's client is
+  read-only (`k8s.ReadOnly`, which counts a refused write in
+  `clustarr_agent_write_refused_total`; `TestAgentsCallNoKubernetesWriter`†), its
+  generated role grants get, list and watch only, Secrets get only
+  (`TestNoAgentRoleGrantsAWriteVerb`†), and markers and the transcode pods run
+  with no ServiceAccount token at all. A worker answers its task in a record
+  (`pkg/records`: Durable KV, compare-and-swap) or on the intake streams, and the
+  manager incorporates the answer under its own field manager. Every lifecycle --
+  an item, a MediaFile, a grab and its transfer, a scan, a list sync, a search,
+  an indexer's health -- is a state machine in the manager's reconcile loop, and
+  every task an effect it admits and routes (`app/dispatch`).
 - **One controller-writer per resource.** The sole exception is `MediaFile`, and
-  the split is **spec versus status**, not status versus status: `import`
-  creates the resource and owns `MediaFileSpec` (the observed path, size and
-  fingerprint, plus the quality, revision, formatScore, matchedFormats and
-  releaseType frozen at import); `catalog` is the sole writer of all of
-  `MediaFileStatus`, and additionally takes over `spec.sizeBytes`,
+  the split is **spec versus status**, not status versus status, with both
+  writers in the manager: `import-worker` creates the resource and owns
+  `MediaFileSpec` (the observed path, size and fingerprint, plus the quality,
+  revision, formatScore, matchedFormats and releaseType frozen at import),
+  through the scan applier (`app/import/manager/scanapply`) and the downloads
+  stage's import materialisation; `catalog` is the sole writer of all of
+  `MediaFileStatus`, through the remediation loop, and additionally takes over `spec.sizeBytes`,
   `spec.modTime` and `spec.original` once it incorporates a transcode swap —
   and `spec.path` too when the transcode landed under a new name and the
   source is gone (a container change or an explicit `spec.outputPath`, ruling
@@ -500,10 +567,20 @@ which Plex's provider docs require.
   `status.file`/`status.probe` and `catalog` `status.quality`/
   `status.formatScore`. No such fields exist — `MediaFileStatus` is flat and
   the decided fields are spec, frozen at import per spec §8.4. Nothing had
-  reconciled yet, so no code ever contradicted the claim.) `TranscodeJob.status`
-  is the transcode controller's alone, under one field manager, `k8s.ManagerTranscode`: the
-  reconciler and the `transcode-results` consumer both write it, but
-  through one compare-and-swap path, not as two managers (Gotchas, below).
+  reconciled yet, so no code ever contradicted the claim.) Since ADR-0016 the
+  per-file work is MediaFile status too: the manager's one remediation loop
+  (`app/remediation`, controller `mediafile`) plans and writes
+  `status.subtitles`, `status.transcode`, `status.graft` and `status.markers`,
+  so `catalog` owns every `MediaFileStatus` leaf
+  (`TestMediaFileStatusIsOwnedByCatalogAlone`†). Workers answer through records
+  in Durable KV buckets (`clustarr-probes`, `clustarr-transcodes`,
+  `clustarr-grafts`, `clustarr-subtitles`, `clustarr-markers`), written by
+  compare-and-swap, and hold no MediaFile RBAC (`TestFoldedAgentsWriteNoPerFileWork`†).
+  Only the loop watches MediaFile (`TestOnlyTheLoopWatchesMediaFile`†); the slim
+  TranscodeProfile and SubtitleProfile reconcilers and `transcode-admission`
+  are woken by the loop's and the ledger's signals. SubtitleRequest,
+  TranscodeJob, AudioGraft and Download are deleted (cold turkey, 2026-10-07):
+  no code names them (`TestNoCodeNamesTheFoldedKinds`†, `TestNothingNamesDownload`†).
 - **All status writes go through `pkg/k8s.PatchStatus`** (server-side apply with a
   named field manager). `.Status().Update()` and `.Status().Patch()` are banned
   outside `pkg/k8s` and golangci-lint's forbidigo rule enforces it.
@@ -512,8 +589,28 @@ which Plex's provider docs require.
   `resource.Quantity` for decimals a human types (e.g. seed ratio `"2.0"`) and
   scaled integers for machine telemetry: `Milli` (thousandths, 23.976 fps →
   `23976`), `Centis` (hundredths), `Percent` (whole 0-100).
-- **Kubernetes watches are the default coupling**; NATS is the exception, for
-  rate-limited or long-running work, RPC, the release firehose and KV leases.
+- **The manager couples through Kubernetes watches; agents couple through NATS
+  only** (ADR-0019). An agent reads Kubernetes through a read-only cache, takes
+  its tasks from JetStream and answers in records, on `CLUSTARR_INTAKE` (grab
+  candidates, scan observations) and in RPC replies; JetStream's nak and term
+  advisories reach the manager on `CLUSTARR_TASK_EVENTS`. NATS otherwise carries
+  rate-limited or long-running work, RPC, the release firehose, scheduled
+  delivery and KV caches.
+- **Only the manager ensures the NATS topology** (`busconn.EnsureTopology`, and
+  `busconn.KeepTopology` after a NATS restart). `Subscribe` binds its durable and
+  its dead-letter watcher and never creates either, so an older agent can never
+  revert a newer topology (`TestEveryConsumerHasExactlyOneHome`†).
+- **One domain per agent process.** `--domain` takes exactly one name; there is
+  no `all` (`TestEveryAgentDeploymentRunsOneDomain`†).
+- **Every container names its binary** (`pkg/binpath`); no image has an
+  ENTRYPOINT (`TestEveryContainerNamesItsBinary`†).
+- **No production code starts a process** but the usenet engine's `par2`
+  (`pkg/download/usenet/repair.go`, `usenet.Par2Runner`) until par2go lands as a
+  library; then only `pkg/par2child/exec.go`, whose only target is
+  `os.Executable()` (ADR-0017; `TestNoProductionCodeStartsAProcess`†). Oracles
+  that run ffprobe, ffmpeg or par2 belong under `test/`; several package tests
+  still run the ffmpeg CLI until the test batch moves them onto
+  `internal/testmedia` and recorded goldens (`TestNoGoFileRunsFFmpeg`†).
 - **Cap every status list** with `+kubebuilder:validation:MaxItems`. Unbounded
   lists in status are how operators melt etcd.
 - **The scanner never guesses.** Unattributable files go to
@@ -531,58 +628,77 @@ which Plex's provider docs require.
   Series, Artist or Author with spec only, named by `pkg/names` as
   import names it (the role's `create` on those four). So anything the
   UI does, `kubectl` can do.
-- **The UI may hold a bus connection for reads plus two requests.** Since M7,
-  `cmd/clustarr`'s ui command calls `k8s.ConnectBus` and passes
-  `Bus.ObjectStore(...)` into `ui.Options.Artwork` to serve `/art`; since
-  Add New (2026-09-29) it also passes `ui.Options.MetadataSearch`, a
-  function it binds to `rpc.catalog.metadata.search`, and since
-  2026-10-06 `ui.Options.PlexExtras`, bound to
-  `rpc.catalog.metadata.extras`, so the ui never holds a requester and
-  can ask nothing else -- `TestUINeverWrites` bans
-  `Request`, `Publish` and `Serve` anywhere in `ui/`. `ui/` still never
-  imports `pkg/k8s`.
+- **The UI may hold a bus connection for reads plus two requests.** `cmd/ui`
+  (`internal/cli/ui/bus.go`) calls `busconn.Connect` and passes
+  `Bus.ObjectStore(...)` into `ui.Options.Artwork` to serve `/art` (indexed by a
+  read-only watch, `pkg/events/objindex`, which also feeds the SSE `art`
+  event); closures over KV `Get` alone for the Plex provider's extended
+  documents (`clustarr-metadata-extended`), a transfer's and a transcode's
+  progress (`clustarr-progress`) and an import's detail (`clustarr-imports`);
+  and two requests, `ui.Options.MetadataSearch`, bound to
+  `clustarr.rpc.catalog.metadata.search` (Add New, 2026-09-29), and
+  `ui.Options.PlexExtras`, bound to `clustarr.rpc.catalog.metadata.extras`
+  (2026-10-06), so the ui never holds a requester and can ask nothing else --
+  `TestUINeverWrites` bans `Request`, `Publish` and `Serve` anywhere in `ui/`.
+  `ui/` still never imports `pkg/k8s`.
   `TestUINeverWrites`' AST guard extends its banned-selector list with every
   object-store write method (`Put`, `PutBytes`, `UpdateMeta`, `Seal`,
   `AddLink`, `Purge`) so a NATS write is caught the same way a Kubernetes
   write already is — the connection is read-only by construction, not by
   omission.
 - **Artwork objects have two writers split by variant, the same discipline
-  as spec versus status on MediaFile.** The metadata gateway
-  (`k8s.ManagerCatalogMetadata`) is the sole writer of `original` objects
-  and of `status.artwork`; the renderer (`catalog --role artwork`,
-  `k8s.ManagerCatalogArtwork`) is the sole writer of `overlay` objects and
-  of `status.overlay` (Movie and Series only). Neither reads, writes or
-  deletes the other's variant; the reaper is the only code that deletes
-  both.
+  as spec versus status on MediaFile.** The metadata gateway (agent
+  `metadata`) is the sole writer of `original` objects and their metadata; the
+  renderer (agent `catalog`) is the sole writer of `overlay` objects and theirs
+  (Movie and Series only). Neither writes status since ADR-0019: the manager's
+  item keys render `status.artwork` (under `k8s.ManagerCatalogMetadata`) and
+  `status.overlay` (under `k8s.ManagerCatalogArtwork`) from the objects'
+  metadata, read through the manager's own `objindex`. Neither writer reads,
+  writes or deletes the other's variant. Each `Put` sends the variant's
+  complete header and metadata set (`artwork.ObjectMeta`), and `SetMeta` is the
+  owner's alone, under its per-item lock. No code creates object links
+  (`TestNoObjectLinks`†). The ui watches the bucket read-only
+  (`pkg/events/objindex`). The reaper (the manager's, leader-only) is the only
+  code that deletes both; the manager's object-store maintenance loop
+  (`app/maintenance`, ADR-0020 §5) purges orphan chunks in every store.
 
 ## Commands
 
 ```bash
-make generate      # deepcopy + apply configurations
-make manifests     # CRDs + RBAC into config/
-make build         # binary into bin/  (never bare `go build` — it drops a binary in the repo root)
-make test          # unit + envtest, sets KUBEBUILDER_ASSETS
+make generate      # deepcopy + apply configurations (flattened to api/applyconfiguration/<group>/<version>)
+make manifests     # CRDs + one RBAC ClusterRole per identity (RBAC_ROLES) into config/
+make build         # bin/manager, bin/ui, bin/agent (cgo), bin/markers, bin/transcode (never bare `go build`)
+make native-assets # FFmpeg 9 libs + libffshim, ONNX Runtime, and the test-only ffmpeg, ffprobe and par2 CLIs
+make chart-deps    # vendor the chart's nats and cloudnative-pg tarballs into charts/clustarr/charts
+make test          # unit + envtest + native suites; sets KUBEBUILDER_ASSETS, CLUSTARR_PG_ASSETS, LD_LIBRARY_PATH, FFGO_SHIM_DIR and CLUSTARR_REQUIRE_TOOLS=1
 make lint          # golangci-lint v2
+make brand-gate    # no *arr brand outside the dated records
+make docker-build docker-build-native docker-selfcheck  # the clustarr and native images, and their checks (hack/image-checks.sh)
+make run-dev       # manager, ui and one agent per domain against your kubeconfig and a NATS at $NATS_URL
 make cardigann-bundle  # re-pack .data/Definitions into app/indexer/bundle/embedded/definitions.zip
-make kind-up       # local cluster with NATS, then: make install deploy
+make kind-up       # local cluster with NATS, then: make install deploy (make kind-load for the images)
 make e2e           # end-to-end suite against that kind cluster (test/e2e, tag e2e)
 ```
 
 Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
-`kustomize`, `golangci-lint-v2`. envtest assets are Kubernetes 1.37.0.
+`kustomize`, `golangci-lint-v2`; `make native-assets` also needs curl, xz, unzip
+and a C compiler (it compiles `libffshim.so` against the pinned FFmpeg). envtest
+assets are Kubernetes 1.37.0. `go.mod` replaces the ffgo fork with
+`../ffgo-unify` until the owner OKs pushing its tag (OD18), and `make contexts`
+exports the pinned ref every image build takes as a named context.
 
 ## Gotchas found the hard way
 
 - **`make test` cannot pass in a fresh clone or a new git worktree until
-  `helm dependency build` has run.** `charts/clustarr/charts/` holds three
-  vendored dependency tarballs (`nats`, `cloudnative-pg`, `keda`) and is gitignored by
+  `helm dependency build` has run.** `charts/clustarr/charts/` holds two
+  vendored dependency tarballs (`nats`, `cloudnative-pg`) and is gitignored by
   `charts/clustarr/.gitignore`, so a clean checkout does not have them.
   `TestChartAndKustomizeAgreePerComponent` shells out to real `helm template`,
   which refuses with "found in Chart.yaml, but missing in charts/ directory"
   — and it reads as a chart/kustomize *disagreement*, which is a code defect,
   rather than as a missing local artifact. This cost a false red on a merge
-  gate run in a throwaway worktree; the branch was fine. Either run
-  `helm dependency build charts/clustarr` first or copy the `.tgz` files in.
+  gate run in a throwaway worktree; the branch was fine. `make test` runs
+  `make chart-deps` first; by hand, `helm dependency build charts/clustarr`.
 - **`go test ./...` passing does not mean the CRDs are valid.** `pkg/crdcheck`
   and the envtest suites skip silently when `KUBEBUILDER_ASSETS` is unset. Only
   `make test` (or exporting the assets path) compiles the CEL rules against a real
@@ -654,7 +770,8 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
     `spec` must send every spec field it owns on every apply. D2-4's
     labels-only apply omitted `spec.clientRef`; the same manager released it,
     and the Download's "clientRef is immutable" CEL rule then rejected the
-    write. G1-3's unmonitor path sent only `spec.monitored` under the manager
+    write (the Download kind is gone since ADR-0019; the lesson stands).
+    G1-3's unmonitor path sent only `spec.monitored` under the manager
     that also creates Movies, releasing the required `tmdbID`,
     `qualityProfileRef` and `rootFolderRef`, so the apiserver refused it.
     Route every write from a manager through the one function that renders
@@ -690,8 +807,11 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
   object it seeds from is the one it wrote, so there is no window. The
   distinguishing test interleaves a *real* second writer mid-operation; the
   rule is that any path which reads, works slowly, then applies must re-`Get`
-  immediately before the apply. `app/indexer/worker/rss/worker.go` does this with
-  the comment "the poll closes the window".
+  immediately before the apply. The RSS poll did this ("the poll closes the
+  window") until ADR-0019 moved the Indexer's observed fields into the manager;
+  `refreshWorkerFields` (`app/indexer/controller/indexer/controller_definition.go`)
+  re-reads the Indexer after a slow network operation, and the health ladder
+  applies as a compare-and-swap from a fresh read.
 - **Server-side apply tracks ownership per leaf inside a struct**, not for the
   sub-object as a whole. A renderer that sent only `caps.modes` released
   `caps.limitsMax`, `caps.limitsDefault`, `caps.supportsRawSearch` and
@@ -722,7 +842,7 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
   five times across Phases D-F before G4-0 swept it, the worst an `int32`
   `maxOutputToSourcePercent` defaulted to `1.0` that would have failed every
   real transcode. Fix with a pointer plus an accessor that applies the
-  default to nil (`app/transcode/worker.ReplaceSource`,
+  default to nil (`app/transcode/jobspec.ReplaceSource`,
   `Revision.EffectiveVersion`), or a floor in code, documented on the field,
   where zero means nothing (`Indexer.spec.timeout`). `pkg/crdcheck`'s
   `TestNoCRDDefaultIsUnreachableFromGo` and `TestEveryStatusListIsCapped`
@@ -736,11 +856,13 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
   address, no UMASK, no `GOMEMLIMIT` and no securityContext — they could not
   have started on any cluster, and every envtest passed, because envtest
   enforces no RBAC and runs no pods. The KEDA ScaledJob example ran the wrong
-  ServiceAccount without `--job`. Fix the class, not the instance: test the
-  rendered pod spec against what the installer creates and binds
-  (`TestGrabEnginesRunAsAnAccountTheInstallerBinds`,
-  `TestEnginePodSecurityMatchesTheDeployment`), and run services under their
-  real roles (the RBAC-enforced start envtest).
+  ServiceAccount without `--job` (KEDA left with the split, 2026-10-06). Fix the
+  class, not the instance: test the rendered pod spec against what the installer
+  creates and binds (`TestGrabEnginesRunAsAnAccountTheInstallerBinds`,
+  `TestEnginePodSecurityMatchesTheDeployment`, and for the native image
+  `TestNativeImageIsWhatTheManagerStampsOntoPoolsAndEngines`†), and run each
+  identity under its real role (the RBAC-enforced start envtests of
+  `cmd/manager`, `cmd/agent` and `cmd/ui`).
 - **A test built from a fixture shaped like the answer cannot fail.** Custom
   formats' `ReleaseTitle` conditions were matched against
   `ParsedRelease.Title`, which the real parser sets to the item's title
@@ -800,13 +922,20 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
   nats.go's gate is the character set **plus** no leading `.`, no trailing
   `.` and no `..`, and the first version implemented only the regex.
 - **JetStream raises a pull consumer's MAX_DELIVERIES advisory only on its
-  next delivery attempt, and that needs a waiting pull request.** A `Consume`
-  callback that blocks issues none, so a handler hung inside the callback
-  never gets its message dead-lettered, and its consumer stalls with it
-  (nats-server 2.15 `getNextMsg`). That is why natsbus's callback never blocks
-  and parks a delivery when every `MaxInFlight` slot is busy — and why a test
-  of the hung case once needed `MaxInFlight = MaxDeliver+1` to see the
-  advisory at all.
+  next delivery attempt, and that needs a waiting pull request.** nats-server's
+  `deliveryCount` returns redeliveries, so the ack-timer path (`checkPending`)
+  catches a lapsed final delivery only for `MaxDeliver` 1; for 2 or more,
+  `getNextMsg` raises it on the next waiting pull from any replica
+  (`consumer.go:4841-4849, 2427-2457, 6187-6192`). A pull a stopping pod abandons
+  is pruned by the next `CONSUMER.INFO` (the manager's queue gauge, every 30 s)
+  and is never relied on. A subscription fetches only for free slots and never
+  parks (Wave 4c's parking spent an attempt per redelivery and dead-lettered
+  healthy tasks it never ran, E11), so nothing keeps a pull open at saturation;
+  the dead-letter watcher (`busconn.WatchDeadLetters`, the manager's) is the
+  backstop, and membus's sweep dead-letters a lapsed final delivery in place.
+  Before Wave 4f a `Consume` callback that blocked issued no pull, and a test of
+  the hung case once needed `MaxInFlight = MaxDeliver+1` to see the advisory at
+  all.
 - **On a consumer with `BackOff`, nats-server adds `BackOff[n-1] -
   BackOff[0]` to every delayed nak.** `processNak` stamps the entry
   `now - AckWait + d`, `checkPending` redelivers once it is `BackOff[n-1]`
@@ -840,12 +969,15 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
   `torznab.Client.WaitTurn` takes the request slot inside the search's
   budget and `spec.timeout` starts after it, a query that gets no slot is
   the `paced` skip, never a failure (`app/indexer/search/pacing_test.go`);
-  and the sweep marks an item it has searched before
-  `SearchTask.IndexOnly`, which the search worker answers from index's
-  local release index (`clustarr.rpc.index.query`, every release the
-  RSS feeds delivered, no indexer query) -- an item never searched gets one
-  live search, and Add New, "Search now" and redownloads stay live. A
-  pool of searches must never be fired at an indexer in one burst. A
+  and an item searched before is searched `SearchTask.IndexOnly`, which the
+  search worker answers from the index agent's local release index
+  (`clustarr.rpc.index.query`, every release the RSS feeds delivered, no
+  indexer query) -- an item never searched gets one live search, and Add New,
+  "Search now" and redownloads stay live. Since ADR-0019 the item key's search
+  planner decides this (`app/catalog/searchplan`), and every live search takes
+  its namespace's pace slot first (`--search-live-per-minute`, 20 by default)
+  and is admitted through the dispatch ledger. A pool of searches must never be
+  fired at an indexer in one burst. A
   season search (Wave S) is one paced query per season per indexer,
   never one per episode: it counts as each wanted episode's search (the
   Episode folds its season's answer into `lastSearchedAt` once, so its
@@ -854,16 +986,16 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
 - **An import that imports nothing is classed, never blocklisted at once
   (2026-10-07).** Refusing every file used to read as a bad release, so a
   good 21 GB download the item merely would not take (its file transcoded)
-  was blocklisted and deleted. import's `conclude`
-  (`app/import/worker/fileimport/remediation.go`) settles every such
-  outcome by `status.import.class`: `transient` retries on the import
-  consumer's backoff (1m, 10m, 45m) then holds; `releaseFault` is walked
-  once more before grab blocklists; `itemState` and `needsPerson` hold
-  at once; a hold keeps the files for `ImportHoldRetention` (24h) and then
-  fails as `importExpired`, neither blocklisted nor searched again. A new
-  rejection site must say its class -- a `rejection` built by its class's
-  constructor, never a bare string -- and grab reads the class, never a
-  message.
+  was blocklisted and deleted. Since ADR-0019 the import plan
+  (`app/import/importplan`, in the manager's downloads stage) classes every
+  refusal (`importplan.Classify`) and settles the outcome by the entry's import
+  class: `transient` retries at 1m, 10m and 45m then holds; `releaseFault` is
+  inspected once more before the release index blocklists it; `itemState` and
+  `needsPerson` hold at once; a hold keeps the files for
+  `lifecycle.ImportHoldRetention` (24h) and then fails as `importExpired`,
+  neither blocklisted nor searched again. A new rejection site must say its
+  class -- a rejection built by its class's constructor, never a bare string --
+  and the grab lifecycle reads the class, never a message.
 - **A Helm hook with no delete policy defaults to `before-hook-creation`,
   which destroys anything holding data.** A `post-install,post-upgrade`
   hook carrying no `helm.sh/hook-delete-policy` annotation is deleted and
@@ -945,8 +1077,10 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
   size-based estimate (`(size - 2*par) / (size - par)`, capped at 99) when
   no volume names its blocks, and `par2IndexFile` hands par2cmdline the
   smallest volume when the set has no separate index, since every volume
-  carries the main packet. Real subjects from that post are the fixture
-  (`TestCriticalHealthPercentEstimatesFromVolumeSizesWithoutBlockCounts`).
+  carries the main packet. Real subjects from that post were the fixture.
+  Since then the floor follows SABnzbd's byte rule, in which block counts play
+  no part (`TestCriticalHealthPercentFollowsSABnzbdsByteRule`; the
+  missing-article gotcha below).
 - **`par2 r index.par2` alone reports every target missing when the set
   records other names than the files on disk carry, and the engine's
   failure text then overflowed `status.message`.** The same grab's set
@@ -958,20 +1092,24 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
   The failure message -- par2's 2048-byte output tail behind a prefix --
   was over the CRD's `MaxLength=2048`, so the apiserver rejected every
   status apply and a finished, failed transfer read `Downloading` for
-  good; `pkg/download.clampMessage` cuts it on a rune boundary, the same
-  class as `clampPercent`. Any string an engine writes into a bounded CRD
-  field must be clamped at the `pkg/download` boundary, not trusted.
+  good; `download.ClampMessage` cuts it on a rune boundary, the same class as
+  `clampPercent`. Since ADR-0019 the engine writes it into its transfer record
+  (2048), and the manager cuts an entry's message to
+  `lifecycle.MaxEntryMessage` (1024) when it renders the grab entry: any string
+  an engine reports must be clamped at the `pkg/download` boundary and again
+  where the manager writes it into a bounded CRD field, never trusted.
 - **The usenet engine's emptyDir scratch shares the node disk with etcd
   on kind, and vanishes with the pod.** A 10 GB transfer plus its par2
-  verify pushed etcd's fsyncs past a second: grab lost its leader lease
-  and exited, then the kube-apiserver failed its liveness probe and was
+  verify pushed etcd's fsyncs past a second: the grab controllers lost their
+  leader lease and exited, then the kube-apiserver failed its liveness probe and was
   killed (2026-09-24); and a deploy that replaced the engine pod discarded
   a finished 9.4 GB transfer, so the new pod downloaded it again. Place
   the working area on the shared volume instead -- `spec.usenet.scratch.
   path: /data/usenet/incomplete` and `spec.usenet.publishDir:
   /data/usenet/complete` (ADR-0014; `existingClaim`, `volumeName` and
-  `accessModes` cover a claim of the operator's own). The controller
-  refuses a path off the data mount with `Ready=False, InvalidSpec`.
+  `accessModes` cover a claim of the operator's own). The manager's
+  DownloadClient controller refuses a path off the data mount with
+  `Ready=False, InvalidSpec`.
   Torrent clients have the same placements since 2026-09-30
   (`spec.torrent.scratch`, `spec.torrent.publishDir`, default
   `/data/torrents`): a transfer downloads in scratch and reads Completed
@@ -986,10 +1124,13 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
   id (a status write had failed) and added the release a second time under
   a second hash -- two 10 GB transfers of one Download, the first an orphan
   until the reaper's 10-minute grace (2026-09-24). `usenet.Client.Add` now
-  dedupes on `AddRequest.Name` as well as on the payload, and the engine
-  asks the client (`download.ByName`) before fetching a payload again --
-  every fetch is a grab the indexer counts. Torrents are unaffected: an
-  info hash is the content.
+  dedupes on `AddRequest.Name` as well as on the payload. Since ADR-0019 the
+  name is the grab entry's id: the engine's add command asks the client
+  (`download.ByName`) for a job under that id before fetching a payload, and
+  again after a download RPC that timed out, before asking twice -- every fetch
+  is a grab the indexer counts -- and the engine journal claims a transfer by
+  the same id, so a re-grab of the same release reuses it. Torrents are
+  unaffected: an info hash is the content.
 - **The usenet engine's missing-article rules are SABnzbd's, by
   number.** `maxArticleTries` 3 same-server retries for a connection that
   dies mid-batch (`max_art_tries`); `maxBadArticles` 5 tolerated before
@@ -1017,7 +1158,9 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
   reader does the same. The trap: a reconciler that reads `managedFields`
   off an object from the cached client sees none, silently. Read them
   through `mgr.GetAPIReader()`, as the grab worker's `appliedByGrabPath`
-  does; the artwork envtests read them through a direct client.
+  did (it retired with ADR-0019); the artwork envtests read them through a
+  direct client. One process now caches every kind the manager reconciles, so
+  the ten minutes is the manager's start budget for the whole library.
 - **A watch's map function runs for every object at startup, and the
   source is not synced until it has.** controller-runtime's `Kind` source
   waits on `handlerRegistration.HasSynced`, and a cache's initial sync
@@ -1028,8 +1171,10 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
   (16,450 items, 13,754 files), the Episode source never synced inside
   `CacheSyncTimeout`, and caption crash-looped (2026-09-29; the "load
   after a deploy" explanation recorded before was wrong). Look a
-  watched object's related objects up through a field index
-  (`app/caption/itemindex`), never a filtered namespace List.
+  watched object's related objects up through a field index (the remediation
+  loop's `remediation.mediafile.item`, `app/remediation/mfindex`, which
+  replaced `app/caption/itemindex` and eight other MediaFile indexes in the
+  fold), never a filtered namespace List.
 - **On kind, loading an image into the node stalls etcd, and every lease
   with it.** `kind load docker-image` unpacks gigabytes into the node's
   containerd store, which shares a disk with etcd; etcd's WAL fsync then
@@ -1072,16 +1217,73 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
   lookaround). Set `IgnoreCase` and a `MatchTimeout`.
 - **Quality profiles are TRaSH-only and opinionated.** Built-in profiles ship as
   embedded data; custom-format editing is deliberately not exposed.
-- **Two write paths under one manager need compare-and-swap.** transcode writes
-  `TranscodeJob.status` from its reconciler and from its results consumer. Both go through
-  `writeStatus`/`patchCAS`, which carry the read `resourceVersion`, so a race is a Conflict and
-  is redone from a fresh read, not a silent rollback. Any new status writer must use the same
-  path.
+- **Every per-file answer is a record written by compare-and-swap, and only the
+  loop writes MediaFile status.** A worker answers its dispatch with
+  `records.Answerer.Answer`, a compare-and-swap on the record's revision
+  (`pkg/records`); a raced answer is
+  `records.ErrRaced`, redone from a fresh read, and the loop incorporates the
+  record in its one status apply under `catalog`. A fact (a swap, a graft) that
+  lands after its dispatch was withdrawn is still incorporated
+  (`records.FactWindow`, `ErrUnincorporatedFact`). Any new per-file worker
+  answers through a record, never a status write. The lesson underneath is
+  older: two write paths under one manager need compare-and-swap. Before the
+  fold, transcode wrote `TranscodeJob.status` from its reconciler and its results
+  consumer through `writeStatus`/`patchCAS`, carrying the read `resourceVersion`,
+  so a race was a Conflict redone from a fresh read, not a silent rollback; the
+  Indexer's writers still do (`app/indexer/status/statuspatch.PatchCAS`).
 - **A running Job's template is re-sent, not re-rendered.** An SSA manager that stops sending
   a template field releases it, and a released field on a running Job is a rejected write. So
   `app/transcode/controller/pool.Render` re-sends the template recorded in
   `transcode.clustarr.io/applied-template`, and judges drift against that annotation rather
   than the stored template, which carries apiserver defaults.
+- **A fired schedule has no `Nats-Msg-Id`.** nats-server strips it and adds
+  `Nats-Scheduler` and `Nats-Schedule-Next: purge` (`scheduler.go:214-231`); a
+  copy published with those onto a stream without schedules is refused with
+  10188, which lost every scheduled task's dead letter until 2026-10-07. The
+  envelope's ID rides in `Clustarr-Id` too, and `EnvelopeFromHeaders` drops every
+  transport header (`Nats-Schedule*`, `Nats-Expected-*`, `Nats-TTL`,
+  `Nats-Rollup`).
+- **The broker keys `InProgress`, `Ack` and `Nak` by stream sequence, not by
+  delivery.** A lapsed handler could keep its redelivered copy from timing out,
+  or move its deadline, so the bus mutes a lapsed delivery's `InProgress` and
+  `Nak` (`Ack` and `Term` still go; `clustarr_bus_muted_total`). Double ack plus
+  Msg-Id dedupe is not exactly-once after a lapse; the record fence is.
+- **Object stores.** `Put` replaces an object's whole metadata (every `Put` is a
+  complete declaration, like an SSA apply). Two concurrent `Put`s of one name
+  leak a full copy for good, which only `PurgeOrphanChunks` reclaims, since the
+  meta-level `List` cannot see it. A reader whose object is overwritten
+  mid-`Get` stalls until its deadline and fails with `i/o timeout`, never a
+  digest mismatch, so `/art` reads whole objects under a deadline before it
+  answers. A link fires no watch event when its target changes, and nats.go
+  refuses a link over any name a regular object ever held -- hence no links
+  (ADR-0021). `ObjectStore.Watch` ignores `ResumeFromRevision` and `MetaOnly`
+  (the bus refuses `WatchFromRevision`), and a bucket re-created under a
+  running watch is skipped silently, so `objindex` compares `Status().Created`.
+- **ffgo maps FFmpeg at package init, and a stale shim is silently wrong.** Any
+  binary or test that links ffgo has dlopened FFmpeg before `main`, through
+  `LD_LIBRARY_PATH` and a fixed list of system paths, and ffgo's loader
+  remembers a failure, so `t.Setenv` is too late: native tests run through
+  `make test`, which sets the variables, and a native test that skips under
+  them is a failure, not a pass. A shim older than `ffruntime.MinShimAPI` reads
+  FFmpeg 9's structs at FFmpeg 4-7 offsets; `ffruntime.Load` refuses it. A call
+  that outlives its context is abandoned, not killed (`clustarr_ffgo_abandoned_calls`);
+  at `ffruntime.MaxAbandoned` (4) the process reports itself wedged and its
+  `ffgo` liveness check restarts it.
+- **`agent --self-check` is the image's proof.** It checks the cgo SQLite piece
+  completion (R13) and FFmpeg 9 with what the import and caption domains need;
+  `markers --self-check` and `transcode --self-check=<class>` (`cpu`, `cuda`,
+  `intel`; `--trial` encodes for real) cover the rest. `make docker-selfcheck`
+  and CI run them all through `hack/image-checks.sh`, against an image whose
+  binaries are UPX-packed: a packed executable hides the `DT_NEEDED` entries
+  `lddtree` reads, so `images/distroless/stage.sh` traces the binaries before
+  they are packed.
+- **The unify branch was built implementation-first.** From Wave 2 on its tasks
+  wrote no tests (owner, 2026-10-07): each recorded the tests and guards it
+  skipped in `.superpowers/unify/progress.md`, test files that no longer compile
+  were left for the batch, and `go vet ./...` fails on those packages until it
+  lands. `go build ./...`, `make build`, `make generate manifests` (clean),
+  `make brand-gate` and `helm lint --strict charts/clustarr` are the gates that
+  hold meanwhile; a guard marked † above is one the batch writes.
 
 ## Code conventions
 
@@ -1094,7 +1296,7 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
 - Prometheus metrics use the `clustarr_` prefix and base units. **Never label by
   title, path or release name** — unbounded cardinality.
 - Tests: table-driven, testify, fixtures under `test/data/`. Pure functions where
-  the logic is tricky (`pkg/pipeline.Project`, `pkg/transcode.Plan`) so it is
+  the logic is tricky (`pkg/pipeline.Project`, `pkg/transcode/standard.Plan`) so it is
   testable without a cluster.
 
 ### Conventions across `pkg/`
@@ -1118,13 +1320,15 @@ Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
 
 ## Status
 
-Pre-alpha, and it reconciles: every service — `catalog`, `import`,
-`index`, `grab`, `transcode`, `caption` and `ui` — registers every
-controller, worker and server behind its role flags, and `clustarr all` still
-stands every service up in one process (controller roles only for `grab`
-and `transcode`, so it never downloads or transcodes; `caption` runs its
-fetch worker too since the gap fixes, and `--ui-bind-address` sets the ui's
-address).
+Pre-alpha, and it reconciles. Since the manager/agent split (2026-10-06/07,
+below) the services run as one `cmd/manager`, one `cmd/agent` per domain,
+`cmd/ui`, `cmd/markers` and `cmd/transcode`. Until then every service --
+`catalog`, `import`, `index`, `grab`, `transcode`, `caption` and `ui` --
+registered every controller, worker and server behind its role flags of one
+`clustarr` binary, and `clustarr all` stood every service up in one process
+(controller roles only for `grab` and `transcode`, so it never downloaded or
+transcoded). The paragraphs below are history in the order it happened, and
+keep the names of their time.
 
 M0 (done): the 29 CRDs across five groups, `pkg/events` (NATS and in-memory
 behind one contract suite), `pkg/k8s`, the binary, manifests, chart and images.
@@ -1193,7 +1397,8 @@ already-satisfied state, anacrolix state mapped onto `download.Status`);
 `javi11/nntppool` was ruled out as cgo-only (R9), so this package writes its
 own bounded connection pool, 430-failover across configured servers,
 pipelining and quota accounting, then PAR2-verifies/repairs (shelling out to
-`par2cmdline-turbo`, no Go module) and unpacks with
+`par2cmdline-turbo`, no Go module -- since 2026-10-06 ADR-0017 makes it par2go
+as a library, built once a par2go release can be required) and unpacks with
 `github.com/nwaples/rardecode/v2`. `app/grab/status` declares the two disjoint
 field-manager sets on `Download.status` — `ControllerFields`
 (`k8s.ManagerGrab`, nine fields) and `EngineFields`
@@ -1265,7 +1470,7 @@ rejecting a `client.Writer` selector (`Create`, `Update`, `Patch`, `Delete`,
 `DeleteAllOf`, `Status`) by method name on any receiver -- it is syntactic,
 not type-checked, so it over-matches rather than tracing types back to
 controller-runtime's `client` package -- plus any import of `pkg/k8s`;
-`cmd/clustarr/ui_rbac_test.go`'s `TestUIRoleGrantsOnlyReadsAndActionWrites`
+`cmd/clustarr/ui_rbac_test.go`'s (now `test/guards/ui_rbac_test.go`'s) `TestUIRoleGrantsOnlyReadsAndActionWrites`
 (named `TestUIRoleGrantsOnlyReadVerbs` until Phase G ruling R2 narrowed both
 guards to admit `ui/actions`' writes) and `TestUIRoleChartMatchesConfig`
 asserted `ui_role.yaml`'s verbs were a subset of `{get,list,watch}` with no
@@ -1308,8 +1513,8 @@ transcode-worker-pools plan, 2026-09-23/24, replaced this per-TranscodeJob
 Job with one long-lived pool Job per (TranscodeProfile, hardware class): see
 `docs/superpowers/plans/2026-09-23-transcode-worker-pools.md` and design spec
 §6.4/ADR-0009. The `transcode-worker` ServiceAccount and role above are gone;
-the worker is now the separate, credential-less `cmd/transcode-worker`
-binary.) Defects a
+the worker became a separate, credential-less binary, `cmd/transcode` since the
+split.) Defects a
 future reader must know: `maxOutputToSourcePercent` was an
 `int32` defaulted to `1.0`, so **every real transcode would have exited 4**;
 `policy.replaceSource`/`recycleBin` could not be set false from Go and
@@ -1357,7 +1562,8 @@ hour until `events.MsgIDForForcedSubtitle` gave it an ID of its own — so fetch
 MsgIDs now extend spec §6.5's `<uid>/<langKey>/<probeHash>` as a prefix, a
 recorded deviation; and the `caption-worker` KEDA `ScaledObject` counted a
 consumer that does not exist, so it never scaled
-(`TestCaptionScaledObjectCountsTheRealFetchConsumers`). E2E scenario 13
+(`TestCaptionScaledObjectCountsTheRealFetchConsumers`; KEDA and the guard left
+with the split, 2026-10-06, for the HPAs the manager owns). E2E scenario 13
 (`test/e2e/subtitle_test.go`, against `test/fixtures/opensubtitlesstub` and
 `gestdownstub`, both round-tripped through the real clients) and scenario 1's
 subtitle leg (skipped on the `.bin` gap) are **written and never executed**,
@@ -1624,19 +1830,98 @@ asserting, since `config/e2e` has no egress and no in-cluster fixture serves
 image bytes yet. Every deferred item the build surfaced is under "M7 carried
 items" in `docs/superpowers/plans/2026-09-18-remaining-work.md`.
 
-Next: Phases D through G, the gap fixes and M7 are done (M2-M7) → **Phase H:
-end-to-end proof on kind** is next. Only Phase C's scenarios (5, 7 and 8)
-have ever run on kind; every scenario written since — 1-4, 6, 9-18 — never
-has. Phase H runs them, builds the second deploy path scenario 16's Helm and
-`clustarr all` legs need, extends scenario 1's trace check to all four
-services, and owns the open items left under "Carried defects" in
+Manager/agent split (2026-10-06/07, as built;
+`docs/superpowers/specs/2026-10-06-manager-agent-split-design.md`, ADR-0018,
+ADR-0017): `cmd/clustarr` and `clustarr all` are gone. `cmd/manager` runs every
+reconciler under one lease (`manager.clustarr.io`) and one cache, registered by
+`app/<svc>/manager`; `cmd/agent --domain <d>` runs one worker domain per process,
+registered by `app/<svc>/agent`; `cmd/ui`, `cmd/markers` and `cmd/transcode`
+stand alone (`internal/cli` holds the command trees, `make run-dev` the local
+processes). Two images replace the controller, media and transcoder images:
+`clustarr` (distroless static: manager, ui) and `native` (FROM scratch: agent,
+markers, transcode), every Go binary UPX-packed (owner, 2026-10-07). Agents
+scale on HPAs the manager owns, driven by `clustarr_consumer_lag` from its own
+External Metrics API (`app/autoscale`, `docs/autoscaling.md`), and KEDA is
+gone. The manager alone ensures the NATS topology; subscriptions bind, never
+create, and fetch only for free slots (Waves 4c, 4f). Probing, segment
+decoding and embedded subtitle extraction run in-process on ffgo
+(`pkg/mediainfo/native`, `pkg/segments/decode`, `embedded/native`, behind
+`pkg/ffruntime`); no image ships ffmpeg, ffprobe or par2. Not yet: par2 as a
+library (Wave 9 waits on a par2go release Go's module tooling accepts, so the
+usenet engine still execs `par2` and a set that needs repair fails as a local
+fault in the native image); tests that run no ffmpeg (Wave 6b's
+`internal/testmedia` and goldens and W10.9's guard are in the test batch); and
+`go.mod` replaces ffgo with `../ffgo-unify` until the owner OKs pushing tag
+`v0.0.0-clustarr.13` (OD18).
+
+MediaFile remediation loop (ADR-0016, 2026-10-06/07;
+`docs/superpowers/specs/2026-10-06-mediafile-remediation-loop-design.md`):
+SubtitleRequest, TranscodeJob and AudioGraft fold into MediaFile
+`status.subtitles`, `status.transcode` and `status.graft`, planned and written
+by one remediation loop in the manager (`app/remediation`, controller
+`mediafile`, file and item keys) that replaces the MediaFile, Movie, Episode,
+Album, Book, Audiobook, Issue, Series, Comic, rename, TranscodeJob, AudioGraft
+and SubtitleRequest controllers; workers answer through records (`pkg/records`,
+Durable KV); transcode and graft admission is one ledger
+(`transcode-admission`); the `transcode-results` and `catalog-segments-result`
+durables and the `catalog-markers` and caption-worker field managers are gone.
+
+Agents never write Kubernetes (ADR-0019, waves A1-A7, 2026-10-07;
+`docs/superpowers/specs/2026-10-07-agents-report-over-nats-design.md`): the
+manager is the control plane -- admission and routing (`app/dispatch`, agent
+presence in `pkg/presence`), the intake of candidates, scan observations and
+task advisories (`app/intake`) -- and the only writer of every CR and Secret.
+The Download kind is deleted: a grab is an entry in its owner's
+`status.downloads[]`, run by the item key's grab and downloads stages
+(`app/catalog/grabplan`, `app/grab/lifecycle`), carried out by seq-fenced
+engine commands (`CLUSTARR_WORK_ENGINE`) and reported in transfer and engine
+records; imports are two-phase (inspect, execute) with the manager
+materialising MediaFiles (`app/import/importplan`); the blocklist is a table in
+the release index (`clustarr.rpc.index.blocklist`); the grab leases, the pending
+KV and the redownload consumer are gone. Scans report observations the
+manager's scan applier writes; import lists report snapshots the ImportList
+controller applies; the index agent reports health outcomes and KV sessions the
+Indexer controller turns into status and Secrets; the metadata gateway answers
+in `clustarr-item-metadata`, and `status.artwork` and `status.overlay` are
+rendered from the artwork objects' metadata.
+
+Wave U (2026-10-07; `docs/superpowers/specs/2026-10-07-unbranded-names-design.md`):
+every internal *arr name became its domain name, cold turkey (the transcode
+service's packages moved to `app/transcode`), and `make brand-gate` holds it; the apply
+configurations moved to `api/applyconfiguration/<group>/<version>`
+(`hack/flatten-applyconfiguration.sh`, run by `make generate`). Wave N
+(ADR-0020, ADR-0021): `busconn.Shutdown` drains every binary's bus last,
+pending limits on every core subscription, `clustarr_nats_dropped_messages`
+and the `ClustarrNATSSlowConsumer` PrometheusRule, `ClassifyRequestError` at
+every RPC caller (no responders reads as the domain's `NoAgent`), a chunk size
+per object store and the manager's orphan purge over every store, reconnect
+backoff with jitter, a `NATS_URL` pool and a named reconnect buffer, and
+fingerprint metadata. Wave S (2026-10-07): series and season search, banded
+interactive results and pack preference (the UI section above).
+
+Cold turkey (owner, 2026-10-07): one release and no migration code -- no
+adoption of the four removed kinds, no legacy names, no rollback tooling; 27
+CRDs remain. A running 0.4.x install moves over once, by hand
+(`docs/runbooks/unify-cold-cutover.md`), with the owner's OK. Everything since
+the split is **built, not deployed**, and was built implementation-first: the
+tests and guards each wave named are written by the test batch
+(`.superpowers/unify/progress.md` lists them), and until then `go vet ./...`
+fails on the test packages the waves broke.
+
+Next: the unified topology ADR-0013 deferred is built (ADR-0018 supersedes
+ADR-0013; the 2026-09-24 unified-manager design is superseded by the split
+design): land reconcilers in their service's `app/<svc>/manager` package and
+workers in its `app/<svc>/agent` domain, never in a per-service Deployment.
+The **test batch** comes first: it writes every deferred test and guard, then
+runs `make test` and `make lint` green. Then Wave 9 (par2go in a re-exec'd child
+of the agent) once a par2go release can be required, and the cold cutover of
+kind-cluster-plex with the owner's OK. Then **Phase H: end-to-end proof on
+kind**. Only Phase C's scenarios (5, 7 and 8) have ever run on kind; every
+scenario written since — 1-4, 6, 9-18 — never has. Phase H runs them, builds the
+Helm deploy path scenario 16 needs, extends scenario 1's trace check across the
+manager and its agents, and owns the open items left under "Carried defects" in
 `docs/superpowers/plans/2026-09-18-remaining-work.md`. Milestone detail is in
-the spec's §16 and amendment §A4. The unified-manager topology (one
-manager Deployment for every reconciler, domain workers with their own
-ServiceAccounts) is designed in
-`docs/superpowers/specs/2026-09-24-unified-manager-design.md` and deferred
-by ADR-0013 until the system is production ready; keep landing controllers
-in their service's Deployment until then.
+the spec's §16 and amendment §A4.
 
 **Nothing is finished until it is proven end to end on a kind cluster.** Every
 phase from C onward lands its milestone's scenarios in `test/e2e` (real CRs,
