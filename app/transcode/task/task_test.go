@@ -18,7 +18,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package task_test
 
 import (
-	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -35,8 +34,8 @@ import (
 // turns "keep the source" into "replace the source".
 func TestTaskJSONKeepsFalsePolicyPointers(t *testing.T) {
 	in := task.Task{
-		Job:     schema.Ref{Namespace: "media", Name: "tj", UID: "u1"},
-		Attempt: 2,
+		File: schema.Ref{Namespace: "media", Name: "mf", UID: "u1"},
+		Seq:  2,
 		Profile: task.Profile{Name: "p", Hash: "h", Spec: transcodev1alpha1.TranscodeProfileSpec{
 			Policy: transcodev1alpha1.PolicySpec{ReplaceSource: new(false), RecycleBin: ptr.To(false)},
 		}},
@@ -47,23 +46,13 @@ func TestTaskJSONKeepsFalsePolicyPointers(t *testing.T) {
 	require.NoError(t, schema.Decode(in.Schema(), data, &out))
 	assert.False(t, jobspec.ReplaceSource(out.Profile.Spec.Policy))
 	assert.False(t, jobspec.RecycleBin(out.Profile.Spec.Policy))
-	assert.Equal(t, in.Attempt, out.Attempt)
+	assert.Equal(t, in.Seq, out.Seq)
 }
 
+// The v2 schemas (loop spec §4.12): a task of an older schema fails to
+// decode and is dead-lettered. The v1 StatusEvent is gone with its subject;
+// the worker answers in clustarr-transcodes (record.go).
 func TestSchemasAreVersioned(t *testing.T) {
-	assert.Equal(t, "transcode.Task.v1", task.Task{}.Schema())
-	assert.Equal(t, "transcode.StatusEvent.v1", task.StatusEvent{}.Schema())
-	assert.Equal(t, "transcode.Lease.v1", task.Lease{}.Schema())
-	b, err := json.Marshal(task.StatusEvent{Kind: task.EventFinished, Outcome: task.OutcomeFailed, Reason: task.ReasonGPUEncodeFailed})
-	require.NoError(t, err)
-	assert.JSONEq(t, `{"job":{"name":""},"attempt":0,"delivery":0,"seq":0,"kind":"finished","outcome":"failed","reason":"GPUEncodeFailed","at":"0001-01-01T00:00:00Z"}`, string(b))
-
-	// class is additive to v1: an event from a worker that sets it round-trips,
-	// and one that does not decodes with it empty.
-	b, err = json.Marshal(task.StatusEvent{Kind: task.EventClaimed, Attempt: 2, Class: transcodev1alpha1.HardwareNVIDIA})
-	require.NoError(t, err)
-	assert.Contains(t, string(b), `"class":"nvidia"`)
-	var ev task.StatusEvent
-	require.NoError(t, json.Unmarshal(b, &ev))
-	assert.Equal(t, transcodev1alpha1.HardwareNVIDIA, ev.Class)
+	assert.Equal(t, "transcode.Task.v2", task.Task{}.Schema())
+	assert.Equal(t, "transcode.Lease.v2", task.Lease{}.Schema())
 }
