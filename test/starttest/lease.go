@@ -56,3 +56,18 @@ func HoldLease(t testing.TB, cfg *rest.Config, namespace, id string) {
 		t.Fatalf("hold the %s lease: %v", id, err)
 	}
 }
+
+// ReleaseLease deletes the Lease HoldLease created, so a manager waiting on
+// it acquires it on its elector's next retry. A Lease already gone is not
+// an error.
+func ReleaseLease(t testing.TB, cfg *rest.Config, namespace, id string) {
+	t.Helper()
+	c, err := client.New(cfg, client.Options{Scheme: k8s.MustNewScheme()})
+	if err != nil {
+		t.Fatalf("build client: %v", err)
+	}
+	lease := &coordinationv1.Lease{ObjectMeta: metav1.ObjectMeta{Name: id, Namespace: namespace}}
+	if err := client.IgnoreNotFound(c.Delete(context.Background(), lease)); err != nil {
+		t.Fatalf("release the %s lease: %v", id, err)
+	}
+}
