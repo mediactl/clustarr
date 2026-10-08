@@ -18,96 +18,86 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package main
 
 import (
-	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/mediactl/clustarr/internal/cli"
 	"github.com/mediactl/clustarr/pkg/fsops"
 )
 
-// TestImportSampleMaxBytesReachesTheOptions pins the one link of the
-// sample size floor's wiring that fails silently: for SampleMaxBytes zero is
-// not "unset" but a working value -- the rule switched off on every replica,
-// every video under 50 MiB imported as a feature film, with nothing in the
-// logs. So the import domain's options must carry the default when no flag
-// is given. app/import/agent's workers hold the next link, options to both
-// workers. The old `clustarr all` leg has no subject (one process runs one
-// domain, §3.10), and the installers' own argv is
-// TestInstallerArgsParseAsTheirDomain's (W6.11).
-func TestImportSampleMaxBytesReachesTheOptions(t *testing.T) {
+// TestImportDomainOptions holds the import domain's flags to the options it
+// starts with. The sample size floor is the link that fails silently: for
+// SampleMaxBytes zero is not "unset" but a working value -- the rule switched
+// off on every replica, every video under 50 MiB imported as a feature film,
+// with nothing in the logs -- so the default must reach the options when no
+// flag is given, and a negative floor, which pkg/fsops reads as "disabled"
+// exactly as it reads zero, is a typo the command refuses rather than a
+// second way to switch the rule off. app/import/agent's workers hold the
+// next link, options to both workers; the installers' own argv is
+// TestInstallerArgsParseAsTheirDomain's.
+//
+// The Trakt and Plex base URLs (X14) reach the options from their flags and
+// from $CLUSTARR_TRAKT_BASE_URL/$CLUSTARR_PLEX_BASE_URL, which config/e2e
+// sets; unset, each is the provider's own default. Before X14 neither host
+// was reachable from a deployed binary at all.
+func TestImportDomainOptions(t *testing.T) {
+	t.Run("defaults", func(t *testing.T) {
+		t.Setenv(cli.EnvTraktBaseURL, "")
+		t.Setenv(cli.EnvPlexBaseURL, "")
+		o, err := parse(t, "--domain=import")
+		require.NoError(t, err)
+		assert.Equal(t, "/data", o.DataDir)
+		assert.Equal(t, fsops.DefaultSampleMaxBytes, o.SampleMaxBytes, "a zero floor would switch the sample rule off")
+		assert.Empty(t, o.TraktBaseURL, "unset is Trakt's own API")
+		assert.Empty(t, o.PlexBaseURL, "unset is Plex's own Discover API")
+	})
+
 	for _, tc := range []struct {
-		name  string
-		flags []string
-		want  int64
+		name string
+		flag string
+		want int64
 	}{
-		{name: "no flag keeps the 50 MiB default", want: fsops.DefaultSampleMaxBytes},
-		{name: "an explicit floor", flags: []string{"--sample-max-bytes", "1048576"}, want: 1 << 20},
-		{name: "0 disables the rule", flags: []string{"--sample-max-bytes=0"}, want: 0},
+		{name: "an explicit floor", flag: "--sample-max-bytes=1048576", want: 1 << 20},
+		{name: "0 disables the rule", flag: "--sample-max-bytes=0", want: 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			args := append([]string{"--domain=import"}, tc.flags...)
-			got, err := parse(t, args...)
-			if err != nil {
-				t.Fatalf("agent %v: %v", args, err)
-			}
-			if got.SampleMaxBytes != tc.want {
-				t.Errorf("SampleMaxBytes = %d, want %d", got.SampleMaxBytes, tc.want)
-			}
+			o, err := parse(t, "--domain=import", tc.flag)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, o.SampleMaxBytes)
 		})
 	}
 
 	t.Run("a negative floor is refused", func(t *testing.T) {
 		_, err := parse(t, "--domain=import", "--sample-max-bytes=-1")
-		if err == nil || !strings.Contains(err.Error(), "sample-max-bytes") {
-			t.Errorf("agent --domain=import --sample-max-bytes=-1: %v, want an error naming --sample-max-bytes", err)
-		}
+		require.ErrorContains(t, err, "--sample-max-bytes must be 0 (disabled) or more, got -1")
+	})
+
+	const trakt, plex = "http://importlist-stub.clustarr-system.svc", "http://plex.example:32400"
+	t.Run("base URL flags", func(t *testing.T) {
+		t.Setenv(cli.EnvTraktBaseURL, "")
+		t.Setenv(cli.EnvPlexBaseURL, "")
+		o, err := parse(t, "--domain=import", "--trakt-base-url", trakt, "--plex-base-url", plex)
+		require.NoError(t, err)
+		assert.Equal(t, trakt, o.TraktBaseURL)
+		assert.Equal(t, plex, o.PlexBaseURL)
+	})
+
+	t.Run("base URLs from the environment", func(t *testing.T) {
+		t.Setenv(cli.EnvTraktBaseURL, trakt)
+		t.Setenv(cli.EnvPlexBaseURL, plex)
+		o, err := parse(t, "--domain=import")
+		require.NoError(t, err)
+		assert.Equal(t, trakt, o.TraktBaseURL, "--trakt-base-url defaults to $%s", cli.EnvTraktBaseURL)
+		assert.Equal(t, plex, o.PlexBaseURL, "--plex-base-url defaults to $%s", cli.EnvPlexBaseURL)
 	})
 }
 
-// TestImportListBaseURLsReachTheOptions holds the first link of the
-// Trakt and Plex base-URL wiring (X14): --trakt-base-url/--plex-base-url,
-// and the $CLUSTARR_TRAKT_BASE_URL/$CLUSTARR_PLEX_BASE_URL defaults
-// config/e2e sets, reach the import domain's options. Before X14 neither
-// host was reachable from a deployed binary at all, so test/e2e's Trakt and
-// Plex legs skipped.
-func TestImportListBaseURLsReachTheOptions(t *testing.T) {
-	const trakt, plex = "http://importlist-stub.clustarr-system.svc", "http://plex.example:32400"
-
-	t.Run("flags", func(t *testing.T) {
-		got, err := parse(t, "--domain=import", "--namespace", "clustarr",
-			"--trakt-base-url", trakt, "--plex-base-url", plex)
-		if err != nil {
-			t.Fatalf("agent --domain=import: %v", err)
-		}
-		if got.TraktBaseURL != trakt || got.PlexBaseURL != plex {
-			t.Errorf("Trakt/Plex base URLs = %q/%q, want %q/%q",
-				got.TraktBaseURL, got.PlexBaseURL, trakt, plex)
-		}
-	})
-
-	t.Run("environment", func(t *testing.T) {
-		t.Setenv(cli.EnvTraktBaseURL, trakt)
-		t.Setenv(cli.EnvPlexBaseURL, plex)
-		got, err := parse(t, "--domain=import", "--namespace", "clustarr")
-		if err != nil {
-			t.Fatalf("agent --domain=import: %v", err)
-		}
-		if got.TraktBaseURL != trakt || got.PlexBaseURL != plex {
-			t.Errorf("Trakt/Plex base URLs = %q/%q, want $%s/$%s's %q/%q",
-				got.TraktBaseURL, got.PlexBaseURL, cli.EnvTraktBaseURL, cli.EnvPlexBaseURL, trakt, plex)
-		}
-	})
-
-	t.Run("unset is the providers' own default", func(t *testing.T) {
-		t.Setenv(cli.EnvTraktBaseURL, "")
-		t.Setenv(cli.EnvPlexBaseURL, "")
-		got, err := parse(t, "--domain=import", "--namespace", "clustarr")
-		if err != nil {
-			t.Fatalf("agent --domain=import: %v", err)
-		}
-		if got.TraktBaseURL != "" || got.PlexBaseURL != "" {
-			t.Errorf("Trakt/Plex base URLs = %q/%q with nothing set, want empty",
-				got.TraktBaseURL, got.PlexBaseURL)
-		}
-	})
+// TestImportDomainRejectsAnEmptyDataDir: the import domain reads and writes
+// the library under --data-dir, so an empty one is refused before anything
+// touches the cluster.
+func TestImportDomainRejectsAnEmptyDataDir(t *testing.T) {
+	_, err := parse(t, "--domain=import", "--data-dir=")
+	require.ErrorContains(t, err, "--domain import needs --data-dir")
 }
