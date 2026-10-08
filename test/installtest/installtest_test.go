@@ -114,3 +114,22 @@ func TestPatternCovers(t *testing.T) {
 	assert.False(t, installtest.PatternCovers("./app/grab/...", "app/grabber"))
 	assert.False(t, installtest.PatternCovers("./app/grab", "app/grabber"))
 }
+
+func TestWorkloadsKeepOnlyClustarrComponents(t *testing.T) {
+	r := installtest.DecodeRendered(t, []byte(`apiVersion: apps/v1
+kind: Deployment
+metadata: {name: clustarr-manager, labels: {app.kubernetes.io/name: clustarr, app.kubernetes.io/component: manager}}
+spec: {template: {spec: {containers: [{name: manager, env: [{name: A, value: a}, {name: P, valueFrom: {fieldRef: {fieldPath: metadata.name}}}, {name: S, valueFrom: {secretKeyRef: {name: s, key: k}}}]}]}}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: clustarr-nats-box, labels: {app.kubernetes.io/name: nats, app.kubernetes.io/component: nats-box}}
+`))
+	got := installtest.Workloads(r)
+	require.Len(t, got, 1)
+	c := installtest.Container(t, r, "manager")
+	installtest.SetEnvFrom(t, c, "pod-0")
+	assert.Equal(t, "a", os.Getenv("A"))
+	assert.Equal(t, "pod-0", os.Getenv("P"))
+	assert.Equal(t, "from-S", os.Getenv("S"))
+}
