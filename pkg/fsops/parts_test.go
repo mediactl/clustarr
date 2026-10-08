@@ -31,18 +31,20 @@ import (
 // transcode attempt's file, so neither sweep ever reads one as such.
 func TestParseTranscodePartReadsOnlyThePerAttemptForm(t *testing.T) {
 	for name, want := range map[string]*fsops.TranscodePart{
-		"/lib/Heat (1995).part-a1b2c3d4-1.mkv":   {Stem: "/lib/Heat (1995)", JobUID8: "a1b2c3d4", Attempt: 1, Ext: ".mkv"},
-		"/lib/Heat (1995).part-0123abcd-12.mp4":  {Stem: "/lib/Heat (1995)", JobUID8: "0123abcd", Attempt: 12, Ext: ".mp4"},
-		"/lib/Heat.part.2.part-a1b2c3d4-3.mkv":   {Stem: "/lib/Heat.part.2", JobUID8: "a1b2c3d4", Attempt: 3, Ext: ".mkv"},
-		"/lib/Heat (1995).mkv":                   nil,
-		"/lib/Heat (1995).mkv.part":              nil,
-		"/lib/Heat (1995).part.mkv":              nil,
-		"/lib/Movie.part-two.mkv":                nil,
-		"/lib/Film.part-1.mkv":                   nil,
-		"/lib/Heat (1995).part-A1B2C3D4-1.mkv":   nil,
-		"/lib/Heat (1995).part-a1b2c3d4-.mkv":    nil,
-		"/lib/Heat (1995).part-a1b2c3d4-1":       nil,
-		"/lib/Heat (1995).part-a1b2c3d4-1.mkv.x": nil,
+		"/lib/Heat (1995).part-a1b2c3d4-1.mkv":  {Stem: "/lib/Heat (1995)", FileUID8: "a1b2c3d4", Seq: 1, Ext: ".mkv"},
+		"/lib/Heat (1995).part-0123abcd-12.mp4": {Stem: "/lib/Heat (1995)", FileUID8: "0123abcd", Seq: 12, Ext: ".mp4"},
+		"/lib/Heat.part.2.part-a1b2c3d4-3.mkv":  {Stem: "/lib/Heat.part.2", FileUID8: "a1b2c3d4", Seq: 3, Ext: ".mkv"},
+		// A dispatch sequence is an int64 (F6.4), so its digit run is long.
+		"/lib/Heat (1995).part-a1b2c3d4-1759881600123.mkv": {Stem: "/lib/Heat (1995)", FileUID8: "a1b2c3d4", Seq: 1759881600123, Ext: ".mkv"},
+		"/lib/Heat (1995).mkv":                             nil,
+		"/lib/Heat (1995).mkv.part":                        nil,
+		"/lib/Heat (1995).part.mkv":                        nil,
+		"/lib/Movie.part-two.mkv":                          nil,
+		"/lib/Film.part-1.mkv":                             nil,
+		"/lib/Heat (1995).part-A1B2C3D4-1.mkv":             nil,
+		"/lib/Heat (1995).part-a1b2c3d4-.mkv":              nil,
+		"/lib/Heat (1995).part-a1b2c3d4-1":                 nil,
+		"/lib/Heat (1995).part-a1b2c3d4-1.mkv.x":           nil,
 	} {
 		got, ok := fsops.ParseTranscodePart(name)
 		if want == nil {
