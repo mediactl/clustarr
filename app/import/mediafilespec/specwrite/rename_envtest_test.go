@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package mediafilespec_test
+package specwrite_test
 
 import (
 	"context"
@@ -34,6 +34,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/import/mediafilespec"
+	"github.com/mediactl/clustarr/app/import/mediafilespec/specwrite"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
@@ -109,7 +110,7 @@ func (f *fixture) plantStaleFile(t *testing.T, ctx context.Context, expectedBase
 	expected := filepath.Join(dir, expectedBase)
 	f.seedNamingStatus(t, ctx, name, catalogac.NamingStatus().
 		WithExpectedPath(expected).WithCurrent(false).WithQuality(correctedQuality),
-		catalogac.Sidecar().WithPath(sidecar).WithLanguage("en"))
+		catalogac.Sidecar().WithName(filepath.Base(sidecar)).WithLanguage("en"))
 	return staleFile{name: name, path: path, expected: expected, sidecar: sidecar}
 }
 
@@ -185,7 +186,7 @@ func TestRenameFileMovesTheFileAndReappliesTheCompleteSpec(t *testing.T) {
 	sf := f.plantStaleFile(t, ctx, renamedBase)
 	before := f.read(t, ctx, sf.name)
 
-	out, err := mediafilespec.RenameFile(ctx, f.c, f.api(t), before, false, false)
+	out, err := specwrite.RenameFile(ctx, f.c, f.api(t), before, false, false)
 	require.NoError(t, err)
 	assert.Equal(t, mediafilespec.RenameOutcome{From: sf.path, To: sf.expected, Moved: true}, out)
 
@@ -220,7 +221,7 @@ func TestRenameFileLeavesATranscodedFilesTakenOverFieldsToCatalog(t *testing.T) 
 	require.NoError(t, err)
 	require.NoError(t, takeOver(ctx, f.c, f.ns, sf.name, info.Size(), info.ModTime()))
 
-	out, err := mediafilespec.RenameFile(ctx, f.c, f.api(t), f.read(t, ctx, sf.name), false, false)
+	out, err := specwrite.RenameFile(ctx, f.c, f.api(t), f.read(t, ctx, sf.name), false, false)
 	require.NoError(t, err)
 	require.True(t, out.Moved, "outcome %+v", out)
 	requireExists(t, sf.expected)
@@ -245,7 +246,7 @@ func TestRenameFileRefusesACollision(t *testing.T) {
 	mustWriteFile(t, sf.expected, 1234)
 	before := f.read(t, ctx, sf.name)
 
-	out, err := mediafilespec.RenameFile(ctx, f.c, f.api(t), before, false, false)
+	out, err := specwrite.RenameFile(ctx, f.c, f.api(t), before, false, false)
 	require.NoError(t, err)
 	assert.Equal(t, mediafilespec.RenameOutcome{From: sf.path, To: sf.expected, Reason: mediafilespec.RenameCollision}, out)
 
@@ -265,10 +266,10 @@ func TestRenameFileRefusesAFileChangedInFlight(t *testing.T) {
 	sf := f.plantStaleFile(t, ctx, renamedBase)
 	before := f.read(t, ctx, sf.name)
 
-	restore := mediafilespec.SetRenameBeforeMove(func() { require.NoError(t, os.Truncate(sf.path, 10)) })
+	restore := specwrite.SetRenameBeforeMove(func() { require.NoError(t, os.Truncate(sf.path, 10)) })
 	defer restore()
 
-	out, err := mediafilespec.RenameFile(ctx, f.c, f.api(t), before, false, false)
+	out, err := specwrite.RenameFile(ctx, f.c, f.api(t), before, false, false)
 	require.NoError(t, err)
 	assert.Equal(t, mediafilespec.RenameOutcome{From: sf.path, To: sf.expected, Reason: mediafilespec.RenameChanged}, out)
 
@@ -285,7 +286,7 @@ func TestRenameFileDryRunTouchesNothing(t *testing.T) {
 	sf := f.plantStaleFile(t, ctx, renamedBase)
 	before := f.read(t, ctx, sf.name)
 
-	out, err := mediafilespec.RenameFile(ctx, f.c, f.api(t), before, true, false)
+	out, err := specwrite.RenameFile(ctx, f.c, f.api(t), before, true, false)
 	require.NoError(t, err)
 	assert.Equal(t, mediafilespec.RenameOutcome{From: sf.path, To: sf.expected, Reason: mediafilespec.RenameDryRun}, out)
 
@@ -341,7 +342,7 @@ func TestRenameFileHoldsWhatItMayNotMove(t *testing.T) {
 			f.seedNamingStatus(t, ctx, sf.name, tc.naming)
 			before := f.read(t, ctx, sf.name)
 
-			out, err := mediafilespec.RenameFile(ctx, f.c, f.api(t), before, false, false)
+			out, err := specwrite.RenameFile(ctx, f.c, f.api(t), before, false, false)
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, out.Reason)
 			assert.False(t, out.Moved)
@@ -364,15 +365,15 @@ func TestRenameFileMovesBackWhenTheMediaFileChangedInFlight(t *testing.T) {
 	sf := f.plantStaleFile(t, ctx, renamedBase)
 	before := f.read(t, ctx, sf.name)
 
-	restore := mediafilespec.SetRenameBeforeMove(func() {
+	restore := specwrite.SetRenameBeforeMove(func() {
 		// catalog records that caption's sidecar is an SDH track.
 		f.seedNamingStatus(t, ctx, sf.name, catalogac.NamingStatus().
 			WithExpectedPath(sf.expected).WithCurrent(false).WithQuality(correctedQuality),
-			catalogac.Sidecar().WithPath(sf.sidecar).WithLanguage("en").WithHI(true))
+			catalogac.Sidecar().WithName(filepath.Base(sf.sidecar)).WithLanguage("en").WithHI(true))
 	})
 	defer restore()
 
-	out, err := mediafilespec.RenameFile(ctx, f.c, f.api(t), before, false, false)
+	out, err := specwrite.RenameFile(ctx, f.c, f.api(t), before, false, false)
 	require.NoError(t, err)
 	assert.Equal(t, mediafilespec.RenameOutcome{From: sf.path, To: sf.expected, Reason: mediafilespec.RenameChanged}, out)
 
@@ -393,10 +394,10 @@ func TestRenameFileRefusesATargetThatAppearsBeforeTheMove(t *testing.T) {
 	sf := f.plantStaleFile(t, ctx, renamedBase)
 	before := f.read(t, ctx, sf.name)
 
-	restore := mediafilespec.SetRenameBeforeMove(func() { require.NoError(t, os.WriteFile(sf.expected, []byte("arrived late"), 0o644)) })
+	restore := specwrite.SetRenameBeforeMove(func() { require.NoError(t, os.WriteFile(sf.expected, []byte("arrived late"), 0o644)) })
 	defer restore()
 
-	out, err := mediafilespec.RenameFile(ctx, f.c, f.api(t), before, false, false)
+	out, err := specwrite.RenameFile(ctx, f.c, f.api(t), before, false, false)
 	require.NoError(t, err)
 	assert.Equal(t, mediafilespec.RenameOutcome{From: sf.path, To: sf.expected, Reason: mediafilespec.RenameCollision}, out)
 
@@ -445,7 +446,7 @@ func TestRenameFileRollsForwardAnUnrecordedMove(t *testing.T) {
 			before := f.read(t, ctx, sf.name)
 			tc.crash(t, sf)
 
-			out, err := mediafilespec.RenameFile(ctx, f.c, f.api(t), before, false, false)
+			out, err := specwrite.RenameFile(ctx, f.c, f.api(t), before, false, false)
 			require.NoError(t, err)
 			after := f.read(t, ctx, sf.name)
 			if tc.want != "" {
