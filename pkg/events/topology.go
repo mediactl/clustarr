@@ -170,10 +170,12 @@ func (c ConsumerSpec) Subscription() Subscription {
 }
 
 // SubscriptionSpec is the ConsumerSpec s describes: the inverse of
-// ConsumerSpec.Subscription, Description aside. An unset MaxInFlight is one
-// slot and an unset MaxAckPending the slot count, the defaults both buses
-// apply. Pull creates its durable from it, and contracttest.Bind ensures a
-// test's own durable from it.
+// ConsumerSpec.Subscription, Description and Dispatched aside. A Subscription
+// carries neither, and ConsumerConfig never reads Dispatched, which only
+// routes the durable's advisories (TaskEventSubjects). An unset MaxInFlight
+// is one slot and an unset MaxAckPending the slot count, the defaults both
+// buses apply. Pull creates its durable from it, and contracttest.Bind
+// ensures a test's own durable from it.
 func SubscriptionSpec(s Subscription) ConsumerSpec {
 	slots := max(s.MaxInFlight, 1)
 	return ConsumerSpec{
