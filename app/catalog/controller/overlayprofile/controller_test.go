@@ -19,6 +19,7 @@ package overlayprofile_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -286,8 +287,35 @@ func (w *world) item(name string) overlayplan.Item {
 	return it
 }
 
-// rendered stands in for the renderer: it records the overlay the plan
-// wants for the movie, under the renderer's manager.
+// recordOverlay applies obj's status.overlay under
+// catalogstatus.RendererManager, as the item key's overlay stage does once
+// the renderer's object records the plan (ADR-0019 §7.2): all four leaves
+// in one apply, or -- entry nil -- none, which releases the field.
+func recordOverlay(ctx context.Context, c client.Client, obj client.Object, entry *catalogv1alpha1.OverlayEntry) error {
+	var ac k8s.ApplyConfiguration
+	switch obj.(type) {
+	case *catalogv1alpha1.Movie:
+		st := catalogac.MovieStatus()
+		if entry != nil {
+			st.WithOverlay(catalogstatus.OverlayEntryAC(*entry))
+		}
+		ac = catalogac.Movie(obj.GetName(), obj.GetNamespace()).WithStatus(st)
+	case *catalogv1alpha1.Series:
+		st := catalogac.SeriesStatus()
+		if entry != nil {
+			st.WithOverlay(catalogstatus.OverlayEntryAC(*entry))
+		}
+		ac = catalogac.Series(obj.GetName(), obj.GetNamespace()).WithStatus(st)
+	default:
+		return fmt.Errorf("no status.overlay on %T", obj)
+	}
+	_, err := k8s.PatchStatus(ctx, c, catalogstatus.RendererManager, ac)
+	return err
+}
+
+// rendered stands in for the renderer and the overlay stage: it records
+// the overlay the plan wants for the movie, under the overlay stage's
+// manager.
 func (w *world) rendered(name string) {
 	w.t.Helper()
 	var list catalogv1alpha1.OverlayProfileList
@@ -295,7 +323,7 @@ func (w *world) rendered(name string) {
 	it := w.item(name)
 	want := overlayplan.Plan(it, list.Items, it.PosterDigest)
 	require.NotNil(w.t, want.Profile)
-	require.NoError(w.t, catalogstatus.PatchOverlay(context.Background(), w.c, catalogstatus.RendererManager, it.Object,
+	require.NoError(w.t, recordOverlay(context.Background(), w.c, it.Object,
 		&catalogv1alpha1.OverlayEntry{
 			ProfileRef: want.Profile.Name, Digest: "overlay-" + name, RenderedFrom: want.InputsDigest,
 			UpdatedAt: metav1.NewTime(time.Date(2026, 9, 2, 0, 0, 0, 0, time.UTC)),
@@ -304,7 +332,7 @@ func (w *world) rendered(name string) {
 
 func (w *world) cleared(name string) {
 	w.t.Helper()
-	require.NoError(w.t, catalogstatus.PatchOverlay(context.Background(), w.c, catalogstatus.RendererManager, w.item(name).Object, nil))
+	require.NoError(w.t, recordOverlay(context.Background(), w.c, w.item(name).Object, nil))
 }
 
 func (w *world) relabel(name string, lbls map[string]string) {
