@@ -169,6 +169,10 @@ func (l *Ledger) storeLocked(v FileView, cur *entry, now time.Time) {
 			}
 		case windowPhase(v.Phase):
 			delete(l.grants, v.UID) // the place is held by the block now
+		case g.kind == transcodeplan.GrantDispatch:
+			// A dispatch grant is a Planned file's: one observed with no
+			// block (a clear) or a verdict holds no slot (§5.5).
+			delete(l.grants, v.UID)
 		}
 	}
 	if d, ok := l.directives[v.UID]; ok && (!slotPhase(v.Phase) || v.DispatchSeq != d.Seq) {
