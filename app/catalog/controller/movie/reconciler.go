@@ -62,6 +62,11 @@ const (
 	movieByQualityProfileIndexKey = ".spec.qualityProfileRef"
 )
 
+// QualityProfileIndex is the field index of Movies by
+// spec.qualityProfileRef, registered by RegisterIndexes, for other readers
+// of the cache: the graft planner wakes a profile's files through it.
+const QualityProfileIndex = movieByQualityProfileIndexKey
+
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=movies/finalizers,verbs=update

@@ -60,6 +60,11 @@ const (
 	seriesByQualityProfileIndexKey = ".spec.qualityProfileRef"
 )
 
+// SeriesByQualityProfileIndex is the field index of SERIES by
+// spec.qualityProfileRef, registered by RegisterIndexes, for other readers
+// of the cache: the graft planner wakes a profile's files through it.
+const SeriesByQualityProfileIndex = seriesByQualityProfileIndexKey
+
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=episodes,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=episodes/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=episodes/finalizers,verbs=update

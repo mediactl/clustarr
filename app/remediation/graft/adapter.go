@@ -90,8 +90,9 @@ func (*Adapter) Applies(mf *catalogv1alpha1.MediaFile) bool {
 	return k == commonv1.MediaKindMovie || k == commonv1.MediaKindEpisode
 }
 
-// Sources: S18 (clustarr-grafts' answers, §4.9) and S15 (a graft Job
-// finishing or going, §3.3).
+// Sources: S18 (clustarr-grafts' answers, §4.9), S15 (a graft Job
+// finishing or going, §3.3) and S10' (a QualityProfile's audio policy
+// changing: the files of its items, qualityProfileSource).
 func (a *Adapter) Sources(mgr ctrl.Manager) ([]remediation.Source, error) {
 	var srcs []remediation.Source
 	if a.bus != nil {
@@ -99,7 +100,10 @@ func (a *Adapter) Sources(mgr ctrl.Manager) ([]remediation.Source, error) {
 			Name: "S18/clustarr-grafts", Raw: recordsource.New(a.bus, events.BucketGrafts, remediation.FileKey),
 		})
 	}
-	return append(srcs, remediation.Source{Name: "S15/graft-jobs", Raw: remediation.GraftJobSource(mgr.GetCache())}), nil
+	return append(srcs,
+		remediation.Source{Name: "S15/graft-jobs", Raw: remediation.GraftJobSource(mgr.GetCache())},
+		qualityProfileSource(mgr.GetClient()),
+	), nil
 }
 
 // Gather reads the file's item, its audio policy and the RootFolder holding
