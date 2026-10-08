@@ -51,6 +51,13 @@ func TestASwapIsIncorporatedInThreeApplies(t *testing.T) {
 		require.NoError(t, os.WriteFile(h.local(out), []byte("encoded"), 0o644))
 		finished := metav1.NewTime(time.Now().UTC().Truncate(time.Second).Add(-time.Minute))
 		st := mf.Status.DeepCopy()
+		// The source was probed before it was dispatched, as every source
+		// is. A probe at or after finishedAt IS the swap's probe (§5.9 "The
+		// swap", F6.2's !finishedAt.After(probedAt)), so seeding the
+		// source's probe at harness start, after the worker finished, read
+		// as a swap already probed and carrying no tag: Failed,
+		// InvalidSource (ruling, T2 finding).
+		st.ProbedAt = new(metav1.NewTime(finished.Add(-2 * time.Hour)))
 		st.LastSeq = 7
 		st.Transcode = &catalogv1alpha1.TranscodeState{
 			Phase: catalogv1alpha1.TranscodePhaseSwapping, Profile: "hevc", ProfileHash: "d1spatched", ProfileTag: "hevc@d1spatched",
