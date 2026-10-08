@@ -233,11 +233,12 @@ func natsReady(ctx context.Context) (bool, error) {
 	return sts.Status.ReadyReplicas >= 1, nil
 }
 
-// deploymentRoster is every Deployment config/e2e must produce: the ten
-// Clustarr services (config/manager/*.yaml -- catalog,
-// catalog-metadata, import, import-worker, index, grab,
-// transcode, caption, caption-worker, ui) plus every fixture stub
-// Deployment the overlay adds (config/e2e/*.yaml). It is checked BY NAME,
+// deploymentRoster is every Deployment config/e2e must produce: the nine
+// Clustarr workloads (config/manager/*.yaml -- the manager, the six agents,
+// markers and the ui; the services the manager-agent split replaced are
+// gone, and a roster still naming them refused every run, smoke
+// re-verification 2026-10-08) plus every fixture stub Deployment the
+// overlay adds (config/e2e/*.yaml). It is checked BY NAME,
 // not just counted, for the reason deploymentsAvailable's own doc comment
 // below gives: Available=True on its own cannot tell "the roster is
 // complete" from "the roster is short one Deployment nobody noticed was
@@ -245,8 +246,8 @@ func natsReady(ctx context.Context) (bool, error) {
 // WORKLOADS array (a shell array cannot import this constant, so the two
 // are kept in sync by hand; a name added to one belongs in the other).
 var deploymentRoster = []string{
-	"catalog", "catalog-metadata", "import", "import-worker",
-	"index", "grab", "transcode", "caption", "caption-worker", "ui",
+	"manager", "agent-catalog", "agent-events", "agent-metadata",
+	"agent-import", "agent-index", "agent-caption", "markers", "ui",
 	"tmdb-stub", "tvdb-stub", "torznab-stub", "seeder", "nntp-stub-a", "nntp-stub-b",
 	"opensubtitles-stub", "gestdown-stub", "cardigann-stub", "importlist-stub",
 	"nonvideo-stub", "httpproxy-stub",
