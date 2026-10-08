@@ -32,9 +32,9 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	"github.com/mediactl/clustarr/app/catalog/controller/episode"
 	"github.com/mediactl/clustarr/app/catalog/controller/series"
 	"github.com/mediactl/clustarr/app/catalog/segmentplan"
+	"github.com/mediactl/clustarr/app/remediation/mfindex"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -118,9 +118,7 @@ func plannerClient(objs ...client.Object) client.Client {
 		WithIndex(&catalogv1alpha1.Episode{}, series.EpisodeBySeriesRefIndex, func(o client.Object) []string {
 			return []string{o.(*catalogv1alpha1.Episode).Spec.SeriesRef}
 		}).
-		WithIndex(&catalogv1alpha1.MediaFile{}, episode.MediaFileByEpisodeIndex, func(o client.Object) []string {
-			return []string{o.(*catalogv1alpha1.MediaFile).Spec.MediaRef.Name}
-		}).Build()
+		WithIndex(mfindex.Index.Object, mfindex.Index.Name, mfindex.Index.Extract).Build()
 }
 
 func planMsg(t *testing.T, task schema.SegmentsPlanTask) events.Message {
