@@ -59,11 +59,18 @@ func NewHandler(recordedDir string, logger *slog.Logger) http.Handler {
 	// it answers the same, richer episode list for any of them. Every
 	// fixture episode carries both a season/number pair and an
 	// absoluteNumber, so the list reads correctly under either order.
+	//
+	// The client walks the translated list, /episodes/{order}/{lang}, and the
+	// untranslated one only to fill a null name, so both forms answer the
+	// same list (the fixtures carry English names already).
 	mux.HandleFunc("GET /series/121361/episodes/{order}", serveBytes(episodes121361))
+	mux.HandleFunc("GET /series/121361/episodes/{order}/{lang}", serveBytes(episodes121361))
 	mux.HandleFunc("GET /series/900001/extended", serveBytes(series900001))
 	mux.HandleFunc("GET /series/900001/episodes/{order}", serveBytes(episodes900001))
+	mux.HandleFunc("GET /series/900001/episodes/{order}/{lang}", serveBytes(episodes900001))
 	mux.HandleFunc("GET /series/900002/extended", serveBytes(series900002))
 	mux.HandleFunc("GET /series/900002/episodes/{order}", serveBytes(episodes900002))
+	mux.HandleFunc("GET /series/900002/episodes/{order}/{lang}", serveBytes(episodes900002))
 	mux.HandleFunc("/", notFound(logger))
 	return mux
 }
