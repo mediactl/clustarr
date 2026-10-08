@@ -49,7 +49,9 @@ type IOExecutor struct {
 	ReadDirTimeout time.Duration // default 20 s
 
 	jobs     chan func()
+	workers  int
 	mu       sync.Mutex
+	busy     int // calls handed to the pool and not yet returned, at most workers
 	timeouts []time.Time
 	openedAt time.Time
 	trial    bool
@@ -61,11 +63,12 @@ type IOExecutor struct {
 // NewIOExecutor starts workers goroutines (--remediation-io-workers). They
 // live for the process.
 func NewIOExecutor(workers int) *IOExecutor {
+	workers = max(workers, 1)
 	x := &IOExecutor{
 		StatTimeout: 5 * time.Second, ReadDirTimeout: 20 * time.Second,
-		jobs: make(chan func()), clock: time.Now, stat: os.Stat, readDir: os.ReadDir,
+		jobs: make(chan func(), workers), workers: workers, clock: time.Now, stat: os.Stat, readDir: os.ReadDir,
 	}
-	for range max(workers, 1) {
+	for range workers {
 		go func() {
 			for job := range x.jobs {
 				job()
@@ -98,21 +101,27 @@ func (x *IOExecutor) ReadDir(ctx context.Context, dir string) ([]fs.DirEntry, er
 	return out, err
 }
 
-// run hands call to an idle worker, or fails at once. The result variables
-// call writes are read only after done delivers, so a call that times out
-// and later finishes writes into variables nobody reads any more.
+// run hands call to an idle worker, or fails at once. A worker is busy from
+// the hand-off until its call returns -- a hung call keeps it -- so a pool of
+// N admits N calls and the N+1st is saturated; a worker that finished a call
+// and has not yet looped back to the queue counts as idle, as does one not
+// yet scheduled after NewIOExecutor. The result variables call writes are
+// read only after done delivers, so a call that times out and later
+// finishes writes into variables nobody reads any more.
 func (x *IOExecutor) run(ctx context.Context, op string, timeout time.Duration, call func() error) error {
 	if !x.admit() {
 		metrics.RemediationIOCallsTotal.WithLabelValues(op, "breaker_open").Inc()
 		return Transient(ErrIOBreakerOpen)
 	}
-	done := make(chan error, 1)
-	select {
-	case x.jobs <- func() { done <- call() }:
-	default:
+	if !x.take() {
 		x.abandonTrial()
 		metrics.RemediationIOCallsTotal.WithLabelValues(op, "saturated").Inc()
 		return Transient(ErrIOSaturated)
+	}
+	done := make(chan error, 1)
+	x.jobs <- func() { // never blocks: at most workers calls are handed off
+		defer x.give()
+		done <- call()
 	}
 	t := time.NewTimer(timeout)
 	defer t.Stop()
@@ -129,6 +138,24 @@ func (x *IOExecutor) run(ctx context.Context, op string, timeout time.Duration, 
 		x.abandonTrial()
 		return Transient(ctx.Err())
 	}
+}
+
+// take claims a worker for one call; false when every worker is busy.
+func (x *IOExecutor) take() bool {
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	if x.busy >= x.workers {
+		return false
+	}
+	x.busy++
+	return true
+}
+
+// give returns a worker take claimed, once its call returned.
+func (x *IOExecutor) give() {
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	x.busy--
 }
 
 // admit is the breaker: closed, open for breakerOpen after breakerTrips
