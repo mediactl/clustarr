@@ -412,6 +412,26 @@ func TestEveryRowOfTheStateMachine(t *testing.T) {
 			assert.Equal(t, catalogv1alpha1.BlockScopeItem, only(p).Block.Scope)
 		},
 	}, {
+		name: "usenet Downloading -> Blocklisted stalled past the client's opt-in stallTimeout",
+		view: func() lifecycle.View {
+			return usenetStalled(false)
+		},
+		check: func(t *testing.T, p lifecycle.Plan) {
+			assert.Equal(t, commonv1.DownloadPhaseBlocklisted, only(p).Phase)
+			assert.Equal(t, commonv1.DownloadFailureStalled, only(p).FailureReason)
+		},
+	}, {
+		name: "usenet Downloading waiting its turn is never stalled, however old its progress",
+		view: func() lifecycle.View {
+			return usenetStalled(true)
+		},
+		check: func(t *testing.T, p lifecycle.Plan) {
+			for _, e := range p.Entries {
+				assert.NotEqual(t, commonv1.DownloadPhaseBlocklisted, e.Phase)
+			}
+			assert.Empty(t, p.Blocks, "a transfer queued for a slot is the engine's wait, not the release's")
+		},
+	}, {
 		name: "healthPaused with healthAction delete -> Blocklisted missingArticles",
 		view: func() lifecycle.View {
 			e := usenetEntry(commonv1.DownloadPhaseDownloading)

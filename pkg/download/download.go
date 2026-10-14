@@ -302,6 +302,15 @@ type Item struct {
 	// Always false for a torrent.
 	HealthPaused bool
 
+	// WaitingTurn is true while a usenet client holds the transfer Queued
+	// for its turn: a free transfer slot (usenet.Config.MaxActive), a
+	// higher-priority transfer, or a free post-processing slot. None of it
+	// is the release's doing, so the manager's stall clock does not run
+	// then, and the transfer's LastProgressAt restarts when its turn comes.
+	// Always false for a torrent, whose Queued also covers a transfer with
+	// no peers, which is the release's doing.
+	WaitingTurn bool
+
 	// Message is the engine's latest human-readable note.
 	Message string
 

@@ -334,7 +334,7 @@ func (r *Reporter) record(h Held, state string) *schema.TransferRecord {
 		SeedTimeSeconds: int64(it.SeedTime / time.Second),
 		Seeders:         clampInt32(it.Seeders), Peers: clampInt32(it.Peers),
 		IsEncrypted: it.IsEncrypted, CanMoveFiles: it.CanMoveFiles, CanBeRemoved: it.CanBeRemoved,
-		SeedGoalReached: it.SeedGoalMet, HealthPaused: it.HealthPaused,
+		SeedGoalReached: it.SeedGoalMet, HealthPaused: it.HealthPaused, WaitingTurn: it.WaitingTurn,
 		EngineFailureReason: it.FailureReason,
 		Message:             download.ClampMessage(it.Message),
 		LastProgressAt:      it.LastProgressAt,
@@ -408,8 +408,9 @@ func (r *Reporter) writeEngine(ctx context.Context) error {
 
 // fingerprint is a record's change-worthy fields and its counters, apart.
 func fingerprint(rec *schema.TransferRecord) (string, string) {
-	fp := fmt.Sprintf("%s|%d|%s|%s|%t|%t|%t|%t|%s|%s|%t", rec.State, rec.Seq, rec.Stage, rec.EngineFailureReason,
-		rec.HealthPaused, rec.SeedGoalReached, rec.CanBeRemoved, rec.Claimed, rec.OutputPath, rec.ContentRoot, rec.IsEncrypted)
+	fp := fmt.Sprintf("%s|%d|%s|%s|%t|%t|%t|%t|%s|%s|%t|%t", rec.State, rec.Seq, rec.Stage, rec.EngineFailureReason,
+		rec.HealthPaused, rec.SeedGoalReached, rec.CanBeRemoved, rec.Claimed, rec.OutputPath, rec.ContentRoot, rec.IsEncrypted,
+		rec.WaitingTurn)
 	counters := fmt.Sprintf("%d|%d|%d|%d|%d|%d", rec.DownloadedBytes, rec.UploadedBytes, rec.RemainingBytes,
 		rec.ProgressPercent, rec.SeedTimeSeconds, rec.RatioMilli)
 	return fp, counters

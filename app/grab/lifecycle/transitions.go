@@ -250,7 +250,11 @@ func (d *decider) stalled(e *catalogv1alpha1.DownloadEntry, rec *schema.Transfer
 	if st == 0 && c.Protocol == commonv1.ProtocolTorrent {
 		st = StallTimeout
 	}
-	if st > 0 {
+	// A transfer the engine holds for its turn -- a usenet transfer slot,
+	// a higher-priority transfer, a post-processing slot -- is not
+	// stalling; its lastProgressAt restarts when its turn comes, and the
+	// record's change brings it back here.
+	if st > 0 && !rec.WaitingTurn {
 		last := rec.AddedAt
 		switch {
 		case rec.LastProgressAt != nil:

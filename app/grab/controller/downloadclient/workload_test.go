@@ -145,7 +145,8 @@ func TestBuildDeploymentShape(t *testing.T) {
 	require.Len(t, dep.Spec.Template.Spec.Containers, 1)
 	c := dep.Spec.Template.Spec.Containers[0]
 	assert.Equal(t, []string{binpath.Agent}, c.Command)
-	assert.Equal(t, []string{"--domain=usenet-engine", "--engine=nzb-0", "--data-dir=/data", "--scratch-dir=/scratch"}, c.Args)
+	assert.Equal(t, []string{"--domain=usenet-engine", "--engine=nzb-0", "--data-dir=/data", "--scratch-dir=/scratch",
+		"--pprof-bind-address=127.0.0.1:6060"}, c.Args)
 
 	require.Len(t, c.VolumeMounts, 3)
 	require.Len(t, dep.Spec.Template.Spec.Volumes, 3)
@@ -190,7 +191,8 @@ func TestScratchPathOnTheDataMountMountsNoScratchVolume(t *testing.T) {
 	c := dep.Spec.Template.Spec.Containers[0]
 	assert.Equal(t, []string{binpath.Agent}, c.Command)
 	assert.Equal(t, []string{"--domain=usenet-engine", "--engine=nzb-0", "--data-dir=/data",
-		"--scratch-dir=/data/usenet/incomplete", "--publish-dir=/data/usenet/complete"}, c.Args)
+		"--scratch-dir=/data/usenet/incomplete", "--publish-dir=/data/usenet/complete",
+		"--pprof-bind-address=127.0.0.1:6060"}, c.Args)
 	require.Len(t, c.VolumeMounts, 2, "data and /tmp only")
 	require.Len(t, dep.Spec.Template.Spec.Volumes, 2)
 	for _, v := range dep.Spec.Template.Spec.Volumes {

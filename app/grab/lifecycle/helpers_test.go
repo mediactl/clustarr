@@ -198,3 +198,17 @@ func actions(p lifecycle.Plan) []string {
 	}
 	return out
 }
+
+// usenetStalled is a usenet transfer two hours past its last article on a
+// client with a one-hour stallTimeout, waiting its turn in the engine or not.
+func usenetStalled(waitingTurn bool) lifecycle.View {
+	e := usenetEntry(commonv1.DownloadPhaseDownloading)
+	tr := record(e, seq0, commonv1.DownloadStageTransferring)
+	last := now.Add(-2 * time.Hour)
+	tr.Record.LastProgressAt = &last
+	tr.Record.WaitingTurn = waitingTurn
+	v := view([]catalogv1alpha1.DownloadEntry{e}, tr)
+	v.Clients[1].StallTimeout = time.Hour
+	steady(&v)
+	return v
+}

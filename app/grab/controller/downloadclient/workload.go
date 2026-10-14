@@ -498,8 +498,15 @@ func EngineCommand(dc *downloadv1alpha1.DownloadClient, dataDir, scratchDir stri
 	if publish != "" {
 		args = append(args, "--publish-dir="+publish)
 	}
-	return command, args
+	return command, append(args, "--pprof-bind-address="+EnginePprofAddress)
 }
+
+// EnginePprofAddress is where a usenet engine serves net/http/pprof: on the
+// pod's loopback only, so it is reached through kubectl port-forward and
+// never through a Service. A usenet engine's memory is its failure mode
+// (2026-10-14: OOM-killed seventy times in six days), and a heap profile is
+// the only way to tell its transfers, repairs and unpacks apart.
+const EnginePprofAddress = "127.0.0.1:6060"
 
 // torrentContainer builds the torrent engine's container. Its argv is
 // [EngineCommand]'s: the pod derives its ordinal from $POD_NAME in Go, so no

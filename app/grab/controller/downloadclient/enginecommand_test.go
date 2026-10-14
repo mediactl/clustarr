@@ -44,10 +44,14 @@ func TestEngineCommandRunsTheAgentWithOneDomain(t *testing.T) {
 			"--domain=torrent-engine", "--download-client=my-torrent-client",
 			"--data-dir=/data", "--scratch-dir=/data/torrents/incomplete",
 		}},
-		"usenet": {usenetClient("nzb"), []string{"--domain=usenet-engine", "--engine=nzb-0", "--data-dir=/data", "--scratch-dir=/scratch"}},
+		"usenet": {usenetClient("nzb"), []string{
+			"--domain=usenet-engine", "--engine=nzb-0", "--data-dir=/data", "--scratch-dir=/scratch",
+			"--pprof-bind-address=127.0.0.1:6060",
+		}},
 		"usenet publish": {published, []string{
 			"--domain=usenet-engine", "--engine=nzb-0", "--data-dir=/data",
 			"--scratch-dir=/scratch", "--publish-dir=/data/usenet/complete",
+			"--pprof-bind-address=127.0.0.1:6060",
 		}},
 	} {
 		t.Run(name, func(t *testing.T) {

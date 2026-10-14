@@ -1199,6 +1199,20 @@ exports the pinned ref every image build takes as a named context.
   transfer. Whole-percent health against a whole-percent floor decided a
   10 GB job at the margin once ("96%" that was 96.98% against 97), so the
   gate compares bytes, and the percentages in status are for reading only.
+- **A usenet engine ran every job at once, and OOM-looped seventy times
+  in six days (2026-10-14).** `Add` and re-attach started each job
+  immediately, each with a worker per connection of every provider, and
+  a restart resumed all of them -- two archives unpacking and a dozen
+  transfers -- past its 8 GiB, so every start ended the same way. Now
+  `usenet.Config.MaxActive` (2) jobs hold a transfer slot and
+  `MaxPostProcess` (1) post-process; the rest wait Queued
+  (`priority.go`: the best class, then the oldest; a paused or outranked
+  job gives its slot back). Such a wait is `Item.WaitingTurn`
+  (`TransferRecord.waitingTurn`), which stops the manager's stall clock,
+  and `lastProgressAt` restarts when the turn comes -- a queue is not a
+  stall. The engine serves pprof on `127.0.0.1:6060`
+  (`downloadclient.EnginePprofAddress`), reached through
+  `kubectl port-forward`.
 - **`exec.CommandContext` alone does not end a subprocess that has
   children.** Cancelling the context kills only the leader; a wrapper
   script's `sleep` (or par2's helpers) kept the stdout pipe open and

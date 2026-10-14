@@ -209,6 +209,9 @@ type TransferRecord struct {
 	CanBeRemoved    bool            `json:"canBeRemoved,omitempty"`
 	SeedGoalReached bool            `json:"seedGoalReached,omitempty"`
 	HealthPaused    bool            `json:"healthPaused,omitempty"`
+	// WaitingTurn is download.Item.WaitingTurn: the engine holds the
+	// transfer Queued for a slot, so the manager's stall clock stops.
+	WaitingTurn bool `json:"waitingTurn,omitempty"`
 	// EngineFailureReason is the engine's report, not the entry's verdict.
 	EngineFailureReason commonv1.DownloadFailureReason `json:"engineFailureReason,omitempty"`
 	// Message is at most MaxTransferMessage bytes.

@@ -177,7 +177,31 @@ type Config struct {
 	// or sync gap has a chance to close. Zero means
 	// [defaultArticleRetryDelay]; a negative value means no wait.
 	ArticleRetryDelay time.Duration
+
+	// MaxActive is how many jobs fetch articles at once; the rest wait
+	// Queued for a transfer slot (priority.go), the best class first and
+	// then the oldest. Zero means [defaultMaxActive].
+	MaxActive int
+
+	// MaxPostProcess is how many jobs verify, repair, unpack and publish
+	// at once; a finished transfer waits Queued for its turn. Zero means
+	// [defaultMaxPostProcess].
+	MaxPostProcess int
 }
+
+// defaultMaxActive is [Config.MaxActive]'s default. Without a cap every
+// job ran at once -- each re-attached at start, each with a worker per
+// connection of every provider -- and an engine resuming a dozen jobs
+// with two archives unpacking ran out of its 8 GiB on every start,
+// seventy times in six days (2026-10-14). SABnzbd and NZBGet fill their
+// connections from the head of the queue; two jobs keep them busy while
+// one finishes its tail.
+const defaultMaxActive = 2
+
+// defaultMaxPostProcess is [Config.MaxPostProcess]'s default: SABnzbd's
+// and NZBGet's (PostStrategy=sequential) one job at a time, since repair
+// and unpack are the engine's heaviest work.
+const defaultMaxPostProcess = 1
 
 // defaultProviderRetryDelay is [Config.ProviderRetryDelay]'s default. It is
 // the pool's own refused-connection penalty, so a retry lands just as a
@@ -211,8 +235,16 @@ type Client struct {
 
 	workers int
 
-	mu   sync.Mutex
-	jobs map[string]*job
+	// maxActive is Config.MaxActive with its default applied; the client
+	// lock guards slots, the jobs holding a transfer slot (priority.go).
+	maxActive int
+	// post holds one token per job verifying, repairing, unpacking or
+	// publishing: Config.MaxPostProcess of them.
+	post chan struct{}
+
+	mu    sync.Mutex
+	jobs  map[string]*job
+	slots map[*job]struct{}
 
 	closeOnce sync.Once
 	wg        sync.WaitGroup
@@ -288,6 +320,14 @@ func New(cfg Config) (download.Client, error) {
 	if freeBytes == nil {
 		freeBytes = fsops.FreeBytes
 	}
+	maxActive := cfg.MaxActive
+	if maxActive <= 0 {
+		maxActive = defaultMaxActive
+	}
+	maxPost := cfg.MaxPostProcess
+	if maxPost <= 0 {
+		maxPost = defaultMaxPostProcess
+	}
 	c := &Client{
 		cfg:       cfg,
 		freeBytes: freeBytes,
@@ -295,7 +335,10 @@ func New(cfg Config) (download.Client, error) {
 		repairer:  cfg.Repairer,
 		baseCtx:   context.Background(),
 		workers:   workers,
+		maxActive: maxActive,
+		post:      make(chan struct{}, maxPost),
 		jobs:      map[string]*job{},
+		slots:     map[*job]struct{}{},
 	}
 	if c.repairer == nil {
 		c.repairer = noRepairer{}
@@ -373,6 +416,13 @@ type job struct {
 	// reads it for other jobs under only the client lock, so it is atomic
 	// rather than guarded by mu. See [job.getPriority].
 	prio atomic.Value
+
+	// waitingSlot is true while the job waits for a transfer slot or behind
+	// a higher-priority transfer ([job.waitForTurn]), and waitingPost while
+	// it waits for its turn to post-process ([job.waitToPostProcess]);
+	// [download.Item.WaitingTurn] reports either.
+	waitingSlot atomic.Bool
+	waitingPost atomic.Bool
 
 	// addedAt is fixed at the first Add and restored from the manifest on
 	// re-attach, so it is read without mu too.
@@ -835,6 +885,7 @@ func (j *job) run(ctx context.Context) {
 	for {
 		j.setStage(commonv1alpha1.DownloadStageTransferring, download.StatusDownloading)
 		err := j.transfer(ctx)
+		j.client.releaseSlot(j)
 		if err == nil {
 			break
 		}
@@ -852,7 +903,14 @@ func (j *job) run(ctx context.Context) {
 		}
 	}
 
-	if err := j.postProcess(ctx); err != nil {
+	release, err := j.waitToPostProcess(ctx)
+	if err != nil {
+		j.abort(ctx, err)
+		return
+	}
+	err = j.postProcess(ctx)
+	release()
+	if err != nil {
 		j.abort(ctx, err)
 		return
 	}
@@ -1310,6 +1368,9 @@ func (j *job) item() download.Item {
 		// is, since a transfer that already started keeps its partial files.
 		status = download.StatusQueued
 		message = "waiting for higher-priority transfers to finish"
+	case j.waitingSlot.Load() && status == download.StatusDownloading:
+		status = download.StatusQueued
+		message = fmt.Sprintf("waiting for a free transfer slot (%d at once)", j.client.maxActive)
 	}
 
 	var progress int32
@@ -1349,8 +1410,10 @@ func (j *job) item() download.Item {
 		OutputPath:      j.outputPath,
 		IsEncrypted:     j.encrypted,
 		HealthPaused:    j.healthPaused && j.pausedLocked(),
-		Message:         message,
-		AddedAt:         j.addedAt,
+		WaitingTurn: !j.pausedLocked() && (j.waitingSlot.Load() || j.waitingPost.Load() ||
+			(outranked && j.status == download.StatusDownloading)),
+		Message: message,
+		AddedAt: j.addedAt,
 		Health: &download.Health{
 			HealthPercent:         health,
 			CriticalHealthPercent: j.nzb.criticalHealthPercent(),

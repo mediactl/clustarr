@@ -128,16 +128,122 @@ func (j *job) waitWhilePaused(ctx context.Context) error {
 	return ctx.Err()
 }
 
-// waitForTurn blocks while j is paused or outranked. Partial files stay on
+// waitForTurn blocks while j is paused or outranked, or until it holds one
+// of the client's Config.MaxActive transfer slots. Partial files stay on
 // disk, which is what makes waiting cheap: resuming re-fetches only the
 // articles the bitsets still show missing.
+//
+// A paused or outranked job gives its slot back, so a health-paused job or
+// a normal one behind a high one never holds a slot it is not using. A job
+// that waited counts its stall time from the moment it got its turn, as the
+// engine's stall watcher already does for a pause: the wait is the queue's
+// time, not the release's.
 func (j *job) waitForTurn(ctx context.Context) error {
-	for j.paused.Load() || j.client.outranked(j) {
+	waited := false
+	for {
+		switch {
+		case j.paused.Load():
+			j.client.releaseSlot(j)
+		case j.client.outranked(j):
+			j.client.releaseSlot(j)
+			j.waitingSlot.Store(true)
+		case j.client.admit(j):
+			j.waitingSlot.Store(false)
+			if waited {
+				j.mu.Lock()
+				j.lastProgress = time.Now()
+				j.mu.Unlock()
+			}
+			return ctx.Err()
+		default:
+			j.waitingSlot.Store(true)
+		}
+		waited = true
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-time.After(turnPollInterval):
 		}
 	}
-	return ctx.Err()
+}
+
+// admit gives j a transfer slot if it holds one already, or if one is free
+// and no job ahead of it is waiting for one: the higher class first, then
+// the earlier Add (jobAhead). A higher-class job waiting for a slot also
+// outranks every lower-class holder (outranked counts it as transferring),
+// so they give theirs back at their next batch.
+//
+// Lock order: the client lock alone; other jobs are read through their
+// atomics.
+func (c *Client) admit(j *job) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, ok := c.slots[j]; ok {
+		return true
+	}
+	if len(c.slots) >= c.maxActive {
+		return false
+	}
+	for _, o := range c.jobs {
+		if _, holds := c.slots[o]; holds || o == j || !o.waitingSlot.Load() || o.paused.Load() {
+			continue
+		}
+		if jobAhead(o, j) {
+			return false
+		}
+	}
+	c.slots[j] = struct{}{}
+	return true
+}
+
+// releaseSlot gives back j's transfer slot, if it holds one.
+func (c *Client) releaseSlot(j *job) {
+	j.waitingSlot.Store(false)
+	c.mu.Lock()
+	delete(c.slots, j)
+	c.mu.Unlock()
+}
+
+// jobAhead reports whether a takes a free transfer slot before b: the
+// higher priority class, then the earlier Add, then the id, so the order
+// is total.
+func jobAhead(a, b *job) bool {
+	ra, rb := priorityRank(a.getPriority()), priorityRank(b.getPriority())
+	if ra != rb {
+		return ra > rb
+	}
+	if !a.addedAt.Equal(b.addedAt) {
+		return a.addedAt.Before(b.addedAt)
+	}
+	return a.id < b.id
+}
+
+// waitToPostProcess takes one of the client's Config.MaxPostProcess
+// tokens, waiting Queued in the verifying stage while every one is taken,
+// and returns the func that gives it back. Waiting there rather than in
+// the transferring stage keeps a finished high-class job from outranking
+// lower-class transfers while it waits.
+func (j *job) waitToPostProcess(ctx context.Context) (func(), error) {
+	release := func() { <-j.client.post }
+	select {
+	case j.client.post <- struct{}{}:
+		return release, nil
+	default:
+	}
+	j.setStage(commonv1.DownloadStageVerifying, download.StatusQueued)
+	j.mu.Lock()
+	j.message = "waiting for another download to finish repairing and unpacking"
+	j.mu.Unlock()
+	j.waitingPost.Store(true)
+	defer j.waitingPost.Store(false)
+	select {
+	case j.client.post <- struct{}{}:
+		j.mu.Lock()
+		j.message = ""
+		j.lastProgress = time.Now()
+		j.mu.Unlock()
+		return release, nil
+	case <-ctx.Done():
+		return func() {}, ctx.Err()
+	}
 }
