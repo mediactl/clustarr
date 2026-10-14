@@ -632,3 +632,32 @@ func TestATunerCountChangeIsItsOwnNotice(t *testing.T) {
 	_ = resp.Body.Close()
 	assert.Equal(t, snapshots, h.notifed.Load(), "no snapshot notice for a tune")
 }
+
+// ADR-0021 §2: every object in a store describes itself -- its store's
+// meta-version, what it is and who wrote it -- so an audit can tell objects
+// apart without parsing their names.
+func TestEveryStoredObjectDescribesItself(t *testing.T) {
+	p := newProvider(t)
+	store := newStore(t)
+	h := start(t, store, config(p.srv.URL))
+	h.fetched(t)
+	ctx := context.Background()
+	require.Eventually(t, func() bool {
+		_, err := store.Info(ctx, tuner.BlockGuideObject(key, "1001"))
+		return err == nil
+	}, 5*time.Second, 10*time.Millisecond)
+	infos, err := store.List(ctx, "")
+	require.NoError(t, err)
+	kinds := map[string]bool{}
+	for _, info := range infos {
+		md := info.Metadata
+		assert.Equal(t, events.LiveTVMetaVersion, md[events.ObjectMetaKeyVersion], info.Name)
+		kind, _, _ := strings.Cut(info.Name, "/")
+		assert.Equal(t, kind, md[events.ObjectMetaKeyKind], info.Name)
+		assert.True(t, strings.HasPrefix(md[events.ObjectMetaKeyWrittenBy], "manager@"), "%s: %q", info.Name, md[events.ObjectMetaKeyWrittenBy])
+		kinds[kind] = true
+	}
+	assert.Equal(t, map[string]bool{
+		events.LiveTVMetaKindPlaylist: true, events.LiveTVMetaKindGuideChannels: true, events.LiveTVMetaKindGuide: true,
+	}, kinds)
+}

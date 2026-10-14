@@ -1225,7 +1225,10 @@ func defaultObjectStores() []ObjectStoreSpec {
 			Storage:     StorageFile,
 			MaxBytes:    LiveTVMaxBytes,
 			Replicas:    3,
-			Metadata:    map[string]string{BucketMetaKeyKeyScheme: LiveTVKeyScheme},
+			Metadata: map[string]string{
+				BucketMetaKeyKeyScheme: LiveTVKeyScheme,
+				ObjectMetaKeyVersion:   LiveTVMetaVersion,
+			},
 		},
 	}
 }

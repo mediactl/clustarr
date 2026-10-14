@@ -40,6 +40,10 @@ func TestObjectStoresCarryTheirKeyScheme(t *testing.T) {
 			events.BucketMetaKeyKeyScheme: events.FingerprintKeyScheme,
 			events.ObjectMetaKeyVersion:   events.FingerprintMetaVersion,
 		},
+		events.BucketLiveTV: {
+			events.BucketMetaKeyKeyScheme: events.LiveTVKeyScheme,
+			events.ObjectMetaKeyVersion:   events.LiveTVMetaVersion,
+		},
 	}
 	got := map[string]bool{}
 	for _, o := range events.Default().ObjectStores {

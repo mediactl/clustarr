@@ -202,6 +202,20 @@ const LiveTVMaxBytes int64 = 1 * GiB
 // metadata.
 const LiveTVKeyScheme = "playlist/<ns>/<name> | guide-channels/<ns>/<name>/<guide> | guide/<ns>/<name>"
 
+// LiveTVMetaVersion is the version of the metadata set every BucketLiveTV
+// object carries (ADR-0021 §2), under ObjectMetaKeyVersion: its
+// ObjectMetaKeyKind, which is its key's first segment, and
+// ObjectMetaKeyWrittenBy. Raise it when the set changes.
+const LiveTVMetaVersion = "1"
+
+// The ObjectMetaKeyKind of each BucketLiveTV object, the first segment of
+// its key.
+const (
+	LiveTVMetaKindPlaylist      = "playlist"
+	LiveTVMetaKindGuideChannels = "guide-channels"
+	LiveTVMetaKindGuide         = "guide"
+)
+
 // ArtworkVariant is "original" or "overlay", the last token of an
 // ArtworkKey and the Clustarr-Rendered-From-bearing half of the split
 // between the metadata gateway and the renderer (spec §B.2, §B.3).

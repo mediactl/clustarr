@@ -31,7 +31,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/iptv"
 	"github.com/mediactl/clustarr/pkg/iptv/m3u"
 	"github.com/mediactl/clustarr/pkg/iptv/xmltv"
@@ -298,8 +297,7 @@ func (t *Tuner) putGzip(ctx context.Context, name string, b []byte, contentType 
 	zw := gzip.NewWriter(&zb)
 	_, _ = zw.Write(b)
 	_ = zw.Close()
-	meta := events.ObjectMeta{Headers: map[string]string{"Content-Type": contentType, "Content-Encoding": "gzip"}}
-	if _, err := t.o.Store.Put(ctx, name, &zb, meta); err != nil {
+	if _, err := t.o.Store.Put(ctx, name, &zb, objectMeta(name, contentType)); err != nil {
 		logging.FromContext(ctx).Warn("livetv: store object", "object", name, "err", err)
 	}
 }
