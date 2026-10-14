@@ -32,6 +32,7 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/controller/book"
 	"github.com/mediactl/clustarr/app/catalog/controller/comic"
 	"github.com/mediactl/clustarr/app/catalog/controller/episode"
+	"github.com/mediactl/clustarr/app/catalog/controller/folderscan"
 	"github.com/mediactl/clustarr/app/catalog/controller/issue"
 	"github.com/mediactl/clustarr/app/catalog/controller/movie"
 	"github.com/mediactl/clustarr/app/catalog/controller/series"
@@ -50,7 +51,8 @@ func TestItemsRunEveryItemKind(t *testing.T) {
 	bus := membus.New(nil)
 	t.Cleanup(func() { _ = bus.Close() })
 	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).Build()
-	got := items(c, k8s.MustNewScheme(), recorder, bus)
+	env := &remediation.Env{IO: remediation.NewIOExecutor(1), DataDir: "/data"}
+	got := items(c, k8s.MustNewScheme(), recorder, bus, env)
 	assert.ElementsMatch(t, []remediation.KeyKind{remediation.KindMovie, remediation.KindEpisode, remediation.KindAlbum,
 		remediation.KindBook, remediation.KindAudiobook, remediation.KindIssue, remediation.KindSeries, remediation.KindComic},
 		slices.Collect(maps.Keys(got)))
@@ -77,6 +79,9 @@ func TestItemsRunEveryItemKind(t *testing.T) {
 	ser, ok := got[remediation.KindSeries].(*series.Reconciler)
 	require.True(t, ok)
 	assert.Same(t, bus, ser.Bus)
+	// The folder scan a series' first episodes ask for (smoke finding O8)
+	// reads /data through the loop's own executor.
+	assert.Equal(t, folderscan.Probe{IO: env.IO, DataDir: "/data"}, ser.Folders)
 	com, ok := got[remediation.KindComic].(*comic.Reconciler)
 	require.True(t, ok)
 	assert.Same(t, bus, com.Bus)

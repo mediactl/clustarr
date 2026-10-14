@@ -223,8 +223,9 @@ func (a *Applier) present(ctx context.Context, obs schema.ScanObservation, t *ta
 		}
 		created = made
 		if ref.Kind == commonv1.MediaKindSeries {
-			// A new series has no episodes yet: its files await them, and a
-			// later scan attributes them (the walk counted it).
+			// A new series has no episodes yet: its files await them (the
+			// walk counted it), and the scan of its folder its first
+			// episodes ask for attributes them (folderscan, smoke O8).
 			return nil
 		}
 	} else if existing == nil {

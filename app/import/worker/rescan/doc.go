@@ -87,7 +87,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //     numbering the file's name carries (fileimport.MatchEpisodes, which
 //     the import worker uses too). A folder's TheTVDB id that no series
 //     has creates the Series, pinned to that folder; its files await its
-//     episodes (Progress.AwaitingEpisodes) until a later scan. A file
+//     episodes (Progress.AwaitingEpisodes) until the scan of its folder
+//     those episodes ask for (app/catalog/controller/folderscan). A file
 //     holding several episodes is one MediaFile naming them all in
 //     spec.mediaRef.keys.
 //

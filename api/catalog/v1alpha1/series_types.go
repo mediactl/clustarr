@@ -31,6 +31,12 @@ const (
 	SeriesConditionMetadataReady = "MetadataReady"
 	// SeriesConditionEpisodesSynced is True once the Episode objects match the metadata.
 	SeriesConditionEpisodesSynced = "EpisodesSynced"
+	// SeriesConditionFolderScanned records the one scan of the series'
+	// folder its first episodes ask for (Sonarr's RefreshSeries, then
+	// RescanSeries): False while it is owed, True once a LibraryScan of the
+	// folder was created or the folder held nothing to scan. Absent on a
+	// series whose episodes were listed before it existed.
+	SeriesConditionFolderScanned = "FolderScanned"
 )
 
 // SeriesPhase is the coarse lifecycle state of a series.

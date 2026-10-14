@@ -185,7 +185,7 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	// which embeds the events.k8s.io EventRecorder the item reconcilers hold.
 	recorder := func(name string) k8sevents.EventRecorder { return mgr.GetEventRecorder(name) }
 	r.Items = remediation.ItemReconciler{
-		Items:    items(mgr.GetClient(), mgr.GetScheme(), recorder, bus),
+		Items:    items(mgr.GetClient(), mgr.GetScheme(), recorder, bus, env),
 		Stages:   Stages(d),
 		Env:      env,
 		Dispatch: o.Dispatch, Book: o.Book, Inbox: o.Inbox, DeliveryWakes: o.DeliveryWakes,

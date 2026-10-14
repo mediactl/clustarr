@@ -40,6 +40,7 @@ import (
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/app/catalog/controller/folderscan"
 	"github.com/mediactl/clustarr/app/catalog/controller/itempass"
 	"github.com/mediactl/clustarr/app/catalog/controller/itemstatus"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
@@ -154,6 +155,11 @@ type Reconciler struct {
 	Scheme   *runtime.Scheme
 	Recorder k8sevents.EventRecorder
 	Bus      bus
+
+	// Folders reads a series' folder when its first episodes ask for a scan
+	// of it (folderscan.Pass, smoke finding O8): the remediation loop's
+	// /data executor in the manager. Nil asks for no scan.
+	Folders folderscan.Folders
 
 	// OnReconcile is a test-only hook, called at the top of every Reconcile.
 	// It is nil-checked so production callers never need to set it.
@@ -394,6 +400,12 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, s *catalogv1alpha1.Ser
 		k8s.MarkTrue(s, &conditions, catalogv1alpha1.SeriesConditionMetadataReady, k8s.ReasonReconciled, "metadata is fresh")
 	}
 
+	// The series' RootFolder and folder, once its metadata is cached: what
+	// the folder scan its first episodes ask for needs (folderscan.Pass).
+	var (
+		root   *catalogv1alpha1.RootFolder
+		folder string
+	)
 	if s.Status.Metadata != nil {
 		var rf catalogv1alpha1.RootFolder
 		if err := r.Get(ctx, types.NamespacedName{Namespace: s.Namespace, Name: s.Spec.RootFolderRef}, &rf); err != nil {
@@ -451,6 +463,7 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, s *catalogv1alpha1.Ser
 			return ctrl.Result{}, err
 		}
 		statusAC = statusAC.WithPath(pth)
+		root, folder = &rf, pth
 	}
 
 	// Episode-listing RPC fan-out (last step, per §8.1): a failure here
@@ -496,6 +509,22 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, s *catalogv1alpha1.Ser
 		statusAC = statusAC.WithPreviousAiring(*roll.PreviousAiring)
 	}
 
+	// Sonarr's RefreshSeries, then RescanSeries (smoke finding O8): a scan
+	// attributes an episode file only to an Episode that exists, so the files
+	// of a series a scan (or Add New, or an import list) created before its
+	// episodes were listed waited for the next scan. The pass that first
+	// lists them owes the series' folder one scan, recorded in the
+	// FolderScanned condition; a series whose status already held its
+	// episodes owes none.
+	folderScan := folderscan.Pass(ctx, r.Client, r.Folders, folderscan.Request{
+		Item: s, Root: root, Path: folder,
+		HadChildren: len(s.Status.Seasons) > 0, HasChildren: len(episodes) > 0, Children: "episodes",
+		FieldManager: k8s.ManagerCatalog, Now: now,
+	}, &conditions)
+	if folderScan.Scan != "" {
+		r.normal(s, "FolderScanRequested", "LibraryScan %s scans the series' folder for the files its first episodes awaited", folderScan.Scan)
+	}
+
 	phase := Phase(monitored, metaReady, fan.synced)
 	statusAC = statusAC.WithPhase(phase)
 
@@ -516,15 +545,26 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, s *catalogv1alpha1.Ser
 		return ctrl.Result{}, cascadeErr
 	}
 	if syncErr != nil {
-		return ctrl.Result{RequeueAfter: episodeSyncRPCBackoff}, nil
+		return ctrl.Result{RequeueAfter: soonest(episodeSyncRPCBackoff, folderScan.Retry)}, nil
 	}
 	// nextAiring moves when an episode airs, and nothing else wakes this
 	// controller then (the Owns() watch fires on HasFile only), so come back
 	// just after it.
 	if roll.NextAiring != nil {
-		return ctrl.Result{RequeueAfter: roll.NextAiring.Sub(now) + time.Second}, nil
+		return ctrl.Result{RequeueAfter: soonest(roll.NextAiring.Sub(now)+time.Second, folderScan.Retry)}, nil
 	}
-	return ctrl.Result{}, nil
+	return ctrl.Result{RequeueAfter: folderScan.Retry}, nil
+}
+
+// soonest is the earlier of two requeue delays, zero meaning none.
+func soonest(a, b time.Duration) time.Duration {
+	if a <= 0 {
+		return b
+	}
+	if b <= 0 {
+		return a
+	}
+	return min(a, b)
 }
 
 // seasonACs renders the per-season rollup. It is the one place a

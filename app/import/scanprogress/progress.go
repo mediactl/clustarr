@@ -180,8 +180,9 @@ type Progress struct {
 	// TheTVDB id, whose episode list the Series controller fans out only
 	// once its metadata arrives. They are attributable, just not yet, so
 	// they are counted rather than listed in the capped Unmatched, where
-	// thousands of them would evict the files that need a person; a later
-	// scan attributes them.
+	// thousands of them would evict the files that need a person. The
+	// series' own folder scan attributes them once its first episodes are
+	// listed (app/catalog/controller/folderscan, smoke finding O8).
 	AwaitingEpisodes int64 `json:"awaitingEpisodes,omitempty"`
 
 	// NotMedia, Parts, Extras and Samples count the files the walk did not
@@ -235,7 +236,7 @@ func (p Progress) Summary() string {
 	}
 	fmt.Fprintf(&b, ", %d unmatched", len(p.Unmatched))
 	if p.AwaitingEpisodes > 0 {
-		fmt.Fprintf(&b, "; %d awaiting the episodes of their series, which a later scan attributes", p.AwaitingEpisodes)
+		fmt.Fprintf(&b, "; %d awaiting the episodes of their series, which each series' own folder scan attributes once they are listed", p.AwaitingEpisodes)
 	}
 	if p.HandedOver > 0 {
 		fmt.Fprintf(&b, "; %d transcoded files changed on disk, handed to catalog", p.HandedOver)

@@ -48,7 +48,8 @@ import (
 // episodes until the Series controller fans them out from its metadata --
 // not something a walk can wait on -- so its files are counted in
 // Progress.AwaitingEpisodes, as are those of any series whose episodes have
-// not arrived, and a later scan attributes them.
+// not arrived, and the scan of the series' folder its first episodes ask
+// for attributes them (app/catalog/controller/folderscan).
 //
 // The series is identified by the file's folder, in layers, each exact:
 // the series' own resolved folder (status.path); a TheTVDB id in the first

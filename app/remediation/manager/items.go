@@ -27,6 +27,7 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/controller/book"
 	"github.com/mediactl/clustarr/app/catalog/controller/comic"
 	"github.com/mediactl/clustarr/app/catalog/controller/episode"
+	"github.com/mediactl/clustarr/app/catalog/controller/folderscan"
 	"github.com/mediactl/clustarr/app/catalog/controller/issue"
 	"github.com/mediactl/clustarr/app/catalog/controller/movie"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
@@ -45,7 +46,10 @@ import (
 // (rpc.catalog.metadata.lookup), behind its ReleaseCache; Episode and
 // Issue fetch no metadata of their own, but every kind publishes its catalog
 // item and file events, and a nil Bus publishes nothing.
-func items(c client.Client, s *runtime.Scheme, recorder func(name string) k8sevents.EventRecorder, bus events.Bus) map[remediation.KeyKind]rollup.Item {
+//
+// A Series reads its folder through env's /data executor when its first
+// episodes ask for a scan of it (folderscan, smoke finding O8).
+func items(c client.Client, s *runtime.Scheme, recorder func(name string) k8sevents.EventRecorder, bus events.Bus, env *remediation.Env) map[remediation.KeyKind]rollup.Item {
 	return map[remediation.KeyKind]rollup.Item{
 		remediation.KindMovie:   &movie.Reconciler{Client: c, Scheme: s, Recorder: recorder("movie"), Bus: bus},
 		remediation.KindEpisode: &episode.Reconciler{Client: c, Scheme: s, Recorder: recorder("episode"), Bus: bus},
@@ -59,7 +63,10 @@ func items(c client.Client, s *runtime.Scheme, recorder func(name string) k8seve
 		// The grab owners of episodes and issues (ADR-0019 §6.1, A3.2): the
 		// controllers named "series" and "comic" are gone, their recorders
 		// keep the names.
-		remediation.KindSeries: &series.Reconciler{Client: c, Scheme: s, Recorder: recorder("series"), Bus: bus},
-		remediation.KindComic:  &comic.Reconciler{Client: c, Scheme: s, Recorder: recorder("comic"), Bus: bus},
+		remediation.KindSeries: &series.Reconciler{
+			Client: c, Scheme: s, Recorder: recorder("series"), Bus: bus,
+			Folders: folderscan.Probe{IO: env.IO, DataDir: env.DataDir},
+		},
+		remediation.KindComic: &comic.Reconciler{Client: c, Scheme: s, Recorder: recorder("comic"), Bus: bus},
 	}
 }
