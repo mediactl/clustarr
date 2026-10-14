@@ -167,6 +167,11 @@ func TestManagerLinksNoAgentCode(t *testing.T) {
 		// planners and admission are the manager's (§4.4).
 		regexp.MustCompile(`^app/transcode/(jobspec|task|grafttask|transcodeplan|graftplan|admission)$`),
 		regexp.MustCompile(`^app/caption/(providerset|throttle|itemindex|datapath|subtitleplan)$`),
+		// Live TV runs in the manager beside its controllers (Live TV design
+		// 2026-10-07, §5): the tuner serves each block's HDHomeRun device and
+		// guide, the relay shares one upstream per channel, and index is the
+		// controllers' field indexes.
+		regexp.MustCompile(`^app/livetv/(index|relay|tuner)$`),
 	})
 }
 
