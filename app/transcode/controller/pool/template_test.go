@@ -186,6 +186,47 @@ func TestBuildJobPassesUmask(t *testing.T) {
 	assert.False(t, set, "no UMASK is invented when the controller has none")
 }
 
+// TestPoolPodsGetTheirGOMEMLIMIT (smoke finding O9's sweep of the pods the
+// manager builds): a pool pod -- and so a graft Job's, which runs the cpu
+// pool's template -- gets GOMEMLIMIT at 60% of its memory limit, the share
+// OD42 gives every process whose FFmpeg allocates outside the Go heap,
+// rounded as the chart's clustarr.gomemlimit rounds. A profile whose
+// resources set no memory limit gets none: its operator sized it, and a
+// transcode's memory is FFmpeg's, which a GOMEMLIMIT cannot bound.
+func TestPoolPodsGetTheirGOMEMLIMIT(t *testing.T) {
+	gomemlimit := func(tp *transcodev1alpha1.TranscodeProfile, class transcodev1alpha1.Hardware) (string, bool) {
+		for _, e := range Template(tp, class, Config{}).Spec.Containers[0].Env {
+			if e.Name == "GOMEMLIMIT" {
+				return e.Value, true
+			}
+		}
+		return "", false
+	}
+	withResources := func(rr corev1.ResourceRequirements) *transcodev1alpha1.TranscodeProfile {
+		tp := profile()
+		tp.Spec.Resources = rr
+		return tp
+	}
+
+	got, ok := gomemlimit(&transcodev1alpha1.TranscodeProfile{}, transcodev1alpha1.HardwareCPU)
+	require.True(t, ok, "the floored default (4Gi) pool, which every graft Job runs, sets GOMEMLIMIT")
+	assert.Equal(t, "2576980378", got, "60%% of 4Gi")
+
+	big := withResources(corev1.ResourceRequirements{Limits: corev1.ResourceList{
+		corev1.ResourceCPU: resource.MustParse("8"), corev1.ResourceMemory: resource.MustParse("8Gi"),
+	}})
+	for _, class := range []transcodev1alpha1.Hardware{transcodev1alpha1.HardwareCPU, transcodev1alpha1.HardwareNVIDIA, transcodev1alpha1.HardwareIntel} {
+		got, ok := gomemlimit(big, class)
+		require.True(t, ok, string(class))
+		assert.Equal(t, "5153960755", got, "%s: 60%% of 8Gi, whatever a GPU pool requests", class)
+	}
+
+	_, ok = gomemlimit(withResources(corev1.ResourceRequirements{Limits: corev1.ResourceList{
+		corev1.ResourceCPU: resource.MustParse("4"),
+	}}), transcodev1alpha1.HardwareCPU)
+	assert.False(t, ok, "no memory limit, no GOMEMLIMIT")
+}
+
 // A pool pod's CLUSTARR_CPU_LIMIT is the pool size its plan was made with:
 // the Downward API's limits.cpu (rounded up) when the container has a CPU
 // limit, and otherwise a literal -- the CPU request rounded up, else the

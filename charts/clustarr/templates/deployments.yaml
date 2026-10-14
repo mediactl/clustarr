@@ -12,10 +12,12 @@ creates those at runtime, owned by the object that asked for them.
 {{- $fullname := include "clustarr.fullname" . }}
 {{- $dataClaim := default (printf "%s-data" $fullname) .Values.storage.data.existingClaim }}
 {{- $facadeSecret := include "clustarr.facadeAPIKeySecret" . }}
-{{- /* The fold's flags (loop spec §3.7, §3.17, §5.13), as
-       config/manager/manager.yaml passes them. */}}
+{{- /* The fold's flags (loop spec §3.7, §3.17, §5.13) and the engines'
+       default memory limits, as config/manager/manager.yaml passes them. */}}
 {{- $managerArgs := list (printf "--slots=%s" .Values.manager.slots)
       (printf "--graft-concurrency=%d" (int .Values.manager.graftConcurrency))
+      (printf "--engine-memory-limit-torrent=%s" .Values.manager.engineMemoryLimits.torrent)
+      (printf "--engine-memory-limit-usenet=%s" .Values.manager.engineMemoryLimits.usenet)
       (printf "--remediation-concurrency=%d" (int .Values.manager.remediation.concurrency))
       (printf "--remediation-bulk-writes-per-second=%d" (int .Values.manager.remediation.bulkWritesPerSecond))
       (printf "--remediation-io-workers=%d" (int .Values.manager.remediation.ioWorkers)) }}

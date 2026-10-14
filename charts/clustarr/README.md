@@ -229,8 +229,11 @@ Deployments the manager's DownloadClient controller creates per
 `DownloadClient` at runtime -- those get their resources from
 `DownloadClient.spec.resources`, a CRD field this chart never renders. The
 same 80% calculation is made again in `app/grab/controller/downloadclient`
-(Go, not a template) from whatever memory limit that `DownloadClient`
-carries.
+(Go, not a template) from that `DownloadClient`'s memory limit, or, when its
+`spec.resources` sets none, from `manager.engineMemoryLimits` (the manager's
+`--engine-memory-limit-usenet`/`-torrent`, `8Gi` and `2Gi`): an engine never
+runs without a limit and a `GOMEMLIMIT`. Without them a usenet engine's
+garbage grew to 20.7 GiB; under `8Gi` it plateaus near 5.5 GB.
 
 ## Autoscaling
 
@@ -457,6 +460,7 @@ template.
 | `manager.cardigann.bundled` | Load the Cardigann corpus compiled into the binary (`--cardigann-bundled`). See [Cardigann definitions](#cardigann-definitions). | `true` |
 | `manager.cardigann.definitions.configMap`/`.existingClaim`/`.subPath` | A ConfigMap or PVC of definition files, mounted read-only into the manager as `--cardigann-definitions-dir`, **replacing** the corpus; one, not both. | `""` |
 | `manager.graftConcurrency` | Audio grafts running at once in the namespace (`--graft-concurrency`): the admission ledger's graft slots, each a CPU pod of a cpu pool's size. | `2` |
+| `manager.engineMemoryLimits.usenet`/`.torrent` | Memory limit of a download engine pod whose `DownloadClient.spec.resources` sets none (`--engine-memory-limit-usenet`/`-torrent`); its `GOMEMLIMIT` is 80% of it and it requests `512Mi`. A `DownloadClient`'s own memory limit wins. See [GOMEMLIMIT](#gomemlimit). | `8Gi`, `2Gi` |
 | `manager.remediation.concurrency` | MediaFiles and items the remediation loop reconciles at once (`--remediation-concurrency`, 1-64). | `16` |
 | `manager.remediation.bulkWritesPerSecond` | MediaFile status applies per second that no grant, answer, intent or first probe caused (`--remediation-bulk-writes-per-second`); `0` disables the pacing. | `25` |
 | `manager.remediation.ioWorkers` | Goroutines for the loop's `/data` calls (`--remediation-io-workers`, 1-64). | `8` |

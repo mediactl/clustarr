@@ -315,6 +315,19 @@ manager:
   # Audio grafts running at once in the namespace (--graft-concurrency): the
   # admission ledger's graft slots, each a CPU pod of a cpu pool's size.
   graftConcurrency: 2
+  # The memory limit a download engine pod gets when its DownloadClient's
+  # spec.resources sets none (--engine-memory-limit-torrent/-usenet); the
+  # engine's GOMEMLIMIT is 80% of it, and it requests 512Mi (or the limit,
+  # if lower). A DownloadClient's own memory limit always wins. Without a
+  # limit an engine had no GOMEMLIMIT and kept its garbage: a usenet engine
+  # grew to 20.7 GiB, and with 8Gi it plateaued near 5.5 GB.
+  engineMemoryLimits:
+    # Ten concurrent transfers over up to 160 NNTP connections, each
+    # pipelining yEnc articles, plus assembly and unpack buffers.
+    usenet: 8Gi
+    # Piece bitmaps and per-peer request state for a few hundred torrents;
+    # piece data goes to files, not the heap.
+    torrent: 2Gi
   # The MediaFile remediation loop (ADR-0016; loop spec §3.7, §3.17).
   remediation:
     # MediaFiles and items reconciled at once (--remediation-concurrency, 1-64).

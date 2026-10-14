@@ -532,7 +532,12 @@ type DownloadClientSpec struct {
 	// +optional
 	Usenet *UsenetSpec `json:"usenet,omitempty"`
 
-	// Resources is the resource requirements of each engine replica.
+	// Resources is the resource requirements of each engine replica. When
+	// it sets no memory limit the engine still gets one, its protocol's
+	// default (the manager's --engine-memory-limit-usenet, 8Gi, or
+	// --engine-memory-limit-torrent, 2Gi; or the memory request when that is
+	// higher), with a 512Mi memory request when it sets none. GOMEMLIMIT is
+	// 80% of the memory limit either way.
 	// +optional
 	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
 

@@ -29,6 +29,7 @@ import (
 	"fmt"
 	"os"
 
+	"k8s.io/apimachinery/pkg/api/resource"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	"github.com/mediactl/clustarr/app/grab/controller/downloadclient"
@@ -58,6 +59,12 @@ type Options struct {
 
 	// EngineServiceAccount is the account every engine pod runs as.
 	EngineServiceAccount string
+
+	// EngineMemoryLimitTorrent and EngineMemoryLimitUsenet are the memory
+	// limit of an engine pod whose DownloadClient sets none
+	// (downloadclient.EngineRuntime); zero is the package default.
+	EngineMemoryLimitTorrent resource.Quantity
+	EngineMemoryLimitUsenet  resource.Quantity
 }
 
 // Cache contributions: none beyond today's Secret DisableFor, which the
@@ -99,12 +106,15 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 // engine pod from this process (downloadclient.EngineRuntime): the engine
 // ServiceAccount, this controller's own bus address -- the engine joins the
 // same JetStream the manager does, and waits for the topology the manager
-// ensures (spec §3.5.5) -- and its $UMASK (design §11), the same
-// pass-through the transcode pools get.
+// ensures (spec §3.5.5) -- its $UMASK (design §11), the same
+// pass-through the transcode pools get, and the default memory limits of an
+// engine whose DownloadClient sets none (smoke finding O9).
 func engineRuntime(o Options) downloadclient.EngineRuntime {
 	return downloadclient.EngineRuntime{
 		ServiceAccountName: o.EngineServiceAccount,
 		NATSURL:            o.NATSURL,
 		Umask:              os.Getenv("UMASK"),
+		TorrentMemoryLimit: o.EngineMemoryLimitTorrent,
+		UsenetMemoryLimit:  o.EngineMemoryLimitUsenet,
 	}
 }

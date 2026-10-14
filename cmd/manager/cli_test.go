@@ -252,6 +252,28 @@ func TestManagerValidatesTheRemediationFlags(t *testing.T) {
 	assert.Equal(t, 1, o.RemediationIOWorkers)
 }
 
+// The engines' default memory limits (smoke finding O9) are the manager's
+// flags, per protocol, defaulting to downloadclient's; a limit that is not a
+// positive quantity is refused before anything starts.
+func TestEngineMemoryLimitFlags(t *testing.T) {
+	clearInstallerEnv(t)
+	o, err := parse(t, "--native-image=n")
+	require.NoError(t, err)
+	assert.Equal(t, "2Gi", o.EngineMemoryLimitTorrent.String())
+	assert.Equal(t, "8Gi", o.EngineMemoryLimitUsenet.String())
+
+	o, err = parse(t, "--native-image=n", "--engine-memory-limit-torrent=3Gi", "--engine-memory-limit-usenet=6Gi")
+	require.NoError(t, err)
+	assert.Equal(t, "3Gi", o.EngineMemoryLimitTorrent.String())
+	assert.Equal(t, "6Gi", o.EngineMemoryLimitUsenet.String())
+
+	for _, arg := range []string{"--engine-memory-limit-torrent=0", "--engine-memory-limit-usenet=-1Gi",
+		"--engine-memory-limit-usenet=lots"} {
+		_, err := parse(t, "--native-image=n", arg)
+		assert.ErrorContains(t, err, strings.SplitN(arg, "=", 2)[0], "%s was accepted", arg)
+	}
+}
+
 // Every flag the split merged, renamed or dropped is refused rather than
 // silently ignored: a manifest still passing one fails at start.
 func TestRetiredFlagsAreGone(t *testing.T) {

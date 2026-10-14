@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 
+	"github.com/mediactl/clustarr/app/grab/controller/downloadclient"
 	"github.com/mediactl/clustarr/internal/cli/manager"
 	"github.com/mediactl/clustarr/pkg/binpath"
 	"github.com/mediactl/clustarr/test/installtest"
@@ -108,6 +109,25 @@ func TestInstallerArgsParseAsTheManager(t *testing.T) {
 			assert.Equal(t, tc.defsDir == "", got.CardigannBundled)
 		})
 	}
+}
+
+// TestManagerCarriesTheEngineMemoryLimits (smoke finding O9): both
+// installers hand the manager the engines' default memory limits, the
+// chart's from manager.engineMemoryLimits, and the parsed values are the
+// binary's own defaults -- an installer that drifts from them is a choice
+// made here, not by accident.
+func TestManagerCarriesTheEngineMemoryLimits(t *testing.T) {
+	for name, out := range map[string]func() []byte{
+		"helm":      func() []byte { return installtest.RenderChart(t) },
+		"kustomize": func() []byte { return installtest.BuildKustomize(t, "config/default") },
+	} {
+		args := renderedContainer(t, installtest.DecodeRendered(t, out()), "manager").Args
+		assert.Contains(t, args, "--engine-memory-limit-torrent="+downloadclient.DefaultTorrentMemoryLimit, "%s's manager args", name)
+		assert.Contains(t, args, "--engine-memory-limit-usenet="+downloadclient.DefaultUsenetMemoryLimit, "%s's manager args", name)
+	}
+	out := installtest.RenderChart(t, "--set", "manager.engineMemoryLimits.usenet=12Gi")
+	args := renderedContainer(t, installtest.DecodeRendered(t, out), "manager").Args
+	assert.Contains(t, args, "--engine-memory-limit-usenet=12Gi", "the chart renders manager.engineMemoryLimits")
 }
 
 // TestManagerCarriesTheFoldFlags (loop spec §3.7, §3.17, §5.13): both

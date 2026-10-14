@@ -22,6 +22,7 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+	"k8s.io/apimachinery/pkg/api/resource"
 
 	transcodemanager "github.com/mediactl/clustarr/app/transcode/manager"
 	"github.com/mediactl/clustarr/internal/cli"
@@ -60,6 +61,7 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 	common := ctrlflags.BindManager(fs)
 	d := DefaultOptions()
 	var slots, renderGroups string
+	memoryLimitTorrent, memoryLimitUsenet := d.EngineMemoryLimitTorrent.String(), d.EngineMemoryLimitUsenet.String()
 
 	fs.StringVar(&d.DataDir, "data-dir", d.DataDir,
 		"RWX media volume, mounted read-write: renames, library deletes, "+
@@ -79,6 +81,13 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 		"ServiceAccount the engine pods run as; it must hold the engine's RBAC "+
 			"(config/rbac/grab_engine_role.yaml). Defaults to $"+cli.EnvEngineServiceAccount+", then "+
 			d.EngineServiceAccount+".")
+
+	fs.StringVar(&memoryLimitTorrent, "engine-memory-limit-torrent", memoryLimitTorrent,
+		"Memory limit of a torrent engine pod whose DownloadClient's spec.resources sets none; its GOMEMLIMIT is "+
+			"80% of it, and it requests 512Mi (or the limit, if lower). A DownloadClient's own memory limit wins.")
+	fs.StringVar(&memoryLimitUsenet, "engine-memory-limit-usenet", memoryLimitUsenet,
+		"Memory limit of a usenet engine pod whose DownloadClient's spec.resources sets none; its GOMEMLIMIT is "+
+			"80% of it, and it requests 512Mi. A DownloadClient's own memory limit wins.")
 
 	fs.StringVar(&slots, "slots", transcodemanager.FormatSlots(d.Slots),
 		"Concurrent transcode budget per hardware class, e.g. cpu=2,nvidia=1,intel=1. "+
@@ -166,6 +175,12 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 		}
 		if o.IntelRenderGroups, err = ctrlflags.ParseGIDs(renderGroups); err != nil {
 			return fmt.Errorf("--intel-render-groups: %w", err)
+		}
+		if o.EngineMemoryLimitTorrent, err = resource.ParseQuantity(memoryLimitTorrent); err != nil {
+			return fmt.Errorf("--engine-memory-limit-torrent %q: %w", memoryLimitTorrent, err)
+		}
+		if o.EngineMemoryLimitUsenet, err = resource.ParseQuantity(memoryLimitUsenet); err != nil {
+			return fmt.Errorf("--engine-memory-limit-usenet %q: %w", memoryLimitUsenet, err)
 		}
 		if err := o.Validate(); err != nil {
 			return err

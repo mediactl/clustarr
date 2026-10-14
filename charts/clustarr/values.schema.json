@@ -178,7 +178,7 @@
     "manager": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["slots", "intelRenderGroups", "gpuNodeLabelNvidia", "gpuNodeLabelIntel", "cardigann", "graftConcurrency", "remediation", "resources", "nodeSelector", "tolerations", "affinity"],
+      "required": ["slots", "intelRenderGroups", "gpuNodeLabelNvidia", "gpuNodeLabelIntel", "cardigann", "graftConcurrency", "engineMemoryLimits", "remediation", "resources", "nodeSelector", "tolerations", "affinity"],
       "description": "Every controller in one process: one replica under the lease manager.clustarr.io, so there is no replicas key.",
       "properties": {
         "slots": {
@@ -230,6 +230,16 @@
           "type": "integer",
           "minimum": 1,
           "description": "Audio grafts running at once in the namespace (--graft-concurrency): the admission ledger's graft slots."
+        },
+        "engineMemoryLimits": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["usenet", "torrent"],
+          "description": "The memory limit a download engine pod gets when its DownloadClient's spec.resources sets none; its GOMEMLIMIT is 80% of it. A DownloadClient's own memory limit wins.",
+          "properties": {
+            "usenet": { "$ref": "#/$defs/quantity", "description": "--engine-memory-limit-usenet." },
+            "torrent": { "$ref": "#/$defs/quantity", "description": "--engine-memory-limit-torrent." }
+          }
         },
         "remediation": {
           "type": "object",

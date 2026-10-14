@@ -111,11 +111,51 @@ const (
 //
 // There is no single-node switch: an engine never ensures the topology. It
 // waits for the manager to create it (busconn.AwaitTopology, spec §3.5.5).
+//
+// TorrentMemoryLimit and UsenetMemoryLimit are the memory limit an engine
+// pod of each protocol gets when its DownloadClient's spec.resources sets
+// none (--engine-memory-limit-torrent, --engine-memory-limit-usenet); zero is
+// [DefaultTorrentMemoryLimit] or [DefaultUsenetMemoryLimit]. See
+// [engineResources].
 type EngineRuntime struct {
 	ServiceAccountName string
 	NATSURL            string
 	Umask              string
+
+	TorrentMemoryLimit resource.Quantity
+	UsenetMemoryLimit  resource.Quantity
 }
+
+// The engines' default memory limits, the manager's
+// --engine-memory-limit-torrent and --engine-memory-limit-usenet defaults.
+// Without a limit an engine had no GOMEMLIMIT either, and Go's collector,
+// pacing only on GOGC, let garbage grow with the transfers: a usenet engine
+// reached 20.7 GiB on a host with 5 GB free (smoke finding O9), and with an
+// 8Gi limit (GOMEMLIMIT 6.4 GB) the same load plateaued near 5.5 GB.
+//
+//   - usenet, 8Gi: ten concurrent transfers over up to 160 NNTP
+//     connections, each pipelining articles of ~750 KB through yEnc decode,
+//     plus assembly and rardecode buffers -- several GiB under load is the
+//     working set, not a leak (the live plateau above). par2 repairs run in
+//     child processes (pkg/par2child) outside the Go heap, so the limit
+//     leaves them the fifth GOMEMLIMIT does not take.
+//   - torrent, 2Gi: anacrolix keeps per-torrent piece bitmaps and per-peer
+//     request state (docs/research/download.md: realistic for hundreds of
+//     torrents per pod, design §12's ceiling is 500) and at most
+//     MaxUnverifiedBytes (64 MiB) of unhashed chunks; piece data goes to
+//     files under /data, not the heap. It holds memory after Drop
+//     (anacrolix/torrent#930), which is what a GOMEMLIMIT reclaims.
+const (
+	DefaultTorrentMemoryLimit = "2Gi"
+	DefaultUsenetMemoryLimit  = "8Gi"
+)
+
+// defaultEngineMemoryRequest is the memory request an engine given a
+// default limit asks for, capped at that limit: an idle engine's footprint.
+// Left unset the apiserver would copy the limit into the request, and an
+// 8Gi request reserves most of a small node for a pod that idles far below
+// it, or leaves it unschedulable there.
+const defaultEngineMemoryRequest = "512Mi"
 
 // DefaultEngineServiceAccount is the ServiceAccount the installers create
 // for the engine pods and bind to the engine role. The chart's is
@@ -124,17 +164,61 @@ type EngineRuntime struct {
 const DefaultEngineServiceAccount = "grab-engine"
 
 // gomemlimitFraction is design §12's "GOMEMLIMIT = 80 % of limit" for the
-// torrent engines: the Downward API can only give the whole limit, so the
-// controller computes the soft limit itself, as the chart's
+// engines, both protocols: the Downward API can only give the whole limit,
+// so the controller computes the soft limit itself, as the chart's
 // clustarr.gomemlimit helper does for the Deployments it renders.
 const gomemlimitFraction = 0.8
 
+// engineResources is an engine container's resources: dc's spec.resources
+// as they are when they set a memory limit; otherwise with defaultLimit (the
+// protocol's, from [EngineRuntime]) as the memory limit -- or the
+// DownloadClient's own memory request when that is higher, since the
+// apiserver refuses a limit below the request -- and, when it sets no memory
+// request, [defaultEngineMemoryRequest] capped at that limit. Everything
+// else in spec.resources is carried as it is.
+func engineResources(dc *downloadv1alpha1.DownloadClient, defaultLimit resource.Quantity) corev1.ResourceRequirements {
+	rr := *dc.Spec.Resources.DeepCopy()
+	if limit, ok := rr.Limits[corev1.ResourceMemory]; ok && !limit.IsZero() {
+		return rr
+	}
+	limit := defaultLimit.DeepCopy()
+	request, asked := rr.Requests[corev1.ResourceMemory]
+	asked = asked && !request.IsZero()
+	if asked && request.Cmp(limit) > 0 {
+		limit = request.DeepCopy()
+	}
+	if rr.Limits == nil {
+		rr.Limits = corev1.ResourceList{}
+	}
+	rr.Limits[corev1.ResourceMemory] = limit
+	if !asked {
+		request = resource.MustParse(defaultEngineMemoryRequest)
+		if request.Cmp(limit) > 0 {
+			request = limit.DeepCopy()
+		}
+		if rr.Requests == nil {
+			rr.Requests = corev1.ResourceList{}
+		}
+		rr.Requests[corev1.ResourceMemory] = request
+	}
+	return rr
+}
+
+// memoryLimitOr is q, or the parsed fallback when q is zero.
+func memoryLimitOr(q resource.Quantity, fallback string) resource.Quantity {
+	if q.IsZero() {
+		return resource.MustParse(fallback)
+	}
+	return q
+}
+
 // engineEnv is every engine container's environment: POD_NAMESPACE and
-// POD_NAME always, then whatever of rt the controller has, then GOMEMLIMIT when the
-// DownloadClient sets a memory limit. GOMEMLIMIT is rendered exactly as the
-// chart's helper renders it -- 80% of the limit in bytes, "%.0f" -- so a
-// Deployment's and an engine's soft limit read as one convention.
-func engineEnv(dc *downloadv1alpha1.DownloadClient, rt EngineRuntime) []*corev1ac.EnvVarApplyConfiguration {
+// POD_NAME always, then whatever of rt the controller has, then GOMEMLIMIT
+// from the container's memory limit ([engineResources], which always sets
+// one). GOMEMLIMIT is rendered exactly as the chart's helper renders it --
+// 80% of the limit in bytes, "%.0f" -- so a Deployment's and an engine's
+// soft limit read as one convention.
+func engineEnv(rr corev1.ResourceRequirements, rt EngineRuntime) []*corev1ac.EnvVarApplyConfiguration {
 	env := []*corev1ac.EnvVarApplyConfiguration{
 		corev1ac.EnvVar().WithName("POD_NAMESPACE").WithValueFrom(corev1ac.EnvVarSource().
 			WithFieldRef(corev1ac.ObjectFieldSelector().WithFieldPath("metadata.namespace"))),
@@ -147,7 +231,7 @@ func engineEnv(dc *downloadv1alpha1.DownloadClient, rt EngineRuntime) []*corev1a
 	if rt.Umask != "" {
 		env = append(env, corev1ac.EnvVar().WithName("UMASK").WithValue(rt.Umask))
 	}
-	if limit, ok := dc.Spec.Resources.Limits[corev1.ResourceMemory]; ok && !limit.IsZero() {
+	if limit, ok := rr.Limits[corev1.ResourceMemory]; ok && !limit.IsZero() {
 		soft := strconv.FormatFloat(float64(limit.Value())*gomemlimitFraction, 'f', 0, 64)
 		env = append(env, corev1ac.EnvVar().WithName("GOMEMLIMIT").WithValue(soft))
 	}
@@ -440,6 +524,7 @@ func torrentContainer(dc *downloadv1alpha1.DownloadClient, image, dataDir, scrat
 		mounts = append(mounts, corev1ac.VolumeMount().WithName(scratchVolumeName).WithMountPath(scratchDir))
 	}
 	cmd, args := EngineCommand(dc, dataDir, scratchDir)
+	rr := engineResources(dc, memoryLimitOr(rt.TorrentMemoryLimit, DefaultTorrentMemoryLimit))
 
 	return corev1ac.Container().
 		WithName(engineContainerName).
@@ -450,8 +535,8 @@ func torrentContainer(dc *downloadv1alpha1.DownloadClient, image, dataDir, scrat
 			WithName("peer").
 			WithContainerPort(listenPort).
 			WithProtocol(corev1.ProtocolTCP)).
-		WithEnv(engineEnv(dc, rt)...).
-		WithResources(resourceRequirementsAC(dc.Spec.Resources)).
+		WithEnv(engineEnv(rr, rt)...).
+		WithResources(resourceRequirementsAC(rr)).
 		WithSecurityContext(containerSecurityContextAC()).
 		WithVolumeMounts(mounts...)
 }
@@ -469,13 +554,14 @@ func usenetContainer(dc *downloadv1alpha1.DownloadClient, image, dataDir, scratc
 		mounts = append(mounts, corev1ac.VolumeMount().WithName(scratchVolumeName).WithMountPath(scratch))
 	}
 	mounts = append(mounts, corev1ac.VolumeMount().WithName(tmpVolumeName).WithMountPath(tmpDir))
+	rr := engineResources(dc, memoryLimitOr(rt.UsenetMemoryLimit, DefaultUsenetMemoryLimit))
 	return corev1ac.Container().
 		WithName(engineContainerName).
 		WithImage(image).
 		WithCommand(cmd...).
 		WithArgs(args...).
-		WithEnv(engineEnv(dc, rt)...).
-		WithResources(resourceRequirementsAC(dc.Spec.Resources)).
+		WithEnv(engineEnv(rr, rt)...).
+		WithResources(resourceRequirementsAC(rr)).
 		WithSecurityContext(containerSecurityContextAC()).
 		WithVolumeMounts(mounts...)
 }

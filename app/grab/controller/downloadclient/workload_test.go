@@ -359,11 +359,14 @@ func TestEnginePodsGetTheRuntimeTheyNeed(t *testing.T) {
 		bare := buildStatefulSet(torrentClient("sab", 1), "sab-engine", "img", "/data", "/scratch", "clustarr-data",
 			EngineRuntime{ServiceAccountName: DefaultEngineServiceAccount}, nil, fakeOwnerRef())
 		c := bare.Spec.Template.Spec.Containers[0]
+		// GOMEMLIMIT is the default limit's (O9:
+		// TestAnEngineWithoutAMemoryLimitGetsItsProtocolsDefault).
 		assert.Equal(t, map[string]string{
 			"POD_NAMESPACE": "fieldRef:metadata.namespace",
 			"POD_NAME":      "fieldRef:metadata.name",
+			"GOMEMLIMIT":    "1717986918",
 		}, envOf(c.Env),
-			"GOMEMLIMIT, NATS_URL and UMASK are set only when there is something to set them to")
+			"NATS_URL and UMASK are set only when there is something to set them to")
 		assert.NotContains(t, strings.Join(append(c.Command, c.Args...), " "), "nats-single-node")
 	})
 
@@ -371,6 +374,83 @@ func TestEnginePodsGetTheRuntimeTheyNeed(t *testing.T) {
 		r := NewReconciler(nil, nil, "/data", "/scratch", "img")
 		assert.Equal(t, DefaultEngineServiceAccount, r.Engine.ServiceAccountName)
 	})
+}
+
+// TestAnEngineWithoutAMemoryLimitGetsItsProtocolsDefault is smoke finding
+// O9: a usenet engine whose DownloadClient set no spec.resources ran with no
+// memory limit and no GOMEMLIMIT, and grew to 20.7 GiB of mostly garbage on
+// a host with 5 GB free -- the collector never ran hard without a limit to
+// aim at. An engine whose spec.resources sets no memory limit gets its
+// protocol's default limit, a request far below it (the scheduler must not
+// reserve the whole ceiling), and the GOMEMLIMIT that limit implies; a
+// DownloadClient's own memory limit still wins, untouched.
+func TestAnEngineWithoutAMemoryLimitGetsItsProtocolsDefault(t *testing.T) {
+	memoryOf := func(spec *corev1ac.PodSpecApplyConfiguration) (limit, request, gomemlimit string) {
+		c := spec.Containers[0]
+		require.NotNil(t, c.Resources, "the engine container has no resources")
+		if c.Resources.Limits != nil {
+			if q, ok := (*c.Resources.Limits)[corev1.ResourceMemory]; ok {
+				limit = q.String()
+			}
+		}
+		if c.Resources.Requests != nil {
+			if q, ok := (*c.Resources.Requests)[corev1.ResourceMemory]; ok {
+				request = q.String()
+			}
+		}
+		return limit, request, envOf(c.Env)["GOMEMLIMIT"]
+	}
+	usenet := func(rt EngineRuntime, rr corev1.ResourceRequirements) *corev1ac.PodSpecApplyConfiguration {
+		dc := usenetClient("nzb")
+		dc.Spec.Resources = rr
+		return buildDeployment(dc, "nzb-engine", "img", "/data", "/scratch", "clustarr-data", rt, nil, fakeOwnerRef()).Spec.Template.Spec
+	}
+	torrent := func(rt EngineRuntime, rr corev1.ResourceRequirements) *corev1ac.PodSpecApplyConfiguration {
+		dc := torrentClient("qbt", 1)
+		dc.Spec.Resources = rr
+		return buildStatefulSet(dc, "qbt-engine", "img", "/data", "/scratch", "clustarr-data", rt, nil, fakeOwnerRef()).Spec.Template.Spec
+	}
+	none := corev1.ResourceRequirements{}
+
+	for name, tc := range map[string]struct {
+		spec                       *corev1ac.PodSpecApplyConfiguration
+		limit, request, gomemlimit string
+	}{
+		// 80% of 8Gi and of 2Gi, rendered as the chart's clustarr.gomemlimit
+		// renders a Deployment's.
+		"usenet, no resources":  {spec: usenet(EngineRuntime{}, none), limit: "8Gi", request: "512Mi", gomemlimit: "6871947674"},
+		"torrent, no resources": {spec: torrent(EngineRuntime{}, none), limit: "2Gi", request: "512Mi", gomemlimit: "1717986918"},
+		"usenet, CPU only": {
+			spec:  usenet(EngineRuntime{}, corev1.ResourceRequirements{Limits: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")}}),
+			limit: "8Gi", request: "512Mi", gomemlimit: "6871947674",
+		},
+		// A request above the default lifts the limit to it: a limit below
+		// the request is one the apiserver refuses.
+		"usenet, a request above the default": {
+			spec:  usenet(EngineRuntime{}, corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("10Gi")}}),
+			limit: "10Gi", request: "10Gi", gomemlimit: "8589934592",
+		},
+		"usenet, its own limit": {
+			spec:  usenet(EngineRuntime{}, corev1.ResourceRequirements{Limits: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("12Gi")}}),
+			limit: "12Gi", request: "", gomemlimit: "10307921510",
+		},
+		// The manager's --engine-memory-limit-usenet and -torrent.
+		"usenet, the manager's default": {
+			spec:  usenet(EngineRuntime{UsenetMemoryLimit: resource.MustParse("6Gi")}, none),
+			limit: "6Gi", request: "512Mi", gomemlimit: "5153960755",
+		},
+		"torrent, the manager's default below the request default": {
+			spec:  torrent(EngineRuntime{TorrentMemoryLimit: resource.MustParse("256Mi")}, none),
+			limit: "256Mi", request: "256Mi", gomemlimit: "214748365",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			limit, request, gomemlimit := memoryOf(tc.spec)
+			assert.Equal(t, tc.limit, limit, "memory limit")
+			assert.Equal(t, tc.request, request, "memory request")
+			assert.Equal(t, tc.gomemlimit, gomemlimit, "GOMEMLIMIT")
+		})
+	}
 }
 
 // TestTorrentEngineHashCoversTheProxyAndItsSecret: the torrent engine reads

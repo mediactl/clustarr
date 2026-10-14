@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/api/resource"
 
 	"github.com/mediactl/clustarr/app/grab/controller/downloadclient"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -41,11 +42,16 @@ func TestEngineRuntimeCarriesTheControllerOptions(t *testing.T) {
 	o := Options{
 		Options:              k8s.Options{NATSURL: "nats://nats.media.svc:4222"},
 		EngineServiceAccount: "media-clustarr-grab-engine",
+		// --engine-memory-limit-torrent and -usenet (smoke finding O9).
+		EngineMemoryLimitTorrent: resource.MustParse("3Gi"),
+		EngineMemoryLimitUsenet:  resource.MustParse("6Gi"),
 	}
 
 	require.Equal(t, downloadclient.EngineRuntime{
 		ServiceAccountName: "media-clustarr-grab-engine",
 		NATSURL:            "nats://nats.media.svc:4222",
 		Umask:              "002",
+		TorrentMemoryLimit: resource.MustParse("3Gi"),
+		UsenetMemoryLimit:  resource.MustParse("6Gi"),
 	}, engineRuntime(o))
 }

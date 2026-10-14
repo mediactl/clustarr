@@ -330,7 +330,8 @@ func register(mgr ctrl.Manager, bus events.Bus, o Options) ([]string, error) {
 			return grabmanager.Register(mgr, bus, grabmanager.Options{
 				Options: o.Options, DataDir: o.DataDir,
 				ScratchDir: o.EngineScratchDir, EngineImage: o.NativeImage, DataClaimName: o.DataClaim,
-				EngineServiceAccount: o.EngineServiceAccount,
+				EngineServiceAccount:     o.EngineServiceAccount,
+				EngineMemoryLimitTorrent: o.EngineMemoryLimitTorrent, EngineMemoryLimitUsenet: o.EngineMemoryLimitUsenet,
 			})
 		}},
 		{"transcode", func() error {

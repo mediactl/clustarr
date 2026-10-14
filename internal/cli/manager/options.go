@@ -26,6 +26,7 @@ import (
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -74,6 +75,11 @@ type Options struct {
 	DataClaim string
 	// EngineServiceAccount is the ServiceAccount the engine pods run as.
 	EngineServiceAccount string
+	// EngineMemoryLimitTorrent and EngineMemoryLimitUsenet are the memory
+	// limit an engine pod gets when its DownloadClient's spec.resources sets
+	// none, which also sets its GOMEMLIMIT (smoke finding O9).
+	EngineMemoryLimitTorrent resource.Quantity
+	EngineMemoryLimitUsenet  resource.Quantity
 
 	Slots             map[string]int32
 	IntelRenderGroups []int64
@@ -125,6 +131,8 @@ func DefaultOptions() Options {
 	o.LeaderElect = true
 	o.DataDir, o.EngineScratchDir = "/data", "/scratch"
 	o.DataClaim, o.EngineServiceAccount = downloadclient.DefaultDataClaimName, downloadclient.DefaultEngineServiceAccount
+	o.EngineMemoryLimitTorrent = resource.MustParse(downloadclient.DefaultTorrentMemoryLimit)
+	o.EngineMemoryLimitUsenet = resource.MustParse(downloadclient.DefaultUsenetMemoryLimit)
 	o.Slots = transcodemanager.DefaultSlots()
 	o.NodeLabelNVIDIA, o.NodeLabelIntel = pool.DefaultNodeLabelNVIDIA, pool.DefaultNodeLabelIntel
 	o.JobWindow = transcodemanager.DefaultJobWindow
@@ -160,6 +168,14 @@ func (o Options) Validate() error {
 	} {
 		if msgs := validation.IsQualifiedName(l.key); len(msgs) > 0 {
 			errs = append(errs, fmt.Errorf("%s %q: %s", l.flag, l.key, strings.Join(msgs, "; ")))
+		}
+	}
+	for _, l := range []struct {
+		flag  string
+		limit resource.Quantity
+	}{{"--engine-memory-limit-torrent", o.EngineMemoryLimitTorrent}, {"--engine-memory-limit-usenet", o.EngineMemoryLimitUsenet}} {
+		if l.limit.Sign() <= 0 {
+			errs = append(errs, fmt.Errorf("%s %s: must be a positive quantity, e.g. 8Gi", l.flag, l.limit.String()))
 		}
 	}
 	if o.RemediationConcurrency < 1 || o.RemediationConcurrency > 64 {
