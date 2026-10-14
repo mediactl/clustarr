@@ -171,6 +171,12 @@ cluster-plex:
       tokenSecret: plex-token
       pathMappings:
         - {clustarr: /data/media, plex: /media}
+    # Live TV (cluster-plex 0.4.0): the lease holder adds this release's
+    # IPTVProviders to Plex as DVRs, one per block, and every Plex pod serves
+    # each block's port on a link-local address to the livetv Service. On
+    # with livetv.enabled above, which it follows; set both false together.
+    liveTV:
+      enabled: true
 
 # CloudNativePG: the Postgres operator itself. A separate toggle from
 # postgres.enabled on purpose -- most clusters install an operator like this

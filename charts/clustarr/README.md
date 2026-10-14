@@ -407,6 +407,11 @@ to `storage.data.existingClaim` when you bring your own claim (the default is
 identity clients already know, and set `cluster-plex.image.tag` and
 `cluster-plex.remux.image.tag` to the images you run.
 
+Live TV (cluster-plex 0.4.0) is on with `livetv.enabled`: `cluster-plex.plex.liveTV.enabled`
+(default true) has the Plex lease holder add this release's IPTVProviders to
+Plex as DVRs, one per block, and every Plex pod serve each block's port on a
+link-local address to the `<release>-livetv` Service. Set both false together.
+
 ## Values
 
 The full reference is `values.yaml` itself -- every value has a comment

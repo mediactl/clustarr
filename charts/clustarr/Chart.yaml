@@ -54,6 +54,6 @@ dependencies:
 # templates/plex-db.yaml's CloudNativePG Cluster, and it reads the library
 # from storage.data's claim. Published by cluster-plex's `make chart-push`.
 - name: cluster-plex
-  version: 0.3.0
+  version: 0.4.0
   repository: oci://ghcr.io/mediactl/charts
   condition: cluster-plex.enabled
