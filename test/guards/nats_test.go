@@ -22,8 +22,64 @@ import (
 	"regexp"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+
 	"github.com/mediactl/clustarr/test/installtest"
 )
+
+// natsContainer is the "nats" container of the one NATS StatefulSet an
+// installer renders.
+func natsContainer(t *testing.T, out []byte) corev1.Container {
+	t.Helper()
+	var found []corev1.Container
+	for _, obj := range installtest.Objects(t, out) {
+		if obj.GetKind() != "StatefulSet" {
+			continue
+		}
+		var sts appsv1.StatefulSet
+		require.NoError(t, runtime.DefaultUnstructuredConverter.FromUnstructured(obj.Object, &sts))
+		for _, c := range sts.Spec.Template.Spec.Containers {
+			if c.Name == "nats" {
+				found = append(found, c)
+			}
+		}
+	}
+	require.Len(t, found, 1, "NATS server containers")
+	return found[0]
+}
+
+// TestBothInstallersSizeNATSForAReconnectStorm is smoke finding O10: the
+// chart's NATS ran with a 1Gi memory limit and was OOM-killed when every
+// client reconnected at once during the first upgrade of a library of
+// 15,000 episodes and 12,000 files. Both installers run it with a 2Gi limit,
+// a 512Mi request and GOMEMLIMIT 1800MiB -- the server's soft limit under the
+// cgroup's, so its collector runs hard before the kernel kills it.
+func TestBothInstallersSizeNATSForAReconnectStorm(t *testing.T) {
+	root, err := filepath.Abs("../..")
+	require.NoError(t, err)
+	helm := installtest.FindTool(t, "helm")
+	kustomize := installtest.FindTool(t, "kustomize")
+	for name, out := range map[string][]byte{
+		"helm template charts/clustarr":  installtest.Run(t, root, helm, "template", "clustarr", "charts/clustarr"),
+		"kustomize build config/default": installtest.Run(t, root, kustomize, "build", "config/default"),
+	} {
+		c := natsContainer(t, out)
+		limit, request := c.Resources.Limits[corev1.ResourceMemory], c.Resources.Requests[corev1.ResourceMemory]
+		assert.Equal(t, "2Gi", limit.String(), "%s: the NATS memory limit", name)
+		assert.Equal(t, "512Mi", request.String(), "%s: the NATS memory request", name)
+		var gomemlimit string
+		for _, e := range c.Env {
+			if e.Name == "GOMEMLIMIT" {
+				gomemlimit = e.Value
+			}
+		}
+		assert.Equal(t, "1800MiB", gomemlimit, "%s: the NATS server's GOMEMLIMIT", name)
+	}
+}
 
 // TestBothInstallersRaiseTheNATSMaxPayload holds the chart's NATS
 // configuration to the limit config/nats/configmap.yaml has always set

@@ -34,6 +34,10 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.name
+        # The server's soft limit under the 2Gi below (smoke finding O10;
+        # the chart's nats.container.env sets the same).
+        - name: GOMEMLIMIT
+          value: 1800MiB
         ports:
         - name: nats
           containerPort: 4222
@@ -60,13 +64,17 @@ spec:
           preStop:
             exec:
               command: ["nats-server", "-sl=ldm=/var/run/nats/nats.pid"]
+        # Sized for a reconnect storm: with 1Gi the server was OOM-killed when
+        # every client reconnected at once during an upgrade on a library of
+        # 15,000 episodes and 12,000 files (smoke finding O10). The chart's
+        # nats.container.merge.resources sets the same.
         resources:
           requests:
             cpu: 100m
-            memory: 256Mi
+            memory: 512Mi
           limits:
             cpu: "1"
-            memory: 1Gi
+            memory: 2Gi
         securityContext:
           allowPrivilegeEscalation: false
           readOnlyRootFilesystem: true

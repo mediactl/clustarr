@@ -411,8 +411,9 @@ func (t Topology) StreamForSubject(subject string) (StreamSpec, bool) {
 // It exists because switching storage without resizing is not a safe
 // translation. The production topology reserves roughly 8 GiB across its
 // streams, which is unremarkable on disk and impossible in memory: the
-// single-node NATS in config/nats sets max_memory_store to 256Mi on a pod
-// with a 1Gi limit, so the reservations are rejected and every controller
+// single-node NATS in config/nats sets max_memory_store to 256Mi (on a pod
+// with a 2Gi limit, smoke finding O10; the store's cap, not the pod's, is
+// the ceiling here), so the reservations are rejected and every controller
 // CrashLoopBackOffs on the first stream it tries to create. 64 MiB leaves
 // room for the buckets and for NATS' own overhead inside that ceiling.
 const singleNodeMemoryBudget = 64 * MiB

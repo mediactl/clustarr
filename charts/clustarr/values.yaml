@@ -74,15 +74,24 @@ nats:
   # The NATS dashboards' exporter (prometheus-nats-exporter).
   promExporter:
     enabled: false
+  # Sized for a reconnect storm, not the steady state: with 1Gi the server
+  # was OOM-killed when every client reconnected at once during the first
+  # upgrade of a library of 15,000 episodes and 12,000 files (smoke finding
+  # O10), each reconnect re-sending its subscriptions and consumer pulls
+  # while JetStream recovered its streams. GOMEMLIMIT is the server's soft
+  # limit under the cgroup's, so its collector works hard before the kernel
+  # kills it. config/nats/statefulset.yaml sets the same.
   container:
+    env:
+      GOMEMLIMIT: 1800MiB
     merge:
       resources:
         requests:
           cpu: 100m
-          memory: 256Mi
+          memory: 512Mi
         limits:
           cpu: "1"
-          memory: 1Gi
+          memory: 2Gi
 
 # --------------------------------------------------------------------------
 # Release index on Postgres (optional, design spec 2026-09-24 §A; ADR-0010)

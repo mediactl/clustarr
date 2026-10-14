@@ -439,6 +439,7 @@ template.
 | `nats.enabled` | Install the bundled `nats` subchart. | `true` |
 | `nats.config.cluster.replicas` | NATS cluster size; R3 in production, drop to 1 on kind. | `3` |
 | `nats.config.jetstream.fileStore.pvc.size` | JetStream file store PVC size. | `20Gi` |
+| `nats.container.merge.resources` / `nats.container.env.GOMEMLIMIT` | The NATS server's resources and Go soft limit, sized for every client reconnecting at once: `1Gi` was OOM-killed during an upgrade on a library of 15,000 episodes and 12,000 files. Keep `GOMEMLIMIT` below the memory limit. | `512Mi` request, `2Gi` limit, `1800MiB` |
 | `postgres.enabled` | Run the index agent's release index on a CloudNativePG `Cluster` instead of local SQLite. See [Postgres release index](#postgres-release-index). | `false` |
 | `postgres.cluster.instances` | CNPG `Cluster.spec.instances` (Postgres streaming replicas). | `1` |
 | `postgres.cluster.storage.size`/`.storageClass` | The `Cluster`'s own PVC. | `5Gi`, `""` |

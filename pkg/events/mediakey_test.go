@@ -76,8 +76,9 @@ func TestMediaKeyIsASingleSubjectToken(t *testing.T) {
 
 // ForSingleNode switches every stream to memory storage, and the production
 // MaxBytes reservations (~8 GiB in total) cannot survive that switch
-// unchanged: config/nats sets max_memory_store to 256Mi on a pod with a 1Gi
-// limit, so NATS rejects the stream and every controller CrashLoopBackOffs on
+// unchanged: config/nats sets max_memory_store to 256Mi (on a pod with a 2Gi
+// limit since smoke finding O10), so NATS rejects the stream and every
+// controller CrashLoopBackOffs on
 // the first one it tries to create. Found on the first real kind run -- no
 // unit or envtest suite could see it, because neither applies a memory
 // ceiling.
