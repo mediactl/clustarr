@@ -95,6 +95,10 @@ type Error struct {
 func (e *Error) Error() string { return "engine: " + e.Stage + ": " + e.Err.Error() }
 func (e *Error) Unwrap() error { return e.Err }
 
+// EngineStage is the stage that failed, for a caller that does not link
+// the engine (app/transcode/worker reads it through an interface).
+func (e *Error) EngineStage() string { return e.Stage }
+
 // slot is one output stream, in output order.
 type slot struct {
 	src    *ffgo.StreamInfo

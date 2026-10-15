@@ -141,6 +141,11 @@ func TestAnUnreadableInputNamesTheStage(t *testing.T) {
 	var e *Error
 	require.True(t, errors.As(err, &e), "%v", err)
 	assert.Equal(t, "demux", e.Stage)
+	// The worker, which does not link the engine, reads the stage through
+	// this method (app/transcode/worker.failedStage).
+	var staged interface{ EngineStage() string }
+	require.True(t, errors.As(err, &staged), "%v", err)
+	assert.Equal(t, "demux", staged.EngineStage())
 }
 
 // Progress carries what the worker's telemetry and status report: bytes

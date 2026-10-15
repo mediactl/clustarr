@@ -210,6 +210,31 @@ func gpuEncodeFailed(err error) error {
 	return &failure{code: ExitRetriable, reason: task.ReasonGPUEncodeFailed, err: err}
 }
 
+// gpuFailure reports whether an encode that failed on a GPU tier failed on
+// the GPU: the plan encodes its video there and the engine failed in its
+// video stage, or did not say where. A remux encodes nothing on a GPU, and
+// a demux, mux or audio failure is the source's or the muxer's, which the
+// CPU class would meet the same way -- 49 Up's and 63 Up's damaged sources
+// were filed GPUEncodeFailed (2026-10-15), which under hardware auto sends
+// a file to the CPU for nothing.
+func gpuFailure(plan standard.Result, err error) bool {
+	if plan.Decision != standard.DecisionEncode {
+		return false
+	}
+	stage := failedStage(err)
+	return stage == "" || stage == "video"
+}
+
+// failedStage is the engine stage err names (engine.Error.EngineStage:
+// "demux", "mux", "video", "audio:<n>"), or "" when it names none.
+func failedStage(err error) string {
+	var s interface{ EngineStage() string }
+	if errors.As(err, &s) {
+		return s.EngineStage()
+	}
+	return ""
+}
+
 // gpuTier reports whether tier is a hardware encoder rather than the libx265
 // software tier: gpuUnavailable and gpuEncodeFailed only ever apply to one
 // of these, since a CPU failure has no GPU tier to route away from.

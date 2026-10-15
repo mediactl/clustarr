@@ -389,7 +389,7 @@ func (r *runner) encodeFFgo(ctx context.Context, plan standard.Result, tier tran
 	if logTail != "" {
 		r.applyStderrTail(logTail)
 	}
-	if gpuTier(tier) {
+	if gpuTier(tier) && gpuFailure(plan, runErr) {
 		return gpuEncodeFailed(fmt.Errorf("transcode worker: engine: %w", runErr))
 	}
 	return retriable("transcode worker: engine: %w", runErr)
