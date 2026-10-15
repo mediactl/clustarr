@@ -163,34 +163,27 @@ func File(ctx context.Context, c naming.Context, spec *catalogv1alpha1.MediaFile
 }
 
 // ConfiguredLanguage is naming.Context.Language for an item ranked against
-// p whose original language is originalLanguage. A file whose only audio
-// language this is reads no {MediaInfo AudioLanguages} block, so a lone
-// language that is not it -- the original's, or neither -- is always
-// named. It is the profile's first language that is a tag: its audio
-// default, then its audio languages in order (the anime profiles' en in
-// [en, original]), or its language when it has no audio policy. With no
-// such tag, "original" is the item's original language. Otherwise ("any",
-// an original not yet known, no profile) it is English, Sonarr's. A nil p
-// reads as the CRD's default, "original".
-func ConfiguredLanguage(p *quality.Profile, originalLanguage string) string {
-	names := []string{"original"}
-	switch {
-	case p == nil:
-	case len(p.AudioLanguages) > 0:
+// p. A file whose only audio language this is reads no {MediaInfo
+// AudioLanguages} block, so any other lone language -- the original's, or
+// neither -- is always named. It is the first language p names by tag: its
+// audio default, then its audio languages in order (the anime profiles' en
+// in [en, original]), or its language when it has no audio policy.
+// "original" names none, so a French film with French audio alone under an
+// original-language profile reads [FR], as in Sonarr. Without a tag, or
+// without a profile, it is English, Sonarr's.
+func ConfiguredLanguage(p *quality.Profile) string {
+	if p == nil {
+		return "en"
+	}
+	names := []string{p.Language}
+	if len(p.AudioLanguages) > 0 {
 		names = append([]string{p.AudioDefault}, p.AudioLanguages...)
-	default:
-		names = []string{p.Language}
 	}
 	for _, n := range names {
 		if n == "" || n == "original" || n == "any" {
 			continue
 		}
 		if t, ok := lang.Normalize(n); ok {
-			return string(t)
-		}
-	}
-	if slices.Contains(names, "original") {
-		if t, ok := lang.Normalize(originalLanguage); ok {
 			return string(t)
 		}
 	}

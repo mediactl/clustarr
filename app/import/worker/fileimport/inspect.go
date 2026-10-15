@@ -407,7 +407,7 @@ func (w *Worker) inspectMovie(
 	}
 	setRoot(insp, rf)
 	base, _ := catalogctx.Movie(&movie)
-	base.Language = catalogctx.ConfiguredLanguage(&prof, movie.Status.Metadata.OriginalLanguage)
+	base.Language = catalogctx.ConfiguredLanguage(&prof)
 	lang := originalName(movie.Status.Metadata.OriginalLanguage)
 	target := &schema.ItemRef{Kind: "Movie", Ref: schema.Ref{Namespace: ns, Name: movie.Name, UID: string(movie.UID)}}
 	return w.walk(ctx, m, commonv1.MediaKindMovie, root, task.Manual || task.Override, insp, func(path string, info os.FileInfo) error {
@@ -474,7 +474,7 @@ func (w *Worker) inspectEpisodes(
 		}
 	}
 	series := plan.series
-	language := catalogctx.ConfiguredLanguage(&plan.profile, series.Status.Metadata.OriginalLanguage)
+	language := catalogctx.ConfiguredLanguage(&plan.profile)
 	return w.walk(ctx, m, commonv1.MediaKindEpisode, root, manual, insp, func(path string, info os.FileInfo) error {
 		rel := relPath(root, path)
 		f := schema.InspectedFile{Path: path, SizeBytes: info.Size()}

@@ -84,6 +84,7 @@ func TestAudioLanguagesAreSonarrs(t *testing.T) {
 		{"the configured language alone", "{MediaInfo AudioLanguages}", "en", []string{"eng"}, nil, ""},
 		{"no configured language reads English", "{MediaInfo AudioLanguages}", "", []string{"eng"}, nil, ""},
 		{"a configured French", "{MediaInfo AudioLanguages}", "fr", []string{"fre"}, nil, ""},
+		{"French alone, English configured", "{MediaInfo AudioLanguages}", "en", []string{"fre"}, nil, "[FR]"},
 		{"English alone under a configured French", "{MediaInfo AudioLanguages}", "fr", []string{"eng"}, nil, "[EN]"},
 		{"the configured language with another", "{MediaInfo AudioLanguages}", "en", []string{"eng", "jpn"}, nil, "[EN+JA]"},
 		{"each language once", "{MediaInfo AudioLanguages}", "en", []string{"jpn", "jpn", "eng", "eng"}, nil, "[JA+EN]"},

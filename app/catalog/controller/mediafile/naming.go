@@ -52,13 +52,12 @@ const (
 
 // namingOwner is what renderNaming needs of the catalog item a MediaFile
 // backs: the identity half of the naming context, the RootFolder the item
-// lives under, the QualityProfile and original language its configured
-// language comes from, and the renderer for its kind.
+// lives under, the QualityProfile its configured language comes from, and
+// the renderer for its kind.
 type namingOwner struct {
 	context           naming.Context
 	rootFolderRef     string
 	qualityProfileRef string
-	originalLanguage  string
 	render            func(root *catalogv1alpha1.RootFolder, c naming.Context, ext string) (string, error)
 }
 
@@ -99,8 +98,8 @@ func LoadNaming(ctx context.Context, c client.Reader, mf *catalogv1alpha1.MediaF
 
 // setConfiguredLanguage sets owner's naming context's Language from its
 // item's QualityProfile (catalogctx.ConfiguredLanguage). A profile that is
-// not named or not found reads as the CRD's default, "original"; one that
-// does not parse still says its languages, which FromCRD copies verbatim.
+// not named or not found names no language, so English; one that does not
+// parse still says its languages, which FromCRD copies verbatim.
 func setConfiguredLanguage(ctx context.Context, c client.Reader, owner *namingOwner) error {
 	var p *quality.Profile
 	if owner.qualityProfileRef != "" {
@@ -114,7 +113,7 @@ func setConfiguredLanguage(ctx context.Context, c client.Reader, owner *namingOw
 			p = &parsed
 		}
 	}
-	owner.context.Language = catalogctx.ConfiguredLanguage(p, owner.originalLanguage)
+	owner.context.Language = catalogctx.ConfiguredLanguage(p)
 	return nil
 }
 
@@ -227,7 +226,6 @@ func namingOwnerOf(ctx context.Context, c client.Reader, mf *catalogv1alpha1.Med
 			context:           c,
 			rootFolderRef:     m.Spec.RootFolderRef,
 			qualityProfileRef: m.Spec.QualityProfileRef,
-			originalLanguage:  m.Status.Metadata.OriginalLanguage,
 			render: func(root *catalogv1alpha1.RootFolder, c naming.Context, ext string) (string, error) {
 				return catalogctx.MovieFilePath(root, &m, c, ext)
 			},
@@ -274,7 +272,6 @@ func namingOwnerOf(ctx context.Context, c client.Reader, mf *catalogv1alpha1.Med
 			context:           c,
 			rootFolderRef:     s.Spec.RootFolderRef,
 			qualityProfileRef: s.Spec.QualityProfileRef,
-			originalLanguage:  s.Status.Metadata.OriginalLanguage,
 			render: func(root *catalogv1alpha1.RootFolder, c naming.Context, ext string) (string, error) {
 				return catalogctx.EpisodeFilePath(root, &s, c, ext)
 			},

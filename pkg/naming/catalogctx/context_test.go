@@ -344,28 +344,26 @@ func realProber(t *testing.T) *native.Prober {
 }
 
 // TestConfiguredLanguageIsTheProfilesTag: the language a lone audio track
-// is left unstated for is the profile's first tag -- its audio default, then
-// its audio languages whatever their order around "original", else its
-// language -- then the item's original language for "original", then
-// English.
+// is left unstated for is the first language the profile names by tag --
+// its audio default, then its audio languages whatever their order around
+// "original", else its language -- and English otherwise: "original" names
+// no language, so an original-language profile's French film with French
+// audio alone reads [FR], as in Sonarr.
 func TestConfiguredLanguageIsTheProfilesTag(t *testing.T) {
 	for _, tc := range []struct {
-		name     string
-		p        *quality.Profile
-		original string
-		want     string
+		name string
+		p    *quality.Profile
+		want string
 	}{
-		{"no profile reads original", nil, "ja", "ja"},
-		{"no profile, no original", nil, "", "en"},
-		{"the anime profiles' en", &quality.Profile{Language: "original", AudioLanguages: []string{"en", "original"}}, "ja", "en"},
-		{"a tag after original", &quality.Profile{AudioLanguages: []string{"original", "en"}}, "ja", "en"},
-		{"the audio default first", &quality.Profile{AudioLanguages: []string{"en", "original"}, AudioDefault: "ja"}, "ja", "ja"},
-		{"original alone", &quality.Profile{AudioLanguages: []string{"original"}}, "jpn", "ja"},
-		{"an original-language profile", &quality.Profile{Language: "original"}, "fr", "fr"},
-		{"a language tag", &quality.Profile{Language: "de"}, "fr", "de"},
-		{"any", &quality.Profile{Language: "any"}, "fr", "en"},
-		{"an original not yet known", &quality.Profile{Language: "original"}, "", "en"},
+		{"no profile", nil, "en"},
+		{"the anime profiles' en", &quality.Profile{Language: "original", AudioLanguages: []string{"en", "original"}}, "en"},
+		{"a tag after original", &quality.Profile{AudioLanguages: []string{"original", "en"}}, "en"},
+		{"the audio default first", &quality.Profile{AudioLanguages: []string{"en", "original"}, AudioDefault: "jpn"}, "ja"},
+		{"original alone in audio", &quality.Profile{AudioLanguages: []string{"original"}}, "en"},
+		{"an original-language profile", &quality.Profile{Language: "original"}, "en"},
+		{"a language tag", &quality.Profile{Language: "de"}, "de"},
+		{"any", &quality.Profile{Language: "any"}, "en"},
 	} {
-		require.Equal(t, tc.want, catalogctx.ConfiguredLanguage(tc.p, tc.original), tc.name)
+		require.Equal(t, tc.want, catalogctx.ConfiguredLanguage(tc.p), tc.name)
 	}
 }
