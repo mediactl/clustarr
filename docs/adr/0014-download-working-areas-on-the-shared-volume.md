@@ -1,6 +1,6 @@
 # ADR-0014: Download working areas live on the shared data volume, not on node-local scratch
 
-**Status:** Accepted, 2026-09-24
+**Status:** Accepted, 2026-09-24; amended 2026-10-15 (a node-local claim where etcd is not on the disk)
 
 ## Context
 
@@ -86,3 +86,26 @@ NFS (§12), as it always has.
 - **Separate volumes for `incomplete/` and `complete/`.** Two claims and a
   copy between them; nothing gained over one directory tree on one
   filesystem, and hard links across them are impossible.
+
+## Amendment, 2026-10-15: a node-local claim where the disk is not etcd's
+
+On talos the shared volume is one Synology export that every workload
+reads and writes: both engines, the transcode pool and Plex. The usenet
+engine's article assembly, par2 and unpacking cost the NAS three to four
+times each release, much of it small writes, and the NAS serves writes
+before reads. While the engine worked through a backlog it wrote 48-59 MB/s
+and served the NUC 0.2 MB/s of reads, so remuxes on the same node crawled
+at 1.2-1.6 MB/s. etcd runs on the control-plane nodes, not on the NUC's
+2 TB NVMe, so neither reason above applies there.
+
+There, the usenet engine's working area is a node-local claim
+(`scratch.storageClassName: local-path`, `sizeLimit: 1Ti`), and
+`publishDir` stays on the shared volume. The claim survives the pod, so
+transfers resume, and the publish is one sequential cross-filesystem copy
+(`fsops.MoveAtomic`). Because local-path enforces no size, the engine
+budgets the working area itself: a transfer starts only while every started
+job's peak -- twice its size, for the articles and their unpacked copy,
+plus 1 GiB -- fits within `sizeLimit`; the rest wait Queued
+(`pkg/download/usenet/scratch.go`). On a single-node kind cluster the
+decision above stands.
+
