@@ -399,3 +399,18 @@ func TestProjectMapsEveryDownloadPhase(t *testing.T) {
 		require.True(t, ok, "DownloadPhase %q has no row: decide which pipeline stage it shows", p)
 	}
 }
+
+// A running transcode's note says what it does: a remux copies the video,
+// never reading as FFmpeg's "copy" encoder (owner, 2026-10-15).
+func TestARunningTranscodeSaysWhatItDoes(t *testing.T) {
+	movie := movieWith(t, ready(catalogv1.MovieConditionMetadataReady))
+	for _, plan := range []*catalogv1.TranscodePlan{
+		{Mode: catalogv1.TranscodeModeRemuxOnly, Encoder: "copy", VideoAction: "copy"},
+		{Mode: catalogv1.TranscodeModeTranscode, Encoder: "hevc_qsv", VideoAction: "encode"},
+	} {
+		entry := pipeline.Project(movie, withFile(subs(catalogv1.SubtitlesPhaseWanted),
+			&catalogv1.TranscodeState{Phase: catalogv1.TranscodePhaseRunning, Plan: plan}))
+		require.Equal(t, pipeline.StageTranscoding, entry.Stage)
+		require.Equal(t, plan.Describe(), entry.Detail)
+	}
+}

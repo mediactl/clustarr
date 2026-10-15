@@ -91,7 +91,9 @@ The predicate is `app/catalog/controller/rollup.Transcoded` -- `spec.original` f
 still remuxed into the MP4 layout when its video is compliant, and skipped
 rather than encoded a second time otherwise (2026-10-15;
 `transcodeplan.AlreadyTranscoded` counts only transcode's own output as
-done). A probe that learns a new field raises `mediainfo.ProbeVersion`, which re-probes every file once through `status.probeVersion` -- never by changing `probeHash`, which caption and transcode read as the file's identity. Probing is `pkg/mediainfo/native` in the import agent (ADR-0017; it prints what ffprobe printed, so `ProbeVersion` stays 3): the remediation loop's probe planner (`app/remediation/probe`) asks for a probe on `CLUSTARR_WORK_PROBE` and incorporates the `clustarr-probes` record, and a `ProbeVersion` raise re-probes through the low lane.
+done), and so is transcode's own from before the MP4 layout -- a
+`CLUSTARR_PROFILE`-tagged Matroska file, `standard.Version` 4 -- whose tag
+keeps the standard from encoding it again. A probe that learns a new field raises `mediainfo.ProbeVersion`, which re-probes every file once through `status.probeVersion` -- never by changing `probeHash`, which caption and transcode read as the file's identity. Probing is `pkg/mediainfo/native` in the import agent (ADR-0017; it prints what ffprobe printed, so `ProbeVersion` stays 3): the remediation loop's probe planner (`app/remediation/probe`) asks for a probe on `CLUSTARR_WORK_PROBE` and incorporates the `clustarr-probes` record, and a `ProbeVersion` raise re-probes through the low lane.
 
 Backlogs are not an object per file (2026-09-30,
 `docs/superpowers/specs/2026-09-30-backlog-windowing-and-encoder-limits-design.md`):
@@ -140,7 +142,10 @@ re-transcodes nothing**: the transcode planner (`app/transcode/transcodeplan`)
 skips a file that is `MediaFile.Transcoded()` or whose `status.transcode` is
 already open for the profile, a verdict (Skipped or Failed) holds only for its
 profile hash and probe hash, and the standard skips any
-`CLUSTARR_PROFILE`-tagged file. Raise
+`CLUSTARR_PROFILE`-tagged MP4 and never encodes a tagged file. A plan
+reads as `TranscodePlan.Describe` ("remux to MP4, video copied", "encode
+with hevc_qsv") in the dispatch and running messages and on the pipeline
+page, never as FFmpeg's `copy`. Raise
 `standard.Version` when the standard's output changes, so untranscoded
 files plan under it. NVENC holds an encode under the source: with the
 probe summary's `videoBitrateKbps` known it runs VBR at `cq` = quality - 1

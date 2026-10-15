@@ -125,7 +125,7 @@ func planDispatch(in Inputs) Decision {
 	}
 	k := pool.Key{Profile: e.Profile.Name, ProfileUID: e.Profile.UID, Class: class}
 	b.Phase, b.Reason, b.Blocked = catalogv1alpha1.TranscodePhaseQueued, "", false
-	b.Message = fmt.Sprintf("attempt %d dispatched to %s", seq, pool.Name(k))
+	b.Message = fmt.Sprintf("attempt %d dispatched to %s: %s", seq, pool.Name(k), plan.Describe())
 	b.Dispatch = &catalogv1alpha1.Dispatch{Seq: seq, DispatchedAt: in.Now}
 	b.Attempts++
 	b.Class, b.Pool, b.Plan = catalogv1alpha1.TranscodeClass(class), pool.Name(k), plan

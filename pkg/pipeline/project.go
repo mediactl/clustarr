@@ -181,9 +181,7 @@ func project(item client.Object, related Related) Entry {
 		if related.TranscodePercent != nil {
 			entry.Percent = *related.TranscodePercent
 		}
-		if t.Plan != nil {
-			entry.Detail = t.Plan.Encoder
-		}
+		entry.Detail = t.Plan.Describe()
 		if t.StartedAt != nil {
 			entry.Since = t.StartedAt.Time
 		}

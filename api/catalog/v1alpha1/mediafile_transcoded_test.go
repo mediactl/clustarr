@@ -74,3 +74,20 @@ func TestMediaFileTranscoded(t *testing.T) {
 		})
 	}
 }
+
+// A plan reads as what it does to the file, never as FFmpeg's "copy" (owner,
+// 2026-10-15): a remux copies the video into the MP4 layout, its audio and
+// subtitles given the layout; an encode names its encoder.
+func TestATranscodePlanDescribesWhatItDoes(t *testing.T) {
+	for _, tc := range []struct {
+		plan *catalogv1alpha1.TranscodePlan
+		want string
+	}{
+		{&catalogv1alpha1.TranscodePlan{Mode: catalogv1alpha1.TranscodeModeRemuxOnly, Encoder: "copy", VideoAction: "copy"}, "remux to MP4, video copied"},
+		{&catalogv1alpha1.TranscodePlan{Mode: catalogv1alpha1.TranscodeModeTranscode, Encoder: "hevc_qsv", VideoAction: "encode"}, "encode with hevc_qsv"},
+		{&catalogv1alpha1.TranscodePlan{Mode: catalogv1alpha1.TranscodeModeTranscode}, "encode"},
+		{nil, ""},
+	} {
+		assert.Equal(t, tc.want, tc.plan.Describe())
+	}
+}

@@ -53,7 +53,7 @@ func TestADispatchRendersQueuedThenOwesTheRecordAndThePublish(t *testing.T) {
 	assert.Equal(t, int32(1), b.Attempts)
 	assert.Equal(t, catalogv1alpha1.TranscodeClass("cpu"), b.Class)
 	assert.Equal(t, pool.Name(pool.Key{Profile: "hevc", ProfileUID: "uid-hevc", Class: transcodev1alpha1.HardwareCPU}), b.Pool)
-	assert.Equal(t, "attempt 42 dispatched to "+b.Pool, b.Message)
+	assert.Equal(t, "attempt 42 dispatched to "+b.Pool+": encode with libx265", b.Message, "it says what the attempt does")
 	require.NotNil(t, b.Plan)
 	assert.Equal(t, in.Prev.Plan.PlanHash, b.Plan.PlanHash, "the cpu plan is the window's auto plan")
 
@@ -169,7 +169,8 @@ func TestTheRecordMovesTheBlock(t *testing.T) {
 	assert.Equal(t, catalogv1alpha1.TranscodePhaseRunning, r.Phase)
 	assert.Equal(t, "pool-0", r.WorkerPod)
 	assert.Equal(t, metav1.NewTime(claimedAt), *r.StartedAt)
-	assert.Equal(t, "attempt 42 running", r.Message)
+	assert.Equal(t, "attempt 42 running: "+r.Plan.Describe(), r.Message)
+	assert.NotEmpty(t, r.Plan.Describe())
 	assert.Equal(t, []string{events.ActionStarted}, actions(rd.History))
 	assert.Nil(t, rd.Publish, "a claimed seq is never published again")
 

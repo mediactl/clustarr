@@ -93,3 +93,19 @@ func (mf *MediaFile) ProbeCurrent() bool {
 	}
 	return true
 }
+
+// Describe is what the plan does to the file, for a person: a remux copies
+// the video into the MP4 layout, its audio and subtitles given the layout
+// (status.transcode.plan's mode remuxOnly, whose encoder is FFmpeg's
+// "copy"); an encode names its encoder. "" for no plan.
+func (p *TranscodePlan) Describe() string {
+	switch {
+	case p == nil:
+		return ""
+	case p.Mode == TranscodeModeRemuxOnly:
+		return "remux to MP4, video copied"
+	case p.Encoder != "":
+		return "encode with " + p.Encoder
+	}
+	return "encode"
+}

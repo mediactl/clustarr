@@ -101,7 +101,7 @@ func planInFlight(in Inputs) Decision {
 	case records.StateClaimed:
 		var d Decision
 		if b.Phase != catalogv1alpha1.TranscodePhaseRunning {
-			b.Phase, b.Reason, b.Message = catalogv1alpha1.TranscodePhaseRunning, "", fmt.Sprintf("attempt %d running", seq)
+			b.Phase, b.Reason, b.Message = catalogv1alpha1.TranscodePhaseRunning, "", runningMessage(seq, b.Plan)
 			b.WorkerPod = truncate(rec.Writer, 253)
 			if rec.ClaimedAt != nil {
 				b.StartedAt = &metav1.Time{Time: *rec.ClaimedAt}
@@ -225,4 +225,13 @@ func kept(in Inputs, b *catalogv1alpha1.TranscodeState, a task.Answer) bool {
 		return false
 	}
 	return !jobspec.ReplaceSource(tp.Spec.Policy)
+}
+
+// runningMessage is a claimed attempt's status.transcode.message: what it
+// does, when the block records a plan.
+func runningMessage(seq int64, p *catalogv1alpha1.TranscodePlan) string {
+	if d := p.Describe(); d != "" {
+		return fmt.Sprintf("attempt %d running: %s", seq, d)
+	}
+	return fmt.Sprintf("attempt %d running", seq)
 }
