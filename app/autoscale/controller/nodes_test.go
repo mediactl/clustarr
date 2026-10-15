@@ -122,6 +122,8 @@ func TestMatchingNodes(t *testing.T) {
 			spec(affinity("zone", corev1.NodeSelectorOpNotIn, "c")), 2},
 		{"affinity Exists", []corev1.Node{node("gpu", labelled("gpu", "x")), node("plain")},
 			spec(affinity("gpu", corev1.NodeSelectorOpExists)), 1},
+		{"affinity DoesNotExist", []corev1.Node{node("gpu", labelled("gpu", "x")), node("plain"), node("other", labelled("zone", "a"))},
+			spec(affinity("gpu", corev1.NodeSelectorOpDoesNotExist)), 2},
 		{"an untolerated NoSchedule taint", []corev1.Node{node("a", tainted("dedicated", corev1.TaintEffectNoSchedule))}, spec(), 0},
 		{"a tolerated NoSchedule taint", []corev1.Node{node("a", tainted("dedicated", corev1.TaintEffectNoSchedule))},
 			spec(tolerates("dedicated", corev1.TaintEffectNoSchedule)), 1},

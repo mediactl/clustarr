@@ -281,6 +281,39 @@ func TestThePresenceReaderCachesForFiveSeconds(t *testing.T) {
 	assert.Equal(t, []string{"catalog-a", "catalog-b"}, pods(ps), "a caller's copy is its own")
 }
 
+// A per-node domain's pods size their own slots from their nodes, so one
+// domain's reports differ (markers: two on a 4-CPU node, eight on a 16-CPU
+// one). The reader keeps each pod's own, and the manager's dispatch, which
+// reads only Present (its Budget is the durable's MaxAckPending, never a
+// pod's slots), sees the domain attended.
+func TestADomainsPodsReportTheirOwnSlots(t *testing.T) {
+	kv := progress(t)
+	for _, w := range []*presence.Writer{
+		{
+			KV: kv, Domain: "markers", Pod: "markers-small", Node: "worker-4a", Interval: time.Hour,
+			Slots: map[string]int{events.ConsumerMarkersAnalyze: 2}, Durables: []string{events.ConsumerMarkersAnalyze},
+		},
+		{
+			KV: kv, Domain: "markers", Pod: "markers-big", Node: "worker-16", Interval: time.Hour,
+			Slots: map[string]int{events.ConsumerMarkersAnalyze: 8}, Durables: []string{events.ConsumerMarkersAnalyze},
+		},
+	} {
+		run(t, w)
+		require.Eventually(t, func() bool { return present(t, kv, w.Key()) }, 2*time.Second, 5*time.Millisecond)
+	}
+	r := &presence.Reader{KV: kv}
+	ps, err := r.Domain(t.Context(), "markers")
+	require.NoError(t, err)
+	got := map[string]int{}
+	for _, p := range ps {
+		got[p.Pod] = p.Slots[events.ConsumerMarkersAnalyze]
+	}
+	assert.Equal(t, map[string]int{"markers-big": 8, "markers-small": 2}, got)
+	ok, err := r.Present(t.Context(), "markers")
+	require.NoError(t, err)
+	assert.True(t, ok)
+}
+
 // apiTypes is the one package through which pkg/events/schema names
 // Kubernetes types (k8s.io/apimachinery's metav1 and resource): types, not a
 // client.

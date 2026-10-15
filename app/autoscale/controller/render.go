@@ -73,8 +73,11 @@ type Rendered struct {
 	HPA         *autoscalingv2ac.HorizontalPodAutoscalerApplyConfiguration
 	MinReplicas int32
 	MaxReplicas int32
-	Slots       map[string]int // consumer -> per-pod slots: its AverageValue, except per node (1)
-	Warnings    []Warning
+	// Slots maps each consumer to the per-pod slots its clamp assumed: its
+	// AverageValue, except per node (1), where a pod sizing its own slots
+	// (agentdomain.Domain.AutoSlots) counts at events.PerNodeSlotsCeiling.
+	Slots    map[string]int
+	Warnings []Warning
 }
 
 // RenderHPA builds the complete HPA declaration for one autoscaled
@@ -84,8 +87,9 @@ type Rendered struct {
 // consumer at AverageValue = its slots, or 1 for a per-node domain
 // (agentdomain.Domain.PerNode: a pod per task up to a pod per node, its
 // durables sized so the MaxAckPending clamp does not bind, and a Warning
-// when it does); scale-up at once by up to maxReplicas pods; scale-down
-// after max(300 s, the longest AckWait).
+// when it does; a pod sizing its own slots from its node's CPUs counts at
+// events.PerNodeSlotsCeiling); scale-up at once by up to maxReplicas pods;
+// scale-down after max(300 s, the longest AckWait).
 func RenderHPA(in RenderInput) Rendered {
 	d := in.Deployment
 	out := Rendered{Slots: map[string]int{}}
@@ -120,6 +124,11 @@ func RenderHPA(in RenderInput) Rendered {
 		// Topology.Validate holds Slots >= 1 and ParseSlotOverrides rejects
 		// n < 1; the floor only keeps a hand-built input from dividing by 0.
 		slots := max(1, events.SlotsFor(c, overrides))
+		if in.Domain.AutoSlots(c.Name, overrides) {
+			// Each pod sizes its slots from its node's CPUs, which this
+			// cannot see: feed every pod at the most it may run.
+			slots = events.PerNodeSlotsCeiling
+		}
 		out.Slots[c.Name] = slots
 		target := slots
 		if in.Domain.PerNode {

@@ -188,6 +188,18 @@ func TestRenderHPA(t *testing.T) {
 			min: 0, max: 8, targets: map[string]string{events.ConsumerMarkersAnalyze: "1"}, down: 1800,
 			wantReasons: []string{controller.ReasonPerNodeClamped},
 		},
+		// Without an override each markers pod sizes its own slots from
+		// its node's CPUs (agentdomain.Domain.AutoSlots), which the
+		// autoscaler cannot see: it feeds every pod at the ceiling.
+		{
+			name: "markers sizing its own slots is fed at the per-node ceiling", d: dep(agentdomain.Markers), nodes: 8,
+			min: 0, max: 8, targets: map[string]string{events.ConsumerMarkersAnalyze: "1"}, down: 1800,
+		},
+		{
+			name: "markers sizing its own slots past what MaxAckPending feeds is clamped", d: dep(agentdomain.Markers), nodes: 12,
+			min: 0, max: 8, targets: map[string]string{events.ConsumerMarkersAnalyze: "1"}, down: 1800,
+			wantReasons: []string{controller.ReasonPerNodeClamped},
+		},
 		{name: "events never goes below one", d: dep(agentdomain.Events), nodes: 1, min: 1, max: 1, down: 300,
 			targets: map[string]string{events.ConsumerCatalogRSSMatcher: "256"}},
 		{name: "catalog is throttled to one replica on six nodes", d: dep(agentdomain.Catalog), nodes: 6, min: 0, max: 1, down: 300,
@@ -239,4 +251,44 @@ func TestRenderHPA(t *testing.T) {
 			assert.Equal(t, tc.wantReasons, reasons(out))
 		})
 	}
+}
+
+// Rendered.Slots is what the clamp assumed a pod runs: an override, else
+// for a per-node domain the most a pod may size itself to.
+func TestRenderHPAAssumesTheCeilingForAutomaticSlots(t *testing.T) {
+	out := controller.RenderHPA(input(t, dep(agentdomain.Markers), 3))
+	assert.Equal(t, map[string]int{events.ConsumerMarkersAnalyze: events.PerNodeSlotsCeiling}, out.Slots)
+	out = controller.RenderHPA(input(t, dep(agentdomain.Markers, slotsEnv(events.ConsumerMarkersAnalyze+"=3")), 3))
+	assert.Equal(t, map[string]int{events.ConsumerMarkersAnalyze: 3}, out.Slots, "the override wins")
+	scan, ok := events.Default().Consumer(events.ConsumerImportScan)
+	require.True(t, ok)
+	out = controller.RenderHPA(input(t, dep(agentdomain.Import), 3))
+	assert.Equal(t, scan.Slots, out.Slots[events.ConsumerImportScan], "a domain that does not scale per node keeps its slots")
+}
+
+// markers on talos is kept off the GPU transcode node by a required node
+// affinity (intel.feature.node.kubernetes.io/gpu DoesNotExist), so of three
+// amd64 workers it may run on two: MatchingNodes honours the affinity, and
+// maxReplicas follows it, with no warning (2026-10-15).
+func TestMarkersMaxReplicasFollowsARequiredNodeAffinity(t *testing.T) {
+	const gpu = "intel.feature.node.kubernetes.io/gpu"
+	nodes := []corev1.Node{
+		node("worker-16", labelled("kubernetes.io/arch", "amd64"), labelled(gpu, "true")),
+		node("worker-4a", labelled("kubernetes.io/arch", "amd64")),
+		node("worker-4b", labelled("kubernetes.io/arch", "amd64")),
+		node("control-plane", labelled("kubernetes.io/arch", "amd64"), tainted("node-role.kubernetes.io/control-plane", corev1.TaintEffectNoSchedule)),
+	}
+	d := dep(agentdomain.Markers)
+	affinity(gpu, corev1.NodeSelectorOpDoesNotExist)(&d.Spec.Template.Spec)
+	n, err := controller.MatchingNodes(nodes, &d.Spec.Template.Spec)
+	require.NoError(t, err)
+	assert.Equal(t, 2, n, "the GPU node and the tainted control plane are not markers' nodes")
+	out := controller.RenderHPA(input(t, d, n))
+	assert.Equal(t, int32(2), out.MaxReplicas)
+	assert.Empty(t, out.Warnings)
+
+	free := dep(agentdomain.Markers)
+	n, err = controller.MatchingNodes(nodes, &free.Spec.Template.Spec)
+	require.NoError(t, err)
+	assert.Equal(t, 3, n, "without the affinity every untainted worker counts")
 }
