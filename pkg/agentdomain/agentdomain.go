@@ -85,6 +85,28 @@ type Domain struct {
 	PerNode bool
 }
 
+// AutoSlots reports whether consumer's per-pod slots in d are each pod's
+// own, sized from the CPUs it can use (events.SlotsForCPUs): d scales per
+// node, whose nodes need not match, and overrides (CLUSTARR_CONSUMER_SLOTS)
+// names no slots for consumer. An override always wins. The autoscaler,
+// which cannot see a pod's CPUs, feeds such a consumer at
+// events.PerNodeSlotsCeiling a pod.
+func (d Domain) AutoSlots(consumer string, overrides map[string]int) bool {
+	_, set := overrides[consumer]
+	return d.PerNode && !set
+}
+
+// PodSlots is c's per-pod slots in a pod of d that can use cpus CPUs: an
+// override; else, where AutoSlots, one per coresPerSlot of the cpus within
+// [1, events.PerNodeSlotsCeiling]; else c.Slots. It is what the pod runs and
+// reports in its presence record.
+func (d Domain) PodSlots(c events.ConsumerSpec, overrides map[string]int, cpus, coresPerSlot int) int {
+	if d.AutoSlots(c.Name, overrides) {
+		return events.SlotsForCPUs(cpus, coresPerSlot)
+	}
+	return events.SlotsFor(c, overrides)
+}
+
 // Domains is every agent domain and markers, in §3.5.3's order. A fresh
 // slice on every call.
 func Domains() []Domain {

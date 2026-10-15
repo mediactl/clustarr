@@ -42,6 +42,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/mediactl/clustarr/app/segments/worker"
+	"github.com/mediactl/clustarr/pkg/agentdomain"
 	"github.com/mediactl/clustarr/pkg/busconn"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/natsbus"
@@ -66,18 +67,23 @@ type flags struct {
 	fs                 *pflag.FlagSet
 	metricsAddr        *string
 	threads            *int
+	coresPerSlot       *int
 	version, selfCheck *bool
 	lo                 *logging.Options
 	to                 *tracing.Options
 }
 
 // newFlags builds the flag set. --concurrency is gone: per-pod in-flight is
-// markers-analyze's ConsumerSpec.Slots, overridable through
-// CLUSTARR_CONSUMER_SLOTS, the same number the autoscaler targets (§3.7).
+// CLUSTARR_CONSUMER_SLOTS' markers-analyze, else one slot per
+// --cores-per-slot of the CPUs this pod can use (agentdomain's markers
+// domain is PerNode: one pod per node, sized to its node; 2026-10-15).
 func newFlags() flags {
 	fs := pflag.NewFlagSet("markers", pflag.ContinueOnError)
 	f := flags{fs: fs}
-	f.threads = fs.Int("decode-threads", 0, "Threads per decoder; 0 is max(1, GOMAXPROCS / markers-analyze's slots).")
+	f.threads = fs.Int("decode-threads", 0, "Threads per decoder; 0 is max(1, GOMAXPROCS / this pod's slots).")
+	f.coresPerSlot = fs.Int("cores-per-slot", events.DefaultCoresPerSlot,
+		"Without a markers-analyze override in $"+events.SlotsEnv+", run one analysis per this many of the CPUs the pod can use (GOMAXPROCS), from 1 to "+
+			strconv.Itoa(events.PerNodeSlotsCeiling)+"; 1 suits a cluster whose reads from /data, not its CPUs, bind.")
 	f.selfCheck = fs.Bool("self-check", false, "Check this image can decode and run the text detector, print the report as JSON and exit: 0 when it can.")
 	f.metricsAddr = fs.String("metrics-bind-address", ":8080",
 		"Where /metrics, /healthz and /readyz are served; empty serves none.")
@@ -130,7 +136,19 @@ func run(args []string, getenv func(string) string) int {
 		fmt.Fprintln(os.Stderr, "markers: $"+events.SlotsEnv+":", err)
 		return worker.ExitMisconfigured
 	}
-	sub := subscription(spec, overrides)
+	if *f.coresPerSlot < 1 {
+		fmt.Fprintln(os.Stderr, "markers: --cores-per-slot must be at least 1, got", *f.coresPerSlot)
+		return worker.ExitMisconfigured
+	}
+	dom, ok := agentdomain.Lookup(agentdomain.Markers)
+	if !ok {
+		fmt.Fprintln(os.Stderr, "markers: domain missing from agentdomain:", agentdomain.Markers)
+		return worker.ExitMisconfigured
+	}
+	// GOMAXPROCS is the CPUs this pod can use: the runtime reads the
+	// cgroup's CPU limit (rounded up, at least 2) and the affinity mask, so
+	// with no CPU limit it is the node's CPUs.
+	sub := subscription(dom, spec, overrides, runtime.GOMAXPROCS(0), *f.coresPerSlot)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
 	defer stop()
@@ -234,22 +252,16 @@ func run(args []string, getenv func(string) string) int {
 	busRef.Store(bus)
 	// Presence (ADR-0019 §5.3, ruling R14): this pod's liveness and slots in
 	// clustarr-progress, for the manager's admission. It ends with ctx.
-	pw := &presence.Writer{
-		KV: bus.KV(events.BucketProgress), Domain: "markers", Pod: need["POD_NAME"],
-		Node: getenv("NODE_NAME"), Version: version.String(),
-		Slots:    map[string]int{events.ConsumerMarkersAnalyze: sub.MaxInFlight},
-		Durables: []string{events.ConsumerMarkersAnalyze},
-		Capabilities: func() map[string]string {
-			caps := map[string]string{}
-			if rep, err := ffruntime.Load(); err == nil {
-				caps["ffmpeg"] = strconv.Itoa(rep.FFmpegMajor)
-			}
-			if det != nil {
-				caps["textdet"] = "onnx"
-			}
-			return caps
-		},
-	}
+	pw := presenceWriter(bus.KV(events.BucketProgress), need["POD_NAME"], getenv("NODE_NAME"), sub, func() map[string]string {
+		caps := map[string]string{}
+		if rep, err := ffruntime.Load(); err == nil {
+			caps["ffmpeg"] = strconv.Itoa(rep.FFmpegMajor)
+		}
+		if det != nil {
+			caps["textdet"] = "onnx"
+		}
+		return caps
+	})
 	pctx, pcancel := context.WithCancel(ctx)
 	presenceDone := make(chan struct{})
 	go func() {
@@ -267,8 +279,9 @@ func run(args []string, getenv func(string) string) int {
 		case <-time.After(2 * time.Second):
 		}
 	}()
+	threads := decodeThreads(*f.threads, sub.MaxInFlight, runtime.GOMAXPROCS(0))
 	h := &worker.Handler{
-		Decoder:      decode.Decoder{Threads: decodeThreads(*f.threads, sub.MaxInFlight, runtime.GOMAXPROCS(0))},
+		Decoder:      decode.Decoder{Threads: threads},
 		Fingerprints: bus.ObjectStore(events.ObjectStoreFingerprints),
 		Records:      segments.NewStore(bus.KV(events.BucketSegments)),
 		MaxDeliver:   spec.MaxDeliver,
@@ -294,7 +307,9 @@ func run(args []string, getenv func(string) string) int {
 		}
 	}()
 	subscribed.Store(true)
-	log.InfoContext(ctx, "markers serving", "slots", sub.MaxInFlight, "dnn", det != nil)
+	log.InfoContext(ctx, "markers serving", "slots", sub.MaxInFlight,
+		"automatic", dom.AutoSlots(spec.Name, overrides), "cpus", runtime.GOMAXPROCS(0),
+		"decodeThreads", threads, "dnn", det != nil)
 	select {
 	case <-ctx.Done():
 		return worker.ExitDrained
@@ -323,15 +338,29 @@ const (
 	tracingShutdown = 5 * time.Second
 )
 
-// subscription is markers-analyze's subscription: its slots, overridable
-// through CLUSTARR_CONSUMER_SLOTS, and a drain of its StopBudget -- the
+// subscription is markers-analyze's subscription: its slots -- the
+// CLUSTARR_CONSUMER_SLOTS override, else one per coresPerSlot of the cpus
+// this pod can use, from 1 to events.PerNodeSlotsCeiling
+// (agentdomain.Domain.PodSlots) -- and a drain of its StopBudget, the
 // requeue drain, not the 30-minute AckWait a SIGTERMed pod used to wait out
 // (2026-10-15).
-func subscription(spec events.ConsumerSpec, overrides map[string]int) events.Subscription {
+func subscription(dom agentdomain.Domain, spec events.ConsumerSpec, overrides map[string]int, cpus, coresPerSlot int) events.Subscription {
 	sub := spec.Subscription()
-	sub.MaxInFlight = events.SlotsFor(spec, overrides)
+	sub.MaxInFlight = dom.PodSlots(spec, overrides, cpus, coresPerSlot)
 	sub.Drain = spec.StopBudget()
 	return sub
+}
+
+// presenceWriter is this pod's presence writer (ADR-0019 §5.3): the slots it
+// reports are the ones sub runs, so the manager reads each pod's own
+// capacity, whatever its node.
+func presenceWriter(kv events.KV, pod, node string, sub events.Subscription, caps func() map[string]string) *presence.Writer {
+	return &presence.Writer{
+		KV: kv, Domain: agentdomain.Markers, Pod: pod, Node: node, Version: version.String(),
+		Slots:        map[string]int{sub.Durable: sub.MaxInFlight},
+		Durables:     []string{sub.Durable},
+		Capabilities: caps,
+	}
 }
 
 // shutdownBudget is the bus shutdown's budget from SIGTERM.
@@ -373,8 +402,11 @@ func healthzHandler(w events.WedgeReporter) http.Handler {
 	})
 }
 
-// decodeThreads is --decode-threads: an explicit value, else the cgroup's
-// CPUs (GOMAXPROCS follows the quota) shared by the per-pod slots.
+// decodeThreads is --decode-threads: an explicit value, else the pod's CPUs
+// (GOMAXPROCS follows the cgroup's limit, and with none the node) shared by
+// its slots, at least one each. Automatic slots give each slot
+// --cores-per-slot threads, and past PerNodeSlotsCeiling slots a big node's
+// spare CPUs go to the decoders rather than idle.
 func decodeThreads(flag, slots, procs int) int {
 	if flag > 0 {
 		return flag

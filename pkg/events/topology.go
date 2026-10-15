@@ -176,7 +176,8 @@ const AutoscaleReplicaCeiling = 8
 // PerNodeSlotsCeiling sizes a per-node domain's durables
 // (agentdomain.Domain.PerNode): MaxAckPending is AutoscaleReplicaCeiling ×
 // PerNodeSlotsCeiling, a pod on each of up to 8 nodes running up to 8 slots
-// (CLUSTARR_CONSUMER_SLOTS), whatever its Slots. Such a domain's
+// (CLUSTARR_CONSUMER_SLOTS, else sized from its CPUs by SlotsForCPUs, which
+// stops here), whatever its Slots. Such a domain's
 // maxReplicas is its matching nodes, not MaxAckPending / slots: a cap below
 // nodes × slots starves the last pods, and a Slots-sized one (8 at 1 slot)
 // held markers to two pods on three nodes at three slots each (2026-10-15).

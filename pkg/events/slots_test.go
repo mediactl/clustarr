@@ -168,3 +168,43 @@ func TestSlotsFor(t *testing.T) {
 	assert.Equal(t, 1, events.SlotsFor(c, map[string]int{"catalog-metadata": 8}))
 	assert.Equal(t, 1, events.SlotsFor(c, nil))
 }
+
+// A per-node domain's pod sizes its own slots from the CPUs it can use: one
+// per coresPerSlot of them, so markers on talos' 4-CPU workers runs two
+// analyses and on its 16-CPU worker eight, where a fixed three left the big
+// node idle and oversubscribed the small ones (2026-10-15).
+func TestSlotsForCPUsIsOnePerCoresPerSlot(t *testing.T) {
+	for _, tc := range []struct{ cpus, coresPerSlot, want int }{
+		{4, events.DefaultCoresPerSlot, 2},
+		{5, events.DefaultCoresPerSlot, 2},
+		{6, events.DefaultCoresPerSlot, 3},
+		{12, events.DefaultCoresPerSlot, 6},
+		{16, events.DefaultCoresPerSlot, 8},
+		// An I/O-bound cluster (one 1 GbE NFS link a node) runs a slot a core.
+		{4, 1, 4},
+		{6, 1, 6},
+		{12, 3, 4},
+	} {
+		assert.Equal(t, tc.want, events.SlotsForCPUs(tc.cpus, tc.coresPerSlot), "%d CPUs at %d a slot", tc.cpus, tc.coresPerSlot)
+	}
+}
+
+// The automatic slots are at least one, whatever the pod's CPUs, and at most
+// PerNodeSlotsCeiling, the most a per-node durable's MaxAckPending feeds on
+// every node (TestPerNodeDurablesFeedEveryNode); a divisor below one counts
+// as one.
+func TestSlotsForCPUsClampsToOneAndThePerNodeCeiling(t *testing.T) {
+	for _, tc := range []struct{ cpus, coresPerSlot, want int }{
+		{0, events.DefaultCoresPerSlot, 1},
+		{1, events.DefaultCoresPerSlot, 1},
+		{3, events.DefaultCoresPerSlot, 1},
+		{2, 4, 1},
+		{17, events.DefaultCoresPerSlot, events.PerNodeSlotsCeiling},
+		{64, events.DefaultCoresPerSlot, events.PerNodeSlotsCeiling},
+		{16, 1, events.PerNodeSlotsCeiling},
+		{4, 0, 4},
+		{4, -2, 4},
+	} {
+		assert.Equal(t, tc.want, events.SlotsForCPUs(tc.cpus, tc.coresPerSlot), "%d CPUs at %d a slot", tc.cpus, tc.coresPerSlot)
+	}
+}

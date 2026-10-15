@@ -54,6 +54,22 @@ func ParseSlotOverrides(v string) (map[string]int, error) {
 	return out, nil
 }
 
+// DefaultCoresPerSlot is how many of a pod's CPUs each automatic slot
+// takes (SlotsForCPUs): a segment analysis is FFmpeg decoding on threads of
+// its own plus Go analysis, about two cores' work while /data keeps up. An
+// I/O-bound cluster sets 1 (markers --cores-per-slot, chart
+// markers.coresPerSlot).
+const DefaultCoresPerSlot = 2
+
+// SlotsForCPUs is a per-node domain's automatic per-pod slots
+// (agentdomain.Domain.AutoSlots): one per coresPerSlot of the cpus its pod
+// can use, at least 1 and at most PerNodeSlotsCeiling, the most its
+// durables' MaxAckPending feeds on every node. A coresPerSlot below 1
+// counts as 1.
+func SlotsForCPUs(cpus, coresPerSlot int) int {
+	return min(max(1, cpus/max(1, coresPerSlot)), PerNodeSlotsCeiling)
+}
+
 // SlotsFor is c's per-pod slots: the override for its name, else c.Slots.
 func SlotsFor(c ConsumerSpec, overrides map[string]int) int {
 	if n, ok := overrides[c.Name]; ok {
