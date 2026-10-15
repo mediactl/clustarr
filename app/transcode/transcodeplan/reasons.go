@@ -35,3 +35,7 @@ const (
 	ReasonRetriesExhausted, ReasonInvalidSource, ReasonDeadLettered = "RetriesExhausted", "InvalidSource", "DeadLettered"
 	ReasonDeadlineExceeded, ReasonSourceChanged, ReasonOrphaned     = "DeadlineExceeded", "SourceChanged", "Orphaned"
 )
+
+// ReasonReclaimed is an Event's, not status's: a Running attempt's task,
+// redelivered after its worker died, was claimed by another pod.
+const ReasonReclaimed = "Reclaimed"

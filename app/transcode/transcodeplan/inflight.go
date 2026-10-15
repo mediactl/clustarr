@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package transcodeplan
 
 import (
+	"cmp"
 	"fmt"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -107,6 +108,19 @@ func planInFlight(in Inputs) Decision {
 				b.StartedAt = &metav1.Time{Time: *rec.ClaimedAt}
 			}
 			d.History = []HistoryEvent{{Action: events.ActionStarted, Seq: seq}}
+			d.Unpaced = true
+		} else if w := truncate(rec.Writer, 253); w != "" && w != b.WorkerPod {
+			// The task was redelivered after its worker died and another
+			// pod claimed it: status names the pod running the attempt
+			// (Beetlejuice Beetlejuice ran 40 minutes on one pod while
+			// status named an OOM-killed one, 2026-10-15).
+			was := cmp.Or(b.WorkerPod, "an earlier worker")
+			b.WorkerPod = w
+			if rec.ClaimedAt != nil {
+				b.StartedAt = &metav1.Time{Time: *rec.ClaimedAt}
+			}
+			d.Events = []Event{{Type: "Normal", Reason: ReasonReclaimed,
+				Message: fmt.Sprintf("attempt %d was claimed again by %s after %s", seq, w, was)}}
 			d.Unpaced = true
 		}
 		return running(in, b, d)
