@@ -157,6 +157,38 @@ func TestHEVC8BitIsCompliantOnlyAtTheEightBitTarget(t *testing.T) {
 	assert.Equal(t, "yuv420p10le", p.Expect.PixelFormat)
 }
 
+// policy.keepCodecs with h264 keeps 8-bit SDR H.264 as it is: the copy path
+// compliant HEVC takes -- an MKV remuxed into the MP4 layout and tagged, so
+// final -- where the standard encodes it to HEVC (owner, 2026-10-15). A
+// 10-bit (Hi10P) or HDR H.264 is still encoded, which many players, Apple's
+// among them, cannot decode.
+func TestKeepingH264CopiesEightBitSDRH264(t *testing.T) {
+	keep := profile
+	keep.KeepCodecs = []string{"hevc", "h264"}
+	p := Plan(info(h264, eac3), keep, cpu)
+	require.Equal(t, DecisionCopyVideo, p.Decision, p.Reason)
+	assert.Equal(t, "copy", p.Video.Action)
+	assert.Equal(t, "h264", p.Expect.VideoCodec, "the output is verified as the H.264 it is")
+	assert.Equal(t, "yuv420p", p.Expect.PixelFormat)
+	assert.Equal(t, transcode.ContainerMP4, p.Container)
+	assert.Equal(t, "hevc-mkv@abc", p.Tags["CLUSTARR_PROFILE"])
+	assert.Equal(t, []AudioPlan{
+		{SourceIndex: 0, Action: "aac", Channels: 2, Layout: "stereo", BitRate: 160000, Language: "eng", Title: "Stereo", Default: true},
+		{SourceIndex: 0, Action: "copy", Language: "eng"},
+	}, p.Audio, "the audio takes the standard's layout as an encode's does")
+	assert.Equal(t, DecisionSkip, Plan(mp4Info(h264, audio(0, "aac", 2, "stereo", "eng")), keep, cpu).Decision,
+		"already in the MP4 layout")
+
+	hi10p := video("h264", "yuv420p10le", 10, commonv1.HdrFormatNone)
+	assert.Equal(t, DecisionEncode, Plan(info(hi10p, eac3), keep, cpu).Decision, "Hi10P is still encoded")
+	hdr := video("h264", "yuv420p", 8, commonv1.HdrFormatHDR10)
+	assert.Equal(t, DecisionEncode, Plan(info(hdr, eac3), keep, cpu).Decision, "HDR H.264 is still encoded")
+	dv9 := video("h264", "yuv420p", 8, commonv1.HdrFormatDolbyVisionSDR)
+	assert.Equal(t, DecisionEncode, Plan(info(dv9, eac3), keep, cpu).Decision,
+		"Dolby Vision is stripped by an encode, as it is from HEVC, not copied")
+	assert.Equal(t, DecisionEncode, Plan(info(h264, eac3), profile, cpu).Decision, "without h264 listed, it is encoded")
+}
+
 func TestHDRAt1080pStaysMain10(t *testing.T) {
 	hdr := video("h264", "yuv420p10le", 10, commonv1.HdrFormatHDR10)
 	for _, hw := range []Hardware{cpu, nvenc} {
@@ -444,7 +476,7 @@ func TestPlanAlwaysWritesMP4(t *testing.T) {
 	assert.False(t, p.Attachments)
 }
 
-func TestVersionIsTwo(t *testing.T) { assert.Equal(t, 2, Version) }
+func TestVersionIsThree(t *testing.T) { assert.Equal(t, 3, Version) }
 
 func sub(codec, lang, title string, forced, hi bool) transcode.SubtitleStream {
 	return transcode.SubtitleStream{

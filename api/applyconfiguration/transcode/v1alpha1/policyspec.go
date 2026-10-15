@@ -31,14 +31,22 @@ type PolicySpecApplyConfiguration struct {
 	// NeverTranscodeModifiers lists quality modifiers (see common Modifier)
 	// whose files are never transcoded.
 	NeverTranscodeModifiers []string `json:"neverTranscodeModifiers,omitempty"`
+	// KeepCodecs lists the source video codecs the standard keeps rather
+	// than encodes. hevc is always kept, listed or not; h264 keeps 8-bit SDR
+	// H.264 as well, copied into the MP4 layout -- and so final -- where it
+	// would be encoded to HEVC. 10-bit (Hi10P), HDR and Dolby Vision H.264
+	// are still encoded.
+	KeepCodecs []string `json:"keepCodecs,omitempty"`
 	// MinDuration is the shortest source runtime considered for transcoding;
 	// "0s" considers every file. A pointer because zero is meaningful: a Go
 	// client always sends a non-pointer Duration, so the 1m default would
 	// never reach a profile created from Go. Unset means 1m.
 	MinDuration *v1.Duration `json:"minDuration,omitempty"`
-	// MaxOutputToSourcePercent fails a job whose output is larger than this
-	// percentage of the source size: 100 (the default) refuses any output
-	// bigger than the file it replaces, 150 allows half as large again. It is
+	// MaxOutputToSourcePercent fails a job whose encode is larger than this
+	// percentage of the source size: 100 (the default) refuses any encode
+	// bigger than the file it replaces, 150 allows half as large again. A
+	// remux, its video copied, is not held to it: it adds the standard's AAC
+	// 2.0 companion, so it is a little larger by design. It is
 	// the design spec's MaxOutputToSourceRatio 1.0 as a scaled integer, since
 	// the API carries no floats. 0 disables the check. A pointer so a Go
 	// client can send that 0: with omitempty it would be dropped and
@@ -68,6 +76,16 @@ func PolicySpec() *PolicySpecApplyConfiguration {
 func (b *PolicySpecApplyConfiguration) WithNeverTranscodeModifiers(values ...string) *PolicySpecApplyConfiguration {
 	for i := range values {
 		b.NeverTranscodeModifiers = append(b.NeverTranscodeModifiers, values[i])
+	}
+	return b
+}
+
+// WithKeepCodecs adds the given value to the KeepCodecs field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the KeepCodecs field.
+func (b *PolicySpecApplyConfiguration) WithKeepCodecs(values ...string) *PolicySpecApplyConfiguration {
+	for i := range values {
+		b.KeepCodecs = append(b.KeepCodecs, values[i])
 	}
 	return b
 }

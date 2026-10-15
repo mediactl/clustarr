@@ -169,6 +169,33 @@ func TestTheEngineWritesTheMP4AudioLayout(t *testing.T) {
 	assert.True(t, rep.OK, "%v", rep.Problems)
 }
 
+// A profile that keeps H.264 (policy.keepCodecs) remuxes an 8-bit H.264
+// Matroska into the MP4 standard with the video copied, and the output
+// verifies as the H.264 it is (owner, 2026-10-15).
+func TestAKeptH264IsCopiedIntoTheMP4Standard(t *testing.T) {
+	ffmpeg9OrSkip(t)
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src.mkv")
+	run(t, "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+		"-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24:duration=3",
+		"-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=3,aformat=channel_layouts=5.1",
+		"-map", "0", "-map", "1", "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+		"-c:a", "eac3", "-metadata:s:a:0", "language=eng", src)
+	plan := standard.Plan(probeInfo(t, src),
+		standard.Profile{Name: "p", Hash: "h", KeepCodecs: []string{"h264"}}, standard.Hardware{Tier: transcode.TierCPUx265})
+	require.Equal(t, standard.DecisionCopyVideo, plan.Decision, plan.Reason)
+	out := filepath.Join(dir, "out.mp4")
+	_, err := Run(context.Background(), plan, src, out, Options{})
+	require.NoError(t, err)
+	tags := codecTags(t, out)
+	assert.Contains(t, tags, "codec_name=h264")
+	assert.Contains(t, tags, "codec_tag_string=avc1")
+	assert.NotContains(t, tags, "codec_name=hevc", "the video was copied, not encoded")
+	rep, err := Verify(context.Background(), src, out, plan.Expect)
+	require.NoError(t, err)
+	assert.True(t, rep.OK, "%v", rep.Problems)
+}
+
 // A video stream that starts after the audio must not stall the run: an
 // encoded audio stage reads on while the video stage has yet to open its
 // encoder (final review I1: setup waited for the header before reading,

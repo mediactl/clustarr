@@ -101,7 +101,10 @@ when a subtitle may be wanted for it (the subtitles planner,
 (2026-10-01, `docs/superpowers/specs/2026-09-30-ffgo-transcoding-design.md`
 and its "As built" section): `pkg/transcode/standard.Plan` decides (HEVC
 Main 10, or Main 8-bit for SDR at 1080p or less; Dolby Vision 7/8.1 as
-HDR10; since `standard.Version` 2 the MP4 layout,
+HDR10; since `standard.Version` 3 (2026-10-15) a profile whose
+`policy.keepCodecs` lists `h264` copies 8-bit SDR H.264 into the layout
+as compliant HEVC is copied -- remuxed, tagged, final -- while Hi10P, HDR
+and Dolby Vision H.264 still encode; since `standard.Version` 2 the MP4 layout,
 `docs/superpowers/specs/2026-10-06-mp4-standard-design.md`: one `.mp4`,
 HEVC tagged `hvc1`, whatever the profile's `container`
 (`jobspec.OutputContainer`); per language an AAC 2.0 160k track listed
@@ -121,9 +124,12 @@ any image (ADR-0017; `images/distroless/stage.sh` refuses all three;
 `TestTheNativeImageCarriesNoMediaExecutable`†). A TranscodeProfile
 names no encoder setting: `quality`, `container` (ignored since
 `standard.Version` 2), `audio.languages`,
-`policy.neverTranscodeModifiers`, `policy.minDuration` and
+`policy.neverTranscodeModifiers`, `policy.keepCodecs` (hashed as a set
+without `hevc`, which is always kept), `policy.minDuration` and
 `policy.maxOutputToSourcePercent` are the standard's inputs, and with
-`standard.Version` the only things `status.hash` covers. A file is planned
+`standard.Version` the only things `status.hash` covers. The size limit
+holds an encode only: a remux adds the AAC 2.0 companion, so it is a little
+larger by design (`worker.outputTooLarge`). A file is planned
 again at dispatch whenever its plan would differ (a profile edit, another
 class, new limits). **A new hash
 re-transcodes nothing**: the transcode planner (`app/transcode/transcodeplan`)

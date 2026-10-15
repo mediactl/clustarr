@@ -64,6 +64,12 @@ func asSet(l []string) []string {
 	return slices.Compact(out)
 }
 
+// keptBesideHEVC is policy.keepCodecs as the hash reads it: a set, without
+// hevc, which the standard keeps whether it is listed or not.
+func keptBesideHEVC(l []string) []string {
+	return asSet(slices.DeleteFunc(slices.Clone(l), func(c string) bool { return c == "hevc" }))
+}
+
 // ProfileHash is a profile's status.hash: [ProfileHashAt] the standard's
 // current version.
 func ProfileHash(spec transcodev1alpha1.TranscodeProfileSpec) string {
@@ -72,7 +78,9 @@ func ProfileHash(spec transcodev1alpha1.TranscodeProfileSpec) string {
 
 // ProfileHashAt is the sha256 of what the standard reads from a profile --
 // quality (unset as its default), container (unset as mkv), the audio
-// languages, the never-transcode modifiers and policy.minDuration -- the
+// languages, the never-transcode modifiers, the codecs kept beside HEVC
+// (policy.keepCodecs; absent when none, so such a profile hashes in the
+// shape it always had) and policy.minDuration -- the
 // size limit that decides whether its output is kept
 // (policy.maxOutputToSourcePercent; both unset as their defaults), and the
 // standard's version. An edit to any of them names new jobs, so a file a
@@ -100,9 +108,10 @@ func ProfileHashAt(spec transcodev1alpha1.TranscodeProfileSpec, version int) str
 		NeverTranscodeModifiers  []string
 		MinDuration              time.Duration
 		MaxOutputToSourcePercent int32
+		KeepCodecs               []string `json:",omitempty"`
 	}{
 		version, spec.QualityOrDefault(), container, asSet(spec.Audio.Languages), asSet(spec.Policy.NeverTranscodeModifiers),
-		MinDuration(spec.Policy), MaxOutputToSourcePercent(spec.Policy),
+		MinDuration(spec.Policy), MaxOutputToSourcePercent(spec.Policy), keptBesideHEVC(spec.Policy.KeepCodecs),
 	})
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])

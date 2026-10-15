@@ -124,6 +124,11 @@ func (in *PolicySpec) DeepCopyInto(out *PolicySpec) {
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
+	if in.KeepCodecs != nil {
+		in, out := &in.KeepCodecs, &out.KeepCodecs
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
 	if in.MinDuration != nil {
 		in, out := &in.MinDuration, &out.MinDuration
 		*out = new(v1.Duration)

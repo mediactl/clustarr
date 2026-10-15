@@ -105,6 +105,12 @@ var schemaYAML = typed.YAMLObject(`types:
 - name: com.github.mediactl.clustarr.api.transcode.v1alpha1.PolicySpec
   map:
     fields:
+    - name: keepCodecs
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: associative
     - name: maxOutputToSourcePercent
       type:
         scalar: numeric

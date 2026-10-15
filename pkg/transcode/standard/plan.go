@@ -50,7 +50,8 @@ import (
 // colour rule -- so files not yet transcoded are planned under the new
 // standard. Files already transcoded are final and are never redone.
 // 2: the MP4 layout (2026-10-06 MP4 standard design).
-const Version = 2
+// 3: policy.keepCodecs -- 8-bit SDR H.264 copied when a profile keeps it.
+const Version = 3
 
 // Profile is what a TranscodeProfile decides under the standard.
 type Profile struct {
@@ -65,6 +66,9 @@ type Profile struct {
 	// MinDuration skips a source shorter than it (policy.minDuration):
 	// trailers, extras, samples. Zero considers every file.
 	MinDuration time.Duration
+	// KeepCodecs (policy.keepCodecs) are the source video codecs kept, not
+	// encoded: HEVC always; "h264" keeps 8-bit SDR H.264 as well.
+	KeepCodecs []string
 }
 
 // Hardware is the encoding device: the pool class's tier and its limits.
@@ -279,6 +283,13 @@ func Plan(info transcode.MediaInfo, profile Profile, hw Hardware) Result {
 	}
 	// A 10-bit file is never encoded down to the 8-bit target.
 	compliant := v.Codec == "hevc" && (tenBit(v) || (eight && v.PixFmt == "yuv420p")) && !isDolbyVision(v.HDR.Format)
+	// A profile that keeps H.264 (policy.keepCodecs) copies 8-bit SDR H.264
+	// as compliant HEVC is copied (owner, 2026-10-15). Hi10P and HDR H.264
+	// are still encoded: many players, Apple's among them, cannot decode them;
+	// so is Dolby Vision H.264 (profile 9), stripped as it is from HEVC.
+	keptH264 := v.Codec == "h264" && slices.Contains(profile.KeepCodecs, "h264") &&
+		v.PixFmt == "yuv420p" && hdr == "sdr" && !isDolbyVision(v.HDR.Format)
+	compliant = compliant || keptH264
 	audioAsIs := len(p.Audio) == len(info.Audio)
 	for _, a := range p.Audio {
 		audioAsIs = audioAsIs && a.Action == AudioCopy
@@ -286,13 +297,18 @@ func Plan(info transcode.MediaInfo, profile Profile, hw Hardware) Result {
 	subsAsIs := len(info.Subtitles) == 0 && len(info.Attachments) == 0
 	sameContainer := containerOf(info.Format.Name) == p.Container
 	switch {
+	case keptH264 && audioAsIs && subsAsIs && sameContainer:
+		return skip(p, "already H.264 in the MP4 standard's layout, kept (policy.keepCodecs)")
 	case compliant && audioAsIs && subsAsIs && sameContainer:
 		return skip(p, "already HEVC in the MP4 standard's layout")
 	case compliant:
 		p.Decision = DecisionCopyVideo
 		p.Reason = "HEVC Main 10 video copied; audio or container processed"
+		if keptH264 {
+			p.Reason = "H.264 video copied (policy.keepCodecs); audio or container processed"
+		}
 		p.Video = VideoPlan{SourceIndex: int32(vi), Action: "copy"}
-		p.Expect.PixelFormat = v.PixFmt
+		p.Expect.VideoCodec, p.Expect.PixelFormat = v.Codec, v.PixFmt
 		return p
 	}
 	p.Decision = DecisionEncode

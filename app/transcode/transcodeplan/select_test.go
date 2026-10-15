@@ -50,6 +50,7 @@ func renderSpec() transcodev1alpha1.TranscodeProfileSpec {
 		Audio:     transcodev1alpha1.AudioSpec{Languages: []string{"eng"}},
 		Policy: transcodev1alpha1.PolicySpec{
 			NeverTranscodeModifiers:  []string{"remux", "brdisk"},
+			KeepCodecs:               []string{"h264"},
 			MinDuration:              &metav1.Duration{Duration: time.Minute},
 			MaxOutputToSourcePercent: ptr.To[int32](100),
 			ReplaceSource:            new(true), RecycleBin: ptr.To(true),
@@ -64,7 +65,7 @@ func renderSpec() transcodev1alpha1.TranscodeProfileSpec {
 // Container is not one since standard.Version 2: every transcode writes MP4
 // (jobspec.OutputContainer).
 var standardInputs = map[string]bool{
-	"Quality": true, "Audio.Languages": true, "Policy.NeverTranscodeModifiers": true,
+	"Quality": true, "Audio.Languages": true, "Policy.NeverTranscodeModifiers": true, "Policy.KeepCodecs": true,
 	"Policy.MinDuration": true, "Policy.MaxOutputToSourcePercent": true,
 }
 
@@ -147,8 +148,17 @@ func TestTheHashTreatsItsListsAsSets(t *testing.T) {
 	a.Audio.Languages, b.Audio.Languages = nil, []string{}
 	assert.Equal(t, jobspec.ProfileHash(a), jobspec.ProfileHash(b), "an empty list is an unset one")
 
+	// policy.keepCodecs: HEVC is kept whether it is listed or not.
+	a.Policy.KeepCodecs, b.Policy.KeepCodecs = []string{"hevc", "h264"}, []string{"h264", "hevc", "h264"}
+	assert.Equal(t, jobspec.ProfileHash(a), jobspec.ProfileHash(b))
+	a.Policy.KeepCodecs, b.Policy.KeepCodecs = []string{"hevc"}, nil
+	assert.Equal(t, jobspec.ProfileHash(a), jobspec.ProfileHash(b), "listing hevc keeps what is always kept")
+	b.Policy.KeepCodecs = []string{"h264"}
+	assert.NotEqual(t, jobspec.ProfileHash(a), jobspec.ProfileHash(b), "keeping h264 is a different standard")
+
 	stable := renderSpec()
 	stable.Policy.NeverTranscodeModifiers = []string{"remux", "brdisk"}
+	stable.Policy.KeepCodecs = nil // a profile that keeps only HEVC hashes in the shape it always had
 	before := sha256Hex(t, struct {
 		Version                  int
 		Quality                  int32
