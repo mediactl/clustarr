@@ -122,6 +122,10 @@ type EngineRuntime struct {
 	NATSURL            string
 	Umask              string
 
+	// PlainMetrics serves the engine's metrics port as plain HTTP
+	// (--metrics-secure=false), as the manager's own; zero keeps HTTPS.
+	PlainMetrics bool
+
 	TorrentMemoryLimit resource.Quantity
 	UsenetMemoryLimit  resource.Quantity
 }
@@ -479,7 +483,8 @@ func engineStartConfig(dc *downloadv1alpha1.DownloadClient, secrets map[string]s
 // (torrent.EngineIdentity), because a StatefulSet pod's ordinal is knowable
 // only at the pod's own runtime; a usenet engine is always ordinal 0 (CEL).
 // Neither image has an ENTRYPOINT, so the container names its binary.
-// cmd/agent's engine_argv_test parses exactly this output.
+// cmd/agent's engine_argv_test parses exactly this output; the containers
+// add EngineRuntime's metrics flag.
 func EngineCommand(dc *downloadv1alpha1.DownloadClient, dataDir, scratchDir string) (command, args []string) {
 	command = []string{binpath.Agent}
 	if dc.Spec.Torrent != nil {
@@ -499,6 +504,21 @@ func EngineCommand(dc *downloadv1alpha1.DownloadClient, dataDir, scratchDir stri
 		args = append(args, "--publish-dir="+publish)
 	}
 	return command, append(args, "--pprof-bind-address="+EnginePprofAddress)
+}
+
+// EngineMetricsPort is the port an engine serves controller-runtime's
+// metrics on, k8s.DefaultMetricsBindAddress's. It is declared on the
+// container because talos's Alloy scrapes declared pod ports: undeclared, no
+// engine's memory was ever recorded (2026-10-15).
+const EngineMetricsPort = 8443
+
+// metrics is the engine container's metrics port, and the flag that serves
+// it as plain HTTP when the manager serves its own that way.
+func (rt EngineRuntime) metrics(args []string) ([]string, *corev1ac.ContainerPortApplyConfiguration) {
+	if rt.PlainMetrics {
+		args = append(args, "--metrics-secure=false")
+	}
+	return args, corev1ac.ContainerPort().WithName("metrics").WithContainerPort(EngineMetricsPort).WithProtocol(corev1.ProtocolTCP)
 }
 
 // EnginePprofAddress is where a usenet engine serves net/http/pprof: on the
@@ -531,6 +551,7 @@ func torrentContainer(dc *downloadv1alpha1.DownloadClient, image, dataDir, scrat
 		mounts = append(mounts, corev1ac.VolumeMount().WithName(scratchVolumeName).WithMountPath(scratchDir))
 	}
 	cmd, args := EngineCommand(dc, dataDir, scratchDir)
+	args, metricsPort := rt.metrics(args)
 	rr := engineResources(dc, memoryLimitOr(rt.TorrentMemoryLimit, DefaultTorrentMemoryLimit))
 
 	return corev1ac.Container().
@@ -541,7 +562,7 @@ func torrentContainer(dc *downloadv1alpha1.DownloadClient, image, dataDir, scrat
 		WithPorts(corev1ac.ContainerPort().
 			WithName("peer").
 			WithContainerPort(listenPort).
-			WithProtocol(corev1.ProtocolTCP)).
+			WithProtocol(corev1.ProtocolTCP), metricsPort).
 		WithEnv(engineEnv(rr, rt)...).
 		WithResources(resourceRequirementsAC(rr)).
 		WithSecurityContext(containerSecurityContextAC()).
@@ -561,12 +582,14 @@ func usenetContainer(dc *downloadv1alpha1.DownloadClient, image, dataDir, scratc
 		mounts = append(mounts, corev1ac.VolumeMount().WithName(scratchVolumeName).WithMountPath(scratch))
 	}
 	mounts = append(mounts, corev1ac.VolumeMount().WithName(tmpVolumeName).WithMountPath(tmpDir))
+	args, metricsPort := rt.metrics(args)
 	rr := engineResources(dc, memoryLimitOr(rt.UsenetMemoryLimit, DefaultUsenetMemoryLimit))
 	return corev1ac.Container().
 		WithName(engineContainerName).
 		WithImage(image).
 		WithCommand(cmd...).
 		WithArgs(args...).
+		WithPorts(metricsPort).
 		WithEnv(engineEnv(rr, rt)...).
 		WithResources(resourceRequirementsAC(rr)).
 		WithSecurityContext(containerSecurityContextAC()).

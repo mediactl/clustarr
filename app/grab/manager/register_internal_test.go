@@ -40,7 +40,7 @@ import (
 func TestEngineRuntimeCarriesTheControllerOptions(t *testing.T) {
 	t.Setenv("UMASK", "002")
 	o := Options{
-		Options:              k8s.Options{NATSURL: "nats://nats.media.svc:4222"},
+		Options:              k8s.Options{NATSURL: "nats://nats.media.svc:4222", MetricsSecure: true},
 		EngineServiceAccount: "media-clustarr-grab-engine",
 		// --engine-memory-limit-torrent and -usenet (smoke finding O9).
 		EngineMemoryLimitTorrent: resource.MustParse("3Gi"),
@@ -54,4 +54,9 @@ func TestEngineRuntimeCarriesTheControllerOptions(t *testing.T) {
 		TorrentMemoryLimit: resource.MustParse("3Gi"),
 		UsenetMemoryLimit:  resource.MustParse("6Gi"),
 	}, engineRuntime(o))
+
+	// --metrics-secure=false, the chart's metrics.secure: false, reaches the
+	// engines too, or a plain-HTTP scraper meets their TLS.
+	o.MetricsSecure = false
+	require.True(t, engineRuntime(o).PlainMetrics)
 }

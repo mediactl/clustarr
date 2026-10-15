@@ -19,6 +19,8 @@ package downloadclient
 
 import (
 	"context"
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -114,8 +116,7 @@ func TestBuildStatefulSetShape(t *testing.T) {
 	assert.Equal(t, []string{binpath.Agent}, c.Command)
 	assert.Equal(t, []string{"--domain=torrent-engine", "--download-client=sab", "--data-dir=/data"}, c.Args)
 
-	require.Len(t, c.Ports, 1)
-	assert.Equal(t, int32(51413), *c.Ports[0].ContainerPort)
+	assert.Equal(t, int32(51413), *portNamed(t, c, "peer").ContainerPort)
 
 	require.Len(t, c.VolumeMounts, 2)
 	assert.Equal(t, dataVolumeName, *c.VolumeMounts[0].Name)
@@ -131,8 +132,7 @@ func TestBuildStatefulSetDefaultsListenPort(t *testing.T) {
 	dc := torrentClient("sab", 1)
 	sts := buildStatefulSet(dc, "sab-engine", "img", "/data", "/scratch", "clustarr-data", EngineRuntime{}, nil, fakeOwnerRef())
 	c := sts.Spec.Template.Spec.Containers[0]
-	require.Len(t, c.Ports, 1)
-	assert.Equal(t, int32(defaultListenPort), *c.Ports[0].ContainerPort)
+	assert.Equal(t, int32(defaultListenPort), *portNamed(t, c, "peer").ContainerPort)
 }
 
 func TestBuildDeploymentShape(t *testing.T) {
@@ -376,6 +376,39 @@ func TestEnginePodsGetTheRuntimeTheyNeed(t *testing.T) {
 		r := NewReconciler(nil, nil, "/data", "/scratch", "img")
 		assert.Equal(t, DefaultEngineServiceAccount, r.Engine.ServiceAccountName)
 	})
+}
+
+// The engines serve metrics on :8443 like every agent, and follow the
+// manager's --metrics-secure as the chart's workloads follow metrics.secure:
+// talos's Alloy scrapes every declared port over plain HTTP, and the engines
+// declared none, so no engine's memory was ever recorded (2026-10-15).
+func TestEnginesDeclareTheirMetricsPortAndFollowMetricsSecure(t *testing.T) {
+	for _, plain := range []bool{false, true} {
+		rt := EngineRuntime{ServiceAccountName: DefaultEngineServiceAccount, PlainMetrics: plain}
+		sts := buildStatefulSet(torrentClient("sab", 1), "sab-engine", "img", "/data", "/scratch", "clustarr-data", rt, nil, fakeOwnerRef())
+		dep := buildDeployment(usenetClient("nzb"), "nzb-engine", "img", "/data", "/scratch", "clustarr-data", rt, nil, fakeOwnerRef())
+		for name, c := range map[string]corev1ac.ContainerApplyConfiguration{
+			"torrent": sts.Spec.Template.Spec.Containers[0],
+			"usenet":  dep.Spec.Template.Spec.Containers[0],
+		} {
+			t.Run(fmt.Sprintf("%s plain=%v", name, plain), func(t *testing.T) {
+				assert.Equal(t, int32(8443), *portNamed(t, c, "metrics").ContainerPort)
+				assert.Equal(t, plain, slices.Contains(c.Args, "--metrics-secure=false"))
+			})
+		}
+	}
+}
+
+// portNamed is c's port called name, failing the test when there is none.
+func portNamed(t *testing.T, c corev1ac.ContainerApplyConfiguration, name string) *corev1ac.ContainerPortApplyConfiguration {
+	t.Helper()
+	for i := range c.Ports {
+		if c.Ports[i].Name != nil && *c.Ports[i].Name == name {
+			return &c.Ports[i]
+		}
+	}
+	t.Fatalf("the container declares no %q port", name)
+	return nil
 }
 
 // TestAnEngineWithoutAMemoryLimitGetsItsProtocolsDefault is smoke finding

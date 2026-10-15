@@ -107,8 +107,9 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 // ServiceAccount, this controller's own bus address -- the engine joins the
 // same JetStream the manager does, and waits for the topology the manager
 // ensures (spec §3.5.5) -- its $UMASK (design §11), the same
-// pass-through the transcode pools get, and the default memory limits of an
-// engine whose DownloadClient sets none (smoke finding O9).
+// pass-through the transcode pools get, the default memory limits of an
+// engine whose DownloadClient sets none (smoke finding O9), and this
+// process's --metrics-secure, which the chart sets from metrics.secure.
 func engineRuntime(o Options) downloadclient.EngineRuntime {
 	return downloadclient.EngineRuntime{
 		ServiceAccountName: o.EngineServiceAccount,
@@ -116,5 +117,6 @@ func engineRuntime(o Options) downloadclient.EngineRuntime {
 		Umask:              os.Getenv("UMASK"),
 		TorrentMemoryLimit: o.EngineMemoryLimitTorrent,
 		UsenetMemoryLimit:  o.EngineMemoryLimitUsenet,
+		PlainMetrics:       !o.MetricsSecure,
 	}
 }
