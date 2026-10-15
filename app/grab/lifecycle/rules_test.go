@@ -311,6 +311,29 @@ func TestTheClaimEvidenceOrder(t *testing.T) {
 	}
 }
 
+// TestARecreatedImportedEntryCarriesAnAdmissibleImportDispatch: an imported
+// transfer re-created from its claim -- kind's seeding torrents, resumed by
+// talos's engines from the shared scratch (2026-10-15) -- gets an import
+// summary whose dispatch the CRD admits: seq at least 1 and a dispatchedAt,
+// and closed (answeredSeq == seq), since no import task is in flight for a
+// file already imported. The zero dispatch it had made the apiserver reject
+// every status apply of the owner, so none of its status ever landed.
+func TestARecreatedImportedEntryCarriesAnAdmissibleImportDispatch(t *testing.T) {
+	v := view(nil)
+	v.Unclaimed = []lifecycle.Transfer{unclaimed(owner(), "tmdb:949", true, false)}
+	v.HasFile = true
+	p := lifecycle.Decide(v)
+	e := only(p)
+	require.NotNil(t, e, "re-created: its seed goal is not met")
+	require.NotNil(t, e.Import, "the claim says imported")
+	assert.Equal(t, catalogv1alpha1.ImportPhaseImported, e.Import.Phase)
+	d := e.Import.Dispatch
+	assert.GreaterOrEqual(t, d.Seq, int64(1), "the CRD's minimum for import.dispatch.seq")
+	assert.False(t, d.DispatchedAt.IsZero(), "the CRD requires import.dispatch.dispatchedAt")
+	assert.Equal(t, d.Seq, d.AnsweredSeq, "closed: no import task is in flight for an imported file")
+	assert.False(t, e.Dispatch.DispatchedAt.IsZero(), "the entry's own dispatch is admissible too")
+}
+
 // blocklisted is a Blocklisted entry whose transfer is removed at its seq.
 func blocklisted(confirmedAt *time.Time) (catalogv1alpha1.DownloadEntry, lifecycle.Transfer) {
 	e := entry(commonv1.DownloadPhaseBlocklisted)

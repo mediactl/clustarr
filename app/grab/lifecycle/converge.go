@@ -251,7 +251,15 @@ func (d *decider) recreate(rec schema.TransferRecord, claim schema.TransferClaim
 	}
 	if claim.Imported {
 		t := metav1.NewTime(d.now)
-		e.Import = &catalogv1alpha1.DownloadImportSummary{Phase: catalogv1alpha1.ImportPhaseImported, ImportedAt: &t}
+		// A closed fence: the file is imported, so no import task is in
+		// flight, and the CRD admits no import summary without a dispatch
+		// (seq >= 1, dispatchedAt): a zero one rejected the owner's every
+		// status apply (talos, 2026-10-15).
+		seq := nextSeq(0, 0, d.now)
+		e.Import = &catalogv1alpha1.DownloadImportSummary{
+			Phase: catalogv1alpha1.ImportPhaseImported, ImportedAt: &t,
+			Dispatch: catalogv1alpha1.Dispatch{Seq: seq, AnsweredSeq: seq, DispatchedAt: t},
+		}
 		e.Phase = afterImport(&e)
 	}
 	e.Dispatch.Seq = rec.Seq
