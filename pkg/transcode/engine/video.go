@@ -61,10 +61,11 @@ func videoStage(v standard.VideoPlan) stageFunc {
 		if v.Decode == "nvdec" {
 			dcfg = &ffgo.StreamDecoderConfig{HWDevice: sc.opts.HWDevice, ExtraHWFrames: nvdecExtraFrames}
 		}
-		sd, err := sc.dec.NewStreamDecoder(sc.src.Index, dcfg)
+		dec, err := sc.dec.NewStreamDecoder(sc.src.Index, dcfg)
 		if err != nil {
 			return fmt.Errorf("decoder: %w", err)
 		}
+		sd := &tolerantDecoder{StreamDecoder: dec}
 		defer func() { _ = sd.Close() }()
 
 		var (
@@ -168,6 +169,9 @@ func videoStage(v standard.VideoPlan) stageFunc {
 			}
 		}()
 		if err := decodeAll(ctx, sc.in, sd, drain); err != nil {
+			return err
+		}
+		if err := sd.finish(ctx); err != nil {
 			return err
 		}
 		if graph == nil || enc == nil {

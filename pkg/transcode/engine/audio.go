@@ -56,10 +56,11 @@ func outputRate(action string, source int) int {
 // claim).
 func audioStage(outs []standard.AudioPlan) stageFunc {
 	return func(ctx context.Context, sc *stageContext) (err error) {
-		sd, err := sc.dec.NewStreamDecoder(sc.src.Index, nil)
+		dec, err := sc.dec.NewStreamDecoder(sc.src.Index, nil)
 		if err != nil {
 			return fmt.Errorf("decoder: %w", err)
 		}
+		sd := &tolerantDecoder{StreamDecoder: dec}
 		defer func() { _ = sd.Close() }()
 		encs := make([]*ffgo.AudioEncoder, len(outs))
 		rates := make([]int, len(outs))
@@ -140,6 +141,9 @@ func audioStage(outs []standard.AudioPlan) stageFunc {
 		if err := decodeAll(ctx, sc.in, sd, drain); err != nil {
 			return err
 		}
+		if err := sd.finish(ctx); err != nil {
+			return err
+		}
 		for k := range outs {
 			if res[k] != nil {
 				if tail, err := res[k].Flush(); err == nil && !tail.IsNil() {
@@ -158,10 +162,14 @@ func audioStage(outs []standard.AudioPlan) stageFunc {
 	}
 }
 
+// packetSender is a decoder's input: a tolerantDecoder, or a graft's
+// StreamDecoder, which decodes strictly.
+type packetSender interface{ Send(*ffgo.Packet) error }
+
 // decodeAll feeds every packet of in to sd, calling drain after each and
 // once more after end of stream; a full decoder (ErrAgain) is drained and
 // sent the same packet again.
-func decodeAll(ctx context.Context, in <-chan *ffgo.Packet, sd *ffgo.StreamDecoder, drain func() error) error {
+func decodeAll(ctx context.Context, in <-chan *ffgo.Packet, sd packetSender, drain func() error) error {
 	send := func(p *ffgo.Packet) error {
 		for {
 			err := sd.Send(p)
