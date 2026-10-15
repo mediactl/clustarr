@@ -62,7 +62,94 @@ func TestMediaInfoTokensRenderFromTheProbe(t *testing.T) {
 	one.MediaInfo.Audio = one.MediaInfo.Audio[1:]
 	got, err := e.Render("{MediaInfo AudioLanguages}", one)
 	require.NoError(t, err)
-	require.Equal(t, "", got, "a single language is not stated, Radarr's rule")
+	require.Equal(t, "", got, "English alone is not stated, Sonarr's rule")
+}
+
+// TestAudioLanguagesAreSonarrs holds the language tokens to Sonarr's
+// GetLanguagesToken: two-letter codes from the probe's ISO 639-2 tags, each
+// language once, a filter after a colon, and a lone language left unstated
+// only when it is the item's configured one (Sonarr's English) -- so a lone
+// original-language track, or one that is neither, is always named. On the
+// owner's anime library (2026-10-15) 231 of 509 files were Japanese alone,
+// and every one rendered no block.
+func TestAudioLanguagesAreSonarrs(t *testing.T) {
+	e := naming.NewEngine(naming.Config{})
+	for _, tc := range []struct {
+		name, tmpl, configured string
+		audio, subs            []string
+		want                   string
+	}{
+		{"the original alone", "{MediaInfo AudioLanguages}", "en", []string{"jpn"}, nil, "[JA]"},
+		{"neither original nor configured", "{MediaInfo AudioLanguages}", "en", []string{"spa"}, nil, "[ES]"},
+		{"the configured language alone", "{MediaInfo AudioLanguages}", "en", []string{"eng"}, nil, ""},
+		{"no configured language reads English", "{MediaInfo AudioLanguages}", "", []string{"eng"}, nil, ""},
+		{"a configured French", "{MediaInfo AudioLanguages}", "fr", []string{"fre"}, nil, ""},
+		{"English alone under a configured French", "{MediaInfo AudioLanguages}", "fr", []string{"eng"}, nil, "[EN]"},
+		{"the configured language with another", "{MediaInfo AudioLanguages}", "en", []string{"eng", "jpn"}, nil, "[EN+JA]"},
+		{"each language once", "{MediaInfo AudioLanguages}", "en", []string{"jpn", "jpn", "eng", "eng"}, nil, "[JA+EN]"},
+		{"bibliographic and terminological codes are one", "{MediaInfo AudioLanguages}", "en", []string{"fre", "fra"}, nil, "[FR]"},
+		{"a region is dropped", "{MediaInfo AudioLanguages}", "en", []string{"pt-BR"}, nil, "[PT]"},
+		{"unknown tags are dropped", "{MediaInfo AudioLanguages}", "en", []string{"und", ""}, nil, ""},
+		{"a code that names no language is kept", "{MediaInfo AudioLanguages}", "en", []string{"jpn", "qaa"}, nil, "[JA+QAA]"},
+		{"excluded", "{MediaInfo AudioLanguages:-EN}", "en", []string{"eng", "jpn", "fre"}, nil, "[JA+FR]"},
+		{"excluded down to the configured one", "{MediaInfo AudioLanguages:-JA-FR}", "en", []string{"eng", "jpn", "fre"}, nil, ""},
+		{"included, in the filter's order", "{MediaInfo AudioLanguages:JA+EN}", "en", []string{"eng", "jpn", "fre"}, nil, "[JA+EN]"},
+		{"a filter in lower case", "{MediaInfo AudioLanguages:ja}", "en", []string{"eng", "jpn"}, nil, "[JA]"},
+		{"a wildcard for the rest", "{MediaInfo AudioLanguages:JA+}", "en", []string{"eng", "jpn"}, nil, "[JA+--]"},
+		{"All states the configured language", "{MediaInfo AudioLanguagesAll}", "en", []string{"eng"}, nil, "[EN]"},
+		{"subtitles never skip", "{MediaInfo SubtitleLanguages}", "en", nil, []string{"eng"}, "[EN]"},
+		{"subtitles filtered", "{MediaInfo SubtitleLanguagesAll:-EN}", "en", nil, []string{"eng", "spa"}, "[ES]"},
+		{"wrapped", "{ MediaInfo AudioLanguages:-EN}", "en", []string{"eng", "jpn"}, nil, " [JA]"},
+	} {
+		c := naming.Context{Language: tc.configured}
+		for _, l := range tc.audio {
+			c.MediaInfo.Audio = append(c.MediaInfo.Audio, commonv1.AudioStream{Language: l})
+		}
+		for _, l := range tc.subs {
+			c.MediaInfo.Subtitles = append(c.MediaInfo.Subtitles, commonv1.SubtitleStream{Language: l})
+		}
+		got, err := e.Render(tc.tmpl, c)
+		require.NoError(t, err, tc.name)
+		require.Equal(t, tc.want, got, tc.name)
+	}
+
+	for _, tmpl := range []string{"{Release Group:-EN}", "{Movie Title:abc}"} {
+		_, err := e.Render(tmpl, naming.Context{})
+		require.ErrorIs(t, err, naming.ErrUnknownToken, "%s: only a language token takes a filter", tmpl)
+	}
+}
+
+// TestTheTRaSHAnimeFormatRendersEveryField renders the owner's anime episode
+// format (TRaSH's, as on the tv RootFolder) for a file Sonarr had named
+// "Overlord (2015) - S03E08 - 034 - A Handful of Hope [Bluray-1080p
+// v2][FLAC 2.0][JA][x264 10bit]-neko-kBaraka": Japanese alone, SDR, a
+// second revision.
+func TestTheTRaSHAnimeFormatRendersEveryField(t *testing.T) {
+	const tmpl = "{Series CleanTitleWithoutYear} {(Series Year)} - S{season:00}E{episode:00} - {absolute:000} - " +
+		"{Episode CleanTitle:90} {[Custom Formats]}{[Quality Full]}{[Mediainfo AudioCodec}{ Mediainfo AudioChannels]}" +
+		"{MediaInfo AudioLanguages}{[MediaInfo VideoDynamicRangeType]}[{Mediainfo VideoCodec }{MediaInfo VideoBitDepth}bit]" +
+		"{-Release Group}"
+	c := naming.Context{
+		Kind: commonv1.MediaKindEpisode, SeriesTitle: "Overlord", SeriesYear: 2015, Anime: true,
+		Season: 3, Episodes: []int{8}, Absolute: []int{34}, EpisodeTitle: "A Handful of Hope",
+		Quality:  commonv1.Quality{Source: commonv1.SourceBluray, Resolution: 1080},
+		Revision: commonv1.Revision{Version: 2}, CustomFormats: []string{"v2"}, ReleaseGroup: "neko-kBaraka",
+		ReleaseTitle: "[neko-kBaraka] Overlord III - 08 v2 [BD 1080p x264 10bit FLAC]", Language: "en",
+		MediaInfo: commonv1.MediaInfo{
+			VideoCodec: "h264", VideoBitDepth: 10, Hdr: commonv1.HdrFormatNone,
+			Audio: []commonv1.AudioStream{{Codec: "flac", Channels: 2, Language: "jpn", Default: true}},
+		},
+	}
+	e := naming.NewEngine(naming.Config{})
+	got, err := e.Render(tmpl, c)
+	require.NoError(t, err)
+	require.Equal(t, "Overlord (2015) - S03E08 - 034 - A Handful of Hope [v2][Bluray-1080p v2][FLAC 2.0][JA][x264 10bit]-neko-kBaraka", got)
+
+	c.MediaInfo.Audio = append(c.MediaInfo.Audio, commonv1.AudioStream{Codec: "flac", Channels: 2, Language: "eng"})
+	c.MediaInfo.Hdr = commonv1.HdrFormatHDR10
+	got, err = e.Render(tmpl, c)
+	require.NoError(t, err)
+	require.Equal(t, "Overlord (2015) - S03E08 - 034 - A Handful of Hope [v2][Bluray-1080p v2][FLAC 2.0][JA+EN][HDR10][x264 10bit]-neko-kBaraka", got)
 }
 
 // TestVideoPresetsStateTheCodec is Step 1's second brief test: the movie

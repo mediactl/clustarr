@@ -92,7 +92,7 @@ func (*Adapter) Applies(mf *catalogv1alpha1.MediaFile) bool {
 
 // Sources: S18 (clustarr-grafts' answers, §4.9), S15 (a graft Job
 // finishing or going, §3.3) and S10' (a QualityProfile's audio policy
-// changing: the files of its items, qualityProfileSource).
+// changing: the files of its items, remediation.QualityProfileSource).
 func (a *Adapter) Sources(mgr ctrl.Manager) ([]remediation.Source, error) {
 	var srcs []remediation.Source
 	if a.bus != nil {
@@ -102,7 +102,7 @@ func (a *Adapter) Sources(mgr ctrl.Manager) ([]remediation.Source, error) {
 	}
 	return append(srcs,
 		remediation.Source{Name: "S15/graft-jobs", Raw: remediation.GraftJobSource(mgr.GetCache())},
-		qualityProfileSource(mgr.GetClient()),
+		remediation.QualityProfileSource(mgr.GetClient()),
 	), nil
 }
 

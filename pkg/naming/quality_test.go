@@ -51,6 +51,27 @@ func TestRenderQualityFull(t *testing.T) {
 	}
 }
 
+// TestRenderQualityFullForAnime: an anime series' revision is its version,
+// as Sonarr's GetQualityProper writes it -- "v2", never "Proper" or
+// "Repack" -- with REAL after it.
+func TestRenderQualityFullForAnime(t *testing.T) {
+	bluray := commonv1.Quality{Source: commonv1.SourceBluray, Resolution: 1080}
+	for _, tc := range []struct {
+		name string
+		r    commonv1.Revision
+		want string
+	}{
+		{"first release", commonv1.Revision{Version: 1}, "Bluray-1080p"},
+		{"second version", commonv1.Revision{Version: 2}, "Bluray-1080p v2"},
+		{"a repack is its version", commonv1.Revision{Version: 2, Repack: true}, "Bluray-1080p v2"},
+		{"real after the version", commonv1.Revision{Version: 3, Real: 1}, "Bluray-1080p v3 REAL"},
+	} {
+		got, err := naming.NewEngine(naming.Config{}).Render("{Quality Full}", naming.Context{Anime: true, Quality: bluray, Revision: tc.r})
+		require.NoError(t, err, tc.name)
+		require.Equal(t, tc.want, got, tc.name)
+	}
+}
+
 func TestRenderMediaInfoVideoDynamicRangeType(t *testing.T) {
 	tests := []struct {
 		hdr  commonv1.HdrFormat

@@ -35,6 +35,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/naming/catalogctx"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/quality"
+	"github.com/mediactl/clustarr/pkg/quality/catalogue"
 )
 
 // maxExpectedPathLen is NamingStatus.ExpectedPath's CRD MaxLength. A longer
@@ -51,11 +52,14 @@ const (
 
 // namingOwner is what renderNaming needs of the catalog item a MediaFile
 // backs: the identity half of the naming context, the RootFolder the item
-// lives under, and the renderer for its kind.
+// lives under, the QualityProfile and original language its configured
+// language comes from, and the renderer for its kind.
 type namingOwner struct {
-	context       naming.Context
-	rootFolderRef string
-	render        func(root *catalogv1alpha1.RootFolder, c naming.Context, ext string) (string, error)
+	context           naming.Context
+	rootFolderRef     string
+	qualityProfileRef string
+	originalLanguage  string
+	render            func(root *catalogv1alpha1.RootFolder, c naming.Context, ext string) (string, error)
 }
 
 // NamingLookup is what LoadNaming read for a file: the item it backs (or why
@@ -87,7 +91,31 @@ func LoadNaming(ctx context.Context, c client.Reader, mf *catalogv1alpha1.MediaF
 	default:
 		look.root = &root
 	}
+	if look.err == nil {
+		look.err = setConfiguredLanguage(ctx, c, owner)
+	}
 	return look
+}
+
+// setConfiguredLanguage sets owner's naming context's Language from its
+// item's QualityProfile (catalogctx.ConfiguredLanguage). A profile that is
+// not named or not found reads as the CRD's default, "original"; one that
+// does not parse still says its languages, which FromCRD copies verbatim.
+func setConfiguredLanguage(ctx context.Context, c client.Reader, owner *namingOwner) error {
+	var p *quality.Profile
+	if owner.qualityProfileRef != "" {
+		var qp catalogv1alpha1.QualityProfile
+		switch err := c.Get(ctx, types.NamespacedName{Name: owner.qualityProfileRef}, &qp); {
+		case apierrors.IsNotFound(err):
+		case err != nil:
+			return err
+		default:
+			parsed, _ := quality.FromCRD(&qp, catalogue.LoadedCatalogue())
+			p = &parsed
+		}
+	}
+	owner.context.Language = catalogctx.ConfiguredLanguage(p, owner.originalLanguage)
+	return nil
 }
 
 // RenderNaming proposes mf's canonical path from look, the draft's mi and
@@ -196,8 +224,10 @@ func namingOwnerOf(ctx context.Context, c client.Reader, mf *catalogv1alpha1.Med
 			return nil, catalogv1alpha1.NamingReasonMetadataPending, nil
 		}
 		return &namingOwner{
-			context:       c,
-			rootFolderRef: m.Spec.RootFolderRef,
+			context:           c,
+			rootFolderRef:     m.Spec.RootFolderRef,
+			qualityProfileRef: m.Spec.QualityProfileRef,
+			originalLanguage:  m.Status.Metadata.OriginalLanguage,
 			render: func(root *catalogv1alpha1.RootFolder, c naming.Context, ext string) (string, error) {
 				return catalogctx.MovieFilePath(root, &m, c, ext)
 			},
@@ -241,8 +271,10 @@ func namingOwnerOf(ctx context.Context, c client.Reader, mf *catalogv1alpha1.Med
 			return nil, catalogv1alpha1.NamingReasonMetadataPending, nil
 		}
 		return &namingOwner{
-			context:       c,
-			rootFolderRef: s.Spec.RootFolderRef,
+			context:           c,
+			rootFolderRef:     s.Spec.RootFolderRef,
+			qualityProfileRef: s.Spec.QualityProfileRef,
+			originalLanguage:  s.Status.Metadata.OriginalLanguage,
 			render: func(root *catalogv1alpha1.RootFolder, c naming.Context, ext string) (string, error) {
 				return catalogctx.EpisodeFilePath(root, &s, c, ext)
 			},

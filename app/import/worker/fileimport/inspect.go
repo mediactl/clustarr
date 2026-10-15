@@ -407,6 +407,7 @@ func (w *Worker) inspectMovie(
 	}
 	setRoot(insp, rf)
 	base, _ := catalogctx.Movie(&movie)
+	base.Language = catalogctx.ConfiguredLanguage(&prof, movie.Status.Metadata.OriginalLanguage)
 	lang := originalName(movie.Status.Metadata.OriginalLanguage)
 	target := &schema.ItemRef{Kind: "Movie", Ref: schema.Ref{Namespace: ns, Name: movie.Name, UID: string(movie.UID)}}
 	return w.walk(ctx, m, commonv1.MediaKindMovie, root, task.Manual || task.Override, insp, func(path string, info os.FileInfo) error {
@@ -473,6 +474,7 @@ func (w *Worker) inspectEpisodes(
 		}
 	}
 	series := plan.series
+	language := catalogctx.ConfiguredLanguage(&plan.profile, series.Status.Metadata.OriginalLanguage)
 	return w.walk(ctx, m, commonv1.MediaKindEpisode, root, manual, insp, func(path string, info os.FileInfo) error {
 		rel := relPath(root, path)
 		f := schema.InspectedFile{Path: path, SizeBytes: info.Size()}
@@ -516,6 +518,7 @@ func (w *Worker) inspectEpisodes(
 		f.Probe = summaryOf(v.mi)
 		f.Frozen = frozenFields(v, plan.profile)
 		nctx, _ := catalogctx.Episode(series, episodesFor(eps))
+		nctx.Language = language
 		nctx = catalogctx.File(ctx, nctx, frozenSpec(f.Frozen, task.Release.Title), v.mi)
 		dest, derr := catalogctx.EpisodeFilePath(plan.rootFolder, series, nctx, catalogctx.ContainerExt(v.mi, path))
 		if derr != nil {

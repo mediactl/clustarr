@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package graft
+package remediation
 
 import (
 	"testing"
@@ -26,11 +26,12 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 )
 
-// TestAQualityProfileWakesItsFilesOnlyWhenItsAudioPolicyChanges holds the
-// predicate of S10' (audioPolicyChanged): a profile that stops grafting,
-// changes its default or its languages wakes its files; any other edit,
-// and a profile the cache's initial list delivers, wakes none.
-func TestAQualityProfileWakesItsFilesOnlyWhenItsAudioPolicyChanges(t *testing.T) {
+// TestAQualityProfileWakesItsFilesOnlyWhenItsLanguagePolicyChanges holds
+// the predicate of S10' (languagePolicyChanged): a profile that stops
+// grafting, changes its default, its audio languages or its language wakes
+// its files; any other edit, and a profile the cache's initial list
+// delivers, wakes none.
+func TestAQualityProfileWakesItsFilesOnlyWhenItsLanguagePolicyChanges(t *testing.T) {
 	qp := func(mutate func(*catalogv1alpha1.QualityProfileSpec)) *catalogv1alpha1.QualityProfile {
 		p := &catalogv1alpha1.QualityProfile{Spec: catalogv1alpha1.QualityProfileSpec{Cutoff: "hd",
 			Audio: &catalogv1alpha1.AudioPolicy{Languages: []string{"en", "original"}, Graft: true, Default: "en"}}}
@@ -39,7 +40,7 @@ func TestAQualityProfileWakesItsFilesOnlyWhenItsAudioPolicyChanges(t *testing.T)
 		}
 		return p
 	}
-	pred := audioPolicyChanged()
+	pred := languagePolicyChanged()
 	for _, tc := range []struct {
 		name   string
 		mutate func(*catalogv1alpha1.QualityProfileSpec)
@@ -49,6 +50,7 @@ func TestAQualityProfileWakesItsFilesOnlyWhenItsAudioPolicyChanges(t *testing.T)
 		{"another default", func(s *catalogv1alpha1.QualityProfileSpec) { s.Audio.Default = "original" }, true},
 		{"other languages", func(s *catalogv1alpha1.QualityProfileSpec) { s.Audio.Languages = []string{"en"} }, true},
 		{"no audio policy", func(s *catalogv1alpha1.QualityProfileSpec) { s.Audio = nil }, true},
+		{"another language", func(s *catalogv1alpha1.QualityProfileSpec) { s.Language = "en" }, true},
 		{"another cutoff", func(s *catalogv1alpha1.QualityProfileSpec) { s.Cutoff = "uhd" }, false},
 	} {
 		got := pred.Update(event.UpdateEvent{ObjectOld: qp(nil), ObjectNew: qp(tc.mutate)})

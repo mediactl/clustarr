@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package graft
+package remediation
 
 import (
 	"cmp"
@@ -35,26 +35,29 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/controller/episode"
 	"github.com/mediactl/clustarr/app/catalog/controller/mediafile"
 	"github.com/mediactl/clustarr/app/catalog/controller/movie"
-	"github.com/mediactl/clustarr/app/remediation"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
 
-// qualityProfileSource is S10's arm for the graft planner: a QualityProfile
-// whose audio policy changed wakes the files of every item ranked against it
-// -- its Movies, and its Series' Episodes -- through the
-// .spec.qualityProfileRef indexes and the files-by-item index. A file's
-// graft block is planned from its item's profile (GatherItem), and S10
-// itself wakes only the items, whose status changes never wake a file
-// (§3.3's S1'), so without this a profile that stopped grafting left every
-// graft block it had planned standing (T2 finding). Files are enqueued at
-// handler.LowPriority, as the other profile fan-outs are (§3.11).
-func qualityProfileSource(c client.Reader) remediation.Source {
-	enqueue := func(ctx context.Context, o client.Object, q workqueue.TypedRateLimitingInterface[remediation.Key]) {
+// QualityProfileSource is S10's arm for the file planners that read an
+// item's profile: a QualityProfile whose audio policy or language changed
+// wakes the files of every item ranked against it -- its Movies, and its
+// Series' Episodes -- through the .spec.qualityProfileRef indexes and the
+// files-by-item index. The graft planner plans a file's graft block from
+// the policy (GatherItem), and the naming planner names a file's audio
+// languages against the item's configured language, which both fields set
+// (catalogctx.ConfiguredLanguage). S10 itself wakes only the items, whose
+// status changes never wake a file (§3.3's S1'), so without this a profile
+// that stopped grafting left every graft block it had planned standing (T2
+// finding). Both planners return this one source, deduplicated by Name.
+// Files are enqueued at handler.LowPriority, as the other profile fan-outs
+// are (§3.11).
+func QualityProfileSource(c client.Reader) Source {
+	enqueue := func(ctx context.Context, o client.Object, q workqueue.TypedRateLimitingInterface[Key]) {
 		keys := filesOfProfile(ctx, c, o.GetName())
 		if len(keys) == 0 {
 			return
 		}
-		if pq, ok := q.(priorityqueue.PriorityQueue[remediation.Key]); ok {
+		if pq, ok := q.(priorityqueue.PriorityQueue[Key]); ok {
 			pq.AddWithOpts(priorityqueue.AddOpts{Priority: new(handler.LowPriority)}, keys...)
 			return
 		}
@@ -62,32 +65,33 @@ func qualityProfileSource(c client.Reader) remediation.Source {
 			q.Add(k)
 		}
 	}
-	return remediation.Source{
+	return Source{
 		Name: "S10'/QualityProfile", Object: &catalogv1alpha1.QualityProfile{},
-		Handler: handler.TypedFuncs[client.Object, remediation.Key]{
-			CreateFunc: func(ctx context.Context, e event.TypedCreateEvent[client.Object], q workqueue.TypedRateLimitingInterface[remediation.Key]) {
+		Handler: handler.TypedFuncs[client.Object, Key]{
+			CreateFunc: func(ctx context.Context, e event.TypedCreateEvent[client.Object], q workqueue.TypedRateLimitingInterface[Key]) {
 				enqueue(ctx, e.Object, q)
 			},
-			UpdateFunc: func(ctx context.Context, e event.TypedUpdateEvent[client.Object], q workqueue.TypedRateLimitingInterface[remediation.Key]) {
+			UpdateFunc: func(ctx context.Context, e event.TypedUpdateEvent[client.Object], q workqueue.TypedRateLimitingInterface[Key]) {
 				enqueue(ctx, e.ObjectNew, q)
 			},
-			DeleteFunc: func(ctx context.Context, e event.TypedDeleteEvent[client.Object], q workqueue.TypedRateLimitingInterface[remediation.Key]) {
+			DeleteFunc: func(ctx context.Context, e event.TypedDeleteEvent[client.Object], q workqueue.TypedRateLimitingInterface[Key]) {
 				enqueue(ctx, e.Object, q)
 			},
 		},
-		Predicates: []predicate.Predicate{audioPolicyChanged()},
+		Predicates: []predicate.Predicate{languagePolicyChanged()},
 	}
 }
 
-// audioPolicyChanged passes a QualityProfile whose spec.audio -- whether it
-// grafts, its default language, the languages it wants -- changed, one
-// deleted, and one created after the cache's initial list (the files'
-// initial list already wakes every file at start).
-func audioPolicyChanged() predicate.Predicate {
+// languagePolicyChanged passes a QualityProfile whose spec.audio -- whether
+// it grafts, its default language, the languages it wants -- or
+// spec.language changed, one deleted, and one created after the cache's
+// initial list (the files' initial list already wakes every file at start).
+func languagePolicyChanged() predicate.Predicate {
 	return predicate.Funcs{
 		CreateFunc: func(e event.CreateEvent) bool { return !e.IsInInitialList },
 		UpdateFunc: func(e event.UpdateEvent) bool {
-			return !equality.Semantic.DeepEqual(audioPolicyOf(e.ObjectOld), audioPolicyOf(e.ObjectNew))
+			return languageOf(e.ObjectOld) != languageOf(e.ObjectNew) ||
+				!equality.Semantic.DeepEqual(audioPolicyOf(e.ObjectOld), audioPolicyOf(e.ObjectNew))
 		},
 		DeleteFunc:  func(event.DeleteEvent) bool { return true },
 		GenericFunc: func(event.GenericEvent) bool { return false },
@@ -102,16 +106,24 @@ func audioPolicyOf(o client.Object) *catalogv1alpha1.AudioPolicy {
 	return nil
 }
 
+// languageOf is o's spec.language, "" for another type.
+func languageOf(o client.Object) string {
+	if qp, ok := o.(*catalogv1alpha1.QualityProfile); ok {
+		return qp.Spec.Language
+	}
+	return ""
+}
+
 // filesOfProfile is the file keys of every Movie and every Series' Episode
 // ranked against QualityProfile profile, through the cache's indexes (never
 // a namespace List, CLAUDE.md). A QualityProfile is cluster-scoped, so the
 // item Lists carry no namespace. A failed List is logged and skipped: a
 // dropped wake costs latency, and the file's next pass reads the profile.
-func filesOfProfile(ctx context.Context, c client.Reader, profile string) []remediation.Key {
+func filesOfProfile(ctx context.Context, c client.Reader, profile string) []Key {
 	set := map[types.NamespacedName]bool{}
 	var movies catalogv1alpha1.MovieList
 	if err := c.List(ctx, &movies, client.MatchingFields{movie.QualityProfileIndex: profile}, client.UnsafeDisableDeepCopy); err != nil {
-		logging.FromContext(ctx).Warn("graft: list a QualityProfile's movies to wake their files", "qualityProfile", profile, "error", err)
+		logging.FromContext(ctx).Warn("remediation: list a QualityProfile's movies to wake their files", "qualityProfile", profile, "error", err)
 	}
 	for i := range movies.Items {
 		for _, nn := range mediafile.FilesForMovie(ctx, c, &movies.Items[i]) {
@@ -120,18 +132,18 @@ func filesOfProfile(ctx context.Context, c client.Reader, profile string) []reme
 	}
 	var series catalogv1alpha1.SeriesList
 	if err := c.List(ctx, &series, client.MatchingFields{episode.SeriesByQualityProfileIndex: profile}, client.UnsafeDisableDeepCopy); err != nil {
-		logging.FromContext(ctx).Warn("graft: list a QualityProfile's series to wake their files", "qualityProfile", profile, "error", err)
+		logging.FromContext(ctx).Warn("remediation: list a QualityProfile's series to wake their files", "qualityProfile", profile, "error", err)
 	}
 	for i := range series.Items {
 		for _, nn := range mediafile.FilesForSeries(ctx, c, &series.Items[i]) {
 			set[nn] = true
 		}
 	}
-	keys := make([]remediation.Key, 0, len(set))
+	keys := make([]Key, 0, len(set))
 	for nn := range set {
-		keys = append(keys, remediation.Key{Kind: remediation.KindMediaFile, Namespace: nn.Namespace, Name: nn.Name})
+		keys = append(keys, Key{Kind: KindMediaFile, Namespace: nn.Namespace, Name: nn.Name})
 	}
-	slices.SortFunc(keys, func(a, b remediation.Key) int {
+	slices.SortFunc(keys, func(a, b Key) int {
 		return cmp.Or(cmp.Compare(a.Namespace, b.Namespace), cmp.Compare(a.Name, b.Name))
 	})
 	return keys

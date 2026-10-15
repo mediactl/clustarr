@@ -44,8 +44,10 @@ var sourceDisplay = map[commonv1.Source]string{
 // plain TV source: a Remux or BR-DISK modifier always keeps its resolution
 // suffix (e.g. "Remux-480p"), even on a Quality whose Source also happens
 // to be tv, since Remux/BR-DISK are themselves complete quality tiers
-// distinct from SDTV's "no useful resolution" case.
-func qualityFull(q commonv1.Quality, r commonv1.Revision) string {
+// distinct from SDTV's "no useful resolution" case. An anime series'
+// revision is its version ("Bluray-1080p v2"), as Sonarr's
+// GetQualityProper writes it, with REAL after it.
+func qualityFull(q commonv1.Quality, r commonv1.Revision, anime bool) string {
 	base := sourceDisplay[q.Source]
 	modified := q.Modifier == commonv1.ModifierRemux || q.Modifier == commonv1.ModifierBRDisk
 	sdtv := !modified && q.Source == commonv1.SourceTV && q.Resolution > 0 && q.Resolution < 720
@@ -61,6 +63,15 @@ func qualityFull(q commonv1.Quality, r commonv1.Revision) string {
 	name := base
 	if q.Resolution > 0 && !sdtv {
 		name = fmt.Sprintf("%s-%dp", base, q.Resolution)
+	}
+	if anime {
+		if r.Version > 1 {
+			name += fmt.Sprintf(" v%d", r.Version)
+		}
+		if r.Real > 0 {
+			name += " REAL"
+		}
+		return name
 	}
 	switch {
 	case r.Real > 0:

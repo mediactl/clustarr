@@ -43,7 +43,9 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/fsops"
+	"github.com/mediactl/clustarr/pkg/lang"
 	"github.com/mediactl/clustarr/pkg/naming"
+	"github.com/mediactl/clustarr/pkg/quality"
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
 	"github.com/mediactl/clustarr/pkg/release"
 )
@@ -158,6 +160,41 @@ func File(ctx context.Context, c naming.Context, spec *catalogv1alpha1.MediaFile
 		c.MediaInfo = *mi
 	}
 	return c
+}
+
+// ConfiguredLanguage is naming.Context.Language for an item ranked against
+// p whose original language is originalLanguage. A file whose only audio
+// language this is reads no {MediaInfo AudioLanguages} block, so a lone
+// language that is not it -- the original's, or neither -- is always
+// named. It is the profile's first language that is a tag: its audio
+// default, then its audio languages in order (the anime profiles' en in
+// [en, original]), or its language when it has no audio policy. With no
+// such tag, "original" is the item's original language. Otherwise ("any",
+// an original not yet known, no profile) it is English, Sonarr's. A nil p
+// reads as the CRD's default, "original".
+func ConfiguredLanguage(p *quality.Profile, originalLanguage string) string {
+	names := []string{"original"}
+	switch {
+	case p == nil:
+	case len(p.AudioLanguages) > 0:
+		names = append([]string{p.AudioDefault}, p.AudioLanguages...)
+	default:
+		names = []string{p.Language}
+	}
+	for _, n := range names {
+		if n == "" || n == "original" || n == "any" {
+			continue
+		}
+		if t, ok := lang.Normalize(n); ok {
+			return string(t)
+		}
+	}
+	if slices.Contains(names, "original") {
+		if t, ok := lang.Normalize(originalLanguage); ok {
+			return string(t)
+		}
+	}
+	return "en"
 }
 
 // formatNames is what {Custom Formats} names: the frozen matched formats,

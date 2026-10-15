@@ -189,6 +189,13 @@ type Context struct {
 	ReleaseGroup  string
 	CustomFormats []string
 
+	// Language is the item's configured language, a BCP-47 tag
+	// (catalogctx.ConfiguredLanguage): {MediaInfo AudioLanguages} does not
+	// state a file whose only audio language it is, as Sonarr does not
+	// state English alone, so a name without the token's block says the
+	// file is in it. Empty reads English, Sonarr's own rule.
+	Language string
+
 	OriginalFilename string
 
 	// ReleaseTitle is the release's own title -- the download client

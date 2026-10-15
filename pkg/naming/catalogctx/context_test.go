@@ -27,6 +27,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/mediainfo/native"
 	"github.com/mediactl/clustarr/pkg/naming/catalogctx"
+	"github.com/mediactl/clustarr/pkg/quality"
 )
 
 // TestImportAndRenameRenderTheSamePath is Task 6's failing-test-first case:
@@ -340,4 +341,31 @@ func realProber(t *testing.T) *native.Prober {
 		t.Skipf("no FFmpeg 9 with its shim: %v", err)
 	}
 	return p
+}
+
+// TestConfiguredLanguageIsTheProfilesTag: the language a lone audio track
+// is left unstated for is the profile's first tag -- its audio default, then
+// its audio languages whatever their order around "original", else its
+// language -- then the item's original language for "original", then
+// English.
+func TestConfiguredLanguageIsTheProfilesTag(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		p        *quality.Profile
+		original string
+		want     string
+	}{
+		{"no profile reads original", nil, "ja", "ja"},
+		{"no profile, no original", nil, "", "en"},
+		{"the anime profiles' en", &quality.Profile{Language: "original", AudioLanguages: []string{"en", "original"}}, "ja", "en"},
+		{"a tag after original", &quality.Profile{AudioLanguages: []string{"original", "en"}}, "ja", "en"},
+		{"the audio default first", &quality.Profile{AudioLanguages: []string{"en", "original"}, AudioDefault: "ja"}, "ja", "ja"},
+		{"original alone", &quality.Profile{AudioLanguages: []string{"original"}}, "jpn", "ja"},
+		{"an original-language profile", &quality.Profile{Language: "original"}, "fr", "fr"},
+		{"a language tag", &quality.Profile{Language: "de"}, "fr", "de"},
+		{"any", &quality.Profile{Language: "any"}, "fr", "en"},
+		{"an original not yet known", &quality.Profile{Language: "original"}, "", "en"},
+	} {
+		require.Equal(t, tc.want, catalogctx.ConfiguredLanguage(tc.p, tc.original), tc.name)
+	}
 }

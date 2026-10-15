@@ -20,10 +20,12 @@ package naming
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/lang"
 )
 
 var tokenRe = regexp.MustCompile(`\{([^{}]*)\}`)
@@ -38,22 +40,30 @@ func (e Engine) Render(tmpl string, c Context) (string, error) {
 			return raw
 		}
 		prefix, name, suffix := splitWrapper(raw[1 : len(raw)-1])
-		base, pad, trunc := splitModifier(name)
+		base, pad, trunc, filter := splitModifier(name)
 		key := normalizeTokenName(base)
 
 		var val string
-		switch key {
+		languages, isLanguages := languageTokens[key]
+		switch {
 		// episoderange (and Step 8's absoluterange) need e.Config, which a
 		// package-level tokenFuncs closure cannot reach -- see these two
 		// cases handled specially here instead of rebuilding the whole map
 		// per Engine on every Render call.
-		case "episoderange":
+		case key == "episoderange" && filter == "":
 			val = formatEpisodeRange(c.Season, c.Episodes, e.Config.MultiEpisodeStyle.orDefault())
-		case "absoluterange":
+		case key == "absoluterange" && filter == "":
 			val = formatAbsoluteRange(c.Absolute, e.Config.MultiEpisodeStyle.orDefault())
+		case isLanguages:
+			val = languages(c, filter)
 		default:
 			entry, ok := tokenFuncs[key]
-			if !ok {
+			if !ok || filter != "" {
+				// Only a language token takes a filter; anything else
+				// after a colon is no token, as it always was.
+				if filter != "" {
+					base = name
+				}
 				errOut = fmt.Errorf("%w: %q", ErrUnknownToken, base)
 				return raw
 			}
@@ -172,19 +182,26 @@ func dropEmptySegments(s string) string {
 	return out
 }
 
-func splitModifier(name string) (base string, pad, trunc int) {
+// splitModifier splits a token's ":" modifier off its name: zeros pad
+// ("{season:00}"), a count truncates ("{Episode CleanTitle:90}"), and
+// anything else is a filter, which only a language token takes
+// ("{MediaInfo AudioLanguages:-EN}", Sonarr's customFormat group).
+func splitModifier(name string) (base string, pad, trunc int, filter string) {
 	i := lastColon(name)
 	if i < 0 {
-		return name, 0, 0
+		return name, 0, 0, ""
 	}
 	mod := name[i+1:]
 	if mod != "" && allZero(mod) {
-		return name[:i], len(mod), 0
+		return name[:i], len(mod), 0, ""
 	}
 	if n, err := strconv.Atoi(mod); err == nil && n > 0 {
-		return name[:i], 0, n
+		return name[:i], 0, n, ""
 	}
-	return name, 0, 0
+	if mod == "" {
+		return name, 0, 0, ""
+	}
+	return name[:i], 0, 0, mod
 }
 
 func lastColon(s string) int {
@@ -236,9 +253,7 @@ var tokenFuncs = map[string]tokenEntry{
 	"mediainfo videocodec": {fn: func(c Context, _, _ int) string {
 		return VideoCodecLabel(c.MediaInfo.VideoCodec, c.MediaInfo.VideoProfile, c.ReleaseTitle)
 	}},
-	"mediainfo videobitdepth":     {fn: func(c Context, _, _ int) string { return nonZero(c.MediaInfo.VideoBitDepth) }},
-	"mediainfo audiolanguages":    {fn: func(c Context, _, _ int) string { return languageList(audioLanguages(c.MediaInfo)) }},
-	"mediainfo subtitlelanguages": {fn: func(c Context, _, _ int) string { return languageList(subtitleLanguages(c.MediaInfo)) }},
+	"mediainfo videobitdepth": {fn: func(c Context, _, _ int) string { return nonZero(c.MediaInfo.VideoBitDepth) }},
 	"mediainfo simple": {fn: func(c Context, _, _ int) string {
 		return joinNonEmpty(" ",
 			VideoCodecLabel(c.MediaInfo.VideoCodec, c.MediaInfo.VideoProfile, c.ReleaseTitle),
@@ -248,14 +263,14 @@ var tokenFuncs = map[string]tokenEntry{
 		return joinNonEmpty(" ",
 			VideoCodecLabel(c.MediaInfo.VideoCodec, c.MediaInfo.VideoProfile, c.ReleaseTitle),
 			firstAudioCodec(c.MediaInfo),
-			languageList(audioLanguages(c.MediaInfo)),
-			languageList(subtitleLanguages(c.MediaInfo)))
+			languagesToken(audioLanguages(c.MediaInfo), "", configuredCode(c)),
+			languagesToken(subtitleLanguages(c.MediaInfo), "", ""))
 	}},
 	"season":                          {fn: func(c Context, pad, _ int) string { return padInt(c.Season, pad) }},
 	"episode":                         {fn: episodeToken},
 	"absolute":                        {fn: func(c Context, pad, _ int) string { return padInt(firstOr(c.Absolute), pad) }},
 	"episode cleantitle":              {fn: func(c Context, _, trunc int) string { return truncate(cleanTitle(c.EpisodeTitle), trunc) }},
-	"quality full":                    {fn: func(c Context, _, _ int) string { return qualityFull(c.Quality, c.Revision) }},
+	"quality full":                    {fn: func(c Context, _, _ int) string { return qualityFull(c.Quality, c.Revision, c.Anime) }},
 	"mediainfo videodynamicrangetype": {fn: videoDynamicRangeType},
 	"edition tags":                    {fn: func(c Context, _, _ int) string { return c.Edition }},
 	"custom formats":                  {fn: func(c Context, _, _ int) string { return strings.Join(c.CustomFormats, " ") }},
@@ -403,9 +418,9 @@ func nonZero(n int32) string {
 	return strconv.Itoa(int(n))
 }
 
-// audioLanguages and subtitleLanguages return each stream's raw BCP-47
-// language tag, in probe order; languageList does the dedupe, casing and
-// "fewer than two is unstated" work.
+// audioLanguages and subtitleLanguages return each stream's language tag
+// as the probe recorded it (ffprobe's ISO 639-2, "jpn"), in probe order;
+// languagesToken does the rest.
 func audioLanguages(mi commonv1.MediaInfo) []string {
 	langs := make([]string, 0, len(mi.Audio))
 	for _, a := range mi.Audio {
@@ -422,26 +437,82 @@ func subtitleLanguages(mi commonv1.MediaInfo) []string {
 	return langs
 }
 
-// languageList renders {MediaInfo AudioLanguages}/{MediaInfo
-// SubtitleLanguages}: the tags upper-cased, first-occurrence order,
-// duplicates and empty/"und" (unknown) tags dropped, joined "[A+B+C]" --
-// but only once at least two distinct languages remain, since Radarr's own
-// rule is that a single language is not stated.
-func languageList(tags []string) string {
-	seen := make(map[string]bool, len(tags))
-	kept := make([]string, 0, len(tags))
+// languageTokens are Sonarr's four language tokens (FileNameBuilder's
+// AddMediaInfoTokens). Each takes a filter after a colon. {MediaInfo
+// AudioLanguages} alone leaves a file whose only language is the item's
+// configured one unstated; the subtitle tokens never do, as Sonarr's
+// never skip English.
+var languageTokens = map[string]func(c Context, filter string) string{
+	"mediainfo audiolanguages": func(c Context, f string) string {
+		return languagesToken(audioLanguages(c.MediaInfo), f, configuredCode(c))
+	},
+	"mediainfo audiolanguagesall":    func(c Context, f string) string { return languagesToken(audioLanguages(c.MediaInfo), f, "") },
+	"mediainfo subtitlelanguages":    func(c Context, f string) string { return languagesToken(subtitleLanguages(c.MediaInfo), f, "") },
+	"mediainfo subtitlelanguagesall": func(c Context, f string) string { return languagesToken(subtitleLanguages(c.MediaInfo), f, "") },
+}
+
+// languagesToken is Sonarr's GetLanguagesToken. Empty and "und" tags are
+// dropped. Each tag becomes its upper-case two-letter code ("jpn" and "ja"
+// are "JA", "pt-BR" is "PT"), or itself upper-cased when it names no
+// language. Duplicates are dropped, first occurrence kept. filter "-EN"
+// drops the codes it names; "JA+EN" keeps only those, in its own order;
+// a trailing "+" appends "--" when it dropped any. Exactly one remaining
+// code equal to skipOnly renders nothing (Sonarr's skipEnglishOnly, with
+// the item's configured language in place of English). Anything else is
+// "[A+B]".
+func languagesToken(tags []string, filter, skipOnly string) string {
+	codes := make([]string, 0, len(tags))
 	for _, t := range tags {
-		t = strings.ToUpper(strings.TrimSpace(t))
-		if t == "" || t == "UND" || seen[t] {
+		t = strings.TrimSpace(t)
+		if t == "" || strings.EqualFold(t, "und") {
 			continue
 		}
-		seen[t] = true
-		kept = append(kept, t)
+		if code := languageCode(t); !slices.Contains(codes, code) {
+			codes = append(codes, code)
+		}
 	}
-	if len(kept) < 2 {
+	kept := codes
+	filter = strings.ToUpper(filter)
+	switch {
+	case filter == "":
+	case strings.HasPrefix(filter, "-"):
+		drop := strings.Split(filter, "-")
+		kept = slices.DeleteFunc(slices.Clone(codes), func(c string) bool { return slices.Contains(drop, c) })
+	default:
+		kept = nil
+		for _, want := range strings.Split(filter, "+") {
+			if want != "" && slices.Contains(codes, want) && !slices.Contains(kept, want) {
+				kept = append(kept, want)
+			}
+		}
+	}
+	if strings.HasSuffix(filter, "+") && len(kept) != len(codes) {
+		kept = append(kept, "--")
+	}
+	if len(kept) == 0 || len(kept) == 1 && kept[0] == skipOnly {
 		return ""
 	}
 	return "[" + strings.Join(kept, "+") + "]"
+}
+
+// languageCode is tag's upper-case base language: ISO 639-1 where one
+// exists ("jpn" is "JA", "fre" and "fra" are "FR", "pt-BR" is "PT"), as
+// .NET's TwoLetterISOLanguageName gives Sonarr, else tag upper-cased.
+func languageCode(tag string) string {
+	if t, ok := lang.Normalize(tag); ok {
+		tag, _, _ = strings.Cut(string(t), "-")
+	}
+	return strings.ToUpper(tag)
+}
+
+// configuredCode is the language code {MediaInfo AudioLanguages} leaves
+// unstated when it is a file's only one: the item's configured language,
+// else English, Sonarr's.
+func configuredCode(c Context) string {
+	if c.Language == "" {
+		return "EN"
+	}
+	return languageCode(c.Language)
 }
 
 // joinNonEmpty joins the non-empty parts with sep, skipping any empty one

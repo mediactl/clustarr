@@ -30,7 +30,9 @@ import (
 	"github.com/mediactl/clustarr/app/remediation"
 )
 
-// Sources: S2', S3', S4' and S11 as the old controller's naming watches. A
+// Sources: S2', S3', S4' and S11 as the old controller's naming watches, and
+// S10' (a QualityProfile's language or audio policy changing: the item's
+// configured language, which {MediaInfo AudioLanguages} names against). A
 // transcode holds a rename through the file's own status.transcode (F6.2).
 func (*Adapter) Sources(mgr ctrl.Manager) ([]remediation.Source, error) {
 	c := mgr.GetClient()
@@ -54,5 +56,6 @@ func (*Adapter) Sources(mgr ctrl.Manager) ([]remediation.Source, error) {
 			Name: "S11/RootFolder", Object: &catalogv1alpha1.RootFolder{}, Handler: remediation.MapFiles(via(mediafile.FilesForRootFolder)),
 			Predicates: []predicate.Predicate{mediafile.RootFolderNamingChanged()},
 		},
+		remediation.QualityProfileSource(c),
 	}, nil
 }
