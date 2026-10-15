@@ -5097,7 +5097,11 @@ the consumer-wide `MaxAckPending`. Live-cluster facts come from kind-cluster-ple
   `max(minReplicas, 1, min(matching nodes, floor(MaxAckPending/slots) over the domain's consumers))`;
   one External metric per consumer at AverageValue = its slots; scale-up window 0
   with a Pods policy of maxReplicas per 15 s; scale-down window
-  `max(300s, longest AckWait of the domain's consumers)`.
+  `max(300s, longest AckWait of the domain's consumers)`. (Amended 2026-10-15:
+  a per-node domain, `agentdomain.Domain.PerNode` -- markers -- targets
+  AverageValue 1, a pod per task up to a pod per node, and its durables'
+  MaxAckPending is `AutoscaleReplicaCeiling × PerNodeSlotsCeiling` so the
+  clamp does not bind and maxReplicas is the matching nodes.)
 - **natsbus.** `Subscribe` binds (never writes consumer config, §5.9) and stops
   using `Consume`: a pull loop never fetches more than its free slots; a slot whose
   delivery lapsed on the server is reclaimed; a per-subscription drain lets running
@@ -6632,7 +6636,11 @@ remain in GHCR (§13 OD38).
   - `markers`: nothing extra (`ORT_LIB_PATH`, `FFGO_SHIM_DIR` from the image).
 - **Placement:** a soft `topologySpreadConstraints` (`kubernetes.io/hostname`,
   maxSkew 1, `ScheduleAnyway`) on autoscaled agents; a required anti-affinity
-  would stall RollingUpdate surges on a single node (§13 OD33).
+  would stall RollingUpdate surges on a single node (§13 OD33). markers, a
+  per-node domain, spreads hard since 2026-10-15 (`DoNotSchedule`,
+  `nodeAffinityPolicy` and `nodeTaintsPolicy` `Honor`, so the domains are
+  the nodes the autoscaler counts): with maxReplicas the matching nodes, one
+  pod per node, and maxSkew 1 still fits a surge pod beside an old one.
 - **Resource defaults** (requests → limits); the manager's single cache keeps
   `status.mediaInfo` for 13.7k MediaFiles:
 

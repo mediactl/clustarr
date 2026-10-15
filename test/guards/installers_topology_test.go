@@ -183,9 +183,25 @@ func TestInstallersRenderTheTopology(t *testing.T) {
 				}
 				if row.autoscaled {
 					assert.Equal(t, row.domain, d.Labels[agentdomain.LabelDomain], "%s carries the autoscale label", component)
-					require.Len(t, spec.TopologySpreadConstraints, 1, "%s spreads softly across nodes", component)
-					assert.Equal(t, "kubernetes.io/hostname", spec.TopologySpreadConstraints[0].TopologyKey, component)
-					assert.Equal(t, corev1.ScheduleAnyway, spec.TopologySpreadConstraints[0].WhenUnsatisfiable, component)
+					require.Len(t, spec.TopologySpreadConstraints, 1, "%s spreads across nodes", component)
+					tsc := spec.TopologySpreadConstraints[0]
+					assert.Equal(t, "kubernetes.io/hostname", tsc.TopologyKey, component)
+					assert.Equal(t, int32(1), tsc.MaxSkew, component)
+					dom, ok := agentdomain.Lookup(row.domain)
+					require.True(t, ok, row.domain)
+					if dom.PerNode {
+						// Hard, over the nodes the pod may land on: with
+						// maxReplicas the matching nodes, one pod per node;
+						// a surge pod still fits beside one (skew 1), so a
+						// rollout never stalls (OD33).
+						assert.Equal(t, corev1.DoNotSchedule, tsc.WhenUnsatisfiable, "%s runs a pod per node", component)
+						require.NotNil(t, tsc.NodeTaintsPolicy, "%s counts only the nodes its pods tolerate, as MatchingNodes does", component)
+						assert.Equal(t, corev1.NodeInclusionPolicyHonor, *tsc.NodeTaintsPolicy, component)
+						require.NotNil(t, tsc.NodeAffinityPolicy, component)
+						assert.Equal(t, corev1.NodeInclusionPolicyHonor, *tsc.NodeAffinityPolicy, component)
+					} else {
+						assert.Equal(t, corev1.ScheduleAnyway, tsc.WhenUnsatisfiable, "%s spreads softly", component)
+					}
 				} else {
 					assert.NotContains(t, d.Labels, agentdomain.LabelDomain, component)
 				}

@@ -45,6 +45,7 @@ const (
 	ReasonScaleToZeroUnavailable   = "ScaleToZeroUnavailable"
 	ReasonAutoscaleConflict        = "AutoscaleConflict"
 	ReasonUnknownDomain            = "UnknownDomain"
+	ReasonPerNodeClamped           = "PerNodeClamped"
 )
 
 // ScaleDownFloor is the shortest scale-down stabilization window (§9.0).
@@ -72,7 +73,7 @@ type Rendered struct {
 	HPA         *autoscalingv2ac.HorizontalPodAutoscalerApplyConfiguration
 	MinReplicas int32
 	MaxReplicas int32
-	Slots       map[string]int // consumer -> per-pod slots used as its AverageValue
+	Slots       map[string]int // consumer -> per-pod slots: its AverageValue, except per node (1)
 	Warnings    []Warning
 }
 
@@ -80,8 +81,11 @@ type Rendered struct {
 // Deployment (§9.5): minReplicas from the domain, raised by the
 // min-replicas annotation; maxReplicas = max(min, max(1, min(nodes,
 // floor(MaxAckPending/slots) over the consumers))); one External metric per
-// consumer at AverageValue = its slots; scale-up at once by up to
-// maxReplicas pods; scale-down after max(300 s, the longest AckWait).
+// consumer at AverageValue = its slots, or 1 for a per-node domain
+// (agentdomain.Domain.PerNode: a pod per task up to a pod per node, its
+// durables sized so the MaxAckPending clamp does not bind, and a Warning
+// when it does); scale-up at once by up to maxReplicas pods; scale-down
+// after max(300 s, the longest AckWait).
 func RenderHPA(in RenderInput) Rendered {
 	d := in.Deployment
 	out := Rendered{Slots: map[string]int{}}
@@ -117,10 +121,18 @@ func RenderHPA(in RenderInput) Rendered {
 		// n < 1; the floor only keeps a hand-built input from dividing by 0.
 		slots := max(1, events.SlotsFor(c, overrides))
 		out.Slots[c.Name] = slots
+		target := slots
+		if in.Domain.PerNode {
+			target = 1 // a pod per task, up to a pod per node
+		}
 		feed := c.MaxAckPending / slots
 		if feed == 0 {
 			warn(ReasonSlotsExceedMaxAckPending, "%s runs %d slots per pod, above its MaxAckPending %d; no second replica could be fed",
 				c.Name, slots, c.MaxAckPending)
+		}
+		if in.Domain.PerNode && feed < in.MatchingNodes {
+			warn(ReasonPerNodeClamped, "%s runs a pod per node, but its MaxAckPending %d feeds only %d pods of %d slots on %d matching nodes",
+				c.Name, c.MaxAckPending, feed, slots, in.MatchingNodes)
 		}
 		clamp = min(clamp, feed)
 		down = max(down, c.AckWait)
@@ -134,7 +146,7 @@ func RenderHPA(in RenderInput) Rendered {
 					}))).
 				WithTarget(autoscalingv2ac.MetricTarget().
 					WithType(autoscalingv2.AverageValueMetricType).
-					WithAverageValue(*resource.NewQuantity(int64(slots), resource.DecimalSI)))))
+					WithAverageValue(*resource.NewQuantity(int64(target), resource.DecimalSI)))))
 	}
 	if in.MatchingNodes == 0 {
 		warn(ReasonNoMatchingNodes, "no Ready, schedulable node matches the pod template's selectors, affinity, tolerations and extended resources")

@@ -14,7 +14,7 @@ operator's view of how that works, what it costs, and how to turn it off.
 | `agent-events` | HPA | 1..N | The RSS matcher reads `CLUSTARR_RELEASES`, a limits stream that is memory with discard-old on single-node NATS, so it cannot buffer through zero. |
 | `agent-import` | HPA | 0..N | Scans, file imports, list syncs, the recycle sweep and both probe lanes; a `ProbeVersion` raise's backlog scales it out. |
 | `agent-caption` | HPA | 0..1 | Its fetch consumers are throttled downstream (below). |
-| `markers` | HPA | 0..N | Segment analysis (`markers-analyze`). |
+| `markers` | HPA | 0..N, one per node | Segment analysis (`markers-analyze`), bound by a node's CPUs and its reads from `/data`. |
 | `manager` | fixed | 1 | Leader-elected; it is the autoscaler. |
 | `agent-metadata` | fixed | 1, `Recreate` | RPC responders and in-process provider limiters (ADR-0007). |
 | `agent-index` | fixed | 1, `Recreate` | The release index, the RPC responders, the facade and the per-host limiter are one process. |
@@ -131,6 +131,15 @@ generates its own CA and serving certificate and keeps them in the Secret named 
   the domain's consumers)))`.
 - One External metric per consumer of the domain (`pkg/agentdomain.Domains()`), at
   `AverageValue` = that consumer's per-pod slots.
+- A per-node domain (`agentdomain.Domain.PerNode`: markers) targets `AverageValue` 1 instead,
+  whatever its slots: a backlog of at least as many tasks as matching nodes runs a pod on every
+  node, a smaller one that many pods, and none none. Its durables' `MaxAckPending` is
+  `AutoscaleReplicaCeiling × PerNodeSlotsCeiling` (64), so the clamp above does not bind below
+  8 nodes at 8 slots and `maxReplicas` is the matching nodes; when it does bind, the Event
+  `PerNodeClamped` says so. Its installers spread its pods by hostname with `DoNotSchedule`
+  over the nodes they tolerate (`nodeTaintsPolicy: Honor`), so each node runs one; `maxSkew` 1
+  still fits a rollout's surge pod. Until 2026-10-15 markers targeted its slots (3 a pod) with
+  a `MaxAckPending` of 8, which held three amd64 nodes to two pods, both often on one node.
 - Scale-up immediately, by up to `maxReplicas` pods per 15 s; scale-down after
   `max(300 s, the longest AckWait of the domain's consumers)`.
 - `autoscale.clustarr.io/paused: "true"` on a Deployment makes the reconciler delete its HPA and
@@ -170,6 +179,7 @@ does not own, so the conflict is a loud install error.
 | `HPAScaleToZero` off | `minReplicas: 0` refused | re-applied with 1 and the Event `ScaleToZeroUnavailable` |
 | No node matches the pod template | `maxReplicas` 1, the pod Pending | the Event `NoMatchingNodes` |
 | Slots above `MaxAckPending` | no second replica could be fed | the Event `SlotsExceedMaxAckPending` |
+| A per-node domain on more nodes than its `MaxAckPending` feeds at its slots | `maxReplicas` below the matching nodes | the Event `PerNodeClamped` |
 | A consumer leader election (R3) | `CONSUMER.INFO` times out or answers `JSClusterNotAvail` for the election's seconds | that series is a 503: the HPA scales up on the others and holds any scale-down |
 | Consumer assigned, Raft node not yet up | a member answers with the config and zero state | read as unavailable, not zero; the scale-down window absorbs it anyway |
 | NATS monitoring port closed | none | nothing reads it |

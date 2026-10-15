@@ -173,6 +173,15 @@ func (c ConsumerSpec) HandlerBudget() time.Duration {
 // Slots × 8, so up to 8 replicas each fill their slots (spec §9.1.1).
 const AutoscaleReplicaCeiling = 8
 
+// PerNodeSlotsCeiling sizes a per-node domain's durables
+// (agentdomain.Domain.PerNode): MaxAckPending is AutoscaleReplicaCeiling ×
+// PerNodeSlotsCeiling, a pod on each of up to 8 nodes running up to 8 slots
+// (CLUSTARR_CONSUMER_SLOTS), whatever its Slots. Such a domain's
+// maxReplicas is its matching nodes, not MaxAckPending / slots: a cap below
+// nodes × slots starves the last pods, and a Slots-sized one (8 at 1 slot)
+// held markers to two pods on three nodes at three slots each (2026-10-15).
+const PerNodeSlotsCeiling = 8
+
 // Subscription converts the spec into the subscription a worker passes to
 // Subscriber.Subscribe, so worker code never restates the tuning.
 func (c ConsumerSpec) Subscription() Subscription {
@@ -1027,8 +1036,10 @@ func defaultConsumers() []ConsumerSpec {
 			Name: ConsumerMarkersAnalyze, Stream: StreamWorkMarkers,
 			Filters: []string{FilterCatalogSegmentsAnalyze},
 			AckWait: 30 * m, MaxDeliver: 3,
-			BackOff:       []time.Duration{1 * m, 10 * m},
-			MaxAckPending: 1 * AutoscaleReplicaCeiling,
+			BackOff: []time.Duration{1 * m, 10 * m},
+			// A pod per node (agentdomain's markers domain is PerNode), each
+			// of up to PerNodeSlotsCeiling slots.
+			MaxAckPending: AutoscaleReplicaCeiling * PerNodeSlotsCeiling,
 			Slots:         1,
 			// Its TaskTimeout (app/segments/worker); every other consumer's
 			// budget waits for its clustarr_work_duration_seconds tail.

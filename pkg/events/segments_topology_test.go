@@ -39,8 +39,9 @@ func TestSegmentsTopology(t *testing.T) {
 		maxAck       int
 	}{
 		{ConsumerCatalogSegmentsPlan, FilterCatalogSegmentsPlan, 8},
-		// Slots 1 x AutoscaleReplicaCeiling (spec §9.1.1).
-		{ConsumerMarkersAnalyze, FilterCatalogSegmentsAnalyze, 1 * AutoscaleReplicaCeiling},
+		// A pod per node, up to AutoscaleReplicaCeiling nodes of up to
+		// PerNodeSlotsCeiling slots (agentdomain.Domain.PerNode).
+		{ConsumerMarkersAnalyze, FilterCatalogSegmentsAnalyze, AutoscaleReplicaCeiling * PerNodeSlotsCeiling},
 	} {
 		spec, ok := top.Consumer(c.name)
 		require.True(t, ok, c.name)

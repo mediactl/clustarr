@@ -1,9 +1,10 @@
 # markers -- skip-segment detection (spec 2026-10-01 segment detection; spec
 # 2026-10-06 §3.7): the credential-less cmd/markers binary on the native
 # image. It reads /data and talks NATS, so its ServiceAccount mounts no token
-# and nothing binds it. Autoscaled 0..N on markers-analyze's lag; a pod's
-# slots come from that consumer's Slots, or CLUSTARR_CONSUMER_SLOTS
-# (`markers-analyze=N`), the number the HPA targets too. Grace is 60 s, the
+# and nothing binds it. Autoscaled 0..N on markers-analyze's lag, one pod per
+# node (agentdomain.Domain.PerNode): the HPA targets one task per pod, up to
+# the matching nodes; a pod's slots come from that consumer's Slots, or
+# CLUSTARR_CONSUMER_SLOTS (`markers-analyze=N`). Grace is 60 s, the
 # consumer's StopBudget (the 15 s requeue drain) plus 25 s and the tracer's
 # flush: on SIGTERM it cancels its analyses at once and requeues their
 # seasons, spending none of their deliveries (RequeueOnStop; ADR-0020 §1 as
@@ -57,12 +58,16 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
-      # Soft: a required anti-affinity would stall a RollingUpdate surge on a
-      # single node (OD33).
+      # One pod per node: hard, over the nodes its pods may land on and
+      # tolerate (the nodes the autoscaler counts as maxReplicas). maxSkew 1
+      # still fits a RollingUpdate surge pod beside an old one, where a
+      # required anti-affinity would stall it (OD33).
       topologySpreadConstraints:
         - maxSkew: 1
           topologyKey: kubernetes.io/hostname
-          whenUnsatisfiable: ScheduleAnyway
+          whenUnsatisfiable: DoNotSchedule
+          nodeAffinityPolicy: Honor
+          nodeTaintsPolicy: Honor
           labelSelector:
             matchLabels:
               app.kubernetes.io/component: markers

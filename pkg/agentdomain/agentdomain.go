@@ -72,6 +72,17 @@ type Domain struct {
 	// one that finds no responder means no agent of the domain is up, which
 	// the manager's dispatch reads as the domain's NoAgent (ADR-0020 §4).
 	Serves []string
+	// PerNode scales the domain one pod per node rather than one per a
+	// pod's slots of work: its HPA targets an AverageValue of 1 on each
+	// durable's lag, so a backlog of at least as many tasks as matching
+	// nodes runs a pod on every one, a smaller one that many pods, and none
+	// none; maxReplicas is the matching nodes. For work bound by a node's
+	// own resources (markers: its CPUs and its reads from /data), where a
+	// second pod on a node only splits them. Its durables' MaxAckPending
+	// feeds every node at PerNodeSlotsCeiling slots
+	// (TestPerNodeDurablesFeedEveryNode), and its installers spread its pods
+	// by hostname with DoNotSchedule (test/guards).
+	PerNode bool
 }
 
 // Domains is every agent domain and markers, in §3.5.3's order. A fresh
@@ -118,7 +129,9 @@ func Domains() []Domain {
 		// Rendered per DownloadClient by the manager; no durables.
 		{Name: TorrentEngine},
 		{Name: UsenetEngine},
-		{Name: Markers, Autoscaled: true, Consumers: []string{events.ConsumerMarkersAnalyze}},
+		// A pod per node: an analysis is bound by its node's CPUs and its
+		// reads from /data, so two pods on a node only split them.
+		{Name: Markers, Autoscaled: true, PerNode: true, Consumers: []string{events.ConsumerMarkersAnalyze}},
 	}
 }
 

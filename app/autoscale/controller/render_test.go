@@ -170,6 +170,18 @@ func TestRenderHPA(t *testing.T) {
 		{name: "import on two nodes", d: dep(agentdomain.Import), nodes: 2, min: 0, max: 2, targets: importTargets, down: 300},
 		{name: "markers waits out its 30-minute AckWait before scaling down", d: dep(agentdomain.Markers), nodes: 3,
 			min: 0, max: 3, targets: map[string]string{events.ConsumerMarkersAnalyze: "1"}, down: 1800},
+		// Per node (agentdomain.Domain.PerNode): a pod per task up to a pod
+		// per node, whatever its slots. With three slots a pod, the slots
+		// target ran one pod per three seasons, and markers-analyze's
+		// MaxAckPending of 8 held three amd64 nodes to two pods (talos,
+		// 2026-10-15).
+		{name: "markers runs a pod per node at three slots", d: dep(agentdomain.Markers, slotsEnv(events.ConsumerMarkersAnalyze+"=3")), nodes: 3,
+			min: 0, max: 3, targets: map[string]string{events.ConsumerMarkersAnalyze: "1"}, down: 1800},
+		{name: "markers' maxReplicas is every matching node", d: dep(agentdomain.Markers, slotsEnv(events.ConsumerMarkersAnalyze+"=8")), nodes: 8,
+			min: 0, max: 8, targets: map[string]string{events.ConsumerMarkersAnalyze: "1"}, down: 1800},
+		{name: "past what MaxAckPending feeds, markers is clamped and says so", d: dep(agentdomain.Markers, slotsEnv(events.ConsumerMarkersAnalyze+"=8")), nodes: 12,
+			min: 0, max: 8, targets: map[string]string{events.ConsumerMarkersAnalyze: "1"}, down: 1800,
+			wantReasons: []string{controller.ReasonPerNodeClamped}},
 		{name: "events never goes below one", d: dep(agentdomain.Events), nodes: 1, min: 1, max: 1, down: 300,
 			targets: map[string]string{events.ConsumerCatalogRSSMatcher: "256"}},
 		{name: "catalog is throttled to one replica on six nodes", d: dep(agentdomain.Catalog), nodes: 6, min: 0, max: 1, down: 300,
