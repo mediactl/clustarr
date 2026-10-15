@@ -1,6 +1,6 @@
 {
   "Decision": "copyVideo",
-  "Reason": "HEVC Main 10 video copied; audio or container processed",
+  "Reason": "HEVC video copied into the MP4 layout; audio and subtitles processed",
   "Container": "mp4",
   "Video": {
     "SourceIndex": 0,

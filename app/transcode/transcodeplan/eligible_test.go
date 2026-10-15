@@ -84,6 +84,12 @@ func TestEligibleFollowsTheWinningProfile(t *testing.T) {
 	got = Eligible(elsewhere, all)
 	assert.True(t, got.Eligible, "another tool's HEVC is remuxed: %s", got.Why)
 
+	// So is transcode's own from before the MP4 layout, tagged in Matroska.
+	own := eligibleFile(probed("ph-1"))
+	own.Status.MediaInfo.TranscodeProfile, own.Status.MediaInfo.Container = "hevc@0ld", "mkv"
+	got = Eligible(own, all)
+	assert.True(t, got.Eligible, "a tagged MKV is remuxed: %s", got.Why)
+
 	for _, tc := range []struct {
 		name    string
 		mutate  func(*File)
@@ -96,7 +102,9 @@ func TestEligibleFollowsTheWinningProfile(t *testing.T) {
 		{name: "a probe of new bytes is pending", mutate: func(f *File) { f.ProbeCurrent = false }, pending: ReasonProbePending},
 		{name: "a standalone graft rewrites it", mutate: func(f *File) { f.StandaloneGraft = true }, pending: ReasonGrafting},
 		{name: "transcode swapped it in", mutate: func(f *File) { f.MF.Spec.Original = new(false) }},
-		{name: "it carries CLUSTARR_PROFILE", mutate: func(f *File) { f.Status.MediaInfo.TranscodeProfile = "hevc@0ld" }},
+		{name: "it carries CLUSTARR_PROFILE in an MP4", mutate: func(f *File) {
+			f.Status.MediaInfo.TranscodeProfile, f.Status.MediaInfo.Container = "hevc@0ld", "mp4"
+		}},
 		{name: "a kept copy was recorded under any hash", mutate: func(f *File) {
 			f.Status.Transcode = &catalogv1alpha1.TranscodeState{Phase: catalogv1alpha1.TranscodePhaseSucceeded, ProfileTag: "hevc@0ld"}
 		}},

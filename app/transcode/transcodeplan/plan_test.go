@@ -297,3 +297,21 @@ func TestARenameKeepsASucceededFilesVerdict(t *testing.T) {
 	gone.Compliant, gone.ProfileTag = false, ""
 	assert.Equal(t, gone, pass(inputs(done, other, GrantNone)).Block, "another tag is new bytes")
 }
+
+// A transcode of clustarr's own from before the MP4 layout -- HEVC in
+// Matroska, tagged -- plans from its stored probe as a remux: the video
+// copied, never encoded again (owner, 2026-10-15).
+func TestATaggedMKVTranscodePlansAsARemux(t *testing.T) {
+	st := probed("ph-1")
+	st.MediaInfo.VideoCodec, st.MediaInfo.VideoProfile = "hevc", "Main 10"
+	st.MediaInfo.PixelFormat, st.MediaInfo.VideoBitDepth = "yuv420p10le", 10
+	st.MediaInfo.VideoEncoder, st.MediaInfo.TranscodeProfile = "Lavc63.1.102 hevc_nvenc", "hevc-mkv@0ld"
+	in := inputs(nil, st, GrantWindow)
+	require.True(t, in.Eligibility.Eligible, in.Eligibility.Why)
+	d := pass(in)
+	require.NotNil(t, d.Block)
+	assert.Equal(t, catalogv1alpha1.TranscodePhasePlanned, d.Block.Phase, d.Block.Message)
+	require.NotNil(t, d.Block.Plan)
+	assert.Equal(t, catalogv1alpha1.TranscodeModeRemuxOnly, d.Block.Plan.Mode)
+	assert.Equal(t, "copy", d.Block.Plan.VideoAction)
+}

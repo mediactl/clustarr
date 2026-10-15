@@ -52,7 +52,8 @@ import (
 // 2: the MP4 layout (2026-10-06 MP4 standard design).
 // 3: policy.keepCodecs -- 8-bit SDR H.264 copied when a profile keeps it;
 // and a source transcoded elsewhere is remuxed, never encoded a second time.
-const Version = 3
+// 4: clustarr's own transcodes in Matroska are remuxed into the MP4 layout.
+const Version = 4
 
 // Profile is what a TranscodeProfile decides under the standard.
 type Profile struct {
@@ -236,8 +237,11 @@ func Plan(info transcode.MediaInfo, profile Profile, hw Hardware) Result {
 		Tags:      map[string]string{"CLUSTARR_PROFILE": profile.Name + "@" + profile.Hash},
 	}
 	// A transcoded file is final (spec §5), whichever profile or hash wrote
-	// it: an edit or a new Version re-transcodes nothing.
-	if tag := formatTag(info.Tags, "CLUSTARR_PROFILE"); tag != "" {
+	// it: an edit or a new Version re-transcodes nothing. One written before
+	// the MP4 layout (HEVC in Matroska, Version 1) is remuxed into it, its
+	// video copied below and never encoded a second time (owner, 2026-10-15).
+	tag := formatTag(info.Tags, "CLUSTARR_PROFILE")
+	if tag != "" && containerOf(info.Format.Name) == transcode.ContainerMP4 {
 		return skip(p, "already transcoded (CLUSTARR_PROFILE "+tag+")")
 	}
 	if d := info.Format.Duration; profile.MinDuration > 0 && d > 0 && d < profile.MinDuration {
@@ -304,9 +308,13 @@ func Plan(info transcode.MediaInfo, profile Profile, hw Hardware) Result {
 		return skip(p, "already HEVC in the MP4 standard's layout")
 	case compliant:
 		p.Decision = DecisionCopyVideo
-		p.Reason = "HEVC Main 10 video copied; audio or container processed"
-		if keptH264 {
-			p.Reason = "H.264 video copied (policy.keepCodecs); audio or container processed"
+		switch {
+		case tag != "":
+			p.Reason = "clustarr's own Matroska transcode remuxed into the MP4 layout: its video copied, never encoded again"
+		case keptH264:
+			p.Reason = "H.264 video copied into the MP4 layout (policy.keepCodecs); audio and subtitles processed"
+		default:
+			p.Reason = "HEVC video copied into the MP4 layout; audio and subtitles processed"
 		}
 		p.Video = VideoPlan{SourceIndex: int32(vi), Action: "copy"}
 		p.Expect.VideoCodec, p.Expect.PixelFormat = v.Codec, v.PixFmt
@@ -315,7 +323,10 @@ func Plan(info transcode.MediaInfo, profile Profile, hw Hardware) Result {
 	// A source another tool transcoded (an FFmpeg HEVC or AV1 encode:
 	// commonv1.MediaInfo.TranscodedElsewhere, Tdarr's QSV MKVs on the owner's
 	// library) is final: remuxed above when its video is compliant, never
-	// encoded a second time (owner, 2026-10-15).
+	// encoded a second time (owner, 2026-10-15). So is clustarr's own.
+	if tag != "" {
+		return skip(p, "already transcoded (CLUSTARR_PROFILE "+tag+"): final, never encoded a second time")
+	}
 	if (&commonv1.MediaInfo{VideoEncoder: v.Encoder}).TranscodedElsewhere() {
 		return skip(p, "transcoded elsewhere ("+v.Encoder+"): final, never encoded a second time")
 	}

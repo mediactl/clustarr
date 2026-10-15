@@ -19,6 +19,7 @@ package transcodeplan
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -88,16 +89,38 @@ func Tag(profileName, profileHash string) string {
 //
 // Another tool's HEVC or AV1 encode (MediaFile.Transcoded's third case,
 // Tdarr's QSV MKVs) is final but not done: the standard remuxes it into the
-// MP4 layout and never encodes it a second time (owner, 2026-10-15).
+// MP4 layout and never encodes it a second time (owner, 2026-10-15). So is
+// transcode's own output from before that layout (standard.Version 1, HEVC
+// in Matroska) once its probe reads the tag, which keeps the standard from
+// encoding it again; untagged, it stays done.
 func AlreadyTranscoded(mf *catalogv1alpha1.MediaFile, profile string) bool {
-	if mf.Spec.Original != nil && !*mf.Spec.Original {
-		return true
+	mi := mf.Status.MediaInfo
+	tagged := mi != nil && mi.TranscodeProfile != ""
+	if tagged && inMatroska(mf) {
+		return false
 	}
-	if mi := mf.Status.MediaInfo; mi != nil && mi.TranscodeProfile != "" {
+	if tagged || mf.Spec.Original != nil && !*mf.Spec.Original {
 		return true
 	}
 	tr := mf.Status.Transcode
 	return RecordsATranscode(tr) && strings.HasPrefix(tr.ProfileTag, Tag(profile, ""))
+}
+
+// inMatroska reports whether mf's probe names a Matroska container, or,
+// with none recorded, its name does.
+func inMatroska(mf *catalogv1alpha1.MediaFile) bool {
+	c := ""
+	if mi := mf.Status.MediaInfo; mi != nil {
+		c = mi.Container
+	}
+	if c == "" {
+		c = strings.TrimPrefix(filepath.Ext(mf.Spec.Path), ".")
+	}
+	switch strings.ToLower(c) {
+	case "mkv", "mka", "webm", "matroska":
+		return true
+	}
+	return false
 }
 
 // RecordsATranscode reports a status.transcode block whose profileTag

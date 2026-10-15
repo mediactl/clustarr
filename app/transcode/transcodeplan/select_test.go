@@ -431,3 +431,32 @@ func TestATranscodeFromElsewhereIsNotDoneHere(t *testing.T) {
 	mf.Status.MediaInfo.TranscodeProfile = "hevc@0ld"
 	assert.True(t, AlreadyTranscoded(&mf, "hevc"), "transcode's own output is done")
 }
+
+// clustarr's own transcode from before the MP4 layout -- HEVC in Matroska,
+// its probe reading the CLUSTARR_PROFILE tag -- is final but not done: the
+// standard remuxes it into the MP4 layout, the tag keeping it from being
+// encoded again (owner, 2026-10-15). In an MP4 it is done; so is a swap
+// whose probe lacks the tag, which the standard could not tell from an
+// original; and so is a kept copy's record on its untouched source.
+func TestClustarrsOwnMKVTranscodeIsNotDone(t *testing.T) {
+	mf := movieFile("arrival-2016", nil)
+	mf.Spec.Path = "/data/movies/Arrival (2016)/Arrival (2016).mkv"
+	mf.Status.ProbeHash = "abc123"
+	mf.Status.MediaInfo = &commonv1.MediaInfo{Container: "mkv", VideoCodec: "hevc", TranscodeProfile: "hevc@0ld"}
+	assert.True(t, mf.Transcoded(), "final: never upgraded")
+	assert.False(t, AlreadyTranscoded(&mf, "hevc"), "remuxed into the MP4 layout")
+	mf.Spec.Original = new(false)
+	assert.False(t, AlreadyTranscoded(&mf, "hevc"), "a swap catalog incorporated alike")
+	mf.Status.MediaInfo.Container = ""
+	assert.False(t, AlreadyTranscoded(&mf, "hevc"), "an unrecorded container is read off the name")
+
+	mf.Status.MediaInfo.Container = "mp4"
+	assert.True(t, AlreadyTranscoded(&mf, "hevc"), "in the MP4 layout it is done")
+
+	mf.Status.MediaInfo.Container, mf.Status.MediaInfo.TranscodeProfile = "mkv", ""
+	assert.True(t, AlreadyTranscoded(&mf, "hevc"), "untagged, nothing would keep the standard from encoding it")
+
+	mf.Spec.Original = nil
+	mf.Status.Transcode = &catalogv1alpha1.TranscodeState{Phase: catalogv1alpha1.TranscodePhaseSucceeded, ProfileTag: "hevc@deadbeef"}
+	assert.True(t, AlreadyTranscoded(&mf, "hevc"), "a kept copy's record on its source")
+}

@@ -138,6 +138,7 @@ func TestCompliantVideoAndAudioIsSkipped(t *testing.T) {
 func TestCompliantVideoWithTrueHDCopiesVideoAndEncodesAudio(t *testing.T) {
 	p := Plan(info(hevc10, audio(0, "truehd", 8, "7.1", "eng")), profile, cpu)
 	require.Equal(t, DecisionCopyVideo, p.Decision, p.Reason)
+	assert.Equal(t, "HEVC video copied into the MP4 layout; audio and subtitles processed", p.Reason)
 	assert.Equal(t, "copy", p.Video.Action)
 	assert.Equal(t, []AudioPlan{
 		{SourceIndex: 0, Action: "aac", Channels: 2, Layout: "stereo", BitRate: 160000, Language: "eng", Title: "Stereo", Default: true},
@@ -167,6 +168,7 @@ func TestKeepingH264CopiesEightBitSDRH264(t *testing.T) {
 	keep.KeepCodecs = []string{"hevc", "h264"}
 	p := Plan(info(h264, eac3), keep, cpu)
 	require.Equal(t, DecisionCopyVideo, p.Decision, p.Reason)
+	assert.Equal(t, "H.264 video copied into the MP4 layout (policy.keepCodecs); audio and subtitles processed", p.Reason)
 	assert.Equal(t, "copy", p.Video.Action)
 	assert.Equal(t, "h264", p.Expect.VideoCodec, "the output is verified as the H.264 it is")
 	assert.Equal(t, "yuv420p", p.Expect.PixelFormat)
@@ -335,7 +337,7 @@ func TestTheProfilesContainerIsIgnored(t *testing.T) {
 // standard.Version) or by another profile -- re-transcoding is never an
 // upgrade side effect.
 func TestATranscodedFileIsSkippedWhateverItsTag(t *testing.T) {
-	in := info(h264, audio(0, "truehd", 8, "7.1", "eng"))
+	in := info(h264, audio(0, "truehd", 8, "7.1", "eng")) // an MKV, whose video the standard encodes
 	assert.Equal(t, DecisionEncode, Plan(in, profile, cpu).Decision, "untagged, it is encoded")
 	for _, tag := range []string{profile.Name + "@" + profile.Hash, profile.Name + "@older", "other@" + profile.Hash} {
 		in.Tags = map[string]string{"CLUSTARR_PROFILE": tag}
@@ -343,6 +345,35 @@ func TestATranscodedFileIsSkippedWhateverItsTag(t *testing.T) {
 		assert.Equal(t, DecisionSkip, p.Decision, tag)
 		assert.Contains(t, p.Reason, "already transcoded", tag)
 	}
+}
+
+// clustarr's own transcodes from before the MP4 layout (HEVC in Matroska,
+// standard.Version 1) are remuxed into it, whatever profile or hash tagged
+// them: the video copied, the audio and subtitles given the layout, and
+// never encoded a second time (owner, 2026-10-15; the H.264 case is
+// TestATranscodedFileIsSkippedWhateverItsTag). One in an MP4 is final.
+func TestClustarrsOwnMKVTranscodeIsRemuxedIntoTheMP4Layout(t *testing.T) {
+	in := info(hevc10, audio(0, "aac", 6, "5.1", "eng"))
+	in.Tags = map[string]string{"CLUSTARR_PROFILE": "hevc-mkv@older"}
+	p := Plan(in, profile, cpu)
+	require.Equal(t, DecisionCopyVideo, p.Decision, p.Reason)
+	assert.Equal(t, "copy", p.Video.Action)
+	assert.Equal(t, transcode.ContainerMP4, p.Container)
+	assert.Equal(t, "hevc-mkv@abc", p.Tags["CLUSTARR_PROFILE"], "tagged anew, so final once remuxed")
+	assert.Equal(t, "clustarr's own Matroska transcode remuxed into the MP4 layout: its video copied, never encoded again", p.Reason)
+	var actions []string
+	for _, a := range p.Audio {
+		actions = append(actions, a.Action)
+	}
+	assert.Equal(t, []string{AudioAAC, AudioAC3}, actions, "AAC 2.0 first, then the surround track as AC-3")
+	require.NotEmpty(t, p.Sidecars)
+	assert.Equal(t, "en.srt", p.Sidecars[0].Suffix)
+
+	mp4 := mp4Info(hevc10, audio(0, "aac", 6, "5.1", "eng"))
+	mp4.Tags = in.Tags
+	p = Plan(mp4, profile, cpu)
+	assert.Equal(t, DecisionSkip, p.Decision, "an MP4 transcode is final, its audio the layout's or not")
+	assert.Contains(t, p.Reason, "already transcoded")
 }
 
 // policy.minDuration (kept by the owner's API cut) skips a source shorter
@@ -497,7 +528,7 @@ func TestPlanAlwaysWritesMP4(t *testing.T) {
 	assert.False(t, p.Attachments)
 }
 
-func TestVersionIsThree(t *testing.T) { assert.Equal(t, 3, Version) }
+func TestVersionIsFour(t *testing.T) { assert.Equal(t, 4, Version) }
 
 func sub(codec, lang, title string, forced, hi bool) transcode.SubtitleStream {
 	return transcode.SubtitleStream{
