@@ -19,6 +19,7 @@ package ffruntime
 
 import (
 	"bytes"
+	"encoding/json"
 	"log/slog"
 	"strings"
 	"testing"
@@ -26,6 +27,7 @@ import (
 
 	"github.com/obinnaokechukwu/ffgo"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func newRouterForTest(t *testing.T, now func() time.Time) (*logRouter, *bytes.Buffer) {
@@ -53,6 +55,21 @@ func TestErrorsReachSlogRateLimited(t *testing.T) {
 		r.dispatch(ffgo.LogError, "an error\n")
 	}
 	assert.Equal(t, 30, strings.Count(buf.String(), "msg=ffmpeg"), "10 more after one second")
+}
+
+// FFmpeg's own level is an attribute beside slog's, never a second "level":
+// a JSON reader keeps the last of two keys, so every one of these Warn
+// lines read as an error on talos (2026-10-15).
+func TestFFmpegsLevelDoesNotShadowSlogsLevel(t *testing.T) {
+	var buf bytes.Buffer
+	r := newLogRouter(time.Now)
+	r.logger = slog.New(slog.NewJSONHandler(&buf, nil))
+	r.dispatch(ffgo.LogError, "Duplicate POC in a sequence: 1242.\n")
+	var rec map[string]any
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &rec))
+	assert.Equal(t, "WARN", rec["level"])
+	assert.Equal(t, "error", rec["ffmpegLevel"])
+	assert.Equal(t, "Duplicate POC in a sequence: 1242.", rec["message"])
 }
 
 func TestCaptureSeesEveryLineUntilReleased(t *testing.T) {

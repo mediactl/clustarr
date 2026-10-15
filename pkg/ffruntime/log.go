@@ -109,7 +109,9 @@ func (r *logRouter) dispatch(level ffgo.LogLevel, msg string) {
 		s(level, msg)
 	}
 	if toSlog {
-		logger.Warn("ffmpeg", "level", level.String(), "message", strings.TrimRight(msg, "\n"))
+		// ffmpegLevel, not level: a second "level" key shadows slog's own for
+		// any reader that keeps the last key (jq, Loki), so a Warn read as an error.
+		logger.Warn("ffmpeg", "ffmpegLevel", level.String(), "message", strings.TrimRight(msg, "\n"))
 	}
 }
 
