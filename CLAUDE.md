@@ -1019,6 +1019,17 @@ exports the pinned ref every image build takes as a named context.
   passed. natsbus now naks for `d - (BackOff[n-1] - BackOff[0])`
   (`natsbus.nakDelay`), and the contract test measures the real gap between
   deliveries on both buses.
+- **`BackOff` also times a first delivery at `BackOff[0]`, so a handler
+  slower than that is redelivered mid-run unless something sends
+  InProgress.** The engine durable (`BackOff[0]` 10 s, no
+  `HandlerTimeout`) ran payload RPCs that took about 15 s while nzb.life
+  answered 522 (2026-10-15): the broker handed a second copy out mid-run,
+  which fetched the payload again, and lapsed copies, served before new
+  work, kept 1,153 commands undelivered, the removals of 30 GB among them.
+  A durable whose handler can outlast `BackOff[0]` takes a
+  `HandlerTimeout`, which makes the bus heartbeat it, or heartbeats its own
+  work as the transcode pool worker does; `TestOnlyExplicitBudgetsAreEnforced`
+  holds the list.
 - **On single-node NATS a work stream is a few MiB of memory with
   discard-oldest, and a feature that queues by the thousand silently drops
   its neighbours' work.** `ForSingleNode` scales every stream into a 64 MiB
