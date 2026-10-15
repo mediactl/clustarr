@@ -92,6 +92,7 @@ func audioStage(outs []standard.AudioPlan) stageFunc {
 		defer func() { sc.release(err) }() // before the encoders close
 
 		res := make([]*ffgo.Resampler, len(outs))
+		ins := make([]ffgo.AudioFormat, len(outs)) // each resampler's input
 		defer func() {
 			for _, r := range res {
 				if r != nil {
@@ -99,14 +100,39 @@ func audioStage(outs []standard.AudioPlan) stageFunc {
 				}
 			}
 		}()
+		// flush sends output k's resampler's buffered tail to its encoder.
+		flush := func(k int) error {
+			tail, err := res[k].Flush()
+			if err != nil || tail.IsNil() {
+				return nil
+			}
+			err = encs[k].Encode(tail, sc.emits[k])
+			_ = tail.Free()
+			return err
+		}
 		encode := func(f ffgo.Frame) error {
+			in := ffgo.AudioFormat{SampleRate: sc.src.SampleRate, Layout: f.ChannelLayout(), SampleFormat: ffgo.SampleFormat(f.Format())}
 			for k, a := range outs {
+				// A track can change its layout or sample format
+				// mid-stream (a broadcast recording; a DTS track moving
+				// between its core and an extension): the resampler built
+				// for the old input refuses the frame (AVERROR_INPUT_CHANGED),
+				// so its tail goes out and one for the new input takes
+				// over, as FFmpeg's filter graph reconfigures (Back to the
+				// Future, 2026-10-15).
+				if res[k] != nil && (ins[k].Layout != in.Layout || ins[k].SampleFormat != in.SampleFormat) {
+					if err := flush(k); err != nil {
+						return err
+					}
+					_ = res[k].Close()
+					res[k] = nil
+				}
 				if res[k] == nil {
-					if res[k], err = ffgo.NewResampler(
-						ffgo.AudioFormat{SampleRate: sc.src.SampleRate, Layout: f.ChannelLayout(), SampleFormat: ffgo.SampleFormat(f.Format())},
+					if res[k], err = ffgo.NewResampler(in,
 						ffgo.AudioFormat{SampleRate: rates[k], Layout: a.Layout, SampleFormat: ffgo.SampleFormatFLTP}); err != nil {
 						return fmt.Errorf("resampler: %w", err)
 					}
+					ins[k] = in
 				}
 				r, err := res[k].Resample(f)
 				if err != nil {
@@ -146,12 +172,8 @@ func audioStage(outs []standard.AudioPlan) stageFunc {
 		}
 		for k := range outs {
 			if res[k] != nil {
-				if tail, err := res[k].Flush(); err == nil && !tail.IsNil() {
-					err := encs[k].Encode(tail, sc.emits[k])
-					_ = tail.Free()
-					if err != nil {
-						return err
-					}
+				if err := flush(k); err != nil {
+					return err
 				}
 			}
 			if err := encs[k].Flush(sc.emits[k]); err != nil {
