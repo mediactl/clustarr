@@ -220,3 +220,16 @@ func (p stubAudiobookProvider) Audiobook(ctx context.Context, asin, region strin
 func (p stubAudiobookProvider) Chapters(context.Context, string, string) ([]metadata.Chapter, error) {
 	return nil, nil
 }
+
+// TestRegistryLookupWithNoProviderForTheKindIsErrNoProvider: a registry with
+// no provider for the kind asked nobody, which is not "no such record" --
+// the metadata gateway built its registry before the owner's TMDB and TVDB
+// providers existed (talos, 2026-10-15) and discarded every movie and series
+// task as not found. ErrNoProvider still wraps ErrNotFound, so a caller that
+// reads "nothing" from it reads the same as before.
+func TestRegistryLookupWithNoProviderForTheKindIsErrNoProvider(t *testing.T) {
+	reg := &metadata.Registry{}
+	_, err := reg.Lookup(context.Background(), commonv1.MediaKindMovie, metadata.ExternalIDs{metadata.KeyTMDB: "603"})
+	require.ErrorIs(t, err, metadata.ErrNoProvider)
+	require.ErrorIs(t, err, metadata.ErrNotFound)
+}

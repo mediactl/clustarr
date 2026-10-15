@@ -132,8 +132,8 @@ func (r *Registry) Lookup(ctx context.Context, kind commonv1.MediaKind, ids Exte
 
 // lookupFirst calls call against each provider in order, returning the
 // first success. It joins every provider's error when all fail, and falls
-// back to ErrNotFound when providers is empty so a caller can always
-// errors.Is against ErrNotFound.
+// back to ErrNoProvider -- which wraps ErrNotFound, so a caller can always
+// errors.Is against ErrNotFound -- when providers is empty.
 func lookupFirst[P any, T any](providers []P, call func(P) (*T, error)) (*T, error) {
 	var errs []error
 	for _, p := range providers {
@@ -144,7 +144,7 @@ func lookupFirst[P any, T any](providers []P, call func(P) (*T, error)) (*T, err
 		errs = append(errs, err)
 	}
 	if len(errs) == 0 {
-		return nil, ErrNotFound
+		return nil, ErrNoProvider
 	}
 	return nil, errors.Join(errs...)
 }

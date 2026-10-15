@@ -36,6 +36,7 @@ import (
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
+	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	catalogagent "github.com/mediactl/clustarr/app/catalog/agent"
 	catalogmetadata "github.com/mediactl/clustarr/app/catalog/metadata"
 	"github.com/mediactl/clustarr/app/catalog/metadata/artwork"
@@ -100,24 +101,32 @@ func Register(_ context.Context, mgr ctrl.Manager, bus events.Bus, o Options) (c
 		Limiter: artwork.NewHostLimiters(artworkHostRate, artworkHostBurst),
 	}
 	if err := mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
-		stop, err := catalogmetadata.Setup(ctx, catalogmetadata.Options{
-			Client:     mgr.GetClient(),
-			Reader:     mgr.GetAPIReader(),
-			Bus:        bus,
-			HTTPClient: metadataHTTPClient,
-			Records:    answers,
-			// TheIntroDB's handler answers into clustarr-markers; the
-			// remediation loop incorporates (loop spec §4.12).
-			Markers: func(ctx context.Context, providers []pkgmetadata.MarkersProvider) (func(), error) {
-				return markerworker.Setup(ctx, markerworker.Options{Bus: bus, Writer: os.Getenv("POD_NAME")}, providers)
-			},
-		})
-		if err != nil {
-			return fmt.Errorf("catalog: metadata gateway: %w", err)
+		start := func(ctx context.Context) (func(), error) {
+			stop, err := catalogmetadata.Setup(ctx, catalogmetadata.Options{
+				Client:     mgr.GetClient(),
+				Reader:     mgr.GetAPIReader(),
+				Bus:        bus,
+				HTTPClient: metadataHTTPClient,
+				Records:    answers,
+				// TheIntroDB's handler answers into clustarr-markers; the
+				// remediation loop incorporates (loop spec §4.12).
+				Markers: func(ctx context.Context, providers []pkgmetadata.MarkersProvider) (func(), error) {
+					return markerworker.Setup(ctx, markerworker.Options{Bus: bus, Writer: os.Getenv("POD_NAME")}, providers)
+				},
+			})
+			if err != nil {
+				return nil, fmt.Errorf("catalog: metadata gateway: %w", err)
+			}
+			return stop, nil
 		}
-		defer stop()
-		<-ctx.Done()
-		return nil
+		fingerprint := func(ctx context.Context) (string, error) {
+			var providers catalogv1alpha1.MetadataProviderList
+			if err := mgr.GetClient().List(ctx, &providers); err != nil {
+				return "", err
+			}
+			return providerFingerprint(providers.Items), nil
+		}
+		return superviseGateway(ctx, gatewayRebuildEvery, fingerprint, start)
 	})); err != nil {
 		return catalogagent.Registration{}, fmt.Errorf("catalog: add the metadata gateway: %w", err)
 	}

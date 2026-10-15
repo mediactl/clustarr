@@ -54,6 +54,12 @@ var (
 	// MaxResponseBytes. It is distinct from ErrDecode: the body was never
 	// parsed, because reading it whole would have been the failure.
 	ErrResponseTooLarge = errors.New("metadata: response body exceeds size limit")
+	// ErrNoProvider means the Registry holds no provider for the kind, so
+	// nobody was asked -- not "no such record". It wraps ErrNotFound, so a
+	// caller that reads "nothing" from either reads the same; the gateway's
+	// work handler retries it instead, since a provider added after the
+	// registry was built answers the retry (talos, 2026-10-15).
+	ErrNoProvider = fmt.Errorf("metadata: no provider for this kind: %w", ErrNotFound)
 )
 
 // RateLimitedError is returned in place of a bare ErrRateLimited whenever

@@ -59,6 +59,12 @@ func settlement(err error) error {
 	if errors.Is(err, pkgmetadata.ErrRateLimited) {
 		return events.Retry(defaultRetryAfter, err)
 	}
+	// Nobody was asked: the registry holds no provider for the kind yet.
+	// The gateway rebuilds it when its MetadataProviders change, so the
+	// retry is answered; before, this read as not found and was discarded.
+	if errors.Is(err, pkgmetadata.ErrNoProvider) {
+		return events.Retry(defaultRetryAfter, err)
+	}
 
 	var notFound, auth, transient bool
 	for _, e := range perProvider(err) {

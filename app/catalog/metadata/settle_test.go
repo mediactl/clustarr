@@ -50,6 +50,12 @@ func TestSettlementMapsProviderErrorsToBusActions(t *testing.T) {
 		var de *events.DiscardError
 		require.ErrorAs(t, err, &de)
 	})
+	t.Run("no provider for the kind retries: one may be added", func(t *testing.T) {
+		err := settlement(fmt.Errorf("lookup: %w", pkgmetadata.ErrNoProvider))
+		var re *events.RetryError
+		require.ErrorAs(t, err, &re, "a provider added after the gateway started answers the retry")
+		require.Equal(t, 30*time.Second, re.After)
+	})
 	t.Run("auth failure is terminal", func(t *testing.T) {
 		err := settlement(pkgmetadata.ErrAuth)
 		var de *events.DiscardError
