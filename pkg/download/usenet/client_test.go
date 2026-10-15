@@ -27,6 +27,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand"
+	"net"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -581,6 +582,50 @@ func TestClientReattachesAfterARestart(t *testing.T) {
 	require.NoError(t, second.Remove(context.Background(), id, false))
 	require.Less(t, time.Since(start), 5*time.Second,
 		"Remove waited for a goroutine that was never started")
+}
+
+// The job table is the client lock's: outranked iterates it under the lock,
+// Add writes it under the lock, and re-attach wrote it bare while starting
+// each job as it went. A started job asks for its turn at once -- iterating
+// the table -- so "concurrent map iteration and map write" killed the usenet
+// engine twice on talos, re-attaching about 200 jobs (2026-10-15). Run under
+// the race detector, which sees it every time; the bare runtime only
+// sometimes.
+func TestReattachingManyUnfinishedJobsIsRaceFree(t *testing.T) {
+	srv := newStubServer(t)
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	dead := srv.provider("dead", 2, 1) // nobody listens: every job waits, unfinished
+	dead.Port = l.Addr().(*net.TCPAddr).Port
+	require.NoError(t, l.Close())
+	root := t.TempDir()
+	cfg := Config{
+		Providers:  []Provider{dead},
+		ScratchDir: filepath.Join(root, "scratch"),
+		DataDir:    filepath.Join(root, "data"),
+	}
+
+	first, err := New(cfg)
+	require.NoError(t, err)
+	var ids []string
+	for i := range 30 {
+		name := fmt.Sprintf("Unfinished.%02d", i)
+		nzb := buildNZBWithPrefix(t, srv, name, fmt.Sprintf("u%02d", i),
+			[]fileSpec{{name: "movie.mkv", parts: [][]byte{partPayload(byte(i), 400)}}})
+		id, err := first.Add(context.Background(), download.AddRequest{Name: name, Payload: nzb})
+		require.NoError(t, err)
+		ids = append(ids, id)
+	}
+	require.NoError(t, first.Close())
+
+	second, err := New(cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = second.Close() })
+	for _, id := range ids {
+		it, err := second.Get(context.Background(), id)
+		require.NoError(t, err)
+		require.NotEqual(t, download.StatusCompleted, it.Status)
+	}
 }
 
 func TestClientFailsADownloadWithTooManyMissingArticles(t *testing.T) {

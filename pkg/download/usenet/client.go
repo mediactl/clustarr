@@ -585,12 +585,19 @@ func cloneBitsets(in []bitset) []bitset {
 	return out
 }
 
-// reattach rebuilds the job table from the scratch area.
+// reattach rebuilds the job table from the scratch area: every job is read
+// first, then all are put in the table and the unfinished started under the
+// client lock, as Add does. The table is the lock's -- a started job asks
+// for its turn at once, and outranked iterates the table -- and writing it
+// bare while starting each job as it was read killed the usenet engine with
+// "concurrent map iteration and map write" on talos, re-attaching about 200
+// jobs over NFS (2026-10-15).
 func (c *Client) reattach() error {
 	entries, err := os.ReadDir(c.cfg.ScratchDir)
 	if err != nil {
 		return fmt.Errorf("usenet: read scratch: %w", err)
 	}
+	var loaded []*job
 	for _, catDir := range entries {
 		if !catDir.IsDir() {
 			continue
@@ -611,10 +618,17 @@ func (c *Client) reattach() error {
 				// 50GB transfer, and an operator can see why.
 				continue
 			}
-			c.jobs[j.id] = j
-			if j.status != download.StatusCompleted && j.status != download.StatusFailed {
-				c.start(c.baseCtx, j)
-			}
+			loaded = append(loaded, j)
+		}
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, j := range loaded {
+		c.jobs[j.id] = j
+	}
+	for _, j := range loaded {
+		if j.status != download.StatusCompleted && j.status != download.StatusFailed {
+			c.start(c.baseCtx, j)
 		}
 	}
 	return nil
