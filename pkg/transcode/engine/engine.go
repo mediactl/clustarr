@@ -38,6 +38,7 @@ import (
 	"github.com/obinnaokechukwu/ffgo/avutil"
 
 	"github.com/mediactl/clustarr/pkg/fsops"
+	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/transcode"
 	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
@@ -114,6 +115,8 @@ type slot struct {
 	// its packets go to sink, made with the header.
 	sidecar *standard.SidecarPlan
 	sink    sidecarSink
+	// guard holds a copied stream's decode timestamps moving forward.
+	guard *dtsGuard
 }
 
 // stageFunc runs one encoded source: it reads its packets from in, reports
@@ -530,6 +533,12 @@ func mux(ctx context.Context, m *ffgo.Muxer, d *ffgo.Decoder, plan standard.Resu
 	if err := addStreams(m, d, plan, slots, srcs, output); err != nil {
 		return res, &Error{Stage: "mux", Err: err}
 	}
+	for i := range slots {
+		if s := &slots[i]; s.copy && s.stream != nil {
+			g := newDTSGuard(s.tb, s.stream.OutputTimeBase())
+			s.guard = &g
+		}
+	}
 	closeHeader()
 
 	durMillis := d.Duration().Milliseconds()
@@ -573,6 +582,11 @@ func mux(ctx context.Context, m *ffgo.Muxer, d *ffgo.Decoder, plan standard.Resu
 		if s.isVid {
 			res.Frames++
 		}
+		if g := s.guard; g != nil {
+			pts, dts := g.fix(it.pkt.PTS(), it.pkt.DTS())
+			avcodec.SetPacketPTS(it.pkt.Raw(), pts)
+			avcodec.SetPacketDTS(it.pkt.Raw(), dts)
+		}
 		// WritePacket takes the packet's data: read what it needs first.
 		return m.WritePacket(s.stream, it.pkt)
 	}
@@ -585,6 +599,12 @@ func mux(ctx context.Context, m *ffgo.Muxer, d *ffgo.Decoder, plan standard.Resu
 		select {
 		case it, ok := <-muxCh:
 			if !ok {
+				for i := range slots {
+					if g := slots[i].guard; g != nil && g.repaired > 0 {
+						logging.FromContext(ctx).WarnContext(ctx, "engine: moved copied packets whose decode timestamps did not move forward (a damaged source)",
+							"stream", slots[i].name, "packets", g.repaired)
+					}
+				}
 				if err := m.WriteTrailer(); err != nil {
 					return res, &Error{Stage: "mux", Err: err}
 				}
