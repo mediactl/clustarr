@@ -10,8 +10,12 @@ deliveries (events.RequeueOnStop, ADR-0020 §1 as amended 2026-10-15), rather
 than waiting out the 30-minute AckWait as it did with a grace of 1825.
 Autoscaled 0..N by the manager on markers-analyze's lag, one pod per node
 (agentdomain.Domain.PerNode): the HPA targets one task per pod, up to the
-matching nodes, whatever a pod's slots, which come from
-markers.consumerSlots (CLUSTARR_CONSUMER_SLOTS).
+matching nodes, whatever a pod's slots. Those come from
+markers.consumerSlots (CLUSTARR_CONSUMER_SLOTS) when it names
+markers-analyze, else each pod sizes them from the CPUs it can use, one per
+markers.coresPerSlot (--cores-per-slot), from 1 to 8; so the default
+resources set no CPU limit, and a memory limit that holds 8 slots under
+the fixed mmap threshold GLIBC_TUNABLES sets.
 */}}
 {{- $name := printf "%s-markers" (include "clustarr.fullname" .) }}
 ---
@@ -113,6 +117,8 @@ spec:
         imagePullPolicy: {{ .Values.image.pullPolicy }}
         command:
         - /usr/bin/markers
+        args:
+        - --cores-per-slot={{ .Values.markers.coresPerSlot }}
         env:
         - name: NATS_URL
           value: {{ include "clustarr.natsUrl" . | quote }}
@@ -129,6 +135,12 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: spec.nodeName
+        # A fixed 128 KiB mmap threshold: FFmpeg's frame buffers are then
+        # mapped and unmapped, not kept in glibc's arenas once freed. Under
+        # glibc's sliding threshold eight 4K analyses held 7.3 GB, with it
+        # 2.8 GB (values.yaml markers.resources).
+        - name: GLIBC_TUNABLES
+          value: glibc.malloc.mmap_threshold=131072
         {{- with dig "resources" "limits" "memory" "" .Values.markers }}
         - name: GOMEMLIMIT
           value: {{ include "clustarr.gomemlimit" (list . 50) | quote }}

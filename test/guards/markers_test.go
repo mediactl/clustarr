@@ -18,16 +18,40 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package guards
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"github.com/mediactl/clustarr/pkg/binpath"
+	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/test/installtest"
 )
+
+// markersPodMemory and markersSlotMemory size markers' memory limit
+// (values.yaml markers.resources, config/manager/markers.yaml): a pod's own
+// share -- the Go runtime and FFmpeg's libraries (53 MB measured) and ONNX
+// Runtime's session and arena (estimated) -- and each slot's. The slot's is
+// measured (2026-10-15, pkg/segments/decode on FFmpeg 9 at two decode
+// threads, 16 to 48 rounds of Audio, Frames and Frame a slot) under
+// markersMmapThreshold: 4K HEVC Main 10 peaked at 350-390 MB a slot (one,
+// two and eight slots), 1080p HEVC Main 10 at 95 MB and 1080p H.264 at
+// 40 MB. FFmpeg's frame pools live in the C heap, outside GOMEMLIMIT.
+const (
+	markersPodMemory  = 256 << 20
+	markersSlotMemory = 448 << 20
+)
+
+// markersMmapThreshold fixes glibc's mmap threshold at 128 KiB, so FFmpeg's
+// frame buffers are unmapped when freed: under glibc's sliding threshold
+// they stayed in its arenas, and eight 4K slots held 7.3 GB, two 2.2-3.4 GB,
+// past any limit sized from the live set.
+const markersMmapThreshold = "glibc.malloc.mmap_threshold=131072"
 
 // TestMarkersHasNoCredentials: markers reads /data and talks NATS only
 // (segment detection §4.1), so neither its ServiceAccount nor its pod mounts
@@ -89,4 +113,54 @@ func TestMarkersHasNoCredentials(t *testing.T) {
 			assert.True(t, data, "markers mounts /data")
 		})
 	}
+}
+
+// markersContainer is the markers container in one render.
+func markersContainer(t *testing.T, out []byte) corev1.Container {
+	t.Helper()
+	d, ok := installtest.Workloads(installtest.DecodeRendered(t, out))["markers"]
+	require.True(t, ok, "no markers Deployment")
+	require.Len(t, d.Spec.Template.Spec.Containers, 1)
+	return d.Spec.Template.Spec.Containers[0]
+}
+
+// TestMarkersResourcesLetAPodUseItsNode: a markers pod sizes its slots from
+// the CPUs it can use (GOMAXPROCS) unless CLUSTARR_CONSUMER_SLOTS overrides
+// them, so neither installer caps its CPU -- a limit of 6 held talos'
+// 16-CPU worker to three slots while its 4-CPU workers ran three too
+// (2026-10-15) -- each keeps a CPU request, sets no override, passes the
+// default --cores-per-slot, and sets a memory limit that holds the most
+// slots a pod may size itself to, under the mmap threshold its per-slot
+// figure was measured with. The chart's markers.coresPerSlot and
+// markers.consumerSlots reach the pod.
+func TestMarkersResourcesLetAPodUseItsNode(t *testing.T) {
+	for name, out := range map[string][]byte{
+		"helm":      installtest.RenderChart(t),
+		"kustomize": installtest.BuildKustomize(t, "config/default"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := markersContainer(t, out)
+			_, capped := c.Resources.Limits[corev1.ResourceCPU]
+			assert.False(t, capped, "markers' CPU limit would cap GOMAXPROCS, its slots and its decode threads")
+			req, ok := c.Resources.Requests[corev1.ResourceCPU]
+			assert.True(t, ok && req.Sign() > 0, "markers keeps a CPU request")
+			_, ok = c.Resources.Requests[corev1.ResourceMemory]
+			assert.True(t, ok, "markers keeps a memory request")
+			limit, ok := c.Resources.Limits[corev1.ResourceMemory]
+			require.True(t, ok, "markers sets a memory limit")
+			need := resource.NewQuantity(markersPodMemory+events.PerNodeSlotsCeiling*markersSlotMemory, resource.BinarySI)
+			assert.GreaterOrEqual(t, limit.Cmp(*need), 0, "markers' memory limit %s holds %d slots: %s",
+				limit.String(), events.PerNodeSlotsCeiling, need.String())
+			tunables, _ := containerEnv(c, "GLIBC_TUNABLES")
+			assert.Equal(t, markersMmapThreshold, tunables, "the memory limit holds only under a fixed mmap threshold")
+			_, set := containerEnv(c, events.SlotsEnv)
+			assert.False(t, set, "markers sizes its slots from its node unless told otherwise")
+			assert.Contains(t, c.Args, "--cores-per-slot="+strconv.Itoa(events.DefaultCoresPerSlot))
+		})
+	}
+	c := markersContainer(t, installtest.RenderChart(t, "--set", "markers.coresPerSlot=1",
+		"--set", "markers.consumerSlots."+events.ConsumerMarkersAnalyze+"=3"))
+	assert.Contains(t, c.Args, "--cores-per-slot=1", "markers.coresPerSlot")
+	v, _ := containerEnv(c, events.SlotsEnv)
+	assert.Equal(t, events.ConsumerMarkersAnalyze+"=3", v, "markers.consumerSlots still overrides")
 }

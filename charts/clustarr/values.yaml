@@ -512,20 +512,50 @@ agents:
 # Skip-segment detection (cmd/markers): FFmpeg decodes in-process, Go
 # analyzes, with PaddleOCR's text detector on ONNX Runtime when cheaper
 # signals are weak. Reads /data read-only and holds no ServiceAccount token.
-# Autoscaled 0..N on markers-analyze; its per-pod analyses are
-# consumerSlots.markers-analyze (default 1). CPU is what it spends; cap it
-# here.
+# Autoscaled 0..N on markers-analyze's backlog, at most one pod per matching
+# node (nodeSelector, affinity and tolerations decide which nodes match).
+#
+# A pod's slots -- the analyses it runs at once -- take one of two forms:
+#   consumerSlots: {}                     automatic, the default: each pod runs
+#                                         one slot per coresPerSlot of the CPUs
+#                                         it can use (GOMAXPROCS: its node's,
+#                                         with no CPU limit), from 1 to 8 -- at
+#                                         2, a 4-CPU node runs 2 and a 16-CPU
+#                                         node 8.
+#   consumerSlots: {markers-analyze: 3}   fixed: every pod runs 3, whatever its
+#                                         node (CLUSTARR_CONSUMER_SLOTS), and
+#                                         coresPerSlot is unused.
+# Each slot's FFmpeg decoders share the pod's CPUs: GOMAXPROCS / slots
+# threads each, at least one.
+#
+# coresPerSlot (--cores-per-slot) is the CPUs each automatic slot takes. 2
+# suits an analysis's decode plus Go work; 1 suits a cluster whose reads from
+# /data bind before its CPUs do (a single 1 GbE NFS link a node).
+#
+# resources: no CPU limit, so GOMAXPROCS -- and with it the automatic slots
+# and the decode threads -- follows the node; a CPU limit caps all three (a
+# limit of 6 runs 3 slots at coresPerSlot 2). The memory limit holds the most
+# slots a pod may run, 8: 256 MiB a pod plus 448 MiB a slot, 3.75 GiB. The
+# slot's is measured (2026-10-15, FFmpeg 9 at two decode threads, 16 to 48
+# rounds of a season's decodes a slot): 4K HEVC Main 10, the heaviest stream
+# a library commonly holds, peaked at 350-390 MB a slot, 1080p HEVC Main 10
+# at 95 MB and 1080p H.264 at 40 MB. That holds only with the 128 KiB mmap
+# threshold the pod sets (GLIBC_TUNABLES): under glibc's default, freed frame
+# buffers stay in its arenas, and eight 4K slots held 7.3 GB, two 2.2-3.4 GB.
+# FFmpeg's frames live outside the Go heap, so GOMEMLIMIT is 50% of the
+# limit. Lowering the limit, size it for the slots your nodes give:
+# 256Mi + 448Mi x slots.
 markers:
   enabled: true
   replicas: 1
   consumerSlots: {}
+  coresPerSlot: 2
   resources:
     requests:
       cpu: 250m
       memory: 512Mi
     limits:
-      cpu: "2"
-      memory: 2Gi
+      memory: 4Gi
   nodeSelector: {}
   tolerations: []
   affinity: {}

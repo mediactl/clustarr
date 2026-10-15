@@ -265,6 +265,13 @@ APIService it does not own, so the conflict is a loud install error.
 `agents.<domain>.consumerSlots` and `markers.consumerSlots` set a consumer's
 per-pod handler count (`CLUSTARR_CONSUMER_SLOTS`), which is also the HPA's
 per-pod target, for example `--set markers.consumerSlots.markers-analyze=3`.
+markers runs a pod per node instead, and its `consumerSlots` is empty by
+default: each pod then runs one analysis per `markers.coresPerSlot` (default
+2) of the CPUs it can use, from 1 to 8, so its default resources set no CPU
+limit and a 4Gi memory limit that holds eight slots (`values.yaml` has the
+per-slot figures, measured under the fixed mmap threshold the pod's
+`GLIBC_TUNABLES` sets). Set `markers.coresPerSlot: 1` where reads from `/data`, not
+the CPUs, bind.
 If the manager is down, `kubectl delete ns` of its namespace can hang on the
 unavailable APIService; `kubectl delete apiservice v1beta1.external.metrics.k8s.io`
 releases it. The metric, the HPA's shape, who owns which object and the failure
@@ -478,7 +485,7 @@ template.
 | `agents.<domain>.resources`/`.nodeSelector`/`.tolerations`/`.affinity` | Standard resources and scheduling. | see `values.yaml` |
 | `agents.index.facade.service.type`/`.port` | The Torznab facade Service (`/{indexer}/api`, `/{indexer}/download`, `/search/api`). | `ClusterIP`, `8080` |
 | `agents.index.facade.apiKeySecret` | Secret holding the facade's API keys, named to the manager and the index agent alike; empty means `<release>-index-facade`, created by the manager with one random key. | `""` |
-| `markers.enabled`/`.replicas`/`.consumerSlots`/`.resources` | Skip-segment detection; `consumerSlots.markers-analyze` is its per-pod analyses. | `true`, `1`, `{}` |
+| `markers.enabled`/`.replicas`/`.consumerSlots`/`.coresPerSlot`/`.resources` | Skip-segment detection, a pod per node. Its per-pod analyses are `consumerSlots.markers-analyze` when set, else one per `coresPerSlot` of the pod's CPUs, from 1 to 8; `resources` sets no CPU limit, so they follow the node. | `true`, `1`, `{}`, `2`, requests 250m/512Mi, limit 4Gi memory |
 | `ui.auth.mode` | The web UI's authentication mode (`--auth-mode`), chosen explicitly: the binary refuses to serve without one. `anonymous`, the only mode, serves every request without a login -- put the Service behind ingress authentication and never expose it directly. | `anonymous` |
 | `ui.plex.enabled` | Mount the Plex Custom Metadata Provider routes (`--plex-provider`). See [Plex provider](#plex-provider). | `true` |
 | `ui.plex.externalURL` | Absolute base every `thumb`/`art`/`Image[]` URL is built on (`--external-url`). Empty means the provider roots answer `503` naming the flag. **Unauthenticated by protocol -- never a public ingress hostname.** | `""` |

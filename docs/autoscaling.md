@@ -140,6 +140,8 @@ generates its own CA and serving certificate and keeps them in the Secret named 
   over the nodes they tolerate (`nodeTaintsPolicy: Honor`), so each node runs one; `maxSkew` 1
   still fits a rollout's surge pod. Until 2026-10-15 markers targeted its slots (3 a pod) with
   a `MaxAckPending` of 8, which held three amd64 nodes to two pods, both often on one node.
+  A per-node pod without a slot override sizes its own slots from its node (Slots, below),
+  which the reconciler cannot see, so its clamp counts such a pod at `PerNodeSlotsCeiling` (8).
 - Scale-up immediately, by up to `maxReplicas` pods per 15 s; scale-down after
   `max(300 s, the longest AckWait of the domain's consumers)`.
 - `autoscale.clustarr.io/paused: "true"` on a Deployment makes the reconciler delete its HPA and
@@ -156,6 +158,17 @@ Deployment, for example `CLUSTARR_CONSUMER_SLOTS=markers-analyze=3,import-fileim
 variable from the pod template as the HPA's per-pod target, so the pods and the HPA agree. A
 consumer's `MaxAckPending` is the topology's, sized for the domain's ceiling times its slots,
 and only the manager writes it.
+
+A per-node domain's consumer that the variable does not name has automatic slots
+(`agentdomain.Domain.AutoSlots`, since 2026-10-15): each pod runs
+`min(max(1, GOMAXPROCS / coresPerSlot), PerNodeSlotsCeiling)`, where GOMAXPROCS is the CPUs the
+pod can use (the cgroup's CPU limit, rounded up, else the node's) and `coresPerSlot` is markers'
+`--cores-per-slot` (chart `markers.coresPerSlot`, default 2). At 2 a 4-CPU node runs two
+analyses and a 16-CPU node eight; at 1, for a cluster whose reads from `/data` bind first, four
+and eight. The installers set markers no CPU limit, so the slots follow the node, and a memory
+limit that holds eight slots (4Gi: 256 MiB a pod plus 448 MiB a slot, measured on 4K HEVC
+Main 10 under the 128 KiB mmap threshold the pod's `GLIBC_TUNABLES` fixes). Each pod reports the slots it runs in its presence record; nothing in the manager
+reads them as capacity (dispatch budgets by `MaxAckPending`), so pods of one domain may differ.
 
 ## Turning it off
 

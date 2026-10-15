@@ -3,8 +3,12 @@
 # image. It reads /data and talks NATS, so its ServiceAccount mounts no token
 # and nothing binds it. Autoscaled 0..N on markers-analyze's lag, one pod per
 # node (agentdomain.Domain.PerNode): the HPA targets one task per pod, up to
-# the matching nodes; a pod's slots come from that consumer's Slots, or
-# CLUSTARR_CONSUMER_SLOTS (`markers-analyze=N`). Grace is 60 s, the
+# the matching nodes. A pod's slots are CLUSTARR_CONSUMER_SLOTS'
+# (`markers-analyze=N`), else one per --cores-per-slot of the CPUs it can use
+# (GOMAXPROCS), from 1 to 8: so no CPU limit, and a memory limit that holds 8
+# slots (256 MiB a pod plus 448 MiB a slot, measured on 4K HEVC Main 10 under
+# the mmap threshold GLIBC_TUNABLES sets; the chart's values.yaml has the
+# figures). Grace is 60 s, the
 # consumer's StopBudget (the 15 s requeue drain) plus 25 s and the tracer's
 # flush: on SIGTERM it cancels its analyses at once and requeues their
 # seasons, spending none of their deliveries (RequeueOnStop; ADR-0020 §1 as
@@ -75,6 +79,7 @@ spec:
         - name: markers
           image: ghcr.io/mediactl/clustarr/native:dev
           command: ["/usr/bin/markers"]
+          args: ["--cores-per-slot=2"]
           env:
             - name: NATS_URL
               value: nats://nats.clustarr-system.svc:4222
@@ -91,10 +96,16 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
-            # GOMEMLIMIT = 50% of 2Gi, in bytes: FFmpeg and ONNX Runtime
+            # A fixed 128 KiB mmap threshold: FFmpeg's frame buffers are then
+            # mapped and unmapped, not kept in glibc's arenas once freed.
+            # Under glibc's sliding threshold eight 4K analyses held 7.3 GB,
+            # with it 2.8 GB.
+            - name: GLIBC_TUNABLES
+              value: glibc.malloc.mmap_threshold=131072
+            # GOMEMLIMIT = 50% of 4Gi, in bytes: FFmpeg and ONNX Runtime
             # allocate outside the Go heap (OD42).
             - name: GOMEMLIMIT
-              value: "1073741824"
+              value: "2147483648"
           ports:
             - name: metrics
               containerPort: 8080
@@ -112,13 +123,14 @@ spec:
               port: metrics
             initialDelaySeconds: 5
             periodSeconds: 10
+          # No CPU limit: GOMAXPROCS, and with it the slots and the decode
+          # threads, follows the node.
           resources:
             requests:
               cpu: 250m
               memory: 512Mi
             limits:
-              cpu: "2"
-              memory: 2Gi
+              memory: 4Gi
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

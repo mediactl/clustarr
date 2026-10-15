@@ -1252,6 +1252,7 @@ own tests. No moved test names them.
 | Flag | Default | Notes |
 | --- | --- | --- |
 | `--decode-threads` | `0`: `max(1, runtime.GOMAXPROCS(0) / slots)`, where slots is `segmentarr-analyze`'s per-pod slot count | replaces `--ffmpeg-threads`; follows the cgroup quota (§7.2.8) |
+| `--cores-per-slot` | `2` (`events.DefaultCoresPerSlot`) | amended 2026-10-15: without a `CLUSTARR_CONSUMER_SLOTS` override the pod runs `min(max(1, GOMAXPROCS / this), 8)` slots (`agentdomain.Domain.PodSlots`); chart `markers.coresPerSlot`; below 1 exits 3 |
 | `--metrics-bind-address` | `:8080` (`""` serves nothing) | also serves `/healthz` and `/readyz` |
 | `--self-check` | `false` | runs steps 3-6 below with no NATS or env, prints a JSON report, exits 0 or 3 |
 | `--version` | `false` | new: prints `markers <version.String()>`, exits 0 right after the flag parse, before the env checks (the image check `version:markers`, §10.1.4) |
@@ -3920,6 +3921,13 @@ What changes is when they land and what raises the constant:
   is redelivered. Mitigations: capped decode threads; 1 slot by default; and
   markers' `GOMEMLIMIT` at 50% of `limits.memory` (§10.2.1), since the Go heap is
   about 50 MB per task (a 600 s window of PCM is 13 MB; 900 gray frames 8 MB).
+  (Amended 2026-10-15: a pod without a `CLUSTARR_CONSUMER_SLOTS` override runs
+  `min(max(1, GOMAXPROCS / --cores-per-slot), PerNodeSlotsCeiling)` slots,
+  `agentdomain.Domain.PodSlots`, so the installers set no CPU limit and a 4Gi
+  memory limit: 256 MiB a pod plus 448 MiB a slot, measured on 4K HEVC Main 10
+  at two decode threads (eight slots: 2.8 GB peak RSS) under the 128 KiB mmap
+  threshold markers' `GLIBC_TUNABLES` fixes; under glibc's sliding threshold
+  freed frame buffers stayed in its arenas and eight slots held 7.3 GB.)
 - **Concurrency.** Each call owns its objects; ffgo's `Decoder` and
   `StreamDecoder` hold their own mutexes; there are no per-call purego callbacks
   (path open, no IO callbacks). The log callback is process-wide (§7.4), and
@@ -6653,7 +6661,7 @@ remain in GHCR (§13 OD38).
 | agent-import | 100m / 256Mi | 2 / 1536Mi |
 | agent-index | 100m / 256Mi | 1 / 1Gi |
 | agent-caption | 100m / 192Mi | 1 / 1Gi |
-| markers | 250m / 512Mi | 2 / 2Gi |
+| markers | 250m / 512Mi | no CPU limit / 4Gi (amended 2026-10-15: a pod sizes its slots from its CPUs, §7.2.8) |
 | ui | unchanged | unchanged |
 
 #### 10.2.2 Autoscaling contract between the installers and the manager
