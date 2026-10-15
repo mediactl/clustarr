@@ -541,23 +541,31 @@ func (j *job) failedInsideArchive() bool {
 
 // checkDiskSpace is the pre-flight udl runs before a grab: the working area
 // needs twice the release (the articles and the unpacked result) plus
-// headroom, the publish area once plus headroom. A release that cannot fit
-// fails as diskFull before it moves 10 GB, not after; diskFull is a local
+// headroom, the publish area once plus headroom, and a release whose peak is
+// more than the whole scratch budget can never start. A release that cannot
+// fit fails as diskFull before it moves 10 GB, not after; diskFull is a local
 // fault and is never blocklisted.
 func (j *job) checkDiskSpace() error {
+	if b := j.client.cfg.ScratchBudget; b > 0 && j.scratchNeed() > b {
+		return fmt.Errorf("%w: this release needs %d bytes of scratch (2x its size plus %d headroom), more than the whole scratch budget, %d",
+			errPreflightSpace, j.scratchNeed(), diskHeadroomBytes, b)
+	}
 	free := j.client.freeBytes
-	need := func(mult int64) int64 { return j.nzb.TotalBytes*mult + diskHeadroomBytes }
 	for _, chk := range []struct {
 		dir  string
 		mult int64
-	}{{j.client.cfg.ScratchDir, 2}, {j.client.cfg.PublishDir, 1}} {
+		need int64
+	}{
+		{j.client.cfg.ScratchDir, 2, j.scratchNeed()},
+		{j.client.cfg.PublishDir, 1, j.nzb.TotalBytes + diskHeadroomBytes},
+	} {
 		got, err := free(chk.dir)
 		if err != nil {
 			continue // a volume that cannot be asked is judged by its writes, as before
 		}
-		if got < need(chk.mult) {
+		if got < chk.need {
 			return fmt.Errorf("%w: %d bytes free on %s, this release needs %d (%dx its size plus %d headroom)",
-				errPreflightSpace, got, chk.dir, need(chk.mult), chk.mult, diskHeadroomBytes)
+				errPreflightSpace, got, chk.dir, chk.need, chk.mult, diskHeadroomBytes)
 		}
 	}
 	return nil

@@ -348,6 +348,12 @@ type PostProcessSpec struct {
 	CleanupPatterns []string `json:"cleanupPatterns,omitempty"`
 }
 
+// DefaultScratchSizeLimit is ScratchSpec.SizeLimit's default, restated for
+// a Go client, which always sends sizeLimit "0" and so never gets the
+// kubebuilder default: the DownloadClient controller sizes the emptyDir or
+// claim with it, and the usenet engine budgets its working area by it.
+const DefaultScratchSizeLimit = "50Gi"
+
 // ScratchSpec places and sizes the working area each usenet engine replica
 // uses while downloading, repairing and unpacking. Exactly one placement
 // applies, in this order of precedence: path (a directory on the shared
@@ -360,7 +366,11 @@ type PostProcessSpec struct {
 type ScratchSpec struct {
 	// SizeLimit is the capacity of the scratch volume. A Go client always
 	// sends a Quantity, so the DownloadClient controller floors a zero one to
-	// this default: a zero-byte scratch volume has no coherent meaning.
+	// this default: a zero-byte scratch volume has no coherent meaning. A
+	// usenet engine starts a transfer only while every started job's peak --
+	// twice its size, for the articles and their unpacked copy, plus 1 GiB --
+	// fits within it; the rest wait Queued. With path or existingClaim it is
+	// not a budget.
 	// +optional
 	// +kubebuilder:default="50Gi"
 	SizeLimit resource.Quantity `json:"sizeLimit,omitempty"`

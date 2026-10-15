@@ -187,6 +187,13 @@ type Config struct {
 	// at once; a finished transfer waits Queued for its turn. Zero means
 	// [defaultMaxPostProcess].
 	MaxPostProcess int
+
+	// ScratchBudget is the bytes of ScratchDir the started jobs may need at
+	// once (scratch.go): a job starts its transfer only while its peak --
+	// [job.scratchNeed], its articles and their unpacked copy plus headroom
+	// -- fits beside every other started job's, and holds it until its files
+	// leave ScratchDir. Zero is no budget, the free-space pre-flight alone.
+	ScratchBudget int64
 }
 
 // defaultMaxActive is [Config.MaxActive]'s default. Without a cap every
@@ -245,6 +252,11 @@ type Client struct {
 	mu    sync.Mutex
 	jobs  map[string]*job
 	slots map[*job]struct{}
+	// scratch is each started job's scratch reservation and scratchHeld
+	// their total (scratch.go), written under mu; scratchHeld is read
+	// lock-free for a job's message.
+	scratch     map[*job]int64
+	scratchHeld atomic.Int64
 
 	closeOnce sync.Once
 	wg        sync.WaitGroup
@@ -339,6 +351,7 @@ func New(cfg Config) (download.Client, error) {
 		post:      make(chan struct{}, maxPost),
 		jobs:      map[string]*job{},
 		slots:     map[*job]struct{}{},
+		scratch:   map[*job]int64{},
 	}
 	if c.repairer == nil {
 		c.repairer = noRepairer{}
@@ -425,6 +438,9 @@ type job struct {
 	// [download.Item.WaitingTurn] reports either.
 	waitingSlot atomic.Bool
 	waitingPost atomic.Bool
+	// waitingSpace is true while it waits for its scratch reservation
+	// ([Config.ScratchBudget]): a kind of waiting for a slot.
+	waitingSpace atomic.Bool
 
 	// addedAt is fixed at the first Add and restored from the manifest on
 	// re-attach, so it is read without mu too.
@@ -625,6 +641,11 @@ func (c *Client) reattach() error {
 	defer c.mu.Unlock()
 	for _, j := range loaded {
 		c.jobs[j.id] = j
+	}
+	for _, j := range loaded {
+		if j.status != download.StatusCompleted && j.downloaded > 0 {
+			c.reserveScratchLocked(j, true) // its files are on disk already
+		}
 	}
 	for _, j := range loaded {
 		if j.status != download.StatusCompleted && j.status != download.StatusFailed {
@@ -845,6 +866,9 @@ func (c *Client) Add(ctx context.Context, req download.AddRequest) (string, erro
 
 func (c *Client) forget(id string) {
 	c.mu.Lock()
+	if j, ok := c.jobs[id]; ok {
+		c.releaseScratchLocked(j) // Remove deletes its directory next
+	}
 	delete(c.jobs, id)
 	c.mu.Unlock()
 }
@@ -929,6 +953,7 @@ func (j *job) run(ctx context.Context) {
 		j.abort(ctx, err)
 		return
 	}
+	j.client.releaseScratch(j) // published: its files have left ScratchDir
 
 	log.InfoContext(ctx, "usenet download complete",
 		"output", j.snapshotOutputPath(), "articles", j.nzb.TotalSegments, "failed", j.failedArticles())
@@ -1383,6 +1408,9 @@ func (j *job) item() download.Item {
 		// is, since a transfer that already started keeps its partial files.
 		status = download.StatusQueued
 		message = "waiting for higher-priority transfers to finish"
+	case j.waitingSpace.Load() && status == download.StatusDownloading:
+		status = download.StatusQueued
+		message = j.client.scratchWaitMessage(j)
 	case j.waitingSlot.Load() && status == download.StatusDownloading:
 		status = download.StatusQueued
 		message = fmt.Sprintf("waiting for a free transfer slot (%d at once)", j.client.maxActive)

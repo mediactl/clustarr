@@ -167,9 +167,10 @@ func (j *job) waitForTurn(ctx context.Context) error {
 	}
 }
 
-// admit gives j a transfer slot if it holds one already, or if one is free
-// and no job ahead of it is waiting for one: the higher class first, then
-// the earlier Add (jobAhead). A higher-class job waiting for a slot also
+// admit gives j a transfer slot if it holds one already, or if one is free,
+// no job ahead of it is waiting for one -- the higher class first, then the
+// earlier Add (jobAhead) -- and its scratch reservation fits the budget
+// (scratch.go). A higher-class job waiting for a slot also
 // outranks every lower-class holder (outranked counts it as transferring),
 // so they give theirs back at their next batch.
 //
@@ -192,6 +193,11 @@ func (c *Client) admit(j *job) bool {
 			return false
 		}
 	}
+	if !c.reserveScratchLocked(j, false) {
+		j.waitingSpace.Store(true)
+		return false
+	}
+	j.waitingSpace.Store(false)
 	c.slots[j] = struct{}{}
 	return true
 }
@@ -199,6 +205,7 @@ func (c *Client) admit(j *job) bool {
 // releaseSlot gives back j's transfer slot, if it holds one.
 func (c *Client) releaseSlot(j *job) {
 	j.waitingSlot.Store(false)
+	j.waitingSpace.Store(false)
 	c.mu.Lock()
 	delete(c.slots, j)
 	c.mu.Unlock()

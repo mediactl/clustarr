@@ -36,7 +36,11 @@ import (
 type ScratchSpecApplyConfiguration struct {
 	// SizeLimit is the capacity of the scratch volume. A Go client always
 	// sends a Quantity, so the DownloadClient controller floors a zero one to
-	// this default: a zero-byte scratch volume has no coherent meaning.
+	// this default: a zero-byte scratch volume has no coherent meaning. A
+	// usenet engine starts a transfer only while every started job's peak --
+	// twice its size, for the articles and their unpacked copy, plus 1 GiB --
+	// fits within it; the rest wait Queued. With path or existingClaim it is
+	// not a budget.
 	SizeLimit *resource.Quantity `json:"sizeLimit,omitempty"`
 	// StorageClassName selects the StorageClass of the claim the controller
 	// creates for the scratch volume. Unset, with no other placement, means

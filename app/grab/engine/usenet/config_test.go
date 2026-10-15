@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -216,4 +217,36 @@ func TestLoadDownloadClientRejectsMissingUsenetSpec(t *testing.T) {
 
 	_, err := usenetengine.LoadDownloadClient(t.Context(), c, "media", "sabnzbd")
 	require.Error(t, err)
+}
+
+// The client admits transfers within the scratch volume's size: a node-local
+// claim no provisioner enforces, or an emptyDir the kubelet evicts the pod
+// past (owner, 2026-10-15). A directory on the data mount, or a claim of the
+// operator's own, states no size, so only the free-space pre-flight applies.
+func TestTheScratchBudgetIsTheScratchVolumesSize(t *testing.T) {
+	local := "local-path"
+	for _, tc := range []struct {
+		name    string
+		scratch *downloadv1alpha1.ScratchSpec
+		want    int64
+	}{
+		{"no scratch: the 50Gi emptyDir", nil, 50 << 30},
+		{"a claim of a storage class", &downloadv1alpha1.ScratchSpec{StorageClassName: &local, SizeLimit: resource.MustParse("1Ti")}, 1 << 40},
+		{"an emptyDir sized by a Go client's zero", &downloadv1alpha1.ScratchSpec{}, 50 << 30},
+		{"a directory on the data mount", &downloadv1alpha1.ScratchSpec{Path: "/data/usenet/incomplete", SizeLimit: resource.MustParse("50Gi")}, 0},
+		{"an existing claim", &downloadv1alpha1.ScratchSpec{ExistingClaim: "mine", SizeLimit: resource.MustParse("50Gi")}, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dc := &downloadv1alpha1.DownloadClient{
+				ObjectMeta: metav1.ObjectMeta{Name: "usenet", Namespace: "media"},
+				Spec: downloadv1alpha1.DownloadClientSpec{
+					Protocol: commonv1alpha1.ProtocolUsenet,
+					Usenet:   &downloadv1alpha1.UsenetSpec{Scratch: tc.scratch},
+				},
+			}
+			cfg, err := usenetengine.BuildConfig(t.Context(), fakeClientWithScheme(t, dc), dc, "/data", "/scratch", "")
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, cfg.ScratchBudget)
+		})
+	}
 }

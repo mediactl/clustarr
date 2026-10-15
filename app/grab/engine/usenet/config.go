@@ -23,6 +23,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
@@ -136,7 +137,8 @@ func BuildConfig(ctx context.Context, c client.Client, dc *downloadv1alpha1.Down
 		PreCheck:           us.PreCheck,
 		AbortHealthPercent: us.AbortHealthPercent,
 		// "" is the client's pause, which is also the CRD default.
-		HealthAction: us.HealthAction,
+		HealthAction:  us.HealthAction,
+		ScratchBudget: scratchBudget(us.Scratch),
 	}
 	if us.PropagationDelay != nil {
 		cfg.PropagationDelay = us.PropagationDelay.Duration
@@ -145,6 +147,23 @@ func BuildConfig(ctx context.Context, c client.Client, dc *downloadv1alpha1.Down
 	// judgement now, on the transfer record's lastProgressAt and startedAt
 	// (ADR-0019 §3.5 P111, ruling R21): the client runs with neither.
 	return cfg, nil
+}
+
+// scratchBudget is the working area's capacity, the budget the client
+// admits transfers within (usenetclient.Config.ScratchBudget): the scratch
+// volume's sizeLimit -- an emptyDir's, or the claim's the controller creates
+// -- defaulted as the controller sizes it; none for a directory on the data
+// mount (scratch.path) or an existing claim, whose size the spec does not
+// state.
+func scratchBudget(sc *downloadv1alpha1.ScratchSpec) int64 {
+	switch {
+	case sc != nil && (sc.Path != "" || sc.ExistingClaim != ""):
+		return 0
+	case sc == nil || sc.SizeLimit.IsZero():
+		q := resource.MustParse(downloadv1alpha1.DefaultScratchSizeLimit)
+		return q.Value()
+	}
+	return sc.SizeLimit.Value()
 }
 
 // BuildClient loads dc, resolves it into a Config and builds the client --

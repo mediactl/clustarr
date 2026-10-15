@@ -80,7 +80,7 @@ const (
 	// because that default fills only an ABSENT field: a DownloadClient
 	// created by a Go client always carries sizeLimit "0", so the apiserver
 	// never defaults it, and neither does an in-memory object in a unit test.
-	defaultScratchSize = "50Gi"
+	defaultScratchSize = downloadv1alpha1.DefaultScratchSizeLimit
 
 	// defaultListenPort mirrors TorrentSpec.ListenPort's kubebuilder default,
 	// for the same reason.
