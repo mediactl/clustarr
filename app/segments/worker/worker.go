@@ -127,16 +127,19 @@ const (
 // the guard left unanalyzed are not recorded, and the season is retried
 // after AbandonRetry; only on its final delivery is the file whose own call
 // was abandoned recorded as an Error, and the task acknowledged, never
-// dead-lettered.
+// dead-lettered. Each task ends in one INFO line (logFinished).
 func (h *Handler) Handle(ctx context.Context, m events.Message) (err error) {
+	began := time.Now()
+	env := m.Envelope()
+	var task schema.AnalyzeTask
+	var t tally
 	defer func() {
 		if err != nil && stopping(ctx) {
 			// Whatever cut the task short, the stop did: hand it back.
 			err = events.RequeueIfStopping(ctx, err, events.Subscription{RequeueOnStop: true})
 		}
+		h.logFinished(ctx, m, env.Key, task, t, time.Since(began), err)
 	}()
-	env := m.Envelope()
-	var task schema.AnalyzeTask
 	if err := schema.Decode(env.Schema, env.Data, &task); err != nil {
 		return events.Discard("undecodable analyze task", err)
 	}
@@ -153,7 +156,7 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) (err error) {
 
 	movie := task.Kind == "movie"
 	files := make([]*file, len(task.Files))
-	began := time.Now()
+	fpBegan := time.Now()
 	for i, f := range task.Files {
 		files[i] = &file{AnalyzeFile: f, durS: float64(f.DurationMs) / 1000, rec: h.record(ctx, f)}
 		if files[i].rec != nil {
@@ -165,7 +168,8 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) (err error) {
 			cancel()
 		}
 	}
-	stageSeconds.WithLabelValues("fingerprint").Observe(time.Since(began).Seconds())
+	t.files = len(files)
+	stageSeconds.WithLabelValues("fingerprint").Observe(time.Since(fpBegan).Seconds())
 	var intros, endings []*align.Region
 	if !movie {
 		intros = align.Season(windows(files, func(f *file) []uint32 { return f.start }), align.IntroParams)
@@ -204,6 +208,7 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) (err error) {
 		if transient(res.err) {
 			// An abandoned call, or one the guard skipped after it: no
 			// Error, the season is retried.
+			t.deferred++
 			deferred = append(deferred, deferredResult{f, res})
 			continue
 		}
@@ -211,6 +216,7 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) (err error) {
 		if err := h.store(ctx, task.Namespace, f, res, amend); err != nil {
 			return events.Retry(time.Minute, err)
 		}
+		t.count(res, amend)
 	}
 	if stopping(ctx) {
 		return events.Requeue("markers: stopping", context.Cause(ctx))
@@ -219,6 +225,7 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) (err error) {
 	if abandon == nil {
 		return nil
 	}
+	t.abandoned = true
 	if m.Attempt() < uint64(h.maxDeliver()) {
 		return events.Retry(AbandonRetry, abandon)
 	}
@@ -233,6 +240,8 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) (err error) {
 		if err := h.store(ctx, task.Namespace, d.f, d.res, false); err != nil {
 			return events.Retry(time.Minute, err)
 		}
+		t.deferred--
+		t.count(d.res, false)
 	}
 	return nil
 }

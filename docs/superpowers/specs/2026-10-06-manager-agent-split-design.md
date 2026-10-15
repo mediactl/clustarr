@@ -4137,7 +4137,11 @@ func Healthz(*http.Request) error  // healthz.Checker: error once wedged
 - **Logging.** One trampoline, installed on the first use of `RouteLog`,
   `Capture` or `Mute`: lines at `LogError` or worse go to slog at Warn as
   `ffmpeg`, rate-limited to 10/s with a burst of 20 unless a `Mute` is held;
-  every line goes to each `Capture` sink. `pkg/transcode/engine/logtail.go:57-64`
+  every line goes to each `Capture` sink. (Amended 2026-10-15: the decoders'
+  known noise when a decode starts at a seek point -- "Duplicate POC in a
+  sequence" and its HEVC and H.264 kin, `ffruntime.decodeNoise` -- goes to
+  Debug, and a message logged once is not logged again for a minute, its
+  repeats counted onto its next line as `repeated`.) `pkg/transcode/engine/logtail.go:57-64`
   `install` becomes `ffruntime.Capture(t.add)`;
   `app/squash/worker/inprocess/measure.go:165-166` becomes `ffruntime.Mute()`.
   This ends the pattern where a run restored `SetLogCallback(nil)` and FFmpeg
