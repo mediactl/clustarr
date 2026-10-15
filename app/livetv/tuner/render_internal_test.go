@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package tuner
 
 import (
+	"context"
 	"io"
 	"testing"
 	"time"
@@ -66,4 +67,22 @@ func TestGuidesAreBuiltOutsideTheProvidersLock(t *testing.T) {
 	}
 	close(release)
 	<-done
+}
+
+// TestDispatchWaitsForAProvidersRelay: Apply publishes a new provider before
+// it builds the provider's relay -- it loads the stored guide in between, a
+// 12 MiB object-store read on talos -- and Start's first dispatch runs beside
+// the controller's first Apply. The lease holder dereferenced the nil relay
+// and crash-looped on every start (talos, 2026-10-15). dispatch leaves such a
+// provider for the next tick: its fetches start once Apply has finished.
+func TestDispatchWaitsForAProvidersRelay(t *testing.T) {
+	tu := New(Options{})
+	key := types.NamespacedName{Namespace: "clustarr-system", Name: "freeiptv"}
+	p := &provider{key: key, fetching: map[string]bool{}, guides: map[string]*guide{}, blocks: map[string]*surface{}, playlistDue: true}
+	tu.providers[key] = p
+	require.NotPanics(t, func() { tu.dispatch(context.Background()) })
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	require.False(t, p.fetching["playlist"], "no fetch starts before Apply has built the relay")
+	require.True(t, p.playlistDue, "the playlist stays due for the tick after Apply")
 }

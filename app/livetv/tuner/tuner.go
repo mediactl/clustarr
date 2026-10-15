@@ -411,7 +411,12 @@ func (t *Tuner) Start(ctx context.Context) error {
 			}
 			t.mu.Unlock()
 			for _, p := range ps {
-				p.relay.Close()
+				p.mu.Lock()
+				rl := p.relay
+				p.mu.Unlock()
+				if rl != nil {
+					rl.Close()
+				}
 			}
 			if srv != nil {
 				sctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -451,7 +456,11 @@ func (t *Tuner) dispatch(ctx context.Context) {
 	now := t.o.Now()
 	for _, p := range t.list() {
 		p.mu.Lock()
-		if p.removed {
+		// A provider Apply has published but not finished -- it builds the
+		// relay after loading the stored guide -- waits for the next tick:
+		// Start's first dispatch races the controller's first Apply, and the
+		// nil relay crash-looped the lease holder (talos, 2026-10-15).
+		if p.removed || p.relay == nil {
 			p.mu.Unlock()
 			continue
 		}

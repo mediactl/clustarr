@@ -133,7 +133,7 @@ func (t *Tuner) serveHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeBody(w, "application/xml", guideXML)
-	case isStream && streamOK:
+	case isStream && streamOK && rl != nil:
 		rl.Serve(w, r, number, upstream)
 	default:
 		http.NotFound(w, r)
