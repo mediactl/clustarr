@@ -78,7 +78,7 @@ func newFlags() flags {
 	f.dataDir = fs.String("data-dir", jobspec.LogicalDataRoot, "Where the RWX /data volume is mounted.")
 	f.selfCheck = fs.String("self-check", "", "Check this image can transcode for a class (cpu, cuda, intel), print the report as JSON and exit: 0 when it can.")
 	f.trial = fs.Bool("trial", false, "With --self-check, also encode for real on the class's GPU.")
-	f.scratchDir = fs.String("scratch-dir", os.TempDir(), "With --trial, where the trial writes its clip.")
+	f.scratchDir = fs.String("scratch-dir", os.TempDir(), "Local scratch: with --trial, where the trial writes its clip; serving a pool, where an attempt encodes before its verified output is staged on /data, when given (the pool passes its emptyDir).")
 	f.graftTask = fs.String("graft-task", "", "Run this audio graft (grafttask.Task v2 JSON) instead of serving a pool, answer it in clustarr-grafts and exit: 0 when it grafted, found the language present or was superseded.")
 	f.version = fs.Bool("version", false, "Print the version and exit.")
 	f.lo, f.to = obsflags.Bind(fs)
@@ -105,6 +105,7 @@ func run(args []string, getenv func(string) string) int {
 	if *f.version {
 		return printVersion(os.Stdout)
 	}
+	scratchGiven := f.fs.Changed("scratch-dir")
 	if *selfCheck != "" {
 		return runSelfCheck(selfcheck.Class(*selfCheck), *trial, *scratchDir)
 	}
@@ -177,6 +178,9 @@ func run(args []string, getenv func(string) string) int {
 	opts := worker.Options{
 		DataDir: *dataDir, Threads: worker.ThreadsFromEnv(), PodName: need["POD_NAME"],
 		Telemetry: bus.KV(events.BucketProgress),
+	}
+	if scratchGiven {
+		opts.ScratchDir = *scratchDir // only when the pool names it: never a pod's /tmp by default
 	}
 	opts.Engine = eng
 	err = worker.Serve(ctx, bus, worker.ServeOptions{

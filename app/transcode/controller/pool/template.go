@@ -188,7 +188,8 @@ type Key struct {
 	Class      transcodev1alpha1.Hardware
 }
 
-// The TranscodeProfile defaults Template floors a zero to. Each restates a
+// The TranscodeProfile defaults Template floors a zero to (spec.scratch's is
+// jobspec.DefaultScratch, which the worker shares). Each restates a
 // +kubebuilder:default in transcodeprofile_types.go, and
 // app/transcode/controller/pool/template_test.go:TestFlooredDefaultsMatchTheGeneratedCRD
 // holds them to the generated CRD.
@@ -200,8 +201,6 @@ type Key struct {
 // limits and an unbounded scratch volume. Neither zero has a coherent
 // meaning, which is the D1 precedent's test for flooring
 // (Indexer.spec.timeout).
-var defaultScratch = resource.MustParse("20Gi")
-
 func defaultResources() corev1.ResourceRequirements {
 	return corev1.ResourceRequirements{Limits: corev1.ResourceList{
 		corev1.ResourceCPU:    resource.MustParse("8"),
@@ -252,12 +251,10 @@ func ResourcesFor(p *transcodev1alpha1.TranscodeProfile) corev1.ResourceRequirem
 	return *r.DeepCopy()
 }
 
-// scratchFor floors spec.scratch at the CRD default.
+// scratchFor floors spec.scratch at the CRD default (jobspec.Scratch: the
+// worker sizes its local stage by the same number).
 func scratchFor(p *transcodev1alpha1.TranscodeProfile) resource.Quantity {
-	if p.Spec.Scratch.Sign() > 0 {
-		return p.Spec.Scratch.DeepCopy()
-	}
-	return defaultScratch.DeepCopy()
+	return jobspec.Scratch(p.Spec)
 }
 
 // ScratchSource is the scratch emptyDir a pool pod mounts, sized from the
@@ -403,7 +400,9 @@ func Template(tp *transcodev1alpha1.TranscodeProfile, class transcodev1alpha1.Ha
 			// Neither image has an ENTRYPOINT (spec §10.1.1): one image holds
 			// several binaries, so a pool pod names its own.
 			Command:         []string{binpath.Transcode},
-			Args:            append([]string{"--data-dir", dataDir}, cfg.ExtraArgs...),
+			// --scratch-dir: an attempt encodes in the scratch emptyDir and
+			// stages its verified output on /data (worker/scratch.go).
+			Args: append([]string{"--data-dir", dataDir, "--scratch-dir", ScratchMountPath}, cfg.ExtraArgs...),
 			Env:             env,
 			Resources:       res,
 			SecurityContext: ContainerSecurityContext(),

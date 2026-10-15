@@ -121,12 +121,18 @@ func (r *runner) ffgoJob(ctx context.Context, info transcode.MediaInfo, sw swap,
 	r.tier = string(tier)
 	part := uniquePartPath(partPath(sw.localOut, plan.Container), r.t.File.UID, r.t.Seq)
 	sweepEarlierAttempts(ctx, part)
+	stage := ""
+	if lp := r.scratchPart(part, r.t.SourceSizeBytes); lp != "" {
+		sweepEarlierAttempts(ctx, lp)
+		part, stage = lp, part // encoded in local scratch, staged beside the output once verified
+	}
 	log.InfoContext(ctx, "transcode worker: planned", "engine", "ffgo", "decision", plan.Decision, "tier", tier,
-		"encoder", plan.Video.Encoder, "decode", plan.Video.Decode, "reason", plan.Reason, "droppedSubtitles", plan.Dropped)
+		"encoder", plan.Video.Encoder, "decode", plan.Video.Decode, "reason", plan.Reason, "droppedSubtitles", plan.Dropped,
+		"localScratch", stage != "")
 	durationMillis := info.Format.Duration.Milliseconds()
 	graft, plan := r.prepareGraft(ctx, local, plan)
 	return encodeJob{
-		part: part, plan: plan,
+		part: part, stage: stage, plan: plan,
 		encode: func(ctx context.Context) error {
 			if err := r.encodeFFgo(ctx, plan, tier, local, part, durationMillis, graft); err != nil {
 				return err

@@ -93,6 +93,12 @@ type Options struct {
 	// Job pod it is /data and the mapping is the identity.
 	DataDir string
 
+	// ScratchDir is the pod's local scratch (the pool's /scratch emptyDir).
+	// An output that fits the profile's spec.scratch is encoded and verified
+	// there and staged beside its output on the data volume only when
+	// verified (scratch.go). Empty encodes beside the output, as before.
+	ScratchDir string
+
 	// Threads is x265's pool size, normally [ThreadsFromEnv]. Zero lets
 	// pkg/transcode leave pools= unset.
 	Threads int32
@@ -338,7 +344,8 @@ func (r *runner) run(ctx context.Context) error {
 		return err
 	}
 
-	// The .part is written beside the output, so the final rename is on one
+	// The .part is placed beside the output -- encoded there, or staged
+	// there from local scratch (scratch.go) -- so the final rename is on one
 	// filesystem; an explicit spec.outputPath may name a folder that does not
 	// exist yet. Budget for an output as large as the source.
 	if !sw.inPlace() {
@@ -378,6 +385,17 @@ func (r *runner) run(ctx context.Context) error {
 	if st2, err := os.Stat(local); err != nil || mediainfo.ProbeHash(source, st2.Size(), st2.ModTime()) != liveHash {
 		removePart(ctx, job.part)
 		return sourceChanged("transcode worker: source %s changed during the encode", source)
+	}
+
+	// The verified output leaves local scratch for its part's own name
+	// beside the output (scratch.go); the swap below is unchanged.
+	if job.stage != "" {
+		if err := stageOnData(ctx, job.plan, job.part, job.stage); err != nil {
+			removePart(ctx, job.part)
+			removePart(ctx, job.stage)
+			return retriable("transcode worker: stage the output on the data volume: %w", err)
+		}
+		job.part = job.stage
 	}
 
 	// 6. The swap. See the package doc for why each order and what a crash
@@ -500,7 +518,10 @@ func (r *runner) factAlready(ctx context.Context) (bool, error) {
 // encodeJob is one engine's work for this attempt: the scratch file it
 // writes, how it encodes into it, and how the output is verified.
 type encodeJob struct {
-	part   string
+	part string
+	// stage is the part's name beside the output on the data volume when
+	// part is in local scratch (scratch.go); "" when part is already there.
+	stage  string
 	plan   standard.Result // its sidecars are placed before the swap
 	encode func(ctx context.Context) error
 	verify func(ctx context.Context) (*transcode.Report, error)

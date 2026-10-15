@@ -59,8 +59,10 @@ type scriptedEngine struct {
 
 	mu      sync.Mutex
 	encodes int
-	// atEncode lists the folder's entries when the encode starts.
+	// atEncode lists the folder's entries when the encode starts, and
+	// output is the path the encode wrote.
 	atEncode []string
+	output   string
 }
 
 func (e *scriptedEngine) Probe(_ context.Context, path string) (*commonv1alpha1.MediaInfo, *mediainfo.Raw, error) {
@@ -76,6 +78,7 @@ func (e *scriptedEngine) Encode(_ context.Context, _ standard.Result, _ transcod
 	e.mu.Lock()
 	e.encodes++
 	e.atEncode = listDir(filepath.Dir(output))
+	e.output = output
 	e.mu.Unlock()
 	return "", os.WriteFile(output, []byte("transcoded"), 0o644)
 }

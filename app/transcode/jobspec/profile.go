@@ -21,6 +21,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"slices"
 	"strings"
 	"time"
@@ -166,4 +167,18 @@ func ActiveDeadline(p transcodev1alpha1.TranscodeProfileSpec) time.Duration {
 		return p.ActiveDeadline.Duration
 	}
 	return DefaultActiveDeadline
+}
+
+// DefaultScratch is spec.scratch's floor. A profile a Go client created
+// carries scratch "0", present and zero, so the CRD default never reaches it,
+// and a zero-sized scratch volume has no coherent meaning. The pool pod's
+// emptyDir and the worker's local stage are both sized by Scratch.
+var DefaultScratch = resource.MustParse("20Gi")
+
+// Scratch is spec's scratch volume size, floored at DefaultScratch.
+func Scratch(spec transcodev1alpha1.TranscodeProfileSpec) resource.Quantity {
+	if spec.Scratch.Sign() > 0 {
+		return spec.Scratch.DeepCopy()
+	}
+	return DefaultScratch.DeepCopy()
 }

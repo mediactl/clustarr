@@ -143,7 +143,7 @@ func TestFlooredDefaultsMatchTheGeneratedCRD(t *testing.T) {
 	d, err := time.ParseDuration(props["activeDeadline"].Default.(string))
 	require.NoError(t, err)
 	assert.Equal(t, jobspec.DefaultActiveDeadline, d, "jobspec.DefaultActiveDeadline no longer mirrors spec.activeDeadline's default")
-	assert.Equal(t, defaultScratch.String(), props["scratch"].Default, "defaultScratch no longer mirrors spec.scratch's default")
+	assert.Equal(t, jobspec.DefaultScratch.String(), props["scratch"].Default, "jobspec.DefaultScratch no longer mirrors spec.scratch's default")
 
 	var want corev1.ResourceRequirements
 	b, err := yaml.Marshal(props["resources"].Default)
@@ -285,7 +285,8 @@ func TestTemplatePodsRunWithoutAServiceAccountToken(t *testing.T) {
 		pod := Template(profile(), class, cfg).Spec
 		assert.False(t, *pod.AutomountServiceAccountToken, class)
 		assert.Empty(t, pod.ServiceAccountName, class)
-		assert.Equal(t, []string{"--data-dir", "/data"}, pod.Containers[0].Args[:2])
+		assert.Equal(t, []string{"--data-dir", "/data", "--scratch-dir", ScratchMountPath}, pod.Containers[0].Args[:4],
+			"the worker encodes in the pod's scratch emptyDir and stages the verified output on /data")
 	}
 }
 

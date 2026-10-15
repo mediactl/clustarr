@@ -120,7 +120,13 @@ stereo, commentary AAC, other mixes dropped; every subtitle beside the file in P
 `<stem>.<lang>[.forced|.sdh].<srt|ass>` (spec §4.1: SubRip copied through
 the `srt` muxer, WebVTT/`mov_text`/text converted, ASS through the `ass`
 muxer), written in the transcode's own pass and placed before the swap,
-never over an existing file; attachments dropped, chapters kept; a file
+never over an existing file; since 2026-10-15 an attempt encodes, writes
+its sidecars and verifies in the pool pod's scratch emptyDir
+(`--scratch-dir /scratch`, sized by `spec.scratch`, `jobspec.Scratch`)
+when 1.5x the source plus 1 GiB fits, and only the verified result is
+staged beside its output on `/data` before the swap (`worker/scratch.go`),
+so the NAS never carries the encode's writes or the MP4 faststart rewrite;
+a larger source encodes beside its output as before; attachments dropped, chapters kept; a file
 with an image subtitle is `status.transcode` Skipped,
 `standard.HoldImageSubtitles`, until phase 2's OCR) and
 `pkg/transcode/engine` runs it on FFmpeg 9's libraries through the ffgo

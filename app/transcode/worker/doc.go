@@ -35,7 +35,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //  3. Probe, ProbeCapabilities, Plan (from transcode.FromProbe, whose argv
 //     is compared against the controller's recorded ArgsHash -- a mismatch
 //     is logged), EnsureFreeSpace beside the output, where the .part is
-//     written.
+//     placed: encoded there, or -- when 1.5 times the source plus 1 GiB fits
+//     the profile's spec.scratch and [Options.ScratchDir]'s free space --
+//     encoded and verified in the pod's local scratch and staged there,
+//     whole, once verified (scratch.go). A pod that dies takes its local
+//     part with it, and the next attempt encodes again.
 //  4. The encode, with progress written -- given a bus -- as
 //     schema.TranscodeProgress to the clustarr-progress bucket at most
 //     every [Options.TelemetryInterval] (1 Hz, spec §5), under [ProgressKey].
@@ -61,7 +65,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // the source when policy.replaceSource is true (the source path itself for a
 // same-container profile -- the in-place swap below -- or a new name for a
 // container change); otherwise "<stem> - <profile>.<container>" beside the
-// source, which is kept. The .part is written beside the final output. A
+// source, which is kept. The .part reaches the swap beside the final output. A
 // final output outside every RootFolder is refused like a source outside
 // one.
 //
