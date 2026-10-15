@@ -126,6 +126,7 @@ func (r *runner) ffgoJob(ctx context.Context, info transcode.MediaInfo, sw swap,
 		sweepEarlierAttempts(ctx, lp)
 		part, stage = lp, part // encoded in local scratch, staged beside the output once verified
 	}
+	r.localScratch = stage != ""
 	log.InfoContext(ctx, "transcode worker: planned", "engine", "ffgo", "decision", plan.Decision, "tier", tier,
 		"encoder", plan.Video.Encoder, "decode", plan.Video.Decode, "reason", plan.Reason, "droppedSubtitles", plan.Dropped,
 		"localScratch", stage != "")

@@ -51,9 +51,13 @@ func Process(ctx context.Context, t task.Task, o Options) Outcome {
 	// Every log line run() emits below -- and any a caller emits with this
 	// ctx afterward -- carries the task's MediaFile and dispatch.
 	ctx = logging.With(ctx, "mediaFile", t.File.Namespace+"/"+t.File.Name, "seq", t.Seq)
-	r := &runner{o: o, t: t, started: o.Now()}
+	r := &runner{o: o, t: t, started: o.Now(), times: newStageTimes(o.Now)}
+	r.times.enter("prepare")
 	err := r.run(ctx)
 	r.out.Code, r.out.Err = ExitCode(err), err
+	logging.FromContext(ctx).InfoContext(ctx, "transcode worker: stage timings", append([]any{
+		"code", r.out.Code, "sourceBytes", t.SourceSizeBytes, "localScratch", r.localScratch,
+	}, r.times.attrs()...)...)
 	var f *failure
 	if errors.As(err, &f) && f.reason != "" {
 		r.out.Reason = f.reason

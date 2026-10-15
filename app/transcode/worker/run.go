@@ -242,6 +242,11 @@ type runner struct {
 	tier, resolution string
 	started          time.Time
 	speedMilli       int32
+
+	// times is the attempt's stage timings (timings.go); localScratch
+	// whether it encoded in local scratch, logged beside them.
+	times        *stageTimes
+	localScratch bool
 }
 
 func (r *runner) run(ctx context.Context) error {
@@ -358,12 +363,14 @@ func (r *runner) run(ctx context.Context) error {
 	}
 
 	// 4. Encode.
+	r.times.enter("encode")
 	if err := job.encode(ctx); err != nil {
 		return err
 	}
 
 	// 5. Verify. From here until the rename, every failure removes the
 	// output and leaves the source exactly as it was.
+	r.times.enter("verify")
 	report, err := job.verify(ctx)
 	if err != nil {
 		removePart(ctx, job.part)
@@ -390,6 +397,7 @@ func (r *runner) run(ctx context.Context) error {
 	// The verified output leaves local scratch for its part's own name
 	// beside the output (scratch.go); the swap below is unchanged.
 	if job.stage != "" {
+		r.times.enter("stage")
 		if err := stageOnData(ctx, job.plan, job.part, job.stage); err != nil {
 			removePart(ctx, job.part)
 			removePart(ctx, job.stage)
@@ -400,6 +408,7 @@ func (r *runner) run(ctx context.Context) error {
 
 	// 6. The swap. See the package doc for why each order and what a crash
 	// between any two steps leaves.
+	r.times.enter("swap")
 	if !sw.inPlace() {
 		if err := r.beforeSwap(ctx, job.part); err != nil {
 			return err
