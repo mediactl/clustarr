@@ -60,12 +60,12 @@ func (s *stalling) Frames(ctx context.Context, path string, fromS float64) ([][]
 		return nil, fmt.Errorf("decode: %w", ctx.Err())
 	}
 	if s.abandonFrames[path] {
-		s.fakeDecoder.mu.Lock()
-		if s.fakeDecoder.frameCalls == nil {
-			s.fakeDecoder.frameCalls = map[string]int{}
+		s.mu.Lock()
+		if s.frameCalls == nil {
+			s.frameCalls = map[string]int{}
 		}
-		s.fakeDecoder.frameCalls[path]++
-		s.fakeDecoder.mu.Unlock()
+		s.frameCalls[path]++
+		s.mu.Unlock()
 		return nil, abandoned()
 	}
 	return s.fakeDecoder.Frames(ctx, path, fromS)

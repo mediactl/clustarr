@@ -39,8 +39,10 @@ func TestEveryTaskLogsOneSummary(t *testing.T) {
 		attempt uint64
 		want    map[string]any
 	}{
-		{"acked", func() worker.Decoder { return seasonDecoder() }, 1,
-			map[string]any{"outcome": "acked", "abandoned": false, "files": int64(3), "found": int64(3), "deferred": int64(0)}},
+		{
+			"acked", func() worker.Decoder { return seasonDecoder() }, 1,
+			map[string]any{"outcome": "acked", "abandoned": false, "files": int64(3), "found": int64(3), "deferred": int64(0)},
+		},
 		{"retried after an abandonment", func() worker.Decoder {
 			return &stalling{fakeDecoder: seasonDecoder(), abandonFrames: map[string]bool{"e2": true}}
 		}, 1, map[string]any{"outcome": "retrying", "abandoned": true, "found": int64(1), "deferred": int64(2)}},
