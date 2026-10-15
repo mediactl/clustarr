@@ -135,6 +135,28 @@ type ConsumerSpec struct {
 	// §5.1): its nak and term advisories are CLUSTARR_TASK_EVENTS subjects
 	// (TaskEventSubjects).
 	Dispatched bool
+
+	// RequeueOnStop hands back what a stopping process holds instead of
+	// finishing it (Subscription.RequeueOnStop): its handlers are cancelled at
+	// once with cause ErrStopping, and each delivery they hold is requeued as
+	// a fresh copy (RequeueError), so a rollout or a scale-down never spends
+	// a delivery and never dead-letters a task. Its StopBudget is
+	// RequeueDrain, not AckWait. For work that is long and resumable, where
+	// a pod waiting out its AckWait on SIGTERM costs more than redoing what
+	// was cut off. Only on a WorkQueue stream (Validate): a copy on a Limits
+	// stream would reach every durable bound to it.
+	RequeueOnStop bool
+}
+
+// StopBudget is how long a stopping process gives this durable's running
+// handlers, the Subscription.Drain its process sets and what its
+// Deployment's grace covers (plus 25 s): RequeueDrain with RequeueOnStop,
+// else AckWait, the handler budget (§3.5.6).
+func (c ConsumerSpec) StopBudget() time.Duration {
+	if c.RequeueOnStop {
+		return RequeueDrain
+	}
+	return c.AckWait
 }
 
 // HandlerBudget is the explicit HandlerTimeout, else AckWait: what drain,
@@ -166,6 +188,7 @@ func (c ConsumerSpec) Subscription() Subscription {
 		Heartbeat:       c.Heartbeat,
 		HandlerTimeout:  c.HandlerTimeout,
 		SampleFrequency: c.SampleFrequency,
+		RequeueOnStop:   c.RequeueOnStop,
 	}
 }
 
@@ -190,6 +213,7 @@ func SubscriptionSpec(s Subscription) ConsumerSpec {
 		Heartbeat:       s.Heartbeat,
 		HandlerTimeout:  s.HandlerTimeout,
 		SampleFrequency: s.SampleFrequency,
+		RequeueOnStop:   s.RequeueOnStop,
 	}
 }
 
@@ -625,6 +649,10 @@ func (t Topology) Validate() error {
 		if len(c.Filters) == 0 {
 			errs = append(errs, fieldErr(c.Name+".Filters", "is required"))
 		}
+		if c.RequeueOnStop && s.Retention != RetentionWorkQueue {
+			errs = append(errs, fieldErr(c.Name+".RequeueOnStop",
+				"needs a WorkQueue stream: a requeued copy on "+s.Name+" would reach every durable bound to it"))
+		}
 		if !validSampleFrequency(c.SampleFrequency) {
 			errs = append(errs, fieldErr(c.Name+".SampleFrequency",
 				fmt.Sprintf("must be empty or \"<n>%%\" with 0 < n <= 100, got %q", c.SampleFrequency)))
@@ -1007,6 +1035,12 @@ func defaultConsumers() []ConsumerSpec {
 			HandlerTimeout:  30 * m,
 			SampleFrequency: SampleFrequencyDispatched,
 			Dispatched:      true,
+			// A SIGTERMed pod waited out this 30-minute AckWait, its
+			// analyses running to the end (2026-10-15). Its fingerprints are
+			// cached per file in clustarr-fingerprints, so a season cut off
+			// and requeued repeats little, and the requeue spends none of its
+			// three deliveries however often rollouts cut it off.
+			RequeueOnStop: true,
 		},
 		{
 			Name: ConsumerCatalogHistory, Stream: StreamEvents,

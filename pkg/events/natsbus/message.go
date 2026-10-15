@@ -109,6 +109,29 @@ func (m *message) Nak(ctx context.Context, delay time.Duration) error {
 	return m.jm.NakWithDelay(nakDelay(delay, m.backoff, m.attempt))
 }
 
+// requeue hands the delivery back as a fresh message (events.SettleRequeue):
+// publish stores a copy of the envelope under the Msg-Id it is given, and
+// only then is the delivery acknowledged. A lapsed delivery's is muted, as
+// its Nak is; a copy publish could not store leaves a plain nak, which
+// spends the delivery, and publish's error.
+func (m *message) requeue(ctx context.Context, publish func(ctx context.Context, env *events.Envelope, msgID string) error) error {
+	if !m.markSettled() {
+		return nil
+	}
+	if m.mutedLapsed(ctx, "requeue") {
+		return nil
+	}
+	var seq uint64
+	if md, err := m.jm.Metadata(); err == nil {
+		seq = md.Sequence.Stream
+	}
+	if err := publish(ctx, m.env.Clone(), events.RequeueMsgID(m.env.ID, seq)); err != nil {
+		_ = m.jm.Nak()
+		return err
+	}
+	return m.jm.DoubleAck(ctx)
+}
+
 // nakDelay is the delay to put in a negative acknowledgement of delivery
 // attempt so that JetStream redelivers the message want after the nak, on a
 // consumer whose BackOff is backoff.

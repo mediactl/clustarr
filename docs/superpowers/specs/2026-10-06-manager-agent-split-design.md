@@ -1134,8 +1134,12 @@ rollout lets running handlers finish rather than naking them:
 - `--graceful-shutdown-timeout` defaults to drain + 15 s.
 - Installers set `terminationGracePeriodSeconds` to graceful + 10 s: catalog
   145, caption 115, metadata/import/index 85, events 55 (§10.2.1). markers
-  drains for its 1800 s AckWait and gets 1825 (§3.7). The manager keeps a 60 s
-  timeout and a 70 s grace. Engines keep today's grace.
+  drained for its 1800 s AckWait and got 1825 (§3.7) until 2026-10-15; it now
+  requeues what it holds (`ConsumerSpec.RequeueOnStop`: its handlers are
+  cancelled at once and each delivery goes back as a fresh copy, spending
+  none of its deliveries), drains for `events.RequeueDrain` (15 s) and gets 60
+  (ADR-0020 §1 as amended). The manager keeps a 60 s timeout and a 70 s
+  grace. Engines keep today's grace.
 
 **What `AckWait` means here.** It is not the broker's deadline: every consumer
 these agents drain sets a `BackOff`, and nats-server replaces `AckWait` with
@@ -6748,7 +6752,8 @@ The engine identity is `grab-engine` (`config/rbac/grab_engine_role.yaml`, Clust
   `image: clustarr.image "clustarr"` and `command: ["/usr/bin/ui"]`, and its args
   lose the leading `"ui"`.
 - **`templates/markers.yaml`:** `git mv templates/segmentarr-worker.yaml templates/markers.yaml`;
-  command `/usr/bin/markers`, no args, image native; grace 1825, the autoscaling
+  command `/usr/bin/markers`, no args, image native; grace 60 (1825 until
+  2026-10-15, §3.5.6 as amended), the autoscaling
   label, no replicas; `/healthz` and `/readyz` probes on `metrics`;
   `automountServiceAccountToken: false` on the SA and pod, as today; `/data`
   read-only.
@@ -7659,7 +7664,8 @@ across the section drafts are merged.
 - **OD35. Drain and grace sized to AckWait.** `--drain-timeout` defaults to the longest
   AckWait of the process's durables, graceful shutdown to drain + 15 s, and the grace
   period to graceful + 10 s (catalog 145, caption 115, events 55, others 85,
-  markers 1825). AckWait here is the declared handler budget, not the broker's
+  markers 1825, 60 since 2026-10-15: it requeues on a stop, §3.5.6 as amended).
+  AckWait here is the declared handler budget, not the broker's
   deadline, which is `BackOff[0]` for every one of these consumers (§3.5.6). A
   markers scale-down or rollout can then wait up to about 30 minutes for an old pod
   (the new pod starts without waiting). This replaces the autoscale draft's fixed 45 s

@@ -496,8 +496,14 @@ func (b *Bus) handle(ctx context.Context, sub events.Subscription,
 	// message is redelivered and the work done twice.
 	sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), settleTimeout)
 	defer cancel()
+	err = events.RequeueIfStopping(hctx, err, sub)
 	s := events.Settle(err, msg.Attempt(), sub)
-	if err != nil {
+	if s.Action == events.SettleRequeue {
+		// A stop cut it off: not a failure, so not the error below.
+		logging.FromContext(hctx).Info("bus: delivery requeued",
+			"durable", sub.Durable, "schema", msg.Envelope().Schema, "msg_id", msg.Envelope().ID,
+			"attempt", msg.Attempt(), "reason", s.Reason, "error", err)
+	} else if err != nil {
 		// A handler that fails on every delivery is otherwise completely
 		// silent: the message is naked and redelivered forever with nothing
 		// written anywhere. That is how an illegal NATS KV key in the
@@ -521,6 +527,30 @@ func (b *Bus) handle(ctx context.Context, sub events.Subscription,
 	case events.SettleTerm:
 		b.deadLetter(sctx, msg, sub.Durable, s.Reason)
 		_ = msg.Term(sctx, s.Reason)
+	case events.SettleRequeue:
+		b.requeue(sctx, msg, sub, s.Reason)
+	}
+}
+
+// requeue settles msg as events.SettleRequeue: a fresh copy of the stored
+// message -- its envelope, under events.RequeueMsgID -- published to the
+// subject it came on and confirmed, then the delivery acknowledged, so the
+// copy has spent no delivery and is never dead-lettered for this one.
+// Without sub.RequeueOnStop it naks at once instead, as it does when the
+// copy is not stored. A lapsed delivery's requeue is muted, as its nak is:
+// the broker has redelivered it, and the live copy is another handler's.
+func (b *Bus) requeue(ctx context.Context, msg *message, sub events.Subscription, reason string) {
+	if !sub.RequeueOnStop {
+		_ = msg.Nak(ctx, 0)
+		return
+	}
+	err := msg.requeue(ctx, func(ctx context.Context, env *events.Envelope, id string) error {
+		_, err := b.Publish(ctx, msg.Subject(), env, events.WithMsgID(id), events.WithExpectStream(sub.Stream))
+		return err
+	})
+	if err != nil {
+		logging.FromContext(ctx).Warn("bus: requeue failed; the delivery is naked instead and spends one",
+			"durable", sub.Durable, "msg_id", msg.Envelope().ID, "reason", reason, "error", err)
 	}
 }
 

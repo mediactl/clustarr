@@ -3,8 +3,11 @@
 # image. It reads /data and talks NATS, so its ServiceAccount mounts no token
 # and nothing binds it. Autoscaled 0..N on markers-analyze's lag; a pod's
 # slots come from that consumer's Slots, or CLUSTARR_CONSUMER_SLOTS
-# (`markers-analyze=N`), the number the HPA targets too. Grace is the
-# consumer's 30-minute AckWait plus 25 s: it drains or naks what it holds.
+# (`markers-analyze=N`), the number the HPA targets too. Grace is 60 s, the
+# consumer's StopBudget (the 15 s requeue drain) plus 25 s and the tracer's
+# flush: on SIGTERM it cancels its analyses at once and requeues their
+# seasons, spending none of their deliveries (RequeueOnStop; ADR-0020 §1 as
+# amended 2026-10-15), rather than waiting out the 30-minute AckWait.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -45,7 +48,7 @@ spec:
     spec:
       serviceAccountName: markers
       automountServiceAccountToken: false
-      terminationGracePeriodSeconds: 1825
+      terminationGracePeriodSeconds: 60
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000

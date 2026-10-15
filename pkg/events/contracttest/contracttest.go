@@ -141,6 +141,10 @@ func RunBusContract(t *testing.T, newBus func() events.Bus) {
 	t.Run("TheBusHeartbeatsARunningHandler", func(t *testing.T) { testBusHeartbeats(t, newBus) })
 	t.Run("AHandlerPastItsBudgetIsCancelled", func(t *testing.T) { testBudgetCancels(t, newBus) })
 	t.Run("DrainLetsRunningHandlersFinish", func(t *testing.T) { testDrain(t, newBus) })
+	t.Run("AStopRequeuesWhatItHoldsWithoutSpendingADelivery", func(t *testing.T) { testRequeueOnStop(t, newBus) })
+	t.Run("AStoppedHandlerThatFinishedOrRefusedIsNotRequeued", func(t *testing.T) {
+		testRequeueKeepsAFinishedOrRefusedResult(t, newBus)
+	})
 	t.Run("SubscribeRebindsAVanishedDurable", func(t *testing.T) { testRebind(t, newBus) })
 	t.Run("SubscribeBindsAndNeverWritesConsumerConfig", func(t *testing.T) { testBindsNeverWrites(t, newBus) })
 	t.Run("SubscribeWaitsForAMissingDurable", func(t *testing.T) { testWaitsForMissingDurable(t, newBus) })

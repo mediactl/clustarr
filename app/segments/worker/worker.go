@@ -24,6 +24,7 @@ package worker
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -104,7 +105,18 @@ const (
 // records for its probe and the current analyzer is not analyzed again --
 // a season's plan can be queued twice when the queue runs behind -- though
 // one whose season now shows an intro it lacks gets that intro.
-func (h *Handler) Handle(ctx context.Context, m events.Message) error {
+//
+// A stop cuts the task off (ctx's cause events.ErrStopping, a SIGTERM):
+// nothing more is decoded or recorded -- a cancelled decode is no Error --
+// and the task is handed back (events.Requeue), to run again from its
+// cached fingerprints without spending a delivery.
+func (h *Handler) Handle(ctx context.Context, m events.Message) (err error) {
+	defer func() {
+		if err != nil && stopping(ctx) {
+			// Whatever cut the task short, the stop did: hand it back.
+			err = events.RequeueIfStopping(ctx, err, events.Subscription{RequeueOnStop: true})
+		}
+	}()
 	env := m.Envelope()
 	var task schema.AnalyzeTask
 	if err := schema.Decode(env.Schema, env.Data, &task); err != nil {
@@ -129,7 +141,7 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 		if files[i].rec != nil {
 			files[i].Due = false
 		}
-		if !movie {
+		if !movie && !stopping(ctx) {
 			fctx, cancel := context.WithTimeout(ctx, orDefault(h.FileTimeout, defaultFileTimeout))
 			h.fingerprint(fctx, files[i])
 			cancel()
@@ -160,15 +172,27 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 		default:
 			continue
 		}
+		if stopping(ctx) {
+			// Cut off by the stop: nothing more is recorded.
+			return events.Requeue("markers: stopping", context.Cause(ctx))
+		}
 		analyzedTotal.WithLabelValues(res.Result, strongestSource(res)).Inc()
 		if err := h.store(ctx, task.Namespace, f, res, amend); err != nil {
 			return events.Retry(time.Minute, err)
 		}
 	}
+	if stopping(ctx) {
+		return events.Requeue("markers: stopping", context.Cause(ctx))
+	}
 	if err := dec.failed(); err != nil {
 		return events.Discard("segments: an FFmpeg decode was abandoned; not redelivered into another stuck call", err)
 	}
 	return nil
+}
+
+// stopping reports a task the subscription's stop cut off.
+func stopping(ctx context.Context) bool {
+	return errors.Is(context.Cause(ctx), events.ErrStopping)
 }
 
 // record is the bucket's analysis of f for its probe and the current

@@ -3,7 +3,11 @@
 markers detects skip segments (spec 2026-10-01 segment detection; spec
 2026-10-06 §3.7): the credential-less cmd/markers binary on the native
 image. It reads /data and talks NATS, so its ServiceAccount mounts no token
-and nothing binds it. Grace is its consumer's 30-minute AckWait plus 25 s.
+and nothing binds it. Grace is 60 s, its consumer's StopBudget (the 15 s
+requeue drain) plus 25 s and the tracer's flush: on SIGTERM it cancels its
+analyses at once and requeues their seasons, which spends none of their
+deliveries (events.RequeueOnStop, ADR-0020 §1 as amended 2026-10-15), rather
+than waiting out the 30-minute AckWait as it did with a grace of 1825.
 Autoscaled 0..N by the manager on markers-analyze's lag; per-pod slots come
 from markers.consumerSlots (CLUSTARR_CONSUMER_SLOTS), the number the HPA
 targets too.
@@ -69,7 +73,7 @@ spec:
     spec:
       serviceAccountName: {{ $name }}
       automountServiceAccountToken: false
-      terminationGracePeriodSeconds: 1825
+      terminationGracePeriodSeconds: 60
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}

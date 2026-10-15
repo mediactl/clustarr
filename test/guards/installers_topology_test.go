@@ -63,7 +63,9 @@ const (
 // pool and graft Jobs are absent: the manager renders them at runtime. The
 // manager's grace is 85, not §3.5.6's 70: it drains catalog-segments-plan
 // (AckWait 60 s), and TestGracePeriodsCoverAckWait holds every Deployment
-// to its longest AckWait plus 25 s.
+// to its longest StopBudget plus 25 s. markers' is 60: it requeues what it
+// holds on SIGTERM (RequeueOnStop) rather than waiting out its 30-minute
+// AckWait, as it did with 1825 until 2026-10-15.
 var workloadTable = map[string]workloadRow{
 	"manager":        {image: clustarrRepo, command: binpath.Manager, replicas: 1, strategy: appsv1.RollingUpdateDeploymentStrategyType, grace: 85, leaderElect: true, gomemPct: 80},
 	"agent-catalog":  {image: nativeRepo, command: binpath.Agent, strategy: appsv1.RollingUpdateDeploymentStrategyType, grace: 145, domain: "catalog", autoscaled: true, gomemPct: 80},
@@ -72,7 +74,7 @@ var workloadTable = map[string]workloadRow{
 	"agent-import":   {image: nativeRepo, command: binpath.Agent, strategy: appsv1.RollingUpdateDeploymentStrategyType, grace: 85, domain: "import", autoscaled: true, gomemPct: 60},
 	"agent-index":    {image: nativeRepo, command: binpath.Agent, replicas: 1, strategy: appsv1.RecreateDeploymentStrategyType, grace: 85, domain: "index", gomemPct: 80},
 	"agent-caption":  {image: nativeRepo, command: binpath.Agent, strategy: appsv1.RollingUpdateDeploymentStrategyType, grace: 115, domain: "caption", autoscaled: true, gomemPct: 60},
-	"markers":        {image: nativeRepo, command: binpath.Markers, strategy: appsv1.RollingUpdateDeploymentStrategyType, grace: 1825, domain: "markers", autoscaled: true, gomemPct: 50},
+	"markers":        {image: nativeRepo, command: binpath.Markers, strategy: appsv1.RollingUpdateDeploymentStrategyType, grace: 60, domain: "markers", autoscaled: true, gomemPct: 50},
 	"ui":             {image: clustarrRepo, command: binpath.UI, replicas: 1, strategy: appsv1.RollingUpdateDeploymentStrategyType, grace: 30, gomemPct: 80},
 }
 
@@ -290,9 +292,11 @@ func TestDataMountsMatchTheTopology(t *testing.T) {
 }
 
 // TestGracePeriodsCoverAckWait: every Deployment's grace covers the longest
-// AckWait among the durables it drains plus 25 s (§3.5.6), so a SIGTERMed
-// pod finishes or releases what it holds before it is killed. AckWait is
-// the handler budget, not the broker's BackOff[0] deadline.
+// StopBudget among the durables it drains plus 25 s (§3.5.6), so a SIGTERMed
+// pod finishes or releases what it holds before it is killed. StopBudget is
+// AckWait, the handler budget, not the broker's BackOff[0] deadline -- or,
+// for a RequeueOnStop durable (markers-analyze), events.RequeueDrain: its
+// handlers are cancelled at once and their deliveries requeued.
 func TestGracePeriodsCoverAckWait(t *testing.T) {
 	top := events.Default()
 	drains := map[string][]string{"manager": managerConsumers()}
@@ -309,7 +313,7 @@ func TestGracePeriodsCoverAckWait(t *testing.T) {
 				for _, c := range drains[component] {
 					spec, ok := top.Consumer(c)
 					require.True(t, ok, "%s drains %s, which events.Default() does not declare", component, c)
-					longest = max(longest, spec.AckWait)
+					longest = max(longest, spec.StopBudget())
 				}
 				if longest == 0 {
 					continue
@@ -318,7 +322,7 @@ func TestGracePeriodsCoverAckWait(t *testing.T) {
 				grace := d.Spec.Template.Spec.TerminationGracePeriodSeconds
 				require.NotNil(t, grace, component)
 				assert.GreaterOrEqual(t, time.Duration(*grace)*time.Second, longest+25*time.Second,
-					"%s's terminationGracePeriodSeconds must cover its longest AckWait (%s) plus 25 s", component, longest)
+					"%s's terminationGracePeriodSeconds must cover its longest StopBudget (%s) plus 25 s", component, longest)
 			}
 			require.GreaterOrEqual(t, checked, 7, "%s: only %d Deployments drain a durable; the guard is not reading the topology", name, checked)
 		})

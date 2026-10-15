@@ -168,6 +168,11 @@ const (
 	// SettleTerm stops redelivery. The message is copied to the dead-letter
 	// stream first, with Settlement.Reason attached.
 	SettleTerm SettleAction = "term"
+
+	// SettleRequeue re-enqueues a fresh copy of the message and acknowledges
+	// the delivery (RequeueError), with Settlement.Reason attached for the
+	// log. A subscription without RequeueOnStop naks at once instead.
+	SettleRequeue SettleAction = "requeue"
 )
 
 // Settlement is the decision a bus takes about one delivery.
@@ -190,6 +195,8 @@ type Settlement struct {
 //
 //   - nil acknowledges;
 //   - a Discard error dead-letters at once, bypassing MaxDeliver;
+//   - a Requeue error hands the delivery back as a fresh message, whatever
+//     the attempt: the copy has spent no delivery (RequeueError);
 //   - any other error retries with the explicit Retry delay, or else the
 //     subscription's backoff schedule, until attempt reaches MaxDeliver, at
 //     which point the message is dead-lettered instead.
@@ -204,6 +211,10 @@ func Settle(err error, attempt uint64, s Subscription) Settlement {
 	var d *DiscardError
 	if errors.As(err, &d) {
 		return Settlement{Action: SettleTerm, Reason: d.Reason}
+	}
+	var rq *RequeueError
+	if errors.As(err, &rq) {
+		return Settlement{Action: SettleRequeue, Reason: rq.Reason}
 	}
 	if s.MaxDeliver > 0 && attempt >= uint64(s.MaxDeliver) {
 		return Settlement{

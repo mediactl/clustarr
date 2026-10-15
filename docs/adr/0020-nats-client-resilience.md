@@ -40,6 +40,31 @@ v1.53.1 and nats-server v2.15.0 (`go.mod`). The verdicts:
   - `nats.DrainTimeout` is set to the same budget, so nats.go never cuts its own drain short.
 - `cmd/manager`, `cmd/agent`, `cmd/markers` and `cmd/transcode` replace `defer nc.Close()` / `defer bus.Close()` with `busconn.Shutdown` after the manager returns. The budget is the remainder of `GracefulShutdownTimeout`, with `Close` as the fallback once it is spent.
 - The manager drains last among its runnables, so intake acks after a decision lands (ADR-0019 §8) still reach the server.
+- **markers requeues rather than drains (amended 2026-10-15).** A SIGTERMed markers pod waited out
+  markers-analyze's 30-minute AckWait (`Subscription.Drain`) and a grace of 1825 s while its
+  in-flight season analyses ran to the end, so every rollout took up to half an hour, and a
+  scaled-down pod kept reading from the NAS after its object had left the API. markers-analyze
+  now declares `ConsumerSpec.RequeueOnStop`:
+  - on a stop the subscription cancels its running handlers at once, with cause
+    `events.ErrStopping`, and each delivery they held, or that arrives as it stops, goes back
+    as a fresh copy (`events.Requeue`: the envelope re-enqueued under `events.RequeueMsgID`,
+    confirmed, then the delivery acked). A plain nak would spend one of the task's three
+    deliveries, and repeated rollouts would dead-letter healthy seasons; the copy has spent
+    none, so a stop never counts toward a dead letter. The worker records nothing a stop cut
+    off; fingerprints are cached per file in `clustarr-fingerprints`, so a requeued season
+    repeats little.
+  - its `StopBudget` and so its `Subscription.Drain` is `events.RequeueDrain`, 15 s
+    (`ffruntime.Grace`'s 5 s for a cancelled decode, then the copy's publish and the ack);
+    `busconn.ShutdownAfter`'s budget is that plus 20 s, and the Deployment's grace is 60 s
+    (`test/guards.TestGracePeriodsCoverAckWait` holds every grace to its longest
+    `StopBudget` plus 25 s).
+  - the process exits once the drain is spent even while FFmpeg calls the cancel left
+    abandoned are still blocked in NFS reads: its unsubscribe is bounded (`stopWithin`).
+  - Costs: a requeued copy joins the back of its queue, not the front; and an agent
+    re-enqueues a task the manager dispatched -- the same task verbatim (subject, envelope,
+    payload) under a new Msg-Id, no new dispatch decision (ADR-0019 §9.2). Only a WorkQueue
+    durable may declare it (`Topology.Validate`): on a Limits stream the copy would reach every
+    durable bound to it. Every other domain keeps draining for its AckWait.
 
 **2. Every core subscription has explicit pending limits.**
 

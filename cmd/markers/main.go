@@ -130,6 +130,7 @@ func run(args []string, getenv func(string) string) int {
 		fmt.Fprintln(os.Stderr, "markers: $"+events.SlotsEnv+":", err)
 		return worker.ExitMisconfigured
 	}
+	sub := subscription(spec, overrides)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
 	defer stop()
@@ -142,7 +143,7 @@ func run(args []string, getenv func(string) string) int {
 		return worker.ExitMisconfigured
 	}
 	defer func() {
-		sctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		sctx, cancel := context.WithTimeout(context.Background(), tracingShutdown)
 		defer cancel()
 		_ = shutdown(sctx)
 	}()
@@ -215,24 +216,22 @@ func run(args []string, getenv func(string) string) int {
 	}
 	ncRef.Store(nc)
 	// The bus shutdown's budget runs from SIGTERM: the subscription's drain
-	// (sub.Drain, the durable's AckWait) and then the bus and connection
-	// drain, inside the Deployment's terminationGracePeriodSeconds of
-	// AckWait + 25 s (ADR-0020 §1).
-	shutdownBudget := spec.AckWait + shutdownSlack
+	// (sub.Drain, the durable's StopBudget: events.RequeueDrain) and then the
+	// bus and connection drain, inside the Deployment's
+	// terminationGracePeriodSeconds of StopBudget + 25 s (ADR-0020 §1).
+	budget := shutdownBudget(sub)
 	// Equivalent to obs.BusHooks(), inlined: pkg/obs pulls in
 	// controller-runtime, which this binary does not link.
 	bus, err := natsbus.New(nc, natsbus.WithHooks(events.Hooks{BeforePublish: tracing.Inject, AfterReceive: tracing.Extract}))
 	if err != nil {
 		log.ErrorContext(ctx, "bus", "error", err)
-		busconn.ShutdownAfter(ctx, shutdownBudget, nil, nc)()
+		busconn.ShutdownAfter(ctx, budget, nil, nc)()
 		return worker.ExitRetriable
 	}
 	// Deferred first, so it runs last: after the subscription's own drain
 	// and the presence key's removal.
-	defer busconn.ShutdownAfter(ctx, shutdownBudget, bus, nc)()
+	defer busconn.ShutdownAfter(ctx, budget, bus, nc)()
 	busRef.Store(bus)
-	sub := spec.Subscription()
-	sub.MaxInFlight = events.SlotsFor(spec, overrides)
 	// Presence (ADR-0019 §5.3, ruling R14): this pod's liveness and slots in
 	// clustarr-progress, for the manager's admission. It ends with ctx.
 	pw := &presence.Writer{
@@ -276,15 +275,23 @@ func run(args []string, getenv func(string) string) int {
 	if det != nil {
 		h.Detector = det
 	}
-	// §3.7 step 11: unsubscribing waits for in-flight handlers up to the
-	// drain, the durable's declared handler budget.
-	sub.Drain = spec.AckWait
+	// §3.7 step 11, as amended 2026-10-15: unsubscribing cancels the
+	// in-flight analyses at once and requeues their seasons
+	// (RequeueOnStop), waiting up to sub.Drain for them to return. It never
+	// waits for an FFmpeg call the cancel left abandoned (an NFS read blocked
+	// in the kernel may not return for minutes): past the drain the process
+	// exits without it.
 	unsub, err := bus.Subscribe(ctx, sub, h.Handle)
 	if err != nil {
 		log.ErrorContext(ctx, "subscribe", "error", err)
 		return worker.ExitRetriable
 	}
-	defer unsub()
+	defer func() {
+		if !stopWithin(unsub, sub.Drain+stopSlack) {
+			log.WarnContext(ctx, "analyses still running after the drain; exiting without them",
+				"drain", sub.Drain, "abandoned", ffruntime.Abandoned())
+		}
+	}()
 	subscribed.Store(true)
 	log.InfoContext(ctx, "markers serving", "slots", sub.MaxInFlight, "dnn", det != nil)
 	select {
@@ -303,9 +310,50 @@ type wedgeFunc func() error
 // Wedged implements events.WedgeReporter.
 func (f wedgeFunc) Wedged() error { return f() }
 
-// shutdownSlack is what of the terminationGracePeriodSeconds' 25 s past the
-// durable's AckWait the bus and connection drain may spend.
-const shutdownSlack = 20 * time.Second
+// Shutdown budgets, from SIGTERM: the subscription's drain (sub.Drain, the
+// durable's StopBudget), stopSlack for its stop to return after it,
+// shutdownSlack -- what of the terminationGracePeriodSeconds' 25 s past the
+// StopBudget the bus and connection drain may spend -- and the tracer's
+// flush. The chart's and config/manager's grace, 60 s, covers them
+// (test/guards.TestGracePeriodsCoverAckWait).
+const (
+	stopSlack       = 5 * time.Second
+	shutdownSlack   = 20 * time.Second
+	tracingShutdown = 5 * time.Second
+)
+
+// subscription is markers-analyze's subscription: its slots, overridable
+// through CLUSTARR_CONSUMER_SLOTS, and a drain of its StopBudget -- the
+// requeue drain, not the 30-minute AckWait a SIGTERMed pod used to wait out
+// (2026-10-15).
+func subscription(spec events.ConsumerSpec, overrides map[string]int) events.Subscription {
+	sub := spec.Subscription()
+	sub.MaxInFlight = events.SlotsFor(spec, overrides)
+	sub.Drain = spec.StopBudget()
+	return sub
+}
+
+// shutdownBudget is the bus shutdown's budget from SIGTERM.
+func shutdownBudget(sub events.Subscription) time.Duration { return sub.Drain + shutdownSlack }
+
+// stopWithin runs stop and waits for it up to d, reporting whether it
+// returned. A stop that does not is left running: the process exits without
+// it.
+func stopWithin(stop func(), d time.Duration) bool {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		stop()
+	}()
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-done:
+		return true
+	case <-t.C:
+		return false
+	}
+}
 
 // healthzHandler is markers' /healthz: 200 "ok", or 500 with the wedge the
 // bus reports (the `bus` liveness check, split §3.3 as amended 2026-10-07).

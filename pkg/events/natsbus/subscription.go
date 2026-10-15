@@ -109,7 +109,10 @@ type delivery struct {
 // function is called -- it fetches nothing more, hands back with a Nak any
 // delivery still arriving, and lets running handlers keep their context for
 // up to Subscription.Drain before cancelling it. Close halts at once, without
-// a drain.
+// a drain. With Subscription.RequeueOnStop it cancels running handlers at
+// once instead, with cause events.ErrStopping, and waits up to Drain for
+// them to return; what they held, and any delivery still arriving, is
+// requeued as a fresh copy (Bus.requeue), spending no delivery.
 //
 // Re-binding. The pull loop binds a durable it never creates
 // (Bus.bindConsumer), and the dead-letter watcher loop binds the durable's
@@ -126,7 +129,7 @@ type subscription struct {
 	loopCtx        context.Context
 	stopLoop       context.CancelFunc
 	handlerCtx     context.Context
-	cancelHandlers context.CancelFunc
+	cancelHandlers context.CancelCauseFunc
 	hard           chan struct{} // closed by halt: no drain
 	hardOnce       sync.Once
 	drained        chan struct{}
@@ -168,7 +171,7 @@ func newSubscription(ctx context.Context, b *Bus, sub events.Subscription,
 	s.loopCtx, s.stopLoop = context.WithCancel(ctx)
 	// Handlers outlive the loop by up to sub.Drain, so their context is not
 	// the subscription's, though it keeps its values.
-	s.handlerCtx, s.cancelHandlers = context.WithCancel(context.WithoutCancel(ctx))
+	s.handlerCtx, s.cancelHandlers = context.WithCancelCause(context.WithoutCancel(ctx))
 	return s
 }
 
@@ -294,16 +297,27 @@ func (s *subscription) dispatch(m jetstream.Msg) {
 		attempt = max(md.NumDelivered, 1)
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.stopping || s.live >= s.slots {
-		if !s.stopping {
-			logging.FromContext(s.loopCtx).Warn("bus: a fetch returned more than the free slots; handing the message back",
-				"durable", s.sub.Durable, "stream_seq", seq)
-		}
-		_ = m.Nak()
+	if !s.stopping && s.live < s.slots {
+		s.startLocked(m, seq, attempt)
+		s.mu.Unlock()
 		return
 	}
-	s.startLocked(m, seq, attempt)
+	stopping := s.stopping
+	eff := s.effectiveLocked()
+	s.mu.Unlock()
+	if !stopping {
+		logging.FromContext(s.loopCtx).Warn("bus: a fetch returned more than the free slots; handing the message back",
+			"durable", s.sub.Durable, "stream_seq", seq)
+	}
+	if stopping && s.sub.RequeueOnStop {
+		// It arrived as the process stops: it goes back as a fresh copy, so
+		// a delivery nothing ran spends none of MaxDeliver.
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(s.loopCtx), settleTimeout)
+		defer cancel()
+		s.bus.requeue(ctx, newMessage(m, eff.Backoff, eff.Durable), eff, "arrived as the subscription stopped")
+		return
+	}
+	_ = m.Nak()
 }
 
 func (s *subscription) startLocked(m jetstream.Msg, seq, attempt uint64) {
@@ -491,7 +505,9 @@ func (s *subscription) signalLocked() {
 }
 
 // drainOnStop waits for the subscription to stop, lets running handlers keep
-// their context for up to sub.Drain unless halted, then cancels it.
+// their context for up to sub.Drain unless halted, then cancels it. With
+// RequeueOnStop it cancels them first, with cause events.ErrStopping, and
+// waits up to sub.Drain for them to return.
 func (s *subscription) drainOnStop() {
 	select {
 	case <-s.loopCtx.Done():
@@ -500,6 +516,15 @@ func (s *subscription) drainOnStop() {
 	s.mu.Lock()
 	s.stopping = true
 	s.mu.Unlock()
+	if s.sub.RequeueOnStop {
+		select {
+		case <-s.hard: // halted: cancelled below, as Close cancels
+		default:
+			// Cut off at once and requeued, not waited for: Drain only
+			// bounds how long the stop waits for them to return.
+			s.cancelHandlers(events.ErrStopping)
+		}
+	}
 	if d := s.sub.Drain; d > 0 {
 		idle := make(chan struct{})
 		go func() { s.handlers.Wait(); close(idle) }()
@@ -511,7 +536,7 @@ func (s *subscription) drainOnStop() {
 		}
 		t.Stop()
 	}
-	s.cancelHandlers()
+	s.cancelHandlers(nil)
 	close(s.drained)
 }
 

@@ -135,7 +135,8 @@ type Subscription struct {
 
 	// Drain is how long running handlers keep their context once the
 	// subscription stops, its ctx ending or its stop function called. Zero
-	// cancels them at once. Close never drains.
+	// cancels them at once. Close never drains. With RequeueOnStop it is how
+	// long the stop waits for the handlers it cancelled at once.
 	Drain time.Duration
 
 	// Heartbeat asks the broker for idle heartbeats at this interval, so a
@@ -155,6 +156,15 @@ type Subscription struct {
 	// into the durable it creates (a transcode pool's); Subscribe never
 	// writes consumer config.
 	SampleFrequency string
+
+	// RequeueOnStop is ConsumerSpec.RequeueOnStop. Once the subscription
+	// stops, its running handlers' context is cancelled at once with cause
+	// ErrStopping instead of kept for Drain, and a delivery whose handler
+	// then returns an error (RequeueIfStopping), or that arrives while it
+	// stops, is requeued: a fresh copy re-enqueued and the delivery acked
+	// (RequeueError), so a stop never spends one of MaxDeliver. Drain bounds
+	// only how long the stop waits for the cancelled handlers.
+	RequeueOnStop bool
 }
 
 // Validate reports whether the subscription is internally consistent.

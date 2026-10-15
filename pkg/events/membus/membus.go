@@ -379,7 +379,9 @@ func (b *Bus) ObjectStore(name string) events.ObjectStore {
 // into a free slot; a handler past its delivery's acknowledgement deadline
 // gives its slot back while fewer than sub.MaxInFlight are past theirs
 // (memSub); and the stop function lets running handlers keep their context
-// for up to sub.Drain before cancelling it and waiting for them. Close
+// for up to sub.Drain before cancelling it and waiting for them -- or, with
+// sub.RequeueOnStop, cancels them at once with cause events.ErrStopping and
+// requeues what they held as fresh copies. Close
 // cancels it at once. Like natsbus's, it times lapses and settles on the
 // bound durable's AckWait, Backoff and MaxDeliver, not sub's, warning once
 // when they differ (S5).
@@ -396,7 +398,7 @@ func (b *Bus) Subscribe(ctx context.Context, sub events.Subscription,
 	loopCtx, stopLoop := context.WithCancel(ctx)
 	// Handlers outlive the loop by up to sub.Drain, so their context is not
 	// the subscription's, though it keeps its values.
-	hctx, cancelHandlers := context.WithCancel(context.WithoutCancel(ctx))
+	hctx, cancelHandlers := context.WithCancelCause(context.WithoutCancel(ctx))
 	ms := &memSub{slots: max(sub.MaxInFlight, 1), sub: sub, eff: sub, running: map[*memDelivery]struct{}{}}
 	b.mu.Lock()
 	b.subs[ms] = struct{}{}
@@ -408,10 +410,14 @@ func (b *Bus) Subscribe(ctx context.Context, sub events.Subscription,
 		defer b.wg.Done()
 		closing := b.consume(loopCtx, hctx, sub, h, ms, &handlers)
 		ms.stop()
+		if !closing && sub.RequeueOnStop {
+			// Cut off at once and requeued (natsbus's drainOnStop).
+			cancelHandlers(events.ErrStopping)
+		}
 		if !closing && sub.Drain > 0 {
 			b.awaitIdle(&handlers, sub.Drain)
 		}
-		cancelHandlers()
+		cancelHandlers(nil)
 		close(drained)
 		handlers.Wait()
 	}()
@@ -843,6 +849,7 @@ func (b *Bus) deliver(ctx context.Context, st *stream, sub events.Subscription,
 	if msg.settledByHandler() {
 		return
 	}
+	err = events.RequeueIfStopping(hctx, err, sub)
 	b.settle(ctx, msg, sub, events.Settle(err, msg.Attempt(), sub))
 }
 
@@ -857,7 +864,34 @@ func (b *Bus) settle(ctx context.Context, msg *message, sub events.Subscription,
 	case events.SettleTerm:
 		b.deadLetter(ctx, msg, sub.Durable, s.Reason)
 		_ = msg.Term(ctx, s.Reason)
+	case events.SettleRequeue:
+		b.requeue(ctx, msg, sub, s.Reason)
 	}
+}
+
+// requeue settles msg as events.SettleRequeue, as natsbus's does: a fresh
+// copy of the stored envelope published under events.RequeueMsgID, then the
+// delivery acknowledged, so the copy has spent no delivery. Without
+// sub.RequeueOnStop, or when the copy is not stored, it naks at once. A
+// lapsed delivery's is muted.
+func (b *Bus) requeue(ctx context.Context, msg *message, sub events.Subscription, reason string) {
+	if !sub.RequeueOnStop {
+		_ = msg.Nak(ctx, 0)
+		return
+	}
+	if !msg.markSettled() || (msg.lapsed != nil && msg.lapsed()) {
+		return
+	}
+	pctx := context.WithoutCancel(ctx) // the handler's context ended with the stop
+	_, err := b.Publish(pctx, msg.msg.subject, msg.msg.env.Clone(),
+		events.WithMsgID(events.RequeueMsgID(msg.msg.env.ID, msg.msg.seq)), events.WithExpectStream(sub.Stream))
+	if err != nil {
+		logging.FromContext(ctx).Warn("bus: requeue failed; the delivery is naked instead and spends one",
+			"durable", sub.Durable, "msg_id", msg.msg.env.ID, "reason", reason, "error", err)
+		msg.stream.nak(msg.msg, msg.durable, b.clock.Now(), 0)
+		return
+	}
+	msg.stream.ack(msg.msg, msg.durable)
 }
 
 // deadLetter copies the message to the dead-letter stream before the delivery
