@@ -33,6 +33,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
 
 // Every classification helper must produce the code its name promises,
@@ -106,6 +107,20 @@ func (h *recordingHandler) WithGroup(string) slog.Handler { return h }
 // Asserting this holds even when Process fails immediately (no engine)
 // proves logging.With runs unconditionally before run(), not only on some
 // success path.
+// policy.maxOutputToSourcePercent stops an encode that came out larger than
+// its source. A remux keeps the source's own video and adds the standard's
+// AAC 2.0 companion, so it is a little larger by design: a limit of 100
+// failed every H.264 a profile keeps (policy.keepCodecs, 2026-10-15), and
+// every HEVC the copy path takes.
+func TestTheSizeLimitHoldsOnlyAnEncode(t *testing.T) {
+	encode := standard.Result{Decision: standard.DecisionEncode}
+	remux := standard.Result{Decision: standard.DecisionCopyVideo}
+	assert.True(t, outputTooLarge(encode, 100, 1050, 1000))
+	assert.False(t, outputTooLarge(encode, 100, 900, 1000))
+	assert.False(t, outputTooLarge(encode, 0, 5000, 1000), "0 is no limit")
+	assert.False(t, outputTooLarge(remux, 100, 1050, 1000), "a remux is not held to an encode's limit")
+}
+
 func TestProcessLogsWithTheTaskJob(t *testing.T) {
 	h := &recordingHandler{}
 	ctx := logging.NewContext(context.Background(), slog.New(h))

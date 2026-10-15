@@ -367,7 +367,7 @@ func (r *runner) run(ctx context.Context) error {
 		removePart(ctx, job.part)
 		return verifyFailed("transcode worker: output failed verification: %v", report.Problems)
 	}
-	if limit := jobspec.MaxOutputToSourcePercent(r.t.Profile.Spec.Policy); limit > 0 && report.SizeBytes*100 > st.Size()*int64(limit) {
+	if limit := jobspec.MaxOutputToSourcePercent(r.t.Profile.Spec.Policy); outputTooLarge(job.plan, limit, report.SizeBytes, st.Size()) {
 		removePart(ctx, job.part)
 		return verifyFailed("transcode worker: output is %d%% of the source, above policy.maxOutputToSourcePercent %d",
 			sizePercent(report.SizeBytes, st.Size()), limit)
@@ -775,6 +775,15 @@ func formatTag(raw *mediainfo.Raw, key string) string {
 		}
 	}
 	return ""
+}
+
+// outputTooLarge reports whether an encode's output of out bytes, from a
+// source of src, is over policy.maxOutputToSourcePercent's limit (0: none).
+// The limit is an encode's: a remux keeps the source's own video and adds
+// the standard's AAC 2.0 companion, so it is a little larger by design, and
+// a limit of 100 failed every one (policy.keepCodecs, 2026-10-15).
+func outputTooLarge(plan standard.Result, limit int32, out, src int64) bool {
+	return plan.Decision == standard.DecisionEncode && limit > 0 && out*100 > src*int64(limit)
 }
 
 func sizePercent(out, src int64) int32 {
