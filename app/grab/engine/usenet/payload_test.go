@@ -27,6 +27,7 @@ import (
 	"time"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/app/grab/engine"
 	usenetengine "github.com/mediactl/clustarr/app/grab/engine/usenet"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -160,6 +161,32 @@ func TestResolveIndexerDownloadPropagatesNamedError(t *testing.T) {
 	_, err := r.Resolve(t.Context(), "media", src)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "indexer rejected the guid")
+}
+
+// Only an indexer that said the release is gone (DownloadResponse.Gone)
+// makes the payload unavailable, which blocklists the release. A 522 from
+// nzb.life's Cloudflare read as gone and blocklisted eight good releases on
+// talos (2026-10-15); an outage is retried.
+func TestResolveIndexerDownloadIsUnavailableOnlyWhenTheIndexerSaysGone(t *testing.T) {
+	src := commonv1.DownloadSource{
+		IndexerDownload: &commonv1.IndexerDownload{IndexerRef: "nzb-life", GUID: "abc123"},
+	}
+	for name, tc := range map[string]struct {
+		resp schema.DownloadResponse
+		gone bool
+	}{
+		"outage":    {schema.DownloadResponse{Error: "index: indexer returned HTTP 522"}, false},
+		"backoff":   {schema.DownloadResponse{Error: "index: indexer nzb-life is disabled until 09:22"}, false},
+		"not there": {schema.DownloadResponse{Error: "index: indexer returned HTTP 404", Gone: true}, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := &usenetengine.Resolver{RPC: &fakeRequester{resp: tc.resp}}
+			_, err := r.Resolve(t.Context(), "media", src)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.resp.Error)
+			assert.Equal(t, tc.gone, errors.Is(err, engine.ErrPayloadUnavailable))
+		})
+	}
 }
 
 func TestResolveIndexerDownloadPropagatesRPCError(t *testing.T) {

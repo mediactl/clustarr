@@ -130,10 +130,11 @@ func (m *cmdMsg) Subject() string                          { return "clustarr.wo
 func (m *cmdMsg) Attempt() uint64                          { return 1 }
 
 // TestPayloadUnavailableIsReportedNotRetriedForever: a re-add whose payload
-// the indexer no longer serves (an index answer with an error, a 404 or 410
+// the indexer no longer serves (an index answer marked gone, a 404 or 410
 // link) is answered in the transfer record -- failed, payloadUnavailable --
 // and acked, so the manager decides (a block before the import, SeedingLost
-// after); a transient fetch failure is retried instead.
+// after); a transient fetch failure, the indexer's own included, is retried
+// instead.
 func TestPayloadUnavailableIsReportedNotRetriedForever(t *testing.T) {
 	gone := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -155,8 +156,12 @@ func TestPayloadUnavailableIsReportedNotRetriedForever(t *testing.T) {
 	}{
 		"the indexer answers that the release is gone": {
 			src:         commonv1alpha1.DownloadSource{IndexerDownload: &commonv1alpha1.IndexerDownload{IndexerRef: "tracker", GUID: "guid-1"}},
-			resolver:    &FakeIndexerResolver{Response: schema.DownloadResponse{Error: "the indexer has no such release"}},
+			resolver:    &FakeIndexerResolver{Response: schema.DownloadResponse{Error: "the indexer has no such release", Gone: true}},
 			unavailable: true,
+		},
+		"the indexer is down": {
+			src:      commonv1alpha1.DownloadSource{IndexerDownload: &commonv1alpha1.IndexerDownload{IndexerRef: "tracker", GUID: "guid-1"}},
+			resolver: &FakeIndexerResolver{Response: schema.DownloadResponse{Error: "index: indexer returned HTTP 522"}},
 		},
 		"a 404 torrent link": {src: commonv1alpha1.DownloadSource{TorrentURL: url("/404.torrent")}, unavailable: true},
 		"a 410 torrent link": {src: commonv1alpha1.DownloadSource{TorrentURL: url("/410.torrent")}, unavailable: true},

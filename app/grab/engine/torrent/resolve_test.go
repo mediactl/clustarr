@@ -20,6 +20,7 @@ package torrent
 import (
 	"bytes"
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -27,6 +28,7 @@ import (
 	"time"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/app/grab/engine"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -121,6 +123,28 @@ func TestResolveSourceIndexerDownloadErrorBranch(t *testing.T) {
 	_, err := resolveSource(context.Background(), nil, resolver, "default", src)
 	require.Error(t, err)
 	assert.True(t, strings.Contains(err.Error(), "release expired"))
+}
+
+// Only an indexer that said the release is gone (DownloadResponse.Gone)
+// makes the payload unavailable, which blocklists the release; an outage or
+// a backoff is retried (talos, 2026-10-15: 522s blocklisted good releases).
+func TestResolveSourceIndexerDownloadIsUnavailableOnlyWhenTheIndexerSaysGone(t *testing.T) {
+	src := commonv1.DownloadSource{IndexerDownload: &commonv1.IndexerDownload{IndexerRef: "i", GUID: "g"}}
+	for name, tc := range map[string]struct {
+		resp schema.DownloadResponse
+		gone bool
+	}{
+		"outage":    {schema.DownloadResponse{Error: "index: indexer returned HTTP 522"}, false},
+		"backoff":   {schema.DownloadResponse{Error: "index: indexer i is disabled until 09:22"}, false},
+		"not there": {schema.DownloadResponse{Error: "index: indexer returned HTTP 410", Gone: true}, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := resolveSource(context.Background(), nil, &FakeIndexerResolver{Response: tc.resp}, "default", src)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.resp.Error)
+			assert.Equal(t, tc.gone, errors.Is(err, engine.ErrPayloadUnavailable))
+		})
+	}
 }
 
 func TestResolveSourceIndexerDownloadWithNoResolverIsAnError(t *testing.T) {

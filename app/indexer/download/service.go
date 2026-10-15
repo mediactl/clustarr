@@ -343,7 +343,11 @@ func (s *Service) classify(
 	if res.Status < 200 || res.Status >= 300 {
 		// The STATUS only. An error page's body is attacker-controlled text
 		// on its way to a status condition.
-		return fail(f.Scrub, "index: indexer returned HTTP %d", res.Status), resultHTTPError
+		resp := fail(f.Scrub, "index: indexer returned HTTP %d", res.Status)
+		// Only a 404 or a 410 says the release is gone; a 5xx (Cloudflare's
+		// 522 among them) says nothing about it (DownloadResponse.Gone).
+		resp.Gone = res.Status == http.StatusNotFound || res.Status == http.StatusGone
+		return resp, resultHTTPError
 	}
 
 	// Cause 2 of RedirectURL: too big to send. Decided on Content-Length

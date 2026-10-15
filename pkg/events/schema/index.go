@@ -389,6 +389,14 @@ type DownloadResponse struct {
 
 	// Error is the failure message when the fetch failed.
 	Error string `json:"error,omitempty"`
+
+	// Gone, beside an Error, says the indexer answered that the release is
+	// no longer there (HTTP 404 or 410): the one failure an engine reads as
+	// payloadUnavailable, which blocklists the release. Any other Error --
+	// the indexer down, rate-limited, refusing the session, in backoff -- is
+	// a failure to retry: Cloudflare 522s from nzb.life blocklisted eight
+	// good releases on talos when every Error read as gone (2026-10-15).
+	Gone bool `json:"gone,omitempty"`
 }
 
 // Schema implements Payload.

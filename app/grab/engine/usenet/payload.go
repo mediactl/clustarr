@@ -135,10 +135,14 @@ func (r *Resolver) resolveIndexer(ctx context.Context, ns string, id commonv1.In
 			events.DescribeRequestError(events.RPCIndexDownload, err))
 	}
 	switch {
-	case resp.Error != "":
-		// index answered and could not produce the payload: the release
-		// is gone from its indexer (ADR-0019 §6.7).
+	case resp.Error != "" && resp.Gone:
+		// The indexer said the release is gone (ADR-0019 §6.7).
 		return nil, fmt.Errorf("%w: usenetengine: index: %s", engine.ErrPayloadUnavailable, resp.Error)
+	case resp.Error != "":
+		// index answered and could not produce the payload this time: the
+		// indexer down, rate-limited or in backoff. Retried, never read as
+		// gone, which blocklisted good releases (DownloadResponse.Gone).
+		return nil, fmt.Errorf("usenetengine: index: %s", resp.Error)
 	case len(resp.Bytes) > 0:
 		// A large .nzb crosses the bus gzipped (DownloadResponse.ForWire).
 		b, err := resp.Payload(r.maxBytes())

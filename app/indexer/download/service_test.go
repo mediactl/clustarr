@@ -221,6 +221,7 @@ func TestClassify(t *testing.T) {
 				require.Contains(t, r.Error, "403")
 				require.NotContains(t, r.Error, "nope",
 					"an error page's body never reaches the reply")
+				require.False(t, r.Gone, "a refused session is the indexer's, not the release's")
 			},
 		},
 		{
@@ -228,6 +229,29 @@ func TestClassify(t *testing.T) {
 			resultHTTPError, func(t *testing.T, r schema.DownloadResponse) {
 				require.Contains(t, r.Error, "500")
 				require.NotContains(t, r.Error, "stack trace")
+				require.False(t, r.Gone)
+			},
+		},
+		// Cloudflare's 522: the indexer's origin was unreachable, so nothing
+		// is known about the release (nzb.life, talos, 2026-10-15).
+		{
+			"522", &FetchResult{Status: 522, Header: hdr(""), Body: body("timed out"), FinalURL: final},
+			resultHTTPError, func(t *testing.T, r schema.DownloadResponse) {
+				require.Contains(t, r.Error, "522")
+				require.False(t, r.Gone)
+			},
+		},
+		{
+			"404", &FetchResult{Status: 404, Header: hdr(""), Body: body("no such nzb"), FinalURL: final},
+			resultHTTPError, func(t *testing.T, r schema.DownloadResponse) {
+				require.Contains(t, r.Error, "404")
+				require.True(t, r.Gone, "the indexer says the release is not there")
+			},
+		},
+		{
+			"410", &FetchResult{Status: 410, Header: hdr(""), Body: body("removed"), FinalURL: final},
+			resultHTTPError, func(t *testing.T, r schema.DownloadResponse) {
+				require.True(t, r.Gone)
 			},
 		},
 		{"oversize by Content-Length", &FetchResult{
