@@ -36,8 +36,8 @@ func TestHandlerBudgetFallsBackToAckWait(t *testing.T) {
 // HandlerTimeout, never the AckWait fallback. fileimport (60 s AckWait) and the
 // rescan heartbeat past their AckWait by design; a budget there would cancel a
 // cross-filesystem copy or a library walk (split §3.5.6 as amended). The
-// explicit budgets are segment analysis's TaskTimeout and the manager's two
-// intake durables' 60 s (ADR-0019, A1.6's table).
+// explicit budgets are segment analysis's TaskTimeout, the manager's two
+// intake durables' 60 s (ADR-0019, A1.6's table) and an engine's 2 m.
 func TestOnlyExplicitBudgetsAreEnforced(t *testing.T) {
 	budgets := map[string]time.Duration{
 		events.ConsumerMarkersAnalyze:  30 * time.Minute,
@@ -56,7 +56,12 @@ func TestOnlyExplicitBudgetsAreEnforced(t *testing.T) {
 		assert.Zero(t, c.HandlerTimeout, "%s: set a budget only from its clustarr_work_duration_seconds tail", c.Name)
 	}
 	assert.Len(t, seen, len(budgets), "every budgeted consumer is in the topology")
-	for _, c := range []events.ConsumerSpec{events.TranscodeTaskConsumer("6f1c-uid", "cpu"), events.EngineConsumer("qbit", 0)} {
-		assert.Zero(t, c.Subscription().HandlerTimeout, "%s: the pool worker and the engine heartbeat their own work", c.Name)
-	}
+	c := events.TranscodeTaskConsumer("6f1c-uid", "cpu")
+	assert.Zero(t, c.Subscription().HandlerTimeout, "%s: the pool worker heartbeats its own work", c.Name)
+	// The engine never did: its commands lapsed at BackOff[0] while a slow
+	// payload RPC ran, and the broker handed out second copies mid-run
+	// (talos, 2026-10-15). Its budget covers the usenet engine's 60 s
+	// resolve (TestAPayloadResolveFitsTheCommandBudget).
+	e := events.EngineConsumer("qbit", 0)
+	assert.Equal(t, 2*time.Minute, e.Subscription().HandlerTimeout, "%s: the bus heartbeats the engine's commands", e.Name)
 }

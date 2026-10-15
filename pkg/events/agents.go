@@ -159,8 +159,15 @@ func EngineConsumer(client string, ordinal int32) ConsumerSpec {
 		// down) is unacknowledged until it is redelivered, and at 4, four of
 		// them froze the engine's whole queue (talos, 2026-10-15). The
 		// engine still runs Slots at once.
-		MaxAckPending:   256,
-		Slots:           4,
+		MaxAckPending: 256,
+		Slots:         4,
+		// A command outlives its first delivery's deadline (BackOff[0])
+		// whenever its payload RPC is slow -- up to the usenet engine's
+		// DefaultResolveTimeout, 60 s -- and unheartbeated, the broker handed
+		// out a second copy mid-run, which fetched the payload again and,
+		// served before new work, starved the queue (talos, 2026-10-15).
+		// With a budget the bus heartbeats the handler.
+		HandlerTimeout:  2 * time.Minute,
 		Heartbeat:       30 * time.Second,
 		SampleFrequency: SampleFrequencyEngine,
 		Dispatched:      true,

@@ -238,6 +238,17 @@ func TestEngineConsumerNamesAreInjectiveAndKVSafe(t *testing.T) {
 	assert.Equal(t, 256, c.MaxAckPending)
 	assert.Greater(t, c.MaxAckPending, c.Slots, "a delayed retry must not hold a slot")
 	assert.Equal(t, 30*time.Second, c.Heartbeat)
+	// A command outlives its first delivery's deadline (BackOff[0], 10 s)
+	// whenever its payload RPC is slow -- nzb.life's 522s took about 15 s --
+	// and with no budget nothing told the broker it was still running: the
+	// broker handed out a second copy mid-run, the engine fetched the payload
+	// again (a grab the indexer counts), and the lapsed copies, served before
+	// new work, kept 1,153 commands -- removals among them -- undelivered
+	// (talos, 2026-10-15). A budgeted handler is heartbeated every third of
+	// its deadline.
+	assert.Equal(t, 2*time.Minute, c.HandlerTimeout)
+	assert.Greater(t, c.HandlerTimeout, c.BackOff[0])
+	assert.Equal(t, c.HandlerTimeout, c.Subscription().HandlerTimeout, "the subscription carries the budget")
 	assert.Equal(t, events.SampleFrequencyEngine, c.SampleFrequency)
 	assert.True(t, c.Dispatched)
 	top := events.Default()

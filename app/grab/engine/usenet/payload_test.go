@@ -326,3 +326,11 @@ func TestResolveDrainsANon200BodyOnlyBoundedly(t *testing.T) {
 	assert.NotErrorIs(t, err, context.DeadlineExceeded)
 	assert.Less(t, time.Since(start), 2*time.Second, "the drain must be bounded")
 }
+
+// A payload resolution runs inside its command's handler budget, which the
+// bus heartbeats: past the budget the handler is cancelled, and a resolve
+// that could outlast it would never finish (talos, 2026-10-15).
+func TestAPayloadResolveFitsTheCommandBudget(t *testing.T) {
+	budget := events.EngineConsumer("usenet", 0).HandlerTimeout
+	assert.Less(t, usenetengine.DefaultResolveTimeout, budget)
+}

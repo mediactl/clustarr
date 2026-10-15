@@ -379,3 +379,59 @@ func filter(calls []string, prefixes ...string) []string {
 	return out
 }
 
+// TestACommandSupersededByOneAlreadySeenIsAcked: the manager republishes an
+// owed command at a new seq every 50 minutes, so an entry whose add cannot
+// be applied -- its indexer down -- holds several copies in the queue, each
+// retried on its own (about six per nzb.life entry on talos, 2026-10-15). A
+// copy older than one the engine has already seen for its entry is acked
+// unapplied: the newer carries the entry's whole desired state.
+func TestACommandSupersededByOneAlreadySeenIsAcked(t *testing.T) {
+	ctx := context.Background()
+	hs := newHarness(t)
+	hs.start(t)
+	hs.src.mu.Lock()
+	hs.src.calls = nil
+	hs.src.mu.Unlock()
+	handle := func(id, uid string, seq int64) error {
+		failNextApply(hs, errors.New("index: indexer returned HTTP 522"))
+		return hs.h.Handle(ctx, delivery(t, command(id, uid, seq, schema.EngineDesiredPresent)))
+	}
+
+	var retry *events.RetryError
+	require.ErrorAs(t, handle(entryID, entryUID, 50), &retry)
+	require.NoError(t, handle(entryID, entryUID, 40), "an older copy is acked")
+	require.ErrorAs(t, handle(entryID, entryUID, 50), &retry, "the newest is retried")
+	require.ErrorAs(t, handle("other-entry", "other-uid", 40), &retry, "another entry's seq is its own")
+	assert.Equal(t, []string{"apply present seq=50 cur=", "apply present seq=50 cur=", "apply present seq=40 cur="},
+		applies(hs.src.Calls()))
+}
+
+// TestAnApplyRetryGrowsWithTheAttempt: a command the engine cannot apply --
+// its indexer down for hours -- is retried less often each time, 30 s
+// doubling to an hour, so a long outage's retries, which the broker serves
+// before new work, cannot fill the engine's slots (talos, 2026-10-15: 111
+// retrying commands kept 1,153 undelivered).
+func TestAnApplyRetryGrowsWithTheAttempt(t *testing.T) {
+	ctx := context.Background()
+	hs := newHarness(t)
+	hs.start(t)
+	cmd := command(entryID, entryUID, 60, schema.EngineDesiredPresent)
+	for _, tc := range []struct {
+		attempt uint64
+		want    time.Duration
+	}{{1, 30 * time.Second}, {2, time.Minute}, {3, 2 * time.Minute}, {4, 4 * time.Minute}, {7, 32 * time.Minute}, {8, time.Hour}, {20, time.Hour}} {
+		failNextApply(hs, errors.New("index: indexer returned HTTP 522"))
+		m := delivery(t, cmd)
+		m.attempt = tc.attempt
+		var retry *events.RetryError
+		require.ErrorAs(t, hs.h.Handle(ctx, m), &retry)
+		assert.Equal(t, tc.want, retry.After, "attempt %d", tc.attempt)
+	}
+}
+
+// failNextApply makes the fake client's next Apply fail with err.
+func failNextApply(hs *harness, err error) {
+	hs.src.mu.Lock()
+	hs.src.applyErr = err
+	hs.src.mu.Unlock()
+}

@@ -33,17 +33,35 @@ import (
 
 // Retry delays of the command handler (P116).
 const (
-	// applyRetry is a command the engine cannot apply yet: the payload RPC
-	// failed, the disk is full.
-	applyRetry = 30 * time.Second
-	// downloadTimeoutRetry is a command whose payload RPC timed out:
-	// rpc.index.download is not idempotent (index fetches from the indexer
-	// and counts a grab), so the command is not asked again at once; the
-	// next delivery re-reads the transfers before it asks (ADR-0020 §4).
-	downloadTimeoutRetry = 2 * applyRetry
+	// applyRetry is a command the engine cannot apply yet -- the payload RPC
+	// failed, the disk is full -- at its first attempt; applyRetryAfter
+	// doubles it each attempt up to maxApplyRetry.
+	applyRetry    = 30 * time.Second
+	maxApplyRetry = time.Hour
 	// notReadyRetry is a command that arrived before the re-attach report.
 	notReadyRetry = 10 * time.Second
 )
+
+// applyRetryAfter is the retry of a command the engine could not apply at
+// attempt: applyRetry doubling each attempt up to maxApplyRetry. The broker
+// serves redeliveries before new work, so a long outage's retries at one
+// rate -- nzb.life answering 522 for hours, each attempt holding a slot for
+// its 15 s -- filled the slots and kept 1,153 commands, removals among
+// them, undelivered (talos, 2026-10-15).
+func applyRetryAfter(attempt uint64) time.Duration {
+	d := applyRetry
+	for i := uint64(1); i < attempt && d < maxApplyRetry; i++ {
+		d *= 2
+	}
+	return min(d, maxApplyRetry)
+}
+
+// downloadTimeoutRetryAfter is the retry of a command whose payload RPC
+// timed out: rpc.index.download is not idempotent (index fetches from the
+// indexer and counts a grab), so the command waits twice an ordinary
+// retry; the next delivery re-reads the transfers before it asks
+// (ADR-0020 §4).
+func downloadTimeoutRetryAfter(attempt uint64) time.Duration { return 2 * applyRetryAfter(attempt) }
 
 // Handler applies the manager's engine commands (§6.7), bound by the
 // engine's subscription to its own durable (the manager's DownloadClient
@@ -58,6 +76,28 @@ type Handler struct {
 
 	mu    sync.Mutex
 	locks map[string]*sync.Mutex
+	// newest is the highest seq seen per entry uid (superseded).
+	newest map[string]int64
+}
+
+// superseded reports whether a command for cmd's entry at a higher seq has
+// been seen, and records cmd's seq otherwise. The manager republishes an owed
+// command at a new seq every 50 minutes, so an entry whose add cannot be
+// applied holds several copies in the queue, each retried on its own; the
+// newest carries the entry's whole desired state, so an older one is acked
+// unapplied. A restart forgets: the journal's seq check still drops a stale
+// copy once one is applied.
+func (h *Handler) superseded(cmd schema.EngineCommand) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.newest == nil {
+		h.newest = map[string]int64{}
+	}
+	if cmd.Seq < h.newest[cmd.Entry.UID] {
+		return true
+	}
+	h.newest[cmd.Entry.UID] = cmd.Seq
+	return false
 }
 
 // lock serialises one entry's commands: a republish and its successor may
@@ -115,6 +155,9 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 		return nil
 	case cmd.Entry.UID == "":
 		return events.Discard("engine: a command names no entry", nil)
+	case h.superseded(cmd):
+		log.DebugContext(ctx, "engine: a newer command for the entry was seen; acking this one", "entry", cmd.Entry.ID, "seq", cmd.Seq)
+		return nil
 	}
 
 	unlock := h.lock(cmd.Entry.UID)
@@ -158,10 +201,11 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 		// find, and the usenet client's ByName, before it asks again.
 		log.WarnContext(ctx, "engine: the payload RPC timed out; re-reading before asking again",
 			"entry", cmd.Entry.ID, "seq", cmd.Seq, "error", err)
-		return events.Retry(downloadTimeoutRetry, err)
+		return events.Retry(downloadTimeoutRetryAfter(m.Attempt()), err)
 	case err != nil:
-		log.WarnContext(ctx, "engine: cannot apply the command yet", "entry", cmd.Entry.ID, "seq", cmd.Seq, "error", err)
-		return events.Retry(applyRetry, err)
+		log.WarnContext(ctx, "engine: cannot apply the command yet", "entry", cmd.Entry.ID, "seq", cmd.Seq,
+			"attempt", m.Attempt(), "error", err)
+		return events.Retry(applyRetryAfter(m.Attempt()), err)
 	}
 	if err := h.Reporter.WriteHeld(ctx, after, true); err != nil {
 		return events.Retry(notReadyRetry, err)
