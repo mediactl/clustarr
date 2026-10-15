@@ -229,7 +229,14 @@ func TestEngineConsumerNamesAreInjectiveAndKVSafe(t *testing.T) {
 	assert.Equal(t, 20, c.MaxDeliver)
 	assert.Equal(t, []time.Duration{10 * time.Second, time.Minute, 5 * time.Minute, 15 * time.Minute}, c.BackOff)
 	assert.Equal(t, 4, c.Slots)
-	assert.Equal(t, 4, c.MaxAckPending)
+	// A command a handler naks with a delay -- an add whose indexer is down,
+	// retried rather than read as gone -- stays unacknowledged until it is
+	// redelivered. At MaxAckPending equal to Slots, four such commands froze
+	// the usenet engine's whole queue (1,159 commands, removals and adds
+	// alike) for as long as nzb.life answered 522 (talos, 2026-10-15). The
+	// engine still runs four at once; the rest wait their turn beside them.
+	assert.Equal(t, 256, c.MaxAckPending)
+	assert.Greater(t, c.MaxAckPending, c.Slots, "a delayed retry must not hold a slot")
 	assert.Equal(t, 30*time.Second, c.Heartbeat)
 	assert.Equal(t, events.SampleFrequencyEngine, c.SampleFrequency)
 	assert.True(t, c.Dispatched)

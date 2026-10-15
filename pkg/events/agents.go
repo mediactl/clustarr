@@ -148,14 +148,18 @@ func EngineConsumerName(client string, ordinal int32) string {
 // removed ordinal; the engine pod binds it.
 func EngineConsumer(client string, ordinal int32) ConsumerSpec {
 	return ConsumerSpec{
-		Name:            EngineConsumerName(client, ordinal),
-		Stream:          StreamWorkEngine,
-		Description:     "One engine instance's commands.",
-		Filters:         []string{engineSubjectPrefix(client, ordinal) + ".>"},
-		AckWait:         2 * time.Minute,
-		MaxDeliver:      20,
-		BackOff:         []time.Duration{10 * time.Second, time.Minute, 5 * time.Minute, 15 * time.Minute},
-		MaxAckPending:   4,
+		Name:        EngineConsumerName(client, ordinal),
+		Stream:      StreamWorkEngine,
+		Description: "One engine instance's commands.",
+		Filters:     []string{engineSubjectPrefix(client, ordinal) + ".>"},
+		AckWait:     2 * time.Minute,
+		MaxDeliver:  20,
+		BackOff:     []time.Duration{10 * time.Second, time.Minute, 5 * time.Minute, 15 * time.Minute},
+		// Above Slots: a command naked with a delay (an add whose indexer is
+		// down) is unacknowledged until it is redelivered, and at 4, four of
+		// them froze the engine's whole queue (talos, 2026-10-15). The
+		// engine still runs Slots at once.
+		MaxAckPending:   256,
 		Slots:           4,
 		Heartbeat:       30 * time.Second,
 		SampleFrequency: SampleFrequencyEngine,
