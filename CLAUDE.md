@@ -1421,6 +1421,15 @@ exports the pinned ref every image build takes as a named context.
   `subtitles.ErrNotFound`, …) so `errors.Is` works through `Unwrap`.
 - **Filesystem writes that must survive a crash go through `pkg/fsops`**
   (`AtomicWrite` fsyncs the file and its parent and takes an explicit mode).
+- **A copy across filesystems writes its destination with `O_DIRECT`**
+  (`fsops.copyFile`: `MoveAtomic`'s EXDEV fallback, `CopyDir`,
+  `HardlinkOrCopy`), 64 MiB per write, the source's pages dropped behind
+  the read. /data is NFS, and a buffered copy onto it leaves the data in
+  the page cache under writeback, charged to the pod with no per-cgroup
+  throttling: on 2026-10-15 a buffered 3 GiB copy held 1.9 GiB in
+  writeback and crawled at 8.3 MB/s, and transcode pool and usenet engine
+  pods were OOM-killed moving outputs and releases from local scratch.
+  Never move a large file onto /data with `io.Copy` or `os.WriteFile`.
 
 ## Status
 

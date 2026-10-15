@@ -21,9 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
-	"path/filepath"
 	"syscall"
 )
 
@@ -58,50 +56,4 @@ func HardlinkOrCopy(src, dst string) (bool, error) {
 func isEXDEV(err error) bool {
 	var linkErr *os.LinkError
 	return errors.As(err, &linkErr) && errors.Is(linkErr.Err, syscall.EXDEV)
-}
-
-// copyFile copies src to dst, creating dst's parent directory and
-// preserving src's permission bits, via AtomicWrite so a copy failure
-// never leaves a partial dst.
-//
-// ctx is checked between chunks (see ctxReader) via AtomicWrite's
-// io.Copy, so a long copy notices cancellation mid-transfer -- and, via
-// AtomicWrite's own cleanup-on-error path, never leaves dst's ".partial"
-// behind -- instead of only before the copy starts or after it finishes.
-// context.Background() is a valid ctx for copyFile's two ctx-less spec
-// §7 callers (HardlinkOrCopy's fallback, MoveAtomic's EXDEV path), which
-// simply never cancel.
-func copyFile(ctx context.Context, src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return fmt.Errorf("fsops: open %s: %w", src, err)
-	}
-	defer func() { _ = in.Close() }()
-	info, err := in.Stat()
-	if err != nil {
-		return fmt.Errorf("fsops: stat %s: %w", src, err)
-	}
-	if err := os.MkdirAll(filepath.Dir(dst), 0o775); err != nil {
-		return fmt.Errorf("fsops: mkdir %s: %w", filepath.Dir(dst), err)
-	}
-	return AtomicWrite(dst, &ctxReader{ctx: ctx, r: in}, info.Mode().Perm())
-}
-
-// ctxReader makes r's Read calls observe ctx. Wrapping in as a plain
-// io.Reader (rather than passing the *os.File through directly) also
-// defeats io.Copy's io.ReaderFrom/io.WriterTo fast paths -- notably
-// *os.File-to-*os.File copy_file_range -- forcing the generic, buffered
-// copyBuffer loop, which is what actually calls Read (and therefore
-// checks ctx) more than once for a multi-chunk file instead of handing
-// the whole transfer to the kernel in one call.
-type ctxReader struct {
-	ctx context.Context
-	r   io.Reader
-}
-
-func (cr *ctxReader) Read(p []byte) (int, error) {
-	if err := cr.ctx.Err(); err != nil {
-		return 0, err
-	}
-	return cr.r.Read(p)
 }

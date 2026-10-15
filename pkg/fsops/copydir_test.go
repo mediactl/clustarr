@@ -71,7 +71,8 @@ func TestCopyDirStopsOnContextCancellation(t *testing.T) {
 
 func TestCopyDirStopsMidFileOnCancellationAndRemovesPartial(t *testing.T) {
 	src := t.TempDir()
-	// Large enough to span several of io.Copy's default ~32KiB chunks.
+	// Large enough to span several of the copy's (1 MiB here) chunks.
+	t.Cleanup(fsops.SetCopyChunkForTest(1 << 20))
 	require.NoError(t, os.WriteFile(filepath.Join(src, "big.mkv"), bytes.Repeat([]byte{'y'}, 5*1024*1024), 0o664))
 
 	dst := filepath.Join(t.TempDir(), "dst")

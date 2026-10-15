@@ -69,6 +69,7 @@ func TestImportCopyStopsMidFileOnCancellationAndRemovesPartial(t *testing.T) {
 	// Large enough to span several of io.Copy's default ~32KiB chunks,
 	// so a cancellation that fires after the first chunk genuinely stops
 	// the transfer mid-file rather than before it starts.
+	t.Cleanup(fsops.SetCopyChunkForTest(1 << 20)) // several chunks of the copy
 	payload := bytes.Repeat([]byte{'x'}, 5*1024*1024)
 	require.NoError(t, os.WriteFile(src, payload, 0o664))
 
