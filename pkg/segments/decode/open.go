@@ -22,8 +22,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"slices"
 	"strconv"
+	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/obinnaokechukwu/ffgo"
 	"github.com/obinnaokechukwu/ffgo/avcodec"
@@ -38,50 +42,95 @@ const maxOutput = 64 << 20
 
 var errTooLarge = errors.New("decode: output over the cap")
 
+// seekTimeout bounds a seek alone.
+var seekTimeout = 30 * time.Second
+
+// ErrUnseekable is a file FFmpeg could not seek within seekTimeout.
+var ErrUnseekable = errors.New("decode: the seek outlasted its deadline; the file's seek index is missing or damaged")
+
 var us = ffgo.NewRational(1, 1_000_000)
 
-// beforeRead and onDecodedFrame are test seams (export_test.go).
+// beforeRead, onDecodedFrame and testAVOptions are test seams (export_test.go).
 var (
 	beforeRead     = func(context.Context) {}
 	onDecodedFrame = func() {}
+	testAVOptions  map[string]string
 )
 
 // input is one opened file: its demuxer, the chosen stream, and the origin
 // -ss gave its clock (µs: ms(x)*1000 + start_time).
 type input struct {
-	in     *ffgo.Decoder
-	si     *ffgo.StreamInfo
-	origin int64
+	in      *ffgo.Decoder
+	si      *ffgo.StreamInfo
+	origin  int64
+	release func() // stops ctx closing the interrupt
 }
 
 // open is §7.2.2 steps 1-4: open with scan_all_pmts, choose the stream,
 // seek as -ss does, and discard every other stream after the seek.
+//
+// FFmpeg's interrupt callback (ffgo's DecoderOptions.Interrupt) aborts its
+// I/O between reads once ctx is done or the seek outlasts seekTimeout. With
+// its index a seek reads a few kilobytes; without one -- a damaged file's
+// zeroed tail -- FFmpeg seeks by reading from the start, 85 s a seek for an
+// 11 GB film, and inside that one call nothing in Go could stop it, so the
+// analysis deadline abandoned it (talos, 2026-10-15). Such a seek is
+// ErrUnseekable, not ffmpeg(1)'s decode from the start, which would read
+// the whole file again.
 func open(ctx context.Context, path string, pick func([]*ffgo.StreamInfo) *ffgo.StreamInfo, none string, atS float64) (*input, error) {
-	in, err := ffgo.NewDecoderWithOptions(path, &ffgo.DecoderOptions{AVOptions: map[string]string{"scan_all_pmts": "1"}})
+	intr := make(chan struct{})
+	var once sync.Once
+	interrupt := func() { once.Do(func() { close(intr) }) }
+	release := context.AfterFunc(ctx, interrupt)
+	fail := func(err error) (*input, error) {
+		release()
+		if cerr := ctx.Err(); cerr != nil {
+			return nil, fmt.Errorf("decode: %s: %w", path, cerr)
+		}
+		return nil, err
+	}
+	avOptions := map[string]string{"scan_all_pmts": "1"}
+	maps.Copy(avOptions, testAVOptions)
+	in, err := ffgo.NewDecoderWithOptions(path, &ffgo.DecoderOptions{AVOptions: avOptions, Interrupt: intr})
 	if err != nil {
-		return nil, fmt.Errorf("decode: %s: %w", path, err)
+		return fail(fmt.Errorf("decode: %s: %w", path, err))
 	}
 	si := pick(in.Streams())
 	if si == nil {
 		_ = in.Close()
-		return nil, fmt.Errorf("decode: %s has %s", path, none)
+		return fail(fmt.Errorf("decode: %s has %s", path, none))
 	}
 	origin := ms(atS)*1000 + in.StartTime().Microseconds()
 	seekTS := origin
 	if !in.SeekToPTS() && slices.ContainsFunc(in.Streams(), func(s *ffgo.StreamInfo) bool { return s.VideoDelay > 0 }) {
 		seekTS -= 3 * 1_000_000 / 23 // fftools/ffmpeg_demux.c: B-frame delay without AVFMT_SEEK_TO_PTS
 	}
-	if err := in.SeekTimestamp(seekTS); err != nil { // a warning in ffmpeg(1)
+	var late atomic.Bool
+	timer := time.AfterFunc(seekTimeout, func() { late.Store(true); interrupt() })
+	err = in.SeekTimestamp(seekTS)
+	timer.Stop()
+	if late.Load() {
+		_ = in.Close()
+		return fail(fmt.Errorf("%w: %s at %gs, over %s", ErrUnseekable, path, atS, seekTimeout))
+	}
+	if err != nil { // a warning in ffmpeg(1)
+		if ctx.Err() != nil {
+			_ = in.Close()
+			return fail(err)
+		}
 		logging.FromContext(ctx).DebugContext(ctx, "decode: seek failed; decoding from the start", "path", path, "at", atS, "error", err)
 	}
 	if err := in.Discard(si.Index); err != nil { // after the seek, as ist_add does
 		_ = in.Close()
-		return nil, fmt.Errorf("decode: %s: %w", path, err)
+		return fail(fmt.Errorf("decode: %s: %w", path, err))
 	}
-	return &input{in: in, si: si, origin: origin}, nil
+	return &input{in: in, si: si, origin: origin, release: func() { release() }}, nil
 }
 
-func (src *input) close() { _ = src.in.Close() }
+func (src *input) close() {
+	_ = src.in.Close()
+	src.release()
+}
 
 // nthAudio is -map 0:a:N.
 func nthAudio(n int) func([]*ffgo.StreamInfo) *ffgo.StreamInfo {
@@ -174,6 +223,9 @@ func (src *input) decode(ctx context.Context, sd *ffgo.StreamDecoder, each func(
 		// freed here (ffgo.Decoder.ReadPacket).
 		p, err := src.in.ReadPacket()
 		if err != nil {
+			if cerr := ctx.Err(); cerr != nil { // the interrupt ended the read
+				return cerr
+			}
 			return fmt.Errorf("decode: read: %w", err)
 		}
 		if p == nil {

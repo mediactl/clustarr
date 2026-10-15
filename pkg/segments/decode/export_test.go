@@ -17,7 +17,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 package decode
 
-import "sync/atomic"
+import (
+	"sync/atomic"
+	"time"
+)
 
 // CountDecodedFrames counts the frames the decoders return until restore
 // (the onDecodedFrame seam).
@@ -26,4 +29,18 @@ func CountDecodedFrames() (n func() int, restore func()) {
 	prev := onDecodedFrame
 	onDecodedFrame = func() { c.Add(1) }
 	return func() int { return int(c.Load()) }, func() { onDecodedFrame = prev }
+}
+
+// SetSeekTimeout replaces seekTimeout until restore.
+func SetSeekTimeout(d time.Duration) (restore func()) {
+	prev := seekTimeout
+	seekTimeout = d
+	return func() { seekTimeout = prev }
+}
+
+// StallAtEndOfFile makes every input's reads wait at the end of the file for
+// data that never comes (the file protocol's follow), until restore.
+func StallAtEndOfFile() (restore func()) {
+	testAVOptions = map[string]string{"follow": "1"}
+	return func() { testAVOptions = nil }
 }

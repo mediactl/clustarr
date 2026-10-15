@@ -25,6 +25,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -62,6 +63,23 @@ func lateAudioClip(t *testing.T) string {
 	t.Helper()
 	return makeClip(t, "-f", "lavfi", "-i", "testsrc=d=10:s=320x240:r=25",
 		"-itsoffset", "0.5", "-f", "lavfi", "-i", "sine=d=9.5:f=440", "-c:v", "libx264", "-g", "25", "-c:a", "aac")
+}
+
+// damagedClip is five minutes of small picture and tone with its last MiB
+// (about 50 s) zeroed, Matroska's seek index with it: the damage two library
+// films on talos carry (2026-10-15).
+func damagedClip(t *testing.T) string {
+	t.Helper()
+	p := makeClip(t, "-f", "lavfi", "-i", "testsrc=d=300:s=64x64:r=25",
+		"-f", "lavfi", "-i", "sine=d=300:f=440", "-c:v", "libx264", "-preset", "ultrafast", "-g", "25", "-c:a", "aac")
+	f, err := os.OpenFile(p, os.O_WRONLY, 0)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, f.Close()) }()
+	st, err := f.Stat()
+	require.NoError(t, err)
+	_, err = f.WriteAt(make([]byte, 1<<20), st.Size()-1<<20)
+	require.NoError(t, err)
+	return p
 }
 
 func makeClip(t *testing.T, args ...string) string {
@@ -120,6 +138,56 @@ func TestAudioWindowOfLateStartingAudioIsFFmpegs(t *testing.T) {
 	pcm, err := decode.Decoder{}.Audio(context.Background(), p, 0, 0, 5)
 	require.NoError(t, err)
 	assert.Equal(t, ffmpegAudio(t, p, 0, 5), pcmBytes(pcm))
+}
+
+// Without its index FFmpeg seeks a file by reading it from the start: 85 s
+// a seek on an 11 GB film, so its analysis outran the 5-minute deadline
+// inside one FFmpeg call, which could not be stopped and was abandoned
+// (talos, 2026-10-15). The seek has a deadline of its own, through FFmpeg's
+// interrupt callback, and a file that outlasts it is named unseekable.
+//
+// The clip's reads wait at its end for data that never comes, so its seek
+// never finishes on its own: only the interrupt returns the call.
+func TestASeekThatOutlastsItsDeadlineIsUnseekable(t *testing.T) {
+	ready(t)
+	p := damagedClip(t)
+	defer decode.StallAtEndOfFile()()
+	defer decode.SetSeekTimeout(200 * time.Millisecond)()
+	err := within(t, 10*time.Second, func() error {
+		_, err := decode.Decoder{}.Frame(context.Background(), p, 290)
+		return err
+	})
+	require.ErrorIs(t, err, decode.ErrUnseekable)
+}
+
+// The caller's deadline stops FFmpeg's I/O as well, so a call it ends
+// returns instead of being abandoned still running.
+func TestADeadlineStopsASeekInsideFFmpeg(t *testing.T) {
+	ready(t)
+	p := damagedClip(t)
+	defer decode.StallAtEndOfFile()()
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	err := within(t, 10*time.Second, func() error {
+		_, err := decode.Decoder{}.Audio(ctx, p, 0, 280, 10)
+		return err
+	})
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.NotErrorIs(t, err, ffruntime.ErrAbandoned)
+}
+
+// within is f's error, failing the test if f has not returned by d.
+func within(t *testing.T, d time.Duration, f func() error) error {
+	t.Helper()
+	done := make(chan error, 1)
+	go func() { done <- f() }()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(d):
+		t.Fatalf("the call had not returned after %s", d)
+		return nil
+	}
 }
 
 func TestFramesOnePerSecondToTheEnd(t *testing.T) {
