@@ -142,7 +142,7 @@ func TestAPausedJobGivesItsSlotBack(t *testing.T) {
 func TestAJobWaitsItsTurnToPostProcess(t *testing.T) {
 	srv := newStubServer(t)
 	c, _, _ := newTestClient(t, Config{Providers: []Provider{srv.provider("solo", 1, 1)}, MaxPostProcess: 1})
-	j := c.newJob("waiting", "Waiting", "", t.TempDir(), &nzbJob{}, nil)
+	j := c.newJob("waiting", "Waiting", "", t.TempDir(), &nzbJob{})
 	c.post <- struct{}{} // another job is post-processing
 
 	got := make(chan func(), 1)

@@ -406,8 +406,10 @@ type job struct {
 	category string
 	dir      string
 
-	nzb     *nzbJob
-	payload []byte
+	// nzb is the parsed payload. The payload itself is only on disk
+	// (nzbName), which is what a restart re-parses: held here too, it was
+	// read by nothing (180 MB across 204 jobs on talos, 2026-10-15).
+	nzb *nzbJob
 
 	abortHealth int32
 
@@ -635,7 +637,7 @@ func (c *Client) loadJob(dir string) (*job, error) {
 	if err != nil {
 		return nil, err
 	}
-	j := c.newJob(m.ID, m.Name, m.Category, dir, parsed, payload)
+	j := c.newJob(m.ID, m.Name, m.Category, dir, parsed)
 	j.status = download.Status(m.Status)
 	j.stage = commonv1alpha1.DownloadStage(m.Stage)
 	j.reason = commonv1alpha1.DownloadFailureReason(m.Reason)
@@ -677,7 +679,7 @@ func completedBytes(f nzbFile, done bitset) int64 {
 	return n
 }
 
-func (c *Client) newJob(id, name, category, dir string, parsed *nzbJob, payload []byte) *job {
+func (c *Client) newJob(id, name, category, dir string, parsed *nzbJob) *job {
 	j := &job{
 		client:      c,
 		id:          id,
@@ -685,7 +687,6 @@ func (c *Client) newJob(id, name, category, dir string, parsed *nzbJob, payload 
 		category:    category,
 		dir:         dir,
 		nzb:         parsed,
-		payload:     payload,
 		abortHealth: c.cfg.AbortHealthPercent,
 		status:      download.StatusQueued,
 		stage:       commonv1alpha1.DownloadStageFetchingMetadata,
@@ -812,7 +813,7 @@ func (c *Client) Add(ctx context.Context, req download.AddRequest) (string, erro
 		return "", err
 	}
 
-	j := c.newJob(parsed.ID, req.Name, category, dir, parsed, req.Payload)
+	j := c.newJob(parsed.ID, req.Name, category, dir, parsed)
 	j.paused.Store(req.Paused)
 	j.prio.Store(req.Priority)
 	j.addedAt = req.AddedAt

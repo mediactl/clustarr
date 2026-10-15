@@ -29,9 +29,11 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
+	"weak"
 
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/test/par2test"
@@ -144,6 +146,22 @@ func newTestClient(t *testing.T, cfg Config) (*Client, string, string) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = c.Close() })
 	return c.(*Client), cfg.ScratchDir, cfg.DataDir
+}
+
+// Add writes the payload to disk, which is what a restart re-parses, and every
+// job held the bytes as well, read by nothing: 180 MB of the usenet engine's
+// heap across the 204 jobs it held on talos (2026-10-15).
+func TestAJobKeepsNoCopyOfItsPayload(t *testing.T) {
+	srv := newStubServer(t)
+	nzb := buildNZB(t, srv, "Held.Payload", []fileSpec{{name: "movie.mkv", parts: [][]byte{partPayload(1, 900)}}})
+	c, _, _ := newTestClient(t, Config{Providers: []Provider{srv.provider("solo", 4, 1)}})
+	held := weak.Make(&nzb[0])
+	_, err := c.Add(context.Background(), download.AddRequest{Name: "Held.Payload", Payload: nzb, Category: "movies", Paused: true})
+	require.NoError(t, err)
+	nzb = nil
+	runtime.GC()
+	runtime.GC()
+	require.Nil(t, held.Value(), "the job still holds its payload")
 }
 
 func waitForTerminal(t *testing.T, c download.Client, id string) download.Item {
@@ -893,7 +911,7 @@ func TestARestartResumesFromTheCheckpointedSegments(t *testing.T) {
 	require.NoError(t, os.MkdirAll(dir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, nzbName), nzb, 0o644))
 
-	j := client.newJob(parsed.ID, "Half.Done", "default", dir, parsed, nzb)
+	j := client.newJob(parsed.ID, "Half.Done", "default", dir, parsed)
 	j.status = download.StatusDownloading
 	j.done[0].set(0)
 	j.done[0].set(1)
