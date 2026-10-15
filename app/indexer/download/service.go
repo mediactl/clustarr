@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package download
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -39,6 +40,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/metrics"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
+	"github.com/mediactl/clustarr/pkg/torznab"
 )
 
 // The closed set of metric outcome values. An indexer-supplied string -- a
@@ -374,6 +376,16 @@ func (s *Service) classify(
 	if kind == kindHTML {
 		return fail(f.Scrub, "index: indexer returned an HTML page, "+
 			"not a download payload (session expired?)"), resultInvalidPayload
+	}
+	// A Newznab getnzb the indexer cannot serve is HTTP 200 and an <error>
+	// document, which sniffs as an .nzb. Code 300, no such item, is the
+	// release gone; any other (a download limit, credentials) is not.
+	if kind == kindNZB {
+		if e, err := torznab.ParseError(bytes.NewReader(body)); err == nil && e != nil {
+			resp := fail(f.Scrub, "index: indexer answered error %d: %s", e.Code, e.Description)
+			resp.Gone = e.Code == torznab.ErrNoSuchItem
+			return resp, resultInvalidPayload
+		}
 	}
 	return schema.DownloadResponse{
 		Bytes:       body,

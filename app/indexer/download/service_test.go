@@ -254,6 +254,24 @@ func TestClassify(t *testing.T) {
 				require.True(t, r.Gone)
 			},
 		},
+		// A Newznab indexer answers a getnzb it cannot serve with HTTP 200
+		// and an <error> document, which read as an .nzb by its first bytes.
+		{"newznab no such item", &FetchResult{
+			Status: 200, Header: hdr("text/xml"),
+			Body:       body(`<?xml version="1.0" encoding="UTF-8"?><error code="300" description="No such item"/>`),
+			ContentLen: 84, FinalURL: final,
+		}, resultInvalidPayload, func(t *testing.T, r schema.DownloadResponse) {
+			require.Contains(t, r.Error, "No such item")
+			require.True(t, r.Gone, "code 300 is the indexer saying the release is not there")
+		}},
+		{"newznab download limit", &FetchResult{
+			Status: 200, Header: hdr("text/xml"),
+			Body:       body(`<?xml version="1.0" encoding="UTF-8"?><error code="501" description="Download limit reached"/>`),
+			ContentLen: 94, FinalURL: final,
+		}, resultInvalidPayload, func(t *testing.T, r schema.DownloadResponse) {
+			require.Contains(t, r.Error, "Download limit reached")
+			require.False(t, r.Gone)
+		}},
 		{"oversize by Content-Length", &FetchResult{
 			Status: 200, Header: hdr(""), Body: body("ignored"),
 			ContentLen: MaxPayloadBytes + 1, FinalURL: final,
