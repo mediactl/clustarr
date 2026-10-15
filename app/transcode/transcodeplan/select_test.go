@@ -48,6 +48,7 @@ func renderSpec() transcodev1alpha1.TranscodeProfileSpec {
 		Container: transcodev1alpha1.ContainerMKV,
 		Hardware:  transcodev1alpha1.HardwareCPU,
 		Audio:     transcodev1alpha1.AudioSpec{Languages: []string{"eng"}},
+		Subtitles: transcodev1alpha1.SubtitleSpec{Languages: []string{"eng"}},
 		Policy: transcodev1alpha1.PolicySpec{
 			NeverTranscodeModifiers:  []string{"remux", "brdisk"},
 			KeepCodecs:               []string{"h264"},
@@ -65,7 +66,7 @@ func renderSpec() transcodev1alpha1.TranscodeProfileSpec {
 // Container is not one since standard.Version 2: every transcode writes MP4
 // (jobspec.OutputContainer).
 var standardInputs = map[string]bool{
-	"Quality": true, "Audio.Languages": true, "Policy.NeverTranscodeModifiers": true, "Policy.KeepCodecs": true,
+	"Quality": true, "Audio.Languages": true, "Subtitles.Languages": true, "Policy.NeverTranscodeModifiers": true, "Policy.KeepCodecs": true,
 	"Policy.MinDuration": true, "Policy.MaxOutputToSourcePercent": true,
 }
 
@@ -156,9 +157,15 @@ func TestTheHashTreatsItsListsAsSets(t *testing.T) {
 	b.Policy.KeepCodecs = []string{"h264"}
 	assert.NotEqual(t, jobspec.ProfileHash(a), jobspec.ProfileHash(b), "keeping h264 is a different standard")
 
+	// subtitles.languages is a set as audio.languages is.
+	sa, sb := renderSpec(), renderSpec()
+	sa.Subtitles.Languages, sb.Subtitles.Languages = []string{"en", "original"}, []string{"original", "en", "en"}
+	assert.Equal(t, jobspec.ProfileHash(sa), jobspec.ProfileHash(sb))
+
 	stable := renderSpec()
 	stable.Policy.NeverTranscodeModifiers = []string{"remux", "brdisk"}
-	stable.Policy.KeepCodecs = nil // a profile that keeps only HEVC hashes in the shape it always had
+	stable.Policy.KeepCodecs = nil   // a profile that keeps only HEVC hashes in the shape it always had
+	stable.Subtitles.Languages = nil // and so does one that keeps every subtitle
 	before := sha256Hex(t, struct {
 		Version                  int
 		Quality                  int32

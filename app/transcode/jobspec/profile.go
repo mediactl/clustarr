@@ -110,9 +110,13 @@ func ProfileHashAt(spec transcodev1alpha1.TranscodeProfileSpec, version int) str
 		MinDuration              time.Duration
 		MaxOutputToSourcePercent int32
 		KeepCodecs               []string `json:",omitempty"`
+		// omitempty: a profile keeping every subtitle hashes as it did
+		// before the field existed.
+		SubtitleLanguages []string `json:",omitempty"`
 	}{
 		version, spec.QualityOrDefault(), container, asSet(spec.Audio.Languages), asSet(spec.Policy.NeverTranscodeModifiers),
 		MinDuration(spec.Policy), MaxOutputToSourcePercent(spec.Policy), keptBesideHEVC(spec.Policy.KeepCodecs),
+		asSet(spec.Subtitles.Languages),
 	})
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])

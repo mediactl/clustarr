@@ -24,10 +24,15 @@ package v1alpha1
 //
 // AudioSpec is what a profile decides about audio: which languages to keep.
 type AudioSpecApplyConfiguration struct {
-	// Languages keeps only audio in these languages (commentary always, and
-	// every track when none matches); empty keeps all. The kept tracks are
+	// Languages keeps only audio in these languages -- ISO 639-1 or 639-2
+	// codes ("en", "eng"), compared as languages, and "original", the
+	// file's movie's or series' original language -- plus untagged tracks
+	// and commentary in a kept language; every track when none but
+	// commentary matches, or when "original" is listed and the item's
+	// original language is unknown. Empty keeps all. The kept tracks are
 	// copied when Apple TV plays them directly (AAC, AC-3, E-AC-3), else
-	// encoded to AAC: the standard decides, not the profile.
+	// encoded to AAC: the standard decides, not the profile. A dropped track
+	// is gone once the output replaces its source.
 	Languages []string `json:"languages,omitempty"`
 }
 

@@ -61,7 +61,10 @@ type Profile struct {
 	Quality    int32  // 0-51; mapped per encoder (quality.go)
 	// Languages keeps only audio in these languages (commentary always,
 	// and every track when none matches); empty keeps all.
-	Languages               []string
+	Languages []string
+	// SubtitleLanguages keeps only subtitles in these languages; empty
+	// keeps all.
+	SubtitleLanguages       []string
 	NeverTranscodeModifiers []string
 	// Container is ignored since Version 2: the standard writes MP4.
 	Container transcode.Container
@@ -260,14 +263,17 @@ func Plan(info transcode.MediaInfo, profile Profile, hw Hardware) Result {
 	if !ok {
 		return skip(p, "Dolby Vision profile 5 has no HDR10 or HLG base layer: without the Dolby Vision layer it plays with wrong colours")
 	}
+	subLangs := resolveLanguages(profile.SubtitleLanguages, info.OriginalLanguage)
 	for _, s := range info.Subtitles {
-		if s.Bitmap {
+		if s.Bitmap && subLangs.keeps(s.Language) {
 			return skip(p, HoldImageSubtitles)
 		}
 	}
-	p.Audio = planAudio(info.Audio, profile.Languages)
+	var audioDropped []string
+	p.Audio, audioDropped = planAudio(info.Audio, resolveLanguages(profile.Languages, info.OriginalLanguage))
 	p.Subtitles = []SubtitlePlan{}
-	p.Sidecars, p.Dropped = planSubtitles(info.Subtitles)
+	p.Sidecars, p.Dropped = planSubtitles(info.Subtitles, subLangs)
+	p.Dropped = append(audioDropped, p.Dropped...)
 	p.Attachments = false // MP4 carries none
 	p.Chapters = true
 	p.Expect = Expectation{
@@ -489,13 +495,14 @@ func x265Options(v transcode.VideoStream, quality int32) map[string]string {
 // AAC alone when it is mono or stereo -- then each commentary track as AAC
 // of at most 2 channels. Every other track is dropped. The source's
 // default language keeps the default (ruling R4).
-func planAudio(as []transcode.AudioStream, languages []string) []AudioPlan {
+func planAudio(as []transcode.AudioStream, languages wanted) ([]AudioPlan, []string) {
 	type group struct {
 		main, comments []int
 	}
 	var order []string
 	groups := map[string]*group{}
-	for _, i := range keptAudio(as, languages) {
+	kept, dropped := keptAudio(as, languages)
+	for _, i := range kept {
 		lang := as[i].Language
 		g := groups[lang]
 		if g == nil {
@@ -520,25 +527,87 @@ func planAudio(as []transcode.AudioStream, languages []string) []AudioPlan {
 		}
 	}
 	markDefault(out, as)
-	return out
+	return out, dropped
 }
 
-// keptAudio is the languages filter: only tracks in languages (commentary
-// always), unless none matches, then every track.
-func keptAudio(as []transcode.AudioStream, languages []string) []int {
+// keptAudio is the languages filter: the tracks in a kept language, an
+// untagged track (most often the original or English) and commentary in a
+// kept language -- unless no track but commentary names a kept language,
+// then every track, so a file never loses all its audio. Each track it
+// drops is named.
+func keptAudio(as []transcode.AudioStream, languages wanted) (keep []int, dropped []string) {
 	matched := false
 	for _, a := range as {
-		if len(languages) > 0 && !commentary(a) && slices.Contains(languages, a.Language) {
+		if !commentary(a) && languages.names(a.Language) {
 			matched = true
 		}
 	}
-	var keep []int
 	for i, a := range as {
-		if !matched || commentary(a) || slices.Contains(languages, a.Language) {
+		if !matched || languages.keeps(a.Language) {
 			keep = append(keep, i)
+			continue
+		}
+		dropped = append(dropped, fmt.Sprintf("audio %d (%s): not a kept language", i, a.Language))
+	}
+	return keep, dropped
+}
+
+// OriginalLanguage is the language list entry that names the file's item's
+// original language (MediaInfo.OriginalLanguage).
+const OriginalLanguage = "original"
+
+// wanted is a profile's language list resolved for one file: the base
+// languages it keeps, or all of them.
+type wanted struct {
+	all  bool
+	keep map[string]bool
+}
+
+// resolveLanguages resolves list for a file whose item's original language
+// is original. An empty list keeps every language; so does one naming the
+// original when that is unknown -- which track is the original cannot be
+// told, and a dropped one is lost with the source. Codes are compared as
+// languages: "en", "eng" and TMDB's "en" are one (pkg/lang).
+func resolveLanguages(list []string, original string) wanted {
+	if len(list) == 0 {
+		return wanted{all: true}
+	}
+	w := wanted{keep: map[string]bool{}}
+	for _, c := range list {
+		if strings.EqualFold(strings.TrimSpace(c), OriginalLanguage) {
+			b := baseLanguage(original)
+			if b == "" {
+				return wanted{all: true}
+			}
+			w.keep[b] = true
+		} else if b := baseLanguage(c); b != "" {
+			w.keep[b] = true
 		}
 	}
-	return keep
+	return w
+}
+
+// names reports whether code is a language w keeps by name.
+func (w wanted) names(code string) bool {
+	b := baseLanguage(code)
+	return b != "" && w.keep[b]
+}
+
+// keeps reports whether a track tagged code stays: every track when w
+// keeps all, else one in a kept language or untagged.
+func (w wanted) keeps(code string) bool {
+	return w.all || baseLanguage(code) == "" || w.names(code)
+}
+
+// baseLanguage is code's ISO 639-1 base language ("ja" for "jpn" or
+// "ja-JP"), "" for an untagged, "und" or unknown code.
+func baseLanguage(code string) string {
+	t, ok := lang.Normalize(code)
+	if !ok {
+		return ""
+	}
+	b, _, _ := strings.Cut(string(t), "-")
+	return strings.ToLower(b)
 }
 
 // channels is a track's channel count, stereo when the probe has none.
@@ -712,9 +781,13 @@ func sidecarSuffix(s transcode.SubtitleStream, ext string) string {
 // becomes an .srt sidecar and every ASS one an .ass sidecar, one per name;
 // anything else is dropped and named. Plan holds a file with a bitmap
 // stream before it gets here.
-func planSubtitles(ss []transcode.SubtitleStream) (sidecars []SidecarPlan, dropped []string) {
+func planSubtitles(ss []transcode.SubtitleStream, languages wanted) (sidecars []SidecarPlan, dropped []string) {
 	taken := map[string]bool{}
 	for i, s := range ss {
+		if !languages.keeps(s.Language) {
+			dropped = append(dropped, fmt.Sprintf("subtitle %d (%s %q %s): not a kept language", i, s.Codec, s.Title, s.Language))
+			continue
+		}
 		format := ""
 		switch {
 		case slices.Contains(assSubtitles, s.Codec):

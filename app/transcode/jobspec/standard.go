@@ -29,10 +29,11 @@ import (
 func StandardProfile(name, hash string, spec transcodev1alpha1.TranscodeProfileSpec) standard.Profile {
 	return standard.Profile{
 		Name: name, Hash: hash, Quality: spec.QualityOrDefault(),
-		Languages: spec.Audio.Languages, NeverTranscodeModifiers: spec.Policy.NeverTranscodeModifiers,
-		KeepCodecs:  spec.Policy.KeepCodecs,
-		Container:   transcode.ContainerMP4, // the standard writes MP4 (OutputContainer)
-		MinDuration: MinDuration(spec.Policy),
+		Languages: spec.Audio.Languages, SubtitleLanguages: spec.Subtitles.Languages,
+		NeverTranscodeModifiers: spec.Policy.NeverTranscodeModifiers,
+		KeepCodecs:              spec.Policy.KeepCodecs,
+		Container:               transcode.ContainerMP4, // the standard writes MP4 (OutputContainer)
+		MinDuration:             MinDuration(spec.Policy),
 	}
 }
 

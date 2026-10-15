@@ -47,13 +47,14 @@ const ProfileTagKey = "CLUSTARR_PROFILE"
 // CLUSTARR_PROFILE that makes a file "already transcoded", is set from
 // catalog's records (recordedTag), so a transcoded file is skipped here as
 // the worker's probe of it would be.
-func MediaInfoOf(path string, mf *catalogv1alpha1.MediaFile, st *catalogv1alpha1.MediaFileStatus, tag string) (transcode.MediaInfo, error) {
+func MediaInfoOf(path string, mf *catalogv1alpha1.MediaFile, st *catalogv1alpha1.MediaFileStatus, tag, original string) (transcode.MediaInfo, error) {
 	info, err := transcode.FromSummary(path, st.MediaInfo)
 	if err != nil {
 		return transcode.MediaInfo{}, err
 	}
 	info.Format.SizeBytes = mf.Spec.SizeBytes
 	info.Modifier = string(mf.Spec.Quality.Modifier)
+	info.OriginalLanguage = original
 	if t := recordedTag(st, tag); t != "" {
 		info.Tags = map[string]string{ProfileTagKey: t}
 	}
@@ -137,14 +138,14 @@ type PlanFailure struct{ Reason, Message string }
 // worker's own plan is, so status.transcode.plan.planHash is the hash of the
 // plan the worker runs.
 func PlanFor(source string, tp *transcodev1alpha1.TranscodeProfile, hash string, mf *catalogv1alpha1.MediaFile,
-	st *catalogv1alpha1.MediaFileStatus, hardware *transcodev1alpha1.Hardware, dev Device,
+	st *catalogv1alpha1.MediaFileStatus, hardware *transcodev1alpha1.Hardware, dev Device, original string,
 ) (Planning, *PlanFailure) {
 	source = filepath.Clean(source)
 	out, err := jobspec.OutputPath(source, tp.Name, jobspec.OutputContainer, jobspec.ReplaceSource(tp.Spec.Policy))
 	if err != nil {
 		return Planning{}, &PlanFailure{ReasonInvalidSource, fmt.Sprintf("cannot place the output: %v", err)}
 	}
-	info, err := MediaInfoOf(source, mf, st, Tag(tp.Name, hash))
+	info, err := MediaInfoOf(source, mf, st, Tag(tp.Name, hash), original)
 	if err != nil {
 		return Planning{}, &PlanFailure{ReasonInvalidSource, fmt.Sprintf("planning failed: %v", err)}
 	}

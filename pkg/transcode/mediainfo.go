@@ -217,6 +217,10 @@ type MediaInfo struct {
 	// derive. The controller attaches it when it builds the MediaInfo it
 	// passes to Plan. Needed for PolicySpec.NeverTranscodeModifiers.
 	Modifier string
+	// OriginalLanguage is the file's item's original language (TMDB's,
+	// "ja"), "" when unknown: the standard's "original" (Profile.Languages).
+	// Not probed; the planner and the worker set it from the item.
+	OriginalLanguage string
 }
 
 // FromSummary builds Plan's input model from the probe summary alone --

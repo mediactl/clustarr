@@ -103,10 +103,27 @@ type EncoderLimit struct {
 
 // AudioSpec is what a profile decides about audio: which languages to keep.
 type AudioSpec struct {
-	// Languages keeps only audio in these languages (commentary always, and
-	// every track when none matches); empty keeps all. The kept tracks are
+	// Languages keeps only audio in these languages -- ISO 639-1 or 639-2
+	// codes ("en", "eng"), compared as languages, and "original", the
+	// file's movie's or series' original language -- plus untagged tracks
+	// and commentary in a kept language; every track when none but
+	// commentary matches, or when "original" is listed and the item's
+	// original language is unknown. Empty keeps all. The kept tracks are
 	// copied when Apple TV plays them directly (AAC, AC-3, E-AC-3), else
-	// encoded to AAC: the standard decides, not the profile.
+	// encoded to AAC: the standard decides, not the profile. A dropped track
+	// is gone once the output replaces its source.
+	// +optional
+	Languages []string `json:"languages,omitempty"`
+}
+
+// SubtitleSpec is what a profile decides about subtitles: which languages
+// become sidecars.
+type SubtitleSpec struct {
+	// Languages keeps only subtitles in these languages, as
+	// audio.languages names them ("original" included), plus untagged ones;
+	// a forced track in a kept language stays forced (<stem>.en.forced.srt).
+	// Empty keeps all. An image subtitle in a dropped language holds no
+	// file for OCR.
 	// +optional
 	Languages []string `json:"languages,omitempty"`
 }
@@ -241,6 +258,11 @@ type TranscodeProfileSpec struct {
 	// +optional
 	// +kubebuilder:default={}
 	Audio AudioSpec `json:"audio,omitempty"`
+
+	// Subtitles decides which subtitle languages are kept.
+	// +optional
+	// +kubebuilder:default={}
+	Subtitles SubtitleSpec `json:"subtitles,omitempty"`
 
 	// Policy decides which files are transcoded and what happens afterwards.
 	// +optional

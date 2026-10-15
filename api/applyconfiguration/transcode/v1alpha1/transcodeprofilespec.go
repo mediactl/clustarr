@@ -57,6 +57,8 @@ type TranscodeProfileSpecApplyConfiguration struct {
 	Hardware *transcodev1alpha1.Hardware `json:"hardware,omitempty"`
 	// Audio decides which audio languages are kept.
 	Audio *AudioSpecApplyConfiguration `json:"audio,omitempty"`
+	// Subtitles decides which subtitle languages are kept.
+	Subtitles *SubtitleSpecApplyConfiguration `json:"subtitles,omitempty"`
 	// Policy decides which files are transcoded and what happens afterwards.
 	Policy *PolicySpecApplyConfiguration `json:"policy,omitempty"`
 	// Resources are the encode container's resource requirements. The default
@@ -148,6 +150,14 @@ func (b *TranscodeProfileSpecApplyConfiguration) WithHardware(value transcodev1a
 // If called multiple times, the Audio field is set to the value of the last call.
 func (b *TranscodeProfileSpecApplyConfiguration) WithAudio(value *AudioSpecApplyConfiguration) *TranscodeProfileSpecApplyConfiguration {
 	b.Audio = value
+	return b
+}
+
+// WithSubtitles sets the Subtitles field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Subtitles field is set to the value of the last call.
+func (b *TranscodeProfileSpecApplyConfiguration) WithSubtitles(value *SubtitleSpecApplyConfiguration) *TranscodeProfileSpecApplyConfiguration {
+	b.Subtitles = value
 	return b
 }
 

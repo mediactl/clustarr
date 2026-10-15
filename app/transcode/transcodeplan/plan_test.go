@@ -115,7 +115,7 @@ func TestAWindowGrantPlansFromTheStoredProbe(t *testing.T) {
 	assert.Equal(t, GrantConfirm, d.Grant)
 
 	// The plan is the standard's own for the stored summary.
-	p, fail := PlanFor(source, in.Eligibility.Profile, in.Eligibility.Hash, in.File, in.Draft, nil, Device{})
+	p, fail := PlanFor(source, in.Eligibility.Profile, in.Eligibility.Hash, in.File, in.Draft, nil, Device{}, "")
 	require.Nil(t, fail)
 	assert.Equal(t, p.Plan.Hash(), b.Plan.PlanHash)
 

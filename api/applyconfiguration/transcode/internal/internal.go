@@ -136,6 +136,15 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         scalar: boolean
       default: true
+- name: com.github.mediactl.clustarr.api.transcode.v1alpha1.SubtitleSpec
+  map:
+    fields:
+    - name: languages
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: atomic
 - name: com.github.mediactl.clustarr.api.transcode.v1alpha1.TranscodeProfile
   map:
     fields:
@@ -228,6 +237,10 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: selector
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.LabelSelector
+    - name: subtitles
+      type:
+        namedType: com.github.mediactl.clustarr.api.transcode.v1alpha1.SubtitleSpec
+      default: {}
     - name: ttlSecondsAfterFinished
       type:
         scalar: numeric

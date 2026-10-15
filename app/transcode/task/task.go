@@ -62,20 +62,25 @@ type Inputs struct {
 // replaces v1's Job, Seq its Attempt, and Inputs are what the record is
 // matched by.
 type Task struct {
-	File            schema.Ref      `json:"file"`
-	Seq             int64           `json:"seq"`
-	Class           string          `json:"class"`
-	Profile         Profile         `json:"profile"`
-	SourcePath      string          `json:"sourcePath"`
-	SourceProbeHash string          `json:"sourceProbeHash"`
-	SourceSizeBytes int64           `json:"sourceSizeBytes"`
-	SourceModifier  string          `json:"sourceModifier,omitempty"`
-	OutputPath      string          `json:"outputPath"`
-	Root            RootFolder      `json:"root"`
-	OutputRoot      string          `json:"outputRoot,omitempty"`
-	Engine          string          `json:"engine,omitempty"`
-	PlanHash        string          `json:"planHash,omitempty"`
-	Deadline        metav1.Duration `json:"deadline"`
+	File            schema.Ref `json:"file"`
+	Seq             int64      `json:"seq"`
+	Class           string     `json:"class"`
+	Profile         Profile    `json:"profile"`
+	SourcePath      string     `json:"sourcePath"`
+	SourceProbeHash string     `json:"sourceProbeHash"`
+	SourceSizeBytes int64      `json:"sourceSizeBytes"`
+	SourceModifier  string     `json:"sourceModifier,omitempty"`
+	// OriginalLanguage is the file's movie's or series' original language
+	// (TMDB's, "ja"), "" when unknown: the standard's "original" in a
+	// profile's language lists, which no probe can read, so the worker plans
+	// as the manager did (transcode.MediaInfo.OriginalLanguage).
+	OriginalLanguage string          `json:"originalLanguage,omitempty"`
+	OutputPath       string          `json:"outputPath"`
+	Root             RootFolder      `json:"root"`
+	OutputRoot       string          `json:"outputRoot,omitempty"`
+	Engine           string          `json:"engine,omitempty"`
+	PlanHash         string          `json:"planHash,omitempty"`
+	Deadline         metav1.Duration `json:"deadline"`
 	// Graft is an audio graft riding along with this transcode (anime
 	// dual-audio, phase 4 addendum; joined again by F7.2).
 	Graft  *grafttask.Task `json:"graft,omitempty"`

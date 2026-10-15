@@ -35,13 +35,18 @@ const maxMessage = 1024
 // Inputs is everything Plan reads; the adapter gathers it (§3.5: Plan is
 // pure).
 type Inputs struct {
-	File         *catalogv1alpha1.MediaFile
-	Prev         *catalogv1alpha1.TranscodeState  // v.Prev.Transcode
-	Draft        *catalogv1alpha1.MediaFileStatus // v.Draft, after the probe planner
-	ProbeCurrent bool
-	Eligibility  Eligibility
-	Ledger       Ledger
-	Now          metav1.Time
+	File *catalogv1alpha1.MediaFile
+	// OriginalLanguage is the file's movie's or series' original language
+	// (itemread.OriginalLanguage), "" when unknown: the standard's
+	// "original" in a profile's language lists, carried to the worker in
+	// the task.
+	OriginalLanguage string
+	Prev             *catalogv1alpha1.TranscodeState  // v.Prev.Transcode
+	Draft            *catalogv1alpha1.MediaFileStatus // v.Draft, after the probe planner
+	ProbeCurrent     bool
+	Eligibility      Eligibility
+	Ledger           Ledger
+	Now              metav1.Time
 
 	// Record is the file's clustarr-transcodes record, read while the block
 	// is in flight, a dispatch grant is held, or a withdrawn dispatch's fact
@@ -281,7 +286,7 @@ func planWindow(in Inputs) Decision {
 		b.Phase, b.Reason, b.Message = catalogv1alpha1.TranscodePhasePending, e.Pending, e.Why
 		return Decision{Block: b, Grant: GrantConfirm}
 	}
-	p, fail := PlanFor(in.File.Spec.Path, e.Profile, e.Hash, in.File, in.Draft, nil, in.Ledger.Device)
+	p, fail := PlanFor(in.File.Spec.Path, e.Profile, e.Hash, in.File, in.Draft, nil, in.Ledger.Device, in.OriginalLanguage)
 	switch {
 	case fail != nil:
 		b.Phase, b.Reason, b.Message, b.Blocked = catalogv1alpha1.TranscodePhaseFailed, fail.Reason, truncate(fail.Message, maxMessage), true

@@ -96,7 +96,7 @@ func planDispatch(in Inputs) Decision {
 		return d
 	}
 	class := in.Ledger.Class
-	p, fail := PlanFor(in.File.Spec.Path, e.Profile, e.Hash, in.File, in.Draft, &class, in.Ledger.Device)
+	p, fail := PlanFor(in.File.Spec.Path, e.Profile, e.Hash, in.File, in.Draft, &class, in.Ledger.Device, in.OriginalLanguage)
 	switch {
 	case fail != nil:
 		b.Phase, b.Blocked, b.Reason, b.Message = catalogv1alpha1.TranscodePhaseFailed, true, fail.Reason, truncate(fail.Message, maxMessage)
@@ -214,5 +214,6 @@ func taskFor(in Inputs, b *catalogv1alpha1.TranscodeState) (*task.Task, error) {
 	if err != nil {
 		return nil, err
 	}
+	t.OriginalLanguage = in.OriginalLanguage
 	return &t, nil
 }

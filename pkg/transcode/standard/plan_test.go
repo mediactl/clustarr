@@ -250,8 +250,10 @@ func TestAudioRules(t *testing.T) {
 	assert.Equal(t, []AudioPlan{
 		{SourceIndex: 0, Action: "aac", Channels: 2, Layout: "stereo", BitRate: 160000, Language: "eng", Title: "Stereo", Default: true},
 		{SourceIndex: 0, Action: "copy", Language: "eng"},
-		{SourceIndex: 4, Action: "copy", Language: "fre", Title: "Director's Commentary", Comment: true},
-	}, p.Audio, "eng: the E-AC-3 is primary, the FLAC and DTS mixes dropped; fre AC-3 dropped by languages; the commentary kept")
+	}, p.Audio, "eng: the E-AC-3 is primary, the FLAC and DTS mixes dropped; fre AC-3 and the French commentary dropped by languages")
+	// Commentary stays only in a kept language (the owner, 2026-10-15;
+	// before, commentary in every language was kept).
+	assert.Contains(t, p.Dropped, "audio 4 (fre): not a kept language")
 }
 
 func TestLanguagesNeverLeaveAFileSilent(t *testing.T) {
@@ -503,7 +505,7 @@ func TestPlanAudioLayout(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got := planAudio(tc.in, nil)
+			got, _ := planAudio(tc.in, wanted{all: true})
 			require.Len(t, got, len(tc.want))
 			for i, w := range tc.want {
 				g := got[i]
@@ -524,14 +526,14 @@ func TestPlanAudioLayout(t *testing.T) {
 func TestPlanAudioKeepsTheSourcesDefaultLanguage(t *testing.T) {
 	en, ja := aud("aac", 2, "en", ""), aud("aac", 2, "ja", "")
 	ja.Disposition.Default = true
-	got := planAudio([]transcode.AudioStream{en, ja}, nil)
+	got, _ := planAudio([]transcode.AudioStream{en, ja}, wanted{all: true})
 	require.Len(t, got, 2)
 	assert.False(t, got[0].Default)
 	assert.True(t, got[1].Default)
 }
 
 func TestTheBitRatesAndLayouts(t *testing.T) {
-	got := planAudio([]transcode.AudioStream{aud("dts", 8, "en", "")}, nil)
+	got, _ := planAudio([]transcode.AudioStream{aud("dts", 8, "en", "")}, wanted{all: true})
 	require.Len(t, got, 2)
 	assert.Equal(t, int64(160000), got[0].BitRate)
 	assert.Equal(t, "stereo", got[0].Layout)
@@ -568,7 +570,7 @@ func TestPlanSubtitles(t *testing.T) {
 		sub("eia_608", "en", "", false, false),          // 9: dropped, unknown text codec
 		sub("subrip", "pt-BR", "", false, false),        // 10: pt.srt (the region dropped)
 		sub("subrip", "und", "", false, false),          // 11: srt (no language)
-	})
+	}, wanted{all: true})
 	assert.Equal(t, []SidecarPlan{
 		{SourceIndex: 0, Format: SidecarSRT, Codec: "subrip", Suffix: "en.srt"},
 		{SourceIndex: 1, Format: SidecarSRT, Codec: "subrip", Suffix: "en.sdh.srt"},
@@ -587,7 +589,7 @@ func TestPlanSubtitles(t *testing.T) {
 }
 
 func TestAnSDHAssTrackIsNamedSDH(t *testing.T) {
-	sidecars, _ := planSubtitles([]transcode.SubtitleStream{sub("ass", "en", "", false, true)})
+	sidecars, _ := planSubtitles([]transcode.SubtitleStream{sub("ass", "en", "", false, true)}, wanted{all: true})
 	require.Len(t, sidecars, 1)
 	assert.Equal(t, "en.sdh.ass", sidecars[0].Suffix)
 }
@@ -631,7 +633,7 @@ func TestSubtitleFlagsAreReadFromTheTitleToo(t *testing.T) {
 		sub("subrip", "de", "Deutsch HI", false, false),
 		sub("subrip", "fr", "CC", false, false),
 		sub("subrip", "es", "Accented", false, false), // "cc" inside a word is no flag
-	})
+	}, wanted{all: true})
 	var suffixes []string
 	for _, s := range sidecars {
 		suffixes = append(suffixes, s.Suffix)

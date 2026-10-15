@@ -135,11 +135,22 @@ argv engine, no `--worker-engine`, and no `ffmpeg`, `ffprobe` or `par2` in
 any image (ADR-0017; `images/distroless/stage.sh` refuses all three;
 `TestTheNativeImageCarriesNoMediaExecutable`†). A TranscodeProfile
 names no encoder setting: `quality`, `container` (ignored since
-`standard.Version` 2), `audio.languages`,
+`standard.Version` 2), `audio.languages`, `subtitles.languages` (hashed
+only when set, so a profile keeping every subtitle kept its hash),
 `policy.neverTranscodeModifiers`, `policy.keepCodecs` (hashed as a set
 without `hevc`, which is always kept), `policy.minDuration` and
 `policy.maxOutputToSourcePercent` are the standard's inputs, and with
-`standard.Version` the only things `status.hash` covers. The size limit
+`standard.Version` the only things `status.hash` covers. The language lists
+(2026-10-15, the owner's English-plus-original audio and English
+subtitles) compare codes as languages (`pkg/lang`: "en", "eng", TMDB's
+"en"), and `original` is the movie's or series' original language, which
+the transcode adapter's Gather reads (`readItem`, an episode's through its
+series) and the task carries to the worker (`task.OriginalLanguage`,
+`transcode.MediaInfo.OriginalLanguage`) so both plan alike; an unknown
+original keeps every audio track. Untagged tracks stay, commentary only in
+a kept language, and an image subtitle in a dropped language holds no
+file for OCR. A dropped track is gone once the output replaces the
+source. The size limit
 holds an encode only: a remux adds the AAC 2.0 companion, so it is a little
 larger by design (`worker.outputTooLarge`). A file is planned
 again at dispatch whenever its plan would differ (a profile edit, another

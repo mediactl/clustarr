@@ -31,6 +31,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
+	"github.com/mediactl/clustarr/app/catalog/itemread"
 	"github.com/mediactl/clustarr/app/remediation"
 	"github.com/mediactl/clustarr/app/remediation/graft"
 	"github.com/mediactl/clustarr/app/transcode/graftplan"
@@ -62,11 +63,11 @@ func (a *Adapter) Gather(ctx context.Context, env *remediation.Env, v *remediati
 		return in, remediation.Transient(fmt.Errorf("transcode: list TranscodeProfiles: %w", err))
 	}
 	in.Profiles = profiles.Items
-	exists, err := itemExists(ctx, env.Reader, v.File)
+	exists, original, err := readItem(ctx, env.Reader, v.File)
 	if err != nil {
 		return in, remediation.Transient(err)
 	}
-	in.ItemExists = exists
+	in.ItemExists, in.OriginalLanguage = exists, original
 	b := v.Prev.Transcode
 	if in.Ledger.Grant == transcodeplan.GrantDispatch ||
 		b != nil && b.Phase == catalogv1alpha1.TranscodePhaseQueued && b.JoinedGraft != nil {
@@ -143,9 +144,11 @@ func (a *Adapter) gatherDispatch(ctx context.Context, env *remediation.Env, v *r
 	return nil
 }
 
-// itemExists Gets the file's Movie or Episode from the cache: NotFound is
-// false, any other error is returned.
-func itemExists(ctx context.Context, r client.Reader, mf *catalogv1alpha1.MediaFile) (bool, error) {
+// readItem reads mf's movie or episode: whether it exists, and its
+// original language -- an episode's through its series
+// (itemread.OriginalLanguage) -- the standard's "original" in a profile's
+// language lists (transcodeplan.Inputs.OriginalLanguage). "" when unknown.
+func readItem(ctx context.Context, r client.Reader, mf *catalogv1alpha1.MediaFile) (exists bool, original string, err error) {
 	key := types.NamespacedName{Namespace: mf.Namespace, Name: mf.Spec.MediaRef.Name}
 	var obj client.Object
 	switch mf.Spec.MediaRef.Kind {
@@ -154,15 +157,15 @@ func itemExists(ctx context.Context, r client.Reader, mf *catalogv1alpha1.MediaF
 	case commonv1.MediaKindEpisode:
 		obj = &catalogv1alpha1.Episode{}
 	default:
-		return false, nil
+		return false, "", nil
 	}
 	switch err := r.Get(ctx, key, obj, client.UnsafeDisableDeepCopy); {
 	case apierrors.IsNotFound(err):
-		return false, nil
+		return false, "", nil
 	case err != nil:
-		return false, fmt.Errorf("transcode: get %s %s: %w", mf.Spec.MediaRef.Kind, key, err)
+		return false, "", fmt.Errorf("transcode: get %s %s: %w", mf.Spec.MediaRef.Kind, key, err)
 	}
-	return true, nil
+	return true, itemread.OriginalLanguage(ctx, r, obj), nil
 }
 
 // statFiles stats spec.path and, when it is gone, the last dispatch's

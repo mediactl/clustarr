@@ -365,6 +365,7 @@ func (r *runner) run(ctx context.Context) error {
 	}
 	info.Path = local
 	info.Modifier = r.t.SourceModifier
+	info.OriginalLanguage = r.t.OriginalLanguage
 	if len(info.Video) > 0 {
 		r.resolution = resolutionClass(info.Video[0].Height)
 	}

@@ -43,6 +43,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &transcodev1alpha1.GPUSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("PolicySpec"):
 		return &transcodev1alpha1.PolicySpecApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("SubtitleSpec"):
+		return &transcodev1alpha1.SubtitleSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("TranscodeProfile"):
 		return &transcodev1alpha1.TranscodeProfileApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("TranscodeProfileSpec"):
