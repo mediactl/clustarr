@@ -50,7 +50,8 @@ import (
 // colour rule -- so files not yet transcoded are planned under the new
 // standard. Files already transcoded are final and are never redone.
 // 2: the MP4 layout (2026-10-06 MP4 standard design).
-// 3: policy.keepCodecs -- 8-bit SDR H.264 copied when a profile keeps it.
+// 3: policy.keepCodecs -- 8-bit SDR H.264 copied when a profile keeps it;
+// and a source transcoded elsewhere is remuxed, never encoded a second time.
 const Version = 3
 
 // Profile is what a TranscodeProfile decides under the standard.
@@ -310,6 +311,13 @@ func Plan(info transcode.MediaInfo, profile Profile, hw Hardware) Result {
 		p.Video = VideoPlan{SourceIndex: int32(vi), Action: "copy"}
 		p.Expect.VideoCodec, p.Expect.PixelFormat = v.Codec, v.PixFmt
 		return p
+	}
+	// A source another tool transcoded (an FFmpeg HEVC or AV1 encode:
+	// commonv1.MediaInfo.TranscodedElsewhere, Tdarr's QSV MKVs on the owner's
+	// library) is final: remuxed above when its video is compliant, never
+	// encoded a second time (owner, 2026-10-15).
+	if (&commonv1.MediaInfo{VideoEncoder: v.Encoder}).TranscodedElsewhere() {
+		return skip(p, "transcoded elsewhere ("+v.Encoder+"): final, never encoded a second time")
 	}
 	p.Decision = DecisionEncode
 	p.Reason = "encode to HEVC Main 10"

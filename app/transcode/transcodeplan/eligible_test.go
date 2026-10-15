@@ -76,6 +76,14 @@ func TestEligibleFollowsTheWinningProfile(t *testing.T) {
 		assert.True(t, got.Eligible, "a %s block records no transcode: %s", ph, got.Why)
 	}
 
+	// Another tool's HEVC encode (Tdarr's QSV MKVs) is final but still
+	// eligible: the standard remuxes it into the MP4 layout, and never
+	// encodes it a second time (owner, 2026-10-15).
+	elsewhere := eligibleFile(probed("ph-1"))
+	elsewhere.Status.MediaInfo.VideoEncoder = "Lavc61.19.100 hevc_qsv"
+	got = Eligible(elsewhere, all)
+	assert.True(t, got.Eligible, "another tool's HEVC is remuxed: %s", got.Why)
+
 	for _, tc := range []struct {
 		name    string
 		mutate  func(*File)
@@ -89,7 +97,6 @@ func TestEligibleFollowsTheWinningProfile(t *testing.T) {
 		{name: "a standalone graft rewrites it", mutate: func(f *File) { f.StandaloneGraft = true }, pending: ReasonGrafting},
 		{name: "transcode swapped it in", mutate: func(f *File) { f.MF.Spec.Original = new(false) }},
 		{name: "it carries CLUSTARR_PROFILE", mutate: func(f *File) { f.Status.MediaInfo.TranscodeProfile = "hevc@0ld" }},
-		{name: "another tool encoded HEVC", mutate: func(f *File) { f.Status.MediaInfo.VideoEncoder = "Lavc61.19.100 hevc_qsv" }},
 		{name: "a kept copy was recorded under any hash", mutate: func(f *File) {
 			f.Status.Transcode = &catalogv1alpha1.TranscodeState{Phase: catalogv1alpha1.TranscodePhaseSucceeded, ProfileTag: "hevc@0ld"}
 		}},

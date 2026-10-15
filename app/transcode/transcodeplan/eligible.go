@@ -87,7 +87,7 @@ func Eligible(f File, profiles []transcodev1alpha1.TranscodeProfile) Eligibility
 		e.Why = "its winning profile is Invalid: " + msg
 	case !f.ItemExists:
 		e.Why = "its " + string(f.MF.Spec.MediaRef.Kind) + " is gone"
-	case view.Transcoded() || AlreadyTranscoded(view, e.Profile.Name):
+	case AlreadyTranscoded(view, e.Profile.Name):
 		e.Why = ReasonTranscoded
 	case view.Status.ProbeHash == "" || view.Status.MediaInfo == nil:
 		e.Why, e.Pending = "never probed", ReasonUnprobed

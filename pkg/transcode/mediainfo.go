@@ -150,6 +150,10 @@ type VideoStream struct {
 	Duration                                              time.Duration
 	Disposition                                           Disposition
 	Language, Title                                       string
+	// Encoder is the stream's ENCODER tag, the probe summary's videoEncoder
+	// (first video stream only): an FFmpeg HEVC or AV1 encoder there marks a
+	// source another tool transcoded (commonv1.MediaInfo.TranscodedElsewhere).
+	Encoder string
 }
 
 // AudioStream is one audio stream of a MediaInfo.
@@ -262,6 +266,7 @@ func FromSummary(path string, mi *commonv1.MediaInfo) (MediaInfo, error) {
 		FrameRate:   Rational{Num: int64(mi.FpsMilli), Den: 1000},
 		Duration:    duration,
 		HDR:         HDRInfo{Format: mi.Hdr},
+		Encoder:     mi.VideoEncoder,
 	}
 	colour := hdrColour(mi.Hdr)
 	v.ColorPrimaries, v.ColorTransfer, v.ColorSpace, v.ColorRange = colour.primaries, colour.transfer, colour.space, colour.rng
@@ -375,6 +380,9 @@ func FromProbe(mi *commonv1.MediaInfo, raw *mediainfo.Raw) (MediaInfo, error) {
 				// The summary's, not raw's bit_rate: a Matroska stream has
 				// none, and the NVENC cap must read what FromSummary reads.
 				vs.BitRateKbps = mi.VideoBitrateKbps
+				// The summary's ENCODER tag too, so the worker plans as the
+				// controller did (the standard's transcoded-elsewhere rule).
+				vs.Encoder = mi.VideoEncoder
 				vs.HDR = HDRInfo{
 					Format:           mi.Hdr,
 					MasteringDisplay: raw.MasteringDisplay,

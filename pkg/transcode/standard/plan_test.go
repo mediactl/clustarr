@@ -189,6 +189,27 @@ func TestKeepingH264CopiesEightBitSDRH264(t *testing.T) {
 	assert.Equal(t, DecisionEncode, Plan(info(h264, eac3), profile, cpu).Decision, "without h264 listed, it is encoded")
 }
 
+// A source another tool transcoded -- an FFmpeg HEVC or AV1 encode, Tdarr's
+// QSV MKVs on the owner's library -- is final: it is remuxed into the MP4
+// layout when its video is compliant, and never encoded again (owner,
+// 2026-10-15). An FFmpeg H.264 encode is a release format, not one.
+func TestATranscodedElsewhereSourceIsRemuxedNeverEncoded(t *testing.T) {
+	tdarr := hevc10
+	tdarr.Encoder = "Lavc61.3.100 hevc_qsv"
+	p := Plan(info(tdarr, eac3), profile, cpu)
+	require.Equal(t, DecisionCopyVideo, p.Decision, p.Reason)
+
+	uhd8 := video("hevc", "yuv420p", 8, commonv1.HdrFormatNone)
+	uhd8.Width, uhd8.Height, uhd8.Encoder = 3840, 2160, "Lavc61.3.100 hevc_qsv"
+	p = Plan(info(uhd8, eac3), profile, cpu)
+	require.Equal(t, DecisionSkip, p.Decision, "8-bit HEVC above 1080p is encoded -- but not a second time")
+	assert.Contains(t, p.Reason, "transcoded elsewhere")
+
+	x264 := h264
+	x264.Encoder = "Lavc61.11.100 libx264"
+	assert.Equal(t, DecisionEncode, Plan(info(x264, eac3), profile, cpu).Decision, "an FFmpeg H.264 encode is not a transcode")
+}
+
 func TestHDRAt1080pStaysMain10(t *testing.T) {
 	hdr := video("h264", "yuv420p10le", 10, commonv1.HdrFormatHDR10)
 	for _, hw := range []Hardware{cpu, nvenc} {

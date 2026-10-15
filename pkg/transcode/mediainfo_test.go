@@ -106,7 +106,7 @@ func rawFixture() *mediainfo.Raw {
 }
 
 func mediaInfoFixture() *commonv1.MediaInfo {
-	return &commonv1.MediaInfo{Hdr: commonv1.HdrFormatHDR10, VideoBitDepth: 10}
+	return &commonv1.MediaInfo{Hdr: commonv1.HdrFormatHDR10, VideoBitDepth: 10, VideoEncoder: "Lavc61.3.100 hevc_qsv"}
 }
 
 func TestFromProbeMapsEveryField(t *testing.T) {
@@ -124,6 +124,7 @@ func TestFromProbeMapsEveryField(t *testing.T) {
 	v := info.Video[0]
 	require.Equal(t, int32(0), v.Index)
 	require.Equal(t, "hevc", v.Codec)
+	require.Equal(t, "Lavc61.3.100 hevc_qsv", v.Encoder, "the summary's, as FromSummary reads it")
 	require.Equal(t, "Main 10", v.Profile)
 	require.Equal(t, int32(150), v.Level)
 	require.Equal(t, "yuv420p10le", v.PixFmt)

@@ -33,7 +33,8 @@ func TestFromSummaryMapsEveryPlanInput(t *testing.T) {
 	mi := &commonv1.MediaInfo{
 		Container: "matroska", VideoCodec: "h264", VideoProfile: "High 10", PixelFormat: "yuv420p10le",
 		VideoBitDepth: 10, Width: 3840, Height: 2160, FpsMilli: 23976, VideoBitrateKbps: 40000,
-		Hdr: commonv1.HdrFormatDolbyVisionHDR10, DoviProfile: &profile, DoviBLCompatID: &compat,
+		VideoEncoder: "Lavc61.3.100 hevc_qsv",
+		Hdr:          commonv1.HdrFormatDolbyVisionHDR10, DoviProfile: &profile, DoviBLCompatID: &compat,
 		RuntimeMillis: 7_261_500,
 		Audio: []commonv1.AudioStream{
 			{Index: 1, Codec: "truehd", Profile: "Dolby TrueHD + Dolby Atmos", Channels: 8, Language: "eng", Default: true},
@@ -57,6 +58,7 @@ func TestFromSummaryMapsEveryPlanInput(t *testing.T) {
 	assert.Equal(t, "h264", v.Codec)
 	assert.Equal(t, "High 10", v.Profile)
 	assert.Equal(t, "yuv420p10le", v.PixFmt)
+	assert.Equal(t, "Lavc61.3.100 hevc_qsv", v.Encoder, "the standard reads it to never encode a second time")
 	assert.Equal(t, int32(2160), v.Height)
 	assert.Equal(t, transcode.Rational{Num: 23976, Den: 1000}, v.FrameRate)
 	assert.Equal(t, commonv1.HdrFormatDolbyVisionHDR10, v.HDR.Format)

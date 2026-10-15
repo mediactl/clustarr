@@ -75,19 +75,25 @@ func Tag(profileName, profileHash string) string {
 	return fmt.Sprintf("%s@%s", profileName, profileHash)
 }
 
-// AlreadyTranscoded reports whether mf is done, for profile: a transcoded
-// file is final (CLAUDE.md, "Transcoding"; spec §5: re-transcoding is never
-// an upgrade side effect), whatever hash it was made under. That is
-// catalogv1alpha1.MediaFile.Transcoded -- spec.original false, the probe's
-// CLUSTARR_PROFILE (any profile, any hash: an earlier install's output, or
-// this profile's before an edit or a new standard.Version), or another
-// tool's HEVC or AV1 encode -- or catalog's record of a transcode by this
+// AlreadyTranscoded reports whether mf is done, for profile: transcode's
+// own output is final (CLAUDE.md, "Transcoding"; spec §5: re-transcoding is
+// never an upgrade side effect), whatever hash it was made under --
+// spec.original false, or the probe's CLUSTARR_PROFILE (any profile, any
+// hash: an earlier install's output, or this profile's before an edit or a
+// new standard.Version) -- as is catalog's record of a transcode by this
 // profile under any hash: a replaceSource=false job records it on the
 // source, whose own bytes stay untouched, and whose derived copy exists.
 // Only a block that records a transcode counts (RecordsATranscode): a
 // window block or a verdict carries the tag it was planned under.
+//
+// Another tool's HEVC or AV1 encode (MediaFile.Transcoded's third case,
+// Tdarr's QSV MKVs) is final but not done: the standard remuxes it into the
+// MP4 layout and never encodes it a second time (owner, 2026-10-15).
 func AlreadyTranscoded(mf *catalogv1alpha1.MediaFile, profile string) bool {
-	if mf.Transcoded() {
+	if mf.Spec.Original != nil && !*mf.Spec.Original {
+		return true
+	}
+	if mi := mf.Status.MediaInfo; mi != nil && mi.TranscodeProfile != "" {
 		return true
 	}
 	tr := mf.Status.Transcode
