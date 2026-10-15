@@ -40,10 +40,14 @@ type audioKey struct {
 
 // audio is §7.2.3. atrim's end is detected from the input side instead of
 // from a buffersink EOF, which ffgo's FilterGraph.Filter folds into "no more
-// frames": atrim ends output at first_pts + duration, where first_pts is the
-// pts of the first sample it passes, so once a frame starting at or after
-// that point has been pushed, atrim has emitted EOF and no later frame can
-// change the output.
+// frames": atrim ends output at first_pts + duration, and once a frame
+// starting at or after that point has been pushed, atrim has emitted EOF and
+// no later frame can change the output. first_pts is the first passed
+// frame's pts plus its start_sample before clamping, which with starti=0 is
+// always 0, the window's start: audio that starts after its picture (a
+// WEB-DL's first frame at 21 ms) counts from 0, not from that frame. The
+// frame's own pts here ended atrim early, and the next push met its EOF
+// (talos, 2026-10-15).
 func (d Decoder) audio(ctx context.Context, path string, stream int, fromS, durS float64) ([]int16, error) {
 	src, err := open(ctx, path, nthAudio(stream), fmt.Sprintf("no audio stream %d", stream), fromS)
 	if err != nil {
@@ -59,11 +63,10 @@ func (d Decoder) audio(ctx context.Context, path string, stream int, fromS, durS
 	filters := "atrim=starti=0:durationi=" + secs6(durUS) +
 		",aformat=sample_fmts=s16:sample_rates=" + strconv.Itoa(SampleRate) + ":channel_layouts=mono"
 	var (
-		g     *ffgo.FilterGraph
-		key   audioKey
-		ts    = newAudioTS()
-		first = int64(-1)
-		out   []int16
+		g   *ffgo.FilterGraph
+		key audioKey
+		ts  = newAudioTS()
+		out []int16
 	)
 	defer func() {
 		if g != nil {
@@ -107,16 +110,13 @@ func (d Decoder) audio(ctx context.Context, path string, stream int, fromS, durS
 			}
 			key = k
 		}
-		pts, n := f.PTS(), int64(f.NumSamples())
-		if first < 0 && pts+n > 0 {
-			first = max(pts, 0)
-		}
+		pts := f.PTS()
 		fs, err := g.Filter(&f)
 		if err := errors.Join(err, take(fs)); err != nil {
 			return true, fmt.Errorf("decode: %w", err)
 		}
-		end := first + ffgo.RescaleQ(durUS, us, ffgo.NewRational(1, int32(rate)))
-		return first >= 0 && pts >= end, nil // atrim has ended: nothing later is output
+		end := ffgo.RescaleQ(durUS, us, ffgo.NewRational(1, int32(rate))) // atrim's duration_tb from first_pts 0
+		return pts >= end, nil                                            // atrim has ended: nothing later is output
 	})
 	if err != nil {
 		return nil, err

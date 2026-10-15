@@ -19,9 +19,11 @@ package decode_test
 
 import (
 	"context"
+	"encoding/binary"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -50,6 +52,39 @@ func ready(t *testing.T) {
 // makes it through testmedia.Make.
 func clip(t *testing.T) string {
 	t.Helper()
+	return makeClip(t, "-f", "lavfi", "-i", "testsrc=d=10:s=320x240:r=25",
+		"-f", "lavfi", "-i", "sine=d=10:f=440", "-c:v", "libx264", "-g", "25", "-c:a", "aac", "-shortest")
+}
+
+// lateAudioClip is clip with its audio starting half a second after the
+// picture, as in WEB-DLs whose first audio frame is at 21 ms (2026-10-15).
+func lateAudioClip(t *testing.T) string {
+	t.Helper()
+	return makeClip(t, "-f", "lavfi", "-i", "testsrc=d=10:s=320x240:r=25",
+		"-itsoffset", "0.5", "-f", "lavfi", "-i", "sine=d=9.5:f=440", "-c:v", "libx264", "-g", "25", "-c:a", "aac")
+}
+
+func makeClip(t *testing.T, args ...string) string {
+	t.Helper()
+	out := filepath.Join(t.TempDir(), "clip.mkv")
+	cmd := exec.Command(ffmpeg(t), append(append([]string{"-v", "error"}, args...), out)...)
+	require.NoError(t, cmd.Run())
+	return out
+}
+
+// ffmpegAudio is the window as ffmpeg(1) decodes it, which Audio ports
+// (manager-agent split design, the analysis audio command).
+func ffmpegAudio(t *testing.T, path string, fromS, durS float64) []byte {
+	t.Helper()
+	out, err := exec.Command(ffmpeg(t), "-v", "error", "-ss", strconv.FormatFloat(fromS, 'f', -1, 64),
+		"-t", strconv.FormatFloat(durS, 'f', -1, 64), "-i", path,
+		"-map", "0:a:0", "-vn", "-sn", "-dn", "-ac", "1", "-ar", "11025", "-f", "s16le", "-").Output()
+	require.NoError(t, err)
+	return out
+}
+
+func ffmpeg(t *testing.T) string {
+	t.Helper()
 	bin, err := exec.LookPath("ffmpeg")
 	if err != nil {
 		if os.Getenv("CLUSTARR_REQUIRE_TOOLS") == "1" {
@@ -57,11 +92,15 @@ func clip(t *testing.T) string {
 		}
 		t.Skip("ffmpeg is not on PATH")
 	}
-	out := filepath.Join(t.TempDir(), "clip.mkv")
-	cmd := exec.Command(bin, "-v", "error", "-f", "lavfi", "-i", "testsrc=d=10:s=320x240:r=25",
-		"-f", "lavfi", "-i", "sine=d=10:f=440", "-c:v", "libx264", "-g", "25", "-c:a", "aac", "-shortest", out)
-	require.NoError(t, cmd.Run())
-	return out
+	return bin
+}
+
+func pcmBytes(pcm []int16) []byte {
+	b := make([]byte, 2*len(pcm))
+	for i, v := range pcm {
+		binary.LittleEndian.PutUint16(b[2*i:], uint16(v))
+	}
+	return b
 }
 
 func TestAudioDecodesTheWindow(t *testing.T) {
@@ -69,6 +108,18 @@ func TestAudioDecodesTheWindow(t *testing.T) {
 	pcm, err := decode.Decoder{}.Audio(context.Background(), clip(t), 0, 2, 5)
 	require.NoError(t, err)
 	assert.InDelta(t, 5*11025, len(pcm), 11025/10, "five seconds of mono 11,025 Hz")
+}
+
+// atrim=starti=0 counts its duration from the window's start, not from the
+// first sample it passes: a file whose audio starts after its picture
+// ended atrim before Audio stopped pushing, and the next push failed with
+// AVERROR_EOF -- every start window of 136 files on talos (2026-10-15).
+func TestAudioWindowOfLateStartingAudioIsFFmpegs(t *testing.T) {
+	ready(t)
+	p := lateAudioClip(t)
+	pcm, err := decode.Decoder{}.Audio(context.Background(), p, 0, 0, 5)
+	require.NoError(t, err)
+	assert.Equal(t, ffmpegAudio(t, p, 0, 5), pcmBytes(pcm))
 }
 
 func TestFramesOnePerSecondToTheEnd(t *testing.T) {
