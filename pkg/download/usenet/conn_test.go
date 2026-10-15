@@ -101,6 +101,27 @@ func TestDecodeArticleRoundTripsAndVerifiesTheCRC(t *testing.T) {
 	require.Equal(t, "movie.mkv", meta.FileName)
 }
 
+// A part's body is held from its decode until its batch is written: four to a
+// fetch worker, 160 workers a job on talos, 1.2 GB of the usenet engine's heap
+// (2026-10-15). Grown by doubling from nothing, a 768,000-byte part sat in a
+// 1 MiB buffer after a megabyte of smaller ones thrown away. Its =ypart header
+// names the decoded size, so the buffer is that size from the start.
+func TestDecodeArticleHoldsThePartInABufferItsOwnSize(t *testing.T) {
+	payload := partPayload(14, 768000)
+	art := stubArticle{data: payload, meta: rapidyenc.Meta{
+		FileName: "movie.mkv", FileSize: 768000, PartNumber: 1, TotalParts: 1,
+		Offset: 0, PartSize: int64(len(payload)),
+	}}
+	encoded, err := encodePart(art)
+	require.NoError(t, err)
+	wire := append(dotStuff(encoded), []byte(".\r\n")...)
+
+	got, _, err := decodeArticle(bytes.NewReader(wire), defaultMaxArticleBytes)
+	require.NoError(t, err)
+	require.Equal(t, payload, got)
+	require.Equal(t, len(payload), cap(got), "one buffer of the part's size")
+}
+
 func TestDecodeArticleRejectsACorruptedPart(t *testing.T) {
 	// pcrc32 is verified as the part decodes, so a provider serving corrupt
 	// bytes is caught here rather than by par2 half an hour later.

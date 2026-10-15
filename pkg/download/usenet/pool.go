@@ -18,7 +18,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package usenet
 
 import (
-	"bytes"
 	"cmp"
 	"context"
 	"errors"
@@ -659,18 +658,28 @@ func ctxDone(ctx context.Context) error {
 // equivalent of the io.LimitReader+ErrResponseTooLarge pattern every HTTP
 // client in this repo uses, and it exists for the same reason: a broken or
 // hostile server must not be able to decide how much memory a worker uses.
+// capWriter collects a part's decoded bytes, at most max. size is the part's
+// decoded size as its =ypart header names it, read at the first write, when
+// the header has been parsed: a body is held until its batch is written, so
+// it gets one buffer that size instead of a doubling one, which left a
+// 768,000-byte part in 1 MiB after a megabyte of discarded smaller buffers.
 type capWriter struct {
-	buf bytes.Buffer
-	n   int64
-	max int64
+	buf  []byte
+	max  int64
+	size func() int64
 }
 
 func (w *capWriter) Write(p []byte) (int, error) {
-	if w.n+int64(len(p)) > w.max {
+	if int64(len(w.buf))+int64(len(p)) > w.max {
 		return 0, fmt.Errorf("%w: more than %d decoded bytes", ErrArticleTooLarge, w.max)
 	}
-	w.n += int64(len(p))
-	return w.buf.Write(p)
+	if w.buf == nil && w.size != nil {
+		if n := w.size(); n >= int64(len(p)) && n <= w.max {
+			w.buf = make([]byte, 0, n)
+		}
+	}
+	w.buf = append(w.buf, p...)
+	return len(p), nil
 }
 
 // decodeArticle yEnc-decodes one raw article body.
@@ -681,13 +690,12 @@ func (w *capWriter) Write(p []byte) (int, error) {
 // here rather than by par2 half an hour later.
 func decodeArticle(r io.Reader, max int64) ([]byte, rapidyenc.Meta, error) {
 	dec := rapidyenc.NewDecoder(r)
-	var out capWriter
-	out.max = max
+	out := capWriter{max: max, size: func() int64 { return dec.Meta.PartSize }}
 	// The buffer must comfortably exceed rapidyenc's internal remainder, which
 	// it refuses to hand back into a shorter slice.
 	buf := make([]byte, 64<<10)
 	if _, err := io.CopyBuffer(&out, dec, buf); err != nil {
 		return nil, dec.Meta.Meta, fmt.Errorf("usenet: decode article: %w", err)
 	}
-	return out.buf.Bytes(), dec.Meta.Meta, nil
+	return out.buf, dec.Meta.Meta, nil
 }
