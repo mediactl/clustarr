@@ -24,6 +24,7 @@ import (
 	"os"
 
 	"github.com/obinnaokechukwu/ffgo"
+	"github.com/obinnaokechukwu/ffgo/avutil"
 
 	"github.com/mediactl/clustarr/pkg/transcode"
 	"github.com/mediactl/clustarr/pkg/transcode/standard"
@@ -85,11 +86,18 @@ func Verify(ctx context.Context, source, output string, exp standard.Expectation
 		checkColour(d, vids[0], exp, problem)
 	}
 	want := exp.DurationMillis
-	if want == 0 {
-		if sd, err := ffgo.NewDecoder(source); err == nil {
-			want = sd.Duration().Milliseconds()
-			_ = sd.Close()
+	if sd, err := ffgo.NewDecoder(source); err == nil {
+		container := sd.Duration().Milliseconds()
+		if want == 0 {
+			want = container
 		}
+		// The source's container duration may be a subtitle's, whose last
+		// cue outlasts the picture; the output carries subtitles as
+		// sidecars and ends with its video and audio.
+		if av := avEndMillis(sd); av > 0 && av < container-durationTolMillis && abs(want-container) <= durationTolMillis {
+			want = av
+		}
+		_ = sd.Close()
 	}
 	if got := d.Duration().Milliseconds(); want > 0 && abs(got-want) > durationTolMillis {
 		problem("duration %d ms, want %d ms (within %d ms)", got, want, durationTolMillis)
@@ -201,4 +209,39 @@ func abs(v int64) int64 {
 		return -v
 	}
 	return v
+}
+
+// avEndMillis is when d's video and audio end: the latest end of its video
+// and audio streams (attached pictures aside), by each stream's own
+// duration or, in Matroska, which records none, its DURATION tag; 0 when a
+// stream says neither. A subtitle cue can outlast the picture -- Ad
+// Astra's ends 2.6 s and Baddies East S01E11's 33 s after its video
+// (2026-10-15) -- and stretch the container's duration.
+func avEndMillis(d *ffgo.Decoder) int64 {
+	var end int64
+	for _, s := range d.Streams() {
+		if (s.Type != ffgo.MediaTypeVideo && s.Type != ffgo.MediaTypeAudio) || s.Disposition&ffgo.DispositionAttachedPic != 0 {
+			continue
+		}
+		ms := streamMillis(s)
+		if ms <= 0 {
+			return 0
+		}
+		end = max(end, ms)
+	}
+	return end
+}
+
+// streamMillis is s's duration in milliseconds: its own, else its
+// DURATION tag (Matroska's "HH:MM:SS.nnnnnnnnn"), else 0.
+func streamMillis(s *ffgo.StreamInfo) int64 {
+	if s.Duration != avutil.AV_NOPTS_VALUE && s.Duration > 0 && s.TimeBase.Den > 0 {
+		return s.Duration * 1000 * int64(s.TimeBase.Num) / int64(s.TimeBase.Den)
+	}
+	var h, m int64
+	var sec float64
+	if n, _ := fmt.Sscanf(s.Metadata["DURATION"], "%d:%d:%f", &h, &m, &sec); n == 3 {
+		return (h*3600+m*60)*1000 + int64(sec*1000)
+	}
+	return 0
 }
