@@ -512,6 +512,10 @@ func EngineCommand(dc *downloadv1alpha1.DownloadClient, dataDir, scratchDir stri
 // engine's memory was ever recorded (2026-10-15).
 const EngineMetricsPort = 8443
 
+// torrentFileIOEnv picks anacrolix/torrent's file storage I/O; read once at
+// the engine's start, by the package's init.
+const torrentFileIOEnv = "TORRENT_STORAGE_DEFAULT_FILE_IO"
+
 // metrics is the engine container's metrics port, and the flag that serves
 // it as plain HTTP when the manager serves its own that way.
 func (rt EngineRuntime) metrics(args []string) ([]string, *corev1ac.ContainerPortApplyConfiguration) {
@@ -564,6 +568,11 @@ func torrentContainer(dc *downloadv1alpha1.DownloadClient, image, dataDir, scrat
 			WithContainerPort(listenPort).
 			WithProtocol(corev1.ProtocolTCP), metricsPort).
 		WithEnv(engineEnv(rr, rt)...).
+		// anacrolix/torrent's file storage maps every data file it touches and
+		// never unmaps one (mmapFileIo, v1.61's default): 1.2 GiB of mapped
+		// files OOM-killed the engine at its 2Gi limit (talos, 2026-10-15).
+		// Classic I/O goes through the page cache, which the kernel reclaims.
+		WithEnv(corev1ac.EnvVar().WithName(torrentFileIOEnv).WithValue("classic")).
 		WithResources(resourceRequirementsAC(rr)).
 		WithSecurityContext(containerSecurityContextAC()).
 		WithVolumeMounts(mounts...)
