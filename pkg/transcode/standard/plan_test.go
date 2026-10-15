@@ -146,6 +146,23 @@ func TestCompliantVideoWithTrueHDCopiesVideoAndEncodesAudio(t *testing.T) {
 	}, p.Audio)
 }
 
+// FLAC is never kept (the owner, 2026-10-15): stereo or mono FLAC becomes
+// one AAC track, the default; surround FLAC becomes the AAC 2.0 default
+// first and an AC-3 5.1 encoded from it second.
+func TestFLACBecomesTheAACDefaultWithAnAC3CompanionForSurround(t *testing.T) {
+	aac := AudioPlan{SourceIndex: 0, Action: "aac", Channels: 2, Layout: "stereo", BitRate: 160000, Language: "eng", Title: "Stereo", Default: true}
+	assert.Equal(t, []AudioPlan{aac}, Plan(info(hevc10, audio(0, "flac", 2, "stereo", "eng")), profile, cpu).Audio)
+	for _, layout := range []struct {
+		ch   int32
+		name string
+	}{{6, "5.1(side)"}, {8, "7.1"}} {
+		assert.Equal(t, []AudioPlan{
+			aac,
+			{SourceIndex: 0, Action: "ac3", Channels: 6, Layout: "5.1", BitRate: 640000, Language: "eng", Title: "Dolby Digital 5.1"},
+		}, Plan(info(hevc10, audio(0, "flac", layout.ch, layout.name, "eng")), profile, cpu).Audio, layout.name)
+	}
+}
+
 func TestHEVC8BitIsCompliantOnlyAtTheEightBitTarget(t *testing.T) {
 	hevc8 := video("hevc", "yuv420p", 8, commonv1.HdrFormatNone)
 	stereo := audio(0, "aac", 2, "stereo", "eng")
