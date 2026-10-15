@@ -5,6 +5,8 @@ filter, so scrapes need a bearer token AND Prometheus's ServiceAccount needs
 the clustarr-metrics-reader ClusterRole below bound to it. Without that
 binding every target reports 401 and the ServiceMonitors look broken.
 The manager's certificate is self-signed at startup, hence insecureSkipVerify.
+With metrics.secure=false the pods serve plain HTTP, and the scrape sends no
+token: nothing reads one there, and it would cross the network in the clear.
 */}}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -40,11 +42,16 @@ spec:
   endpoints:
   - port: metrics
     path: /metrics
+    {{- if $.Values.metrics.secure }}
     scheme: https
     interval: {{ $.Values.metrics.serviceMonitor.interval }}
     bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
     tlsConfig:
       insecureSkipVerify: true
+    {{- else }}
+    scheme: http
+    interval: {{ $.Values.metrics.serviceMonitor.interval }}
+    {{- end }}
 {{- end }}
 {{- if .Values.markers.enabled }}
 ---

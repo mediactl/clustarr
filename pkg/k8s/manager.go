@@ -73,7 +73,8 @@ type Options struct {
 	MetricsBindAddress string
 
 	// MetricsSecure serves metrics over TLS. It is on by default; turning it
-	// off is for local debugging only.
+	// off (the chart's metrics.secure) serves plain HTTP, for a scraper that
+	// cannot speak TLS to a pod, or for local debugging.
 	MetricsSecure bool
 
 	// MetricsFilterProvider wraps the metrics handler, and is how §13's

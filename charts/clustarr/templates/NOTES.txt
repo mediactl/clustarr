@@ -97,10 +97,15 @@ or the operator was already Ready beforehand.
 
 {{- if not .Values.metrics.serviceMonitor.enabled }}
 
+{{ if .Values.metrics.secure -}}
 Metrics are served on :8443 but nothing scrapes them. Set
 metrics.serviceMonitor.enabled=true if you run the Prometheus Operator, then
 bind {{ include "clustarr.fullname" . }}-metrics-reader to Prometheus's
 ServiceAccount or every scrape gets a 401.
+{{- else -}}
+Metrics are served on :8443 as plain HTTP (metrics.secure=false). Set
+metrics.serviceMonitor.enabled=true if you run the Prometheus Operator.
+{{- end }}
 {{- end }}
 
 Next: create a RootFolder and a QualityProfile, then your first Movie or

@@ -446,6 +446,7 @@ template.
 | `postgres.existingSecret` | An existing Secret (key `uri`) to use instead of the one CNPG's `bootstrap.initdb` creates. Setting it also stops the chart rendering its own `Cluster`. | `""` |
 | `cloudnative-pg.enabled` | Install the CloudNativePG operator as a chart dependency. Most clusters install it once, cluster-wide, instead -- leave this `false` and set only `postgres.enabled=true` in that case. | `false` |
 | `autoscaling.enabled` | The manager scales the queue-driven workloads through its own External Metrics API. See [Autoscaling](#autoscaling). | `true` |
+| `metrics.secure` | Serve the manager's and every agent's metrics on `:8443` over HTTPS. `false` passes `--metrics-secure=false` and serves plain HTTP, for a scraper that cannot speak TLS to a pod (Grafana Alloy's `discovery.kubelet` scrapes every declared port over http); the `ServiceMonitor`s then scrape http with no token. Anyone who can reach a pod can read its metrics then. | `true` |
 | `metrics.serviceMonitor.enabled` | Create `ServiceMonitor`s (needs the Prometheus Operator CRDs). | `false` |
 | `metrics.prometheusRule.enabled` | Create a `PrometheusRule` alerting on any NATS slow-consumer drop (`ClustarrNATSSlowConsumer`, ADR-0020 §3; needs the Prometheus Operator CRDs). | `false` |
 | `storage.data.existingClaim` | Bring your own `/data` claim instead of provisioning one. | `""` |

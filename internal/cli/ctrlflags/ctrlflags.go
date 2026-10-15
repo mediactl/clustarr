@@ -57,7 +57,7 @@ func bind(fs *pflag.FlagSet, manager bool) *k8s.Options {
 	fs.StringVar(&o.MetricsBindAddress, "metrics-bind-address", o.MetricsBindAddress,
 		`Address the Prometheus endpoint binds to. "0" disables it.`)
 	fs.BoolVar(&o.MetricsSecure, "metrics-secure", o.MetricsSecure,
-		"Serve metrics over HTTPS. Turn this off only for local debugging.")
+		"Serve metrics over HTTPS. Turn this off for a scraper that cannot speak TLS to a pod, or for local debugging.")
 	fs.StringVar(&o.HealthProbeBindAddress, "health-probe-bind-address", o.HealthProbeBindAddress,
 		`Address /healthz and /readyz bind to. "0" disables them, and with them the Kubernetes probes.`)
 	fs.StringVar(&o.PprofBindAddress, "pprof-bind-address", o.PprofBindAddress,

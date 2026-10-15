@@ -340,6 +340,11 @@ spec:
         {{- if and .natsSingleNodeFlag (eq (include "clustarr.natsSingleNode" $root) "true") }}
         {{- $args = append $args "--nats-single-node" }}
         {{- end }}
+        {{- /* Every caller is the manager or an agent, which bind
+               --metrics-secure; this template owns the metrics port below. */}}
+        {{- if not $root.Values.metrics.secure }}
+        {{- $args = append $args "--metrics-secure=false" }}
+        {{- end }}
         args:
           {{- toYaml $args | nindent 8 }}
         env:

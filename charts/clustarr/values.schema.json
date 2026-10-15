@@ -112,6 +112,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "secure": { "type": "boolean" },
         "serviceMonitor": {
           "type": "object",
           "additionalProperties": false,

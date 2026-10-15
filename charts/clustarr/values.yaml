@@ -222,6 +222,14 @@ autoscaling:
 # authn/authz filter, so Prometheus's ServiceAccount needs the
 # clustarr-metrics-reader ClusterRole (see config/prometheus/README.md).
 metrics:
+  # false serves the manager's and every agent's :8443 as plain HTTP
+  # (--metrics-secure=false), for a scraper that cannot speak TLS to a pod --
+  # one that scrapes every declared port over http, as Grafana Alloy's
+  # discovery.kubelet does -- and the ServiceMonitors below follow it. Anyone
+  # who can reach a pod can then read its metrics, so restrict that with a
+  # NetworkPolicy where it matters. markers serves plain HTTP on :8080 either
+  # way; ui serves no metrics.
+  secure: true
   serviceMonitor:
     enabled: false
     interval: 30s
