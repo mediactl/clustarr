@@ -34,6 +34,13 @@ type Prober interface {
 	ProbeAudio(ctx context.Context, path string) (AudioProbe, error)
 }
 
+// ErrNotMedia is a file the prober read and found to be no media: empty, or
+// bytes no demuxer accepts (FFmpeg's AVERROR_INVALIDDATA at open) -- a fake
+// release's "remux", or a download whose first articles never arrived. The
+// import refuses such a file as the release's fault (talos, 2026-10-15). A
+// probe that could not run (a missing file, a deadline) is not one.
+var ErrNotMedia = errors.New("mediainfo: not a media file")
+
 // ErrProbeAbandoned is a probe that outlived its deadline and the grace after
 // it: the call returned, but the work it started may still be running. A
 // Prober wraps it. The probe worker records such a probe as a non-transient

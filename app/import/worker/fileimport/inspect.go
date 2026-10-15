@@ -107,6 +107,13 @@ func blockedRejection(format string, args ...any) schema.InspectRejection {
 	return inspectRejection(commonv1.ImportClassNeedsPerson, schema.InspectKindBlocked, format, args...)
 }
 
+// notMediaRejection refuses a file the prober found is no media
+// (mediainfo.ErrNotMedia) as the release's fault: it is blocklisted and
+// searched for again, never imported under its name.
+func notMediaRejection(rel string, err error) schema.InspectRejection {
+	return inspectRejection(commonv1.ImportClassReleaseFault, "", "%s: not a playable media file: %v", rel, err)
+}
+
 func incidentalRejection(format string, args ...any) schema.InspectRejection {
 	return inspectRejection("", schema.InspectKindIncidental, format, args...)
 }
@@ -263,6 +270,9 @@ type videoFacts struct {
 	mi      *commonv1.MediaInfo
 	score   int
 	matched []string
+	// notMedia is the probe's verdict that the file is no media
+	// (mediainfo.ErrNotMedia); the caller refuses it (notMediaRejection).
+	notMedia error
 }
 
 // readVideo probes a parsed video file, corrects its quality from the probe
@@ -273,9 +283,12 @@ func (w *Worker) readVideo(
 	prof quality.Profile, originalLanguageName string,
 ) (videoFacts, error) {
 	parsed.Languages = parsed.LanguagesFor(originalLanguageName)
-	mi, err := w.probeVideo(ctx, m, path, rel)
+	mi, notMedia, err := w.probeVideo(ctx, m, path, rel)
 	if err != nil {
 		return videoFacts{}, err
+	}
+	if notMedia != nil {
+		return videoFacts{parsed: parsed, notMedia: notMedia}, nil
 	}
 	parsed.Quality, _ = quality.AugmentFromMediaInfo(parsed.Quality, mi)
 	title := sceneName
@@ -409,6 +422,11 @@ func (w *Worker) inspectMovie(
 		if err != nil {
 			return err
 		}
+		if v.notMedia != nil {
+			f.Rejections = append(f.Rejections, notMediaRejection(rel, v.notMedia))
+			insp.Files = append(insp.Files, f)
+			return nil
+		}
 		f.Parsed, f.Probe = factsOf(v.parsed), summaryOf(v.mi)
 		f.Frozen = frozenFields(v, prof)
 		nctx := catalogctx.File(ctx, base, frozenSpec(f.Frozen, task.Release.Title), v.mi)
@@ -489,6 +507,11 @@ func (w *Worker) inspectEpisodes(
 		v, err := w.readVideo(ctx, m, path, rel, plan.sceneName, parsed, plan.profile, plan.originalLanguageName)
 		if err != nil {
 			return err
+		}
+		if v.notMedia != nil {
+			f.Rejections = append(f.Rejections, notMediaRejection(rel, v.notMedia))
+			insp.Files = append(insp.Files, f)
+			return nil
 		}
 		f.Probe = summaryOf(v.mi)
 		f.Frozen = frozenFields(v, plan.profile)
@@ -586,7 +609,9 @@ func (w *Worker) inspectDonor(
 	if w.Prober == nil {
 		return fmt.Errorf("fileimport: an audio donor and this worker has no prober to judge it")
 	}
-	mi, err := w.probeVideo(ctx, m, src, relPath(root, src))
+	// A donor that is no media is left unprobed, as a failed probe always
+	// was: its plan reads that as "could not be probed".
+	mi, _, err := w.probeVideo(ctx, m, src, relPath(root, src))
 	if err != nil {
 		return err
 	}

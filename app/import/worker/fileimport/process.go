@@ -19,6 +19,7 @@ package fileimport
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"strings"
 	"time"
@@ -26,6 +27,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/mediainfo"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/release"
 )
@@ -66,11 +68,14 @@ func parseMediaFile(srcPath, releaseTitle string, kind commonv1.MediaKind) (*rel
 // probeVideo probes a video file an import is about to judge: its
 // technical description corrects the name-derived quality
 // (quality.AugmentFromMediaInfo) and names the file for its codec and
-// dynamic range (catalogctx.File). A probe failure never fails the import
-// -- an unprobeable file imports under its name-derived quality and its
-// source extension, exactly as it did before imports probed, since every
-// MediaInfo block of a preset is optional -- so it is logged and nil
-// returned. The probe gets videoProbeTimeout, and running out of it is
+// dynamic range (catalogctx.File). A file the prober found is no media
+// (mediainfo.ErrNotMedia: empty, or bytes no demuxer reads) is notMedia,
+// which the caller refuses as the release's fault: imported by name, a fake
+// release's encrypted "remuxes" and empty and zero-headed downloads reached
+// the library on talos (2026-10-15). Any other probe failure never fails the
+// import -- the file imports under its name-derived quality and its source
+// extension, as it did before imports probed, since every MediaInfo block
+// of a preset is optional -- so it is logged and nil returned. The probe gets videoProbeTimeout, and running out of it is
 // such a failure. It heartbeats on m immediately before it probes, so the
 // probe's whole bound lies inside the delivery's ack deadline however long
 // the file loop has gone since its last beat; a failed heartbeat is the
@@ -78,22 +83,26 @@ func parseMediaFile(srcPath, releaseTitle string, kind commonv1.MediaKind) (*rel
 // It probes through w.Prober, the import domain's one prober (spec
 // 2026-10-06 §6.6); a worker with none probes nothing and returns nil, nil,
 // so the file imports under its name-derived quality.
-func (w *Worker) probeVideo(ctx context.Context, m events.Message, srcPath, rel string) (*commonv1.MediaInfo, error) {
+func (w *Worker) probeVideo(ctx context.Context, m events.Message, srcPath, rel string) (mi *commonv1.MediaInfo, notMedia, err error) {
 	if w.Prober == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 	if err := heartbeat(ctx, m); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	pctx, cancel := context.WithTimeout(ctx, videoProbeTimeout)
 	defer cancel()
-	mi, _, err := w.Prober.Probe(pctx, srcPath)
-	if err != nil {
+	mi, _, perr := w.Prober.Probe(pctx, srcPath)
+	switch {
+	case errors.Is(perr, mediainfo.ErrNotMedia):
+		logging.FromContext(ctx).Warn("fileimport: the file is not media; refusing it", "source", rel, "error", perr)
+		return nil, perr, nil
+	case perr != nil:
 		logging.FromContext(ctx).Warn("fileimport: could not probe the file; importing it under its name-derived quality",
-			"source", rel, "error", err)
-		return nil, nil
+			"source", rel, "error", perr)
+		return nil, nil, nil
 	}
-	return mi, nil
+	return mi, nil, nil
 }
 
 // importText is s as a MediaFile spec field bounded at maxBytes holds it:

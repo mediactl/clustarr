@@ -28,6 +28,7 @@ import (
 	"strconv"
 
 	"github.com/obinnaokechukwu/ffgo"
+	"github.com/obinnaokechukwu/ffgo/avutil"
 	ffprobe "gopkg.in/vansante/go-ffprobe.v2"
 
 	"github.com/mediactl/clustarr/pkg/mediainfo"
@@ -45,6 +46,11 @@ func probeRaw(ctx context.Context, path string, frame bool) (*mediainfo.Raw, err
 	}
 	d, err := ffgo.NewDecoder(path, ffgo.WithAVOptions(map[string]string{"scan_all_pmts": "1"}), ffgo.WithInterrupt(ctx.Done()))
 	if err != nil {
+		// Bytes no demuxer accepts, an empty file among them: no media, which
+		// the import refuses as the release's fault (mediainfo.ErrNotMedia).
+		if avutil.IsInvalidData(err) {
+			return nil, fmt.Errorf("%w: %w", mediainfo.ErrNotMedia, err)
+		}
 		return nil, err
 	}
 	defer func() { _ = d.Close() }()

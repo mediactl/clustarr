@@ -19,12 +19,16 @@ package native
 
 import (
 	"context"
+	"math/rand/v2"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/mediainfo"
 )
 
 // The committed fixtures, read by the in-process probe as ffprobe read them
@@ -70,6 +74,30 @@ func TestProbeHEVC10bitMKV(t *testing.T) {
 	assert.False(t, mi.Subtitles[0].Forced)
 	assert.Contains(t, raw.Format.FormatName, "matroska")
 	assert.Nil(t, raw.Dovi)
+}
+
+// A file that is not media -- empty, or bytes no demuxer reads, as a fake
+// release's encrypted "remux" on talos was (2026-10-15) -- is
+// mediainfo.ErrNotMedia, which the import refuses as the release's fault. A
+// file that is not there is not one: nothing is known about its bytes.
+func TestProbeOfAFileThatIsNotMediaIsErrNotMedia(t *testing.T) {
+	dir := t.TempDir()
+	empty := filepath.Join(dir, "empty.mkv")
+	require.NoError(t, os.WriteFile(empty, nil, 0o644))
+	junk := filepath.Join(dir, "junk.mkv")
+	b := make([]byte, 1<<20)
+	r := rand.New(rand.NewPCG(1, 2))
+	for i := range b {
+		b[i] = byte(r.Uint32())
+	}
+	require.NoError(t, os.WriteFile(junk, b, 0o644))
+	for _, p := range []string{empty, junk} {
+		_, _, err := testProber(t).Probe(context.Background(), p)
+		require.ErrorIs(t, err, mediainfo.ErrNotMedia, filepath.Base(p))
+	}
+	_, _, err := testProber(t).Probe(context.Background(), filepath.Join(dir, "missing.mkv"))
+	require.Error(t, err)
+	require.NotErrorIs(t, err, mediainfo.ErrNotMedia)
 }
 
 func TestProbeMissingFileReturnsWrappedError(t *testing.T) {
