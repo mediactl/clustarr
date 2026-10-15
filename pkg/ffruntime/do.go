@@ -38,7 +38,9 @@ var (
 // within Grace, Do returns an error wrapping ErrAbandoned and ctx.Err() and
 // leaves f running; Abandoned counts it until it returns. At MaxAbandoned
 // outstanding calls Wedged closes and Do refuses every call with ErrWedged.
-// A caller records an abandoned result as non-transient (spec §6.6).
+// A caller records an abandoned result as non-transient (spec §6.6), except
+// markers', which retries the season after a delay: its abandonments are NFS
+// stalls (app/segments/worker; §6.6 as amended 2026-10-15).
 func Do(ctx context.Context, f func(context.Context) error) error {
 	select {
 	case <-Wedged():

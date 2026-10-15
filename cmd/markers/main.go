@@ -271,6 +271,7 @@ func run(args []string, getenv func(string) string) int {
 		Decoder:      decode.Decoder{Threads: decodeThreads(*f.threads, sub.MaxInFlight, runtime.GOMAXPROCS(0))},
 		Fingerprints: bus.ObjectStore(events.ObjectStoreFingerprints),
 		Records:      segments.NewStore(bus.KV(events.BucketSegments)),
+		MaxDeliver:   spec.MaxDeliver,
 	}
 	if det != nil {
 		h.Detector = det

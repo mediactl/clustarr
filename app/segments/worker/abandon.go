@@ -28,8 +28,11 @@ import (
 
 // guard wraps a task's decoder: after a call the runtime abandoned, every
 // later call fails at once with the same error (spec §6.6). An abandoned
-// call is still running in this process, so redelivering the task would
-// start another stuck call, and at ffruntime.MaxAbandoned restart the pod.
+// call is still running in this process -- blocked on an NFS read, as a
+// rule -- so the task starts no other call behind it; at
+// ffruntime.MaxAbandoned the pod restarts. The task records none of the
+// files this leaves unanalyzed and is retried after AbandonRetry, when the
+// stall has likely passed (Handler.Handle; spec §6.6 as amended 2026-10-15).
 type guard struct {
 	Decoder
 	mu        sync.Mutex

@@ -30,6 +30,7 @@ import (
 
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
+	"github.com/mediactl/clustarr/pkg/ffruntime"
 	"github.com/mediactl/clustarr/pkg/segments"
 	"github.com/mediactl/clustarr/pkg/segments/align"
 	"github.com/mediactl/clustarr/pkg/segments/decode"
@@ -58,7 +59,19 @@ type Handler struct {
 	// WrittenBy is every fingerprint's clustarr.io/written-by (ADR-0021
 	// §2); empty is "markers@<version>".
 	WrittenBy string
+	// MaxDeliver is markers-analyze's MaxDeliver: on a task's final
+	// delivery an abandonment is recorded and acknowledged rather than
+	// retried into a dead letter. 0 is events.Default()'s.
+	MaxDeliver int
 }
+
+// AbandonRetry is how long a season waits after an FFmpeg call was
+// abandoned before it is delivered again. A call is abandoned when it
+// outlives its context by ffruntime.Grace: a read blocked in the kernel on
+// an NFS stall, which ignores FFmpeg's interrupt callback, past the file's
+// 5-minute timeout -- so the stall had lasted minutes, and the next attempt
+// waits out several more.
+const AbandonRetry = 10 * time.Minute
 
 // Windows and confidences (spec §6).
 const (
@@ -109,7 +122,12 @@ const (
 // A stop cuts the task off (ctx's cause events.ErrStopping, a SIGTERM):
 // nothing more is decoded or recorded -- a cancelled decode is no Error --
 // and the task is handed back (events.Requeue), to run again from its
-// cached fingerprints without spending a delivery.
+// cached fingerprints without spending a delivery. An FFmpeg call the
+// runtime abandoned is transient, an NFS stall typically: the files it and
+// the guard left unanalyzed are not recorded, and the season is retried
+// after AbandonRetry; only on its final delivery is the file whose own call
+// was abandoned recorded as an Error, and the task acknowledged, never
+// dead-lettered.
 func (h *Handler) Handle(ctx context.Context, m events.Message) (err error) {
 	defer func() {
 		if err != nil && stopping(ctx) {
@@ -123,7 +141,7 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) (err error) {
 		return events.Discard("undecodable analyze task", err)
 	}
 	// Every decode of this task goes through dec: once one is abandoned,
-	// nothing more is decoded and the task is dead-lettered (abandon.go).
+	// nothing more is decoded, and the season is retried (abandon.go).
 	dec := &guard{Decoder: h.Decoder}
 	hh := *h
 	hh.Decoder = dec
@@ -159,14 +177,21 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) (err error) {
 			usable++
 		}
 	}
+	var deferred []deferredResult
 	for i, f := range files {
 		var res analysisResult
 		amend := false
 		switch {
 		case f.Due:
 			fctx, cancel := context.WithTimeout(ctx, orDefault(h.FileTimeout, defaultFileTimeout))
+			was := dec.failed()
 			res = h.analyze(fctx, f, movie, at(intros, i), at(endings, i), usable)
 			cancel()
+			if now := dec.failed(); was == nil && now != nil && res.err == nil {
+				// Analyzed, but a call of its own (the text detector's) was
+				// abandoned: its result is not the file's, so it is retried.
+				res = errorResult(now)
+			}
 		case f.rec != nil && at(intros, i) != nil && !hasKind(f.rec.Segments, segments.KindIntro):
 			res, amend = withIntro(f, at(intros, i), usable), true
 		default:
@@ -176,6 +201,12 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) (err error) {
 			// Cut off by the stop: nothing more is recorded.
 			return events.Requeue("markers: stopping", context.Cause(ctx))
 		}
+		if transient(res.err) {
+			// An abandoned call, or one the guard skipped after it: no
+			// Error, the season is retried.
+			deferred = append(deferred, deferredResult{f, res})
+			continue
+		}
 		analyzedTotal.WithLabelValues(res.Result, strongestSource(res)).Inc()
 		if err := h.store(ctx, task.Namespace, f, res, amend); err != nil {
 			return events.Retry(time.Minute, err)
@@ -184,15 +215,62 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) (err error) {
 	if stopping(ctx) {
 		return events.Requeue("markers: stopping", context.Cause(ctx))
 	}
-	if err := dec.failed(); err != nil {
-		return events.Discard("segments: an FFmpeg decode was abandoned; not redelivered into another stuck call", err)
+	abandon := dec.failed()
+	if abandon == nil {
+		return nil
+	}
+	if m.Attempt() < uint64(h.maxDeliver()) {
+		return events.Retry(AbandonRetry, abandon)
+	}
+	// The final delivery: retrying would dead-letter the season. The file
+	// whose own call was abandoned on it is recorded as an Error, due again
+	// in a day; the files the guard skipped stay due, for the next plan.
+	for _, d := range deferred {
+		if !abandonedHere(d.res.err) {
+			continue
+		}
+		analyzedTotal.WithLabelValues(d.res.Result, strongestSource(d.res)).Inc()
+		if err := h.store(ctx, task.Namespace, d.f, d.res, false); err != nil {
+			return events.Retry(time.Minute, err)
+		}
 	}
 	return nil
+}
+
+// deferredResult is a file's result the task did not record: a transient
+// failure (transient).
+type deferredResult struct {
+	f   *file
+	res analysisResult
 }
 
 // stopping reports a task the subscription's stop cut off.
 func stopping(ctx context.Context) bool {
 	return errors.Is(context.Cause(ctx), events.ErrStopping)
+}
+
+// transient is a file's failure the task retries rather than records: an
+// FFmpeg call the runtime abandoned, a call the guard then skipped, or one
+// refused because the process is wedged.
+func transient(err error) bool {
+	return err != nil && (errors.Is(err, errSkipped) || errors.Is(err, ffruntime.ErrAbandoned) || errors.Is(err, ffruntime.ErrWedged))
+}
+
+// abandonedHere is a file whose own FFmpeg call was abandoned, not one the
+// guard skipped after another's.
+func abandonedHere(err error) bool {
+	return !errors.Is(err, errSkipped) && errors.Is(err, ffruntime.ErrAbandoned)
+}
+
+// maxDeliver is h.MaxDeliver, else markers-analyze's in events.Default().
+func (h *Handler) maxDeliver() int {
+	if h.MaxDeliver > 0 {
+		return h.MaxDeliver
+	}
+	if c, ok := events.Default().Consumer(events.ConsumerMarkersAnalyze); ok {
+		return c.MaxDeliver
+	}
+	return 1
 }
 
 // record is the bucket's analysis of f for its probe and the current
@@ -209,10 +287,17 @@ func (h *Handler) record(ctx context.Context, f schema.AnalyzeFile) *segments.Re
 	return &r
 }
 
-// analysisResult is one file's analysis, as store records it.
+// analysisResult is one file's analysis, as store records it, and the
+// failure behind an Error.
 type analysisResult struct {
 	Result, Message string
 	Segments        []segments.Segment
+	err             error
+}
+
+// errorResult is an Error for err.
+func errorResult(err error) analysisResult {
+	return analysisResult{Result: segments.ResultError, Message: clamp(err.Error()), err: err}
 }
 
 // withIntro is f's recorded analysis with the intro its season revealed.
@@ -278,8 +363,7 @@ func endWindow(durS float64, movie bool) (fromS, lenS float64) {
 func (h *Handler) analyze(ctx context.Context, f *file, movie bool, intro, ending *align.Region, usable int) analysisResult {
 	var res analysisResult
 	if f.err != nil {
-		res.Result, res.Message = segments.ResultError, clamp(f.err.Error())
-		return res
+		return errorResult(f.err)
 	}
 	durMs := f.DurationMs
 	out := segments.FromChapters(f.Chapters, movie, f.DurationMs)
@@ -304,8 +388,7 @@ func (h *Handler) analyze(ctx context.Context, f *file, movie bool, intro, endin
 	fr, err := h.Decoder.Frames(ctx, f.Path, fromS)
 	stageSeconds.WithLabelValues("frames").Observe(time.Since(began).Seconds())
 	if err != nil {
-		res.Result, res.Message = segments.ResultError, clamp(err.Error())
-		return res
+		return errorResult(err)
 	}
 	fr = padToEnd(fr, int(f.durS-fromS))
 	for _, run := range frames.CreditRuns(frames.Stats(fr), int(fromS)) {

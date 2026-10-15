@@ -3362,11 +3362,19 @@ to:
   pile abandoned goroutines up to `ffruntime.MaxAbandoned` and restart the
   import agent about every 20 minutes, cutting in-flight imports each time;
   instead it retries on `probeFailedRetry` and the reconciler gives up after
-  `probeAbandonLimit` (§6.5.3). The same rule holds for markers' decode (an
-  abandoned decode returns `events.Discard`, so the task goes to the DLQ at
-  once instead of being redelivered into another stuck call) and caption
-  extraction (the fetch item fails non-transiently for that file and probe
-  hash, like any other extraction error);
+  `probeAbandonLimit` (§6.5.3). The same rule holds for caption extraction
+  (the fetch item fails non-transiently for that file and probe hash, like
+  any other extraction error). markers' decode followed it too -- an
+  abandoned decode returned `events.Discard`, so the season went to the DLQ
+  at once -- until 2026-10-15, when NFS stalls, not malformed files,
+  abandoned its decodes: 17 seasons were dead-lettered and never retried,
+  and 229 files of theirs recorded Errors only because the guard skipped
+  them. As amended, an abandoned decode is transient for markers: the task
+  starts no other call behind it (the guard stays), records none of the
+  files it leaves unanalyzed, and is retried after `AbandonRetry` (10 min);
+  only on its final delivery is the file whose own call was abandoned
+  recorded as an Error (due again in a day) and the task acknowledged, never
+  dead-lettered (`app/segments/worker`);
 - metric `clustarr_probe_duration_seconds{lane,outcome}`; no Kubernetes client.
 
 **fileimport**, `fileimport.NewWorker(c, bus, prober)`: new field
@@ -4140,7 +4148,8 @@ func Healthz(*http.Request) error  // healthz.Checker: error once wedged
   (a slow NFS read that completed) decrements it, so four brief stalls over a
   pod's life never add up to a restart. When the outstanding count reaches
   `MaxAbandoned` it closes `Wedged()` and refuses new calls with `ErrWedged`.
-  Callers record an `ErrAbandoned` result as non-transient (§6.6). It replaces
+  Callers record an `ErrAbandoned` result as non-transient (§6.6), except
+  markers', which retries the season (§6.6 as amended 2026-10-15). It replaces
   the process-group kill, which could not reap a child in D state either.
 - **`Report`'s paths** are the files ffgo actually mapped (read from
   `/proc/self/maps` after `Init`). `test/nativetest.Require` fails under
