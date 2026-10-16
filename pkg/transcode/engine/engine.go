@@ -67,6 +67,11 @@ type Options struct {
 	// Graft adds a donor's track after the plan's audio (graft.go): a
 	// second input, demuxed on its own goroutine into its own stage.
 	Graft *GraftAudio
+	// InputFormat and InputOptions open the input as a demuxer of that
+	// name with those options, for an input FFmpeg would not probe as one:
+	// Join's concat list ("concat", "safe": "0").
+	InputFormat  string
+	InputOptions map[string]string
 }
 
 func (o Options) withDefaults() Options {
@@ -225,7 +230,14 @@ func Run(ctx context.Context, plan standard.Result, input, output string, o Opti
 		}
 	}()
 
-	d, err := ffgo.NewDecoder(input)
+	var dopts []ffgo.DecoderOption
+	if o.InputFormat != "" {
+		dopts = append(dopts, ffgo.WithFormat(o.InputFormat))
+	}
+	if len(o.InputOptions) > 0 {
+		dopts = append(dopts, ffgo.WithAVOptions(o.InputOptions))
+	}
+	d, err := ffgo.NewDecoder(input, dopts...)
 	if err != nil {
 		return res, &Error{Stage: "demux", Err: err}
 	}

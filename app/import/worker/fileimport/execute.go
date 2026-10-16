@@ -39,6 +39,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/records"
 	"github.com/mediactl/clustarr/pkg/records/agentrecords"
 	"github.com/mediactl/clustarr/pkg/transcode/donoraudio"
+	"github.com/mediactl/clustarr/pkg/transcode/engine"
 )
 
 // handleExecute carries out one ImportExecuteTask (ADR-0019 §6.9, step 3):
@@ -116,11 +117,13 @@ func (w *Worker) execute(ctx context.Context, m events.Message, task *schema.Imp
 
 	var need int64
 	for _, mv := range plan.Moves {
-		info, err := os.Stat(mv.Source)
-		if err != nil {
-			return nil, fmt.Sprintf("%s: %v", filepath.Base(mv.Source), err), nil
+		for _, src := range sourcesOf(mv) {
+			info, err := os.Stat(src)
+			if err != nil {
+				return nil, fmt.Sprintf("%s: %v", filepath.Base(src), err), nil
+			}
+			need += info.Size()
 		}
-		need += info.Size()
 	}
 	if d := plan.Donor; d != nil {
 		if info, err := os.Stat(d.Source); err == nil {
@@ -145,7 +148,11 @@ func (w *Worker) execute(ctx context.Context, m events.Message, task *schema.Imp
 		if err := w.beat(ctx, m, &last); err != nil {
 			return nil, "", err
 		}
-		if refused, why, err := place(ctx, plan, mv.Source, mv.Dest, mode); err != nil {
+		placeIt := func() (string, string, error) { return place(ctx, plan, mv.Source, mv.Dest, mode) }
+		if len(mv.Join) > 1 {
+			placeIt = func() (string, string, error) { return w.joinPlace(ctx, plan, mv.Join, mv.Dest) }
+		}
+		if refused, why, err := placeIt(); err != nil {
 			return nil, why, nil
 		} else if refused != "" {
 			x.Refused = refused
@@ -207,6 +214,40 @@ func (w *Worker) execute(ctx context.Context, m events.Message, task *schema.Imp
 		logging.FromContext(ctx).Info("fileimport: imported an audio donor", "donor", mka, "languages", d.Languages)
 	}
 	return x, "", nil
+}
+
+// sourcesOf is the files mv reads: its parts when it joins some, else its
+// one source.
+func sourcesOf(mv schema.ImportMove) []string {
+	if len(mv.Join) > 1 {
+		return mv.Join
+	}
+	return []string{mv.Source}
+}
+
+// joinPlace joins parts -- a movie released in pieces, in order -- into
+// dest (Join, engine.Join by default): written beside the first part, then
+// placed at dest as place places a file, a file already at dest recycled
+// first. The parts stay where they are, as a copy leaves its source; a
+// failed join leaves nothing behind.
+func (w *Worker) joinPlace(ctx context.Context, plan schema.ImportPlan, parts []string, dest string) (refused, why string, err error) {
+	if !fsops.StrictlyUnder(dest, plan.RootFolder) {
+		return place(ctx, plan, parts[0], dest, fsops.ImportCopy) // refused there, before any work
+	}
+	tmp := filepath.Join(filepath.Dir(parts[0]), ".clustarr-join-"+filepath.Base(dest))
+	defer func() { _ = os.Remove(tmp) }()
+	join := w.Join
+	if join == nil {
+		join = func(ctx context.Context, parts []string, output string) error {
+			_, err := engine.Join(ctx, parts, output)
+			return err
+		}
+	}
+	if err := join(ctx, parts, tmp); err != nil {
+		return "", fmt.Sprintf("join %d parts of %s: %v", len(parts), filepath.Base(dest), err), err
+	}
+	logging.FromContext(ctx).Info("fileimport: joined a movie's parts", "parts", len(parts), "dest", dest)
+	return place(ctx, plan, tmp, dest, fsops.ImportMove)
 }
 
 // reduceDonor is ReduceDonor, else donoraudio.Reduce with the plan's

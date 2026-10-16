@@ -106,6 +106,9 @@ type Worker struct {
 	// placed donor, the result its <stem>.mka. Nil is donoraudio.Reduce; a
 	// test may fake it.
 	ReduceDonor func(ctx context.Context, src, anchor string, languages []string) (string, error)
+	// Join joins a movie's parts, in order, into output losslessly (a move
+	// with schema.ImportMove.Join). Nil is engine.Join; a test may fake it.
+	Join func(ctx context.Context, parts []string, output string) error
 
 	once sync.Once
 	recs *records.Writer[*schema.ImportRecord]

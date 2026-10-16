@@ -127,6 +127,10 @@ type ImportMove struct {
 	// MediaFileName is the MediaFile the manager materialises for it.
 	MediaFileName string       `json:"mediaFileName"`
 	Frozen        FrozenFields `json:"frozen"`
+	// Join is a movie released in parts, in order (Source is the first),
+	// which the execution joins into Dest losslessly (engine.Join); empty
+	// for a file placed as it is.
+	Join []string `json:"join,omitempty"`
 }
 
 // DonorPlan places an audio donor's payload at Dest, under Dir (the item's

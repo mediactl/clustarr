@@ -53,6 +53,9 @@ type candidate struct {
 	kind commonv1.MediaKind
 	keys []string
 	rank candidateRank
+	// join is a movie's parts in order, which the move joins into its one
+	// file (foldParts); nil for a file imported as it is.
+	join []string
 }
 
 // candidateRank orders candidates for one item, best first: a quality the

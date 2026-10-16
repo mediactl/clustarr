@@ -660,6 +660,7 @@ func (p *planner) planFrom(insp *schema.ImportInspection) planResult {
 			}
 		}
 	}
+	cands = foldParts(cands)
 	if !multiFileKind(kind) {
 		sortCandidates(cands)
 	}
@@ -716,6 +717,7 @@ func (p *planner) planFrom(insp *schema.ImportInspection) planResult {
 		name := MediaFileName(f.Proposed.Name, f.Dest)
 		moves = append(moves, schema.ImportMove{
 			Source: f.Path, Dest: f.Dest, Target: *f.Proposed, Keys: c.keys, MediaFileName: name, Frozen: f.Frozen,
+			Join: c.join,
 		})
 		// The covered items' previous files go (P59, P61): every file of a
 		// movie or an episode, a single-file item's current one; a
