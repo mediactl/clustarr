@@ -101,6 +101,7 @@ func TestEligibleFollowsTheWinningProfile(t *testing.T) {
 		{name: "never probed", mutate: func(f *File) { f.Status = &catalogv1alpha1.MediaFileStatus{}; f.ProbeCurrent = false }, pending: ReasonUnprobed},
 		{name: "a probe of new bytes is pending", mutate: func(f *File) { f.ProbeCurrent = false }, pending: ReasonProbePending},
 		{name: "a standalone graft rewrites it", mutate: func(f *File) { f.StandaloneGraft = true }, pending: ReasonGrafting},
+		{name: "an upgrade of its item is downloading", mutate: func(f *File) { f.UpgradeDownloading = true }, pending: ReasonUpgradeDownloading},
 		{name: "transcode swapped it in", mutate: func(f *File) { f.MF.Spec.Original = new(false) }},
 		{name: "it carries CLUSTARR_PROFILE in an MP4", mutate: func(f *File) {
 			f.Status.MediaInfo.TranscodeProfile, f.Status.MediaInfo.Container = "hevc@0ld", "mp4"

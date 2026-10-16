@@ -63,11 +63,11 @@ func (a *Adapter) Gather(ctx context.Context, env *remediation.Env, v *remediati
 		return in, remediation.Transient(fmt.Errorf("transcode: list TranscodeProfiles: %w", err))
 	}
 	in.Profiles = profiles.Items
-	exists, original, err := readItem(ctx, env.Reader, v.File)
+	exists, original, downloading, err := readItem(ctx, env.Reader, v.File)
 	if err != nil {
 		return in, remediation.Transient(err)
 	}
-	in.ItemExists, in.OriginalLanguage = exists, original
+	in.ItemExists, in.OriginalLanguage, in.UpgradeDownloading = exists, original, downloading
 	b := v.Prev.Transcode
 	if in.Ledger.Grant == transcodeplan.GrantDispatch ||
 		b != nil && b.Phase == catalogv1alpha1.TranscodePhaseQueued && b.JoinedGraft != nil {
@@ -148,7 +148,7 @@ func (a *Adapter) gatherDispatch(ctx context.Context, env *remediation.Env, v *r
 // original language -- an episode's through its series
 // (itemread.OriginalLanguage) -- the standard's "original" in a profile's
 // language lists (transcodeplan.Inputs.OriginalLanguage). "" when unknown.
-func readItem(ctx context.Context, r client.Reader, mf *catalogv1alpha1.MediaFile) (exists bool, original string, err error) {
+func readItem(ctx context.Context, r client.Reader, mf *catalogv1alpha1.MediaFile) (exists bool, original string, downloading bool, err error) {
 	key := types.NamespacedName{Namespace: mf.Namespace, Name: mf.Spec.MediaRef.Name}
 	var obj client.Object
 	switch mf.Spec.MediaRef.Kind {
@@ -157,15 +157,15 @@ func readItem(ctx context.Context, r client.Reader, mf *catalogv1alpha1.MediaFil
 	case commonv1.MediaKindEpisode:
 		obj = &catalogv1alpha1.Episode{}
 	default:
-		return false, "", nil
+		return false, "", false, nil
 	}
 	switch err := r.Get(ctx, key, obj, client.UnsafeDisableDeepCopy); {
 	case apierrors.IsNotFound(err):
-		return false, "", nil
+		return false, "", false, nil
 	case err != nil:
-		return false, "", fmt.Errorf("transcode: get %s %s: %w", mf.Spec.MediaRef.Kind, key, err)
+		return false, "", false, fmt.Errorf("transcode: get %s %s: %w", mf.Spec.MediaRef.Kind, key, err)
 	}
-	return true, itemread.OriginalLanguage(ctx, r, obj), nil
+	return true, itemread.OriginalLanguage(ctx, r, obj), transcodeplan.UpgradeDownloading(obj), nil
 }
 
 // statFiles stats spec.path and, when it is gone, the last dispatch's

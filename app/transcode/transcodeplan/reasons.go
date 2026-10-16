@@ -22,6 +22,9 @@ package transcodeplan
 const (
 	// Pending: in the window, not plannable yet.
 	ReasonUnprobed, ReasonProbePending, ReasonGrafting = "Unprobed", "ProbePending", "Grafting"
+	// ReasonUpgradeDownloading: the file's item has a video grab in flight
+	// (UpgradeDownloading), whose import will replace the file.
+	ReasonUpgradeDownloading = "UpgradeDownloading"
 
 	// Planned: waiting for admission.
 	ReasonWaitingForSlot, ReasonWaitingForGPU, ReasonPoolDraining                     = "WaitingForSlot", "WaitingForGPU", "PoolDraining"

@@ -67,6 +67,9 @@ type In struct {
 	ItemExists bool
 	// OriginalLanguage is the item's original language (readItem).
 	OriginalLanguage string
+	// UpgradeDownloading is whether the item has a video grab in flight
+	// (readItem, transcodeplan.UpgradeDownloading).
+	UpgradeDownloading bool
 	// Join is what graftplan.Join reads: gathered on a dispatch grant and
 	// for a Queued block that carries a join (its owed republish).
 	Join            graftplan.JoinInput
@@ -103,7 +106,7 @@ func (a *Adapter) Plan(v *remediation.View, in In, out *catalogv1alpha1.MediaFil
 	}
 	f := transcodeplan.File{
 		MF: v.File, Labels: v.Labels(), Status: v.Draft, ProbeCurrent: v.ProbeCurrent(),
-		ItemExists: in.ItemExists, StandaloneGraft: graftplan.Standalone(v.Prev.Graft),
+		ItemExists: in.ItemExists, StandaloneGraft: graftplan.Standalone(v.Prev.Graft), UpgradeDownloading: in.UpgradeDownloading,
 	}
 	if p, ok := transcodeplan.ParsePriority(in.Intents.Priority); ok {
 		f.Priority = &p

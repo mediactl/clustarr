@@ -154,13 +154,13 @@ func (r *Reconciler) eligible(ctx context.Context, mf *catalogv1alpha1.MediaFile
 	if err := r.Client.List(ctx, &profiles, client.UnsafeDisableDeepCopy); err != nil {
 		return nil
 	}
-	exists, err := itemExists(ctx, r.Client, mf)
+	exists, downloading, err := itemExists(ctx, r.Client, mf)
 	if err != nil {
 		return nil
 	}
 	f := transcodeplan.File{
 		MF: mf, Labels: mf.Labels, Status: &mf.Status, ProbeCurrent: mf.ProbeCurrent(), ItemExists: exists,
-		StandaloneGraft: graftplan.Standalone(mf.Status.Graft),
+		StandaloneGraft: graftplan.Standalone(mf.Status.Graft), UpgradeDownloading: downloading,
 	}
 	if p, ok := transcodeplan.ParsePriority(mf.Annotations[catalogv1alpha1.AnnotationTranscodePriority]); ok {
 		f.Priority = &p
@@ -169,8 +169,10 @@ func (r *Reconciler) eligible(ctx context.Context, mf *catalogv1alpha1.MediaFile
 	return &e
 }
 
-// itemExists Gets the file's Movie or Episode from the cache.
-func itemExists(ctx context.Context, c client.Reader, mf *catalogv1alpha1.MediaFile) (bool, error) {
+// itemExists Gets the file's Movie or Episode from the cache: whether it
+// exists, and whether it has an upgrade downloading
+// (transcodeplan.UpgradeDownloading).
+func itemExists(ctx context.Context, c client.Reader, mf *catalogv1alpha1.MediaFile) (exists, downloading bool, err error) {
 	key := types.NamespacedName{Namespace: mf.Namespace, Name: mf.Spec.MediaRef.Name}
 	var obj client.Object
 	switch mf.Spec.MediaRef.Kind {
@@ -179,15 +181,15 @@ func itemExists(ctx context.Context, c client.Reader, mf *catalogv1alpha1.MediaF
 	case commonv1.MediaKindEpisode:
 		obj = &catalogv1alpha1.Episode{}
 	default:
-		return false, nil
+		return false, false, nil
 	}
 	switch err := c.Get(ctx, key, obj, client.UnsafeDisableDeepCopy); {
 	case apierrors.IsNotFound(err):
-		return false, nil
+		return false, false, nil
 	case err != nil:
-		return false, err
+		return false, false, err
 	}
-	return true, nil
+	return true, transcodeplan.UpgradeDownloading(obj), nil
 }
 
 // passInputs reads §5.7 step 1's inputs: profiles, nodes and pool Jobs from

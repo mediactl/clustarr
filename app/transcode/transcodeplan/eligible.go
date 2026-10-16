@@ -33,6 +33,9 @@ type File struct {
 	ProbeCurrent    bool
 	ItemExists      bool
 	StandaloneGraft bool // graftplan.Standalone(status.graft): a standalone graft holds the file
+	// UpgradeDownloading is UpgradeDownloading(item): a grab that will
+	// replace the file is in flight.
+	UpgradeDownloading bool
 	// Priority is the transcode.clustarr.io/priority intent when it is a
 	// valid int32 (ParseIntents), nil when it is absent or invalid.
 	Priority *int32
@@ -44,7 +47,7 @@ type Eligibility struct {
 	Profile  *transcodev1alpha1.TranscodeProfile // the winner, when there is one
 	Hash     string                              // jobspec.ProfileHash(Profile.Spec)
 	Tag      string                              // Tag(Profile.Name, Hash)
-	Pending  string                              // ReasonUnprobed, ReasonProbePending or ReasonGrafting: eligible once it clears
+	Pending  string                              // ReasonUnprobed, ReasonProbePending, ReasonGrafting or ReasonUpgradeDownloading: eligible once it clears
 	Why      string                              // for logs and Events when not eligible
 	// Priority is the effective priority: the file's intent, else the
 	// winning profile's spec.priority (admission orders by it).
@@ -55,8 +58,9 @@ type Eligibility struct {
 // the ProfileLess-least selector match over the file's labels, else the
 // default; an Invalid winner plans nothing; the item must exist; a
 // transcoded file never plans again (CLAUDE.md, "Transcoding"); and a file
-// whose probe is missing or pending, or which a standalone graft is
-// rewriting, is eligible once that clears (Pending).
+// whose probe is missing or pending, which a standalone graft is
+// rewriting, or whose item is downloading an upgrade, is eligible once that
+// clears (Pending).
 func Eligible(f File, profiles []transcodev1alpha1.TranscodeProfile) Eligibility {
 	var e Eligibility
 	if !EligibleKind(f.MF.Spec.MediaRef.Kind) {
@@ -95,8 +99,26 @@ func Eligible(f File, profiles []transcodev1alpha1.TranscodeProfile) Eligibility
 		e.Why, e.Pending = "a probe of new bytes is pending", ReasonProbePending
 	case f.StandaloneGraft:
 		e.Why, e.Pending = "a standalone graft rewrites it", ReasonGrafting
+	case f.UpgradeDownloading:
+		e.Why, e.Pending = "an upgrade of its "+string(f.MF.Spec.MediaRef.Kind)+" is downloading", ReasonUpgradeDownloading
 	default:
 		e.Eligible = true
 	}
 	return e
+}
+
+// UpgradeDownloading reports whether item -- a file's Movie or Episode --
+// has a video grab in flight (status.activeDownloadRef, which an audio
+// donor's grab never sets). Its import replaces the file, so a transcode
+// started now is work thrown away (2026-10-16): the file waits, Pending,
+// and plans once the grab imports or fails.
+func UpgradeDownloading(item any) bool {
+	var ref *string
+	switch t := item.(type) {
+	case *catalogv1alpha1.Movie:
+		ref = t.Status.ActiveDownloadRef
+	case *catalogv1alpha1.Episode:
+		ref = t.Status.ActiveDownloadRef
+	}
+	return ref != nil && *ref != ""
 }
