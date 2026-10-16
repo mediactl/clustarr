@@ -514,6 +514,53 @@ spec:
                         type: string
                       maxItems: 200
                       type: array
+                    parts:
+                      description: |-
+                        Parts are the releases this result stands for when it is a movie
+                        released in parts, each posted on its own (decision.PartSets): part 1
+                        to N in order, all from IndexerRef, over the Protocol. Their title
+                        without the part is Title, their sizes sum to SizeBytes and GUID is
+                        the set's ("parts:..."), which no indexer knows. Grabbing it grabs
+                        every part, and the import joins them. Empty for any other release.
+                      items:
+                        description: |-
+                          ReleasePart is one posted part of a movie released in parts: what its
+                          grab needs, besides the set's indexer and protocol.
+                        properties:
+                          downloadURL:
+                            type: string
+                          guid:
+                            description: GUID is the part's indexer-scoped identifier.
+                            type: string
+                          infoHash:
+                            type: string
+                          infoURL:
+                            type: string
+                          magnetURL:
+                            type: string
+                          part:
+                            description: Part is the part's number, 1 to the set's
+                              count.
+                            format: int32
+                            minimum: 1
+                            type: integer
+                          publishedAt:
+                            format: date-time
+                            type: string
+                          sizeBytes:
+                            format: int64
+                            type: integer
+                          title:
+                            description: Title is the part's own release title.
+                            type: string
+                        required:
+                        - guid
+                        - part
+                        - title
+                        type: object
+                      maxItems: 6
+                      type: array
+                      x-kubernetes-list-type: atomic
                     protocol:
                       description: Protocol is the transfer protocol of the release.
                       enum:

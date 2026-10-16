@@ -1121,6 +1121,35 @@ spec:
                     seedGoalMetAt:
                       format: date-time
                       type: string
+                    set:
+                      description: |-
+                        Set is the movie released in parts this entry downloads one part of
+                        (a grab of a set result, decision.PartSets): every part is an entry,
+                        part 1 imports them all joined once each has completed, and the rest
+                        follow it. Nil for any other grab.
+                      properties:
+                        id:
+                          description: ID is the set result's GUID, the same on every
+                            part's entry.
+                          maxLength: 64
+                          type: string
+                        of:
+                          description: Of is how many parts the set has.
+                          format: int32
+                          maximum: 6
+                          minimum: 2
+                          type: integer
+                        part:
+                          description: Part is this entry's part, 1 to Of.
+                          format: int32
+                          maximum: 6
+                          minimum: 1
+                          type: integer
+                      required:
+                      - id
+                      - of
+                      - part
+                      type: object
                     source:
                       description: |-
                         DownloadSource says where the transfer payload comes from. Exactly one of

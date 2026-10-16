@@ -410,16 +410,49 @@ func (w *Worker) inspectMovie(
 	base.Language = catalogctx.ConfiguredLanguage(&prof)
 	lang := originalName(movie.Status.Metadata.OriginalLanguage)
 	target := &schema.ItemRef{Kind: "Movie", Ref: schema.Ref{Namespace: ns, Name: movie.Name, UID: string(movie.UID)}}
-	return w.walk(ctx, m, commonv1.MediaKindMovie, root, task.Manual || task.Override, insp, func(path string, info os.FileInfo) error {
+	manual := task.Manual || task.Override
+	if err := w.walk(ctx, m, commonv1.MediaKindMovie, root, manual,
+		insp, w.movieVisit(ctx, m, insp, &movie, rf, prof, base, lang, target, root, task.Release.Title, task.Part)); err != nil {
+		return err
+	}
+	// A set's other parts (a movie released in parts): each part's payload
+	// is walked as the first's, its files tagged with the part.
+	for _, part := range task.Parts {
+		pr := part.Root()
+		if pr == "" {
+			insp.Rejections = append(insp.Rejections, transientRejection("part %d of the set reports no content root yet", part.Part))
+			continue
+		}
+		if _, err := statDir(pr); err != nil {
+			insp.Rejections = append(insp.Rejections, transientRejection("part %d's content root %q is not accessible: %v", part.Part, pr, err))
+			continue
+		}
+		if err := w.walk(ctx, m, commonv1.MediaKindMovie, pr, manual,
+			insp, w.movieVisit(ctx, m, insp, &movie, rf, prof, base, lang, target, pr, part.Title, part.Part)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// movieVisit inspects one media file of a movie's payload under root, the
+// release title its file name falls back to and scores by being title, and
+// part the set part the payload is (zero for no set).
+func (w *Worker) movieVisit(
+	ctx context.Context, m events.Message, insp *schema.ImportInspection, movie *catalogv1alpha1.Movie,
+	rf *catalogv1alpha1.RootFolder, prof quality.Profile, base naming.Context, lang string, target *schema.ItemRef,
+	root, title string, part int32,
+) func(path string, info os.FileInfo) error {
+	return func(path string, info os.FileInfo) error {
 		rel := relPath(root, path)
-		f := schema.InspectedFile{Path: path, SizeBytes: info.Size()}
-		parsed, perr := parseMediaFile(path, task.Release.Title, commonv1.MediaKindMovie)
+		f := schema.InspectedFile{Path: path, SizeBytes: info.Size(), Part: part}
+		parsed, perr := parseMediaFile(path, title, commonv1.MediaKindMovie)
 		if perr != nil {
 			f.Rejections = append(f.Rejections, needsPersonRejection("%s: could not parse the filename: %v", rel, perr))
 			insp.Files = append(insp.Files, f)
 			return nil
 		}
-		v, err := w.readVideo(ctx, m, path, rel, task.Release.Title, parsed, prof, lang)
+		v, err := w.readVideo(ctx, m, path, rel, title, parsed, prof, lang)
 		if err != nil {
 			return err
 		}
@@ -430,8 +463,8 @@ func (w *Worker) inspectMovie(
 		}
 		f.Parsed, f.Probe = factsOf(v.parsed), summaryOf(v.mi)
 		f.Frozen = frozenFields(v, prof)
-		nctx := catalogctx.File(ctx, base, frozenSpec(f.Frozen, task.Release.Title), v.mi)
-		dest, derr := catalogctx.MovieFilePath(rf, &movie, nctx, catalogctx.ContainerExt(v.mi, path))
+		nctx := catalogctx.File(ctx, base, frozenSpec(f.Frozen, title), v.mi)
+		dest, derr := catalogctx.MovieFilePath(rf, movie, nctx, catalogctx.ContainerExt(v.mi, path))
 		if derr != nil {
 			f.Rejections = append(f.Rejections, blockedRejection("%s: could not render a destination path: %v", rel, derr))
 			insp.Files = append(insp.Files, f)
@@ -440,7 +473,7 @@ func (w *Worker) inspectMovie(
 		f.Proposed, f.Keys, f.Dest = target, []string{movie.Name}, dest
 		insp.Files = append(insp.Files, f)
 		return nil
-	})
+	}
 }
 
 // inspectEpisodes reads an episode's or a season pack's payload: each file

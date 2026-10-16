@@ -76,6 +76,7 @@ func FromRecord(rec *schema.SearchRecord, target *schema.ItemRef, grabbedBy comm
 			Release: sr, GrabbedBy: grabbedBy, Purpose: purpose, At: rec.FinishedAt, pending: -1,
 		}
 		c.Source, _ = grabsource.ResolveSource(sr.Decision.ReleaseInfo)
+		c.withParts()
 		if target != nil {
 			c.Targets = []schema.ItemRef{*target}
 		}
@@ -102,7 +103,48 @@ func FromParked(p intake.Parked) Candidate {
 		out.At = p.At
 	}
 	out.Source, _ = grabsource.ResolveSource(c.Release.Decision.ReleaseInfo)
+	out.withParts()
 	return out
+}
+
+// PartSource is one part of a set candidate (ReleaseInfo.Parts): the part
+// as a release of its own, and how an engine fetches it.
+type PartSource struct {
+	Part    int32
+	Release commonv1.ReleaseInfo
+	Source  commonv1.DownloadSource
+}
+
+// withParts resolves each part of a set candidate (Parts); a part with
+// nothing to download it by leaves the candidate none either, so it is
+// refused whole.
+func (c *Candidate) withParts() {
+	set := c.Release.Decision.ReleaseInfo
+	if len(set.Parts) == 0 {
+		return
+	}
+	c.Parts = make([]PartSource, 0, len(set.Parts))
+	for _, part := range set.Parts {
+		rel := PartRelease(set, part)
+		src, err := grabsource.ResolveSource(rel)
+		if err != nil {
+			c.Parts, c.Source = nil, commonv1.DownloadSource{}
+			return
+		}
+		c.Parts = append(c.Parts, PartSource{Part: part.Part, Release: rel, Source: src})
+	}
+}
+
+// PartRelease is one part of set as a release of its own: the set's
+// indexer, protocol and parsed facts, the part's identity, title, size
+// and links.
+func PartRelease(set commonv1.ReleaseInfo, part commonv1.ReleasePart) commonv1.ReleaseInfo {
+	rel := *set.DeepCopy()
+	rel.Parts, rel.AlsoOn = nil, nil
+	rel.GUID, rel.Title, rel.SizeBytes = part.GUID, part.Title, part.SizeBytes
+	rel.DownloadURL, rel.MagnetURL, rel.InfoHash, rel.InfoURL = part.DownloadURL, part.MagnetURL, part.InfoHash, part.InfoURL
+	rel.PublishedAt = part.PublishedAt.DeepCopy()
+	return rel
 }
 
 // fromPending is a delayed grab come due, made from status alone: its

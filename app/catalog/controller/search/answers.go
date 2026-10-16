@@ -326,7 +326,10 @@ func entryFor(s *catalogv1alpha1.Search, owner, item client.Object, guid string)
 	entries := dlindex.Entries(owner)
 	for i := range entries {
 		e := &entries[i]
-		if e.Release.GUID != guid || rollup.IsDonor(e) || !itemread.Covers(e, item) {
+		// A set's GUID names its entries (one per part); the first
+		// stands for it.
+		inSet := e.Set != nil && e.Set.ID == guid && e.Set.Part == 1
+		if (e.Release.GUID != guid && !inSet) || rollup.IsDonor(e) || !itemread.Covers(e, item) {
 			continue
 		}
 		if e.Phase == commonv1.DownloadPhaseBlocklisted && e.GrabbedAt.Before(&s.CreationTimestamp) {

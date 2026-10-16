@@ -132,6 +132,27 @@ type DownloadEntry struct {
 	// is removed and its block confirmed, and then after BlockQuarantine.
 	// +optional
 	Block *EntryBlock `json:"block,omitempty"`
+	// Set is the movie released in parts this entry downloads one part of
+	// (a grab of a set result, decision.PartSets): every part is an entry,
+	// part 1 imports them all joined once each has completed, and the rest
+	// follow it. Nil for any other grab.
+	// +optional
+	Set *EntrySet `json:"set,omitempty"`
+}
+
+// EntrySet places an entry in its part set.
+type EntrySet struct {
+	// ID is the set result's GUID, the same on every part's entry.
+	// +kubebuilder:validation:MaxLength=64
+	ID string `json:"id"`
+	// Part is this entry's part, 1 to Of.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=6
+	Part int32 `json:"part"`
+	// Of is how many parts the set has.
+	// +kubebuilder:validation:Minimum=2
+	// +kubebuilder:validation:Maximum=6
+	Of int32 `json:"of"`
 }
 
 // BlockScope is where a release is blocked (ADR-0019 §6.14).

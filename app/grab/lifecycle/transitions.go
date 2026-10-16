@@ -110,6 +110,10 @@ func (d *decider) waiting(e *catalogv1alpha1.DownloadEntry, reason, msg string) 
 func (d *decider) live(e *catalogv1alpha1.DownloadEntry, rec *schema.TransferRecord) bool {
 	c := d.clients[e.Client]
 	eng, _ := d.engineOf(e)
+	if why := d.setFailure(e); why != "" {
+		d.toRemoving(e, why)
+		return true
+	}
 
 	if rec == nil || !heldAtBoot(rec, eng) {
 		// No record at the engine's boot. Judged only once the engine
@@ -159,7 +163,11 @@ func (d *decider) live(e *catalogv1alpha1.DownloadEntry, rec *schema.TransferRec
 			e.CompletedAt = &t
 			d.history(e, ActionCompleted, "")
 		}
-		if d.importStep(e) {
+		if e.Set != nil {
+			if d.setImport(e) {
+				return true
+			}
+		} else if d.importStep(e) {
 			return true
 		}
 	case commonv1.DownloadPhaseSeeding, commonv1.DownloadPhaseImported:

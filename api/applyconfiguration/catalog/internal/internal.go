@@ -1693,6 +1693,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: seedGoalMetAt
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: set
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.EntrySet
     - name: source
       type:
         namedType: com.github.mediactl.clustarr.api.common.v1alpha1.DownloadSource
@@ -1857,6 +1860,18 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.BlockScope
     - name: seq
+      type:
+        scalar: numeric
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.EntrySet
+  map:
+    fields:
+    - name: id
+      type:
+        scalar: string
+    - name: of
+      type:
+        scalar: numeric
+    - name: part
       type:
         scalar: numeric
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.Episode
@@ -5412,6 +5427,12 @@ var schemaYAML = typed.YAMLObject(`types:
           elementType:
             scalar: string
           elementRelationship: atomic
+    - name: parts
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.common.v1alpha1.ReleasePart
+          elementRelationship: atomic
     - name: protocol
       type:
         namedType: com.github.mediactl.clustarr.api.common.v1alpha1.Protocol
@@ -5448,6 +5469,36 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: temporarilyRejected
       type:
         scalar: boolean
+    - name: title
+      type:
+        scalar: string
+- name: com.github.mediactl.clustarr.api.common.v1alpha1.ReleasePart
+  map:
+    fields:
+    - name: downloadURL
+      type:
+        scalar: string
+    - name: guid
+      type:
+        scalar: string
+    - name: infoHash
+      type:
+        scalar: string
+    - name: infoURL
+      type:
+        scalar: string
+    - name: magnetURL
+      type:
+        scalar: string
+    - name: part
+      type:
+        scalar: numeric
+    - name: publishedAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: sizeBytes
+      type:
+        scalar: numeric
     - name: title
       type:
         scalar: string

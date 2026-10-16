@@ -331,6 +331,7 @@ func (w *Worker) handleSearchTask(ctx context.Context, span trace.Span, m events
 	w.log(ctx).Info("search: decided",
 		"releases", len(rels), "approved", countApproved(decisions), "truncated", resp.Truncated)
 	warnUnreported(ctx, resp)
+	decisions, resp.Releases = w.withPartSets(ctx, snap.Target, profile, decisions, resp.Releases, opts)
 	return w.write(ctx, a, resp, decisions, opts)
 }
 

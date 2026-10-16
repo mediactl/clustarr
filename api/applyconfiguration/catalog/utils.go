@@ -143,6 +143,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &catalogv1alpha1.EditionSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("EntryBlock"):
 		return &catalogv1alpha1.EntryBlockApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("EntrySet"):
+		return &catalogv1alpha1.EntrySetApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("Episode"):
 		return &catalogv1alpha1.EpisodeApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("EpisodeNumber"):

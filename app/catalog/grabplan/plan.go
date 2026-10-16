@@ -73,6 +73,9 @@ type Candidate struct {
 	// episodes its parsed facts name.
 	Season *int32
 	At     time.Time
+	// Parts are a set candidate's parts, resolved (a movie released in
+	// parts, ReleaseInfo.Parts): its grab is an entry per part.
+	Parts []PartSource
 
 	// pending is the index of the stored pending grab this candidate came
 	// from (a delayed grab come due), -1 otherwise.
@@ -158,8 +161,10 @@ type Plan struct {
 // items it is taken for (items), every item its coverage names (covered),
 // or why it is refused (reason, and the metric decision).
 type verdict struct {
-	c        Candidate
-	id       string
+	c  Candidate
+	id string
+	// ids are a set's entries' ids, one per part (id is the first).
+	ids      []string
 	items    []Covered
 	covered  []Covered
 	reason   string
@@ -215,6 +220,12 @@ func Decide(v View) Plan {
 		switch {
 		case d.overlaps(vd):
 			d.settle(vd.c, intake.Refused, "refused")
+		case len(vd.c.Parts) > 0 && d.limitedUntil(vd).After(d.now):
+			// A set is grabbed now or not at all: a pending grab keeps
+			// one release, never its parts.
+			d.settle(vd.c, intake.Refused, "grabLimited")
+		case len(vd.c.Parts) > 0:
+			d.grab(vd)
 		case d.delays(vd):
 			d.hold(vd, d.now.Add(d.wait(vd)), true)
 		case d.limitedUntil(vd).After(d.now):
@@ -266,6 +277,10 @@ func (d *decider) check(c Candidate) verdict {
 	vd := verdict{c: c}
 	rel := c.Release.Decision.ReleaseInfo
 	id, free := d.entryID(c)
+	if len(c.Parts) > 0 {
+		vd.ids, free = d.partIDs(c)
+		id = vd.ids[0]
+	}
 	vd.id = id
 	switch {
 	case d.v.Profile == nil:
@@ -282,6 +297,12 @@ func (d *decider) check(c Candidate) verdict {
 		vd.reason = "no enabled DownloadClient or delay profile takes " + string(rel.Protocol)
 	case !free:
 		vd.reason = "the release is already a grab of the owner"
+	case len(c.Parts) > 0 && d.v.Kind != commonv1.MediaKindMovie:
+		vd.reason = "only a movie is grabbed in parts"
+	case len(c.Parts) == 0 && strings.HasPrefix(rel.GUID, decision.PartSetGUIDPrefix):
+		// A set's GUID is no indexer's: without its parts there is
+		// nothing to fetch.
+		vd.reason = "the set's parts are missing"
 	}
 	if vd.reason != "" {
 		return vd
@@ -530,7 +551,8 @@ func (d *decider) wait(vd verdict) time.Duration {
 // grab makes the candidate a new Pending entry, or refuses it at the
 // owner's cap.
 func (d *decider) grab(vd verdict) {
-	if d.v.EntryCap > 0 && len(d.v.Entries)+len(d.plan.NewEntries) >= d.v.EntryCap {
+	n := max(1, len(vd.c.Parts))
+	if d.v.EntryCap > 0 && len(d.v.Entries)+len(d.plan.NewEntries)+n > d.v.EntryCap {
 		d.settle(vd.c, intake.Refused, "refused")
 		if !d.atCapOnce {
 			d.atCapOnce = true
@@ -541,8 +563,11 @@ func (d *decider) grab(vd verdict) {
 		}
 		return
 	}
-	e := d.entry(vd)
-	d.plan.NewEntries = append(d.plan.NewEntries, e)
+	if len(vd.c.Parts) > 0 {
+		d.plan.NewEntries = append(d.plan.NewEntries, d.partEntries(vd)...)
+	} else {
+		d.plan.NewEntries = append(d.plan.NewEntries, d.entry(vd))
+	}
 	d.take(vd)
 	d.dropPending(vd)
 	d.settle(vd.c, intake.Incorporated, "grabbed")
@@ -756,6 +781,37 @@ func (d *decider) entry(vd verdict) catalogv1alpha1.DownloadEntry {
 		e.GrabbedBy = commonv1.GrabSourceSearch
 	}
 	return e
+}
+
+// partEntries are a set's grab, an entry per part: each the part's own
+// release and source under the id partIDs gave it, all naming the set.
+func (d *decider) partEntries(vd verdict) []catalogv1alpha1.DownloadEntry {
+	out := make([]catalogv1alpha1.DownloadEntry, 0, len(vd.c.Parts))
+	set := vd.c.Release.Decision.GUID
+	for i, part := range vd.c.Parts {
+		e := d.entry(vd)
+		e.ID = vd.ids[i]
+		e.Release = DownloadRelease(part.Release, vd.c.Release.Score)
+		e.Source = *part.Source.DeepCopy()
+		e.Set = &catalogv1alpha1.EntrySet{ID: set, Part: part.Part, Of: int32(len(vd.c.Parts))} //nolint:gosec // at most MaxReleaseParts
+		out = append(out, e)
+	}
+	return out
+}
+
+// partIDs are a set's entries' ids, one per part (lifecycle.EntryID of the
+// part's GUID), and whether no stored entry holds any of them.
+func (d *decider) partIDs(c Candidate) ([]string, bool) {
+	ids := make([]string, 0, len(c.Parts))
+	free := true
+	for _, part := range c.Parts {
+		id := lifecycle.EntryID(d.v.Owner.Name, c.Purpose, part.Release.GUID)
+		if d.stored(id) != nil {
+			free = false
+		}
+		ids = append(ids, id)
+	}
+	return ids, free
 }
 
 // pendingGrab is vd held until at.

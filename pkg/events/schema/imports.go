@@ -81,6 +81,31 @@ type ImportInspectTask struct {
 	Override       bool                     `json:"override,omitempty"`
 	// TargetOverride is the download.clustarr.io/import intent's target.
 	TargetOverride *ItemRef `json:"targetOverride,omitempty"`
+	// Part is the entry's part when it imports a set (a movie released in
+	// parts, entry.set): its own payload is that part, and Parts are the
+	// set's others, whose payloads the inspection walks too. Zero and
+	// empty for any other import.
+	Part  int32        `json:"part,omitempty"`
+	Parts []ImportPart `json:"parts,omitempty"`
+}
+
+// ImportPart is one more part of a set an inspect task imports: its entry,
+// its release title and its transfer record's payload.
+type ImportPart struct {
+	Part        int32          `json:"part"`
+	Entry       EntryRef       `json:"entry"`
+	Title       string         `json:"title"`
+	ContentRoot string         `json:"contentRoot,omitempty"`
+	OutputPath  string         `json:"outputPath,omitempty"`
+	Files       []TransferFile `json:"files,omitempty"`
+}
+
+// Root is the part's payload: its content root, else its output path.
+func (p ImportPart) Root() string {
+	if p.ContentRoot != "" {
+		return p.ContentRoot
+	}
+	return p.OutputPath
 }
 
 // Schema implements Payload.
@@ -200,6 +225,9 @@ type InspectedFile struct {
 	Frozen     FrozenFields       `json:"frozen"`
 	Sample     bool               `json:"sample,omitempty"`
 	Rejections []InspectRejection `json:"rejections,omitempty"`
+	// Part is the set part whose payload holds the file, when the task
+	// imports a set (ImportInspectTask.Part, Parts); zero otherwise.
+	Part int32 `json:"part,omitempty"`
 }
 
 // ImportInspection is an inspect task's answer: every file, and the

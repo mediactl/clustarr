@@ -62,6 +62,10 @@ const (
 // writer truncates to it rather than have the apiserver reject the object.
 const MaxAlsoOn = 20
 
+// MaxReleaseParts mirrors ReleaseInfo.Parts' +kubebuilder:validation:MaxItems:
+// the most parts a movie released in parts is grabbed as (decision.PartSets).
+const MaxReleaseParts = 6
+
 // Well-known keys of ReleaseInfo.IDs.
 const (
 	IDKeyTMDB = "tmdb"
@@ -204,6 +208,41 @@ type ReleaseInfo struct {
 	// indexer reported for the release.
 	// +optional
 	IDs map[string]string `json:"ids,omitempty"`
+
+	// Parts are the releases this result stands for when it is a movie
+	// released in parts, each posted on its own (decision.PartSets): part 1
+	// to N in order, all from IndexerRef, over the Protocol. Their title
+	// without the part is Title, their sizes sum to SizeBytes and GUID is
+	// the set's ("parts:..."), which no indexer knows. Grabbing it grabs
+	// every part, and the import joins them. Empty for any other release.
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=6
+	Parts []ReleasePart `json:"parts,omitempty"`
+}
+
+// ReleasePart is one posted part of a movie released in parts: what its
+// grab needs, besides the set's indexer and protocol.
+type ReleasePart struct {
+	// Part is the part's number, 1 to the set's count.
+	// +kubebuilder:validation:Minimum=1
+	Part int32 `json:"part"`
+	// GUID is the part's indexer-scoped identifier.
+	GUID string `json:"guid"`
+	// Title is the part's own release title.
+	Title string `json:"title"`
+	// +optional
+	SizeBytes int64 `json:"sizeBytes,omitempty"`
+	// +optional
+	DownloadURL string `json:"downloadURL,omitempty"`
+	// +optional
+	MagnetURL string `json:"magnetURL,omitempty"`
+	// +optional
+	InfoHash string `json:"infoHash,omitempty"`
+	// +optional
+	InfoURL string `json:"infoURL,omitempty"`
+	// +optional
+	PublishedAt *metav1.Time `json:"publishedAt,omitempty"`
 }
 
 // ReleaseDecision is declared here, beside ReleaseInfo, rather than in the

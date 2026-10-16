@@ -20,6 +20,7 @@ package downloads
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -91,20 +92,31 @@ func (s *Stage) importDecisions(ctx context.Context, ow owner, v *lifecycle.View
 	if it := v.Intents.Import; it != nil && v.Intents.NonceKey(catalogv1alpha1.AnnotationDownloadImport) != v.Nonces.Import {
 		pending = it
 	}
+	recordOf := func(e *catalogv1alpha1.DownloadEntry) *schema.TransferRecord {
+		if t, ok := v.Transfers[types.UID(e.UID)]; ok {
+			r := t.Record
+			return &r
+		}
+		return nil
+	}
 	for i := range ow.entries {
 		e := &ow.entries[i]
 		uid := types.UID(e.UID)
-		var rec *schema.TransferRecord
-		if t, ok := v.Transfers[uid]; ok {
-			r := t.Record
-			rec = &r
-		}
+		rec := recordOf(e)
 		if !lifecycle.Importable(e, rec) {
+			continue
+		}
+		// A set (a movie released in parts) imports once, from its first
+		// part, when every part is done; the others follow it.
+		if e.Set != nil && (e.Set.Part != 1 || !lifecycle.SetReady(ow.entries, e, recordOf)) {
 			continue
 		}
 		in, err := s.importInput(ctx, ow, v, e, rec)
 		if err != nil {
 			return err
+		}
+		if e.Set != nil {
+			in.Parts = setParts(ow.entries, e, recordOf)
 		}
 		if pending != nil && pending.ID == e.ID {
 			in.Intent = pending
@@ -115,6 +127,23 @@ func (s *Stage) importDecisions(ctx context.Context, ow owner, v *lifecycle.View
 		v.Import[uid] = importplan.Decide(in)
 	}
 	return nil
+}
+
+// setParts are the other parts of e's set, by part, each with its
+// transfer record.
+func setParts(
+	entries []catalogv1alpha1.DownloadEntry, e *catalogv1alpha1.DownloadEntry,
+	recordOf func(*catalogv1alpha1.DownloadEntry) *schema.TransferRecord,
+) []importplan.PartInput {
+	var out []importplan.PartInput
+	for i := range entries {
+		s := &entries[i]
+		if s.UID != e.UID && s.Set != nil && s.Set.ID == e.Set.ID {
+			out = append(out, importplan.PartInput{Entry: *s.DeepCopy(), Transfer: recordOf(s)})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Entry.Set.Part < out[j].Entry.Set.Part })
+	return out
 }
 
 // importInput gathers one entry's importplan.Input from the cache and the

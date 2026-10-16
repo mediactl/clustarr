@@ -71,3 +71,21 @@ func TestAPicksOwnBlocklistedGrabIsItsGrab(t *testing.T) {
 		})
 	}
 }
+
+// A pick of a set (a movie released in parts) is the set's grab: the
+// entry of its first part stands for it.
+func TestAPickOfASetIsItsFirstPartsEntry(t *testing.T) {
+	s := &catalogv1alpha1.Search{ObjectMeta: metav1.ObjectMeta{Name: "pick"}}
+	part := func(id string, n int32) catalogv1alpha1.DownloadEntry {
+		return catalogv1alpha1.DownloadEntry{
+			ID: id, Release: catalogv1alpha1.DownloadRelease{GUID: id + "-guid"}, Phase: commonv1.DownloadPhaseDownloading,
+			Set: &catalogv1alpha1.EntrySet{ID: "parts:abc", Part: n, Of: 2},
+		}
+	}
+	m := &catalogv1alpha1.Movie{
+		ObjectMeta: metav1.ObjectMeta{Name: "m"},
+		Status:     catalogv1alpha1.MovieStatus{Downloads: []catalogv1alpha1.DownloadEntry{part("p2", 2), part("p1", 1)}},
+	}
+	require.Equal(t, "p1", entryFor(s, m, m, "parts:abc"))
+	require.Equal(t, "p2", entryFor(s, m, m, "p2-guid"), "a part's own GUID is its own entry")
+}

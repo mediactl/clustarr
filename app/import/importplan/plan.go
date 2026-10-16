@@ -97,6 +97,10 @@ type Input struct {
 	// (movieContentRejection); zero for every other kind.
 	Identity       decision.Identity
 	RuntimeMinutes int
+	// Parts are the other parts of the set the entry is part 1 of
+	// (entry.set), by part: each one's entry and transfer record, nil when
+	// it has none. The import walks every part's payload and joins them.
+	Parts []PartInput
 	// Donor is set for an audioDonor entry.
 	Donor *DonorItem
 	// Intent is a pending download.clustarr.io/import intent naming this
@@ -110,6 +114,12 @@ type Input struct {
 	// Published is when the stage last published the in-flight seq (its
 	// leader-local book), zero when it does not know.
 	Published time.Time
+}
+
+// PartInput is one more part of a set an import joins.
+type PartInput struct {
+	Entry    catalogv1alpha1.DownloadEntry
+	Transfer *schema.TransferRecord
 }
 
 // Decide is one Completed entry's import decision (ADR-0019 §6.9).
@@ -313,6 +323,25 @@ func (p *planner) inspectTask(seq int64) *schema.ImportInspectTask {
 		t.ContentRoot, t.Files = r.ContentRoot, r.Files
 		if t.OutputPath == "" {
 			t.OutputPath = r.OutputPath
+		}
+	}
+	if e.Set != nil {
+		t.Part = e.Set.Part
+		for _, pi := range p.in.Parts {
+			part := schema.ImportPart{
+				Entry: schema.EntryRef{ID: pi.Entry.ID, UID: pi.Entry.UID}, Title: pi.Entry.Release.Title,
+				OutputPath: pi.Entry.OutputPath,
+			}
+			if pi.Entry.Set != nil {
+				part.Part = pi.Entry.Set.Part
+			}
+			if r := pi.Transfer; r != nil {
+				part.ContentRoot, part.Files = r.ContentRoot, r.Files
+				if part.OutputPath == "" {
+					part.OutputPath = r.OutputPath
+				}
+			}
+			t.Parts = append(t.Parts, part)
 		}
 	}
 	return t
@@ -692,8 +721,18 @@ func (p *planner) planFrom(insp *schema.ImportInspection) planResult {
 				rel, c.kind))
 			continue
 		}
+		if c.kind == commonv1.MediaKindMovie {
+			if r := p.setRejection(rel, c); !r.none() {
+				rs = append(rs, r)
+				continue
+			}
+		}
 		if c.kind == commonv1.MediaKindMovie && !manual {
 			if r := movieContentRejection(rel, f.Probe, e.Release.Title, p.in.Identity, p.in.RuntimeMinutes); !r.none() {
+				rs = append(rs, r)
+				continue
+			}
+			if r := joinedRejection(rel, c, p.in.RuntimeMinutes); !r.none() {
 				rs = append(rs, r)
 				continue
 			}

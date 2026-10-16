@@ -333,6 +333,9 @@ type ReleaseRow struct {
 	CoversSeason bool
 	// OtherTitle is a release for another title, in the collapsed band.
 	OtherTitle bool
+	// Parts is how many posted parts the result fetches and joins (a movie
+	// released in parts, ReleaseInfo.Parts); 0 for one release.
+	Parts int
 }
 
 // AudioNote is an item's audio languages as one short note: the dub it

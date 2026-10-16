@@ -316,6 +316,7 @@ func releaseRow(rd commonv1.ReleaseDecision, now time.Time) views.ReleaseRow {
 		Quality: qualityLabel(rd.Quality, rd.Revision), Score: rd.FormatScore, Formats: rd.MatchedFormats,
 		Approved: rd.Approved, Override: permanentlyRejected(rd),
 		CoversSeason: rd.CoversSeason || rd.ReleaseType == commonv1.ReleaseTypeSeasonPack,
+		Parts:        len(rd.Parts),
 	}
 	if row.Indexer == "" {
 		row.Indexer = rd.IndexerRef

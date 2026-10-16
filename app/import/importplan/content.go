@@ -38,6 +38,10 @@ const (
 	ShortPercent               = 65
 	WrongTitleTolerancePercent = 15
 	WrongTitleToleranceMinutes = 10
+	// JoinedShortPercent is the least of the movie's runtime a movie
+	// joined from its parts runs (joinedRejection): the whole film, a cut
+	// shorter than the metadata's allowed.
+	JoinedShortPercent = 85
 )
 
 // movieContentRejection refuses a movie file whose own streams say it is

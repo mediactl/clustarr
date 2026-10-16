@@ -19,26 +19,17 @@ package importplan
 
 import (
 	"path/filepath"
-	"regexp"
-	"strconv"
 	"strings"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/release"
 )
 
-// partRE is a part number in a file name: Part1, Part.2, pt3, CD1, Disc 2.
-var partRE = regexp.MustCompile(`(?i)(?:^|[ ._\-\[(])(?:part|pt|cd|disc|disk)[ ._\-]?0?([1-9])(?:$|[ ._\-\])])`)
-
 // PartNumber is the part number path's file name carries -- Part1,
-// Part.2, pt3, CD1, Disc 2 -- false for none.
+// Part.2, pt3, CD1, Disc 2 (release.PartOf) -- false for none.
 func PartNumber(path string) (int, bool) {
-	base := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
-	m := partRE.FindAllStringSubmatch(base, -1)
-	if len(m) == 0 {
-		return 0, false
-	}
-	n, err := strconv.Atoi(m[len(m)-1][1])
-	return n, err == nil
+	_, n, ok := release.PartOf(strings.TrimSuffix(filepath.Base(path), filepath.Ext(path)))
+	return n, ok
 }
 
 // foldParts folds each movie's parts among cs -- two or more of its files
@@ -52,7 +43,7 @@ func foldParts(cs []candidate) []candidate {
 	byItem := map[string][]int{}
 	for i, c := range cs {
 		if c.kind == commonv1.MediaKindMovie && len(c.keys) == 1 {
-			if _, ok := PartNumber(c.f.Path); ok {
+			if _, ok := partOf(c); ok {
 				byItem[c.keys[0]] = append(byItem[c.keys[0]], i)
 			}
 		}
@@ -104,7 +95,7 @@ func orderedParts(cs []candidate, idx []int) ([]int, bool) {
 	}
 	byNum := map[int]int{}
 	for _, i := range idx {
-		n, _ := PartNumber(cs[i].f.Path)
+		n, _ := partOf(cs[i])
 		if _, dup := byNum[n]; dup {
 			return nil, false
 		}
@@ -127,4 +118,46 @@ func orderedParts(cs []candidate, idx []int) ([]int, bool) {
 		}
 	}
 	return out, true
+}
+
+// partOf is c's part: the set part whose payload holds it, when the import
+// is a set's (InspectedFile.Part, which an obfuscated name needs), else
+// the number its file name carries.
+func partOf(c candidate) (int, bool) {
+	if c.f.Part > 0 {
+		return int(c.f.Part), true
+	}
+	return PartNumber(c.f.Path)
+}
+
+// setRejection refuses a set's movie file that is not every part joined
+// (a release fault): a set imports as the whole film or not at all, never
+// as the part that inspected alone. "" for any other import.
+func (p *planner) setRejection(rel string, c candidate) Rejection {
+	e := &p.in.Entry
+	if e.Set == nil {
+		return Rejection{}
+	}
+	if n := len(c.join); n != int(e.Set.Of) {
+		return releaseFaultRejection("%s: the set's %d parts did not join (%d did): a part is missing, unreadable or of another encode",
+			rel, e.Set.Of, n)
+	}
+	return Rejection{}
+}
+
+// joinedRejection refuses a joined movie running under JoinedShortPercent
+// of the movie: parts joined are meant to be the whole film, and a short
+// one is missing a part (the release's fault). It fails open without a
+// probe, a duration or a metadata runtime.
+func joinedRejection(rel string, c candidate, runtimeMinutes int) Rejection {
+	probe := c.f.Probe
+	if len(c.join) == 0 || probe == nil || probe.DurationSeconds <= 0 || runtimeMinutes <= 0 {
+		return Rejection{}
+	}
+	runs := int(probe.DurationSeconds / 60)
+	if runs*100 < runtimeMinutes*JoinedShortPercent {
+		return releaseFaultRejection("%s: its %d parts joined run %d minutes, under %d%% of the movie's %d: a part is missing",
+			rel, len(c.join), runs, JoinedShortPercent, runtimeMinutes)
+	}
+	return Rejection{}
 }

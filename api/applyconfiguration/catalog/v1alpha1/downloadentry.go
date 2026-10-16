@@ -87,6 +87,11 @@ type DownloadEntryApplyConfiguration struct {
 	// index answered. A Blocklisted entry is dropped only after its transfer
 	// is removed and its block confirmed, and then after BlockQuarantine.
 	Block *EntryBlockApplyConfiguration `json:"block,omitempty"`
+	// Set is the movie released in parts this entry downloads one part of
+	// (a grab of a set result, decision.PartSets): every part is an entry,
+	// part 1 imports them all joined once each has completed, and the rest
+	// follow it. Nil for any other grab.
+	Set *EntrySetApplyConfiguration `json:"set,omitempty"`
 }
 
 // DownloadEntryApplyConfiguration constructs a declarative configuration of the DownloadEntry type for use with
@@ -315,5 +320,13 @@ func (b *DownloadEntryApplyConfiguration) WithMessage(value string) *DownloadEnt
 // If called multiple times, the Block field is set to the value of the last call.
 func (b *DownloadEntryApplyConfiguration) WithBlock(value *EntryBlockApplyConfiguration) *DownloadEntryApplyConfiguration {
 	b.Block = value
+	return b
+}
+
+// WithSet sets the Set field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Set field is set to the value of the last call.
+func (b *DownloadEntryApplyConfiguration) WithSet(value *EntrySetApplyConfiguration) *DownloadEntryApplyConfiguration {
+	b.Set = value
 	return b
 }

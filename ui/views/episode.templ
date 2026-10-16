@@ -382,6 +382,11 @@ templ releaseRow(p SearchPanel, r ReleaseRow) {
 			} else {
 				{ r.Title }
 			}
+			if r.Parts > 0 {
+				@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: "ml-1", Attributes: templ.Attributes{"data-parts": fmt.Sprint(r.Parts)}}) {
+					{ fmt.Sprintf("%d parts", r.Parts) }
+				}
+			}
 		}
 		@table.Cell() { { r.Indexer } }
 		@table.Cell(table.CellProps{Class: "text-right tabular-nums"}) { { formatBytes(r.Size) } }

@@ -42,6 +42,9 @@ type decider struct {
 	// unblocked matches the Blocklisted tombstones an unblock the index
 	// confirmed releases this pass.
 	unblocked func(e *catalogv1alpha1.DownloadEntry) bool
+	// all are the pass's entries, as each step leaves them: a set's parts
+	// read one another's.
+	all []catalogv1alpha1.DownloadEntry
 }
 
 // Decide runs the grab state machine over one owner's entries (§6.4): the
@@ -82,6 +85,7 @@ func Decide(v View) Plan {
 		}
 	}
 
+	d.all = entries
 	kept := make([]catalogv1alpha1.DownloadEntry, 0, len(entries))
 	for i := range entries {
 		if d.step(&entries[i]) {
