@@ -111,12 +111,20 @@ func LoadDownloadClient(ctx context.Context, c client.Client, namespace, name st
 	return &dc, nil
 }
 
+// ClientOptions is what the engine supplies beyond the spec: the shared
+// connection ledger (spec 2026-10-16 §5; nil is a ledger of this process
+// alone) and the engine name every grant's holder is prefixed with.
+type ClientOptions struct {
+	Ledger usenetclient.Ledger
+	Holder string
+}
+
 // BuildConfig resolves dc's UsenetSpec -- every provider's Secret via
 // [usenetclient.ProviderFromSpec], and PostProcess's pointer defaults via
 // [PostProcessFromSpec] -- into a pkg/download/usenet.Config. dc must already
 // be validated by [LoadDownloadClient] (or an equivalent check); BuildConfig
 // itself trusts dc.Spec.Usenet is non-nil and does not re-check the protocol.
-func BuildConfig(ctx context.Context, c client.Client, dc *downloadv1alpha1.DownloadClient, dataDir, scratchDir, publishDir string) (usenetclient.Config, error) {
+func BuildConfig(ctx context.Context, c client.Client, dc *downloadv1alpha1.DownloadClient, dataDir, scratchDir, publishDir string, o ClientOptions) (usenetclient.Config, error) {
 	us := dc.Spec.Usenet
 
 	providers := make([]usenetclient.Provider, 0, len(us.Providers))
@@ -139,6 +147,8 @@ func BuildConfig(ctx context.Context, c client.Client, dc *downloadv1alpha1.Down
 		// "" is the client's pause, which is also the CRD default.
 		HealthAction:  us.HealthAction,
 		ScratchBudget: scratchBudget(us.Scratch),
+		Ledger:        o.Ledger,
+		Holder:        o.Holder,
 	}
 	if us.PropagationDelay != nil {
 		cfg.PropagationDelay = us.PropagationDelay.Duration
@@ -177,12 +187,12 @@ func scratchBudget(sc *downloadv1alpha1.ScratchSpec) int64 {
 // spec 2026-10-06 §8.6), and probes it once, in a child, so the log says at
 // start whether repair can run. The probe never gates readiness: only a
 // release that needs repair is affected by a missing library.
-func BuildClient(ctx context.Context, c client.Client, namespace, downloadClientName, dataDir, scratchDir, publishDir string) (download.Client, *downloadv1alpha1.DownloadClient, error) {
+func BuildClient(ctx context.Context, c client.Client, namespace, downloadClientName, dataDir, scratchDir, publishDir string, o ClientOptions) (download.Client, *downloadv1alpha1.DownloadClient, error) {
 	dc, err := LoadDownloadClient(ctx, c, namespace, downloadClientName)
 	if err != nil {
 		return nil, nil, err
 	}
-	cfg, err := BuildConfig(ctx, c, dc, dataDir, scratchDir, publishDir)
+	cfg, err := BuildConfig(ctx, c, dc, dataDir, scratchDir, publishDir, o)
 	if err != nil {
 		return nil, nil, err
 	}

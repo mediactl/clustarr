@@ -35,6 +35,7 @@ import (
 	catalogagent "github.com/mediactl/clustarr/app/catalog/agent"
 	"github.com/mediactl/clustarr/app/grab/engine"
 	usenetengine "github.com/mediactl/clustarr/app/grab/engine/usenet"
+	"github.com/mediactl/clustarr/pkg/download/usenet/kvledger"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -85,7 +86,11 @@ func Register(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options) 
 	if err != nil {
 		return catalogagent.Registration{}, err
 	}
-	cl, dc, err := usenetengine.BuildClient(ctx, direct, o.Namespace, o.Client, o.DataDir, o.ScratchDir, o.PublishDir)
+	cl, dc, err := usenetengine.BuildClient(ctx, direct, o.Namespace, o.Client, o.DataDir, o.ScratchDir, o.PublishDir,
+		usenetengine.ClientOptions{
+			Ledger: kvledger.New(bus.KV(events.BucketUsenetConnections), os.Getenv("POD_NAME"), 0),
+			Holder: o.Engine,
+		})
 	if err != nil {
 		return catalogagent.Registration{}, fmt.Errorf("grab: build usenet client: %w", err)
 	}

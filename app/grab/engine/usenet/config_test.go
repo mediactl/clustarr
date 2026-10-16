@@ -33,6 +33,7 @@ import (
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	usenetengine "github.com/mediactl/clustarr/app/grab/engine/usenet"
+	usenetclient "github.com/mediactl/clustarr/pkg/download/usenet"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
@@ -132,7 +133,7 @@ func TestBuildConfigResolvesProvidersAndDefaultsPostProcess(t *testing.T) {
 	}
 	c := fakeClientWithScheme(t, dc, secret)
 
-	cfg, err := usenetengine.BuildConfig(t.Context(), c, dc, "/data", "/scratch", "")
+	cfg, err := usenetengine.BuildConfig(t.Context(), c, dc, "/data", "/scratch", "", usenetengine.ClientOptions{})
 	require.NoError(t, err)
 
 	require.Len(t, cfg.Providers, 1)
@@ -164,14 +165,14 @@ func TestBuildConfigResolvesProvidersAndDefaultsPostProcess(t *testing.T) {
 	// can never fail a job as timeout or stalled on its own.
 	dc.Spec.Usenet.DownloadTimeout = &metav1.Duration{Duration: 6 * time.Hour}
 	dc.Spec.Usenet.StallTimeout = &metav1.Duration{Duration: 45 * time.Minute}
-	cfg, err = usenetengine.BuildConfig(t.Context(), c, dc, "/data", "/scratch", "")
+	cfg, err = usenetengine.BuildConfig(t.Context(), c, dc, "/data", "/scratch", "", usenetengine.ClientOptions{})
 	require.NoError(t, err)
 	assert.Zero(t, cfg.DownloadTimeout, "spec.usenet.downloadTimeout is the manager's, never the client's")
 	assert.Zero(t, cfg.StallTimeout, "spec.usenet.stallTimeout is the manager's, never the client's")
 
 	assert.Empty(t, cfg.HealthAction, "unset is the client's pause, the CRD default")
 	dc.Spec.Usenet.HealthAction = downloadv1alpha1.HealthActionDelete
-	cfg, err = usenetengine.BuildConfig(t.Context(), c, dc, "/data", "/scratch", "")
+	cfg, err = usenetengine.BuildConfig(t.Context(), c, dc, "/data", "/scratch", "", usenetengine.ClientOptions{})
 	require.NoError(t, err)
 	assert.Equal(t, downloadv1alpha1.HealthActionDelete, cfg.HealthAction, "spec.usenet.healthAction must reach the client")
 }
@@ -190,7 +191,7 @@ func TestBuildConfigFailsOnMissingSecret(t *testing.T) {
 	}
 	c := fakeClientWithScheme(t, dc)
 
-	_, err := usenetengine.BuildConfig(t.Context(), c, dc, "/data", "/scratch", "")
+	_, err := usenetengine.BuildConfig(t.Context(), c, dc, "/data", "/scratch", "", usenetengine.ClientOptions{})
 	require.Error(t, err)
 }
 
@@ -244,9 +245,37 @@ func TestTheScratchBudgetIsTheScratchVolumesSize(t *testing.T) {
 					Usenet:   &downloadv1alpha1.UsenetSpec{Scratch: tc.scratch},
 				},
 			}
-			cfg, err := usenetengine.BuildConfig(t.Context(), fakeClientWithScheme(t, dc), dc, "/data", "/scratch", "")
+			cfg, err := usenetengine.BuildConfig(t.Context(), fakeClientWithScheme(t, dc), dc, "/data", "/scratch", "", usenetengine.ClientOptions{})
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, cfg.ScratchBudget)
 		})
 	}
+}
+
+// The engine's config carries the shared connection ledger and the engine
+// name every grant's holder is prefixed with (spec 2026-10-16 §5).
+func TestBuildConfigInstallsTheLedgerAndHolder(t *testing.T) {
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "usenet-creds", Namespace: "media"},
+		Data:       map[string][]byte{"username": []byte("alice"), "password": []byte("s3cret")},
+	}
+	dc := &downloadv1alpha1.DownloadClient{
+		ObjectMeta: metav1.ObjectMeta{Name: "sabnzbd", Namespace: "media"},
+		Spec: downloadv1alpha1.DownloadClientSpec{
+			Protocol: commonv1alpha1.ProtocolUsenet,
+			Usenet: &downloadv1alpha1.UsenetSpec{
+				Providers: []downloadv1alpha1.NNTPProvider{{
+					Name: "primary", Host: "news.example.invalid",
+					SecretRef: corev1.LocalObjectReference{Name: "usenet-creds"}, Connections: 10,
+				}},
+			},
+		},
+	}
+	c := fakeClientWithScheme(t, dc, secret)
+	ledger := usenetclient.NewLocalLedger()
+
+	cfg, err := usenetengine.BuildConfig(t.Context(), c, dc, "/data", "/scratch", "", usenetengine.ClientOptions{Ledger: ledger, Holder: "sabnzbd-0"})
+	require.NoError(t, err)
+	require.Same(t, ledger, cfg.Ledger)
+	require.Equal(t, "sabnzbd-0", cfg.Holder)
 }
