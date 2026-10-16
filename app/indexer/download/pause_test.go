@@ -125,3 +125,69 @@ func (f slowFetcher) Fetch(context.Context, string) (*FetchResult, error) {
 	return f.res, nil
 }
 func (slowFetcher) Scrub(s string) string { return s }
+
+// nzb-life answers a second fetch of an NZB within 24 h with 429 and
+// "Already Downloaded": the cooldown is that release's, not the account's,
+// and an indexer-wide pause on it held every nzb-life grab for the longest
+// cooldown among the entries retrying (2026-10-16). Such a 429 pauses the
+// release alone -- refused locally until its Retry-After -- and the next
+// release is fetched.
+func TestAnAlreadyDownloadedAnswerPausesOnlyThatRelease(t *testing.T) {
+	ctx := context.Background()
+	idx := testIndexer("media", "nzb-life", "uid-cooldown", indexv1alpha1.LimitUnitDay)
+	bus := membus.New(nil)
+	t.Cleanup(func() { _ = bus.Close() })
+	require.NoError(t, bus.Ensure(ctx, events.Default()))
+	now := time.Date(2026, 10, 16, 20, 35, 0, 0, time.UTC)
+
+	const cooldown = `<html><body><h1>Already Downloaded</h1><p>You already downloaded this NZB in the last 24 hours.
+The same NZB can be downloaded again after the cooldown expires. You can download this same NZB again in 871 minute(s).</p></body></html>`
+	fetched := map[string]int{}
+	s := &Service{
+		Client: fakeClient(t, idx), Bus: bus, Now: func() time.Time { return now },
+		Fetch: func(context.Context, *indexv1alpha1.Indexer) (Fetcher, error) {
+			return fetcherFunc(func(_ context.Context, rawURL string) (*FetchResult, error) {
+				fetched[rawURL]++
+				if strings.HasSuffix(rawURL, "/cooled") {
+					return &FetchResult{
+						Status: http.StatusTooManyRequests, Header: http.Header{"Retry-After": {"52260"}},
+						Body: io.NopCloser(strings.NewReader(cooldown)),
+					}, nil
+				}
+				return &FetchResult{
+					Status: http.StatusOK, Header: http.Header{"Content-Type": {"application/x-nzb"}},
+					ContentLen: -1, Body: io.NopCloser(strings.NewReader(`<?xml version="1.0"?><nzb/>`)),
+				}, nil
+			}), nil
+		},
+	}
+	req := func(guid, u string) schema.DownloadRequest {
+		return schema.DownloadRequest{IndexerRef: schema.Ref{Namespace: "media", Name: "nzb-life"}, GUID: guid, URL: u}
+	}
+
+	first := s.Handle(ctx, req("g-cooled", "https://x/cooled"))
+	require.NotEmpty(t, first.Error)
+	require.NotNil(t, first.RetryAt, "the cooldown names when to retry")
+	require.Equal(t, now.Add(52260*time.Second), first.RetryAt.UTC())
+	require.False(t, first.Gone)
+
+	again := s.Handle(ctx, req("g-cooled", "https://x/cooled"))
+	require.Equal(t, 1, fetched["https://x/cooled"], "a release in cooldown is not asked for again")
+	require.NotNil(t, again.RetryAt)
+	require.Equal(t, first.RetryAt.UTC(), again.RetryAt.UTC())
+
+	other := s.Handle(ctx, req("g-new", "https://x/new"))
+	require.Empty(t, other.Error, "the indexer's other releases are still fetched: %q", other.Error)
+	require.Equal(t, 1, fetched["https://x/new"])
+	_, paused, err := limits.GrabPaused(ctx, bus.KV(events.BucketIndexerLimits), idx, now)
+	require.NoError(t, err)
+	require.False(t, paused, "a release's cooldown must not pause the indexer")
+}
+
+// fetcherFunc answers each URL its own way.
+type fetcherFunc func(ctx context.Context, rawURL string) (*FetchResult, error)
+
+func (f fetcherFunc) Fetch(ctx context.Context, rawURL string) (*FetchResult, error) {
+	return f(ctx, rawURL)
+}
+func (fetcherFunc) Scrub(s string) string { return s }

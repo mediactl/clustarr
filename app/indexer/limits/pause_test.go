@@ -98,3 +98,39 @@ func TestAGrabPauseNeverShortensOneInForce(t *testing.T) {
 	require.True(t, paused)
 	require.Equal(t, long, at)
 }
+
+// A 429 that is one release's cooldown -- nzb-life's "Already Downloaded",
+// 24 h per NZB -- pauses that release alone: the indexer's other grabs go
+// on, and another release of the same indexer is not paused.
+func TestAReleaseCooldownPausesOnlyThatRelease(t *testing.T) {
+	ctx := context.Background()
+	kv := testKV(t)
+	idx := testIndexer("uid-release", nil)
+	now := time.Date(2026, 10, 16, 20, 35, 0, 0, time.UTC)
+
+	until, err := PauseRelease(ctx, kv, idx, "guid-a", 871*time.Minute, now)
+	require.NoError(t, err)
+	require.Equal(t, now.Add(871*time.Minute), until)
+
+	got, paused, err := ReleasePaused(ctx, kv, idx, "guid-a", now)
+	require.NoError(t, err)
+	require.True(t, paused)
+	require.Equal(t, until, got)
+
+	_, paused, err = ReleasePaused(ctx, kv, idx, "guid-b", now)
+	require.NoError(t, err)
+	require.False(t, paused, "another release of the indexer is not in cooldown")
+
+	_, paused, err = GrabPaused(ctx, kv, idx, now)
+	require.NoError(t, err)
+	require.False(t, paused, "a release's cooldown is not the indexer's pause")
+
+	_, paused, err = ReleasePaused(ctx, kv, idx, "guid-a", until.Add(time.Second))
+	require.NoError(t, err)
+	require.False(t, paused, "the cooldown ended")
+
+	// Without a Retry-After the default pause holds the release.
+	until, err = PauseRelease(ctx, kv, idx, "guid-c", 0, now)
+	require.NoError(t, err)
+	require.Equal(t, now.Add(DefaultGrabPause), until)
+}

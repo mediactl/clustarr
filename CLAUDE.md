@@ -1092,6 +1092,21 @@ exports the pinned ref every image build takes as a named context.
   Episode folds its season's answer into `lastSearchedAt` once, so its
   next search is IndexOnly) and an Episode waits while its season is
   queued or searching; nothing publishes per-episode searches for it.
+- **A payload fetch an indexer answers 429 pauses its grabs locally, and a
+  429 whose body names one release's cooldown pauses that release alone
+  (2026-10-16).** `spec.limits.grabLimit`'s ring is clustarr's count, not
+  the indexer's allowance: three usenet engines spent nzb-life's as fast as
+  it came back for seven hours, each re-add of a lost transfer fetching its
+  .nzb again. `app/indexer/limits.PauseGrabs` records the refusal in
+  `clustarr-indexer-limits` (Retry-After, else 15 min doubling to 6 h, never
+  shortening a pause in force), the download verb refuses with
+  `DownloadResponse.RetryAt`, the engines defer the command until then
+  (`engine.PayloadDeferred`), and fetches to one indexer are single-flight so
+  a burst asks it once. But nzb-life's 429 was never an account limit: it is
+  "Already Downloaded", 24 h per NZB, and the indexer-wide pause held every
+  nzb-life grab for the longest cooldown among the entries retrying. The verb
+  sniffs the 429's body (`releaseCooldown`) and records such a refusal under
+  `ReleasePauseKey` -- the indexer's other releases are fetched meanwhile.
 - **An import that imports nothing is classed, never blocklisted at once
   (2026-10-07).** Refusing every file used to read as a bad release, so a
   good 21 GB download the item merely would not take (its file transcoded)

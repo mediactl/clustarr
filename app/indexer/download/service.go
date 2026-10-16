@@ -22,6 +22,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -228,6 +229,12 @@ func (s *Service) fetchAndCount(
 		return schema.DownloadResponse{Error: limits.GrabLimitMessage(key.String(), until), RetryAt: &until},
 			limits.ResultGrabLimited, label
 	}
+	if until, paused := s.releasePaused(ctx, &idx, req.GUID, log); paused {
+		// This release is in the indexer's per-NZB cooldown; the indexer's
+		// other releases are fetched meanwhile.
+		return schema.DownloadResponse{Error: limits.GrabLimitMessage(key.String(), until), RetryAt: &until},
+			limits.ResultGrabLimited, label
+	}
 	held, allowed := s.reserveGrab(ctx, &idx, req.GUID, log)
 	if !allowed {
 		retryAt := held.RetryAt
@@ -265,11 +272,22 @@ func (s *Service) fetchAndCount(
 			resultTransport, label
 	}
 
+	// A 429's body says whose refusal it is, and classify never reads an
+	// error page, so it is sniffed first.
+	cooldown := res.Status == http.StatusTooManyRequests && releaseCooldown(res.Body)
 	resp, result := s.classify(f, res, log)
 	// A URL that was never sent is not a grab against this indexer: it named
 	// another host, and the caller fetches it from there itself.
 	grabbed = resp.Error == "" && !res.NotSent
 	switch {
+	case cooldown:
+		// One release's cooldown (nzb-life: "You already downloaded this
+		// NZB in the last 24 hours"): the indexer serves anything else,
+		// so only this release waits.
+		if until, ok := s.pauseRelease(ctx, &idx, req.GUID, retryAfterHeader(res.Header), log); ok {
+			resp.Error = limits.GrabLimitMessage(key.String(), until)
+			resp.RetryAt = &until
+		}
 	case res.Status == http.StatusTooManyRequests:
 		// The indexer's own limit, which spec.limits.grabLimit did not
 		// know: pause its grabs for Retry-After, or the escalating
@@ -291,6 +309,61 @@ func (s *Service) lockIndexer(uid string) func() {
 	mu := v.(*sync.Mutex)
 	mu.Lock()
 	return mu.Unlock
+}
+
+// maxCooldownSniffBytes bounds how much of a 429's body releaseCooldown
+// reads: an error page's first kilobytes carry its message.
+const maxCooldownSniffBytes = 16 << 10
+
+// releaseCooldownPhrases are what an indexer says when a 429 refuses this
+// one release and not the account: nzb-life's "Already Downloaded -- You
+// already downloaded this NZB in the last 24 hours" (2026-10-16).
+var releaseCooldownPhrases = []string{"already downloaded"}
+
+// releaseCooldown reports whether a 429's body names a per-release
+// cooldown. It reads part of the body and leaves closing it to classify.
+func releaseCooldown(body io.Reader) bool {
+	if body == nil {
+		return false
+	}
+	b, err := io.ReadAll(io.LimitReader(body, maxCooldownSniffBytes))
+	if err != nil && len(b) == 0 {
+		return false
+	}
+	text := strings.ToLower(string(b))
+	for _, p := range releaseCooldownPhrases {
+		if strings.Contains(text, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// releasePaused reports a cooldown a 429 set on one release of idx; an
+// accounting outage reads as no pause, as reserveGrab fails open.
+func (s *Service) releasePaused(ctx context.Context, idx *indexv1alpha1.Indexer, guid string, log *slog.Logger) (time.Time, bool) {
+	if s.Bus == nil {
+		return time.Time{}, false
+	}
+	until, paused, err := limits.ReleasePaused(ctx, s.Bus.KV(events.BucketIndexerLimits), idx, guid, s.now())
+	if err != nil {
+		log.Warn("app/indexer/download: reading the release cooldown failed; asking the indexer", "err", err)
+		return time.Time{}, false
+	}
+	return until, paused
+}
+
+func (s *Service) pauseRelease(ctx context.Context, idx *indexv1alpha1.Indexer, guid string, retryAfter time.Duration, log *slog.Logger) (time.Time, bool) {
+	if s.Bus == nil {
+		return time.Time{}, false
+	}
+	until, err := limits.PauseRelease(ctx, s.Bus.KV(events.BucketIndexerLimits), idx, guid, retryAfter, s.now())
+	if err != nil {
+		log.Warn("app/indexer/download: recording the release cooldown failed", "err", err)
+		return time.Time{}, false
+	}
+	log.Info("app/indexer/download: the indexer answered 429 for this release alone; it is in cooldown", "until", until, "retryAfter", retryAfter)
+	return until, true
 }
 
 // grabPaused reports a pause a 429 set on idx; an accounting outage reads

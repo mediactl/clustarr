@@ -35,7 +35,10 @@ import (
 // spec.limits.grabLimit, which the indexer's allowance may not match; before
 // this, a 429 gave its slot back, the ring read "under the configured
 // limits", and three usenet grabs spent nzb-life's allowance as fast as it
-// came back for seven hours (talos, 2026-10-16).
+// came back for seven hours (talos, 2026-10-16). A 429 whose body names one
+// release's cooldown is that release's alone (ReleasePauseKey): nzb-life's
+// was never an account limit, and the indexer-wide pause it set held every
+// nzb-life grab for the longest cooldown of the entries retrying.
 const (
 	DefaultGrabPause = 15 * time.Minute
 	MaxGrabPause     = 6 * time.Hour
@@ -44,6 +47,15 @@ const (
 // GrabPauseKey is the pause entry for the indexer with uid in
 // clustarr-indexer-limits.
 func GrabPauseKey(uid string) string { return events.KVKeyToken(uid) + ".grab-pause" }
+
+// ReleasePauseKey is the cooldown entry for one release of the indexer with
+// uid: a 429 that refuses this NZB alone (nzb-life's "Already Downloaded",
+// 24 h per NZB) pauses the release, never the indexer -- an indexer-wide
+// pause on it held every nzb-life grab for the longest cooldown among the
+// entries retrying (2026-10-16). The bucket's TTL expires the entry.
+func ReleasePauseKey(uid, guid string) string {
+	return GrabPauseKey(uid) + "." + events.KVKeyToken(guid)
+}
 
 type grabPause struct {
 	// Until is when the pause ends, Unix seconds.
@@ -87,7 +99,35 @@ func PauseGrabs(ctx context.Context, kv events.KV, idx *indexv1alpha1.Indexer, r
 
 // GrabPaused reports the pause in force at now, if any.
 func GrabPaused(ctx context.Context, kv events.KV, idx *indexv1alpha1.Indexer, now time.Time) (time.Time, bool, error) {
-	cur, have, err := readPause(ctx, kv, idx)
+	return pausedAt(ctx, kv, GrabPauseKey(string(idx.UID)), now)
+}
+
+// PauseRelease records one release's cooldown at now and returns when it
+// may be fetched again: now plus retryAfter when the indexer named one,
+// else DefaultGrabPause. It touches neither the indexer's pause nor its
+// strikes: the indexer serves its other releases meanwhile.
+func PauseRelease(ctx context.Context, kv events.KV, idx *indexv1alpha1.Indexer, guid string, retryAfter time.Duration, now time.Time) (time.Time, error) {
+	if retryAfter <= 0 {
+		retryAfter = DefaultGrabPause
+	}
+	until := now.Add(retryAfter)
+	val, err := json.Marshal(grabPause{Until: until.Unix(), Strikes: 1})
+	if err != nil {
+		return time.Time{}, err
+	}
+	if _, err := kv.Put(ctx, ReleasePauseKey(string(idx.UID), guid), val); err != nil {
+		return time.Time{}, fmt.Errorf("app/indexer/limits: record the release cooldown: %w", err)
+	}
+	return until, nil
+}
+
+// ReleasePaused reports the cooldown in force on one release at now, if any.
+func ReleasePaused(ctx context.Context, kv events.KV, idx *indexv1alpha1.Indexer, guid string, now time.Time) (time.Time, bool, error) {
+	return pausedAt(ctx, kv, ReleasePauseKey(string(idx.UID), guid), now)
+}
+
+func pausedAt(ctx context.Context, kv events.KV, key string, now time.Time) (time.Time, bool, error) {
+	cur, have, err := readPauseKey(ctx, kv, key)
 	if err != nil || !have {
 		return time.Time{}, false, err
 	}
@@ -108,7 +148,11 @@ func ClearGrabPause(ctx context.Context, kv events.KV, idx *indexv1alpha1.Indexe
 }
 
 func readPause(ctx context.Context, kv events.KV, idx *indexv1alpha1.Indexer) (grabPause, bool, error) {
-	e, err := kv.Get(ctx, GrabPauseKey(string(idx.UID)))
+	return readPauseKey(ctx, kv, GrabPauseKey(string(idx.UID)))
+}
+
+func readPauseKey(ctx context.Context, kv events.KV, key string) (grabPause, bool, error) {
+	e, err := kv.Get(ctx, key)
 	if errors.Is(err, events.ErrKeyNotFound) {
 		return grabPause{}, false, nil
 	}
