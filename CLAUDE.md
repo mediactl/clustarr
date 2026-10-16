@@ -1354,6 +1354,24 @@ exports the pinned ref every image build takes as a named context.
   consumer through `writeStatus`/`patchCAS`, carrying the read `resourceVersion`,
   so a race was a Conflict redone from a fresh read, not a silent rollback; the
   Indexer's writers still do (`app/indexer/status/statuspatch.PatchCAS`).
+- **A usenet transfer runs only under a connection grant from the shared
+  ledger (2026-10-16, `docs/superpowers/specs/2026-10-16-usenet-connection-ledger-design.md`).**
+  `clustarr-usenet-connections` holds one compare-and-swap entry per
+  provider account (host, port, username: every pod and every
+  DownloadClient on that account share the plan's limit), each grant
+  expiring 90 s after its last renewal. A transfer takes a share
+  (`limit / MaxActive`) on the best primary with room and fetches only
+  there, bounded by the grant; no primary with room means it parks
+  Queued, `WaitingTurn` (the manager's stall clock and the engine's stall
+  watch both stop), naming the wait. Articles the granted server lacks
+  are chased through the other servers in order, backups last, each under
+  a grant of its own, and the job fails as missing only after every
+  server was tried; the pre-check STATs its shortfall the same way. A
+  paused or outranked job gives its grant back; a grant the renewal finds
+  gone is taken again, never assumed. One pod with `Ledger` nil runs the
+  in-process `LocalLedger`, which is the same rules. Usenet is still one
+  pod (`replicas == 1`): lifting that needs per-engine scratch and a
+  StatefulSet, spec §6.
 - **A running Job's template is re-sent, not re-rendered.** An SSA manager that stops sending
   a template field releases it, and a released field on a running Job is a rejected write. So
   `app/transcode/controller/pool.Render` re-sends the template recorded in

@@ -248,3 +248,35 @@ their own after this one proves out on talos with one pod:
 - **A parked job holds a slot and scratch.** Deliberate: nothing else
   would fare better without connections, and the owner sees it as Queued
   with the reason.
+
+## 10. As built (2026-10-16, branch `usenet-ledger`)
+
+Built as designed, with these differences:
+
+- **The pre-check stays a verdict** (§4.2 said it would be log-only). It
+  STATs the granted server and then only its shortfall on each other
+  server under a one-connection chase grant, so "missing everywhere" is
+  still decided before any article moves, under the ledger's discipline.
+- **An unavailable server never blocks a verdict.** The chase skips a
+  server that cannot be asked (penalised, over quota) and revisits it in
+  one more pass; it does not wait for it, matching the pool's rule that a
+  verdict stands once any server answered. `ErrProvidersUnavailable` is
+  raised only when the transfer itself could ask nobody, as before.
+- **`Renew` reports `lost` holders** rather than a lost-grant TTL rule
+  (§5): the KV ledger remembers every grant the pod holds, re-adds one
+  another writer pruned when the account still has room, and names it
+  lost otherwise; the client clears that job's grant so its workers take
+  a new one before their next batch. A renewal that fails outright logs
+  and tries again next tick, since a bus nobody can reach lets no other
+  pod take either.
+- **Workers are goroutines, the grant is the bound.** A transfer starts
+  `share` workers and a per-job limiter (`connLimiter`) admits as many
+  fetches as the grant allows; a grant given back closes the limiter and
+  sends every worker back through `waitForTurn`, which takes a new one.
+- **`Grant.Limit`** carries the taker's account limit so a renewal can
+  judge room for a re-add without the provider config.
+- The grant is on `download.Item.Grant`, `schema.TransferRecord.Grant`
+  (fingerprinted) and the transfer's message, `transferring on frugal (50
+  connections)`; no UI change.
+- `pkg/events/schema` has four test failures that predate this branch
+  (schema names not naming their structs); they are untouched.
