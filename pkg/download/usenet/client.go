@@ -1220,7 +1220,7 @@ func (j *job) postProcess(ctx context.Context) error {
 	ctx, span := tracing.Start(ctx, "usenet.job.postProcess")
 	defer span.End()
 
-	if err := j.healthGate(ctx); err != nil {
+	if err := j.healthVerdict(ctx); err != nil {
 		return err
 	}
 	if err := j.unverifiableGate(ctx); err != nil {

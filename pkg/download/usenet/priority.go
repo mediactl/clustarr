@@ -20,9 +20,10 @@ package usenet
 import (
 	"context"
 	"errors"
+	"time"
+
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/download"
-	"time"
 )
 
 // turnPollInterval is how often a job waiting its turn -- paused, or

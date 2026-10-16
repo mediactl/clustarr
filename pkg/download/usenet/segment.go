@@ -364,6 +364,12 @@ func (j *job) retryFailed(ctx context.Context) error {
 	if j.retried {
 		return nil
 	}
+	servers := j.grantServer()
+	if servers == nil {
+		// The grant went back meanwhile (a pause, an outranking): the
+		// retry runs when the transfer has one again, never off-grant.
+		return nil
+	}
 	j.retried = true
 
 	j.mu.Lock()
@@ -391,7 +397,7 @@ func (j *job) retryFailed(ctx context.Context) error {
 		return err
 	}
 
-	servers, workers := j.grantServer(), 1
+	workers := 1
 	j.mu.Lock()
 	if j.grant != nil {
 		workers = j.grant.Connections
@@ -804,6 +810,12 @@ func (j *job) healthGate(ctx context.Context) error {
 	if err := j.chase(ctx, server); err != nil {
 		return err
 	}
+	return j.healthVerdict(ctx)
+}
+
+// healthVerdict is the gate's judgement alone -- no retry, no chase --
+// for post-processing, when the transfer and its chase are over.
+func (j *job) healthVerdict(ctx context.Context) error {
 	if !j.breached() {
 		return nil
 	}
