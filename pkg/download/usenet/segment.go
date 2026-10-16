@@ -206,14 +206,26 @@ func (j *job) transfer(ctx context.Context) error {
 	if err := j.waitForTurn(ctx); err != nil {
 		return err
 	}
-	j.mu.Lock()
-	j.tried = nil
-	j.mu.Unlock()
 	if j.client.cfg.PreCheck {
-		if err := j.preCheck(ctx); err != nil {
-			return err
+		for {
+			err := j.preCheck(ctx)
+			if err == nil {
+				break
+			}
+			if !errors.Is(err, errTurnLost) {
+				return err
+			}
+			// Paused or outranked while the pre-check parked: yield, then
+			// check again from the top.
+			if err := j.waitForTurn(ctx); err != nil {
+				return err
+			}
 		}
 		j.setStage(commonv1alpha1.DownloadStageTransferring, download.StatusDownloading)
+		// A health pause in the pre-check gave the slot and grant back.
+		if err := j.waitForTurn(ctx); err != nil {
+			return err
+		}
 	}
 
 	targets, err := j.openTargets()
@@ -233,8 +245,17 @@ func (j *job) transfer(ctx context.Context) error {
 	// wire size -- so every file can be sized once instead of growing under
 	// concurrent writes. It is also what NZBGet fetches first, for the same
 	// reason par2 renaming needs it.
-	if err := j.fetchFirstArticles(ctx, targets); err != nil {
-		return err
+	for {
+		err := j.fetchFirstArticles(ctx, targets)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, errGrantLost) {
+			return err
+		}
+		if err := j.waitForTurn(ctx); err != nil {
+			return err
+		}
 	}
 
 	batches := j.buildBatches(j.client.cfg.PipelineDepth)
@@ -301,12 +322,22 @@ dispatch:
 			return err
 		}
 	}
+	server := ""
 	if servers := j.grantServer(); len(servers) > 0 {
-		j.markTried(servers[0])
+		server = servers[0]
 	}
 	j.giveGrant(ctx)
-	if j.failedArticles() > 0 {
-		if err := j.chase(ctx); err != nil {
+	for j.failedArticles() > 0 {
+		err := j.chase(ctx, server)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, errTurnLost) {
+			return err
+		}
+		// Paused or outranked while the chase parked: yield the slot,
+		// take it back, chase on.
+		if err := j.waitTurn(ctx, false); err != nil {
 			return err
 		}
 	}
@@ -481,37 +512,24 @@ dispatch:
 	return recovered, firstErr
 }
 
-// tried marks and reads the servers this transfer has asked for its
-// missing articles, so the chase visits each once.
-func (j *job) markTried(server string) {
-	if server == "" {
-		return
-	}
-	j.mu.Lock()
-	if j.tried == nil {
-		j.tried = map[string]bool{}
-	}
-	j.tried[server] = true
-	j.mu.Unlock()
-}
-
-func (j *job) wasTried(server string) bool {
-	j.mu.Lock()
-	defer j.mu.Unlock()
-	return j.tried[server]
-}
-
-// chase fetches the still-missing articles from every server not yet
-// tried, in pool order -- primaries by priority, then backups -- each
-// under a grant of its own (holder suffix "/chase"), parking until it has
-// room (spec 2026-10-16 §4.2). A server is tried once it answered; one
-// that cannot be asked now (penalised, over quota) is skipped and visited
-// in one more pass. It returns nil when nothing is missing or every server
-// was tried: the verdict is then the health gate's, as it was for a pool
-// walk that ended on a 430 everywhere. It never parks for a server already
-// tried, so a single-server job fails as missing at once.
-func (j *job) chase(ctx context.Context) error {
+// chase fetches the still-missing articles from every server but skip
+// (the one the transfer runs on), in pool order -- primaries by priority,
+// then backups -- each under a grant of its own (holder suffix "/chase"),
+// parking until it has room (spec 2026-10-16 §4.2). Within one chase a
+// server is tried once it answered; one that cannot be asked now
+// (penalised, over quota) is skipped and visited in one more pass. The
+// tried set is the chase's own: a later breach finds other articles
+// missing, and every server is asked for those again. It returns nil when
+// nothing is missing or every server was tried: the verdict is then the
+// health gate's, as it was for a pool walk that ended on a 430 everywhere.
+// It never parks for a server already tried, so a single-server job fails
+// as missing at once. Chases are serialised, so workers that breach
+// together run one between them and nothing is fetched twice.
+func (j *job) chase(ctx context.Context, skip string) error {
+	j.chaseMu.Lock()
+	defer j.chaseMu.Unlock()
 	log := logging.FromContext(ctx)
+	tried := map[string]bool{skip: true}
 	for pass := 0; pass < 2; pass++ {
 		skipped := false
 		for _, p := range j.client.pool.Providers() {
@@ -519,7 +537,7 @@ func (j *job) chase(ctx context.Context) error {
 			if len(missing) == 0 {
 				return nil
 			}
-			if j.wasTried(p.Name) {
+			if tried[p.Name] {
 				continue
 			}
 			if !j.client.pool.Available(p.Name, time.Now()) {
@@ -533,7 +551,7 @@ func (j *job) chase(ctx context.Context) error {
 			log.InfoContext(ctx, "usenet: chasing missing articles on the next server",
 				"download", j.id, "server", p.Name, "articles", len(missing), "connections", g.Connections)
 			recovered, err := j.fetchMissing(ctx, []string{p.Name}, g.Connections, missing)
-			j.give(ctx, g)
+			j.give(context.WithoutCancel(ctx), g)
 			switch {
 			case errors.Is(err, ErrProvidersUnavailable):
 				skipped = true
@@ -541,7 +559,7 @@ func (j *job) chase(ctx context.Context) error {
 			case err != nil:
 				return err
 			}
-			j.markTried(p.Name)
+			tried[p.Name] = true
 			log.InfoContext(ctx, "usenet: chase on a server finished",
 				"download", j.id, "server", p.Name, "recovered", recovered, "stillMissing", len(missing)-recovered)
 			if err := j.checkpoint(); err != nil {
@@ -601,7 +619,11 @@ func (j *job) fetchFirstArticles(ctx context.Context, targets []*os.File) error 
 		return nil
 	}
 
-	results, err := j.client.pool.FetchBatchOn(ctx, ids, j.grantServer())
+	scope := j.grantServer()
+	if scope == nil {
+		return errGrantLost // never a fetch outside a grant
+	}
+	results, err := j.client.pool.FetchBatchOn(ctx, ids, scope)
 	if err != nil {
 		return err
 	}
@@ -651,6 +673,9 @@ func (j *job) fetchUnderGrant(ctx context.Context, targets []*os.File, b batch) 
 		}
 		err = j.runBatch(ctx, targets, b)
 		j.limiter.release()
+		if errors.Is(err, errGrantLost) {
+			continue
+		}
 		return err
 	}
 }
@@ -661,7 +686,11 @@ func (j *job) runBatch(ctx context.Context, targets []*os.File, b batch) error {
 	for i, si := range b.segs {
 		ids[i] = j.nzb.Files[b.file].Segments[si].ID
 	}
-	results, err := j.client.pool.FetchBatchOn(ctx, ids, j.grantServer())
+	scope := j.grantServer()
+	if scope == nil {
+		return errGrantLost // never a fetch outside a grant
+	}
+	results, err := j.client.pool.FetchBatchOn(ctx, ids, scope)
 	if err != nil {
 		return err
 	}
@@ -685,7 +714,13 @@ func (j *job) runBatch(ctx context.Context, targets []*os.File, b batch) error {
 	if unavailable != nil {
 		return unavailable
 	}
-	return j.healthGate(ctx)
+	err = j.healthGate(ctx)
+	if errors.Is(err, errTurnLost) {
+		// Paused or outranked while the gate's chase parked: the next
+		// batch's waitForTurn yields, and the gate runs again after it.
+		return nil
+	}
+	return err
 }
 
 // writeSegment puts one decoded part at its authoritative offset.
@@ -760,10 +795,13 @@ func (j *job) healthGate(ctx context.Context) error {
 	if !j.breached() {
 		return nil
 	}
+	// The transfer grant stays held through a mid-transfer chase: the
+	// other workers are still fetching on it.
+	server := ""
 	if servers := j.grantServer(); len(servers) > 0 {
-		j.markTried(servers[0])
+		server = servers[0]
 	}
-	if err := j.chase(ctx); err != nil {
+	if err := j.chase(ctx, server); err != nil {
 		return err
 	}
 	if !j.breached() {

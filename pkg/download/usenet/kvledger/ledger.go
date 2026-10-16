@@ -111,6 +111,13 @@ func (l *Ledger) remember(account string, g usenet.Grant) {
 	l.mine[account][g.Holder] = g
 }
 
+func (l *Ledger) stillMine(account, holder string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	_, ok := l.mine[account][holder]
+	return ok
+}
+
 func (l *Ledger) forget(account, holder string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -172,6 +179,9 @@ func (l *Ledger) Renew(ctx context.Context) ([]string, error) {
 				case i >= 0:
 					a.Grants[i].Expires = now.Add(l.ttl)
 					changed = true
+				case !l.stillMine(account, m.Holder):
+					// Given back while this swap was in flight: not ours to
+					// put back.
 				case held(a.Grants, "")+m.Connections <= m.Limit:
 					m.Expires = now.Add(l.ttl)
 					a.Grants = append(a.Grants, m)

@@ -19,6 +19,7 @@ package usenet
 
 import (
 	"context"
+	"errors"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/download"
 	"time"
@@ -138,7 +139,11 @@ func (j *job) waitWhilePaused(ctx context.Context) error {
 // that waited counts its stall time from the moment it got its turn, as the
 // engine's stall watcher already does for a pause: the wait is the queue's
 // time, not the release's.
-func (j *job) waitForTurn(ctx context.Context) error {
+func (j *job) waitForTurn(ctx context.Context) error { return j.waitTurn(ctx, true) }
+
+// waitTurn is waitForTurn; withGrant false takes the slot alone, for a
+// chase after the transfer gave its grant back.
+func (j *job) waitTurn(ctx context.Context, withGrant bool) error {
 	waited := false
 	for {
 		switch {
@@ -159,8 +164,16 @@ func (j *job) waitForTurn(ctx context.Context) error {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			// The slot is the pod's; the connections are the account's.
-			return j.ensureGrant(ctx)
+			if !withGrant {
+				return nil
+			}
+			// The slot is the pod's; the connections are the account's. A
+			// pause or an outranking while parked comes back here as
+			// errTurnLost, and the next pass gives the slot back.
+			err := j.ensureGrant(ctx)
+			if !errors.Is(err, errTurnLost) {
+				return err
+			}
 		default:
 			j.waitingSlot.Store(true)
 		}

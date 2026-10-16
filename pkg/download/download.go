@@ -145,6 +145,12 @@ type ByName interface {
 	FindByName(ctx context.Context, name string) (Item, error)
 }
 
+// Grant is a usenet transfer's connections on one server (Item.Grant).
+type Grant struct {
+	Server      string
+	Connections int32
+}
+
 // Item is one transfer as the client currently sees it. It is a snapshot: a
 // client returns a copy and never a live view, so a caller may hold one across
 // a slow status apply without racing the engine.
@@ -159,12 +165,6 @@ type ByName interface {
 // UploadedBytes, UpRate, RatioMilli, SeedTime, Seeders and Peers are zero on
 // every usenet Item; a usenet transfer uploads nothing and has no swarm.
 // Health is nil on every torrent Item. Nothing else is protocol-conditional.
-// Grant is a usenet transfer's connections on one server (Item.Grant).
-type Grant struct {
-	Server      string
-	Connections int32
-}
-
 type Item struct {
 	// ID is the client's own handle for the transfer: the 40-hex info hash
 	// for a torrent, the NZB id for usenet. It is what

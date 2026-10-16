@@ -51,6 +51,11 @@ var ledgerPollInterval = 5 * time.Second
 // between batches: go back through waitForTurn and take one again.
 var errGrantLost = errors.New("usenet: the connection grant was given back")
 
+// errTurnLost is takeGrant's answer when the job was paused or outranked
+// while parked: the caller gives the slot back through waitForTurn rather
+// than hold it for a transfer that may not run.
+var errTurnLost = errors.New("usenet: paused or outranked while waiting for connections")
+
 // grant is the job's live grant: the ledger's record plus the account it
 // is on.
 type grant struct {
@@ -138,23 +143,44 @@ func (c *Client) primaries() []string {
 // takeGrant takes a grant on the first of candidates (pool order) with
 // room, parking the job until one has it. suffix distinguishes a chase
 // grant's holder from the transfer's. min is the smallest grant worth
-// taking. The job's grant is set on success; the caller sets the limiter.
+// taking. The job's grant and limiter are set together on success for the
+// transfer grant. It returns errTurnLost when the job is paused or
+// outranked while parked (the caller yields its slot),
+// ErrProvidersUnavailable when no candidate can be asked at all, and
+// parks through a ledger that cannot be reached rather than fail on it.
 func (j *job) takeGrant(ctx context.Context, candidates []string, suffix string, min int) (grant, error) {
 	log := logging.FromContext(ctx)
 	parked := false
+	defer j.waitingGrant.Store(false)
 	for {
-		if err := j.waitWhilePaused(ctx); err != nil {
-			return grant{}, err
+		if j.paused.Load() || j.client.outranked(j) {
+			return grant{}, errTurnLost
 		}
-		g, waits, err := j.tryTake(ctx, candidates, suffix, min)
+		g, waits, askable, err := j.tryTake(ctx, candidates, suffix, min)
 		if err != nil {
-			return grant{}, err
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return grant{}, ctxErr
+			}
+			// The ledger, not the release: wait and ask again.
+			log.WarnContext(ctx, "usenet: the connection ledger could not be reached; waiting", "download", j.id, "error", err)
+			j.waitingGrant.Store(true)
+			j.mu.Lock()
+			j.status = download.StatusQueued
+			j.message = "waiting for the connection ledger: " + err.Error()
+			j.mu.Unlock()
+			if err := sleepCtx(ctx, ledgerPollInterval); err != nil {
+				return grant{}, err
+			}
+			continue
+		}
+		if !askable {
+			return grant{}, fmt.Errorf("%w: no candidate server can be asked", ErrProvidersUnavailable)
 		}
 		if g.Connections > 0 {
-			j.waitingGrant.Store(false)
 			j.mu.Lock()
 			if suffix == "" {
 				j.grant = &g
+				j.limiter.set(g.Connections)
 			}
 			if parked {
 				j.lastProgress = time.Now()
@@ -184,32 +210,36 @@ func (j *job) takeGrant(ctx context.Context, candidates []string, suffix string,
 	}
 }
 
-// tryTake asks the ledger once per candidate, in order, and returns the
-// first grant, or the "<name> <held>/<limit> in use" summary of every
-// candidate when none had room.
-func (j *job) tryTake(ctx context.Context, candidates []string, suffix string, min int) (grant, string, error) {
+// tryTake asks the ledger once per candidate that can be asked now (not
+// penalised, not over quota), in order, and returns the first grant, or
+// the "<name> <held>/<limit> in use" summary of every candidate when none
+// had room. askable is false when no candidate could be asked at all.
+func (j *job) tryTake(ctx context.Context, candidates []string, suffix string, min int) (g grant, waits string, askable bool, err error) {
 	c := j.client
-	var waits []string
+	var full []string
+	now := time.Now()
 	for _, name := range candidates {
 		p, ok := c.pool.Provider(name)
-		if !ok {
+		if !ok || !c.pool.Available(name, now) {
 			continue
 		}
-		want := share(p.Connections, c.maxActive)
-		n, err := c.ledger.Take(ctx, p.Account(), p.Connections, Grant{Holder: j.holder() + suffix, Server: name}, want, min)
+		askable = true
+		limit := max(p.Connections, 1)
+		want := share(limit, c.maxActive)
+		n, err := c.ledger.Take(ctx, p.Account(), limit, Grant{Holder: j.holder() + suffix, Server: name}, want, min)
 		if err != nil {
-			return grant{}, "", fmt.Errorf("usenet: take connections on %s: %w", name, err)
+			return grant{}, "", true, fmt.Errorf("usenet: take connections on %s: %w", name, err)
 		}
 		if n > 0 {
-			return grant{Grant: Grant{Holder: j.holder() + suffix, Server: name, Connections: n}, Account: p.Account()}, "", nil
+			return grant{Grant: Grant{Holder: j.holder() + suffix, Server: name, Connections: n}, Account: p.Account()}, "", true, nil
 		}
 		held, err := c.ledger.Held(ctx, p.Account())
 		if err != nil {
-			return grant{}, "", fmt.Errorf("usenet: read the ledger for %s: %w", name, err)
+			return grant{}, "", true, fmt.Errorf("usenet: read the ledger for %s: %w", name, err)
 		}
-		waits = append(waits, fmt.Sprintf("%s %d/%d in use", name, held, p.Connections))
+		full = append(full, fmt.Sprintf("%s %d/%d in use", name, held, limit))
 	}
-	return grant{}, strings.Join(waits, ", "), nil
+	return grant{}, strings.Join(full, ", "), askable, nil
 }
 
 // giveGrant returns the job's transfer grant, if any, and closes the
@@ -218,12 +248,12 @@ func (j *job) giveGrant(ctx context.Context) {
 	j.mu.Lock()
 	g := j.grant
 	j.grant = nil
-	j.mu.Unlock()
 	j.limiter.set(0)
+	j.mu.Unlock()
 	if g == nil {
 		return
 	}
-	j.give(ctx, *g)
+	j.give(context.WithoutCancel(ctx), *g)
 }
 
 // give returns g to the ledger. A give that fails is logged: the grant
@@ -246,12 +276,8 @@ func (j *job) ensureGrant(ctx context.Context) error {
 	if has {
 		return nil
 	}
-	g, err := j.takeGrant(ctx, j.client.primaries(), "", 1)
-	if err != nil {
-		return err
-	}
-	j.limiter.set(g.Connections)
-	return nil
+	_, err := j.takeGrant(ctx, j.client.primaries(), "", 1)
+	return err
 }
 
 // grantServer is the server the transfer grant names, for scoping a fetch.
@@ -280,13 +306,14 @@ func (c *Client) renewLoop(stop <-chan struct{}) {
 		ctx, cancel := context.WithTimeout(c.baseCtx, c.cfg.GrantRenewInterval)
 		lost, err := c.ledger.Renew(ctx)
 		cancel()
-		log := logging.FromContext(c.baseCtx)
-		if err != nil {
-			log.WarnContext(c.baseCtx, "usenet: renewing connection grants failed; trying again next tick", "error", err)
-			continue
-		}
+		// Holders reported lost beside an error are lost all the same: a
+		// Renew that lost one account's grants and then could not read
+		// another must not leave the first transferring on nothing.
 		for _, h := range lost {
 			c.dropGrant(h)
+		}
+		if err != nil {
+			logging.FromContext(c.baseCtx).WarnContext(c.baseCtx, "usenet: renewing connection grants failed; trying again next tick", "error", err)
 		}
 	}
 }
@@ -305,10 +332,10 @@ func (c *Client) dropGrant(holder string) {
 		dropped := j.grant != nil && j.grant.Holder == holder
 		if dropped {
 			j.grant = nil
+			j.limiter.set(0)
 		}
 		j.mu.Unlock()
 		if dropped {
-			j.limiter.set(0)
 			logging.FromContext(c.baseCtx).WarnContext(c.baseCtx, "usenet: a connection grant expired under this pod; the transfer takes a new one",
 				"download", j.id)
 		}

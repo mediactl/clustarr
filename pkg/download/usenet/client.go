@@ -485,9 +485,9 @@ type job struct {
 	waitingGrant atomic.Bool
 	grant        *grant
 	limiter      *connLimiter
-	// tried is every server asked for this transfer's missing articles,
-	// under mu (segment.go's chase).
-	tried map[string]bool
+	// chaseMu serialises the chase (segment.go): workers that breach
+	// together run one between them.
+	chaseMu sync.Mutex
 
 	// addedAt is fixed at the first Add and restored from the manifest on
 	// re-attach, so it is read without mu too.
@@ -1167,6 +1167,10 @@ func (j *job) preCheck(ctx context.Context) error {
 			len(missing), len(ids), health), nil); err != nil {
 			return err
 		}
+		// A health pause holds neither the slot nor the connections; the
+		// transfer takes both back when the operator resumes.
+		j.client.releaseSlot(j)
+		j.giveGrant(ctx)
 		return j.waitWhilePaused(ctx)
 	}
 	return nil
@@ -1195,7 +1199,7 @@ func (j *job) chaseExists(ctx context.Context, missing []string) ([]string, erro
 			return nil, err
 		}
 		still, err := j.client.pool.ExistsOn(ctx, missing, []string{p.Name})
-		j.give(ctx, g)
+		j.give(context.WithoutCancel(ctx), g)
 		if errors.Is(err, ErrProvidersUnavailable) {
 			unasked = true
 			continue
