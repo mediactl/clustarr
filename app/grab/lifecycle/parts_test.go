@@ -101,6 +101,17 @@ func TestTheOtherPartsFollowTheFirstPartsImport(t *testing.T) {
 	p := lifecycle.Decide(v)
 	for _, e := range p.Entries {
 		assert.Equalf(t, commonv1.DownloadPhaseImported, e.Phase, "%s", e.ID)
+		if e.Set.Part == 1 {
+			continue // its summary is importplan's own
+		}
+		// A follower never ran an import of its own: its summary still
+		// needs the dispatch the CRD admits (seq >= 1, dispatchedAt),
+		// closed, or the owner's every status apply is refused.
+		require.NotNilf(t, e.Import, "%s", e.ID)
+		d := e.Import.Dispatch
+		assert.GreaterOrEqualf(t, d.Seq, int64(1), "%s: the CRD's minimum for import.dispatch.seq", e.ID)
+		assert.Falsef(t, d.DispatchedAt.IsZero(), "%s: the CRD requires import.dispatch.dispatchedAt", e.ID)
+		assert.Equalf(t, d.Seq, d.AnsweredSeq, "%s: closed", e.ID)
 	}
 	p = lifecycle.Decide(next(v, p))
 	for _, e := range p.Entries {
@@ -137,6 +148,19 @@ func TestAFailedPartTakesItsSetDown(t *testing.T) {
 		p = lifecycle.Decide(v)
 		assert.Equal(t, commonv1.DownloadPhaseRemoving, entryNamed(p, "heat-part2").Phase)
 	})
+	t.Run("a part still Pending is dropped, never added", func(t *testing.T) {
+		es, ts := setOf(2, commonv1.DownloadStageDone, commonv1.DownloadStageDone)
+		es[0].Phase, es[0].Client, es[0].Engine, es[0].Dispatch = commonv1.DownloadPhasePending, "", "", catalogv1alpha1.Dispatch{}
+		es[1].Phase = commonv1.DownloadPhaseBlocklisted
+		v := view(es, ts[1])
+		p := lifecycle.Decide(v)
+		for _, c := range p.Commands {
+			assert.NotEqual(t, schema.EngineDesiredPresent, c.Cmd.Desired, "the dead set's Pending part is not added")
+		}
+		if e := entryNamed(p, "heat-part1"); e != nil {
+			assert.Equal(t, commonv1.DownloadPhaseRemoving, e.Phase)
+		}
+	})
 	t.Run("an imported set's parts are no failure", func(t *testing.T) {
 		es, ts := setOf(2, commonv1.DownloadStageDone, commonv1.DownloadStageDone)
 		es[0].Phase, es[0].Import = commonv1.DownloadPhaseRemoving, importedSummary(1)
@@ -163,4 +187,23 @@ func TestSetReadyWantsEveryPartDone(t *testing.T) {
 	recs[es[1].UID].Stage = commonv1.DownloadStageDone
 	assert.True(t, lifecycle.SetReady(es, &es[0], rec))
 	assert.False(t, lifecycle.SetReady(es[:1], &es[0], rec), "a part missing")
+}
+
+// A part re-created from its transfer's claim (its entry lost with the
+// owner's status) is still a part of its set, never a movie of its own.
+func TestARecreatedPartKeepsItsSet(t *testing.T) {
+	es, ts := setOf(2, commonv1.DownloadStageTransferring, commonv1.DownloadStageTransferring)
+	v := view(nil)
+	for i := range ts {
+		ts[i].Record.Claimed = false
+		ts[i].Record.DownloadID = fmt.Sprintf("job-%d", i)
+		ts[i].Record.Claim.Set = &schema.SetRef{ID: es[i].Set.ID, Part: es[i].Set.Part, Of: es[i].Set.Of}
+		v.Unclaimed = append(v.Unclaimed, ts[i])
+	}
+	p := lifecycle.Decide(v)
+	require.Len(t, p.Entries, 2)
+	for _, e := range p.Entries {
+		require.NotNilf(t, e.Set, "%s", e.ID)
+		assert.Equal(t, "parts:heat", e.Set.ID)
+	}
 }

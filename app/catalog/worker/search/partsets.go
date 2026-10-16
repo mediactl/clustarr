@@ -23,6 +23,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/decision"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/quality"
+	"github.com/mediactl/clustarr/pkg/release"
 )
 
 // withPartSets adds, to a movie search's decisions, each set of the movie's
@@ -43,7 +44,15 @@ func (w *Worker) withPartSets(
 			blocked[releaseKey(rels[i].Info)] = rels[i].Blocked
 		}
 	}
-	for _, s := range decision.PartSets(ds) {
+	// A whole post the release index blocks is no grab, so it hides no
+	// parts (decision.PartSets prefers a whole post to its parts).
+	candidates := make([]decision.Decision, 0, len(ds))
+	for _, d := range ds {
+		if _, _, part := release.PartOf(d.Release.Title); part || blocked[releaseKey(d.Release)] == nil {
+			candidates = append(candidates, d)
+		}
+	}
+	for _, s := range decision.PartSets(candidates) {
 		judged := w.evaluate()(ctx, t, p, w.Catalogue, []commonv1.ReleaseInfo{s.Release()}, o)
 		if len(judged) != 1 {
 			continue

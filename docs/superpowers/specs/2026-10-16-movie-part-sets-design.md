@@ -81,3 +81,21 @@ entries.
 
 Episodes; sets mixing indexers (each indexer's posts form their own set);
 torrent sets are allowed but untested on the owner's indexers.
+
+## As built (review fixes)
+
+- The other parts' import summary, written when they follow part 1, carries
+  a closed dispatch (seq >= 1, dispatchedAt), as `recreate`'s does: the CRD
+  refuses a summary without one, and with it every status apply of the
+  movie.
+- A set import whose inspection tags no file with its part (an import agent
+  from before sets) is retried as transient, never judged a part missing.
+- The transfer claim carries the set (`TransferClaim.Set`), so a part
+  re-created from it is still a part, and the parts of one set never count
+  as another grab of the owner (`lifecycle.SameSet`).
+- A Pending part of a set already dead is removed, never added.
+- A part whose GUID is over the entry's cap refuses the set.
+- A whole post the release index blocks does not hide its parts.
+- Deferred: a `spec.override` pick of a set while a part's Blocklisted
+  tombstone stands (`BlockQuarantine`) is refused as already grabbed; an
+  import intent naming a part other than part 1 is consumed unanswered.

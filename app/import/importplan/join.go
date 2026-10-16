@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/release"
 )
 
@@ -160,4 +161,20 @@ func joinedRejection(rel string, c candidate, runtimeMinutes int) Rejection {
 			rel, len(c.join), runs, JoinedShortPercent, runtimeMinutes)
 	}
 	return Rejection{}
+}
+
+// setUninspected is a set import's inspection that tagged no file with its
+// part: an import agent from before sets walked part 1's payload alone.
+// Judged, it would read as a part missing, a release fault; it is retried
+// (transient) until an agent that walks every part answers.
+func (p *planner) setUninspected(insp *schema.ImportInspection) bool {
+	if p.in.Entry.Set == nil {
+		return false
+	}
+	for _, f := range insp.Files {
+		if f.Part > 0 {
+			return false
+		}
+	}
+	return len(insp.Files) > 0
 }

@@ -287,7 +287,7 @@ func (d *decider) check(c Candidate) verdict {
 		vd.reason = "the owner has no usable quality profile"
 	case c.MsgID == "" && c.pending < 0 && d.now.Sub(c.At) > CandidateWindow:
 		vd.reason = "the search answer is older than the candidate window"
-	case len(rel.GUID) > maxGUID:
+	case len(rel.GUID) > maxGUID || partGUIDTooLong(c):
 		vd.reason = "the release GUID is too long to keep"
 	case sourceEmpty(c.Source):
 		vd.reason = "the release has nothing to download it by"
@@ -797,6 +797,16 @@ func (d *decider) partEntries(vd verdict) []catalogv1alpha1.DownloadEntry {
 		out = append(out, e)
 	}
 	return out
+}
+
+// partGUIDTooLong reports a set part whose GUID an entry cannot keep.
+func partGUIDTooLong(c Candidate) bool {
+	for _, part := range c.Parts {
+		if len(part.Release.GUID) > maxGUID {
+			return true
+		}
+	}
+	return false
 }
 
 // partIDs are a set's entries' ids, one per part (lifecycle.EntryID of the

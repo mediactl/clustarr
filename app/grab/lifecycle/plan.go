@@ -396,7 +396,12 @@ func (d *decider) desired(e *catalogv1alpha1.DownloadEntry) schema.EngineCommand
 
 // claimOf is the claim e's transfer is added under (§6.7, "Claims").
 func (d *decider) claimOf(e *catalogv1alpha1.DownloadEntry) schema.TransferClaim {
+	var set *schema.SetRef
+	if e.Set != nil {
+		set = &schema.SetRef{ID: e.Set.ID, Part: e.Set.Part, Of: e.Set.Of}
+	}
 	return schema.TransferClaim{
+		Set:                set,
 		Owner:              d.v.Owner,
 		ProviderID:         d.v.ProviderID,
 		Entry:              schema.EntryRef{ID: e.ID, UID: e.UID},

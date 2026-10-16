@@ -21,6 +21,7 @@ import (
 	"strings"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/app/grab/lifecycle"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/quality"
 	"github.com/mediactl/clustarr/pkg/release"
@@ -48,7 +49,7 @@ func StillWants(v View, claim schema.TransferClaim) (bool, string) {
 	}
 	for i := range v.Entries {
 		e := &v.Entries[i]
-		if e.Purpose == claim.Purpose && live(e) && e.UID != claim.Entry.UID {
+		if e.Purpose == claim.Purpose && live(e) && e.UID != claim.Entry.UID && !lifecycle.SameSet(e, claim) {
 			return false, "the owner has another grab of it in flight"
 		}
 	}

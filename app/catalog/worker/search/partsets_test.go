@@ -88,6 +88,17 @@ func TestASearchAnswerCarriesAMoviesPartsAsOneCandidate(t *testing.T) {
 		}
 	}
 
+	// The encode posted whole as well, but blocked in the release index
+	// (its articles gone): its parts are still offered.
+	whole := append(answer(false), part("w", "56.Up.2012.1080p.BluRay.x264-USURY"))
+	whole[3].Info.SizeBytes = 12 << 30
+	whole[3].Blocked = &schema.ReleaseBlock{Reason: "missingArticles"}
+	offered := false
+	for _, c := range candidates(film, whole) {
+		offered = offered || len(c.Decision.Parts) > 0
+	}
+	assert.True(t, offered, "a blocked whole post does not hide the parts")
+
 	episode := film
 	episode.Kind = commonv1.MediaKindEpisode
 	assert.Len(t, candidates(episode, answer(false)), 3, "no set for an episode")

@@ -187,7 +187,7 @@ func (d *decider) stillWants(claim schema.TransferClaim, rec schema.TransferReco
 		return false, "the owner is not monitored"
 	}
 	for i := range entries {
-		if entries[i].Purpose == claim.Purpose && live(&entries[i]) {
+		if entries[i].Purpose == claim.Purpose && live(&entries[i]) && !SameSet(&entries[i], claim) {
 			return false, "the owner has another grab of it in flight"
 		}
 	}
@@ -248,6 +248,9 @@ func (d *decider) recreate(rec schema.TransferRecord, claim schema.TransferClaim
 	}
 	if e.GrabbedAt.IsZero() {
 		e.GrabbedAt = metav1.NewTime(d.now)
+	}
+	if s := claim.Set; s != nil {
+		e.Set = &catalogv1alpha1.EntrySet{ID: s.ID, Part: s.Part, Of: s.Of}
 	}
 	if claim.Imported {
 		t := metav1.NewTime(d.now)

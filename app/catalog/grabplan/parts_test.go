@@ -18,6 +18,7 @@ package grabplan_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -113,6 +114,13 @@ func TestASetIsGrabbedWholeOrNotAtAll(t *testing.T) {
 		lost.Release.Decision.Parts = nil // as a status result pruned by an older CRD reads
 		p := grabplan.Decide(movieView(t, nil, parked(heatRef, "pick-4", lost, true, true)))
 		assert.Empty(t, p.NewEntries, "a set's GUID is nothing to fetch")
+	})
+	t.Run("a part's GUID too long to keep", func(t *testing.T) {
+		long := c
+		long.Release.Decision.ReleaseInfo = *c.Release.Decision.ReleaseInfo.DeepCopy()
+		long.Release.Decision.Parts[1].GUID = strings.Repeat("g", 1100)
+		p := grabplan.Decide(movieView(t, nil, parked(heatRef, "rss-5", long, false, false)))
+		assert.Empty(t, p.NewEntries, "an entry would be refused by the CRD")
 	})
 	t.Run("a part already grabbed", func(t *testing.T) {
 		v := movieView(t, nil, parked(heatRef, "rss-3", c, false, false))

@@ -51,6 +51,11 @@ func (d *decider) step(e *catalogv1alpha1.DownloadEntry) bool {
 // engine named.
 func (d *decider) pending(e *catalogv1alpha1.DownloadEntry) bool {
 	e.Phase = commonv1.DownloadPhasePending
+	if why := d.setFailure(e); why != "" {
+		// A part of a dead set is never added: no grab spent on it.
+		d.toRemoving(e, why)
+		return true
+	}
 	var (
 		c  Client
 		ok bool

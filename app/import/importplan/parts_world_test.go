@@ -120,3 +120,23 @@ func TestASetThatIsNotTheWholeFilmIsRefused(t *testing.T) {
 		})
 	}
 }
+
+// An import agent from before sets walks part 1's payload alone: the set is
+// not judged on that inspection (it would read as a part missing, and its
+// release be blocklisted), but retried until an agent that walks every
+// part answers.
+func TestASetInspectedByAnAgentThatKnowsNoSetsIsRetried(t *testing.T) {
+	wd := newWorld(t)
+	fakeJoin(t, wd)
+	g := setGrab(t, wd, []string{"p1.mkv", "p2.mkv"}, []*commonv1.MediaInfo{hd(85), hd(85)})
+	dec := g.decide()
+	require.NotNil(t, dec.Dispatch)
+	task, ok := dec.Dispatch.Task.(*schema.ImportInspectTask)
+	require.True(t, ok)
+	task.Part, task.Parts = 0, nil // what an older agent decodes
+	g.deliver()
+	dec = g.decide()
+	assert.Nil(t, dec.Dispatch, "%+v", dec.Summary)
+	assert.Equal(t, commonv1.ImportClassTransient, dec.Summary.Class, "%+v", dec.Summary)
+	assert.Contains(t, dec.Summary.Message, "every part")
+}

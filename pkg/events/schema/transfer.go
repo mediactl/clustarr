@@ -84,6 +84,17 @@ type TransferClaim struct {
 	RemoveDataOnDelete bool `json:"removeDataOnDelete"`
 	// Imported is true once the entry's import finished.
 	Imported bool `json:"imported,omitempty"`
+	// Set is the part set the entry downloads a part of (entry.set), so an
+	// entry re-created from the claim is still that part.
+	Set *SetRef `json:"set,omitempty"`
+}
+
+// SetRef places a transfer's entry in its part set (a movie released in
+// parts): the set's GUID, the part, and how many parts it has.
+type SetRef struct {
+	ID   string `json:"id"`
+	Part int32  `json:"part"`
+	Of   int32  `json:"of"`
 }
 
 // EpisodeNo is one episode, season and number, in the Series' stored order.

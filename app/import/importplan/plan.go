@@ -648,6 +648,12 @@ func (p *planner) planFrom(insp *schema.ImportInspection) planResult {
 	if p.donor() {
 		return p.planDonor(insp)
 	}
+	if p.setUninspected(insp) {
+		return planResult{
+			class:   commonv1.ImportClassTransient,
+			message: "the import agent inspected part 1 of the set alone; waiting for one that walks every part",
+		}
+	}
 	if p.in.Profile == nil {
 		return planResult{class: commonv1.ImportClassNeedsPerson, message: fmt.Sprintf(
 			"quality profile %q cannot be resolved: %s", p.in.ProfileRef, p.in.ProfileError)}

@@ -19,6 +19,8 @@ package lifecycle
 import (
 	"fmt"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -102,6 +104,15 @@ func (d *decider) setImport(e *catalogv1alpha1.DownloadEntry) bool {
 	if e.Set.Part != 1 {
 		for _, s := range d.sameSet(e) {
 			if s.Set.Part == 1 && imported(s) {
+				if e.Import == nil {
+					// A closed fence: a follower ran no import of its own,
+					// and the CRD admits no summary without a dispatch
+					// (seq >= 1, dispatchedAt; recreate's rule).
+					seq := nextSeq(0, 0, d.now)
+					e.Import = &catalogv1alpha1.DownloadImportSummary{
+						Dispatch: catalogv1alpha1.Dispatch{Seq: seq, AnsweredSeq: seq, DispatchedAt: metav1.NewTime(d.now)},
+					}
+				}
 				d.toImported(e)
 				return true
 			}
@@ -114,4 +125,10 @@ func (d *decider) setImport(e *catalogv1alpha1.DownloadEntry) bool {
 		return false
 	}
 	return d.importStep(e)
+}
+
+// SameSet reports e a part of the set claim's entry is a part of: no other
+// grab of the owner, but the same one.
+func SameSet(e *catalogv1alpha1.DownloadEntry, claim schema.TransferClaim) bool {
+	return e.Set != nil && claim.Set != nil && e.Set.ID == claim.Set.ID
 }
