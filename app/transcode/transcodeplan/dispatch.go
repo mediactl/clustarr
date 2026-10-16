@@ -118,7 +118,7 @@ func planDispatch(in Inputs) Decision {
 	plan := StatusPlan(&p.Plan)
 	mf := in.File.DeepCopy()
 	mf.Status = *in.Draft
-	t, err := jobspec.BuildTask(mf, e.Profile, e.Hash, in.Folders, seq, class, plan)
+	t, err := buildTask(in, mf, e.Profile, e.Hash, seq, class, plan)
 	if err != nil {
 		b.Phase, b.Blocked, b.Reason, b.Message = catalogv1alpha1.TranscodePhaseFailed, true, ReasonInvalidSource, truncate("cannot dispatch: "+err.Error(), maxMessage)
 		return Decision{Block: b, Grant: GrantRelease}
@@ -210,10 +210,22 @@ func taskFor(in Inputs, b *catalogv1alpha1.TranscodeState) (*task.Task, error) {
 	mf := in.File.DeepCopy()
 	mf.Status = *in.Draft
 	mf.Status.ProbeHash = b.ProbeHash
-	t, err := jobspec.BuildTask(mf, tp, b.ProfileHash, in.Folders, b.Dispatch.Seq, transcodev1alpha1.Hardware(b.Class), b.Plan)
+	t, err := buildTask(in, mf, tp, b.ProfileHash, b.Dispatch.Seq, transcodev1alpha1.Hardware(b.Class), b.Plan)
 	if err != nil {
 		return nil, err
 	}
-	t.OriginalLanguage = in.OriginalLanguage
 	return &t, nil
+}
+
+// buildTask is jobspec.BuildTask plus what only the planner knows -- the
+// item's original language -- for a dispatch and its republishes alike: the
+// first dispatch once built its task without it, so the worker kept every
+// audio language the manager's plan dropped (Beetlejuice Beetlejuice,
+// 2026-10-15).
+func buildTask(in Inputs, mf *catalogv1alpha1.MediaFile, tp *transcodev1alpha1.TranscodeProfile, hash string, seq int64,
+	class transcodev1alpha1.Hardware, plan *catalogv1alpha1.TranscodePlan,
+) (task.Task, error) {
+	t, err := jobspec.BuildTask(mf, tp, hash, in.Folders, seq, class, plan)
+	t.OriginalLanguage = in.OriginalLanguage
+	return t, err
 }

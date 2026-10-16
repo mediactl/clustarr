@@ -59,3 +59,15 @@ func TestTheTaskCarriesTheOriginalLanguage(t *testing.T) {
 	require.NotNil(t, d.Publish, "a requested seq inside the window is republished")
 	assert.Equal(t, "ja", d.Publish.OriginalLanguage)
 }
+
+// The first dispatch's task carries it too: a dispatch builds its task
+// itself, not through the republish path (Beetlejuice Beetlejuice's first
+// task, 2026-10-15, carried none, so the worker kept all 17 audio
+// languages the manager's plan had dropped).
+func TestTheFirstDispatchCarriesTheOriginalLanguage(t *testing.T) {
+	in := dispatchIn(t)
+	in.OriginalLanguage = "ja"
+	d := pass(in)
+	require.NotNil(t, d.Publish, "the dispatch publishes its task")
+	assert.Equal(t, "ja", d.Publish.OriginalLanguage)
+}
