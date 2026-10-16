@@ -159,7 +159,7 @@ func recyclePlan(root, bin string, named []string) ([]string, error) {
 		if !fsops.StrictlyUnder(p, root) {
 			return nil, fmt.Errorf("%w: %q is not under %q", ErrOutsideRootFolder, p, root)
 		}
-		_, part := fsops.ParseTranscodePart(p)
+		_, part := fsops.ParseTranscodePartCopy(p)
 		if bin == "" && !part {
 			return nil, fmt.Errorf("%w: %q", ErrNoRecycleBin, p)
 		}
@@ -190,10 +190,11 @@ func recycleIfPresent(bin, path string) (string, error) {
 }
 
 // removePart removes an orphan transcode part outright: only while an Lstat
-// shows a regular file whose name still parses as a transcode part. A part
+// shows a regular file whose name still parses as a transcode part or its
+// copy in flight (fsops.ParseTranscodePartCopy). A part
 // already gone is done.
 func removePart(path string) error {
-	if _, ok := fsops.ParseTranscodePart(path); !ok {
+	if _, ok := fsops.ParseTranscodePartCopy(path); !ok {
 		return fmt.Errorf("%w: %q is not a transcode part", ErrNoRecycleBin, path)
 	}
 	fi, err := os.Lstat(path)

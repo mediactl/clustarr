@@ -266,9 +266,9 @@ func plannedHDRLost(info transcode.MediaInfo, profile standard.Profile, hw stand
 // never reaches its own cleanup -- before this attempt writes its own.
 // The caller holds this job's lease for this attempt (Serve), which fences
 // every earlier one, so such a file is no longer being written. Only that
-// is removed: a regular file of exactly the per-attempt form
-// (fsops.ParseTranscodePart) for the same output stem and job, with a lower
-// attempt number. A later attempt's, another job's (another profile's
+// is removed: a regular file of exactly the per-attempt form, or that
+// form's copy still in flight (fsops.ParseTranscodePartCopy), for the same
+// output stem and job, with a lower attempt number. A later attempt's, another job's (another profile's
 // transcode of the same file), another source's and anything that is not a
 // regular file -- a symlink is never followed -- stay; import's rescan
 // sweeps an abandoned job's (app/import/worker/rescan). Best effort: a file
@@ -287,8 +287,9 @@ func sweepEarlierAttempts(ctx context.Context, part string) {
 	}
 	for _, e := range entries {
 		path := filepath.Join(dir, e.Name())
-		p, ok := fsops.ParseTranscodePart(path)
-		// The attempt's part, or one of its sidecar parts (fsops.SidecarPath).
+		// The attempt's part, one of its sidecar parts (fsops.SidecarPath),
+		// or a copy of either a pod killed mid copy-back left in flight.
+		p, ok := fsops.ParseTranscodePartCopy(path)
 		stemOK := p.Stem == cur.Stem || (strings.HasPrefix(p.Stem, cur.Stem+".") && fsops.SubtitleExt(p.Ext))
 		if !ok || !e.Type().IsRegular() || !stemOK || p.FileUID8 != cur.FileUID8 || p.Seq >= cur.Seq {
 			continue

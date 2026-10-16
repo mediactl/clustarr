@@ -63,3 +63,26 @@ func ParseTranscodePart(path string) (TranscodePart, bool) {
 	}
 	return TranscodePart{Stem: strings.TrimSuffix(withPart, infix), FileUID8: uid8, Seq: seq, Ext: ext}, true
 }
+
+// ParseTranscodePartCopy is [ParseTranscodePart] for a dead attempt's
+// sweeps: it also reads a copy of a part still in flight -- the part's name
+// with ".partial" after it, the temporary file an atomic copy lands it
+// through (copyFile; MoveAtomic nested a second one before 2026-10-16) --
+// as that part. A pod killed mid copy-back leaves one beside the output,
+// and it is the dead attempt's leftover as much as the part is (Beetlejuice
+// Beetlejuice, 2026-10-16: two, 8.7 GB, that no sweep recognised).
+func ParseTranscodePartCopy(path string) (TranscodePart, bool) {
+	return ParseTranscodePart(trimPartial(path))
+}
+
+// trimPartial is path without its trailing ".partial" suffixes.
+func trimPartial(path string) string {
+	for strings.HasSuffix(path, partialSuffix) {
+		path = strings.TrimSuffix(path, partialSuffix)
+	}
+	return path
+}
+
+// partialSuffix is what an atomic copy or write appends to its target's
+// name while it is in flight (copyFile, AtomicWrite).
+const partialSuffix = ".partial"

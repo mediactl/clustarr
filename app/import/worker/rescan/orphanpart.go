@@ -42,13 +42,13 @@ const OrphanPartAge = 72 * time.Hour
 
 // orphanPart reports whether the walked file at path is an abandoned
 // transcode attempt's output: a regular file -- never a symlink, which is
-// not followed -- of exactly the per-attempt form
-// (fsops.ParseTranscodePart; a torrent's .part, the generic
+// not followed -- of exactly the per-attempt form or its copy still in
+// flight (fsops.ParseTranscodePartCopy; a torrent's .part, the generic
 // <stem>.part.<ext> and a release named like a part are not), unwritten for
 // OrphanPartAge, whose MediaFile (by the first eight characters of its UID)
 // is not among live, the scan namespace's files with a transcode in flight.
 func orphanPart(path string, info os.FileInfo, now time.Time, live map[string]bool) bool {
-	p, ok := fsops.ParseTranscodePart(path)
+	p, ok := fsops.ParseTranscodePartCopy(path)
 	return ok && info.Mode().IsRegular() && now.Sub(info.ModTime()) > OrphanPartAge && !live[p.FileUID8]
 }
 
@@ -66,7 +66,7 @@ func (w *Worker) reportOrphanPart(ctx context.Context, st *scanState, path strin
 	if st.task.DryRun || !orphanPart(path, info, now, st.liveTranscodes) {
 		return nil
 	}
-	p, _ := fsops.ParseTranscodePart(path)
+	p, _ := fsops.ParseTranscodePartCopy(path)
 	source, err := w.recordedSourceBeside(ctx, st.scan.Namespace, path, filepath.Base(p.Stem))
 	if err != nil {
 		return err

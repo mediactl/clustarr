@@ -104,11 +104,19 @@ var partAttemptRE = regexp.MustCompile(`^\.part-[0-9a-f]{8}-[0-9]+$`)
 //     during a transcode classified the half-written output as media. Both
 //     forms are matched exactly as pkg/transcode writes them, lower case,
 //     so a title word such as "The.Movie.Part.mkv" or a release name such
-//     as "Movie.part-two.mkv" is never mistaken for one (R29 fix 3).
+//     as "Movie.part-two.mkv" is never mistaken for one (R29 fix 3);
+//   - and a per-attempt part's copy still in flight, its name with
+//     ".partial" after it (ParseTranscodePartCopy, 2026-10-16), which a pod
+//     killed mid copy-back leaves for the rescan's orphan sweep.
 func IsPart(path string) bool {
 	base := filepath.Base(path)
 	if strings.EqualFold(filepath.Ext(base), ".part") {
 		return true
+	}
+	// A per-attempt part's copy still in flight (ParseTranscodePartCopy).
+	if trimmed := trimPartial(base); trimmed != base {
+		_, ok := ParseTranscodePart(trimmed)
+		return ok
 	}
 	stem := strings.TrimSuffix(base, filepath.Ext(base))
 	ext := filepath.Ext(stem)

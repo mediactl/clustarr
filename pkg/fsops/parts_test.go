@@ -57,3 +57,35 @@ func TestParseTranscodePartReadsOnlyThePerAttemptForm(t *testing.T) {
 		}
 	}
 }
+
+// A part's copy still in flight -- its name with ".partial" after it, which a
+// pod killed mid copy-back leaves beside the output -- is that part's
+// leftover too (Beetlejuice Beetlejuice, 2026-10-16: two, 8.7 GB, that
+// neither sweep recognised). Anything else under ".partial" is not.
+func TestAPartsCopyInFlightReadsAsThePart(t *testing.T) {
+	want := fsops.TranscodePart{Stem: "/lib/Heat (1995)", FileUID8: "dcf11b8a", Seq: 1792098225000, Ext: ".mp4"}
+	for _, name := range []string{
+		"/lib/Heat (1995).part-dcf11b8a-1792098225000.mp4",
+		"/lib/Heat (1995).part-dcf11b8a-1792098225000.mp4.partial",
+		// MoveAtomic copied through a second .partial before 2026-10-16.
+		"/lib/Heat (1995).part-dcf11b8a-1792098225000.mp4.partial.partial",
+	} {
+		got, ok := fsops.ParseTranscodePartCopy(name)
+		if assert.Truef(t, ok, "%s", name) {
+			assert.Equalf(t, want, got, "%s", name)
+		}
+		assert.Truef(t, fsops.IsPart(name), "%s is a part to the scan", name)
+	}
+	for _, name := range []string{
+		"/lib/Heat (1995).mp4.partial",
+		"/lib/Heat (1995).en.srt.partial",
+		"/lib/Movie.part-two.mkv.partial",
+		"/lib/Heat (1995).partial",
+	} {
+		_, ok := fsops.ParseTranscodePartCopy(name)
+		assert.Falsef(t, ok, "%s", name)
+		assert.Falsef(t, fsops.IsPart(name), "%s", name)
+	}
+	_, ok := fsops.ParseTranscodePart("/lib/Heat (1995).part-dcf11b8a-1.mp4.partial")
+	assert.False(t, ok, "ParseTranscodePart itself still reads only the exact form")
+}

@@ -69,6 +69,32 @@ func TestMoveAtomicFallsBackOnEXDEVAndLeavesNoPartial(t *testing.T) {
 	require.True(t, os.IsNotExist(err), ".partial must not remain")
 }
 
+// A file crosses filesystems through one temporary name, dst+".partial",
+// the name every dead-attempt sweep reads (ParseTranscodePartCopy).
+// MoveAtomic copied to dst+".partial" through copyFile's own ".partial"
+// until 2026-10-16, so a pod killed mid copy-back left "….partial.partial".
+func TestMoveAtomicCopiesAFileThroughOnePartialName(t *testing.T) {
+	oldRename, oldOpen := renameFunc, openDirect
+	t.Cleanup(func() { renameFunc, openDirect = oldRename, oldOpen })
+	renameFunc = func(string, string) error { return &os.LinkError{Op: "rename", Err: syscall.EXDEV} }
+	var opened []string
+	openDirect = func(path string, perm os.FileMode) (*os.File, error) {
+		opened = append(opened, path)
+		return oldOpen(path, perm)
+	}
+
+	dir := t.TempDir()
+	src, dst := filepath.Join(dir, "src.mkv"), filepath.Join(dir, "dst.mkv")
+	require.NoError(t, os.WriteFile(src, []byte("payload"), 0o664))
+	require.NoError(t, MoveAtomic(src, dst))
+
+	require.Equal(t, []string{dst + ".partial"}, opened)
+	got, err := os.ReadFile(dst)
+	require.NoError(t, err)
+	require.Equal(t, "payload", string(got))
+	require.NoFileExists(t, src)
+}
+
 // A directory crosses filesystems too: the usenet and torrent engines
 // publish a whole transfer directory from a scratch volume onto /data
 // (2026-09-30: every non-path scratch placement failed the publish with

@@ -315,13 +315,18 @@ func TestTheOutputIsSyncedBeforeItReplacesTheSource(t *testing.T) {
 func TestAWorkerRemovesItsJobsEarlierAttemptsPartFilesBeforeItEncodes(t *testing.T) {
 	c := newSafetyCase(t, "sdr", "sdr")
 	stem := "Film.2020.2160p"
-	stale := []string{stem + ".part-0123abcd-1.mkv", stem + ".part-0123abcd-0.mp4"}
+	stale := []string{
+		stem + ".part-0123abcd-1.mkv", stem + ".part-0123abcd-0.mp4",
+		// A copy back a killed pod left mid-flight (2026-10-16).
+		stem + ".part-0123abcd-1.mp4.partial", stem + ".part-0123abcd-0.mkv.partial.partial",
+	}
 	kept := []string{
 		stem + ".part-0123abcd-3.mkv",    // a later attempt: not this worker's to judge
 		stem + ".part-89abcdef-1.mkv",    // another job's, same output
 		"Other.2021.part-0123abcd-1.mkv", // another source's
 		stem + ".part.mkv",               // the generic form
 		stem + ".part-two.mkv",           // a release name, not a part
+		stem + ".mp4.partial",            // the output's own copy, not a part's
 		stem + ".nfo",
 	}
 	for _, name := range append(append([]string{}, stale...), kept...) {

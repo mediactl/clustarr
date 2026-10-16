@@ -49,13 +49,13 @@ func MoveAtomic(src, dst string) error {
 	if err != nil {
 		return fmt.Errorf("fsops: stat %s: %w", src, err)
 	}
-	tmp := dst + ".partial"
 	if info.IsDir() {
 		// A whole transfer directory from a scratch volume onto the data
 		// volume (both engines' publish). It is copied under .partial --
 		// clearing one an interrupted attempt left, never merging into it --
 		// then renamed, so dst appears only complete: an engine that finds
 		// dst after a restart may trust it.
+		tmp := dst + ".partial"
 		if err := os.RemoveAll(tmp); err != nil {
 			return fmt.Errorf("fsops: clear %s: %w", tmp, err)
 		}
@@ -63,16 +63,18 @@ func MoveAtomic(src, dst string) error {
 			_ = os.RemoveAll(tmp)
 			return fmt.Errorf("fsops: copy %s to %s: %w", src, tmp, err)
 		}
-	} else if err := copyFile(context.Background(), src, tmp); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("fsops: copy %s to %s: %w", src, tmp, err)
-	}
-	if err := os.Rename(tmp, dst); err != nil {
-		_ = os.RemoveAll(tmp)
-		return fmt.Errorf("fsops: rename %s to %s: %w", tmp, dst, err)
-	}
-	if err := fsyncDir(filepath.Dir(dst)); err != nil {
-		return err
+		if err := os.Rename(tmp, dst); err != nil {
+			_ = os.RemoveAll(tmp)
+			return fmt.Errorf("fsops: rename %s to %s: %w", tmp, dst, err)
+		}
+		if err := fsyncDir(filepath.Dir(dst)); err != nil {
+			return err
+		}
+	} else if err := copyFile(context.Background(), src, dst); err != nil {
+		// copyFile lands dst whole itself, through dst+".partial" -- the
+		// one temporary name a dead attempt's sweeps read
+		// (ParseTranscodePartCopy) -- and removes it on failure.
+		return fmt.Errorf("fsops: copy %s to %s: %w", src, dst, err)
 	}
 	if err := os.RemoveAll(src); err != nil {
 		return fmt.Errorf("fsops: remove source %s after move: %w", src, err)

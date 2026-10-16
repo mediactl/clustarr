@@ -59,6 +59,10 @@ func TestOrphanPartIsAnAbandonedTranscodeAttemptsOutputOnly(t *testing.T) {
 		"the generic transcode part": {"/lib/M/Movie.part.mkv", old, false},
 		"a release named like one":   {"/lib/M/Movie.part-two.mkv", old, false},
 		"media":                      {"/lib/M/Movie.mkv", old, false},
+		"a part's copy in flight":    {"/lib/M/Movie.part-deadbeef-1.mp4.partial", old, true},
+		"a nested copy":              {"/lib/M/Movie.part-deadbeef-1.mp4.partial.partial", old, true},
+		"a live job's copy":          {"/lib/M/Movie.part-0123abcd-1.mp4.partial", old, false},
+		"media's own copy":           {"/lib/M/Movie.mp4.partial", old, false},
 		"a symlink":                  {"/lib/M/Movie.part-deadbeef-1.mkv", partInfo{mode: fs.ModeSymlink, mod: old.mod}, false},
 		"a directory":                {"/lib/M/Movie.part-deadbeef-1.mkv", partInfo{mode: fs.ModeDir, mod: old.mod}, false},
 	} {

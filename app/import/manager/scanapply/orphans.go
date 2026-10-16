@@ -47,13 +47,14 @@ const OrphanPartAge = 72 * time.Hour
 
 // orphanPart decides a transcode attempt's part file the scan reported
 // (P47): it is recycled through a recycle-files task on import-recycle when
-// it is of exactly the per-dispatch form, unwritten for OrphanPartAge, no
+// it is of exactly the per-dispatch form or that form's copy still in
+// flight (fsops.ParseTranscodePartCopy), unwritten for OrphanPartAge, no
 // MediaFile whose UID starts with its eight characters has a transcode in
 // flight, and the MediaFile it was made from (TranscodeOutputOf) has none
 // either (status.transcode Queued, Running or Swapping). The import
 // domain moves it into the root folder's recycle bin.
 func (a *Applier) orphanPart(ctx context.Context, obs schema.ScanObservation, _ *tally) error {
-	p, ok := fsops.ParseTranscodePart(obs.Path)
+	p, ok := fsops.ParseTranscodePartCopy(obs.Path)
 	if !ok || a.now().Sub(obs.ModTime) <= OrphanPartAge {
 		return nil
 	}
