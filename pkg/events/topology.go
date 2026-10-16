@@ -1225,6 +1225,8 @@ func defaultBuckets() []BucketSpec {
 		b(BucketProgress, 10*time.Minute, "1 Hz download and transcode telemetry."),
 		b(BucketTranscodeLeases, TranscodeLeaseTTL,
 			"Transcode task leases: created by the claiming worker, renewed with Update, expired by the server; the transcode controller writes cancel markers."),
+		b(BucketUsenetConnections, 0,
+			"Usenet connection grants per provider account; each grant carries its own expiry and every write is a compare-and-swap."),
 		b(BucketImportList, 7*24*time.Hour, "Import list items, kept out of status."),
 		b(BucketDedup, 24*time.Hour, "Import fingerprints for re-import no-ops."),
 	}

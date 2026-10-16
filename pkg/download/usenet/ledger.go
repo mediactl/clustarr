@@ -37,11 +37,14 @@ func (p Provider) Account() string {
 // Server the provider name the grant was taken for, for anyone reading the
 // ledger; Expires is set by the ledger and ignored past.
 type Grant struct {
-	Holder      string    `json:"holder"`
-	Pod         string    `json:"pod,omitempty"`
-	Server      string    `json:"server"`
-	Connections int       `json:"connections"`
-	Expires     time.Time `json:"expires"`
+	Holder      string `json:"holder"`
+	Pod         string `json:"pod,omitempty"`
+	Server      string `json:"server"`
+	Connections int    `json:"connections"`
+	// Limit is the account limit the taker applied, so a renewal can tell
+	// whether a grant it found gone still fits.
+	Limit   int       `json:"limit,omitempty"`
+	Expires time.Time `json:"expires"`
 }
 
 // Account is the ledger's value for one account: every live grant on it.

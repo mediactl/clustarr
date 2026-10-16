@@ -64,10 +64,10 @@ type stubServer struct {
 	// bodyDelay slows each BODY, so concurrent demand actually overlaps.
 	bodyDelay time.Duration
 
-	mu            sync.Mutex
-	served        map[string]int
+	mu     sync.Mutex
+	served map[string]int
 	// asked counts every BODY or STAT for an id, refused ones included.
-	asked map[string]int
+	asked         map[string]int
 	liveConns     int
 	peakConns     int
 	acceptedConns int

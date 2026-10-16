@@ -164,6 +164,10 @@ const (
 	BucketImportList      = "clustarr-importlist"
 	BucketDedup           = "clustarr-dedup"
 	BucketTranscodeLeases = "clustarr-transcode-leases"
+	// BucketUsenetConnections holds the usenet connection ledger: one
+	// entry per provider account (UsenetAccountKey) listing every engine
+	// pod's grants, each with its own expiry (spec 2026-10-16 §3).
+	BucketUsenetConnections = "clustarr-usenet-connections"
 )
 
 // BucketArtwork is the object-store bucket holding artwork originals and
@@ -683,6 +687,11 @@ func TranscodeTaskConsumerName(profileUID, class string) string {
 // TranscodeLeaseKey is a MediaFile's transcode lease in
 // clustarr-transcode-leases (loop spec §4.12).
 func TranscodeLeaseKey(mediaFileUID string) string { return "lease." + KVKeyToken(mediaFileUID) }
+
+// UsenetAccountKey is a provider account's entry in
+// clustarr-usenet-connections; account is "host:port:username"
+// (usenet.Provider.Account), escaped injectively.
+func UsenetAccountKey(account string) string { return "account." + KVKeyToken(account) }
 
 // MsgIDForTranscodeTask is a transcode dispatch's Msg-Id,
 // "transcode/<mfUID>/<seq>" (loop spec §5.3): a republish of one seq inside
