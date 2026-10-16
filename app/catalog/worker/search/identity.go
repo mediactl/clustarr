@@ -23,42 +23,22 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/app/catalog/itemread"
 	"github.com/mediactl/clustarr/pkg/decision"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/metadata/scenemap"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
 
-// MovieIdentity is the decision.Identity of one Movie: every title it is
-// known by, its year, and its tmdb and imdb ids.
-//
+// MovieIdentity is the decision.Identity of one Movie
+// (itemread.MovieIdentity, where it lives so that import's runtime rule,
+// which may link no worker code, reads the identity this same code builds).
 // It is exported, together with EpisodeIdentity, so that
 // app/catalog/worker/rssmatcher builds its decision Target's identity from
 // this same code: an RSS decision and a search decision about one item must
 // agree on what that item IS, and two builders are how they would come to
-// disagree. The tmdb id comes from spec, not metadata, so a movie whose
-// metadata has not landed is still identifiable by id.
-func MovieIdentity(m *catalogv1alpha1.Movie) decision.Identity {
-	id := decision.Identity{IDs: map[string]string{}}
-	if m.Spec.TmdbID != 0 {
-		id.IDs[commonv1.IDKeyTMDB] = strconv.FormatInt(m.Spec.TmdbID, 10)
-	}
-	md := m.Status.Metadata
-	if md == nil {
-		return id
-	}
-	id.Titles = appendTitles(id.Titles, md.Title, md.OriginalTitle)
-	id.Titles = appendTitles(id.Titles, md.AlternateTitles...)
-	id.Year = int(md.Year)
-	// Radarr's own rule is "Year or SecondaryYear" (ruling R-7): a release
-	// named by the festival year of a film dated by its general release is
-	// the same film, however far apart the two sit.
-	id.SecondaryYear = int(md.SecondaryYear)
-	if v := md.ExternalIDs[commonv1.IDKeyIMDB]; v != "" {
-		id.IDs[commonv1.IDKeyIMDB] = v
-	}
-	return id
-}
+// disagree.
+func MovieIdentity(m *catalogv1alpha1.Movie) decision.Identity { return itemread.MovieIdentity(m) }
 
 // EpisodeIdentity is the decision.Identity of one or more Episodes of s: the
 // SERIES' titles and tvdb id (an Episode carries no title or id a release

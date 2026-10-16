@@ -35,6 +35,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -546,4 +548,43 @@ func HasDonorAttempts(kind string) bool {
 		return true
 	}
 	return false
+}
+
+// MovieIdentity is the decision.Identity of one Movie: every title it is
+// known by, its year, and its tmdb and imdb ids.
+//
+// Search, the RSS matcher (search.MovieIdentity) and import's runtime rule
+// all read it, so they agree on what the item IS. The tmdb id comes from
+// spec, not metadata, so a movie whose metadata has not landed is still
+// identifiable by id.
+func MovieIdentity(m *catalogv1alpha1.Movie) decision.Identity {
+	id := decision.Identity{IDs: map[string]string{}}
+	if m.Spec.TmdbID != 0 {
+		id.IDs[commonv1.IDKeyTMDB] = strconv.FormatInt(m.Spec.TmdbID, 10)
+	}
+	md := m.Status.Metadata
+	if md == nil {
+		return id
+	}
+	id.Titles = appendUniqueTitles(id.Titles, md.Title, md.OriginalTitle)
+	id.Titles = appendUniqueTitles(id.Titles, md.AlternateTitles...)
+	id.Year = int(md.Year)
+	// Radarr's own rule is "Year or SecondaryYear" (ruling R-7): a release
+	// named by the festival year of a film dated by its general release is
+	// the same film, however far apart the two sit.
+	id.SecondaryYear = int(md.SecondaryYear)
+	if v := md.ExternalIDs[commonv1.IDKeyIMDB]; v != "" {
+		id.IDs[commonv1.IDKeyIMDB] = v
+	}
+	return id
+}
+
+// appendUniqueTitles is dst plus each non-empty title it does not hold.
+func appendUniqueTitles(dst []string, titles ...string) []string {
+	for _, t := range titles {
+		if t != "" && !slices.Contains(dst, t) {
+			dst = append(dst, t)
+		}
+	}
+	return dst
 }

@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package decision
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 
@@ -107,6 +108,25 @@ func baselineRejections(p quality.Profile, t Target, parsed *release.ParsedRelea
 	}
 	return out
 }
+
+// BaselineLoss is baselineRejections' rule read from two files' probes, for
+// an import, which knows both streams: why a file of newCodec, newHDR and
+// newResolution would lose the baseline of one of curCodec, curHDR and
+// curResolution, "" when it would not. Each side fails open on what it
+// does not know, as baselineRejections does.
+func BaselineLoss(curCodec string, curHDR common.HdrFormat, curResolution int32, newCodec, newHDR string, newResolution int32) string {
+	if curHDR != "" && curHDR != common.HdrFormatNone && (newHDR == "" || newHDR == string(common.HdrFormatNone)) && newCodec != "" {
+		return fmt.Sprintf("the current file is %s and this one is SDR", curHDR)
+	}
+	if (curCodec == "hevc" || curCodec == "av1") && newCodec == "h264" &&
+		curResolution > 0 && newResolution > 0 && newResolution <= curResolution {
+		return fmt.Sprintf("the current file is %s at %dp and this one is AVC at %dp", curCodec, curResolution, newResolution)
+	}
+	return ""
+}
+
+// IsDolbyVision reports whether a probed HDR format is a Dolby Vision one.
+func IsDolbyVision(hdr string) bool { return strings.HasPrefix(hdr, "dolbyVision") }
 
 // namesHDR reports whether a release names a high dynamic range: one of
 // the parser's HDR hints, though its HDR10 counts only beside an HDR word

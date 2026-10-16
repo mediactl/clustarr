@@ -591,3 +591,19 @@ func sep(b *strings.Builder) {
 		b.WriteString(", ")
 	}
 }
+
+// TitleNamesMovie reports whether title -- a release's name -- names the
+// movie id is: one of its titles and its year, as identityRejection
+// compares them, the ids and the id-query vouch aside. Import asks it of a
+// grab before trusting a runtime far from the movie's, since a release that
+// came from an id query passed on its year alone (The NeverEnding Story
+// III, 2026-10-16: an indexer answered its id with No.Escape.1994).
+func TitleNamesMovie(id Identity, title string) bool {
+	parsed, err := release.Parse(title, release.Options{Kind: common.MediaKindMovie})
+	if err != nil {
+		return false
+	}
+	idx := newIdentityIndex(common.MediaKindMovie, id)
+	id.IDs, id.IDQueryIndexers = nil, nil
+	return itemRejection(common.MediaKindMovie, id, idx.titles, idx.namesakes, parsed, common.ReleaseInfo{}) == nil
+}

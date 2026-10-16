@@ -31,6 +31,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
+	"github.com/mediactl/clustarr/app/catalog/itemread"
 	"github.com/mediactl/clustarr/app/dispatch"
 	"github.com/mediactl/clustarr/app/grab/lifecycle"
 	"github.com/mediactl/clustarr/app/import/importplan"
@@ -204,6 +205,12 @@ func (s *Stage) importInput(
 		in.ProfileError = "neither the grab nor its item names one"
 	}
 	in.OriginalLanguage = originalLanguageOf(ow.obj)
+	if m, ok := ow.obj.(*catalogv1alpha1.Movie); ok {
+		in.Identity = itemread.MovieIdentity(m)
+		if m.Status.Metadata != nil {
+			in.RuntimeMinutes = int(m.Status.Metadata.RuntimeMinutes)
+		}
+	}
 
 	if e.Purpose == commonv1.DownloadPurposeAudioDonor {
 		d, err := s.donorItem(ctx, ow, in.Targets, in.Profile)

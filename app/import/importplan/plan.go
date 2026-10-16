@@ -30,6 +30,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/dispatch"
 	"github.com/mediactl/clustarr/app/grab/lifecycle"
+	"github.com/mediactl/clustarr/pkg/decision"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -91,6 +92,11 @@ type Input struct {
 	ProfileError string
 	// OriginalLanguage is the owner's original language tag.
 	OriginalLanguage string
+	// Identity is a Movie owner's identity (itemread.MovieIdentity) and
+	// RuntimeMinutes its metadata runtime, for the runtime rule
+	// (movieContentRejection); zero for every other kind.
+	Identity       decision.Identity
+	RuntimeMinutes int
 	// Donor is set for an audioDonor entry.
 	Donor *DonorItem
 	// Intent is a pending download.clustarr.io/import intent naming this
@@ -685,6 +691,12 @@ func (p *planner) planFrom(insp *schema.ImportInspection) planResult {
 				rel, c.kind))
 			continue
 		}
+		if c.kind == commonv1.MediaKindMovie && !manual {
+			if r := movieContentRejection(rel, f.Probe, e.Release.Title, p.in.Identity, p.in.RuntimeMinutes); !r.none() {
+				rs = append(rs, r)
+				continue
+			}
+		}
 		have := p.existingFor(c)
 		compared := comparedFiles(have, e)
 		if r, ok := p.gate(rel, c, compared, manual); ok {
@@ -791,8 +803,9 @@ func (p *planner) filledBy(c candidate, filled map[string]string) string {
 	return ""
 }
 
-// gate applies the transcoded (P58), multi-file (P64) and upgrade (P59)
-// rules against the files the candidate would replace.
+// gate applies the transcoded (P58), multi-file (P64), upgrade (P59) and
+// baseline (2026-10-16, decision.BaselineLoss) rules against the files the
+// candidate would replace.
 func (p *planner) gate(rel string, c candidate, compared []catalogv1alpha1.MediaFile, manual bool) (Rejection, bool) {
 	e := &p.in.Entry
 	prof := *p.in.Profile
@@ -830,10 +843,18 @@ func (p *planner) gate(rel string, c candidate, compared []catalogv1alpha1.Media
 		mf := &olds[i]
 		current := quality.Candidate{Quality: mf.Spec.Quality, Revision: mf.Spec.Revision}
 		if !nonVideoKind(c.kind) {
-			current.FormatScore = int(mf.Spec.FormatScore)
+			current.FormatScore = currentScore(prof, mf)
+		}
+		if !nonVideoKind(c.kind) && replacesWrongLanguage(prof, p.in.OriginalLanguage, mf, c.f.Probe) {
+			continue
 		}
 		verdict := prof.UpgradeDecision(current, cand)
-		if verdict == quality.Upgrade || (!nonVideoKind(c.kind) && replacesWrongLanguage(prof, p.in.OriginalLanguage, mf, c.f.Probe)) {
+		if verdict == quality.Upgrade {
+			// A good transcode baseline is kept (2026-10-16), from both
+			// files' streams: the grab decision read only the title.
+			if loss := baselineLoss(mf, c); !nonVideoKind(c.kind) && loss != "" {
+				return itemStateRejection("%s: %s, and the current file is kept", rel, loss), true
+			}
 			continue
 		}
 		text := fmt.Sprintf("%s: %s", rel, verdictMessage(verdict))
