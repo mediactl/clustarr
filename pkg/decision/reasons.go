@@ -93,6 +93,23 @@ var (
 	// Permanent, so no later automatic run revisits it.
 	ReasonTranscodedFinal = Reason{"TranscodedFinal", common.RejectionPermanent}
 
+	// ReasonDolbyVision, ReasonLosesHDR and ReasonAVCOverHEVC have no *arr
+	// counterpart either. They are the owner's rules of 2026-10-16, after an
+	// afternoon's upgrades swapped compact HEVC and HDR files for 14-22 GB
+	// x264 Blu-rays the transcode then barely shrank:
+	//   - DolbyVision: a release that names Dolby Vision is never taken
+	//     (the standard strips it to HDR10 anyway).
+	//   - LosesHDR: an HDR file is never replaced by a release that names
+	//     no HDR.
+	//   - AVCOverHEVC: an HEVC or AV1 file -- a transcode's good baseline --
+	//     is never replaced by an AVC release of no greater resolution.
+	// The last two are item-state rules like TranscodedFinal, and a person's
+	// own pick is exempt from them; DolbyVision needs spec.override. All
+	// three are Permanent.
+	ReasonDolbyVision = Reason{"DolbyVision", common.RejectionPermanent}
+	ReasonLosesHDR    = Reason{"LosesHDR", common.RejectionPermanent}
+	ReasonAVCOverHEVC = Reason{"AVCOverHEVC", common.RejectionPermanent}
+
 	// ReasonFullSeasonNotAired is Sonarr's FullSeasonSpecification (Wave S):
 	// a full-season release of a season that has an episode not yet aired
 	// is incomplete or mislabelled. Evaluate does not run it: the grab

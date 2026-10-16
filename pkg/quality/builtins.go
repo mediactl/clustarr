@@ -20,6 +20,7 @@ package quality
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
@@ -59,6 +60,28 @@ type profileSeedJSON struct {
 	Audio                 *catalogv1alpha1.AudioPolicy      `json:"audio"`
 }
 
+// clustarrFormatScores are the owner's adjustments to TRaSH's scores in
+// every video built-in (2026-10-16). TRaSH scores x265 (HD) -10000, keeping
+// every 720p and 1080p x265 release out as a likely re-encode, and so every
+// such file read as an upgrade candidate. But every file here is
+// transcoded to HEVC anyway, and that score had the library replace
+// compact HEVC and HDR files with 14-22 GB x264 Blu-rays (Rushmore, Thelma
+// and Louise, The Velvet Underground). A seed that scores the format itself
+// keeps its own score.
+var clustarrFormatScores = []catalogv1alpha1.FormatScore{{Format: "x265-hd", Score: 0}}
+
+// withClustarrFormatScores is scores plus each of clustarrFormatScores the
+// seed does not score itself.
+func withClustarrFormatScores(scores []catalogv1alpha1.FormatScore) []catalogv1alpha1.FormatScore {
+	out := append([]catalogv1alpha1.FormatScore(nil), scores...)
+	for _, c := range clustarrFormatScores {
+		if !slices.ContainsFunc(scores, func(s catalogv1alpha1.FormatScore) bool { return s.Format == c.Format }) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
 // DecodeProfileSeeds parses one data/profiles/*.json document (a JSON array
 // of profile seeds).
 func DecodeProfileSeeds(doc []byte) ([]ProfileSeed, error) {
@@ -68,11 +91,15 @@ func DecodeProfileSeeds(doc []byte) ([]ProfileSeed, error) {
 	}
 	seeds := make([]ProfileSeed, 0, len(raw))
 	for _, r := range raw {
+		formatScores := r.FormatScores
+		if isVideoKind(string(r.MediaKind)) {
+			formatScores = withClustarrFormatScores(formatScores)
+		}
 		seeds = append(seeds, ProfileSeed{Name: r.Name, Spec: catalogv1alpha1.QualityProfileSpec{
 			MediaKind: r.MediaKind, Tiers: r.Tiers, Cutoff: r.Cutoff, UpgradeAllowed: r.UpgradeAllowed,
 			MinFormatScore: r.MinFormatScore, CutoffFormatScore: r.CutoffFormatScore,
 			MinUpgradeFormatScore: r.MinUpgradeFormatScore, ScoreSet: r.ScoreSet,
-			EnabledFormatGroups: r.EnabledFormatGroups, FormatScores: r.FormatScores,
+			EnabledFormatGroups: r.EnabledFormatGroups, FormatScores: formatScores,
 			Language: r.Language, ProperPolicy: r.ProperPolicy, SizeTable: r.SizeTable,
 			PreferredProtocol: r.PreferredProtocol, Audio: r.Audio,
 		}})

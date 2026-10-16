@@ -51,6 +51,13 @@ type Current struct {
 	// lacks the profile's language (LacksLanguage) is replaced by any
 	// accepted release, whatever its quality.
 	AudioLanguages []string
+	// VideoCodec is the file's probed video codec (h264, hevc, av1, ...)
+	// and HDR its probed HDR format; both "" when unprobed. They keep a
+	// transcode baseline (baselineRejections): an HDR file is never
+	// replaced by a release that names no HDR, nor an HEVC or AV1 file by
+	// an AVC release of no greater resolution.
+	VideoCodec string
+	HDR        common.HdrFormat
 }
 
 // Queued is a release already downloading for a Target. It is a type alias

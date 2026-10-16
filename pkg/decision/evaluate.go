@@ -190,6 +190,9 @@ func evaluateOne(ctx context.Context, t Target, originalLanguage string, an audi
 		add(languageRejection(originalLanguage, p, parsed))
 	}
 	add(sampleRejection(rel))
+	if isVideoKind(t.Kind) {
+		add(dolbyVisionRejection(parsed))
+	}
 	if itemState {
 		rejections = append(rejections, videoItemState(t, p, an, parsed, rel, score)...)
 	}
@@ -248,6 +251,7 @@ func videoItemState(t Target, p quality.Profile, an audioNames, parsed *release.
 	candidate := quality.Candidate{Quality: rel.Quality, Revision: rel.Revision, FormatScore: score}
 	add(queueRejection(p, t, candidate))
 	add(transcodedRejection(t, Options{}))
+	out = append(out, baselineRejections(p, t, parsed, rel)...)
 	// A dual-audio anime release names its languages (the original and
 	// English) though the parser recognises neither word.
 	add(upgradeRejection(p, t, candidate, namesWantedLanguages(an, p, parsed, rel.Title)))

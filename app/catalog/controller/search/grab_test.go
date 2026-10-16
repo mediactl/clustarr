@@ -49,7 +49,15 @@ func TestResolveGrab(t *testing.T) {
 		ReleaseInfo: commonv1.ReleaseInfo{GUID: "transcoded-perm"},
 		Rejections:  []commonv1.Rejection{transcodedFinal, permanent.Rejections[0]},
 	}
-	results := []commonv1.ReleaseDecision{ok, permanent, temporary, transcoded, transcodedAndPermanent}
+	rejected := func(guid string, r decision.Reason) commonv1.ReleaseDecision {
+		return commonv1.ReleaseDecision{
+			ReleaseInfo: commonv1.ReleaseInfo{GUID: guid},
+			Rejections:  []commonv1.Rejection{{Reason: r.Code + ": quoted", Type: r.Type}},
+		}
+	}
+	results := []commonv1.ReleaseDecision{ok, permanent, temporary, transcoded, transcodedAndPermanent,
+		rejected("loses-hdr", decision.ReasonLosesHDR), rejected("avc", decision.ReasonAVCOverHEVC),
+		rejected("dv", decision.ReasonDolbyVision)}
 
 	tests := []struct {
 		name        string
@@ -66,6 +74,10 @@ func TestResolveGrab(t *testing.T) {
 		{name: "a person's pick over a transcoded file needs no override", guid: "transcoded", wantAllowed: true},
 		{name: "the transcoded exemption waives no other permanent rejection", guid: "transcoded-perm", wantErr: true},
 		{name: "which override still waives", guid: "transcoded-perm", override: true, wantAllowed: true},
+		{name: "a person's pick over an HDR file needs no override", guid: "loses-hdr", wantAllowed: true},
+		{name: "a person's pick of AVC over HEVC needs no override", guid: "avc", wantAllowed: true},
+		{name: "a Dolby Vision release needs override", guid: "dv", wantErr: true},
+		{name: "which takes it", guid: "dv", override: true, wantAllowed: true},
 	}
 
 	for _, tc := range tests {

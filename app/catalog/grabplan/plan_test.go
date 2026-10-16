@@ -183,6 +183,28 @@ func TestAPackIsNarrowedToTheWantedEpisodes(t *testing.T) {
 	})
 }
 
+// TestAManualPickIsExemptFromTheBaselineRules: an automatic candidate never
+// replaces an HDR HEVC file with an SDR AVC release (LosesHDR, AVCOverHEVC,
+// 2026-10-16), and a person's pick still may, as it may over a transcoded
+// file.
+func TestAManualPickIsExemptFromTheBaselineRules(t *testing.T) {
+	c := movieCandidate(t, "Heat.1995.1080p.BluRay.x264-GRP")
+	current := func(codec string, hdr commonv1.HdrFormat) *decision.Current {
+		return &decision.Current{Quality: q(t, "HDTV-720p"), AudioLanguages: []string{"en"}, VideoCodec: codec, HDR: hdr}
+	}
+
+	unprobed := grabplan.Decide(movieView(t, current("", ""), parked(heatRef, "rss-0", c, false, false)))
+	require.Len(t, unprobed.NewEntries, 1, "the control: the release upgrades an unprobed file")
+
+	auto := grabplan.Decide(movieView(t, current("hevc", commonv1.HdrFormatHDR10), parked(heatRef, "rss-1", c, false, false)))
+	require.Empty(t, auto.NewEntries, "an automatic candidate never replaces an HDR HEVC file with SDR AVC")
+	require.Equal(t, intake.Refused, auto.Settle["rss-1"])
+
+	pick := grabplan.Decide(movieView(t, current("hevc", commonv1.HdrFormatHDR10), parked(heatRef, "pick-1", c, true, false)))
+	require.Len(t, pick.NewEntries, 1, "a person's pick is exempt from the baseline rules")
+	require.Equal(t, intake.Incorporated, pick.Settle["pick-1"])
+}
+
 // TestAManualPickIsExemptFromTranscodedFinalAndOverrideFromBlocklisted is
 // resolveGrab's rule in the planner: a person's pick takes a release over a
 // transcoded file (TranscodedFinal is the automatic rule), and only

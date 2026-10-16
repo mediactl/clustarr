@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package decision
 
 import (
+	"slices"
 	"strings"
 
 	common "github.com/mediactl/clustarr/api/common/v1alpha1"
@@ -62,6 +63,77 @@ func transcodedRejection(t Target, _ Options) *common.Rejection {
 	}
 	r := newRejection(ReasonTranscodedFinal, "the current file is transcoded, and a transcoded file is final")
 	return &r
+}
+
+// isVideoKind reports whether k's releases are video.
+func isVideoKind(k common.MediaKind) bool {
+	switch k {
+	case common.MediaKindMovie, common.MediaKindEpisode, common.MediaKindSeries:
+		return true
+	}
+	return false
+}
+
+// dolbyVisionRejection rejects a release whose title names Dolby Vision
+// (ReasonDolbyVision): DV, DoVi, "Dolby Vision".
+func dolbyVisionRejection(parsed *release.ParsedRelease) *common.Rejection {
+	if !slices.Contains(parsed.Hints.HDR, "DV") {
+		return nil
+	}
+	r := newRejection(ReasonDolbyVision, "the release is Dolby Vision, which is never taken")
+	return &r
+}
+
+// baselineRejections keep a good transcode baseline (ReasonLosesHDR,
+// ReasonAVCOverHEVC): an HDR file is not replaced by a release that names
+// no HDR, nor an HEVC or AV1 file by an AVC release of no greater
+// resolution. Each fails open on what it cannot read: an unprobed file,
+// an unknown resolution, a title that names no codec. A file that lacks
+// the profile's language is replaced by any accepted release, as
+// upgradeRejection replaces it, so neither rule holds it.
+func baselineRejections(p quality.Profile, t Target, parsed *release.ParsedRelease, rel common.ReleaseInfo) []common.Rejection {
+	cur := t.Current
+	if cur == nil || LacksLanguage(p, t.OriginalLanguageTag, cur.AudioLanguages) {
+		return nil
+	}
+	var out []common.Rejection
+	if cur.HDR != "" && cur.HDR != common.HdrFormatNone && !namesHDR(parsed, rel.Title) {
+		out = append(out, newRejection(ReasonLosesHDR, "the current file is %s and the release names no HDR", cur.HDR))
+	}
+	if (cur.VideoCodec == "hevc" || cur.VideoCodec == "av1") && namesAVC(parsed) &&
+		cur.Quality.Resolution > 0 && rel.Quality.Resolution > 0 && rel.Quality.Resolution <= cur.Quality.Resolution {
+		out = append(out, newRejection(ReasonAVCOverHEVC, "the current file is %s at %dp and the release is AVC at %dp",
+			cur.VideoCodec, cur.Quality.Resolution, rel.Quality.Resolution))
+	}
+	return out
+}
+
+// namesHDR reports whether a release names a high dynamic range: one of
+// the parser's HDR hints, though its HDR10 counts only beside an HDR word
+// in the title, since it reads a bare "10bit" as HDR10 (2026-10-16).
+func namesHDR(parsed *release.ParsedRelease, title string) bool {
+	for _, h := range parsed.Hints.HDR {
+		switch h {
+		case "HDR", "HDR10+", "HLG", "PQ", "DV":
+			return true
+		case "HDR10":
+			if strings.Contains(strings.ToUpper(title), "HDR") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// namesAVC reports whether a release's title names an AVC (H.264) encode.
+func namesAVC(parsed *release.ParsedRelease) bool {
+	for _, c := range parsed.Hints.Codec {
+		switch strings.ToUpper(strings.ReplaceAll(c, ".", "")) {
+		case "X264", "H264", "AVC":
+			return true
+		}
+	}
+	return false
 }
 
 // qualityRejections is QualityAllowedByProfileSpecification +
@@ -197,6 +269,18 @@ func queueRejection(p quality.Profile, t Target, candidate quality.Candidate) *c
 // release's language is the same assumption that imported the wrong file,
 // and the import step, which checks the new file's own audio, would refuse
 // it anyway (fileimport.replacesWrongLanguage).
+// currentScore is the current file's format score as p scores its formats
+// today (quality.Profile.ScoreFormats over the formats frozen at import),
+// so a score the profile has changed since -- x265 (HD)'s, 2026-10-16 --
+// is the one an upgrade must beat; the frozen score when the file recorded
+// no formats.
+func currentScore(p quality.Profile, cur *Current) int {
+	if len(cur.Formats) == 0 {
+		return cur.FormatScore
+	}
+	return p.ScoreFormats(cur.Formats)
+}
+
 func upgradeRejection(p quality.Profile, t Target, candidate quality.Candidate, namesLanguage bool) *common.Rejection {
 	if t.Current == nil {
 		return nil
@@ -204,7 +288,7 @@ func upgradeRejection(p quality.Profile, t Target, candidate quality.Candidate, 
 	if namesLanguage && LacksLanguage(p, t.OriginalLanguageTag, t.Current.AudioLanguages) {
 		return nil // the current file lacks the profile's language; this release names it (the language check held it to it)
 	}
-	current := quality.Candidate{Quality: t.Current.Quality, Revision: t.Current.Revision, FormatScore: t.Current.FormatScore}
+	current := quality.Candidate{Quality: t.Current.Quality, Revision: t.Current.Revision, FormatScore: currentScore(p, t.Current)}
 	v := p.UpgradeDecision(current, candidate)
 	if v == quality.Upgrade {
 		return nil

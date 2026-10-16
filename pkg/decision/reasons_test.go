@@ -39,7 +39,7 @@ func TestEveryReasonIsPermanent(t *testing.T) {
 		decision.ReasonExistingHigherRevision, decision.ReasonExistingCutoffMet, decision.ReasonExistingFormatScore,
 		decision.ReasonExistingFormatCutoffMet, decision.ReasonExistingFormatScoreIncrement,
 		decision.ReasonWrongItem, decision.ReasonUnknownItem, decision.ReasonFullSeason,
-		decision.ReasonTranscodedFinal,
+		decision.ReasonTranscodedFinal, decision.ReasonDolbyVision, decision.ReasonLosesHDR, decision.ReasonAVCOverHEVC,
 	} {
 		require.Equal(t, common.RejectionPermanent, r.Type, "reason %s", r.Code)
 	}

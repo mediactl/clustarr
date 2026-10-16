@@ -232,8 +232,8 @@ func Delay(ctx context.Context, r client.Reader, ns string, cfg Config) (catalog
 // CurrentOf is mf as pkg/decision's Current: quality, revision, format score
 // and matched formats from the spec frozen at import (spec §8.4), the
 // transcoded verdict (rollup.Transcoded, the one place the rule lives), the
-// probed audio languages, and the source title and info hash frozen at
-// import (ADR-0019 §6.2).
+// probed audio languages, video codec and HDR format, and the source title
+// and info hash frozen at import (ADR-0019 §6.2).
 func CurrentOf(mf *catalogv1alpha1.MediaFile) *decision.Current {
 	if mf == nil {
 		return nil
@@ -245,6 +245,9 @@ func CurrentOf(mf *catalogv1alpha1.MediaFile) *decision.Current {
 		Formats:        mf.Spec.MatchedFormats,
 		Transcoded:     rollup.Transcoded(mf),
 		AudioLanguages: rollup.ProbedAudioLanguages(mf),
+	}
+	if mi := mf.Status.MediaInfo; mi != nil {
+		cur.VideoCodec, cur.HDR = mi.VideoCodec, mi.Hdr
 	}
 	if from := mf.Spec.ImportedFrom; from != nil {
 		cur.SourceTitle = from.ReleaseTitle

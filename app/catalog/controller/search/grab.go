@@ -69,6 +69,12 @@ func resolveGrab(guid string, results []commonv1.ReleaseDecision, override bool)
 			if decision.ReasonFullSeasonNotAired.Of(rej) {
 				continue
 			}
+			// And a release that would replace a good transcode baseline
+			// (2026-10-16): an HDR file by an SDR release, an HEVC one by
+			// AVC. A person picking it by hand means to.
+			if decision.ReasonLosesHDR.Of(rej) || decision.ReasonAVCOverHEVC.Of(rej) {
+				continue
+			}
 			if rej.Type == commonv1.RejectionPermanent && !override {
 				return grabDecision{
 					Release: r.ReleaseInfo,

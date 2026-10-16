@@ -373,12 +373,14 @@ func releaseOK(c Candidate) (bool, string) {
 
 // exempt reports a rejection a person's pick passes (resolveGrab's rule):
 // with spec.override every permanent one; a pick TranscodedFinal,
-// FullSeasonNotAired (Wave S) and every temporary one.
+// FullSeasonNotAired (Wave S), LosesHDR and AVCOverHEVC (2026-10-16) and
+// every temporary one.
 func exempt(c Candidate, rej commonv1.Rejection) bool {
 	if c.Override && rej.Type == commonv1.RejectionPermanent {
 		return true
 	}
 	return c.Manual && (decision.ReasonTranscodedFinal.Of(rej) || decision.ReasonFullSeasonNotAired.Of(rej) ||
+		decision.ReasonLosesHDR.Of(rej) || decision.ReasonAVCOverHEVC.Of(rej) ||
 		rej.Type == commonv1.RejectionTemporary)
 }
 

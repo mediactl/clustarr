@@ -117,6 +117,18 @@ func (p Profile) Score(ctx context.Context, cat *catalogue.Catalogue, r *release
 	return cat.Score(ctx, p.Scores, r, ic)
 }
 
+// ScoreFormats is the score p gives a file that matched formats (catalogue
+// slugs, as MediaFile spec.matchedFormats froze them at import): each
+// slug's score in p.Scores today, so a score the profile has changed since
+// is the one counted. A slug p no longer scores counts nothing.
+func (p Profile) ScoreFormats(formats []string) int {
+	score := 0
+	for _, slug := range formats {
+		score += p.Scores[slug]
+	}
+	return score
+}
+
 // Index returns q's tier position (0 = best) and whether q is allowed at
 // all. Two Definitions in the same tier compare equal for upgrade purposes
 // (docs/research/quality.md §3.2's QualityModelComparer, "group members
