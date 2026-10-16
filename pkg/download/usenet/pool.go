@@ -349,6 +349,53 @@ func (p *Pool) Close() {
 	})
 }
 
+// Providers lists the providers in walk order: primaries by ascending
+// Priority, then backups.
+func (p *Pool) Providers() []Provider {
+	out := make([]Provider, 0, len(p.servers))
+	for _, s := range p.servers {
+		out = append(out, s.p)
+	}
+	return out
+}
+
+// Provider finds a provider by name.
+func (p *Pool) Provider(name string) (Provider, bool) {
+	for _, s := range p.servers {
+		if s.p.Name == name {
+			return s.p, true
+		}
+	}
+	return Provider{}, false
+}
+
+// Available reports whether the named server may be asked now: not
+// penalised and not over its quota.
+func (p *Pool) Available(name string, now time.Time) bool {
+	for _, s := range p.servers {
+		if s.p.Name == name {
+			return s.available(now)
+		}
+	}
+	return false
+}
+
+// serverScope is the set of server names a fetch may use; nil is every one.
+type serverScope map[string]bool
+
+func scopeOf(servers []string) serverScope {
+	if servers == nil {
+		return nil
+	}
+	sc := make(serverScope, len(servers))
+	for _, n := range servers {
+		sc[n] = true
+	}
+	return sc
+}
+
+func (sc serverScope) has(name string) bool { return sc == nil || sc[name] }
+
 // Stats reports per-provider accounting in configured order.
 func (p *Pool) Stats() []ServerStats {
 	out := make([]ServerStats, 0, len(p.servers))
@@ -408,8 +455,18 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 // returned error is non-nil only when ctx was cancelled; per-article outcomes
 // are in Result.Err.
 func (p *Pool) FetchBatch(ctx context.Context, ids []string) ([]Result, error) {
+	return p.FetchBatchOn(ctx, ids, nil)
+}
+
+// FetchBatchOn is FetchBatch over only the named servers, walked in the
+// pool's order; nil means every server. A transfer runs under a grant on
+// one server (spec 2026-10-16 §4.1), so this is how it stays on it: an
+// article the scoped server refuses is [ErrArticleMissing] here, and the
+// caller's chase -- not the pool -- decides which server to ask next.
+func (p *Pool) FetchBatchOn(ctx context.Context, ids []string, servers []string) ([]Result, error) {
 	ctx, span := tracing.Start(ctx, "usenet.pool.fetchBatch")
 	defer span.End()
+	scope := scopeOf(servers)
 
 	res := make([]Result, len(ids))
 	// done is tracked explicitly rather than inferred from res[i].Body: a
@@ -439,7 +496,7 @@ func (p *Pool) FetchBatch(ctx context.Context, ids []string) ([]Result, error) {
 		if err := ctxDone(ctx); err != nil {
 			return res, err
 		}
-		if !s.available(time.Now()) {
+		if !scope.has(s.p.Name) || !s.available(time.Now()) {
 			continue
 		}
 
@@ -567,8 +624,14 @@ func (p *Pool) Fetch(ctx context.Context, id string) (Result, error) {
 //
 // STAT transfers nothing, so it pipelines much deeper than BODY.
 func (p *Pool) Exists(ctx context.Context, ids []string) ([]string, error) {
+	return p.ExistsOn(ctx, ids, nil)
+}
+
+// ExistsOn is Exists over only the named servers; nil means every server.
+func (p *Pool) ExistsOn(ctx context.Context, ids []string, servers []string) ([]string, error) {
 	ctx, span := tracing.Start(ctx, "usenet.pool.exists")
 	defer span.End()
+	scope := scopeOf(servers)
 
 	const statDepth = 32
 
@@ -591,7 +654,7 @@ func (p *Pool) Exists(ctx context.Context, ids []string) ([]string, error) {
 		if err := ctxDone(ctx); err != nil {
 			return nil, err
 		}
-		if !s.available(time.Now()) {
+		if !scope.has(s.p.Name) || !s.available(time.Now()) {
 			continue
 		}
 		batch := make([]string, len(pending))

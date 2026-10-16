@@ -430,3 +430,41 @@ func TestExistsFindsMissingArticlesAcrossProviders(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []string{gone}, missing)
 }
+
+// A scoped fetch asks only the named servers: a transfer runs under a grant
+// on one server (spec 2026-10-16 §4.1), so the pool must not wander onto
+// another whose connections it was not granted.
+func TestFetchBatchOnAsksOnlyTheScopedServer(t *testing.T) {
+	first := newStubServer(t)
+	second := newStubServer(t)
+	payload := partPayload(1, 500)
+	first.addArticle("a@clustarr.test", "a.bin", 500, 0, 1, 1, payload)
+	second.addArticle("a@clustarr.test", "a.bin", 500, 0, 1, 1, payload)
+
+	p := testPool(t, 4, first.provider("first", 2, 1), second.provider("second", 2, 2))
+	res, err := p.FetchBatchOn(context.Background(), []string{"a@clustarr.test"}, []string{"second"})
+	require.NoError(t, err)
+	require.NoError(t, res[0].Err)
+	require.Equal(t, "second", res[0].Server)
+	require.Zero(t, first.servedCount("a@clustarr.test"), "the first server is outside the scope")
+}
+
+// Within a scope, an article the scoped server refuses is missing -- the
+// caller's chase decides which server to ask next, and never the pool.
+func TestFetchBatchOnScopedToARefusingServerIsMissing(t *testing.T) {
+	first := newStubServer(t)
+	second := newStubServer(t)
+	payload := partPayload(1, 500)
+	first.refuse["a@clustarr.test"] = 430
+	second.addArticle("a@clustarr.test", "a.bin", 500, 0, 1, 1, payload)
+
+	p := testPool(t, 4, first.provider("first", 2, 1), second.provider("second", 2, 2))
+	res, err := p.FetchBatchOn(context.Background(), []string{"a@clustarr.test"}, []string{"first"})
+	require.NoError(t, err)
+	require.ErrorIs(t, res[0].Err, ErrArticleMissing)
+	require.Zero(t, second.servedCount("a@clustarr.test"))
+
+	missing, err := p.ExistsOn(context.Background(), []string{"a@clustarr.test"}, []string{"first"})
+	require.NoError(t, err)
+	require.Equal(t, []string{"a@clustarr.test"}, missing)
+}
