@@ -95,7 +95,7 @@ func (l *lostLedger) Renew(ctx context.Context) ([]string, error) {
 	l.reported = true
 	lost := append([]string(nil), l.holders...)
 	for _, h := range lost {
-		_ = l.LocalLedger.Give(ctx, "", h)
+		_ = l.Give(ctx, "", h)
 	}
 	return lost, nil
 }
