@@ -7,6 +7,6 @@ dependencies:
   version: 0.29.1
 - name: cluster-plex
   repository: oci://ghcr.io/mediactl/charts
-  version: 0.4.0
-digest: sha256:264da8abd8823fd2123f326ce2ae415d497dd047504f759f046d309281520c95
-generated: "2026-10-14T18:17:09.075510841-05:00"
+  version: 0.4.1
+digest: sha256:20c3c8462eddb94b8961a8a07cf6aa776db0272550be9991bd013a7b6a6392db
+generated: "2026-10-15T20:35:44.219334689-05:00"
