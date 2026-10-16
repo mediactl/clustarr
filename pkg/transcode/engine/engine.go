@@ -534,8 +534,37 @@ func mux(ctx context.Context, m *ffgo.Muxer, d *ffgo.Decoder, plan standard.Resu
 			return res, ctx.Err()
 		}
 	}
-	if err := addStreams(m, d, plan, slots, srcs, output); err != nil {
-		return res, &Error{Stage: "mux", Err: err}
+	// The header reads every encoder's parameters, and an encoder holds its
+	// lock while it hands this muxer a packet (ffgo's AudioEncoder.Encode):
+	// a stage blocked in that hand-off would keep the lock Parameters()
+	// needs. So packets are still taken, into pending, until the header is
+	// written (Beetlejuice Beetlejuice's 17 audio stages hung here,
+	// 2026-10-15).
+	added := make(chan error, 1)
+	go func() { added <- addStreams(m, d, plan, slots, srcs, output) }()
+	in, done, cancelled := muxCh, ctx.Done(), false
+header:
+	for {
+		select {
+		case err := <-added:
+			if cancelled {
+				return res, ctx.Err()
+			}
+			if err != nil {
+				return res, &Error{Stage: "mux", Err: err}
+			}
+			break header
+		case it, ok := <-in:
+			if !ok {
+				in = nil // every stage is done; the header still finishes
+				continue
+			}
+			pending = append(pending, it)
+		case <-done:
+			// Packets are still taken until addStreams returns, so no stage
+			// holds a lock it waits on; then the run ends.
+			done, cancelled = nil, true
+		}
 	}
 	for i := range slots {
 		if s := &slots[i]; s.copy && s.stream != nil {
