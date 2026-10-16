@@ -30,6 +30,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/mediactl/clustarr/pkg/transcode"
+	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
 
 // A remux of a source whose video repeats a timestamp -- four packets at
@@ -132,4 +133,54 @@ func TestTheDTSGuardHoldsDecodeTimestampsStrictlyIncreasing(t *testing.T) {
 			assert.Equal(t, tt.repaired, g.repaired)
 		})
 	}
+}
+
+// An encode of a source whose video repeats a timestamp -- Black Mirror
+// S05E01-03's x264 encodes, whose every attempt failed in the MP4 muxer
+// ("non monotonically increasing dts ... 2940928 >= 2940928", five full
+// encodes each, 2026-10-16) -- muxes, its decode timestamps strictly
+// increasing: the DTS guard holds every stream, as FFmpeg's own
+// mux_fixup_ts does, not only a copied one.
+func TestAnEncodedStreamThatRepeatsATimestampStillMuxes(t *testing.T) {
+	src := hevcClip(t, "mkv",
+		"-x265-params", "log-level=error:bframes=3",
+		"-bsf:v", `setts=pts=if(between(N\,20\,23)\,0.75/TB\,PTS)`)
+	require.False(t, increasing(packetDTS(t, src)), "the clip must repeat a timestamp, as the damaged sources do")
+
+	// An encoder that, as QSV's does, carries a repeated presentation
+	// time through to a repeated decode time: x265 without B-frames.
+	plan := encodePlan(standard.VideoPlan{Encoder: "libx265", Decode: "cpu", Filter: "format=yuv420p", HDR: "sdr",
+		Options: map[string]string{"preset": "ultrafast", "x265-params": "log-level=error:bframes=0"}})
+	plan.Container = transcode.ContainerMP4
+	out := filepath.Join(t.TempDir(), "out.part.mp4")
+	_, err := Run(context.Background(), plan, src, out, Options{})
+	require.NoError(t, err)
+	assert.True(t, increasing(packetDTS(t, out)), "the output's decode timestamps move forward")
+}
+
+// Every stream the muxer writes gets a DTS guard -- an encoded one's as a
+// copied one's -- and a sidecar, written by its own muxer, none.
+func TestEveryMuxedStreamHasADTSGuard(t *testing.T) {
+	src := hevcClip(t, "mkv")
+	d, err := ffgo.NewDecoder(src)
+	require.NoError(t, err)
+	defer func() { _ = d.Close() }()
+	info := d.Streams()[0]
+	m, err := ffgo.NewMuxer(filepath.Join(t.TempDir(), "o.mkv"), "matroska")
+	require.NoError(t, err)
+	defer func() { _ = m.Close() }()
+	par, err := outputParameters(info.CodecParameters(), 0)
+	require.NoError(t, err)
+	st, err := m.AddCopyStream(&ffgo.CopyStreamConfig{CodecParameters: par, TimeBase: info.TimeBase})
+	require.NoError(t, err)
+
+	slots := []slot{
+		{name: "video", copy: true, stream: st, tb: info.TimeBase},
+		{name: "audio:0", stream: st, tb: info.TimeBase}, // an encoded stream
+		{name: "subtitle:0", sidecar: &standard.SidecarPlan{}},
+	}
+	guardStreams(slots)
+	assert.NotNil(t, slots[0].guard, "a copied stream")
+	assert.NotNil(t, slots[1].guard, "an encoded stream")
+	assert.Nil(t, slots[2].guard, "a sidecar")
 }

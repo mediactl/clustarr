@@ -119,8 +119,24 @@ type slot struct {
 	// its packets go to sink, made with the header.
 	sidecar *standard.SidecarPlan
 	sink    sidecarSink
-	// guard holds a copied stream's decode timestamps moving forward.
+	// guard holds the stream's decode timestamps moving forward.
 	guard *dtsGuard
+}
+
+// guardStreams gives every stream the muxer writes a DTS guard, as
+// FFmpeg's mux_fixup_ts fixes every output stream's timestamps: a copied
+// one's (49 Up's and 63 Up's repeated timestamps, 2026-10-15) and an
+// encoded one's -- hevc_qsv carries a repeated presentation time through
+// to a repeated decode time, which failed every attempt at Black Mirror
+// S05E01-03 in the MP4 muxer (2026-10-16). A sidecar is written by its own
+// muxer and has no stream here.
+func guardStreams(slots []slot) {
+	for i := range slots {
+		if s := &slots[i]; s.stream != nil {
+			g := newDTSGuard(s.tb, s.stream.OutputTimeBase())
+			s.guard = &g
+		}
+	}
 }
 
 // stageFunc runs one encoded source: it reads its packets from in, reports
@@ -566,12 +582,7 @@ header:
 			done, cancelled = nil, true
 		}
 	}
-	for i := range slots {
-		if s := &slots[i]; s.copy && s.stream != nil {
-			g := newDTSGuard(s.tb, s.stream.OutputTimeBase())
-			s.guard = &g
-		}
-	}
+	guardStreams(slots)
 	closeHeader()
 
 	durMillis := d.Duration().Milliseconds()
@@ -634,8 +645,8 @@ header:
 			if !ok {
 				for i := range slots {
 					if g := slots[i].guard; g != nil && g.repaired > 0 {
-						logging.FromContext(ctx).WarnContext(ctx, "engine: moved copied packets whose decode timestamps did not move forward (a damaged source)",
-							"stream", slots[i].name, "packets", g.repaired)
+						logging.FromContext(ctx).WarnContext(ctx, "engine: moved packets whose decode timestamps did not move forward (a damaged source)",
+							"stream", slots[i].name, "copied", slots[i].copy, "packets", g.repaired)
 					}
 				}
 				if err := m.WriteTrailer(); err != nil {
