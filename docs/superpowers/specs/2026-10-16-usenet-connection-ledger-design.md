@@ -280,3 +280,27 @@ Built as designed, with these differences:
   connections)`; no UI change.
 - `pkg/events/schema` has four test failures that predate this branch
   (schema names not naming their structs); they are untouched.
+
+### 10.1 After the review (same day)
+
+- **The chase's tried set is the chase's own.** A later breach finds
+  other articles missing, and every server is asked for those again; the
+  first build kept one set per transfer and never chased a server twice.
+- **One chase at a time** (`chaseMu`): workers that breach together run
+  one between them. A mid-transfer chase keeps the transfer grant, since
+  the other workers are still fetching on it; the end-of-transfer chase
+  gives it back first.
+- **A primary that cannot be asked is never granted**; when no candidate
+  can be, the take is `ErrProvidersUnavailable` and the job waits as it
+  always did, then takes the next primary.
+- **A parked job yields**: paused or outranked while waiting for
+  connections it gives its slot back (`errTurnLost`), and a health pause
+  raised by the pre-check holds neither slot nor connections.
+- **A ledger that cannot be reached parks the job**, it never fails it;
+  lost holders reported beside a renewal error are still dropped; `Renew`
+  re-checks what the pod holds before putting a grant back, so a `Give`
+  that lands mid-swap is never undone.
+- **No fetch outside a grant**: the grant and its limiter change together
+  under the job lock, and a fetch that finds no grant goes back through
+  `waitForTurn`. Post-processing judges health (`healthVerdict`) without
+  retrying or chasing.
