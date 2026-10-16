@@ -168,6 +168,14 @@ type TransferHealth struct {
 	TotalArticles         int32 `json:"totalArticles,omitempty"`
 }
 
+// TransferGrant is a usenet transfer's connection grant (download.Grant):
+// the server it transfers on and how many connections it may open there,
+// from the ledger every pod on that account shares.
+type TransferGrant struct {
+	Server      string `json:"server"`
+	Connections int32  `json:"connections"`
+}
+
 // TransferRecord is clustarr-transfers' value for one entry, keyed
 // events.RecordKey(entry uid), written only by the engine holding the
 // transfer (ADR-0019 §6.7): Item is the owner, Seq the last command applied,
@@ -212,6 +220,8 @@ type TransferRecord struct {
 	// WaitingTurn is download.Item.WaitingTurn: the engine holds the
 	// transfer Queued for a slot, so the manager's stall clock stops.
 	WaitingTurn bool `json:"waitingTurn,omitempty"`
+	// Grant is download.Item.Grant; nil while the transfer holds none.
+	Grant *TransferGrant `json:"grant,omitempty"`
 	// EngineFailureReason is the engine's report, not the entry's verdict.
 	EngineFailureReason commonv1.DownloadFailureReason `json:"engineFailureReason,omitempty"`
 	// Message is at most MaxTransferMessage bytes.
