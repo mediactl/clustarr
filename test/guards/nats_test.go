@@ -56,8 +56,10 @@ func natsContainer(t *testing.T, out []byte) corev1.Container {
 // chart's NATS ran with a 1Gi memory limit and was OOM-killed when every
 // client reconnected at once during the first upgrade of a library of
 // 15,000 episodes and 12,000 files. Both installers run it with a 2Gi limit,
-// a 512Mi request and GOMEMLIMIT 1800MiB -- the server's soft limit under the
-// cgroup's, so its collector runs hard before the kernel kills it.
+// a request equal to it (Guaranteed QoS, so a quorum member is never evicted
+// under node memory pressure; 2026-10-16) and GOMEMLIMIT 1800MiB -- the
+// server's soft limit under the cgroup's, so its collector runs hard before
+// the kernel kills it.
 func TestBothInstallersSizeNATSForAReconnectStorm(t *testing.T) {
 	root, err := filepath.Abs("../..")
 	require.NoError(t, err)
@@ -70,7 +72,7 @@ func TestBothInstallersSizeNATSForAReconnectStorm(t *testing.T) {
 		c := natsContainer(t, out)
 		limit, request := c.Resources.Limits[corev1.ResourceMemory], c.Resources.Requests[corev1.ResourceMemory]
 		assert.Equal(t, "2Gi", limit.String(), "%s: the NATS memory limit", name)
-		assert.Equal(t, "512Mi", request.String(), "%s: the NATS memory request", name)
+		assert.Equal(t, "2Gi", request.String(), "%s: the NATS memory request", name)
 		var gomemlimit string
 		for _, e := range c.Env {
 			if e.Name == "GOMEMLIMIT" {

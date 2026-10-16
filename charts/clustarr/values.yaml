@@ -53,8 +53,15 @@ nats:
     jetstream:
       enabled: true
       fileStore:
+        # The default topology reserves 18.5 GiB per server at R3 (streams
+        # 9.8, KV buckets 1.7, object stores 7.0 -- pkg/events.Default);
+        # JetStream refuses a stream whose MaxBytes the file store cannot
+        # reserve, so the store is sized above that. Changing the claim size
+        # of a running release needs the StatefulSet recreated with
+        # --cascade=orphan and the existing claims expanded.
+        maxSize: 30Gi
         pvc:
-          size: 20Gi
+          size: 30Gi
       memoryStore:
         enabled: true
         maxSize: 256Mi
@@ -71,6 +78,14 @@ nats:
       write_deadline: "10s"
       lame_duck_grace_period: "10s"
       lame_duck_duration: "30s"
+  # One server per node: an R3 stream whose replicas share a node loses
+  # quorum with that node (JetStream clustering docs, "placement"). A
+  # single-node cluster runs one replica, which the constraint admits.
+  podTemplate:
+    topologySpreadConstraints:
+      kubernetes.io/hostname:
+        maxSkew: 1
+        whenUnsatisfiable: DoNotSchedule
   # The NATS dashboards' exporter (prometheus-nats-exporter).
   promExporter:
     enabled: false
@@ -82,13 +97,21 @@ nats:
   # limit under the cgroup's, so its collector works hard before the kernel
   # kills it. config/nats/statefulset.yaml sets the same.
   container:
+    # The server by version only (nats:2.15 is the scratch-based image;
+    # the chart's default tag names an -alpine variant of an older server).
+    # config/nats/statefulset.yaml names the same.
+    image:
+      tag: "2.15"
     env:
       GOMEMLIMIT: 1800MiB
+    # Requests equal limits: Guaranteed QoS, so a quorum member is never
+    # evicted under node memory pressure and its CPU share is predictable
+    # (the NATS chart's production guidance). config/nats sets the same.
     merge:
       resources:
         requests:
-          cpu: 100m
-          memory: 512Mi
+          cpu: "1"
+          memory: 2Gi
         limits:
           cpu: "1"
           memory: 2Gi
