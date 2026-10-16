@@ -94,7 +94,10 @@ type Report struct {
 }
 
 // Limits are what a pool pod measured of its device. NVDEC is what its
-// decoder decodes; nil is unmeasured, and the static list decides.
+// decoder decodes; nil is unmeasured, and the static list decides. VAAPI is
+// what an Intel device decodes through VA-API into the QSV encode
+// (VAAPIDecodes); nil is unmeasured, and nothing is.
 type Limits struct {
 	NVDEC *Decoders `json:"nvdec,omitempty"`
+	VAAPI *Decoders `json:"vaapi,omitempty"`
 }

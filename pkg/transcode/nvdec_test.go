@@ -72,3 +72,18 @@ func TestNVDECDecodes(t *testing.T) {
 		})
 	}
 }
+
+// The QSV tier decodes on VA-API only a format its pod measured, with no
+// static list: unmeasured is the CPU path.
+func TestVAAPIDecodesOnlyAFormatThePodMeasured(t *testing.T) {
+	h264 := transcode.VideoStream{Codec: "h264", PixFmt: "yuv420p"}
+	hi10p := transcode.VideoStream{Codec: "h264", PixFmt: "yuv420p10le"}
+	h264_422 := transcode.VideoStream{Codec: "h264", PixFmt: "yuv422p"}
+	measured := transcode.Limits{VAAPI: &transcode.Decoders{Formats: map[string]bool{"h264:8": true, "h264:10": false}}}
+
+	assert.False(t, transcode.VAAPIDecodes(transcode.Limits{}, h264), "unmeasured")
+	assert.False(t, transcode.VAAPIDecodes(transcode.Limits{VAAPI: &transcode.Decoders{Formats: map[string]bool{}}}, h264), "measured nothing")
+	assert.True(t, transcode.VAAPIDecodes(measured, h264))
+	assert.False(t, transcode.VAAPIDecodes(measured, hi10p), "measured, and it does not")
+	assert.False(t, transcode.VAAPIDecodes(transcode.Limits{VAAPI: &transcode.Decoders{Formats: map[string]bool{"h264:8": true}}}, h264_422), "no 4:2:2 key decodes")
+}

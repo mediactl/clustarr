@@ -58,6 +58,17 @@ func TestEncoderLimitsDecodeOnlyWhatEveryNodeDecodes(t *testing.T) {
 	assert.Equal(t, map[string]bool{"h264:8": true, "av1:8": false, "vp9:10": true}, got.NVDEC.Formats,
 		"AV1 only where both decode it; vp9:10 measured by one node keeps its answer")
 
+	require.NoError(t, task.PublishEncoderLimits(ctx, kv, "intel", "nuc", transcode.Limits{
+		VAAPI: &transcode.Decoders{Formats: map[string]bool{"h264:8": true, "av1:8": true}},
+	}, now))
+	require.NoError(t, task.PublishEncoderLimits(ctx, kv, "intel", "arc", transcode.Limits{
+		VAAPI: &transcode.Decoders{Formats: map[string]bool{"h264:8": true, "av1:8": false}},
+	}, now))
+	got, err = task.ReadEncoderLimits(ctx, kv, "intel", now)
+	require.NoError(t, err)
+	require.NotNil(t, got.VAAPI)
+	assert.Equal(t, map[string]bool{"h264:8": true, "av1:8": false}, got.VAAPI.Formats, "VA-API decodes only what every node decodes")
+
 	require.NoError(t, task.PublishEncoderLimits(ctx, kv, "intel", "igpu", transcode.Limits{}, now))
 	got, err = task.ReadEncoderLimits(ctx, kv, "intel", now)
 	require.NoError(t, err)

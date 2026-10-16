@@ -97,6 +97,18 @@ func NVDECDecodes(l Limits, v VideoStream) bool {
 	return staticNVDEC[key]
 }
 
+// VAAPIDecodes reports whether the QSV tier decodes v on the GPU, through
+// VA-API, its frames mapped to QSV for vpp_qsv and the encoder (2026-10-16:
+// the NUC decoded every x264 source in software and uploaded each frame, so
+// the encoder's preset changed its encode time by under 6%). Only a format
+// the pod measured decodes so -- the trial is the whole pipeline -- with no
+// static list: Intel's decoders vary by generation, and a format the driver
+// cannot decode falls back to software frames the hwmap cannot take.
+func VAAPIDecodes(l Limits, v VideoStream) bool {
+	key := NVDECKey(v)
+	return key != "" && l.VAAPI != nil && l.VAAPI.Formats[key]
+}
+
 // nvdecSample is one format a trial decodes: the key it measures and the
 // software encoder and pixel format that make a sample of it.
 type nvdecSample struct {
@@ -107,7 +119,8 @@ type nvdecSample struct {
 // that make a sample of it.
 type NVDECSample struct{ Key, Encoder, PixFmt string }
 
-// NVDECSampleFormats are the formats a device's NVDEC is measured on.
+// NVDECSampleFormats are the formats a device's NVDEC, or an Intel
+// device's VA-API decoder, is measured on.
 func NVDECSampleFormats() []NVDECSample {
 	out := make([]NVDECSample, len(nvdecSamples))
 	for i, s := range nvdecSamples {

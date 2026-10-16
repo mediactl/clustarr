@@ -36,6 +36,10 @@ import (
 // lookahead and B-frames and the filter's in-flight frames.
 const nvdecExtraFrames = 16
 
+// vaapiExtraFrames are surfaces added to a VA-API decoder's pool: the QSV
+// encoder holds the mapped frames themselves (hwupload's pool is 64).
+const vaapiExtraFrames = 32
+
 // sideDataSource is an encoder with the stream-level side data its output
 // stream carries (HDR10's mastering display and light level, which
 // Matroska writes in its Colour element).
@@ -46,9 +50,10 @@ type sideDataSource struct {
 
 func (s sideDataSource) StreamSideData() map[ffgo.PacketSideDataType][]byte { return s.side }
 
-// videoStage decodes the video (on the CPU, or on NVDEC keeping frames on
-// the GPU), runs the plan's filter (format conversion, upload, scale_cuda,
-// scale_vaapi, vpp_qsv) on a graph built from the first decoded frame,
+// videoStage decodes the video (on the CPU, or on NVDEC or VA-API keeping
+// frames on the GPU), runs the plan's filter (format conversion, upload,
+// hwmap, scale_cuda, scale_vaapi, vpp_qsv) on a graph built from the first
+// decoded frame,
 // removes HDR10+ and Dolby Vision side data from every frame, and encodes
 // with the plan's encoder and options, HDR10 metadata passed to it.
 func videoStage(v standard.VideoPlan) stageFunc {
@@ -58,8 +63,14 @@ func videoStage(v standard.VideoPlan) stageFunc {
 			return fmt.Errorf("the plan decodes or filters on a GPU (%s, %q) and no device was opened", v.Decode, v.Filter)
 		}
 		dcfg := &ffgo.StreamDecoderConfig{}
-		if v.Decode == "nvdec" {
+		switch v.Decode {
+		case "nvdec":
 			dcfg = &ffgo.StreamDecoderConfig{HWDevice: sc.opts.HWDevice, ExtraHWFrames: nvdecExtraFrames}
+		case "vaapi":
+			if sc.opts.DecodeDevice == nil {
+				return errors.New("the plan decodes on VA-API and no decode device was opened")
+			}
+			dcfg = &ffgo.StreamDecoderConfig{HWDevice: sc.opts.DecodeDevice, ExtraHWFrames: vaapiExtraFrames}
 		}
 		dec, err := sc.dec.NewStreamDecoder(sc.src.Index, dcfg)
 		if err != nil {

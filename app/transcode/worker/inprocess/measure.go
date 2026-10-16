@@ -44,8 +44,8 @@ var classTiers = map[transcode.Hardware][]transcode.Tier{
 
 // Measure measures this pod's device for class (spec §4, "the pod checks
 // what it was given"): the first of the class's tiers whose device opens
-// and whose trial encode succeeds, and, for NVENC, which formats NVDEC
-// decodes. A trial is the real pipeline -- the standard's plan for the
+// and whose trial encode succeeds, and which formats its decoder decodes
+// on the GPU: NVDEC for NVENC, VA-API into the encode for QSV. A trial is the real pipeline -- the standard's plan for the
 // tier, run by engine.Run -- on a five-frame sample made in-process, so a
 // device that opens but cannot encode (a driver library missing) is not
 // reported healthy. No tier passing is transcode.ErrDeviceUnavailable,
@@ -92,20 +92,24 @@ func (Engine) Measure(ctx context.Context, class transcode.Hardware) (transcode.
 	return transcode.Measurement{}, err
 }
 
-// measureTier is one tier's trial encode on dev and, for NVENC, its NVDEC
-// formats. The trial uploads frames (no NVDEC measured yet), so a device
-// whose NVDEC is broken still encodes.
+// measureTier is one tier's trial encode on dev and its GPU decoder's
+// formats: NVDEC's for NVENC, VA-API's for QSV. The trial uploads frames
+// (no decoder measured yet), so a device whose decoder is broken still
+// encodes.
 func measureTier(ctx context.Context, dir, sample string, tier transcode.Tier, dev *ffgo.HWDevice) (transcode.Measurement, error) {
 	m := transcode.Measurement{Tier: tier}
 	noNVDEC := transcode.Limits{}
 	if tier == transcode.TierNVENC {
 		noNVDEC.NVDEC = &transcode.Decoders{Formats: map[string]bool{}}
 	}
-	if err := trial(ctx, dir, sample, tier, noNVDEC, dev); err != nil {
+	if err := trial(ctx, dir, sample, tier, noNVDEC, dev, nil); err != nil {
 		return m, fmt.Errorf("%s: trial encode: %w", tier, err)
 	}
-	if tier == transcode.TierNVENC {
+	switch tier {
+	case transcode.TierNVENC:
 		m.Limits.NVDEC = measureNVDEC(ctx, dir, dev)
+	case transcode.TierQSV:
+		m.Limits.VAAPI = measureVAAPI(ctx, dir, dev)
 	}
 	return m, nil
 }
@@ -125,7 +129,32 @@ func measureNVDEC(ctx context.Context, dir string, dev *ffgo.HWDevice) *transcod
 		if err := makeSample(path, s.Encoder, s.PixFmt); err != nil {
 			continue
 		}
-		d.Formats[s.Key] = trial(ctx, dir, path, transcode.TierNVENC, viaNVDEC, dev) == nil
+		d.Formats[s.Key] = trial(ctx, dir, path, transcode.TierNVENC, viaNVDEC, dev, nil) == nil
+	}
+	return d
+}
+
+// measureVAAPI is which of transcode.NVDECSampleFormats this Intel device
+// decodes through VA-API into the QSV encode: each sample decoded on the
+// pod's render node, mapped to QSV and encoded on dev, as a job does. Nil
+// when the VA-API device does not open: nothing is decoded on it then.
+func measureVAAPI(ctx context.Context, dir string, dev *ffgo.HWDevice) *transcode.Decoders {
+	dd, err := openDecodeDevice()
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = dd.Close() }()
+	d := &transcode.Decoders{Formats: map[string]bool{}}
+	viaVAAPI := transcode.Limits{VAAPI: &transcode.Decoders{Formats: map[string]bool{"h264:8": true}}}
+	for _, s := range transcode.NVDECSampleFormats() {
+		if ctx.Err() != nil {
+			return d
+		}
+		path := filepath.Join(dir, strings.ReplaceAll(s.Key, ":", "-")+".mkv")
+		if err := makeSample(path, s.Encoder, s.PixFmt); err != nil {
+			continue
+		}
+		d.Formats[s.Key] = trial(ctx, dir, path, transcode.TierQSV, viaVAAPI, dev, dd) == nil
 	}
 	return d
 }
@@ -141,8 +170,9 @@ var sampleInfo = transcode.MediaInfo{
 }
 
 // trial runs the standard's plan for tier on sample, with limits deciding
-// the decode path (NVDEC or upload), and discards the output.
-func trial(ctx context.Context, dir, sample string, tier transcode.Tier, limits transcode.Limits, dev *ffgo.HWDevice) error {
+// the decode path (NVDEC, VA-API on decodeDev, or upload), and discards
+// the output.
+func trial(ctx context.Context, dir, sample string, tier transcode.Tier, limits transcode.Limits, dev, decodeDev *ffgo.HWDevice) error {
 	plan := standard.Plan(sampleInfo, standard.Profile{Name: "measure", Hash: "0", Quality: 30, Container: transcode.ContainerMKV},
 		standard.Hardware{Tier: tier, Limits: limits})
 	if plan.Decision != standard.DecisionEncode {
@@ -153,7 +183,7 @@ func trial(ctx context.Context, dir, sample string, tier transcode.Tier, limits 
 	}
 	out := filepath.Join(dir, "trial.mkv")
 	defer func() { _ = os.Remove(out) }()
-	_, err := engine.Run(ctx, plan, sample, out, engine.Options{HWDevice: dev})
+	_, err := engine.Run(ctx, plan, sample, out, engine.Options{HWDevice: dev, DecodeDevice: decodeDev})
 	return err
 }
 

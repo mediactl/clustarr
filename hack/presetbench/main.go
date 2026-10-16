@@ -47,6 +47,7 @@ type result struct {
 	Sample   string  `json:"sample"`
 	Preset   string  `json:"preset"`
 	Encoder  string  `json:"encoder"`
+	Decode   string  `json:"decode"`
 	Action   string  `json:"action"`
 	Bytes    int64   `json:"bytes,omitempty"`
 	Seconds  float64 `json:"seconds,omitempty"`
@@ -59,14 +60,16 @@ func main() {
 	class := flag.String("class", "intel", "the pool hardware class whose device to measure and encode on")
 	presets := flag.String("presets", "veryslow,medium", "comma-separated presets, in the encoder's own names")
 	out := flag.String("out", "/scratch/out", "directory for the encodes")
+	cpuDecode := flag.Bool("cpu-decode", false, "decode on the CPU even where the device measured a GPU decode")
+	audio := flag.Bool("audio", false, "keep the plan's audio, as a job does")
 	flag.Parse()
-	if err := run(context.Background(), transcode.Hardware(*class), strings.Split(*presets, ","), *out, flag.Args()); err != nil {
+	if err := run(context.Background(), transcode.Hardware(*class), strings.Split(*presets, ","), *out, *cpuDecode, *audio, flag.Args()); err != nil {
 		fmt.Fprintln(os.Stderr, "presetbench:", err)
 		os.Exit(1)
 	}
 }
 
-func run(ctx context.Context, class transcode.Hardware, presets []string, out string, samples []string) error {
+func run(ctx context.Context, class transcode.Hardware, presets []string, out string, cpuDecode, audio bool, samples []string) error {
 	eng, err := inprocess.New(class)
 	if err != nil {
 		return err
@@ -74,6 +77,9 @@ func run(ctx context.Context, class transcode.Hardware, presets []string, out st
 	m, err := eng.Measure(ctx, class)
 	if err != nil {
 		return fmt.Errorf("measure %s: %w", class, err)
+	}
+	if cpuDecode {
+		m.Limits.VAAPI, m.Limits.NVDEC = nil, &transcode.Decoders{Formats: map[string]bool{}}
 	}
 	if err := os.MkdirAll(out, 0o755); err != nil {
 		return err
@@ -92,9 +98,12 @@ func run(ctx context.Context, class transcode.Hardware, presets []string, out st
 			return fmt.Errorf("read %s: %w", s, err)
 		}
 		plan := standard.Plan(info, profile, standard.Hardware{Tier: m.Tier, Limits: m.Limits})
-		// Video alone: the presets differ only there.
-		plan.Audio, plan.Subtitles, plan.Sidecars = nil, nil, nil
-		base := result{Sample: filepath.Base(s), Encoder: plan.Video.Encoder, Action: plan.Video.Action, Duration: info.Format.Duration.Seconds()}
+		// Video alone, unless asked: the presets differ only there.
+		if !audio {
+			plan.Audio = nil
+		}
+		plan.Subtitles, plan.Sidecars = nil, nil
+		base := result{Sample: filepath.Base(s), Encoder: plan.Video.Encoder, Decode: plan.Video.Decode, Action: plan.Video.Action, Duration: info.Format.Duration.Seconds()}
 		if plan.Video.Action != "encode" {
 			_ = enc.Encode(base)
 			continue

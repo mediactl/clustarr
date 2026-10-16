@@ -172,7 +172,15 @@ capped at `standard.NVENCMaxBitratePercent` (70) of it, else constant QP
 the GPU, for a source each pool worker's trial decodes (published as
 `clustarr-progress` `encoder-limits.<class>` `nvdec`, shown in
 TranscodeProfile `status.encoderLimits[].nvdec`) or else a static Turing
-list say NVDEC decodes; anything else decodes on the CPU and uploads. A
+list say NVDEC decodes; anything else decodes on the CPU and uploads. The
+QSV tier likewise decodes on the GPU, through VA-API on the pod's render
+node, its frames mapped to QSV (`hwmap=derive_device=qsv`) for `vpp_qsv` and
+`hevc_qsv` (`engine.Options.DecodeDevice`), but only a format its pod's
+start-up trial measured (`transcode.VAAPIDecodes`, published as
+`encoder-limits.<class>` `vaapi`; no static list), and encodes at preset
+`medium` (2026-10-16, `hack/presetbench` on the NUC: decoding on the GPU made
+`veryslow` 4-6x faster, and `medium` halved that again at 1.8-5.4% more bytes
+and the same VMAF). A
 pool pod measures its own device at start through ffgo
 (`inprocess.Engine.Measure`), takes no work while it is unusable, and
 publishes `healthy` beside its limits; no work goes to a GPU class whose

@@ -110,6 +110,23 @@ func TestIntelTiers(t *testing.T) {
 	assert.Equal(t, "main", v.Video.Options["profile"])
 }
 
+// The QSV tier decodes on VA-API a format its pod measured, the frames
+// mapped to QSV for vpp_qsv and the encoder, and uploads anything else.
+func TestQSVDecodesOnVAAPIAFormatItsPodMeasured(t *testing.T) {
+	qsv := Hardware{Tier: transcode.TierQSV, Limits: transcode.Limits{
+		VAAPI: &transcode.Decoders{Formats: map[string]bool{"h264:8": true, "h264:10": false}},
+	}}
+	p := Plan(info(h264, eac3), profile, qsv)
+	assert.Equal(t, "vaapi", p.Video.Decode)
+	assert.Equal(t, "hwmap=derive_device=qsv,format=qsv,vpp_qsv=format=nv12", p.Video.Filter)
+	assert.Equal(t, "hevc_qsv", p.Video.Encoder)
+
+	hi10p := video("h264", "yuv420p10le", 10, commonv1.HdrFormatNone)
+	p = Plan(info(hi10p, eac3), profile, qsv)
+	assert.Equal(t, "cpu", p.Video.Decode)
+	assert.Equal(t, "hwupload=extra_hw_frames=64,vpp_qsv=format=nv12", p.Video.Filter, "an SDR 1080p target is 8-bit")
+}
+
 func TestQualityMapsPerEncoder(t *testing.T) {
 	p30 := profile
 	p30.Quality = 30

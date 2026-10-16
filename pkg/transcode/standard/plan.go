@@ -103,8 +103,10 @@ type VideoPlan struct {
 	Encoder     string `json:",omitempty"`
 	// Options are the encoder's AVOptions, applied strictly.
 	Options map[string]string `json:",omitempty"`
-	// Decode is "cpu", "nvdec" (frames stay on the GPU) or "upload" (CPU
-	// decode, uploaded by Filter); Intel tiers decode on the CPU and upload.
+	// Decode is "cpu", "nvdec" or "vaapi" (frames stay on the GPU) or
+	// "upload" (CPU decode, uploaded by Filter); the QSV tier decodes on
+	// VA-API where its pod measured the format (transcode.VAAPIDecodes),
+	// else on the CPU, uploading.
 	Decode string `json:",omitempty"`
 	Filter string `json:",omitempty"`
 	// HDR is "sdr", "hdr10" or "hlg".
@@ -426,8 +428,16 @@ func encodeVideo(v transcode.VideoStream, index, quality int32, hw Hardware, hdr
 		}
 	case transcode.TierQSV:
 		vp.Encoder, vp.Decode = "hevc_qsv", "cpu"
-		vp.Options = map[string]string{"global_quality": itoa(quality), "preset": "veryslow", "profile": "main10"}
+		// medium, not veryslow (2026-10-16): on the NUC's QSV, four
+		// 3-minute x264 samples came out 1.8-5.4% larger at the same or a
+		// slightly higher VMAF, in half the time once decoded on the GPU
+		// (veryslow 13.5-16.6 s, medium 6.9-8.4 s; hack/presetbench).
+		vp.Options = map[string]string{"global_quality": itoa(quality), "preset": "medium", "profile": "main10"}
 		vp.Filter = "hwupload=extra_hw_frames=64,vpp_qsv=format=" + fmtFor("p010")
+		if transcode.VAAPIDecodes(hw.Limits, v) {
+			// Decoded on the GPU and mapped to QSV, no frame touching the CPU.
+			vp.Decode, vp.Filter = "vaapi", "hwmap=derive_device=qsv,format=qsv,vpp_qsv=format="+fmtFor("p010")
+		}
 	case transcode.TierVAAPI:
 		vp.Encoder, vp.Decode = "hevc_vaapi", "cpu"
 		vp.Options = map[string]string{"qp": itoa(quality), "profile": "main10"}

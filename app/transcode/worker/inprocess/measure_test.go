@@ -28,6 +28,7 @@ import (
 
 	"github.com/mediactl/clustarr/pkg/transcode"
 	"github.com/mediactl/clustarr/pkg/transcode/selfcheck"
+	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
 
 func ffmpeg9OrSkip(t *testing.T) {
@@ -87,4 +88,26 @@ func TestMeasureIntelOnARealDevice(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, []transcode.Tier{transcode.TierQSV, transcode.TierVAAPI}, m.Tier)
 	t.Logf("the Intel class encodes on %s here", m.Tier)
+	if m.Tier == transcode.TierQSV {
+		// Every Intel GPU QSV encodes on decodes 8-bit H.264 through
+		// VA-API; none decodes H.264 Hi10P.
+		require.NotNil(t, m.Limits.VAAPI)
+		t.Logf("VA-API decodes %v here", m.Limits.VAAPI.Decodable())
+		assert.True(t, m.Limits.VAAPI.Formats["h264:8"])
+		assert.False(t, m.Limits.VAAPI.Formats["h264:10"])
+	}
+}
+
+// A plan that decodes on VA-API whose decode device will not open is the
+// device being unavailable, as the encode device's is.
+func TestAVAAPIPlanWhoseDecodeDeviceWillNotOpenIsUnavailable(t *testing.T) {
+	savedDev, savedDecode := openDevice, openDecodeDevice
+	t.Cleanup(func() { openDevice, openDecodeDevice = savedDev, savedDecode })
+	openDevice = func(transcode.Tier) (*ffgo.HWDevice, error) { return nil, nil }
+	openDecodeDevice = func() (*ffgo.HWDevice, error) { return nil, errors.New("no /dev/dri/renderD128") }
+	plan := standard.Result{Video: standard.VideoPlan{Action: "encode", Decode: "vaapi", Encoder: "hevc_qsv"}}
+	_, err := Engine{}.Encode(context.Background(), plan, transcode.TierQSV, "in.mkv", "out.mp4", nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, transcode.ErrDeviceUnavailable)
+	assert.Contains(t, err.Error(), "no /dev/dri/renderD128")
 }
