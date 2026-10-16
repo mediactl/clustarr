@@ -107,6 +107,14 @@ func TestTheDTSGuardHoldsDecodeTimestampsStrictlyIncreasing(t *testing.T) {
 	}, {
 		// FFmpeg's "Invalid DTS ... replacing by guess": the median of the
 		// two and one past the last.
+		// Black Mirror S05E01's first packets in milliseconds: two with no
+		// decode time after one that has it, then a repeat at 80.
+		name: "an unset decode timestamp after a set one takes the next tick",
+		in:   ms, out: ffgo.NewRational(1, 16000),
+		packets:  [][2]int64{{0, 0}, {160, none}, {80, none}, {80, 80}, {120, 80}, {320, 120}},
+		want:     [][2]int64{{0, 0}, {160, 1}, {80, 2}, {80, 80}, {120, 81}, {320, 120}},
+		repaired: 3,
+	}, {
 		name: "a decode timestamp after its presentation becomes a guess",
 		in:   ms, out: ms,
 		packets:  [][2]int64{{0, 0}, {40, 40}, {60, 100}},

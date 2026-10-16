@@ -30,8 +30,11 @@ import (
 // failed every remux of them. A decode timestamp after its presentation
 // becomes FFmpeg's guess, the median of the two and the next tick; one that
 // does not move forward moves one tick past the last, and the presentation
-// with it when that would fall behind. An unset decode timestamp is the
-// muxer's to derive, from the presentation and the stream's reorder delay.
+// with it when that would fall behind. An unset decode timestamp before any
+// set one is the muxer's to derive, from the presentation and the stream's
+// reorder delay; one after a set one takes the next tick (Black Mirror
+// S05E01-03, 2026-10-16: two such after the first packet, which the muxer
+// derived onto the next packet's 80 ms, failed every attempt at once).
 //
 // The guard works in the packet's time base, since the muxer rescales a
 // copied packet after it, so its tick is one tick of the output's, rounded
@@ -56,6 +59,18 @@ func newDTSGuard(in, out ffgo.Rational) dtsGuard {
 func (g *dtsGuard) fix(pts, dts int64) (int64, int64) {
 	const none = avutil.AV_NOPTS_VALUE
 	if dts == none {
+		if g.last == none {
+			return pts, dts
+		}
+		// Unset after a set one: the next tick, as FFmpeg's remux fills it
+		// from its own running estimate. The muxer would derive it from the
+		// presentation, onto a later packet's decode time.
+		dts = g.last + g.step
+		if pts != none && pts < dts {
+			pts = dts
+		}
+		g.repaired++
+		g.last = dts
 		return pts, dts
 	}
 	moved := false

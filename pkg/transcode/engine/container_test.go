@@ -130,3 +130,32 @@ func atomOffset(t *testing.T, path, name string) int64 {
 	}
 	return -1
 }
+
+// HEVC in MP4 is tagged hvc1, its parameter sets in the sample entry --
+// unless the source's configuration record carries none, when a copy is
+// tagged hev1, the entry that lets them travel in the stream: an hvc1 file
+// of such a source is one FFmpeg cannot open (Black Mirror S05's NF
+// encodes, 2026-10-16: a 23-byte hvcC, every VPS, SPS and PPS in-band).
+func TestHEVCInMP4IsTaggedForWhereItsParameterSetsTravel(t *testing.T) {
+	noArrays := append(append([]byte{1}, make([]byte, 21)...), 0)   // hvcC, numOfArrays 0
+	withArrays := append(append([]byte{1}, make([]byte, 21)...), 3) // VPS, SPS, PPS
+	annexB := []byte{0, 0, 0, 1, 0x40, 0x01, 0x0c}                  // a start code
+	for _, tt := range []struct {
+		name      string
+		codec     string
+		container transcode.Container
+		extradata []byte
+		want      uint32
+	}{
+		{"parameter sets in the record", "hevc", transcode.ContainerMP4, withArrays, hvc1},
+		{"Annex B extradata, converted by the muxer", "hevc", transcode.ContainerMP4, annexB, hvc1},
+		{"a record with no parameter sets", "hevc", transcode.ContainerMP4, noArrays, hev1},
+		{"no extradata at all", "hevc", transcode.ContainerMP4, nil, hev1},
+		{"Matroska takes its own", "hevc", transcode.ContainerMKV, noArrays, 0},
+		{"H.264 takes the muxer's", "h264", transcode.ContainerMP4, nil, 0},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, copyTag(tt.codec, tt.container, tt.extradata))
+		})
+	}
+}

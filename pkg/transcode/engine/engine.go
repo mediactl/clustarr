@@ -51,6 +51,11 @@ type Options struct {
 	ProgressEvery time.Duration // default 1s
 	// HWDevice is the GPU the plan's decode and filter run on (nil: CPU).
 	HWDevice *ffgo.HWDevice
+	// DecodeDevice is the VA-API device a "vaapi" decode runs on, beside
+	// the QSV HWDevice the encode runs on: FFmpeg's own decoders reach an
+	// Intel GPU through VA-API, and the plan's hwmap maps their frames to
+	// QSV. Nil fails such a plan.
+	DecodeDevice *ffgo.HWDevice
 	// LogTail is how many bytes of FFmpeg's warnings and errors are kept
 	// for the error and Result (default 4096).
 	LogTail int
@@ -691,7 +696,8 @@ func addStreams(m *ffgo.Muxer, d *ffgo.Decoder, plan standard.Result, slots []sl
 		}
 		if s.copy {
 			s.tb = s.src.TimeBase
-			par, perr := outputParameters(s.src.CodecParameters(), outputTag(s.src.Codec, plan.Container))
+			src := s.src.CodecParameters()
+			par, perr := outputParameters(src, copyTag(s.src.Codec, plan.Container, avcodec.GetCodecParExtradata(src)))
 			if perr != nil {
 				return fmt.Errorf("%s: %w", s.name, perr)
 			}
@@ -787,6 +793,30 @@ func outputTag(codec string, c transcode.Container) uint32 {
 		return hvc1
 	}
 	return 0
+}
+
+// hev1 is the HEVC sample entry whose parameter sets may travel in the
+// stream as well as in the configuration record.
+var hev1 = uint32('h') | uint32('e')<<8 | uint32('v')<<16 | uint32('1')<<24
+
+// copyTag is outputTag for a copied stream whose source configuration
+// record is extradata: hev1 for HEVC in MP4 whose record carries no
+// parameter sets -- an hvcC whose numOfArrays is 0, or none at all -- since
+// an hvc1 file of such a source is one FFmpeg cannot open (Black Mirror
+// S05's NF encodes, 2026-10-16: a 23-byte hvcC, every VPS, SPS and PPS
+// in-band; ffmpeg's own remux makes the same unreadable file). Annex B
+// extradata is converted by the muxer, so it keeps hvc1. An encoder's
+// record always carries them.
+func copyTag(codec string, c transcode.Container, extradata []byte) uint32 {
+	tag := outputTag(codec, c)
+	if tag != hvc1 {
+		return tag
+	}
+	annexB := len(extradata) >= 3 && extradata[0] == 0 && extradata[1] == 0 && (extradata[2] == 1 || extradata[2] == 0)
+	if len(extradata) == 0 || (!annexB && len(extradata) >= 23 && extradata[22] == 0) {
+		return hev1
+	}
+	return tag
 }
 
 // taggedSource is an encoder whose stream parameters carry the output
