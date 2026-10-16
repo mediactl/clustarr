@@ -66,6 +66,8 @@ type stubServer struct {
 
 	mu            sync.Mutex
 	served        map[string]int
+	// asked counts every BODY or STAT for an id, refused ones included.
+	asked map[string]int
 	liveConns     int
 	peakConns     int
 	acceptedConns int
@@ -92,6 +94,7 @@ func newStubServer(tb testing.TB) *stubServer {
 		refuseTimes: map[string]int{},
 		dropConn:    map[string]int{},
 		served:      map[string]int{},
+		asked:       map[string]int{},
 	}
 	go s.acceptLoop()
 	tb.Cleanup(s.close)
@@ -138,6 +141,40 @@ func (s *stubServer) servedCount(id string) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.served[id]
+}
+
+// askedCount is how often id was asked for, served or refused.
+func (s *stubServer) askedCount(id string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.asked[id]
+}
+
+// servedTotal is every article served, over all ids.
+func (s *stubServer) servedTotal() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for _, c := range s.served {
+		n += c
+	}
+	return n
+}
+
+// mirror copies every article src holds onto s: a second provider carrying
+// the same release.
+func (s *stubServer) mirror(src *stubServer) {
+	src.mu.Lock()
+	arts := make(map[string]stubArticle, len(src.articles))
+	for id, a := range src.articles {
+		arts[id] = a
+	}
+	src.mu.Unlock()
+	s.mu.Lock()
+	for id, a := range arts {
+		s.articles[id] = a
+	}
+	s.mu.Unlock()
 }
 
 func (s *stubServer) stats() (peak, accepted int, pipelined bool) {
@@ -261,6 +298,7 @@ func (s *stubServer) handle(c net.Conn) {
 
 func (s *stubServer) serveArticle(w *bufio.Writer, id string, wantBody bool) {
 	s.mu.Lock()
+	s.asked[id]++
 	code, refused := s.refuse[id]
 	if !refused && s.refuseTimes[id] > 0 {
 		s.refuseTimes[id]--

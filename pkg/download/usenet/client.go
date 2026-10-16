@@ -485,6 +485,9 @@ type job struct {
 	waitingGrant atomic.Bool
 	grant        *grant
 	limiter      *connLimiter
+	// tried is every server asked for this transfer's missing articles,
+	// under mu (segment.go's chase).
+	tried map[string]bool
 
 	// addedAt is fixed at the first Add and restored from the manifest on
 	// re-attach, so it is read without mu too.
@@ -961,11 +964,6 @@ func (j *job) run(ctx context.Context) {
 		j.abort(ctx, err)
 		return
 	}
-	if err := j.preCheck(ctx); err != nil {
-		j.abort(ctx, err)
-		return
-	}
-
 	for {
 		j.setStage(commonv1alpha1.DownloadStageTransferring, download.StatusDownloading)
 		err := j.transfer(ctx)
@@ -1122,7 +1120,14 @@ func (j *job) preCheck(ctx context.Context) error {
 			ids = append(ids, s.ID)
 		}
 	}
-	missing, err := j.client.pool.Exists(ctx, ids)
+	// On the granted server first, then only the shortfall on each other
+	// server under a one-connection grant (chaseExists): the pre-check runs
+	// under the ledger like every fetch, and its verdict is still "missing
+	// everywhere".
+	missing, err := j.client.pool.ExistsOn(ctx, ids, j.grantServer())
+	if err == nil && len(missing) > 0 {
+		missing, err = j.chaseExists(ctx, missing)
+	}
 	if errors.Is(err, ErrProvidersUnavailable) {
 		// The pre-check is an optimisation; it cannot judge a release it
 		// could not look at. The transfer waits for the providers instead.
@@ -1165,6 +1170,45 @@ func (j *job) preCheck(ctx context.Context) error {
 		return j.waitWhilePaused(ctx)
 	}
 	return nil
+}
+
+// chaseExists STATs missing on every server other than the transfer's,
+// in pool order, each under a one-connection grant of its own, and returns
+// the ids no server holds. A server that cannot be asked is skipped; when
+// every one was, the result is ErrProvidersUnavailable, as Exists reports.
+func (j *job) chaseExists(ctx context.Context, missing []string) ([]string, error) {
+	mine := j.grantServer()
+	unasked := false
+	for _, p := range j.client.pool.Providers() {
+		if len(missing) == 0 {
+			break
+		}
+		if len(mine) > 0 && p.Name == mine[0] {
+			continue
+		}
+		if !j.client.pool.Available(p.Name, time.Now()) {
+			unasked = true
+			continue
+		}
+		g, err := j.takeGrant(ctx, []string{p.Name}, "/chase", 1)
+		if err != nil {
+			return nil, err
+		}
+		still, err := j.client.pool.ExistsOn(ctx, missing, []string{p.Name})
+		j.give(ctx, g)
+		if errors.Is(err, ErrProvidersUnavailable) {
+			unasked = true
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		missing = still
+	}
+	if unasked && len(missing) > 0 {
+		return missing, fmt.Errorf("%w: a server could not be asked in the pre-check", ErrProvidersUnavailable)
+	}
+	return missing, nil
 }
 
 // postProcess verifies, repairs, unpacks, cleans up and publishes.

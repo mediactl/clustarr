@@ -28,7 +28,9 @@ import (
 	"sync"
 	"time"
 
+	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/download"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
@@ -204,6 +206,15 @@ func (j *job) transfer(ctx context.Context) error {
 	if err := j.waitForTurn(ctx); err != nil {
 		return err
 	}
+	j.mu.Lock()
+	j.tried = nil
+	j.mu.Unlock()
+	if j.client.cfg.PreCheck {
+		if err := j.preCheck(ctx); err != nil {
+			return err
+		}
+		j.setStage(commonv1alpha1.DownloadStageTransferring, download.StatusDownloading)
+	}
 
 	targets, err := j.openTargets()
 	if err != nil {
@@ -290,6 +301,15 @@ dispatch:
 			return err
 		}
 	}
+	if servers := j.grantServer(); len(servers) > 0 {
+		j.markTried(servers[0])
+	}
+	j.giveGrant(ctx)
+	if j.failedArticles() > 0 {
+		if err := j.chase(ctx); err != nil {
+			return err
+		}
+	}
 	if failed := j.failedArticles(); failed > 0 {
 		log.WarnContext(ctx, "usenet transfer finished with missing articles",
 			"download", j.id, "failed", failed, "total", j.nzb.TotalSegments)
@@ -315,29 +335,20 @@ func (j *job) retryFailed(ctx context.Context) error {
 	}
 	j.retried = true
 
-	type seg struct{ fi, si int }
-	var failed []seg
 	j.mu.Lock()
 	arrived := 0
 	for _, b := range j.done {
 		arrived += b.count()
 	}
+	j.mu.Unlock()
 	if arrived == 0 {
 		// Not one article of the release arrived: it has been taken down,
 		// not caught in a gap, and asking again only delays the verdict
 		// (three minutes on one connection for a 28 GB release, 2026-09-30).
 		// A post too new to have propagated is waitForPropagation's case.
-		j.mu.Unlock()
 		return nil
 	}
-	for fi, b := range j.failedSegs {
-		for si := range j.nzb.Files[fi].Segments {
-			if b.has(si) {
-				failed = append(failed, seg{fi, si})
-			}
-		}
-	}
-	j.mu.Unlock()
+	failed := j.missingSegs()
 	if len(failed) == 0 {
 		return nil
 	}
@@ -349,9 +360,50 @@ func (j *job) retryFailed(ctx context.Context) error {
 		return err
 	}
 
-	targets, err := j.openTargets()
+	servers, workers := j.grantServer(), 1
+	j.mu.Lock()
+	if j.grant != nil {
+		workers = j.grant.Connections
+	}
+	j.mu.Unlock()
+	recovered, err := j.fetchMissing(ctx, servers, workers, failed)
 	if err != nil {
 		return err
+	}
+	j.mu.Lock()
+	lastErr := j.lastError
+	j.mu.Unlock()
+	log.InfoContext(ctx, "usenet: missing-article retry finished",
+		"download", j.id, "recovered", recovered, "stillMissing", len(failed)-recovered, "lastError", lastErr)
+	return j.checkpoint()
+}
+
+// seg names one segment: file index, segment index.
+type seg struct{ fi, si int }
+
+// missingSegs lists the segments recorded as failed.
+func (j *job) missingSegs() []seg {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	var failed []seg
+	for fi, b := range j.failedSegs {
+		for si := range j.nzb.Files[fi].Segments {
+			if b.has(si) {
+				failed = append(failed, seg{fi, si})
+			}
+		}
+	}
+	return failed
+}
+
+// fetchMissing asks servers (a pool scope; nil is every one) for the
+// failed segments, workers batches at a time, and writes what came back,
+// clearing each recovered segment's failure. It returns
+// ErrProvidersUnavailable when a server could not be asked at all.
+func (j *job) fetchMissing(ctx context.Context, servers []string, workers int, failed []seg) (int, error) {
+	targets, err := j.openTargets()
+	if err != nil {
+		return 0, err
 	}
 	defer func() {
 		for _, f := range targets {
@@ -362,41 +414,145 @@ func (j *job) retryFailed(ctx context.Context) error {
 	}()
 
 	depth := max(j.client.cfg.PipelineDepth, 1)
-	recovered := 0
+	chunks := make(chan []seg)
+	var (
+		wg        sync.WaitGroup
+		mu        sync.Mutex
+		recovered int
+		firstErr  error
+	)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	fail := func(err error) {
+		mu.Lock()
+		if firstErr == nil {
+			firstErr = err
+			cancel()
+		}
+		mu.Unlock()
+	}
+	for range max(workers, 1) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for chunk := range chunks {
+				ids := make([]string, len(chunk))
+				for i, sg := range chunk {
+					ids[i] = j.nzb.Files[sg.fi].Segments[sg.si].ID
+				}
+				results, err := j.client.pool.FetchBatchOn(ctx, ids, servers)
+				if err != nil {
+					fail(err)
+					return
+				}
+				for i, r := range results {
+					if errors.Is(r.Err, ErrProvidersUnavailable) {
+						fail(r.Err)
+						return
+					}
+					if r.Err != nil {
+						continue
+					}
+					sg := chunk[i]
+					if err := j.writeSegment(targets[sg.fi], sg.fi, sg.si, r); err != nil {
+						fail(err)
+						return
+					}
+					j.mu.Lock()
+					j.failedSegs[sg.fi].clear(sg.si)
+					j.mu.Unlock()
+					mu.Lock()
+					recovered++
+					mu.Unlock()
+				}
+			}
+		}()
+	}
+dispatch:
 	for start := 0; start < len(failed); start += depth {
-		end := min(start+depth, len(failed))
-		chunk := failed[start:end]
-		ids := make([]string, len(chunk))
-		for i, sg := range chunk {
-			ids[i] = j.nzb.Files[sg.fi].Segments[sg.si].ID
-		}
-		results, err := j.client.pool.FetchBatch(ctx, ids)
-		if err != nil {
-			return err
-		}
-		for i, r := range results {
-			if errors.Is(r.Err, ErrProvidersUnavailable) {
-				return r.Err
-			}
-			if r.Err != nil {
-				continue
-			}
-			sg := chunk[i]
-			if err := j.writeSegment(targets[sg.fi], sg.fi, sg.si, r); err != nil {
-				return err
-			}
-			j.mu.Lock()
-			j.failedSegs[sg.fi].clear(sg.si)
-			j.mu.Unlock()
-			recovered++
+		select {
+		case chunks <- failed[start:min(start+depth, len(failed))]:
+		case <-ctx.Done():
+			break dispatch
 		}
 	}
+	close(chunks)
+	wg.Wait()
+	return recovered, firstErr
+}
+
+// tried marks and reads the servers this transfer has asked for its
+// missing articles, so the chase visits each once.
+func (j *job) markTried(server string) {
+	if server == "" {
+		return
+	}
 	j.mu.Lock()
-	lastErr := j.lastError
+	if j.tried == nil {
+		j.tried = map[string]bool{}
+	}
+	j.tried[server] = true
 	j.mu.Unlock()
-	log.InfoContext(ctx, "usenet: missing-article retry finished",
-		"download", j.id, "recovered", recovered, "stillMissing", len(failed)-recovered, "lastError", lastErr)
-	return j.checkpoint()
+}
+
+func (j *job) wasTried(server string) bool {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return j.tried[server]
+}
+
+// chase fetches the still-missing articles from every server not yet
+// tried, in pool order -- primaries by priority, then backups -- each
+// under a grant of its own (holder suffix "/chase"), parking until it has
+// room (spec 2026-10-16 §4.2). A server is tried once it answered; one
+// that cannot be asked now (penalised, over quota) is skipped and visited
+// in one more pass. It returns nil when nothing is missing or every server
+// was tried: the verdict is then the health gate's, as it was for a pool
+// walk that ended on a 430 everywhere. It never parks for a server already
+// tried, so a single-server job fails as missing at once.
+func (j *job) chase(ctx context.Context) error {
+	log := logging.FromContext(ctx)
+	for pass := 0; pass < 2; pass++ {
+		skipped := false
+		for _, p := range j.client.pool.Providers() {
+			missing := j.missingSegs()
+			if len(missing) == 0 {
+				return nil
+			}
+			if j.wasTried(p.Name) {
+				continue
+			}
+			if !j.client.pool.Available(p.Name, time.Now()) {
+				skipped = true
+				continue
+			}
+			g, err := j.takeGrant(ctx, []string{p.Name}, "/chase", 1)
+			if err != nil {
+				return err
+			}
+			log.InfoContext(ctx, "usenet: chasing missing articles on the next server",
+				"download", j.id, "server", p.Name, "articles", len(missing), "connections", g.Connections)
+			recovered, err := j.fetchMissing(ctx, []string{p.Name}, g.Connections, missing)
+			j.give(ctx, g)
+			switch {
+			case errors.Is(err, ErrProvidersUnavailable):
+				skipped = true
+				continue
+			case err != nil:
+				return err
+			}
+			j.markTried(p.Name)
+			log.InfoContext(ctx, "usenet: chase on a server finished",
+				"download", j.id, "server", p.Name, "recovered", recovered, "stillMissing", len(missing)-recovered)
+			if err := j.checkpoint(); err != nil {
+				return err
+			}
+		}
+		if !skipped {
+			return nil
+		}
+	}
+	return nil
 }
 
 // missingBytes totals the failed segments of non-par2 files, SABnzbd's
@@ -596,8 +752,18 @@ func (j *job) healthGate(ctx context.Context) error {
 	if !j.breached() {
 		return nil
 	}
-	// Imminent breach: spend the second chance first, then judge again.
+	// Imminent breach: spend the second chance first, chase the rest
+	// through the other servers, then judge again.
 	if err := j.retryFailed(ctx); err != nil {
+		return err
+	}
+	if !j.breached() {
+		return nil
+	}
+	if servers := j.grantServer(); len(servers) > 0 {
+		j.markTried(servers[0])
+	}
+	if err := j.chase(ctx); err != nil {
 		return err
 	}
 	if !j.breached() {
