@@ -159,6 +159,12 @@ type ByName interface {
 // UploadedBytes, UpRate, RatioMilli, SeedTime, Seeders and Peers are zero on
 // every usenet Item; a usenet transfer uploads nothing and has no swarm.
 // Health is nil on every torrent Item. Nothing else is protocol-conditional.
+// Grant is a usenet transfer's connections on one server (Item.Grant).
+type Grant struct {
+	Server      string
+	Connections int32
+}
+
 type Item struct {
 	// ID is the client's own handle for the transfer: the 40-hex info hash
 	// for a torrent, the NZB id for usenet. It is what
@@ -302,9 +308,16 @@ type Item struct {
 	// Always false for a torrent.
 	HealthPaused bool
 
+	// Grant is the usenet transfer's connection grant: the server it is
+	// transferring on and how many connections it may open there, from the
+	// ledger every pod on that account shares. Nil when it holds none --
+	// parked, paused, post-processing, finished -- and always for a torrent.
+	Grant *Grant
+
 	// WaitingTurn is true while a usenet client holds the transfer Queued
 	// for its turn: a free transfer slot (usenet.Config.MaxActive), a
-	// higher-priority transfer, or a free post-processing slot. None of it
+	// higher-priority transfer, free connections in the shared ledger, or
+	// a free post-processing slot. None of it
 	// is the release's doing, so the manager's stall clock does not run
 	// then, and the transfer's LastProgressAt restarts when its turn comes.
 	// Always false for a torrent, whose Queued also covers a transfer with

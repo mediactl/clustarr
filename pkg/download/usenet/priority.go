@@ -144,8 +144,10 @@ func (j *job) waitForTurn(ctx context.Context) error {
 		switch {
 		case j.paused.Load():
 			j.client.releaseSlot(j)
+			j.giveGrant(ctx)
 		case j.client.outranked(j):
 			j.client.releaseSlot(j)
+			j.giveGrant(ctx)
 			j.waitingSlot.Store(true)
 		case j.client.admit(j):
 			j.waitingSlot.Store(false)
@@ -154,7 +156,11 @@ func (j *job) waitForTurn(ctx context.Context) error {
 				j.lastProgress = time.Now()
 				j.mu.Unlock()
 			}
-			return ctx.Err()
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			// The slot is the pod's; the connections are the account's.
+			return j.ensureGrant(ctx)
 		default:
 			j.waitingSlot.Store(true)
 		}

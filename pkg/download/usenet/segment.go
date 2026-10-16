@@ -252,10 +252,7 @@ func (j *job) transfer(ctx context.Context) error {
 		go func() {
 			defer wg.Done()
 			for b := range work {
-				if err := j.waitForTurn(workerCtx); err != nil {
-					return
-				}
-				if err := j.runBatch(workerCtx, targets, b); err != nil {
+				if err := j.fetchUnderGrant(workerCtx, targets, b); err != nil {
 					if !errors.Is(err, context.Canceled) {
 						fail(err)
 					}
@@ -448,7 +445,7 @@ func (j *job) fetchFirstArticles(ctx context.Context, targets []*os.File) error 
 		return nil
 	}
 
-	results, err := j.client.pool.FetchBatch(ctx, ids)
+	results, err := j.client.pool.FetchBatchOn(ctx, ids, j.grantServer())
 	if err != nil {
 		return err
 	}
@@ -480,13 +477,35 @@ func (j *job) fetchFirstArticles(ctx context.Context, targets []*os.File) error 
 	return unavailable
 }
 
+// fetchUnderGrant runs one batch once the job has its turn and one of its
+// grant's connections. A grant given back meanwhile (a pause, an
+// outranking, a renewal that found it gone) sends the worker back through
+// waitForTurn, which takes one again.
+func (j *job) fetchUnderGrant(ctx context.Context, targets []*os.File, b batch) error {
+	for {
+		if err := j.waitForTurn(ctx); err != nil {
+			return err
+		}
+		err := j.limiter.acquire(ctx)
+		if errors.Is(err, errGrantLost) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		err = j.runBatch(ctx, targets, b)
+		j.limiter.release()
+		return err
+	}
+}
+
 // runBatch fetches one pipelined run and writes what came back.
 func (j *job) runBatch(ctx context.Context, targets []*os.File, b batch) error {
 	ids := make([]string, len(b.segs))
 	for i, si := range b.segs {
 		ids[i] = j.nzb.Files[b.file].Segments[si].ID
 	}
-	results, err := j.client.pool.FetchBatch(ctx, ids)
+	results, err := j.client.pool.FetchBatchOn(ctx, ids, j.grantServer())
 	if err != nil {
 		return err
 	}
@@ -678,8 +697,8 @@ func (j *job) startStallWatch(ctx context.Context, fail func(error)) func() {
 			case <-quit:
 				return
 			case now := <-t.C:
-				if j.paused.Load() {
-					start = now // a pause is the operator's time, not the release's
+				if j.paused.Load() || j.waitingGrant.Load() {
+					start = now // a pause is the operator's time, a park the ledger's, not the release's
 					continue
 				}
 				j.mu.Lock()

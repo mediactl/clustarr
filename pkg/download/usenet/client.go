@@ -142,9 +142,10 @@ type Config struct {
 	// MaxNZBBytes caps a .nzb payload.
 	MaxNZBBytes int64
 
-	// Workers is how many batches are fetched concurrently. Zero means the
-	// sum of the providers' connection allowances, which is the only number
-	// that keeps every connection busy without queuing on the pool.
+	// Workers is how many fetch goroutines a transfer runs. Zero means the
+	// largest share one grant can carry (a primary's connections over
+	// MaxActive); the grant's limiter bounds how many fetch at once, so
+	// more workers than the grant only wait.
 	Workers int
 
 	ConnectTimeout time.Duration
@@ -182,6 +183,19 @@ type Config struct {
 	// Queued for a transfer slot (priority.go), the best class first and
 	// then the oldest. Zero means [defaultMaxActive].
 	MaxActive int
+
+	// Ledger is the shared record of connections in use per provider
+	// account (spec 2026-10-16 §3); nil means a [LocalLedger] of this
+	// process alone, which is exactly a one-pod install.
+	Ledger Ledger
+
+	// Holder prefixes every grant's holder ("<Holder>/<transfer id>"): the
+	// engine's name. Empty means "usenet".
+	Holder string
+
+	// GrantRenewInterval is how often the client renews its grants in the
+	// ledger. Zero means [defaultGrantRenewInterval].
+	GrantRenewInterval time.Duration
 
 	// MaxPostProcess is how many jobs verify, repair, unpack and publish
 	// at once; a finished transfer waits Queued for its turn. Zero means
@@ -249,6 +263,12 @@ type Client struct {
 	// publishing: Config.MaxPostProcess of them.
 	post chan struct{}
 
+	// ledger is Config.Ledger with its default applied, holder
+	// Config.Holder's, and stopRenew ends renewLoop.
+	ledger    Ledger
+	holder    string
+	stopRenew chan struct{}
+
 	mu    sync.Mutex
 	jobs  map[string]*job
 	slots map[*job]struct{}
@@ -309,13 +329,6 @@ func New(cfg Config) (download.Client, error) {
 		cfg.ArticleRetryDelay = 0
 	}
 
-	workers := cfg.Workers
-	if workers <= 0 {
-		for _, p := range cfg.Providers {
-			workers += max(p.Connections, 1)
-		}
-	}
-
 	pool, err := NewPool(cfg.Providers, cfg.PipelineDepth, cfg.ConnectTimeout, cfg.IOTimeout, cfg.MaxArticleBytes)
 	if err != nil {
 		return nil, err
@@ -340,6 +353,26 @@ func New(cfg Config) (download.Client, error) {
 	if maxPost <= 0 {
 		maxPost = defaultMaxPostProcess
 	}
+	if cfg.Ledger == nil {
+		cfg.Ledger = NewLocalLedger()
+	}
+	if cfg.Holder == "" {
+		cfg.Holder = "usenet"
+	}
+	if cfg.GrantRenewInterval <= 0 {
+		cfg.GrantRenewInterval = defaultGrantRenewInterval
+	}
+	workers := cfg.Workers
+	if workers <= 0 {
+		// One goroutine per connection the largest grant could carry; the
+		// grant's limiter (grant.go) bounds how many fetch at once.
+		for _, p := range cfg.Providers {
+			if !p.Backup {
+				workers = max(workers, share(p.Connections, maxActive))
+			}
+		}
+		workers = max(workers, 1)
+	}
 	c := &Client{
 		cfg:       cfg,
 		freeBytes: freeBytes,
@@ -352,6 +385,9 @@ func New(cfg Config) (download.Client, error) {
 		jobs:      map[string]*job{},
 		slots:     map[*job]struct{}{},
 		scratch:   map[*job]int64{},
+		ledger:    cfg.Ledger,
+		holder:    cfg.Holder,
+		stopRenew: make(chan struct{}),
 	}
 	if c.repairer == nil {
 		c.repairer = noRepairer{}
@@ -363,6 +399,8 @@ func New(cfg Config) (download.Client, error) {
 		pool.Close()
 		return nil, err
 	}
+	c.wg.Add(1)
+	go c.renewLoop(c.stopRenew)
 	return c, nil
 }
 
@@ -441,6 +479,12 @@ type job struct {
 	// waitingSpace is true while it waits for its scratch reservation
 	// ([Config.ScratchBudget]): a kind of waiting for a slot.
 	waitingSpace atomic.Bool
+	// waitingGrant is true while it is parked for connections
+	// ([job.takeGrant]); grant, under mu, is the transfer's live grant and
+	// limiter bounds the fetch workers to it (grant.go).
+	waitingGrant atomic.Bool
+	grant        *grant
+	limiter      *connLimiter
 
 	// addedAt is fixed at the first Add and restored from the manifest on
 	// re-attach, so it is read without mu too.
@@ -727,6 +771,7 @@ func (c *Client) newJob(id, name, category, dir string, parsed *nzbJob) *job {
 		stage:       commonv1alpha1.DownloadStageFetchingMetadata,
 		reason:      commonv1alpha1.DownloadFailureNone,
 		finished:    make(chan struct{}),
+		limiter:     newConnLimiter(),
 	}
 	j.prio.Store(commonv1alpha1.DownloadPriority(""))
 	j.done = make([]bitset, len(parsed.Files))
@@ -924,6 +969,7 @@ func (j *job) run(ctx context.Context) {
 	for {
 		j.setStage(commonv1alpha1.DownloadStageTransferring, download.StatusDownloading)
 		err := j.transfer(ctx)
+		j.giveGrant(context.WithoutCancel(ctx))
 		j.client.releaseSlot(j)
 		if err == nil {
 			break
@@ -1414,6 +1460,9 @@ func (j *job) item() download.Item {
 	case j.waitingSlot.Load() && status == download.StatusDownloading:
 		status = download.StatusQueued
 		message = fmt.Sprintf("waiting for a free transfer slot (%d at once)", j.client.maxActive)
+	case j.waitingGrant.Load() && j.stage == commonv1alpha1.DownloadStageTransferring:
+		// Parked for connections: takeGrant wrote the message.
+		status = download.StatusQueued
 	}
 
 	var progress int32
@@ -1453,7 +1502,7 @@ func (j *job) item() download.Item {
 		OutputPath:      j.outputPath,
 		IsEncrypted:     j.encrypted,
 		HealthPaused:    j.healthPaused && j.pausedLocked(),
-		WaitingTurn: !j.pausedLocked() && (j.waitingSlot.Load() || j.waitingPost.Load() ||
+		WaitingTurn: !j.pausedLocked() && (j.waitingSlot.Load() || j.waitingPost.Load() || j.waitingGrant.Load() ||
 			(outranked && j.status == download.StatusDownloading)),
 		Message: message,
 		AddedAt: j.addedAt,
@@ -1465,6 +1514,9 @@ func (j *job) item() download.Item {
 		},
 	}
 
+	if j.grant != nil {
+		it.Grant = &download.Grant{Server: j.grant.Server, Connections: int32(j.grant.Connections)} //nolint:gosec // a plan's connection count.
+	}
 	if j.outputPath != "" {
 		it.ContentRoot = j.outputPath
 		it.Files = append([]download.File(nil), j.publishedFiles...)
@@ -1727,6 +1779,7 @@ func (c *Client) Remove(ctx context.Context, id string, deleteData bool) error {
 	}
 
 	c.forget(id)
+	j.giveGrant(ctx)
 
 	if err := fsops.SafeRemove(ctx, c.cfg.ScratchDir, j.dir); err != nil {
 		return err
@@ -1762,7 +1815,13 @@ func (c *Client) Close() error {
 		for _, j := range jobs {
 			j.stop()
 		}
+		close(c.stopRenew)
 		c.wg.Wait()
+		ctx, cancel := context.WithTimeout(c.baseCtx, 5*time.Second)
+		defer cancel()
+		for _, j := range jobs {
+			j.giveGrant(ctx)
+		}
 		c.pool.Close()
 	})
 	return nil
