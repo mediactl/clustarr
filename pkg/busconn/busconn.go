@@ -43,6 +43,15 @@ const (
 	// has Kubernetes work to do.
 	ConnectTimeout = 10 * time.Second
 
+	// EnsureTimeout bounds one pass of EnsureTopology: forty streams,
+	// consumers, buckets and object stores created or updated in sequence,
+	// each a JetStream API call that waits on Raft. Against a cluster that
+	// has just formed, with restored streams catching up to R3, one pass
+	// outran ConnectTimeout (talos, 2026-10-16: "ensure stream
+	// CLUSTARR_RELEASES: context deadline exceeded"), and KeepTopology
+	// only retries a whole pass.
+	EnsureTimeout = 2 * time.Minute
+
 	// ReconnectDelayMin and ReconnectDelayMax bound the reconnect backoff
 	// (ReconnectDelay): 250 ms doubling to 30 s, with full jitter, after
 	// each pass over the server pool (ADR-0020 §6). It replaced a fixed
@@ -141,7 +150,7 @@ func EnsureTopology(ctx context.Context, bus events.Bus, t events.Topology) erro
 	if bus == nil {
 		return fmt.Errorf("busconn: nil bus")
 	}
-	ctx, cancel := context.WithTimeout(ctx, ConnectTimeout)
+	ctx, cancel := context.WithTimeout(ctx, EnsureTimeout)
 	defer cancel()
 	if err := bus.Ensure(ctx, t); err != nil {
 		return fmt.Errorf("busconn: ensure JetStream topology: %w", err)

@@ -114,13 +114,15 @@ func TestForSingleNodeFitsTheMemoryCeiling(t *testing.T) {
 // memory bucket loses every item's people with any NATS restart, and it has
 // no TTL to keep it inside the shared memory store. So does every records
 // bucket (loop spec 2026-10-06 §4.3, ADR-0019 §4.3): it holds the only copy
-// of a worker's answer or an agent's report.
+// of a worker's answer or an agent's report. And the import exclusions
+// (2026-10-16): the owner's decisions, re-synced only when their controller
+// next reconciles.
 func TestForSingleNodeKeepsDurableBucketsOnFile(t *testing.T) {
 	durable := map[string]bool{
 		BucketMetadataExtended: true, BucketSegments: true, BucketPlexExtras: true, BucketProbes: true,
 		BucketTranscodes: true, BucketGrafts: true, BucketSubtitles: true, BucketMarkers: true,
 		BucketTransfers: true, BucketEngines: true, BucketImports: true, BucketSearches: true,
-		BucketItemMetadata: true, BucketIndexerHealth: true,
+		BucketItemMetadata: true, BucketIndexerHealth: true, BucketImportExclusions: true,
 	}
 	for _, b := range Default().ForSingleNode().Buckets {
 		want := StorageMemory

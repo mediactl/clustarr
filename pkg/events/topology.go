@@ -1206,7 +1206,11 @@ func defaultBuckets() []BucketSpec {
 		return s
 	}
 	return []BucketSpec{
-		b(BucketImportExclusions, 0, "Exclusions the list and search paths consult; durable."),
+		// Durable: an exclusion is the owner's decision, re-synced from its
+		// ImportExclusion only when that controller next reconciles, so a
+		// memory bucket on a single node forgot every one of them at each
+		// NATS restart (talos, 2026-10-16).
+		durable(b(BucketImportExclusions, 0, "Exclusions the list and search paths consult; durable.")),
 		b(BucketIndexerSessions, 30*24*time.Hour, "Cardigann cookies and JWTs."),
 		b(BucketIndexerLimits, 2*24*time.Hour, "Query and grab timestamp rings."),
 		b(BucketProviderThrottle, 24*time.Hour, "Subtitle provider throttle table."),
