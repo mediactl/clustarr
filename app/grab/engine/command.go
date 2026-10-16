@@ -183,6 +183,7 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 	}
 
 	after, err := h.Transfers.Apply(ctx, cmd, cur)
+	var deferred *PayloadDeferredError
 	switch {
 	case errors.Is(err, ErrPayloadUnavailable):
 		log.WarnContext(ctx, "engine: the payload can no longer be fetched", "entry", cmd.Entry.ID, "error", err)
@@ -202,6 +203,13 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 		log.WarnContext(ctx, "engine: the payload RPC timed out; re-reading before asking again",
 			"entry", cmd.Entry.ID, "seq", cmd.Seq, "error", err)
 		return events.Retry(downloadTimeoutRetryAfter(m.Attempt()), err)
+	case errors.As(err, &deferred):
+		// The indexer named when it will serve the payload: wait for that,
+		// within the ordinary schedule's bounds.
+		wait := min(max(time.Until(deferred.Until), applyRetry), maxApplyRetry)
+		log.WarnContext(ctx, "engine: the payload is deferred by the indexer", "entry", cmd.Entry.ID, "seq", cmd.Seq,
+			"until", deferred.Until, "error", err)
+		return events.Retry(wait, err)
 	case err != nil:
 		log.WarnContext(ctx, "engine: cannot apply the command yet", "entry", cmd.Entry.ID, "seq", cmd.Seq,
 			"attempt", m.Attempt(), "error", err)

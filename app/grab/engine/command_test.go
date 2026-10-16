@@ -435,3 +435,23 @@ func failNextApply(hs *harness, err error) {
 	hs.src.applyErr = err
 	hs.src.mu.Unlock()
 }
+
+// A payload the indexer deferred (its grab limit, or a 429 it answered) is
+// asked for again at the time the indexer named, not on the generic
+// doubling schedule: the engine's retries were spending nzb-life's allowance
+// as fast as it came back (2026-10-16).
+func TestADeferredPayloadRetriesAtTheIndexersRetryAt(t *testing.T) {
+	ctx := context.Background()
+	hs := newHarness(t)
+	hs.start(t)
+	cmd := command(entryID, entryUID, 41, schema.EngineDesiredPresent)
+
+	until := time.Now().Add(20 * time.Minute)
+	hs.src.mu.Lock()
+	hs.src.applyErr = engine.PayloadDeferred(until, errors.New("index: grab limit reached for media/tr"))
+	hs.src.mu.Unlock()
+	err := hs.h.Handle(ctx, delivery(t, cmd))
+	var retry *events.RetryError
+	require.ErrorAs(t, err, &retry)
+	assert.InDelta(t, float64(20*time.Minute), float64(retry.After), float64(time.Minute), "the retry lands at the indexer's retry time")
+}

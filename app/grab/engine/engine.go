@@ -48,9 +48,34 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // listed in the engine record's unidentified.
 package engine
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+	"time"
+)
 
 // ErrPayloadUnavailable is a payload the indexer or its link can no longer
 // produce: a re-add answers the record failed with payloadUnavailable
 // rather than retrying it forever (§6.7).
 var ErrPayloadUnavailable = errors.New("engine: the payload can no longer be fetched")
+
+// PayloadDeferredError is a payload the indexer will serve later, at Until:
+// its grab limit's window or the pause a 429 it answered set
+// (schema.DownloadResponse.RetryAt). The command is retried then, not on
+// the generic doubling schedule, which spent an indexer's allowance as fast
+// as it came back (nzb-life, 2026-10-16).
+type PayloadDeferredError struct {
+	Until time.Time
+	Err   error
+}
+
+func (e *PayloadDeferredError) Error() string {
+	return fmt.Sprintf("engine: the payload is deferred until %s: %v", e.Until.UTC().Format(time.RFC3339), e.Err)
+}
+
+func (e *PayloadDeferredError) Unwrap() error { return e.Err }
+
+// PayloadDeferred wraps err as a PayloadDeferredError until until.
+func PayloadDeferred(until time.Time, err error) error {
+	return &PayloadDeferredError{Until: until, Err: err}
+}

@@ -21,13 +21,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/grab/engine"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/redact"
-	"io"
-	"net/http"
 )
 
 // maxPayloadBytes caps a fetched .torrent body, the same convention every
@@ -144,6 +145,10 @@ func resolveSource(ctx context.Context, httpClient *http.Client, resolver Indexe
 		if resp.Error != "" && resp.Gone {
 			// The indexer said the release is gone (ADR-0019 §6.7).
 			return resolved{}, fmt.Errorf("%w: torrent: indexer resolve failed: %s", engine.ErrPayloadUnavailable, resp.Error)
+		}
+		if resp.Error != "" && resp.RetryAt != nil {
+			// index named when the indexer may be asked again.
+			return resolved{}, engine.PayloadDeferred(*resp.RetryAt, fmt.Errorf("torrent: indexer resolve failed: %s", resp.Error))
 		}
 		if resp.Error != "" {
 			// index could not produce the payload this time: the indexer

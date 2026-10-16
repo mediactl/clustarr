@@ -397,6 +397,12 @@ type DownloadResponse struct {
 	// a failure to retry: Cloudflare 522s from nzb.life blocklisted eight
 	// good releases on talos when every Error read as gone (2026-10-15).
 	Gone bool `json:"gone,omitempty"`
+
+	// RetryAt, beside an Error, is when the indexer may be asked again:
+	// its grab limit's window, or the pause a 429 it answered set
+	// (app/indexer/limits.PauseGrabs). An engine waits until then rather
+	// than retry on its own schedule.
+	RetryAt *time.Time `json:"retryAt,omitempty"`
 }
 
 // Schema implements Payload.

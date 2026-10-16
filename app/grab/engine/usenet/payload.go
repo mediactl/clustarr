@@ -21,13 +21,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/grab/engine"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/redact"
-	"io"
-	"net/http"
 )
 
 // defaultMaxPayloadBytes caps one resolved .nzb body. Real posts are XML text
@@ -138,6 +139,10 @@ func (r *Resolver) resolveIndexer(ctx context.Context, ns string, id commonv1.In
 	case resp.Error != "" && resp.Gone:
 		// The indexer said the release is gone (ADR-0019 §6.7).
 		return nil, fmt.Errorf("%w: usenetengine: index: %s", engine.ErrPayloadUnavailable, resp.Error)
+	case resp.Error != "" && resp.RetryAt != nil:
+		// index named when the indexer may be asked again (its grab limit,
+		// or a 429 it answered): the command waits until then.
+		return nil, engine.PayloadDeferred(*resp.RetryAt, fmt.Errorf("usenetengine: index: %s", resp.Error))
 	case resp.Error != "":
 		// index answered and could not produce the payload this time: the
 		// indexer down, rate-limited or in backoff. Retried, never read as

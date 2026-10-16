@@ -24,6 +24,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -209,9 +211,16 @@ func (s *Service) fetchAndCount(
 	// reserves its grab before it creates the Download that leads here --
 	// holds its slot and passes. A grab that then does not happen gives its
 	// slot back (settleGrab).
+	if until, paused := s.grabPaused(ctx, &idx, log); paused {
+		// The indexer refused a fetch with 429 and is not asked again
+		// until then; the engine waits for RetryAt.
+		return schema.DownloadResponse{Error: limits.GrabLimitMessage(key.String(), until), RetryAt: &until},
+			limits.ResultGrabLimited, label
+	}
 	held, allowed := s.reserveGrab(ctx, &idx, req.GUID, log)
 	if !allowed {
-		return schema.DownloadResponse{Error: limits.GrabLimitMessage(key.String(), held.RetryAt)},
+		retryAt := held.RetryAt
+		return schema.DownloadResponse{Error: limits.GrabLimitMessage(key.String(), retryAt), RetryAt: &retryAt},
 			limits.ResultGrabLimited, label
 	}
 	grabbed := false
@@ -249,7 +258,68 @@ func (s *Service) fetchAndCount(
 	// A URL that was never sent is not a grab against this indexer: it named
 	// another host, and the caller fetches it from there itself.
 	grabbed = resp.Error == "" && !res.NotSent
+	switch {
+	case res.Status == http.StatusTooManyRequests:
+		// The indexer's own limit, which spec.limits.grabLimit did not
+		// know: pause its grabs for Retry-After, or the escalating
+		// default, and tell the caller when to come back.
+		if until, ok := s.pauseGrabs(ctx, &idx, retryAfterHeader(res.Header), log); ok {
+			resp.Error = limits.GrabLimitMessage(key.String(), until)
+			resp.RetryAt = &until
+		}
+	case grabbed:
+		s.clearGrabPause(ctx, &idx, log)
+	}
 	return resp, result, label
+}
+
+// grabPaused reports a pause a 429 set on idx; an accounting outage reads
+// as no pause, as reserveGrab fails open.
+func (s *Service) grabPaused(ctx context.Context, idx *indexv1alpha1.Indexer, log *slog.Logger) (time.Time, bool) {
+	if s.Bus == nil {
+		return time.Time{}, false
+	}
+	until, paused, err := limits.GrabPaused(ctx, s.Bus.KV(events.BucketIndexerLimits), idx, s.now())
+	if err != nil {
+		log.Warn("app/indexer/download: reading the grab pause failed; asking the indexer", "err", err)
+		return time.Time{}, false
+	}
+	return until, paused
+}
+
+func (s *Service) pauseGrabs(ctx context.Context, idx *indexv1alpha1.Indexer, retryAfter time.Duration, log *slog.Logger) (time.Time, bool) {
+	if s.Bus == nil {
+		return time.Time{}, false
+	}
+	until, err := limits.PauseGrabs(ctx, s.Bus.KV(events.BucketIndexerLimits), idx, retryAfter, s.now())
+	if err != nil {
+		log.Warn("app/indexer/download: recording the grab pause failed", "err", err)
+		return time.Time{}, false
+	}
+	log.Warn("app/indexer/download: the indexer answered 429; its grabs are paused", "until", until, "retryAfter", retryAfter)
+	return until, true
+}
+
+func (s *Service) clearGrabPause(ctx context.Context, idx *indexv1alpha1.Indexer, log *slog.Logger) {
+	if s.Bus == nil {
+		return
+	}
+	if err := limits.ClearGrabPause(ctx, s.Bus.KV(events.BucketIndexerLimits), idx); err != nil {
+		log.Warn("app/indexer/download: clearing the grab pause failed", "err", err)
+	}
+}
+
+// retryAfterHeader reads Retry-After as whole seconds; indexers never send
+// the HTTP-date form. Missing or unreadable is zero.
+func retryAfterHeader(h http.Header) time.Duration {
+	if h == nil {
+		return 0
+	}
+	secs, err := strconv.Atoi(strings.TrimSpace(h.Get("Retry-After")))
+	if err != nil || secs <= 0 {
+		return 0
+	}
+	return time.Duration(secs) * time.Second
 }
 
 // reserveGrab reserves guid's grab on idx's ring. An accounting outage fails
