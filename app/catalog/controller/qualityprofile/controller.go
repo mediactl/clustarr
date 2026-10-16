@@ -107,7 +107,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	return ctrl.Result{}, nil
 }
 
-// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=qualityprofiles,verbs=get;list;watch;create;delete
+// +kubebuilder:rbac:groups=catalog.clustarr.io,resources=qualityprofiles,verbs=get;list;watch;create;update;delete
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=qualityprofiles/status,verbs=get;update;patch
 // The Recorder is a k8s.io/client-go/tools/events.EventRecorder, handed in by
 // mgr.GetEventRecorder, and it writes events.k8s.io/v1 -- so events.k8s.io is

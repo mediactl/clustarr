@@ -221,6 +221,7 @@ rules:
   - delete
   - get
   - list
+  - update
   - watch
 - apiGroups:
   - catalog.clustarr.io
