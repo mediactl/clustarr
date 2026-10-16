@@ -26,6 +26,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -102,6 +103,9 @@ type Service struct {
 
 	// Now is the clock. nil means time.Now.
 	Now func() time.Time
+
+	// perIndexer holds one mutex per indexer UID (lockIndexer).
+	perIndexer sync.Map
 }
 
 func (s *Service) now() time.Time {
@@ -211,6 +215,13 @@ func (s *Service) fetchAndCount(
 	// reserves its grab before it creates the Download that leads here --
 	// holds its slot and passes. A grab that then does not happen gives its
 	// slot back (settleGrab).
+	// One fetch per indexer at a time: a burst that arrives together asks
+	// the indexer once, and the rest read the pause the first fetch
+	// recorded instead of each spending a hit (about 35 entries retry
+	// together when a pause ends).
+	unlock := s.lockIndexer(string(idx.UID))
+	defer unlock()
+
 	if until, paused := s.grabPaused(ctx, &idx, log); paused {
 		// The indexer refused a fetch with 429 and is not asked again
 		// until then; the engine waits for RetryAt.
@@ -271,6 +282,15 @@ func (s *Service) fetchAndCount(
 		s.clearGrabPause(ctx, &idx, log)
 	}
 	return resp, result, label
+}
+
+// lockIndexer serialises this process's fetches to one indexer and returns
+// the unlock.
+func (s *Service) lockIndexer(uid string) func() {
+	v, _ := s.perIndexer.LoadOrStore(uid, &sync.Mutex{})
+	mu := v.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
 }
 
 // grabPaused reports a pause a 429 set on idx; an accounting outage reads

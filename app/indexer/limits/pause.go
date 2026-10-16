@@ -54,7 +54,7 @@ type grabPause struct {
 
 // PauseGrabs records a refusal at now and returns when grabs may resume:
 // now plus retryAfter when the indexer named one, else the escalating
-// default.
+// default; a longer pause already in force stands.
 func PauseGrabs(ctx context.Context, kv events.KV, idx *indexv1alpha1.Indexer, retryAfter time.Duration, now time.Time) (time.Time, error) {
 	cur, _, err := readPause(ctx, kv, idx)
 	if err != nil {
@@ -70,6 +70,11 @@ func PauseGrabs(ctx context.Context, kv events.KV, idx *indexv1alpha1.Indexer, r
 		pause = min(pause, MaxGrabPause)
 	}
 	until := now.Add(pause)
+	// Never shorten a pause in force: four 429s in one second named retry
+	// times five to sixteen hours apart, and the last, shortest, won.
+	if standing := time.Unix(cur.Until, 0).UTC(); standing.After(until) {
+		until = standing
+	}
 	val, err := json.Marshal(grabPause{Until: until.Unix(), Strikes: strikes})
 	if err != nil {
 		return time.Time{}, err

@@ -19,9 +19,12 @@ package download
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -81,3 +84,44 @@ func TestA429PausesTheIndexersGrabsUntilRetryAfter(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, paused, "a successful grab clears the pause")
 }
+
+// Fetches to one indexer are single-flight: a burst that arrives together
+// asks the indexer once, and the rest read the pause the first fetch
+// recorded instead of each spending a hit (about 35 entries retry together
+// when a pause ends).
+func TestABurstAsksAPausedIndexerOnce(t *testing.T) {
+	ctx := context.Background()
+	idx := testIndexer("media", "tr", "uid-burst", indexv1alpha1.LimitUnitDay)
+	bus := membus.New(nil)
+	t.Cleanup(func() { _ = bus.Close() })
+	require.NoError(t, bus.Ensure(ctx, events.Default()))
+
+	var fetches atomic.Int32
+	s := &Service{
+		Client: fakeClient(t, idx), Bus: bus,
+		Fetch: func(context.Context, *indexv1alpha1.Indexer) (Fetcher, error) {
+			fetches.Add(1)
+			return slowFetcher{res: &FetchResult{Status: http.StatusTooManyRequests, Header: http.Header{"Retry-After": {"600"}}, Body: io.NopCloser(strings.NewReader(""))}}, nil
+		},
+	}
+	var wg sync.WaitGroup
+	for i := range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			resp := s.Handle(ctx, schema.DownloadRequest{IndexerRef: schema.Ref{Namespace: "media", Name: "tr"}, GUID: fmt.Sprintf("g%d", i), URL: "https://x/y"})
+			require.NotNil(t, resp.RetryAt)
+		}()
+	}
+	wg.Wait()
+	require.Equal(t, int32(1), fetches.Load(), "the burst must ask the indexer once")
+}
+
+// slowFetcher answers after a pause, so concurrent callers overlap.
+type slowFetcher struct{ res *FetchResult }
+
+func (f slowFetcher) Fetch(context.Context, string) (*FetchResult, error) {
+	time.Sleep(30 * time.Millisecond)
+	return f.res, nil
+}
+func (slowFetcher) Scrub(s string) string { return s }

@@ -78,3 +78,23 @@ func TestAGrabPauseWithoutRetryAfterEscalates(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, last.Add(DefaultGrabPause), until, "a success resets the run")
 }
+
+// A refusal recorded while a longer pause stands keeps the longer one: four
+// 429s in one second named retry times five to sixteen hours apart, and the
+// last write, the shortest, won (talos, 2026-10-16).
+func TestAGrabPauseNeverShortensOneInForce(t *testing.T) {
+	ctx := context.Background()
+	kv := testKV(t)
+	idx := testIndexer("uid-keep", nil)
+	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+
+	long, err := PauseGrabs(ctx, kv, idx, 16*time.Hour, now)
+	require.NoError(t, err)
+	short, err := PauseGrabs(ctx, kv, idx, 5*time.Hour, now.Add(time.Second))
+	require.NoError(t, err)
+	require.Equal(t, long, short, "the shorter refusal must not cut the pause")
+	at, paused, err := GrabPaused(ctx, kv, idx, now.Add(6*time.Hour))
+	require.NoError(t, err)
+	require.True(t, paused)
+	require.Equal(t, long, at)
+}
