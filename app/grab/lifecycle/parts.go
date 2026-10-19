@@ -18,6 +18,7 @@ package lifecycle
 
 import (
 	"fmt"
+	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -30,6 +31,9 @@ import (
 // downloads as its own transfer; part 1 imports them all, joined, once each
 // has completed (SetReady, the downloads stage's gate on its import); the
 // others wait and follow it; a part that fails takes the rest down.
+
+// setWaiting starts the message of a first part waiting for its set.
+const setWaiting = "waiting for the set's other parts"
 
 // SetReady reports whether every part of e's set is among entries and done
 // (Importable, its record by rec): the first part's import may run. False
@@ -121,8 +125,11 @@ func (d *decider) setImport(e *catalogv1alpha1.DownloadEntry) bool {
 		return false
 	}
 	if done, of := setDone(d.all, e, d.recordOf); done < of {
-		e.Message = clampString(fmt.Sprintf("waiting for the set's other parts: %d of %d downloaded", done, of), MaxEntryMessage)
+		e.Message = clampString(fmt.Sprintf(setWaiting+": %d of %d downloaded", done, of), MaxEntryMessage)
 		return false
+	}
+	if strings.HasPrefix(e.Message, setWaiting) {
+		e.Message = "" // done waiting: the import's summary says the rest
 	}
 	return d.importStep(e)
 }

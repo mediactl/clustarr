@@ -19,6 +19,8 @@ package fileimport
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -148,11 +150,17 @@ func (w *Worker) execute(ctx context.Context, m events.Message, task *schema.Imp
 		if err := w.beat(ctx, m, &last); err != nil {
 			return nil, "", err
 		}
-		placeIt := func() (string, string, error) { return place(ctx, plan, mv.Source, mv.Dest, mode) }
-		if len(mv.Join) > 1 {
-			placeIt = func() (string, string, error) { return w.joinPlace(ctx, plan, mv.Join, mv.Dest) }
-		}
-		if refused, why, err := placeIt(); err != nil {
+		var refused, why string
+		err := w.keepAlive(ctx, m, func() error {
+			var err error
+			if len(mv.Join) > 1 {
+				refused, why, err = w.joinPlace(ctx, plan, mv.Join, mv.Dest)
+			} else {
+				refused, why, err = place(ctx, plan, mv.Source, mv.Dest, mode)
+			}
+			return err
+		})
+		if err != nil {
 			return nil, why, nil
 		} else if refused != "" {
 			x.Refused = refused
@@ -201,7 +209,12 @@ func (w *Worker) execute(ctx context.Context, m events.Message, task *schema.Imp
 		}
 		// The donor is reduced at import, not at graft (loop spec §4.12): its
 		// video leaves the library now, however long the graft waits.
-		mka, err := w.reduceDonor(ctx, d.Dest, d.Anchor, d.Languages)
+		var mka string
+		err := w.keepAlive(ctx, m, func() error {
+			var err error
+			mka, err = w.reduceDonor(ctx, d.Dest, d.Anchor, d.Languages)
+			return err
+		})
 		switch {
 		case errors.Is(err, donoraudio.ErrLacksLanguage):
 			logging.FromContext(ctx).Info("fileimport: the donor lacks a language at reduction", "donor", d.Dest, "error", err)
@@ -234,7 +247,9 @@ func (w *Worker) joinPlace(ctx context.Context, plan schema.ImportPlan, parts []
 	if !fsops.StrictlyUnder(dest, plan.RootFolder) {
 		return place(ctx, plan, parts[0], dest, fsops.ImportCopy) // refused there, before any work
 	}
-	tmp := filepath.Join(filepath.Dir(parts[0]), ".clustarr-join-"+filepath.Base(dest))
+	// Each join its own file: two executes of one import must never write
+	// one (a redelivery beside a running join, 2026-10-17).
+	tmp := filepath.Join(filepath.Dir(parts[0]), ".clustarr-join-"+uniqueSuffix()+"-"+filepath.Base(dest))
 	defer func() { _ = os.Remove(tmp) }()
 	join := w.Join
 	if join == nil {
@@ -313,4 +328,11 @@ func (w *Worker) stale(ctx context.Context, ns string, bases []schema.MediaFileB
 		}
 	}
 	return "", nil
+}
+
+// uniqueSuffix is eight random hex digits.
+func uniqueSuffix() string {
+	var b [4]byte
+	_, _ = rand.Read(b[:])
+	return hex.EncodeToString(b[:])
 }

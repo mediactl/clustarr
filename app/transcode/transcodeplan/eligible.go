@@ -18,6 +18,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package transcodeplan
 
 import (
+	"slices"
+
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/transcode/jobspec"
@@ -91,7 +93,7 @@ func Eligible(f File, profiles []transcodev1alpha1.TranscodeProfile) Eligibility
 		e.Why = "its winning profile is Invalid: " + msg
 	case !f.ItemExists:
 		e.Why = "its " + string(f.MF.Spec.MediaRef.Kind) + " is gone"
-	case AlreadyTranscoded(view, e.Profile.Name):
+	case AlreadyTranscoded(view, e.Profile.Name) && !KeptH264Dropped(view, e.Profile):
 		e.Why = ReasonTranscoded
 	case view.Status.ProbeHash == "" || view.Status.MediaInfo == nil:
 		e.Why, e.Pending = "never probed", ReasonUnprobed
@@ -112,6 +114,17 @@ func Eligible(f File, profiles []transcodev1alpha1.TranscodeProfile) Eligibility
 // donor's grab never sets). Its import replaces the file, so a transcode
 // started now is work thrown away (2026-10-16): the file waits, Pending,
 // and plans once the grab imports or fails.
+// KeptH264Dropped reports a clustarr remux that copied H.264 because its
+// profile kept it (policy.keepCodecs) -- tagged, its video still H.264 --
+// under a profile that no longer keeps H.264: the one transcode that is not
+// final, since its video is the release's (owner, 2026-10-19: 5,956 such
+// files remuxed before the owner dropped it). standard.Plan encodes it.
+func KeptH264Dropped(mf *catalogv1alpha1.MediaFile, profile *transcodev1alpha1.TranscodeProfile) bool {
+	mi := mf.Status.MediaInfo
+	return mi != nil && mi.TranscodeProfile != "" && mi.VideoCodec == "h264" &&
+		!slices.Contains(profile.Spec.Policy.KeepCodecs, "h264")
+}
+
 func UpgradeDownloading(item any) bool {
 	var ref *string
 	switch t := item.(type) {

@@ -32,6 +32,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/mediainfo"
+	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/pkg/quality"
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
@@ -106,6 +107,10 @@ type Worker struct {
 	// placed donor, the result its <stem>.mka. Nil is donoraudio.Reduce; a
 	// test may fake it.
 	ReduceDonor func(ctx context.Context, src, anchor string, languages []string) (string, error)
+	// HeartbeatEvery is how often a long step of an execute -- a join, a
+	// copy, a donor's reduction -- acks its delivery in progress (keepAlive);
+	// zero is HeartbeatInterval.
+	HeartbeatEvery time.Duration
 	// Join joins a movie's parts, in order, into output losslessly (a move
 	// with schema.ImportMove.Join). Nil is engine.Join; a test may fake it.
 	Join func(ctx context.Context, parts []string, output string) error
@@ -229,6 +234,42 @@ func (w *Worker) beat(ctx context.Context, m events.Message, last *time.Time) er
 	}
 	*last = now
 	return heartbeat(ctx, m)
+}
+
+// keepAlive runs step, acking m in progress every HeartbeatEvery until it
+// returns. The execute's steps are unbounded -- joining a film's parts or
+// copying a whole film runs minutes -- and a delivery whose ack deadline
+// lapses is redelivered while it still runs: on 2026-10-17 four of five
+// joins ran twice side by side, and 49 Up was placed half joined. A failed
+// beat is the step's to outlive: the step's own error decides.
+func (w *Worker) keepAlive(ctx context.Context, m events.Message, step func() error) error {
+	every := w.HeartbeatEvery
+	if every <= 0 {
+		every = HeartbeatInterval
+	}
+	done := make(chan struct{})
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+		t := time.NewTicker(every)
+		defer t.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				if err := heartbeat(ctx, m); err != nil {
+					logging.FromContext(ctx).Warn("fileimport: a heartbeat during a long step failed", "error", err)
+				}
+			}
+		}
+	}()
+	err := step()
+	close(done)
+	<-stopped
+	return err
 }
 
 // heartbeat extends the delivery's ack deadline now.

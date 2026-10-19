@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -139,4 +140,48 @@ func TestASetInspectedByAnAgentThatKnowsNoSetsIsRetried(t *testing.T) {
 	assert.Nil(t, dec.Dispatch, "%+v", dec.Summary)
 	assert.Equal(t, commonv1.ImportClassTransient, dec.Summary.Class, "%+v", dec.Summary)
 	assert.Contains(t, dec.Summary.Message, "every part")
+}
+
+// A movie's new file whose library name is its current file's MediaFile's
+// -- the first import's file name, which a transcode then renamed
+// (28 Up's "[FLAC 2.0][x264]-usury.mkv", remuxed to "[AAC 2.0]...mp4") --
+// replaces that file all the same: the renamed file goes to the recycle
+// bin, and the MediaFile is re-pointed at the new one, never deleted
+// (2026-10-17: 28, 42 and 49 Up kept their first part beside the film).
+func TestANewFileUnderTheNameATranscodeRenamedAwayReplacesIt(t *testing.T) {
+	wd := newWorld(t)
+	title := "Heat.1995.1080p.BluRay.x264-GRP"
+	file := title + ".mkv"
+	wd.probes[file] = hd(170)
+	first := wd.grab(commonv1.MediaKindMovie, "heat", title, wd.payload(map[string]int64{file: big}))
+	first.inspected()
+	dest := first.plan().Plan.Moves[0].Dest
+	name := importplan.MediaFileName("heat", dest)
+
+	renamed := strings.TrimSuffix(dest, filepath.Ext(dest)) + ".remuxed.mp4"
+	wd.add(wd.mediaFile(name, commonv1.MediaKindMovie, "heat", renamed, "Bluray-1080p"))
+
+	g := wd.grab(commonv1.MediaKindMovie, "heat", title, wd.payload(map[string]int64{file: big}))
+	g.in.Entry.Manual = true
+	g.inspected()
+	plan := g.plan().Plan
+	require.Len(t, plan.Replaces, 1, "the renamed file is replaced")
+	assert.Equal(t, renamed, plan.Replaces[0].Path)
+
+	dec := g.executed()
+	assert.Equal(t, lifecycle.ImportImported, dec.Verdict, "%+v", dec.Summary)
+	_, err := os.Stat(renamed)
+	assert.True(t, os.IsNotExist(err), "the renamed file left the library")
+	for _, m := range dec.Materialise {
+		if m.Delete != nil {
+			assert.NotEqual(t, name, m.Delete.Name, "the MediaFile is re-pointed, never deleted")
+		}
+	}
+	applied := false
+	for _, m := range dec.Materialise {
+		if m.Apply != nil && m.Apply.Name == name {
+			applied = m.Apply.Path == dest
+		}
+	}
+	assert.True(t, applied, "the MediaFile now names the new file")
 }

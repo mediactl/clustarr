@@ -235,6 +235,14 @@ const (
 // aacLayouts are the layouts the standard encodes AAC in.
 var aacLayouts = map[int32]string{1: "mono", 2: "stereo"}
 
+// keptH264Dropped reports info's video as H.264 the profile no longer keeps
+// (policy.keepCodecs): a clustarr remux of it, tagged and final while the
+// profile kept it, is encoded now.
+func keptH264Dropped(info transcode.MediaInfo, profile Profile) bool {
+	vi := primaryVideo(info.Video)
+	return vi >= 0 && info.Video[vi].Codec == "h264" && !slices.Contains(profile.KeepCodecs, "h264")
+}
+
 // Plan decides the standard for info, under profile, on hw.
 func Plan(info transcode.MediaInfo, profile Profile, hw Hardware) Result {
 	p := Result{
@@ -246,7 +254,11 @@ func Plan(info transcode.MediaInfo, profile Profile, hw Hardware) Result {
 	// the MP4 layout (HEVC in Matroska, Version 1) is remuxed into it, its
 	// video copied below and never encoded a second time (owner, 2026-10-15).
 	tag := formatTag(info.Tags, "CLUSTARR_PROFILE")
-	if tag != "" && containerOf(info.Format.Name) == transcode.ContainerMP4 {
+	// The one exception: a remux that copied H.264 because the profile kept
+	// it (policy.keepCodecs) is encoded once the profile no longer keeps
+	// H.264 (owner, 2026-10-19). Its video is the release's, not clustarr's.
+	reencode := tag != "" && keptH264Dropped(info, profile)
+	if tag != "" && containerOf(info.Format.Name) == transcode.ContainerMP4 && !reencode {
 		return skip(p, "already transcoded (CLUSTARR_PROFILE "+tag+")")
 	}
 	if d := info.Format.Duration; profile.MinDuration > 0 && d > 0 && d < profile.MinDuration {
@@ -332,7 +344,7 @@ func Plan(info transcode.MediaInfo, profile Profile, hw Hardware) Result {
 	// commonv1.MediaInfo.TranscodedElsewhere, Tdarr's QSV MKVs on the owner's
 	// library) is final: remuxed above when its video is compliant, never
 	// encoded a second time (owner, 2026-10-15). So is clustarr's own.
-	if tag != "" {
+	if tag != "" && !reencode {
 		return skip(p, "already transcoded (CLUSTARR_PROFILE "+tag+"): final, never encoded a second time")
 	}
 	if (&commonv1.MediaInfo{VideoEncoder: v.Encoder}).TranscodedElsewhere() {

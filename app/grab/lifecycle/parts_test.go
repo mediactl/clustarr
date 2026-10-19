@@ -78,10 +78,12 @@ func TestASetImportsOnceEveryPartIsDone(t *testing.T) {
 
 	es, ts = setOf(2, commonv1.DownloadStageDone, commonv1.DownloadStageDone)
 	es[0].Phase, es[1].Phase = commonv1.DownloadPhaseCompleted, commonv1.DownloadPhaseCompleted
+	es[0].Message = first.Message // the last pass's wait
 	v = view(es, ts...)
 	v.Import = map[types.UID]lifecycle.ImportDecision{types.UID(es[0].UID): inspect}
 	p = lifecycle.Decide(v)
 	require.Len(t, p.Imports, 1, "the first part imports the set")
+	assert.NotContains(t, entryNamed(p, "heat-part1").Message, "waiting", "no longer waiting once it imports")
 	assert.Equal(t, types.UID(es[0].UID), p.Imports[0].EntryUID)
 	second := entryNamed(p, "heat-part2")
 	assert.Equal(t, commonv1.DownloadPhaseCompleted, second.Phase)

@@ -467,3 +467,24 @@ func TestClustarrsOwnMKVTranscodeIsNotDone(t *testing.T) {
 	mf.Status.Transcode = &catalogv1alpha1.TranscodeState{Phase: catalogv1alpha1.TranscodePhaseSucceeded, ProfileTag: "hevc@deadbeef"}
 	assert.True(t, AlreadyTranscoded(&mf, "hevc"), "a kept copy's record on its source")
 }
+
+// A file clustarr remuxed keeping its H.264 (policy.keepCodecs) is eligible
+// again once its profile no longer keeps H.264 (owner, 2026-10-19), and
+// only then: kept, or HEVC, it is final as every transcode is.
+func TestARemuxThatKeptH264IsEligibleOnceH264IsNoLongerKept(t *testing.T) {
+	st := probed("h1")
+	st.MediaInfo.TranscodeProfile = "hevc@old"
+	st.MediaInfo.Container = "mov,mp4,m4a,3gp,3g2,mj2"
+	f := eligibleFile(st)
+	f.MF.Spec.Original = new(false)
+
+	keep := hevcProfiles()
+	keep[0].Spec.Policy.KeepCodecs = []string{"hevc", "h264"}
+	assert.Equal(t, ReasonTranscoded, Eligible(f, keep).Why, "kept, the remux is final")
+
+	e := Eligible(f, hevcProfiles())
+	assert.True(t, e.Eligible, "%s", e.Why)
+
+	st.MediaInfo.VideoCodec = "hevc"
+	assert.Equal(t, ReasonTranscoded, Eligible(eligibleFile(st), hevcProfiles()).Why, "clustarr's HEVC stays final")
+}

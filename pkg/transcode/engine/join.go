@@ -23,6 +23,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/obinnaokechukwu/ffgo"
 )
 
 // Join remuxes parts -- one encode released in pieces, in order -- into
@@ -63,5 +65,41 @@ func Join(ctx context.Context, parts []string, output string) (Result, error) {
 	if err := os.WriteFile(path, []byte(list.String()), 0o600); err != nil {
 		return Result{}, err
 	}
-	return Run(ctx, plan, path, output, Options{InputFormat: "concat", InputOptions: map[string]string{"safe": "0"}})
+	want, err := partsMillis(parts)
+	if err != nil {
+		return Result{}, err
+	}
+	res, err := Run(ctx, plan, path, output, Options{InputFormat: "concat", InputOptions: map[string]string{"safe": "0"}})
+	if err != nil {
+		return res, err
+	}
+	// FFmpeg's concat demuxer ends quietly at a part it cannot open or
+	// read to its end, so a join that stopped short reads as done: the
+	// output must run the parts' length end to end (2026-10-17, 49 Up
+	// placed as its first part alone).
+	if short := want - res.DurationMillis; short > joinToleranceMillis(want) {
+		return res, fmt.Errorf("engine: the join of %d parts ran %d ms of their %d: a part could not be read to its end",
+			len(parts), res.DurationMillis, want)
+	}
+	return res, nil
 }
+
+// partsMillis is the parts' length end to end, each as its container says;
+// a part that cannot be opened fails the join before it starts.
+func partsMillis(parts []string) (int64, error) {
+	var total int64
+	for _, p := range parts {
+		d, err := ffgo.NewDecoder(p)
+		if err != nil {
+			return 0, fmt.Errorf("engine: open part %s: %w", filepath.Base(p), err)
+		}
+		total += d.Duration().Milliseconds()
+		_ = d.Close()
+	}
+	return total, nil
+}
+
+// joinToleranceMillis is how much shorter than its parts a join may run:
+// 2% and a second, for a container duration a subtitle outlasts. A part
+// missing is minutes.
+func joinToleranceMillis(want int64) int64 { return want/50 + 1000 }

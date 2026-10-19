@@ -58,3 +58,26 @@ func TestJoinWantsTwoParts(t *testing.T) {
 	_, err := Join(context.Background(), []string{"one.mkv"}, filepath.Join(t.TempDir(), "o.mkv"))
 	assert.Error(t, err)
 }
+
+// A join that cannot read a part to its end fails rather than write the
+// parts it could: on 2026-10-17 a second execute of 49 Up's import joined
+// part 1, found part 2 deleted under it, and placed the half film as done
+// (FFmpeg's concat demuxer ends quietly at a part it cannot open).
+func TestAJoinThatStopsShortOfAPartFails(t *testing.T) {
+	dir := t.TempDir()
+	parts := []string{filepath.Join(dir, "Film.Part1.mkv"), filepath.Join(dir, "Film.Part2.mkv")}
+	for _, p := range parts {
+		b, err := os.ReadFile(hevcClip(t, "mkv"))
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(p, b, 0o644))
+	}
+	st, err := os.Stat(parts[1])
+	require.NoError(t, err)
+	require.NoError(t, os.Truncate(parts[1], st.Size()*3/10), "part 2 ends early; its header still says its length")
+	_, err = Join(context.Background(), parts, filepath.Join(dir, "Film (2020).mkv"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parts")
+
+	_, err = Join(context.Background(), []string{parts[0], filepath.Join(dir, "gone.mkv")}, filepath.Join(dir, "o.mkv"))
+	assert.Error(t, err, "a part that is not there")
+}

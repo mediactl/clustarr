@@ -500,8 +500,15 @@ func (p *planner) imported() {
 			Frozen: f.Frozen, From: from,
 		}})
 	}
+	placed := map[string]bool{}
+	for _, f := range x.Placed {
+		placed[f.MediaFileName] = true
+	}
 	for i := range x.Replaced {
 		b := x.Replaced[i]
+		if placed[b.Name] {
+			continue // re-pointed at the file placed under its name, above
+		}
 		p.dec.Materialise = append(p.dec.Materialise, lifecycle.Materialise{Delete: &b})
 	}
 	p.sum.Files = int32(len(x.Placed)) //nolint:gosec // bounded by the plan
@@ -780,7 +787,13 @@ func (p *planner) planFrom(insp *schema.ImportInspection) planResult {
 		}
 		for i := range olds {
 			old := &olds[i]
-			if old.Spec.Path == f.Dest || old.Name == name || replaced[old.Name] {
+			// A MediaFile of this file's own name whose file lies elsewhere
+			// -- the first import's name, which a transcode renamed away --
+			// is replaced as well: its file goes, and the MediaFile is
+			// re-pointed at the new one, never deleted (imported). It was
+			// skipped, and the renamed file stayed beside the new one
+			// (2026-10-17: 28, 42 and 49 Up).
+			if old.Spec.Path == f.Dest || replaced[old.Name] {
 				continue
 			}
 			replaced[old.Name] = true

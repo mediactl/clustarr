@@ -104,7 +104,10 @@ func TestEligibleFollowsTheWinningProfile(t *testing.T) {
 		{name: "an upgrade of its item is downloading", mutate: func(f *File) { f.UpgradeDownloading = true }, pending: ReasonUpgradeDownloading},
 		{name: "transcode swapped it in", mutate: func(f *File) { f.MF.Spec.Original = new(false) }},
 		{name: "it carries CLUSTARR_PROFILE in an MP4", mutate: func(f *File) {
+			// HEVC: a remux that kept H.264 is the one exception
+			// (TestARemuxThatKeptH264IsEligibleOnceH264IsNoLongerKept).
 			f.Status.MediaInfo.TranscodeProfile, f.Status.MediaInfo.Container = "hevc@0ld", "mp4"
+			f.Status.MediaInfo.VideoCodec = "hevc"
 		}},
 		{name: "a kept copy was recorded under any hash", mutate: func(f *File) {
 			f.Status.Transcode = &catalogv1alpha1.TranscodeState{Phase: catalogv1alpha1.TranscodePhaseSucceeded, ProfileTag: "hevc@0ld"}

@@ -225,6 +225,27 @@ func TestKeepingH264CopiesEightBitSDRH264(t *testing.T) {
 	assert.Equal(t, DecisionEncode, Plan(info(h264, eac3), profile, cpu).Decision, "without h264 listed, it is encoded")
 }
 
+// A file clustarr remuxed keeping its 8-bit SDR H.264 (policy.keepCodecs)
+// is encoded once the profile no longer keeps H.264 (owner, 2026-10-19:
+// 5,956 such files, 12.6 TB, remuxed before the owner dropped it); while
+// the profile keeps it, the remux is final as every transcode is. Only
+// H.264 a remux kept: clustarr's HEVC is never encoded again.
+func TestARemuxThatKeptH264IsEncodedOnceH264IsNoLongerKept(t *testing.T) {
+	remuxed := mp4Info(h264, audio(0, "aac", 2, "stereo", "eng"))
+	remuxed.Tags = map[string]string{"CLUSTARR_PROFILE": "hevc-mkv@old"}
+	keep := profile
+	keep.KeepCodecs = []string{"hevc", "h264"}
+	assert.Equal(t, DecisionSkip, Plan(remuxed, keep, cpu).Decision, "kept, the remux is final")
+
+	p := Plan(remuxed, profile, cpu)
+	require.Equal(t, DecisionEncode, p.Decision, p.Reason)
+	assert.Equal(t, "hevc-mkv@abc", p.Tags["CLUSTARR_PROFILE"], "tagged anew")
+
+	own := mp4Info(hevc10, audio(0, "aac", 2, "stereo", "eng"))
+	own.Tags = map[string]string{"CLUSTARR_PROFILE": "hevc-mkv@old"}
+	assert.Equal(t, DecisionSkip, Plan(own, profile, cpu).Decision, "clustarr's HEVC stays final")
+}
+
 // A source another tool transcoded -- an FFmpeg HEVC or AV1 encode, Tdarr's
 // QSV MKVs on the owner's library -- is final: it is remuxed into the MP4
 // layout when its video is compliant, and never encoded again (owner,
@@ -371,9 +392,12 @@ func TestTheProfilesContainerIsIgnored(t *testing.T) {
 // A transcoded file is final (spec §5): one this profile wrote is skipped,
 // and so is one written under an earlier hash (a profile edit, a new
 // standard.Version) or by another profile -- re-transcoding is never an
-// upgrade side effect.
+// upgrade side effect. (The one exception, H.264 a remux kept, is
+// TestARemuxThatKeptH264IsEncodedOnceH264IsNoLongerKept's.)
 func TestATranscodedFileIsSkippedWhateverItsTag(t *testing.T) {
-	in := info(h264, audio(0, "truehd", 8, "7.1", "eng")) // an MKV, whose video the standard encodes
+	uhd8 := video("hevc", "yuv420p", 8, commonv1.HdrFormatNone)
+	uhd8.Width, uhd8.Height = 3840, 2160
+	in := info(uhd8, audio(0, "truehd", 8, "7.1", "eng")) // an MKV, whose video the standard encodes to Main 10
 	assert.Equal(t, DecisionEncode, Plan(in, profile, cpu).Decision, "untagged, it is encoded")
 	for _, tag := range []string{profile.Name + "@" + profile.Hash, profile.Name + "@older", "other@" + profile.Hash} {
 		in.Tags = map[string]string{"CLUSTARR_PROFILE": tag}
