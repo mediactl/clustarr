@@ -185,3 +185,33 @@ func TestANewFileUnderTheNameATranscodeRenamedAwayReplacesIt(t *testing.T) {
 	}
 	assert.True(t, applied, "the MediaFile now names the new file")
 }
+
+// A new file placed at the very path another MediaFile of the item names
+// -- a file a transcode renamed onto the name the new release now renders
+// -- takes that MediaFile's place: the older one is deleted, never left
+// as a second MediaFile of one file.
+func TestANewFileAtAnotherMediaFilesPathReplacesIt(t *testing.T) {
+	wd := newWorld(t)
+	title := "Heat.1995.1080p.BluRay.x264-GRP"
+	file := title + ".mkv"
+	wd.probes[file] = hd(170)
+	first := wd.grab(commonv1.MediaKindMovie, "heat", title, wd.payload(map[string]int64{file: big}))
+	first.inspected()
+	dest := first.plan().Plan.Moves[0].Dest
+	wd.add(wd.mediaFile("heat-older", commonv1.MediaKindMovie, "heat", dest, "Bluray-1080p"))
+
+	g := wd.grab(commonv1.MediaKindMovie, "heat", title, wd.payload(map[string]int64{file: big}))
+	g.in.Entry.Manual = true
+	g.inspected()
+	plan := g.plan().Plan
+	require.Len(t, plan.Replaces, 1)
+	assert.Equal(t, "heat-older", plan.Replaces[0].Name)
+
+	dec := g.executed()
+	assert.Equal(t, lifecycle.ImportImported, dec.Verdict, "%+v", dec.Summary)
+	deleted := false
+	for _, m := range dec.Materialise {
+		deleted = deleted || (m.Delete != nil && m.Delete.Name == "heat-older")
+	}
+	assert.True(t, deleted, "the older MediaFile of the path is deleted")
+}

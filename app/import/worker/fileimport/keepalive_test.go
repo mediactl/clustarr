@@ -25,10 +25,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jonboulle/clockwork"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 )
 
@@ -89,4 +91,40 @@ func TestTwoJoinsOfOnePartSetWriteTwoFiles(t *testing.T) {
 	}
 	require.Len(t, outs, 2)
 	assert.NotEqual(t, outs[0], outs[1], "each join its own file")
+}
+
+// An execute is kept alive from its first step to its record, whatever its
+// steps: a join, a copy, a donor placed and reduced, the replaced files
+// recycled (2026-10-17: only the walk beat, and a long step was redelivered
+// beside itself).
+func TestAnExecuteKeepsItsDeliveryAliveThroughout(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	root := filepath.Join(dir, "library")
+	dest := filepath.Join(root, "Film (2020)", "Film (2020).mkv")
+	require.NoError(t, os.MkdirAll(filepath.Dir(dest), 0o755))
+	parts := []string{filepath.Join(dir, "Film.Part1.mkv"), filepath.Join(dir, "Film.Part2.mkv")}
+	for _, p := range parts {
+		require.NoError(t, os.WriteFile(p, []byte("part"), 0o644))
+	}
+	bus := membus.New(clockwork.NewRealClock())
+	require.NoError(t, bus.Ensure(ctx, events.Default()))
+	t.Cleanup(func() { _ = bus.Close() })
+	w := &Worker{Bus: bus, HeartbeatEvery: 5 * time.Millisecond, Join: func(_ context.Context, _ []string, out string) error {
+		time.Sleep(60 * time.Millisecond)
+		return os.WriteFile(out, []byte("joined"), 0o644)
+	}}
+	owner := schema.ItemRef{Kind: "Movie", Ref: schema.Ref{Namespace: "media", Name: "film", UID: "film-uid"}}
+	task := schema.ImportExecuteTask{
+		Seq: 1, Owner: owner, Entry: schema.EntryRef{ID: "film-a", UID: "entry-a"},
+		Plan: schema.ImportPlan{
+			Mode: schema.ImportModeMove, RootFolder: root, RecycleBin: filepath.Join(dir, "recycle"),
+			Moves: []schema.ImportMove{{Source: parts[0], Dest: dest, Target: owner, Join: parts, MediaFileName: "film-mf"}},
+		},
+	}
+	name, data, err := schema.Encode(task)
+	require.NoError(t, err)
+	m := &beats{}
+	require.NoError(t, w.handleExecute(ctx, m, &events.Envelope{Schema: name, Data: data}))
+	assert.GreaterOrEqual(t, m.n.Load(), int32(3), "beats through the execute")
 }

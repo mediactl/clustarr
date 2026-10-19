@@ -792,8 +792,12 @@ func (p *planner) planFrom(insp *schema.ImportInspection) planResult {
 			// is replaced as well: its file goes, and the MediaFile is
 			// re-pointed at the new one, never deleted (imported). It was
 			// skipped, and the renamed file stayed beside the new one
-			// (2026-10-17: 28, 42 and 49 Up).
-			if old.Spec.Path == f.Dest || replaced[old.Name] {
+			// (2026-10-17: 28, 42 and 49 Up). Another MediaFile of the
+			// very path the new file takes is replaced too -- its file is
+			// the one placed over, and the MediaFile deleted -- so a path
+			// never has two; only the file's own MediaFile at its own path
+			// is the file itself.
+			if (old.Spec.Path == f.Dest && old.Name == name) || replaced[old.Name] {
 				continue
 			}
 			replaced[old.Name] = true

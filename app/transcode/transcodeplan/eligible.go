@@ -109,11 +109,6 @@ func Eligible(f File, profiles []transcodev1alpha1.TranscodeProfile) Eligibility
 	return e
 }
 
-// UpgradeDownloading reports whether item -- a file's Movie or Episode --
-// has a video grab in flight (status.activeDownloadRef, which an audio
-// donor's grab never sets). Its import replaces the file, so a transcode
-// started now is work thrown away (2026-10-16): the file waits, Pending,
-// and plans once the grab imports or fails.
 // KeptH264Dropped reports a clustarr remux that copied H.264 because its
 // profile kept it (policy.keepCodecs) -- tagged, its video still H.264 --
 // under a profile that no longer keeps H.264: the one transcode that is not
@@ -125,6 +120,11 @@ func KeptH264Dropped(mf *catalogv1alpha1.MediaFile, profile *transcodev1alpha1.T
 		!slices.Contains(profile.Spec.Policy.KeepCodecs, "h264")
 }
 
+// UpgradeDownloading reports whether item -- a file's Movie or Episode --
+// has a video grab in flight (status.activeDownloadRef, which an audio
+// donor's grab never sets). Its import replaces the file, so a transcode
+// started now is work thrown away (2026-10-16): the file waits, Pending,
+// and plans once the grab imports or fails.
 func UpgradeDownloading(item any) bool {
 	var ref *string
 	switch t := item.(type) {

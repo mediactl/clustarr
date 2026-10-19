@@ -75,7 +75,19 @@ func (w *Worker) handleExecute(ctx context.Context, m events.Message, env *event
 	log := logging.FromContext(ctx).With("namespace", task.Owner.Namespace, "owner", task.Owner.Name, "entry", task.Entry.ID)
 	ctx = logging.NewContext(ctx, log)
 
-	x, failure, err := w.execute(ctx, m, &task)
+	// The whole execute is kept alive: its steps are unbounded -- a join,
+	// a copy of a whole film, a donor placed and reduced, the replaced files
+	// recycled -- and a delivery whose ack deadline lapses is redelivered
+	// beside it (keepAlive).
+	var (
+		x       *schema.ImportExecution
+		failure string
+	)
+	err := w.keepAlive(ctx, m, func() error {
+		var err error
+		x, failure, err = w.execute(ctx, m, &task)
+		return err
+	})
 	if err != nil {
 		return err
 	}
@@ -150,17 +162,11 @@ func (w *Worker) execute(ctx context.Context, m events.Message, task *schema.Imp
 		if err := w.beat(ctx, m, &last); err != nil {
 			return nil, "", err
 		}
-		var refused, why string
-		err := w.keepAlive(ctx, m, func() error {
-			var err error
-			if len(mv.Join) > 1 {
-				refused, why, err = w.joinPlace(ctx, plan, mv.Join, mv.Dest)
-			} else {
-				refused, why, err = place(ctx, plan, mv.Source, mv.Dest, mode)
-			}
-			return err
-		})
-		if err != nil {
+		placeIt := func() (string, string, error) { return place(ctx, plan, mv.Source, mv.Dest, mode) }
+		if len(mv.Join) > 1 {
+			placeIt = func() (string, string, error) { return w.joinPlace(ctx, plan, mv.Join, mv.Dest) }
+		}
+		if refused, why, err := placeIt(); err != nil {
 			return nil, why, nil
 		} else if refused != "" {
 			x.Refused = refused
@@ -209,12 +215,7 @@ func (w *Worker) execute(ctx context.Context, m events.Message, task *schema.Imp
 		}
 		// The donor is reduced at import, not at graft (loop spec §4.12): its
 		// video leaves the library now, however long the graft waits.
-		var mka string
-		err := w.keepAlive(ctx, m, func() error {
-			var err error
-			mka, err = w.reduceDonor(ctx, d.Dest, d.Anchor, d.Languages)
-			return err
-		})
+		mka, err := w.reduceDonor(ctx, d.Dest, d.Anchor, d.Languages)
 		switch {
 		case errors.Is(err, donoraudio.ErrLacksLanguage):
 			logging.FromContext(ctx).Info("fileimport: the donor lacks a language at reduction", "donor", d.Dest, "error", err)
