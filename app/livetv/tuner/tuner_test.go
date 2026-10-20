@@ -307,7 +307,7 @@ func TestEachBlockServesOnlyItsNumbersUnderTheHostPlexUsed(t *testing.T) {
 		assert.Equal(t, c.device, d["DeviceID"])
 		assert.Equal(t, c.base, d["BaseURL"])
 		assert.Equal(t, c.base+"/lineup.json", d["LineupURL"])
-		assert.Equal(t, float64(1), d["TunerCount"])
+		assert.Equal(t, float64(1+tuner.SpareTuners), d["TunerCount"], "PMS may hold grabs the relay no longer streams; the relay's 503 is the limit")
 	}
 }
 

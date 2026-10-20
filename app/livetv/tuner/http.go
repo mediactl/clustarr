@@ -106,7 +106,7 @@ func (t *Tuner) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	device := hdhr.Device{FriendlyName: block.FriendlyName, DeviceID: block.DeviceID, BaseURL: base, TunerCount: cfg.Tuners}
+	device := hdhr.Device{FriendlyName: block.FriendlyName, DeviceID: block.DeviceID, BaseURL: base, TunerCount: AdvertisedTuners(cfg.Tuners)}
 	switch {
 	case rest == "discover.json":
 		writeBody(w, "application/json", hdhr.Discover(device))
@@ -162,6 +162,22 @@ func writeBody(w http.ResponseWriter, contentType string, b []byte) {
 	w.Header().Set("Content-Type", contentType)
 	_, _ = w.Write(b)
 }
+
+// SpareTuners is how many tuners discover.json advertises beyond the
+// provider's own: the relay is the limit that counts. It shares one upstream
+// among a channel's viewers, gives a lingering stream's tuner to a new
+// channel, and answers 503 at once when every connection streams. PMS's own
+// count only ever refused a tune the relay would have served. On talos on
+// 2026-10-20, a grab PMS never ended held the one tuner from about 15:00
+// UTC while the relay streamed nothing. Every later tune waited 300 s and
+// failed ("Tuner in use by another process", then "The recording conflicts
+// with other recordings"). The spares tolerate that many such grabs until
+// cluster-plex ends them. A recording that clashes is refused with a 503
+// when it starts, not by PMS's conflict check when it is scheduled.
+const SpareTuners = 3
+
+// AdvertisedTuners is discover.json's TunerCount for a provider of tuners.
+func AdvertisedTuners(tuners int) int { return tuners + SpareTuners }
 
 // portOf is a Host header's port, or 0 when it names none.
 func portOf(host string) int32 {

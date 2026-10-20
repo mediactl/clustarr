@@ -61,7 +61,9 @@ type IPTVProviderSpec struct {
 	Playlist PlaylistSource `json:"playlist"`
 
 	// Tuners is how many distinct channels may stream at once: the
-	// provider's connection limit, and discover.json's TunerCount.
+	// provider's connection limit, which the relay enforces with a 503.
+	// discover.json advertises tuner.SpareTuners more, so a grab PMS never
+	// ended cannot block an idle relay.
 	// +required
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=64
