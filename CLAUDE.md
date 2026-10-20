@@ -333,6 +333,15 @@ through the same `startInteractiveSearch` and `/searches` routes. The
 episode and book templates share `searchButtons`, `searchTab`,
 `fileTable` and `statusCell` (`views.RowStatus`); an artist's albums are
 still `ChildRows`.
+Those modals (and the season search's) are shadcn-templ dialogs open by
+default, whose portal moves them to `<body>` a microtask after htmx swaps
+them in and before htmx settles the swap, so htmx processed only the empty
+portal owner and wired nothing inside: an interactive search's panel never
+polled past "Searching indexers…" and the modal's forms fell back to full
+posts (2026-10-19). `ui/static/portals.js` has htmx process every portaled
+node a loaded swap owns. A test of the rendered markup cannot see this --
+the poll attributes were always there -- so check such a change in a
+browser.
 Series monitoring is Sonarr's (2026-09-29): an episode is searched only
 when its Series and the episode itself are monitored (the Episode
 reconciler reads its Series, a Series' `spec.monitored` change wakes its
