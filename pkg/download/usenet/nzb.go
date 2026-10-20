@@ -100,6 +100,9 @@ type nzbFile struct {
 	Blocks int
 	// Posted is the article's post time, for the propagation-delay check.
 	Posted time.Time
+	// Highest is the highest segment number the NZB lists for the file,
+	// which no article of the post can number past (segmentMismatch).
+	Highest int
 }
 
 // nzbJob is a parsed, classified NZB.
@@ -172,6 +175,7 @@ func parseNZB(payload []byte, maxBytes int64) (*nzbJob, error) {
 				continue
 			}
 			nf.Segments = append(nf.Segments, segment{ID: id, Number: s.Number, Bytes: int64(s.Bytes)})
+			nf.Highest = max(nf.Highest, s.Number)
 			job.TotalBytes += int64(s.Bytes)
 			job.TotalSegments++
 		}

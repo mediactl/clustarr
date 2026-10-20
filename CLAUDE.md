@@ -1284,6 +1284,23 @@ exports the pinned ref every image build takes as a named context.
   transfer. Whole-percent health against a whole-percent floor decided a
   10 GB job at the margin once ("96%" that was 96.98% against 97), so the
   gate compares bytes, and the percentages in status are for reading only.
+- **A provider can answer a message-ID with another post's article, whole
+  and CRC-clean.** frugal served AnoZu's S01E01 (posted 2026-02-16, part 1
+  of 2100) with part 237 of 503 of "b5f29fcb1fe75f9e", posted 2026-08-12
+  to alt.binaries.bloaf under the same message-IDs; easynews held the
+  original. Every such article's own pcrc32 held, so the engine wrote it at
+  its own post's offsets, counted nothing missing and skipped par2 ("every
+  article verified on receipt"): 22 of 435 transfers in five days came out
+  as foreign bytes and holes, refused at import as "not a playable media
+  file" -- a releaseFault, so the automatic ones were blocklisted -- and
+  the first article's foreign `size=` cut the file short. SABnzbd and
+  NZBGet check only the CRC (and NZBGet the size). The pool now checks a
+  body against the segment it was asked for (`segmentMismatch`: yEnc
+  `part=` is the NZB segment number, `total=` is not short of the file's
+  highest), and an article that fails is no copy on that server
+  (`ErrArticleMismatch`), so the next one's is taken, as for a corrupt one.
+  The yEnc `name=` is no test: obfuscated posts name every article
+  differently.
 - **A usenet engine ran every job at once, and OOM-looped seventy times
   in six days (2026-10-14).** `Add` and re-attach started each job
   immediately, each with a worker per connection of every provider, and

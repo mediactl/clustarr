@@ -28,6 +28,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/javi11/rapidyenc"
+
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/download"
@@ -477,7 +479,7 @@ func (j *job) fetchMissing(ctx context.Context, servers []string, workers int, f
 				for i, sg := range chunk {
 					ids[i] = j.nzb.Files[sg.fi].Segments[sg.si].ID
 				}
-				results, err := j.client.pool.FetchBatchOn(ctx, ids, servers)
+				results, err := j.client.pool.fetchBatchOn(ctx, ids, servers, j.segmentCheck(chunk))
 				if err != nil {
 					fail(err)
 					return
@@ -629,7 +631,11 @@ func (j *job) fetchFirstArticles(ctx context.Context, targets []*os.File) error 
 	if scope == nil {
 		return errGrantLost // never a fetch outside a grant
 	}
-	results, err := j.client.pool.FetchBatchOn(ctx, ids, scope)
+	segs := make([]seg, len(idx))
+	for i, fi := range idx {
+		segs[i] = seg{fi, 0}
+	}
+	results, err := j.client.pool.fetchBatchOn(ctx, ids, scope, j.segmentCheck(segs))
 	if err != nil {
 		return err
 	}
@@ -689,14 +695,16 @@ func (j *job) fetchUnderGrant(ctx context.Context, targets []*os.File, b batch) 
 // runBatch fetches one pipelined run and writes what came back.
 func (j *job) runBatch(ctx context.Context, targets []*os.File, b batch) error {
 	ids := make([]string, len(b.segs))
+	segs := make([]seg, len(b.segs))
 	for i, si := range b.segs {
 		ids[i] = j.nzb.Files[b.file].Segments[si].ID
+		segs[i] = seg{b.file, si}
 	}
 	scope := j.grantServer()
 	if scope == nil {
 		return errGrantLost // never a fetch outside a grant
 	}
-	results, err := j.client.pool.FetchBatchOn(ctx, ids, scope)
+	results, err := j.client.pool.fetchBatchOn(ctx, ids, scope, j.segmentCheck(segs))
 	if err != nil {
 		return err
 	}
@@ -727,6 +735,14 @@ func (j *job) runBatch(ctx context.Context, targets []*os.File, b batch) error {
 		return nil
 	}
 	return err
+}
+
+// segmentCheck is fetchBatchOn's check for segs, the i'th id's segment.
+func (j *job) segmentCheck(segs []seg) func(int, rapidyenc.Meta) error {
+	return func(i int, m rapidyenc.Meta) error {
+		f := &j.nzb.Files[segs[i].fi]
+		return segmentMismatch(f.Highest, f.Segments[segs[i].si], m)
+	}
 }
 
 // writeSegment puts one decoded part at its authoritative offset.

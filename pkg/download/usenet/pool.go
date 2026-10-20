@@ -43,6 +43,30 @@ import (
 // able to tell them apart with errors.Is rather than by string.
 var ErrArticleMissing = errors.New("usenet: article not available on any configured server")
 
+// ErrArticleMismatch is a server's answer to a segment's message-ID that is
+// another post's article: its yEnc part is not the segment's, or its total
+// is short of the file's segments. Such an article is whole -- its own
+// pcrc32 holds -- so only its header tells, and a pool asked to check it
+// (fetchBatchOn) takes it as no copy and asks the next server, as it does
+// for a corrupt one. frugal answered AnoZu's S01E01 with part 237 of 503 of
+// a file posted six months later under the same message-IDs (2026-10-20).
+var ErrArticleMismatch = errors.New("usenet: the server's article under this message-ID is another post's")
+
+// segmentMismatch reports whether m, a decoded article's yEnc header, is
+// not s's part of a file whose highest NZB segment number is highest. A
+// part number is compared only when both carry one -- a single-part
+// article names none -- and a total only when it is short of the file: an
+// NZB that lost segments still numbers within the post's total.
+func segmentMismatch(highest int, s segment, m rapidyenc.Meta) error {
+	if s.Number > 0 && m.PartNumber > 0 && m.PartNumber != int64(s.Number) {
+		return fmt.Errorf("%w: yEnc part %d of %d where part %d was asked", ErrArticleMismatch, m.PartNumber, m.TotalParts, s.Number)
+	}
+	if m.TotalParts > 0 && m.TotalParts < int64(highest) {
+		return fmt.Errorf("%w: yEnc part %d of %d where the file has %d", ErrArticleMismatch, m.PartNumber, m.TotalParts, highest)
+	}
+	return nil
+}
+
 // ErrNoProviders is returned by [New] when no usable provider is configured.
 var ErrNoProviders = errors.New("usenet: no usable NNTP provider configured")
 
@@ -464,6 +488,14 @@ func (p *Pool) FetchBatch(ctx context.Context, ids []string) ([]Result, error) {
 // article the scoped server refuses is [ErrArticleMissing] here, and the
 // caller's chase -- not the pool -- decides which server to ask next.
 func (p *Pool) FetchBatchOn(ctx context.Context, ids []string, servers []string) ([]Result, error) {
+	return p.fetchBatchOn(ctx, ids, servers, nil)
+}
+
+// fetchBatchOn is FetchBatchOn whose check, when set, judges each decoded
+// article against the segment the i'th id names: an article it refuses
+// ([ErrArticleMismatch]) is no copy of the segment, and is left pending for
+// the next server like a corrupt one.
+func (p *Pool) fetchBatchOn(ctx context.Context, ids []string, servers []string, check func(i int, m rapidyenc.Meta) error) ([]Result, error) {
 	ctx, span := tracing.Start(ctx, "usenet.pool.fetchBatch")
 	defer span.End()
 	scope := scopeOf(servers)
@@ -539,6 +571,13 @@ func (p *Pool) FetchBatchOn(ctx context.Context, ids []string, servers []string)
 						// same argument as for a 430.
 						res[idx].Err = derr
 						return nil
+					}
+					if check != nil {
+						if cerr := check(idx, meta); cerr != nil {
+							// Another post's article under this id on THIS server.
+							res[idx].Err = cerr
+							return nil
+						}
 					}
 					res[idx] = Result{Index: idx, Body: body, Meta: meta, Server: s.p.Name}
 					done[idx] = true
