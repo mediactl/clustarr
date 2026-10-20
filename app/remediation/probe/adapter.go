@@ -156,12 +156,18 @@ func publish(rec schema.ProbeRecord, now metav1.Time) (remediation.Publish, erro
 }
 
 // Copy is the probe's row of §3.5's table: probeHash, probedAt,
-// probeVersion, mediaInfo, and the Probed and Ready conditions.
+// probeVersion, mediaInfo, handledNonces.reprobe, and the Probed and Ready
+// conditions.
 // status.transcode is the transcode planner's (F6.2); status.graft,
 // graftTag and graftedAt the graft planner's (F7.2).
 func (*Adapter) Copy(from, into *catalogv1alpha1.MediaFileStatus) {
 	into.ProbeHash, into.ProbedAt, into.ProbeVersion = from.ProbeHash, from.ProbedAt.DeepCopy(), from.ProbeVersion
 	into.MediaInfo = from.MediaInfo.DeepCopy()
+	var reprobe string
+	if from.HandledNonces != nil {
+		reprobe = from.HandledNonces.Reprobe
+	}
+	mediafile.SetReprobeNonce(into, reprobe)
 	remediation.CopyConditions(from, into, catalogv1alpha1.MediaFileConditionProbed, catalogv1alpha1.MediaFileConditionReady)
 }
 

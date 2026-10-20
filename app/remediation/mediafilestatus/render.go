@@ -153,6 +153,7 @@ var bounds = map[string]bound{
 	"handledNonces.subtitleSearch":  {63, keep},
 	"handledNonces.transcodeRetry":  {63, keep},
 	"handledNonces.transcodeCancel": {63, keep},
+	"handledNonces.reprobe":         {63, keep},
 }
 
 // maxDropped is status.transcode.plan.dropped's MaxItems (loop spec §2.5).

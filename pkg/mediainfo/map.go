@@ -41,8 +41,10 @@ var bitmapSubtitleCodecs = map[string]bool{
 // probed at all; [toMediaInfo] keeps the first MaxStreamsPerKind instead.
 // That is well past what disc authoring produces, and it loses nothing a
 // transcode needs: the worker plans from Raw's full stream list
-// (pkg/transcode.FromProbe), never from this summary.
-const MaxStreamsPerKind = 64
+// (pkg/transcode.FromProbe), never from this summary. It was 64 until
+// Apple TV+ and Netflix WEB-DLs with a subtitle track per language and kind
+// reached it, and the transcode planner refused each (talos, 2026-10-20).
+const MaxStreamsPerKind = 128
 
 // MaxStreamToken and MaxStreamTitle are the MaxLengths loop spec §2.11.2
 // gives MediaInfo's container, codec, profile, pixel format and language

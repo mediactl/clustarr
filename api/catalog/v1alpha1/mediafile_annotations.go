@@ -25,7 +25,7 @@ import (
 
 // User intent on a MediaFile (loop spec §2.9; ADR-0016). The loop never
 // writes these annotations; its MediaFile source wakes on a change to any
-// of them. Three are one-shot nonces, recorded in status.handledNonces once
+// of them. Four are one-shot nonces, recorded in status.handledNonces once
 // handled; three are standing values the transcode block records in force.
 const (
 	// AnnotationSubtitleSearch forces a subtitle search now (a nonce;
@@ -46,14 +46,22 @@ const (
 	// AnnotationTranscodeHardware is cpu, nvidia, intel, auto or gpu, taking
 	// effect at the next dispatch (transcode.hardware).
 	AnnotationTranscodeHardware = "transcode.clustarr.io/hardware"
+	// AnnotationReprobe asks for a fresh probe of the file's unchanged bytes
+	// (a nonce; handledNonces.reprobe, recorded once the answer is
+	// incorporated). A probe is otherwise due only for new bytes or a
+	// ProbeVersion raise, which re-probes every file: the 11 files whose
+	// summaries the old cap of 64 subtitle streams cut needed one each
+	// (talos, 2026-10-20).
+	AnnotationReprobe = "catalog.clustarr.io/reprobe"
 )
 
-// IntentAnnotations returns the six intent annotation keys, for the loop's
-// MediaFile predicate.
+// IntentAnnotations returns the seven intent annotation keys, for the
+// loop's MediaFile predicate.
 func IntentAnnotations() []string {
 	return []string{
 		AnnotationSubtitleSearch, AnnotationTranscodeRetry, AnnotationTranscodeCancel,
 		AnnotationTranscodeSuspend, AnnotationTranscodePriority, AnnotationTranscodeHardware,
+		AnnotationReprobe,
 	}
 }
 
@@ -93,4 +101,7 @@ type HandledNonces struct {
 	// +optional
 	// +kubebuilder:validation:MaxLength=63
 	TranscodeCancel string `json:"transcodeCancel,omitempty"`
+	// +optional
+	// +kubebuilder:validation:MaxLength=63
+	Reprobe string `json:"reprobe,omitempty"`
 }

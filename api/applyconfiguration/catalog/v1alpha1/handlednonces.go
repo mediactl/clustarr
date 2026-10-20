@@ -29,6 +29,7 @@ type HandledNoncesApplyConfiguration struct {
 	SubtitleSearch  *string `json:"subtitleSearch,omitempty"`
 	TranscodeRetry  *string `json:"transcodeRetry,omitempty"`
 	TranscodeCancel *string `json:"transcodeCancel,omitempty"`
+	Reprobe         *string `json:"reprobe,omitempty"`
 }
 
 // HandledNoncesApplyConfiguration constructs a declarative configuration of the HandledNonces type for use with
@@ -58,5 +59,13 @@ func (b *HandledNoncesApplyConfiguration) WithTranscodeRetry(value string) *Hand
 // If called multiple times, the TranscodeCancel field is set to the value of the last call.
 func (b *HandledNoncesApplyConfiguration) WithTranscodeCancel(value string) *HandledNoncesApplyConfiguration {
 	b.TranscodeCancel = &value
+	return b
+}
+
+// WithReprobe sets the Reprobe field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Reprobe field is set to the value of the last call.
+func (b *HandledNoncesApplyConfiguration) WithReprobe(value string) *HandledNoncesApplyConfiguration {
+	b.Reprobe = &value
 	return b
 }

@@ -100,6 +100,19 @@ func TestToMediaInfoCapsStreamListsAtTheCRDsMaxItems(t *testing.T) {
 	assert.Equal(t, int32(1), mi.Audio[0].Index, "the first streams are kept, in order")
 }
 
+// Apple TV+ and Netflix WEB-DLs carry a subtitle track for every language
+// and kind: 11 files on talos stopped at the old cap of 64 (Prime Target,
+// The Studio, Stranger Things, 2026-10-20), and the transcode planner
+// refused each. A hundred is kept whole.
+func TestToMediaInfoKeepsAHundredSubtitleStreams(t *testing.T) {
+	raw := &Raw{Format: &ffprobe.Format{Filename: "atvp.mkv"}}
+	raw.Streams = append(raw.Streams, &ffprobe.Stream{Index: 0, CodecType: "video", CodecName: "h264"})
+	for i := range 100 {
+		raw.Streams = append(raw.Streams, &ffprobe.Stream{Index: 1 + i, CodecType: "subtitle", CodecName: "mov_text"})
+	}
+	require.Len(t, toMediaInfo(raw).Subtitles, 100)
+}
+
 // TestToMediaInfoRecordsTheVideoEncoder: the video stream's ENCODER tag is
 // how a file some other tool re-encoded is told from a release
 // (MediaInfo.TranscodedElsewhere). Matroska keeps the key as written and

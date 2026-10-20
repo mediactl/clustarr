@@ -2191,6 +2191,9 @@ var schemaYAML = typed.YAMLObject(`types:
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.HandledNonces
   map:
     fields:
+    - name: reprobe
+      type:
+        scalar: string
     - name: subtitleSearch
       type:
         scalar: string

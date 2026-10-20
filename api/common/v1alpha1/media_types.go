@@ -234,14 +234,15 @@ type MediaInfo struct {
 	// +kubebuilder:validation:Minimum=0
 	RuntimeMillis int64 `json:"runtimeMillis,omitempty"`
 
-	// Audio lists the audio tracks.
+	// Audio lists the audio tracks, at most pkg/mediainfo.MaxStreamsPerKind.
 	// +optional
-	// +kubebuilder:validation:MaxItems=64
+	// +kubebuilder:validation:MaxItems=128
 	Audio []AudioStream `json:"audio,omitempty"`
 
-	// Subtitles lists the embedded subtitle tracks.
+	// Subtitles lists the embedded subtitle tracks, at most
+	// pkg/mediainfo.MaxStreamsPerKind.
 	// +optional
-	// +kubebuilder:validation:MaxItems=64
+	// +kubebuilder:validation:MaxItems=128
 	Subtitles []SubtitleStream `json:"subtitles,omitempty"`
 
 	// Attachments is the number of attachment streams (fonts, cover art).

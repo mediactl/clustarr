@@ -108,9 +108,53 @@ func NeedsProbeRecord(in ProbeInput) (need, low bool) {
 	case pathOnly(in.File, ps, swapOrKept):
 		return false, false
 	case swapOrKept || probeDue(in.Prev.ProbeHash, in.Prev.ProbeVersion, ps, in.version()):
-		return true, probeLane(in.File, ps, swapOrKept) == clustarrevents.PriorityLow
+		return true, probeLane(in.File, ps, swapOrKept) == clustarrevents.PriorityLow && reprobeNonce(in.File, in.Prev) == ""
+	case reprobeNonce(in.File, in.Prev) != "":
+		return true, false
 	}
 	return false, false
+}
+
+// reprobeNonce is the file's pending catalog.clustarr.io/reprobe nonce: ""
+// when it carries none or status.handledNonces.reprobe records it.
+func reprobeNonce(mf *catalogv1alpha1.MediaFile, prev *catalogv1alpha1.MediaFileStatus) string {
+	v := mf.Annotations[catalogv1alpha1.AnnotationReprobe]
+	if v == "" {
+		return ""
+	}
+	var handled string
+	if prev != nil && prev.HandledNonces != nil {
+		handled = prev.HandledNonces.Reprobe
+	}
+	if catalogv1alpha1.HandledNonce(v) == handled {
+		return ""
+	}
+	return v
+}
+
+// answersReprobe reports whether rec was asked for after the probe status
+// holds, so it can answer a reprobe nonce: the answer already in the record
+// when the nonce arrived describes what status already says.
+func answersReprobe(rec probestore.Current, prev *catalogv1alpha1.MediaFileStatus) bool {
+	return rec.OK && (prev.ProbedAt == nil || rec.Record.RequestedAt.After(prev.ProbedAt.Time))
+}
+
+// SetReprobeNonce sets status.handledNonces.reprobe alone, beside the
+// other planners' leaves, on a copy of st's HandledNonces.
+func SetReprobeNonce(st *catalogv1alpha1.MediaFileStatus, v string) {
+	if st.HandledNonces == nil {
+		if v == "" {
+			return
+		}
+		st.HandledNonces = &catalogv1alpha1.HandledNonces{}
+	} else {
+		cp := *st.HandledNonces
+		st.HandledNonces = &cp
+	}
+	st.HandledNonces.Reprobe = v
+	if *st.HandledNonces == (catalogv1alpha1.HandledNonces{}) {
+		st.HandledNonces = nil
+	}
 }
 
 // PacerJitter spreads a paced key's pass over five seconds, from its key.
@@ -140,6 +184,12 @@ func PlanProbe(in ProbeInput, out *catalogv1alpha1.MediaFileStatus) ProbeOutcome
 	}
 	ps := evaluateProbe(in.Path, in.Info.Size(), in.Info.ModTime(), in.Prev.ProbeHash)
 	swapOrKept := in.Swap != nil || in.GraftSwapping
+	nonce := reprobeNonce(mf, in.Prev)
+	if nonce != "" && !catalogv1alpha1.ValidNonce(nonce) {
+		SetReprobeNonce(out, catalogv1alpha1.HandledNonce(nonce))
+		o.Events = append(o.Events, ProbeEvent{Type: "Warning", Reason: "InvalidAnnotation", Note: catalogv1alpha1.AnnotationReprobe + " is not a valid nonce; ignored"})
+		nonce = ""
+	}
 	switch {
 	case pathOnly(mf, ps, swapOrKept):
 		// The bytes status.mediaInfo describes, under a new name: record the
@@ -148,17 +198,28 @@ func PlanProbe(in ProbeInput, out *catalogv1alpha1.MediaFileStatus) ProbeOutcome
 		out.MediaInfo = mediainfo.AtPath(in.Prev.MediaInfo, in.Path)
 		out.ProbedAt = &now
 		o.Again = in.Prev.ProbeVersion < in.version()
-	case swapOrKept || probeDue(in.Prev.ProbeHash, in.Prev.ProbeVersion, ps, in.version()):
+	case swapOrKept || nonce != "" || probeDue(in.Prev.ProbeHash, in.Prev.ProbeVersion, ps, in.version()):
 		want := probestore.Want{
 			MediaFile: schema.Ref{Namespace: mf.Namespace, Name: mf.Name, UID: string(mf.UID)},
 			Path:      in.Path, ProbeHash: ps.Hash, ProbeVersion: in.version(), Lane: probeLane(mf, ps, swapOrKept),
 		}
+		if nonce != "" {
+			want.Lane = clustarrevents.PriorityHigh
+		}
 		j := judgeProbe(in.Record.Record, in.Record.OK, want, in.Prev.ProbeHash, now.Time)
+		if nonce != "" && !answersReprobe(in.Record, in.Prev) {
+			// A reprobe nonce wants these bytes probed again: the record's
+			// answer is the one status already holds.
+			j = judgement{verdict: verdictRequest, lane: want.Lane, requeueAt: now.Add(requestTimeout(want.Lane))}
+		}
 		switch j.verdict {
 		case verdictIncorporate:
 			incorporateProbe(&o, in, ps, out, in.Record.Record.MediaInfo, in.Record.Record.ProbeVersion, transcoded)
 			o.Due, o.Unpaced = earliest(o.Due, j.requeueAt), true
 			o.Records = append(o.Records, in.Record.Record.State)
+			if nonce != "" {
+				SetReprobeNonce(out, nonce)
+			}
 		case verdictWait:
 			o.Due = j.requeueAt
 		case verdictFailed, verdictGiveUp:
@@ -166,6 +227,9 @@ func PlanProbe(in ProbeInput, out *catalogv1alpha1.MediaFileStatus) ProbeOutcome
 			k8s.MarkFalse(mf, &out.Conditions, catalogv1alpha1.MediaFileConditionReady, "ProbeFailed", "probe failed: %s", j.failure)
 			o.Due, o.Unpaced = j.requeueAt, true
 			o.Records = append(o.Records, in.Record.Record.State)
+			if nonce != "" && j.verdict == verdictGiveUp {
+				SetReprobeNonce(out, nonce)
+			}
 		case verdictRequest:
 			want.Lane = j.lane
 			if want.Lane == clustarrevents.PriorityLow && in.PacedUntil.After(now.Time) {
