@@ -597,9 +597,17 @@ the anime built-ins want `[en, original]`, grafted) replaces its
 `language` in the decision (`decision.audioRejection`): a release carrying
 every wanted language is complete, a partial one is a video candidate only
 when the profile grafts and the release carries the original language (the
-anchor a graft aligns on), a complete one wins a tie, and TRaSH's
-"Dual Audio" title pattern reads as the original plus English under an
-anime score set. Items report `status.audio` (wanted, present, missing,
+anchor a graft aligns on), and a complete one wins a tie. The parser
+reads a release's audio markers past Sonarr (2026-10-19,
+`release.namedLanguages`): a dual-audio title -- "Dual Audio"/"Dual-Audio",
+`[DUAL]`, or a bare DUAL after the resolution or right after the episode or
+year -- is English beside what it names, or beside the item's original
+language when it names nothing else (`ParsedRelease.DualAudio`,
+`LanguagesFor`); a bare DUBBED is English; a JA+EN-style code pair names
+both. Every reader takes that one reading -- the decision, the Search
+results the ui lists, import's frozen `spec.languages` -- under every
+profile; until then only the decision knew, under an anime score set, so a
+dual-audio release showed Japanese alone. Items report `status.audio` (wanted, present, missing,
 graft); a missing dub never blocks the video. Grafting (phase 4): the
 search planner queues a donor search (`SearchTask.Purpose: audioDonor`) for
 a monitored item whose graft reads `searching` or `failed`, on its own

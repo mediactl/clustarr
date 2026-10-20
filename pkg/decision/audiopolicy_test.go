@@ -52,7 +52,7 @@ func TestAudioRejection(t *testing.T) {
 			parsed, err := release.Parse(c.title, release.Options{Kind: common.MediaKindEpisode})
 			require.NoError(t, err)
 			parsed.Languages = parsed.LanguagesFor(c.orig)
-			rej, complete := audioRejection(resolveAudioNames(context.Background(), c.p, c.orig), c.p, parsed, c.title)
+			rej, complete := audioRejection(resolveAudioNames(context.Background(), c.p, c.orig), c.p, parsed)
 			require.Equal(t, c.wantRejected, rej != nil, "rejection: %+v", rej)
 			require.Equal(t, c.wantComplete, complete)
 			if rej != nil {
@@ -60,11 +60,6 @@ func TestAudioRejection(t *testing.T) {
 			}
 		})
 	}
-	t.Run("WEB-DL is not a dual-audio token", func(t *testing.T) {
-		require.False(t, dualAudio(dual, "Show.S01E01.1080p.WEB-DL-GRP"))
-		require.True(t, dualAudio(dual, "Show.S01E01.1080p.WEB-DL.DUAL-GRP"))
-		require.False(t, dualAudio(quality.Profile{ScoreSet: "default"}, "[Group] Show - 01 [Dual Audio]"), "only under an anime score set")
-	})
 }
 
 func TestRankPrefersACompleteReleaseAtATie(t *testing.T) {
@@ -88,9 +83,9 @@ func TestAudioRejectionReadsAKoreanDualAudioTitleAsKorean(t *testing.T) {
 		parsed, err := release.Parse(title, release.Options{Kind: common.MediaKindEpisode})
 		require.NoError(t, err)
 		parsed.Languages = parsed.LanguagesFor("Japanese")
-		rej, _ := audioRejection(resolveAudioNames(context.Background(), dual, "Japanese"), dual, parsed, title)
+		rej, _ := audioRejection(resolveAudioNames(context.Background(), dual, "Japanese"), dual, parsed)
 		require.NotNil(t, rej, "%s lacks the Japanese anchor", title)
-		require.False(t, namesWantedLanguages(resolveAudioNames(context.Background(), dual, "Japanese"), dual, parsed, title), "%s names Korean, not the wanted languages", title)
+		require.False(t, namesWantedLanguages(resolveAudioNames(context.Background(), dual, "Japanese"), dual, parsed), "%s names Korean, not the wanted languages", title)
 	}
 }
 
@@ -102,7 +97,7 @@ func TestAnAudioPolicyWithoutOriginalAnchorsOnItsOwnLanguage(t *testing.T) {
 	parsed, err := release.Parse(title, release.Options{Kind: common.MediaKindEpisode})
 	require.NoError(t, err)
 	parsed.Languages = parsed.LanguagesFor("Japanese")
-	rej, _ := audioRejection(resolveAudioNames(context.Background(), en, "Japanese"), en, parsed, title)
+	rej, _ := audioRejection(resolveAudioNames(context.Background(), en, "Japanese"), en, parsed)
 	require.NotNil(t, rej, "a Japanese release lacks the [en] policy's anchor, English")
 	enfr := quality.Profile{AudioLanguages: []string{"en", "fr"}, GraftAudio: true, AudioDefault: "fr"}
 	require.False(t, LacksLanguage(enfr, "ja", []string{"fr"}), "the default is the anchor when original is not listed")

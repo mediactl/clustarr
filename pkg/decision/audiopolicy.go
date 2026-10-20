@@ -19,38 +19,11 @@ package decision
 
 import (
 	"context"
-	"strings"
-	"time"
-
-	"github.com/dlclark/regexp2"
 
 	common "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/quality"
 	"github.com/mediactl/clustarr/pkg/release"
 )
-
-// dualAudioPattern is TRaSH's "Dual Audio" ReleaseTitle condition, verbatim
-// from the anime-dual-audio custom format this repo vendors
-// (pkg/quality/catalogue/data/formats/anime.json). It has no bare "DL",
-// which would match every WEB-DL.
-const dualAudioPattern = `dual[ ._-]?(audio)|[([]dual[])]|\b(JA|ZH|KO)(?= ?\+ ?.*?\b(EN))|\b(EN)(?= ?\+ ?.*?\b(JA|ZH|KO))|\b(Japanese|Chinese|Korean) ?[ ._\+&-] ?\b(English)|\b(English) ?[ ._\+&-] ?\b(Japanese|Chinese|Korean)|\b(\d{3,4}(p|i)|4K|U(ltra)?HD)\b.*\b(DUAL)\b(?!.*\(|\))`
-
-var dualAudioRegex = func() *regexp2.Regexp {
-	re := regexp2.MustCompile(dualAudioPattern, regexp2.IgnoreCase)
-	re.MatchTimeout = 100 * time.Millisecond
-	return re
-}()
-
-// dualAudio reports whether title is a dual-audio anime release: one whose
-// audio is the original language and English. Only under an anime score
-// set, whose releases follow that convention.
-func dualAudio(p quality.Profile, title string) bool {
-	if !strings.HasPrefix(p.ScoreSet, "anime-") {
-		return false
-	}
-	ok, err := dualAudioRegex.MatchString(title)
-	return err == nil && ok
-}
 
 // audioAnchor is the language a graft aligns on and a file must carry: the
 // original language when the policy lists it, else its default, else its
@@ -68,25 +41,6 @@ func audioAnchor(p quality.Profile) string {
 		return p.AudioLanguages[0]
 	}
 	return ""
-}
-
-// dualAudioApplies is dualAudio, believed only when the title names no
-// language besides the original and English: TRaSH's pattern also matches
-// "KOREAN.ENGLISH" and "Korean Dual Audio", which are not the Japanese
-// original (the phase 2 review).
-func dualAudioApplies(p quality.Profile, parsed *release.ParsedRelease, title, originalLanguage string) bool {
-	if originalLanguage == "" || !dualAudio(p, title) {
-		return false
-	}
-	if parsed.LanguageUnknown {
-		return true
-	}
-	for _, l := range parsed.Languages {
-		if !strings.EqualFold(l, originalLanguage) && !strings.EqualFold(l, "English") {
-			return false
-		}
-	}
-	return true
 }
 
 // audioNames is a profile's audio policy in the display-name vocabulary
@@ -121,19 +75,18 @@ func resolveAudioNames(ctx context.Context, p quality.Profile, originalLanguage 
 }
 
 // namesWantedLanguages is whether a release's title names its languages
-// rather than assuming the original, and -- under an audio policy -- names
-// the anchor among them: only such a release replaces a wrong-language file
+// rather than assuming the original -- a dual-audio marker names them too
+// (release.ParsedRelease.DualAudio) -- and, under an audio policy, names the
+// anchor among them: only such a release replaces a wrong-language file
 // without an upgrade (upgradeRejection).
-func namesWantedLanguages(an audioNames, p quality.Profile, parsed *release.ParsedRelease, title string) bool {
-	dual := dualAudioApplies(p, parsed, title, an.original)
-	if parsed.LanguageUnknown && !dual {
+func namesWantedLanguages(an audioNames, p quality.Profile, parsed *release.ParsedRelease) bool {
+	if parsed.LanguageUnknown {
 		return false
 	}
 	if len(p.AudioLanguages) == 0 || an.anchor == "" {
 		return true
 	}
-	return containsFold(parsed.Languages, an.anchor) ||
-		(dual && (strings.EqualFold(an.anchor, an.original) || strings.EqualFold(an.anchor, "English")))
+	return containsFold(parsed.Languages, an.anchor)
 }
 
 // audioRejection is the release check that replaces languageRejection when a
@@ -142,11 +95,9 @@ func namesWantedLanguages(an audioNames, p quality.Profile, parsed *release.Pars
 // passes only when the profile grafts and the release carries the anchor
 // (audioAnchor: the original language when listed) that a donor's audio is
 // aligned against; an unknown anchor fails open, as languageRejection does.
-func audioRejection(an audioNames, p quality.Profile, parsed *release.ParsedRelease, title string) (*common.Rejection, bool) {
-	have := append([]string(nil), parsed.Languages...)
-	if dualAudioApplies(p, parsed, title, an.original) {
-		have = append(have, an.original, "English")
-	}
+// A dual-audio title's languages are the parser's (LanguagesFor).
+func audioRejection(an audioNames, p quality.Profile, parsed *release.ParsedRelease) (*common.Rejection, bool) {
+	have := parsed.Languages
 	var missing []string
 	for _, w := range an.wanted {
 		if !containsFold(have, w) {

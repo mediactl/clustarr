@@ -17,7 +17,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 package release
 
-import "github.com/dlclark/regexp2"
+import (
+	"slices"
+	"strings"
+
+	"github.com/dlclark/regexp2"
+)
 
 // languageRegex is a bounded token table covering the languages the fixture
 // corpus exercises, not the full ~50-entry Radarr language id list
@@ -42,6 +47,32 @@ var languageRegex = mustCompile(
 		`\b(?<Chinese>CHS|CHT|GB|BIG5|Chinese|中文)\b`,
 	regexp2.IgnoreCase,
 )
+
+// languageCodePairRegex is a run of two-letter audio codes joined by "+":
+// TRaSH's JA+EN form (the anime-dual-audio custom format) and the one
+// Sonarr's {MediaInfo AudioLanguages} renames a file with. A code alone is
+// no language -- "[JA]" is too short to trust outside such a run.
+var languageCodePairRegex = mustCompile(`\b(?:JA|ZH|KO|EN)(?: ?\+ ?(?:JA|ZH|KO|EN))+\b`, regexp2.IgnoreCase)
+
+// languageCodes names languageCodePairRegex's codes.
+var languageCodes = map[string]string{"JA": "Japanese", "ZH": "Chinese", "KO": "Korean", "EN": "English"}
+
+// dualAudioRegex is a title that says it carries English beside another
+// language without naming it: "Dual Audio" in any spelling, a bracketed
+// DUAL, or a bare DUAL after the resolution (TRaSH's anime-dual-audio
+// condition) or right after the episode or the year. Those places keep a
+// series called "Dual!" and an episode titled "The Dual" out; WEB-DL's DL
+// is not a marker at all.
+var dualAudioRegex = mustCompile(
+	`dual[ ._-]?audio|[([]dual[])]|`+
+		`\b(?:\d{3,4}[pi]|4K|U(?:ltra)?HD)\b.*\bDUAL\b|`+
+		`\b(?:S\d{1,3}E\d{1,4}(?:-?E\d{1,4})*|(?:19|20)\d{2}\)?)[ ._-]+DUAL\b`,
+	regexp2.IgnoreCase,
+)
+
+// dubbedRegex is a dub: a title that names no language with it is an
+// English dub, the convention of the English-language indexers this reads.
+var dubbedRegex = mustCompile(`\bDUBBED\b`, regexp2.IgnoreCase)
 
 // languageGroups is languageRegex's groups. English is Radarr's
 // `lowerTitle.Contains("english")` rule, as a whole word: without it an
@@ -69,6 +100,13 @@ func detectLanguages(title string) []string {
 		}
 		m, err = languageRegex.FindNextMatch(m)
 	}
+	m, err = languageCodePairRegex.FindStringMatch(title)
+	for err == nil && m != nil {
+		for _, code := range strings.Split(m.String(), "+") {
+			found[languageCodes[strings.ToUpper(strings.TrimSpace(code))]] = true
+		}
+		m, err = languageCodePairRegex.FindNextMatch(m)
+	}
 	if len(found) == 0 {
 		return nil
 	}
@@ -81,13 +119,41 @@ func detectLanguages(title string) []string {
 	return langs
 }
 
-// languagesOf is a movie or TV title's languages: those it names, or the
-// ["English"] default with unknown set.
-func languagesOf(title string) (langs []string, unknown bool) {
-	if l := detectLanguages(title); l != nil {
-		return l, false
+// namedLanguages is every language title names (detectLanguages) with its
+// audio markers read, nil when it names none: a dual-audio marker adds
+// English and reports dual, so LanguagesFor can add the item's original
+// language; a DUBBED title that names nothing else is an English dub.
+// Sonarr reads neither marker.
+func namedLanguages(title string) (langs []string, dual bool) {
+	langs = detectLanguages(title)
+	if ok, err := dualAudioRegex.MatchString(title); err == nil && ok {
+		return withLanguage(langs, "English"), true
 	}
-	return []string{"English"}, true
+	if langs == nil {
+		if ok, err := dubbedRegex.MatchString(title); err == nil && ok {
+			return []string{"English"}, false
+		}
+	}
+	return langs, false
+}
+
+// withLanguage is langs with name, in languageGroups order.
+func withLanguage(langs []string, name string) []string {
+	if slices.Contains(langs, name) {
+		return langs
+	}
+	out := append(slices.Clone(langs), name)
+	slices.SortFunc(out, func(a, b string) int { return slices.Index(languageGroups, a) - slices.Index(languageGroups, b) })
+	return out
+}
+
+// languagesOf is a movie or TV title's languages: those it names, or the
+// ["English"] default with unknown set; dual is namedLanguages'.
+func languagesOf(title string) (langs []string, unknown, dual bool) {
+	if l, dual := namedLanguages(title); l != nil {
+		return l, false, dual
+	}
+	return []string{"English"}, true, false
 }
 
 // parseLanguages extracts the language tags from a release title. No match
@@ -112,7 +178,7 @@ func languagesOf(title string) (langs []string, unknown bool) {
 // language was named, and ParsedRelease.LanguagesFor applies the
 // substitution for a caller that knows the item.
 func parseLanguages(title string) []string {
-	l, _ := languagesOf(title)
+	l, _, _ := languagesOf(title)
 	return l
 }
 
@@ -126,9 +192,18 @@ func parseLanguages(title string) []string {
 // [OriginalLanguage]). With the original language unknown the parsed
 // default stands, which is also where Radarr's fallback would leave a
 // release of an item with no known language.
+//
+// A dual-audio title (DualAudio) that names no language but English is the
+// original language and English, the original first.
 func (p *ParsedRelease) LanguagesFor(originalLanguage string) []string {
-	if p.LanguageUnknown && originalLanguage != "" {
+	switch {
+	case originalLanguage == "":
+		return p.Languages
+	case p.LanguageUnknown:
 		return []string{originalLanguage}
+	case p.DualAudio && originalLanguage != "English" &&
+		!slices.ContainsFunc(p.Languages, func(l string) bool { return l != "English" }):
+		return []string{originalLanguage, "English"}
 	}
 	return p.Languages
 }

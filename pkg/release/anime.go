@@ -208,7 +208,7 @@ func parseAnimeSeries(title string) (*ParsedRelease, error) {
 	// Sonarr parses languages out of anime titles like any other. Unlike a
 	// standard title an anime one keeps no English default when it names
 	// none: its Languages stay nil, as they always have here.
-	p.Languages = detectLanguages(title)
+	p.Languages, p.DualAudio = namedLanguages(title)
 	p.LanguageUnknown = p.Languages == nil
 	return p, nil
 }

@@ -106,8 +106,13 @@ type ParsedRelease struct {
 	// and Sonarr's Language.Unknown. Languages then holds this package's
 	// item-independent default -- ["English"] for a movie or TV title, nil
 	// for anime and every non-video kind -- and LanguagesFor gives the
-	// languages for a known item.
+	// languages for a known item. DualAudio is true when the title says it
+	// carries English beside another language without naming that one
+	// (dualAudioRegex): Languages then holds English and whatever the title
+	// does name, and LanguagesFor adds the item's original language when
+	// that is all.
 	LanguageUnknown bool
+	DualAudio       bool
 	Group           string
 	Hash            string // scene obfuscation hash token, e.g. trailing -a1b2c3d4; "" normally
 	Edition         string

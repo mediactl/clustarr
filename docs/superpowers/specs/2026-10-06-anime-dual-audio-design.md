@@ -391,6 +391,9 @@ Plan `docs/superpowers/plans/2026-10-06-anime-profile-audio.md`.
 dual-audio token is TRaSH's own "Dual Audio" pattern, which has no bare
 `DL`, so `WEB-DL` never reads as dual audio. A dual-audio title also counts
 as naming its languages for phase 1's wrong-language replacement.
+(2026-10-19: the reading moved into the parser for every profile,
+`release.ParsedRelease.DualAudio`, beside a bare DUBBED as English and
+JA+EN-style code pairs; the decision's own pattern is gone.)
 `status.audio` is written by the Episode and Movie reconcilers
 (`rollup.AudioStateFor`, one renderer for every path). Phase 1's minors
 fixed here: conditions capped at 12, SeriesStatus' description restored.

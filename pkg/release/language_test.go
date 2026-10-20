@@ -133,3 +133,52 @@ func TestLanguagesForTakesTheItemsOriginalLanguageWhenNoneIsNamed(t *testing.T) 
 	p := &ParsedRelease{Languages: []string{"English"}}
 	assert.Equal(t, []string{"English"}, p.LanguagesFor("Japanese"))
 }
+
+// TestDualAudioAndDubbedTitlesNameTheirLanguages goes past Sonarr, whose
+// parser reads neither marker, so a dual-audio anime release took only the
+// Japanese original and showed one language (2026-10-19). A dual-audio
+// marker -- "Dual Audio"/"Dual-Audio" anywhere, [DUAL], or a bare DUAL after
+// the episode, year or resolution, so a series called "Dual!" is not one --
+// carries English beside the original, or beside the language the title
+// names instead; a bare DUBBED is an English dub; a JA+EN-style code pair
+// (TRaSH's form, and Sonarr's {MediaInfo AudioLanguages}) names both.
+func TestDualAudioAndDubbedTitlesNameTheirLanguages(t *testing.T) {
+	episode, movie := commonv1.MediaKindEpisode, commonv1.MediaKindMovie
+	tests := []struct {
+		title    string
+		kind     commonv1.MediaKind
+		original string
+		dual     bool
+		want     []string
+	}{
+		{"Let.This.Grieving.Soul.Retire.2024.S01E01.REPACK.1080p.CR.WEB-DL.H.264.Dual-Audio.AAC.2.0-AnoZu", episode, "Japanese", true, []string{"Japanese", "English"}},
+		{"[Group] Show - 01 [1080p] [Dual Audio]", episode, "Japanese", true, []string{"Japanese", "English"}},
+		{"[Group] Show - 01 [1080p][DUAL]", episode, "Japanese", true, []string{"Japanese", "English"}},
+		{"Show.S01E01.1080p.WEB-DL.DUAL-GRP", episode, "Japanese", true, []string{"Japanese", "English"}},
+		{"Show.S01E01.DUAL.1080p.WEB.h264-GRP", episode, "Korean", true, []string{"Korean", "English"}},
+		{"Film.2020.DUAL.1080p.BluRay.x264-GRP", movie, "French", true, []string{"French", "English"}},
+		{"Spirited.Away.2001.1080p.BluRay.Dual.Audio.x264-GROUP", movie, "Japanese", true, []string{"Japanese", "English"}},
+		{"Show.S01E01.1080p.WEB-DL.Dual.Audio.DUBBED-GRP", episode, "Japanese", true, []string{"Japanese", "English"}},
+		// A dual-audio title that names another language carries that one.
+		{"Show.S01E01.1080p.WEB-DL.Korean.Dual.Audio-GRP", episode, "Japanese", true, []string{"English", "Korean"}},
+		// An English original, or one not known, is English alone.
+		{"Show.S01E01.1080p.WEB-DL.DUAL-GRP", episode, "English", true, []string{"English"}},
+		{"Show.S01E01.1080p.WEB-DL.DUAL-GRP", episode, "", true, []string{"English"}},
+		{"Show.S01E01.DUBBED.1080p.WEB.h264-GRP", episode, "Japanese", false, []string{"English"}},
+		{"[Group] Show (Dubbed) - 01 [1080p]", episode, "Japanese", false, []string{"English"}},
+		{"Film.2020.dubbed.1080p.BluRay.x264-GRP", movie, "French", false, []string{"English"}},
+		{"Show.S01E01.GERMAN.DUBBED.1080p.WEB.h264-GRP", episode, "Japanese", false, []string{"German"}},
+		{"[Group] Show - 01 [1080p][JA+EN]", episode, "Japanese", false, []string{"English", "Japanese"}},
+		{"Show.S01E01.1080p.WEB-DL.AAC.EN+JA-GRP", episode, "Japanese", false, []string{"English", "Japanese"}},
+		// Not markers: WEB-DL, a series named Dual!, a lone code.
+		{"Show.S01E01.1080p.WEB-DL.H.264-GRP", episode, "Japanese", false, []string{"Japanese"}},
+		{"[Group] Dual! Parallel Trouble Adventure - 01 [1080p]", episode, "Japanese", false, []string{"Japanese"}},
+		{"[Group] Show - 01 [1080p][JA]", episode, "Japanese", false, []string{"Japanese"}},
+	}
+	for _, tt := range tests {
+		p, err := Parse(tt.title, Options{Kind: tt.kind})
+		require.NoError(t, err, tt.title)
+		assert.Equal(t, tt.dual, p.DualAudio, "dual audio: %s", tt.title)
+		assert.Equal(t, tt.want, p.LanguagesFor(tt.original), "%s (original %q)", tt.title, tt.original)
+	}
+}

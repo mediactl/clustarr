@@ -85,18 +85,17 @@ func donorItemState(t Target, rel common.ReleaseInfo) []common.Rejection {
 }
 
 // donorLanguageRejection: a donor must carry every missing language and
-// the anchor, and its title must say so -- by naming them, or (an anime
-// score set's convention) by a dual-audio or dual/multi-language marker. A
-// title that names no language assumes the original, which is exactly what
-// a donor must be more than; the donor's probe at import is the real test.
+// the anchor, and its title must say so -- by naming them (a dual-audio
+// marker names the original and English, release.ParsedRelease.DualAudio),
+// or, an anime score set's convention, by a DL or MULTi marker. A title
+// that names no language assumes the original, which is exactly what a
+// donor must be more than; the donor's probe at import is the real test.
 func donorLanguageRejection(need []string, originalLanguage string, p quality.Profile, parsed *release.ParsedRelease, title string) *common.Rejection {
 	var have []string
 	if !parsed.LanguageUnknown {
 		have = append(have, parsed.Languages...)
 	}
-	if dualAudioApplies(p, parsed, title, originalLanguage) {
-		have = append(have, originalLanguage, "English")
-	} else if strings.HasPrefix(p.ScoreSet, "anime-") && originalLanguage != "" && namesOnlyOriginalAndEnglish(parsed, originalLanguage) {
+	if strings.HasPrefix(p.ScoreSet, "anime-") && originalLanguage != "" && namesOnlyOriginalAndEnglish(parsed, originalLanguage) {
 		if ok, err := multiLanguageRegex.MatchString(title); err == nil && ok {
 			have = append(have, originalLanguage, "English")
 		}
@@ -145,8 +144,7 @@ func donorNames(ctx context.Context, d *Donor) []string {
 	return out
 }
 
-// namesOnlyOriginalAndEnglish is dualAudioApplies' guard for the DL and
-// MULTi markers: German scene releases write DL for German and English,
+// namesOnlyOriginalAndEnglish is the guard for the DL and MULTi markers: German scene releases write DL for German and English,
 // and a French MULTi names French, so a title naming any language besides
 // the original and English is not believed.
 func namesOnlyOriginalAndEnglish(parsed *release.ParsedRelease, originalLanguage string) bool {

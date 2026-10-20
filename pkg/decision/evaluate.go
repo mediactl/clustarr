@@ -184,7 +184,7 @@ func evaluateOne(ctx context.Context, t Target, originalLanguage string, an audi
 	languagesComplete := true
 	if len(p.AudioLanguages) > 0 {
 		var r *common.Rejection
-		r, languagesComplete = audioRejection(an, p, parsed, rel.Title)
+		r, languagesComplete = audioRejection(an, p, parsed)
 		add(r)
 	} else {
 		add(languageRejection(originalLanguage, p, parsed))
@@ -252,9 +252,7 @@ func videoItemState(t Target, p quality.Profile, an audioNames, parsed *release.
 	add(queueRejection(p, t, candidate))
 	add(transcodedRejection(t, Options{}))
 	out = append(out, baselineRejections(p, t, parsed, rel)...)
-	// A dual-audio anime release names its languages (the original and
-	// English) though the parser recognises neither word.
-	add(upgradeRejection(p, t, candidate, namesWantedLanguages(an, p, parsed, rel.Title)))
+	add(upgradeRejection(p, t, candidate, namesWantedLanguages(an, p, parsed)))
 	return out
 }
 
