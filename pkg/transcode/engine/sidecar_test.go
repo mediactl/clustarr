@@ -38,46 +38,6 @@ const assFixture = "[Script Info]\nScriptType: v4.00+\n\n[V4+ Styles]\n" +
 	"[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n" +
 	"Dialogue: 0,0:00:00.50,0:00:01.50,Default,,0,0,0,,Hello\n"
 
-// An ASS stream copy-muxes into FFmpeg's ass muxer: the sidecar path (spec §4).
-func TestAnASSStreamCopyMuxesToAnASSFile(t *testing.T) {
-	ffmpeg9OrSkip(t)
-	dir := t.TempDir()
-	ass := filepath.Join(dir, "in.ass")
-	require.NoError(t, os.WriteFile(ass, []byte(assFixture), 0o644))
-	src := filepath.Join(dir, "ass.mkv")
-	run(t, "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-		"-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24:duration=2", "-i", ass,
-		"-c:v", "libx264", "-preset", "veryfast", "-c:s", "copy", src)
-	d, err := ffgo.NewDecoder(src)
-	require.NoError(t, err)
-	defer func() { _ = d.Close() }()
-	var sub *ffgo.StreamInfo
-	for _, s := range d.Streams() {
-		if s.Type == ffgo.MediaTypeSubtitle {
-			sub = s
-		}
-	}
-	require.NotNil(t, sub)
-	out := filepath.Join(dir, "out.ass")
-	sink, err := newMuxSidecar(out, "ass", sub)
-	require.NoError(t, err)
-	for {
-		p, err := d.ReadPacket()
-		require.NoError(t, err)
-		if p == nil {
-			break
-		}
-		if p.StreamIndex() == sub.Index {
-			require.NoError(t, sink.write(p, sub.TimeBase))
-		}
-	}
-	require.NoError(t, sink.close())
-	b, err := os.ReadFile(out)
-	require.NoError(t, err)
-	assert.Contains(t, string(b), "[Script Info]")
-	assert.Contains(t, string(b), "Dialogue: 0,0:00:00.50,0:00:01.50,Default,,0,0,0,,Hello")
-}
-
 func TestPlainText(t *testing.T) {
 	for _, tc := range []struct{ codec, in, want string }{
 		{"text", "<i>Hello</i>\r\nthere", "Hello\nthere"},
@@ -87,9 +47,26 @@ func TestPlainText(t *testing.T) {
 		{"mov_text", "\x00\x05Hello", "Hello"},
 		{"mov_text", "\x00\x02Hi\x00\x00\x00\x0cstyl\x00\x00\x00\x00", "Hi"},
 		{"text", "AT&T", "AT&T"},
+		{"ass", `3,0,Sign,,0,0,0,,{\an3\pos(582,276)\u1}Rhuda Runebeck\N{\fs15\u0}Hunter level 3`, "Rhuda Runebeck\nHunter level 3"},
+		{"ssa", `4,0,Default,Krai,0,0,0,,{\i1}Wait, what?{\i0}`, "Wait, what?"},
+		{"ass", `5,0,Sign,,0,0,0,,{\p1}m 0 0 l 1 1{\p0}`, ""},
 	} {
 		assert.Equal(t, tc.want, plainText(tc.codec, []byte(tc.in)), "%s %q", tc.codec, tc.in)
 	}
+}
+
+// An ASS track's sign drawn in several layers is one SubRip cue.
+func TestSRTSidecarWritesALayeredSignOnce(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "x.en.forced.srt")
+	s := newSRTSidecar(path, "ass")
+	tb := ffgo.NewRational(1, 1000)
+	s.add(500, 1000, tb, []byte(`1,0,Sign,,0,0,0,,{\pos(1,2)}Sign`))
+	s.add(500, 1000, tb, []byte(`2,1,Sign,,0,0,0,,{\pos(1,2)\blur4}Sign`))
+	s.add(2000, 500, tb, []byte(`3,0,Default,,0,0,0,,Line`))
+	require.NoError(t, s.close())
+	b, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, "1\n00:00:00,500 --> 00:00:01,500\nSign\n\n2\n00:00:02,000 --> 00:00:02,500\nLine\n\n", string(b))
 }
 
 func TestSRTSidecarFormatsCues(t *testing.T) {
@@ -106,7 +83,7 @@ func TestSRTSidecarFormatsCues(t *testing.T) {
 }
 
 // A run writes every subtitle beside its output (spec §4.1): an ASS track
-// copied out to .ass, a SubRip one through the srt muxer (the ffgo
+// as plain SubRip, a SubRip one through the srt muxer (the ffgo
 // `-map 0:s:0 out.srt`), a WebVTT one converted; the MP4 carries none; a
 // failed run leaves none.
 func TestTheEngineWritesTheSidecarsBesideItsOutput(t *testing.T) {
@@ -137,7 +114,7 @@ func TestTheEngineWritesTheSidecarsBesideItsOutput(t *testing.T) {
 		require.NoError(t, err, s.Suffix)
 		got[s.Suffix] = string(b)
 	}
-	assert.Contains(t, got["en.ass"], "Dialogue: 0,0:00:00.50,0:00:01.50,Default,,0,0,0,,Hello")
+	assert.Equal(t, "1\n00:00:00,500 --> 00:00:01,500\nHello\n\n", got["en.srt"], "ASS becomes plain SubRip")
 	assert.Contains(t, got["de.forced.srt"], "00:00:00,500 --> 00:00:01,500\n<i>Sign</i>", "SubRip is copied as ffmpeg -map 0:s:0 out.srt writes it")
 	assert.Contains(t, got["es.srt"], "00:00:01,000 --> 00:00:02,000\nHola")
 	for _, s := range ffprobeJSON(t, out).Streams {

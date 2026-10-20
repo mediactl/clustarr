@@ -53,7 +53,9 @@ import (
 // 3: policy.keepCodecs -- 8-bit SDR H.264 copied when a profile keeps it;
 // and a source transcoded elsewhere is remuxed, never encoded a second time.
 // 4: clustarr's own transcodes in Matroska are remuxed into the MP4 layout.
-const Version = 4
+// 5: an ASS or SSA track becomes a plain SubRip sidecar, not an .ass one
+// (Plex's web player burns ASS into the video, which cluster-plex forbids).
+const Version = 5
 
 // Profile is what a TranscodeProfile decides under the standard.
 type Profile struct {
@@ -132,12 +134,16 @@ type AudioPlan struct {
 	Default bool `json:",omitempty"`
 }
 
-// Subtitle actions (SubtitlePlan.Action) and sidecar formats
+// Subtitle actions (SubtitlePlan.Action) and the sidecar format
 // (SidecarPlan.Format).
 const (
 	SubtitleCopy = "copy" // a graft's copy plan (CopyPlan) keeps every subtitle
-	SidecarASS   = "ass"  // the stream copied out to <stem>.<suffix>
-	SidecarSRT   = "srt"  // SubRip copied out; WebVTT, mov_text and text converted
+	// SidecarSRT is every sidecar: SubRip copied out; ASS, SSA, WebVTT,
+	// mov_text and text converted to plain SubRip. Plex's web player shows
+	// an ASS subtitle only by burning it into the video, a video transcode
+	// cluster-plex never allows, while it converts SubRip itself and copies
+	// the video (talos, 2026-10-20).
+	SidecarSRT = "srt"
 )
 
 // HoldImageSubtitles is the skip reason of a file with an image subtitle
@@ -160,9 +166,9 @@ type SubtitlePlan struct {
 // SidecarPlan is one subtitle track written beside the MP4.
 type SidecarPlan struct {
 	SourceIndex int32  // type-relative subtitle stream
-	Format      string // SidecarASS | SidecarSRT
+	Format      string // SidecarSRT
 	Codec       string // the source's codec
-	// Suffix is the file's name after the video's stem: "en.ass",
+	// Suffix is the file's name after the video's stem: "en.srt",
 	// "en.forced.srt" (pkg/subtitles.ParseSidecar's grammar).
 	Suffix string
 }
@@ -743,11 +749,8 @@ func markDefault(out []AudioPlan, as []transcode.AudioStream) {
 	out[0].Default = true
 }
 
-// textSubtitles become .srt sidecars and assSubtitles .ass ones.
-var (
-	textSubtitles = []string{"subrip", "srt", "text", "webvtt", "mov_text"}
-	assSubtitles  = []string{"ass", "ssa"}
-)
+// textSubtitles become .srt sidecars, ASS and SSA ones as plain text.
+var textSubtitles = []string{"subrip", "srt", "text", "webvtt", "mov_text", "ass", "ssa"}
 
 var (
 	// forcedTitle and fullTitle read a track's title where its flags are
@@ -799,10 +802,10 @@ func sidecarSuffix(s transcode.SubtitleStream, ext string) string {
 	return strings.Join(append(parts, ext), ".")
 }
 
-// planSubtitles is spec §4.1 with rulings R2 and R3: every text subtitle
-// becomes an .srt sidecar and every ASS one an .ass sidecar, one per name;
-// anything else is dropped and named. Plan holds a file with a bitmap
-// stream before it gets here.
+// planSubtitles is spec §4.1 with rulings R2 and R3: every text subtitle,
+// ASS and SSA included since Version 5, becomes an .srt sidecar, one per
+// name, the first track to take a name keeping it; anything else is dropped
+// and named. Plan holds a file with a bitmap stream before it gets here.
 func planSubtitles(ss []transcode.SubtitleStream, languages wanted) (sidecars []SidecarPlan, dropped []string) {
 	taken := map[string]bool{}
 	for i, s := range ss {
@@ -810,16 +813,11 @@ func planSubtitles(ss []transcode.SubtitleStream, languages wanted) (sidecars []
 			dropped = append(dropped, fmt.Sprintf("subtitle %d (%s %q %s): not a kept language", i, s.Codec, s.Title, s.Language))
 			continue
 		}
-		format := ""
-		switch {
-		case slices.Contains(assSubtitles, s.Codec):
-			format = SidecarASS
-		case slices.Contains(textSubtitles, s.Codec):
-			format = SidecarSRT
-		default:
+		if !slices.Contains(textSubtitles, s.Codec) {
 			dropped = append(dropped, fmt.Sprintf("subtitle %d (%s): a codec the MP4 standard does not carry", i, s.Codec))
 			continue
 		}
+		format := SidecarSRT
 		suffix := sidecarSuffix(s, format)
 		if taken[suffix] {
 			dropped = append(dropped, fmt.Sprintf("subtitle %d (%s %q): a second %s sidecar", i, s.Codec, s.Title, suffix))

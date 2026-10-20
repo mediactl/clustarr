@@ -43,13 +43,10 @@
       "Format": "srt",
       "Codec": "subrip",
       "Suffix": "en.srt"
-    },
-    {
-      "SourceIndex": 1,
-      "Format": "ass",
-      "Codec": "ass",
-      "Suffix": "en.ass"
     }
+  ],
+  "Dropped": [
+    "subtitle 1 (ass \"\"): a second en.srt sidecar"
   ],
   "Attachments": false,
   "Chapters": true,

@@ -588,7 +588,7 @@ func TestPlanAlwaysWritesMP4(t *testing.T) {
 	assert.False(t, p.Attachments)
 }
 
-func TestVersionIsFour(t *testing.T) { assert.Equal(t, 4, Version) }
+func TestVersionIsFive(t *testing.T) { assert.Equal(t, 5, Version) }
 
 func sub(codec, lang, title string, forced, hi bool) transcode.SubtitleStream {
 	return transcode.SubtitleStream{
@@ -603,36 +603,41 @@ func TestPlanSubtitles(t *testing.T) {
 		sub("subrip", "en", "SDH", false, true),         // 1: en.sdh.srt
 		sub("webvtt", "es", "", false, false),           // 2: es.srt
 		sub("mov_text", "fre", "", false, false),        // 3: fr.srt
-		sub("ass", "en", "Full Subs", false, false),     // 4: en.ass
-		sub("ass", "en", "Signs & Songs", false, false), // 5: en.forced.ass (title, R2)
+		sub("ass", "en", "Full Subs", false, false),     // 4: dropped, en.srt taken
+		sub("ass", "en", "Signs & Songs", false, false), // 5: en.forced.srt (title, R2), from ASS
 		sub("subrip", "ger", "Forced", true, false),     // 6: de.forced.srt (R2)
-		sub("ass", "en", "Honorifics", false, false),    // 7: dropped, en.ass taken (R3)
-		sub("ass", "", "", false, false),                // 8: ass (untagged)
+		sub("ass", "ja", "Honorifics", false, false),    // 7: ja.srt, from ASS
+		sub("ass", "", "", false, false),                // 8: dropped, srt taken by 11
 		sub("eia_608", "en", "", false, false),          // 9: dropped, unknown text codec
 		sub("subrip", "pt-BR", "", false, false),        // 10: pt.srt (the region dropped)
 		sub("subrip", "und", "", false, false),          // 11: srt (no language)
+		sub("ssa", "it", "", false, false),              // 12: it.srt, from SSA
 	}, wanted{all: true})
 	assert.Equal(t, []SidecarPlan{
 		{SourceIndex: 0, Format: SidecarSRT, Codec: "subrip", Suffix: "en.srt"},
 		{SourceIndex: 1, Format: SidecarSRT, Codec: "subrip", Suffix: "en.sdh.srt"},
 		{SourceIndex: 2, Format: SidecarSRT, Codec: "webvtt", Suffix: "es.srt"},
 		{SourceIndex: 3, Format: SidecarSRT, Codec: "mov_text", Suffix: "fr.srt"},
-		{SourceIndex: 4, Format: SidecarASS, Codec: "ass", Suffix: "en.ass"},
-		{SourceIndex: 5, Format: SidecarASS, Codec: "ass", Suffix: "en.forced.ass"},
+		{SourceIndex: 5, Format: SidecarSRT, Codec: "ass", Suffix: "en.forced.srt"},
 		{SourceIndex: 6, Format: SidecarSRT, Codec: "subrip", Suffix: "de.forced.srt"},
-		{SourceIndex: 8, Format: SidecarASS, Codec: "ass", Suffix: "ass"},
+		{SourceIndex: 7, Format: SidecarSRT, Codec: "ass", Suffix: "ja.srt"},
+		{SourceIndex: 8, Format: SidecarSRT, Codec: "ass", Suffix: "srt"},
 		{SourceIndex: 10, Format: SidecarSRT, Codec: "subrip", Suffix: "pt.srt"},
-		{SourceIndex: 11, Format: SidecarSRT, Codec: "subrip", Suffix: "srt"},
+		{SourceIndex: 12, Format: SidecarSRT, Codec: "ssa", Suffix: "it.srt"},
 	}, sidecars)
-	require.Len(t, dropped, 2)
-	assert.Contains(t, dropped[0], "subtitle 7")
+	require.Len(t, dropped, 3)
+	assert.Contains(t, dropped[0], "subtitle 4")
 	assert.Contains(t, dropped[1], "subtitle 9")
+	assert.Contains(t, dropped[2], "subtitle 11")
 }
 
+// An ASS track becomes a SubRip sidecar like any text track: Plex's web
+// player shows an ASS subtitle only by burning it into the video, a video
+// transcode cluster-plex never allows (talos, 2026-10-20).
 func TestAnSDHAssTrackIsNamedSDH(t *testing.T) {
 	sidecars, _ := planSubtitles([]transcode.SubtitleStream{sub("ass", "en", "", false, true)}, wanted{all: true})
 	require.Len(t, sidecars, 1)
-	assert.Equal(t, "en.sdh.ass", sidecars[0].Suffix)
+	assert.Equal(t, SidecarPlan{Format: SidecarSRT, Codec: "ass", Suffix: "en.sdh.srt"}, sidecars[0])
 }
 
 func TestAnImageSubtitleHoldsTheFile(t *testing.T) {
@@ -645,10 +650,11 @@ func TestAnImageSubtitleHoldsTheFile(t *testing.T) {
 
 // Every subtitle goes beside the file (spec §4.1): the MP4 carries none.
 func TestTheMP4CarriesNoSubtitleStream(t *testing.T) {
-	p := Plan(info(h264, eac3), profile, cpu) // subrip and ass
+	p := Plan(info(h264, eac3), profile, cpu) // subrip and ass, both English
 	assert.Equal(t, int32(0), p.Expect.SubtitleStreams)
 	assert.Empty(t, p.Subtitles)
-	assert.Equal(t, []string{"en.srt", "en.ass"}, []string{p.Sidecars[0].Suffix, p.Sidecars[1].Suffix})
+	require.Len(t, p.Sidecars, 1, "the ASS track's en.srt is the SubRip track's")
+	assert.Equal(t, "en.srt", p.Sidecars[0].Suffix)
 }
 
 // An MP4 already in the layout with no subtitle stream is left alone; one
@@ -679,6 +685,6 @@ func TestSubtitleFlagsAreReadFromTheTitleToo(t *testing.T) {
 	for _, s := range sidecars {
 		suffixes = append(suffixes, s.Suffix)
 	}
-	assert.Equal(t, []string{"en.srt", "en.sdh.srt", "en.forced.srt", "en.ass", "en.forced.ass", "de.sdh.srt", "fr.sdh.srt", "es.srt"}, suffixes)
-	assert.Empty(t, dropped)
+	assert.Equal(t, []string{"en.srt", "en.sdh.srt", "en.forced.srt", "de.sdh.srt", "fr.sdh.srt", "es.srt"}, suffixes)
+	require.Len(t, dropped, 2, "the ASS tracks' names are the SubRip tracks'")
 }

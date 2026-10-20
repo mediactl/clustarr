@@ -163,7 +163,7 @@ func TestAWindowGrantOnAHeldFileIsSkipped(t *testing.T) {
 // status.transcode.plan.dropped carries standard.Result.Dropped, where the
 // operator reads the plan, and a plan that drops nothing carries none.
 func TestThePlanNamesTheSubtitlesItDrops(t *testing.T) {
-	drops := []string{`subtitle 3 (ass "Honorifics"): a second en.ass sidecar`}
+	drops := []string{`subtitle 3 (ass "Honorifics"): a second en.srt sidecar`}
 	p := StatusPlan(&standard.Result{Decision: standard.DecisionEncode, Video: standard.VideoPlan{Encoder: "libx265"}, Dropped: drops})
 	require.NotNil(t, p)
 	assert.Equal(t, drops, p.Dropped)

@@ -29,6 +29,7 @@ import (
 	"github.com/obinnaokechukwu/ffgo/avutil"
 
 	"github.com/mediactl/clustarr/pkg/fsops"
+	"github.com/mediactl/clustarr/pkg/subtitles/asssrt"
 	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
 
@@ -40,17 +41,14 @@ type sidecarSink interface {
 	close() error
 }
 
-// newSidecar is the sink for sp beside output: ASS copied out through
-// FFmpeg's ass muxer; SubRip through its srt muxer -- the ffgo form of
-// `ffmpeg -i in.mkv -map 0:s:N out.srt`, whose packets reach the muxer
-// unchanged -- and WebVTT, mov_text and plain text converted to SubRip in
-// Go (ffgo binds no subtitle encoder).
+// newSidecar is the sink for sp beside output: SubRip through FFmpeg's srt
+// muxer -- the ffgo form of `ffmpeg -i in.mkv -map 0:s:N out.srt`, whose
+// packets reach the muxer unchanged -- and ASS, SSA, WebVTT, mov_text and
+// plain text converted to plain SubRip in Go (ffgo binds no subtitle
+// encoder; an ASS track's styling is dropped, pkg/subtitles/asssrt).
 func newSidecar(sp standard.SidecarPlan, src *ffgo.StreamInfo, output string) (sidecarSink, error) {
 	path := fsops.SidecarPath(output, sp.Suffix)
-	switch {
-	case sp.Format == standard.SidecarASS:
-		return newMuxSidecar(path, "ass", src)
-	case sp.Codec == "subrip" || sp.Codec == "srt":
+	if sp.Codec == "subrip" || sp.Codec == "srt" {
 		return newMuxSidecar(path, "srt", src)
 	}
 	return newSRTSidecar(path, sp.Codec), nil
@@ -102,15 +100,24 @@ func (s *muxSidecar) close() error {
 }
 
 // srtSidecar collects a text stream's cues as SubRip and writes them at
-// close through fsops.AtomicWrite.
+// close through fsops.AtomicWrite. A cue repeating another's start, end and
+// text -- an ASS sign drawn in several layers -- is written once.
 type srtSidecar struct {
 	path, codec string
 	b           strings.Builder
 	n           int
+	seen        map[srtCue]bool
 	closed      bool
 }
 
-func newSRTSidecar(path, codec string) *srtSidecar { return &srtSidecar{path: path, codec: codec} }
+type srtCue struct {
+	start, end int64
+	text       string
+}
+
+func newSRTSidecar(path, codec string) *srtSidecar {
+	return &srtSidecar{path: path, codec: codec, seen: map[srtCue]bool{}}
+}
 
 func (s *srtSidecar) write(p *ffgo.Packet, tb ffgo.Rational) error {
 	s.add(p.PTS(), avcodec.GetPacketDuration(p.Raw()), tb, p.Data())
@@ -125,8 +132,13 @@ func (s *srtSidecar) add(pts, dur int64, tb ffgo.Rational, payload []byte) {
 		return
 	}
 	ms := func(v int64) int64 { return v * 1000 * int64(tb.Num) / int64(tb.Den) }
+	c := srtCue{ms(pts), ms(pts + max(dur, 0)), text}
+	if s.seen[c] {
+		return
+	}
+	s.seen[c] = true
 	s.n++
-	fmt.Fprintf(&s.b, "%d\n%s --> %s\n%s\n\n", s.n, srtTime(ms(pts)), srtTime(ms(pts+max(dur, 0))), text)
+	fmt.Fprintf(&s.b, "%d\n%s --> %s\n%s\n\n", s.n, srtTime(c.start), srtTime(c.end), text)
 }
 
 func srtTime(ms int64) string {
@@ -150,8 +162,12 @@ var (
 // (<i>, <font>, WebVTT's <c.x> and <v Name>) and ASS override blocks
 // ({\an8}) removed, WebVTT's entities decoded, CRLF made LF and the ends
 // trimmed. A mov_text sample's text is its length-prefixed run, its style
-// boxes dropped.
+// boxes dropped; an ASS or SSA packet's is its Text field as asssrt reads
+// it.
 func plainText(codec string, b []byte) string {
+	if codec == "ass" || codec == "ssa" {
+		return asssrt.PacketText(string(b))
+	}
 	if codec == "mov_text" {
 		if len(b) < 2 {
 			return ""

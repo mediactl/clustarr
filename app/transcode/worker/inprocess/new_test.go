@@ -41,14 +41,15 @@ func newEngine(t *testing.T, class transcode.Hardware) Engine {
 // A pool pod's engine requires its class's encoders, muxers and filters --
 // the image's self-check list (spec 2026-10-06 §7.4): every class encodes
 // AAC and AC-3 beside its video encoder (standard Version 2's surround
-// tracks) and writes through mp4, srt and ass. New refuses a class whose
+// tracks) and writes through mp4 and srt (every sidecar is SubRip since
+// standard Version 5). New refuses a class whose
 // needs this FFmpeg lacks, naming what is missing, so the pod takes no work
 // it would fail.
 func TestNewRequiresItsClassesEncoders(t *testing.T) {
 	nativetest.FFmpeg(t, ffruntime.Needs{})
 	assert.Equal(t, []string{"libx265", "aac", "ac3", "hevc_nvenc"}, needsFor(transcode.HardwareNVIDIA).Encoders)
 	assert.Equal(t, []string{"libx265", "aac", "ac3"}, needsFor(transcode.HardwareCPU).Encoders)
-	assert.Equal(t, []string{"mp4", "srt", "ass"}, needsFor(transcode.HardwareCPU).Muxers)
+	assert.Equal(t, []string{"mp4", "srt"}, needsFor(transcode.HardwareCPU).Muxers)
 	assert.Equal(t, selfcheck.Needs[selfcheck.ClassIntel].Encoders, needsFor(transcode.HardwareIntel).Encoders)
 	assert.Equal(t, selfcheck.Needs[selfcheck.ClassIntel].Filters, needsFor(transcode.HardwareIntel).Filters)
 	assert.Equal(t, selfcheck.Needs[selfcheck.ClassCUDA].Filters, needsFor(transcode.HardwareNVIDIA).Filters)

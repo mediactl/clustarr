@@ -156,5 +156,6 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 		}
 		return run(cmd.Context(), o)
 	}
+	root.AddCommand(newConvertASSCommand())
 	return root
 }

@@ -119,9 +119,13 @@ HEVC tagged `hvc1`, whatever the profile's `container`
 first (it carries the default) and then a Dolby surround track -- E-AC-3
 or AC-3 copied, anything else AC-3 5.1 640k -- or AAC alone for mono or
 stereo, commentary AAC, other mixes dropped; every subtitle beside the file in Plex's layout
-`<stem>.<lang>[.forced|.sdh].<srt|ass>` (spec §4.1: SubRip copied through
-the `srt` muxer, WebVTT/`mov_text`/text converted, ASS through the `ass`
-muxer), written in the transcode's own pass and placed before the swap,
+`<stem>.<lang>[.forced|.sdh].srt` (spec §4.1: SubRip copied through
+the `srt` muxer, WebVTT/`mov_text`/text converted; since `standard.Version`
+5 ASS and SSA too, as plain text through `pkg/subtitles/asssrt` -- Plex's
+web player shows an ASS subtitle only by burning it into the video, a video
+transcode cluster-plex forbids, so an `.ass` sidecar made it refuse to
+play; `agent convert-ass-sidecars` replaced the earlier `.ass` ones once,
+originals under `/data/.clustarr/ass-backup`), written in the transcode's own pass and placed before the swap,
 never over an existing file; since 2026-10-15 an attempt encodes, writes
 its sidecars and verifies in the pool pod's scratch emptyDir
 (`--scratch-dir /scratch`, sized by `spec.scratch`, `jobspec.Scratch`)

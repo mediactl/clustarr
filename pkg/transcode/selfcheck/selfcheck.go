@@ -58,20 +58,20 @@ type Need struct {
 // Needs is each class's encoders, muxers and filters. Since standard
 // Version 2 every class encodes with ac3 a surround track that is not E-AC-3
 // or AC-3, and writes the MP4 and its SubRip and ASS sidecars through the
-// mp4, srt and ass muxers (spec 2026-10-06 §7.4).
+// mp4 and srt muxers (spec 2026-10-06 §7.4; no ass muxer since standard.Version 5).
 var Needs = map[Class]Need{
 	ClassCPU: {
 		Encoders: []string{"libx265", "aac", "ac3"},
-		Muxers:   []string{"mp4", "srt", "ass"},
+		Muxers:   []string{"mp4", "srt"},
 	},
 	ClassCUDA: {
 		Encoders: []string{"libx265", "aac", "ac3", "hevc_nvenc"},
-		Muxers:   []string{"mp4", "srt", "ass"},
+		Muxers:   []string{"mp4", "srt"},
 		Filters:  []string{"scale_cuda", "hwupload"},
 	},
 	ClassIntel: {
 		Encoders: []string{"libx265", "aac", "ac3", "hevc_qsv", "hevc_vaapi"},
-		Muxers:   []string{"mp4", "srt", "ass"},
+		Muxers:   []string{"mp4", "srt"},
 		Filters:  []string{"vpp_qsv", "scale_vaapi", "hwupload"},
 	},
 }
