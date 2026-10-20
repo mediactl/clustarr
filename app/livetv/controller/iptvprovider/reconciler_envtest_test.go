@@ -92,6 +92,12 @@ func (*fakeTuner) Snapshot(types.NamespacedName) (tuner.Snapshot, bool) {
 	return tuner.Snapshot{}, false
 }
 
+func (*fakeTuner) Kept(types.NamespacedName) (tuner.KeptPlaylist, bool) {
+	return tuner.KeptPlaylist{}, false
+}
+
+func (*fakeTuner) Restore(types.NamespacedName, tuner.KeptPlaylist) {}
+
 func (f *fakeTuner) last(key types.NamespacedName) (tuner.Config, bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

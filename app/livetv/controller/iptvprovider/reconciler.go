@@ -19,6 +19,7 @@ package iptvprovider
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	coordinationv1 "k8s.io/api/coordination/v1"
@@ -43,6 +44,8 @@ type Tuner interface {
 	Apply(tuner.Config)
 	Remove(types.NamespacedName)
 	Snapshot(types.NamespacedName) (tuner.Snapshot, bool)
+	Kept(types.NamespacedName) (tuner.KeptPlaylist, bool)
+	Restore(types.NamespacedName, tuner.KeptPlaylist)
 }
 
 // Reconciler reconciles IPTVProvider.
@@ -63,6 +66,7 @@ type Reconciler struct {
 	Now func() time.Time
 
 	ports ports
+	kept  keptState
 }
 
 // Reconcile converges one provider.
@@ -73,6 +77,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		if apierrors.IsNotFound(err) {
 			r.Tuner.Remove(key)
 			r.ports.set(key, nil)
+			r.kept.forget(key)
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, err
@@ -80,6 +85,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	if !p.DeletionTimestamp.IsZero() {
 		r.Tuner.Remove(key)
 		r.ports.set(key, nil)
+		r.kept.forget(key)
 		return ctrl.Result{}, nil
 	}
 
@@ -114,6 +120,13 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return ctrl.Result{}, r.writeStatus(ctx, &p, pl, valid, true)
 	default:
 		r.Tuner.Apply(buildConfig(&p, tunerBlocks(pl), urls, channels))
+		// After Apply, which gives the tuner the provider to restore into.
+		// A failure is retried by the next reconcile; the status still goes.
+		keptErr := r.restoreKept(ctx, &p)
+		if keptErr == nil {
+			keptErr = r.keepPlaylist(ctx, &p)
+		}
+		return ctrl.Result{}, errors.Join(r.writeStatus(ctx, &p, pl, valid, false), keptErr)
 	}
 	return ctrl.Result{}, r.writeStatus(ctx, &p, pl, valid, false)
 }

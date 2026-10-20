@@ -162,6 +162,13 @@ type provider struct {
 
 	storedPlaylistHash string
 	storedGuideHash    string
+
+	// restored is the kept playlist Restore serves until the first fetch in
+	// this process; its counts stand in for the whole playlist's.
+	restored *KeptPlaylist
+	// kept is the last render's KeptPlaylist from a fetched playlist; nil
+	// before a fetch and while only a restored playlist is served.
+	kept *KeptPlaylist
 }
 
 type guide struct {

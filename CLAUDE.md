@@ -278,9 +278,16 @@ block's lineup and XEPG guide, and relays streams per provider
 Playlists and guides go through their own client (`tuner.Options.Fetch`),
 which waits up to 2 min, because a panel builds its whole m3u_plus before it
 answers. On 2026-10-20 tvload.win took 13 s for 588 MB, so every fetch
-failed. At a restart only the guide is restored from the object store, never
-the playlist, so a manager restart left the lineup answering 503 and every
-tune 404, which Plex shows as "Could not tune channel". cluster-plex (its `livetv` branch) registers
+failed. At a restart only the guide was restored from the object store,
+never the playlist, so the next manager restart left the lineup answering
+503 and every tune 404, which Plex shows as "Could not tune channel". The
+IPTVProvider controller now keeps each fetched playlist's channel entries
+in the provider's Secret `<provider>-livetv-playlist`
+(`iptvprovider.KeptSecretName`), stream URLs included. The URLs carry the
+account's credentials, so they never go in the object store. After a
+restart the controller hands them to the tuner (`tuner.Restore`), which
+serves them until a fetch succeeds; meanwhile the status reads
+`StaleAfterError`. cluster-plex (its `livetv` branch) registers
 the devices and DVRs, saves each map in one PUT, never deletes, saves,
 reloads or creates while PMS loads a guide (a delete then deadlocked PMS),
 and restarts PMS on the other pods after a DVR change, since each PMS reads

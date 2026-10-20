@@ -79,6 +79,7 @@ func (t *Tuner) render(p *provider) {
 	cfg := p.cfg
 	pms := cfg.EPGSource == "PMS"
 	fetched := p.playlistFetched
+	restored := p.restored
 
 	rules := cfg.Filters
 	cands := filter.Candidates(p.entries, rules)
@@ -301,6 +302,12 @@ func (t *Tuner) render(p *provider) {
 	}
 	pl := p.playlist
 	pl.Entries, pl.Groups, pl.Candidates = len(p.entries), len(groups), len(cands)
+	switch {
+	case restored != nil:
+		pl.Entries, pl.Groups, pl.Candidates = restored.Entries, restored.Groups, restored.Candidates
+	case fetched:
+		p.kept = keptPlaylist(pl, cfg.Channels, candidate)
+	}
 	p.snap = Snapshot{
 		PlaylistFetched: fetched,
 		Playlist:        pl,

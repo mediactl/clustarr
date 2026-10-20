@@ -92,6 +92,7 @@ func (t *Tuner) fetchPlaylist(ctx context.Context, p *provider, url, ua string) 
 		p.playlistNext = t.o.Now().Add(p.playlistBackoff)
 	} else {
 		p.entries = pl.Entries
+		p.restored = nil
 		p.playlistFetched = true
 		p.playlist.FetchedAt = t.o.Now()
 		p.playlist.Hash = sum

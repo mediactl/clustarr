@@ -27,6 +27,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -464,6 +465,96 @@ func TestTheGuidesAreStoredAndServedAfterARestart(t *testing.T) {
 	require.Eventually(t, func() bool { s, _ := h2.tn.Snapshot(key); return len(s.Guides) == 1 && s.Guides[0].Error != "" }, 5*time.Second, 10*time.Millisecond)
 	_, still := h2.get(t, hostA, "/xmltv.xml")
 	assert.Equal(t, guide, still, "a failed fetch never replaces the stored guide with an empty one")
+}
+
+// TestAKeptPlaylistTunesAfterARestartWhileTheProviderIsDown: a restart
+// used to leave a provider that could not be fetched with no lineup and no
+// stream, so every tune 404 (talos, 2026-10-20). The playlist a fetch kept
+// is restored: the lineup is the fetched one, a channel streams, and the
+// status serves the last good playlist with the fetch's error, until a fetch
+// succeeds again.
+func TestAKeptPlaylistTunesAfterARestartWhileTheProviderIsDown(t *testing.T) {
+	p := newProvider(t)
+	store := newStore(t)
+	cfg := config(p.srv.URL)
+	h := start(t, store, cfg)
+	first := h.fetched(t)
+	_, lineup := h.get(t, hostA, "/lineup.json")
+	var kept tuner.KeptPlaylist
+	require.Eventually(t, func() bool {
+		var ok bool
+		kept, ok = h.tn.Kept(key)
+		return ok
+	}, 2*time.Second, 10*time.Millisecond)
+	keys := make([]string, 0, len(kept.Channels))
+	for _, e := range kept.Channels {
+		keys = append(keys, e.Key)
+		assert.NotEmpty(t, e.URL, e.Key)
+	}
+	want := []string{m3u.NameKey("Misc", "No Attributes"), m3u.NameKey("Sports", "Sports 1"), m3u.NameKey("UK | News", "News, Live"), "t:bbc1.uk"}
+	slices.Sort(want)
+	assert.Equal(t, want, keys, "every configured channel the playlist holds, the duplicate too, in key order; not the missing one")
+	assert.Equal(t, first.Playlist.Entries, kept.Entries)
+	assert.Equal(t, first.Playlist.Candidates, kept.Candidates)
+	require.Eventually(t, func() bool { _, err := store.Info(context.Background(), tuner.PlaylistObject(key)); return err == nil }, 2*time.Second, 10*time.Millisecond)
+
+	p.failPlaylist.Store(true)
+	h2 := start(t, store, cfg)
+	h2.tn.Restore(key, kept)
+	require.Eventually(t, func() bool {
+		code, body := h2.get(t, hostA, "/lineup.json")
+		return code == http.StatusOK && body == lineup
+	}, 2*time.Second, 10*time.Millisecond, "the restored lineup is the fetched one")
+	req, _ := http.NewRequest(http.MethodGet, h2.front.URL+"/stream/1001", nil)
+	req.Host = hostA
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	head := make([]byte, 188)
+	_, err = io.ReadFull(resp.Body, head)
+	_ = resp.Body.Close()
+	require.NoError(t, err)
+	assert.Equal(t, byte(0x47), head[0])
+
+	require.Eventually(t, func() bool { s, _ := h2.tn.Snapshot(key); return s.Playlist.Error != "" }, 5*time.Second, 10*time.Millisecond)
+	s, _ := h2.tn.Snapshot(key)
+	assert.True(t, s.PlaylistFetched, "serving the last good playlist")
+	assert.Equal(t, first.Playlist.Entries, s.Playlist.Entries, "the whole playlist's counts, not the kept channels'")
+	assert.Equal(t, kept.Hash, s.Playlist.Hash)
+	_, ok := h2.tn.Kept(key)
+	assert.False(t, ok, "a restored playlist is not kept again")
+	_, rc, err := store.Get(context.Background(), tuner.PlaylistObject(key))
+	require.NoError(t, err)
+	zr, err := gzip.NewReader(rc)
+	require.NoError(t, err)
+	var doc struct {
+		Entries []json.RawMessage `json:"entries"`
+	}
+	require.NoError(t, json.NewDecoder(zr).Decode(&doc))
+	_ = rc.Close()
+	assert.Len(t, doc.Entries, first.Playlist.Entries, "the ui's playlist object is still the whole playlist")
+
+	p.failPlaylist.Store(false)
+	cfg.Refresh = "now"
+	h2.tn.Apply(cfg)
+	require.Eventually(t, func() bool { _, ok := h2.tn.Kept(key); return ok }, 5*time.Second, 10*time.Millisecond)
+	s, _ = h2.tn.Snapshot(key)
+	assert.Empty(t, s.Playlist.Error)
+}
+
+// TestRestoreNeverReplacesAFetchedPlaylist: a kept playlist is for a tuner
+// that has fetched nothing; one that has keeps what it fetched.
+func TestRestoreNeverReplacesAFetchedPlaylist(t *testing.T) {
+	p := newProvider(t)
+	h := start(t, newStore(t), config(p.srv.URL))
+	h.fetched(t)
+	_, before := h.get(t, hostA, "/lineup.json")
+	h.tn.Restore(key, tuner.KeptPlaylist{Hash: "old", Channels: []m3u.Entry{{Key: "t:bbc1.uk", Name: "Old", URL: "http://old.example/1"}}})
+	time.Sleep(50 * time.Millisecond)
+	_, after := h.get(t, hostA, "/lineup.json")
+	assert.JSONEq(t, before, after)
+	s, _ := h.tn.Snapshot(key)
+	assert.NotEqual(t, "old", s.Playlist.Hash)
 }
 
 func TestNoStoredOrReportedStringCarriesACredential(t *testing.T) {
