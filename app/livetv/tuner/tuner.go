@@ -66,9 +66,14 @@ type Options struct {
 	BindAddress string
 	// Store is the clustarr-livetv object store.
 	Store events.ObjectStore
-	// HTTP fetches playlists, guides and streams. It must carry no overall
-	// Timeout: streams are long.
+	// HTTP fetches streams. It must carry no overall Timeout: streams are
+	// long.
 	HTTP *http.Client
+	// Fetch fetches playlists and guides; default HTTP. An Xtream panel
+	// builds its whole m3u_plus before it answers (tvload.win took 13 s for
+	// 588 MB on 2026-10-20), so its transport may wait longer for headers
+	// than a stream's; fetchTimeout bounds each fetch whole.
+	Fetch *http.Client
 	// Now is the clock for fetch times and the guide's window.
 	Now func() time.Time
 	// Debounce is how long a render waits for more changes. Default 2s.
@@ -174,6 +179,9 @@ type guide struct {
 func New(o Options) *Tuner {
 	if o.HTTP == nil {
 		o.HTTP = &http.Client{Transport: http.DefaultTransport}
+	}
+	if o.Fetch == nil {
+		o.Fetch = o.HTTP
 	}
 	if o.Now == nil {
 		o.Now = time.Now

@@ -59,7 +59,8 @@ type provider struct {
 	hits          sync.Map // path -> *atomic.Int32
 	failPlaylist  atomic.Bool
 	failGuide     atomic.Bool
-	emptyPlaylist atomic.Bool // #EXTM3U alone: a panel in maintenance, an expired line
+	emptyPlaylist atomic.Bool  // #EXTM3U alone: a panel in maintenance, an expired line
+	headerDelay   atomic.Int64 // nanoseconds the playlist and guide take to answer
 }
 
 func newProvider(t *testing.T) *provider {
@@ -71,6 +72,9 @@ func newProvider(t *testing.T) *provider {
 	p.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c, _ := p.hits.LoadOrStore(r.URL.Path, new(atomic.Int32))
 		c.(*atomic.Int32).Add(1)
+		if r.URL.Path == "/get.php" || r.URL.Path == "/guide.xml" {
+			time.Sleep(time.Duration(p.headerDelay.Load()))
+		}
 		switch {
 		case r.URL.Path == "/get.php":
 			if p.failPlaylist.Load() {
@@ -179,15 +183,24 @@ func start(t *testing.T, store events.ObjectStore, cfg tuner.Config) *harness {
 
 // startAt starts a tuner whose clock reads at, until the test moves it.
 func startAt(t *testing.T, store events.ObjectStore, cfg tuner.Config, at time.Time) *harness {
+	return startWith(t, store, cfg, at, nil)
+}
+
+// startWith is startAt with edit applied to the tuner's options.
+func startWith(t *testing.T, store events.ObjectStore, cfg tuner.Config, at time.Time, edit func(*tuner.Options)) *harness {
 	h := &harness{}
 	h.clock.Store(at.UnixNano())
-	h.tn = tuner.New(tuner.Options{
+	o := tuner.Options{
 		BindAddress: "127.0.0.1:0", Store: store, HTTP: http.DefaultClient,
 		Now: func() time.Time { return time.Unix(0, h.clock.Load()).UTC() }, Debounce: 10 * time.Millisecond,
 		TunersDebounce: 10 * time.Millisecond,
 		Notify:         func(types.NamespacedName) { h.notifed.Add(1) },
 		NotifyTuners:   func(types.NamespacedName) { h.tuners.Add(1) },
-	})
+	}
+	if edit != nil {
+		edit(&o)
+	}
+	h.tn = tuner.New(o)
 	h.tn.Apply(cfg)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
@@ -238,6 +251,25 @@ func TestALineupWaits503UntilThePlaylistIsFetched(t *testing.T) {
 	require.NoError(t, err)
 	_ = resp.Body.Close()
 	assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+}
+
+// TestAPlaylistMayAnswerSlowerThanAStream: playlists and guides are fetched
+// through Options.Fetch, whose headers may take longer than a stream's. On
+// 2026-10-20 tvload.win took 13 s to start its m3u_plus, and with the
+// stream's 10 s for both, every fetch failed; once the manager restarted, the
+// lineup answered 503 and every tune 404, which Plex shows as "Could not tune
+// channel".
+func TestAPlaylistMayAnswerSlowerThanAStream(t *testing.T) {
+	p := newProvider(t)
+	p.headerDelay.Store(int64(300 * time.Millisecond))
+	h := startWith(t, newStore(t), config(p.srv.URL), now, func(o *tuner.Options) {
+		o.HTTP = &http.Client{Transport: &http.Transport{ResponseHeaderTimeout: 100 * time.Millisecond}}
+		o.Fetch = &http.Client{Transport: &http.Transport{ResponseHeaderTimeout: 5 * time.Second}}
+	})
+	h.fetched(t)
+	code, body := h.get(t, hostA, "/lineup.json")
+	require.Equal(t, http.StatusOK, code)
+	assert.Len(t, lineupOf(t, body), 2)
 }
 
 func TestEachBlockServesOnlyItsNumbersUnderTheHostPlexUsed(t *testing.T) {

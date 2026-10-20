@@ -50,7 +50,7 @@ func (t *Tuner) get(ctx context.Context, url, ua string) (io.ReadCloser, error) 
 	if ua != "" {
 		req.Header.Set("User-Agent", ua)
 	}
-	resp, err := t.o.HTTP.Do(req)
+	resp, err := t.o.Fetch.Do(req)
 	if err != nil {
 		return nil, err
 	}

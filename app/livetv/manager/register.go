@@ -103,8 +103,11 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	tn := tuner.New(tuner.Options{
 		BindAddress: o.BindAddress,
 		Store:       bus.ObjectStore(events.BucketLiveTV),
-		// No overall timeout: streams are long. Headers must come within 10 s.
-		HTTP:         &http.Client{Transport: transport()},
+		// No overall timeout: streams are long. A stream's headers must come
+		// within streamHeaderTimeout, a playlist's or guide's within
+		// fetchHeaderTimeout.
+		HTTP:         &http.Client{Transport: transport(streamHeaderTimeout)},
+		Fetch:        &http.Client{Transport: transport(fetchHeaderTimeout)},
 		Now:          time.Now,
 		Debounce:     2 * time.Second,
 		Notify:       notify,
@@ -127,9 +130,21 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	return nil
 }
 
-func transport() *http.Transport {
+const (
+	// streamHeaderTimeout is how long a stream's upstream may take to answer.
+	streamHeaderTimeout = 10 * time.Second
+	// fetchHeaderTimeout is how long a playlist's or guide's may take. A
+	// panel builds the whole file before it answers: from 18:01 UTC on
+	// 2026-10-20 tvload.win took 13 s to start its 588 MB m3u_plus. Every
+	// fetch failed against the stream's 10 s, and once the manager restarted
+	// no channel had a stream to tune. The tuner's fetchTimeout bounds the
+	// whole fetch.
+	fetchHeaderTimeout = 2 * time.Minute
+)
+
+func transport(headers time.Duration) *http.Transport {
 	t := http.DefaultTransport.(*http.Transport).Clone()
-	t.ResponseHeaderTimeout = 10 * time.Second
+	t.ResponseHeaderTimeout = headers
 	return t
 }
 

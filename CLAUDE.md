@@ -274,7 +274,13 @@ link-local `169.254.47.1` in every Plex pod to the one `livetv` Service
 the tuner -- or by path (`/livetv/<ns>/<name>/<start>/...`), serves each
 block's lineup and XEPG guide, and relays streams per provider
 (`app/livetv/relay`): viewers of one channel share one upstream, and past
-`tuners` a stream answers 503. cluster-plex (its `livetv` branch) registers
+`tuners` a stream answers 503. A stream's upstream must answer within 10 s.
+Playlists and guides go through their own client (`tuner.Options.Fetch`),
+which waits up to 2 min, because a panel builds its whole m3u_plus before it
+answers. On 2026-10-20 tvload.win took 13 s for 588 MB, so every fetch
+failed. At a restart only the guide is restored from the object store, never
+the playlist, so a manager restart left the lineup answering 503 and every
+tune 404, which Plex shows as "Could not tune channel". cluster-plex (its `livetv` branch) registers
 the devices and DVRs, saves each map in one PUT, never deletes, saves,
 reloads or creates while PMS loads a guide (a delete then deadlocked PMS),
 and restarts PMS on the other pods after a DVR change, since each PMS reads
