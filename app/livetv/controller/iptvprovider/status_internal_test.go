@@ -23,7 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	clustarrac "github.com/mediactl/clustarr/api/applyconfiguration/clustarr/clustarr/v1alpha1"
+	clustarrac "github.com/mediactl/clustarr/api/applyconfiguration/clustarr/v1alpha1"
 	clustarrv1 "github.com/mediactl/clustarr/api/clustarr/v1alpha1"
 	"github.com/mediactl/clustarr/app/livetv/tuner"
 )

@@ -28,7 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
 
-	clustarrac "github.com/mediactl/clustarr/api/applyconfiguration/clustarr/clustarr/v1alpha1"
+	clustarrac "github.com/mediactl/clustarr/api/applyconfiguration/clustarr/v1alpha1"
 	clustarrv1 "github.com/mediactl/clustarr/api/clustarr/v1alpha1"
 	"github.com/mediactl/clustarr/app/livetv/tuner"
 	"github.com/mediactl/clustarr/pkg/k8s"

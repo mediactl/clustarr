@@ -35,7 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
-	clustarrac "github.com/mediactl/clustarr/api/applyconfiguration/clustarr/clustarr/v1alpha1"
+	clustarrac "github.com/mediactl/clustarr/api/applyconfiguration/clustarr/v1alpha1"
 	clustarrv1 "github.com/mediactl/clustarr/api/clustarr/v1alpha1"
 	"github.com/mediactl/clustarr/app/livetv/index"
 	"github.com/mediactl/clustarr/app/livetv/tuner"

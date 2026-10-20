@@ -20,7 +20,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package clustarr
 
 import (
-	clustarrv1alpha1 "github.com/mediactl/clustarr/api/applyconfiguration/clustarr/clustarr/v1alpha1"
+	clustarrv1alpha1 "github.com/mediactl/clustarr/api/applyconfiguration/clustarr/v1alpha1"
 	internal "github.com/mediactl/clustarr/api/applyconfiguration/clustarr/internal"
 	v1alpha1 "github.com/mediactl/clustarr/api/clustarr/v1alpha1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
