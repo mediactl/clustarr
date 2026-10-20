@@ -91,7 +91,12 @@ func ItemStateRejections(ctx context.Context, t Target, p quality.Profile, d Dec
 	if score == 0 {
 		score = int(rel.FormatScore)
 	}
-	return videoItemState(t, p, resolveAudioNames(ctx, p, lang), parsed, rel, score)
+	an := resolveAudioNames(ctx, p, lang)
+	complete := false
+	if len(p.AudioLanguages) > 0 {
+		_, complete = audioRejection(an, p, parsed)
+	}
+	return videoItemState(t, p, an, parsed, rel, score, complete)
 }
 
 // WithItemState is d with extra rejections folded in: Approved and
@@ -194,7 +199,7 @@ func evaluateOne(ctx context.Context, t Target, originalLanguage string, an audi
 		add(dolbyVisionRejection(parsed))
 	}
 	if itemState {
-		rejections = append(rejections, videoItemState(t, p, an, parsed, rel, score)...)
+		rejections = append(rejections, videoItemState(t, p, an, parsed, rel, score, languagesComplete)...)
 	}
 
 	d := Decision{
@@ -239,8 +244,12 @@ func wholeSeasonOf(id Identity, c coverage) bool {
 
 // videoItemState is a video release's item-state rules, in Evaluate's
 // order: blocklist and already-imported, the queue preference, the
-// transcoded-final check and the upgrade table.
-func videoItemState(t Target, p quality.Profile, an audioNames, parsed *release.ParsedRelease, rel common.ReleaseInfo, score int) []common.Rejection {
+// transcoded-final check and the upgrade table. complete is whether the
+// release carries every language the profile's audio policy wants
+// (audioRejection): such a release replaces a file IncompleteAudio holds
+// whatever its quality, a transcoded one included, so the transcoded,
+// baseline and upgrade rules do not hold it.
+func videoItemState(t Target, p quality.Profile, an audioNames, parsed *release.ParsedRelease, rel common.ReleaseInfo, score int, complete bool) []common.Rejection {
 	var out []common.Rejection
 	add := func(r *common.Rejection) {
 		if r != nil {
@@ -250,6 +259,9 @@ func videoItemState(t Target, p quality.Profile, an audioNames, parsed *release.
 	out = append(out, blocklistAndHistoryRejections(t, rel)...)
 	candidate := quality.Candidate{Quality: rel.Quality, Revision: rel.Revision, FormatScore: score}
 	add(queueRejection(p, t, candidate))
+	if complete && t.Current != nil && IncompleteAudio(p, t.OriginalLanguageTag, t.Current.AudioLanguages) {
+		return out
+	}
 	add(transcodedRejection(t, Options{}))
 	out = append(out, baselineRejections(p, t, parsed, rel)...)
 	add(upgradeRejection(p, t, candidate, namesWantedLanguages(an, p, parsed)))

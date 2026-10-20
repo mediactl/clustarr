@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package decision
 
 import (
+	"slices"
 	"strings"
 
 	common "github.com/mediactl/clustarr/api/common/v1alpha1"
@@ -57,6 +58,66 @@ func LacksLanguage(p quality.Profile, originalTag string, audio []string) bool {
 		}
 	}
 	return true
+}
+
+// MissingAudio is the languages p's audio policy wants that a file whose
+// probed audio languages are audio lacks, as canonical tags ("original" is
+// originalTag; a language that does not resolve is dropped). It is nil with
+// no policy, or when audio is unknown (nil): an untagged track may be the
+// wanted one.
+func MissingAudio(p quality.Profile, originalTag string, audio []string) []string {
+	if audio == nil {
+		return nil
+	}
+	var missing []string
+	for _, w := range WantedAudio(p, originalTag) {
+		found := false
+		for _, a := range audio {
+			if baseLanguage(a) == baseLanguage(w) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			missing = append(missing, w)
+		}
+	}
+	return missing
+}
+
+// WantedAudio is p's audio policy languages as canonical tags, each once:
+// "original" is originalTag, and a language that does not resolve is
+// dropped. It is nil with no policy.
+func WantedAudio(p quality.Profile, originalTag string) []string {
+	var out []string
+	for _, l := range p.AudioLanguages {
+		if l == "original" {
+			l = originalTag
+		}
+		if w, ok := lang.Normalize(l); ok && !slices.Contains(out, string(w)) {
+			out = append(out, string(w))
+		}
+	}
+	return out
+}
+
+// IncompleteAudio reports whether a file must be replaced to carry every
+// language p's audio policy wants: the policy does not graft (a grafting
+// profile adds a missing dub from a donor instead) and the file's audio is
+// known to lack one (MissingAudio). Only a release carrying every wanted
+// language replaces such a file, whatever its quality and over a
+// transcoded file too (2026-10-20: the owner prefers a dual-audio release
+// to a graft for anime films; Akira's file carried Portuguese and
+// Japanese).
+func IncompleteAudio(p quality.Profile, originalTag string, audio []string) bool {
+	return !p.GraftAudio && len(MissingAudio(p, originalTag, audio)) > 0
+}
+
+// CompletesAudio reports whether a file whose probed audio languages are
+// audio carries every language p's audio policy wants: a policy, known
+// audio and nothing missing.
+func CompletesAudio(p quality.Profile, originalTag string, audio []string) bool {
+	return len(p.AudioLanguages) > 0 && audio != nil && len(MissingAudio(p, originalTag, audio)) == 0
 }
 
 // baseLanguage is a tag's primary subtag, lower-cased.

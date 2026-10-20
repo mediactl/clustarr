@@ -28,6 +28,12 @@ import (
 // file is final and so counts as meeting any cutoff.
 const ReasonTranscoded = "Transcoded"
 
+// ReasonMissingAudio is the CutoffMet condition's reason for an item whose
+// file lacks a language a non-grafting audio policy wants
+// (decision.IncompleteAudio): False, transcoded or not, until a release
+// carrying every wanted language replaces the file.
+const ReasonMissingAudio = "MissingAudio"
+
 // Transcoded reports whether mf is a transcoded file: catalog's name for
 // catalogv1alpha1.(*MediaFile).Transcoded, where the rule itself lives, beside
 // the type, so import's completed-download import reads the same predicate

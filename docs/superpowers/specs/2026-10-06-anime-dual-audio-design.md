@@ -493,8 +493,19 @@ films, seven had no English track.
   list's re-apply keeps a classified movie's profile, the same guard
   `applySeries` has: it reads through the API reader and checks
   `status.classification` or `catalog-classify`'s ownership.
-- **The rest was already kind-agnostic.** That covers status.audio,
-  WrongLanguage, the donor search, the donor grab and the graft.
-- **Default track.** A grafted file's default track is the profile's first
-  language, English. The Portuguese track Akira's remux kept stays beside
-  it.
+- **Dual audio, not a graft (owner, same day).** `anime-remux-1080p` sets
+  `graft: false` and scores Anime Dual Audio 1000, as `anime-web-1080p`
+  does. Under an audio policy `LacksLanguage` checks only the anchor. So
+  `decision.IncompleteAudio` is the second notion: a non-grafting policy,
+  and known audio missing a wanted language. Such a file reads
+  CutoffUnmet, reason `MissingAudio`, so the wanted sweep searches it,
+  transcoded or not; this is the one exception to "transcoded is final".
+  A release carrying every wanted language (`audioRejection`'s complete)
+  then passes `videoItemState`'s TranscodedFinal, baseline and upgrade
+  rules. A partial one stays rejected (`WantedLanguage`). Import's
+  `audioFill` takes the file only when its own probe carries every wanted
+  language. When the probe lacks one, the import is refused as a
+  releaseFault, so a mislabelled "Dual Audio" release is blocklisted
+  rather than grabbed again. The new file is complete, so it is final once
+  transcoded. Tekkonkinkreet (English alone) is held the same way, for
+  Japanese.

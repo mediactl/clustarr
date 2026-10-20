@@ -342,6 +342,13 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, ep *catalogv1alpha1.Ep
 	if wrongLanguage && !transcoded {
 		cutoffMet = false
 	}
+	// Missing audio under a non-grafting policy is not final: see the movie
+	// package's identical block.
+	missingAudio := profile != nil && hasFile && decision.IncompleteAudio(*profile, originalTag, audio)
+	if missingAudio {
+		cutoffMet = false
+		transcoded = false
+	}
 	if action, file := rollup.FileTransition(ep.Status.FileRef, mf); action != "" {
 		r.publishFile(ctx, ep, action, file, mf, now)
 	}
@@ -391,6 +398,9 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, ep *catalogv1alpha1.Ep
 		k8s.MarkFalse(ep, &conditions, catalogv1alpha1.EpisodeConditionCutoffMet, "ProfileUnresolved", "cutoff not evaluated: %s", profileProblem)
 	case wrongLanguage:
 		k8s.MarkFalse(ep, &conditions, catalogv1alpha1.EpisodeConditionCutoffMet, "WrongLanguage", "the file's audio lacks the profile's language")
+	case missingAudio:
+		k8s.MarkFalse(ep, &conditions, catalogv1alpha1.EpisodeConditionCutoffMet, rollup.ReasonMissingAudio,
+			"the file's audio %v lacks %v, which the profile wants in one release", audio, decision.MissingAudio(*profile, originalTag, audio))
 	case cutoffMet:
 		k8s.MarkTrue(ep, &conditions, catalogv1alpha1.EpisodeConditionCutoffMet, "CutoffMet", "file meets the profile cutoff")
 	default:

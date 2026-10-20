@@ -213,6 +213,31 @@ func replacesWrongLanguage(p quality.Profile, originalTag string, existing *cata
 	return !decision.LacksLanguage(p, originalTag, incoming.AudioLanguages)
 }
 
+// audioFill is how an incoming file meets existing files whose audio lacks a
+// language a non-grafting policy wants (decision.IncompleteAudio, Akira on
+// 2026-10-20). fills is true when every existing file is such a file and the
+// incoming file's own probe carries every wanted language: it replaces them
+// whatever its quality, a transcoded one included, as the grab decision
+// approved it. mislabelled names the languages the incoming file carries
+// when one existing file is such a file and the probe, known, still lacks
+// one: the grab took the release to carry them all, so the fault is the
+// release's and it is blocklisted rather than taken again.
+func audioFill(p quality.Profile, originalTag string, existing []catalogv1alpha1.MediaFile, incoming *schema.ProbeSummary) (fills bool, mislabelled []string) {
+	incomplete := 0
+	for i := range existing {
+		if decision.IncompleteAudio(p, originalTag, decision.AudioLanguages(existing[i].Status.MediaInfo)) {
+			incomplete++
+		}
+	}
+	if incomplete == 0 || incoming == nil || len(incoming.AudioLanguages) == 0 {
+		return false, nil
+	}
+	if !decision.CompletesAudio(p, originalTag, incoming.AudioLanguages) {
+		return false, incoming.AudioLanguages
+	}
+	return incomplete == len(existing), nil
+}
+
 // relPath renders path relative to root for a message, falling back to the
 // path itself.
 func relPath(root, path string) string {

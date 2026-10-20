@@ -873,6 +873,21 @@ func (p *planner) filledBy(c candidate, filled map[string]string) string {
 func (p *planner) gate(rel string, c candidate, compared []catalogv1alpha1.MediaFile, manual bool) (Rejection, bool) {
 	e := &p.in.Entry
 	prof := *p.in.Profile
+	// A file that lacks a wanted audio language under a non-grafting policy
+	// is replaced by a file carrying them all, over the transcoded rule and
+	// the upgrade table (audioFill); one whose probe lacks a language the
+	// grab took it to carry is a mislabelled release.
+	fills, mislabelled := false, []string(nil)
+	if !nonVideoKind(c.kind) {
+		fills, mislabelled = audioFill(prof, p.in.OriginalLanguage, compared, c.f.Probe)
+	}
+	if mislabelled != nil && !manual {
+		return releaseFaultRejection("%s: the release was taken to carry audio %v, and the file carries %v",
+			rel, decision.WantedAudio(prof, p.in.OriginalLanguage), mislabelled), true
+	}
+	if fills {
+		return Rejection{}, false
+	}
 	for i := range compared {
 		if r := transcodedRejection(rel, &compared[i], e, manual); !r.none() {
 			return r, true

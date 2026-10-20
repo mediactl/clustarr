@@ -82,12 +82,15 @@ func TestEmbeddedBuiltinProfileSeedsDecode(t *testing.T) {
 		return seeds[0]
 	}
 
-	t.Run("the anime built-ins want dual audio, grafted (anime dual-audio spec §5.1)", func(t *testing.T) {
-		for _, f := range []string{"anime-web-1080p.json", "anime-remux-1080p.json"} {
+	t.Run("the anime built-ins want dual audio (anime dual-audio spec §5.1)", func(t *testing.T) {
+		// The series built-in grafts a missing dub; the movie built-in takes
+		// a dual-audio release instead (owner, 2026-10-20), and prefers one.
+		for f, graft := range map[string]bool{"anime-web-1080p.json": true, "anime-remux-1080p.json": false} {
 			s := one(t, f)
 			require.NotNil(t, s.Spec.Audio, f)
 			require.Equal(t, []string{"en", "original"}, s.Spec.Audio.Languages, f)
-			require.True(t, s.Spec.Audio.Graft, f)
+			require.Equal(t, graft, s.Spec.Audio.Graft, f)
+			require.Contains(t, s.Spec.FormatScores, catalogv1alpha1.FormatScore{Format: "anime-dual-audio", Score: 1000}, f)
 		}
 	})
 	t.Run("hd-bluray-web", func(t *testing.T) {

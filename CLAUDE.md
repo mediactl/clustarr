@@ -87,7 +87,7 @@ name and stays.
 
 A transcoded media file should be the final destination. If we detect a transcoded profile, we should not mark the media "CutoffUnmet" - instead it should be marked `Transcoded`.
 
-The predicate is `app/catalog/controller/rollup.Transcoded` -- `spec.original` false, or the probe's `status.mediaInfo.transcodeProfile` (the `CLUSTARR_PROFILE` tag), or a transcode the transcode controller did not make: `status.mediaInfo.videoEncoder` naming an ffmpeg HEVC or AV1 encoder (`commonv1.MediaInfo.TranscodedElsewhere`; Tdarr's `Lavc… hevc_qsv` on the owner's library, 2026-09-29) -- and such a Movie or Episode reads phase `Transcoded`, with `CutoffMet=True` reason `Transcoded`; `pkg/decision` rejects every release over it as `TranscodedFinal` (spec §4.2) -- a user-invoked search's too, since "Search now" grabs its best automatically, so only a person's own pick (Search `spec.grab`, exempt in the Search controller's `resolveGrab`) replaces it; an import refused for it reads `importplan.MessageExistingFileFinal`, which never blocklists (2026-10-07: a refused 21 GB grab was blocklisted and its file deleted) -- and transcode never encodes it again: a file another tool transcoded is
+The predicate is `app/catalog/controller/rollup.Transcoded` -- `spec.original` false, or the probe's `status.mediaInfo.transcodeProfile` (the `CLUSTARR_PROFILE` tag), or a transcode the transcode controller did not make: `status.mediaInfo.videoEncoder` naming an ffmpeg HEVC or AV1 encoder (`commonv1.MediaInfo.TranscodedElsewhere`; Tdarr's `Lavc… hevc_qsv` on the owner's library, 2026-09-29) -- and such a Movie or Episode reads phase `Transcoded`, with `CutoffMet=True` reason `Transcoded` (the one exception: a file missing an audio language a non-grafting profile wants, `MissingAudio` under UI below); `pkg/decision` rejects every release over it as `TranscodedFinal` (spec §4.2) -- a user-invoked search's too, since "Search now" grabs its best automatically, so only a person's own pick (Search `spec.grab`, exempt in the Search controller's `resolveGrab`) replaces it; an import refused for it reads `importplan.MessageExistingFileFinal`, which never blocklists (2026-10-07: a refused 21 GB grab was blocklisted and its file deleted) -- and transcode never encodes it again: a file another tool transcoded is
 still remuxed into the MP4 layout when its video is compliant, and skipped
 rather than encoded a second time otherwise (2026-10-15;
 `transcodeplan.AlreadyTranscoded` counts only transcode's own output as
@@ -591,9 +591,17 @@ move since 2026-10-20 (`movie.Classify`, Movie `status.classification`): TMDB
 has no anime genre, so a film is anime when a genre names Animation (or
 Anime) and its original language is Japanese, and the movie folder's
 `defaults.anime` (`anime-remux-1080p`, the Radarr anime built-in) gives it
-English plus the original, grafted. Akira had played Portuguese: its
-scanned file carried only Portuguese and Japanese audio, which
-`hd-bluray-web`'s `language: original` accepted. A file whose probed audio
+English plus the original in one release. That profile does not graft
+(owner, 2026-10-20: a dual-audio release, not a grafted dub) and scores
+Anime Dual Audio 1000. A file missing a language a non-grafting policy
+wants (`decision.IncompleteAudio`) reads CutoffUnmet, reason
+`MissingAudio`, transcoded or not, until a release carrying every wanted
+language replaces it. `videoItemState` lets such a release past
+TranscodedFinal, the baseline rules and the upgrade table. Import's
+`audioFill` takes it only when the file's own probe carries them all, and
+refuses it as a releaseFault when it does not. Akira had played
+Portuguese: its scanned file carried only Portuguese and Japanese audio,
+which `hd-bluray-web`'s `language: original` accepted. A file whose probed audio
 lacks the profile's language (`decision.LacksLanguage`; unknown or
 untagged audio never lacks) reads `WrongLanguage` and CutoffUnmet, unless
 it is transcoded. Without a quality upgrade it is replaced only by a
