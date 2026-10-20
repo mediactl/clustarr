@@ -42,6 +42,7 @@ import (
 	"syscall"
 	"time"
 
+	g "github.com/anacrolix/generics"
 	anatorrent "github.com/anacrolix/torrent"
 	"github.com/anacrolix/torrent/metainfo"
 	"github.com/anacrolix/torrent/storage"
@@ -366,7 +367,7 @@ func (c *Client) Add(ctx context.Context, req download.AddRequest) (string, erro
 	case c.cfg.ScratchDir != "" && !exists(pub):
 		dir, published = filepath.Join(c.cfg.ScratchDir, req.Category, req.Name), false
 	}
-	spec.Storage = storage.NewFile(dir)
+	spec.Storage = fileStorage(dir)
 	if spec.DisplayName == "" {
 		spec.DisplayName = req.Name
 	}
@@ -952,7 +953,7 @@ func (c *Client) publish(id string) {
 		// piece root set") -- every real release. v2 torrents need them.
 		spec.PieceLayers = nil
 	}
-	spec.Storage = storage.NewFile(dst)
+	spec.Storage = fileStorage(dst)
 	spec.DisplayName = t.Name()
 
 	c.pubMu.Lock()
@@ -1006,4 +1007,18 @@ func (c *Client) publish(id string) {
 	}
 	nt.SetOnWriteChunkError(sess.onWriteChunkError(nt))
 	log.Info("torrent: published", "id", id, "to", dst)
+}
+
+// fileStorage is a transfer's file storage at dir, its piece completion kept
+// in memory: anacrolix's part-file mode, which infers completion from the
+// file names when the storage is opened (a file without its .part suffix is
+// whole) and hashes the rest once. storage.NewFile kept it in a SQLite
+// database in dir instead, and on /data -- NFS on talos -- every verified
+// piece cost that database's commit, an fsync of the whole file (a
+// persistent completion makes MarkComplete flush), and one query per piece
+// before it to learn whether the file was done: verifying a 5.7 GB release
+// slowed to a piece every few seconds and outlasted its download by over an
+// hour (2026-10-20).
+func fileStorage(dir string) storage.ClientImplCloser {
+	return storage.NewFileOpts(storage.NewFileClientOpts{ClientBaseDir: dir, UsePartFiles: g.Some(true)})
 }
