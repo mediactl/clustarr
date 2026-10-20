@@ -317,6 +317,11 @@ func (in *ReleaseInfo) DeepCopyInto(out *ReleaseInfo) {
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
+	if in.IndexerLanguages != nil {
+		in, out := &in.IndexerLanguages, &out.IndexerLanguages
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
 	if in.MatchedFormats != nil {
 		in, out := &in.MatchedFormats, &out.MatchedFormats
 		*out = make([]string, len(*in))

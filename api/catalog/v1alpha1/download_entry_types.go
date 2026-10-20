@@ -222,6 +222,14 @@ type DownloadRelease struct {
 	// +kubebuilder:validation:MaxItems=16
 	// +kubebuilder:validation:items:MaxLength=35
 	Languages []string `json:"languages,omitempty"`
+	// IndexerLanguages are the release's indexer-reported audio languages
+	// (ReleaseInfo.IndexerLanguages), kept so the grab's item-state check
+	// reads the release as the search did.
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=16
+	// +kubebuilder:validation:items:MaxLength=35
+	IndexerLanguages []string `json:"indexerLanguages,omitempty"`
 	// +optional
 	// +kubebuilder:validation:MaxLength=256
 	ReleaseGroup string `json:"releaseGroup,omitempty"`

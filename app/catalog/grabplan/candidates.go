@@ -206,6 +206,12 @@ func DownloadRelease(rel commonv1.ReleaseInfo, score int32) catalogv1alpha1.Down
 		}
 		out.Languages = append(out.Languages, clamp(l, maxLang))
 	}
+	for _, l := range rel.IndexerLanguages {
+		if len(out.IndexerLanguages) == maxLangs {
+			break
+		}
+		out.IndexerLanguages = append(out.IndexerLanguages, clamp(l, maxLang))
+	}
 	return out
 }
 
@@ -216,6 +222,7 @@ func ReleaseInfo(r catalogv1alpha1.DownloadRelease) commonv1.ReleaseInfo {
 		InfoHash: r.InfoHash, Protocol: r.Protocol, SizeBytes: r.SizeBytes,
 		Quality: r.Quality, Revision: r.Revision, FormatScore: r.FormatScore,
 		Languages: append([]string(nil), r.Languages...), ReleaseGroup: r.ReleaseGroup, Edition: r.Edition,
+		IndexerLanguages: append([]string(nil), r.IndexerLanguages...),
 	}
 	return info
 }

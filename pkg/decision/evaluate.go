@@ -20,6 +20,7 @@ package decision
 import (
 	"context"
 	"math"
+	"slices"
 
 	common "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -80,6 +81,7 @@ func ItemStateRejections(ctx context.Context, t Target, p quality.Profile, d Dec
 			return nil
 		}
 		pr.Languages = pr.LanguagesWith(lang, release.GroupLanguagesFrom(ctx))
+		indexerLanguages(pr, rel)
 		parsed = pr
 	}
 	if t.Donor != nil {
@@ -158,6 +160,9 @@ func evaluateOne(ctx context.Context, t Target, originalLanguage string, an audi
 	// is the order Radarr's AggregateLanguages runs in (see
 	// release.ParsedRelease.LanguagesFor).
 	parsed.Languages = parsed.LanguagesWith(originalLanguage, release.GroupLanguagesFrom(ctx))
+	// The indexer's own reading of the file's audio, from its MediaInfo, is
+	// the release's languages wherever it reports one (indexerLanguages).
+	indexerLanguages(parsed, rel)
 	parsed.ApplyTo(&rel)
 
 	// ReleaseTitle is the indexer's full release name: ReleaseTitle custom
@@ -385,4 +390,17 @@ const sizeBucket = 200 * 1024 * 1024 // 200 MiB, DownloadDecisionComparer.Compar
 
 func roundTo200MiB(n int64) int64 {
 	return (n + sizeBucket/2) / sizeBucket * sizeBucket
+}
+
+// indexerLanguages makes rel's indexer-reported audio languages parsed's
+// languages when the indexer reports any (ReleaseInfo.IndexerLanguages): they
+// are read from the file's MediaInfo, so they beat the title -- hallowed's
+// untagged Akira Blu-ray is Japanese and English, and "MULTi.Jpn.Eng" whose
+// "Eng" was its subtitles is Japanese alone.
+func indexerLanguages(parsed *release.ParsedRelease, rel common.ReleaseInfo) {
+	if len(rel.IndexerLanguages) == 0 {
+		return
+	}
+	parsed.Languages = slices.Clone(rel.IndexerLanguages)
+	parsed.LanguageUnknown = false
 }

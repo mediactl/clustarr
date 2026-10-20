@@ -27,6 +27,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/newznab"
+	"github.com/mediactl/clustarr/pkg/quality/catalogue"
 	"github.com/mediactl/clustarr/pkg/release"
 	"github.com/mediactl/clustarr/pkg/torznab"
 )
@@ -67,8 +68,9 @@ func ProjectRelease(r torznab.Release, indexerName, protocol string) schema.Rele
 		// Cloned, not aliased: ApplyTo WRITES the parsed ids into this map,
 		// and the caller is the poll loop, which holds every fetched row
 		// alive for the index write that follows the projection.
-		IDs:          maps.Clone(r.IDs),
-		IndexerFlags: indexerFlags(r),
+		IDs:              maps.Clone(r.IDs),
+		IndexerFlags:     indexerFlags(r),
+		IndexerLanguages: indexerLanguages(r.Attrs),
 	}
 
 	// PublishedAt is a *metav1.Time on purpose: nil means the indexer
@@ -366,6 +368,28 @@ func indexerFlags(r torznab.Release) []string {
 	for _, tag := range r.Attrs["tag"] {
 		if v, ok := knownFlags[strings.ToLower(strings.TrimSpace(tag))]; ok && !slices.Contains(out, v) {
 			out = append(out, v)
+		}
+	}
+	return out
+}
+
+// maxIndexerLanguages is ReleaseInfo.IndexerLanguages' MaxItems.
+const maxIndexerLanguages = 16
+
+// indexerLanguages are the audio languages a release's attributes report,
+// as display names in the indexer's order, each once: nzbgeek sends one
+// "language" attribute per audio track ("English", "Japanese"), nzb-life
+// one "audio" and one "language" listing codes and names together ("ja,
+// Japanese, English"). A value the catalogue does not name is dropped.
+func indexerLanguages(attrs map[string][]string) []string {
+	var out []string
+	for _, name := range []string{"audio", "language"} {
+		for _, v := range attrs[name] {
+			for _, tok := range strings.Split(v, ",") {
+				if n, ok := catalogue.ResolveLanguageName(tok); ok && !slices.Contains(out, n) && len(out) < maxIndexerLanguages {
+					out = append(out, n)
+				}
+			}
 		}
 	}
 	return out

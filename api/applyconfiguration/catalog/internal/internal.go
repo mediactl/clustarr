@@ -1771,6 +1771,12 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: guid
       type:
         scalar: string
+    - name: indexerLanguages
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: atomic
     - name: indexerName
       type:
         scalar: string
@@ -5410,6 +5416,12 @@ var schemaYAML = typed.YAMLObject(`types:
           elementType:
             scalar: string
     - name: indexerFlags
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: atomic
+    - name: indexerLanguages
       type:
         list:
           elementType:

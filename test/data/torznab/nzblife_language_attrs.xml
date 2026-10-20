@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss xmlns:newznab="http://www.newznab.com/DTD/2010/feeds/attributes/" version="2.0">
+<channel>
+<title>Nzb.su</title>
+<description>API Feed</description>
+<language>en-gb</language>
+<webMaster>root@nzb.su (NZB.su)</webMaster>
+<category />
+<newznab:response offset="0" total="86" />
+<item>
+	<title>Akira.1988.BluRay.1080p.DDP.Atmos.5.1.x264-hallowed</title>
+	<guid isPermaLink="true">https://api.nzb.life/details/2fcea079289902928aea6f7b7986298f</guid>
+	<link>https://api.nzb.life/getnzb/2fcea079289902928aea6f7b7986298f.nzb&amp;i=377205&amp;r=b056e2e01f94ea72c84f9c8c8774dc0d</link>
+	<pubDate>Tue, 15 Sep 2026 15:52:56 -0500</pubDate> 
+	<category>Movies &gt; HD</category> 	
+	<enclosure url="https://api.nzb.life/getnzb/2fcea079289902928aea6f7b7986298f.nzb&amp;i=377205&amp;r=b056e2e01f94ea72c84f9c8c8774dc0d" length="11295380332" type="application/x-nzb" />
+
+	<newznab:attr name="category" value="2000" />
+	<newznab:attr name="category" value="2040" />
+	<newznab:attr name="size" value="11295380332" />
+	<newznab:attr name="guid" value="2fcea079289902928aea6f7b7986298f" />
+	 <newznab:attr name="hash" value="ec1cc5ce54f480f36aa88e9f5d1c417b" />
+	<newznab:attr name="files" value="9" />
+	<newznab:attr name="imdb" value="0094625" />
+	<newznab:attr name="imdbtitle" value="Akira" />
+	<newznab:attr name="imdbyear" value="1988" />
+	<newznab:attr name="grabs" value="242" />
+	<newznab:attr name="password" value="0" />
+	<newznab:attr name="nfo" value="1" />
+	<newznab:attr name="info" value="https://api.nzb.life/api?t=getnfo&amp;id=2fcea079289902928aea6f7b7986298f&amp;apikey=REDACTED&amp;raw=1" />
+	<newznab:attr name="usenetdate" value="Tue, 15 Sep 2026 15:52:42 -0500" />
+	<newznab:attr name="group" value="alt.binaries.boneless" />
+	<newznab:attr name="language" value="Japanese, English" />
+	<newznab:attr name="audio" value="Japanese, English" />
+	<newznab:attr name="subs" value="English, Chinese, Dutch, French, German, Japanese, Spanish" />
+
+</item>
+<item>
+	<title>Akira.1988.4K.HDR.DV.2160p.BDRemux.Ita.Jap.Eng.x265-NAHOM</title>
+	<guid isPermaLink="true">https://api.nzb.life/details/9c740c651e99f2caf6f99b52002b7d35</guid>
+	<link>https://api.nzb.life/getnzb/9c740c651e99f2caf6f99b52002b7d35.nzb&amp;i=377205&amp;r=b056e2e01f94ea72c84f9c8c8774dc0d</link>
+	<pubDate>Wed, 22 Apr 2026 18:39:35 -0500</pubDate> 
+	<category>Movies &gt; Foreign</category> 	
+	<enclosure url="https://api.nzb.life/getnzb/9c740c651e99f2caf6f99b52002b7d35.nzb&amp;i=377205&amp;r=b056e2e01f94ea72c84f9c8c8774dc0d" length="103292289563" type="application/x-nzb" />
+
+	<newznab:attr name="category" value="2000" />
+	<newznab:attr name="category" value="2010" />
+	<newznab:attr name="size" value="103292289563" />
+	<newznab:attr name="guid" value="9c740c651e99f2caf6f99b52002b7d35" />
+	 <newznab:attr name="hash" value="b96cda4d9f14904111fb9e320235185b" />
+	<newznab:attr name="files" value="11" />
+	<newznab:attr name="imdb" value="0094625" />
+	<newznab:attr name="imdbtitle" value="Akira" />
+	<newznab:attr name="imdbyear" value="1988" />
+	<newznab:attr name="grabs" value="89" />
+	<newznab:attr name="password" value="0" />
+	<newznab:attr name="nfo" value="1" />
+	<newznab:attr name="info" value="https://api.nzb.life/api?t=getnfo&amp;id=9c740c651e99f2caf6f99b52002b7d35&amp;apikey=REDACTED&amp;raw=1" />
+	<newznab:attr name="usenetdate" value="Wed, 22 Apr 2026 18:32:09 -0500" />
+	<newznab:attr name="group" value="alt.binaries.boneless" />
+	<newznab:attr name="language" value="ja, Japanese, English, Italian" />
+	<newznab:attr name="audio" value="ja, Japanese, English, Italian" />
+	<newznab:attr name="subs" value="English, Italian" />
+
+</item>
+<item>
+	<title>Akira.1988.2160p.BDRip.TrueHD.7.1.Atmos.MULTi.Jpn.Eng.DoVi.HDR10.x265.10bit-MarkII</title>
+	<guid isPermaLink="true">https://api.nzb.life/details/5e371d11ffd6a4555d561d0dd818a05f</guid>
+	<link>https://api.nzb.life/getnzb/5e371d11ffd6a4555d561d0dd818a05f.nzb&amp;i=377205&amp;r=b056e2e01f94ea72c84f9c8c8774dc0d</link>
+	<pubDate>Wed, 08 Jul 2026 04:06:29 -0500</pubDate> 
+	<category>Movies &gt; UHD</category> 	
+	<enclosure url="https://api.nzb.life/getnzb/5e371d11ffd6a4555d561d0dd818a05f.nzb&amp;i=377205&amp;r=b056e2e01f94ea72c84f9c8c8774dc0d" length="11383441444" type="application/x-nzb" />
+
+	<newznab:attr name="category" value="2000" />
+	<newznab:attr name="category" value="2045" />
+	<newznab:attr name="size" value="11383441444" />
+	<newznab:attr name="guid" value="5e371d11ffd6a4555d561d0dd818a05f" />
+	 <newznab:attr name="hash" value="317fd4e7e37ad1cad52f43f2a43ee178" />
+	<newznab:attr name="files" value="114" />
+	<newznab:attr name="imdb" value="0094625" />
+	<newznab:attr name="imdbtitle" value="Akira" />
+	<newznab:attr name="imdbyear" value="1988" />
+	<newznab:attr name="grabs" value="42" />
+	<newznab:attr name="password" value="0" />
+	<newznab:attr name="nfo" value="0" />
+	<newznab:attr name="usenetdate" value="Mon, 09 Mar 2026 17:24:50 -0500" />
+	<newznab:attr name="group" value="alt.binaries.ath" />
+	<newznab:attr name="language" value="ja" />
+	<newznab:attr name="audio" value="ja" />
+	<newznab:attr name="subs" value="en" />
+
+</item>
+</channel>
+</rss>

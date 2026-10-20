@@ -153,6 +153,7 @@ func (s PartSet) Release() common.ReleaseInfo {
 	r := common.ReleaseInfo{
 		GUID: s.GUID(), IndexerRef: lead.IndexerRef, IndexerName: lead.IndexerName, Title: s.base,
 		Protocol: lead.Protocol, Categories: append([]int32(nil), lead.Categories...), IDs: lead.IDs,
+		IndexerLanguages: append([]string(nil), lead.IndexerLanguages...),
 	}
 	for i, m := range s.Members {
 		p := m.Release

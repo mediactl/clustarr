@@ -474,6 +474,20 @@ spec:
                         type: string
                       maxItems: 7
                       type: array
+                    indexerLanguages:
+                      description: |-
+                        IndexerLanguages are the audio languages the indexer reports for the
+                        release, read from its MediaInfo (newznab language and audio
+                        attributes), as display names in the indexer's order; empty when it
+                        reports none. Where set they are the release's languages, over what
+                        its title says (2026-10-20: nzbgeek and nzb-life report hallowed's
+                        untagged Akira Blu-ray as Japanese and English).
+                      items:
+                        maxLength: 35
+                        type: string
+                      maxItems: 16
+                      type: array
+                      x-kubernetes-list-type: atomic
                     indexerName:
                       description: IndexerName is the display name of the indexer
                         at search time.

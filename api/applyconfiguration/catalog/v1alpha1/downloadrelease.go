@@ -33,18 +33,22 @@ type DownloadReleaseApplyConfiguration struct {
 	// blocklist's title match.
 	Title *string `json:"title,omitempty"`
 	// GUID is identity: a longer one is refused at admission, never clamped.
-	GUID         *string                  `json:"guid,omitempty"`
-	IndexerRef   *string                  `json:"indexerRef,omitempty"`
-	IndexerName  *string                  `json:"indexerName,omitempty"`
-	InfoHash     *string                  `json:"infoHash,omitempty"`
-	Protocol     *commonv1alpha1.Protocol `json:"protocol,omitempty"`
-	SizeBytes    *int64                   `json:"sizeBytes,omitempty"`
-	Quality      *commonv1alpha1.Quality  `json:"quality,omitempty"`
-	Revision     *commonv1alpha1.Revision `json:"revision,omitempty"`
-	FormatScore  *int32                   `json:"formatScore,omitempty"`
-	Languages    []string                 `json:"languages,omitempty"`
-	ReleaseGroup *string                  `json:"releaseGroup,omitempty"`
-	Edition      *string                  `json:"edition,omitempty"`
+	GUID        *string                  `json:"guid,omitempty"`
+	IndexerRef  *string                  `json:"indexerRef,omitempty"`
+	IndexerName *string                  `json:"indexerName,omitempty"`
+	InfoHash    *string                  `json:"infoHash,omitempty"`
+	Protocol    *commonv1alpha1.Protocol `json:"protocol,omitempty"`
+	SizeBytes   *int64                   `json:"sizeBytes,omitempty"`
+	Quality     *commonv1alpha1.Quality  `json:"quality,omitempty"`
+	Revision    *commonv1alpha1.Revision `json:"revision,omitempty"`
+	FormatScore *int32                   `json:"formatScore,omitempty"`
+	Languages   []string                 `json:"languages,omitempty"`
+	// IndexerLanguages are the release's indexer-reported audio languages
+	// (ReleaseInfo.IndexerLanguages), kept so the grab's item-state check
+	// reads the release as the search did.
+	IndexerLanguages []string `json:"indexerLanguages,omitempty"`
+	ReleaseGroup     *string  `json:"releaseGroup,omitempty"`
+	Edition          *string  `json:"edition,omitempty"`
 }
 
 // DownloadReleaseApplyConfiguration constructs a declarative configuration of the DownloadRelease type for use with
@@ -139,6 +143,16 @@ func (b *DownloadReleaseApplyConfiguration) WithFormatScore(value int32) *Downlo
 func (b *DownloadReleaseApplyConfiguration) WithLanguages(values ...string) *DownloadReleaseApplyConfiguration {
 	for i := range values {
 		b.Languages = append(b.Languages, values[i])
+	}
+	return b
+}
+
+// WithIndexerLanguages adds the given value to the IndexerLanguages field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the IndexerLanguages field.
+func (b *DownloadReleaseApplyConfiguration) WithIndexerLanguages(values ...string) *DownloadReleaseApplyConfiguration {
+	for i := range values {
+		b.IndexerLanguages = append(b.IndexerLanguages, values[i])
 	}
 	return b
 }

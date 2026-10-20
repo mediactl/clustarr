@@ -649,7 +649,16 @@ parser also reads Sonarr's original-language scene tags
 (`ParsedRelease.NamesOriginal`, resolved by `LanguagesFor`): German beside
 DL (never WEB-DL's) or ML, and French (VF, VFF, VFI, VFQ, VF2, TRUEFRENCH)
 beside VO or MULTi. It reads explicit runs of three-letter codes in title
-order (`ENG.ITA`, `JPN.ENG`); a code alone is no language. Items report `status.audio` (wanted, present, missing,
+order (`ENG.ITA`, `JPN.ENG`); a code alone is no language. Where the
+indexer reports a release's audio languages from its MediaInfo, they beat
+all of these: nzbgeek sends one `language` attribute per track, and
+nzb-life sends `audio`/`language` lists mixing codes and names.
+`rss.ProjectRelease` stores them as `ReleaseInfo.IndexerLanguages`
+(`catalogue.ResolveLanguageName`), the grab entry keeps them
+(`DownloadRelease.IndexerLanguages`), and `decision.indexerLanguages` makes
+them the release's languages at search and at the grab check. Example:
+hallowed's untagged Akira Blu-ray is English and Japanese. NFOs are not
+fetched, since nzbgeek ignores `t=getnfo`. Items report `status.audio` (wanted, present, missing,
 graft); a missing dub never blocks the video. Grafting (phase 4): the
 search planner queues a donor search (`SearchTask.Purpose: audioDonor`) for
 a monitored item whose graft reads `searching` or `failed`, on its own

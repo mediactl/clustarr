@@ -189,6 +189,18 @@ type ReleaseInfo struct {
 	// +kubebuilder:validation:MaxItems=64
 	Languages []string `json:"languages,omitempty"`
 
+	// IndexerLanguages are the audio languages the indexer reports for the
+	// release, read from its MediaInfo (newznab language and audio
+	// attributes), as display names in the indexer's order; empty when it
+	// reports none. Where set they are the release's languages, over what
+	// its title says (2026-10-20: nzbgeek and nzb-life report hallowed's
+	// untagged Akira Blu-ray as Japanese and English).
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=16
+	// +kubebuilder:validation:items:MaxLength=35
+	IndexerLanguages []string `json:"indexerLanguages,omitempty"`
+
 	// ReleaseType classifies how many catalog items the release covers.
 	// +optional
 	ReleaseType ReleaseType `json:"releaseType,omitempty"`

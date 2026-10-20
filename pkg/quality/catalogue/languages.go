@@ -17,7 +17,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 package catalogue
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/mediactl/clustarr/pkg/lang"
+)
 
 // Language is one row of the language table: Radarr's internal numeric
 // Language.Id, its English display Name (the vocabulary the embedded
@@ -210,6 +214,27 @@ func LanguageName(tag string) (string, bool) {
 		if l.Tag != "" && strings.EqualFold(l.Tag, primary) {
 			return l.Name, true
 		}
+	}
+	return "", false
+}
+
+// ResolveLanguageName is the display name an indexer's language value
+// names, whether it is a display name ("Japanese", "portuguese") or a code
+// in any form pkg/lang reads ("ja", "jpn", "zh-Hans"): nzb-life reports
+// "ja, Japanese, English" for one release. It reports false for a value the
+// table does not carry.
+func ResolveLanguageName(s string) (string, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "", false
+	}
+	for _, l := range languages {
+		if l.Name != "" && strings.EqualFold(l.Name, s) {
+			return l.Name, true
+		}
+	}
+	if t, ok := lang.Normalize(s); ok {
+		return LanguageName(string(t))
 	}
 	return "", false
 }

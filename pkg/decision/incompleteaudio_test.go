@@ -132,3 +132,30 @@ func TestADualAudioReleaseCarriesItsGroupsLanguage(t *testing.T) {
 	require.Equal(t, []string{"Japanese", "English"}, ds[1].Release.Languages)
 	require.True(t, ds[1].Approved, "%v", reasons(ds[1]))
 }
+
+// TestTheIndexersAudioLanguagesBeatTheTitle: hallowed's Akira Blu-ray names
+// no language, so its title reads as Japanese alone; nzbgeek and nzb-life
+// report English and Japanese from its MediaInfo, and that reading -- at
+// search and at the grab's item-state check alike -- completes Akira's
+// Portuguese-and-Japanese file. "MULTi.Jpn.Eng", whose "Eng" was subtitles,
+// is Japanese alone and lacks English.
+func TestTheIndexersAudioLanguagesBeatTheTitle(t *testing.T) {
+	p, cat := builtin(t, "anime-remux-1080p")
+	hallowed := akiraReleases("Akira.1988.BluRay.1080p.DDP.Atmos.5.1.x264-hallowed")
+	ds := decision.Evaluate(context.Background(), akira("pt", "ja"), p, cat, hallowed, usenetOnly)
+	require.True(t, hasRejection(ds[0], decision.ReasonWantedLanguage), "the title alone: %v", reasons(ds[0]))
+
+	hallowed[0].IndexerLanguages = []string{"English", "Japanese"}
+	ds = decision.Evaluate(context.Background(), akira("pt", "ja"), p, cat, hallowed, usenetOnly)
+	require.True(t, ds[0].Approved, "%v", reasons(ds[0]))
+	require.Equal(t, []string{"English", "Japanese"}, ds[0].Release.Languages)
+
+	rel := decision.EvaluateRelease(context.Background(), akira("pt", "ja"), p, cat, hallowed, usenetOnly)[0]
+	rel.Parsed = nil // the manager's grab check reads the stored release, not the agent's parse
+	require.Empty(t, decision.ItemStateRejections(context.Background(), akira("pt", "ja"), p, rel, usenetOnly))
+
+	multi := akiraReleases("Akira.1988.2160p.BDRip.TrueHD.7.1.Atmos.MULTi.Jpn.Eng.DoVi.HDR10.x265.10bit-MarkII")
+	multi[0].IndexerLanguages = []string{"Japanese"}
+	ds = decision.Evaluate(context.Background(), akira("pt", "ja"), p, cat, multi, usenetOnly)
+	require.True(t, hasRejection(ds[0], decision.ReasonWantedLanguage), "%v", reasons(ds[0]))
+}

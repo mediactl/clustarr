@@ -799,6 +799,17 @@ spec:
                             at admission, never clamped.'
                           maxLength: 1024
                           type: string
+                        indexerLanguages:
+                          description: |-
+                            IndexerLanguages are the release's indexer-reported audio languages
+                            (ReleaseInfo.IndexerLanguages), kept so the grab's item-state check
+                            reads the release as the search did.
+                          items:
+                            maxLength: 35
+                            type: string
+                          maxItems: 16
+                          type: array
+                          x-kubernetes-list-type: atomic
                         indexerName:
                           maxLength: 253
                           type: string
@@ -1247,6 +1258,17 @@ spec:
                                 at admission, never clamped.'
                               maxLength: 1024
                               type: string
+                            indexerLanguages:
+                              description: |-
+                                IndexerLanguages are the release's indexer-reported audio languages
+                                (ReleaseInfo.IndexerLanguages), kept so the grab's item-state check
+                                reads the release as the search did.
+                              items:
+                                maxLength: 35
+                                type: string
+                              maxItems: 16
+                              type: array
+                              x-kubernetes-list-type: atomic
                             indexerName:
                               maxLength: 253
                               type: string
