@@ -250,7 +250,7 @@ func (r *Reconciler) diffKind(
 		}
 		switch kind {
 		case commonv1.MediaKindMovie:
-			_, err = applyMovie(ctx, r.Client, il.Namespace, il.Name, objectName, item, il.Spec.Defaults, id)
+			_, err = applyMovie(ctx, r.Client, r.apiReader(), il.Namespace, il.Name, objectName, item, il.Spec.Defaults, id)
 		case commonv1.MediaKindSeries:
 			_, err = applySeries(ctx, r.Client, r.apiReader(), il.Namespace, il.Name, objectName, item, il.Spec.Defaults, id)
 		}

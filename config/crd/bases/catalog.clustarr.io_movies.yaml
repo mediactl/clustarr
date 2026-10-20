@@ -411,6 +411,28 @@ spec:
                   available.
                 format: date-time
                 type: string
+              classification:
+                description: |-
+                  Classification is the one-time anime detection's result (anime
+                  dual-audio spec §4, movies): set once, so a profile changed afterwards
+                  stays.
+                properties:
+                  anime:
+                    description: Anime is true when the movie's metadata named it
+                      anime.
+                    type: boolean
+                  appliedAt:
+                    description: AppliedAt is when it was classified.
+                    format: date-time
+                    type: string
+                  qualityProfileRef:
+                    description: QualityProfileRef is the profile applied, empty when
+                      none was.
+                    type: string
+                required:
+                - anime
+                - appliedAt
+                type: object
               conditions:
                 description: Conditions represent the latest available observations
                   of the movie's state.

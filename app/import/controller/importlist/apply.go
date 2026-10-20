@@ -26,6 +26,7 @@ import (
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -174,10 +175,48 @@ func libraryByID(
 // identifies, under [FieldManager]. It always sends the complete set of fields this package
 // ever sets -- see FieldManager's doc comment for why a partial send would
 // be unsafe here.
+//
+// Like applySeries it is a compare-and-swap read through r, the API reader,
+// and a Movie the catalog classifier moved to its RootFolder's anime
+// profile keeps that profile (classified), for the same reason: this apply
+// forces ownership, so re-sending the list's default would undo the
+// classification on every sync.
 func applyMovie(
-	ctx context.Context, c client.Client, namespace, listName, name string,
+	ctx context.Context, c client.Client, r client.Reader, namespace, listName, name string,
 	item importlist.Item, defaults catalogv1alpha1.ListDefaults, tmdbID int64,
 ) (string, error) {
+	if r == nil {
+		r = c
+	}
+	err := retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+		spec := movieSpecFor(listName, item, defaults, tmdbID)
+		ac := catalogac.Movie(name, namespace)
+		var existing catalogv1alpha1.Movie
+		switch err := r.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, &existing); {
+		case err == nil:
+			if movieClassified(&existing) {
+				spec = spec.WithQualityProfileRef(existing.Spec.QualityProfileRef)
+			}
+			ac = ac.WithResourceVersion(existing.ResourceVersion)
+		case !apierrors.IsNotFound(err):
+			return fmt.Errorf("importlist: get movie %s: %w", name, err)
+		}
+		if _, err := k8s.Apply(ctx, c, FieldManager, ac.WithSpec(spec)); err != nil {
+			return fmt.Errorf("importlist: apply movie %s: %w", name, err)
+		}
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	return name, nil
+}
+
+// movieSpecFor is the list's complete declaration of a Movie's spec, before
+// a classified Movie's profile is kept.
+func movieSpecFor(
+	listName string, item importlist.Item, defaults catalogv1alpha1.ListDefaults, tmdbID int64,
+) *catalogac.MovieSpecApplyConfiguration {
 	spec := catalogac.MovieSpec().
 		WithTmdbID(tmdbID).
 		WithMonitored(resolveMonitored(item.Monitored, defaults.Monitored)).
@@ -196,11 +235,7 @@ func applyMovie(
 	if len(defaults.Tags) > 0 {
 		spec = spec.WithTags(defaults.Tags...)
 	}
-	ac := catalogac.Movie(name, namespace).WithSpec(spec)
-	if _, err := k8s.Apply(ctx, c, FieldManager, ac); err != nil {
-		return "", fmt.Errorf("importlist: apply movie %s: %w", name, err)
-	}
-	return name, nil
+	return spec
 }
 
 // applySeries is applyMovie's series counterpart, and a compare-and-swap
@@ -283,7 +318,23 @@ func classified(s *catalogv1alpha1.Series) bool {
 	if cl := s.Status.Classification; cl != nil && cl.Anime {
 		return true
 	}
-	for _, mf := range s.ManagedFields {
+	return classifierOwnsProfile(s.ManagedFields)
+}
+
+// movieClassified is classified's Movie counterpart.
+func movieClassified(m *catalogv1alpha1.Movie) bool {
+	if cl := m.Status.Classification; cl != nil && cl.Anime {
+		return true
+	}
+	return classifierOwnsProfile(m.ManagedFields)
+}
+
+// classifierOwnsProfile reports whether catalog-classify owns
+// spec.qualityProfileRef in an item's managedFields: the classifier's spec
+// patch lands before its status write, and a sync reading between the two
+// would otherwise see no classification and force its defaults back.
+func classifierOwnsProfile(managed []metav1.ManagedFieldsEntry) bool {
+	for _, mf := range managed {
 		if mf.Manager != string(k8s.ManagerCatalogClassify) || mf.FieldsV1 == nil {
 			continue
 		}
@@ -317,7 +368,7 @@ func (r *Reconciler) unmonitor(ctx context.Context, il *catalogv1alpha1.ImportLi
 	if si.ObjectKind == string(commonv1.MediaKindSeries) {
 		_, err = applySeries(ctx, r.Client, r.apiReader(), il.Namespace, il.Name, si.ObjectName, item, il.Spec.Defaults, si.ResolvedID)
 	} else {
-		_, err = applyMovie(ctx, r.Client, il.Namespace, il.Name, si.ObjectName, item, il.Spec.Defaults, si.ResolvedID)
+		_, err = applyMovie(ctx, r.Client, r.apiReader(), il.Namespace, il.Name, si.ObjectName, item, il.Spec.Defaults, si.ResolvedID)
 	}
 	if err != nil {
 		return fmt.Errorf("importlist: unmonitor %s %s: %w", si.ObjectKind, si.ObjectName, err)

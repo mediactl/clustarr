@@ -221,6 +221,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &catalogv1alpha1.MovieApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("MovieAddOptions"):
 		return &catalogv1alpha1.MovieAddOptionsApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("MovieClassification"):
+		return &catalogv1alpha1.MovieClassificationApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("MovieMetadata"):
 		return &catalogv1alpha1.MovieMetadataApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("MovieSpec"):

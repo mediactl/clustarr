@@ -422,7 +422,8 @@ type SeriesSpec struct {
 	Artwork []ArtworkOverride `json:"artwork,omitempty"`
 }
 
-// AnnotationClassify set to "off" skips anime classification for a Series.
+// AnnotationClassify set to "off" skips anime classification for a Series
+// or a Movie.
 const AnnotationClassify = "catalog.clustarr.io/classify"
 
 // SeriesClassification is the result of the one-time anime detection

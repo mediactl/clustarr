@@ -91,6 +91,10 @@ type MovieStatusApplyConfiguration struct {
 	// Audio is what the file's audio carries against the profile's audio
 	// policy; unset when the profile has none (anime dual-audio spec §5.3).
 	Audio *AudioStateApplyConfiguration `json:"audio,omitempty"`
+	// Classification is the one-time anime detection's result (anime
+	// dual-audio spec §4, movies): set once, so a profile changed afterwards
+	// stays.
+	Classification *MovieClassificationApplyConfiguration `json:"classification,omitempty"`
 }
 
 // MovieStatusApplyConfiguration constructs a declarative configuration of the MovieStatus type for use with
@@ -311,5 +315,13 @@ func (b *MovieStatusApplyConfiguration) WithOverlay(value *OverlayEntryApplyConf
 // If called multiple times, the Audio field is set to the value of the last call.
 func (b *MovieStatusApplyConfiguration) WithAudio(value *AudioStateApplyConfiguration) *MovieStatusApplyConfiguration {
 	b.Audio = value
+	return b
+}
+
+// WithClassification sets the Classification field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Classification field is set to the value of the last call.
+func (b *MovieStatusApplyConfiguration) WithClassification(value *MovieClassificationApplyConfiguration) *MovieStatusApplyConfiguration {
+	b.Classification = value
 	return b
 }

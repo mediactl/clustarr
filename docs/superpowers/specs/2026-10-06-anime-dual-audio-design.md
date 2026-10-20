@@ -468,3 +468,33 @@ retry carrying no graft. The AudioGraft mirrors the result and waits up to
 6 h for a transcode its file is due (`transcodeprofile.WouldTranscode`). The
 joined result is a transcode, tagged with both `CLUSTARR_PROFILE` and
 `CLUSTARR_GRAFT`.
+
+## As built: movies (2026-10-20)
+
+Akira played Portuguese in Plex. Its scanned file carried only Portuguese
+(default) and Japanese audio. `hd-bluray-web`'s `language: original` was
+met by the Japanese track, and the movie path had no anime detection, so
+nothing asked for an English dub. Of the library's 20 Japanese animated
+films, seven had no English track.
+
+- **Detection.** `movie.Classify` is §4 for a Movie. TMDB has no anime
+  genre, so a film is anime when a genre (or an original-language genre)
+  names Animation or Anime and `status.metadata.originalLanguage` is
+  Japanese, compared through `pkg/lang`. On 2026-10-20 that matched
+  exactly the library's 20 anime films and no Western animation.
+- **Assignment.** The movie RootFolder's `defaults.anime` names the
+  profile; its `seriesType` is unused for a movie. The Movie reconciler
+  merge-patches `spec.qualityProfileRef` under `catalog-classify`. The
+  status apply is a compare-and-swap on the resourceVersion that patch
+  moves, so the pass is requeued. The next pass finds the profile applied
+  and records `status.classification`, re-sent on every apply,
+  `reassertKnownStatus` included.
+- **Waking.** A RootFolder edit wakes its unclassified movies. An import
+  list's re-apply keeps a classified movie's profile, the same guard
+  `applySeries` has: it reads through the API reader and checks
+  `status.classification` or `catalog-classify`'s ownership.
+- **The rest was already kind-agnostic.** That covers status.audio,
+  WrongLanguage, the donor search, the donor grab and the graft.
+- **Default track.** A grafted file's default track is the profile's first
+  language, English. The Portuguese track Akira's remux kept stays beside
+  it.

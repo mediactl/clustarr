@@ -150,10 +150,11 @@ type RootDefaults struct {
 	// +kubebuilder:default=standard
 	SeriesType SeriesType `json:"seriesType,omitempty"`
 
-	// Anime are the defaults a series under this folder takes once its
-	// metadata shows it is anime (TVDB genre "Anime"); the Series
-	// reconciler applies them once and records status.classification.
-	// Unset: no detection.
+	// Anime are the defaults an item under this folder takes once its
+	// metadata shows it is anime: a series by TVDB genre "Anime", a movie by
+	// TMDB genre "Animation" (or "Anime") with Japanese as its original
+	// language. The Series and Movie reconcilers apply them once and record
+	// status.classification. Unset: no detection.
 	// +optional
 	Anime *AnimeDefaults `json:"anime,omitempty"`
 
@@ -168,14 +169,15 @@ type RootDefaults struct {
 	Tags []string `json:"tags,omitempty"`
 }
 
-// AnimeDefaults are what an anime series is moved to on classification
-// (docs/superpowers/specs/2026-10-06-anime-dual-audio-design.md §4).
+// AnimeDefaults are what an anime series or movie is moved to on
+// classification (docs/superpowers/specs/2026-10-06-anime-dual-audio-design.md §4).
 type AnimeDefaults struct {
-	// QualityProfileRef is the profile an anime series is moved to.
+	// QualityProfileRef is the profile an anime series or movie is moved to.
 	// +kubebuilder:validation:MinLength=1
 	QualityProfileRef string `json:"qualityProfileRef"`
 
-	// SeriesType is the series type an anime series is moved to.
+	// SeriesType is the series type an anime series is moved to; a movie
+	// has none, so a movie folder's value is unused.
 	// +optional
 	// +kubebuilder:default=anime
 	SeriesType SeriesType `json:"seriesType,omitempty"`

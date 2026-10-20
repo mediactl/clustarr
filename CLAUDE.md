@@ -586,7 +586,14 @@ a series whose TVDB genres name it Anime to that profile and type once
 (`series.Classify`, recorded in `status.classification`, spec patched
 under field manager `catalog-classify`), so the owner's later change
 stays; `catalog.clustarr.io/classify: off` skips one, and an import list's
-re-apply keeps a classified series' values. A file whose probed audio
+re-apply keeps a classified series' values. Movies have the same once-only
+move since 2026-10-20 (`movie.Classify`, Movie `status.classification`): TMDB
+has no anime genre, so a film is anime when a genre names Animation (or
+Anime) and its original language is Japanese, and the movie folder's
+`defaults.anime` (`anime-remux-1080p`, the Radarr anime built-in) gives it
+English plus the original, grafted. Akira had played Portuguese: its
+scanned file carried only Portuguese and Japanese audio, which
+`hd-bluray-web`'s `language: original` accepted. A file whose probed audio
 lacks the profile's language (`decision.LacksLanguage`; unknown or
 untagged audio never lacks) reads `WrongLanguage` and CutoffUnmet, unless
 it is transcoded. Without a quality upgrade it is replaced only by a

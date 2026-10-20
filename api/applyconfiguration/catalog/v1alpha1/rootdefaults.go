@@ -47,10 +47,11 @@ type RootDefaultsApplyConfiguration struct {
 	MinimumAvailability *catalogv1alpha1.MinimumAvailability `json:"minimumAvailability,omitempty"`
 	// SeriesType is the default series type for series added here.
 	SeriesType *catalogv1alpha1.SeriesType `json:"seriesType,omitempty"`
-	// Anime are the defaults a series under this folder takes once its
-	// metadata shows it is anime (TVDB genre "Anime"); the Series
-	// reconciler applies them once and records status.classification.
-	// Unset: no detection.
+	// Anime are the defaults an item under this folder takes once its
+	// metadata shows it is anime: a series by TVDB genre "Anime", a movie by
+	// TMDB genre "Animation" (or "Anime") with Japanese as its original
+	// language. The Series and Movie reconcilers apply them once and record
+	// status.classification. Unset: no detection.
 	Anime *AnimeDefaultsApplyConfiguration `json:"anime,omitempty"`
 	// SeasonFolder is the default season-folder flag for series added here.
 	SeasonFolder *bool `json:"seasonFolder,omitempty"`

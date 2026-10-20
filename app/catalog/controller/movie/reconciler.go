@@ -19,6 +19,7 @@ package movie
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -144,7 +145,29 @@ func (r *Reconciler) Watches() []rollup.Watch {
 	return []rollup.Watch{
 		{Object: &catalogv1alpha1.Movie{}, Map: rollup.Self, Predicates: []predicate.Predicate{moviePredicate()}},
 		{Object: &catalogv1alpha1.QualityProfile{}, Map: r.mapQualityProfile, Predicates: []predicate.Predicate{k8s.GenerationChanged()}},
+		{Object: &catalogv1alpha1.RootFolder{}, Map: r.mapRootFolder, Predicates: []predicate.Predicate{k8s.GenerationChanged()}},
 	}
+}
+
+// mapRootFolder enqueues the RootFolder's movies that are not classified yet
+// (Classify), so anime defaults set on a folder later still reach its films.
+// It lists the namespace's movies per event, which stays cheap because
+// RootFolders are few and change rarely: at startup it runs once per
+// RootFolder, not per movie (CLAUDE.md's map-function gotcha).
+func (r *Reconciler) mapRootFolder(ctx context.Context, o client.Object) []reconcile.Request {
+	var list catalogv1alpha1.MovieList
+	if err := r.List(ctx, &list, client.InNamespace(o.GetNamespace())); err != nil {
+		logging.FromContext(ctx).Warn("movie: list for a RootFolder change failed", "rootFolder", o.GetName(), "error", err)
+		return nil
+	}
+	var reqs []reconcile.Request
+	for i := range list.Items {
+		m := &list.Items[i]
+		if m.Spec.RootFolderRef == o.GetName() && m.Status.Classification == nil {
+			reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: m.Namespace, Name: m.Name}})
+		}
+	}
+	return reqs
 }
 
 var _ rollup.Item = (*Reconciler)(nil)
@@ -336,6 +359,9 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Mov
 	// constant true already expresses; it does not mean "stop asserting the
 	// field".
 	statusAC = statusAC.WithAddOptionsApplied(true)
+	// status.classification is set once (Classify) and re-sent on every
+	// apply after that, this manager's own leaf.
+	classification := m.Status.Classification
 
 	stale := m.Status.Metadata == nil
 	if !stale {
@@ -408,6 +434,30 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Mov
 				return ctrl.Result{RequeueAfter: time.Minute}, nil
 			}
 			return ctrl.Result{}, err
+		}
+
+		// The one-time anime classification (anime dual-audio spec §4, as
+		// series.Classify): spec.qualityProfileRef by merge patch under a
+		// manager of its own, then the pass is redone, since the status apply
+		// below is a compare-and-swap on the resourceVersion the patch moved.
+		// The next pass finds the profile applied, so Classify asks for no
+		// patch and status.classification is recorded, which keeps it from
+		// ever running for this Movie again.
+		if c, patch := Classify(m, &rf); c != nil {
+			if patch {
+				body, err := json.Marshal(map[string]any{"spec": map[string]any{"qualityProfileRef": c.QualityProfileRef}})
+				if err != nil {
+					return ctrl.Result{}, err
+				}
+				if err := r.Patch(ctx, m.DeepCopy(), client.RawPatch(types.MergePatchType, body),
+					client.FieldOwner(k8s.ManagerCatalogClassify)); err != nil {
+					return ctrl.Result{}, err
+				}
+				r.normal(m, "Classified", "anime: quality profile %s", c.QualityProfileRef)
+				return ctrl.Result{Requeue: true}, nil
+			}
+			c.AppliedAt = metav1.NewTime(now)
+			classification = c
 		}
 
 		eng := naming.NewEngine(naming.Config{
@@ -494,6 +544,9 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Mov
 		WithCutoffMet(cutoffMet)
 	if a := rollup.AudioStateFor(profile, originalTag, mf, graft); a != nil {
 		statusAC = statusAC.WithAudio(rollup.AudioStateAC(a))
+	}
+	if classification != nil {
+		statusAC = statusAC.WithClassification(classificationAC(classification))
 	}
 	if fileRef != nil {
 		statusAC = statusAC.WithFileRef(*fileRef)
@@ -659,7 +712,19 @@ func reassertKnownStatus(statusAC *catalogac.MovieStatusApplyConfiguration, m *c
 	if m.Status.Audio != nil {
 		statusAC = statusAC.WithAudio(rollup.AudioStateAC(m.Status.Audio))
 	}
+	if m.Status.Classification != nil {
+		statusAC = statusAC.WithClassification(classificationAC(m.Status.Classification))
+	}
 	return statusAC
+}
+
+// classificationAC renders a recorded classification for the status apply.
+func classificationAC(c *catalogv1alpha1.MovieClassification) *catalogac.MovieClassificationApplyConfiguration {
+	ac := catalogac.MovieClassification().WithAnime(c.Anime).WithAppliedAt(c.AppliedAt)
+	if c.QualityProfileRef != "" {
+		ac = ac.WithQualityProfileRef(c.QualityProfileRef)
+	}
+	return ac
 }
 
 // movieRefreshState derives the metadata.RefreshTTL state bucket from a

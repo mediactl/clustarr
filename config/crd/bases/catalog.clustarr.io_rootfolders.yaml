@@ -69,20 +69,22 @@ spec:
                 properties:
                   anime:
                     description: |-
-                      Anime are the defaults a series under this folder takes once its
-                      metadata shows it is anime (TVDB genre "Anime"); the Series
-                      reconciler applies them once and records status.classification.
-                      Unset: no detection.
+                      Anime are the defaults an item under this folder takes once its
+                      metadata shows it is anime: a series by TVDB genre "Anime", a movie by
+                      TMDB genre "Animation" (or "Anime") with Japanese as its original
+                      language. The Series and Movie reconcilers apply them once and record
+                      status.classification. Unset: no detection.
                     properties:
                       qualityProfileRef:
                         description: QualityProfileRef is the profile an anime series
-                          is moved to.
+                          or movie is moved to.
                         minLength: 1
                         type: string
                       seriesType:
                         default: anime
-                        description: SeriesType is the series type an anime series
-                          is moved to.
+                        description: |-
+                          SeriesType is the series type an anime series is moved to; a movie
+                          has none, so a movie folder's value is unused.
                         enum:
                         - standard
                         - daily

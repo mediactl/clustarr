@@ -26,12 +26,13 @@ import (
 // AnimeDefaultsApplyConfiguration represents a declarative configuration of the AnimeDefaults type for use
 // with apply.
 //
-// AnimeDefaults are what an anime series is moved to on classification
-// (docs/superpowers/specs/2026-10-06-anime-dual-audio-design.md §4).
+// AnimeDefaults are what an anime series or movie is moved to on
+// classification (docs/superpowers/specs/2026-10-06-anime-dual-audio-design.md §4).
 type AnimeDefaultsApplyConfiguration struct {
-	// QualityProfileRef is the profile an anime series is moved to.
+	// QualityProfileRef is the profile an anime series or movie is moved to.
 	QualityProfileRef *string `json:"qualityProfileRef,omitempty"`
-	// SeriesType is the series type an anime series is moved to.
+	// SeriesType is the series type an anime series is moved to; a movie
+	// has none, so a movie folder's value is unused.
 	SeriesType *catalogv1alpha1.SeriesType `json:"seriesType,omitempty"`
 }
 

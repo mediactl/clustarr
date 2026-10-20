@@ -568,6 +568,27 @@ type MovieStatus struct {
 	// policy; unset when the profile has none (anime dual-audio spec §5.3).
 	// +optional
 	Audio *AudioState `json:"audio,omitempty"`
+
+	// Classification is the one-time anime detection's result (anime
+	// dual-audio spec §4, movies): set once, so a profile changed afterwards
+	// stays.
+	// +optional
+	Classification *MovieClassification `json:"classification,omitempty"`
+}
+
+// MovieClassification is the result of a Movie's one-time anime detection.
+// TMDB has no anime genre, so a film is anime when its genres name
+// Animation (or Anime) and its original language is Japanese.
+type MovieClassification struct {
+	// Anime is true when the movie's metadata named it anime.
+	Anime bool `json:"anime"`
+
+	// AppliedAt is when it was classified.
+	AppliedAt metav1.Time `json:"appliedAt"`
+
+	// QualityProfileRef is the profile applied, empty when none was.
+	// +optional
+	QualityProfileRef string `json:"qualityProfileRef,omitempty"`
 }
 
 // +kubebuilder:object:root=true
