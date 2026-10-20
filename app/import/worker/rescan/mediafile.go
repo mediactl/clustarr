@@ -311,7 +311,7 @@ func (w *Worker) freshVideoSpec(
 			languageName = n
 		}
 	}
-	parsed.Languages = parsed.LanguagesFor(languageName)
+	parsed.Languages = parsed.LanguagesWith(languageName, release.GroupLanguagesFrom(ctx))
 	f := mediafilespec.Frozen{
 		Quality:      &parsed.Quality,
 		Revision:     &parsed.Revision,

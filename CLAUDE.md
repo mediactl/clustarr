@@ -631,7 +631,25 @@ language when it names nothing else (`ParsedRelease.DualAudio`,
 both. Every reader takes that one reading -- the decision, the Search
 results the ui lists, import's frozen `spec.languages` -- under every
 profile; until then only the decision knew, under an anime score set, so a
-dual-audio release showed Japanese alone. Items report `status.audio` (wanted, present, missing,
+dual-audio release showed Japanese alone. Outside anime, DUAL means the
+original language plus the group's own language (2026-10-20: PD's "DUAL" NF
+WEB-DL of Akira carries Portuguese, as PD's file in the library did). So a
+DUAL title that names nothing else reads as the original plus the group's
+language (`ParsedRelease.LanguagesWith`). That language comes from
+`pkg/grouplang`'s index, learned from imports, or else
+`release.builtinGroupLanguages`, seeded from the library's evidence. The
+manager's downloads stage records every inspected file's pre-transcode
+audio against its release group (`grouplang.Observe`), refused imports
+included, in the durable `clustarr-release-groups` bucket. Only a file with
+exactly one language beside English and its original votes, and a group's
+verdict needs 2 votes, two thirds of the votes and a third of its files.
+Each binary puts the index on its root context (`release.WithGroupLanguages`),
+so every reader resolves through `release.GroupLanguagesFrom(ctx)`. The
+parser also reads Sonarr's original-language scene tags
+(`ParsedRelease.NamesOriginal`, resolved by `LanguagesFor`): German beside
+DL (never WEB-DL's) or ML, and French (VF, VFF, VFI, VFQ, VF2, TRUEFRENCH)
+beside VO or MULTi. It reads explicit runs of three-letter codes in title
+order (`ENG.ITA`, `JPN.ENG`); a code alone is no language. Items report `status.audio` (wanted, present, missing,
 graft); a missing dub never blocks the video. Grafting (phase 4): the
 search planner queues a donor search (`SearchTask.Purpose: audioDonor`) for
 a monitored item whose graft reads `searching` or `failed`, on its own

@@ -71,6 +71,9 @@ type Stage struct {
 	// importsPublished is the import tasks' publish book (A3.8).
 	importsPublished *importBook
 	seedOnce         sync.Once
+	// groupsObserved are the entries whose inspected files observeGroup
+	// has recorded (the bucket dedupes too, across restarts).
+	groupsObserved sync.Map
 }
 
 var (

@@ -94,11 +94,12 @@ func parseMovie(title string) (*ParsedRelease, error) {
 	q, rev, _, _ := parseQualityTags(title)
 	group, hash, edition := parseGroup(title)
 
-	langs, unknown, dual := languagesOf(title)
+	langs, unknown, dual, original := languagesOf(title)
 	return &ParsedRelease{
 		Languages:       langs,
 		LanguageUnknown: unknown,
 		DualAudio:       dual,
+		NamesOriginal:   original,
 		Title:           cleanTitleSeparators(rawTitle),
 		Year:            year,
 		Quality:         q,

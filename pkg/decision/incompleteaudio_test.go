@@ -117,3 +117,18 @@ func TestMissingAudio(t *testing.T) {
 	require.False(t, decision.CompletesAudio(p, "ja", []string{"ja"}))
 	require.False(t, decision.CompletesAudio(p, "ja", nil))
 }
+
+// TestADualAudioReleaseCarriesItsGroupsLanguage: PD's "DUAL" NF WEB-DL of
+// Akira was approved on 2026-10-20 as English and Japanese; PD's files carry
+// Portuguese, so it reads as Japanese and Portuguese and lacks English,
+// while an anime group's dual audio still carries English.
+func TestADualAudioReleaseCarriesItsGroupsLanguage(t *testing.T) {
+	p, cat := builtin(t, "anime-remux-1080p")
+	pd := "Akira.1988.1080p.NF.WEB-DL.AAC2.0.x264.DUAL-PD"
+	anime := "Akira (1988) [30th Anniversary Blu-ray] [BD 1080p Hi10P 5.1 AAC dual-audio][kuchikirukia]"
+	ds := decision.Evaluate(context.Background(), akira("pt", "ja"), p, cat, akiraReleases(pd, anime), usenetOnly)
+	require.Equal(t, []string{"Japanese", "Portuguese"}, ds[0].Release.Languages)
+	require.True(t, hasRejection(ds[0], decision.ReasonWantedLanguage), "%v", reasons(ds[0]))
+	require.Equal(t, []string{"Japanese", "English"}, ds[1].Release.Languages)
+	require.True(t, ds[1].Approved, "%v", reasons(ds[1]))
+}

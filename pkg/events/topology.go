@@ -1211,6 +1211,9 @@ func defaultBuckets() []BucketSpec {
 		// memory bucket on a single node forgot every one of them at each
 		// NATS restart (talos, 2026-10-16).
 		durable(b(BucketImportExclusions, 0, "Exclusions the list and search paths consult; durable.")),
+		// Durable: what a group's files carried is learned once, from imports
+		// before a transcode drops a language, and cannot be learned again.
+		durable(b(BucketReleaseGroups, 0, "The audio each release group's imported files carried.")),
 		b(BucketIndexerSessions, 30*24*time.Hour, "Cardigann cookies and JWTs."),
 		b(BucketIndexerLimits, 2*24*time.Hour, "Query and grab timestamp rings."),
 		b(BucketProviderThrottle, 24*time.Hour, "Subtitle provider throttle table."),

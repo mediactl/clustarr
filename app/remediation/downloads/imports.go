@@ -115,6 +115,7 @@ func (s *Stage) importDecisions(ctx context.Context, ow owner, v *lifecycle.View
 		if err != nil {
 			return err
 		}
+		s.observeGroup(ctx, in)
 		if e.Set != nil {
 			in.Parts = setParts(ow.entries, e, recordOf)
 		}

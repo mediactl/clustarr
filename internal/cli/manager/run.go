@@ -53,10 +53,12 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/natsbus"
 	"github.com/mediactl/clustarr/pkg/events/objindex"
 	"github.com/mediactl/clustarr/pkg/events/schema"
+	"github.com/mediactl/clustarr/pkg/grouplang"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/presence"
+	"github.com/mediactl/clustarr/pkg/release"
 	"github.com/mediactl/clustarr/pkg/segments/fingerprintmeta"
 	"github.com/mediactl/clustarr/pkg/version"
 )
@@ -78,6 +80,12 @@ func Run(ctx context.Context, o Options) error {
 		return err
 	}
 	defer shutdown()
+	// The release groups' dual-audio languages (pkg/grouplang) on the root
+	// context every runnable and reconciler inherits, for every reader of a
+	// release's languages; the built-in table answers until the bucket is
+	// read.
+	groups := grouplang.NewIndex()
+	ctx = release.WithGroupLanguages(ctx, groups)
 	log := logging.FromContext(ctx)
 
 	// 3.
@@ -122,6 +130,11 @@ func Run(ctx context.Context, o Options) error {
 		return busconn.WatchDeadLetters(ctx, bus, top)
 	})); err != nil {
 		return fmt.Errorf("manager: add the dead-letter watcher: %w", err)
+	}
+	if err := mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
+		return groups.Run(ctx, bus.KV(events.BucketReleaseGroups))
+	})); err != nil {
+		return fmt.Errorf("manager: add the release groups index: %w", err)
 	}
 
 	// 7. Process-level checks.

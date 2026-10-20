@@ -122,7 +122,7 @@ func TestForSingleNodeKeepsDurableBucketsOnFile(t *testing.T) {
 		BucketMetadataExtended: true, BucketSegments: true, BucketPlexExtras: true, BucketProbes: true,
 		BucketTranscodes: true, BucketGrafts: true, BucketSubtitles: true, BucketMarkers: true,
 		BucketTransfers: true, BucketEngines: true, BucketImports: true, BucketSearches: true,
-		BucketItemMetadata: true, BucketIndexerHealth: true, BucketImportExclusions: true,
+		BucketItemMetadata: true, BucketIndexerHealth: true, BucketImportExclusions: true, BucketReleaseGroups: true,
 	}
 	for _, b := range Default().ForSingleNode().Buckets {
 		want := StorageMemory

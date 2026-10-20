@@ -148,6 +148,10 @@ const (
 // Key/value bucket names. NATS bucket names may not contain dots.
 const (
 	BucketImportExclusions = "clustarr-import-exclusions"
+	// BucketReleaseGroups holds what each release group's imported files
+	// carried (pkg/grouplang): the language its dual-audio titles mean beside
+	// the original. The manager writes it; every process reads it.
+	BucketReleaseGroups    = "clustarr-release-groups"
 	BucketIndexerSessions  = "clustarr-indexer-sessions"
 	BucketIndexerLimits    = "clustarr-indexer-limits"
 	BucketProviderThrottle = "clustarr-provider-throttle"

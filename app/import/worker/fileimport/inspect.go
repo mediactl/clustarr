@@ -282,7 +282,7 @@ func (w *Worker) readVideo(
 	ctx context.Context, m events.Message, path, rel, sceneName string, parsed *release.ParsedRelease,
 	prof quality.Profile, originalLanguageName string,
 ) (videoFacts, error) {
-	parsed.Languages = parsed.LanguagesFor(originalLanguageName)
+	parsed.Languages = parsed.LanguagesWith(originalLanguageName, release.GroupLanguagesFrom(ctx))
 	mi, notMedia, err := w.probeVideo(ctx, m, path, rel)
 	if err != nil {
 		return videoFacts{}, err

@@ -113,23 +113,28 @@ type ParsedRelease struct {
 	// that is all.
 	LanguageUnknown bool
 	DualAudio       bool
-	Group           string
-	Hash            string // scene obfuscation hash token, e.g. trailing -a1b2c3d4; "" normally
-	Edition         string
-	Seasons         []int
-	Episodes        []int
-	Absolute        []int
-	AirDate         *time.Time
-	FullSeason      bool
-	Partial         bool
-	MultiSeason     bool
-	Special         bool
-	ReleaseType     commonv1.ReleaseType
-	Music           *MusicInfo
-	Book            *BookInfo
-	Comic           *ComicInfo
-	Hints           Hints
-	IDs             map[string]string
+	// NamesOriginal is true when the title's scene tags name the original
+	// language's track without saying which language it is: German beside
+	// DL (never WEB-DL) or ML, French beside VO or MULTi. LanguagesFor adds
+	// the item's original language.
+	NamesOriginal bool
+	Group         string
+	Hash          string // scene obfuscation hash token, e.g. trailing -a1b2c3d4; "" normally
+	Edition       string
+	Seasons       []int
+	Episodes      []int
+	Absolute      []int
+	AirDate       *time.Time
+	FullSeason    bool
+	Partial       bool
+	MultiSeason   bool
+	Special       bool
+	ReleaseType   commonv1.ReleaseType
+	Music         *MusicInfo
+	Book          *BookInfo
+	Comic         *ComicInfo
+	Hints         Hints
+	IDs           map[string]string
 	// FromFolder is true when ParsePath's basename parse failed and this
 	// result came from an ancestor folder instead (spec D4, movies only):
 	// Title, Year and IDs are the folder's, while Quality, Revision, Group

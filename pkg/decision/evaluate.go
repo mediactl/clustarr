@@ -79,7 +79,7 @@ func ItemStateRejections(ctx context.Context, t Target, p quality.Profile, d Dec
 		if err != nil {
 			return nil
 		}
-		pr.Languages = pr.LanguagesFor(lang)
+		pr.Languages = pr.LanguagesWith(lang, release.GroupLanguagesFrom(ctx))
 		parsed = pr
 	}
 	if t.Donor != nil {
@@ -157,7 +157,7 @@ func evaluateOne(ctx context.Context, t Target, originalLanguage string, an audi
 	// language check, and the ReleaseInfo this Decision carries -- which
 	// is the order Radarr's AggregateLanguages runs in (see
 	// release.ParsedRelease.LanguagesFor).
-	parsed.Languages = parsed.LanguagesFor(originalLanguage)
+	parsed.Languages = parsed.LanguagesWith(originalLanguage, release.GroupLanguagesFrom(ctx))
 	parsed.ApplyTo(&rel)
 
 	// ReleaseTitle is the indexer's full release name: ReleaseTitle custom

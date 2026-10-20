@@ -31,10 +31,12 @@ import (
 	"github.com/mediactl/clustarr/pkg/busconn"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/ffruntime"
+	"github.com/mediactl/clustarr/pkg/grouplang"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/presence"
+	"github.com/mediactl/clustarr/pkg/release"
 	"github.com/mediactl/clustarr/pkg/version"
 )
 
@@ -59,6 +61,12 @@ func Run(ctx context.Context, o Options) error {
 		return err
 	}
 	defer shutdown()
+	// The release groups' dual-audio languages (pkg/grouplang) on the root
+	// context every runnable and reconciler inherits, for every reader of a
+	// release's languages; the built-in table answers until the bucket is
+	// read.
+	groups := grouplang.NewIndex()
+	ctx = release.WithGroupLanguages(ctx, groups)
 
 	// 4.
 	k8s.RegisterRESTClientMetrics()
@@ -143,6 +151,11 @@ func Run(ctx context.Context, o Options) error {
 	}
 	if err := mgr.Add(k8s.EveryReplica(pw.Run)); err != nil {
 		return fmt.Errorf("agent %s: add the presence writer: %w", o.Domain, err)
+	}
+	if err := mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
+		return groups.Run(ctx, bus.KV(events.BucketReleaseGroups))
+	})); err != nil {
+		return fmt.Errorf("agent %s: add the release groups index: %w", o.Domain, err)
 	}
 	if err := registerIndexes(ctx, mgr.GetFieldIndexer(), reg.Indexes); err != nil {
 		return fmt.Errorf("agent %s: %w", o.Domain, err)
