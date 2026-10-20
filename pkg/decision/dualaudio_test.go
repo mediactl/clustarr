@@ -60,3 +60,43 @@ func TestAReleaseCarriesTheLanguagesItsTitleNames(t *testing.T) {
 	require.True(t, ds[0].Rank.LanguagesComplete, "%+v", ds[0].Rejections)
 	require.True(t, rejectedFor(ds[1], decision.ReasonWantedLanguage), "%+v", ds[1].Rejections)
 }
+
+// TestDualAudioOutranksEveryJapaneseOnlyReleaseOfItsQuality: the built-in
+// anime-web-1080p scores Anime Dual Audio 1000, past the spread of the
+// release-group tiers (WEB 100-600, BD 700-1400), so a dual-audio release
+// ranks above every Japanese-only one of its quality, a tier-01 group's
+// included -- TRaSH leaves it 0, so ToonsHub's DUAL release (no group tier)
+// lost to ZeroBuild's (tier 01). A -10000 group stays out: -9000 is still
+// below the minimum.
+func TestDualAudioOutranksEveryJapaneseOnlyReleaseOfItsQuality(t *testing.T) {
+	p, cat := builtin(t, "anime-web-1080p")
+	require.Equal(t, 1000, p.Scores["anime-dual-audio"])
+
+	tg := decision.Target{
+		Kind: common.MediaKindEpisode, Monitored: true, Available: true, OriginalLanguageTag: "ja",
+		EpisodeRuntimes: []int{24},
+		Identity:        decision.Identity{Titles: []string{"Let This Grieving Soul Retire"}, Year: 2024, Season: 1, Episodes: []int{2}},
+	}
+	titles := []string{
+		"Let.This.Grieving.Soul.Retire.S01E02.1080p.CR.WEB-DL.AAC2.0.H.264-ZeroBuild",
+		"Let.This.Grieving.Soul.Retire.S01E02.I.Want.to.Leave.It.to.Tino.and.Take.It.Easy.1080p.CR.WEB-DL.DUAL.AAC2.0.H.264.MSubs-ToonsHub",
+	}
+	var rels []common.ReleaseInfo
+	for i, title := range titles {
+		rels = append(rels, common.ReleaseInfo{
+			GUID: "g" + string(rune('a'+i)), Title: title, IndexerRef: "nzbgeek", Protocol: common.ProtocolUsenet, SizeBytes: 1400 << 20,
+		})
+	}
+	ds := decision.Evaluate(context.Background(), tg, p, cat, rels, usenetOnly)
+	for _, d := range ds {
+		require.True(t, d.Approved, "%s: %v", d.Release.Title, reasons(d))
+	}
+	got := decision.Rank(ds, usenetOnly)
+	require.Equal(t, titles[1], got[0].Release.Title, "scores %d (ZeroBuild) and %d (ToonsHub)", ds[0].Release.FormatScore, ds[1].Release.FormatScore)
+
+	lq := decision.Evaluate(context.Background(), tg, p, cat, []common.ReleaseInfo{{
+		GUID: "lq", IndexerRef: "nzbgeek", Protocol: common.ProtocolUsenet, SizeBytes: 1400 << 20,
+		Title: "Let.This.Grieving.Soul.Retire.S01E02.1080p.WEB-DL.Dual.Audio.x264-AnimeRG",
+	}}, usenetOnly)
+	require.True(t, hasRejection(lq[0], decision.ReasonCustomFormatMinimumScore), "a low-quality group's dual audio: %v", reasons(lq[0]))
+}

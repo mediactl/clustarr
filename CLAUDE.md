@@ -597,7 +597,12 @@ the anime built-ins want `[en, original]`, grafted) replaces its
 `language` in the decision (`decision.audioRejection`): a release carrying
 every wanted language is complete, a partial one is a video candidate only
 when the profile grafts and the release carries the original language (the
-anchor a graft aligns on), and a complete one wins a tie. The parser
+anchor a graft aligns on), and a complete one wins a tie. The built-in
+`anime-web-1080p` scores Anime Dual Audio 1000 (2026-10-20; TRaSH 0, or
+101 to prefer), past the release-group tiers' spread (WEB 100-600, BD
+700-1400), so a dual-audio release outranks every Japanese-only one of its
+quality -- the quality tier and a REPACK's revision still rank first, and
+a -10000 group stays below the minimum. The parser
 reads a release's audio markers past Sonarr (2026-10-19,
 `release.namedLanguages`): a dual-audio title -- "Dual Audio"/"Dual-Audio",
 `[DUAL]`, or a bare DUAL after the resolution or right after the episode or

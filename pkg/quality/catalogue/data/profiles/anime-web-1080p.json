@@ -1,6 +1,6 @@
 [{
   "name": "anime-web-1080p",
-  "_source": "sonarr trash_id 20e0fc959f1f1704bed501f23bdae76f (upstream name '[Anime] Remux-1080p', upstream cutoff 'Bluray 1080p') -- cutoff overridden to 'WEB 1080p' to match spec's literal built-in name; see task doc scope decision 2",
+  "_source": "sonarr trash_id 20e0fc959f1f1704bed501f23bdae76f (upstream name '[Anime] Remux-1080p', upstream cutoff 'Bluray 1080p') -- cutoff overridden to 'WEB 1080p' to match spec's literal built-in name; see task doc scope decision 2; Anime Dual Audio scored 1000 (TRaSH: 0, or 101 to prefer), past the group tiers' spread (WEB 100-600, BD 700-1400), so a dual-audio release outranks every Japanese-only one of its quality (owner, 2026-10-20)",
   "mediaKind": "video",
   "tiers": [
     {"name": "Bluray 1080p", "qualities": ["Remux-1080p", "Bluray-1080p"]},
@@ -15,6 +15,7 @@
   "cutoff": "WEB 1080p", "upgradeAllowed": true,
   "minFormatScore": 100, "cutoffFormatScore": 10000, "minUpgradeFormatScore": 1,
   "scoreSet": "anime-sonarr", "language": "original", "properPolicy": "preferAndUpgrade",
+  "formatScores": [{"format": "anime-dual-audio", "score": 1000}],
   "sizeTable": "anime", "preferredProtocol": "any",
   "audio": {"languages": ["en", "original"], "graft": true}
 }]
