@@ -298,3 +298,46 @@ func TestTheStandardsNVENCPlanHoldsALeanSourceUnderItsBitRate(t *testing.T) {
 	assert.LessOrEqual(t, outKbps, srcKbps*standard.NVENCMaxBitratePercent/100*110/100, "the output stays under the cap")
 	assert.Less(t, ost.Size(), st.Size(), "and under the source")
 }
+
+// The encoder and the filter graph take the stream's nominal rate, as the
+// ffmpeg CLI's av_guess_frame_rate does, not its average. An MP4 at 23.976
+// fps on a 1/90000 time base stores frames of 3753 and 3754 ticks, so its
+// average -- frames over duration -- is an irregular fraction:
+// 1755840000/73231909 on Baddies South S01E16, which Intel's runtime
+// refused ("Current frame rate is unsupported", hevc_qsv's open failing
+// with -38) on seven files that the same pods encoded beside others
+// (talos, 2026-10-20).
+func TestTheEncoderTakesTheNominalFrameRate(t *testing.T) {
+	ffmpeg9OrSkip(t)
+	src := filepath.Join(t.TempDir(), "ntsc.mp4")
+	run(t, "ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24000/1001",
+		"-frames:v", "48", "-c:v", "libx264", "-preset", "veryfast", "-video_track_timescale", "90000", src)
+	d, err := ffgo.NewDecoder(src)
+	require.NoError(t, err)
+	defer func() { _ = d.Close() }()
+	si := d.VideoStream()
+	require.NotNil(t, si)
+	ntsc := ffgo.Rational{Num: 24000, Den: 1001}
+	require.NotEqual(t, ntsc, si.FrameRate, "the clip's average is irregular, as the file's was")
+	assert.Equal(t, ntsc, frameRate(si))
+}
+
+// Where there is no nominal rate, or it reads above 210 fps while the
+// average is under 70 -- a time base mistaken for a rate --
+// av_guess_frame_rate takes the average, and so does the engine. A
+// variable-rate source keeps its nominal rate, as the CLI's encode would.
+func TestFrameRateFollowsAvGuessFrameRate(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		r, avg, want ffgo.Rational
+	}{
+		{"no nominal rate", ffgo.Rational{}, ffgo.Rational{Num: 25, Den: 1}, ffgo.Rational{Num: 25, Den: 1}},
+		{"a time base read as the rate", ffgo.Rational{Num: 90000, Den: 1}, ffgo.Rational{Num: 30000, Den: 1001}, ffgo.Rational{Num: 30000, Den: 1001}},
+		{"a variable-rate source", ffgo.Rational{Num: 120000, Den: 1001}, ffgo.Rational{Num: 24000, Den: 1001}, ffgo.Rational{Num: 120000, Den: 1001}},
+		{"no average", ffgo.Rational{Num: 24, Den: 1}, ffgo.Rational{}, ffgo.Rational{Num: 24, Den: 1}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, frameRate(&ffgo.StreamInfo{RealFrameRate: tc.r, FrameRate: tc.avg}))
+		})
+	}
+}

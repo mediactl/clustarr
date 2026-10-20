@@ -144,7 +144,7 @@ func videoStage(v standard.VideoPlan) stageFunc {
 				first = &c
 				gcfg := ffgo.FilterGraphConfig{
 					Width: sc.src.Width, Height: sc.src.Height, PixelFmt: ffgo.PixelFormat(f.Format()),
-					TimeBase: sd.TimeBase(), FrameRate: sc.src.FrameRate, Filters: v.Filter, HWFramesCtx: f.HWFramesCtx(),
+					TimeBase: sd.TimeBase(), FrameRate: frameRate(sc.src), Filters: v.Filter, HWFramesCtx: f.HWFramesCtx(),
 					SAR: sc.src.SampleAspectRatio,
 				}
 				if needsDevice(v.Filter) {
@@ -259,7 +259,7 @@ func openVideoEncoder(sc *stageContext, v standard.VideoPlan, graph *ffgo.Filter
 		}
 	}
 	cfg := ffgo.VideoEncoderConfig{
-		EncoderName: v.Encoder, Width: sc.src.Width, Height: sc.src.Height, FrameRate: sc.src.FrameRate,
+		EncoderName: v.Encoder, Width: sc.src.Width, Height: sc.src.Height, FrameRate: frameRate(sc.src),
 		PixelFormat: format, HWFramesCtx: graph.OutputHWFramesCtx(), CodecOptions: opts,
 		// An anamorphic source's pixel aspect (a 16:9 DVD's 32:27) is kept.
 		SampleAspectRatio: sc.src.SampleAspectRatio,
@@ -299,4 +299,23 @@ func colorOptions(c standard.ColorTags, first *ffgo.Frame) map[string]string {
 		}
 	}
 	return out
+}
+
+// frameRate is the rate the filter graph and the encoder are given: the
+// stream's nominal r_frame_rate, as the ffmpeg CLI takes it through
+// av_guess_frame_rate, unless there is none or it reads above 210 fps
+// while the average is under 70 (a time base mistaken for a rate); then
+// the average. The average alone -- frames over duration -- is an
+// irregular fraction for an MP4 at 23.976 fps on a 1/90000 time base
+// (1755840000/73231909), which Intel's runtime refuses: hevc_qsv failed to
+// open with -38, "Current frame rate is unsupported" (talos, 2026-10-20).
+func frameRate(si *ffgo.StreamInfo) ffgo.Rational {
+	r, avg := si.RealFrameRate, si.FrameRate
+	if r.Num <= 0 || r.Den <= 0 {
+		return avg
+	}
+	if avg.Num > 0 && avg.Den > 0 && float64(avg.Num) < 70*float64(avg.Den) && float64(r.Num) > 210*float64(r.Den) {
+		return avg
+	}
+	return r
 }
