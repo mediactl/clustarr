@@ -55,7 +55,11 @@ import (
 // 4: clustarr's own transcodes in Matroska are remuxed into the MP4 layout.
 // 5: an ASS or SSA track becomes a plain SubRip sidecar, not an .ass one
 // (Plex's web player burns ASS into the video, which cluster-plex forbids).
-const Version = 5
+// 6: an image subtitle (PGS, DVD) that a text subtitle of its language
+// covers is dropped rather than holding the file for OCR (owner,
+// 2026-10-20: Akira held for its English DVD track beside three English
+// ASS ones).
+const Version = 6
 
 // Profile is what a TranscodeProfile decides under the standard.
 type Profile struct {
@@ -147,9 +151,10 @@ const (
 )
 
 // HoldImageSubtitles is the skip reason of a file with an image subtitle
-// (PGS, DVD): it waits for the OCR of the MP4 standard's phase 2, which
-// raises Version, so the file is planned again then (ruling R1).
-const HoldImageSubtitles = "image subtitles (PGS, DVD) wait for OCR: MP4 standard phase 2"
+// (PGS, DVD) that no text subtitle covers (textCovers): it waits for the
+// OCR of the MP4 standard's phase 2, which raises Version, so the file is
+// planned again then (ruling R1).
+const HoldImageSubtitles = "image subtitles (PGS, DVD) with no text subtitle in their language wait for OCR: MP4 standard phase 2"
 
 // SubtitlePlan is one subtitle track embedded in the output: only a graft's
 // copy plan has any (spec §4.1: the standard writes every subtitle beside
@@ -285,7 +290,7 @@ func Plan(info transcode.MediaInfo, profile Profile, hw Hardware) Result {
 	}
 	subLangs := resolveLanguages(profile.SubtitleLanguages, info.OriginalLanguage)
 	for _, s := range info.Subtitles {
-		if s.Bitmap && subLangs.keeps(s.Language) {
+		if s.Bitmap && subLangs.keeps(s.Language) && !textCovers(info.Subtitles, s) {
 			return skip(p, HoldImageSubtitles)
 		}
 	}
@@ -805,12 +810,18 @@ func sidecarSuffix(s transcode.SubtitleStream, ext string) string {
 // planSubtitles is spec §4.1 with rulings R2 and R3: every text subtitle,
 // ASS and SSA included since Version 5, becomes an .srt sidecar, one per
 // name, the first track to take a name keeping it; anything else is dropped
-// and named. Plan holds a file with a bitmap stream before it gets here.
+// and named. Plan holds a file with a kept bitmap stream no text track
+// covers before it gets here, so a bitmap one here is covered (Version 6).
 func planSubtitles(ss []transcode.SubtitleStream, languages wanted) (sidecars []SidecarPlan, dropped []string) {
 	taken := map[string]bool{}
 	for i, s := range ss {
 		if !languages.keeps(s.Language) {
 			dropped = append(dropped, fmt.Sprintf("subtitle %d (%s %q %s): not a kept language", i, s.Codec, s.Title, s.Language))
+			continue
+		}
+		if s.Bitmap {
+			// Plan holds the file unless a text track covers it.
+			dropped = append(dropped, fmt.Sprintf("subtitle %d (%s %q %s): an image subtitle an %s text track covers", i, s.Codec, s.Title, s.Language, baseLanguage(s.Language)))
 			continue
 		}
 		if !slices.Contains(textSubtitles, s.Codec) {
@@ -827,6 +838,25 @@ func planSubtitles(ss []transcode.SubtitleStream, languages wanted) (sidecars []
 		sidecars = append(sidecars, SidecarPlan{SourceIndex: int32(i), Format: format, Codec: s.Codec, Suffix: suffix})
 	}
 	return sidecars, dropped
+}
+
+// textCovers is whether a text subtitle that becomes a sidecar carries what
+// the image subtitle img does: its language, and forced only as img is. A
+// forced track shows only what the audio does not say, which a full one in
+// its place would bury in every line. An untagged track's language is
+// unknown, so it covers nothing and is covered by nothing.
+func textCovers(ss []transcode.SubtitleStream, img transcode.SubtitleStream) bool {
+	l := baseLanguage(img.Language)
+	if l == "" {
+		return false
+	}
+	for _, t := range ss {
+		if !t.Bitmap && slices.Contains(textSubtitles, t.Codec) && baseLanguage(t.Language) == l &&
+			forcedSubtitle(t) == forcedSubtitle(img) {
+			return true
+		}
+	}
+	return false
 }
 
 func commentary(a transcode.AudioStream) bool {

@@ -142,6 +142,7 @@ func TestADroppedImageSubtitleHoldsNothing(t *testing.T) {
 	in.Subtitles = append(in.Subtitles, transcode.SubtitleStream{Codec: "hdmv_pgs_subtitle", Bitmap: true, Language: "jpn"})
 	r := Plan(in, p, cpu)
 	assert.NotEqual(t, DecisionSkip, r.Decision, r.Reason)
-	in.Subtitles[len(in.Subtitles)-1].Language = "eng"
-	assert.Equal(t, HoldImageSubtitles, Plan(in, p, cpu).Reason, "an English one still holds it")
+	p.SubtitleLanguages = []string{"en", "fr"}
+	in.Subtitles[len(in.Subtitles)-1].Language = "fre"
+	assert.Equal(t, HoldImageSubtitles, Plan(in, p, cpu).Reason, "a French one, no French text track beside it, still holds it")
 }

@@ -133,8 +133,14 @@ when 1.5x the source plus 1 GiB fits, and only the verified result is
 staged beside its output on `/data` before the swap (`worker/scratch.go`),
 so the NAS never carries the encode's writes or the MP4 faststart rewrite;
 a larger source encodes beside its output as before; attachments dropped, chapters kept; a file
-with an image subtitle is `status.transcode` Skipped,
-`standard.HoldImageSubtitles`, until phase 2's OCR) and
+with an image subtitle no text subtitle covers is `status.transcode` Skipped,
+`standard.HoldImageSubtitles`, until phase 2's OCR. Since `standard.Version`
+6 (owner, 2026-10-20), a text subtitle of the same language covers an image
+one, provided it is forced only if the image one is
+(`standard.textCovers`), and the covered image subtitle is dropped. Akira
+had held for its English DVD track beside three English ASS ones; about
+125 of the 458 held files (106 movies, 19 episodes) had such cover. An
+untagged image track still holds.) and
 `pkg/transcode/engine` runs it on FFmpeg 9's libraries through the ffgo
 fork (`github.com/mediactl/ffgo`, tags `v0.0.0-clustarr.N`). There is no
 argv engine, no `--worker-engine`, and no `ffmpeg`, `ffprobe` or `par2` in

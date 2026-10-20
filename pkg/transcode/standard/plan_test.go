@@ -588,7 +588,7 @@ func TestPlanAlwaysWritesMP4(t *testing.T) {
 	assert.False(t, p.Attachments)
 }
 
-func TestVersionIsFive(t *testing.T) { assert.Equal(t, 5, Version) }
+func TestVersionIsSix(t *testing.T) { assert.Equal(t, 6, Version) }
 
 func sub(codec, lang, title string, forced, hi bool) transcode.SubtitleStream {
 	return transcode.SubtitleStream{
@@ -640,12 +640,73 @@ func TestAnSDHAssTrackIsNamedSDH(t *testing.T) {
 	assert.Equal(t, SidecarPlan{Format: SidecarSRT, Codec: "ass", Suffix: "en.sdh.srt"}, sidecars[0])
 }
 
-func TestAnImageSubtitleHoldsTheFile(t *testing.T) {
+func TestAnImageSubtitleNoTextTrackCoversHoldsTheFile(t *testing.T) {
 	in := info(h264, eac3)
-	in.Subtitles = append(in.Subtitles, transcode.SubtitleStream{Index: 2, Codec: "hdmv_pgs_subtitle", Bitmap: true, Language: "eng"})
+	in.Subtitles = []transcode.SubtitleStream{
+		{Index: 0, Codec: "subrip", Language: "spa"},
+		{Index: 1, Codec: "hdmv_pgs_subtitle", Bitmap: true, Language: "eng"},
+	}
 	p := Plan(in, profile, cpu)
 	assert.Equal(t, DecisionSkip, p.Decision)
-	assert.Equal(t, HoldImageSubtitles, p.Reason)
+	assert.Equal(t, HoldImageSubtitles, p.Reason, "only a Spanish text track: the English image one waits for OCR")
+}
+
+// Version 6 (owner, 2026-10-20): an image subtitle a text subtitle of its
+// language covers is dropped rather than holding the file for OCR. Akira
+// held for its English DVD track beside three English ASS ones.
+func TestAnImageSubtitleATextTrackOfItsLanguageCoversIsDropped(t *testing.T) {
+	akira := info(video("h264", "yuv420p10le", 10, commonv1.HdrFormatNone), audio(0, "flac", 6, "5.1", "jpn"))
+	akira.Subtitles = []transcode.SubtitleStream{
+		{Index: 4, Codec: "ass", Language: "eng"},
+		{Index: 5, Codec: "ass", Language: "eng", Title: "niizk"},
+		{Index: 6, Codec: "ass", Language: "eng", Title: "THORA"},
+		{Index: 7, Codec: "dvd_subtitle", Bitmap: true, Language: "eng"},
+	}
+	p := Plan(akira, profile, cpu)
+	require.Equal(t, DecisionEncode, p.Decision, p.Reason)
+	require.Len(t, p.Sidecars, 1)
+	assert.Equal(t, "en.srt", p.Sidecars[0].Suffix)
+	assert.Equal(t, int32(0), p.Sidecars[0].SourceIndex, "the first English text track")
+	require.Len(t, p.Dropped, 3)
+	assert.Contains(t, p.Dropped[2], "subtitle 3 (dvd_subtitle")
+	assert.Contains(t, p.Dropped[2], "an image subtitle an en text track covers")
+}
+
+func TestATextTrackCoversAnImageSubtitleOnlyInItsOwnLanguageAndKind(t *testing.T) {
+	img := func(lang string, forced bool) transcode.SubtitleStream {
+		return transcode.SubtitleStream{Codec: "hdmv_pgs_subtitle", Bitmap: true, Language: lang, Disposition: transcode.Disposition{Forced: forced}}
+	}
+	for name, tc := range map[string]struct {
+		subs []transcode.SubtitleStream
+		held bool
+	}{
+		"same language, 639-2 beside 639-1": {[]transcode.SubtitleStream{sub("subrip", "en", "", false, false), img("eng", false)}, false},
+		"an SDH text track covers":          {[]transcode.SubtitleStream{sub("subrip", "eng", "SDH", false, true), img("eng", false)}, false},
+		"another language does not":         {[]transcode.SubtitleStream{sub("subrip", "spa", "", false, false), img("eng", false)}, true},
+		// A forced track carries only what the audio does not say: a full
+		// one in its place would show every line.
+		"a full track does not cover a forced one": {[]transcode.SubtitleStream{sub("subrip", "eng", "", false, false), img("eng", true)}, true},
+		"a forced title is forced":                 {[]transcode.SubtitleStream{sub("subrip", "eng", "", false, false), {Codec: "hdmv_pgs_subtitle", Bitmap: true, Language: "eng", Title: "Forced"}}, true},
+		"a forced track covers a forced one":       {[]transcode.SubtitleStream{sub("subrip", "eng", "Forced", true, false), img("eng", true)}, false},
+		"a forced track does not cover a full one": {[]transcode.SubtitleStream{sub("subrip", "eng", "Forced", true, false), img("eng", false)}, true},
+		// An untagged track's language is unknown on both sides.
+		"an untagged image track holds":               {[]transcode.SubtitleStream{sub("subrip", "", "", false, false), img("", false)}, true},
+		"an untagged text track covers none":          {[]transcode.SubtitleStream{sub("subrip", "", "", false, false), img("eng", false)}, true},
+		"a text codec the standard drops covers none": {[]transcode.SubtitleStream{sub("dvb_teletext", "eng", "", false, false), img("eng", false)}, true},
+		"another image track covers none":             {[]transcode.SubtitleStream{img("eng", false), img("eng", false)}, true},
+		"every image track must be covered":           {[]transcode.SubtitleStream{sub("subrip", "eng", "", false, false), img("eng", false), img("fre", false)}, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			in := info(h264, eac3)
+			in.Subtitles = tc.subs
+			p := Plan(in, profile, cpu)
+			if tc.held {
+				assert.Equal(t, HoldImageSubtitles, p.Reason)
+			} else {
+				assert.NotEqual(t, DecisionSkip, p.Decision, p.Reason)
+			}
+		})
+	}
 }
 
 // Every subtitle goes beside the file (spec §4.1): the MP4 carries none.
