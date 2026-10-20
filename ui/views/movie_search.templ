@@ -1,0 +1,42 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package views
+
+import (
+	"github.com/mediactl/clustarr/ui/components/dialog"
+	"github.com/mediactl/clustarr/ui/projection"
+)
+
+// MovieSearchModal is Radarr's InteractiveSearchModal, opened from the
+// movie page's "Interactive Search": "Interactive Search - <title>" over
+// the results panel an episode's or a season's interactive search shows.
+// It is swapped into the page's #movie-modal and opens as it lands; the
+// next one swapped in retires it.
+templ MovieSearchModal(movie projection.LibraryItem, p SearchPanel) {
+	@dialog.Dialog(dialog.Props{DefaultOpen: true}) {
+		@dialog.Content(dialog.ContentProps{
+			Class:      "max-h-[90vh] overflow-y-auto sm:max-w-6xl",
+			Attributes: templ.Attributes{"data-movie-search-modal": movie.Ref.Name},
+		}) {
+			@dialog.Header() {
+				@dialog.Title() { { "Interactive Search - " + movie.Title } }
+			}
+			@SearchPanelView(p)
+		}
+	}
+}

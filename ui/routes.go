@@ -83,6 +83,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /library/{namespace}/episode/{name}/search/interactive", s.handleInteractiveSearch)
 	mux.HandleFunc("GET /library/{namespace}/book/{name}/details", s.handleBookDetails)
 	mux.HandleFunc("POST /library/{namespace}/book/{name}/search/interactive", s.handleBookInteractiveSearch)
+	mux.HandleFunc("POST /library/{namespace}/movie/{name}/search/interactive", s.handleMovieInteractiveSearch)
 	mux.HandleFunc("GET /searches/{namespace}/{name}", s.handleSearchPanel)
 	mux.HandleFunc("POST /searches/{namespace}/{name}/grab", s.handleGrabRelease)
 	mux.HandleFunc("POST /library/{namespace}/{kind}/{name}/refresh", s.handleRefreshMetadata)

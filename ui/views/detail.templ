@@ -125,12 +125,16 @@ templ LibraryDetail(d Detail) {
 			@subtitlesSection(d)
 		}
 		@titlesSection(d)
+		if d.Item.Kind == commonv1.MediaKindMovie {
+			<div id="movie-modal"></div>
+		}
 	}
 }
 
 // itemToolbar is the item page's toolbar: Radarr's "Refresh & Scan" (the
 // metadata refresh plus a scan of the item's own folder, when it has one),
-// "Search <kind>" and, for an item with a folder, the probe-driven naming
+// "Search <kind>", a movie's "Interactive Search" (MovieSearchModal, into
+// the page's #movie-modal) and, for an item with a folder, the probe-driven naming
 // design's per-item "Rename" (§5): "Rename (dry run)" previews the move
 // without touching anything, "Rename" applies it, both restricted to the
 // item's own folder (handleRenameItem, ui/actions.RenameFiles). Monitoring
@@ -144,6 +148,10 @@ templ itemToolbar(d Detail) {
 				@toolbarForm(libraryActionURL(d.Item, "refresh"), []Field{{"return", libraryDetailPath(d.Item)}}, "refresh-cw", "Refresh", "refresh-metadata", nil)
 			}
 			@toolbarForm(libraryActionURL(d.Item, "search"), []Field{{"return", libraryDetailPath(d.Item)}}, "search", searchLabel(d.Item.Kind), "search-now", nil)
+			if d.Item.Kind == commonv1.MediaKindMovie {
+				@toolbarForm(libraryActionURL(d.Item, "search/interactive"), nil, "user-search", "Interactive Search", "movie-interactive-search",
+					templ.Attributes{"hx-post": libraryActionURL(d.Item, "search/interactive"), "hx-target": "#movie-modal", "hx-swap": "innerHTML"})
+			}
 			if d.CanScan {
 				@toolbarForm(libraryActionURL(d.Item, "rename"), []Field{{"return", libraryDetailPath(d.Item)}, {"rename", "dryRun"}}, "eye", "Rename (dry run)", "rename-dry-run", nil)
 				@toolbarForm(libraryActionURL(d.Item, "rename"), []Field{{"return", libraryDetailPath(d.Item)}, {"rename", "apply"}}, "file-symlink", "Rename", "rename-apply", nil)

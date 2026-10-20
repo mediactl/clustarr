@@ -342,7 +342,10 @@ an undated book reads missing) and both searches, the interactive one
 through the same `startInteractiveSearch` and `/searches` routes. The
 episode and book templates share `searchButtons`, `searchTab`,
 `fileTable` and `statusCell` (`views.RowStatus`); an artist's albums are
-still `ChildRows`.
+still `ChildRows`. A movie's interactive search is Radarr's (2026-10-20,
+`ui/movie_search.go`): "Interactive Search" beside "Search Movie" in the
+movie page's toolbar opens `views.MovieSearchModal` ("Interactive Search -"
+and the title) in `#movie-modal`, the same results panel and `/searches` routes.
 Those modals (and the season search's) are shadcn-templ dialogs open by
 default, whose portal moves them to `<body>` a microtask after htmx swaps
 them in and before htmx settles the swap, so htmx processed only the empty
