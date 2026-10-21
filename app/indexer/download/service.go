@@ -229,10 +229,10 @@ func (s *Service) fetchAndCount(
 		return schema.DownloadResponse{Error: limits.GrabLimitMessage(key.String(), until), RetryAt: &until},
 			limits.ResultGrabLimited, label
 	}
-	if until, paused := s.releasePaused(ctx, &idx, req.GUID, log); paused {
+	if until, refusals, paused := s.releasePaused(ctx, &idx, req.GUID, log); paused {
 		// This release is in the indexer's per-NZB cooldown; the indexer's
 		// other releases are fetched meanwhile.
-		return schema.DownloadResponse{Error: limits.GrabLimitMessage(key.String(), until), RetryAt: &until},
+		return schema.DownloadResponse{Error: limits.GrabLimitMessage(key.String(), until), RetryAt: &until, ReleaseRefusals: refusals},
 			limits.ResultGrabLimited, label
 	}
 	held, allowed := s.reserveGrab(ctx, &idx, req.GUID, log)
@@ -284,9 +284,10 @@ func (s *Service) fetchAndCount(
 		// One release's cooldown (nzb-life: "You already downloaded this
 		// NZB in the last 24 hours"): the indexer serves anything else,
 		// so only this release waits.
-		if until, ok := s.pauseRelease(ctx, &idx, req.GUID, retryAfterHeader(res.Header), log); ok {
+		if until, refusals, ok := s.pauseRelease(ctx, &idx, req.GUID, retryAfterHeader(res.Header), log); ok {
 			resp.Error = limits.GrabLimitMessage(key.String(), until)
 			resp.RetryAt = &until
+			resp.ReleaseRefusals = refusals
 		}
 	case res.Status == http.StatusTooManyRequests:
 		// The indexer's own limit, which spec.limits.grabLimit did not
@@ -298,6 +299,7 @@ func (s *Service) fetchAndCount(
 		}
 	case grabbed:
 		s.clearGrabPause(ctx, &idx, log)
+		s.clearReleasePause(ctx, &idx, req.GUID, log)
 	}
 	return resp, result, label
 }
@@ -339,31 +341,43 @@ func releaseCooldown(body io.Reader) bool {
 	return false
 }
 
-// releasePaused reports a cooldown a 429 set on one release of idx; an
-// accounting outage reads as no pause, as reserveGrab fails open.
-func (s *Service) releasePaused(ctx context.Context, idx *indexv1alpha1.Indexer, guid string, log *slog.Logger) (time.Time, bool) {
+// releasePaused reports a cooldown a 429 set on one release of idx and
+// the refusals behind it; an accounting outage reads as no pause, as
+// reserveGrab fails open.
+func (s *Service) releasePaused(ctx context.Context, idx *indexv1alpha1.Indexer, guid string, log *slog.Logger) (time.Time, int32, bool) {
 	if s.Bus == nil {
-		return time.Time{}, false
+		return time.Time{}, 0, false
 	}
-	until, paused, err := limits.ReleasePaused(ctx, s.Bus.KV(events.BucketIndexerLimits), idx, guid, s.now())
+	until, refusals, paused, err := limits.ReleaseCooldown(ctx, s.Bus.KV(events.BucketIndexerLimits), idx, guid, s.now())
 	if err != nil {
 		log.Warn("app/indexer/download: reading the release cooldown failed; asking the indexer", "err", err)
-		return time.Time{}, false
+		return time.Time{}, 0, false
 	}
-	return until, paused
+	return until, refusals, paused
 }
 
-func (s *Service) pauseRelease(ctx context.Context, idx *indexv1alpha1.Indexer, guid string, retryAfter time.Duration, log *slog.Logger) (time.Time, bool) {
+func (s *Service) pauseRelease(ctx context.Context, idx *indexv1alpha1.Indexer, guid string, retryAfter time.Duration, log *slog.Logger) (time.Time, int32, bool) {
 	if s.Bus == nil {
-		return time.Time{}, false
+		return time.Time{}, 0, false
 	}
-	until, err := limits.PauseRelease(ctx, s.Bus.KV(events.BucketIndexerLimits), idx, guid, retryAfter, s.now())
+	until, refusals, err := limits.PauseRelease(ctx, s.Bus.KV(events.BucketIndexerLimits), idx, guid, retryAfter, s.now())
 	if err != nil {
 		log.Warn("app/indexer/download: recording the release cooldown failed", "err", err)
-		return time.Time{}, false
+		return time.Time{}, 0, false
 	}
-	log.Info("app/indexer/download: the indexer answered 429 for this release alone; it is in cooldown", "until", until, "retryAfter", retryAfter)
-	return until, true
+	log.Info("app/indexer/download: the indexer answered 429 for this release alone; it is in cooldown",
+		"until", until, "retryAfter", retryAfter, "refusals", refusals)
+	return until, refusals, true
+}
+
+// clearReleasePause forgets a served release's refusals.
+func (s *Service) clearReleasePause(ctx context.Context, idx *indexv1alpha1.Indexer, guid string, log *slog.Logger) {
+	if s.Bus == nil {
+		return
+	}
+	if err := limits.ClearReleasePause(ctx, s.Bus.KV(events.BucketIndexerLimits), idx, guid); err != nil {
+		log.Warn("app/indexer/download: clearing the release cooldown failed", "err", err)
+	}
 }
 
 // grabPaused reports a pause a 429 set on idx; an accounting outage reads

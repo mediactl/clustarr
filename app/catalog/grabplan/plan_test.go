@@ -72,6 +72,29 @@ func TestGrabplanReChecksAgainstFreshState(t *testing.T) {
 	})
 }
 
+// A release its indexer kept refusing is given up without a block
+// (releaseRefused), and its Failed entry is a tombstone while it is kept:
+// the release is refused for the owner -- under another entry's id too --
+// and another release is grabbed.
+func TestARefusedReleaseIsNotGrabbedAgainWhileItsEntryStands(t *testing.T) {
+	refused := movieCandidate(t, "Heat.1995.720p.HDTV.x264-GRP")
+	other := movieCandidate(t, "Heat.1995.720p.HDTV.x264-OTHER")
+	v := movieView(t, nil, refused)
+	v.PendingCap = 0
+	e := liveEntry(refused, commonv1.DownloadPhaseFailed)
+	e.FailureReason = commonv1.DownloadFailureReleaseRefused
+	e.ID = "heat-older-grab"
+	v.Entries = []catalogv1alpha1.DownloadEntry{e}
+	require.Empty(t, grabplan.Decide(v).NewEntries, "the refused release is not grabbed again")
+
+	v = movieView(t, nil, refused, other)
+	v.PendingCap = 0
+	v.Entries = []catalogv1alpha1.DownloadEntry{e}
+	p := grabplan.Decide(v)
+	require.Len(t, p.NewEntries, 1)
+	require.Equal(t, other.Release.Decision.GUID, p.NewEntries[0].Release.GUID)
+}
+
 // TestATombstoneRejectsACandidateFromBeforeTheBlock is ruling R7 and spec
 // §6.14's "no regrab in the gap": a search answer computed before a block
 // carries no Blocked mark, but the owner's Blocklisted tombstone of the

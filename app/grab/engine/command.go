@@ -198,6 +198,12 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 			return events.Retry(notReadyRetry, werr)
 		}
 		return nil
+	case errors.Is(err, ErrReleaseRefused):
+		log.WarnContext(ctx, "engine: the indexer keeps refusing this release; giving it up", "entry", cmd.Entry.ID, "error", err)
+		if werr := h.Reporter.WriteFailed(ctx, cmd, string(commonv1.DownloadFailureReleaseRefused), err.Error()); werr != nil {
+			return events.Retry(notReadyRetry, werr)
+		}
+		return nil
 	case errors.Is(err, download.ErrPayloadMismatch):
 		if werr := h.Reporter.WriteFailed(ctx, cmd, string(commonv1.DownloadFailurePayloadMismatch), err.Error()); werr != nil {
 			return events.Retry(notReadyRetry, werr)

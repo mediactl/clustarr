@@ -80,7 +80,7 @@ const (
 
 // DownloadFailureReason is the machine-readable cause of a failure.
 //
-// +kubebuilder:validation:Enum=none;missingArticles;diskFull;encrypted;stalled;writeError;timeout;importRejected;importExpired;manual;payloadMismatch;payloadUnavailable
+// +kubebuilder:validation:Enum=none;missingArticles;diskFull;encrypted;stalled;writeError;timeout;importRejected;importExpired;manual;payloadMismatch;payloadUnavailable;releaseRefused
 type DownloadFailureReason string
 
 // Download failure reasons.
@@ -119,6 +119,14 @@ const (
 	// from its indexer (ADR-0019 §6.7): before import a release fault, after
 	// import a lost seed.
 	DownloadFailurePayloadUnavailable DownloadFailureReason = "payloadUnavailable"
+	// DownloadFailureReleaseRefused means the indexer kept refusing this
+	// one release -- a per-NZB cooldown it set again after it ended
+	// (nzb-life's "Already Downloaded", every day for five days on talos,
+	// 2026-10-15..20) -- so the engine gave it up. Neither a release fault
+	// nor a local one: nothing is blocklisted, a redownload is searched, and
+	// the entry stays as a tombstone for lifecycle.RefusedHold so the search
+	// takes another release meanwhile.
+	DownloadFailureReleaseRefused DownloadFailureReason = "releaseRefused"
 )
 
 // IsReleaseFault reports whether a failure for reason r is the RELEASE's

@@ -26,6 +26,11 @@ const (
 	// tombstone after its transfer is removed, so no answer computed before
 	// the block regrabs the release (§6.14).
 	BlockQuarantine = time.Hour
+	// RefusedHold is how long a Failed releaseRefused entry -- a release
+	// its indexer kept refusing -- stays as a tombstone after its failure,
+	// so the redownload search grabs another release rather than the same
+	// one; the release may be grabbed again after it, unblocked.
+	RefusedHold = 24 * time.Hour
 	// UnclaimedGrace is how long after an engine boot or a transfer's add
 	// claimed: false means nothing (§6.7).
 	UnclaimedGrace = 10 * time.Minute

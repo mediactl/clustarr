@@ -103,22 +103,55 @@ func GrabPaused(ctx context.Context, kv events.KV, idx *indexv1alpha1.Indexer, n
 }
 
 // PauseRelease records one release's cooldown at now and returns when it
-// may be fetched again: now plus retryAfter when the indexer named one,
-// else DefaultGrabPause. It touches neither the indexer's pause nor its
-// strikes: the indexer serves its other releases meanwhile.
-func PauseRelease(ctx context.Context, kv events.KV, idx *indexv1alpha1.Indexer, guid string, retryAfter time.Duration, now time.Time) (time.Time, error) {
+// may be fetched again -- now plus retryAfter when the indexer named one,
+// else DefaultGrabPause -- and how many times in a row the release was
+// refused: a refusal while an earlier one's entry is still in the bucket
+// (its 48 h TTL outlives a 24 h cooldown) counts on from it. It touches
+// neither the indexer's pause nor its strikes: the indexer serves its other
+// releases meanwhile.
+func PauseRelease(ctx context.Context, kv events.KV, idx *indexv1alpha1.Indexer, guid string, retryAfter time.Duration, now time.Time) (time.Time, int32, error) {
 	if retryAfter <= 0 {
 		retryAfter = DefaultGrabPause
 	}
-	until := now.Add(retryAfter)
-	val, err := json.Marshal(grabPause{Until: until.Unix(), Strikes: 1})
+	key := ReleasePauseKey(string(idx.UID), guid)
+	prev, _, err := readPauseKey(ctx, kv, key)
 	if err != nil {
-		return time.Time{}, err
+		return time.Time{}, 0, err
 	}
-	if _, err := kv.Put(ctx, ReleasePauseKey(string(idx.UID), guid), val); err != nil {
-		return time.Time{}, fmt.Errorf("app/indexer/limits: record the release cooldown: %w", err)
+	until := now.Add(retryAfter)
+	strikes := prev.Strikes + 1
+	val, err := json.Marshal(grabPause{Until: until.Unix(), Strikes: strikes})
+	if err != nil {
+		return time.Time{}, 0, err
 	}
-	return until, nil
+	if _, err := kv.Put(ctx, key, val); err != nil {
+		return time.Time{}, 0, fmt.Errorf("app/indexer/limits: record the release cooldown: %w", err)
+	}
+	return until, strikes, nil
+}
+
+// ReleaseCooldown reports the cooldown in force on one release at now, if
+// any, and the refusals behind it.
+func ReleaseCooldown(ctx context.Context, kv events.KV, idx *indexv1alpha1.Indexer, guid string, now time.Time) (time.Time, int32, bool, error) {
+	cur, have, err := readPauseKey(ctx, kv, ReleasePauseKey(string(idx.UID), guid))
+	if err != nil || !have {
+		return time.Time{}, 0, false, err
+	}
+	until := time.Unix(cur.Until, 0).UTC()
+	if !until.After(now) {
+		return time.Time{}, 0, false, nil
+	}
+	return until, cur.Strikes, true, nil
+}
+
+// ClearReleasePause forgets a release's refusals once the indexer served
+// it, so a later cooldown counts from one.
+func ClearReleasePause(ctx context.Context, kv events.KV, idx *indexv1alpha1.Indexer, guid string) error {
+	err := kv.Delete(ctx, ReleasePauseKey(string(idx.UID), guid))
+	if err != nil && !errors.Is(err, events.ErrKeyNotFound) {
+		return fmt.Errorf("app/indexer/limits: clear the release cooldown: %w", err)
+	}
+	return nil
 }
 
 // ReleasePaused reports the cooldown in force on one release at now, if any.

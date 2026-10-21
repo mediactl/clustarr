@@ -52,6 +52,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/mediactl/clustarr/pkg/events/schema"
 )
 
 // ErrPayloadUnavailable is a payload the indexer or its link can no longer
@@ -74,6 +76,29 @@ func (e *PayloadDeferredError) Error() string {
 }
 
 func (e *PayloadDeferredError) Unwrap() error { return e.Err }
+
+// MaxReleaseRefusals is how many times in a row the indexer may refuse one
+// release (schema.DownloadResponse.ReleaseRefusals) before the engine gives
+// it up: the first refusal is waited out; one more after its cooldown is
+// the indexer saying it will not serve it (nzb-life refused three grabs
+// every day for five days, 2026-10-15..20).
+const MaxReleaseRefusals = 2
+
+// ErrReleaseRefused is a release its indexer refused MaxReleaseRefusals
+// times in a row: the command fails releaseRefused, which the manager does
+// not blocklist.
+var ErrReleaseRefused = errors.New("engine: the indexer keeps refusing this release")
+
+// IndexerDeferred is a refusal resp names a RetryAt for, as the error an
+// engine returns: ErrReleaseRefused once the release was refused
+// MaxReleaseRefusals times in a row, else a PayloadDeferredError until
+// resp.RetryAt.
+func IndexerDeferred(resp schema.DownloadResponse, err error) error {
+	if resp.ReleaseRefusals >= MaxReleaseRefusals {
+		return fmt.Errorf("%w (%d refusals in a row): %w", ErrReleaseRefused, resp.ReleaseRefusals, err)
+	}
+	return PayloadDeferred(*resp.RetryAt, err)
+}
 
 // PayloadDeferred wraps err as a PayloadDeferredError until until.
 func PayloadDeferred(until time.Time, err error) error {

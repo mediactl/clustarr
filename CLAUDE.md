@@ -1238,6 +1238,13 @@ exports the pinned ref every image build takes as a named context.
   nzb-life grab for the longest cooldown among the entries retrying. The verb
   sniffs the 429's body (`releaseCooldown`) and records such a refusal under
   `ReleasePauseKey` -- the indexer's other releases are fetched meanwhile.
+  A release refused again after its cooldown is given up (2026-10-21). The
+  refusals are counted (`DownloadResponse.ReleaseRefusals`), and at
+  `engine.MaxReleaseRefusals` (two) the engine fails the entry
+  `releaseRefused`. That blocklists nothing, a redownload is searched, and
+  the Failed entry stays `lifecycle.RefusedHold` (24 h) as a tombstone, so
+  the search takes another release. nzb-life refused three Naked and Afraid
+  grabs every day from 10-15 to 10-20.
 - **An import that imports nothing is classed, never blocklisted at once
   (2026-10-07).** Refusing every file used to read as a bad release, so a
   good 21 GB download the item merely would not take (its file transcoded)

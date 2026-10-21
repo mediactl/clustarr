@@ -108,7 +108,7 @@ func TestAReleaseCooldownPausesOnlyThatRelease(t *testing.T) {
 	idx := testIndexer("uid-release", nil)
 	now := time.Date(2026, 10, 16, 20, 35, 0, 0, time.UTC)
 
-	until, err := PauseRelease(ctx, kv, idx, "guid-a", 871*time.Minute, now)
+	until, _, err := PauseRelease(ctx, kv, idx, "guid-a", 871*time.Minute, now)
 	require.NoError(t, err)
 	require.Equal(t, now.Add(871*time.Minute), until)
 
@@ -130,7 +130,7 @@ func TestAReleaseCooldownPausesOnlyThatRelease(t *testing.T) {
 	require.False(t, paused, "the cooldown ended")
 
 	// Without a Retry-After the default pause holds the release.
-	until, err = PauseRelease(ctx, kv, idx, "guid-c", 0, now)
+	until, _, err = PauseRelease(ctx, kv, idx, "guid-c", 0, now)
 	require.NoError(t, err)
 	require.Equal(t, now.Add(DefaultGrabPause), until)
 }

@@ -148,7 +148,7 @@ func resolveSource(ctx context.Context, httpClient *http.Client, resolver Indexe
 		}
 		if resp.Error != "" && resp.RetryAt != nil {
 			// index named when the indexer may be asked again.
-			return resolved{}, engine.PayloadDeferred(*resp.RetryAt, fmt.Errorf("torrent: indexer resolve failed: %s", resp.Error))
+			return resolved{}, engine.IndexerDeferred(resp, fmt.Errorf("torrent: indexer resolve failed: %s", resp.Error))
 		}
 		if resp.Error != "" {
 			// index could not produce the payload this time: the indexer

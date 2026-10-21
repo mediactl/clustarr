@@ -590,6 +590,7 @@ spec:
                           - manual
                           - payloadMismatch
                           - payloadUnavailable
+                          - releaseRefused
                           type: string
                         scope:
                           description: BlockScope is where a release is blocked (ADR-0019
@@ -748,6 +749,7 @@ spec:
                       - manual
                       - payloadMismatch
                       - payloadUnavailable
+                      - releaseRefused
                       type: string
                     grabbedAt:
                       format: date-time

@@ -191,3 +191,55 @@ func (f fetcherFunc) Fetch(ctx context.Context, rawURL string) (*FetchResult, er
 	return f(ctx, rawURL)
 }
 func (fetcherFunc) Scrub(s string) string { return s }
+
+// nzb-life refused three Naked and Afraid grabs as "Already Downloaded"
+// every day from 10-15 to 10-20: each retry at the cooldown's end was
+// refused again, so the entries never moved. The refusals of one release
+// are counted -- one for the first, the same while its cooldown stands,
+// two once it is refused again after it -- so an engine can give the
+// release up; a release the indexer then serves starts counting afresh.
+func TestARefusedReleaseCountsItsRefusals(t *testing.T) {
+	ctx := context.Background()
+	idx := testIndexer("media", "nzb-life", "uid-refusals", indexv1alpha1.LimitUnitDay)
+	bus := membus.New(nil)
+	t.Cleanup(func() { _ = bus.Close() })
+	require.NoError(t, bus.Ensure(ctx, events.Default()))
+	now := time.Date(2026, 10, 16, 20, 35, 0, 0, time.UTC)
+	serve := map[string]bool{}
+	s := &Service{
+		Client: fakeClient(t, idx), Bus: bus, Now: func() time.Time { return now },
+		Fetch: func(context.Context, *indexv1alpha1.Indexer) (Fetcher, error) {
+			return fetcherFunc(func(_ context.Context, rawURL string) (*FetchResult, error) {
+				if serve[rawURL] {
+					return &FetchResult{
+						Status: http.StatusOK, Header: http.Header{"Content-Type": {"application/x-nzb"}},
+						ContentLen: -1, Body: io.NopCloser(strings.NewReader(`<?xml version="1.0"?><nzb/>`)),
+					}, nil
+				}
+				return &FetchResult{
+					Status: http.StatusTooManyRequests, Header: http.Header{"Retry-After": {"86400"}},
+					Body: io.NopCloser(strings.NewReader(`<h1>Already Downloaded</h1>`)),
+				}, nil
+			}), nil
+		},
+	}
+	req := func(guid, u string) schema.DownloadRequest {
+		return schema.DownloadRequest{IndexerRef: schema.Ref{Namespace: "media", Name: "nzb-life"}, GUID: guid, URL: u}
+	}
+
+	require.EqualValues(t, 1, s.Handle(ctx, req("g-a", "https://x/a")).ReleaseRefusals)
+	now = now.Add(time.Hour)
+	require.EqualValues(t, 1, s.Handle(ctx, req("g-a", "https://x/a")).ReleaseRefusals, "answered from the cooldown")
+	now = now.Add(24 * time.Hour)
+	require.EqualValues(t, 2, s.Handle(ctx, req("g-a", "https://x/a")).ReleaseRefusals, "refused again after its cooldown")
+
+	require.EqualValues(t, 1, s.Handle(ctx, req("g-b", "https://x/b")).ReleaseRefusals)
+	now = now.Add(25 * time.Hour)
+	serve["https://x/b"] = true
+	served := s.Handle(ctx, req("g-b", "https://x/b"))
+	require.Empty(t, served.Error)
+	require.Zero(t, served.ReleaseRefusals)
+	serve["https://x/b"] = false
+	now = now.Add(time.Hour)
+	require.EqualValues(t, 1, s.Handle(ctx, req("g-b", "https://x/b")).ReleaseRefusals, "a served release counts afresh")
+}

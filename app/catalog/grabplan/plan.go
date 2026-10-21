@@ -720,11 +720,14 @@ func (d *decider) queue(it Covered, purpose commonv1.DownloadPurpose) []decision
 	return out
 }
 
-// tombstoned reports a Blocklisted entry covering it for the same release.
+// tombstoned reports a Blocklisted entry covering it for the same release,
+// or a Failed releaseRefused one: a release its indexer kept refusing,
+// which lifecycle keeps RefusedHold so the redownload takes another.
 func (d *decider) tombstoned(it Covered, rel commonv1.ReleaseInfo) bool {
 	for i := range d.v.Entries {
 		e := &d.v.Entries[i]
-		if e.Phase != commonv1.DownloadPhaseBlocklisted || !covers(e, it) {
+		refused := e.Phase == commonv1.DownloadPhaseFailed && e.FailureReason == commonv1.DownloadFailureReleaseRefused
+		if (e.Phase != commonv1.DownloadPhaseBlocklisted && !refused) || !covers(e, it) {
 			continue
 		}
 		if sameRelease(e.Release, rel) {

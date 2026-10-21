@@ -142,7 +142,7 @@ func (r *Resolver) resolveIndexer(ctx context.Context, ns string, id commonv1.In
 	case resp.Error != "" && resp.RetryAt != nil:
 		// index named when the indexer may be asked again (its grab limit,
 		// or a 429 it answered): the command waits until then.
-		return nil, engine.PayloadDeferred(*resp.RetryAt, fmt.Errorf("usenetengine: index: %s", resp.Error))
+		return nil, engine.IndexerDeferred(resp, fmt.Errorf("usenetengine: index: %s", resp.Error))
 	case resp.Error != "":
 		// index answered and could not produce the payload this time: the
 		// indexer down, rate-limited or in backoff. Retried, never read as

@@ -403,6 +403,13 @@ type DownloadResponse struct {
 	// (app/indexer/limits.PauseGrabs). An engine waits until then rather
 	// than retry on its own schedule.
 	RetryAt *time.Time `json:"retryAt,omitempty"`
+
+	// ReleaseRefusals, beside a RetryAt, is how many times in a row the
+	// indexer refused this release alone (a per-NZB cooldown, nzb-life's
+	// "Already Downloaded"): 1 for the first refusal and while its cooldown
+	// stands, 2 once it is refused again after it. An engine gives the
+	// release up at engine.MaxReleaseRefusals rather than wait another day.
+	ReleaseRefusals int32 `json:"releaseRefusals,omitempty"`
 }
 
 // Schema implements Payload.

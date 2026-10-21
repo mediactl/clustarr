@@ -507,6 +507,15 @@ func (d *decider) terminal(e *catalogv1alpha1.DownloadEntry, rec *schema.Transfe
 			return true
 		}
 	}
+	if e.Phase == commonv1.DownloadPhaseFailed && e.FailureReason == commonv1.DownloadFailureReleaseRefused {
+		// A release its indexer kept refusing is no block, but its entry
+		// stays RefusedHold so the redownload grabs another release.
+		end := e.Dispatch.DispatchedAt.Add(RefusedHold)
+		if d.now.Before(end) {
+			d.at(end)
+			return true
+		}
+	}
 	return d.finishRemoval(e)
 }
 
