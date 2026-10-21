@@ -120,6 +120,15 @@ func (d *decider) live(e *catalogv1alpha1.DownloadEntry, rec *schema.TransferRec
 		return true
 	}
 
+	// Assigned to a DownloadClient that no longer exists, its transfer
+	// never started: nothing will ever act on its add, so it is assigned
+	// again as a pending entry is. Three Naked and Afraid episodes were
+	// re-sent to the deleted usenet-local's engine for days (2026-10-20).
+	if _, exists := d.clients[e.Client]; !exists && e.Phase == commonv1.DownloadPhaseAssigned && !heldAtBoot(rec, eng) {
+		e.Client, e.Engine = "", ""
+		return d.pending(e)
+	}
+
 	if rec == nil || !heldAtBoot(rec, eng) {
 		// No record at the engine's boot. Judged only once the engine
 		// re-attached and finished the resync its client asked for
