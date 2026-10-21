@@ -20,6 +20,7 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -129,6 +130,7 @@ func (r *Reporter) NeedLeaderElection() bool { return false }
 func (r *Reporter) Start(ctx context.Context) error {
 	r.init()
 	log := logging.FromContext(ctx).With("runnable", "engine-reporter", "engine", r.Engine)
+	r.pruneRemoved(ctx)
 	for {
 		if err := r.writeAll(ctx, true); err != nil {
 			log.WarnContext(ctx, "engine: the re-attach report failed; retrying", "error", err)
@@ -169,6 +171,37 @@ func (r *Reporter) Start(ctx context.Context) error {
 				lastEngine = r.now()
 			}
 		}
+	}
+}
+
+// pruneRemoved removes, once at start, every transfer whose entry's record
+// already says removed at the transfer's own seq or later: a remove that
+// found nothing held and left the transfer's saved state behind, re-added at
+// this boot (28 removed torrents on talos, 2026-10-20, some downloading
+// again). Its bytes are kept: the remove's data choice is not recorded, and
+// deleting data it did not ask to delete is the owner's call. A failure is
+// logged and left for the next start.
+func (r *Reporter) pruneRemoved(ctx context.Context) {
+	log := logging.FromContext(ctx)
+	held, err := r.Source.List(ctx)
+	if err != nil {
+		log.WarnContext(ctx, "engine: cannot list transfers to prune removed entries", "error", err)
+		return
+	}
+	for _, h := range held {
+		if !h.Identified() {
+			continue
+		}
+		rec, ok, err := r.Transfers.Read(ctx, agentrecords.TransferKey(h.Journal.EntryUID))
+		if err != nil || !ok || rec.State != schema.TransferStateRemoved || rec.Seq < h.Journal.Seq {
+			continue
+		}
+		if err := r.Source.RemoveByID(ctx, h.Item.ID, false); err != nil && !errors.Is(err, download.ErrNotFound) {
+			log.WarnContext(ctx, "engine: cannot remove a transfer whose entry was removed", "entry", h.Journal.EntryUID, "id", h.Item.ID, "error", err)
+			continue
+		}
+		log.InfoContext(ctx, "engine: removed a transfer whose entry was already removed; its bytes kept",
+			"entry", h.Journal.EntryUID, "name", h.Name, "id", h.Item.ID, "contentRoot", h.Item.ContentRoot)
 	}
 }
 

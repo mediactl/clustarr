@@ -267,6 +267,32 @@ func (t *Transfers) RemoveByID(ctx context.Context, id string, removeData bool) 
 	return err
 }
 
+// RemoveDetached implements engine.DetachedRemover: every descriptor whose
+// journal names entryUID is removed with its transfer -- the client removes
+// it, with its data when asked, if it knows it -- so a remove that found
+// nothing held no longer leaves state that re-adds the transfer at the next
+// restart. A transfer the client does not know keeps its bytes: only the
+// client knows which files are the torrent's.
+func (t *Transfers) RemoveDetached(ctx context.Context, entryUID string, removeData bool) error {
+	t.mu.Lock()
+	t.load(ctx)
+	var ids []string
+	for id, d := range t.desc {
+		if d.Journal.EntryUID == entryUID {
+			ids = append(ids, id)
+		}
+	}
+	t.mu.Unlock()
+	for _, id := range ids {
+		if err := t.RemoveByID(ctx, id, removeData); err != nil && !errors.Is(err, download.ErrNotFound) {
+			return err
+		}
+		logging.FromContext(ctx).InfoContext(ctx, "torrent: forgot a removed entry's transfer the client did not list",
+			"entry", entryUID, "id", id, "removeData", removeData)
+	}
+	return nil
+}
+
 // category is the command's category, else the owner kind's name.
 func category(cmd schema.EngineCommand) string {
 	if cmd.Category != "" {

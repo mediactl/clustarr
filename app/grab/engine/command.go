@@ -176,6 +176,13 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 		return nil
 	}
 	if cur == nil && cmd.Desired == schema.EngineDesiredAbsent {
+		// Nothing held, but the transfer may still have saved state its
+		// client does not list (DetachedRemover): forget it with the entry.
+		if dr, ok := h.Transfers.(DetachedRemover); ok {
+			if err := dr.RemoveDetached(ctx, cmd.Entry.UID, cmd.RemoveData); err != nil {
+				return events.Retry(applyRetry, err)
+			}
+		}
 		if err := h.Reporter.WriteRemoved(ctx, cmd); err != nil {
 			return events.Retry(notReadyRetry, err)
 		}

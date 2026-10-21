@@ -56,6 +56,12 @@ func (w *Writer[R]) Write(ctx context.Context, key string, rec R) (Verdict, erro
 	})
 }
 
+// Read is the record stored at key; ok is false when there is none.
+func (w *Writer[R]) Read(ctx context.Context, key string) (rec R, ok bool, err error) {
+	rec, _, ok, err = w.s.get(ctx, key)
+	return rec, ok, err
+}
+
 // Update is the read-modify-write form two writers in one process share
 // (the index agent's fan-out and RSS poll, ADR-0019 §7.5): mutate gets a
 // copy of the stored record (ok false when absent) and returns the record to

@@ -19,12 +19,14 @@ package torrent
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	commonv1alpha1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/app/grab/engine"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 )
 
@@ -90,4 +92,27 @@ func TestAddPersistsSelectionAndAgeAndReAttachRestoresBoth(t *testing.T) {
 	require.NotNil(t, again.WantFile, "re-attach rebuilds the selection from the descriptor")
 	assert.False(t, again.WantFile("Show.S01/Show.S01E04.mkv", 1))
 	assert.True(t, again.WantFile("Show.S01/Show.S01E03.mkv", 1))
+}
+
+// RemoveDetached forgets an entry's saved state by its entry uid -- both of
+// its descriptor's files, so it is not re-added at the next restart -- and
+// asks the client to remove it too, which it may not know; another entry's
+// state stays.
+func TestRemoveDetachedForgetsTheEntrysDescriptor(t *testing.T) {
+	fc := newFakeClient()
+	e := &Engine{Client: fc, StateDir: t.TempDir()}
+	tr := &Transfers{Engine: e}
+	for id, uid := range map[string]string{"id-a": "uid-a", "id-b": "uid-b"} {
+		d := descriptor{Name: "entry-" + uid, Journal: engine.Journal{EntryUID: uid, Seq: 3, Desired: schema.EngineDesiredPresent}}
+		require.NoError(t, saveDescriptor(e.StateDir, id, []byte("d8:announce0:e"), d))
+	}
+
+	require.NoError(t, tr.RemoveDetached(context.Background(), "uid-a", true))
+
+	loaded, errs := loadDescriptors(e.StateDir)
+	require.Empty(t, errs)
+	require.Len(t, loaded, 1)
+	require.Equal(t, "uid-b", loaded[0].Desc.Journal.EntryUID)
+	_, err := os.Stat(torrentFileName(e.StateDir, "id-a"))
+	require.ErrorIs(t, err, os.ErrNotExist)
 }

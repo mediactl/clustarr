@@ -185,6 +185,15 @@ func (m *memTransfers) RemoveByID(_ context.Context, id string, removeData bool)
 	return download.ErrNotFound
 }
 
+// RemoveDetached records a removal by entry for a transfer the client did
+// not list (engine.DetachedRemover).
+func (m *memTransfers) RemoveDetached(_ context.Context, entryUID string, removeData bool) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.log("removeDetached %s data=%t", entryUID, removeData)
+	return nil
+}
+
 // gatedKV refuses every write while closed: a transfers bucket the engine
 // cannot write to (a full stream, a lost connection).
 type gatedKV struct {

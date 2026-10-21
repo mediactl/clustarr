@@ -55,6 +55,16 @@ type Transfers interface {
 	RemoveByID(ctx context.Context, downloadID string, removeData bool) error
 }
 
+// DetachedRemover is a Transfers that keeps state for a transfer its client
+// may not list -- the torrent engine's descriptor of a magnet still fetching
+// its metadata, or of a torrent mid-verification -- and so can forget an
+// entry's transfer by its entry uid when a remove finds nothing held.
+// Without it that state outlived the remove and the transfer came back at
+// the next restart (28 removed torrents on talos, 2026-10-20).
+type DetachedRemover interface {
+	RemoveDetached(ctx context.Context, entryUID string, removeData bool) error
+}
+
 // Held is one transfer an engine holds.
 type Held struct {
 	// Name is the Download name (pre-journal) or the entry id.
