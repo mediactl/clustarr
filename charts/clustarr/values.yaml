@@ -147,7 +147,9 @@ postgres:
 # cluster-plex.enabled. Like postgres.enabled, it needs CloudNativePG Ready
 # first. Postgres 15: the shim's schema is dumped from 15, and a dump does not
 # necessarily restore into a newer server. max_connections covers the shim's
-# poolMax (100) times Plex's replicas (3), with room left.
+# poolMax (100) times Plex's replicas (3), with room left. jit is off: Plex
+# runs thousands of short queries a page, and compiling one past
+# jit_above_cost costs more than running it (an arm64 node most of all).
 plexDatabase:
   instances: 1
   imageName: ghcr.io/cloudnative-pg/postgresql:15.19-standard-trixie
@@ -159,6 +161,7 @@ plexDatabase:
     shared_buffers: 256MB
     work_mem: 16MB
     maintenance_work_mem: 128MB
+    jit: "off"
 
 # Plex (cluster-plex's chart, a dependency; its own values.yaml documents
 # every key). Each value below that names one of this release's resources is
