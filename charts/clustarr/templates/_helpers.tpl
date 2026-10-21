@@ -180,6 +180,32 @@ autoscale reconciler reads the same value from the pod template.
 Guard rails. These are correctness invariants from the design spec, not
 preferences, so they fail the render rather than warn.
 */}}
+{{/*
+clustarr.everyTermHas is "true" when affinity has a required node-affinity
+term and every term holds every one of exprs: the check for a placement a
+subchart takes literally (control-plane placement design §5.2, §5.5).
+Call with (dict "affinity" <affinity map> "exprs" <list of expressions>).
+*/}}
+{{- define "clustarr.everyTermHas" -}}
+{{- $terms := list -}}
+{{- with .affinity -}}{{- with .nodeAffinity -}}{{- with .requiredDuringSchedulingIgnoredDuringExecution -}}
+{{- $terms = .nodeSelectorTerms | default list -}}
+{{- end -}}{{- end -}}{{- end -}}
+{{- $ok := gt (len $terms) 0 -}}
+{{- range $term := $terms -}}
+{{- range $want := $.exprs -}}
+{{- $found := false -}}
+{{- range $have := ($term.matchExpressions | default list) -}}
+{{- if and (eq $have.key $want.key) (eq $have.operator $want.operator) (eq (toJson ($have.values | default list)) (toJson ($want.values | default list))) -}}
+{{- $found = true -}}
+{{- end -}}
+{{- end -}}
+{{- if not $found -}}{{- $ok = false -}}{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- if $ok }}true{{ end -}}
+{{- end -}}
+
 {{- define "clustarr.validate" -}}
 {{- if and (or .Values.postgres.enabled (index .Values "cluster-plex" "enabled")) (index .Values "cloudnative-pg" "enabled") .Release.IsInstall -}}
 {{- fail "postgres.enabled or cluster-plex.enabled (whose database is a CloudNativePG Cluster too) cannot be set with cloudnative-pg.enabled on a first `helm install`: CNPG's admission webhook fails closed until the operator this chart would install is Ready. Install the operator first (cloudnative-pg.enabled=true alone, --wait), then upgrade with postgres.enabled or cluster-plex.enabled." -}}
@@ -193,6 +219,26 @@ preferences, so they fail the render rather than warn.
 {{- with .Values.manager.cardigann.definitions -}}
 {{- if and .configMap .existingClaim -}}
 {{- fail "manager.cardigann.definitions: set configMap or existingClaim, not both: the manager's bundle loader reads one Cardigann definitions directory (--cardigann-definitions-dir), mounted from exactly one volume." -}}
+{{- end -}}
+{{- end -}}
+{{- if .Values.placement.enabled -}}
+{{- $cp := .Values.placement.profiles.controlPlane.nodeAffinity -}}
+{{- $workers := .Values.placement.profiles.workers.nodeAffinity -}}
+{{- $nats := .Values.nats | default dict -}}
+{{- if and $nats.enabled (dig "config" "cluster" "enabled" false $nats) -}}
+{{- if ne (include "clustarr.everyTermHas" (dict "affinity" (dig "podTemplate" "merge" "spec" "affinity" dict $nats) "exprs" $cp)) "true" -}}
+{{- fail "placement.enabled: nats.podTemplate.merge.spec.affinity must hold placement.profiles.controlPlane's nodeAffinity in every required term: the NATS servers run one per control-plane node (control-plane placement design §5.2), and the nats subchart takes its placement literally." -}}
+{{- end -}}
+{{- end -}}
+{{- if and $nats.enabled (dig "natsBox" "enabled" true $nats) -}}
+{{- if ne (include "clustarr.everyTermHas" (dict "affinity" (dig "natsBox" "podTemplate" "merge" "spec" "affinity" dict $nats) "exprs" $workers)) "true" -}}
+{{- fail "placement.enabled: nats.natsBox.podTemplate.merge.spec.affinity must hold placement.profiles.workers' nodeAffinity in every required term: nats-box runs on the workers with everything else (control-plane placement design §5.5)." -}}
+{{- end -}}
+{{- end -}}
+{{- if index .Values "cluster-plex" "enabled" -}}
+{{- if ne (include "clustarr.everyTermHas" (dict "affinity" (dig "plex" "affinity" dict (index .Values "cluster-plex")) "exprs" $cp)) "true" -}}
+{{- fail "placement.enabled: cluster-plex.plex.affinity must hold placement.profiles.controlPlane's nodeAffinity in every required term: a workload behind a LoadBalancer Service runs on the control plane, where the BGP peers are (owner, 2026-10-21; control-plane placement design §5.5)." -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}

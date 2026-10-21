@@ -62,7 +62,7 @@ func exprs(t *testing.T, obj map[string]any) []any {
 // either standby with preferred durability and no failover quorum, a capped
 // slot WAL, and switchover updates.
 func TestPlexDatabaseReplicationSettings(t *testing.T) {
-	out := installtest.RenderChart(t, "--set", "cluster-plex.enabled=true", "--set", "placement.enabled=true")
+	out := installtest.RenderChart(t, placementOn("--set", "cluster-plex.enabled=true", "--set-json", "cluster-plex.plex.affinity="+cpAffinity)...)
 	c := renderedCluster(t, out, "clustarr-plex-db")
 
 	assert.EqualValues(t, 3, nested(t, c, "spec", "instances"))
@@ -99,7 +99,7 @@ func TestPlexDatabaseWithPlacementOffIsUnchanged(t *testing.T) {
 // TestReleaseIndexPostgresOnWorkers: everything but the four control-plane
 // components runs on the workers (§5.5), the release index included.
 func TestReleaseIndexPostgresOnWorkers(t *testing.T) {
-	out := installtest.RenderChart(t, "--set", "postgres.enabled=true", "--set", "placement.enabled=true")
+	out := installtest.RenderChart(t, placementOn("--set", "postgres.enabled=true")...)
 	c := renderedCluster(t, out, "clustarr-postgres")
 
 	assert.Equal(t, []any{

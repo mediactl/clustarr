@@ -42,6 +42,14 @@ var (
 	controlPlaneToleration = corev1.Toleration{Key: "node-role.kubernetes.io/control-plane", Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoSchedule}
 )
 
+// placementOn turns placement on with the subcharts' literal placements the
+// render checks (NATS on the control plane, nats-box on the workers).
+func placementOn(extra ...string) []string {
+	return append([]string{"--set", "placement.enabled=true",
+		"--set-json", "nats.podTemplate.merge.spec.affinity=" + cpAffinity,
+		"--set-json", "nats.natsBox.podTemplate.merge.spec.affinity=" + workersAffinity}, extra...)
+}
+
 // renderErr is RenderChart for a render that may fail: its stderr, and
 // whether helm exited non-zero.
 func renderErr(t *testing.T, args ...string) (string, bool) {
@@ -100,8 +108,8 @@ func TestPlacementOffLeavesTheDefaultRenderAlone(t *testing.T) {
 // the workers, and the manager handed the workers profile for the pods it
 // builds (§5.6).
 func TestPlacementProfilesRenderPerComponent(t *testing.T) {
-	out := installtest.RenderChart(t, "--set", "placement.enabled=true",
-		"--set-json", `markers.affinity={"nodeAffinity":{"requiredDuringSchedulingIgnoredDuringExecution":{"nodeSelectorTerms":[{"matchExpressions":[{"key":"intel.feature.node.kubernetes.io/gpu","operator":"DoesNotExist"}]}]}}}`)
+	out := installtest.RenderChart(t, placementOn(
+		"--set-json", `markers.affinity={"nodeAffinity":{"requiredDuringSchedulingIgnoredDuringExecution":{"nodeSelectorTerms":[{"matchExpressions":[{"key":"intel.feature.node.kubernetes.io/gpu","operator":"DoesNotExist"}]}]}}}`)...)
 	w := installtest.Workloads(installtest.DecodeRendered(t, out))
 	budgets := pdbs(t, out)
 
@@ -168,14 +176,14 @@ func TestPlacementProfilesRenderPerComponent(t *testing.T) {
 // TestReplicasAboveTheProfileFailTheRender: more replicas than control-plane
 // nodes would leave a pod Pending for good (the plan's Review Focus 5).
 func TestReplicasAboveTheProfileFailTheRender(t *testing.T) {
-	stderr, failed := renderErr(t, "--set", "placement.enabled=true", "--set", "manager.replicas=4")
+	stderr, failed := renderErr(t, placementOn("--set", "manager.replicas=4")...)
 	require.True(t, failed, "a render with four manager replicas on a three-node profile succeeded")
 	assert.Contains(t, stderr, "manager.replicas")
 }
 
 // TestFewerReplicasThanTheProfileAreKept: a component may run fewer.
 func TestFewerReplicasThanTheProfileAreKept(t *testing.T) {
-	out := installtest.RenderChart(t, "--set", "placement.enabled=true", "--set", "ui.replicas=2")
+	out := installtest.RenderChart(t, placementOn("--set", "ui.replicas=2")...)
 	ui := installtest.Workloads(installtest.DecodeRendered(t, out))["ui"]
 	require.NotNil(t, ui.Spec.Replicas)
 	assert.Equal(t, int32(2), *ui.Spec.Replicas)
@@ -184,11 +192,60 @@ func TestFewerReplicasThanTheProfileAreKept(t *testing.T) {
 // TestMultiTermAffinityGetsTheProfileInEveryTerm: terms OR, so the profile
 // joins every one of them (the plan's Review Focus 1).
 func TestMultiTermAffinityGetsTheProfileInEveryTerm(t *testing.T) {
-	out := installtest.RenderChart(t, "--set", "placement.enabled=true",
-		"--set-json", `ui.affinity={"nodeAffinity":{"requiredDuringSchedulingIgnoredDuringExecution":{"nodeSelectorTerms":[{"matchExpressions":[{"key":"a","operator":"Exists"}]},{"matchExpressions":[{"key":"b","operator":"Exists"}]}]}}}`)
+	out := installtest.RenderChart(t, placementOn(
+		"--set-json", `ui.affinity={"nodeAffinity":{"requiredDuringSchedulingIgnoredDuringExecution":{"nodeSelectorTerms":[{"matchExpressions":[{"key":"a","operator":"Exists"}]},{"matchExpressions":[{"key":"b","operator":"Exists"}]}]}}}`)...)
 	terms := requiredTerms(t, installtest.Workloads(installtest.DecodeRendered(t, out))["ui"].Spec.Template.Spec)
 	require.Len(t, terms, 2)
 	for _, term := range terms {
 		assert.Contains(t, term.MatchExpressions, controlPlaneExpr)
 	}
+}
+
+const (
+	cpAffinity      = `{"nodeAffinity":{"requiredDuringSchedulingIgnoredDuringExecution":{"nodeSelectorTerms":[{"matchExpressions":[{"key":"node-role.kubernetes.io/control-plane","operator":"Exists"}]}]}}}`
+	workersAffinity = `{"nodeAffinity":{"requiredDuringSchedulingIgnoredDuringExecution":{"nodeSelectorTerms":[{"matchExpressions":[{"key":"node-role.kubernetes.io/control-plane","operator":"DoesNotExist"},{"key":"kubernetes.io/arch","operator":"In","values":["amd64"]}]}]}}}`
+)
+
+// TestNATSPlacementMatchesTheControlPlaneProfile: the nats subchart takes
+// its placement literally (it cannot call the parent's helpers), so the
+// render checks the copy (control-plane placement design §5.2).
+func TestNATSPlacementMatchesTheControlPlaneProfile(t *testing.T) {
+	stderr, failed := renderErr(t, "--set", "placement.enabled=true",
+		"--set-json", "nats.natsBox.podTemplate.merge.spec.affinity="+workersAffinity)
+	require.True(t, failed, "NATS rendered with no control-plane placement")
+	assert.Contains(t, stderr, "nats.podTemplate.merge.spec.affinity")
+
+	_, failed = renderErr(t, "--set", "placement.enabled=true",
+		"--set-json", "nats.podTemplate.merge.spec.affinity="+cpAffinity,
+		"--set-json", "nats.natsBox.podTemplate.merge.spec.affinity="+workersAffinity)
+	assert.False(t, failed, "a control-plane NATS placement renders")
+}
+
+// TestNatsBoxOnWorkers: nats-box is everything else, on the workers (§5.5).
+func TestNatsBoxOnWorkers(t *testing.T) {
+	stderr, failed := renderErr(t, "--set", "placement.enabled=true",
+		"--set-json", "nats.podTemplate.merge.spec.affinity="+cpAffinity)
+	require.True(t, failed, "nats-box rendered with no workers placement")
+	assert.Contains(t, stderr, "nats.natsBox.podTemplate.merge.spec.affinity")
+}
+
+// TestLoadBalancerWorkloadsStayOnTheControlPlane is the owner's rule
+// (2026-10-21): a workload behind a LoadBalancer Service -- Plex, whose
+// cluster-plex Service always is one -- runs on the control plane, where
+// the BGP peers are.
+func TestLoadBalancerWorkloadsStayOnTheControlPlane(t *testing.T) {
+	base := placementOn("--set", "cluster-plex.enabled=true")
+	stderr, failed := renderErr(t, base...)
+	require.True(t, failed, "Plex rendered with no control-plane placement")
+	assert.Contains(t, stderr, "cluster-plex.plex.affinity")
+
+	_, failed = renderErr(t, append(base, "--set-json", "cluster-plex.plex.affinity="+cpAffinity)...)
+	assert.False(t, failed)
+}
+
+// TestPlacementChecksNeedPlacementEnabled: with placement off nothing is
+// checked, so a kind or single-node install renders as before.
+func TestPlacementChecksNeedPlacementEnabled(t *testing.T) {
+	_, failed := renderErr(t, "--set", "cluster-plex.enabled=true")
+	assert.False(t, failed)
 }
