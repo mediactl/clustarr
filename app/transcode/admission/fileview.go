@@ -104,7 +104,13 @@ func FileViewOf(mf metav1.Object, st *catalogv1alpha1.MediaFileStatus, e *transc
 			v.Profile = b.Profile
 		}
 		v.Class, v.Pool, v.Suspended = transcodev1alpha1.Hardware(b.Class), b.Pool, b.Suspended
-		if b.Priority != 0 {
+		// A block in the window keeps the priority it was admitted with. An
+		// ended one (Failed, Skipped) records its last attempt's, so the
+		// eligibility's -- the annotation or the profile's today -- orders it
+		// whenever the planner ran: a stale verdict's 50 held an annotated
+		// priority=100 file in name order behind the backlog (2026-10-20).
+		ended := b.Phase == catalogv1alpha1.TranscodePhaseSkipped || b.Phase == catalogv1alpha1.TranscodePhaseFailed
+		if b.Priority != 0 && (e == nil || !ended) {
 			v.Priority = b.Priority
 		}
 		if b.Hardware != "" {
