@@ -340,12 +340,7 @@ func register(mgr ctrl.Manager, bus events.Bus, o Options) ([]string, error) {
 			})
 		}},
 		{"grab", func() error {
-			return grabmanager.Register(mgr, bus, grabmanager.Options{
-				Options: o.Options, DataDir: o.DataDir,
-				ScratchDir: o.EngineScratchDir, EngineImage: o.NativeImage, DataClaimName: o.DataClaim,
-				EngineServiceAccount:     o.EngineServiceAccount,
-				EngineMemoryLimitTorrent: o.EngineMemoryLimitTorrent, EngineMemoryLimitUsenet: o.EngineMemoryLimitUsenet,
-			})
+			return grabmanager.Register(mgr, bus, grabOptions(o))
 		}},
 		{"transcode", func() error {
 			return transcodemanager.Register(mgr, bus, transcodeOptions(o, ledger))
@@ -439,6 +434,18 @@ func objectStoreMaintenance(bus events.Bus, o Options) *maintenance.ObjectStores
 	return m
 }
 
+// grabOptions is the grab manager's registration: the engines it renders
+// and the runtime they get.
+func grabOptions(o Options) grabmanager.Options {
+	return grabmanager.Options{
+		Options: o.Options, DataDir: o.DataDir,
+		ScratchDir: o.EngineScratchDir, EngineImage: o.NativeImage, DataClaimName: o.DataClaim,
+		EngineServiceAccount:     o.EngineServiceAccount,
+		EngineMemoryLimitTorrent: o.EngineMemoryLimitTorrent, EngineMemoryLimitUsenet: o.EngineMemoryLimitUsenet,
+		WorkerPlacement: o.WorkerPlacement,
+	}
+}
+
 // transcodeOptions is the transcode manager's registration: its pools, the
 // shared admission ledger and the graft slots it sizes. The remediation
 // loop renders its graft Jobs from the same options' pool configuration.
@@ -447,7 +454,8 @@ func transcodeOptions(o Options, ledger *admission.Ledger) transcodemanager.Opti
 		Options: o.Options, Slots: o.Slots,
 		DataDir: o.DataDir, WorkerImage: o.NativeImage, DataClaimName: o.DataClaim,
 		IntelRenderGroups: o.IntelRenderGroups, NodeLabelNVIDIA: o.NodeLabelNVIDIA, NodeLabelIntel: o.NodeLabelIntel,
-		JobWindow: o.JobWindow, GraftConcurrency: o.GraftConcurrency, Ledger: ledger,
+		WorkerPlacement: o.WorkerPlacement,
+		JobWindow:       o.JobWindow, GraftConcurrency: o.GraftConcurrency, Ledger: ledger,
 		Logging: o.Logging, Tracing: o.Tracing,
 	}
 }

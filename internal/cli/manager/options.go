@@ -42,6 +42,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
+	"github.com/mediactl/clustarr/pkg/placement"
 	"github.com/mediactl/clustarr/pkg/records"
 )
 
@@ -80,6 +81,10 @@ type Options struct {
 	// none, which also sets its GOMEMLIMIT (smoke finding O9).
 	EngineMemoryLimitTorrent resource.Quantity
 	EngineMemoryLimitUsenet  resource.Quantity
+	// WorkerPlacement is --worker-placement: the workers profile every pod
+	// the manager builds carries -- the engines, the transcode pools and the
+	// graft Jobs (control-plane placement design §5.6). Zero places nothing.
+	WorkerPlacement placement.Profile
 
 	Slots             map[string]int32
 	IntelRenderGroups []int64

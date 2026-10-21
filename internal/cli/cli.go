@@ -65,6 +65,11 @@ const (
 	// (spec §3.11).
 	EnvNativeImage = "CLUSTARR_NATIVE_IMAGE"
 
+	// EnvWorkerPlacement is the default for the manager's --worker-placement:
+	// the workers placement profile, as JSON, that every pod the manager builds
+	// carries (control-plane placement design §5.6).
+	EnvWorkerPlacement = "CLUSTARR_WORKER_PLACEMENT"
+
 	// EnvGPUNodeLabelNVIDIA and EnvGPUNodeLabelIntel override the node label
 	// (set to "true") that marks a GPU node of each class, the defaults for
 	// --gpu-node-label-nvidia and --gpu-node-label-intel.

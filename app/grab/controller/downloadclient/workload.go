@@ -36,6 +36,7 @@ import (
 
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/binpath"
+	"github.com/mediactl/clustarr/pkg/placement"
 )
 
 // Labels the engine workload and its pods carry. labelClient uses the
@@ -128,6 +129,11 @@ type EngineRuntime struct {
 
 	TorrentMemoryLimit resource.Quantity
 	UsenetMemoryLimit  resource.Quantity
+
+	// WorkerPlacement is the workers placement profile every engine pod
+	// carries as a required node affinity, beside the DownloadClient's own
+	// nodeSelector (control-plane placement design §5.6). Zero places nothing.
+	WorkerPlacement placement.Profile
 }
 
 // The engines' default memory limits, the manager's
@@ -399,6 +405,7 @@ func podSpecAC(dc *downloadv1alpha1.DownloadClient, container *corev1ac.Containe
 	if tols := tolerationsAC(dc.Spec.Tolerations); len(tols) > 0 {
 		spec = spec.WithTolerations(tols...)
 	}
+	rt.WorkerPlacement.ApplyAC(spec)
 	return spec
 }
 

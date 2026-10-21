@@ -27,6 +27,7 @@ import (
 	transcodemanager "github.com/mediactl/clustarr/app/transcode/manager"
 	"github.com/mediactl/clustarr/internal/cli"
 	"github.com/mediactl/clustarr/internal/cli/ctrlflags"
+	"github.com/mediactl/clustarr/pkg/placement"
 )
 
 // RunFunc starts the manager with parsed options. NewCommandWith takes one so
@@ -60,7 +61,7 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 	fs := root.Flags()
 	common := ctrlflags.BindManager(fs)
 	d := DefaultOptions()
-	var slots, renderGroups string
+	var slots, renderGroups, workerPlacement string
 	memoryLimitTorrent, memoryLimitUsenet := d.EngineMemoryLimitTorrent.String(), d.EngineMemoryLimitUsenet.String()
 
 	fs.StringVar(&d.DataDir, "data-dir", d.DataDir,
@@ -107,6 +108,10 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 			"Intel Device Plugins Operator set the default. hardware: auto sends work to a profile's intel pool only "+
 			"while a Ready node carries it with allocatable gpu.intel.com/i915, and intel pools are held to it. "+
 			"Defaults to $"+cli.EnvGPUNodeLabelIntel+".")
+	fs.StringVar(&workerPlacement, "worker-placement", cli.EnvOr(cli.EnvWorkerPlacement, ""),
+		"Placement profile, as JSON ({\"nodeAffinity\":[...],\"tolerations\":[...]}), every pod the manager builds "+
+			"carries: its expressions join each required node-affinity term of the engines, the transcode pools and "+
+			"the graft Jobs, and its tolerations are added. Empty places nothing. Defaults to $"+cli.EnvWorkerPlacement+".")
 	fs.IntVar(&d.JobWindow, "job-window", d.JobWindow,
 		"Most files per TranscodeProfile in a window phase (Pending, Planned, Queued, Running, Swapping); "+
 			"0 is unlimited.")
@@ -172,6 +177,9 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 		var err error
 		if o.Slots, err = transcodemanager.ParseSlots(slots); err != nil {
 			return fmt.Errorf("--slots: %w", err)
+		}
+		if o.WorkerPlacement, err = placement.Parse(workerPlacement); err != nil {
+			return fmt.Errorf("--worker-placement: %w", err)
 		}
 		if o.IntelRenderGroups, err = ctrlflags.ParseGIDs(renderGroups); err != nil {
 			return fmt.Errorf("--intel-render-groups: %w", err)

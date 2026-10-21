@@ -29,6 +29,7 @@ import (
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/transcode/jobspec"
 	"github.com/mediactl/clustarr/pkg/binpath"
+	"github.com/mediactl/clustarr/pkg/placement"
 )
 
 // Labels, annotations and env names transcode-pool stamps on the Jobs and
@@ -166,6 +167,11 @@ type Config struct {
 	// DefaultNodeLabelIntel.
 	NodeLabelNVIDIA string
 	NodeLabelIntel  string
+
+	// WorkerPlacement is the workers placement profile every pool and graft
+	// pod carries, ANDed into a GPU class's own node affinity (control-plane
+	// placement design §5.6). Zero places nothing.
+	WorkerPlacement placement.Profile
 }
 
 // NodeLabel is the GPU node label key a class's pools are held to; "" for
@@ -399,10 +405,10 @@ func Template(tp *transcodev1alpha1.TranscodeProfile, class transcodev1alpha1.Ha
 			Image: image,
 			// Neither image has an ENTRYPOINT (spec §10.1.1): one image holds
 			// several binaries, so a pool pod names its own.
-			Command:         []string{binpath.Transcode},
+			Command: []string{binpath.Transcode},
 			// --scratch-dir: an attempt encodes in the scratch emptyDir and
 			// stages its verified output on /data (worker/scratch.go).
-			Args: append([]string{"--data-dir", dataDir, "--scratch-dir", ScratchMountPath}, cfg.ExtraArgs...),
+			Args:            append([]string{"--data-dir", dataDir, "--scratch-dir", ScratchMountPath}, cfg.ExtraArgs...),
 			Env:             env,
 			Resources:       res,
 			SecurityContext: ContainerSecurityContext(),
@@ -419,6 +425,7 @@ func Template(tp *transcodev1alpha1.TranscodeProfile, class transcodev1alpha1.Ha
 		},
 	}
 	applyHardware(&pod, tp, class, cfg)
+	cfg.WorkerPlacement.Apply(&pod)
 	return corev1.PodTemplateSpec{
 		ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{
 			"app.kubernetes.io/name": "clustarr", "app.kubernetes.io/component": "transcode",

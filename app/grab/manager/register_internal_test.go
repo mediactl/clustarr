@@ -21,10 +21,12 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 
 	"github.com/mediactl/clustarr/app/grab/controller/downloadclient"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/placement"
 )
 
 // TestEngineRuntimeCarriesTheControllerOptions holds the link from the
@@ -59,4 +61,14 @@ func TestEngineRuntimeCarriesTheControllerOptions(t *testing.T) {
 	// engines too, or a plain-HTTP scraper meets their TLS.
 	o.MetricsSecure = false
 	require.True(t, engineRuntime(o).PlainMetrics)
+}
+
+// TestEngineRuntimeCarriesTheWorkerPlacement: --worker-placement reaches the
+// runtime every engine pod is rendered with (placement design §5.6).
+func TestEngineRuntimeCarriesTheWorkerPlacement(t *testing.T) {
+	workers := placement.Profile{NodeAffinity: []corev1.NodeSelectorRequirement{
+		{Key: "node-role.kubernetes.io/control-plane", Operator: corev1.NodeSelectorOpDoesNotExist},
+	}}
+	o := Options{WorkerPlacement: workers}
+	require.Equal(t, workers, engineRuntime(o).WorkerPlacement)
 }

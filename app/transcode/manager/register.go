@@ -41,6 +41,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
+	"github.com/mediactl/clustarr/pkg/placement"
 )
 
 // Options is what the transcode manager registration takes.
@@ -53,6 +54,7 @@ type Options struct {
 	IntelRenderGroups []int64           // supplementalGroups for Intel pools
 	NodeLabelNVIDIA   string            // the label marking an NVIDIA node
 	NodeLabelIntel    string            // the label marking an Intel GPU node
+	WorkerPlacement   placement.Profile // the workers profile every pool and graft pod carries (--worker-placement)
 	JobWindow         int               // most files per profile in a window phase (--job-window, loop spec §5.11)
 	GraftConcurrency  int               // most standalone audio grafts running at once per namespace (--graft-concurrency): the ledger's graft slots
 	Ledger            *admission.Ledger // shared with the remediation loop (the manager command builds it once)
@@ -138,6 +140,9 @@ func poolConfig(o Options) pool.Config {
 		// held to.
 		NodeLabelNVIDIA: o.NodeLabelNVIDIA,
 		NodeLabelIntel:  o.NodeLabelIntel,
+		// Control-plane placement design §5.6: every pool and graft pod on
+		// the workers.
+		WorkerPlacement: o.WorkerPlacement,
 		// §11: the pools create files with the same UMASK this
 		// Deployment was given.
 		Umask: os.Getenv(pool.UmaskEnv),

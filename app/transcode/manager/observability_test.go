@@ -24,11 +24,13 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
 
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/obsflags"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
+	"github.com/mediactl/clustarr/pkg/placement"
 )
 
 // A transcode Job's worker gets the controller's logging and tracing flags,
@@ -95,4 +97,14 @@ func TestPoolConfigCarriesTheControllerOptions(t *testing.T) {
 	assert.Equal(t, workerObservabilityArgs(o.Logging, o.Tracing), cfg.ExtraArgs,
 		"the workers log and trace as the controller does")
 	assert.Contains(t, cfg.ExtraArgs, "--tracing-endpoint=otel:4317")
+}
+
+// TestPoolConfigCarriesTheWorkerPlacement: --worker-placement reaches the
+// one pool configuration every pool and graft Job is rendered from
+// (placement design §5.6).
+func TestPoolConfigCarriesTheWorkerPlacement(t *testing.T) {
+	workers := placement.Profile{NodeAffinity: []corev1.NodeSelectorRequirement{
+		{Key: "node-role.kubernetes.io/control-plane", Operator: corev1.NodeSelectorOpDoesNotExist},
+	}}
+	assert.Equal(t, workers, PoolConfig(Options{WorkerPlacement: workers}).WorkerPlacement)
 }

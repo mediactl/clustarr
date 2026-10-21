@@ -36,6 +36,7 @@ import (
 	"github.com/mediactl/clustarr/app/grab/lifecycle"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/placement"
 	"github.com/mediactl/clustarr/pkg/records"
 	"github.com/mediactl/clustarr/pkg/records/agentrecords"
 )
@@ -65,6 +66,9 @@ type Options struct {
 	// (downloadclient.EngineRuntime); zero is the package default.
 	EngineMemoryLimitTorrent resource.Quantity
 	EngineMemoryLimitUsenet  resource.Quantity
+	// WorkerPlacement is the workers profile every engine pod carries
+	// (--worker-placement, control-plane placement design §5.6).
+	WorkerPlacement placement.Profile
 }
 
 // Cache contributions: none beyond today's Secret DisableFor, which the
@@ -118,5 +122,6 @@ func engineRuntime(o Options) downloadclient.EngineRuntime {
 		TorrentMemoryLimit: o.EngineMemoryLimitTorrent,
 		UsenetMemoryLimit:  o.EngineMemoryLimitUsenet,
 		PlainMetrics:       !o.MetricsSecure,
+		WorkerPlacement:    o.WorkerPlacement,
 	}
 }

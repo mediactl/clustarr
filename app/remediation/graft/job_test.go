@@ -23,6 +23,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -32,6 +33,7 @@ import (
 	"github.com/mediactl/clustarr/app/transcode/grafttask"
 	"github.com/mediactl/clustarr/pkg/binpath"
 	"github.com/mediactl/clustarr/pkg/events/schema"
+	"github.com/mediactl/clustarr/pkg/placement"
 )
 
 // TestTheGraftJobRunsTheTranscodeBinary is the graft Job's shape (loop spec
@@ -90,4 +92,24 @@ func TestTheGraftJobRunsTheTranscodeBinary(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"--data-dir", pool.DefaultDataDir, "--graft-task"}, other.Spec.Template.Spec.Containers[0].Args[:3],
 		"an unset data dir is the pool's default")
+}
+
+// TestGraftJobCarriesTheWorkerPlacement: a graft pod is a cpu pool pod's
+// twin, so it takes the workers profile too (placement design §5.6).
+func TestGraftJobCarriesTheWorkerPlacement(t *testing.T) {
+	workers := placement.Profile{NodeAffinity: []corev1.NodeSelectorRequirement{
+		{Key: "node-role.kubernetes.io/control-plane", Operator: corev1.NodeSelectorOpDoesNotExist},
+	}}
+	cfg := pool.Config{Image: "native:test", WorkerPlacement: workers}
+	mf := &catalogv1alpha1.MediaFile{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "akira-1988", UID: "mf-uid"}}
+	tk := grafttask.Task{Schema: grafttask.TaskSchema, File: schema.Ref{Namespace: "media", Name: mf.Name, UID: "mf-uid"}, Seq: 7}
+
+	job, err := graft.Job(cfg, mf, tk, graftplan.JobName(mf.Name, 7))
+
+	require.NoError(t, err)
+	aff := job.Spec.Template.Spec.Affinity
+	require.NotNil(t, aff)
+	terms := aff.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms
+	require.Len(t, terms, 1)
+	assert.Equal(t, workers.NodeAffinity, terms[0].MatchExpressions)
 }
