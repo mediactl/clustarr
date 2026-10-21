@@ -216,7 +216,7 @@ func BuildProvider(
 		cfg := pkgimportlist.CustomConfig{
 			URL: spec.Custom.URL, Format: pkgimportlist.CustomListFormat(spec.Custom.Format),
 		}
-		return custom.New(name, kind, cfg), nil
+		return custom.New(name, kind, cfg, custom.WithHTTPClient(httpClient)), nil
 
 	case spec.Arr != nil:
 		cfg := pkgimportlist.ArrConfig{
