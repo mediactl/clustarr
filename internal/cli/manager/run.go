@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 
+	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/app/autoscale"
 	"github.com/mediactl/clustarr/app/autoscale/extmetrics"
 	subtitleprofile "github.com/mediactl/clustarr/app/caption/controller/subtitleprofile"
@@ -57,6 +58,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/pkg/obs/metrics"
 	"github.com/mediactl/clustarr/pkg/presence"
 	"github.com/mediactl/clustarr/pkg/release"
 	"github.com/mediactl/clustarr/pkg/segments/fingerprintmeta"
@@ -135,6 +137,15 @@ func Run(ctx context.Context, o Options) error {
 		return groups.Run(ctx, bus.KV(events.BucketReleaseGroups))
 	})); err != nil {
 		return fmt.Errorf("manager: add the release groups index: %w", err)
+	}
+	// A standby keeps the failover kinds warm, and every replica reports
+	// whether it leads (control-plane placement design §5.4, §5.4.1).
+	if err := k8s.WarmInformers(mgr, &catalogv1alpha1.MediaFile{}, &catalogv1alpha1.Episode{},
+		&catalogv1alpha1.Movie{}, &catalogv1alpha1.Series{}); err != nil {
+		return fmt.Errorf("manager: %w", err)
+	}
+	if err := mgr.Add(k8s.LeaderGauge(mgr.Elected(), metrics.ManagerLeader.WithLabelValues().Set)); err != nil {
+		return fmt.Errorf("manager: add the leader gauge: %w", err)
 	}
 
 	// 7. Process-level checks.

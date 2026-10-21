@@ -511,6 +511,17 @@ var (
 	)
 )
 
+// Manager leadership (control-plane placement design §5.4). With three
+// manager replicas only the leader reconciles, and leader-only gauges (the
+// dispatch ledger, the queue gauge) appear on its /metrics alone; this one
+// is on every replica, 1 on the leader, so a dashboard can tell which.
+var (
+	ManagerLeader = newGaugeVec(
+		"clustarr_manager_leader",
+		"1 on the manager replica holding the lease, 0 on a standby.",
+	)
+)
+
 // Dispatch admission (ADR-0019 §5.4, §5.5). The manager's leader sets both
 // from app/dispatch's ledger; they are dashboards' and alerts', never an HPA
 // metric: the HPA sees only work an agent can take.
