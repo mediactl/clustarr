@@ -19,6 +19,8 @@ package leaderendpoint_test
 
 import (
 	"context"
+	"log/slog"
+	"os"
 	"testing"
 	"time"
 
@@ -29,6 +31,7 @@ import (
 
 	"github.com/mediactl/clustarr/app/livetv/leaderendpoint"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/test/starttest"
 )
 
@@ -42,6 +45,11 @@ func TestLiveTVServiceRoutesToTheLeader(t *testing.T) {
 			Scheme: k8s.MustNewScheme(), LeaderElection: true, LeaderElectionID: "livetv-endpoint-test",
 			LeaderElectionNamespace: "default", LeaderElectionReleaseOnCancel: true,
 			Metrics: metricsserver.Options{BindAddress: "0"}, HealthProbeBindAddress: "0",
+			// The publisher logs through its context: a failed write shows
+			// in the test's output.
+			BaseContext: func() context.Context {
+				return logging.NewContext(context.Background(), slog.New(slog.NewTextHandler(os.Stderr, nil)).With("ip", ip))
+			},
 		})
 		if err != nil {
 			t.Fatalf("manager: %v", err)

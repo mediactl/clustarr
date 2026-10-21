@@ -35,8 +35,10 @@ import (
 )
 
 // ManagedBy is the EndpointSlice's endpointslice.kubernetes.io/managed-by
-// value, so the EndpointSlice controller leaves the slice alone.
-const ManagedBy = "clustarr.io/manager"
+// value, so the EndpointSlice controller leaves the slice alone. A label
+// value, so no "/": the convention is a domain, as the controller's own
+// endpointslice-controller.k8s.io.
+const ManagedBy = "manager.clustarr.io"
 
 // portName is the livetv Service's port name: kube-proxy matches a slice's
 // ports to the Service's by name.

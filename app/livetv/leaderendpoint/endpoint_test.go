@@ -28,6 +28,7 @@ import (
 	discoveryv1 "k8s.io/api/discovery/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -148,4 +149,11 @@ func TestSkipsWithoutAPodIP(t *testing.T) {
 
 func TestNeedsLeaderElection(t *testing.T) {
 	assert.True(t, (&leaderendpoint.Publisher{}).NeedLeaderElection(), "the tuner listens on the leader alone")
+}
+
+// TestManagedByIsAValidLabelValue: the fake client accepts any label, the
+// apiserver does not -- "clustarr.io/manager" was refused on every write
+// (found by TestLiveTVServiceRoutesToTheLeader).
+func TestManagedByIsAValidLabelValue(t *testing.T) {
+	assert.Empty(t, validation.IsValidLabelValue(leaderendpoint.ManagedBy))
 }
