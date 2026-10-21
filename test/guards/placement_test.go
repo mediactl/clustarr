@@ -29,6 +29,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 
+	placementpkg "github.com/mediactl/clustarr/pkg/placement"
 	"github.com/mediactl/clustarr/test/installtest"
 )
 
@@ -169,6 +170,8 @@ func TestPlacementProfilesRenderPerComponent(t *testing.T) {
 		Tolerations  []corev1.Toleration              `json:"tolerations"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(placement), &got))
+	_, err := placementpkg.Parse(placement)
+	require.NoError(t, err, "the manager parses the chart's --worker-placement strictly")
 	assert.Equal(t, workersExprs, got.NodeAffinity)
 	assert.Empty(t, got.Tolerations)
 }

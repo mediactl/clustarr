@@ -26,6 +26,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -42,16 +43,64 @@ type Profile struct {
 }
 
 // Parse reads a profile from its JSON form, as --worker-placement carries
-// it. The empty string is the zero Profile, which places nothing.
+// it. The empty string is the zero Profile, which places nothing. Anything
+// else must parse strictly and hold valid requirements and tolerations: a
+// mistyped key would otherwise read as the zero profile, and the manager
+// would start placing nothing (final review M3).
 func Parse(s string) (Profile, error) {
 	var p Profile
 	if s == "" {
 		return p, nil
 	}
-	if err := json.Unmarshal([]byte(s), &p); err != nil {
+	dec := json.NewDecoder(strings.NewReader(s))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&p); err != nil {
+		return Profile{}, fmt.Errorf("worker placement: %w", err)
+	}
+	if err := p.validate(); err != nil {
 		return Profile{}, fmt.Errorf("worker placement: %w", err)
 	}
 	return p, nil
+}
+
+// validate holds each requirement and toleration to what the apiserver
+// accepts, so a bad profile stops the manager at start rather than failing
+// every pod it builds.
+func (p Profile) validate() error {
+	for i, r := range p.NodeAffinity {
+		if r.Key == "" {
+			return fmt.Errorf("nodeAffinity[%d]: no key", i)
+		}
+		switch r.Operator {
+		case corev1.NodeSelectorOpIn, corev1.NodeSelectorOpNotIn:
+			if len(r.Values) == 0 {
+				return fmt.Errorf("nodeAffinity[%d] %s: operator %s needs values", i, r.Key, r.Operator)
+			}
+		case corev1.NodeSelectorOpExists, corev1.NodeSelectorOpDoesNotExist:
+			if len(r.Values) != 0 {
+				return fmt.Errorf("nodeAffinity[%d] %s: operator %s takes no values", i, r.Key, r.Operator)
+			}
+		case corev1.NodeSelectorOpGt, corev1.NodeSelectorOpLt:
+			if len(r.Values) != 1 {
+				return fmt.Errorf("nodeAffinity[%d] %s: operator %s takes one value", i, r.Key, r.Operator)
+			}
+		default:
+			return fmt.Errorf("nodeAffinity[%d] %s: unknown operator %q", i, r.Key, r.Operator)
+		}
+	}
+	for i, t := range p.Tolerations {
+		switch t.Operator {
+		case "", corev1.TolerationOpEqual, corev1.TolerationOpExists:
+		default:
+			return fmt.Errorf("tolerations[%d]: unknown operator %q", i, t.Operator)
+		}
+		switch t.Effect {
+		case "", corev1.TaintEffectNoSchedule, corev1.TaintEffectPreferNoSchedule, corev1.TaintEffectNoExecute:
+		default:
+			return fmt.Errorf("tolerations[%d]: unknown effect %q", i, t.Effect)
+		}
+	}
+	return nil
 }
 
 // IsZero reports whether p places nothing.

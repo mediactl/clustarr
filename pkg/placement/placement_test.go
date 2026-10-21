@@ -178,3 +178,23 @@ func TestApplyACCreatesTheTermWhenNone(t *testing.T) {
 	assert.Len(t, terms[0].MatchExpressions, len(workers.NodeAffinity), "applying twice does not repeat the expressions")
 	assert.Len(t, ac.Tolerations, len(workers.Tolerations))
 }
+
+// TestParseRejectsAMistypedProfile is the final review's M3 (Review Focus 4):
+// a mistyped key used to parse as the zero profile, so the manager started
+// with no placement at all.
+func TestParseRejectsAMistypedProfile(t *testing.T) {
+	for name, in := range map[string]string{
+		"unknown key":               `{"nodeAfinity":[{"key":"k","operator":"Exists"}]}`,
+		"bad operator":              `{"nodeAffinity":[{"key":"k","operator":"Exist"}]}`,
+		"In without values":         `{"nodeAffinity":[{"key":"k","operator":"In"}]}`,
+		"Exists with values":        `{"nodeAffinity":[{"key":"k","operator":"Exists","values":["x"]}]}`,
+		"no key":                    `{"nodeAffinity":[{"operator":"Exists"}]}`,
+		"unknown toleration effect": `{"tolerations":[{"key":"k","operator":"Exists","effect":"NoSchedul"}]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := Parse(in)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "worker placement")
+		})
+	}
+}
