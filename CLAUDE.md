@@ -309,12 +309,21 @@ The tuner (`app/livetv/tuner`, the manager's `--livetv-bind-address`,
   still reads `lineupHash`/`guideHash`.
 
 It also relays streams per provider
-(`app/livetv/relay`): viewers of one channel share one upstream, and past
-`tuners` a stream answers 503. discover.json advertises three tuners more
-than `tuners` (`tuner.SpareTuners`). The reason: on 2026-10-20 a grab PMS
-never ended held the one tuner for hours while the relay streamed nothing,
-and every tune waited 300 s and failed. A stream's upstream must answer
-within 10 s.
+(`app/livetv/relay`): viewers of one channel share one upstream. Past
+`tuners`, the newest tune takes a tuner: an unwatched stream's first, else
+the stream whose viewer joined longest ago, whose viewers are cut off. A
+channel taken that way may not take a watched stream's tuner back for 10 s
+(`relay.Options.Reclaim`), which is the only time a stream answers 503. The
+reason: PMS keeps reading the channel its client left for 30 s to 3 min. On
+2026-10-21 the argon-tv account, which allows one stream whatever its
+`max_connections` says (`spec.tuners: 1`), refused every channel change that
+way, and Plex showed "failed to fetch play queue response". Before the cap,
+two upstreams knocked each other off.
+
+discover.json advertises three tuners more than `tuners`
+(`tuner.SpareTuners`). The reason: on 2026-10-20 a grab PMS never ended held
+the one tuner for hours while the relay streamed nothing, and every tune
+waited 300 s and failed. A stream's upstream must answer within 10 s.
 Playlists and guides go through their own client (`tuner.Options.Fetch`),
 which waits up to 2 min, because a panel builds its whole m3u_plus before it
 answers. On 2026-10-20 tvload.win took 13 s for 588 MB, so every fetch

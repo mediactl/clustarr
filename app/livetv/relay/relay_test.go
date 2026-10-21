@@ -128,14 +128,82 @@ func TestTwoViewersShareOneUpstreamAndOneTuner(t *testing.T) {
 	assert.Equal(t, 2, r.Viewers())
 }
 
-func TestAChannelPastTheTunersIsRefused(t *testing.T) {
+// ended reports when a viewer's response body ends.
+func ended(resp *http.Response) <-chan struct{} {
+	done := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		close(done)
+	}()
+	return done
+}
+
+func TestANewChannelTakesTheTunerOfAWatchedOne(t *testing.T) {
+	// The owner's one-connection account, 2026-10-21: PMS keeps reading the
+	// channel its client left for 30 s to 3 min, so refusing the new one
+	// failed every channel change with "Could not tune".
 	u := newUpstream(t)
-	r := newRelay(t, 1, time.Second)
+	r := newRelay(t, 1, 10*time.Second)
 	a, _ := watch(t, r, "1001", u.srv.URL+"/1001.ts")
 	require.Equal(t, http.StatusOK, a.StatusCode)
+	_, _ = io.CopyN(io.Discard, a.Body, 1<<16)
+	aEnded := ended(a)
+
 	b, _ := watch(t, r, "1002", u.srv.URL+"/1002.ts")
-	assert.Equal(t, http.StatusServiceUnavailable, b.StatusCode)
-	assert.Equal(t, int32(0), u.connections("/1002.ts"))
+	require.Equal(t, http.StatusOK, b.StatusCode)
+	_, err := io.CopyN(io.Discard, b.Body, 1<<16)
+	require.NoError(t, err)
+	select {
+	case <-aEnded:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the taken channel's viewer is still streaming")
+	}
+	assert.Equal(t, 1, r.InUse())
+	assert.Equal(t, 1, r.Viewers())
+}
+
+func TestATakenChannelDoesNotTakeTheTunerBackAtOnce(t *testing.T) {
+	u := newUpstream(t)
+	r := relay.New(relay.Options{
+		HTTP: http.DefaultClient, Tuners: 1, Buffer: 1 << 20, Linger: 10 * time.Second,
+		Retries: 3, Backoff: 10 * time.Millisecond, ReadyTimeout: 5 * time.Second, Reclaim: 300 * time.Millisecond,
+	})
+	t.Cleanup(r.Close)
+	a, _ := watch(t, r, "1001", u.srv.URL+"/1001.ts")
+	_, _ = io.CopyN(io.Discard, a.Body, 1<<16)
+	b, _ := watch(t, r, "1002", u.srv.URL+"/1002.ts")
+	require.Equal(t, http.StatusOK, b.StatusCode)
+	_, _ = io.CopyN(io.Discard, b.Body, 1<<16)
+
+	// PMS's leftover reader reopening the channel it lost.
+	again, _ := watch(t, r, "1001", u.srv.URL+"/1001.ts")
+	assert.Equal(t, http.StatusServiceUnavailable, again.StatusCode, "no tug of war")
+
+	time.Sleep(400 * time.Millisecond)
+	back, _ := watch(t, r, "1001", u.srv.URL+"/1001.ts")
+	assert.Equal(t, http.StatusOK, back.StatusCode, "past Reclaim, a viewer may change back")
+}
+
+func TestTheStreamWatchedLongestAgoIsTaken(t *testing.T) {
+	u := newUpstream(t)
+	r := newRelay(t, 2, 10*time.Second)
+	a, _ := watch(t, r, "1001", u.srv.URL+"/1001.ts")
+	_, _ = io.CopyN(io.Discard, a.Body, 1<<16)
+	aEnded := ended(a)
+	time.Sleep(20 * time.Millisecond)
+	b, _ := watch(t, r, "1002", u.srv.URL+"/1002.ts")
+	_, _ = io.CopyN(io.Discard, b.Body, 1<<16)
+
+	c, _ := watch(t, r, "1003", u.srv.URL+"/1003.ts")
+	require.Equal(t, http.StatusOK, c.StatusCode)
+	select {
+	case <-aEnded:
+	case <-time.After(2 * time.Second):
+		t.Fatal("1001, watched longest ago, was not taken")
+	}
+	_, err := io.CopyN(io.Discard, b.Body, 1<<16)
+	assert.NoError(t, err, "1002 keeps streaming")
+	assert.Equal(t, 2, r.InUse())
 }
 
 func TestANewViewerStartsOnAPacketBoundary(t *testing.T) {
@@ -263,15 +331,6 @@ func TestAChannelChangeOnOneTunerTakesTheLingeringStreamsTuner(t *testing.T) {
 	_, err := io.CopyN(io.Discard, b.Body, 1<<16)
 	require.NoError(t, err)
 	assert.Equal(t, 1, r.InUse())
-}
-
-func TestAWatchedStreamIsNeverTakenForAnother(t *testing.T) {
-	u := newUpstream(t)
-	r := newRelay(t, 1, 10*time.Second)
-	a, _ := watch(t, r, "1001", u.srv.URL+"/1001.ts")
-	_, _ = io.CopyN(io.Discard, a.Body, 1<<16)
-	b, _ := watch(t, r, "1002", u.srv.URL+"/1002.ts")
-	assert.Equal(t, http.StatusServiceUnavailable, b.StatusCode)
 }
 
 func TestConfigureReachesStreamsStartedAfterIt(t *testing.T) {
