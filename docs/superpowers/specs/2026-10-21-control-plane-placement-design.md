@@ -357,6 +357,12 @@ Each step is its own upgrade, verified before the next one, and revertible by it
 
 ## 10. Risks
 
+- **The control-plane NICs stall, and etcd's elections follow them** (clustarr-79, 2026-10-21). This gates steps 2, 3 and 6.
+  - **What happens.** The three control planes are Raspberry Pi 5s. Each logs `macb 1f00100000.ethernet eth0: TX stall detected on queue 0 ... re-kicking TSTART` every 1–3 minutes; .33 logged 24 an hour in the 22:00 hour.
+  - **How it reaches etcd.** 48 of the 49 etcd elections after 18:19Z came within 3 s of a stall. Each member saw 84–97 leader changes after the 13:01 boot, with etcd on its default 100 ms heartbeat and 1 s election timeout. The disks are not the cause: no WAL fsync took over 512 ms.
+  - **What it cost.** API writes timed out (`etcdserver: request timed out`). One lost Series status write made importplan run an execute twice.
+  - **What placement adds.** Every component this design moves would ride the same NICs: the Plex database's synchronous replication, NATS's R3 RAFT and the manager replicas' leases and watches. A stall delays a synchronous commit for as long as it lasts. The added replication traffic may also make stalls more frequent.
+  - **The gate.** Steps 2, 3 and 6 wait until the stalls are fixed (driver or firmware), or until etcd is retuned and `etcd_server_leader_changes_seen_total` rises by no more than a few an hour. Count the stalls in dmesg before and after each step; a step that raises them is reverted.
 - **etcd shares a disk with the moved workloads.** CNPG WAL fsyncs and NATS's R3 file store add write load to the NVMe partition etcd fsyncs on. Watch `etcd_disk_wal_fsync_duration_seconds` (p99 under 10 ms) and `etcd_disk_backend_commit_duration_seconds` (p99 under 25 ms) through steps 2, 3 and 6, with an alert left in place.
   - NATS's file store syncs every 2 minutes, not per message; Postgres syncs per commit.
   - If etcd suffers, revert NATS first: it is the heaviest writer.

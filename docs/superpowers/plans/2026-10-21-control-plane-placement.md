@@ -522,6 +522,7 @@ Publishing the chart and bumping clustarr's `Chart.yaml` dependency is Task D7. 
 
 - Upgrade with `kubectl --context admin@talos apply --server-side -f <chart commit>/config/crd/bases/`, then `HELM_PLUGINS=…/talos/helm-plugins helm --kube-context admin@talos -n clustarr-system upgrade clustarr <chart dir> -f …/talos/talos-values.yaml --post-renderer pin-amd64`.
 - Update `talos-values.yaml` after each step, and note the revision in the `clustarr-on-talos` memory.
+- **Gate for D3, D4 and D6: the control-plane NICs' TX stalls** (spec §10's first risk). These steps wait until the Pi 5 `macb` stalls are fixed, or until etcd is retuned and its leader changes rise by no more than a few an hour. Count the stalls on each node before and after each step (`talosctl -n <node> dmesg | grep -c 'TX stall'`); revert a step that raises them. D1, D2, D5 and D7 move nothing onto the control planes and may go ahead.
 
 | Task | Change (talos values) | Verify | Revert |
 | --- | --- | --- | --- |
