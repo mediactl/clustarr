@@ -426,7 +426,7 @@ type TunerStatus struct {
 // +kubebuilder:printcolumn:name="EPG",type="string",JSONPath=".spec.epgSource"
 // +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=".status.conditions[?(@.type=='Ready')].status"
 // +kubebuilder:printcolumn:name="Port",type="integer",JSONPath=".status.blocks[0].port"
-// +kubebuilder:printcolumn:name="Expires",type="date",JSONPath=".status.account.expiresAt"
+// +kubebuilder:printcolumn:name="Expires",type="string",JSONPath=".status.account.expiresAt"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 type IPTVProvider struct {
 	metav1.TypeMeta   `json:",inline"`
