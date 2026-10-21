@@ -241,7 +241,10 @@ func (o Options) ManagerOptions(leaderElectionID string, leaderElect bool) ctrl.
 		// from a cached object -- the two readers of managedFields (the
 		// grab worker, the artwork status paths) go through the API reader.
 		// Read them through GetAPIReader, never the cached client.
-		Cache: cache.Options{DefaultTransform: cache.TransformStripManagedFields()},
+		// CacheTransform also shares the Episode and MediaFile conditions'
+		// strings, a value-preserving change (control-plane placement design
+		// §5.4.1).
+		Cache: cache.Options{DefaultTransform: CacheTransform},
 	}
 	opts.Client.FieldOwner = DefaultFieldOwner
 
