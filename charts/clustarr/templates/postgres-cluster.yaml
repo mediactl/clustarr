@@ -49,6 +49,10 @@ metadata:
     helm.sh/resource-policy: keep
 spec:
   instances: {{ .Values.postgres.cluster.instances }}
+  {{- with .Values.postgres.cluster.primaryUpdateMethod }}
+  primaryUpdateStrategy: unsupervised
+  primaryUpdateMethod: {{ . }}
+  {{- end }}
   {{- with (include "clustarr.cnpgAffinity" (dict "root" $ "values" .Values.postgres.cluster) | trim) }}
   {{- . | nindent 2 }}
   {{- end }}

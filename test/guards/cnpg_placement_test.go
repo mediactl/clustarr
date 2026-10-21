@@ -62,7 +62,8 @@ func exprs(t *testing.T, obj map[string]any) []any {
 // either standby with preferred durability and no failover quorum, a capped
 // slot WAL, and switchover updates.
 func TestPlexDatabaseReplicationSettings(t *testing.T) {
-	out := installtest.RenderChart(t, placementOn("--set", "cluster-plex.enabled=true", "--set-json", "cluster-plex.plex.affinity="+cpAffinity)...)
+	out := installtest.RenderChart(t, placementOn("--set", "cluster-plex.enabled=true", "--set", "plexDatabase.placement=controlPlane",
+		"--set-json", "cluster-plex.plex.affinity="+cpAffinity)...)
 	c := renderedCluster(t, out, "clustarr-plex-db")
 
 	assert.EqualValues(t, 3, nested(t, c, "spec", "instances"))
@@ -99,7 +100,7 @@ func TestPlexDatabaseWithPlacementOffIsUnchanged(t *testing.T) {
 // TestReleaseIndexPostgresOnWorkers: everything but the four control-plane
 // components runs on the workers (§5.5), the release index included.
 func TestReleaseIndexPostgresOnWorkers(t *testing.T) {
-	out := installtest.RenderChart(t, placementOn("--set", "postgres.enabled=true")...)
+	out := installtest.RenderChart(t, placementOn("--set", "postgres.enabled=true", "--set", "postgres.cluster.placement=workers")...)
 	c := renderedCluster(t, out, "clustarr-postgres")
 
 	assert.Equal(t, []any{
@@ -108,4 +109,30 @@ func TestReleaseIndexPostgresOnWorkers(t *testing.T) {
 	}, exprs(t, c))
 	assert.Nil(t, nested(t, c, "spec", "affinity", "podAntiAffinityType"), "CNPG's preferred default")
 	assert.EqualValues(t, 1, nested(t, c, "spec", "instances"))
+}
+
+// TestPlacementEnabledLeavesTheDatabasesAlone is the final review's I1:
+// turning placement on is rollout step D2, which moves nothing; each
+// database moves only when its own step names a profile (§9 D3, D5).
+// Rolling a one-instance Cluster whose local-path claim sits on the wrong
+// side would recreate it into a pod that can never schedule.
+func TestPlacementEnabledLeavesTheDatabasesAlone(t *testing.T) {
+	out := installtest.RenderChart(t, placementOn("--set", "cluster-plex.enabled=true", "--set", "postgres.enabled=true",
+		"--set-json", "cluster-plex.plex.affinity="+cpAffinity)...)
+	plex := renderedCluster(t, out, "clustarr-plex-db")
+	assert.EqualValues(t, 1, nested(t, plex, "spec", "instances"))
+	assert.Nil(t, nested(t, plex, "spec", "affinity"))
+	index := renderedCluster(t, out, "clustarr-postgres")
+	assert.Nil(t, nested(t, index, "spec", "affinity"))
+}
+
+// TestReleaseIndexMovesBySwitchover: the release index's move to a worker
+// (§5.5) adds a worker instance and switches the primary over to it, rather
+// than restarting the old primary into an unschedulable pod.
+func TestReleaseIndexMovesBySwitchover(t *testing.T) {
+	out := installtest.RenderChart(t, "--set", "postgres.enabled=true", "--set", "postgres.cluster.primaryUpdateMethod=switchover")
+	c := renderedCluster(t, out, "clustarr-postgres")
+	assert.Equal(t, "switchover", nested(t, c, "spec", "primaryUpdateMethod"))
+	assert.Nil(t, nested(t, renderedCluster(t, installtest.RenderChart(t, "--set", "postgres.enabled=true"), "clustarr-postgres"),
+		"spec", "primaryUpdateMethod"), "unset by default")
 }

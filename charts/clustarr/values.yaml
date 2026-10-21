@@ -167,7 +167,13 @@ postgres:
     # itself runs (streaming replication).
     instances: 1
     # Placement profile (placement.profiles), used only with placement.enabled.
-    placement: workers
+    # Unset by default even then: the Cluster moves only when its own rollout
+    # step names one (control-plane placement design §5.5, §9 D5).
+    # placement: workers
+    # CNPG primaryUpdateMethod: switchover moves the primary to an updated
+    # instance before restarting it -- how the release index leaves a node
+    # its local claim pins it to (§5.5). Unset is CNPG's restart.
+    # primaryUpdateMethod: switchover
     storage:
       size: 5Gi
       # Empty binds against the cluster's default StorageClass, same as
@@ -191,7 +197,10 @@ plexDatabase:
   # instances: unset is 1, or with placement.enabled the profile's (one per
   # control-plane node); set it lower to run fewer.
   # Placement profile (placement.profiles), used only with placement.enabled.
-  placement: controlPlane
+  # Unset by default even then: the Cluster moves only when its own rollout
+  # step names a profile (control-plane placement design §9 D3), since an
+  # affinity change rolls every instance.
+  # placement: controlPlane
   # Replication once there is more than one instance (control-plane placement
   # design §5.1, CNPG's guidance for three): a commit waits for either
   # standby (quorum any 1), preferred durability keeps Plex writing with both

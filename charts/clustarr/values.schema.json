@@ -70,6 +70,7 @@
           "properties": {
             "instances": { "type": "integer", "minimum": 1 },
             "placement": { "type": "string", "enum": ["controlPlane", "workers"], "description": "The placement profile this Cluster takes with placement.enabled (placement.profiles)." },
+            "primaryUpdateMethod": { "type": "string", "enum": ["restart", "switchover"], "description": "CNPG primaryUpdateMethod; switchover moves the release index off a node (control-plane placement design §5.5)." },
             "storage": {
               "type": "object",
               "additionalProperties": false,
