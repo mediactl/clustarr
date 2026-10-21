@@ -19,12 +19,14 @@ package leaderendpoint
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"net"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
 	discoveryv1ac "k8s.io/client-go/applyconfigurations/discovery/v1"
@@ -47,6 +49,9 @@ const portName = "http"
 // Publisher is the leader-only runnable that writes the slice.
 type Publisher struct {
 	Client client.Client
+	// Reader lists the Service's slices uncached (the manager's API
+	// reader), so the manager keeps no EndpointSlice informer; nil is Client.
+	Reader client.Reader
 	// Tuner is the leader's tuner; the slice is written once it listens.
 	Tuner interface{ Listening() <-chan struct{} }
 	// Service and Namespace name the livetv Service (--livetv-service).
@@ -80,7 +85,7 @@ func (p *Publisher) Start(ctx context.Context) error {
 	}
 	backoff := wait.Backoff{Duration: time.Second, Factor: 2, Cap: 30 * time.Second, Steps: math.MaxInt32}
 	for {
-		_, err := k8s.Apply(ctx, p.Client, k8s.ManagerLiveTVEndpoint, p.slice())
+		err := p.publish(ctx)
 		if err == nil {
 			log.Info("livetv: published this leader as the livetv endpoint", "address", p.PodIP, "port", p.Port)
 			break
@@ -93,6 +98,42 @@ func (p *Publisher) Start(ctx context.Context) error {
 		}
 	}
 	<-ctx.Done()
+	return nil
+}
+
+// publish writes the leader's slice, then removes every other slice of the
+// Service and its Endpoints. An existing Service that loses its selector
+// keeps the slice the EndpointSlice controller made for it, and the mirroring
+// controller turns the endpoints controller's leftover Endpoints into another:
+// neither is ever updated again, so kube-proxy would send part of every tune
+// to a pod long gone (final review C1). A slice this publisher wrote, under
+// ManagedBy, is never removed here.
+func (p *Publisher) publish(ctx context.Context) error {
+	if _, err := k8s.Apply(ctx, p.Client, k8s.ManagerLiveTVEndpoint, p.slice()); err != nil {
+		return err
+	}
+	reader := p.Reader
+	if reader == nil {
+		reader = p.Client
+	}
+	var slices discoveryv1.EndpointSliceList
+	if err := reader.List(ctx, &slices, client.InNamespace(p.Namespace),
+		client.MatchingLabels{discoveryv1.LabelServiceName: p.Service}); err != nil {
+		return fmt.Errorf("livetv: list the livetv Service's EndpointSlices: %w", err)
+	}
+	for i := range slices.Items {
+		s := &slices.Items[i]
+		if s.Labels[discoveryv1.LabelManagedBy] == ManagedBy {
+			continue
+		}
+		if err := p.Client.Delete(ctx, s); client.IgnoreNotFound(err) != nil {
+			return fmt.Errorf("livetv: remove the stale EndpointSlice %s: %w", s.Name, err)
+		}
+	}
+	ep := &corev1.Endpoints{ObjectMeta: metav1.ObjectMeta{Name: p.Service, Namespace: p.Namespace}}
+	if err := p.Client.Delete(ctx, ep); client.IgnoreNotFound(err) != nil {
+		return fmt.Errorf("livetv: remove the livetv Service's leftover Endpoints: %w", err)
+	}
 	return nil
 }
 

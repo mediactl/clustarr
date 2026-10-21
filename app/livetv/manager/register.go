@@ -122,7 +122,7 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	// The livetv Service has no selector: the leader publishes itself as its
 	// endpoint once the tuner listens (control-plane placement design §5.4).
 	if err := mgr.Add(&leaderendpoint.Publisher{
-		Client: mgr.GetClient(), Tuner: tn, Service: o.Service, Namespace: o.Namespace,
+		Client: mgr.GetClient(), Reader: mgr.GetAPIReader(), Tuner: tn, Service: o.Service, Namespace: o.Namespace,
 		PodName: os.Getenv("POD_NAME"), PodIP: os.Getenv("POD_IP"), Port: port,
 	}); err != nil {
 		return fmt.Errorf("livetv: endpoint publisher: %w", err)

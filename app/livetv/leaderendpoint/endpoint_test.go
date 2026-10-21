@@ -27,6 +27,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -156,4 +157,48 @@ func TestNeedsLeaderElection(t *testing.T) {
 // (found by TestLiveTVServiceRoutesToTheLeader).
 func TestManagedByIsAValidLabelValue(t *testing.T) {
 	assert.Empty(t, validation.IsValidLabelValue(leaderendpoint.ManagedBy))
+}
+
+// TestRemovesTheSlicesTheControllersLeftBehind is the final review's C1: an
+// existing livetv Service that loses its selector keeps the EndpointSlice the
+// EndpointSlice controller made for it, and the mirroring controller turns the
+// endpoints controller's leftover Endpoints into another -- neither is ever
+// updated again, so kube-proxy would send part of every tune to a dead pod.
+// The leader removes every slice of its Service it did not write, and the
+// Endpoints, and leaves other Services' slices alone.
+func TestRemovesTheSlicesTheControllersLeftBehind(t *testing.T) {
+	stale := func(name, service, managedBy string) *discoveryv1.EndpointSlice {
+		return &discoveryv1.EndpointSlice{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: key.Namespace, Labels: map[string]string{
+				discoveryv1.LabelServiceName: service, discoveryv1.LabelManagedBy: managedBy,
+			}},
+			AddressType: discoveryv1.AddressTypeIPv4,
+			Endpoints:   []discoveryv1.Endpoint{{Addresses: []string{"10.42.9.9"}}},
+		}
+	}
+	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).WithReturnManagedFields().WithObjects(
+		stale("clustarr-livetv-x7k2p", key.Name, "endpointslice-controller.k8s.io"),
+		stale("clustarr-livetv-m4n8q", key.Name, "endpointslicemirroring-controller.k8s.io"),
+		stale("clustarr-ui-a1b2c", "clustarr-ui", "endpointslice-controller.k8s.io"),
+		&corev1.Endpoints{ObjectMeta: metav1.ObjectMeta{Name: key.Name, Namespace: key.Namespace}},
+	).Build()
+	tn := tuner{ch: make(chan struct{})}
+	close(tn.ch)
+	p := publisher(c, tn, "10.42.2.17")
+	p.Reader = c
+	run(t, p)
+
+	require.Eventually(t, func() bool {
+		var slices discoveryv1.EndpointSliceList
+		if err := c.List(context.Background(), &slices, client.InNamespace(key.Namespace),
+			client.MatchingLabels{discoveryv1.LabelServiceName: key.Name}); err != nil {
+			return false
+		}
+		return len(slices.Items) == 1 && slices.Items[0].Name == key.Name
+	}, 2*time.Second, 10*time.Millisecond, "only the leader's slice is left for the livetv Service")
+	var ep corev1.Endpoints
+	require.True(t, apierrors.IsNotFound(c.Get(context.Background(), key, &ep)), "the leftover Endpoints is gone")
+	var other discoveryv1.EndpointSlice
+	require.NoError(t, c.Get(context.Background(), types.NamespacedName{Namespace: key.Namespace, Name: "clustarr-ui-a1b2c"}, &other),
+		"another Service's slice is not touched")
 }

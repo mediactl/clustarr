@@ -44,6 +44,12 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - endpoints
+  verbs:
+  - delete
+- apiGroups:
+  - ""
+  resources:
   - nodes
   verbs:
   - get
@@ -295,7 +301,9 @@ rules:
   - endpointslices
   verbs:
   - create
+  - delete
   - get
+  - list
   - patch
   - update
 - apiGroups:

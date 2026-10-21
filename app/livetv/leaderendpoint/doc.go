@@ -21,5 +21,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // with three manager replicas the Service has no selector: the leader writes
 // its EndpointSlice once its tuner listens, and a new leader overwrites it.
 //
-// +kubebuilder:rbac:groups=discovery.k8s.io,resources=endpointslices,verbs=get;create;update;patch
+// It also removes the slices the EndpointSlice and mirroring controllers left
+// for the Service, and the endpoints controller's leftover Endpoints, which
+// nothing updates once the Service has no selector.
+//
+// +kubebuilder:rbac:groups=discovery.k8s.io,resources=endpointslices,verbs=get;list;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=endpoints,verbs=delete
 package leaderendpoint
