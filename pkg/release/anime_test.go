@@ -107,8 +107,13 @@ func TestParseSeriesAnimeAbsoluteEpisodeMarkerAllowlist(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []int{12}, p.Absolute)
 
-	_, err = parseSeries("[SubsPlease] Show - Season 12 (1080p) [HASH].mkv", Options{SeriesType: "anime"})
-	require.Error(t, err)
+	// "Season" is no episode marker: the title is season 12's pack
+	// (animeSeasonPackRegex, 2026-10-21), never absolute episode 12.
+	p, err = parseSeries("[SubsPlease] Show - Season 12 (1080p) [HASH].mkv", Options{SeriesType: "anime"})
+	require.NoError(t, err)
+	assert.Empty(t, p.Absolute)
+	assert.Equal(t, []int{12}, p.Seasons)
+	assert.True(t, p.FullSeason)
 }
 
 func TestParseSeriesAnimeBatchRangesExpandInclusive(t *testing.T) {

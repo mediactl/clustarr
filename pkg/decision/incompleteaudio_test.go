@@ -160,6 +160,34 @@ func TestTheIndexersAudioLanguagesBeatTheTitle(t *testing.T) {
 	require.True(t, hasRejection(ds[0], decision.ReasonWantedLanguage), "%v", reasons(ds[0]))
 }
 
+// TestTheAnimeShapesTalosCouldNotParseAreTheSeries: the scene's season-less
+// "E01" and fansub season packs used to be UnableToParse (2026-10-21); each
+// is now judged as the series it names -- by its absolute number, or by any
+// of the names a pack gives -- not as unparsed, another item or no item.
+func TestTheAnimeShapesTalosCouldNotParseAreTheSeries(t *testing.T) {
+	p, cat := builtin(t, "anime-web-1080p")
+	monster := monsterS01E02(nil)
+	monster.Identity.Episodes, monster.Identity.Absolute = []int{1}, []int{1}
+	eightySix := decision.Target{
+		Kind: common.MediaKindEpisode, Monitored: true, Available: true, OriginalLanguageTag: "ja", EpisodeRuntimes: []int{24},
+		Identity: decision.Identity{Titles: []string{"86: Eighty Six", "Eighty Six", "86"}, Year: 2021, Season: 1, Episodes: []int{1}, Absolute: []int{1}},
+	}
+	for _, c := range []struct {
+		tg    decision.Target
+		title string
+	}{
+		{monster, "Monster.E01.Herr.Dr.Tenma.German.2004.ANiME.DL.FS.1080p.BluRay.x264-STARS-xpost"},
+		{eightySix, "[koala] 86: Eighty-Six Season 1 (BD 1080p HEVC Opus) [Dual Audio]"},
+		{eightySix, "[LostYears] Eighty Six - Season 01 (S01) (WEB 1080p x264 10-bit AAC-EAC3) [Dual-Audio] (86 Part 1 & Part 2)"},
+		{eightySix, "[DB] 86 | 86 Eighty-Six (Season 1-2+Specials) [Dual Audio 10bit BD1080p][HEVC-x265]"},
+	} {
+		d := decision.Evaluate(context.Background(), c.tg, p, cat, akiraReleases(c.title), usenetOnly)[0]
+		for _, r := range []decision.Reason{decision.ReasonUnableToParse, decision.ReasonWrongItem, decision.ReasonUnknownItem} {
+			require.False(t, hasRejection(d, r), "%s: %v", c.title, reasons(d))
+		}
+	}
+}
+
 // TestADualAudioTitleBeatsAnIndexerThatNamesOneLanguage: nzb-life names one
 // language for many dual-audio TV posts -- Kitsune's DUAL Monster, 86 and
 // BLUE LOCK read Japanese alone in 67 results on talos (2026-10-21) -- where

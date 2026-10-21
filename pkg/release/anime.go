@@ -100,6 +100,74 @@ var animeSpecialRegex = mustCompile(
 	regexp2.IgnoreCase,
 )
 
+// animeSeasonPackRegex matches a fansub season pack naming its season in
+// words or as "S01", often in brackets and beside the title's other names:
+// "86: Eighty-Six Season 1 (BD 1080p ...)", "Apocalypse Hotel (Season 01)",
+// "Eighty Six - Season 01 (S01) (...)", "86 | 86 Eighty-Six (Season 1-2+Specials)".
+// The marker must stand alone (not the S of "Six") and be followed by no
+// episode -- "Frieren S2 - 05" is episode 5, not a pack (and not seasons 2
+// to 5: a range is "1-2" with no spaces), and an S01E02 pair is
+// animeSeasonEpisodeRegex's. Talos's episode searches could not parse
+// any of these (2026-10-21).
+var animeSeasonPackRegex = mustCompile(
+	`^(?<title>.+?)[\s._:\-]*[\(\[]?\s*(?<![A-Za-z0-9])(?:Season\s*|S)(?<s1>\d{1,2})(?:[-~](?:S|Season\s*)?(?<s2>\d{1,2}))?(?!\d)(?!\s*-\s*\d)(?![\s._]*E\d)`,
+	regexp2.IgnoreCase,
+)
+
+// animeYearAbsoluteRegex matches an absolute episode after the series'
+// year: "Pocket Monsters (2023) 152 (1080p) [B3545811]".
+var animeYearAbsoluteRegex = mustCompile(
+	`^(?<title>.+?)\s*\((?<year>(?:19|20)\d{2})\)\s*(?:-\s*)?(?<abs>\d{2,4})(?:v\d)?(?=\s*[\(\[]|\s*$)`,
+	regexp2.IgnoreCase,
+)
+
+// animeSceneEpisodeRegex matches the German and French scene's anime
+// episode, which numbers it E01 with no season, as the series runs:
+// "Monster.E01.Herr.Dr.Tenma.German.2004.ANiME.DL...-STARS",
+// "Kanata.No.Astra.E01.1080p.WEB.x264-URANiME". The title is one dotted
+// token; a season before the E (Show.S01.E01) is not this shape.
+var animeSceneEpisodeRegex = mustCompile(`^(?<title>[^\s\[\]()]+?)[._]E(?<abs>\d{2,4})(?=[._-]|$)`, regexp2.IgnoreCase)
+
+// sceneSeasonTokenRegex finds a season token in a dotted title.
+var sceneSeasonTokenRegex = mustCompile(`(?:^|[._])S\d{1,2}(?:$|[._])`, regexp2.IgnoreCase)
+
+// animeTitleYearRegex is a "(2021)" ending a pack's title.
+var animeTitleYearRegex = mustCompile(`\s*\((?<year>(?:19|20)\d{2})\)\s*$`, regexp2.None)
+
+// animeTitles is a pack's title as the release writes it, then its other
+// names: each side of a " | ", and the name outside and the name inside one
+// parenthesis -- "86 (Eighty Six)" is 86 and Eighty Six too.
+func animeTitles(title string) []string {
+	out := []string{title}
+	add := func(s string) {
+		s = strings.TrimSpace(s)
+		if s != "" && !slicesContainsFold(out, s) {
+			out = append(out, s)
+		}
+	}
+	if strings.Contains(title, "|") {
+		for part := range strings.SplitSeq(title, "|") {
+			add(part)
+		}
+	}
+	if open := strings.Index(title, "("); open > 0 {
+		if end := strings.Index(title[open:], ")"); end > 1 {
+			add(title[:open] + title[open+end+1:])
+			add(title[open+1 : open+end])
+		}
+	}
+	return out
+}
+
+func slicesContainsFold(s []string, v string) bool {
+	for _, x := range s {
+		if strings.EqualFold(x, v) {
+			return true
+		}
+	}
+	return false
+}
+
 // parseAnime consumes the leading bracket group (if any) from title, then
 // matches the remainder against the season+episode pattern before falling
 // back to the absolute-episode pattern, filling p.Title/p.Group/p.Seasons/
@@ -149,6 +217,27 @@ func parseAnime(title string, p *ParsedRelease) error {
 		return nil
 	}
 
+	if m, err := animeSeasonPackRegex.FindStringMatch(work); err != nil {
+		return fmt.Errorf("release: anime: season pack match: %w", err)
+	} else if m != nil {
+		name := strings.TrimRight(strings.TrimSpace(groupString(m, "title")), " -:([")
+		if y, yerr := animeTitleYearRegex.FindStringMatch(name); yerr == nil && y != nil {
+			p.Year, _ = strconv.Atoi(groupString(y, "year"))
+			name = strings.TrimSpace(name[:y.Index])
+		}
+		s1, convErr := strconv.Atoi(groupString(m, "s1"))
+		if convErr != nil {
+			return fmt.Errorf("release: anime: parsing season: %w", convErr)
+		}
+		p.Title, p.Titles = name, animeTitles(name)
+		// Every season it names is whole, as a standard "S01-S02" pack's is.
+		p.Seasons, p.FullSeason = []int{s1}, true
+		if s2, s2Err := strconv.Atoi(groupString(m, "s2")); s2Err == nil && s2 > s1 {
+			p.Seasons, p.MultiSeason = intRange(s1, s2), true
+		}
+		return nil
+	}
+
 	if m, err := animeBatchRegex.FindStringMatch(work); err != nil {
 		return fmt.Errorf("release: anime: batch match: %w", err)
 	} else if m != nil {
@@ -177,6 +266,37 @@ func parseAnime(title string, p *ParsedRelease) error {
 		return nil
 	}
 
+	if m, err := animeYearAbsoluteRegex.FindStringMatch(work); err != nil {
+		return fmt.Errorf("release: anime: year absolute match: %w", err)
+	} else if m != nil {
+		p.Title = strings.TrimSpace(groupString(m, "title"))
+		p.Year, _ = strconv.Atoi(groupString(m, "year"))
+		abs, convErr := strconv.Atoi(groupString(m, "abs"))
+		if convErr != nil {
+			return fmt.Errorf("release: anime: parsing absolute: %w", convErr)
+		}
+		p.Absolute = []int{abs}
+		return nil
+	}
+
+	if m, err := animeSceneEpisodeRegex.FindStringMatch(work); err != nil {
+		return fmt.Errorf("release: anime: scene episode match: %w", err)
+	} else if m != nil {
+		dotted := groupString(m, "title")
+		if seasoned, serr := sceneSeasonTokenRegex.MatchString(dotted); serr == nil && !seasoned {
+			abs, convErr := strconv.Atoi(groupString(m, "abs"))
+			if convErr != nil {
+				return fmt.Errorf("release: anime: parsing scene episode: %w", convErr)
+			}
+			p.Title = cleanTitleSeparators(dotted)
+			p.Absolute = []int{abs}
+			if p.Group == "" {
+				p.Group, _, _ = parseGroup(title)
+			}
+			return nil
+		}
+	}
+
 	return fmt.Errorf("release: %q does not match any anime title pattern", title)
 }
 
@@ -201,6 +321,9 @@ func parseAnimeSeries(title string) (*ParsedRelease, error) {
 		p.ReleaseType = commonv1.ReleaseTypeMulti
 	case len(p.Absolute) > 1:
 		p.ReleaseType = commonv1.ReleaseTypeMulti
+	case len(p.Seasons) > 0 && len(p.Episodes) == 0 && len(p.Absolute) == 0:
+		// A fansub season pack (animeSeasonPackRegex).
+		p.ReleaseType = commonv1.ReleaseTypeSeasonPack
 	default:
 		p.ReleaseType = releaseTypeForEpisodes(p.Episodes)
 	}
