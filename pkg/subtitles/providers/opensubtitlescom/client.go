@@ -95,6 +95,10 @@ type Config struct {
 	HTTPClient *http.Client  // default http.DefaultClient
 	Limiter    *rate.Limiter // default nil — no client-side pacing; see New's doc comment (ruling R3)
 
+	// LoginInterval is the least time between two login requests from this
+	// Provider; zero is DefaultLoginInterval.
+	LoginInterval time.Duration
+
 	// TokenCache, if set, shares this account's login token with every
 	// other Provider (and every other replica) wired to the same cache. A
 	// Provider adopts a still-fresh token from it before logging in, and
@@ -115,7 +119,25 @@ type Provider struct {
 	token     string
 	server    string    // the base_url host the token was issued with, "" for cfg.Endpoint
 	expiresAt time.Time // token's expiry: its JWT exp claim, else login time + tokenLifetime
+	lastLogin time.Time // when the last login request was sent
 }
+
+// DefaultLoginInterval spaces logins. OpenSubtitles.com allows one per
+// second per IP and answers a faster one 429, "Login rate limit exceeded:
+// 1 req/sec per IP". A login that fails releases p.mu to the next caller
+// queued behind it, and before this spacing that caller logged in at once.
+// On talos on 2026-10-20 a cold-started caption agent's five workers spent
+// five logins in one second: four answered 429, and the five errors met
+// caption's strike floor, so the provider was throttled for an hour.
+const DefaultLoginInterval = 1100 * time.Millisecond
+
+// loginAttempts bounds the logins one call makes when they are refused for
+// their rate; maxLoginRetryAfter caps the wait a 429's Retry-After asks
+// for between them.
+const (
+	loginAttempts      = 3
+	maxLoginRetryAfter = 10 * time.Second
+)
 
 // New builds a Provider from cfg, applying defaults for any zero field.
 //
@@ -245,14 +267,17 @@ func (p *Provider) ensureToken(ctx context.Context, rejected string) error {
 			return nil
 		}
 	}
-	return p.loginLocked(ctx, now)
+	return p.loginLocked(ctx)
 }
 
 // loginLocked performs POST /login and stores the token in p and in
 // Config.TokenCache. Callers hold p.mu, so concurrent callers queue behind
 // one login rather than each spending the account's login allowance
-// (1 req/s, research note §4.3).
-func (p *Provider) loginLocked(ctx context.Context, now time.Time) error {
+// (1 req/s, research note §4.3); successive logins are spaced
+// Config.LoginInterval apart, and one refused for its rate (429) is tried
+// again after that interval or the Retry-After it names, loginAttempts in
+// all, before its error is returned.
+func (p *Provider) loginLocked(ctx context.Context) error {
 	ctx, span := tracing.Start(ctx, "subtitles.opensubtitlescom.login")
 	defer span.End()
 
@@ -260,6 +285,51 @@ func (p *Provider) loginLocked(ctx context.Context, now time.Time) error {
 	if err != nil {
 		return fmt.Errorf("subtitles: opensubtitlescom login: encode request: %w", err)
 	}
+	var after time.Duration
+	for attempt := 1; ; attempt++ {
+		if err := p.awaitLoginLocked(ctx, after); err != nil {
+			return err
+		}
+		err := p.loginOnceLocked(ctx, body)
+		var pe *subtitles.ProviderError
+		if err == nil || attempt == loginAttempts || !errors.As(err, &pe) || pe.Kind != subtitles.KindTooManyRequests {
+			if err != nil {
+				tracing.RecordError(span, err)
+			}
+			return err
+		}
+		after = min(pe.RetryAfter, maxLoginRetryAfter)
+		logging.FromContext(ctx).Debug("opensubtitlescom: login refused for its rate; trying again", "attempt", attempt)
+	}
+}
+
+// awaitLoginLocked waits until Config.LoginInterval, and at least after,
+// has passed since the last login request. p.mu is held: every caller
+// waiting for a token waits behind it anyway.
+func (p *Provider) awaitLoginLocked(ctx context.Context, after time.Duration) error {
+	interval := p.cfg.LoginInterval
+	if interval <= 0 {
+		interval = DefaultLoginInterval
+	}
+	if p.lastLogin.IsZero() && after <= 0 {
+		return nil
+	}
+	wait := max(time.Until(p.lastLogin.Add(interval)), after)
+	if wait <= 0 {
+		return nil
+	}
+	t := time.NewTimer(wait)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
+}
+
+// loginOnceLocked sends one POST /login and, on success, stores its token.
+func (p *Provider) loginOnceLocked(ctx context.Context, body []byte) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.cfg.Endpoint+"/login", bytes.NewReader(body))
 	if err != nil {
 		return err
@@ -270,17 +340,15 @@ func (p *Provider) loginLocked(ctx context.Context, now time.Time) error {
 	if err := p.wait(ctx); err != nil {
 		return err
 	}
+	p.lastLogin = time.Now()
 	resp, err := p.cfg.HTTPClient.Do(req)
 	if err != nil {
-		tracing.RecordError(span, err)
 		return fmt.Errorf("subtitles: opensubtitlescom login: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		err := statusToProviderError(p.Name(), resp)
-		tracing.RecordError(span, err)
-		return err
+		return statusToProviderError(p.Name(), resp)
 	}
 
 	var lr loginResponse
@@ -289,12 +357,10 @@ func (p *Provider) loginLocked(ctx context.Context, now time.Time) error {
 	}
 	if lr.Token == "" {
 		// Bazarr: "Cannot get token from provider login response".
-		err := &subtitles.ProviderError{Provider: p.Name(), Kind: subtitles.KindParse, Err: errors.New("login response carries no token")}
-		tracing.RecordError(span, err)
-		return err
+		return &subtitles.ProviderError{Provider: p.Name(), Kind: subtitles.KindParse, Err: errors.New("login response carries no token")}
 	}
 	p.token = lr.Token
-	p.expiresAt = tokenExpiry(lr.Token, now)
+	p.expiresAt = tokenExpiry(lr.Token, time.Now())
 	p.server = p.acceptServer(ctx, lr.BaseURL)
 	logging.FromContext(ctx).Debug("opensubtitlescom login ok", "vip", lr.User.VIP, "server", p.server, "expiresAt", p.expiresAt)
 
