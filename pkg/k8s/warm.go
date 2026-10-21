@@ -54,7 +54,8 @@ func InformerWarmer(c InformerGetter, objs ...client.Object) manager.Runnable {
 
 // WarmInformers adds an [InformerWarmer] over mgr's cache to mgr.
 func WarmInformers(mgr ctrl.Manager, objs ...client.Object) error {
-	if err := mgr.Add(InformerWarmer(mgr.GetCache(), objs...)); err != nil {
+	warmer := InformerWarmer(mgr.GetCache(), objs...)
+	if err := mgr.Add(warmer); err != nil {
 		return fmt.Errorf("k8s: add the informer warmer: %w", err)
 	}
 	return nil
