@@ -259,6 +259,10 @@
       "description": "Every controller in one process under the lease manager.clustarr.io; extra replicas (placement) are warm standbys.",
       "properties": {
         "replicas": { "type": "integer", "minimum": 1, "description": "Unset is 1, or with placement.enabled the profile's; more than a onePerNode profile allows fails the render." },
+        "pprofBindAddress": { "type": "string", "description": "--pprof-bind-address; empty disables pprof." },
+        "gogc": { "type": "integer", "minimum": 1, "description": "GOGC for the manager." },
+        "goMemLimit": { "type": "string", "pattern": "^[0-9]+(B|KiB|MiB|GiB|TiB)?$", "description": "GOMEMLIMIT in Go's syntax, in place of 80% of resources.limits.memory." },
+        "watchReleaseNamespace": { "type": "boolean", "description": "--watch-namespace=<release namespace>: cache only the release's namespace." },
         "slots": {
           "type": "string",
           "pattern": "^[a-z][a-z0-9]*=[0-9]+(,[a-z][a-z0-9]*=[0-9]+)*$",

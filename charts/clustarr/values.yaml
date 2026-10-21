@@ -446,6 +446,15 @@ manager:
     limits:
       cpu: "2"
       memory: 1664Mi
+  # Memory (control-plane placement design §5.4.1). pprofBindAddress serves
+  # net/http/pprof (e.g. 127.0.0.1:6060, reached with kubectl port-forward);
+  # gogc sets GOGC and goMemLimit GOMEMLIMIT in Go's syntax (e.g. 1GiB) in
+  # place of 80% of resources.limits.memory; watchReleaseNamespace limits the
+  # cache to the release's namespace (--watch-namespace).
+  pprofBindAddress: ""
+  # gogc: 50
+  # goMemLimit: 1GiB
+  watchReleaseNamespace: false
   # Placement profile (placement.profiles), used only with placement.enabled.
   placement: controlPlane
   nodeSelector: {}

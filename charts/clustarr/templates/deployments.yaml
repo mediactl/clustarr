@@ -54,6 +54,14 @@ creates those at runtime, owned by the object that asked for them.
 {{- $workers := .Values.placement.profiles.workers }}
 {{- $managerArgs = append $managerArgs (printf "--worker-placement=%s" (toJson (dict "nodeAffinity" ($workers.nodeAffinity | default list) "tolerations" ($workers.tolerations | default list)))) }}
 {{- end }}
+{{- /* Memory (control-plane placement design §5.4.1): pprof to profile it,
+       and the cache scoped to the release's namespace. */}}
+{{- with .Values.manager.pprofBindAddress }}
+{{- $managerArgs = append $managerArgs (printf "--pprof-bind-address=%s" .) }}
+{{- end }}
+{{- if .Values.manager.watchReleaseNamespace }}
+{{- $managerArgs = append $managerArgs (printf "--watch-namespace=%s" .Release.Namespace) }}
+{{- end }}
 {{- /* Host-specific, so set only when given. */}}
 {{- with .Values.manager.intelRenderGroups }}
 {{- $managerEnv = append $managerEnv (dict "name" "CLUSTARR_INTEL_RENDER_GROUPS" "value" (join "," .)) }}

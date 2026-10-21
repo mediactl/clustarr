@@ -547,9 +547,21 @@ spec:
         - name: UMASK
           value: "002"
         {{- end }}
+        {{- /* A workload's own goMemLimit (Go's syntax, e.g. 1GiB) wins over the
+               share of its memory limit; gogc sets GOGC (control-plane
+               placement design §5.4.1). */}}
+        {{- if .values.goMemLimit }}
+        - name: GOMEMLIMIT
+          value: {{ .values.goMemLimit | quote }}
+        {{- else }}
         {{- with dig "resources" "limits" "memory" "" .values }}
         - name: GOMEMLIMIT
           value: {{ include "clustarr.gomemlimit" (list . (default 80 $.gomemPercent)) | quote }}
+        {{- end }}
+        {{- end }}
+        {{- with .values.gogc }}
+        - name: GOGC
+          value: {{ . | quote }}
         {{- end }}
         {{- with .values.consumerSlots }}
         - name: CLUSTARR_CONSUMER_SLOTS
