@@ -215,6 +215,11 @@ func New(o Options) *Tuner {
 // the bind failed.
 func (t *Tuner) Listening() <-chan struct{} { return t.listening }
 
+// NeedLeaderElection keeps the tuner on the leader: one process holds a
+// provider's upstream connections, and the leader publishes itself as the
+// livetv endpoint (control-plane placement design §5.4).
+func (t *Tuner) NeedLeaderElection() bool { return true }
+
 // Apply sets a provider's configuration. A provider the tuner has not
 // served before starts from its cached playlist and guide, each fetched
 // again only once it is older than Config.Every.

@@ -25,6 +25,7 @@ import (
 
 	"github.com/mediactl/clustarr/app/livetv/controller/iptvprovider"
 	"github.com/mediactl/clustarr/app/livetv/manager"
+	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
 func TestParsePortRange(t *testing.T) {
@@ -48,4 +49,12 @@ func TestTargetPortIsTheBindAddressesPort(t *testing.T) {
 		_, err := manager.TargetPort(bad)
 		assert.Error(t, err, bad)
 	}
+}
+
+// TestNoPublisherWhenTheTunerIsDisabled: --livetv-bind-address=0 registers
+// neither the tuner nor the endpoint publisher, so the livetv Service gets
+// no endpoint to a port nobody listens on (the placement plan's Review
+// Focus 3). A nil manager proves nothing is added: any Add would panic.
+func TestNoPublisherWhenTheTunerIsDisabled(t *testing.T) {
+	require.NoError(t, manager.Register(nil, nil, manager.Options{BindAddress: k8s.DisabledBindAddress}))
 }

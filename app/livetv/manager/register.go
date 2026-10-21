@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -37,6 +38,7 @@ import (
 	clustarrv1 "github.com/mediactl/clustarr/api/clustarr/v1alpha1"
 	"github.com/mediactl/clustarr/app/livetv/controller/iptvchannel"
 	"github.com/mediactl/clustarr/app/livetv/controller/iptvprovider"
+	"github.com/mediactl/clustarr/app/livetv/leaderendpoint"
 	"github.com/mediactl/clustarr/app/livetv/tuner"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -94,7 +96,8 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	if o.BindAddress == k8s.DisabledBindAddress {
 		return nil
 	}
-	if _, err := TargetPort(o.BindAddress); err != nil {
+	port, err := TargetPort(o.BindAddress)
+	if err != nil {
 		return err
 	}
 	providerEvents := make(chan event.GenericEvent, notifyBuffer)
@@ -115,6 +118,14 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	})
 	if err := mgr.Add(tn); err != nil {
 		return fmt.Errorf("livetv: tuner: %w", err)
+	}
+	// The livetv Service has no selector: the leader publishes itself as its
+	// endpoint once the tuner listens (control-plane placement design §5.4).
+	if err := mgr.Add(&leaderendpoint.Publisher{
+		Client: mgr.GetClient(), Tuner: tn, Service: o.Service, Namespace: o.Namespace,
+		PodName: os.Getenv("POD_NAME"), PodIP: os.Getenv("POD_IP"), Port: port,
+	}); err != nil {
+		return fmt.Errorf("livetv: endpoint publisher: %w", err)
 	}
 	provider := &iptvprovider.Reconciler{
 		Client: mgr.GetClient(), SecretReader: mgr.GetAPIReader(), Tuner: tn,

@@ -26,6 +26,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	coordinationv1 "k8s.io/api/coordination/v1"
 	corev1 "k8s.io/api/core/v1"
+	discoveryv1 "k8s.io/api/discovery/v1"
 	eventsv1 "k8s.io/api/events/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -60,6 +61,9 @@ var AddToSchemeFuncs = []func(*runtime.Scheme) error{
 	// writes (spec 2026-10-06 §9.5).
 	autoscalingv1.AddToScheme,
 	autoscalingv2.AddToScheme,
+	// discovery.k8s.io/v1 for the livetv Service's EndpointSlice, which the
+	// leader writes (control-plane placement design §5.4).
+	discoveryv1.AddToScheme,
 
 	// Clustarr API groups. api/common/v1alpha1 holds shared Go types only
 	// and has no GroupVersion of its own, so there is nothing to register.

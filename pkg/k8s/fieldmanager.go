@@ -289,6 +289,11 @@ const (
 	// ManagerLiveTVChannel is the IPTVChannel controller, the sole writer of
 	// IPTVChannel.status (Live TV spec §3.0).
 	ManagerLiveTVChannel FieldManager = "clustarr-livetv-channel"
+
+	// ManagerLiveTVEndpoint is the leader's livetv endpoint publisher, the
+	// sole writer of the livetv Service's EndpointSlice (control-plane
+	// placement design §5.4).
+	ManagerLiveTVEndpoint FieldManager = "clustarr-livetv-endpoint"
 )
 
 // DefaultFieldOwner is the field manager controller-runtime records for a
@@ -327,6 +332,7 @@ func FieldManagers() []FieldManager {
 		ManagerAutoscale,
 		ManagerLiveTV,
 		ManagerLiveTVChannel,
+		ManagerLiveTVEndpoint,
 	}
 }
 

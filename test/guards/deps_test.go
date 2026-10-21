@@ -170,8 +170,9 @@ func TestManagerLinksNoAgentCode(t *testing.T) {
 		// Live TV runs in the manager beside its controllers (Live TV design
 		// 2026-10-07, §5): the tuner serves each block's HDHomeRun device and
 		// guide, the relay shares one upstream per channel, and index is the
-		// controllers' field indexes.
-		regexp.MustCompile(`^app/livetv/(index|relay|tuner)$`),
+		// controllers' field indexes; leaderendpoint publishes the leader as
+		// the livetv Service's endpoint (control-plane placement design §5.4).
+		regexp.MustCompile(`^app/livetv/(index|leaderendpoint|relay|tuner)$`),
 	})
 }
 

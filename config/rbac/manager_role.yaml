@@ -260,6 +260,15 @@ rules:
   - list
   - watch
 - apiGroups:
+  - discovery.k8s.io
+  resources:
+  - endpointslices
+  verbs:
+  - create
+  - get
+  - patch
+  - update
+- apiGroups:
   - download.clustarr.io
   resources:
   - downloadclients
