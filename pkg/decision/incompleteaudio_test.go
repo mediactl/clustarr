@@ -159,3 +159,46 @@ func TestTheIndexersAudioLanguagesBeatTheTitle(t *testing.T) {
 	ds = decision.Evaluate(context.Background(), akira("pt", "ja"), p, cat, multi, usenetOnly)
 	require.True(t, hasRejection(ds[0], decision.ReasonWantedLanguage), "%v", reasons(ds[0]))
 }
+
+// TestADualAudioTitleCompletesAnIndexersOneLanguage: nzb-life names one
+// language for many dual-audio TV posts -- Kitsune's DUAL Monster, 86 and
+// BLUE LOCK read Japanese alone in 67 results on talos (2026-10-21) -- where
+// it names every track of a film's. A title that says dual audio has two
+// tracks, so one language from the indexer is the dual reading's other
+// language short: the release is both, for an episode, a season pack and a
+// film alike. An indexer naming two languages still beats the title, and so
+// does one naming one for a title with no dual marker.
+func TestADualAudioTitleCompletesAnIndexersOneLanguage(t *testing.T) {
+	p, cat := builtin(t, "anime-web-1080p")
+	nzblife := func(title string, langs ...string) []common.ReleaseInfo {
+		return []common.ReleaseInfo{{
+			GUID: "g", Title: title, IndexerRef: "nzb-life", Protocol: common.ProtocolUsenet, SizeBytes: 2 << 30, IndexerLanguages: langs,
+		}}
+	}
+	ep := monsterS01E02(nil)
+	ep.Identity.Episodes, ep.Identity.Absolute = []int{1}, []int{1}
+	for _, c := range []struct {
+		tg    decision.Target
+		title string
+		idx   []string
+		want  []string
+	}{
+		{ep, "Monster.2004.S01E01.Herr.Dr.Tenma.1080p.BluRay.DUAL.FLAC.2.0.x264-Kitsune.mkv-xpost", []string{"Japanese"}, []string{"Japanese", "English"}},
+		{ep, "Monster.2004.S01.1080p.BluRay.DUAL.FLAC.2.0.x264-Kitsune", []string{"Japanese"}, []string{"Japanese", "English"}},
+		{akira("ja"), "Akira.1988.1080p.BluRay.DUAL.FLAC.2.0.x264-Kitsune", []string{"Japanese"}, []string{"Japanese", "English"}},
+		{ep, "Monster.S01E01.rerip.480p.NF.WEB-DL.AAC2.0.x264.Dual.Audio-Emmid", []string{"French", "Japanese"}, []string{"French", "Japanese"}},
+		{akira("ja"), "Akira.1988.2160p.BDRip.TrueHD.7.1.Atmos.MULTi.Jpn.Eng.DoVi.HDR10.x265.10bit-MarkII", []string{"Japanese"}, []string{"Japanese"}},
+	} {
+		ds := decision.Evaluate(context.Background(), c.tg, p, cat, nzblife(c.title, c.idx...), usenetOnly)
+		require.Equal(t, c.want, ds[0].Release.Languages, c.title)
+	}
+
+	// The grab check reads the stored release again: under the dual-audio
+	// remux profile, Kitsune's DUAL Akira completes the Portuguese-and-Japanese
+	// file as hallowed's does, so the transcoded file does not hold it back.
+	remux, remuxCat := builtin(t, "anime-remux-1080p")
+	rels := nzblife("Akira.1988.1080p.BluRay.DUAL.FLAC.2.0.x264-Kitsune", "Japanese")
+	rel := decision.EvaluateRelease(context.Background(), akira("pt", "ja"), remux, remuxCat, rels, usenetOnly)[0]
+	rel.Parsed = nil // the manager's grab check reads the stored release, not the agent's parse
+	require.Empty(t, decision.ItemStateRejections(context.Background(), akira("pt", "ja"), remux, rel, usenetOnly))
+}
