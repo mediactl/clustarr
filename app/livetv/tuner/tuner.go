@@ -100,6 +100,10 @@ type Tuner struct {
 	cancelBase context.CancelFunc
 	wake       chan struct{}
 
+	// listening closes once Start has bound BindAddress (Listening).
+	listening     chan struct{}
+	listeningOnce sync.Once
+
 	mu        sync.Mutex
 	providers map[types.NamespacedName]*provider
 }
@@ -201,8 +205,15 @@ func New(o Options) *Tuner {
 	}
 	registerMetrics()
 	base, cancel := context.WithCancel(context.Background())
-	return &Tuner{o: o, base: base, cancelBase: cancel, wake: make(chan struct{}, 1), providers: map[types.NamespacedName]*provider{}}
+	return &Tuner{o: o, base: base, cancelBase: cancel, wake: make(chan struct{}, 1), listening: make(chan struct{}),
+		providers: map[types.NamespacedName]*provider{}}
 }
+
+// Listening closes once Start has bound BindAddress, so the leader publishes
+// itself as the livetv endpoint only when the tuner can answer (control-plane
+// placement design §5.4). It never closes without a bind address, or when
+// the bind failed.
+func (t *Tuner) Listening() <-chan struct{} { return t.listening }
 
 // Apply sets a provider's configuration. A provider the tuner has not
 // served before starts from its cached playlist and guide, each fetched
@@ -349,6 +360,7 @@ func (t *Tuner) Start(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		t.listeningOnce.Do(func() { close(t.listening) })
 		srv = &http.Server{
 			Handler: t.Handler(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 90 * time.Second,
 			BaseContext: func(net.Listener) context.Context { return ctx },
