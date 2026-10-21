@@ -20,7 +20,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // admitted against the provider's tuner count. A slow viewer is cut off,
 // never waited for; an upstream that fails mid-stream is reopened; the last
 // viewer leaving keeps the upstream open for Linger, then frees the tuner.
-// It is xTeVe's own buffer, without the ffmpeg and VLC options.
+// With every tuner streaming, the newest tune takes a tuner: an unwatched
+// stream's, else the one whose viewer joined longest ago. It is xTeVe's own
+// buffer, without the ffmpeg and VLC options.
 package relay
 
 import (
@@ -71,6 +73,9 @@ type Options struct {
 	Backoff time.Duration
 	// ReadyTimeout bounds a new viewer's wait for the first byte. Default 15s.
 	ReadyTimeout time.Duration
+	// Reclaim is how long a channel whose watched stream a newer tune took
+	// may not take a watched stream's tuner in turn. Default 10s.
+	Reclaim time.Duration
 	// UserAgent is sent upstream.
 	UserAgent string
 	// OnChange is told the tuners in use whenever that changes.
@@ -87,6 +92,9 @@ type Relay struct {
 
 	mu      sync.Mutex
 	streams map[string]*stream
+	// taken is when each channel's watched stream was last taken for a
+	// newer tune, for Reclaim.
+	taken   map[string]time.Time
 	tuners  int
 	inUse   int
 	viewers int
@@ -101,6 +109,7 @@ type stream struct {
 	channel   string
 	ring      *ring
 	viewers   int
+	joined    time.Time     // when its newest viewer joined
 	ready     chan struct{} // closed on the first byte or on failure
 	readyOnce sync.Once
 	failed    string // the reason, once failed
@@ -130,7 +139,10 @@ func New(o Options) *Relay {
 	if o.ReadyTimeout <= 0 {
 		o.ReadyTimeout = 15 * time.Second
 	}
-	return &Relay{o: o, streams: map[string]*stream{}, tuners: o.Tuners, buffer: o.Buffer, linger: o.Linger, userAgent: o.UserAgent}
+	if o.Reclaim <= 0 {
+		o.Reclaim = 10 * time.Second
+	}
+	return &Relay{o: o, streams: map[string]*stream{}, taken: map[string]time.Time{}, tuners: o.Tuners, buffer: o.Buffer, linger: o.Linger, userAgent: o.UserAgent}
 }
 
 // InUse is the tuners streaming now.
@@ -196,8 +208,9 @@ func (r *Relay) changed(inUse int) {
 }
 
 // Serve streams channel to one viewer, from upstream when the channel is not
-// streaming yet. It answers 503 when every tuner is taken, as a real
-// HDHomeRun does, and 502 when the upstream cannot be read.
+// streaming yet. With every tuner streaming it takes one (takeable), and
+// answers 503, as a real HDHomeRun does, only when none may be taken; it
+// answers 502 when the upstream cannot be read.
 func (r *Relay) Serve(w http.ResponseWriter, req *http.Request, channel, upstream string) {
 	defer func() {
 		if p := recover(); p != nil {
@@ -208,11 +221,16 @@ func (r *Relay) Serve(w http.ResponseWriter, req *http.Request, channel, upstrea
 	s, ok := r.streams[channel]
 	if !ok {
 		var evicted *stream
+		took := false
 		if r.inUse >= r.tuners {
 			// An unwatched stream only lingers in case its viewer comes
 			// back: a viewer who changed channel takes its tuner, or a
 			// one-connection account answers 503 for the whole linger.
 			evicted = r.lingering()
+			if evicted == nil {
+				evicted = r.takeable(channel, time.Now())
+				took = evicted != nil
+			}
 			if evicted == nil {
 				r.mu.Unlock()
 				http.Error(w, "all tuners in use", http.StatusServiceUnavailable)
@@ -221,6 +239,10 @@ func (r *Relay) Serve(w http.ResponseWriter, req *http.Request, channel, upstrea
 			if evicted.linger != nil {
 				evicted.linger.Stop()
 				evicted.linger = nil
+			}
+			if took {
+				evicted.failed = "taken by channel " + channel
+				r.taken[evicted.channel] = time.Now()
 			}
 			r.remove(evicted)
 		}
@@ -232,9 +254,15 @@ func (r *Relay) Serve(w http.ResponseWriter, req *http.Request, channel, upstrea
 		r.mu.Unlock()
 		if evicted != nil {
 			// Closed before the new upstream opens: the account's one
-			// connection is free when it asks.
+			// connection is free when it asks. A taken stream's viewers'
+			// responses end.
 			evicted.cancel()
 			evicted.ring.close(io.EOF)
+			evicted.readyOnce.Do(func() { close(evicted.ready) })
+			if took {
+				logging.FromContext(r.o.Context).Info("livetv: a new tune took a watched channel's tuner",
+					"channel", channel, "from", evicted.channel)
+			}
 		}
 		go r.pump(ctx, s, upstream)
 		r.changed(inUse)
@@ -242,6 +270,7 @@ func (r *Relay) Serve(w http.ResponseWriter, req *http.Request, channel, upstrea
 	}
 	s.viewers++
 	r.viewers++
+	s.joined = time.Now()
 	if s.linger != nil {
 		s.linger.Stop()
 		s.linger = nil
@@ -306,6 +335,32 @@ func (r *Relay) lingering() *stream {
 		}
 	}
 	return nil
+}
+
+// takeable is the watched stream a tune of channel takes when every tuner
+// streams: the one whose newest viewer joined longest ago, so the channel a
+// viewer just left goes first. PMS keeps reading a channel for 30 s to 3 min
+// after its client tunes another (talos, 2026-10-21), and on a
+// one-connection account each such tune was refused 503, "Could not tune".
+// A channel taken less than Reclaim ago takes nothing: its leftover reader
+// reopening it must not take the tuner back and start a tug of war. Nil
+// when nothing may be taken; r.mu is held.
+func (r *Relay) takeable(channel string, now time.Time) *stream {
+	for ch, at := range r.taken {
+		if now.Sub(at) >= r.o.Reclaim {
+			delete(r.taken, ch)
+		}
+	}
+	if _, recent := r.taken[channel]; recent {
+		return nil
+	}
+	var oldest *stream
+	for _, s := range r.streams {
+		if !s.dead && (oldest == nil || s.joined.Before(oldest.joined)) {
+			oldest = s
+		}
+	}
+	return oldest
 }
 
 // expire ends an unwatched stream once its linger has passed.
