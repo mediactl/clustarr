@@ -1,6 +1,6 @@
 # Control-plane placement: a three-replica core, everything else on workers
 
-Date: 2026-10-21. Status: proposed, not built.
+Date: 2026-10-21. Status: built on main 2026-10-21 (plan `docs/superpowers/plans/2026-10-21-control-plane-placement.md`, Parts A–C, except Task 7), not yet rolled out. See "As built" at the end.
 
 ## 1. Goal
 
@@ -119,7 +119,7 @@ agents:       {<domain>: {placement: workers}}   # every agent block
 
 `templates/plex-db.yaml` renders `spec.affinity` from the helper: the profile's node affinity, `tolerations`, required anti-affinity on the hostname. It also renders `instances` from the profile. The schema opens `plexDatabase` to `placement`, `synchronous`, `maxSlotWalKeepSize` and `backup` (below).
 
-- **Scaling up is online.** Instance 1 is already on talos-10-1-40-33, a control-plane node, so it satisfies the new affinity and stays primary. CNPG clones instances 2 and 3 onto .32 and .34 with `pg_basebackup` and streams to them. The database is 258 MB. The Plex shim keeps using `<release>-plex-db-rw`, which follows the primary.
+- **Scaling up is online.** Instance 1 is already on talos-10-1-40-33, a control-plane node, so it satisfies the new affinity. CNPG still rolls it for the affinity change, after the new instances are ready and by switchover, so the primary moves to .32 or .34. CNPG clones instances 2 and 3 onto .32 and .34 with `pg_basebackup` and streams to them. The database is 258 MB. The Plex shim keeps using `<release>-plex-db-rw`, which follows the primary.
 
 **Replication.** These are CNPG 1.30's recommendations, from its documentation through DeepWiki, with the field names checked against the CRD installed on talos:
 
@@ -185,13 +185,14 @@ Three replicas with one lease give two warm standbys. The cache is already synce
 
 - **The Service.** `<release>-livetv` becomes a selector-less Service; kustomize's `config/manager/livetv-service.yaml` changes the same way.
 - **The runnable.** A new leader-only runnable, `app/livetv/leaderendpoint`, waits until the tuner is listening (the tuner exposes a `Listening()` channel). It then writes the EndpointSlice `<release>-livetv`:
-  - labels: `kubernetes.io/service-name: <release>-livetv` and `endpointslice.kubernetes.io/managed-by: clustarr.io/manager`;
+  - labels: `kubernetes.io/service-name: <release>-livetv` and `endpointslice.kubernetes.io/managed-by: manager.clustarr.io` (a label value: no `/`);
   - one endpoint: `POD_IP` (new downward-API env beside `POD_NAME`), with `targetRef` naming its own pod;
   - the `livetv` port.
 
   It applies the slice under the manager's field manager.
 - **Takeover.** A new leader overwrites the slice. The old address lingers only until the new leader's tuner listens, which is the same outage a single replica's restart has today.
-- **RBAC.** `endpointslices` get, create, update and patch, by kubebuilder marker. RBAC is generated per identity, and only the manager's role gains it.
+- **Leftover controller slices.** An existing Service that loses its selector keeps the slice the EndpointSlice controller made for it, and the mirroring controller turns the endpoints controller's leftover Endpoints into another. Nothing updates either again. After writing its own slice, the publisher removes every slice labelled for its Service that it did not write, and the Service's Endpoints (as built, final review C1).
+- **RBAC.** `endpointslices` get, list, create, update, patch and delete, and `endpoints` delete, by kubebuilder marker. RBAC is generated per identity, and only the manager's role gains it.
 - **One replica too.** The mechanism also runs with one replica, so both installers have a single behaviour, and so do the chart/kustomize agreement tests.
 - **NetworkPolicy.** `livetv.networkPolicy` keeps selecting the manager's pods. The tuner port is admitted from Plex's pods to all three, which is harmless on the two that aren't listening.
 
@@ -271,15 +272,14 @@ Every Helm-rendered pod template not named in §1 takes the workers profile:
 - nats-box;
 - the ui-less jobs.
 
-The release-index Postgres is today on talos-10-1-40-33, a control-plane node, on a local-path claim. It moves with CNPG, never by hand:
+The release-index Postgres is today on talos-10-1-40-33, a control-plane node, on a local-path claim. It moves with CNPG, never by hand. Neither database takes a placement until its own rollout step names one (as built, final review I1): an affinity change rolls every instance.
 
-1. Set `instances: 2` with the workers profile. CNPG builds instance 2 on a worker.
-2. Promote it (`kubectl cnpg promote <release>-postgres <release>-postgres-2`).
-3. Remove instance 1 (`kubectl cnpg destroy <release>-postgres 1`); its claim and pod go.
-4. Set `instances: 1`.
+1. Set `postgres.cluster.placement: workers`, `primaryUpdateMethod: switchover` and `instances: 2`. CNPG builds instance 2 on a worker, then switches the primary over to it.
+2. Instance 1 restarts with the new affinity and stays Pending, since its claim is pinned to the control-plane node. Remove it (`kubectl cnpg destroy <release>-postgres 1`); its claim and pod go.
+3. Set `instances: 1`.
 5. Before and after, compare the row counts of the blocklist and release tables.
 
-cluster-plex's own CronJobs and its plex-workers get the workers profile through cluster-plex's values. Where cluster-plex lacks a key, it gains one in cluster-plex's chart.
+cluster-plex's own CronJobs and its remux pool get the workers profile through cluster-plex's values. Its proxy has its own LoadBalancer Service, so it takes the control-plane profile like Plex, and the render checks it (as built, final review I2). Where cluster-plex lacks a key, it gains one in cluster-plex's chart.
 
 **Rule: a workload behind a LoadBalancer Service runs on the control plane** (owner, 2026-10-21). The control-plane nodes are the cluster's BGP peers, and a Service with `externalTrafficPolicy: Local` is answered only from a node that runs one of its pods.
 
@@ -387,3 +387,22 @@ Still open:
 
 5. **A backup target for the Plex database** (§5.1): the Barman Cloud plugin to an S3 bucket, such as MinIO on the NAS, or no backup.
 6. **Episode and MediaFile conditions** (§5.4.1 item 6): whether to stop writing conditions that only restate a status field.
+
+## As built (2026-10-21)
+
+Parts A–C of the plan landed on main; rollout (Part D) waits on the owner.
+Task 7 (no deep copy on read-only lists) waits on D2's profile. Where the code
+differs from the text above:
+
+- **Live TV endpoint.**
+  - The EndpointSlice's managed-by label is `manager.clustarr.io`; the first value had a `/`, which the apiserver refused.
+  - The publisher also removes the slices the controllers left behind (§5.4).
+- **Placement parsing.** `--worker-placement` parses strictly: an unknown key or an invalid requirement stops the manager.
+- **Optional replica counts.**
+  - `ui.replicas`, `manager.replicas` and `plexDatabase.instances` are optional. Unset means 1, or the onePerNode profile's count.
+  - The Plex database's replication settings render whenever it has more than one instance.
+- **Database placement is opt-in.** Both Clusters take a placement only when named (§5.5). `postgres.cluster.primaryUpdateMethod` moves the release index by switchover.
+- **cluster-plex.**
+  - Its maintenance, remux and proxy take `nodeSelector`, `affinity` and `tolerations` (cluster-plex `f07fae3`).
+  - The proxy is held to the control plane (I2).
+- **Images.** `make docker-buildx-clustarr` builds amd64 and arm64. `UPX_ARM64=0` leaves the arm64 binaries unpacked.
