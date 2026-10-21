@@ -235,6 +235,11 @@ Call with (dict "affinity" <affinity map> "exprs" <list of expressions>).
 {{- fail "placement.enabled: nats.natsBox.podTemplate.merge.spec.affinity must hold placement.profiles.workers' nodeAffinity in every required term: nats-box runs on the workers with everything else (control-plane placement design §5.5)." -}}
 {{- end -}}
 {{- end -}}
+{{- if and (index .Values "cluster-plex" "enabled") (dig "proxy" "enabled" false (index .Values "cluster-plex")) -}}
+{{- if ne (include "clustarr.everyTermHas" (dict "affinity" (dig "proxy" "affinity" dict (index .Values "cluster-plex")) "exprs" $cp)) "true" -}}
+{{- fail "placement.enabled: cluster-plex.proxy.affinity must hold placement.profiles.controlPlane's nodeAffinity in every required term: the proxy has its own LoadBalancer Service, and a workload behind a LoadBalancer Service runs on the control plane, where the BGP peers are (owner, 2026-10-21; control-plane placement design §5.5)." -}}
+{{- end -}}
+{{- end -}}
 {{- if index .Values "cluster-plex" "enabled" -}}
 {{- if ne (include "clustarr.everyTermHas" (dict "affinity" (dig "plex" "affinity" dict (index .Values "cluster-plex")) "exprs" $cp)) "true" -}}
 {{- fail "placement.enabled: cluster-plex.plex.affinity must hold placement.profiles.controlPlane's nodeAffinity in every required term: a workload behind a LoadBalancer Service runs on the control plane, where the BGP peers are (owner, 2026-10-21; control-plane placement design §5.5)." -}}

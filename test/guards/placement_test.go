@@ -249,3 +249,18 @@ func TestPlacementChecksNeedPlacementEnabled(t *testing.T) {
 	_, failed := renderErr(t, "--set", "cluster-plex.enabled=true")
 	assert.False(t, failed)
 }
+
+// TestTheProxyBehindALoadBalancerStaysOnTheControlPlane is the final
+// review's I2: cluster-plex's proxy has its own LoadBalancer Service
+// (externalTrafficPolicy Local), so with the proxy on it is held to the
+// control plane like Plex.
+func TestTheProxyBehindALoadBalancerStaysOnTheControlPlane(t *testing.T) {
+	base := placementOn("--set", "cluster-plex.enabled=true", "--set-json", "cluster-plex.plex.affinity="+cpAffinity,
+		"--set", "cluster-plex.proxy.enabled=true")
+	stderr, failed := renderErr(t, base...)
+	require.True(t, failed, "the proxy rendered with no control-plane placement")
+	assert.Contains(t, stderr, "cluster-plex.proxy.affinity")
+
+	_, failed = renderErr(t, append(base, "--set-json", "cluster-plex.proxy.affinity="+cpAffinity)...)
+	assert.False(t, failed)
+}
