@@ -32,6 +32,10 @@ ARG VERSION=dev
 # so it runs on $BUILDPLATFORM like the compiler. UPX_FLAGS sets the packing
 # ("--ultra-brute" squeezes a few percent more, at minutes per binary).
 ARG UPX_FLAGS="--best --lzma"
+# UPX_ARM64=0 leaves the arm64 binaries unpacked: the control-plane placement
+# design (2026-10-21, §6) runs the manager and ui on arm64 nodes, and a packed
+# binary is the one piece that kernel has not yet been shown to start.
+ARG UPX_ARM64=1
 RUN apt-get update \
  && apt-get install -y --no-install-recommends upx-ucl \
  && rm -rf /var/lib/apt/lists/*
@@ -53,8 +57,8 @@ RUN --mount=type=cache,target=/go/pkg/mod \
  && GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
       -ldflags "-s -w -X github.com/mediactl/clustarr/pkg/version.Version=${VERSION}" \
       -o /out/ui ./cmd/ui \
- && upx ${UPX_FLAGS} /out/manager /out/ui \
- && upx -t /out/manager /out/ui
+ && if [ "${TARGETARCH}" = arm64 ] && [ "${UPX_ARM64}" = 0 ]; then echo 'UPX_ARM64=0: arm64 binaries left unpacked'; \
+    else upx ${UPX_FLAGS} /out/manager /out/ui && upx -t /out/manager /out/ui; fi
 
 # ---------------------------------------------------------------------------
 # clustarr: distroless static, non-root
