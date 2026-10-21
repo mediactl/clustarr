@@ -20,7 +20,10 @@ package iptvprovider
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"net/url"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -37,82 +40,83 @@ import (
 // sets it to a new value (spec §5.1).
 const AnnotationRefresh = "clustarr.io/livetv-refresh"
 
-// resolved is a provider's URLs with its Secrets read.
+// resolved is a provider's server and credentials, its Secret read.
 type resolved struct {
-	playlist string
-	guides   map[string]string
+	server, username, password string
 }
 
-// resolveURLs reads every urlFrom the provider names. A missing Secret or
-// key is a Valid=False condition naming it, never its value.
-func (r *Reconciler) resolveURLs(ctx context.Context, p *clustarrv1.IPTVProvider) (resolved, metav1.Condition) {
-	ok := metav1.Condition{Type: clustarrv1.ConditionValid, Status: metav1.ConditionTrue, Reason: "Valid", Message: "every Secret the provider names exists"}
-	read := func(sel *corev1.SecretKeySelector) (string, *metav1.Condition) {
-		var s corev1.Secret
-		err := r.SecretReader.Get(ctx, types.NamespacedName{Namespace: p.Namespace, Name: sel.Name}, &s)
-		switch {
-		case apierrors.IsNotFound(err):
-			return "", &metav1.Condition{
-				Type: clustarrv1.ConditionValid, Status: metav1.ConditionFalse, Reason: clustarrv1.ReasonSecretNotFound,
-				Message: fmt.Sprintf("Secret %s/%s does not exist", p.Namespace, sel.Name),
-			}
-		case err != nil:
-			return "", &metav1.Condition{
-				Type: clustarrv1.ConditionValid, Status: metav1.ConditionFalse, Reason: clustarrv1.ReasonSecretNotFound,
-				Message: fmt.Sprintf("Secret %s/%s cannot be read: %v", p.Namespace, sel.Name, err),
-			}
-		}
+// NormalizeServer is spec.server as the panel's root: a scheme (https when
+// it names none), a host[:port] and any path, with no trailing slash, query,
+// fragment or userinfo.
+func NormalizeServer(server string) (string, error) {
+	s := strings.TrimSpace(server)
+	if !strings.Contains(s, "://") {
+		s = "https://" + s
+	}
+	u, err := url.Parse(s)
+	switch {
+	case err != nil:
+		return "", err
+	case u.Scheme != "http" && u.Scheme != "https":
+		return "", fmt.Errorf("scheme %q is neither http nor https", u.Scheme)
+	case u.Host == "":
+		return "", errors.New("no host")
+	case u.User != nil, u.RawQuery != "", u.Fragment != "":
+		return "", errors.New("credentials, a query or a fragment do not belong in server; the credentials go in credentialsRef")
+	}
+	return u.Scheme + "://" + u.Host + strings.TrimRight(u.EscapedPath(), "/"), nil
+}
+
+// resolve reads the provider's server and credentials. A bad server, or a
+// missing Secret or key, is a Valid=False condition naming it, never a
+// credential.
+func (r *Reconciler) resolve(ctx context.Context, p *clustarrv1.IPTVProvider) (resolved, metav1.Condition) {
+	invalid := func(reason, format string, args ...any) (resolved, metav1.Condition) {
+		return resolved{}, metav1.Condition{Type: clustarrv1.ConditionValid, Status: metav1.ConditionFalse, Reason: reason, Message: fmt.Sprintf(format, args...)}
+	}
+	server, err := NormalizeServer(p.Spec.Server)
+	if err != nil {
+		return invalid(clustarrv1.ReasonInvalidServer, "server %q: %v", p.Spec.Server, err)
+	}
+	name := p.Spec.CredentialsRef.Name
+	var s corev1.Secret
+	err = r.SecretReader.Get(ctx, types.NamespacedName{Namespace: p.Namespace, Name: name}, &s)
+	switch {
+	case apierrors.IsNotFound(err):
+		return invalid(clustarrv1.ReasonSecretNotFound, "Secret %s/%s does not exist", p.Namespace, name)
+	case err != nil:
+		return invalid(clustarrv1.ReasonSecretNotFound, "Secret %s/%s cannot be read: %v", p.Namespace, name, err)
+	}
+	out := resolved{server: server}
+	for key, dst := range map[string]*string{clustarrv1.CredentialsKeyUsername: &out.username, clustarrv1.CredentialsKeyPassword: &out.password} {
 		// kubectl --from-file and a YAML "|" block both end the value in a
-		// newline, which no URL carries.
-		v, has := s.Data[sel.Key]
-		v = bytes.TrimSpace(v)
-		if !has || len(v) == 0 {
-			return "", &metav1.Condition{
-				Type: clustarrv1.ConditionValid, Status: metav1.ConditionFalse, Reason: clustarrv1.ReasonSecretKeyNotFound,
-				Message: fmt.Sprintf("Secret %s/%s has no key %q", p.Namespace, sel.Name, sel.Key),
-			}
+		// newline, which no credential carries.
+		v := bytes.TrimSpace(s.Data[key])
+		if len(v) == 0 {
+			return invalid(clustarrv1.ReasonSecretKeyNotFound, "Secret %s/%s has no key %q", p.Namespace, name, key)
 		}
-		return string(v), nil
+		*dst = string(v)
 	}
-	out := resolved{playlist: p.Spec.Playlist.URL, guides: map[string]string{}}
-	if sel := p.Spec.Playlist.URLFrom; sel != nil {
-		v, bad := read(sel)
-		if bad != nil {
-			return out, *bad
-		}
-		out.playlist = v
-	}
-	for _, g := range p.Spec.Guides {
-		out.guides[g.Name] = g.URL
-		if g.URLFrom != nil {
-			v, bad := read(g.URLFrom)
-			if bad != nil {
-				return out, *bad
-			}
-			out.guides[g.Name] = v
-		}
-	}
-	return out, ok
+	return out, metav1.Condition{Type: clustarrv1.ConditionValid, Status: metav1.ConditionTrue, Reason: "Valid", Message: "the server parses and the credentials Secret holds both keys"}
 }
 
 // buildConfig is the provider as the tuner sees it: every spec field read
-// through its accessor, its URLs resolved, its channels mapped, its blocks
-// as planned.
-func buildConfig(p *clustarrv1.IPTVProvider, blocks []tuner.BlockConfig, urls resolved, channels []clustarrv1.IPTVChannel) tuner.Config {
+// through its accessor, its credentials resolved, its channels mapped, its
+// blocks as planned.
+func buildConfig(p *clustarrv1.IPTVProvider, blocks []tuner.BlockConfig, res resolved, channels []clustarrv1.IPTVChannel) tuner.Config {
 	c := tuner.Config{
-		Key:             types.NamespacedName{Namespace: p.Namespace, Name: p.Name},
-		Blocks:          blocks,
-		Tuners:          int(p.Spec.Tuners),
-		UserAgent:       p.Spec.Playlist.UserAgentOrDefault(),
-		PlaylistURL:     urls.playlist,
-		PlaylistRefresh: p.Spec.Playlist.RefreshOrDefault(),
-		EPGSource:       string(p.Spec.EPGSourceOrDefault()),
-		Buffer:          int(p.Spec.Stream.BufferOrDefault()),
-		Linger:          p.Spec.Stream.LingerOrDefault(),
-		Refresh:         p.Annotations[AnnotationRefresh],
-	}
-	for _, g := range p.Spec.Guides {
-		c.Guides = append(c.Guides, tuner.GuideConfig{Name: g.Name, URL: urls.guides[g.Name], Refresh: g.RefreshOrDefault()})
+		Key:       types.NamespacedName{Namespace: p.Namespace, Name: p.Name},
+		Blocks:    blocks,
+		Server:    res.server,
+		Username:  res.username,
+		Password:  res.password,
+		Tuners:    p.Spec.TunersOverride(),
+		UserAgent: p.Spec.UserAgentOrDefault(),
+		Every:     p.Spec.RefreshOrDefault(),
+		EPGSource: string(p.Spec.EPGSourceOrDefault()),
+		Buffer:    int(p.Spec.Stream.BufferOrDefault()),
+		Linger:    p.Spec.Stream.LingerOrDefault(),
+		Refresh:   p.Annotations[AnnotationRefresh],
 	}
 	for _, f := range p.Spec.Filters {
 		c.Filters = append(c.Filters, filter.Rule{
@@ -129,8 +133,8 @@ func buildConfig(p *clustarrv1.IPTVProvider, blocks []tuner.BlockConfig, urls re
 		if e := ch.Spec.EPG; e != nil {
 			if e.Dummy {
 				cc.DummyMinutes = int(e.DummyMinutesOrDefault())
-			} else if e.Guide != "" {
-				cc.Map = &xmltv.Mapping{Guide: e.Guide, ChannelID: e.ChannelID}
+			} else if e.ChannelID != "" {
+				cc.Map = &xmltv.Mapping{Guide: tuner.GuideName, ChannelID: e.ChannelID}
 			}
 		}
 		c.Channels = append(c.Channels, cc)

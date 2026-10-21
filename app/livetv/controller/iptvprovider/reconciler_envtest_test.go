@@ -31,6 +31,7 @@ import (
 	"github.com/stretchr/testify/require"
 	coordinationv1 "k8s.io/api/coordination/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -91,12 +92,6 @@ func (f *fakeTuner) Remove(key types.NamespacedName) {
 func (*fakeTuner) Snapshot(types.NamespacedName) (tuner.Snapshot, bool) {
 	return tuner.Snapshot{}, false
 }
-
-func (*fakeTuner) Kept(types.NamespacedName) (tuner.KeptPlaylist, bool) {
-	return tuner.KeptPlaylist{}, false
-}
-
-func (*fakeTuner) Restore(types.NamespacedName, tuner.KeptPlaylist) {}
 
 func (f *fakeTuner) last(key types.NamespacedName) (tuner.Config, bool) {
 	f.mu.Lock()
@@ -162,10 +157,14 @@ func (h *harness) key(name string) types.NamespacedName {
 
 func (h *harness) provider(t *testing.T, name string, mutate ...func(*clustarrv1.IPTVProvider)) {
 	t.Helper()
+	if err := h.c.Create(h.ctx, credentials(h.ns, name, map[string][]byte{"username": []byte("user"), "password": []byte("pass")})); !apierrors.IsAlreadyExists(err) {
+		require.NoError(t, err)
+	}
 	p := &clustarrv1.IPTVProvider{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: h.ns}, Spec: clustarrv1.IPTVProviderSpec{
-		Tuners:   2,
-		Playlist: clustarrv1.PlaylistSource{URL: "http://p.example/" + name + ".m3u"},
-		Filters:  []clustarrv1.ChannelFilter{{Name: "all", Type: clustarrv1.FilterCustom, Match: "a"}},
+		Server:         "p.example",
+		CredentialsRef: corev1.LocalObjectReference{Name: name + "-credentials"},
+		Tuners:         ptr.To(int32(2)),
+		Filters:        []clustarrv1.ChannelFilter{{Name: "all", Type: clustarrv1.FilterCustom, Match: "a"}},
 	}}
 	for _, m := range mutate {
 		m(p)
@@ -196,6 +195,11 @@ func (h *harness) until(t *testing.T, name string, ok func(*clustarrv1.IPTVProvi
 	var p *clustarrv1.IPTVProvider
 	require.Eventually(t, func() bool { p = h.get(t, name); return ok(p) }, 15*time.Second, 50*time.Millisecond, why)
 	return p
+}
+
+// credentials is provider name's credentials Secret holding data.
+func credentials(ns, name string, data map[string][]byte) *corev1.Secret {
+	return &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: name + "-credentials", Namespace: ns}, Data: data}
 }
 
 func channelsIn(p *clustarrv1.IPTVProvider) int {
@@ -247,6 +251,7 @@ func TestAProviderPublishesItsBlocksAddressAndTunerConfig(t *testing.T) {
 		assert.Equal(t, hdhr.BlockDeviceID(h.ns, "news", start), b.DeviceID)
 		assert.Equal(t, "Clustarr news "+start+"+", b.FriendlyName)
 		assert.Equal(t, iptvprovider.BlockGuidePath, b.GuidePath)
+		assert.Equal(t, tuner.DeviceEndpoint(h.key("news"), b.DeviceID), b.Endpoint, "the path its port's proxy sends every request below")
 		assert.NotZero(t, b.MapBytes)
 	}
 	assert.Equal(t, []string{"1000", "1002"}, []string{p.Status.Blocks[0].First, p.Status.Blocks[0].Last})
@@ -254,7 +259,7 @@ func TestAProviderPublishesItsBlocksAddressAndTunerConfig(t *testing.T) {
 	require.True(t, ok)
 	require.Len(t, c.Blocks, 3)
 	assert.Equal(t, []string{"1006"}, c.Blocks[2].Numbers)
-	assert.Equal(t, p.Status.Blocks[2].Port, c.Blocks[2].Port)
+	assert.Equal(t, p.Status.Blocks[2].DeviceID, c.Blocks[2].DeviceID)
 }
 
 func TestPortsAreUniqueAcrossProvidersDespiteACacheLag(t *testing.T) {
@@ -292,7 +297,7 @@ func TestAnAddedChannelMovesNoOtherChannelAndPortsAndIDsHold(t *testing.T) {
 
 	t.Run("a spec edit changes no port", func(t *testing.T) {
 		p := h.get(t, "news")
-		p.Spec.Tuners = 3
+		p.Spec.Tuners = ptr.To(int32(3))
 		require.NoError(t, h.c.Update(h.ctx, p))
 		require.Eventually(t, func() bool { c, _ := h.tuner.last(h.key("news")); return c.Tuners == 3 }, 15*time.Second, 50*time.Millisecond)
 		assert.Equal(t, ports(before), ports(h.get(t, "news")))
@@ -444,7 +449,7 @@ func TestOnlyTheLiveTVManagerWritesTheProvidersStatus(t *testing.T) {
 		}
 	}
 	assert.Equal(t, []string{string(k8s.ManagerLiveTV)}, managers)
-	assert.False(t, strings.Contains(fmt.Sprint(p.Status), "p.example"), "no playlist URL in status")
+	assert.False(t, strings.Contains(fmt.Sprint(p.Status), "pass"), "no credential in status")
 }
 
 func TestChannelsReachTheTunerThroughTheIndex(t *testing.T) {
@@ -457,7 +462,7 @@ func TestChannelsReachTheTunerThroughTheIndex(t *testing.T) {
 			Spec:       clustarrv1.IPTVChannelSpec{ProviderRef: provider, Key: "t:" + name, Number: number, Active: true, EPG: epg},
 		}))
 	}
-	mk("bbc1", "news", "1001", &clustarrv1.ChannelEPG{Guide: "main", ChannelID: "bbc1.uk"})
+	mk("bbc1", "news", "1001", &clustarrv1.ChannelEPG{ChannelID: "bbc1.uk"})
 	mk("filler", "news", "1002", &clustarrv1.ChannelEPG{Dummy: true, DummyMinutes: ptr.To(int32(30))})
 	mk("cnn", "other", "5001", nil)
 	require.Eventually(t, func() bool { c, _ := h.tuner.last(h.key("news")); return len(c.Channels) == 2 }, 15*time.Second, 50*time.Millisecond)
@@ -471,6 +476,7 @@ func TestChannelsReachTheTunerThroughTheIndex(t *testing.T) {
 	assert.True(t, byObject["bbc1"].Active)
 	require.NotNil(t, byObject["bbc1"].Map)
 	assert.Equal(t, "bbc1.uk", byObject["bbc1"].Map.ChannelID)
+	assert.Equal(t, tuner.GuideName, byObject["bbc1"].Map.Guide)
 	assert.Nil(t, byObject["filler"].Map)
 	assert.Equal(t, 30, byObject["filler"].DummyMinutes)
 	assert.NotContains(t, byObject, "cnn", "another provider's channel")
@@ -525,19 +531,27 @@ func TestTheProviderWhoseEditOverlapsIsRefusedWhicheverIsOlder(t *testing.T) {
 	assert.Equal(t, b.Status.Blocks[0].Port, after.Status.Blocks[0].Port)
 }
 
-func TestASecretURLsTrailingNewlineIsTrimmed(t *testing.T) {
+func TestTheCredentialsTrailingNewlinesAreTrimmed(t *testing.T) {
 	// kubectl create secret --from-file and a YAML "|" block both end the
-	// value in a newline; an untrimmed URL never fetches, and its error
-	// once carried the credentials.
+	// value in a newline; an untrimmed credential never logs in.
 	h := setup(t)
-	require.NoError(t, h.c.Create(h.ctx, &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: "polutv", Namespace: h.ns},
-		Data:       map[string][]byte{"url": []byte("http://p.example/get.php?username=a&password=b\n")},
-	}))
-	h.provider(t, "polutv", func(p *clustarrv1.IPTVProvider) {
-		p.Spec.Playlist = clustarrv1.PlaylistSource{URLFrom: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "polutv"}, Key: "url"}}
-	})
-	require.Eventually(t, func() bool { _, ok := h.tuner.last(h.key("polutv")); return ok }, 10*time.Second, 20*time.Millisecond)
+	require.NoError(t, h.c.Create(h.ctx, credentials(h.ns, "polutv", map[string][]byte{"username": []byte("a\n"), "password": []byte(" b\n")})))
+	h.provider(t, "polutv", func(p *clustarrv1.IPTVProvider) { p.Spec.Server = "http://p.example:8080/" })
+	require.Eventually(t, func() bool { c, ok := h.tuner.last(h.key("polutv")); return ok && c.Username == "a" }, 10*time.Second, 20*time.Millisecond)
 	c, _ := h.tuner.last(h.key("polutv"))
-	assert.Equal(t, "http://p.example/get.php?username=a&password=b", c.PlaylistURL)
+	assert.Equal(t, "b", c.Password)
+	assert.Equal(t, "http://p.example:8080", c.Server)
+	assert.Equal(t, "http://p.example:8080/get.php?username=a&password=b&output=ts&type=m3u_plus", c.PlaylistURL())
+	assert.Equal(t, "http://p.example:8080/xmltv.php?username=a&password=b", c.GuideURL())
+}
+
+func TestAMissingCredentialsKeyReadsInvalid(t *testing.T) {
+	h := setup(t)
+	require.NoError(t, h.c.Create(h.ctx, credentials(h.ns, "news", map[string][]byte{"username": []byte("a")})))
+	h.provider(t, "news")
+	got := h.until(t, "news", func(p *clustarrv1.IPTVProvider) bool {
+		c := ready(p)
+		return c != nil && c.Reason == clustarrv1.ReasonSecretKeyNotFound
+	}, "Ready=False SecretKeyNotFound")
+	assert.NotContains(t, fmt.Sprint(got.Status), "a", "no credential in status")
 }

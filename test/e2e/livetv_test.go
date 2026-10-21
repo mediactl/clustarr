@@ -30,13 +30,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -73,14 +73,19 @@ func TestLiveTVLineupGuideAndASharedStream(t *testing.T) {
 	requireFixtureService(ctx, t, fixtureIPTVStubService)
 	name := uniqueName("livetv")
 	one := int32(1)
+	creds := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: name + "-credentials", Namespace: Namespace},
+		Data:       map[string][]byte{"username": []byte("e2e"), "password": []byte("secret")},
+	}
+	require.NoError(t, k8sClient.Create(ctx, creds))
+	cleanupUnlessFailed(t, func() { _ = k8sClient.Delete(context.Background(), creds) })
 	p := &clustarrv1.IPTVProvider{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: Namespace},
 		Spec: clustarrv1.IPTVProviderSpec{
-			Tuners:   1,
-			DVR:      clustarrv1.DVRSpec{MaxChannels: &one}, // two channels, so two blocks
-			Playlist: clustarrv1.PlaylistSource{URL: "http://iptv-stub." + Namespace + ".svc/get.php"},
-			Guides:   []clustarrv1.XMLTVSource{{Name: "e2e", URL: "http://iptv-stub." + Namespace + ".svc/guide.xml"}},
-			Filters:  []clustarrv1.ChannelFilter{{Name: "e2e", Type: clustarrv1.FilterGroupTitle, Match: "E2E"}},
+			Server:         "http://iptv-stub." + Namespace + ".svc",
+			CredentialsRef: corev1.LocalObjectReference{Name: creds.Name},
+			DVR:            clustarrv1.DVRSpec{MaxChannels: &one}, // two channels, so two blocks
+			Filters:        []clustarrv1.ChannelFilter{{Name: "e2e", Type: clustarrv1.FilterGroupTitle, Match: "E2E"}},
 		},
 	}
 	require.NoError(t, k8sClient.Create(ctx, p))
@@ -111,30 +116,34 @@ func TestLiveTVLineupGuideAndASharedStream(t *testing.T) {
 	assert.NotEqual(t, blocks["1001"].Port, blocks["1002"].Port, "a port per block")
 	assert.NotEqual(t, blocks["1001"].DeviceID, blocks["1002"].DeviceID, "a device ID per block")
 	assert.NotZero(t, blocks["1001"].Port)
+	assert.Equal(t, "/livetv/"+Namespace+"/"+name+"/devices/"+blocks["1001"].DeviceID, blocks["1001"].Endpoint)
+	require.NotNil(t, got.Status.Account)
+	assert.Equal(t, "Active", got.Status.Account.Status)
+	require.NotNil(t, got.Status.Tuners)
+	assert.Equal(t, int32(1), got.Status.Tuners.Total, "the account's max_connections")
 
 	base, stop := portForwardService(ctx, t, "livetv", 80)
 	defer stop()
 	prefix := base + "/livetv/" + Namespace + "/" + name
 
-	// Each block's lineup, by path and by the port in Host (what PMS sends
-	// through cluster-plex's proxy).
-	code, body := getBody(ctx, t, prefix+"/1001/lineup.json", "")
+	// Each block's lineup at its device endpoint, which cluster-plex's proxy
+	// on the block's port sends every request below; and a range of the
+	// whole lineup.
+	code, body := getBody(ctx, t, base+blocks["1001"].Endpoint+"/lineup.json", "")
 	require.Equal(t, http.StatusOK, code, body)
 	var lineup []lineupEntry
 	require.NoError(t, json.Unmarshal([]byte(body), &lineup))
 	require.Len(t, lineup, 1)
 	assert.Equal(t, "1001", lineup[0].GuideNumber)
-	host := fmt.Sprintf("169.254.47.1:%d", blocks["1001"].Port)
-	code, body = getBody(ctx, t, base+"/lineup.json", host)
+	code, body = getBody(ctx, t, prefix+"/lineup.json?from=1002", "")
 	require.Equal(t, http.StatusOK, code, body)
 	lineup = nil
 	require.NoError(t, json.Unmarshal([]byte(body), &lineup))
 	require.Len(t, lineup, 1)
-	assert.Equal(t, "1001", lineup[0].GuideNumber)
-	assert.True(t, strings.HasPrefix(lineup[0].URL, "http://"+host+"/"), "stream URLs come back through the same port: %s", lineup[0].URL)
+	assert.Equal(t, "1002", lineup[0].GuideNumber)
 
 	// Each block's guide holds its channels only; the provider's holds both.
-	code, body = getBody(ctx, t, prefix+"/1002/xmltv.xml", "")
+	code, body = getBody(ctx, t, base+blocks["1002"].Endpoint+"/xmltv.xml", "")
 	require.Equal(t, http.StatusOK, code)
 	assert.Contains(t, body, `<channel id="1002">`)
 	assert.NotContains(t, body, `<channel id="1001">`)
@@ -150,7 +159,7 @@ func TestLiveTVLineupGuideAndASharedStream(t *testing.T) {
 		viewers.Add(1)
 		go func() {
 			defer viewers.Done()
-			req, err := http.NewRequestWithContext(ctx, http.MethodGet, prefix+"/1001/stream/1001", nil)
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+blocks["1001"].Endpoint+"/stream/1001", nil)
 			if err != nil {
 				read <- err
 				return
@@ -185,6 +194,6 @@ func TestLiveTVLineupGuideAndASharedStream(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(body), &stats))
 	assert.Equal(t, 1, stats.Connections["1"], "two viewers, one upstream")
 
-	code, _ = getBody(ctx, t, prefix+"/1002/stream/1002", "")
+	code, _ = getBody(ctx, t, base+blocks["1002"].Endpoint+"/stream/1002", "")
 	assert.Equal(t, http.StatusServiceUnavailable, code, "the one tuner is in use")
 }

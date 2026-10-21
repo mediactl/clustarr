@@ -21,7 +21,6 @@ import (
 	"context"
 	"fmt"
 	"slices"
-	"strings"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -57,7 +56,7 @@ func render(p *clustarrv1.IPTVProvider, address string, pl plan, tn Tuner, valid
 		st.WithAddress(address)
 	}
 	if ok {
-		fromSnapshot(st, snap, p.Spec.Tuners)
+		fromSnapshot(st, snap)
 	} else {
 		reassertKnownStatus(st, p)
 	}
@@ -66,9 +65,9 @@ func render(p *clustarrv1.IPTVProvider, address string, pl plan, tn Tuner, valid
 	conds := slices.Clone(p.Status.Conditions)
 	set := func(c metav1.Condition) { c.ObservedGeneration = p.Generation; meta.SetStatusCondition(&conds, c) }
 	set(valid)
-	playlist, guides := fetchConditions(p, snap, ok)
+	playlist, guide := fetchConditions(p, snap, ok)
 	set(playlist)
-	set(guides)
+	set(guide)
 	ready := metav1.Condition{Type: clustarrv1.ConditionReady, Status: metav1.ConditionTrue, Reason: "Ready", Message: "the tuner serves this provider"}
 	pms := p.Spec.EPGSourceOrDefault() == clustarrv1.EPGSourcePMS
 	switch {
@@ -80,8 +79,8 @@ func render(p *clustarrv1.IPTVProvider, address string, pl plan, tn Tuner, valid
 		ready = metav1.Condition{Type: clustarrv1.ConditionReady, Status: metav1.ConditionFalse, Reason: pl.reason, Message: pl.message + "; the last good blocks are kept"}
 	case playlist.Status != metav1.ConditionTrue:
 		ready = metav1.Condition{Type: clustarrv1.ConditionReady, Status: metav1.ConditionFalse, Reason: "PlaylistNotFetched", Message: playlist.Message}
-	case !pms && guides.Status != metav1.ConditionTrue:
-		ready = metav1.Condition{Type: clustarrv1.ConditionReady, Status: metav1.ConditionFalse, Reason: "GuidesNotFetched", Message: guides.Message}
+	case !pms && guide.Status != metav1.ConditionTrue:
+		ready = metav1.Condition{Type: clustarrv1.ConditionReady, Status: metav1.ConditionFalse, Reason: "GuidesNotFetched", Message: guide.Message}
 	}
 	set(ready)
 	for _, c := range conds {
@@ -109,16 +108,17 @@ func withBlocks(st *clustarrac.IPTVProviderStatusApplyConfiguration, p *clustarr
 	}
 	for _, b := range pl.blocks {
 		ac := clustarrac.BlockStatus().WithStart(b.Start).WithChannels(b.Channels).WithFirst(b.First).WithLast(b.Last).
-			WithMapBytes(b.MapBytes).WithDeviceID(b.DeviceID).WithPort(b.Port).WithFriendlyName(b.FriendlyName)
+			WithMapBytes(b.MapBytes).WithDeviceID(b.DeviceID).WithEndpoint(b.Endpoint).WithPort(b.Port).WithFriendlyName(b.FriendlyName)
 		if b.GuidePath != "" {
 			ac.WithGuidePath(b.GuidePath)
 		}
 		if b.Owner != "" {
 			ac.WithOwner(b.Owner)
 		}
-		// A tuner that has not fetched yet (a manager just started) has no
-		// hashes: the status keeps the last ones, or cluster-plex would
-		// save every block's map and reload its guide again.
+		// A tuner that has not rendered a playlist yet (a manager just
+		// started, before its cache loads) has no hashes: the status keeps
+		// the last ones, or cluster-plex would save every block's map and
+		// reload its guide again.
 		lineupHash, guideHash := known[b.Start].LineupHash, known[b.Start].GuideHash
 		if rb, has := rendered[b.Start]; has && snap.PlaylistFetched {
 			lineupHash, guideHash = rb.LineupHash, rb.GuideHash
@@ -135,7 +135,7 @@ func withBlocks(st *clustarrac.IPTVProviderStatusApplyConfiguration, p *clustarr
 
 // fetchConditions are PlaylistFetched and GuidesFetched: from the snapshot,
 // else carried over from the status.
-func fetchConditions(p *clustarrv1.IPTVProvider, snap tuner.Snapshot, ok bool) (playlist, guides metav1.Condition) {
+func fetchConditions(p *clustarrv1.IPTVProvider, snap tuner.Snapshot, ok bool) (playlist, guide metav1.Condition) {
 	carry := func(t, reason, msg string) metav1.Condition {
 		if c := meta.FindStatusCondition(p.Status.Conditions, t); c != nil {
 			return *c
@@ -161,53 +161,23 @@ func fetchConditions(p *clustarrv1.IPTVProvider, snap tuner.Snapshot, ok bool) (
 	if p.Spec.EPGSourceOrDefault() == clustarrv1.EPGSourcePMS {
 		return playlist, metav1.Condition{Type: clustarrv1.ConditionGuidesFetched, Status: metav1.ConditionTrue, Reason: "NotUsed", Message: "epgSource is PMS"}
 	}
-	var pending, failed []string
-	for _, g := range snap.Guides {
-		switch {
-		case g.FetchedAt.IsZero() && g.Error != "":
-			failed = append(failed, g.Error)
-		case g.FetchedAt.IsZero():
-			pending = append(pending, g.Name)
-		case g.Error != "":
-			failed = append(failed, "serving the last good copy: "+g.Error)
-		}
-	}
-	guides = metav1.Condition{
+	g := snap.Guide
+	guide = metav1.Condition{
 		Type: clustarrv1.ConditionGuidesFetched, Status: metav1.ConditionTrue, Reason: "Fetched",
-		Message: fmt.Sprintf("%d guides", len(snap.Guides)),
+		Message: fmt.Sprintf("%d channels, %d programmes", g.Channels, g.Programmes),
 	}
 	switch {
-	case len(snap.Guides) == 0:
-		guides.Reason, guides.Message = "NoGuides", "no guides: every channel takes a dummy guide"
-	case len(failed) > 0 && len(pending) == 0 && !anyFetched(snap.Guides):
-		guides = metav1.Condition{Type: clustarrv1.ConditionGuidesFetched, Status: metav1.ConditionFalse, Reason: "FetchFailed", Message: clampMessage(strings.Join(failed, "; "))}
-	case len(pending) > 0:
-		guides = metav1.Condition{Type: clustarrv1.ConditionGuidesFetched, Status: metav1.ConditionFalse, Reason: "Pending", Message: "not fetched yet: " + strings.Join(pending, ", ")}
-	case len(failed) > 0:
-		guides.Reason, guides.Message = "StaleAfterError", clampMessage(strings.Join(failed, "; "))
+	case g.FetchedAt.IsZero() && g.Error != "":
+		guide = metav1.Condition{Type: clustarrv1.ConditionGuidesFetched, Status: metav1.ConditionFalse, Reason: "FetchFailed", Message: g.Error}
+	case g.FetchedAt.IsZero():
+		guide = metav1.Condition{Type: clustarrv1.ConditionGuidesFetched, Status: metav1.ConditionFalse, Reason: "Pending", Message: "the guide has not been fetched yet"}
+	case g.Error != "":
+		guide.Reason, guide.Message = "StaleAfterError", "serving the last good guide: "+g.Error
 	}
-	return playlist, guides
+	return playlist, guide
 }
 
-func anyFetched(gs []tuner.GuideState) bool {
-	for _, g := range gs {
-		if !g.FetchedAt.IsZero() {
-			return true
-		}
-	}
-	return false
-}
-
-// clampMessage keeps a condition message within the apiserver's 32 KiB.
-func clampMessage(s string) string {
-	const limit = 4096
-	if len(s) <= limit {
-		return s
-	}
-	return s[:limit]
-}
-
-func fromSnapshot(st *clustarrac.IPTVProviderStatusApplyConfiguration, s tuner.Snapshot, tuners int32) {
+func fromSnapshot(st *clustarrac.IPTVProviderStatusApplyConfiguration, s tuner.Snapshot) {
 	pl := clustarrac.PlaylistStatus().WithEntries(int32(s.Playlist.Entries)).WithGroups(int32(s.Playlist.Groups)).
 		WithCandidates(int32(s.Playlist.Candidates))
 	if !s.Playlist.FetchedAt.IsZero() {
@@ -220,21 +190,40 @@ func fromSnapshot(st *clustarrac.IPTVProviderStatusApplyConfiguration, s tuner.S
 		pl.WithError(s.Playlist.Error)
 	}
 	st.WithPlaylist(pl)
-	for i, g := range s.Guides {
-		if i == 16 { // the CRD's MaxItems; the spec allows no more
-			break
-		}
-		gs := clustarrac.GuideStatus().WithName(g.Name).WithChannels(int32(g.Channels)).WithProgrammes(int32(g.Programmes))
-		if !g.FetchedAt.IsZero() {
-			gs.WithFetchedAt(metav1.NewTime(g.FetchedAt))
-		}
-		if g.Error != "" {
-			gs.WithError(g.Error)
-		}
-		st.WithGuides(gs)
+
+	g := clustarrac.GuideStatus().WithChannels(int32(s.Guide.Channels)).WithProgrammes(int32(s.Guide.Programmes))
+	if !s.Guide.FetchedAt.IsZero() {
+		g.WithFetchedAt(metav1.NewTime(s.Guide.FetchedAt))
 	}
-	st.WithLineup(clustarrac.LineupStatus().WithActive(int32(s.Lineup.Active)).WithUnmapped(int32(s.Lineup.Unmapped)).WithMissing(int32(s.Lineup.Missing)))
-	st.WithTuners(clustarrac.TunerStatus().WithTotal(tuners).WithInUse(int32(s.TunersInUse)))
+	if s.Guide.Error != "" {
+		g.WithError(s.Guide.Error)
+	}
+	st.WithGuide(g)
+
+	a := s.Account
+	if !a.FetchedAt.IsZero() || a.Error != "" {
+		ac := clustarrac.AccountStatus().WithMaxConnections(int32(a.MaxConnections)).WithActiveConnections(int32(a.Active))
+		if a.Status != "" {
+			ac.WithStatus(a.Status)
+		}
+		if !a.ExpiresAt.IsZero() {
+			ac.WithExpiresAt(metav1.NewTime(a.ExpiresAt))
+		}
+		if !a.FetchedAt.IsZero() {
+			ac.WithFetchedAt(metav1.NewTime(a.FetchedAt))
+		}
+		if a.Error != "" {
+			ac.WithError(a.Error)
+		}
+		st.WithAccount(ac)
+	}
+
+	lu := clustarrac.LineupStatus().WithActive(int32(s.Lineup.Active)).WithUnmapped(int32(s.Lineup.Unmapped)).WithMissing(int32(s.Lineup.Missing))
+	if s.Lineup.First != "" {
+		lu.WithFirst(s.Lineup.First).WithLast(s.Lineup.Last)
+	}
+	st.WithLineup(lu)
+	st.WithTuners(clustarrac.TunerStatus().WithTotal(int32(s.Tuners)).WithInUse(int32(s.TunersInUse)))
 }
 
 // reassertKnownStatus re-sends what the status already says when the tuner
@@ -254,18 +243,38 @@ func reassertKnownStatus(st *clustarrac.IPTVProviderStatusApplyConfiguration, p 
 		}
 		st.WithPlaylist(ac)
 	}
-	for _, g := range cur.Guides {
-		ac := clustarrac.GuideStatus().WithName(g.Name).WithChannels(g.Channels).WithProgrammes(g.Programmes)
+	if g := cur.Guide; g != nil {
+		ac := clustarrac.GuideStatus().WithChannels(g.Channels).WithProgrammes(g.Programmes)
 		if g.FetchedAt != nil {
 			ac.WithFetchedAt(*g.FetchedAt)
 		}
 		if g.Error != "" {
 			ac.WithError(g.Error)
 		}
-		st.WithGuides(ac)
+		st.WithGuide(ac)
+	}
+	if a := cur.Account; a != nil {
+		ac := clustarrac.AccountStatus().WithMaxConnections(a.MaxConnections).WithActiveConnections(a.ActiveConnections)
+		if a.Status != "" {
+			ac.WithStatus(a.Status)
+		}
+		if a.ExpiresAt != nil {
+			ac.WithExpiresAt(*a.ExpiresAt)
+		}
+		if a.FetchedAt != nil {
+			ac.WithFetchedAt(*a.FetchedAt)
+		}
+		if a.Error != "" {
+			ac.WithError(a.Error)
+		}
+		st.WithAccount(ac)
 	}
 	if lu := cur.Lineup; lu != nil {
-		st.WithLineup(clustarrac.LineupStatus().WithActive(lu.Active).WithUnmapped(lu.Unmapped).WithMissing(lu.Missing))
+		ac := clustarrac.LineupStatus().WithActive(lu.Active).WithUnmapped(lu.Unmapped).WithMissing(lu.Missing)
+		if lu.First != "" {
+			ac.WithFirst(lu.First).WithLast(lu.Last)
+		}
+		st.WithLineup(ac)
 	}
 	if t := cur.Tuners; t != nil {
 		st.WithTuners(clustarrac.TunerStatus().WithTotal(t.Total).WithInUse(t.InUse))

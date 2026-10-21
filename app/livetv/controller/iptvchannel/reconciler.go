@@ -129,8 +129,6 @@ func (r *Reconciler) place(ctx context.Context, ch *clustarrv1.IPTVChannel) (str
 		return clustarrv1.ReasonMissing, ""
 	case st.Duplicate:
 		return clustarrv1.ReasonDuplicateNumber, ""
-	case st.GuideNotFound:
-		return clustarrv1.ReasonGuideNotFound, st.Guide
 	case ch.Spec.Active:
 		return clustarrv1.ReasonActive, st.Guide
 	}
@@ -147,8 +145,6 @@ func message(reason string) string {
 		return "the key is not a candidate: gone from the playlist, or filtered out"
 	case clustarrv1.ReasonDuplicateNumber:
 		return "another active channel of the provider has this number"
-	case clustarrv1.ReasonGuideNotFound:
-		return "spec.epg.guide names no guide of the provider; a dummy guide is used"
 	case clustarrv1.ReasonProviderNotFound:
 		return "spec.providerRef names no IPTVProvider"
 	}

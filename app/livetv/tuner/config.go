@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package tuner
 
 import (
+	"net/url"
 	"time"
 
 	"k8s.io/apimachinery/pkg/types"
@@ -26,44 +27,51 @@ import (
 	"github.com/mediactl/clustarr/pkg/iptv/xmltv"
 )
 
+// GuideName is the name the provider's one guide, its panel's xmltv.php,
+// goes by in channel mappings (xmltv.Mapping.Guide).
+const GuideName = "xmltv"
+
 // Config is one provider as the IPTVProvider controller resolves it: its
-// Secrets already read, its channels already listed. The tuner never reads
-// the cluster.
+// credentials already read, its channels already listed. The tuner never
+// reads the cluster.
 type Config struct {
 	Key types.NamespacedName
 	// Blocks are the provider's devices, as the controller packed them (Live
 	// TV spec §3.1): each serves the active channels whose numbers it holds,
-	// on its own port.
-	Blocks          []BlockConfig
-	Tuners          int
-	UserAgent       string
-	PlaylistURL     string
-	PlaylistRefresh time.Duration
-	EPGSource       string // "XEPG" | "PMS"
-	Guides          []GuideConfig
-	Filters         []filter.Rule
-	Channels        []ChannelConfig
-	Buffer          int
-	Linger          time.Duration
+	// at its DeviceEndpoint.
+	Blocks []BlockConfig
+	// Server is the Xtream Codes panel's root, scheme and host[:port],
+	// without a trailing slash.
+	Server             string
+	Username, Password string
+	// Tuners overrides the account's max_connections; 0 uses it.
+	Tuners    int
+	UserAgent string
+	// Every is how often the playlist, the guide and the account are fetched
+	// again, and how old a cached one may be at a restart.
+	Every     time.Duration
+	EPGSource string // "XEPG" | "PMS"
+	Filters   []filter.Rule
+	Channels  []ChannelConfig
+	Buffer    int
+	Linger    time.Duration
 	// Refresh is the clustarr.io/livetv-refresh annotation's value. A new
 	// value makes every source of the provider due now (spec §5.1).
 	Refresh string
 }
 
-// BlockConfig is one block: one emulated HDHomeRun, reached through the
-// Plex pods' proxies on Port (spec §5.0).
+// BlockConfig is one block: one emulated HDHomeRun, served at its
+// DeviceEndpoint, which the Plex pods' proxies send the block's port to.
 type BlockConfig struct {
 	Start, DeviceID, FriendlyName string
-	Port                          int32
 	// Numbers are the block's active channel numbers.
 	Numbers []string
 }
 
-// GuideConfig is one XMLTV guide.
-type GuideConfig struct {
-	Name    string
-	URL     string
-	Refresh time.Duration
+// DeviceEndpoint is the path a block's device is served under, on the
+// livetv Service.
+func DeviceEndpoint(key types.NamespacedName, deviceID string) string {
+	return "/livetv/" + key.Namespace + "/" + key.Name + "/devices/" + deviceID
 }
 
 // ChannelConfig is one IPTVChannel. Map nil with DummyMinutes > 0 is an
@@ -76,38 +84,66 @@ type ChannelConfig struct {
 	DummyMinutes, TimeshiftMinutes         int
 }
 
+// PlaylistURL is the panel's live playlist: get.php in m3u_plus, streams as
+// MPEG-TS.
+func (c Config) PlaylistURL() string { return c.endpoint("get.php") + "&output=ts&type=m3u_plus" }
+
+// GuideURL is the panel's XMLTV guide.
+func (c Config) GuideURL() string { return c.endpoint("xmltv.php") }
+
+// AccountURL is the panel's account report.
+func (c Config) AccountURL() string { return c.endpoint("player_api.php") }
+
+func (c Config) endpoint(file string) string {
+	return c.Server + "/" + file + "?username=" + url.QueryEscape(c.Username) + "&password=" + url.QueryEscape(c.Password)
+}
+
 // Snapshot is what the tuner knows of a provider, for both controllers'
 // status.
 type Snapshot struct {
 	PlaylistFetched bool
 	Playlist        PlaylistState
-	Guides          []GuideState
+	Guide           GuideState
+	Account         AccountState
 	Lineup          LineupState
 	// Blocks are each block's lineup and guide, in Config.Blocks' order.
-	Blocks      []BlockState
+	Blocks []BlockState
+	// Tuners is the relay's limit: Config.Tuners, else the account's
+	// max_connections, else 1.
+	Tuners      int
 	TunersInUse int
 	// Channels is keyed by IPTVChannel object name.
 	Channels map[string]ChannelState
 }
 
-// PlaylistState describes the last playlist fetch.
+// PlaylistState describes the playlist served.
 type PlaylistState struct {
 	Entries, Groups, Candidates int
 	FetchedAt                   time.Time
 	Hash, Error                 string
 }
 
-// GuideState describes one guide's last fetch.
+// GuideState describes the guide served.
 type GuideState struct {
-	Name                 string
 	Channels, Programmes int
 	FetchedAt            time.Time
 	Error                string
 }
 
-// LineupState counts the rendered lineup across every block.
+// AccountState is the panel's report of the account (player_api.php).
+type AccountState struct {
+	Status                 string
+	ExpiresAt              time.Time
+	MaxConnections, Active int
+	FetchedAt              time.Time
+	Error                  string
+}
+
+// LineupState counts the rendered lineup; First and Last are the numbers
+// its active channels span.
 type LineupState struct {
 	Active, Unmapped, Missing int
+	First, Last               string
 }
 
 // BlockState is one block's rendered lineup and guide. A change in a hash
@@ -122,29 +158,31 @@ type BlockState struct {
 // used: "<guide>/<channelID>", "dummy/<minutes>", or "" under PMS or when
 // the channel is not in the lineup.
 type ChannelState struct {
-	Missing, Duplicate, GuideNotFound bool
-	Guide                             string
+	Missing, Duplicate bool
+	Guide              string
 }
 
-// PlaylistObject is the clustarr-livetv object holding a provider's
-// playlist, without stream URLs (spec §5.4).
+// PlaylistObject is the clustarr-livetv object caching a provider's
+// playlist: every live entry, its stream URL with the account's username
+// and password replaced by placeholders, so no credential is stored.
 func PlaylistObject(key types.NamespacedName) string {
 	return "playlist/" + key.Namespace + "/" + key.Name
 }
 
-// GuideChannelsObject is the object listing one guide's channels.
-func GuideChannelsObject(key types.NamespacedName, guide string) string {
-	return "guide-channels/" + key.Namespace + "/" + key.Name + "/" + guide
+// GuideCacheObject is the object caching a provider's parsed guide: every
+// channel, and programmes for the channels the lineup maps.
+func GuideCacheObject(key types.NamespacedName) string {
+	return "guide-cache/" + key.Namespace + "/" + key.Name
+}
+
+// GuideChannelsObject is the object listing the guide's channels, for the
+// ui's mapping dropdown.
+func GuideChannelsObject(key types.NamespacedName) string {
+	return "guide-channels/" + key.Namespace + "/" + key.Name + "/" + GuideName
 }
 
 // GuideObject is the object holding a provider's whole rendered XEPG guide,
 // for the UI and curl.
 func GuideObject(key types.NamespacedName) string {
 	return "guide/" + key.Namespace + "/" + key.Name
-}
-
-// BlockGuideObject is the object holding one block's rendered guide, served
-// across restarts until the guides are fetched again.
-func BlockGuideObject(key types.NamespacedName, start string) string {
-	return "guide/" + key.Namespace + "/" + key.Name + "/" + start
 }

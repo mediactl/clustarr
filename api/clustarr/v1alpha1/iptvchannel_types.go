@@ -75,19 +75,13 @@ type IPTVChannelSpec struct {
 	TimeshiftMinutes int32 `json:"timeshiftMinutes,omitempty"`
 }
 
-// ChannelEPG maps a channel to a guide: Guide names one of the provider's
-// guides and ChannelID an XMLTV channel id in it; or Dummy draws
-// DummyMinutes blocks titled by the channel's name.
+// ChannelEPG maps a channel to a guide: ChannelID is an XMLTV channel id in
+// the provider's guide (its panel's xmltv.php); or Dummy draws DummyMinutes
+// blocks titled by the channel's name.
 //
-// +kubebuilder:validation:XValidation:rule="(has(self.guide) && size(self.guide) > 0) != (has(self.dummy) && self.dummy)",message="set exactly one of guide and dummy"
-// +kubebuilder:validation:XValidation:rule="!has(self.guide) || size(self.guide) == 0 || (has(self.channelID) && size(self.channelID) > 0)",message="channelID is required with guide"
+// +kubebuilder:validation:XValidation:rule="(has(self.channelID) && size(self.channelID) > 0) != (has(self.dummy) && self.dummy)",message="set exactly one of channelID and dummy"
 type ChannelEPG struct {
-	// Guide names one of the provider's spec.guides.
-	// +optional
-	// +kubebuilder:validation:MaxLength=63
-	Guide string `json:"guide,omitempty"`
-
-	// ChannelID is an XMLTV channel id in Guide.
+	// ChannelID is an XMLTV channel id in the provider's guide.
 	// +optional
 	// +kubebuilder:validation:MaxLength=256
 	ChannelID string `json:"channelID,omitempty"`

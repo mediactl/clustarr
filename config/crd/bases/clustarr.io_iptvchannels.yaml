@@ -78,7 +78,8 @@ spec:
                   a dummy guide.
                 properties:
                   channelID:
-                    description: ChannelID is an XMLTV channel id in Guide.
+                    description: ChannelID is an XMLTV channel id in the provider's
+                      guide.
                     maxLength: 256
                     type: string
                   dummy:
@@ -94,18 +95,11 @@ spec:
                     - 180
                     format: int32
                     type: integer
-                  guide:
-                    description: Guide names one of the provider's spec.guides.
-                    maxLength: 63
-                    type: string
                 type: object
                 x-kubernetes-validations:
-                - message: set exactly one of guide and dummy
-                  rule: (has(self.guide) && size(self.guide) > 0) != (has(self.dummy)
+                - message: set exactly one of channelID and dummy
+                  rule: (has(self.channelID) && size(self.channelID) > 0) != (has(self.dummy)
                     && self.dummy)
-                - message: channelID is required with guide
-                  rule: '!has(self.guide) || size(self.guide) == 0 || (has(self.channelID)
-                    && size(self.channelID) > 0)'
               group:
                 description: Group overrides the playlist's group-title.
                 maxLength: 256

@@ -19,7 +19,6 @@ package iptvprovider
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	coordinationv1 "k8s.io/api/coordination/v1"
@@ -44,19 +43,17 @@ type Tuner interface {
 	Apply(tuner.Config)
 	Remove(types.NamespacedName)
 	Snapshot(types.NamespacedName) (tuner.Snapshot, bool)
-	Kept(types.NamespacedName) (tuner.KeptPlaylist, bool)
-	Restore(types.NamespacedName, tuner.KeptPlaylist)
 }
 
 // Reconciler reconciles IPTVProvider.
 type Reconciler struct {
 	Client client.Client
-	// SecretReader reads the provider's Secrets by name: the manager caches
-	// no Secret, so this is its API reader.
+	// SecretReader reads the provider's credentials Secret by name: the
+	// manager caches no Secret, so this is its API reader.
 	SecretReader client.Reader
 	Tuner        Tuner
-	// Address is the livetv Service, host:port, where the Plex pods'
-	// proxies send each block's port (Live TV spec §5.0).
+	// Address is the livetv Service, host:port, which each block's Endpoint
+	// is under: the Plex pods' proxies send each block's port there.
 	Address string
 	// Ports is the range blocks' ports come from.
 	Ports PortRange
@@ -66,7 +63,6 @@ type Reconciler struct {
 	Now func() time.Time
 
 	ports ports
-	kept  keptState
 }
 
 // Reconcile converges one provider.
@@ -77,7 +73,6 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		if apierrors.IsNotFound(err) {
 			r.Tuner.Remove(key)
 			r.ports.set(key, nil)
-			r.kept.forget(key)
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, err
@@ -85,11 +80,10 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	if !p.DeletionTimestamp.IsZero() {
 		r.Tuner.Remove(key)
 		r.ports.set(key, nil)
-		r.kept.forget(key)
 		return ctrl.Result{}, nil
 	}
 
-	urls, valid := r.resolveURLs(ctx, &p)
+	res, valid := r.resolve(ctx, &p)
 	channels, err := index.ChannelsOf(ctx, r.Client, p.Namespace, p.Name)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -119,14 +113,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		r.Tuner.Remove(key)
 		return ctrl.Result{}, r.writeStatus(ctx, &p, pl, valid, true)
 	default:
-		r.Tuner.Apply(buildConfig(&p, tunerBlocks(pl), urls, channels))
-		// After Apply, which gives the tuner the provider to restore into.
-		// A failure is retried by the next reconcile; the status still goes.
-		keptErr := r.restoreKept(ctx, &p)
-		if keptErr == nil {
-			keptErr = r.keepPlaylist(ctx, &p)
-		}
-		return ctrl.Result{}, errors.Join(r.writeStatus(ctx, &p, pl, valid, false), keptErr)
+		r.Tuner.Apply(buildConfig(&p, tunerBlocks(pl), res, channels))
 	}
 	return ctrl.Result{}, r.writeStatus(ctx, &p, pl, valid, false)
 }

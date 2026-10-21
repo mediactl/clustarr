@@ -208,7 +208,7 @@ const LiveTVMaxBytes int64 = 1 * GiB
 
 // LiveTVKeyScheme is BucketLiveTV's key scheme, recorded in the bucket's
 // metadata.
-const LiveTVKeyScheme = "playlist/<ns>/<name> | guide-channels/<ns>/<name>/<guide> | guide/<ns>/<name>"
+const LiveTVKeyScheme = "playlist/<ns>/<name> | guide-cache/<ns>/<name> | guide-channels/<ns>/<name>/xmltv | guide/<ns>/<name>"
 
 // LiveTVMetaVersion is the version of the metadata set every BucketLiveTV
 // object carries (ADR-0021 §2), under ObjectMetaKeyVersion: its
@@ -220,6 +220,7 @@ const LiveTVMetaVersion = "1"
 // its key.
 const (
 	LiveTVMetaKindPlaylist      = "playlist"
+	LiveTVMetaKindGuideCache    = "guide-cache"
 	LiveTVMetaKindGuideChannels = "guide-channels"
 	LiveTVMetaKindGuide         = "guide"
 )

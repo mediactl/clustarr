@@ -19,7 +19,10 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .spec.tuners
+    - jsonPath: .spec.server
+      name: Server
+      type: string
+    - jsonPath: .status.tuners.total
       name: Tuners
       type: integer
     - jsonPath: .status.lineup.active
@@ -37,6 +40,9 @@ spec:
     - jsonPath: .status.blocks[0].port
       name: Port
       type: integer
+    - jsonPath: .status.account.expiresAt
+      name: Expires
+      type: date
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
@@ -44,9 +50,10 @@ spec:
     schema:
       openAPIV3Schema:
         description: |-
-          IPTVProvider is one IPTV provider routed to Plex as emulated HDHomeRuns,
-          one per block of its channels (Live TV spec §3). Its tuner runs in the
-          manager, behind one livetv Service; each block has a port of its own.
+          IPTVProvider is one Xtream Codes IPTV account routed to Plex as emulated
+          HDHomeRuns, one per block of its channels (Live TV spec §3). Its tuner runs
+          in the manager, behind one livetv Service; each block has a port of its
+          own, which cluster-plex's proxies send to the block's endpoint.
         properties:
           apiVersion:
             description: |-
@@ -67,9 +74,12 @@ spec:
             type: object
           spec:
             description: |-
-              IPTVProviderSpec is one IPTV provider. Its active channels are split into
-              blocks of contiguous numbers, each one emulated HDHomeRun device and one
-              Plex DVR (Live TV spec §3, §3.1).
+              IPTVProviderSpec is one Xtream Codes IPTV account
+              (docs/superpowers/specs/2026-10-20-iptv-xtream-ranges-design.md). Its
+              playlist is <server>/get.php with output=ts and type=m3u_plus, its guide
+              <server>/xmltv.php, both fetched daily and cached. Its active channels are
+              split into blocks of contiguous numbers, each one emulated HDHomeRun and
+              one Plex DVR (Live TV spec §3, §3.1).
             properties:
               channelNumberStart:
                 description: ChannelNumberStart is where the UI's auto-numbering begins.
@@ -78,6 +88,24 @@ spec:
                 maximum: 99999
                 minimum: 1
                 type: integer
+              credentialsRef:
+                description: |-
+                  CredentialsRef names a Secret in the provider's namespace holding the
+                  account's username and password, under the keys "username" and
+                  "password". They are sent as the panel's query parameters and never
+                  stored or reported.
+                properties:
+                  name:
+                    default: ""
+                    description: |-
+                      Name of the referent.
+                      This field is effectively required, but due to backwards compatibility is
+                      allowed to be empty. Instances of this type with an empty value here are
+                      almost certainly wrong.
+                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                    type: string
+                type: object
+                x-kubernetes-map-type: atomic
               device:
                 description: Device names the emulated HDHomeRuns, one per block.
                 properties:
@@ -111,14 +139,14 @@ spec:
                 type: object
               enabled:
                 description: |-
-                  Enabled false stops this provider's tuner; Plex then sees the device
+                  Enabled false stops this provider's tuner; Plex then sees its devices
                   gone. Default true.
                 type: boolean
               epgSource:
                 description: |-
                   EPGSource is where Plex reads the guide: XEPG (this provider's
-                  /xmltv.xml, built from Guides and the channel mappings) or PMS
-                  (Plex's own lineup guide; mappings' epg is ignored). Default XEPG.
+                  xmltv.xml, built from the panel's guide and the channel mappings) or
+                  PMS (Plex's own lineup guide; mappings' epg is ignored). Default XEPG.
                 enum:
                 - XEPG
                 - PMS
@@ -184,109 +212,19 @@ spec:
                 x-kubernetes-list-map-keys:
                 - name
                 x-kubernetes-list-type: map
-              guides:
-                description: Guides are the XMLTV sources ("Add EPG URL").
-                items:
-                  description: XMLTVSource is one XMLTV guide ("Add EPG URL").
-                  properties:
-                    name:
-                      description: Name identifies the guide in channel mappings.
-                      pattern: ^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$
-                      type: string
-                    refresh:
-                      description: Refresh is how often the guide is fetched again.
-                        Default 12h.
-                      type: string
-                    url:
-                      description: URL is the guide's URL, plain XML or gzip.
-                      maxLength: 4096
-                      type: string
-                    urlFrom:
-                      description: |-
-                        URLFrom names a key of a Secret in the provider's namespace holding
-                        the URL.
-                      properties:
-                        key:
-                          description: The key of the secret to select from.  Must
-                            be a valid secret key.
-                          type: string
-                        name:
-                          default: ""
-                          description: |-
-                            Name of the referent.
-                            This field is effectively required, but due to backwards compatibility is
-                            allowed to be empty. Instances of this type with an empty value here are
-                            almost certainly wrong.
-                            More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                          type: string
-                        optional:
-                          description: Specify whether the Secret or its key must
-                            be defined
-                          type: boolean
-                      required:
-                      - key
-                      type: object
-                      x-kubernetes-map-type: atomic
-                  required:
-                  - name
-                  type: object
-                  x-kubernetes-validations:
-                  - message: set exactly one of url and urlFrom
-                    rule: has(self.url) != has(self.urlFrom)
-                maxItems: 16
-                type: array
-                x-kubernetes-list-map-keys:
-                - name
-                x-kubernetes-list-type: map
-              playlist:
-                description: Playlist is the provider's M3U.
-                properties:
-                  refresh:
-                    description: Refresh is how often the playlist is fetched again.
-                      Default 24h.
-                    type: string
-                  url:
-                    description: |-
-                      URL is the playlist's URL. Use URLFrom when the URL carries
-                      credentials (an Xtream Codes get.php?username=…&password=…).
-                    maxLength: 4096
-                    type: string
-                  urlFrom:
-                    description: |-
-                      URLFrom names a key of a Secret in the provider's namespace holding
-                      the URL.
-                    properties:
-                      key:
-                        description: The key of the secret to select from.  Must be
-                          a valid secret key.
-                        type: string
-                      name:
-                        default: ""
-                        description: |-
-                          Name of the referent.
-                          This field is effectively required, but due to backwards compatibility is
-                          allowed to be empty. Instances of this type with an empty value here are
-                          almost certainly wrong.
-                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                        type: string
-                      optional:
-                        description: Specify whether the Secret or its key must be
-                          defined
-                        type: boolean
-                    required:
-                    - key
-                    type: object
-                    x-kubernetes-map-type: atomic
-                  userAgent:
-                    description: |-
-                      UserAgent is sent with playlist, guide and stream requests. Default
-                      "clustarr".
-                    maxLength: 256
-                    type: string
-                type: object
-                x-kubernetes-validations:
-                - message: set exactly one of url and urlFrom
-                  rule: has(self.url) != has(self.urlFrom)
+              refresh:
+                description: |-
+                  Refresh is how often the playlist, the guide and the account are
+                  fetched again. Each is cached, and a restart fetches only what is
+                  older than this. Default 24h.
+                type: string
+              server:
+                description: |-
+                  Server is the Xtream Codes panel: a host ("tvload.win"), a host:port,
+                  or a URL. Without a scheme it is https.
+                maxLength: 512
+                minLength: 1
+                type: string
               stream:
                 description: Stream tunes the relay.
                 properties:
@@ -305,32 +243,72 @@ spec:
                 type: object
               tuners:
                 description: |-
-                  Tuners is how many distinct channels may stream at once: the
-                  provider's connection limit, which the relay enforces with a 503.
-                  discover.json advertises tuner.SpareTuners more, so a grab PMS never
-                  ended cannot block an idle relay.
+                  Tuners overrides how many distinct channels may stream at once, which
+                  the relay enforces with a 503. Unset, it is the account's
+                  max_connections (player_api.php), else 1. discover.json advertises
+                  tuner.SpareTuners more, so a grab PMS never ended cannot block an idle
+                  relay.
                 format: int32
                 maximum: 64
                 minimum: 1
                 type: integer
+              userAgent:
+                description: |-
+                  UserAgent is sent with playlist, guide and stream requests. Default
+                  "clustarr".
+                maxLength: 256
+                type: string
             required:
-            - playlist
-            - tuners
+            - credentialsRef
+            - server
             type: object
           status:
             description: |-
               IPTVProviderStatus is written by the IPTVProvider controller alone, under
               k8s.ManagerLiveTV, from the tuner's snapshot (Live TV spec §3.2).
             properties:
+              account:
+                description: Account is the panel's report of the account (player_api.php).
+                properties:
+                  activeConnections:
+                    description: ActiveConnections is how many it held when last asked.
+                    format: int32
+                    type: integer
+                  error:
+                    description: Error is the last ask's error, redacted.
+                    maxLength: 1024
+                    type: string
+                  expiresAt:
+                    description: ExpiresAt is when the account ends; unset for one
+                      that does not.
+                    format: date-time
+                    type: string
+                  fetchedAt:
+                    description: FetchedAt is when the panel was last asked.
+                    format: date-time
+                    type: string
+                  maxConnections:
+                    description: MaxConnections is how many streams the account may
+                      hold at once.
+                    format: int32
+                    type: integer
+                  status:
+                    description: |-
+                      Status is the panel's word for the account: Active, Expired,
+                      Banned, Disabled.
+                    maxLength: 32
+                    type: string
+                type: object
               address:
                 description: |-
-                  Address is the tuner Service, host:port, where the Plex pods' proxies
-                  send each block's port (Live TV spec §5.0).
+                  Address is the tuner Service, host:port: each block's Endpoint is
+                  under it, and /livetv/<namespace>/<name>/<file>?from=<n>&to=<n> serves
+                  any range of the lineup.
                 type: string
               blocks:
                 description: |-
-                  Blocks are the lineup's runs of contiguous numbers, one Plex DVR each,
-                  ordered by start (Live TV spec §3.1).
+                  Blocks are the lineup's runs of contiguous numbers, one emulated
+                  HDHomeRun and one Plex DVR each, ordered by start (Live TV spec §3.1).
                 items:
                   description: |-
                     BlockStatus is one block: one emulated HDHomeRun and one Plex DVR (Live TV
@@ -345,6 +323,12 @@ spec:
                         DeviceID is the block's HDHomeRun id: spec.device.id for the first
                         block of a first packing, else a hash of namespace, name and start.
                       pattern: ^[0-9A-F]{8}$
+                      type: string
+                    endpoint:
+                      description: |-
+                        Endpoint is the block's device under Address: the path every request
+                        a Plex pod's proxy takes on Port is sent below.
+                      maxLength: 512
                       type: string
                     first:
                       description: First and Last are the numbers the block's channels
@@ -364,8 +348,8 @@ spec:
                       type: string
                     guidePath:
                       description: |-
-                        GuidePath is the block's XEPG guide path under its address; empty
-                        under PMS.
+                        GuidePath is the block's XEPG guide path under its port; empty under
+                        PMS.
                       maxLength: 64
                       type: string
                     last:
@@ -390,8 +374,8 @@ spec:
                       type: string
                     port:
                       description: |-
-                        Port is the block's port: the Plex pods' proxies listen on it, and the
-                        tuner routes by it.
+                        Port is the block's port: the Plex pods' proxies listen on it and send
+                        each request to Endpoint.
                       format: int32
                       maximum: 65535
                       minimum: 1024
@@ -472,41 +456,39 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
-              guides:
-                description: Guides describes each guide's last fetch.
-                items:
-                  description: GuideStatus describes one guide's last fetch.
-                  properties:
-                    channels:
-                      format: int32
-                      type: integer
-                    error:
-                      maxLength: 1024
-                      type: string
-                    fetchedAt:
-                      format: date-time
-                      type: string
-                    name:
-                      type: string
-                    programmes:
-                      format: int32
-                      type: integer
-                  required:
-                  - channels
-                  - name
-                  - programmes
-                  type: object
-                maxItems: 16
-                type: array
-                x-kubernetes-list-map-keys:
-                - name
-                x-kubernetes-list-type: map
+              guide:
+                description: Guide describes the guide the tuner serves.
+                properties:
+                  channels:
+                    format: int32
+                    type: integer
+                  error:
+                    maxLength: 1024
+                    type: string
+                  fetchedAt:
+                    format: date-time
+                    type: string
+                  programmes:
+                    format: int32
+                    type: integer
+                required:
+                - channels
+                - programmes
+                type: object
               lineup:
-                description: Lineup counts the rendered lineup across every block.
+                description: Lineup counts the rendered lineup.
                 properties:
                   active:
                     format: int32
                     type: integer
+                  first:
+                    description: First and Last are the numbers the active channels
+                      span.
+                    maxLength: 16
+                    type: string
+                  last:
+                    maxLength: 16
+                    type: string
                   missing:
                     format: int32
                     type: integer
@@ -523,7 +505,7 @@ spec:
                 format: int64
                 type: integer
               playlist:
-                description: Playlist describes the last playlist fetch.
+                description: Playlist describes the playlist the tuner serves.
                 properties:
                   candidates:
                     format: int32
@@ -538,6 +520,9 @@ spec:
                     maxLength: 1024
                     type: string
                   fetchedAt:
+                    description: |-
+                      FetchedAt is when the playlist served was fetched, from the panel or
+                      before a restart.
                     format: date-time
                     type: string
                   groups:

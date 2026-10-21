@@ -15,12 +15,14 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package tuner is Live TV's tuner (spec 2026-10-07 §5): a leader-only
-// runnable of the manager that, for every provider the IPTVProvider
-// controller applies, fetches the playlist and the guides, renders the
-// lineup and the XEPG guide, serves the HDHomeRun surface and relays
-// streams, and reports a Snapshot both controllers write status from. It
-// holds no Kubernetes client.
+// Package tuner is Live TV's tuner (spec 2026-10-07 §5, amended by
+// 2026-10-20-iptv-xtream-ranges-design.md): a leader-only runnable of the
+// manager that, for every Xtream provider the IPTVProvider controller
+// applies, fetches the playlist, the guide and the account, caches the
+// first two in the clustarr-livetv object store, renders the lineup and the
+// XEPG guide, serves the HDHomeRun surface for any range of channel
+// numbers, relays streams, and reports a Snapshot both controllers write
+// status from. It holds no Kubernetes client.
 package tuner
 
 import (
@@ -30,7 +32,6 @@ import (
 	"net/http"
 	"reflect"
 	"slices"
-	"strings"
 	"sync"
 	"time"
 
@@ -57,6 +58,11 @@ const (
 	// that failed once is not left for a whole refresh interval.
 	retryStart = 30 * time.Second
 	retryMax   = 15 * time.Minute
+	// accountEvery is the most the account's report may age: its expiry
+	// and connections are worth more than a daily look, and it is cheap.
+	accountEvery = time.Hour
+	// defaultEvery is Config.Every when unset.
+	defaultEvery = 24 * time.Hour
 )
 
 // Options configures a Tuner.
@@ -69,10 +75,10 @@ type Options struct {
 	// HTTP fetches streams. It must carry no overall Timeout: streams are
 	// long.
 	HTTP *http.Client
-	// Fetch fetches playlists and guides; default HTTP. An Xtream panel
-	// builds its whole m3u_plus before it answers (tvload.win took 13 s for
-	// 588 MB on 2026-10-20), so its transport may wait longer for headers
-	// than a stream's; fetchTimeout bounds each fetch whole.
+	// Fetch fetches playlists, guides and the account; default HTTP. An
+	// Xtream panel builds its whole m3u_plus before it answers (tvload.win
+	// took 13 s for 588 MB on 2026-10-20), so its transport may wait longer
+	// for headers than a stream's; fetchTimeout bounds each fetch whole.
 	Fetch *http.Client
 	// Now is the clock for fetch times and the guide's window.
 	Now func() time.Time
@@ -96,29 +102,6 @@ type Tuner struct {
 
 	mu        sync.Mutex
 	providers map[types.NamespacedName]*provider
-	// ports maps each block's port to its provider and block, for the
-	// root routes (spec §5.0). Rebuilt on every Apply and Remove.
-	ports map[int32]blockRef
-}
-
-// blockRef names one block of one provider.
-type blockRef struct {
-	key   types.NamespacedName
-	start string
-}
-
-// surface is one block's rendered HDHomeRun surface and guide.
-type surface struct {
-	// entries' URLs are relative ("stream/<number>"); a request's base is
-	// put in front, so the lineup follows the Host Plex used.
-	entries    []hdhr.LineupEntry
-	lineupHash string
-	guideXML   []byte
-	guideHash  string
-	// storedGuide marks guideXML as the object store's copy, served until
-	// every guide has been fetched in this process.
-	storedGuide     bool
-	storedGuideHash string
 }
 
 type provider struct {
@@ -139,17 +122,25 @@ type provider struct {
 	playlistBackoff time.Duration
 	fetching        map[string]bool
 
-	guides map[string]*guide
+	guide guide
+
+	account        AccountState
+	accountDue     bool
+	accountNext    time.Time
+	accountBackoff time.Duration
 
 	streams map[string]string // number -> upstream URL
-	// lineupChans, loaded and guideFrom are the last render's inputs to the
-	// whole provider's guide, which is built on request (for the ui and
-	// curl) rather than held.
+	// lineup is the rendered lineup in number order, its URLs relative
+	// ("stream/<number>"); lineupChans is its channels for the guide, in the
+	// same order. loaded and guideFrom are the guide's other inputs.
+	lineup      []hdhr.LineupEntry
 	lineupChans []xmltv.LineupChannel
 	loaded      map[string]xmltv.Guide
 	guideFrom   time.Time
-	// blocks are each block's surface, by start.
+	// blocks are each block's rendered surface, by device ID.
 	blocks map[string]*surface
+	// ranges caches each range's guide body until the next render.
+	ranges map[string][]byte
 	// renderGen counts renders; one that finds a newer started drops its
 	// result.
 	renderGen uint64
@@ -162,24 +153,27 @@ type provider struct {
 
 	storedPlaylistHash string
 	storedGuideHash    string
+}
 
-	// restored is the kept playlist Restore serves until the first fetch in
-	// this process; its counts stand in for the whole playlist's.
-	restored *KeptPlaylist
-	// kept is the last render's KeptPlaylist from a fetched playlist; nil
-	// before a fetch and while only a restored playlist is served.
-	kept *KeptPlaylist
+// surface is one block's rendered HDHomeRun surface and guide.
+type surface struct {
+	block BlockConfig
+	// entries' URLs are relative ("stream/<number>"); a request's base is
+	// put in front, so the lineup follows the way Plex came.
+	entries               []hdhr.LineupEntry
+	guideXML              []byte
+	lineupHash, guideHash string
 }
 
 type guide struct {
-	cfg     GuideConfig
-	g       xmltv.Guide
-	loaded  bool
-	wanted  map[string]bool // the channel ids g was parsed for
-	state   GuideState
+	g      xmltv.Guide
+	loaded bool
+	// wanted is the channel ids the guide was parsed for.
+	wanted  map[string]bool
 	due     bool
 	next    time.Time
 	backoff time.Duration
+	state   GuideState
 }
 
 // New returns a Tuner.
@@ -207,122 +201,76 @@ func New(o Options) *Tuner {
 	}
 	registerMetrics()
 	base, cancel := context.WithCancel(context.Background())
-	return &Tuner{o: o, base: base, cancelBase: cancel, wake: make(chan struct{}, 1), providers: map[types.NamespacedName]*provider{}, ports: map[int32]blockRef{}}
+	return &Tuner{o: o, base: base, cancelBase: cancel, wake: make(chan struct{}, 1), providers: map[types.NamespacedName]*provider{}}
 }
 
-// NeedLeaderElection makes the tuner a cluster singleton: only the lease
-// holder holds a provider's upstream connections.
-func (t *Tuner) NeedLeaderElection() bool { return true }
-
-// Apply sets a provider's configuration: a new provider, or a change to one.
-// It never blocks on a fetch.
+// Apply sets a provider's configuration. A provider the tuner has not
+// served before starts from its cached playlist and guide, each fetched
+// again only once it is older than Config.Every.
 func (t *Tuner) Apply(c Config) {
 	c = cloneConfig(c)
+	if c.Every <= 0 {
+		c.Every = defaultEvery
+	}
 	t.mu.Lock()
 	p, ok := t.providers[c.Key]
 	if !ok {
-		p = &provider{key: c.Key, fetching: map[string]bool{}, guides: map[string]*guide{}, blocks: map[string]*surface{}, playlistDue: true}
+		p = &provider{key: c.Key, fetching: map[string]bool{}, playlistDue: true, accountDue: true, guide: guide{due: true}}
 		t.providers[c.Key] = p
 	}
 	t.mu.Unlock()
 
-	// The controller applies on every reconcile, and cluster-plex's Lease
-	// writes wake it: an unchanged configuration renders nothing.
+	// The controller applies on every reconcile: an unchanged configuration
+	// renders nothing.
 	p.mu.Lock()
 	same := p.relay != nil && reflect.DeepEqual(p.cfg, c)
+	first := p.relay == nil
 	p.mu.Unlock()
 	if same {
 		return
 	}
-
-	// A block the tuner has not served before starts from its stored guide.
-	p.mu.Lock()
-	var fresh []string
-	for _, b := range c.Blocks {
-		if p.blocks[b.Start] == nil {
-			p.blocks[b.Start] = &surface{}
-			fresh = append(fresh, b.Start)
-		}
-	}
-	p.mu.Unlock()
-	for _, start := range fresh {
-		t.loadStoredGuide(p, start)
+	if first {
+		t.loadCache(p, c)
 	}
 
 	p.mu.Lock()
-	first := p.relay == nil
 	if first {
 		key := c.Key
 		p.relay = relay.New(relay.Options{
-			Context: t.base, HTTP: t.o.HTTP, Tuners: c.Tuners, Buffer: c.Buffer, Linger: c.Linger, UserAgent: c.UserAgent,
+			Context: t.base, HTTP: t.o.HTTP, Tuners: effectiveTuners(c, p.account), Buffer: c.Buffer, Linger: c.Linger, UserAgent: c.UserAgent,
 			OnChange: func(inUse int) { t.tunersChanged(p, inUse) },
 			OnError:  func(reason string) { upstreamErrors.WithLabelValues(label(key), reason).Inc() },
 			OnBytes:  func(n int) { streamBytes.WithLabelValues(label(key)).Add(float64(n)) },
 		})
 	} else {
-		p.relay.Configure(c.Tuners, c.Buffer, c.Linger, c.UserAgent)
+		p.relay.Configure(effectiveTuners(c, p.account), c.Buffer, c.Linger, c.UserAgent)
 	}
 	refreshed := !first && c.Refresh != p.cfg.Refresh
-	if c.PlaylistURL != p.cfg.PlaylistURL || refreshed {
-		p.playlistDue = true
+	moved := !first && (c.Server != p.cfg.Server || c.Username != p.cfg.Username || c.Password != p.cfg.Password)
+	if moved || refreshed {
+		p.playlistDue, p.accountDue, p.guide.due = true, true, true
 	}
-	guides := make(map[string]*guide, len(c.Guides))
-	for _, gc := range c.Guides {
-		g := p.guides[gc.Name]
-		if g == nil {
-			g = &guide{due: true, state: GuideState{Name: gc.Name}}
-		} else if g.cfg.URL != gc.URL || refreshed {
-			g.due = true
-		}
-		g.cfg = gc
-		guides[gc.Name] = g
-	}
-	p.guides = guides
 	p.cfg = c
-	t.markWantedGuidesDue(p)
+	t.markWantedGuideDue(p)
 	p.mu.Unlock()
-	t.reindex()
 	t.scheduleRender(p)
 	t.poke()
 }
 
-// reindex rebuilds the port index from every provider's blocks. A port two
-// blocks claim keeps the first in key order; the controller never hands one
-// out twice (spec §5.0).
-func (t *Tuner) reindex() {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	keys := make([]types.NamespacedName, 0, len(t.providers))
-	for k := range t.providers {
-		keys = append(keys, k)
+// effectiveTuners is the relay's limit: the override, else the account's
+// max_connections, else 1.
+func effectiveTuners(c Config, a AccountState) int {
+	switch {
+	case c.Tuners > 0:
+		return c.Tuners
+	case a.MaxConnections > 0:
+		return a.MaxConnections
+	default:
+		return 1
 	}
-	slices.SortFunc(keys, func(a, b types.NamespacedName) int { return strings.Compare(a.String(), b.String()) })
-	ports := make(map[int32]blockRef)
-	for _, k := range keys {
-		p := t.providers[k]
-		p.mu.Lock()
-		for _, b := range p.cfg.Blocks {
-			if _, taken := ports[b.Port]; !taken && b.Port > 0 {
-				ports[b.Port] = blockRef{key: k, start: b.Start}
-			}
-		}
-		p.mu.Unlock()
-	}
-	t.ports = ports
 }
 
-// byPort is the provider and block a port belongs to.
-func (t *Tuner) byPort(port int32) (*provider, string) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	ref, ok := t.ports[port]
-	if !ok {
-		return nil, ""
-	}
-	return t.providers[ref.key], ref.start
-}
-
-// Remove ends a provider: its streams stop and Plex sees the device gone.
+// Remove ends a provider: its streams stop and Plex sees its devices gone.
 func (t *Tuner) Remove(key types.NamespacedName) {
 	t.mu.Lock()
 	p := t.providers[key]
@@ -343,17 +291,20 @@ func (t *Tuner) Remove(key types.NamespacedName) {
 	if rl != nil {
 		rl.Close()
 	}
-	t.reindex()
 	forgetMetrics(key)
 	t.o.Notify(key)
+}
+
+func (t *Tuner) lookup(key types.NamespacedName) *provider {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.providers[key]
 }
 
 // Snapshot returns what the tuner knows of a provider; false for one it
 // does not serve.
 func (t *Tuner) Snapshot(key types.NamespacedName) (Snapshot, bool) {
-	t.mu.Lock()
-	p := t.providers[key]
-	t.mu.Unlock()
+	p := t.lookup(key)
 	if p == nil {
 		return Snapshot{}, false
 	}
@@ -370,8 +321,7 @@ func (t *Tuner) Snapshot(key types.NamespacedName) (Snapshot, bool) {
 type ChannelView struct {
 	State ChannelState
 	// Listed is the channel being in the render; PlaylistFetched is the
-	// render having had a playlist. Before the first fetch nothing is
-	// listed.
+	// render having had a playlist. Before the first one nothing is listed.
 	Listed, PlaylistFetched bool
 }
 
@@ -379,9 +329,7 @@ type ChannelView struct {
 // the channel controller asks once per channel, and a provider holds
 // thousands. false for a provider the tuner does not serve.
 func (t *Tuner) Channel(key types.NamespacedName, object string) (ChannelView, bool) {
-	t.mu.Lock()
-	p := t.providers[key]
-	t.mu.Unlock()
+	p := t.lookup(key)
 	if p == nil {
 		return ChannelView{}, false
 	}
@@ -419,13 +367,7 @@ func (t *Tuner) Start(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			t.cancelBase()
-			t.mu.Lock()
-			ps := make([]*provider, 0, len(t.providers))
-			for _, p := range t.providers {
-				ps = append(ps, p)
-			}
-			t.mu.Unlock()
-			for _, p := range ps {
+			for _, p := range t.list() {
 				p.mu.Lock()
 				rl := p.relay
 				p.mu.Unlock()
@@ -465,38 +407,42 @@ func (t *Tuner) list() []*provider {
 	return ps
 }
 
-// dispatch starts every fetch that is due and not already running. Guides
-// wait for the first playlist: their wanted channels come from it.
+// isDue reports whether a source flagged due, or whose next fetch time has
+// come, may start: one not already running.
+func isDue(flag bool, next, now time.Time, running bool) bool {
+	return !running && (flag || (!next.IsZero() && !now.Before(next)))
+}
+
+// dispatch starts every fetch that is due and not already running. The
+// guide waits for a playlist: its wanted channels come from it.
 func (t *Tuner) dispatch(ctx context.Context) {
 	now := t.o.Now()
 	for _, p := range t.list() {
 		p.mu.Lock()
 		// A provider Apply has published but not finished -- it builds the
-		// relay after loading the stored guide -- waits for the next tick:
-		// Start's first dispatch races the controller's first Apply, and the
-		// nil relay crash-looped the lease holder (talos, 2026-10-15).
+		// relay after loading the cache -- waits for the next tick: Start's
+		// first dispatch races the controller's first Apply, and the nil
+		// relay crash-looped the lease holder (talos, 2026-10-15).
 		if p.removed || p.relay == nil {
 			p.mu.Unlock()
 			continue
 		}
 		tunersInUse.WithLabelValues(label(p.key)).Set(float64(p.relay.InUse()))
 		viewers.WithLabelValues(label(p.key)).Set(float64(p.relay.Viewers()))
-		if (p.playlistDue || (!p.playlistNext.IsZero() && !now.Before(p.playlistNext))) && !p.fetching["playlist"] {
-			p.playlistDue = false
-			p.playlistNext = time.Time{}
-			p.fetching["playlist"] = true
-			go t.fetchPlaylist(ctx, p, p.cfg.PlaylistURL, p.cfg.UserAgent)
+		if isDue(p.accountDue, p.accountNext, now, p.fetching["account"]) {
+			p.accountDue, p.accountNext = false, time.Time{}
+			p.fetching["account"] = true
+			go t.fetchAccount(ctx, p, p.cfg)
 		}
-		if p.playlistFetched && p.cfg.EPGSource != "PMS" {
-			for name, g := range p.guides {
-				job := "guide/" + name
-				if (g.due || (!g.next.IsZero() && !now.Before(g.next))) && !p.fetching[job] {
-					g.due = false
-					g.next = time.Time{}
-					p.fetching[job] = true
-					go t.fetchGuide(ctx, p, name)
-				}
-			}
+		if isDue(p.playlistDue, p.playlistNext, now, p.fetching["playlist"]) {
+			p.playlistDue, p.playlistNext = false, time.Time{}
+			p.fetching["playlist"] = true
+			go t.fetchPlaylist(ctx, p, p.cfg)
+		}
+		if p.playlistFetched && p.cfg.EPGSource != "PMS" && isDue(p.guide.due, p.guide.next, now, p.fetching["guide"]) {
+			p.guide.due, p.guide.next = false, time.Time{}
+			p.fetching["guide"] = true
+			go t.fetchGuide(ctx, p, p.cfg)
 		}
 		p.mu.Unlock()
 	}
@@ -526,8 +472,7 @@ func label(key types.NamespacedName) string { return key.Namespace + "/" + key.N
 
 func cloneSnapshot(s Snapshot) Snapshot {
 	out := s
-	out.Guides = append([]GuideState(nil), s.Guides...)
-	out.Blocks = append([]BlockState(nil), s.Blocks...)
+	out.Blocks = slices.Clone(s.Blocks)
 	out.Channels = make(map[string]ChannelState, len(s.Channels))
 	for k, v := range s.Channels {
 		out.Channels[k] = v
@@ -542,7 +487,6 @@ func cloneConfig(c Config) Config {
 	for i := range c.Blocks {
 		c.Blocks[i].Numbers = slices.Clone(c.Blocks[i].Numbers)
 	}
-	c.Guides = slices.Clone(c.Guides)
 	c.Filters = slices.Clone(c.Filters)
 	for i := range c.Filters {
 		c.Filters[i].Include, c.Filters[i].Exclude = slices.Clone(c.Filters[i].Include), slices.Clone(c.Filters[i].Exclude)

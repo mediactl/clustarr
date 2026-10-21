@@ -44,8 +44,10 @@ type server struct {
 func NewHandler(base string) http.Handler {
 	s := &server{base: strings.TrimRight(base, "/"), open: map[string]int{}}
 	mux := http.NewServeMux()
+	// An Xtream Codes panel for the account e2e/secret.
 	mux.HandleFunc("GET /get.php", s.playlist)
-	mux.HandleFunc("GET /guide.xml", s.guide)
+	mux.HandleFunc("GET /xmltv.php", s.guide)
+	mux.HandleFunc("GET /player_api.php", s.account)
 	mux.HandleFunc("GET /live/e2e/secret/{file}", s.stream)
 	mux.HandleFunc("GET /stats", s.stats)
 	return mux
@@ -54,11 +56,17 @@ func NewHandler(base string) http.Handler {
 func (s *server) playlist(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "audio/x-mpegurl")
 	var b strings.Builder
-	fmt.Fprintf(&b, "#EXTM3U url-tvg=\"%s/guide.xml\"\n", s.base)
+	fmt.Fprintf(&b, "#EXTM3U url-tvg=\"%s/xmltv.php\"\n", s.base)
 	for _, n := range channels {
 		fmt.Fprintf(&b, "#EXTINF:-1 tvg-id=\"e2e.%s\" tvg-name=\"E2E %s\" group-title=\"E2E\",E2E %s\n%s/live/e2e/secret/%s.ts\n", n, n, n, s.base, n)
 	}
 	_, _ = w.Write([]byte(b.String()))
+}
+
+// account is player_api.php's report: one connection, no expiry.
+func (s *server) account(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write([]byte(`{"user_info":{"username":"e2e","password":"secret","auth":1,"status":"Active","exp_date":null,"active_cons":"0","max_connections":"1"}}`))
 }
 
 func (s *server) guide(w http.ResponseWriter, _ *http.Request) {

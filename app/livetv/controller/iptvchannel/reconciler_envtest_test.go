@@ -165,7 +165,7 @@ func setup(t *testing.T) *harness {
 
 func (h *harness) provider(t *testing.T, name string) types.NamespacedName {
 	require.NoError(t, h.c.Create(h.ctx, &clustarrv1.IPTVProvider{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: h.ns}, Spec: clustarrv1.IPTVProviderSpec{
-		Tuners: 1, Playlist: clustarrv1.PlaylistSource{URL: "http://p.example/x.m3u"},
+		Server: "p.example", CredentialsRef: corev1.LocalObjectReference{Name: "p-credentials"},
 	}}))
 	return types.NamespacedName{Namespace: h.ns, Name: name}
 }
@@ -175,7 +175,7 @@ func (h *harness) channel(t *testing.T, name, provider, number string, active bo
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: h.ns},
 		Spec: clustarrv1.IPTVChannelSpec{
 			ProviderRef: provider, Key: "t:" + name, Number: number, Active: active,
-			EPG: &clustarrv1.ChannelEPG{Guide: "main", ChannelID: name + ".uk"},
+			EPG: &clustarrv1.ChannelEPG{ChannelID: name + ".uk"},
 		},
 	}))
 }
@@ -216,13 +216,13 @@ func TestChannelStatusReadsTheSnapshot(t *testing.T) {
 	h.until(t, "a", "Pending")
 	h.snaps.set(key, tuner.Snapshot{Channels: map[string]tuner.ChannelState{
 		"a": {Guide: "main/a.uk"}, "b": {Missing: true}, "c": {Duplicate: true},
-		"d": {GuideNotFound: true, Guide: "dummy/60"}, "e": {},
+		"d": {Guide: "dummy/60"}, "e": {},
 	}})
 	h.wake(key)
 	assert.Equal(t, "main/a.uk", h.until(t, "a", clustarrv1.ReasonActive).Status.Guide)
 	h.until(t, "b", clustarrv1.ReasonMissing)
 	h.until(t, "c", clustarrv1.ReasonDuplicateNumber)
-	assert.Equal(t, "dummy/60", h.until(t, "d", clustarrv1.ReasonGuideNotFound).Status.Guide)
+	assert.Equal(t, "dummy/60", h.until(t, "d", clustarrv1.ReasonActive).Status.Guide)
 	h.until(t, "e", clustarrv1.ReasonInactive)
 }
 

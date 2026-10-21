@@ -47,40 +47,59 @@ const (
 	FilterCustom FilterType = "custom"
 )
 
-// IPTVProviderSpec is one IPTV provider. Its active channels are split into
-// blocks of contiguous numbers, each one emulated HDHomeRun device and one
-// Plex DVR (Live TV spec §3, §3.1).
+// IPTVProviderSpec is one Xtream Codes IPTV account
+// (docs/superpowers/specs/2026-10-20-iptv-xtream-ranges-design.md). Its
+// playlist is <server>/get.php with output=ts and type=m3u_plus, its guide
+// <server>/xmltv.php, both fetched daily and cached. Its active channels are
+// split into blocks of contiguous numbers, each one emulated HDHomeRun and
+// one Plex DVR (Live TV spec §3, §3.1).
 type IPTVProviderSpec struct {
-	// Enabled false stops this provider's tuner; Plex then sees the device
+	// Enabled false stops this provider's tuner; Plex then sees its devices
 	// gone. Default true.
 	// +optional
 	Enabled *bool `json:"enabled,omitempty"`
 
-	// Playlist is the provider's M3U.
+	// Server is the Xtream Codes panel: a host ("tvload.win"), a host:port,
+	// or a URL. Without a scheme it is https.
 	// +required
-	Playlist PlaylistSource `json:"playlist"`
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=512
+	Server string `json:"server"`
 
-	// Tuners is how many distinct channels may stream at once: the
-	// provider's connection limit, which the relay enforces with a 503.
-	// discover.json advertises tuner.SpareTuners more, so a grab PMS never
-	// ended cannot block an idle relay.
+	// CredentialsRef names a Secret in the provider's namespace holding the
+	// account's username and password, under the keys "username" and
+	// "password". They are sent as the panel's query parameters and never
+	// stored or reported.
 	// +required
+	CredentialsRef corev1.LocalObjectReference `json:"credentialsRef"`
+
+	// Tuners overrides how many distinct channels may stream at once, which
+	// the relay enforces with a 503. Unset, it is the account's
+	// max_connections (player_api.php), else 1. discover.json advertises
+	// tuner.SpareTuners more, so a grab PMS never ended cannot block an idle
+	// relay.
+	// +optional
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=64
-	Tuners int32 `json:"tuners"`
+	Tuners *int32 `json:"tuners,omitempty"`
+
+	// Refresh is how often the playlist, the guide and the account are
+	// fetched again. Each is cached, and a restart fetches only what is
+	// older than this. Default 24h.
+	// +optional
+	Refresh *metav1.Duration `json:"refresh,omitempty"`
+
+	// UserAgent is sent with playlist, guide and stream requests. Default
+	// "clustarr".
+	// +optional
+	// +kubebuilder:validation:MaxLength=256
+	UserAgent string `json:"userAgent,omitempty"`
 
 	// EPGSource is where Plex reads the guide: XEPG (this provider's
-	// /xmltv.xml, built from Guides and the channel mappings) or PMS
-	// (Plex's own lineup guide; mappings' epg is ignored). Default XEPG.
+	// xmltv.xml, built from the panel's guide and the channel mappings) or
+	// PMS (Plex's own lineup guide; mappings' epg is ignored). Default XEPG.
 	// +optional
 	EPGSource EPGSource `json:"epgSource,omitempty"`
-
-	// Guides are the XMLTV sources ("Add EPG URL").
-	// +optional
-	// +listType=map
-	// +listMapKey=name
-	// +kubebuilder:validation:MaxItems=16
-	Guides []XMLTVSource `json:"guides,omitempty"`
 
 	// Filters choose which playlist entries reach the mapping table. An
 	// entry is a candidate when any enabled filter matches it; with no
@@ -108,54 +127,6 @@ type IPTVProviderSpec struct {
 	// Stream tunes the relay.
 	// +optional
 	Stream StreamSpec `json:"stream,omitempty"`
-}
-
-// PlaylistSource is a provider's M3U playlist.
-// +kubebuilder:validation:XValidation:rule="has(self.url) != has(self.urlFrom)",message="set exactly one of url and urlFrom"
-type PlaylistSource struct {
-	// URL is the playlist's URL. Use URLFrom when the URL carries
-	// credentials (an Xtream Codes get.php?username=…&password=…).
-	// +optional
-	// +kubebuilder:validation:MaxLength=4096
-	URL string `json:"url,omitempty"`
-
-	// URLFrom names a key of a Secret in the provider's namespace holding
-	// the URL.
-	// +optional
-	URLFrom *corev1.SecretKeySelector `json:"urlFrom,omitempty"`
-
-	// UserAgent is sent with playlist, guide and stream requests. Default
-	// "clustarr".
-	// +optional
-	// +kubebuilder:validation:MaxLength=256
-	UserAgent string `json:"userAgent,omitempty"`
-
-	// Refresh is how often the playlist is fetched again. Default 24h.
-	// +optional
-	Refresh *metav1.Duration `json:"refresh,omitempty"`
-}
-
-// XMLTVSource is one XMLTV guide ("Add EPG URL").
-// +kubebuilder:validation:XValidation:rule="has(self.url) != has(self.urlFrom)",message="set exactly one of url and urlFrom"
-type XMLTVSource struct {
-	// Name identifies the guide in channel mappings.
-	// +required
-	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$`
-	Name string `json:"name"`
-
-	// URL is the guide's URL, plain XML or gzip.
-	// +optional
-	// +kubebuilder:validation:MaxLength=4096
-	URL string `json:"url,omitempty"`
-
-	// URLFrom names a key of a Secret in the provider's namespace holding
-	// the URL.
-	// +optional
-	URLFrom *corev1.SecretKeySelector `json:"urlFrom,omitempty"`
-
-	// Refresh is how often the guide is fetched again. Default 12h.
-	// +optional
-	Refresh *metav1.Duration `json:"refresh,omitempty"`
 }
 
 // ChannelFilter chooses playlist entries for the mapping table, with
@@ -254,31 +225,33 @@ type IPTVProviderStatus struct {
 	// +kubebuilder:validation:MaxItems=8
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
-	// Address is the tuner Service, host:port, where the Plex pods' proxies
-	// send each block's port (Live TV spec §5.0).
+	// Address is the tuner Service, host:port: each block's Endpoint is
+	// under it, and /livetv/<namespace>/<name>/<file>?from=<n>&to=<n> serves
+	// any range of the lineup.
 	// +optional
 	Address string `json:"address,omitempty"`
 
-	// Blocks are the lineup's runs of contiguous numbers, one Plex DVR each,
-	// ordered by start (Live TV spec §3.1).
+	// Blocks are the lineup's runs of contiguous numbers, one emulated
+	// HDHomeRun and one Plex DVR each, ordered by start (Live TV spec §3.1).
 	// +optional
 	// +listType=map
 	// +listMapKey=start
 	// +kubebuilder:validation:MaxItems=32
 	Blocks []BlockStatus `json:"blocks,omitempty"`
 
-	// Playlist describes the last playlist fetch.
+	// Account is the panel's report of the account (player_api.php).
+	// +optional
+	Account *AccountStatus `json:"account,omitempty"`
+
+	// Playlist describes the playlist the tuner serves.
 	// +optional
 	Playlist *PlaylistStatus `json:"playlist,omitempty"`
 
-	// Guides describes each guide's last fetch.
+	// Guide describes the guide the tuner serves.
 	// +optional
-	// +listType=map
-	// +listMapKey=name
-	// +kubebuilder:validation:MaxItems=16
-	Guides []GuideStatus `json:"guides,omitempty"`
+	Guide *GuideStatus `json:"guide,omitempty"`
 
-	// Lineup counts the rendered lineup across every block.
+	// Lineup counts the rendered lineup.
 	// +optional
 	Lineup *LineupStatus `json:"lineup,omitempty"`
 
@@ -287,11 +260,38 @@ type IPTVProviderStatus struct {
 	Tuners *TunerStatus `json:"tuners,omitempty"`
 }
 
-// PlaylistStatus describes the last playlist fetch.
+// AccountStatus is an Xtream account as its panel reports it.
+type AccountStatus struct {
+	// Status is the panel's word for the account: Active, Expired,
+	// Banned, Disabled.
+	// +optional
+	// +kubebuilder:validation:MaxLength=32
+	Status string `json:"status,omitempty"`
+	// ExpiresAt is when the account ends; unset for one that does not.
+	// +optional
+	ExpiresAt *metav1.Time `json:"expiresAt,omitempty"`
+	// MaxConnections is how many streams the account may hold at once.
+	// +optional
+	MaxConnections int32 `json:"maxConnections,omitempty"`
+	// ActiveConnections is how many it held when last asked.
+	// +optional
+	ActiveConnections int32 `json:"activeConnections,omitempty"`
+	// FetchedAt is when the panel was last asked.
+	// +optional
+	FetchedAt *metav1.Time `json:"fetchedAt,omitempty"`
+	// Error is the last ask's error, redacted.
+	// +optional
+	// +kubebuilder:validation:MaxLength=1024
+	Error string `json:"error,omitempty"`
+}
+
+// PlaylistStatus describes the playlist the tuner serves.
 type PlaylistStatus struct {
 	Entries    int32 `json:"entries"`
 	Groups     int32 `json:"groups"`
 	Candidates int32 `json:"candidates"`
+	// FetchedAt is when the playlist served was fetched, from the panel or
+	// before a restart.
 	// +optional
 	FetchedAt *metav1.Time `json:"fetchedAt,omitempty"`
 	// +optional
@@ -303,11 +303,11 @@ type PlaylistStatus struct {
 	Error string `json:"error,omitempty"`
 }
 
-// GuideStatus describes one guide's last fetch.
+// GuideStatus describes the guide the tuner serves: the panel's xmltv.php,
+// parsed for the active channels.
 type GuideStatus struct {
-	Name       string `json:"name"`
-	Channels   int32  `json:"channels"`
-	Programmes int32  `json:"programmes"`
+	Channels   int32 `json:"channels"`
+	Programmes int32 `json:"programmes"`
 	// +optional
 	FetchedAt *metav1.Time `json:"fetchedAt,omitempty"`
 	// +optional
@@ -320,6 +320,13 @@ type LineupStatus struct {
 	Active   int32 `json:"active"`
 	Unmapped int32 `json:"unmapped"`
 	Missing  int32 `json:"missing"`
+	// First and Last are the numbers the active channels span.
+	// +optional
+	// +kubebuilder:validation:MaxLength=16
+	First string `json:"first,omitempty"`
+	// +optional
+	// +kubebuilder:validation:MaxLength=16
+	Last string `json:"last,omitempty"`
 }
 
 // BlockStatus is one block: one emulated HDHomeRun and one Plex DVR (Live TV
@@ -354,8 +361,14 @@ type BlockStatus struct {
 	// +kubebuilder:validation:Pattern=`^[0-9A-F]{8}$`
 	DeviceID string `json:"deviceID,omitempty"`
 
-	// Port is the block's port: the Plex pods' proxies listen on it, and the
-	// tuner routes by it.
+	// Endpoint is the block's device under Address: the path every request
+	// a Plex pod's proxy takes on Port is sent below.
+	// +optional
+	// +kubebuilder:validation:MaxLength=512
+	Endpoint string `json:"endpoint,omitempty"`
+
+	// Port is the block's port: the Plex pods' proxies listen on it and send
+	// each request to Endpoint.
 	// +optional
 	// +kubebuilder:validation:Minimum=1024
 	// +kubebuilder:validation:Maximum=65535
@@ -366,8 +379,8 @@ type BlockStatus struct {
 	// +kubebuilder:validation:MaxLength=160
 	FriendlyName string `json:"friendlyName,omitempty"`
 
-	// GuidePath is the block's XEPG guide path under its address; empty
-	// under PMS.
+	// GuidePath is the block's XEPG guide path under its port; empty under
+	// PMS.
 	// +optional
 	// +kubebuilder:validation:MaxLength=64
 	GuidePath string `json:"guidePath,omitempty"`
@@ -397,20 +410,23 @@ type TunerStatus struct {
 	InUse int32 `json:"inUse"`
 }
 
-// IPTVProvider is one IPTV provider routed to Plex as emulated HDHomeRuns,
-// one per block of its channels (Live TV spec §3). Its tuner runs in the
-// manager, behind one livetv Service; each block has a port of its own.
+// IPTVProvider is one Xtream Codes IPTV account routed to Plex as emulated
+// HDHomeRuns, one per block of its channels (Live TV spec §3). Its tuner runs
+// in the manager, behind one livetv Service; each block has a port of its
+// own, which cluster-plex's proxies send to the block's endpoint.
 //
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:ac:generate=true
 // +kubebuilder:resource:scope=Namespaced,shortName=iptv,categories=clustarr
-// +kubebuilder:printcolumn:name="Tuners",type="integer",JSONPath=".spec.tuners"
+// +kubebuilder:printcolumn:name="Server",type="string",JSONPath=".spec.server"
+// +kubebuilder:printcolumn:name="Tuners",type="integer",JSONPath=".status.tuners.total"
 // +kubebuilder:printcolumn:name="Active",type="integer",JSONPath=".status.lineup.active"
 // +kubebuilder:printcolumn:name="Candidates",type="integer",JSONPath=".status.playlist.candidates"
 // +kubebuilder:printcolumn:name="EPG",type="string",JSONPath=".spec.epgSource"
 // +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=".status.conditions[?(@.type=='Ready')].status"
 // +kubebuilder:printcolumn:name="Port",type="integer",JSONPath=".status.blocks[0].port"
+// +kubebuilder:printcolumn:name="Expires",type="date",JSONPath=".status.account.expiresAt"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 type IPTVProvider struct {
 	metav1.TypeMeta   `json:",inline"`

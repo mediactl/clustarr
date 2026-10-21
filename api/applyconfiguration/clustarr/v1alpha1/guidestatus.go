@@ -26,9 +26,9 @@ import (
 // GuideStatusApplyConfiguration represents a declarative configuration of the GuideStatus type for use
 // with apply.
 //
-// GuideStatus describes one guide's last fetch.
+// GuideStatus describes the guide the tuner serves: the panel's xmltv.php,
+// parsed for the active channels.
 type GuideStatusApplyConfiguration struct {
-	Name       *string  `json:"name,omitempty"`
 	Channels   *int32   `json:"channels,omitempty"`
 	Programmes *int32   `json:"programmes,omitempty"`
 	FetchedAt  *v1.Time `json:"fetchedAt,omitempty"`
@@ -39,14 +39,6 @@ type GuideStatusApplyConfiguration struct {
 // apply.
 func GuideStatus() *GuideStatusApplyConfiguration {
 	return &GuideStatusApplyConfiguration{}
-}
-
-// WithName sets the Name field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Name field is set to the value of the last call.
-func (b *GuideStatusApplyConfiguration) WithName(value string) *GuideStatusApplyConfiguration {
-	b.Name = &value
-	return b
 }
 
 // WithChannels sets the Channels field in the declarative configuration to the given value

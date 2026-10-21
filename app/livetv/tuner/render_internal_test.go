@@ -46,7 +46,6 @@ func TestGuidesAreBuiltOutsideTheProvidersLock(t *testing.T) {
 	tn := New(Options{Debounce: time.Hour})
 	tn.Apply(Config{
 		Key: key, Tuners: 1, EPGSource: "XEPG",
-		Blocks:   []BlockConfig{{Start: "1", Port: 47000, Numbers: []string{"1"}}},
 		Channels: []ChannelConfig{{Object: "a", Key: "t:a", Number: "1", Active: true}},
 	})
 	p := tn.providers[key]
@@ -70,19 +69,20 @@ func TestGuidesAreBuiltOutsideTheProvidersLock(t *testing.T) {
 }
 
 // TestDispatchWaitsForAProvidersRelay: Apply publishes a new provider before
-// it builds the provider's relay -- it loads the stored guide in between, a
-// 12 MiB object-store read on talos -- and Start's first dispatch runs beside
+// it builds the provider's relay -- it loads the cached playlist and guide in
+// between, megabytes of object-store reads -- and Start's first dispatch runs beside
 // the controller's first Apply. The lease holder dereferenced the nil relay
 // and crash-looped on every start (talos, 2026-10-15). dispatch leaves such a
 // provider for the next tick: its fetches start once Apply has finished.
 func TestDispatchWaitsForAProvidersRelay(t *testing.T) {
 	tu := New(Options{})
 	key := types.NamespacedName{Namespace: "clustarr-system", Name: "freeiptv"}
-	p := &provider{key: key, fetching: map[string]bool{}, guides: map[string]*guide{}, blocks: map[string]*surface{}, playlistDue: true}
+	p := &provider{key: key, fetching: map[string]bool{}, playlistDue: true, accountDue: true, guide: guide{due: true}}
 	tu.providers[key] = p
 	require.NotPanics(t, func() { tu.dispatch(context.Background()) })
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	require.False(t, p.fetching["playlist"], "no fetch starts before Apply has built the relay")
+	require.False(t, p.fetching["account"])
 	require.True(t, p.playlistDue, "the playlist stays due for the tick after Apply")
 }

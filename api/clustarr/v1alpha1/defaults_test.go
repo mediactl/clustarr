@@ -34,11 +34,10 @@ func TestAnEmptySpecReadsEveryDefault(t *testing.T) {
 	assert.True(t, s.EnabledOrDefault())
 	assert.Equal(t, clustarrv1.EPGSourceXEPG, s.EPGSourceOrDefault())
 	assert.Equal(t, int32(1000), s.ChannelNumberStartOrDefault())
-	assert.Equal(t, 24*time.Hour, s.Playlist.RefreshOrDefault())
-	assert.Equal(t, "clustarr", s.Playlist.UserAgentOrDefault())
-	assert.Equal(t, 12*time.Hour, clustarrv1.XMLTVSource{}.RefreshOrDefault())
+	assert.Equal(t, 24*time.Hour, s.RefreshOrDefault())
+	assert.Equal(t, "clustarr", s.UserAgentOrDefault())
+	assert.Equal(t, 0, s.TunersOverride(), "the account's own limit")
 	assert.True(t, clustarrv1.ChannelFilter{}.EnabledOrDefault())
-	assert.Equal(t, "Clustarr news", s.Device.FriendlyNameOrDefault("news"))
 	assert.Equal(t, int64(8<<20), s.Stream.BufferOrDefault())
 	assert.Equal(t, 10*time.Second, s.Stream.LingerOrDefault())
 	assert.Equal(t, int32(60), clustarrv1.ChannelEPG{Dummy: true}.DummyMinutesOrDefault())
@@ -50,16 +49,17 @@ func TestASetValueWinsOverItsDefault(t *testing.T) {
 		Enabled:            ptr.To(false),
 		EPGSource:          clustarrv1.EPGSourcePMS,
 		ChannelNumberStart: ptr.To(int32(1)),
-		Playlist:           clustarrv1.PlaylistSource{UserAgent: "VLC", Refresh: &metav1.Duration{Duration: time.Hour}},
-		Device:             clustarrv1.DeviceSpec{FriendlyName: "Sports"},
+		UserAgent:          "VLC",
+		Refresh:            &metav1.Duration{Duration: time.Hour},
+		Tuners:             ptr.To(int32(2)),
 		Stream:             clustarrv1.StreamSpec{Buffer: &q, Linger: &metav1.Duration{Duration: time.Second}},
 	}
 	assert.False(t, s.EnabledOrDefault())
 	assert.Equal(t, clustarrv1.EPGSourcePMS, s.EPGSourceOrDefault())
 	assert.Equal(t, int32(1), s.ChannelNumberStartOrDefault())
-	assert.Equal(t, "VLC", s.Playlist.UserAgentOrDefault())
-	assert.Equal(t, time.Hour, s.Playlist.RefreshOrDefault())
-	assert.Equal(t, "Sports", s.Device.FriendlyNameOrDefault("news"))
+	assert.Equal(t, "VLC", s.UserAgentOrDefault())
+	assert.Equal(t, time.Hour, s.RefreshOrDefault())
+	assert.Equal(t, 2, s.TunersOverride())
 	assert.Equal(t, int64(4<<20), s.Stream.BufferOrDefault())
 	assert.Equal(t, time.Second, s.Stream.LingerOrDefault())
 	assert.Equal(t, int32(120), clustarrv1.ChannelEPG{Dummy: true, DummyMinutes: ptr.To(int32(120))}.DummyMinutesOrDefault())

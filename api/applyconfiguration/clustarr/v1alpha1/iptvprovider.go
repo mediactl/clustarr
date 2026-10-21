@@ -31,9 +31,10 @@ import (
 // IPTVProviderApplyConfiguration represents a declarative configuration of the IPTVProvider type for use
 // with apply.
 //
-// IPTVProvider is one IPTV provider routed to Plex as emulated HDHomeRuns,
-// one per block of its channels (Live TV spec §3). Its tuner runs in the
-// manager, behind one livetv Service; each block has a port of its own.
+// IPTVProvider is one Xtream Codes IPTV account routed to Plex as emulated
+// HDHomeRuns, one per block of its channels (Live TV spec §3). Its tuner runs
+// in the manager, behind one livetv Service; each block has a port of its
+// own, which cluster-plex's proxies send to the block's endpoint.
 type IPTVProviderApplyConfiguration struct {
 	v1.TypeMetaApplyConfiguration    `json:""`
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`

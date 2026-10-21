@@ -21,29 +21,48 @@ package v1alpha1
 
 import (
 	clustarrv1alpha1 "github.com/mediactl/clustarr/api/clustarr/v1alpha1"
+	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // IPTVProviderSpecApplyConfiguration represents a declarative configuration of the IPTVProviderSpec type for use
 // with apply.
 //
-// IPTVProviderSpec is one IPTV provider. Its active channels are split into
-// blocks of contiguous numbers, each one emulated HDHomeRun device and one
-// Plex DVR (Live TV spec §3, §3.1).
+// IPTVProviderSpec is one Xtream Codes IPTV account
+// (docs/superpowers/specs/2026-10-20-iptv-xtream-ranges-design.md). Its
+// playlist is <server>/get.php with output=ts and type=m3u_plus, its guide
+// <server>/xmltv.php, both fetched daily and cached. Its active channels are
+// split into blocks of contiguous numbers, each one emulated HDHomeRun and
+// one Plex DVR (Live TV spec §3, §3.1).
 type IPTVProviderSpecApplyConfiguration struct {
-	// Enabled false stops this provider's tuner; Plex then sees the device
+	// Enabled false stops this provider's tuner; Plex then sees its devices
 	// gone. Default true.
 	Enabled *bool `json:"enabled,omitempty"`
-	// Playlist is the provider's M3U.
-	Playlist *PlaylistSourceApplyConfiguration `json:"playlist,omitempty"`
-	// Tuners is how many distinct channels may stream at once: the
-	// provider's connection limit, and discover.json's TunerCount.
+	// Server is the Xtream Codes panel: a host ("tvload.win"), a host:port,
+	// or a URL. Without a scheme it is https.
+	Server *string `json:"server,omitempty"`
+	// CredentialsRef names a Secret in the provider's namespace holding the
+	// account's username and password, under the keys "username" and
+	// "password". They are sent as the panel's query parameters and never
+	// stored or reported.
+	CredentialsRef *v1.LocalObjectReference `json:"credentialsRef,omitempty"`
+	// Tuners overrides how many distinct channels may stream at once, which
+	// the relay enforces with a 503. Unset, it is the account's
+	// max_connections (player_api.php), else 1. discover.json advertises
+	// tuner.SpareTuners more, so a grab PMS never ended cannot block an idle
+	// relay.
 	Tuners *int32 `json:"tuners,omitempty"`
+	// Refresh is how often the playlist, the guide and the account are
+	// fetched again. Each is cached, and a restart fetches only what is
+	// older than this. Default 24h.
+	Refresh *metav1.Duration `json:"refresh,omitempty"`
+	// UserAgent is sent with playlist, guide and stream requests. Default
+	// "clustarr".
+	UserAgent *string `json:"userAgent,omitempty"`
 	// EPGSource is where Plex reads the guide: XEPG (this provider's
-	// /xmltv.xml, built from Guides and the channel mappings) or PMS
-	// (Plex's own lineup guide; mappings' epg is ignored). Default XEPG.
+	// xmltv.xml, built from the panel's guide and the channel mappings) or
+	// PMS (Plex's own lineup guide; mappings' epg is ignored). Default XEPG.
 	EPGSource *clustarrv1alpha1.EPGSource `json:"epgSource,omitempty"`
-	// Guides are the XMLTV sources ("Add EPG URL").
-	Guides []XMLTVSourceApplyConfiguration `json:"guides,omitempty"`
 	// Filters choose which playlist entries reach the mapping table. An
 	// entry is a candidate when any enabled filter matches it; with no
 	// filter, nothing is a candidate (xTeVe's rule).
@@ -72,11 +91,19 @@ func (b *IPTVProviderSpecApplyConfiguration) WithEnabled(value bool) *IPTVProvid
 	return b
 }
 
-// WithPlaylist sets the Playlist field in the declarative configuration to the given value
+// WithServer sets the Server field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Playlist field is set to the value of the last call.
-func (b *IPTVProviderSpecApplyConfiguration) WithPlaylist(value *PlaylistSourceApplyConfiguration) *IPTVProviderSpecApplyConfiguration {
-	b.Playlist = value
+// If called multiple times, the Server field is set to the value of the last call.
+func (b *IPTVProviderSpecApplyConfiguration) WithServer(value string) *IPTVProviderSpecApplyConfiguration {
+	b.Server = &value
+	return b
+}
+
+// WithCredentialsRef sets the CredentialsRef field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the CredentialsRef field is set to the value of the last call.
+func (b *IPTVProviderSpecApplyConfiguration) WithCredentialsRef(value v1.LocalObjectReference) *IPTVProviderSpecApplyConfiguration {
+	b.CredentialsRef = &value
 	return b
 }
 
@@ -88,24 +115,27 @@ func (b *IPTVProviderSpecApplyConfiguration) WithTuners(value int32) *IPTVProvid
 	return b
 }
 
+// WithRefresh sets the Refresh field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Refresh field is set to the value of the last call.
+func (b *IPTVProviderSpecApplyConfiguration) WithRefresh(value metav1.Duration) *IPTVProviderSpecApplyConfiguration {
+	b.Refresh = &value
+	return b
+}
+
+// WithUserAgent sets the UserAgent field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the UserAgent field is set to the value of the last call.
+func (b *IPTVProviderSpecApplyConfiguration) WithUserAgent(value string) *IPTVProviderSpecApplyConfiguration {
+	b.UserAgent = &value
+	return b
+}
+
 // WithEPGSource sets the EPGSource field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the EPGSource field is set to the value of the last call.
 func (b *IPTVProviderSpecApplyConfiguration) WithEPGSource(value clustarrv1alpha1.EPGSource) *IPTVProviderSpecApplyConfiguration {
 	b.EPGSource = &value
-	return b
-}
-
-// WithGuides adds the given value to the Guides field in the declarative configuration
-// and returns the receiver, so that objects can be build by chaining "With" function invocations.
-// If called multiple times, values provided by each call will be appended to the Guides field.
-func (b *IPTVProviderSpecApplyConfiguration) WithGuides(values ...*XMLTVSourceApplyConfiguration) *IPTVProviderSpecApplyConfiguration {
-	for i := range values {
-		if values[i] == nil {
-			panic("nil value passed to WithGuides")
-		}
-		b.Guides = append(b.Guides, *values[i])
-	}
 	return b
 }
 

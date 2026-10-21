@@ -27,6 +27,9 @@ type LineupStatusApplyConfiguration struct {
 	Active   *int32 `json:"active,omitempty"`
 	Unmapped *int32 `json:"unmapped,omitempty"`
 	Missing  *int32 `json:"missing,omitempty"`
+	// First and Last are the numbers the active channels span.
+	First *string `json:"first,omitempty"`
+	Last  *string `json:"last,omitempty"`
 }
 
 // LineupStatusApplyConfiguration constructs a declarative configuration of the LineupStatus type for use with
@@ -56,5 +59,21 @@ func (b *LineupStatusApplyConfiguration) WithUnmapped(value int32) *LineupStatus
 // If called multiple times, the Missing field is set to the value of the last call.
 func (b *LineupStatusApplyConfiguration) WithMissing(value int32) *LineupStatusApplyConfiguration {
 	b.Missing = &value
+	return b
+}
+
+// WithFirst sets the First field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the First field is set to the value of the last call.
+func (b *LineupStatusApplyConfiguration) WithFirst(value string) *LineupStatusApplyConfiguration {
+	b.First = &value
+	return b
+}
+
+// WithLast sets the Last field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Last field is set to the value of the last call.
+func (b *LineupStatusApplyConfiguration) WithLast(value string) *LineupStatusApplyConfiguration {
+	b.Last = &value
 	return b
 }

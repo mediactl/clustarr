@@ -22,13 +22,11 @@ package v1alpha1
 // ChannelEPGApplyConfiguration represents a declarative configuration of the ChannelEPG type for use
 // with apply.
 //
-// ChannelEPG maps a channel to a guide: Guide names one of the provider's
-// guides and ChannelID an XMLTV channel id in it; or Dummy draws
-// DummyMinutes blocks titled by the channel's name.
+// ChannelEPG maps a channel to a guide: ChannelID is an XMLTV channel id in
+// the provider's guide (its panel's xmltv.php); or Dummy draws DummyMinutes
+// blocks titled by the channel's name.
 type ChannelEPGApplyConfiguration struct {
-	// Guide names one of the provider's spec.guides.
-	Guide *string `json:"guide,omitempty"`
-	// ChannelID is an XMLTV channel id in Guide.
+	// ChannelID is an XMLTV channel id in the provider's guide.
 	ChannelID *string `json:"channelID,omitempty"`
 	// Dummy draws a placeholder guide.
 	Dummy *bool `json:"dummy,omitempty"`
@@ -40,14 +38,6 @@ type ChannelEPGApplyConfiguration struct {
 // apply.
 func ChannelEPG() *ChannelEPGApplyConfiguration {
 	return &ChannelEPGApplyConfiguration{}
-}
-
-// WithGuide sets the Guide field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Guide field is set to the value of the last call.
-func (b *ChannelEPGApplyConfiguration) WithGuide(value string) *ChannelEPGApplyConfiguration {
-	b.Guide = &value
-	return b
 }
 
 // WithChannelID sets the ChannelID field in the declarative configuration to the given value

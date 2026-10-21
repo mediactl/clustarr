@@ -39,13 +39,16 @@ type BlockStatusApplyConfiguration struct {
 	// DeviceID is the block's HDHomeRun id: spec.device.id for the first
 	// block of a first packing, else a hash of namespace, name and start.
 	DeviceID *string `json:"deviceID,omitempty"`
-	// Port is the block's port: the Plex pods' proxies listen on it, and the
-	// tuner routes by it.
+	// Endpoint is the block's device under Address: the path every request
+	// a Plex pod's proxy takes on Port is sent below.
+	Endpoint *string `json:"endpoint,omitempty"`
+	// Port is the block's port: the Plex pods' proxies listen on it and send
+	// each request to Endpoint.
 	Port *int32 `json:"port,omitempty"`
 	// FriendlyName is the name Plex shows for the block's device and DVR.
 	FriendlyName *string `json:"friendlyName,omitempty"`
-	// GuidePath is the block's XEPG guide path under its address; empty
-	// under PMS.
+	// GuidePath is the block's XEPG guide path under its port; empty under
+	// PMS.
 	GuidePath *string `json:"guidePath,omitempty"`
 	// Owner is the cluster-plex installation registered for the block,
 	// read from its Lease. Empty while none holds it.
@@ -109,6 +112,14 @@ func (b *BlockStatusApplyConfiguration) WithMapBytes(value int32) *BlockStatusAp
 // If called multiple times, the DeviceID field is set to the value of the last call.
 func (b *BlockStatusApplyConfiguration) WithDeviceID(value string) *BlockStatusApplyConfiguration {
 	b.DeviceID = &value
+	return b
+}
+
+// WithEndpoint sets the Endpoint field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Endpoint field is set to the value of the last call.
+func (b *BlockStatusApplyConfiguration) WithEndpoint(value string) *BlockStatusApplyConfiguration {
+	b.Endpoint = &value
 	return b
 }
 

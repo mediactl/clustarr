@@ -33,17 +33,20 @@ type IPTVProviderStatusApplyConfiguration struct {
 	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
 	// Conditions: Ready, Valid, PlaylistFetched, GuidesFetched.
 	Conditions []v1.ConditionApplyConfiguration `json:"conditions,omitempty"`
-	// Address is the tuner Service, host:port, where the Plex pods' proxies
-	// send each block's port (Live TV spec §5.0).
+	// Address is the tuner Service, host:port: each block's Endpoint is
+	// under it, and /livetv/<namespace>/<name>/<file>?from=<n>&to=<n> serves
+	// any range of the lineup.
 	Address *string `json:"address,omitempty"`
-	// Blocks are the lineup's runs of contiguous numbers, one Plex DVR each,
-	// ordered by start (Live TV spec §3.1).
+	// Blocks are the lineup's runs of contiguous numbers, one emulated
+	// HDHomeRun and one Plex DVR each, ordered by start (Live TV spec §3.1).
 	Blocks []BlockStatusApplyConfiguration `json:"blocks,omitempty"`
-	// Playlist describes the last playlist fetch.
+	// Account is the panel's report of the account (player_api.php).
+	Account *AccountStatusApplyConfiguration `json:"account,omitempty"`
+	// Playlist describes the playlist the tuner serves.
 	Playlist *PlaylistStatusApplyConfiguration `json:"playlist,omitempty"`
-	// Guides describes each guide's last fetch.
-	Guides []GuideStatusApplyConfiguration `json:"guides,omitempty"`
-	// Lineup counts the rendered lineup across every block.
+	// Guide describes the guide the tuner serves.
+	Guide *GuideStatusApplyConfiguration `json:"guide,omitempty"`
+	// Lineup counts the rendered lineup.
 	Lineup *LineupStatusApplyConfiguration `json:"lineup,omitempty"`
 	// Tuners counts the provider's tuners.
 	Tuners *TunerStatusApplyConfiguration `json:"tuners,omitempty"`
@@ -97,6 +100,14 @@ func (b *IPTVProviderStatusApplyConfiguration) WithBlocks(values ...*BlockStatus
 	return b
 }
 
+// WithAccount sets the Account field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Account field is set to the value of the last call.
+func (b *IPTVProviderStatusApplyConfiguration) WithAccount(value *AccountStatusApplyConfiguration) *IPTVProviderStatusApplyConfiguration {
+	b.Account = value
+	return b
+}
+
 // WithPlaylist sets the Playlist field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Playlist field is set to the value of the last call.
@@ -105,16 +116,11 @@ func (b *IPTVProviderStatusApplyConfiguration) WithPlaylist(value *PlaylistStatu
 	return b
 }
 
-// WithGuides adds the given value to the Guides field in the declarative configuration
-// and returns the receiver, so that objects can be build by chaining "With" function invocations.
-// If called multiple times, values provided by each call will be appended to the Guides field.
-func (b *IPTVProviderStatusApplyConfiguration) WithGuides(values ...*GuideStatusApplyConfiguration) *IPTVProviderStatusApplyConfiguration {
-	for i := range values {
-		if values[i] == nil {
-			panic("nil value passed to WithGuides")
-		}
-		b.Guides = append(b.Guides, *values[i])
-	}
+// WithGuide sets the Guide field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Guide field is set to the value of the last call.
+func (b *IPTVProviderStatusApplyConfiguration) WithGuide(value *GuideStatusApplyConfiguration) *IPTVProviderStatusApplyConfiguration {
+	b.Guide = value
 	return b
 }
 

@@ -28,6 +28,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -37,8 +39,11 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
 
-// maxErrorLen is the CRD's bound on status.playlist.error and guides[].error.
+// maxErrorLen is the CRD's bound on status's error strings.
 const maxErrorLen = 1024
+
+// maxAccountBytes caps player_api.php's answer.
+const maxAccountBytes = 1 << 20
 
 // get opens url with the provider's user agent. A status of 300 or more is
 // an error naming the redacted URL.
@@ -61,7 +66,7 @@ func (t *Tuner) get(ctx context.Context, url, ua string) (io.ReadCloser, error) 
 	return resp.Body, nil
 }
 
-func (t *Tuner) fetchPlaylist(ctx context.Context, p *provider, url, ua string) {
+func (t *Tuner) fetchPlaylist(ctx context.Context, p *provider, cfg Config) {
 	start := time.Now()
 	ctx, cancel := context.WithTimeout(ctx, fetchTimeout)
 	defer cancel()
@@ -69,7 +74,7 @@ func (t *Tuner) fetchPlaylist(ctx context.Context, p *provider, url, ua string) 
 		pl  m3u.Playlist
 		sum string
 	)
-	body, err := t.get(ctx, url, ua)
+	body, err := t.get(ctx, cfg.PlaylistURL(), cfg.UserAgent)
 	if err == nil {
 		h := sha256.New()
 		pl, err = m3u.Parse(io.TeeReader(body, h))
@@ -88,18 +93,17 @@ func (t *Tuner) fetchPlaylist(ctx context.Context, p *provider, url, ua string) 
 	if err != nil {
 		p.playlist.Error = clamp(iptv.RedactError(fmt.Errorf("fetch playlist: %w", err)))
 		logging.FromContext(ctx).Warn("livetv: playlist fetch failed", "provider", label(p.key), "err", p.playlist.Error)
-		p.playlistBackoff = nextBackoff(p.playlistBackoff, p.cfg.PlaylistRefresh)
+		p.playlistBackoff = nextBackoff(p.playlistBackoff, cfg.Every)
 		p.playlistNext = t.o.Now().Add(p.playlistBackoff)
 	} else {
 		p.entries = pl.Entries
-		p.restored = nil
 		p.playlistFetched = true
 		p.playlist.FetchedAt = t.o.Now()
 		p.playlist.Hash = sum
 		p.playlist.Error = ""
-		t.markWantedGuidesDue(p)
+		t.markWantedGuideDue(p)
 		p.playlistBackoff = 0
-		p.playlistNext = t.o.Now().Add(p.cfg.PlaylistRefresh)
+		p.playlistNext = t.o.Now().Add(cfg.Every)
 	}
 	p.mu.Unlock()
 	t.scheduleRender(p)
@@ -124,8 +128,73 @@ func nextBackoff(prev, refresh time.Duration) time.Duration {
 	return next
 }
 
-// wantSource is what choosing a guide's wanted channels needs of one active
-// channel, copied out from under the provider's lock.
+// accountReport is player_api.php's answer. Panels send the numbers as
+// strings or numbers, and exp_date as null for an account without end.
+type accountReport struct {
+	UserInfo struct {
+		Auth           json.RawMessage `json:"auth"`
+		Status         string          `json:"status"`
+		ExpDate        json.RawMessage `json:"exp_date"`
+		MaxConnections json.RawMessage `json:"max_connections"`
+		ActiveCons     json.RawMessage `json:"active_cons"`
+	} `json:"user_info"`
+}
+
+// flexInt reads a JSON number, a numeric string, or null (0).
+func flexInt(raw json.RawMessage) int64 {
+	s := strings.Trim(strings.TrimSpace(string(raw)), `"`)
+	n, _ := strconv.ParseInt(s, 10, 64)
+	return n
+}
+
+// fetchAccount asks the panel for the account's status, expiry and
+// connection limit; the limit is the relay's when spec.tuners is unset.
+func (t *Tuner) fetchAccount(ctx context.Context, p *provider, cfg Config) {
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	var rep accountReport
+	body, err := t.get(ctx, cfg.AccountURL(), cfg.UserAgent)
+	if err == nil {
+		err = json.NewDecoder(io.LimitReader(body, maxAccountBytes)).Decode(&rep)
+		_ = body.Close()
+		if err == nil && flexInt(rep.UserInfo.Auth) != 1 {
+			err = errors.New("the panel refused the account's credentials")
+		}
+	}
+
+	p.mu.Lock()
+	delete(p.fetching, "account")
+	if p.removed {
+		p.mu.Unlock()
+		return
+	}
+	now := t.o.Now()
+	if err != nil {
+		p.account.Error = clamp(iptv.RedactError(fmt.Errorf("fetch account: %w", err)))
+		logging.FromContext(ctx).Warn("livetv: account fetch failed", "provider", label(p.key), "err", p.account.Error)
+		p.accountBackoff = nextBackoff(p.accountBackoff, accountEvery)
+		p.accountNext = now.Add(p.accountBackoff)
+	} else {
+		a := AccountState{
+			Status:         rep.UserInfo.Status,
+			MaxConnections: int(flexInt(rep.UserInfo.MaxConnections)),
+			Active:         int(flexInt(rep.UserInfo.ActiveCons)),
+			FetchedAt:      now,
+		}
+		if exp := flexInt(rep.UserInfo.ExpDate); exp > 0 {
+			a.ExpiresAt = time.Unix(exp, 0).UTC()
+		}
+		p.account = a
+		p.accountBackoff = 0
+		p.accountNext = now.Add(min(cfg.Every, accountEvery))
+		p.relay.SetTuners(effectiveTuners(p.cfg, p.account))
+	}
+	p.mu.Unlock()
+	t.scheduleRender(p)
+}
+
+// wantSource is what choosing the guide's wanted channels needs of one
+// active channel, copied out from under the provider's lock.
 type wantSource struct {
 	m           *xmltv.Mapping
 	tvgID, name string
@@ -155,14 +224,13 @@ func wantSources(p *provider) []wantSource {
 	return out
 }
 
-// wanted is the channel ids of guide name that src map to, given the
-// guide's channels.
-func wanted(name string, chans []xmltv.Channel, src []wantSource) map[string]bool {
+// wanted is the guide channel ids src map to, given the guide's channels.
+func wanted(chans []xmltv.Channel, src []wantSource) map[string]bool {
 	out := map[string]bool{}
-	ix := xmltv.NewIndex(map[string]xmltv.Guide{name: {Channels: chans}})
+	ix := xmltv.NewIndex(map[string]xmltv.Guide{GuideName: {Channels: chans}})
 	for _, s := range src {
 		if s.m != nil {
-			if s.m.Guide == name {
+			if s.m.Guide == GuideName {
 				out[s.m.ChannelID] = true
 			}
 			continue
@@ -174,36 +242,24 @@ func wanted(name string, chans []xmltv.Channel, src []wantSource) map[string]boo
 	return out
 }
 
-// markWantedGuidesDue marks due every loaded guide whose wanted channels
-// now include one it was not parsed for; p.mu is held.
-func (t *Tuner) markWantedGuidesDue(p *provider) {
-	if !p.playlistFetched {
+// markWantedGuideDue marks the guide due when its wanted channels now
+// include one it was not parsed for; p.mu is held.
+func (t *Tuner) markWantedGuideDue(p *provider) {
+	if !p.playlistFetched || !p.guide.loaded {
 		return
 	}
-	src := wantSources(p)
-	for name, g := range p.guides {
-		if !g.loaded {
-			continue
-		}
-		for id := range wanted(name, g.g.Channels, src) {
-			if !g.wanted[id] {
-				g.due = true
-				break
-			}
+	for id := range wanted(p.guide.g.Channels, wantSources(p)) {
+		if !p.guide.wanted[id] {
+			p.guide.due = true
+			return
 		}
 	}
 }
 
-func (t *Tuner) fetchGuide(ctx context.Context, p *provider, name string) {
+func (t *Tuner) fetchGuide(ctx context.Context, p *provider, cfg Config) {
 	start := time.Now()
 	p.mu.Lock()
-	g := p.guides[name]
-	if g == nil {
-		delete(p.fetching, "guide/"+name)
-		p.mu.Unlock()
-		return
-	}
-	url, ua, src := g.cfg.URL, p.cfg.UserAgent, wantSources(p)
+	src := wantSources(p)
 	p.mu.Unlock()
 
 	ctx, cancel := context.WithTimeout(ctx, fetchTimeout)
@@ -215,54 +271,57 @@ func (t *Tuner) fetchGuide(ctx context.Context, p *provider, name string) {
 		parsed xmltv.Guide
 		want   map[string]bool
 	)
-	body, err := t.get(ctx, url, ua)
+	body, err := t.get(ctx, cfg.GuideURL(), cfg.UserAgent)
 	if err == nil {
 		parsed, err = xmltv.ParseFunc(body, func(chans []xmltv.Channel) map[string]bool {
-			want = wanted(name, chans, src)
+			want = wanted(chans, src)
 			return want
 		}, from, from.AddDate(0, 0, guideDays+1))
 		_ = body.Close()
 		if want == nil {
-			want = wanted(name, parsed.Channels, src) // a guide with no programmes
+			want = wanted(parsed.Channels, src) // a guide with no programmes
 		}
 	}
-	fetchDuration.WithLabelValues(label(p.key), name).Observe(time.Since(start).Seconds())
+	fetchDuration.WithLabelValues(label(p.key), "guide").Observe(time.Since(start).Seconds())
 
 	p.mu.Lock()
-	delete(p.fetching, "guide/"+name)
-	g = p.guides[name]
-	if g == nil || p.removed {
+	delete(p.fetching, "guide")
+	if p.removed {
 		p.mu.Unlock()
 		return
 	}
+	g := &p.guide
 	if err != nil {
-		g.state.Error = clamp(iptv.RedactError(fmt.Errorf("fetch guide %s: %w", name, err)))
-		logging.FromContext(ctx).Warn("livetv: guide fetch failed", "provider", label(p.key), "guide", name, "err", g.state.Error)
-	} else {
-		g.g, g.loaded, g.wanted = parsed, true, want
-		n := 0
-		for _, ps := range parsed.Programmes {
-			n += len(ps)
-		}
-		g.state = GuideState{Name: name, Channels: len(parsed.Channels), Programmes: n, FetchedAt: t.o.Now()}
-	}
-	if err != nil {
-		g.backoff = nextBackoff(g.backoff, g.cfg.Refresh)
+		g.state.Error = clamp(iptv.RedactError(fmt.Errorf("fetch guide: %w", err)))
+		logging.FromContext(ctx).Warn("livetv: guide fetch failed", "provider", label(p.key), "err", g.state.Error)
+		g.backoff = nextBackoff(g.backoff, cfg.Every)
 		g.next = t.o.Now().Add(g.backoff)
 	} else {
+		g.g, g.loaded, g.wanted = parsed, true, want
+		g.state = guideState(parsed, t.o.Now())
 		g.backoff = 0
-		g.next = t.o.Now().Add(g.cfg.Refresh)
+		g.next = t.o.Now().Add(cfg.Every)
 	}
 	p.mu.Unlock()
 	if err == nil {
-		t.putGuideChannels(ctx, p, name, parsed.Channels)
+		t.putGuideCache(ctx, p, parsed, want, t.o.Now())
+		t.putGuideChannels(ctx, p, parsed.Channels)
 	}
 	t.scheduleRender(p)
 }
 
-// putGuideChannels stores a guide's channel list for the ui's mapping
+// guideState counts g's channels and programmes.
+func guideState(g xmltv.Guide, fetchedAt time.Time) GuideState {
+	n := 0
+	for _, ps := range g.Programmes {
+		n += len(ps)
+	}
+	return GuideState{Channels: len(g.Channels), Programmes: n, FetchedAt: fetchedAt}
+}
+
+// putGuideChannels stores the guide's channel list for the ui's mapping
 // dropdown.
-func (t *Tuner) putGuideChannels(ctx context.Context, p *provider, name string, chans []xmltv.Channel) {
+func (t *Tuner) putGuideChannels(ctx context.Context, p *provider, chans []xmltv.Channel) {
 	type row struct {
 		ID          string `json:"id"`
 		DisplayName string `json:"displayName,omitempty"`
@@ -276,7 +335,7 @@ func (t *Tuner) putGuideChannels(ctx context.Context, p *provider, name string, 
 		}
 		rows = append(rows, r)
 	}
-	t.putJSON(ctx, GuideChannelsObject(p.key, name), rows)
+	t.putJSON(ctx, GuideChannelsObject(p.key), rows)
 }
 
 // putJSON stores v as gzip JSON.
@@ -301,35 +360,6 @@ func (t *Tuner) putGzip(ctx context.Context, name string, b []byte, contentType 
 	if _, err := t.o.Store.Put(ctx, name, &zb, objectMeta(name, contentType)); err != nil {
 		logging.FromContext(ctx).Warn("livetv: store object", "object", name, "err", err)
 	}
-}
-
-// loadStoredGuide serves a block's stored XEPG guide until the guides have been
-// fetched in this process, so a restart never blanks Plex's guide.
-func (t *Tuner) loadStoredGuide(p *provider, start string) {
-	if t.o.Store == nil {
-		return
-	}
-	_, rc, err := t.o.Store.Get(t.base, BlockGuideObject(p.key, start))
-	if err != nil {
-		return
-	}
-	defer func() { _ = rc.Close() }()
-	zr, err := gzip.NewReader(io.LimitReader(rc, xmltv.MaxBytes))
-	if err != nil {
-		return
-	}
-	b, err := io.ReadAll(io.LimitReader(zr, xmltv.MaxBytes))
-	if err != nil {
-		return
-	}
-	sum := sha256.Sum256(b)
-	p.mu.Lock()
-	if s := p.blocks[start]; s != nil && s.guideXML == nil {
-		s.guideXML, s.storedGuide = b, true
-		s.guideHash = hex.EncodeToString(sum[:])
-		s.storedGuideHash = s.guideHash
-	}
-	p.mu.Unlock()
 }
 
 // clamp cuts s to the CRD's error bound on a rune boundary.

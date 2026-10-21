@@ -27,7 +27,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -52,9 +51,10 @@ var (
 	now = time.Date(2026, 10, 7, 0, 0, 0, 0, time.UTC)
 )
 
-// provider is the fixture IPTV provider: the M3U fixture (its stream URLs
-// rewritten to this server), the XMLTV fixture, and an endless TS stream at
-// every /live/ path. It counts requests per path.
+// provider is the fixture Xtream panel: get.php serves the M3U fixture (its
+// stream URLs rewritten to this server), xmltv.php the XMLTV fixture,
+// player_api.php the account, and every /live/ path an endless TS stream. It
+// counts requests per path.
 type provider struct {
 	srv           *httptest.Server
 	hits          sync.Map // path -> *atomic.Int32
@@ -62,6 +62,7 @@ type provider struct {
 	failGuide     atomic.Bool
 	emptyPlaylist atomic.Bool  // #EXTM3U alone: a panel in maintenance, an expired line
 	headerDelay   atomic.Int64 // nanoseconds the playlist and guide take to answer
+	maxConns      atomic.Int32 // the account's max_connections
 }
 
 func newProvider(t *testing.T) *provider {
@@ -70,14 +71,20 @@ func newProvider(t *testing.T) *provider {
 	guideBody, err := os.ReadFile("../../../test/data/iptv/guide.xml")
 	require.NoError(t, err)
 	p := &provider{}
+	p.maxConns.Store(1)
 	p.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c, _ := p.hits.LoadOrStore(r.URL.Path, new(atomic.Int32))
 		c.(*atomic.Int32).Add(1)
-		if r.URL.Path == "/get.php" || r.URL.Path == "/guide.xml" {
+		if r.URL.Path == "/get.php" || r.URL.Path == "/xmltv.php" {
 			time.Sleep(time.Duration(p.headerDelay.Load()))
 		}
 		switch {
 		case r.URL.Path == "/get.php":
+			if r.URL.Query().Get("username") != "user" || r.URL.Query().Get("password") != "pass" ||
+				r.URL.Query().Get("output") != "ts" || r.URL.Query().Get("type") != "m3u_plus" {
+				http.Error(w, "bad request", http.StatusBadRequest)
+				return
+			}
 			if p.failPlaylist.Load() {
 				http.Error(w, "down", http.StatusInternalServerError)
 				return
@@ -87,12 +94,14 @@ func newProvider(t *testing.T) *provider {
 				return
 			}
 			_, _ = w.Write(bytes.ReplaceAll(m3uBody, []byte("http://provider.example"), []byte(p.srv.URL)))
-		case r.URL.Path == "/guide.xml":
+		case r.URL.Path == "/xmltv.php":
 			if p.failGuide.Load() {
 				http.Error(w, "down", http.StatusInternalServerError)
 				return
 			}
 			_, _ = w.Write(guideBody)
+		case r.URL.Path == "/player_api.php":
+			_, _ = fmt.Fprintf(w, `{"user_info":{"username":"user","password":"pass","auth":1,"status":"Active","exp_date":"1792556379","active_cons":"0","max_connections":"%d"}}`, p.maxConns.Load())
 		case strings.HasPrefix(r.URL.Path, "/live/"):
 			w.Header().Set("Content-Type", "video/mp2t")
 			pkt := make([]byte, 188)
@@ -123,27 +132,26 @@ func (p *provider) count(path string) int32 {
 }
 
 // The fixture provider's two blocks, as the controller packs them: Plex
-// reaches each through its pod's proxy at 169.254.47.1:<port>.
-const (
-	hostA = "169.254.47.1:47012" // block 1001: 1001-1003
-	hostB = "169.254.47.1:47013" // block 1004: 1004
-)
-
+// reaches each through its pod's proxy at 169.254.47.1:<port>, which sends
+// every request below the block's device endpoint.
 var (
 	deviceA = hdhr.BlockDeviceID("media", "news", "1001")
 	deviceB = hdhr.BlockDeviceID("media", "news", "1004")
 )
 
+// proxied are the headers a Plex pod's proxy on port sends.
+func proxied(port int) http.Header {
+	return http.Header{"X-Forwarded-Host": {fmt.Sprintf("169.254.47.1:%d", port)}, "X-Forwarded-Prefix": {"/"}}
+}
+
 func config(srv string) tuner.Config {
 	return tuner.Config{
-		Key: key,
+		Key: key, Server: srv, Username: "user", Password: "pass",
 		Blocks: []tuner.BlockConfig{
-			{Start: "1001", DeviceID: deviceA, FriendlyName: "Clustarr news 1001+", Port: 47012, Numbers: []string{"1001", "1002", "1003"}},
-			{Start: "1004", DeviceID: deviceB, FriendlyName: "Clustarr news 1004+", Port: 47013, Numbers: []string{"1004"}},
+			{Start: "1001", DeviceID: deviceA, FriendlyName: "Clustarr news 1001+", Numbers: []string{"1001", "1002", "1003"}},
+			{Start: "1004", DeviceID: deviceB, FriendlyName: "Clustarr news 1004+", Numbers: []string{"1004"}},
 		},
-		Tuners: 1, UserAgent: "clustarr",
-		PlaylistURL: srv + "/get.php?username=u&password=p", PlaylistRefresh: time.Hour, EPGSource: "XEPG",
-		Guides: []tuner.GuideConfig{{Name: "main", URL: srv + "/guide.xml?token=secret", Refresh: time.Hour}},
+		UserAgent: "clustarr", Every: time.Hour, EPGSource: "XEPG",
 		Filters: []filter.Rule{
 			{Type: "groupTitle", Match: "UK | Entertainment", Enabled: true},
 			{Type: "groupTitle", Match: "UK | News", Enabled: true},
@@ -157,8 +165,8 @@ func config(srv string) tuner.Config {
 			{Object: "news-d", Key: m3u.NameKey("Sports", "Sports 1"), Number: "1001", Active: true},      // duplicate number
 			{
 				Object: "news-e", Key: m3u.NameKey("Misc", "No Attributes"), Number: "1004", Active: true,
-				Map: &xmltv.Mapping{Guide: "nope", ChannelID: "x"},
-			}, // guide not found
+				Map: &xmltv.Mapping{Guide: tuner.GuideName, ChannelID: "x"},
+			}, // mapped to a channel the guide does not have
 		},
 		Buffer: 1 << 20, Linger: time.Second,
 	}
@@ -212,27 +220,43 @@ func startWith(t *testing.T, store events.ObjectStore, cfg tuner.Config, at time
 	return h
 }
 
-func (h *harness) get(t *testing.T, host, path string) (int, string) {
+// do sends one request with host as its Host and returns it whole.
+func (h *harness) do(t *testing.T, host, path string, header http.Header) *http.Response {
+	t.Helper()
 	req, err := http.NewRequest(http.MethodGet, h.front.URL+path, nil)
 	require.NoError(t, err)
 	req.Host = host
+	for k, vs := range header {
+		req.Header[k] = vs
+	}
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
+	return resp
+}
+
+func (h *harness) get(t *testing.T, host, path string) (int, string) {
+	t.Helper()
+	resp := h.do(t, host, path, nil)
 	defer func() { _ = resp.Body.Close() }()
 	b, _ := io.ReadAll(resp.Body)
 	return resp.StatusCode, string(b)
 }
 
+// fetched waits for the playlist, the guide and the account, and the render
+// that follows them.
 func (h *harness) fetched(t *testing.T) tuner.Snapshot {
 	var snap tuner.Snapshot
 	require.Eventually(t, func() bool {
 		s, ok := h.tn.Snapshot(key)
 		snap = s
-		return ok && s.PlaylistFetched && len(s.Guides) == 1 && !s.Guides[0].FetchedAt.IsZero() &&
+		return ok && s.PlaylistFetched && !s.Guide.FetchedAt.IsZero() && !s.Account.FetchedAt.IsZero() && s.Lineup.Active > 0 &&
 			len(s.Blocks) == 2 && s.Blocks[0].LineupHash != "" && s.Blocks[0].GuideHash != "" && s.Blocks[1].GuideHash != ""
 	}, 5*time.Second, 10*time.Millisecond)
 	return snap
 }
+
+// device is a path under block id's device endpoint.
+func device(id, file string) string { return tuner.DeviceEndpoint(key, id) + "/" + file }
 
 func lineupOf(t *testing.T, body string) []hdhr.LineupEntry {
 	t.Helper()
@@ -241,17 +265,38 @@ func lineupOf(t *testing.T, body string) []hdhr.LineupEntry {
 	return l
 }
 
+func numbers(l []hdhr.LineupEntry) []string {
+	out := make([]string, 0, len(l))
+	for _, e := range l {
+		out = append(out, e.GuideNumber)
+	}
+	return out
+}
+
 func TestALineupWaits503UntilThePlaylistIsFetched(t *testing.T) {
 	tn := tuner.New(tuner.Options{Store: newStore(t), HTTP: http.DefaultClient, Now: func() time.Time { return now }, Debounce: time.Millisecond})
 	tn.Apply(config("http://127.0.0.1:1"))
 	front := httptest.NewServer(tn.Handler())
 	defer front.Close()
-	req, _ := http.NewRequest(http.MethodGet, front.URL+"/lineup.json", nil)
-	req.Host = hostA
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := http.Get(front.URL + "/livetv/media/news/lineup.json")
 	require.NoError(t, err)
 	_ = resp.Body.Close()
 	assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+}
+
+// TestTheProviderIsFetchedFromItsPanel: the playlist is get.php with the
+// account's credentials, output=ts and type=m3u_plus; the guide xmltv.php;
+// the account player_api.php.
+func TestTheProviderIsFetchedFromItsPanel(t *testing.T) {
+	p := newProvider(t)
+	h := start(t, newStore(t), config(p.srv.URL))
+	s := h.fetched(t)
+	for _, path := range []string{"/get.php", "/xmltv.php", "/player_api.php"} {
+		assert.Equal(t, int32(1), p.count(path), path)
+	}
+	assert.Equal(t, "Active", s.Account.Status)
+	assert.Equal(t, time.Unix(1792556379, 0).UTC(), s.Account.ExpiresAt)
+	assert.Equal(t, 1, s.Account.MaxConnections)
 }
 
 // TestAPlaylistMayAnswerSlowerThanAStream: playlists and guides are fetched
@@ -268,141 +313,167 @@ func TestAPlaylistMayAnswerSlowerThanAStream(t *testing.T) {
 		o.Fetch = &http.Client{Transport: &http.Transport{ResponseHeaderTimeout: 5 * time.Second}}
 	})
 	h.fetched(t)
-	code, body := h.get(t, hostA, "/lineup.json")
+	code, body := h.get(t, "x", "/livetv/media/news/lineup.json")
 	require.Equal(t, http.StatusOK, code)
-	assert.Len(t, lineupOf(t, body), 2)
+	assert.Len(t, lineupOf(t, body), 3)
 }
 
-func TestEachBlockServesOnlyItsNumbersUnderTheHostPlexUsed(t *testing.T) {
+// TestEachDeviceServesOnlyItsBlockUnderTheURLsPlexCameBy: a block's device
+// endpoint serves its numbers, and every URL it hands out roots at the proxy
+// port Plex came by when the proxy names it, else at the endpoint itself.
+func TestEachDeviceServesOnlyItsBlockUnderTheURLsPlexCameBy(t *testing.T) {
 	p := newProvider(t)
 	h := start(t, newStore(t), config(p.srv.URL))
 	h.fetched(t)
 
-	code, body := h.get(t, hostA, "/lineup.json")
-	require.Equal(t, http.StatusOK, code)
+	resp := h.do(t, "livetv.media.svc", device(deviceA, "lineup.json"), proxied(47012))
+	b, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
 	assert.Equal(t, []hdhr.LineupEntry{
 		{GuideNumber: "1001", GuideName: "BBC One", URL: "http://169.254.47.1:47012/stream/1001"},
 		{GuideNumber: "1002", GuideName: "News, Live", URL: "http://169.254.47.1:47012/stream/1002"},
-	}, lineupOf(t, body), "block 1001's numbers only; the duplicate 1001 (news-d sorts after news-a) and the missing 1003 are absent")
-	code, body = h.get(t, hostB, "/lineup.json")
-	require.Equal(t, http.StatusOK, code)
-	assert.Equal(t, []hdhr.LineupEntry{
-		{GuideNumber: "1004", GuideName: "No Attributes", URL: "http://169.254.47.1:47013/stream/1004"},
-	}, lineupOf(t, body))
+	}, lineupOf(t, string(b)), "block 1001's numbers only; the duplicate 1001 (news-d sorts after news-a) and the missing 1003 are absent")
+	assert.NotEmpty(t, resp.Header.Get("ETag"))
 
-	code, body = h.get(t, "anything", "/livetv/media/news/1004/lineup.json")
-	require.Equal(t, http.StatusOK, code)
+	_, body := h.get(t, "anything", device(deviceB, "lineup.json"))
 	assert.Equal(t, []hdhr.LineupEntry{
-		{GuideNumber: "1004", GuideName: "No Attributes", URL: "http://anything/livetv/media/news/1004/stream/1004"},
-	}, lineupOf(t, body), "path routes carry the request's Host and path")
+		{GuideNumber: "1004", GuideName: "No Attributes", URL: "http://anything" + tuner.DeviceEndpoint(key, deviceB) + "/stream/1004"},
+	}, lineupOf(t, body), "without a proxy's headers, the endpoint's own URLs")
 
-	for _, c := range []struct{ host, device, base string }{
-		{hostA, deviceA, "http://169.254.47.1:47012"},
-		{hostB, deviceB, "http://169.254.47.1:47013"},
-	} {
-		code, disc := h.get(t, c.host, "/discover.json")
-		require.Equal(t, http.StatusOK, code)
+	for _, c := range []struct {
+		id   string
+		port int
+	}{{deviceA, 47012}, {deviceB, 47013}} {
+		resp := h.do(t, "livetv.media.svc", device(c.id, "discover.json"), proxied(c.port))
+		b, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
 		var d map[string]any
-		require.NoError(t, json.Unmarshal([]byte(disc), &d))
-		assert.Equal(t, c.device, d["DeviceID"])
-		assert.Equal(t, c.base, d["BaseURL"])
-		assert.Equal(t, c.base+"/lineup.json", d["LineupURL"])
+		require.NoError(t, json.Unmarshal(b, &d))
+		base := fmt.Sprintf("http://169.254.47.1:%d", c.port)
+		assert.Equal(t, c.id, d["DeviceID"])
+		assert.Equal(t, base, d["BaseURL"])
+		assert.Equal(t, base+"/lineup.json", d["LineupURL"])
 		assert.Equal(t, float64(1+tuner.SpareTuners), d["TunerCount"], "PMS may hold grabs the relay no longer streams; the relay's 503 is the limit")
 	}
+
+	code, _ := h.get(t, "x", device("FFFFFFFF", "discover.json"))
+	assert.Equal(t, http.StatusNotFound, code, "a device the provider has not")
+	code, _ = h.get(t, "x", "/discover.json")
+	assert.Equal(t, http.StatusNotFound, code, "no root route: a proxy sends every request below an endpoint")
 }
 
-func TestRootRoutesFindTheBlockByThePortInHost(t *testing.T) {
+func TestALineupHashDoesNotDependOnTheHost(t *testing.T) {
+	// The hash tells cluster-plex to save a DVR's map; a hash that moved with
+	// the URL Plex came by would save it on every pod.
+	p := newProvider(t)
+	h := start(t, newStore(t), config(p.srv.URL))
+	s := h.fetched(t)
+	_, _ = h.get(t, "a", device(deviceA, "lineup.json"))
+	_, _ = h.get(t, "b", device(deviceA, "lineup.json"))
+	again, _ := h.tn.Snapshot(key)
+	assert.Equal(t, s.Blocks, again.Blocks)
+	assert.NotEqual(t, s.Blocks[0].LineupHash, s.Blocks[1].LineupHash)
+}
+
+// TestARangeServesOnlyItsChannels: any range of the provider's lineup, its
+// device named by the range's start, its lineup URL carrying the range.
+func TestARangeServesOnlyItsChannels(t *testing.T) {
 	p := newProvider(t)
 	h := start(t, newStore(t), config(p.srv.URL))
 	h.fetched(t)
-	for _, host := range []string{hostA, "LIVETV.MEDIA.SVC:47012", "livetv.media.svc.:47012", "[::1]:47012"} {
-		code, body := h.get(t, host, "/discover.json")
-		assert.Equal(t, http.StatusOK, code, host)
-		assert.Contains(t, body, deviceA, "%s reaches block 1001", host)
+
+	_, body := h.get(t, "anything", "/livetv/media/news/lineup.json")
+	assert.Equal(t, []string{"1001", "1002", "1004"}, numbers(lineupOf(t, body)), "the whole lineup")
+	_, body = h.get(t, "anything", "/livetv/media/news/lineup.json?from=1002&to=1004")
+	assert.Equal(t, []hdhr.LineupEntry{
+		{GuideNumber: "1002", GuideName: "News, Live", URL: "http://anything/livetv/media/news/stream/1002"},
+		{GuideNumber: "1004", GuideName: "No Attributes", URL: "http://anything/livetv/media/news/stream/1004"},
+	}, lineupOf(t, body))
+	_, body = h.get(t, "anything", "/livetv/media/news/lineup.json?to=1001")
+	assert.Equal(t, []string{"1001"}, numbers(lineupOf(t, body)), "either end may be left out")
+	_, body = h.get(t, "anything", "/livetv/media/news/lineup.json?from=2000")
+	assert.Equal(t, "[]", body)
+
+	_, body = h.get(t, "anything", "/livetv/media/news/discover.json?from=1001&to=1002")
+	var d map[string]any
+	require.NoError(t, json.Unmarshal([]byte(body), &d))
+	assert.Equal(t, hdhr.BlockDeviceID("media", "news", "1001"), d["DeviceID"])
+	assert.Equal(t, "http://anything/livetv/media/news/lineup.json?from=1001&to=1002", d["LineupURL"])
+	assert.Equal(t, "Clustarr news 1001-1002", d["FriendlyName"])
+
+	for _, path := range []string{"/livetv/media/other/discover.json", "/livetv/media/news/nope.json"} {
+		code, _ := h.get(t, "x", path)
+		assert.Equal(t, http.StatusNotFound, code, path)
 	}
-	code, _ := h.get(t, "169.254.47.1", "/discover.json")
-	assert.Equal(t, http.StatusNotFound, code, "a Host with no port names no block")
-	code, _ = h.get(t, "169.254.47.1:47999", "/discover.json")
-	assert.Equal(t, http.StatusNotFound, code, "an unknown port is 404")
-	code, _ = h.get(t, "anything", "/livetv/media/news/1001/discover.json")
-	assert.Equal(t, http.StatusOK, code, "path routes work under any host")
-	code, _ = h.get(t, "anything", "/livetv/media/news/1002/discover.json")
-	assert.Equal(t, http.StatusNotFound, code, "a start no block has")
-	code, _ = h.get(t, hostA, "/livetv/media/other/1001/discover.json")
-	assert.Equal(t, http.StatusNotFound, code)
 }
 
-func TestSnapshotMarksDuplicateMissingAndGuideNotFound(t *testing.T) {
+func TestSnapshotMarksDuplicateAndMissing(t *testing.T) {
 	p := newProvider(t)
 	h := start(t, newStore(t), config(p.srv.URL))
 	s := h.fetched(t)
 	assert.True(t, s.Channels["news-c"].Missing)
 	assert.True(t, s.Channels["news-d"].Duplicate)
-	assert.True(t, s.Channels["news-e"].GuideNotFound)
-	assert.Equal(t, "main/bbc1.uk", s.Channels["news-a"].Guide)
-	assert.Equal(t, "main/news.uk", s.Channels["news-b"].Guide)
-	assert.Equal(t, "dummy/60", s.Channels["news-e"].Guide)
-	assert.Equal(t, 3, s.Lineup.Active)
-	assert.Equal(t, 1, s.Lineup.Missing)
-	assert.Equal(t, 1, s.Lineup.Unmapped)
+	assert.Equal(t, "xmltv/bbc1.uk", s.Channels["news-a"].Guide)
+	assert.Equal(t, "xmltv/news.uk", s.Channels["news-b"].Guide)
+	assert.Equal(t, "xmltv/x", s.Channels["news-e"].Guide)
+	assert.Equal(t, tuner.LineupState{Active: 3, Missing: 1, First: "1001", Last: "1004"}, s.Lineup)
 	assert.Equal(t, []int{2, 1}, []int{s.Blocks[0].Active, s.Blocks[1].Active})
 	assert.Equal(t, []string{"1001", "1004"}, []string{s.Blocks[0].Start, s.Blocks[1].Start})
-	assert.NotEqual(t, s.Blocks[0].LineupHash, s.Blocks[1].LineupHash)
 	assert.Equal(t, 6, s.Playlist.Entries)
 	assert.Equal(t, 4, s.Playlist.Candidates)
 	assert.Equal(t, 4, s.Playlist.Groups, "distinct non-empty group titles")
-	assert.Equal(t, 2, s.Guides[0].Channels)
-	assert.Equal(t, 3, s.Guides[0].Programmes, "bbc1.uk's two programmes in the window, and news.uk's one: it is auto-mapped too")
+	assert.Equal(t, 2, s.Guide.Channels)
+	assert.Equal(t, 3, s.Guide.Programmes, "bbc1.uk's two programmes in the window, and news.uk's one: it is auto-mapped too")
+	assert.Equal(t, 1, s.Tuners)
 }
 
-func TestEachBlocksGuideHoldsOnlyItsChannels(t *testing.T) {
+// TestARangesGuideHoldsOnlyItsChannelsAndCarriesAnETag: cluster-plex reloads
+// a DVR's guide when its ETag moves, and asks with If-None-Match.
+func TestARangesGuideHoldsOnlyItsChannelsAndCarriesAnETag(t *testing.T) {
 	p := newProvider(t)
 	h := start(t, newStore(t), config(p.srv.URL))
 	h.fetched(t)
+	resp := h.do(t, "x", "/livetv/media/news/xmltv.xml?from=1001&to=1002", nil)
+	b, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	guide := string(b)
+	tag := resp.Header.Get("ETag")
+	require.NotEmpty(t, tag)
+	assert.Contains(t, guide, `<channel id="1001">`)
+	assert.Contains(t, guide, `<channel id="1002">`)
+	assert.NotContains(t, guide, `<channel id="1004">`)
 
-	code, a := h.get(t, hostA, "/xmltv.xml")
-	require.Equal(t, http.StatusOK, code)
-	assert.Contains(t, a, `<channel id="1001">`)
-	assert.Contains(t, a, `<channel id="1002">`)
-	assert.NotContains(t, a, `<channel id="1004">`)
-	assert.Contains(t, a, `<title lang="en">Six O'Clock News</title>`, "the source's programme, verbatim")
-	code, b := h.get(t, hostB, "/xmltv.xml")
-	require.Equal(t, http.StatusOK, code)
-	assert.Contains(t, b, `<channel id="1004">`)
-	assert.NotContains(t, b, `<channel id="1001">`)
-	code, all := h.get(t, "x", "/livetv/media/news/xmltv.xml")
-	require.Equal(t, http.StatusOK, code)
-	assert.Contains(t, all, `<channel id="1001">`, "the provider-wide guide, for the UI and curl")
-	assert.Contains(t, all, `<channel id="1004">`)
+	resp = h.do(t, "x", "/livetv/media/news/xmltv.xml?from=1001&to=1002", http.Header{"If-None-Match": {tag}})
+	_ = resp.Body.Close()
+	assert.Equal(t, http.StatusNotModified, resp.StatusCode)
 
-	cfg := config(p.srv.URL)
-	cfg.EPGSource = "PMS"
-	h.tn.Apply(cfg)
-	require.Eventually(t, func() bool {
-		s, _ := h.tn.Snapshot(key)
-		return len(s.Blocks) == 2 && s.Blocks[0].GuideHash == "" && s.Blocks[1].GuideHash == ""
-	}, 2*time.Second, 10*time.Millisecond)
-	code, _ = h.get(t, hostA, "/xmltv.xml")
-	assert.Equal(t, http.StatusNotFound, code)
-	code, _ = h.get(t, "x", "/livetv/media/news/xmltv.xml")
-	assert.Equal(t, http.StatusNotFound, code)
-	s, _ := h.tn.Snapshot(key)
-	assert.Equal(t, "", s.Channels["news-a"].Guide, "no mapping under PMS")
+	_, whole := h.get(t, "x", "/livetv/media/news/xmltv.xml")
+	assert.Contains(t, whole, `<channel id="1004">`)
+
+	resp = h.do(t, "x", device(deviceB, "xmltv.xml"), nil)
+	b, _ = io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	assert.Contains(t, string(b), `<channel id="1004">`, "a device's guide holds its block's channels")
+	assert.NotContains(t, string(b), `<channel id="1001">`)
+	assert.NotEmpty(t, resp.Header.Get("ETag"))
+
+	resp = h.do(t, "x", "/livetv/media/news/lineup.json?from=1001&to=1002", nil)
+	_ = resp.Body.Close()
+	assert.NotEmpty(t, resp.Header.Get("ETag"), "a lineup carries one too")
 }
 
-func TestALineupHashDoesNotDependOnTheHost(t *testing.T) {
+func TestAPlaylistM3UListsTheRange(t *testing.T) {
 	p := newProvider(t)
 	h := start(t, newStore(t), config(p.srv.URL))
-	before := h.fetched(t)
-	h.get(t, hostA, "/lineup.json")
-	h.get(t, "anything", "/livetv/media/news/1001/lineup.json")
-	after, _ := h.tn.Snapshot(key)
-	assert.Equal(t, before.Blocks[0].LineupHash, after.Blocks[0].LineupHash)
-
-	other := start(t, newStore(t), config(p.srv.URL))
-	again := other.fetched(t)
-	assert.Equal(t, before.Blocks[0].LineupHash, again.Blocks[0].LineupHash, "a second tuner renders the same block identically")
-	assert.Equal(t, before.Blocks[1].LineupHash, again.Blocks[1].LineupHash)
+	h.fetched(t)
+	code, body := h.get(t, "x", "/livetv/media/news/playlist.m3u?from=1001&to=1002")
+	require.Equal(t, http.StatusOK, code)
+	assert.Equal(t, `#EXTM3U
+#EXTINF:-1 tvg-id="1001" tvg-chno="1001" tvg-name="BBC One" tvg-logo="http://logo.example/bbc1.png",BBC One
+http://x/livetv/media/news/stream/1001
+#EXTINF:-1 tvg-id="1002" tvg-chno="1002" tvg-name="News, Live" tvg-logo="",News, Live
+http://x/livetv/media/news/stream/1002
+`, body)
 }
 
 func TestAFailedRefreshKeepsServingTheLastLineup(t *testing.T) {
@@ -410,16 +481,16 @@ func TestAFailedRefreshKeepsServingTheLastLineup(t *testing.T) {
 	cfg := config(p.srv.URL)
 	h := start(t, newStore(t), cfg)
 	h.fetched(t)
-	_, before := h.get(t, hostA, "/lineup.json")
+	_, before := h.get(t, "x", "/livetv/media/news/lineup.json")
 	p.failPlaylist.Store(true)
-	cfg.PlaylistURL += "&type=m3u_plus"
+	cfg.Refresh = "now"
 	h.tn.Apply(cfg)
 	var s tuner.Snapshot
 	require.Eventually(t, func() bool { s, _ = h.tn.Snapshot(key); return s.Playlist.Error != "" }, 5*time.Second, 10*time.Millisecond)
 	assert.Contains(t, s.Playlist.Error, "/get.php")
-	assert.NotContains(t, s.Playlist.Error, "password")
-	assert.NotContains(t, s.Playlist.Error, "username=u")
-	_, after := h.get(t, hostA, "/lineup.json")
+	assert.NotContains(t, s.Playlist.Error, "pass")
+	assert.NotContains(t, s.Playlist.Error, "username=user")
+	_, after := h.get(t, "x", "/livetv/media/news/lineup.json")
 	assert.Equal(t, before, after)
 	assert.True(t, s.PlaylistFetched)
 }
@@ -436,7 +507,7 @@ func TestABurstOfChannelEditsRendersOnce(t *testing.T) {
 		h.tn.Apply(cfg)
 	}
 	require.Eventually(t, func() bool {
-		_, body := h.get(t, hostA, "/lineup.json")
+		_, body := h.get(t, "x", "/livetv/media/news/lineup.json")
 		return strings.Contains(body, "BBC One 19")
 	}, 2*time.Second, 10*time.Millisecond)
 	time.Sleep(50 * time.Millisecond)
@@ -446,115 +517,80 @@ func TestABurstOfChannelEditsRendersOnce(t *testing.T) {
 	assert.LessOrEqual(t, h.notifed.Load()-base, int32(3))
 }
 
-func TestTheGuidesAreStoredAndServedAfterARestart(t *testing.T) {
-	p := newProvider(t)
-	store := newStore(t)
-	h := start(t, store, config(p.srv.URL))
-	h.fetched(t)
-	_, guide := h.get(t, hostA, "/xmltv.xml")
-	require.Eventually(t, func() bool {
-		_, err := store.Info(context.Background(), tuner.BlockGuideObject(key, "1001"))
-		return err == nil
-	}, 2*time.Second, 10*time.Millisecond)
-
-	p.failGuide.Store(true)
-	h2 := start(t, store, config(p.srv.URL))
-	require.Eventually(t, func() bool { code, _ := h2.get(t, hostA, "/xmltv.xml"); return code == http.StatusOK }, 2*time.Second, 10*time.Millisecond)
-	_, again := h2.get(t, hostA, "/xmltv.xml")
-	assert.Equal(t, guide, again, "the stored copy, while the guide cannot be fetched")
-	require.Eventually(t, func() bool { s, _ := h2.tn.Snapshot(key); return len(s.Guides) == 1 && s.Guides[0].Error != "" }, 5*time.Second, 10*time.Millisecond)
-	_, still := h2.get(t, hostA, "/xmltv.xml")
-	assert.Equal(t, guide, still, "a failed fetch never replaces the stored guide with an empty one")
-}
-
-// TestAKeptPlaylistTunesAfterARestartWhileTheProviderIsDown: a restart
-// used to leave a provider that could not be fetched with no lineup and no
-// stream, so every tune 404 (talos, 2026-10-20). The playlist a fetch kept
-// is restored: the lineup is the fetched one, a channel streams, and the
-// status serves the last good playlist with the fetch's error, until a fetch
-// succeeds again.
-func TestAKeptPlaylistTunesAfterARestartWhileTheProviderIsDown(t *testing.T) {
+// TestAProviderStartsFromItsCache: a restart serves the cached playlist and
+// guide at once -- the lineup, the streams and the guide -- and fetches
+// neither while it is younger than the refresh, even with the panel down
+// (talos, 2026-10-20: a restart while the panel answered too slowly left
+// every tune 404).
+func TestAProviderStartsFromItsCache(t *testing.T) {
 	p := newProvider(t)
 	store := newStore(t)
 	cfg := config(p.srv.URL)
 	h := start(t, store, cfg)
 	first := h.fetched(t)
-	_, lineup := h.get(t, hostA, "/lineup.json")
-	var kept tuner.KeptPlaylist
+	_, lineup := h.get(t, "x", "/livetv/media/news/lineup.json")
+	_, guide := h.get(t, "x", "/livetv/media/news/xmltv.xml")
+	ctx := context.Background()
 	require.Eventually(t, func() bool {
-		var ok bool
-		kept, ok = h.tn.Kept(key)
-		return ok
+		_, e1 := store.Info(ctx, tuner.PlaylistObject(key))
+		_, e2 := store.Info(ctx, tuner.GuideCacheObject(key))
+		return e1 == nil && e2 == nil
 	}, 2*time.Second, 10*time.Millisecond)
-	keys := make([]string, 0, len(kept.Channels))
-	for _, e := range kept.Channels {
-		keys = append(keys, e.Key)
-		assert.NotEmpty(t, e.URL, e.Key)
-	}
-	want := []string{m3u.NameKey("Misc", "No Attributes"), m3u.NameKey("Sports", "Sports 1"), m3u.NameKey("UK | News", "News, Live"), "t:bbc1.uk"}
-	slices.Sort(want)
-	assert.Equal(t, want, keys, "every configured channel the playlist holds, the duplicate too, in key order; not the missing one")
-	assert.Equal(t, first.Playlist.Entries, kept.Entries)
-	assert.Equal(t, first.Playlist.Candidates, kept.Candidates)
-	require.Eventually(t, func() bool { _, err := store.Info(context.Background(), tuner.PlaylistObject(key)); return err == nil }, 2*time.Second, 10*time.Millisecond)
 
 	p.failPlaylist.Store(true)
-	h2 := start(t, store, cfg)
-	h2.tn.Restore(key, kept)
+	p.failGuide.Store(true)
+	playlists, guides := p.count("/get.php"), p.count("/xmltv.php")
+	h2 := startAt(t, store, cfg, now.Add(30*time.Minute))
 	require.Eventually(t, func() bool {
-		code, body := h2.get(t, hostA, "/lineup.json")
+		code, body := h2.get(t, "x", "/livetv/media/news/lineup.json")
 		return code == http.StatusOK && body == lineup
-	}, 2*time.Second, 10*time.Millisecond, "the restored lineup is the fetched one")
-	req, _ := http.NewRequest(http.MethodGet, h2.front.URL+"/stream/1001", nil)
-	req.Host = hostA
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, resp.StatusCode)
+	}, 2*time.Second, 10*time.Millisecond, "the cached lineup is the fetched one")
+	_, guide2 := h2.get(t, "x", "/livetv/media/news/xmltv.xml")
+	assert.Equal(t, guide, guide2, "and so is the guide")
+
+	resp := h2.do(t, "x", "/livetv/media/news/stream/1001", nil)
 	head := make([]byte, 188)
-	_, err = io.ReadFull(resp.Body, head)
+	_, err := io.ReadFull(resp.Body, head)
 	_ = resp.Body.Close()
-	require.NoError(t, err)
+	require.NoError(t, err, "a cached stream URL, its credentials put back, streams")
 	assert.Equal(t, byte(0x47), head[0])
 
-	require.Eventually(t, func() bool { s, _ := h2.tn.Snapshot(key); return s.Playlist.Error != "" }, 5*time.Second, 10*time.Millisecond)
-	s, _ := h2.tn.Snapshot(key)
-	assert.True(t, s.PlaylistFetched, "serving the last good playlist")
-	assert.Equal(t, first.Playlist.Entries, s.Playlist.Entries, "the whole playlist's counts, not the kept channels'")
-	assert.Equal(t, kept.Hash, s.Playlist.Hash)
-	_, ok := h2.tn.Kept(key)
-	assert.False(t, ok, "a restored playlist is not kept again")
-	_, rc, err := store.Get(context.Background(), tuner.PlaylistObject(key))
-	require.NoError(t, err)
-	zr, err := gzip.NewReader(rc)
-	require.NoError(t, err)
-	var doc struct {
-		Entries []json.RawMessage `json:"entries"`
-	}
-	require.NoError(t, json.NewDecoder(zr).Decode(&doc))
-	_ = rc.Close()
-	assert.Len(t, doc.Entries, first.Playlist.Entries, "the ui's playlist object is still the whole playlist")
-
-	p.failPlaylist.Store(false)
-	cfg.Refresh = "now"
-	h2.tn.Apply(cfg)
-	require.Eventually(t, func() bool { _, ok := h2.tn.Kept(key); return ok }, 5*time.Second, 10*time.Millisecond)
-	s, _ = h2.tn.Snapshot(key)
-	assert.Empty(t, s.Playlist.Error)
+	var s tuner.Snapshot
+	require.Eventually(t, func() bool { s, _ = h2.tn.Snapshot(key); return len(s.Blocks) == 2 && s.Blocks[1].GuideHash != "" }, 2*time.Second, 10*time.Millisecond)
+	assert.Equal(t, first.Blocks, s.Blocks, "the blocks' hashes hold, so cluster-plex saves no map and reloads no guide")
+	assert.Equal(t, first.Playlist, s.Playlist, "the whole playlist's counts and its fetch")
+	assert.Equal(t, first.Guide.Programmes, s.Guide.Programmes)
+	time.Sleep(100 * time.Millisecond)
+	assert.Equal(t, playlists, p.count("/get.php"), "a fresh cache is not fetched again")
+	assert.Equal(t, guides, p.count("/xmltv.php"))
 }
 
-// TestRestoreNeverReplacesAFetchedPlaylist: a kept playlist is for a tuner
-// that has fetched nothing; one that has keeps what it fetched.
-func TestRestoreNeverReplacesAFetchedPlaylist(t *testing.T) {
+func TestAStaleCacheIsServedAndFetchedAgain(t *testing.T) {
 	p := newProvider(t)
-	h := start(t, newStore(t), config(p.srv.URL))
+	store := newStore(t)
+	cfg := config(p.srv.URL)
+	h := start(t, store, cfg)
 	h.fetched(t)
-	_, before := h.get(t, hostA, "/lineup.json")
-	h.tn.Restore(key, tuner.KeptPlaylist{Hash: "old", Channels: []m3u.Entry{{Key: "t:bbc1.uk", Name: "Old", URL: "http://old.example/1"}}})
-	time.Sleep(50 * time.Millisecond)
-	_, after := h.get(t, hostA, "/lineup.json")
-	assert.JSONEq(t, before, after)
-	s, _ := h.tn.Snapshot(key)
-	assert.NotEqual(t, "old", s.Playlist.Hash)
+	require.Eventually(t, func() bool { _, err := store.Info(context.Background(), tuner.PlaylistObject(key)); return err == nil }, 2*time.Second, 10*time.Millisecond)
+	playlists := p.count("/get.php")
+	h2 := startAt(t, store, cfg, now.Add(2*time.Hour))
+	code, _ := h2.get(t, "x", "/livetv/media/news/lineup.json")
+	assert.Equal(t, http.StatusOK, code)
+	require.Eventually(t, func() bool { return p.count("/get.php") == playlists+1 }, 2*time.Second, 10*time.Millisecond, "older than the refresh: fetched again")
+}
+
+func TestACacheOfAnotherAccountIsNotServed(t *testing.T) {
+	p := newProvider(t)
+	store := newStore(t)
+	cfg := config(p.srv.URL)
+	h := start(t, store, cfg)
+	h.fetched(t)
+	require.Eventually(t, func() bool { _, err := store.Info(context.Background(), tuner.PlaylistObject(key)); return err == nil }, 2*time.Second, 10*time.Millisecond)
+	other := cfg
+	other.Username = "someone"
+	h2 := start(t, store, other)
+	code, _ := h2.get(t, "x", "/livetv/media/news/lineup.json")
+	assert.Equal(t, http.StatusServiceUnavailable, code, "another account's streams are not this one's")
 }
 
 func TestNoStoredOrReportedStringCarriesACredential(t *testing.T) {
@@ -567,6 +603,7 @@ func TestNoStoredOrReportedStringCarriesACredential(t *testing.T) {
 	infos, err := store.List(ctx, "")
 	require.NoError(t, err)
 	require.NotEmpty(t, infos)
+	secrets := []string{"/live/user/pass/", "username=user", "password=pass", "/user/", "/pass/"}
 	for _, info := range infos {
 		_, rc, err := store.Get(ctx, info.Name)
 		require.NoError(t, err)
@@ -575,11 +612,11 @@ func TestNoStoredOrReportedStringCarriesACredential(t *testing.T) {
 		if zr, err := gzip.NewReader(bytes.NewReader(body)); err == nil {
 			body, _ = io.ReadAll(zr)
 		}
-		for _, secret := range []string{"/live/user/pass/", "password", "token=secret", "username=u"} {
+		for _, secret := range secrets {
 			assert.NotContains(t, string(body), secret, info.Name)
 		}
 	}
-	for _, secret := range []string{"/live/user/pass/", "password", "token=secret", "username=u"} {
+	for _, secret := range secrets {
 		assert.NotContains(t, fmt.Sprintf("%+v", s), secret)
 	}
 	_, rc, err := store.Get(ctx, tuner.PlaylistObject(key))
@@ -587,42 +624,50 @@ func TestNoStoredOrReportedStringCarriesACredential(t *testing.T) {
 	zr, err := gzip.NewReader(rc)
 	require.NoError(t, err)
 	var doc struct {
-		Entries []map[string]any `json:"entries"`
+		Entries []map[string]string `json:"entries"`
 	}
 	require.NoError(t, json.NewDecoder(zr).Decode(&doc))
 	_ = rc.Close()
-	require.Len(t, doc.Entries, 6)
-	for _, e := range doc.Entries {
-		for k := range e {
-			assert.Contains(t, []string{"key", "name", "group", "tvgID", "tvgName", "logo"}, k)
-		}
-	}
-	_, err = store.Info(ctx, tuner.GuideChannelsObject(key, "main"))
-	assert.NoError(t, err)
+	require.Len(t, doc.Entries, 6, "every live entry")
+	assert.Equal(t, p.srv.URL+"/live/{username}/{password}/1001.ts", doc.Entries[0]["url"])
 }
 
 func TestAStreamRequestReachesTheRelay(t *testing.T) {
 	p := newProvider(t)
 	h := start(t, newStore(t), config(p.srv.URL))
 	h.fetched(t)
-	// Block 1004 does not hold 1001: a stream is the provider's, under any block.
-	req, _ := http.NewRequest(http.MethodGet, h.front.URL+"/stream/1001", nil)
-	req.Host = hostB
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
+	// A stream is the provider's: block 1004's device serves 1001 too.
+	resp := h.do(t, "livetv.media.svc", device(deviceB, "stream/1001"), proxied(47013))
 	defer func() { _ = resp.Body.Close() }()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Equal(t, "video/mp2t", resp.Header.Get("Content-Type"))
 	head := make([]byte, 188*2)
-	_, err = io.ReadFull(resp.Body, head)
+	_, err := io.ReadFull(resp.Body, head)
 	require.NoError(t, err)
 	assert.Equal(t, byte(0x47), head[0])
 	assert.Equal(t, byte(0x47), head[188])
 	assert.Equal(t, int32(1), p.count("/live/user/pass/1001.ts"))
 	s, _ := h.tn.Snapshot(key)
 	assert.Equal(t, 1, s.TunersInUse)
-	code, _ := h.get(t, hostA, "/stream/9999")
+	code, _ := h.get(t, "x", "/livetv/media/news/stream/9999")
 	assert.Equal(t, http.StatusNotFound, code)
+}
+
+// TestTheAccountSetsTheTuners: the relay's limit is the account's
+// max_connections unless spec.tuners overrides it.
+func TestTheAccountSetsTheTuners(t *testing.T) {
+	p := newProvider(t)
+	p.maxConns.Store(3)
+	cfg := config(p.srv.URL)
+	h := start(t, newStore(t), cfg)
+	s := h.fetched(t)
+	assert.Equal(t, 3, s.Tuners)
+	_, body := h.get(t, "x", device(deviceA, "discover.json"))
+	assert.Contains(t, body, fmt.Sprintf(`"TunerCount":%d`, 3+tuner.SpareTuners))
+
+	cfg.Tuners = 2
+	h.tn.Apply(cfg)
+	require.Eventually(t, func() bool { s, _ := h.tn.Snapshot(key); return s.Tuners == 2 }, 2*time.Second, 10*time.Millisecond, "the override wins")
 }
 
 func TestANewRefreshValueRefetchesEverySource(t *testing.T) {
@@ -630,10 +675,12 @@ func TestANewRefreshValueRefetchesEverySource(t *testing.T) {
 	cfg := config(p.srv.URL)
 	h := start(t, newStore(t), cfg)
 	h.fetched(t)
-	pl, gd := p.count("/get.php"), p.count("/guide.xml")
+	pl, gd, ac := p.count("/get.php"), p.count("/xmltv.php"), p.count("/player_api.php")
 	cfg.Refresh = "1"
 	h.tn.Apply(cfg)
-	require.Eventually(t, func() bool { return p.count("/get.php") == pl+1 && p.count("/guide.xml") == gd+1 }, 5*time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool {
+		return p.count("/get.php") == pl+1 && p.count("/xmltv.php") == gd+1 && p.count("/player_api.php") == ac+1
+	}, 5*time.Second, 10*time.Millisecond)
 	h.tn.Apply(cfg) // unchanged
 	time.Sleep(1500 * time.Millisecond)
 	assert.Equal(t, pl+1, p.count("/get.php"))
@@ -647,9 +694,9 @@ func TestRemoveEndsTheProvider(t *testing.T) {
 	h := start(t, newStore(t), config(p.srv.URL))
 	h.fetched(t)
 	h.tn.Remove(key)
-	code, _ := h.get(t, hostA, "/discover.json")
+	code, _ := h.get(t, "x", device(deviceA, "discover.json"))
 	assert.Equal(t, http.StatusNotFound, code)
-	code, _ = h.get(t, "x", "/livetv/media/news/1001/discover.json")
+	code, _ = h.get(t, "x", "/livetv/media/news/discover.json")
 	assert.Equal(t, http.StatusNotFound, code)
 	_, ok := h.tn.Snapshot(key)
 	assert.False(t, ok)
@@ -662,20 +709,17 @@ func TestAFailedFirstFetchIsRetriedLongBeforeTheRefresh(t *testing.T) {
 	p.failPlaylist.Store(true)
 	p.failGuide.Store(true)
 	cfg := config(p.srv.URL)
-	cfg.PlaylistRefresh, cfg.Guides[0].Refresh = 24*time.Hour, 12*time.Hour
+	cfg.Every = 24 * time.Hour
 	h := start(t, newStore(t), cfg)
 	require.Eventually(t, func() bool { s, _ := h.tn.Snapshot(key); return s.Playlist.Error != "" }, 5*time.Second, 10*time.Millisecond)
 
 	p.failPlaylist.Store(false)
 	h.clock.Add(int64(time.Minute))
 	require.Eventually(t, func() bool { s, _ := h.tn.Snapshot(key); return s.PlaylistFetched }, 5*time.Second, 10*time.Millisecond, "the playlist is retried within a minute")
-	require.Eventually(t, func() bool { s, _ := h.tn.Snapshot(key); return len(s.Guides) == 1 && s.Guides[0].Error != "" }, 5*time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool { s, _ := h.tn.Snapshot(key); return s.Guide.Error != "" }, 5*time.Second, 10*time.Millisecond)
 	p.failGuide.Store(false)
 	h.clock.Add(int64(time.Minute))
-	require.Eventually(t, func() bool {
-		s, _ := h.tn.Snapshot(key)
-		return len(s.Guides) == 1 && !s.Guides[0].FetchedAt.IsZero()
-	}, 5*time.Second, 10*time.Millisecond, "and so is the guide")
+	require.Eventually(t, func() bool { s, _ := h.tn.Snapshot(key); return !s.Guide.FetchedAt.IsZero() }, 5*time.Second, 10*time.Millisecond, "and so is the guide")
 }
 
 func TestAPlaylistWithNoLiveEntriesKeepsTheLastOne(t *testing.T) {
@@ -685,16 +729,16 @@ func TestAPlaylistWithNoLiveEntriesKeepsTheLastOne(t *testing.T) {
 	cfg := config(p.srv.URL)
 	h := start(t, newStore(t), cfg)
 	before := h.fetched(t)
-	_, lineup := h.get(t, hostA, "/lineup.json")
+	_, lineup := h.get(t, "x", "/livetv/media/news/lineup.json")
 
 	p.emptyPlaylist.Store(true)
-	cfg.PlaylistURL += "&type=m3u_plus"
+	cfg.Refresh = "now"
 	h.tn.Apply(cfg)
 	var s tuner.Snapshot
 	require.Eventually(t, func() bool { s, _ = h.tn.Snapshot(key); return s.Playlist.Error != "" }, 5*time.Second, 10*time.Millisecond)
 	assert.Equal(t, before.Playlist.Entries, s.Playlist.Entries)
 	assert.Equal(t, before.Channels, s.Channels, "no channel goes Missing")
-	_, again := h.get(t, hostA, "/lineup.json")
+	_, again := h.get(t, "x", "/livetv/media/news/lineup.json")
 	assert.Equal(t, lineup, again)
 }
 
@@ -716,8 +760,8 @@ func TestTheGuideHashMovesWithTheGuideNotTheClock(t *testing.T) {
 
 	cfg.Tuners = 2 // a change that does not touch the guide
 	h.tn.Apply(cfg)
-	time.Sleep(100 * time.Millisecond)
-	s, _ := h.tn.Snapshot(key)
+	var s tuner.Snapshot
+	require.Eventually(t, func() bool { s, _ = h.tn.Snapshot(key); return s.Tuners == 2 }, 2*time.Second, 10*time.Millisecond)
 	require.Len(t, s.Blocks, 2)
 	assert.Equal(t, before.Blocks[0].GuideHash, s.Blocks[0].GuideHash)
 	assert.Equal(t, before.Blocks[1].GuideHash, s.Blocks[1].GuideHash, "the dummy guide's hours are the day's")
@@ -745,11 +789,7 @@ func TestATunerCountChangeIsItsOwnNotice(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	snapshots := h.notifed.Load()
 
-	req, err := http.NewRequest(http.MethodGet, h.front.URL+"/stream/1001", nil)
-	require.NoError(t, err)
-	req.Host = hostA
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
+	resp := h.do(t, "x", "/livetv/media/news/stream/1001", nil)
 	_, _ = io.CopyN(io.Discard, resp.Body, 4096)
 	require.Eventually(t, func() bool { return h.tuners.Load() > 0 }, 2*time.Second, 10*time.Millisecond)
 	_ = resp.Body.Close()
@@ -766,8 +806,12 @@ func TestEveryStoredObjectDescribesItself(t *testing.T) {
 	h.fetched(t)
 	ctx := context.Background()
 	require.Eventually(t, func() bool {
-		_, err := store.Info(ctx, tuner.BlockGuideObject(key, "1001"))
-		return err == nil
+		for _, name := range []string{tuner.PlaylistObject(key), tuner.GuideCacheObject(key), tuner.GuideChannelsObject(key), tuner.GuideObject(key)} {
+			if _, err := store.Info(ctx, name); err != nil {
+				return false
+			}
+		}
+		return true
 	}, 5*time.Second, 10*time.Millisecond)
 	infos, err := store.List(ctx, "")
 	require.NoError(t, err)
@@ -781,6 +825,7 @@ func TestEveryStoredObjectDescribesItself(t *testing.T) {
 		kinds[kind] = true
 	}
 	assert.Equal(t, map[string]bool{
-		events.LiveTVMetaKindPlaylist: true, events.LiveTVMetaKindGuideChannels: true, events.LiveTVMetaKindGuide: true,
+		events.LiveTVMetaKindPlaylist: true, events.LiveTVMetaKindGuideCache: true,
+		events.LiveTVMetaKindGuideChannels: true, events.LiveTVMetaKindGuide: true,
 	}, kinds)
 }

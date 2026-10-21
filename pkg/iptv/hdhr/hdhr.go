@@ -29,11 +29,13 @@ import (
 	"strings"
 )
 
-// Device is one emulated HDHomeRun.
+// Device is one emulated HDHomeRun. LineupURL defaults to
+// BaseURL + "/lineup.json".
 type Device struct {
 	FriendlyName string
 	DeviceID     string
 	BaseURL      string
+	LineupURL    string
 	TunerCount   int
 }
 
@@ -44,9 +46,9 @@ type LineupEntry struct {
 	URL         string `json:"URL"`
 }
 
-// BlockDeviceID is the device id of the block starting at start in provider
-// namespace/name (Live TV spec §3.1): eight uppercase hex digits of a SHA-256
-// of "namespace/name/start", so a recreated provider gives the same devices.
+// BlockDeviceID is the device id of the range starting at start in provider
+// namespace/name: eight uppercase hex digits of a SHA-256 of
+// "namespace/name/start", so a recreated provider gives the same devices.
 func BlockDeviceID(namespace, name, start string) string {
 	sum := sha256.Sum256([]byte(namespace + "/" + name + "/" + start))
 	return strings.ToUpper(hex.EncodeToString(sum[:4]))
@@ -67,10 +69,14 @@ type discover struct {
 
 // Discover renders discover.json.
 func Discover(d Device) []byte {
+	lineup := d.LineupURL
+	if lineup == "" {
+		lineup = d.BaseURL + "/lineup.json"
+	}
 	return mustJSON(discover{
 		FriendlyName: d.FriendlyName, Manufacturer: "Silicondust", ModelNumber: "HDTC-2US",
 		FirmwareName: "hdhomeruntc_atsc", FirmwareVersion: "20150826", DeviceID: d.DeviceID,
-		DeviceAuth: "clustarr", TunerCount: d.TunerCount, BaseURL: d.BaseURL, LineupURL: d.BaseURL + "/lineup.json",
+		DeviceAuth: "clustarr", TunerCount: d.TunerCount, BaseURL: d.BaseURL, LineupURL: lineup,
 	})
 }
 

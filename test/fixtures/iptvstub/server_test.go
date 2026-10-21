@@ -50,7 +50,7 @@ func TestTheStubServesAPlaylistAGuideAndEndlessStreams(t *testing.T) {
 		assert.Equal(t, srv.URL+"/live/e2e/secret/"+string(rune('1'+i))+".ts", e.URL)
 	}
 
-	res, err = http.Get(srv.URL + "/guide.xml")
+	res, err = http.Get(srv.URL + "/xmltv.php")
 	require.NoError(t, err)
 	now := time.Now()
 	g, err := xmltv.Parse(res.Body, map[string]bool{"e2e.1": true}, now, now.Add(24*time.Hour))

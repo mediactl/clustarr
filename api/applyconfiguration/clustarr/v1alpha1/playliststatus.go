@@ -26,13 +26,15 @@ import (
 // PlaylistStatusApplyConfiguration represents a declarative configuration of the PlaylistStatus type for use
 // with apply.
 //
-// PlaylistStatus describes the last playlist fetch.
+// PlaylistStatus describes the playlist the tuner serves.
 type PlaylistStatusApplyConfiguration struct {
-	Entries    *int32   `json:"entries,omitempty"`
-	Groups     *int32   `json:"groups,omitempty"`
-	Candidates *int32   `json:"candidates,omitempty"`
-	FetchedAt  *v1.Time `json:"fetchedAt,omitempty"`
-	Hash       *string  `json:"hash,omitempty"`
+	Entries    *int32 `json:"entries,omitempty"`
+	Groups     *int32 `json:"groups,omitempty"`
+	Candidates *int32 `json:"candidates,omitempty"`
+	// FetchedAt is when the playlist served was fetched, from the panel or
+	// before a restart.
+	FetchedAt *v1.Time `json:"fetchedAt,omitempty"`
+	Hash      *string  `json:"hash,omitempty"`
 	// Error is the last fetch's error, redacted; the last good playlist is
 	// still served.
 	Error *string `json:"error,omitempty"`

@@ -42,7 +42,8 @@ import (
 // Leases (Live TV spec §6.1); the controller only reads them.
 const LabelLeaseProvider = "clustarr.io/iptv-provider"
 
-// BlockGuidePath is a block's XEPG guide under its address.
+// BlockGuidePath is a block's XEPG guide under its port, and so under its
+// endpoint.
 const BlockGuidePath = "/xmltv.xml"
 
 // PortRange is the ports blocks are allocated from (--livetv-port-range).
@@ -228,6 +229,7 @@ func (r *Reconciler) planBlocks(ctx context.Context, p *clustarrv1.IPTVProvider,
 				bs.DeviceID = p.Spec.Device.ID
 			}
 		}
+		bs.Endpoint = tuner.DeviceEndpoint(types.NamespacedName{Namespace: p.Namespace, Name: p.Name}, bs.DeviceID)
 		if bs.Port == 0 || taken[bs.Port] || usedByOthers(bs.Port) {
 			port, err := allocate()
 			if err != nil {
@@ -321,7 +323,7 @@ func (r *Reconciler) owners(ctx context.Context, namespace string, bs []clustarr
 func tunerBlocks(pl plan) []tuner.BlockConfig {
 	out := make([]tuner.BlockConfig, 0, len(pl.blocks))
 	for _, b := range pl.blocks {
-		out = append(out, tuner.BlockConfig{Start: b.Start, DeviceID: b.DeviceID, FriendlyName: b.FriendlyName, Port: b.Port, Numbers: pl.numbers[b.Start]})
+		out = append(out, tuner.BlockConfig{Start: b.Start, DeviceID: b.DeviceID, FriendlyName: b.FriendlyName, Numbers: pl.numbers[b.Start]})
 	}
 	return out
 }

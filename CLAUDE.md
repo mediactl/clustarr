@@ -244,12 +244,33 @@ renames every file its own way and wins when both are on.
 ## Live TV
 
 IPTV for Plex, as xTeVe does it (2026-10-07,
-`docs/superpowers/specs/2026-10-07-iptv-live-tv-design.md`, phase 1). An
-`IPTVProvider` (`clustarr.io`) names a playlist (`url`, or `urlFrom` a
-Secret: Xtream URLs carry the account's credentials, and every URL that is
-logged, put in status or an error passes `iptv.Redact`), XMLTV `guides`,
-`filters`, `tuners` (the account's connections) and `epgSource` (`XEPG`,
-clustarr's guide, or `PMS`); an `IPTVChannel` is one channel turned on,
+`docs/superpowers/specs/2026-10-07-iptv-live-tv-design.md`, phase 1;
+amended 2026-10-20 by `2026-10-20-iptv-xtream-ranges-design.md`).
+
+**The provider.** An `IPTVProvider` (`clustarr.io`) is an Xtream Codes
+account. Only two fields are required:
+- `server`: a host, host:port or URL, https unless it says http.
+- `credentialsRef`: a Secret with `username` and `password`, trimmed of
+  stray whitespace. Every URL that is logged, put in status or an error
+  passes `iptv.Redact`.
+
+The tuner fetches three things from the panel:
+- the playlist, `<server>/get.php?username&password&output=ts&type=m3u_plus`;
+- the guide, `xmltv.php`;
+- the account, `player_api.php`. Its `max_connections` is the tuner limit
+  unless `tuners` overrides it; `status.account` shows its status, expiry
+  and connections.
+
+The playlist and guide are fetched every `refresh` (default 24h). Both are
+cached in the `clustarr-livetv` object store, and a restart serves the
+caches and fetches only a stale one:
+- the playlist cache (`PlaylistObject`) keeps every live entry, its stream
+  URL templated with `{username}`/`{password}`, so it holds no credential;
+- the guide cache (`GuideCacheObject`) keeps every channel, with programmes
+  only for the mapped ones.
+
+Optional fields are `filters` and `epgSource` (`XEPG`, clustarr's guide,
+or `PMS`). An `IPTVChannel` is one channel turned on,
 `key` (immutable, `t:<tvg-id>` or a name key) and `number`. The provider
 controller (`clustarr-livetv`) and the channel controller
 (`clustarr-livetv-channel`) are their status's sole writers. `pkg/iptv/m3u`
@@ -261,18 +282,33 @@ a provider's active channels are split into **blocks** (`pkg/iptv/blocks`):
 contiguous numbers, sticky boundaries, a first packing filled to 75%, an
 overflowing block split at its median, `dvr.maxChannels` (default 400, at
 most 450) and a 30,000-byte map budget each, at most 32. Each block is one
-HDHomeRun device and one Plex DVR: its own port from `--livetv-port-range`
-(default `47000-47999`; unique across providers, kept for life -- a split
-never moves a surviving block's port), its own device ID
-(`sha256(ns/name/start)[:4]`, or `spec.device.id`, checked unique), spans
-disjoint across providers, and its owner read from cluster-plex's Lease
-`livetv-<device id>` into `status.blocks[].owner`. The tuner
-(`app/livetv/tuner`, the manager's `--livetv-bind-address`, `:5004`) routes
-by the port in `Host` -- cluster-plex proxies each block's port from the
-link-local `169.254.47.1` in every Plex pod to the one `livetv` Service
-(chart `<release>-livetv`, `status.address`), so PMS's own `Host` reaches
-the tuner -- or by path (`/livetv/<ns>/<name>/<start>/...`), serves each
-block's lineup and XEPG guide, and relays streams per provider
+HDHomeRun device and one Plex DVR. Each block gets:
+- its own port from `--livetv-port-range` (default `47000-47999`). Ports
+  are unique across providers and kept for life: a split never moves a
+  surviving block's port.
+- its own device ID (`sha256(ns/name/start)[:4]`, or `spec.device.id`,
+  checked unique).
+- its device's endpoint, `/livetv/<ns>/<name>/devices/<id>`
+  (`status.blocks[].endpoint`).
+- an owner, read from cluster-plex's Lease `livetv-<device id>` into
+  `status.blocks[].owner`.
+
+Spans are disjoint across providers.
+
+The tuner (`app/livetv/tuner`, the manager's `--livetv-bind-address`,
+`:5004`) serves each device at its endpoint, on the one `livetv` Service
+(chart `<release>-livetv`, `status.address`):
+- **Proxies.** cluster-plex runs an HTTP proxy per block, from the
+  link-local `169.254.47.1:<port>` in every Plex pod to the endpoint, and
+  sets `X-Forwarded-Host` and `X-Forwarded-Prefix: /`. The tuner builds
+  every URL it hands out from those headers, so PMS comes back through the
+  same port.
+- **Ranges.** `/livetv/<ns>/<name>/<file>?from=&to=` serves any range of
+  the lineup, `playlist.m3u` included.
+- **Change detection.** Lineups and guides carry an ETag, and cluster-plex
+  still reads `lineupHash`/`guideHash`.
+
+It also relays streams per provider
 (`app/livetv/relay`): viewers of one channel share one upstream, and past
 `tuners` a stream answers 503. discover.json advertises three tuners more
 than `tuners` (`tuner.SpareTuners`). The reason: on 2026-10-20 a grab PMS
@@ -282,16 +318,10 @@ within 10 s.
 Playlists and guides go through their own client (`tuner.Options.Fetch`),
 which waits up to 2 min, because a panel builds its whole m3u_plus before it
 answers. On 2026-10-20 tvload.win took 13 s for 588 MB, so every fetch
-failed. At a restart only the guide was restored from the object store,
-never the playlist, so the next manager restart left the lineup answering
-503 and every tune 404, which Plex shows as "Could not tune channel". The
-IPTVProvider controller now keeps each fetched playlist's channel entries
-in the provider's Secret `<provider>-livetv-playlist`
-(`iptvprovider.KeptSecretName`), stream URLs included. The URLs carry the
-account's credentials, so they never go in the object store. After a
-restart the controller hands them to the tuner (`tuner.Restore`), which
-serves them until a fetch succeeds; meanwhile the status reads
-`StaleAfterError`. cluster-plex (its `livetv` branch) registers
+failed. At a restart only the guide was restored, never the playlist, so
+the next manager restart left the lineup answering 503 and every tune 404,
+which Plex shows as "Could not tune channel". The playlist cache replaces
+the Secret kept for a day to bridge that. cluster-plex (its `livetv` branch) registers
 the devices and DVRs, saves each map in one PUT, never deletes, saves,
 reloads or creates while PMS loads a guide (a delete then deadlocked PMS),
 and restarts PMS on the other pods after a DVR change, since each PMS reads

@@ -56,16 +56,16 @@ func (t *Tuner) scheduleRender(p *provider) {
 	p.renderTimer = time.AfterFunc(t.o.Debounce, func() { t.render(p) })
 }
 
-// guideFrom is where every guide starts: the day's start, so a guide's hash
+// guideFrom is where every guide starts: the day's start, so a guide's ETag
 // moves when the guide does, not as its programmes end. cluster-plex reloads
-// a DVR's guide on every change of hash, and each reload rebuilds PMS's guide
-// database.
+// a DVR's guide on every change of ETag, and each reload rebuilds PMS's
+// guide database.
 func guideFrom(now time.Time) time.Time { return now.UTC().Truncate(24 * time.Hour) }
 
-// render rebuilds p's lineup, guides and snapshot from its configuration,
-// playlist and guides, stores what changed, and notifies a changed snapshot.
-// The guides are built outside p.mu, which lineups and tunes take: a few
-// thousand channels' guides take seconds. A render that finds a newer one
+// render rebuilds p's lineup, guide and snapshot from its configuration,
+// playlist and guide, stores what changed, and notifies a changed snapshot.
+// The whole guide is built outside p.mu, which lineups and tunes take: a few
+// thousand channels' guide takes seconds. A render that finds a newer one
 // started meanwhile drops its result.
 func (t *Tuner) render(p *provider) {
 	p.mu.Lock()
@@ -79,10 +79,8 @@ func (t *Tuner) render(p *provider) {
 	cfg := p.cfg
 	pms := cfg.EPGSource == "PMS"
 	fetched := p.playlistFetched
-	restored := p.restored
 
-	rules := cfg.Filters
-	cands := filter.Candidates(p.entries, rules)
+	cands := filter.Candidates(p.entries, cfg.Filters)
 	candidate := make(map[string]m3u.Entry, len(cands))
 	for _, e := range cands {
 		candidate[e.Key] = e
@@ -94,16 +92,9 @@ func (t *Tuner) render(p *provider) {
 		}
 	}
 
-	configured := map[string]bool{}
 	loaded := map[string]xmltv.Guide{}
-	allLoaded := true
-	for _, gc := range cfg.Guides {
-		configured[gc.Name] = true
-		if g := p.guides[gc.Name]; g != nil && g.loaded {
-			loaded[gc.Name] = g.g
-		} else {
-			allLoaded = false
-		}
+	if p.guide.loaded {
+		loaded[GuideName] = p.guide.g
 	}
 	ix := xmltv.NewIndex(loaded)
 
@@ -122,7 +113,7 @@ func (t *Tuner) render(p *provider) {
 	streams := map[string]string{}
 	states := make(map[string]ChannelState, len(chans))
 	taken := map[string]bool{}
-	// Before the first fetch no channel is placed: every one would read
+	// Before the first playlist no channel is placed: every one would read
 	// Missing, and its status flip there and back after each restart.
 	for _, ch := range chans {
 		if !fetched {
@@ -131,7 +122,6 @@ func (t *Tuner) render(p *provider) {
 		var st ChannelState
 		e, ok := candidate[ch.Key]
 		st.Missing = !ok
-		st.GuideNotFound = ch.Map != nil && !configured[ch.Map.Guide]
 		if !ch.Active {
 			states[ch.Object] = st
 			continue
@@ -151,10 +141,10 @@ func (t *Tuner) render(p *provider) {
 		lc := xmltv.LineupChannel{Number: ch.Number, Name: name, Logo: firstNonEmpty(ch.Logo, e.Logo), TimeshiftMinutes: ch.TimeshiftMinutes}
 		if !pms {
 			switch {
-			case ch.Map != nil && !st.GuideNotFound:
+			case ch.Map != nil:
 				m := *ch.Map
 				lc.Map = &m
-			case ch.Map == nil && ch.DummyMinutes == 0:
+			case ch.DummyMinutes == 0:
 				if m, ok := ix.AutoMap(e.TvgID, e.Name); ok {
 					lc.Map = &m
 				}
@@ -176,68 +166,26 @@ func (t *Tuner) render(p *provider) {
 		lineupChans = append(lineupChans, lc)
 		states[ch.Object] = st
 	}
-
-	// Split the lineup by block: a channel belongs to the block listing its
-	// number, else to the last block starting at or below it (spec §3.1).
-	starts := make([]string, len(cfg.Blocks))
-	member := map[string]int{}
-	for i, b := range cfg.Blocks {
-		starts[i] = b.Start
-		for _, n := range b.Numbers {
-			member[n] = i
-		}
-	}
-	blockOf := func(number string) int {
-		if i, ok := member[number]; ok {
-			return i
-		}
-		i := 0
-		for j, st := range starts {
-			if xmltv.CompareNumbers(st, number) <= 0 {
-				i = j
-			}
-		}
-		return i
-	}
-	blockEntries := make([][]hdhr.LineupEntry, len(cfg.Blocks))
-	blockChans := make([][]xmltv.LineupChannel, len(cfg.Blocks))
-	if len(cfg.Blocks) > 0 {
-		for i, e := range entries {
-			bi := blockOf(e.GuideNumber)
-			blockEntries[bi] = append(blockEntries[bi], e)
-			blockChans[bi] = append(blockChans[bi], lineupChans[i])
-		}
-	}
-	// A block serves its stored guide until every guide is loaded.
-	build := make([]bool, len(cfg.Blocks))
-	for i, b := range cfg.Blocks {
-		sf := p.blocks[b.Start]
-		build[i] = !pms && fetched && (allLoaded || sf == nil || !sf.storedGuide)
-	}
 	from := guideFrom(t.o.Now())
 	p.mu.Unlock()
 
-	type builtGuide struct {
-		xml  []byte
-		hash string
-	}
-	buildOne := func(lc []xmltv.LineupChannel) builtGuide {
+	// Split the lineup by block: a channel belongs to the block listing its
+	// number, else to the last block starting at or below it (spec §3.1).
+	blockEntries, blockChans := splitBlocks(cfg.Blocks, entries, lineupChans)
+	build := func(lc []xmltv.LineupChannel) []byte {
 		var b bytes.Buffer
 		_ = buildGuide(&b, lc, loaded, from, guideDays)
-		sum := sha256.Sum256(b.Bytes())
-		return builtGuide{b.Bytes(), hex.EncodeToString(sum[:])}
+		return b.Bytes()
 	}
-	built := make([]builtGuide, len(cfg.Blocks))
-	for i := range cfg.Blocks {
-		if build[i] {
-			built[i] = buildOne(blockChans[i])
-		}
-	}
-	// The whole provider's guide is built for the store (the ui reads it)
-	// and not kept: /livetv/<ns>/<name>/xmltv.xml builds it on request.
-	var whole builtGuide
+	// Each block's guide is built for its device; the whole provider's for
+	// the store (the ui reads it); a range's when it is first asked for.
+	var whole []byte
+	blockGuides := make([][]byte, len(cfg.Blocks))
 	if !pms && fetched {
-		whole = buildOne(lineupChans)
+		whole = build(lineupChans)
+		for i := range cfg.Blocks {
+			blockGuides[i] = build(blockChans[i])
+		}
 	}
 
 	p.mu.Lock()
@@ -245,86 +193,52 @@ func (t *Tuner) render(p *provider) {
 		p.mu.Unlock()
 		return
 	}
-	type put struct {
-		name string
-		b    []byte
+	var putGuide bool
+	if whole != nil {
+		if h := sha(whole); h != p.storedGuideHash {
+			p.storedGuideHash, putGuide = h, true
+		}
 	}
-	var puts []put
-	if whole.hash != "" && whole.hash != p.storedGuideHash {
-		puts = append(puts, put{GuideObject(p.key), whole.xml})
-		p.storedGuideHash = whole.hash
-	}
+	p.lineup, p.lineupChans, p.loaded, p.guideFrom = entries, lineupChans, loaded, from
+	p.ranges = nil
+	p.streams = streams
+	blocks := make(map[string]*surface, len(cfg.Blocks))
 	blockStates := make([]BlockState, len(cfg.Blocks))
 	for i, b := range cfg.Blocks {
-		sf := p.blocks[b.Start]
-		if sf == nil {
-			sf = &surface{}
-			p.blocks[b.Start] = sf
-		}
-		sf.entries = blockEntries[i]
-		sf.lineupHash = ""
+		sf := &surface{block: b, entries: blockEntries[i], guideXML: blockGuides[i]}
 		if fetched {
-			sum := sha256.Sum256(hdhr.Lineup(sf.entries))
-			sf.lineupHash = hex.EncodeToString(sum[:])
+			sf.lineupHash = sha(hdhr.Lineup(sf.entries))
 		}
-		switch {
-		case pms:
-			sf.guideXML, sf.guideHash, sf.storedGuide = nil, "", false
-		case build[i]:
-			sf.guideXML, sf.guideHash, sf.storedGuide = built[i].xml, built[i].hash, false
-			if sf.guideHash != sf.storedGuideHash {
-				puts = append(puts, put{BlockGuideObject(p.key, b.Start), sf.guideXML})
-				sf.storedGuideHash = sf.guideHash
-			}
+		if sf.guideXML != nil {
+			sf.guideHash = sha(sf.guideXML)
 		}
+		blocks[b.DeviceID] = sf
 		blockStates[i] = BlockState{Start: b.Start, Active: len(sf.entries), LineupHash: sf.lineupHash, GuideHash: sf.guideHash}
 	}
-	// Drop the surfaces of blocks the current configuration no longer has.
-	current := map[string]bool{}
-	for _, b := range p.cfg.Blocks {
-		current[b.Start] = true
-	}
-	for start := range p.blocks {
-		if !current[start] {
-			delete(p.blocks, start)
-		}
-	}
-	p.lineupChans, p.loaded, p.guideFrom = lineupChans, loaded, from
+	p.blocks = blocks
 
-	guideStates := make([]GuideState, 0, len(cfg.Guides))
-	for _, gc := range cfg.Guides {
-		gs := GuideState{Name: gc.Name}
-		if g := p.guides[gc.Name]; g != nil {
-			gs = g.state
-			gs.Name = gc.Name
-		}
-		guideStates = append(guideStates, gs)
-	}
 	pl := p.playlist
 	pl.Entries, pl.Groups, pl.Candidates = len(p.entries), len(groups), len(cands)
-	switch {
-	case restored != nil:
-		pl.Entries, pl.Groups, pl.Candidates = restored.Entries, restored.Groups, restored.Candidates
-	case fetched:
-		p.kept = keptPlaylist(pl, cfg.Channels, candidate)
+	lineup := LineupState{Active: active, Unmapped: unmapped, Missing: missing}
+	if len(entries) > 0 {
+		lineup.First, lineup.Last = entries[0].GuideNumber, entries[len(entries)-1].GuideNumber
 	}
 	p.snap = Snapshot{
 		PlaylistFetched: fetched,
 		Playlist:        pl,
-		Guides:          guideStates,
-		Lineup:          LineupState{Active: active, Unmapped: unmapped, Missing: missing},
+		Guide:           p.guide.state,
+		Account:         p.account,
+		Lineup:          lineup,
 		Blocks:          blockStates,
+		Tuners:          effectiveTuners(cfg, p.account),
 		Channels:        states,
 	}
-	p.streams = streams
 
-	var putPlaylist []storedEntry
-	if p.playlistFetched && p.playlist.Hash != p.storedPlaylistHash {
+	putPlaylist := fetched && p.playlist.Hash != "" && p.playlist.Hash != p.storedPlaylistHash
+	var playlistEntries []m3u.Entry
+	if putPlaylist {
 		p.storedPlaylistHash = p.playlist.Hash
-		putPlaylist = make([]storedEntry, 0, len(p.entries))
-		for _, e := range p.entries {
-			putPlaylist = append(putPlaylist, storedEntry{Key: e.Key, Name: e.Name, Group: e.Group, TvgID: e.TvgID, TvgName: e.TvgName, Logo: e.Logo})
-		}
+		playlistEntries = p.entries // replaced, never mutated
 	}
 	plHash, plFetched := p.playlist.Hash, p.playlist.FetchedAt
 	notify := p.notified == nil || !reflect.DeepEqual(*p.notified, p.snap)
@@ -334,32 +248,55 @@ func (t *Tuner) render(p *provider) {
 	}
 	p.mu.Unlock()
 
-	if putPlaylist != nil {
-		t.putJSON(t.base, PlaylistObject(p.key), storedPlaylist{Hash: plHash, FetchedAt: plFetched, Entries: putPlaylist})
+	if putPlaylist {
+		t.putPlaylistCache(t.base, p, cfg, plHash, plFetched, playlistEntries)
 	}
-	for _, pt := range puts {
-		t.putGzip(t.base, pt.name, pt.b, "application/xml")
+	if putGuide {
+		t.putGzip(t.base, GuideObject(p.key), whole, "application/xml")
 	}
 	if notify {
 		t.o.Notify(p.key)
 	}
 }
 
-// storedPlaylist is the playlist object: no stream URL or user agent, since
-// the ui never holds a credential (spec §5.4).
-type storedPlaylist struct {
-	Hash      string        `json:"hash"`
-	FetchedAt time.Time     `json:"fetchedAt"`
-	Entries   []storedEntry `json:"entries"`
+// splitBlocks is the lineup's entries and channels by block: a channel
+// belongs to the block listing its number, else to the last block starting
+// at or below it.
+func splitBlocks(bs []BlockConfig, entries []hdhr.LineupEntry, chans []xmltv.LineupChannel) ([][]hdhr.LineupEntry, [][]xmltv.LineupChannel) {
+	member := map[string]int{}
+	for i, b := range bs {
+		for _, n := range b.Numbers {
+			member[n] = i
+		}
+	}
+	blockOf := func(number string) int {
+		if i, ok := member[number]; ok {
+			return i
+		}
+		i := 0
+		for j, b := range bs {
+			if xmltv.CompareNumbers(b.Start, number) <= 0 {
+				i = j
+			}
+		}
+		return i
+	}
+	outE := make([][]hdhr.LineupEntry, len(bs))
+	outC := make([][]xmltv.LineupChannel, len(bs))
+	if len(bs) == 0 {
+		return outE, outC
+	}
+	for i, e := range entries {
+		bi := blockOf(e.GuideNumber)
+		outE[bi] = append(outE[bi], e)
+		outC[bi] = append(outC[bi], chans[i])
+	}
+	return outE, outC
 }
 
-type storedEntry struct {
-	Key     string `json:"key"`
-	Name    string `json:"name"`
-	Group   string `json:"group,omitempty"`
-	TvgID   string `json:"tvgID,omitempty"`
-	TvgName string `json:"tvgName,omitempty"`
-	Logo    string `json:"logo,omitempty"`
+func sha(b []byte) string {
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
 }
 
 func firstNonEmpty(s ...string) string {

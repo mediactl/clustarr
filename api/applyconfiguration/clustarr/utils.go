@@ -33,6 +33,8 @@ import (
 func ForKind(kind schema.GroupVersionKind) interface{} {
 	switch kind {
 	// Group=clustarr.io, Version=v1alpha1
+	case v1alpha1.SchemeGroupVersion.WithKind("AccountStatus"):
+		return &clustarrv1alpha1.AccountStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("BlockStatus"):
 		return &clustarrv1alpha1.BlockStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("ChannelEPG"):
@@ -59,16 +61,12 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &clustarrv1alpha1.IPTVProviderStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("LineupStatus"):
 		return &clustarrv1alpha1.LineupStatusApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("PlaylistSource"):
-		return &clustarrv1alpha1.PlaylistSourceApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("PlaylistStatus"):
 		return &clustarrv1alpha1.PlaylistStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("StreamSpec"):
 		return &clustarrv1alpha1.StreamSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("TunerStatus"):
 		return &clustarrv1alpha1.TunerStatusApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("XMLTVSource"):
-		return &clustarrv1alpha1.XMLTVSourceApplyConfiguration{}
 
 	}
 	return nil

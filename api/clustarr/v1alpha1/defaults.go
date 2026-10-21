@@ -33,12 +33,12 @@ const (
 	ReasonInactive         = "Inactive"
 	ReasonMissing          = "Missing"
 	ReasonDuplicateNumber  = "DuplicateNumber"
-	ReasonGuideNotFound    = "GuideNotFound"
 	ReasonProviderNotFound = "ProviderNotFound"
 
 	ReasonDisabled          = "Disabled"
 	ReasonSecretNotFound    = "SecretNotFound"
 	ReasonSecretKeyNotFound = "SecretKeyNotFound"
+	ReasonInvalidServer     = "InvalidServer"
 
 	// A provider's Ready=False reasons from its blocks (Live TV spec §3.1).
 	// Each keeps the last good status.blocks, so no Plex DVR is removed.
@@ -47,13 +47,18 @@ const (
 	ReasonNumberRangeOverlap = "NumberRangeOverlap"
 )
 
+// The keys of a provider's credentials Secret.
+const (
+	CredentialsKeyUsername = "username"
+	CredentialsKeyPassword = "password"
+)
+
 // The defaults the accessors apply to an unset field. A field the CRD could
 // default is a pointer or an omitempty zero read through these, because a
 // typed Go client cannot send a value the CRD default would override.
 const (
 	DefaultChannelNumberStart int32 = 1000
-	DefaultPlaylistRefresh          = 24 * time.Hour
-	DefaultGuideRefresh             = 12 * time.Hour
+	DefaultRefresh                  = 24 * time.Hour
 	DefaultUserAgent                = "clustarr"
 	DefaultStreamBuffer       int64 = 8 << 20
 	DefaultStreamLinger             = 10 * time.Second
@@ -88,28 +93,28 @@ func (s IPTVProviderSpec) ChannelNumberStartOrDefault() int32 {
 	return *s.ChannelNumberStart
 }
 
-// RefreshOrDefault is the playlist's refresh, 24h when unset.
-func (p PlaylistSource) RefreshOrDefault() time.Duration {
-	if p.Refresh == nil || p.Refresh.Duration <= 0 {
-		return DefaultPlaylistRefresh
+// RefreshOrDefault is spec.refresh, 24h when unset or not positive.
+func (s IPTVProviderSpec) RefreshOrDefault() time.Duration {
+	if s.Refresh == nil || s.Refresh.Duration <= 0 {
+		return DefaultRefresh
 	}
-	return p.Refresh.Duration
+	return s.Refresh.Duration
 }
 
-// UserAgentOrDefault is the user agent, "clustarr" when unset.
-func (p PlaylistSource) UserAgentOrDefault() string {
-	if p.UserAgent == "" {
+// UserAgentOrDefault is spec.userAgent, "clustarr" when unset.
+func (s IPTVProviderSpec) UserAgentOrDefault() string {
+	if s.UserAgent == "" {
 		return DefaultUserAgent
 	}
-	return p.UserAgent
+	return s.UserAgent
 }
 
-// RefreshOrDefault is the guide's refresh, 12h when unset.
-func (x XMLTVSource) RefreshOrDefault() time.Duration {
-	if x.Refresh == nil || x.Refresh.Duration <= 0 {
-		return DefaultGuideRefresh
+// TunersOverride is spec.tuners, 0 when unset: the account's own limit.
+func (s IPTVProviderSpec) TunersOverride() int {
+	if s.Tuners == nil {
+		return 0
 	}
-	return x.Refresh.Duration
+	return int(*s.Tuners)
 }
 
 // EnabledOrDefault is the filter's enabled, true when unset.
