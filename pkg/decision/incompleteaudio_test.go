@@ -160,15 +160,16 @@ func TestTheIndexersAudioLanguagesBeatTheTitle(t *testing.T) {
 	require.True(t, hasRejection(ds[0], decision.ReasonWantedLanguage), "%v", reasons(ds[0]))
 }
 
-// TestADualAudioTitleCompletesAnIndexersOneLanguage: nzb-life names one
+// TestADualAudioTitleBeatsAnIndexerThatNamesOneLanguage: nzb-life names one
 // language for many dual-audio TV posts -- Kitsune's DUAL Monster, 86 and
 // BLUE LOCK read Japanese alone in 67 results on talos (2026-10-21) -- where
-// it names every track of a film's. A title that says dual audio has two
-// tracks, so one language from the indexer is the dual reading's other
-// language short: the release is both, for an episode, a season pack and a
-// film alike. An indexer naming two languages still beats the title, and so
-// does one naming one for a title with no dual marker.
-func TestADualAudioTitleCompletesAnIndexersOneLanguage(t *testing.T) {
+// it names every track of a film's. When the title says dual audio and the
+// indexer's languages do not (fewer than two), the title's reading stands
+// (owner, 2026-10-21), whichever one language the indexer named, for an
+// episode, a season pack and a film alike. An indexer naming two languages
+// still beats the title, and so does one naming one for a title with no
+// dual marker.
+func TestADualAudioTitleBeatsAnIndexerThatNamesOneLanguage(t *testing.T) {
 	p, cat := builtin(t, "anime-web-1080p")
 	nzblife := func(title string, langs ...string) []common.ReleaseInfo {
 		return []common.ReleaseInfo{{
@@ -186,6 +187,8 @@ func TestADualAudioTitleCompletesAnIndexersOneLanguage(t *testing.T) {
 		{ep, "Monster.2004.S01E01.Herr.Dr.Tenma.1080p.BluRay.DUAL.FLAC.2.0.x264-Kitsune.mkv-xpost", []string{"Japanese"}, []string{"Japanese", "English"}},
 		{ep, "Monster.2004.S01.1080p.BluRay.DUAL.FLAC.2.0.x264-Kitsune", []string{"Japanese"}, []string{"Japanese", "English"}},
 		{akira("ja"), "Akira.1988.1080p.BluRay.DUAL.FLAC.2.0.x264-Kitsune", []string{"Japanese"}, []string{"Japanese", "English"}},
+		{ep, "Monster.2004.S01E01.Herr.Dr.Tenma.1080p.BluRay.DUAL.FLAC.2.0.x264-Kitsune.mkv-xpost", []string{"English"}, []string{"Japanese", "English"}},
+		{ep, "Monster.2004.S01E01.Herr.Dr.Tenma.1080p.BluRay.DUAL.FLAC.2.0.x264-Kitsune.mkv-xpost", []string{"Portuguese"}, []string{"Japanese", "English"}},
 		{ep, "Monster.S01E01.rerip.480p.NF.WEB-DL.AAC2.0.x264.Dual.Audio-Emmid", []string{"French", "Japanese"}, []string{"French", "Japanese"}},
 		{akira("ja"), "Akira.1988.2160p.BDRip.TrueHD.7.1.Atmos.MULTi.Jpn.Eng.DoVi.HDR10.x265.10bit-MarkII", []string{"Japanese"}, []string{"Japanese"}},
 	} {

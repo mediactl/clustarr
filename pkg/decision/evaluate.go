@@ -398,23 +398,16 @@ func roundTo200MiB(n int64) int64 {
 // untagged Akira Blu-ray is Japanese and English, and "MULTi.Jpn.Eng" whose
 // "Eng" was its subtitles is Japanese alone.
 //
-// Except one language for a dual-audio title: dual audio is two tracks, and
-// nzb-life names one for many dual-audio TV posts (Kitsune's DUAL Monster,
-// 86 and BLUE LOCK read Japanese alone, talos 2026-10-21) where it names every
-// track of a film's. The indexer's language comes first, then the title's
-// dual reading (parsed's languages, already resolved) adds the other.
+// Except for a dual-audio title the indexer's languages do not bear out:
+// when the title says dual audio and the indexer names fewer than two
+// languages, the title's reading (parsed's languages, already resolved)
+// stands (owner, 2026-10-21). nzb-life names one language for many
+// dual-audio TV posts (Kitsune's DUAL Monster, 86 and BLUE LOCK read Japanese
+// alone, talos 2026-10-21) where it names every track of a film's.
 func indexerLanguages(parsed *release.ParsedRelease, rel common.ReleaseInfo) {
-	if len(rel.IndexerLanguages) == 0 {
+	if len(rel.IndexerLanguages) == 0 || (parsed.DualAudio && len(rel.IndexerLanguages) < 2) {
 		return
 	}
-	langs := slices.Clone(rel.IndexerLanguages)
-	if parsed.DualAudio && len(langs) == 1 {
-		for _, l := range parsed.Languages {
-			if !slices.Contains(langs, l) {
-				langs = append(langs, l)
-			}
-		}
-	}
-	parsed.Languages = langs
+	parsed.Languages = slices.Clone(rel.IndexerLanguages)
 	parsed.LanguageUnknown = false
 }

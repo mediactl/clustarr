@@ -713,12 +713,12 @@ nzb-life sends `audio`/`language` lists mixing codes and names.
 (`catalogue.ResolveLanguageName`), the grab entry keeps them
 (`DownloadRelease.IndexerLanguages`), and `decision.indexerLanguages` makes
 them the release's languages at search and at the grab check. Example:
-hallowed's untagged Akira Blu-ray is English and Japanese. One exception:
-for a dual-audio title the indexer naming a single language is completed
-by the title's dual reading. nzb-life names only Japanese for many
-dual-audio TV posts (Kitsune's DUAL Monster, 86 and BLUE LOCK, 2026-10-21),
-and such a release is Japanese and English for an episode, a season pack
-and a film alike. NFOs are not
+hallowed's untagged Akira Blu-ray is English and Japanese. One exception
+(owner, 2026-10-21): a title that says dual audio keeps the title parser's
+reading when the indexer names fewer than two languages. nzb-life names only
+Japanese for many dual-audio TV posts (Kitsune's DUAL Monster, 86 and BLUE
+LOCK), and such a release is Japanese and English for an episode, a season
+pack and a film alike. NFOs are not
 fetched, since nzbgeek ignores `t=getnfo`. Items report `status.audio` (wanted, present, missing,
 graft); a missing dub never blocks the video. Grafting (phase 4): the
 search planner queues a donor search (`SearchTask.Purpose: audioDonor`) for
