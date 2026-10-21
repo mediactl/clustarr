@@ -33,6 +33,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -84,6 +85,9 @@ type Options struct {
 	OnError func(reason string)
 	// OnBytes is told each chunk of upstream bytes relayed.
 	OnBytes func(n int)
+	// OnFirstByte is told how long each upstream connection took to its
+	// first byte.
+	OnFirstByte func(d time.Duration)
 }
 
 // Relay relays a provider's channels.
@@ -291,14 +295,20 @@ func (r *Relay) Serve(w http.ResponseWriter, req *http.Request, channel, upstrea
 	r.mu.Lock()
 	failed := s.failed
 	r.mu.Unlock()
-	cur := s.ring.Join()
-	if failed != "" && cur == 0 {
+	cur, tables := s.ring.Join()
+	if failed != "" && s.ring.Total() == 0 {
 		http.Error(w, "upstream: "+failed, http.StatusBadGateway)
 		return
 	}
 	w.Header().Set("Content-Type", "video/mp2t")
 	w.WriteHeader(http.StatusOK)
 	rc := http.NewResponseController(w)
+	if len(tables) > 0 {
+		_ = rc.SetWriteDeadline(time.Now().Add(writeTimeout))
+		if _, err := w.Write(tables); err != nil {
+			return
+		}
+	}
 	buf := make([]byte, 64<<10)
 	for {
 		n, err := s.ring.Read(req.Context(), &cur, buf)
@@ -453,8 +463,19 @@ func (r *Relay) fetch(ctx context.Context, s *stream, upstream string) (reason s
 	if s.userAgent != "" {
 		req.Header.Set("User-Agent", s.userAgent)
 	}
+	log := logging.FromContext(ctx)
+	began := time.Now()
 	resp, err := r.o.HTTP.Do(req)
 	if err != nil {
+		// The URL carries the account's credentials: only the cause is logged.
+		cause := err
+		var ue *url.Error
+		if errors.As(err, &ue) {
+			cause = ue.Err
+		}
+		if ctx.Err() == nil {
+			log.Warn("livetv: upstream failed", "channel", s.channel, "after", time.Since(began), "error", cause.Error())
+		}
 		var ne net.Error
 		if errors.As(err, &ne) && ne.Timeout() {
 			return ReasonTimeout, false, false
@@ -463,6 +484,7 @@ func (r *Relay) fetch(ctx context.Context, s *stream, upstream string) (reason s
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 400 {
+		log.Warn("livetv: upstream refused", "channel", s.channel, "after", time.Since(began), "status", resp.StatusCode)
 		return ReasonRefused, false, false
 	}
 	if strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "mpegurl") {
@@ -483,6 +505,11 @@ func (r *Relay) fetch(ctx context.Context, s *stream, upstream string) (reason s
 			}
 			if !delivered {
 				delivered = true
+				took := time.Since(began)
+				if r.o.OnFirstByte != nil {
+					r.o.OnFirstByte(took)
+				}
+				log.Info("livetv: upstream answered", "channel", s.channel, "firstByte", took)
 				s.readyOnce.Do(func() { close(s.ready) })
 			}
 		}

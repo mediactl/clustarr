@@ -29,7 +29,7 @@ import (
 
 func TestRingReaderWaitsThenReads(t *testing.T) {
 	r := newRing(16)
-	cur := r.Join()
+	cur, _ := r.Join()
 	got := make(chan []byte)
 	go func() {
 		p := make([]byte, 8)
@@ -66,7 +66,7 @@ func TestRingReaderTooFarBehindGetsErrSlow(t *testing.T) {
 
 func TestRingCloseEndsReaders(t *testing.T) {
 	r := newRing(8)
-	cur := r.Join()
+	cur, _ := r.Join()
 	done := make(chan error)
 	go func() {
 		_, err := r.Read(context.Background(), &cur, make([]byte, 4))
@@ -77,17 +77,26 @@ func TestRingCloseEndsReaders(t *testing.T) {
 }
 
 func TestRingJoinIsAPacketBoundaryFromTheAlignment(t *testing.T) {
-	r := newRing(4096)
-	r.Write(make([]byte, 400)) // 2 packets and 24 bytes
-	assert.Equal(t, int64(376), r.Join())
-	r.Realign() // a reopened upstream starts a new packet at 400
+	r := newRing(4 * connectionStart)
+	r.Write(make([]byte, 400)) // 2 packets and 24 bytes, but no keyframe
+	cur, _ := r.Join()
+	assert.Equal(t, int64(0), cur, "the connection's first byte")
+	r.Write(make([]byte, connectionStart))
+	cur, _ = r.Join()
+	assert.Equal(t, int64(400+connectionStart-(400+connectionStart)%packetSize), cur, "past the start, the newest packet")
+	r.Realign() // a reopened upstream starts a new packet here
+	at := int64(400 + connectionStart)
 	r.Write(make([]byte, 200))
-	assert.Equal(t, int64(588), r.Join())
+	cur, _ = r.Join()
+	assert.Equal(t, at, cur)
+	r.Write(make([]byte, connectionStart))
+	cur, _ = r.Join()
+	assert.Equal(t, at+int64(200+connectionStart)-int64(200+connectionStart)%packetSize, cur)
 }
 
 func TestRingReadHonoursTheContext(t *testing.T) {
 	r := newRing(8)
-	cur := r.Join()
+	cur, _ := r.Join()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	_, err := r.Read(ctx, &cur, make([]byte, 4))
