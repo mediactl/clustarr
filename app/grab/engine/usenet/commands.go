@@ -26,6 +26,7 @@ import (
 
 	"github.com/mediactl/clustarr/app/grab/engine"
 	"github.com/mediactl/clustarr/pkg/download"
+	usenetclient "github.com/mediactl/clustarr/pkg/download/usenet"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -156,7 +157,7 @@ func (t *Transfers) add(ctx context.Context, cmd schema.EngineCommand) (string, 
 	if cat == "" {
 		cat = strings.ToLower(cmd.Owner.Kind)
 	}
-	return t.Client.Add(ctx, download.AddRequest{
+	id, err := t.Client.Add(ctx, download.AddRequest{
 		Name:     cmd.Entry.ID,
 		Payload:  payload,
 		Category: cat,
@@ -164,6 +165,14 @@ func (t *Transfers) add(ctx context.Context, cmd schema.EngineCommand) (string, 
 		Priority: cmd.Priority,
 		Imported: cmd.Imported,
 	})
+	if errors.Is(err, usenetclient.ErrEmptyNZB) {
+		// An NZB with no articles never downloads: the release's fault.
+		// Retried, each fetch was another download to the indexer, and
+		// nzb-life then refused the release for 24 h, five days running
+		// (2026-10-21).
+		return "", fmt.Errorf("%w: %w", engine.ErrPayloadUnavailable, err)
+	}
+	return id, err
 }
 
 // update brings the job to the command's state -- priority, pause, a
