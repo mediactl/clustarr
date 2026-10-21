@@ -1,0 +1,151 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package views
+
+import (
+	"context"
+
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/ui/components/button"
+	"github.com/mediactl/clustarr/ui/components/dialog"
+	"github.com/mediactl/clustarr/ui/components/field"
+	"github.com/mediactl/clustarr/ui/components/icon"
+	selectcomp "github.com/mediactl/clustarr/ui/components/select"
+	switchcomp "github.com/mediactl/clustarr/ui/components/switch"
+)
+
+// editableKinds are the kinds whose page has the Edit dialog: the ones
+// with a quality profile of their own. ui/actions.EditableKinds is the
+// same list, held equal by ui/edit_test.go.
+var editableKinds = map[commonv1.MediaKind]bool{
+	commonv1.MediaKindMovie: true, commonv1.MediaKindSeries: true, commonv1.MediaKindArtist: true,
+	commonv1.MediaKindAuthor: true, commonv1.MediaKindComic: true, commonv1.MediaKindAudiobook: true,
+}
+
+// EditableKinds is every kind whose page has the Edit dialog.
+func EditableKinds() []commonv1.MediaKind {
+	kinds := make([]commonv1.MediaKind, 0, len(editableKinds))
+	for k := range editableKinds {
+		kinds = append(kinds, k)
+	}
+	sortKinds(kinds)
+	return kinds
+}
+
+func sortKinds(kinds []commonv1.MediaKind) {
+	for i := 1; i < len(kinds); i++ {
+		for j := i; j > 0 && kinds[j] < kinds[j-1]; j-- {
+			kinds[j], kinds[j-1] = kinds[j-1], kinds[j]
+		}
+	}
+}
+
+// Editable is whether d's item has the Edit dialog.
+func Editable(d Detail) bool { return editableKinds[d.Item.Kind] }
+
+// seriesTypeOptions and availabilityOptions are Sonarr's series types and
+// Radarr's minimum availabilities, by their spec values.
+var (
+	seriesTypeOptions   = []AddOption{{"standard", "Standard"}, {"daily", "Daily"}, {"anime", "Anime"}}
+	availabilityOptions = []AddOption{{"tba", "TBA"}, {"announced", "Announced"}, {"inCinemas", "In Cinemas"}, {"released", "Released"}}
+)
+
+// editDialog is Radarr's Edit Movie and Sonarr's Edit Series, opened by
+// the toolbar's wrench: Monitored, Quality Profile over the cluster's
+// QualityProfiles, and the one more field the video kinds have -- a
+// series' type, a movie's minimum availability. Save posts the form to
+// the item's edit route (handleEditItem, ui/actions.EditItem), which
+// patches those spec leaves and returns to the page.
+templ editDialog(d Detail) {
+	@dialog.Dialog(dialog.Props{ID: "edit-" + d.Item.Ref.Name}) {
+		@button.Button(button.Props{Variant: button.VariantGhost, Class: toolbarButtonClass, Attributes: editTriggerAttrs(ctx)}) {
+			@icon.Icon("wrench")()
+			<span>Edit</span>
+		}
+		@dialog.Content(dialog.ContentProps{Attributes: templ.Attributes{"data-edit-dialog": d.Item.Ref.Name}}) {
+			@dialog.Header() {
+				@dialog.Title() {
+					{ "Edit - " + d.Item.Title }
+				}
+			}
+			<form method="post" action={ templ.URL(libraryActionURL(d.Item, "edit")) } class="space-y-4" data-edit-form>
+				<input type="hidden" name="return" value={ libraryDetailPath(d.Item) }/>
+				<input type="hidden" name="monitored" value="false"/>
+				<label class="flex items-center gap-3">
+					@switchcomp.Switch(switchcomp.Props{ID: "edit-monitored-" + d.Item.Ref.Name, Name: "monitored", Value: "true", DefaultChecked: d.Item.Monitored})
+					<span>Monitored</span>
+				</label>
+				@editSelect("qualityProfile", d.Item.Ref.Name, "Quality Profile", d.Profiles, d.Item.QualityProfileRef)
+				if d.Item.Kind == commonv1.MediaKindSeries {
+					@editSelect("seriesType", d.Item.Ref.Name, "Series Type", seriesTypeOptions, d.SeriesType)
+				}
+				if d.Item.Kind == commonv1.MediaKindMovie {
+					@editSelect("minimumAvailability", d.Item.Ref.Name, "Minimum Availability", availabilityOptions, d.MinimumAvailability)
+				}
+				@dialog.Footer() {
+					@button.Button(button.Props{Variant: button.VariantOutline, Attributes: dialog.Close(ctx)}) { Cancel }
+					@button.Button(button.Props{Type: button.TypeSubmit, Attributes: templ.Attributes{"data-action": "edit-save"}}) { Save }
+				}
+			</form>
+		}
+	}
+}
+
+// editSelect is one of the dialog's selects; an empty current value reads
+// as the first option, as a CRD default would.
+templ editSelect(name, item, label string, opts []AddOption, current string) {
+	@field.Field() {
+		@field.Label(field.LabelProps{For: "edit-" + name + "-" + item + "-trigger"}) {
+			{ label }
+		}
+		@selectcomp.Select(selectcomp.Props{ID: "edit-" + name + "-" + item, Name: name, DefaultValue: selectedOf(opts, current), Required: true}) {
+			@selectcomp.Trigger(selectcomp.TriggerProps{Class: "w-full"}) {
+				@selectcomp.Value(selectcomp.ValueProps{Placeholder: "—"})
+			}
+			@selectcomp.Content() {
+				@selectcomp.Group() {
+					for _, o := range opts {
+						@selectcomp.Item(selectcomp.ItemProps{Value: o.Value}) {
+							{ o.Label }
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+// selectedOf is current when opts carry it, else the first option's value.
+func selectedOf(opts []AddOption, current string) string {
+	for _, o := range opts {
+		if o.Value == current {
+			return current
+		}
+	}
+	if len(opts) > 0 {
+		return opts[0].Value
+	}
+	return ""
+}
+
+func editTriggerAttrs(ctx context.Context) templ.Attributes {
+	attrs := dialog.Trigger(ctx)
+	attrs["data-action"] = "edit-item"
+	attrs["data-toolbar-button"] = true
+	return attrs
+}

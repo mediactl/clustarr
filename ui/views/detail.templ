@@ -107,6 +107,12 @@ type Detail struct {
 	// Prev and Next are the neighbouring items on the tab, in its order.
 	Prev string
 	Next string
+	// Profiles are the cluster's QualityProfiles, the Edit dialog's choices
+	// (editDialog); SeriesType and MinimumAvailability are the item's
+	// current spec values for the dialog's other field.
+	Profiles            []AddOption
+	SeriesType          string
+	MinimumAvailability string
 	// Audio is a movie's status.audio as a note.
 	Audio AudioNote
 }
@@ -137,8 +143,9 @@ templ LibraryDetail(d Detail) {
 // the page's #movie-modal) and, for an item with a folder, the probe-driven naming
 // design's per-item "Rename" (§5): "Rename (dry run)" previews the move
 // without touching anything, "Rename" applies it, both restricted to the
-// item's own folder (handleRenameItem, ui/actions.RenameFiles). Monitoring
-// is the bookmark on the title, as in Radarr, not a toolbar button.
+// item's own folder (handleRenameItem, ui/actions.RenameFiles), then
+// Radarr's Edit (editDialog: monitored, quality profile) and Delete.
+// Monitoring is also the bookmark on the title, as in Radarr.
 templ itemToolbar(d Detail) {
 	@toolbar(nil) {
 		@toolbarGroup() {
@@ -155,6 +162,9 @@ templ itemToolbar(d Detail) {
 			if d.CanScan {
 				@toolbarForm(libraryActionURL(d.Item, "rename"), []Field{{"return", libraryDetailPath(d.Item)}, {"rename", "dryRun"}}, "eye", "Rename (dry run)", "rename-dry-run", nil)
 				@toolbarForm(libraryActionURL(d.Item, "rename"), []Field{{"return", libraryDetailPath(d.Item)}, {"rename", "apply"}}, "file-symlink", "Rename", "rename-apply", nil)
+			}
+			if Editable(d) {
+				@editDialog(d)
 			}
 			if deletable(d) && d.Item.DeleteMode == "" {
 				@deleteDialog(d)

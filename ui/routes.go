@@ -78,6 +78,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /library/{namespace}/series/{name}/seasons/{n}/search", s.handleSeasonSearch)
 	mux.HandleFunc("POST /library/{namespace}/series/{name}/seasons/{n}/search/interactive", s.handleSeasonInteractiveSearch)
 	mux.HandleFunc("POST /library/{namespace}/{kind}/{name}/monitor", s.handleSetMonitored)
+	mux.HandleFunc("POST /library/{namespace}/{kind}/{name}/edit", s.handleEditItem)
 	mux.HandleFunc("POST /library/{namespace}/{kind}/{name}/search", s.handleSearchNow)
 	mux.HandleFunc("GET /library/{namespace}/episode/{name}/details", s.handleEpisodeDetails)
 	mux.HandleFunc("POST /library/{namespace}/episode/{name}/search/interactive", s.handleInteractiveSearch)
@@ -530,6 +531,29 @@ func (s *Server) handleSetMonitored(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	s.finishAction(w, r, err)
+}
+
+// handleEditItem is the item page's Edit dialog (views.editDialog, Radarr's
+// Edit Movie): POST /library/{namespace}/{kind}/{name}/edit with
+// "qualityProfile", "monitored" ("true" when the switch is on, after the
+// form's "false"), and a series' "seriesType" or a movie's
+// "minimumAvailability". It calls Options.Actions.EditItem and finishes
+// as every toolbar form does, back on the page.
+func (s *Server) handleEditItem(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+	monitored := slices.Contains(r.Form["monitored"], "true")
+	req := actions.EditRequest{
+		QualityProfileRef:   r.FormValue("qualityProfile"),
+		Monitored:           &monitored,
+		SeriesType:          r.FormValue("seriesType"),
+		MinimumAvailability: r.FormValue("minimumAvailability"),
+	}
+	_, err := s.opts.Actions.EditItem(r.Context(),
+		r.PathValue("namespace"), commonv1.MediaKind(r.PathValue("kind")), r.PathValue("name"), req)
 	s.finishAction(w, r, err)
 }
 

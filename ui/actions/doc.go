@@ -28,6 +28,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //     an interactive season Search ([InteractiveSeasonSearch]) (Wave S);
 //   - "rescan" creates a LibraryScan ([Rescan]);
 //   - "monitor this" patches a catalog item's spec.monitored ([SetMonitored]);
+//   - the item page's Edit dialog patches an item's spec.qualityProfileRef,
+//     spec.monitored and a series' seriesType or a movie's
+//     minimumAvailability in one merge patch ([EditItem], edit.go);
 //   - the Settings page's edit forms each patch one settings kind's own
 //     modest field set (settings.go): RootFolder.spec.scanSchedule,
 //     QualityProfile.spec.upgradeAllowed, Indexer/DownloadClient/

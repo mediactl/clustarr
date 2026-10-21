@@ -50,10 +50,16 @@ func (s *Server) itemDetail(ctx context.Context, item projection.LibraryItem) vi
 	if s.opts.Reader == nil {
 		return d
 	}
+	if views.Editable(d) {
+		for _, qp := range s.listQualityProfiles(ctx) {
+			d.Profiles = append(d.Profiles, views.AddOption{Value: qp.Name, Label: qp.Name})
+		}
+	}
 	switch item.Kind {
 	case commonv1.MediaKindMovie:
 		var m catalogv1.Movie
 		if s.getObject(ctx, item.Ref, &m) {
+			d.MinimumAvailability = string(m.Spec.MinimumAvailability)
 			fillMovie(&d, &m)
 			d.Audio = audioNote(m.Status.Audio)
 			if ref := m.Status.FileRef; ref != nil && *ref != "" {
@@ -67,6 +73,7 @@ func (s *Server) itemDetail(ctx context.Context, item projection.LibraryItem) vi
 	case commonv1.MediaKindSeries:
 		var sr catalogv1.Series
 		if s.getObject(ctx, item.Ref, &sr) {
+			d.SeriesType = string(sr.Spec.SeriesType)
 			fillSeries(&d, &sr)
 		}
 	case commonv1.MediaKindArtist:
