@@ -2,7 +2,9 @@
 {{- /* The one livetv Service (Live TV spec 2026-10-07 §5.0): every
        IPTVProvider's status.address, where cluster-plex's per-block proxies
        send. ClusterIP only, and no Ingress: the tuner has no authentication
-       (§5.3). */}}
+       (§5.3). No selector: the tuner listens on the leading manager alone,
+       which publishes itself as the Service's EndpointSlice
+       (app/livetv/leaderendpoint; control-plane placement design §5.4). */}}
 apiVersion: v1
 kind: Service
 metadata:
@@ -12,8 +14,6 @@ metadata:
     app.kubernetes.io/component: livetv
 spec:
   type: ClusterIP
-  selector:
-    {{- include "clustarr.selectorLabels" (dict "root" . "component" "manager") | nindent 4 }}
   ports:
   - name: http
     port: 80

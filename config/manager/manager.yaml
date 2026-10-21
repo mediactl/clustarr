@@ -104,6 +104,12 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
+            # The leader publishes this address as the livetv Service's
+            # endpoint (control-plane placement design §5.4).
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
             - name: UMASK
               value: "002"
             # GOMEMLIMIT = 80% of 1664Mi, in bytes (the chart computes the same

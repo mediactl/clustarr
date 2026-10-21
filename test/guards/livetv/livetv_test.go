@@ -173,18 +173,29 @@ func portNamed(c *corev1.Container, name string) (corev1.ContainerPort, bool) {
 	return corev1.ContainerPort{}, false
 }
 
-func TestLiveTVServiceSelectsTheManager(t *testing.T) {
+// TestLiveTVServiceIsSelectorLessInBothInstallers is the control-plane
+// placement design's §5.4: the tuner listens on the leading manager alone,
+// so the livetv Service selects no pod -- the leader publishes itself as its
+// EndpointSlice from $POD_IP -- in both installers. kustomize's lives in
+// config/livetv, where no includeSelectors label can create a selector.
+func TestLiveTVServiceIsSelectorLessInBothInstallers(t *testing.T) {
 	for _, r := range installers(t) {
 		t.Run(r.name, func(t *testing.T) {
-			dep, ctr := r.manager(t)
+			_, ctr := r.manager(t)
 			svc := r.livetvService(t)
-			assert.True(t, subset(svc.Spec.Selector, dep.Spec.Template.Labels), "the livetv Service selects the manager: %v", svc.Spec.Selector)
-			for _, other := range r.deployments {
-				if other.Name != dep.Name {
-					assert.False(t, subset(svc.Spec.Selector, other.Spec.Template.Labels), "and not %s", other.Name)
+			assert.Empty(t, svc.Spec.Selector, "the leader is the livetv Service's endpoint, not every manager pod")
+			var podIP *corev1.EnvVar
+			for i := range ctr.Env {
+				if ctr.Env[i].Name == "POD_IP" {
+					podIP = &ctr.Env[i]
 				}
 			}
+			require.NotNil(t, podIP, "the manager knows its pod IP")
+			require.NotNil(t, podIP.ValueFrom)
+			require.NotNil(t, podIP.ValueFrom.FieldRef)
+			assert.Equal(t, "status.podIP", podIP.ValueFrom.FieldRef.FieldPath)
 			require.Len(t, svc.Spec.Ports, 1)
+			assert.Equal(t, "http", svc.Spec.Ports[0].Name, "the EndpointSlice's port name")
 			assert.Equal(t, int32(80), svc.Spec.Ports[0].Port, "status.address is the Service on port 80")
 			assert.Equal(t, "livetv", svc.Spec.Ports[0].TargetPort.String())
 

@@ -358,6 +358,14 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
+        {{- if .leaderElect }}
+        {{- /* The leader publishes this address as the livetv Service's
+               endpoint (control-plane placement design §5.4). */}}
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        {{- end }}
         {{- if .nodeName }}
         - name: NODE_NAME
           valueFrom:

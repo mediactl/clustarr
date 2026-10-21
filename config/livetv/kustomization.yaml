@@ -1,4 +1,4 @@
-# The Live TV NetworkPolicy, apart from config/manager: that kustomization's
+# The Live TV NetworkPolicy and Service, apart from config/manager: that kustomization's
 # includeSelectors labels would add clustarr's own labels to the policy's
 # peer as well, and no Plex pod carries them, so the tuner would admit no one
 # (test/guards/livetv). The policy selects the manager by its component
@@ -15,3 +15,4 @@ labels:
 
 resources:
 - networkpolicy.yaml
+- service.yaml
