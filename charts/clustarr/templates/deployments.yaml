@@ -47,6 +47,13 @@ creates those at runtime, owned by the object that asked for them.
 {{- else }}
 {{- $managerArgs = append $managerArgs "--livetv-bind-address=0" }}
 {{- end }}
+{{- /* The workers profile every pod the manager builds carries: the engines,
+       the transcode pools and graft Jobs (control-plane placement design
+       §5.6). */}}
+{{- if .Values.placement.enabled }}
+{{- $workers := .Values.placement.profiles.workers }}
+{{- $managerArgs = append $managerArgs (printf "--worker-placement=%s" (toJson (dict "nodeAffinity" ($workers.nodeAffinity | default list) "tolerations" ($workers.tolerations | default list)))) }}
+{{- end }}
 {{- /* Host-specific, so set only when given. */}}
 {{- with .Values.manager.intelRenderGroups }}
 {{- $managerEnv = append $managerEnv (dict "name" "CLUSTARR_INTEL_RENDER_GROUPS" "value" (join "," .)) }}
@@ -87,9 +94,10 @@ creates those at runtime, owned by the object that asked for them.
 {{- include "clustarr.workload" (dict
       "root" $ "component" "manager" "values" .Values.manager
       "image" "clustarr" "command" "/usr/bin/manager" "args" $managerArgs
-      "replicas" 1 "leaderElect" true "natsSingleNodeFlag" true
+      "replicas" (include "clustarr.placementReplicas" (dict "root" $ "values" .Values.manager "component" "manager" "default" 1) | int)
+      "leaderElect" true "natsSingleNodeFlag" true
       "data" true "index" false
-      "strategy" (dict "type" "RollingUpdate" "rollingUpdate" (dict "maxSurge" 1 "maxUnavailable" 0))
+      "strategy" (dict "type" "RollingUpdate" "rollingUpdate" (ternary (dict "maxSurge" 0 "maxUnavailable" 1) (dict "maxSurge" 1 "maxUnavailable" 0) (eq (include "clustarr.onePerNode" (dict "root" $ "values" .Values.manager)) "true")))
       "grace" 85 "gomemPercent" 80
       "extraPorts" $managerPorts "extraEnv" $managerEnv
       "extraVolumeMounts" $managerMounts "extraVolumes" $managerVolumes) }}
@@ -205,7 +213,14 @@ metadata:
     {{- include "clustarr.labels" $ | nindent 4 }}
     app.kubernetes.io/component: ui
 spec:
-  replicas: {{ .Values.ui.replicas }}
+  replicas: {{ include "clustarr.placementReplicas" (dict "root" $ "values" .Values.ui "component" "ui" "default" 1) }}
+  {{- if eq (include "clustarr.onePerNode" (dict "root" $ "values" .Values.ui)) "true" }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  {{- end }}
   selector:
     matchLabels:
       {{- include "clustarr.selectorLabels" (dict "root" $ "component" "ui") | nindent 6 }}
@@ -280,17 +295,8 @@ spec:
         volumeMounts:
         - name: tmp
           mountPath: /tmp
-      {{- with .Values.ui.nodeSelector }}
-      nodeSelector:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with .Values.ui.tolerations }}
-      tolerations:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with .Values.ui.affinity }}
-      affinity:
-        {{- toYaml . | nindent 8 }}
+      {{- with (include "clustarr.placement" (dict "root" $ "values" .Values.ui "component" "ui") | trim) }}
+      {{- . | nindent 6 }}
       {{- end }}
       volumes:
       - name: tmp

@@ -176,12 +176,74 @@
       }
     },
 
+    "placement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "profiles"],
+      "description": "Placement profiles (docs/superpowers/specs/2026-10-21-control-plane-placement-design.md §3).",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "profiles": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["controlPlane", "workers"],
+          "properties": {
+            "controlPlane": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "replicas": { "type": "integer", "minimum": 1 },
+                "onePerNode": { "type": "boolean" },
+                "nodeAffinity": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["key", "operator"],
+                    "properties": {
+                      "key": { "type": "string" },
+                      "operator": { "type": "string", "enum": ["In", "NotIn", "Exists", "DoesNotExist", "Gt", "Lt"] },
+                      "values": { "type": "array", "items": { "type": "string" } }
+                    }
+                  }
+                },
+                "tolerations": { "type": "array", "items": { "type": "object" } }
+              }
+            },
+            "workers": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "replicas": { "type": "integer", "minimum": 1 },
+                "onePerNode": { "type": "boolean" },
+                "nodeAffinity": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["key", "operator"],
+                    "properties": {
+                      "key": { "type": "string" },
+                      "operator": { "type": "string", "enum": ["In", "NotIn", "Exists", "DoesNotExist", "Gt", "Lt"] },
+                      "values": { "type": "array", "items": { "type": "string" } }
+                    }
+                  }
+                },
+                "tolerations": { "type": "array", "items": { "type": "object" } }
+              }
+            }
+          }
+        }
+      }
+    },
+
     "manager": {
       "type": "object",
       "additionalProperties": false,
       "required": ["slots", "intelRenderGroups", "gpuNodeLabelNvidia", "gpuNodeLabelIntel", "cardigann", "graftConcurrency", "engineMemoryLimits", "remediation", "resources", "nodeSelector", "tolerations", "affinity"],
-      "description": "Every controller in one process: one replica under the lease manager.clustarr.io, so there is no replicas key.",
+      "description": "Every controller in one process under the lease manager.clustarr.io; extra replicas (placement) are warm standbys.",
       "properties": {
+        "replicas": { "type": "integer", "minimum": 1, "description": "Unset is 1, or with placement.enabled the profile's; more than a onePerNode profile allows fails the render." },
         "slots": {
           "type": "string",
           "pattern": "^[a-z][a-z0-9]*=[0-9]+(,[a-z][a-z0-9]*=[0-9]+)*$",
@@ -253,6 +315,7 @@
           }
         },
         "resources": { "$ref": "#/$defs/resources" },
+        "placement": { "type": "string", "enum": ["controlPlane", "workers"], "description": "The placement profile this workload takes with placement.enabled (placement.profiles)." },
         "nodeSelector": { "type": "object" },
         "tolerations": { "type": "array" },
         "affinity": { "type": "object" }
@@ -304,6 +367,7 @@
           "properties": {
             "enabled": { "type": "boolean" },
             "resources": { "$ref": "#/$defs/resources" },
+            "placement": { "type": "string", "enum": ["controlPlane", "workers"], "description": "The placement profile this workload takes with placement.enabled (placement.profiles)." },
             "nodeSelector": { "type": "object" },
             "tolerations": { "type": "array" },
             "affinity": { "type": "object" }
@@ -340,6 +404,7 @@
               }
             },
             "resources": { "$ref": "#/$defs/resources" },
+            "placement": { "type": "string", "enum": ["controlPlane", "workers"], "description": "The placement profile this workload takes with placement.enabled (placement.profiles)." },
             "nodeSelector": { "type": "object" },
             "tolerations": { "type": "array" },
             "affinity": { "type": "object" }
@@ -377,6 +442,7 @@
           "description": "CPUs per automatic slot (--cores-per-slot): 2 by default, 1 where reads from /data bind before the CPUs do. Unused when consumerSlots names markers-analyze."
         },
         "resources": { "$ref": "#/$defs/resources" },
+        "placement": { "type": "string", "enum": ["controlPlane", "workers"], "description": "The placement profile this workload takes with placement.enabled (placement.profiles)." },
         "nodeSelector": { "type": "object" },
         "tolerations": { "type": "array" },
         "affinity": { "type": "object" }
@@ -385,7 +451,7 @@
     "ui": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["enabled", "replicas", "auth", "plex", "service", "resources", "nodeSelector", "tolerations", "affinity"],
+      "required": ["enabled", "auth", "plex", "service", "resources", "nodeSelector", "tolerations", "affinity"],
       "properties": {
         "enabled": { "type": "boolean" },
         "replicas": { "type": "integer", "minimum": 0 },
@@ -432,6 +498,7 @@
           }
         },
         "resources": { "$ref": "#/$defs/resources" },
+        "placement": { "type": "string", "enum": ["controlPlane", "workers"], "description": "The placement profile this workload takes with placement.enabled (placement.profiles)." },
         "nodeSelector": { "type": "object" },
         "tolerations": { "type": "array" },
         "affinity": { "type": "object" }
@@ -512,6 +579,7 @@
           "description": "Per-pod handler slots by consumer (CLUSTARR_CONSUMER_SLOTS), also the HPA's per-pod target; only the workload's own domain's consumers."
         },
         "resources": { "$ref": "#/$defs/resources" },
+        "placement": { "type": "string", "enum": ["controlPlane", "workers"], "description": "The placement profile this workload takes with placement.enabled (placement.profiles)." },
         "nodeSelector": { "type": "object" },
         "tolerations": { "type": "array" },
         "affinity": { "type": "object" }

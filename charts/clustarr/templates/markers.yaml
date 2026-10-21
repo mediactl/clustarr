@@ -85,17 +85,8 @@ spec:
       {{- end }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
-      {{- with .Values.markers.nodeSelector }}
-      nodeSelector:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with .Values.markers.tolerations }}
-      tolerations:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with .Values.markers.affinity }}
-      affinity:
-        {{- toYaml . | nindent 8 }}
+      {{- with (include "clustarr.placement" (dict "root" $ "values" .Values.markers "component" "markers") | trim) }}
+      {{- . | nindent 6 }}
       {{- end }}
       # One pod per node: hard, over the nodes its pods may land on and
       # tolerate (the nodes the autoscaler counts as maxReplicas), so with

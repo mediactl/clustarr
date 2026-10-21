@@ -198,6 +198,103 @@ preferences, so they fail the render rather than warn.
 {{- end -}}
 
 {{/*
+Placement (docs/superpowers/specs/2026-10-21-control-plane-placement-design.md
+§3). clustarr.placementProfile is the profile a component's values name, as
+JSON: {} with placement off or when the component names none.
+Call with (dict "root" $ "values" <component values>).
+*/}}
+{{- define "clustarr.placementProfile" -}}
+{{- $p := dict -}}
+{{- if .root.Values.placement.enabled -}}
+{{- with .values.placement -}}
+{{- $p = index $.root.Values.placement.profiles . | default dict -}}
+{{- if not $p -}}
+{{- fail (printf "placement %q names no profile under placement.profiles" .) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- toJson $p -}}
+{{- end -}}
+
+{{/*
+clustarr.placement renders a pod's nodeSelector, tolerations and affinity:
+the component's own, with the profile's expressions joined to every required
+node-affinity term (terms OR, so a new term would let the pod skip them),
+the profile's tolerations added, and, for a onePerNode profile, a required
+pod anti-affinity on kubernetes.io/hostname over the component's own pods.
+With placement off it is exactly the component's own three keys.
+Call with (dict "root" $ "values" <component values> "component" <name>),
+included at the pod spec's indentation with nindent.
+*/}}
+{{- define "clustarr.placement" -}}
+{{- $p := include "clustarr.placementProfile" . | fromJson -}}
+{{- $affinity := deepCopy (.values.affinity | default dict) -}}
+{{- if $p.nodeAffinity -}}
+{{- $na := $affinity.nodeAffinity | default dict -}}
+{{- $req := $na.requiredDuringSchedulingIgnoredDuringExecution | default dict -}}
+{{- $terms := list -}}
+{{- range ($req.nodeSelectorTerms | default (list (dict))) -}}
+{{- $t := deepCopy . -}}
+{{- $_ := set $t "matchExpressions" (concat (.matchExpressions | default list) $p.nodeAffinity) -}}
+{{- $terms = append $terms $t -}}
+{{- end -}}
+{{- $_ := set $req "nodeSelectorTerms" $terms -}}
+{{- $_ := set $na "requiredDuringSchedulingIgnoredDuringExecution" $req -}}
+{{- $_ := set $affinity "nodeAffinity" $na -}}
+{{- end -}}
+{{- if $p.onePerNode -}}
+{{- $paa := $affinity.podAntiAffinity | default dict -}}
+{{- $sel := include "clustarr.selectorLabels" (dict "root" .root "component" .component) | fromYaml -}}
+{{- $anti := append ($paa.requiredDuringSchedulingIgnoredDuringExecution | default list) (dict "topologyKey" "kubernetes.io/hostname" "labelSelector" (dict "matchLabels" $sel)) -}}
+{{- $_ := set $paa "requiredDuringSchedulingIgnoredDuringExecution" $anti -}}
+{{- $_ := set $affinity "podAntiAffinity" $paa -}}
+{{- end -}}
+{{- $tolerations := concat (.values.tolerations | default list) ($p.tolerations | default list) -}}
+{{- with .values.nodeSelector }}
+nodeSelector:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- with $tolerations }}
+tolerations:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- with $affinity }}
+affinity:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- end -}}
+
+{{/*
+clustarr.placementReplicas is a Deployment's replicas: the component's own
+when set, else a onePerNode profile's, else .default. More than a onePerNode
+profile allows fails the render: the extra pod would stay Pending for good.
+Call with (dict "root" $ "values" <component values> "component" <values key> "default" <int>).
+*/}}
+{{- define "clustarr.placementReplicas" -}}
+{{- $p := include "clustarr.placementProfile" . | fromJson -}}
+{{- $n := .default -}}
+{{- if $p.onePerNode -}}{{- $n = $p.replicas -}}{{- end -}}
+{{- if hasKey .values "replicas" -}}
+{{- if and $p.onePerNode (gt (int .values.replicas) (int $p.replicas)) -}}
+{{- fail (printf "%s.replicas (%v) exceeds placement profile %q's %v: the profile runs one pod per node" .component .values.replicas .values.placement $p.replicas) -}}
+{{- end -}}
+{{- $n = .values.replicas -}}
+{{- end -}}
+{{- int $n -}}
+{{- end -}}
+
+{{/*
+clustarr.onePerNode is "true" for a component whose profile runs one pod per
+node, else "": its Deployment rolls with maxSurge 0, since with exactly one
+eligible node per pod a surge pod has nowhere to go.
+Call with (dict "root" $ "values" <component values>).
+*/}}
+{{- define "clustarr.onePerNode" -}}
+{{- $p := include "clustarr.placementProfile" . | fromJson -}}
+{{- if $p.onePerNode }}true{{ end -}}
+{{- end -}}
+
+{{/*
 The shared workload shape: ServiceAccount + Service + Deployment.
 
 Call with a dict:
@@ -429,17 +526,8 @@ spec:
         {{- with .extraVolumeMounts }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
-      {{- with .values.nodeSelector }}
-      nodeSelector:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with .values.tolerations }}
-      tolerations:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with .values.affinity }}
-      affinity:
-        {{- toYaml . | nindent 8 }}
+      {{- with (include "clustarr.placement" (dict "root" $root "values" .values "component" .component) | trim) }}
+      {{- . | nindent 6 }}
       {{- end }}
       {{- if .autoscaled }}
       # Soft: a required anti-affinity would stall a RollingUpdate surge on a

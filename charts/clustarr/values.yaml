@@ -6,6 +6,41 @@ nameOverride: ""
 fullnameOverride: ""
 
 # --------------------------------------------------------------------------
+# Placement (docs/superpowers/specs/2026-10-21-control-plane-placement-design.md)
+# --------------------------------------------------------------------------
+# Two named profiles; each workload names one (its placement key). With
+# enabled, a profile's nodeAffinity expressions join every required
+# node-affinity term of the pod, its tolerations are added, and a onePerNode
+# profile runs `replicas` pods, one per node (required hostname anti-affinity,
+# maxSurge 0, a PodDisruptionBudget). The manager hands the workers profile to
+# every pod it builds (--worker-placement). Off by default: a kind or
+# single-node install schedules as before. The nats and cluster-plex
+# subcharts take their placement literally under their own values, checked at
+# render time.
+placement:
+  enabled: false
+  profiles:
+    controlPlane:
+      replicas: 3
+      onePerNode: true
+      nodeAffinity:
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+      tolerations:
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
+    workers:
+      onePerNode: false
+      nodeAffinity:
+      - key: node-role.kubernetes.io/control-plane
+        operator: DoesNotExist
+      - key: kubernetes.io/arch
+        operator: In
+        values: [amd64]
+      tolerations: []
+
+# --------------------------------------------------------------------------
 # Images
 # --------------------------------------------------------------------------
 # Two images (spec 2026-10-06 §10.1, R1):
@@ -391,6 +426,8 @@ manager:
     limits:
       cpu: "2"
       memory: 1664Mi
+  # Placement profile (placement.profiles), used only with placement.enabled.
+  placement: controlPlane
   nodeSelector: {}
   tolerations: []
   affinity: {}
@@ -441,6 +478,7 @@ agents:
       limits:
         cpu: "1"
         memory: 1Gi
+    placement: workers
     nodeSelector: {}
     tolerations: []
     affinity: {}
@@ -457,6 +495,7 @@ agents:
       limits:
         cpu: "1"
         memory: 1Gi
+    placement: workers
     nodeSelector: {}
     tolerations: []
     affinity: {}
@@ -472,6 +511,7 @@ agents:
       limits:
         cpu: 500m
         memory: 512Mi
+    placement: workers
     nodeSelector: {}
     tolerations: []
     affinity: {}
@@ -488,6 +528,7 @@ agents:
       limits:
         cpu: "2"
         memory: 1536Mi
+    placement: workers
     nodeSelector: {}
     tolerations: []
     affinity: {}
@@ -515,6 +556,7 @@ agents:
       limits:
         cpu: "1"
         memory: 1Gi
+    placement: workers
     nodeSelector: {}
     tolerations: []
     affinity: {}
@@ -531,6 +573,7 @@ agents:
       limits:
         cpu: "1"
         memory: 1Gi
+    placement: workers
     nodeSelector: {}
     tolerations: []
     affinity: {}
@@ -582,6 +625,8 @@ markers:
       memory: 512Mi
     limits:
       memory: 4Gi
+  # Placement profile (placement.profiles), used only with placement.enabled.
+  placement: workers
   nodeSelector: {}
   tolerations: []
   affinity: {}
@@ -591,7 +636,8 @@ markers:
 # templates/deployments.yaml for why it does not use clustarr.workload.
 ui:
   enabled: true
-  replicas: 1
+  # replicas: unset is 1, or with placement.enabled the profile's (one per
+  # control-plane node); set it lower to run fewer.
   # The authentication mode (--auth-mode), chosen explicitly: the binary
   # refuses to serve without one, and this default is what makes a Helm
   # install choose. The only mode is anonymous, which serves every request
@@ -650,6 +696,8 @@ ui:
     limits:
       cpu: 500m
       memory: 256Mi
+  # Placement profile (placement.profiles), used only with placement.enabled.
+  placement: controlPlane
   nodeSelector: {}
   tolerations: []
   affinity: {}

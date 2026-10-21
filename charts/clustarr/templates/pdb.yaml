@@ -1,0 +1,21 @@
+{{- /* One PodDisruptionBudget per Deployment whose placement profile runs one
+       pod per node (control-plane placement design §3): a drain of one
+       control-plane node evicts one of each, never two. */}}
+{{- range $c := list "manager" "ui" }}
+{{- $values := index $.Values $c }}
+{{- if and (or (eq $c "manager") $values.enabled) (eq (include "clustarr.onePerNode" (dict "root" $ "values" $values)) "true") }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "clustarr.fullname" $ }}-{{ $c }}
+  labels:
+    {{- include "clustarr.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $c }}
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      {{- include "clustarr.selectorLabels" (dict "root" $ "component" $c) | nindent 6 }}
+{{- end }}
+{{- end }}
