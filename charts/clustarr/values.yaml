@@ -166,6 +166,8 @@ postgres:
     # CNPG Cluster.spec.instances -- the number of Postgres replicas CNPG
     # itself runs (streaming replication).
     instances: 1
+    # Placement profile (placement.profiles), used only with placement.enabled.
+    placement: workers
     storage:
       size: 5Gi
       # Empty binds against the cluster's default StorageClass, same as
@@ -186,7 +188,25 @@ postgres:
 # runs thousands of short queries a page, and compiling one past
 # jit_above_cost costs more than running it (an arm64 node most of all).
 plexDatabase:
-  instances: 1
+  # instances: unset is 1, or with placement.enabled the profile's (one per
+  # control-plane node); set it lower to run fewer.
+  # Placement profile (placement.profiles), used only with placement.enabled.
+  placement: controlPlane
+  # Replication once there is more than one instance (control-plane placement
+  # design §5.1, CNPG's guidance for three): a commit waits for either
+  # standby (quorum any 1), preferred durability keeps Plex writing with both
+  # standbys down, and no failoverQuorum -- with two standbys it would refuse
+  # a failover while the primary and one standby are down.
+  synchronous:
+    method: any
+    number: 1
+    dataDurability: preferred
+  # max_slot_wal_keep_size with more than one instance: the WAL a standby's
+  # slot may hold. local-path enforces no claim size, so unbounded slot WAL
+  # would fill the node's filesystem, which etcd shares.
+  maxSlotWalKeepSize: 2GB
+  # A rolling update moves the primary to an updated standby first.
+  primaryUpdateMethod: switchover
   imageName: ghcr.io/cloudnative-pg/postgresql:15.19-standard-trixie
   storage:
     size: 5Gi

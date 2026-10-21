@@ -49,6 +49,9 @@ metadata:
     helm.sh/resource-policy: keep
 spec:
   instances: {{ .Values.postgres.cluster.instances }}
+  {{- with (include "clustarr.cnpgAffinity" (dict "root" $ "values" .Values.postgres.cluster) | trim) }}
+  {{- . | nindent 2 }}
+  {{- end }}
   storage:
     size: {{ .Values.postgres.cluster.storage.size | quote }}
     {{- with .Values.postgres.cluster.storage.storageClass }}

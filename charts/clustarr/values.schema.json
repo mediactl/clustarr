@@ -69,6 +69,7 @@
           "additionalProperties": false,
           "properties": {
             "instances": { "type": "integer", "minimum": 1 },
+            "placement": { "type": "string", "enum": ["controlPlane", "workers"], "description": "The placement profile this Cluster takes with placement.enabled (placement.profiles)." },
             "storage": {
               "type": "object",
               "additionalProperties": false,
@@ -98,6 +99,20 @@
       "additionalProperties": false,
       "properties": {
         "instances": { "type": "integer", "minimum": 1 },
+        "placement": { "type": "string", "enum": ["controlPlane", "workers"], "description": "The placement profile this Cluster takes with placement.enabled (placement.profiles)." },
+        "synchronous": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["method", "number"],
+          "description": "CNPG postgresql.synchronous, rendered with more than one instance (control-plane placement design §5.1).",
+          "properties": {
+            "method": { "type": "string", "enum": ["any", "first"] },
+            "number": { "type": "integer", "minimum": 1 },
+            "dataDurability": { "type": "string", "enum": ["required", "preferred"] }
+          }
+        },
+        "maxSlotWalKeepSize": { "type": "string", "description": "max_slot_wal_keep_size with more than one instance." },
+        "primaryUpdateMethod": { "type": "string", "enum": ["restart", "switchover"], "description": "CNPG primaryUpdateMethod with more than one instance." },
         "imageName": { "type": "string", "minLength": 1 },
         "storage": {
           "type": "object",

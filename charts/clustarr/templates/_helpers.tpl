@@ -295,6 +295,34 @@ Call with (dict "root" $ "values" <component values>).
 {{- end -}}
 
 {{/*
+clustarr.cnpgAffinity is a CloudNativePG Cluster's spec.affinity from its
+placement profile: the profile's expressions as a required node affinity, its
+tolerations, and for a onePerNode profile a required anti-affinity on
+kubernetes.io/hostname. Empty with placement off.
+Call with (dict "root" $ "values" <the Cluster's values>).
+*/}}
+{{- define "clustarr.cnpgAffinity" -}}
+{{- $p := include "clustarr.placementProfile" . | fromJson -}}
+{{- if $p.nodeAffinity }}
+affinity:
+  {{- if $p.onePerNode }}
+  enablePodAntiAffinity: true
+  podAntiAffinityType: required
+  topologyKey: kubernetes.io/hostname
+  {{- end }}
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+      - matchExpressions:
+          {{- toYaml $p.nodeAffinity | nindent 10 }}
+  {{- with $p.tolerations }}
+  tolerations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}
+{{- end -}}
+
+{{/*
 The shared workload shape: ServiceAccount + Service + Deployment.
 
 Call with a dict:

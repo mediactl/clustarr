@@ -20,15 +20,38 @@ metadata:
     app.kubernetes.io/component: plex-db
   annotations:
     helm.sh/resource-policy: keep
+{{- $sizing := dict "placement" .Values.plexDatabase.placement }}
+{{- if hasKey .Values.plexDatabase "instances" }}{{ $_ := set $sizing "replicas" .Values.plexDatabase.instances }}{{ end }}
+{{- $instances := include "clustarr.placementReplicas" (dict "root" $ "values" $sizing "component" "plexDatabase" "default" 1) | int }}
+{{- /* Replication settings once there is more than one instance
+       (control-plane placement design §5.1). */}}
+{{- $replicated := gt $instances 1 }}
+{{- $parameters := deepCopy (.Values.plexDatabase.parameters | default dict) }}
+{{- if and $replicated .Values.plexDatabase.maxSlotWalKeepSize (not (hasKey $parameters "max_slot_wal_keep_size")) }}
+{{- $_ := set $parameters "max_slot_wal_keep_size" .Values.plexDatabase.maxSlotWalKeepSize }}
+{{- end }}
 spec:
-  instances: {{ .Values.plexDatabase.instances }}
+  instances: {{ $instances }}
   imageName: {{ .Values.plexDatabase.imageName }}
-  {{- with .Values.plexDatabase.parameters }}
+  {{- if $replicated }}
+  primaryUpdateStrategy: unsupervised
+  primaryUpdateMethod: {{ .Values.plexDatabase.primaryUpdateMethod | default "switchover" }}
+  {{- end }}
+  {{- with (include "clustarr.cnpgAffinity" (dict "root" $ "values" .Values.plexDatabase) | trim) }}
+  {{- . | nindent 2 }}
+  {{- end }}
+  {{- if or $parameters (and $replicated .Values.plexDatabase.synchronous) }}
   postgresql:
+    {{- if and $replicated .Values.plexDatabase.synchronous }}
+    synchronous:
+      {{- toYaml .Values.plexDatabase.synchronous | nindent 6 }}
+    {{- end }}
+    {{- with $parameters }}
     parameters:
       {{- range $k, $v := . }}
       {{ $k }}: {{ $v | quote }}
       {{- end }}
+    {{- end }}
   {{- end }}
   storage:
     size: {{ .Values.plexDatabase.storage.size | quote }}
