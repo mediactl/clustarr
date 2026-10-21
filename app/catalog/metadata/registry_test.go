@@ -149,7 +149,12 @@ func TestBuildRegistryWiresEveryProviderType(t *testing.T) {
 	require.Equal(t, []string{"audnexus"}, got.audiobooks)
 	require.Equal(t, []string{"comicvine", "mangadex", "metron"}, got.comics, "AniList is never a comic source")
 	require.Equal(t, []string{"coverart", "fanart"}, got.artwork)
-	require.ElementsMatch(t, []string{"metron", "mangadex", "anilist", "kitsu", "animelists"}, got.resolvers)
+	require.ElementsMatch(t, []string{"metron", "mangadex", "anilist", "kitsu", "animelists", "tvdb"}, got.resolvers)
+	// TheTVDB looks a series' TVDB id up by its IMDb id, last: it fills a gap
+	// the crosswalks leave and never replaces an id they resolve, which an
+	// import list keys its Series by (the owner's MAL list, 2026-10-21).
+	require.Equal(t, "tvdb", got.resolvers[len(got.resolvers)-1])
+	require.Equal(t, reg.Series[0], reg.Resolvers[len(reg.Resolvers)-1], "the series provider's own client")
 }
 
 // TestBuildRegistryWiresTMDBAsARatingsProviderToo proves the same *tmdb.Client

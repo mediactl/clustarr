@@ -95,6 +95,16 @@ func BuildRegistry(ctx context.Context, c client.Client, providers []catalogv1al
 			return nil, err
 		}
 	}
+	// A series provider that also resolves (TheTVDB looks a series' TVDB id
+	// up by its IMDb id) is the last resolver: it fills the TVDB id every
+	// crosswalk before it left out -- TMDB lists none for 14 of the owner's
+	// MAL list of 164 shows (2026-10-21) -- and never replaces one they
+	// resolve, which an import list keys its Series by.
+	for _, s := range reg.Series {
+		if r, ok := s.(pkgmetadata.IDResolver); ok {
+			reg.Resolvers = append(reg.Resolvers, r)
+		}
+	}
 	return reg, nil
 }
 
