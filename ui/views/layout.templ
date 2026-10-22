@@ -133,7 +133,7 @@ templ Shell(c Chrome) {
 		</head>
 		<body class="min-h-screen bg-transparent font-sans text-foreground" hx-ext="preload">
 			@sidebar.Provider() {
-				@sidebar.Sidebar(sidebar.Props{Collapsible: sidebar.CollapsibleIcon}) {
+				@sidebar.Sidebar(sidebar.Props{Collapsible: sidebar.CollapsibleIcon, Variant: sidebar.VariantFloating}) {
 					@sidebar.Header() {
 						<a href="/" class="flex h-8 items-center gap-2 px-2 text-lg font-semibold text-primary">
 							<img src="/static/logo.svg" alt="Clustarr" width="24" height="24" class="size-6 shrink-0"/>
