@@ -750,6 +750,12 @@ func (p *planner) planFrom(insp *schema.ImportInspection) planResult {
 				continue
 			}
 		}
+		if c.kind == commonv1.MediaKindEpisode && !manual {
+			if r := episodeContentRejection(rel, f.Probe); !r.none() {
+				rs = append(rs, r)
+				continue
+			}
+		}
 		have := p.existingFor(c)
 		compared := comparedFiles(have, e)
 		if r, ok := p.gate(rel, c, compared, manual); ok {

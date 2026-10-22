@@ -156,3 +156,32 @@ func TestAnImportKeepsAGoodTranscodeBaseline(t *testing.T) {
 	r, refused = p.gate("f.mkv", same, []catalogv1alpha1.MediaFile{existing("hevc", commonv1.HdrFormatNone)}, false)
 	assert.True(t, refused, "%+v", r)
 }
+
+// TestADolbyVisionEpisodeFileIsRefused: an episode file is held to the rule
+// a movie's is, Dolby Vision never taken. On 2026-10-22 a season pack whose
+// title named no Dolby Vision -- "[ZeroBuild] Cyberpunk Edgerunners Season 1
+// v2 (Web 1080p HEVC x265 10-bit AC3)" -- was Netflix's profile 5, with no
+// HDR10 base layer: it replaced ten BluRay episodes, transcode skipped every
+// one, and a client without Dolby Vision showed them in the wrong colours.
+func TestADolbyVisionEpisodeFileIsRefused(t *testing.T) {
+	for name, tt := range map[string]struct {
+		hdr     string
+		refused bool
+	}{
+		"profile 5, no base layer": {"dolbyVision", true},
+		"profile 8.1, HDR10 base":  {"dolbyVisionHdr10", true},
+		"HDR10":                    {"hdr10", false},
+		"SDR":                      {"none", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := episodeContentRejection("S01E01.mkv", &schema.ProbeSummary{VideoCodec: "hevc", HDR: tt.hdr, DurationSeconds: 24 * 60})
+
+			assert.Equal(t, tt.refused, !r.none())
+			if tt.refused {
+				assert.Equal(t, commonv1.ImportClassReleaseFault, r.Class, "a release fault: the release is blocklisted and another searched")
+				assert.Contains(t, r.Text, "Dolby Vision")
+			}
+		})
+	}
+	assert.True(t, episodeContentRejection("S01E01.mkv", nil).none(), "an unprobed file is not judged")
+}

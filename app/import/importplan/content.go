@@ -60,8 +60,8 @@ func movieContentRejection(rel string, probe *schema.ProbeSummary, releaseTitle 
 	if probe == nil {
 		return Rejection{}
 	}
-	if decision.IsDolbyVision(probe.HDR) {
-		return releaseFaultRejection("%s: the file is Dolby Vision (%s), which is never taken", rel, probe.HDR)
+	if r := episodeContentRejection(rel, probe); !r.none() {
+		return r
 	}
 	if runtimeMinutes <= 0 || probe.DurationSeconds <= 0 {
 		return Rejection{}
@@ -79,6 +79,20 @@ func movieContentRejection(rel string, probe *schema.ProbeSummary, releaseTitle 
 		releaseTitle != "" && !decision.TitleNamesMovie(id, releaseTitle) {
 		return releaseFaultRejection("%s: runs %d minutes to the movie's %d, and the release %q does not name it: another film",
 			rel, runs, runtimeMinutes, releaseTitle)
+	}
+	return Rejection{}
+}
+
+// episodeContentRejection refuses a file whose own streams say it is never
+// taken: Dolby Vision, the decision's rule for a release that names it,
+// for the file whose release did not. Every video file is held to it, a
+// movie's through movieContentRejection: on 2026-10-22 a Netflix profile 5
+// season pack whose title named no Dolby Vision replaced ten BluRay
+// episodes, which transcode skipped (no HDR10 base layer) and a client
+// without Dolby Vision showed in the wrong colours.
+func episodeContentRejection(rel string, probe *schema.ProbeSummary) Rejection {
+	if probe != nil && decision.IsDolbyVision(probe.HDR) {
+		return releaseFaultRejection("%s: the file is Dolby Vision (%s), which is never taken", rel, probe.HDR)
 	}
 	return Rejection{}
 }
