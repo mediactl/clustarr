@@ -131,7 +131,7 @@ func Downloads(p paging.Page, rows []DownloadView, clients []downloadv1.Download
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, " <div id=\"downloads-rows\" hx-ext=\"sse\" sse-connect=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, " <div id=\"downloads-rows\" hx-ext=\"sse, morph\" sse-connect=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -144,7 +144,7 @@ func Downloads(p paging.Page, rows []DownloadView, clients []downloadv1.Download
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "\" sse-swap=\"downloads\" class=\"space-y-4\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "\" sse-swap=\"downloads\" hx-swap=\"morph:innerHTML\" class=\"space-y-4\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -334,7 +334,7 @@ func downloadRow(d DownloadView) templ.Component {
 					var templ_7745c5c3_Var11 templ.SafeURL
 					templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(ownerURL(d.Row)))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 115, Col: 68}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 116, Col: 68}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
 					if templ_7745c5c3_Err != nil {
@@ -347,7 +347,7 @@ func downloadRow(d DownloadView) templ.Component {
 					var templ_7745c5c3_Var12 string
 					templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(downloadTitle(d.Row))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 115, Col: 93}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 116, Col: 93}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 					if templ_7745c5c3_Err != nil {
@@ -383,7 +383,7 @@ func downloadRow(d DownloadView) templ.Component {
 						var templ_7745c5c3_Var14 string
 						templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(coveredLine(d.Row))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 118, Col: 46}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 119, Col: 46}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
 						if templ_7745c5c3_Err != nil {
@@ -418,7 +418,7 @@ func downloadRow(d DownloadView) templ.Component {
 					var templ_7745c5c3_Var15 string
 					templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("down %s/s · up %s/s", formatBytes(pr.DownRateBytesPerSec), formatBytes(pr.UpRateBytesPerSec)))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 125, Col: 120}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 126, Col: 120}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
 					if templ_7745c5c3_Err != nil {
@@ -436,7 +436,7 @@ func downloadRow(d DownloadView) templ.Component {
 						var templ_7745c5c3_Var16 string
 						templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("seeders %d · peers %d", pr.Seeders, pr.Peers))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 127, Col: 73}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 128, Col: 73}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 						if templ_7745c5c3_Err != nil {
@@ -449,7 +449,7 @@ func downloadRow(d DownloadView) templ.Component {
 						var templ_7745c5c3_Var17 string
 						templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("ratio %s", ratioString(pr.RatioMilli)))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 128, Col: 65}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 129, Col: 65}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
 						if templ_7745c5c3_Err != nil {
@@ -467,7 +467,7 @@ func downloadRow(d DownloadView) templ.Component {
 					var templ_7745c5c3_Var18 string
 					templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("ETA %s", formatETA(pr.ETASeconds)))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 130, Col: 60}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 131, Col: 60}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
 					if templ_7745c5c3_Err != nil {
@@ -498,7 +498,7 @@ func downloadRow(d DownloadView) templ.Component {
 						var templ_7745c5c3_Var20 string
 						templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("import: %s", downloadImportDetail(imp)))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 135, Col: 59}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 136, Col: 59}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var20))
 						if templ_7745c5c3_Err != nil {
@@ -511,7 +511,7 @@ func downloadRow(d DownloadView) templ.Component {
 						var templ_7745c5c3_Var21 templ.SafeURL
 						templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(downloadURL(d.Row, "import")))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 136, Col: 81}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 137, Col: 81}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var21))
 						if templ_7745c5c3_Err != nil {
@@ -540,7 +540,7 @@ func downloadRow(d DownloadView) templ.Component {
 					var templ_7745c5c3_Var22 string
 					templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.JoinStringErrs(downloadFailureDetail(d.Row.Entry))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 140, Col: 78}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 141, Col: 78}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var22))
 					if templ_7745c5c3_Err != nil {
@@ -600,7 +600,7 @@ func downloadRow(d DownloadView) templ.Component {
 					var templ_7745c5c3_Var25 string
 					templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.JoinStringErrs(downloadPhaseLabel(d.Row.Entry.Phase))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 147, Col: 148}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 148, Col: 148}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var25))
 					if templ_7745c5c3_Err != nil {
@@ -739,7 +739,7 @@ func downloadAction(r projection.DownloadRow, action, label, vals string) templ.
 			var templ_7745c5c3_Var29 string
 			templ_7745c5c3_Var29, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 179, Col: 9}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 180, Col: 9}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var29))
 			if templ_7745c5c3_Err != nil {
@@ -801,7 +801,7 @@ func DownloadImport(r projection.DownloadRow, inspect, execute *schema.ImportRec
 			var templ_7745c5c3_Var32 string
 			templ_7745c5c3_Var32, templ_7745c5c3_Err = templ.JoinStringErrs(downloadTitle(r))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 187, Col: 56}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 188, Col: 56}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var32))
 			if templ_7745c5c3_Err != nil {
@@ -814,7 +814,7 @@ func DownloadImport(r projection.DownloadRow, inspect, execute *schema.ImportRec
 			var templ_7745c5c3_Var33 templ.SafeURL
 			templ_7745c5c3_Var33, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(ownerURL(r)))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 189, Col: 57}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 190, Col: 57}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var33))
 			if templ_7745c5c3_Err != nil {
@@ -827,7 +827,7 @@ func DownloadImport(r projection.DownloadRow, inspect, execute *schema.ImportRec
 			var templ_7745c5c3_Var34 string
 			templ_7745c5c3_Var34, templ_7745c5c3_Err = templ.JoinStringErrs(string(r.OwnerKind) + " " + r.Owner.Name)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 189, Col: 102}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 190, Col: 102}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var34))
 			if templ_7745c5c3_Err != nil {
@@ -841,7 +841,7 @@ func DownloadImport(r projection.DownloadRow, inspect, execute *schema.ImportRec
 				var templ_7745c5c3_Var35 string
 				templ_7745c5c3_Var35, templ_7745c5c3_Err = templ.JoinStringErrs(" · import: " + downloadImportDetail(imp))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 191, Col: 48}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 192, Col: 48}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var35))
 				if templ_7745c5c3_Err != nil {
@@ -875,7 +875,7 @@ func DownloadImport(r projection.DownloadRow, inspect, execute *schema.ImportRec
 					var templ_7745c5c3_Var36 string
 					templ_7745c5c3_Var36, templ_7745c5c3_Err = templ.JoinStringErrs(rj.Text)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 200, Col: 73}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 201, Col: 73}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var36))
 					if templ_7745c5c3_Err != nil {
@@ -898,7 +898,7 @@ func DownloadImport(r projection.DownloadRow, inspect, execute *schema.ImportRec
 					var templ_7745c5c3_Var37 string
 					templ_7745c5c3_Var37, templ_7745c5c3_Err = templ.ResolveAttributeValue(f.Path)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 204, Col: 34}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 205, Col: 34}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var37)
 					if templ_7745c5c3_Err != nil {
@@ -911,7 +911,7 @@ func DownloadImport(r projection.DownloadRow, inspect, execute *schema.ImportRec
 					var templ_7745c5c3_Var38 string
 					templ_7745c5c3_Var38, templ_7745c5c3_Err = templ.JoinStringErrs(f.Path)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 205, Col: 38}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 206, Col: 38}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var38))
 					if templ_7745c5c3_Err != nil {
@@ -929,7 +929,7 @@ func DownloadImport(r projection.DownloadRow, inspect, execute *schema.ImportRec
 						var templ_7745c5c3_Var39 string
 						templ_7745c5c3_Var39, templ_7745c5c3_Err = templ.JoinStringErrs(" → " + f.Dest)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 207, Col: 61}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 208, Col: 61}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var39))
 						if templ_7745c5c3_Err != nil {
@@ -948,7 +948,7 @@ func DownloadImport(r projection.DownloadRow, inspect, execute *schema.ImportRec
 						var templ_7745c5c3_Var40 string
 						templ_7745c5c3_Var40, templ_7745c5c3_Err = templ.JoinStringErrs(rj.Text)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 210, Col: 46}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 211, Col: 46}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var40))
 						if templ_7745c5c3_Err != nil {
@@ -986,7 +986,7 @@ func DownloadImport(r projection.DownloadRow, inspect, execute *schema.ImportRec
 					var templ_7745c5c3_Var41 string
 					templ_7745c5c3_Var41, templ_7745c5c3_Err = templ.JoinStringErrs("refused: " + execute.Execute.Refused + " " + execute.Failure)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 219, Col: 103}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 220, Col: 103}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var41))
 					if templ_7745c5c3_Err != nil {
@@ -1009,7 +1009,7 @@ func DownloadImport(r projection.DownloadRow, inspect, execute *schema.ImportRec
 					var templ_7745c5c3_Var42 string
 					templ_7745c5c3_Var42, templ_7745c5c3_Err = templ.ResolveAttributeValue(f.Dest)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 223, Col: 54}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 224, Col: 54}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var42)
 					if templ_7745c5c3_Err != nil {
@@ -1022,7 +1022,7 @@ func DownloadImport(r projection.DownloadRow, inspect, execute *schema.ImportRec
 					var templ_7745c5c3_Var43 string
 					templ_7745c5c3_Var43, templ_7745c5c3_Err = templ.JoinStringErrs(f.Dest)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 223, Col: 65}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 224, Col: 65}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var43))
 					if templ_7745c5c3_Err != nil {
@@ -1167,7 +1167,7 @@ func downloadClientCard(c downloadv1.DownloadClient) templ.Component {
 					var templ_7745c5c3_Var50 string
 					templ_7745c5c3_Var50, templ_7745c5c3_Err = templ.JoinStringErrs(c.Name)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 255, Col: 27}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 256, Col: 27}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var50))
 					if templ_7745c5c3_Err != nil {
@@ -1186,7 +1186,7 @@ func downloadClientCard(c downloadv1.DownloadClient) templ.Component {
 				var templ_7745c5c3_Var51 string
 				templ_7745c5c3_Var51, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("active %d", c.Status.Active))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 257, Col: 53}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 258, Col: 53}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var51))
 				if templ_7745c5c3_Err != nil {
@@ -1199,7 +1199,7 @@ func downloadClientCard(c downloadv1.DownloadClient) templ.Component {
 				var templ_7745c5c3_Var52 string
 				templ_7745c5c3_Var52, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("queued %d", c.Status.Queued))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 258, Col: 53}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 259, Col: 53}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var52))
 				if templ_7745c5c3_Err != nil {
@@ -1217,7 +1217,7 @@ func downloadClientCard(c downloadv1.DownloadClient) templ.Component {
 					var templ_7745c5c3_Var53 string
 					templ_7745c5c3_Var53, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("seeding %d", c.Status.Seeding))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 260, Col: 56}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 261, Col: 56}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var53))
 					if templ_7745c5c3_Err != nil {
@@ -1235,7 +1235,7 @@ func downloadClientCard(c downloadv1.DownloadClient) templ.Component {
 				var templ_7745c5c3_Var54 string
 				templ_7745c5c3_Var54, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("free %s", formatBytes(c.Status.FreeBytes)))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 262, Col: 67}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 263, Col: 67}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var54))
 				if templ_7745c5c3_Err != nil {
@@ -1261,7 +1261,7 @@ func downloadClientCard(c downloadv1.DownloadClient) templ.Component {
 						var templ_7745c5c3_Var56 string
 						templ_7745c5c3_Var56, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("engine %d/%d ready", c.Status.Engine.ReadyReplicas, c.Status.Engine.Replicas))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 265, Col: 118}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 266, Col: 118}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var56))
 						if templ_7745c5c3_Err != nil {
@@ -1294,7 +1294,7 @@ func downloadClientCard(c downloadv1.DownloadClient) templ.Component {
 						var templ_7745c5c3_Var58 string
 						templ_7745c5c3_Var58, templ_7745c5c3_Err = templ.JoinStringErrs(via)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 268, Col: 31}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 269, Col: 31}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var58))
 						if templ_7745c5c3_Err != nil {
@@ -1344,7 +1344,7 @@ func downloadClientCard(c downloadv1.DownloadClient) templ.Component {
 					var templ_7745c5c3_Var61 string
 					templ_7745c5c3_Var61, templ_7745c5c3_Err = templ.JoinStringErrs(clientEnabledLabel(c))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 272, Col: 116}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/downloads.templ`, Line: 273, Col: 116}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var61))
 					if templ_7745c5c3_Err != nil {

@@ -49,8 +49,12 @@ import (
 // something useful even before htmx's SSE extension has connected.
 //
 // #library-rows is the sse-swap target, mirroring the Pipeline and Downloads
-// pages: htmx's SSE extension replaces that element's innerHTML with the
-// named event's data, so everything inside it (and only what's inside it)
+// pages: htmx's SSE extension morphs that element's children into the
+// named event's data (hx-swap="morph:innerHTML", idiomorph, 2026-10-21: a
+// frame used to replace them, tearing down every card's poster, hover state
+// and open menu, and the scroll's sentinel, a few times a minute; now a node
+// whose markup is unchanged is left alone, and a card is paired by its id,
+// cardID), so everything inside it (and only what's inside it)
 // must be exactly what LibraryRows renders -- the toolbar renders outside the
 // swapped element, deliberately: the set of RootFolders does not move on the
 // same cadence as item status, mirroring downloads.templ's own client-cards
@@ -67,9 +71,10 @@ templ Library(tab projection.Tab, p paging.Page, items []projection.LibraryItem,
 				data-page={ fmt.Sprint(p.Number) }
 				data-pages={ fmt.Sprint(p.Pages) }
 				data-per={ fmt.Sprint(p.Per) }
-				hx-ext="sse"
+				hx-ext="sse, morph"
 				sse-connect={ "/events/library/" + string(tab) + p.Query(p.Number) }
 				sse-swap="library"
+				hx-swap="morph:innerHTML"
 				hx-trigger="sse:art"
 				class="space-y-4 lg:pr-10"
 			>
@@ -229,6 +234,7 @@ templ LibraryRows(items []projection.LibraryItem) {
 templ libraryCard(li projection.LibraryItem) {
 	@item.Item(item.Props{
 		Variant: item.VariantMuted,
+		ID:      cardID(li),
 		Class:   "group/card relative flex-col items-stretch gap-0 overflow-hidden border-0 bg-card p-0 hover:bg-card data-selected:ring-2 data-selected:ring-primary",
 		Attributes: templ.Attributes{
 			"data-ref":       li.Ref.String(),
@@ -244,6 +250,7 @@ templ libraryCard(li projection.LibraryItem) {
 		@tooltip.Tooltip() {
 			<a
 				data-card-link
+				preload="mouseover"
 				href={ templ.SafeURL(libraryDetailPath(li)) }
 				aria-label={ cardLabel(li) }
 				class="absolute inset-0 z-[1] rounded-[inherit] outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -871,4 +878,13 @@ func libraryDetailPath(item projection.LibraryItem) string {
 // actions ("monitor" or "search"), appended to its detail path.
 func libraryActionURL(item projection.LibraryItem, action string) string {
 	return fmt.Sprintf("%s/%s", libraryDetailPath(item), action)
+}
+
+// cardID names a library card for idiomorph: a live frame morphs
+// #library-rows (hx-swap="morph:innerHTML"), and idiomorph pairs the old and
+// new elements by id, so an item that moves a place when another is added
+// keeps its node -- its loaded poster, its hover state, its tooltip --
+// instead of being rebuilt at the position its neighbour held.
+func cardID(li projection.LibraryItem) string {
+	return "card-" + string(li.Kind) + "-" + li.Ref.Namespace + "-" + li.Ref.Name
 }

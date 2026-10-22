@@ -7,7 +7,9 @@
  *   While selecting, a click on a card ([data-ref]) selects it instead of
  *   opening it (data-selected="true"); [data-action="select-all"] selects every card on screen.
  *   The selection is kept here, by item, and re-applied whenever the live
- *   stream or the infinite scroll replaces the cards. Turning selecting off,
+ *   stream or the infinite scroll replaces the cards -- the stream morphs
+ *   them (idiomorph, 2026-10-21), which still syncs every attribute to the
+ *   frame's markup and so strips data-selected. Turning selecting off,
  *   or a view change that replaces #library-page, clears it.
  * - A [data-bulk-form] submits the selection as repeated "item" fields,
  *   namespace/kind/name, read from each card's data-ref and data-kind;

@@ -413,6 +413,7 @@ func (s *Server) handleLibrary(w http.ResponseWriter, r *http.Request) {
 		bar = jumps(items, base, p)
 	}
 	rootFolders := rootFoldersFor(s.listRootFolders(r.Context()), tab)
+	preloadable(w)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.Library(tab, p, paging.Window(items, p), view.toolbar(base, p.Per), rootFolders, bar).Render(r.Context(), w); err != nil {
 		logging.FromContext(r.Context()).Error("render library page", "error", err)
@@ -466,6 +467,7 @@ func (s *Server) handleLibraryItem(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	preloadable(w)
 	if item.Kind == commonv1.MediaKindSeries {
 		s.renderSeriesPage(w, r, item)
 		return
@@ -880,4 +882,19 @@ func monitoredTitle(monitored bool) string {
 		return "Monitored"
 	}
 	return "Unmonitored"
+}
+
+// preloadable marks a page htmx's preload extension may fetch before it is
+// asked for (2026-10-21: layout.templ enables it on <body>; a library card's
+// link and the Library sub-menu's entries carry preload="mouseover", so a
+// hover fetches the page the click will open). The browser answers that
+// click from its cache only when the response allows it, so the page is
+// cacheable for a few seconds, private to the reader, and varied on
+// HX-Request, since the same URL answers htmx a fragment and a navigation
+// the whole page. The reader can see a page a few seconds stale -- a card
+// hovered, its Monitor pressed, then opened -- which the item's own page
+// corrects at its next load; a reload revalidates.
+func preloadable(w http.ResponseWriter) {
+	w.Header().Set("Cache-Control", "private, max-age=10")
+	w.Header().Add("Vary", "HX-Request")
 }

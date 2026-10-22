@@ -41,9 +41,10 @@ templ Pipeline(p paging.Page, entries []pipeline.Entry) {
 		<h1 class="mb-4 text-2xl font-bold">Pipeline</h1>
 		<div
 			id="pipeline-rows"
-			hx-ext="sse"
+			hx-ext="sse, morph"
 			sse-connect={ "/events/pipeline" + p.Query(p.Number) }
 			sse-swap="pipeline"
+			hx-swap="morph:innerHTML"
 			class="space-y-4"
 		>
 			@PipelineList(p, entries)

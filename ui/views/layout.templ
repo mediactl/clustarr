@@ -120,6 +120,8 @@ templ Shell(c Chrome) {
 			<link rel="stylesheet" href="/static/app.css"/>
 			<script src="/static/htmx.min.js"></script>
 			<script src="/static/htmx-ext-sse.js"></script>
+			<script src="/static/idiomorph-ext.min.js"></script>
+			<script src="/static/htmx-ext-preload.js"></script>
 			<script src="/static/jump.js" defer></script>
 			<script src="/static/find.js" defer></script>
 			<script src="/static/settings.js" defer></script>
@@ -128,7 +130,7 @@ templ Shell(c Chrome) {
 			<script src="/static/portals.js" defer></script>
 			@components.Scripts()
 		</head>
-		<body class="min-h-screen bg-background font-sans text-foreground">
+		<body class="min-h-screen bg-background font-sans text-foreground" hx-ext="preload">
 			@sidebar.Provider() {
 				@sidebar.Sidebar(sidebar.Props{Collapsible: sidebar.CollapsibleIcon}) {
 					@sidebar.Header() {
@@ -264,6 +266,7 @@ templ librarySubMenu(current projection.Tab) {
 					IsActive: tab == current,
 					Attributes: templ.Attributes{
 						"hx-get":      "/library/" + string(tab),
+						"preload":     "mouseover",
 						"hx-push-url": "true",
 						"hx-target":     "#page-body",
 						"hx-select":     "#page-body",

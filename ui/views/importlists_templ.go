@@ -145,7 +145,7 @@ func ImportLists(entries []projection.ImportListEntry) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "</div><div id=\"import-lists-rows\" hx-ext=\"sse\" sse-connect=\"/events/import-lists\" sse-swap=\"import-lists\" class=\"space-y-4\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "</div><div id=\"import-lists-rows\" hx-ext=\"sse, morph\" sse-connect=\"/events/import-lists\" sse-swap=\"import-lists\" hx-swap=\"morph:innerHTML\" class=\"space-y-4\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -277,7 +277,7 @@ func importListRow(e projection.ImportListEntry) templ.Component {
 				var templ_7745c5c3_Var8 string
 				templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(importListTimeLabel(e.LastSyncAt))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/importlists.templ`, Line: 107, Col: 113}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/importlists.templ`, Line: 108, Col: 113}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 				if templ_7745c5c3_Err != nil {
@@ -290,7 +290,7 @@ func importListRow(e projection.ImportListEntry) templ.Component {
 				var templ_7745c5c3_Var9 string
 				templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(importListTimeLabel(e.NextSyncAt))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/importlists.templ`, Line: 108, Col: 113}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/importlists.templ`, Line: 109, Col: 113}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 				if templ_7745c5c3_Err != nil {
@@ -303,7 +303,7 @@ func importListRow(e projection.ImportListEntry) templ.Component {
 				var templ_7745c5c3_Var10 string
 				templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", e.ItemCount))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/importlists.templ`, Line: 109, Col: 106}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/importlists.templ`, Line: 110, Col: 106}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
 				if templ_7745c5c3_Err != nil {
@@ -316,7 +316,7 @@ func importListRow(e projection.ImportListEntry) templ.Component {
 				var templ_7745c5c3_Var11 string
 				templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("added %d · excluded %d · removed %d", e.AddedCount, e.ExcludedCount, e.RemovedCount))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/importlists.templ`, Line: 110, Col: 110}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/importlists.templ`, Line: 111, Col: 110}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
 				if templ_7745c5c3_Err != nil {
@@ -397,7 +397,7 @@ func importListRow(e projection.ImportListEntry) templ.Component {
 								var templ_7745c5c3_Var15 templ.SafeURL
 								templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(e.Auth.VerificationURL))
 								if templ_7745c5c3_Err != nil {
-									return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/importlists.templ`, Line: 122, Col: 51}
+									return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/importlists.templ`, Line: 123, Col: 51}
 								}
 								_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
 								if templ_7745c5c3_Err != nil {
@@ -410,7 +410,7 @@ func importListRow(e projection.ImportListEntry) templ.Component {
 								var templ_7745c5c3_Var16 string
 								templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(e.Auth.VerificationURL)
 								if templ_7745c5c3_Err != nil {
-									return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/importlists.templ`, Line: 122, Col: 146}
+									return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/importlists.templ`, Line: 123, Col: 146}
 								}
 								_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 								if templ_7745c5c3_Err != nil {
@@ -433,7 +433,7 @@ func importListRow(e projection.ImportListEntry) templ.Component {
 							var templ_7745c5c3_Var17 string
 							templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(e.Auth.UserCode)
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/importlists.templ`, Line: 127, Col: 78}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/importlists.templ`, Line: 128, Col: 78}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
 							if templ_7745c5c3_Err != nil {
@@ -496,7 +496,7 @@ func importListRow(e projection.ImportListEntry) templ.Component {
 							var templ_7745c5c3_Var20 string
 							templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.JoinStringErrs(e.LastError)
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/importlists.templ`, Line: 136, Col: 19}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/importlists.templ`, Line: 137, Col: 19}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var20))
 							if templ_7745c5c3_Err != nil {

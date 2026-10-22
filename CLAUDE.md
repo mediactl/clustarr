@@ -428,6 +428,22 @@ posts (2026-10-19). `ui/static/portals.js` has htmx process every portaled
 node a loaded swap owns. A test of the rendered markup cannot see this --
 the poll attributes were always there -- so check such a change in a
 browser.
+The live pages' stream containers (#library-rows, #pipeline-rows,
+#downloads-rows, #unmatched-rows, #import-lists-rows) morph each frame
+in (idiomorph's htmx extension, `hx-swap="morph:innerHTML"`, 2026-10-21):
+a node whose markup is unchanged is left alone, so a frame no longer tears
+down every card's poster, hover state and open menu, and a card is paired
+by its id (`cardID`); the morph still syncs attributes, so library.js
+re-applies the selection after each frame as before. A self-polling panel
+(the interactive search's `hx-trigger="load delay:2s"`) must stay a plain
+`outerHTML` swap: a morphed node whose attributes did not change is not
+re-processed, so its `load` would never fire again. The preload extension
+is on for the whole page (`hx-ext="preload"` on `<body>`): a library
+card's link and the Library sub-menu's entries carry `preload="mouseover"`,
+and the pages they open answer `Cache-Control: private, max-age=10` and
+`Vary: HX-Request` (`preloadable`, `ui/routes.go`), without which the
+browser would fetch the page a second time at the click; a page nothing
+preloads sends no Cache-Control.
 Series monitoring is Sonarr's (2026-09-29): an episode is searched only
 when its Series and the episode itself are monitored (the Episode
 reconciler reads its Series, a Series' `spec.monitored` change wakes its
