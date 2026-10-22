@@ -18,8 +18,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package relay
 
 import (
+	"bytes"
 	"context"
 	"io"
+	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -28,6 +31,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
 
 // tsUpstream serves head, then gop over and over, flushing each, after
@@ -120,3 +125,41 @@ func TestTheUpstreamsFirstByteIsTimed(t *testing.T) {
 	require.Len(t, took, 1)
 	assert.GreaterOrEqual(t, took[0], 80*time.Millisecond)
 }
+
+// TestTheRelayLogsThroughTheViewersLogger: the tuner gives the relay a
+// context without a logger, and serves viewers under the manager's, so the
+// relay's lines ("upstream answered", a taken tuner) were discarded.
+func TestTheRelayLogsThroughTheViewersLogger(t *testing.T) {
+	var mu sync.Mutex
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(writerFunc(func(p []byte) (int, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		return logs.Write(p)
+	}), nil))
+	r := testRelay(t, Options{})
+	up := tsUpstream(t, 0, nil, gop())
+	front := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) { r.Serve(w, req, "1005", up) }))
+	front.Config.BaseContext = func(net.Listener) context.Context {
+		return logging.NewContext(context.Background(), logger)
+	}
+	front.Start()
+	t.Cleanup(front.Close)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, front.URL, nil)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = resp.Body.Close() })
+	_, err = io.CopyN(io.Discard, resp.Body, 10_000)
+	require.NoError(t, err)
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Contains(t, logs.String(), "livetv: upstream answered")
+	assert.Contains(t, logs.String(), "channel=1005")
+}
+
+type writerFunc func(p []byte) (int, error)
+
+func (f writerFunc) Write(p []byte) (int, error) { return f(p) }
