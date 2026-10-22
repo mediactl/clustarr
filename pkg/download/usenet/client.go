@@ -543,8 +543,12 @@ type job struct {
 	// for adoptRepairedSet.
 	par2Names []string
 
-	done           []bitset
-	failedSegs     []bitset
+	done       []bitset
+	failedSegs []bitset
+	// exhausted marks the failed segments every server has refused: what
+	// the health verdict counts (segment.go, healthVerdict). A segment a
+	// later fetch recovers leaves it.
+	exhausted      []bitset
 	publishedFiles []download.File
 
 	paused atomic.Bool
@@ -779,9 +783,11 @@ func (c *Client) newJob(id, name, category, dir string, parsed *nzbJob) *job {
 	j.prio.Store(commonv1alpha1.DownloadPriority(""))
 	j.done = make([]bitset, len(parsed.Files))
 	j.failedSegs = make([]bitset, len(parsed.Files))
+	j.exhausted = make([]bitset, len(parsed.Files))
 	for i := range parsed.Files {
 		j.done[i] = newBitset(len(parsed.Files[i].Segments))
 		j.failedSegs[i] = newBitset(len(parsed.Files[i].Segments))
+		j.exhausted[i] = newBitset(len(parsed.Files[i].Segments))
 	}
 	return j
 }

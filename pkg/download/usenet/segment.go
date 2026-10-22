@@ -435,6 +435,65 @@ func (j *job) missingSegs() []seg {
 	return failed
 }
 
+// chaseable is missingSegs less the segments every server has already
+// refused: what a chase asks the other servers for.
+func (j *job) chaseable() []seg {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	var out []seg
+	for fi, b := range j.failedSegs {
+		for si := range j.nzb.Files[fi].Segments {
+			if b.has(si) && !j.exhausted[fi].has(si) {
+				out = append(out, seg{fi, si})
+			}
+		}
+	}
+	return out
+}
+
+// markExhausted records the segments of asked that are still missing as
+// refused by every server: a chase asked each server for them.
+func (j *job) markExhausted(asked []seg) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	for _, sg := range asked {
+		if j.failedSegs[sg.fi].has(sg.si) {
+			j.exhausted[sg.fi].set(sg.si)
+		}
+	}
+}
+
+// exhaustedArticles counts the segments every server has refused.
+func (j *job) exhaustedArticles() int {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	n := 0
+	for _, b := range j.exhausted {
+		n += b.count()
+	}
+	return n
+}
+
+// exhaustedBytes is missingBytes over the segments every server has
+// refused.
+func (j *job) exhaustedBytes() int64 {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	var total int64
+	for fi, b := range j.exhausted {
+		f := &j.nzb.Files[fi]
+		if f.Kind == kindPar2Index || f.Kind == kindPar2Volume {
+			continue
+		}
+		for si := range f.Segments {
+			if b.has(si) {
+				total += f.Segments[si].Bytes
+			}
+		}
+	}
+	return total
+}
+
 // fetchMissing asks servers (a pool scope; nil is every one) for the
 // failed segments, workers batches at a time, and writes what came back,
 // clearing each recovered segment's failure. It returns
@@ -499,6 +558,7 @@ func (j *job) fetchMissing(ctx context.Context, servers []string, workers int, f
 					}
 					j.mu.Lock()
 					j.failedSegs[sg.fi].clear(sg.si)
+					j.exhausted[sg.fi].clear(sg.si)
 					j.mu.Unlock()
 					mu.Lock()
 					recovered++
@@ -536,12 +596,30 @@ dispatch:
 func (j *job) chase(ctx context.Context, skip string) error {
 	j.chaseMu.Lock()
 	defer j.chaseMu.Unlock()
+	asked := j.chaseable()
+	if len(asked) == 0 {
+		return nil
+	}
+	err := j.chaseServers(ctx, skip)
+	if err == nil {
+		// The articles of this chase every server refused are missing
+		// for good; ones the primary's workers failed meanwhile are the
+		// next chase's, never this verdict's (Cyberpunk: Edgerunners,
+		// talos 2026-10-22: easynews had every article frugal lacked, and
+		// each job failed on the ones frugal failed during the chase).
+		j.markExhausted(asked)
+	}
+	return err
+}
+
+// chaseServers is chase's walk of the servers, under chaseMu.
+func (j *job) chaseServers(ctx context.Context, skip string) error {
 	log := logging.FromContext(ctx)
 	tried := map[string]bool{skip: true}
 	for pass := 0; pass < 2; pass++ {
 		skipped := false
 		for _, p := range j.client.pool.Providers() {
-			missing := j.missingSegs()
+			missing := j.chaseable()
 			if len(missing) == 0 {
 				return nil
 			}
@@ -832,14 +910,34 @@ func (j *job) healthGate(ctx context.Context) error {
 // healthVerdict is the gate's judgement alone -- no retry, no chase --
 // for post-processing, when the transfer and its chase are over.
 func (j *job) healthVerdict(ctx context.Context) error {
-	if !j.breached() {
+	if !j.verdictBreached() {
 		return nil
 	}
 	j.mu.Lock()
 	last := j.lastError
 	j.mu.Unlock()
-	return j.breach(ctx, fmt.Sprintf("health %d%% is below the floor (abort %d%%, critical %d%%): %d of %d articles missing",
-		j.healthPercent(), j.abortHealth, j.nzb.criticalHealthPercent(), j.failedArticles(), j.nzb.TotalSegments), last)
+	exhausted := j.exhaustedArticles()
+	health := int32(100)
+	if j.nzb.TotalSegments > 0 {
+		health = int32((j.nzb.TotalSegments - exhausted) * 100 / j.nzb.TotalSegments) //nolint:gosec // bounded by 100.
+	}
+	return j.breach(ctx, fmt.Sprintf("health %d%% is below the floor (abort %d%%, critical %d%%): %d of %d articles missing on every server",
+		health, j.abortHealth, j.nzb.criticalHealthPercent(), exhausted, j.nzb.TotalSegments), last)
+}
+
+// verdictBreached is breached over the articles every server has refused:
+// an article the primary lacks is not missing until the chase has asked the
+// rest, so a verdict never counts what a worker failed during the chase.
+func (j *job) verdictBreached() bool {
+	exhausted := j.exhaustedArticles()
+	if exhausted <= maxBadArticles {
+		return false
+	}
+	if j.nzb.TotalSegments == 0 {
+		return false
+	}
+	health := int32((j.nzb.TotalSegments - exhausted) * 100 / j.nzb.TotalSegments) //nolint:gosec // bounded by 100.
+	return health < j.abortHealth || hopeless(j.nzb.TotalBytes, j.nzb.par2Bytes(), j.exhaustedBytes())
 }
 
 // unverifiableGate is the post-process rule SABnzbd does not have and the

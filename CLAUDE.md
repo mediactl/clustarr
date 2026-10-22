@@ -1517,6 +1517,16 @@ exports the pinned ref every image build takes as a named context.
   transfer. Whole-percent health against a whole-percent floor decided a
   10 GB job at the margin once ("96%" that was 96.98% against 97), so the
   gate compares bytes, and the percentages in status are for reading only.
+  **An article is missing only once every server has refused it**
+  (2026-10-22, `job.exhausted`): the verdict after a chase counted the
+  articles the primary's workers failed *during* the chase, which no second
+  server had been asked for, so every Cyberpunk: Edgerunners post on talos
+  failed "84 of 4294 articles missing" right after easynews had served
+  every article frugal lacked. The gate still triggers on any failure, a
+  chase asks the other servers for the chaseable ones (failed, not yet
+  refused everywhere), `markExhausted` records what every server refused,
+  and `healthVerdict` judges those alone; the message says "missing on
+  every server".
 - **A provider can answer a message-ID with another post's article, whole
   and CRC-clean.** frugal served AnoZu's S01E01 (posted 2026-02-16, part 1
   of 2100) with part 237 of 503 of "b5f29fcb1fe75f9e", posted 2026-08-12

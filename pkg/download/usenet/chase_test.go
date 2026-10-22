@@ -156,3 +156,63 @@ func TestThePreCheckChasesTheShortfallBeforeJudging(t *testing.T) {
 	require.Equal(t, 7, second.servedTotal())
 	require.Equal(t, 5, first.servedTotal())
 }
+
+// Articles the primary refuses while a chase is running are chased before
+// they are judged. Cyberpunk: Edgerunners (talos, 2026-10-22): frugal lacked
+// about 2% of every post's articles, easynews had them all, and each job
+// still failed as missing -- the verdict after a chase counted the articles
+// the primary's workers had failed meanwhile, which no second server had
+// been asked for. A primary refusing every third of 120 articles and a
+// backup slow enough for new failures to pile up during each chase must
+// complete, and the backup serves exactly the refused ones.
+func TestFailuresDuringAChaseAreChasedBeforeTheyAreJudged(t *testing.T) {
+	primary := newStubServer(t)
+	backup := newStubServer(t)
+	nzb := buildNZB(t, primary, "Piling", []fileSpec{{name: "movie.mkv", parts: manyParts(1, 600, 300)}})
+	backup.mirror(primary)
+	for i := 0; i < 600; i++ {
+		if i%3 != 0 {
+			primary.refuse[fmt.Sprintf("f0-p%d@clustarr.test", i)] = 430
+		}
+	}
+	// Batches of twenty on a primary that takes a few milliseconds per
+	// article: a worker mid-batch records its failures while the chase
+	// runs on the slow backup.
+	primary.bodyDelay = 3 * time.Millisecond
+	backup.bodyDelay = 20 * time.Millisecond
+	bp := backup.provider("backup", 2, 2)
+	bp.Backup = true
+	c, _, _ := newTestClient(t, Config{
+		Providers:     []Provider{primary.provider("primary", 16, 1), bp},
+		PipelineDepth: 20, HealthAction: downloadv1alpha1.HealthActionDelete,
+	})
+	id, err := c.Add(context.Background(), download.AddRequest{Name: "Piling", Payload: nzb})
+	require.NoError(t, err)
+	it := waitForTerminal(t, c, id)
+	require.Equal(t, download.StatusCompleted, it.Status, "message: %s", it.Message)
+	require.Equal(t, 400, backup.servedTotal(), "the backup serves each refused article once")
+}
+
+// An article every server refused is what the verdict counts: a set with
+// no par2 whose articles are gone everywhere still fails as missing.
+func TestArticlesMissingOnEveryServerStillFailTheJob(t *testing.T) {
+	first := newStubServer(t)
+	second := newStubServer(t)
+	nzb := buildNZB(t, first, "Gone.Everywhere", []fileSpec{{name: "movie.mkv", parts: manyParts(1, 40, 300)}})
+	second.mirror(first)
+	for i := 0; i < 40; i += 4 {
+		for _, srv := range []*stubServer{first, second} {
+			srv.refuse[fmt.Sprintf("f0-p%d@clustarr.test", i)] = 430
+		}
+	}
+	c, _, _ := newTestClient(t, Config{
+		Providers:     []Provider{first.provider("first", 4, 1), second.provider("second", 2, 2)},
+		PipelineDepth: 1, HealthAction: downloadv1alpha1.HealthActionDelete,
+	})
+	id, err := c.Add(context.Background(), download.AddRequest{Name: "Gone.Everywhere", Payload: nzb})
+	require.NoError(t, err)
+	it := waitForTerminal(t, c, id)
+	require.Equal(t, download.StatusFailed, it.Status)
+	require.Equal(t, commonv1.DownloadFailureMissingArticles, it.FailureReason)
+	require.Contains(t, it.Message, "on every server")
+}
