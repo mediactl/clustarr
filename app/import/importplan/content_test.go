@@ -147,6 +147,13 @@ func TestAnImportKeepsAGoodTranscodeBaseline(t *testing.T) {
 	_, refused = p.gate("f.mkv", incoming("h264", "none"), []catalogv1alpha1.MediaFile{existing("hevc", commonv1.HdrFormatHDR10)}, true)
 	assert.False(t, refused, "a person's pick is exempt")
 
+	// A Dolby Vision file is no baseline: the library never wanted it, and
+	// an SDR AVC Blu-ray takes its place (2026-10-22).
+	for _, dv := range []commonv1.HdrFormat{commonv1.HdrFormatDolbyVision, commonv1.HdrFormatDolbyVisionHDR10} {
+		r, refused = p.gate("f.mkv", incoming("h264", "none"), []catalogv1alpha1.MediaFile{existing("hevc", dv)}, false)
+		assert.False(t, refused, "%s: %+v", dv, r)
+	}
+
 	// The existing x265 file scores as the profile scores x265 (HD) today,
 	// 0, not the -10000 frozen at its import: a same-tier HEVC release at
 	// score 0 is no upgrade of it.

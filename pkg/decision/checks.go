@@ -91,10 +91,13 @@ func dolbyVisionRejection(parsed *release.ParsedRelease) *common.Rejection {
 // resolution. Each fails open on what it cannot read: an unprobed file,
 // an unknown resolution, a title that names no codec. A file that lacks
 // the profile's language is replaced by any accepted release, as
-// upgradeRejection replaces it, so neither rule holds it.
+// upgradeRejection replaces it, so neither rule holds it. Nor does a
+// Dolby Vision file (2026-10-22): the library never wanted it -- every such
+// release is ReasonDolbyVision, every such probe refused at import -- and
+// transcode skips a profile 5 one, so it is no baseline worth keeping.
 func baselineRejections(p quality.Profile, t Target, parsed *release.ParsedRelease, rel common.ReleaseInfo) []common.Rejection {
 	cur := t.Current
-	if cur == nil || LacksLanguage(p, t.OriginalLanguageTag, cur.AudioLanguages) {
+	if cur == nil || LacksLanguage(p, t.OriginalLanguageTag, cur.AudioLanguages) || IsDolbyVision(string(cur.HDR)) {
 		return nil
 	}
 	var out []common.Rejection
@@ -113,8 +116,12 @@ func baselineRejections(p quality.Profile, t Target, parsed *release.ParsedRelea
 // an import, which knows both streams: why a file of newCodec, newHDR and
 // newResolution would lose the baseline of one of curCodec, curHDR and
 // curResolution, "" when it would not. Each side fails open on what it
-// does not know, as baselineRejections does.
+// does not know, as baselineRejections does, and a Dolby Vision current
+// file is no baseline here either.
 func BaselineLoss(curCodec string, curHDR common.HdrFormat, curResolution int32, newCodec, newHDR string, newResolution int32) string {
+	if IsDolbyVision(string(curHDR)) {
+		return ""
+	}
 	if curHDR != "" && curHDR != common.HdrFormatNone && (newHDR == "" || newHDR == string(common.HdrFormatNone)) && newCodec != "" {
 		return fmt.Sprintf("the current file is %s and this one is SDR", curHDR)
 	}

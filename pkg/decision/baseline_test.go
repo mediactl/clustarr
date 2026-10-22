@@ -182,6 +182,18 @@ func TestABaselineGivesWayOnlyToWhatKeepsIt(t *testing.T) {
 		current: imported(t, p, cat, "Rushmore.1998.1080p.WEB-DL.DDP5.1.HDR10.H.265-GROUP", "hevc", common.HdrFormatHDR10Plus),
 		title:   "Rushmore.1998.1080p.BluRay.x265.10bit.AAC5.1-GROUP",
 		want:    []decision.Reason{decision.ReasonLosesHDR},
+	}, {
+		// A Dolby Vision file is one the library never wanted (DolbyVision
+		// refuses every such release, import every such probe), so it is no
+		// baseline: an SDR AVC Blu-ray replaces it (2026-10-22, Cyberpunk:
+		// Edgerunners' profile 5 season pack, which transcode skipped).
+		name:    "a Dolby Vision file is no baseline",
+		current: imported(t, p, cat, "Rushmore.1998.1080p.NF.WEB-DL.DDP5.1.DV.H.265-GROUP", "hevc", common.HdrFormatDolbyVision),
+		title:   "Rushmore.1998.1080p.BluRay.DD5.1.x264-EbP",
+	}, {
+		name:    "a Dolby Vision file with an HDR10 base is no baseline either",
+		current: imported(t, p, cat, "Rushmore.1998.1080p.WEB-DL.DDP5.1.DV.HDR.H.265-GROUP", "hevc", common.HdrFormatDolbyVisionHDR10),
+		title:   "Rushmore.1998.1080p.BluRay.DD5.1.x264-EbP",
 	}}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
