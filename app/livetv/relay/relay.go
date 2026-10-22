@@ -250,7 +250,10 @@ func (r *Relay) Serve(w http.ResponseWriter, req *http.Request, channel, upstrea
 			}
 			r.remove(evicted)
 		}
-		ctx, cancel := context.WithCancel(r.o.Context)
+		// The upstream outlives this viewer, so it takes Options.Context for
+		// its lifetime, and the viewer's logger: the tuner serves viewers
+		// under the manager's, while its own context carries none.
+		ctx, cancel := context.WithCancel(logging.NewContext(r.o.Context, logging.FromContext(req.Context())))
 		s = &stream{channel: channel, ring: newRing(r.buffer), ready: make(chan struct{}), cancel: cancel, userAgent: r.userAgent}
 		r.streams[channel] = s
 		r.inUse++
@@ -264,7 +267,7 @@ func (r *Relay) Serve(w http.ResponseWriter, req *http.Request, channel, upstrea
 			evicted.ring.close(io.EOF)
 			evicted.readyOnce.Do(func() { close(evicted.ready) })
 			if took {
-				logging.FromContext(r.o.Context).Info("livetv: a new tune took a watched channel's tuner",
+				logging.FromContext(req.Context()).Info("livetv: a new tune took a watched channel's tuner",
 					"channel", channel, "from", evicted.channel)
 			}
 		}
