@@ -282,6 +282,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     0 0 0 1px var(--sidebar-border),
     0 20px 40px -16px rgba(0, 0, 0, 0.6);
 }
+/* The top bar spans the window above the sidebar (layout.templ), so the
+   sidebar's fixed container starts under it instead of at the window's
+   top edge; 3rem is the bar's h-12. */
+[data-slot="sidebar-container"] {
+  top: 3rem;
+  height: calc(100svh - 3rem);
+}
 /* The sidebar's inset (shadcn's <main>) paints bg-background, which would
    cover the page backdrop like the body's background above; an unlayered
    rule outranks the utility, so the vendored component stays as the

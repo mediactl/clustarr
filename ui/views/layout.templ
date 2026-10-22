@@ -61,6 +61,10 @@ type navEntry struct {
 	Icon  string
 }
 
+// sidebarID names the one sidebar, so the top bar's trigger, rendered
+// outside the sidebar's provider, can address it.
+const sidebarID = "app-sidebar"
+
 var navEntries = []navEntry{
 	{"Dashboard", "/dashboard", "layout-dashboard"},
 	{"Library", "/library", "library"},
@@ -132,14 +136,14 @@ templ Shell(c Chrome) {
 			@components.Scripts()
 		</head>
 		<body class="min-h-screen bg-transparent font-sans text-foreground" hx-ext="preload">
-			@sidebar.Provider() {
+			// The top bar spans the window, above the sidebar, as the Plex apps'
+			// does (owner, 2026-10-22): the brand lives in it, and the floating
+			// sidebar hangs below it (app.css offsets the sidebar's fixed
+			// container by the bar's height). The trigger sits outside the
+			// provider, so it names the sidebar it toggles.
+			@topNav(c)
+			@sidebar.Provider(sidebar.ProviderProps{ID: sidebarID, Class: "min-h-[calc(100svh-3rem)]"}) {
 				@sidebar.Sidebar(sidebar.Props{Collapsible: sidebar.CollapsibleIcon, Variant: sidebar.VariantFloating}) {
-					@sidebar.Header() {
-						<a href="/" class="flex h-8 items-center gap-2 px-2 text-lg font-semibold text-primary">
-							<img src="/static/logo.svg" alt="Clustarr" width="24" height="24" class="size-6 shrink-0"/>
-							<span class="group-data-[collapsible=icon]:hidden">Clustarr</span>
-						</a>
-					}
 					@sidebar.Content() {
 						@sidebar.Group() {
 							@sidebar.GroupContent() {
@@ -162,7 +166,6 @@ templ Shell(c Chrome) {
 					@sidebar.Rail()
 				}
 				@sidebar.Inset() {
-					@topNav(c)
 					<div id="page-body" class="flex flex-1 flex-col">
 						<div class="flex-1 p-6">
 							{ children... }
@@ -185,10 +188,14 @@ templ Shell(c Chrome) {
 // so a tab's htmx swap carries both out of band (librarySubMenu's
 // hx-select-oob) while the bar itself stays.
 templ topNav(c Chrome) {
-	<header class="glass sticky top-0 z-30 flex h-12 shrink-0 items-center border-b border-border bg-background/55 px-4">
+	<header class="glass sticky top-0 z-30 flex h-12 shrink-0 items-center border-b border-border bg-background/70 px-4">
 		@navigationmenu.NavigationMenu(navigationmenu.Props{Align: navigationmenu.AlignEnd, Class: "w-full max-w-none justify-between gap-4"}) {
 			<div class="flex min-w-24 flex-1 basis-0 items-center overflow-hidden">
-				@sidebar.Trigger(sidebar.TriggerProps{Class: "-ml-1"})
+				<a href="/" class="mr-3 flex h-8 shrink-0 items-center gap-2 text-lg font-semibold text-primary">
+					<img src="/static/logo.svg" alt="Clustarr" width="24" height="24" class="size-6 shrink-0"/>
+					<span class="hidden sm:inline">Clustarr</span>
+				</a>
+				@sidebar.Trigger(sidebar.TriggerProps{Class: "-ml-1", Target: sidebarID})
 				@separator.Separator(separator.Props{
 					Orientation: separator.OrientationVertical,
 					Class:       "mx-2 data-vertical:h-4 data-vertical:self-auto",

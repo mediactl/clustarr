@@ -172,7 +172,11 @@ func TestLibraryPageHasBreadcrumbsSidebarSubEntriesAndAJumpBar(t *testing.T) {
 	require.Less(t, strings.Index(body, `data-slot="sidebar-menu-sub-button"`), strings.Index(body, `data-slot="sidebar-inset"`), "the sub-entries are in the sidebar")
 	require.Regexp(t, regexp.MustCompile(`\sdata-active(\s|>)`), tagWith(t, body, `hx-get="/library/tv"`), "the TV sub-entry is active")
 	require.NotRegexp(t, regexp.MustCompile(`\sdata-active(\s|>)`), tagWith(t, body, `hx-get="/library/movies"`))
-	require.Regexp(t, regexp.MustCompile(`\sdata-active(\s|>)`), tagWith(t, body, `href="/library"`), "the Library entry is active on its tab pages")
+	// The top bar's breadcrumb links to /library too, and the bar precedes
+	// the sidebar since it spans the window (2026-10-22), so the entry is
+	// looked up in the sidebar alone.
+	sidebarHTML := body[strings.Index(body, `data-slot="sidebar-wrapper"`):]
+	require.Regexp(t, regexp.MustCompile(`\sdata-active(\s|>)`), tagWith(t, sidebarHTML, `href="/library"`), "the Library entry is active on its tab pages")
 	require.NotRegexp(t, regexp.MustCompile(`\sdata-active(\s|>)`), tagWith(t, body, `hx-get="/library/movies"`))
 
 	rec = httptest.NewRecorder()
@@ -337,8 +341,10 @@ func TestLibraryScrollsInsteadOfPaging(t *testing.T) {
 
 // TestLayoutCarriesTheClustarrMark: the mark (ui/static/logo.svg, derived
 // from the Servarr family mark in the theme's own palette, 2026-09-29) is
-// the page's favicon and touch icon and sits in the sidebar header beside
-// the wordmark, staying on its own when the sidebar collapses to icons.
+// the page's favicon and touch icon and sits in the top bar beside the
+// wordmark (2026-10-22, after the Plex apps: the bar spans the window and
+// the sidebar hangs below it), the wordmark giving way on a narrow screen
+// while the mark stays. The sidebar carries no brand of its own.
 func TestLayoutCarriesTheClustarrMark(t *testing.T) {
 	srv := ui.NewServer(t.Context(), ui.Options{Entries: func(context.Context) []pipeline.Entry { return nil }})
 	rec := httptest.NewRecorder()
@@ -353,11 +359,14 @@ func TestLayoutCarriesTheClustarrMark(t *testing.T) {
 	requireTag(t, head, `href="/static/favicon-32.png"`, `rel="icon"`)
 	requireTag(t, head, `href="/static/apple-touch-icon.png"`, `rel="apple-touch-icon"`)
 
-	inset := strings.Index(body, `data-slot="sidebar-inset"`)
-	require.Greater(t, inset, 0)
-	sidebarHTML := body[:inset]
-	brand := tagWith(t, sidebarHTML, `src="/static/logo.svg"`)
+	wrapper := strings.Index(body, `data-slot="sidebar-wrapper"`)
+	require.Greater(t, wrapper, 0)
+	bar := body[headEnd:wrapper]
+	require.Less(t, strings.Index(body, "<header"), wrapper, "the top bar precedes the sidebar: it spans the window")
+	brand := tagWith(t, bar, `src="/static/logo.svg"`)
 	require.Contains(t, brand, `alt="Clustarr"`)
-	require.NotContains(t, brand, "collapsible=icon]:hidden", "the mark stays when the sidebar collapses; only the wordmark hides")
-	require.Contains(t, sidebarHTML, `class="group-data-[collapsible=icon]:hidden">Clustarr</span>`)
+	require.Contains(t, bar, `class="hidden sm:inline">Clustarr</span>`, "the wordmark gives way on a narrow screen")
+	require.NotContains(t, body[wrapper:], `src="/static/logo.svg"`, "the sidebar carries no brand of its own")
+	requireTag(t, bar, `data-slot="sidebar-trigger"`, `data-templ-sidebar-trigger="app-sidebar"`)
+	requireTag(t, body[wrapper:], `data-templ-sidebar-id="app-sidebar"`)
 }
