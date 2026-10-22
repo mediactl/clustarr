@@ -124,6 +124,9 @@ templ SeasonHeader(season SeasonRow) {
 		@item.Content() {
 			@item.Title(item.TitleProps{Class: "flex-wrap gap-x-3 gap-y-1"}) {
 				<a href={ templ.URL(season.URL()) } class="text-lg font-semibold hover:underline">{ season.Label() }</a>
+				if season.Title != "" {
+					<span class="text-base font-normal text-muted-foreground" data-season-title>{ season.Title }</span>
+				}
 				@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: season.CountTone(), Attributes: templ.Attributes{"data-season-count": season.CountLabel()}}) { { season.CountLabel() } }
 				if season.SizeBytes > 0 {
 					<span class="text-xs font-normal text-muted-foreground" data-season-size>{ formatBytes(season.SizeBytes) }</span>

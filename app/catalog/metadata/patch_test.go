@@ -723,8 +723,20 @@ func TestBuildSeriesMetadataACSplitsSeasonImages(t *testing.T) {
 			{Type: pkgmetadata.ImageTypePoster, URL: "season-1", Season: &one},
 		},
 		SeasonTypes: []pkgmetadata.SeasonTypeRef{{ID: "official", Name: "Aired Order"}},
+		Seasons: []pkgmetadata.Season{
+			{Number: 1, Order: "official", Title: "Phantom Blood", OriginalTitle: "ファントムブラッド"},
+			{Number: 1, Order: "dvd", Title: "Phantom Blood", OriginalTitle: "Phantom Blood"},
+			{Number: 2, Order: "official"},
+		},
 	}
 	ac := buildSeriesMetadataAC(s, nil, time.Now())
+	require.Len(t, ac.SeasonTitles, 2, "a season with no name has no title")
+	require.EqualValues(t, 1, *ac.SeasonTitles[0].Season)
+	require.Equal(t, "Phantom Blood", *ac.SeasonTitles[0].Title)
+	require.Equal(t, "ファントムブラッド", *ac.SeasonTitles[0].OriginalTitle)
+	require.Equal(t, "official", *ac.SeasonTitles[0].Order)
+	require.Nil(t, ac.SeasonTitles[1].OriginalTitle, "an original that is the title is not repeated")
+	require.Equal(t, "dvd", *ac.SeasonTitles[1].Order)
 	require.Len(t, ac.Networks, 5)
 	require.Equal(t, []string{"BBC Studios"}, ac.Studios)
 	require.Equal(t, []string{"United Kingdom"}, ac.Countries)

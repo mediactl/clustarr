@@ -228,7 +228,7 @@ func seasonRows(series *catalogv1.Series) []views.SeasonRow {
 // seasonRow is one season of series, by number; a season the rollup does
 // not know yet still renders, with no counts.
 func seasonRow(series *catalogv1.Series, number int32) views.SeasonRow {
-	row := views.SeasonRow{Series: series.Name, Namespace: series.Namespace, Number: number, Monitored: true}
+	row := views.SeasonRow{Series: series.Name, Namespace: series.Namespace, Number: number, Monitored: true, Title: seasonName(series, number)}
 	for _, st := range series.Status.Seasons {
 		if st.Number == number {
 			row.Monitored, row.Episodes, row.Files, row.SizeBytes = st.Monitored, st.EpisodeCount, st.EpisodeFileCount, st.SizeBytes
@@ -341,3 +341,33 @@ func relativeDate(t, now time.Time) string {
 // monitoredOrDefault reads a spec.monitored pointer as the CRD default
 // would: nil is true.
 func monitoredOrDefault(m *bool) bool { return m == nil || *m }
+
+// seasonName is a season's own name from status.metadata.seasonTitles --
+// the series' own order's, else the aired order's, as the Plex provider
+// chooses -- or "" when the provider has none.
+func seasonName(series *catalogv1.Series, number int32) string {
+	if series.Status.Metadata == nil {
+		return ""
+	}
+	order := string(series.Spec.EpisodeOrder)
+	if order == "" {
+		order = string(catalogv1.EpisodeOrderOfficial)
+	}
+	var aired string
+	for _, st := range series.Status.Metadata.SeasonTitles {
+		if st.Season != number || st.Title == "" {
+			continue
+		}
+		o := st.Order
+		if o == "" {
+			o = string(catalogv1.EpisodeOrderOfficial)
+		}
+		if o == order {
+			return st.Title
+		}
+		if o == string(catalogv1.EpisodeOrderOfficial) && aired == "" {
+			aired = st.Title
+		}
+	}
+	return aired
+}

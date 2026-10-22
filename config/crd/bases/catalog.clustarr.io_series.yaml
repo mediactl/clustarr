@@ -1519,6 +1519,47 @@ spec:
                       type: object
                     maxItems: 400
                     type: array
+                  seasonTitles:
+                    description: |-
+                      SeasonTitles are the seasons' own names, per episode order, which the
+                      Plex provider shows instead of "Season N". They live here for the
+                      same reason as SeasonImages.
+                    items:
+                      description: |-
+                        SeasonTitle is a season's own name, when the provider has one: TheTVDB's
+                        season name ("Book 1: Water", "Steel Ball Run"), in the titles' language
+                        where it has that translation, else in the original language.
+                      properties:
+                        order:
+                          description: |-
+                            Order is the episode order the season is numbered in (TheTVDB's
+                            season type: official, dvd or absolute); empty is official.
+                          enum:
+                          - official
+                          - dvd
+                          - absolute
+                          type: string
+                        originalTitle:
+                          description: |-
+                            OriginalTitle is the season's original-language name, when it differs
+                            from Title.
+                          maxLength: 256
+                          type: string
+                        season:
+                          description: Season is the season number the title belongs
+                            to.
+                          format: int32
+                          type: integer
+                        title:
+                          description: Title is the season's name in the titles' language.
+                          maxLength: 256
+                          type: string
+                      required:
+                      - season
+                      - title
+                      type: object
+                    maxItems: 200
+                    type: array
                   seasonTypes:
                     description: SeasonTypes are the episode orderings the provider
                       offers.

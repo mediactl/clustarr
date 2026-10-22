@@ -27,6 +27,9 @@ type SeasonRow struct {
 	Series    string // the series' name, for the toggle's target
 	Namespace string
 	Number    int32
+	// Title is the season's own name when the provider has one ("Book 1:
+	// Water"), shown beside the label.
+	Title     string
 	Monitored bool
 	Episodes  int32
 	Files     int32

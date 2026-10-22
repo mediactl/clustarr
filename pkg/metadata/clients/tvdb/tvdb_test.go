@@ -548,3 +548,80 @@ func TestSeriesKeepsTheRecordNameWithoutAnEnglishTranslation(t *testing.T) {
 	require.Equal(t, "Cuatro amigos.", s.Overview)
 	require.Equal(t, []metadata.AltTitle{{Title: "Los machos alfa", Language: "es"}}, s.AlternateTitles)
 }
+
+// A season's name is in the series' original language (JoJo's seasons:
+// スターダストクルセイダース, verified live 2026-10-21) and
+// nameTranslations lists its translations as one comma-joined run. Where
+// English is among them the client asks /seasons/{id}/translations/eng,
+// and that name is the title with the original beside it; a season whose
+// name has no English stays as it is; a season TheTVDB names in no
+// language has no title; an alternate order's season is not stored.
+func TestSeasonNamesAreTranslatedIntoTheTitlesLanguage(t *testing.T) {
+	login, _ := os.ReadFile("../../../../test/data/metadata/tvdb/login.json")
+	series := `{"status":"success","data":{"id":262954,"name":"ジョジョの奇妙な冒険 (2012)","originalLanguage":"jpn","status":{"name":"Continuing"},
+	  "seasons":[
+	    {"id":1,"number":1,"type":{"type":"official"},"name":"ファントムブラッド","nameTranslations":["zho,eng,jpn"]},
+	    {"id":2,"number":2,"type":{"type":"official"},"name":"スターダストクルセイダース","nameTranslations":["jpn"]},
+	    {"id":3,"number":0,"type":{"type":"official"},"name":null,"nameTranslations":[]},
+	    {"id":4,"number":1,"type":{"type":"alternate"},"name":"Other","nameTranslations":["eng"]},
+	    {"id":5,"number":6,"type":{"type":"official"},"name":"スティール・ボール・ラン","nameTranslations":["eng"]}
+	  ]}}`
+	var asked []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/login":
+			_, _ = w.Write(login)
+		case "/series/262954/extended":
+			_, _ = w.Write([]byte(series))
+		case "/seasons/1/translations/eng":
+			asked = append(asked, r.URL.Path)
+			_, _ = w.Write([]byte(`{"status":"success","data":{"name":"Phantom Blood","language":"eng"}}`))
+		case "/seasons/5/translations/eng":
+			asked = append(asked, r.URL.Path)
+			w.WriteHeader(http.StatusBadGateway)
+		default:
+			t.Errorf("unexpected request: %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+	c := tvdb.New("test-key", "test-pin", srv.Client(), srv.URL, metadata.NewLimiter(rate.Inf, 1))
+	s, err := c.Series(context.Background(), "262954")
+	require.NoError(t, err)
+	require.Equal(t, []string{"/seasons/1/translations/eng", "/seasons/5/translations/eng"}, asked,
+		"only a named season with an English translation is asked, once")
+	require.Equal(t, []metadata.Season{
+		{Number: 1, Order: "official", Title: "Phantom Blood", OriginalTitle: "ファントムブラッド"},
+		{Number: 2, Order: "official", Title: "スターダストクルセイダース"},
+		{Number: 6, Order: "official", Title: "スティール・ボール・ラン"},
+	}, s.Seasons, "a translation that cannot be fetched leaves the original as the title; season 0 and the alternate order have none")
+}
+
+// An English-language show's season names are its titles as they come
+// (Avatar's "Book 1: Water", verified live 2026-10-21), with no
+// translation request.
+func TestSeasonNamesInTheTitlesLanguageAreTakenAsTheyCome(t *testing.T) {
+	login, _ := os.ReadFile("../../../../test/data/metadata/tvdb/login.json")
+	series := `{"status":"success","data":{"id":74852,"name":"Avatar: The Last Airbender","originalLanguage":"eng","status":{"name":"Ended"},
+	  "seasons":[
+	    {"id":8113,"number":1,"type":{"type":"official"},"name":"Book 1: Water","nameTranslations":["fra,ita,eng"]},
+	    {"id":1679099,"number":1,"type":{"type":"dvd"},"name":"Book 1: Water","nameTranslations":["eng"]}
+	  ]}}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/login":
+			_, _ = w.Write(login)
+		case "/series/74852/extended":
+			_, _ = w.Write([]byte(series))
+		default:
+			t.Errorf("unexpected request: %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+	c := tvdb.New("test-key", "test-pin", srv.Client(), srv.URL, metadata.NewLimiter(rate.Inf, 1))
+	s, err := c.Series(context.Background(), "74852")
+	require.NoError(t, err)
+	require.Equal(t, []metadata.Season{
+		{Number: 1, Order: "official", Title: "Book 1: Water"},
+		{Number: 1, Order: "dvd", Title: "Book 1: Water"},
+	}, s.Seasons, "one title per stored order")
+}

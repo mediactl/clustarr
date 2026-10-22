@@ -305,6 +305,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &catalogv1alpha1.SeasonSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("SeasonStatus"):
 		return &catalogv1alpha1.SeasonStatusApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("SeasonTitle"):
+		return &catalogv1alpha1.SeasonTitleApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("SeasonTypeRef"):
 		return &catalogv1alpha1.SeasonTypeRefApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("SegmentAnalysis"):

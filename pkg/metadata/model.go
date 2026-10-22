@@ -307,6 +307,11 @@ type Season struct {
 	Number int32       `json:"number"`
 	Images []Image     `json:"images,omitempty"`
 	Order  SeasonOrder `json:"order,omitempty"`
+	// Title is the season's own name in the titles' language, "" when the
+	// provider has none; OriginalTitle its original-language name when
+	// that differs.
+	Title         string `json:"title,omitempty"`
+	OriginalTitle string `json:"originalTitle,omitempty"`
 }
 
 // Episode is a single episode of a Series.

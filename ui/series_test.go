@@ -59,7 +59,7 @@ func seriesFixtureOver(t *testing.T, wrap func(client.Reader) client.Reader) (*u
 			Seasons: []catalogv1.SeasonSpec{{Number: 2, Monitored: new(false)}},
 		},
 		Status: catalogv1.SeriesStatus{
-			Metadata: &catalogv1.SeriesMetadata{Title: "Andor", Year: 2022},
+			Metadata: &catalogv1.SeriesMetadata{Title: "Andor", Year: 2022, SeasonTitles: []catalogv1.SeasonTitle{{Season: 1, Title: "Book 1: Water"}}},
 			Seasons: []catalogv1.SeasonStatus{
 				{Number: 1, Monitored: true, EpisodeCount: 12, EpisodeFileCount: 8},
 				{Number: 2, Monitored: true, EpisodeCount: 12, EpisodeFileCount: 0, NextAiring: &aired},
@@ -372,4 +372,18 @@ func TestAnEpisodeRowShowsItsAudio(t *testing.T) {
 	require.Contains(t, w.Body.String(), `data-audio="no en dub · graft failed"`)
 	require.Contains(t, w.Body.String(), `title="AlignmentRejected: coverage 12%"`)
 	require.Equal(t, 1, strings.Count(w.Body.String(), "data-audio="), "only the episode with something to say")
+}
+
+// A season the provider names shows that name beside its label, as the
+// Plex provider titles it; one it does not shows the label alone.
+func TestSeasonHeaderShowsTheSeasonsOwnName(t *testing.T) {
+	srv, _ := seriesFixture(t)
+	body := detailPage(t, srv, "/library/default/series/andor")
+	one := section(t, body, `id="season-1"`)
+	require.Contains(t, one, "Season 1")
+	require.Contains(t, one, `data-season-title`)
+	require.Contains(t, one, "Book 1: Water")
+	two := section(t, body, `id="season-2"`)
+	require.Contains(t, two, "Season 2")
+	require.NotContains(t, two, `data-season-title`)
 }

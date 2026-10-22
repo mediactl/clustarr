@@ -257,6 +257,19 @@ func buildSeriesMetadataAC(s *pkgmetadata.Series, ratings []catalogv1alpha1.Rati
 		ac.WithOriginalGenres(capStrings(s.OriginalGenres, 30)...)
 	}
 	ac.WithCertifications(certificationsAC(s.Certifications)...)
+	for _, se := range s.Seasons {
+		if se.Title == "" || len(ac.SeasonTitles) >= 200 { // SeriesMetadata.SeasonTitles: +kubebuilder:validation:MaxItems=200
+			continue
+		}
+		st := catalogac.SeasonTitle().WithSeason(se.Number).WithTitle(se.Title)
+		if se.OriginalTitle != "" && se.OriginalTitle != se.Title {
+			st.WithOriginalTitle(se.OriginalTitle)
+		}
+		if se.Order != "" {
+			st.WithOrder(string(se.Order))
+		}
+		ac.WithSeasonTitles(st)
+	}
 	for _, st := range s.SeasonTypes {
 		if len(ac.SeasonTypes) >= 10 {
 			break

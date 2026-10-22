@@ -331,6 +331,13 @@ type SeriesMetadata struct {
 	// +optional
 	// +kubebuilder:validation:MaxItems=10
 	SeasonTypes []SeasonTypeRef `json:"seasonTypes,omitempty"`
+
+	// SeasonTitles are the seasons' own names, per episode order, which the
+	// Plex provider shows instead of "Season N". They live here for the
+	// same reason as SeasonImages.
+	// +optional
+	// +kubebuilder:validation:MaxItems=200
+	SeasonTitles []SeasonTitle `json:"seasonTitles,omitempty"`
 }
 
 // SeriesSpec defines the desired state of Series.

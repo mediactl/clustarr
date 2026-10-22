@@ -116,7 +116,10 @@ func RefreshTTL(kind commonv1.MediaKind, state string, lastRefreshed time.Time) 
 //	   in the titles' language or none, no longer a season's poster and
 //	   banner, and its seasons gain their own banners and posters
 //	   (2026-10-21): every series' Plex clearLogo was a season poster.
-const SchemaVersion int32 = 5
+//	6: a Series' seasons learn their own names (seasonTitles: TheTVDB's
+//	   season name, translated into the titles' language), which the Plex
+//	   provider shows instead of "Season N" (2026-10-21).
+const SchemaVersion int32 = 6
 
 // RefreshPurpose is the events.MsgIDForObject purpose of an item's metadata
 // task. The refresh an outdated document asks for has one of its own, per

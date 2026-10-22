@@ -192,6 +192,13 @@ type seriesExtendedResponse struct {
 			Type   struct {
 				Type string `json:"type"`
 			} `json:"type"`
+			// Name is the season's own name in the series' original
+			// language ("Book 1: Water"; JoJo's "スティール・ボール・ラン"),
+			// null for most seasons. NameTranslations lists the languages
+			// it is translated into -- as one comma-joined string per
+			// element, as TheTVDB sends it.
+			Name             string   `json:"name"`
+			NameTranslations []string `json:"nameTranslations"`
 		} `json:"seasons"`
 		SeasonTypes []struct {
 			Name string `json:"name"`
@@ -416,6 +423,7 @@ func (c *Client) Series(ctx context.Context, tvdbID string) (*metadata.Series, e
 		s.LastAired = &t
 	}
 	mapSeriesExtended(&raw, s, c.region)
+	c.translateSeasonNames(ctx, &raw, s)
 
 	logger.DebugContext(ctx, "tvdb: series fetched", "tvdb_id", tvdbID, "title", s.Title)
 	return s, nil
@@ -498,6 +506,11 @@ func mapSeriesExtended(raw *seriesExtendedResponse, s *metadata.Series, region s
 		ref := seasonRef{se.Number, se.Type.Type}
 		stored[se.ID] = ref
 		add(ref, metadata.ImageTypePoster, se.Image)
+		if se.Name != "" {
+			// The season's own name, in the original language; Series
+			// translates it into the titles' language afterwards.
+			s.Seasons = append(s.Seasons, metadata.Season{Number: se.Number, Order: metadata.SeasonOrder(se.Type.Type), Title: se.Name})
+		}
 	}
 	// A season's own banners and posters follow its list poster, which stays
 	// its first: the one the Plex provider sends.
@@ -511,6 +524,71 @@ func mapSeriesExtended(raw *seriesExtendedResponse, s *metadata.Series, region s
 	for _, st := range d.SeasonTypes {
 		s.SeasonTypes = append(s.SeasonTypes, metadata.SeasonTypeRef{ID: st.Type, Name: st.Name})
 	}
+}
+
+// seasonTitleFetches caps the season-name translations one Series fetch
+// asks for, one request each: a long-running show has tens of seasons per
+// order, and the limiter's budget is the episode lists' too.
+const seasonTitleFetches = 40
+
+// hasLanguage is whether a TheTVDB nameTranslations list names lang, each
+// element being one language or a comma-joined run of them.
+func hasLanguage(list []string, lang string) bool {
+	for _, item := range list {
+		for _, l := range strings.Split(item, ",") {
+			if strings.TrimSpace(l) == lang {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// translateSeasonNames gives each stored season of raw whose name TheTVDB
+// has in the titles' language that name as its Title, keeping the original
+// as OriginalTitle, when the series' original language is another: one
+// request per season, seasonTitleFetches at most. A translation that
+// cannot be fetched leaves the original as the title.
+func (c *Client) translateSeasonNames(ctx context.Context, raw *seriesExtendedResponse, s *metadata.Series) {
+	if raw.Data.OriginalLanguage == c.titleLang() {
+		return
+	}
+	translated := 0
+	for _, se := range raw.Data.Seasons {
+		if se.Name == "" || !hasLanguage(se.NameTranslations, c.titleLang()) || translated >= seasonTitleFetches {
+			continue
+		}
+		i := slices.IndexFunc(s.Seasons, func(x metadata.Season) bool {
+			return x.Number == se.Number && string(x.Order) == se.Type.Type
+		})
+		if i < 0 {
+			continue // an order clustarr does not store
+		}
+		translated++
+		t, err := c.seasonName(ctx, se.ID)
+		if err != nil {
+			logging.FromContext(ctx).WarnContext(ctx, "tvdb: season name translation", "season_id", se.ID, "error", err)
+			continue
+		}
+		if t != "" && t != se.Name {
+			s.Seasons[i].Title, s.Seasons[i].OriginalTitle = t, se.Name
+		}
+	}
+}
+
+// seasonName is a season's name in the titles' language, from
+// /seasons/{id}/translations/{lang} (verified live 2026-10-21: Avatar's
+// season 8113 answers {"name": "Book 1: Water", "overview": …}).
+func (c *Client) seasonName(ctx context.Context, seasonID int64) (string, error) {
+	var raw struct {
+		Data struct {
+			Name string `json:"name"`
+		} `json:"data"`
+	}
+	if err := c.doRequest(ctx, http.MethodGet, "/seasons/"+strconv.FormatInt(seasonID, 10)+"/translations/"+c.titleLang(), &raw); err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(raw.Data.Name), nil
 }
 
 // mapSeriesStatus maps TheTVDB's status.name to metadata.SeriesStatus.

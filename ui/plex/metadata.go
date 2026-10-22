@@ -296,7 +296,7 @@ func buildSeasonMetadata(
 		Key:                   metadataKey(key, true),
 		Guid:                  u.guid(root.identifier, metadataTypeSeason, key, seasonPlexID(s, number)),
 		Type:                  metadataTypeSeason,
-		Title:                 seasonTitle(number),
+		Title:                 seasonTitle(s, number),
 		OriginallyAvailableAt: seasonAvailableDate(idx.Episodes(s.UID), number),
 		ParentRatingKey:       seriesKey,
 		ParentKey:             metadataKey(seriesKey, true),
@@ -330,15 +330,44 @@ func buildSeasonMetadata(
 	return md, true
 }
 
-// seasonTitle is a season's own title (spec §D.5): "Season N". Plex's own
-// example provider (research §5.1's SeasonType discussion) treats season 0
-// as specials; this provider names it the same as any other number, since
-// nothing in research or spec asks for a "Specials" special case.
-func seasonTitle(number int32) string {
+// seasonTitle is a season's own title: its name from status.metadata.
+// seasonTitles when the provider has one ("Book 1: Water", "Steel Ball
+// Run"; the series' own order's, else the aired order's, as seasonPoster
+// chooses), else spec §D.5's "Season N", and "Specials" for season 0.
+func seasonTitle(s *catalogv1.Series, number int32) string {
+	if t := seasonName(s, number); t != "" {
+		return t
+	}
 	if number == 0 {
 		return "Specials"
 	}
 	return "Season " + itoa64(int64(number))
+}
+
+// seasonName is a season's own name from status.metadata.seasonTitles, ""
+// when there is none.
+func seasonName(s *catalogv1.Series, number int32) string {
+	if s == nil || s.Status.Metadata == nil {
+		return ""
+	}
+	order := string(effectiveOrder(s))
+	var aired string
+	for _, st := range s.Status.Metadata.SeasonTitles {
+		if st.Season != number || st.Title == "" {
+			continue
+		}
+		o := st.Order
+		if o == "" {
+			o = string(catalogv1.EpisodeOrderOfficial)
+		}
+		if o == order {
+			return st.Title
+		}
+		if o == string(catalogv1.EpisodeOrderOfficial) && aired == "" {
+			aired = st.Title
+		}
+	}
+	return aired
 }
 
 // seasonPoster is a season's own poster URL from status.metadata.
@@ -465,7 +494,7 @@ func buildEpisodeMetadata(root rootDef, u urls, s *catalogv1.Series, e *catalogv
 		ParentKey:       metadataKey(seasonKey, true),
 		ParentGuid:      seasonGuid,
 		ParentType:      metadataTypeSeason,
-		ParentTitle:     seasonTitle(e.Spec.SeasonNumber),
+		ParentTitle:     seasonTitle(s, e.Spec.SeasonNumber),
 		ParentThumb:     parentThumb,
 		Index:           int32ptr(e.Spec.EpisodeNumber),
 

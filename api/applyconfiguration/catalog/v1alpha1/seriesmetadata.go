@@ -110,6 +110,10 @@ type SeriesMetadataApplyConfiguration struct {
 	PlexSeasons []PlexSeasonRefApplyConfiguration `json:"plexSeasons,omitempty"`
 	// SeasonTypes are the episode orderings the provider offers.
 	SeasonTypes []SeasonTypeRefApplyConfiguration `json:"seasonTypes,omitempty"`
+	// SeasonTitles are the seasons' own names, per episode order, which the
+	// Plex provider shows instead of "Season N". They live here for the
+	// same reason as SeasonImages.
+	SeasonTitles []SeasonTitleApplyConfiguration `json:"seasonTitles,omitempty"`
 }
 
 // SeriesMetadataApplyConfiguration constructs a declarative configuration of the SeriesMetadata type for use with
@@ -397,6 +401,19 @@ func (b *SeriesMetadataApplyConfiguration) WithSeasonTypes(values ...*SeasonType
 			panic("nil value passed to WithSeasonTypes")
 		}
 		b.SeasonTypes = append(b.SeasonTypes, *values[i])
+	}
+	return b
+}
+
+// WithSeasonTitles adds the given value to the SeasonTitles field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the SeasonTitles field.
+func (b *SeriesMetadataApplyConfiguration) WithSeasonTitles(values ...*SeasonTitleApplyConfiguration) *SeriesMetadataApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithSeasonTitles")
+		}
+		b.SeasonTitles = append(b.SeasonTitles, *values[i])
 	}
 	return b
 }

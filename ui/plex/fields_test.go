@@ -422,3 +422,35 @@ func TestAnEpisodeOrderClustarrDoesNotKnowGetsTheStoredSeasons(t *testing.T) {
 	md := metadataOf(t, h, "/plex/tv/library/metadata/"+string(s.UID)+"?includeChildren=1&episodeOrder=tvdbAiring")
 	assert.NotEmpty(t, md["Children"].(map[string]any)["Metadata"])
 }
+
+// A season named by its provider is titled by that name (TheTVDB's "Book 1:
+// Water", "Steel Ball Run"): the series' own order's, else the aired
+// order's, as its poster is chosen; an unnamed season stays "Season N", and
+// an episode's parent carries the same title.
+func TestSeasonIsTitledByItsOwnName(t *testing.T) {
+	s, eps := fixtureSeriesAndEpisodes()
+	s.Status.Metadata.SeasonTitles = []catalogv1.SeasonTitle{
+		{Season: 1, Title: "Book 1: Water"},
+		{Season: 1, Title: "Book One (DVD)", Order: "dvd"},
+		{Season: 2, Title: "Book 2: Earth", Order: "official"},
+	}
+	objs := []client.Object{s}
+	for _, e := range eps {
+		objs = append(objs, e)
+	}
+	h := newFullHandler(t, nil, objs...)
+	md := metadataOf(t, h, "/plex/tv/library/metadata/"+plex.SeasonKey(s.UID, 1))
+	assert.Equal(t, "Book 1: Water", md["title"], "the aired order's title, the series' order")
+	assert.EqualValues(t, 1, md["index"], "the number stays the index")
+	md = metadataOf(t, h, "/plex/tv/library/metadata/"+plex.SeasonKey(s.UID, 2))
+	assert.Equal(t, "Book 2: Earth", md["title"])
+	md = metadataOf(t, h, "/plex/tv/library/metadata/"+string(eps[0].UID))
+	assert.Equal(t, "Book 1: Water", md["parentTitle"])
+
+	s.Spec.EpisodeOrder = catalogv1.EpisodeOrderDVD
+	h = newFullHandler(t, nil, objs...)
+	md = metadataOf(t, h, "/plex/tv/library/metadata/"+plex.SeasonKey(s.UID, 1))
+	assert.Equal(t, "Book One (DVD)", md["title"], "the series' own order's title")
+	md = metadataOf(t, h, "/plex/tv/library/metadata/"+plex.SeasonKey(s.UID, 2))
+	assert.Equal(t, "Book 2: Earth", md["title"], "no DVD title: the aired order's")
+}

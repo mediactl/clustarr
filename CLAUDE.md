@@ -552,6 +552,15 @@ per-process key broke them at every restart. A Movie or Series document
 older than `pkg/metadata.SchemaVersion` (`status.metadata.schemaVersion`)
 is refreshed once, past the L2 cache (whose key carries the version), and
 stays ready meanwhile -- raise the version when the gateway learns a field.
+A season named by TheTVDB ("Book 1: Water", "Steel Ball Run";
+2026-10-21) is titled by that name in Plex instead of "Season N", and on
+the series page beside its label: `/series/{id}/extended` carries each
+season's `name` in the show's original language, the client asks
+`/seasons/{id}/translations/<lang>` for the titles' language where
+`nameTranslations` lists it (at most 40 per series, a failed one keeping
+the original), and the gateway writes `status.metadata.seasonTitles`
+(per order, `SchemaVersion` 6); the provider takes the series' own
+order's title, else the aired order's, as it does the season poster.
 Images are chosen per (type, language) before the CRD's 50
 (`selectImages`), so the original language's and fanart.tv's survive;
 `contentRating` prefixes the country the gateway chose the certification

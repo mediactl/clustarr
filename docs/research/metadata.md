@@ -210,6 +210,13 @@ knowledge that I could not confirm because the site was behind bot protection.
   with **season-type ∈ {default, official, dvd, absolute, alternate, regional}** (+ `altdvd` in the UI;
   `absolute` is what anime needs); `/series/{id}/artworks?lang=&type=`; `/series/{id}/translations/{lang}`;
   `/seasons/{id}/extended`; `/episodes/{id}/extended`; `/movies/{id}/extended`; `/artwork/types`;
+  **Season names (verified live 2026-10-21):** `/series/{id}/extended` lists each season with
+  `name` in the series' original language (Avatar 74852: "Book 1: Water" on the official and dvd
+  seasons, `null` on specials and the absolute season; JoJo 262954: "スティール・ボール・ラン") and
+  `nameTranslations` as a list of **comma-joined** language runs (`["fra,ita,eng,…"]`);
+  `/seasons/{id}/translations/{lang}` answers `{name, overview, language}` (8113/eng → "Book 1:
+  Water"). `/seasons/{id}/extended` repeats `name` and adds the episodes, artwork and companies, no
+  translations.
   `/updates?since=<unix>&type=series|episodes|seasons|artwork|movies|translatedseries...&action=update|delete&page=`
   → `{recordType, recordId, methodInt, method, extraInfo, userId, timeStamp, entityType}`.
 - `SeriesExtendedRecord`: `id, name, slug, image, nameTranslations[], overviewTranslations[],

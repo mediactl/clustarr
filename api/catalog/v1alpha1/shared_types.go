@@ -202,6 +202,32 @@ type Certification struct {
 	Rating string `json:"rating"`
 }
 
+// SeasonTitle is a season's own name, when the provider has one: TheTVDB's
+// season name ("Book 1: Water", "Steel Ball Run"), in the titles' language
+// where it has that translation, else in the original language.
+type SeasonTitle struct {
+	// Season is the season number the title belongs to.
+	// +required
+	Season int32 `json:"season"`
+
+	// Title is the season's name in the titles' language.
+	// +required
+	// +kubebuilder:validation:MaxLength=256
+	Title string `json:"title"`
+
+	// OriginalTitle is the season's original-language name, when it differs
+	// from Title.
+	// +optional
+	// +kubebuilder:validation:MaxLength=256
+	OriginalTitle string `json:"originalTitle,omitempty"`
+
+	// Order is the episode order the season is numbered in (TheTVDB's
+	// season type: official, dvd or absolute); empty is official.
+	// +optional
+	// +kubebuilder:validation:Enum=official;dvd;absolute
+	Order string `json:"order,omitempty"`
+}
+
 // SeasonImage is one piece of artwork for a single season of a series.
 type SeasonImage struct {
 	// Season is the season number the image belongs to.
