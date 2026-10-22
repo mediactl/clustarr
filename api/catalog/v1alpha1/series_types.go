@@ -427,6 +427,15 @@ type SeriesSpec struct {
 	// +listType=map
 	// +listMapKey=type
 	Artwork []ArtworkOverride `json:"artwork,omitempty"`
+
+	// SeasonArtwork replaces seasons' posters and backgrounds and episodes'
+	// thumbnails (docs/superpowers/specs/2026-10-21-image-sets-design.md):
+	// an image set from MediUX or ThePosterDB. Each entry is by season
+	// number in the series' own episode order, with an episode number for
+	// an episode's thumbnail.
+	// +optional
+	// +kubebuilder:validation:MaxItems=1000
+	SeasonArtwork []SeasonArtworkOverride `json:"seasonArtwork,omitempty"`
 }
 
 // AnnotationClassify set to "off" skips anime classification for a Series

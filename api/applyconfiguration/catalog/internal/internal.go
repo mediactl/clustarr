@@ -4265,6 +4265,21 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: startedAt
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.SeasonArtworkOverride
+  map:
+    fields:
+    - name: episode
+      type:
+        scalar: numeric
+    - name: season
+      type:
+        scalar: numeric
+    - name: type
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ImageType
+    - name: url
+      type:
+        scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.SeasonImage
   map:
     fields:
@@ -4687,6 +4702,12 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: rootFolderRef
       type:
         scalar: string
+    - name: seasonArtwork
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.SeasonArtworkOverride
+          elementRelationship: atomic
     - name: seasonFolder
       type:
         scalar: boolean

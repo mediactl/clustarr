@@ -600,6 +600,19 @@ per-process key broke them at every restart. A Movie or Series document
 older than `pkg/metadata.SchemaVersion` (`status.metadata.schemaVersion`)
 is refreshed once, past the L2 cache (whose key carries the version), and
 stays ready meanwhile -- raise the version when the gateway learns a field.
+An image set from MediUX or ThePosterDB (2026-10-21,
+`docs/superpowers/specs/2026-10-21-image-sets-design.md`) replaces a
+movie's or series' poster and background, a series' season posters and
+backgrounds and its episodes' thumbnails: the item page's **Image Set**
+dialog takes Kometa's image-files YAML (`pkg/imageset`: `url_poster`,
+`url_background`, `tpdb_*` ids, `seasons{n}`, `episodes{n}`), and
+`ui/actions.SetArtwork` patches `spec.artwork` and
+`Series.spec.seasonArtwork` (`{season, episode?, type, url}`, 1000 at
+most), the item's overrides of other types kept. The Plex provider serves
+the season and episode overrides through the signed `/art/search` proxy,
+whose allowlist gained `api.mediux.pro` and `theposterdb.com`; an override
+on another host is not shown. PMS shows them at its next refresh of the
+show.
 A season named by TheTVDB ("Book 1: Water", "Steel Ball Run";
 2026-10-21) is titled by that name in Plex instead of "Season N", and on
 the series page beside its label: `/series/{id}/extended` carries each

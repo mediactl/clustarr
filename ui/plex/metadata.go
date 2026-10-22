@@ -320,6 +320,11 @@ func buildSeasonMetadata(
 		md.Thumb = poster
 		md.Image = replaceImage(md.Image, plexImageCoverPoster, Image{Type: plexImageCoverPoster, URL: poster, Alt: md.Title})
 	}
+	if art := u.proxied(seasonOverride(s, number, nil, catalogv1.ImageTypeFanart)); art != "" {
+		// An image set's season background (spec 2026-10-21).
+		md.Art = art
+		md.Image = replaceImage(md.Image, plexImageBackground, Image{Type: plexImageBackground, URL: art, Alt: md.Title})
+	}
 
 	if includeChildren {
 		md.Children = buildEpisodeChildren(root, u, s, number, idx)
@@ -370,9 +375,29 @@ func seasonName(s *catalogv1.Series, number int32) string {
 	return aired
 }
 
-// seasonPoster is a season's own poster URL from status.metadata.
-// seasonImages, "" when there is none.
+// seasonOverride is the spec.seasonArtwork URL of a season's (episode
+// nil) or an episode's image of type t -- an image set's
+// (docs/superpowers/specs/2026-10-21-image-sets-design.md) -- or "".
+func seasonOverride(s *catalogv1.Series, number int32, episode *int32, t catalogv1.ImageType) string {
+	for _, o := range s.Spec.SeasonArtwork {
+		if o.Season != number || o.Type != t {
+			continue
+		}
+		if (o.Episode == nil) != (episode == nil) || (episode != nil && *o.Episode != *episode) {
+			continue
+		}
+		return o.URL
+	}
+	return ""
+}
+
+// seasonPoster is a season's own poster URL: an image set's from
+// spec.seasonArtwork, else status.metadata.seasonImages', "" when there is
+// none.
 func seasonPoster(s *catalogv1.Series, number int32) string {
+	if u := seasonOverride(s, number, nil, catalogv1.ImageTypePoster); u != "" {
+		return u
+	}
 	meta := s.Status.Metadata
 	if meta == nil {
 		return ""
@@ -523,6 +548,10 @@ func buildEpisodeMetadata(root rootDef, u urls, s *catalogv1.Series, e *catalogv
 		md.ContentRating = contentRating(meta.Certifications, catalogv1.Certification{Country: meta.CertificationCountry, Rating: meta.Certification}, u.loc)
 	}
 	md.Image = buildEpisodeImages(u, e)
+	if still := u.proxied(seasonOverride(s, e.Spec.SeasonNumber, &e.Spec.EpisodeNumber, catalogv1.ImageTypeScreenshot)); still != "" {
+		// An image set's episode thumbnail (spec 2026-10-21).
+		md.Image = []Image{{Type: plexImageSnapshot, URL: still, Alt: e.Status.Title}}
+	}
 	if len(md.Image) > 0 {
 		md.Thumb = md.Image[0].URL
 	}

@@ -49,12 +49,16 @@ const (
 
 // searchArtHosts are the only hosts /art/search fetches from: the image
 // hosts of the providers Add New searches -- TMDB, TVDB, MusicBrainz's
-// Cover Art Archive and Open Library.
+// Cover Art Archive and Open Library -- and the two image-set hosts a
+// Series' spec.seasonArtwork names, MediUX and ThePosterDB
+// (docs/superpowers/specs/2026-10-21-image-sets-design.md).
 var searchArtHosts = map[string]bool{
 	"image.tmdb.org":         true,
 	"artworks.thetvdb.com":   true,
 	"coverartarchive.org":    true,
 	"covers.openlibrary.org": true,
+	"api.mediux.pro":         true,
+	"theposterdb.com":        true,
 }
 
 var errSearchArtRefused = errors.New("ui: search art: refused")

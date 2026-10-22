@@ -166,6 +166,9 @@ templ itemToolbar(d Detail) {
 			if Editable(d) {
 				@editDialog(d)
 			}
+			if ImageSettable(d) {
+				@imageSetDialog(d)
+			}
 			if deletable(d) && d.Item.DeleteMode == "" {
 				@deleteDialog(d)
 			}

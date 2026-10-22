@@ -68,6 +68,12 @@ type SeriesSpecApplyConfiguration struct {
 	Source *commonv1alpha1.AddSource `json:"source,omitempty"`
 	// Artwork overrides the provider's image for a type. One entry per type.
 	Artwork []ArtworkOverrideApplyConfiguration `json:"artwork,omitempty"`
+	// SeasonArtwork replaces seasons' posters and backgrounds and episodes'
+	// thumbnails (docs/superpowers/specs/2026-10-21-image-sets-design.md):
+	// an image set from MediUX or ThePosterDB. Each entry is by season
+	// number in the series' own episode order, with an episode number for
+	// an episode's thumbnail.
+	SeasonArtwork []SeasonArtworkOverrideApplyConfiguration `json:"seasonArtwork,omitempty"`
 }
 
 // SeriesSpecApplyConfiguration constructs a declarative configuration of the SeriesSpec type for use with
@@ -220,6 +226,19 @@ func (b *SeriesSpecApplyConfiguration) WithArtwork(values ...*ArtworkOverrideApp
 			panic("nil value passed to WithArtwork")
 		}
 		b.Artwork = append(b.Artwork, *values[i])
+	}
+	return b
+}
+
+// WithSeasonArtwork adds the given value to the SeasonArtwork field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the SeasonArtwork field.
+func (b *SeriesSpecApplyConfiguration) WithSeasonArtwork(values ...*SeasonArtworkOverrideApplyConfiguration) *SeriesSpecApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithSeasonArtwork")
+		}
+		b.SeasonArtwork = append(b.SeasonArtwork, *values[i])
 	}
 	return b
 }

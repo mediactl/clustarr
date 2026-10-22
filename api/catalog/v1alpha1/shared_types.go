@@ -202,6 +202,37 @@ type Certification struct {
 	Rating string `json:"rating"`
 }
 
+// SeasonArtworkOverride replaces one image of a season, or of one of its
+// episodes, with an image fetched from URL: a MediUX or ThePosterDB set's
+// season poster, season background or episode thumbnail
+// (docs/superpowers/specs/2026-10-21-image-sets-design.md). The Plex
+// provider serves it through the ui's signed proxy, from the hosts it
+// allows.
+type SeasonArtworkOverride struct {
+	// Season is the season number, in the series' own episode order.
+	// +required
+	// +kubebuilder:validation:Minimum=0
+	Season int32 `json:"season"`
+
+	// Episode, when set, makes this an episode's image (type screenshot,
+	// its thumbnail); unset, it is the season's own.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	Episode *int32 `json:"episode,omitempty"`
+
+	// Type classifies the image: poster or fanart for a season, screenshot
+	// for an episode.
+	// +required
+	// +kubebuilder:validation:Enum=poster;fanart;screenshot
+	Type ImageType `json:"type"`
+
+	// URL is where the replacement image is fetched from.
+	// +required
+	// +kubebuilder:validation:Pattern=`^https?://`
+	// +kubebuilder:validation:MaxLength=2048
+	URL string `json:"url"`
+}
+
 // SeasonTitle is a season's own name, when the provider has one: TheTVDB's
 // season name ("Book 1: Water", "Steel Ball Run"), in the titles' language
 // where it has that translation, else in the original language.

@@ -1,0 +1,79 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package views
+
+import (
+	"context"
+
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/ui/components/button"
+	"github.com/mediactl/clustarr/ui/components/dialog"
+	"github.com/mediactl/clustarr/ui/components/icon"
+	"github.com/mediactl/clustarr/ui/components/textarea"
+)
+
+// ImageSettable is whether d's item takes an image set: a movie or a
+// series, the kinds with a Plex provider.
+func ImageSettable(d Detail) bool {
+	return d.Item.Kind == commonv1.MediaKindMovie || d.Item.Kind == commonv1.MediaKindSeries
+}
+
+// imageSetDialog is the toolbar's Image Set: paste a MediUX or ThePosterDB
+// set in Kometa's image-files YAML and Apply, which posts it to the item's
+// imageset route (handleImageSet, pkg/imageset, ui/actions.SetArtwork):
+// the item's poster and background, and a series' season posters and
+// episode thumbnails (docs/superpowers/specs/2026-10-21-image-sets-design.md).
+templ imageSetDialog(d Detail) {
+	@dialog.Dialog(dialog.Props{ID: "imageset-" + d.Item.Ref.Name}) {
+		@button.Button(button.Props{Variant: button.VariantGhost, Class: toolbarButtonClass, Attributes: imageSetTriggerAttrs(ctx)}) {
+			@icon.Icon("images")()
+			<span>Image Set</span>
+		}
+		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-2xl", Attributes: templ.Attributes{"data-imageset-dialog": d.Item.Ref.Name}}) {
+			@dialog.Header() {
+				@dialog.Title() {
+					{ "Image Set - " + d.Item.Title }
+				}
+				@dialog.Description() {
+					Paste a set from MediUX or ThePosterDB as Kometa image-files YAML. The poster and background replace the item's;
+					if d.Item.Kind == commonv1.MediaKindSeries {
+						each season's poster and each episode's thumbnail replace theirs;
+					}
+					images on other hosts than api.mediux.pro and theposterdb.com are not shown.
+				}
+			}
+			<form method="post" action={ templ.URL(libraryActionURL(d.Item, "imageset")) } class="space-y-4" data-imageset-form>
+				<input type="hidden" name="return" value={ libraryDetailPath(d.Item) }/>
+				@textarea.Textarea(textarea.Props{ID: "imageset-yaml-" + d.Item.Ref.Name, Name: "yaml", Rows: 14,
+					Placeholder: "384541:\n  url_poster: https://api.mediux.pro/assets/…\n  seasons:\n    1:\n      url_poster: …\n      episodes:\n        1:\n          url_poster: …",
+					Class: "font-mono text-xs"})
+				@dialog.Footer() {
+					@button.Button(button.Props{Variant: button.VariantOutline, Attributes: dialog.Close(ctx)}) { Cancel }
+					@button.Button(button.Props{Type: button.TypeSubmit, Attributes: templ.Attributes{"data-action": "imageset-apply"}}) { Apply }
+				}
+			</form>
+		}
+	}
+}
+
+func imageSetTriggerAttrs(ctx context.Context) templ.Attributes {
+	attrs := dialog.Trigger(ctx)
+	attrs["data-action"] = "image-set"
+	attrs["data-toolbar-button"] = true
+	return attrs
+}

@@ -48,8 +48,24 @@ func seriesFixture(t *testing.T) (*ui.Server, projection.LibraryItem) {
 	return seriesFixtureOver(t, func(r client.Reader) client.Reader { return r })
 }
 
+// seriesFixtureWithActions is seriesFixture with actions over its client,
+// which it also returns, for a test that writes.
+func seriesFixtureWithActions(t *testing.T) (*ui.Server, client.Client) {
+	t.Helper()
+	var c client.Client
+	srv, _ := seriesFixtureBuild(t, func(r client.Reader) client.Reader { return r }, func(cl client.Client) { c = cl })
+	return srv, c
+}
+
 // seriesFixtureOver is seriesFixture with the server's reader wrapped.
 func seriesFixtureOver(t *testing.T, wrap func(client.Reader) client.Reader) (*ui.Server, projection.LibraryItem) {
+	t.Helper()
+	return seriesFixtureBuild(t, wrap, nil)
+}
+
+// seriesFixtureBuild builds the series fixture; withActions, when set, is
+// given the client and the server gets actions over it.
+func seriesFixtureBuild(t *testing.T, wrap func(client.Reader) client.Reader, withActions func(client.Client)) (*ui.Server, projection.LibraryItem) {
 	t.Helper()
 	aired := metav1.NewTime(time.Date(2022, time.September, 21, 0, 0, 0, 0, time.UTC))
 	series := &catalogv1.Series{
@@ -98,10 +114,15 @@ func seriesFixtureOver(t *testing.T, wrap func(client.Reader) client.Reader) (*u
 		Ref: types.NamespacedName{Namespace: "default", Name: "andor"}, Kind: commonv1.MediaKindSeries,
 		Tab: projection.TabTV, Title: "Andor", Year: 2022, QualityProfileRef: "web-1080p", Monitored: true,
 	}
-	srv := ui.NewServer(t.Context(), ui.Options{
+	opts := ui.Options{
 		Reader:  wrap(reader),
 		Library: func(context.Context) []projection.LibraryItem { return []projection.LibraryItem{item} },
-	})
+	}
+	if withActions != nil {
+		withActions(reader)
+		opts.Actions = actions.New(reader)
+	}
+	srv := ui.NewServer(t.Context(), opts)
 	return srv, item
 }
 

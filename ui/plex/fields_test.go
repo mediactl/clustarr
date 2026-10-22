@@ -454,3 +454,43 @@ func TestSeasonIsTitledByItsOwnName(t *testing.T) {
 	md = metadataOf(t, h, "/plex/tv/library/metadata/"+plex.SeasonKey(s.UID, 2))
 	assert.Equal(t, "Book 2: Earth", md["title"], "no DVD title: the aired order's")
 }
+
+// An image set's overrides (spec.seasonArtwork) are what a season and an
+// episode show: the season's poster and background and the episode's
+// thumbnail, through the photo proxy, ahead of TheTVDB's; a season or
+// episode the set does not name keeps TheTVDB's.
+func TestSeasonAndEpisodeTakeTheImageSetsOverrides(t *testing.T) {
+	s, eps := fixtureSeriesAndEpisodes()
+	s.Status.Metadata.SeasonImages = []catalogv1.SeasonImage{
+		{Season: 1, Type: catalogv1.ImageTypePoster, URL: "https://artworks.thetvdb.com/s1.jpg"},
+		{Season: 2, Type: catalogv1.ImageTypePoster, URL: "https://artworks.thetvdb.com/s2.jpg"},
+	}
+	one := int32(1)
+	s.Spec.SeasonArtwork = []catalogv1.SeasonArtworkOverride{
+		{Season: 1, Type: catalogv1.ImageTypePoster, URL: "https://api.mediux.pro/assets/s1"},
+		{Season: 1, Type: catalogv1.ImageTypeFanart, URL: "https://api.mediux.pro/assets/s1-bg"},
+		{Season: 1, Episode: &one, Type: catalogv1.ImageTypeScreenshot, URL: "https://api.mediux.pro/assets/e1"},
+	}
+	objs := []client.Object{s}
+	for _, e := range eps {
+		objs = append(objs, e)
+	}
+	h := newFullHandler(t, nil, objs...)
+	md := metadataOf(t, h, "/plex/tv/library/metadata/"+plex.SeasonKey(s.UID, 1))
+	assert.Equal(t, photoURL("https://api.mediux.pro/assets/s1"), md["thumb"], "the set's season poster, not TheTVDB's")
+	assert.Equal(t, photoURL("https://api.mediux.pro/assets/s1-bg"), md["art"], "the set's season background, not the series'")
+	md = metadataOf(t, h, "/plex/tv/library/metadata/"+plex.SeasonKey(s.UID, 2))
+	assert.Equal(t, photoURL("https://artworks.thetvdb.com/s2.jpg"), md["thumb"], "a season the set does not name keeps TheTVDB's")
+	assert.NotEqual(t, photoURL("https://api.mediux.pro/assets/s1-bg"), md["art"])
+	var first *catalogv1.Episode
+	for _, e := range eps {
+		if e.Spec.SeasonNumber == 1 && e.Spec.EpisodeNumber == 1 {
+			first = e
+		}
+	}
+	if assert.NotNil(t, first, "the fixture has S01E01") {
+		md = metadataOf(t, h, "/plex/tv/library/metadata/"+string(first.UID))
+		assert.Equal(t, photoURL("https://api.mediux.pro/assets/e1"), md["thumb"], "the set's episode thumbnail")
+		assert.Equal(t, photoURL("https://api.mediux.pro/assets/s1"), md["parentThumb"], "its season's poster from the set")
+	}
+}
