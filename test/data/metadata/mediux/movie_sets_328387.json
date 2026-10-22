@@ -1,0 +1,123 @@
+{
+ "data": {
+  "movies_by_id": {
+   "id": "328387",
+   "title": "Nerve",
+   "release_date": "2016-06-27",
+   "tvdb_id": "1738",
+   "imdb_id": "tt3531824",
+   "slug": "nerve-2016",
+   "poster_path": null,
+   "backdrop_path": "/fg04CQyJzuDJ82jm2meY37n9XyE.jpg",
+   "movie_sets": [
+    {
+     "id": "17344",
+     "set_title": "Nerve (2016) Set",
+     "user_created": {
+      "username": "CmdrRiker"
+     },
+     "date_created": "2024-04-02T17:40:28.000Z",
+     "date_updated": "2024-04-02T17:40:28.000Z",
+     "popularity": 1,
+     "popularity_global": 11038,
+     "movie_poster": [
+      {
+       "id": "e5d104de-4f53-49df-b984-07fc5d70eabb",
+       "modified_on": "2024-04-02T17:40:29.000Z",
+       "filesize": "1947261",
+       "src": "/e5d104de-4f53-49df-b984-07fc5d70eabb?v=20240402174029",
+       "blurhash": "KKDa~s-pH=}d$*Rl*%w6GX",
+       "language": {
+        "display_name": "English"
+       }
+      }
+     ],
+     "movie_backdrop": []
+    },
+    {
+     "id": "53082",
+     "set_title": "Nerve (2016) Set",
+     "user_created": {
+      "username": "sexten"
+     },
+     "date_created": "2026-06-13T11:54:52.000Z",
+     "date_updated": "2026-06-13T11:54:52.000Z",
+     "popularity": null,
+     "popularity_global": null,
+     "movie_poster": [
+      {
+       "id": "d47e004b-f0e3-4fc5-922a-9a7a5a22a668",
+       "modified_on": "2026-06-13T11:54:55.000Z",
+       "filesize": "1826122",
+       "src": "/d47e004b-f0e3-4fc5-922a-9a7a5a22a668?v=20260613115455",
+       "blurhash": null,
+       "language": {
+        "display_name": "English"
+       }
+      }
+     ],
+     "movie_backdrop": []
+    },
+    {
+     "id": "56879",
+     "set_title": "Nerve (2016) Set",
+     "user_created": {
+      "username": "r3draid3r04"
+     },
+     "date_created": "2026-07-27T02:05:53.000Z",
+     "date_updated": "2026-07-27T02:05:53.000Z",
+     "popularity": null,
+     "popularity_global": null,
+     "movie_poster": [
+      {
+       "id": "34984c2c-91bb-478a-b9a0-3b93a01d2a2f",
+       "modified_on": "2026-07-27T02:05:54.000Z",
+       "filesize": "1032676",
+       "src": "/34984c2c-91bb-478a-b9a0-3b93a01d2a2f?v=20260727020554",
+       "blurhash": null,
+       "language": {
+        "display_name": "English"
+       }
+      }
+     ],
+     "movie_backdrop": []
+    },
+    {
+     "id": "59100",
+     "set_title": "Nerve (2016) Set",
+     "user_created": {
+      "username": "sexten"
+     },
+     "date_created": "2026-08-27T20:13:19.000Z",
+     "date_updated": "2026-08-27T20:13:19.000Z",
+     "popularity": null,
+     "popularity_global": null,
+     "movie_poster": [
+      {
+       "id": "e425c281-f0e3-4a70-bd4d-67596441fe48",
+       "modified_on": "2026-08-27T20:13:21.000Z",
+       "filesize": "1810321",
+       "src": "/e425c281-f0e3-4a70-bd4d-67596441fe48?v=20260827201321",
+       "blurhash": null,
+       "language": {
+        "display_name": "English"
+       }
+      }
+     ],
+     "movie_backdrop": [
+      {
+       "id": "9ee735b5-232d-4627-a910-5b6025fd1406",
+       "modified_on": "2026-08-27T20:13:52.000Z",
+       "filesize": "275102",
+       "src": "/9ee735b5-232d-4627-a910-5b6025fd1406?v=20260827201352",
+       "blurhash": null,
+       "language": {
+        "display_name": "English"
+       }
+      }
+     ]
+    }
+   ]
+  }
+ }
+}

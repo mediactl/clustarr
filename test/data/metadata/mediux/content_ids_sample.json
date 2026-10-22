@@ -1,0 +1,33 @@
+{
+ "data": {
+  "content_ids": [
+   {
+    "id": "100",
+    "type": "movie"
+   },
+   {
+    "id": "10001",
+    "type": "movie"
+   },
+   {
+    "id": "100010",
+    "type": "show"
+   },
+   {
+    "id": "10003",
+    "type": "movie"
+   },
+   {
+    "id": "10004",
+    "type": "movie"
+   }
+  ],
+  "content_ids_aggregated": [
+   {
+    "count": {
+     "id": 17134
+    }
+   }
+  ]
+ }
+}

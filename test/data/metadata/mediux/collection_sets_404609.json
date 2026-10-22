@@ -1,0 +1,339 @@
+{
+ "data": {
+  "collections_by_id": {
+   "id": "404609",
+   "collection_name": "John Wick Collection",
+   "collection_sets": [
+    {
+     "id": "2133",
+     "set_title": "John Wick Collection Set",
+     "user_created": {
+      "username": "Aloha_Alona"
+     },
+     "popularity": 14,
+     "date_updated": "2024-01-21T18:04:38.000Z",
+     "collection_poster": [
+      {
+       "id": "c9dd2b3e-9bde-438c-90e3-0d5986453195",
+       "modified_on": "2024-01-12T19:32:59.000Z",
+       "src": "/c9dd2b3e-9bde-438c-90e3-0d5986453195?v=20240112193259"
+      }
+     ],
+     "collection_backdrop": []
+    },
+    {
+     "id": "2134",
+     "set_title": "John Wick Collection Set",
+     "user_created": {
+      "username": "Aloha_Alona"
+     },
+     "popularity": 15,
+     "date_updated": "2024-01-12T19:33:56.000Z",
+     "collection_poster": [
+      {
+       "id": "8559e947-3cf7-4e3a-87c3-f43294abb799",
+       "modified_on": "2024-01-12T19:34:01.000Z",
+       "src": "/8559e947-3cf7-4e3a-87c3-f43294abb799?v=20240112193401"
+      }
+     ],
+     "collection_backdrop": []
+    },
+    {
+     "id": "9246",
+     "set_title": "John Wick Collection Set",
+     "user_created": {
+      "username": "Pejamas"
+     },
+     "popularity": 10,
+     "date_updated": "2024-02-02T07:37:54.000Z",
+     "collection_poster": [
+      {
+       "id": "11363094-d4f6-46f0-ac5b-b0fc484f1e4b",
+       "modified_on": "2024-02-02T07:37:55.000Z",
+       "src": "/11363094-d4f6-46f0-ac5b-b0fc484f1e4b?v=20240202073755"
+      }
+     ],
+     "collection_backdrop": []
+    },
+    {
+     "id": "9382",
+     "set_title": "John Wick Collection Set",
+     "user_created": {
+      "username": "QuiqueA"
+     },
+     "popularity": 12,
+     "date_updated": "2024-02-02T18:51:31.000Z",
+     "collection_poster": [],
+     "collection_backdrop": []
+    },
+    {
+     "id": "10394",
+     "set_title": "John Wick Collection Set",
+     "user_created": {
+      "username": "CmdrRiker"
+     },
+     "popularity": 11,
+     "date_updated": "2024-02-05T18:01:13.000Z",
+     "collection_poster": [
+      {
+       "id": "f44de87a-25e4-4037-a9df-96c76eb96047",
+       "modified_on": "2024-02-05T18:01:16.000Z",
+       "src": "/f44de87a-25e4-4037-a9df-96c76eb96047?v=20240205180116"
+      }
+     ],
+     "collection_backdrop": []
+    },
+    {
+     "id": "20574",
+     "set_title": "John Wick (Plex Collection Cover) Set",
+     "user_created": {
+      "username": "McQuown"
+     },
+     "popularity": 16,
+     "date_updated": "2024-05-22T11:15:45.000Z",
+     "collection_poster": [
+      {
+       "id": "2c85922c-d0fc-4a7f-9067-1c5ea064cd48",
+       "modified_on": "2024-05-22T11:15:47.000Z",
+       "src": "/2c85922c-d0fc-4a7f-9067-1c5ea064cd48?v=20240522111547"
+      }
+     ],
+     "collection_backdrop": []
+    },
+    {
+     "id": "24918",
+     "set_title": "John Wick Collection Set",
+     "user_created": {
+      "username": "MiniZaki"
+     },
+     "popularity": 9,
+     "date_updated": "2024-09-05T20:06:07.000Z",
+     "collection_poster": [
+      {
+       "id": "efff0337-0a88-4377-8d19-8d217cddc6b2",
+       "modified_on": "2024-09-05T20:06:21.000Z",
+       "src": "/efff0337-0a88-4377-8d19-8d217cddc6b2?v=20240905200621"
+      }
+     ],
+     "collection_backdrop": []
+    },
+    {
+     "id": "24958",
+     "set_title": "John Wick Collection Set",
+     "user_created": {
+      "username": "willtong93"
+     },
+     "popularity": 1,
+     "date_updated": "2024-09-07T06:51:06.000Z",
+     "collection_poster": [
+      {
+       "id": "eb090fce-9135-4831-918c-062647ee45fc",
+       "modified_on": "2024-09-07T06:47:52.000Z",
+       "src": "/eb090fce-9135-4831-918c-062647ee45fc?v=20240907064752"
+      }
+     ],
+     "collection_backdrop": [
+      {
+       "id": "3ab7303b-7481-45bc-bbfa-83c40aec4308",
+       "modified_on": "2024-09-07T06:48:09.000Z",
+       "src": "/3ab7303b-7481-45bc-bbfa-83c40aec4308?v=20240907064809"
+      }
+     ]
+    },
+    {
+     "id": "24959",
+     "set_title": "Clean Version Set",
+     "user_created": {
+      "username": "willtong93"
+     },
+     "popularity": 3,
+     "date_updated": "2025-05-01T08:44:16.000Z",
+     "collection_poster": [
+      {
+       "id": "7e22a2f6-af71-430d-8d84-bc9420f88b8a",
+       "modified_on": "2024-09-07T06:48:59.000Z",
+       "src": "/7e22a2f6-af71-430d-8d84-bc9420f88b8a?v=20240907064859"
+      }
+     ],
+     "collection_backdrop": []
+    },
+    {
+     "id": "33961",
+     "set_title": "John Wick Collection Set",
+     "user_created": {
+      "username": "Hikari"
+     },
+     "popularity": 6,
+     "date_updated": "2025-06-14T06:52:37.000Z",
+     "collection_poster": [
+      {
+       "id": "85555409-0c51-429c-97ab-56daa79bdbaf",
+       "modified_on": "2025-06-05T11:24:19.000Z",
+       "src": "/85555409-0c51-429c-97ab-56daa79bdbaf?v=20250605112419"
+      }
+     ],
+     "collection_backdrop": [
+      {
+       "id": "5353e892-3257-421e-bd23-a84fe6be2fde",
+       "modified_on": "2025-06-05T11:24:28.000Z",
+       "src": "/5353e892-3257-421e-bd23-a84fe6be2fde?v=20250605112428"
+      }
+     ]
+    },
+    {
+     "id": "34150",
+     "set_title": "John Wick Collection Set",
+     "user_created": {
+      "username": "Wikid82"
+     },
+     "popularity": 2,
+     "date_updated": "2025-06-11T18:58:48.000Z",
+     "collection_poster": [
+      {
+       "id": "07998d41-c70a-4248-bf1c-67916b0d9491",
+       "modified_on": "2025-06-11T18:58:52.000Z",
+       "src": "/07998d41-c70a-4248-bf1c-67916b0d9491?v=20250611185852"
+      }
+     ],
+     "collection_backdrop": [
+      {
+       "id": "9b200b6b-5601-4e89-9a72-54b120bc8151",
+       "modified_on": "2025-06-11T18:58:54.000Z",
+       "src": "/9b200b6b-5601-4e89-9a72-54b120bc8151?v=20250611185854"
+      }
+     ]
+    },
+    {
+     "id": "35102",
+     "set_title": "John Wick Set",
+     "user_created": {
+      "username": "Brainwasher_01"
+     },
+     "popularity": 7,
+     "date_updated": "2025-07-02T19:15:40.000Z",
+     "collection_poster": [
+      {
+       "id": "d77567c2-e6a7-47af-a199-63adf9b11569",
+       "modified_on": "2025-07-02T19:15:41.000Z",
+       "src": "/d77567c2-e6a7-47af-a199-63adf9b11569?v=20250702191541"
+      }
+     ],
+     "collection_backdrop": []
+    },
+    {
+     "id": "35572",
+     "set_title": "John Wick Collection - German Set",
+     "user_created": {
+      "username": "MrMagixx"
+     },
+     "popularity": 8,
+     "date_updated": "2025-07-20T04:59:45.000Z",
+     "collection_poster": [
+      {
+       "id": "a9684c75-8eb1-4c70-a396-684c231cb9ad",
+       "modified_on": "2025-07-20T04:59:48.000Z",
+       "src": "/a9684c75-8eb1-4c70-a396-684c231cb9ad?v=20250720045948"
+      }
+     ],
+     "collection_backdrop": []
+    },
+    {
+     "id": "38024",
+     "set_title": "John Wick Collection - German Set",
+     "user_created": {
+      "username": "MrMagixx"
+     },
+     "popularity": 5,
+     "date_updated": "2025-09-29T08:35:58.000Z",
+     "collection_poster": [
+      {
+       "id": "fe69873b-9e7a-442b-84ff-57f8a04a552e",
+       "modified_on": "2025-09-29T08:36:01.000Z",
+       "src": "/fe69873b-9e7a-442b-84ff-57f8a04a552e?v=20250929083601"
+      }
+     ],
+     "collection_backdrop": []
+    },
+    {
+     "id": "39386",
+     "set_title": "John Wick Collection Set",
+     "user_created": {
+      "username": "MrMagixx"
+     },
+     "popularity": 4,
+     "date_updated": "2025-10-25T03:58:15.000Z",
+     "collection_poster": [
+      {
+       "id": "359add77-9a8d-4f01-91cf-af42733960fa",
+       "modified_on": "2025-10-25T03:58:19.000Z",
+       "src": "/359add77-9a8d-4f01-91cf-af42733960fa?v=20251025035819"
+      }
+     ],
+     "collection_backdrop": []
+    },
+    {
+     "id": "43105",
+     "set_title": "John Wick Collection Set",
+     "user_created": {
+      "username": "MrMagixx"
+     },
+     "popularity": 13,
+     "date_updated": "2026-02-09T16:47:20.000Z",
+     "collection_poster": [
+      {
+       "id": "31a131d5-af4a-4e8f-a705-4adb3d4f1df7",
+       "modified_on": "2026-02-09T16:47:22.000Z",
+       "src": "/31a131d5-af4a-4e8f-a705-4adb3d4f1df7?v=20260209164722"
+      }
+     ],
+     "collection_backdrop": []
+    },
+    {
+     "id": "55282",
+     "set_title": "John Wick Collection Set",
+     "user_created": {
+      "username": "sexten"
+     },
+     "popularity": null,
+     "date_updated": "2026-07-04T13:19:01.000Z",
+     "collection_poster": [
+      {
+       "id": "157f6ded-999a-47f1-b541-c8462fcdcea5",
+       "modified_on": "2026-07-04T13:19:02.000Z",
+       "src": "/157f6ded-999a-47f1-b541-c8462fcdcea5?v=20260704131902"
+      }
+     ],
+     "collection_backdrop": []
+    },
+    {
+     "id": "60001",
+     "set_title": "John Wick Set",
+     "user_created": {
+      "username": "Skeletor"
+     },
+     "popularity": null,
+     "date_updated": "2026-09-12T09:54:03.000Z",
+     "collection_poster": [],
+     "collection_backdrop": []
+    },
+    {
+     "id": "60607",
+     "set_title": "John Wick Collection Set",
+     "user_created": {
+      "username": "BullockBuster"
+     },
+     "popularity": null,
+     "date_updated": "2026-09-29T20:45:58.000Z",
+     "collection_poster": [
+      {
+       "id": "73240306-d073-4364-9cb2-dbbd7eddcb86",
+       "modified_on": "2026-09-29T20:45:59.000Z",
+       "src": "/73240306-d073-4364-9cb2-dbbd7eddcb86?v=20260929204559"
+      }
+     ],
+     "collection_backdrop": []
+    }
+   ]
+  }
+ }
+}

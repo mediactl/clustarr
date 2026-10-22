@@ -48,6 +48,16 @@ given media; cache everything so we don't hammer the api"). Builds on
     `https://api.mediux.pro/assets/<id>` answers anonymously (`image/webp`;
     verified 2026-10-21, what the YAML export links). AURA sends the bearer
     token to `images.mediux.io` and `api.mediux.io` only.
+  - **Verified live with the shared token, 2026-10-22** (fixtures in
+    `test/data/metadata/mediux`): `images.mediux.io/graphql` answers it;
+    `api.mediux.pro/graphql` answers "Invalid user credentials." (another
+    auth realm). The assets on `images.mediux.io` are served
+    **anonymously**: `?key=jpg` a 378 KB JPEG, `?key=thumb` a 46 KB AVIF,
+    no key the 509 KB WebP original; `api.mediux.pro/assets/<id>` serves
+    the original anonymously but refuses `key=jpg`. A file's `src` is its
+    versioned path, `/<id>?v=20240112193259`. `content_ids` holds 17,134
+    entries. Cyberpunk: Edgerunners has 14 sets; `popularity_global` can be
+    null. The client is `pkg/metadata/clients/mediux`.
   - **Tokens:** "Personal tokens aren't available to everyone yet"
     (AURA's MediUX settings page). A shared testing token is pinned in the
     MediUX Discord (`repo-chats > mediux-team/aura`); personal tokens come

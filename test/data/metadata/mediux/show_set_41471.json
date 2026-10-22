@@ -1,0 +1,423 @@
+{
+ "data": {
+  "show_sets_by_id": {
+   "id": "41471",
+   "set_title": "Cyberpunk: Edgerunners (2022) Set",
+   "user_created": {
+    "username": "sharivari"
+   },
+   "date_created": "2025-12-24T06:39:01.000Z",
+   "date_updated": "2026-10-20T14:58:04.000Z",
+   "popularity": 2,
+   "popularity_global": 1532,
+   "show_id": {
+    "id": "105248",
+    "date_updated": "2026-10-21T21:43:11.000Z",
+    "status": "Returning Series",
+    "title": "Cyberpunk: Edgerunners",
+    "tagline": "New legends. Same Night City.",
+    "first_air_date": "2022-09-13",
+    "tvdb_id": "384541",
+    "imdb_id": "tt12590266",
+    "trakt_id": "163705",
+    "slug": "cyberpunk-edgerunners",
+    "poster_path": null,
+    "backdrop_path": "/3UbHGmu9vIMSC5uNfnGt7DjetqT.jpg"
+   },
+   "show_poster": [
+    {
+     "id": "ea39f814-5cc8-4f3b-91dc-891e4c681cf3",
+     "modified_on": "2026-10-16T19:55:09.000Z",
+     "filesize": "509400",
+     "src": "/ea39f814-5cc8-4f3b-91dc-891e4c681cf3?v=20261016195509",
+     "blurhash": null,
+     "language": {
+      "display_name": "English"
+     }
+    }
+   ],
+   "show_backdrop": [
+    {
+     "id": "e327acb6-82be-4b4e-9668-c3a1458b76bd",
+     "modified_on": "2026-10-16T19:55:13.000Z",
+     "filesize": "805438",
+     "src": "/e327acb6-82be-4b4e-9668-c3a1458b76bd?v=20261016195513",
+     "blurhash": null,
+     "language": {
+      "display_name": "English"
+     }
+    }
+   ],
+   "season_posters": [
+    {
+     "id": "09c184cc-69f4-4f4b-9f05-a0ad79b2a2bc",
+     "modified_on": "2026-10-16T19:55:32.000Z",
+     "filesize": "648708",
+     "src": "/09c184cc-69f4-4f4b-9f05-a0ad79b2a2bc?v=20261016195532",
+     "blurhash": null,
+     "language": {
+      "display_name": "English"
+     },
+     "season": {
+      "season_number": 2
+     }
+    },
+    {
+     "id": "aac49b70-9c8e-4eab-838b-4e6e1ead8cc3",
+     "modified_on": "2026-10-16T19:55:10.000Z",
+     "filesize": "431426",
+     "src": "/aac49b70-9c8e-4eab-838b-4e6e1ead8cc3?v=20261016195510",
+     "blurhash": null,
+     "language": {
+      "display_name": "English"
+     },
+     "season": {
+      "season_number": 1
+     }
+    }
+   ],
+   "titlecards": [
+    {
+     "id": "19951a24-cce8-4a7b-947f-c4425d681277",
+     "modified_on": "2026-10-20T14:58:15.000Z",
+     "filesize": "158704",
+     "src": "/19951a24-cce8-4a7b-947f-c4425d681277?v=20261020145815",
+     "blurhash": null,
+     "language": {
+      "display_name": "English"
+     },
+     "episode": {
+      "episode_title": "Girl on Fire",
+      "episode_number": 6,
+      "season_id": {
+       "season_number": 1
+      }
+     }
+    },
+    {
+     "id": "1a421601-456f-4585-8a8a-b6010aa33024",
+     "modified_on": "2026-10-20T14:58:16.000Z",
+     "filesize": "152054",
+     "src": "/1a421601-456f-4585-8a8a-b6010aa33024?v=20261020145816",
+     "blurhash": null,
+     "language": {
+      "display_name": "English"
+     },
+     "episode": {
+      "episode_title": "Stronger",
+      "episode_number": 7,
+      "season_id": {
+       "season_number": 1
+      }
+     }
+    },
+    {
+     "id": "2356decb-1761-4d3e-88a4-b93e39afc2a3",
+     "modified_on": "2026-10-20T14:58:26.000Z",
+     "filesize": "271668",
+     "src": "/2356decb-1761-4d3e-88a4-b93e39afc2a3?v=20261020145826",
+     "blurhash": null,
+     "language": {
+      "display_name": "English"
+     },
+     "episode": {
+      "episode_title": "Strictly Reserved for You",
+      "episode_number": 9,
+      "season_id": {
+       "season_number": 2
+      }
+     }
+    },
+    {
+     "id": "298e4e39-919f-4eaf-b608-4bca7a18cfe3",
+     "modified_on": "2026-10-20T14:58:23.000Z",
+     "filesize": "166902",
+     "src": "/298e4e39-919f-4eaf-b608-4bca7a18cfe3?v=20261020145823",
+     "blurhash": null,
+     "language": {
+      "display_name": "English"
+     },
+     "episode": {
+      "episode_title": "Give Me Another Day",
+      "episode_number": 2,
+      "season_id": {
+       "season_number": 2
+      }
+     }
+    },
+    {
+     "id": "314ff029-a94e-4a79-af93-b4464fb5aa77",
+     "modified_on": "2026-10-20T14:58:10.000Z",
+     "filesize": "232766",
+     "src": "/314ff029-a94e-4a79-af93-b4464fb5aa77?v=20261020145810",
+     "blurhash": null,
+     "language": {
+      "display_name": "English"
+     },
+     "episode": {
+      "episode_title": "Smooth Criminal",
+      "episode_number": 3,
+      "season_id": {
+       "season_number": 1
+      }
+     }
+    },
+    {
+     "id": "3a444e9b-281d-49b0-bb59-326dd51eaf41",
+     "modified_on": "2026-10-20T14:58:25.000Z",
+     "filesize": "231030",
+     "src": "/3a444e9b-281d-49b0-bb59-326dd51eaf41?v=20261020145825",
+     "blurhash": null,
+     "language": {
+      "display_name": "English"
+     },
+     "episode": {
+      "episode_title": "Everything Hate",
+      "episode_number": 6,
+      "season_id": {
+       "season_number": 2
+      }
+     }
+    },
+    {
+     "id": "45714ca3-53b4-4e49-b306-7cfbb5c308da",
+     "modified_on": "2026-10-20T14:58:26.000Z",
+     "filesize": "101210",
+     "src": "/45714ca3-53b4-4e49-b306-7cfbb5c308da?v=20261020145826",
+     "blurhash": null,
+     "language": {
+      "display_name": "English"
+     },
+     "episode": {
+      "episode_title": "Serce",
+      "episode_number": 8,
+      "season_id": {
+       "season_number": 2
+      }
+     }
+    },
+    {
+     "id": "5c0921b7-18f9-46f7-85b7-0bb8059c2902",
+     "modified_on": "2026-10-20T14:58:22.000Z",
+     "filesize": "232412",
+     "src": "/5c0921b7-18f9-46f7-85b7-0bb8059c2902?v=20261020145822",
+     "blurhash": null,
+     "language": {
+      "display_name": "English"
+     },
+     "episode": {
+      "episode_title": "Last Chance for a Slow Dance",
+      "episode_number": 1,
+      "season_id": {
+       "season_number": 2
+      }
+     }
+    },
+    {
+     "id": "662ef448-afff-4ba4-90b5-644d6d0c8015",
+     "modified_on": "2026-10-20T14:58:18.000Z",
+     "filesize": "208508",
+     "src": "/662ef448-afff-4ba4-90b5-644d6d0c8015?v=20261020145818",
+     "blurhash": null,
+     "language": {
+      "display_name": "English"
+     },
+     "episode": {
+      "episode_title": "Stay",
+      "episode_number": 8,
+      "season_id": {
+       "season_number": 1
+      }
+     }
+    },
+    {
+     "id": "8dc73af2-a154-43c7-8e06-59d90ca690e4",
+     "modified_on": "2026-10-20T14:58:23.000Z",
+     "filesize": "163304",
+     "src": "/8dc73af2-a154-43c7-8e06-59d90ca690e4?v=20261020145823",
+     "blurhash": null,
+     "language": {
+      "display_name": "English"
+     },
+     "episode": {
+      "episode_title": "0+2=1",
+      "episode_number": 3,
+      "season_id": {
+       "season_number": 2
+      }
+     }
+    },
+    {
+     "id": "a4b29fa1-161a-4dad-9354-f3fc615f56e2",
+     "modified_on": "2026-10-20T14:58:24.000Z",
+     "filesize": "235366",
+     "src": "/a4b29fa1-161a-4dad-9354-f3fc615f56e2?v=20261020145824",
+     "blurhash": null,
+     "language": {
+      "display_name": "English"
+     },
+     "episode": {
+      "episode_title": "Someone That I Used to Know",
+      "episode_number": 4,
+      "season_id": {
+       "season_number": 2
+      }
+     }
+    },
+    {
+     "id": "a750367b-41be-4e75-8514-52dd0efae9f0",
+     "modified_on": "2026-10-20T14:58:06.000Z",
+     "filesize": "206462",
+     "src": "/a750367b-41be-4e75-8514-52dd0efae9f0?v=20261020145806",
+     "blurhash": null,
+     "language": {
+      "display_name": "English"
+     },
+     "episode": {
+      "episode_title": "Let You Down",
+      "episode_number": 1,
+      "season_id": {
+       "season_number": 1
+      }
+     }
+    },
+    {
+     "id": "af3ca3dc-e7f6-4588-8155-f613024abefe",
+     "modified_on": "2026-10-20T14:58:22.000Z",
+     "filesize": "173316",
+     "src": "/af3ca3dc-e7f6-4588-8155-f613024abefe?v=20261020145822",
+     "blurhash": null,
+     "language": {
+      "display_name": "English"
+     },
+     "episode": {
+      "episode_title": "My Moon My Man",
+      "episode_number": 10,
+      "season_id": {
+       "season_number": 1
+      }
+     }
+    },
+    {
+     "id": "b165c607-0920-47c9-afa5-5c741b6888a9",
+     "modified_on": "2026-10-20T14:58:25.000Z",
+     "filesize": "159104",
+     "src": "/b165c607-0920-47c9-afa5-5c741b6888a9?v=20261020145825",
+     "blurhash": null,
+     "language": {
+      "display_name": "English"
+     },
+     "episode": {
+      "episode_title": "To the Depths with You",
+      "episode_number": 7,
+      "season_id": {
+       "season_number": 2
+      }
+     }
+    },
+    {
+     "id": "bc485dbb-8244-430e-8bc2-a170fdb6bbf8",
+     "modified_on": "2026-10-20T14:58:24.000Z",
+     "filesize": "178702",
+     "src": "/bc485dbb-8244-430e-8bc2-a170fdb6bbf8?v=20261020145824",
+     "blurhash": null,
+     "language": {
+      "display_name": "English"
+     },
+     "episode": {
+      "episode_title": "Fades (Pass the Distance)",
+      "episode_number": 5,
+      "season_id": {
+       "season_number": 2
+      }
+     }
+    },
+    {
+     "id": "d5f58989-f1a6-4879-996b-448ad0175a60",
+     "modified_on": "2026-10-20T14:58:27.000Z",
+     "filesize": "193092",
+     "src": "/d5f58989-f1a6-4879-996b-448ad0175a60?v=20261020145827",
+     "blurhash": null,
+     "language": {
+      "display_name": "English"
+     },
+     "episode": {
+      "episode_title": "Then Everyone Went Home",
+      "episode_number": 10,
+      "season_id": {
+       "season_number": 2
+      }
+     }
+    },
+    {
+     "id": "daf432f5-dd1d-4b14-bafe-0fd72feb003a",
+     "modified_on": "2026-10-20T14:58:20.000Z",
+     "filesize": "187520",
+     "src": "/daf432f5-dd1d-4b14-bafe-0fd72feb003a?v=20261020145820",
+     "blurhash": null,
+     "language": {
+      "display_name": "English"
+     },
+     "episode": {
+      "episode_title": "Humanity",
+      "episode_number": 9,
+      "season_id": {
+       "season_number": 1
+      }
+     }
+    },
+    {
+     "id": "e6abfef6-5643-406a-bd1d-ef4780ff7254",
+     "modified_on": "2026-10-20T14:58:11.000Z",
+     "filesize": "178704",
+     "src": "/e6abfef6-5643-406a-bd1d-ef4780ff7254?v=20261020145811",
+     "blurhash": null,
+     "language": {
+      "display_name": "English"
+     },
+     "episode": {
+      "episode_title": "Lucky You",
+      "episode_number": 4,
+      "season_id": {
+       "season_number": 1
+      }
+     }
+    },
+    {
+     "id": "ee357d14-0d27-42d0-9d41-44b8a5846de6",
+     "modified_on": "2026-10-20T14:58:13.000Z",
+     "filesize": "271868",
+     "src": "/ee357d14-0d27-42d0-9d41-44b8a5846de6?v=20261020145813",
+     "blurhash": null,
+     "language": {
+      "display_name": "English"
+     },
+     "episode": {
+      "episode_title": "All Eyez on Me",
+      "episode_number": 5,
+      "season_id": {
+       "season_number": 1
+      }
+     }
+    },
+    {
+     "id": "f8380f27-e8d2-4ab1-97e3-e3864c8b5411",
+     "modified_on": "2026-10-20T14:58:08.000Z",
+     "filesize": "241700",
+     "src": "/f8380f27-e8d2-4ab1-97e3-e3864c8b5411?v=20261020145808",
+     "blurhash": null,
+     "language": {
+      "display_name": "English"
+     },
+     "episode": {
+      "episode_title": "Like a Boy",
+      "episode_number": 2,
+      "season_id": {
+       "season_number": 1
+      }
+     }
+    }
+   ]
+  }
+ }
+}
