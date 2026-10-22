@@ -89,6 +89,7 @@ type Projection struct {
 	library        []LibraryItem
 	unmatched      []UnmatchedEntry
 	importLists    []ImportListEntry
+	dashboard      Dashboard
 	subs           map[chan []pipeline.Entry]struct{}
 	downloadSubs   map[chan []DownloadRow]struct{}
 	librarySubs    map[chan []LibraryItem]struct{}
@@ -224,7 +225,7 @@ func (p *Projection) runRound(ctx context.Context, due func() bool) {
 	}
 	started := time.Now()
 	p.dirty.Store(false)
-	entries, downloads, library, unmatched, importLists, err := p.project(ctx)
+	entries, downloads, library, unmatched, importLists, dashboard, err := p.project(ctx)
 	if err != nil {
 		p.dirty.Store(true)
 		logging.FromContext(ctx).Error("compute pipeline projection", "error", err)
@@ -240,6 +241,7 @@ func (p *Projection) runRound(ctx context.Context, due func() bool) {
 	p.library = library
 	p.unmatched = unmatched
 	p.importLists = importLists
+	p.dashboard = dashboard
 	for ch := range p.subs {
 		publish(ch, entries)
 	}
@@ -314,6 +316,16 @@ func (p *Projection) Downloads(ctx context.Context) []DownloadRow {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.downloads
+}
+
+// Dashboard returns the most recently computed dashboard summary: every
+// MediaFile's transcode and every grab entry's download, counted by state
+// (buildDashboard). Like [Entries] it never blocks on the cluster.
+func (p *Projection) Dashboard(ctx context.Context) Dashboard {
+	p.refresh(ctx)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.dashboard
 }
 
 // Library returns the most recently computed library slice -- the Task
@@ -545,20 +557,20 @@ var listOpts = []client.ListOption{client.UnsafeDisableDeepCopy}
 // configured) yields no rows without listing anything.
 func (p *Projection) project(
 	ctx context.Context,
-) ([]pipeline.Entry, []DownloadRow, []LibraryItem, []UnmatchedEntry, []ImportListEntry, error) {
+) ([]pipeline.Entry, []DownloadRow, []LibraryItem, []UnmatchedEntry, []ImportListEntry, Dashboard, error) {
 	if p.reader == nil {
-		return nil, nil, nil, nil, nil, nil
+		return nil, nil, nil, nil, nil, Dashboard{}, nil
 	}
 
 	idx, err := buildRelatedIndex(ctx, p.reader, listOpts...)
 	if err != nil {
-		return nil, nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, Dashboard{}, err
 	}
 	idx.progress = p.progress
 
 	items, err := p.listItems(ctx)
 	if err != nil {
-		return nil, nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, Dashboard{}, err
 	}
 
 	grabs := buildEntryIndex(items)
@@ -586,17 +598,23 @@ func (p *Projection) project(
 
 	scans, err := listLibraryScans(ctx, p.reader, listOpts...)
 	if err != nil {
-		return nil, nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, Dashboard{}, err
 	}
 	unmatched := unmatchedFromScans(scans)
 
 	lists, err := listImportLists(ctx, p.reader, listOpts...)
 	if err != nil {
-		return nil, nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, Dashboard{}, err
 	}
 	importLists := buildImportListEntries(lists)
 
-	return entries, downloads, library, unmatched, importLists, nil
+	files := make([]*catalogv1.MediaFile, 0, len(idx.byName))
+	for _, mf := range idx.byName {
+		files = append(files, mf)
+	}
+	dashboard := buildDashboard(ctx, files, downloads, p.progress)
+
+	return entries, downloads, library, unmatched, importLists, dashboard, nil
 }
 
 // listItems lists the ten catalog kinds pkg/pipeline/project.go's

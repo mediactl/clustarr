@@ -488,6 +488,13 @@
           }
         },
         "pipelineHistory": {"type": "integer", "minimum": 0, "description": "Results the pipeline page keeps beside its in-flight entries (--pipeline-history); 0 shows in-flight entries only."},
+        "metrics": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "url": {"type": "string", "description": "Prometheus-compatible API the dashboard charts from, without /api/v1 (--metrics-url); empty leaves the charts unconfigured."}
+          }
+        },
         "plex": {
           "type": "object",
           "additionalProperties": false,

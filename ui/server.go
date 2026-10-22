@@ -45,6 +45,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/pipeline"
 	"github.com/mediactl/clustarr/ui/actions"
 	"github.com/mediactl/clustarr/ui/projection"
+	"github.com/mediactl/clustarr/ui/prom"
 )
 
 // DefaultBindAddress is what [Run] listens on when Options.BindAddress is
@@ -273,6 +274,16 @@ type Options struct {
 	// poll of Reader (projection.ListDownloadRows), mirroring Subscribe's
 	// own nil fallback.
 	SubscribeDownloads func() (<-chan []projection.DownloadRow, func())
+
+	// Dashboard reads the dashboard's transcode and download summary, the
+	// projection's (projection.Projection.Dashboard). A nil Dashboard renders
+	// every count as zero.
+	Dashboard func(context.Context) projection.Dashboard
+
+	// Metrics answers the dashboard charts' range queries against a
+	// Prometheus-compatible API (--metrics-url). One without a URL
+	// (prom.New("")) renders the charts' "not configured" card.
+	Metrics prom.Querier
 
 	// TransferProgress reads an entry's 1 Hz transfer telemetry from
 	// clustarr-progress (download.<entry uid>), bound in cmd/ui to the

@@ -470,6 +470,38 @@ every monitored series as Missing until 2026-09-30.
 
 Each item should show the cover art, monitored status and selected quality profile
 
+The ui's home page is the **Dashboard** (2026-10-22: `ui/dashboard.go`,
+`ui/views/dashboard.templ`). `/` redirects to `/dashboard`, the sidebar's
+first entry. It has two parts.
+
+The summary comes from the projection round (`Projection.Dashboard`) and
+refreshes itself every 10 s (`/dashboard/summary`). It counts:
+
+- downloads: downloading, queued and failed (grab entries by phase);
+- transcodes: running, pending (Pending, Planned, Queued), failed and
+  skipped (MediaFile `status.transcode`).
+
+Each list shows its first 8 rows (`projection.DashboardRows`).
+
+The charts are shadcn-templ's chart component (`ui/components/chart`, an
+SVG runtime in the component bundle). They chart range queries the ui runs
+against a Prometheus-compatible API (`ui/prom`): `--metrics-url`, chart
+value `ui.metrics.url`, e.g. Mimir's `/prometheus`. Without one the charts
+show as not configured. They cover:
+
+- Plex sessions, bandwidth and plays, from cluster-plex's
+  `clusterplex_plex_*`;
+- Live TV;
+- transcodes finished, transcode workers and the transcode backlog;
+- grabs and imports.
+
+The range is 6h, 24h or 7d (`/dashboard/charts?range=`), refreshed every
+60 s. A gauge is charted as each step's peak (`max_over_time`). Answers are
+cached for 30 s and capped at 4 MiB, and only the ui queries the store,
+never the browser. A cached answer is shared by every render, so never
+modify its points in place: rescaling them did, and turned 40 Mb/s into 0
+from the second render on.
+
 Each library page has an **Add New** (`/library/{tab}/add`, since
 2026-09-29): it searches its kind through catalog's metadata search RPC
 (TMDB movies, TVDB series, MusicBrainz artists, Open Library authors) and

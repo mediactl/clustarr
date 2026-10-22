@@ -124,6 +124,9 @@ const (
 	// Custom Metadata Provider hands Plex is built on. An operator's own
 	// reachable hostname is not something a default here could ever guess.
 	EnvExternalURL = "CLUSTARR_EXTERNAL_URL"
+	// EnvMetricsURL is the default for ui's --metrics-url, the
+	// Prometheus-compatible API the dashboard charts (2026-10-22).
+	EnvMetricsURL = "CLUSTARR_METRICS_URL"
 
 	// EnvArtSigningKey holds the key ui signs its /art/search URLs with
 	// (ui.Options.ArtSigningKey). It is an environment variable, never a

@@ -256,6 +256,9 @@ spec:
         {{- with .Values.ui.plex.externalURL }}
         {{- $uiArgs = append $uiArgs (printf "--external-url=%s" .) }}
         {{- end }}
+        {{- with .Values.ui.metrics.url }}
+        {{- $uiArgs = append $uiArgs (printf "--metrics-url=%s" .) }}
+        {{- end }}
         args:
           {{- toYaml $uiArgs | nindent 8 }}
         env:

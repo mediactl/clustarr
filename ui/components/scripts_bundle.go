@@ -2,4 +2,4 @@
 
 package components
 
-const bundleSrc = "/static/js/shadcn-templ-22af0ee1e0589b5b.js"
+const bundleSrc = "/static/js/shadcn-templ-318901dfb8c65f80.js"

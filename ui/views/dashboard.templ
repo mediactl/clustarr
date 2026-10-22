@@ -1,0 +1,406 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package views
+
+import (
+	"fmt"
+	"strconv"
+	"time"
+
+	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	"github.com/mediactl/clustarr/ui/components/badge"
+	"github.com/mediactl/clustarr/ui/components/card"
+	"github.com/mediactl/clustarr/ui/components/chart"
+	"github.com/mediactl/clustarr/ui/projection"
+)
+
+// DashboardView is the dashboard, the ui's home page (2026-10-22): what is
+// running, waiting, failed and skipped now, from the projection, and charts
+// of clustarr's and Plex's metrics, from the metrics store.
+type DashboardView struct {
+	Summary DashboardSummaryView
+	Charts  DashboardChartsView
+}
+
+// DashboardSummaryView is the dashboard's live part, re-fetched every
+// SummaryRefresh: the projection's counts and lists, and the active
+// downloads with their transfer telemetry.
+type DashboardSummaryView struct {
+	Summary projection.Dashboard
+	Active  []DownloadView
+}
+
+// DashboardChartsView is the dashboard's charts over one range, re-fetched
+// every ChartsRefresh.
+type DashboardChartsView struct {
+	Range      string
+	Ranges     []string
+	Configured bool
+	Panels     []ChartPanel
+}
+
+// ChartPanel is one chart: its series' config, one datum per sample time
+// (key "t" its axis label), and the error that left it empty, if any.
+type ChartPanel struct {
+	ID          string
+	Title       string
+	Description string
+	Kind        string // "area", "bar" or "line"
+	Stacked     bool
+	Config      chart.Config
+	Keys        []string
+	Data        []chart.Datum
+	Err         string
+}
+
+// The dashboard's refresh periods.
+const (
+	SummaryRefresh = "10s"
+	ChartsRefresh  = "60s"
+)
+
+templ Dashboard(v DashboardView) {
+	@Layout("Dashboard") {
+		<h1 class="mb-4 text-2xl font-bold">Dashboard</h1>
+		<div class="space-y-6">
+			@DashboardSummary(v.Summary)
+			@DashboardCharts(v.Charts)
+		</div>
+	}
+}
+
+// DashboardSummary is the counts and lists, replacing itself every
+// SummaryRefresh.
+templ DashboardSummary(v DashboardSummaryView) {
+	{{ s := v.Summary }}
+	<div
+		id="dashboard-summary"
+		class="space-y-6"
+		hx-get="/dashboard/summary"
+		hx-trigger={ "every " + SummaryRefresh }
+		hx-swap="outerHTML"
+	>
+		<div class="grid grid-cols-2 gap-4 md:grid-cols-4 xl:grid-cols-7">
+			@statCard("Downloading", s.Downloads.Active.Total, "/downloads", "")
+			@statCard("Downloads queued", s.Downloads.Pending.Total, "/downloads", "")
+			@statCard("Downloads failed", s.Downloads.Failed.Total, "/downloads", tone(s.Downloads.Failed.Total, "text-destructive"))
+			@statCard("Transcoding", s.Transcodes.Running.Total, "/pipeline", "")
+			@statCard("Transcodes pending", s.Transcodes.Pending.Total, "/pipeline", "")
+			@statCard("Transcodes failed", s.Transcodes.Failed.Total, "/pipeline", tone(s.Transcodes.Failed.Total, "text-destructive"))
+			@statCard("Transcodes skipped", s.Transcodes.Skipped.Total, "/pipeline", tone(s.Transcodes.Skipped.Total, "text-amber-600 dark:text-amber-400"))
+		</div>
+		<div class="grid gap-4 lg:grid-cols-2">
+			@listCard("Running downloads", s.Downloads.Active.Total, len(v.Active), "Nothing is downloading.") {
+				for _, d := range v.Active {
+					@dashboardDownload(d, "")
+				}
+			}
+			@listCard("Running transcodes", s.Transcodes.Running.Total, len(s.Transcodes.Running.Rows), "Nothing is transcoding.") {
+				for _, r := range s.Transcodes.Running.Rows {
+					@dashboardTranscode(r)
+				}
+			}
+		</div>
+		<div class="grid gap-4 lg:grid-cols-3">
+			@listCard("Pending", s.Downloads.Pending.Total+s.Transcodes.Pending.Total,
+				len(s.Downloads.Pending.Rows)+len(s.Transcodes.Pending.Rows), "Nothing is waiting.") {
+				for _, r := range s.Downloads.Pending.Rows {
+					@dashboardDownload(DownloadView{Row: r}, "download")
+				}
+				for _, r := range s.Transcodes.Pending.Rows {
+					@dashboardTranscode(r)
+				}
+			}
+			@listCard("Failed", s.Downloads.Failed.Total+s.Transcodes.Failed.Total,
+				len(s.Downloads.Failed.Rows)+len(s.Transcodes.Failed.Rows), "Nothing has failed.") {
+				for _, r := range s.Downloads.Failed.Rows {
+					@dashboardDownload(DownloadView{Row: r}, "download")
+				}
+				for _, r := range s.Transcodes.Failed.Rows {
+					@dashboardTranscode(r)
+				}
+			}
+			@listCard("Skipped", s.Transcodes.Skipped.Total, len(s.Transcodes.Skipped.Rows), "No transcode was skipped.") {
+				for _, r := range s.Transcodes.Skipped.Rows {
+					@dashboardTranscode(r)
+				}
+			}
+		</div>
+	</div>
+}
+
+templ statCard(label string, n int, href, class string) {
+	<a href={ templ.SafeURL(href) } class="block" data-stat={ label }>
+		@card.Card(card.Props{Size: card.SizeSm, Class: "h-full transition-colors hover:bg-muted/50"}) {
+			@card.Header() {
+				@card.Description() {
+					{ label }
+				}
+				@card.Title(card.TitleProps{Class: "text-2xl font-semibold tabular-nums " + class}) {
+					{ strconv.Itoa(n) }
+				}
+			}
+		}
+	</a>
+}
+
+// listCard is a titled card of rows; shown of total are rendered, and the
+// rest are counted.
+templ listCard(title string, total, shown int, none string) {
+	@card.Card(card.Props{Attributes: templ.Attributes{"data-list": title}}) {
+		@card.Header() {
+			@card.Title() {
+				{ title }
+			}
+			@card.Description() {
+				if total > shown {
+					{ fmt.Sprintf("%d of %d", shown, total) }
+				} else {
+					{ strconv.Itoa(total) }
+				}
+			}
+		}
+		@card.Content(card.ContentProps{Class: "space-y-3"}) {
+			if shown == 0 {
+				<p class="text-sm text-muted-foreground">{ none }</p>
+			} else {
+				{ children... }
+			}
+		}
+	}
+}
+
+// dashboardDownload is one grab entry; kind labels it in a mixed list.
+templ dashboardDownload(d DownloadView, kind string) {
+	<div class="min-w-0 space-y-1" data-download={ d.Row.Entry.ID } data-phase={ string(d.Row.Entry.Phase) }>
+		<div class="flex items-start justify-between gap-2">
+			<a class="min-w-0 truncate text-sm font-medium hover:underline" href={ templ.SafeURL(ownerURL(d.Row)) } title={ downloadTitle(d.Row) }>{ downloadTitle(d.Row) }</a>
+			<div class="flex flex-none gap-1">
+				if kind != "" {
+					@badge.Badge(badge.Props{Variant: badge.VariantOutline}) {
+						{ kind }
+					}
+				}
+				@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: downloadPhaseTone(d.Row.Entry.Phase)}) {
+					{ downloadPhaseLabel(d.Row.Entry.Phase) }
+				}
+			</div>
+		</div>
+		if pct := downloadPercent(d); pct >= 0 {
+			@progressBar(pct)
+		}
+		if pr := d.Progress; pr != nil {
+			<div class="text-xs text-muted-foreground">{ fmt.Sprintf("%s/s · ETA %s", formatBytes(pr.DownRateBytesPerSec), formatETA(pr.ETASeconds)) }</div>
+		}
+		if failed(d.Row.Entry.Phase) {
+			<div class="truncate text-xs text-destructive" title={ downloadFailureDetail(d.Row.Entry) }>{ downloadFailureDetail(d.Row.Entry) }</div>
+		}
+	</div>
+}
+
+// dashboardTranscode is one MediaFile's transcode.
+templ dashboardTranscode(r projection.TranscodeRow) {
+	<div class="min-w-0 space-y-1" data-transcode={ r.File.Name } data-phase={ string(r.Phase) }>
+		<div class="flex items-start justify-between gap-2">
+			<a class="min-w-0 truncate text-sm font-medium hover:underline" href={ templ.SafeURL(r.ItemURL) } title={ r.Name }>{ r.Name }</a>
+			<div class="flex flex-none gap-1">
+				@badge.Badge(badge.Props{Variant: badge.VariantOutline}) {
+					transcode
+				}
+				@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
+					{ string(r.Phase) }
+				}
+			</div>
+		</div>
+		if r.Percent >= 0 {
+			@progressBar(r.Percent)
+		}
+		<div class="truncate text-xs text-muted-foreground" title={ transcodeDetail(r) }>{ transcodeDetail(r) }</div>
+	</div>
+}
+
+// transcodeDetail is a row's second line: its plan or verdict, the class it
+// runs on and its age.
+func transcodeDetail(r projection.TranscodeRow) string {
+	var parts []string
+	running := r.Phase == catalogv1.TranscodePhaseRunning || r.Phase == catalogv1.TranscodePhaseSwapping
+	switch {
+	case running && r.Plan != "":
+		// A running transcode's message carries its dispatch's attempt id;
+		// the plan says what it is doing.
+		parts = append(parts, r.Plan)
+	case r.Message != "":
+		parts = append(parts, r.Message)
+	case r.Plan != "":
+		parts = append(parts, r.Plan)
+	case r.Reason != "":
+		parts = append(parts, r.Reason)
+	}
+	if r.Class != "" {
+		parts = append(parts, string(r.Class))
+	}
+	if !r.Since.IsZero() {
+		parts = append(parts, sinceLabel(time.Since(r.Since)))
+	}
+	return joinDot(parts)
+}
+
+func sinceLabel(d time.Duration) string {
+	switch {
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		return fmt.Sprintf("%dm ago", int(d/time.Minute))
+	case d < 48*time.Hour:
+		return fmt.Sprintf("%dh ago", int(d/time.Hour))
+	default:
+		return fmt.Sprintf("%dd ago", int(d/(24*time.Hour)))
+	}
+}
+
+func joinDot(parts []string) string {
+	out := ""
+	for i, p := range parts {
+		if i > 0 {
+			out += " · "
+		}
+		out += p
+	}
+	return out
+}
+
+// tone is class when n is above zero.
+func tone(n int, class string) string {
+	if n > 0 {
+		return class
+	}
+	return ""
+}
+
+// DashboardCharts is the charts over v.Range, replacing itself every
+// ChartsRefresh and when another range is picked.
+templ DashboardCharts(v DashboardChartsView) {
+	<section
+		id="dashboard-charts"
+		class="space-y-4"
+		hx-get={ "/dashboard/charts?range=" + v.Range }
+		hx-trigger={ "every " + ChartsRefresh }
+		hx-swap="outerHTML"
+		data-range={ v.Range }
+	>
+		<div class="flex items-center justify-between gap-4">
+			<h2 class="text-lg font-semibold">Metrics</h2>
+			<div class="inline-flex rounded-md border border-border p-0.5" role="group" aria-label="Range">
+				for _, r := range v.Ranges {
+					<button
+						type="button"
+						class={ "rounded px-3 py-1 text-sm", templ.KV("bg-muted font-medium", r == v.Range), templ.KV("text-muted-foreground hover:text-foreground", r != v.Range) }
+						hx-get={ "/dashboard/charts?range=" + r }
+						hx-target="#dashboard-charts"
+						hx-swap="outerHTML"
+						aria-pressed={ strconv.FormatBool(r == v.Range) }
+					>{ r }</button>
+				}
+			</div>
+		</div>
+		if !v.Configured {
+			@card.Card() {
+				@card.Header() {
+					@card.Title() {
+						Metrics are not configured
+					}
+					@card.Description() {
+						Give the ui a Prometheus-compatible API with --metrics-url (the chart's ui.metrics.url), e.g. Mimir's http://mimir.observability.svc:8080/prometheus, to chart clustarr's and Plex's metrics here.
+					}
+				}
+			}
+		} else {
+			<div class="grid gap-4 lg:grid-cols-2">
+				for _, p := range v.Panels {
+					@chartPanel(p)
+				}
+			</div>
+		}
+	</section>
+}
+
+templ chartPanel(p ChartPanel) {
+	@card.Card(card.Props{Attributes: templ.Attributes{"data-panel": p.ID}}) {
+		@card.Header() {
+			@card.Title() {
+				{ p.Title }
+			}
+			@card.Description() {
+				{ p.Description }
+			}
+		}
+		@card.Content() {
+			if p.Err != "" {
+				<p class="text-sm text-destructive">{ p.Err }</p>
+			} else if len(p.Data) == 0 {
+				<p class="text-sm text-muted-foreground">No data in this range.</p>
+			} else {
+				@chart.Container(chart.ContainerProps{ID: "dash-" + p.ID, Config: p.Config, Class: "aspect-auto h-[220px] w-full"}) {
+					switch p.Kind {
+						case "bar":
+							@chart.BarChart(chart.BarChartProps{Data: p.Data, AccessibilityLayer: true}) {
+								@chart.CartesianGrid(chart.CartesianGridProps{Vertical: chart.Bool(false)})
+								@chart.XAxis(chart.XAxisProps{DataKey: "t", TickLine: false, AxisLine: false, TickMargin: 8, MinTickGap: 32})
+								@chart.YAxis(chart.YAxisProps{TickLine: false, AxisLine: false, Width: 40})
+								@chart.Tooltip(chart.TooltipProps{Content: chart.TooltipContentProps{Indicator: "dot"}})
+								for _, k := range p.Keys {
+									@chart.Bar(chart.BarProps{DataKey: k, Fill: "var(--color-" + k + ")", StackID: stackID(p), Radius: 2})
+								}
+								@chart.Legend()
+							}
+						case "line":
+							@chart.LineChart(chart.LineChartProps{Data: p.Data, AccessibilityLayer: true}) {
+								@chart.CartesianGrid(chart.CartesianGridProps{Vertical: chart.Bool(false)})
+								@chart.XAxis(chart.XAxisProps{DataKey: "t", TickLine: false, AxisLine: false, TickMargin: 8, MinTickGap: 32})
+								@chart.YAxis(chart.YAxisProps{TickLine: false, AxisLine: false, Width: 40})
+								@chart.Tooltip(chart.TooltipProps{Content: chart.TooltipContentProps{Indicator: "line"}})
+								for _, k := range p.Keys {
+									@chart.Line(chart.LineProps{DataKey: k, Type: chart.CurveMonotone, Stroke: "var(--color-" + k + ")", StrokeWidth: 2})
+								}
+								@chart.Legend()
+							}
+						default:
+							@chart.AreaChart(chart.AreaChartProps{Data: p.Data, AccessibilityLayer: true}) {
+								@chart.CartesianGrid(chart.CartesianGridProps{Vertical: chart.Bool(false)})
+								@chart.XAxis(chart.XAxisProps{DataKey: "t", TickLine: false, AxisLine: false, TickMargin: 8, MinTickGap: 32})
+								@chart.YAxis(chart.YAxisProps{TickLine: false, AxisLine: false, Width: 40})
+								@chart.Tooltip(chart.TooltipProps{Content: chart.TooltipContentProps{Indicator: "dot"}})
+								for _, k := range p.Keys {
+									@chart.Area(chart.AreaProps{DataKey: k, Type: chart.CurveMonotone, Fill: "var(--color-" + k + ")", Stroke: "var(--color-" + k + ")", FillOpacity: 0.3, StackID: stackID(p)})
+								}
+								@chart.Legend()
+							}
+					}
+				}
+			}
+		}
+	}
+}
+
+// stackID stacks a stacked panel's series, and no other.
+func stackID(p ChartPanel) string {
+	if p.Stacked {
+		return "a"
+	}
+	return ""
+}

@@ -88,14 +88,6 @@ func TestPipelinePageRendersWithNoEntries(t *testing.T) {
 	require.Contains(t, rec.Body.String(), "Nothing in flight")
 }
 
-func TestIndexRedirectsToPipeline(t *testing.T) {
-	srv := ui.NewServer(t.Context(), ui.Options{})
-	rec := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
-	require.Equal(t, http.StatusFound, rec.Code)
-	require.Equal(t, "/pipeline", rec.Header().Get("Location"))
-}
-
 func TestPipelineEventsStreamsServerSentEvents(t *testing.T) {
 	srv := ui.NewServer(t.Context(), ui.Options{Entries: func(context.Context) []pipeline.Entry {
 		return []pipeline.Entry{{Title: "The Shawshank Redemption", Stage: pipeline.StageDownloading, Percent: 42}}

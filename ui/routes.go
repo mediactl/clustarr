@@ -52,6 +52,9 @@ func (s *Server) routes() http.Handler {
 	mux.Handle("GET /static/", http.StripPrefix("/static/", staticHandler()))
 	mux.HandleFunc("GET /art/{kind}/{uid}/{type}", s.handleArt)
 	mux.Handle("GET /art/search", s.searchArt)
+	mux.HandleFunc("GET /dashboard", s.handleDashboard)
+	mux.HandleFunc("GET /dashboard/summary", s.handleDashboardSummary)
+	mux.HandleFunc("GET /dashboard/charts", s.handleDashboardCharts)
 	mux.HandleFunc("GET /pipeline", s.handlePipeline)
 	mux.HandleFunc("GET /events/pipeline", s.handlePipelineEvents)
 	mux.HandleFunc("GET /downloads", s.handleDownloads)
@@ -172,10 +175,10 @@ func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte("ok"))
 }
 
-// handleIndex sends "/" to the Pipeline page, the first page a fresh
-// deployment has anything meaningful to show.
+// handleIndex sends "/" to the Dashboard (2026-10-22), the home page: what
+// is running, waiting, failed and skipped, and the metrics' charts.
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
-	http.Redirect(w, r, "/pipeline", http.StatusFound)
+	http.Redirect(w, r, "/dashboard", http.StatusFound)
 }
 
 // handlePipeline renders the Pipeline page (§A3.4) from the current

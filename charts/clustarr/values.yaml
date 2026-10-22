@@ -687,6 +687,13 @@ ui:
   # (--pipeline-history), newest first: two pages at the default page size.
   # 0 shows in-flight entries only. Nothing in the cluster is deleted.
   pipelineHistory: 100
+  # The dashboard's charts (the ui's home page, 2026-10-22) read clustarr's
+  # and cluster-plex's metrics from a Prometheus-compatible API: url is its
+  # root without /api/v1, e.g. Mimir's
+  # http://mimir.observability.svc:8080/prometheus (--metrics-url). Empty
+  # leaves the charts "not configured"; the counts and lists still show.
+  metrics:
+    url: ""
   # The Plex Custom Metadata Provider (design spec §D;
   # docs/research/plex-metadata-provider.md): served read-only by this ui
   # process at /plex/movies and /plex/tv. It is unauthenticated by the Plex

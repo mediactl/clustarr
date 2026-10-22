@@ -29,6 +29,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/busconn"
 	"github.com/mediactl/clustarr/ui"
 	"github.com/mediactl/clustarr/ui/projection"
+	"github.com/mediactl/clustarr/ui/prom"
 )
 
 // RunFunc serves the ui with built options. NewCommandWith takes one so
@@ -76,6 +77,7 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 	var externalURL string
 	var pipelineHistory int
 	var artCacheBytes int64
+	var metricsURL string
 
 	fs := root.Flags()
 	fs.StringVar(&bindAddress, "bind-address", ui.DefaultBindAddress,
@@ -109,6 +111,10 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 	fs.Int64Var(&artCacheBytes, "art-cache-bytes", ui.DefaultArtCacheBytes,
 		"Bytes of artwork the ui keeps in memory, by digest, to serve GET /art without a NATS read; "+
 			"0 disables the cache (artwork design §B.8 as amended 2026-10-07).")
+	fs.StringVar(&metricsURL, "metrics-url", cli.EnvOr(cli.EnvMetricsURL, ""),
+		"Prometheus-compatible API the dashboard charts clustarr's and Plex's metrics from, without "+
+			"/api/v1, e.g. Mimir's http://mimir.observability.svc:8080/prometheus. Defaults to $"+cli.EnvMetricsURL+
+			"; empty shows the charts as not configured. The ui only reads it, and the browser never does.")
 
 	root.RunE = func(cmd *cobra.Command, _ []string) error {
 		ctx := cmd.Context()
@@ -141,6 +147,8 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 			ArtSigningKey:        signingKey,
 			Plex:                 buildPlexOptions(plexProvider, externalURL, plexGUIDs),
 			Entries:              proj.Entries,
+			Dashboard:            proj.Dashboard,
+			Metrics:              prom.New(metricsURL),
 			Subscribe:            proj.Subscribe,
 			SubscribeDownloads:   proj.SubscribeDownloads,
 			TransferProgress:     b.progress,
