@@ -198,7 +198,7 @@ func (h *handler) handleCollection(root rootDef) http.HandlerFunc {
 			return
 		}
 		u := h.urlsFor(r, idx)
-		h.writePage(w, r, root, []Metadata{h.buildCollectionMetadata(r.Context(), root, u, movies)}, pageRequest{size: 1})
+		h.writePage(w, r, root, u, idx, []Metadata{h.buildCollectionMetadata(r.Context(), root, u, movies)}, pageRequest{size: 1})
 	}
 }
 
@@ -221,7 +221,7 @@ func (h *handler) handleCollectionChildren(root rootDef) http.HandlerFunc {
 		for i, m := range movies {
 			items[i] = buildMovieMetadata(root, u, m)
 		}
-		h.writePage(w, r, root, items, parsePaging(r))
+		h.writePage(w, r, root, u, idx, items, parsePaging(r))
 	}
 }
 

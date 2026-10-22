@@ -21,6 +21,7 @@ import (
 	"context"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"k8s.io/apimachinery/pkg/types"
@@ -187,6 +188,40 @@ func (h *handler) enrichExtended(ctx context.Context, u urls, md *Metadata, kind
 	if len(md.Collection) == 1 {
 		withCollectionDoc(u, &md.Collection[0], doc.Collection)
 	}
+}
+
+// listingReads bounds a listing's concurrent extended-document reads.
+const listingReads = 8
+
+// enrichEpisodes adds each listed episode's guest cast and crew, as
+// [handler.enrichExtended] adds one's: PMS takes a season's episodes from
+// the season's includeChildren=1 answer and asks for no episode by itself
+// (talos, 2026-10-22), so an episode's people must ride every listing of
+// it. Other items are left as they are. The reads share one
+// ExtendedReadTimeout, so a stalled bus costs a listing its people once,
+// not once per episode.
+func (h *handler) enrichEpisodes(ctx context.Context, u urls, items []Metadata, idx *projection.Index) {
+	if h.opts.Extended == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(ctx, ExtendedReadTimeout)
+	defer cancel()
+	slots := make(chan struct{}, listingReads)
+	var wg sync.WaitGroup
+	for i := range items {
+		if items[i].Type != metadataTypeEpisode {
+			continue
+		}
+		md := &items[i]
+		slots <- struct{}{}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer func() { <-slots }()
+			h.enrichExtended(ctx, u, md, commonv1.MediaKindEpisode, types.UID(md.RatingKey), idx)
+		}()
+	}
+	wg.Wait()
 }
 
 // similarGuid is a similar title's guid: clustarr's own, or its plex://
