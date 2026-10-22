@@ -52,6 +52,8 @@ type Registry struct {
 	// (PlexProvider), first answer wins. A plex client is also an
 	// IDResolver, which is how a Movie or Series gets its KeyPlex id.
 	Plex []PlexProvider
+	// ImageSets choose an item's image set (MediUX), first answer wins.
+	ImageSets []ImageSetProvider
 }
 
 // Lookup fetches a single entity of kind, identified by ids, from the first

@@ -45,6 +45,7 @@ import (
 	"github.com/mediactl/clustarr/app/remediation/downloads"
 	grabstage "github.com/mediactl/clustarr/app/remediation/grab"
 	"github.com/mediactl/clustarr/app/remediation/graft"
+	imagesetstage "github.com/mediactl/clustarr/app/remediation/imageset"
 	markersplanner "github.com/mediactl/clustarr/app/remediation/markers"
 	metadatastage "github.com/mediactl/clustarr/app/remediation/metadata"
 	"github.com/mediactl/clustarr/app/remediation/naming"
@@ -235,6 +236,11 @@ func Stages(d Deps) []remediation.ItemStage {
 		}
 	}
 	stages = append(stages, metadatastage.New(meta))
+	// The image-set stage (spec 2026-10-22): MediUX's choice into
+	// status.imageSet, through the metadata agent.
+	stages = append(stages, imagesetstage.New(imagesetstage.Options{
+		Reader: d.Manager.GetClient(), Bus: d.Env.Bus, Dispatch: d.Options.Dispatch,
+	}))
 	if d.Options.Artwork != nil {
 		art := artworkstage.Options{Bus: d.Env.Bus, Index: d.Options.Artwork, Dispatch: d.Options.Dispatch}
 		stages = append(stages, artworkstage.New(art), artworkstage.NewOverlay(art))

@@ -169,6 +169,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &catalogv1alpha1.HandledNoncesApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("Image"):
 		return &catalogv1alpha1.ImageApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("ImageSetStatus"):
+		return &catalogv1alpha1.ImageSetStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("ImportExclusion"):
 		return &catalogv1alpha1.ImportExclusionApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("ImportExclusionSpec"):
@@ -211,6 +213,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &catalogv1alpha1.MediaFileStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("Medium"):
 		return &catalogv1alpha1.MediumApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("MediuxSpec"):
+		return &catalogv1alpha1.MediuxSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("MetadataProvider"):
 		return &catalogv1alpha1.MetadataProviderApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("MetadataProviderSpec"):

@@ -88,6 +88,10 @@ type MovieStatusApplyConfiguration struct {
 	// Overlay is the rating-badge overlay rendered onto the poster. Written
 	// by the renderer under k8s.ManagerCatalogArtwork.
 	Overlay *OverlayEntryApplyConfiguration `json:"overlay,omitempty"`
+	// ImageSet is the image set the mediux MetadataProvider chose for the
+	// movie: its poster and background, below spec.artwork. Written by the
+	// remediation loop's image-set stage under catalog-imageset.
+	ImageSet *ImageSetStatusApplyConfiguration `json:"imageSet,omitempty"`
 	// Audio is what the file's audio carries against the profile's audio
 	// policy; unset when the profile has none (anime dual-audio spec §5.3).
 	Audio *AudioStateApplyConfiguration `json:"audio,omitempty"`
@@ -307,6 +311,14 @@ func (b *MovieStatusApplyConfiguration) WithArtwork(values ...*ArtworkEntryApply
 // If called multiple times, the Overlay field is set to the value of the last call.
 func (b *MovieStatusApplyConfiguration) WithOverlay(value *OverlayEntryApplyConfiguration) *MovieStatusApplyConfiguration {
 	b.Overlay = value
+	return b
+}
+
+// WithImageSet sets the ImageSet field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the ImageSet field is set to the value of the last call.
+func (b *MovieStatusApplyConfiguration) WithImageSet(value *ImageSetStatusApplyConfiguration) *MovieStatusApplyConfiguration {
+	b.ImageSet = value
 	return b
 }
 

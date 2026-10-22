@@ -375,11 +375,23 @@ func seasonName(s *catalogv1.Series, number int32) string {
 	return aired
 }
 
-// seasonOverride is the spec.seasonArtwork URL of a season's (episode
-// nil) or an episode's image of type t -- an image set's
-// (docs/superpowers/specs/2026-10-21-image-sets-design.md) -- or "".
+// seasonOverride is the URL of a season's (episode nil) or an episode's
+// image of type t from an image set
+// (docs/superpowers/specs/2026-10-21-image-sets-design.md): the owner's
+// spec.seasonArtwork first, else the set the mediux provider chose into
+// status.imageSet (spec 2026-10-22), else "".
 func seasonOverride(s *catalogv1.Series, number int32, episode *int32, t catalogv1.ImageType) string {
-	for _, o := range s.Spec.SeasonArtwork {
+	if u := seasonOverrideIn(s.Spec.SeasonArtwork, number, episode, t); u != "" {
+		return u
+	}
+	if set := s.Status.ImageSet; set != nil {
+		return seasonOverrideIn(set.SeasonArtwork, number, episode, t)
+	}
+	return ""
+}
+
+func seasonOverrideIn(overrides []catalogv1.SeasonArtworkOverride, number int32, episode *int32, t catalogv1.ImageType) string {
+	for _, o := range overrides {
 		if o.Season != number || o.Type != t {
 			continue
 		}

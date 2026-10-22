@@ -52,6 +52,9 @@ type MetadataProviderSpecApplyConfiguration struct {
 	ContactUserAgent *string `json:"contactUserAgent,omitempty"`
 	// CacheTTL sets how long each class of answer is cached.
 	CacheTTL *CacheTTLApplyConfiguration `json:"cacheTTL,omitempty"`
+	// Mediux is a mediux provider's set-choosing policy; ignored by every
+	// other type.
+	Mediux *MediuxSpecApplyConfiguration `json:"mediux,omitempty"`
 }
 
 // MetadataProviderSpecApplyConfiguration constructs a declarative configuration of the MetadataProviderSpec type for use with
@@ -137,5 +140,13 @@ func (b *MetadataProviderSpecApplyConfiguration) WithContactUserAgent(value stri
 // If called multiple times, the CacheTTL field is set to the value of the last call.
 func (b *MetadataProviderSpecApplyConfiguration) WithCacheTTL(value *CacheTTLApplyConfiguration) *MetadataProviderSpecApplyConfiguration {
 	b.CacheTTL = value
+	return b
+}
+
+// WithMediux sets the Mediux field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Mediux field is set to the value of the last call.
+func (b *MetadataProviderSpecApplyConfiguration) WithMediux(value *MediuxSpecApplyConfiguration) *MetadataProviderSpecApplyConfiguration {
+	b.Mediux = value
 	return b
 }

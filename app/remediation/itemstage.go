@@ -49,12 +49,16 @@ const (
 	StageMetadata  ItemStageName = "metadata"
 	StageArtwork   ItemStageName = "artwork"
 	StageOverlay   ItemStageName = "overlay"
+	// StageImageSet chooses a Movie's or Series' MediUX image set into
+	// status.imageSet (spec 2026-10-22), before artwork so a chosen poster
+	// is fetched on the pass that sees it.
+	StageImageSet ItemStageName = "imageset"
 )
 
 // StageOrder: grab decides new entries from candidates, downloads runs the
 // state machine over stored and new entries, search reads the downloads
 // outcome (redownloads, R25), then metadata, artwork and overlay.
-var StageOrder = []ItemStageName{StageGrab, StageDownloads, StageSearch, StageMetadata, StageArtwork, StageOverlay}
+var StageOrder = []ItemStageName{StageGrab, StageDownloads, StageSearch, StageMetadata, StageImageSet, StageArtwork, StageOverlay}
 
 // setOrder is the order the other managers' sets apply in, each
 // preconditioned on the resourceVersion the one before returned (§7.0).

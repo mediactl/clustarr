@@ -83,3 +83,27 @@ func TestIndexAndTheSourceHelpers(t *testing.T) {
 	assert.False(t, artwork.Fetchable("/relative.png"))
 	assert.Len(t, artwork.ImageTypes, 9, "the CRD's ImageType enum")
 }
+
+// A chosen image set's poster and background (status.imageSet, spec
+// 2026-10-22) are the item's overrides below the owner's own: WithImageSet
+// lists the set's first so ResolveSources, in which a later entry of a
+// type wins, takes spec.artwork over it.
+func TestAChosenImageSetIsAnOverrideBelowTheOwners(t *testing.T) {
+	set := &catalogv1alpha1.ImageSetStatus{Artwork: []catalogv1alpha1.ArtworkOverride{
+		{Type: catalogv1alpha1.ImageTypePoster, URL: "https://images.mediux.io/assets/p?key=jpg"},
+		{Type: catalogv1alpha1.ImageTypeFanart, URL: "https://images.mediux.io/assets/b?key=jpg"},
+	}}
+	spec := []catalogv1alpha1.ArtworkOverride{{Type: catalogv1alpha1.ImageTypePoster, URL: "https://theposterdb.com/api/assets/1"}}
+	got := artwork.ResolveSources(artwork.WithImageSet(spec, set), []catalogv1alpha1.Image{{Type: catalogv1alpha1.ImageTypePoster, URL: "https://image.tmdb.org/p.jpg"}})
+	assert.Equal(t, "https://theposterdb.com/api/assets/1", got[catalogv1alpha1.ImageTypePoster].URL, "the pasted poster wins")
+	assert.Equal(t, "https://images.mediux.io/assets/b?key=jpg", got[catalogv1alpha1.ImageTypeFanart].URL, "the set's background where nothing was pasted")
+	assert.Equal(t, catalogv1alpha1.ArtworkSourceCustom, got[catalogv1alpha1.ImageTypeFanart].Kind)
+	assert.Equal(t, spec, artwork.WithImageSet(spec, nil))
+
+	m := &catalogv1alpha1.Movie{}
+	m.Spec.Artwork, m.Status.ImageSet = spec, set
+	it, err := artwork.ItemOf(m)
+	require.NoError(t, err)
+	assert.Len(t, it.Overrides, 3)
+	assert.Equal(t, spec[0], it.Overrides[2], "the owner's last")
+}

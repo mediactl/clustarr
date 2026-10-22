@@ -436,6 +436,13 @@ type SeriesSpec struct {
 	// +optional
 	// +kubebuilder:validation:MaxItems=1000
 	SeasonArtwork []SeasonArtworkOverride `json:"seasonArtwork,omitempty"`
+
+	// ImageSet is whether the mediux MetadataProvider chooses an image set
+	// for the series (auto, the default) or not (none, which clears
+	// status.imageSet). A pasted set in spec.artwork and spec.seasonArtwork
+	// wins over the chosen one either way.
+	// +optional
+	ImageSet ImageSetMode `json:"imageSet,omitempty"`
 }
 
 // AnnotationClassify set to "off" skips anime classification for a Series
@@ -583,6 +590,13 @@ type SeriesStatus struct {
 	// by the renderer under k8s.ManagerCatalogArtwork.
 	// +optional
 	Overlay *OverlayEntry `json:"overlay,omitempty"`
+
+	// ImageSet is the image set the mediux MetadataProvider chose for the
+	// series: its poster and background, season posters and episode
+	// thumbnails, below spec.artwork and spec.seasonArtwork. Written by the
+	// remediation loop's image-set stage under catalog-imageset.
+	// +optional
+	ImageSet *ImageSetStatus `json:"imageSet,omitempty"`
 }
 
 // +kubebuilder:object:root=true

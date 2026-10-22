@@ -29,6 +29,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -541,4 +542,39 @@ func TestEpisodeWithoutItsOwnCastCarriesTheShows(t *testing.T) {
 	mu.Lock()
 	assert.Equal(t, 1, reads[commonv1.MediaKindSeries], "the show's document is read once for the listing")
 	mu.Unlock()
+}
+
+// The set the mediux provider chose (status.imageSet, spec 2026-10-22)
+// serves a season's poster and an episode's thumbnail where the owner
+// pasted nothing, and the pasted spec.seasonArtwork wins where both name
+// the same image.
+func TestAChosenImageSetServesSeasonsBelowThePastedOne(t *testing.T) {
+	s, eps := fixtureSeriesAndEpisodes()
+	one := int32(1)
+	s.Status.ImageSet = &catalogv1.ImageSetStatus{
+		Provider: "mediux", SetID: "41471", CheckedAt: metav1.Now(),
+		SeasonArtwork: []catalogv1.SeasonArtworkOverride{
+			{Season: 1, Type: catalogv1.ImageTypePoster, URL: "https://images.mediux.io/assets/s1?key=jpg"},
+			{Season: 2, Type: catalogv1.ImageTypePoster, URL: "https://images.mediux.io/assets/s2?key=jpg"},
+			{Season: 1, Episode: &one, Type: catalogv1.ImageTypeScreenshot, URL: "https://images.mediux.io/assets/e1?key=jpg"},
+		},
+	}
+	s.Spec.SeasonArtwork = []catalogv1.SeasonArtworkOverride{
+		{Season: 1, Type: catalogv1.ImageTypePoster, URL: "https://theposterdb.com/api/assets/s1"},
+	}
+	objs := []client.Object{s}
+	for _, e := range eps {
+		objs = append(objs, e)
+	}
+	h := newFullHandler(t, nil, objs...)
+	md := metadataOf(t, h, "/plex/tv/library/metadata/"+plex.SeasonKey(s.UID, 1))
+	assert.Equal(t, photoURL("https://theposterdb.com/api/assets/s1"), md["thumb"], "the pasted set's season poster wins")
+	md = metadataOf(t, h, "/plex/tv/library/metadata/"+plex.SeasonKey(s.UID, 2))
+	assert.Equal(t, photoURL("https://images.mediux.io/assets/s2?key=jpg"), md["thumb"], "the chosen set's where nothing was pasted")
+	for _, e := range eps {
+		if e.Spec.SeasonNumber == 1 && e.Spec.EpisodeNumber == 1 {
+			md = metadataOf(t, h, "/plex/tv/library/metadata/"+string(e.UID))
+			assert.Equal(t, photoURL("https://images.mediux.io/assets/e1?key=jpg"), md["thumb"], "the chosen set's episode thumbnail")
+		}
+	}
 }

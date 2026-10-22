@@ -115,6 +115,10 @@ const (
 	FilterCatalogSegmentsPlan    = "clustarr.work.markers.plan.>"
 	FilterCatalogSegmentsAnalyze = "clustarr.work.markers.analyze.>"
 	FilterCatalogArtworkRender   = "clustarr.work.catalog.artwork.render.>"
+	// FilterCatalogImageSet is the image-set lookups the remediation loop's
+	// image-set stage queues (spec 2026-10-22). It lies inside
+	// FilterWorkCatalog, so the stream is unchanged.
+	FilterCatalogImageSet = "clustarr.work.catalog.imageset.>"
 	// FilterImportRecycle is the recycle-bin sweep the manager queues
 	// (spec 2026-10-06 §3.5.3). It lies inside FilterWorkImport, so the
 	// stream is unchanged.
@@ -139,6 +143,7 @@ const (
 	ConsumerCatalogArtworkFetch  = "catalog-artwork-fetch"
 	ConsumerCatalogArtworkRender = "catalog-artwork-render"
 	ConsumerCatalogMarkers       = "catalog-markers"
+	ConsumerCatalogImageSet      = "catalog-imageset"
 	// ConsumerCatalogSegmentsPlan is catalog's; ConsumerMarkersAnalyze
 	// is markers-worker's.
 	ConsumerCatalogSegmentsPlan = "catalog-segments-plan"
@@ -559,6 +564,18 @@ func WorkArtworkFetchSubject(mediaKey string) string {
 // renderer role's ConsumerCatalogArtworkRender (spec §C.6).
 func WorkArtworkRenderSubject(mediaKey string) string {
 	return "clustarr.work.catalog.artwork.render." + tok(mediaKey)
+}
+
+// WorkImageSetSubject builds clustarr.work.catalog.imageset.normal.<mediaKey>:
+// choose one Movie's or Series' image set (schema.ImageSetTask), consumed
+// by the metadata agent's ConsumerCatalogImageSet.
+func WorkImageSetSubject(mediaKey string) string {
+	return "clustarr.work.catalog.imageset.normal." + tok(mediaKey)
+}
+
+// MsgIDForImageSet is an image-set task's Msg-Id, "imageset/<item UID>/<seq>".
+func MsgIDForImageSet(itemUID string, seq int64) string {
+	return "imageset/" + itemUID + "/" + strconv.FormatInt(seq, 10)
 }
 
 // ArtworkKey builds the object name for one artwork object in

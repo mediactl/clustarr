@@ -64,6 +64,15 @@ const DefaultBaseURL = "https://images.mediux.io"
 // ErrNoToken is New without a token.
 var ErrNoToken = errors.New("mediux: a token is required")
 
+// DefaultRate and DefaultBurst are the limit a caller should give this
+// client with no spec.rateLimit: MediUX publishes none, so half a request a
+// second (30 a minute) with a burst of five is the conservative choice, and
+// the cache in front of it asks for an item once a week at most.
+const (
+	DefaultRate  rate.Limit = 0.5
+	DefaultBurst int        = 5
+)
+
 // Quality is which rendering of an image a set's URLs name.
 type Quality string
 
@@ -147,6 +156,22 @@ func (f *File) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+// MarshalJSON writes the wire shape UnmarshalJSON reads, so a File cached
+// as JSON comes back whole (the language as {display_name}).
+func (f File) MarshalJSON() ([]byte, error) {
+	return json.Marshal(f.raw())
+}
+
+func (f File) raw() rawFile {
+	r := rawFile{ID: f.ID, ModifiedOn: f.ModifiedOn, Src: f.Src}
+	if f.Language != "" {
+		r.Language = &struct {
+			DisplayName string `json:"display_name"`
+		}{DisplayName: f.Language}
+	}
+	return r
+}
+
 // Creator is a set's maker.
 type Creator struct {
 	Username string `json:"username"`
@@ -163,8 +188,10 @@ type ShowSet struct {
 	PopularityGlobal *int      `json:"popularity_global"`
 	Poster           []File    `json:"show_poster"`
 	Backdrop         []File    `json:"show_backdrop"`
-	SeasonPosters    []SeasonPoster
-	Titlecards       []Titlecard
+	// SeasonPosters and Titlecards are read and written by the set's own
+	// (Un)MarshalJSON, in the wire's nested shape.
+	SeasonPosters []SeasonPoster `json:"-"`
+	Titlecards    []Titlecard    `json:"-"`
 }
 
 // SeasonPoster is a season's poster in a set.
@@ -231,6 +258,45 @@ func (s *ShowSet) UnmarshalJSON(b []byte) error {
 		s.Titlecards = append(s.Titlecards, Titlecard{File: t.file(), Season: t.Episode.Season.Number, Episode: t.Episode.Number})
 	}
 	return nil
+}
+
+// MarshalJSON writes the wire shape UnmarshalJSON reads -- season posters
+// under season_posters with their season, titlecards under titlecards with
+// their episode and season -- so a set cached as JSON (mediuxcache) comes
+// back with its seasons and episodes, which the choice's completeness
+// terms score. Before this, a cached set round-tripped as poster-only and
+// the second choice for a series was never the first's (2026-10-22).
+func (s ShowSet) MarshalJSON() ([]byte, error) {
+	type alias ShowSet
+	type seasonRef struct {
+		Number int32 `json:"season_number"`
+	}
+	type poster struct {
+		rawFile
+		Season seasonRef `json:"season"`
+	}
+	type card struct {
+		rawFile
+		Episode struct {
+			Number int32     `json:"episode_number"`
+			Season seasonRef `json:"season_id"`
+		} `json:"episode"`
+	}
+	out := struct {
+		alias
+		SeasonPosters []poster `json:"season_posters"`
+		Titlecards    []card   `json:"titlecards"`
+	}{alias: alias(s)}
+	out.alias.SeasonPosters, out.alias.Titlecards = nil, nil
+	for _, p := range s.SeasonPosters {
+		out.SeasonPosters = append(out.SeasonPosters, poster{rawFile: p.File.raw(), Season: seasonRef{Number: p.Season}})
+	}
+	for _, t := range s.Titlecards {
+		c := card{rawFile: t.File.raw()}
+		c.Episode.Number, c.Episode.Season = t.Episode, seasonRef{Number: t.Season}
+		out.Titlecards = append(out.Titlecards, c)
+	}
+	return json.Marshal(out)
 }
 
 // Show is a show as MediUX records it, with its sets.
@@ -656,3 +722,80 @@ func compare(a, b [6]int) int {
 	}
 	return 0
 }
+
+// ChooseMovie ranks a film's sets as Choose ranks a show's, without the
+// completeness terms: a preferred creator's first, then a poster in a
+// preferred language, then popularity, then the most recently updated.
+// Nil when nothing qualifies.
+func ChooseMovie(sets []MovieSet, p Policy) *MovieChoice {
+	var best *MovieSet
+	var bestScore [6]int
+	var bestReason string
+	for i := range sets {
+		s := &sets[i]
+		if len(s.Poster) == 0 {
+			continue
+		}
+		score, reason := p.scoreMovie(s)
+		if best == nil || compare(score, bestScore) > 0 {
+			best, bestScore, bestReason = s, score, reason
+		}
+	}
+	if best == nil {
+		return nil
+	}
+	return &MovieChoice{Set: best, Reason: bestReason}
+}
+
+// MovieChoice is ChooseMovie's answer.
+type MovieChoice struct {
+	Set    *MovieSet
+	Reason string
+}
+
+func (p Policy) scoreMovie(s *MovieSet) ([6]int, string) {
+	var sc [6]int
+	var why []string
+	if i := slices.IndexFunc(p.PreferredCreators, func(u string) bool { return strings.EqualFold(u, s.Creator.Username) }); i >= 0 {
+		sc[0] = len(p.PreferredCreators) - i
+		why = append(why, "preferred creator "+s.Creator.Username)
+	}
+	if len(p.Languages) > 0 && len(s.Poster) > 0 && slices.ContainsFunc(p.Languages, func(l string) bool { return strings.EqualFold(l, s.Poster[0].Language) }) {
+		sc[1] = 1
+		why = append(why, "poster in "+s.Poster[0].Language)
+	}
+	if s.Popularity != nil {
+		sc[4] = *s.Popularity
+	}
+	sc[5] = int(s.Updated.Unix() / 60)
+	why = append(why, fmt.Sprintf("popularity %d", sc[4]))
+	return sc, strings.Join(why, "; ")
+}
+
+// SetURL is a set's page on mediux.pro.
+func SetURL(id string) string { return "https://mediux.pro/sets/" + id }
+
+// Ping proves the token is accepted: the smallest query the API answers
+// only to a bearer it knows.
+func (c *Client) Ping(ctx context.Context) error {
+	ctx, span := tracing.Start(ctx, "metadata.mediux.Ping")
+	defer span.End()
+	var out struct {
+		IDs []struct {
+			ID string `json:"id"`
+		} `json:"content_ids"`
+	}
+	if err := c.query(ctx, queryPing, nil, &out); err != nil {
+		tracing.RecordError(span, err)
+		return err
+	}
+	return nil
+}
+
+// Capabilities implements metadata.Provider: the client looks items up by
+// TMDB id (and a show by its TheTVDB id) and supplies artwork.
+func (c *Client) Capabilities() metadata.Capabilities {
+	return metadata.Capabilities{LookupBy: []string{metadata.KeyTMDB, metadata.KeyTVDB}, Artwork: true}
+}
+
+const queryPing = `{ content_ids(limit: 1) { id } }`

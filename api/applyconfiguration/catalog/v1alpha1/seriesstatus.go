@@ -94,6 +94,11 @@ type SeriesStatusApplyConfiguration struct {
 	// Overlay is the rating-badge overlay rendered onto the poster. Written
 	// by the renderer under k8s.ManagerCatalogArtwork.
 	Overlay *OverlayEntryApplyConfiguration `json:"overlay,omitempty"`
+	// ImageSet is the image set the mediux MetadataProvider chose for the
+	// series: its poster and background, season posters and episode
+	// thumbnails, below spec.artwork and spec.seasonArtwork. Written by the
+	// remediation loop's image-set stage under catalog-imageset.
+	ImageSet *ImageSetStatusApplyConfiguration `json:"imageSet,omitempty"`
 }
 
 // SeriesStatusApplyConfiguration constructs a declarative configuration of the SeriesStatus type for use with
@@ -300,5 +305,13 @@ func (b *SeriesStatusApplyConfiguration) WithArtwork(values ...*ArtworkEntryAppl
 // If called multiple times, the Overlay field is set to the value of the last call.
 func (b *SeriesStatusApplyConfiguration) WithOverlay(value *OverlayEntryApplyConfiguration) *SeriesStatusApplyConfiguration {
 	b.Overlay = value
+	return b
+}
+
+// WithImageSet sets the ImageSet field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the ImageSet field is set to the value of the last call.
+func (b *SeriesStatusApplyConfiguration) WithImageSet(value *ImageSetStatusApplyConfiguration) *SeriesStatusApplyConfiguration {
+	b.ImageSet = value
 	return b
 }

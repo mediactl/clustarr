@@ -102,6 +102,40 @@ spec:
                 description: Language is the BCP-47 language metadata is requested
                   in.
                 type: string
+              mediux:
+                description: |-
+                  Mediux is a mediux provider's set-choosing policy; ignored by every
+                  other type.
+                properties:
+                  languages:
+                    description: |-
+                      Languages are the image languages to prefer, as MediUX names them
+                      ("English"), in order; unset prefers the provider's language. A set
+                      whose poster is in one outranks a set whose is not.
+                    items:
+                      type: string
+                    maxItems: 16
+                    type: array
+                  preferredCreators:
+                    description: PreferredCreators are MediUX usernames whose sets
+                      win, in order.
+                    items:
+                      type: string
+                    maxItems: 32
+                    type: array
+                  quality:
+                    description: Quality is the rendering the set's URLs name; optimized
+                      when unset.
+                    enum:
+                    - optimized
+                    - original
+                    type: string
+                  refresh:
+                    description: |-
+                      Refresh is how often an item's choice is reconsidered; 7 days when
+                      unset.
+                    type: string
+                type: object
               priority:
                 default: 50
                 description: Priority orders providers that can answer the same question;
@@ -179,6 +213,7 @@ spec:
                 - omdb
                 - theintrodb
                 - plex
+                - mediux
                 type: string
                 x-kubernetes-validations:
                 - message: type is immutable

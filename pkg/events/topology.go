@@ -990,6 +990,19 @@ func defaultConsumers() []ConsumerSpec {
 			Dispatched:      true,
 		},
 		{
+			// The metadata agent's image-set worker (spec 2026-10-22): one
+			// item's MediUX lookup, a few paced requests at most, and most
+			// answered from the clustarr-mediux cache.
+			Name: ConsumerCatalogImageSet, Stream: StreamWorkCatalog,
+			Filters: []string{FilterCatalogImageSet},
+			AckWait: 120 * s, MaxDeliver: 8,
+			BackOff:         []time.Duration{30 * s, 2 * m, 10 * m, 1 * h, 6 * h},
+			MaxAckPending:   8,
+			Slots:           8,
+			SampleFrequency: SampleFrequencyDispatched,
+			Dispatched:      true,
+		},
+		{
 			// The renderer role's durable (spec §C.6), same tuning again:
 			// it is not leader-elected and scales by consumer, so the
 			// headroom that matters is per-task retry budget, not

@@ -233,6 +233,87 @@ type SeasonArtworkOverride struct {
 	URL string `json:"url"`
 }
 
+// ImageSetMode is whether an item takes an image set the mediux
+// MetadataProvider chooses for it
+// (docs/superpowers/specs/2026-10-22-mediux-image-sets-automation-design.md).
+//
+// +kubebuilder:validation:Enum=auto;none
+type ImageSetMode string
+
+// Image set modes.
+const (
+	// ImageSetAuto (the default when unset) applies the best set MediUX
+	// has for the item, chosen by the provider's policy, into
+	// status.imageSet.
+	ImageSetAuto ImageSetMode = "auto"
+	// ImageSetNone opts the item out: no set is looked up, and a stored
+	// status.imageSet is cleared.
+	ImageSetNone ImageSetMode = "none"
+)
+
+// ImageSetStatus is the image set the mediux MetadataProvider chose for a
+// Movie or Series, written by the remediation loop's image-set stage under
+// catalog-imageset, never the owner's spec: spec.artwork and
+// spec.seasonArtwork stay the owner's and win over it.
+type ImageSetStatus struct {
+	// Provider is the MetadataProvider type the set came from (mediux).
+	// +optional
+	Provider string `json:"provider,omitempty"`
+
+	// SetID is the set's id at the provider.
+	// +optional
+	// +kubebuilder:validation:MaxLength=64
+	SetID string `json:"setID,omitempty"`
+
+	// Title is the set's title.
+	// +optional
+	// +kubebuilder:validation:MaxLength=256
+	Title string `json:"title,omitempty"`
+
+	// Creator is the set's creator's username.
+	// +optional
+	// +kubebuilder:validation:MaxLength=128
+	Creator string `json:"creator,omitempty"`
+
+	// URL is the set's page at the provider.
+	// +optional
+	// +kubebuilder:validation:MaxLength=2048
+	URL string `json:"url,omitempty"`
+
+	// UpdatedAt is when the creator last updated the set.
+	// +optional
+	UpdatedAt *metav1.Time `json:"updatedAt,omitempty"`
+
+	// CheckedAt is when the provider was last asked for the item; the
+	// provider's refresh runs from it.
+	// +required
+	CheckedAt metav1.Time `json:"checkedAt"`
+
+	// NotFound is true when the provider has no set for the item.
+	// +optional
+	NotFound bool `json:"notFound,omitempty"`
+
+	// Message is why the last check failed, when it did; the images of the
+	// check before stand.
+	// +optional
+	// +kubebuilder:validation:MaxLength=512
+	Message string `json:"message,omitempty"`
+
+	// Artwork is the item's poster and background from the set, as
+	// spec.artwork would name them.
+	// +optional
+	// +kubebuilder:validation:MaxItems=9
+	// +listType=map
+	// +listMapKey=type
+	Artwork []ArtworkOverride `json:"artwork,omitempty"`
+
+	// SeasonArtwork is a series' season posters and episode thumbnails from
+	// the set, as spec.seasonArtwork would name them.
+	// +optional
+	// +kubebuilder:validation:MaxItems=1000
+	SeasonArtwork []SeasonArtworkOverride `json:"seasonArtwork,omitempty"`
+}
+
 // SeasonTitle is a season's own name, when the provider has one: TheTVDB's
 // season name ("Book 1: Water", "Steel Ball Run"), in the titles' language
 // where it has that translation, else in the original language.

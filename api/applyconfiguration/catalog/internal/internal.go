@@ -2221,6 +2221,54 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: url
       type:
         scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.ImageQuality
+  scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.ImageSetMode
+  scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.ImageSetStatus
+  map:
+    fields:
+    - name: artwork
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ArtworkOverride
+          elementRelationship: associative
+          keys:
+          - type
+    - name: checkedAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: creator
+      type:
+        scalar: string
+    - name: message
+      type:
+        scalar: string
+    - name: notFound
+      type:
+        scalar: boolean
+    - name: provider
+      type:
+        scalar: string
+    - name: seasonArtwork
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.SeasonArtworkOverride
+          elementRelationship: atomic
+    - name: setID
+      type:
+        scalar: string
+    - name: title
+      type:
+        scalar: string
+    - name: updatedAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: url
+      type:
+        scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.ImageType
   scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.ImportExclusion
@@ -2924,6 +2972,27 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: number
       type:
         scalar: numeric
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.MediuxSpec
+  map:
+    fields:
+    - name: languages
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: atomic
+    - name: preferredCreators
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: atomic
+    - name: quality
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ImageQuality
+    - name: refresh
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Duration
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.MetadataProvider
   map:
     fields:
@@ -2980,6 +3049,9 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         scalar: string
       default: en
+    - name: mediux
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.MediuxSpec
     - name: priority
       type:
         scalar: numeric
@@ -3261,6 +3333,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: folder
       type:
         scalar: string
+    - name: imageSet
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ImageSetMode
     - name: minimumAvailability
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.MinimumAvailability
@@ -3364,6 +3439,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: hasFile
       type:
         scalar: boolean
+    - name: imageSet
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ImageSetStatus
     - name: lastSearchedAt
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
@@ -4688,6 +4766,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: folder
       type:
         scalar: string
+    - name: imageSet
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ImageSetMode
     - name: monitorNewItems
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.MonitorNewChildrenMode
@@ -4788,6 +4869,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: episodeFileCount
       type:
         scalar: numeric
+    - name: imageSet
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ImageSetStatus
     - name: lastSearchedAt
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time

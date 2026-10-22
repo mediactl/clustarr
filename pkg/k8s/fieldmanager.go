@@ -154,6 +154,12 @@ const (
 	// clustarr-ui), so the patch reads in managedFields as the classifier's.
 	ManagerCatalogClassify FieldManager = "catalog-classify"
 
+	// ManagerCatalogImageSet is the remediation loop's image-set stage: it
+	// owns exactly status.imageSet on a Movie or Series -- the set the
+	// mediux MetadataProvider chose -- and nothing else, so a release of it
+	// (spec.imageSet: none) touches no other manager's field.
+	ManagerCatalogImageSet FieldManager = "catalog-imageset"
+
 	// ManagerImport is the import controller manager. It owns ImportList,
 	// ImportExclusion and LibraryScan status.
 	ManagerImport FieldManager = "import"

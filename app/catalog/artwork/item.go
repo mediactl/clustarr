@@ -36,7 +36,7 @@ var ErrNoArtwork = errors.New("artwork: kind has no artwork")
 // of the eight kinds.
 type Item struct {
 	Kind      commonv1.MediaKind
-	Overrides []catalogv1alpha1.ArtworkOverride // spec.artwork
+	Overrides []catalogv1alpha1.ArtworkOverride // spec.artwork, over status.imageSet's (WithImageSet)
 	Images    []catalogv1alpha1.Image           // status.metadata.images, nil before the first metadata fetch
 	Entries   []catalogv1alpha1.ArtworkEntry    // status.artwork
 
@@ -55,13 +55,13 @@ type Item struct {
 func ItemOf(obj client.Object) (Item, error) {
 	switch o := obj.(type) {
 	case *catalogv1alpha1.Movie:
-		it := Item{Kind: commonv1.MediaKindMovie, Overrides: o.Spec.Artwork, Entries: o.Status.Artwork, HasOverlay: o.Status.Overlay != nil}
+		it := Item{Kind: commonv1.MediaKindMovie, Overrides: WithImageSet(o.Spec.Artwork, o.Status.ImageSet), Entries: o.Status.Artwork, HasOverlay: o.Status.Overlay != nil}
 		if o.Status.Metadata != nil {
 			it.Images, it.Ratings = o.Status.Metadata.Images, o.Status.Metadata.Ratings
 		}
 		return it, nil
 	case *catalogv1alpha1.Series:
-		it := Item{Kind: commonv1.MediaKindSeries, Overrides: o.Spec.Artwork, Entries: o.Status.Artwork, HasOverlay: o.Status.Overlay != nil}
+		it := Item{Kind: commonv1.MediaKindSeries, Overrides: WithImageSet(o.Spec.Artwork, o.Status.ImageSet), Entries: o.Status.Artwork, HasOverlay: o.Status.Overlay != nil}
 		if o.Status.Metadata != nil {
 			it.Images, it.Ratings = o.Status.Metadata.Images, o.Status.Metadata.Ratings
 		}
@@ -180,4 +180,18 @@ func gvkFor(kind commonv1.MediaKind) (schema.GroupVersionKind, bool) {
 	default:
 		return schema.GroupVersionKind{}, false
 	}
+}
+
+// WithImageSet is spec.artwork over the chosen image set's own images
+// (spec 2026-10-22): the set's poster and background count as custom
+// sources below the owner's, so ResolveSources -- in which a later entry
+// of a type wins -- sees the set's first and the owner's last. A nil set
+// is the spec alone.
+func WithImageSet(spec []catalogv1alpha1.ArtworkOverride, set *catalogv1alpha1.ImageSetStatus) []catalogv1alpha1.ArtworkOverride {
+	if set == nil || len(set.Artwork) == 0 {
+		return spec
+	}
+	out := make([]catalogv1alpha1.ArtworkOverride, 0, len(set.Artwork)+len(spec))
+	out = append(out, set.Artwork...)
+	return append(out, spec...)
 }

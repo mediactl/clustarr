@@ -90,8 +90,12 @@ func harness(t *testing.T) (*mediuxcache.Cache, *fake, *clockwork.FakeClock) {
 	ctx := context.Background()
 	require.NoError(t, bus.Ensure(ctx, events.Default().ForSingleNode()))
 	f := &fake{
-		calls:   map[string]int{},
-		shows:   map[string]*mediux.Show{"105248": {ID: "105248", Title: "Cyberpunk: Edgerunners", Sets: []mediux.ShowSet{{ID: "41471"}}}},
+		calls: map[string]int{},
+		shows: map[string]*mediux.Show{"105248": {ID: "105248", Title: "Cyberpunk: Edgerunners", Sets: []mediux.ShowSet{{
+			ID: "41471", Poster: []mediux.File{{ID: "p", Language: "English"}},
+			SeasonPosters: []mediux.SeasonPoster{{File: mediux.File{ID: "s1"}, Season: 1}},
+			Titlecards:    []mediux.Titlecard{{File: mediux.File{ID: "e1"}, Season: 1, Episode: 1}},
+		}}}},
 		tvdb:    map[string]string{"384541": "105248"},
 		content: &mediux.ContentIDs{Shows: map[string]bool{"105248": true}, Movies: map[string]bool{"328387": true}},
 	}
@@ -105,6 +109,9 @@ func TestAShowsSetsAreAskedOnceAWeek(t *testing.T) {
 	show, err := c.ShowSets(ctx, "105248")
 	require.NoError(t, err)
 	require.Equal(t, "41471", show.Sets[0].ID)
+	require.Equal(t, "English", show.Sets[0].Poster[0].Language, "a cached set keeps its language")
+	require.Len(t, show.Sets[0].SeasonPosters, 1, "and its season posters")
+	require.Len(t, show.Sets[0].Titlecards, 1, "and its titlecards")
 	for range 5 {
 		_, err = c.ShowSets(ctx, "105248")
 		require.NoError(t, err)

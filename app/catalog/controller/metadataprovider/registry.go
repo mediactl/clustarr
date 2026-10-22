@@ -37,6 +37,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/metadata/clients/kitsu"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/mangadex"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/mdblist"
+	"github.com/mediactl/clustarr/pkg/metadata/clients/mediux"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/metron"
 	plexclient "github.com/mediactl/clustarr/pkg/metadata/clients/plex"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/theintrodb"
@@ -144,6 +145,15 @@ func buildSupplementary(spec catalogv1alpha1.MetadataProviderSpec, secret map[st
 			return nil, fmt.Errorf("plex requires secretRef key %s: %w", catalogv1alpha1.MetadataSecretKeyToken, err)
 		}
 		return &supplementary{resolver: c, plex: c, ping: c.Ping}, nil
+	case catalogv1alpha1.MetadataProviderMediux:
+		c, err := mediux.New(mediux.Config{
+			HTTPClient: httpClient, BaseURL: baseURL(spec), Limiter: limiterFor(spec, mediux.DefaultRate, mediux.DefaultBurst), UserAgent: ua,
+			Token: string(secret[catalogv1alpha1.MetadataSecretKeyToken]),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("mediux requires secretRef key %s: %w", catalogv1alpha1.MetadataSecretKeyToken, err)
+		}
+		return &supplementary{ping: c.Ping}, nil
 	case catalogv1alpha1.MetadataProviderOMDb:
 		// Ruling R5 (spec §C.3): the CRD enum member and secretRef shape
 		// exist, but no client is written against no recorded response

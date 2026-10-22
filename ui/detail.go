@@ -61,6 +61,7 @@ func (s *Server) itemDetail(ctx context.Context, item projection.LibraryItem) vi
 		if s.getObject(ctx, item.Ref, &m) {
 			d.MinimumAvailability = string(m.Spec.MinimumAvailability)
 			fillMovie(&d, &m)
+			d.ImageSet = imageSetNote(m.Spec.Artwork, nil, m.Status.ImageSet)
 			d.Audio = audioNote(m.Status.Audio)
 			if ref := m.Status.FileRef; ref != nil && *ref != "" {
 				var f catalogv1.MediaFile
@@ -75,6 +76,7 @@ func (s *Server) itemDetail(ctx context.Context, item projection.LibraryItem) vi
 		if s.getObject(ctx, item.Ref, &sr) {
 			d.SeriesType = string(sr.Spec.SeriesType)
 			fillSeries(&d, &sr)
+			d.ImageSet = imageSetNote(sr.Spec.Artwork, sr.Spec.SeasonArtwork, sr.Status.ImageSet)
 		}
 	case commonv1.MediaKindArtist:
 		var a catalogv1.Artist
@@ -160,6 +162,26 @@ func fillSeries(d *views.Detail, sr *catalogv1.Series) {
 	if id := md.ExternalIDs[commonv1.IDKeyIMDB]; id != "" {
 		d.Links = append(d.Links, views.Link{Label: "IMDb", Href: "https://www.imdb.com/title/" + id + "/"})
 	}
+}
+
+// imageSetNote is the Images fact: the owner's pasted set when spec names
+// any override (it wins wherever both are read), else the set the mediux
+// provider chose, else none.
+func imageSetNote(artwork []catalogv1.ArtworkOverride, seasons []catalogv1.SeasonArtworkOverride, set *catalogv1.ImageSetStatus) *views.ImageSetNote {
+	if len(artwork) > 0 || len(seasons) > 0 {
+		return &views.ImageSetNote{Label: "pasted set", Pasted: true}
+	}
+	if set == nil || set.NotFound || set.SetID == "" {
+		return nil
+	}
+	label := "MediUX set"
+	if set.Title != "" {
+		label += " " + set.Title
+	}
+	if set.Creator != "" {
+		label += " by " + set.Creator
+	}
+	return &views.ImageSetNote{Label: label, Href: set.URL}
 }
 
 // backdropArt is a detail page's Backdrop: the [projection.ArtURL] of the

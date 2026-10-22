@@ -49,8 +49,10 @@ const (
 
 // searchArtHosts are the only hosts /art/search fetches from: the image
 // hosts of the providers Add New searches -- TMDB, TVDB, MusicBrainz's
-// Cover Art Archive and Open Library -- and the two image-set hosts a
-// Series' spec.seasonArtwork names, MediUX and ThePosterDB
+// Cover Art Archive and Open Library -- and the image-set hosts a Series'
+// spec.seasonArtwork or status.imageSet names: MediUX's two asset hosts
+// (api.mediux.pro, which the YAML export links; images.mediux.io, which
+// the mediux provider's chosen sets link, spec 2026-10-22) and ThePosterDB
 // (docs/superpowers/specs/2026-10-21-image-sets-design.md).
 var searchArtHosts = map[string]bool{
 	"image.tmdb.org":         true,
@@ -58,6 +60,7 @@ var searchArtHosts = map[string]bool{
 	"coverartarchive.org":    true,
 	"covers.openlibrary.org": true,
 	"api.mediux.pro":         true,
+	"images.mediux.io":       true,
 	"theposterdb.com":        true,
 }
 

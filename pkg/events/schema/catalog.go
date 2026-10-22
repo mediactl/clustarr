@@ -444,3 +444,78 @@ type PlexExtrasResponse struct {
 
 // Schema implements Payload.
 func (PlexExtrasResponse) Schema() string { return "catalog.PlexExtrasResponse.v1" }
+
+// ImageSetTask asks the metadata domain's image-set worker for one Movie's
+// or Series' set (docs/superpowers/specs/2026-10-22-mediux-image-sets-automation-design.md).
+// The remediation loop's image-set stage builds Inputs from its cache, so
+// the worker reads no Kubernetes object, and the worker answers into the
+// item's clustarr-image-sets record. Subject:
+// clustarr.work.catalog.imageset.normal.<mediaKey>; Msg-Id
+// events.MsgIDForImageSet(Item.UID, Seq).
+type ImageSetTask struct {
+	Item   ItemRef        `json:"item"`
+	Seq    int64          `json:"seq"`
+	Inputs ImageSetInputs `json:"inputs"`
+}
+
+// Schema implements Payload.
+func (ImageSetTask) Schema() string { return "catalog.ImageSetTask.v1" }
+
+// ImageSetInputs fence an image-set record: the item's ids its answer is
+// for, and what the series has, so the worker can judge a set's
+// completeness.
+type ImageSetInputs struct {
+	// Kind is the item's media kind: movie or series.
+	Kind string `json:"kind"`
+	// TMDBID is the item's TMDB id, when the catalog knows it; TVDBID a
+	// series' TheTVDB id, which the worker maps when TMDBID is empty.
+	TMDBID string `json:"tmdbID,omitempty"`
+	TVDBID string `json:"tvdbID,omitempty"`
+	// Seasons are a series' season numbers, specials left out, and
+	// Episodes how many episodes each has, keyed by the season number as
+	// text.
+	Seasons  []int32          `json:"seasons,omitempty"`
+	Episodes map[string]int32 `json:"episodes,omitempty"`
+}
+
+// SameItem reports whether o names the same item: the ids an answer is
+// for, as against what the series had, which changes with every aired
+// episode and is reconsidered at the refresh.
+func (in ImageSetInputs) SameItem(o ImageSetInputs) bool {
+	return in.Kind == o.Kind && in.TMDBID == o.TMDBID && in.TVDBID == o.TVDBID
+}
+
+// ImageSetImage is one image of a chosen set: the item's own when Season
+// and Episode are 0, a season's when Episode is 0, else an episode's.
+type ImageSetImage struct {
+	Type    string `json:"type"`
+	Season  int32  `json:"season,omitempty"`
+	Episode int32  `json:"episode,omitempty"`
+	URL     string `json:"url"`
+}
+
+// ImageSetAnswer is the worker's answer: the chosen set, or NotFound.
+type ImageSetAnswer struct {
+	Provider  string          `json:"provider,omitempty"`
+	SetID     string          `json:"setID,omitempty"`
+	Title     string          `json:"title,omitempty"`
+	Creator   string          `json:"creator,omitempty"`
+	URL       string          `json:"url,omitempty"`
+	UpdatedAt *time.Time      `json:"updatedAt,omitempty"`
+	Reason    string          `json:"reason,omitempty"`
+	NotFound  bool            `json:"notFound,omitempty"`
+	Images    []ImageSetImage `json:"images,omitempty"`
+	CheckedAt time.Time       `json:"checkedAt"`
+}
+
+// ImageSetRecord is one item's record in clustarr-image-sets, keyed
+// events.RecordKey(item UID): the loop's request (Inputs) and the worker's
+// Answer.
+type ImageSetRecord struct {
+	RecordHeader
+	Inputs ImageSetInputs  `json:"inputs"`
+	Answer *ImageSetAnswer `json:"answer,omitempty"`
+}
+
+// Schema implements Payload and is RecordHeader.Schema on every value.
+func (ImageSetRecord) Schema() string { return "catalog.ImageSets.v1" }

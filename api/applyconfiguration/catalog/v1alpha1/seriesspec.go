@@ -74,6 +74,11 @@ type SeriesSpecApplyConfiguration struct {
 	// number in the series' own episode order, with an episode number for
 	// an episode's thumbnail.
 	SeasonArtwork []SeasonArtworkOverrideApplyConfiguration `json:"seasonArtwork,omitempty"`
+	// ImageSet is whether the mediux MetadataProvider chooses an image set
+	// for the series (auto, the default) or not (none, which clears
+	// status.imageSet). A pasted set in spec.artwork and spec.seasonArtwork
+	// wins over the chosen one either way.
+	ImageSet *catalogv1alpha1.ImageSetMode `json:"imageSet,omitempty"`
 }
 
 // SeriesSpecApplyConfiguration constructs a declarative configuration of the SeriesSpec type for use with
@@ -240,5 +245,13 @@ func (b *SeriesSpecApplyConfiguration) WithSeasonArtwork(values ...*SeasonArtwor
 		}
 		b.SeasonArtwork = append(b.SeasonArtwork, *values[i])
 	}
+	return b
+}
+
+// WithImageSet sets the ImageSet field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the ImageSet field is set to the value of the last call.
+func (b *SeriesSpecApplyConfiguration) WithImageSet(value catalogv1alpha1.ImageSetMode) *SeriesSpecApplyConfiguration {
+	b.ImageSet = &value
 	return b
 }

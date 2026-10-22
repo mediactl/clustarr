@@ -631,6 +631,33 @@ the season and episode overrides through the signed `/art/search` proxy,
 whose allowlist gained `api.mediux.pro` and `theposterdb.com`; an override
 on another host is not shown. PMS shows them at its next refresh of the
 show.
+Sets are also chosen automatically (2026-10-22,
+`docs/superpowers/specs/2026-10-22-mediux-image-sets-automation-design.md`;
+owner: automatic for every item, opt-out per item): a `mediux`
+MetadataProvider (secretRef key `token`, a MediUX bearer token; `spec.mediux`
+`preferredCreators`, `languages`, `quality`, `refresh`) makes the remediation
+loop's image-set stage (`app/remediation/imageset`, after metadata, before
+artwork) ask the metadata agent's `catalog-imageset` worker for every Movie
+and Series with a TMDB id (a series' TheTVDB id is mapped) whose
+`spec.imageSet` is not `none`, through a `clustarr-image-sets` record and
+the dispatch ledger; the agent (`app/catalog/worker/imagesets`) reads MediUX
+through `pkg/metadata/mediuxsets` over the `clustarr-mediux` cache
+(`pkg/metadata/mediuxcache`: id mappings for good, set lists a week, "no
+sets" a day, the daily `content_ids` list first, so an item MediUX has
+nothing for costs no request) and `mediux.Choose` ranks the sets (preferred
+creator, poster language, season posters and titlecards covered,
+popularity, recency); the stage writes the choice into `status.imageSet`
+under `catalog-imageset` (its one field), reconsidered every `refresh`
+(7 days; an hour after a failure), never the spec. Every reader takes the
+owner's `spec.artwork`/`spec.seasonArtwork` over it: the Plex provider's
+`seasonOverride`, the artwork fetch (`catalogartwork.WithImageSet`, so the
+set's poster and background are stored as custom originals) and the item
+page's "Images" fact (pasted set, else "MediUX set <title> by <creator>"
+linked). A set cached as JSON must round-trip: `ShowSet` and `File` have
+`MarshalJSON` writing the wire's nested shape their decoders read, without
+which every cached set came back poster-only and the second choice was never
+the first's. The proxy allowlist has `images.mediux.io` too, the host the
+chosen sets link (`api.mediux.pro` refuses `key=jpg`).
 A season named by TheTVDB ("Book 1: Water", "Steel Ball Run";
 2026-10-21) is titled by that name in Plex instead of "Season N", and on
 the series page beside its label: `/series/{id}/extended` carries each

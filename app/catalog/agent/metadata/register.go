@@ -40,6 +40,7 @@ import (
 	catalogagent "github.com/mediactl/clustarr/app/catalog/agent"
 	catalogmetadata "github.com/mediactl/clustarr/app/catalog/metadata"
 	"github.com/mediactl/clustarr/app/catalog/metadata/artwork"
+	imagesetworker "github.com/mediactl/clustarr/app/catalog/worker/imagesets"
 	markerworker "github.com/mediactl/clustarr/app/catalog/worker/markers"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -112,6 +113,11 @@ func Register(_ context.Context, mgr ctrl.Manager, bus events.Bus, o Options) (c
 				// remediation loop incorporates (loop spec §4.12).
 				Markers: func(ctx context.Context, providers []pkgmetadata.MarkersProvider) (func(), error) {
 					return markerworker.Setup(ctx, markerworker.Options{Bus: bus, Writer: os.Getenv("POD_NAME")}, providers)
+				},
+				// MediUX's handler answers into clustarr-image-sets; the
+				// remediation loop's image-set stage incorporates.
+				ImageSets: func(ctx context.Context, providers []pkgmetadata.ImageSetProvider) (func(), error) {
+					return imagesetworker.Setup(ctx, imagesetworker.Options{Bus: bus, Writer: os.Getenv("POD_NAME")}, providers)
 				},
 			})
 			if err != nil {

@@ -1,6 +1,6 @@
 # MediUX image sets, looked up and cached
 
-Status: proposed, 2026-10-22, from the owner's request ("find a way to
+Status: built, 2026-10-22 (the "As built" section at the end), from the owner's request ("find a way to
 automate the lookup and download of the collection set yaml file based on
 given media; cache everything so we don't hammer the api"). Builds on
 `2026-10-21-image-sets-design.md` (the Image Set dialog, `spec.artwork`,
@@ -208,7 +208,64 @@ item per week, and none for items the daily `content_ids` list excludes.
 3. **Automatic or opt-in per series?** The design applies the best set to
    every item with a TMDB id once a provider is configured; a
    `spec.imageSet: none` opt-out per item, or an allowlist of creators
-   only, are both one field.
+   only, are both one field. **Owner, 2026-10-22: automatic**, with
+   `spec.imageSet: none` as the opt-out.
+
+## As built (2026-10-22)
+
+- **API.** `MetadataProviderType` `mediux` (secretRef key `token`;
+  `spec.mediux{preferredCreators, languages, quality: optimized|original,
+  refresh}`); `Movie.spec.imageSet`/`Series.spec.imageSet` (`auto`, the
+  default when unset, or `none`); `Movie.status.imageSet` and
+  `Series.status.imageSet` (`ImageSetStatus`: provider, setID, title,
+  creator, url, updatedAt, checkedAt, notFound, message, artwork (9),
+  seasonArtwork (1000)), owned by the field manager `catalog-imageset`
+  alone. The seeds do not seed the provider; the provider controller pings
+  with `content_ids(limit: 1)`.
+- **Client.** `pkg/metadata/clients/mediux` as designed, plus `ChooseMovie`,
+  `SetURL` (`https://mediux.pro/sets/<id>`), `Ping`, `Capabilities`,
+  `DefaultRate` 0.5/s burst 5, and `MarshalJSON` on `File` and `ShowSet`
+  writing the wire's nested shape: the cache stores sets as JSON and the
+  decoders read only that shape, so without it a cached set came back with
+  no season posters or titlecards and the completeness terms scored zero
+  (the mediuxsets test caught it: the second choice for Edgerunners was
+  41472, not 41471).
+- **Provider.** `pkg/metadata.ImageSetProvider` (`ImageSetQuery` ->
+  `ImageSet{Images[]{Type, Season, Episode, URL}}`), the registry's
+  `ImageSets` slot; `pkg/metadata/mediuxsets.Source` is MediUX over the
+  cache (`mediuxcache.Cache`, or `Direct` without a bucket), with the
+  provider's creators and languages (`spec.language`'s display name when
+  `languages` is empty) and the query's seasons and episodes. The gateway
+  builds it through `BuildRegistryWith(..., RegistryDeps{MediuxKV})`.
+- **Worker.** `app/catalog/worker/imagesets` on the `catalog-imageset`
+  durable (`CLUSTARR_WORK_CATALOG`, `clustarr.work.catalog.imageset.>`,
+  8 slots, dispatched), answering `clustarr-image-sets`
+  (`pkg/records/agentrecords.ImageSets`, 256 KiB values); NotFound, a
+  failure (failed, transient) and a rate limit (retry, or failed on the last
+  delivery) as the markers worker does; no provider acks unanswered.
+- **Stage.** `app/remediation/imageset` (`StageImageSet`, between metadata
+  and artwork): lists the namespace's `mediux` providers (enabled, Ready;
+  the first's `refresh`), builds `ImageSetInputs` (a movie's TMDB id; a
+  series' TMDB id from `status.metadata.externalIDs`, its TheTVDB id, its
+  seasons and episode counts), and `app/catalog/imagesets.Plan` decides:
+  `none` clears the status; no provider or no id leaves it; an answer for
+  the item's ids newer than `checkedAt` is incorporated (a failure keeps
+  the previous images, message set, retried after an hour); a check older
+  than the refresh asks again, admitted through the dispatch ledger, with a
+  request record and task, republished unclaimed inside the window and
+  asked afresh after the hour's timeout. The record source
+  `S27/clustarr-image-sets` wakes the item.
+- **Readers.** `ui/plex.seasonOverride` reads `spec.seasonArtwork` then
+  `status.imageSet.seasonArtwork`; `app/catalog/artwork.WithImageSet` puts
+  the set's poster and background below `spec.artwork` as custom sources,
+  so the object store holds them and Plex never hotlinks the item's own
+  images; the item page's "Images" fact shows the pasted set, else the
+  chosen one with a link; `/art/search` allows `images.mediux.io`.
+- **Not built:** the pacing cap of 20 first-time lookups per namespace per
+  sweep (the ledger's 8 slots, the agent's 0.5/s limiter and the daily
+  content list bound the burst instead), a 429 pausing the provider's
+  health, collection sets, fetching season and episode images into the
+  store, pinning a set by id from the dialog.
 
 ## Sources
 

@@ -80,6 +80,9 @@ const (
 	BucketItemMetadata = "clustarr-item-metadata"
 	// BucketIndexerHealth: one health record per Indexer UID.
 	BucketIndexerHealth = "clustarr-indexer-health"
+	// BucketImageSets: one image-set record per Movie or Series UID, by
+	// the metadata agent's image-set worker (spec 2026-10-22).
+	BucketImageSets = "clustarr-image-sets"
 )
 
 // Each agent-written records bucket's caps (design §4.3). The reservations
@@ -97,6 +100,10 @@ const (
 	ItemMetadataMaxValueSize  = 512 * KiB
 	IndexerHealthMaxBytes     = 8 * MiB
 	IndexerHealthMaxValueSize = 8 * KiB
+	// A series' record carries up to 1,000 season and episode images at
+	// about 160 bytes each.
+	ImageSetsMaxBytes     = 128 * MiB
+	ImageSetsMaxValueSize = 256 * KiB
 )
 
 // recordBucket is one records bucket's spec: Durable, History 1, file
@@ -118,6 +125,7 @@ func agentRecordBuckets() []BucketSpec {
 		r(BucketSearches, "One search record per search task, written by the search agent.", SearchesMaxBytes, SearchesMaxValueSize),
 		r(BucketItemMetadata, "One metadata record per catalog item, written by the metadata gateway.", ItemMetadataMaxBytes, ItemMetadataMaxValueSize),
 		r(BucketIndexerHealth, "One health record per Indexer, written by the index agent.", IndexerHealthMaxBytes, IndexerHealthMaxValueSize),
+		r(BucketImageSets, "One image-set record per Movie or Series, written by the metadata agent's image-set worker.", ImageSetsMaxBytes, ImageSetsMaxValueSize),
 	}
 }
 

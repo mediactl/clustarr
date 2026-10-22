@@ -26,6 +26,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -235,4 +236,31 @@ func TestA429IsRateLimited(t *testing.T) {
 	var rl *metadata.RateLimitedError
 	require.True(t, errors.As(err, &rl))
 	require.Equal(t, "mediux", rl.Provider)
+}
+
+// A set cached as JSON (mediuxcache) comes back whole: the language, the
+// season posters and the titlecards survive the round trip, which the
+// first cut's decoders -- reading the wire's nested shape from Go's flat
+// encoding -- did not, so every cached set chose as poster-only.
+func TestASetRoundTripsThroughJSON(t *testing.T) {
+	c, _, _ := recorded(t)
+	set, err := c.ShowSet(context.Background(), "41471")
+	require.NoError(t, err)
+	b, err := json.Marshal(set)
+	require.NoError(t, err)
+	var back mediux.ShowSet
+	require.NoError(t, json.Unmarshal(b, &back))
+	require.Equal(t, *set, back)
+	require.Equal(t, "English", back.Poster[0].Language)
+	require.Len(t, back.SeasonPosters, 2)
+	require.Len(t, back.Titlecards, 20)
+	require.True(t, slices.ContainsFunc(back.Titlecards, func(c mediux.Titlecard) bool { return c.Season == 2 && c.Episode == 10 }), "S02E10's titlecard, season and episode intact")
+
+	show, err := c.ShowSets(context.Background(), "105248")
+	require.NoError(t, err)
+	b, err = json.Marshal(show)
+	require.NoError(t, err)
+	var showBack mediux.Show
+	require.NoError(t, json.Unmarshal(b, &showBack))
+	require.Equal(t, *show, showBack)
 }

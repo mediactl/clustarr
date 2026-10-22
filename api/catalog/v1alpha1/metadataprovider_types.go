@@ -35,7 +35,7 @@ const (
 
 // MetadataProviderType is the upstream metadata service a provider talks to.
 //
-// +kubebuilder:validation:Enum=tmdb;tvdb;musicbrainz;coverart;fanart;openlibrary;hardcover;audnexus;comicvine;metron;mangadex;anilist;kitsu;animelists;mdblist;omdb;theintrodb;plex
+// +kubebuilder:validation:Enum=tmdb;tvdb;musicbrainz;coverart;fanart;openlibrary;hardcover;audnexus;comicvine;metron;mangadex;anilist;kitsu;animelists;mdblist;omdb;theintrodb;plex;mediux
 type MetadataProviderType string
 
 // Metadata provider types.
@@ -74,7 +74,54 @@ const (
 	// Takes secretRef key token: a Plex account token (the Plex watchlist
 	// import list's Secret carries one under the same key).
 	MetadataProviderPlex MetadataProviderType = "plex"
+	// MetadataProviderMediux chooses an image set from MediUX for every
+	// Movie and Series with a TMDB id
+	// (docs/superpowers/specs/2026-10-22-mediux-image-sets-automation-design.md):
+	// the set's poster and background, season posters and episode
+	// thumbnails land in the item's status.imageSet, below the owner's
+	// spec.artwork and spec.seasonArtwork. Takes secretRef key token, a
+	// MediUX personal (or the shared testing) bearer token; spec.mediux
+	// is its policy.
+	MetadataProviderMediux MetadataProviderType = "mediux"
 )
+
+// ImageQuality is which rendering of a set's images MediUX is asked for.
+//
+// +kubebuilder:validation:Enum=optimized;original
+type ImageQuality string
+
+// Image qualities.
+const (
+	// ImageQualityOptimized is MediUX's compressed JPEG rendering, what
+	// its own tooling calls optimized.
+	ImageQualityOptimized ImageQuality = "optimized"
+	// ImageQualityOriginal is the file the creator uploaded.
+	ImageQualityOriginal ImageQuality = "original"
+)
+
+// MediuxSpec is a mediux provider's policy for choosing a set.
+type MediuxSpec struct {
+	// PreferredCreators are MediUX usernames whose sets win, in order.
+	// +optional
+	// +kubebuilder:validation:MaxItems=32
+	PreferredCreators []string `json:"preferredCreators,omitempty"`
+
+	// Languages are the image languages to prefer, as MediUX names them
+	// ("English"), in order; unset prefers the provider's language. A set
+	// whose poster is in one outranks a set whose is not.
+	// +optional
+	// +kubebuilder:validation:MaxItems=16
+	Languages []string `json:"languages,omitempty"`
+
+	// Quality is the rendering the set's URLs name; optimized when unset.
+	// +optional
+	Quality ImageQuality `json:"quality,omitempty"`
+
+	// Refresh is how often an item's choice is reconsidered; 7 days when
+	// unset.
+	// +optional
+	Refresh *metav1.Duration `json:"refresh,omitempty"`
+}
 
 // Secret keys recognised in MetadataProviderSpec.SecretRef.
 const (
@@ -87,7 +134,8 @@ const (
 	MetadataSecretKeyAPIKeys = "apiKeys"
 	MetadataSecretKeyPin     = "pin"
 	MetadataSecretKeyBearer  = "bearer"
-	// MetadataSecretKeyToken is a Plex account token, read by plex only.
+	// MetadataSecretKeyToken is a bearer token: a Plex account token for
+	// plex, a MediUX personal token for mediux.
 	MetadataSecretKeyToken = "token"
 )
 
@@ -185,6 +233,11 @@ type MetadataProviderSpec struct {
 	// CacheTTL sets how long each class of answer is cached.
 	// +optional
 	CacheTTL *CacheTTL `json:"cacheTTL,omitempty"`
+
+	// Mediux is a mediux provider's set-choosing policy; ignored by every
+	// other type.
+	// +optional
+	Mediux *MediuxSpec `json:"mediux,omitempty"`
 }
 
 // MetadataProviderStatus describes the observed state of MetadataProvider.

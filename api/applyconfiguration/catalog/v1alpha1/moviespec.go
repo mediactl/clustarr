@@ -66,6 +66,11 @@ type MovieSpecApplyConfiguration struct {
 	Source *commonv1alpha1.AddSource `json:"source,omitempty"`
 	// Artwork overrides the provider's image for a type. One entry per type.
 	Artwork []ArtworkOverrideApplyConfiguration `json:"artwork,omitempty"`
+	// ImageSet is whether the mediux MetadataProvider chooses an image set
+	// for the movie (auto, the default) or not (none, which clears
+	// status.imageSet). A pasted set in spec.artwork wins over the chosen
+	// one either way.
+	ImageSet *catalogv1alpha1.ImageSetMode `json:"imageSet,omitempty"`
 }
 
 // MovieSpecApplyConfiguration constructs a declarative configuration of the MovieSpec type for use with
@@ -206,5 +211,13 @@ func (b *MovieSpecApplyConfiguration) WithArtwork(values ...*ArtworkOverrideAppl
 		}
 		b.Artwork = append(b.Artwork, *values[i])
 	}
+	return b
+}
+
+// WithImageSet sets the ImageSet field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the ImageSet field is set to the value of the last call.
+func (b *MovieSpecApplyConfiguration) WithImageSet(value catalogv1alpha1.ImageSetMode) *MovieSpecApplyConfiguration {
+	b.ImageSet = &value
 	return b
 }

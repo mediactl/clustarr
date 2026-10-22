@@ -65,6 +65,10 @@ type Options struct {
 	// registry's Markers providers: app/catalog/run.go binds
 	// app/catalog/worker/markers.Setup. Nil starts none.
 	Markers func(ctx context.Context, providers []pkgmetadata.MarkersProvider) (stop func(), err error)
+	// ImageSets starts the image-set worker (spec 2026-10-22) over the
+	// registry's ImageSets providers: app/catalog/agent/metadata binds
+	// app/catalog/worker/imagesets.Setup. Nil starts none.
+	ImageSets func(ctx context.Context, providers []pkgmetadata.ImageSetProvider) (stop func(), err error)
 	// Records writes the item-metadata records (ADR-0019 §7.1); required.
 	// The register shares it with the artwork fetcher, one process.
 	Records *records.Writer[*schema.ItemMetadataRecord]
@@ -103,7 +107,7 @@ func Setup(ctx context.Context, o Options) (stop func(), err error) {
 	if err := o.Client.List(ctx, &providers); err != nil {
 		return nil, fmt.Errorf("metadata: list MetadataProviders: %w", err)
 	}
-	reg, err := BuildRegistry(ctx, o.Client, providers.Items, httpClient)
+	reg, err := BuildRegistryWith(ctx, o.Client, providers.Items, httpClient, RegistryDeps{MediuxKV: o.Bus.KV(events.BucketMediux)})
 	if err != nil {
 		return nil, err
 	}
@@ -136,10 +140,20 @@ func Setup(ctx context.Context, o Options) (stop func(), err error) {
 		}
 	}
 
+	stopImageSets := func() {}
+	if o.ImageSets != nil {
+		if stopImageSets, err = o.ImageSets(ctx, reg.ImageSets); err != nil {
+			stopSub()
+			stopMarkers()
+			return nil, fmt.Errorf("metadata: %w", err)
+		}
+	}
+
 	stopRPC, err := ServeRPC(o.Bus, reg)
 	if err != nil {
 		stopSub()
 		stopMarkers()
+		stopImageSets()
 		return nil, err
 	}
 	stopExtras, err := ServeExtras(o.Bus, o.Bus.KV(events.BucketPlexExtras), reg, clock)
@@ -147,9 +161,10 @@ func Setup(ctx context.Context, o Options) (stop func(), err error) {
 		stopRPC()
 		stopSub()
 		stopMarkers()
+		stopImageSets()
 		return nil, err
 	}
 	// The responders drain with the consumers (ADR-0020 §1): a request
 	// already buffered when the agent stops is still answered.
-	return func() { stopConcurrently(stopRPC, stopExtras, stopSub, stopMarkers) }, nil
+	return func() { stopConcurrently(stopRPC, stopExtras, stopSub, stopMarkers, stopImageSets) }, nil
 }

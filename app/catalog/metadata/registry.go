@@ -24,12 +24,15 @@ import (
 	"net/http"
 	"sort"
 
+	"golang.org/x/text/language"
+	"golang.org/x/text/language/display"
 	"golang.org/x/time/rate"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/events"
 	pkgmetadata "github.com/mediactl/clustarr/pkg/metadata"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/anilist"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/animelists"
@@ -41,6 +44,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/metadata/clients/kitsu"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/mangadex"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/mdblist"
+	"github.com/mediactl/clustarr/pkg/metadata/clients/mediux"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/metron"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/musicbrainz"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/openlibrary"
@@ -48,6 +52,8 @@ import (
 	"github.com/mediactl/clustarr/pkg/metadata/clients/theintrodb"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/tmdb"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/tvdb"
+	"github.com/mediactl/clustarr/pkg/metadata/mediuxcache"
+	"github.com/mediactl/clustarr/pkg/metadata/mediuxsets"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
 
@@ -67,6 +73,18 @@ import (
 // Library -- alphabetically first -- with hits a Book CR, keyed by an Open
 // Library work, cannot hold.
 func BuildRegistry(ctx context.Context, c client.Client, providers []catalogv1alpha1.MetadataProvider, httpClient *http.Client) (*pkgmetadata.Registry, error) {
+	return BuildRegistryWith(ctx, c, providers, httpClient, RegistryDeps{})
+}
+
+// RegistryDeps is what some clients need beside the HTTP client: the
+// clustarr-mediux bucket the mediux client's cache lives in (nil asks
+// MediUX directly, for tests).
+type RegistryDeps struct {
+	MediuxKV events.KV
+}
+
+// BuildRegistryWith is BuildRegistry with deps.
+func BuildRegistryWith(ctx context.Context, c client.Client, providers []catalogv1alpha1.MetadataProvider, httpClient *http.Client, deps RegistryDeps) (*pkgmetadata.Registry, error) {
 	sorted := make([]catalogv1alpha1.MetadataProvider, len(providers))
 	copy(sorted, providers)
 	sort.SliceStable(sorted, func(i, j int) bool {
@@ -81,7 +99,7 @@ func BuildRegistry(ctx context.Context, c client.Client, providers []catalogv1al
 		if p.Spec.Enabled != nil && !*p.Spec.Enabled {
 			continue
 		}
-		if err := addProvider(ctx, c, reg, p, httpClient); err != nil {
+		if err := addProvider(ctx, c, reg, p, httpClient, deps); err != nil {
 			if errors.Is(err, ErrProviderCredentials) {
 				// The controller reports this one Ready=False InvalidSpec; it
 				// must not take the others down with the gateway (a hardcover
@@ -111,7 +129,7 @@ func BuildRegistry(ctx context.Context, c client.Client, providers []catalogv1al
 // addProvider wires one enabled provider into reg, or returns why it
 // cannot be: an [ErrProviderCredentials] the caller skips, anything else
 // fatal.
-func addProvider(ctx context.Context, c client.Client, reg *pkgmetadata.Registry, p catalogv1alpha1.MetadataProvider, httpClient *http.Client) error {
+func addProvider(ctx context.Context, c client.Client, reg *pkgmetadata.Registry, p catalogv1alpha1.MetadataProvider, httpClient *http.Client, deps RegistryDeps) error {
 	limiter := resolveLimiter(p.Spec.Type, p.Spec.RateLimit)
 	{
 		switch p.Spec.Type {
@@ -157,7 +175,7 @@ func addProvider(ctx context.Context, c client.Client, reg *pkgmetadata.Registry
 			}
 			reg.Comics = append(reg.Comics, comicvine.New(key, httpClient, baseURL(p, "https://comicvine.gamespot.com/api"), limiter))
 		default:
-			return addSupplementary(ctx, c, reg, p, httpClient)
+			return addSupplementary(ctx, c, reg, p, httpClient, deps)
 		}
 	}
 	return nil
@@ -188,7 +206,8 @@ func isSupplementary(t catalogv1alpha1.MetadataProviderType) bool {
 		catalogv1alpha1.MetadataProviderAniList, catalogv1alpha1.MetadataProviderKitsu,
 		catalogv1alpha1.MetadataProviderAnimeLists,
 		catalogv1alpha1.MetadataProviderMDBList, catalogv1alpha1.MetadataProviderOMDb,
-		catalogv1alpha1.MetadataProviderTheIntroDB, catalogv1alpha1.MetadataProviderPlex:
+		catalogv1alpha1.MetadataProviderTheIntroDB, catalogv1alpha1.MetadataProviderPlex,
+		catalogv1alpha1.MetadataProviderMediux:
 		return true
 	default:
 		return false
@@ -216,7 +235,7 @@ func isSupplementary(t catalogv1alpha1.MetadataProviderType) bool {
 // client gets its package's documented (or, where the provider publishes
 // none, chosen) DefaultRate and DefaultBurst rather than resolveLimiter's
 // one-request-a-second placeholder.
-func addSupplementary(ctx context.Context, c client.Client, reg *pkgmetadata.Registry, p catalogv1alpha1.MetadataProvider, httpClient *http.Client) error {
+func addSupplementary(ctx context.Context, c client.Client, reg *pkgmetadata.Registry, p catalogv1alpha1.MetadataProvider, httpClient *http.Client, deps RegistryDeps) error {
 	ua := p.Spec.ContactUserAgent
 	switch p.Spec.Type {
 	case catalogv1alpha1.MetadataProviderCoverArt:
@@ -303,6 +322,16 @@ func addSupplementary(ctx context.Context, c client.Client, reg *pkgmetadata.Reg
 		}
 		reg.Resolvers = append(reg.Resolvers, cl)
 		reg.Plex = append(reg.Plex, cl)
+	case catalogv1alpha1.MetadataProviderMediux:
+		tok, err := secretValue(ctx, c, p, catalogv1alpha1.MetadataSecretKeyToken)
+		if err != nil {
+			return err
+		}
+		src, err := mediuxSource(p, httpClient, ua, tok, deps.MediuxKV)
+		if err != nil {
+			return fmt.Errorf("metadata: build mediux client for %s/%s: %w", p.Namespace, p.Name, err)
+		}
+		reg.ImageSets = append(reg.ImageSets, src)
 	case catalogv1alpha1.MetadataProviderTheIntroDB:
 		key, err := optionalSecretValue(ctx, c, p, catalogv1alpha1.MetadataSecretKeyAPIKey)
 		if err != nil {
@@ -388,4 +417,43 @@ func secretValue(ctx context.Context, c client.Client, p catalogv1alpha1.Metadat
 		return "", fmt.Errorf("%w: secret %s/%s has no %q key", ErrProviderCredentials, p.Namespace, p.Spec.SecretRef.Name, key)
 	}
 	return string(v), nil
+}
+
+// mediuxSource is the mediux provider's image-set source: the client at
+// spec.mediux's quality, read through the clustarr-mediux cache when kv is
+// given, choosing by spec.mediux's creators and languages (the provider's
+// language when it names none).
+func mediuxSource(p catalogv1alpha1.MetadataProvider, httpClient *http.Client, ua, token string, kv events.KV) (*mediuxsets.Source, error) {
+	policy := mediux.Policy{}
+	quality := mediux.QualityOptimized
+	if m := p.Spec.Mediux; m != nil {
+		policy.PreferredCreators, policy.Languages = m.PreferredCreators, m.Languages
+		if m.Quality == catalogv1alpha1.ImageQualityOriginal {
+			quality = mediux.QualityOriginal
+		}
+	}
+	if len(policy.Languages) == 0 && p.Spec.Language != "" {
+		policy.Languages = []string{languageName(p.Spec.Language)}
+	}
+	cl, err := mediux.New(mediux.Config{
+		HTTPClient: httpClient, BaseURL: baseURL(p, mediux.DefaultBaseURL),
+		Limiter: supplementaryLimiter(p, mediux.DefaultRate, mediux.DefaultBurst), UserAgent: ua, Token: token, Quality: quality,
+	})
+	if err != nil {
+		return nil, err
+	}
+	src := &mediuxsets.Source{Client: cl, Lookup: mediuxsets.Direct{Client: cl}, Policy: policy}
+	if kv != nil {
+		src.Lookup = &mediuxcache.Cache{KV: kv, Lookup: cl}
+	}
+	return src, nil
+}
+
+// languageName is a BCP-47 code as MediUX displays the language
+// ("English"), for the languages it names; the code itself otherwise.
+func languageName(code string) string {
+	if n := display.English.Languages().Name(language.Make(code)); n != "" && n != "Unknown language" {
+		return n
+	}
+	return code
 }

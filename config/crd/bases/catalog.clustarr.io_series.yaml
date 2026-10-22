@@ -172,6 +172,16 @@ spec:
               folder:
                 description: Folder overrides the folder name under the root folder.
                 type: string
+              imageSet:
+                description: |-
+                  ImageSet is whether the mediux MetadataProvider chooses an image set
+                  for the series (auto, the default) or not (none, which clears
+                  status.imageSet). A pasted set in spec.artwork and spec.seasonArtwork
+                  wins over the chosen one either way.
+                enum:
+                - auto
+                - none
+                type: string
               monitorNewItems:
                 default: all
                 description: |-
@@ -1275,6 +1285,149 @@ spec:
                   file.
                 format: int32
                 type: integer
+              imageSet:
+                description: |-
+                  ImageSet is the image set the mediux MetadataProvider chose for the
+                  series: its poster and background, season posters and episode
+                  thumbnails, below spec.artwork and spec.seasonArtwork. Written by the
+                  remediation loop's image-set stage under catalog-imageset.
+                properties:
+                  artwork:
+                    description: |-
+                      Artwork is the item's poster and background from the set, as
+                      spec.artwork would name them.
+                    items:
+                      description: |-
+                        ArtworkOverride pins a custom URL for one image type, replacing whatever
+                        the metadata provider published for it. R3: a URL that fails to fetch
+                        never falls back to the provider image -- the entry and object stay as
+                        they were, and an Event says why.
+                      properties:
+                        type:
+                          description: Type classifies the image being overridden.
+                          enum:
+                          - poster
+                          - fanart
+                          - banner
+                          - logo
+                          - clearart
+                          - thumb
+                          - screenshot
+                          - disc
+                          - headshot
+                          type: string
+                        url:
+                          description: URL is where the replacement image is fetched
+                            from.
+                          maxLength: 2048
+                          pattern: ^https?://
+                          type: string
+                      required:
+                      - type
+                      - url
+                      type: object
+                    maxItems: 9
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - type
+                    x-kubernetes-list-type: map
+                  checkedAt:
+                    description: |-
+                      CheckedAt is when the provider was last asked for the item; the
+                      provider's refresh runs from it.
+                    format: date-time
+                    type: string
+                  creator:
+                    description: Creator is the set's creator's username.
+                    maxLength: 128
+                    type: string
+                  message:
+                    description: |-
+                      Message is why the last check failed, when it did; the images of the
+                      check before stand.
+                    maxLength: 512
+                    type: string
+                  notFound:
+                    description: NotFound is true when the provider has no set for
+                      the item.
+                    type: boolean
+                  provider:
+                    description: Provider is the MetadataProvider type the set came
+                      from (mediux).
+                    type: string
+                  seasonArtwork:
+                    description: |-
+                      SeasonArtwork is a series' season posters and episode thumbnails from
+                      the set, as spec.seasonArtwork would name them.
+                    items:
+                      description: |-
+                        SeasonArtworkOverride replaces one image of a season, or of one of its
+                        episodes, with an image fetched from URL: a MediUX or ThePosterDB set's
+                        season poster, season background or episode thumbnail
+                        (docs/superpowers/specs/2026-10-21-image-sets-design.md). The Plex
+                        provider serves it through the ui's signed proxy, from the hosts it
+                        allows.
+                      properties:
+                        episode:
+                          description: |-
+                            Episode, when set, makes this an episode's image (type screenshot,
+                            its thumbnail); unset, it is the season's own.
+                          format: int32
+                          minimum: 1
+                          type: integer
+                        season:
+                          description: Season is the season number, in the series'
+                            own episode order.
+                          format: int32
+                          minimum: 0
+                          type: integer
+                        type:
+                          description: |-
+                            Type classifies the image: poster or fanart for a season, screenshot
+                            for an episode.
+                          enum:
+                          - poster
+                          - fanart
+                          - banner
+                          - logo
+                          - clearart
+                          - thumb
+                          - screenshot
+                          - disc
+                          - headshot
+                          type: string
+                        url:
+                          description: URL is where the replacement image is fetched
+                            from.
+                          maxLength: 2048
+                          pattern: ^https?://
+                          type: string
+                      required:
+                      - season
+                      - type
+                      - url
+                      type: object
+                    maxItems: 1000
+                    type: array
+                  setID:
+                    description: SetID is the set's id at the provider.
+                    maxLength: 64
+                    type: string
+                  title:
+                    description: Title is the set's title.
+                    maxLength: 256
+                    type: string
+                  updatedAt:
+                    description: UpdatedAt is when the creator last updated the set.
+                    format: date-time
+                    type: string
+                  url:
+                    description: URL is the set's page at the provider.
+                    maxLength: 2048
+                    type: string
+                required:
+                - checkedAt
+                type: object
               lastSearchedAt:
                 description: |-
                   LastSearchedAt is when the series was last searched for: the newest

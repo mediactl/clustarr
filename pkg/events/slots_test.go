@@ -42,6 +42,7 @@ func TestDefaultConsumersCarryTheirSlots(t *testing.T) {
 		events.ConsumerCatalogArtworkFetch:  32,
 		events.ConsumerCatalogArtworkRender: 4,
 		events.ConsumerCatalogMarkers:       32,
+		events.ConsumerCatalogImageSet:      8,
 		events.ConsumerCatalogSegmentsPlan:  8,
 		events.ConsumerMarkersAnalyze:       1,
 		events.ConsumerCatalogHistory:       512,

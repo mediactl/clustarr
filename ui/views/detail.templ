@@ -46,6 +46,17 @@ type Link struct {
 	Href  string
 }
 
+// ImageSetNote is the item page's "Images" fact: which image set the
+// item's artwork comes from.
+type ImageSetNote struct {
+	// Label names the set: "MediUX set <title> by <creator>", or
+	// "pasted set" for the owner's own; Href links to the set's page when
+	// known; Pasted is the owner's own, which wins over a chosen one.
+	Label  string
+	Href   string
+	Pasted bool
+}
+
 // FileRow is one row of the Files table: a MediaFile as Radarr lists it.
 type FileRow struct {
 	Name string
@@ -92,6 +103,9 @@ type Detail struct {
 	Path          string
 	Links         []Link
 	AltTitles     []string
+	// ImageSet is the image set in use: the owner's pasted one, or the one
+	// the mediux provider chose (status.imageSet).
+	ImageSet *ImageSetNote
 	// ShowFiles is whether the page has the Files and extra-files
 	// sections: a movie's; a series' files live on its seasons.
 	ShowFiles bool
@@ -174,6 +188,15 @@ templ itemToolbar(d Detail) {
 			}
 		}
 	}
+}
+
+// imageSetSource is the Images fact's data attribute: "pasted" or
+// "chosen".
+func imageSetSource(n *ImageSetNote) string {
+	if n.Pasted {
+		return "pasted"
+	}
+	return "chosen"
 }
 
 // kindLabel is the kind as Radarr names it in a button.
@@ -275,6 +298,15 @@ templ hero(d Detail) {
 					if d.Path != "" {
 						@fact("path", "Path") {
 							<span class="break-all">{ d.Path }</span>
+						}
+					}
+					if d.ImageSet != nil {
+						@fact("imageset", "Images") {
+							if d.ImageSet.Href != "" {
+								<a href={ templ.URL(d.ImageSet.Href) } target="_blank" rel="noreferrer" class="hover:text-foreground" data-imageset-source={ imageSetSource(d.ImageSet) }>{ d.ImageSet.Label }</a>
+							} else {
+								<span data-imageset-source={ imageSetSource(d.ImageSet) }>{ d.ImageSet.Label }</span>
+							}
 						}
 					}
 					@fact("status", "Status") {
