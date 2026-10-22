@@ -185,7 +185,8 @@ func (h *handler) seriesCast() func(ctx context.Context, series types.UID) []ext
 // producers alone, 2026-10-21) carries its show's cast, as Plex's own
 // agent shows it.
 func (h *handler) enrichExtendedWith(ctx context.Context, u urls, md *Metadata, kind commonv1.MediaKind, uid types.UID, idx *projection.Index,
-	seriesCast func(context.Context, types.UID) []extended.Person) {
+	seriesCast func(context.Context, types.UID) []extended.Person,
+) {
 	if h.opts.Extended == nil {
 		return
 	}
