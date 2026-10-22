@@ -191,7 +191,7 @@ func headerFind(tab projection.Tab) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "<div id=\"library-find-results\" role=\"listbox\" class=\"fixed z-50 empty:hidden overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md\"></div></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "<div id=\"library-find-results\" role=\"listbox\" class=\"glass fixed z-50 empty:hidden overflow-hidden rounded-xl border bg-popover text-popover-foreground shadow-lg shadow-black/50\"></div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

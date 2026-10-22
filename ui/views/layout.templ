@@ -131,7 +131,7 @@ templ Shell(c Chrome) {
 			<script src="/static/portals.js" defer></script>
 			@components.Scripts()
 		</head>
-		<body class="min-h-screen bg-background font-sans text-foreground" hx-ext="preload">
+		<body class="min-h-screen bg-transparent font-sans text-foreground" hx-ext="preload">
 			@sidebar.Provider() {
 				@sidebar.Sidebar(sidebar.Props{Collapsible: sidebar.CollapsibleIcon}) {
 					@sidebar.Header() {
@@ -185,7 +185,7 @@ templ Shell(c Chrome) {
 // so a tab's htmx swap carries both out of band (librarySubMenu's
 // hx-select-oob) while the bar itself stays.
 templ topNav(c Chrome) {
-	<header class="sticky top-0 z-30 flex h-12 shrink-0 items-center border-b border-border bg-background px-4">
+	<header class="glass sticky top-0 z-30 flex h-12 shrink-0 items-center border-b border-border bg-background/55 px-4">
 		@navigationmenu.NavigationMenu(navigationmenu.Props{Align: navigationmenu.AlignEnd, Class: "w-full max-w-none justify-between gap-4"}) {
 			<div class="flex min-w-24 flex-1 basis-0 items-center overflow-hidden">
 				@sidebar.Trigger(sidebar.TriggerProps{Class: "-ml-1"})

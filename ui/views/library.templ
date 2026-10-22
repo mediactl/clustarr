@@ -210,7 +210,7 @@ templ LibraryRows(items []projection.LibraryItem) {
 	}
 	// The column width is the Options menu's poster size
 	// (--library-poster-width, set on <html> by ui/static/library.js).
-	@item.Group(item.GroupProps{Class: "grid grid-cols-[repeat(auto-fill,minmax(var(--library-poster-width,160px),1fr))] gap-3", Attributes: templ.Attributes{"data-library-grid": true}}) {
+	@item.Group(item.GroupProps{Class: "grid grid-cols-[repeat(auto-fill,minmax(var(--library-poster-width,160px),1fr))] gap-4", Attributes: templ.Attributes{"data-library-grid": true}}) {
 		for _, li := range items {
 			@libraryCard(li)
 		}
@@ -235,7 +235,7 @@ templ libraryCard(li projection.LibraryItem) {
 	@item.Item(item.Props{
 		Variant: item.VariantMuted,
 		ID:      cardID(li),
-		Class:   "group/card relative flex-col items-stretch gap-0 overflow-hidden border-0 bg-card p-0 hover:bg-card data-selected:ring-2 data-selected:ring-primary",
+		Class:   "group/card relative flex-col items-stretch gap-0 overflow-hidden rounded-xl border-0 bg-card p-0 shadow-lg shadow-black/40 ring-1 ring-white/10 hover:bg-card hover:ring-primary/70 data-selected:ring-2 data-selected:ring-primary",
 		Attributes: templ.Attributes{
 			"data-ref":       li.Ref.String(),
 			"data-kind":      string(li.Kind),
@@ -364,7 +364,7 @@ func cardDeleteAttrs(li projection.LibraryItem) templ.Attributes {
 // ActionStatus is what a card's action answers into #action-status: a
 // line saying it was done, or ActionError's why not.
 templ ActionStatus(message string) {
-	<div data-action-status="ok" role="status" class="flex items-center gap-2 rounded-md border border-border bg-popover px-3 py-2 text-sm text-popover-foreground shadow-md">
+	<div data-action-status="ok" role="status" class="glass flex items-center gap-2 rounded-xl border border-border bg-popover px-3 py-2 text-sm text-popover-foreground shadow-lg shadow-black/50">
 		@icon.Icon("circle-check")(icon.Props{Class: "size-4 text-primary"})
 		{ message }
 	</div>
@@ -655,7 +655,7 @@ templ optionsMenu() {
 // opens the same dialog for that item alone (cardActions). The buttons stay
 // disabled until something is selected.
 templ bulkBar(tab projection.Tab) {
-	<div data-bulk-bar class="sticky bottom-0 z-20 -mx-6 -mb-6 mt-6 hidden flex-wrap items-center gap-2 border-t border-border bg-card px-4 py-3 group-data-selecting/library:flex lg:pr-12">
+	<div data-bulk-bar class="sticky bottom-0 z-20 -mx-6 -mb-6 mt-6 hidden flex-wrap items-center gap-2 glass border-t border-border bg-background/55 px-4 py-3 group-data-selecting/library:flex lg:pr-12">
 		<form id="library-bulk" method="post" action={ templ.URL(bulkPath(tab)) } data-bulk-form class="flex flex-wrap items-center gap-2">
 			<input type="hidden" name="return" value={ "/library/" + string(tab) }/>
 			@bulkButton("monitor", "bookmark-check", "Monitor", button.VariantSecondary)

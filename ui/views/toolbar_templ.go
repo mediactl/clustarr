@@ -125,7 +125,7 @@ func toolbar(attrs templ.Attributes) templ.Component {
 			return nil
 		})
 		templ_7745c5c3_Err = menubar.Menubar(menubar.Props{
-			Class:      "sticky top-12 z-20 -mx-6 -mt-6 mb-6 flex h-14 items-stretch justify-between gap-2 overflow-x-auto rounded-none border-0 border-b border-border bg-card px-2 py-1 shadow-none",
+			Class:      "sticky top-12 z-20 -mx-6 -mt-6 mb-6 flex h-14 items-stretch justify-between gap-2 overflow-x-auto glass rounded-none border-0 border-b border-border bg-background/45 px-2 py-1 shadow-none",
 			Attributes: toolbarAttrs(attrs),
 		}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {

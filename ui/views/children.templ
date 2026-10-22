@@ -36,7 +36,7 @@ templ ParentDetail(d Detail, label string) {
 	@Shell(Chrome{Title: li.Title, Crumbs: itemCrumbs(li), Tab: li.Tab}) {
 		@itemToolbar(d)
 		@hero(d)
-		<div class="mt-6 rounded-md border border-border bg-card">
+		<div class="mt-6 panel rounded-xl border border-border bg-card">
 			<details
 				hx-get={ ChildrenURL(li.Ref.Namespace, string(li.Kind), li.Ref.Name) }
 				hx-trigger="toggle once"
@@ -63,7 +63,7 @@ templ ChildrenPage(d Detail, label string, children templ.Component) {
 	@Shell(Chrome{Title: fmt.Sprintf("%s · %s", li.Title, label), Crumbs: childCrumbs(li, label), Tab: li.Tab}) {
 		@itemToolbar(d)
 		@hero(d)
-		<div class="mt-6 overflow-hidden rounded-md border border-border bg-card">
+		<div class="mt-6 overflow-hidden panel rounded-xl border border-border bg-card">
 			<h2 class="px-4 py-3 font-medium">{ label }</h2>
 			<div class="children border-t border-border">
 				@children

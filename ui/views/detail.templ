@@ -227,10 +227,11 @@ templ hero(d Detail) {
 		data-year={ fmt.Sprint(li.Year) }
 		data-profile={ li.QualityProfileRef }
 		data-poster={ posterState(li.Poster) }
-		class="relative -mx-6 mb-8 overflow-hidden bg-card"
+		class="relative -mx-6 mb-8"
 	>
 		if d.Backdrop != "" {
-			<img data-backdrop src={ templ.URL(d.Backdrop) } data-art={ artKeyAs(li, "fanart") } alt="" loading="lazy" class="absolute inset-0 h-full w-full object-cover opacity-30"/>
+			<img data-backdrop src={ templ.URL(d.Backdrop) } data-art={ artKeyAs(li, "fanart") } alt="" loading="lazy" class="page-backdrop"/>
+			<div class="page-backdrop-shade" aria-hidden="true"></div>
 		}
 		// The SSE art event for this page's images (artwork design §B.8 as
 		// amended 2026-10-07): the page has no stream of its own, so this
@@ -239,10 +240,9 @@ templ hero(d Detail) {
 		if li.ArtKey != "" {
 			<div hidden hx-ext="sse" sse-connect={ artStreamURL(d) } hx-trigger="sse:art"></div>
 		}
-		<div class="absolute inset-0 bg-gradient-to-r from-background/95 via-background/80 to-background/50"></div>
 		<div class="relative flex flex-col gap-6 p-8 md:flex-row md:gap-10">
 			<div class="w-40 shrink-0 md:w-56">
-				<div class="overflow-hidden rounded-md shadow-lg">
+				<div class="overflow-hidden rounded-xl shadow-2xl shadow-black/60 ring-1 ring-white/10">
 					@poster(li.Poster, li.Title, li.ArtKey)
 				</div>
 			</div>
@@ -250,7 +250,7 @@ templ hero(d Detail) {
 				<div class="flex items-start justify-between gap-4">
 					<div class="flex min-w-0 items-center gap-3">
 						@monitorBookmark(li)
-						<h1 class="truncate text-4xl font-light tracking-tight md:text-5xl">{ li.Title }</h1>
+						<h1 class="truncate text-4xl font-bold tracking-tight md:text-5xl">{ li.Title }</h1>
 					</div>
 					@neighbours(d)
 				</div>
@@ -436,9 +436,9 @@ templ filesSection(d Detail) {
 	<section data-section="files" class="mb-8">
 		@sectionTitle("Files")
 		if len(d.Files) == 0 {
-			<p class="rounded-md border border-border bg-card px-4 py-3 text-sm text-muted-foreground">No file on disk.</p>
+			<p class="panel rounded-xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground">No file on disk.</p>
 		} else {
-			<div class="rounded-md border border-border bg-card">
+			<div class="panel rounded-xl border border-border bg-card">
 				@table.Table() {
 					@table.Header() {
 						@table.Row() {
@@ -499,13 +499,13 @@ templ filesSection(d Detail) {
 templ extrasSection(d Detail) {
 	<section data-section="extras" class="mb-8">
 		if len(d.Extras) == 0 {
-			@empty.Empty(empty.Props{Class: "border border-border bg-card py-6"}) {
+			@empty.Empty(empty.Props{Class: "panel rounded-xl border border-border bg-card py-6"}) {
 				@empty.Header() {
 					@empty.Title() { { "No extra files to manage." } }
 				}
 			}
 		} else {
-			<div class="rounded-md border border-border bg-card">
+			<div class="panel rounded-xl border border-border bg-card">
 				@table.Table() {
 					@table.Header() {
 						@table.Row() {
@@ -541,7 +541,7 @@ templ subtitlesSection(d Detail) {
 				@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) { { d.SubtitlesPhase } }
 			</p>
 			if len(d.Subtitles) > 0 {
-				<div class="rounded-md border border-border bg-card">
+				<div class="panel rounded-xl border border-border bg-card">
 					@table.Table() {
 						@table.Header() {
 							@table.Row() {
@@ -578,7 +578,7 @@ templ titlesSection(d Detail) {
 	if len(d.AltTitles) > 0 {
 		<section data-section="titles" class="mb-8">
 			@sectionTitle("Titles")
-			<div class="rounded-md border border-border bg-card">
+			<div class="panel rounded-xl border border-border bg-card">
 				@table.Table() {
 					@table.Header() {
 						@table.Row() {

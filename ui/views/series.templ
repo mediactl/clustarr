@@ -69,7 +69,7 @@ templ ActionStatusRegion() {
 // body (hx-trigger "toggle once"). The header links to the season's own
 // page, so a browser without JavaScript still gets there.
 templ SeasonComponent(season SeasonRow) {
-	<div class="overflow-hidden rounded-md border border-border bg-card" id={ fmt.Sprintf("season-%d", season.Number) }>
+	<div class="overflow-hidden panel rounded-xl border border-border bg-card" id={ fmt.Sprintf("season-%d", season.Number) }>
 		@SeasonHeader(season)
 		<details
 			class="group border-t border-border"
@@ -241,7 +241,7 @@ templ SeasonPage(d Detail, season SeasonRow, episodes []EpisodeRow) {
 	@Shell(Chrome{Title: fmt.Sprintf("%s · %s", d.Item.Title, season.Label()), Crumbs: childCrumbs(d.Item, season.Label()), Tab: d.Item.Tab}) {
 		@itemToolbar(d)
 		@hero(d)
-		<div class="mt-6 overflow-hidden rounded-md border border-border bg-card">
+		<div class="mt-6 overflow-hidden panel rounded-xl border border-border bg-card">
 			@SeasonHeader(season)
 			<div class="episodes border-t border-border">
 				@EpisodeRows(episodes)

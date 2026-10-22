@@ -120,77 +120,90 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   --color-sidebar-ring: var(--sidebar-ring);
   --font-sans: "Open Sans", "Noto Sans", ui-sans-serif, system-ui, sans-serif;
   --font-mono: ui-monospace, "JetBrains Mono", "SFMono-Regular", Menlo, monospace;
-  --radius: 0.25rem;
+  --radius: 0.75rem;
   --color-destructive-foreground: var(--destructive-foreground);
 }
 
+/* Plex's native look (2026-10-22, after the iOS, tvOS and web apps): one
+   dark canvas, every surface a translucent white laid over it -- a card, a
+   popover, the sidebar -- so artwork behind a page shows through the glass,
+   hairlines in the same white, Plex Gold for the one accent, and 12px
+   corners. The surfaces are rgba on purpose: Tailwind's opacity modifiers
+   (bg-muted/50) color-mix them like any other colour, and a panel over the
+   page backdrop (below) reads as glass instead of a grey slab. Plex has one
+   look, so .dark repeats :root. */
 :root {
-  --background: #1f2326;
-  --foreground: #eeeeee;
-  --card: #282a2d;
-  --card-foreground: #eeeeee;
-  --popover: #2f3235;
-  --popover-foreground: #eeeeee;
+  --background: #111417;
+  --foreground: #f3f4f6;
+  --card: rgba(255, 255, 255, 0.055);
+  --card-foreground: #f3f4f6;
+  --popover: rgba(30, 33, 37, 0.82);
+  --popover-foreground: #f3f4f6;
   --primary: #e5a00d;
-  --primary-foreground: #1f2326;
-  --secondary: #3a3d41;
-  --secondary-foreground: #eeeeee;
-  --muted: #33363a;
-  --muted-foreground: #9a9a9a;
-  --accent: #3f4245;
+  --primary-foreground: #141414;
+  --secondary: rgba(255, 255, 255, 0.1);
+  --secondary-foreground: #f3f4f6;
+  --muted: rgba(255, 255, 255, 0.08);
+  --muted-foreground: #a7adb4;
+  --accent: rgba(255, 255, 255, 0.12);
   --accent-foreground: #ffffff;
   --destructive: #e5484d;
-  --border: #3a3d41;
-  --input: #3a3d41;
+  --border: rgba(255, 255, 255, 0.1);
+  --input: rgba(255, 255, 255, 0.12);
   --ring: #e5a00d;
   --chart-1: #e5a00d;
   --chart-2: #f2c94c;
   --chart-3: #cc7b19;
-  --chart-4: #9a9a9a;
-  --chart-5: #eeeeee;
-  --radius: 0.25rem;
-  --sidebar: #1f2326;
-  --sidebar-foreground: #eeeeee;
+  --chart-4: #a7adb4;
+  --chart-5: #f3f4f6;
+  --radius: 0.75rem;
+  --sidebar: rgba(17, 20, 23, 0.62);
+  --sidebar-foreground: #f3f4f6;
   --sidebar-primary: #e5a00d;
-  --sidebar-primary-foreground: #1f2326;
-  --sidebar-accent: #282a2d;
-  --sidebar-accent-foreground: #eeeeee;
-  --sidebar-border: #3a3d41;
+  --sidebar-primary-foreground: #141414;
+  --sidebar-accent: rgba(255, 255, 255, 0.1);
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: rgba(255, 255, 255, 0.08);
   --sidebar-ring: #e5a00d;
   --destructive-foreground: #ffffff;
+  /* The glass: the blur every frosted surface shares, and the shade the
+     page backdrop fades into (the canvas, so a page without art and the
+     foot of one with art meet the same colour). */
+  --glass-blur: 24px;
+  --glass-highlight: rgba(255, 255, 255, 0.06);
 }
 
 .dark {
-  --background: #1f2326;
-  --foreground: #eeeeee;
-  --card: #282a2d;
-  --card-foreground: #eeeeee;
-  --popover: #2f3235;
-  --popover-foreground: #eeeeee;
+  --background: #111417;
+  --foreground: #f3f4f6;
+  --card: rgba(255, 255, 255, 0.055);
+  --card-foreground: #f3f4f6;
+  --popover: rgba(30, 33, 37, 0.82);
+  --popover-foreground: #f3f4f6;
   --primary: #e5a00d;
-  --primary-foreground: #1f2326;
-  --secondary: #3a3d41;
-  --secondary-foreground: #eeeeee;
-  --muted: #33363a;
-  --muted-foreground: #9a9a9a;
-  --accent: #3f4245;
+  --primary-foreground: #141414;
+  --secondary: rgba(255, 255, 255, 0.1);
+  --secondary-foreground: #f3f4f6;
+  --muted: rgba(255, 255, 255, 0.08);
+  --muted-foreground: #a7adb4;
+  --accent: rgba(255, 255, 255, 0.12);
   --accent-foreground: #ffffff;
   --destructive: #e5484d;
-  --border: #3a3d41;
-  --input: #3a3d41;
+  --border: rgba(255, 255, 255, 0.1);
+  --input: rgba(255, 255, 255, 0.12);
   --ring: #e5a00d;
   --chart-1: #e5a00d;
   --chart-2: #f2c94c;
   --chart-3: #cc7b19;
-  --chart-4: #9a9a9a;
-  --chart-5: #eeeeee;
-  --sidebar: #1f2326;
-  --sidebar-foreground: #eeeeee;
+  --chart-4: #a7adb4;
+  --chart-5: #f3f4f6;
+  --sidebar: rgba(17, 20, 23, 0.62);
+  --sidebar-foreground: #f3f4f6;
   --sidebar-primary: #e5a00d;
-  --sidebar-primary-foreground: #1f2326;
-  --sidebar-accent: #282a2d;
-  --sidebar-accent-foreground: #eeeeee;
-  --sidebar-border: #3a3d41;
+  --sidebar-primary-foreground: #141414;
+  --sidebar-accent: rgba(255, 255, 255, 0.1);
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: rgba(255, 255, 255, 0.08);
   --sidebar-ring: #e5a00d;
   --destructive-foreground: #ffffff;
 }
@@ -199,8 +212,132 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   * {
     @apply border-border outline-ring/50;
   }
+  /* The canvas is the root element's background, which the viewport
+     takes: a page's backdrop (below) sits at z-index -1 in the root
+     stacking context, which paints above the canvas but below the body's
+     own background, so the body must stay transparent for the art to show.
+     On a page with no art of its own the canvas carries a faint warm glow
+     in the top corner, as tvOS lights a dark screen from above, fixed so
+     it never scrolls with the page. */
+  html {
+    background-color: var(--background);
+    background-image:
+      radial-gradient(120vmax 80vmax at 8% -10%, rgba(229, 160, 13, 0.07), transparent 60%),
+      radial-gradient(90vmax 70vmax at 100% 100%, rgba(120, 140, 170, 0.08), transparent 55%);
+    background-attachment: fixed;
+  }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-transparent text-foreground;
+  }
+}
+
+/* The glass. A frosted surface is translucent (its token is rgba) and
+   blurs what is behind it: the sidebar, the top bar and a page toolbar
+   (over the page backdrop and the content scrolling under them), and every
+   floating layer -- dialogs, menus, popovers, tooltips, selects. Cards do
+   not blur: a library page draws hundreds, and the blur costs a layer each;
+   their translucency alone reads as glass over the canvas. A hairline
+   highlight along the top edge is what makes a panel look lit from above
+   rather than merely transparent. */
+[data-slot="sidebar-inner"],
+[data-slot="sheet-content"],
+[data-slot="dialog-content"],
+[data-slot="dropdown-menu-content"],
+[data-slot="dropdown-menu-sub-content"],
+[data-slot="menubar-content"],
+[data-slot="menubar-sub-content"],
+[data-slot="navigation-menu-content"],
+[data-slot="select-content"],
+[data-slot="tooltip-content"],
+[data-slot="popover-content"],
+.glass {
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.4);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.4);
+}
+[data-slot="dialog-content"],
+[data-slot="dropdown-menu-content"],
+[data-slot="dropdown-menu-sub-content"],
+[data-slot="menubar-content"],
+[data-slot="menubar-sub-content"],
+[data-slot="navigation-menu-content"],
+[data-slot="select-content"],
+[data-slot="popover-content"] {
+  background-color: var(--popover);
+  border-color: var(--border);
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight),
+    0 24px 48px -12px rgba(0, 0, 0, 0.6);
+}
+/* The sidebar's inset (shadcn's <main>) paints bg-background, which would
+   cover the page backdrop like the body's background above; an unlayered
+   rule outranks the utility, so the vendored component stays as the
+   registry ships it. The body's canvas shows through instead. */
+[data-slot="sidebar-inset"] {
+  background-color: transparent;
+}
+[data-slot="card"],
+.panel {
+  box-shadow: inset 0 1px 0 var(--glass-highlight);
+}
+[data-slot="dialog-overlay"],
+[data-slot="sheet-overlay"] {
+  background-color: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+/* The page backdrop (an item's fanart, ui/views/detail.templ's hero): the
+   art fills the viewport behind everything, fixed so the page scrolls over
+   it, blurred and darkened the way the Plex apps set a title's art behind
+   its details, and shaded down to the canvas so the foot of the page and
+   the sidebar's edge meet the same colour. It sits below the root's content
+   (z-index -1 within the root stacking context) and above the canvas. The
+   sidebar and the top bar blur it through their glass. */
+.page-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 20%;
+  transform: scale(1.08);
+  filter: blur(18px) saturate(1.3) brightness(0.95);
+  opacity: 0.65;
+  pointer-events: none;
+}
+.page-backdrop-shade {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    linear-gradient(to bottom, rgba(17, 20, 23, 0.15) 0%, rgba(17, 20, 23, 0.5) 50%, var(--background) 100%),
+    linear-gradient(to right, rgba(17, 20, 23, 0.6) 0%, rgba(17, 20, 23, 0) 40%);
+}
+
+/* The poster lift (tvOS's focus): a card rises and takes a gold ring under
+   the pointer or the keyboard; nothing else on a page moves. */
+[data-library-grid] [data-slot="item"] {
+  transition:
+    transform 160ms ease-out,
+    box-shadow 160ms ease-out;
+}
+@media (hover: hover) {
+  [data-library-grid] [data-slot="item"]:hover {
+    transform: translateY(-2px) scale(1.03);
+    box-shadow: 0 16px 32px -12px rgba(0, 0, 0, 0.7);
+    z-index: 5;
+  }
+}
+[data-library-grid] [data-slot="item"]:focus-within {
+  z-index: 5;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-library-grid] [data-slot="item"],
+  [data-library-grid] [data-slot="item"]:hover {
+    transition: none;
+    transform: none;
   }
 }
 

@@ -444,6 +444,24 @@ and the pages they open answer `Cache-Control: private, max-age=10` and
 `Vary: HX-Request` (`preloadable`, `ui/routes.go`), without which the
 browser would fetch the page a second time at the click; a page nothing
 preloads sends no Cache-Control.
+The look is Plex's native one (2026-10-22, after the iOS, tvOS and web
+apps): one dark canvas, every surface a translucent white over it so the
+artwork behind a page shows through the glass, Plex Gold the one accent,
+12px corners. The tokens are rgba in `ui/static/input.css` (and
+`ui/theme/plex.json`, kept in step), so a `bg-card` or `bg-muted/50` is
+glass wherever it is used; the frosted surfaces -- the sidebar, the top
+bar, a page toolbar (`glass`), every dialog, menu, popover and tooltip --
+take their blur from unlayered `[data-slot=...]` rules there, never from
+an edit to a vendored component. An item page's fanart is the page's
+backdrop: the hero's `<img data-backdrop class="page-backdrop">` is fixed
+over the viewport at z-index -1 with a `page-backdrop-shade` fading it
+into the canvas, which is why the canvas is the html element's background
+and the body and the sidebar's inset are transparent -- an opaque
+background on either paints over the art (both did, the first two tries).
+Library cards do not blur (hundreds a page, a layer each) and lift under
+the pointer (`[data-library-grid]` rules, off under reduced motion). Check
+such a change in a browser with a fresh profile: `/static` is cached for
+an hour, so a reload shows the old stylesheet.
 Series monitoring is Sonarr's (2026-09-29): an episode is searched only
 when its Series and the episode itself are monitored (the Episode
 reconciler reads its Series, a Series' `spec.monitored` change wakes its
