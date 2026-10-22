@@ -190,7 +190,7 @@ func TestLibraryPageHasBreadcrumbsSidebarSubEntriesAndAJumpBar(t *testing.T) {
 	// of it, every card files under its letter for the scroll tracker, and
 	// the tracker script loads from the static files.
 	bar := tagWith(t, body, `data-jump-bar`)
-	for _, class := range []string{"fixed", "right-0", "top-[6.5rem]", "bottom-0"} {
+	for _, class := range []string{"fixed", "right-0", "top-[8rem]", "bottom-0"} {
 		require.Contains(t, bar, class, "the bar is fixed to the right of the screen")
 	}
 	require.NotContains(t, bar, "sticky")

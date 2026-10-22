@@ -109,7 +109,9 @@ const jumpButtonClass = "min-h-0 w-full flex-1 px-0 py-0 text-[11px]"
 
 // jumpBar is Radarr's A-Z bar as a vertical button group fixed to the
 // right edge of the screen, from beneath the top bar and the toolbar
-// (3rem + 3.5rem, which is where 6.5rem comes from) to the bottom of the
+// where the page starts (3rem, the page's 1.5rem of padding and the
+// toolbar's 3.5rem, which is where 8rem comes from; a stuck toolbar sits
+// half a rem under the bar, so a rem of air opens below it) to the bottom of the
 // viewport, outside the grid's flow (the grid
 // keeps clear of it with lg:pr-10). ui/static/jump.js places the thumb
 // (data-jump-thumb) along it in proportion to the items on screen over
@@ -124,7 +126,7 @@ const jumpButtonClass = "min-h-0 w-full flex-1 px-0 py-0 text-[11px]"
 // which stalled scrolling whenever the pointer rested on one.
 templ jumpBar(jumpsFor []Jump) {
 	if len(jumpsFor) > 0 {
-		<div data-jump-bar class="fixed top-[6.5rem] right-0 bottom-0 z-10 hidden w-8 lg:block">
+		<div data-jump-bar class="fixed top-[8rem] right-0 bottom-0 z-10 hidden w-8 lg:block">
 			<div data-jump-thumb class="absolute left-0 z-10 w-3 cursor-grab touch-none select-none rounded-l-sm border-l-2 border-primary active:cursor-grabbing" style="top: 0; height: 16px"></div>
 			@buttongroup.ButtonGroup(buttongroup.Props{Orientation: buttongroup.OrientationVertical, Class: "h-full w-full"}) {
 				for _, j := range jumpsFor {
@@ -655,7 +657,7 @@ templ optionsMenu() {
 // opens the same dialog for that item alone (cardActions). The buttons stay
 // disabled until something is selected.
 templ bulkBar(tab projection.Tab) {
-	<div data-bulk-bar class="sticky bottom-0 z-20 -mx-6 -mb-6 mt-6 hidden flex-wrap items-center gap-2 glass border-t border-border bg-background/55 px-4 py-3 group-data-selecting/library:flex lg:pr-12">
+	<div data-bulk-bar class="glass panel sticky bottom-2 z-20 mt-6 hidden flex-wrap items-center gap-2 rounded-xl border border-border bg-background/55 px-4 py-3 shadow-lg shadow-black/30 group-data-selecting/library:flex lg:pr-12">
 		<form id="library-bulk" method="post" action={ templ.URL(bulkPath(tab)) } data-bulk-form class="flex flex-wrap items-center gap-2">
 			<input type="hidden" name="return" value={ "/library/" + string(tab) }/>
 			@bulkButton("monitor", "bookmark-check", "Monitor", button.VariantSecondary)

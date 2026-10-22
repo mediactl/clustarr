@@ -154,7 +154,7 @@ func TestLibraryPageHasTheMassEditor(t *testing.T) {
 	body := rec.Body.String()
 
 	requireTag(t, body, `id="library-page"`, `group/library`, `data-tab="movies"`)
-	bar := requireTag(t, body, `data-bulk-bar`, "sticky", "bottom-0", "hidden", "group-data-selecting/library:flex")
+	bar := requireTag(t, body, `data-bulk-bar`, "sticky", "bottom-2", "hidden", "group-data-selecting/library:flex")
 	require.NotEmpty(t, bar)
 	requireTag(t, body, `id="library-bulk"`, `data-bulk-form`, `action="/library/movies/bulk"`, `method="post"`)
 	for _, action := range []string{"monitor", "unmonitor", "search", "refresh"} {
