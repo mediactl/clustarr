@@ -163,7 +163,12 @@ const (
 	// BucketPlexExtras holds the extras Plex's metadata service holds per
 	// Plex id, which the metadata gateway fetches on a miss and the ui's
 	// extras route answers PMS with (pkg/metadata/plexextras).
-	BucketPlexExtras      = "clustarr-plex-extras"
+	BucketPlexExtras = "clustarr-plex-extras"
+	// BucketMediux caches MediUX's answers -- a show's or film's sets, the
+	// id mappings and the daily content list -- so a library is matched
+	// with one request per item a week at most
+	// (docs/superpowers/specs/2026-10-22-mediux-image-sets-automation-design.md).
+	BucketMediux          = "clustarr-mediux"
 	BucketProgress        = "clustarr-progress"
 	BucketImportList      = "clustarr-importlist"
 	BucketDedup           = "clustarr-dedup"

@@ -1226,6 +1226,9 @@ func defaultBuckets() []BucketSpec {
 		// memory bucket would send a whole library refresh back to plex.tv
 		// after every NATS restart.
 		durable(b(BucketPlexExtras, 0, "Plex's extras per Plex id, for the Plex provider's extras route.")),
+		// Durable: MediUX is asked once per item a week; a memory bucket
+		// would ask the whole library again after every NATS restart.
+		durable(b(BucketMediux, 0, "MediUX's sets per TMDB id, id mappings and the content list, read through by the metadata agent.")),
 		// Durable: only re-analysis rebuilds a file's raw segments, which the
 		// merge into status.markers needs (spec 2026-10-01 §5.2).
 		records(durable(b(BucketSegments, 0, "Raw segment analysis per MediaFile.")), SegmentsMaxBytes, SegmentsMaxValueSize),
