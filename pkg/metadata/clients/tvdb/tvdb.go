@@ -148,11 +148,14 @@ type seriesExtendedResponse struct {
 			Name string `json:"name"`
 		} `json:"genres"`
 		// Image is the series' own poster; Artworks the rest, each typed
-		// by /artwork/types' ids (artworkTypes).
+		// by /artwork/types' ids (artworkTypes, seasonArtworkTypes), a
+		// season's naming it by seasonId.
 		Image    string `json:"image"`
 		Artworks []struct {
-			Type  int    `json:"type"`
-			Image string `json:"image"`
+			Type     int    `json:"type"`
+			Image    string `json:"image"`
+			Language string `json:"language"`
+			SeasonID int64  `json:"seasonId"`
 		} `json:"artworks"`
 		// Translations is what `?meta=translations` adds: the record's
 		// name and overview in every language it has, the aliases among
@@ -183,6 +186,7 @@ type seriesExtendedResponse struct {
 		} `json:"contentRatings"`
 		Characters []rawCharacter `json:"characters"`
 		Seasons    []struct {
+			ID     int64  `json:"id"`
 			Number int32  `json:"number"`
 			Image  string `json:"image"`
 			Type   struct {
@@ -293,15 +297,38 @@ func primary(ts []translation, lang string) translation {
 	return translation{}
 }
 
-// artworkTypes maps TheTVDB v4's artwork type ids (/artwork/types) onto
-// the normalized image types; an id not listed here is left out.
+// artworkTypes maps TheTVDB v4's series artwork type ids (/artwork/types)
+// onto the normalized image types; an id not listed here is left out. Icon
+// (5) and Cinemagraph (20) have no image type, in the catalog or in Plex.
+// 6 and 7 are a season's Banner and Poster (seasonArtworkTypes), which this
+// map took for clear art and logo until 2026-10-21, so every series' Plex
+// clearLogo was a season poster.
 var artworkTypes = map[int]metadata.ImageType{
-	1: metadata.ImageTypeBanner,
-	2: metadata.ImageTypePoster,
-	3: metadata.ImageTypeFanart,
-	6: metadata.ImageTypeClearart,
-	7: metadata.ImageTypeLogo,
+	1:  metadata.ImageTypeBanner,
+	2:  metadata.ImageTypePoster,
+	3:  metadata.ImageTypeFanart,
+	22: metadata.ImageTypeClearart,
+	23: metadata.ImageTypeLogo,
 }
+
+// seasonArtworkTypes maps a season's artwork type ids, filed under the
+// season their seasonId names.
+var seasonArtworkTypes = map[int]metadata.ImageType{
+	6: metadata.ImageTypeBanner,
+	7: metadata.ImageTypePoster,
+}
+
+// textArtworkTypes are the artworks that are their title's text, so one in
+// another language than the titles' is no image of this series' title.
+var textArtworkTypes = map[metadata.ImageType]bool{
+	metadata.ImageTypeLogo:     true,
+	metadata.ImageTypeClearart: true,
+}
+
+// seasonImagesPerKey caps a season's images of one type in one order: the
+// season list's poster and TheTVDB's first artworks after it. Doctor Who
+// has 23 posters for its first season alone, and seasonImages holds 400.
+const seasonImagesPerKey = 3
 
 // Series fetches a single series' extended record from
 // /series/{id}/extended?meta=translations. Its title and overview are the
@@ -366,9 +393,20 @@ func (c *Client) Series(ctx context.Context, tvdbID string) (*metadata.Series, e
 		s.Images = append(s.Images, metadata.Image{Type: metadata.ImageTypePoster, URL: raw.Data.Image})
 	}
 	for _, a := range raw.Data.Artworks {
-		if t, ok := artworkTypes[a.Type]; ok && a.Image != "" {
-			s.Images = append(s.Images, metadata.Image{Type: t, URL: a.Image})
+		t, ok := artworkTypes[a.Type]
+		if !ok || a.Image == "" {
+			continue
 		}
+		img := metadata.Image{Type: t, URL: a.Image}
+		if textArtworkTypes[t] {
+			// Only in the titles' language or in none, as TMDB's
+			// include_image_language keeps a logo.
+			if a.Language != "" && a.Language != c.titleLang() {
+				continue
+			}
+			img.Language = originalLanguage(a.Language)
+		}
+		s.Images = append(s.Images, img)
 	}
 	if t, ok := parseDate(raw.Data.FirstAired); ok {
 		s.FirstAired = &t
@@ -386,8 +424,8 @@ func (c *Client) Series(ctx context.Context, tvdbID string) (*metadata.Series, e
 // mapSeriesExtended maps what the full Plex Metadata Response needs from a
 // series record: networks (original, latest, then every company TheTVDB
 // types a Network), production companies, the country of origin, per-country
-// content ratings, the cast, season posters for the aired order and the
-// season orderings TheTVDB offers.
+// content ratings, the cast, each stored order's season posters and banners
+// and the season orderings TheTVDB offers.
 func mapSeriesExtended(raw *seriesExtendedResponse, s *metadata.Series, region string) {
 	d := &raw.Data
 	addNetwork := func(n string) {
@@ -429,6 +467,26 @@ func mapSeriesExtended(raw *seriesExtendedResponse, s *metadata.Series, region s
 	cert := metadata.PickCertification(s.Certifications, region, origin)
 	s.Certification, s.CertificationCountry = cert.Rating, cert.Country
 	s.People = mapCharacters(d.Characters)
+	type seasonKey struct {
+		number int32
+		order  string
+		kind   metadata.ImageType
+	}
+	type seasonRef struct {
+		number int32
+		order  string
+	}
+	stored := map[int64]seasonRef{}
+	per := map[seasonKey][]string{}
+	add := func(se seasonRef, t metadata.ImageType, url string) {
+		k := seasonKey{se.number, se.order, t}
+		if url == "" || len(per[k]) >= seasonImagesPerKey || slices.Contains(per[k], url) {
+			return
+		}
+		per[k] = append(per[k], url)
+		n := se.number
+		s.Images = append(s.Images, metadata.Image{Type: t, URL: url, Season: &n, SeasonOrder: se.order})
+	}
 	for _, se := range d.Seasons {
 		// The orders clustarr can store (spec.episodeOrder); TheTVDB's
 		// alternate and regional orders never number a season here.
@@ -437,11 +495,18 @@ func mapSeriesExtended(raw *seriesExtendedResponse, s *metadata.Series, region s
 		default:
 			continue
 		}
-		if se.Image == "" {
-			continue
+		ref := seasonRef{se.Number, se.Type.Type}
+		stored[se.ID] = ref
+		add(ref, metadata.ImageTypePoster, se.Image)
+	}
+	// A season's own banners and posters follow its list poster, which stays
+	// its first: the one the Plex provider sends.
+	for _, a := range d.Artworks {
+		t, ok := seasonArtworkTypes[a.Type]
+		ref, known := stored[a.SeasonID]
+		if ok && known {
+			add(ref, t, a.Image)
 		}
-		n := se.Number
-		s.Images = append(s.Images, metadata.Image{Type: metadata.ImageTypePoster, URL: se.Image, Season: &n, SeasonOrder: se.Type.Type})
 	}
 	for _, st := range d.SeasonTypes {
 		s.SeasonTypes = append(s.SeasonTypes, metadata.SeasonTypeRef{ID: st.Type, Name: st.Name})
