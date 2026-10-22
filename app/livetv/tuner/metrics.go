@@ -41,6 +41,10 @@ var (
 	upstreamErrors = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "clustarr_livetv_upstream_errors_total", Help: "Upstream failures, per provider and reason.",
 	}, []string{"provider", "reason"})
+	upstreamFirstByte = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name: "clustarr_livetv_upstream_first_byte_seconds", Help: "Time from a stream's upstream request to its first byte, per provider.",
+		Buckets: prometheus.ExponentialBuckets(0.1, 2, 9),
+	}, []string{"provider"})
 	fetchDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Name: "clustarr_livetv_fetch_duration_seconds", Help: "Playlist and guide fetch time, per provider and source.",
 		Buckets: prometheus.ExponentialBuckets(0.1, 2, 12),
@@ -51,7 +55,7 @@ var (
 
 func registerMetrics() {
 	metricsOnce.Do(func() {
-		ctrlmetrics.Registry.MustRegister(tunersInUse, viewers, streamBytes, upstreamErrors, fetchDuration)
+		ctrlmetrics.Registry.MustRegister(tunersInUse, viewers, streamBytes, upstreamErrors, upstreamFirstByte, fetchDuration)
 	})
 }
 
@@ -62,5 +66,6 @@ func forgetMetrics(key types.NamespacedName) {
 	viewers.DeletePartialMatch(l)
 	streamBytes.DeletePartialMatch(l)
 	upstreamErrors.DeletePartialMatch(l)
+	upstreamFirstByte.DeletePartialMatch(l)
 	fetchDuration.DeletePartialMatch(l)
 }

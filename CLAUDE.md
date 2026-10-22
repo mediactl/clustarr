@@ -320,6 +320,23 @@ reason: PMS keeps reading the channel its client left for 30 s to 3 min. On
 way, and Plex showed "failed to fetch play queue response". Before the cap,
 two upstreams knocked each other off.
 
+A viewer starts where a decoder can (2026-10-21, `relay.ring.Join`):
+
+- within a connection's first 1 MiB (`relay.connectionStart`), at the
+  connection's first byte;
+- else at the latest keyframe, after copies of the latest PAT and PMT
+  (`relay.tsIndex`: H.264 and HEVC parameter sets with an IDR picture or
+  the random-access flag, or an MPEG-2 sequence header);
+- else at the newest packet.
+
+Before this, every viewer started at the newest packet. tvload.win's CDN opens a
+stream with its tables, a keyframe and about 5 s of video in one burst, and
+the relay dropped that start. PMS's decoder then began mid-GOP ("non-existing
+PPS 0 referenced") and waited for the next keyframe. Each connection's time
+to its first byte is `clustarr_livetv_upstream_first_byte_seconds`, plus an
+Info log line; a refusal logs its HTTP status. For tvload.win that time is
+about 1.8 s: 0.5 s to its 302, then 1.3 s at the CDN node.
+
 discover.json advertises three tuners more than `tuners`
 (`tuner.SpareTuners`). The reason: on 2026-10-20 a grab PMS never ended held
 the one tuner for hours while the relay streamed nothing, and every tune

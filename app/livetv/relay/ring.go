@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package relay
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"sync"
@@ -37,18 +38,20 @@ type ring struct {
 	buf     []byte
 	written int64         // total bytes ever written
 	align   int64         // where the current upstream connection began
+	index   tsIndex       // the current connection's tables and keyframes
 	notify  chan struct{} // closed and replaced on every write
 	err     error         // set by close
 }
 
 func newRing(size int) *ring {
-	return &ring{buf: make([]byte, size), notify: make(chan struct{})}
+	return &ring{buf: make([]byte, size), index: newTSIndex(0), notify: make(chan struct{})}
 }
 
 // Write appends p, overwriting the oldest bytes, and wakes every reader.
 func (r *ring) Write(p []byte) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.index.write(p)
 	size := int64(len(r.buf))
 	for len(p) > 0 {
 		off := r.written % size
@@ -60,19 +63,47 @@ func (r *ring) Write(p []byte) {
 	r.notify = make(chan struct{})
 }
 
+// Total is the bytes ever written.
+func (r *ring) Total() int64 {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.written
+}
+
 // Realign marks the start of a new upstream connection, which begins a new
 // packet wherever the last one was cut off.
 func (r *ring) Realign() {
 	r.mu.Lock()
 	r.align = r.written
+	r.index = newTSIndex(r.written)
 	r.mu.Unlock()
 }
 
-// Join returns a new viewer's cursor: the newest packet boundary.
-func (r *ring) Join() int64 {
+// connectionStart is how far into a connection a new viewer still starts
+// at its first byte (at most half the ring).
+const connectionStart = 1 << 20
+
+// Join returns a new viewer's cursor and the bytes to send it first. A
+// viewer starts where a decoder can (talos, 2026-10-21: one that started at
+// the newest packet began mid-GOP, so PMS discarded everything up to the next
+// keyframe, and the first viewer missed the tables and keyframe a provider
+// opens its stream with):
+//   - near the connection's start, at its first byte, so the provider's
+//     opening burst is the viewer's whole;
+//   - else at the latest keyframe, after copies of the latest PAT and PMT,
+//     when it is no more than half the ring back;
+//   - else at the newest packet boundary.
+func (r *ring) Join() (int64, []byte) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.written - (r.written-r.align)%packetSize
+	half := int64(len(r.buf)) / 2
+	if r.written-r.align <= min(connectionStart, half) {
+		return r.align, nil
+	}
+	if k := r.index.key; k >= 0 && r.written-k <= half {
+		return k, append(bytes.Clone(r.index.pat), r.index.pmt...)
+	}
+	return r.written - (r.written-r.align)%packetSize, nil
 }
 
 // Read copies the bytes after *cur into p and advances *cur, waiting for a
