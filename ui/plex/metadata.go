@@ -523,6 +523,10 @@ func (h *handler) handleMetadata(root rootDef) http.HandlerFunc {
 		case metadataTypeEpisode:
 			h.enrichExtended(r.Context(), u, &md, commonv1.MediaKindEpisode, types.UID(md.RatingKey), idx)
 		}
+		if md.Children != nil {
+			// A season's episodes, the only answer PMS refreshes them from.
+			h.enrichEpisodes(r.Context(), u, md.Children.Metadata, idx)
+		}
 
 		writeMetadata(w, customizationOf(r, nil), MetadataContainer{
 			Offset:     0,

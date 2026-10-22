@@ -36,12 +36,13 @@ func (h *handler) handleChildren(root rootDef) http.HandlerFunc {
 			return
 		}
 
-		items, ok := h.childrenOf(root, h.urlsFor(r, idx), idx, r.PathValue("ratingKey"))
+		u := h.urlsFor(r, idx)
+		items, ok := h.childrenOf(root, u, idx, r.PathValue("ratingKey"))
 		if !ok {
 			http.NotFound(w, r)
 			return
 		}
-		h.writePage(w, r, root, items, parsePaging(r))
+		h.writePage(w, r, root, u, idx, items, parsePaging(r))
 	}
 }
 
@@ -79,7 +80,7 @@ func (h *handler) handleGrandchildren(root rootDef) http.HandlerFunc {
 		for i, e := range episodes {
 			items[i] = buildEpisodeMetadata(root, u, s, e)
 		}
-		h.writePage(w, r, root, items, parsePaging(r))
+		h.writePage(w, r, root, u, idx, items, parsePaging(r))
 	}
 }
 
@@ -152,9 +153,11 @@ func sortEpisodes(episodes []*catalogv1.Episode) {
 // writePage windows items to p and writes the MediaContainer response,
 // setting the paging response headers alongside the body's own
 // offset/totalSize (spec §D.2).
-func (h *handler) writePage(w http.ResponseWriter, r *http.Request, root rootDef, items []Metadata, p pageRequest) {
+func (h *handler) writePage(w http.ResponseWriter, r *http.Request, root rootDef, u urls, idx *projection.Index, items []Metadata, p pageRequest) {
 	window, total := windowMetadata(items, p)
 	window = nonNilMetadata(window)
+	// Only the page answered reads its episodes' documents.
+	h.enrichEpisodes(r.Context(), u, window, idx)
 	setPagingHeaders(w, p.start, total)
 	writeMetadata(w, customizationOf(r, nil), MetadataContainer{
 		Offset:     p.start,

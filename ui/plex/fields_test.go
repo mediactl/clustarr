@@ -177,8 +177,7 @@ func TestEpisodeEmitsItsStillAndInheritedFields(t *testing.T) {
 
 // An episode answers its own TVDB id in Guid[], and its guest cast and
 // crew from its extended document (written by the metadata gateway's
-// series refresh, 2026-10-07) -- only for the episode asked for, never on
-// its season's children.
+// series refresh, 2026-10-07).
 func TestEpisodeEmitsItsTVDBGuidAndItsPeople(t *testing.T) {
 	s, eps := fixtureSeriesAndEpisodes()
 	eps[0].Status.TvdbID = 295294
@@ -210,6 +209,64 @@ func TestEpisodeEmitsItsTVDBGuidAndItsPeople(t *testing.T) {
 	other := metadataOf(t, h, "/plex/tv/library/metadata/"+string(eps[1].UID))
 	assert.NotContains(t, other, "Guid", "an episode with no TVDB id has none")
 	assert.NotContains(t, other, "Role")
+}
+
+// PMS refreshes a show by matching the show and then each season, and
+// GETting each with includeChildren=1: a season's episodes come from that
+// answer alone, and PMS asks for no episode by itself (talos, 2026-10-22,
+// PMS's debug log), so not one of 11,083 episodes held its crew. An
+// episode's guest cast and crew are on its season's children, and on the
+// paged /children and /grandchildren listings too.
+func TestEpisodesCarryTheirPeopleWhereverTheirSeasonListsThem(t *testing.T) {
+	s, eps := fixtureSeriesAndEpisodes()
+	objs := []client.Object{s}
+	for _, e := range eps {
+		objs = append(objs, e)
+	}
+	people := extended.Doc{
+		Role:     []extended.Person{{Name: "Noel Clarke", Character: "Mickey Smith"}},
+		Director: []extended.Person{{Name: "Keith Boak", Job: "Director"}},
+		Writer:   []extended.Person{{Name: "Russell T Davies", Job: "Writer"}},
+	}
+	h := newFullHandler(t, docs(map[types.UID]extended.Doc{eps[0].UID: people}), objs...)
+	season := plex.SeasonKey(s.UID, eps[0].Spec.SeasonNumber)
+
+	assertPeople := func(t *testing.T, where string, items []any) {
+		t.Helper()
+		var found bool
+		for _, it := range items {
+			md := it.(map[string]any)
+			if md["ratingKey"] != plex.RatingKey(eps[0].UID) {
+				assert.NotContains(t, md, "Director", "%s: an episode with no document has no people", where)
+				continue
+			}
+			found = true
+			assert.Equal(t, []any{map[string]any{"tag": "Noel Clarke", "role": "Mickey Smith"}}, md["Role"], where)
+			assert.Equal(t, []any{map[string]any{"tag": "Keith Boak", "role": "Director"}}, md["Director"], where)
+			assert.Equal(t, []any{map[string]any{"tag": "Russell T Davies", "role": "Writer"}}, md["Writer"], where)
+		}
+		assert.True(t, found, "%s lists the episode", where)
+	}
+
+	withChildren := metadataOf(t, h, "/plex/tv/library/metadata/"+season+"?includeChildren=1")
+	children, ok := withChildren["Children"].(map[string]any)
+	require.True(t, ok, "the season answers its Children")
+	assertPeople(t, "includeChildren=1", children["Metadata"].([]any))
+
+	for _, path := range []string{
+		"/plex/tv/library/metadata/" + season + "/children",
+		"/plex/tv/library/metadata/" + plex.RatingKey(s.UID) + "/grandchildren",
+	} {
+		rec := getJSON(t, h, path)
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		var body struct {
+			MediaContainer struct {
+				Metadata []any `json:"Metadata"`
+			} `json:"MediaContainer"`
+		}
+		require.NoError(t, decodeJSON(rec.Body.Bytes(), &body))
+		assertPeople(t, path, body.MediaContainer.Metadata)
+	}
 }
 
 func TestNoExtendedDocMeansNoPeopleAndAnErrorIsNotAFailure(t *testing.T) {
