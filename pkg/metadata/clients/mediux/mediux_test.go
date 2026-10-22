@@ -90,8 +90,10 @@ func recorded(t *testing.T) (*mediux.Client, *httptest.Server, *atomic.Int32) {
 		_, _ = w.Write(b)
 	}))
 	t.Cleanup(srv.Close)
-	c, err := mediux.New(mediux.Config{HTTPClient: srv.Client(), BaseURL: srv.URL, Token: "shared-test-token",
-		UserAgent: "clustarr/test", Limiter: rate.NewLimiter(rate.Inf, 1)})
+	c, err := mediux.New(mediux.Config{
+		HTTPClient: srv.Client(), BaseURL: srv.URL, Token: "shared-test-token",
+		UserAgent: "clustarr/test", Limiter: rate.NewLimiter(rate.Inf, 1),
+	})
 	require.NoError(t, err)
 	return c, srv, &calls
 }
