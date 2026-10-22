@@ -112,7 +112,11 @@ func RefreshTTL(kind commonv1.MediaKind, state string, lastRefreshed time.Time) 
 //	4: a Series refresh files its episodes' guest cast and crew in each
 //	   episode's extended document (2026-10-07), for the Plex provider's
 //	   episode Role, Director and Writer.
-const SchemaVersion int32 = 4
+//	5: a Series' logo and clear art are TheTVDB's ClearLogo and ClearArt,
+//	   in the titles' language or none, no longer a season's poster and
+//	   banner, and its seasons gain their own banners and posters
+//	   (2026-10-21): every series' Plex clearLogo was a season poster.
+const SchemaVersion int32 = 5
 
 // RefreshPurpose is the events.MsgIDForObject purpose of an item's metadata
 // task. The refresh an outdated document asks for has one of its own, per

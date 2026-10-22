@@ -87,22 +87,100 @@ func TestSeriesMapsTheFullMetadataFields(t *testing.T) {
 	assert.Equal(t, "https://artworks.thetvdb.com/banners/person/297153/62107884.jpg", tennant.ImageURL)
 
 	var seasonOne *metadata.Image
-	orders := map[string]int{}
+	seasons := map[string]map[int32]bool{}
 	for i, img := range s.Images {
-		if img.Season == nil {
+		if img.Season == nil || img.Type != metadata.ImageTypePoster {
 			continue
 		}
-		orders[img.SeasonOrder]++
-		if *img.Season == 1 && img.Type == metadata.ImageTypePoster && img.SeasonOrder == "official" {
+		if seasons[img.SeasonOrder] == nil {
+			seasons[img.SeasonOrder] = map[int32]bool{}
+		}
+		seasons[img.SeasonOrder][*img.Season] = true
+		if seasonOne == nil && *img.Season == 1 && img.SeasonOrder == "official" {
 			seasonOne = &s.Images[i]
 		}
 	}
-	assert.Equal(t, map[string]int{"official": 14, "dvd": 10}, orders,
-		"every stored order's season posters, each naming its order; alternate orders clustarr never stores are left out")
+	assert.Equal(t, map[string]int{"official": 14, "dvd": 10}, map[string]int{"official": len(seasons["official"]), "dvd": len(seasons["dvd"])},
+		"every stored order's seasons have posters, each naming its order")
+	assert.Len(t, seasons, 2, "alternate orders clustarr never stores are left out")
 	require.NotNil(t, seasonOne)
 	assert.Equal(t, "https://artworks.thetvdb.com/banners/seasons/5bbd0422a8706.jpg", seasonOne.URL)
 	assert.Contains(t, s.SeasonTypes, metadata.SeasonTypeRef{ID: "official", Name: "Aired Order"})
 	assert.Len(t, s.SeasonTypes, 4)
+}
+
+// TheTVDB's ClearLogo (23) and ClearArt (22) are the series' logo and clear
+// art. Types 6 and 7 are a season's Banner and Poster, which were read as
+// clear art and logo until 2026-10-21: on talos every series' Plex clearLogo
+// was a season poster (Family Guy's, byte for byte). A logo carries its
+// title's text, so only those in the titles' language or in none are kept,
+// as TMDB's include_image_language keeps them: Doctor Who's Russian logo
+// and clear art are left out.
+func TestSeriesLogoAndClearArtAreTheTVDBsClearLogoAndClearArt(t *testing.T) {
+	s, err := recordedTVDB(t).WithLocale("en", "US").Series(context.Background(), "78804")
+	require.NoError(t, err)
+
+	own := map[metadata.ImageType][]metadata.Image{}
+	for _, img := range s.Images {
+		if img.Season != nil {
+			continue
+		}
+		assert.NotRegexp(t, `/seasons?(wide)?/`, img.URL, "a season's artwork is never the series' own")
+		own[img.Type] = append(own[img.Type], img)
+	}
+	require.Len(t, own[metadata.ImageTypeLogo], 14)
+	assert.Equal(t, "https://artworks.thetvdb.com/banners/v4/series/78804/clearlogo/611b52389b2a5.png",
+		own[metadata.ImageTypeLogo][0].URL, "TheTVDB's first, its highest scored")
+	for _, img := range own[metadata.ImageTypeLogo] {
+		assert.Contains(t, img.URL, "/clearlogo/")
+		assert.Equal(t, "en", img.Language)
+	}
+	require.Len(t, own[metadata.ImageTypeClearart], 10)
+	assert.Equal(t, "https://artworks.thetvdb.com/banners/v4/series/78804/clearart/611b52668104f.png",
+		own[metadata.ImageTypeClearart][0].URL)
+	for _, img := range own[metadata.ImageTypeClearart] {
+		assert.Contains(t, img.URL, "/clearart/")
+		assert.Equal(t, "en", img.Language)
+	}
+}
+
+// A season's own Banner (6) and Poster (7) join their season through
+// seasonId, filed under its number and order: the season list's poster
+// first -- the one the Plex provider sends -- then TheTVDB's artworks in the
+// order published, a URL once, at most three of a type per season and
+// order. Doctor Who has 23 posters for its first season alone, and
+// seasonImages holds 400 in all.
+func TestSeasonsTakeTheirOwnBannersAndPosters(t *testing.T) {
+	s, err := recordedTVDB(t).WithLocale("en", "US").Series(context.Background(), "78804")
+	require.NoError(t, err)
+
+	type key struct {
+		season int32
+		order  string
+		kind   metadata.ImageType
+	}
+	per := map[key][]string{}
+	for _, img := range s.Images {
+		if img.Season == nil {
+			continue
+		}
+		k := key{*img.Season, img.SeasonOrder, img.Type}
+		per[k] = append(per[k], img.URL)
+	}
+	for k, urls := range per {
+		assert.LessOrEqual(t, len(urls), 3, "%+v", k)
+	}
+	assert.Equal(t, []string{
+		"https://artworks.thetvdb.com/banners/series/78804/seasons/1802912/posters/62078006.jpg",
+		"https://artworks.thetvdb.com/banners/series/78804/seasons/1802912/posters/62024686.jpg",
+		"https://artworks.thetvdb.com/banners/series/78804/seasons/1802912/posters/62078005.jpg",
+	}, per[key{12, "official", metadata.ImageTypePoster}], "the season list's poster, which is also its first artwork, once")
+	assert.Equal(t, "https://artworks.thetvdb.com/banners/seasons/5bbd0422a8706.jpg",
+		per[key{1, "official", metadata.ImageTypePoster}][0], "the season list's poster first")
+	assert.Len(t, per[key{1, "official", metadata.ImageTypePoster}], 3)
+	assert.Equal(t, []string{"https://artworks.thetvdb.com/banners/seasonswide/78804-1.jpg"},
+		per[key{1, "official", metadata.ImageTypeBanner}])
+	assert.Len(t, per[key{0, "dvd", metadata.ImageTypeBanner}], 3)
 }
 
 func TestEpisodesCarryTheirStill(t *testing.T) {
