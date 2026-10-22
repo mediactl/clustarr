@@ -19,6 +19,7 @@ package plex_test
 
 import (
 	"context"
+	"sync"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -493,4 +494,51 @@ func TestSeasonAndEpisodeTakeTheImageSetsOverrides(t *testing.T) {
 		assert.Equal(t, photoURL("https://api.mediux.pro/assets/e1"), md["thumb"], "the set's episode thumbnail")
 		assert.Equal(t, photoURL("https://api.mediux.pro/assets/s1"), md["parentThumb"], "its season's poster from the set")
 	}
+}
+
+// An episode whose own extended document lists no cast carries its show's
+// cast (TheTVDB names an episode's guest stars and crew alone; Cyberpunk:
+// Edgerunners' episodes list producers only, 2026-10-21); one with its own
+// keeps it. The show's document is read once for a season's listing.
+func TestEpisodeWithoutItsOwnCastCarriesTheShows(t *testing.T) {
+	s, eps := fixtureSeriesAndEpisodes()
+	objs := []client.Object{s}
+	for _, e := range eps {
+		objs = append(objs, e)
+	}
+	seriesCast := []extended.Person{{Name: "KENN", Character: "David Martinez"}, {Name: "Aoi Yuki", Character: "Lucy"}}
+	d := map[types.UID]extended.Doc{
+		s.UID:      {Role: seriesCast},
+		eps[0].UID: {Producer: []extended.Person{{Name: "Rafal Jaki", Job: "Executive Producer"}}},
+		eps[1].UID: {Role: []extended.Person{{Name: "Guest", Character: "Someone"}}},
+	}
+	reads := map[commonv1.MediaKind]int{}
+	var mu sync.Mutex
+	read := docs(d)
+	counting := func(ctx context.Context, kind commonv1.MediaKind, uid types.UID) (extended.Doc, bool, error) {
+		mu.Lock()
+		reads[kind]++
+		mu.Unlock()
+		return read(ctx, kind, uid)
+	}
+	h := newFullHandler(t, counting, objs...)
+	md := metadataOf(t, h, "/plex/tv/library/metadata/"+string(eps[0].UID))
+	assert.Equal(t, []any{map[string]any{"tag": "KENN", "role": "David Martinez"}, map[string]any{"tag": "Aoi Yuki", "role": "Lucy"}}, md["Role"],
+		"the show's cast on an episode with none of its own")
+	assert.Equal(t, []any{map[string]any{"tag": "Rafal Jaki", "role": "Executive Producer"}}, md["Producer"], "its own producers stay")
+	md = metadataOf(t, h, "/plex/tv/library/metadata/"+string(eps[1].UID))
+	assert.Equal(t, []any{map[string]any{"tag": "Guest", "role": "Someone"}}, md["Role"], "an episode's own cast is its own")
+
+	mu.Lock()
+	reads = map[commonv1.MediaKind]int{}
+	mu.Unlock()
+	season := metadataOf(t, h, "/plex/tv/library/metadata/"+plex.SeasonKey(s.UID, 1)+"?includeChildren=1")
+	children := season["Children"].(map[string]any)["Metadata"].([]any)
+	assert.GreaterOrEqual(t, len(children), 2)
+	for _, c := range children {
+		assert.NotEmpty(t, c.(map[string]any)["Role"], "every listed episode carries a cast")
+	}
+	mu.Lock()
+	assert.Equal(t, 1, reads[commonv1.MediaKindSeries], "the show's document is read once for the listing")
+	mu.Unlock()
 }

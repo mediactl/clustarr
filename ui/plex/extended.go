@@ -151,6 +151,41 @@ const ExtendedReadTimeout = 2 * time.Second
 // or one that cannot be read, is no people -- never an error: Plex should
 // still get everything else.
 func (h *handler) enrichExtended(ctx context.Context, u urls, md *Metadata, kind commonv1.MediaKind, uid types.UID, idx *projection.Index) {
+	h.enrichExtendedWith(ctx, u, md, kind, uid, idx, h.seriesCast())
+}
+
+// seriesCast reads a series' cast from its extended document, once per
+// series for the reader's life: an episode listing's episodes share it.
+func (h *handler) seriesCast() func(ctx context.Context, series types.UID) []extended.Person {
+	var mu sync.Mutex
+	cache := map[types.UID][]extended.Person{}
+	return func(ctx context.Context, series types.UID) []extended.Person {
+		mu.Lock()
+		ps, seen := cache[series]
+		mu.Unlock()
+		if seen {
+			return ps
+		}
+		doc, ok, err := h.opts.Extended(ctx, commonv1.MediaKindSeries, series)
+		if err != nil {
+			logging.FromContext(ctx).WarnContext(ctx, "plex: read the series' extended metadata document for its episode", "error", err)
+		} else if ok {
+			ps = doc.Role
+		}
+		mu.Lock()
+		cache[series] = ps
+		mu.Unlock()
+		return ps
+	}
+}
+
+// enrichExtendedWith is enrichExtended with the series-cast reader given:
+// an episode whose own document lists no cast (TheTVDB names only an
+// episode's guest stars and crew; Cyberpunk: Edgerunners' episodes list
+// producers alone, 2026-10-21) carries its show's cast, as Plex's own
+// agent shows it.
+func (h *handler) enrichExtendedWith(ctx context.Context, u urls, md *Metadata, kind commonv1.MediaKind, uid types.UID, idx *projection.Index,
+	seriesCast func(context.Context, types.UID) []extended.Person) {
 	if h.opts.Extended == nil {
 		return
 	}
@@ -162,7 +197,7 @@ func (h *handler) enrichExtended(ctx context.Context, u urls, md *Metadata, kind
 		return
 	}
 	if !ok {
-		return
+		doc = extended.Doc{}
 	}
 	people := func(ps []extended.Person, crew bool) []PersonTag {
 		if len(ps) == 0 {
@@ -179,6 +214,9 @@ func (h *handler) enrichExtended(ctx context.Context, u urls, md *Metadata, kind
 		return out
 	}
 	md.Role = people(doc.Role, false)
+	if len(md.Role) == 0 && kind == commonv1.MediaKindEpisode && md.GrandparentRatingKey != "" && seriesCast != nil {
+		md.Role = people(seriesCast(rctx, types.UID(md.GrandparentRatingKey)), false)
+	}
 	md.Director = people(doc.Director, true)
 	md.Writer = people(doc.Writer, true)
 	md.Producer = people(doc.Producer, true)
@@ -207,6 +245,7 @@ func (h *handler) enrichEpisodes(ctx context.Context, u urls, items []Metadata, 
 	ctx, cancel := context.WithTimeout(ctx, ExtendedReadTimeout)
 	defer cancel()
 	slots := make(chan struct{}, listingReads)
+	cast := h.seriesCast()
 	var wg sync.WaitGroup
 	for i := range items {
 		if items[i].Type != metadataTypeEpisode {
@@ -218,7 +257,7 @@ func (h *handler) enrichEpisodes(ctx context.Context, u urls, items []Metadata, 
 		go func() {
 			defer wg.Done()
 			defer func() { <-slots }()
-			h.enrichExtended(ctx, u, md, commonv1.MediaKindEpisode, types.UID(md.RatingKey), idx)
+			h.enrichExtendedWith(ctx, u, md, commonv1.MediaKindEpisode, types.UID(md.RatingKey), idx, cast)
 		}()
 	}
 	wg.Wait()
