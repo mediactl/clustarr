@@ -476,13 +476,15 @@ type ImageSetInputs struct {
 	// text.
 	Seasons  []int32          `json:"seasons,omitempty"`
 	Episodes map[string]int32 `json:"episodes,omitempty"`
+	// SetID is the set the owner pinned (spec.imageSetID); empty chooses.
+	SetID string `json:"setID,omitempty"`
 }
 
 // SameItem reports whether o names the same item: the ids an answer is
 // for, as against what the series had, which changes with every aired
 // episode and is reconsidered at the refresh.
 func (in ImageSetInputs) SameItem(o ImageSetInputs) bool {
-	return in.Kind == o.Kind && in.TMDBID == o.TMDBID && in.TVDBID == o.TVDBID
+	return in.Kind == o.Kind && in.TMDBID == o.TMDBID && in.TVDBID == o.TVDBID && in.SetID == o.SetID
 }
 
 // ImageSetImage is one image of a chosen set: the item's own when Season

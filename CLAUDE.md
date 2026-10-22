@@ -657,7 +657,14 @@ linked). A set cached as JSON must round-trip: `ShowSet` and `File` have
 `MarshalJSON` writing the wire's nested shape their decoders read, without
 which every cached set came back poster-only and the second choice was never
 the first's. The proxy allowlist has `images.mediux.io` too, the host the
-chosen sets link (`api.mediux.pro` refuses `key=jpg`).
+chosen sets link (`api.mediux.pro` refuses `key=jpg`). The dialog's second
+form sets the policy per item (`ui/actions.SetImageSetPolicy`): untick
+"choose automatically" for `spec.imageSet: none`, or pin a set by id or
+page URL into `spec.imageSetID`, which the worker fetches as it is
+(`ShowSet`/`MovieSet` by id, no choosing) and a changed pin asks for at
+once. A MediUX limit longer than five minutes defers the record and acks,
+and the stage republishes the task at the reset (`Decision.Resume`,
+`MsgIDForImageSetAt`), as the markers worker does.
 A season named by TheTVDB ("Book 1: Water", "Steel Ball Run";
 2026-10-21) is titled by that name in Plex instead of "Season N", and on
 the series page beside its label: `/series/{id}/extended` carries each

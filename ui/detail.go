@@ -62,6 +62,7 @@ func (s *Server) itemDetail(ctx context.Context, item projection.LibraryItem) vi
 			d.MinimumAvailability = string(m.Spec.MinimumAvailability)
 			fillMovie(&d, &m)
 			d.ImageSet = imageSetNote(m.Spec.Artwork, nil, m.Status.ImageSet)
+			d.ImageSetAuto, d.ImageSetPinned = m.Spec.ImageSet != catalogv1.ImageSetNone, m.Spec.ImageSetID
 			d.Audio = audioNote(m.Status.Audio)
 			if ref := m.Status.FileRef; ref != nil && *ref != "" {
 				var f catalogv1.MediaFile
@@ -77,6 +78,7 @@ func (s *Server) itemDetail(ctx context.Context, item projection.LibraryItem) vi
 			d.SeriesType = string(sr.Spec.SeriesType)
 			fillSeries(&d, &sr)
 			d.ImageSet = imageSetNote(sr.Spec.Artwork, sr.Spec.SeasonArtwork, sr.Status.ImageSet)
+			d.ImageSetAuto, d.ImageSetPinned = sr.Spec.ImageSet != catalogv1.ImageSetNone, sr.Spec.ImageSetID
 		}
 	case commonv1.MediaKindArtist:
 		var a catalogv1.Artist

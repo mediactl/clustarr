@@ -127,6 +127,13 @@ func (s *Stage) Plan(ctx context.Context, _ *remediation.Env, v *remediation.Ite
 		}
 		res.Effects = append(res.Effects, remediation.Publish{Subject: subject, MsgID: id, ExpectStream: events.StreamWorkCatalog, Envelope: env})
 	}
+	if d.Resume != nil {
+		subject, id, env, err := catalogimagesets.ResumeMessage(*d.Resume, v.Now.Time)
+		if err != nil {
+			return res, err
+		}
+		res.Effects = append(res.Effects, remediation.Publish{Subject: subject, MsgID: id, ExpectStream: events.StreamWorkCatalog, Envelope: env})
+	}
 	if d.Request != nil {
 		seq := v.Now.Unix()
 		if s.o.Dispatch != nil {
@@ -188,6 +195,7 @@ func inputsOf(obj client.Object) (in schema.ImageSetInputs, mode catalogv1alpha1
 		if o.Spec.TmdbID > 0 {
 			in.TMDBID = strconv.FormatInt(o.Spec.TmdbID, 10)
 		}
+		in.SetID = o.Spec.ImageSetID
 		return in, o.Spec.ImageSet, o.Status.ImageSet, true
 	case *catalogv1alpha1.Series:
 		in.Kind = string(commonv1.MediaKindSeries)
@@ -209,6 +217,7 @@ func inputsOf(obj client.Object) (in schema.ImageSetInputs, mode catalogv1alpha1
 				in.Episodes[strconv.FormatInt(int64(se.Number), 10)] = se.EpisodeCount
 			}
 		}
+		in.SetID = o.Spec.ImageSetID
 		return in, o.Spec.ImageSet, o.Status.ImageSet, true
 	}
 	return in, "", nil, false

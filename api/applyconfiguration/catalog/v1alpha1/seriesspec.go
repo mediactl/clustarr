@@ -79,6 +79,10 @@ type SeriesSpecApplyConfiguration struct {
 	// status.imageSet). A pasted set in spec.artwork and spec.seasonArtwork
 	// wins over the chosen one either way.
 	ImageSet *catalogv1alpha1.ImageSetMode `json:"imageSet,omitempty"`
+	// ImageSetID pins the MediUX set the provider applies, by its id
+	// (the number in https://mediux.pro/sets/<id>), instead of the one it
+	// would choose; unset chooses.
+	ImageSetID *string `json:"imageSetID,omitempty"`
 }
 
 // SeriesSpecApplyConfiguration constructs a declarative configuration of the SeriesSpec type for use with
@@ -253,5 +257,13 @@ func (b *SeriesSpecApplyConfiguration) WithSeasonArtwork(values ...*SeasonArtwor
 // If called multiple times, the ImageSet field is set to the value of the last call.
 func (b *SeriesSpecApplyConfiguration) WithImageSet(value catalogv1alpha1.ImageSetMode) *SeriesSpecApplyConfiguration {
 	b.ImageSet = &value
+	return b
+}
+
+// WithImageSetID sets the ImageSetID field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the ImageSetID field is set to the value of the last call.
+func (b *SeriesSpecApplyConfiguration) WithImageSetID(value string) *SeriesSpecApplyConfiguration {
+	b.ImageSetID = &value
 	return b
 }

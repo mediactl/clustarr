@@ -20,6 +20,8 @@ package ui
 import (
 	"fmt"
 	"net/http"
+	"regexp"
+	"strings"
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
@@ -136,4 +138,55 @@ func sameSeasonImage(a, b catalogv1.SeasonArtworkOverride) bool {
 		return false
 	}
 	return a.Episode == nil || *a.Episode == *b.Episode
+}
+
+// setURLRE is a MediUX set's page, https://mediux.pro/sets/<id>, as the
+// dialog accepts it beside a bare id.
+var setURLRE = regexp.MustCompile(`^(?:https?://)?(?:www\.)?mediux\.pro/sets/([0-9]+)/?(?:[?#].*)?$`)
+
+// ParseSetID reads a MediUX set id from s: the id itself, or the set's page
+// URL; "" for an empty s. Anything else is an error.
+func ParseSetID(s string) (string, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "", nil
+	}
+	if m := setURLRE.FindStringSubmatch(s); m != nil {
+		return m[1], nil
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return "", fmt.Errorf("%w: %q is neither a MediUX set id nor a mediux.pro/sets URL", actions.ErrInvalid, s)
+		}
+	}
+	return s, nil
+}
+
+// handleImageSetPolicy is the Image Set dialog's second form (spec
+// 2026-10-22): POST /library/{namespace}/{kind}/{name}/imageset/policy with
+// "auto" (present to let the mediux provider choose, absent to opt the item
+// out) and "set" (a MediUX set id or its page URL to pin, empty to unpin),
+// through Options.Actions.SetImageSetPolicy.
+func (s *Server) handleImageSetPolicy(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+	ns, name := r.PathValue("namespace"), r.PathValue("name")
+	kind := commonv1.MediaKind(r.PathValue("kind"))
+	if _, ok := findLibraryItem(s.opts.Library(r.Context()), ns, string(kind), name); !ok {
+		http.NotFound(w, r)
+		return
+	}
+	setID, err := ParseSetID(r.FormValue("set"))
+	if err != nil {
+		s.finishAction(w, r, err)
+		return
+	}
+	mode := catalogv1.ImageSetNone
+	if r.FormValue("auto") != "" {
+		mode = catalogv1.ImageSetAuto
+	}
+	_, err = s.opts.Actions.SetImageSetPolicy(r.Context(), ns, kind, name, mode, setID)
+	s.finishAction(w, r, err)
 }

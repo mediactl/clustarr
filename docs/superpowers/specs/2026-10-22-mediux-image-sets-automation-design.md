@@ -261,11 +261,21 @@ item per week, and none for items the daily `content_ids` list excludes.
   so the object store holds them and Plex never hotlinks the item's own
   images; the item page's "Images" fact shows the pasted set, else the
   chosen one with a link; `/art/search` allows `images.mediux.io`.
+- **Pinning and deferral (same day).** `spec.imageSetID` pins a set by its
+  MediUX id: the Image Set dialog's policy form takes the id or the set's
+  page URL (and the "choose automatically" box, `spec.imageSet`), the
+  request carries it (`ImageSetInputs.SetID`, part of `SameItem`, so a
+  changed pin is asked for at once, past the refresh), and the source
+  fetches the set as it is with no choosing. A MediUX `Retry-After` over
+  five minutes defers the record (`Answers.Defer`) and acks; the planner
+  waits for `DeferredUntil` and republishes the task under
+  `MsgIDForImageSetAt` inside the republish window (`Decision.Resume`),
+  else asks afresh after the request timeout.
 - **Not built:** the pacing cap of 20 first-time lookups per namespace per
   sweep (the ledger's 8 slots, the agent's 0.5/s limiter and the daily
   content list bound the burst instead), a 429 pausing the provider's
-  health, collection sets, fetching season and episode images into the
-  store, pinning a set by id from the dialog.
+  health condition, collection sets, fetching season and episode images
+  into the store.
 
 ## Sources
 

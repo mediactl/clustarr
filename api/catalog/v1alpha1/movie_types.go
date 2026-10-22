@@ -452,6 +452,14 @@ type MovieSpec struct {
 	// one either way.
 	// +optional
 	ImageSet ImageSetMode `json:"imageSet,omitempty"`
+
+	// ImageSetID pins the MediUX set the provider applies, by its id
+	// (the number in https://mediux.pro/sets/<id>), instead of the one it
+	// would choose; unset chooses.
+	// +optional
+	// +kubebuilder:validation:MaxLength=64
+	// +kubebuilder:validation:Pattern=`^[0-9]+$`
+	ImageSetID string `json:"imageSetID,omitempty"`
 }
 
 // MovieStatus describes the observed state of Movie.

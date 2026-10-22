@@ -73,6 +73,8 @@ func recorded(t *testing.T) (*mediux.Client, *atomic.Int32) {
 				return
 			}
 			file = "show_sets_105248.json"
+		case strings.Contains(req.Query, "show_sets_by_id"):
+			file = "show_set_41471.json"
 		case strings.Contains(req.Query, "movies_by_id"):
 			file = "movie_sets_328387.json"
 		case strings.Contains(req.Query, "content_ids"):
@@ -146,4 +148,18 @@ func TestAMovieIsChosenDirectly(t *testing.T) {
 func TestEpisodesOfReadsTheRecordsKeys(t *testing.T) {
 	assert.Equal(t, map[int32]int32{1: 10, 2: 12}, mediuxsets.EpisodesOf(map[string]int32{"1": 10, "2": 12, "x": 1}))
 	assert.Nil(t, mediuxsets.EpisodesOf(nil))
+}
+
+// A pinned set (spec.imageSetID) is fetched by its id, whatever the policy
+// would choose and whether the item has an id at all.
+func TestAPinnedSetIsTakenAsItIs(t *testing.T) {
+	c, calls := recorded(t)
+	src := &mediuxsets.Source{Client: c, Lookup: mediuxsets.Direct{Client: c}, Policy: mediux.Policy{PreferredCreators: []string{"RandalPink87"}}}
+	set, err := src.ImageSet(context.Background(), metadata.ImageSetQuery{Kind: commonv1.MediaKindSeries, SetID: "41471"})
+	require.NoError(t, err)
+	assert.Equal(t, "41471", set.SetID)
+	assert.Equal(t, "sharivari", set.Creator)
+	assert.Equal(t, "pinned set 41471", set.Reason)
+	assert.Len(t, set.Images, 24)
+	assert.Equal(t, int32(1), calls.Load(), "one request, the set itself")
 }

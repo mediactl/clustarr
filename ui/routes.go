@@ -83,6 +83,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /library/{namespace}/{kind}/{name}/monitor", s.handleSetMonitored)
 	mux.HandleFunc("POST /library/{namespace}/{kind}/{name}/edit", s.handleEditItem)
 	mux.HandleFunc("POST /library/{namespace}/{kind}/{name}/imageset", s.handleImageSet)
+	mux.HandleFunc("POST /library/{namespace}/{kind}/{name}/imageset/policy", s.handleImageSetPolicy)
 	mux.HandleFunc("POST /library/{namespace}/{kind}/{name}/search", s.handleSearchNow)
 	mux.HandleFunc("GET /library/{namespace}/episode/{name}/details", s.handleEpisodeDetails)
 	mux.HandleFunc("POST /library/{namespace}/episode/{name}/search/interactive", s.handleInteractiveSearch)

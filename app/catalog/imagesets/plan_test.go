@@ -197,3 +197,54 @@ func TestTaskMessageNamesTheItem(t *testing.T) {
 }
 
 func itoa(n int64) string { return strconv.FormatInt(n, 10) }
+
+func TestADeferredRecordWaitsForItsResetThenResumes(t *testing.T) {
+	in := seriesInput()
+	until := now.Add(2 * time.Hour)
+	rec := &schema.ImageSetRecord{Inputs: in.Inputs}
+	item := in.Item
+	rec.RecordHeader.Schema, rec.Item, rec.Seq, rec.State, rec.RequestedAt = imagesets.RecordSchema, &item, 3, records.StateDeferred, now.Add(-time.Minute)
+	rec.DeferredUntil = &until
+	in.Record, in.RecordOK = rec, true
+	d := imagesets.Plan(in)
+	assert.Nil(t, d.Request)
+	assert.Nil(t, d.Resume)
+	assert.Equal(t, until, d.Due, "wait for MediUX's reset")
+
+	in.Now = until.Add(time.Minute)
+	d = imagesets.Plan(in)
+	assert.Nil(t, d.Request)
+	require.NotNil(t, d.Resume, "the reset has come: the task is published again")
+	assert.Equal(t, int64(3), d.Resume.Seq)
+	subject, id, _, err := imagesets.ResumeMessage(*d.Resume, in.Now)
+	require.NoError(t, err)
+	assert.Contains(t, subject, "clustarr.work.catalog.imageset.normal.")
+	assert.Equal(t, "imageset/u1/3/at-"+itoa(until.Unix()), id, "its own Msg-Id, past the first publish's")
+
+	in.Now = until.Add(imagesets.RequestTimeout + time.Second)
+	d = imagesets.Plan(in)
+	require.NotNil(t, d.Request, "unanswered past the timeout: asked afresh")
+}
+
+func TestAPinnedSetIsAskedForByItselfAndAChangedPinAsksAgain(t *testing.T) {
+	in := seriesInput()
+	in.Inputs = schema.ImageSetInputs{Kind: "series", SetID: "38985"}
+	assert.True(t, imagesets.Askable(in.Inputs), "a pin needs no TMDB or TheTVDB id")
+	d := imagesets.Plan(in)
+	require.NotNil(t, d.Request)
+	assert.Equal(t, "38985", d.Request.Inputs.SetID)
+
+	// Answered for the pin; then the owner pins another: asked again at once.
+	in.Record, in.RecordOK = answeredRecord(in, now, &schema.ImageSetAnswer{
+		Provider: "mediux", SetID: "38985", CheckedAt: now,
+		Images: []schema.ImageSetImage{{Type: "poster", URL: "https://x/p"}},
+	}, ""), true
+	d = imagesets.Plan(in)
+	require.True(t, d.Answered)
+	in.Prev = d.ImageSet
+	in.Inputs.SetID = "41471"
+	d = imagesets.Plan(in)
+	assert.False(t, d.Answered)
+	require.NotNil(t, d.Request, "another pin is another item to the record")
+	assert.Equal(t, "41471", d.Request.Inputs.SetID)
+}

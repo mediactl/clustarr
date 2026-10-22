@@ -85,6 +85,13 @@ func (s *Source) ImageSet(ctx context.Context, q metadata.ImageSetQuery) (*metad
 }
 
 func (s *Source) series(ctx context.Context, q metadata.ImageSetQuery) (*metadata.ImageSet, error) {
+	if q.SetID != "" {
+		set, err := s.Client.ShowSet(ctx, q.SetID)
+		if err != nil {
+			return nil, err
+		}
+		return s.showSet(set, "pinned set "+q.SetID), nil
+	}
 	tmdb := q.TMDBID
 	if tmdb == "" {
 		if q.TVDBID == "" {
@@ -105,10 +112,15 @@ func (s *Source) series(ctx context.Context, q metadata.ImageSetQuery) (*metadat
 	if ch == nil {
 		return nil, fmt.Errorf("mediux: none of %s's %d sets has a poster: %w", show.Title, len(show.Sets), metadata.ErrNotFound)
 	}
-	e := s.Client.Overrides(ch.Set)
+	return s.showSet(ch.Set, ch.Reason), nil
+}
+
+// showSet is set as the provider's answer, with reason.
+func (s *Source) showSet(set *mediux.ShowSet, reason string) *metadata.ImageSet {
+	e := s.Client.Overrides(set)
 	out := &metadata.ImageSet{
-		Provider: "mediux", SetID: ch.Set.ID, Title: ch.Set.Title, Creator: ch.Set.Creator.Username,
-		URL: mediux.SetURL(ch.Set.ID), UpdatedAt: ch.Set.Updated, Reason: ch.Reason,
+		Provider: "mediux", SetID: set.ID, Title: set.Title, Creator: set.Creator.Username,
+		URL: mediux.SetURL(set.ID), UpdatedAt: set.Updated, Reason: reason,
 	}
 	for _, a := range e.Artwork {
 		out.Images = append(out.Images, metadata.ImageSetImage{Type: string(a.Type), URL: a.URL})
@@ -120,10 +132,17 @@ func (s *Source) series(ctx context.Context, q metadata.ImageSetQuery) (*metadat
 		}
 		out.Images = append(out.Images, img)
 	}
-	return out, nil
+	return out
 }
 
 func (s *Source) movie(ctx context.Context, q metadata.ImageSetQuery) (*metadata.ImageSet, error) {
+	if q.SetID != "" {
+		set, err := s.Client.MovieSet(ctx, q.SetID)
+		if err != nil {
+			return nil, err
+		}
+		return s.movieSet(set, "pinned set "+q.SetID), nil
+	}
 	if q.TMDBID == "" {
 		return nil, fmt.Errorf("mediux: a movie needs a TMDB id: %w", metadata.ErrNotFound)
 	}
@@ -135,15 +154,20 @@ func (s *Source) movie(ctx context.Context, q metadata.ImageSetQuery) (*metadata
 	if ch == nil {
 		return nil, fmt.Errorf("mediux: none of %s's %d sets has a poster: %w", m.Title, len(m.Sets), metadata.ErrNotFound)
 	}
-	e := s.Client.MovieOverrides(ch.Set)
+	return s.movieSet(ch.Set, ch.Reason), nil
+}
+
+// movieSet is set as the provider's answer, with reason.
+func (s *Source) movieSet(set *mediux.MovieSet, reason string) *metadata.ImageSet {
+	e := s.Client.MovieOverrides(set)
 	out := &metadata.ImageSet{
-		Provider: "mediux", SetID: ch.Set.ID, Title: ch.Set.Title, Creator: ch.Set.Creator.Username,
-		URL: mediux.SetURL(ch.Set.ID), UpdatedAt: ch.Set.Updated, Reason: ch.Reason,
+		Provider: "mediux", SetID: set.ID, Title: set.Title, Creator: set.Creator.Username,
+		URL: mediux.SetURL(set.ID), UpdatedAt: set.Updated, Reason: reason,
 	}
 	for _, a := range e.Artwork {
 		out.Images = append(out.Images, metadata.ImageSetImage{Type: string(a.Type), URL: a.URL})
 	}
-	return out, nil
+	return out
 }
 
 // Overrides maps a chosen set's images to the catalog's shapes: the item's

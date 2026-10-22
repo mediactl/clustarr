@@ -45,6 +45,11 @@ import (
 // loop asks again after its request timeout.
 var errNoProvider = errors.New("no image-set provider is configured")
 
+// deferAfter is the longest limit a task waits out in its in-flight slot;
+// a longer one defers the record and acks, and the remediation loop
+// publishes the task again at the reset (ADR-0019 §5.6).
+const deferAfter = 5 * time.Minute
+
 // Handler is the catalog-imageset durable's handler.
 type Handler struct {
 	Providers  []metadata.ImageSetProvider
@@ -71,11 +76,18 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 	now := h.now()
 	q := metadata.ImageSetQuery{
 		Kind: commonv1.MediaKind(task.Inputs.Kind), TMDBID: task.Inputs.TMDBID, TVDBID: task.Inputs.TVDBID,
-		Seasons: task.Inputs.Seasons, Episodes: mediuxsets.EpisodesOf(task.Inputs.Episodes),
+		Seasons: task.Inputs.Seasons, Episodes: mediuxsets.EpisodesOf(task.Inputs.Episodes), SetID: task.Inputs.SetID,
 	}
 	set, err := h.ask(ctx, q)
 	var rl *metadata.RateLimitedError
 	switch {
+	case errors.As(err, &rl) && rl.RetryAfter > deferAfter:
+		// Deferred, or superseded or answered meanwhile: either way ack.
+		// The record's DeferredUntil wakes the loop, which republishes.
+		if _, derr := h.Answers.Defer(ctx, task, now.Add(rl.RetryAfter)); derr != nil {
+			return events.Retry(rl.RetryAfter, errors.Join(err, derr))
+		}
+		return nil
 	case errors.As(err, &rl):
 		if h.MaxDeliver > 0 && m.Attempt() >= h.MaxDeliver {
 			// The last delivery answers failed and transient, never leaving

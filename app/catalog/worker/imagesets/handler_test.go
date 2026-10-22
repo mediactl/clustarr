@@ -186,3 +186,26 @@ func TestASupersededTaskIsDropped(t *testing.T) {
 	assert.Empty(t, p.asked, "the record names a newer request")
 	assert.Equal(t, records.StateRequested, recordOf(t, bus, "u1").State)
 }
+
+func TestALongLimitDefersTheTaskToItsReset(t *testing.T) {
+	p := &stubProvider{err: &metadata.RateLimitedError{Provider: "mediux", RetryAfter: time.Hour}}
+	tk := seriesTask()
+	bus, h := world(t, p, tk)
+	require.NoError(t, h.Handle(context.Background(), task(t, tk)), "deferred and acked")
+	rec := recordOf(t, bus, "u1")
+	assert.Equal(t, records.StateDeferred, rec.State)
+	require.NotNil(t, rec.DeferredUntil)
+	assert.Equal(t, now.Add(time.Hour), *rec.DeferredUntil)
+	assert.Nil(t, rec.Answer)
+}
+
+func TestAPinnedSetReachesTheProvider(t *testing.T) {
+	p := &stubProvider{set: &metadata.ImageSet{Provider: "mediux", SetID: "38985"}}
+	tk := seriesTask()
+	tk.Inputs = schema.ImageSetInputs{Kind: "series", SetID: "38985"}
+	bus, h := world(t, p, tk)
+	require.NoError(t, h.Handle(context.Background(), task(t, tk)))
+	require.Len(t, p.asked, 1)
+	assert.Equal(t, "38985", p.asked[0].SetID)
+	assert.Equal(t, "38985", recordOf(t, bus, "u1").Answer.SetID)
+}

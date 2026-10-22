@@ -104,8 +104,12 @@ type Detail struct {
 	Links         []Link
 	AltTitles     []string
 	// ImageSet is the image set in use: the owner's pasted one, or the one
-	// the mediux provider chose (status.imageSet).
-	ImageSet *ImageSetNote
+	// the mediux provider chose (status.imageSet). ImageSetAuto and
+	// ImageSetPinned are the item's spec.imageSet (not none) and
+	// spec.imageSetID, the Image Set dialog's policy form.
+	ImageSet       *ImageSetNote
+	ImageSetAuto   bool
+	ImageSetPinned string
 	// ShowFiles is whether the page has the Files and extra-files
 	// sections: a movie's; a series' files live on its seasons.
 	ShowFiles bool

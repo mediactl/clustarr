@@ -97,3 +97,36 @@ func TestImageSetDialogWritesASeriesSeasonsAndEpisodes(t *testing.T) {
 		{Season: 1, Episode: &two, Type: catalogv1.ImageTypeScreenshot, URL: "https://theposterdb.com/api/assets/e2"},
 	}, sr.Spec.SeasonArtwork, "the set's season poster replaces the old one; episode 2's thumbnail, which the set leaves alone, is kept")
 }
+
+// The dialog's policy form (spec 2026-10-22) sets how the mediux provider
+// treats the item: pinning a set by id or page URL, and opting out of the
+// automatic choice, as one patch of spec.imageSet and spec.imageSetID.
+func TestImageSetDialogPinsASetAndOptsOut(t *testing.T) {
+	srv, c := seriesFixtureWithActions(t)
+	page := detailPage(t, srv, "/library/default/series/andor")
+	dlg := section(t, page, `data-imageset-dialog="andor"`)
+	require.Contains(t, dlg, `action="/library/default/series/andor/imageset/policy"`)
+	require.Contains(t, dlg, `data-imageset-auto`)
+	require.Contains(t, dlg, ` checked`, "auto by default")
+
+	rec := postForm(t, srv, "/library/default/series/andor/imageset/policy", url.Values{"return": {"/library/default/series/andor"}, "set": {"https://mediux.pro/sets/41471"}}, false)
+	require.Equal(t, http.StatusSeeOther, rec.Code, rec.Body.String())
+	var sr catalogv1.Series
+	require.NoError(t, c.Get(t.Context(), types.NamespacedName{Namespace: "default", Name: "andor"}, &sr))
+	require.Equal(t, "41471", sr.Spec.ImageSetID, "the id read from the set's page URL")
+	require.Equal(t, catalogv1.ImageSetNone, sr.Spec.ImageSet, "the box unticked opts out")
+
+	page = detailPage(t, srv, "/library/default/series/andor")
+	dlg = section(t, page, `data-imageset-dialog="andor"`)
+	require.Contains(t, dlg, `value="41471"`)
+	require.NotContains(t, dlg, ` checked`)
+
+	rec = postForm(t, srv, "/library/default/series/andor/imageset/policy", url.Values{"return": {"/library/default/series/andor"}, "auto": {"true"}, "set": {""}}, false)
+	require.Equal(t, http.StatusSeeOther, rec.Code, rec.Body.String())
+	require.NoError(t, c.Get(t.Context(), types.NamespacedName{Namespace: "default", Name: "andor"}, &sr))
+	require.Empty(t, sr.Spec.ImageSetID, "unpinned")
+	require.Empty(t, sr.Spec.ImageSet, "auto is the unset default")
+
+	rec = postForm(t, srv, "/library/default/series/andor/imageset/policy", url.Values{"return": {"/library/default/series/andor"}, "auto": {"true"}, "set": {"sharivari"}}, false)
+	require.NotEqual(t, http.StatusSeeOther, rec.Code, "neither an id nor a set URL")
+}

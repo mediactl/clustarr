@@ -36,6 +36,8 @@ type ImageSetQuery struct {
 	Seasons []int32
 	// Episodes is, by season, how many episodes the series has.
 	Episodes map[int32]int32
+	// SetID, when set, names the set to apply instead of choosing one.
+	SetID string
 }
 
 // ImageSetImage is one image of a chosen set. Season and Episode are 0 for

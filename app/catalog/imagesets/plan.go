@@ -68,9 +68,13 @@ type Decision struct {
 	ImageSet *catalogv1alpha1.ImageSetStatus
 	Clear    bool
 	// Request is written at Input.RecordRev, then published; Republish is
-	// an unclaimed request published again under the same Msg-Id.
+	// an unclaimed request published again under the same Msg-Id. Resume
+	// is a deferred record whose time has come: its task published again
+	// under ResumeMessage's Msg-Id (the worker defers and acks; the loop
+	// owns the republish, ADR-0019 §5.6).
 	Request   *schema.ImageSetRecord
 	Republish *schema.ImageSetRecord
+	Resume    *schema.ImageSetRecord
 	// Answered reports an answer incorporated this pass: the dispatch is
 	// done.
 	Answered bool
@@ -80,6 +84,9 @@ type Decision struct {
 // Askable reports whether in names the item to a provider: a movie by its
 // TMDB id, a series by its TMDB or TheTVDB id.
 func Askable(in schema.ImageSetInputs) bool {
+	if in.SetID != "" {
+		return in.Kind == string(commonv1.MediaKindMovie) || in.Kind == string(commonv1.MediaKindSeries)
+	}
 	switch commonv1.MediaKind(in.Kind) {
 	case commonv1.MediaKindMovie:
 		return in.TMDBID != ""
@@ -118,7 +125,10 @@ func Plan(in Input) Decision {
 		d.Due = nextCheck(d.ImageSet, refresh)
 		return d
 	}
-	if in.Prev != nil {
+	// A stored choice stands until its refresh -- unless the record shows
+	// it answered other inputs (a pin set or changed, an id learned), which
+	// is asked again at once.
+	if in.Prev != nil && (!in.RecordOK || rec.Inputs.SameItem(in.Inputs)) {
 		if at := nextCheck(in.Prev, refresh); in.Now.Before(at) {
 			d.Due = at
 			return d
@@ -130,6 +140,20 @@ func Plan(in Input) Decision {
 		if rec.ClaimedAt == nil && in.Now.Sub(rec.RequestedAt) < records.RepublishWindow {
 			r := rec
 			d.Republish = &r
+		}
+		return d
+	}
+	if in.RecordOK && rec.Inputs.SameItem(in.Inputs) && rec.State == records.StateDeferred && rec.DeferredUntil != nil &&
+		in.Now.Before(rec.DeferredUntil.Add(RequestTimeout)) {
+		// A MediUX limit's reset: wait for it, then republish the task for
+		// records.RepublishWindow; the request timeout asks afresh.
+		d.Due = rec.DeferredUntil.Add(RequestTimeout)
+		switch until := *rec.DeferredUntil; {
+		case in.Now.Before(until):
+			d.Due = until
+		case in.Now.Sub(until) < records.RepublishWindow:
+			r := rec
+			d.Resume = &r
 		}
 		return d
 	}

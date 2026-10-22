@@ -182,6 +182,14 @@ spec:
                 - auto
                 - none
                 type: string
+              imageSetID:
+                description: |-
+                  ImageSetID pins the MediUX set the provider applies, by its id
+                  (the number in https://mediux.pro/sets/<id>), instead of the one it
+                  would choose; unset chooses.
+                maxLength: 64
+                pattern: ^[0-9]+$
+                type: string
               monitorNewItems:
                 default: all
                 description: |-

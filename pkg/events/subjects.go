@@ -578,6 +578,12 @@ func MsgIDForImageSet(itemUID string, seq int64) string {
 	return "imageset/" + itemUID + "/" + strconv.FormatInt(seq, 10)
 }
 
+// MsgIDForImageSetAt is a deferred image-set task's, republished for at:
+// MsgIDForImageSet plus "/at-<unix>", so the dedup window keeps it.
+func MsgIDForImageSetAt(itemUID string, seq int64, at time.Time) string {
+	return MsgIDForImageSet(itemUID, seq) + "/at-" + strconv.FormatInt(at.Unix(), 10)
+}
+
 // ArtworkKey builds the object name for one artwork object in
 // events.BucketArtwork: "<kind>/<uid>/<imageType>/<variant>", e.g.
 // "movie/8b2c.../poster/original" (spec §B.2).

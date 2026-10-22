@@ -289,10 +289,10 @@ func (s ShowSet) MarshalJSON() ([]byte, error) {
 	}{alias: alias(s)}
 	out.alias.SeasonPosters, out.alias.Titlecards = nil, nil
 	for _, p := range s.SeasonPosters {
-		out.SeasonPosters = append(out.SeasonPosters, poster{rawFile: p.File.raw(), Season: seasonRef{Number: p.Season}})
+		out.SeasonPosters = append(out.SeasonPosters, poster{rawFile: p.raw(), Season: seasonRef{Number: p.Season}})
 	}
 	for _, t := range s.Titlecards {
-		c := card{rawFile: t.File.raw()}
+		c := card{rawFile: t.raw()}
 		c.Episode.Number, c.Episode.Season = t.Episode, seasonRef{Number: t.Season}
 		out.Titlecards = append(out.Titlecards, c)
 	}

@@ -25,6 +25,7 @@ package imagesets
 
 import (
 	"context"
+	"fmt"
 	"time"
 	"unicode/utf8"
 
@@ -70,6 +71,13 @@ func (a *Answers) Superseded(ctx context.Context, t schema.ImageSetTask) (bool, 
 	return a.a.Superseded(ctx, agentrecords.ImageSetKey(t.Item.UID), t.Seq)
 }
 
+// Defer postpones t's record to until: a MediUX limit longer than the
+// worker holds a slot for. The loop publishes the task again at until
+// (ResumeMessage).
+func (a *Answers) Defer(ctx context.Context, t schema.ImageSetTask, until time.Time) (records.Verdict, error) {
+	return a.a.Defer(ctx, agentrecords.ImageSetKey(t.Item.UID), t.Seq, until)
+}
+
 // Answer writes ans for t: state answered, or failed and transient with
 // failure as the reason (the loop keeps the images it has and asks again
 // after ErrorRetry).
@@ -85,15 +93,35 @@ func (a *Answers) Answer(ctx context.Context, t schema.ImageSetTask, ans schema.
 
 // TaskMessage is the subject, Msg-Id and envelope of rec's task.
 func TaskMessage(rec schema.ImageSetRecord, now time.Time) (subject, msgID string, env *events.Envelope, err error) {
+	t := taskOf(rec)
+	return taskMessage(t, events.MsgIDForImageSet(t.Item.UID, t.Seq), now)
+}
+
+// ResumeMessage is the task of rec, deferred to its DeferredUntil, which
+// the loop publishes once that time has come (Decision.Resume): under
+// events.MsgIDForImageSetAt, so neither the first publish's Msg-Id nor an
+// earlier deferral's absorbs it.
+func ResumeMessage(rec schema.ImageSetRecord, now time.Time) (subject, msgID string, env *events.Envelope, err error) {
+	if rec.DeferredUntil == nil {
+		return "", "", nil, fmt.Errorf("imagesets: the record of %s is not deferred", rec.Item)
+	}
+	t := taskOf(rec)
+	return taskMessage(t, events.MsgIDForImageSetAt(t.Item.UID, t.Seq, *rec.DeferredUntil), now)
+}
+
+func taskOf(rec schema.ImageSetRecord) schema.ImageSetTask {
 	t := schema.ImageSetTask{Seq: rec.Seq, Inputs: rec.Inputs}
 	if rec.Item != nil {
 		t.Item = *rec.Item
 	}
+	return t
+}
+
+func taskMessage(t schema.ImageSetTask, id string, now time.Time) (subject, msgID string, env *events.Envelope, err error) {
 	name, data, err := schema.Encode(t)
 	if err != nil {
 		return "", "", nil, err
 	}
-	id := events.MsgIDForImageSet(t.Item.UID, t.Seq)
 	env = &events.Envelope{
 		ID: id, Type: "catalog.ImageSetTask", Schema: name, Source: "catalog@" + version.String(),
 		Key: t.Item.Namespace + "/" + t.Item.Name, Time: now.UTC(), Data: data,

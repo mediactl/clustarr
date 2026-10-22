@@ -71,6 +71,10 @@ type MovieSpecApplyConfiguration struct {
 	// status.imageSet). A pasted set in spec.artwork wins over the chosen
 	// one either way.
 	ImageSet *catalogv1alpha1.ImageSetMode `json:"imageSet,omitempty"`
+	// ImageSetID pins the MediUX set the provider applies, by its id
+	// (the number in https://mediux.pro/sets/<id>), instead of the one it
+	// would choose; unset chooses.
+	ImageSetID *string `json:"imageSetID,omitempty"`
 }
 
 // MovieSpecApplyConfiguration constructs a declarative configuration of the MovieSpec type for use with
@@ -219,5 +223,13 @@ func (b *MovieSpecApplyConfiguration) WithArtwork(values ...*ArtworkOverrideAppl
 // If called multiple times, the ImageSet field is set to the value of the last call.
 func (b *MovieSpecApplyConfiguration) WithImageSet(value catalogv1alpha1.ImageSetMode) *MovieSpecApplyConfiguration {
 	b.ImageSet = &value
+	return b
+}
+
+// WithImageSetID sets the ImageSetID field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the ImageSetID field is set to the value of the last call.
+func (b *MovieSpecApplyConfiguration) WithImageSetID(value string) *MovieSpecApplyConfiguration {
+	b.ImageSetID = &value
 	return b
 }

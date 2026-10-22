@@ -3336,6 +3336,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: imageSet
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ImageSetMode
+    - name: imageSetID
+      type:
+        scalar: string
     - name: minimumAvailability
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.MinimumAvailability
@@ -4769,6 +4772,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: imageSet
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ImageSetMode
+    - name: imageSetID
+      type:
+        scalar: string
     - name: monitorNewItems
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.MonitorNewChildrenMode
