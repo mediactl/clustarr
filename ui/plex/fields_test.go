@@ -19,11 +19,11 @@ package plex_test
 
 import (
 	"context"
-	"sync"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/url"
+	"sync"
 	"testing"
 	"time"
 
