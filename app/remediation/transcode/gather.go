@@ -63,11 +63,11 @@ func (a *Adapter) Gather(ctx context.Context, env *remediation.Env, v *remediati
 		return in, remediation.Transient(fmt.Errorf("transcode: list TranscodeProfiles: %w", err))
 	}
 	in.Profiles = profiles.Items
-	exists, original, downloading, err := readItem(ctx, env.Reader, v.File)
+	item, err := readItem(ctx, env.Reader, v.File)
 	if err != nil {
 		return in, remediation.Transient(err)
 	}
-	in.ItemExists, in.OriginalLanguage, in.UpgradeDownloading = exists, original, downloading
+	in.ItemExists, in.OriginalLanguage, in.UpgradeDownloading, in.ItemExcluded = item.exists, item.original, item.downloading, item.excluded
 	b := v.Prev.Transcode
 	if in.Ledger.Grant == transcodeplan.GrantDispatch ||
 		b != nil && b.Phase == catalogv1alpha1.TranscodePhaseQueued && b.JoinedGraft != nil {
@@ -144,11 +144,22 @@ func (a *Adapter) gatherDispatch(ctx context.Context, env *remediation.Env, v *r
 	return nil
 }
 
-// readItem reads mf's movie or episode: whether it exists, and its
-// original language -- an episode's through its series
-// (itemread.OriginalLanguage) -- the standard's "original" in a profile's
-// language lists (transcodeplan.Inputs.OriginalLanguage). "" when unknown.
-func readItem(ctx context.Context, r client.Reader, mf *catalogv1alpha1.MediaFile) (exists bool, original string, downloading bool, err error) {
+// itemFacts is what readItem learns of a file's movie or episode.
+type itemFacts struct {
+	exists bool
+	// original is its original language -- an episode's through its series
+	// (itemread.OriginalLanguage) -- the standard's "original" in a
+	// profile's language lists (transcodeplan.Inputs.OriginalLanguage); ""
+	// when unknown.
+	original    string
+	downloading bool
+	// excluded: the item, or an episode's series, carries
+	// transcode.clustarr.io/exclude (itemread.TranscodeExcluded).
+	excluded bool
+}
+
+// readItem reads mf's movie or episode (itemFacts).
+func readItem(ctx context.Context, r client.Reader, mf *catalogv1alpha1.MediaFile) (itemFacts, error) {
 	key := types.NamespacedName{Namespace: mf.Namespace, Name: mf.Spec.MediaRef.Name}
 	var obj client.Object
 	switch mf.Spec.MediaRef.Kind {
@@ -157,15 +168,18 @@ func readItem(ctx context.Context, r client.Reader, mf *catalogv1alpha1.MediaFil
 	case commonv1.MediaKindEpisode:
 		obj = &catalogv1alpha1.Episode{}
 	default:
-		return false, "", false, nil
+		return itemFacts{}, nil
 	}
 	switch err := r.Get(ctx, key, obj, client.UnsafeDisableDeepCopy); {
 	case apierrors.IsNotFound(err):
-		return false, "", false, nil
+		return itemFacts{}, nil
 	case err != nil:
-		return false, "", false, fmt.Errorf("transcode: get %s %s: %w", mf.Spec.MediaRef.Kind, key, err)
+		return itemFacts{}, fmt.Errorf("transcode: get %s %s: %w", mf.Spec.MediaRef.Kind, key, err)
 	}
-	return true, itemread.OriginalLanguage(ctx, r, obj), transcodeplan.UpgradeDownloading(obj), nil
+	return itemFacts{
+		exists: true, original: itemread.OriginalLanguage(ctx, r, obj), downloading: transcodeplan.UpgradeDownloading(obj),
+		excluded: itemread.TranscodeExcluded(ctx, r, obj),
+	}, nil
 }
 
 // statFiles stats spec.path and, when it is gone, the last dispatch's

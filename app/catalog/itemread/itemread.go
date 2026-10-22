@@ -442,6 +442,21 @@ func OriginalLanguage(ctx context.Context, r client.Reader, item client.Object) 
 	return ""
 }
 
+// TranscodeExcluded reports whether item, or an Episode's Series, carries
+// transcode.clustarr.io/exclude: "true" (catalogv1alpha1.AnnotationTranscodeExclude).
+func TranscodeExcluded(ctx context.Context, r client.Reader, item client.Object) bool {
+	if item.GetAnnotations()[catalogv1alpha1.AnnotationTranscodeExclude] == "true" {
+		return true
+	}
+	if e, ok := item.(*catalogv1alpha1.Episode); ok {
+		var s catalogv1alpha1.Series
+		if err := r.Get(ctx, client.ObjectKey{Namespace: e.Namespace, Name: e.Spec.SeriesRef}, &s); err == nil {
+			return s.Annotations[catalogv1alpha1.AnnotationTranscodeExclude] == "true"
+		}
+	}
+	return false
+}
+
 // Protocols is the protocols of ns's enabled DownloadClients (P7).
 func Protocols(ctx context.Context, r client.Reader, ns string) (map[commonv1.Protocol]bool, error) {
 	var list downloadv1alpha1.DownloadClientList

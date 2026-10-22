@@ -171,7 +171,7 @@ re-transcodes nothing**: the transcode planner (`app/transcode/transcodeplan`)
 skips a file that is `MediaFile.Transcoded()` or whose `status.transcode` is
 already open for the profile, a verdict (Skipped or Failed) holds only for its
 profile hash and probe hash, and the standard skips any
-`CLUSTARR_PROFILE`-tagged MP4 and never encodes a tagged file. A plan
+`CLUSTARR_PROFILE`-tagged MP4 and never encodes a tagged file. `transcode.clustarr.io/exclude: "true"` on a MediaFile, its Movie or Episode, or an Episode's Series keeps the file out of every transcode whatever the hashes (owner, 2026-10-22, Mister Rogers' Neighborhood): it is never eligible, so it takes no window place, and a running attempt is withdrawn as Skipped, reason `Excluded`. On an item it takes effect as each file is next planned. Suspend only holds a file in its window place, and a cancel lasts only while the profile and probe hashes do. A plan
 reads as `TranscodePlan.Describe` ("remux to MP4, video copied", "encode
 with hevc_qsv") in the dispatch and running messages and on the pipeline
 page, never as FFmpeg's `copy`. Raise

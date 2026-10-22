@@ -33,6 +33,10 @@ const (
 
 	// Skipped: a verdict for one (profileHash, probeHash).
 	ReasonPlanSkip, ReasonTranscoded, ReasonCancelled, ReasonProfileGone = "PlanSkip", "Transcoded", "Cancelled", "ProfileGone"
+	// ReasonExcluded: an attempt withdrawn because transcode.clustarr.io/exclude
+	// was set while it ran; the file is ineligible from then on, whatever the
+	// hashes.
+	ReasonExcluded = "Excluded"
 
 	// Failed: a verdict for one (profileHash, probeHash).
 	ReasonRetriesExhausted, ReasonInvalidSource, ReasonDeadLettered = "RetriesExhausted", "InvalidSource", "DeadLettered"

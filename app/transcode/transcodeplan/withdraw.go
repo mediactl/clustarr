@@ -81,6 +81,8 @@ func finishWithdrawal(in Inputs, b *catalogv1alpha1.TranscodeState) Decision {
 		b.Phase, b.Message = catalogv1alpha1.TranscodePhaseSkipped, fmt.Sprintf("attempt %d cancelled", seq)
 	case ReasonProfileGone:
 		b.Phase, b.Message = catalogv1alpha1.TranscodePhaseSkipped, "its TranscodeProfile was deleted"
+	case ReasonExcluded:
+		b.Phase, b.Message = catalogv1alpha1.TranscodePhaseSkipped, fmt.Sprintf("attempt %d withdrawn: excluded by %s", seq, catalogv1alpha1.AnnotationTranscodeExclude)
 	case ReasonDeadLettered:
 		b.Phase, b.Blocked = catalogv1alpha1.TranscodePhaseFailed, true
 		b.Message = fmt.Sprintf("attempt %d was dead-lettered after its last delivery", seq)
@@ -125,6 +127,9 @@ func withdrawCause(in Inputs, b *catalogv1alpha1.TranscodeState) (string, []Even
 	}
 	if in.Intents.Suspend == "true" {
 		return ReasonSuspended, nil
+	}
+	if in.Eligibility.Excluded {
+		return ReasonExcluded, nil
 	}
 	if deadLettered(in, b) {
 		return ReasonDeadLettered, []Event{{Type: "Warning", Reason: ReasonDeadLettered, Message: fmt.Sprintf("the task of attempt %d was dead-lettered", seq)}}

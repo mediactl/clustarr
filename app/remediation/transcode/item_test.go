@@ -33,8 +33,9 @@ import (
 
 // Gather reads the file's item once: whether it exists, its original
 // language (an Episode's through its Series), the standard's "original"
-// (transcodeplan.Inputs.OriginalLanguage), and whether it has an upgrade
-// downloading (transcodeplan.UpgradeDownloading).
+// (transcodeplan.Inputs.OriginalLanguage), whether it has an upgrade
+// downloading (transcodeplan.UpgradeDownloading), and whether the item, or
+// an Episode's Series, carries transcode.clustarr.io/exclude.
 func TestTheItemReadGivesTheOriginalLanguage(t *testing.T) {
 	movie := &catalogv1alpha1.Movie{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "spirited-away"}}
 	movie.Status.Metadata = &catalogv1alpha1.MovieMetadata{OriginalLanguage: "ja"}
@@ -45,7 +46,13 @@ func TestTheItemReadGivesTheOriginalLanguage(t *testing.T) {
 	series.Status.Metadata = &catalogv1alpha1.SeriesMetadata{OriginalLanguage: "fr"}
 	episode := &catalogv1alpha1.Episode{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "lupin-s01e01"},
 		Spec: catalogv1alpha1.EpisodeSpec{SeriesRef: "lupin"}}
-	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).WithObjects(movie, upgrading, series, episode).Build()
+	exclude := map[string]string{catalogv1alpha1.AnnotationTranscodeExclude: "true"}
+	keptMovie := &catalogv1alpha1.Movie{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "kept", Annotations: exclude}}
+	keptSeries := &catalogv1alpha1.Series{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "rogers", Annotations: exclude}}
+	keptEpisode := &catalogv1alpha1.Episode{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "rogers-s01e01"},
+		Spec: catalogv1alpha1.EpisodeSpec{SeriesRef: "rogers"}}
+	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).
+		WithObjects(movie, upgrading, series, episode, keptMovie, keptSeries, keptEpisode).Build()
 	file := func(kind commonv1.MediaKind, name string) *catalogv1alpha1.MediaFile {
 		return &catalogv1alpha1.MediaFile{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "f"},
 			Spec: catalogv1alpha1.MediaFileSpec{MediaRef: commonv1.MediaRef{Kind: kind, Name: name}}}
@@ -56,18 +63,22 @@ func TestTheItemReadGivesTheOriginalLanguage(t *testing.T) {
 		exists      bool
 		original    string
 		downloading bool
+		excluded    bool
 	}{
-		{"a movie", file(commonv1.MediaKindMovie, "spirited-away"), true, "ja", false},
-		{"an episode, through its series", file(commonv1.MediaKindEpisode, "lupin-s01e01"), true, "fr", false},
-		{"a gone item", file(commonv1.MediaKindMovie, "gone"), false, "", false},
-		{"a movie downloading an upgrade", file(commonv1.MediaKindMovie, "upgrading"), true, "", true},
+		{"a movie", file(commonv1.MediaKindMovie, "spirited-away"), true, "ja", false, false},
+		{"an episode, through its series", file(commonv1.MediaKindEpisode, "lupin-s01e01"), true, "fr", false, false},
+		{"a gone item", file(commonv1.MediaKindMovie, "gone"), false, "", false, false},
+		{"a movie downloading an upgrade", file(commonv1.MediaKindMovie, "upgrading"), true, "", true, false},
+		{"an excluded movie", file(commonv1.MediaKindMovie, "kept"), true, "", false, true},
+		{"an episode of an excluded series", file(commonv1.MediaKindEpisode, "rogers-s01e01"), true, "", false, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			exists, original, downloading, err := readItem(context.Background(), c, tc.mf)
+			got, err := readItem(context.Background(), c, tc.mf)
 			require.NoError(t, err)
-			assert.Equal(t, tc.exists, exists)
-			assert.Equal(t, tc.original, original)
-			assert.Equal(t, tc.downloading, downloading)
+			assert.Equal(t, tc.exists, got.exists)
+			assert.Equal(t, tc.original, got.original)
+			assert.Equal(t, tc.downloading, got.downloading)
+			assert.Equal(t, tc.excluded, got.excluded)
 		})
 	}
 }

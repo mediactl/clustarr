@@ -46,6 +46,16 @@ const (
 	// AnnotationTranscodeHardware is cpu, nvidia, intel, auto or gpu, taking
 	// effect at the next dispatch (transcode.hardware).
 	AnnotationTranscodeHardware = "transcode.clustarr.io/hardware"
+	// AnnotationTranscodeExclude is "true" to keep a file out of every
+	// transcode, whatever its profile or the standard's version: it is never
+	// eligible, so it takes no window place, and an in-flight attempt is
+	// withdrawn and recorded Skipped, reason Excluded. Honoured on the
+	// MediaFile, on its Movie or Episode, and on an Episode's Series; on an
+	// item it takes effect as each of its files is next planned (owner,
+	// 2026-10-22: Mister Rogers' Neighborhood stays as it is). Suspend only
+	// holds a file in its window place, and a cancel lasts only while the
+	// profile and probe hashes do.
+	AnnotationTranscodeExclude = "transcode.clustarr.io/exclude"
 	// AnnotationReprobe asks for a fresh probe of the file's unchanged bytes
 	// (a nonce; handledNonces.reprobe, recorded once the answer is
 	// incorporated). A probe is otherwise due only for new bytes or a
@@ -55,13 +65,13 @@ const (
 	AnnotationReprobe = "catalog.clustarr.io/reprobe"
 )
 
-// IntentAnnotations returns the seven intent annotation keys, for the
+// IntentAnnotations returns the eight intent annotation keys, for the
 // loop's MediaFile predicate.
 func IntentAnnotations() []string {
 	return []string{
 		AnnotationSubtitleSearch, AnnotationTranscodeRetry, AnnotationTranscodeCancel,
 		AnnotationTranscodeSuspend, AnnotationTranscodePriority, AnnotationTranscodeHardware,
-		AnnotationReprobe,
+		AnnotationTranscodeExclude, AnnotationReprobe,
 	}
 }
 

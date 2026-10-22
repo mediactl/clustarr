@@ -65,6 +65,9 @@ func New(o Options) *Adapter { return &Adapter{o: o} }
 type In struct {
 	Profiles   []transcodev1alpha1.TranscodeProfile
 	ItemExists bool
+	// ItemExcluded is whether the item, or an episode's series, carries
+	// transcode.clustarr.io/exclude (readItem).
+	ItemExcluded bool
 	// OriginalLanguage is the item's original language (readItem).
 	OriginalLanguage string
 	// UpgradeDownloading is whether the item has a video grab in flight
@@ -106,7 +109,8 @@ func (a *Adapter) Plan(v *remediation.View, in In, out *catalogv1alpha1.MediaFil
 	}
 	f := transcodeplan.File{
 		MF: v.File, Labels: v.Labels(), Status: v.Draft, ProbeCurrent: v.ProbeCurrent(),
-		ItemExists: in.ItemExists, StandaloneGraft: graftplan.Standalone(v.Prev.Graft), UpgradeDownloading: in.UpgradeDownloading,
+		ItemExists: in.ItemExists, ItemExcluded: in.ItemExcluded, StandaloneGraft: graftplan.Standalone(v.Prev.Graft),
+		UpgradeDownloading: in.UpgradeDownloading,
 	}
 	if p, ok := transcodeplan.ParsePriority(in.Intents.Priority); ok {
 		f.Priority = &p

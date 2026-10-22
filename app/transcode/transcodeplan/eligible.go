@@ -29,11 +29,15 @@ import (
 // labels, the draft status after the probe planner, and the cache facts the
 // adapter gathered.
 type File struct {
-	MF              *catalogv1alpha1.MediaFile
-	Labels          map[string]string
-	Status          *catalogv1alpha1.MediaFileStatus
-	ProbeCurrent    bool
-	ItemExists      bool
+	MF           *catalogv1alpha1.MediaFile
+	Labels       map[string]string
+	Status       *catalogv1alpha1.MediaFileStatus
+	ProbeCurrent bool
+	ItemExists   bool
+	// ItemExcluded: the item, or an episode's series, carries
+	// transcode.clustarr.io/exclude; the MediaFile's own annotation is read
+	// from MF.
+	ItemExcluded    bool
 	StandaloneGraft bool // graftplan.Standalone(status.graft): a standalone graft holds the file
 	// UpgradeDownloading is UpgradeDownloading(item): a grab that will
 	// replace the file is in flight.
@@ -51,6 +55,9 @@ type Eligibility struct {
 	Tag      string                              // Tag(Profile.Name, Hash)
 	Pending  string                              // ReasonUnprobed, ReasonProbePending, ReasonGrafting or ReasonUpgradeDownloading: eligible once it clears
 	Why      string                              // for logs and Events when not eligible
+	// Excluded: transcode.clustarr.io/exclude keeps the file out of every
+	// transcode (Eligible is false, Pending empty).
+	Excluded bool
 	// Priority is the effective priority: the file's intent, else the
 	// winning profile's spec.priority (admission orders by it).
 	Priority int32
@@ -67,6 +74,10 @@ func Eligible(f File, profiles []transcodev1alpha1.TranscodeProfile) Eligibility
 	var e Eligibility
 	if !EligibleKind(f.MF.Spec.MediaRef.Kind) {
 		e.Why = "not a movie or episode"
+		return e
+	}
+	if f.ItemExcluded || f.MF.Annotations[catalogv1alpha1.AnnotationTranscodeExclude] == "true" {
+		e.Excluded, e.Why = true, "excluded by "+catalogv1alpha1.AnnotationTranscodeExclude
 		return e
 	}
 	labels := f.Labels
