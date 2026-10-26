@@ -200,7 +200,7 @@ func TestPlexPhotoURLIsThePublicSourceOnAnAllowedHost(t *testing.T) {
 	for _, src := range []string{
 		"https://image.tmdb.org/t/p/w185/person.jpg",
 		"https://artworks.thetvdb.com/banners/seasons/75299-1-2.jpg",
-		"https://images.mediux.io/assets/abc",
+		"https://api.mediux.pro/assets/abc",
 	} {
 		got := photo(src)
 		require.Equal(t, src, got)
