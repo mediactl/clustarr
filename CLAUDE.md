@@ -611,25 +611,29 @@ language; people and similar titles come from the
 item (`pkg/metadata/extended`; file-backed even on single-node NATS,
 `BucketSpec.Durable`, since a document is rebuilt only at the item's next
 refresh), which the ui reads through a closure under a 2 s deadline, never
-a KV handle. Every image URL the provider hands Plex is the image's own
-public URL (2026-10-26):
+a KV handle. PMS 1.43 (11029) reaches the ui's cluster address only
+through its agent, which downloads a refreshed item's images; any image
+URL it keeps it fetches later through `images.plex.tv` or itself, refusing
+a private address ("not a permitted destination for a caller-supplied
+URL"; through `images.plex.tv` the failure reads "URL requested for photo
+transcode is over maximum size of 104857600 bytes", though nothing was
+that big). So, since 2026-10-26:
+- a movie's or show's poster, background and logo, and a season's
+  fallback to them, stay the ui's `/art` URLs, the poster overlay-first,
+  which PMS downloads, so the rating-badge overlay reaches Plex;
+- a match result (`POST .../matches`) carries them by the artwork entry's
+  `sourceURL` instead (`urls.sourced`, `artworkFor.url`), because PMS makes
+  a match result's thumb the item's and selects a refresh's download only
+  when it is a new file -- never a season's, whose poster is its show's.
+  Every season of 86 and A Model Family and 14 movies lost
+  their posters that way, as did 214 seasons in all;
 - person photos, season posters, episode stills and image-set overrides
-  through `Options.PhotoURL` (`plexPhotoURL`: the source, only on a host
-  `/art/search` would fetch from);
-- posters, backgrounds and logos as the artwork entry's `sourceURL`
-  (`artworkFor.url`).
-
-PMS 1.43 (11029) keeps a custom provider's image URLs instead of
-downloading them. It fetches each through `images.plex.tv` or itself, and
-refuses a private address ("not a permitted destination for a
-caller-supplied URL"). So the ui's `/art` URLs on its cluster address had
-broken 228 posters and 17,086 cast photos. A failure through
-`images.plex.tv` reads in PMS's log as "URL requested for photo transcode
-is over maximum size of 104857600 bytes", though nothing was that big.
+  go through `Options.PhotoURL` (`plexPhotoURL`): the source itself, only
+  on a host `/art/search` would fetch from. PMS keeps a person's photo as
+  a URL, which had broken 17,086 cast photos.
 
 ADR-0011's rule against hot-linking concerns the browser, and Plex's
-servers fetch these URLs. The rating-badge overlay exists only in the ui's
-store, so Plex shows the plain poster. `/art/search` still signs with
+servers fetch these URLs. `/art/search` still signs with
 `$CLUSTARR_ART_SIGNING_KEY` from the chart's kept
 `<release>-ui-art-signing-key` Secret for the ui's own pages. A Movie or Series document
 older than `pkg/metadata.SchemaVersion` (`status.metadata.schemaVersion`)

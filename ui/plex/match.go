@@ -83,6 +83,7 @@ func (h *handler) handleMatch(root rootDef) http.HandlerFunc {
 		}
 
 		u := h.urlsFor(r, idx)
+		u.sourced = true
 		if req.EpisodeOrder != "" {
 			u.episodeOrder = req.EpisodeOrder
 		}

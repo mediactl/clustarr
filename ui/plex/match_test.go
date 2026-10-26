@@ -19,9 +19,12 @@ package plex_test
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 )
 
 // TestMatchByGuid is D.4 rule 1: a match request's guid ("tmdb://<id>")
@@ -95,6 +98,55 @@ func TestMatchEpisodeByIndex(t *testing.T) {
 	require.Len(t, body.MediaContainer.Metadata, 1)
 	require.Equal(t, "Low Water", body.MediaContainer.Metadata[0].Title)
 	require.Equal(t, string(episodes[1].UID), body.MediaContainer.Metadata[0].RatingKey)
+}
+
+// TestASeasonMatchResultCarriesItsArtworkBySource: PMS makes a match
+// result's thumb the item's, fetched through images.plex.tv, and never
+// selects its own download of a poster the item already holds -- a season's
+// is its show's -- so a season match answered with the ui's /art URL left
+// every season of 86 and A Model Family without a poster (2026-10-26). The
+// match result carries the series' artwork by its source URL; the season's
+// own metadata keeps the overlay-first /art URL, which PMS downloads.
+func TestASeasonMatchResultCarriesItsArtworkBySource(t *testing.T) {
+	series, episodes := fixtureSeriesAndEpisodes()
+	series.Status.Overlay = &catalogv1.OverlayEntry{Digest: "seriesoverlaydigest1"}
+	h := newTestHandlerWithEpisodes(t, externalURLFixture, series, episodes)
+
+	type images struct {
+		MediaContainer struct {
+			Metadata []struct {
+				Thumb string `json:"thumb"`
+				Art   string `json:"art"`
+				Image []struct {
+					URL string `json:"url"`
+				} `json:"Image"`
+			} `json:"Metadata"`
+		} `json:"MediaContainer"`
+	}
+
+	rec := postJSON(t, h, "/plex/tv/library/metadata/matches", map[string]any{
+		"type":        3,
+		"parentTitle": "Harborview",
+		"index":       1,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	var match images
+	require.NoError(t, decodeJSON(rec.Body.Bytes(), &match))
+	require.Len(t, match.MediaContainer.Metadata, 1)
+	got := match.MediaContainer.Metadata[0]
+	require.Equal(t, "https://provider.example/series-poster.jpg", got.Thumb)
+	require.Equal(t, "https://provider.example/series-fanart.jpg", got.Art)
+	require.NotEmpty(t, got.Image)
+	for _, img := range got.Image {
+		require.False(t, strings.HasPrefix(img.URL, externalURLFixture), "a match result names the ui: %s", img.URL)
+	}
+
+	rec = getJSON(t, h, "/plex/tv/library/metadata/"+string(seriesUID)+"-s01")
+	require.Equal(t, http.StatusOK, rec.Code)
+	var season images
+	require.NoError(t, decodeJSON(rec.Body.Bytes(), &season))
+	require.Len(t, season.MediaContainer.Metadata, 1)
+	require.Equal(t, externalURLFixture+"/art/series/"+string(seriesUID)+"/poster?v=seriesoverlaydigest1", season.MediaContainer.Metadata[0].Thumb)
 }
 
 // matchedYears decodes a match response down to each result's year, in

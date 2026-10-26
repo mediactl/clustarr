@@ -59,9 +59,10 @@ type Options struct {
 
 	// PhotoURL is the URL PMS is given for a provider-hosted image: the
 	// image's own public URL, or "" for one it may not have (the ui's
-	// plexPhotoURL). PMS fetches every image URL itself or through
-	// images.plex.tv, so a cluster address never works. Nil drops person
-	// photos, season posters and episode stills.
+	// plexPhotoURL). PMS keeps some such URLs, a person's photo above all,
+	// and fetches them through images.plex.tv, which a cluster address
+	// never reaches. Nil drops person photos, season posters and episode
+	// stills.
 	PhotoURL func(src string) string
 
 	// PlexGUIDs answers a movie, show, season or episode Plex knows with

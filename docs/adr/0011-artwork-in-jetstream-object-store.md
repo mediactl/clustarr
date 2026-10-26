@@ -152,22 +152,30 @@ outbound HTTP; see `docs/superpowers/specs/2026-09-29-add-new-design.md`.
 
 ## Amendment, 2026-10-26: the Plex provider hands PMS public URLs
 
-PMS 1.43 (11029) no longer downloads a custom metadata provider's images.
-It keeps each URL and fetches it on demand, either through `images.plex.tv`,
+PMS 1.43 (11029) reaches the ui's cluster address only through its
+metadata agent, which downloads a refreshed item's images. Any image URL
+PMS keeps instead, it fetches on demand, either through `images.plex.tv`,
 Plex's cloud photo service, or itself, and it refuses a private address
-("not a permitted destination for a caller-supplied URL"). The ui's `/art`
-and `/art/search` URLs on its cluster address therefore reached no one: 228
-posters and 17,086 cast photos on talos failed. A failure through
-`images.plex.tv` was logged as "over maximum size of 104857600 bytes".
+("not a permitted destination for a caller-supplied URL"). It keeps two
+kinds:
+- every person's photo: 17,086 cast photos on talos failed;
+- a match result's thumb, which becomes the item's. A refresh's download
+  replaces it only when that is a new file, never a season's, whose poster
+  is its show's: 214 seasons (every season of 86 and A Model Family among
+  them) and 14 movies failed.
 
-So the Plex provider (`ui/plex`) gives PMS each image's own public URL:
-- the artwork entry's `sourceURL` for posters, backgrounds and logos;
-- the provider's image URL for photos, season posters and stills, on a host
+A failure through `images.plex.tv` was logged as "over maximum size of
+104857600 bytes".
+
+So the Plex provider (`ui/plex`) gives PMS public URLs where it keeps them:
+- a match result's poster, background and logo are the artwork entry's
+  `sourceURL`;
+- photos, season posters and stills are the provider's image URL, on a host
   the `/art/search` allowlist names.
 
-This decision's reasons against hot-linking were the browser's: viewers'
-addresses, mixed content, provider rate limits on page loads. A Plex
-server fetching an image is not a viewer. The rating-badge overlay exists
-only in the store, so Plex shows the plain poster until the store is
-reachable from the internet, which nothing here provides. The ui's own
-pages are unchanged.
+A movie's or show's own metadata keeps its `/art` URLs, the poster
+overlay-first, so the rating-badge overlay still reaches Plex through the
+download. This decision's reasons against hot-linking were the browser's:
+viewers' addresses, mixed content, provider rate limits on page loads. A
+Plex server fetching an image is not a viewer. The ui's own pages are
+unchanged.

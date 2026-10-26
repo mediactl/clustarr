@@ -12,8 +12,8 @@
         "type": "movie",
         "title": "Skyfall Protocol",
         "originallyAvailableAt": "2015-10-23",
-        "thumb": "https://provider.example/poster.jpg",
-        "art": "https://provider.example/fanart.jpg",
+        "thumb": "https://clustarr.example.com/art/movie/11111111-1111-1111-1111-111111111111/poster?v=overlaydigest1",
+        "art": "https://clustarr.example.com/art/movie/11111111-1111-1111-1111-111111111111/fanart?v=fanartdigest1",
         "contentRating": "PG-13",
         "titleSort": "Skyfall Protocol",
         "year": 2015,
@@ -22,12 +22,12 @@
         "Image": [
           {
             "type": "coverPoster",
-            "url": "https://provider.example/poster.jpg",
+            "url": "https://clustarr.example.com/art/movie/11111111-1111-1111-1111-111111111111/poster?v=overlaydigest1",
             "alt": "Skyfall Protocol"
           },
           {
             "type": "background",
-            "url": "https://provider.example/fanart.jpg",
+            "url": "https://clustarr.example.com/art/movie/11111111-1111-1111-1111-111111111111/fanart?v=fanartdigest1",
             "alt": "Skyfall Protocol"
           }
         ],

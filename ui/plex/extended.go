@@ -36,8 +36,9 @@ import (
 // urls is how a builder makes an absolute URL: external is --external-url,
 // the base of an /art URL; photo gives a provider-hosted image (a person's
 // photo, a season poster, an episode still) its public URL
-// (Options.PhotoURL), since PMS fetches every image URL from the internet
-// side. A nil photo drops such images.
+// (Options.PhotoURL), since PMS keeps some such URLs, a person's photo
+// above all, and fetches them through images.plex.tv. A nil photo drops
+// such images.
 type urls struct {
 	external string
 	photo    func(string) string
@@ -49,6 +50,9 @@ type urls struct {
 	plexGUIDs bool
 	// idx is the request's index, which a plex:// GUID is checked against.
 	idx *projection.Index
+	// sourced is set for a match result, whose artwork PMS is given by its
+	// source URL rather than the ui's ([artworkFor.url]).
+	sourced bool
 }
 
 // proxied is the URL PMS is given for src (Options.PhotoURL), "" when there

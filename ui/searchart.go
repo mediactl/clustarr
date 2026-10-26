@@ -217,15 +217,15 @@ func (a *searchArt) store(src string, art cachedArt) {
 // plexPhotoURL is the Plex provider's PhotoURL: a provider-hosted image's
 // own URL, on a host /art/search would fetch from, or "" for any other.
 //
-// It is never the /art/search proxy (2026-10-26): PMS 1.43 (11029) keeps a
-// custom provider's image URLs instead of downloading them, and fetches
-// each through images.plex.tv, Plex's cloud photo service, or itself,
-// refusing a private address ("not a permitted destination for a
-// caller-supplied URL"). Neither can reach the ui's cluster address, and
-// images.plex.tv's failure reads in PMS's log as "URL requested for photo
-// transcode is over maximum size of 104857600 bytes". Plex's servers fetch
-// the URL, never a browser, so ADR-0011's rule against hot-linking does not
-// apply.
+// It is never the /art/search proxy (2026-10-26): PMS 1.43 (11029) keeps
+// some of a custom provider's image URLs instead of downloading them --
+// every person's photo, and a match result's thumb -- and fetches each
+// through images.plex.tv, Plex's cloud photo service, or itself, refusing a
+// private address ("not a permitted destination for a caller-supplied
+// URL"). Neither can reach the ui's cluster address, and images.plex.tv's
+// failure reads in PMS's log as "URL requested for photo transcode is over
+// maximum size of 104857600 bytes". Plex's servers fetch the URL, never a
+// browser, so ADR-0011's rule against hot-linking does not apply.
 func plexPhotoURL(a *searchArt) func(src string) string {
 	return func(src string) string {
 		if u, err := url.Parse(src); src == "" || err != nil || !a.allowed(u) {

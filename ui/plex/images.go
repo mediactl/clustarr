@@ -53,12 +53,17 @@ const (
 
 // artworkFor is what [buildImages] and thumb/art both read from: the
 // catalog kind, its own UID (for [projection.ArtURL]) and its ArtworkEntry
-// list. A Movie's or Series' rating-badge overlay is not here: it exists
-// only in the ui's artwork store, which PMS cannot reach (artworkFor.url).
+// list, plus the poster overlay when the kind has one (Movie and Series
+// only, spec §B.3) -- the same three inputs
+// ui/projection/library.go's posterArt already reads, generalised to every
+// image type this route needs, not only the poster. sourced is a match
+// result's ([urls.sourced]).
 type artworkFor struct {
 	kind    commonv1.MediaKind
 	uid     types.UID
 	artwork []catalogv1.ArtworkEntry
+	overlay *catalogv1.OverlayEntry
+	sourced bool
 }
 
 // entry finds t in af.artwork, reporting false when it was never fetched.
@@ -71,23 +76,34 @@ func (af artworkFor) entry(t catalogv1.ImageType) (catalogv1.ArtworkEntry, bool)
 	return catalogv1.ArtworkEntry{}, false
 }
 
-// url returns the URL PMS is given for image type t: the artwork's own
-// source URL (its sourceURL), false when nothing has been fetched for t
-// yet. PMS 1.43 (11029) no longer downloads a custom provider's images; it
-// fetches each URL on demand through images.plex.tv or itself and refuses a
-// private address (plexPhotoURL in package ui), so the ui's /art URL on its
-// cluster address -- and with it the rating-badge overlay, which exists
-// only there -- never reaches Plex (2026-10-26). An entry with no absolute
-// http(s) source still gets its /art URL, the best there is.
+// url returns the URL PMS is given for image type t, false when nothing has
+// been fetched for t yet. It is the [projection.ArtURL], preferring the
+// rating-badge overlay for a poster (the same precedence
+// ui/projection/library.go's posterArt already applies to the Library page's
+// own poster): PMS downloads a refreshed item's images through its agent,
+// which reaches the ui's cluster address.
+//
+// A match result's (af.sourced) is the artwork's own source URL instead,
+// without the overlay, which exists only in the ui's store. PMS 1.43 (11029)
+// makes a match result's thumb the item's, wrapped in images.plex.tv, which
+// cannot reach the cluster, and the refresh that follows selects its own
+// download only when that is a new file, never one the item already holds
+// (2026-10-26: every season of 86 and A Model Family, whose poster is the
+// show's, and 14 movies). An entry with no absolute http(s)
+// source keeps its /art URL.
 func (af artworkFor) url(externalURL string, t catalogv1.ImageType) (string, bool) {
 	a, ok := af.entry(t)
-	if !ok {
-		return "", false
-	}
-	if publicURL(a.SourceURL) {
+	if af.sourced && ok && publicURL(a.SourceURL) {
 		return a.SourceURL, true
 	}
-	return trimBase(externalURL) + projection.ArtURL(af.kind, af.uid, t, a.Digest), true
+	base := trimBase(externalURL)
+	if t == catalogv1.ImageTypePoster && af.overlay != nil && !af.sourced {
+		return base + projection.ArtURL(af.kind, af.uid, t, af.overlay.Digest), true
+	}
+	if ok {
+		return base + projection.ArtURL(af.kind, af.uid, t, a.Digest), true
+	}
+	return "", false
 }
 
 // publicURL reports an absolute http or https URL.
@@ -97,7 +113,7 @@ func publicURL(s string) bool {
 }
 
 // buildImages builds a Metadata object's own Image[] (research §5.2):
-// coverPoster from the poster artwork, background from
+// coverPoster from the poster artwork (overlay-first), background from
 // fanart, clearLogo from logo. A type with nothing fetched yet is left out
 // entirely (spec §D.5: "omitted, never blanked").
 func buildImages(externalURL string, af artworkFor) []Image {
@@ -190,7 +206,7 @@ func resolveArtwork(root rootDef, idx *projection.Index, ratingKey string) (artw
 		if !ok {
 			return artworkFor{}, false
 		}
-		return artworkFor{kind: commonv1.MediaKindSeries, uid: s.UID, artwork: s.Status.Artwork}, true
+		return artworkFor{kind: commonv1.MediaKindSeries, uid: s.UID, artwork: s.Status.Artwork, overlay: s.Status.Overlay}, true
 	}
 
 	obj, ok := idx.ByUID(uid)
@@ -199,9 +215,9 @@ func resolveArtwork(root rootDef, idx *projection.Index, ratingKey string) (artw
 	}
 	switch v := obj.(type) {
 	case *catalogv1.Movie:
-		return artworkFor{kind: commonv1.MediaKindMovie, uid: v.UID, artwork: v.Status.Artwork}, true
+		return artworkFor{kind: commonv1.MediaKindMovie, uid: v.UID, artwork: v.Status.Artwork, overlay: v.Status.Overlay}, true
 	case *catalogv1.Series:
-		return artworkFor{kind: commonv1.MediaKindSeries, uid: v.UID, artwork: v.Status.Artwork}, true
+		return artworkFor{kind: commonv1.MediaKindSeries, uid: v.UID, artwork: v.Status.Artwork, overlay: v.Status.Overlay}, true
 	case *catalogv1.Episode:
 		return artworkFor{kind: commonv1.MediaKindEpisode, uid: v.UID}, true
 	default:

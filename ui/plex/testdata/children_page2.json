@@ -12,8 +12,8 @@
         "type": "episode",
         "title": "Low Water",
         "originallyAvailableAt": "2018-03-11",
-        "parentArt": "https://provider.example/series-fanart.jpg",
-        "grandparentArt": "https://provider.example/series-fanart.jpg",
+        "parentArt": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/fanart?v=seriesfanartdigest1",
+        "grandparentArt": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/fanart?v=seriesfanartdigest1",
         "contentRating": "TV-14",
         "summary": "An episode of Harborview.",
         "duration": 2700000,
@@ -22,14 +22,14 @@
         "parentGuid": "tv.plex.agents.custom.clustarr.tv://season/22222222-2222-2222-2222-222222222222-s01",
         "parentType": "season",
         "parentTitle": "Season 1",
-        "parentThumb": "https://provider.example/series-poster.jpg",
+        "parentThumb": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/poster?v=seriesposterdigest1",
         "index": 2,
         "grandparentRatingKey": "22222222-2222-2222-2222-222222222222",
         "grandparentKey": "/library/metadata/22222222-2222-2222-2222-222222222222/children",
         "grandparentGuid": "tv.plex.agents.custom.clustarr.tv://show/22222222-2222-2222-2222-222222222222",
         "grandparentType": "show",
         "grandparentTitle": "Harborview",
-        "grandparentThumb": "https://provider.example/series-poster.jpg",
+        "grandparentThumb": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/poster?v=seriesposterdigest1",
         "parentIndex": 1
       }
     ]
