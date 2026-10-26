@@ -64,10 +64,22 @@ func isRegexTimeout(err error) bool {
 // resolves to the scr group rather than the generic dvd group — the dvd
 // alternative is deliberately last since "DVD" is a substring-prefix of
 // several more specific tokens (DVDSCR, DVDR, DVDRip).
+//
+// webdl carries *arr's bare-WEB alternatives, Radarr's and Sonarr's together:
+// the scene names a WEB-DL "1080p.WEB.h264-GROUP", and the first port left
+// them out, so every such release read as quality Unknown and every profile
+// rejected it (2026-10-26: 20 of A Model Family's 26 episode results). A WEB
+// counts only beside a resolution, a codec or audio, or a service tag, or as
+// the title's last token, so "Charlottes.Web.2006" stays a title word.
+// Radarr's resolution form is \d{3,4}0p, which cannot match 720p or 480p;
+// \d{3,4}p takes every resolution token.
 var sourceRegex = mustCompile(
 	`\b(?:`+
-		`(?<bluray>M?Blu[-_. ]?Ray|HD[-_. ]?DVD|UHD2?BD|BDISO|BDMux|BD25|BD50|BR[-_. ]?DISK)|`+
-		`(?<webdl>WEB[-_. ]?DL(?:mux)?|AmazonHD|AmazonSD|iTunesHD|MaxdomeHD|NetflixU?HD|WebHD|HBOMaxHD|DisneyHD)|`+
+		`(?<bluray>M?Blu[-_. ]?Ray|HD[-_. ]?DVD|BD(?!$)|UHD2?BD|BDISO|BDMux|BD25|BD50|BR[-_. ]?DISK)|`+
+		`(?<webdl>WEB[-_. ]?DL(?:mux)?|AmazonHD|AmazonSD|iTunesHD|MaxdomeHD|NetflixU?HD|WebHD|HBOMaxHD|DisneyHD|`+
+		`[. ]WEB[. ](?:[xh][ .]?26[456]|AVC|HEVC|EAC3|DDP?[ .]?5[. ]1)|[. ](?-i:WEB)$|`+
+		`\d{3,4}p[-. ](?:Hybrid[-_. ]?)?WEB[-. ]|[-. ]WEB[-. ]\d{3,4}p|\b\s/\sWEB\s/\s\b|`+
+		`(?:AMZN|ATVP|DP|NF)[. -]WEB[. -](?!Rip))|`+
 		`(?<webrip>WebRip|Web-Rip|WEBMux)|`+
 		`(?<hdtv>HDTV)|`+
 		`(?<bdrip>BDRip|BDLight|HD[-_. ]?DVDRip|UHDBDRip)|`+
@@ -97,6 +109,13 @@ var sourcePriority = []string{
 	"bluray", "webdl", "webrip", "scr", "cam", "ts", "tc", "wp", "regional",
 	"hdtv", "bdrip", "brrip", "dvdr", "dvd", "pdtv", "sdtv", "dsr", "tvrip",
 }
+
+// animeBlurayRegex and animeWebDLRegex port AnimeBlurayRegex and
+// AnimeWebDlRegex, *arr's fallbacks for a title sourceRegex finds no source
+// in: fansubs write "BD1080p" or "(BD 1080p" and "[WEB]" or "(WEB 1080p".
+var animeBlurayRegex = mustCompile(`bd(?:720|1080|2160)|(?<=[-_. (\[])bd(?=[-_. )\]])`, regexp2.IgnoreCase)
+
+var animeWebDLRegex = mustCompile(`\[WEB\]|[\[(]WEB[ .]`, regexp2.IgnoreCase)
 
 // resolutionRegex ports ResolutionRegex; AlternativeResolutionRegex's UHD/4K
 // signal is folded in as the "2160p" alternative plus the standalone
@@ -286,6 +305,23 @@ func detectQuality(title string) (commonv1.Quality, error) {
 				resolution = fixedRes
 			}
 			break
+		}
+	}
+
+	if src == commonv1.SourceUnknown {
+		bd, berr := animeBlurayRegex.MatchString(title)
+		if berr != nil {
+			return commonv1.Quality{}, fmt.Errorf("release: quality: anime bluray match: %w", berr)
+		}
+		web, werr := animeWebDLRegex.MatchString(title)
+		if werr != nil {
+			return commonv1.Quality{}, fmt.Errorf("release: quality: anime webdl match: %w", werr)
+		}
+		switch {
+		case bd:
+			src = commonv1.SourceBluray
+		case web:
+			src = commonv1.SourceWebDL
 		}
 	}
 

@@ -846,7 +846,11 @@ anchor a graft aligns on), and a complete one wins a tie. The built-in
 101 to prefer), past the release-group tiers' spread (WEB 100-600, BD
 700-1400), so a dual-audio release outranks every Japanese-only one of its
 quality -- the quality tier and a REPACK's revision still rank first, and
-a -10000 group stays below the minimum. The parser
+a -10000 group stays below the minimum. A bare scene WEB is a WEB-DL
+(`release.sourceRegex`, 2026-10-26: `1080p.WEB.h264-GROUP`, and the
+anime `[WEB]`, `(WEB 1080p`, `(BD 1080p` and `BD1080p` fallbacks); the
+first port read every one as quality Unknown, which every profile
+rejects, 20 of A Model Family's 26 episode results among them. The parser
 reads a release's audio markers past Sonarr (2026-10-19,
 `release.namedLanguages`): a dual-audio title -- "Dual Audio"/"Dual-Audio",
 `[DUAL]`, or a bare DUAL after the resolution or right after the episode or

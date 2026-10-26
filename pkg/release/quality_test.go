@@ -93,6 +93,50 @@ func TestParseQualityTagsMapsSourceResolutionModifierToRadarrNames(t *testing.T)
 	}
 }
 
+// TestBareWEBAndAnimeSourcesParse holds *arr's bare-WEB alternatives and
+// its anime BD and WEB fallbacks, through the real parser: the scene names
+// a WEB-DL "1080p.WEB.h264-GROUP" and fansubs write "(WEB 1080p", "[WEB]",
+// "(BD 1080p" and "BD1080p". The first port had none of them, so each of
+// these read Unknown and every profile rejected it (2026-10-26, A Model
+// Family's episode searches on talos; the anime titles are ones talos's
+// searches returned for 86 and Frieren). A title word "Web" stays a word.
+func TestBareWEBAndAnimeSourcesParse(t *testing.T) {
+	tests := []struct {
+		title string
+		kind  commonv1.MediaKind
+		want  string
+	}{
+		{"A.Model.Family.S01E05.1080p.WEB.h264-KOGi-xpost", commonv1.MediaKindEpisode, "WEBDL-1080p"},
+		{"A.Model.Family.S01E05.720p.WEB.h264-KOGi-xpost", commonv1.MediaKindEpisode, "WEBDL-720p"},
+		{"A.Model.Family.S01E05.MULTi.1080p.WEB.H265-SoDiUM-xpost", commonv1.MediaKindEpisode, "WEBDL-1080p"},
+		{"A.Model.Family.S01E05.GERMAN.DL.1080P.WEB.X264-WAYNE-xpost", commonv1.MediaKindEpisode, "WEBDL-1080p"},
+		{"The.Last.of.Us.S02E01.2160p.WEB.H265-NHTFS", commonv1.MediaKindEpisode, "WEBDL-2160p"},
+		{"Show.S01E01.1080p.AMZN.WEB.DDP5.1.H.264-GRP", commonv1.MediaKindEpisode, "WEBDL-1080p"},
+		{"Show.S01E01.720p.HEVC.WEB", commonv1.MediaKindEpisode, "WEBDL-720p"},
+		{"Late.Night.with.Seth.Meyers.2020.03.15.1080p.WEB.x264-GROUP", commonv1.MediaKindEpisode, "WEBDL-1080p"},
+		{"Movie.2023.1080p.WEB.DDP5.1.Atmos.H.264-FLUX", commonv1.MediaKindMovie, "WEBDL-1080p"},
+		{"Movie.2020.1080p.BD.x264-GRP", commonv1.MediaKindMovie, "Bluray-1080p"},
+		{"[LostYears] Eighty Six - Season 01 (S01) (WEB 1080p x264 10-bit AAC-EAC3) [Dual-Audio]", commonv1.MediaKindEpisode, "WEBDL-1080p"},
+		{"[SubsPlease] Frieren - 28 (1080p) [WEB]", commonv1.MediaKindEpisode, "WEBDL-1080p"},
+		{"[koala] 86: Eighty-Six Season 1 (BD 1080p HEVC Opus) [Dual Audio]", commonv1.MediaKindEpisode, "Bluray-1080p"},
+		{"[DB] 86 | 86 Eighty-Six (Season 1-2+Specials) [Dual Audio 10bit BD1080p][HEVC-x265]", commonv1.MediaKindEpisode, "Bluray-1080p"},
+		// A WEB that is not a source.
+		{"Charlottes.Web.2006.1080p.BluRay.x264-GRP", commonv1.MediaKindMovie, "Bluray-1080p"},
+		{"The.Web.S01E01.1080p.HDTV.x264-GRP", commonv1.MediaKindEpisode, "HDTV-1080p"},
+		{"Show.S01E01.1080p.NF.WEBRip.x264-GRP", commonv1.MediaKindEpisode, "WEBRip-1080p"},
+		{"Movie.2020.1080p.BDRip.x264-GRP", commonv1.MediaKindMovie, "Bluray-1080p"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.title, func(t *testing.T) {
+			p, err := ParseKind(tt.title, tt.kind)
+			assert.NoError(t, err)
+			if p != nil {
+				assert.Equal(t, tt.want, p.Quality.Name)
+			}
+		})
+	}
+}
+
 func TestParseQualityTagsRevisionHandlesProperRepackRealVersion(t *testing.T) {
 	tests := []struct {
 		name  string
