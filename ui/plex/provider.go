@@ -57,9 +57,11 @@ type Options struct {
 	// closure, never a KV handle, so it cannot write (TestUINeverWrites).
 	Extended func(ctx context.Context, kind commonv1.MediaKind, uid types.UID) (doc extended.Doc, ok bool, err error)
 
-	// PhotoURL turns a provider-hosted image URL into an absolute URL
-	// served by the ui's signed /art/search proxy. Nil drops person photos,
-	// season posters and episode stills.
+	// PhotoURL is the URL PMS is given for a provider-hosted image: the
+	// image's own public URL, or "" for one it may not have (the ui's
+	// plexPhotoURL). PMS fetches every image URL itself or through
+	// images.plex.tv, so a cluster address never works. Nil drops person
+	// photos, season posters and episode stills.
 	PhotoURL func(src string) string
 
 	// PlexGUIDs answers a movie, show, season or episode Plex knows with

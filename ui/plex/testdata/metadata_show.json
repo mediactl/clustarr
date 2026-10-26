@@ -12,8 +12,8 @@
         "type": "show",
         "title": "Harborview",
         "originallyAvailableAt": "2018-03-04",
-        "thumb": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/poster?v=seriesposterdigest1",
-        "art": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/fanart?v=seriesfanartdigest1",
+        "thumb": "https://provider.example/series-poster.jpg",
+        "art": "https://provider.example/series-fanart.jpg",
         "contentRating": "TV-14",
         "titleSort": "Harborview",
         "year": 2018,
@@ -23,12 +23,12 @@
         "Image": [
           {
             "type": "coverPoster",
-            "url": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/poster?v=seriesposterdigest1",
+            "url": "https://provider.example/series-poster.jpg",
             "alt": "Harborview"
           },
           {
             "type": "background",
-            "url": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/fanart?v=seriesfanartdigest1",
+            "url": "https://provider.example/series-fanart.jpg",
             "alt": "Harborview"
           }
         ],
@@ -93,26 +93,26 @@
               "type": "season",
               "title": "Season 1",
               "originallyAvailableAt": "2018-03-04",
-              "thumb": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/poster?v=seriesposterdigest1",
-              "art": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/fanart?v=seriesfanartdigest1",
-              "parentArt": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/fanart?v=seriesfanartdigest1",
+              "thumb": "https://provider.example/series-poster.jpg",
+              "art": "https://provider.example/series-fanart.jpg",
+              "parentArt": "https://provider.example/series-fanart.jpg",
               "year": 2018,
               "parentRatingKey": "22222222-2222-2222-2222-222222222222",
               "parentKey": "/library/metadata/22222222-2222-2222-2222-222222222222/children",
               "parentGuid": "tv.plex.agents.custom.clustarr.tv://show/22222222-2222-2222-2222-222222222222",
               "parentType": "show",
               "parentTitle": "Harborview",
-              "parentThumb": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/poster?v=seriesposterdigest1",
+              "parentThumb": "https://provider.example/series-poster.jpg",
               "index": 1,
               "Image": [
                 {
                   "type": "coverPoster",
-                  "url": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/poster?v=seriesposterdigest1",
+                  "url": "https://provider.example/series-poster.jpg",
                   "alt": "Season 1"
                 },
                 {
                   "type": "background",
-                  "url": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/fanart?v=seriesfanartdigest1",
+                  "url": "https://provider.example/series-fanart.jpg",
                   "alt": "Season 1"
                 }
               ]
@@ -124,26 +124,26 @@
               "type": "season",
               "title": "Season 2",
               "originallyAvailableAt": "2019-04-07",
-              "thumb": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/poster?v=seriesposterdigest1",
-              "art": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/fanart?v=seriesfanartdigest1",
-              "parentArt": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/fanart?v=seriesfanartdigest1",
+              "thumb": "https://provider.example/series-poster.jpg",
+              "art": "https://provider.example/series-fanart.jpg",
+              "parentArt": "https://provider.example/series-fanart.jpg",
               "year": 2018,
               "parentRatingKey": "22222222-2222-2222-2222-222222222222",
               "parentKey": "/library/metadata/22222222-2222-2222-2222-222222222222/children",
               "parentGuid": "tv.plex.agents.custom.clustarr.tv://show/22222222-2222-2222-2222-222222222222",
               "parentType": "show",
               "parentTitle": "Harborview",
-              "parentThumb": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/poster?v=seriesposterdigest1",
+              "parentThumb": "https://provider.example/series-poster.jpg",
               "index": 2,
               "Image": [
                 {
                   "type": "coverPoster",
-                  "url": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/poster?v=seriesposterdigest1",
+                  "url": "https://provider.example/series-poster.jpg",
                   "alt": "Season 2"
                 },
                 {
                   "type": "background",
-                  "url": "https://clustarr.example.com/art/series/22222222-2222-2222-2222-222222222222/fanart?v=seriesfanartdigest1",
+                  "url": "https://provider.example/series-fanart.jpg",
                   "alt": "Season 2"
                 }
               ]

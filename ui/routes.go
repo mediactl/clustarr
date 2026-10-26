@@ -128,9 +128,10 @@ func (s *Server) routes() http.Handler {
 			Extras:      s.opts.PlexExtras,
 			Extended:    s.opts.PlexExtended,
 			// Provider-hosted images (person photos, season posters,
-			// episode stills) go through the signed /art/search proxy,
-			// made absolute for Plex; never hot-linked (ADR-0011).
-			PhotoURL: plexPhotoURL(s.searchArt, s.opts.Plex.ExternalURL),
+			// episode stills) are their own public URLs: PMS fetches every
+			// image URL through images.plex.tv and refuses a private one
+			// (plexPhotoURL).
+			PhotoURL: plexPhotoURL(s.searchArt),
 		}))
 	}
 

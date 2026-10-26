@@ -1,6 +1,6 @@
 # ADR-0011: Artwork lives in a JetStream object store, one bucket, two writers split by variant
 
-**Status:** Accepted, 2026-09-24
+**Status:** Accepted, 2026-09-24; amended 2026-10-26 (the Plex provider; see the end)
 
 ## Context
 
@@ -149,3 +149,25 @@ https, from TMDB's, TVDB's, the Cover Art Archive's or Open Library's image
 host (a redirect too), only an image, capped at 5 MiB and kept for an hour.
 The browser still never loads a provider URL. This is the ui's first
 outbound HTTP; see `docs/superpowers/specs/2026-09-29-add-new-design.md`.
+
+## Amendment, 2026-10-26: the Plex provider hands PMS public URLs
+
+PMS 1.43 (11029) no longer downloads a custom metadata provider's images.
+It keeps each URL and fetches it on demand, either through `images.plex.tv`,
+Plex's cloud photo service, or itself, and it refuses a private address
+("not a permitted destination for a caller-supplied URL"). The ui's `/art`
+and `/art/search` URLs on its cluster address therefore reached no one: 228
+posters and 17,086 cast photos on talos failed. A failure through
+`images.plex.tv` was logged as "over maximum size of 104857600 bytes".
+
+So the Plex provider (`ui/plex`) gives PMS each image's own public URL:
+- the artwork entry's `sourceURL` for posters, backgrounds and logos;
+- the provider's image URL for photos, season posters and stills, on a host
+  the `/art/search` allowlist names.
+
+This decision's reasons against hot-linking were the browser's: viewers'
+addresses, mixed content, provider rate limits on page loads. A Plex
+server fetching an image is not a viewer. The rating-badge overlay exists
+only in the store, so Plex shows the plain poster until the store is
+reachable from the internet, which nothing here provides. The ui's own
+pages are unchanged.

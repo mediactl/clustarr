@@ -34,10 +34,10 @@ import (
 )
 
 // urls is how a builder makes an absolute URL: external is --external-url,
-// the base of every /art URL; photo proxies a provider-hosted image (a
-// person's photo, a season poster, an episode still) through the ui's
-// signed /art/search, so nothing is hot-linked (ADR-0011). A nil photo
-// drops such images.
+// the base of an /art URL; photo gives a provider-hosted image (a person's
+// photo, a season poster, an episode still) its public URL
+// (Options.PhotoURL), since PMS fetches every image URL from the internet
+// side. A nil photo drops such images.
 type urls struct {
 	external string
 	photo    func(string) string
@@ -51,8 +51,8 @@ type urls struct {
 	idx *projection.Index
 }
 
-// proxied is src through the photo proxy, "" when there is no proxy or no
-// source.
+// proxied is the URL PMS is given for src (Options.PhotoURL), "" when there
+// is no PhotoURL or no source.
 func (u urls) proxied(src string) string {
 	if u.photo == nil || src == "" {
 		return ""

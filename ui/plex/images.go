@@ -19,6 +19,7 @@ package plex
 
 import (
 	"net/http"
+	"net/url"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/types"
@@ -52,15 +53,12 @@ const (
 
 // artworkFor is what [buildImages] and thumb/art both read from: the
 // catalog kind, its own UID (for [projection.ArtURL]) and its ArtworkEntry
-// list, plus the poster overlay when the kind has one (Movie and Series
-// only, spec §B.3) -- the same three inputs
-// ui/projection/library.go's posterArt already reads, generalised to every
-// image type this route needs, not only the poster.
+// list. A Movie's or Series' rating-badge overlay is not here: it exists
+// only in the ui's artwork store, which PMS cannot reach (artworkFor.url).
 type artworkFor struct {
 	kind    commonv1.MediaKind
 	uid     types.UID
 	artwork []catalogv1.ArtworkEntry
-	overlay *catalogv1.OverlayEntry
 }
 
 // entry finds t in af.artwork, reporting false when it was never fetched.
@@ -73,23 +71,33 @@ func (af artworkFor) entry(t catalogv1.ImageType) (catalogv1.ArtworkEntry, bool)
 	return catalogv1.ArtworkEntry{}, false
 }
 
-// url returns the [projection.ArtURL] for image type t, preferring the
-// rating-badge overlay for a poster (the same precedence
-// ui/projection/library.go's posterArt already applies to the Library page's
-// own poster), false when nothing has been fetched for t yet.
+// url returns the URL PMS is given for image type t: the artwork's own
+// source URL (its sourceURL), false when nothing has been fetched for t
+// yet. PMS 1.43 (11029) no longer downloads a custom provider's images; it
+// fetches each URL on demand through images.plex.tv or itself and refuses a
+// private address (plexPhotoURL in package ui), so the ui's /art URL on its
+// cluster address -- and with it the rating-badge overlay, which exists
+// only there -- never reaches Plex (2026-10-26). An entry with no absolute
+// http(s) source still gets its /art URL, the best there is.
 func (af artworkFor) url(externalURL string, t catalogv1.ImageType) (string, bool) {
-	base := trimBase(externalURL)
-	if t == catalogv1.ImageTypePoster && af.overlay != nil {
-		return base + projection.ArtURL(af.kind, af.uid, t, af.overlay.Digest), true
+	a, ok := af.entry(t)
+	if !ok {
+		return "", false
 	}
-	if a, ok := af.entry(t); ok {
-		return base + projection.ArtURL(af.kind, af.uid, t, a.Digest), true
+	if publicURL(a.SourceURL) {
+		return a.SourceURL, true
 	}
-	return "", false
+	return trimBase(externalURL) + projection.ArtURL(af.kind, af.uid, t, a.Digest), true
+}
+
+// publicURL reports an absolute http or https URL.
+func publicURL(s string) bool {
+	u, err := url.Parse(s)
+	return err == nil && (u.Scheme == "https" || u.Scheme == "http") && u.Host != ""
 }
 
 // buildImages builds a Metadata object's own Image[] (research §5.2):
-// coverPoster from the poster artwork (overlay-first), background from
+// coverPoster from the poster artwork, background from
 // fanart, clearLogo from logo. A type with nothing fetched yet is left out
 // entirely (spec §D.5: "omitted, never blanked").
 func buildImages(externalURL string, af artworkFor) []Image {
@@ -182,7 +190,7 @@ func resolveArtwork(root rootDef, idx *projection.Index, ratingKey string) (artw
 		if !ok {
 			return artworkFor{}, false
 		}
-		return artworkFor{kind: commonv1.MediaKindSeries, uid: s.UID, artwork: s.Status.Artwork, overlay: s.Status.Overlay}, true
+		return artworkFor{kind: commonv1.MediaKindSeries, uid: s.UID, artwork: s.Status.Artwork}, true
 	}
 
 	obj, ok := idx.ByUID(uid)
@@ -191,9 +199,9 @@ func resolveArtwork(root rootDef, idx *projection.Index, ratingKey string) (artw
 	}
 	switch v := obj.(type) {
 	case *catalogv1.Movie:
-		return artworkFor{kind: commonv1.MediaKindMovie, uid: v.UID, artwork: v.Status.Artwork, overlay: v.Status.Overlay}, true
+		return artworkFor{kind: commonv1.MediaKindMovie, uid: v.UID, artwork: v.Status.Artwork}, true
 	case *catalogv1.Series:
-		return artworkFor{kind: commonv1.MediaKindSeries, uid: v.UID, artwork: v.Status.Artwork, overlay: v.Status.Overlay}, true
+		return artworkFor{kind: commonv1.MediaKindSeries, uid: v.UID, artwork: v.Status.Artwork}, true
 	case *catalogv1.Episode:
 		return artworkFor{kind: commonv1.MediaKindEpisode, uid: v.UID}, true
 	default:

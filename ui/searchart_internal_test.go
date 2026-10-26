@@ -189,22 +189,26 @@ func TestSearchArtURLsSurviveARestartWithAConfiguredKey(t *testing.T) {
 		"without a configured key the server keeps its own per-process key")
 }
 
-// The Plex provider's photo URLs are the signed /art/search path made
-// absolute on the external URL, only for a host the proxy fetches from, and
-// none without an external URL Plex could reach.
-func TestPlexPhotoURLSignsOnlyAllowedHostsOnTheExternalURL(t *testing.T) {
+// The Plex provider's photo URLs are the images' own public URLs, never the
+// ui's /art/search proxy: PMS 1.43 (11029) fetches every image URL through
+// images.plex.tv or itself and refuses a cluster address (2026-10-26). Only
+// a host the proxy would fetch from is handed out.
+func TestPlexPhotoURLIsThePublicSourceOnAnAllowedHost(t *testing.T) {
 	a := newSearchArt([]byte(strings.Repeat("k", 32)))
-	photo := plexPhotoURL(a, "https://clustarr.example/")
+	photo := plexPhotoURL(a)
 
-	src := "https://image.tmdb.org/t/p/w185/person.jpg"
-	got := photo(src)
-	require.True(t, strings.HasPrefix(got, "https://clustarr.example/art/search?src="), got)
-	require.Equal(t, "https://clustarr.example"+a.URL(src), got)
-
+	for _, src := range []string{
+		"https://image.tmdb.org/t/p/w185/person.jpg",
+		"https://artworks.thetvdb.com/banners/seasons/75299-1-2.jpg",
+		"https://images.mediux.io/assets/abc",
+	} {
+		got := photo(src)
+		require.Equal(t, src, got)
+		require.NotContains(t, got, "/art/search", "PMS cannot reach the proxy")
+	}
 	require.Empty(t, photo("https://evil.example/x.jpg"), "a host the proxy does not fetch from")
 	require.Empty(t, photo("http://image.tmdb.org/t/p/w185/person.jpg"), "not https")
 	require.Empty(t, photo(""))
-	require.Empty(t, plexPhotoURL(a, "")(src), "no external URL: nothing Plex could load")
 }
 
 // TMDB's logos are often SVG, and an SVG can carry script. The proxy serves

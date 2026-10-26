@@ -611,10 +611,27 @@ language; people and similar titles come from the
 item (`pkg/metadata/extended`; file-backed even on single-node NATS,
 `BucketSpec.Durable`, since a document is rebuilt only at the item's next
 refresh), which the ui reads through a closure under a 2 s deadline, never
-a KV handle; provider-hosted images go through the signed `/art/search`
-proxy, signed with `$CLUSTARR_ART_SIGNING_KEY` from the chart's kept
-`<release>-ui-art-signing-key` Secret, because Plex stores those URLs and a
-per-process key broke them at every restart. A Movie or Series document
+a KV handle. Every image URL the provider hands Plex is the image's own
+public URL (2026-10-26):
+- person photos, season posters, episode stills and image-set overrides
+  through `Options.PhotoURL` (`plexPhotoURL`: the source, only on a host
+  `/art/search` would fetch from);
+- posters, backgrounds and logos as the artwork entry's `sourceURL`
+  (`artworkFor.url`).
+
+PMS 1.43 (11029) keeps a custom provider's image URLs instead of
+downloading them. It fetches each through `images.plex.tv` or itself, and
+refuses a private address ("not a permitted destination for a
+caller-supplied URL"). So the ui's `/art` URLs on its cluster address had
+broken 228 posters and 17,086 cast photos. A failure through
+`images.plex.tv` reads in PMS's log as "URL requested for photo transcode
+is over maximum size of 104857600 bytes", though nothing was that big.
+
+ADR-0011's rule against hot-linking concerns the browser, and Plex's
+servers fetch these URLs. The rating-badge overlay exists only in the ui's
+store, so Plex shows the plain poster. `/art/search` still signs with
+`$CLUSTARR_ART_SIGNING_KEY` from the chart's kept
+`<release>-ui-art-signing-key` Secret for the ui's own pages. A Movie or Series document
 older than `pkg/metadata.SchemaVersion` (`status.metadata.schemaVersion`)
 is refreshed once, past the L2 cache (whose key carries the version), and
 stays ready meanwhile -- raise the version when the gateway learns a field.
@@ -626,10 +643,10 @@ dialog takes Kometa's image-files YAML (`pkg/imageset`: `url_poster`,
 `url_background`, `tpdb_*` ids, `seasons{n}`, `episodes{n}`), and
 `ui/actions.SetArtwork` patches `spec.artwork` and
 `Series.spec.seasonArtwork` (`{season, episode?, type, url}`, 1000 at
-most), the item's overrides of other types kept. The Plex provider serves
-the season and episode overrides through the signed `/art/search` proxy,
-whose allowlist gained `api.mediux.pro` and `theposterdb.com`; an override
-on another host is not shown. PMS shows them at its next refresh of the
+most), the item's overrides of other types kept. The Plex provider hands
+PMS the season and episode overrides' own URLs on a host the `/art/search`
+allowlist names (it gained `api.mediux.pro` and `theposterdb.com`); an
+override on another host is not shown. PMS shows them at its next refresh of the
 show.
 Sets are also chosen automatically (2026-10-22,
 `docs/superpowers/specs/2026-10-22-mediux-image-sets-automation-design.md`;
