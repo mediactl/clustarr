@@ -467,6 +467,7 @@ func transcodeOptions(o Options, ledger *admission.Ledger) transcodemanager.Opti
 		IntelRenderGroups: o.IntelRenderGroups, NodeLabelNVIDIA: o.NodeLabelNVIDIA, NodeLabelIntel: o.NodeLabelIntel,
 		WorkerPlacement: o.WorkerPlacement,
 		JobWindow:       o.JobWindow, GraftConcurrency: o.GraftConcurrency, Ledger: ledger,
+		VideoLease:      o.VideoTranscodeLease,
 		Logging: o.Logging, Tracing: o.Tracing,
 	}
 }

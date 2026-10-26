@@ -422,6 +422,13 @@ manager:
   # Audio grafts running at once in the namespace (--graft-concurrency): the
   # admission ledger's graft slots, each a CPU pod of a cpu pool's size.
   graftConcurrency: 2
+  # cluster-plex's Lease counting the video conversions its GPU pool runs
+  # (--video-transcode-lease, <namespace>/<name>): while it counts one,
+  # transcode admission admits no new file to intel, and the encodes already
+  # running finish. Empty yields to nothing. With cluster-plex's
+  # videoTranscode pool on, set it to
+  # <release namespace>/cluster-plex-video-transcodes.
+  videoTranscodeLease: ""
   # The memory limit a download engine pod gets when its DownloadClient's
   # spec.resources sets none (--engine-memory-limit-torrent/-usenet); the
   # engine's GOMEMLIMIT is 80% of it, and it requests 512Mi (or the limit,

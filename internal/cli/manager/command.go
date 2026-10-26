@@ -61,7 +61,7 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 	fs := root.Flags()
 	common := ctrlflags.BindManager(fs)
 	d := DefaultOptions()
-	var slots, renderGroups, workerPlacement string
+	var slots, renderGroups, workerPlacement, videoLease string
 	memoryLimitTorrent, memoryLimitUsenet := d.EngineMemoryLimitTorrent.String(), d.EngineMemoryLimitUsenet.String()
 
 	fs.StringVar(&d.DataDir, "data-dir", d.DataDir,
@@ -93,6 +93,9 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 	fs.StringVar(&slots, "slots", transcodemanager.FormatSlots(d.Slots),
 		"Concurrent transcode budget per hardware class, e.g. cpu=2,nvidia=1,intel=1. "+
 			"A budget of 0 means that class is never admitted.")
+	fs.StringVar(&videoLease, "video-transcode-lease", "",
+		"<namespace>/<name> of cluster-plex's Lease counting the video conversions its GPU pool runs: while it "+
+			"counts one, transcode admission admits no new file to intel, and running encodes finish. Empty yields to nothing.")
 	fs.StringVar(&renderGroups, "intel-render-groups", cli.EnvOr(cli.EnvIntelRenderGroups, ""),
 		"Comma-separated GIDs every Intel transcode pool's pod gets as supplementalGroups: the host group "+
 			"owning /dev/dri/renderD* on the Intel GPU nodes, e.g. 109 or 44,109. It varies per host install, "+
@@ -177,6 +180,9 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 		var err error
 		if o.Slots, err = transcodemanager.ParseSlots(slots); err != nil {
 			return fmt.Errorf("--slots: %w", err)
+		}
+		if o.VideoTranscodeLease, err = parseLeaseRef(videoLease); err != nil {
+			return fmt.Errorf("--video-transcode-lease: %w", err)
 		}
 		if o.WorkerPlacement, err = placement.Parse(workerPlacement); err != nil {
 			return fmt.Errorf("--worker-placement: %w", err)

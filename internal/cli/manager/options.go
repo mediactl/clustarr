@@ -22,11 +22,13 @@ package manager
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -92,6 +94,10 @@ type Options struct {
 	NodeLabelIntel    string
 	JobWindow         int
 	GraftConcurrency  int
+	// VideoTranscodeLease is --video-transcode-lease: cluster-plex's Lease
+	// counting the video conversions its GPU pool runs, which transcode
+	// admission yields the intel class to. Zero yields to nothing.
+	VideoTranscodeLease types.NamespacedName
 
 	CardigannDefinitionsDir string
 	CardigannBundled        bool
@@ -154,6 +160,25 @@ func DefaultOptions() Options {
 	return o
 }
 
+// parseLeaseRef reads --video-transcode-lease's <namespace>/<name>; empty
+// is none.
+func parseLeaseRef(s string) (types.NamespacedName, error) {
+	if s == "" {
+		return types.NamespacedName{}, nil
+	}
+	ns, name, ok := strings.Cut(s, "/")
+	if !ok || strings.Contains(name, "/") {
+		return types.NamespacedName{}, fmt.Errorf("%q: want <namespace>/<name>", s)
+	}
+	if msgs := validation.IsDNS1123Label(ns); len(msgs) > 0 {
+		return types.NamespacedName{}, fmt.Errorf("namespace %q: %s", ns, strings.Join(msgs, "; "))
+	}
+	if msgs := validation.IsDNS1123Subdomain(name); len(msgs) > 0 {
+		return types.NamespacedName{}, fmt.Errorf("name %q: %s", name, strings.Join(msgs, "; "))
+	}
+	return types.NamespacedName{Namespace: ns, Name: name}, nil
+}
+
 // Validate is §3.4.1's check, run before anything touches the cluster.
 func (o Options) Validate() error {
 	var errs []error
@@ -182,6 +207,9 @@ func (o Options) Validate() error {
 		if l.limit.Sign() <= 0 {
 			errs = append(errs, fmt.Errorf("%s %s: must be a positive quantity, e.g. 8Gi", l.flag, l.limit.String()))
 		}
+	}
+	if l := o.VideoTranscodeLease; l.Name != "" && len(o.WatchNamespaces) > 0 && !slices.Contains(o.WatchNamespaces, l.Namespace) {
+		errs = append(errs, fmt.Errorf("--video-transcode-lease %s: its namespace is not one --watch-namespace names, so the cache never holds it", l))
 	}
 	if o.RemediationConcurrency < 1 || o.RemediationConcurrency > 64 {
 		errs = append(errs, fmt.Errorf("--remediation-concurrency %d: must be 1 to 64", o.RemediationConcurrency))

@@ -135,6 +135,16 @@ func TestManagerCarriesTheEngineMemoryLimits(t *testing.T) {
 // pacing and I/O workers and the admission ledger's graft slots, and never
 // --job-retention, which the fold removed with TranscodeJob (D5). The
 // cold-turkey revision dropped the --legacy-fold flags: none is rendered.
+func TestManagerCarriesTheVideoTranscodeLeaseFlag(t *testing.T) {
+	const lease = "clustarr-system/cluster-plex-video-transcodes"
+	out := installtest.RenderChart(t, "--set", "manager.videoTranscodeLease="+lease)
+	assert.Contains(t, renderedContainer(t, installtest.DecodeRendered(t, out), "manager").Args, "--video-transcode-lease="+lease)
+
+	for _, a := range renderedContainer(t, installtest.DecodeRendered(t, installtest.RenderChart(t)), "manager").Args {
+		assert.False(t, strings.HasPrefix(a, "--video-transcode-lease"), "unset, the chart passes %s: nothing should yield", a)
+	}
+}
+
 func TestManagerCarriesTheFoldFlags(t *testing.T) {
 	want := []string{
 		"--graft-concurrency=2",

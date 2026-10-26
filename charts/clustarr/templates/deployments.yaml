@@ -21,6 +21,10 @@ creates those at runtime, owned by the object that asked for them.
       (printf "--remediation-concurrency=%d" (int .Values.manager.remediation.concurrency))
       (printf "--remediation-bulk-writes-per-second=%d" (int .Values.manager.remediation.bulkWritesPerSecond))
       (printf "--remediation-io-workers=%d" (int .Values.manager.remediation.ioWorkers)) }}
+{{- /* Transcode admission yields intel to cluster-plex's video conversions. */}}
+{{- with .Values.manager.videoTranscodeLease }}
+{{- $managerArgs = append $managerArgs (printf "--video-transcode-lease=%s" .) }}
+{{- end }}
 {{- /* The facade's API-key Secret: the manager creates it when absent, the
        index agent only reads it, so both name the same one. */}}
 {{- $managerEnv := list

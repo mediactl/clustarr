@@ -314,6 +314,11 @@
           "minimum": 1,
           "description": "Audio grafts running at once in the namespace (--graft-concurrency): the admission ledger's graft slots."
         },
+        "videoTranscodeLease": {
+          "type": "string",
+          "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?/[a-z0-9]([-.a-z0-9]*[a-z0-9])?$",
+          "description": "<namespace>/<name> of cluster-plex's video-transcode Lease (--video-transcode-lease): while it counts a conversion, no new file is admitted to intel. Empty yields to nothing."
+        },
         "engineMemoryLimits": {
           "type": "object",
           "additionalProperties": false,

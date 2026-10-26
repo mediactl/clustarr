@@ -157,6 +157,25 @@ func TestRejectsABadSlotFlag(t *testing.T) {
 	assert.Equal(t, int32(0), o.Slots["nvidia"], "a zero budget is legal: that class is never admitted")
 }
 
+func TestRejectsABadVideoTranscodeLeaseFlag(t *testing.T) {
+	for _, v := range []string{"nonamespace", "a/b/c", "/name", "ns/", "Bad_NS/x"} {
+		_, err := parse(t, "--native-image=n", "--video-transcode-lease="+v)
+		require.ErrorContains(t, err, "--video-transcode-lease", v)
+	}
+	o, err := parse(t, "--native-image=n")
+	require.NoError(t, err)
+	assert.Empty(t, o.VideoTranscodeLease.Name, "no flag: no yield")
+
+	o, err = parse(t, "--native-image=n", "--video-transcode-lease=clustarr-system/cluster-plex-video-transcodes")
+	require.NoError(t, err)
+	assert.Equal(t, "clustarr-system", o.VideoTranscodeLease.Namespace)
+	assert.Equal(t, "cluster-plex-video-transcodes", o.VideoTranscodeLease.Name)
+
+	_, err = parse(t, "--native-image=n", "--watch-namespace=media",
+		"--video-transcode-lease=clustarr-system/cluster-plex-video-transcodes")
+	require.ErrorContains(t, err, "--video-transcode-lease", "a Lease outside the watched namespaces is never in the cache")
+}
+
 func TestIntelRenderGroups(t *testing.T) {
 	t.Setenv("CLUSTARR_INTEL_RENDER_GROUPS", "44,109")
 	o, err := parse(t, "--native-image=n")

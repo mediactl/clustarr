@@ -57,6 +57,9 @@ type PassInputs struct {
 	// GraftJobs are the unfinished graft Jobs' names by namespace (§5.13):
 	// a slot in use while its Job runs, whatever its block says.
 	GraftJobs map[string][]string
+	// VideoStreams is how many video conversions cluster-plex's GPU pool
+	// runs (videolease.go): above zero, no new file is admitted to intel.
+	VideoStreams int
 }
 
 // PassResult is when the next pass is due.
@@ -98,14 +101,21 @@ func (l *Ledger) Pass(in PassInputs) PassResult {
 	l.rerouteLocked(in, now)
 	cands, running := l.candidatesLocked(in, now)
 	limits := profileLimits(in.Profiles)
-	queued, holds := assignClasses(cands, running, gpu, l.unschedulableLocked(now), held, l.profileUIDs, limits, l.o.Slots)
+	budget, yielding := l.o.Slots, false
+	if _, ok := l.o.Slots[string(transcodev1alpha1.HardwareIntel)]; ok && in.VideoStreams > 0 {
+		// Plex's streams take the Intel GPU first: no new intel admission.
+		// Running and Queued files hold their slots in running, untouched.
+		budget, yielding = maps.Clone(l.o.Slots), true
+		budget[string(transcodev1alpha1.HardwareIntel)] = 0
+	}
+	queued, holds := assignClasses(cands, running, gpu, l.unschedulableLocked(now), held, l.profileUIDs, limits, budget)
 	slots := make([]Slot, 0, len(queued))
 	for _, c := range queued {
 		slots = append(slots, c.slot)
 	}
-	admitted := Admit(slots, running, Budget{Slots: l.o.Slots, ProfileLimits: limits})
+	admitted := Admit(slots, running, Budget{Slots: budget, ProfileLimits: limits})
 	l.grantDispatchLocked(queued, admitted, now)
-	l.waitReasonsLocked(queued, admitted, holds)
+	l.waitReasonsLocked(queued, admitted, holds, yielding)
 	l.fillWindowLocked(in.Profiles, now)
 	l.grantGraftSlotsLocked(in, now)
 	l.metricsLocked(in.Profiles, now)
@@ -250,7 +260,7 @@ func (l *Ledger) grantDispatchLocked(queued []candidate, admitted []Slot, now ti
 // waitReasonsLocked gives each held or unadmitted candidate the Planned
 // message admission wants written, and enqueues it only when that changed
 // (§5.7 step 7, §5.11 "Bounded writes").
-func (l *Ledger) waitReasonsLocked(queued []candidate, admitted []Slot, holds []hold) {
+func (l *Ledger) waitReasonsLocked(queued []candidate, admitted []Slot, holds []hold, yielding bool) {
 	in := make(map[string]bool, len(admitted))
 	for _, s := range admitted {
 		in[s.Key] = true
@@ -264,14 +274,22 @@ func (l *Ledger) waitReasonsLocked(queued []candidate, admitted []Slot, holds []
 	}
 	for _, h := range holds {
 		if e := l.files[h.uid]; e != nil {
-			set(h.uid, e.view.Key, wait{reason: h.msg, cause: h.cause})
+			msg := h.msg
+			if yielding && msg == WaitingForGPU {
+				msg = YieldingToPlex
+			}
+			set(h.uid, e.view.Key, wait{reason: msg, cause: h.cause})
 		}
 	}
 	for _, c := range queued {
 		if in[c.slot.Key] {
 			continue
 		}
-		set(c.uid, c.v.Key, wait{reason: fmt.Sprintf("waiting for a free %s slot", c.slot.Hardware), cause: transcodeplan.ReasonWaitingForSlot})
+		msg := fmt.Sprintf("waiting for a free %s slot", c.slot.Hardware)
+		if yielding && c.slot.Hardware == string(transcodev1alpha1.HardwareIntel) {
+			msg = YieldingToPlex
+		}
+		set(c.uid, c.v.Key, wait{reason: msg, cause: transcodeplan.ReasonWaitingForSlot})
 	}
 }
 

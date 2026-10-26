@@ -31,6 +31,7 @@ import (
 	"os"
 	"strconv"
 
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	"github.com/mediactl/clustarr/app/transcode/admission"
@@ -47,19 +48,20 @@ import (
 // Options is what the transcode manager registration takes.
 type Options struct {
 	k8s.Options
-	Slots             map[string]int32  // the per-hardware admission budget (--slots)
-	DataDir           string            // the logical /data root the pools mount
-	WorkerImage       string            // the image every pool and graft Job runs
-	DataClaimName     string            // the RWX claim the pools mount at DataDir
-	IntelRenderGroups []int64           // supplementalGroups for Intel pools
-	NodeLabelNVIDIA   string            // the label marking an NVIDIA node
-	NodeLabelIntel    string            // the label marking an Intel GPU node
-	WorkerPlacement   placement.Profile // the workers profile every pool and graft pod carries (--worker-placement)
-	JobWindow         int               // most files per profile in a window phase (--job-window, loop spec §5.11)
-	GraftConcurrency  int               // most standalone audio grafts running at once per namespace (--graft-concurrency): the ledger's graft slots
-	Ledger            *admission.Ledger // shared with the remediation loop (the manager command builds it once)
-	Logging           logging.Options   // rendered onto the pool workers' args
-	Tracing           tracing.Options   // likewise
+	Slots             map[string]int32     // the per-hardware admission budget (--slots)
+	DataDir           string               // the logical /data root the pools mount
+	WorkerImage       string               // the image every pool and graft Job runs
+	DataClaimName     string               // the RWX claim the pools mount at DataDir
+	IntelRenderGroups []int64              // supplementalGroups for Intel pools
+	NodeLabelNVIDIA   string               // the label marking an NVIDIA node
+	NodeLabelIntel    string               // the label marking an Intel GPU node
+	WorkerPlacement   placement.Profile    // the workers profile every pool and graft pod carries (--worker-placement)
+	JobWindow         int                  // most files per profile in a window phase (--job-window, loop spec §5.11)
+	GraftConcurrency  int                  // most standalone audio grafts running at once per namespace (--graft-concurrency): the ledger's graft slots
+	VideoLease        types.NamespacedName // cluster-plex's video-transcode Lease, yielded to (--video-transcode-lease); zero yields to nothing
+	Ledger            *admission.Ledger    // shared with the remediation loop (the manager command builds it once)
+	Logging           logging.Options      // rendered onto the pool workers' args
+	Tracing           tracing.Options      // likewise
 }
 
 // namespacesOf is the namespaces admission rebuilds from: the manager's
@@ -98,7 +100,7 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	cfg := poolConfig(o)
 	adm := &admission.Reconciler{
 		Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Ledger: o.Ledger, Bus: bus, Admin: admin,
-		Namespaces: namespacesOf(o.Options), Pool: cfg,
+		Namespaces: namespacesOf(o.Options), Pool: cfg, VideoLease: o.VideoLease,
 		Withdrawal: task.Withdrawal{
 			Records: task.Requests(bus.KV(events.BucketTranscodes)),
 			Leases:  bus.KV(events.BucketTranscodeLeases), Admin: admin,

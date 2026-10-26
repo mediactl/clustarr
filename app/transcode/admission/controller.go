@@ -24,6 +24,7 @@ import (
 	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
+	coordinationv1 "k8s.io/api/coordination/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -59,10 +60,11 @@ const ControllerName = "transcode-admission"
 var Request = reconcile.Request{NamespacedName: types.NamespacedName{Name: "(admission)"}}
 
 // The admission controller reads nodes, the pool and graft Jobs, MediaFiles
-// (the rebuild's quorum Lists and the backlog scan), the items and the
-// profiles. It writes nothing. The blank line keeps the markers
-// package-level.
+// (the rebuild's quorum Lists and the backlog scan), the items, the
+// profiles and cluster-plex's video-transcode Lease (videolease.go). It
+// writes nothing. The blank line keeps the markers package-level.
 //
+// +kubebuilder:rbac:groups=coordination.k8s.io,resources=leases,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch
 // +kubebuilder:rbac:groups=catalog.clustarr.io,resources=mediafiles,verbs=get;list;watch
@@ -88,8 +90,15 @@ type Reconciler struct {
 	RebuildGate <-chan struct{}
 	// Now is the clock; nil is time.Now.
 	Now func() time.Time
+	// VideoLease is cluster-plex's video-transcode Lease
+	// (--video-transcode-lease): while it counts a conversion, no new file
+	// is admitted to intel. Zero reads none, and nothing yields.
+	VideoLease types.NamespacedName
 
 	nextResync time.Time
+	// videoRecheck is when a live count goes stale unless renewed: the
+	// pass after it may admit to intel again.
+	videoRecheck time.Time
 }
 
 func (r *Reconciler) now() time.Time {
@@ -130,7 +139,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, _ reconcile.Request) (reconc
 		return reconcile.Result{}, err
 	}
 	res := r.Ledger.Pass(in)
-	return reconcile.Result{RequeueAfter: max(min(res.RequeueAfter, time.Until(r.nextResync)), time.Second)}, nil
+	after := min(res.RequeueAfter, time.Until(r.nextResync))
+	if in.VideoStreams > 0 {
+		after = min(after, r.videoRecheck.Sub(r.now()))
+	}
+	return reconcile.Result{RequeueAfter: max(after, time.Second)}, nil
 }
 
 // logSweep runs the task sweep; a failure is logged, and the next resync
@@ -229,7 +242,30 @@ func (r *Reconciler) passInputs(ctx context.Context) (PassInputs, error) {
 	if in.GraftJobs, err = r.graftJobs(ctx); err != nil {
 		return in, err
 	}
+	in.VideoStreams = r.videoStreams(ctx)
 	return in, nil
+}
+
+// videoStreams reads cluster-plex's Lease from the cache. One it cannot
+// read counts as none: Plex's streams then share the GPU, as before the
+// yield, rather than hold clustarr's encodes on a Lease that may never come.
+func (r *Reconciler) videoStreams(ctx context.Context) int {
+	if r.VideoLease.Name == "" {
+		return 0
+	}
+	var l coordinationv1.Lease
+	if err := r.Client.Get(ctx, r.VideoLease, &l); err != nil {
+		if !apierrors.IsNotFound(err) {
+			logging.FromContext(ctx).WarnContext(ctx, "admission: cannot read the video-transcode Lease; nothing yields to Plex this pass",
+				"lease", r.VideoLease.String(), "error", err)
+		}
+		return 0
+	}
+	n := videoStreams(&l, r.now())
+	if n > 0 {
+		r.videoRecheck = l.Spec.RenewTime.Add(videoLeaseStale + time.Second)
+	}
+	return n
 }
 
 // graftJobs is every unfinished graft Job's name by namespace, from the
@@ -394,12 +430,17 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	one := handler.EnqueueRequestsFromMapFunc(func(context.Context, client.Object) []reconcile.Request {
 		return []reconcile.Request{Request}
 	})
-	return ctrl.NewControllerManagedBy(mgr).Named(ControllerName).
+	b := ctrl.NewControllerManagedBy(mgr).Named(ControllerName).
 		WatchesRawSource(source.Channel(r.Ledger.wake, one)).
 		Watches(&corev1.Node{}, one, builder.WithPredicates(k8s.StatusFieldChanged(gpuNodeSignal(r.Pool)))).
 		Watches(&transcodev1alpha1.TranscodeProfile{}, one, builder.WithPredicates(k8s.GenerationChanged())).
 		Watches(&batchv1.Job{}, one, builder.WithPredicates(k8s.Or(pool.JobPredicate(),
-			k8s.And(predicate.NewPredicateFuncs(isGraftJob), k8s.StatusFieldChanged(graftJobSignal))))).
-		WithOptions(controller.Options{MaxConcurrentReconciles: 1, RecoverPanic: new(true)}).
-		Complete(r)
+			k8s.And(predicate.NewPredicateFuncs(isGraftJob), k8s.StatusFieldChanged(graftJobSignal)))))
+	if r.VideoLease.Name != "" {
+		// A count that rises or falls is a pass at once, not at the backstop.
+		b = b.Watches(&coordinationv1.Lease{}, one, builder.WithPredicates(predicate.NewPredicateFuncs(func(o client.Object) bool {
+			return o.GetNamespace() == r.VideoLease.Namespace && o.GetName() == r.VideoLease.Name
+		})))
+	}
+	return b.WithOptions(controller.Options{MaxConcurrentReconciles: 1, RecoverPanic: new(true)}).Complete(r)
 }
