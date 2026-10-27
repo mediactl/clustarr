@@ -1639,6 +1639,9 @@ var schemaYAML = typed.YAMLObject(`types:
           elementType:
             namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.EpisodeNumber
           elementRelationship: atomic
+    - name: failedAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
     - name: failureReason
       type:
         namedType: com.github.mediactl.clustarr.api.common.v1alpha1.DownloadFailureReason

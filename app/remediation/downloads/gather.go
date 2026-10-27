@@ -117,13 +117,14 @@ func (s *Stage) gather(ctx context.Context, ow owner, now time.Time) (lifecycle.
 		Owner: ow.ref, ProviderID: ow.providerID, Kind: ow.kind, Now: now,
 		Deleting:  ow.obj.GetDeletionTimestamp() != nil,
 		Monitored: ow.monitored, HasFile: ow.hasFile, EntryCap: ow.entryCap,
-		Stored:    ow.entries,
-		Intents:   lifecycle.ParseIntents(ow.obj.GetAnnotations()),
-		Transfers: map[types.UID]lifecycle.Transfer{},
-		Engines:   map[string]lifecycle.Engine{},
-		Files:     map[string]int{},
-		Covered:   map[types.UID][]schema.ItemRef{},
-		Searched:  map[schema.ItemRef]time.Time{},
+		Stored:      ow.entries,
+		Intents:     lifecycle.ParseIntents(ow.obj.GetAnnotations()),
+		Transfers:   map[types.UID]lifecycle.Transfer{},
+		Engines:     map[string]lifecycle.Engine{},
+		Files:       map[string]int{},
+		Covered:     map[types.UID][]schema.ItemRef{},
+		Searched:    map[schema.ItemRef]time.Time{},
+		Unmonitored: map[schema.ItemRef]bool{},
 	}
 	if ow.nonces != nil {
 		v.Nonces = *ow.nonces
@@ -271,6 +272,9 @@ func (s *Stage) covered(ctx context.Context, ow owner, v *lifecycle.View) error 
 				if d := ep.Status.SearchDispatch; d != nil {
 					v.Searched[ref] = d.DispatchedAt.UTC()
 				}
+				if !ptr.Deref(ep.Spec.Monitored, true) {
+					v.Unmonitored[ref] = true
+				}
 			}
 		}
 	case commonv1.MediaKindComic:
@@ -289,6 +293,9 @@ func (s *Stage) covered(ctx context.Context, ow owner, v *lifecycle.View) error 
 				v.Covered[types.UID(e.UID)] = append(v.Covered[types.UID(e.UID)], ref)
 				if d := iss.Status.SearchDispatch; d != nil {
 					v.Searched[ref] = d.DispatchedAt.UTC()
+				}
+				if !ptr.Deref(iss.Spec.Monitored, true) {
+					v.Unmonitored[ref] = true
 				}
 			}
 		}

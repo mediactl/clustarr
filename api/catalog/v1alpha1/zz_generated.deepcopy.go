@@ -1814,6 +1814,10 @@ func (in *DownloadEntry) DeepCopyInto(out *DownloadEntry) {
 		in, out := &in.SeedGoalMetAt, &out.SeedGoalMetAt
 		*out = (*in).DeepCopy()
 	}
+	if in.FailedAt != nil {
+		in, out := &in.FailedAt, &out.FailedAt
+		*out = (*in).DeepCopy()
+	}
 	if in.Import != nil {
 		in, out := &in.Import, &out.Import
 		*out = new(DownloadImportSummary)

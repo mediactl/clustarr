@@ -504,3 +504,27 @@ func TestImportplanCarriesEveryRuleOfFileimport(t *testing.T) {
 }
 
 func clientKey(name string) client.ObjectKey { return client.ObjectKey{Namespace: ns, Name: name} }
+
+// A download whose folder holds nothing at all once an execute of it has
+// run is no fault of the release: the execute most likely placed its files
+// and its answer was lost (talos, 2026-10-27: a second delivery's failure
+// overwrote the first's placed answer, the re-inspection found an empty
+// folder, and a good release was blocklisted with its file in the library
+// unrecorded). It is held for a person instead, never blocklisted.
+func TestAnEmptyFolderAfterAnExecuteIsHeldNeverBlocklisted(t *testing.T) {
+	wd := newWorld(t)
+	root := wd.payload(map[string]int64{"Heat.1995.1080p.BluRay.x264-GRP.mkv": big})
+	g := wd.grab(commonv1.MediaKindMovie, "heat", "Heat.1995.1080p.BluRay.x264-GRP", root)
+	g.inspected()
+	g.plan()
+	// The first delivery moved the file into the library and its answer was
+	// lost; this delivery finds the source gone.
+	require.NoError(t, os.Remove(filepath.Join(root, "Heat.1995.1080p.BluRay.x264-GRP.mkv")))
+	dec := g.executed()
+	concluded(t, dec, commonv1.ImportClassTransient, lifecycle.ImportRetry, "could not be carried out")
+
+	wd.now = wd.now.Add(importplan.RetryLadder[0] + time.Minute)
+	dec = g.inspected()
+	concluded(t, dec, commonv1.ImportClassNeedsPerson, lifecycle.ImportHeld, "may be in the library unrecorded")
+	assert.NotEqual(t, lifecycle.ImportReleaseFault, dec.Verdict)
+}

@@ -1485,7 +1485,21 @@ exports the pinned ref every image build takes as a named context.
   `lifecycle.ImportHoldRetention` (24h) and then fails as `importExpired`,
   neither blocklisted nor searched again. A new rejection site must say its
   class -- a rejection built by its class's constructor, never a bare string --
-  and the grab lifecycle reads the class, never a message.
+  and the grab lifecycle reads the class, never a message. Two deliveries
+  of one execute ran side by side on 2026-10-27 (an import agent pod
+  stopping while another took the redelivery): the first placed the file,
+  the second found the source gone and its failure overwrote the placed
+  answer, so the manager never materialised the MediaFile, re-inspected an
+  empty folder and blocklisted a good release. Since then the execute's
+  answer is written through `executeAnswer` (never over a terminal record
+  at the same seq), an inspection that finds no file at all once an
+  execute record exists is `needsPerson` ("may be in the library
+  unrecorded"), never a releaseFault, a terminal entry keeps the message
+  its failure set (a live one takes the transfer record's), and R25's
+  redownload and the refused hold run from the entry's `failedAt`, never
+  its latest dispatch (a Remove re-issues the command, and had restarted
+  the window), with no search owed for an unmonitored item
+  (`View.Unmonitored`), which had held that tombstone for good.
 - **A Helm hook with no delete policy defaults to `before-hook-creation`,
   which destroys anything holding data.** A `post-install,post-upgrade`
   hook carrying no `helm.sh/hook-delete-policy` annotation is deleted and

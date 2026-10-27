@@ -71,11 +71,15 @@ type DownloadEntryApplyConfiguration struct {
 	// OutputPath is where the engine put the payload; the manager removes
 	// it (fsops.SafeRemove) when the entry's removal asks for data, so it is
 	// kept in etcd, not only in the transfer record.
-	OutputPath    *string                                  `json:"outputPath,omitempty"`
-	StartedAt     *v1.Time                                 `json:"startedAt,omitempty"`
-	CompletedAt   *v1.Time                                 `json:"completedAt,omitempty"`
-	SeedGoalMetAt *v1.Time                                 `json:"seedGoalMetAt,omitempty"`
-	Import        *DownloadImportSummaryApplyConfiguration `json:"import,omitempty"`
+	OutputPath    *string  `json:"outputPath,omitempty"`
+	StartedAt     *v1.Time `json:"startedAt,omitempty"`
+	CompletedAt   *v1.Time `json:"completedAt,omitempty"`
+	SeedGoalMetAt *v1.Time `json:"seedGoalMetAt,omitempty"`
+	// FailedAt is when the entry became Failed or Blocklisted; the
+	// redownload window (R25) runs from it, never from a later dispatch
+	// (a Remove re-issues the command, and must not restart the window).
+	FailedAt *v1.Time                                 `json:"failedAt,omitempty"`
+	Import   *DownloadImportSummaryApplyConfiguration `json:"import,omitempty"`
 	// Dispatch fences the engine command: Seq is the last desired state
 	// published, AnsweredSeq the transfer record's seq last incorporated
 	// (loop spec §2.3, with ADR-0019 §8.3's Delivery). A Pending entry
@@ -288,6 +292,14 @@ func (b *DownloadEntryApplyConfiguration) WithCompletedAt(value v1.Time) *Downlo
 // If called multiple times, the SeedGoalMetAt field is set to the value of the last call.
 func (b *DownloadEntryApplyConfiguration) WithSeedGoalMetAt(value v1.Time) *DownloadEntryApplyConfiguration {
 	b.SeedGoalMetAt = &value
+	return b
+}
+
+// WithFailedAt sets the FailedAt field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the FailedAt field is set to the value of the last call.
+func (b *DownloadEntryApplyConfiguration) WithFailedAt(value v1.Time) *DownloadEntryApplyConfiguration {
+	b.FailedAt = &value
 	return b
 }
 

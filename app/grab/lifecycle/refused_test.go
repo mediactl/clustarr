@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
@@ -54,6 +55,7 @@ func TestARefusedReleaseIsFailedAndHeldWithoutABlock(t *testing.T) {
 	held := func(age time.Duration) lifecycle.View {
 		f := *got
 		f.Dispatch.DispatchedAt = metav1.NewTime(now.Add(-age))
+		f.FailedAt = ptr.To(metav1.NewTime(now.Add(-age)))
 		gone := removedRecord(f)
 		gone.Record.OutputPath = ""
 		hv := view([]catalogv1alpha1.DownloadEntry{f}, gone)

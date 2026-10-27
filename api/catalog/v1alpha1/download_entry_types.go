@@ -116,6 +116,11 @@ type DownloadEntry struct {
 	CompletedAt *metav1.Time `json:"completedAt,omitempty"`
 	// +optional
 	SeedGoalMetAt *metav1.Time `json:"seedGoalMetAt,omitempty"`
+	// FailedAt is when the entry became Failed or Blocklisted; the
+	// redownload window (R25) runs from it, never from a later dispatch
+	// (a Remove re-issues the command, and must not restart the window).
+	// +optional
+	FailedAt *metav1.Time `json:"failedAt,omitempty"`
 	// +optional
 	Import *DownloadImportSummary `json:"import,omitempty"`
 	// Dispatch fences the engine command: Seq is the last desired state

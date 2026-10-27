@@ -168,6 +168,9 @@ type View struct {
 	Unblocked map[string]bool
 	// Searched is each covered item's searchDispatch.dispatchedAt (R25).
 	Searched map[schema.ItemRef]time.Time
+	// Unmonitored names the covered items whose spec.monitored is false:
+	// a redownload search is never dispatched for one, so none is owed.
+	Unmonitored map[schema.ItemRef]bool
 	// Covered is each entry's covered items (Episodes, Issues), by entry
 	// uid; absent means the owner itself.
 	Covered map[types.UID][]schema.ItemRef

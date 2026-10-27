@@ -403,8 +403,17 @@ func (d *decider) toFailed(e *catalogv1alpha1.DownloadEntry, reason commonv1.Dow
 	e.Phase = commonv1.DownloadPhaseFailed
 	e.FailureReason = reason
 	e.Message = clampString(msg, MaxEntryMessage)
+	d.failedNow(e)
 	d.issue(e)
 	d.history(e, ActionFailed, string(reason))
+}
+
+// failedNow stamps FailedAt once, at the first terminal transition.
+func (d *decider) failedNow(e *catalogv1alpha1.DownloadEntry) {
+	if e.FailedAt == nil {
+		t := metav1.NewTime(d.now)
+		e.FailedAt = &t
+	}
 }
 
 // toBlocklisted moves e to Blocklisted (§6.4, §6.14): the block it owes the
@@ -419,6 +428,7 @@ func (d *decider) toBlocklisted(e *catalogv1alpha1.DownloadEntry, reason commonv
 	e.Phase = commonv1.DownloadPhaseBlocklisted
 	e.FailureReason = reason
 	e.Message = clampString(msg, MaxEntryMessage)
+	d.failedNow(e)
 	e.Block = &catalogv1alpha1.EntryBlock{Scope: ScopeFor(reason), Reason: reason, Seq: nextSeq(0, prev, d.now)}
 	d.issue(e)
 	d.history(e, ActionFailed, string(reason))
@@ -509,8 +519,12 @@ func (d *decider) terminal(e *catalogv1alpha1.DownloadEntry, rec *schema.Transfe
 	}
 	if e.Phase == commonv1.DownloadPhaseFailed && e.FailureReason == commonv1.DownloadFailureReleaseRefused {
 		// A release its indexer kept refusing is no block, but its entry
-		// stays RefusedHold so the redownload grabs another release.
+		// stays RefusedHold after its failure so the redownload grabs
+		// another release.
 		end := e.Dispatch.DispatchedAt.Add(RefusedHold)
+		if e.FailedAt != nil {
+			end = e.FailedAt.Add(RefusedHold)
+		}
 		if d.now.Before(end) {
 			d.at(end)
 			return true
@@ -557,15 +571,22 @@ func (d *decider) confirmBlock(e *catalogv1alpha1.DownloadEntry) bool {
 }
 
 // redownload is R25: a Blocklisted entry, or a Failed one that is neither a
-// local fault nor an expired hold, younger than RedownloadWindow, asks a
-// search of each covered item whose last search dispatch is older than the
-// failure, and stays until each was dispatched.
+// local fault nor an expired hold, younger than RedownloadWindow since its
+// failure (FailedAt; an entry from before it has only its dispatch time),
+// asks a search of each covered item whose last search dispatch is older
+// than the failure, and stays until each was dispatched. An unmonitored
+// item is never searched, so it owes none and holds nothing: a tombstone
+// for an unmonitored episode stood until its window ran out, and every
+// Remove, re-issuing the command, had restarted it (talos, 2026-10-27).
 func (d *decider) redownload(e *catalogv1alpha1.DownloadEntry) bool {
 	if e.Phase == commonv1.DownloadPhaseFailed &&
 		(e.FailureReason.IsLocalFault() || e.FailureReason == commonv1.DownloadFailureImportExpired || e.FailureReason == "") {
 		return false
 	}
 	failedAt := e.Dispatch.DispatchedAt.UTC()
+	if e.FailedAt != nil {
+		failedAt = e.FailedAt.UTC()
+	}
 	if failedAt.IsZero() || d.now.Sub(failedAt) >= RedownloadWindow {
 		return false
 	}
@@ -576,6 +597,9 @@ func (d *decider) redownload(e *catalogv1alpha1.DownloadEntry) bool {
 	owed := false
 	for _, it := range covered {
 		key := schema.ItemRef{Kind: it.Kind, Ref: schema.Ref{Namespace: it.Namespace, Name: it.Name, UID: it.UID}}
+		if d.v.Unmonitored[key] || (key == d.v.Owner && !d.v.Monitored) {
+			continue
+		}
 		if s, ok := d.v.Searched[key]; ok && !s.Before(failedAt) {
 			continue
 		}

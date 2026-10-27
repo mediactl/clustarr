@@ -523,6 +523,13 @@ spec:
                       maxItems: 200
                       type: array
                       x-kubernetes-list-type: atomic
+                    failedAt:
+                      description: |-
+                        FailedAt is when the entry became Failed or Blocklisted; the
+                        redownload window (R25) runs from it, never from a later dispatch
+                        (a Remove re-issues the command, and must not restart the window).
+                      format: date-time
+                      type: string
                     failureReason:
                       description: DownloadFailureReason is the machine-readable cause
                         of a failure.

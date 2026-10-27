@@ -823,6 +823,15 @@ func (p *planner) planFrom(insp *schema.ImportInspection) planResult {
 		if kind != "" {
 			none = fmt.Sprintf("no %s files found", kind)
 		}
+		if len(rs) == 0 && len(insp.Files) == 0 && p.in.Execute != nil {
+			// Nothing at all where an execute of this entry already ran:
+			// its files were most likely placed by that execute and not
+			// recorded (a lost answer), so they may be in the library
+			// unrecorded. That is no fault of the release: held for a
+			// person, never blocklisted (talos, 2026-10-27).
+			return planResult{class: commonv1.ImportClassNeedsPerson,
+				message: "the download holds no file, and an import of it was already carried out: its files may be in the library unrecorded (a library scan of the folder finds them)"}
+		}
 		return refused(rs, none)
 	}
 	// A manual import of a multi-file item replaces the item's files all

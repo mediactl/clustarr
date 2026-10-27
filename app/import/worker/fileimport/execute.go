@@ -103,13 +103,34 @@ func (w *Worker) handleExecute(ctx context.Context, m events.Message, env *event
 		rec.State = records.StateFailed
 		rec.Transient = true
 	}
-	if _, err := w.writer().Write(ctx, key, rec); err != nil {
+	verdict, err := w.writer().Update(ctx, key, func(cur *schema.ImportRecord, ok bool) (*schema.ImportRecord, bool) {
+		return executeAnswer(cur, ok, rec)
+	})
+	if err != nil {
 		return fmt.Errorf("fileimport: write the execute record: %w", err)
+	}
+	if verdict == records.Dropped {
+		log.Warn("fileimport: another delivery answered this execute first; keeping its answer", "seq", task.Seq, "failure", failure)
+		return nil
 	}
 	if x != nil {
 		log.Info("fileimport: executed an import", "placed", len(x.Placed), "recycled", len(x.Recycled), "refused", x.Refused)
 	}
 	return nil
+}
+
+// executeAnswer is the execute record's write rule: an answer already
+// standing at the task's seq is kept, whatever ours says. Two deliveries of
+// one execute ran side by side on 2026-10-27 (an agent pod stopping while
+// another took the redelivery): the first placed the file, the second
+// found the source gone and its failure overwrote the placed answer, so
+// the manager never materialised the MediaFile, inspected an empty folder
+// and blocklisted a good release.
+func executeAnswer(cur *schema.ImportRecord, ok bool, rec *schema.ImportRecord) (*schema.ImportRecord, bool) {
+	if ok && cur != nil && cur.Seq == rec.Seq && records.TerminalAnswered(cur.State) {
+		return cur, false
+	}
+	return rec, true
 }
 
 // execute carries out task's plan. A refusal is an execution with Refused

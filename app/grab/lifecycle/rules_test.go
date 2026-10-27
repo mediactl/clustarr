@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
@@ -778,4 +779,89 @@ func TestAFailedEntryWaitsForItsRedownloadSearch(t *testing.T) {
 		require.NotNil(t, only(p))
 		assert.Equal(t, []schema.ItemRef{ep2}, p.Redownloads)
 	})
+}
+
+// A terminal entry keeps the message its failure set: the transfer
+// record's message is the transfer's progress, and the usenet engine's
+// last one read "transferring on easynews (15 connections)" after the
+// download had completed, overwriting a Blocklisted entry's "no importable
+// files found" on every pass (talos, 2026-10-27). A live entry still takes
+// it.
+func TestATerminalEntryKeepsItsOwnMessage(t *testing.T) {
+	confirmed := now.Add(-10 * time.Minute)
+	e, tr := blocklisted(&confirmed)
+	e.Message = "no importable files found"
+	tr.Record.State = schema.TransferStatePresent // not yet removed: the entry stays
+	tr.Record.Message = "transferring on easynews (15 connections)"
+	p := lifecycle.Decide(view([]catalogv1alpha1.DownloadEntry{e}, tr))
+	require.NotNil(t, only(p))
+	assert.Equal(t, "no importable files found", only(p).Message)
+
+	l := entry(commonv1.DownloadPhaseDownloading)
+	lt := record(l, seq0, commonv1.DownloadStageTransferring)
+	lt.Record.Message = "transferring on easynews (15 connections)"
+	p = lifecycle.Decide(view([]catalogv1alpha1.DownloadEntry{l}, lt))
+	require.NotNil(t, only(p))
+	assert.Equal(t, "transferring on easynews (15 connections)", only(p).Message, "a live entry shows the transfer's progress")
+}
+
+// R25's window runs from the failure (FailedAt), never from the entry's
+// latest dispatch -- a Remove re-issues the command and had restarted the
+// window -- and an unmonitored item, which is never searched, owes no
+// search and holds no tombstone (talos, 2026-10-27: a Blocklisted entry
+// for an unmonitored episode stood for good).
+func TestARedownloadRunsFromTheFailureAndIsNeverOwedForAnUnmonitoredItem(t *testing.T) {
+	confirmed := now.Add(-2 * time.Hour)
+	tombstone := func(failedAt time.Time) (catalogv1alpha1.DownloadEntry, lifecycle.Transfer) {
+		e, tr := blocklisted(&confirmed)
+		e.FailedAt = ptr.To(metav1.NewTime(failedAt))
+		e.Dispatch.DispatchedAt = metav1.NewTime(now.Add(-time.Minute)) // a Remove re-issued the command just now
+		return e, tr
+	}
+	t.Run("the window is the failure's: an old failure re-dispatched is dropped", func(t *testing.T) {
+		e, tr := tombstone(now.Add(-lifecycle.RedownloadWindow - time.Minute))
+		v := view([]catalogv1alpha1.DownloadEntry{e}, tr)
+		v.Searched[owner()] = now.Add(-48 * time.Hour)
+		p := lifecycle.Decide(v)
+		assert.Empty(t, p.Entries)
+		assert.Empty(t, p.Redownloads)
+	})
+	t.Run("a recent failure re-dispatched still owes its search", func(t *testing.T) {
+		e, tr := tombstone(now.Add(-3 * time.Hour))
+		v := view([]catalogv1alpha1.DownloadEntry{e}, tr)
+		v.Searched[owner()] = now.Add(-48 * time.Hour)
+		p := lifecycle.Decide(v)
+		require.NotNil(t, only(p))
+		assert.Equal(t, []schema.ItemRef{owner()}, p.Redownloads)
+	})
+	t.Run("an unmonitored owner owes none: dropped", func(t *testing.T) {
+		e, tr := tombstone(now.Add(-3 * time.Hour))
+		v := view([]catalogv1alpha1.DownloadEntry{e}, tr)
+		v.Monitored = false
+		v.Searched[owner()] = now.Add(-48 * time.Hour)
+		p := lifecycle.Decide(v)
+		assert.Empty(t, p.Entries)
+		assert.Empty(t, p.Redownloads)
+	})
+	t.Run("a pack: the unmonitored episode owes none, the monitored one does", func(t *testing.T) {
+		e, tr := tombstone(now.Add(-3 * time.Hour))
+		v := view([]catalogv1alpha1.DownloadEntry{e}, tr)
+		ep1 := schema.ItemRef{Kind: "Episode", Ref: schema.Ref{Namespace: ns, Name: "wire-s01e01", UID: "ep-1"}}
+		ep2 := schema.ItemRef{Kind: "Episode", Ref: schema.Ref{Namespace: ns, Name: "wire-s01e02", UID: "ep-2"}}
+		v.Covered = map[types.UID][]schema.ItemRef{entryUID: {ep1, ep2}}
+		v.Unmonitored = map[schema.ItemRef]bool{ep1: true}
+		p := lifecycle.Decide(v)
+		require.NotNil(t, only(p))
+		assert.Equal(t, []schema.ItemRef{ep2}, p.Redownloads)
+	})
+}
+
+// A failure stamps FailedAt once, at the first terminal transition.
+func TestAFailureStampsFailedAtOnce(t *testing.T) {
+	e := usenetEntry(commonv1.DownloadPhaseDownloading)
+	p := lifecycle.Decide(view([]catalogv1alpha1.DownloadEntry{e}, failedRecord(e, commonv1.DownloadFailureMissingArticles)))
+	got := only(p)
+	require.NotNil(t, got)
+	require.NotNil(t, got.FailedAt)
+	assert.Equal(t, now, got.FailedAt.Time)
 }

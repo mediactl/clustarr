@@ -330,7 +330,13 @@ func (d *decider) observe(e *catalogv1alpha1.DownloadEntry, rec *schema.Transfer
 		e.SeedGoalMetAt = &t
 		d.history(e, ActionSeedGoalMet, "")
 	}
-	if rec.Message != "" {
+	// The record's message is the transfer's progress, so only a live
+	// entry takes it: a terminal one keeps the message its failure set.
+	// The usenet engine's last message stays "transferring on easynews
+	// (15 connections)" after a download completes, and it had overwritten
+	// a Blocklisted entry's "no importable files found" on every pass
+	// (talos, 2026-10-27).
+	if rec.Message != "" && live(e) {
 		e.Message = clampString(rec.Message, MaxEntryMessage)
 	}
 }
