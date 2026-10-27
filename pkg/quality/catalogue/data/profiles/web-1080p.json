@@ -7,5 +7,7 @@
   "minFormatScore": 0, "cutoffFormatScore": 10000, "minUpgradeFormatScore": 1,
   "scoreSet": "default", "enabledFormatGroups": ["streamingBoost", "seasonPack"],
   "language": "original", "properPolicy": "preferAndUpgrade",
-  "sizeTable": "series", "preferredProtocol": "usenet"
+  "sizeTable": "series", "preferredProtocol": "usenet",
+  "_bitrateLimits": "owner, 2026-10-27: a 1080p file or release is held to 100 kB/s - 1 MB/s overall (a 167 MiB BiOMA WEB-DL of a 43-minute Sopranos episode, 67 kB/s, played badly); not TRaSH's",
+  "bitrateLimits": [{"resolution": 1080, "min": "100k", "max": "1M"}]
 }]

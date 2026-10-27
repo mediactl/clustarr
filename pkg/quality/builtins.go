@@ -56,6 +56,7 @@ type profileSeedJSON struct {
 	Language              string                            `json:"language"`
 	ProperPolicy          catalogv1alpha1.ProperPolicy      `json:"properPolicy"`
 	SizeTable             catalogv1alpha1.SizeTable         `json:"sizeTable"`
+	BitrateLimits         []catalogv1alpha1.BitrateLimit    `json:"bitrateLimits"`
 	PreferredProtocol     catalogv1alpha1.PreferredProtocol `json:"preferredProtocol"`
 	Audio                 *catalogv1alpha1.AudioPolicy      `json:"audio"`
 }
@@ -101,7 +102,7 @@ func DecodeProfileSeeds(doc []byte) ([]ProfileSeed, error) {
 			MinUpgradeFormatScore: r.MinUpgradeFormatScore, ScoreSet: r.ScoreSet,
 			EnabledFormatGroups: r.EnabledFormatGroups, FormatScores: formatScores,
 			Language: r.Language, ProperPolicy: r.ProperPolicy, SizeTable: r.SizeTable,
-			PreferredProtocol: r.PreferredProtocol, Audio: r.Audio,
+			BitrateLimits: r.BitrateLimits, PreferredProtocol: r.PreferredProtocol, Audio: r.Audio,
 		}})
 	}
 	return seeds, nil

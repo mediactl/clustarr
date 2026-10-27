@@ -285,3 +285,13 @@ func TestBitrateLimitsResolveJudgeAndHash(t *testing.T) {
 	_, errs = quality.FromCRD(inverted, cat)
 	require.Len(t, errs, 1)
 }
+
+// The built-in web-1080p carries the owner's 1080p bitrate range
+// (2026-10-27): built-in profiles are immutable on the cluster, so the seed
+// is where it is set.
+func TestTheWeb1080pSeedCarriesTheOwnersBitrateRange(t *testing.T) {
+	profiles, errs := quality.BuiltinProfiles(catalogue.LoadedCatalogue())
+	require.Empty(t, errs)
+	require.Equal(t, quality.BitrateLimit{Min: 100_000, Max: 1_000_000}, profiles["web-1080p"].Bitrates[1080])
+	require.Nil(t, profiles["hd-bluray-web"].Bitrates, "the other built-ins set none")
+}
