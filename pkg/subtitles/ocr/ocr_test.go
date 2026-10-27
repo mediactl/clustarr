@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package ocr_test
 
 import (
+	"bytes"
 	"context"
 	"image"
 	"os"
@@ -91,7 +92,7 @@ func TestReadsAPGSStreamIntoCues(t *testing.T) {
 		{Start: 1000 * time.Millisecond, End: 2500 * time.Millisecond, X: 400, Y: 900, Img: render(t, []string{"Where were you?"}, 40)},
 		{Start: 3000 * time.Millisecond, End: 4200 * time.Millisecond, X: 400, Y: 900, Img: render(t, []string{"Working late.", "Again."}, 40)},
 	})
-	cues, err := r.Read(context.Background(), stream)
+	cues, err := r.Read(context.Background(), bytes.NewReader(stream))
 	require.NoError(t, err)
 	require.Len(t, cues, 2)
 	assert.Equal(t, ocr.Cue{Start: time.Second, End: 2500 * time.Millisecond, Text: "Where were you?"}, cues[0])
@@ -115,6 +116,6 @@ func TestATrackThatReadsAsNothingIsUnreadable(t *testing.T) {
 		s := time.Duration(i+1) * time.Second
 		cues = append(cues, pgstest.Cue{Start: s, End: s + 500*time.Millisecond, Img: blob})
 	}
-	_, err := r.Read(context.Background(), pgstest.Encode(cues))
+	_, err := r.Read(context.Background(), bytes.NewReader(pgstest.Encode(cues)))
 	require.ErrorIs(t, err, ocr.ErrUnreadable)
 }

@@ -19,6 +19,7 @@ package pgsocr_test
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -71,9 +72,10 @@ func TestDownloadReadsTheSidecarThroughTheReader(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "secret.sup"), []byte("not ours"), 0o644))
 
 	var got []byte
-	read := func(_ context.Context, sup []byte) ([]byte, error) {
-		got = sup
-		return []byte("1\n00:00:01,000 --> 00:00:02,000\nHi\n\n"), nil
+	read := func(_ context.Context, sup io.Reader) ([]byte, error) {
+		var err error
+		got, err = io.ReadAll(sup)
+		return []byte("1\n00:00:01,000 --> 00:00:02,000\nHi\n\n"), err
 	}
 	sidecars := []pgsocr.Sidecar{{Name: "Movie (1999).en.sup", LangKey: "en"}}
 	p := pgsocr.New(pgsocr.Config{Path: video, Sidecars: sidecars, Read: read})

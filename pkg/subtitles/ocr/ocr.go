@@ -33,6 +33,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"io"
 	"math"
 	"runtime"
 	"strings"
@@ -312,17 +313,17 @@ type Cue struct {
 	Text       string
 }
 
-// Read recognises every frame of a PGS stream into cues, dropping lines
+// Read recognises every frame of a PGS stream (a .sup) into cues, dropping lines
 // under MinConfidence and frames that read as nothing, and joining a frame
 // whose text and time continue the one before it (a bitmap re-sent
 // unchanged). It is ErrUnreadable when the stream has frames but fewer
 // than ReadableShare of them read as text with a letter or digit in it.
-func (r *Recognizer) Read(ctx context.Context, stream []byte) ([]Cue, error) {
+func (r *Recognizer) Read(ctx context.Context, stream io.Reader) ([]Cue, error) {
 	var cues []Cue
 	frames, readable := 0, 0
 	// One frame at a time (pgs.Walk): a film's track is hundreds of
 	// bitmaps, and the caption agent reads it under a memory limit.
-	err := pgs.Walk(bytes.NewReader(stream), func(f pgs.Frame) error {
+	err := pgs.Walk(stream, func(f pgs.Frame) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}

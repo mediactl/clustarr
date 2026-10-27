@@ -20,6 +20,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"io"
 	"sync"
 
 	"github.com/mediactl/clustarr/app/caption/providerset/build"
@@ -42,21 +43,30 @@ func registerOCR(b *build.Builder, libPath string) {
 	b.ReadImage = r.Read
 }
 
-// imageReader is a pgsocr.ReadFunc over one lazily built recognizer. The
-// recognizer serialises its own reads, so one PGS track is read at a time
-// per pod.
+// imageReader is a pgsocr.ReadFunc over one lazily built recognizer. It
+// reads one track at a time: the fetch worker runs up to sixteen tasks at
+// once and the recognizer serialises only single lines, so on 2026-10-27
+// fourteen tracks of The Sopranos interleaved line by line on the pod's
+// one CPU, each holding its own bitmaps, and none finished for a quarter
+// of an hour. A task waits here with its file open, not read.
 type imageReader struct {
 	lib  string
 	once sync.Once
 	rec  *ocr.Recognizer
 	err  error
+	mu   sync.Mutex
 }
 
-// Read reads a .sup's bytes as SubRip.
-func (r *imageReader) Read(ctx context.Context, sup []byte) ([]byte, error) {
+// Read reads a .sup as SubRip.
+func (r *imageReader) Read(ctx context.Context, sup io.Reader) ([]byte, error) {
 	r.once.Do(func() { r.rec, r.err = ocr.New(r.lib) })
 	if r.err != nil {
 		return nil, fmt.Errorf("%s=%q: %w", ORTLibEnv, r.lib, r.err)
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	cues, err := r.rec.Read(ctx, sup)
 	if err != nil {

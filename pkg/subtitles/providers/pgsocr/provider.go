@@ -46,8 +46,10 @@ const Name = "ocr"
 // runs tens of MiB (The Sopranos' pilot, 18 MB for 889 bitmaps).
 const MaxSupBytes = 256 << 20
 
-// ReadFunc reads a PGS stream -- a .sup file's bytes -- as SubRip text.
-type ReadFunc func(ctx context.Context, sup []byte) ([]byte, error)
+// ReadFunc reads a PGS stream -- a .sup file -- as SubRip text. It takes a
+// reader, not bytes: a fetch worker runs many tasks at once, and each waits
+// its turn for the one recognizer with its file open, not read.
+type ReadFunc func(ctx context.Context, sup io.Reader) ([]byte, error)
 
 var (
 	// ErrNoReader is Download's error in a process that set no Config.Read.
@@ -135,13 +137,14 @@ func (p *Provider) Download(ctx context.Context, c subtitles.Candidate) ([]byte,
 		tracing.RecordError(span, ErrNoReader)
 		return nil, "", ErrNoReader
 	}
-	sup, err := readCapped(filepath.Join(filepath.Dir(p.cfg.Path), name))
+	f, err := openCapped(filepath.Join(filepath.Dir(p.cfg.Path), name))
 	if err != nil {
 		wrapped := fmt.Errorf("subtitles: ocr: read %s: %w", name, err)
 		tracing.RecordError(span, wrapped)
 		return nil, "", wrapped
 	}
-	srt, err := p.cfg.Read(ctx, sup)
+	defer func() { _ = f.Close() }()
+	srt, err := p.cfg.Read(ctx, io.LimitReader(f, MaxSupBytes))
 	if err != nil {
 		wrapped := fmt.Errorf("subtitles: ocr: read %s: %w", name, err)
 		tracing.RecordError(span, wrapped)
@@ -150,19 +153,15 @@ func (p *Provider) Download(ctx context.Context, c subtitles.Candidate) ([]byte,
 	return srt, strings.TrimSuffix(name, filepath.Ext(name)) + ".srt", nil
 }
 
-// readCapped reads path up to MaxSupBytes, ErrTooLarge past it.
-func readCapped(path string) ([]byte, error) {
-	f, err := os.Open(path)
+// openCapped opens path for the reader, ErrTooLarge when it is over
+// MaxSupBytes.
+func openCapped(path string) (*os.File, error) {
+	st, err := os.Stat(path)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = f.Close() }()
-	b, err := io.ReadAll(io.LimitReader(f, MaxSupBytes+1))
-	if err != nil {
-		return nil, err
-	}
-	if len(b) > MaxSupBytes {
+	if st.Size() > MaxSupBytes {
 		return nil, ErrTooLarge
 	}
-	return b, nil
+	return os.Open(path)
 }
