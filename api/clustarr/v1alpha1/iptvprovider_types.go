@@ -50,7 +50,8 @@ const (
 // IPTVProviderSpec is one Xtream Codes IPTV account
 // (docs/superpowers/specs/2026-10-20-iptv-xtream-ranges-design.md). Its
 // playlist is <server>/get.php with output=ts and type=m3u_plus, its guide
-// <server>/xmltv.php, both fetched daily and cached. Its active channels are
+// <server>/xmltv.php unless guideURL names another, both fetched daily and
+// cached. Its active channels are
 // split into blocks of contiguous numbers, each one emulated HDHomeRun and
 // one Plex DVR (Live TV spec §3, §3.1).
 type IPTVProviderSpec struct {
@@ -88,6 +89,19 @@ type IPTVProviderSpec struct {
 	// older than this. Default 24h.
 	// +optional
 	Refresh *metav1.Duration `json:"refresh,omitempty"`
+
+	// GuideURL is an XMLTV guide fetched instead of the panel's xmltv.php
+	// (owner, 2026-10-27: iptv-epg.org's US guide, whose programmes carry
+	// icons the panel's have none of). An http or https URL; "{username}"
+	// and "{password}" in it are replaced with the account's, query-escaped,
+	// so a panel's own guide under another path can be named without its
+	// credentials. Channels map to its channel ids through each
+	// IPTVChannel's spec.epg.channelID, so a change of guide needs the
+	// lineup's ids mapped to the new guide's. Unset, the panel's xmltv.php.
+	// +optional
+	// +kubebuilder:validation:MaxLength=2048
+	// +kubebuilder:validation:Pattern=`^https?://`
+	GuideURL string `json:"guideURL,omitempty"`
 
 	// UserAgent is sent with playlist, guide and stream requests. Default
 	// "clustarr".
@@ -313,8 +327,8 @@ type PlaylistStatus struct {
 	Error string `json:"error,omitempty"`
 }
 
-// GuideStatus describes the guide the tuner serves: the panel's xmltv.php,
-// parsed for the active channels.
+// GuideStatus describes the guide the tuner serves: spec.guideURL, else
+// the panel's xmltv.php, parsed for the active channels.
 type GuideStatus struct {
 	Channels   int32 `json:"channels"`
 	Programmes int32 `json:"programmes"`

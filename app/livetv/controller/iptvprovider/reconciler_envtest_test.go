@@ -542,7 +542,7 @@ func TestTheCredentialsTrailingNewlinesAreTrimmed(t *testing.T) {
 	assert.Equal(t, "b", c.Password)
 	assert.Equal(t, "http://p.example:8080", c.Server)
 	assert.Equal(t, "http://p.example:8080/get.php?username=a&password=b&output=ts&type=m3u_plus", c.PlaylistURL())
-	assert.Equal(t, "http://p.example:8080/xmltv.php?username=a&password=b", c.GuideURL())
+	assert.Equal(t, "http://p.example:8080/xmltv.php?username=a&password=b", c.GuideSource())
 }
 
 func TestAMissingCredentialsKeyReadsInvalid(t *testing.T) {

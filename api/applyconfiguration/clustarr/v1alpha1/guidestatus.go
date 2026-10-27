@@ -26,8 +26,8 @@ import (
 // GuideStatusApplyConfiguration represents a declarative configuration of the GuideStatus type for use
 // with apply.
 //
-// GuideStatus describes the guide the tuner serves: the panel's xmltv.php,
-// parsed for the active channels.
+// GuideStatus describes the guide the tuner serves: spec.guideURL, else
+// the panel's xmltv.php, parsed for the active channels.
 type GuideStatusApplyConfiguration struct {
 	Channels   *int32   `json:"channels,omitempty"`
 	Programmes *int32   `json:"programmes,omitempty"`

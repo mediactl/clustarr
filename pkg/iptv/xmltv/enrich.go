@@ -128,9 +128,14 @@ func (e *Enricher) Enrich(inner []byte, ch LineupChannel, start, stop time.Time)
 	event := (class == classSports || sport != "") && (live || ok)
 	sportsEvent := event && (ok || sport != "")
 
+	// A programme whose source already gives its image and says it is a
+	// movie or a series is not looked up: iptv-epg.org's guide carries both
+	// for most of its 1.1 million programmes, and every lookup queued is a
+	// gateway search and, once answered, a guide rebuild PMS reloads.
+	described := f.hasIcon && (f.categories["movie"] || f.categories["series"])
 	var art Art
 	var haveArt bool
-	if e != nil && e.Art != nil && !event && class != classSports && class != classNews && lookupWorthy(title) {
+	if e != nil && e.Art != nil && !described && !event && class != classSports && class != classNews && lookupWorthy(title) {
 		art, haveArt = e.Art(ArtQuery{Title: title, Year: year, Channel: ch, Duration: stop.Sub(start)})
 	}
 

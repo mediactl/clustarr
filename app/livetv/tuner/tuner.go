@@ -285,6 +285,11 @@ func (t *Tuner) Apply(c Config) {
 	if moved || refreshed {
 		p.playlistDue, p.accountDue, p.guide.due = true, true, true
 	}
+	// Another guide source is fetched now; the old source's guide is
+	// served until it lands.
+	if !first && guideFingerprint(c) != guideFingerprint(p.cfg) {
+		p.guide.due = true
+	}
 	p.cfg = c
 	t.markWantedGuideDue(p)
 	p.mu.Unlock()

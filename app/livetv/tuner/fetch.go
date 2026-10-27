@@ -271,7 +271,7 @@ func (t *Tuner) fetchGuide(ctx context.Context, p *provider, cfg Config) {
 		parsed xmltv.Guide
 		want   map[string]bool
 	)
-	body, err := t.get(ctx, cfg.GuideURL(), cfg.UserAgent)
+	body, err := t.get(ctx, cfg.GuideSource(), cfg.UserAgent)
 	if err == nil {
 		parsed, err = xmltv.ParseFunc(body, func(chans []xmltv.Channel) map[string]bool {
 			want = wanted(chans, src)
@@ -304,7 +304,7 @@ func (t *Tuner) fetchGuide(ctx context.Context, p *provider, cfg Config) {
 	}
 	p.mu.Unlock()
 	if err == nil {
-		t.putGuideCache(ctx, p, parsed, want, t.o.Now())
+		t.putGuideCache(ctx, p, cfg, parsed, want, t.o.Now())
 		t.putGuideChannels(ctx, p, parsed.Channels)
 	}
 	t.scheduleRender(p)

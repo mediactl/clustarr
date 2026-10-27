@@ -330,6 +330,9 @@ var schemaYAML = typed.YAMLObject(`types:
           elementRelationship: associative
           keys:
           - name
+    - name: guideURL
+      type:
+        scalar: string
     - name: refresh
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Duration

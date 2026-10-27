@@ -321,7 +321,15 @@ account. Only two fields are required:
 
 The tuner fetches three things from the panel:
 - the playlist, `<server>/get.php?username&password&output=ts&type=m3u_plus`;
-- the guide, `xmltv.php`;
+- the guide, `xmltv.php`, unless `spec.guideURL` names another XMLTV
+  (owner, 2026-10-27: argon-tv reads iptv-epg.org's US guide, 500 MB,
+  13,025 channels, programmes with images and categories). `{username}`
+  and `{password}` in it take the account's. Each IPTVChannel's
+  `spec.epg.channelID` names a channel of whichever guide is in use, so a
+  new guide needs the lineup's ids remapped to it. The guide cache records
+  its source, and a changed URL is fetched at once, cache or not. A
+  programme the guide already gives an image and a Movie or Series
+  category is not looked up for artwork;
 - the account, `player_api.php`. Its `max_connections` is the tuner limit
   unless `tuners` overrides it; `status.account` shows its status, expiry
   and connections.

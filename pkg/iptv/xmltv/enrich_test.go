@@ -148,6 +148,24 @@ func TestArtworkAddsAnIconAndTheKind(t *testing.T) {
 	assert.Regexp(t, `EP\d{8}\.\d{4}`, out)
 }
 
+// A programme its source already gives an image and a kind is not looked
+// up (iptv-epg.org's guide); one with an image but no kind still is, for
+// its Movie or Series category.
+func TestADescribedProgrammeIsNotLookedUp(t *testing.T) {
+	var asked []string
+	e := &xmltv.Enricher{Art: func(q xmltv.ArtQuery) (xmltv.Art, bool) {
+		asked = append(asked, q.Title)
+		return xmltv.Art{URL: "y.png", Kind: xmltv.ArtSeries}, true
+	}}
+	out := string(e.Enrich([]byte(`<title lang="en">Storage Wars</title><category lang="en">Reality</category><category lang="en">Series</category><icon src="https://iptv-epg.org/images/x"/>`), plain, t0, t0.Add(30*time.Minute)))
+	assert.Empty(t, asked)
+	assert.Equal(t, 1, strings.Count(out, "<icon"), out)
+	assert.Equal(t, 2, strings.Count(out, "<category"), out)
+
+	_ = e.Enrich([]byte(`<title>Friends</title><icon src="https://iptv-epg.org/images/y"/>`), plain, t0, t0.Add(30*time.Minute))
+	assert.Equal(t, []string{"Friends"}, asked)
+}
+
 // What the source says stands: a category, an episode number and an icon
 // already there are never doubled, and a movie channel's unknown film keeps
 // Plex's movie fallback by getting no episode number.

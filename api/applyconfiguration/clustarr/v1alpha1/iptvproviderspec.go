@@ -31,7 +31,8 @@ import (
 // IPTVProviderSpec is one Xtream Codes IPTV account
 // (docs/superpowers/specs/2026-10-20-iptv-xtream-ranges-design.md). Its
 // playlist is <server>/get.php with output=ts and type=m3u_plus, its guide
-// <server>/xmltv.php, both fetched daily and cached. Its active channels are
+// <server>/xmltv.php unless guideURL names another, both fetched daily and
+// cached. Its active channels are
 // split into blocks of contiguous numbers, each one emulated HDHomeRun and
 // one Plex DVR (Live TV spec §3, §3.1).
 type IPTVProviderSpecApplyConfiguration struct {
@@ -56,6 +57,15 @@ type IPTVProviderSpecApplyConfiguration struct {
 	// fetched again. Each is cached, and a restart fetches only what is
 	// older than this. Default 24h.
 	Refresh *metav1.Duration `json:"refresh,omitempty"`
+	// GuideURL is an XMLTV guide fetched instead of the panel's xmltv.php
+	// (owner, 2026-10-27: iptv-epg.org's US guide, whose programmes carry
+	// icons the panel's have none of). An http or https URL; "{username}"
+	// and "{password}" in it are replaced with the account's, query-escaped,
+	// so a panel's own guide under another path can be named without its
+	// credentials. Channels map to its channel ids through each
+	// IPTVChannel's spec.epg.channelID, so a change of guide needs the
+	// lineup's ids mapped to the new guide's. Unset, the panel's xmltv.php.
+	GuideURL *string `json:"guideURL,omitempty"`
 	// UserAgent is sent with playlist, guide and stream requests. Default
 	// "clustarr".
 	UserAgent *string `json:"userAgent,omitempty"`
@@ -120,6 +130,14 @@ func (b *IPTVProviderSpecApplyConfiguration) WithTuners(value int32) *IPTVProvid
 // If called multiple times, the Refresh field is set to the value of the last call.
 func (b *IPTVProviderSpecApplyConfiguration) WithRefresh(value metav1.Duration) *IPTVProviderSpecApplyConfiguration {
 	b.Refresh = &value
+	return b
+}
+
+// WithGuideURL sets the GuideURL field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the GuideURL field is set to the value of the last call.
+func (b *IPTVProviderSpecApplyConfiguration) WithGuideURL(value string) *IPTVProviderSpecApplyConfiguration {
+	b.GuideURL = &value
 	return b
 }
 

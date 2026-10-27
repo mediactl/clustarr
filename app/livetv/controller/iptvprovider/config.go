@@ -32,6 +32,7 @@ import (
 
 	clustarrv1 "github.com/mediactl/clustarr/api/clustarr/v1alpha1"
 	"github.com/mediactl/clustarr/app/livetv/tuner"
+	"github.com/mediactl/clustarr/pkg/iptv"
 	"github.com/mediactl/clustarr/pkg/iptv/filter"
 	"github.com/mediactl/clustarr/pkg/iptv/xmltv"
 )
@@ -67,6 +68,23 @@ func NormalizeServer(server string) (string, error) {
 	return u.Scheme + "://" + u.Host + strings.TrimRight(u.EscapedPath(), "/"), nil
 }
 
+// ValidateGuideURL checks spec.guideURL: an http or https URL with a host,
+// its credential placeholders left in (they parse as path or query text).
+func ValidateGuideURL(raw string) error {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	switch {
+	case err != nil:
+		return errors.New("does not parse as a URL")
+	case u.Scheme != "http" && u.Scheme != "https":
+		return fmt.Errorf("scheme %q is neither http nor https", u.Scheme)
+	case u.Host == "":
+		return errors.New("no host")
+	case u.User != nil:
+		return errors.New("credentials do not belong in the URL's userinfo; name {username} and {password} instead")
+	}
+	return nil
+}
+
 // resolve reads the provider's server and credentials. A bad server, or a
 // missing Secret or key, is a Valid=False condition naming it, never a
 // credential.
@@ -86,6 +104,11 @@ func (r *Reconciler) resolve(ctx context.Context, p *clustarrv1.IPTVProvider) (r
 		return invalid(clustarrv1.ReasonSecretNotFound, "Secret %s/%s does not exist", p.Namespace, name)
 	case err != nil:
 		return invalid(clustarrv1.ReasonSecretNotFound, "Secret %s/%s cannot be read: %v", p.Namespace, name, err)
+	}
+	if g := p.Spec.GuideURL; g != "" {
+		if err := ValidateGuideURL(g); err != nil {
+			return invalid(clustarrv1.ReasonInvalidGuideURL, "guideURL %s: %v", iptv.Redact(g), err)
+		}
 	}
 	out := resolved{server: server}
 	for key, dst := range map[string]*string{clustarrv1.CredentialsKeyUsername: &out.username, clustarrv1.CredentialsKeyPassword: &out.password} {
@@ -110,6 +133,7 @@ func buildConfig(p *clustarrv1.IPTVProvider, blocks []tuner.BlockConfig, res res
 		Server:    res.server,
 		Username:  res.username,
 		Password:  res.password,
+		GuideURL:  p.Spec.GuideURL,
 		Tuners:    p.Spec.TunersOverride(),
 		UserAgent: p.Spec.UserAgentOrDefault(),
 		Every:     p.Spec.RefreshOrDefault(),

@@ -18,7 +18,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package tuner
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"net/url"
+	"strings"
 	"time"
 
 	"k8s.io/apimachinery/pkg/types"
@@ -37,7 +40,7 @@ func languageCode(s string) string {
 	return ""
 }
 
-// GuideName is the name the provider's one guide, its panel's xmltv.php,
+// GuideName is the name the provider's one guide, Config.GuideURL's,
 // goes by in channel mappings (xmltv.Mapping.Guide).
 const GuideName = "xmltv"
 
@@ -54,6 +57,9 @@ type Config struct {
 	// without a trailing slash.
 	Server             string
 	Username, Password string
+	// GuideURL is spec.guideURL, a template that may name {username} and
+	// {password}; empty is the panel's xmltv.php (Config.GuideURL).
+	GuideURL string
 	// Tuners overrides the account's max_connections; 0 uses it.
 	Tuners    int
 	UserAgent string
@@ -105,8 +111,26 @@ type ChannelConfig struct {
 // MPEG-TS.
 func (c Config) PlaylistURL() string { return c.endpoint("get.php") + "&output=ts&type=m3u_plus" }
 
-// GuideURL is the panel's XMLTV guide.
-func (c Config) GuideURL() string { return c.endpoint("xmltv.php") }
+// GuideSource is the guide the tuner fetches: Config.GuideURL with the
+// account's credentials put in, else the panel's xmltv.php.
+func (c Config) GuideSource() string {
+	if c.GuideURL == "" {
+		return c.endpoint("xmltv.php")
+	}
+	return expandURL(strings.TrimSpace(c.GuideURL), c.Username, c.Password)
+}
+
+// guideFingerprint names the guide a cache was fetched from without
+// carrying a credential: the panel's account, or the configured URL as
+// written (its placeholders unexpanded).
+func guideFingerprint(c Config) string {
+	src := "panel\x00" + accountFingerprint(c)
+	if c.GuideURL != "" {
+		src = "url\x00" + strings.TrimSpace(c.GuideURL)
+	}
+	sum := sha256.Sum256([]byte(src))
+	return hex.EncodeToString(sum[:8])
+}
 
 // AccountURL is the panel's account report.
 func (c Config) AccountURL() string { return c.endpoint("player_api.php") }

@@ -70,9 +70,13 @@ type cachedEntry struct {
 // cachedGuide is the guide object: every channel, the programmes of the
 // channels the lineup wanted, and which those were.
 type cachedGuide struct {
-	FetchedAt time.Time   `json:"fetchedAt"`
-	Wanted    []string    `json:"wanted"`
-	Guide     xmltv.Guide `json:"guide"`
+	FetchedAt time.Time `json:"fetchedAt"`
+	// Source is the guide's guideFingerprint; a cache from another source
+	// is served but fetched again at once. Empty (before 2026-10-27) is the
+	// panel's.
+	Source string      `json:"source,omitempty"`
+	Wanted []string    `json:"wanted"`
+	Guide  xmltv.Guide `json:"guide"`
 }
 
 // accountFingerprint names the account a cache belongs to without
@@ -187,7 +191,12 @@ func (t *Tuner) loadCache(p *provider, c Config) {
 		}
 		next := g.FetchedAt.Add(c.Every)
 		p.mu.Lock()
-		p.guide = guide{g: g.Guide, loaded: true, wanted: wanted, next: next, due: !next.After(now), state: guideState(g.Guide, g.FetchedAt)}
+		source := g.Source
+		if source == "" {
+			source = guideFingerprint(Config{Server: c.Server, Username: c.Username})
+		}
+		due := !next.After(now) || source != guideFingerprint(c)
+		p.guide = guide{g: g.Guide, loaded: true, wanted: wanted, next: next, due: due, state: guideState(g.Guide, g.FetchedAt)}
 		p.mu.Unlock()
 	}
 }
@@ -217,11 +226,11 @@ func (t *Tuner) putPlaylistCache(ctx context.Context, p *provider, c Config, has
 }
 
 // putGuideCache stores the guide object for a fetched guide.
-func (t *Tuner) putGuideCache(ctx context.Context, p *provider, g xmltv.Guide, want map[string]bool, fetchedAt time.Time) {
+func (t *Tuner) putGuideCache(ctx context.Context, p *provider, cfg Config, g xmltv.Guide, want map[string]bool, fetchedAt time.Time) {
 	ids := make([]string, 0, len(want))
 	for id := range want {
 		ids = append(ids, id)
 	}
 	slices.Sort(ids)
-	t.putJSON(ctx, GuideCacheObject(p.key), cachedGuide{FetchedAt: fetchedAt, Wanted: ids, Guide: g})
+	t.putJSON(ctx, GuideCacheObject(p.key), cachedGuide{FetchedAt: fetchedAt, Source: guideFingerprint(cfg), Wanted: ids, Guide: g})
 }

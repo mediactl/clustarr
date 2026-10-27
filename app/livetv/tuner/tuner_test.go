@@ -100,6 +100,14 @@ func newProvider(t *testing.T) *provider {
 				return
 			}
 			_, _ = w.Write(guideBody)
+		case strings.HasPrefix(r.URL.Path, "/epg/"):
+			// A guideURL's guide, its placeholders expanded in the path and
+			// the query.
+			if r.URL.Path != "/epg/user/guide.xml" || r.URL.Query().Get("key") != "pass" {
+				http.Error(w, "bad request", http.StatusBadRequest)
+				return
+			}
+			_, _ = w.Write(guideBody)
 		case r.URL.Path == "/player_api.php":
 			_, _ = fmt.Fprintf(w, `{"user_info":{"username":"user","password":"pass","auth":1,"status":"Active","exp_date":"1792556379","active_cons":"0","max_connections":"%d"}}`, p.maxConns.Load())
 		case strings.HasPrefix(r.URL.Path, "/live/"):
@@ -687,6 +695,68 @@ func TestANewRefreshValueRefetchesEverySource(t *testing.T) {
 	cfg.Refresh = "2"
 	h.tn.Apply(cfg)
 	require.Eventually(t, func() bool { return p.count("/get.php") == pl+2 }, 5*time.Second, 10*time.Millisecond)
+}
+
+// guideURL is the fixture panel's guide served under another path, its
+// credentials named by placeholders.
+func guideURL(p *provider) string { return p.srv.URL + "/epg/{username}/guide.xml?key={password}" }
+
+// TestAGuideURLIsFetchedInsteadOfThePanels: spec.guideURL replaces the
+// panel's xmltv.php, its placeholders filled with the account's credentials
+// (owner, 2026-10-27: iptv-epg.org's US guide on argon-tv).
+func TestAGuideURLIsFetchedInsteadOfThePanels(t *testing.T) {
+	p := newProvider(t)
+	cfg := config(p.srv.URL)
+	cfg.GuideURL = guideURL(p)
+	h := start(t, newStore(t), cfg)
+	s := h.fetched(t)
+	assert.Equal(t, int32(1), p.count("/epg/user/guide.xml"))
+	assert.Zero(t, p.count("/xmltv.php"), "the panel's guide is not asked")
+	assert.Positive(t, s.Guide.Programmes)
+	assert.Empty(t, s.Guide.Error)
+}
+
+// TestAChangedGuideURLRefetchesTheGuideAlone: a new guideURL is fetched at
+// once, and the playlist and the account are not.
+func TestAChangedGuideURLRefetchesTheGuideAlone(t *testing.T) {
+	p := newProvider(t)
+	cfg := config(p.srv.URL)
+	h := start(t, newStore(t), cfg)
+	h.fetched(t)
+	pl, ac := p.count("/get.php"), p.count("/player_api.php")
+	cfg.GuideURL = guideURL(p)
+	h.tn.Apply(cfg)
+	require.Eventually(t, func() bool { return p.count("/epg/user/guide.xml") == 1 }, 5*time.Second, 10*time.Millisecond)
+	h.tn.Apply(cfg) // unchanged
+	time.Sleep(300 * time.Millisecond)
+	assert.Equal(t, int32(1), p.count("/epg/user/guide.xml"))
+	assert.Equal(t, pl, p.count("/get.php"))
+	assert.Equal(t, ac, p.count("/player_api.php"))
+}
+
+// TestACachedGuideOfAnotherSourceIsFetchedAgain: a restart whose guideURL
+// differs from the cached guide's source serves the cache and fetches the
+// new source at once, however fresh the cache is -- a deploy that changes
+// the URL restarts the manager too.
+func TestACachedGuideOfAnotherSourceIsFetchedAgain(t *testing.T) {
+	p := newProvider(t)
+	store := newStore(t)
+	cfg := config(p.srv.URL)
+	h := start(t, store, cfg)
+	h.fetched(t)
+	require.Eventually(t, func() bool {
+		_, err := store.Info(context.Background(), tuner.GuideCacheObject(key))
+		return err == nil
+	}, 2*time.Second, 10*time.Millisecond)
+	playlists := p.count("/get.php")
+	other := cfg
+	other.GuideURL = guideURL(p)
+	h2 := startAt(t, store, other, now.Add(30*time.Minute))
+	code, _ := h2.get(t, "x", "/livetv/media/news/xmltv.xml")
+	assert.Equal(t, http.StatusOK, code, "the cached guide is served meanwhile")
+	require.Eventually(t, func() bool { return p.count("/epg/user/guide.xml") == 1 }, 5*time.Second, 10*time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
+	assert.Equal(t, playlists, p.count("/get.php"), "the fresh playlist cache stands")
 }
 
 func TestRemoveEndsTheProvider(t *testing.T) {
