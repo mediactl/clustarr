@@ -188,6 +188,20 @@ func groupString(m *regexp2.Match, name string) string {
 	return g.String()
 }
 
+// afterGroup is s past the named group's capture in m, all of s when the
+// group captured nothing. regexp2 indexes runes, not bytes.
+func afterGroup(s string, m *regexp2.Match, name string) string {
+	g := m.GroupByName(name)
+	if g == nil || len(g.Captures) == 0 {
+		return s
+	}
+	r := []rune(s)
+	if end := g.Index + g.Length; end <= len(r) {
+		return string(r[end:])
+	}
+	return s
+}
+
 // groupCaptures is every capture of the named group (a repeated group
 // captures once per repetition), or none when the pattern has no such group.
 func groupCaptures(m *regexp2.Match, name string) []regexp2.Capture {

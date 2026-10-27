@@ -886,7 +886,10 @@ takes the release title's quality, revision, group and languages
 names a file whose subject quotes an empty name (`- "" yEnc`) by the
 file-name-shaped token in it, as SABnzbd's name_extractor does
 (`usenet.fileName`), never by the subject's wrapper. A Sign of Affection's
-EMBER pack had all twelve files held as unparseable until then. The parser
+EMBER pack had all twelve files held as unparseable until then. A movie's
+edition (MediaFile `spec.edition`, which cluster-plex's projection writes
+as the Plex edition since 2026-10-27) is read after its title, never from
+it: "Uncut Gems" had been frozen as the Uncut edition. The parser
 reads a release's audio markers past Sonarr (2026-10-19,
 `release.namedLanguages`): a dual-audio title -- "Dual Audio"/"Dual-Audio",
 `[DUAL]`, or a bare DUAL after the resolution or right after the episode or

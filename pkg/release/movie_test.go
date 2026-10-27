@@ -82,3 +82,21 @@ func TestParseMovieTitlesIncludesAlternateTitles(t *testing.T) {
 		})
 	}
 }
+
+// A movie's edition is read after its title, never from it: "Uncut Gems"
+// was frozen as the Uncut edition, which Plex then showed (talos,
+// 2026-10-27). An edition after the title, in a Plex {edition-} tag or a
+// scene name, is still read.
+func TestATitleWordIsNoEdition(t *testing.T) {
+	for name, want := range map[string]string{
+		"Uncut Gems (2019) {tmdb-473033} - [WEBRip-1080p Proper][EAC3 Atmos 5.1][h265]-EXHUME.mkv":                         "",
+		"Uncut.Gems.2019.1080p.WEBRip.x265-EXHUME":                                                                         "",
+		"The NeverEnding Story (1984) {tmdb-34584} - {edition-Extended Remastered} [Bluray-1080p][AAC 5.1][x265]-BONE.mkv": "Extended",
+		"Uncut.Gems.2019.UNCUT.1080p.BluRay.x264-GROUP":                                                                    "Uncut",
+		"Blade.Runner.1982.Directors.Cut.1080p.BluRay.x264-GROUP":                                                          "Director's Cut",
+	} {
+		p, err := release.ParseKind(name, commonv1.MediaKindMovie)
+		require.NoError(t, err, name)
+		assert.Equal(t, want, p.Edition, name)
+	}
+}

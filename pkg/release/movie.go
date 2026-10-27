@@ -92,7 +92,13 @@ func parseMovie(title string) (*ParsedRelease, error) {
 	}
 
 	q, rev, _, _ := parseQualityTags(title)
-	group, hash, edition := parseGroup(title)
+	group, hash, _ := parseGroup(title)
+	// The edition is read after the movie's title, as Radarr reads its
+	// edition group past the title: a title word is no edition. Read over
+	// the whole name, "Uncut Gems (2019)" was frozen as the Uncut edition,
+	// which Plex showed once the projection wrote editions (talos,
+	// 2026-10-27).
+	edition := parseEdition(afterGroup(title, m, "title"))
 
 	langs, unknown, dual, original := languagesOf(title)
 	return &ParsedRelease{
