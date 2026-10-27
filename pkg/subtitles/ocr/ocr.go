@@ -34,6 +34,7 @@ import (
 	"fmt"
 	"image"
 	"math"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -99,7 +100,10 @@ func New(libPath string) (*Recognizer, error) {
 		_ = rt.Close()
 		return nil, fmt.Errorf("%w: environment: %w", ErrUnavailable, err)
 	}
-	sess, err := rt.NewSessionFromReader(env, bytes.NewReader(model), nil)
+	// ORT sizes its thread pool to the node's cores; under a pod's CPU limit
+	// those threads only throttle each other (the caption agent runs at one
+	// CPU, and GOMAXPROCS reads the cgroup's limit since Go 1.25).
+	sess, err := rt.NewSessionFromReader(env, bytes.NewReader(model), &ort.SessionOptions{IntraOpNumThreads: max(1, runtime.GOMAXPROCS(0))})
 	if err != nil {
 		env.Close()
 		_ = rt.Close()
@@ -314,19 +318,18 @@ type Cue struct {
 // unchanged). It is ErrUnreadable when the stream has frames but fewer
 // than ReadableShare of them read as text with a letter or digit in it.
 func (r *Recognizer) Read(ctx context.Context, stream []byte) ([]Cue, error) {
-	frames, err := pgs.Decode(bytes.NewReader(stream))
-	if err != nil {
-		return nil, err
-	}
 	var cues []Cue
-	readable := 0
-	for _, f := range frames {
+	frames, readable := 0, 0
+	// One frame at a time (pgs.Walk): a film's track is hundreds of
+	// bitmaps, and the caption agent reads it under a memory limit.
+	err := pgs.Walk(bytes.NewReader(stream), func(f pgs.Frame) error {
 		if err := ctx.Err(); err != nil {
-			return nil, err
+			return err
 		}
+		frames++
 		lines, err := r.Lines(ctx, f.Img)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		var kept []string
 		for _, l := range lines {
@@ -339,16 +342,20 @@ func (r *Recognizer) Read(ctx context.Context, stream []byte) ([]Cue, error) {
 			readable++
 		}
 		if text == "" {
-			continue
+			return nil
 		}
 		if n := len(cues); n > 0 && cues[n-1].Text == text && f.Start <= cues[n-1].End+100*time.Millisecond {
 			cues[n-1].End = f.End
-			continue
+			return nil
 		}
 		cues = append(cues, Cue{Start: f.Start, End: f.End, Text: text})
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
-	if len(frames) > 0 && readable*100 < len(frames)*ReadableShare {
-		return nil, fmt.Errorf("%w: %d of %d bitmaps", ErrUnreadable, readable, len(frames))
+	if frames > 0 && readable*100 < frames*ReadableShare {
+		return nil, fmt.Errorf("%w: %d of %d bitmaps", ErrUnreadable, readable, frames)
 	}
 	return cues, nil
 }

@@ -63,7 +63,18 @@ var ErrMalformed = errors.New("pgs: malformed stream")
 // Decode reads every display set of r and returns the frames that show
 // something, in order. A set with no object ends the frame before it.
 func Decode(r io.Reader) ([]Frame, error) {
-	d := decoder{palettes: map[uint8][256]paletteEntry{}, objects: map[uint16]*object{}, windows: map[uint8]window{}}
+	var out []Frame
+	err := Walk(r, func(f Frame) error { out = append(out, f); return nil })
+	return out, err
+}
+
+// Walk is Decode one frame at a time: fn is called with each frame once
+// the set that ends it has been read (or the stream has, with
+// FinalDuration), so only one frame's bitmap is held -- a film's track is
+// hundreds of bitmaps, and the OCR reads them in a pod with a memory limit.
+// An error from fn ends the walk with it.
+func Walk(r io.Reader, fn func(Frame) error) error {
+	d := decoder{palettes: map[uint8][256]paletteEntry{}, objects: map[uint16]*object{}, windows: map[uint8]window{}, emit: fn}
 	hdr := make([]byte, 13)
 	for {
 		if _, err := io.ReadFull(r, hdr); err != nil {
@@ -71,27 +82,30 @@ func Decode(r io.Reader) ([]Frame, error) {
 				break
 			}
 			if errors.Is(err, io.ErrUnexpectedEOF) {
-				return nil, fmt.Errorf("%w: truncated segment header", ErrMalformed)
+				return fmt.Errorf("%w: truncated segment header", ErrMalformed)
 			}
-			return nil, err
+			return err
 		}
 		if hdr[0] != 'P' || hdr[1] != 'G' {
-			return nil, fmt.Errorf("%w: no PG magic", ErrMalformed)
+			return fmt.Errorf("%w: no PG magic", ErrMalformed)
 		}
 		pts := time.Duration(binary.BigEndian.Uint32(hdr[2:6])) * time.Second / 90000
 		typ, size := hdr[10], int(binary.BigEndian.Uint16(hdr[11:13]))
 		payload := make([]byte, size)
 		if _, err := io.ReadFull(r, payload); err != nil {
-			return nil, fmt.Errorf("%w: truncated segment %#x", ErrMalformed, typ)
+			return fmt.Errorf("%w: truncated segment %#x", ErrMalformed, typ)
 		}
 		if err := d.segment(pts, typ, payload); err != nil {
-			return nil, err
+			return err
 		}
 	}
-	if n := len(d.frames); n > 0 && d.frames[n-1].End == 0 {
-		d.frames[n-1].End = d.frames[n-1].Start + FinalDuration
+	if p := d.pending; p != nil {
+		if p.End == 0 {
+			p.End = p.Start + FinalDuration
+		}
+		return d.emit(*p)
 	}
-	return d.frames, nil
+	return nil
 }
 
 type paletteEntry struct{ y, a uint8 }
@@ -123,7 +137,10 @@ type decoder struct {
 	objects  map[uint16]*object
 	windows  map[uint8]window
 	current  *composition
-	frames   []Frame
+	// pending is the last frame shown, until a set ends it; emit takes
+	// each finished frame.
+	pending *Frame
+	emit    func(Frame) error
 }
 
 func (d *decoder) segment(pts time.Duration, typ uint8, p []byte) error {
@@ -239,11 +256,12 @@ func (d *decoder) end() error {
 		return nil
 	}
 	d.current = nil
-	if n := len(d.frames); n > 0 && d.frames[n-1].End == 0 && c.pts > d.frames[n-1].Start {
-		d.frames[n-1].End = c.pts
+	if p := d.pending; p != nil && p.End == 0 && c.pts > p.Start {
+		p.End = c.pts
 	}
 	if len(c.objects) == 0 {
-		return nil
+		// A clearing set: the frame before it is complete.
+		return d.flush()
 	}
 	pal, ok := d.palettes[c.palette]
 	if !ok {
@@ -289,8 +307,25 @@ func (d *decoder) end() error {
 			}
 		}
 	}
-	d.frames = append(d.frames, Frame{Start: c.pts, Img: out})
+	if err := d.flush(); err != nil {
+		return err
+	}
+	d.pending = &Frame{Start: c.pts, Img: out}
 	return nil
+}
+
+// flush emits the pending frame, if any; one no set ended yet (a second
+// set at the same time) ends where it began.
+func (d *decoder) flush() error {
+	p := d.pending
+	if p == nil {
+		return nil
+	}
+	d.pending = nil
+	if p.End == 0 {
+		p.End = p.Start
+	}
+	return d.emit(*p)
 }
 
 // render decodes the object's run-length code against pal into a grey
