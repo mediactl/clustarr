@@ -326,10 +326,17 @@ func TestStillWantsKeepsAnUpgradeAndAnUnmetSeedObligation(t *testing.T) {
 	require.False(t, wants(&decision.Current{Quality: q(t, "HDTV-720p"), Transcoded: true}), "a transcoded file is final")
 
 	// A file outside the profile's bitrate range is still replaced, a
-	// transcode included, by a release of its tier or better (2026-10-27).
+	// transcode included, by a release of any quality the profile takes
+	// (2026-10-27): here a WEB-first profile's Blu-ray tier.
+	webdl, ok := quality.Lookup("video", "WEBDL-1080p")
+	require.True(t, ok)
+	bluray, ok := quality.Lookup("video", "Bluray-1080p")
+	require.True(t, ok)
 	limited := func(cur *decision.Current) bool {
 		v := movieView(t, cur)
 		prof := *v.Profile
+		prof.Tiers = [][]quality.Definition{{webdl}, {bluray}}
+		prof.CutoffIndex = 1
 		prof.Bitrates = map[int32]quality.BitrateLimit{1080: {Min: 100_000, Max: 1_000_000}}
 		v.Profile = &prof
 		ok, _ := grabplan.StillWants(v, claim)
@@ -337,12 +344,14 @@ func TestStillWantsKeepsAnUpgradeAndAnUnmetSeedObligation(t *testing.T) {
 	}
 	require.True(t, limited(&decision.Current{Quality: q(t, "Bluray-1080p"), Transcoded: true, BytesPerSecond: 67_000}),
 		"a transcode below the range")
+	require.True(t, limited(&decision.Current{Quality: q(t, "WEBDL-1080p"), Transcoded: true, BytesPerSecond: 67_000}),
+		"a WEB-DL below the range, replaced from the lower Blu-ray tier")
 	require.False(t, limited(&decision.Current{Quality: q(t, "Bluray-1080p"), Transcoded: true, BytesPerSecond: 400_000}),
 		"a transcode inside the range is final")
 
 	v := movieView(t, nil)
 	v.Monitored = false
-	ok, _ := grabplan.StillWants(v, claim)
+	ok, _ = grabplan.StillWants(v, claim)
 	require.False(t, ok, "an unmonitored owner")
 
 	// The seed obligation, through lifecycle with the planner bound as its

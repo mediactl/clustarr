@@ -65,7 +65,7 @@ func StillWants(v View, claim schema.TransferClaim) (bool, string) {
 			return true, ""
 		}
 		if ok && v.Profile != nil && v.Profile.BitrateOutOfRange(it.Current.Quality, it.Current.BytesPerSecond) != "" &&
-			v.Profile.NotBelow(cand.Quality, it.Current.Quality) {
+			v.Profile.Lists(cand.Quality) {
 			return true, "the current file is outside the profile's bitrate range"
 		}
 		if ok && v.Profile != nil && !it.Current.Transcoded {

@@ -47,11 +47,12 @@ func (p Profile) BitrateOutOfRange(q common.Quality, bytesPerSecond int64) strin
 	return ""
 }
 
-// NotBelow reports whether q's tier in p is c's or better: a release that
-// fits the bitrate range replaces a file outside it only at the file's
-// quality or above. A quality p does not list is never held back.
-func (p Profile) NotBelow(q, c common.Quality) bool {
-	qi, okQ := p.Index(q)
-	ci, okC := p.Index(c)
-	return !okQ || !okC || qi <= ci
+// Lists reports whether p takes q at any of its tiers: a release that fits
+// the bitrate range replaces a file outside it at any quality the profile
+// takes, the ranking still preferring its best tier (owner, 2026-10-27: The
+// Sopranos falls back from its WEB-DLs to a Blu-ray when every WEB post is
+// taken down).
+func (p Profile) Lists(q common.Quality) bool {
+	_, ok := p.Index(q)
+	return ok
 }

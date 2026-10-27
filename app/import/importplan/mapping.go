@@ -250,16 +250,16 @@ func incomingBitrate(c candidate) int64 {
 
 // bitrateRefit reports whether c's file, of quality q, replaces existing
 // because every existing file is outside p's bitrate range
-// (MediaFile.BytesPerSecond) while c's, known, is inside it at each one's
-// tier or better (quality.Profile.NotBelow).
+// (MediaFile.BytesPerSecond) while c's, known, is inside it at a quality p
+// takes (quality.Profile.Lists), whatever the existing files' tiers.
 func bitrateRefit(p quality.Profile, existing []catalogv1alpha1.MediaFile, c candidate, q commonv1.Quality) bool {
 	bps := incomingBitrate(c)
-	if len(existing) == 0 || bps <= 0 || p.BitrateOutOfRange(q, bps) != "" {
+	if len(existing) == 0 || bps <= 0 || !p.Lists(q) || p.BitrateOutOfRange(q, bps) != "" {
 		return false
 	}
 	for i := range existing {
 		mf := &existing[i]
-		if p.BitrateOutOfRange(mf.Spec.Quality, mf.BytesPerSecond()) == "" || !p.NotBelow(q, mf.Spec.Quality) {
+		if p.BitrateOutOfRange(mf.Spec.Quality, mf.BytesPerSecond()) == "" {
 			return false
 		}
 	}

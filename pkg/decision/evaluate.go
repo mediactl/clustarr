@@ -269,10 +269,11 @@ func videoItemState(t Target, p quality.Profile, an audioNames, parsed *release.
 		return out
 	}
 	// A file outside the profile's bitrate range does not fit it: a
-	// release of its tier or better replaces it, a transcode included (the
-	// release's own bitrate is bitrateRejections').
+	// release of any quality the profile takes replaces it, a transcode
+	// included, the best tier ranked first (the release's own bitrate is
+	// bitrateRejections').
 	if t.Current != nil && p.BitrateOutOfRange(t.Current.Quality, t.Current.BytesPerSecond) != "" &&
-		p.NotBelow(rel.Quality, t.Current.Quality) {
+		p.Lists(rel.Quality) {
 		return out
 	}
 	add(transcodedRejection(t, Options{}))

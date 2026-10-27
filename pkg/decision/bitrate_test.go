@@ -63,10 +63,10 @@ func TestAReleaseOutsideTheBitrateRangeIsRefused(t *testing.T) {
 		"a profile without a range checks none")
 }
 
-// A file below the range does not fit the profile: a release inside it of
-// the file's tier replaces it though the file is a transcode and the release
-// no upgrade, and one of a lower tier is still held (owner, 2026-10-27: a
-// 67 kB/s BiOMA encode of The Sopranos S01E03).
+// A file below the range does not fit the profile: a release inside it
+// replaces it though the file is a transcode and the release no upgrade, a
+// lower tier the profile takes included (owner, 2026-10-27: a 67 kB/s BiOMA
+// encode of The Sopranos S01E03, whose WEB posts were taken down).
 func TestAFileOutsideTheBitrateRangeIsReplacedByOneInside(t *testing.T) {
 	p, cat := builtin(t, "hd-bluray-web")
 	p.Bitrates = map[int32]quality.BitrateLimit{1080: {Min: 100_000, Max: 1_000_000}}
@@ -79,8 +79,7 @@ func TestAFileOutsideTheBitrateRangeIsReplacedByOneInside(t *testing.T) {
 	assert.True(t, d.Approved, "%v", d.Rejections)
 
 	lower := decideSized(t, p, cat, rushmoreTarget(cur), "Rushmore.1998.1080p.AMZN.WEB-DL.DDP5.1.H.264-GRP", 3_000_000_000)
-	assert.False(t, lower.Approved)
-	assert.True(t, hasRejection(lower, decision.ReasonTranscodedFinal), "a lower tier is no replacement: %v", lower.Rejections)
+	assert.True(t, lower.Approved, "a lower tier the profile takes replaces it: %v", lower.Rejections)
 
 	cur.BytesPerSecond = 400_000
 	inRange := decideSized(t, p, cat, rushmoreTarget(cur), bluray, 6_200_000_000)

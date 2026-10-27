@@ -205,19 +205,22 @@ func TestADolbyVisionEpisodeFileIsRefused(t *testing.T) {
 func TestAnImportHoldsTheProfilesBitrateRange(t *testing.T) {
 	web, ok := quality.Lookup("video", "WEBDL-1080p")
 	assert.True(t, ok)
+	bluray, ok := quality.Lookup("video", "Bluray-1080p")
+	assert.True(t, ok)
 	prof := quality.Profile{
-		Tiers: [][]quality.Definition{{web}}, CutoffIndex: 0, UpgradeAllowed: true, CutoffFormatScore: 10000,
+		Tiers: [][]quality.Definition{{web}, {bluray}}, CutoffIndex: 1, UpgradeAllowed: true, CutoffFormatScore: 10000,
 		ProperPolicy: "preferAndUpgrade", LanguageName: "any",
 		Bitrates: map[int32]quality.BitrateLimit{1080: {Min: 100_000, Max: 1_000_000}},
 	}
-	incoming := func(size int64) candidate {
-		q := web.Quality
+	incomingAs := func(def quality.Definition, size int64) candidate {
+		q := def.Quality
 		return candidate{kind: commonv1.MediaKindEpisode, keys: []string{"sopranos-s01e03"}, f: schema.InspectedFile{
 			SizeBytes: size,
 			Frozen:    schema.FrozenFields{Quality: &q},
 			Probe:     &schema.ProbeSummary{VideoCodec: "h264", HDR: "none", DurationSeconds: 2580},
 		}}
 	}
+	incoming := func(size int64) candidate { return incomingAs(web, size) }
 	transcode := func(size int64) catalogv1alpha1.MediaFile {
 		return catalogv1alpha1.MediaFile{
 			Spec: catalogv1alpha1.MediaFileSpec{
@@ -239,6 +242,9 @@ func TestAnImportHoldsTheProfilesBitrateRange(t *testing.T) {
 
 	_, refused = p.gate("f.mkv", incoming(1_000_000_000), []catalogv1alpha1.MediaFile{transcode(175_000_000)}, false)
 	assert.False(t, refused, "a file inside the range replaces a transcode outside it")
+
+	_, refused = p.gate("f.mkv", incomingAs(bluray, 1_000_000_000), []catalogv1alpha1.MediaFile{transcode(175_000_000)}, false)
+	assert.False(t, refused, "a Blu-ray of the lower tier replaces a WEB-DL transcode outside the range")
 
 	r, refused = p.gate("f.mkv", incoming(1_000_000_000), []catalogv1alpha1.MediaFile{transcode(700_000_000)}, false)
 	assert.True(t, refused, "a transcode inside the range stays final")
