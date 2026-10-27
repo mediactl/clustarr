@@ -407,10 +407,12 @@ func exempt(c Candidate, rej commonv1.Rejection) bool {
 
 // better orders approved candidates best first (decision.Rank's order, P13,
 // over what a scored release carries): a person's pick, then quality tier,
-// revision (unless the profile does not prefer it), format score, then on
-// a Series Sonarr's CompareEpisodeCount (a whole season first, then anime
-// more episodes and any other series fewer; Wave S) and elsewhere more
-// items first, indexer priority, the agent's own rank, and the newest.
+// revision (unless the profile does not prefer it), on a Series a whole
+// season, the profile's preferred protocol, format score, then on a Series
+// Sonarr's CompareEpisodeCount (anime more episodes and any other series
+// fewer; Wave S) and elsewhere more items first, indexer priority, the
+// agent's own rank, and the newest. The season pack and the protocol come
+// before the score (owner, 2026-10-27), as in decision.Rank.
 func (d *decider) better(a, b verdict) bool {
 	if a.c.Manual != b.c.Manual {
 		return a.c.Manual
@@ -425,6 +427,14 @@ func (d *decider) better(a, b verdict) bool {
 			if c := compareRevision(ra.Revision, rb.Revision); c != 0 {
 				return c > 0
 			}
+		}
+		if d.v.Kind == commonv1.MediaKindSeries {
+			if wa, wb := d.whole(a), d.whole(b); wa != wb {
+				return wa
+			}
+		}
+		if pa, pb := preferredProtocol(d.v.Profile, ra.Protocol), preferredProtocol(d.v.Profile, rb.Protocol); pa != pb {
+			return pa
 		}
 		if a.c.Release.Score != b.c.Release.Score {
 			return a.c.Release.Score > b.c.Release.Score
@@ -445,6 +455,12 @@ func (d *decider) better(a, b verdict) bool {
 		return ka < kb
 	}
 	return a.c.At.After(b.c.At)
+}
+
+// preferredProtocol reports whether protocol is the profile's preferred one
+// (decision.buildRankKey's rule): any protocol is, under "any" or none set.
+func preferredProtocol(p *quality.Profile, protocol commonv1.Protocol) bool {
+	return p == nil || p.PreferredProtocol == "" || p.PreferredProtocol == "any" || string(protocol) == p.PreferredProtocol
 }
 
 func tier(p *quality.Profile, q commonv1.Quality) int {

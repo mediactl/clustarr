@@ -134,7 +134,12 @@ func TestEmbeddedBuiltinProfileSeedsDecode(t *testing.T) {
 		s := one(t, "anime-web-1080p.json")
 		require.Equal(t, "WEB 1080p", s.Spec.Cutoff, "spec's literal built-in name is anime-web-1080p; upstream's own cutoff is 'Bluray 1080p', deliberately overridden")
 		require.Equal(t, int32(100), s.Spec.MinFormatScore)
-		require.Len(t, s.Spec.Tiers, 8)
+		require.Len(t, s.Spec.Tiers, 9)
+		// Bluray-1080p first, Remux-1080p below WEB 1080p and the cutoff, so
+		// an encode replaces a remux (owner, 2026-10-27).
+		require.Equal(t, []string{"Bluray-1080p"}, s.Spec.Tiers[0].Qualities)
+		require.Equal(t, "WEB 1080p", s.Spec.Tiers[1].Name)
+		require.Equal(t, []string{"Remux-1080p"}, s.Spec.Tiers[2].Qualities)
 	})
 	t.Run("non-video profiles", func(t *testing.T) {
 		cases := []struct{ file, cutoff string }{
@@ -205,8 +210,18 @@ func TestEveryBuiltinProfileLoadsAndReferencesOnlyFormatsThatExist(t *testing.T)
 	require.Equal(t, 100, profiles["anime-remux-1080p"].MinFormatScore)
 	require.Equal(t, 100, profiles["anime-web-1080p"].MinFormatScore)
 	require.NotEqual(t, profiles["hd-bluray-web"].Hash, profiles["uhd-bluray-web"].Hash)
-	require.Equal(t, "any", profiles["hd-bluray-web"].PreferredProtocol, "FromCRD must propagate preferredProtocol onto the resolved Profile")
+	for _, name := range wantNames {
+		require.Equal(t, "usenet", profiles[name].PreferredProtocol,
+			"%s: every built-in prefers usenet (owner, 2026-10-27), and FromCRD must propagate preferredProtocol onto the resolved Profile", name)
+	}
 }
+
+// demotedTiers are the tiers a built-in ranks below their ladder weight on
+// the owner's word, which the best-first guard does not hold: anime-web-1080p's
+// Remux 1080p, below WEB 1080p and the cutoff, so a Bluray-1080p encode
+// replaces a remux, which is never transcoded (2026-10-27). Every other tier
+// of the profile is still held to the order.
+var demotedTiers = map[string]map[string]bool{"anime-web-1080p": {"Remux 1080p": true}}
 
 // TestEveryBuiltinProfileListsTiersBestFirst guards the tier order of every
 // embedded profile, of every kind, against that kind's own Definition
@@ -240,6 +255,9 @@ func TestEveryBuiltinProfileListsTiersBestFirst(t *testing.T) {
 			kind := string(seed.Spec.MediaKind)
 			tiers := make([]tierWeights, 0, len(seed.Spec.Tiers))
 			for _, tier := range seed.Spec.Tiers {
+				if demotedTiers[seed.Name][tier.Name] {
+					continue
+				}
 				tw := tierWeights{name: tier.Name, min: int(^uint(0) >> 1)}
 				for _, q := range tier.Qualities {
 					def, ok := quality.Lookup(kind, q)

@@ -9,5 +9,5 @@
   "cutoff": "Remux-2160p", "upgradeAllowed": true,
   "minFormatScore": 0, "cutoffFormatScore": 10000, "minUpgradeFormatScore": 1,
   "scoreSet": "default", "language": "original", "properPolicy": "preferAndUpgrade",
-  "sizeTable": "movie", "preferredProtocol": "any"
+  "sizeTable": "movie", "preferredProtocol": "usenet"
 }]

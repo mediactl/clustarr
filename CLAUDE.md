@@ -846,7 +846,13 @@ anchor a graft aligns on), and a complete one wins a tie. The built-in
 101 to prefer), past the release-group tiers' spread (WEB 100-600, BD
 700-1400), so a dual-audio release outranks every Japanese-only one of its
 quality -- the quality tier and a REPACK's revision still rank first, and
-a -10000 group stays below the minimum. A bare scene WEB is a WEB-DL
+a -10000 group stays below the minimum. Within a quality, a whole season
+and then the profile's preferred protocol rank ahead of the format score
+(owner, 2026-10-27; `decision.less`, `grabplan.better`), where Sonarr has
+them after it. Every built-in prefers usenet (`preferredProtocol: usenet`).
+anime-web-1080p ranks Bluray-1080p, then WEB 1080p, then Remux-1080p,
+below the cutoff, so an encode replaces a remux, which is never transcoded
+(`demotedTiers` exempts that tier from the best-first guard). A bare scene WEB is a WEB-DL
 (`release.sourceRegex`, 2026-10-26: `1080p.WEB.h264-GROUP`, and the
 anime `[WEB]`, `(WEB 1080p`, `(BD 1080p` and `BD1080p` fallbacks); the
 first port read every one as quality Unknown, which every profile

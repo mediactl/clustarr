@@ -4,5 +4,5 @@
     {"name": "CBZ", "qualities": ["CBZ"]}, {"name": "CBR", "qualities": ["CBR"]}, {"name": "PDF", "qualities": ["PDF"]}
   ],
   "cutoff": "CBZ", "upgradeAllowed": true, "cutoffFormatScore": 10000, "minUpgradeFormatScore": 1,
-  "scoreSet": "default", "language": "original", "properPolicy": "preferAndUpgrade", "sizeTable": "none"
+  "scoreSet": "default", "language": "original", "properPolicy": "preferAndUpgrade", "sizeTable": "none", "preferredProtocol": "usenet"
 }]

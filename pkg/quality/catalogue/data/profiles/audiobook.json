@@ -5,5 +5,5 @@
     {"name": "MP3", "qualities": ["MP3"]}, {"name": "Unknown Audio", "qualities": ["Unknown Audio"]}
   ],
   "cutoff": "MP3", "upgradeAllowed": true, "cutoffFormatScore": 10000, "minUpgradeFormatScore": 1,
-  "scoreSet": "default", "language": "original", "properPolicy": "preferAndUpgrade", "sizeTable": "none"
+  "scoreSet": "default", "language": "original", "properPolicy": "preferAndUpgrade", "sizeTable": "none", "preferredProtocol": "usenet"
 }]

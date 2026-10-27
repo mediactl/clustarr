@@ -213,3 +213,25 @@ func TestRankKeepsQualityAheadOfPacks(t *testing.T) {
 	require.True(t, ds[0].Rank.WholeSeason(), "the pack carries the whole-season sentinel")
 	require.Equal(t, []string{single1080, pack720}, guids(decision.Rank(ds, identityOptions())))
 }
+
+// Within a quality, a whole season beats single episodes and the preferred
+// protocol beats the other, both ahead of the format score; a better
+// quality tier still wins over both (owner, 2026-10-27).
+func TestAPackAndThePreferredProtocolRankAheadOfTheFormatScore(t *testing.T) {
+	pack := decision.Decision{Release: common.ReleaseInfo{GUID: "pack"}, Rank: decision.RankKey{EpisodeCount: math.MaxInt32, FormatScore: 100}}
+	single := decision.Decision{Release: common.ReleaseInfo{GUID: "single"}, Rank: decision.RankKey{EpisodeCount: 1, FormatScore: 1100}}
+	require.Equal(t, []string{"pack", "single"}, guids(decision.Rank([]decision.Decision{single, pack}, decision.Options{})))
+
+	usenet := decision.Decision{Release: common.ReleaseInfo{GUID: "usenet"}, Rank: decision.RankKey{PreferredProtocolMatch: true, FormatScore: 100}}
+	torrent := decision.Decision{Release: common.ReleaseInfo{GUID: "torrent"}, Rank: decision.RankKey{PreferredProtocolMatch: false, FormatScore: 1100}}
+	require.Equal(t, []string{"usenet", "torrent"}, guids(decision.Rank([]decision.Decision{torrent, usenet}, decision.Options{})))
+
+	// A pack on the other protocol still beats a single on the preferred one.
+	torrentPack := decision.Decision{Release: common.ReleaseInfo{GUID: "torrent-pack"}, Rank: decision.RankKey{EpisodeCount: math.MaxInt32}}
+	usenetSingle := decision.Decision{Release: common.ReleaseInfo{GUID: "usenet-single"}, Rank: decision.RankKey{EpisodeCount: 1, PreferredProtocolMatch: true}}
+	require.Equal(t, []string{"torrent-pack", "usenet-single"}, guids(decision.Rank([]decision.Decision{usenetSingle, torrentPack}, decision.Options{})))
+
+	betterTier := decision.Decision{Release: common.ReleaseInfo{GUID: "better-tier"}, Rank: decision.RankKey{QualityIndex: 0, EpisodeCount: 1}}
+	worsePack := decision.Decision{Release: common.ReleaseInfo{GUID: "worse-pack"}, Rank: decision.RankKey{QualityIndex: 1, EpisodeCount: math.MaxInt32, PreferredProtocolMatch: true}}
+	require.Equal(t, []string{"better-tier", "worse-pack"}, guids(decision.Rank([]decision.Decision{worsePack, betterTier}, decision.Options{})))
+}

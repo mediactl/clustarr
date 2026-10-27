@@ -8,5 +8,5 @@
     {"name": "Poor", "qualities": ["Poor"]}, {"name": "Trash", "qualities": ["Trash"]}
   ],
   "cutoff": "MP3-192", "upgradeAllowed": true, "cutoffFormatScore": 10000, "minUpgradeFormatScore": 1,
-  "scoreSet": "default", "language": "original", "properPolicy": "preferAndUpgrade", "sizeTable": "none"
+  "scoreSet": "default", "language": "original", "properPolicy": "preferAndUpgrade", "sizeTable": "none", "preferredProtocol": "usenet"
 }]

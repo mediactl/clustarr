@@ -244,3 +244,33 @@ func TestASeasonPickWithoutTargetsCoversByCoverage(t *testing.T) {
 		require.Equal(t, []catalogv1alpha1.EpisodeNumber{ep(1, 5), ep(1, 6)}, p.NewEntries[0].Episodes)
 	})
 }
+
+// TestAPackAndTheProfilesProtocolWinOverAHigherScore: within a quality, a
+// season answer's pack is grabbed over singles that score higher, and the
+// profile's preferred protocol over the other one scoring higher (owner,
+// 2026-10-27), as decision.Rank orders them.
+func TestAPackAndTheProfilesProtocolWinOverAHigherScore(t *testing.T) {
+	cands := seasonCandidates(t, 1, 7, single1, single2, pack720)
+	for i := range cands {
+		if cands[i].Release.Decision.Title != pack720 {
+			cands[i].Release.Score = 500
+		}
+	}
+	p := grabplan.Decide(seriesView(t, season(1, 7), cands...))
+	require.Equal(t, []string{pack720}, titles(p), "a pack beats singles of its quality whatever their score")
+
+	t.Run("the preferred protocol beats a higher score", func(t *testing.T) {
+		const other = "Breaking.Bad.S01.720p.HDTV.x264-OTHER"
+		cands := seasonCandidates(t, 1, 7, pack720, other)
+		for i := range cands {
+			if cands[i].Release.Decision.Title == pack720 {
+				cands[i].Release.Decision.ReleaseInfo.Protocol = commonv1.ProtocolUsenet
+			} else {
+				cands[i].Release.Score = 500
+			}
+		}
+		v := seriesView(t, season(1, 7), cands...)
+		v.Profile.PreferredProtocol = "usenet"
+		require.Equal(t, []string{pack720}, titles(grabplan.Decide(v)))
+	})
+}

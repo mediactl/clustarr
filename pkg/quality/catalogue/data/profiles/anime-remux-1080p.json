@@ -17,6 +17,6 @@
   "minFormatScore": 100, "cutoffFormatScore": 10000, "minUpgradeFormatScore": 1,
   "scoreSet": "anime-radarr", "language": "original", "properPolicy": "preferAndUpgrade",
   "formatScores": [{"format": "anime-dual-audio", "score": 1000}],
-  "sizeTable": "anime", "preferredProtocol": "any",
+  "sizeTable": "anime", "preferredProtocol": "usenet",
   "audio": {"languages": ["en", "original"], "graft": false}
 }]

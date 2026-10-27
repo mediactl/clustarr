@@ -5,5 +5,5 @@
     {"name": "MOBI", "qualities": ["MOBI"]}, {"name": "PDF", "qualities": ["PDF"]}
   ],
   "cutoff": "MOBI", "upgradeAllowed": true, "cutoffFormatScore": 10000, "minUpgradeFormatScore": 1,
-  "scoreSet": "default", "language": "original", "properPolicy": "preferAndUpgrade", "sizeTable": "none"
+  "scoreSet": "default", "language": "original", "properPolicy": "preferAndUpgrade", "sizeTable": "none", "preferredProtocol": "usenet"
 }]

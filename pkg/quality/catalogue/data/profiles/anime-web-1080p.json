@@ -1,10 +1,11 @@
 [{
   "name": "anime-web-1080p",
-  "_source": "sonarr trash_id 20e0fc959f1f1704bed501f23bdae76f (upstream name '[Anime] Remux-1080p', upstream cutoff 'Bluray 1080p') -- cutoff overridden to 'WEB 1080p' to match spec's literal built-in name; see task doc scope decision 2; Anime Dual Audio scored 1000 (TRaSH: 0, or 101 to prefer), past the group tiers' spread (WEB 100-600, BD 700-1400), so a dual-audio release outranks every Japanese-only one of its quality (owner, 2026-10-20)",
+  "_source": "sonarr trash_id 20e0fc959f1f1704bed501f23bdae76f (upstream name '[Anime] Remux-1080p', upstream cutoff 'Bluray 1080p') -- cutoff overridden to 'WEB 1080p' to match spec's literal built-in name; see task doc scope decision 2; Anime Dual Audio scored 1000 (TRaSH: 0, or 101 to prefer), past the group tiers' spread (WEB 100-600, BD 700-1400), so a dual-audio release outranks every Japanese-only one of its quality (owner, 2026-10-20); Remux-1080p ranks below WEB 1080p, under the cutoff, so a Bluray-1080p encode replaces a remux (owner, 2026-10-27: a remux is never transcoded, and 69 episodes held 0.47 TB)",
   "mediaKind": "video",
   "tiers": [
-    {"name": "Bluray 1080p", "qualities": ["Remux-1080p", "Bluray-1080p"]},
+    {"name": "Bluray 1080p", "qualities": ["Bluray-1080p"]},
     {"name": "WEB 1080p", "qualities": ["HDTV-1080p", "WEBRip-1080p", "WEBDL-1080p"]},
+    {"name": "Remux 1080p", "qualities": ["Remux-1080p"]},
     {"name": "Bluray-720p", "qualities": ["Bluray-720p"]},
     {"name": "WEB 720p", "qualities": ["HDTV-720p", "WEBRip-720p", "WEBDL-720p"]},
     {"name": "Bluray-480p", "qualities": ["Bluray-480p"]},
@@ -16,6 +17,6 @@
   "minFormatScore": 100, "cutoffFormatScore": 10000, "minUpgradeFormatScore": 1,
   "scoreSet": "anime-sonarr", "language": "original", "properPolicy": "preferAndUpgrade",
   "formatScores": [{"format": "anime-dual-audio", "score": 1000}],
-  "sizeTable": "anime", "preferredProtocol": "any",
+  "sizeTable": "anime", "preferredProtocol": "usenet",
   "audio": {"languages": ["en", "original"], "graft": true}
 }]

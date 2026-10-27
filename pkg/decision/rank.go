@@ -27,12 +27,15 @@ import (
 )
 
 // Rank stable-sorts a copy of ds best-first: QualityIndex asc, Revision
-// desc (only if PreferRevision), FormatScore desc, PreferredProtocolMatch
-// desc, CompareEpisodeCount (a whole season first, then anime more
+// desc (only if PreferRevision), a whole season first, PreferredProtocolMatch
+// desc, FormatScore desc, LanguagesComplete, CompareEpisodeCount (anime more
 // episodes and any other series fewer), indexer priority asc (from
 // o.IndexerPriority), indexer-flag score desc, seeders/age desc, then size
-// (Disagreement 7). Evaluate fills a RankKey for every decision whose title
-// parsed, approved or not, so a caller ranks each band (BandOf) by the same
+// (Disagreement 7). The season pack and the protocol rank ahead of the
+// format score (owner, 2026-10-27: within a quality, a season pack beats
+// single episodes and usenet beats torrent); Sonarr's comparer has them
+// after it. Evaluate fills a RankKey for every decision whose title parsed,
+// approved or not, so a caller ranks each band (BandOf) by the same
 // comparator; Rank does not filter Rejected decisions itself.
 func Rank(ds []Decision, o Options) []Decision {
 	out := make([]Decision, len(ds))
@@ -60,14 +63,17 @@ func less(a, b Decision, o Options) bool {
 			return c > 0 // higher revision (Real, then Version) wins
 		}
 	}
+	if aw, bw := a.Rank.WholeSeason(), b.Rank.WholeSeason(); aw != bw {
+		return aw
+	}
+	if a.Rank.PreferredProtocolMatch != b.Rank.PreferredProtocolMatch {
+		return a.Rank.PreferredProtocolMatch
+	}
 	if a.Rank.FormatScore != b.Rank.FormatScore {
 		return a.Rank.FormatScore > b.Rank.FormatScore
 	}
 	if a.Rank.LanguagesComplete != b.Rank.LanguagesComplete {
 		return a.Rank.LanguagesComplete
-	}
-	if a.Rank.PreferredProtocolMatch != b.Rank.PreferredProtocolMatch {
-		return a.Rank.PreferredProtocolMatch
 	}
 	if c := CompareEpisodeCount(a.Rank.WholeSeason(), a.Rank.EpisodeCount, b.Rank.WholeSeason(), b.Rank.EpisodeCount, a.Rank.Anime); c != 0 {
 		return c < 0
