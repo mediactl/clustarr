@@ -89,6 +89,10 @@ type pass struct {
 	threshold int32
 	want      map[string]bool
 	extract   map[int32]bool
+	// images is the image sidecars beside the file; localOnly the keys
+	// wanted for one of them alone (imageWants).
+	images    []imageSidecar
+	localOnly map[string]bool
 	throttled map[string]time.Time
 	wake      time.Time
 	// forced: a pending subtitle.clustarr.io/search nonce is honoured this
@@ -225,6 +229,13 @@ func (p *pass) plan() {
 	audio := audioLanguages(st.MediaInfo, in.Item.OriginalLanguage)
 	wantedKeys, cutoffMet := subtitles.Plan(pp, audio, existingKeys(existing))
 	anyWant, _ := subtitles.Plan(pp, audio, nil)
+	p.images = imageSidecars(filepath.Base(mf.Spec.Path), sidecarNames(p.d.Sidecars), in.Item.OriginalLanguage)
+	p.localOnly = map[string]bool{}
+	for _, k := range imageWants(pp, existingKeys(existing), wantedKeys, p.images, providerset.Order(slices.Clone(in.OCR), spec.Providers)) {
+		wantedKeys = append(wantedKeys, k)
+		p.localOnly[string(k)] = true
+		cutoffMet = false // the search is not over while the disc's own subtitle waits to be read
+	}
 	p.cad, p.threshold = cadenceFor(spec), minScoreFor(mf.Spec.MediaRef.Kind, spec)
 	p.want = map[string]bool{}
 	for _, k := range wantedKeys {
@@ -600,6 +611,12 @@ func (p *pass) task(it *catalogv1alpha1.SubtitleItemStatus, seq int64, upgrade, 
 			}
 		}
 	}
+	var images []schema.ImageSidecar
+	if l, _, _, err := subtitles.ParseLangKey(subtitles.LangKey(it.LangKey)); err == nil {
+		if n, ok := normalizeLang(l); ok {
+			images = imageSidecarsFor(p.images, n)
+		}
+	}
 	return schema.FetchTask{
 		MediaFile: schema.Ref{Namespace: mf.Namespace, Name: mf.Name, UID: string(mf.UID)},
 		Path:      mf.Spec.Path, ProbeHash: mf.Status.ProbeHash, LangKey: it.LangKey, Seq: seq,
@@ -608,6 +625,7 @@ func (p *pass) task(it *catalogv1alpha1.SubtitleItemStatus, seq int64, upgrade, 
 		Upgrade: upgrade, Forced: forced, OnDisk: od,
 		SidecarMode: uint32(sidecarMode(in.RootFolders, mf.Spec.Path, DefaultSidecarMode)),
 		Query:       q, Extract: extract,
+		ImageSidecars: images, LocalOnly: p.localOnly[it.LangKey],
 	}
 }
 

@@ -26,9 +26,11 @@ import (
 
 	par2 "github.com/mediactl/par2go"
 
+	captionagent "github.com/mediactl/clustarr/app/caption/agent"
 	"github.com/mediactl/clustarr/pkg/ffruntime"
 	mediainfonative "github.com/mediactl/clustarr/pkg/mediainfo/native"
 	"github.com/mediactl/clustarr/pkg/par2child"
+	"github.com/mediactl/clustarr/pkg/subtitles/ocr"
 	embeddednative "github.com/mediactl/clustarr/pkg/subtitles/providers/embedded/native"
 )
 
@@ -37,14 +39,16 @@ type selfCheckReport struct {
 	PieceCompletion string            `json:"pieceCompletion"`
 	FFmpeg          *ffruntime.Report `json:"ffmpeg,omitempty"`
 	Par2go          string            `json:"par2go,omitempty"`
+	ONNXRuntime     string            `json:"onnxRuntime,omitempty"`
 	Failures        []string          `json:"failures,omitempty"`
 	OK              bool              `json:"ok"`
 }
 
 // runSelfCheck is `agent --self-check` (§10.1.1): the cgo piece completion
-// (R13), FFmpeg 9 with what the import and caption domains need, and par2go
-// (the usenet engine's repair child loads the same library), with no domain,
-// cluster or NATS. A bolt piece completion means a cgo-free build, under
+// (R13), FFmpeg 9 with what the import and caption domains need, par2go
+// (the usenet engine's repair child loads the same library) and ONNX
+// Runtime from $ORT_LIB_PATH with the caption domain's OCR model, with no
+// domain, cluster or NATS. A bolt piece completion means a cgo-free build, under
 // which every seeding torrent would rehash.
 func runSelfCheck(w io.Writer) error {
 	return SelfCheckWith(w, mediainfonative.Needs, embeddednative.Needs)
@@ -70,6 +74,13 @@ func SelfCheckWith(w io.Writer, needs ...ffruntime.Needs) error {
 		r.Failures = append(r.Failures, fmt.Sprintf("par2go (PAR2GO_LIB=%q): %v", os.Getenv("PAR2GO_LIB"), err))
 	} else {
 		r.Par2go = par2child.Library()
+	}
+	ort := os.Getenv(captionagent.ORTLibEnv)
+	if rec, err := ocr.New(ort); err != nil {
+		r.Failures = append(r.Failures, fmt.Sprintf("ONNX Runtime (%s=%q): %v", captionagent.ORTLibEnv, ort, err))
+	} else {
+		rec.Close()
+		r.ONNXRuntime = ort
 	}
 	r.OK = len(r.Failures) == 0
 	enc := json.NewEncoder(w)

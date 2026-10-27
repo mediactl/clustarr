@@ -105,6 +105,24 @@ type FetchTask struct {
 	// Extract is the embedded streams the local tier writes out
 	// (extractableStreams), the exact set the planner computed.
 	Extract []commonv1.SubtitleStream `json:"extract,omitempty"`
+	// ImageSidecars is the image subtitles beside the file in this
+	// language -- the .sup sidecars the MP4 standard writes for a PGS track
+	// no text track covers (standard.Version 8) -- which the ocr provider,
+	// in the local tier, reads as text.
+	ImageSidecars []ImageSidecar `json:"imageSidecars,omitempty"`
+	// LocalOnly says the language is wanted for its image sidecar's
+	// conversion alone: the profile's audio rules would not have wanted it
+	// (the owner's english profile excludes English-audio files), so only
+	// the file's own subtitles are asked for, never a remote provider.
+	LocalOnly bool `json:"localOnly,omitempty"`
+}
+
+// ImageSidecar is one image subtitle beside the media file: its file name
+// and the language key the planner attributed to it (its name's, or the
+// item's original language for a bare <stem>.sup).
+type ImageSidecar struct {
+	Name    string `json:"name"`
+	LangKey string `json:"langKey"`
 }
 
 // Schema implements Payload.

@@ -107,6 +107,7 @@ func (a *Adapter) Gather(ctx context.Context, env *remediation.Env, v *remediati
 		return in, remediation.Transient(fmt.Errorf("subtitles: list SubtitleProviders: %w", err))
 	}
 	in.Extractors = subtitleplan.EmbeddedEntries(providers.Items)
+	in.OCR = subtitleplan.OCREntries(providers.Items)
 	var roots catalogv1alpha1.RootFolderList
 	if err := env.Reader.List(ctx, &roots, client.InNamespace(mf.Namespace), client.UnsafeDisableDeepCopy); err != nil {
 		return in, remediation.Transient(fmt.Errorf("subtitles: list RootFolders: %w", err))

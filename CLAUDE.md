@@ -136,11 +136,36 @@ a larger source encodes beside its output as before; attachments dropped, chapte
 subtitle no text subtitle covers goes beside the MP4 as a `.sup` sidecar
 (`standard.SidecarSUP`, `<stem>.<lang>[.forced|.sdh].sup`, copied through
 FFmpeg's `sup` muxer; `standard.Version` 8, owner 2026-10-27: every output
-is MP4, which carries no image subtitle), which Plex ignores and the OCR to
-come reads -- `pkg/subtitles.ImageSidecar`, listed in `SidecarExtensions`
-so it is renamed, recycled and deleted with its file, but never an
-"existing" subtitle to the caption planner, which still wants a text one
-for the language; a DVD subtitle has no such format and is dropped, named.
+is MP4, which carries no image subtitle), which Plex ignores and the `ocr`
+subtitle provider reads -- `pkg/subtitles.ImageSidecar`, listed in
+`SidecarExtensions` so it is renamed, recycled and deleted with its file,
+but never an "existing" subtitle to the caption planner, which still wants
+a text one for the language; a DVD subtitle has no such format and is
+dropped, named. **The `.sup` is read into `<stem>.<lang>.srt` by the
+caption pipeline, not the transcode** (owner, 2026-10-27: "convert .sup to
+.srt when .sup is the only subtitle format provided in the blu-ray"): a
+SubtitleProvider of type `ocr` is a local provider like `embedded`
+(`pkg/subtitles/providers/pgsocr`, no credentials, the local tier, never
+paced or throttled) serving the file's own image sidecars, and the
+subtitles planner's `imageWants` makes a profile language wanted when an
+image sidecar of its language and forced flag lies beside the file, no text
+subtitle does, and an `ocr` provider serves it -- whatever the profile's
+audio rules say, since the owner's `english` profile excludes English-audio
+files and the disc's own English PGS is still worth reading; such a task
+is `FetchTask.LocalOnly` (no remote provider is asked) and carries the
+sidecars (`ImageSidecars`). A bare `<stem>.sup`, an untagged track's, is
+the item's original language, as an untagged audio track is, and is listed
+in `status.sidecars` with no language. The reading is `pkg/subtitles/pgs`
+(the PGS segments decoded in Go, each display set a grey bitmap) and
+`pkg/subtitles/ocr` (PaddleOCR's PP-OCRv5 recognition model, embedded, on
+ONNX Runtime through purego from `$ORT_LIB_PATH`, lines split by their
+rows' ink, greedy CTC; a track fewer than 60% of whose bitmaps read as text
+is `ErrUnreadable` and left alone), wired only in the caption agent
+(`app/caption/agent/ocr.go`, built at the first read, one track at a time)
+so `cmd/manager` links no purego; `agent --self-check` proves the runtime
+loads. The fetch worker heartbeats the delivery through a download
+(`Worker.download`), since a film's track takes minutes. The Sopranos'
+pilot (18 MB, 889 bitmaps) reads in 28 s with its speaker labels intact.
 Until Version 7 such a file was Skipped whole (`HoldImageSubtitles`,
 ruling R1): 129 files with DTS or TrueHD audio sat that way, their audio
 playable natively on no Apple device or browser. Version 7's first cut kept

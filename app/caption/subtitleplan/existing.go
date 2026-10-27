@@ -28,6 +28,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
 	"github.com/mediactl/clustarr/app/caption/providerset"
+	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/lang"
 	"github.com/mediactl/clustarr/pkg/subtitles"
 	"github.com/mediactl/clustarr/pkg/subtitles/providers/embedded"
@@ -109,6 +110,142 @@ func EmbeddedEntries(providers []subtitlev1alpha1.SubtitleProvider) []providerse
 		out = append(out, providerset.Entry{
 			Name: sp.Name, Namespace: sp.Namespace, Type: sp.Spec.Type, Languages: slices.Clone(sp.Spec.Languages),
 		})
+	}
+	return out
+}
+
+// OCREntries returns the SubtitleProviders the fetch worker could task with
+// reading an image sidecar: the enabled ocr ones, unordered (Plan orders
+// them by the winning profile's spec.providers, as the worker does). Only
+// what imageWants reads -- name, type and spec.languages -- is filled.
+func OCREntries(providers []subtitlev1alpha1.SubtitleProvider) []providerset.Entry {
+	var out []providerset.Entry
+	for _, sp := range providers {
+		if sp.Spec.Type != subtitlev1alpha1.SubtitleProviderOCR || !sp.Spec.EnabledOrDefault() {
+			continue
+		}
+		out = append(out, providerset.Entry{
+			Name: sp.Name, Namespace: sp.Namespace, Type: sp.Spec.Type, Languages: slices.Clone(sp.Spec.Languages),
+		})
+	}
+	return out
+}
+
+// imageSidecar is one image subtitle beside the file -- a .sup the MP4
+// standard wrote for a PGS track no text track covers (standard.Version 8)
+// -- with the language its name carries. A bare <stem>.sup, an untagged
+// track's, is attributed to the item's original language, as an untagged
+// audio track is (audioLanguages): the three such files of The Sopranos'
+// first season were English; "" attributes nothing.
+type imageSidecar struct {
+	name       string
+	lang       string
+	forced, hi bool
+}
+
+func (s imageSidecar) key() subtitles.LangKey { return subtitles.FormatLangKey(s.lang, s.forced, s.hi) }
+
+// imageSidecars is the image sidecars among names that belong to the video,
+// tagged ones by their key and bare ones by originalLanguage.
+func imageSidecars(videoBase string, names []string, originalLanguage string) []imageSidecar {
+	stem := strings.TrimSuffix(videoBase, filepath.Ext(videoBase))
+	var out []imageSidecar
+	for _, name := range names {
+		if !subtitles.ImageSidecar(name) {
+			continue
+		}
+		if k, ok := subtitles.ParseSidecar(stem, name); ok {
+			if k, ok = normalizeKey(k); ok {
+				l, forced, hi, _ := subtitles.ParseLangKey(k)
+				out = append(out, imageSidecar{name: name, lang: l, forced: forced, hi: hi})
+			}
+			continue
+		}
+		if subtitles.BareSidecar(stem, name) {
+			if l, ok := normalizeLang(originalLanguage); ok {
+				out = append(out, imageSidecar{name: name, lang: l})
+			}
+		}
+	}
+	return out
+}
+
+// imageWants is the owner's "convert .sup to .srt when .sup is the only
+// subtitle format provided in the blu-ray" (2026-10-27): a profile language
+// that has an image sidecar beside the file of its language and forced
+// flag (and a hearing-impaired flag its policy admits), no text subtitle,
+// and an ocr provider that serves it, is wanted whatever the profile's
+// audio rules say -- the owner's english profile excludes English-audio
+// files, and the disc's own English PGS track is still worth reading. It
+// returns the keys wanted beyond wanted, which the task marks LocalOnly:
+// nothing but the file's own subtitles is asked for them. The cutoff is
+// judged without the audio rules too, so a language whose text subtitle
+// exists wants nothing.
+func imageWants(pp subtitles.Profile, existing []subtitles.Existing, wanted []subtitles.LangKey,
+	images []imageSidecar, readers []providerset.Entry,
+) []subtitles.LangKey {
+	if len(images) == 0 || len(readers) == 0 {
+		return nil
+	}
+	noAudio := pp
+	noAudio.Languages = slices.Clone(pp.Languages)
+	for i := range noAudio.Languages {
+		noAudio.Languages[i].AudioExclude, noAudio.Languages[i].AudioOnlyInclude = false, false
+	}
+	fromImages, _ := subtitles.Plan(noAudio, nil, existing)
+	var out []subtitles.LangKey
+	for _, k := range fromImages {
+		if slices.Contains(wanted, k) {
+			continue
+		}
+		l := profileLanguage(pp, k)
+		if l == nil || !slices.ContainsFunc(images, func(s imageSidecar) bool { return imageSatisfies(*l, s) }) {
+			continue
+		}
+		if !slices.ContainsFunc(readers, func(e providerset.Entry) bool { return e.Serves([]string{l.Language}) }) {
+			continue
+		}
+		out = append(out, k)
+	}
+	return out
+}
+
+// profileLanguage is pp's entry keyed k.
+func profileLanguage(pp subtitles.Profile, k subtitles.LangKey) *subtitles.ProfileLanguage {
+	for i := range pp.Languages {
+		if pp.Languages[i].Key == k {
+			return &pp.Languages[i]
+		}
+	}
+	return nil
+}
+
+// imageSatisfies reports whether s could be read as l: the same language
+// and forced flag (the fetch worker's filter refuses a forced candidate
+// for a plain want and the reverse), and a hearing-impaired flag the
+// policy admits (required wants one, excluded refuses one, prefer takes
+// either).
+func imageSatisfies(l subtitles.ProfileLanguage, s imageSidecar) bool {
+	if s.lang != l.Language || s.forced != l.Forced {
+		return false
+	}
+	switch l.HI {
+	case subtitles.HIPolicyRequired:
+		return s.hi
+	case subtitles.HIPolicyExcluded:
+		return !s.hi
+	}
+	return true
+}
+
+// imageSidecarsFor is the task's ImageSidecars: every image sidecar of the
+// language l, whatever its flags; the worker's filter chooses.
+func imageSidecarsFor(images []imageSidecar, lang string) []schema.ImageSidecar {
+	var out []schema.ImageSidecar
+	for _, s := range images {
+		if s.lang == lang {
+			out = append(out, schema.ImageSidecar{Name: s.name, LangKey: string(s.key())})
+		}
 	}
 	return out
 }

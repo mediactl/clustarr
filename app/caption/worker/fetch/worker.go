@@ -40,6 +40,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/pkg/subtitles"
+	"github.com/mediactl/clustarr/pkg/subtitles/providers/pgsocr"
 	"github.com/mediactl/clustarr/pkg/subtitlestore"
 )
 
@@ -258,8 +259,9 @@ func (w *Worker) handle(ctx context.Context, m events.Message, t schema.FetchTas
 	src := providerset.FileSource{
 		Path: local, Info: commonv1.MediaInfo{Subtitles: t.Extract},
 		IgnoreASS: profile.Spec.Embedded.IgnoreASS, SkipCommentary: profile.Spec.Embedded.SkipCommentaryOrDefault(),
+		ImageSidecars: imageSidecars(t.ImageSidecars),
 	}
-	provs, skipped := eligible(entries, src, kind, wnt, q, profile.Spec.Embedded.ExtractOrDefault() && len(t.Extract) > 0)
+	provs, skipped := eligible(entries, src, kind, wnt, q, profile.Spec.Embedded.ExtractOrDefault() && len(t.Extract) > 0, t.LocalOnly)
 	plan := searchPlan{
 		kind: kind, query: q, want: wnt, filters: flt, threshold: int(t.MinScore),
 		providers: provs, skipped: skipped, mods: mods(profile.Spec.Mods), toSRT: !profile.Spec.OriginalFormat,
@@ -308,16 +310,19 @@ type eligibleProvider struct {
 }
 
 // eligible narrows the priority-ordered provider set to those that can serve
-// this task, keeping the order: embedded extraction switched on for a local
-// provider, the provider's own spec.languages, whether it can identify the
-// item at all ([searchable]), and then its client's capabilities -- the
-// media kind, forced-search support and the languages it has codes for.
+// this task, keeping the order: for a local provider, something of the
+// file's own to serve (embedded extraction switched on and a track to
+// extract; an image sidecar for ocr), and no remote provider at all when
+// the task is LocalOnly; the provider's own spec.languages, whether it can
+// identify the item at all ([searchable]), and then its client's
+// capabilities -- the media kind, forced-search support and the languages
+// it has codes for.
 // Every SubtitleProvider is judged on its own: two of one type -- two
 // accounts -- are both eligible and both searched ([Worker.search]). Until
 // gap-fix X11b a pkg/subtitles.Registry keyed by provider type skipped the
 // second, so a second account never answered and never lent its quota.
 func eligible(entries []providerset.Entry, src providerset.FileSource, kind commonv1.MediaKind, w want,
-	q subtitles.Query, extract bool,
+	q subtitles.Query, extract, localOnly bool,
 ) ([]eligibleProvider, []string) {
 	var (
 		out     []eligibleProvider
@@ -325,8 +330,14 @@ func eligible(entries []providerset.Entry, src providerset.FileSource, kind comm
 	)
 	for _, e := range entries {
 		switch {
-		case e.Local() && !extract:
+		case e.Local() && e.Type == subtitlev1alpha1.SubtitleProviderOCR && len(src.ImageSidecars) == 0:
+			skipped = append(skipped, e.Name+": the task names no image sidecar to read")
+			continue
+		case e.Local() && e.Type != subtitlev1alpha1.SubtitleProviderOCR && !extract:
 			skipped = append(skipped, e.Name+": embedded extraction is off or the task names no embedded track")
+			continue
+		case !e.Local() && localOnly:
+			skipped = append(skipped, e.Name+": the language is wanted only from the file's own image subtitle")
 			continue
 		case !e.Serves(w.tags()):
 			skipped = append(skipped, e.Name+": spec.languages excludes "+w.lang)
@@ -350,6 +361,15 @@ func eligible(entries []providerset.Entry, src providerset.FileSource, kind comm
 		}
 	}
 	return out, skipped
+}
+
+// imageSidecars is the task's image sidecars as the ocr provider takes them.
+func imageSidecars(in []schema.ImageSidecar) []pgsocr.Sidecar {
+	out := make([]pgsocr.Sidecar, 0, len(in))
+	for _, s := range in {
+		out = append(out, pgsocr.Sidecar{Name: s.Name, LangKey: subtitles.LangKey(s.LangKey)})
+	}
+	return out
 }
 
 func anyLang(serves func(string) bool, tags []string) bool {

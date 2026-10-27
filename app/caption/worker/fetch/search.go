@@ -354,7 +354,7 @@ func (w *Worker) fetchOne(ctx context.Context, m events.Message, kv events.KV, p
 	if err := w.pace(ctx, kv, e.Local(), e.UID, e.RateMilli); err != nil {
 		return nil, false, err
 	}
-	raw, name, err := ep.client.Download(ctx, r.c)
+	raw, name, err := w.download(ctx, m, lastBeat, ep.client, r.c)
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, false, ctx.Err()
@@ -385,6 +385,43 @@ func (w *Worker) fetchOne(ctx context.Context, m events.Message, kv events.KV, p
 	logging.FromContext(ctx).Info("fetch: subtitle written", "provider", e.Name,
 		"subtitleID", subtitleID(r.c), "score", r.score, "path", logical)
 	return &chosen{entry: ep, r: r, logicalPath: logical, relPath: rel}, false, nil
+}
+
+// download runs c's Download, heartbeating the delivery every
+// HeartbeatInterval meanwhile: a local provider's download is work on the
+// file itself -- the ocr provider reads a whole PGS track, half a minute for
+// an episode and minutes for a film -- past the fetch consumers' AckWait,
+// and a remote one may wait on a slow upstream. A heartbeat that fails
+// cancels the download.
+func (w *Worker) download(ctx context.Context, m events.Message, lastBeat *time.Time, c subtitles.Provider,
+	cand subtitles.Candidate,
+) ([]byte, string, error) {
+	type result struct {
+		raw  []byte
+		name string
+		err  error
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	done := make(chan result, 1)
+	go func() {
+		raw, name, err := c.Download(ctx, cand)
+		done <- result{raw, name, err}
+	}()
+	tick := time.NewTicker(HeartbeatInterval)
+	defer tick.Stop()
+	for {
+		select {
+		case r := <-done:
+			return r.raw, r.name, r.err
+		case <-tick.C:
+			if err := w.beat(ctx, m, lastBeat); err != nil {
+				cancel()
+				<-done
+				return nil, "", err
+			}
+		}
+	}
 }
 
 // pace takes one token from the provider's shared bucket before a request.

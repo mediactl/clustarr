@@ -71,7 +71,7 @@ func (a *Adapter) Sources(mgr ctrl.Manager) ([]remediation.Source, error) {
 			Handler: handler.TypedEnqueueRequestsFromMapFunc(func(ctx context.Context, o client.Object) []remediation.Key {
 				return filesWithSubtitles(ctx, c, o)
 			}),
-			Predicates: []predicate.Predicate{k8s.And(predicate.NewPredicateFuncs(isEmbeddedProvider), k8s.GenerationChanged())},
+			Predicates: []predicate.Predicate{k8s.And(predicate.NewPredicateFuncs(isLocalProvider), k8s.GenerationChanged())},
 		},
 		{Name: "S19/clustarr-subtitles", Raw: recordsource.New(a.bus(), events.BucketSubtitles, remediation.FileKey)},
 	}, nil
@@ -108,7 +108,7 @@ func filesWithSubtitles(ctx context.Context, c client.Reader, o client.Object) [
 	var files catalogv1alpha1.MediaFileList
 	if err := c.List(ctx, &files, client.InNamespace(o.GetNamespace()), client.MatchingFields{mfindex.Subtitles: "true"},
 		client.UnsafeDisableDeepCopy); err != nil {
-		logging.FromContext(ctx).Error("subtitles: list MediaFiles for an embedded provider change", "err", err)
+		logging.FromContext(ctx).Error("subtitles: list MediaFiles for a local provider change", "err", err)
 		return nil
 	}
 	out := make([]remediation.Key, 0, len(files.Items))
@@ -125,10 +125,11 @@ func subtitleProfileInvalid(o client.Object) bool {
 	return ok && subtitleplan.Invalid(p)
 }
 
-// isEmbeddedProvider reports whether o is an embedded SubtitleProvider: the
-// only type whose presence changes a plan (extractableStreams). The type is
-// immutable, so an object never moves in or out of this set.
-func isEmbeddedProvider(o client.Object) bool {
+// isLocalProvider reports whether o is an embedded or an ocr
+// SubtitleProvider: the types whose presence changes a plan
+// (extractableStreams, imageWants). The type is immutable, so an object
+// never moves in or out of this set.
+func isLocalProvider(o client.Object) bool {
 	sp, ok := o.(*subtitlev1alpha1.SubtitleProvider)
-	return ok && sp.Spec.Type == subtitlev1alpha1.SubtitleProviderEmbedded
+	return ok && (sp.Spec.Type == subtitlev1alpha1.SubtitleProviderEmbedded || sp.Spec.Type == subtitlev1alpha1.SubtitleProviderOCR)
 }

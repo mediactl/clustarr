@@ -40,6 +40,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/subtitles/providers/embedded"
 	"github.com/mediactl/clustarr/pkg/subtitles/providers/gestdown"
 	"github.com/mediactl/clustarr/pkg/subtitles/providers/opensubtitlescom"
+	"github.com/mediactl/clustarr/pkg/subtitles/providers/pgsocr"
 	"github.com/mediactl/clustarr/pkg/subtitles/providers/subdl"
 	"github.com/mediactl/clustarr/pkg/subtitles/providers/subsource"
 	"github.com/mediactl/clustarr/pkg/version"
@@ -78,6 +79,12 @@ type Builder struct {
 	// embedded.ErrNoExtractor. Only the fetch worker's process sets it:
 	// app/caption/agent, to embedded/native's in-process Extract.
 	Extract embedded.ExtractFunc
+
+	// ReadImage reads a .sup beside a file as SubRip for the ocr provider.
+	// Nil leaves ocr Downloads failing with pgsocr.ErrNoReader. Only the
+	// fetch worker's process sets it: app/caption/agent, to
+	// pkg/subtitles/ocr's PaddleOCR recognizer on ONNX Runtime.
+	ReadImage pgsocr.ReadFunc
 
 	// KV is the clustarr-provider-throttle bucket
 	// (events.BucketProviderThrottle). When set, every OpenSubtitles.com
@@ -170,6 +177,8 @@ func prototype(t subtitlev1alpha1.SubtitleProviderType) subtitles.Provider {
 		return subsource.New(subsource.Config{})
 	case subtitlev1alpha1.SubtitleProviderEmbedded:
 		return embedded.New(embedded.Config{})
+	case subtitlev1alpha1.SubtitleProviderOCR:
+		return pgsocr.New(pgsocr.Config{})
 	default:
 		return nil
 	}
@@ -197,7 +206,8 @@ func (b *Builder) Entry(ctx context.Context, sp *subtitlev1alpha1.SubtitleProvid
 	if err != nil {
 		return providerset.Entry{}, err
 	}
-	if sp.Spec.Type == subtitlev1alpha1.SubtitleProviderEmbedded {
+	switch sp.Spec.Type {
+	case subtitlev1alpha1.SubtitleProviderEmbedded:
 		extract := b.Extract
 		e.ForFile = func(f providerset.FileSource) subtitles.Provider {
 			return embedded.New(embedded.Config{
@@ -205,6 +215,12 @@ func (b *Builder) Entry(ctx context.Context, sp *subtitlev1alpha1.SubtitleProvid
 				IgnoreASS: f.IgnoreASS, SkipCommentary: f.SkipCommentary,
 				Extract: extract,
 			})
+		}
+		return e, nil
+	case subtitlev1alpha1.SubtitleProviderOCR:
+		read := b.ReadImage
+		e.ForFile = func(f providerset.FileSource) subtitles.Provider {
+			return pgsocr.New(pgsocr.Config{Path: f.Path, Sidecars: f.ImageSidecars, Read: read})
 		}
 		return e, nil
 	}

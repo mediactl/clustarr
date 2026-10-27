@@ -140,6 +140,7 @@ spec:
                 - subdl
                 - subsource
                 - embedded
+                - ocr
                 - whisper
                 type: string
                 x-kubernetes-validations:

@@ -33,6 +33,7 @@ import (
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/lang"
 	"github.com/mediactl/clustarr/pkg/subtitles"
+	"github.com/mediactl/clustarr/pkg/subtitles/providers/pgsocr"
 )
 
 // DefaultHTTPTimeout bounds one provider HTTP request. It sits well inside
@@ -67,6 +68,11 @@ type FileSource struct {
 
 	// IgnoreASS and SkipCommentary mirror SubtitleProfileSpec.Embedded.
 	IgnoreASS, SkipCommentary bool
+
+	// ImageSidecars is the image subtitles beside the file in the task's
+	// language (schema.FetchTask.ImageSidecars), which the ocr provider
+	// reads as text.
+	ImageSidecars []pgsocr.Sidecar
 }
 
 // Entry is one enabled SubtitleProvider resolved to a client.
@@ -106,8 +112,9 @@ type Entry struct {
 	ForFile func(FileSource) subtitles.Provider
 }
 
-// Local reports whether the provider reads the media file itself (embedded)
-// rather than calling a remote service. A local provider has no upstream
+// Local reports whether the provider reads the media file itself (embedded,
+// or ocr over the image sidecars beside it) rather than calling a remote
+// service. A local provider has no upstream
 // rate limit and no upstream throttle: its failures are about one file, not
 // about the provider, so the caller must not record them in the shared
 // throttle table.
@@ -211,10 +218,10 @@ func HIVerifiable(t subtitlev1alpha1.SubtitleProviderType) bool {
 // Resolve is the one place a SubtitleProvider's type and credentials are
 // checked, for Validate and build.Builder.Entry alike. For a remote type it
 // returns the Secret's data and a version that changes whenever the Secret
-// does; a local type (embedded) reads no Secret at all.
+// does; a local type (embedded, ocr) reads no Secret at all.
 func Resolve(ctx context.Context, secrets client.Reader, sp *subtitlev1alpha1.SubtitleProvider) (map[string][]byte, string, error) {
 	switch sp.Spec.Type {
-	case subtitlev1alpha1.SubtitleProviderEmbedded:
+	case subtitlev1alpha1.SubtitleProviderEmbedded, subtitlev1alpha1.SubtitleProviderOCR:
 		return nil, "", nil
 	case subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom, subtitlev1alpha1.SubtitleProviderGestdown,
 		subtitlev1alpha1.SubtitleProviderSubDL, subtitlev1alpha1.SubtitleProviderSubSource:

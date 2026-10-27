@@ -104,6 +104,9 @@ type Input struct {
 	// Extractors is the enabled embedded SubtitleProviders in the file's
 	// namespace (EmbeddedEntries), unordered.
 	Extractors []providerset.Entry
+	// OCR is the enabled ocr SubtitleProviders in the file's namespace
+	// (OCREntries), unordered: the readers of an image sidecar.
+	OCR []providerset.Entry
 	// RootFolders is the namespace's, for the sidecar file mode.
 	RootFolders []catalogv1alpha1.RootFolder
 	// Records is the records read this pass, by langKey.

@@ -383,3 +383,43 @@ are withdrawn (`standard.Version` 8):
   standard a tagged file without the tag reads as copied, since the planner
   dispatches only one whose recorded plan copied the video. A source another
   tool transcoded (`TranscodedElsewhere`) is remuxed as before, never encoded.
+
+## As built (phase 2's OCR, 2026-10-27): a caption provider over the `.sup` sidecars
+
+§5 placed the OCR in the transcode run, muxing `mov_text` into the MP4.
+The owner's ask the afternoon Version 8 shipped -- "convert .sup to .srt
+when .sup is the only subtitle format provided in the blu-ray" -- is met
+in the caption domain instead, and the transcode never changes for it:
+
+- **The reading** is `pkg/subtitles/pgs` (the five PGS segment kinds and
+  the run-length code decoded in Go, FFmpeg's `pgssubdec` the reference;
+  each display set a grey bitmap, the palette's luma weighted by its alpha)
+  and `pkg/subtitles/ocr` (PaddleOCR's PP-OCRv5 mobile recognition model
+  and its 18,383-character dictionary, embedded, 16.6 MB, Apache-2.0, on
+  ONNX Runtime through purego as `pkg/segments/textdet` runs the detector;
+  lines split by their rows' ink, 48 rows each, greedy CTC; lines under a
+  0.5 confidence dropped, a re-sent bitmap joined into the cue before it;
+  a track fewer than 60% of whose bitmaps read as text is `ErrUnreadable`
+  and left as it is). One model, not §5's four: PP-OCRv5 covers Latin and
+  CJK in one.
+- **The provider** is a SubtitleProvider of type `ocr`
+  (`pkg/subtitles/providers/pgsocr`), local like `embedded`: no
+  credentials, the local tier, never paced or throttled, one candidate per
+  image sidecar beside the file scored as the file's own subtitle (hash
+  match, unverifiable), its Download the `.sup` read through the process's
+  reader, which only the caption agent sets (`app/caption/agent/ocr.go`,
+  built at the first read from `$ORT_LIB_PATH`, one track at a time), so
+  the manager links no purego.
+- **The want** is the planner's `imageWants`: a profile language with an
+  image sidecar of its language and forced flag beside the file, no text
+  subtitle, and an `ocr` provider that serves it, is wanted whatever the
+  profile's audio rules say -- the owner's `english` profile excludes
+  English-audio files, and the disc's own English PGS is still worth
+  reading. Such a task is `FetchTask.LocalOnly` and carries the sidecars
+  (`ImageSidecars`); a language wanted anyway rides a normal task with the
+  `ocr` provider first. A bare `<stem>.sup`, an untagged track's, is the
+  item's original language (the untagged-audio rule) and is listed in
+  `status.sidecars` with no language. The `.sup` stays beside the `.srt`.
+- **Not `mov_text`:** the text goes beside the MP4 as `<stem>.<lang>.srt`
+  through the fetch worker's ordinary sidecar write, as every other
+  subtitle does since phase 1.

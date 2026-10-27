@@ -27,6 +27,7 @@ import (
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
 	"github.com/mediactl/clustarr/app/caption/providerset"
 	"github.com/mediactl/clustarr/pkg/subtitles"
+	"github.com/mediactl/clustarr/pkg/subtitles/providers/pgsocr"
 )
 
 // stubProvider is the least subtitles.Provider eligible needs: a name and
@@ -75,7 +76,7 @@ func TestEligibleKeepsEveryAccountOfOneType(t *testing.T) {
 		localEntry("local", stubProvider{name: "embedded", caps: subtitles.Capabilities{Movies: true, ForcedSearch: true}}),
 	}
 
-	got, skipped := eligible(entries, providerset.FileSource{}, commonv1.MediaKindMovie, en, q, false)
+	got, skipped := eligible(entries, providerset.FileSource{}, commonv1.MediaKindMovie, en, q, false, false)
 	var names []string
 	for _, ep := range got {
 		names = append(names, ep.entry.Name)
@@ -88,12 +89,51 @@ func TestEligibleKeepsEveryAccountOfOneType(t *testing.T) {
 
 	forced := en
 	forced.forced = true
-	got, _ = eligible(entries, providerset.FileSource{}, commonv1.MediaKindMovie, forced, q, true)
+	got, _ = eligible(entries, providerset.FileSource{}, commonv1.MediaKindMovie, forced, q, true, false)
 	names = nil
 	for _, ep := range got {
 		names = append(names, ep.entry.Name)
 	}
 	assert.Equal(t, []string{"local"}, names, "only a client that can search forced subtitles is asked for them")
+}
+
+// The ocr provider is asked only when the task names an image sidecar to
+// read, and a LocalOnly task -- a language wanted for its image sidecar's
+// conversion alone -- asks no remote provider at all, so the audio rules
+// the planner set aside for it are not undone by a remote search.
+func TestTheOCRProviderNeedsAnImageSidecarAndALocalOnlyTaskAsksNoRemote(t *testing.T) {
+	en := want{lang: "en", accept: map[string]bool{"en": true}}
+	q := subtitles.Query{IDs: map[string]string{"imdb": "1"}}
+	ocr := providerset.Entry{
+		Name: "ocr", Type: subtitlev1alpha1.SubtitleProviderOCR,
+		ForFile: func(providerset.FileSource) subtitles.Provider {
+			return stubProvider{name: "ocr", caps: subtitles.Capabilities{Movies: true, Episodes: true, ForcedSearch: true}}
+		},
+	}
+	entries := []providerset.Entry{
+		remoteEntry("os", subtitlev1alpha1.SubtitleProviderOpenSubtitlesCom, stubProvider{name: "opensubtitlescom", caps: movieCaps}),
+		ocr,
+	}
+	names := func(ps []eligibleProvider) []string {
+		var out []string
+		for _, ep := range ps {
+			out = append(out, ep.entry.Name)
+		}
+		return out
+	}
+
+	got, skipped := eligible(entries, providerset.FileSource{}, commonv1.MediaKindMovie, en, q, true, false)
+	assert.Equal(t, []string{"os"}, names(got))
+	assert.Equal(t, []string{"ocr: the task names no image sidecar to read"}, skipped)
+
+	src := providerset.FileSource{ImageSidecars: []pgsocr.Sidecar{{Name: "Movie (1999).en.sup", LangKey: "en"}}}
+	got, skipped = eligible(entries, src, commonv1.MediaKindMovie, en, q, false, false)
+	assert.Equal(t, []string{"os", "ocr"}, names(got), "with a sidecar the ocr provider is eligible, extraction off or not")
+	assert.Empty(t, skipped)
+
+	got, skipped = eligible(entries, src, commonv1.MediaKindMovie, en, q, false, true)
+	assert.Equal(t, []string{"ocr"}, names(got))
+	assert.Equal(t, []string{"os: the language is wanted only from the file's own image subtitle"}, skipped)
 }
 
 func TestTiersPutLocalProvidersFirst(t *testing.T) {

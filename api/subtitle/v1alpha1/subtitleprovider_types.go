@@ -25,7 +25,7 @@ import (
 // SubtitleProviderType is the upstream subtitle source a SubtitleProvider
 // talks to.
 //
-// +kubebuilder:validation:Enum=opensubtitlescom;gestdown;subdl;subsource;embedded;whisper
+// +kubebuilder:validation:Enum=opensubtitlescom;gestdown;subdl;subsource;embedded;ocr;whisper
 type SubtitleProviderType string
 
 // Subtitle provider types.
@@ -40,6 +40,12 @@ const (
 	SubtitleProviderSubSource SubtitleProviderType = "subsource"
 	// SubtitleProviderEmbedded extracts subtitles already inside the container.
 	SubtitleProviderEmbedded SubtitleProviderType = "embedded"
+	// SubtitleProviderOCR reads an image subtitle beside the file -- the
+	// .sup sidecar the transcode writes for a PGS track no text track covers
+	// -- into text, in the caption agent (PaddleOCR on ONNX Runtime). Like
+	// embedded it is local: no credentials, no upstream, the file's own
+	// subtitle served first.
+	SubtitleProviderOCR SubtitleProviderType = "ocr"
 	// SubtitleProviderWhisper generates subtitles from the audio track.
 	SubtitleProviderWhisper SubtitleProviderType = "whisper"
 )

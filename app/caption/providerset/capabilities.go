@@ -43,4 +43,5 @@ var capabilities = map[subtitlev1alpha1.SubtitleProviderType]capability{
 	subtitlev1alpha1.SubtitleProviderSubDL:     {needsSecrets: []string{subtitlev1alpha1.ProviderSecretKeyAPIKey}, hiVerifiable: true},
 	subtitlev1alpha1.SubtitleProviderSubSource: {needsSecrets: []string{subtitlev1alpha1.ProviderSecretKeyAPIKey}, hiVerifiable: true},
 	subtitlev1alpha1.SubtitleProviderEmbedded:  {hiVerifiable: true},
+	subtitlev1alpha1.SubtitleProviderOCR:       {hiVerifiable: true},
 }

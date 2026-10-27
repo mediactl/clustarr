@@ -76,6 +76,7 @@ func Register(ctx context.Context, mgr ctrl.Manager, bus events.Bus, o Options) 
 	if err := registerExtraction(ctx, providers, &live); err != nil {
 		return catalogagent.Registration{}, err
 	}
+	registerOCR(providers, os.Getenv(ORTLibEnv))
 	host, _ := os.Hostname() // a pod's own name when POD_NAME is unset
 	worker := fetch.NewWorker(mgr.GetClient(), bus, providers, o.DataDir, cmp.Or(os.Getenv("POD_NAME"), host, "agent-caption"))
 	if err := worker.SetupWithManager(mgr, o.BusTopology()); err != nil {

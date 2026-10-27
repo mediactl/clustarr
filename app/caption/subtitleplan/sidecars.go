@@ -48,7 +48,10 @@ func carriedSidecars(stored []catalogv1alpha1.Sidecar) []catalogv1alpha1.Sidecar
 // listedSidecars is status.sidecars from a listing (§6.4.3): one entry per
 // name subtitles.ParseSidecar attributes to the video's stem, hand-placed
 // ones and the MP4 standard's included, with its language, forced and hi
-// from the key, sorted by name, at most 32. Not filtered by profile.
+// from the key, sorted by name, at most 32. Not filtered by profile. A bare
+// <stem>.<ext> (subtitles.BareSidecar: the .sup the transcode writes for an
+// untagged image track) is listed with no language: it is the file's, so a
+// delete or a rename carries it, and the planner attributes it (imageSidecars).
 func listedSidecars(videoPath string, names []string) []catalogv1alpha1.Sidecar {
 	base := filepath.Base(videoPath)
 	stem := strings.TrimSuffix(base, filepath.Ext(base))
@@ -56,6 +59,9 @@ func listedSidecars(videoPath string, names []string) []catalogv1alpha1.Sidecar 
 	for _, name := range names {
 		raw, ok := subtitles.ParseSidecar(stem, name)
 		if !ok {
+			if subtitles.BareSidecar(stem, name) {
+				out = append(out, catalogv1alpha1.Sidecar{Name: name})
+			}
 			continue
 		}
 		key := raw
