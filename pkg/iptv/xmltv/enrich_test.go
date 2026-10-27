@@ -89,6 +89,24 @@ func TestASportsChannelsStudioShowIsNotAnEvent(t *testing.T) {
 	assert.Equal(t, out, repeat, "the same episode is the same id a day later")
 }
 
+// The provider titles a live studio show "Live:" too (tvload.win: "Live:
+// SportsCenter", "Live: ACC PM"). It is flagged live and new and filed under
+// Sports, but with no matchup or sport named it is no sports event: no
+// "Sports event" category, an EP id rather than an SP one, so Plex's
+// Upcoming Sports hub lists games, not desks.
+func TestALiveStudioShowIsLiveButNoSportsEvent(t *testing.T) {
+	inner := []byte(`<title>Live: SportsCenter</title><desc>The latest news, highlights and inside information from every corner of the sports world.</desc>`)
+	out := string((&xmltv.Enricher{}).Enrich(inner, sports, t0, t0.Add(time.Hour)))
+	assert.Contains(t, out, `<title>SportsCenter</title>`)
+	assert.Contains(t, out, `<live/>`)
+	assert.Contains(t, out, `<new/>`)
+	assert.Contains(t, out, `<category lang="en">Sports</category>`)
+	assert.NotContains(t, out, "Sports event")
+	assert.NotContains(t, out, "<sub-title")
+	assert.Regexp(t, `EP\d{8}\.\d{4}`, out)
+	assert.NotRegexp(t, `SP\d{8}`, out)
+}
+
 // A game on a broadcast network is an event when its title names the sport
 // and its description a matchup; "Celtics at Heat" reads as a matchup too.
 func TestAGameOnAnyChannelIsAnEventWhenItNamesASportAndAMatchup(t *testing.T) {

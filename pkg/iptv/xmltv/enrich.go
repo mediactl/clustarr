@@ -121,7 +121,12 @@ func (e *Enricher) Enrich(inner []byte, ch LineupChannel, start, stop time.Time)
 	class := channelClass(ch.Group)
 	sport := sportOf(title + " " + f.desc)
 	matchup, ok := matchupOf(title, f.desc)
+	// A live broadcast is one the provider titles "Live:" or one with a
+	// matchup; a sports event is a live broadcast that names a matchup or a
+	// sport, so a live studio show (the provider's "Live: SportsCenter") is
+	// flagged live without landing in Plex's sports-event hubs.
 	event := (class == classSports || sport != "") && (live || ok)
+	sportsEvent := event && (ok || sport != "")
 
 	var art Art
 	var haveArt bool
@@ -150,13 +155,15 @@ func (e *Enricher) Enrich(inner []byte, ch LineupChannel, start, stop time.Time)
 		elems = replaceTitle(elems, title)
 	}
 	if event {
-		if f.subtitle == "" && matchup != "" {
-			addText("sub-title", matchup)
-		}
 		addCategory("Sports")
-		addCategory("Sports event")
-		if sport != "" {
-			addCategory(sport)
+		if sportsEvent {
+			if f.subtitle == "" && matchup != "" {
+				addText("sub-title", matchup)
+			}
+			addCategory("Sports event")
+			if sport != "" {
+				addCategory(sport)
+			}
 		}
 		if !f.hasLive {
 			addElem("live", []byte("<live/>"))
@@ -190,7 +197,7 @@ func (e *Enricher) Enrich(inner []byte, ch LineupChannel, start, stop time.Time)
 	}
 	if !f.hasEpisodeNum {
 		switch {
-		case event:
+		case sportsEvent:
 			addElem("episode-num", progID("SP", ch.Number, start.UTC().Format(time.RFC3339)))
 		case haveArt && art.Kind == ArtMovie:
 			addElem("episode-num", progID("MV", release.TitleNorm(title), fmt.Sprint(year)))

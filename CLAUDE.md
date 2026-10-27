@@ -440,12 +440,15 @@ guide is enriched for Plex's parser** (`xmltv.Enricher`,
 `pkg/iptv/xmltv/enrich.go`; the provider's programmes carry a title and a
 description and nothing else, 0 icons, categories or languages in 323,339):
 a sports channel's programmes (IPTVChannel `spec.group`) are category
-Sports; a live event -- a "Live:" title, or a matchup in the title or
-description -- is also "Sports event" and its sport, gets the matchup as
-its sub-title ("Dallas Cowboys at Philadelphia Eagles" from "the Eagles host
-the Cowboys"), `<live/>` and `<new/>`; every programme without an episode
-number gets a Gracenote-shaped `dd_progid` (SP from the channel and start
-for an event, so ten channels' "NFL Football" are ten games; EP from the
+Sports; a live broadcast -- a "Live:" title (the provider's own marker,
+5,743 of its programmes, "Live: SportsCenter" among them) or a matchup in
+the title or description -- carries `<live/>` and `<new/>`, and one that
+also names a matchup or a sport is a sports event: "Sports event" and its
+sport, the matchup as its sub-title ("Dallas Cowboys at Philadelphia Eagles"
+from "the Eagles host the Cowboys"), so a live studio desk is flagged live
+without reaching Plex's Upcoming Sports hub; every programme without an
+episode number gets a Gracenote-shaped `dd_progid` (SP from the channel and
+start for a sports event, so ten channels' "NFL Football" are ten games; EP from the
 title, sub-title and description otherwise, so a repeat is the same
 episode; MV for a known movie), which keeps a one-off out of Plex's Movies
 while a movie channel's unknown film keeps the movie fallback; a news
