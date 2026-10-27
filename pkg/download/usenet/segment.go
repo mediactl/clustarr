@@ -148,7 +148,15 @@ func (j *job) buildBatches(depth int) []batch {
 	return out
 }
 
-// openTargets creates (or reopens) one file handle per NZB file.
+// openTargets opens one file handle per NZB file. The transfer's first
+// call creates the content directory and the files (create); a retry or a
+// chase later in the transfer reopens the files it wrote and creates
+// nothing, so a target gone by then is ErrScratchLost, never a file
+// started over empty. On talos (2026-10-27) /data/usenet/incomplete/tv was
+// removed from the NAS side mid-transfer; NFSv4 kept the open files
+// writable, every article "landed", and the end-of-transfer chase
+// recreated the job's twelve files empty, which the publish then moved
+// into the data directory as a complete season pack.
 //
 // The part files are NOT written through fsops.AtomicWrite, and that is
 // deliberate rather than an oversight: a 50GB release is assembled by random
@@ -158,19 +166,26 @@ func (j *job) buildBatches(depth int) []batch {
 // holds, so a restart re-fetches only the articles that never landed. The one
 // write that must be all-or-nothing is the publish, and that is a
 // fsops.MoveAtomic.
-func (j *job) openTargets() ([]*os.File, error) {
-	if err := os.MkdirAll(j.contentDir(), 0o755); err != nil {
-		return nil, fmt.Errorf("usenet: create %s: %w", j.contentDir(), err)
+func (j *job) openTargets(create bool) ([]*os.File, error) {
+	flag := os.O_RDWR
+	if create {
+		if err := os.MkdirAll(j.contentDir(), 0o755); err != nil {
+			return nil, fmt.Errorf("usenet: create %s: %w", j.contentDir(), err)
+		}
+		flag |= os.O_CREATE
 	}
 	files := make([]*os.File, len(j.nzb.Files))
 	for i := range j.nzb.Files {
 		p := filepath.Join(j.contentDir(), safeName(j.nzb.Files[i].Name))
-		f, err := os.OpenFile(p, os.O_RDWR|os.O_CREATE, 0o644)
+		f, err := os.OpenFile(p, flag, 0o644)
 		if err != nil {
 			for _, open := range files {
 				if open != nil {
 					_ = open.Close()
 				}
+			}
+			if !create && errors.Is(err, os.ErrNotExist) {
+				return nil, fmt.Errorf("%w: %w", ErrScratchLost, err)
 			}
 			return nil, fmt.Errorf("usenet: create %s: %w", p, err)
 		}
@@ -230,7 +245,7 @@ func (j *job) transfer(ctx context.Context) error {
 		}
 	}
 
-	targets, err := j.openTargets()
+	targets, err := j.openTargets(true)
 	if err != nil {
 		return err
 	}
@@ -296,7 +311,7 @@ func (j *job) transfer(ctx context.Context) error {
 		}()
 	}
 
-	stop := j.startCheckpoint(ctx)
+	stop := j.startCheckpoint(ctx, fail)
 	stopWatch := j.startStallWatch(workerCtx, fail)
 
 dispatch:
@@ -518,7 +533,7 @@ func (j *job) exhaustedBytes() int64 {
 // clearing each recovered segment's failure. It returns
 // ErrProvidersUnavailable when a server could not be asked at all.
 func (j *job) fetchMissing(ctx context.Context, servers []string, workers int, failed []seg) (int, error) {
-	targets, err := j.openTargets()
+	targets, err := j.openTargets(false)
 	if err != nil {
 		return 0, err
 	}
@@ -766,6 +781,9 @@ func (j *job) fetchFirstArticles(ctx context.Context, targets []*os.File) error 
 			if err := targets[fi].Truncate(r.Meta.FileSize); err != nil {
 				return fmt.Errorf("usenet: size %s: %w", j.nzb.Files[fi].Name, err)
 			}
+			j.mu.Lock()
+			j.sizes[fi] = r.Meta.FileSize
+			j.mu.Unlock()
 		}
 		if err := j.writeSegment(targets[fi], fi, 0, r); err != nil {
 			return err
@@ -1050,6 +1068,14 @@ func (j *job) breach(ctx context.Context, detail string, cause error) error {
 // asked is ErrProvidersUnavailable instead, and is waited out, not judged.
 var ErrStalled = errors.New("usenet: no article completed within the stall timeout")
 
+// ErrScratchLost is a transfer whose scratch files went from under it: the
+// job directory missing at a checkpoint, a target missing when a retry
+// reopens it, or a file at publish time not the size its yEnc header
+// declared (job.verifyContent). It judges nothing about the release --
+// failureReason classes it writeError, a local fault -- and nothing of the
+// transfer is published.
+var ErrScratchLost = errors.New("usenet: the transfer's scratch files are gone or altered")
+
 // startStallWatch fails the transfer through fail when no article has
 // completed for Config.StallTimeout, measured from the later of the watch's
 // start and the last completed article, and not while paused. It returns a
@@ -1105,7 +1131,14 @@ func (j *job) startStallWatch(ctx context.Context, fail func(error)) func() {
 // The interval is a trade between fsyncs and re-fetched articles after a
 // crash: two seconds costs one small atomic write per two seconds and bounds
 // the loss to whatever landed in that window.
-func (j *job) startCheckpoint(ctx context.Context) func() {
+// startCheckpoint writes the manifest every two seconds while the transfer
+// runs. A checkpoint that finds the job directory gone (os.ErrNotExist)
+// ends the transfer through fail as ErrScratchLost: the manifest is what a
+// restart resumes from, the files beside it went with it, and on talos
+// (2026-10-27) a transfer wrote 26 GB into unlinked files for nine minutes,
+// warning every two seconds, and then published empty ones. Any other
+// error is logged and the next tick tries again.
+func (j *job) startCheckpoint(ctx context.Context, fail func(error)) func() {
 	done := make(chan struct{})
 	quit := make(chan struct{})
 	go func() {
@@ -1121,6 +1154,10 @@ func (j *job) startCheckpoint(ctx context.Context) func() {
 			case now := <-t.C:
 				j.rate.observe(j.downloadedBytes(), now)
 				if err := j.checkpoint(); err != nil {
+					if errors.Is(err, os.ErrNotExist) {
+						fail(fmt.Errorf("%w: %w", ErrScratchLost, err))
+						return
+					}
 					logging.FromContext(ctx).WarnContext(ctx, "usenet checkpoint failed",
 						"download", j.id, "error", err)
 				}

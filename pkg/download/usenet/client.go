@@ -437,6 +437,10 @@ type manifest struct {
 	AddedAt time.Time `json:"addedAt,omitzero"`
 	Done    []bitset  `json:"done,omitempty"`
 	Failed  []bitset  `json:"failed,omitempty"`
+	// Sizes is each file's decoded size from its yEnc header (job.sizes);
+	// a manifest from before it carries none, and such a file is not held
+	// to a size at publish.
+	Sizes []int64 `json:"sizes,omitempty"`
 	// Journal is the engine's per-transfer journal (ADR-0019 §6.7), an
 	// opaque document this client stores and never reads
 	// ([download.Journaled]).
@@ -547,6 +551,11 @@ type job struct {
 
 	done       []bitset
 	failedSegs []bitset
+	// sizes is each file's decoded size from its first article's yEnc
+	// header (fetchFirstArticles), which the file is preallocated to and
+	// verifyContent holds it to before anything is published; zero while
+	// the first article has not arrived. Kept in the manifest.
+	sizes []int64
 	// exhausted marks the failed segments every server has refused: what
 	// the health verdict counts (segment.go, healthVerdict). A segment a
 	// later fetch recovers leaves it.
@@ -635,6 +644,7 @@ func (j *job) checkpoint() error {
 		AddedAt:        j.addedAt,
 		Done:           cloneBitsets(j.done),
 		Failed:         cloneBitsets(j.failedSegs),
+		Sizes:          append([]int64(nil), j.sizes...),
 		Journal:        append(json.RawMessage(nil), j.journal...),
 	}
 	j.mu.Unlock()
@@ -743,6 +753,7 @@ func (c *Client) loadJob(dir string) (*job, error) {
 	j.journal = append([]byte(nil), m.Journal...)
 	restoreBitsets(j.done, m.Done)
 	restoreBitsets(j.failedSegs, m.Failed)
+	copy(j.sizes, m.Sizes)
 	for i := range j.done {
 		j.downloaded += completedBytes(parsed.Files[i], j.done[i])
 	}
@@ -786,6 +797,7 @@ func (c *Client) newJob(id, name, category, dir string, parsed *nzbJob) *job {
 	j.done = make([]bitset, len(parsed.Files))
 	j.failedSegs = make([]bitset, len(parsed.Files))
 	j.exhausted = make([]bitset, len(parsed.Files))
+	j.sizes = make([]int64, len(parsed.Files))
 	for i := range parsed.Files {
 		j.done[i] = newBitset(len(parsed.Files[i].Segments))
 		j.failedSegs[i] = newBitset(len(parsed.Files[i].Segments))
@@ -1264,6 +1276,10 @@ func (j *job) postProcess(ctx context.Context) error {
 		}
 	}
 
+	if err := j.verifyContent(); err != nil {
+		return err
+	}
+
 	publishFrom := content
 	if j.client.cfg.PostProcess.Unpack && len(archiveEntryPoints(j.nzb.Files)) > 0 {
 		progress, archives := &unpackProgress{}, archiveBytes(j.nzb.Files)
@@ -1324,6 +1340,44 @@ func (j *job) postProcess(ctx context.Context) error {
 // along with the content, and the next restart would have no record that this
 // download ever happened.
 func (j *job) contentDir() string { return filepath.Join(j.dir, "content") }
+
+// verifyContent holds every file whose articles all arrived to the size its
+// yEnc header declared (sizes), after repair and before anything is
+// unpacked or published. The transfer preallocates each file to that size
+// and writes its articles inside it, so a file of another size -- or none
+// -- was altered from outside the engine: on talos (2026-10-27) the job
+// directory was removed mid-transfer, the end-of-transfer chase recreated
+// twelve empty files, and they were published as a complete pack and held
+// at import as "not a playable media file". That is ErrScratchLost, a
+// local fault. A file with articles still missing is par2's to judge (or
+// the archive's checksums'), and one whose first article never arrived
+// declared no size; the bytes themselves are the articles' CRCs' and the
+// importer's probe's.
+func (j *job) verifyContent() error {
+	type want struct {
+		name string
+		size int64
+	}
+	j.mu.Lock()
+	wants := make([]want, 0, len(j.sizes))
+	for i, size := range j.sizes {
+		if size <= 0 || j.failedSegs[i].count() > 0 {
+			continue
+		}
+		wants = append(wants, want{safeName(j.nzb.Files[i].Name), size})
+	}
+	j.mu.Unlock()
+	for _, w := range wants {
+		info, err := os.Stat(filepath.Join(j.contentDir(), w.name))
+		if err != nil {
+			return fmt.Errorf("%w: %w", ErrScratchLost, err)
+		}
+		if info.Size() != w.size {
+			return fmt.Errorf("%w: %s is %d bytes, its yEnc header declared %d", ErrScratchLost, w.name, info.Size(), w.size)
+		}
+	}
+	return nil
+}
 
 func (j *job) repair(ctx context.Context) error {
 	index := par2IndexFile(j.nzb.Files)
@@ -1838,7 +1892,11 @@ func (c *Client) Remove(ctx context.Context, id string, deleteData bool) error {
 	c.forget(id)
 	j.giveGrant(ctx)
 
-	if err := fsops.SafeRemove(ctx, c.cfg.ScratchDir, j.dir); err != nil {
+	// A scratch directory already gone -- removed from outside the engine,
+	// as /data/usenet/incomplete/tv was on talos (2026-10-27) -- is nothing
+	// to remove; returning the error kept the manager retrying the absent
+	// command until another job recreated the category directory.
+	if err := fsops.SafeRemove(ctx, c.cfg.ScratchDir, j.dir); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 	out := j.snapshotOutputPath()
