@@ -195,6 +195,24 @@ postgres:
     maxSlotWalKeepSize: 2GB
     # postgresql.parameters, verbatim.
     parameters: {}
+    # The Cluster's own affinity -- CNPG's spec.affinity, verbatim
+    # (nodeAffinity, tolerations, enablePodAntiAffinity, podAntiAffinityType,
+    # topologyKey, ...) -- laid over the profile's, so the Cluster is placed
+    # without placement.enabled. Three instances on the control plane alone,
+    # one per node, with placement off:
+    #   instances: 3
+    #   affinity:
+    #     enablePodAntiAffinity: true
+    #     podAntiAffinityType: required
+    #     topologyKey: kubernetes.io/hostname
+    #     nodeAffinity:
+    #       requiredDuringSchedulingIgnoredDuringExecution:
+    #         nodeSelectorTerms:
+    #         - matchExpressions:
+    #           - {key: node-role.kubernetes.io/control-plane, operator: Exists}
+    #     tolerations:
+    #     - {key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule}
+    affinity: {}
     storage:
       size: 5Gi
       # Empty binds against the cluster's default StorageClass, same as
@@ -237,6 +255,10 @@ plexDatabase:
   maxSlotWalKeepSize: 2GB
   # A rolling update moves the primary to an updated standby first.
   primaryUpdateMethod: switchover
+  # The Cluster's own affinity (CNPG's spec.affinity, verbatim), laid over
+  # the profile's: the way to three instances on the control plane with
+  # placement off (the example under postgres.cluster.affinity).
+  affinity: {}
   imageName: ghcr.io/cloudnative-pg/postgresql:15.19-standard-trixie
   storage:
     size: 5Gi

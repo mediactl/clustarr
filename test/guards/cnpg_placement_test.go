@@ -129,6 +129,36 @@ func TestReleaseIndexReplicationSettings(t *testing.T) {
 	assert.Equal(t, "preferred", sync["dataDurability"])
 }
 
+// TestClustersTakeTheirOwnAffinityWithPlacementOff: a Cluster's own
+// affinity (CNPG's spec.affinity, verbatim) places it without the global
+// switch, which on a running install also moves the manager, the ui and
+// NATS; under a profile it is laid over the profile's, key by key.
+func TestClustersTakeTheirOwnAffinityWithPlacementOff(t *testing.T) {
+	const own = `{"enablePodAntiAffinity":true,"podAntiAffinityType":"required","topologyKey":"kubernetes.io/hostname","nodeAffinity":{"requiredDuringSchedulingIgnoredDuringExecution":{"nodeSelectorTerms":[{"matchExpressions":[{"key":"node-role.kubernetes.io/control-plane","operator":"Exists"}]}]}},"tolerations":[{"key":"node-role.kubernetes.io/control-plane","operator":"Exists","effect":"NoSchedule"}]}`
+	out := installtest.RenderChart(t, "--set", "cluster-plex.enabled=true", "--set", "postgres.enabled=true",
+		"--set", "plexDatabase.instances=3", "--set-json", "plexDatabase.affinity="+own,
+		"--set", "postgres.cluster.instances=3", "--set-json", "postgres.cluster.affinity="+own)
+	for _, name := range []string{"clustarr-plex-db", "clustarr-postgres"} {
+		c := renderedCluster(t, out, name)
+		assert.EqualValues(t, 3, nested(t, c, "spec", "instances"), name)
+		assert.Equal(t, true, nested(t, c, "spec", "affinity", "enablePodAntiAffinity"), name)
+		assert.Equal(t, "required", nested(t, c, "spec", "affinity", "podAntiAffinityType"), name)
+		assert.Equal(t, []any{map[string]any{"key": "node-role.kubernetes.io/control-plane", "operator": "Exists"}}, exprs(t, c), name)
+		assert.Len(t, nested(t, c, "spec", "affinity", "tolerations"), 1, name)
+		assert.Equal(t, "switchover", nested(t, c, "spec", "primaryUpdateMethod"), name)
+		assert.Equal(t, "2GB", nested(t, c, "spec", "postgresql", "parameters", "max_slot_wal_keep_size"), name)
+	}
+	assert.NotNil(t, nested(t, renderedCluster(t, out, "clustarr-plex-db"), "spec", "postgresql", "synchronous"))
+
+	// Under a profile the Cluster's own keys win, the rest is the profile's.
+	out = installtest.RenderChart(t, placementOn("--set", "postgres.enabled=true", "--set", "postgres.cluster.placement=controlPlane",
+		"--set-json", `postgres.cluster.affinity={"podAntiAffinityType":"preferred"}`)...)
+	c := renderedCluster(t, out, "clustarr-postgres")
+	assert.Equal(t, "preferred", nested(t, c, "spec", "affinity", "podAntiAffinityType"))
+	assert.Equal(t, true, nested(t, c, "spec", "affinity", "enablePodAntiAffinity"))
+	assert.Equal(t, []any{map[string]any{"key": "node-role.kubernetes.io/control-plane", "operator": "Exists"}}, exprs(t, c))
+}
+
 // TestReleaseIndexPostgresOnWorkers: everything but the four control-plane
 // components runs on the workers (§5.5), the release index included.
 func TestReleaseIndexPostgresOnWorkers(t *testing.T) {

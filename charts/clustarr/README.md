@@ -488,6 +488,7 @@ template.
 | `postgres.enabled` | Run the index agent's release index on a CloudNativePG `Cluster` instead of local SQLite. See [Postgres release index](#postgres-release-index). | `false` |
 | `postgres.cluster.instances` | CNPG `Cluster.spec.instances` (Postgres streaming replicas). Unset is 1, or a onePerNode placement profile's count. | unset |
 | `postgres.cluster.placement` | The placement profile the `Cluster` takes with `placement.enabled`: `controlPlane` is three instances, one per control-plane node, with its toleration. Unset moves nothing. | unset |
+| `postgres.cluster.affinity` | CNPG `Cluster.spec.affinity`, verbatim, laid over the profile's: how to place the instances (three on the control plane, one per node) with `placement.enabled` off. `plexDatabase.affinity` is the same for Plex's database. | `{}` |
 | `postgres.cluster.primaryUpdateMethod`/`.synchronous`/`.maxSlotWalKeepSize`/`.parameters` | With more than one instance: the update method (unset is `switchover`), CNPG `postgresql.synchronous` (unset keeps asynchronous streaming; the index is rebuilt from the feeds), `max_slot_wal_keep_size`, and `postgresql.parameters` verbatim. | unset, unset, `2GB`, `{}` |
 | `postgres.cluster.storage.size`/`.storageClass` | The `Cluster`'s own PVC. | `5Gi`, `""` |
 | `postgres.existingSecret` | An existing Secret (key `uri`) to use instead of the one CNPG's `bootstrap.initdb` creates. Setting it also stops the chart rendering its own `Cluster`. | `""` |

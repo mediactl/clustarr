@@ -376,22 +376,23 @@ Call with (dict "root" $ "values" <the Cluster's values>).
 */}}
 {{- define "clustarr.cnpgAffinity" -}}
 {{- $p := include "clustarr.placementProfile" . | fromJson -}}
-{{- if $p.nodeAffinity }}
+{{- $a := dict -}}
+{{- if $p.nodeAffinity -}}
+{{- if $p.onePerNode -}}
+{{- $_ := set $a "enablePodAntiAffinity" true -}}
+{{- $_ := set $a "podAntiAffinityType" "required" -}}
+{{- $_ := set $a "topologyKey" "kubernetes.io/hostname" -}}
+{{- end -}}
+{{- $_ := set $a "nodeAffinity" (dict "requiredDuringSchedulingIgnoredDuringExecution" (dict "nodeSelectorTerms" (list (dict "matchExpressions" $p.nodeAffinity)))) -}}
+{{- with $p.tolerations -}}{{- $_ := set $a "tolerations" . -}}{{- end -}}
+{{- end -}}
+{{- /* The Cluster's own affinity (CNPG's AffinityConfiguration, verbatim)
+       is laid over the profile's, key by key, so a Cluster is placed without
+       placement.enabled, or past its profile. */ -}}
+{{- $a = merge (deepCopy (.values.affinity | default dict)) $a -}}
+{{- with $a }}
 affinity:
-  {{- if $p.onePerNode }}
-  enablePodAntiAffinity: true
-  podAntiAffinityType: required
-  topologyKey: kubernetes.io/hostname
-  {{- end }}
-  nodeAffinity:
-    requiredDuringSchedulingIgnoredDuringExecution:
-      nodeSelectorTerms:
-      - matchExpressions:
-          {{- toYaml $p.nodeAffinity | nindent 10 }}
-  {{- with $p.tolerations }}
-  tolerations:
-    {{- toYaml . | nindent 4 }}
-  {{- end }}
+  {{- toYaml . | nindent 2 }}
 {{- end }}
 {{- end -}}
 

@@ -84,6 +84,7 @@
             },
             "maxSlotWalKeepSize": { "type": "string", "description": "max_slot_wal_keep_size with more than one instance." },
             "parameters": { "type": "object", "additionalProperties": { "type": "string" }, "description": "postgresql.parameters, verbatim." },
+            "affinity": { "type": "object", "description": "CNPG Cluster.spec.affinity, verbatim, laid over the placement profile's." },
             "storage": {
               "type": "object",
               "additionalProperties": false,
@@ -127,6 +128,7 @@
         },
         "maxSlotWalKeepSize": { "type": "string", "description": "max_slot_wal_keep_size with more than one instance." },
         "primaryUpdateMethod": { "type": "string", "enum": ["restart", "switchover"], "description": "CNPG primaryUpdateMethod with more than one instance." },
+        "affinity": { "type": "object", "description": "CNPG Cluster.spec.affinity, verbatim, laid over the placement profile's." },
         "imageName": { "type": "string", "minLength": 1 },
         "storage": {
           "type": "object",
