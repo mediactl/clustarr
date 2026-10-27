@@ -47,14 +47,39 @@ metadata:
     # /data claim -- deleting a Postgres-backed release index should take
     # more than `helm uninstall`.
     helm.sh/resource-policy: keep
+{{- $sizing := dict "placement" .Values.postgres.cluster.placement }}
+{{- if hasKey .Values.postgres.cluster "instances" }}{{ $_ := set $sizing "replicas" .Values.postgres.cluster.instances }}{{ end }}
+{{- $instances := include "clustarr.placementReplicas" (dict "root" $ "values" $sizing "component" "postgres.cluster" "default" 1) | int }}
+{{- /* Replication settings once there is more than one instance, as
+       plex-db.yaml's (control-plane placement design §5.1): a switchover
+       update, the slot WAL capped, and synchronous commit only when
+       postgres.cluster.synchronous asks for it. */}}
+{{- $replicated := gt $instances 1 }}
+{{- $parameters := deepCopy (.Values.postgres.cluster.parameters | default dict) }}
+{{- if and $replicated .Values.postgres.cluster.maxSlotWalKeepSize (not (hasKey $parameters "max_slot_wal_keep_size")) }}
+{{- $_ := set $parameters "max_slot_wal_keep_size" .Values.postgres.cluster.maxSlotWalKeepSize }}
+{{- end }}
 spec:
-  instances: {{ .Values.postgres.cluster.instances }}
-  {{- with .Values.postgres.cluster.primaryUpdateMethod }}
+  instances: {{ $instances }}
+  {{- with (.Values.postgres.cluster.primaryUpdateMethod | default (ternary "switchover" "" $replicated)) }}
   primaryUpdateStrategy: unsupervised
   primaryUpdateMethod: {{ . }}
   {{- end }}
   {{- with (include "clustarr.cnpgAffinity" (dict "root" $ "values" .Values.postgres.cluster) | trim) }}
   {{- . | nindent 2 }}
+  {{- end }}
+  {{- if or $parameters (and $replicated .Values.postgres.cluster.synchronous) }}
+  postgresql:
+    {{- if and $replicated .Values.postgres.cluster.synchronous }}
+    synchronous:
+      {{- toYaml .Values.postgres.cluster.synchronous | nindent 6 }}
+    {{- end }}
+    {{- with $parameters }}
+    parameters:
+      {{- range $k, $v := . }}
+      {{ $k }}: {{ $v | quote }}
+      {{- end }}
+    {{- end }}
   {{- end }}
   storage:
     size: {{ .Values.postgres.cluster.storage.size | quote }}

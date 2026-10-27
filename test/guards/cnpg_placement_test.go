@@ -97,6 +97,38 @@ func TestPlexDatabaseWithPlacementOffIsUnchanged(t *testing.T) {
 	assert.Nil(t, nested(t, c, "spec", "primaryUpdateMethod"))
 }
 
+// TestReleaseIndexReplicationSettings: the release index on the control
+// plane takes the profile's count and affinity like the Plex database, with
+// a switchover update and the slot WAL capped; synchronous commit only when
+// postgres.cluster.synchronous asks for it, since the index is rebuilt from
+// the feeds.
+func TestReleaseIndexReplicationSettings(t *testing.T) {
+	out := installtest.RenderChart(t, placementOn("--set", "postgres.enabled=true", "--set", "postgres.cluster.placement=controlPlane")...)
+	c := renderedCluster(t, out, "clustarr-postgres")
+	assert.EqualValues(t, 3, nested(t, c, "spec", "instances"))
+	assert.Equal(t, true, nested(t, c, "spec", "affinity", "enablePodAntiAffinity"))
+	assert.Equal(t, "required", nested(t, c, "spec", "affinity", "podAntiAffinityType"))
+	assert.Equal(t, "kubernetes.io/hostname", nested(t, c, "spec", "affinity", "topologyKey"))
+	assert.Equal(t, []any{map[string]any{"key": "node-role.kubernetes.io/control-plane", "operator": "Exists"}}, exprs(t, c))
+	assert.Equal(t, []any{map[string]any{"key": "node-role.kubernetes.io/control-plane", "operator": "Exists", "effect": "NoSchedule"}},
+		nested(t, c, "spec", "affinity", "tolerations"))
+	assert.Equal(t, "unsupervised", nested(t, c, "spec", "primaryUpdateStrategy"))
+	assert.Equal(t, "switchover", nested(t, c, "spec", "primaryUpdateMethod"))
+	assert.Equal(t, "2GB", nested(t, c, "spec", "postgresql", "parameters", "max_slot_wal_keep_size"))
+	assert.Nil(t, nested(t, c, "spec", "postgresql", "synchronous"), "asynchronous unless asked")
+
+	out = installtest.RenderChart(t, placementOn("--set", "postgres.enabled=true", "--set", "postgres.cluster.placement=controlPlane",
+		"--set", "postgres.cluster.instances=2",
+		"--set-json", `postgres.cluster.synchronous={"method":"any","number":1,"dataDurability":"preferred"}`)...)
+	c = renderedCluster(t, out, "clustarr-postgres")
+	assert.EqualValues(t, 2, nested(t, c, "spec", "instances"), "fewer than the profile is kept")
+	sync, _ := nested(t, c, "spec", "postgresql", "synchronous").(map[string]any)
+	require.NotNil(t, sync)
+	assert.Equal(t, "any", sync["method"])
+	assert.EqualValues(t, 1, sync["number"])
+	assert.Equal(t, "preferred", sync["dataDurability"])
+}
+
 // TestReleaseIndexPostgresOnWorkers: everything but the four control-plane
 // components runs on the workers (§5.5), the release index included.
 func TestReleaseIndexPostgresOnWorkers(t *testing.T) {

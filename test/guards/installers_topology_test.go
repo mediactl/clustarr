@@ -482,9 +482,12 @@ func TestEveryConsumerHasExactlyOneHome(t *testing.T) {
 }
 
 // TestNoInstallerRendersAnHPAOrKEDA: the manager's autoscale reconciler owns
-// every HorizontalPodAutoscaler (R5) -- Helm's server-side apply would fight
-// it over maxReplicas -- and KEDA is gone (§10.2.7): no keda.sh object in any
-// render, no keda value, schema key or chart dependency, no config/keda.
+// every HorizontalPodAutoscaler of the queue-driven workloads (R5) -- Helm's
+// server-side apply would fight it over maxReplicas -- and KEDA is gone
+// (§10.2.7): no keda.sh object in any render, no keda value, schema key or
+// chart dependency, no config/keda. The one HPA the chart renders is the
+// ui's, opt in under ui.autoscaling and never the manager's
+// (ui_autoscaling_test.go); off by default, so none appears here.
 func TestNoInstallerRendersAnHPAOrKEDA(t *testing.T) {
 	root := installtest.RepoRoot(t)
 	for name, out := range map[string][]byte{

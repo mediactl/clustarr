@@ -164,16 +164,37 @@ postgres:
   enabled: false
   cluster:
     # CNPG Cluster.spec.instances -- the number of Postgres replicas CNPG
-    # itself runs (streaming replication).
-    instances: 1
+    # itself runs (streaming replication). Unset is 1, or with
+    # placement.enabled a onePerNode profile's count (three on controlPlane);
+    # set it to run fewer.
+    # instances: 1
     # Placement profile (placement.profiles), used only with placement.enabled.
     # Unset by default even then: the Cluster moves only when its own rollout
-    # step names one (control-plane placement design §5.5, §9 D5).
-    # placement: workers
+    # step names one (control-plane placement design §5.5, §9 D5). With
+    # controlPlane the instances take the profile's node affinity and
+    # toleration and a required anti-affinity on kubernetes.io/hostname.
+    # placement: controlPlane
     # CNPG primaryUpdateMethod: switchover moves the primary to an updated
     # instance before restarting it -- how the release index leaves a node
-    # its local claim pins it to (§5.5). Unset is CNPG's restart.
+    # its local claim pins it to (§5.5). Unset is CNPG's restart with one
+    # instance and switchover with more.
     # primaryUpdateMethod: switchover
+    # Synchronous replication with more than one instance (CNPG's
+    # postgresql.synchronous), unset by default: the release index is
+    # rebuilt from the RSS feeds, so a failover may lose the last seconds
+    # of deliveries and asynchronous streaming spares every commit a round
+    # trip. For the plexDatabase settings on it, set method any, number 1,
+    # dataDurability preferred.
+    # synchronous:
+    #   method: any
+    #   number: 1
+    #   dataDurability: preferred
+    # max_slot_wal_keep_size with more than one instance: the WAL a
+    # standby's slot may hold. local-path enforces no claim size, so
+    # unbounded slot WAL would fill the node's filesystem.
+    maxSlotWalKeepSize: 2GB
+    # postgresql.parameters, verbatim.
+    parameters: {}
     storage:
       size: 5Gi
       # Empty binds against the cluster's default StorageClass, same as
@@ -741,6 +762,44 @@ ui:
   service:
     type: ClusterIP
     port: 8080
+  # Horizontal autoscaling, opt in: an autoscaling/v2 HorizontalPodAutoscaler
+  # on CPU (utilization of resources.requests.cpu, averaged over the pods)
+  # between minReplicas and maxReplicas, and the Deployment then carries no
+  # spec.replicas, so an upgrade never resets the count the HPA chose. The
+  # ui is stateless across replicas (no session, no login; the /art/search
+  # signing key is the shared Secret), but every replica caches the whole
+  # library and serves every page from it, so two on one node buy nothing:
+  # with it on, the pods take a required anti-affinity on
+  # kubernetes.io/hostname (one per node), the rollout surges one and takes
+  # one down at a time (a surge pod waits for the node an old pod frees),
+  # and maxReplicas may not exceed a onePerNode profile's replicas. Where
+  # they run is the placement profile's (placement.enabled, placement:
+  # controlPlane below), or ui.affinity and ui.tolerations with placement
+  # off -- for the control plane alone, the controlPlane profile's node
+  # affinity and toleration, verbatim. Needs the metrics API (metrics-server).
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 3
+    targetCPUUtilizationPercentage: 70
+    # autoscaling/v2 HorizontalPodAutoscalerBehavior, verbatim; {} is the
+    # HPA's defaults (scale down after 5 minutes of stability).
+    behavior: {}
+  # A Gateway API HTTPRoute to the ui's Service, opt in. The ui has no
+  # login (ui.auth above) and the Plex provider under /plex none by
+  # protocol, so the route must attach to a Gateway listener that is
+  # itself behind authentication, or internal: never a public one.
+  # parentRefs are verbatim (name, namespace, and sectionName for one
+  # listener); every hostname is routed, every path to the Service.
+  httpRoute:
+    enabled: false
+    annotations: {}
+    parentRefs: []
+    #  - name: cilium
+    #    namespace: gateway
+    #    sectionName: https-internal
+    hostnames: []
+    #  - clustarr.k8s.example.com
   resources:
     requests:
       cpu: 50m

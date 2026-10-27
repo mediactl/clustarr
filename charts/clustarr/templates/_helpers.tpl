@@ -221,6 +221,28 @@ Call with (dict "affinity" <affinity map> "exprs" <list of expressions>).
 {{- fail "manager.cardigann.definitions: set configMap or existingClaim, not both: the manager's bundle loader reads one Cardigann definitions directory (--cardigann-definitions-dir), mounted from exactly one volume." -}}
 {{- end -}}
 {{- end -}}
+{{- if and .Values.ui.enabled .Values.ui.autoscaling.enabled -}}
+{{- $a := .Values.ui.autoscaling -}}
+{{- if hasKey .Values.ui "replicas" -}}
+{{- fail "ui.replicas and ui.autoscaling.enabled cannot both be set: the HorizontalPodAutoscaler owns the count between ui.autoscaling.minReplicas and maxReplicas, and the Deployment carries no spec.replicas." -}}
+{{- end -}}
+{{- if lt (int $a.minReplicas) 1 -}}
+{{- fail "ui.autoscaling.minReplicas must be at least 1: a ui with no pod answers nothing, and the HPA scales on the pods' CPU." -}}
+{{- end -}}
+{{- if gt (int $a.minReplicas) (int $a.maxReplicas) -}}
+{{- fail (printf "ui.autoscaling.minReplicas (%v) exceeds maxReplicas (%v)" $a.minReplicas $a.maxReplicas) -}}
+{{- end -}}
+{{- $p := include "clustarr.placementProfile" (dict "root" $ "values" .Values.ui) | fromJson -}}
+{{- if and $p.onePerNode (gt (int $a.maxReplicas) (int $p.replicas)) -}}
+{{- fail (printf "ui.autoscaling.maxReplicas (%v) exceeds placement profile %q's %v: the profile runs one pod per node, so a replica past its count would stay Pending for good" $a.maxReplicas .Values.ui.placement $p.replicas) -}}
+{{- end -}}
+{{- if not (dig "requests" "cpu" "" .Values.ui.resources) -}}
+{{- fail "ui.autoscaling.enabled needs ui.resources.requests.cpu: the HPA targets CPU utilization, which is a share of the request." -}}
+{{- end -}}
+{{- end -}}
+{{- if and .Values.ui.enabled .Values.ui.httpRoute.enabled (not .Values.ui.httpRoute.parentRefs) -}}
+{{- fail "ui.httpRoute.enabled needs ui.httpRoute.parentRefs: the Gateway (name, namespace, and sectionName for one listener) the route attaches to; a route with no parent is attached to nothing." -}}
+{{- end -}}
 {{- if .Values.placement.enabled -}}
 {{- $cp := .Values.placement.profiles.controlPlane.nodeAffinity -}}
 {{- $workers := .Values.placement.profiles.workers.nodeAffinity -}}

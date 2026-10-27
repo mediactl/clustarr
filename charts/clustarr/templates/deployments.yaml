@@ -224,13 +224,39 @@ metadata:
   labels:
     {{- include "clustarr.labels" $ | nindent 4 }}
     app.kubernetes.io/component: ui
+{{- /* With ui.autoscaling the HPA owns the count (no spec.replicas, so an
+       upgrade never resets it) and the pods spread one per node: a required
+       anti-affinity on kubernetes.io/hostname, unless the placement profile
+       already adds one (onePerNode). The rollout then surges one and takes
+       one down at a time, since at maxReplicas the surge pod has no node
+       until an old pod frees one. */}}
+{{- $uiValues := .Values.ui }}
+{{- $onePerNode := eq (include "clustarr.onePerNode" (dict "root" $ "values" .Values.ui)) "true" }}
+{{- if and .Values.ui.autoscaling.enabled (not $onePerNode) }}
+{{- $uiValues = deepCopy .Values.ui }}
+{{- $affinity := $uiValues.affinity | default dict }}
+{{- $paa := $affinity.podAntiAffinity | default dict }}
+{{- $sel := include "clustarr.selectorLabels" (dict "root" $ "component" "ui") | fromYaml }}
+{{- $required := append ($paa.requiredDuringSchedulingIgnoredDuringExecution | default list) (dict "topologyKey" "kubernetes.io/hostname" "labelSelector" (dict "matchLabels" $sel)) }}
+{{- $_ := set $paa "requiredDuringSchedulingIgnoredDuringExecution" $required }}
+{{- $_ := set $affinity "podAntiAffinity" $paa }}
+{{- $_ := set $uiValues "affinity" $affinity }}
+{{- end }}
 spec:
+  {{- if not .Values.ui.autoscaling.enabled }}
   replicas: {{ include "clustarr.placementReplicas" (dict "root" $ "values" .Values.ui "component" "ui" "default" 1) }}
-  {{- if eq (include "clustarr.onePerNode" (dict "root" $ "values" .Values.ui)) "true" }}
+  {{- end }}
+  {{- if $onePerNode }}
   strategy:
     type: RollingUpdate
     rollingUpdate:
       maxSurge: 0
+      maxUnavailable: 1
+  {{- else if .Values.ui.autoscaling.enabled }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
       maxUnavailable: 1
   {{- end }}
   selector:
@@ -310,7 +336,7 @@ spec:
         volumeMounts:
         - name: tmp
           mountPath: /tmp
-      {{- with (include "clustarr.placement" (dict "root" $ "values" .Values.ui "component" "ui") | trim) }}
+      {{- with (include "clustarr.placement" (dict "root" $ "values" $uiValues "component" "ui") | trim) }}
       {{- . | nindent 6 }}
       {{- end }}
       volumes:

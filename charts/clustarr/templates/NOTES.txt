@@ -25,7 +25,7 @@ Workloads in this release:
   markers         {{ if $.Values.autoscaling.enabled }}{{ $scaled }}{{ else }}{{ .replicas }}{{ end }}  skip-segment detection
 {{- end }}{{ end }}
 {{- if .Values.ui.enabled }}
-  ui              {{ include "clustarr.placementReplicas" (dict "root" $ "values" .Values.ui "component" "ui" "default" 1) }}     web UI (auth mode {{ .Values.ui.auth.mode }}: no login of its own -- put it behind ingress authentication)
+  ui              {{ if .Values.ui.autoscaling.enabled }}{{ .Values.ui.autoscaling.minReplicas }}-{{ .Values.ui.autoscaling.maxReplicas }} (HPA){{ else }}{{ include "clustarr.placementReplicas" (dict "root" $ "values" .Values.ui "component" "ui" "default" 1) }}{{ end }}     web UI (auth mode {{ .Values.ui.auth.mode }}: no login of its own -- put it behind ingress authentication)
 {{- end }}
 
 Watch them come up:

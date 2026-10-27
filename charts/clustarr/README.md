@@ -161,7 +161,11 @@ refinement of ADR-0010), so a second replica would pace every tracker twice.
 This chart renders the `Cluster` itself
 (`templates/postgres-cluster.yaml`, named `<release>-postgres`) as a normal
 resource whenever `postgres.enabled`, with `postgres.cluster.instances`
-Postgres replicas (CNPG's own streaming replication) and a
+Postgres replicas (CNPG's own streaming replication; unset is one, or with
+`placement.enabled` and `postgres.cluster.placement: controlPlane` three, one
+per control-plane node, as `plexDatabase` has it -- a switchover update, the
+slot WAL capped by `maxSlotWalKeepSize`, and synchronous commit only when
+`postgres.cluster.synchronous` asks) and a
 `postgres.cluster.storage.size` volume. It
 bootstraps a `clustarr` database owned by a `clustarr` role and creates
 `<release>-postgres-app` holding that role's DSN under key `uri` -- what
@@ -396,6 +400,40 @@ helm upgrade --install clustarr charts/clustarr -n clustarr-system \
   --set ui.plex.externalURL=http://clustarr-ui.clustarr-system.svc.cluster.local:8080
 ```
 
+## Web UI: scaling and exposure
+
+The ui is stateless across replicas: it holds no session or login (the only
+`ui.auth.mode` is `anonymous`, behind your ingress authentication), every
+action it takes is a Kubernetes write any replica serves, and the key that
+signs its `/art/search` URLs is the shared `<release>-ui-art-signing-key`
+Secret. What each replica duplicates is a cache of the whole library and the
+projection round over it, so more replicas cost the apiserver one list and
+watch set each, and two on one node buy nothing.
+
+`ui.autoscaling.enabled=true` renders an `autoscaling/v2`
+HorizontalPodAutoscaler on the pods' CPU (`targetCPUUtilizationPercentage` of
+`ui.resources.requests.cpu`, averaged) between `minReplicas` and
+`maxReplicas`. The Deployment then carries no `spec.replicas`, so an upgrade
+never resets the count the HPA chose (`ui.replicas` beside it fails the
+render), its pods take a required anti-affinity on `kubernetes.io/hostname`
+(one per node), and the rollout surges one pod and takes one down at a time,
+since at `maxReplicas` a surge pod has no node until an old pod frees one.
+Where the pods run is the placement profile's with `placement.enabled`
+(`ui.placement: controlPlane`: the control-plane nodes, with the profile's
+toleration, and `maxReplicas` at most the profile's `replicas`), or
+`ui.affinity` and `ui.tolerations` with placement off -- for the control
+plane alone, the `controlPlane` profile's node affinity and toleration
+verbatim. The HPA needs the metrics API (metrics-server). It is Helm's own
+object: the manager's autoscale reconciler ([Autoscaling](#autoscaling))
+labels and owns only the HPAs it creates.
+
+`ui.httpRoute.enabled=true` renders a Gateway API HTTPRoute to the ui's
+Service: `parentRefs` (the Gateway's name, namespace and the listener's
+`sectionName`, verbatim) and `hostnames`, every path to the Service's port.
+Attach it only to a listener that is itself behind authentication, or
+internal: the ui has no login, and the [Plex provider](#plex-provider) under
+`/plex` none by protocol.
+
 ## Plex (cluster-plex)
 
 `cluster-plex.enabled=true` installs Plex beside clustarr, in the release's
@@ -448,7 +486,9 @@ template.
 | `nats.config.jetstream.fileStore.pvc.size` | JetStream file store PVC size. | `20Gi` |
 | `nats.container.merge.resources` / `nats.container.env.GOMEMLIMIT` | The NATS server's resources and Go soft limit, sized for every client reconnecting at once: `1Gi` was OOM-killed during an upgrade on a library of 15,000 episodes and 12,000 files. Keep `GOMEMLIMIT` below the memory limit. | `512Mi` request, `2Gi` limit, `1800MiB` |
 | `postgres.enabled` | Run the index agent's release index on a CloudNativePG `Cluster` instead of local SQLite. See [Postgres release index](#postgres-release-index). | `false` |
-| `postgres.cluster.instances` | CNPG `Cluster.spec.instances` (Postgres streaming replicas). | `1` |
+| `postgres.cluster.instances` | CNPG `Cluster.spec.instances` (Postgres streaming replicas). Unset is 1, or a onePerNode placement profile's count. | unset |
+| `postgres.cluster.placement` | The placement profile the `Cluster` takes with `placement.enabled`: `controlPlane` is three instances, one per control-plane node, with its toleration. Unset moves nothing. | unset |
+| `postgres.cluster.primaryUpdateMethod`/`.synchronous`/`.maxSlotWalKeepSize`/`.parameters` | With more than one instance: the update method (unset is `switchover`), CNPG `postgresql.synchronous` (unset keeps asynchronous streaming; the index is rebuilt from the feeds), `max_slot_wal_keep_size`, and `postgresql.parameters` verbatim. | unset, unset, `2GB`, `{}` |
 | `postgres.cluster.storage.size`/`.storageClass` | The `Cluster`'s own PVC. | `5Gi`, `""` |
 | `postgres.existingSecret` | An existing Secret (key `uri`) to use instead of the one CNPG's `bootstrap.initdb` creates. Setting it also stops the chart rendering its own `Cluster`. | `""` |
 | `cloudnative-pg.enabled` | Install the CloudNativePG operator as a chart dependency. Most clusters install it once, cluster-wide, instead -- leave this `false` and set only `postgres.enabled=true` in that case. | `false` |
@@ -491,6 +531,9 @@ template.
 | `ui.plex.enabled` | Mount the Plex Custom Metadata Provider routes (`--plex-provider`). See [Plex provider](#plex-provider). | `true` |
 | `ui.plex.externalURL` | Absolute base every `thumb`/`art`/`Image[]` URL is built on (`--external-url`). Empty means the provider roots answer `503` naming the flag. **Unauthenticated by protocol -- never a public ingress hostname.** | `""` |
 | `ui.service.type`/`.port` | The web UI's Service. | `ClusterIP`, `8080` |
+| `ui.autoscaling.enabled` | An HPA on the ui's CPU between `minReplicas` and `maxReplicas`, the pods one per node; the Deployment then has no `spec.replicas`. See [Web UI](#web-ui-scaling-and-exposure). | `false` |
+| `ui.autoscaling.minReplicas`/`.maxReplicas`/`.targetCPUUtilizationPercentage`/`.behavior` | The HPA's bounds, CPU target (a share of `ui.resources.requests.cpu`) and `autoscaling/v2` behavior. `maxReplicas` is at most a onePerNode profile's `replicas`. | `1`, `3`, `70`, `{}` |
+| `ui.httpRoute.enabled` | A Gateway API HTTPRoute to the ui's Service, from `parentRefs` (required) and `hostnames`, with `annotations`. Only behind an authenticated or internal listener. | `false` |
 
 `imagePullSecrets`, `nodeSelector`, `tolerations` and `affinity` are plain
 Kubernetes structures and intentionally not constrained further by the

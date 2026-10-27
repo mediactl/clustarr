@@ -1,0 +1,37 @@
+{{/*
+The ui's HorizontalPodAutoscaler, with ui.autoscaling.enabled: CPU utilization
+of resources.requests.cpu, averaged over the pods, between minReplicas and
+maxReplicas. The ui Deployment then carries no spec.replicas (deployments.yaml)
+and its pods a required anti-affinity on kubernetes.io/hostname, one per node.
+This is Helm's own object, unlike the agents' HPAs, which the manager's
+autoscale reconciler creates, labels and owns (templates/autoscaling.yaml,
+docs/autoscaling.md): the manager never touches an HPA it did not label.
+*/}}
+{{- if and .Values.ui.enabled .Values.ui.autoscaling.enabled }}
+{{- $name := printf "%s-ui" (include "clustarr.fullname" .) }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "clustarr.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ui
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ $name }}
+  minReplicas: {{ int .Values.ui.autoscaling.minReplicas }}
+  maxReplicas: {{ int .Values.ui.autoscaling.maxReplicas }}
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: {{ int .Values.ui.autoscaling.targetCPUUtilizationPercentage }}
+  {{- with .Values.ui.autoscaling.behavior }}
+  behavior:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}

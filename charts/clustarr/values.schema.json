@@ -70,7 +70,20 @@
           "properties": {
             "instances": { "type": "integer", "minimum": 1 },
             "placement": { "type": "string", "enum": ["controlPlane", "workers"], "description": "The placement profile this Cluster takes with placement.enabled (placement.profiles)." },
-            "primaryUpdateMethod": { "type": "string", "enum": ["restart", "switchover"], "description": "CNPG primaryUpdateMethod; switchover moves the release index off a node (control-plane placement design §5.5)." },
+            "primaryUpdateMethod": { "type": "string", "enum": ["restart", "switchover"], "description": "CNPG primaryUpdateMethod; unset is restart with one instance and switchover with more (switchover moves the release index off a node, control-plane placement design §5.5)." },
+            "synchronous": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["method", "number"],
+              "description": "CNPG postgresql.synchronous, rendered with more than one instance; unset keeps asynchronous streaming.",
+              "properties": {
+                "method": { "type": "string", "enum": ["any", "first"] },
+                "number": { "type": "integer", "minimum": 1 },
+                "dataDurability": { "type": "string", "enum": ["required", "preferred"] }
+              }
+            },
+            "maxSlotWalKeepSize": { "type": "string", "description": "max_slot_wal_keep_size with more than one instance." },
+            "parameters": { "type": "object", "additionalProperties": { "type": "string" }, "description": "postgresql.parameters, verbatim." },
             "storage": {
               "type": "object",
               "additionalProperties": false,
@@ -527,6 +540,46 @@
           "properties": {
             "type": { "$ref": "#/$defs/serviceType" },
             "port": { "$ref": "#/$defs/port" }
+          }
+        },
+        "autoscaling": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "minReplicas", "maxReplicas", "targetCPUUtilizationPercentage"],
+          "description": "An autoscaling/v2 HorizontalPodAutoscaler on the ui's CPU, opt in: the Deployment then carries no spec.replicas and its pods spread one per node.",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "minReplicas": { "type": "integer", "minimum": 1 },
+            "maxReplicas": { "type": "integer", "minimum": 1, "description": "At most a onePerNode placement profile's replicas." },
+            "targetCPUUtilizationPercentage": { "type": "integer", "minimum": 1, "maximum": 100, "description": "Average utilization of resources.requests.cpu over the pods." },
+            "behavior": { "type": "object", "description": "autoscaling/v2 HorizontalPodAutoscalerBehavior, verbatim." }
+          }
+        },
+        "httpRoute": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled"],
+          "description": "A Gateway API HTTPRoute to the ui's Service, opt in: attach it only to a listener behind authentication, or internal (the ui has no login; the Plex provider under /plex none by protocol).",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "annotations": { "type": "object", "additionalProperties": { "type": "string" } },
+            "parentRefs": {
+              "type": "array",
+              "description": "Gateway API ParentReferences, verbatim; required when enabled.",
+              "items": {
+                "type": "object",
+                "required": ["name"],
+                "properties": {
+                  "group": { "type": "string" },
+                  "kind": { "type": "string" },
+                  "name": { "type": "string", "minLength": 1 },
+                  "namespace": { "type": "string" },
+                  "sectionName": { "type": "string" },
+                  "port": { "type": "integer" }
+                }
+              }
+            },
+            "hostnames": { "type": "array", "items": { "type": "string", "minLength": 1 } }
           }
         },
         "resources": { "$ref": "#/$defs/resources" },
