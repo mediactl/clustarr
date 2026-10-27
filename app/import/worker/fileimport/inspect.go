@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -296,6 +297,14 @@ func (w *Worker) readVideo(
 		return videoFacts{parsed: parsed, notMedia: p.notMedia}, nil
 	}
 	mi := p.mi
+	// The probe's tagged audio tracks name the file's languages (Sonarr's
+	// AggregateLanguage, where MediaInfo outranks the file's and the
+	// release's names): a title's MULTI names nothing, so Solo Leveling's
+	// OldT pack froze as Japanese alone with fourteen tracks (talos,
+	// 2026-10-27). An untagged track leaves the names' reading.
+	if names := probedLanguageNames(mi); len(names) > 0 {
+		parsed.Languages = names
+	}
 	parsed.Quality, _ = quality.AugmentFromMediaInfo(parsed.Quality, mi)
 	title := sceneName
 	if title == "" {
@@ -359,6 +368,28 @@ func frozenFields(v videoFacts, prof quality.Profile) schema.FrozenFields {
 		f.Edition = &ed
 	}
 	return f
+}
+
+// maxFileLanguages is MediaFileSpec.Languages' MaxItems.
+const maxFileLanguages = 64
+
+// probedLanguageNames is the file's languages as its probe's audio tracks
+// name them, in the catalogue's vocabulary ("Japanese"), in track order,
+// each once -- or nil when a track is untagged (decision.AudioLanguages
+// then names none) or no track's code has a name.
+func probedLanguageNames(mi *commonv1.MediaInfo) []string {
+	var out []string
+	for _, code := range decision.AudioLanguages(mi) {
+		name, ok := catalogue.LanguageName(code)
+		if !ok || slices.Contains(out, name) {
+			continue
+		}
+		out = append(out, name)
+		if len(out) == maxFileLanguages {
+			break
+		}
+	}
+	return out
 }
 
 // summaryOf is a probe as an inspection reports it.

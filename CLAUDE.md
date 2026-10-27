@@ -1631,6 +1631,39 @@ exports the pinned ref every image build takes as a named context.
   checks every file's CRC (`rardecode.ErrBadFileChecksum` fails the
   unpack), so a repair pass would re-read the whole release to learn what
   the extraction proved.
+- **A usenet transfer whose scratch directory is removed from under it
+  must fail, never publish (2026-10-27).** `/data/usenet/incomplete/tv`
+  was removed from the NAS side while the engine transferred a 26 GB
+  season pack. NFSv4 keeps a file another client unlinked writable for
+  whoever holds it open, so every article "landed" in orphaned inodes and
+  the job reported 100% while its checkpoint failed ENOENT every two
+  seconds for nine minutes; the end-of-transfer chase then reopened the
+  targets with `O_CREATE`, which recreated the job directory with twelve
+  empty files (one got the chase's 343 articles), and the publish moved
+  them into the data directory as a complete pack, which the import held
+  as "not a playable media file". Three guards, all `ErrScratchLost`
+  (classed `writeError`, a local fault): `openTargets(create)` creates
+  only on the transfer's first open, so a retry or chase whose target is
+  gone fails instead of starting it over empty; `startCheckpoint` fails
+  the transfer on a checkpoint's `ErrNotExist`; and `job.verifyContent`
+  holds every fully-arrived file to the decoded size its first article's
+  yEnc header declared (`job.sizes`, kept in the manifest as `sizes`)
+  after repair and before unpack or publish. `Client.Remove` treats a
+  scratch directory already gone as removed, since the manager had
+  retried the absent command until another job recreated `tv`. The
+  engine never probes media (ADR-0017): a file's bytes are the articles'
+  CRCs' and par2's to judge, and the importer's probe refuses a file that
+  is not media.
+- **A file's frozen `spec.languages` are its probe's tagged audio tracks
+  (2026-10-27), else the names' reading.** A title's MULTI names no
+  language, so Solo Leveling's OldT pack froze every file as Japanese (the
+  series' original language) while its probe carried fourteen tracks and
+  the file was named for all of them; Sonarr's AggregateLanguage lets
+  MediaInfo outrank the file's and the release's names, and
+  `fileimport.probedLanguageNames` does the same in the catalogue's
+  vocabulary (`catalogue.LanguageName`). An untagged track leaves the
+  names' reading (`decision.AudioLanguages` names none then). Only the ui's
+  file table reads the field; the decision reads the probe.
 - **The usenet engine's emptyDir scratch shares the node disk with etcd
   on kind, and vanishes with the pod.** A 10 GB transfer plus its par2
   verify pushed etcd's fsyncs past a second: the grab controllers lost their

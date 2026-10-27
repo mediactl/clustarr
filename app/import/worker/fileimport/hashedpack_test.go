@@ -20,8 +20,10 @@ package fileimport_test
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -31,6 +33,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/vansante/go-ffprobe.v2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
@@ -53,6 +56,26 @@ import (
 // reads each file's title for the numbering its name lacks.
 func hashedPackRun(t *testing.T, titles map[string]string) (*importRun, func() map[string]int) {
 	t.Helper()
+	names := slices.Sorted(maps.Keys(titles))
+	return packRun(t, "Historys.Greatest.Mysteries.S01.1080p.WEB-DL.DDP2.0.H.264-NTb", "en", 2, names,
+		func(name string) (*commonv1.MediaInfo, *mediainfo.Raw) {
+			raw := &mediainfo.Raw{Format: &ffprobe.Format{TagList: ffprobe.Tags{}}}
+			if title := titles[name]; title != "" {
+				raw.Format.TagList["TITLE"] = title // Matroska keeps a tag's key as written
+			}
+			return &commonv1.MediaInfo{VideoCodec: "h264", Width: 1920, Height: 1080}, raw
+		})
+}
+
+// packRun is the import of one season pack: release is the pack's title,
+// the Series' original language is originalLanguage, the pack covers
+// episodes 1 to episodes, and each file under names is probed through
+// probe. It returns the run and the count of probes per file name.
+func packRun(
+	t *testing.T, release, originalLanguage string, episodes int, names []string,
+	probe func(name string) (*commonv1.MediaInfo, *mediainfo.Raw),
+) (*importRun, func() map[string]int) {
+	t.Helper()
 	ctx := context.Background()
 	dir := t.TempDir()
 	library, root := filepath.Join(dir, "media", "tv"), filepath.Join(dir, "downloads", "pack")
@@ -68,16 +91,22 @@ func hashedPackRun(t *testing.T, titles map[string]string) (*importRun, func() m
 		ObjectMeta: metav1.ObjectMeta{Name: "hgm", Namespace: "media", UID: "hgm-uid"},
 		Spec:       catalogv1alpha1.SeriesSpec{TvdbID: 384783, QualityProfileRef: qp.Name, RootFolderRef: rf.Name},
 		Status: catalogv1alpha1.SeriesStatus{Metadata: &catalogv1alpha1.SeriesMetadata{
-			Title: "History's Greatest Mysteries", Year: 2020, OriginalLanguage: "en",
+			Title: "History's Greatest Mysteries", Year: 2020, OriginalLanguage: originalLanguage,
 		}},
 	}
-	episode := func(n int32) *catalogv1alpha1.Episode {
-		return &catalogv1alpha1.Episode{
-			ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("hgm-s01e%02d", n), Namespace: "media"},
-			Spec:       catalogv1alpha1.EpisodeSpec{SeriesRef: series.Name, SeasonNumber: 1, EpisodeNumber: n},
-		}
+	objs := []client.Object{qp, rf, series}
+	var numbers []catalogv1alpha1.EpisodeNumber
+	var targets []schema.ItemRef
+	for n := 1; n <= episodes; n++ {
+		name := fmt.Sprintf("hgm-s01e%02d", n)
+		objs = append(objs, &catalogv1alpha1.Episode{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "media"},
+			Spec:       catalogv1alpha1.EpisodeSpec{SeriesRef: series.Name, SeasonNumber: 1, EpisodeNumber: int32(n)}, //nolint:gosec // a test's episode number
+		})
+		numbers = append(numbers, catalogv1alpha1.EpisodeNumber{Season: 1, Number: int32(n)}) //nolint:gosec // a test's episode number
+		targets = append(targets, schema.ItemRef{Kind: "Episode", Ref: schema.Ref{Namespace: "media", Name: name}})
 	}
-	c, _ := readOnlyClient(t, qp, rf, series, episode(1), episode(2))
+	c, _ := readOnlyClient(t, objs...)
 
 	bus := membus.New(clockwork.NewRealClock())
 	require.NoError(t, bus.Ensure(ctx, events.Default()))
@@ -88,18 +117,15 @@ func hashedPackRun(t *testing.T, titles map[string]string) (*importRun, func() m
 		mu.Lock()
 		probes[filepath.Base(path)]++
 		mu.Unlock()
-		raw := &mediainfo.Raw{Format: &ffprobe.Format{TagList: ffprobe.Tags{}}}
-		if title := titles[filepath.Base(path)]; title != "" {
-			raw.Format.TagList["TITLE"] = title // Matroska keeps a tag's key as written
-		}
-		return &commonv1.MediaInfo{VideoCodec: "h264", Width: 1920, Height: 1080}, raw, nil
+		mi, raw := probe(filepath.Base(path))
+		return mi, raw, nil
 	})
 	w := fileimport.NewWorker(c, bus, prober)
 	w.Clock = func() time.Time { return now }
 	prof, errs := quality.FromCRD(qp, catalogue.LoadedCatalogue())
 	require.Empty(t, errs)
 
-	for name := range titles {
+	for _, name := range names {
 		mustWriteSparseFile(t, filepath.Join(root, name), sampleFloor)
 	}
 	run := &importRun{t: t, w: w, bus: bus, existing: c, in: importplan.Input{
@@ -107,19 +133,14 @@ func hashedPackRun(t *testing.T, titles map[string]string) (*importRun, func() m
 		OwnerKind: commonv1.MediaKindSeries,
 		Entry: catalogv1alpha1.DownloadEntry{
 			ID: "dl-pack", UID: "pack-uid",
-			Episodes: []catalogv1alpha1.EpisodeNumber{{Season: 1, Number: 1}, {Season: 1, Number: 2}},
-			Release: catalogv1alpha1.DownloadRelease{
-				Title: "Historys.Greatest.Mysteries.S01.1080p.WEB-DL.DDP2.0.H.264-NTb", Protocol: commonv1.ProtocolUsenet,
-			},
+			Episodes:  numbers,
+			Release:   catalogv1alpha1.DownloadRelease{Title: release, Protocol: commonv1.ProtocolUsenet},
 			GrabbedBy: commonv1.GrabSourceSearch, GrabbedAt: metav1.NewTime(now.Add(-time.Hour)),
 			Phase: commonv1.DownloadPhaseCompleted,
 		},
-		Transfer: &schema.TransferRecord{ContentRoot: root},
-		Targets: []schema.ItemRef{
-			{Kind: "Episode", Ref: schema.Ref{Namespace: "media", Name: "hgm-s01e01"}},
-			{Kind: "Episode", Ref: schema.Ref{Namespace: "media", Name: "hgm-s01e02"}},
-		},
-		ProfileRef: qp.Name, Profile: &prof, OriginalLanguage: "en", Now: now,
+		Transfer:   &schema.TransferRecord{ContentRoot: root},
+		Targets:    targets,
+		ProfileRef: qp.Name, Profile: &prof, OriginalLanguage: originalLanguage, Now: now,
 	}}
 	return run, func() map[string]int {
 		mu.Lock()
