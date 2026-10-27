@@ -50,7 +50,6 @@ func renderSpec() transcodev1alpha1.TranscodeProfileSpec {
 		Audio:     transcodev1alpha1.AudioSpec{Languages: []string{"eng"}},
 		Subtitles: transcodev1alpha1.SubtitleSpec{Languages: []string{"eng"}},
 		Policy: transcodev1alpha1.PolicySpec{
-			NeverTranscodeModifiers:  []string{"remux", "brdisk"},
 			KeepCodecs:               []string{"h264"},
 			MinDuration:              &metav1.Duration{Duration: time.Minute},
 			MaxOutputToSourcePercent: ptr.To[int32](100),
@@ -66,7 +65,7 @@ func renderSpec() transcodev1alpha1.TranscodeProfileSpec {
 // Container is not one since standard.Version 2: every transcode writes MP4
 // (jobspec.OutputContainer).
 var standardInputs = map[string]bool{
-	"Quality": true, "Audio.Languages": true, "Subtitles.Languages": true, "Policy.NeverTranscodeModifiers": true, "Policy.KeepCodecs": true,
+	"Quality": true, "Audio.Languages": true, "Subtitles.Languages": true, "Policy.KeepCodecs": true,
 	"Policy.MinDuration": true, "Policy.MaxOutputToSourcePercent": true,
 }
 
@@ -143,7 +142,6 @@ func TestTheHashCoversOnlyTheStandardsInputs(t *testing.T) {
 func TestTheHashTreatsItsListsAsSets(t *testing.T) {
 	a, b := renderSpec(), renderSpec()
 	a.Audio.Languages, b.Audio.Languages = []string{"eng", "fre"}, []string{"fre", "eng", "eng"}
-	a.Policy.NeverTranscodeModifiers, b.Policy.NeverTranscodeModifiers = []string{"remux", "brdisk"}, []string{"brdisk", "remux"}
 	assert.Equal(t, jobspec.ProfileHash(a), jobspec.ProfileHash(b), "order and duplicates are not a different profile")
 
 	a.Audio.Languages, b.Audio.Languages = nil, []string{}
@@ -163,7 +161,6 @@ func TestTheHashTreatsItsListsAsSets(t *testing.T) {
 	assert.Equal(t, jobspec.ProfileHash(sa), jobspec.ProfileHash(sb))
 
 	stable := renderSpec()
-	stable.Policy.NeverTranscodeModifiers = []string{"remux", "brdisk"}
 	stable.Policy.KeepCodecs = nil   // a profile that keeps only HEVC hashes in the shape it always had
 	stable.Subtitles.Languages = nil // and so does one that keeps every subtitle
 	before := sha256Hex(t, struct {
@@ -171,10 +168,9 @@ func TestTheHashTreatsItsListsAsSets(t *testing.T) {
 		Quality                  int32
 		Container                transcodev1alpha1.Container
 		Languages                []string
-		NeverTranscodeModifiers  []string
 		MinDuration              time.Duration
 		MaxOutputToSourcePercent int32
-	}{standard.Version, 30, jobspec.OutputContainer, []string{"eng"}, []string{"remux", "brdisk"}, time.Minute, 100})
+	}{standard.Version, 30, jobspec.OutputContainer, []string{"eng"}, time.Minute, 100})
 	assert.Equal(t, before, jobspec.ProfileHash(stable), "the hash's shape is unchanged: the container field holds the MP4 standard's")
 }
 

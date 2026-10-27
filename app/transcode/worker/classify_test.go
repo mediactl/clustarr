@@ -42,8 +42,8 @@ type erringEngine struct {
 	err error
 }
 
-func (e erringEngine) Encode(context.Context, standard.Result, transcode.Tier, string, string, func(transcode.Progress)) (string, error) {
-	return "", e.err
+func (e erringEngine) Encode(context.Context, standard.Result, transcode.Tier, string, string, func(transcode.Progress)) (transcode.EncodeResult, error) {
+	return transcode.EncodeResult{}, e.err
 }
 
 // A failed encode on a GPU tier is the GPU's only when the plan encodes its

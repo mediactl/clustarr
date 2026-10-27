@@ -97,15 +97,25 @@ func (mf *MediaFile) ProbeCurrent() bool {
 // Describe is what the plan does to the file, for a person: a remux copies
 // the video into the MP4 layout, its audio and subtitles given the layout
 // (status.transcode.plan's mode remuxOnly, whose encoder is FFmpeg's
-// "copy"); an encode names its encoder. "" for no plan.
+// "copy"); an encode names its encoder. A plan written in Matroska says so:
+// the file's image subtitles are kept in it until the standard's OCR. ""
+// for no plan.
 func (p *TranscodePlan) Describe() string {
+	var s string
 	switch {
 	case p == nil:
 		return ""
+	case p.Mode == TranscodeModeRemuxOnly && p.Container == "mkv":
+		s = "remux to Matroska, video copied"
 	case p.Mode == TranscodeModeRemuxOnly:
-		return "remux to MP4, video copied"
+		s = "remux to MP4, video copied"
 	case p.Encoder != "":
-		return "encode with " + p.Encoder
+		s = "encode with " + p.Encoder
+	default:
+		s = "encode"
 	}
-	return "encode"
+	if p.Container == "mkv" {
+		s += ", image subtitles kept"
+	}
+	return s
 }

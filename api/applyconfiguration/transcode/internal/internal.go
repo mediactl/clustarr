@@ -119,15 +119,6 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Duration
       default: 1m
-    - name: neverTranscodeModifiers
-      type:
-        list:
-          elementType:
-            scalar: string
-          elementRelationship: atomic
-      default:
-      - remux
-      - brdisk
     - name: recycleBin
       type:
         scalar: boolean

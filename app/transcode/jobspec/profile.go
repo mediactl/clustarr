@@ -106,7 +106,6 @@ func ProfileHashAt(spec transcodev1alpha1.TranscodeProfileSpec, version int) str
 		Quality                  int32
 		Container                transcodev1alpha1.Container
 		Languages                []string
-		NeverTranscodeModifiers  []string
 		MinDuration              time.Duration
 		MaxOutputToSourcePercent int32
 		KeepCodecs               []string `json:",omitempty"`
@@ -114,7 +113,7 @@ func ProfileHashAt(spec transcodev1alpha1.TranscodeProfileSpec, version int) str
 		// before the field existed.
 		SubtitleLanguages []string `json:",omitempty"`
 	}{
-		version, spec.QualityOrDefault(), container, asSet(spec.Audio.Languages), asSet(spec.Policy.NeverTranscodeModifiers),
+		version, spec.QualityOrDefault(), container, asSet(spec.Audio.Languages),
 		MinDuration(spec.Policy), MaxOutputToSourcePercent(spec.Policy), keptBesideHEVC(spec.Policy.KeepCodecs),
 		asSet(spec.Subtitles.Languages),
 	})
@@ -122,9 +121,11 @@ func ProfileHashAt(spec transcodev1alpha1.TranscodeProfileSpec, version int) str
 	return hex.EncodeToString(sum[:])
 }
 
-// OutputContainer is what every transcode writes since standard.Version 2
+// OutputContainer is what a transcode writes since standard.Version 2
 // (docs/superpowers/specs/2026-10-06-mp4-standard-design.md), whatever a
-// profile's spec.container says.
+// profile's spec.container says -- except one that keeps image subtitles,
+// which the plan says is Matroska (TranscodePlan.Container, standard.Version
+// 7); BuildTask follows the plan.
 const OutputContainer = transcodev1alpha1.ContainerMP4
 
 // ReplaceSource is policy.replaceSource with its CRD default applied: unset

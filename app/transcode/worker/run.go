@@ -267,6 +267,9 @@ type runner struct {
 	tier, resolution string
 	started          time.Time
 	speedMilli       int32
+	// sourceEndMillis is where the run found the source's kept streams to
+	// end (transcode.EncodeResult), the length its output is verified to.
+	sourceEndMillis int64
 
 	// times is the attempt's stage timings (timings.go); localScratch
 	// whether it encoded in local scratch, logged beside them.
@@ -364,7 +367,6 @@ func (r *runner) run(ctx context.Context) error {
 		return invalidSource("transcode worker: %w", err)
 	}
 	info.Path = local
-	info.Modifier = r.t.SourceModifier
 	info.OriginalLanguage = r.t.OriginalLanguage
 	if len(info.Video) > 0 {
 		r.resolution = resolutionClass(info.Video[0].Height)

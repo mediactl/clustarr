@@ -50,10 +50,12 @@ import (
 // would make it a dynamic one (TestClustarrNeverLinksADynamicLoader).
 type Engine interface {
 	// Encode runs plan from input to output on tier's device, calling
-	// progress from the muxer. A failure returns FFmpeg's log tail with
-	// it; a device that cannot be opened is transcode.ErrDeviceUnavailable.
+	// progress from the muxer. The result carries where the source's kept
+	// streams end, which Verify holds the output to, and on a failure
+	// FFmpeg's log tail; a device that cannot be opened is
+	// transcode.ErrDeviceUnavailable.
 	Encode(ctx context.Context, plan standard.Result, tier transcode.Tier, input, output string,
-		progress func(transcode.Progress)) (logTail string, err error)
+		progress func(transcode.Progress)) (transcode.EncodeResult, error)
 	// Verify probes output against exp and the source.
 	Verify(ctx context.Context, source, output string, exp standard.Expectation) (*transcode.Report, error)
 	// Measure measures this pod's device for class (spec §4): the tier it
@@ -150,7 +152,15 @@ func (r *runner) ffgoJob(ctx context.Context, info transcode.MediaInfo, sw swap,
 			return nil
 		},
 		verify: func(ctx context.Context) (*transcode.Report, error) {
-			rep, err := r.o.Engine.Verify(ctx, local, part, plan.Expect)
+			// The run measured where the source's kept streams end; that, not
+			// the source's container duration -- a dropped track's or a
+			// subtitle's, which no output can match -- is the length the
+			// output is held to (transcode.EncodeResult.SourceEndMillis).
+			exp := plan.Expect
+			if r.sourceEndMillis > 0 {
+				exp.DurationMillis = r.sourceEndMillis
+			}
+			rep, err := r.o.Engine.Verify(ctx, local, part, exp)
 			if err != nil {
 				return rep, err
 			}
@@ -375,9 +385,13 @@ func (r *runner) encodeFFgo(ctx context.Context, plan standard.Result, tier tran
 	var logTail string
 	var runErr error
 	if graft != nil {
+		// A grafted run reports no source end: its verification holds the
+		// output to the source's own duration, as before.
 		logTail, runErr = graft.engine.EncodeGraft(ctx, plan, tier, local, part, graft.prepared, progress)
 	} else {
-		logTail, runErr = r.o.Engine.Encode(ctx, plan, tier, local, part, progress)
+		var res transcode.EncodeResult
+		res, runErr = r.o.Engine.Encode(ctx, plan, tier, local, part, progress)
+		logTail, r.sourceEndMillis = res.LogTail, res.SourceEndMillis
 	}
 	tel.stop(ctx)
 	r.speedMilli = speed.Load()

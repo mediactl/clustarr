@@ -1053,8 +1053,8 @@ func (e *measuringEngine) Measure(context.Context, transcode.Hardware) (transcod
 	return e.measure(e.calls.Add(1))
 }
 
-func (e *measuringEngine) Encode(context.Context, standard.Result, transcode.Tier, string, string, func(transcode.Progress)) (string, error) {
-	return "", errors.New("not used")
+func (e *measuringEngine) Encode(context.Context, standard.Result, transcode.Tier, string, string, func(transcode.Progress)) (transcode.EncodeResult, error) {
+	return transcode.EncodeResult{}, errors.New("not used")
 }
 
 func (e *measuringEngine) Probe(context.Context, string) (*commonv1alpha1.MediaInfo, *mediainfo.Raw, error) {

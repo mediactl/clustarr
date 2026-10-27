@@ -74,13 +74,13 @@ func (e *scriptedEngine) Probe(_ context.Context, path string) (*commonv1alpha1.
 
 func (e *scriptedEngine) Encode(_ context.Context, _ standard.Result, _ transcode.Tier, _, output string,
 	_ func(transcode.Progress),
-) (string, error) {
+) (transcode.EncodeResult, error) {
 	e.mu.Lock()
 	e.encodes++
 	e.atEncode = listDir(filepath.Dir(output))
 	e.output = output
 	e.mu.Unlock()
-	return "", os.WriteFile(output, []byte("transcoded"), 0o644)
+	return transcode.EncodeResult{}, os.WriteFile(output, []byte("transcoded"), 0o644)
 }
 
 func (e *scriptedEngine) Verify(_ context.Context, _, output string, _ standard.Expectation) (*transcode.Report, error) {

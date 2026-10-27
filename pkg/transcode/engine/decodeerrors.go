@@ -35,16 +35,28 @@ import (
 // would not decode ("invalid residual", 2026-10-15), and that packet failed
 // every attempt. An audio stage loses no time to a skipped packet: ffgo's
 // AudioEncoder fills a gap in its input's timestamps with silence, so the
-// audio keeps its length and its sync. Any other error still fails the
-// stage.
+// audio keeps its length and its sync. A damaged packet is also one the
+// decoder refuses as "not yet implemented" (AVERROR_PATCHWELCOME): a DTS
+// frame header with its sync lost reads a channel arrangement no DTS has,
+// which the dca decoder reports that way (Mandy, 2026-10-22: 836 of a
+// track's first 31,000 frames would not decode, one of them so). Any other
+// error still fails the stage.
 type tolerantDecoder struct {
 	*ffgo.StreamDecoder
 	skipped, decoded int64
 }
 
+// averrorPatchWelcome is FFmpeg's AVERROR_PATCHWELCOME, FFERRTAG('P','A','W','E').
+const averrorPatchWelcome int32 = -1163346256
+
+// damaged reports err as a decoder's refusal of a damaged packet or frame.
+func damaged(err error) bool {
+	return avutil.IsInvalidData(err) || avutil.Code(err) == averrorPatchWelcome
+}
+
 func (d *tolerantDecoder) Send(p *ffgo.Packet) error {
 	err := d.StreamDecoder.Send(p)
-	if p != nil && avutil.IsInvalidData(err) {
+	if p != nil && damaged(err) {
 		d.skipped++
 		return nil
 	}
@@ -58,7 +70,7 @@ func (d *tolerantDecoder) Receive() (ffgo.Frame, error) {
 	switch {
 	case err == nil:
 		d.decoded++
-	case avutil.IsInvalidData(err):
+	case damaged(err):
 		d.skipped++
 		return f, ffgo.ErrAgain
 	}

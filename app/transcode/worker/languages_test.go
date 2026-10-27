@@ -41,7 +41,7 @@ type planRecorder struct {
 	plan standard.Result
 }
 
-func (e *planRecorder) Encode(ctx context.Context, plan standard.Result, tier transcode.Tier, in, out string, p func(transcode.Progress)) (string, error) {
+func (e *planRecorder) Encode(ctx context.Context, plan standard.Result, tier transcode.Tier, in, out string, p func(transcode.Progress)) (transcode.EncodeResult, error) {
 	e.mu.Lock()
 	e.plan = plan
 	e.mu.Unlock()

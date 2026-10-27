@@ -24,16 +24,16 @@ import (
 )
 
 // StandardProfile is a TranscodeProfile as the standard reads it (spec §5:
-// quality, audio languages, the modifier policy and the container); the
-// controller and the worker both build it here, so their plans agree.
+// quality, audio and subtitle languages, the kept codecs and the minimum
+// duration); the controller and the worker both build it here, so their
+// plans agree.
 func StandardProfile(name, hash string, spec transcodev1alpha1.TranscodeProfileSpec) standard.Profile {
 	return standard.Profile{
 		Name: name, Hash: hash, Quality: spec.QualityOrDefault(),
 		Languages: spec.Audio.Languages, SubtitleLanguages: spec.Subtitles.Languages,
-		NeverTranscodeModifiers: spec.Policy.NeverTranscodeModifiers,
-		KeepCodecs:              spec.Policy.KeepCodecs,
-		Container:               transcode.ContainerMP4, // the standard writes MP4 (OutputContainer)
-		MinDuration:             MinDuration(spec.Policy),
+		KeepCodecs:  spec.Policy.KeepCodecs,
+		Container:   transcode.ContainerMP4, // the standard writes MP4 (OutputContainer), Matroska for kept image subtitles
+		MinDuration: MinDuration(spec.Policy),
 	}
 }
 

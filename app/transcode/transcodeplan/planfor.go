@@ -53,7 +53,6 @@ func MediaInfoOf(path string, mf *catalogv1alpha1.MediaFile, st *catalogv1alpha1
 		return transcode.MediaInfo{}, err
 	}
 	info.Format.SizeBytes = mf.Spec.SizeBytes
-	info.Modifier = string(mf.Spec.Quality.Modifier)
 	info.OriginalLanguage = original
 	if t := recordedTag(st, tag); t != "" {
 		info.Tags = map[string]string{ProfileTagKey: t}
@@ -174,7 +173,7 @@ func PlanFor(source string, tp *transcodev1alpha1.TranscodeProfile, hash string,
 func StatusPlan(s *standard.Result) *catalogv1alpha1.TranscodePlan {
 	p := &catalogv1alpha1.TranscodePlan{
 		PlanHash: s.Hash(), VideoAction: s.Video.Action, Decode: s.Video.Decode, HDRMode: s.Video.HDR,
-		Dropped: slices.Clone(s.Dropped),
+		Container: string(s.Container), Dropped: slices.Clone(s.Dropped),
 	}
 	switch s.Decision {
 	case standard.DecisionSkip:

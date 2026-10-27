@@ -200,7 +200,7 @@ type FormatInfo struct {
 
 // MediaInfo is pkg/transcode's own technical description of one media file:
 // everything Plan needs to decide skip/remuxOnly/encode/reject and render an
-// argv, plus Modifier, which ffprobe cannot derive at all.
+// argv.
 type MediaInfo struct {
 	Path        string
 	Format      FormatInfo
@@ -211,12 +211,6 @@ type MediaInfo struct {
 	Chapters    []Chapter
 	Tags        map[string]string
 
-	// Modifier is the source's quality modifier ("remux", "brdisk", ...) as
-	// already classified by pkg/quality/pkg/release and stored on the
-	// MediaFile before transcode ever sees it -- NOT something ffprobe can
-	// derive. The controller attaches it when it builds the MediaInfo it
-	// passes to Plan. Needed for PolicySpec.NeverTranscodeModifiers.
-	Modifier string
 	// OriginalLanguage is the file's item's original language (TMDB's,
 	// "ja"), "" when unknown: the standard's "original" (Profile.Languages).
 	// Not probed; the planner and the worker set it from the item.
@@ -316,9 +310,8 @@ func FromSummary(path string, mi *commonv1.MediaInfo) (MediaInfo, error) {
 
 // FromProbe builds Plan's input model from a pkg/mediainfo probe. mi
 // supplies the CRD-level summary (bit depth, HDR classification, DV
-// profile); raw supplies per-stream detail. Fields the probe cannot supply
-// (Packets, Modifier) stay zero -- the controller fills Modifier separately
-// from the quality classifier before calling Plan.
+// profile); raw supplies per-stream detail. Packets, which no probe
+// supplies, stays zero.
 //
 // It is the transcode worker's input. The detail it adds over
 // [FromSummary] -- the source's own colour tags, HDR side data, levels,

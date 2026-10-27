@@ -5178,6 +5178,9 @@ var schemaYAML = typed.YAMLObject(`types:
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.TranscodePlan
   map:
     fields:
+    - name: container
+      type:
+        scalar: string
     - name: decode
       type:
         scalar: string

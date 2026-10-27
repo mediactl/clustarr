@@ -133,14 +133,25 @@ when 1.5x the source plus 1 GiB fits, and only the verified result is
 staged beside its output on `/data` before the swap (`worker/scratch.go`),
 so the NAS never carries the encode's writes or the MP4 faststart rewrite;
 a larger source encodes beside its output as before; attachments dropped, chapters kept; a file
-with an image subtitle no text subtitle covers is `status.transcode` Skipped,
-`standard.HoldImageSubtitles`, until phase 2's OCR. Since `standard.Version`
-6 (owner, 2026-10-20), a text subtitle of the same language covers an image
-one, provided it is forced only if the image one is
-(`standard.textCovers`), and the covered image subtitle is dropped. Akira
-had held for its English DVD track beside three English ASS ones; about
-125 of the 458 held files (106 movies, 19 episodes) had such cover. An
-untagged image track still holds.) and
+with an image subtitle no text subtitle covers is written in **Matroska**
+instead of MP4 (`standard.Version` 7, owner 2026-10-27,
+`standard.ImageSubtitlesKept`): its video and audio get the standard's
+treatment, the uncovered image subtitles are copied into the output
+(`Result.Subtitles`; the plan's `container: mkv`, which `Describe` reads
+as "image subtitles kept" and `jobspec.BuildTask` follows for the output
+path, since the worker refuses a task whose output is not in its plan's
+container), its text subtitles are sidecars as ever, and the tagged file
+is final until phase 2's OCR remuxes it into the MP4 layout (a tagged
+Matroska file that still keeps image subtitles skips as already in the
+interim layout). Until then such a file was Skipped whole
+(`HoldImageSubtitles`, ruling R1): 129 files with DTS or TrueHD audio sat
+that way, their audio playable natively on no Apple device or browser.
+Since `standard.Version` 6 (owner, 2026-10-20), a text subtitle of the
+same language covers an image one, provided it is forced only if the image
+one is (`standard.textCovers`), and the covered image subtitle is dropped.
+Akira had held for its English DVD track beside three English ASS ones;
+about 125 of the 458 held files (106 movies, 19 episodes) had such cover.
+An untagged image track is kept as uncovered.) and
 `pkg/transcode/engine` runs it on FFmpeg 9's libraries through the ffgo
 fork (`github.com/mediactl/ffgo`, tags `v0.0.0-clustarr.N`). There is no
 argv engine, no `--worker-engine`, and no `ffmpeg`, `ffprobe` or `par2` in
@@ -149,10 +160,17 @@ any image (ADR-0017; `images/distroless/stage.sh` refuses all three;
 names no encoder setting: `quality`, `container` (ignored since
 `standard.Version` 2), `audio.languages`, `subtitles.languages` (hashed
 only when set, so a profile keeping every subtitle kept its hash),
-`policy.neverTranscodeModifiers`, `policy.keepCodecs` (hashed as a set
+`policy.keepCodecs` (hashed as a set
 without `hevc`, which is always kept), `policy.minDuration` and
 `policy.maxOutputToSourcePercent` are the standard's inputs, and with
-`standard.Version` the only things `status.hash` covers. The language lists
+`standard.Version` the only things `status.hash` covers.
+`policy.neverTranscodeModifiers` is gone (owner, 2026-10-27, "we can
+ignore the remux modifier"): a remux's or BR-disk's modifier skipped the
+whole file, 40 of them with DTS or TrueHD audio, and the standard now
+decides on the file's streams alone, so under `keepCodecs: [hevc]` an
+H.264 remux is encoded like any H.264 file; `MediaInfo.Modifier` and
+`task.SourceModifier` went with it, and the field must leave a profile's
+Terraform values with the CRD. The language lists
 (2026-10-15, the owner's English-plus-original audio and English
 subtitles) compare codes as languages (`pkg/lang`: "en", "eng", TMDB's
 "en"), and `original` is the movie's or series' original language, which

@@ -216,6 +216,14 @@ type TranscodePlan struct {
 	// +required
 	// +kubebuilder:validation:MaxLength=64
 	PlanHash string `json:"planHash"`
+	// Container is what the output is written in: mp4, the MP4 standard's
+	// layout, or mkv when the file carries an image subtitle (PGS, DVD) no
+	// text subtitle covers, which stays in Matroska until the standard's
+	// phase 2 OCR (standard.Result.Container). Empty on a plan recorded
+	// before the field existed: mp4.
+	// +optional
+	// +kubebuilder:validation:Enum=mp4;mkv
+	Container string `json:"container,omitempty"`
 	// Dropped names each source subtitle the output carries neither embedded
 	// nor as a sidecar (standard.Result.Dropped: a codec the MP4 standard does
 	// not carry, or a second track for a sidecar name already planned), each

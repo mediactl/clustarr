@@ -129,13 +129,10 @@ type SubtitleSpec struct {
 }
 
 // PolicySpec decides which files are transcoded and what happens afterwards.
+// A file's quality modifier (remux, brdisk) plays no part: the standard
+// decides on the file's streams alone (owner, 2026-10-27, after 40 remuxes
+// skipped whole kept their DTS and TrueHD audio).
 type PolicySpec struct {
-	// NeverTranscodeModifiers lists quality modifiers (see common Modifier)
-	// whose files are never transcoded.
-	// +optional
-	// +kubebuilder:default={"remux","brdisk"}
-	NeverTranscodeModifiers []string `json:"neverTranscodeModifiers,omitempty"`
-
 	// KeepCodecs lists the source video codecs the standard keeps rather
 	// than encodes. hevc is always kept, listed or not; h264 keeps 8-bit SDR
 	// H.264 as well, copied into the MP4 layout -- and so final -- where it
@@ -336,8 +333,9 @@ type TranscodeProfileStatus struct {
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 
 	// Hash is the sha256 of the standard's inputs -- quality, container,
-	// audio.languages, policy.neverTranscodeModifiers, policy.minDuration,
-	// policy.maxOutputToSourcePercent -- and the standard's version. Encode pods tag their output CLUSTARR_PROFILE=<name>@<hash>.
+	// audio.languages, subtitles.languages, policy.keepCodecs,
+	// policy.minDuration, policy.maxOutputToSourcePercent -- and the
+	// standard's version. Encode pods tag their output CLUSTARR_PROFILE=<name>@<hash>.
 	// A new hash plans new jobs only for files not yet transcoded: a
 	// transcoded file is final, whatever hash it carries.
 	// +optional

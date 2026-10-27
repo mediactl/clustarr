@@ -69,7 +69,6 @@ type Task struct {
 	SourcePath      string     `json:"sourcePath"`
 	SourceProbeHash string     `json:"sourceProbeHash"`
 	SourceSizeBytes int64      `json:"sourceSizeBytes"`
-	SourceModifier  string     `json:"sourceModifier,omitempty"`
 	// OriginalLanguage is the file's movie's or series' original language
 	// (TMDB's, "ja"), "" when unknown: the standard's "original" in a
 	// profile's language lists, which no probe can read, so the worker plans

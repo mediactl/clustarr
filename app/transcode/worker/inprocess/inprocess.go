@@ -70,14 +70,15 @@ func needsFor(class transcode.Hardware) ffruntime.Needs {
 }
 
 // Encode runs plan from input to output on tier's device, calling progress
-// from the muxer. A failure returns FFmpeg's log tail with it; a device
-// that cannot be opened is transcode.ErrDeviceUnavailable.
+// from the muxer. The result carries where the source's kept streams end,
+// for Verify; a failure returns FFmpeg's log tail with it; a device that
+// cannot be opened is transcode.ErrDeviceUnavailable.
 func (Engine) Encode(ctx context.Context, plan standard.Result, tier transcode.Tier, input, output string,
 	progress func(transcode.Progress),
-) (string, error) {
+) (transcode.EncodeResult, error) {
 	dev, err := openDevice(tier)
 	if err != nil {
-		return "", fmt.Errorf("%w: %s: %w", transcode.ErrDeviceUnavailable, tier, err)
+		return transcode.EncodeResult{}, fmt.Errorf("%w: %s: %w", transcode.ErrDeviceUnavailable, tier, err)
 	}
 	if dev != nil {
 		defer func() { _ = dev.Close() }()
@@ -86,20 +87,18 @@ func (Engine) Encode(ctx context.Context, plan standard.Result, tier transcode.T
 	if plan.Video.Decode == "vaapi" {
 		dd, err := openDecodeDevice()
 		if err != nil {
-			return "", fmt.Errorf("%w: %s: the VA-API decode device: %w", transcode.ErrDeviceUnavailable, tier, err)
+			return transcode.EncodeResult{}, fmt.Errorf("%w: %s: the VA-API decode device: %w", transcode.ErrDeviceUnavailable, tier, err)
 		}
 		defer func() { _ = dd.Close() }()
 		opts.DecodeDevice = dd
 	}
-	_, err = engine.Run(ctx, plan, input, output, opts)
-	if err == nil {
-		return "", nil
-	}
+	res, err := engine.Run(ctx, plan, input, output, opts)
+	out := transcode.EncodeResult{SourceEndMillis: res.SourceEndMillis}
 	var ee *engine.Error
 	if errors.As(err, &ee) {
-		return ee.LogTail, err
+		out.LogTail = ee.LogTail
 	}
-	return "", err
+	return out, err
 }
 
 // Verify probes output against exp and source through ffgo.

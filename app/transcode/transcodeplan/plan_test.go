@@ -141,22 +141,30 @@ func TestAWindowGrantPlansFromTheStoredProbe(t *testing.T) {
 // TestAWindowGrantOnAHeldFileIsSkipped: MP4 ruling R1 -- a file the standard
 // holds (image subtitles) is a Skipped verdict for (profileHash, probeHash),
 // so a standard.Version raise plans it again.
-func TestAWindowGrantOnAHeldFileIsSkipped(t *testing.T) {
+// A file with an image subtitle no text track covers is planned, not
+// skipped (standard.Version 7; until then it was Skipped for phase 2's OCR,
+// its DTS audio with it): its plan is written in Matroska, which the
+// status records (plan.container), so the task's output path and the
+// pipeline page say so.
+func TestAWindowGrantOnAFileWithAnImageSubtitlePlansMatroska(t *testing.T) {
 	st := probed("ph-1")
 	st.MediaInfo.Subtitles = []commonv1.SubtitleStream{{Index: 2, Codec: "hdmv_pgs_subtitle", Language: "eng", Bitmap: true}}
 	in := inputs(nil, st, GrantWindow)
 	d := pass(in)
 	require.NotNil(t, d.Block)
-	assert.Equal(t, catalogv1alpha1.TranscodePhaseSkipped, d.Block.Phase)
-	assert.Equal(t, ReasonPlanSkip, d.Block.Reason)
-	assert.Contains(t, d.Block.Message, standard.HoldImageSubtitles)
+	assert.Equal(t, catalogv1alpha1.TranscodePhasePlanned, d.Block.Phase, "%s: %s", d.Block.Reason, d.Block.Message)
+	require.NotNil(t, d.Block.Plan)
+	assert.Equal(t, "mkv", d.Block.Plan.Container)
+	assert.Equal(t, "encode with libx265, image subtitles kept", d.Block.Plan.Describe())
 	assert.Equal(t, "ph-1", d.Block.ProbeHash)
 	assert.Equal(t, in.Eligibility.Hash, d.Block.ProfileHash)
-	assert.Nil(t, d.Block.Plan, "a skip records no plan")
 	assert.Equal(t, GrantConfirm, d.Grant)
 
-	again := inputs(d.Block, st, GrantWindow)
-	assert.Equal(t, GrantRelease, pass(again).Grant, "the verdict holds for its (profileHash, probeHash)")
+	// The MP4 layout's plan says nothing of a container.
+	plain := pass(inputs(nil, probed("ph-1"), GrantWindow))
+	require.NotNil(t, plain.Block.Plan)
+	assert.Equal(t, "mp4", plain.Block.Plan.Container)
+	assert.Equal(t, "encode with libx265", plain.Block.Plan.Describe())
 }
 
 // TestThePlanNamesTheSubtitlesItDrops is D44 (loop spec §2.5, §5.8):
@@ -216,8 +224,8 @@ func TestASwapIsIncorporatedWithTheDispatchedTag(t *testing.T) {
 	swapping := &catalogv1alpha1.TranscodeState{
 		Phase: catalogv1alpha1.TranscodePhaseSwapping, Profile: "hevc", ProfileHash: "d1spatched", ProfileTag: "hevc@d1spatched",
 		ProbeHash: "ph-1", FinishedAt: new(metav1.NewTime(t0)), Hardware: "auto", Class: "cpu",
-		Dispatch:  &catalogv1alpha1.Dispatch{Seq: 7, AnsweredSeq: 7, DispatchedAt: metav1.NewTime(t0.Add(-time.Hour))},
-		Result:    &catalogv1alpha1.TranscodeOutput{OutputPath: out, OutputSizeBytes: 3 << 30},
+		Dispatch: &catalogv1alpha1.Dispatch{Seq: 7, AnsweredSeq: 7, DispatchedAt: metav1.NewTime(t0.Add(-time.Hour))},
+		Result:   &catalogv1alpha1.TranscodeOutput{OutputPath: out, OutputSizeBytes: 3 << 30},
 	}
 	notYet := inputs(swapping, probed("ph-1"), GrantNone)
 	require.NotEqual(t, "d1spatched", notYet.Eligibility.Hash, "the profile's current hash is another")

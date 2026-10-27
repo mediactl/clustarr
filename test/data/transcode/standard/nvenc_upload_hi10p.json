@@ -59,6 +59,9 @@
     "SubtitleStreams": 0,
     "VideoCodec": "hevc",
     "PixelFormat": "yuv420p",
-    "DurationMillis": 3600000
+    "DurationMillis": 3600000,
+    "AudioSources": [
+      0
+    ]
   }
 }

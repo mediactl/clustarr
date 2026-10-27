@@ -27,10 +27,10 @@ import (
 // with apply.
 //
 // PolicySpec decides which files are transcoded and what happens afterwards.
+// A file's quality modifier (remux, brdisk) plays no part: the standard
+// decides on the file's streams alone (owner, 2026-10-27, after 40 remuxes
+// skipped whole kept their DTS and TrueHD audio).
 type PolicySpecApplyConfiguration struct {
-	// NeverTranscodeModifiers lists quality modifiers (see common Modifier)
-	// whose files are never transcoded.
-	NeverTranscodeModifiers []string `json:"neverTranscodeModifiers,omitempty"`
 	// KeepCodecs lists the source video codecs the standard keeps rather
 	// than encodes. hevc is always kept, listed or not; h264 keeps 8-bit SDR
 	// H.264 as well, copied into the MP4 layout -- and so final -- where it
@@ -68,16 +68,6 @@ type PolicySpecApplyConfiguration struct {
 // apply.
 func PolicySpec() *PolicySpecApplyConfiguration {
 	return &PolicySpecApplyConfiguration{}
-}
-
-// WithNeverTranscodeModifiers adds the given value to the NeverTranscodeModifiers field in the declarative configuration
-// and returns the receiver, so that objects can be build by chaining "With" function invocations.
-// If called multiple times, values provided by each call will be appended to the NeverTranscodeModifiers field.
-func (b *PolicySpecApplyConfiguration) WithNeverTranscodeModifiers(values ...string) *PolicySpecApplyConfiguration {
-	for i := range values {
-		b.NeverTranscodeModifiers = append(b.NeverTranscodeModifiers, values[i])
-	}
-	return b
 }
 
 // WithKeepCodecs adds the given value to the KeepCodecs field in the declarative configuration

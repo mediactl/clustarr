@@ -59,7 +59,14 @@ import (
 // covers is dropped rather than holding the file for OCR (owner,
 // 2026-10-20: Akira held for its English DVD track beside three English
 // ASS ones).
-const Version = 6
+// 7: an image subtitle no text subtitle covers no longer holds the file:
+// its video and audio get the standard's treatment and the output stays
+// in Matroska, the image subtitles copied into it, until phase 2's OCR
+// remuxes it into the MP4 layout (ImageSubtitlesKept); and a file's
+// quality modifier (remux, brdisk) no longer skips it (owner, 2026-10-27:
+// 129 files with DTS or TrueHD audio sat Skipped under the two rules, their
+// audio playable natively on no Apple device or browser).
+const Version = 7
 
 // Profile is what a TranscodeProfile decides under the standard.
 type Profile struct {
@@ -70,9 +77,9 @@ type Profile struct {
 	Languages []string
 	// SubtitleLanguages keeps only subtitles in these languages; empty
 	// keeps all.
-	SubtitleLanguages       []string
-	NeverTranscodeModifiers []string
-	// Container is ignored since Version 2: the standard writes MP4.
+	SubtitleLanguages []string
+	// Container is ignored since Version 2: the standard writes MP4, or
+	// Matroska for a file whose image subtitles it keeps (Version 7).
 	Container transcode.Container
 	// MinDuration skips a source shorter than it (policy.minDuration):
 	// trailers, extras, samples. Zero considers every file.
@@ -150,15 +157,19 @@ const (
 	SidecarSRT = "srt"
 )
 
-// HoldImageSubtitles is the skip reason of a file with an image subtitle
-// (PGS, DVD) that no text subtitle covers (textCovers): it waits for the
-// OCR of the MP4 standard's phase 2, which raises Version, so the file is
-// planned again then (ruling R1).
-const HoldImageSubtitles = "image subtitles (PGS, DVD) with no text subtitle in their language wait for OCR: MP4 standard phase 2"
+// ImageSubtitlesKept is the reason suffix of a plan written in Matroska: the
+// file has an image subtitle (PGS, DVD) in a kept language that no text
+// subtitle covers (textCovers), which the MP4 layout cannot carry and the
+// standard cannot yet read, so it is copied into a Matroska output that the
+// phase 2 OCR, raising Version, remuxes into the MP4 layout. Until Version
+// 7 such a file was Skipped whole (ruling R1), its video and audio
+// untouched: 129 files with DTS or TrueHD audio on the owner's library.
+const ImageSubtitlesKept = "image subtitles (PGS, DVD) no text subtitle covers kept in Matroska until the MP4 standard's phase 2 OCR"
 
-// SubtitlePlan is one subtitle track embedded in the output: only a graft's
-// copy plan has any (spec §4.1: the standard writes every subtitle beside
-// the MP4).
+// SubtitlePlan is one subtitle track embedded in the output: a graft's copy
+// plan's, or the image subtitles the standard keeps in a Matroska output
+// (ImageSubtitlesKept); the MP4 layout embeds none (spec §4.1: every
+// subtitle beside the MP4).
 type SubtitlePlan struct {
 	SourceIndex     int32  // type-relative: the Nth subtitle stream
 	Action          string // SubtitleCopy
@@ -183,6 +194,14 @@ type Expectation struct {
 	VideoStreams, AudioStreams, SubtitleStreams int32
 	VideoCodec, PixelFormat                     string
 	DurationMillis                              int64
+	// AudioSources are the source audio streams (type-relative) the output's
+	// audio comes from, each once. The source's length Verify holds the
+	// output to is the end of its video and these, never of a dropped track
+	// (RoboCop, 2026-10-23: a Turkish DTS track starting 4 s late and ending
+	// 3.4 s after the video, dropped as not a kept language, was the
+	// container's duration, so the output could never match it). nil holds
+	// it to every audio track.
+	AudioSources []int32 `json:",omitempty"`
 
 	// Transfer and Primaries are the colour an HDR output must carry, by
 	// FFmpeg's names (smpte2084 or arib-std-b67; bt2020); empty for SDR,
@@ -204,7 +223,7 @@ type Result struct {
 	Container transcode.Container
 	Video     VideoPlan
 	Audio     []AudioPlan
-	Subtitles []SubtitlePlan // embedded in the output: none from Plan
+	Subtitles []SubtitlePlan // embedded in the output: the kept image subtitles of a Matroska one, else none
 	Sidecars  []SidecarPlan  `json:",omitempty"` // written beside it
 	// Dropped names each source subtitle the output carries neither way.
 	Dropped     []string `json:",omitempty"`
@@ -275,9 +294,6 @@ func Plan(info transcode.MediaInfo, profile Profile, hw Hardware) Result {
 	if d := info.Format.Duration; profile.MinDuration > 0 && d > 0 && d < profile.MinDuration {
 		return skip(p, fmt.Sprintf("the source is %s long, under policy.minDuration %s", d.Round(time.Second), profile.MinDuration))
 	}
-	if info.Modifier != "" && slices.Contains(profile.NeverTranscodeModifiers, info.Modifier) {
-		return skip(p, fmt.Sprintf("the source's %s modifier is never transcoded (policy.neverTranscodeModifiers)", info.Modifier))
-	}
 	vi := primaryVideo(info.Video)
 	if vi < 0 {
 		return skip(p, "no video stream")
@@ -289,22 +305,23 @@ func Plan(info transcode.MediaInfo, profile Profile, hw Hardware) Result {
 		return skip(p, "Dolby Vision profile 5 has no HDR10 or HLG base layer: without the Dolby Vision layer it plays with wrong colours")
 	}
 	subLangs := resolveLanguages(profile.SubtitleLanguages, info.OriginalLanguage)
-	for _, s := range info.Subtitles {
-		if s.Bitmap && subLangs.keeps(s.Language) && !textCovers(info.Subtitles, s) {
-			return skip(p, HoldImageSubtitles)
-		}
-	}
 	var audioDropped []string
 	p.Audio, audioDropped = planAudio(info.Audio, resolveLanguages(profile.Languages, info.OriginalLanguage))
-	p.Subtitles = []SubtitlePlan{}
-	p.Sidecars, p.Dropped = planSubtitles(info.Subtitles, subLangs)
+	p.Subtitles, p.Sidecars, p.Dropped = planSubtitles(info.Subtitles, subLangs)
+	// An image subtitle the MP4 layout cannot carry keeps the output in
+	// Matroska (Version 7, ImageSubtitlesKept).
+	interim := len(p.Subtitles) > 0
+	if interim {
+		p.Container = transcode.ContainerMKV
+	}
 	p.Dropped = append(audioDropped, p.Dropped...)
-	p.Attachments = false // MP4 carries none
+	p.Attachments = false // the layout carries none: a font served only ASS, now plain SubRip
 	p.Chapters = true
 	p.Expect = Expectation{
 		VideoStreams: 1, AudioStreams: int32(len(p.Audio)), SubtitleStreams: int32(len(p.Subtitles)),
 		VideoCodec: "hevc", PixelFormat: "yuv420p10le",
 		DurationMillis: info.Format.Duration.Milliseconds(),
+		AudioSources:   audioSources(p.Audio),
 	}
 
 	if c := colorTags(hdr); c.Transfer != "" {
@@ -330,13 +347,17 @@ func Plan(info transcode.MediaInfo, profile Profile, hw Hardware) Result {
 	for _, a := range p.Audio {
 		audioAsIs = audioAsIs && a.Action == AudioCopy
 	}
-	subsAsIs := len(info.Subtitles) == 0 && len(info.Attachments) == 0
+	// The subtitles are as the layout has them when the output embeds every
+	// source track (the kept image subtitles of a Matroska output) and writes
+	// no sidecar; the MP4 layout embeds none, so any subtitle there is work.
+	// An attachment is always dropped.
+	subsAsIs := len(p.Subtitles) == len(info.Subtitles) && len(p.Sidecars) == 0 && len(info.Attachments) == 0
 	sameContainer := containerOf(info.Format.Name) == p.Container
 	switch {
 	case keptH264 && audioAsIs && subsAsIs && sameContainer:
-		return skip(p, "already H.264 in the MP4 standard's layout, kept (policy.keepCodecs)")
+		return skip(p, "already H.264 in the "+layoutName(interim)+", kept (policy.keepCodecs)")
 	case compliant && audioAsIs && subsAsIs && sameContainer:
-		return skip(p, "already HEVC in the MP4 standard's layout")
+		return skip(p, "already HEVC in the "+layoutName(interim))
 	case compliant:
 		p.Decision = DecisionCopyVideo
 		switch {
@@ -347,6 +368,7 @@ func Plan(info transcode.MediaInfo, profile Profile, hw Hardware) Result {
 		default:
 			p.Reason = "HEVC video copied into the MP4 layout; audio and subtitles processed"
 		}
+		p.Reason = withKept(interim, p.Reason)
 		p.Video = VideoPlan{SourceIndex: int32(vi), Action: "copy"}
 		p.Expect.VideoCodec, p.Expect.PixelFormat = v.Codec, v.PixFmt
 		return p
@@ -366,12 +388,43 @@ func Plan(info transcode.MediaInfo, profile Profile, hw Hardware) Result {
 	if eight {
 		p.Reason = "encode to HEVC Main (8-bit: SDR at 1080p or less)"
 	}
+	p.Reason = withKept(interim, p.Reason)
 	p.Video = encodeVideo(v, int32(vi), profile.Quality, hw, hdr, strip, eight)
 	return p
 }
 
 func skip(p Result, reason string) Result {
 	return Result{Decision: DecisionSkip, Reason: reason, Container: p.Container, Tags: p.Tags}
+}
+
+// layoutName names the layout a file is found already in: the MP4
+// standard's, or its interim Matroska one when image subtitles are kept.
+func layoutName(interim bool) string {
+	if interim {
+		return "MP4 standard's interim Matroska layout (" + ImageSubtitlesKept + ")"
+	}
+	return "MP4 standard's layout"
+}
+
+// withKept adds ImageSubtitlesKept to a plan's reason when its output is
+// Matroska for them.
+func withKept(interim bool, reason string) string {
+	if !interim {
+		return reason
+	}
+	return reason + "; " + ImageSubtitlesKept
+}
+
+// audioSources are the source audio tracks the plan's outputs come from,
+// each once, in output order (Expectation.AudioSources).
+func audioSources(as []AudioPlan) []int32 {
+	var out []int32
+	for _, a := range as {
+		if !slices.Contains(out, a.SourceIndex) {
+			out = append(out, a.SourceIndex)
+		}
+	}
+	return out
 }
 
 // primaryVideo is the first video stream that is not cover art.
@@ -809,10 +862,14 @@ func sidecarSuffix(s transcode.SubtitleStream, ext string) string {
 
 // planSubtitles is spec §4.1 with rulings R2 and R3: every text subtitle,
 // ASS and SSA included since Version 5, becomes an .srt sidecar, one per
-// name, the first track to take a name keeping it; anything else is dropped
-// and named. Plan holds a file with a kept bitmap stream no text track
-// covers before it gets here, so a bitmap one here is covered (Version 6).
-func planSubtitles(ss []transcode.SubtitleStream, languages wanted) (sidecars []SidecarPlan, dropped []string) {
+// name, the first track to take a name keeping it. An image subtitle (PGS,
+// DVD) in a kept language is dropped when a text track of its language
+// covers it (Version 6) and otherwise embedded -- copied into a Matroska
+// output, which the MP4 layout gives way to for it, until phase 2's OCR
+// (Version 7, ImageSubtitlesKept). Anything else is dropped and named.
+// embedded is never nil, so a plan hashes alike with or without one.
+func planSubtitles(ss []transcode.SubtitleStream, languages wanted) (embedded []SubtitlePlan, sidecars []SidecarPlan, dropped []string) {
+	embedded = []SubtitlePlan{}
 	taken := map[string]bool{}
 	for i, s := range ss {
 		if !languages.keeps(s.Language) {
@@ -820,8 +877,14 @@ func planSubtitles(ss []transcode.SubtitleStream, languages wanted) (sidecars []
 			continue
 		}
 		if s.Bitmap {
-			// Plan holds the file unless a text track covers it.
-			dropped = append(dropped, fmt.Sprintf("subtitle %d (%s %q %s): an image subtitle an %s text track covers", i, s.Codec, s.Title, s.Language, baseLanguage(s.Language)))
+			if textCovers(ss, s) {
+				dropped = append(dropped, fmt.Sprintf("subtitle %d (%s %q %s): an image subtitle an %s text track covers", i, s.Codec, s.Title, s.Language, baseLanguage(s.Language)))
+				continue
+			}
+			embedded = append(embedded, SubtitlePlan{
+				SourceIndex: int32(i), Action: SubtitleCopy, Codec: s.Codec, Language: s.Language, Title: s.Title,
+				HearingImpaired: s.Disposition.HearingImpaired,
+			})
 			continue
 		}
 		if !slices.Contains(textSubtitles, s.Codec) {
@@ -837,7 +900,7 @@ func planSubtitles(ss []transcode.SubtitleStream, languages wanted) (sidecars []
 		taken[suffix] = true
 		sidecars = append(sidecars, SidecarPlan{SourceIndex: int32(i), Format: format, Codec: s.Codec, Suffix: suffix})
 	}
-	return sidecars, dropped
+	return embedded, sidecars, dropped
 }
 
 // textCovers is whether a text subtitle that becomes a sidecar carries what

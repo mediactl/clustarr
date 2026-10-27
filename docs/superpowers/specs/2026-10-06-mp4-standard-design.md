@@ -298,3 +298,51 @@ What was built:
     failed attempt;
   - the profile hash at Version 2 ignores the container.
 - **The CRD:** `container` defaults to `mp4` and is documented as ignored.
+
+## Amendment (2026-10-27): the interim Matroska layout; no modifier skip
+
+The owner's decision, 2026-10-27: a file's audio must play natively on
+Apple devices and browsers whatever else holds the file. 129 files with DTS
+or TrueHD audio sat Skipped -- 89 under ruling R1 (an English PGS track no
+text track covers), 40 under `policy.neverTranscodeModifiers` (remuxes), 27
+of them under both -- and the owner asked for all of them to carry the
+layout's AAC 2.0 and AC-3 5.1 (AAC alone for stereo), as §3 already says.
+
+- **Ruling R1 is withdrawn** (`standard.Version` 7). A file with an image
+  subtitle in a kept language that no text track covers is planned: its
+  video and audio get §3's and §7's treatment and its text subtitles go
+  beside it (§4.1), but the output is **Matroska**, with the uncovered image
+  subtitles copied into it (`Result.Subtitles`, `SubtitleCopy`;
+  `standard.ImageSubtitlesKept` in the plan's reason; `container: mkv` in
+  `status.transcode.plan`, which `Describe` reads as "image subtitles kept"
+  and `jobspec.BuildTask` follows for the output's extension). It is tagged
+  `CLUSTARR_PROFILE` and final like any transcode: a tagged Matroska file
+  that still keeps image subtitles plans as already in the interim layout.
+  Phase 2's OCR, raising `Version`, plans these files again and remuxes them
+  into the MP4 layout by §8's path -- the video copied, the image subtitles
+  read into `.srt` sidecars. Until then Plex shows their image subtitles
+  where a client decodes them (not Plex Web, which would burn them in). A
+  tagged Matroska file *without* image subtitles still remuxes into the MP4
+  layout as §8 says.
+- **`policy.neverTranscodeModifiers` is deleted** from the CRD, the hash and
+  the standard ("we can ignore the remux modifier"). A remux is planned on
+  its streams like any file: under the owner's `keepCodecs: [hevc]` its
+  H.264 video is encoded. `MediaInfo.Modifier` and `task.SourceModifier`
+  went with it, and the owner's Terraform profile drops the two lines.
+
+Beside it, two of the owner's DTS files had failed for reasons of their
+own, both fixed the same day:
+
+- the engine's tolerant decoder skips a frame the dca decoder refuses as
+  `AVERROR_PATCHWELCOME` -- a damaged header naming a channel arrangement
+  no DTS has -- as it skips one refused as invalid data (Mandy: three of a
+  track's 10,426 refused frames read that way, and the first failed the
+  run);
+- the run measures where the source's video and kept audio end as it
+  demuxes them (`engine.Result.SourceEndMillis`, `transcode.EncodeResult`),
+  and the worker holds the output to that length rather than to the
+  container's duration, which a dropped track (RoboCop's Turkish DTS, 3.4 s
+  past the video) or a subtitle's last cue (The Mitchells vs. the Machines'
+  SubRip tracks, 265 s past it) may own and no output can match; Verify's
+  own fallback reads the source's per-stream durations over the video and
+  the kept audio alone (`Expectation.AudioSources`).

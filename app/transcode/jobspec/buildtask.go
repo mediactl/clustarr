@@ -51,7 +51,14 @@ func BuildTask(mf *catalogv1alpha1.MediaFile, tp *transcodev1alpha1.TranscodePro
 	if rf == nil {
 		return task.Task{}, fmt.Errorf("source %s: %w", source, ErrNoRootFolder)
 	}
-	out, err := OutputPath(source, tp.Name, OutputContainer, ReplaceSource(tp.Spec.Policy))
+	// The plan's container: MP4, or Matroska when it keeps image subtitles
+	// (standard.Version 7). The worker refuses a task whose output is not in
+	// its own plan's container, so the two must agree here.
+	container := OutputContainer
+	if plan != nil && plan.Container != "" {
+		container = transcodev1alpha1.Container(plan.Container)
+	}
+	out, err := OutputPath(source, tp.Name, container, ReplaceSource(tp.Spec.Policy))
 	if err != nil {
 		return task.Task{}, fmt.Errorf("%w: %w", ErrInvalidOutput, err)
 	}
@@ -59,9 +66,9 @@ func BuildTask(mf *catalogv1alpha1.MediaFile, tp *transcodev1alpha1.TranscodePro
 		File: schema.Ref{Namespace: mf.Namespace, Name: mf.Name, UID: string(mf.UID)}, Seq: seq, Class: string(class),
 		Profile:    task.Profile{Name: tp.Name, Hash: hash, Spec: *tp.Spec.DeepCopy(), Hardware: new(class)},
 		SourcePath: source, SourceProbeHash: mf.Status.ProbeHash, SourceSizeBytes: mf.Spec.SizeBytes,
-		SourceModifier: string(mf.Spec.Quality.Modifier), OutputPath: out,
-		Root:     task.RootFolder{Path: rf.Spec.Path, RecycleBin: RecycleBinOf(rf)},
-		Deadline: metav1.Duration{Duration: ActiveDeadline(tp.Spec)}, Engine: task.EngineFFgo,
+		OutputPath: out,
+		Root:       task.RootFolder{Path: rf.Spec.Path, RecycleBin: RecycleBinOf(rf)},
+		Deadline:   metav1.Duration{Duration: ActiveDeadline(tp.Spec)}, Engine: task.EngineFFgo,
 	}
 	if plan != nil {
 		t.PlanHash = plan.PlanHash

@@ -103,7 +103,10 @@ Every file gets the same treatment; only the four settings in §5 vary.
 
 - All subtitle tracks, attachments (fonts), chapters and container
   metadata are copied, and the `CLUSTARR_PROFILE` tag is written.
-- A file whose modifier is in `policy.neverTranscodeModifiers` is skipped.
+- A file whose modifier was in `policy.neverTranscodeModifiers` was skipped
+  -- until 2026-10-27, when the owner removed the field: the standard
+  decides on the file's streams alone (the MP4 standard design's amendment
+  of that date).
 - Unchanged from today: the re-probe before encoding (exit 3 when the
   source changed), verification of the output (exit 4), the recycle-bin
   hard link and rename over the source, and the output-size check (at

@@ -113,8 +113,8 @@ func TestAnAttemptLogsHowLongEachStageTook(t *testing.T) {
 // failingEncoder is a scripted engine whose encode fails.
 type failingEncoder struct{ *scriptedEngine }
 
-func (failingEncoder) Encode(context.Context, standard.Result, transcode.Tier, string, string, func(transcode.Progress)) (string, error) {
-	return "", errors.New("mux: ffmpeg av_interleaved_write_frame: Invalid argument (code -22)")
+func (failingEncoder) Encode(context.Context, standard.Result, transcode.Tier, string, string, func(transcode.Progress)) (transcode.EncodeResult, error) {
+	return transcode.EncodeResult{}, errors.New("mux: ffmpeg av_interleaved_write_frame: Invalid argument (code -22)")
 }
 
 // A failed attempt logs its timings too, ending at the stage it failed in.

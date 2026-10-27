@@ -92,6 +92,10 @@ type Result struct {
 	Frames         int64 // video packets written
 	DurationMillis int64 // the output's last timestamp
 	LogTail        string
+	// SourceEndMillis is where the source's video and kept audio end, as
+	// demuxed (transcode.EncodeResult.SourceEndMillis); 0 for a graft's
+	// copy of a donor, which demux measures nothing of.
+	SourceEndMillis int64
 }
 
 // Error is a run's first failure, with the stage that failed and the tail
@@ -375,6 +379,7 @@ func Run(ctx context.Context, plan standard.Result, input, output string, o Opti
 		}()
 	}
 
+	var srcEnd int64 // written by the demuxer, read after producers.Wait
 	producers.Add(1)
 	go func() {
 		defer producers.Done()
@@ -383,7 +388,7 @@ func Run(ctx context.Context, plan standard.Result, input, output string, o Opti
 				close(in)
 			}
 		}()
-		if err := demuxPaced(ctx, d, startShifts(d), routes, copies, muxCh, pace); err != nil {
+		if err := demuxPaced(ctx, d, startShifts(d), routes, copies, muxCh, pace, &srcEnd); err != nil {
 			fe.set(err)
 		}
 	}()
@@ -414,6 +419,7 @@ func Run(ctx context.Context, plan standard.Result, input, output string, o Opti
 		_ = it.pkt.Free()
 	}
 	producers.Wait()
+	res.SourceEndMillis = srcEnd
 	if fe.err != nil {
 		if errors.Is(fe.err, context.Canceled) || errors.Is(fe.err, context.DeadlineExceeded) {
 			if cerr := ctx.Err(); cerr != nil && !errors.Is(fe.err, cerr) {
@@ -429,21 +435,24 @@ func Run(ctx context.Context, plan standard.Result, input, output string, o Opti
 // for a copied stream, straight to the muxer; streams the plan does not
 // keep are dropped.
 func demux(ctx context.Context, d *ffgo.Decoder, shift map[int]int64, routes map[int]chan *ffgo.Packet, copies map[int]int, muxCh chan<- muxItem) error {
-	return demuxPaced(ctx, d, shift, routes, copies, muxCh, nil)
+	return demuxPaced(ctx, d, shift, routes, copies, muxCh, nil, nil)
 }
 
 // demuxPaced is demux held, when pace is set, to within paceSlack of a
 // graft's output (graft.go): the target's own encoded streams pace its
 // demuxer through their bounded channels, but a graft reads another file,
 // and unheld the copied streams ran so far ahead that the muxer wrote the
-// whole dub after them.
+// whole dub after them. When end is set it receives where the kept video
+// and audio end (Result.SourceEndMillis): the latest shifted timestamp plus
+// duration of a packet the plan keeps, which is the output's own timeline.
 func demuxPaced(ctx context.Context, d *ffgo.Decoder, shift map[int]int64, routes map[int]chan *ffgo.Packet, copies map[int]int,
-	muxCh chan<- muxItem, pace *graftPace,
+	muxCh chan<- muxItem, pace *graftPace, end *int64,
 ) error {
 	tbs := map[int]ffgo.Rational{}
-	if pace != nil {
+	kinds := map[int]ffgo.MediaType{}
+	if pace != nil || end != nil {
 		for _, s := range d.Streams() {
-			tbs[s.Index] = s.TimeBase
+			tbs[s.Index], kinds[s.Index] = s.TimeBase, s.Type
 		}
 	}
 	for {
@@ -474,6 +483,9 @@ func demuxPaced(ctx context.Context, d *ffgo.Decoder, shift map[int]int64, route
 			if ts := c.DTS(); ts != avutil.AV_NOPTS_VALUE {
 				avcodec.SetPacketDTS(c.Raw(), ts-off)
 			}
+		}
+		if end != nil && (kinds[idx] == ffgo.MediaTypeVideo || kinds[idx] == ffgo.MediaTypeAudio) {
+			*end = max(*end, packetEndMillis(c, tbs[idx]))
 		}
 		if pace != nil {
 			if tb := tbs[idx]; tb.Den > 0 {
@@ -515,6 +527,23 @@ func demuxPaced(ctx context.Context, d *ffgo.Decoder, shift map[int]int64, route
 			return ctx.Err()
 		}
 	}
+}
+
+// packetEndMillis is where packet p ends in milliseconds: its presentation
+// timestamp (else its decoding one) plus its duration, in tb; 0 when it
+// carries no timestamp.
+func packetEndMillis(p *ffgo.Packet, tb ffgo.Rational) int64 {
+	ts := p.PTS()
+	if ts == avutil.AV_NOPTS_VALUE {
+		ts = p.DTS()
+	}
+	if ts == avutil.AV_NOPTS_VALUE || tb.Den <= 0 {
+		return 0
+	}
+	if dur := avcodec.GetPacketDuration(p.Raw()); dur > 0 {
+		ts += dur
+	}
+	return ts * 1000 * int64(tb.Num) / int64(tb.Den)
 }
 
 // startShifts is each stream's share of the input's start time, in the

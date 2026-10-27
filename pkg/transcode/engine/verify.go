@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 
 	"github.com/obinnaokechukwu/ffgo"
 	"github.com/obinnaokechukwu/ffgo/avutil"
@@ -92,9 +93,10 @@ func Verify(ctx context.Context, source, output string, exp standard.Expectation
 			want = container
 		}
 		// The source's container duration may be a subtitle's, whose last
-		// cue outlasts the picture; the output carries subtitles as
-		// sidecars and ends with its video and audio.
-		if av := avEndMillis(sd); av > 0 && av < container-durationTolMillis && abs(want-container) <= durationTolMillis {
+		// cue outlasts the picture, or a dropped audio track's (RoboCop's
+		// Turkish DTS, 3.4 s past the video); the output ends with its
+		// video and the audio it keeps (exp.AudioSources).
+		if av := avEndMillis(sd, exp.AudioSources); av > 0 && av < container-durationTolMillis && abs(want-container) <= durationTolMillis {
 			want = av
 		}
 		_ = sd.Close()
@@ -217,11 +219,19 @@ func abs(v int64) int64 {
 // stream says neither. A subtitle cue can outlast the picture -- Ad
 // Astra's ends 2.6 s and Baddies East S01E11's 33 s after its video
 // (2026-10-15) -- and stretch the container's duration.
-func avEndMillis(d *ffgo.Decoder) int64 {
+func avEndMillis(d *ffgo.Decoder, audio []int32) int64 {
 	var end int64
+	var nth int32 // the next audio stream's type-relative index
 	for _, s := range d.Streams() {
 		if (s.Type != ffgo.MediaTypeVideo && s.Type != ffgo.MediaTypeAudio) || s.Disposition&ffgo.DispositionAttachedPic != 0 {
 			continue
+		}
+		if s.Type == ffgo.MediaTypeAudio {
+			i := nth
+			nth++
+			if audio != nil && !slices.Contains(audio, i) {
+				continue // a track the output drops
+			}
 		}
 		ms := streamMillis(s)
 		if ms <= 0 {

@@ -44,7 +44,8 @@ func info(v transcode.VideoStream, a ...transcode.AudioStream) transcode.MediaIn
 	return transcode.MediaInfo{
 		Path: "/data/m.mkv", Format: transcode.FormatInfo{Name: "matroska,webm", Duration: time.Hour},
 		Video: []transcode.VideoStream{v}, Audio: a,
-		// An image subtitle holds the whole file (TestAnImageSubtitleHoldsTheFile).
+		// Text subtitles only: an image one would make the output Matroska
+		// (TestAnImageSubtitleNoTextTrackCoversIsKeptInMatroska).
 		Subtitles:   []transcode.SubtitleStream{{Index: 0, Codec: "subrip", Language: "eng"}, {Index: 1, Codec: "ass", Language: "eng"}},
 		Attachments: []transcode.AttachmentStream{{Index: 0, Filename: "f.ttf"}},
 		Chapters:    []transcode.Chapter{{Start: 0, End: time.Minute, Title: "One"}},
@@ -346,14 +347,6 @@ func TestDolbyVisionProfile7MapsOnlyTheBaseLayer(t *testing.T) {
 	assert.Equal(t, int32(1), p.Expect.VideoStreams, "the enhancement layer is not mapped")
 }
 
-func TestNeverTranscodeModifiersSkip(t *testing.T) {
-	in := info(h264, eac3)
-	in.Modifier = "remux"
-	p := Plan(in, Profile{Name: "p", Hash: "h", Quality: 24, NeverTranscodeModifiers: []string{"remux"}}, cpu)
-	assert.Equal(t, DecisionSkip, p.Decision)
-	assert.Contains(t, p.Reason, "remux")
-}
-
 func TestHashIsStableAndSensitive(t *testing.T) {
 	a := Plan(info(h264, eac3), profile, cpu)
 	b := Plan(info(h264, eac3), profile, cpu)
@@ -588,7 +581,7 @@ func TestPlanAlwaysWritesMP4(t *testing.T) {
 	assert.False(t, p.Attachments)
 }
 
-func TestVersionIsSix(t *testing.T) { assert.Equal(t, 6, Version) }
+func TestVersionIsSeven(t *testing.T) { assert.Equal(t, 7, Version) }
 
 func sub(codec, lang, title string, forced, hi bool) transcode.SubtitleStream {
 	return transcode.SubtitleStream{
@@ -598,7 +591,7 @@ func sub(codec, lang, title string, forced, hi bool) transcode.SubtitleStream {
 }
 
 func TestPlanSubtitles(t *testing.T) {
-	sidecars, dropped := planSubtitles([]transcode.SubtitleStream{
+	_, sidecars, dropped := planSubtitles([]transcode.SubtitleStream{
 		sub("subrip", "eng", "", false, false),          // 0: en.srt (639-2/B to 639-1)
 		sub("subrip", "en", "SDH", false, true),         // 1: en.sdh.srt
 		sub("webvtt", "es", "", false, false),           // 2: es.srt
@@ -635,20 +628,97 @@ func TestPlanSubtitles(t *testing.T) {
 // player shows an ASS subtitle only by burning it into the video, a video
 // transcode cluster-plex never allows (talos, 2026-10-20).
 func TestAnSDHAssTrackIsNamedSDH(t *testing.T) {
-	sidecars, _ := planSubtitles([]transcode.SubtitleStream{sub("ass", "en", "", false, true)}, wanted{all: true})
+	_, sidecars, _ := planSubtitles([]transcode.SubtitleStream{sub("ass", "en", "", false, true)}, wanted{all: true})
 	require.Len(t, sidecars, 1)
 	assert.Equal(t, SidecarPlan{Format: SidecarSRT, Codec: "ass", Suffix: "en.sdh.srt"}, sidecars[0])
 }
 
-func TestAnImageSubtitleNoTextTrackCoversHoldsTheFile(t *testing.T) {
-	in := info(h264, eac3)
+// Version 7 (owner, 2026-10-27): an image subtitle no text track covers no
+// longer holds the file for phase 2's OCR -- 129 files with DTS or TrueHD
+// audio sat Skipped that way, their audio playable natively on no Apple
+// device or browser. The video and audio get the standard's treatment and
+// the output stays in Matroska, the image subtitle copied into it, until
+// the OCR remuxes it into the MP4 layout.
+func TestAnImageSubtitleNoTextTrackCoversIsKeptInMatroska(t *testing.T) {
+	in := info(h264, audio(0, "dts", 6, "5.1(side)", "eng"))
 	in.Subtitles = []transcode.SubtitleStream{
 		{Index: 0, Codec: "subrip", Language: "spa"},
-		{Index: 1, Codec: "hdmv_pgs_subtitle", Bitmap: true, Language: "eng"},
+		{Index: 1, Codec: "hdmv_pgs_subtitle", Bitmap: true, Language: "eng", Title: "English"},
+		{Index: 2, Codec: "subrip", Language: "eng", Title: "Signs", Disposition: transcode.Disposition{Forced: true}},
 	}
 	p := Plan(in, profile, cpu)
-	assert.Equal(t, DecisionSkip, p.Decision)
-	assert.Equal(t, HoldImageSubtitles, p.Reason, "only a Spanish text track: the English image one waits for OCR")
+	require.Equal(t, DecisionEncode, p.Decision, p.Reason)
+	assert.Equal(t, transcode.ContainerMKV, p.Container)
+	assert.Contains(t, p.Reason, ImageSubtitlesKept)
+	assert.Equal(t, []SubtitlePlan{{SourceIndex: 1, Action: SubtitleCopy, Codec: "hdmv_pgs_subtitle", Language: "eng", Title: "English"}}, p.Subtitles,
+		"only a Spanish text track and a forced English one: the full English image track is kept")
+	assert.Equal(t, int32(1), p.Expect.SubtitleStreams)
+	require.Len(t, p.Sidecars, 2, "the text tracks are sidecars as in the MP4 layout")
+	assert.Equal(t, "es.srt", p.Sidecars[0].Suffix)
+	assert.Equal(t, "en.forced.srt", p.Sidecars[1].Suffix)
+	require.Len(t, p.Audio, 2, "DTS becomes the layout's AAC 2.0 and AC-3 5.1")
+	assert.Equal(t, AudioAAC, p.Audio[0].Action)
+	assert.Equal(t, AudioAC3, p.Audio[1].Action)
+	assert.Equal(t, "CLUSTARR_PROFILE", firstKey(p.Tags), "tagged as any transcode")
+}
+
+func firstKey(m map[string]string) string {
+	for k := range m {
+		return k
+	}
+	return ""
+}
+
+// A tagged Matroska transcode of clustarr's own that carries an image
+// subtitle no text track covers -- a Version 1 file the hold kept from the
+// MP4 layout, or an interim one -- is remuxed with its video copied, never
+// encoded again, and stays in Matroska for the image subtitle; one whose
+// only subtitles are a single stereo AAC's worth of nothing to do is left
+// alone as already in the interim layout. The transcode planner never
+// plans a tagged file again anyway (transcodeplan.AlreadyTranscoded); the
+// standard's own answer is for the worker's live plan and KeptH264Dropped.
+func TestATaggedMatroskaFileKeepingImageSubtitlesStaysInMatroska(t *testing.T) {
+	in := info(video("hevc", "yuv420p10le", 10, commonv1.HdrFormatNone),
+		audio(0, "aac", 2, "stereo", "eng"), audio(1, "ac3", 6, "5.1", "eng"))
+	in.Format.Name = "matroska,webm"
+	in.Tags = map[string]string{"CLUSTARR_PROFILE": "p@old"}
+	in.Subtitles = []transcode.SubtitleStream{{Index: 0, Codec: "hdmv_pgs_subtitle", Bitmap: true, Language: "eng"}}
+	p := Plan(in, profile, cpu)
+	require.Equal(t, DecisionCopyVideo, p.Decision, p.Reason)
+	assert.Equal(t, transcode.ContainerMKV, p.Container)
+	assert.Contains(t, p.Reason, "clustarr's own Matroska transcode remuxed")
+	assert.Contains(t, p.Reason, ImageSubtitlesKept)
+	assert.Len(t, p.Subtitles, 1)
+
+	// Nothing to do: a stereo AAC track is copied as it is, and an interim
+	// output carries no attachment, so the file is already in the interim
+	// layout.
+	done := info(video("hevc", "yuv420p10le", 10, commonv1.HdrFormatNone), audio(0, "aac", 2, "stereo", "eng"))
+	done.Format.Name, done.Tags, done.Subtitles, done.Attachments = in.Format.Name, in.Tags, in.Subtitles, nil
+	p = Plan(done, profile, cpu)
+	assert.Equal(t, DecisionSkip, p.Decision, p.Reason)
+	assert.Contains(t, p.Reason, "already HEVC in the MP4 standard's interim Matroska layout")
+
+	// With a text track beside the image one -- a caption fetch landed an
+	// English SubRip in the container -- there is work: the text track goes
+	// beside the file and the image one is dropped, so the output is MP4.
+	in.Subtitles = append(in.Subtitles, transcode.SubtitleStream{Index: 1, Codec: "subrip", Language: "eng"})
+	p = Plan(in, profile, cpu)
+	assert.Equal(t, DecisionCopyVideo, p.Decision, p.Reason)
+	assert.Equal(t, transcode.ContainerMP4, p.Container)
+	assert.Empty(t, p.Subtitles)
+}
+
+// A plan's expectation names the source audio tracks the output keeps, so
+// Verify measures the source's length over them and the video, never over
+// a dropped track that outlasts both (RoboCop's Turkish DTS, 2026-10-23).
+func TestTheExpectationNamesTheKeptAudioSources(t *testing.T) {
+	in := info(h264, audio(0, "dts", 6, "5.1(side)", "eng"), audio(1, "dts", 6, "5.1(side)", "tur"), audio(2, "aac", 2, "stereo", "eng"))
+	english := profile
+	english.Languages = []string{"en"}
+	p := Plan(in, english, cpu)
+	require.Equal(t, DecisionEncode, p.Decision, p.Reason)
+	assert.Equal(t, []int32{0}, p.Expect.AudioSources, "the English DTS feeds both outputs, the Turkish one is dropped, the AAC is not the primary")
 }
 
 // Version 6 (owner, 2026-10-20): an image subtitle a text subtitle of its
@@ -678,7 +748,7 @@ func TestATextTrackCoversAnImageSubtitleOnlyInItsOwnLanguageAndKind(t *testing.T
 	}
 	for name, tc := range map[string]struct {
 		subs []transcode.SubtitleStream
-		held bool
+		kept bool // the image track is kept in Matroska; else dropped as covered
 	}{
 		"same language, 639-2 beside 639-1": {[]transcode.SubtitleStream{sub("subrip", "en", "", false, false), img("eng", false)}, false},
 		"an SDH text track covers":          {[]transcode.SubtitleStream{sub("subrip", "eng", "SDH", false, true), img("eng", false)}, false},
@@ -700,10 +770,14 @@ func TestATextTrackCoversAnImageSubtitleOnlyInItsOwnLanguageAndKind(t *testing.T
 			in := info(h264, eac3)
 			in.Subtitles = tc.subs
 			p := Plan(in, profile, cpu)
-			if tc.held {
-				assert.Equal(t, HoldImageSubtitles, p.Reason)
+			require.NotEqual(t, DecisionSkip, p.Decision, p.Reason)
+			if tc.kept {
+				assert.Equal(t, transcode.ContainerMKV, p.Container, p.Reason)
+				assert.NotEmpty(t, p.Subtitles)
+				assert.Contains(t, p.Reason, ImageSubtitlesKept)
 			} else {
-				assert.NotEqual(t, DecisionSkip, p.Decision, p.Reason)
+				assert.Equal(t, transcode.ContainerMP4, p.Container, p.Reason)
+				assert.Empty(t, p.Subtitles)
 			}
 		})
 	}
@@ -732,7 +806,7 @@ func TestTheSubtitleLayoutDecidesTheSkip(t *testing.T) {
 // title; and a full track whose title mentions signs is still full (final
 // review I5).
 func TestSubtitleFlagsAreReadFromTheTitleToo(t *testing.T) {
-	sidecars, dropped := planSubtitles([]transcode.SubtitleStream{
+	_, sidecars, dropped := planSubtitles([]transcode.SubtitleStream{
 		sub("subrip", "en", "English", false, false),
 		sub("subrip", "en", "English (SDH)", false, false),
 		sub("subrip", "en", "Forced", false, false),
