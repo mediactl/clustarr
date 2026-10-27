@@ -27,9 +27,12 @@ import (
 )
 
 // dashRangeEpisodeRegex matches Sonarr's dash-range multi-episode form,
-// "S05E01-E03".
+// "S05E01-E03". An episode may carry a fansub version ("S01E01v2"), as
+// every S/E pattern here allows: Sonarr's patterns take `(?:v\d+)?` after
+// the number, and until 2026-10-27 the required separator refused
+// "Vivy_-_Fluorite_Eye's_Song_S01E01v1_2021_..." outright.
 var dashRangeEpisodeRegex = mustCompile(
-	`(?<title>.+?)[.\s_]S(?<season>\d{1,2})E(?<start>\d{1,4})-E?(?<end>\d{1,4})(?:[.\s_]|$)`,
+	`(?<title>.+?)[.\s_]S(?<season>\d{1,2})E(?<start>\d{1,4})(?:v\d+)?-E?(?<end>\d{1,4})(?:v\d+)?(?:[.\s_]|$)`,
 	regexp2.IgnoreCase,
 )
 
@@ -38,7 +41,7 @@ var dashRangeEpisodeRegex = mustCompile(
 // group collects one capture per E-token (regexp2, like .NET, keeps every
 // capture of a repeated group in Group.Captures).
 var multiEpisodeRegex = mustCompile(
-	`(?<title>.+?)[.\s_]S(?<season>\d{1,2})(?:E(?<ep>\d{1,4}))+(?:[.\s_]|$)`,
+	`(?<title>.+?)[.\s_]S(?<season>\d{1,2})(?:E(?<ep>\d{1,4})(?:v\d+)?)+(?:[.\s_]|$)`,
 	regexp2.IgnoreCase,
 )
 
@@ -60,7 +63,7 @@ var seasonOnlyRegex = mustCompile(
 // [D7A77AE7].mkv]", A Sign of Affection's season pack on talos,
 // 2026-10-27). It is tried only once every titled pattern has failed.
 var titlelessEpisodeRegex = mustCompile(
-	`^[^\p{L}\p{N}\[]*(?:\[[^\[\]]*\][-_. ]*)*\[?S?(?<season>\d{1,2})(?:[-_ ]?[EX](?<ep>\d{2,3})(?!\d))+`,
+	`^[^\p{L}\p{N}\[]*(?:\[[^\[\]]*\][-_. ]*)*\[?S?(?<season>\d{1,2})(?:[-_ ]?[EX](?<ep>\d{2,3})(?!\d)(?:v\d+)?)+`,
 	regexp2.IgnoreCase,
 )
 

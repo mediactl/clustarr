@@ -161,3 +161,34 @@ func TestParseSeriesAnimeBatchRangeRejectsDescendingAndOversized(t *testing.T) {
 		})
 	}
 }
+
+// A fansub pack whose title holds the only dash and whose episodes carry a
+// version: "Vivy_-_Fluorite_Eye's_Song_S01E01v1_2021_1080p_WEB-DL_AVC_AAC_2.0
+// _Dual_Audio_-ZR-" (talos, 2026-10-27) matched no anime pattern under
+// series type anime -- the S/E pattern wanted " - S01E01" and no version --
+// and the standard parser refused the "v1" after the episode, so every
+// file of the pack was held for a person.
+func TestAnAnimeEpisodeNamedWithoutADashBeforeItsNumberingParses(t *testing.T) {
+	const name = "Vivy_-_Fluorite_Eye's_Song_S01E01v1_2021_1080p_WEB-DL_AVC_AAC_2.0_Dual_Audio_-ZR-"
+	for _, seriesType := range []string{"anime", "standard"} {
+		t.Run(seriesType, func(t *testing.T) {
+			p, err := parseSeries(name, Options{SeriesType: seriesType})
+			require.NoError(t, err)
+			assert.Equal(t, "Vivy - Fluorite Eye's Song", p.Title)
+			assert.Equal(t, []int{1}, p.Seasons)
+			assert.Equal(t, []int{1}, p.Episodes)
+			assert.Equal(t, int32(1), p.Revision.Version)
+			assert.Equal(t, "WEBDL-1080p", p.Quality.Name, "the underscores around WEB-DL hid it from the source regex")
+			assert.Equal(t, "ZR", p.Group)
+			assert.True(t, p.DualAudio)
+		})
+	}
+	// A dashed title before the pair still ends at the dash.
+	p, err := parseSeries("[SubsPlease] Attack on Titan - S04E28v2 (1080p) [ABCD1234].mkv", Options{SeriesType: "anime"})
+	require.NoError(t, err)
+	assert.Equal(t, "Attack on Titan", p.Title)
+	assert.Equal(t, []int{4}, p.Seasons)
+	assert.Equal(t, []int{28}, p.Episodes)
+	assert.Equal(t, int32(2), p.Revision.Version)
+	assert.Equal(t, "SubsPlease", p.Group)
+}

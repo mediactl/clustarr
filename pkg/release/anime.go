@@ -39,8 +39,17 @@ import (
 var animeGroupPrefixRegex = mustCompile(`^\[(?<group>[^\]]+)\][\s_.]*`, regexp2.IgnoreCase)
 
 // animeSeasonEpisodeRegex matches an anime title that also carries a
-// standard S/E pair, e.g. "Attack on Titan - S04E28".
-var animeSeasonEpisodeRegex = mustCompile(`(?<title>.+?)\s*-\s*S(?<season>\d{1,2})E(?<episode>\d{1,4})`, regexp2.IgnoreCase)
+// standard S/E pair, after a dash ("Attack on Titan - S04E28") or a bare
+// separator ("Vivy_-_Fluorite_Eye's_Song_S01E01v1_2021_1080p_WEB-DL...",
+// whose title holds the only dash; 2026-10-27), the episode's fansub
+// version allowed as in tv.go's patterns. The title ends in a letter or
+// digit, so a name that opens with its numbering ("[tag]-[S01E01-...")
+// stays titleless, and no dash-range follows the episode, so the standard
+// parser's refusal of "S01E12-E01" is not rescued here (tv_test's guard).
+var animeSeasonEpisodeRegex = mustCompile(
+	`(?<title>.*?[\p{L}\p{N}])[\s._]*(?:-[\s._]*)?S(?<season>\d{1,2})E(?<episode>\d{1,4})(?:v\d+)?(?!-E?\d)(?:[\s._\[\(-]|$)`,
+	regexp2.IgnoreCase,
+)
 
 // animeAbsoluteRegex matches an anime title with a bare absolute episode
 // number, e.g. "Frieren - 28 (1080p)". The optional
@@ -191,7 +200,7 @@ func parseAnime(title string, p *ParsedRelease) error {
 	if m, err := animeSeasonEpisodeRegex.FindStringMatch(work); err != nil {
 		return fmt.Errorf("release: anime: season/episode match: %w", err)
 	} else if m != nil {
-		p.Title = strings.TrimSpace(groupString(m, "title"))
+		p.Title = cleanTitleSeparators(groupString(m, "title"))
 		season, convErr := strconv.Atoi(groupString(m, "season"))
 		if convErr != nil {
 			return fmt.Errorf("release: anime: parsing season: %w", convErr)
@@ -314,6 +323,11 @@ func parseAnimeSeries(title string) (*ParsedRelease, error) {
 	q, rev, _, _ := parseQualityTags(title)
 	p.Quality = q
 	p.Revision = rev
+	if p.Group == "" {
+		// No bracketed sub-group: the group is the scene's trailing one
+		// ("-ZR-"), read as the scene-episode shape already does.
+		p.Group, _, _ = parseGroup(title)
+	}
 	switch {
 	case p.Partial:
 		// An expanded absolute-episode batch range (animeBatchRegex above)

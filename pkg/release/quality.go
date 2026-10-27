@@ -513,6 +513,10 @@ func versionFromMatch(m *regexp2.Match) (int32, bool) {
 // degrades to the conservative "Unknown"/"Version:1" defaults rather than
 // losing the parse, since there is no error channel to propagate through.
 func parseQualityTags(title string) (commonv1.Quality, commonv1.Revision, string, string) {
+	// Sonarr's QualityParser reads the name with its underscores as spaces:
+	// "_WEB-DL_" is a word to \b, so the source regex saw no WEB-DL in
+	// "..._1080p_WEB-DL_AVC_..." and the quality read Unknown (2026-10-27).
+	title = strings.ReplaceAll(title, "_", " ")
 	q, err := detectQuality(title)
 	if err != nil {
 		q = commonv1.Quality{Name: "Unknown", Source: commonv1.SourceUnknown}

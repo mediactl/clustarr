@@ -222,3 +222,20 @@ func TestATitlelessEpisodeNameParses(t *testing.T) {
 		assert.Error(t, err, name)
 	}
 }
+
+// A versioned episode ("S01E02v2") is that episode at that version, as
+// Sonarr reads it; the separator the S/E patterns require after the
+// episode came before the version and refused the whole name.
+func TestAVersionedEpisodeNumberParses(t *testing.T) {
+	p, err := parseSeries("Show.Name.S01E02v2.1080p.WEB-DL.x264-GRP", Options{SeriesType: "standard"})
+	require.NoError(t, err)
+	assert.Equal(t, "Show Name", p.Title)
+	assert.Equal(t, []int{1}, p.Seasons)
+	assert.Equal(t, []int{2}, p.Episodes)
+	assert.Equal(t, int32(2), p.Revision.Version)
+	assert.Equal(t, "WEBDL-1080p", p.Quality.Name)
+
+	p, err = parseSeries("Show.Name.S01E03v2-E04.1080p.WEB-DL.x264-GRP", Options{SeriesType: "standard"})
+	require.NoError(t, err)
+	assert.Equal(t, []int{3, 4}, p.Episodes)
+}
