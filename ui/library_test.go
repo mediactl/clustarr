@@ -509,3 +509,42 @@ func TestLibraryTabStreamCarriesOnlyItsRows(t *testing.T) {
 	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/events/library/nope", nil))
 	require.Equal(t, http.StatusNotFound, rec.Code)
 }
+
+// TestMonitoringAnUnmonitoredSeriesMonitorsItsSeasons: the monitor toggle on
+// an unmonitored series monitors every season but the specials (owner,
+// 2026-10-27); on a series already monitored it changes no season, so the
+// owner's own season flags stand.
+func TestMonitoringAnUnmonitoredSeriesMonitorsItsSeasons(t *testing.T) {
+	scheme := libraryTestScheme(t)
+	off := &catalogv1.Series{
+		ObjectMeta: metav1.ObjectMeta{Name: "bb", Namespace: "default"},
+		Spec:       catalogv1.SeriesSpec{Monitored: boolPtr(false), QualityProfileRef: "hd", RootFolderRef: "tv", TvdbID: 81189},
+		Status:     catalogv1.SeriesStatus{Seasons: []catalogv1.SeasonStatus{{Number: 0}, {Number: 1}, {Number: 2}}},
+	}
+	on := &catalogv1.Series{
+		ObjectMeta: metav1.ObjectMeta{Name: "gt", Namespace: "default"},
+		Spec: catalogv1.SeriesSpec{Monitored: boolPtr(true), QualityProfileRef: "hd", RootFolderRef: "tv", TvdbID: 1,
+			Seasons: []catalogv1.SeasonSpec{{Number: 1, Monitored: boolPtr(false)}}},
+		Status: catalogv1.SeriesStatus{Seasons: []catalogv1.SeasonStatus{{Number: 1}, {Number: 2}}},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(off, on).Build()
+	srv := ui.NewServer(t.Context(), ui.Options{Reader: c, Actions: actions.New(c)})
+	monitor := func(name string) {
+		rec := httptest.NewRecorder()
+		form := url.Values{"monitored": {"true"}, "return": {"/library/default/series/" + name}}
+		req := httptest.NewRequest(http.MethodPost, "/library/default/series/"+name+"/monitor", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		srv.Handler().ServeHTTP(rec, req)
+		require.Equal(t, http.StatusSeeOther, rec.Code, rec.Body.String())
+	}
+
+	monitor("bb")
+	var got catalogv1.Series
+	require.NoError(t, c.Get(t.Context(), types.NamespacedName{Namespace: "default", Name: "bb"}, &got))
+	require.True(t, *got.Spec.Monitored)
+	require.Equal(t, []catalogv1.SeasonSpec{{Number: 1, Monitored: boolPtr(true)}, {Number: 2, Monitored: boolPtr(true)}}, got.Spec.Seasons)
+
+	monitor("gt")
+	require.NoError(t, c.Get(t.Context(), types.NamespacedName{Namespace: "default", Name: "gt"}, &got))
+	require.Equal(t, []catalogv1.SeasonSpec{{Number: 1, Monitored: boolPtr(false)}}, got.Spec.Seasons, "an already monitored series keeps its seasons")
+}

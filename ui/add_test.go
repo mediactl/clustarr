@@ -209,8 +209,10 @@ func TestAddPageOffersTheKindsOwnChoices(t *testing.T) {
 		require.Contains(t, body, want)
 	}
 	require.NotContains(t, body, "library/movies", "a movie root folder is not offered for a series")
-	// A series starts with no episode monitored unless the owner picks more.
-	requireTag(t, body, `name="monitor"`, `value="none"`)
+	// A series starts with every season but the specials monitored unless
+	// the owner picks otherwise (owner, 2026-10-27).
+	requireTag(t, body, `name="monitor"`, `value="unmonitorSpecials"`)
+	require.Contains(t, body, `data-templ-value="none"`, "none is still offered")
 	require.Equal(t, http.StatusNotFound, get(t, srv, "/library/nope/add").Code)
 	page := get(t, srv, "/library/tv/add")
 	require.Equal(t, http.StatusOK, page.Code)

@@ -471,10 +471,19 @@ toggle writes `spec.seasons[n].monitored`, which the
 Series controller applies once to every episode of the season
 (`series.SeasonCascade`, recorded in `status.seasons[].appliedMonitored`, so
 an episode toggled afterwards keeps its flag) and to the season's new
-episodes; and a series is added with `addOptions.monitor: none` -- the CRD
-default, the rescan's and Add New's first choice -- so nothing is searched
-until a season or an episode is turned on. The rescan's old `all` default
-queued 5,718 episode searches for a 147-show library. Specials never count
+episodes; and a monitored series monitors all of its seasons but the
+specials (owner, 2026-10-27): a series is added with `addOptions.monitor:
+unmonitorSpecials` -- the CRD default, the rescan's, an import list's and
+Add New's first choice -- and the monitor toggle on an unmonitored series
+(card, page, bulk editor, Edit dialog) also writes every non-special
+season's `spec.seasons[n].monitored` (`actions.MonitorSeries`,
+`AllSeasonsMonitored`, under the read resourceVersion), which the cascade
+applies. A series already monitored keeps its season flags: the owner chose
+not to monitor the 6,967 missing episodes of the 331 series already in the
+library. From 2026-09-29 to then a series was added with `none` and
+searched nothing until a season or an episode was turned on, after the
+rescan's first `all` default queued 5,718 episode searches for a 147-show
+library. Specials never count
 toward the series: `status.episodeCount`, `episodeFileCount`, `nextAiring`
 and `previousAiring` leave season 0 out (`series.Rollup`, as Sonarr's series
 statistics do), and only the Specials row of `status.seasons` counts them.

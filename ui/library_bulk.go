@@ -93,7 +93,7 @@ func (s *Server) bulkOne(r *http.Request, action string, item projection.Library
 	ctx, ns, kind, name := r.Context(), item.Ref.Namespace, item.Kind, item.Ref.Name
 	switch action {
 	case "monitor", "unmonitor":
-		_, err := s.opts.Actions.SetMonitored(ctx, ns, kind, name, action == "monitor")
+		_, err := s.setMonitored(ctx, ns, kind, name, action == "monitor")
 		return err
 	case "search":
 		_, err := s.opts.Actions.SearchNow(ctx, ns, kind, name)

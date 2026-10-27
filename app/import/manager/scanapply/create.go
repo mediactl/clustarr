@@ -176,15 +176,16 @@ func (a *Applier) applyMovie(ctx context.Context, ns, name string, tmdbID int64,
 
 // applySeries creates the series a scan found by its folder's TheTVDB id,
 // under import-worker, as the rescan rendered it: pinned to that folder
-// (spec.folder), monitoring nothing (monitor none: the owner turns on the
-// seasons they want searched), and no add-time search.
+// (spec.folder), monitoring every season but the specials (monitor
+// unmonitorSpecials: a monitored series monitors all of its seasons, owner
+// 2026-10-27; it monitored nothing until then), and no add-time search.
 func (a *Applier) applySeries(ctx context.Context, ns, name string, tvdbID int64, profile, root, folder string) error {
 	spec := catalogac.SeriesSpec().
 		WithTvdbID(tvdbID).
 		WithQualityProfileRef(profile).
 		WithRootFolderRef(root).
 		WithAddOptions(catalogac.SeriesAddOptions().
-			WithMonitor(catalogv1alpha1.SeriesMonitorNone).
+			WithMonitor(catalogv1alpha1.SeriesMonitorUnmonitorSpecials).
 			WithSearchForMissing(false).
 			WithSearchForCutoffUnmet(false))
 	if folder != "" {

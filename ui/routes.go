@@ -518,8 +518,7 @@ func (s *Server) handleSetMonitored(w http.ResponseWriter, r *http.Request) {
 	monitored := r.FormValue("monitored") == "true"
 
 	kind := commonv1.MediaKind(r.PathValue("kind"))
-	patched, err := s.opts.Actions.SetMonitored(r.Context(),
-		r.PathValue("namespace"), kind, r.PathValue("name"), monitored)
+	patched, err := s.setMonitored(r.Context(), r.PathValue("namespace"), kind, r.PathValue("name"), monitored)
 	if cardAction(r) {
 		s.finishActionWith(w, r, err, monitoredTitle(monitored))
 		return
@@ -542,6 +541,37 @@ func (s *Server) handleSetMonitored(w http.ResponseWriter, r *http.Request) {
 	s.finishAction(w, r, err)
 }
 
+// setMonitored is the monitor toggle every page and the bulk editor share:
+// a Series switched from unmonitored to monitored monitors every season but
+// the specials as well (owner, 2026-10-27; actions.MonitorSeries); anything
+// else, a series already monitored included, is spec.monitored alone.
+func (s *Server) setMonitored(ctx context.Context, ns string, kind commonv1.MediaKind, name string, monitored bool) (client.Object, error) {
+	if ser := s.unmonitoredSeries(ctx, ns, kind, name, monitored); ser != nil {
+		patched, err := s.opts.Actions.MonitorSeries(ctx, ser)
+		if err != nil {
+			return nil, err
+		}
+		return patched, nil
+	}
+	return s.opts.Actions.SetMonitored(ctx, ns, kind, name, monitored)
+}
+
+// unmonitoredSeries is the Series ns/name as read when kind is a series a
+// person is switching to monitored and it is unmonitored now, else nil.
+func (s *Server) unmonitoredSeries(ctx context.Context, ns string, kind commonv1.MediaKind, name string, monitored bool) *catalogv1.Series {
+	if kind != commonv1.MediaKindSeries || !monitored || s.opts.Reader == nil {
+		return nil
+	}
+	var ser catalogv1.Series
+	if err := s.opts.Reader.Get(ctx, client.ObjectKey{Namespace: ns, Name: name}, &ser); err != nil {
+		return nil
+	}
+	if ser.Spec.Monitored == nil || *ser.Spec.Monitored {
+		return nil
+	}
+	return &ser
+}
+
 // handleEditItem is the item page's Edit dialog (views.editDialog, Radarr's
 // Edit Movie): POST /library/{namespace}/{kind}/{name}/edit with
 // "qualityProfile", "monitored" ("true" when the switch is on, after the
@@ -560,8 +590,11 @@ func (s *Server) handleEditItem(w http.ResponseWriter, r *http.Request) {
 		SeriesType:          r.FormValue("seriesType"),
 		MinimumAvailability: r.FormValue("minimumAvailability"),
 	}
-	_, err := s.opts.Actions.EditItem(r.Context(),
-		r.PathValue("namespace"), commonv1.MediaKind(r.PathValue("kind")), r.PathValue("name"), req)
+	kind := commonv1.MediaKind(r.PathValue("kind"))
+	if ser := s.unmonitoredSeries(r.Context(), r.PathValue("namespace"), kind, r.PathValue("name"), monitored); ser != nil {
+		req.Seasons, req.ResourceVersion = actions.AllSeasonsMonitored(ser), ser.ResourceVersion
+	}
+	_, err := s.opts.Actions.EditItem(r.Context(), r.PathValue("namespace"), kind, r.PathValue("name"), req)
 	s.finishAction(w, r, err)
 }
 

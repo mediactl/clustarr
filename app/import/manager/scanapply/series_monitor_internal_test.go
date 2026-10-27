@@ -30,16 +30,17 @@ import (
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
-// A series the scan finds on disk starts with nothing monitored: its files
-// import regardless, and the owner turns on the seasons they want searched.
-// Before, it took the CRD's old default, every episode, and a library of 147
-// shows queued 5,718 episode searches. (A6.1: the scan applier creates it,
-// no longer the rescan.)
-func TestApplySeriesMonitorsNothing(t *testing.T) {
+// A series the scan finds on disk monitors every season but the specials:
+// a monitored series monitors all of its seasons (owner, 2026-10-27). Until
+// then it monitored nothing, after the CRD's first default, every episode,
+// had made a library of 147 shows queue 5,718 episode searches; live
+// searches are paced and planned per season since. (A6.1: the scan applier
+// creates it, no longer the rescan.)
+func TestApplySeriesMonitorsEverySeasonButTheSpecials(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).Build()
 	a := &Applier{Client: c}
 	require.NoError(t, a.applySeries(context.Background(), "tv", "andor-393189", 393189, "hd", "shows", "Andor (2022)"))
 	var s catalogv1alpha1.Series
 	require.NoError(t, c.Get(context.Background(), client.ObjectKey{Namespace: "tv", Name: "andor-393189"}, &s))
-	assert.Equal(t, catalogv1alpha1.SeriesMonitorNone, s.Spec.AddOptions.Monitor)
+	assert.Equal(t, catalogv1alpha1.SeriesMonitorUnmonitorSpecials, s.Spec.AddOptions.Monitor)
 }

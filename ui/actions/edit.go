@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
@@ -47,6 +48,13 @@ type EditRequest struct {
 	// announced, inCinemas, released); empty leaves it. Set on any other
 	// kind, the request is refused.
 	MinimumAvailability string
+	// Seasons, when set, is a series' whole spec.seasons, sent under
+	// ResourceVersion (the series as read): the Edit dialog switching an
+	// unmonitored series to monitored monitors every season but the
+	// specials ([AllSeasonsMonitored]). Set on any other kind, the request
+	// is refused.
+	Seasons         []catalogv1alpha1.SeasonSpec
+	ResourceVersion string
 }
 
 // editables are the kinds with a top-level spec.qualityProfileRef: the
@@ -115,7 +123,17 @@ func EditItem(
 		}
 		spec["minimumAvailability"] = req.MinimumAvailability
 	}
-	raw, err := json.Marshal(map[string]any{"spec": spec})
+	body := map[string]any{"spec": spec}
+	if req.Seasons != nil {
+		if kind != commonv1.MediaKindSeries || req.ResourceVersion == "" {
+			err := fmt.Errorf("%w: seasons need a series as read, not a %s", ErrInvalid, kind)
+			tracing.RecordError(span, err)
+			return nil, err
+		}
+		spec["seasons"] = req.Seasons
+		body["metadata"] = map[string]any{"resourceVersion": req.ResourceVersion}
+	}
+	raw, err := json.Marshal(body)
 	if err != nil {
 		err = fmt.Errorf("actions: encode edit patch: %w", err)
 		tracing.RecordError(span, err)

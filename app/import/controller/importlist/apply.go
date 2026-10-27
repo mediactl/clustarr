@@ -296,6 +296,9 @@ func seriesSpecFor(
 		WithQualityProfileRef(defaults.QualityProfileRef).
 		WithRootFolderRef(defaults.RootFolderRef).
 		WithAddOptions(catalogac.SeriesAddOptions().
+			// Every season but the specials: a monitored series monitors
+			// all of its seasons (owner, 2026-10-27).
+			WithMonitor(catalogv1alpha1.SeriesMonitorUnmonitorSpecials).
 			WithSearchForMissing(resolveBool(defaults.SearchOnAdd, true))).
 		WithSource(commonv1.AddSource{ImportListRef: listName})
 	if defaults.SeriesType != "" {
