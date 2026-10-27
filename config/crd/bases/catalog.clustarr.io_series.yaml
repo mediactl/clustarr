@@ -1572,6 +1572,15 @@ spec:
                       type: object
                     maxItems: 50
                     type: array
+                  keywords:
+                    description: |-
+                      Keywords are TMDB's keywords for the series, through the TMDB id
+                      TheTVDB's record carries, which cluster-plex writes into Plex as the
+                      show's Labels (as a Movie's Keywords).
+                    items:
+                      type: string
+                    maxItems: 50
+                    type: array
                   language:
                     description: |-
                       Language is the BCP-47 language the metadata was fetched in (the

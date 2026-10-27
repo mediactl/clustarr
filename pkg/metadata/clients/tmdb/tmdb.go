@@ -53,6 +53,7 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -225,7 +226,7 @@ func (c *Client) Movie(ctx context.Context, tmdbID string, region string) (*meta
 	base := c.baseLanguage()
 	d, err := c.raw.GetMovieDetails(id, map[string]string{
 		"language":               c.languageFor(region),
-		"append_to_response":     "release_dates,external_ids,alternative_titles,credits,recommendations,images",
+		"append_to_response":     "release_dates,external_ids,alternative_titles,credits,recommendations,images,keywords",
 		"include_image_language": base + ",null",
 	})
 	if err != nil {
@@ -483,6 +484,11 @@ func mapMovie(d *rawtmdb.MovieDetails, region string) *metadata.Movie {
 	m.Certification, m.CertificationCountry = cert.Rating, cert.Country
 	m.People = mapCredits(d)
 	m.Similar = mapRecommendations(d)
+	if d.MovieKeywordsAppend != nil && d.MovieKeywordsAppend.Keywords.MovieKeywords != nil {
+		for _, k := range d.MovieKeywordsAppend.Keywords.MovieKeywords.Keywords {
+			m.Keywords = appendKeyword(m.Keywords, k.Name)
+		}
+	}
 	m.Images = append(m.Images, mapImages(d.MovieImagesAppend, "")...)
 
 	return m
@@ -590,31 +596,48 @@ func mapImages(a *rawtmdb.MovieImagesAppend, lang string) []metadata.Image {
 	return out
 }
 
-// SeriesTagline is a series' tagline from its TMDB tv record, in the
-// configured language, or "" when ids carry no TMDB id. TheTVDB, the series
-// provider, has none (spec 2026-09-30 §3.4).
-func (c *Client) SeriesTagline(ctx context.Context, ids metadata.ExternalIDs) (string, error) {
-	ctx, span := tracing.Start(ctx, "metadata.tmdb.SeriesTagline")
+// SeriesExtras is a series' tagline and keywords from its TMDB tv record,
+// in the configured language, or nothing when ids carry no TMDB id.
+// TheTVDB, the series provider, has neither (spec 2026-09-30 §3.4; the
+// keywords are the show's Plex Labels through cluster-plex, 2026-10-27).
+func (c *Client) SeriesExtras(ctx context.Context, ids metadata.ExternalIDs) (metadata.SeriesExtras, error) {
+	ctx, span := tracing.Start(ctx, "metadata.tmdb.SeriesExtras")
 	defer span.End()
 	raw := ids[metadata.KeyTMDB]
 	if raw == "" {
-		return "", nil
+		return metadata.SeriesExtras{}, nil
 	}
 	id, err := strconv.Atoi(raw)
 	if err != nil {
-		return "", fmt.Errorf("tmdb: invalid tv id %q: %w", raw, err)
+		return metadata.SeriesExtras{}, fmt.Errorf("tmdb: invalid tv id %q: %w", raw, err)
 	}
 	if err := c.limiter.Wait(ctx); err != nil {
 		tracing.RecordError(span, err)
-		return "", err
+		return metadata.SeriesExtras{}, err
 	}
-	d, err := c.raw.GetTVDetails(id, map[string]string{"language": c.languageFor(c.region)})
+	d, err := c.raw.GetTVDetails(id, map[string]string{"language": c.languageFor(c.region), "append_to_response": "keywords"})
 	if err != nil {
 		mapped := c.mapError(err)
 		tracing.RecordError(span, mapped)
-		return "", mapped
+		return metadata.SeriesExtras{}, mapped
 	}
-	return strings.TrimSpace(d.Tagline), nil
+	out := metadata.SeriesExtras{Tagline: strings.TrimSpace(d.Tagline)}
+	if d.TVKeywordsAppend != nil && d.TVKeywordsAppend.Keywords.TVKeywords != nil && d.TVKeywordsAppend.Keywords.TVKeywords.TVKeywordsResults != nil {
+		for _, k := range d.TVKeywordsAppend.Keywords.TVKeywords.TVKeywordsResults.Results {
+			out.Keywords = appendKeyword(out.Keywords, k.Name)
+		}
+	}
+	return out, nil
+}
+
+// appendKeyword adds a TMDB keyword, trimmed, once; TMDB's lists carry an
+// occasional blank or repeat.
+func appendKeyword(keywords []string, name string) []string {
+	name = strings.TrimSpace(name)
+	if name == "" || slices.Contains(keywords, name) {
+		return keywords
+	}
+	return append(keywords, name)
 }
 
 // addOriginalLanguage fetches the film once more in its original language

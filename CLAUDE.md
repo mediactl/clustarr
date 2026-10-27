@@ -723,7 +723,14 @@ entries (`withSubGenres`), since Plex builds a TV library's categories from
 Genre and keeps no Label, Style or Mood from a provider (spike
 2026-10-08). Only the Sub-Genre group is taken: Setting, Time Period and
 Geographic Location are no genres, and coverage is crowd-sourced (Breaking
-Bad has three, Stranger Things none).
+Bad has three, Stranger Things none). TMDB's keywords ("time travel",
+"heist"; 2026-10-27, the same `SchemaVersion` 7) are a Movie's and a
+Series' `status.metadata.keywords` (50 at most; a movie's appended to its
+one TMDB request, a series' to the tv request that already fetches its
+tagline, `SeriesExtrasProvider`), and they never go through the Plex
+provider: PMS keeps no Label from one, so cluster-plex writes them into
+Plex's database as the item's Labels (tag type 11, verified live) beside
+the markers and streams it already seeds.
 Images are chosen per (type, language) before the CRD's 50
 (`selectImages`), so the original language's and fanart.tv's survive;
 `contentRating` prefixes the country the gateway chose the certification

@@ -121,7 +121,9 @@ func RefreshTTL(kind commonv1.MediaKind, state string, lastRefreshed time.Time) 
 //	   provider shows instead of "Season N" (2026-10-21).
 //	7: a Series learns TheTVDB's Sub-Genre tags (subGenres: Dark Comedy,
 //	   Psychological Thriller), which the Plex provider lists after its
-//	   genres so they fill Plex's categories (2026-10-27).
+//	   genres so they fill Plex's categories, and a Movie and a Series
+//	   their TMDB keywords (keywords), which cluster-plex writes into
+//	   Plex as Labels (2026-10-27).
 const SchemaVersion int32 = 7
 
 // RefreshPurpose is the events.MsgIDForObject purpose of an item's metadata

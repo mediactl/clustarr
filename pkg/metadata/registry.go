@@ -43,9 +43,10 @@ type Registry struct {
 	// computing what each provider still needs to be asked for rather than
 	// taking a single "first that answers" result the way Lookup does.
 	Ratings []RatingsProvider
-	// Taglines fill a series' tagline when its provider gave none, first
-	// answer wins.
-	Taglines []SeriesTaglineProvider
+	// Extras fill a series' tagline, when its provider gave none, and its
+	// keywords from TMDB's tv record (SeriesExtrasProvider), first answer
+	// wins.
+	Extras []SeriesExtrasProvider
 	// Markers supply a file's skip segments (TheIntroDB), first answer wins.
 	Markers []MarkersProvider
 	// Plex supplies Plex's own season and episode ids for a series

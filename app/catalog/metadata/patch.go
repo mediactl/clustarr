@@ -167,6 +167,9 @@ func buildMovieMetadataAC(m *pkgmetadata.Movie, ratings []catalogv1alpha1.Rating
 	if len(m.OriginalGenres) > 0 {
 		ac.WithOriginalGenres(capStrings(m.OriginalGenres, 30)...)
 	}
+	if len(m.Keywords) > 0 {
+		ac.WithKeywords(capStrings(m.Keywords, 50)...) // MovieMetadata.Keywords: +kubebuilder:validation:MaxItems=50
+	}
 	ac.WithCertifications(certificationsAC(m.Certifications)...)
 	for _, at := range m.AlternateTitles {
 		if len(ac.AlternateTitles) >= 50 {
@@ -258,6 +261,9 @@ func buildSeriesMetadataAC(s *pkgmetadata.Series, ratings []catalogv1alpha1.Rati
 	}
 	if len(s.SubGenres) > 0 {
 		ac.WithSubGenres(capStrings(s.SubGenres, 30)...) // SeriesMetadata.SubGenres: +kubebuilder:validation:MaxItems=30
+	}
+	if len(s.Keywords) > 0 {
+		ac.WithKeywords(capStrings(s.Keywords, 50)...) // SeriesMetadata.Keywords: +kubebuilder:validation:MaxItems=50
 	}
 	ac.WithCertifications(certificationsAC(s.Certifications)...)
 	for _, se := range s.Seasons {

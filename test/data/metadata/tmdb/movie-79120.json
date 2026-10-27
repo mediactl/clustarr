@@ -1656,5 +1656,45 @@
         "width": 2000
       }
     ]
+  },
+  "keywords": {
+    "keywords": [
+      {
+        "id": 4569,
+        "name": "gay club"
+      },
+      {
+        "id": 2864,
+        "name": "one-night stand"
+      },
+      {
+        "id": 10587,
+        "name": "nottingham"
+      },
+      {
+        "id": 156801,
+        "name": "club"
+      },
+      {
+        "id": 158718,
+        "name": "lgbt"
+      },
+      {
+        "id": 178883,
+        "name": "autumn"
+      },
+      {
+        "id": 258533,
+        "name": "gay theme"
+      },
+      {
+        "id": 265777,
+        "name": "gay relationship"
+      },
+      {
+        "id": 289844,
+        "name": "boys' love (bl)"
+      }
+    ]
   }
 }

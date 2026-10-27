@@ -108,6 +108,11 @@ type MovieMetadataApplyConfiguration struct {
 	// OriginalGenres are Genres in the film's original language, in the
 	// same order, when that language differs from the configured one.
 	OriginalGenres []string `json:"originalGenres,omitempty"`
+	// Keywords are TMDB's keywords for the film ("time travel", "heist"),
+	// which cluster-plex writes into Plex as the item's Labels: PMS keeps
+	// no Label from a metadata provider, so they never reach Plex through
+	// the provider.
+	Keywords []string `json:"keywords,omitempty"`
 }
 
 // MovieMetadataApplyConfiguration constructs a declarative configuration of the MovieMetadata type for use with
@@ -388,6 +393,16 @@ func (b *MovieMetadataApplyConfiguration) WithCertifications(values ...*Certific
 func (b *MovieMetadataApplyConfiguration) WithOriginalGenres(values ...string) *MovieMetadataApplyConfiguration {
 	for i := range values {
 		b.OriginalGenres = append(b.OriginalGenres, values[i])
+	}
+	return b
+}
+
+// WithKeywords adds the given value to the Keywords field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Keywords field.
+func (b *MovieMetadataApplyConfiguration) WithKeywords(values ...string) *MovieMetadataApplyConfiguration {
+	for i := range values {
+		b.Keywords = append(b.Keywords, values[i])
 	}
 	return b
 }

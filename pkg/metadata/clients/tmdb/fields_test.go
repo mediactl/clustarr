@@ -119,6 +119,7 @@ func TestMovieMapsTheFullMetadataFields(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "A (sort of) love story between two guys over a cold weekend in October.", m.Tagline)
+	assert.Equal(t, []string{"gay club", "one-night stand", "nottingham"}, m.Keywords[:3], "TMDB's keywords, appended to the one request (recorded 2026-10-27)")
 	assert.Equal(t, []string{"The Bureau", "Glendale Picture Company", "Synchronicity Films"}, m.Studios[:3])
 	assert.Equal(t, []string{"United Kingdom"}, m.Countries)
 	assert.False(t, m.Adult)
@@ -172,17 +173,19 @@ func TestMovieFetchesItsOriginalLanguage(t *testing.T) {
 	assert.Positive(t, ja)
 }
 
-// A series comes from TVDB, which has no tagline; TMDB's tv record does
-// (spec 2026-09-30 §3.4), and the gateway asks for it by the TMDB id the
-// TVDB record carries.
-func TestSeriesTaglineComesFromTMDBsTVRecord(t *testing.T) {
+// A series comes from TVDB, which has no tagline or keywords; TMDB's tv
+// record has both (spec 2026-09-30 §3.4; keywords appended to the one
+// request), and the gateway asks for them by the TMDB id the TVDB record
+// carries.
+func TestSeriesExtrasComeFromTMDBsTVRecord(t *testing.T) {
 	rec := &recorded{}
-	tagline, err := rec.client(t).SeriesTagline(context.Background(), metadata.ExternalIDs{metadata.KeyTMDB: "57243"})
+	x, err := rec.client(t).SeriesExtras(context.Background(), metadata.ExternalIDs{metadata.KeyTMDB: "57243"})
 	require.NoError(t, err)
-	assert.Equal(t, "Space. For all.", tagline)
+	assert.Equal(t, "Space. For all.", x.Tagline)
+	assert.Equal(t, []string{"time travel", "time machine", "alien"}, x.Keywords, "recorded 2026-10-27")
 	assert.Equal(t, []string{"/tv/57243|en-US"}, rec.Requests())
 
-	tagline, err = rec.client(t).SeriesTagline(context.Background(), metadata.ExternalIDs{metadata.KeyTVDB: "78804"})
+	x, err = rec.client(t).SeriesExtras(context.Background(), metadata.ExternalIDs{metadata.KeyTVDB: "78804"})
 	require.NoError(t, err, "no TMDB id: nothing to ask")
-	assert.Empty(t, tagline)
+	assert.Equal(t, metadata.SeriesExtras{}, x)
 }

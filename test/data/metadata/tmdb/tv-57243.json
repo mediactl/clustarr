@@ -275,5 +275,21 @@
   "tagline": "Space. For all.",
   "type": "Scripted",
   "vote_average": 7.624,
-  "vote_count": 3469
+  "vote_count": 3469,
+  "keywords": {
+    "results": [
+      {
+        "name": "time travel",
+        "id": 4379
+      },
+      {
+        "name": "time machine",
+        "id": 5455
+      },
+      {
+        "name": "alien",
+        "id": 9951
+      }
+    ]
+  }
 }

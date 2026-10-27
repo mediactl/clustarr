@@ -1650,6 +1650,16 @@ spec:
                     description: InCinemas is the theatrical release date.
                     format: date-time
                     type: string
+                  keywords:
+                    description: |-
+                      Keywords are TMDB's keywords for the film ("time travel", "heist"),
+                      which cluster-plex writes into Plex as the item's Labels: PMS keeps
+                      no Label from a metadata provider, so they never reach Plex through
+                      the provider.
+                    items:
+                      type: string
+                    maxItems: 50
+                    type: array
                   language:
                     description: |-
                       Language is the BCP-47 language the metadata was fetched in (the

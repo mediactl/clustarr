@@ -177,9 +177,17 @@ type RatingsProvider interface {
 	Ratings(ctx context.Context, kind commonv1.MediaKind, ids ExternalIDs) (Ratings, error)
 }
 
-// SeriesTaglineProvider supplies a series' tagline, which the series
-// provider (TheTVDB) does not carry: TMDB's tv record does (spec 2026-09-30
-// §3.4). It returns "" with no error when ids name nothing it can look up.
-type SeriesTaglineProvider interface {
-	SeriesTagline(ctx context.Context, ids ExternalIDs) (string, error)
+// SeriesExtras is what a SeriesExtrasProvider adds to a series whose
+// provider (TheTVDB) lacks it: its tagline (spec 2026-09-30 §3.4) and its
+// keywords (TMDB's, 2026-10-27, the show's Plex Labels through cluster-plex).
+type SeriesExtras struct {
+	Tagline  string
+	Keywords []string
+}
+
+// SeriesExtrasProvider supplies a series' extras from TMDB's tv record,
+// found by the TMDB id ids carries. It returns an empty SeriesExtras with
+// no error when ids name nothing it can look up.
+type SeriesExtrasProvider interface {
+	SeriesExtras(ctx context.Context, ids ExternalIDs) (SeriesExtras, error)
 }

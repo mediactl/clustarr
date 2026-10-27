@@ -323,6 +323,13 @@ type SeriesMetadata struct {
 	// +kubebuilder:validation:MaxItems=30
 	SubGenres []string `json:"subGenres,omitempty"`
 
+	// Keywords are TMDB's keywords for the series, through the TMDB id
+	// TheTVDB's record carries, which cluster-plex writes into Plex as the
+	// show's Labels (as a Movie's Keywords).
+	// +optional
+	// +kubebuilder:validation:MaxItems=50
+	Keywords []string `json:"keywords,omitempty"`
+
 	// SeasonImages are per-season artwork (TVDB season posters and
 	// backgrounds). They live here rather than on status.seasons so the
 	// Series controller stays the only writer of status.seasons.

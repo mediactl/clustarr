@@ -273,6 +273,9 @@ type Movie struct {
 	Certifications []Certification `json:"certifications,omitempty"`
 	OriginalGenres []string        `json:"originalGenres,omitempty"`
 	Similar        []SimilarRef    `json:"similar,omitempty"`
+	// Keywords are TMDB's keywords for the film ("time travel", "heist"),
+	// which cluster-plex writes into Plex as the item's Labels.
+	Keywords []string `json:"keywords,omitempty"`
 
 	Provenance []Provenance `json:"provenance,omitempty"`
 }
@@ -390,6 +393,10 @@ type Series struct {
 	// shows them as further genres, so they fill Plex's categories, while
 	// classification and the original-language pairing read Genres alone.
 	SubGenres []string `json:"subGenres,omitempty"`
+	// Keywords are TMDB's keywords for the series, through the TMDB id
+	// TheTVDB's record carries (SeriesExtrasProvider), which cluster-plex
+	// writes into Plex as the show's Labels.
+	Keywords []string `json:"keywords,omitempty"`
 
 	Provenance []Provenance `json:"provenance,omitempty"`
 }

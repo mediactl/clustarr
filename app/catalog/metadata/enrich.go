@@ -79,7 +79,7 @@ func resolveIDs(ctx context.Context, reg *pkgmetadata.Registry, kind commonv1.Me
 // carries no images in pkg/metadata and an Audiobook a single one, so
 // neither takes artwork; no artwork provider serves those kinds anyway.
 func enrich(ctx context.Context, reg *pkgmetadata.Registry, kind commonv1.MediaKind, specIDs, known pkgmetadata.ExternalIDs, doc any) {
-	if reg == nil || (len(reg.Resolvers) == 0 && len(reg.Artwork) == 0 && len(reg.Taglines) == 0) {
+	if reg == nil || (len(reg.Resolvers) == 0 && len(reg.Artwork) == 0 && len(reg.Extras) == 0) {
 		return
 	}
 	ctx, span := tracing.Start(ctx, "metadata.enrich")
@@ -92,8 +92,12 @@ func enrich(ctx context.Context, reg *pkgmetadata.Registry, kind commonv1.MediaK
 	ids := idsp.Merge(nonIDKeysRemoved(specIDs))
 	*idsp = resolveIDs(ctx, reg, kind, ids).Merge(known)
 
-	if s, ok := doc.(*pkgmetadata.Series); ok && s.Tagline == "" {
-		s.Tagline = seriesTagline(ctx, reg.Taglines, *idsp)
+	if s, ok := doc.(*pkgmetadata.Series); ok {
+		extras := seriesExtras(ctx, reg.Extras, *idsp)
+		if s.Tagline == "" {
+			s.Tagline = extras.Tagline
+		}
+		s.Keywords = extras.Keywords
 	}
 
 	if imagesp == nil {
@@ -271,20 +275,21 @@ func nonIDKeysRemoved(ids pkgmetadata.ExternalIDs) pkgmetadata.ExternalIDs {
 	return out
 }
 
-// seriesTagline asks each tagline provider in turn for a series' tagline
-// (TheTVDB has none; TMDB's tv record does, spec 2026-09-30 §3.4), with the
-// ids the crosswalk settled on. Best effort: a failure asks the next.
-func seriesTagline(ctx context.Context, providers []pkgmetadata.SeriesTaglineProvider, ids pkgmetadata.ExternalIDs) string {
+// seriesExtras asks each extras provider in turn for a series' tagline and
+// keywords (TheTVDB has neither; TMDB's tv record does, spec 2026-09-30
+// §3.4), with the ids the crosswalk settled on. Best effort: a failure, or
+// an empty answer, asks the next.
+func seriesExtras(ctx context.Context, providers []pkgmetadata.SeriesExtrasProvider, ids pkgmetadata.ExternalIDs) pkgmetadata.SeriesExtras {
 	for _, p := range providers {
-		tctx, span := tracing.Start(ctx, "metadata.SeriesTaglineProvider.SeriesTagline")
-		t, err := p.SeriesTagline(tctx, ids)
+		tctx, span := tracing.Start(ctx, "metadata.SeriesExtrasProvider.SeriesExtras")
+		x, err := p.SeriesExtras(tctx, ids)
 		if err != nil {
 			tracing.RecordError(span, err)
 		}
 		span.End()
-		if err == nil && t != "" {
-			return t
+		if err == nil && (x.Tagline != "" || len(x.Keywords) > 0) {
+			return x
 		}
 	}
-	return ""
+	return pkgmetadata.SeriesExtras{}
 }

@@ -366,37 +366,40 @@ func ratingsBySource(ratings []catalogv1alpha1.Rating) map[catalogv1alpha1.Ratin
 	return out
 }
 
-type stubTaglineProvider struct {
-	tagline string
-	err     error
-	asked   *[]pkgmetadata.ExternalIDs
+type stubExtrasProvider struct {
+	tagline  string
+	keywords []string
+	err      error
+	asked    *[]pkgmetadata.ExternalIDs
 }
 
-func (s stubTaglineProvider) SeriesTagline(_ context.Context, ids pkgmetadata.ExternalIDs) (string, error) {
+func (s stubExtrasProvider) SeriesExtras(_ context.Context, ids pkgmetadata.ExternalIDs) (pkgmetadata.SeriesExtras, error) {
 	if s.asked != nil {
 		*s.asked = append(*s.asked, ids)
 	}
-	return s.tagline, s.err
+	return pkgmetadata.SeriesExtras{Tagline: s.tagline, Keywords: s.keywords}, s.err
 }
 
-// TVDB has no taglines, so the gateway fills a series' from the first
-// tagline provider that has one (TMDB's tv record, spec 2026-09-30 §3.4),
-// asking with the ids the crosswalk settled on, and never over a tagline
-// the primary provider gave.
-func TestEnrichFillsASeriesTaglineFromATaglineProvider(t *testing.T) {
+// TVDB has no taglines or keywords, so the gateway fills a series' from
+// the first extras provider that has either (TMDB's tv record, spec
+// 2026-09-30 §3.4), asking with the ids the crosswalk settled on, and
+// never over a tagline the primary provider gave.
+func TestEnrichFillsASeriesTaglineAndKeywordsFromAnExtrasProvider(t *testing.T) {
 	var asked []pkgmetadata.ExternalIDs
-	reg := &pkgmetadata.Registry{Taglines: []pkgmetadata.SeriesTaglineProvider{
-		stubTaglineProvider{err: errors.New("tmdb: 503")},
-		stubTaglineProvider{tagline: "Space. For all.", asked: &asked},
+	reg := &pkgmetadata.Registry{Extras: []pkgmetadata.SeriesExtrasProvider{
+		stubExtrasProvider{err: errors.New("tmdb: 503")},
+		stubExtrasProvider{tagline: "Space. For all.", keywords: []string{"time travel", "alien"}, asked: &asked},
 	}}
 	doc := &pkgmetadata.Series{IDs: pkgmetadata.ExternalIDs{"tvdb": "78804", "tmdb": "57243"}}
 
 	enrich(context.Background(), reg, commonv1.MediaKindSeries, nil, nil, doc)
 
 	require.Equal(t, "Space. For all.", doc.Tagline)
+	require.Equal(t, []string{"time travel", "alien"}, doc.Keywords)
 	require.Equal(t, []pkgmetadata.ExternalIDs{{"tvdb": "78804", "tmdb": "57243"}}, asked)
 
 	own := &pkgmetadata.Series{IDs: pkgmetadata.ExternalIDs{"tvdb": "78804"}, Tagline: "Its own."}
 	enrich(context.Background(), reg, commonv1.MediaKindSeries, nil, nil, own)
 	require.Equal(t, "Its own.", own.Tagline)
+	require.Equal(t, []string{"time travel", "alien"}, own.Keywords, "the keywords are the provider's even beside the primary's tagline")
 }

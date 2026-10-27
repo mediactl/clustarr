@@ -762,3 +762,16 @@ func TestBuildSeriesMetadataACRendersSubGenresCappedAt30(t *testing.T) {
 	require.Equal(t, []string{"Drama"}, ac.Genres, "sub-genres never join genres in the document")
 	require.Nil(t, buildSeriesMetadataAC(&pkgmetadata.Series{Title: "Plain"}, nil, time.Now()).SubGenres)
 }
+
+func TestBuildMetadataACsRenderKeywordsCappedAt50(t *testing.T) {
+	var kw []string
+	for i := range 60 {
+		kw = append(kw, "kw"+string(rune('a'+i%26))+string(rune('a'+i/26)))
+	}
+	m := buildMovieMetadataAC(&pkgmetadata.Movie{Title: "Tagged", Keywords: kw}, nil, time.Now())
+	require.Len(t, m.Keywords, 50)
+	require.Equal(t, "kwaa", m.Keywords[0])
+	s := buildSeriesMetadataAC(&pkgmetadata.Series{Title: "Tagged", Keywords: kw[:2]}, nil, time.Now())
+	require.Equal(t, []string{"kwaa", "kwba"}, s.Keywords)
+	require.Nil(t, buildMovieMetadataAC(&pkgmetadata.Movie{Title: "Plain"}, nil, time.Now()).Keywords)
+}

@@ -364,6 +364,14 @@ type MovieMetadata struct {
 	// +optional
 	// +kubebuilder:validation:MaxItems=30
 	OriginalGenres []string `json:"originalGenres,omitempty"`
+
+	// Keywords are TMDB's keywords for the film ("time travel", "heist"),
+	// which cluster-plex writes into Plex as the item's Labels: PMS keeps
+	// no Label from a metadata provider, so they never reach Plex through
+	// the provider.
+	// +optional
+	// +kubebuilder:validation:MaxItems=50
+	Keywords []string `json:"keywords,omitempty"`
 }
 
 // MovieSpec defines the desired state of Movie.

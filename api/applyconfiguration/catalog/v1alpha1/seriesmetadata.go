@@ -105,6 +105,10 @@ type SeriesMetadataApplyConfiguration struct {
 	// Plex's categories. Kept apart from Genres, which classification and
 	// OriginalGenres read.
 	SubGenres []string `json:"subGenres,omitempty"`
+	// Keywords are TMDB's keywords for the series, through the TMDB id
+	// TheTVDB's record carries, which cluster-plex writes into Plex as the
+	// show's Labels (as a Movie's Keywords).
+	Keywords []string `json:"keywords,omitempty"`
 	// SeasonImages are per-season artwork (TVDB season posters and
 	// backgrounds). They live here rather than on status.seasons so the
 	// Series controller stays the only writer of status.seasons.
@@ -377,6 +381,16 @@ func (b *SeriesMetadataApplyConfiguration) WithOriginalGenres(values ...string) 
 func (b *SeriesMetadataApplyConfiguration) WithSubGenres(values ...string) *SeriesMetadataApplyConfiguration {
 	for i := range values {
 		b.SubGenres = append(b.SubGenres, values[i])
+	}
+	return b
+}
+
+// WithKeywords adds the given value to the Keywords field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Keywords field.
+func (b *SeriesMetadataApplyConfiguration) WithKeywords(values ...string) *SeriesMetadataApplyConfiguration {
+	for i := range values {
+		b.Keywords = append(b.Keywords, values[i])
 	}
 	return b
 }
