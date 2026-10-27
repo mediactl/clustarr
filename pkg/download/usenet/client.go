@@ -411,6 +411,7 @@ func New(cfg Config) (download.Client, error) {
 type manifest struct {
 	ID         string `json:"id"`
 	Name       string `json:"name"`
+	Title      string `json:"title,omitempty"`
 	Category   string `json:"category"`
 	Status     string `json:"status"`
 	Stage      string `json:"stage"`
@@ -460,6 +461,9 @@ type job struct {
 	name     string
 	category string
 	dir      string
+	// title is [download.AddRequest.Title], the release's title, which a
+	// lone obfuscated file is published under ([job.publishName]).
+	title string
 
 	// nzb is the parsed payload. The payload itself is only on disk
 	// (nzbName), which is what a restart re-parses: held here too, it was
@@ -628,6 +632,7 @@ func (j *job) checkpoint() error {
 	m := manifest{
 		ID:             j.id,
 		Name:           j.name,
+		Title:          j.title,
 		Category:       j.category,
 		Status:         string(j.status),
 		Stage:          string(j.stage),
@@ -736,6 +741,7 @@ func (c *Client) loadJob(dir string) (*job, error) {
 		return nil, err
 	}
 	j := c.newJob(m.ID, m.Name, m.Category, dir, parsed)
+	j.title = m.Title
 	j.status = download.Status(m.Status)
 	j.stage = commonv1alpha1.DownloadStage(m.Stage)
 	j.reason = commonv1alpha1.DownloadFailureReason(m.Reason)
@@ -917,6 +923,7 @@ func (c *Client) Add(ctx context.Context, req download.AddRequest) (string, erro
 	}
 
 	j := c.newJob(parsed.ID, req.Name, category, dir, parsed)
+	j.title = req.Title
 	j.paused.Store(req.Paused)
 	j.prio.Store(req.Priority)
 	j.addedAt = req.AddedAt

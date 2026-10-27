@@ -145,13 +145,19 @@ func (j *job) finalNames(ctx context.Context, dir string) {
 	}
 }
 
-// publishName is the name the job publishes under: its own, else the
-// NZB's title.
+// publishName is the name a lone obfuscated file is published under: the
+// release's title, else the NZB's when it is no hash itself (nzbgeek
+// obfuscates its title meta), else none. Never the job's own name, which is
+// the grab entry's id: "86-eighty-six-cb83c58857-50e5c90a59.mkv" parsed as
+// absolute episode 50, and the import held it for a person (2026-10-27).
 func (j *job) publishName() string {
-	if j.name != "" {
-		return j.name
+	if j.title != "" {
+		return j.title
 	}
-	return j.nzb.Title
+	if t := j.nzb.Title; t != "" && !isProbablyObfuscated(t) {
+		return t
+	}
+	return ""
 }
 
 // recoverUnpackedNames names the files under dir by the par2 set unpacked

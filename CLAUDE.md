@@ -1681,8 +1681,12 @@ too; bump the tag in go.mod and go.sum to take a new fork release.
   way and is then removed (`process_unpacked_par2`), a file with no usable
   extension takes one from its magic bytes, and one big file (10 MiB or
   more, outside disc and archive structures) whose name is probably
-  obfuscated (`isProbablyObfuscated`, SABnzbd's rules) takes the job's name
-  ("Deobfuscate final filenames"). A pack's hashed files are left as they
+  obfuscated (`isProbablyObfuscated`, SABnzbd's rules) takes the release's
+  title ("Deobfuscate final filenames"; `download.AddRequest.Title`, from the
+  engine command's release, else an NZB title that is no hash itself, else
+  nothing) -- never the job's own name, which is the grab entry's id: until
+  2026-10-27 it was, and "86-eighty-six-cb83c58857-50e5c90a59.mkv" parsed as
+  absolute episode 50 and was held for a person. A pack's hashed files are left as they
   are on purpose: `job.1.mkv`-style names would parse as nothing, and the
   importer reads each file's container `title` tag instead
   (`fileimport.titleNames`), which uploaders who hash the names usually

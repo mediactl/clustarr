@@ -46,15 +46,21 @@ func TestIsProbablyObfuscated(t *testing.T) {
 	}
 }
 
+// entryID is a job's name as the engine names it: the grab entry's id,
+// never a release title (download.AddRequest.Name).
+const entryID = "86-eighty-six-cb83c58857-50e5c90a59"
+
 // hashedJob is a job whose NZB names the given files, with a content
-// directory on disk and the given publish name.
-func hashedJob(t *testing.T, name string, files ...string) *job {
+// directory on disk, named as the engine names it (entryID) for the
+// release title given.
+func hashedJob(t *testing.T, title string, files ...string) *job {
 	t.Helper()
 	c, _, _ := newTestClient(t, Config{Providers: []Provider{{Name: "p", Host: "127.0.0.1", Port: 1, Connections: 1}}})
 	nzb := nzbWith(t, "", files...)
 	parsed, err := parseNZB(nzb, defaultMaxNZBBytes)
 	require.NoError(t, err)
-	j := c.newJob("job1", name, "tv", filepath.Join(c.cfg.ScratchDir, "tv", "job1"), parsed)
+	j := c.newJob("job1", entryID, "tv", filepath.Join(c.cfg.ScratchDir, "tv", "job1"), parsed)
+	j.title = title
 	require.NoError(t, os.MkdirAll(j.contentDir(), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(j.dir, nzbName), nzb, 0o644))
 	return j
@@ -144,6 +150,48 @@ func TestALoneObfuscatedFileTakesTheJobName(t *testing.T) {
 			require.ElementsMatch(t, tc.want, got)
 		})
 	}
+}
+
+func TestALoneObfuscatedFileIsNeverNamedForTheEntryID(t *testing.T) {
+	// The job's name is the grab entry's id: a hashed file named for it
+	// parsed as absolute episode 50 of 86 and was held (2026-10-27). With no
+	// release title the file keeps its hash, which the importer reads past
+	// to the release; an NZB title that is a hash itself names nothing.
+	for name, tc := range map[string]struct {
+		title, nzbTitle, want string
+	}{
+		"the release title":  {"86.Eighty.Six.S01E13.2021.1080p.WEB-DL.AVC.AAC.2.0.Dual.Audio.-ZR", "", "86.Eighty.Six.S01E13.2021.1080p.WEB-DL.AVC.AAC.2.0.Dual.Audio.-ZR.mkv"},
+		"no title":           {"", "", "d75f1b87ac3c4192903480484a65d844.mkv"},
+		"an NZB title":       {"", "86.Eighty.Six.S01E13.1080p.WEB-DL-ZR", "86.Eighty.Six.S01E13.1080p.WEB-DL-ZR.mkv"},
+		"a hashed NZB title": {"", "a4f0c2e91b7d3c55e8a1f6b2d9c0e7a3", "d75f1b87ac3c4192903480484a65d844.mkv"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			j := hashedJob(t, tc.title, "d75f1b87ac3c4192903480484a65d844.part01.rar")
+			j.nzb.Title = tc.nzbTitle
+			unpacked := filepath.Join(j.dir, unpackDirName)
+			bigFile(t, filepath.Join(unpacked, "d75f1b87ac3c4192903480484a65d844.mkv"), obfuscatedMinBytes+1, nil)
+
+			j.finalNames(context.Background(), unpacked)
+
+			entries, err := os.ReadDir(unpacked)
+			require.NoError(t, err)
+			require.Len(t, entries, 1)
+			require.Equal(t, tc.want, entries[0].Name())
+			require.NotContains(t, entries[0].Name(), entryID)
+		})
+	}
+}
+
+func TestTheReleaseTitleSurvivesARestart(t *testing.T) {
+	// The manifest carries the title, so a job a restart re-attaches is
+	// still published under it.
+	j := hashedJob(t, "86.Eighty.Six.S01E13.2021.1080p.WEB-DL.AVC.AAC.2.0.Dual.Audio.-ZR", "d75f1b87ac3c4192903480484a65d844.mkv")
+	require.NoError(t, j.checkpoint())
+
+	loaded, err := j.client.loadJob(j.dir)
+	require.NoError(t, err)
+	require.Equal(t, entryID, loaded.name)
+	require.Equal(t, "86.Eighty.Six.S01E13.2021.1080p.WEB-DL.AVC.AAC.2.0.Dual.Audio.-ZR", loaded.publishName())
 }
 
 func TestFinalNamesOnTheContentKeepTheJobsBooks(t *testing.T) {

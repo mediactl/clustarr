@@ -404,6 +404,13 @@ type AddRequest struct {
 	// path element; object names already are.
 	Name string
 
+	// Title is the release's title, as the indexer listed it. A usenet
+	// client names a lone obfuscated file after it (SABnzbd's "Deobfuscate
+	// final filenames", which takes the job's name, there the NZB's): Name is
+	// an id, and a file named for it parsed as absolute episode 50 of 86
+	// (2026-10-27). Empty leaves such a file as it is.
+	Title string
+
 	// Magnet is a magnet URI. Exactly one of Magnet and Payload is set.
 	Magnet string
 

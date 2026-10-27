@@ -159,6 +159,7 @@ func (t *Transfers) add(ctx context.Context, cmd schema.EngineCommand) (string, 
 	}
 	id, err := t.Client.Add(ctx, download.AddRequest{
 		Name:     cmd.Entry.ID,
+		Title:    cmd.Release.Title,
 		Payload:  payload,
 		Category: cat,
 		Paused:   cmd.Paused,
