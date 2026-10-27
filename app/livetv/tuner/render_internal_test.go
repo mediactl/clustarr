@@ -35,10 +35,10 @@ func TestGuidesAreBuiltOutsideTheProvidersLock(t *testing.T) {
 	// a tune waiting behind it on the provider's lock would stall Plex.
 	entered, release := make(chan struct{}, 8), make(chan struct{})
 	orig := buildGuide
-	buildGuide = func(w io.Writer, lc []xmltv.LineupChannel, g map[string]xmltv.Guide, from time.Time, days int) error {
+	buildGuide = func(w io.Writer, lc []xmltv.LineupChannel, g map[string]xmltv.Guide, from time.Time, days int, e *xmltv.Enricher) error {
 		entered <- struct{}{}
 		<-release
-		return orig(w, lc, g, from, days)
+		return orig(w, lc, g, from, days, e)
 	}
 	t.Cleanup(func() { buildGuide = orig })
 

@@ -336,7 +336,7 @@ func TestAChannelChangeOnOneTunerTakesTheLingeringStreamsTuner(t *testing.T) {
 func TestConfigureReachesStreamsStartedAfterIt(t *testing.T) {
 	u := newUpstream(t)
 	r := newRelay(t, 1, 10*time.Second)
-	r.Configure(1, 1<<20, 0, "clustarr-configured")
+	r.Configure(1, 1<<20, 0, "clustarr-configured", "")
 	a, cancel := watch(t, r, "1001", u.srv.URL+"/1001.ts")
 	_, _ = io.CopyN(io.Discard, a.Body, 1<<16)
 	cancel()

@@ -230,6 +230,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: key
       type:
         scalar: string
+    - name: language
+      type:
+        scalar: string
     - name: logo
       type:
         scalar: string
@@ -427,6 +430,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: buffer
       type:
         namedType: io.k8s.apimachinery.pkg.api.resource.Quantity
+    - name: language
+      type:
+        scalar: string
     - name: linger
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Duration

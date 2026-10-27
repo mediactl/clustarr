@@ -34,6 +34,13 @@ type StreamSpecApplyConfiguration struct {
 	// Linger keeps an upstream open after its last viewer leaves, so a
 	// channel flip back costs no reconnect. Default 10s.
 	Linger *v1.Duration `json:"linger,omitempty"`
+	// Language is the language the relay declares for every audio and
+	// subtitle track whose program map names none or an undetermined one
+	// ("und"), as a BCP-47 or ISO 639-2 code; Plex shows such a track as
+	// Unknown otherwise (2026-10-27: tvload.win's ESPN said und, its Weather
+	// Channel eng). A channel's own language (IPTVChannel spec.language)
+	// replaces whatever the stream declares. Default "eng".
+	Language *string `json:"language,omitempty"`
 }
 
 // StreamSpecApplyConfiguration constructs a declarative configuration of the StreamSpec type for use with
@@ -55,5 +62,13 @@ func (b *StreamSpecApplyConfiguration) WithBuffer(value resource.Quantity) *Stre
 // If called multiple times, the Linger field is set to the value of the last call.
 func (b *StreamSpecApplyConfiguration) WithLinger(value v1.Duration) *StreamSpecApplyConfiguration {
 	b.Linger = &value
+	return b
+}
+
+// WithLanguage sets the Language field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Language field is set to the value of the last call.
+func (b *StreamSpecApplyConfiguration) WithLanguage(value string) *StreamSpecApplyConfiguration {
+	b.Language = &value
 	return b
 }

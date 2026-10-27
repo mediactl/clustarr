@@ -116,6 +116,7 @@ func buildConfig(p *clustarrv1.IPTVProvider, blocks []tuner.BlockConfig, res res
 		EPGSource: string(p.Spec.EPGSourceOrDefault()),
 		Buffer:    int(p.Spec.Stream.BufferOrDefault()),
 		Linger:    p.Spec.Stream.LingerOrDefault(),
+		Language:  p.Spec.Stream.LanguageOrDefault(),
 		Refresh:   p.Annotations[AnnotationRefresh],
 	}
 	for _, f := range p.Spec.Filters {
@@ -129,6 +130,7 @@ func buildConfig(p *clustarrv1.IPTVProvider, blocks []tuner.BlockConfig, res res
 		cc := tuner.ChannelConfig{
 			Object: ch.Name, Key: ch.Spec.Key, Number: ch.Spec.Number, Name: ch.Spec.Name,
 			Group: ch.Spec.Group, Logo: ch.Spec.Logo, Active: ch.Spec.Active, TimeshiftMinutes: int(ch.Spec.TimeshiftMinutes),
+			Language: ch.Spec.Language,
 		}
 		if e := ch.Spec.EPG; e != nil {
 			if e.Dummy {

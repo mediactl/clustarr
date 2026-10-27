@@ -147,6 +147,19 @@ func (s StreamSpec) LingerOrDefault() time.Duration {
 	return s.Linger.Duration
 }
 
+// DefaultStreamLanguage is the audio language declared in a stream whose
+// program map names none or an undetermined one.
+const DefaultStreamLanguage = "eng"
+
+// LanguageOrDefault is the language the relay fills into a stream, "eng"
+// when unset.
+func (s StreamSpec) LanguageOrDefault() string {
+	if s.Language == "" {
+		return DefaultStreamLanguage
+	}
+	return s.Language
+}
+
 // DummyMinutesOrDefault is the dummy guide's block length, 60 when unset.
 func (e ChannelEPG) DummyMinutesOrDefault() int32 {
 	if e.DummyMinutes == nil {

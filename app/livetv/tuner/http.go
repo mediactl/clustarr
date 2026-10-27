@@ -27,6 +27,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/types"
 
+	"github.com/mediactl/clustarr/app/livetv/relay"
 	"github.com/mediactl/clustarr/pkg/iptv/hdhr"
 	"github.com/mediactl/clustarr/pkg/iptv/xmltv"
 )
@@ -165,13 +166,13 @@ func (t *Tuner) serveDevice(w http.ResponseWriter, r *http.Request, p *provider,
 			http.Error(w, "the playlist has not been fetched yet", http.StatusServiceUnavailable)
 			return
 		}
-		writeBody(w, "audio/x-mpegurl", playlistM3U(entries, t.logos(p), base))
+		writeBody(w, "audio/x-mpegurl", withBase(playlistM3U(entries, t.logos(p), base), base))
 	case file == "xmltv.xml":
 		if cfg.EPGSource == "PMS" || guide == nil {
 			http.NotFound(w, r)
 			return
 		}
-		writeTagged(w, r, "application/xml", guide)
+		writeTagged(w, r, "application/xml", withBase(guide, base))
 	default:
 		t.serveCommon(w, r, p, device, file)
 	}
@@ -213,13 +214,13 @@ func (t *Tuner) serveRange(w http.ResponseWriter, r *http.Request, p *provider, 
 			http.Error(w, "the playlist has not been fetched yet", http.StatusServiceUnavailable)
 			return
 		}
-		writeBody(w, "audio/x-mpegurl", playlistM3U(entries, t.logos(p), base))
+		writeBody(w, "audio/x-mpegurl", withBase(playlistM3U(entries, t.logos(p), base), base))
 	case file == "xmltv.xml":
 		if cfg.EPGSource == "PMS" || !fetched {
 			http.NotFound(w, r)
 			return
 		}
-		writeTagged(w, r, "application/xml", t.rangeGuide(p, rg))
+		writeTagged(w, r, "application/xml", withBase(t.rangeGuide(p, rg), base))
 	default:
 		t.serveCommon(w, r, p, device, file)
 	}
@@ -236,17 +237,22 @@ func (t *Tuner) serveCommon(w http.ResponseWriter, r *http.Request, p *provider,
 		w.WriteHeader(http.StatusOK)
 	case file == "device.xml":
 		writeBody(w, "application/xml", hdhr.DeviceXML(device))
+	case strings.HasPrefix(file, "logos/") && strings.HasSuffix(file, ".png"):
+		t.serveLogo(w, r, p, strings.TrimSuffix(strings.TrimPrefix(file, "logos/"), ".png"))
 	case isStream:
 		// A stream is the provider's, under any device or range.
 		p.mu.Lock()
 		upstream, ok := p.streams[number]
+		lang := p.languages[number]
 		rl := p.relay
 		p.mu.Unlock()
 		if !ok || rl == nil {
 			http.NotFound(w, r)
 			return
 		}
-		rl.Serve(w, r, number, upstream)
+		// A channel's own language is forced over the stream's; none
+		// leaves the provider's default to fill a missing one.
+		rl.ServeWith(w, r, number, upstream, relay.Language{Code: lang, Force: lang != ""})
 	default:
 		http.NotFound(w, r)
 	}
@@ -278,10 +284,11 @@ func (t *Tuner) rangeGuide(p *provider, rg channelRange) []byte {
 		}
 	}
 	loaded, from := p.loaded, p.guideFrom
+	enricher := t.enricher(p)
 	p.mu.Unlock()
 
 	var b bytes.Buffer
-	_ = buildGuide(&b, chans, loaded, from, guideDays)
+	_ = buildGuide(&b, chans, loaded, from, guideDays, enricher)
 	p.mu.Lock()
 	if p.renderGen == gen {
 		if p.ranges == nil {

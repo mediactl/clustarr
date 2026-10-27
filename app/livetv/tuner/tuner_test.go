@@ -469,7 +469,7 @@ func TestAPlaylistM3UListsTheRange(t *testing.T) {
 	code, body := h.get(t, "x", "/livetv/media/news/playlist.m3u?from=1001&to=1002")
 	require.Equal(t, http.StatusOK, code)
 	assert.Equal(t, `#EXTM3U
-#EXTINF:-1 tvg-id="1001" tvg-chno="1001" tvg-name="BBC One" tvg-logo="http://logo.example/bbc1.png",BBC One
+#EXTINF:-1 tvg-id="1001" tvg-chno="1001" tvg-name="BBC One" tvg-logo="http://x/livetv/media/news/logos/1001.png",BBC One
 http://x/livetv/media/news/stream/1001
 #EXTINF:-1 tvg-id="1002" tvg-chno="1002" tvg-name="News, Live" tvg-logo="",News, Live
 http://x/livetv/media/news/stream/1002

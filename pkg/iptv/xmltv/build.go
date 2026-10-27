@@ -42,6 +42,9 @@ type LineupChannel struct {
 	Map              *Mapping
 	DummyMinutes     int
 	TimeshiftMinutes int
+	// Group is the IPTVChannel's group ("Sports", "News"), which the
+	// Enricher classifies programmes by.
+	Group string
 }
 
 // BuildGuide writes the XEPG guide: one <channel id="<number>"> per lineup
@@ -50,6 +53,12 @@ type LineupChannel struct {
 // mapped guide, timeshifted, or dummy blocks, over [from, from+days).
 // Channels go in number order, so the same input gives the same bytes.
 func BuildGuide(w io.Writer, lineup []LineupChannel, guides map[string]Guide, from time.Time, days int) error {
+	return BuildGuideWith(w, lineup, guides, from, days, nil)
+}
+
+// BuildGuideWith is BuildGuide with each mapped programme passed through e
+// (nil adds nothing).
+func BuildGuideWith(w io.Writer, lineup []LineupChannel, guides map[string]Guide, from time.Time, days int, e *Enricher) error {
 	chans := slices.Clone(lineup)
 	slices.SortStableFunc(chans, func(a, b LineupChannel) int { return CompareNumbers(a.Number, b.Number) })
 	to := from.AddDate(0, 0, days)
@@ -76,7 +85,11 @@ func BuildGuide(w io.Writer, lineup []LineupChannel, guides map[string]Guide, fr
 				if !stop.After(from) || !start.Before(to) {
 					continue
 				}
-				programme(&bw, c.Number, start, stop, p.Inner)
+				inner := p.Inner
+				if e != nil {
+					inner = e.Enrich(inner, c, start, stop)
+				}
+				programme(&bw, c.Number, start, stop, inner)
 			}
 			continue
 		}

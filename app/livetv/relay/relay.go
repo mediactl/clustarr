@@ -79,6 +79,10 @@ type Options struct {
 	Reclaim time.Duration
 	// UserAgent is sent upstream.
 	UserAgent string
+	// Language is the ISO 639-2 code every stream's audio and subtitle
+	// tracks are made to declare where they declare none or an
+	// undetermined one; empty leaves the program maps as they come.
+	Language string
 	// OnChange is told the tuners in use whenever that changes.
 	OnChange func(inUse int)
 	// OnError is told each upstream failure's reason.
@@ -102,11 +106,12 @@ type Relay struct {
 	tuners  int
 	inUse   int
 	viewers int
-	// buffer, linger and userAgent are Options', changed by Configure for
-	// later streams.
+	// buffer, linger, userAgent and language are Options', changed by
+	// Configure for later streams.
 	buffer    int
 	linger    time.Duration
 	userAgent string
+	language  string
 }
 
 type stream struct {
@@ -121,6 +126,7 @@ type stream struct {
 	cancel    context.CancelFunc
 	linger    *time.Timer
 	userAgent string
+	lang      Language // declared in the program map's audio and subtitle tracks
 }
 
 // New returns a Relay.
@@ -146,7 +152,7 @@ func New(o Options) *Relay {
 	if o.Reclaim <= 0 {
 		o.Reclaim = 10 * time.Second
 	}
-	return &Relay{o: o, streams: map[string]*stream{}, taken: map[string]time.Time{}, tuners: o.Tuners, buffer: o.Buffer, linger: o.Linger, userAgent: o.UserAgent}
+	return &Relay{o: o, streams: map[string]*stream{}, taken: map[string]time.Time{}, tuners: o.Tuners, buffer: o.Buffer, linger: o.Linger, userAgent: o.UserAgent, language: o.Language}
 }
 
 // InUse is the tuners streaming now.
@@ -170,15 +176,24 @@ func (r *Relay) SetTuners(n int) {
 	r.mu.Unlock()
 }
 
-// Configure sets the limit, buffer, linger and user agent for later
-// streams; no stream is ended.
-func (r *Relay) Configure(tuners, buffer int, linger time.Duration, userAgent string) {
+// Configure sets the limit, buffer, linger, user agent and language for
+// later streams; no stream is ended.
+func (r *Relay) Configure(tuners, buffer int, linger time.Duration, userAgent, language string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.tuners, r.linger, r.userAgent = tuners, linger, userAgent
+	r.tuners, r.linger, r.userAgent, r.language = tuners, linger, userAgent, language
 	if buffer > 0 {
 		r.buffer = buffer
 	}
+}
+
+// streamLanguage is the language a new stream declares: the channel's own,
+// forced, else the relay's default, filled in; r.mu is held.
+func (r *Relay) streamLanguage(l Language) Language {
+	if l.Code == "" {
+		return Fill(r.language)
+	}
+	return l
 }
 
 // Close ends every stream.
@@ -216,6 +231,14 @@ func (r *Relay) changed(inUse int) {
 // answers 503, as a real HDHomeRun does, only when none may be taken; it
 // answers 502 when the upstream cannot be read.
 func (r *Relay) Serve(w http.ResponseWriter, req *http.Request, channel, upstream string) {
+	r.ServeWith(w, req, channel, upstream, Language{})
+}
+
+// ServeWith is Serve with the language the channel's stream declares for
+// its audio and subtitle tracks: the channel's own, replacing the stream's,
+// or with an empty Code the relay's default, which fills a missing or
+// undetermined one.
+func (r *Relay) ServeWith(w http.ResponseWriter, req *http.Request, channel, upstream string, lang Language) {
 	defer func() {
 		if p := recover(); p != nil {
 			logging.FromContext(req.Context()).Error("livetv: viewer panicked", "channel", channel, "panic", fmt.Sprint(p))
@@ -254,7 +277,7 @@ func (r *Relay) Serve(w http.ResponseWriter, req *http.Request, channel, upstrea
 		// its lifetime, and the viewer's logger: the tuner serves viewers
 		// under the manager's, while its own context carries none.
 		ctx, cancel := context.WithCancel(logging.NewContext(r.o.Context, logging.FromContext(req.Context())))
-		s = &stream{channel: channel, ring: newRing(r.buffer), ready: make(chan struct{}), cancel: cancel, userAgent: r.userAgent}
+		s = &stream{channel: channel, ring: newRing(r.buffer), ready: make(chan struct{}), cancel: cancel, userAgent: r.userAgent, lang: r.streamLanguage(lang)}
 		r.streams[channel] = s
 		r.inUse++
 		inUse := r.inUse
@@ -495,6 +518,7 @@ func (r *Relay) fetch(ctx context.Context, s *stream, upstream string) (reason s
 	}
 	buf := make([]byte, 32<<10)
 	first := true
+	rw := newTSRewriter(s.lang) // each connection's packets start afresh
 	for {
 		n, err := resp.Body.Read(buf)
 		if n > 0 {
@@ -502,7 +526,7 @@ func (r *Relay) fetch(ctx context.Context, s *stream, upstream string) (reason s
 				return ReasonUnsupportedStream, true, delivered
 			}
 			first = false
-			s.ring.Write(buf[:n])
+			s.ring.Write(rw.write(buf[:n]))
 			if r.o.OnBytes != nil {
 				r.o.OnBytes(n)
 			}

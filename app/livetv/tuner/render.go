@@ -111,6 +111,8 @@ func (t *Tuner) render(p *provider) {
 		active, unmapped, missing int
 	)
 	streams := map[string]string{}
+	languages := map[string]string{}
+	logoSources := map[string]string{}
 	states := make(map[string]ChannelState, len(chans))
 	taken := map[string]bool{}
 	// Before the first playlist no channel is placed: every one would read
@@ -138,7 +140,13 @@ func (t *Tuner) render(p *provider) {
 		}
 		taken[ch.Number] = true
 		name := firstNonEmpty(ch.Name, e.Name)
-		lc := xmltv.LineupChannel{Number: ch.Number, Name: name, Logo: firstNonEmpty(ch.Logo, e.Logo), TimeshiftMinutes: ch.TimeshiftMinutes}
+		lc := xmltv.LineupChannel{Number: ch.Number, Name: name, TimeshiftMinutes: ch.TimeshiftMinutes, Group: ch.Group}
+		if source := firstNonEmpty(ch.Logo, e.Logo); source != "" {
+			// The guide and playlist point at the tuner's processed copy
+			// (logo.go); the source is kept for the fetch.
+			lc.Logo = logoURL(ch.Number)
+			logoSources[ch.Number] = source
+		}
 		if !pms {
 			switch {
 			case ch.Map != nil:
@@ -163,10 +171,12 @@ func (t *Tuner) render(p *provider) {
 		active++
 		entries = append(entries, hdhr.LineupEntry{GuideNumber: ch.Number, GuideName: name, URL: "stream/" + ch.Number})
 		streams[ch.Number] = e.URL
+		languages[ch.Number] = languageCode(ch.Language)
 		lineupChans = append(lineupChans, lc)
 		states[ch.Object] = st
 	}
 	from := guideFrom(t.o.Now())
+	enricher := t.enricher(p)
 	p.mu.Unlock()
 
 	// Split the lineup by block: a channel belongs to the block listing its
@@ -174,7 +184,7 @@ func (t *Tuner) render(p *provider) {
 	blockEntries, blockChans := splitBlocks(cfg.Blocks, entries, lineupChans)
 	build := func(lc []xmltv.LineupChannel) []byte {
 		var b bytes.Buffer
-		_ = buildGuide(&b, lc, loaded, from, guideDays)
+		_ = buildGuide(&b, lc, loaded, from, guideDays, enricher)
 		return b.Bytes()
 	}
 	// Each block's guide is built for its device; the whole provider's for
@@ -182,11 +192,12 @@ func (t *Tuner) render(p *provider) {
 	var whole []byte
 	blockGuides := make([][]byte, len(cfg.Blocks))
 	if !pms && fetched {
-		whole = build(lineupChans)
+		whole = build(sourceLogos(lineupChans, logoSources)) // the ui reads the store's copy, with the providers' logos
 		for i := range cfg.Blocks {
 			blockGuides[i] = build(blockChans[i])
 		}
 	}
+	t.startArtLookups(p) // the titles the builds found no artwork for
 
 	p.mu.Lock()
 	if p.removed || p.renderGen != gen {
@@ -201,7 +212,7 @@ func (t *Tuner) render(p *provider) {
 	}
 	p.lineup, p.lineupChans, p.loaded, p.guideFrom = entries, lineupChans, loaded, from
 	p.ranges = nil
-	p.streams = streams
+	p.streams, p.languages, p.logoSources = streams, languages, logoSources
 	blocks := make(map[string]*surface, len(cfg.Blocks))
 	blockStates := make([]BlockState, len(cfg.Blocks))
 	for i, b := range cfg.Blocks {
@@ -309,4 +320,4 @@ func firstNonEmpty(s ...string) string {
 }
 
 // buildGuide is xmltv.BuildGuide; a test holds it to see the render's lock.
-var buildGuide = xmltv.BuildGuide
+var buildGuide = xmltv.BuildGuideWith

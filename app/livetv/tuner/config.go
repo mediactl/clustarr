@@ -23,9 +23,19 @@ import (
 
 	"k8s.io/apimachinery/pkg/types"
 
+	"github.com/mediactl/clustarr/pkg/iptv"
 	"github.com/mediactl/clustarr/pkg/iptv/filter"
 	"github.com/mediactl/clustarr/pkg/iptv/xmltv"
 )
+
+// languageCode is a Config or ChannelConfig language as the relay declares
+// it: ISO 639-2's three letters, or "" for none or an unknown code.
+func languageCode(s string) string {
+	if iso, ok := iptv.ISO6392(s); ok {
+		return iso
+	}
+	return ""
+}
 
 // GuideName is the name the provider's one guide, its panel's xmltv.php,
 // goes by in channel mappings (xmltv.Mapping.Guide).
@@ -55,6 +65,10 @@ type Config struct {
 	Channels  []ChannelConfig
 	Buffer    int
 	Linger    time.Duration
+	// Language is the language, as a BCP-47 or ISO 639-2 code, the relay
+	// declares for an audio or subtitle track whose program map names none
+	// or an undetermined one; empty declares nothing.
+	Language string
 	// Refresh is the clustarr.io/livetv-refresh annotation's value. A new
 	// value makes every source of the provider due now (spec §5.1).
 	Refresh string
@@ -82,6 +96,9 @@ type ChannelConfig struct {
 	Active                                 bool
 	Map                                    *xmltv.Mapping
 	DummyMinutes, TimeshiftMinutes         int
+	// Language replaces the audio language the channel's stream declares;
+	// empty takes Config.Language, which only fills a missing one.
+	Language string
 }
 
 // PlaylistURL is the panel's live playlist: get.php in m3u_plus, streams as

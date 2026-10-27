@@ -91,6 +91,9 @@ type Options struct {
 	// it is not a snapshot change.
 	NotifyTuners   func(types.NamespacedName)
 	TunersDebounce time.Duration
+	// Search asks the metadata gateway for a programme title's movies and
+	// series, for the guide's programme artwork; nil adds none.
+	Search SearchFunc
 }
 
 // Tuner serves every provider.
@@ -106,6 +109,9 @@ type Tuner struct {
 
 	mu        sync.Mutex
 	providers map[types.NamespacedName]*provider
+
+	// logoFlight fetches each channel logo once however many requests ask.
+	logoFlight flight
 }
 
 type provider struct {
@@ -133,7 +139,14 @@ type provider struct {
 	accountNext    time.Time
 	accountBackoff time.Duration
 
-	streams map[string]string // number -> upstream URL
+	streams   map[string]string // number -> upstream URL
+	languages map[string]string // number -> the ISO 639-2 code the channel forces, "" for the provider's fill
+	// logoSources is each channel's logo as the playlist or spec gave it;
+	// the guide and playlist point at the tuner's processed copy.
+	logoSources map[string]string
+	// art is the guide's programme artwork, loaded from the store on first
+	// use.
+	art *programmeArt
 	// lineup is the rendered lineup in number order, its URLs relative
 	// ("stream/<number>"); lineupChans is its channels for the guide, in the
 	// same order. loaded and guideFrom are the guide's other inputs.
@@ -205,8 +218,10 @@ func New(o Options) *Tuner {
 	}
 	registerMetrics()
 	base, cancel := context.WithCancel(context.Background())
-	return &Tuner{o: o, base: base, cancelBase: cancel, wake: make(chan struct{}, 1), listening: make(chan struct{}),
-		providers: map[types.NamespacedName]*provider{}}
+	return &Tuner{
+		o: o, base: base, cancelBase: cancel, wake: make(chan struct{}, 1), listening: make(chan struct{}),
+		providers: map[types.NamespacedName]*provider{},
+	}
 }
 
 // Listening closes once Start has bound BindAddress, so the leader publishes
@@ -254,6 +269,7 @@ func (t *Tuner) Apply(c Config) {
 		key := c.Key
 		p.relay = relay.New(relay.Options{
 			Context: t.base, HTTP: t.o.HTTP, Tuners: effectiveTuners(c, p.account), Buffer: c.Buffer, Linger: c.Linger, UserAgent: c.UserAgent,
+			Language: languageCode(c.Language),
 			OnChange: func(inUse int) { t.tunersChanged(p, inUse) },
 			OnError:  func(reason string) { upstreamErrors.WithLabelValues(label(key), reason).Inc() },
 			OnBytes:  func(n int) { streamBytes.WithLabelValues(label(key)).Add(float64(n)) },
@@ -262,7 +278,7 @@ func (t *Tuner) Apply(c Config) {
 			},
 		})
 	} else {
-		p.relay.Configure(effectiveTuners(c, p.account), c.Buffer, c.Linger, c.UserAgent)
+		p.relay.Configure(effectiveTuners(c, p.account), c.Buffer, c.Linger, c.UserAgent, languageCode(c.Language))
 	}
 	refreshed := !first && c.Refresh != p.cfg.Refresh
 	moved := !first && (c.Server != p.cfg.Server || c.Username != p.cfg.Username || c.Password != p.cfg.Password)

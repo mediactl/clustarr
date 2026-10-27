@@ -209,6 +209,16 @@ type StreamSpec struct {
 	// channel flip back costs no reconnect. Default 10s.
 	// +optional
 	Linger *metav1.Duration `json:"linger,omitempty"`
+
+	// Language is the language the relay declares for every audio and
+	// subtitle track whose program map names none or an undetermined one
+	// ("und"), as a BCP-47 or ISO 639-2 code; Plex shows such a track as
+	// Unknown otherwise (2026-10-27: tvload.win's ESPN said und, its Weather
+	// Channel eng). A channel's own language (IPTVChannel spec.language)
+	// replaces whatever the stream declares. Default "eng".
+	// +optional
+	// +kubebuilder:validation:MaxLength=16
+	Language string `json:"language,omitempty"`
 }
 
 // IPTVProviderStatus is written by the IPTVProvider controller alone, under

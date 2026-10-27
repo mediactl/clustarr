@@ -45,6 +45,11 @@ type IPTVChannelSpecApplyConfiguration struct {
 	EPG *ChannelEPGApplyConfiguration `json:"epg,omitempty"`
 	// TimeshiftMinutes moves this channel's programmes.
 	TimeshiftMinutes *int32 `json:"timeshiftMinutes,omitempty"`
+	// Language is the language the relay declares for this channel's audio
+	// and subtitle tracks, as a BCP-47 or ISO 639-2 code, replacing whatever
+	// the stream says; empty takes the provider's stream.language, which
+	// only fills a missing or undetermined one.
+	Language *string `json:"language,omitempty"`
 }
 
 // IPTVChannelSpecApplyConfiguration constructs a declarative configuration of the IPTVChannelSpec type for use with
@@ -122,5 +127,13 @@ func (b *IPTVChannelSpecApplyConfiguration) WithEPG(value *ChannelEPGApplyConfig
 // If called multiple times, the TimeshiftMinutes field is set to the value of the last call.
 func (b *IPTVChannelSpecApplyConfiguration) WithTimeshiftMinutes(value int32) *IPTVChannelSpecApplyConfiguration {
 	b.TimeshiftMinutes = &value
+	return b
+}
+
+// WithLanguage sets the Language field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Language field is set to the value of the last call.
+func (b *IPTVChannelSpecApplyConfiguration) WithLanguage(value string) *IPTVChannelSpecApplyConfiguration {
+	b.Language = &value
 	return b
 }

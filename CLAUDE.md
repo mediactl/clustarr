@@ -423,8 +423,56 @@ while every other manager port stays open (`clustarr.managerPorts`; held by
 kustomize's policy is `config/livetv`, outside `config/manager`, whose
 `includeSelectors` labels would add clustarr's labels to the peer and admit
 no Plex pod. The manager's memory default carries 128Mi for the stream
-buffers. E2e scenario 19 (`test/e2e/livetv_test.go`, `iptv-stub`) is written
-and has never run.
+buffers.
+
+**Streams declare their language** (owner, 2026-10-27: Plex showed ESPN's
+audio as Unknown; its PMT said `und` where the Weather Channel's said
+`eng`): the relay rewrites every connection's PMT on its way into the ring
+(`relay.tsRewriter`, `app/livetv/relay/pmt.go`) so each audio and subtitle
+track carries an ISO 639 descriptor -- an undetermined one (`und`, `mis`,
+`zxx`) becomes the provider's `spec.stream.language` (default `eng`;
+`pkg/iptv.ISO6392` turns a BCP-47 tag into the three letters), a missing
+one is added when the packet has room (stuffing after the section, else
+taken from the adaptation field), a DVB subtitling or teletext descriptor's
+own codes are rewritten too, and an IPTVChannel's `spec.language` is forced
+over whatever the stream says; the section's CRC is recomputed. **The
+guide is enriched for Plex's parser** (`xmltv.Enricher`,
+`pkg/iptv/xmltv/enrich.go`; the provider's programmes carry a title and a
+description and nothing else, 0 icons, categories or languages in 323,339):
+a sports channel's programmes (IPTVChannel `spec.group`) are category
+Sports; a live event -- a "Live:" title, or a matchup in the title or
+description -- is also "Sports event" and its sport, gets the matchup as
+its sub-title ("Dallas Cowboys at Philadelphia Eagles" from "the Eagles host
+the Cowboys"), `<live/>` and `<new/>`; every programme without an episode
+number gets a Gracenote-shaped `dd_progid` (SP from the channel and start
+for an event, so ten channels' "NFL Football" are ten games; EP from the
+title, sub-title and description otherwise, so a repeat is the same
+episode; MV for a known movie), which keeps a one-off out of Plex's Movies
+while a movie channel's unknown film keeps the movie fallback; a news
+channel's programmes are News, a kids channel's Children; the output keeps
+XMLTV's element order, and nothing the source said is doubled or dropped.
+**Programme artwork** (`app/livetv/tuner/artwork.go`): a title the enricher
+wants art for is looked up as a series and a movie through the metadata
+gateway's search RPC (the Add New search, bound in
+`app/livetv/manager/register.go`), a movie first on a movie channel or for a
+film-length programme; an exact title match (year within one when the title
+carries one) becomes the programme's `<icon>` and its Movie or Series
+category. A build never waits on a lookup: unknown titles queue, a
+background pass resolves up to 300 at 400 ms each and the guide is rebuilt
+when it found any, and the cache is the `programme-art/<ns>/<name>` object
+(hits 30 days, misses 7). **Channel logos are served by the tuner**
+(`app/livetv/tuner/logo.go`, `logos/<number>.png` under every device and
+range): the providers' logos (the playlist's `tvg-logo`, the guide's
+picons alike) are often black wordmarks on transparency (Bloomberg,
+C-SPAN, ESPN), invisible on Plex's dark guide, so the tuner fetches each
+once, recolours one at least a fifth transparent with 85% of its opaque
+pixels dark (dim by luminance or in every channel; a saturated red stays)
+to white keeping every pixel's alpha, caches the PNG in the Live TV store
+by source URL, and the guide's and playlist's logo URLs point at it with a
+placeholder base filled in per request (`logoPlaceholder`); the
+whole-provider guide stored for the ui keeps the sources, and a logo that
+cannot be had redirects to its source. E2e scenario 19
+(`test/e2e/livetv_test.go`, `iptv-stub`) is written and has never run.
 
 ## UI
 

@@ -114,6 +114,14 @@ spec:
                 x-kubernetes-validations:
                 - message: key is immutable
                   rule: self == oldSelf
+              language:
+                description: |-
+                  Language is the language the relay declares for this channel's audio
+                  and subtitle tracks, as a BCP-47 or ISO 639-2 code, replacing whatever
+                  the stream says; empty takes the provider's stream.language, which
+                  only fills a missing or undetermined one.
+                maxLength: 16
+                type: string
               logo:
                 description: Logo overrides the playlist's tvg-logo.
                 maxLength: 4096

@@ -235,6 +235,16 @@ spec:
                     description: Buffer is each channel's ring buffer. Default 8Mi.
                     pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                     x-kubernetes-int-or-string: true
+                  language:
+                    description: |-
+                      Language is the language the relay declares for every audio and
+                      subtitle track whose program map names none or an undetermined one
+                      ("und"), as a BCP-47 or ISO 639-2 code; Plex shows such a track as
+                      Unknown otherwise (2026-10-27: tvload.win's ESPN said und, its Weather
+                      Channel eng). A channel's own language (IPTVChannel spec.language)
+                      replaces whatever the stream declares. Default "eng".
+                    maxLength: 16
+                    type: string
                   linger:
                     description: |-
                       Linger keeps an upstream open after its last viewer leaves, so a

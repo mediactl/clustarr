@@ -73,6 +73,14 @@ type IPTVChannelSpec struct {
 	// +kubebuilder:validation:Minimum=-720
 	// +kubebuilder:validation:Maximum=720
 	TimeshiftMinutes int32 `json:"timeshiftMinutes,omitempty"`
+
+	// Language is the language the relay declares for this channel's audio
+	// and subtitle tracks, as a BCP-47 or ISO 639-2 code, replacing whatever
+	// the stream says; empty takes the provider's stream.language, which
+	// only fills a missing or undetermined one.
+	// +optional
+	// +kubebuilder:validation:MaxLength=16
+	Language string `json:"language,omitempty"`
 }
 
 // ChannelEPG maps a channel to a guide: ChannelID is an XMLTV channel id in

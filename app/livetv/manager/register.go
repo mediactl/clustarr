@@ -22,6 +22,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package manager
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/http"
@@ -41,6 +42,7 @@ import (
 	"github.com/mediactl/clustarr/app/livetv/leaderendpoint"
 	"github.com/mediactl/clustarr/app/livetv/tuner"
 	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
@@ -115,6 +117,13 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 		Debounce:     2 * time.Second,
 		Notify:       notify,
 		NotifyTuners: notifyTuners,
+		// The guide's programme artwork is looked up through the metadata
+		// gateway's search, the Add New search (tuner/artwork.go).
+		Search: func(ctx context.Context, req schema.MetadataRequest) (schema.MetadataResponse, error) {
+			var resp schema.MetadataResponse
+			err := bus.Request(ctx, events.RPCMetadataSearch, req, &resp)
+			return resp, events.DescribeRequestError(events.RPCMetadataSearch, err)
+		},
 	})
 	if err := mgr.Add(tn); err != nil {
 		return fmt.Errorf("livetv: tuner: %w", err)
