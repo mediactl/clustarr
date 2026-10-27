@@ -93,7 +93,10 @@ func (r *Reconciler) reconcileSeriesSearch(ctx context.Context, s *catalogv1alph
 		// Not served yet: another request is, or the Series has not taken
 		// this one. A Series that never takes it stalls it.
 		msg := "waiting for the series to take the search"
-		if st != nil && st.FinishedAt == nil {
+		switch {
+		case st != nil && st.FinishedAt == nil && searchplan.Automatic(st):
+			msg = "waiting for the series' automatic season search to finish"
+		case st != nil && st.FinishedAt == nil:
 			msg = fmt.Sprintf("waiting for the series' search %s to finish", st.Request.Name)
 		}
 		if (st == nil || st.FinishedAt != nil) && now.Sub(started.Time) > searchplan.SeriesSearchStallTimeout {

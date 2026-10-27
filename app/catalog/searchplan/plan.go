@@ -100,6 +100,13 @@ type View struct {
 	// answer newer than the Episode's lastSearchedAt counts once as its
 	// search (§7).
 	SeasonAnsweredAt *metav1.Time
+	// SeasonPackFirst: an Episode's season passes PackFirst in its Series'
+	// status.seasons (owner, 2026-10-27). Until the Episode has been
+	// searched at all, its video search waits for the automatic season
+	// search, which asks for every such season with an episode waiting
+	// (automaticSeasons), so a pack is taken before a single could be; the
+	// season's answer is then its search, folded as SeasonAnsweredAt.
+	SeasonPackFirst bool
 }
 
 // Task is one search task to publish.
@@ -286,8 +293,10 @@ func purposeDue(v View, now time.Time) *purpose {
 		return nil
 	}
 	// An Episode whose season search is queued or searching waits for it
-	// (Wave S, §7); its donor search does not.
-	if v.Wanted && !v.SeasonPending && wantedcron.Eligible(v.Attempts, now) {
+	// (Wave S, §7), and one never searched waits for its PackFirst season's
+	// automatic search; its donor search does not.
+	waits := v.SeasonPending || (v.SeasonPackFirst && !searched(v.Attempts, v.LastSearched))
+	if v.Wanted && !waits && wantedcron.Eligible(v.Attempts, now) {
 		reason := v.Reason
 		if reason == "" {
 			reason = schema.SearchReasonMissing

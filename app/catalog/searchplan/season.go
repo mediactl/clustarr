@@ -43,6 +43,34 @@ const SeriesSearchStallTimeout = 30 * time.Minute
 // paced goes once more to the back of the queue, then counts as answered.
 const maxSeasonAttempts = 2
 
+// AutomaticCooldown is how long a finished automatic state holds off the
+// next: a season it could not answer for its episodes (every indexer paced,
+// none to ask, the agent failed) is asked again an hour later, not on every
+// pass.
+const AutomaticCooldown = time.Hour
+
+// automaticRequest is the request an automatic state serves: no Search
+// stands behind it, so it names none (an empty uid, which no Search has).
+var automaticRequest = catalogv1alpha1.SeasonSearchRequest{Name: "automatic"}
+
+// Automatic reports whether st serves the automatic season search rather
+// than a planned Search (owner, 2026-10-27; series search design §17).
+func Automatic(st *catalogv1alpha1.SeasonSearchState) bool {
+	return st != nil && st.Request.UID == ""
+}
+
+// PackFirst is the season test the automatic season search and its
+// episodes both read from the Series' status.seasons (owner, 2026-10-27:
+// a fully aired season with two or more episodes wanted is searched for a
+// pack first): not the specials, monitored, aired to its end (no next
+// airing) and two or more episodes without a file. An episode of such a
+// season waits for its season's query before its first live search of its
+// own (View.SeasonPackFirst): a single grabbed first would make the grab
+// planner refuse the pack as overlapping it.
+func PackFirst(s catalogv1alpha1.SeasonStatus) bool {
+	return s.Number != 0 && s.Monitored && s.NextAiring == nil && s.EpisodeCount-s.EpisodeFileCount >= 2
+}
+
 // SeasonRequest is one open planned Search naming the series.
 type SeasonRequest struct {
 	Search catalogv1alpha1.SeasonSearchRequest
@@ -62,6 +90,11 @@ type SeasonFacts struct {
 	Wanted int
 	// Downloading counts the Wanted ones a live entry covers.
 	Downloading int
+	// PackFirst is the season's PackFirst test, from status.seasons.
+	PackFirst bool
+	// FirstSearch counts the Wanted episodes never searched (no attempt and
+	// no lastSearchedAt): the ones a PackFirst season holds for its query.
+	FirstSearch int
 }
 
 // SeasonView is everything DecideSeasons reads for one Series.
@@ -131,13 +164,18 @@ type SeasonFinal struct {
 // and admitted through the dispatch ledger on SeasonDurable (admit). It
 // publishes no Episode search: the episodes a season's answer leaves
 // uncovered are their own planners' (§7).
+//
+// With no planned Search waiting it serves the automatic season search
+// (owner, 2026-10-27; §17): every PackFirst season with an episode waiting
+// for its first search (automaticSeasons), in a state of its own that names
+// no Search, AutomaticCooldown after the last automatic state finished.
 func DecideSeasons(v SeasonView, admit func(durable string, seq int64) dispatch.Decision, pace func(season int32) time.Time) SeasonPlan {
 	now := v.Now.UTC()
 	p := SeasonPlan{State: v.State.DeepCopy(), LastSearchedAt: v.LastSearched}
 	before := phasesOf(v.State)
 
 	// 1. Canceling: the served Search is gone before its state finished.
-	if st := p.State; st != nil && st.FinishedAt == nil && v.ServedGone {
+	if st := p.State; st != nil && st.FinishedAt == nil && v.ServedGone && !Automatic(st) {
 		if d := st.Dispatch; d.InFlight() {
 			d.AnsweredSeq, d.Withdrawn, d.Delivery = d.Seq, true, nil
 			p.Answered, p.AnsweredSeq = true, d.Seq
@@ -158,6 +196,13 @@ func DecideSeasons(v SeasonView, admit func(durable string, seq int64) dispatch.
 			p.State = start(v, req, now)
 			p.Started = true
 			before = nil
+		} else if seasons, wait := automaticSeasons(v, st, now); len(seasons) > 0 {
+			p.Finals = finals(before, p.State)
+			p.State = startAutomatic(seasons, now)
+			p.Started = true
+			before = nil
+		} else if !wait.IsZero() {
+			p.Due = wait
 		}
 	}
 
@@ -237,7 +282,7 @@ func (p *SeasonPlan) step(v SeasonView, st *catalogv1alpha1.SeasonSearchState, n
 				cp := *v.InFlight
 				t = &cp
 			} else {
-				t = seasonTask(v, cur.Number, d.Seq, now)
+				t = seasonTask(v, cur.Number, d.Seq, now, Automatic(st))
 			}
 			t.Republish, t.At = true, now
 			p.Publish = t
@@ -296,7 +341,7 @@ func (p *SeasonPlan) step(v SeasonView, st *catalogv1alpha1.SeasonSearchState, n
 	st.Dispatch = nd
 	next.Phase, next.Reason, next.Seq = catalogv1alpha1.SeasonSearchSearching, "", seq
 	next.Attempts = min(next.Attempts+1, maxSeasonAttempts)
-	p.Publish = seasonTask(v, next.Number, seq, now)
+	p.Publish = seasonTask(v, next.Number, seq, now, Automatic(st))
 	p.Due = now.Add(RepublishEvery)
 }
 
@@ -353,6 +398,43 @@ func start(v SeasonView, req SeasonRequest, now time.Time) *catalogv1alpha1.Seas
 	}
 	if len(st.Seasons) > maxSeasons {
 		st.Seasons = st.Seasons[:maxSeasons]
+	}
+	return st
+}
+
+// automaticSeasons are the seasons the automatic season search asks for:
+// every PackFirst season, monitored, with an episode waiting for its first
+// search and one wanted that no live grab covers -- none for an unmonitored
+// series. Before AutomaticCooldown has passed since the last automatic
+// state finished it asks for none, and wait is when it may.
+func automaticSeasons(v SeasonView, st *catalogv1alpha1.SeasonSearchState, now time.Time) (seasons []int32, wait time.Time) {
+	if !v.Monitored {
+		return nil, time.Time{}
+	}
+	for _, f := range v.Seasons {
+		if f.Number != 0 && f.PackFirst && f.Monitored && f.FirstSearch > 0 && f.Wanted > f.Downloading {
+			seasons = append(seasons, f.Number)
+		}
+	}
+	if len(seasons) == 0 {
+		return nil, time.Time{}
+	}
+	if Automatic(st) && st.FinishedAt != nil {
+		if until := st.FinishedAt.Add(AutomaticCooldown); now.Before(until) {
+			return nil, until
+		}
+	}
+	if len(seasons) > maxSeasons {
+		seasons = seasons[:maxSeasons]
+	}
+	return seasons, time.Time{}
+}
+
+// startAutomatic is a new automatic state for seasons, each Queued.
+func startAutomatic(seasons []int32, now time.Time) *catalogv1alpha1.SeasonSearchState {
+	st := &catalogv1alpha1.SeasonSearchState{Request: automaticRequest, StartedAt: metav1.NewTime(now.Truncate(time.Second))}
+	for _, n := range seasons {
+		st.Seasons = append(st.Seasons, catalogv1alpha1.SeasonSearchSeason{Number: n, Phase: catalogv1alpha1.SeasonSearchQueued})
 	}
 	return st
 }
@@ -454,14 +536,15 @@ func finals(before map[int32]catalogv1alpha1.SeasonSearchPhase, st *catalogv1alp
 }
 
 // seasonTask is the SearchTask v2 of season at seq (§5.1): the Series as
-// the item, the season, a user-invoked live search on the high lane, Msg-Id
-// events.MsgIDForSeasonSearch. Never IndexOnly, never a donor search.
-func seasonTask(v SeasonView, season int32, seq int64, now time.Time) *Task {
+// the item, the season, a live search on the high lane, Msg-Id
+// events.MsgIDForSeasonSearch, user-invoked unless automatic. Never
+// IndexOnly, never a donor search.
+func seasonTask(v SeasonView, season int32, seq int64, now time.Time, automatic bool) *Task {
 	n := season
 	payload := schema.SearchTask{
 		MediaRef:    commonv1.MediaRef{Kind: commonv1.MediaKindSeries, Name: v.Series.Name},
 		Reason:      schema.SearchReasonSeason,
-		UserInvoked: true,
+		UserInvoked: !automatic,
 		Item:        v.Series, Seq: seq, Season: &n,
 		QualityProfile: v.Profile, Protocols: v.Protocols, IndexerPriorities: v.Priorities, Scope: v.Scope,
 	}

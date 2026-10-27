@@ -399,8 +399,19 @@ whole-series search. A planned Search (`SearchSpec.PlannedBySeries`) is
 served by the Series key's season planner (`searchplan.DecideSeasons`,
 the search stage's Series mode): one request at a time, one season task in
 flight, each behind the namespace's live-search pace slot and admitted on
-`catalog-search-high`; the Search mirrors it in `status.seasons`. A Series
-is still not a Search fan-out kind (`ContainerKind`). Every interactive
+`catalog-search-high`; the Search mirrors it in `status.seasons`. With no
+planned Search waiting it also serves the automatic season search (owner,
+2026-10-27; the design's §17): every `searchplan.PackFirst` season (in
+`status.seasons`: not the specials, monitored, no next airing, two or more
+episodes without a file) with a wanted episode never searched is asked for
+as a season, a pack ahead of its episodes, in a state whose request names
+no Search (`searchplan.Automatic`, uid empty; never canceled, no
+handshake, its task not user-invoked), an hour after the last automatic
+state finished (`AutomaticCooldown`). An Episode never searched waits for
+such a season (`View.SeasonPackFirst`; a redownload does not), since a
+single grabbed first makes the grab planner refuse the pack as
+overlapping; the season's answer folds in as its search, as a planned
+one's does. A Series is still not a Search fan-out kind (`ContainerKind`). Every interactive
 search's results are banded -- approved, rejected, then the identity
 mismatches (`WrongItem`, `UnknownItem`, `UnableToParse`) last, counted by
 `status.otherTitles` and collapsed behind "N releases for other titles",

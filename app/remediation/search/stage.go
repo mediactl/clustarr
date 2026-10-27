@@ -226,7 +226,7 @@ func (s *Stage) gather(ctx context.Context, item client.Object, v *remediation.I
 		if ep, ok := item.(*catalogv1alpha1.Episode); ok {
 			// Its Series' season search (Wave S, §7): wait for a pending
 			// season, fold an answered one.
-			sv.SeasonPending, sv.SeasonAnsweredAt = seasonOf(owner, ep)
+			sv.SeasonPending, sv.SeasonAnsweredAt, sv.SeasonPackFirst = seasonOf(owner, ep)
 		}
 	}
 	cfg, err := itemread.ConfigOf(ctx, r, item)

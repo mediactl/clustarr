@@ -850,3 +850,30 @@ Deviations from the text above, each a ruling of the implementing session:
   season, the only season whose runtimes the search knows.
 - **The namesake message** names a series for an Episode target.
 - No RBAC changed: the manager's role already granted `searches` reads and `series/status`.
+
+## As built: the automatic season search (2026-10-27)
+
+The owner answered §17 (2026-10-27): a fully aired season with two or more episodes wanted is
+searched for a season pack first, the episodes searched one by one only for what the season's
+answer leaves; and within a quality a pack, then usenet, rank ahead of the format score, which
+moves `decision.less` and `grabplan.better` past §6.4 (D6) in the same way.
+
+- **The test both sides read** is `searchplan.PackFirst` over the Series' `status.seasons`: not
+  the specials, monitored, no `nextAiring`, `episodeCount - episodeFileCount >= 2`. The Episode
+  key reads it from its Series (`seasonOf`) without listing its siblings, and the Series key
+  from the same status, so an episode holding for its season always makes the season eligible.
+- **The Series key** starts an automatic state when no planned Search waits
+  (`automaticSeasons`): every PackFirst, monitored season with a wanted episode never searched
+  (`SeasonFacts.FirstSearch`: no attempt and no `lastSearchedAt`) and one no live grab covers.
+  Its request names no Search (`searchplan.Automatic`: an empty uid), so the stage never reads
+  it as gone or waits for a handshake; its task is not user-invoked; it rides the season lane
+  and pace as a planned season does (§4.5). A finished automatic state holds the next off for
+  `AutomaticCooldown` (1 h), the pass due then, so a season every indexer paced, or none could
+  answer, is asked again hourly rather than on every pass.
+- **An Episode never searched** whose season passes PackFirst starts no search of its own
+  (`View.SeasonPackFirst`; a redownload does not wait). The season's answer folds in as its
+  search (§7), so what the answer left is searched index-only on the episode's backoff. This
+  closes the race §17 left open: an episode's first live search could otherwise grab a single
+  before its season answered, and §6.3 rule 1 would then refuse the pack.
+- **Not changed:** an airing season, or one with a single episode missing, is searched episode
+  by episode; a planned Search always goes first; nothing publishes an Episode search.
