@@ -122,7 +122,8 @@ func (c countingReader) Read(b []byte) (int, error) {
 }
 
 // unpackArchives extracts every archive set in srcDir into dstDir, counting
-// the bytes it writes into progress.
+// the bytes it writes into progress, and then every archive those held
+// (unpackNested), to maxNestedUnpack levels.
 //
 // Only FIRST volumes are opened: rardecode.OpenReader follows the volume chain
 // itself, so handing it name.part02.rar as well would extract the tail of the
@@ -148,29 +149,125 @@ func unpackArchives(
 			// already decided whether this download is viable.
 			continue
 		}
-		var (
-			n   int
-			err error
-		)
-		switch strings.ToLower(path.Ext(name)) {
-		case ".7z":
-			n, err = unpack7z(ctx, src, dstDir, password, progress)
-		case ".zip":
-			n, err = unpackZip(ctx, src, dstDir, progress)
-		default:
-			n, err = unpackRar(ctx, src, dstDir, password, progress)
-		}
+		n, err := extractArchive(ctx, name, src, dstDir, password, progress)
 		res.Extracted += n
 		if err != nil {
 			if errors.Is(err, ErrEncrypted) {
 				res.Encrypted = true
-				return res, err
 			}
 			return res, err
 		}
 		log.DebugContext(ctx, "unpacked archive", "archive", name, "files", n)
 	}
+	if err := unpackNested(ctx, dstDir, password, progress, &res); err != nil {
+		return res, err
+	}
 	return res, nil
+}
+
+// extractArchive extracts the archive set whose first volume is src, named
+// name, into dst.
+func extractArchive(ctx context.Context, name, src, dst, password string, progress *unpackProgress) (int, error) {
+	switch strings.ToLower(path.Ext(name)) {
+	case ".7z":
+		return unpack7z(ctx, src, dst, password, progress)
+	case ".zip":
+		return unpackZip(ctx, src, dst, progress)
+	default:
+		return unpackRar(ctx, src, dst, password, progress)
+	}
+}
+
+// maxNestedUnpack is how many levels of archive inside the NZB's archives
+// the unpack opens. A rar posted inside a rar was published as an archive,
+// which the import refused as the release's fault; SABnzbd and NZBGet open
+// nested archives too. A bound keeps an archive that nests without end from
+// running the unpack forever.
+const maxNestedUnpack = 3
+
+// unpackNested extracts the archives the unpack wrote under dir, each into
+// the directory it sits in, removes the set it opened, and does the same for
+// what those held, to maxNestedUnpack levels. An archive still nested past
+// the last level is left as it is, logged.
+func unpackNested(ctx context.Context, dir, password string, progress *unpackProgress, res *unpackResult) error {
+	log := logging.FromContext(ctx)
+	for depth := 1; ; depth++ {
+		entries := nestedEntryPoints(dir)
+		if len(entries) == 0 {
+			return nil
+		}
+		if depth > maxNestedUnpack {
+			log.WarnContext(ctx, "usenet: archives nested past the levels the unpack opens are published as they are",
+				"levels", maxNestedUnpack, "archives", entries)
+			return nil
+		}
+		for _, rel := range entries {
+			src := filepath.Join(dir, rel)
+			n, err := extractArchive(ctx, rel, src, filepath.Dir(src), password, progress)
+			res.Extracted += n
+			if err != nil {
+				if errors.Is(err, ErrEncrypted) {
+					res.Encrypted = true
+				}
+				return err
+			}
+			for _, v := range archiveSetFiles(filepath.Dir(src), filepath.Base(rel)) {
+				if err := fsops.SafeRemove(ctx, dir, filepath.Join(filepath.Dir(rel), v)); err != nil && !errors.Is(err, os.ErrNotExist) {
+					return err
+				}
+			}
+			log.InfoContext(ctx, "usenet: unpacked a nested archive", "archive", rel, "files", n, "depth", depth)
+		}
+	}
+}
+
+// nestedEntryPoints is the first volume of every archive set under dir,
+// relative to it.
+func nestedEntryPoints(dir string) []string {
+	var files []nzbFile
+	for _, rel := range regularFiles(dir) {
+		files = append(files, nzbFile{Name: rel, Kind: classify(rel)})
+	}
+	return archiveEntryPoints(files)
+}
+
+// archiveSetStem is the name an archive set's volumes share: "x" for
+// x.part01.rar, x.r00, x.rar, x.7z and x.zip. ok is false for a name that
+// is no archive volume.
+func archiveSetStem(name string) (stem string, ok bool) {
+	if m := rarVolumeRE.FindStringSubmatch(name); m != nil {
+		return m[1], true
+	}
+	lower := strings.ToLower(name)
+	for _, ext := range []string{".rar", ".7z", ".zip"} {
+		if strings.HasSuffix(lower, ext) {
+			return name[:len(name)-len(ext)], true
+		}
+	}
+	return "", false
+}
+
+// archiveSetFiles names the archive volumes in dir that belong to entry's
+// set, entry included: what goes once the set is extracted.
+func archiveSetFiles(dir, entry string) []string {
+	stem, ok := archiveSetStem(entry)
+	if !ok {
+		return nil
+	}
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, e := range ents {
+		if !e.Type().IsRegular() || classify(e.Name()) != kindArchive {
+			continue
+		}
+		if s, ok := archiveSetStem(e.Name()); ok && strings.EqualFold(s, stem) {
+			out = append(out, e.Name())
+		}
+	}
+	return out
 }
 
 // archiveEntryPoints returns one entry per archive SET, in a stable order.

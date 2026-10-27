@@ -1608,7 +1608,15 @@ exports the pinned ref every image build takes as a named context.
   leave as the episode's release name, probing the file once for both the
   title and its quality (`probed`); a title that names no episode is said
   in the `needsPerson` rejection. srrDB (scene releases' exact sizes and
-  CRCs) is not consulted.
+  CRCs) is not consulted. The unpack also opens archives nested inside the
+  NZB's archives (`unpackNested`, `maxNestedUnpack` 3 levels), each into
+  the directory it sits in, removing the set it opened
+  (`archiveSetFiles`): a rar posted inside a rar was published as an
+  archive, which the import refused as the release's fault. An inner par2
+  set is read for names only, never for a repair: the rar extraction
+  checks every file's CRC (`rardecode.ErrBadFileChecksum` fails the
+  unpack), so a repair pass would re-read the whole release to learn what
+  the extraction proved.
 - **The usenet engine's emptyDir scratch shares the node disk with etcd
   on kind, and vanishes with the pod.** A 10 GB transfer plus its par2
   verify pushed etcd's fsyncs past a second: the grab controllers lost their
