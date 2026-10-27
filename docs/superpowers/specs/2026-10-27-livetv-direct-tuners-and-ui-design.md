@@ -1,6 +1,6 @@
 # Live TV: path-addressed tuners, and a Live TV section in the ui
 
-Date: 2026-10-27. Status: draft, awaiting the owner. Amends
+Date: 2026-10-27. Status: approved by the owner on 2026-10-27 (§10 carries the answers). Amends
 `2026-10-07-iptv-live-tv-design.md` (§5.0, §6.1, §7) and
 `2026-10-20-iptv-xtream-ranges-design.md`. Where they disagree, this
 design wins.
@@ -88,8 +88,9 @@ tv-logos README):
 - G2. The tuner's device surface is what Plex, Jellyfin, Emby and Channels
   DVR expect from an HDHomeRun, as Dispatcharr serves it, plus the M3U
   and XMLTV outputs per device.
-- G3. A "Live TV" section in the ui with Dispatcharr's four pages, in
-  clustarr's Plex look: Channels, M3U/EPG Manager, TV Guide, DVR.
+- G3. A "Live TV" section in the ui with three of Dispatcharr's pages,
+  in clustarr's Plex look: Channels, M3U/EPG Manager, TV Guide. The DVR
+  page is deferred (owner, 2026-10-27; §5.8).
 - G4. Channel logos from tv-logos where the provider's are missing or
   poor, and program images where a guide carries none, chosen by the
   manager and visible in Plex and the ui.
@@ -292,8 +293,8 @@ Through `ui/actions`, under `clustarr-ui`, with `Grants()` and
 
 ### 5.3 The sidebar
 
-A "Live TV" `sidebar.MenuItem` under Library's, with a `MenuSub` of four
-entries, swapped through htmx as the Library sub-menu is (`hx-get`,
+A "Live TV" `sidebar.MenuItem` under Library's, with a `MenuSub` of three
+entries (a fourth, DVR, once §5.8 is wanted), swapped through htmx as the Library sub-menu is (`hx-get`,
 `preload="mouseover"`, `hx-select="#page-body"`, the out-of-band crumbs
 and search), each page answering `preloadable`:
 
@@ -302,9 +303,8 @@ and search), each page answering `preloadable`:
 | Channels | `/livetv/channels` |
 | M3U/EPG Manager | `/livetv/sources` |
 | TV Guide | `/livetv/guide` |
-| DVR | `/livetv/dvr` |
 
-`Chrome` gains the active Live TV entry, and `activeFor` learns the four
+`Chrome` gains the active Live TV entry, and `activeFor` learns the
 titles.
 
 ### 5.4 Channels
@@ -373,8 +373,8 @@ and a scroll near either edge asks for the next window through htmx
 hundreds of rows client-side is not needed for 400 channels at 90 px.
 
 Filters: provider, group, search. A programme click opens a details
-dialog (title, times, description, image, episode) with "Record" (§5.8)
-and "Copy stream URL" (§5.9).
+dialog (title, times, description, image, episode) with "Copy stream
+URL" (§5.9); "Record" arrives with §5.8.
 
 ### 5.7 Playlist types beyond Xtream (my call)
 
@@ -390,12 +390,13 @@ fetch (filters, channels, blocks, guide, tuner, relay) is the same. This
 is the one CRD addition; extra XMLTV sources per provider are a
 non-goal until someone needs one.
 
-### 5.8 DVR
+### 5.8 DVR (deferred; owner, 2026-10-27)
 
 Dispatcharr records itself. Plex is the DVR in this stack, and the ui
-can neither read nor drive PMS. The page is still wanted, so it needs a
-recorder of clustarr's own. **This is the one part the owner decides
-before it is planned** (§10). The design, if wanted:
+can neither read nor drive PMS, so a DVR page needs a recorder of
+clustarr's own. The owner chose to skip it for now; this section records
+the design it would take, so a later request starts here rather than
+from nothing:
 
 - Two kinds in `clustarr.io/v1alpha1`: `IPTVRecording` (channel ref,
   start, stop, padding, title and programme fields frozen from the guide,
@@ -531,22 +532,23 @@ XMLTV from a panel that carries icons costs nothing.
   the recording rules in Plex; check each DVR's channel map and guide.
 - **Phase B, the ui** (§5.1-5.6, with §5.7 as its one CRD change).
 - **Phase C, logos and images** (§6).
-- **Phase D, the DVR** (§5.8), if the owner wants it.
+- **Phase D, the DVR** (§5.8): deferred by the owner; not planned.
 
 Each phase is its own plan (`superpowers:writing-plans`), built
 implementation-first with its tests named for the batch, as the repo
 does since 2026-10-07.
 
-## 10. Open questions for the owner
+## 10. The owner's answers (2026-10-27)
 
-1. **The DVR.** Build clustarr's own recorder (§5.8), or leave recording
-   to Plex and drop the DVR entry? The page cannot show Plex's DVR.
-2. **The cutover.** Deleting and re-creating the Plex devices and DVRs
-   loses Plex's recording rules once. OK, and when?
-3. **tv-logos' licence.** CC BY-SA and BY-NC-SA, "free for personal
-   use", no guarantee the raw URLs stay valid. Acceptable for this
-   install?
-4. **TMDB for program images** (§6.2): wanted, or guide icons only?
+1. **The DVR:** skipped for now. §5.8 stays as the recorded design; the
+   sidebar has three entries.
+2. **The cutover:** approved, once the other changes are confirmed
+   working: task 0's recording proves the path, Phase A is built and its
+   guards pass, and the owner picks the deploy. The link-local devices
+   are replaced at that deploy and the recording rules re-created in
+   Plex afterwards.
+3. **tv-logos' licence:** acceptable for this install.
+4. **TMDB program images:** wanted (§6.2).
 
 ## 11. Calls I made
 
