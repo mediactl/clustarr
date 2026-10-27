@@ -216,3 +216,74 @@ func TestArticlesMissingOnEveryServerStillFailTheJob(t *testing.T) {
 	require.Equal(t, commonv1.DownloadFailureMissingArticles, it.FailureReason)
 	require.Contains(t, it.Message, "on every server")
 }
+
+// A chase never stops the transfer: while one worker waits on the backup,
+// the others fetch on the primary. A Sign of Affection (talos, 2026-10-26):
+// frugal lacked about a quarter of each episode, every worker queued behind
+// each chase, and the two transfer slots took turns moving bytes. Here the
+// chase parks on a backup with no room while the primary serves the rest.
+func TestAChaseNeverStopsTheTransfer(t *testing.T) {
+	primary := newStubServer(t)
+	backup := newStubServer(t)
+	nzb := buildNZB(t, primary, "Beside", []fileSpec{{name: "movie.mkv", parts: manyParts(1, 200, 300)}})
+	backup.mirror(primary)
+	for i := range 10 {
+		primary.refuse[fmt.Sprintf("f0-p%d@clustarr.test", i)] = 430
+	}
+	pp, bp := primary.provider("primary", 4, 1), backup.provider("backup", 2, 2)
+	bp.Backup = true
+	ledger := newGateLedger(bp.Account())
+	old := ledgerPollInterval
+	ledgerPollInterval = 20 * time.Millisecond
+	t.Cleanup(func() { ledgerPollInterval = old })
+	c, _, _ := newTestClient(t, Config{
+		Providers: []Provider{pp, bp}, Ledger: ledger,
+		PipelineDepth: 2, HealthAction: downloadv1alpha1.HealthActionDelete,
+	})
+	id, err := c.Add(context.Background(), download.AddRequest{Name: "Beside", Payload: nzb})
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return primary.servedTotal() == 190 }, 5*time.Second, 5*time.Millisecond,
+		"the primary stopped while the chase waited for the backup")
+	require.Zero(t, backup.servedTotal(), "the backup was asked before it granted connections")
+
+	ledger.open(bp.Account())
+	it := waitForTerminal(t, c, id)
+	require.Equal(t, download.StatusCompleted, it.Status, "message: %s", it.Message)
+	require.Equal(t, 10, backup.servedTotal())
+}
+
+// A chase asks each server only for the articles it began with: one the
+// primary fails during the walk waits for the next chase, which starts at
+// the first backup again. On talos (2026-10-26) easynews held every article
+// frugal lacked, and three quarters of each job's time went to asking
+// frugal-bonus, which held none of them, for the ones frugal had failed
+// while easynews was being asked.
+func TestALaterServerIsAskedOnlyForWhatTheEarlierOnesLacked(t *testing.T) {
+	primary := newStubServer(t)
+	full := newStubServer(t)
+	empty := newStubServer(t)
+	nzb := buildNZB(t, primary, "Walked", []fileSpec{{name: "movie.mkv", parts: manyParts(1, 600, 300)}})
+	full.mirror(primary)
+	for i := 0; i < 600; i++ {
+		if i%3 != 0 {
+			primary.refuse[fmt.Sprintf("f0-p%d@clustarr.test", i)] = 430
+		}
+	}
+	// As in TestFailuresDuringAChaseAreChasedBeforeTheyAreJudged: the
+	// primary's workers record failures while a chase runs on the slow
+	// backup ahead of the empty one.
+	primary.bodyDelay = 3 * time.Millisecond
+	full.bodyDelay = 20 * time.Millisecond
+	fp, ep := full.provider("full", 2, 2), empty.provider("empty", 2, 3)
+	fp.Backup, ep.Backup = true, true
+	c, _, _ := newTestClient(t, Config{
+		Providers:     []Provider{primary.provider("primary", 16, 1), fp, ep},
+		PipelineDepth: 20, HealthAction: downloadv1alpha1.HealthActionDelete,
+	})
+	id, err := c.Add(context.Background(), download.AddRequest{Name: "Walked", Payload: nzb})
+	require.NoError(t, err)
+	it := waitForTerminal(t, c, id)
+	require.Equal(t, download.StatusCompleted, it.Status, "message: %s", it.Message)
+	require.Equal(t, 400, full.servedTotal(), "the full backup serves each refused article once")
+	require.Zero(t, empty.askedTotal(), "a later server was asked for articles an earlier one holds")
+}

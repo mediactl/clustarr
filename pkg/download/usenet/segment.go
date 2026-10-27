@@ -363,6 +363,11 @@ dispatch:
 func (j *job) retryFailed(ctx context.Context) error {
 	j.retryMu.Lock()
 	defer j.retryMu.Unlock()
+	return j.retryFailedLocked(ctx)
+}
+
+// retryFailedLocked is retryFailed under retryMu.
+func (j *job) retryFailedLocked(ctx context.Context) error {
 	if j.retried {
 		return nil
 	}
@@ -446,6 +451,20 @@ func (j *job) chaseable() []seg {
 			if b.has(si) && !j.exhausted[fi].has(si) {
 				out = append(out, seg{fi, si})
 			}
+		}
+	}
+	return out
+}
+
+// stillChaseable is the part of asked that is still chaseable: neither
+// recovered since nor refused by every server.
+func (j *job) stillChaseable(asked []seg) []seg {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	out := make([]seg, 0, len(asked))
+	for _, sg := range asked {
+		if j.failedSegs[sg.fi].has(sg.si) && !j.exhausted[sg.fi].has(sg.si) {
+			out = append(out, sg)
 		}
 	}
 	return out
@@ -596,11 +615,24 @@ dispatch:
 func (j *job) chase(ctx context.Context, skip string) error {
 	j.chaseMu.Lock()
 	defer j.chaseMu.Unlock()
+	return j.chaseLocked(ctx, skip)
+}
+
+// chaseLocked is chase under chaseMu.
+//
+// A chase asks every server only for the articles it began with. One the
+// primary's workers fail during the walk is the next chase's, which starts
+// at the first server again: joining this walk would ask it only of the
+// servers still ahead, which on talos (2026-10-26, A Sign of Affection) were
+// the two that never hold what frugal lacks -- easynews had every article,
+// and three quarters of each job's time went to asking frugal-bonus for
+// ones it refused.
+func (j *job) chaseLocked(ctx context.Context, skip string) error {
 	asked := j.chaseable()
 	if len(asked) == 0 {
 		return nil
 	}
-	err := j.chaseServers(ctx, skip)
+	err := j.chaseServers(ctx, skip, asked)
 	if err == nil {
 		// The articles of this chase every server refused are missing
 		// for good; ones the primary's workers failed meanwhile are the
@@ -612,14 +644,14 @@ func (j *job) chase(ctx context.Context, skip string) error {
 	return err
 }
 
-// chaseServers is chase's walk of the servers, under chaseMu.
-func (j *job) chaseServers(ctx context.Context, skip string) error {
+// chaseServers is chase's walk of the servers for asked, under chaseMu.
+func (j *job) chaseServers(ctx context.Context, skip string, asked []seg) error {
 	log := logging.FromContext(ctx)
 	tried := map[string]bool{skip: true}
 	for pass := 0; pass < 2; pass++ {
 		skipped := false
 		for _, p := range j.client.pool.Providers() {
-			missing := j.chaseable()
+			missing := j.stillChaseable(asked)
 			if len(missing) == 0 {
 				return nil
 			}
@@ -883,13 +915,26 @@ var ErrUnrecoverable = errors.New("usenet: too many articles missing to recover"
 // that cannot be completed" and NZBGet calls it critical health; both exist
 // because finishing a 50GB transfer that par2 cannot repair wastes the whole
 // transfer. What "stops" means is the health action's ([job.breach]).
+//
+// One worker spends the retry or runs a chase; the others keep fetching on
+// the grant. A worker that finds either already running goes on to its
+// next batch, whose gate looks again, and the verdict is the chasing
+// worker's. Every worker used to wait its turn for the chase, so a primary
+// lacking a quarter of a post moved nothing while a backup was asked: on
+// talos (2026-10-26) each job spent nine tenths of its time chasing, and
+// the two transfer slots took turns moving bytes.
 func (j *job) healthGate(ctx context.Context) error {
 	if !j.breached() {
 		return nil
 	}
 	// Imminent breach: spend the second chance first, chase the rest
 	// through the other servers, then judge again.
-	if err := j.retryFailed(ctx); err != nil {
+	if !j.retryMu.TryLock() {
+		return nil
+	}
+	err := j.retryFailedLocked(ctx)
+	j.retryMu.Unlock()
+	if err != nil {
 		return err
 	}
 	if !j.breached() {
@@ -901,7 +946,12 @@ func (j *job) healthGate(ctx context.Context) error {
 	if servers := j.grantServer(); len(servers) > 0 {
 		server = servers[0]
 	}
-	if err := j.chase(ctx, server); err != nil {
+	if !j.chaseMu.TryLock() {
+		return nil
+	}
+	err = j.chaseLocked(ctx, server)
+	j.chaseMu.Unlock()
+	if err != nil {
 		return err
 	}
 	return j.healthVerdict(ctx)

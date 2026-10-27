@@ -1585,7 +1585,17 @@ exports the pinned ref every image build takes as a named context.
   chase asks the other servers for the chaseable ones (failed, not yet
   refused everywhere), `markExhausted` records what every server refused,
   and `healthVerdict` judges those alone; the message says "missing on
-  every server".
+  every server". **A chase never stops the transfer** (2026-10-26): one
+  worker retries or chases while the others fetch on (`healthGate`'s
+  `TryLock`), and a chase asks each server only for the articles it began
+  with (`stillChaseable`), so one the primary fails mid-walk starts the
+  next chase at the first server. Before, every worker queued behind each
+  chase, and articles failed during it were asked only of the servers still
+  ahead. On talos, A Sign of Affection's posts lacked about a quarter of
+  their articles on frugal, and easynews held all of them. Each job spent
+  nine tenths of its time chasing, three quarters asking frugal-bonus,
+  which refused every one, and the two transfer slots took turns moving
+  bytes.
 - **A provider can answer a message-ID with another post's article, whole
   and CRC-clean.** frugal served AnoZu's S01E01 (posted 2026-02-16, part 1
   of 2100) with part 237 of 503 of "b5f29fcb1fe75f9e", posted 2026-08-12

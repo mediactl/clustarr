@@ -486,7 +486,8 @@ type job struct {
 	grant        *grant
 	limiter      *connLimiter
 	// chaseMu serialises the chase (segment.go): workers that breach
-	// together run one between them.
+	// together run one between them, and the others fetch on meanwhile
+	// ([job.healthGate]).
 	chaseMu sync.Mutex
 
 	// addedAt is fixed at the first Add and restored from the manifest on
@@ -530,8 +531,9 @@ type job struct {
 	healthPaused   bool
 	healthOverride bool
 
-	// retried is set once retryFailed has run; retryMu serialises the
-	// workers that might reach it at the same time through the gate.
+	// retried is set once retryFailed has run; retryMu lets one of the
+	// workers that reach it at the same time through the gate run it, and
+	// the others fetch on.
 	retryMu sync.Mutex
 	retried bool
 

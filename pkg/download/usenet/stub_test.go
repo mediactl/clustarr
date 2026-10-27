@@ -161,6 +161,17 @@ func (s *stubServer) servedTotal() int {
 	return n
 }
 
+// askedTotal is every BODY or STAT asked, over all ids.
+func (s *stubServer) askedTotal() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for _, c := range s.asked {
+		n += c
+	}
+	return n
+}
+
 // mirror copies every article src holds onto s: a second provider carrying
 // the same release.
 func (s *stubServer) mirror(src *stubServer) {
