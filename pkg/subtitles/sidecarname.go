@@ -29,8 +29,19 @@ import (
 // SidecarExtensions are the subtitle sidecar extensions this package
 // recognises when scanning a media file's directory: research note §3.2's
 // non-exotic set (Bazarr's INCLUDE_EXOTIC_SUBS off), which drops .sub,
-// .smi, .txt and .mpl.
-var SidecarExtensions = []string{"srt", "ass", "ssa", "vtt"}
+// .smi, .txt and .mpl; plus "sup", the PGS sidecar the MP4 standard writes
+// beside a transcode for an image subtitle no text track covers (Version
+// 8), so it is renamed, recycled and deleted with its file. It is no
+// subtitle a player reads: ImageSidecar, which the caption planner's
+// "existing" excludes.
+var SidecarExtensions = []string{"srt", "ass", "ssa", "vtt", "sup"}
+
+// ImageSidecar reports a sidecar name that holds an image subtitle (a .sup
+// PGS track), which Plex and the subtitle providers' scoring never read: it
+// is kept for the OCR to come and counts as no existing subtitle.
+func ImageSidecar(name string) bool {
+	return strings.EqualFold(filepath.Ext(name), ".sup")
+}
 
 // sidecarHIInfixes is the filename infix vocabulary ParseSidecar recognises
 // as hearing-impaired, matching the profile's HIExtension enum

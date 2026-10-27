@@ -142,11 +142,10 @@ func TestAWindowGrantPlansFromTheStoredProbe(t *testing.T) {
 // holds (image subtitles) is a Skipped verdict for (profileHash, probeHash),
 // so a standard.Version raise plans it again.
 // A file with an image subtitle no text track covers is planned, not
-// skipped (standard.Version 7; until then it was Skipped for phase 2's OCR,
-// its DTS audio with it): its plan is written in Matroska, which the
-// status records (plan.container), so the task's output path and the
-// pipeline page say so.
-func TestAWindowGrantOnAFileWithAnImageSubtitlePlansMatroska(t *testing.T) {
+// skipped (standard.Version 7 and 8; until then it was Skipped for phase
+// 2's OCR, its DTS audio with it): an MP4 like any other, the image track
+// beside it as a .sup, nothing dropped.
+func TestAWindowGrantOnAFileWithAnImageSubtitlePlansAnMP4(t *testing.T) {
 	st := probed("ph-1")
 	st.MediaInfo.Subtitles = []commonv1.SubtitleStream{{Index: 2, Codec: "hdmv_pgs_subtitle", Language: "eng", Bitmap: true}}
 	in := inputs(nil, st, GrantWindow)
@@ -154,17 +153,11 @@ func TestAWindowGrantOnAFileWithAnImageSubtitlePlansMatroska(t *testing.T) {
 	require.NotNil(t, d.Block)
 	assert.Equal(t, catalogv1alpha1.TranscodePhasePlanned, d.Block.Phase, "%s: %s", d.Block.Reason, d.Block.Message)
 	require.NotNil(t, d.Block.Plan)
-	assert.Equal(t, "mkv", d.Block.Plan.Container)
-	assert.Equal(t, "encode with libx265, image subtitles kept", d.Block.Plan.Describe())
+	assert.Equal(t, "encode with libx265", d.Block.Plan.Describe())
+	assert.Empty(t, d.Block.Plan.Dropped, "the image track is a sidecar, not a drop")
 	assert.Equal(t, "ph-1", d.Block.ProbeHash)
 	assert.Equal(t, in.Eligibility.Hash, d.Block.ProfileHash)
 	assert.Equal(t, GrantConfirm, d.Grant)
-
-	// The MP4 layout's plan says nothing of a container.
-	plain := pass(inputs(nil, probed("ph-1"), GrantWindow))
-	require.NotNil(t, plain.Block.Plan)
-	assert.Equal(t, "mp4", plain.Block.Plan.Container)
-	assert.Equal(t, "encode with libx265", plain.Block.Plan.Describe())
 }
 
 // TestThePlanNamesTheSubtitlesItDrops is D44 (loop spec §2.5, §5.8):

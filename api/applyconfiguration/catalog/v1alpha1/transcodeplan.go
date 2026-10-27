@@ -34,12 +34,6 @@ type TranscodePlanApplyConfiguration struct {
 	Decode      *string                        `json:"decode,omitempty"`
 	HDRMode     *string                        `json:"hdrMode,omitempty"`
 	PlanHash    *string                        `json:"planHash,omitempty"`
-	// Container is what the output is written in: mp4, the MP4 standard's
-	// layout, or mkv when the file carries an image subtitle (PGS, DVD) no
-	// text subtitle covers, which stays in Matroska until the standard's
-	// phase 2 OCR (standard.Result.Container). Empty on a plan recorded
-	// before the field existed: mp4.
-	Container *string `json:"container,omitempty"`
 	// Dropped names each source subtitle the output carries neither embedded
 	// nor as a sidecar (standard.Result.Dropped: a codec the MP4 standard does
 	// not carry, or a second track for a sidecar name already planned), each
@@ -99,14 +93,6 @@ func (b *TranscodePlanApplyConfiguration) WithHDRMode(value string) *TranscodePl
 // If called multiple times, the PlanHash field is set to the value of the last call.
 func (b *TranscodePlanApplyConfiguration) WithPlanHash(value string) *TranscodePlanApplyConfiguration {
 	b.PlanHash = &value
-	return b
-}
-
-// WithContainer sets the Container field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Container field is set to the value of the last call.
-func (b *TranscodePlanApplyConfiguration) WithContainer(value string) *TranscodePlanApplyConfiguration {
-	b.Container = &value
 	return b
 }
 

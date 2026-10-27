@@ -31,8 +31,8 @@ func StandardProfile(name, hash string, spec transcodev1alpha1.TranscodeProfileS
 	return standard.Profile{
 		Name: name, Hash: hash, Quality: spec.QualityOrDefault(),
 		Languages: spec.Audio.Languages, SubtitleLanguages: spec.Subtitles.Languages,
-		KeepCodecs:  spec.Policy.KeepCodecs,
-		Container:   transcode.ContainerMP4, // the standard writes MP4 (OutputContainer), Matroska for kept image subtitles
+		KeepCodecs: spec.Policy.KeepCodecs, MaxVideoBitrateKbps: spec.Policy.MaxVideoBitrateKbps,
+		Container:   transcode.ContainerMP4, // the standard writes MP4 (OutputContainer)
 		MinDuration: MinDuration(spec.Policy),
 	}
 }

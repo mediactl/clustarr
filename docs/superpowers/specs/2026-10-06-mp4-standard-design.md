@@ -346,3 +346,40 @@ own, both fixed the same day:
   SubRip tracks, 265 s past it) may own and no output can match; Verify's
   own fallback reads the source's per-stream durations over the video and
   the kept audio alone (`Expectation.AudioSources`).
+
+## Amendment (2026-10-27, later the same day): every output MP4; `.sup` sidecars; the bitrate limit
+
+The interim Matroska layout above lasted one morning. The pilot of The
+Sopranos came out `.mkv`, the owner said every output must be `.mp4`, and
+the standard had planned its own interim output again (its AAC companion
+read as work), remuxing the pilot twice before the loop was caught. Both
+are withdrawn (`standard.Version` 8):
+
+- **An uncovered PGS track goes beside the MP4 as a `.sup` sidecar**
+  (`SidecarSUP`, `<stem>.<lang>[.forced|.sdh].sup`, the track copied through
+  FFmpeg's `sup` muxer), which Plex ignores and §5's OCR reads: nothing is
+  lost, and the owner asked for that OCR the same afternoon ("convert .sup to
+  .srt when .sup is the only subtitle format provided in the blu-ray"), as a
+  caption-domain worker over the sidecars rather than a pass of the
+  transcode. A DVD subtitle has no such format and is dropped, named.
+  `pkg/subtitles.SidecarExtensions` lists `sup`, so renames, recycles and
+  deletes carry it, and `ImageSidecar` keeps the caption planner from
+  counting it as an existing subtitle. `TranscodePlan.Container` went with
+  the layout; `Result.Container` is MP4 again for every plan.
+- **`policy.maxVideoBitrateKbps`** encodes an HEVC source whose video,
+  normalised to 1920x1080 by pixel count (`standard.NormalisedKbps`), runs
+  over it, where §7 copied every compliant HEVC: a release group's Blu-ray
+  x265 at 8-20 Mbps becomes the standard's HEVC (8-bit for SDR at 1080p or
+  less), where clustarr's own encodes of Blu-ray sources land at a median
+  1.1 Mbps. The owner set 6000 on `hevc-mkv`: 95 untranscoded Blu-ray HEVC
+  files (506 GiB) and 110 clustarr remuxes (462 GiB) encode under it.
+- **`CLUSTARR_VIDEO=copy|encode`** (`standard.VideoTagKey`) is written beside
+  `CLUSTARR_PROFILE` on every output. A copied video is the release's, the
+  one part of a transcode that is not final: a remux over the limit is
+  encoded once (`transcodeplan.RemuxOverLimit`, as `KeptH264Dropped` for
+  H.264), a transcode clustarr encoded never is, whatever its bitrate (61 of
+  its 4,060 encodes run over 6 Mbps). The planner supplies the tag for
+  outputs written before it from the recorded plan's `videoAction`; to the
+  standard a tagged file without the tag reads as copied, since the planner
+  dispatches only one whose recorded plan copied the video. A source another
+  tool transcoded (`TranscodedElsewhere`) is remuxed as before, never encoded.

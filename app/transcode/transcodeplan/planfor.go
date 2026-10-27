@@ -56,6 +56,12 @@ func MediaInfoOf(path string, mf *catalogv1alpha1.MediaFile, st *catalogv1alpha1
 	info.OriginalLanguage = original
 	if t := recordedTag(st, tag); t != "" {
 		info.Tags = map[string]string{ProfileTagKey: t}
+		// The summary carries no CLUSTARR_VIDEO either; the recorded plan
+		// says whether this transcode copied or encoded the video, as the
+		// worker's probe reads it from an output written since Version 8.
+		if tr := st.Transcode; RecordsATranscode(tr) && tr.Plan != nil && tr.Plan.VideoAction != "" {
+			info.Tags[standard.VideoTagKey] = tr.Plan.VideoAction
+		}
 	}
 	return info, nil
 }
@@ -173,7 +179,7 @@ func PlanFor(source string, tp *transcodev1alpha1.TranscodeProfile, hash string,
 func StatusPlan(s *standard.Result) *catalogv1alpha1.TranscodePlan {
 	p := &catalogv1alpha1.TranscodePlan{
 		PlanHash: s.Hash(), VideoAction: s.Video.Action, Decode: s.Video.Decode, HDRMode: s.Video.HDR,
-		Container: string(s.Container), Dropped: slices.Clone(s.Dropped),
+		Dropped: slices.Clone(s.Dropped),
 	}
 	switch s.Decision {
 	case standard.DecisionSkip:

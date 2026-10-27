@@ -23,6 +23,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/transcode/jobspec"
+	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
 
 // File is what Eligible reads of one file: the cached object, the view's
@@ -104,7 +105,7 @@ func Eligible(f File, profiles []transcodev1alpha1.TranscodeProfile) Eligibility
 		e.Why = "its winning profile is Invalid: " + msg
 	case !f.ItemExists:
 		e.Why = "its " + string(f.MF.Spec.MediaRef.Kind) + " is gone"
-	case AlreadyTranscoded(view, e.Profile.Name) && !KeptH264Dropped(view, e.Profile):
+	case AlreadyTranscoded(view, e.Profile.Name) && !KeptH264Dropped(view, e.Profile) && !RemuxOverLimit(view, e.Profile):
 		e.Why = ReasonTranscoded
 	case view.Status.ProbeHash == "" || view.Status.MediaInfo == nil:
 		e.Why, e.Pending = "never probed", ReasonUnprobed
@@ -129,6 +130,20 @@ func KeptH264Dropped(mf *catalogv1alpha1.MediaFile, profile *transcodev1alpha1.T
 	mi := mf.Status.MediaInfo
 	return mi != nil && mi.TranscodeProfile != "" && mi.VideoCodec == "h264" &&
 		!slices.Contains(profile.Spec.Policy.KeepCodecs, "h264")
+}
+
+// RemuxOverLimit reports a clustarr remux that copied HEVC -- tagged, its
+// recorded plan's video copied -- whose video runs over the profile's
+// policy.maxVideoBitrateKbps (normalised to 1080p): the other transcode that
+// is not final, since its video is the release's (owner, 2026-10-27: 110
+// Blu-ray x265 remuxes, 462 GiB, at 6-20 Mbps). standard.Plan encodes it.
+// A transcode clustarr encoded is final whatever its bitrate: 61 of its
+// 4,060 encodes run over 6 Mbps on grainy sources, and none is redone.
+func RemuxOverLimit(mf *catalogv1alpha1.MediaFile, profile *transcodev1alpha1.TranscodeProfile) bool {
+	mi, tr, limit := mf.Status.MediaInfo, mf.Status.Transcode, profile.Spec.Policy.MaxVideoBitrateKbps
+	return limit > 0 && mi != nil && mi.TranscodeProfile != "" && mi.VideoCodec == "hevc" &&
+		tr != nil && tr.Plan != nil && tr.Plan.VideoAction == standard.VideoCopied &&
+		standard.NormalisedKbps(mi.VideoBitrateKbps, mi.Width, mi.Height) > int64(limit)
 }
 
 // UpgradeDownloading reports whether item -- a file's Movie or Episode --

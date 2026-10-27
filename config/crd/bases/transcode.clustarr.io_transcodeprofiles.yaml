@@ -243,6 +243,19 @@ spec:
                     format: int32
                     minimum: 0
                     type: integer
+                  maxVideoBitrateKbps:
+                    description: |-
+                      MaxVideoBitrateKbps makes the standard encode an HEVC source it would
+                      otherwise copy when the source's video bitrate, normalised to
+                      1920x1080 by pixel count, exceeds it: a release group's Blu-ray x265
+                      at 8-20 Mbps becomes the standard's HEVC at the profile's quality,
+                      where clustarr's own encodes land near 1 Mbps. A transcode whose video
+                      clustarr copied (a remux, CLUSTARR_VIDEO=copy) is encoded once under it
+                      too; one clustarr encoded is final whatever its bitrate. 0 copies every
+                      compliant HEVC source (owner, 2026-10-27: 6000).
+                    format: int32
+                    minimum: 0
+                    type: integer
                   minDuration:
                     default: 1m
                     description: |-
@@ -569,8 +582,8 @@ spec:
                 description: |-
                   Hash is the sha256 of the standard's inputs -- quality, container,
                   audio.languages, subtitles.languages, policy.keepCodecs,
-                  policy.minDuration, policy.maxOutputToSourcePercent -- and the
-                  standard's version. Encode pods tag their output CLUSTARR_PROFILE=<name>@<hash>.
+                  policy.maxVideoBitrateKbps, policy.minDuration,
+                  policy.maxOutputToSourcePercent -- and the standard's version. Encode pods tag their output CLUSTARR_PROFILE=<name>@<hash>.
                   A new hash plans new jobs only for files not yet transcoded: a
                   transcoded file is final, whatever hash it carries.
                 type: string

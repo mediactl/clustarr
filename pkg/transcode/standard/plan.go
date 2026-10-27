@@ -59,14 +59,20 @@ import (
 // covers is dropped rather than holding the file for OCR (owner,
 // 2026-10-20: Akira held for its English DVD track beside three English
 // ASS ones).
-// 7: an image subtitle no text subtitle covers no longer holds the file:
-// its video and audio get the standard's treatment and the output stays
-// in Matroska, the image subtitles copied into it, until phase 2's OCR
-// remuxes it into the MP4 layout (ImageSubtitlesKept); and a file's
-// quality modifier (remux, brdisk) no longer skips it (owner, 2026-10-27:
-// 129 files with DTS or TrueHD audio sat Skipped under the two rules, their
-// audio playable natively on no Apple device or browser).
-const Version = 7
+// 7: an image subtitle no text subtitle covers no longer holds the file,
+// and a file's quality modifier (remux, brdisk) no longer skips it (owner,
+// 2026-10-27: 129 files with DTS or TrueHD audio sat Skipped under the two
+// rules, their audio playable natively on no Apple device or browser). The
+// first cut kept such a file in Matroska with the image subtitles inside;
+// the owner wants every output MP4, and the same day:
+// 8: an uncovered image subtitle goes beside the MP4 as a .sup sidecar
+// (PGS; a DVD one is dropped and named), which Plex ignores and the OCR
+// to come reads; an HEVC source whose video runs over
+// policy.maxVideoBitrateKbps (normalised to 1080p) is encoded rather than
+// copied, a remux of clustarr's own included (CLUSTARR_VIDEO=copy), never
+// clustarr's own encode (CLUSTARR_VIDEO=encode); and every output carries
+// the CLUSTARR_VIDEO tag saying which it got.
+const Version = 8
 
 // Profile is what a TranscodeProfile decides under the standard.
 type Profile struct {
@@ -78,8 +84,11 @@ type Profile struct {
 	// SubtitleLanguages keeps only subtitles in these languages; empty
 	// keeps all.
 	SubtitleLanguages []string
-	// Container is ignored since Version 2: the standard writes MP4, or
-	// Matroska for a file whose image subtitles it keeps (Version 7).
+	// MaxVideoBitrateKbps (policy.maxVideoBitrateKbps) encodes an HEVC
+	// source whose video, normalised to 1080p (NormalisedKbps), runs over
+	// it, where a compliant one is otherwise copied; 0 copies every one.
+	MaxVideoBitrateKbps int32
+	// Container is ignored since Version 2: the standard writes MP4.
 	Container transcode.Container
 	// MinDuration skips a source shorter than it (policy.minDuration):
 	// trailers, extras, samples. Zero considers every file.
@@ -149,27 +158,41 @@ type AudioPlan struct {
 // (SidecarPlan.Format).
 const (
 	SubtitleCopy = "copy" // a graft's copy plan (CopyPlan) keeps every subtitle
-	// SidecarSRT is every sidecar: SubRip copied out; ASS, SSA, WebVTT,
+	// SidecarSRT is every text sidecar: SubRip copied out; ASS, SSA, WebVTT,
 	// mov_text and text converted to plain SubRip. Plex's web player shows
 	// an ASS subtitle only by burning it into the video, a video transcode
 	// cluster-plex never allows, while it converts SubRip itself and copies
 	// the video (talos, 2026-10-20).
 	SidecarSRT = "srt"
+	// SidecarSUP is a PGS track no text track covers, copied out as it is
+	// through FFmpeg's sup muxer (Version 8; owner, 2026-10-27: every output
+	// is MP4, which carries no image subtitle, and PGS to text needs the OCR
+	// of phase 2). Plex reads no .sup, so the subtitle is unavailable until
+	// the OCR reads the sidecar; nothing is lost. A DVD subtitle has no such
+	// format and is dropped, named.
+	SidecarSUP = "sup"
 )
 
-// ImageSubtitlesKept is the reason suffix of a plan written in Matroska: the
-// file has an image subtitle (PGS, DVD) in a kept language that no text
-// subtitle covers (textCovers), which the MP4 layout cannot carry and the
-// standard cannot yet read, so it is copied into a Matroska output that the
-// phase 2 OCR, raising Version, remuxes into the MP4 layout. Until Version
-// 7 such a file was Skipped whole (ruling R1), its video and audio
-// untouched: 129 files with DTS or TrueHD audio on the owner's library.
-const ImageSubtitlesKept = "image subtitles (PGS, DVD) no text subtitle covers kept in Matroska until the MP4 standard's phase 2 OCR"
+// Tags the standard writes into every output's container metadata.
+const (
+	// ProfileTagKey is CLUSTARR_PROFILE=<profile>@<hash>: the file is a
+	// transcode, final whichever profile or hash wrote it.
+	ProfileTagKey = "CLUSTARR_PROFILE"
+	// VideoTagKey is CLUSTARR_VIDEO=copy|encode (Version 8): whether the
+	// output's video is the release's, copied, or clustarr's own encode. A
+	// copied video is the one part of a transcode that is not final: it is
+	// encoded once a policy asks for it (keptH264Dropped, MaxVideoBitrateKbps);
+	// an encoded one never is. A tagged file without it was written before
+	// Version 8 and reads as copied when such a policy applies, since the
+	// planner dispatches only a file whose recorded plan copied the video.
+	VideoTagKey = "CLUSTARR_VIDEO"
+	// VideoCopied and VideoEncoded are VideoTagKey's values.
+	VideoCopied, VideoEncoded = "copy", "encode"
+)
 
-// SubtitlePlan is one subtitle track embedded in the output: a graft's copy
-// plan's, or the image subtitles the standard keeps in a Matroska output
-// (ImageSubtitlesKept); the MP4 layout embeds none (spec §4.1: every
-// subtitle beside the MP4).
+// SubtitlePlan is one subtitle track embedded in the output: only a graft's
+// copy plan has any (spec §4.1: the standard writes every subtitle beside
+// the MP4).
 type SubtitlePlan struct {
 	SourceIndex     int32  // type-relative: the Nth subtitle stream
 	Action          string // SubtitleCopy
@@ -223,7 +246,7 @@ type Result struct {
 	Container transcode.Container
 	Video     VideoPlan
 	Audio     []AudioPlan
-	Subtitles []SubtitlePlan // embedded in the output: the kept image subtitles of a Matroska one, else none
+	Subtitles []SubtitlePlan // embedded in the output: none from Plan
 	Sidecars  []SidecarPlan  `json:",omitempty"` // written beside it
 	// Dropped names each source subtitle the output carries neither way.
 	Dropped     []string `json:",omitempty"`
@@ -277,28 +300,34 @@ func keptH264Dropped(info transcode.MediaInfo, profile Profile) bool {
 func Plan(info transcode.MediaInfo, profile Profile, hw Hardware) Result {
 	p := Result{
 		Container: transcode.ContainerMP4,
-		Tags:      map[string]string{"CLUSTARR_PROFILE": profile.Name + "@" + profile.Hash},
-	}
-	// A transcoded file is final (spec §5), whichever profile or hash wrote
-	// it: an edit or a new Version re-transcodes nothing. One written before
-	// the MP4 layout (HEVC in Matroska, Version 1) is remuxed into it, its
-	// video copied below and never encoded a second time (owner, 2026-10-15).
-	tag := formatTag(info.Tags, "CLUSTARR_PROFILE")
-	// The one exception: a remux that copied H.264 because the profile kept
-	// it (policy.keepCodecs) is encoded once the profile no longer keeps
-	// H.264 (owner, 2026-10-19). Its video is the release's, not clustarr's.
-	reencode := tag != "" && keptH264Dropped(info, profile)
-	if tag != "" && containerOf(info.Format.Name) == transcode.ContainerMP4 && !reencode {
-		return skip(p, "already transcoded (CLUSTARR_PROFILE "+tag+")")
-	}
-	if d := info.Format.Duration; profile.MinDuration > 0 && d > 0 && d < profile.MinDuration {
-		return skip(p, fmt.Sprintf("the source is %s long, under policy.minDuration %s", d.Round(time.Second), profile.MinDuration))
+		Tags:      map[string]string{ProfileTagKey: profile.Name + "@" + profile.Hash},
 	}
 	vi := primaryVideo(info.Video)
 	if vi < 0 {
 		return skip(p, "no video stream")
 	}
 	v := info.Video[vi]
+	// A transcoded file is final (spec §5), whichever profile or hash wrote
+	// it: an edit or a new Version re-transcodes nothing. One written before
+	// the MP4 layout (HEVC in Matroska, Version 1) is remuxed into it, its
+	// video copied below and never encoded a second time (owner, 2026-10-15).
+	tag := formatTag(info.Tags, ProfileTagKey)
+	// The exceptions are a transcode whose video is the release's, copied,
+	// not clustarr's own encode (VideoTagKey): a remux that copied H.264
+	// because the profile kept it (policy.keepCodecs) is encoded once the
+	// profile no longer keeps H.264 (owner, 2026-10-19), and one that copied
+	// HEVC over policy.maxVideoBitrateKbps is encoded once the policy says so
+	// (owner, 2026-10-27).
+	elsewhere := (&commonv1.MediaInfo{VideoEncoder: v.Encoder}).TranscodedElsewhere()
+	overLimit := v.Codec == "hevc" && profile.MaxVideoBitrateKbps > 0 && !elsewhere &&
+		NormalisedKbps(v.BitRateKbps, v.Width, v.Height) > int64(profile.MaxVideoBitrateKbps)
+	reencode := tag != "" && (keptH264Dropped(info, profile) || (overLimit && formatTag(info.Tags, VideoTagKey) != VideoEncoded))
+	if tag != "" && containerOf(info.Format.Name) == transcode.ContainerMP4 && !reencode {
+		return skip(p, "already transcoded (CLUSTARR_PROFILE "+tag+")")
+	}
+	if d := info.Format.Duration; profile.MinDuration > 0 && d > 0 && d < profile.MinDuration {
+		return skip(p, fmt.Sprintf("the source is %s long, under policy.minDuration %s", d.Round(time.Second), profile.MinDuration))
+	}
 
 	hdr, strip, ok := hdrMode(v)
 	if !ok {
@@ -307,15 +336,10 @@ func Plan(info transcode.MediaInfo, profile Profile, hw Hardware) Result {
 	subLangs := resolveLanguages(profile.SubtitleLanguages, info.OriginalLanguage)
 	var audioDropped []string
 	p.Audio, audioDropped = planAudio(info.Audio, resolveLanguages(profile.Languages, info.OriginalLanguage))
-	p.Subtitles, p.Sidecars, p.Dropped = planSubtitles(info.Subtitles, subLangs)
-	// An image subtitle the MP4 layout cannot carry keeps the output in
-	// Matroska (Version 7, ImageSubtitlesKept).
-	interim := len(p.Subtitles) > 0
-	if interim {
-		p.Container = transcode.ContainerMKV
-	}
+	p.Subtitles = []SubtitlePlan{}
+	p.Sidecars, p.Dropped = planSubtitles(info.Subtitles, subLangs)
 	p.Dropped = append(audioDropped, p.Dropped...)
-	p.Attachments = false // the layout carries none: a font served only ASS, now plain SubRip
+	p.Attachments = false // MP4 carries none; a font served only ASS, now plain SubRip
 	p.Chapters = true
 	p.Expect = Expectation{
 		VideoStreams: 1, AudioStreams: int32(len(p.Audio)), SubtitleStreams: int32(len(p.Subtitles)),
@@ -334,8 +358,11 @@ func Plan(info transcode.MediaInfo, profile Profile, hw Hardware) Result {
 	if eight {
 		p.Expect.PixelFormat = "yuv420p"
 	}
-	// A 10-bit file is never encoded down to the 8-bit target.
-	compliant := v.Codec == "hevc" && (tenBit(v) || (eight && v.PixFmt == "yuv420p")) && !isDolbyVision(v.HDR.Format)
+	// A 10-bit file is never encoded down to the 8-bit target -- unless its
+	// video runs over policy.maxVideoBitrateKbps, where a release group's
+	// Blu-ray x265 at 8-20 Mbps is encoded as any source is, to the 8-bit
+	// target for SDR at 1080p or less (owner, 2026-10-27).
+	compliant := v.Codec == "hevc" && (tenBit(v) || (eight && v.PixFmt == "yuv420p")) && !isDolbyVision(v.HDR.Format) && !overLimit
 	// A profile that keeps H.264 (policy.keepCodecs) copies 8-bit SDR H.264
 	// as compliant HEVC is copied (owner, 2026-10-15). Hi10P and HDR H.264
 	// are still encoded: many players, Apple's among them, cannot decode them;
@@ -347,17 +374,13 @@ func Plan(info transcode.MediaInfo, profile Profile, hw Hardware) Result {
 	for _, a := range p.Audio {
 		audioAsIs = audioAsIs && a.Action == AudioCopy
 	}
-	// The subtitles are as the layout has them when the output embeds every
-	// source track (the kept image subtitles of a Matroska output) and writes
-	// no sidecar; the MP4 layout embeds none, so any subtitle there is work.
-	// An attachment is always dropped.
-	subsAsIs := len(p.Subtitles) == len(info.Subtitles) && len(p.Sidecars) == 0 && len(info.Attachments) == 0
+	subsAsIs := len(info.Subtitles) == 0 && len(info.Attachments) == 0
 	sameContainer := containerOf(info.Format.Name) == p.Container
 	switch {
 	case keptH264 && audioAsIs && subsAsIs && sameContainer:
-		return skip(p, "already H.264 in the "+layoutName(interim)+", kept (policy.keepCodecs)")
+		return skip(p, "already H.264 in the MP4 standard's layout, kept (policy.keepCodecs)")
 	case compliant && audioAsIs && subsAsIs && sameContainer:
-		return skip(p, "already HEVC in the "+layoutName(interim))
+		return skip(p, "already HEVC in the MP4 standard's layout")
 	case compliant:
 		p.Decision = DecisionCopyVideo
 		switch {
@@ -368,8 +391,8 @@ func Plan(info transcode.MediaInfo, profile Profile, hw Hardware) Result {
 		default:
 			p.Reason = "HEVC video copied into the MP4 layout; audio and subtitles processed"
 		}
-		p.Reason = withKept(interim, p.Reason)
 		p.Video = VideoPlan{SourceIndex: int32(vi), Action: "copy"}
+		p.Tags[VideoTagKey] = VideoCopied
 		p.Expect.VideoCodec, p.Expect.PixelFormat = v.Codec, v.PixFmt
 		return p
 	}
@@ -380,7 +403,7 @@ func Plan(info transcode.MediaInfo, profile Profile, hw Hardware) Result {
 	if tag != "" && !reencode {
 		return skip(p, "already transcoded (CLUSTARR_PROFILE "+tag+"): final, never encoded a second time")
 	}
-	if (&commonv1.MediaInfo{VideoEncoder: v.Encoder}).TranscodedElsewhere() {
+	if elsewhere {
 		return skip(p, "transcoded elsewhere ("+v.Encoder+"): final, never encoded a second time")
 	}
 	p.Decision = DecisionEncode
@@ -388,8 +411,12 @@ func Plan(info transcode.MediaInfo, profile Profile, hw Hardware) Result {
 	if eight {
 		p.Reason = "encode to HEVC Main (8-bit: SDR at 1080p or less)"
 	}
-	p.Reason = withKept(interim, p.Reason)
+	if overLimit {
+		p.Reason += fmt.Sprintf("; the source's HEVC runs %d kbps at 1080p, over policy.maxVideoBitrateKbps %d",
+			NormalisedKbps(v.BitRateKbps, v.Width, v.Height), profile.MaxVideoBitrateKbps)
+	}
 	p.Video = encodeVideo(v, int32(vi), profile.Quality, hw, hdr, strip, eight)
+	p.Tags[VideoTagKey] = VideoEncoded
 	return p
 }
 
@@ -397,22 +424,18 @@ func skip(p Result, reason string) Result {
 	return Result{Decision: DecisionSkip, Reason: reason, Container: p.Container, Tags: p.Tags}
 }
 
-// layoutName names the layout a file is found already in: the MP4
-// standard's, or its interim Matroska one when image subtitles are kept.
-func layoutName(interim bool) string {
-	if interim {
-		return "MP4 standard's interim Matroska layout (" + ImageSubtitlesKept + ")"
+// NormalisedKbps is a video bitrate scaled to 1920x1080 by pixel count, the
+// figure policy.maxVideoBitrateKbps is compared with: 20 Mbps of 2160p is
+// 5 Mbps of 1080p. An unknown size leaves the bitrate as it is; an unknown
+// bitrate is 0, which is over no limit.
+func NormalisedKbps(kbps, width, height int32) int64 {
+	if kbps <= 0 {
+		return 0
 	}
-	return "MP4 standard's layout"
-}
-
-// withKept adds ImageSubtitlesKept to a plan's reason when its output is
-// Matroska for them.
-func withKept(interim bool, reason string) string {
-	if !interim {
-		return reason
+	if width <= 0 || height <= 0 {
+		return int64(kbps)
 	}
-	return reason + "; " + ImageSubtitlesKept
+	return int64(kbps) * 1920 * 1080 / (int64(width) * int64(height))
 }
 
 // audioSources are the source audio tracks the plan's outputs come from,
@@ -862,36 +885,31 @@ func sidecarSuffix(s transcode.SubtitleStream, ext string) string {
 
 // planSubtitles is spec §4.1 with rulings R2 and R3: every text subtitle,
 // ASS and SSA included since Version 5, becomes an .srt sidecar, one per
-// name, the first track to take a name keeping it. An image subtitle (PGS,
-// DVD) in a kept language is dropped when a text track of its language
-// covers it (Version 6) and otherwise embedded -- copied into a Matroska
-// output, which the MP4 layout gives way to for it, until phase 2's OCR
-// (Version 7, ImageSubtitlesKept). Anything else is dropped and named.
-// embedded is never nil, so a plan hashes alike with or without one.
-func planSubtitles(ss []transcode.SubtitleStream, languages wanted) (embedded []SubtitlePlan, sidecars []SidecarPlan, dropped []string) {
-	embedded = []SubtitlePlan{}
+// name, the first track to take a name keeping it. An image subtitle in a
+// kept language is dropped when a text track of its language covers it
+// (Version 6); otherwise a PGS one becomes a .sup sidecar (Version 8,
+// SidecarSUP) and a DVD one is dropped. Anything else is dropped and named.
+func planSubtitles(ss []transcode.SubtitleStream, languages wanted) (sidecars []SidecarPlan, dropped []string) {
 	taken := map[string]bool{}
 	for i, s := range ss {
 		if !languages.keeps(s.Language) {
 			dropped = append(dropped, fmt.Sprintf("subtitle %d (%s %q %s): not a kept language", i, s.Codec, s.Title, s.Language))
 			continue
 		}
-		if s.Bitmap {
-			if textCovers(ss, s) {
-				dropped = append(dropped, fmt.Sprintf("subtitle %d (%s %q %s): an image subtitle an %s text track covers", i, s.Codec, s.Title, s.Language, baseLanguage(s.Language)))
-				continue
-			}
-			embedded = append(embedded, SubtitlePlan{
-				SourceIndex: int32(i), Action: SubtitleCopy, Codec: s.Codec, Language: s.Language, Title: s.Title,
-				HearingImpaired: s.Disposition.HearingImpaired,
-			})
+		format := SidecarSRT
+		switch {
+		case s.Bitmap && textCovers(ss, s):
+			dropped = append(dropped, fmt.Sprintf("subtitle %d (%s %q %s): an image subtitle an %s text track covers", i, s.Codec, s.Title, s.Language, baseLanguage(s.Language)))
 			continue
-		}
-		if !slices.Contains(textSubtitles, s.Codec) {
+		case s.Bitmap && s.Codec == "hdmv_pgs_subtitle":
+			format = SidecarSUP
+		case s.Bitmap:
+			dropped = append(dropped, fmt.Sprintf("subtitle %d (%s %q %s): an image subtitle with no sidecar format Plex or an OCR reads", i, s.Codec, s.Title, s.Language))
+			continue
+		case !slices.Contains(textSubtitles, s.Codec):
 			dropped = append(dropped, fmt.Sprintf("subtitle %d (%s): a codec the MP4 standard does not carry", i, s.Codec))
 			continue
 		}
-		format := SidecarSRT
 		suffix := sidecarSuffix(s, format)
 		if taken[suffix] {
 			dropped = append(dropped, fmt.Sprintf("subtitle %d (%s %q): a second %s sidecar", i, s.Codec, s.Title, suffix))
@@ -900,7 +918,7 @@ func planSubtitles(ss []transcode.SubtitleStream, languages wanted) (embedded []
 		taken[suffix] = true
 		sidecars = append(sidecars, SidecarPlan{SourceIndex: int32(i), Format: format, Codec: s.Codec, Suffix: suffix})
 	}
-	return embedded, sidecars, dropped
+	return sidecars, dropped
 }
 
 // textCovers is whether a text subtitle that becomes a sidecar carries what

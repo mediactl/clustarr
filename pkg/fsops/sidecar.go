@@ -48,5 +48,6 @@ func SidecarPath(video, suffix string) string {
 }
 
 // SubtitleExt reports whether ext is a sidecar the transcode standard
-// writes: ".ass" or ".srt".
-func SubtitleExt(ext string) bool { return ext == ".ass" || ext == ".srt" }
+// writes: ".ass" or ".srt", and since standard.Version 8 ".sup" (a PGS
+// track no text track covers, kept beside the MP4 for the OCR to come).
+func SubtitleExt(ext string) bool { return ext == ".ass" || ext == ".srt" || ext == ".sup" }

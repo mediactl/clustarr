@@ -51,14 +51,7 @@ func BuildTask(mf *catalogv1alpha1.MediaFile, tp *transcodev1alpha1.TranscodePro
 	if rf == nil {
 		return task.Task{}, fmt.Errorf("source %s: %w", source, ErrNoRootFolder)
 	}
-	// The plan's container: MP4, or Matroska when it keeps image subtitles
-	// (standard.Version 7). The worker refuses a task whose output is not in
-	// its own plan's container, so the two must agree here.
-	container := OutputContainer
-	if plan != nil && plan.Container != "" {
-		container = transcodev1alpha1.Container(plan.Container)
-	}
-	out, err := OutputPath(source, tp.Name, container, ReplaceSource(tp.Spec.Policy))
+	out, err := OutputPath(source, tp.Name, OutputContainer, ReplaceSource(tp.Spec.Policy))
 	if err != nil {
 		return task.Task{}, fmt.Errorf("%w: %w", ErrInvalidOutput, err)
 	}

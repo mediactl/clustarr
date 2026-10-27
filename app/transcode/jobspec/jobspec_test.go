@@ -106,13 +106,15 @@ func TestStandardProfileCarriesTheStandardsInputs(t *testing.T) {
 		Audio:     transcodev1alpha1.AudioSpec{Languages: []string{"en"}},
 		Subtitles: transcodev1alpha1.SubtitleSpec{Languages: []string{"en"}},
 		Policy: transcodev1alpha1.PolicySpec{
-			KeepCodecs:  []string{"hevc", "h264"},
-			MinDuration: &metav1.Duration{Duration: 2 * time.Minute},
+			KeepCodecs:          []string{"hevc", "h264"},
+			MaxVideoBitrateKbps: 6000,
+			MinDuration:         &metav1.Duration{Duration: 2 * time.Minute},
 		},
 	}
 	got := StandardProfile("hevc", "abc", spec)
 	assert.Equal(t, []string{"hevc", "h264"}, got.KeepCodecs)
 	assert.Equal(t, []string{"en"}, got.SubtitleLanguages)
+	assert.Equal(t, int32(6000), got.MaxVideoBitrateKbps)
 	assertNoZeroLeaf(t, reflect.ValueOf(got), "StandardProfile")
 	assert.Equal(t, int32(30), got.Quality)
 	assert.Equal(t, transcode.ContainerMP4, got.Container)

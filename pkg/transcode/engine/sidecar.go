@@ -43,12 +43,16 @@ type sidecarSink interface {
 
 // newSidecar is the sink for sp beside output: SubRip through FFmpeg's srt
 // muxer -- the ffgo form of `ffmpeg -i in.mkv -map 0:s:N out.srt`, whose
-// packets reach the muxer unchanged -- and ASS, SSA, WebVTT, mov_text and
-// plain text converted to plain SubRip in Go (ffgo binds no subtitle
-// encoder; an ASS track's styling is dropped, pkg/subtitles/asssrt).
+// packets reach the muxer unchanged -- a PGS track through the sup muxer the
+// same way (standard.SidecarSUP), and ASS, SSA, WebVTT, mov_text and plain
+// text converted to plain SubRip in Go (ffgo binds no subtitle encoder; an
+// ASS track's styling is dropped, pkg/subtitles/asssrt).
 func newSidecar(sp standard.SidecarPlan, src *ffgo.StreamInfo, output string) (sidecarSink, error) {
 	path := fsops.SidecarPath(output, sp.Suffix)
-	if sp.Codec == "subrip" || sp.Codec == "srt" {
+	switch {
+	case sp.Format == standard.SidecarSUP:
+		return newMuxSidecar(path, "sup", src)
+	case sp.Codec == "subrip" || sp.Codec == "srt":
 		return newMuxSidecar(path, "srt", src)
 	}
 	return newSRTSidecar(path, sp.Codec), nil

@@ -115,6 +115,9 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         scalar: numeric
       default: 100
+    - name: maxVideoBitrateKbps
+      type:
+        scalar: numeric
     - name: minDuration
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Duration

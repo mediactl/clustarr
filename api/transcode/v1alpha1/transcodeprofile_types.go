@@ -133,6 +133,18 @@ type SubtitleSpec struct {
 // decides on the file's streams alone (owner, 2026-10-27, after 40 remuxes
 // skipped whole kept their DTS and TrueHD audio).
 type PolicySpec struct {
+	// MaxVideoBitrateKbps makes the standard encode an HEVC source it would
+	// otherwise copy when the source's video bitrate, normalised to
+	// 1920x1080 by pixel count, exceeds it: a release group's Blu-ray x265
+	// at 8-20 Mbps becomes the standard's HEVC at the profile's quality,
+	// where clustarr's own encodes land near 1 Mbps. A transcode whose video
+	// clustarr copied (a remux, CLUSTARR_VIDEO=copy) is encoded once under it
+	// too; one clustarr encoded is final whatever its bitrate. 0 copies every
+	// compliant HEVC source (owner, 2026-10-27: 6000).
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	MaxVideoBitrateKbps int32 `json:"maxVideoBitrateKbps,omitempty"`
+
 	// KeepCodecs lists the source video codecs the standard keeps rather
 	// than encodes. hevc is always kept, listed or not; h264 keeps 8-bit SDR
 	// H.264 as well, copied into the MP4 layout -- and so final -- where it
@@ -334,8 +346,8 @@ type TranscodeProfileStatus struct {
 
 	// Hash is the sha256 of the standard's inputs -- quality, container,
 	// audio.languages, subtitles.languages, policy.keepCodecs,
-	// policy.minDuration, policy.maxOutputToSourcePercent -- and the
-	// standard's version. Encode pods tag their output CLUSTARR_PROFILE=<name>@<hash>.
+	// policy.maxVideoBitrateKbps, policy.minDuration,
+	// policy.maxOutputToSourcePercent -- and the standard's version. Encode pods tag their output CLUSTARR_PROFILE=<name>@<hash>.
 	// A new hash plans new jobs only for files not yet transcoded: a
 	// transcoded file is final, whatever hash it carries.
 	// +optional

@@ -51,7 +51,8 @@
   "Attachments": false,
   "Chapters": true,
   "Tags": {
-    "CLUSTARR_PROFILE": "hevc-mkv@abc"
+    "CLUSTARR_PROFILE": "hevc-mkv@abc",
+    "CLUSTARR_VIDEO": "encode"
   },
   "Expect": {
     "VideoStreams": 1,

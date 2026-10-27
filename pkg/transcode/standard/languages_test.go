@@ -133,21 +133,26 @@ func TestNoSubtitleLanguagesKeepsEverySubtitle(t *testing.T) {
 	assert.Equal(t, []int32{0, 1, 3, 2, 4, 5}, keptAudioSources(r))
 }
 
-// An image subtitle keeps a file in Matroska for OCR only in a kept
-// language: a Blu-ray's Japanese PGS track is dropped, and the output is
-// the MP4 layout.
-func TestADroppedImageSubtitleKeepsNothing(t *testing.T) {
+// An image subtitle gets a .sup sidecar only in a kept language: a Blu-ray's
+// Japanese PGS track is dropped.
+func TestADroppedImageSubtitleGetsNoSidecar(t *testing.T) {
+	sups := func(r Result) (n int) {
+		for _, s := range r.Sidecars {
+			if s.Format == SidecarSUP {
+				n++
+			}
+		}
+		return n
+	}
 	p := profile
 	p.SubtitleLanguages = []string{"en"}
 	in := manyLanguages()
 	in.Subtitles = append(in.Subtitles, transcode.SubtitleStream{Codec: "hdmv_pgs_subtitle", Bitmap: true, Language: "jpn"})
 	r := Plan(in, p, cpu)
 	assert.NotEqual(t, DecisionSkip, r.Decision, r.Reason)
-	assert.Equal(t, transcode.ContainerMP4, r.Container)
-	assert.Empty(t, r.Subtitles)
+	assert.Zero(t, sups(r))
 	p.SubtitleLanguages = []string{"en", "fr"}
 	in.Subtitles[len(in.Subtitles)-1].Language = "fre"
 	r = Plan(in, p, cpu)
-	assert.Equal(t, transcode.ContainerMKV, r.Container, "a French one, no French text track beside it, is kept: %s", r.Reason)
-	assert.Len(t, r.Subtitles, 1)
+	assert.Equal(t, 1, sups(r), "a French one, no French text track beside it, goes beside the MP4: %+v", r.Sidecars)
 }

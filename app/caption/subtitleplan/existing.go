@@ -192,6 +192,12 @@ func sidecarExisting(names []string, videoBase string) []existingSub {
 	stem := strings.TrimSuffix(videoBase, filepath.Ext(videoBase))
 	var out []existingSub
 	for _, name := range names {
+		if subtitles.ImageSidecar(name) {
+			// A .sup the transcode kept beside its MP4 (standard.Version 8)
+			// is a subtitle no player reads: the language still wants a
+			// text one.
+			continue
+		}
 		k, ok := subtitles.ParseSidecar(stem, name)
 		if !ok {
 			continue

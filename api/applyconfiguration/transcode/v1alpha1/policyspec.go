@@ -31,6 +31,15 @@ import (
 // decides on the file's streams alone (owner, 2026-10-27, after 40 remuxes
 // skipped whole kept their DTS and TrueHD audio).
 type PolicySpecApplyConfiguration struct {
+	// MaxVideoBitrateKbps makes the standard encode an HEVC source it would
+	// otherwise copy when the source's video bitrate, normalised to
+	// 1920x1080 by pixel count, exceeds it: a release group's Blu-ray x265
+	// at 8-20 Mbps becomes the standard's HEVC at the profile's quality,
+	// where clustarr's own encodes land near 1 Mbps. A transcode whose video
+	// clustarr copied (a remux, CLUSTARR_VIDEO=copy) is encoded once under it
+	// too; one clustarr encoded is final whatever its bitrate. 0 copies every
+	// compliant HEVC source (owner, 2026-10-27: 6000).
+	MaxVideoBitrateKbps *int32 `json:"maxVideoBitrateKbps,omitempty"`
 	// KeepCodecs lists the source video codecs the standard keeps rather
 	// than encodes. hevc is always kept, listed or not; h264 keeps 8-bit SDR
 	// H.264 as well, copied into the MP4 layout -- and so final -- where it
@@ -68,6 +77,14 @@ type PolicySpecApplyConfiguration struct {
 // apply.
 func PolicySpec() *PolicySpecApplyConfiguration {
 	return &PolicySpecApplyConfiguration{}
+}
+
+// WithMaxVideoBitrateKbps sets the MaxVideoBitrateKbps field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the MaxVideoBitrateKbps field is set to the value of the last call.
+func (b *PolicySpecApplyConfiguration) WithMaxVideoBitrateKbps(value int32) *PolicySpecApplyConfiguration {
+	b.MaxVideoBitrateKbps = &value
+	return b
 }
 
 // WithKeepCodecs adds the given value to the KeepCodecs field in the declarative configuration

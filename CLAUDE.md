@@ -132,26 +132,29 @@ its sidecars and verifies in the pool pod's scratch emptyDir
 when 1.5x the source plus 1 GiB fits, and only the verified result is
 staged beside its output on `/data` before the swap (`worker/scratch.go`),
 so the NAS never carries the encode's writes or the MP4 faststart rewrite;
-a larger source encodes beside its output as before; attachments dropped, chapters kept; a file
-with an image subtitle no text subtitle covers is written in **Matroska**
-instead of MP4 (`standard.Version` 7, owner 2026-10-27,
-`standard.ImageSubtitlesKept`): its video and audio get the standard's
-treatment, the uncovered image subtitles are copied into the output
-(`Result.Subtitles`; the plan's `container: mkv`, which `Describe` reads
-as "image subtitles kept" and `jobspec.BuildTask` follows for the output
-path, since the worker refuses a task whose output is not in its plan's
-container), its text subtitles are sidecars as ever, and the tagged file
-is final until phase 2's OCR remuxes it into the MP4 layout (a tagged
-Matroska file that still keeps image subtitles skips as already in the
-interim layout). Until then such a file was Skipped whole
-(`HoldImageSubtitles`, ruling R1): 129 files with DTS or TrueHD audio sat
-that way, their audio playable natively on no Apple device or browser.
-Since `standard.Version` 6 (owner, 2026-10-20), a text subtitle of the
-same language covers an image one, provided it is forced only if the image
-one is (`standard.textCovers`), and the covered image subtitle is dropped.
-Akira had held for its English DVD track beside three English ASS ones;
-about 125 of the 458 held files (106 movies, 19 episodes) had such cover.
-An untagged image track is kept as uncovered.) and
+a larger source encodes beside its output as before; attachments dropped, chapters kept; a PGS
+subtitle no text subtitle covers goes beside the MP4 as a `.sup` sidecar
+(`standard.SidecarSUP`, `<stem>.<lang>[.forced|.sdh].sup`, copied through
+FFmpeg's `sup` muxer; `standard.Version` 8, owner 2026-10-27: every output
+is MP4, which carries no image subtitle), which Plex ignores and the OCR to
+come reads -- `pkg/subtitles.ImageSidecar`, listed in `SidecarExtensions`
+so it is renamed, recycled and deleted with its file, but never an
+"existing" subtitle to the caption planner, which still wants a text one
+for the language; a DVD subtitle has no such format and is dropped, named.
+Until Version 7 such a file was Skipped whole (`HoldImageSubtitles`,
+ruling R1): 129 files with DTS or TrueHD audio sat that way, their audio
+playable natively on no Apple device or browser. Version 7's first cut kept
+the file in Matroska with the image subtitles inside, and was withdrawn the
+same day: the owner wants every output MP4, and the standard planned its
+own interim output again (its AAC companion read as work), so the pilot of
+The Sopranos was remuxed twice before the loop was caught -- a tagged
+file's own output must never read as work. Since `standard.Version` 6
+(owner, 2026-10-20), a text subtitle of the same language covers an image
+one, provided it is forced only if the image one is (`standard.textCovers`),
+and the covered image subtitle is dropped. Akira had held for its English
+DVD track beside three English ASS ones; about 125 of the 458 held files
+(106 movies, 19 episodes) had such cover. An untagged image track is kept
+as uncovered.) and
 `pkg/transcode/engine` runs it on FFmpeg 9's libraries through the ffgo
 fork (`github.com/mediactl/ffgo`, tags `v0.0.0-clustarr.N`). There is no
 argv engine, no `--worker-engine`, and no `ffmpeg`, `ffprobe` or `par2` in
@@ -161,9 +164,28 @@ names no encoder setting: `quality`, `container` (ignored since
 `standard.Version` 2), `audio.languages`, `subtitles.languages` (hashed
 only when set, so a profile keeping every subtitle kept its hash),
 `policy.keepCodecs` (hashed as a set
-without `hevc`, which is always kept), `policy.minDuration` and
+without `hevc`, which is always kept), `policy.maxVideoBitrateKbps`
+(hashed only when set), `policy.minDuration` and
 `policy.maxOutputToSourcePercent` are the standard's inputs, and with
 `standard.Version` the only things `status.hash` covers.
+**`policy.maxVideoBitrateKbps`** (owner, 2026-10-27, 6000 on `hevc-mkv`:
+"why remux Blu-ray 1080p? we should transcode it HEVC 8-bit") encodes an
+HEVC source whose video runs over it, normalised to 1920x1080 by pixel
+count (`standard.NormalisedKbps`: 20 Mbps of 2160p is 5 Mbps of 1080p),
+where a compliant one is copied -- a release group's Blu-ray x265 at 8-20
+Mbps (273 untranscoded, 739 GiB; 95 over 6 Mbps) becomes the standard's
+HEVC, 8-bit for SDR at 1080p or less, where clustarr's own encodes land
+near 1.1 Mbps. Every output now carries `CLUSTARR_VIDEO=copy|encode`
+(`standard.VideoTagKey`) beside `CLUSTARR_PROFILE`: a copied video is the
+release's and is the one part of a transcode that is not final -- a remux
+over the limit is encoded once (`transcodeplan.RemuxOverLimit`, as
+`KeptH264Dropped`; 110 remuxed Blu-ray HEVC files, 462 GiB), a transcode
+clustarr encoded never is (61 of its 4,060 encodes run over 6 Mbps on
+grainy sources). The planner reads the recorded plan's `videoAction` for
+outputs written before the tag, and a tagged file without the tag reads
+as copied to the standard, since the planner dispatches only one whose
+recorded plan copied the video; a source another tool transcoded
+(`TranscodedElsewhere`) is still remuxed, never encoded.
 `policy.neverTranscodeModifiers` is gone (owner, 2026-10-27, "we can
 ignore the remux modifier"): a remux's or BR-disk's modifier skipped the
 whole file, 40 of them with DTS or TrueHD audio, and the standard now
