@@ -18,10 +18,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package usenet
 
 import (
+	"encoding/xml"
 	"fmt"
 	"strings"
 	"testing"
 
+	"github.com/javi11/nzbparser"
 	"github.com/stretchr/testify/require"
 )
 
@@ -182,4 +184,52 @@ func TestArchiveEntryPointsReturnsOneEntryPerSet(t *testing.T) {
 		{Name: "movie.mkv", Kind: kindContent},
 	}
 	require.Equal(t, []string{"extras.zip", "other.rar", "release.part01.rar"}, archiveEntryPoints(files))
+}
+
+// nzbWithSubjects builds a minimal NZB of one-segment files with the given
+// raw subjects (XML-escaped here).
+func nzbWithSubjects(t *testing.T, subjects ...string) []byte {
+	t.Helper()
+	var b strings.Builder
+	b.WriteString(`<?xml version="1.0" encoding="utf-8"?>` + "\n")
+	b.WriteString(`<nzb xmlns="http://www.newzbin.com/DTD/2003/nzb">`)
+	for i, s := range subjects {
+		var esc strings.Builder
+		require.NoError(t, xml.EscapeText(&esc, []byte(s)))
+		fmt.Fprintf(&b, `<file poster="p@x" date="1788000000" subject="%s">`, esc.String())
+		b.WriteString(`<groups><group>alt.binaries.clustarr</group></groups><segments>`)
+		fmt.Fprintf(&b, `<segment bytes="1000" number="1">s%d@clustarr.test</segment>`, i)
+		b.WriteString(`</segments></file>`)
+	}
+	b.WriteString(`</nzb>`)
+	return []byte(b.String())
+}
+
+// A subject that quotes an empty name is named by the file-name-shaped token
+// in it, as SABnzbd's name_extractor names it, not by the wrapper around it:
+// A Sign of Affection's EMBER pack (talos, 2026-10-27) was written to disk as
+// "[PRiVATE]-[EnCrYpTnZb]-[S01E01-Yuki's.World.[D7A77AE7].mkv].mkv", which
+// no parser read. A re-parse that already ends in an extension is kept.
+func TestASubjectQuotingAnEmptyNameIsNamedByItsFileName(t *testing.T) {
+	kept := `[Group] Show - 01 [1080p].mkv yEnc (1/1)`
+	body := nzbWithSubjects(t,
+		`[PRiVATE]-[EnCrYpTnZb]-[S01E01-Yuki's.World.[D7A77AE7].mkv]-[1/12] - "" yEnc  420715100 (1/587)`,
+		`[N3wZ] \LUYMXU377205\::[PRiVATE]-[EnCrYpTnZb]-[S01E12-Our.World.[7A107FB9].mkv]-[12/12] - "" yEnc  487753692 (1/681)`,
+		`[1/9] - "1687a83ee85a462caa8dcc8da4c392a4.vol000+01.par2" yEnc (1/8)`,
+		kept,
+	)
+	job, err := parseNZB(body, defaultMaxNZBBytes)
+	require.NoError(t, err)
+	var names []string
+	for _, f := range job.Files {
+		names = append(names, f.Name)
+	}
+	reparsed, err := nzbparser.ParseSubject(kept)
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{
+		"S01E01-Yuki's.World.[D7A77AE7].mkv",
+		"S01E12-Our.World.[7A107FB9].mkv",
+		"1687a83ee85a462caa8dcc8da4c392a4.vol000+01.par2",
+		reparsed.Filename,
+	}, names)
 }

@@ -528,6 +528,7 @@ func (w *Worker) inspectEpisodes(
 			insp.Files = append(insp.Files, f)
 			return nil
 		}
+		fillFromRelease(parsed, task.Release.Title, commonv1.MediaKindEpisode)
 		f.Parsed = factsOf(parsed)
 		eps, reason := MatchEpisodes(parsed, series.Spec.SeriesType, plan.episodes)
 		if reason != "" {

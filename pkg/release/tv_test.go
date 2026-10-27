@@ -181,3 +181,44 @@ func TestParseSeriesCascadePropagatesRegexTimeoutInsteadOfFallingThrough(t *test
 	require.Error(t, err)
 	assert.True(t, isRegexTimeout(err), "expected a regexp2 match-timeout error, got: %v", err)
 }
+
+// A file named for its episode alone parses, as Sonarr's "Episodes without
+// a title" do: the folder or the download names the series. A Sign of
+// Affection's EMBER season pack (talos, 2026-10-27) named every file
+// "S01E01-Yuki's.World.[D7A77AE7].mkv", and its NZB's subjects left the
+// engine the wrapper around it; all twelve were held as unparseable.
+func TestATitlelessEpisodeNameParses(t *testing.T) {
+	tests := []struct {
+		path     string
+		seasons  []int
+		episodes []int
+	}{
+		{"/d/S01E01 - Yuki's World.mkv", []int{1}, []int{1}},
+		{"/d/S01E01-Yuki's.World.[D7A77AE7].mkv", []int{1}, []int{1}},
+		{"/d/s02e10.mkv", []int{2}, []int{10}},
+		{"/d/S01E04E05 - Two Parts.mkv", []int{1}, []int{4, 5}},
+		{"/d/S01E04-E05.mkv", []int{1}, []int{4, 5}},
+		{"/d/1x05 - The Answer.mkv", []int{1}, []int{5}},
+		{"/d/[PRiVATE]-[EnCrYpTnZb]-[S01E01-Yuki's.World.[D7A77AE7].mkv].mkv", []int{1}, []int{1}},
+		{"/d/::[PRiVATE]-[EnCrYpTnZb]-[S01E12-Our.World.[7A107FB9].mkv].mkv", []int{1}, []int{12}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			p, err := ParsePath(tt.path, Options{Kind: commonv1.MediaKindEpisode})
+			require.NoError(t, err)
+			assert.Empty(t, p.Title, "a title-less name names no series")
+			assert.Equal(t, tt.seasons, p.Seasons)
+			assert.Equal(t, tt.episodes, p.Episodes)
+		})
+	}
+
+	// A titled name keeps its title; and a name that does not open with
+	// its numbering is still no episode.
+	p, err := ParseKind("A.Sign.of.Affection.S01E01.1080p.BluRay.x265-EMBER", commonv1.MediaKindEpisode)
+	require.NoError(t, err)
+	assert.Equal(t, "A Sign of Affection", p.Title)
+	for _, name := range []string{"1920x1080 sample", "02fb98288e35eea0f5b10ea420980959", "Season 1 Extras"} {
+		_, err := ParseKind(name, commonv1.MediaKindEpisode)
+		assert.Error(t, err, name)
+	}
+}

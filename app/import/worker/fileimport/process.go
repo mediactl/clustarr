@@ -65,6 +65,29 @@ func parseMediaFile(srcPath, releaseTitle string, kind commonv1.MediaKind) (*rel
 	return fp, nil
 }
 
+// fillFromRelease gives a file whose name names no source -- one named for
+// its episode alone, "S01E01 - Title.mkv", as a season pack's files often
+// are -- the quality, revision, group and languages releaseTitle names, as
+// Sonarr aggregates a pack's files from the download client item's title.
+// Such a name is no release name, so the group it seems to carry is none
+// either (A Sign of Affection's "[PRiVATE]-[EnCrYpTnZb]-[S01E01-...]" read
+// as PRiVATE, talos 2026-10-27); every file of a pack is the release's.
+// The probe still corrects the resolution (readVideo), and a name that
+// names its own source keeps everything it names.
+func fillFromRelease(p *release.ParsedRelease, releaseTitle string, kind commonv1.MediaKind) {
+	if (p.Quality.Source != "" && p.Quality.Source != commonv1.SourceUnknown) || releaseTitle == "" {
+		return
+	}
+	r, err := release.Parse(releaseTitle, release.Options{Kind: kind})
+	if err != nil || r.Quality.Source == "" || r.Quality.Source == commonv1.SourceUnknown {
+		return
+	}
+	p.Quality, p.Revision, p.Group = r.Quality, r.Revision, r.Group
+	if p.LanguageUnknown {
+		p.Languages, p.LanguageUnknown, p.DualAudio, p.NamesOriginal = r.Languages, r.LanguageUnknown, r.DualAudio, r.NamesOriginal
+	}
+}
+
 // probeVideo probes a video file an import is about to judge: its
 // technical description corrects the name-derived quality
 // (quality.AugmentFromMediaInfo) and names the file for its codec and

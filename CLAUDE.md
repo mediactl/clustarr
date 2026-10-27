@@ -850,7 +850,17 @@ a -10000 group stays below the minimum. A bare scene WEB is a WEB-DL
 (`release.sourceRegex`, 2026-10-26: `1080p.WEB.h264-GROUP`, and the
 anime `[WEB]`, `(WEB 1080p`, `(BD 1080p` and `BD1080p` fallbacks); the
 first port read every one as quality Unknown, which every profile
-rejects, 20 of A Model Family's 26 episode results among them. The parser
+rejects, 20 of A Model Family's 26 episode results among them. A file
+named for its episode alone parses, as Sonarr's "episodes without a title"
+do (`release.titlelessEpisodeRegex`, 2026-10-27): "S01E01 - Title.mkv",
+"1x05", leading bracket tags passed over. It parses with no title, so the
+import attributes it by its numbering, and when its name names no source it
+takes the release title's quality, revision, group and languages
+(`fileimport.fillFromRelease`, Sonarr's aggregation). The usenet engine
+names a file whose subject quotes an empty name (`- "" yEnc`) by the
+file-name-shaped token in it, as SABnzbd's name_extractor does
+(`usenet.fileName`), never by the subject's wrapper. A Sign of Affection's
+EMBER pack had all twelve files held as unparseable until then. The parser
 reads a release's audio markers past Sonarr (2026-10-19,
 `release.namedLanguages`): a dual-audio title -- "Dual Audio"/"Dual-Audio",
 `[DUAL]`, or a bare DUAL after the resolution or right after the episode or

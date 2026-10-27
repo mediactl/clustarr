@@ -50,6 +50,20 @@ var seasonOnlyRegex = mustCompile(
 	regexp2.IgnoreCase,
 )
 
+// titlelessEpisodeRegex is Sonarr's "Episodes without a title", single and
+// multi: a name that opens with its numbering -- "S01E01 - Title",
+// "S01E04E05", "1x05" -- and names no series, which the folder or the
+// download it came in names instead (the importer attributes a file by its
+// numbering alone, fileimport.MatchEpisodes). Leading bracketed tags and
+// punctuation are passed over, as in the name an NZB subject's wrapper
+// leaves when it quotes none ("[PRiVATE]-[EnCrYpTnZb]-[S01E01-Yuki's.World.
+// [D7A77AE7].mkv]", A Sign of Affection's season pack on talos,
+// 2026-10-27). It is tried only once every titled pattern has failed.
+var titlelessEpisodeRegex = mustCompile(
+	`^[^\p{L}\p{N}\[]*(?:\[[^\[\]]*\][-_. ]*)*\[?S?(?<season>\d{1,2})(?:[-_ ]?[EX](?<ep>\d{2,3})(?!\d))+`,
+	regexp2.IgnoreCase,
+)
+
 // partialSeasonRegex detects a "Part2"-style suffix on a season pack.
 var partialSeasonRegex = mustCompile(`part\s?\d`, regexp2.IgnoreCase)
 
@@ -241,7 +255,8 @@ func specialFromMatch(title string, m *regexp2.Match, seasons []int) bool {
 }
 
 // parseStandardSeries tries, in order: dash-range multi-episode, single/
-// multi-episode, then season-only (full/multi/partial season pack).
+// multi-episode, season-only (full/multi/partial season pack), then a
+// title-less episode.
 func parseStandardSeries(title string) (*ParsedRelease, error) {
 	if m, err := dashRangeEpisodeRegex.FindStringMatch(title); err != nil {
 		return nil, fmt.Errorf("release: series: dash-range match: %w", err)
@@ -327,6 +342,28 @@ func parseStandardSeries(title string) (*ParsedRelease, error) {
 			p.FullSeason = true
 		}
 		p.ReleaseType = commonv1.ReleaseTypeSeasonPack
+		p.Special = specialFromMatch(title, m, p.Seasons)
+		return finishSeries(title, p), nil
+	}
+
+	if m, err := titlelessEpisodeRegex.FindStringMatch(title); err != nil {
+		return nil, fmt.Errorf("release: series: title-less episode match: %w", err)
+	} else if m != nil {
+		season, err := atoiGroup(m, "season")
+		if err != nil {
+			return nil, err
+		}
+		epCaptures := groupCaptures(m, "ep")
+		episodes := make([]int, 0, len(epCaptures))
+		for _, c := range epCaptures {
+			v, convErr := strconv.Atoi(c.String())
+			if convErr != nil {
+				return nil, fmt.Errorf("release: series: parsing episode: %w", convErr)
+			}
+			episodes = append(episodes, v)
+		}
+		p := &ParsedRelease{Seasons: []int{season}, Episodes: episodes}
+		p.ReleaseType = releaseTypeForEpisodes(episodes)
 		p.Special = specialFromMatch(title, m, p.Seasons)
 		return finishSeries(title, p), nil
 	}

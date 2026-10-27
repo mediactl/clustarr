@@ -205,15 +205,46 @@ func parseNZB(payload []byte, maxBytes int64) (*nzbJob, error) {
 // fileName derives a file's name from the NZB. nzbparser fills Filename from
 // the quoted string in the subject; the fallback re-parses the subject, and if
 // that yields nothing the file is unnamed and the caller drops it.
+//
+// A subject that quotes an empty name can leave the re-parse its whole
+// wrapper: "[PRiVATE]-[EnCrYpTnZb]-[S01E01-Yuki's.World.[D7A77AE7].mkv]-[1/12]
+// - "" yEnc" re-parsed as "[PRiVATE]-[EnCrYpTnZb]-[S01E01-...].mkv]" (A Sign
+// of Affection's EMBER pack, talos 2026-10-27), a name no parser reads. For a
+// subject that quotes no name, a re-parse ending in no extension gives way to
+// the file-name-shaped token SABnzbd's name_extractor finds in the subject
+// (subjectFileNameRE). A name the poster quoted is never second-guessed: an
+// obfuscated one has no extension either, and is named from its magic bytes
+// after the transfer (renameObfuscated).
 func fileName(f *nzbparser.NzbFile) string {
-	if n := strings.TrimSpace(f.Filename); n != "" {
-		return path.Base(n)
+	name := strings.TrimSpace(f.Filename)
+	if name == "" {
+		if s, err := nzbparser.ParseSubject(f.Subject); err == nil {
+			name = strings.TrimSpace(s.Filename)
+		}
 	}
-	if s, err := nzbparser.ParseSubject(f.Subject); err == nil && strings.TrimSpace(s.Filename) != "" {
-		return path.Base(strings.TrimSpace(s.Filename))
+	if name != "" {
+		name = path.Base(name)
 	}
-	return ""
+	if !quotedNameRE.MatchString(f.Subject) && !nameExtensionRE.MatchString(name) {
+		if m := subjectFileNameRE.FindStringSubmatch(f.Subject); m != nil {
+			return strings.TrimSpace(m[1])
+		}
+	}
+	return name
 }
+
+// quotedNameRE is a subject quoting a name, SABnzbd's
+// RE_SUBJECT_FILENAME_QUOTES less the empty quote.
+var quotedNameRE = regexp.MustCompile(`"[^"]*[^"\s][^"]*"`)
+
+// nameExtensionRE is a name ending in a file extension.
+var nameExtensionRE = regexp.MustCompile(`\.[A-Za-z0-9]{2,4}$`)
+
+// subjectFileNameRE is SABnzbd's RE_SUBJECT_BASIC_FILENAME, its \w as Unicode
+// letters and digits and without the slash its bracketed runs allowed (no
+// file name holds one): name characters and bracketed runs, then an
+// extension.
+var subjectFileNameRE = regexp.MustCompile(`\b([\p{L}\p{N}_\-+()' .,]+(?:\[[\p{L}\p{N}_\-+()' .,]*\][\p{L}\p{N}_\-+()' .,]*)*\.[A-Za-z0-9]{2,4})\b`)
 
 func classify(name string) fileKind {
 	lower := strings.ToLower(name)
