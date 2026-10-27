@@ -9,11 +9,6 @@
 
 ARG GO_VERSION=1.27
 
-# Empty unless `--build-context ffgo=<dir>` replaces it (see
-# images/Dockerfile.clustarr): go mod download needs go.mod's directory
-# replace, and clipgen below links ffgo.
-FROM scratch AS ffgo
-
 # ---------------------------------------------------------------------------
 # clipgen: the e2e clips, made by test/fixtures/mkclips on internal/testmedia
 # (ffgo) against the native image's pinned BtbN FFmpeg; no ffmpeg CLI is
@@ -73,7 +68,6 @@ WORKDIR /src
 ENV CGO_ENABLED=0 \
     LD_LIBRARY_PATH=/opt/ffmpeg/lib \
     FFGO_SHIM_DIR=/opt/ffmpeg/lib
-COPY --from=ffgo / /ffgo-unify/
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod \
     go mod download
@@ -96,7 +90,6 @@ ARG TARGETARCH
 WORKDIR /src
 ENV CGO_ENABLED=0 \
     GOFLAGS=-trimpath
-COPY --from=ffgo / /ffgo-unify/
 
 # Warm the module cache separately so source edits do not re-download.
 COPY go.mod go.sum ./

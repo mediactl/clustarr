@@ -13,14 +13,6 @@
 
 ARG GO_VERSION=1.27
 
-# Empty unless `--build-context ffgo=<dir>` replaces it. go.mod replaces the
-# ffgo fork with a local directory until its tag is published, and
-# `go mod download` needs its go.mod even for binaries that never link it
-# (spec §7.6, §10.1.5). The COPY target is go.mod's directory as /src/..
-# sees it; TestEveryGoBuildingDockerfileCarriesTheReplaceStages holds it to
-# go.mod. par2go is a published module and needs no stage (upgrade guide U1).
-FROM scratch AS ffgo
-
 # ---------------------------------------------------------------------------
 # build: cmd/manager and cmd/ui, CGO_ENABLED=0
 # ---------------------------------------------------------------------------
@@ -43,7 +35,6 @@ WORKDIR /src
 # grpcnotrace: see the Makefile's GOTAGS.
 ENV CGO_ENABLED=0 \
     GOFLAGS="-trimpath -tags=grpcnotrace"
-COPY --from=ffgo / /ffgo-unify/
 # Warm the module cache separately so source edits do not re-download.
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod \

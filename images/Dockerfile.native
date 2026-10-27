@@ -45,24 +45,15 @@
 ARG GO_VERSION=1.27
 ARG FFMPEG_BRANCH=9.0
 
-# Empty unless `--build-context ffgo=<dir>` replaces it (spec §7.6, §10.1.5):
-# go.mod replaces the ffgo fork with a local directory until its tag is
-# published. The COPY target is go.mod's directory as /src/.. sees it.
-# par2go is a published module and needs no named context (upgrade guide
-# U1): its library comes from the par2 stage below.
-FROM scratch AS ffgo
-
 # ---------------------------------------------------------------------------
 # build: agent (cgo, R13), markers and transcode (purego), and the ffgo
 # shim's source. Built on the target platform: the agent needs cgo.
 # ---------------------------------------------------------------------------
 FROM golang:${GO_VERSION}-bookworm AS build
 ARG VERSION=dev
-ARG FFGO_COMMIT=""
 WORKDIR /src
 # grpcnotrace: see the Makefile's GOTAGS.
 ENV GOFLAGS="-trimpath -tags=grpcnotrace"
-COPY --from=ffgo / /ffgo-unify/
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY . .
@@ -79,7 +70,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     cp "${ffgo}/LICENSE" /out/licenses/ffgo/LICENSE; \
     cp "$(go list -m -f '{{.Dir}}' github.com/mediactl/par2go)/LICENSE" /out/licenses/par2go/LICENSE; \
     printf 'ffgo %s\nSource: https://github.com/mediactl/ffgo (a fork of https://github.com/obinnaokechukwu/ffgo)\n' \
-      "${FFGO_COMMIT:-$(go list -m -f '{{if .Replace}}{{.Replace.Path}} {{.Replace.Version}}{{else}}{{.Version}}{{end}}' github.com/obinnaokechukwu/ffgo)}" \
+      "$(go list -m -f '{{if .Replace}}{{.Replace.Path}} {{.Replace.Version}}{{else}}{{.Version}}{{end}}' github.com/obinnaokechukwu/ffgo)" \
       > /out/licenses/ffgo/SOURCE; \
     cp LICENSE /out/licenses/clustarr/LICENSE
 

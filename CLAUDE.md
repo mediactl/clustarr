@@ -1158,9 +1158,11 @@ make e2e           # end-to-end suite against that kind cluster (test/e2e, tag e
 Tools live in `$(go env GOPATH)/bin`: `controller-gen` v0.22.0, `setup-envtest`,
 `kustomize`, `golangci-lint-v2`; `make native-assets` also needs curl, xz, unzip
 and a C compiler (it compiles `libffshim.so` against the pinned FFmpeg). envtest
-assets are Kubernetes 1.37.0. `go.mod` replaces the ffgo fork with
-`../ffgo-unify` until the owner OKs pushing its tag (OD18), and `make contexts`
-exports the pinned ref every image build takes as a named context.
+assets are Kubernetes 1.37.0. `go.mod` replaces the ffgo module path with the
+fork's published tag (`github.com/mediactl/ffgo v0.0.0-clustarr.N`, since
+2026-10-27; before that a `../ffgo-unify` directory, which `make contexts`
+exported as a build context), so `go mod download` fetches it in the images
+too; bump the tag in go.mod and go.sum to take a new fork release.
 
 ## Gotchas found the hard way
 
@@ -2517,9 +2519,10 @@ decoding and embedded subtitle extraction run in-process on ffgo
 library (Wave 9 waits on a par2go release Go's module tooling accepts, so the
 usenet engine still execs `par2` and a set that needs repair fails as a local
 fault in the native image); tests that run no ffmpeg (Wave 6b's
-`internal/testmedia` and goldens and W10.9's guard are in the test batch); and
-`go.mod` replaces ffgo with `../ffgo-unify` until the owner OKs pushing tag
-`v0.0.0-clustarr.13` (OD18).
+`internal/testmedia` and goldens and W10.9's guard are in the test batch).
+`go.mod` replaced ffgo with the `../ffgo-unify` worktree until 2026-10-27
+(OD18), when its branch was rebased onto the fork's master and the replace
+moved to the published `v0.0.0-clustarr.14` tag.
 
 MediaFile remediation loop (ADR-0016, 2026-10-06/07;
 `docs/superpowers/specs/2026-10-06-mediafile-remediation-loop-design.md`):

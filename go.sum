@@ -353,10 +353,8 @@ github.com/lithammer/fuzzysearch v1.1.8/go.mod h1:IdqeyBClc3FFqSzYq/MXESsS4S0FsZ
 github.com/mattn/go-isatty v0.0.24 h1:tGZZoVgT/KiqK1c8ocVLeDS8BSWMRd47J3Lbz7vsReI=
 github.com/mattn/go-isatty v0.0.24/go.mod h1:nMCL3Zebbrt45jsMDgnfIwz6ydEQApk5oEI3HqDio6A=
 github.com/matttproud/golang_protobuf_extensions v1.0.1/go.mod h1:D8He9yQNgCq6Z5Ld7szi9bcBfOoFv/3dc6xSMkL2PC0=
-github.com/mediactl/ffgo v0.0.0-clustarr.11 h1:lLw7NOYB7j8aeR9fpJuitl+eorX5sQ3apk8ARL4PI2c=
-github.com/mediactl/ffgo v0.0.0-clustarr.11/go.mod h1:fAufbyKRrEfVGXJOYiqAW5MSeU+JFTuUG7BFxJhy5cQ=
-github.com/mediactl/ffgo v0.0.0-clustarr.12 h1:n0LazykWgU5DdKxGHzwZWrtgjTEnAWNIiJNR5LVdJ2Q=
-github.com/mediactl/ffgo v0.0.0-clustarr.12/go.mod h1:fAufbyKRrEfVGXJOYiqAW5MSeU+JFTuUG7BFxJhy5cQ=
+github.com/mediactl/ffgo v0.0.0-clustarr.14 h1:WtlF2o/84/c0V+LriNtS7LUoD/p06fkLBkGN7WWge1I=
+github.com/mediactl/ffgo v0.0.0-clustarr.14/go.mod h1:fAufbyKRrEfVGXJOYiqAW5MSeU+JFTuUG7BFxJhy5cQ=
 github.com/mediactl/par2go v0.1.1 h1:hwGl4ZBCbtWW3SGnLgmMt/OOgr2FXSLl2X56qmJMU9w=
 github.com/mediactl/par2go v0.1.1/go.mod h1:MTA/CCB+8t5igKeQtFDLQVKe6EUpKQKWGmtVQmEiedA=
 github.com/minio/highwayhash v1.0.4 h1:asJizugGgchQod2ja9NJlGOWq4s7KsAWr5XUc9Clgl4=

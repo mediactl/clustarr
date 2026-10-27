@@ -36,21 +36,12 @@ NATIVE_IMG ?= ghcr.io/mediactl/clustarr/native:dev
 NATIVE_DEBUG_IMG ?= ghcr.io/mediactl/clustarr/native-debug:dev
 IMAGE_VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 FIXTURES_IMG ?= ghcr.io/mediactl/clustarr/e2e-fixtures:dev
-# The ffgo fork, which go.mod replaces with a local directory until its tag is
-# published (spec §7.6, R12; Wave 0 of
-# docs/superpowers/plans/2026-10-06-manager-agent-split.md names the
-# directory). Image builds never read that working tree: `make contexts`
-# exports $(FFGO_REF) with git archive, and every docker build passes it as
-# the named context the Dockerfiles' empty ffgo stage stands in for.
-# FFGO_LOCAL is the directory go.mod names (empty once go.mod replaces with a
-# published version). par2go is a published module with no replace (upgrade
-# guide U1): PAR2GO_VERSION is go.mod's version of it, which native-assets
-# and the native image's par2 stage download the release asset of.
-FFGO_LOCAL := $(shell sed -nE 's#^replace github.com/obinnaokechukwu/ffgo => \.\./(.+)$$#\1#p' go.mod)
-FFGO_DIR ?= ../$(or $(FFGO_LOCAL),ffgo)
-FFGO_REF ?= v0.0.0-clustarr.13
-CONTEXTS ?= $(or $(TMPDIR),/tmp)/clustarr-contexts-$(USER)
-LOCAL_CONTEXTS := $(if $(FFGO_LOCAL),--build-context ffgo=$(CONTEXTS)/ffgo --build-arg FFGO_COMMIT=$(shell git -C $(FFGO_DIR) rev-parse $(FFGO_REF)^{commit} 2>/dev/null))
+# The ffgo fork (github.com/mediactl/ffgo, a go.mod replace of the upstream
+# module path at a published v0.0.0-clustarr.N tag since 2026-10-27) and
+# par2go are published modules: `go mod download` fetches both, in the
+# images too, and no build context names a working tree. PAR2GO_VERSION is
+# go.mod's version of par2go, which native-assets and the native image's
+# par2 stage download the release asset of (upgrade guide U1).
 PAR2GO_VERSION := $(shell go list -m -f '{{.Version}}' github.com/mediactl/par2go 2>/dev/null)
 
 API_PATHS := ./api/...
@@ -202,17 +193,6 @@ tidy: ## Tidy go.mod.
 cardigann-bundle: ## Re-pack .data/Definitions into the embedded Cardigann corpus (app/indexer/bundle/embedded).
 	go run ./hack/pack-cardigann -src .data/Definitions -out app/indexer/bundle/embedded/definitions.zip
 
-.PHONY: contexts
-contexts: ## Export a clean tree of $(FFGO_REF) for the image builds (spec §7.6); refuses a dirty or moved ffgo.
-	@if [ -n "$(FFGO_LOCAL)" ]; then hack/contexts.sh $(CONTEXTS) $(FFGO_DIR) $(FFGO_REF); fi
-
-# make build and make test read the fork's working tree through go.mod;
-# developing the fork additions needs a dirty tree, so this only warns.
-.PHONY: fork-status
-fork-status:
-	@if [ -n "$(FFGO_LOCAL)" ] && [ "$$(git -C $(FFGO_DIR) describe --tags --exact-match --dirty 2>/dev/null)" != "$(FFGO_REF)" ]; then \
-	  echo "WARNING: $(FFGO_DIR) is not a clean $(FFGO_REF); go.mod builds against it as it is" >&2; fi
-
 LDFLAGS := -s -w -X github.com/mediactl/clustarr/pkg/version.Version=$(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
 # grpcnotrace drops gRPC's golang.org/x/net/trace, which every binary links
@@ -224,7 +204,7 @@ LDFLAGS := -s -w -X github.com/mediactl/clustarr/pkg/version.Version=$(shell git
 GOTAGS ?= grpcnotrace
 
 .PHONY: build
-build: fork-status ## Build bin/manager, bin/ui, bin/agent, bin/markers and bin/transcode, each as its image does (spec §3.9).
+build: ## Build bin/manager, bin/ui, bin/agent, bin/markers and bin/transcode, each as its image does (spec §3.9).
 	CGO_ENABLED=0 go build -trimpath -tags "$(GOTAGS)" -ldflags "$(LDFLAGS)" -o bin/manager ./cmd/manager
 	CGO_ENABLED=0 go build -trimpath -tags "$(GOTAGS)" -ldflags "$(LDFLAGS)" -o bin/ui ./cmd/ui
 	CGO_ENABLED=1 go build -trimpath -tags "$(GOTAGS)" -ldflags "$(LDFLAGS)" -o bin/agent ./cmd/agent
@@ -232,9 +212,9 @@ build: fork-status ## Build bin/manager, bin/ui, bin/agent, bin/markers and bin/
 	CGO_ENABLED=0 go build -trimpath -tags "$(GOTAGS)" -ldflags "$(LDFLAGS)" -o bin/transcode ./cmd/transcode
 
 .PHONY: docker-build
-docker-build: contexts ## Build the clustarr (manager, ui) and native (agent, markers, transcode) images.
-	docker build $(LOCAL_CONTEXTS) --build-arg VERSION=$(IMAGE_VERSION) -f images/Dockerfile.clustarr --target clustarr -t $(IMG) .
-	docker build $(LOCAL_CONTEXTS) --build-arg VERSION=$(IMAGE_VERSION) --build-arg PAR2GO_VERSION=$(PAR2GO_VERSION) -f images/Dockerfile.native --target native -t $(NATIVE_IMG) .
+docker-build: ## Build the clustarr (manager, ui) and native (agent, markers, transcode) images.
+	docker build --build-arg VERSION=$(IMAGE_VERSION) -f images/Dockerfile.clustarr --target clustarr -t $(IMG) .
+	docker build --build-arg VERSION=$(IMAGE_VERSION) --build-arg PAR2GO_VERSION=$(PAR2GO_VERSION) -f images/Dockerfile.native --target native -t $(NATIVE_IMG) .
 
 # The clustarr image (manager, ui) for amd64 and arm64: the control-plane
 # placement design (2026-10-21, §6) runs both on the arm64 control-plane nodes.
@@ -246,15 +226,15 @@ BUILDX_OUTPUT ?= --push
 UPX_ARM64 ?= 1
 
 .PHONY: docker-buildx-clustarr
-docker-buildx-clustarr: contexts ## Build (and push) the clustarr image for amd64 and arm64.
-	docker buildx build $(LOCAL_CONTEXTS) --platform $(BUILDX_PLATFORMS) --build-arg VERSION=$(IMAGE_VERSION) --build-arg UPX_ARM64=$(UPX_ARM64) -f images/Dockerfile.clustarr --target clustarr -t $(IMG) $(BUILDX_OUTPUT) .
+docker-buildx-clustarr: ## Build (and push) the clustarr image for amd64 and arm64.
+	docker buildx build --platform $(BUILDX_PLATFORMS) --build-arg VERSION=$(IMAGE_VERSION) --build-arg UPX_ARM64=$(UPX_ARM64) -f images/Dockerfile.clustarr --target clustarr -t $(IMG) $(BUILDX_OUTPUT) .
 
 # There is no CUDA image (docs/adr/0015-no-cuda-image.md): nvidia pools run
 # the native image, the NVIDIA container runtime injecting the driver.
 .PHONY: docker-build-native
-docker-build-native: contexts ## Build the native image and its -debug twin.
-	docker build $(LOCAL_CONTEXTS) --build-arg VERSION=$(IMAGE_VERSION) --build-arg PAR2GO_VERSION=$(PAR2GO_VERSION) -f images/Dockerfile.native --target native -t $(NATIVE_IMG) .
-	docker build $(LOCAL_CONTEXTS) --build-arg VERSION=$(IMAGE_VERSION) --build-arg PAR2GO_VERSION=$(PAR2GO_VERSION) -f images/Dockerfile.native --target native-debug -t $(NATIVE_DEBUG_IMG) .
+docker-build-native: ## Build the native image and its -debug twin.
+	docker build --build-arg VERSION=$(IMAGE_VERSION) --build-arg PAR2GO_VERSION=$(PAR2GO_VERSION) -f images/Dockerfile.native --target native -t $(NATIVE_IMG) .
+	docker build --build-arg VERSION=$(IMAGE_VERSION) --build-arg PAR2GO_VERSION=$(PAR2GO_VERSION) -f images/Dockerfile.native --target native-debug -t $(NATIVE_DEBUG_IMG) .
 
 # The classes the native image is self-checked for: it serves every pool,
 # cpu, nvidia and intel (ADR 0015). NATIVE_CHECKS is the native image's list
@@ -265,8 +245,8 @@ NATIVE_CLASSES ?= cpu cuda intel
 NATIVE_CHECKS ?= $(foreach c,$(NATIVE_CLASSES),self-check:transcode:$(c)) self-check:agent self-check:markers self-check:par2-child version:agent version:markers version:transcode no-shell
 
 .PHONY: docker-build-fixtures
-docker-build-fixtures: contexts ## Build the e2e fixture image.
-	docker build $(LOCAL_CONTEXTS) -f images/Dockerfile.e2e-fixtures -t $(FIXTURES_IMG) .
+docker-build-fixtures: ## Build the e2e fixture image.
+	docker build -f images/Dockerfile.e2e-fixtures -t $(FIXTURES_IMG) .
 
 .PHONY: docker-selfcheck
 docker-selfcheck: ## Check the built images as CI and the release do (hack/image-checks.sh).
@@ -293,7 +273,7 @@ TEST_PARALLEL ?= 4
 .PHONY: test-race
 # -timeout 60m: the transcode envtests took some 460 s without the race
 # detector, which multiplies that several times; go's 10m default panics.
-test-race: envtest pg-assets native-assets chart-deps fork-status ## Run the suites under the race detector.
+test-race: envtest pg-assets native-assets chart-deps ## Run the suites under the race detector.
 	@mkdir -p "$${CLUSTARR_TEST_MEDIA_ROOT:-/data/media}" 2>/dev/null || true
 	KUBEBUILDER_ASSETS="$(shell $(SETUP_ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
 	CLUSTARR_PG_ASSETS="$(PG_ASSETS)" \
