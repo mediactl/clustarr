@@ -204,6 +204,20 @@ func TestImportplanCarriesEveryRuleOfFileimport(t *testing.T) {
 		}
 	})
 
+	t.Run("P58 an automatic grab replaces an upgradeable transcode", func(t *testing.T) {
+		wd := newWorld(t)
+		existing := wd.mediaFile("heat-transcoded", commonv1.MediaKindMovie, "heat",
+			filepath.Join(wd.lib("movies"), "Heat (1995)", "Heat (1995).mp4"), "HDTV-720p")
+		existing.Spec.Original = ptr.To(false)
+		existing.Annotations = map[string]string{catalogv1alpha1.AnnotationUpgradeable: "true"}
+		wd.add(existing)
+		root := wd.payload(map[string]int64{"Heat.1995.2160p.BluRay.x265-GRP.mkv": big})
+		g := wd.grab(commonv1.MediaKindMovie, "heat", "Heat.1995.2160p.BluRay.x265-GRP", root)
+		g.inspected()
+		require.Len(t, g.plan().Plan.Replaces, 1)
+		assert.Equal(t, "heat-transcoded", g.plan().Plan.Replaces[0].Name)
+	})
+
 	t.Run("P59 a file must be an upgrade over each it replaces, unless it carries the language a wrong-language file lacks", func(t *testing.T) {
 		wd := newWorld(t)
 		better := wd.mediaFile("heat-uhd", commonv1.MediaKindMovie, "heat",

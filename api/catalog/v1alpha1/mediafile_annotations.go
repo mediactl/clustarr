@@ -56,6 +56,14 @@ const (
 	// holds a file in its window place, and a cancel lasts only while the
 	// profile and probe hashes do.
 	AnnotationTranscodeExclude = "transcode.clustarr.io/exclude"
+	// AnnotationUpgradeable is "true" to have catalog and import read a
+	// transcoded file as the release it was imported from (MediaFile.Final):
+	// not final, so its item reads CutoffUnmet below the cutoff and an
+	// automatic grab may replace it, and no codec or HDR baseline, which are
+	// the transcode's own. transcode still never encodes it again. The file
+	// that replaces it is a new MediaFile, without the annotation (owner,
+	// 2026-10-27: The Sopranos' WEB-DL transcodes, re-searched for Blu-rays).
+	AnnotationUpgradeable = "catalog.clustarr.io/upgradeable"
 	// AnnotationReprobe asks for a fresh probe of the file's unchanged bytes
 	// (a nonce; handledNonces.reprobe, recorded once the answer is
 	// incorporated). A probe is otherwise due only for new bytes or a

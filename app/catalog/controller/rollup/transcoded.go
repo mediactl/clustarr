@@ -41,9 +41,11 @@ const ReasonMissingAudio = "MissingAudio"
 // search worker's and the RSS matcher's decision input all read it through
 // here; that method's doc comment is the rule (CLAUDE.md, "Transcoding"):
 // spec.original false, or the probe's status.mediaInfo.transcodeProfile, and
-// never status.transcode.profileTag. A nil mf is not transcoded.
+// never status.transcode.profileTag. A nil mf is not transcoded. The verdict
+// is the file's finality (MediaFile.Final): a transcode marked
+// catalog.clustarr.io/upgradeable reads as its release (owner, 2026-10-27).
 func Transcoded(mf *catalogv1alpha1.MediaFile) bool {
-	return mf.Transcoded()
+	return mf.Final()
 }
 
 // TranscodedObject is [Transcoded] over a client.Object, for a watch

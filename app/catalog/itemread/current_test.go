@@ -122,3 +122,28 @@ func TestAMultiTrackAlbumWithFilesHasACurrentFile(t *testing.T) {
 		})
 	}
 }
+
+// An upgradeable transcode is its release to the decision: not transcoded,
+// so TranscodedFinal never refuses its upgrade, and no codec or HDR
+// baseline, since its HEVC is the transcode's own -- the AVC Blu-ray that
+// replaces a WEB-DL transcode is the point (the owner, 2026-10-27, The
+// Sopranos). A final transcode keeps both.
+func TestAnUpgradeableTranscodeIsItsRelease(t *testing.T) {
+	web1080 := commonv1.Quality{Name: "WEBDL-1080p", Source: commonv1.SourceWebDL, Resolution: 1080}
+	transcode := func(annotations map[string]string) *catalogv1alpha1.MediaFile {
+		return &catalogv1alpha1.MediaFile{
+			ObjectMeta: metav1.ObjectMeta{Annotations: annotations},
+			Spec:       catalogv1alpha1.MediaFileSpec{Quality: web1080, Original: new(false)},
+			Status:     catalogv1alpha1.MediaFileStatus{MediaInfo: &commonv1.MediaInfo{VideoCodec: "hevc", Hdr: commonv1.HdrFormatNone}},
+		}
+	}
+	final := itemread.CurrentOf(transcode(nil))
+	assert.True(t, final.Transcoded)
+	assert.Equal(t, "hevc", final.VideoCodec)
+
+	up := itemread.CurrentOf(transcode(map[string]string{catalogv1alpha1.AnnotationUpgradeable: "true"}))
+	assert.False(t, up.Transcoded)
+	assert.Empty(t, up.VideoCodec)
+	assert.Empty(t, up.HDR)
+	assert.Equal(t, web1080, up.Quality)
+}

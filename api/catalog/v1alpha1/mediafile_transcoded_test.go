@@ -75,6 +75,29 @@ func TestMediaFileTranscoded(t *testing.T) {
 	}
 }
 
+// An upgradeable transcode (the owner, 2026-10-27: The Sopranos' WEB-DL
+// transcodes, to be replaced by Blu-rays) is still transcoded -- transcode
+// never encodes it again -- but not final: catalog and import read it as the
+// release it was imported from. Only "true" counts.
+func TestAnUpgradeableTranscodeIsNotFinal(t *testing.T) {
+	swapped := func(upgradeable string) *catalogv1alpha1.MediaFile {
+		mf := &catalogv1alpha1.MediaFile{Spec: catalogv1alpha1.MediaFileSpec{Original: new(false)}}
+		if upgradeable != "" {
+			mf.Annotations = map[string]string{catalogv1alpha1.AnnotationUpgradeable: upgradeable}
+		}
+		return mf
+	}
+	assert.True(t, swapped("").Final())
+	assert.True(t, swapped("true").Transcoded())
+	assert.False(t, swapped("true").Final())
+	assert.True(t, swapped("true").Upgradeable())
+	assert.True(t, swapped("yes").Final(), "only \"true\" counts")
+	assert.False(t, (&catalogv1alpha1.MediaFile{}).Final(), "an original is never final")
+	var none *catalogv1alpha1.MediaFile
+	assert.False(t, none.Final())
+	assert.False(t, none.Upgradeable())
+}
+
 // A plan reads as what it does to the file, never as FFmpeg's "copy" (owner,
 // 2026-10-15): a remux copies the video into the MP4 layout, its audio and
 // subtitles given the layout; an encode names its encoder.

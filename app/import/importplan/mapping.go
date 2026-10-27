@@ -168,9 +168,10 @@ func userChosen(e *catalogv1alpha1.DownloadEntry, manual bool) bool {
 
 // transcodedRejection is the refusal of a file that would replace existing
 // when existing is transcoded and the grab automatic (P58): a transcoded
-// file is final, and only a person's choice replaces it.
+// file is final, and only a person's choice replaces it. An upgradeable
+// transcode (MediaFile.Final) is not final.
 func transcodedRejection(rel string, existing *catalogv1alpha1.MediaFile, e *catalogv1alpha1.DownloadEntry, manual bool) Rejection {
-	if !existing.Transcoded() || userChosen(e, manual) {
+	if !existing.Final() || userChosen(e, manual) {
 		return Rejection{}
 	}
 	source := string(e.GrabbedBy)

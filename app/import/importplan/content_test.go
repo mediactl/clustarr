@@ -147,6 +147,11 @@ func TestAnImportKeepsAGoodTranscodeBaseline(t *testing.T) {
 	_, refused = p.gate("f.mkv", incoming("h264", "none"), []catalogv1alpha1.MediaFile{existing("hevc", commonv1.HdrFormatHDR10)}, true)
 	assert.False(t, refused, "a person's pick is exempt")
 
+	upgradeable := existing("hevc", commonv1.HdrFormatNone)
+	upgradeable.Annotations = map[string]string{catalogv1alpha1.AnnotationUpgradeable: "true"}
+	_, refused = p.gate("f.mkv", incoming("h264", "none"), []catalogv1alpha1.MediaFile{upgradeable}, false)
+	assert.False(t, refused, "an upgradeable transcode's HEVC is the transcode's own, no baseline")
+
 	// A Dolby Vision file is no baseline: the library never wanted it, and
 	// an SDR AVC Blu-ray takes its place (2026-10-22).
 	for _, dv := range []commonv1.HdrFormat{commonv1.HdrFormatDolbyVision, commonv1.HdrFormatDolbyVisionHDR10} {

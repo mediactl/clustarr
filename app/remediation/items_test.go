@@ -108,6 +108,16 @@ func TestItemWakeKeys(t *testing.T) {
 	assert.Equal(t, heat, itemWakeKeys(nil, heatFile(1, nil, none)), "a missing old object reads as a create")
 }
 
+// Marking a transcoded file upgradeable moves its Transcoded verdict, so it
+// wakes the file's items, which then read it below the cutoff; an
+// annotation otherwise wakes none.
+func TestMarkingATranscodeUpgradeableWakesItsItems(t *testing.T) {
+	final := heatFile(1, nil, catalogv1alpha1.MediaFileStatus{MediaInfo: &commonv1.MediaInfo{TranscodeProfile: "hevc@abc"}})
+	marked := final.DeepCopy()
+	marked.Annotations = map[string]string{catalogv1alpha1.AnnotationUpgradeable: "true"}
+	assert.Equal(t, []Key{{Kind: KindMovie, Namespace: "media", Name: "heat"}}, itemWakeKeys(final, marked))
+}
+
 // TestFileSignatureMovesWithTheGraftBlock (loop spec §3.3 S1'): the item
 // key wakes when its file's graft phase or tag changes, which is how
 // status.audio.graft follows the graft; a graft message alone does not.

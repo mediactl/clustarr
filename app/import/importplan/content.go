@@ -99,10 +99,11 @@ func episodeContentRejection(rel string, probe *schema.ProbeSummary) Rejection {
 
 // baselineLoss is decision.BaselineLoss between mf and the incoming file c
 // would replace it with, "" when it keeps mf's baseline or either side's
-// streams are unknown.
+// streams are unknown. An upgradeable transcode's streams are the
+// transcode's, no baseline (itemread.CurrentOf).
 func baselineLoss(mf *catalogv1alpha1.MediaFile, c candidate) string {
 	mi, probe := mf.Status.MediaInfo, c.f.Probe
-	if mi == nil || probe == nil {
+	if mi == nil || probe == nil || mf.Upgradeable() {
 		return ""
 	}
 	var res int32

@@ -71,6 +71,19 @@ func (mf *MediaFile) Transcoded() bool {
 	return mi != nil && (mi.TranscodeProfile != "" || mi.TranscodedElsewhere())
 }
 
+// Final reports whether mf is a transcoded file nothing automatic replaces:
+// Transcoded, unless AnnotationUpgradeable says to read it as its release.
+// It is catalog's and import's verdict (the item phase, the cutoff,
+// TranscodedFinal, the import's refusal); transcode reads Transcoded.
+func (mf *MediaFile) Final() bool {
+	return mf.Transcoded() && !mf.Upgradeable()
+}
+
+// Upgradeable reports whether AnnotationUpgradeable is "true" on mf.
+func (mf *MediaFile) Upgradeable() bool {
+	return mf != nil && mf.Annotations[AnnotationUpgradeable] == "true"
+}
+
 // ProbeCurrent reports whether status.mediaInfo describes the bytes the file
 // holds now: a probe was incorporated (probeHash and mediaInfo set) and no
 // probe of changed bytes is pending (Probed is not False for

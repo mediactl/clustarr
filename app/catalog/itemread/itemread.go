@@ -248,7 +248,9 @@ func CurrentOf(mf *catalogv1alpha1.MediaFile) *decision.Current {
 		Transcoded:     rollup.Transcoded(mf),
 		AudioLanguages: rollup.ProbedAudioLanguages(mf),
 	}
-	if mi := mf.Status.MediaInfo; mi != nil {
+	// An upgradeable transcode's codec and HDR are the transcode's, no
+	// baseline of the release it is read as.
+	if mi := mf.Status.MediaInfo; mi != nil && !mf.Upgradeable() {
 		cur.VideoCodec, cur.HDR = mi.VideoCodec, mi.Hdr
 	}
 	if from := mf.Spec.ImportedFrom; from != nil {

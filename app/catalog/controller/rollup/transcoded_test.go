@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
@@ -59,6 +60,13 @@ func TestTranscoded(t *testing.T) {
 				MediaInfo: &commonv1.MediaInfo{VideoCodec: "h264"},
 				Transcode: &catalogv1alpha1.TranscodeState{Phase: catalogv1alpha1.TranscodePhaseSucceeded, ProfileTag: "default@abc"},
 			},
+		}, want: false},
+		// catalog's verdict is MediaFile.Final: an upgradeable transcode
+		// reads as its release, so its item reads CutoffUnmet below the
+		// cutoff and is searched (the owner, 2026-10-27).
+		{name: "an upgradeable transcode is not final", mf: &catalogv1alpha1.MediaFile{
+			ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{catalogv1alpha1.AnnotationUpgradeable: "true"}},
+			Spec:       catalogv1alpha1.MediaFileSpec{Original: new(false)},
 		}, want: false},
 	}
 	for _, c := range cases {
