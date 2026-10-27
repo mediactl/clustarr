@@ -440,47 +440,47 @@ operator adds to the tuner (the chart renders none; the NetworkPolicy's
 
 ## 6. Logos and program images
 
-### 6.1 Channel logos
+**Built the same day, by another session (clustarr f2852be6, 2026-10-27),
+before this design was written:** the tuner already looks programme
+titles up as movies and series through the metadata gateway's search RPC
+(`app/livetv/tuner/artwork.go`: `Options.Search`, bound in the manager;
+background passes of 300 at 400 ms, never holding a guide build; the
+answers cached in the Live TV store under `programme-art/<ns>/<name>`, a
+hit 7 days, a miss shorter) and writes a poster found into the XEPG
+guide's `<icon>`; `xmltv.Enricher` classifies programmes for Plex's
+parser; and the tuner serves every channel's logo itself at
+`logos/<number>.png` under each device and range (`logo.go`), recoloured
+white when it is dark text on transparency, cached by source URL. The
+design keeps all of that as built. The manager holding a requester for
+that RPC is the pattern that commit chose; it stands.
 
-The resolved logo of a channel, in order: `spec.logo`; the provider's
-`tvg-logo` when it answers an image (a HEAD at render, cached a day in
-`clustarr-livetv` under `logo-check/<provider>/<key>`); a tv-logos match.
-The match is lineuparr's: the provider's `spec.logos.countries` (ISO
-codes, default from the account's or the guide's country, else `us`)
-name tv-logos country directories; the manager lists each directory
-through the GitHub contents API once a day, cached in
-`clustarr-livetv/tv-logos/<country>` (a 1000-entry listing is reported
-as truncated); a channel name is normalised as lineuparr does (`&` to
-"and", punctuation out, a trailing HD/SD/UHD/4K/FHD/Network/Channel/TV
-word out, the file's `-<cc>` and `-hz` suffixes out, hyphens to spaces)
-and fuzzy-matched at 85 or better. The winner is written to
+What remains for Phase C:
+
+### 6.1 Channel logos from tv-logos
+
+The source of a channel's logo, in order: `spec.logo`; the provider's
+`tvg-logo` when it answers an image (the fetch `logo.go` already makes);
+a tv-logos match. The match is lineuparr's: the provider's
+`spec.logos.countries` (ISO codes; default `us`) name tv-logos country
+directories; the manager lists each directory through the GitHub
+contents API once a day, cached in `clustarr-livetv/tv-logos/<country>`
+(a 1000-entry listing is reported as truncated; a 403 keeps the cached
+listing); a channel name is normalised as lineuparr does (`&` to "and",
+punctuation out, a trailing HD/SD/UHD/4K/FHD/Network/Channel/TV word
+out, the file's `-<cc>` and `-hz` suffixes out, hyphens to spaces) and
+fuzzy-matched at 85 or better. The winner is written to
 `IPTVChannel.status.logo` (`url`, `source`: spec, provider, tvlogos) by
-the channel controller, and every renderer (the lineup, the M3U, the
-XMLTV `<icon>`, the ui) reads `status.logo`. Plex fetches the raw
-GitHub URL itself; the ui serves it through `/art/search`, whose
-allowlist gains `raw.githubusercontent.com` restricted to the
-`/tv-logo/tv-logos/` path. The ui's logo picker lists the country
-listing with a search box, and a pick patches `spec.logo`.
+the channel controller, and the tuner's logo pipeline reads it as the
+source URL it fetches, recolours and serves, so Plex and the ui see one
+logo through the same `logos/<number>.png`. The ui's logo picker lists
+the country listing with a search box, and a pick patches `spec.logo`;
+its thumbnails go through `/art/search`, whose allowlist gains
+`raw.githubusercontent.com` restricted to the `/tv-logo/tv-logos/` path.
 
 ### 6.2 Program images
 
-A guide's `<icon>` on a programme is kept, as today. Where a programme
-has none, the image is looked up by title (and year, when the guide
-gives one) on TMDB, as ADR-0019 has rate-limited work done: at each
-guide render the tuner lists the uncached titles of programmes starting
-within the next 24 hours, at most 200 per provider, and the manager
-publishes one `catalog-livetv-artwork` task per provider naming them;
-the metadata agent's worker looks each up through the gateway's TMDB
-client and limiter (a movie category or a title with no episode numbers
-searches movies, anything with episode numbers searches TV, the first
-result's poster is taken) and writes the answer, hit or miss, into the
-durable KV bucket `clustarr-livetv-artwork` by normalised title, kept 30
-days; the worker is the bucket's one writer. The tuner watches the
-bucket and re-renders the guide (debounced, as any render) when answers
-land, so a render never waits on TMDB and a 400-channel guide warms over
-a day without bursting the key. The image URL goes into the XEPG guide's
-`<icon>` (Plex shows it in its guide) and the guide index (§5.1). An
-XMLTV from a panel that carries icons costs nothing.
+Built (above). The guide index of §5.1 carries each programme's image
+URL from the same cache, so the ui's TV Guide shows what Plex shows.
 
 ## 7. Invariants and guards
 
@@ -511,7 +511,8 @@ XMLTV from a panel that carries icons costs nothing.
   runbook; the owner schedules it.
 - **GitHub's unauthenticated rate limit** for the tv-logos listing: one
   request per country per day; a 403 keeps the cached listing.
-- **TMDB budget**: bounded by §6.2's caps and the gateway's limiter.
+- **TMDB budget**: bounded by the artwork passes' pacing (300 titles at
+  400 ms) and the gateway's limiter, as built.
 - **The guide index size**: 400 channels times 7 days of programmes is a
   few MiB of JSON gzip; the ui parses it once per change.
 
@@ -561,10 +562,10 @@ does since 2026-10-07.
 - Server-rendered guide windows through htmx rather than a client grid.
 - Logos resolved by the channel controller into `status.logo`, tv-logos
   listings cached a day, lineuparr's normalisation and threshold.
-- Program images from TMDB through the gateway, capped per render.
+- Program images: as f2852be6 built them (the gateway's search RPC from
+  the tuner, cached in the Live TV store); the guide index reuses the
+  cache.
 - A device with a block's DeviceID at another URI is replaced, so the
   cutover and a renamed Service need no code that names an old address;
   `DVRDeviceIDTaken` goes.
 - No stream plays in the browser (§5.9).
-- TMDB lookups are a task answered by the metadata agent into
-  `clustarr-livetv-artwork`, never a blocking call in the render (§6.2).
