@@ -119,7 +119,10 @@ func RefreshTTL(kind commonv1.MediaKind, state string, lastRefreshed time.Time) 
 //	6: a Series' seasons learn their own names (seasonTitles: TheTVDB's
 //	   season name, translated into the titles' language), which the Plex
 //	   provider shows instead of "Season N" (2026-10-21).
-const SchemaVersion int32 = 6
+//	7: a Series learns TheTVDB's Sub-Genre tags (subGenres: Dark Comedy,
+//	   Psychological Thriller), which the Plex provider lists after its
+//	   genres so they fill Plex's categories (2026-10-27).
+const SchemaVersion int32 = 7
 
 // RefreshPurpose is the events.MsgIDForObject purpose of an item's metadata
 // task. The refresh an outdated document asks for has one of its own, per

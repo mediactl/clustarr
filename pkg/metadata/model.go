@@ -385,6 +385,11 @@ type Series struct {
 	Certifications []Certification `json:"certifications,omitempty"`
 	OriginalGenres []string        `json:"originalGenres,omitempty"`
 	SeasonTypes    []SeasonTypeRef `json:"seasonTypes,omitempty"`
+	// SubGenres are TheTVDB's "Sub-Genre" tags (Dark Comedy, Psychological
+	// Thriller, Adaptation), kept apart from Genres: the Plex provider
+	// shows them as further genres, so they fill Plex's categories, while
+	// classification and the original-language pairing read Genres alone.
+	SubGenres []string `json:"subGenres,omitempty"`
 
 	Provenance []Provenance `json:"provenance,omitempty"`
 }

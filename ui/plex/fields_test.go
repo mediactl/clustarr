@@ -578,3 +578,29 @@ func TestAChosenImageSetServesSeasonsBelowThePastedOne(t *testing.T) {
 		}
 	}
 }
+
+// A show's TheTVDB sub-genres are listed as further Genre entries after
+// its genres (Plex builds categories from Genre and keeps no Label from a
+// provider), one a genre already names skipped, and after the
+// original-language pairing, which matches Genres by position.
+func TestShowListsItsSubGenresAfterItsGenres(t *testing.T) {
+	s, eps := fixtureSeriesAndEpisodes()
+	s.Status.Metadata.Genres = []string{"Drama", "Crime"}
+	s.Status.Metadata.OriginalGenres = []string{"ドラマ", "犯罪"}
+	s.Status.Metadata.OriginalLanguage = "ja"
+	s.Status.Metadata.Language = "en"
+	s.Status.Metadata.SubGenres = []string{"Dark Comedy", "crime", "Psychological Thriller"}
+	objs := []client.Object{s}
+	for _, e := range eps {
+		objs = append(objs, e)
+	}
+	h := newFullHandler(t, nil, objs...)
+
+	md := metadataOf(t, h, "/plex/tv/library/metadata/"+string(s.UID)+"?X-Plex-Language=en-US")
+	assert.Equal(t, []any{
+		map[string]any{"tag": "Drama", "originalTag": "ドラマ"},
+		map[string]any{"tag": "Crime", "originalTag": "犯罪"},
+		map[string]any{"tag": "Dark Comedy"},
+		map[string]any{"tag": "Psychological Thriller"},
+	}, md["Genre"])
+}

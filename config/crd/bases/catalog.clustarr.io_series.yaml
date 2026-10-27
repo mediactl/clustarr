@@ -1816,6 +1816,16 @@ spec:
                       type: string
                     maxItems: 10
                     type: array
+                  subGenres:
+                    description: |-
+                      SubGenres are TheTVDB's Sub-Genre tags (Dark Comedy, Psychological
+                      Thriller), which the Plex provider lists after Genres so they fill
+                      Plex's categories. Kept apart from Genres, which classification and
+                      OriginalGenres read.
+                    items:
+                      type: string
+                    maxItems: 30
+                    type: array
                   tagline:
                     description: |-
                       Tagline is the series' promotional line (TMDB tv, when a TMDB id and

@@ -4547,7 +4547,7 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: monitor
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.SeriesMonitorMode
-      default: none
+      default: unmonitorSpecials
     - name: searchForCutoffUnmet
       type:
         scalar: boolean
@@ -4725,6 +4725,12 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.SeriesRunStatus
     - name: studios
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: atomic
+    - name: subGenres
       type:
         list:
           elementType:

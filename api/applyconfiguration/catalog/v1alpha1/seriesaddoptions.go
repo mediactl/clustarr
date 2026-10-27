@@ -30,7 +30,9 @@ import (
 // reconciled; status.addOptionsApplied records that this has happened.
 type SeriesAddOptionsApplyConfiguration struct {
 	// Monitor selects which episodes start out monitored. The default,
-	// none, searches nothing until a season or an episode is turned on.
+	// unmonitorSpecials, monitors every season but the specials: a
+	// monitored series monitors all of its seasons (owner, 2026-10-27; the
+	// default was none).
 	Monitor *catalogv1alpha1.SeriesMonitorMode `json:"monitor,omitempty"`
 	// IgnoreEpisodesWithFiles leaves episodes that already have a file unmonitored.
 	IgnoreEpisodesWithFiles *bool `json:"ignoreEpisodesWithFiles,omitempty"`

@@ -315,6 +315,14 @@ type SeriesMetadata struct {
 	// +kubebuilder:validation:MaxItems=30
 	OriginalGenres []string `json:"originalGenres,omitempty"`
 
+	// SubGenres are TheTVDB's Sub-Genre tags (Dark Comedy, Psychological
+	// Thriller), which the Plex provider lists after Genres so they fill
+	// Plex's categories. Kept apart from Genres, which classification and
+	// OriginalGenres read.
+	// +optional
+	// +kubebuilder:validation:MaxItems=30
+	SubGenres []string `json:"subGenres,omitempty"`
+
 	// SeasonImages are per-season artwork (TVDB season posters and
 	// backgrounds). They live here rather than on status.seasons so the
 	// Series controller stays the only writer of status.seasons.

@@ -19,6 +19,7 @@ package plex
 
 import (
 	"net/http"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -228,6 +229,9 @@ func buildShowMetadata(root rootDef, u urls, s *catalogv1.Series, idx *projectio
 			md.Genre = withOriginalTags(md.Genre, meta.OriginalGenres)
 			md.OriginalImage = originalImages(u, meta.Images, meta.OriginalLanguage, meta.Title)
 		}
+		// After the original-language pairing, which matches Genres by
+		// position: TheTVDB's sub-genres carry no translation.
+		md.Genre = withSubGenres(md.Genre, meta.SubGenres)
 	}
 	md.SeasonType = seasonTypes(s)
 	if s.Spec.TvdbID != 0 {
@@ -661,6 +665,20 @@ func providerType(obj any) int {
 	default:
 		return 0
 	}
+}
+
+// withSubGenres lists a series' TheTVDB sub-genres after its genres, as
+// further Genre entries (Plex builds a TV library's categories from Genre;
+// it keeps no Label, Style or Mood from a provider), skipping one a genre
+// already names.
+func withSubGenres(genre []Tag, subGenres []string) []Tag {
+	for _, sg := range subGenres {
+		if sg == "" || slices.ContainsFunc(genre, func(t Tag) bool { return strings.EqualFold(t.Tag, sg) }) {
+			continue
+		}
+		genre = append(genre, Tag{Tag: sg})
+	}
+	return genre
 }
 
 // withOriginalTags pairs each genre with its original-language name, when

@@ -750,3 +750,15 @@ func TestBuildSeriesMetadataACSplitsSeasonImages(t *testing.T) {
 	require.Equal(t, "season-1", *ac.SeasonImages[0].URL)
 	require.Equal(t, "official", *ac.SeasonTypes[0].ID)
 }
+
+func TestBuildSeriesMetadataACRendersSubGenresCappedAt30(t *testing.T) {
+	var sub []string
+	for i := range 40 {
+		sub = append(sub, "sub"+string(rune('a'+i%26)))
+	}
+	ac := buildSeriesMetadataAC(&pkgmetadata.Series{Title: "Tagged", Genres: []string{"Drama"}, SubGenres: sub}, nil, time.Now())
+	require.Len(t, ac.SubGenres, 30)
+	require.Equal(t, "suba", ac.SubGenres[0])
+	require.Equal(t, []string{"Drama"}, ac.Genres, "sub-genres never join genres in the document")
+	require.Nil(t, buildSeriesMetadataAC(&pkgmetadata.Series{Title: "Plain"}, nil, time.Now()).SubGenres)
+}

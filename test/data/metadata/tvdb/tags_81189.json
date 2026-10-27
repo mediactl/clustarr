@@ -1,0 +1,51 @@
+[
+  {
+    "id": 182,
+    "tag": 31,
+    "tagName": "Geographic Location",
+    "name": "America / United States",
+    "helpText": null
+  },
+  {
+    "id": 191,
+    "tag": 31,
+    "tagName": "Geographic Location",
+    "name": "North America",
+    "helpText": null
+  },
+  {
+    "id": 8,
+    "tag": 1,
+    "tagName": "Sub-Genre",
+    "name": "Critically Acclaimed",
+    "helpText": null
+  },
+  {
+    "id": 10,
+    "tag": 1,
+    "tagName": "Sub-Genre",
+    "name": "Dark Comedy",
+    "helpText": null
+  },
+  {
+    "id": 23,
+    "tag": 1,
+    "tagName": "Sub-Genre",
+    "name": "Psychological Thriller",
+    "helpText": null
+  },
+  {
+    "id": 101,
+    "tag": 4,
+    "tagName": "Time Period",
+    "name": "2000s",
+    "helpText": null
+  },
+  {
+    "id": 102,
+    "tag": 4,
+    "tagName": "Time Period",
+    "name": "2010s",
+    "helpText": null
+  }
+]

@@ -715,6 +715,15 @@ season's `name` in the show's original language, the client asks
 the original), and the gateway writes `status.metadata.seasonTitles`
 (per order, `SchemaVersion` 6); the provider takes the series' own
 order's title, else the aired order's, as it does the season poster.
+TheTVDB's Sub-Genre tags (Dark Comedy, Psychological Thriller;
+2026-10-27, `SchemaVersion` 7) are a series' `status.metadata.subGenres`,
+kept apart from `genres` (which classification and `originalGenres` read),
+and the Plex provider lists them after the genres as further `Genre`
+entries (`withSubGenres`), since Plex builds a TV library's categories from
+Genre and keeps no Label, Style or Mood from a provider (spike
+2026-10-08). Only the Sub-Genre group is taken: Setting, Time Period and
+Geographic Location are no genres, and coverage is crowd-sourced (Breaking
+Bad has three, Stranger Things none).
 Images are chosen per (type, language) before the CRD's 50
 (`selectImages`), so the original language's and fanart.tv's survive;
 `contentRating` prefixes the country the gateway chose the certification

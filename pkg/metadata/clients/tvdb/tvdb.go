@@ -147,6 +147,13 @@ type seriesExtendedResponse struct {
 		Genres []struct {
 			Name string `json:"name"`
 		} `json:"genres"`
+		// Tags are the record's tag options, each in a named group
+		// (Sub-Genre, Setting, Time Period, Geographic Location); only
+		// the Sub-Genre group is a genre.
+		Tags []struct {
+			TagName string `json:"tagName"`
+			Name    string `json:"name"`
+		} `json:"tags"`
 		// Image is the series' own poster; Artworks the rest, each typed
 		// by /artwork/types' ids (artworkTypes, seasonArtworkTypes), a
 		// season's naming it by seasonId.
@@ -338,6 +345,10 @@ var textArtworkTypes = map[metadata.ImageType]bool{
 const seasonImagesPerKey = 3
 
 // Series fetches a single series' extended record from
+// subGenreTag is the tag group of TheTVDB's sub-genres ("Sub-Genre: Dark
+// Comedy"), the one group of a record's tags that names a genre.
+const subGenreTag = "Sub-Genre"
+
 // /series/{id}/extended?meta=translations. Its title and overview are the
 // record's primary English translation when there is one (titleLanguage),
 // and the record's own original-language name and overview otherwise.
@@ -380,6 +391,11 @@ func (c *Client) Series(ctx context.Context, tvdbID string) (*metadata.Series, e
 	}
 	for _, g := range raw.Data.Genres {
 		s.Genres = append(s.Genres, g.Name)
+	}
+	for _, t := range raw.Data.Tags {
+		if t.TagName == subGenreTag && t.Name != "" {
+			s.SubGenres = append(s.SubGenres, t.Name)
+		}
 	}
 	// The record's original-language name leads the alternate titles, so a
 	// release named that way still matches the series once its title is

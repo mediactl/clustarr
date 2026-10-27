@@ -100,6 +100,11 @@ type SeriesMetadataApplyConfiguration struct {
 	// OriginalGenres are Genres in the series' original language, in the
 	// same order, when that language differs from the configured one.
 	OriginalGenres []string `json:"originalGenres,omitempty"`
+	// SubGenres are TheTVDB's Sub-Genre tags (Dark Comedy, Psychological
+	// Thriller), which the Plex provider lists after Genres so they fill
+	// Plex's categories. Kept apart from Genres, which classification and
+	// OriginalGenres read.
+	SubGenres []string `json:"subGenres,omitempty"`
 	// SeasonImages are per-season artwork (TVDB season posters and
 	// backgrounds). They live here rather than on status.seasons so the
 	// Series controller stays the only writer of status.seasons.
@@ -362,6 +367,16 @@ func (b *SeriesMetadataApplyConfiguration) WithCertifications(values ...*Certifi
 func (b *SeriesMetadataApplyConfiguration) WithOriginalGenres(values ...string) *SeriesMetadataApplyConfiguration {
 	for i := range values {
 		b.OriginalGenres = append(b.OriginalGenres, values[i])
+	}
+	return b
+}
+
+// WithSubGenres adds the given value to the SubGenres field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the SubGenres field.
+func (b *SeriesMetadataApplyConfiguration) WithSubGenres(values ...string) *SeriesMetadataApplyConfiguration {
+	for i := range values {
+		b.SubGenres = append(b.SubGenres, values[i])
 	}
 	return b
 }

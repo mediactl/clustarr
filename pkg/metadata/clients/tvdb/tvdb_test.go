@@ -625,3 +625,41 @@ func TestSeasonNamesInTheTitlesLanguageAreTakenAsTheyCome(t *testing.T) {
 		{Number: 1, Order: "dvd", Title: "Book 1: Water"},
 	}, s.Seasons, "one title per stored order")
 }
+
+// A series' Sub-Genre tags reach the model as SubGenres, the other tag
+// groups (Geographic Location, Time Period) left out. The tags are Breaking
+// Bad's, recorded from the live API on 2026-10-27
+// (test/data/metadata/tvdb/tags_81189.json), set onto the recorded 121361
+// document, whose own tags are null.
+func TestSeriesMapsItsSubGenreTagsAlone(t *testing.T) {
+	login, _ := os.ReadFile("../../../../test/data/metadata/tvdb/login.json")
+	recorded, err := os.ReadFile("../../../../test/data/metadata/tvdb/series_121361.json")
+	require.NoError(t, err)
+	tags, err := os.ReadFile("../../../../test/data/metadata/tvdb/tags_81189.json")
+	require.NoError(t, err)
+	var doc map[string]any
+	require.NoError(t, json.Unmarshal(recorded, &doc))
+	data, ok := doc["data"].(map[string]any)
+	require.True(t, ok)
+	require.NoError(t, json.Unmarshal(tags, new(any)))
+	data["tags"] = json.RawMessage(tags)
+	body, err := json.Marshal(doc)
+	require.NoError(t, err)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/login":
+			_, _ = w.Write(login)
+		case "/series/121361/extended":
+			_, _ = w.Write(body)
+		default:
+			t.Errorf("unexpected request: %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+	c := tvdb.New("test-key", "test-pin", srv.Client(), srv.URL, metadata.NewLimiter(rate.Inf, 1))
+
+	s, err := c.Series(context.Background(), "121361")
+	require.NoError(t, err)
+	require.Equal(t, []string{"Critically Acclaimed", "Dark Comedy", "Psychological Thriller"}, s.SubGenres)
+	require.NotContains(t, s.Genres, "Dark Comedy", "a sub-genre is no genre")
+}

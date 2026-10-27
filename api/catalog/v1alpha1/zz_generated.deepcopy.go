@@ -5051,6 +5051,11 @@ func (in *SeriesMetadata) DeepCopyInto(out *SeriesMetadata) {
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
+	if in.SubGenres != nil {
+		in, out := &in.SubGenres, &out.SubGenres
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
 	if in.SeasonImages != nil {
 		in, out := &in.SeasonImages, &out.SeasonImages
 		*out = make([]SeasonImage, len(*in))
