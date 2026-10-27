@@ -69,6 +69,9 @@ type QualityProfileSpecApplyConfiguration struct {
 	SizeTable *catalogv1alpha1.SizeTable `json:"sizeTable,omitempty"`
 	// SizeLimits overrides the size table per quality.
 	SizeLimits []SizeLimitApplyConfiguration `json:"sizeLimits,omitempty"`
+	// BitrateLimits bounds files' and releases' overall bitrate per
+	// resolution; a resolution not listed is not checked.
+	BitrateLimits []BitrateLimitApplyConfiguration `json:"bitrateLimits,omitempty"`
 	// PreferredProtocol ranks one protocol above the other. It is a ranking key
 	// only; grab delays live in DelayProfile.
 	PreferredProtocol *catalogv1alpha1.PreferredProtocol `json:"preferredProtocol,omitempty"`
@@ -229,6 +232,19 @@ func (b *QualityProfileSpecApplyConfiguration) WithSizeLimits(values ...*SizeLim
 			panic("nil value passed to WithSizeLimits")
 		}
 		b.SizeLimits = append(b.SizeLimits, *values[i])
+	}
+	return b
+}
+
+// WithBitrateLimits adds the given value to the BitrateLimits field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the BitrateLimits field.
+func (b *QualityProfileSpecApplyConfiguration) WithBitrateLimits(values ...*BitrateLimitApplyConfiguration) *QualityProfileSpecApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithBitrateLimits")
+		}
+		b.BitrateLimits = append(b.BitrateLimits, *values[i])
 	}
 	return b
 }

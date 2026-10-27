@@ -85,6 +85,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &catalogv1alpha1.AuthorSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("AuthorStatus"):
 		return &catalogv1alpha1.AuthorStatusApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("BitrateLimit"):
+		return &catalogv1alpha1.BitrateLimitApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("Book"):
 		return &catalogv1alpha1.BookApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("BookMetadata"):

@@ -903,6 +903,22 @@ func (p *planner) gate(rel string, c candidate, compared []catalogv1alpha1.Media
 	if fills {
 		return Rejection{}, false
 	}
+	var q commonv1.Quality
+	if c.f.Frozen.Quality != nil {
+		q = *c.f.Frozen.Quality
+	}
+	// The profile's bitrate range (owner, 2026-10-27), from the file's own
+	// size and probed runtime: a file outside it is the release's fault,
+	// and one inside it replaces files outside it over the transcoded rule
+	// and the upgrade table.
+	if !nonVideoKind(c.kind) {
+		if why := prof.BitrateOutOfRange(q, incomingBitrate(c)); why != "" && !manual {
+			return releaseFaultRejection("%s: the file's %s", rel, why), true
+		}
+		if bitrateRefit(prof, compared, c, q) {
+			return Rejection{}, false
+		}
+	}
 	for i := range compared {
 		if r := transcodedRejection(rel, &compared[i], e, manual); !r.none() {
 			return r, true
@@ -917,10 +933,6 @@ func (p *planner) gate(rel string, c candidate, compared []catalogv1alpha1.Media
 				"needs a manual import (%s)", rel, c.kind, c.keys[0], len(compared), overrideHint), true
 		}
 		return Rejection{}, false
-	}
-	var q commonv1.Quality
-	if c.f.Frozen.Quality != nil {
-		q = *c.f.Frozen.Quality
 	}
 	cand := quality.Candidate{Quality: q}
 	if c.f.Frozen.Revision != nil {

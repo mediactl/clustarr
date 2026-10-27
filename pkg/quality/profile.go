@@ -70,6 +70,10 @@ type Profile struct {
 	ScoreSet     string
 	ProperPolicy string
 	Sizes        map[string]SizeLimit // quality name -> resolved size limits
+	// Bitrates are QualityProfileSpec.BitrateLimits by resolution, in bytes
+	// per second; a resolution with no entry is not checked
+	// (BitrateOutOfRange).
+	Bitrates map[int32]BitrateLimit
 	// PreferredProtocol ranks one transfer protocol above the other
 	// (catalogv1alpha1.PreferredProtocol's string value: "usenet",
 	// "torrent" or "any"). Not part of spec's one-line Profile summary,
@@ -322,6 +326,25 @@ func FromCRD(p *catalogv1alpha1.QualityProfile, cat *catalogue.Catalogue) (Profi
 		sizes[sl.Quality] = lim
 	}
 
+	var bitrates map[int32]BitrateLimit
+	for _, bl := range p.Spec.BitrateLimits {
+		var lim BitrateLimit
+		if bl.Min != nil {
+			lim.Min = bl.Min.Value()
+		}
+		if bl.Max != nil {
+			lim.Max = bl.Max.Value()
+		}
+		if lim.Min < 0 || lim.Max < 0 || (lim.Max > 0 && lim.Min > lim.Max) {
+			errs = append(errs, fmt.Errorf("bitrateLimits[%dp]: min %d and max %d bytes per second are no range", bl.Resolution, lim.Min, lim.Max))
+			continue
+		}
+		if bitrates == nil {
+			bitrates = map[int32]BitrateLimit{}
+		}
+		bitrates[bl.Resolution] = lim
+	}
+
 	prof := Profile{
 		Tiers: tiers, CutoffIndex: cutoffIdx, UpgradeAllowed: upgradeAllowed,
 		MinFormatScore: int(p.Spec.MinFormatScore), CutoffFormatScore: int(p.Spec.CutoffFormatScore),
@@ -329,7 +352,7 @@ func FromCRD(p *catalogv1alpha1.QualityProfile, cat *catalogue.Catalogue) (Profi
 		Scores:                scores, Language: p.Spec.Language, LanguageName: langName,
 		AudioLanguages: audio, GraftAudio: audioGraft, AudioDefault: audioDefault, ScoreSet: scoreSet,
 		ProperPolicy: string(p.Spec.ProperPolicy),
-		Sizes:        sizes, PreferredProtocol: string(p.Spec.PreferredProtocol),
+		Sizes:        sizes, Bitrates: bitrates, PreferredProtocol: string(p.Spec.PreferredProtocol),
 		MediaKind: kind,
 	}
 	prof.Hash = hashProfile(prof)
@@ -432,6 +455,16 @@ func hashProfile(p Profile) string {
 	for _, k := range sizeKeys {
 		lim := p.Sizes[k]
 		_, _ = fmt.Fprintf(h, "size=%s:%g,%g,%g\n", k, lim.MinMBPerMin, lim.PrefMBPerMin, lim.MaxMBPerMin)
+	}
+	// Written only when set, so a profile without bitrate limits keeps the
+	// hash it had before they existed.
+	res := make([]int32, 0, len(p.Bitrates))
+	for r := range p.Bitrates {
+		res = append(res, r)
+	}
+	sort.Slice(res, func(i, j int) bool { return res[i] < res[j] })
+	for _, r := range res {
+		_, _ = fmt.Fprintf(h, "bitrate=%d:%d,%d\n", r, p.Bitrates[r].Min, p.Bitrates[r].Max)
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }

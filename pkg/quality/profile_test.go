@@ -248,3 +248,40 @@ func TestFromCRDResolvesAudio(t *testing.T) {
 	_, errs = quality.FromCRD(music, cat)
 	require.NotEmpty(t, errs, "an audio policy is for video profiles")
 }
+
+// A profile's bitrateLimits resolve to bytes per second by resolution, judge
+// a file or release of that resolution only, change the hash only when set,
+// and a min above its max is no range.
+func TestBitrateLimitsResolveJudgeAndHash(t *testing.T) {
+	cat := &catalogue.Catalogue{Formats: map[string]*catalogue.Format{}}
+	base := func() *catalogv1alpha1.QualityProfile {
+		return &catalogv1alpha1.QualityProfile{Spec: catalogv1alpha1.QualityProfileSpec{
+			MediaKind: catalogv1alpha1.ProfileMediaKindVideo,
+			Tiers:     []catalogv1alpha1.Tier{{Name: "WEB 1080p", Qualities: []string{"WEBDL-1080p"}}},
+			Cutoff:    "WEB 1080p", SizeTable: catalogv1alpha1.SizeTableSeries,
+		}}
+	}
+	plain, errs := quality.FromCRD(base(), cat)
+	require.Empty(t, errs)
+	require.Nil(t, plain.Bitrates)
+
+	limited := base()
+	lo, hi := resource.MustParse("100k"), resource.MustParse("1M")
+	limited.Spec.BitrateLimits = []catalogv1alpha1.BitrateLimit{{Resolution: 1080, Min: &lo, Max: &hi}}
+	p, errs := quality.FromCRD(limited, cat)
+	require.Empty(t, errs)
+	require.Equal(t, quality.BitrateLimit{Min: 100_000, Max: 1_000_000}, p.Bitrates[1080])
+	require.NotEqual(t, plain.Hash, p.Hash, "a bitrate range must change the hash")
+
+	web1080 := common.Quality{Name: "WEBDL-1080p", Resolution: 1080}
+	require.Contains(t, p.BitrateOutOfRange(web1080, 67_000), "below the profile's 1080p minimum of 100000")
+	require.Contains(t, p.BitrateOutOfRange(web1080, 1_200_000), "above the profile's 1080p maximum of 1000000")
+	require.Empty(t, p.BitrateOutOfRange(web1080, 400_000))
+	require.Empty(t, p.BitrateOutOfRange(web1080, 0), "an unknown bitrate is not judged")
+	require.Empty(t, p.BitrateOutOfRange(common.Quality{Name: "WEBDL-720p", Resolution: 720}, 1), "an unlisted resolution is not checked")
+
+	inverted := base()
+	inverted.Spec.BitrateLimits = []catalogv1alpha1.BitrateLimit{{Resolution: 1080, Min: &hi, Max: &lo}}
+	_, errs = quality.FromCRD(inverted, cat)
+	require.Len(t, errs, 1)
+}

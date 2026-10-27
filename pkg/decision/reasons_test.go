@@ -33,6 +33,7 @@ func TestEveryReasonIsPermanent(t *testing.T) {
 	for _, r := range []decision.Reason{
 		decision.ReasonUnableToParse, decision.ReasonProtocolDisabled, decision.ReasonUnavailable,
 		decision.ReasonBelowMinimumSize, decision.ReasonAboveMaximumSize, decision.ReasonQualityNotWanted,
+		decision.ReasonBelowMinimumBitrate, decision.ReasonAboveMaximumBitrate,
 		decision.ReasonCustomFormatMinimumScore, decision.ReasonWantedLanguage, decision.ReasonSample,
 		decision.ReasonBlocklisted, decision.ReasonAlreadyImportedSameHash, decision.ReasonAlreadyImportedSameName,
 		decision.ReasonQueueHigherPreference, decision.ReasonExistingHigherPreference, decision.ReasonUpgradesNotAllowed,

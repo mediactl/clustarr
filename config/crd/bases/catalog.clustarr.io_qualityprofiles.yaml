@@ -96,6 +96,52 @@ spec:
                 x-kubernetes-validations:
                 - message: audio.default must be one of audio.languages
                   rule: '!has(self.default) || self.default in self.languages'
+              bitrateLimits:
+                description: |-
+                  BitrateLimits bounds files' and releases' overall bitrate per
+                  resolution; a resolution not listed is not checked.
+                items:
+                  description: |-
+                    BitrateLimit bounds a file's overall bitrate at one resolution, in bytes
+                    per second of runtime, written as decimal quantities such as "100k" (owner,
+                    2026-10-27: a 167 MiB BiOMA WEB-DL of a 43-minute Sopranos episode played
+                    badly). A release outside it is refused at search and at import; a file
+                    outside it does not fit the profile, so its item reads CutoffUnmet and a
+                    release inside it of the file's tier or better replaces it, a transcode
+                    included. A transcoded file is judged by the size it had before its first
+                    swap (MediaFile spec.sourceSizeBytes) when that was recorded.
+                  properties:
+                    max:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      description: Max is the highest accepted bitrate, in bytes per
+                        second.
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    min:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      description: Min is the lowest accepted bitrate, in bytes per
+                        second.
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    resolution:
+                      description: |-
+                        Resolution is the vertical resolution of the qualities the limit
+                        applies to (a quality's resolution: 480, 720, 1080, 2160, ...).
+                      format: int32
+                      minimum: 1
+                      type: integer
+                  required:
+                  - resolution
+                  type: object
+                maxItems: 16
+                type: array
+                x-kubernetes-list-map-keys:
+                - resolution
+                x-kubernetes-list-type: map
               builtIn:
                 default: false
                 description: |-

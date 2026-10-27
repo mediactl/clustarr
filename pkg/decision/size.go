@@ -157,3 +157,28 @@ func sizeRejections(t Target, p quality.Profile, parsed *release.ParsedRelease, 
 	}
 	return out
 }
+
+// bitrateRejections is the profile's bitrateLimits for the release's
+// resolution, over the runtime sizeRejections measures it by: a release
+// whose size over that runtime falls outside the range is refused. An
+// unknown size, a kind with no runtime model or a resolution the profile
+// does not limit is never checked.
+func bitrateRejections(t Target, p quality.Profile, parsed *release.ParsedRelease, rel common.ReleaseInfo) []common.Rejection {
+	if rel.SizeBytes <= 0 || len(p.Bitrates) == 0 {
+		return nil
+	}
+	minutes, ok := targetRuntimeMinutes(t, parsed)
+	if !ok || minutes <= 0 {
+		return nil
+	}
+	bps := rel.SizeBytes / int64(minutes*60)
+	why := p.BitrateOutOfRange(rel.Quality, bps)
+	if why == "" {
+		return nil
+	}
+	reason := ReasonBelowMinimumBitrate
+	if lim := p.Bitrates[rel.Quality.Resolution]; lim.Max > 0 && bps > lim.Max {
+		reason = ReasonAboveMaximumBitrate
+	}
+	return []common.Rejection{newRejection(reason, "%s at %d minutes", why, minutes)}
+}

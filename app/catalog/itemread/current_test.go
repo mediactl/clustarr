@@ -147,3 +147,13 @@ func TestAnUpgradeableTranscodeIsItsRelease(t *testing.T) {
 	assert.Empty(t, up.HDR)
 	assert.Equal(t, web1080, up.Quality)
 }
+
+// The decision's current file carries the bitrate the profile's range
+// judges it by (MediaFile.BytesPerSecond: the source's when recorded).
+func TestTheCurrentFileCarriesItsBitrate(t *testing.T) {
+	mf := &catalogv1alpha1.MediaFile{
+		Spec:   catalogv1alpha1.MediaFileSpec{SizeBytes: 175_055_649, SourceSizeBytes: 1_032_000_000},
+		Status: catalogv1alpha1.MediaFileStatus{MediaInfo: &commonv1.MediaInfo{RuntimeMillis: 2_580_000}},
+	}
+	assert.Equal(t, int64(400_000), itemread.CurrentOf(mf).BytesPerSecond)
+}

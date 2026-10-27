@@ -34,6 +34,12 @@ const ReasonTranscoded = "Transcoded"
 // carrying every wanted language replaces the file.
 const ReasonMissingAudio = "MissingAudio"
 
+// ReasonBitrateOutOfRange is the CutoffMet condition's reason for an item
+// whose file's bitrate falls outside its profile's bitrateLimits
+// (quality.Profile.BitrateOutOfRange, owner 2026-10-27): False, transcoded
+// or not, until a release inside the range replaces the file.
+const ReasonBitrateOutOfRange = "BitrateOutOfRange"
+
 // Transcoded reports whether mf is a transcoded file: catalog's name for
 // catalogv1alpha1.(*MediaFile).Transcoded, where the rule itself lives, beside
 // the type, so import's completed-download import reads the same predicate

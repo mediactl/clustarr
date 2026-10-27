@@ -84,6 +84,24 @@ func (mf *MediaFile) Upgradeable() bool {
 	return mf != nil && mf.Annotations[AnnotationUpgradeable] == "true"
 }
 
+// BytesPerSecond is the overall bitrate a QualityProfile's bitrateLimits
+// judge mf by: its size before its first transcode swap (spec.sourceSizeBytes)
+// when that was recorded, else its size now, over its probed runtime. Zero
+// when either is unknown.
+func (mf *MediaFile) BytesPerSecond() int64 {
+	if mf == nil || mf.Status.MediaInfo == nil || mf.Status.MediaInfo.RuntimeMillis <= 0 {
+		return 0
+	}
+	size := mf.Spec.SourceSizeBytes
+	if size <= 0 {
+		size = mf.Spec.SizeBytes
+	}
+	if size <= 0 {
+		return 0
+	}
+	return size * 1000 / mf.Status.MediaInfo.RuntimeMillis
+}
+
 // ProbeCurrent reports whether status.mediaInfo describes the bytes the file
 // holds now: a probe was incorporated (probeHash and mediaInfo set) and no
 // probe of changed bytes is pending (Probed is not False for

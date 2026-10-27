@@ -239,6 +239,33 @@ func audioFill(p quality.Profile, originalTag string, existing []catalogv1alpha1
 	return incomplete == len(existing), nil
 }
 
+// incomingBitrate is c's file's overall bitrate in bytes per second, from
+// its size and probed runtime; zero when either is unknown.
+func incomingBitrate(c candidate) int64 {
+	if c.f.Probe == nil || c.f.Probe.DurationSeconds <= 0 || c.f.SizeBytes <= 0 {
+		return 0
+	}
+	return c.f.SizeBytes / c.f.Probe.DurationSeconds
+}
+
+// bitrateRefit reports whether c's file, of quality q, replaces existing
+// because every existing file is outside p's bitrate range
+// (MediaFile.BytesPerSecond) while c's, known, is inside it at each one's
+// tier or better (quality.Profile.NotBelow).
+func bitrateRefit(p quality.Profile, existing []catalogv1alpha1.MediaFile, c candidate, q commonv1.Quality) bool {
+	bps := incomingBitrate(c)
+	if len(existing) == 0 || bps <= 0 || p.BitrateOutOfRange(q, bps) != "" {
+		return false
+	}
+	for i := range existing {
+		mf := &existing[i]
+		if p.BitrateOutOfRange(mf.Spec.Quality, mf.BytesPerSecond()) == "" || !p.NotBelow(q, mf.Spec.Quality) {
+			return false
+		}
+	}
+	return true
+}
+
 // relPath renders path relative to root for a message, falling back to the
 // path itself.
 func relPath(root, path string) string {

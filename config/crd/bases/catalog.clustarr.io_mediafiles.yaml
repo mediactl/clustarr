@@ -334,6 +334,17 @@ spec:
                 format: int64
                 minimum: 0
                 type: integer
+              sourceSizeBytes:
+                description: |-
+                  SourceSizeBytes is the file's size before catalog's first transcode
+                  swap replaced it: the release's own size, by which a QualityProfile's
+                  bitrateLimits judge the file instead of the transcode's. catalog writes
+                  it with the swap's takeover; zero for an original, and for a file
+                  transcoded before it was recorded (2026-10-27), which is judged as it
+                  is.
+                format: int64
+                minimum: 0
+                type: integer
             required:
             - mediaRef
             - path

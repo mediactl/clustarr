@@ -114,3 +114,19 @@ func TestATranscodePlanDescribesWhatItDoes(t *testing.T) {
 		assert.Equal(t, tc.want, tc.plan.Describe())
 	}
 }
+
+// A file is judged by its source's size when a swap recorded it, else by its
+// size now, over its probed runtime; unknown without either.
+func TestBytesPerSecondPrefersTheSourceSize(t *testing.T) {
+	mf := &catalogv1alpha1.MediaFile{
+		Spec:   catalogv1alpha1.MediaFileSpec{SizeBytes: 175_055_649},
+		Status: catalogv1alpha1.MediaFileStatus{MediaInfo: &commonv1.MediaInfo{RuntimeMillis: 2_580_000}},
+	}
+	assert.Equal(t, int64(67_851), mf.BytesPerSecond(), "The Sopranos S01E03: 167 MiB over 43 minutes")
+	mf.Spec.SourceSizeBytes = 1_032_000_000
+	assert.Equal(t, int64(400_000), mf.BytesPerSecond())
+	mf.Status.MediaInfo = nil
+	assert.Zero(t, mf.BytesPerSecond())
+	var none *catalogv1alpha1.MediaFile
+	assert.Zero(t, none.BytesPerSecond())
+}

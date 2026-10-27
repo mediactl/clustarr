@@ -224,6 +224,16 @@ type MediaFileSpec struct {
 	// +optional
 	ImportedFrom *ImportSource `json:"importedFrom,omitempty"`
 
+	// SourceSizeBytes is the file's size before catalog's first transcode
+	// swap replaced it: the release's own size, by which a QualityProfile's
+	// bitrateLimits judge the file instead of the transcode's. catalog writes
+	// it with the swap's takeover; zero for an original, and for a file
+	// transcoded before it was recorded (2026-10-27), which is judged as it
+	// is.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	SourceSizeBytes int64 `json:"sourceSizeBytes,omitempty"`
+
 	// Original is true while this is the file as imported; it goes false once a
 	// transcode replaces it.
 	// +optional

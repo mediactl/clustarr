@@ -197,3 +197,50 @@ func TestADolbyVisionEpisodeFileIsRefused(t *testing.T) {
 	}
 	assert.True(t, episodeContentRejection("S01E01.mkv", nil).none(), "an unprobed file is not judged")
 }
+
+// The profile's bitrate range at import, from the file's own size and probed
+// runtime (owner, 2026-10-27): a file outside it is the release's fault,
+// unless a person chose it, and one inside it replaces a transcode outside
+// it that the transcoded rule and the upgrade table would otherwise keep.
+func TestAnImportHoldsTheProfilesBitrateRange(t *testing.T) {
+	web, ok := quality.Lookup("video", "WEBDL-1080p")
+	assert.True(t, ok)
+	prof := quality.Profile{
+		Tiers: [][]quality.Definition{{web}}, CutoffIndex: 0, UpgradeAllowed: true, CutoffFormatScore: 10000,
+		ProperPolicy: "preferAndUpgrade", LanguageName: "any",
+		Bitrates: map[int32]quality.BitrateLimit{1080: {Min: 100_000, Max: 1_000_000}},
+	}
+	incoming := func(size int64) candidate {
+		q := web.Quality
+		return candidate{kind: commonv1.MediaKindEpisode, keys: []string{"sopranos-s01e03"}, f: schema.InspectedFile{
+			SizeBytes: size,
+			Frozen:    schema.FrozenFields{Quality: &q},
+			Probe:     &schema.ProbeSummary{VideoCodec: "h264", HDR: "none", DurationSeconds: 2580},
+		}}
+	}
+	transcode := func(size int64) catalogv1alpha1.MediaFile {
+		return catalogv1alpha1.MediaFile{
+			Spec: catalogv1alpha1.MediaFileSpec{
+				Quality: web.Quality, Original: new(false), SizeBytes: size,
+				MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: "sopranos-s01e03"},
+			},
+			Status: catalogv1alpha1.MediaFileStatus{MediaInfo: &commonv1.MediaInfo{VideoCodec: "hevc", RuntimeMillis: 2_580_000}},
+		}
+	}
+	p := &planner{in: Input{Profile: &prof}}
+
+	r, refused := p.gate("f.mkv", incoming(175_000_000), nil, false)
+	assert.True(t, refused)
+	assert.Equal(t, commonv1.ImportClassReleaseFault, r.Class)
+	assert.Contains(t, r.Text, "below the profile's 1080p minimum")
+
+	_, refused = p.gate("f.mkv", incoming(175_000_000), nil, true)
+	assert.False(t, refused, "a person's pick is exempt")
+
+	_, refused = p.gate("f.mkv", incoming(1_000_000_000), []catalogv1alpha1.MediaFile{transcode(175_000_000)}, false)
+	assert.False(t, refused, "a file inside the range replaces a transcode outside it")
+
+	r, refused = p.gate("f.mkv", incoming(1_000_000_000), []catalogv1alpha1.MediaFile{transcode(700_000_000)}, false)
+	assert.True(t, refused, "a transcode inside the range stays final")
+	assert.True(t, r.Transcoded)
+}

@@ -58,6 +58,12 @@ type Current struct {
 	// an AVC release of no greater resolution.
 	VideoCodec string
 	HDR        common.HdrFormat
+	// BytesPerSecond is the bitrate the profile's bitrateLimits judge the
+	// file by (MediaFile.BytesPerSecond: its source's when recorded); zero
+	// when unknown. A file outside the range is replaced by a release
+	// inside it of its tier or better, whatever the transcoded, baseline
+	// and upgrade rules say.
+	BytesPerSecond int64
 }
 
 // Queued is a release already downloading for a Target. It is a type alias

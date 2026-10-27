@@ -938,6 +938,18 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: path
       type:
         scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.BitrateLimit
+  map:
+    fields:
+    - name: max
+      type:
+        namedType: io.k8s.apimachinery.pkg.api.resource.Quantity
+    - name: min
+      type:
+        namedType: io.k8s.apimachinery.pkg.api.resource.Quantity
+    - name: resolution
+      type:
+        scalar: numeric
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.BlockScope
   scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.Book
@@ -2907,6 +2919,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: sizeBytes
       type:
         scalar: numeric
+    - name: sourceSizeBytes
+      type:
+        scalar: numeric
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.MediaFileStatus
   map:
     fields:
@@ -3800,6 +3815,14 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: audio
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.AudioPolicy
+    - name: bitrateLimits
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.BitrateLimit
+          elementRelationship: associative
+          keys:
+          - resolution
     - name: builtIn
       type:
         scalar: boolean

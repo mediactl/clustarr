@@ -70,6 +70,13 @@ type MediaFileSpecApplyConfiguration struct {
 	ProfileHash *string `json:"profileHash,omitempty"`
 	// ImportedFrom records where the file came from.
 	ImportedFrom *ImportSourceApplyConfiguration `json:"importedFrom,omitempty"`
+	// SourceSizeBytes is the file's size before catalog's first transcode
+	// swap replaced it: the release's own size, by which a QualityProfile's
+	// bitrateLimits judge the file instead of the transcode's. catalog writes
+	// it with the swap's takeover; zero for an original, and for a file
+	// transcoded before it was recorded (2026-10-27), which is judged as it
+	// is.
+	SourceSizeBytes *int64 `json:"sourceSizeBytes,omitempty"`
 	// Original is true while this is the file as imported; it goes false once a
 	// transcode replaces it.
 	Original *bool `json:"original,omitempty"`
@@ -194,6 +201,14 @@ func (b *MediaFileSpecApplyConfiguration) WithProfileHash(value string) *MediaFi
 // If called multiple times, the ImportedFrom field is set to the value of the last call.
 func (b *MediaFileSpecApplyConfiguration) WithImportedFrom(value *ImportSourceApplyConfiguration) *MediaFileSpecApplyConfiguration {
 	b.ImportedFrom = value
+	return b
+}
+
+// WithSourceSizeBytes sets the SourceSizeBytes field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the SourceSizeBytes field is set to the value of the last call.
+func (b *MediaFileSpecApplyConfiguration) WithSourceSizeBytes(value int64) *MediaFileSpecApplyConfiguration {
+	b.SourceSizeBytes = &value
 	return b
 }
 

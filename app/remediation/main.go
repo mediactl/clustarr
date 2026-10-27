@@ -44,9 +44,17 @@ func renderMain(mf *catalogv1alpha1.MediaFile, draft *catalogv1alpha1.MediaFileS
 	}
 	original := mf.Spec.Original == nil || *mf.Spec.Original
 	path, size, mod := mf.Spec.Path, mf.Spec.SizeBytes, mf.Spec.ModTime
+	// The first swap of an original records the size it replaces, the
+	// release's, which the profile's bitrateLimits judge the file by
+	// (MediaFile.BytesPerSecond); a later swap keeps it, and a file already
+	// transcoded before it was recorded gets none.
+	source := mf.Spec.SourceSizeBytes
 	if intent != nil {
 		path, size, mod = intent.Path, intent.SizeBytes, intent.ModTime
 		if intent.Swap {
+			if original && source == 0 {
+				source = mf.Spec.SizeBytes
+			}
 			original = false
 		}
 	}
@@ -55,7 +63,11 @@ func renderMain(mf *catalogv1alpha1.MediaFile, draft *catalogv1alpha1.MediaFileS
 	takeover := !original || draft.GraftTag != ""
 	switch {
 	case !original:
-		ac.WithSpec(catalogac.MediaFileSpec().WithPath(path).WithSizeBytes(size).WithModTime(mod).WithOriginal(false))
+		spec := catalogac.MediaFileSpec().WithPath(path).WithSizeBytes(size).WithModTime(mod).WithOriginal(false)
+		if source > 0 {
+			spec.WithSourceSizeBytes(source)
+		}
+		ac.WithSpec(spec)
 	case draft.GraftTag != "":
 		ac.WithSpec(catalogac.MediaFileSpec().WithPath(path).WithSizeBytes(size).WithModTime(mod))
 	}
@@ -67,8 +79,14 @@ func renderMain(mf *catalogv1alpha1.MediaFile, draft *catalogv1alpha1.MediaFileS
 	}
 	same := maps.Equal(current, labels)
 	if takeover {
-		same = same && path == mf.Spec.Path && size == mf.Spec.SizeBytes &&
+		same = same && path == mf.Spec.Path && size == mf.Spec.SizeBytes && source == mf.Spec.SourceSizeBytes &&
 			mod.UTC().Truncate(time.Second).Equal(mf.Spec.ModTime.UTC().Truncate(time.Second)) && (original || (mf.Spec.Original != nil && !*mf.Spec.Original))
+	}
+	// An original carrying a source size is a MediaFile import re-pointed
+	// at a new file: an apply without the field releases it, catalog being
+	// its one writer, so the new file is judged as it is.
+	if original && mf.Spec.SourceSizeBytes != 0 {
+		same = false
 	}
 	return ac, !same
 }

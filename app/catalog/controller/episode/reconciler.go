@@ -349,6 +349,18 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, ep *catalogv1alpha1.Ep
 		cutoffMet = false
 		transcoded = false
 	}
+	// A file outside the profile's bitrate range does not fit it, a
+	// transcoded one included (quality.Profile.BitrateOutOfRange, owner
+	// 2026-10-27): it reads CutoffUnmet, so the wanted sweep looks for a
+	// release inside the range.
+	offBitrate := ""
+	if profile != nil && hasFile {
+		offBitrate = profile.BitrateOutOfRange(mf.Spec.Quality, mf.BytesPerSecond())
+	}
+	if offBitrate != "" {
+		cutoffMet = false
+		transcoded = false
+	}
 	if action, file := rollup.FileTransition(ep.Status.FileRef, mf); action != "" {
 		r.publishFile(ctx, ep, action, file, mf, now)
 	}
@@ -401,6 +413,8 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, ep *catalogv1alpha1.Ep
 	case missingAudio:
 		k8s.MarkFalse(ep, &conditions, catalogv1alpha1.EpisodeConditionCutoffMet, rollup.ReasonMissingAudio,
 			"the file's audio %v lacks %v, which the profile wants in one release", audio, decision.MissingAudio(*profile, originalTag, audio))
+	case offBitrate != "":
+		k8s.MarkFalse(ep, &conditions, catalogv1alpha1.EpisodeConditionCutoffMet, rollup.ReasonBitrateOutOfRange, "the file's %s", offBitrate)
 	case cutoffMet:
 		k8s.MarkTrue(ep, &conditions, catalogv1alpha1.EpisodeConditionCutoffMet, "CutoffMet", "file meets the profile cutoff")
 	default:

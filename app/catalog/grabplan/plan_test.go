@@ -32,6 +32,7 @@ import (
 	"github.com/mediactl/clustarr/app/intake"
 	"github.com/mediactl/clustarr/pkg/decision"
 	"github.com/mediactl/clustarr/pkg/events/schema"
+	"github.com/mediactl/clustarr/pkg/quality"
 )
 
 // TestGrabplanReChecksAgainstFreshState is ADR-0019 §6.6 step 2: the agent
@@ -323,6 +324,21 @@ func TestStillWantsKeepsAnUpgradeAndAnUnmetSeedObligation(t *testing.T) {
 	require.True(t, wants(&decision.Current{Quality: q(t, "HDTV-720p")}), "still an upgrade over the current file")
 	require.False(t, wants(&decision.Current{Quality: q(t, "Bluray-1080p")}), "a file at the release's quality")
 	require.False(t, wants(&decision.Current{Quality: q(t, "HDTV-720p"), Transcoded: true}), "a transcoded file is final")
+
+	// A file outside the profile's bitrate range is still replaced, a
+	// transcode included, by a release of its tier or better (2026-10-27).
+	limited := func(cur *decision.Current) bool {
+		v := movieView(t, cur)
+		prof := *v.Profile
+		prof.Bitrates = map[int32]quality.BitrateLimit{1080: {Min: 100_000, Max: 1_000_000}}
+		v.Profile = &prof
+		ok, _ := grabplan.StillWants(v, claim)
+		return ok
+	}
+	require.True(t, limited(&decision.Current{Quality: q(t, "Bluray-1080p"), Transcoded: true, BytesPerSecond: 67_000}),
+		"a transcode below the range")
+	require.False(t, limited(&decision.Current{Quality: q(t, "Bluray-1080p"), Transcoded: true, BytesPerSecond: 400_000}),
+		"a transcode inside the range is final")
 
 	v := movieView(t, nil)
 	v.Monitored = false

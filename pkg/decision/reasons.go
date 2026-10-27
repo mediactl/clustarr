@@ -42,6 +42,8 @@ var (
 	ReasonUnavailable                  = Reason{"Availability", common.RejectionPermanent}
 	ReasonBelowMinimumSize             = Reason{"BelowMinimumSize", common.RejectionPermanent}
 	ReasonAboveMaximumSize             = Reason{"AboveMaximumSize", common.RejectionPermanent}
+	ReasonBelowMinimumBitrate          = Reason{"BelowMinimumBitrate", common.RejectionPermanent}
+	ReasonAboveMaximumBitrate          = Reason{"AboveMaximumBitrate", common.RejectionPermanent}
 	ReasonQualityNotWanted             = Reason{"QualityNotWanted", common.RejectionPermanent}
 	ReasonCustomFormatMinimumScore     = Reason{"CustomFormatMinimumScore", common.RejectionPermanent}
 	ReasonWantedLanguage               = Reason{"WantedLanguage", common.RejectionPermanent}

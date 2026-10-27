@@ -187,6 +187,7 @@ func evaluateOne(ctx context.Context, t Target, originalLanguage string, an audi
 	add(protocolRejection(rel, o))
 	add(availabilityRejection(t, o))
 	rejections = append(rejections, sizeRejections(t, p, parsed, rel)...)
+	rejections = append(rejections, bitrateRejections(t, p, parsed, rel)...)
 	if t.Donor != nil {
 		return evaluateDonor(t, originalLanguage, donorNeed, p, parsed, rel, score, matched, rejections, itemState)
 	}
@@ -265,6 +266,13 @@ func videoItemState(t Target, p quality.Profile, an audioNames, parsed *release.
 	candidate := quality.Candidate{Quality: rel.Quality, Revision: rel.Revision, FormatScore: score}
 	add(queueRejection(p, t, candidate))
 	if complete && t.Current != nil && IncompleteAudio(p, t.OriginalLanguageTag, t.Current.AudioLanguages) {
+		return out
+	}
+	// A file outside the profile's bitrate range does not fit it: a
+	// release of its tier or better replaces it, a transcode included (the
+	// release's own bitrate is bitrateRejections').
+	if t.Current != nil && p.BitrateOutOfRange(t.Current.Quality, t.Current.BytesPerSecond) != "" &&
+		p.NotBelow(rel.Quality, t.Current.Quality) {
 		return out
 	}
 	add(transcodedRejection(t, Options{}))

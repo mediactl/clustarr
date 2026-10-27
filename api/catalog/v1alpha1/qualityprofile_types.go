@@ -156,6 +156,30 @@ type SizeLimit struct {
 	MaxMBPerMinute *resource.Quantity `json:"maxMBPerMinute,omitempty"`
 }
 
+// BitrateLimit bounds a file's overall bitrate at one resolution, in bytes
+// per second of runtime, written as decimal quantities such as "100k" (owner,
+// 2026-10-27: a 167 MiB BiOMA WEB-DL of a 43-minute Sopranos episode played
+// badly). A release outside it is refused at search and at import; a file
+// outside it does not fit the profile, so its item reads CutoffUnmet and a
+// release inside it of the file's tier or better replaces it, a transcode
+// included. A transcoded file is judged by the size it had before its first
+// swap (MediaFile spec.sourceSizeBytes) when that was recorded.
+type BitrateLimit struct {
+	// Resolution is the vertical resolution of the qualities the limit
+	// applies to (a quality's resolution: 480, 720, 1080, 2160, ...).
+	// +required
+	// +kubebuilder:validation:Minimum=1
+	Resolution int32 `json:"resolution"`
+
+	// Min is the lowest accepted bitrate, in bytes per second.
+	// +optional
+	Min *resource.Quantity `json:"min,omitempty"`
+
+	// Max is the highest accepted bitrate, in bytes per second.
+	// +optional
+	Max *resource.Quantity `json:"max,omitempty"`
+}
+
 // QualityProfileSpec defines the desired state of QualityProfile.
 //
 // +kubebuilder:validation:XValidation:rule="!oldSelf.builtIn || self == oldSelf || (has(self.seedHash) && (!has(oldSelf.seedHash) || self.seedHash != oldSelf.seedHash))",message="built-in profiles are immutable; copy the profile instead"
@@ -261,6 +285,14 @@ type QualityProfileSpec struct {
 	// +listMapKey=quality
 	// +kubebuilder:validation:MaxItems=200
 	SizeLimits []SizeLimit `json:"sizeLimits,omitempty"`
+
+	// BitrateLimits bounds files' and releases' overall bitrate per
+	// resolution; a resolution not listed is not checked.
+	// +optional
+	// +listType=map
+	// +listMapKey=resolution
+	// +kubebuilder:validation:MaxItems=16
+	BitrateLimits []BitrateLimit `json:"bitrateLimits,omitempty"`
 
 	// PreferredProtocol ranks one protocol above the other. It is a ranking key
 	// only; grab delays live in DelayProfile.
