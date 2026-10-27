@@ -110,6 +110,28 @@ func TestUIAutoscalingRendersAnHPAThatOwnsTheCount(t *testing.T) {
 	assert.Equal(t, "ui", term.LabelSelector.MatchLabels["app.kubernetes.io/component"])
 }
 
+// TestUIReplicasSpreadOnePerNode: a fixed ui.replicas above 1 spreads the
+// same way, HPA or not -- the required hostname anti-affinity and the
+// surge-one, take-one-down rollout -- and a single replica takes neither,
+// since on a one-node cluster its surge pod would never schedule.
+func TestUIReplicasSpreadOnePerNode(t *testing.T) {
+	out := installtest.RenderChart(t, "--set", "ui.replicas=2")
+	ui := installtest.Workloads(installtest.DecodeRendered(t, out))["ui"]
+	require.NotNil(t, ui.Spec.Replicas)
+	assert.Equal(t, int32(2), *ui.Spec.Replicas)
+	require.Equal(t, 1, uiAntiAffinityTerms(ui))
+	term := ui.Spec.Template.Spec.Affinity.PodAntiAffinity.RequiredDuringSchedulingIgnoredDuringExecution[0]
+	assert.Equal(t, "kubernetes.io/hostname", term.TopologyKey)
+	assert.Equal(t, "ui", term.LabelSelector.MatchLabels["app.kubernetes.io/component"])
+	assert.Equal(t, "1", ui.Spec.Strategy.RollingUpdate.MaxSurge.String())
+	assert.Equal(t, "1", ui.Spec.Strategy.RollingUpdate.MaxUnavailable.String())
+	assert.Nil(t, uiHPA(t, out))
+
+	one := installtest.Workloads(installtest.DecodeRendered(t, installtest.RenderChart(t, "--set", "ui.replicas=1")))["ui"]
+	assert.Zero(t, uiAntiAffinityTerms(one))
+	assert.Nil(t, one.Spec.Strategy.RollingUpdate)
+}
+
 // TestUIAutoscalingUnderAOnePerNodeProfile: the profile's anti-affinity
 // is the one rendered (never two terms), its node affinity and toleration
 // apply, the Deployment keeps the profile's maxSurge 0, and the HPA may

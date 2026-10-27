@@ -416,8 +416,9 @@ HorizontalPodAutoscaler on the pods' CPU (`targetCPUUtilizationPercentage` of
 `maxReplicas`. The Deployment then carries no `spec.replicas`, so an upgrade
 never resets the count the HPA chose (`ui.replicas` beside it fails the
 render), its pods take a required anti-affinity on `kubernetes.io/hostname`
-(one per node), and the rollout surges one pod and takes one down at a time,
-since at `maxReplicas` a surge pod has no node until an old pod frees one.
+(one per node; a fixed `ui.replicas` above 1 takes the same, HPA or not),
+and the rollout surges one pod and takes one down at a time, since with
+every eligible node taken a surge pod has no node until an old pod frees one.
 Where the pods run is the placement profile's with `placement.enabled`
 (`ui.placement: controlPlane`: the control-plane nodes, with the profile's
 toleration, and `maxReplicas` at most the profile's `replicas`), or

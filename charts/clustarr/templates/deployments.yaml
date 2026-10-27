@@ -224,15 +224,22 @@ metadata:
   labels:
     {{- include "clustarr.labels" $ | nindent 4 }}
     app.kubernetes.io/component: ui
-{{- /* With ui.autoscaling the HPA owns the count (no spec.replicas, so an
-       upgrade never resets it) and the pods spread one per node: a required
-       anti-affinity on kubernetes.io/hostname, unless the placement profile
-       already adds one (onePerNode). The rollout then surges one and takes
-       one down at a time, since at maxReplicas the surge pod has no node
-       until an old pod frees one. */}}
+{{- /* Whenever the ui may run more than one pod -- ui.autoscaling, or
+       ui.replicas above 1 -- the pods spread one per node: a required
+       anti-affinity on kubernetes.io/hostname over the ui's own pods, unless
+       the placement profile already adds one (onePerNode). Every replica
+       holds the same cache of the whole library, so two on one node buy
+       nothing and lose the node's share of the availability. The rollout
+       then surges one and takes one down at a time, since with every
+       eligible node taken the surge pod has no node until an old pod frees
+       one. With ui.autoscaling the HPA owns the count (no spec.replicas, so
+       an upgrade never resets it). A single fixed replica takes no
+       anti-affinity: on a one-node cluster its surge pod would never
+       schedule. */}}
 {{- $uiValues := .Values.ui }}
 {{- $onePerNode := eq (include "clustarr.onePerNode" (dict "root" $ "values" .Values.ui)) "true" }}
-{{- if and .Values.ui.autoscaling.enabled (not $onePerNode) }}
+{{- $spread := or .Values.ui.autoscaling.enabled (gt (int (.Values.ui.replicas | default 1)) 1) }}
+{{- if and $spread (not $onePerNode) }}
 {{- $uiValues = deepCopy .Values.ui }}
 {{- $affinity := $uiValues.affinity | default dict }}
 {{- $paa := $affinity.podAntiAffinity | default dict }}
@@ -252,7 +259,7 @@ spec:
     rollingUpdate:
       maxSurge: 0
       maxUnavailable: 1
-  {{- else if .Values.ui.autoscaling.enabled }}
+  {{- else if $spread }}
   strategy:
     type: RollingUpdate
     rollingUpdate:
