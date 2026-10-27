@@ -43,11 +43,16 @@ func TestASupSidecarBelongsToItsFileAndIsAnImage(t *testing.T) {
 	assert.False(t, subtitles.ImageSidecar("Movie (1999).en.srt"))
 
 	dir := t.TempDir()
-	for _, n := range []string{"Movie (1999).mp4", "Movie (1999).en.sup", "Movie (1999).en.srt", "Other.en.sup"} {
+	for _, n := range []string{"Movie (1999).mp4", "Movie (1999).en.sup", "Movie (1999).en.srt", "Movie (1999).sup", "Movie (1999).srt", "Other.en.sup", "Movie (1999) Extended.sup"} {
 		require.NoError(t, os.WriteFile(filepath.Join(dir, n), nil, 0o644))
 	}
 	found, err := subtitles.SidecarsOf(filepath.Join(dir, "Movie (1999).mp4"))
 	require.NoError(t, err)
-	assert.ElementsMatch(t, []string{filepath.Join(dir, "Movie (1999).en.sup"), filepath.Join(dir, "Movie (1999).en.srt")}, found,
-		"the .sup moves with its file, as the .srt does")
+	assert.ElementsMatch(t, []string{
+		filepath.Join(dir, "Movie (1999).en.sup"), filepath.Join(dir, "Movie (1999).en.srt"),
+		filepath.Join(dir, "Movie (1999).sup"), filepath.Join(dir, "Movie (1999).srt"),
+	}, found, "the .sup moves with its file, as the .srt does, a bare one (an untagged track's) too")
+	assert.True(t, subtitles.BareSidecar("Movie (1999)", "Movie (1999).sup"))
+	assert.False(t, subtitles.BareSidecar("Movie (1999)", "Movie (1999).en.sup"), "a tagged one is ParseSidecar's")
+	assert.False(t, subtitles.BareSidecar("Movie (1999)", "Movie (1999) Extended.sup"), "another stem")
 }

@@ -185,9 +185,21 @@ func SidecarsOf(videoPath string) ([]string, error) {
 		if !e.Type().IsRegular() {
 			continue
 		}
-		if _, ok := ParseSidecar(stem, e.Name()); ok {
+		if _, ok := ParseSidecar(stem, e.Name()); ok || BareSidecar(stem, e.Name()) {
 			out = append(out, filepath.Join(dir, e.Name()))
 		}
 	}
 	return out, nil
+}
+
+// BareSidecar reports name as <stem>.<ext> for a sidecar extension: a
+// subtitle beside the video with no language in its name, which the
+// transcode writes for an untagged track and Plex lists as an unknown
+// language. ParseSidecar attributes it to no language (this package never
+// guesses one), but it is the video's file all the same: a rename, a
+// recycle or a delete carries it (2026-10-27: three of The Sopranos'
+// .sup sidecars stayed under the stem their MP4 was renamed away from).
+func BareSidecar(stem, name string) bool {
+	ext := strings.ToLower(filepath.Ext(name))
+	return isSidecarExt(ext) && name == stem+name[len(name)-len(ext):]
 }
