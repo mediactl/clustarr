@@ -368,37 +368,7 @@ func (j *job) renameObfuscated(ctx context.Context) {
 		_ = fh.Close()
 	}
 
-	rename := func(i int, to string) {
-		from := safeName(j.nzb.Files[i].Name)
-		to = safeName(to)
-		if from == to {
-			return
-		}
-		if _, err := os.Lstat(filepath.Join(dir, to)); err == nil {
-			log.WarnContext(ctx, "usenet: rename collides with an existing file; leaving it", "from", from, "to", to)
-			return
-		}
-		if err := os.Rename(filepath.Join(dir, from), filepath.Join(dir, to)); err != nil {
-			log.WarnContext(ctx, "usenet: rename failed", "from", from, "to", to, "error", err)
-			return
-		}
-		j.mu.Lock()
-		if j.renames == nil {
-			j.renames = map[string]string{}
-		}
-		orig := from
-		for o, cur := range j.renames { // keep the chain keyed on the wire name
-			if cur == from {
-				orig = o
-				break
-			}
-		}
-		j.renames[orig] = to
-		j.nzb.Files[i].Name = to
-		j.nzb.Files[i].Kind = classify(to)
-		j.mu.Unlock()
-		log.InfoContext(ctx, "usenet: renamed", "from", from, "to", to)
-	}
+	rename := func(i int, to string) { j.renameContent(ctx, i, to) }
 
 	renamed := 0
 	if len(set.Files) > 0 {
@@ -443,6 +413,34 @@ func (j *job) renameObfuscated(ctx context.Context) {
 			log.WarnContext(ctx, "usenet checkpoint failed", "download", j.id, "error", err)
 		}
 	}
+}
+
+// renameContent renames content file i to to, on disk and in j.nzb.Files,
+// and records it in the manifest's renames keyed on the wire name, so a
+// restart sees the same names. It reports whether it renamed: a name
+// already taken is left, and so is one that cannot be renamed.
+func (j *job) renameContent(ctx context.Context, i int, to string) bool {
+	from := safeName(j.nzb.Files[i].Name)
+	to = safeName(to)
+	if !renamePath(ctx, j.contentDir(), from, to) {
+		return false
+	}
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if j.renames == nil {
+		j.renames = map[string]string{}
+	}
+	orig := from
+	for o, cur := range j.renames { // keep the chain keyed on the wire name
+		if cur == from {
+			orig = o
+			break
+		}
+	}
+	j.renames[orig] = to
+	j.nzb.Files[i].Name = to
+	j.nzb.Files[i].Kind = classify(to)
+	return true
 }
 
 // applyRenames replays a manifest's renames onto freshly parsed files, so a

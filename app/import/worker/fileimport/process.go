@@ -105,27 +105,29 @@ func fillFromRelease(p *release.ParsedRelease, releaseTitle string, kind commonv
 // error, which aborts the import as the loop's own heartbeat failure does.
 // It probes through w.Prober, the import domain's one prober (spec
 // 2026-10-06 §6.6); a worker with none probes nothing and returns nil, nil,
-// so the file imports under its name-derived quality.
-func (w *Worker) probeVideo(ctx context.Context, m events.Message, srcPath, rel string) (mi *commonv1.MediaInfo, notMedia, err error) {
+// so the file imports under its name-derived quality. The raw probe comes
+// back beside the summary for what the summary leaves out: the container's
+// own tags (mediainfo.FormatTag), which name a hashed pack file.
+func (w *Worker) probeVideo(ctx context.Context, m events.Message, srcPath, rel string) (mi *commonv1.MediaInfo, raw *mediainfo.Raw, notMedia, err error) {
 	if w.Prober == nil {
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
 	if err := heartbeat(ctx, m); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	pctx, cancel := context.WithTimeout(ctx, videoProbeTimeout)
 	defer cancel()
-	mi, _, perr := w.Prober.Probe(pctx, srcPath)
+	mi, raw, perr := w.Prober.Probe(pctx, srcPath)
 	switch {
 	case errors.Is(perr, mediainfo.ErrNotMedia):
 		logging.FromContext(ctx).Warn("fileimport: the file is not media; refusing it", "source", rel, "error", perr)
-		return nil, perr, nil
+		return nil, nil, perr, nil
 	case perr != nil:
 		logging.FromContext(ctx).Warn("fileimport: could not probe the file; importing it under its name-derived quality",
 			"source", rel, "error", perr)
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
-	return mi, nil, nil
+	return mi, raw, nil, nil
 }
 
 // importText is s as a MediaFile spec field bounded at maxBytes holds it:

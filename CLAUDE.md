@@ -1588,6 +1588,27 @@ exports the pinned ref every image build takes as a named context.
   `lifecycle.MaxEntryMessage` (1024) when it renders the grab entry: any string
   an engine reports must be clamped at the `pkg/download` boundary and again
   where the manager writes it into a bounded CRD field, never trusted.
+- **An obfuscated season pack unpacks to hashed file names
+  (`02fb98288e35eea0f5b10ea420980959.mkv`), and no job name can restore
+  them (2026-10-27).** The uploader hashes the `.mkv` names before
+  archiving; the NZB's title is the season's, so nothing says which hash
+  is which episode. The engine runs SABnzbd's three recoveries, in its
+  order of trust: before repair, the outer par2 set names the files on the
+  wire by their first 16 KiB or any intact slice (`renameObfuscated`);
+  before publish (`job.finalNames`, `pkg/download/usenet/deobfuscate.go`),
+  the par2 set an archive unpacked beside its files names them the same
+  way and is then removed (`process_unpacked_par2`), a file with no usable
+  extension takes one from its magic bytes, and one big file (10 MiB or
+  more, outside disc and archive structures) whose name is probably
+  obfuscated (`isProbablyObfuscated`, SABnzbd's rules) takes the job's name
+  ("Deobfuscate final filenames"). A pack's hashed files are left as they
+  are on purpose: `job.1.mkv`-style names would parse as nothing, and the
+  importer reads each file's container `title` tag instead
+  (`fileimport.titleNames`), which uploaders who hash the names usually
+  leave as the episode's release name, probing the file once for both the
+  title and its quality (`probed`); a title that names no episode is said
+  in the `needsPerson` rejection. srrDB (scene releases' exact sizes and
+  CRCs) is not consulted.
 - **The usenet engine's emptyDir scratch shares the node disk with etcd
   on kind, and vanishes with the pod.** A 10 GB transfer plus its par2
   verify pushed etcd's fsyncs past a second: the grab controllers lost their

@@ -62,7 +62,7 @@ func (p errProber) ProbeAudio(context.Context, string) (mediainfo.AudioProbe, er
 // (2026-10-15). A probe that could not run still imports by name, as it did.
 func TestAFileThatIsNotMediaIsTheReleasesFault(t *testing.T) {
 	w := &Worker{Prober: errProber{fmt.Errorf("mediainfo: probe /x.mkv: %w", mediainfo.ErrNotMedia)}}
-	mi, notMedia, err := w.probeVideo(context.Background(), nopMessage{}, "/x.mkv", "x.mkv")
+	mi, _, notMedia, err := w.probeVideo(context.Background(), nopMessage{}, "/x.mkv", "x.mkv")
 	require.NoError(t, err)
 	assert.Nil(t, mi)
 	require.ErrorIs(t, notMedia, mediainfo.ErrNotMedia)
@@ -71,7 +71,7 @@ func TestAFileThatIsNotMediaIsTheReleasesFault(t *testing.T) {
 	assert.Contains(t, r.Text, "x.mkv")
 
 	w.Prober = errProber{errors.New("mediainfo: probe /x.mkv: context deadline exceeded")}
-	mi, notMedia, err = w.probeVideo(context.Background(), nopMessage{}, "/x.mkv", "x.mkv")
+	mi, _, notMedia, err = w.probeVideo(context.Background(), nopMessage{}, "/x.mkv", "x.mkv")
 	require.NoError(t, err)
 	assert.Nil(t, mi)
 	assert.NoError(t, notMedia, "a probe that could not run imports under the name, as before")

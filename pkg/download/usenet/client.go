@@ -1300,6 +1300,7 @@ func (j *job) postProcess(ctx context.Context) error {
 		}
 	}
 
+	j.finalNames(ctx, publishFrom)
 	if err := j.publish(ctx, publishFrom); err != nil {
 		return err
 	}

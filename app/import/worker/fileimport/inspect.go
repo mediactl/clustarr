@@ -33,6 +33,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/fsops"
+	"github.com/mediactl/clustarr/pkg/mediainfo"
 	"github.com/mediactl/clustarr/pkg/naming"
 	"github.com/mediactl/clustarr/pkg/naming/catalogctx"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -280,16 +281,21 @@ type videoFacts struct {
 // (the release's name for this file) else the file name.
 func (w *Worker) readVideo(
 	ctx context.Context, m events.Message, path, rel, sceneName string, parsed *release.ParsedRelease,
-	prof quality.Profile, originalLanguageName string,
+	prof quality.Profile, originalLanguageName string, pre *probed,
 ) (videoFacts, error) {
 	parsed.Languages = parsed.LanguagesWith(originalLanguageName, release.GroupLanguagesFrom(ctx))
-	mi, notMedia, err := w.probeVideo(ctx, m, path, rel)
-	if err != nil {
-		return videoFacts{}, err
+	p := pre
+	if p == nil {
+		pp, err := w.probeFile(ctx, m, path, rel)
+		if err != nil {
+			return videoFacts{}, err
+		}
+		p = &pp
 	}
-	if notMedia != nil {
-		return videoFacts{parsed: parsed, notMedia: notMedia}, nil
+	if p.notMedia != nil {
+		return videoFacts{parsed: parsed, notMedia: p.notMedia}, nil
 	}
+	mi := p.mi
 	parsed.Quality, _ = quality.AugmentFromMediaInfo(parsed.Quality, mi)
 	title := sceneName
 	if title == "" {
@@ -301,6 +307,41 @@ func (w *Worker) readVideo(
 	}
 	score, matched := prof.Score(ctx, w.Catalogue, parsed, ic)
 	return videoFacts{parsed: parsed, mi: mi, score: score, matched: matched}, nil
+}
+
+// probed is one file's probe, read once. readVideo probes the file itself,
+// or takes a probe read before it had a parse to judge: inspectEpisodes
+// reads a hashed pack file's container title for the numbering its name
+// lacks, and the import must not probe the file twice for it.
+type probed struct {
+	mi       *commonv1.MediaInfo
+	raw      *mediainfo.Raw
+	notMedia error
+}
+
+func (w *Worker) probeFile(ctx context.Context, m events.Message, path, rel string) (probed, error) {
+	mi, raw, notMedia, err := w.probeVideo(ctx, m, path, rel)
+	return probed{mi: mi, raw: raw, notMedia: notMedia}, err
+}
+
+// titleNames reads the numbering a pack file's name lacks from its
+// container's title tag, which uploaders who hash the file names of an
+// obfuscated season pack ("02fb98288e35eea0f5b10ea420980959.mkv") often
+// leave as the episode's release name. No usenet client can restore such a
+// name: the job's name is the season's, not any episode's (SABnzbd's
+// "Deobfuscate final filenames" stops at one file). It returns the title's
+// parse when the title names an episode, else the title it read, for the
+// rejection to say so.
+func titleNames(raw *mediainfo.Raw) (*release.ParsedRelease, string) {
+	title := mediainfo.FormatTag(raw, "title")
+	if title == "" {
+		return nil, ""
+	}
+	p, err := release.Parse(title, release.Options{Kind: commonv1.MediaKindEpisode})
+	if err != nil || (len(p.Episodes)+len(p.Absolute) == 0 && p.AirDate == nil) {
+		return nil, title
+	}
+	return p, title
 }
 
 // frozenFields is the import fields a video file freezes (P49).
@@ -452,7 +493,7 @@ func (w *Worker) movieVisit(
 			insp.Files = append(insp.Files, f)
 			return nil
 		}
-		v, err := w.readVideo(ctx, m, path, rel, title, parsed, prof, lang)
+		v, err := w.readVideo(ctx, m, path, rel, title, parsed, prof, lang, nil)
 		if err != nil {
 			return err
 		}
@@ -523,6 +564,30 @@ func (w *Worker) inspectEpisodes(
 				parsed, perr = np, nil
 			}
 		}
+		var pre *probed
+		if perr != nil {
+			// A name that names nothing, and no person's pick: a hashed
+			// file of an obfuscated season pack. Its container title may
+			// still name the episode (titleNames); the probe that reads it
+			// is the import's one probe of the file.
+			p, err := w.probeFile(ctx, m, path, rel)
+			if err != nil {
+				return err
+			}
+			pre = &p
+			if p.notMedia != nil {
+				f.Rejections = append(f.Rejections, notMediaRejection(rel, p.notMedia))
+				insp.Files = append(insp.Files, f)
+				return nil
+			}
+			switch tp, title := titleNames(p.raw); {
+			case tp != nil:
+				logging.FromContext(ctx).Info("fileimport: the file's container title names it", "source", rel, "title", title)
+				parsed, perr = tp, nil
+			case title != "":
+				perr = fmt.Errorf("%w; its container title %.120q names no episode", perr, title)
+			}
+		}
 		if perr != nil {
 			f.Rejections = append(f.Rejections, needsPersonRejection("%s: could not parse the filename: %v", rel, perr))
 			insp.Files = append(insp.Files, f)
@@ -540,7 +605,7 @@ func (w *Worker) inspectEpisodes(
 			}
 			eps = []EpisodeCandidate{*plan.named}
 		}
-		v, err := w.readVideo(ctx, m, path, rel, plan.sceneName, parsed, plan.profile, plan.originalLanguageName)
+		v, err := w.readVideo(ctx, m, path, rel, plan.sceneName, parsed, plan.profile, plan.originalLanguageName, pre)
 		if err != nil {
 			return err
 		}
@@ -648,7 +713,7 @@ func (w *Worker) inspectDonor(
 	}
 	// A donor that is no media is left unprobed, as a failed probe always
 	// was: its plan reads that as "could not be probed".
-	mi, _, err := w.probeVideo(ctx, m, src, relPath(root, src))
+	mi, _, _, err := w.probeVideo(ctx, m, src, relPath(root, src))
 	if err != nil {
 		return err
 	}
