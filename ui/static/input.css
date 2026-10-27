@@ -295,6 +295,29 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
    registry ships it. The body's canvas shows through instead. */
 [data-slot="sidebar-inset"] {
   background-color: transparent;
+  /* Nothing a page renders may widen the window (owner, 2026-10-26: a
+     long series title pushed the hero's neighbour arrows off the right
+     edge and the page scrolled sideways). The inset is a flex item of the
+     sidebar wrapper with no min-width of its own, so it grew to its
+     content's min-content width -- a nowrap title still counts its whole
+     text there, truncated or not -- and nothing inside it could shrink;
+     min-width 0 lets it take the width that is left, and then the hero's
+     h1 (min-w-0 truncate) and an item's content below shrink with it.
+     Clip is the backstop, and unlike hidden it makes no scroll container,
+     so the sticky top bar and toolbar keep sticking to the viewport. */
+  min-width: 0;
+  overflow-x: clip;
+}
+/* shadcn's item lays its content out as a flex column that may not shrink
+   below its longest line, so a release title or a path as long as a usenet
+   post's ran a row off the page: let it shrink, and break a word that has
+   no space to break at. */
+[data-slot="item-content"] {
+  min-width: 0;
+}
+[data-slot="item-title"],
+[data-slot="item-description"] {
+  overflow-wrap: anywhere;
 }
 [data-slot="card"],
 .panel {
