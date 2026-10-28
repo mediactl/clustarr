@@ -28,6 +28,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	neturl "net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -49,24 +50,69 @@ const maxErrorLen = 1024
 const maxAccountBytes = 1 << 20
 
 // get opens url with the provider's user agent. A status of 300 or more is
-// an error naming the redacted URL.
-func (t *Tuner) get(ctx context.Context, url, ua string) (io.ReadCloser, error) {
+// an error naming the redacted URL. Every error get returns names its URL
+// through cfg.redact, never with a credential in it, and unwraps to its
+// cause.
+func (t *Tuner) get(ctx context.Context, cfg Config, url string) (io.ReadCloser, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, fmt.Errorf("request %s: %w", iptv.Redact(url), err)
+		return nil, cfg.fetchError(fmt.Errorf("request %s: %w", cfg.redact(url), err))
 	}
-	if ua != "" {
-		req.Header.Set("User-Agent", ua)
+	if cfg.UserAgent != "" {
+		req.Header.Set("User-Agent", cfg.UserAgent)
 	}
 	resp, err := t.o.Fetch.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, cfg.fetchError(err)
 	}
 	if resp.StatusCode >= 300 {
 		_ = resp.Body.Close()
-		return nil, fmt.Errorf("status %d from %s", resp.StatusCode, iptv.Redact(url))
+		return nil, fmt.Errorf("status %d from %s", resp.StatusCode, cfg.redact(url))
 	}
 	return resp.Body, nil
+}
+
+// fetchError is a fetch's error with its message redacted and scrubbed of
+// the provider's credentials; errors.Is and As still reach its cause.
+type fetchError struct {
+	msg string
+	err error
+}
+
+func (e *fetchError) Error() string { return e.msg }
+func (e *fetchError) Unwrap() error { return e.err }
+
+func (c Config) fetchError(err error) error {
+	return &fetchError{msg: c.scrub(iptv.RedactError(err)), err: err}
+}
+
+// redact is iptv.Redact scrubbed of the provider's credentials: an M3U
+// playlist URL is the person's own, and the last path segment Redact keeps
+// may be the password (/get/{username}/{password}) or hold the username
+// (/lists/{username}.m3u).
+func (c Config) redact(raw string) string { return c.scrub(iptv.Redact(raw)) }
+
+// scrub replaces the provider's username and password in s, as written or
+// escaped for a path or a query, with their placeholders.
+func (c Config) scrub(s string) string {
+	// Each credential becomes a marker first, so a username that is part of
+	// "{password}" never rewrites the other's placeholder.
+	creds := []struct{ value, marker, placeholder string }{
+		{c.Password, "\x00p\x00", placeholderPassword},
+		{c.Username, "\x00u\x00", placeholderUsername},
+	}
+	for _, cr := range creds {
+		if cr.value == "" {
+			continue
+		}
+		for _, form := range []string{cr.value, neturl.PathEscape(cr.value), neturl.QueryEscape(cr.value)} {
+			s = strings.ReplaceAll(s, form, cr.marker)
+		}
+	}
+	for _, cr := range creds {
+		s = strings.ReplaceAll(s, cr.marker, cr.placeholder)
+	}
+	return s
 }
 
 func (t *Tuner) fetchPlaylist(ctx context.Context, p *provider, cfg Config) {
@@ -77,7 +123,7 @@ func (t *Tuner) fetchPlaylist(ctx context.Context, p *provider, cfg Config) {
 		pl  m3u.Playlist
 		sum string
 	)
-	body, err := t.get(ctx, cfg.PlaylistURL(), cfg.UserAgent)
+	body, err := t.get(ctx, cfg, cfg.PlaylistURL())
 	if err == nil {
 		h := sha256.New()
 		pl, err = m3u.Parse(io.TeeReader(body, h))
@@ -156,7 +202,7 @@ func (t *Tuner) fetchAccount(ctx context.Context, p *provider, cfg Config) {
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
 	var rep accountReport
-	body, err := t.get(ctx, cfg.AccountURL(), cfg.UserAgent)
+	body, err := t.get(ctx, cfg, cfg.AccountURL())
 	if err == nil {
 		err = json.NewDecoder(io.LimitReader(body, maxAccountBytes)).Decode(&rep)
 		_ = body.Close()
@@ -274,7 +320,7 @@ func (t *Tuner) fetchGuide(ctx context.Context, p *provider, cfg Config) {
 		parsed xmltv.Guide
 		want   map[string]bool
 	)
-	body, err := t.get(ctx, cfg.GuideSource(), cfg.UserAgent)
+	body, err := t.get(ctx, cfg, cfg.GuideSource())
 	if err == nil {
 		parsed, err = xmltv.ParseFunc(body, func(chans []xmltv.Channel) map[string]bool {
 			want = wanted(chans, src)
@@ -326,7 +372,7 @@ func (t *Tuner) withPanelFallback(ctx context.Context, p *provider, cfg Config, 
 		fb     xmltv.Guide
 		fbWant map[string]bool
 	)
-	body, err := t.get(ctx, cfg.PanelGuideURL(), cfg.UserAgent)
+	body, err := t.get(ctx, cfg, cfg.PanelGuideURL())
 	if err == nil {
 		fb, err = xmltv.ParseFunc(body, func(chans []xmltv.Channel) map[string]bool {
 			fbWant = fallbackWanted(wanted(chans, src), primary)
