@@ -202,6 +202,11 @@ type Config struct {
 	// [defaultMaxPostProcess].
 	MaxPostProcess int
 
+	// MaxPublish is how many of the post-processing jobs copy their content
+	// onto the data volume at once ([job.publish]); the others wait in
+	// their post-processing slot. Zero means [defaultMaxPublish].
+	MaxPublish int
+
 	// ScratchBudget is the bytes of ScratchDir the started jobs may need at
 	// once (scratch.go): a job starts its transfer only while its peak --
 	// [job.scratchNeed], its articles and their unpacked copy plus headroom
@@ -223,6 +228,16 @@ const defaultMaxActive = 2
 // and NZBGet's (PostStrategy=sequential) one job at a time, since repair
 // and unpack are the engine's heaviest work.
 const defaultMaxPostProcess = 1
+
+// defaultMaxPublish is [Config.MaxPublish]'s default. With the working area
+// on the node's own disk, a publish is a copy onto the NAS, and each copy
+// keeps fsops' copyWriters chunks in flight on the node's one NFS
+// connection. Eight at once (talos, 2026-10-28) queued up to 2 GiB there,
+// of which the NAS took about 156 MB/s, and every other NFS call from the
+// node waited behind it. The remediation loop's stats took 400 ms there
+// and 3 ms from another node, so its I/O pool saturated and swaps waited
+// minutes for their probes. Two copies carry what the NAS takes.
+const defaultMaxPublish = 2
 
 // defaultProviderRetryDelay is [Config.ProviderRetryDelay]'s default. It is
 // the pool's own refused-connection penalty, so a retry lands just as a
@@ -265,6 +280,9 @@ type Client struct {
 	// post holds one token per job verifying, repairing, unpacking or
 	// publishing: Config.MaxPostProcess of them.
 	post chan struct{}
+	// publish holds one token per job copying its content onto the data
+	// volume: Config.MaxPublish of them, taken inside a post token.
+	publish chan struct{}
 
 	// ledger is Config.Ledger with its default applied, holder
 	// Config.Holder's, and stopRenew ends renewLoop.
@@ -369,6 +387,10 @@ func New(cfg Config) (download.Client, error) {
 	if maxPost <= 0 {
 		maxPost = defaultMaxPostProcess
 	}
+	maxPublish := cfg.MaxPublish
+	if maxPublish <= 0 {
+		maxPublish = defaultMaxPublish
+	}
 	if cfg.Ledger == nil {
 		cfg.Ledger = NewLocalLedger()
 	}
@@ -399,6 +421,7 @@ func New(cfg Config) (download.Client, error) {
 		shares:    shares,
 		budgets:   transferBudgets(cfg.Providers),
 		post:      make(chan struct{}, maxPost),
+		publish:   make(chan struct{}, maxPublish),
 		jobs:      map[string]*job{},
 		slots:     map[*job]struct{}{},
 		scratch:   map[*job]int64{},
@@ -502,9 +525,11 @@ type job struct {
 	// waitingSlot is true while the job waits for a transfer slot or behind
 	// a higher-priority transfer ([job.waitForTurn]), and waitingPost while
 	// it waits for its turn to post-process ([job.waitToPostProcess]);
-	// [download.Item.WaitingTurn] reports either.
-	waitingSlot atomic.Bool
-	waitingPost atomic.Bool
+	// [download.Item.WaitingTurn] reports either. waitingPublish is true
+	// while it waits for a publish token ([job.waitToPublish]).
+	waitingSlot    atomic.Bool
+	waitingPost    atomic.Bool
+	waitingPublish atomic.Bool
 	// holdsSlot mirrors the job's place in the client's slots, written under
 	// the client lock, so the per-batch turn check reads it without that
 	// lock. offSlot is set once the transfer gave its slot back for the
@@ -1492,6 +1517,11 @@ func (j *job) repair(ctx context.Context) error {
 // rename, so the importer never sees a half-written release.
 func (j *job) publish(ctx context.Context, content string) error {
 	j.setStage(commonv1alpha1.DownloadStagePublishing, download.StatusDownloading)
+	release, err := j.waitToPublish(ctx)
+	if err != nil {
+		return err
+	}
+	defer release()
 
 	name := j.name
 	if name == "" {
@@ -1663,7 +1693,7 @@ func (j *job) item() download.Item {
 		OutputPath:      j.outputPath,
 		IsEncrypted:     j.encrypted,
 		HealthPaused:    j.healthPaused && j.pausedLocked(),
-		WaitingTurn: !j.pausedLocked() && (j.waitingSlot.Load() || j.waitingPost.Load() || j.waitingGrant.Load() ||
+		WaitingTurn: !j.pausedLocked() && (j.waitingSlot.Load() || j.waitingPost.Load() || j.waitingPublish.Load() || j.waitingGrant.Load() ||
 			(outranked && j.status == download.StatusDownloading)),
 		Message: message,
 		AddedAt: j.addedAt,

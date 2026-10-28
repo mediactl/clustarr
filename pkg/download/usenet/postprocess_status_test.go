@@ -168,3 +168,47 @@ func TestSetStageRecordsWhenAStageBegan(t *testing.T) {
 	require.False(t, j.stageStarted.Before(first), "a new stage starts its own clock")
 	j.mu.Unlock()
 }
+
+// Only Config.MaxPublish jobs copy onto the data volume at once: eight
+// publishes queued up to 2 GiB of writes on talos-88's one NFS connection
+// (2026-10-28), and every other NFS call from the node waited behind them.
+// A job past its turn waits Queued in the publishing stage, saying so,
+// until a token comes back.
+func TestAPublishWaitsForAPublishToken(t *testing.T) {
+	c, _, _ := newTestClient(t, Config{Providers: []Provider{newStubServer(t).provider("solo", 1, 1)}, MaxPublish: 1})
+	first := &job{client: c, id: "first", dir: t.TempDir(), nzb: &nzbJob{TotalBytes: 1}}
+	second := &job{client: c, id: "second", dir: t.TempDir(), nzb: &nzbJob{TotalBytes: 1}}
+	second.setStage(commonv1.DownloadStagePublishing, download.StatusDownloading)
+
+	release, err := first.waitToPublish(context.Background())
+	require.NoError(t, err)
+	got := make(chan func(), 1)
+	go func() {
+		if r, err := second.waitToPublish(context.Background()); err == nil {
+			got <- r
+		}
+	}()
+	require.Eventually(t, second.waitingPublish.Load, 2*time.Second, 5*time.Millisecond)
+	it := second.item()
+	require.Equal(t, download.StatusQueued, it.Status)
+	require.Equal(t, "waiting for another download to finish publishing", it.Message)
+	require.True(t, it.WaitingTurn)
+
+	release()
+	select {
+	case r := <-got:
+		defer r()
+	case <-time.After(2 * time.Second):
+		t.Fatal("the second publish never got the token")
+	}
+	it = second.item()
+	require.Equal(t, download.StatusDownloading, it.Status)
+	require.Equal(t, "publishing", it.Message, "the copy's own clock starts at the token")
+	require.False(t, it.WaitingTurn)
+}
+
+// Without a setting, two jobs publish at once.
+func TestTwoPublishesRunAtOnceByDefault(t *testing.T) {
+	c, _, _ := newTestClient(t, Config{Providers: []Provider{newStubServer(t).provider("solo", 1, 1)}})
+	require.Equal(t, 2, cap(c.publish))
+}

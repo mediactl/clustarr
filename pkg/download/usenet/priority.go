@@ -426,6 +426,37 @@ func jobAhead(a, b *job) bool {
 	return a.id < b.id
 }
 
+// waitToPublish takes one of the client's Config.MaxPublish tokens for
+// the copy onto the data volume, waiting Queued in the publishing stage
+// while every one is held. The job keeps its post-processing slot
+// meanwhile, and the publishing stage's clock starts when the copy does.
+func (j *job) waitToPublish(ctx context.Context) (func(), error) {
+	release := func() { <-j.client.publish }
+	select {
+	case j.client.publish <- struct{}{}:
+		return release, nil
+	default:
+	}
+	j.mu.Lock()
+	j.status = download.StatusQueued
+	j.message = "waiting for another download to finish publishing"
+	j.mu.Unlock()
+	j.waitingPublish.Store(true)
+	defer j.waitingPublish.Store(false)
+	select {
+	case j.client.publish <- struct{}{}:
+		j.mu.Lock()
+		j.status = download.StatusDownloading
+		j.message = ""
+		j.stageStarted = time.Now()
+		j.lastProgress = j.stageStarted
+		j.mu.Unlock()
+		return release, nil
+	case <-ctx.Done():
+		return func() {}, ctx.Err()
+	}
+}
+
 // waitToPostProcess takes one of the client's Config.MaxPostProcess
 // tokens, waiting Queued in the verifying stage while every one is taken,
 // and returns the func that gives it back. Waiting there rather than in
