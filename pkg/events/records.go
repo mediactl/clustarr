@@ -93,15 +93,19 @@ const (
 )
 
 // Each agent-written records bucket's caps (design §4.3). The reservations
-// total 1,040 MiB, all on the file store (they are Durable).
+// total 1,424 MiB, all on the file store (they are Durable).
 const (
-	TransfersMaxBytes         = 256 * MiB
-	TransfersMaxValueSize     = 512 * KiB
-	EnginesMaxBytes           = 8 * MiB
-	EnginesMaxValueSize       = 16 * KiB
-	ImportsMaxBytes           = 128 * MiB
-	ImportsMaxValueSize       = 512 * KiB
-	SearchesMaxBytes          = 128 * MiB
+	TransfersMaxBytes     = 256 * MiB
+	TransfersMaxValueSize = 512 * KiB
+	EnginesMaxBytes       = 8 * MiB
+	EnginesMaxValueSize   = 16 * KiB
+	ImportsMaxBytes       = 128 * MiB
+	ImportsMaxValueSize   = 512 * KiB
+	// SearchesMaxBytes holds half an hour of answers (SearchesTTL): about
+	// 1,300 of 55 KiB filled 68 MiB within 30 minutes on 2026-10-28, since
+	// index-only searches are not paced, and a full bucket refuses every
+	// answer and stops every search.
+	SearchesMaxBytes          = 512 * MiB
 	SearchesMaxValueSize      = 512 * KiB
 	ItemMetadataMaxBytes      = 512 * MiB
 	ItemMetadataMaxValueSize  = 512 * KiB

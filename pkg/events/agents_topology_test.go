@@ -43,14 +43,14 @@ func TestAgentRecordBucketsAreDurableHistoryOneAndBounded(t *testing.T) {
 		events.BucketTransfers:     {week, 256 * events.MiB, 512 * events.KiB},
 		events.BucketEngines:       {week, 8 * events.MiB, 16 * events.KiB},
 		events.BucketImports:       {week, 128 * events.MiB, 512 * events.KiB},
-		events.BucketSearches:      {events.SearchesTTL, 128 * events.MiB, 512 * events.KiB},
+		events.BucketSearches:      {events.SearchesTTL, 512 * events.MiB, 512 * events.KiB},
 		events.BucketItemMetadata:  {week, 512 * events.MiB, 512 * events.KiB},
 		events.BucketIndexerHealth: {week, 8 * events.MiB, 8 * events.KiB},
 	}
 	assert.Equal(t,
 		[]string{"clustarr-transfers", "clustarr-engines", "clustarr-imports", "clustarr-searches", "clustarr-item-metadata", "clustarr-indexer-health"},
 		[]string{events.BucketTransfers, events.BucketEngines, events.BucketImports, events.BucketSearches, events.BucketItemMetadata, events.BucketIndexerHealth})
-	assert.EqualValues(t, 1040*events.MiB, assertRecordsBuckets(t, top, want), "§4.3: the agent buckets reserve 1,040 MiB")
+	assert.EqualValues(t, 1424*events.MiB, assertRecordsBuckets(t, top, want), "§4.3: the agent buckets reserve 1,424 MiB (clustarr-searches 512 MiB since 2026-10-28)")
 }
 
 // TestIntakeAndCommandStreamsAreDurableAndDiscardNew is ADR-0019 §4.3: a full
