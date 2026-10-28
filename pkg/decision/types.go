@@ -287,7 +287,8 @@ type RankKey struct {
 	EpisodeCount           int   // 1 for a single release; len(Parsed.Episodes) for a partial multi-episode release; a season-pack sentinel for FullSeason
 	PreferLargestSize      bool  // true when the quality's preferred size is TRaSH's "biggest" sentinel (Step 13)
 	SizeDeltaBucket        int64 // |release.SizeBytes - preferredBytes|, rounded to 200 MiB; meaningful only when !PreferLargestSize
-	SizeBytes              int64 // meaningful only when PreferLargestSize
+	SizeBytes              int64 // meaningful only when PreferLargestSize or PreferSmallestSize
+	PreferSmallestSize     bool  // the profile ranks the smallest first, after the format score (QualityProfileSpec.PreferSmallest)
 	// LanguagesComplete is whether the release carries every audio
 	// language the profile wants (always true without an audio policy): at
 	// a tie in tier and format score, a complete release beats one a graft

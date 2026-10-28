@@ -31,7 +31,8 @@ import (
 // desc, FormatScore desc, LanguagesComplete, CompareEpisodeCount (anime more
 // episodes and any other series fewer), indexer priority asc (from
 // o.IndexerPriority), indexer-flag score desc, seeders/age desc, then size
-// (Disagreement 7). The season pack and the protocol rank ahead of the
+// (Disagreement 7) -- or, under a profile preferring the smallest, size asc
+// right after LanguagesComplete. The season pack and the protocol rank ahead of the
 // format score (owner, 2026-10-27: within a quality, a season pack beats
 // single episodes and usenet beats torrent); Sonarr's comparer has them
 // after it. Evaluate fills a RankKey for every decision whose title parsed,
@@ -74,6 +75,11 @@ func less(a, b Decision, o Options) bool {
 	}
 	if a.Rank.LanguagesComplete != b.Rank.LanguagesComplete {
 		return a.Rank.LanguagesComplete
+	}
+	// A profile preferring the smallest (QualityProfileSpec.PreferSmallest)
+	// takes it ahead of the indexer, its flags and the seeders.
+	if a.Rank.PreferSmallestSize && b.Rank.PreferSmallestSize && a.Rank.SizeBytes != b.Rank.SizeBytes {
+		return a.Rank.SizeBytes < b.Rank.SizeBytes
 	}
 	if c := CompareEpisodeCount(a.Rank.WholeSeason(), a.Rank.EpisodeCount, b.Rank.WholeSeason(), b.Rank.EpisodeCount, a.Rank.Anime); c != 0 {
 		return c < 0

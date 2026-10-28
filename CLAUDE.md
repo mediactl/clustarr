@@ -1079,7 +1079,15 @@ quality -- the quality tier and a REPACK's revision still rank first, and
 a -10000 group stays below the minimum. Within a quality, a whole season
 and then the profile's preferred protocol rank ahead of the format score
 (owner, 2026-10-27; `decision.less`, `grabplan.better`), where Sonarr has
-them after it. Every built-in prefers usenet (`preferredProtocol: usenet`).
+them after it. Every built-in prefers usenet (`preferredProtocol: usenet`). A profile's `preferSmallest`
+(owner, 2026-10-28: every file is transcoded, so a bigger source is only a
+longer download and transcode) ranks the smallest release first right after
+the format score and languages, ahead of indexer, flags and seeders
+(`decision.less`, `grabplan.better`); the owner's transcode-first profiles
+pair it with one 1080p tier, `x265-hd` +300 and `10bit` -150 at a minimum
+score of 0 (HEVC is copied; 10-bit H.264 and AV1 decode on no GPU here, so
+they would transcode on the CPU) and a 5 MB-a-minute floor in `sizeLimits`,
+since TRaSH's x264 minimums reject a small HEVC encode.
 anime-web-1080p ranks Bluray-1080p, then WEB 1080p, then Remux-1080p,
 below the cutoff, so an encode replaces a remux, which is never transcoded
 (`demotedTiers` exempts that tier from the best-first guard). A bare scene WEB is a WEB-DL

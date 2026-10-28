@@ -3892,6 +3892,9 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         scalar: numeric
       default: 1
+    - name: preferSmallest
+      type:
+        scalar: boolean
     - name: preferredProtocol
       type:
         namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.PreferredProtocol

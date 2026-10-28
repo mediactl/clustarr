@@ -82,7 +82,7 @@ var kinds = []Kind{
 		Title:      "Quality profiles", Singular: "quality profile",
 		Help: "Tiers of qualities, best first, and the cutoff tier that stops upgrades. Built-in TRaSH profiles cannot be edited; copy one to change it. Custom-format scoring is TRaSH's and not editable here.",
 		Groups: []Group{
-			{Title: "Profile", Paths: []string{"mediaKind", "cutoff", "upgradeAllowed", "language", "preferredProtocol", "properPolicy", "sizeTable", "scoreSet"}},
+			{Title: "Profile", Paths: []string{"mediaKind", "cutoff", "upgradeAllowed", "language", "preferredProtocol", "preferSmallest", "properPolicy", "sizeTable", "scoreSet"}},
 			{Title: "Tiers", Help: "Best first. Each tier lists the quality names it accepts, one per line.", Paths: []string{"tiers"}},
 			{Title: "Custom formats", Paths: []string{"minFormatScore", "cutoffFormatScore", "minUpgradeFormatScore", "enabledFormatGroups"}, Advanced: true},
 			{Title: "Size limits", Paths: []string{"sizeLimits"}, Advanced: true},
@@ -238,6 +238,7 @@ var kinds = []Kind{
 			{Title: "Usenet", When: whenUsenet, Paths: []string{
 				"usenet.providers", "usenet.postProcess", "usenet.propagationDelay", "usenet.preCheck", "usenet.abortHealthPercent",
 				"usenet.healthAction", "usenet.downloadTimeout", "usenet.stallTimeout", "usenet.publishDir", "usenet.scratch",
+				"usenet.maxActive", "usenet.maxPostProcess",
 			}},
 			{Title: "Engine", Paths: []string{"replicas"}, Advanced: true},
 		},
@@ -253,7 +254,8 @@ var kinds = []Kind{
 			"torrent.scratch.volumeName":   "Persistent volume",
 			"usenet.scratch.existingClaim": "Existing claim", "usenet.scratch.volumeName": "Persistent volume",
 			"usenet.stallTimeout": "Stall timeout (no article completed)",
-			"torrent.proxy.type":  "Type", "torrent.proxy.host": "Host", "torrent.proxy.port": "Port",
+			"usenet.maxActive":    "Downloads at once", "usenet.maxPostProcess": "Repairs and unpacks at once",
+			"torrent.proxy.type": "Type", "torrent.proxy.host": "Host", "torrent.proxy.port": "Port",
 			"torrent.proxy.secretRef":       "Authentication",
 			"torrent.proxy.hostnameLookup":  "Perform hostname lookup via proxy",
 			"torrent.proxy.dnsServer":       "DNS server (queried through the proxy)",

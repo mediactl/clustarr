@@ -461,3 +461,17 @@ func TestTheQuarantineTombstoneRefusesAutomaticGrabsButNotAnOverride(t *testing.
 		require.Contains(t, ids, tomb.ID, "the tombstone keeps its quarantine")
 	})
 }
+
+// Under a profile preferring the smallest, the smaller of two releases equal
+// in tier, protocol and score is grabbed (owner, 2026-10-28).
+func TestTheSmallestIsGrabbedUnderASmallestFirstProfile(t *testing.T) {
+	big := movieCandidate(t, "Heat.1995.1080p.BluRay.x265-BIG")
+	small := movieCandidate(t, "Heat.1995.1080p.WEB-DL.x265-SMALL")
+	big.Release.Decision.ReleaseInfo.SizeBytes = 14_000_000_000
+	small.Release.Decision.ReleaseInfo.SizeBytes = 3_000_000_000
+	big.Release.Score, small.Release.Score = 100, 100
+	v := movieView(t, nil, big, small)
+	v.Profile.Tiers = [][]quality.Definition{append(append([]quality.Definition{}, v.Profile.Tiers[0]...), v.Profile.Tiers[1]...)}
+	v.Profile.PreferSmallest = true
+	require.Equal(t, []string{"Heat.1995.1080p.WEB-DL.x265-SMALL"}, titles(grabplan.Decide(v)))
+}

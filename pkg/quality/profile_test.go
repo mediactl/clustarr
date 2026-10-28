@@ -149,6 +149,31 @@ func TestHashDiffersOnSizeLimitOrPreferredProtocol(t *testing.T) {
 	require.Equal(t, "usenet", p3.PreferredProtocol)
 }
 
+// PreferSmallest resolves onto the Profile and is part of its identity, and
+// a profile without it keeps the hash it had (owner, 2026-10-28: every file
+// is transcoded, so the smallest release that fits is the one wanted).
+func TestPreferSmallestResolvesAndIsHashedOnlyWhenSet(t *testing.T) {
+	cat := &catalogue.Catalogue{Formats: map[string]*catalogue.Format{}}
+	base := func() *catalogv1alpha1.QualityProfile {
+		return &catalogv1alpha1.QualityProfile{Spec: catalogv1alpha1.QualityProfileSpec{
+			MediaKind: catalogv1alpha1.ProfileMediaKindVideo,
+			Tiers:     []catalogv1alpha1.Tier{{Name: "1080p", Qualities: []string{"WEBDL-1080p", "Bluray-1080p"}}},
+			Cutoff:    "1080p",
+			SizeTable: catalogv1alpha1.SizeTableMovie,
+		}}
+	}
+	plain, errs := quality.FromCRD(base(), cat)
+	require.Empty(t, errs)
+	require.False(t, plain.PreferSmallest)
+
+	smallest := base()
+	smallest.Spec.PreferSmallest = true
+	p, errs := quality.FromCRD(smallest, cat)
+	require.Empty(t, errs)
+	require.True(t, p.PreferSmallest)
+	require.NotEqual(t, plain.Hash, p.Hash, "preferring the smallest is a different resolved profile")
+}
+
 // TestFromCRDNormalisesLanguage covers ruling F3: QualityProfileSpec.Language
 // is "original", "any" or a BCP-47 tag, while the catalogue's CondLanguage
 // conditions and release.ParsedRelease.Languages both speak Radarr's English

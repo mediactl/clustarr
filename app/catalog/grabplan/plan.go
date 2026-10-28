@@ -408,7 +408,8 @@ func exempt(c Candidate, rej commonv1.Rejection) bool {
 // better orders approved candidates best first (decision.Rank's order, P13,
 // over what a scored release carries): a person's pick, then quality tier,
 // revision (unless the profile does not prefer it), on a Series a whole
-// season, the profile's preferred protocol, format score, then on a Series
+// season, the profile's preferred protocol, format score, the smallest under
+// a profile preferring it, then on a Series
 // Sonarr's CompareEpisodeCount (anime more episodes and any other series
 // fewer; Wave S) and elsewhere more items first, indexer priority, the
 // agent's own rank, and the newest. The season pack and the protocol come
@@ -438,6 +439,13 @@ func (d *decider) better(a, b verdict) bool {
 		}
 		if a.c.Release.Score != b.c.Release.Score {
 			return a.c.Release.Score > b.c.Release.Score
+		}
+		// A profile preferring the smallest takes it next, as decision.Rank
+		// does (QualityProfileSpec.PreferSmallest).
+		if d.v.Profile != nil && d.v.Profile.PreferSmallest {
+			if sa, sb := ra.SizeBytes, rb.SizeBytes; sa != sb && sa > 0 && sb > 0 {
+				return sa < sb
+			}
 		}
 	}
 	if d.v.Kind == commonv1.MediaKindSeries {

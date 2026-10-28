@@ -299,6 +299,15 @@ type QualityProfileSpec struct {
 	// +optional
 	// +kubebuilder:default=any
 	PreferredProtocol PreferredProtocol `json:"preferredProtocol,omitempty"`
+
+	// PreferSmallest ranks the smallest release first among those equal in
+	// tier, revision, season pack, preferred protocol, format score and
+	// languages, ahead of indexer priority and seeders, in place of the size
+	// closest to the quality's preferred size. Every file is transcoded, so a
+	// bigger source is only a longer download and a longer transcode (owner,
+	// 2026-10-28).
+	// +optional
+	PreferSmallest bool `json:"preferSmallest,omitempty"`
 }
 
 // QualityProfileStatus describes the observed state of QualityProfile.

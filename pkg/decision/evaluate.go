@@ -337,6 +337,11 @@ func buildRankKey(p quality.Profile, o Options, t Target, parsed *release.Parsed
 		EpisodeCount:           episodeCount,
 		Anime:                  t.Anime,
 	}
+	if p.PreferSmallest {
+		key.PreferSmallestSize = true
+		key.SizeBytes = rel.SizeBytes
+		return key
+	}
 	if preferLargest(sl) {
 		key.PreferLargestSize = true
 		key.SizeBytes = rel.SizeBytes

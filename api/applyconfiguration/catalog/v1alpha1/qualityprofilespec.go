@@ -75,6 +75,13 @@ type QualityProfileSpecApplyConfiguration struct {
 	// PreferredProtocol ranks one protocol above the other. It is a ranking key
 	// only; grab delays live in DelayProfile.
 	PreferredProtocol *catalogv1alpha1.PreferredProtocol `json:"preferredProtocol,omitempty"`
+	// PreferSmallest ranks the smallest release first among those equal in
+	// tier, revision, season pack, preferred protocol, format score and
+	// languages, ahead of indexer priority and seeders, in place of the size
+	// closest to the quality's preferred size. Every file is transcoded, so a
+	// bigger source is only a longer download and a longer transcode (owner,
+	// 2026-10-28).
+	PreferSmallest *bool `json:"preferSmallest,omitempty"`
 }
 
 // QualityProfileSpecApplyConfiguration constructs a declarative configuration of the QualityProfileSpec type for use with
@@ -254,5 +261,13 @@ func (b *QualityProfileSpecApplyConfiguration) WithBitrateLimits(values ...*Bitr
 // If called multiple times, the PreferredProtocol field is set to the value of the last call.
 func (b *QualityProfileSpecApplyConfiguration) WithPreferredProtocol(value catalogv1alpha1.PreferredProtocol) *QualityProfileSpecApplyConfiguration {
 	b.PreferredProtocol = &value
+	return b
+}
+
+// WithPreferSmallest sets the PreferSmallest field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the PreferSmallest field is set to the value of the last call.
+func (b *QualityProfileSpecApplyConfiguration) WithPreferSmallest(value bool) *QualityProfileSpecApplyConfiguration {
+	b.PreferSmallest = &value
 	return b
 }

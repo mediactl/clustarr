@@ -83,6 +83,9 @@ type Profile struct {
 	// This package does not evaluate it; a later phase's release ranking
 	// does.
 	PreferredProtocol string
+	// PreferSmallest is QualityProfileSpec.PreferSmallest: the release
+	// ranking puts the smallest first, after the format score.
+	PreferSmallest bool
 	// MediaKind is QualityProfileSpec.MediaKind ("video", "music", "book",
 	// "audiobook" or "comic"). Empty reads as video, so a Profile built by
 	// hand keeps the behaviour it always had. Custom formats are TRaSH's
@@ -353,7 +356,8 @@ func FromCRD(p *catalogv1alpha1.QualityProfile, cat *catalogue.Catalogue) (Profi
 		AudioLanguages: audio, GraftAudio: audioGraft, AudioDefault: audioDefault, ScoreSet: scoreSet,
 		ProperPolicy: string(p.Spec.ProperPolicy),
 		Sizes:        sizes, Bitrates: bitrates, PreferredProtocol: string(p.Spec.PreferredProtocol),
-		MediaKind: kind,
+		PreferSmallest: p.Spec.PreferSmallest,
+		MediaKind:      kind,
 	}
 	prof.Hash = hashProfile(prof)
 	return prof, errs
@@ -431,6 +435,10 @@ func hashProfile(p Profile) string {
 		p.CutoffIndex, p.UpgradeAllowed, p.MinFormatScore, p.CutoffFormatScore, p.MinUpgradeFormatScore, p.Language, p.ProperPolicy, p.PreferredProtocol)
 	if p.AudioLanguages != nil {
 		_, _ = fmt.Fprintf(h, "audio=%s|graft=%t|default=%s\n", strings.Join(p.AudioLanguages, ","), p.GraftAudio, p.AudioDefault)
+	}
+	// Written only when set, so every profile without it keeps its hash.
+	if p.PreferSmallest {
+		_, _ = fmt.Fprint(h, "preferSmallest\n")
 	}
 	for _, tier := range p.Tiers {
 		names := make([]string, len(tier))
