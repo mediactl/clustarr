@@ -109,3 +109,32 @@ plus 1 GiB -- fits within `sizeLimit`; the rest wait Queued
 (`pkg/download/usenet/scratch.go`). On a single-node kind cluster the
 decision above stands.
 
+### As built, 2026-10-28
+
+talos kept `scratch.path: /data/usenet/incomplete` until 2026-10-28, when
+releases sat at 100% downloaded behind post-processing. Every step of it
+waited on the NAS, over one NFSv4.1 connection shared by the NUC's pods:
+
+- 86-94 transfer workers were blocked in NFS writes;
+- unpacks ran at 14-111 MB/s;
+- the par2 rename took minutes of small reads.
+
+The working area is now a static `hostPath` volume shaped like
+local-path's (`/var/mnt/local-path/usenet-scratch-nvme` on talos-88,
+Retain, 1 TiB). It is declared in cluster-bootstrap's `clustarr/resources.yaml`
+and bound by `scratch.volumeName`, so the DownloadClient controller owns
+the claim (`usenet-scratch`) and the engine budgets within `sizeLimit`.
+
+The 141 GB of in-flight work moved in a 17-minute stopped window: the engine
+waited Pending on a claim that did not exist yet while a pod copied the
+directory.
+
+After the move:
+
+- the engine receives 188-245 MB/s, where it ran ~42 MB/s;
+- the publish is the release's one write onto the NAS;
+- the import into `/data/media` is still a rename, on the same NFS device as
+  `/data/usenet/complete`.
+
+That copy writes four O_DIRECT chunks at once (`fsops.copyWriters`, ede3f543).
+From the NUC, one writer ran at 36 MB/s and four at 95.

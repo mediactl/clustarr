@@ -1875,7 +1875,12 @@ too; bump the tag in go.mod and go.sum to take a new fork release.
   /data/usenet/complete` (ADR-0014; `existingClaim`, `volumeName` and
   `accessModes` cover a claim of the operator's own). The manager's
   DownloadClient controller refuses a path off the data mount with
-  `Ready=False, InvalidSpec`.
+  `Ready=False, InvalidSpec`. That is kind's rule. talos, whose etcd is
+  not on the NUC's disk, has used a node-local volume since 2026-10-28:
+  `scratch.volumeName: usenet-scratch-nvme` (hostPath on talos-88's NVMe,
+  declared in cluster-bootstrap), with only the publish crossing to the
+  NAS. On NFS scratch, post-processing waited on the NAS at every step
+  (ADR-0014's amendment and its as-built note).
   Torrent clients have the same placements since 2026-09-30
   (`spec.torrent.scratch`, `spec.torrent.publishDir`, default
   `/data/torrents`): a transfer downloads in scratch and reads Completed
