@@ -2030,7 +2030,14 @@ too; bump the tag in go.mod and go.sum to take a new fork release.
   `127.0.0.1:6060` by default (`ctrlflags.ManagerPprofAddress`), and
   `clustarr_remediation_pass_seconds{kind,phase}` and
   `clustarr_remediation_effect_seconds{planner,effect}` say where a slow
-  pass spends its time.
+  pass spends its time. The first profile found 11 of 16 workers waiting on
+  the Series pass's episode fan-out, which asked the metadata gateway for
+  the whole list and patched every Episode on every pass (1,457 PATCHes a
+  pass for Pokemon, about 110 a second on the control plane): a Series now
+  fetches its list again only when its spec, metadata refresh or add options
+  moved since its last complete fan-out in the process (`episodeSyncMemo`),
+  and an Episode already holding its provider fields is not patched
+  (`providerStatusMatches`).
 - **On kind, loading an image into the node stalls etcd, and every lease
   with it.** `kind load docker-image` unpacks gigabytes into the node's
   containerd store, which shares a disk with etcd; etcd's WAL fsync then

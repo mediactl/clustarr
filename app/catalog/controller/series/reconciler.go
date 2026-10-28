@@ -164,6 +164,10 @@ type Reconciler struct {
 	// OnReconcile is a test-only hook, called at the top of every Reconcile.
 	// It is nil-checked so production callers never need to set it.
 	OnReconcile func()
+
+	// episodeSync skips a fan-out whose inputs have not moved since the
+	// last complete one in this process.
+	episodeSync episodeSyncMemo
 }
 
 // Watches is the Series' item path on the remediation loop (ADR-0019 §6.1,
@@ -716,6 +720,13 @@ func (r *Reconciler) syncEpisodes(ctx context.Context, s *catalogv1alpha1.Series
 		return out
 	}
 
+	if !r.episodeSync.due(s) {
+		// Nothing a fan-out reads has moved since the last complete one:
+		// the Episodes the List found are what it would leave.
+		out.synced = true
+		return done(), nil
+	}
+
 	order := episodeorder.EffectiveEpisodeOrder(s.Spec.SeriesType, s.Spec.EpisodeOrder)
 	req := schema.MetadataRequest{
 		Kind: commonv1.MediaKindEpisode,
@@ -758,6 +769,7 @@ func (r *Reconciler) syncEpisodes(ctx context.Context, s *catalogv1alpha1.Series
 		}
 	}
 	out.synced = true
+	r.episodeSync.synced(s)
 	return done(), nil
 }
 
@@ -810,6 +822,23 @@ func (r *Reconciler) ensureEpisode(ctx context.Context, s *catalogv1alpha1.Serie
 		return ep, false, err
 	}
 
+	// PlexID is kept when Plex could not be asked (d.PlexConsulted
+	// false: Plex failed or no plex provider is configured), and released
+	// -- omitted, never sent empty, which the field's pattern refuses --
+	// when Plex answered without an id for the episode: a renumbered
+	// episode's old id would otherwise stay claimed beside the episode
+	// Plex now gives it to, and the provider answers neither.
+	plexID := d.PlexID
+	if plexID == "" && !d.PlexConsulted {
+		plexID = ep.Status.PlexID
+	}
+	// An Episode already holding every field this apply sends is left
+	// alone: the apply would change nothing (owner, 2026-10-28: a Series
+	// pass patched each of its Episodes, 1,457 a pass for Pokémon).
+	if !created && providerStatusMatches(&ep, d, plexID) {
+		return ep, false, nil
+	}
+
 	// Title, Overview, RuntimeMinutes and TvdbID are sent unconditionally,
 	// even when the fresh value is the Go zero value ("" / 0): these are
 	// plain scalars in metadata.Episode, so there is no way to tell "the
@@ -825,16 +854,6 @@ func (r *Reconciler) ensureEpisode(ctx context.Context, s *catalogv1alpha1.Serie
 		WithOverview(d.Overview).
 		WithRuntimeMinutes(d.RuntimeMinutes).
 		WithTvdbID(d.TvdbID)
-	// PlexID is kept when Plex could not be asked (d.PlexConsulted
-	// false: Plex failed or no plex provider is configured), and released
-	// -- omitted, never sent empty, which the field's pattern refuses --
-	// when Plex answered without an id for the episode: a renumbered
-	// episode's old id would otherwise stay claimed beside the episode
-	// Plex now gives it to, and the provider answers neither.
-	plexID := d.PlexID
-	if plexID == "" && !d.PlexConsulted {
-		plexID = ep.Status.PlexID
-	}
 	if plexID != "" {
 		statusAC = statusAC.WithPlexID(plexID)
 	}
