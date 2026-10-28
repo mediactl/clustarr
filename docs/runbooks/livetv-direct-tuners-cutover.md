@@ -33,32 +33,38 @@ in the values are double-quoted.
    path"): PMS kept the path in the device's `uri`, fetched `<uri>/discover.json`, and followed
    `BaseURL`/`LineupURL`. If it did not, stop: the fallback is the design's §8 (a hostname per
    block through an HTTPRoute), not this runbook.
-2. **Publish the charts.** cluster-plex: push main, let CI publish its images, then
-   `make chart-push` for chart 0.6.0. clustarr: raise `charts/clustarr/Chart.yaml`'s
-   `cluster-plex` dependency to `0.6.0`, `make chart-deps`, commit, push, and tag a release so CI
-   publishes the clustarr chart. In cluster-bootstrap raise `chart_version` to it.
+2. **Publish.** cluster-plex: push main and let CI publish its images. clustarr: push main and
+   tag a release so CI publishes its images and chart; in cluster-bootstrap raise
+   `chart_version` to it (the clustarr chart's schema refuses `livetv.portRange`, and its manager
+   args drop `--livetv-port-range`). The cluster-plex chart need not change: chart 0.4.1, which
+   the umbrella pins, still renders `plex.liveTV.localAddress` into the manager's config, and the
+   new manager ignores the key. Raising the pin to 0.6.0 (`make chart-push` in cluster-plex, the
+   dependency in `charts/clustarr/Chart.yaml`, `make chart-deps`) also brings 0.5.x's chart
+   changes (the maintenance Jobs' TTL, the opt-in HTTPRoute): the owner's choice, not this
+   cutover's.
 3. **The values.** In `clustarr/talos-values.yaml` set `image.clustarr`, `image.native` and
-   `cluster-plex.image.tag` to the new images. Remove `livetv.portRange` and
-   `cluster-plex.plex.liveTV.localAddress` if either is set (the schemas refuse them now).
+   `cluster-plex.image.tag` to the new images, quoted. Remove `livetv.portRange` if it is set
+   (the schema refuses it); `cluster-plex.plex.liveTV.localAddress` is ignored if set, and is
+   best removed.
 4. **Write down the Plex state** to compare against: `GET /livetv/dvrs` and
    `GET /media/grabbers/devices` through the PMS port-forward (read-only), and each DVR's
    recording rules (Plex Web, Live TV, DVR schedule).
 
-## 1. The CRD
+## 1 and 2. The CRD, then the deploy, back to back
 
-Helm does not upgrade CRDs. Apply the IPTVProvider CRD from the release's commit first:
+**Live TV is down from the CRD apply until step 4's replacements finish.** Helm does not upgrade
+CRDs, so the IPTVProvider CRD is applied by hand, and with its structural schema the apiserver
+prunes `status.blocks[].endpoint` and `.port` from every read at once: the old cluster-plex's
+watch re-lists, sees no port, and closes its proxies. So read the Terraform plan first
+(`hack/clustarr-deploy.sh`), then apply the CRD and run `--apply` immediately after it:
 
 ```bash
 kubectl --context admin@talos apply --server-side -f config/crd/bases/clustarr.io_iptvproviders.yaml
+hack/clustarr-deploy.sh --apply   # in ~/src/tfc/cluster-bootstrap, the plan already read
 ```
 
-`status.blocks[].endpoint` and `.port` are dropped from the schema and `.path` and `.uri` are
-added; the stored objects keep their old fields until the new manager writes status.
-
-## 2. Deploy
-
-`hack/clustarr-deploy.sh` (plan), read it, then `--apply`. The manager and cluster-plex roll
-together; the order between them does not matter for correctness:
+The manager and cluster-plex roll together; the order between them does not matter for
+correctness:
 
 - a new manager publishes `path` and `uri` and serves only `/hdhr/<id>`; an old cluster-plex
   still running proxies to the removed `/livetv/<ns>/<name>/devices/<id>` routes, so tunes fail
@@ -100,12 +106,17 @@ In Plex, re-create each rule written down in step 0.4 on the new DVRs.
 From a client, tune a channel of each block; `clustarr_livetv_tuners_in_use` rises and falls
 with it. `GET /livetv/dvrs` lists one DVR per block whose lineup is
 `lineup://tv.plex.providers.epg.xmltv/<uri>/xmltv.xml#<FriendlyName>`, and no device at
-`169.254.47.1` remains.
+`169.254.47.1` remains. The converger replaces only a device carrying a current block's
+DeviceID: one at `169.254.47.1` whose id no block names (a block removed before the cutover), and
+a DVR whose guide is still at `169.254.47.1`, are no longer clustarr's to it. Delete such rows by
+hand in Plex (Settings, Live TV & DVR), after `GET /activities` shows no `provider.epg.load`.
 
 ## Rollback
 
-Redeploy the previous images and chart (Terraform, with the previous `chart_version` and tags)
-and re-apply the previous CRD. The old cluster-plex finds the devices at the new URIs, which its
-rules do not manage, and registers the link-local ones beside them: delete the new DVRs and
-devices by hand (read `/activities` first), or let the new release replace them again by rolling
-forward. Recording rules are lost again either way.
+Re-apply the previous CRD, then redeploy the previous images and chart (Terraform, with the
+previous `chart_version` and tags); the old manager publishes ports again. The old cluster-plex
+finds each block's DeviceID at its Service URI, not its link-local port, records
+`DVRDeviceIDTaken` and changes nothing: Live TV stays down until the new DVRs and devices are
+deleted by hand in Plex (`GET /activities` first, no `provider.epg.load`), after which it
+registers the link-local devices and creates their DVRs. Or roll forward again. Recording rules
+are lost again either way.
