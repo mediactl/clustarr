@@ -92,8 +92,10 @@ func TestGuidePageRendersTheWindowAroundNow(t *testing.T) {
 	body := rec.Body.String()
 	assert.Equal(t, "private, max-age=10", rec.Header().Get("Cache-Control"))
 	w3 := windowOf(t, body, 3)
+	_ = windowOf(t, body, 2)
 	_ = windowOf(t, body, 4)
-	assert.NotContains(t, body, `data-window="2"`, "only the window around now and the next")
+	assert.NotContains(t, body, `data-window="1"`, "the window around now, the one before it and the next")
+	assert.NotContains(t, body, `data-window="5"`)
 	nfl := block(t, w3, "NFL Football")
 	assert.Contains(t, nfl, "left:450px", "19:00 is 60 minutes into 18:00-24:00, at 7.5 px a minute")
 	assert.Contains(t, nfl, "width:448px")
@@ -104,7 +106,7 @@ func TestGuidePageRendersTheWindowAroundNow(t *testing.T) {
 	for _, s := range []string{"S01E02", "LIVE", "NEW"} {
 		assert.Contains(t, w3, s)
 	}
-	for _, k := range []string{"2", "5"} {
+	for _, k := range []string{"1", "5"} {
 		requireTag(t, body, `k=`+k+`&amp;`, `hx-get="/livetv/guide/window?`, `hx-trigger="intersect once root:#guide-scroll"`)
 	}
 	rows := regexp.MustCompile(`data-guide-channel="([0-9.]+)"`).FindAllStringSubmatch(body, -1)
@@ -112,6 +114,20 @@ func TestGuidePageRendersTheWindowAroundNow(t *testing.T) {
 	assert.Equal(t, []string{"1001", "1002"}, []string{rows[0][1], rows[1][1]})
 	requireTag(t, body, `src="`+projection.LogoPath(tvKey, "https://epg.example/espn.png")+`"`)
 	requireTag(t, body, `id="guide-now"`)
+}
+
+func TestTheGuideOpensWithWhatIsAiringThoughItStartedBeforeTheWindow(t *testing.T) {
+	store := liveTVStore(t)
+	putObject(t, store, livetvstore.GuideIndexObject(tvKey), livetvstore.GuideIndex{From: guideFrom,
+		Channels: []livetvstore.IndexChannel{{Number: "1001", Name: "ESPN HD"}},
+		Programmes: []livetvstore.IndexProgramme{
+			// 17:00-21:00 starts in window 2 (12:00-18:00) and airs at
+			// 19:10, when the page opens on window 3.
+			{Channel: "1001", Start: guideFrom.Add(17 * time.Hour), Stop: guideFrom.Add(21 * time.Hour), Title: "Marathon"},
+		}})
+	srv, _ := tvServerWith(t, store, tvProvider(), tvChannel("argon-tv-espn", "n:espn", "1001", true, "Active", "xmltv/US-ESPN"))
+	body := get(t, srv, "/livetv/guide").Body.String()
+	assert.Equal(t, 1, strings.Count(body, ">Marathon<"), "drawn at the now line on load, once")
 }
 
 func TestAProgrammeBelongsToTheWindowItStartsIn(t *testing.T) {

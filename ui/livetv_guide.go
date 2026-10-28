@@ -159,19 +159,22 @@ func (g guide) sentinel(k, dir int) *views.GuideSentinel {
 	return &views.GuideSentinel{K: k, Dir: dir, URL: "/livetv/guide/window?" + q.Encode()}
 }
 
-// handleLiveTVGuide renders the TV Guide: the window holding now - 30 min
-// and the next, with a sentinel each way.
+// handleLiveTVGuide renders the TV Guide: the window holding now - 30 min,
+// the one before it and the next, with a sentinel each way. The window
+// before is drawn because a programme belongs to the window it starts in:
+// without it, what began before the window's start and airs now (a game
+// from 19:00 at 20:45, past 00:00 UTC) was missing at the now line, and
+// the sentinel that loads it sat left of the view, which opens at now.
 func (s *Server) handleLiveTVGuide(w http.ResponseWriter, r *http.Request) {
 	g := s.loadGuide(r.Context(), r.URL.Query())
 	p := g.page
 	if g.view != nil {
 		p.Built, p.From, p.Rows = true, g.from, g.rows
 		k := min(max(g.windowOf(s.now().Add(-30*time.Minute)), 0), views.GuideWindows-1)
-		p.Windows = append(p.Windows, g.window(k))
-		if k+1 < views.GuideWindows {
-			p.Windows = append(p.Windows, g.window(k+1))
+		for i := max(k-1, 0); i <= min(k+1, views.GuideWindows-1); i++ {
+			p.Windows = append(p.Windows, g.window(i))
 		}
-		p.Before, p.After = g.sentinel(k-1, -1), g.sentinel(k+2, 1)
+		p.Before, p.After = g.sentinel(k-2, -1), g.sentinel(k+2, 1)
 	}
 	preloadable(w)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

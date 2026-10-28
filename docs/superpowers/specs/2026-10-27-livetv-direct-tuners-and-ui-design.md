@@ -652,5 +652,8 @@ Where it differs from the text above:
   when its host is one the proxy fetches, else not at all.
 - The guide's windows load through `intersect once` inside the scrolling
   canvas rather than `revealed` (which watches the viewport), each window
-  request carrying its direction.
+  request carrying its direction. The page opens on three windows, the one
+  before now's too: a programme belongs to the window it starts in, so
+  what began before now's window and airs at the now line had been missing
+  until the person scrolled left (final review).
 
