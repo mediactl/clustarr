@@ -69,8 +69,11 @@ type ArtResolver func(ArtQuery) (Art, bool)
 //     (dd_progid: SP for an event, unique per channel and start, so ten
 //     channels' "NFL Football" stay ten games; EP for anything else, the
 //     same for the same title, sub-title and description, so a repeat is
-//     the same episode; MV for a movie the art resolver knows), which keeps
-//     a one-off broadcast out of Plex's Movies;
+//     the same episode, unless the built guide airs it more often than a
+//     repeat or in its slot day after day (repeats), when each airing is an
+//     episode of its own under the one show; MV for a movie the art
+//     resolver knows, unless the title airs more often than a film), which
+//     keeps a one-off broadcast out of Plex's Movies;
 //   - a news channel's programmes are News, a kids channel's Children;
 //   - a title the art resolver knows gets its poster as <icon> and the
 //     category Movie or Series.
@@ -111,6 +114,12 @@ var dtdOrder = []string{
 // stop, with the additions above. Inner that does not parse comes back as
 // it is.
 func (e *Enricher) Enrich(inner []byte, ch LineupChannel, start, stop time.Time) []byte {
+	return e.enrich(inner, ch, start, stop, nil)
+}
+
+// enrich is Enrich with the built guide's repeats; nil keeps every listing
+// one episode and every resolved film one movie.
+func (e *Enricher) enrich(inner []byte, ch LineupChannel, start, stop time.Time, rep *repeats) []byte {
 	elems, ok := splitElements(inner)
 	if !ok || len(elems) == 0 {
 		return inner
@@ -137,6 +146,11 @@ func (e *Enricher) Enrich(inner []byte, ch LineupChannel, start, stop time.Time)
 	var haveArt bool
 	if e != nil && e.Art != nil && !described && !event && class != classSports && class != classNews && lookupWorthy(title) {
 		art, haveArt = e.Art(ArtQuery{Title: title, Year: year, Channel: ch, Duration: stop.Sub(start)})
+		if haveArt && art.Kind == ArtMovie && rep.tooOftenForAFilm(title, year) {
+			// A block that airs all week named like a film: neither its
+			// poster nor its kind is this programme's.
+			art, haveArt = Art{}, false
+		}
 	}
 
 	add := map[string][][]byte{}
@@ -208,8 +222,13 @@ func (e *Enricher) Enrich(inner []byte, ch LineupChannel, start, stop time.Time)
 			addElem("episode-num", progID("MV", release.TitleNorm(title), fmt.Sprint(year)))
 		case class == classMovies && !haveArt:
 			// Plex's movie fallback is right for a movie channel's unknown film.
-		default:
+		case rep.oneEpisode(episodeKey(title, f.subtitle, f.desc)):
 			addElem("episode-num", progID("EP", release.TitleNorm(title), f.subtitle, f.desc))
+		default:
+			// An airing of its own, an episode of the listing's show.
+			series := progSum(release.TitleNorm(title), f.subtitle, f.desc)
+			episode := progSum(ch.Number, start.UTC().Format(time.RFC3339))
+			addElem("episode-num", formatProgID("EP", series, episode/100000000))
 		}
 	}
 	if len(add) == 0 && (!live || title == f.title) {
@@ -478,11 +497,22 @@ func lookupWorthy(title string) bool {
 // progID is a Gracenote-shaped programme id (dd_progid: two letters, eight
 // digits, a dot, four digits) hashed from parts, as an episode-num element.
 func progID(prefix string, parts ...string) []byte {
+	sum := progSum(parts...)
+	return formatProgID(prefix, sum, sum/100000000)
+}
+
+// progSum hashes parts for a programme id.
+func progSum(parts ...string) uint64 {
 	h := fnv.New64a()
 	for _, p := range parts {
 		_, _ = h.Write([]byte(p))
 		_, _ = h.Write([]byte{0})
 	}
-	sum := h.Sum64()
-	return fmt.Appendf(nil, `<episode-num system="dd_progid">%s%08d.%04d</episode-num>`, prefix, sum%100000000, (sum/100000000)%10000)
+	return h.Sum64()
+}
+
+// formatProgID is the episode-num element of a programme id whose eight
+// digits (the show) come from series and four (the episode) from episode.
+func formatProgID(prefix string, series, episode uint64) []byte {
+	return fmt.Appendf(nil, `<episode-num system="dd_progid">%s%08d.%04d</episode-num>`, prefix, series%100000000, episode%10000)
 }

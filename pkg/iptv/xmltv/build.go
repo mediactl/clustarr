@@ -57,11 +57,31 @@ func BuildGuide(w io.Writer, lineup []LineupChannel, guides map[string]Guide, fr
 }
 
 // BuildGuideWith is BuildGuide with each mapped programme passed through e
-// (nil adds nothing).
+// (nil adds nothing), which reads how the guide's listings recur
+// (repeats).
 func BuildGuideWith(w io.Writer, lineup []LineupChannel, guides map[string]Guide, from time.Time, days int, e *Enricher) error {
 	chans := slices.Clone(lineup)
 	slices.SortStableFunc(chans, func(a, b LineupChannel) int { return CompareNumbers(a.Number, b.Number) })
 	to := from.AddDate(0, 0, days)
+	inWindow := func(c LineupChannel, p Programme) (time.Time, time.Time, bool) {
+		shift := time.Duration(c.TimeshiftMinutes) * time.Minute
+		start, stop := p.Start.Add(shift), p.Stop.Add(shift)
+		return start, stop, stop.After(from) && start.Before(to)
+	}
+	var rep *repeats
+	if e != nil {
+		rep = &repeats{episodes: map[string]*recurrence{}, titles: map[string]int{}}
+		for _, c := range chans {
+			if c.Map == nil {
+				continue
+			}
+			for _, p := range guides[c.Map.Guide].Programmes[c.Map.ChannelID] {
+				if start, _, ok := inWindow(c, p); ok {
+					rep.count(p.Inner, c.Number, start)
+				}
+			}
+		}
+	}
 	var bw bytes.Buffer
 	bw.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n" + `<tv generator-info-name="clustarr">` + "\n")
 	for _, c := range chans {
@@ -79,15 +99,14 @@ func BuildGuideWith(w io.Writer, lineup []LineupChannel, guides map[string]Guide
 	}
 	for _, c := range chans {
 		if c.Map != nil {
-			shift := time.Duration(c.TimeshiftMinutes) * time.Minute
 			for _, p := range guides[c.Map.Guide].Programmes[c.Map.ChannelID] {
-				start, stop := p.Start.Add(shift), p.Stop.Add(shift)
-				if !stop.After(from) || !start.Before(to) {
+				start, stop, ok := inWindow(c, p)
+				if !ok {
 					continue
 				}
 				inner := p.Inner
 				if e != nil {
-					inner = e.Enrich(inner, c, start, stop)
+					inner = e.enrich(inner, c, start, stop, rep)
 				}
 				programme(&bw, c.Number, start, stop, inner)
 			}

@@ -468,7 +468,14 @@ without reaching Plex's Upcoming Sports hub; every programme without an
 episode number gets a Gracenote-shaped `dd_progid` (SP from the channel and
 start for a sports event, so ten channels' "NFL Football" are ten games; EP from the
 title, sub-title and description otherwise, so a repeat is the same
-episode; MV for a known movie), which keeps a one-off out of Plex's Movies
+episode -- unless the built guide airs that listing more than 3 times or in
+its channel's slot on another day (`xmltv.repeats`, counted by
+`BuildGuideWith` before it enriches), when each airing is its own episode
+of the one show: the provider gives most programmes a series' description
+and no episode title, and on 2026-10-28 one "Paid Programming" id carried
+1,077 airings on 70 channels, so every What's On hub that showed it listed
+them all and took 20 to 46 s; MV for a known movie, unless the title airs
+more than 14 times), which keeps a one-off out of Plex's Movies
 while a movie channel's unknown film keeps the movie fallback; a news
 channel's programmes are News, a kids channel's Children; the output keeps
 XMLTV's element order, and nothing the source said is doubled or dropped.
