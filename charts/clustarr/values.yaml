@@ -314,9 +314,9 @@ cluster-plex:
       pathMappings:
         - {clustarr: /data/media, plex: /media}
     # Live TV (cluster-plex 0.4.0): the lease holder adds this release's
-    # IPTVProviders to Plex as DVRs, one per block, and every Plex pod serves
-    # each block's port on a link-local address to the livetv Service. On
-    # with livetv.enabled above, which it follows; set both false together.
+    # IPTVProviders to Plex as DVRs, one per block, each registered at its
+    # status.blocks[].uri on the livetv Service. On with livetv.enabled
+    # above, which it follows; set both false together.
     liveTV:
       enabled: true
 
@@ -526,11 +526,9 @@ livetv:
   # false renders --livetv-bind-address=0: no tuner, Service or policy.
   enabled: true
   # The tuner's port in the manager pod; the <release>-livetv Service maps
-  # port 80 to it.
+  # port 80 to it. Plex is given each block at /hdhr/<deviceID> on the
+  # Service (status.blocks[].uri).
   port: 5004
-  # Ports the blocks get (--livetv-port-range). cluster-plex serves each on a
-  # link-local address inside its Plex pods (spec §5.0), never on a node.
-  portRange: "47000-47999"
   networkPolicy:
     # A NetworkPolicy on the manager pod that admits the tuner port only from
     # allowFrom, and keeps every other manager port open. false for a CNI

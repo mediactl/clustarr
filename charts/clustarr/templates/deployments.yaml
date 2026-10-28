@@ -41,12 +41,12 @@ creates those at runtime, owned by the object that asked for them.
        manager deletes the HPAs it labelled, once, at start (spec §9.4). */}}
 {{- $managerArgs = append $managerArgs "--autoscale=false" }}
 {{- end }}
-{{- /* Live TV (spec 2026-10-07 §5.0): the tuner on livetv.port, the blocks'
-       ports, and the one livetv Service (templates/livetv-service.yaml). */}}
+{{- /* Live TV (spec 2026-10-07 §5.0): the tuner on livetv.port and the one
+       livetv Service (templates/livetv-service.yaml), on which Plex is given
+       each block's path (the direct-tuners design 2026-10-27). */}}
 {{- if .Values.livetv.enabled }}
 {{- $managerArgs = concat $managerArgs (list
       (printf "--livetv-bind-address=:%d" (int .Values.livetv.port))
-      (printf "--livetv-port-range=%s" .Values.livetv.portRange)
       (printf "--livetv-service=%s-livetv" $fullname)) }}
 {{- else }}
 {{- $managerArgs = append $managerArgs "--livetv-bind-address=0" }}

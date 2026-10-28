@@ -3,6 +3,11 @@
 Date: 2026-10-20. Status: approved by the owner (choices below).
 Amends `2026-10-07-iptv-live-tv-design.md`; where they disagree, this wins.
 
+> **Superseded 2026-10-27** by `2026-10-27-livetv-direct-tuners-and-ui-design.md`
+> §3-§4: Plex is given each block's `status.blocks[].uri` on the livetv
+> Service (`/hdhr/<deviceID>`); the link-local proxies, the ports and
+> `--livetv-port-range` are gone.
+
 ## Why
 
 An IPTVProvider named its playlist and guides as Secret-held URLs, and the

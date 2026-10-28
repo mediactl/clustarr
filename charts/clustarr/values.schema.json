@@ -365,12 +365,11 @@
     "livetv": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["enabled", "port", "portRange", "networkPolicy"],
+      "required": ["enabled", "port", "networkPolicy"],
       "description": "Live TV (spec 2026-10-07): the manager's IPTV tuner, the <release>-livetv Service and the NetworkPolicy on the tuner port.",
       "properties": {
         "enabled": { "type": "boolean", "description": "false renders --livetv-bind-address=0 and no livetv Service or NetworkPolicy." },
         "port": { "type": "integer", "minimum": 1, "maximum": 65535, "description": "The tuner's container port (--livetv-bind-address=:<port>); the livetv Service maps port 80 to it." },
-        "portRange": { "type": "string", "pattern": "^[0-9]{1,5}-[0-9]{1,5}$", "description": "--livetv-port-range: the ports the blocks get, low-high. cluster-plex serves them on a link-local address inside its Plex pods." },
         "networkPolicy": {
           "type": "object",
           "additionalProperties": false,

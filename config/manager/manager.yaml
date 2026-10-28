@@ -88,11 +88,11 @@ spec:
           # status-write pacing and its /data workers. The engines' default
           # memory limits, for a DownloadClient whose spec.resources sets
           # none (smoke finding O9). Then Live TV's (spec 2026-10-07 §5.0):
-          # the tuner's port, the blocks' ports, and the livetv Service
-          # (livetv-service.yaml). The chart renders the same from
+          # the tuner's port and the livetv Service (livetv-service.yaml), on
+          # which Plex is given each block's path. The chart renders the same from
           # manager.{slots,graftConcurrency,engineMemoryLimits,remediation}
           # and livetv.*.
-          args: ["--leader-elect", "--slots=cpu=2,nvidia=1,intel=1", "--nats-single-node", "--graft-concurrency=2", "--engine-memory-limit-torrent=2Gi", "--engine-memory-limit-usenet=8Gi", "--remediation-concurrency=16", "--remediation-bulk-writes-per-second=25", "--remediation-io-workers=8", "--livetv-bind-address=:5004", "--livetv-port-range=47000-47999", "--livetv-service=livetv"]
+          args: ["--leader-elect", "--slots=cpu=2,nvidia=1,intel=1", "--nats-single-node", "--graft-concurrency=2", "--engine-memory-limit-torrent=2Gi", "--engine-memory-limit-usenet=8Gi", "--remediation-concurrency=16", "--remediation-bulk-writes-per-second=25", "--remediation-io-workers=8", "--livetv-bind-address=:5004", "--livetv-service=livetv"]
           env:
             - name: NATS_URL
               value: nats://nats.clustarr-system.svc:4222

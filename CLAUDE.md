@@ -360,26 +360,27 @@ contiguous numbers, sticky boundaries, a first packing filled to 75%, an
 overflowing block split at its median, `dvr.maxChannels` (default 400, at
 most 450) and a 30,000-byte map budget each, at most 32. Each block is one
 HDHomeRun device and one Plex DVR. Each block gets:
-- its own port from `--livetv-port-range` (default `47000-47999`). Ports
-  are unique across providers and kept for life: a split never moves a
-  surviving block's port.
 - its own device ID (`sha256(ns/name/start)[:4]`, or `spec.device.id`,
   checked unique).
-- its device's endpoint, `/livetv/<ns>/<name>/devices/<id>`
-  (`status.blocks[].endpoint`).
+- its device's path, `/hdhr/<id>` (`status.blocks[].path`), and the URI
+  Plex is given, `http://<status.address><path>` (`status.blocks[].uri`).
 - an owner, read from cluster-plex's Lease `livetv-<device id>` into
   `status.blocks[].owner`.
 
 Spans are disjoint across providers.
 
 The tuner (`app/livetv/tuner`, the manager's `--livetv-bind-address`,
-`:5004`) serves each device at its endpoint, on the one `livetv` Service
-(chart `<release>-livetv`, `status.address`):
-- **Proxies.** cluster-plex runs an HTTP proxy per block, from the
-  link-local `169.254.47.1:<port>` in every Plex pod to the endpoint, and
-  sets `X-Forwarded-Host` and `X-Forwarded-Prefix: /`. The tuner builds
-  every URL it hands out from those headers, so PMS comes back through the
-  same port.
+`:5004`) serves each device at its path, on the one `livetv` Service
+(chart `<release>-livetv`; `status.address` is its cluster FQDN,
+`<release>-livetv.<ns>.svc.cluster.local:80`):
+- **Direct.** Plex is given each block's `status.blocks[].uri`,
+  `http://<release>-livetv.<ns>.svc.cluster.local:80/hdhr/<deviceID>`;
+  the tuner builds every URL it hands out from the request's Host and that
+  path (`X-Forwarded-Host`/`-Proto` honoured; no prefix header), so nothing
+  in a Plex pod proxies or listens for Live TV, and there are no ports per
+  block (2026-10-27,
+  `docs/superpowers/specs/2026-10-27-livetv-direct-tuners-and-ui-design.md`;
+  until then cluster-plex proxied a link-local port per block).
 - **Ranges.** `/livetv/<ns>/<name>/<file>?from=&to=` serves any range of
   the lineup, `playlist.m3u` included.
 - **Change detection.** Lineups and guides carry an ETag, and cluster-plex

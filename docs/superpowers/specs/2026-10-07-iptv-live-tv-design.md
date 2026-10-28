@@ -555,6 +555,11 @@ tuner beside the IPTVProvider controller as a leader-only runnable
 
 ### 5.0 One port per block, on a link-local address in each Plex pod
 
+> **Superseded 2026-10-27** by `2026-10-27-livetv-direct-tuners-and-ui-design.md`
+> §3-§4: Plex is given each block's `status.blocks[].uri` on the livetv
+> Service (`/hdhr/<deviceID>`); the link-local proxies, the ports and
+> `--livetv-port-range` are gone.
+
 Plex adds a device by an address and reads `/discover.json` at its root.
 Plex treats one IP on different ports as different devices. So every block
 shares one tuner address, and each block gets a port of its own.
@@ -793,6 +798,11 @@ on main first.
 It creates no Service: the one `livetv` Service is the installers'.
 
 ### 6.1 cluster-plex adds each provider to Plex
+
+> **Superseded 2026-10-27** by `2026-10-27-livetv-direct-tuners-and-ui-design.md`
+> §3-§4: Plex is given each block's `status.blocks[].uri` on the livetv
+> Service (`/hdhr/<deviceID>`); the link-local proxies, the ports and
+> `--livetv-port-range` are gone.
 
 cluster-plex already has the pieces:
 - a watcher on clustarr's namespace (`pkg/clustarrwatch`);

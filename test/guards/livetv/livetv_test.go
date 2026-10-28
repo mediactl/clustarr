@@ -208,8 +208,8 @@ func TestLiveTVServiceIsSelectorLessInBothInstallers(t *testing.T) {
 			assert.Equal(t, p, strconv.Itoa(int(port.ContainerPort)), "the tuner listens on the port the Service targets")
 			name, _ := arg(ctr.Args, "livetv-service")
 			assert.Equal(t, svc.Name, name, "--livetv-service names the Service")
-			portRange, _ := arg(ctr.Args, "livetv-port-range")
-			assert.Equal(t, "47000-47999", portRange)
+			_, has := arg(ctr.Args, "livetv-port-range")
+			assert.False(t, has, "no port range: Plex is given each block's path")
 		})
 	}
 }
@@ -290,16 +290,15 @@ func TestBothInstallersLiveTVArgsParseAsTheManager(t *testing.T) {
 					args = append(args, a)
 				}
 			}
-			require.Len(t, args, 3)
+			require.Len(t, args, 2)
 			var got manager.Options
 			cmd := manager.NewCommandWith(func(_ context.Context, o manager.Options) error { got = o; return nil })
 			cmd.SetArgs(append(args, "--nats-url=nats://nats:4222", "--native-image=clustarr/native:dev", "--leader-election-namespace=clustarr-system"))
 			require.NoError(t, cmd.Execute(), "the manager's own flag checks pass")
 			bind, _ := arg(args, "livetv-bind-address")
-			portRange, _ := arg(args, "livetv-port-range")
 			svc, _ := arg(args, "livetv-service")
-			assert.Equal(t, manager.Options{LiveTVBindAddress: bind, LiveTVPortRange: portRange, LiveTVService: svc},
-				manager.Options{LiveTVBindAddress: got.LiveTVBindAddress, LiveTVPortRange: got.LiveTVPortRange, LiveTVService: got.LiveTVService})
+			assert.Equal(t, manager.Options{LiveTVBindAddress: bind, LiveTVService: svc},
+				manager.Options{LiveTVBindAddress: got.LiveTVBindAddress, LiveTVService: got.LiveTVService})
 		})
 	}
 }

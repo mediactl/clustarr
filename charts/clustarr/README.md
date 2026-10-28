@@ -458,8 +458,8 @@ identity clients already know, and set `cluster-plex.image.tag` and
 
 Live TV (cluster-plex 0.4.0) is on with `livetv.enabled`: `cluster-plex.plex.liveTV.enabled`
 (default true) has the Plex lease holder add this release's IPTVProviders to
-Plex as DVRs, one per block, and every Plex pod serve each block's port on a
-link-local address to the `<release>-livetv` Service. Set both false together.
+Plex as DVRs, one per block, each registered at its `status.blocks[].uri` on
+the `<release>-livetv` Service. Set both false together.
 
 ## Values
 
@@ -519,7 +519,6 @@ template.
 | `manager.resources`/`.nodeSelector`/`.tolerations`/`.affinity` | The manager's resources (also the input to [GOMEMLIMIT](#gomemlimit)) and scheduling; the default memory includes 128Mi for the Live TV tuner's stream buffers. It always runs one replica. | see `values.yaml` |
 | `livetv.enabled` | Live TV: the IPTVProvider and IPTVChannel controllers and the HDHomeRun tuner in the manager, the `<release>-livetv` Service (port 80 to the tuner), and the NetworkPolicy below. `false` renders `--livetv-bind-address=0` and none of them. | `true` |
 | `livetv.port` | The tuner's container port (`--livetv-bind-address=:<port>`). | `5004` |
-| `livetv.portRange` | The ports the blocks get (`--livetv-port-range`, `low-high`). cluster-plex serves each on a link-local address inside its Plex pods, never on a node. | `47000-47999` |
 | `livetv.networkPolicy.enabled` | A NetworkPolicy on the manager pod admitting the tuner port only from `allowFrom`; every other manager port stays open. `false` for a CNI that enforces none. | `true` |
 | `livetv.networkPolicy.allowFrom` | NetworkPolicyPeers allowed to reach the tuner port. Narrow the default with a `namespaceSelector` naming Plex's namespace. | Plex's pods (`app.kubernetes.io/component: plex`) in any namespace |
 | `agents.<domain>.enabled` | Render that agent (`catalog`, `events`, `metadata`, `import`, `index`, `caption`). | `true` |
