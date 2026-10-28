@@ -174,6 +174,29 @@ func TestPreferSmallestResolvesAndIsHashedOnlyWhenSet(t *testing.T) {
 	require.NotEqual(t, plain.Hash, p.Hash, "preferring the smallest is a different resolved profile")
 }
 
+func TestCompleteFirstResolvesAndIsHashedOnlyWhenSet(t *testing.T) {
+	cat := &catalogue.Catalogue{Formats: map[string]*catalogue.Format{}}
+	base := func() *catalogv1alpha1.QualityProfile {
+		return &catalogv1alpha1.QualityProfile{Spec: catalogv1alpha1.QualityProfileSpec{
+			MediaKind: catalogv1alpha1.ProfileMediaKindVideo,
+			Tiers:     []catalogv1alpha1.Tier{{Name: "1080p", Qualities: []string{"WEBDL-1080p", "Bluray-1080p"}}},
+			Cutoff:    "1080p",
+			SizeTable: catalogv1alpha1.SizeTableAnime,
+			Audio:     &catalogv1alpha1.AudioPolicy{Languages: []string{"en", "original"}, Graft: true},
+		}}
+	}
+	plain, errs := quality.FromCRD(base(), cat)
+	require.Empty(t, errs)
+	require.False(t, plain.AudioCompleteFirst)
+
+	first := base()
+	first.Spec.Audio.CompleteFirst = true
+	p, errs := quality.FromCRD(first, cat)
+	require.Empty(t, errs)
+	require.True(t, p.AudioCompleteFirst)
+	require.NotEqual(t, plain.Hash, p.Hash, "ranking complete audio first is a different resolved profile")
+}
+
 // TestFromCRDNormalisesLanguage covers ruling F3: QualityProfileSpec.Language
 // is "original", "any" or a BCP-47 tag, while the catalogue's CondLanguage
 // conditions and release.ParsedRelease.Languages both speak Radarr's English

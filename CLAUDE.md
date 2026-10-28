@@ -1087,7 +1087,17 @@ the format score and languages, ahead of indexer, flags and seeders
 pair it with one 1080p tier, `x265-hd` +300 and `10bit` -150 at a minimum
 score of 0 (HEVC is copied; 10-bit H.264 and AV1 decode on no GPU here, so
 they would transcode on the CPU) and a 5 MB-a-minute floor in `sizeLimits`,
-since TRaSH's x264 minimums reject a small HEVC encode.
+since TRaSH's x264 minimums reject a small HEVC encode. Their anime twins
+(`hevc-small-1080p-anime`, `-anime-tv`) also zero TRaSH's anime group tiers,
+which score 100-1,400 under every score set and would carry a tier-1 10-bit
+H.264 past the minimum (`TestAnAnimeTranscodeFirstProfileIgnoresGroupTiers`).
+An audio policy's `completeFirst` (owner, 2026-10-28: "We *must* always take
+dual audio if it exists") ranks a release carrying every wanted language ahead
+of every other key -- tier, revision, season pack, protocol, format score and
+size -- in `decision.less` and `grabplan.better`
+(`decision.ReleaseCompletesAudio`); it ranks and never approves, so a
+dual-audio 10-bit H.264 is still refused, and it matters only to a grafting
+policy, since one that does not graft refuses an incomplete release outright.
 anime-web-1080p ranks Bluray-1080p, then WEB 1080p, then Remux-1080p,
 below the cutoff, so an encode replaces a remux, which is never transcoded
 (`demotedTiers` exempts that tier from the best-first guard). A bare scene WEB is a WEB-DL

@@ -475,3 +475,22 @@ func TestTheSmallestIsGrabbedUnderASmallestFirstProfile(t *testing.T) {
 	v.Profile.PreferSmallest = true
 	require.Equal(t, []string{"Heat.1995.1080p.WEB-DL.x265-SMALL"}, titles(grabplan.Decide(v)))
 }
+
+// Under an audio policy's completeFirst the grab planner takes a release
+// carrying every wanted language over a better-scored one that lacks a
+// language, as decision.Rank does (owner, 2026-10-28: dual audio is always
+// taken when it exists).
+func TestCompleteAudioIsGrabbedFirstUnderCompleteFirst(t *testing.T) {
+	decide := func(completeFirst bool) []string {
+		japanese := movieCandidate(t, "Heat.1995.1080p.BluRay.x265-JPONLY")
+		dual := movieCandidate(t, "Heat.1995.1080p.BluRay.DUAL.x264-DUALGRP")
+		japanese.Release.Score, dual.Release.Score = 300, 0
+		v := movieView(t, nil, japanese, dual)
+		v.OriginalLanguageTag = "ja"
+		v.Profile.AudioLanguages, v.Profile.GraftAudio = []string{"en", "original"}, true
+		v.Profile.AudioCompleteFirst = completeFirst
+		return titles(grabplan.Decide(v))
+	}
+	require.Equal(t, []string{"Heat.1995.1080p.BluRay.DUAL.x264-DUALGRP"}, decide(true))
+	require.Equal(t, []string{"Heat.1995.1080p.BluRay.x265-JPONLY"}, decide(false), "without it the score decides")
+}

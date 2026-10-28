@@ -34,6 +34,13 @@ type AudioPolicyApplyConfiguration struct {
 	// Default is the language marked default in a grafted file, one of
 	// Languages; unset, the default flag stays where the file had it.
 	Default *string `json:"default,omitempty"`
+	// CompleteFirst ranks a release carrying every one of Languages ahead
+	// of one that does not, before quality tier, revision, season pack,
+	// protocol, format score and size, so such a release is always taken
+	// when one exists (owner, 2026-10-28: anime dual audio with English).
+	// It matters only with Graft: without it an incomplete release is
+	// refused anyway.
+	CompleteFirst *bool `json:"completeFirst,omitempty"`
 }
 
 // AudioPolicyApplyConfiguration constructs a declarative configuration of the AudioPolicy type for use with
@@ -65,5 +72,13 @@ func (b *AudioPolicyApplyConfiguration) WithGraft(value bool) *AudioPolicyApplyC
 // If called multiple times, the Default field is set to the value of the last call.
 func (b *AudioPolicyApplyConfiguration) WithDefault(value string) *AudioPolicyApplyConfiguration {
 	b.Default = &value
+	return b
+}
+
+// WithCompleteFirst sets the CompleteFirst field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the CompleteFirst field is set to the value of the last call.
+func (b *AudioPolicyApplyConfiguration) WithCompleteFirst(value bool) *AudioPolicyApplyConfiguration {
+	b.CompleteFirst = &value
 	return b
 }

@@ -488,6 +488,9 @@ var schemaYAML = typed.YAMLObject(`types:
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.AudioPolicy
   map:
     fields:
+    - name: completeFirst
+      type:
+        scalar: boolean
     - name: default
       type:
         scalar: string

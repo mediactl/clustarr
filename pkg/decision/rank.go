@@ -26,7 +26,8 @@ import (
 	"github.com/mediactl/clustarr/pkg/release"
 )
 
-// Rank stable-sorts a copy of ds best-first: QualityIndex asc, Revision
+// Rank stable-sorts a copy of ds best-first: LanguagesComplete first under a
+// profile taking complete audio first (Audio.CompleteFirst), QualityIndex asc, Revision
 // desc (only if PreferRevision), a whole season first, PreferredProtocolMatch
 // desc, FormatScore desc, LanguagesComplete, CompareEpisodeCount (anime more
 // episodes and any other series fewer), indexer priority asc (from
@@ -55,6 +56,11 @@ func less(a, b Decision, o Options) bool {
 		if a.Rank.SizeBytes != b.Rank.SizeBytes {
 			return a.Rank.SizeBytes < b.Rank.SizeBytes
 		}
+	}
+	// A profile taking complete audio first (owner, 2026-10-28: dual audio
+	// is always taken when it exists) ranks it ahead of every other key.
+	if a.Rank.CompleteFirst && b.Rank.CompleteFirst && a.Rank.LanguagesComplete != b.Rank.LanguagesComplete {
+		return a.Rank.LanguagesComplete
 	}
 	if a.Rank.QualityIndex != b.Rank.QualityIndex {
 		return a.Rank.QualityIndex < b.Rank.QualityIndex

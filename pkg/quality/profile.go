@@ -64,6 +64,9 @@ type Profile struct {
 	AudioLanguages []string
 	GraftAudio     bool
 	AudioDefault   string
+	// AudioCompleteFirst is QualityProfileSpec.Audio.CompleteFirst: a
+	// release carrying every wanted language ranks ahead of every other key.
+	AudioCompleteFirst bool
 	// ScoreSet is the resolved score set ("default", "anime-sonarr",
 	// "anime-radarr"). Scores already reflects it, so Hash leaves it out;
 	// pkg/decision reads it to know a release title's anime conventions.
@@ -283,9 +286,10 @@ func FromCRD(p *catalogv1alpha1.QualityProfile, cat *catalogue.Catalogue) (Profi
 	var audio []string
 	var audioGraft bool
 	var audioDefault string
+	var audioCompleteFirst bool
 	if a := p.Spec.Audio; a != nil {
 		audio = append([]string(nil), a.Languages...)
-		audioGraft, audioDefault = a.Graft, a.Default
+		audioGraft, audioDefault, audioCompleteFirst = a.Graft, a.Default, a.CompleteFirst
 		if p.Spec.MediaKind != "" && p.Spec.MediaKind != catalogv1alpha1.ProfileMediaKindVideo {
 			errs = append(errs, fmt.Errorf("audio: an audio policy is for video profiles, not %s", p.Spec.MediaKind))
 		}
@@ -354,8 +358,9 @@ func FromCRD(p *catalogv1alpha1.QualityProfile, cat *catalogue.Catalogue) (Profi
 		MinUpgradeFormatScore: int(p.Spec.MinUpgradeFormatScore),
 		Scores:                scores, Language: p.Spec.Language, LanguageName: langName,
 		AudioLanguages: audio, GraftAudio: audioGraft, AudioDefault: audioDefault, ScoreSet: scoreSet,
-		ProperPolicy: string(p.Spec.ProperPolicy),
-		Sizes:        sizes, Bitrates: bitrates, PreferredProtocol: string(p.Spec.PreferredProtocol),
+		AudioCompleteFirst: audioCompleteFirst,
+		ProperPolicy:       string(p.Spec.ProperPolicy),
+		Sizes:              sizes, Bitrates: bitrates, PreferredProtocol: string(p.Spec.PreferredProtocol),
 		PreferSmallest: p.Spec.PreferSmallest,
 		MediaKind:      kind,
 	}
@@ -436,9 +441,12 @@ func hashProfile(p Profile) string {
 	if p.AudioLanguages != nil {
 		_, _ = fmt.Fprintf(h, "audio=%s|graft=%t|default=%s\n", strings.Join(p.AudioLanguages, ","), p.GraftAudio, p.AudioDefault)
 	}
-	// Written only when set, so every profile without it keeps its hash.
+	// Written only when set, so every profile without them keeps its hash.
 	if p.PreferSmallest {
 		_, _ = fmt.Fprint(h, "preferSmallest\n")
+	}
+	if p.AudioCompleteFirst {
+		_, _ = fmt.Fprint(h, "audioCompleteFirst\n")
 	}
 	for _, tier := range p.Tiers {
 		names := make([]string, len(tier))

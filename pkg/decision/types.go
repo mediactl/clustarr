@@ -294,6 +294,9 @@ type RankKey struct {
 	// a tie in tier and format score, a complete release beats one a graft
 	// would complete (anime dual-audio spec §5.2).
 	LanguagesComplete bool
+	// CompleteFirst ranks LanguagesComplete ahead of every other key
+	// (QualityProfileSpec.Audio.CompleteFirst).
+	CompleteFirst bool
 	// Donor ranks an audio donor: by DonorLineage (higher first), then by
 	// SizeBytes (smaller first), instead of by quality and format score.
 	Donor        bool

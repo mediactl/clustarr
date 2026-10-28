@@ -169,6 +169,9 @@ type verdict struct {
 	covered  []Covered
 	reason   string
 	decision string
+	// complete is whether the release carries every language the profile's
+	// audio policy wants, read only under Audio.CompleteFirst.
+	complete bool
 }
 
 // Decide is the owner key's grab decision (ADR-0019 §6.6 steps 1-5).
@@ -311,6 +314,9 @@ func (d *decider) check(c Candidate) verdict {
 		vd.reason = why
 		return vd
 	}
+	if d.v.Profile.AudioCompleteFirst {
+		vd.complete = decision.ReleaseCompletesAudio(ctxBackground, *d.v.Profile, d.v.OriginalLanguageTag, d.v.Kind, rel)
+	}
 	vd.covered = d.coverage(c)
 	if len(vd.covered) == 0 {
 		vd.reason = "no item it covers wants it"
@@ -406,7 +412,8 @@ func exempt(c Candidate, rej commonv1.Rejection) bool {
 }
 
 // better orders approved candidates best first (decision.Rank's order, P13,
-// over what a scored release carries): a person's pick, then quality tier,
+// over what a scored release carries): a person's pick, then complete audio
+// under a profile taking it first (Audio.CompleteFirst), then quality tier,
 // revision (unless the profile does not prefer it), on a Series a whole
 // season, the profile's preferred protocol, format score, the smallest under
 // a profile preferring it, then on a Series
@@ -420,6 +427,9 @@ func (d *decider) better(a, b verdict) bool {
 	}
 	ra, rb := a.c.Release.Decision.ReleaseInfo, b.c.Release.Decision.ReleaseInfo
 	if a.c.Purpose == "" && b.c.Purpose == "" {
+		if d.v.Profile.AudioCompleteFirst && a.complete != b.complete {
+			return a.complete
+		}
 		ia, ib := tier(d.v.Profile, ra.Quality), tier(d.v.Profile, rb.Quality)
 		if ia != ib {
 			return ia < ib

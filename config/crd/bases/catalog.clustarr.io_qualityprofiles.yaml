@@ -70,6 +70,15 @@ spec:
                   Audio is the audio a file must carry. When set it replaces Language
                   in the release decision (anime dual-audio spec §5).
                 properties:
+                  completeFirst:
+                    description: |-
+                      CompleteFirst ranks a release carrying every one of Languages ahead
+                      of one that does not, before quality tier, revision, season pack,
+                      protocol, format score and size, so such a release is always taken
+                      when one exists (owner, 2026-10-28: anime dual audio with English).
+                      It matters only with Graft: without it an incomplete release is
+                      refused anyway.
+                    type: boolean
                   default:
                     description: |-
                       Default is the language marked default in a grafted file, one of

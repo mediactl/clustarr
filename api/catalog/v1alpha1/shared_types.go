@@ -95,6 +95,15 @@ type AudioPolicy struct {
 	// Languages; unset, the default flag stays where the file had it.
 	// +optional
 	Default string `json:"default,omitempty"`
+
+	// CompleteFirst ranks a release carrying every one of Languages ahead
+	// of one that does not, before quality tier, revision, season pack,
+	// protocol, format score and size, so such a release is always taken
+	// when one exists (owner, 2026-10-28: anime dual audio with English).
+	// It matters only with Graft: without it an incomplete release is
+	// refused anyway.
+	// +optional
+	CompleteFirst bool `json:"completeFirst,omitempty"`
 }
 
 // AudioState is what a file's audio carries against its profile's

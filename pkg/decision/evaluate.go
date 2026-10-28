@@ -101,6 +101,26 @@ func ItemStateRejections(ctx context.Context, t Target, p quality.Profile, d Dec
 	return videoItemState(t, p, an, parsed, rel, score, complete)
 }
 
+// ReleaseCompletesAudio reports whether rel carries every language p's audio
+// policy wants for an item whose original language is originalTag, as
+// Evaluate ranks LanguagesComplete: the title parsed as ItemStateRejections
+// parses it, its indexer's languages over the title's. True without a
+// policy; false for a title that does not parse.
+func ReleaseCompletesAudio(ctx context.Context, p quality.Profile, originalTag string, kind common.MediaKind, rel common.ReleaseInfo) bool {
+	if len(p.AudioLanguages) == 0 {
+		return true
+	}
+	lang := originalLanguageName(ctx, originalTag)
+	pr, err := release.Parse(rel.Title, release.Options{Kind: kind})
+	if err != nil {
+		return false
+	}
+	pr.Languages = pr.LanguagesWith(lang, release.GroupLanguagesFrom(ctx))
+	indexerLanguages(pr, rel)
+	_, complete := audioRejection(resolveAudioNames(ctx, p, lang), p, pr)
+	return complete
+}
+
 // WithItemState is d with extra rejections folded in: Approved and
 // TemporarilyRejected are derived again exactly as Evaluate derives them.
 // d's RankKey is kept (it ranks d among the releases its agent approved).
@@ -336,6 +356,7 @@ func buildRankKey(p quality.Profile, o Options, t Target, parsed *release.Parsed
 		PreferredProtocolMatch: protocolMatch,
 		EpisodeCount:           episodeCount,
 		Anime:                  t.Anime,
+		CompleteFirst:          p.AudioCompleteFirst,
 	}
 	if p.PreferSmallest {
 		key.PreferSmallestSize = true

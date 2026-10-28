@@ -112,35 +112,10 @@ func TestATranscodeFirstProfileRanksByCodecThenSize(t *testing.T) {
 // the grafting audio policy still takes a Japanese-only release.
 func TestAnAnimeTranscodeFirstProfileIgnoresGroupTiers(t *testing.T) {
 	cat := catalogue.LoadedCatalogue()
-	scores := []catalogv1alpha1.FormatScore{{Format: "x265-hd", Score: 300}, {Format: "10bit", Score: -150}}
-	for _, tier := range []string{"01", "02", "03", "04", "05", "06", "07", "08"} {
-		scores = append(scores, catalogv1alpha1.FormatScore{Format: "anime-bd-tier-" + tier})
-	}
-	for _, tier := range []string{"01", "02", "03", "04", "05", "06"} {
-		scores = append(scores, catalogv1alpha1.FormatScore{Format: "anime-web-tier-" + tier})
-	}
-	p, errs := quality.FromCRD(&catalogv1alpha1.QualityProfile{Spec: catalogv1alpha1.QualityProfileSpec{
-		MediaKind: catalogv1alpha1.ProfileMediaKindVideo,
-		Tiers: []catalogv1alpha1.Tier{
-			{Name: "1080p", Qualities: []string{"WEBDL-1080p", "WEBRip-1080p", "HDTV-1080p", "Bluray-1080p"}},
-			{Name: "720p", Qualities: []string{"WEBDL-720p", "WEBRip-720p", "HDTV-720p", "Bluray-720p"}},
-			{Name: "480p", Qualities: []string{"WEBDL-480p", "WEBRip-480p", "Bluray-480p", "DVD"}},
-		},
-		Cutoff:         "1080p",
-		FormatScores:   scores,
-		ScoreSet:       "anime-sonarr",
-		Audio:          &catalogv1alpha1.AudioPolicy{Languages: []string{"en", "original"}, Graft: true},
-		SizeTable:      catalogv1alpha1.SizeTableAnime,
-		PreferSmallest: true,
-	}}, cat)
-	require.Empty(t, errs)
+	p := animeTranscodeFirst(t, false)
 	require.Equal(t, 1400, cat.Formats["anime-bd-tier-01"].Scores["default"], "the tier this profile zeroes")
 
-	tg := decision.Target{
-		Kind: common.MediaKindEpisode, Monitored: true, Available: true, OriginalLanguageTag: "ja",
-		EpisodeRuntimes: []int{24},
-		Identity:        decision.Identity{Titles: []string{"Frieren"}, Year: 2023, Season: 1, Episodes: []int{2}},
-	}
+	tg := frierenEpisode()
 	rel := func(title string, size int64) common.ReleaseInfo {
 		return common.ReleaseInfo{GUID: "idx:" + title, IndexerRef: "idx", Protocol: common.ProtocolUsenet, Title: title, SizeBytes: size}
 	}
@@ -171,4 +146,81 @@ func TestAnAnimeTranscodeFirstProfileIgnoresGroupTiers(t *testing.T) {
 		order = append(order, d.Release.Title)
 	}
 	require.Equal(t, []string{smallHEVC, bigHEVC, webAVC}, order, "HEVC first, then the smallest; the tier-1 group earns nothing")
+}
+
+// Under completeFirst (owner, 2026-10-28: "We *must* always take dual audio
+// if it exists"), a release carrying English and the original ranks ahead
+// of every other key: a dual-audio 720p H.264 beats a Japanese-only 1080p
+// HEVC that is smaller, of a better tier and a better score. A dual-audio
+// 10-bit H.264 is still refused: completeFirst ranks, it does not approve.
+func TestCompleteFirstRanksDualAudioAheadOfEveryOtherKey(t *testing.T) {
+	cat := catalogue.LoadedCatalogue()
+	rel := func(title string, size int64) common.ReleaseInfo {
+		return common.ReleaseInfo{GUID: "idx:" + title, IndexerRef: "idx", Protocol: common.ProtocolUsenet, Title: title, SizeBytes: size}
+	}
+	const (
+		japaneseHEVC = "Frieren.S01E02.1080p.CR.WEB-DL.AAC2.0.HEVC.x265-SMALLJP"
+		dualAVC      = "Frieren.S01E02.720p.WEB-DL.DUAL.AAC2.0.H.264-DUALGRP"
+		dualHi10     = "Frieren.S01E02.720p.BluRay.DUAL.10bit.x264-HITEN"
+	)
+	order := func(completeFirst bool) []string {
+		ds := decision.Evaluate(context.Background(), frierenEpisode(), animeTranscodeFirst(t, completeFirst), cat, []common.ReleaseInfo{
+			rel(japaneseHEVC, 400<<20), rel(dualAVC, 600<<20), rel(dualHi10, 500<<20),
+		}, usenetOnly)
+		var approved []decision.Decision
+		for _, d := range ds {
+			if d.Release.Title == dualHi10 {
+				require.False(t, d.Approved, "10-bit H.264 falls back to a CPU transcode, dual audio or not")
+				continue
+			}
+			require.True(t, d.Approved, "%s: %v", d.Release.Title, reasons(d))
+			approved = append(approved, d)
+		}
+		var out []string
+		for _, d := range decision.Rank(approved, usenetOnly) {
+			out = append(out, d.Release.Title)
+		}
+		return out
+	}
+	require.Equal(t, []string{dualAVC, japaneseHEVC}, order(true), "dual audio is taken whenever it exists")
+	require.Equal(t, []string{japaneseHEVC, dualAVC}, order(false), "without completeFirst the tier ranks first")
+}
+
+// animeTranscodeFirst is the owner's hevc-small-1080p-anime-tv: the
+// transcode-first scores with TRaSH's anime group tiers zeroed, 1080p then
+// 720p then 480p, a grafting dual-audio policy, smallest first.
+func animeTranscodeFirst(t *testing.T, completeFirst bool) quality.Profile {
+	t.Helper()
+	cat := catalogue.LoadedCatalogue()
+	scores := []catalogv1alpha1.FormatScore{{Format: "x265-hd", Score: 300}, {Format: "10bit", Score: -150}}
+	for _, tier := range []string{"01", "02", "03", "04", "05", "06", "07", "08"} {
+		scores = append(scores, catalogv1alpha1.FormatScore{Format: "anime-bd-tier-" + tier})
+	}
+	for _, tier := range []string{"01", "02", "03", "04", "05", "06"} {
+		scores = append(scores, catalogv1alpha1.FormatScore{Format: "anime-web-tier-" + tier})
+	}
+	p, errs := quality.FromCRD(&catalogv1alpha1.QualityProfile{Spec: catalogv1alpha1.QualityProfileSpec{
+		MediaKind: catalogv1alpha1.ProfileMediaKindVideo,
+		Tiers: []catalogv1alpha1.Tier{
+			{Name: "1080p", Qualities: []string{"WEBDL-1080p", "WEBRip-1080p", "HDTV-1080p", "Bluray-1080p"}},
+			{Name: "720p", Qualities: []string{"WEBDL-720p", "WEBRip-720p", "HDTV-720p", "Bluray-720p"}},
+			{Name: "480p", Qualities: []string{"WEBDL-480p", "WEBRip-480p", "Bluray-480p", "DVD"}},
+		},
+		Cutoff:         "1080p",
+		FormatScores:   scores,
+		ScoreSet:       "anime-sonarr",
+		Audio:          &catalogv1alpha1.AudioPolicy{Languages: []string{"en", "original"}, Graft: true, CompleteFirst: completeFirst},
+		SizeTable:      catalogv1alpha1.SizeTableAnime,
+		PreferSmallest: true,
+	}}, cat)
+	require.Empty(t, errs)
+	return p
+}
+
+func frierenEpisode() decision.Target {
+	return decision.Target{
+		Kind: common.MediaKindEpisode, Monitored: true, Available: true, OriginalLanguageTag: "ja",
+		EpisodeRuntimes: []int{24},
+		Identity:        decision.Identity{Titles: []string{"Frieren"}, Year: 2023, Season: 1, Episodes: []int{2}},
+	}
 }
