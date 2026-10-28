@@ -126,6 +126,9 @@ type InvalidIntent struct{ Annotation, Value, Reason string }
 type IssuedCommand struct {
 	Seq  int64
 	Hash string
+	// At is when the command was last published; zero when unknown (a
+	// leader change), which republishes it at once.
+	At time.Time
 }
 
 // View is everything Decide reads for one owner.

@@ -424,9 +424,21 @@ func TestAnOwedCommandIsRepublishedWithTheSameMsgIDInsideTheWindow(t *testing.T)
 		assert.False(t, c.Retry)
 		assert.NotContains(t, reasons(p), lifecycle.ReasonCommandRetrying)
 		assert.Equal(t, seq0+500, only(p).Dispatch.Seq, "status keeps the seq")
-		again := lifecycle.Decide(next(owed(5*time.Minute), p))
+
+		// A pass inside RepublishEvery sends nothing and asks again at it
+		// (owner, 2026-10-28: 1,430 commands waiting on an indexer's grab
+		// limit were republished, each owner passing, every 30 s).
+		assert.Equal(t, 5*time.Minute, lifecycle.RepublishEvery)
+		soon := lifecycle.Decide(next(owed(5*time.Minute), p))
+		assert.Empty(t, soon.Commands, "sent a second ago")
+		require.False(t, soon.Due.IsZero())
+		assert.False(t, soon.Due.After(now.Add(lifecycle.RepublishEvery)), "asks again when RepublishEvery has passed")
+
+		later := next(owed(5*time.Minute), p)
+		later.Now = now.Add(lifecycle.RepublishEvery)
+		again := lifecycle.Decide(later)
 		require.Len(t, again.Commands, 1)
-		assert.Equal(t, c.Cmd.Seq, again.Commands[0].Cmd.Seq, "a second pass republishes the same seq")
+		assert.Equal(t, c.Cmd.Seq, again.Commands[0].Cmd.Seq, "a pass RepublishEvery later republishes the same seq")
 	})
 	t.Run("past the window: a new seq, CommandRetrying", func(t *testing.T) {
 		p := lifecycle.Decide(owed(lifecycle.RepublishWindow + time.Minute))

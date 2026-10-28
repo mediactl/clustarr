@@ -463,7 +463,7 @@ func (d *decider) emit(e *catalogv1alpha1.DownloadEntry, rec *schema.TransferRec
 		c.BootID = eng.BootID
 	}
 	d.plan.Commands = append(d.plan.Commands, c)
-	d.plan.Issued[types.UID(e.UID)] = IssuedCommand{Seq: cmd.Seq, Hash: hashOf(cmd)}
+	d.plan.Issued[types.UID(e.UID)] = IssuedCommand{Seq: cmd.Seq, Hash: hashOf(cmd), At: d.now}
 	d.at(d.now.Add(RepublishEvery))
 }
 
@@ -494,6 +494,12 @@ func (d *decider) owe(e *catalogv1alpha1.DownloadEntry) {
 	case answered:
 		d.plan.Issued[types.UID(e.UID)] = book
 	case d.now.Sub(e.Dispatch.DispatchedAt.Time) < RepublishWindow:
+		if !book.At.IsZero() && d.now.Sub(book.At) < RepublishEvery {
+			// Published within RepublishEvery: the stream holds it.
+			d.plan.Issued[types.UID(e.UID)] = book
+			d.at(book.At.Add(RepublishEvery))
+			return
+		}
 		d.emit(e, rec, false)
 	default:
 		d.event(EventWarning, ReasonCommandRetrying, "the command to "+e.Engine+" for "+e.ID+" was not acknowledged in time; issuing it again")

@@ -63,8 +63,12 @@ const (
 	// republished under its Msg-Id inside it, and at a new seq past it,
 	// below CLUSTARR_WORK_ENGINE's one-hour duplicate window.
 	RepublishWindow = 50 * time.Minute
-	// RepublishEvery is how often an owed command is republished.
-	RepublishEvery = 30 * time.Second
+	// RepublishEvery is how often an owed command is republished, as
+	// importplan.RepublishEvery: the stream holds a published command, so a
+	// republish under its Msg-Id only covers one the stream lost (owner,
+	// 2026-10-28: 1,430 commands waiting on an indexer's grab limit, each
+	// owner passing to republish them every 30 s, took the remediation loop).
+	RepublishEvery = 5 * time.Minute
 	// MaxEntryMessage is entry.message's cap (the record keeps 2048).
 	MaxEntryMessage = 1024
 )
