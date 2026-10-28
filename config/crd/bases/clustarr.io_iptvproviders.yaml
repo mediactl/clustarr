@@ -37,9 +37,6 @@ spec:
     - jsonPath: .status.conditions[?(@.type=='Ready')].status
       name: Ready
       type: string
-    - jsonPath: .status.blocks[0].port
-      name: Port
-      type: integer
     - jsonPath: .status.account.expiresAt
       name: Expires
       type: string
@@ -52,8 +49,8 @@ spec:
         description: |-
           IPTVProvider is one Xtream Codes IPTV account routed to Plex as emulated
           HDHomeRuns, one per block of its channels (Live TV spec §3). Its tuner runs
-          in the manager, behind one livetv Service; each block has a port of its
-          own, which cluster-plex's proxies send to the block's endpoint.
+          in the manager, behind one livetv Service; Plex is given each block at its
+          own path on that Service (status.blocks[].uri).
         properties:
           apiVersion:
             description: |-
@@ -325,9 +322,10 @@ spec:
                 type: object
               address:
                 description: |-
-                  Address is the tuner Service, host:port: each block's Endpoint is
-                  under it, and /livetv/<namespace>/<name>/<file>?from=<n>&to=<n> serves
-                  any range of the lineup.
+                  Address is the tuner Service's cluster FQDN and port,
+                  <release>-livetv.<namespace>.svc.cluster.local:80: each block's Path
+                  is under it, and /livetv/<namespace>/<name>/<file>?from=<n>&to=<n>
+                  serves any range of the lineup.
                 type: string
               blocks:
                 description: |-
@@ -348,12 +346,6 @@ spec:
                         block of a first packing, else a hash of namespace, name and start.
                       pattern: ^[0-9A-F]{8}$
                       type: string
-                    endpoint:
-                      description: |-
-                        Endpoint is the block's device under Address: the path every request
-                        a Plex pod's proxy takes on Port is sent below.
-                      maxLength: 512
-                      type: string
                     first:
                       description: First and Last are the numbers the block's channels
                         span.
@@ -372,7 +364,7 @@ spec:
                       type: string
                     guidePath:
                       description: |-
-                        GuidePath is the block's XEPG guide path under its port; empty under
+                        GuidePath is the block's XEPG guide path under its path; empty under
                         PMS.
                       maxLength: 64
                       type: string
@@ -396,20 +388,24 @@ spec:
                         read from its Lease. Empty while none holds it.
                       maxLength: 128
                       type: string
-                    port:
+                    path:
                       description: |-
-                        Port is the block's port: the Plex pods' proxies listen on it and send
-                        each request to Endpoint.
-                      format: int32
-                      maximum: 65535
-                      minimum: 1024
-                      type: integer
+                        Path is the block's device on Address: /hdhr/<deviceID>, which Plex
+                        is given (with Address) as the device's network address.
+                      maxLength: 512
+                      type: string
                     start:
                       description: |-
                         Start is the block's boundary and identity: the number its channels
                         begin at. A channel belongs to the last block whose start is at or
                         below its number.
                       maxLength: 16
+                      type: string
+                    uri:
+                      description: |-
+                        URI is the block's device address as Plex registers it:
+                        http://<address><path>.
+                      maxLength: 512
                       type: string
                   required:
                   - start

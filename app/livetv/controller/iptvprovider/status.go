@@ -108,7 +108,13 @@ func withBlocks(st *clustarrac.IPTVProviderStatusApplyConfiguration, p *clustarr
 	}
 	for _, b := range pl.blocks {
 		ac := clustarrac.BlockStatus().WithStart(b.Start).WithChannels(b.Channels).WithFirst(b.First).WithLast(b.Last).
-			WithMapBytes(b.MapBytes).WithDeviceID(b.DeviceID).WithEndpoint(b.Endpoint).WithPort(b.Port).WithFriendlyName(b.FriendlyName)
+			WithMapBytes(b.MapBytes).WithDeviceID(b.DeviceID).WithFriendlyName(b.FriendlyName)
+		if b.Path != "" {
+			ac.WithPath(b.Path)
+		}
+		if b.URI != "" {
+			ac.WithURI(b.URI)
+		}
 		if b.GuidePath != "" {
 			ac.WithGuidePath(b.GuidePath)
 		}

@@ -249,9 +249,10 @@ type IPTVProviderStatus struct {
 	// +kubebuilder:validation:MaxItems=8
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
-	// Address is the tuner Service, host:port: each block's Endpoint is
-	// under it, and /livetv/<namespace>/<name>/<file>?from=<n>&to=<n> serves
-	// any range of the lineup.
+	// Address is the tuner Service's cluster FQDN and port,
+	// <release>-livetv.<namespace>.svc.cluster.local:80: each block's Path
+	// is under it, and /livetv/<namespace>/<name>/<file>?from=<n>&to=<n>
+	// serves any range of the lineup.
 	// +optional
 	Address string `json:"address,omitempty"`
 
@@ -385,25 +386,24 @@ type BlockStatus struct {
 	// +kubebuilder:validation:Pattern=`^[0-9A-F]{8}$`
 	DeviceID string `json:"deviceID,omitempty"`
 
-	// Endpoint is the block's device under Address: the path every request
-	// a Plex pod's proxy takes on Port is sent below.
+	// Path is the block's device on Address: /hdhr/<deviceID>, which Plex
+	// is given (with Address) as the device's network address.
 	// +optional
 	// +kubebuilder:validation:MaxLength=512
-	Endpoint string `json:"endpoint,omitempty"`
+	Path string `json:"path,omitempty"`
 
-	// Port is the block's port: the Plex pods' proxies listen on it and send
-	// each request to Endpoint.
+	// URI is the block's device address as Plex registers it:
+	// http://<address><path>.
 	// +optional
-	// +kubebuilder:validation:Minimum=1024
-	// +kubebuilder:validation:Maximum=65535
-	Port int32 `json:"port,omitempty"`
+	// +kubebuilder:validation:MaxLength=512
+	URI string `json:"uri,omitempty"`
 
 	// FriendlyName is the name Plex shows for the block's device and DVR.
 	// +optional
 	// +kubebuilder:validation:MaxLength=160
 	FriendlyName string `json:"friendlyName,omitempty"`
 
-	// GuidePath is the block's XEPG guide path under its port; empty under
+	// GuidePath is the block's XEPG guide path under its path; empty under
 	// PMS.
 	// +optional
 	// +kubebuilder:validation:MaxLength=64
@@ -436,8 +436,8 @@ type TunerStatus struct {
 
 // IPTVProvider is one Xtream Codes IPTV account routed to Plex as emulated
 // HDHomeRuns, one per block of its channels (Live TV spec §3). Its tuner runs
-// in the manager, behind one livetv Service; each block has a port of its
-// own, which cluster-plex's proxies send to the block's endpoint.
+// in the manager, behind one livetv Service; Plex is given each block at its
+// own path on that Service (status.blocks[].uri).
 //
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
@@ -449,7 +449,6 @@ type TunerStatus struct {
 // +kubebuilder:printcolumn:name="Candidates",type="integer",JSONPath=".status.playlist.candidates"
 // +kubebuilder:printcolumn:name="EPG",type="string",JSONPath=".spec.epgSource"
 // +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=".status.conditions[?(@.type=='Ready')].status"
-// +kubebuilder:printcolumn:name="Port",type="integer",JSONPath=".status.blocks[0].port"
 // +kubebuilder:printcolumn:name="Expires",type="string",JSONPath=".status.account.expiresAt"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 type IPTVProvider struct {

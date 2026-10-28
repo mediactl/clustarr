@@ -122,11 +122,10 @@ type Options struct {
 	ExternalMetricsSecret      string
 
 	// LiveTVBindAddress is the Live TV tuner's listen address; "0" disables
-	// Live TV. LiveTVPortRange is the ports blocks get ("low-high"), and
-	// LiveTVService the livetv Service the installers render (Live TV spec
-	// §5.0).
+	// Live TV. LiveTVService is the livetv Service the installers render,
+	// on which Plex is given each block's path (the direct-tuners design
+	// §3).
 	LiveTVBindAddress string
-	LiveTVPortRange   string
 	LiveTVService     string
 
 	// Test seams; production leaves them zero. RESTConfig nil reads the
@@ -156,7 +155,7 @@ func DefaultOptions() Options {
 	o.SearchLivePerMinute = records.DefaultRates()[records.PaceSearch]
 	o.Autoscale = true
 	o.ExternalMetricsBindAddress, o.ExternalMetricsService, o.ExternalMetricsSecret = ":6443", "external-metrics", "external-metrics-tls"
-	o.LiveTVBindAddress, o.LiveTVPortRange, o.LiveTVService = ":5004", livetvmanager.DefaultPortRange, "livetv"
+	o.LiveTVBindAddress, o.LiveTVService = ":5004", "livetv"
 	return o
 }
 
@@ -258,9 +257,6 @@ func (o Options) validateLiveTV() error {
 	}
 	if _, err := livetvmanager.TargetPort(o.LiveTVBindAddress); err != nil {
 		return fmt.Errorf("--livetv-bind-address: %w", err)
-	}
-	if _, err := livetvmanager.ParsePortRange(o.LiveTVPortRange); err != nil {
-		return fmt.Errorf("--livetv-port-range: %w", err)
 	}
 	if strings.TrimSpace(o.LiveTVService) == "" {
 		return errors.New("--livetv-service is required unless --livetv-bind-address is 0")

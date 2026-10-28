@@ -39,15 +39,15 @@ type BlockStatusApplyConfiguration struct {
 	// DeviceID is the block's HDHomeRun id: spec.device.id for the first
 	// block of a first packing, else a hash of namespace, name and start.
 	DeviceID *string `json:"deviceID,omitempty"`
-	// Endpoint is the block's device under Address: the path every request
-	// a Plex pod's proxy takes on Port is sent below.
-	Endpoint *string `json:"endpoint,omitempty"`
-	// Port is the block's port: the Plex pods' proxies listen on it and send
-	// each request to Endpoint.
-	Port *int32 `json:"port,omitempty"`
+	// Path is the block's device on Address: /hdhr/<deviceID>, which Plex
+	// is given (with Address) as the device's network address.
+	Path *string `json:"path,omitempty"`
+	// URI is the block's device address as Plex registers it:
+	// http://<address><path>.
+	URI *string `json:"uri,omitempty"`
 	// FriendlyName is the name Plex shows for the block's device and DVR.
 	FriendlyName *string `json:"friendlyName,omitempty"`
-	// GuidePath is the block's XEPG guide path under its port; empty under
+	// GuidePath is the block's XEPG guide path under its path; empty under
 	// PMS.
 	GuidePath *string `json:"guidePath,omitempty"`
 	// Owner is the cluster-plex installation registered for the block,
@@ -115,19 +115,19 @@ func (b *BlockStatusApplyConfiguration) WithDeviceID(value string) *BlockStatusA
 	return b
 }
 
-// WithEndpoint sets the Endpoint field in the declarative configuration to the given value
+// WithPath sets the Path field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Endpoint field is set to the value of the last call.
-func (b *BlockStatusApplyConfiguration) WithEndpoint(value string) *BlockStatusApplyConfiguration {
-	b.Endpoint = &value
+// If called multiple times, the Path field is set to the value of the last call.
+func (b *BlockStatusApplyConfiguration) WithPath(value string) *BlockStatusApplyConfiguration {
+	b.Path = &value
 	return b
 }
 
-// WithPort sets the Port field in the declarative configuration to the given value
+// WithURI sets the URI field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Port field is set to the value of the last call.
-func (b *BlockStatusApplyConfiguration) WithPort(value int32) *BlockStatusApplyConfiguration {
-	b.Port = &value
+// If called multiple times, the URI field is set to the value of the last call.
+func (b *BlockStatusApplyConfiguration) WithURI(value string) *BlockStatusApplyConfiguration {
+	b.URI = &value
 	return b
 }
 

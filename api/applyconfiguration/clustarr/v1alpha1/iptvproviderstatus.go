@@ -33,9 +33,10 @@ type IPTVProviderStatusApplyConfiguration struct {
 	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
 	// Conditions: Ready, Valid, PlaylistFetched, GuidesFetched.
 	Conditions []v1.ConditionApplyConfiguration `json:"conditions,omitempty"`
-	// Address is the tuner Service, host:port: each block's Endpoint is
-	// under it, and /livetv/<namespace>/<name>/<file>?from=<n>&to=<n> serves
-	// any range of the lineup.
+	// Address is the tuner Service's cluster FQDN and port,
+	// <release>-livetv.<namespace>.svc.cluster.local:80: each block's Path
+	// is under it, and /livetv/<namespace>/<name>/<file>?from=<n>&to=<n>
+	// serves any range of the lineup.
 	Address *string `json:"address,omitempty"`
 	// Blocks are the lineup's runs of contiguous numbers, one emulated
 	// HDHomeRun and one Plex DVR each, ordered by start (Live TV spec §3.1).

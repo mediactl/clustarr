@@ -82,7 +82,7 @@ func TestATunerThatHasNotFetchedKeepsTheBlocksHashes(t *testing.T) {
 	p := &clustarrv1.IPTVProvider{Status: clustarrv1.IPTVProviderStatus{Blocks: []clustarrv1.BlockStatus{
 		{Start: "1001", LineupHash: "lineup-1001", GuideHash: "guide-1001"},
 	}}}
-	pl := plan{blocks: []clustarrv1.BlockStatus{{Start: "1001", Channels: 1, First: "1001", Last: "1001", Port: 47000}}}
+	pl := plan{blocks: []clustarrv1.BlockStatus{{Start: "1001", Channels: 1, First: "1001", Last: "1001"}}}
 	snap := tuner.Snapshot{Blocks: []tuner.BlockState{{Start: "1001"}}}
 
 	st := clustarrac.IPTVProviderStatus()
@@ -98,4 +98,20 @@ func TestATunerThatHasNotFetchedKeepsTheBlocksHashes(t *testing.T) {
 	withBlocks(st, p, pl, snap, true)
 	assert.Equal(t, "lineup-new", *st.Blocks[0].LineupHash, "once fetched, the render's")
 	assert.Equal(t, "guide-new", *st.Blocks[0].GuideHash)
+}
+
+// TestABlockCarriesItsPathAndURI: the status names each block's device path
+// and the URI Plex registers.
+func TestABlockCarriesItsPathAndURI(t *testing.T) {
+	pl := plan{blocks: []clustarrv1.BlockStatus{{
+		Start: "1001", DeviceID: "CAFE0001", Path: "/hdhr/CAFE0001",
+		URI: "http://clustarr-livetv.media.svc.cluster.local:80/hdhr/CAFE0001",
+	}}}
+	st := clustarrac.IPTVProviderStatus()
+	withBlocks(st, &clustarrv1.IPTVProvider{}, pl, tuner.Snapshot{}, false)
+	require.Len(t, st.Blocks, 1)
+	require.NotNil(t, st.Blocks[0].Path)
+	require.NotNil(t, st.Blocks[0].URI)
+	assert.Equal(t, "/hdhr/CAFE0001", *st.Blocks[0].Path)
+	assert.Equal(t, "http://clustarr-livetv.media.svc.cluster.local:80/hdhr/CAFE0001", *st.Blocks[0].URI)
 }

@@ -130,8 +130,8 @@ func setup(t *testing.T) *harness {
 	require.NoError(t, err)
 	r := &iptvprovider.Reconciler{
 		Client: mgr.GetClient(), SecretReader: direct, Tuner: h.tuner,
-		Address: "livetv.clustarr-system.svc:80", Ports: iptvprovider.PortRange{Low: 47000, High: 47999},
-		Events: h.events, Now: func() time.Time { return *h.now.Load() },
+		Address: "livetv.clustarr-system.svc.cluster.local:80",
+		Events:  h.events, Now: func() time.Time { return *h.now.Load() },
 	}
 	require.NoError(t, r.SetupWithManager(mgr))
 	ctx, cancel := context.WithCancel(context.Background())
@@ -218,10 +218,10 @@ func ready(p *clustarrv1.IPTVProvider) *metav1.Condition {
 	return meta.FindStatusCondition(p.Status.Conditions, clustarrv1.ConditionReady)
 }
 
-func ports(p *clustarrv1.IPTVProvider) []int32 {
-	var out []int32
+func uris(p *clustarrv1.IPTVProvider) []string {
+	var out []string
 	for _, b := range p.Status.Blocks {
-		out = append(out, b.Port)
+		out = append(out, b.URI)
 	}
 	return out
 }
@@ -243,7 +243,7 @@ func TestAProviderPublishesItsBlocksAddressAndTunerConfig(t *testing.T) {
 	h.channels(t, "news", run(1000, 1006)...)
 	h.provider(t, "news", small)
 	p := h.until(t, "news", hasChannels(7), "seven channels in blocks")
-	assert.Equal(t, "livetv.clustarr-system.svc:80", p.Status.Address)
+	assert.Equal(t, "livetv.clustarr-system.svc.cluster.local:80", p.Status.Address)
 	require.Len(t, p.Status.Blocks, 3)
 	for i, b := range p.Status.Blocks {
 		start := fmt.Sprint(1000 + 3*i)
@@ -251,7 +251,8 @@ func TestAProviderPublishesItsBlocksAddressAndTunerConfig(t *testing.T) {
 		assert.Equal(t, hdhr.BlockDeviceID(h.ns, "news", start), b.DeviceID)
 		assert.Equal(t, "Clustarr news "+start+"+", b.FriendlyName)
 		assert.Equal(t, iptvprovider.BlockGuidePath, b.GuidePath)
-		assert.Equal(t, tuner.DeviceEndpoint(b.DeviceID), b.Endpoint, "the path Plex is given")
+		assert.Equal(t, tuner.DeviceEndpoint(b.DeviceID), b.Path, "the device's path")
+		assert.Equal(t, "http://"+p.Status.Address+b.Path, b.URI, "the URI Plex is given")
 		assert.NotZero(t, b.MapBytes)
 	}
 	assert.Equal(t, []string{"1000", "1002"}, []string{p.Status.Blocks[0].First, p.Status.Blocks[0].Last})
@@ -262,29 +263,7 @@ func TestAProviderPublishesItsBlocksAddressAndTunerConfig(t *testing.T) {
 	assert.Equal(t, p.Status.Blocks[2].DeviceID, c.Blocks[2].DeviceID)
 }
 
-func TestPortsAreUniqueAcrossProvidersDespiteACacheLag(t *testing.T) {
-	h := setup(t)
-	// Back to back: the second is planned while the cache may still hold
-	// the first without its status.
-	h.provider(t, "a", small)
-	h.provider(t, "b", small)
-	h.channels(t, "a", run(1000, 1005)...)
-	h.channels(t, "b", run(2000, 2005)...)
-	a := h.until(t, "a", hasChannels(6), "a's blocks")
-	b := h.until(t, "b", hasChannels(6), "b's blocks")
-	seen := map[int32]string{}
-	for _, p := range []*clustarrv1.IPTVProvider{a, b} {
-		for _, port := range ports(p) {
-			assert.NotContains(t, seen, port, "port %d is %s's and %s's", port, seen[port], p.Name)
-			assert.GreaterOrEqual(t, port, int32(47000))
-			assert.LessOrEqual(t, port, int32(47999))
-			seen[port] = p.Name
-		}
-	}
-	assert.Len(t, seen, 4)
-}
-
-func TestAnAddedChannelMovesNoOtherChannelAndPortsAndIDsHold(t *testing.T) {
+func TestAnAddedChannelMovesNoOtherChannelAndURIsAndIDsHold(t *testing.T) {
 	h := setup(t)
 	var nums []int
 	for n := 1000; n < 1018; n += 2 { // 9 channels, room between them
@@ -295,12 +274,12 @@ func TestAnAddedChannelMovesNoOtherChannelAndPortsAndIDsHold(t *testing.T) {
 	before := h.until(t, "news", hasChannels(9), "three blocks")
 	require.Len(t, before.Status.Blocks, 3)
 
-	t.Run("a spec edit changes no port", func(t *testing.T) {
+	t.Run("a spec edit changes no URI", func(t *testing.T) {
 		p := h.get(t, "news")
 		p.Spec.Tuners = ptr.To(int32(3))
 		require.NoError(t, h.c.Update(h.ctx, p))
 		require.Eventually(t, func() bool { c, _ := h.tuner.last(h.key("news")); return c.Tuners == 3 }, 15*time.Second, 50*time.Millisecond)
-		assert.Equal(t, ports(before), ports(h.get(t, "news")))
+		assert.Equal(t, uris(before), uris(h.get(t, "news")))
 	})
 
 	h.channels(t, "news", 1007) // inside the middle block, 1006-1010
@@ -308,7 +287,7 @@ func TestAnAddedChannelMovesNoOtherChannelAndPortsAndIDsHold(t *testing.T) {
 	require.Len(t, after.Status.Blocks, 3, "the middle block takes it without a split")
 	for i := range 3 {
 		b, a := before.Status.Blocks[i], after.Status.Blocks[i]
-		assert.Equal(t, []any{b.Start, b.DeviceID, b.Port}, []any{a.Start, a.DeviceID, a.Port}, "block %d keeps its start, device and port", i)
+		assert.Equal(t, []any{b.Start, b.DeviceID, b.URI}, []any{a.Start, a.DeviceID, a.URI}, "block %d keeps its start, device and URI", i)
 		want := b.Channels
 		if i == 1 {
 			want++
@@ -318,31 +297,11 @@ func TestAnAddedChannelMovesNoOtherChannelAndPortsAndIDsHold(t *testing.T) {
 
 	h.channels(t, "news", 1009, 1011) // the middle block now holds 5 > 4: it splits
 	split := h.until(t, "news", func(p *clustarrv1.IPTVProvider) bool { return len(p.Status.Blocks) == 4 }, "a split")
-	assert.Equal(t, []any{before.Status.Blocks[0].Start, before.Status.Blocks[0].Port}, []any{split.Status.Blocks[0].Start, split.Status.Blocks[0].Port})
-	assert.Equal(t, []any{before.Status.Blocks[1].Start, before.Status.Blocks[1].Port, before.Status.Blocks[1].DeviceID},
-		[]any{split.Status.Blocks[1].Start, split.Status.Blocks[1].Port, split.Status.Blocks[1].DeviceID}, "the lower half stays")
-	assert.Equal(t, []any{before.Status.Blocks[2].Start, before.Status.Blocks[2].Port}, []any{split.Status.Blocks[3].Start, split.Status.Blocks[3].Port})
-	assert.NotContains(t, ports(before), split.Status.Blocks[2].Port, "the new block gets a new port")
-}
-
-func TestTheOlderProviderKeepsAPortClaimedTwice(t *testing.T) {
-	h := setup(t)
-	h.provider(t, "a")
-	h.channels(t, "a", 1000)
-	a := h.until(t, "a", hasChannels(1), "a's block")
-	h.provider(t, "b")
-	h.channels(t, "b", 2000)
-	b := h.until(t, "b", hasChannels(1), "b's block")
-
-	// b's status claims a's port, as a lost update would have written it.
-	b.Status.Blocks[0].Port = a.Status.Blocks[0].Port
-	require.NoError(t, h.c.Status().Update(h.ctx, b)) //nolint:forbidigo // simulating a lost update
-	h.events <- event.GenericEvent{Object: &clustarrv1.IPTVProvider{ObjectMeta: metav1.ObjectMeta{Name: "b", Namespace: h.ns}}}
-	b = h.until(t, "b", func(p *clustarrv1.IPTVProvider) bool {
-		return len(p.Status.Blocks) == 1 && p.Status.Blocks[0].Port != a.Status.Blocks[0].Port
-	}, "b gives the port up")
-	assert.Equal(t, ports(a), ports(h.get(t, "a")), "a, the older, keeps it")
-	assert.Equal(t, hdhr.BlockDeviceID(h.ns, "b", "2000"), b.Status.Blocks[0].DeviceID)
+	assert.Equal(t, []any{before.Status.Blocks[0].Start, before.Status.Blocks[0].URI}, []any{split.Status.Blocks[0].Start, split.Status.Blocks[0].URI})
+	assert.Equal(t, []any{before.Status.Blocks[1].Start, before.Status.Blocks[1].URI, before.Status.Blocks[1].DeviceID},
+		[]any{split.Status.Blocks[1].Start, split.Status.Blocks[1].URI, split.Status.Blocks[1].DeviceID}, "the lower half stays")
+	assert.Equal(t, []any{before.Status.Blocks[2].Start, before.Status.Blocks[2].URI}, []any{split.Status.Blocks[3].Start, split.Status.Blocks[3].URI})
+	assert.NotContains(t, uris(before), split.Status.Blocks[2].URI, "the new block gets a URI of its own")
 }
 
 func TestAnExplicitDeviceIDPinsTheFirstBlockAndADuplicateIsRefused(t *testing.T) {
@@ -404,11 +363,11 @@ func TestTooManyChannelsKeepsTheLastGoodBlocks(t *testing.T) {
 	identity := func(p *clustarrv1.IPTVProvider) []string {
 		var out []string
 		for _, b := range p.Status.Blocks {
-			out = append(out, fmt.Sprintf("%s/%s/%d", b.Start, b.DeviceID, b.Port))
+			out = append(out, b.Start+"/"+b.DeviceID+"/"+b.URI)
 		}
 		return out
 	}
-	assert.Equal(t, identity(good), identity(got), "32 blocks, their starts, devices and ports kept")
+	assert.Equal(t, identity(good), identity(got), "32 blocks, their starts, devices and URIs kept")
 	c, _ := h.tuner.last(h.key("news"))
 	assert.Len(t, c.Blocks, 32, "the tuner keeps serving them")
 }
@@ -528,7 +487,7 @@ func TestTheProviderWhoseEditOverlapsIsRefusedWhicheverIsOlder(t *testing.T) {
 	h.channels(t, "b", 2010) // b reconciles against a's published span, which a's edit left
 	after := h.until(t, "b", hasChannels(11), "b takes its own new channel")
 	assert.NotEqual(t, clustarrv1.ReasonNumberRangeOverlap, ready(after).Reason, "b is not the one refused")
-	assert.Equal(t, b.Status.Blocks[0].Port, after.Status.Blocks[0].Port)
+	assert.Equal(t, b.Status.Blocks[0].URI, after.Status.Blocks[0].URI)
 }
 
 func TestTheCredentialsTrailingNewlinesAreTrimmed(t *testing.T) {

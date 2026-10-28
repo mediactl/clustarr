@@ -168,8 +168,6 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 			"Defaults to $"+cli.EnvExternalMetricsSecret+".")
 	fs.StringVar(&d.LiveTVBindAddress, "livetv-bind-address", d.LiveTVBindAddress,
 		`Address the Live TV tuner (HDHomeRun surface and stream relay) binds to on the leader. "0" disables Live TV.`)
-	fs.StringVar(&d.LiveTVPortRange, "livetv-port-range", d.LiveTVPortRange,
-		"Ports the Live TV blocks get, low-high: cluster-plex serves each on a link-local address in its Plex pods.")
 	fs.StringVar(&d.LiveTVService, "livetv-service", d.LiveTVService,
 		"The livetv Service in the manager's namespace that the installers render: where the Plex pods' proxies send each block's port.")
 

@@ -23,22 +23,15 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/mediactl/clustarr/app/livetv/controller/iptvprovider"
 	"github.com/mediactl/clustarr/app/livetv/manager"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
-func TestParsePortRange(t *testing.T) {
-	r, err := manager.ParsePortRange(manager.DefaultPortRange)
-	require.NoError(t, err)
-	assert.Equal(t, iptvprovider.PortRange{Low: 47000, High: 47999}, r)
-	r, err = manager.ParsePortRange(" 50000 - 50010 ")
-	require.NoError(t, err)
-	assert.Equal(t, iptvprovider.PortRange{Low: 50000, High: 50010}, r)
-	for _, bad := range []string{"", "47000", "a-b", "1000-2000", "47000-47000", "47999-47000", "47000-70000"} {
-		_, err := manager.ParsePortRange(bad)
-		assert.Error(t, err, bad)
-	}
+// TestTheServiceAddressIsItsClusterFQDN: Plex is given each block's URI on
+// this address, and the .svc short form would not resolve from a PMS on
+// another cluster's DNS search path.
+func TestTheServiceAddressIsItsClusterFQDN(t *testing.T) {
+	assert.Equal(t, "clustarr-livetv.media.svc.cluster.local:80", manager.ServiceAddress("clustarr-livetv", "media"))
 }
 
 func TestTargetPortIsTheBindAddressesPort(t *testing.T) {

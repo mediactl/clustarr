@@ -52,17 +52,13 @@ type Reconciler struct {
 	// manager caches no Secret, so this is its API reader.
 	SecretReader client.Reader
 	Tuner        Tuner
-	// Address is the livetv Service, host:port, which each block's Endpoint
-	// is under: the Plex pods' proxies send each block's port there.
+	// Address is the livetv Service's cluster FQDN and port, which each
+	// block's Path is under: Plex is given http://<Address><Path>.
 	Address string
-	// Ports is the range blocks' ports come from.
-	Ports PortRange
 	// Events carries the tuner's "snapshot changed" notices.
 	Events <-chan event.GenericEvent
 	// Now is the clock for Lease expiry; time.Now when nil.
 	Now func() time.Time
-
-	ports ports
 }
 
 // Reconcile converges one provider.
@@ -72,14 +68,12 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	if err := r.Client.Get(ctx, key, &p); err != nil {
 		if apierrors.IsNotFound(err) {
 			r.Tuner.Remove(key)
-			r.ports.set(key, nil)
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, err
 	}
 	if !p.DeletionTimestamp.IsZero() {
 		r.Tuner.Remove(key)
-		r.ports.set(key, nil)
 		return ctrl.Result{}, nil
 	}
 
@@ -99,11 +93,6 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	if err := r.owners(ctx, p.Namespace, pl.blocks, now()); err != nil {
 		return ctrl.Result{}, err
 	}
-	held := make([]int32, 0, len(pl.blocks))
-	for _, b := range pl.blocks {
-		held = append(held, b.Port)
-	}
-	r.ports.set(key, held)
 
 	switch {
 	case valid.Status != "True":

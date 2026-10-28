@@ -23,7 +23,6 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	coordinationv1 "k8s.io/api/coordination/v1"
@@ -42,12 +41,8 @@ import (
 // Leases (Live TV spec §6.1); the controller only reads them.
 const LabelLeaseProvider = "clustarr.io/iptv-provider"
 
-// BlockGuidePath is a block's XEPG guide under its port, and so under its
-// endpoint.
+// BlockGuidePath is a block's XEPG guide under its path.
 const BlockGuidePath = "/xmltv.xml"
-
-// PortRange is the ports blocks are allocated from (--livetv-port-range).
-type PortRange struct{ Low, High int32 }
 
 // LeaseName is the Lease cluster-plex holds while it registers a block.
 func LeaseName(deviceID string) string { return "livetv-" + strings.ToLower(deviceID) }
@@ -61,40 +56,8 @@ type plan struct {
 	reason, message string
 }
 
-// ports is the controller's in-memory port reservations: what it has handed
-// out, by provider, so a cache that lags its own last write never hands one
-// port out twice (MaxConcurrentReconciles stays 1).
-type ports struct {
-	mu   sync.Mutex
-	held map[int32]types.NamespacedName
-}
-
-func (ps *ports) holder(port int32) (types.NamespacedName, bool) {
-	ps.mu.Lock()
-	defer ps.mu.Unlock()
-	k, ok := ps.held[port]
-	return k, ok
-}
-
-// set records exactly the ports key holds now.
-func (ps *ports) set(key types.NamespacedName, held []int32) {
-	ps.mu.Lock()
-	defer ps.mu.Unlock()
-	if ps.held == nil {
-		ps.held = map[int32]types.NamespacedName{}
-	}
-	for port, k := range ps.held {
-		if k == key {
-			delete(ps.held, port)
-		}
-	}
-	for _, port := range held {
-		ps.held[port] = key
-	}
-}
-
 // older reports whether a was created before b: the older provider keeps a
-// disputed span, device ID or port.
+// disputed span or device ID.
 func older(a, b *clustarrv1.IPTVProvider) bool {
 	if !a.CreationTimestamp.Equal(&b.CreationTimestamp) {
 		return a.CreationTimestamp.Before(&b.CreationTimestamp)
@@ -128,14 +91,14 @@ func overlaps(a1, a2, b1, b2 string) bool {
 	return xmltv.CompareNumbers(a1, b2) <= 0 && xmltv.CompareNumbers(b1, a2) <= 0
 }
 
-// errNoFreePort is a port range with no port left.
-var errNoFreePort = errors.New("livetv: no free port in --livetv-port-range")
-
 // planBlocks renders p's next blocks (Live TV spec §3.1, §5.0, §6).
 func (r *Reconciler) planBlocks(ctx context.Context, p *clustarrv1.IPTVProvider, channels []clustarrv1.IPTVChannel) (plan, error) {
-	key := types.NamespacedName{Namespace: p.Namespace, Name: p.Name}
 	keep := func(reason, message string) plan {
-		return plan{blocks: slices.Clone(p.Status.Blocks), numbers: keptNumbers(p.Status.Blocks, activeNumbers(channels)), reason: reason, message: message}
+		kept := slices.Clone(p.Status.Blocks)
+		for i := range kept {
+			r.address(&kept[i])
+		}
+		return plan{blocks: kept, numbers: keptNumbers(p.Status.Blocks, activeNumbers(channels)), reason: reason, message: message}
 	}
 
 	var all clustarrv1.IPTVProviderList
@@ -184,44 +147,12 @@ func (r *Reconciler) planBlocks(ctx context.Context, p *clustarrv1.IPTVProvider,
 		}
 	}
 
-	usedByOthers := func(port int32) bool {
-		for _, o := range others {
-			for _, b := range o.Status.Blocks {
-				if b.Port == port && older(o, p) {
-					return true
-				}
-			}
-		}
-		if k, ok := r.ports.holder(port); ok && k != key {
-			return true
-		}
-		return false
-	}
-	taken := map[int32]bool{}
-	// kept is every port a surviving block already holds: a new block never
-	// takes one, or the block after a split would lose its port, and with it
-	// its device's address in Plex.
-	kept := map[int32]bool{}
-	for _, nb := range next {
-		if old, ok := byStart[nb.Start]; ok && old.Port != 0 {
-			kept[old.Port] = true
-		}
-	}
-	allocate := func() (int32, error) {
-		for port := r.Ports.Low; port <= r.Ports.High; port++ {
-			if !taken[port] && !kept[port] && !usedByOthers(port) && !heldByAny(others, port) {
-				return port, nil
-			}
-		}
-		return 0, errNoFreePort
-	}
-
 	out := plan{numbers: map[string][]string{}}
 	friendly := p.Spec.Device.FriendlyNameOrDefault(p.Name)
 	for i, nb := range next {
 		bs := clustarrv1.BlockStatus{Start: nb.Start}
 		if old, ok := byStart[nb.Start]; ok {
-			bs.DeviceID, bs.Port = old.DeviceID, old.Port
+			bs.DeviceID = old.DeviceID
 		}
 		if bs.DeviceID == "" {
 			bs.DeviceID = hdhr.BlockDeviceID(p.Namespace, p.Name, nb.Start)
@@ -229,15 +160,7 @@ func (r *Reconciler) planBlocks(ctx context.Context, p *clustarrv1.IPTVProvider,
 				bs.DeviceID = p.Spec.Device.ID
 			}
 		}
-		bs.Endpoint = tuner.DeviceEndpoint(bs.DeviceID)
-		if bs.Port == 0 || taken[bs.Port] || usedByOthers(bs.Port) {
-			port, err := allocate()
-			if err != nil {
-				return plan{}, err
-			}
-			bs.Port = port
-		}
-		taken[bs.Port] = true
+		r.address(&bs)
 		bs.Channels = int32(len(nb.Numbers))
 		bs.First, bs.Last = nb.Numbers[0], nb.Numbers[len(nb.Numbers)-1]
 		bs.MapBytes = int32(blocks.MapBytes(nb.Numbers))
@@ -262,18 +185,15 @@ func (r *Reconciler) planBlocks(ctx context.Context, p *clustarrv1.IPTVProvider,
 	return out, nil
 }
 
-// heldByAny reports whether any other provider's status holds port. A
-// younger provider's claim does not stop an older one from keeping a port it
-// already has, but a new port is never one another provider shows.
-func heldByAny(others []*clustarrv1.IPTVProvider, port int32) bool {
-	for _, o := range others {
-		for _, b := range o.Status.Blocks {
-			if b.Port == port {
-				return true
-			}
-		}
+// address gives b its device path and its URI on the livetv Service: the
+// URL Plex is given. With no Address the URI is empty, and cluster-plex
+// registers nothing for the block.
+func (r *Reconciler) address(b *clustarrv1.BlockStatus) {
+	b.Path = tuner.DeviceEndpoint(b.DeviceID)
+	b.URI = ""
+	if r.Address != "" && b.DeviceID != "" {
+		b.URI = "http://" + r.Address + b.Path
 	}
-	return false
 }
 
 // keptNumbers places numbers in the kept blocks, as blocks.Next would

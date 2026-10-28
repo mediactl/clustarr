@@ -70,9 +70,6 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: deviceID
       type:
         scalar: string
-    - name: endpoint
-      type:
-        scalar: string
     - name: first
       type:
         scalar: string
@@ -97,10 +94,13 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: owner
       type:
         scalar: string
-    - name: port
+    - name: path
       type:
-        scalar: numeric
+        scalar: string
     - name: start
+      type:
+        scalar: string
+    - name: uri
       type:
         scalar: string
 - name: com.github.mediactl.clustarr.api.clustarr.v1alpha1.ChannelEPG

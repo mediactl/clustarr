@@ -19,9 +19,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 package e2e
 
-// Scenario 19 (Live TV spec 2026-10-07): an IPTVProvider over the in-cluster
-// iptv-stub becomes two blocks, each its own HDHomeRun surface and XEPG
-// guide on its own port; two viewers of one channel share one upstream, and
+// Scenario 19 (Live TV spec 2026-10-07, the direct-tuners design
+// 2026-10-27): an IPTVProvider over the in-cluster iptv-stub becomes two
+// blocks, each its own HDHomeRun surface and XEPG guide at its own path on
+// the livetv Service; two viewers of one channel share one upstream, and
 // with the provider's one tuner in use a second channel is refused.
 
 import (
@@ -113,10 +114,9 @@ func TestLiveTVLineupGuideAndASharedStream(t *testing.T) {
 	}
 	require.Contains(t, blocks, "1001")
 	require.Contains(t, blocks, "1002")
-	assert.NotEqual(t, blocks["1001"].Port, blocks["1002"].Port, "a port per block")
 	assert.NotEqual(t, blocks["1001"].DeviceID, blocks["1002"].DeviceID, "a device ID per block")
-	assert.NotZero(t, blocks["1001"].Port)
-	assert.Equal(t, "/livetv/"+Namespace+"/"+name+"/devices/"+blocks["1001"].DeviceID, blocks["1001"].Endpoint)
+	assert.Equal(t, "/hdhr/"+blocks["1001"].DeviceID, blocks["1001"].Path)
+	assert.Equal(t, "http://"+got.Status.Address+blocks["1001"].Path, blocks["1001"].URI, "the URI Plex is given")
 	require.NotNil(t, got.Status.Account)
 	assert.Equal(t, "Active", got.Status.Account.Status)
 	require.NotNil(t, got.Status.Tuners)
@@ -126,10 +126,9 @@ func TestLiveTVLineupGuideAndASharedStream(t *testing.T) {
 	defer stop()
 	prefix := base + "/livetv/" + Namespace + "/" + name
 
-	// Each block's lineup at its device endpoint, which cluster-plex's proxy
-	// on the block's port sends every request below; and a range of the
-	// whole lineup.
-	code, body := getBody(ctx, t, base+blocks["1001"].Endpoint+"/lineup.json", "")
+	// Each block's lineup at its device path, which Plex is given; and a
+	// range of the whole lineup.
+	code, body := getBody(ctx, t, base+blocks["1001"].Path+"/lineup.json", "")
 	require.Equal(t, http.StatusOK, code, body)
 	var lineup []lineupEntry
 	require.NoError(t, json.Unmarshal([]byte(body), &lineup))
@@ -143,7 +142,7 @@ func TestLiveTVLineupGuideAndASharedStream(t *testing.T) {
 	assert.Equal(t, "1002", lineup[0].GuideNumber)
 
 	// Each block's guide holds its channels only; the provider's holds both.
-	code, body = getBody(ctx, t, base+blocks["1002"].Endpoint+"/xmltv.xml", "")
+	code, body = getBody(ctx, t, base+blocks["1002"].Path+"/xmltv.xml", "")
 	require.Equal(t, http.StatusOK, code)
 	assert.Contains(t, body, `<channel id="1002">`)
 	assert.NotContains(t, body, `<channel id="1001">`)
@@ -159,7 +158,7 @@ func TestLiveTVLineupGuideAndASharedStream(t *testing.T) {
 		viewers.Add(1)
 		go func() {
 			defer viewers.Done()
-			req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+blocks["1001"].Endpoint+"/stream/1001", nil)
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+blocks["1001"].Path+"/stream/1001", nil)
 			if err != nil {
 				read <- err
 				return
@@ -194,6 +193,6 @@ func TestLiveTVLineupGuideAndASharedStream(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(body), &stats))
 	assert.Equal(t, 1, stats.Connections["1"], "two viewers, one upstream")
 
-	code, _ = getBody(ctx, t, base+blocks["1002"].Endpoint+"/stream/1002", "")
+	code, _ = getBody(ctx, t, base+blocks["1002"].Path+"/stream/1002", "")
 	assert.Equal(t, http.StatusServiceUnavailable, code, "the one tuner is in use")
 }

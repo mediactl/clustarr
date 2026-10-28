@@ -42,7 +42,6 @@ import (
 	indexermanager "github.com/mediactl/clustarr/app/indexer/manager"
 	"github.com/mediactl/clustarr/app/intake"
 	"github.com/mediactl/clustarr/app/intake/advisory"
-	"github.com/mediactl/clustarr/app/livetv/controller/iptvprovider"
 	livetvmanager "github.com/mediactl/clustarr/app/livetv/manager"
 	"github.com/mediactl/clustarr/app/maintenance"
 	"github.com/mediactl/clustarr/app/remediation"
@@ -380,16 +379,9 @@ func register(mgr ctrl.Manager, bus events.Bus, o Options) ([]string, error) {
 			})
 		}},
 		{"livetv", func() error {
-			var ports iptvprovider.PortRange
-			if o.LiveTVBindAddress != k8s.DisabledBindAddress {
-				var err error
-				if ports, err = livetvmanager.ParsePortRange(o.LiveTVPortRange); err != nil {
-					return err
-				}
-			}
 			return livetvmanager.Register(mgr, bus, livetvmanager.Options{
 				Options:     o.Options,
-				BindAddress: o.LiveTVBindAddress, Ports: ports, Service: o.LiveTVService,
+				BindAddress: o.LiveTVBindAddress, Service: o.LiveTVService,
 			})
 		}},
 		// The autoscale step runs whatever --autoscale says (§9.4): QueueGauge
@@ -467,7 +459,7 @@ func transcodeOptions(o Options, ledger *admission.Ledger) transcodemanager.Opti
 		IntelRenderGroups: o.IntelRenderGroups, NodeLabelNVIDIA: o.NodeLabelNVIDIA, NodeLabelIntel: o.NodeLabelIntel,
 		WorkerPlacement: o.WorkerPlacement,
 		JobWindow:       o.JobWindow, GraftConcurrency: o.GraftConcurrency, Ledger: ledger,
-		VideoLease:      o.VideoTranscodeLease,
-		Logging: o.Logging, Tracing: o.Tracing,
+		VideoLease: o.VideoTranscodeLease,
+		Logging:    o.Logging, Tracing: o.Tracing,
 	}
 }

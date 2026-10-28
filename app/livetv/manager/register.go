@@ -28,7 +28,6 @@ import (
 	"net/http"
 	"os"
 	"strconv"
-	"strings"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -52,28 +51,16 @@ type Options struct {
 	// BindAddress is the tuner's listen address; k8s.DisabledBindAddress
 	// ("0") registers nothing.
 	BindAddress string
-	// Ports is the range blocks' ports come from (Live TV spec §5.0).
-	Ports iptvprovider.PortRange
 	// Service names the livetv Service the installers render, in the
-	// manager's namespace: the address the Plex pods' proxies dial.
+	// manager's namespace: Plex is given each block at a path on it.
 	Service string
 }
 
-// DefaultPortRange is --livetv-port-range's default.
-const DefaultPortRange = "47000-47999"
-
-// ParsePortRange parses "low-high": both 1024-65535, low below high.
-func ParsePortRange(s string) (iptvprovider.PortRange, error) {
-	lo, hi, ok := strings.Cut(strings.TrimSpace(s), "-")
-	if !ok {
-		return iptvprovider.PortRange{}, fmt.Errorf("livetv: port range %q: want low-high", s)
-	}
-	l, err1 := strconv.ParseUint(strings.TrimSpace(lo), 10, 16)
-	h, err2 := strconv.ParseUint(strings.TrimSpace(hi), 10, 16)
-	if err1 != nil || err2 != nil || l < 1024 || h < 1024 || l >= h {
-		return iptvprovider.PortRange{}, fmt.Errorf("livetv: port range %q: want low-high, both 1024-65535, low below high", s)
-	}
-	return iptvprovider.PortRange{Low: int32(l), High: int32(h)}, nil
+// ServiceAddress is the livetv Service's address as status.address and every
+// block's URI name it: its cluster FQDN, so a PMS on another cluster's DNS
+// search path resolves it too, on port 80.
+func ServiceAddress(service, namespace string) string {
+	return service + "." + namespace + ".svc.cluster.local:80"
 }
 
 // notifyBuffer bounds each controller's pending tuner notices. A full
@@ -138,7 +125,7 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 	}
 	provider := &iptvprovider.Reconciler{
 		Client: mgr.GetClient(), SecretReader: mgr.GetAPIReader(), Tuner: tn,
-		Address: o.Service + "." + o.Namespace + ".svc:80", Ports: o.Ports, Events: providerEvents,
+		Address: ServiceAddress(o.Service, o.Namespace), Events: providerEvents,
 	}
 	if err := provider.SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("livetv: iptvprovider: %w", err)
