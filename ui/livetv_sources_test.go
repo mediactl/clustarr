@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	clustarrv1 "github.com/mediactl/clustarr/api/clustarr/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/ui"
 	"github.com/mediactl/clustarr/ui/actions"
 )
@@ -73,8 +74,14 @@ func tvProvider() *clustarrv1.IPTVProvider {
 // its Live TV clock at tvNow.
 func tvServer(t *testing.T, objs ...client.Object) (*ui.Server, client.Client) {
 	t.Helper()
+	return tvServerWith(t, liveTVStore(t), objs...)
+}
+
+// tvServerWith is tvServer reading store.
+func tvServerWith(t *testing.T, store events.ObjectStore, objs ...client.Object) (*ui.Server, client.Client) {
+	t.Helper()
 	c := fake.NewClientBuilder().WithScheme(ui.MustNewReaderScheme()).WithObjects(objs...).Build()
-	srv := ui.NewServer(t.Context(), ui.Options{Reader: c, Actions: actions.New(c), Namespace: "media", LiveTV: liveTVStore(t)})
+	srv := ui.NewServer(t.Context(), ui.Options{Reader: c, Actions: actions.New(c), Namespace: "media", LiveTV: store})
 	ui.SetNowForTest(srv, func() time.Time { return tvNow })
 	return srv, c
 }

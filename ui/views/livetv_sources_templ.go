@@ -1364,7 +1364,7 @@ func playlistRow(r projection.SourceRow) templ.Component {
 					Attributes: templ.Attributes{
 						"aria-label": "Enabled",
 						"hx-post":    "/livetv/providers/" + r.Namespace + "/" + r.Name + "/enabled",
-						"hx-vals":    fmt.Sprintf(`{"enabled":"%t"}`, !r.Enabled),
+						"hx-vals":    hxVals("enabled", fmt.Sprint(!r.Enabled)),
 						"hx-trigger": "click",
 						"hx-target":  "#action-status",
 						"hx-swap":    "innerHTML",

@@ -1,0 +1,542 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package views
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/url"
+
+	"github.com/mediactl/clustarr/ui/components/badge"
+	"github.com/mediactl/clustarr/ui/components/button"
+	"github.com/mediactl/clustarr/ui/components/dialog"
+	"github.com/mediactl/clustarr/ui/components/icon"
+	switchcomp "github.com/mediactl/clustarr/ui/components/switch"
+	"github.com/mediactl/clustarr/ui/components/table"
+	"github.com/mediactl/clustarr/ui/projection"
+)
+
+// ChannelFilter is the Channels table's filters.
+type ChannelFilter struct {
+	Q, Provider, Group, State string
+	NoGuide, NoLogo           bool
+}
+
+// Values is the filter as query values, empty ones left out.
+func (f ChannelFilter) Values() url.Values {
+	v := url.Values{}
+	for k, s := range map[string]string{"q": f.Q, "provider": f.Provider, "group": f.Group, "state": f.State} {
+		if s != "" {
+			v.Set(k, s)
+		}
+	}
+	if f.NoGuide {
+		v.Set("noguide", "1")
+	}
+	if f.NoLogo {
+		v.Set("nologo", "1")
+	}
+	return v
+}
+
+// ProviderOption is a provider in the filter's select.
+type ProviderOption struct{ Value, Label string }
+
+// BlockLinks is one block's URLs for the Links dialog.
+type BlockLinks struct{ Provider, Start, HDHR, M3U, EPG string }
+
+// ChannelsPage is the Channels page's view.
+type ChannelsPage struct {
+	Rows      []projection.ChannelRow
+	Filter    ChannelFilter
+	Providers []ProviderOption
+	Groups    []string
+	Links     []BlockLinks
+	Pane      PlaylistPane
+}
+
+// PlaylistPane is a provider's playlist, filtered and paged.
+type PlaylistPane struct {
+	Provider, Q, Group string
+	All, Loaded        bool
+	Groups, Filters    []string
+	Entries            []PlaylistPaneEntry
+	Total, Page, Pages int
+}
+
+// PageURL is the pane's page n with its filters.
+func (p PlaylistPane) PageURL(n int) string {
+	v := url.Values{"provider": {p.Provider}, "page": {fmt.Sprint(n)}}
+	if p.All {
+		v.Set("all", "1")
+	}
+	if p.Q != "" {
+		v.Set("q", p.Q)
+	}
+	if p.Group != "" {
+		v.Set("group", p.Group)
+	}
+	return "/livetv/channels/playlist?" + v.Encode()
+}
+
+// PlaylistPaneEntry is one playlist entry: Number is its channel's when it
+// is one; Candidate an entry the provider's filters admit, which alone may
+// become a channel.
+type PlaylistPaneEntry struct {
+	ID, Key, Name, Group, TvgID, LogoPath, Provider, Number string
+	Candidate                                               bool
+}
+
+// EPGPicker is a channel's guide picker.
+type EPGPicker struct {
+	Namespace, Name, RV, Q string
+	Choices                []EPGChoice
+}
+
+// EPGChoice is one guide choice: Value "" automatic, "dummy", or a guide
+// channel id.
+type EPGChoice struct{ Value, Label, Hint string }
+
+const channelsReturnPath = "/livetv/channels"
+
+// LiveTVChannels is the Channels page (the direct-tuners and ui design
+// §5.4): the lineup's channels on the left, the provider's playlist on the
+// right.
+templ LiveTVChannels(p ChannelsPage) {
+	@liveTVPage("Channels", "/livetv/channels", channelsActions(p.Links)) {
+		<div class="grid gap-6 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+			<div class="min-w-0 space-y-3">
+				@channelsFilterForm(p)
+				@channelsBulkForm()
+				@ChannelsTable(p.Rows, p.Filter)
+			</div>
+			<aside class="min-w-0">
+				@PlaylistPaneView(p.Pane)
+			</aside>
+		</div>
+		<div id="epg-picker"></div>
+	}
+}
+
+templ channelsActions(links []BlockLinks) {
+	@button.Button(button.Props{Size: button.SizeSm, Variant: button.VariantOutline, Attributes: dialog.TriggerFor("livetv-links")}) {
+		@icon.Icon("link")(icon.Props{Class: "mr-1 size-4"})
+		Links
+	}
+	@dialog.Dialog(dialog.Props{ID: "livetv-links"}) {
+		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-3xl"}) {
+			@dialog.Header() {
+				@dialog.Title() { Links }
+				@dialog.Description() { Each block's HDHomeRun device, M3U playlist and XMLTV guide on the livetv Service. }
+			}
+			if len(links) == 0 {
+				<p class="text-sm text-muted-foreground">No block has a URL yet.</p>
+			}
+			<div class="space-y-3">
+				for _, l := range links {
+					<div class="rounded-lg border border-border p-3">
+						<div class="mb-2 text-sm font-medium">{ l.Provider + " " + l.Start + "+" }</div>
+						@linkLine("HDHR", l.HDHR)
+						@linkLine("M3U", l.M3U)
+						@linkLine("EPG", l.EPG)
+					</div>
+				}
+			</div>
+		}
+	}
+}
+
+templ linkLine(label, value string) {
+	<div class="flex items-center gap-2 text-xs">
+		<span class="w-10 shrink-0 text-muted-foreground">{ label }</span>
+		<span class="min-w-0 flex-1 truncate font-mono" title={ value }>{ value }</span>
+		@copyButton(value, "Copy the "+label+" URL")
+	</div>
+}
+
+templ channelsFilterForm(p ChannelsPage) {
+	<form
+		id="channels-filter"
+		class="flex flex-wrap items-center gap-2"
+		hx-get="/livetv/channels"
+		hx-select="#channels-table"
+		hx-target="#channels-table"
+		hx-swap="outerHTML"
+		hx-push-url="true"
+		hx-trigger="input changed delay:300ms, change"
+	>
+		<input type="search" name="q" value={ p.Filter.Q } placeholder="Name or number" class="h-8 w-48 rounded-md border border-input bg-transparent px-2 text-sm"/>
+		<select name="provider" class="h-8 rounded-md border border-input bg-transparent px-2 text-sm" aria-label="Provider">
+			<option value="">Every provider</option>
+			for _, o := range p.Providers {
+				<option value={ o.Value } selected?={ o.Value == p.Filter.Provider }>{ o.Label }</option>
+			}
+		</select>
+		<select name="group" class="h-8 max-w-56 rounded-md border border-input bg-transparent px-2 text-sm" aria-label="Group">
+			<option value="">Every group</option>
+			for _, g := range p.Groups {
+				<option value={ g } selected?={ g == p.Filter.Group }>{ g }</option>
+			}
+		</select>
+		<select name="state" class="h-8 rounded-md border border-input bg-transparent px-2 text-sm" aria-label="State">
+			<option value="">Active and inactive</option>
+			<option value="active" selected?={ p.Filter.State == "active" }>Active</option>
+			<option value="inactive" selected?={ p.Filter.State == "inactive" }>Inactive</option>
+		</select>
+		<label class="flex items-center gap-1 text-sm"><input type="checkbox" name="noguide" value="1" checked?={ p.Filter.NoGuide }/> No guide</label>
+		<label class="flex items-center gap-1 text-sm"><input type="checkbox" name="nologo" value="1" checked?={ p.Filter.NoLogo }/> No logo</label>
+	</form>
+}
+
+templ channelsBulkForm() {
+	<form
+		id="channels-bulk"
+		class="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted/50 px-3 py-2 text-sm"
+		hx-post="/livetv/channels/bulk"
+		hx-target="#action-status"
+		hx-swap="innerHTML"
+	>
+		<span class="text-muted-foreground">Selected:</span>
+		<select name="op" class="h-8 rounded-md border border-input bg-transparent px-2 text-sm" aria-label="Bulk action">
+			<option value="enable">Enable</option>
+			<option value="disable">Disable</option>
+			<option value="group">Assign group</option>
+			<option value="renumber">Renumber from</option>
+			<option value="delete">Delete</option>
+		</select>
+		<input name="value" placeholder="Group" class="h-8 w-36 rounded-md border border-input bg-transparent px-2 text-sm"/>
+		<input name="start" placeholder="Start number" inputmode="numeric" class="h-8 w-28 rounded-md border border-input bg-transparent px-2 text-sm"/>
+		@button.Button(button.Props{Type: button.TypeSubmit, Size: button.SizeSm}) { Apply }
+	</form>
+}
+
+// ChannelsTable is the channels table, which fetches itself again on
+// every channels-changed event (a bulk edit, an added channel).
+templ ChannelsTable(rows []projection.ChannelRow, f ChannelFilter) {
+	<div
+		id="channels-table"
+		class="panel overflow-x-auto rounded-xl border border-border bg-card"
+		hx-get={ "/livetv/channels/table?" + f.Values().Encode() }
+		hx-trigger="channels-changed from:body"
+		hx-swap="outerHTML"
+	>
+		@table.Table() {
+			@table.Header() {
+				@table.Row() {
+					@table.Head(table.HeadProps{Class: "w-8"}) { <span class="sr-only">Select</span> }
+					@table.Head(table.HeadProps{Class: "w-12"}) { Active }
+					@table.Head(table.HeadProps{Class: "w-24"}) { Number }
+					@table.Head(table.HeadProps{Class: "w-12"}) { <span class="sr-only">Logo</span> }
+					@table.Head() { Name }
+					@table.Head(table.HeadProps{Class: "hidden lg:table-cell"}) { Group }
+					@table.Head(table.HeadProps{Class: "hidden md:table-cell"}) { Provider }
+					@table.Head() { EPG }
+					@table.Head(table.HeadProps{Class: "hidden lg:table-cell"}) { Plex }
+					@table.Head(table.HeadProps{Class: "w-28"}) { <span class="sr-only">Actions</span> }
+				}
+			}
+			@table.Body() {
+				for _, r := range rows {
+					@ChannelRowView(r)
+				}
+			}
+		}
+		if len(rows) == 0 {
+			<p class="px-4 py-6 text-center text-sm text-muted-foreground">No channel matches.</p>
+		}
+	</div>
+}
+
+// channelPost are an in-place edit's htmx attributes: post the field with
+// the version the page read, answered by the row.
+func channelPost(r projection.ChannelRow, vals string) templ.Attributes {
+	return templ.Attributes{
+		"hx-post":   "/livetv/channels/" + r.Namespace + "/" + r.Name,
+		"hx-vals":   vals,
+		"hx-target": "#channel-" + r.Name,
+		"hx-swap":   "outerHTML",
+	}
+}
+
+func rvVals(r projection.ChannelRow) string { return hxVals("rv", r.ResourceVersion) }
+
+// hxVals is an hx-vals attribute's JSON object of the key, value pairs kv.
+func hxVals(kv ...string) string {
+	m := make(map[string]string, len(kv)/2)
+	for i := 0; i+1 < len(kv); i += 2 {
+		m[kv[i]] = kv[i+1]
+	}
+	b, _ := json.Marshal(m)
+	return string(b)
+}
+
+// ChannelRowView is one channel's row.
+templ ChannelRowView(r projection.ChannelRow) {
+	<tr id={ "channel-" + r.Name } data-channel={ r.Namespace + "/" + r.Name } data-slot="table-row" class="border-b border-border transition-colors hover:bg-muted/50">
+		@table.Cell() {
+			<input type="checkbox" name="item" form="channels-bulk" value={ r.Namespace + "/" + r.Name + "@" + r.ResourceVersion } aria-label="Select" data-channel-select/>
+		}
+		@table.Cell() {
+			{{ attrs := channelPost(r, hxVals("rv", r.ResourceVersion, "active", fmt.Sprint(!r.Active))) }}
+			{{ attrs["hx-trigger"] = "click" }}
+			{{ attrs["aria-label"] = "Active" }}
+			@switchcomp.Switch(switchcomp.Props{Checked: &r.Active, Size: switchcomp.SizeSm, Attributes: attrs})
+		}
+		@table.Cell() {
+			<input
+				name="number"
+				value={ r.Number }
+				aria-label="Number"
+				inputmode="decimal"
+				class="h-8 w-20 rounded-md border border-transparent bg-transparent px-1 text-sm tabular-nums hover:border-input focus:border-input"
+				hx-trigger="change"
+				{ channelPost(r, rvVals(r))... }
+			/>
+		}
+		@table.Cell() {
+			@channelLogo(r.LogoPath, r.Number)
+		}
+		@table.Cell(table.CellProps{Class: "min-w-40"}) {
+			<input
+				name="name"
+				value={ r.DisplayName }
+				aria-label="Name"
+				class="h-8 w-full rounded-md border border-transparent bg-transparent px-1 text-sm hover:border-input focus:border-input"
+				hx-trigger="change"
+				{ channelPost(r, rvVals(r))... }
+			/>
+			<div class="flex items-center gap-1 px-1 text-xs text-muted-foreground">
+				if r.NameOverridden {
+					<span title="Named here, not by the playlist">renamed</span>
+				}
+				if !r.Ready {
+					@badge.Badge(badge.Props{Variant: channelReasonVariant(r.Reason)}) { { r.Reason } }
+				}
+			</div>
+		}
+		@table.Cell(table.CellProps{Class: "hidden max-w-48 truncate text-sm lg:table-cell"}) { { r.Group } }
+		@table.Cell(table.CellProps{Class: "hidden text-sm md:table-cell"}) { { r.Provider } }
+		@table.Cell() {
+			<button
+				type="button"
+				class="max-w-40 truncate rounded-md px-1 text-left text-sm hover:bg-muted"
+				hx-get={ "/livetv/channels/" + r.Namespace + "/" + r.Name + "/epg" }
+				hx-target="#epg-picker"
+				hx-swap="innerHTML"
+				title="Change the guide"
+			>
+				{ epgLabel(r.EPG) }
+			</button>
+		}
+		@table.Cell(table.CellProps{Class: "hidden text-sm lg:table-cell"}) {
+			if r.BlockStart != "" {
+				<div>{ r.BlockStart + "+" }</div>
+				<div class="text-xs text-muted-foreground">{ r.Owner }</div>
+			}
+		}
+		@table.Cell() {
+			<div class="flex items-center justify-end gap-1">
+				@copyButton(r.StreamURL, "Copy the stream URL")
+				@button.Button(button.Props{
+					Href: "/settings/edit/iptvchannels/" + r.Namespace + "/" + r.Name + "?return=" + channelsReturnPath, Variant: button.VariantGhost, Size: button.SizeIconSm,
+					Attributes: templ.Attributes{"aria-label": "Edit", "title": "Edit"},
+				}) {
+					@icon.Icon("pencil")()
+				}
+				@button.Button(button.Props{
+					Variant: button.VariantGhost, Size: button.SizeIconSm,
+					Attributes: templ.Attributes{
+						"aria-label": "Delete", "title": "Delete",
+						"hx-post":    "/livetv/channels/" + r.Namespace + "/" + r.Name + "/delete",
+						"hx-confirm": "Delete channel " + r.Number + " (" + r.DisplayName + ")?",
+						"hx-target":  "#channel-" + r.Name, "hx-swap": "outerHTML",
+					},
+				}) {
+					@icon.Icon("trash-2")()
+				}
+			</div>
+		}
+	</tr>
+}
+
+// channelLogo is a channel's logo from the store, its number on a tile
+// when it has none or the tuner has not stored it yet (livetv.js).
+templ channelLogo(path, number string) {
+	if path != "" {
+		<img data-logo src={ path } alt="" loading="lazy" class="size-8 rounded object-contain"/>
+		<span data-logo-tile hidden class="flex size-8 items-center justify-center rounded bg-muted text-[10px] tabular-nums text-muted-foreground">{ number }</span>
+	} else {
+		<span data-logo-tile class="flex size-8 items-center justify-center rounded bg-muted text-[10px] tabular-nums text-muted-foreground">{ number }</span>
+	}
+}
+
+func epgLabel(epg string) string {
+	switch epg {
+	case "":
+		return "Auto"
+	case "dummy":
+		return "Dummy"
+	}
+	return epg
+}
+
+func channelReasonVariant(reason string) badge.Variant {
+	if reason == "Inactive" {
+		return badge.VariantOutline
+	}
+	return badge.VariantDestructive
+}
+
+// PlaylistPaneView is the provider's playlist beside the table.
+templ PlaylistPaneView(p PlaylistPane) {
+	<div id="playlist-pane" class="panel space-y-3 rounded-xl border border-border bg-card p-3">
+		<div class="flex items-center justify-between">
+			<h2 class="text-lg font-semibold">Playlist</h2>
+			if p.Loaded {
+				<span class="text-xs text-muted-foreground">{ fmt.Sprint(p.Total) } entries</span>
+			}
+		</div>
+		if len(p.Filters) > 0 {
+			<div class="flex flex-wrap gap-1">
+				for _, f := range p.Filters {
+					@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) { { f } }
+				}
+			</div>
+		}
+		<form
+			class="flex flex-wrap items-center gap-2"
+			hx-get="/livetv/channels/playlist"
+			hx-target="#playlist-pane"
+			hx-swap="outerHTML"
+			hx-trigger="input changed delay:300ms, change"
+		>
+			<input type="hidden" name="provider" value={ p.Provider }/>
+			<input type="search" name="q" value={ p.Q } placeholder="Name, tvg-id or group" class="h-8 min-w-0 flex-1 rounded-md border border-input bg-transparent px-2 text-sm"/>
+			<select name="group" class="h-8 max-w-48 rounded-md border border-input bg-transparent px-2 text-sm" aria-label="Group">
+				<option value="">Every group</option>
+				for _, g := range p.Groups {
+					<option value={ g } selected?={ g == p.Group }>{ g }</option>
+				}
+			</select>
+			<label class="flex items-center gap-1 text-sm"><input type="checkbox" name="all" value="1" checked?={ p.All }/> Every entry</label>
+		</form>
+		if !p.Loaded {
+			<p class="text-sm text-muted-foreground">The playlist has not been fetched yet.</p>
+		} else {
+			<div class="divide-y divide-border">
+				for _, e := range p.Entries {
+					@PlaylistEntryRow(e)
+				}
+			</div>
+			if p.Pages > 1 {
+				<div class="flex items-center justify-between text-sm">
+					if p.Page > 1 {
+						<button type="button" class="rounded-md px-2 py-1 hover:bg-muted" hx-get={ p.PageURL(p.Page - 1) } hx-target="#playlist-pane" hx-swap="outerHTML">Previous</button>
+					} else {
+						<span></span>
+					}
+					<span class="text-muted-foreground">{ fmt.Sprintf("Page %d of %d", p.Page, p.Pages) }</span>
+					if p.Page < p.Pages {
+						<button type="button" class="rounded-md px-2 py-1 hover:bg-muted" hx-get={ p.PageURL(p.Page + 1) } hx-target="#playlist-pane" hx-swap="outerHTML">Next</button>
+					} else {
+						<span></span>
+					}
+				</div>
+			}
+		}
+	</div>
+}
+
+// PlaylistEntryRow is one playlist entry: its channel's number, or Add as
+// channel when the provider's filters admit it.
+templ PlaylistEntryRow(e PlaylistPaneEntry) {
+	<div id={ e.ID } data-playlist-entry={ e.Key } class="flex items-center gap-2 py-1.5">
+		@channelLogo(e.LogoPath, "")
+		<div class="min-w-0 flex-1">
+			<div class="truncate text-sm">{ e.Name }</div>
+			<div class="truncate text-xs text-muted-foreground">
+				{ e.Group }
+				if e.TvgID != "" {
+					{ " · " + e.TvgID }
+				}
+			</div>
+		</div>
+		if e.Number != "" {
+			@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) { { "Channel " + e.Number } }
+		} else if e.Candidate {
+			@button.Button(button.Props{
+				Size: button.SizeXs, Variant: button.VariantOutline,
+				Attributes: templ.Attributes{
+					"hx-post":   "/livetv/channels/add",
+					"hx-vals":   hxVals("provider", e.Provider, "key", e.Key, "name", e.Name),
+					"hx-target": "#" + e.ID, "hx-swap": "outerHTML",
+				},
+			}) {
+				Add as channel
+			}
+		} else {
+			<span class="text-xs text-muted-foreground" title="Add a filter that admits it in the provider's settings">not in the filters</span>
+		}
+	</div>
+}
+
+// EPGPickerDialog is a channel's guide picker, open as it lands in
+// #epg-picker: automatic, dummy, or a guide channel matching the search.
+templ EPGPickerDialog(p EPGPicker) {
+	{{ id := "epg-picker-" + p.Name }}
+	@dialog.Dialog(dialog.Props{ID: id, DefaultOpen: true}) {
+		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-xl"}) {
+			@dialog.Header() {
+				@dialog.Title() { Guide }
+				@dialog.Description() { Which guide channel this channel takes its programmes from. }
+			}
+			<input
+				type="search"
+				name="q"
+				value={ p.Q }
+				placeholder="Search the guide's channels"
+				class="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm"
+				hx-get={ "/livetv/channels/" + p.Namespace + "/" + p.Name + "/epg" }
+				hx-trigger="input changed delay:250ms"
+				hx-target={ "#epg-choices-" + p.Name }
+				hx-select={ "#epg-choices-" + p.Name }
+				hx-swap="outerHTML"
+			/>
+			<div id={ "epg-choices-" + p.Name } class="max-h-96 divide-y divide-border overflow-y-auto">
+				for _, c := range p.Choices {
+					{{ attrs := templ.Attributes{
+						"data-epg-choice": c.Value,
+						"hx-post":         "/livetv/channels/" + p.Namespace + "/" + p.Name,
+						"hx-vals":         hxVals("rv", p.RV, "epg", c.Value),
+						"hx-target":       "#channel-" + p.Name,
+						"hx-swap":         "outerHTML",
+					} }}
+					{{ for k, v := range dialog.CloseFor(id) {
+						if k != "type" {
+							attrs[k] = v
+						}
+					} }}
+					<button type="button" class="flex w-full items-center justify-between gap-3 px-2 py-2 text-left text-sm hover:bg-muted" { attrs... }>
+						<span class="truncate">{ c.Label }</span>
+						<span class="truncate font-mono text-xs text-muted-foreground">{ c.Hint }</span>
+					</button>
+				}
+			</div>
+		}
+	}
+}
