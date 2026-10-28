@@ -1224,7 +1224,7 @@ func (j *job) preCheck(ctx context.Context) error {
 	// server under a one-connection grant (chaseExists): the pre-check runs
 	// under the ledger like every fetch, and its verdict is still "missing
 	// everywhere".
-	missing, err := j.client.pool.ExistsOn(ctx, ids, j.grantServer())
+	missing, err := j.client.pool.ExistsOn(ctx, ids, j.grantServer(), j.grantConnections())
 	if err == nil && len(missing) > 0 {
 		missing, err = j.chaseExists(ctx, missing)
 	}
@@ -1298,7 +1298,7 @@ func (j *job) chaseExists(ctx context.Context, missing []string) ([]string, erro
 		if err != nil {
 			return nil, err
 		}
-		still, err := j.client.pool.ExistsOn(ctx, missing, []string{p.Name})
+		still, err := j.client.pool.ExistsOn(ctx, missing, []string{p.Name}, g.Connections)
 		j.give(context.WithoutCancel(ctx), g)
 		if errors.Is(err, ErrProvidersUnavailable) {
 			unasked = true

@@ -357,6 +357,17 @@ func (j *job) moveGrant(ctx context.Context, server string) {
 	}
 }
 
+// grantConnections is how many connections the transfer grant holds, 1
+// without one.
+func (j *job) grantConnections() int {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if j.grant == nil {
+		return 1
+	}
+	return max(j.grant.Connections, 1)
+}
+
 // grantServer is the server the transfer grant names, for scoping a fetch.
 func (j *job) grantServer() []string {
 	j.mu.Lock()

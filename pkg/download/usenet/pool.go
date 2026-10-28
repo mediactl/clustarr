@@ -678,11 +678,12 @@ func (p *Pool) Fetch(ctx context.Context, id string) (Result, error) {
 //
 // STAT transfers nothing, so it pipelines much deeper than BODY.
 func (p *Pool) Exists(ctx context.Context, ids []string) ([]string, error) {
-	return p.ExistsOn(ctx, ids, nil)
+	return p.ExistsOn(ctx, ids, nil, 1)
 }
 
-// ExistsOn is Exists over only the named servers; nil means every server.
-func (p *Pool) ExistsOn(ctx context.Context, ids []string, servers []string) ([]string, error) {
+// ExistsOn is Exists over only the named servers, nil meaning every server,
+// on up to workers connections of each at once (a grant's).
+func (p *Pool) ExistsOn(ctx context.Context, ids []string, servers []string, workers int) ([]string, error) {
 	ctx, span := tracing.Start(ctx, "usenet.pool.exists")
 	defer span.End()
 	scope := scopeOf(servers)
@@ -711,20 +712,44 @@ func (p *Pool) ExistsOn(ctx context.Context, ids []string, servers []string) ([]
 		if !scope.has(s.p.Name) || !s.available(time.Now()) {
 			continue
 		}
-		batch := make([]string, len(pending))
-		for i, idx := range pending {
-			batch[i] = ids[idx]
-		}
-		depth := max(p.depth, statDepth)
-		_ = s.withConn(ctx, func(c *conn) error {
-			return c.pipeline(ctx, "STAT", batch, depth, 223, false, func(i int, _ io.Reader, ferr error) error {
-				answered[pending[i]] = true
-				if ferr == nil {
-					found[pending[i]] = true
+		// A pipeline runs under one I/O deadline, so a release's STATs go
+		// statDepth at a time, up to workers chunks at once, each on a
+		// connection of its own: in one pipeline a busy server answered 115
+		// of 902 before the deadline, about two a second, and every
+		// pre-check on talos was skipped (2026-10-28). A chunk that answers
+		// nothing ends the server's turn. Chunks write disjoint indices of
+		// answered and found, read after the wait.
+		var (
+			wg   sync.WaitGroup
+			dead atomic.Bool
+			sem  = make(chan struct{}, max(workers, 1))
+		)
+		for lo := 0; lo < len(pending) && !dead.Load() && ctx.Err() == nil; lo += statDepth {
+			chunk := pending[lo:min(lo+statDepth, len(pending))]
+			sem <- struct{}{}
+			wg.Go(func() {
+				defer func() { <-sem }()
+				batch := make([]string, len(chunk))
+				for i, idx := range chunk {
+					batch[i] = ids[idx]
 				}
-				return nil
+				got := 0
+				_ = s.withConn(ctx, func(c *conn) error {
+					return c.pipeline(ctx, "STAT", batch, statDepth, 223, false, func(i int, _ io.Reader, ferr error) error {
+						answered[chunk[i]] = true
+						got++
+						if ferr == nil {
+							found[chunk[i]] = true
+						}
+						return nil
+					})
+				})
+				if got == 0 {
+					dead.Store(true)
+				}
 			})
-		})
+		}
+		wg.Wait()
 		still := make([]int, 0, len(pending))
 		for _, idx := range pending {
 			if !found[idx] {

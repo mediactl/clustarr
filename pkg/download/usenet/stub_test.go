@@ -63,6 +63,8 @@ type stubServer struct {
 
 	// bodyDelay slows each BODY, so concurrent demand actually overlaps.
 	bodyDelay time.Duration
+	// statDelay slows each STAT, as a busy provider's index does.
+	statDelay time.Duration
 
 	mu     sync.Mutex
 	served map[string]int
@@ -317,7 +319,13 @@ func (s *stubServer) serveArticle(w *bufio.Writer, id string, wantBody bool) {
 	}
 	art, have := s.articles[id]
 	delay := s.bodyDelay
+	if !wantBody {
+		delay = s.statDelay
+	}
 	s.mu.Unlock()
+	if !wantBody && delay > 0 {
+		time.Sleep(delay)
+	}
 
 	if refused {
 		_, _ = fmt.Fprintf(w, "%d no such article\r\n", code)

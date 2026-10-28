@@ -413,6 +413,44 @@ func TestExistsReportsUnavailableWhenNoServerCanBeAsked(t *testing.T) {
 	require.Empty(t, missing, "an unasked article must not be reported missing")
 }
 
+// A release's every STAT is checked though a busy server answers each
+// slowly: on talos (2026-10-28) every pre-check was skipped, "787 of 902
+// articles could not be checked", the whole release's STATs having gone
+// down one pipeline under one I/O deadline.
+func TestExistsChecksAWholeReleaseOnASlowServer(t *testing.T) {
+	slow := newStubServer(t)
+	slow.statDelay = 5 * time.Millisecond
+	ids := make([]string, 200)
+	for i := range ids {
+		ids[i] = fmt.Sprintf("p%d@clustarr.test", i)
+		slow.addArticle(ids[i], "movie.mkv", 300, 0, 1, 1, partPayload(byte(i), 300))
+	}
+	p, err := NewPool([]Provider{slow.provider("slow", 2, 1)}, 4, testConnectTimeout, 200*time.Millisecond, defaultMaxArticleBytes)
+	require.NoError(t, err)
+	t.Cleanup(p.Close)
+
+	missing, err := p.Exists(context.Background(), ids)
+	require.NoError(t, err, "a release whose STATs outlast one I/O deadline is still checked")
+	require.Empty(t, missing)
+
+	// Under a grant of several connections the chunks run side by side: at
+	// half a second a STAT, as on talos, one connection would take seven
+	// minutes over a 900-article release.
+	wide := newStubServer(t)
+	wide.statDelay = 5 * time.Millisecond
+	for _, id := range ids {
+		wide.addArticle(id, "movie.mkv", 300, 0, 1, 1, partPayload(1, 300))
+	}
+	wp, err := NewPool([]Provider{wide.provider("wide", 4, 1)}, 4, testConnectTimeout, 200*time.Millisecond, defaultMaxArticleBytes)
+	require.NoError(t, err)
+	t.Cleanup(wp.Close)
+	missing, err = wp.ExistsOn(context.Background(), ids, []string{"wide"}, 4)
+	require.NoError(t, err)
+	require.Empty(t, missing)
+	peak, _, _ := wide.stats()
+	require.Greater(t, peak, 1, "the chunks ran one at a time")
+}
+
 func TestExistsFindsMissingArticlesAcrossProviders(t *testing.T) {
 	a := newStubServer(t)
 	b := newStubServer(t)
@@ -464,7 +502,7 @@ func TestFetchBatchOnScopedToARefusingServerIsMissing(t *testing.T) {
 	require.ErrorIs(t, res[0].Err, ErrArticleMissing)
 	require.Zero(t, second.servedCount("a@clustarr.test"))
 
-	missing, err := p.ExistsOn(context.Background(), []string{"a@clustarr.test"}, []string{"first"})
+	missing, err := p.ExistsOn(context.Background(), []string{"a@clustarr.test"}, []string{"first"}, 1)
 	require.NoError(t, err)
 	require.Equal(t, []string{"a@clustarr.test"}, missing)
 }
