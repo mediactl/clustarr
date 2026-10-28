@@ -163,20 +163,20 @@ func (t *Tuner) render(p *provider) {
 				st.Guide = lc.Map.Guide + "/" + lc.Map.ChannelID
 			}
 		}
-		// The logo: the channel's own spec.logo, else its guide channel's
-		// icon as the guide gives it (owner, 2026-10-27: iptv-epg.org's are
-		// colour logos for a dark background, on a public host PMS fetches,
-		// where it refuses the tuner's private address), else the
-		// playlist's, through the tuner's processed copy (logo.go).
+		// The logo, always a URL PMS fetches itself: the channel's own
+		// spec.logo, else its guide channel's icon -- iptv-epg.org's colour
+		// logos, or the panel's picon for a channel only the panel's guide
+		// holds -- else the playlist's (owner, 2026-10-27: the provider's own
+		// images where iptv-epg.org has none). Never the tuner's processed
+		// copy (logo.go): PMS 1.43.5 refuses its private and link-local
+		// addresses as an image's destination, so no guide logo had ever
+		// shown; its route still serves the playlist's logo by number.
 		guideIcon := ""
-		if lc.Map != nil && ch.Logo == "" {
+		if lc.Map != nil {
 			guideIcon = guideIcons[lc.Map.Guide][lc.Map.ChannelID]
 		}
-		switch source := firstNonEmpty(ch.Logo, e.Logo); {
-		case guideIcon != "":
-			lc.Logo = guideIcon
-		case source != "":
-			lc.Logo = logoURL(ch.Number)
+		lc.Logo = firstNonEmpty(ch.Logo, guideIcon, e.Logo)
+		if source := firstNonEmpty(ch.Logo, e.Logo); source != "" {
 			logoSources[ch.Number] = source
 		}
 		active++

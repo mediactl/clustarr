@@ -497,6 +497,31 @@ func TestAMappedChannelTakesItsGuidesIcon(t *testing.T) {
 	assert.Contains(t, whole, `<icon src="http://logo.example/bbc1.png"`)
 }
 
+// TestEveryLogoIsOneTheServerFetches: a channel's own spec.logo, else its
+// guide channel's icon, else the playlist's logo goes into the guide as
+// the URL itself, never the tuner's logos/<n>.png, whose private address
+// PMS refuses (owner, 2026-10-27: the provider's own images where
+// iptv-epg.org has none).
+func TestEveryLogoIsOneTheServerFetches(t *testing.T) {
+	p := newProvider(t)
+	cfg := config(p.srv.URL)
+	for i := range cfg.Channels {
+		switch cfg.Channels[i].Object {
+		case "news-a": // the playlist gives a logo; its guide channel none
+			cfg.Channels[i].Map = &xmltv.Mapping{Guide: tuner.GuideName, ChannelID: "news.uk"}
+		case "news-e": // a channel's own logo, on a channel no guide holds
+			cfg.Channels[i].Logo = "https://logos.example/own.png"
+		}
+	}
+	h := start(t, newStore(t), cfg)
+	h.fetched(t)
+	_, a := h.get(t, "x", device(deviceA, "xmltv.xml"))
+	assert.Contains(t, a, `<icon src="http://logo.example/bbc1.png"`, "the playlist's logo, as it is")
+	_, b := h.get(t, "x", device(deviceB, "xmltv.xml"))
+	assert.Contains(t, b, `<icon src="https://logos.example/own.png"`)
+	assert.NotContains(t, a+b, "/logos/")
+}
+
 func TestAPlaylistM3UListsTheRange(t *testing.T) {
 	p := newProvider(t)
 	h := start(t, newStore(t), config(p.srv.URL))
