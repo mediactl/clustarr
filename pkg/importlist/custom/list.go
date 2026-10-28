@@ -15,15 +15,22 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package custom is a pkg/importlist provider for an arbitrary feed. An RSS
-// feed is read: each item's ids come from its guid and from the IMDb and
-// TMDB links in its link and description, as mdblist.com's list feeds carry
-// them (guid show:<tmdb id>). A JSON feed is deferred past M6 (spec §17
-// "Deferred") and its Fetch returns a typed importlist.NotImplementedError.
+// Package custom is a pkg/importlist provider for an arbitrary feed.
+//
+//   - An RSS feed: each item's ids come from its guid and from the IMDb and
+//     TMDB links in its link and description, as mdblist.com's list feeds
+//     carry them (guid show:<tmdb id>). A private mdblist list's feed needs
+//     the list's own ?rss= token.
+//   - A JSON feed (2026-10-28): mdblist.com's list JSON,
+//     https://mdblist.com/lists/<user>/<slug>/json, an array of
+//     {id (TMDB), tvdbid, imdb_id, title, mediatype show|movie,
+//     release_year}. It needs no token for a public list; a private one
+//     answers {"error": "This List is Private"}, which fails the fetch.
 package custom
 
 import (
 	"context"
+	"encoding/json"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -76,15 +83,9 @@ func (l *List) Name() string { return l.name }
 // Kind implements importlist.ImportList.
 func (l *List) Kind() commonv1.MediaKind { return l.kind }
 
-// Fetch implements importlist.ImportList. A feed that is not RSS (the
-// format defaults to JSON) returns a *importlist.NotImplementedError.
+// Fetch implements importlist.ImportList: the feed read as RSS, or as
+// mdblist's list JSON (the format's default).
 func (l *List) Fetch(ctx context.Context) ([]importlist.Item, error) {
-	if l.cfg.Format != importlist.CustomListFormatRSS {
-		return nil, &importlist.NotImplementedError{
-			Provider: "custom",
-			TODO:     "Custom JSON feed fetch — deferred past M6, see docs/research/metadata.md §3.5",
-		}
-	}
 	ctx, span := tracing.Start(ctx, "importlist.custom.fetch")
 	defer span.End()
 	body, err := l.get(ctx)
@@ -92,10 +93,62 @@ func (l *List) Fetch(ctx context.Context) ([]importlist.Item, error) {
 		tracing.RecordError(span, err)
 		return nil, err
 	}
-	items, err := l.parseRSS(ctx, body)
+	var items []importlist.Item
+	if l.cfg.Format == importlist.CustomListFormatRSS {
+		items, err = l.parseRSS(ctx, body)
+	} else {
+		items, err = l.parseJSON(ctx, body)
+	}
 	if err != nil {
 		tracing.RecordError(span, err)
 		return nil, err
+	}
+	return items, nil
+}
+
+// jsonItem is one item of mdblist's list JSON.
+type jsonItem struct {
+	ID          int64  `json:"id"` // the TMDB id
+	TVDBID      *int64 `json:"tvdbid"`
+	IMDbID      string `json:"imdb_id"`
+	Title       string `json:"title"`
+	MediaType   string `json:"mediatype"` // show or movie
+	ReleaseYear int32  `json:"release_year"`
+}
+
+// parseJSON reads mdblist's list JSON. An object in place of the array is
+// mdblist's error ({"error": "This List is Private"}), and fails the fetch
+// rather than reading as an empty list, which would remove every item.
+func (l *List) parseJSON(ctx context.Context, body []byte) ([]importlist.Item, error) {
+	var raw []jsonItem
+	if err := json.Unmarshal(body, &raw); err != nil {
+		var e struct {
+			Error string `json:"error"`
+		}
+		if json.Unmarshal(body, &e) == nil && e.Error != "" {
+			return nil, fmt.Errorf("importlist/custom: the list answered %q", e.Error)
+		}
+		return nil, fmt.Errorf("importlist/custom: not mdblist's list JSON: %w", err)
+	}
+	items := make([]importlist.Item, 0, len(raw))
+	for _, it := range raw {
+		kind := mediaKindOf(it.MediaType)
+		if kind != l.kind {
+			logging.FromContext(ctx).Debug("importlist/custom: skipping an item of another kind",
+				"title", it.Title, "kind", kind, "want", l.kind)
+			continue
+		}
+		item := importlist.Item{Title: strings.TrimSpace(it.Title), Year: it.ReleaseYear}
+		if it.ID > 0 {
+			item.ExternalIDs.TMDB = strconv.FormatInt(it.ID, 10)
+		}
+		if it.TVDBID != nil && *it.TVDBID > 0 {
+			item.ExternalIDs.TVDB = strconv.FormatInt(*it.TVDBID, 10)
+		}
+		if strings.HasPrefix(it.IMDbID, "tt") {
+			item.ExternalIDs.IMDb = it.IMDbID
+		}
+		items = append(items, item)
 	}
 	return items, nil
 }
@@ -108,7 +161,11 @@ func (l *List) get(ctx context.Context) ([]byte, error) {
 	if err != nil {
 		return nil, redact.Err(err)
 	}
-	req.Header.Set("Accept", "application/rss+xml, application/xml;q=0.9, */*;q=0.1")
+	accept := "application/rss+xml, application/xml;q=0.9, */*;q=0.1"
+	if l.cfg.Format != importlist.CustomListFormatRSS {
+		accept = "application/json, */*;q=0.1"
+	}
+	req.Header.Set("Accept", accept)
 	resp, err := l.client.Do(req)
 	if err != nil {
 		return nil, redact.Err(err)

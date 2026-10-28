@@ -151,13 +151,17 @@ type CSVList struct {
 	ConfigMapRef corev1.LocalObjectReference `json:"configMapRef"`
 }
 
-// CustomList follows an arbitrary JSON or RSS feed.
+// CustomList follows a list feed: mdblist.com's list JSON, or an RSS feed.
 type CustomList struct {
-	// URL is the feed URL.
+	// URL is the feed URL: for json, https://mdblist.com/lists/<user>/<slug>/json
+	// (a public list, no token); for rss, a feed such as mdblist's
+	// /lists/<user>/<slug>?rss=<the list's token>.
 	// +required
 	URL string `json:"url"`
 
-	// Format is the wire format the feed is served in.
+	// Format is the wire format the feed is served in: json is mdblist's
+	// list JSON (each item's TMDB, TheTVDB and IMDb ids), rss an RSS feed
+	// whose items carry mdblist's show:/movie: guid or IMDb and TMDB links.
 	// +optional
 	// +kubebuilder:default=json
 	Format CustomListFormat `json:"format,omitempty"`

@@ -19,7 +19,6 @@ package custom_test
 
 import (
 	"bytes"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -120,12 +119,52 @@ func TestAnUnreachableFeedsErrorCarriesNoToken(t *testing.T) {
 	assert.NotContains(t, err.Error(), "s3cr3ttoken")
 }
 
-func TestAJSONFeedIsStillNotImplemented(t *testing.T) {
-	l := custom.New("custom-feed", commonv1.MediaKindMovie, importlist.CustomConfig{Format: importlist.CustomListFormatJSON})
-	items, err := l.Fetch(t.Context())
+// mdblistJSON is seven items of the owner's public "The 700+ Club:
+// Deep-Cut Anime" list as https://mdblist.com/lists/<user>/<slug>/json
+// served them (2026-10-28): its first six shows and the one with no TheTVDB
+// or IMDb id. A public list needs no token.
+const mdblistJSON = "../../../test/data/importlist/custom/mdblist-the-700-club-deep-cut-anime.json"
+
+func jsonList(kind commonv1.MediaKind, url string) *custom.List {
+	return custom.New("the-700-club-deep-cut-anime", kind, importlist.CustomConfig{URL: url, Format: importlist.CustomListFormatJSON})
+}
+
+// An mdblist list's JSON names each show's TMDB id (id), TheTVDB id
+// (tvdbid), IMDb id and first year, so no resolver is asked for a TheTVDB
+// id it already has; a show with none keeps its TMDB id for the resolver.
+func TestAnMdblistJSONListsEachShowWithItsIDs(t *testing.T) {
+	srv := serveFile(t, mdblistJSON)
+	items, err := jsonList(commonv1.MediaKindSeries, srv.URL+"/lists/appkins-so3yo0/the-700-club-deep-cut-anime/json").Fetch(t.Context())
+	require.NoError(t, err)
+	require.Len(t, items, 7)
+	assert.Equal(t, importlist.Item{Title: "Great Pretender", Year: 2020, ExternalIDs: importlist.ExternalIDs{TMDB: "93816", TVDB: "376144", IMDb: "tt11680468"}}, items[0])
+	assert.Equal(t, importlist.Item{Title: "Magi", Year: 2012, ExternalIDs: importlist.ExternalIDs{TMDB: "60654", TVDB: "262094", IMDb: "tt2425098"}}, items[5])
+	assert.Equal(t, importlist.Item{Title: "New PANTY & STOCKING with GARTERBELT", Year: 2025, ExternalIDs: importlist.ExternalIDs{TMDB: "246862"}}, items[6])
+}
+
+// A show's TMDB id is not a movie's: a movie list keeps none of them.
+func TestAMovieListKeepsNoShowFromTheJSON(t *testing.T) {
+	srv := serveFile(t, mdblistJSON)
+	items, err := jsonList(commonv1.MediaKindMovie, srv.URL).Fetch(t.Context())
+	require.NoError(t, err)
+	assert.Empty(t, items)
+}
+
+// A private list answers 200 with {"error": "This List is Private"}, as the
+// owner's did until they made it public: that is a failure naming the
+// reason, never an empty list (which would read as every item removed).
+func TestAPrivateMdblistJSONFails(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"error": "This List is Private"}`))
+	}))
+	t.Cleanup(srv.Close)
+	items, err := jsonList(commonv1.MediaKindSeries, srv.URL).Fetch(t.Context())
 	assert.Nil(t, items)
-	var nie *importlist.NotImplementedError
-	assert.True(t, errors.As(err, &nie))
-	assert.Equal(t, "custom", nie.Provider)
-	assert.ErrorIs(t, err, importlist.ErrNotImplemented)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "This List is Private")
+
+	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(`<html>`)) }))
+	t.Cleanup(bad.Close)
+	_, err = jsonList(commonv1.MediaKindSeries, bad.URL).Fetch(t.Context())
+	require.Error(t, err, "a body that is not JSON")
 }

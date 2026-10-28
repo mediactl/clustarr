@@ -104,13 +104,19 @@ spec:
                 properties:
                   format:
                     default: json
-                    description: Format is the wire format the feed is served in.
+                    description: |-
+                      Format is the wire format the feed is served in: json is mdblist's
+                      list JSON (each item's TMDB, TheTVDB and IMDb ids), rss an RSS feed
+                      whose items carry mdblist's show:/movie: guid or IMDb and TMDB links.
                     enum:
                     - json
                     - rss
                     type: string
                   url:
-                    description: URL is the feed URL.
+                    description: |-
+                      URL is the feed URL: for json, https://mdblist.com/lists/<user>/<slug>/json
+                      (a public list, no token); for rss, a feed such as mdblist's
+                      /lists/<user>/<slug>?rss=<the list's token>.
                     type: string
                 required:
                 - url
