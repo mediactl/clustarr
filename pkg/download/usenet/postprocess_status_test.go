@@ -26,9 +26,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/download"
-	"github.com/stretchr/testify/require"
 )
 
 // TestUnpackCountsEveryByteItWrites: the extracting stage's progress is
