@@ -1,0 +1,298 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package views
+
+import (
+	"fmt"
+	"strconv"
+	"time"
+
+	"github.com/mediactl/clustarr/pkg/iptv/livetvstore"
+	"github.com/mediactl/clustarr/ui/components/badge"
+	"github.com/mediactl/clustarr/ui/components/dialog"
+)
+
+// The TV Guide's geometry (the direct-tuners and ui design §5.6,
+// Dispatcharr's): 7.5 px a minute, 90 px rows, a 120 px channel column, a
+// 40 px time header, six-hour windows, the guide's seven days 28 of them.
+const (
+	GuideMinutePx  = 7.5
+	GuideRowPx     = 90
+	GuideChannelPx = 120
+	GuideHeaderPx  = 40
+	GuideWindow    = 6 * time.Hour
+	GuideWindows   = 28
+)
+
+// windowPx is a window's width.
+var windowPx = GuideMinutePx * GuideWindow.Minutes()
+
+// GuidePage is the TV Guide's view.
+type GuidePage struct {
+	Provider, Group, Q string
+	Providers          []ProviderOption
+	Groups             []string
+	// Built is a provider whose guide index the tuner has stored.
+	Built         bool
+	From          time.Time
+	Rows          []GuideChannel
+	Windows       []GuideWindowView
+	Before, After *GuideSentinel
+}
+
+// GuideChannel is one row's channel.
+type GuideChannel struct{ Number, Name, LogoPath string }
+
+// GuideWindowView is one window's layer.
+type GuideWindowView struct {
+	K      int
+	Start  time.Time
+	Rows   int
+	Hours  []time.Time
+	Blocks []GuideBlock
+}
+
+// GuideBlock is a programme placed in its window: Left and Width in px
+// from the window's start, Row its channel's row, Start where it is drawn
+// from (the guide's first instant for one that began before).
+type GuideBlock struct {
+	livetvstore.IndexProgramme
+	Row         int
+	Start       time.Time
+	Left, Width float64
+	URL         string
+}
+
+// GuideSentinel loads window K when it scrolls into view, then sets the
+// next in direction Dir.
+type GuideSentinel struct {
+	K, Dir int
+	URL    string
+}
+
+// ProgrammeDialog is a programme's details.
+type ProgrammeDialog struct {
+	livetvstore.IndexProgramme
+	Channel, ChannelName, StreamURL, Image string
+}
+
+func px(v float64) string { return strconv.FormatFloat(v, 'f', -1, 64) + "px" }
+
+func canvasHeight(rows int) string { return px(float64(GuideHeaderPx + rows*GuideRowPx)) }
+
+func windowStyle(w GuideWindowView) string {
+	return fmt.Sprintf("left:%s;width:%s;height:%s", px(float64(w.K)*windowPx), px(windowPx), canvasHeight(w.Rows))
+}
+
+func blockStyle(b GuideBlock) string {
+	return fmt.Sprintf("left:%s;top:%s;width:%s;height:%dpx", px(b.Left), px(float64(GuideHeaderPx+b.Row*GuideRowPx)), px(b.Width), GuideRowPx-4)
+}
+
+func sentinelStyle(s GuideSentinel) string {
+	left := float64(s.K) * windowPx
+	if s.Dir < 0 {
+		left += windowPx - 1
+	}
+	return "left:" + px(left)
+}
+
+func rfc3339(t time.Time) string { return t.UTC().Format(time.RFC3339) }
+
+// LiveTVGuide is the TV Guide page.
+templ LiveTVGuide(p GuidePage) {
+	@liveTVPage("TV Guide", "/livetv/guide", nil) {
+		<form
+			class="mb-3 flex flex-wrap items-center gap-2"
+			hx-get="/livetv/guide"
+			hx-select="#page-body"
+			hx-target="#page-body"
+			hx-swap="outerHTML"
+			hx-push-url="true"
+			hx-trigger="input changed delay:300ms, change"
+		>
+			<select name="provider" class="h-8 rounded-md border border-input bg-transparent px-2 text-sm" aria-label="Provider">
+				for _, o := range p.Providers {
+					<option value={ o.Value } selected?={ o.Value == p.Provider }>{ o.Label }</option>
+				}
+			</select>
+			<select name="group" class="h-8 max-w-56 rounded-md border border-input bg-transparent px-2 text-sm" aria-label="Group">
+				<option value="">Every group</option>
+				for _, g := range p.Groups {
+					<option value={ g } selected?={ g == p.Group }>{ g }</option>
+				}
+			</select>
+			<input type="search" name="q" value={ p.Q } placeholder="Channel or number" class="h-8 w-48 rounded-md border border-input bg-transparent px-2 text-sm"/>
+		</form>
+		if !p.Built {
+			<p class="text-sm text-muted-foreground">The guide is not built yet: the tuner writes it after the provider's first guide fetch.</p>
+		} else {
+			<div class="panel flex overflow-hidden rounded-xl border border-border bg-card" data-guide data-from={ rfc3339(p.From) }>
+				<div class="sticky left-0 z-10 shrink-0 border-r border-border bg-card" style={ "width:" + px(GuideChannelPx) }>
+					<div style={ "height:" + px(GuideHeaderPx) } class="border-b border-border"></div>
+					for _, c := range p.Rows {
+						<div data-guide-channel={ c.Number } class="flex items-center gap-2 border-b border-border px-2" style={ "height:" + px(GuideRowPx) }>
+							@channelLogo(c.LogoPath, c.Number)
+							<div class="min-w-0">
+								<div class="text-xs tabular-nums text-muted-foreground">{ c.Number }</div>
+								<div class="truncate text-sm font-medium" title={ c.Name }>{ c.Name }</div>
+							</div>
+						</div>
+					}
+				</div>
+				<div id="guide-scroll" class="min-w-0 flex-1 overflow-x-auto">
+					<div id="guide-canvas" class="relative" style={ fmt.Sprintf("width:%s;height:%s", px(GuideWindows*windowPx), canvasHeight(len(p.Rows))) }>
+						<div id="guide-now" class="pointer-events-none absolute top-0 z-20 w-0.5 bg-primary" style={ "height:" + canvasHeight(len(p.Rows)) }></div>
+						if p.Before != nil {
+							@guideSentinel(*p.Before)
+						}
+						for _, w := range p.Windows {
+							@guideWindow(w)
+						}
+						if p.After != nil {
+							@guideSentinel(*p.After)
+						}
+					</div>
+				</div>
+			</div>
+		}
+		<div id="guide-dialog"></div>
+	}
+}
+
+// GuideWindowPart is a window loaded by its sentinel, and the sentinel
+// past it.
+templ GuideWindowPart(w GuideWindowView, next *GuideSentinel) {
+	@guideWindow(w)
+	if next != nil {
+		@guideSentinel(*next)
+	}
+}
+
+templ guideSentinel(s GuideSentinel) {
+	<div
+		data-guide-sentinel
+		class="absolute top-0 h-full w-px"
+		style={ sentinelStyle(s) }
+		hx-get={ s.URL }
+		hx-trigger="intersect once root:#guide-scroll"
+		hx-swap="outerHTML"
+	></div>
+}
+
+templ guideWindow(w GuideWindowView) {
+	<div data-window={ strconv.Itoa(w.K) } class="absolute top-0" style={ windowStyle(w) }>
+		<div class="absolute inset-x-0 top-0 border-b border-border" style={ "height:" + px(GuideHeaderPx) }>
+			for i, h := range w.Hours {
+				<div class="absolute top-0 flex h-full items-center border-l border-border px-2 text-xs text-muted-foreground" style={ "left:" + px(float64(i)*60*GuideMinutePx) }>
+					<time data-local="hour" datetime={ rfc3339(h) }>{ h.UTC().Format("15:04") }</time>
+				</div>
+			}
+		</div>
+		for _, b := range w.Blocks {
+			<button
+				type="button"
+				data-programme
+				data-start={ rfc3339(b.IndexProgramme.Start) }
+				data-stop={ rfc3339(b.Stop) }
+				class="absolute overflow-hidden rounded-md border border-border bg-muted/50 px-2 py-1 text-left hover:bg-muted data-past:opacity-50"
+				style={ blockStyle(b) }
+				hx-get={ b.URL }
+				hx-target="#guide-dialog"
+				hx-swap="innerHTML"
+			>
+				<div class="flex items-center gap-1">
+					<span class="truncate text-sm font-medium">{ b.Title }</span>
+					if b.Episode != "" {
+						<span class="shrink-0 rounded bg-muted px-1 text-[10px] text-muted-foreground">{ b.Episode }</span>
+					}
+					if b.Live {
+						<span class="shrink-0 rounded bg-destructive px-1 text-[10px] font-semibold text-white">LIVE</span>
+					}
+					if b.New {
+						<span class="shrink-0 rounded bg-primary px-1 text-[10px] font-semibold text-primary-foreground">NEW</span>
+					}
+				</div>
+				<div class="truncate text-xs text-muted-foreground">
+					if b.SubTitle != "" {
+						{ b.SubTitle }
+					} else {
+						{ b.Desc }
+					}
+				</div>
+				<div class="text-[10px] text-muted-foreground">
+					<time data-local="time" datetime={ rfc3339(b.IndexProgramme.Start) }>{ b.IndexProgramme.Start.UTC().Format("15:04") }</time>
+					{ "–" }
+					<time data-local="time" datetime={ rfc3339(b.Stop) }>{ b.Stop.UTC().Format("15:04") }</time>
+				</div>
+				<div data-progress class="absolute inset-x-0 bottom-0 h-0.5 bg-primary" style="width:0"></div>
+			</button>
+		}
+		<span data-window-end hidden></span>
+	</div>
+}
+
+// ProgrammeDialogView is a programme's details, open as it lands in
+// #guide-dialog.
+templ ProgrammeDialogView(d ProgrammeDialog) {
+	@dialog.Dialog(dialog.Props{DefaultOpen: true}) {
+		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-2xl"}) {
+			@dialog.Header() {
+				@dialog.Title() { { d.Title } }
+				@dialog.Description() {
+					{ d.Channel + " " + d.ChannelName + " · " }
+					<time data-local="datetime" datetime={ rfc3339(d.Start) }>{ d.Start.UTC().Format("Mon 15:04 UTC") }</time>
+					{ " – " }
+					<time data-local="time" datetime={ rfc3339(d.Stop) }>{ d.Stop.UTC().Format("15:04") }</time>
+				}
+			}
+			<div class="flex gap-4">
+				if d.Image != "" {
+					<img src={ d.Image } alt="" class="w-32 shrink-0 rounded-md object-cover"/>
+				}
+				<div class="min-w-0 space-y-2 text-sm">
+					if d.SubTitle != "" {
+						<div class="font-medium">{ d.SubTitle }</div>
+					}
+					<div class="flex flex-wrap gap-1">
+						if d.Episode != "" {
+							@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) { { d.Episode } }
+						}
+						if d.Live {
+							@badge.Badge(badge.Props{Variant: badge.VariantDestructive}) { LIVE }
+						}
+						if d.New {
+							@badge.Badge() { NEW }
+						}
+						for _, c := range d.Categories {
+							@badge.Badge(badge.Props{Variant: badge.VariantOutline}) { { c } }
+						}
+					</div>
+					if d.Desc != "" {
+						<p class="text-muted-foreground">{ d.Desc }</p>
+					}
+					if d.StreamURL != "" {
+						<div class="flex items-center gap-2 text-xs">
+							<span class="min-w-0 truncate font-mono" title={ d.StreamURL }>{ d.StreamURL }</span>
+							@copyButton(d.StreamURL, "Copy the stream URL")
+						</div>
+					}
+				</div>
+			</div>
+		}
+	}
+}

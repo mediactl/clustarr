@@ -42,7 +42,7 @@ import (
 // deliberately not embedded or served -- it is a build-time input, consumed
 // only by `make css`, not a runtime asset.
 //
-//go:embed static/app.css static/htmx.min.js static/htmx-ext-sse.js static/idiomorph-ext.min.js static/htmx-ext-preload.js static/jump.js static/find.js static/settings.js static/library.js static/art.js static/portals.js static/livetv.js static/fonts/*.woff2 static/js/*.js static/logo.svg static/favicon.svg static/favicon-32.png static/apple-touch-icon.png
+//go:embed static/app.css static/htmx.min.js static/htmx-ext-sse.js static/idiomorph-ext.min.js static/htmx-ext-preload.js static/jump.js static/find.js static/settings.js static/library.js static/art.js static/portals.js static/livetv.js static/guide.js static/fonts/*.woff2 static/js/*.js static/logo.svg static/favicon.svg static/favicon-32.png static/apple-touch-icon.png
 var staticFiles embed.FS
 
 // The distroless image has no /etc/mime.types, so Go's table would serve a
