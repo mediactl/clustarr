@@ -36,6 +36,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/mediactl/clustarr/pkg/iptv"
+	"github.com/mediactl/clustarr/pkg/iptv/livetvstore"
 	"github.com/mediactl/clustarr/pkg/iptv/m3u"
 	"github.com/mediactl/clustarr/pkg/iptv/xmltv"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -484,20 +485,15 @@ func guideState(g xmltv.Guide, fetchedAt time.Time) GuideState {
 // putGuideChannels stores the guide's channel list for the ui's mapping
 // dropdown.
 func (t *Tuner) putGuideChannels(ctx context.Context, p *provider, chans []xmltv.Channel) {
-	type row struct {
-		ID          string `json:"id"`
-		DisplayName string `json:"displayName,omitempty"`
-		Icon        string `json:"icon,omitempty"`
-	}
-	rows := make([]row, 0, len(chans))
+	rows := make([]livetvstore.GuideChannel, 0, len(chans))
 	for _, c := range chans {
-		r := row{ID: c.ID, Icon: c.Icon}
+		r := livetvstore.GuideChannel{ID: c.ID, Icon: c.Icon}
 		if len(c.DisplayNames) > 0 {
 			r.DisplayName = c.DisplayNames[0]
 		}
 		rows = append(rows, r)
 	}
-	t.putJSON(ctx, GuideChannelsObject(p.key), rows)
+	t.putJSON(ctx, livetvstore.GuideChannelsObject(p.key), rows)
 }
 
 // putJSON stores v as gzip JSON.

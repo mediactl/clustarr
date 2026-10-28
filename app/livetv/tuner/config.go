@@ -28,6 +28,7 @@ import (
 
 	"github.com/mediactl/clustarr/pkg/iptv"
 	"github.com/mediactl/clustarr/pkg/iptv/filter"
+	"github.com/mediactl/clustarr/pkg/iptv/livetvstore"
 	"github.com/mediactl/clustarr/pkg/iptv/xmltv"
 )
 
@@ -42,7 +43,7 @@ func languageCode(s string) string {
 
 // GuideName is the name the provider's one guide, Config.GuideURL's,
 // goes by in channel mappings (xmltv.Mapping.Guide).
-const GuideName = "xmltv"
+const GuideName = livetvstore.GuideName
 
 // Config is one provider as the IPTVProvider controller resolves it: its
 // credentials already read, its channels already listed. The tuner never
@@ -207,29 +208,4 @@ type BlockState struct {
 type ChannelState struct {
 	Missing, Duplicate bool
 	Guide              string
-}
-
-// PlaylistObject is the clustarr-livetv object caching a provider's
-// playlist: every live entry, its stream URL with the account's username
-// and password replaced by placeholders, so no credential is stored.
-func PlaylistObject(key types.NamespacedName) string {
-	return "playlist/" + key.Namespace + "/" + key.Name
-}
-
-// GuideCacheObject is the object caching a provider's parsed guide: every
-// channel, and programmes for the channels the lineup maps.
-func GuideCacheObject(key types.NamespacedName) string {
-	return "guide-cache/" + key.Namespace + "/" + key.Name
-}
-
-// GuideChannelsObject is the object listing the guide's channels, for the
-// ui's mapping dropdown.
-func GuideChannelsObject(key types.NamespacedName) string {
-	return "guide-channels/" + key.Namespace + "/" + key.Name + "/" + GuideName
-}
-
-// GuideObject is the object holding a provider's whole rendered XEPG guide,
-// for the UI and curl.
-func GuideObject(key types.NamespacedName) string {
-	return "guide/" + key.Namespace + "/" + key.Name
 }

@@ -42,6 +42,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/membus"
 	"github.com/mediactl/clustarr/pkg/iptv/filter"
 	"github.com/mediactl/clustarr/pkg/iptv/hdhr"
+	"github.com/mediactl/clustarr/pkg/iptv/livetvstore"
 	"github.com/mediactl/clustarr/pkg/iptv/m3u"
 	"github.com/mediactl/clustarr/pkg/iptv/xmltv"
 )
@@ -647,8 +648,8 @@ func TestAProviderStartsFromItsCache(t *testing.T) {
 	_, guide := h.get(t, "x", "/livetv/media/news/xmltv.xml")
 	ctx := context.Background()
 	require.Eventually(t, func() bool {
-		_, e1 := store.Info(ctx, tuner.PlaylistObject(key))
-		_, e2 := store.Info(ctx, tuner.GuideCacheObject(key))
+		_, e1 := store.Info(ctx, livetvstore.PlaylistObject(key))
+		_, e2 := store.Info(ctx, livetvstore.GuideCacheObject(key))
 		return e1 == nil && e2 == nil
 	}, 2*time.Second, 10*time.Millisecond)
 
@@ -686,7 +687,10 @@ func TestAStaleCacheIsServedAndFetchedAgain(t *testing.T) {
 	cfg := config(p.srv.URL)
 	h := start(t, store, cfg)
 	h.fetched(t)
-	require.Eventually(t, func() bool { _, err := store.Info(context.Background(), tuner.PlaylistObject(key)); return err == nil }, 2*time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool {
+		_, err := store.Info(context.Background(), livetvstore.PlaylistObject(key))
+		return err == nil
+	}, 2*time.Second, 10*time.Millisecond)
 	playlists := p.count("/get.php")
 	h2 := startAt(t, store, cfg, now.Add(2*time.Hour))
 	code, _ := h2.get(t, "x", "/livetv/media/news/lineup.json")
@@ -700,7 +704,10 @@ func TestACacheOfAnotherAccountIsNotServed(t *testing.T) {
 	cfg := config(p.srv.URL)
 	h := start(t, store, cfg)
 	h.fetched(t)
-	require.Eventually(t, func() bool { _, err := store.Info(context.Background(), tuner.PlaylistObject(key)); return err == nil }, 2*time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool {
+		_, err := store.Info(context.Background(), livetvstore.PlaylistObject(key))
+		return err == nil
+	}, 2*time.Second, 10*time.Millisecond)
 	other := cfg
 	other.Username = "someone"
 	h2 := start(t, store, other)
@@ -714,7 +721,7 @@ func TestNoStoredOrReportedStringCarriesACredential(t *testing.T) {
 	h := start(t, store, config(p.srv.URL))
 	s := h.fetched(t)
 	ctx := context.Background()
-	require.Eventually(t, func() bool { _, err := store.Info(ctx, tuner.PlaylistObject(key)); return err == nil }, 2*time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool { _, err := store.Info(ctx, livetvstore.PlaylistObject(key)); return err == nil }, 2*time.Second, 10*time.Millisecond)
 	infos, err := store.List(ctx, "")
 	require.NoError(t, err)
 	require.NotEmpty(t, infos)
@@ -734,7 +741,7 @@ func TestNoStoredOrReportedStringCarriesACredential(t *testing.T) {
 	for _, secret := range secrets {
 		assert.NotContains(t, fmt.Sprintf("%+v", s), secret)
 	}
-	_, rc, err := store.Get(ctx, tuner.PlaylistObject(key))
+	_, rc, err := store.Get(ctx, livetvstore.PlaylistObject(key))
 	require.NoError(t, err)
 	zr, err := gzip.NewReader(rc)
 	require.NoError(t, err)
@@ -908,7 +915,7 @@ func TestACachedGuideOfAnotherSourceIsFetchedAgain(t *testing.T) {
 	h := start(t, store, cfg)
 	h.fetched(t)
 	require.Eventually(t, func() bool {
-		_, err := store.Info(context.Background(), tuner.GuideCacheObject(key))
+		_, err := store.Info(context.Background(), livetvstore.GuideCacheObject(key))
 		return err == nil
 	}, 2*time.Second, 10*time.Millisecond)
 	playlists := p.count("/get.php")
@@ -1039,7 +1046,8 @@ func TestEveryStoredObjectDescribesItself(t *testing.T) {
 	h.fetched(t)
 	ctx := context.Background()
 	require.Eventually(t, func() bool {
-		for _, name := range []string{tuner.PlaylistObject(key), tuner.GuideCacheObject(key), tuner.GuideChannelsObject(key), tuner.GuideObject(key)} {
+		for _, name := range []string{livetvstore.PlaylistObject(key), livetvstore.GuideCacheObject(key), livetvstore.GuideChannelsObject(key),
+			livetvstore.GuideObject(key), livetvstore.GuideIndexObject(key)} {
 			if _, err := store.Info(ctx, name); err != nil {
 				return false
 			}
@@ -1059,6 +1067,71 @@ func TestEveryStoredObjectDescribesItself(t *testing.T) {
 	}
 	assert.Equal(t, map[string]bool{
 		events.LiveTVMetaKindPlaylist: true, events.LiveTVMetaKindGuideCache: true,
-		events.LiveTVMetaKindGuideChannels: true, events.LiveTVMetaKindGuide: true,
+		events.LiveTVMetaKindGuideChannels: true, events.LiveTVMetaKindGuide: true, events.LiveTVMetaKindGuideIndex: true,
 	}, kinds)
+}
+
+// TestTheGuideIndexIsStoredWithTheGuide: each render that stores the
+// provider's XEPG guide stores its index beside it, for the ui's TV Guide,
+// with the logos the lineup gives Plex.
+func TestTheGuideIndexIsStoredWithTheGuide(t *testing.T) {
+	p := newProvider(t)
+	store := newStore(t)
+	h := start(t, store, config(p.srv.URL))
+	h.fetched(t)
+	var ix livetvstore.GuideIndex
+	require.Eventually(t, func() bool {
+		_, rc, err := store.Get(context.Background(), livetvstore.GuideIndexObject(key))
+		if err != nil {
+			return false
+		}
+		defer func() { _ = rc.Close() }()
+		return livetvstore.Decode(rc, &ix) == nil
+	}, 5*time.Second, 10*time.Millisecond)
+	var numbers []string
+	logos := map[string]string{}
+	for _, c := range ix.Channels {
+		numbers = append(numbers, c.Number)
+		logos[c.Number] = c.Logo
+	}
+	assert.Equal(t, []string{"1001", "1002", "1004"}, numbers)
+	assert.Equal(t, "http://logo.example/bbc1.png", logos["1001"], "1001's guide channel's icon, as Plex is given")
+	perChannel := map[string]int{}
+	for _, pr := range ix.Programmes {
+		perChannel[pr.Channel]++
+	}
+	assert.Positive(t, perChannel["1001"], "the mapped channel's programmes")
+	assert.Equal(t, now.UTC().Truncate(24*time.Hour), ix.From)
+}
+
+// TestTheStoredGuideCarriesTheLogosPlexIsGiven: the whole-provider guide in
+// the store is the one Plex's blocks are built from, its logos included --
+// a mapped channel's guide icon, not its playlist logo.
+func TestTheStoredGuideCarriesTheLogosPlexIsGiven(t *testing.T) {
+	p := newProvider(t)
+	p.newsIcon.Store(1)
+	cfg := config(p.srv.URL)
+	for i := range cfg.Channels {
+		if cfg.Channels[i].Object == "news-a" { // the playlist's logo is bbc1.png
+			cfg.Channels[i].Map = &xmltv.Mapping{Guide: tuner.GuideName, ChannelID: "news.uk"}
+		}
+	}
+	store := newStore(t)
+	h := start(t, store, cfg)
+	h.fetched(t)
+	var whole []byte
+	require.Eventually(t, func() bool {
+		_, rc, err := store.Get(context.Background(), livetvstore.GuideObject(key))
+		if err != nil {
+			return false
+		}
+		defer func() { _ = rc.Close() }()
+		zr, err := gzip.NewReader(rc)
+		if err != nil {
+			return false
+		}
+		whole, err = io.ReadAll(zr)
+		return err == nil
+	}, 5*time.Second, 10*time.Millisecond)
+	assert.Contains(t, string(whole), `<channel id="1001"><display-name>BBC One</display-name><icon src="`+p.srv.URL+`/picons/news.png">`)
 }

@@ -29,8 +29,10 @@ import (
 
 	"github.com/mediactl/clustarr/pkg/iptv/filter"
 	"github.com/mediactl/clustarr/pkg/iptv/hdhr"
+	"github.com/mediactl/clustarr/pkg/iptv/livetvstore"
 	"github.com/mediactl/clustarr/pkg/iptv/m3u"
 	"github.com/mediactl/clustarr/pkg/iptv/xmltv"
+	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
 
 // defaultDummyMinutes is an unmapped channel's dummy block length.
@@ -199,11 +201,12 @@ func (t *Tuner) render(p *provider) {
 		return b.Bytes()
 	}
 	// Each block's guide is built for its device; the whole provider's for
-	// the store (the ui reads it); a range's when it is first asked for.
+	// the store, with its index (the ui reads both); a range's when it is
+	// first asked for.
 	var whole []byte
 	blockGuides := make([][]byte, len(cfg.Blocks))
 	if !pms && fetched {
-		whole = build(sourceLogos(lineupChans, logoSources)) // the ui reads the store's copy, with the providers' logos
+		whole = build(lineupChans)
 		for i := range cfg.Blocks {
 			blockGuides[i] = build(blockChans[i])
 		}
@@ -274,7 +277,12 @@ func (t *Tuner) render(p *provider) {
 		t.putPlaylistCache(t.base, p, cfg, plHash, plFetched, playlistEntries)
 	}
 	if putGuide {
-		t.putGzip(t.base, GuideObject(p.key), whole, "application/xml")
+		t.putGzip(t.base, livetvstore.GuideObject(p.key), whole, "application/xml")
+		if ix, err := livetvstore.IndexGuide(bytes.NewReader(whole), from); err != nil {
+			logging.FromContext(t.base).Warn("livetv: index the guide; the ui's TV Guide keeps the last index", "provider", label(p.key), "error", err)
+		} else {
+			t.putJSON(t.base, livetvstore.GuideIndexObject(p.key), ix)
+		}
 	}
 	if notify {
 		t.o.Notify(p.key)

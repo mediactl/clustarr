@@ -33,9 +33,9 @@ import (
 	"time"
 
 	_ "golang.org/x/image/webp"
-	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/mediactl/clustarr/pkg/events"
+	"github.com/mediactl/clustarr/pkg/iptv/livetvstore"
 	"github.com/mediactl/clustarr/pkg/iptv/xmltv"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
@@ -74,12 +74,6 @@ func withBase(b []byte, base string) []byte {
 	return bytes.ReplaceAll(b, []byte(logoPlaceholder), []byte(base))
 }
 
-// LogoObject is the clustarr-livetv object caching one provider's processed
-// logo, by its source URL.
-func LogoObject(key types.NamespacedName, source string) string {
-	return "logo/" + key.Namespace + "/" + key.Name + "/" + sha([]byte(source))[:32]
-}
-
 // serveLogo answers a channel's logo: the processed PNG from the store, or
 // fetched from its source, processed and stored first. A logo that cannot
 // be had redirects to its source, so Plex still shows the provider's.
@@ -91,7 +85,7 @@ func (t *Tuner) serveLogo(w http.ResponseWriter, r *http.Request, p *provider, n
 		http.NotFound(w, r)
 		return
 	}
-	name := LogoObject(p.key, source)
+	name := livetvstore.LogoObject(p.key, source)
 	if b, ok := t.readBytes(name); ok {
 		writeLogo(w, b)
 		return
@@ -254,19 +248,6 @@ func (f *flight) do(key string, fn func() ([]byte, error)) ([]byte, error) {
 	delete(f.m, key)
 	f.mu.Unlock()
 	return c.b, c.err
-}
-
-// sourceLogos is lineup with each channel's logo its source URL rather than
-// the tuner's, for the stored guide the ui reads.
-func sourceLogos(lineup []xmltv.LineupChannel, sources map[string]string) []xmltv.LineupChannel {
-	out := make([]xmltv.LineupChannel, len(lineup))
-	for i, lc := range lineup {
-		if s, ok := sources[lc.Number]; ok {
-			lc.Logo = s // a guide's own icon is already its source
-		}
-		out[i] = lc
-	}
-	return out
 }
 
 // channelIcons is each guide's channel icons by channel id: a mapped

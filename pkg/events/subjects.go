@@ -208,9 +208,11 @@ const ArtworkChunkSize uint32 = 1 << 20
 // window, so room for some 25,000 files.
 const FingerprintsMaxBytes int64 = 1 * GiB
 
-// BucketLiveTV holds the Live TV tuner's objects (spec 2026-10-07 §5.4):
-// each provider's playlist (without stream URLs), each guide's channel list
-// and the rendered XEPG guide. The tuner writes it alone; the ui only reads.
+// BucketLiveTV holds the Live TV tuner's objects (spec 2026-10-07 §5.4;
+// names and shapes in pkg/iptv/livetvstore): each provider's playlist (its
+// stream URLs templated, no credential), each guide's channel list, the
+// rendered XEPG guide and its index, the programme-art cache and the
+// processed channel logos. The tuner writes it alone; the ui only reads.
 const BucketLiveTV = "clustarr-livetv"
 
 // LiveTVMaxBytes bounds BucketLiveTV.
@@ -218,7 +220,8 @@ const LiveTVMaxBytes int64 = 1 * GiB
 
 // LiveTVKeyScheme is BucketLiveTV's key scheme, recorded in the bucket's
 // metadata.
-const LiveTVKeyScheme = "playlist/<ns>/<name> | guide-cache/<ns>/<name> | guide-channels/<ns>/<name>/xmltv | guide/<ns>/<name>"
+const LiveTVKeyScheme = "playlist/<ns>/<name> | guide-cache/<ns>/<name> | guide-channels/<ns>/<name>/xmltv | guide/<ns>/<name> | " +
+	"guide-index/<ns>/<name> | programme-art/<ns>/<name> | logo/<ns>/<name>/<sha256[:32]>"
 
 // LiveTVMetaVersion is the version of the metadata set every BucketLiveTV
 // object carries (ADR-0021 §2), under ObjectMetaKeyVersion: its
@@ -233,6 +236,7 @@ const (
 	LiveTVMetaKindGuideCache    = "guide-cache"
 	LiveTVMetaKindGuideChannels = "guide-channels"
 	LiveTVMetaKindGuide         = "guide"
+	LiveTVMetaKindGuideIndex    = "guide-index"
 )
 
 // ArtworkVariant is "original" or "overlay", the last token of an

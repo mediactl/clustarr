@@ -29,8 +29,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/mediactl/clustarr/pkg/iptv/xmltv"
 )
 
 // wordmark is a 40x20 logo: text pixels of c on a transparent background,
@@ -101,16 +99,10 @@ func TestProcessLogoFetchesAndRecolours(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// The guide and playlist carry the tuner's logo URLs with a placeholder
-// base, filled in with the request's base when served; the stored guide the
-// ui reads carries the providers' own.
+// A logo URL the tuner hands out carries a placeholder base, filled in with
+// the request's base when served.
 func TestLogoURLsTakeTheRequestsBase(t *testing.T) {
 	guide := []byte(`<icon src="` + logoURL("1024") + `"></icon>`)
-	assert.Equal(t, `<icon src="http://169.254.47.1:47000/livetv/ns/p/logos/1024.png"></icon>`,
-		string(withBase(guide, "http://169.254.47.1:47000/livetv/ns/p")))
-	lineup := []xmltv.LineupChannel{{Number: "1024", Logo: logoURL("1024")}, {Number: "1025"}}
-	src := sourceLogos(lineup, map[string]string{"1024": "https://logos.example/cspan.png"})
-	assert.Equal(t, "https://logos.example/cspan.png", src[0].Logo)
-	assert.Empty(t, src[1].Logo)
-	assert.Equal(t, logoURL("1024"), lineup[0].Logo, "the lineup itself is untouched")
+	assert.Equal(t, `<icon src="http://clustarr-livetv.media.svc.cluster.local:80/hdhr/CAFE0001/logos/1024.png"></icon>`,
+		string(withBase(guide, "http://clustarr-livetv.media.svc.cluster.local:80/hdhr/CAFE0001")))
 }
