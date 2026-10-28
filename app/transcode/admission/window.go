@@ -21,6 +21,8 @@ import (
 	"sort"
 	"time"
 
+	"k8s.io/apimachinery/pkg/types"
+
 	"github.com/mediactl/clustarr/app/transcode/transcodeplan"
 )
 
@@ -53,21 +55,36 @@ func (l *Ledger) Open(profile string) int {
 func (l *Ledger) backlogLocked(profile string, now time.Time) []*entry {
 	var out []*entry
 	for uid, e := range l.files {
-		v := e.view
-		if v.Profile != profile || !v.Eligible || windowPhase(v.Phase) || v.VerdictHolds || l.grants[uid] != nil ||
-			l.onBackoffLocked(uid, now) {
-			continue
+		if l.inBacklogLocked(uid, e, profile, now) {
+			out = append(out, e)
 		}
-		out = append(out, e)
 	}
 	sort.Slice(out, func(i, j int) bool {
-		a, b := out[i].view, out[j].view
-		if a.Priority != b.Priority {
-			return a.Priority > b.Priority
+		a, b := out[i], out[j]
+		if a.view.Priority != b.view.Priority {
+			return a.view.Priority > b.view.Priority
 		}
-		return a.Key.String() < b.Key.String()
+		return a.key < b.key
 	})
 	return out
+}
+
+// backlogLenLocked is len(backlogLocked(profile, now)), unsorted.
+func (l *Ledger) backlogLenLocked(profile string, now time.Time) int {
+	n := 0
+	for uid, e := range l.files {
+		if l.inBacklogLocked(uid, e, profile, now) {
+			n++
+		}
+	}
+	return n
+}
+
+// inBacklogLocked reports whether file uid is in profile's backlog.
+func (l *Ledger) inBacklogLocked(uid types.UID, e *entry, profile string, now time.Time) bool {
+	v := e.view
+	return v.Profile == profile && v.Eligible && !windowPhase(v.Phase) && !v.VerdictHolds && l.grants[uid] == nil &&
+		!l.onBackoffLocked(uid, now)
 }
 
 // Backlog is P's backlog size: the files admission holds in memory for the
@@ -75,16 +92,18 @@ func (l *Ledger) backlogLocked(profile string, now time.Time) []*entry {
 func (l *Ledger) Backlog(profile string) int {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return len(l.backlogLocked(profile, l.clock.Now()))
+	return l.backlogLenLocked(profile, l.clock.Now())
 }
 
 // fillWindowLocked grants each profile's best backlog files a window place
 // while the profile's window has room (§5.11); a window of 0 is unlimited.
 func (l *Ledger) fillWindowLocked(profiles map[string]ProfileView, now time.Time) {
 	for name := range profiles {
-		backlog := l.backlogLocked(name, now)
 		open := l.open(name)
-		for _, e := range backlog {
+		if l.o.Window > 0 && open >= l.o.Window {
+			continue // full, the steady state: no need to sort the backlog
+		}
+		for _, e := range l.backlogLocked(name, now) {
 			if l.o.Window > 0 && open >= l.o.Window {
 				break
 			}

@@ -65,6 +65,8 @@ type Snapshot = transcodeplan.Ledger
 type entry struct {
 	view       FileView
 	observedAt time.Time
+	// key is view.Key.String(), built once: the backlog sorts by it.
+	key string
 }
 
 type grant struct {
@@ -159,7 +161,7 @@ func (l *Ledger) storeLocked(v FileView, cur *entry, now time.Time) {
 	if v.ProfileUID == "" {
 		v.ProfileUID = l.profileUIDs[v.Profile]
 	}
-	l.files[v.UID] = &entry{view: v, observedAt: now}
+	l.files[v.UID] = &entry{view: v, observedAt: now, key: v.Key.String()}
 	l.byKey[v.Key] = v.UID
 	if g := l.grants[v.UID]; g != nil && !g.inUse {
 		switch {

@@ -317,7 +317,7 @@ func (l *Ledger) metricsLocked(profiles map[string]ProfileView, now time.Time) {
 		}
 	}
 	for name := range profiles {
-		metrics.TranscodeBacklogFiles.WithLabelValues(name).Set(float64(len(l.backlogLocked(name, now))))
+		metrics.TranscodeBacklogFiles.WithLabelValues(name).Set(float64(l.backlogLenLocked(name, now)))
 	}
 	dispatched := l.dispatchedLocked()
 	woken := map[string]bool{}
