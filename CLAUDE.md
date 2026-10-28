@@ -1953,7 +1953,10 @@ too; bump the tag in go.mod and go.sum to take a new fork release.
   since 2026-10-28) jobs hold a transfer slot and `MaxPostProcess` (1;
   `spec.usenet.maxPostProcess`) post-process; the rest wait Queued
   (`priority.go`: the best class, then the oldest; a paused or outranked
-  job gives its slot back). Such a wait is `Item.WaitingTurn`
+  job gives its slot back) -- a waiting job parks on its own ticket and the queue's
+  one loop fills free slots on a change, never a poll (2026-10-28: about
+  720 queued jobs each walking every job under the client lock at every
+  wake held the engine's commands, removes among them, for minutes). Such a wait is `Item.WaitingTurn`
   (`TransferRecord.waitingTurn`), which stops the manager's stall clock,
   and `lastProgressAt` restarts when the turn comes -- a queue is not a
   stall. The engine serves pprof on `127.0.0.1:6060`

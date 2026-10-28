@@ -77,7 +77,9 @@ func TestASlotHoldersTurnCheckTakesNoClientLock(t *testing.T) {
 	c := &Client{jobs: map[string]*job{}, slots: map[*job]struct{}{}, scratch: map[*job]int64{}, maxActive: 1}
 	j := &job{client: c, id: "holder"}
 	c.jobs[j.id] = j
-	require.True(t, c.admit(j))
+	c.mu.Lock()
+	c.giveSlotLocked(j)
+	c.mu.Unlock()
 	c.highestTransferring() // the cache is warm, as it is between refreshes
 
 	c.mu.Lock()

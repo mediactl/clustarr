@@ -20,6 +20,7 @@ package usenet
 import (
 	"context"
 	"errors"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -31,14 +32,14 @@ import (
 // turnPollInterval is how often a paused job looks again (waitWhilePaused).
 const turnPollInterval = 250 * time.Millisecond
 
-// turnWaitInterval is how long a job waiting its turn -- for a slot, or
-// behind a higher-priority transfer -- sleeps before it looks again when
-// nothing wakes it first ([Client.turnChanged]). Every look takes the client
-// lock, and on talos (2026-10-28) about 700 queued jobs looking four times a
-// second held it so busy that 92 of the transfers' 115 fetch workers sat
-// behind it at their per-batch turn check, and the engine received nothing
-// for half a minute at a time. A variable only so a test can take the
-// fallback away and see the wake alone.
+// turnWaitInterval is how often the slot queue ([Client.queueLoop]) looks
+// again when nothing woke it: a grant's status flip can end an outranking
+// without any of the changes that kick it. Waiting jobs themselves never
+// look; each waits on its own ticket. On talos (2026-10-28) about 720 queued
+// jobs each looked under the client lock, walking every job, at every wake
+// and every few seconds, and the engine's commands waited behind them for
+// minutes. A variable only so a test can take the fallback away and see the
+// kick alone.
 var turnWaitInterval = 2 * time.Second
 
 // rankMaxAge bounds how stale [Client.outranked]'s view of the highest class
@@ -154,28 +155,137 @@ func (c *Client) highestTransferring() int32 {
 // stage, pause, priority or presence.
 func (c *Client) rankChanged() { c.rank.at.Store(0) }
 
-// turnSignal is the channel turnChanged closes next. A waiter takes it
-// before it looks, so a change between its look and its wait still wakes it.
-func (c *Client) turnSignal() <-chan struct{} {
-	c.turnMu.Lock()
-	defer c.turnMu.Unlock()
-	if c.turnCh == nil {
-		c.turnCh = make(chan struct{})
-	}
-	return c.turnCh
-}
-
-// turnChanged wakes every job waiting its turn: a slot or scratch came free,
-// or a job's stage, pause, priority or presence changed, any of which may
-// let one of them run. It also marks the outranking cache stale.
+// turnChanged kicks the slot queue: a slot or scratch came free, or a job's
+// stage, pause, priority or presence changed, any of which may let a
+// waiting job run. It also marks the outranking cache stale. It never
+// blocks: kicks that arrive while the queue is filling fold into one.
 func (c *Client) turnChanged() {
 	c.rankChanged()
-	c.turnMu.Lock()
-	if c.turnCh != nil {
-		close(c.turnCh)
-		c.turnCh = nil
+	select {
+	case c.kick <- struct{}{}:
+	default:
 	}
-	c.turnMu.Unlock()
+}
+
+// closedTicket is the ticket of a job that holds its slot already.
+var closedTicket = func() chan struct{} {
+	ch := make(chan struct{})
+	close(ch)
+	return ch
+}()
+
+// wantSlot puts j in the slot queue, if it is not there already, and
+// returns the ticket the queue closes when it gives j a slot. Every worker
+// of j waits on the one ticket.
+func (c *Client) wantSlot(j *job) <-chan struct{} {
+	c.mu.Lock()
+	if j.holdsSlot.Load() {
+		c.mu.Unlock()
+		return closedTicket
+	}
+	if c.waiting == nil {
+		c.waiting = map[*job]chan struct{}{}
+	}
+	t, ok := c.waiting[j]
+	if !ok {
+		t = make(chan struct{})
+		c.waiting[j] = t
+	}
+	c.mu.Unlock()
+	if !ok {
+		c.turnChanged() // a new waiter may take a free slot now
+	}
+	return t
+}
+
+// dropWant takes j out of the slot queue: it stopped waiting.
+func (c *Client) dropWant(j *job) {
+	c.mu.Lock()
+	delete(c.waiting, j)
+	c.mu.Unlock()
+}
+
+// queueLoop fills free transfer slots ([Client.fillSlots]) at every kick
+// ([Client.turnChanged]) and every turnWaitInterval, until stop closes.
+func (c *Client) queueLoop(stop <-chan struct{}) {
+	defer c.wg.Done()
+	t := time.NewTicker(turnWaitInterval)
+	defer t.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-c.kick:
+		case <-t.C:
+		}
+		c.fillSlots()
+	}
+}
+
+// fillSlots gives free transfer slots to the jobs waiting for one, in
+// [jobAhead] order: the higher class first, then the earlier Add. A paused
+// job is passed over, and so is an outranked one: a strictly higher class
+// is transferring or waiting to. The first job whose scratch reservation
+// does not fit the budget (scratch.go) stops the fill, as the one ahead of
+// the rest. While every slot is taken it looks at no job at all.
+//
+// Lock order: the client lock, then each job's lock.
+func (c *Client) fillSlots() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.slots) >= c.maxActive || len(c.waiting) == 0 {
+		return
+	}
+	queue := make([]*job, 0, len(c.waiting))
+	for j := range c.waiting {
+		if c.jobs[j.id] != j { // removed; its worker drops the ticket too
+			delete(c.waiting, j)
+			continue
+		}
+		queue = append(queue, j)
+	}
+	slices.SortFunc(queue, func(a, b *job) int {
+		switch {
+		case jobAhead(a, b):
+			return -1
+		case jobAhead(b, a):
+			return 1
+		}
+		return 0
+	})
+	high := -1
+	for _, o := range c.jobs {
+		if rk := priorityRank(o.getPriority()); rk > high && o.transferring() {
+			high = rk
+		}
+	}
+	for _, j := range queue {
+		if len(c.slots) >= c.maxActive {
+			return
+		}
+		c.queueLooks.Add(1)
+		rank := priorityRank(j.getPriority())
+		if j.paused.Load() || (rank < priorityRank(commonv1.DownloadPriorityHigh) && high > rank) {
+			continue
+		}
+		if !c.reserveScratchLocked(j, false) {
+			j.waitingSpace.Store(true)
+			return
+		}
+		j.waitingSpace.Store(false)
+		c.giveSlotLocked(j)
+	}
+}
+
+// giveSlotLocked gives j a transfer slot and closes its ticket, if it has
+// one. The caller holds the client lock.
+func (c *Client) giveSlotLocked(j *job) {
+	c.slots[j] = struct{}{}
+	j.holdsSlot.Store(true)
+	if t, ok := c.waiting[j]; ok {
+		close(t)
+		delete(c.waiting, j)
+	}
 }
 
 // transferring reports whether j is in its article-fetching stage and not
@@ -240,20 +350,17 @@ func (j *job) waitForTurn(ctx context.Context) error { return j.waitTurn(ctx, tr
 func (j *job) waitTurn(ctx context.Context, withGrant bool) error {
 	waited := false
 	for {
-		turn := j.client.turnSignal()
-		wait := turnWaitInterval
 		switch {
 		case j.paused.Load():
 			j.client.releaseSlot(j)
 			j.giveGrant(ctx)
-			wait = turnPollInterval
 		case j.client.outranked(j):
 			j.client.releaseSlot(j)
 			j.giveGrant(ctx)
 			j.waitingSlot.Store(true)
 		// A holder answers from its own flag: a transfer worker asks before
-		// every batch, and the client lock is the queue's (turnWaitInterval).
-		case j.holdsSlot.Load() || j.client.admit(j):
+		// every batch, and the client lock is the queue's.
+		case j.holdsSlot.Load():
 			j.waitingSlot.Store(false)
 			if waited {
 				j.mu.Lock()
@@ -273,53 +380,21 @@ func (j *job) waitTurn(ctx context.Context, withGrant bool) error {
 			if !errors.Is(err, errTurnLost) {
 				return err
 			}
+			continue
 		default:
 			j.waitingSlot.Store(true)
 		}
 		waited = true
+		// The queue (queueLoop) gives the slot and closes the ticket; a
+		// paused or outranked job waits on it too, since the queue passes
+		// it over until a resume or the end of the outranking kicks it.
 		select {
 		case <-ctx.Done():
+			j.client.dropWant(j)
 			return ctx.Err()
-		case <-turn:
-		case <-time.After(wait):
+		case <-j.client.wantSlot(j):
 		}
 	}
-}
-
-// admit gives j a transfer slot if it holds one already, or if one is free,
-// no job ahead of it is waiting for one -- the higher class first, then the
-// earlier Add (jobAhead) -- and its scratch reservation fits the budget
-// (scratch.go). A higher-class job waiting for a slot also
-// outranks every lower-class holder (outranked counts it as transferring),
-// so they give theirs back at their next batch.
-//
-// Lock order: the client lock alone; other jobs are read through their
-// atomics.
-func (c *Client) admit(j *job) bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if _, ok := c.slots[j]; ok {
-		return true
-	}
-	if len(c.slots) >= c.maxActive {
-		return false
-	}
-	for _, o := range c.jobs {
-		if _, holds := c.slots[o]; holds || o == j || !o.waitingSlot.Load() || o.paused.Load() {
-			continue
-		}
-		if jobAhead(o, j) {
-			return false
-		}
-	}
-	if !c.reserveScratchLocked(j, false) {
-		j.waitingSpace.Store(true)
-		return false
-	}
-	j.waitingSpace.Store(false)
-	c.slots[j] = struct{}{}
-	j.holdsSlot.Store(true)
-	return true
 }
 
 // releaseSlot gives back j's transfer slot, if it holds one, and wakes the

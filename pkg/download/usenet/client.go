@@ -275,12 +275,19 @@ type Client struct {
 	mu    sync.Mutex
 	jobs  map[string]*job
 	slots map[*job]struct{}
-	// turnCh, under turnMu, is closed when a waiting job may have its turn
+	// kick wakes the slot queue's loop when a waiting job may have its turn
 	// ([Client.turnChanged]), and rank caches the highest class transferring
 	// ([Client.outranked]); both spare the client lock (priority.go).
-	turnMu sync.Mutex
-	turnCh chan struct{}
-	rank   rankCache
+	kick chan struct{}
+	// waiting, under mu, is each job waiting for a transfer slot and the
+	// ticket the slot queue closes when it gives it one ([Client.wantSlot]);
+	// stopQueue stops the queue's loop.
+	waiting   map[*job]chan struct{}
+	stopQueue chan struct{}
+	// queueLooks counts the queued jobs the slot queue has looked at, for
+	// tests: what waiting costs.
+	queueLooks atomic.Int64
+	rank       rankCache
 	// scratch is each started job's scratch reservation and scratchHeld
 	// their total (scratch.go), written under mu; scratchHeld is read
 	// lock-free for a job's message.
@@ -398,6 +405,9 @@ func New(cfg Config) (download.Client, error) {
 		ledger:    cfg.Ledger,
 		holder:    cfg.Holder,
 		stopRenew: make(chan struct{}),
+		kick:      make(chan struct{}, 1),
+		waiting:   map[*job]chan struct{}{},
+		stopQueue: make(chan struct{}),
 	}
 	if c.repairer == nil {
 		c.repairer = noRepairer{}
@@ -409,8 +419,9 @@ func New(cfg Config) (download.Client, error) {
 		pool.Close()
 		return nil, err
 	}
-	c.wg.Add(1)
+	c.wg.Add(2)
 	go c.renewLoop(c.stopRenew)
+	go c.queueLoop(c.stopQueue)
 	return c, nil
 }
 
@@ -1964,6 +1975,7 @@ func (c *Client) Close() error {
 			j.stop()
 		}
 		close(c.stopRenew)
+		close(c.stopQueue)
 		c.wg.Wait()
 		ctx, cancel := context.WithTimeout(c.baseCtx, 5*time.Second)
 		defer cancel()

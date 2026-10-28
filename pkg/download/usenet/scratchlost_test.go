@@ -50,6 +50,15 @@ func pausedJob(t *testing.T, srv *stubServer, c *Client, title string, payload [
 	require.NoError(t, err)
 	j, err := c.lookup(id)
 	require.NoError(t, err)
+	// The job's start checkpoints its manifest (setStage) before it parks
+	// in the slot queue; a test that removes its scratch waits for that,
+	// or the write lands in the middle of the removal.
+	require.Eventually(t, func() bool {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		_, parked := c.waiting[j]
+		return parked
+	}, 5*time.Second, time.Millisecond, "the paused job parks for its turn")
 	return j, id
 }
 
