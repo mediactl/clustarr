@@ -216,6 +216,8 @@ func (j *job) transfer(ctx context.Context) error {
 
 	log := logging.FromContext(ctx)
 
+	// A pass after a provider outage transfers again, on a slot.
+	j.offSlot.Store(false)
 	// Honour a pause -- or a higher-priority transfer (priority.go) --
 	// before the first article, not only between batches: a transfer added
 	// paused must move no bytes at all, and fetchFirstArticles runs ahead of
@@ -334,16 +336,25 @@ dispatch:
 		return err
 	}
 
-	if j.failedArticles() > 0 {
-		if err := j.retryFailed(ctx); err != nil {
-			return err
-		}
-	}
 	server := ""
 	if servers := j.grantServer(); len(servers) > 0 {
 		server = servers[0]
 	}
 	j.giveGrant(ctx)
+	if j.failedArticles() == 0 {
+		return j.checkpoint()
+	}
+	// Every article has been asked for once. What is left -- the one retry
+	// on this server after ArticleRetryDelay, then the chase through the
+	// others -- asks for a handful of articles under small grants of its
+	// own, so the slot goes back now and the next queued download starts
+	// (owner, 2026-10-28: a job sat on its slot through the retry's sleep
+	// and a walk of every server, and nothing new began meanwhile).
+	j.offSlot.Store(true)
+	j.client.releaseSlot(j)
+	if err := j.retryOffSlot(ctx, server); err != nil {
+		return err
+	}
 	for j.failedArticles() > 0 {
 		err := j.chase(ctx, server)
 		if err == nil {
@@ -352,9 +363,8 @@ dispatch:
 		if !errors.Is(err, errTurnLost) {
 			return err
 		}
-		// Paused or outranked while the chase parked: yield the slot,
-		// take it back, chase on.
-		if err := j.waitTurn(ctx, false); err != nil {
+		// Paused while the chase parked: wait the pause out, chase on.
+		if err := j.waitWhilePaused(ctx); err != nil {
 			return err
 		}
 	}
@@ -365,23 +375,18 @@ dispatch:
 	return j.checkpoint()
 }
 
-// retryFailed is the second chance every missing article gets: one more
-// pass over the failed segments, across every server, after
-// Config.ArticleRetryDelay. It runs once per job -- from the health gate
-// when a breach is imminent, else at the end of the transfer -- and clears
+// retryFailedLocked is the second chance every missing article gets: one
+// more pass over the failed segments, on the transfer's server, after
+// Config.ArticleRetryDelay. It runs once per job -- here, under the
+// transfer's grant, from the health gate when a breach is imminent, else at
+// the end of the transfer, off the slot (retryOffSlot) -- and clears
 // whatever it recovers. SABnzbd gives this chance only on an operator's
 // Retry; NZBGet's ArticleRetries gives it to every article. A 430 on a
 // reseller is often a propagation or sync gap that has closed by the time
 // the rest of the release is down (both grabs on 2026-09-24 lost 1-3% of
 // their articles to a single provider). A provider outage during the pass
 // is ErrProvidersUnavailable, which the caller waits out like any other.
-func (j *job) retryFailed(ctx context.Context) error {
-	j.retryMu.Lock()
-	defer j.retryMu.Unlock()
-	return j.retryFailedLocked(ctx)
-}
-
-// retryFailedLocked is retryFailed under retryMu.
+// The caller holds retryMu.
 func (j *job) retryFailedLocked(ctx context.Context) error {
 	if j.retried {
 		return nil
@@ -392,6 +397,56 @@ func (j *job) retryFailedLocked(ctx context.Context) error {
 		// retry runs when the transfer has one again, never off-grant.
 		return nil
 	}
+	failed, err := j.retryDue(ctx)
+	if err != nil || len(failed) == 0 {
+		return err
+	}
+	workers := 1
+	j.mu.Lock()
+	if j.grant != nil {
+		workers = j.grant.Connections
+	}
+	j.mu.Unlock()
+	return j.retryFetch(ctx, servers, workers, failed)
+}
+
+// retryOffSlot is the retry pass at the end of the transfer, which has given
+// its slot and grant back: it asks server again under a grant of its own
+// (holder suffix "/chase"), taken only once ArticleRetryDelay is over, so
+// nothing is held through the wait. A pass the health gate already spent
+// mid-transfer is not run again.
+func (j *job) retryOffSlot(ctx context.Context, server string) error {
+	j.retryMu.Lock()
+	defer j.retryMu.Unlock()
+	if j.retried || server == "" {
+		return nil
+	}
+	failed, err := j.retryDue(ctx)
+	if err != nil || len(failed) == 0 {
+		return err
+	}
+	for {
+		g, err := j.takeGrant(ctx, []string{server}, "/chase", 1)
+		if errors.Is(err, errTurnLost) {
+			// Paused while parked: wait the pause out, then ask again.
+			if err := j.waitWhilePaused(ctx); err != nil {
+				return err
+			}
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		err = j.retryFetch(ctx, []string{server}, g.Connections, failed)
+		j.give(context.WithoutCancel(ctx), g)
+		return err
+	}
+}
+
+// retryDue spends the job's one retry and returns the segments it asks for
+// again, once ArticleRetryDelay is over; none when nothing is missing or not
+// one article of the release arrived. The caller holds retryMu.
+func (j *job) retryDue(ctx context.Context) ([]seg, error) {
 	j.retried = true
 
 	j.mu.Lock()
@@ -405,26 +460,23 @@ func (j *job) retryFailedLocked(ctx context.Context) error {
 		// not caught in a gap, and asking again only delays the verdict
 		// (three minutes on one connection for a 28 GB release, 2026-09-30).
 		// A post too new to have propagated is waitForPropagation's case.
-		return nil
+		return nil, nil
 	}
 	failed := j.missingSegs()
 	if len(failed) == 0 {
-		return nil
+		return nil, nil
 	}
-
-	log := logging.FromContext(ctx)
-	log.InfoContext(ctx, "usenet: retrying missing articles once more",
+	logging.FromContext(ctx).InfoContext(ctx, "usenet: retrying missing articles once more",
 		"download", j.id, "articles", len(failed), "delay", j.client.cfg.ArticleRetryDelay)
 	if err := sleepCtx(ctx, j.client.cfg.ArticleRetryDelay); err != nil {
-		return err
+		return nil, err
 	}
+	return failed, nil
+}
 
-	workers := 1
-	j.mu.Lock()
-	if j.grant != nil {
-		workers = j.grant.Connections
-	}
-	j.mu.Unlock()
+// retryFetch is the retry pass's fetch of failed from servers on workers
+// connections, and its report.
+func (j *job) retryFetch(ctx context.Context, servers []string, workers int, failed []seg) error {
 	recovered, err := j.fetchMissing(ctx, servers, workers, failed)
 	if err != nil {
 		return err
@@ -432,7 +484,7 @@ func (j *job) retryFailedLocked(ctx context.Context) error {
 	j.mu.Lock()
 	lastErr := j.lastError
 	j.mu.Unlock()
-	log.InfoContext(ctx, "usenet: missing-article retry finished",
+	logging.FromContext(ctx).InfoContext(ctx, "usenet: missing-article retry finished",
 		"download", j.id, "recovered", recovered, "stillMissing", len(failed)-recovered, "lastError", lastErr)
 	return j.checkpoint()
 }
@@ -1054,6 +1106,7 @@ func (j *job) breach(ctx context.Context, detail string, cause error) error {
 		"set spec.paused to true and back to false to continue without the health check, " +
 		"or delete or blocklist the Download"
 	j.mu.Unlock()
+	j.client.turnChanged()
 	if err := j.checkpoint(); err != nil {
 		logging.FromContext(ctx).WarnContext(ctx, "usenet checkpoint failed", "download", j.id, "error", err)
 	}

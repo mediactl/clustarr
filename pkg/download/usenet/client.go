@@ -275,6 +275,12 @@ type Client struct {
 	mu    sync.Mutex
 	jobs  map[string]*job
 	slots map[*job]struct{}
+	// turnCh, under turnMu, is closed when a waiting job may have its turn
+	// ([Client.turnChanged]), and rank caches the highest class transferring
+	// ([Client.outranked]); both spare the client lock (priority.go).
+	turnMu sync.Mutex
+	turnCh chan struct{}
+	rank   rankCache
 	// scratch is each started job's scratch reservation and scratchHeld
 	// their total (scratch.go), written under mu; scratchHeld is read
 	// lock-free for a job's message.
@@ -488,6 +494,13 @@ type job struct {
 	// [download.Item.WaitingTurn] reports either.
 	waitingSlot atomic.Bool
 	waitingPost atomic.Bool
+	// holdsSlot mirrors the job's place in the client's slots, written under
+	// the client lock, so the per-batch turn check reads it without that
+	// lock. offSlot is set once the transfer gave its slot back for the
+	// end-of-transfer retry and chase ([job.transfer]), and cleared when a
+	// transfer starts.
+	holdsSlot atomic.Bool
+	offSlot   atomic.Bool
 	// waitingSpace is true while it waits for its scratch reservation
 	// ([Config.ScratchBudget]): a kind of waiting for a slot.
 	waitingSpace atomic.Bool
@@ -605,11 +618,16 @@ func (j *job) downloadedBytes() int64 {
 
 func (j *job) setStage(stage commonv1alpha1.DownloadStage, status download.Status) {
 	j.mu.Lock()
-	if stage != j.stage {
+	changed := stage != j.stage
+	if changed {
 		j.stageStarted = time.Now()
 	}
 	j.stage, j.status = stage, status
 	j.mu.Unlock()
+	if changed && j.client != nil {
+		// A job entering or leaving its transfer moves who outranks whom.
+		j.client.turnChanged()
+	}
 	_ = j.checkpoint()
 }
 
@@ -950,6 +968,7 @@ func (c *Client) forget(id string) {
 	}
 	delete(c.jobs, id)
 	c.mu.Unlock()
+	c.turnChanged() // its slot and scratch may be free now
 }
 
 // start detaches the job from the caller's context. The reconcile that called
@@ -1748,6 +1767,7 @@ func (c *Client) Pause(_ context.Context, id string) error {
 	}
 	j.mu.Unlock()
 	j.paused.Store(true)
+	c.turnChanged()
 	return j.checkpoint()
 }
 
@@ -1768,6 +1788,7 @@ func (c *Client) Resume(_ context.Context, id string) error {
 		return nil
 	}
 	j.paused.Store(false)
+	c.turnChanged()
 	return j.checkpoint()
 }
 
@@ -1782,6 +1803,7 @@ func (c *Client) SetPriority(_ context.Context, id string, priority commonv1alph
 	if !j.setPriority(priority) {
 		return nil
 	}
+	c.turnChanged()
 	return j.checkpoint()
 }
 

@@ -20,16 +20,41 @@ package usenet
 import (
 	"context"
 	"errors"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/download"
 )
 
-// turnPollInterval is how often a job waiting its turn -- paused, or
-// outranked by a higher-priority transfer -- looks again. It is the same
-// cadence the pause wait has always used.
+// turnPollInterval is how often a paused job looks again (waitWhilePaused).
 const turnPollInterval = 250 * time.Millisecond
+
+// turnWaitInterval is how long a job waiting its turn -- for a slot, or
+// behind a higher-priority transfer -- sleeps before it looks again when
+// nothing wakes it first ([Client.turnChanged]). Every look takes the client
+// lock, and on talos (2026-10-28) about 700 queued jobs looking four times a
+// second held it so busy that 92 of the transfers' 115 fetch workers sat
+// behind it at their per-batch turn check, and the engine received nothing
+// for half a minute at a time. A variable only so a test can take the
+// fallback away and see the wake alone.
+var turnWaitInterval = 2 * time.Second
+
+// rankMaxAge bounds how stale [Client.outranked]'s view of the highest class
+// transferring may be. A change of stage, pause, priority or job list makes
+// it stale at once ([Client.rankChanged]); the age covers a grant's status
+// flip, which moves none of those.
+const rankMaxAge = 200 * time.Millisecond
+
+// rankCache is the highest priority rank among the jobs transferring, as of
+// at (unix nanoseconds; 0 means stale). mu lets one caller refresh it while
+// the rest read the last value.
+type rankCache struct {
+	mu   sync.Mutex
+	at   atomic.Int64
+	high atomic.Int32
+}
 
 // priorityRank orders the three spec.priority classes. An empty value is the
 // CRD default, normal.
@@ -62,37 +87,105 @@ func priorityRank(p commonv1.DownloadPriority) int {
 // alongside a higher-class transfer. Jobs of the same class share the pool
 // as they always have.
 //
-// Lock order: the client lock, then each other job's lock. The caller must
-// hold neither.
+// Every transfer worker asks before each batch, so the answer comes from
+// [rankCache], refreshed at most every rankMaxAge by one caller: the job
+// list is walked once for all of them, not once per worker per batch. A job
+// past its transfer ([job.offSlot]) is never outranked; it holds no slot to
+// give back.
+//
+// Lock order: the client lock, then each job's lock. The caller must hold
+// neither.
 func (c *Client) outranked(j *job) bool {
+	if j.offSlot.Load() {
+		return false
+	}
 	mine := priorityRank(j.getPriority())
 	if mine == priorityRank(commonv1.DownloadPriorityHigh) {
 		return false
 	}
+	// j's own class never outranks j: the comparison is strict.
+	return int(c.highestTransferring()) > mine
+}
 
+// highestTransferring is the highest priority rank among the jobs
+// transferring, -1 when none is, from the cache when it is fresh.
+func (c *Client) highestTransferring() int32 {
+	r := &c.rank
+	fresh := func() bool {
+		at := r.at.Load()
+		return at != 0 && time.Since(time.Unix(0, at)) < rankMaxAge
+	}
+	if fresh() {
+		return r.high.Load()
+	}
+	// One caller refreshes; the rest go on with the last answer rather than
+	// queue behind the client lock the refresh takes.
+	if !r.mu.TryLock() {
+		return r.high.Load()
+	}
+	defer r.mu.Unlock()
+	if fresh() { // another caller refreshed it meanwhile
+		return r.high.Load()
+	}
+	// Stamped before the walk: a change during it marks the cache stale
+	// again (rankChanged) rather than being overwritten by this result.
+	at := time.Now().UnixNano()
+	r.at.Store(at)
 	c.mu.Lock()
-	others := make([]*job, 0, len(c.jobs))
+	jobs := make([]*job, 0, len(c.jobs))
 	for _, o := range c.jobs {
-		if o != j && priorityRank(o.getPriority()) > mine {
-			others = append(others, o)
-		}
+		jobs = append(jobs, o)
 	}
 	c.mu.Unlock()
-
-	for _, o := range others {
-		if o.transferring() {
-			return true
+	high := int32(-1)
+	for _, o := range jobs {
+		if rk := int32(priorityRank(o.getPriority())); rk > high && o.transferring() { //nolint:gosec // 0..2.
+			high = rk
 		}
 	}
-	return false
+	r.high.Store(high)
+	if r.at.Load() != at {
+		r.at.Store(0)
+	}
+	return high
+}
+
+// rankChanged marks the outranking cache stale, after a change of a job's
+// stage, pause, priority or presence.
+func (c *Client) rankChanged() { c.rank.at.Store(0) }
+
+// turnSignal is the channel turnChanged closes next. A waiter takes it
+// before it looks, so a change between its look and its wait still wakes it.
+func (c *Client) turnSignal() <-chan struct{} {
+	c.turnMu.Lock()
+	defer c.turnMu.Unlock()
+	if c.turnCh == nil {
+		c.turnCh = make(chan struct{})
+	}
+	return c.turnCh
+}
+
+// turnChanged wakes every job waiting its turn: a slot or scratch came free,
+// or a job's stage, pause, priority or presence changed, any of which may
+// let one of them run. It also marks the outranking cache stale.
+func (c *Client) turnChanged() {
+	c.rankChanged()
+	c.turnMu.Lock()
+	if c.turnCh != nil {
+		close(c.turnCh)
+		c.turnCh = nil
+	}
+	c.turnMu.Unlock()
 }
 
 // transferring reports whether j is in its article-fetching stage and not
 // paused. A job that is itself waiting on a higher class still counts: the
 // higher class is running either way, so a lower one is outranked either
-// way.
+// way. A job past its transfer, retrying or chasing its missing articles
+// without a slot ([job.offSlot]), does not: it asks for a handful of
+// articles, and a lower class's transfer has no reason to stop for it.
 func (j *job) transferring() bool {
-	if j.paused.Load() {
+	if j.paused.Load() || j.offSlot.Load() {
 		return false
 	}
 	j.mu.Lock()
@@ -147,15 +240,20 @@ func (j *job) waitForTurn(ctx context.Context) error { return j.waitTurn(ctx, tr
 func (j *job) waitTurn(ctx context.Context, withGrant bool) error {
 	waited := false
 	for {
+		turn := j.client.turnSignal()
+		wait := turnWaitInterval
 		switch {
 		case j.paused.Load():
 			j.client.releaseSlot(j)
 			j.giveGrant(ctx)
+			wait = turnPollInterval
 		case j.client.outranked(j):
 			j.client.releaseSlot(j)
 			j.giveGrant(ctx)
 			j.waitingSlot.Store(true)
-		case j.client.admit(j):
+		// A holder answers from its own flag: a transfer worker asks before
+		// every batch, and the client lock is the queue's (turnWaitInterval).
+		case j.holdsSlot.Load() || j.client.admit(j):
 			j.waitingSlot.Store(false)
 			if waited {
 				j.mu.Lock()
@@ -182,7 +280,8 @@ func (j *job) waitTurn(ctx context.Context, withGrant bool) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(turnPollInterval):
+		case <-turn:
+		case <-time.After(wait):
 		}
 	}
 }
@@ -219,16 +318,23 @@ func (c *Client) admit(j *job) bool {
 	}
 	j.waitingSpace.Store(false)
 	c.slots[j] = struct{}{}
+	j.holdsSlot.Store(true)
 	return true
 }
 
-// releaseSlot gives back j's transfer slot, if it holds one.
+// releaseSlot gives back j's transfer slot, if it holds one, and wakes the
+// jobs waiting for one.
 func (c *Client) releaseSlot(j *job) {
 	j.waitingSlot.Store(false)
 	j.waitingSpace.Store(false)
+	if !j.holdsSlot.Load() {
+		return
+	}
 	c.mu.Lock()
 	delete(c.slots, j)
+	j.holdsSlot.Store(false)
 	c.mu.Unlock()
+	c.turnChanged()
 }
 
 // jobAhead reports whether a takes a free transfer slot before b: the

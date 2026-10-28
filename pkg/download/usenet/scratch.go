@@ -66,8 +66,9 @@ func (c *Client) releaseScratchLocked(j *job) {
 // ScratchDir.
 func (c *Client) releaseScratch(j *job) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	c.releaseScratchLocked(j)
+	c.mu.Unlock()
+	c.turnChanged() // a job waiting for space may fit now
 }
 
 // scratchWaitMessage is a job's message while it waits for space. It reads

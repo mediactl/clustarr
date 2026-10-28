@@ -106,7 +106,10 @@ func TestASingleServerJobFailsAsMissingWithoutParking(t *testing.T) {
 	require.Equal(t, download.StatusFailed, it.Status)
 	require.Equal(t, commonv1.DownloadFailureMissingArticles, it.FailureReason)
 	require.Less(t, time.Since(start), ledgerPollInterval, "the job parked for a server it had already tried")
-	require.Equal(t, int32(1), ledger.takes.Load(), "only the transfer's own grant is taken")
+	// The transfer's grant, then the end-of-transfer retry's own on the same
+	// server, taken after the transfer gave its slot and grant back; the
+	// chase takes none, there being no other server.
+	require.Equal(t, int32(2), ledger.takes.Load(), "only the transfer's grant and the retry's are taken")
 }
 
 // A backup server fills exactly the missing articles, under a grant.
