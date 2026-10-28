@@ -34,7 +34,6 @@ import (
 	"github.com/mediactl/clustarr/ui/actions"
 )
 
-
 func TestEditChannelsSendsOneMergePatchPerChannelUnderItsResourceVersion(t *testing.T) {
 	w := &fakeWriter{}
 	got, err := actions.EditChannels(t.Context(), w, "media", []actions.ChannelEdit{
