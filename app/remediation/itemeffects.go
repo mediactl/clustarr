@@ -38,6 +38,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/obs/metrics"
 )
 
 // The item effect kinds (ADR-0019 A3.3).
@@ -194,6 +195,36 @@ func (ir *ItemReconciler) runItemEffect(ctx context.Context, item client.Object,
 	switch e := eff.(type) {
 	case Publish, History:
 		return ir.runBusEffect(ctx, eff)
+	case RecordWrite:
+		// An item stage's request record (the image-set stage's
+		// clustarr-image-sets request), written as the file path writes
+		// one: a create at revision 0, else an update at the read revision.
+		// Until 2026-10-28 this case was missing, and every Movie and
+		// Series pass that asked MediUX failed here.
+		kv := ir.Env.Bus.KV(e.Bucket)
+		var err error
+		if e.Revision == 0 {
+			_, err = kv.Create(ctx, e.Key, e.Value)
+		} else {
+			_, err = kv.Update(ctx, e.Key, e.Value, e.Revision)
+		}
+		if err != nil && !IsCASMiss(err) {
+			return Transient(fmt.Errorf("record %s/%s: %w", e.Bucket, e.Key, err))
+		}
+		if err != nil {
+			return err
+		}
+		if e.Remediation != "" {
+			metrics.RecordRequestsTotal.WithLabelValues(e.Remediation, e.Lane).Inc()
+		}
+		if e.Pace != "" && ir.Env.Pacer != nil {
+			key := e.Key
+			if item != nil {
+				key = string(item.GetUID())
+			}
+			ir.Env.Pacer.Consume(e.Pace, key)
+		}
+		return nil
 	case DispatchPublish:
 		if err := ir.runBusEffect(ctx, e.Publish); err != nil {
 			return err

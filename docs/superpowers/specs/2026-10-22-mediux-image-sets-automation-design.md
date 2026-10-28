@@ -342,6 +342,17 @@ GraphQL error from that query alone (`mediux.ErrQuery`, read from the
 body of Directus' HTTP 400 too) leaves the film with its movie sets, since it was not recorded live, while a limit, an auth
 failure or a transport error fails the lookup as before.
 
+**Switched on (talos, 2026-10-28).** The first provider exposed two gaps
+the stage had carried since 2026-10-22: the item pass's effect runner had no
+case for `RecordWrite`, so every request failed ("unknown item effect
+remediation.RecordWrite") and nothing was published; and nothing woke an
+item when a provider turned up, since an item with no image set and no
+provider is never due. `ItemReconciler.runItemEffect` now writes the record
+as the file path does, and source S33 (a mediux MetadataProvider created,
+deleted, edited or turning Ready) enqueues its namespace's Movies and
+Series at low priority, the dispatch ledger admitting the lookups eight at
+a time.
+
 **Fallback** is per slot and unchanged: `spec.artwork` and
 `spec.seasonArtwork` first, then the composed `status.imageSet`, then the
 providers' images (TMDB, TheTVDB, fanart.tv by priority).

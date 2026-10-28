@@ -24,8 +24,13 @@ import (
 	"strconv"
 	"time"
 
+	"k8s.io/client-go/util/workqueue"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/priorityqueue"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
@@ -37,6 +42,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/records/recordsource"
 )
 
@@ -233,5 +239,74 @@ func (s *Stage) Sources(ctrl.Manager) ([]remediation.Source, error) {
 		}
 		return []remediation.Key{{Kind: k, Namespace: item.Namespace, Name: item.Name}}
 	})
-	return []remediation.Source{{Name: "S27/" + events.BucketImageSets, Raw: src}}, nil
+	wake := func(ctx context.Context, o client.Object, q workqueue.TypedRateLimitingInterface[remediation.Key]) {
+		wakeLow(q, itemsOf(ctx, s.o.Reader, o.GetNamespace()))
+	}
+	return []remediation.Source{
+		{Name: "S27/" + events.BucketImageSets, Raw: src},
+		// A mediux provider created, deleted, edited or turning Ready wakes
+		// its namespace's Movies and Series: an item with no image set and
+		// no provider is due never, so without this nothing was asked once
+		// a provider went Ready (talos, 2026-10-28). Low priority: the
+		// dispatch ledger admits the lookups a few at a time anyway.
+		{
+			Name: "S33/MetadataProvider", Object: &catalogv1alpha1.MetadataProvider{},
+			Handler: handler.TypedFuncs[client.Object, remediation.Key]{
+				CreateFunc: func(ctx context.Context, e event.TypedCreateEvent[client.Object], q workqueue.TypedRateLimitingInterface[remediation.Key]) {
+					wake(ctx, e.Object, q)
+				},
+				UpdateFunc: func(ctx context.Context, e event.TypedUpdateEvent[client.Object], q workqueue.TypedRateLimitingInterface[remediation.Key]) {
+					wake(ctx, e.ObjectNew, q)
+				},
+				DeleteFunc: func(ctx context.Context, e event.TypedDeleteEvent[client.Object], q workqueue.TypedRateLimitingInterface[remediation.Key]) {
+					wake(ctx, e.Object, q)
+				},
+			},
+			Predicates: []predicate.Predicate{k8s.And(predicate.NewPredicateFuncs(isMediux), k8s.Or(k8s.GenerationChanged(), k8s.StatusFieldChanged(providerReady)))},
+		},
+	}, nil
+}
+
+// isMediux is whether o is a mediux MetadataProvider.
+func isMediux(o client.Object) bool {
+	p, ok := o.(*catalogv1alpha1.MetadataProvider)
+	return ok && p.Spec.Type == catalogv1alpha1.MetadataProviderMediux
+}
+
+// providerReady is a provider's Ready condition, which a turn of wakes
+// its namespace's items.
+func providerReady(o client.Object) bool {
+	p, ok := o.(*catalogv1alpha1.MetadataProvider)
+	return ok && k8s.IsConditionTrue(p.Status.Conditions, catalogv1alpha1.MetadataProviderConditionReady)
+}
+
+// itemsOf is every Movie and Series key in ns, from the cache.
+func itemsOf(ctx context.Context, r client.Reader, ns string) []remediation.Key {
+	var keys []remediation.Key
+	var movies catalogv1alpha1.MovieList
+	if err := r.List(ctx, &movies, client.InNamespace(ns), client.UnsafeDisableDeepCopy); err != nil {
+		logging.FromContext(ctx).Error("imageset: list Movies for a mediux provider change", "namespace", ns, "err", err)
+	}
+	for i := range movies.Items {
+		keys = append(keys, remediation.Key{Kind: remediation.KindMovie, Namespace: ns, Name: movies.Items[i].Name})
+	}
+	var series catalogv1alpha1.SeriesList
+	if err := r.List(ctx, &series, client.InNamespace(ns), client.UnsafeDisableDeepCopy); err != nil {
+		logging.FromContext(ctx).Error("imageset: list Series for a mediux provider change", "namespace", ns, "err", err)
+	}
+	for i := range series.Items {
+		keys = append(keys, remediation.Key{Kind: remediation.KindSeries, Namespace: ns, Name: series.Items[i].Name})
+	}
+	return keys
+}
+
+// wakeLow enqueues keys at handler.LowPriority when q is a priority queue.
+func wakeLow(q workqueue.TypedRateLimitingInterface[remediation.Key], keys []remediation.Key) {
+	if pq, ok := q.(priorityqueue.PriorityQueue[remediation.Key]); ok {
+		pq.AddWithOpts(priorityqueue.AddOpts{Priority: new(handler.LowPriority)}, keys...)
+		return
+	}
+	for _, k := range keys {
+		q.Add(k)
+	}
 }
