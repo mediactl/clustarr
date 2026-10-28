@@ -229,7 +229,7 @@ func (r *Reconciler) planBlocks(ctx context.Context, p *clustarrv1.IPTVProvider,
 				bs.DeviceID = p.Spec.Device.ID
 			}
 		}
-		bs.Endpoint = tuner.DeviceEndpoint(types.NamespacedName{Namespace: p.Namespace, Name: p.Name}, bs.DeviceID)
+		bs.Endpoint = tuner.DeviceEndpoint(bs.DeviceID)
 		if bs.Port == 0 || taken[bs.Port] || usedByOthers(bs.Port) {
 			port, err := allocate()
 			if err != nil {

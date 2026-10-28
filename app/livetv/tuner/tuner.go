@@ -345,6 +345,26 @@ func (t *Tuner) lookup(key types.NamespacedName) *provider {
 	return t.providers[key]
 }
 
+// lookupDevice is the provider one of whose blocks is deviceID; nil when
+// none is.
+func (t *Tuner) lookupDevice(deviceID string) *provider {
+	t.mu.Lock()
+	providers := make([]*provider, 0, len(t.providers))
+	for _, p := range t.providers {
+		providers = append(providers, p)
+	}
+	t.mu.Unlock()
+	for _, p := range providers {
+		p.mu.Lock()
+		_, ok := p.blocks[deviceID]
+		p.mu.Unlock()
+		if ok {
+			return p
+		}
+	}
+	return nil
+}
+
 // Snapshot returns what the tuner knows of a provider; false for one it
 // does not serve.
 func (t *Tuner) Snapshot(key types.NamespacedName) (Snapshot, bool) {

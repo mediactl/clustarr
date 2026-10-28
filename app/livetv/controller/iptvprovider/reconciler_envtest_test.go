@@ -251,7 +251,7 @@ func TestAProviderPublishesItsBlocksAddressAndTunerConfig(t *testing.T) {
 		assert.Equal(t, hdhr.BlockDeviceID(h.ns, "news", start), b.DeviceID)
 		assert.Equal(t, "Clustarr news "+start+"+", b.FriendlyName)
 		assert.Equal(t, iptvprovider.BlockGuidePath, b.GuidePath)
-		assert.Equal(t, tuner.DeviceEndpoint(h.key("news"), b.DeviceID), b.Endpoint, "the path its port's proxy sends every request below")
+		assert.Equal(t, tuner.DeviceEndpoint(b.DeviceID), b.Endpoint, "the path Plex is given")
 		assert.NotZero(t, b.MapBytes)
 	}
 	assert.Equal(t, []string{"1000", "1002"}, []string{p.Status.Blocks[0].First, p.Status.Blocks[0].Last})

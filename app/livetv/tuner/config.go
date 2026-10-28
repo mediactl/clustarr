@@ -83,18 +83,17 @@ type Config struct {
 }
 
 // BlockConfig is one block: one emulated HDHomeRun, served at its
-// DeviceEndpoint, which the Plex pods' proxies send the block's port to.
+// DeviceEndpoint on the livetv Service, which Plex is given directly.
 type BlockConfig struct {
 	Start, DeviceID, FriendlyName string
 	// Numbers are the block's active channel numbers.
 	Numbers []string
 }
 
-// DeviceEndpoint is the path a block's device is served under, on the
-// livetv Service.
-func DeviceEndpoint(key types.NamespacedName, deviceID string) string {
-	return "/livetv/" + key.Namespace + "/" + key.Name + "/devices/" + deviceID
-}
+// DeviceEndpoint is the path a block's device is served under on the
+// livetv Service, /hdhr/<deviceID>: DeviceIDs are unique across the
+// cluster, so the id alone names one block of one provider.
+func DeviceEndpoint(deviceID string) string { return "/hdhr/" + deviceID }
 
 // ChannelConfig is one IPTVChannel. Map nil with DummyMinutes > 0 is an
 // explicit dummy guide; Map nil with DummyMinutes 0 is mapped by tvg-id or

@@ -164,18 +164,12 @@ func (p *provider) count(path string) int32 {
 	return c.(*atomic.Int32).Load()
 }
 
-// The fixture provider's two blocks, as the controller packs them: Plex
-// reaches each through its pod's proxy at 169.254.47.1:<port>, which sends
-// every request below the block's device endpoint.
+// The fixture provider's two blocks, as the controller packs them: Plex is
+// given each at /hdhr/<deviceID> on the livetv Service.
 var (
 	deviceA = hdhr.BlockDeviceID("media", "news", "1001")
 	deviceB = hdhr.BlockDeviceID("media", "news", "1004")
 )
-
-// proxied are the headers a Plex pod's proxy on port sends.
-func proxied(port int) http.Header {
-	return http.Header{"X-Forwarded-Host": {fmt.Sprintf("169.254.47.1:%d", port)}, "X-Forwarded-Prefix": {"/"}}
-}
 
 func config(srv string) tuner.Config {
 	return tuner.Config{
@@ -288,8 +282,8 @@ func (h *harness) fetched(t *testing.T) tuner.Snapshot {
 	return snap
 }
 
-// device is a path under block id's device endpoint.
-func device(id, file string) string { return tuner.DeviceEndpoint(key, id) + "/" + file }
+// device is a path under block id's device, /hdhr/<id>.
+func device(id, file string) string { return "/hdhr/" + id + "/" + file }
 
 func lineupOf(t *testing.T, body string) []hdhr.LineupEntry {
 	t.Helper()
@@ -351,48 +345,94 @@ func TestAPlaylistMayAnswerSlowerThanAStream(t *testing.T) {
 	assert.Len(t, lineupOf(t, body), 3)
 }
 
-// TestEachDeviceServesOnlyItsBlockUnderTheURLsPlexCameBy: a block's device
-// endpoint serves its numbers, and every URL it hands out roots at the proxy
-// port Plex came by when the proxy names it, else at the endpoint itself.
-func TestEachDeviceServesOnlyItsBlockUnderTheURLsPlexCameBy(t *testing.T) {
+// TestABlockIsServedUnderHDHRByItsID: Plex is given each block at
+// /hdhr/<deviceID> on the livetv Service, and every URL the device hands out
+// is built from the Host Plex dialled and that path.
+func TestABlockIsServedUnderHDHRByItsID(t *testing.T) {
 	p := newProvider(t)
 	h := start(t, newStore(t), config(p.srv.URL))
 	h.fetched(t)
 
-	resp := h.do(t, "livetv.media.svc", device(deviceA, "lineup.json"), proxied(47012))
+	resp := h.do(t, "clustarr-livetv.media.svc.cluster.local:80", device(deviceA, "lineup.json"), nil)
 	b, _ := io.ReadAll(resp.Body)
 	_ = resp.Body.Close()
 	assert.Equal(t, []hdhr.LineupEntry{
-		{GuideNumber: "1001", GuideName: "BBC One", URL: "http://169.254.47.1:47012/stream/1001"},
-		{GuideNumber: "1002", GuideName: "News, Live", URL: "http://169.254.47.1:47012/stream/1002"},
-	}, lineupOf(t, string(b)), "block 1001's numbers only; the duplicate 1001 (news-d sorts after news-a) and the missing 1003 are absent")
+		{GuideNumber: "1001", GuideName: "BBC One", URL: "http://clustarr-livetv.media.svc.cluster.local:80/hdhr/" + deviceA + "/stream/1001"},
+		{GuideNumber: "1002", GuideName: "News, Live", URL: "http://clustarr-livetv.media.svc.cluster.local:80/hdhr/" + deviceA + "/stream/1002"},
+	}, lineupOf(t, string(b)), "the Host as PMS dialled it, the device's path, block 1001's numbers only "+
+		"(the duplicate 1001, news-d, sorts after news-a; the missing 1003 is absent)")
 	assert.NotEmpty(t, resp.Header.Get("ETag"))
 
-	_, body := h.get(t, "anything", device(deviceB, "lineup.json"))
-	assert.Equal(t, []hdhr.LineupEntry{
-		{GuideNumber: "1004", GuideName: "No Attributes", URL: "http://anything" + tuner.DeviceEndpoint(key, deviceB) + "/stream/1004"},
-	}, lineupOf(t, body), "without a proxy's headers, the endpoint's own URLs")
-
-	for _, c := range []struct {
-		id   string
-		port int
-	}{{deviceA, 47012}, {deviceB, 47013}} {
-		resp := h.do(t, "livetv.media.svc", device(c.id, "discover.json"), proxied(c.port))
-		b, _ := io.ReadAll(resp.Body)
-		_ = resp.Body.Close()
+	for _, id := range []string{deviceA, deviceB} {
+		_, body := h.get(t, "anything", device(id, "discover.json"))
 		var d map[string]any
-		require.NoError(t, json.Unmarshal(b, &d))
-		base := fmt.Sprintf("http://169.254.47.1:%d", c.port)
-		assert.Equal(t, c.id, d["DeviceID"])
-		assert.Equal(t, base, d["BaseURL"])
-		assert.Equal(t, base+"/lineup.json", d["LineupURL"])
+		require.NoError(t, json.Unmarshal([]byte(body), &d))
+		assert.Equal(t, id, d["DeviceID"])
+		assert.Equal(t, "http://anything/hdhr/"+id, d["BaseURL"])
+		assert.Equal(t, "http://anything/hdhr/"+id+"/lineup.json", d["LineupURL"])
 		assert.Equal(t, float64(1+tuner.SpareTuners), d["TunerCount"], "PMS may hold grabs the relay no longer streams; the relay's 503 is the limit")
 	}
 
 	code, _ := h.get(t, "x", device("FFFFFFFF", "discover.json"))
-	assert.Equal(t, http.StatusNotFound, code, "a device the provider has not")
+	assert.Equal(t, http.StatusNotFound, code, "a device no provider has")
+	code, _ = h.get(t, "x", "/hdhr/"+deviceA)
+	assert.Equal(t, http.StatusNotFound, code, "a device names a file")
 	code, _ = h.get(t, "x", "/discover.json")
-	assert.Equal(t, http.StatusNotFound, code, "no root route: a proxy sends every request below an endpoint")
+	assert.Equal(t, http.StatusNotFound, code, "no root route")
+	code, _ = h.get(t, "x", "/livetv/media/news/devices/"+deviceA+"/discover.json")
+	assert.Equal(t, http.StatusNotFound, code, "the old device route is gone")
+	assert.Equal(t, "/hdhr/"+deviceA, tuner.DeviceEndpoint(deviceA))
+}
+
+// TestForwardedHostAndProtoAreHonouredAndPrefixIsNot: a Gateway in front of
+// the tuner may name the host and scheme the client used; the path is the
+// request's own.
+func TestForwardedHostAndProtoAreHonouredAndPrefixIsNot(t *testing.T) {
+	p := newProvider(t)
+	h := start(t, newStore(t), config(p.srv.URL))
+	h.fetched(t)
+	resp := h.do(t, "internal", device(deviceA, "discover.json"),
+		http.Header{"X-Forwarded-Host": {"tv.example.com"}, "X-Forwarded-Proto": {"https"}, "X-Forwarded-Prefix": {"/elsewhere"}})
+	b, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	var d map[string]any
+	require.NoError(t, json.Unmarshal(b, &d))
+	assert.Equal(t, "https://tv.example.com/hdhr/"+deviceA, d["BaseURL"], "the path is the request's; a prefix header changes nothing")
+}
+
+// TestTwoProvidersBlocksNeverAnswerEachOther: /hdhr/<id> names one block of
+// one provider, without the namespace or name, since DeviceIDs are unique
+// across the cluster.
+func TestTwoProvidersBlocksNeverAnswerEachOther(t *testing.T) {
+	p := newProvider(t)
+	h := start(t, newStore(t), config(p.srv.URL))
+	sportKey := types.NamespacedName{Namespace: "media", Name: "sport"}
+	sportID := hdhr.BlockDeviceID("media", "sport", "2001")
+	h.tn.Apply(tuner.Config{
+		Key: sportKey, Server: p.srv.URL, Username: "user", Password: "pass",
+		Blocks:    []tuner.BlockConfig{{Start: "2001", DeviceID: sportID, FriendlyName: "Clustarr sport 2001+", Numbers: []string{"2001"}}},
+		UserAgent: "clustarr", Every: time.Hour, EPGSource: "XEPG",
+		Filters:  []filter.Rule{{Type: "custom", Match: "Sports 1", Enabled: true}},
+		Channels: []tuner.ChannelConfig{{Object: "sport-a", Key: m3u.NameKey("Sports", "Sports 1"), Number: "2001", Active: true}},
+		Buffer:   1 << 20, Linger: time.Second,
+	})
+	h.fetched(t)
+	var sport []hdhr.LineupEntry
+	require.Eventually(t, func() bool {
+		code, body := h.get(t, "x", device(sportID, "lineup.json"))
+		if code != http.StatusOK {
+			return false
+		}
+		sport = lineupOf(t, body)
+		return len(sport) > 0
+	}, 5*time.Second, 10*time.Millisecond)
+	assert.Equal(t, []hdhr.LineupEntry{{GuideNumber: "2001", GuideName: "Sports 1", URL: "http://x/hdhr/" + sportID + "/stream/2001"}}, sport)
+	_, body := h.get(t, "x", device(deviceA, "lineup.json"))
+	var numbers []string
+	for _, e := range lineupOf(t, body) {
+		numbers = append(numbers, e.GuideNumber)
+	}
+	assert.Equal(t, []string{"1001", "1002"}, numbers, "news's block answers its own numbers only")
 }
 
 func TestALineupHashDoesNotDependOnTheHost(t *testing.T) {
@@ -712,7 +752,7 @@ func TestAStreamRequestReachesTheRelay(t *testing.T) {
 	h := start(t, newStore(t), config(p.srv.URL))
 	h.fetched(t)
 	// A stream is the provider's: block 1004's device serves 1001 too.
-	resp := h.do(t, "livetv.media.svc", device(deviceB, "stream/1001"), proxied(47013))
+	resp := h.do(t, "livetv.media.svc", device(deviceB, "stream/1001"), nil)
 	defer func() { _ = resp.Body.Close() }()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Equal(t, "video/mp2t", resp.Header.Get("Content-Type"))

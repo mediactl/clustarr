@@ -49,20 +49,18 @@ const SpareTuners = 3
 func AdvertisedTuners(tuners int) int { return tuners + SpareTuners }
 
 // Handler serves every provider's HDHomeRun surfaces (spec §5.0, §5.3,
-// amended by 2026-10-20-iptv-xtream-ranges-design.md):
+// amended by 2026-10-20-iptv-xtream-ranges-design.md and
+// 2026-10-27-livetv-direct-tuners-and-ui-design.md §3.1):
 //
-//   - /livetv/<ns>/<name>/devices/<deviceID>/<file>: one block's device,
-//     the endpoint its port's proxy in each Plex pod sends every request
-//     below;
+//   - /hdhr/<deviceID>/<file>: one block's device, the URL Plex is given;
 //   - /livetv/<ns>/<name>/<file>?from=<n>&to=<n>: any range of the
 //     provider's lineup, either end optional, for any client;
 //
 // with <file> discover.json, lineup_status.json, lineup.json, lineup.post,
 // device.xml, xmltv.xml, playlist.m3u or stream/<number>. Every URL handed
-// out is built from the request -- X-Forwarded-Host and X-Forwarded-Prefix
-// when a proxy names them, else its Host and path -- so Plex's later
-// requests come back through the proxy port it first came by. lineup.json
-// and xmltv.xml carry an ETag of their body.
+// out is built from the request's Host (X-Forwarded-Host and -Proto when a
+// Gateway names them) and its own path, so a client comes back the way it
+// came. lineup.json and xmltv.xml carry an ETag of their body.
 func (t *Tuner) Handler() http.Handler { return http.HandlerFunc(t.serveHTTP) }
 
 // channelRange is a request's from and to.
@@ -95,9 +93,9 @@ func (r channelRange) query() string {
 	return "?" + v.Encode()
 }
 
-// baseURL is where the client reached prefix: the proxy's X-Forwarded-Host
-// and X-Forwarded-Prefix when it sends them, else the request's own Host and
-// prefix.
+// baseURL is where the client reached prefix: the request's Host, or the
+// X-Forwarded-Host a Gateway in front of the tuner names, and the scheme
+// X-Forwarded-Proto names. The path is the request's own.
 func baseURL(r *http.Request, prefix string) string {
 	host := r.Host
 	if h := r.Header.Get("X-Forwarded-Host"); h != "" {
@@ -107,13 +105,20 @@ func baseURL(r *http.Request, prefix string) string {
 	if r.Header.Get("X-Forwarded-Proto") == "https" {
 		scheme = "https"
 	}
-	if pre, ok := r.Header["X-Forwarded-Prefix"]; ok && len(pre) > 0 {
-		prefix = strings.TrimRight(pre[0], "/")
-	}
 	return scheme + "://" + host + prefix
 }
 
 func (t *Tuner) serveHTTP(w http.ResponseWriter, r *http.Request) {
+	if after, ok := strings.CutPrefix(r.URL.Path, "/hdhr/"); ok {
+		deviceID, file, ok := strings.Cut(after, "/")
+		p := t.lookupDevice(deviceID)
+		if !ok || file == "" || p == nil {
+			http.NotFound(w, r)
+			return
+		}
+		t.serveDevice(w, r, p, deviceID, file, DeviceEndpoint(deviceID))
+		return
+	}
 	after, ok := strings.CutPrefix(r.URL.Path, "/livetv/")
 	parts := strings.SplitN(after, "/", 3)
 	if !ok || len(parts) < 3 || parts[0] == "" || parts[1] == "" {
@@ -121,21 +126,16 @@ func (t *Tuner) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	key, rest := types.NamespacedName{Namespace: parts[0], Name: parts[1]}, parts[2]
-	prefix := "/livetv/" + parts[0] + "/" + parts[1]
 	p := t.lookup(key)
 	if p == nil {
 		http.NotFound(w, r)
 		return
 	}
-	if dev, file, isDevice := strings.Cut(strings.TrimPrefix(rest, "devices/"), "/"); strings.HasPrefix(rest, "devices/") && isDevice {
-		t.serveDevice(w, r, p, key, dev, file, prefix+"/devices/"+dev)
-		return
-	}
-	t.serveRange(w, r, p, key, rest, prefix)
+	t.serveRange(w, r, p, key, rest, "/livetv/"+parts[0]+"/"+parts[1])
 }
 
 // serveDevice serves one block's device.
-func (t *Tuner) serveDevice(w http.ResponseWriter, r *http.Request, p *provider, key types.NamespacedName, deviceID, file, prefix string) {
+func (t *Tuner) serveDevice(w http.ResponseWriter, r *http.Request, p *provider, deviceID, file, prefix string) {
 	base := baseURL(r, prefix)
 	p.mu.Lock()
 	sf := p.blocks[deviceID]

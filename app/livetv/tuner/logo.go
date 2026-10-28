@@ -45,9 +45,10 @@ import (
 // ESPN on tvload.win, from the playlist and the guide alike), invisible on
 // Plex's dark guide. The tuner serves every channel's logo itself, at
 // logos/<number>.png under each device and range, recoloured white when it
-// is dark text on transparency, and the guide's and playlist's logo URLs
-// point there; PMS fetches them through the same proxy port as the guide.
-// The processed logo is cached in the Live TV store by its source URL.
+// is dark text on transparency. No guide names it: PMS 1.43.5 refuses the
+// tuner's cluster address as an image's destination, so a guide carries
+// each logo's own URL (render.go). The processed logo is cached in the Live
+// TV store by its source URL.
 const (
 	// logoPlaceholder stands for the device's base URL in a rendered guide
 	// or playlist, which is built before any request names the base; the
