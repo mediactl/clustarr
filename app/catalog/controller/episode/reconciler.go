@@ -135,13 +135,54 @@ func RegisterIndexes(ctx context.Context, idx client.FieldIndexer) error {
 // through the file signature (loop spec §2.14).
 func (r *Reconciler) Watches() []rollup.Watch {
 	return []rollup.Watch{
-		{Object: &catalogv1alpha1.Episode{}, Map: rollup.Self, Predicates: []predicate.Predicate{episodePredicate()}},
-		{Object: &catalogv1alpha1.QualityProfile{}, Map: r.mapQualityProfile, Predicates: []predicate.Predicate{k8s.GenerationChanged()}},
+		{Object: &catalogv1alpha1.Episode{}, Map: rollup.Self, Predicates: []predicate.Predicate{episodePredicate()}, SkipInitial: r.idleAtStart},
+		// A QualityProfile's initial-list create is no edit: the Episodes'
+		// own watch lists each of them at the same start.
+		{Object: &catalogv1alpha1.QualityProfile{}, Map: r.mapQualityProfile, Predicates: []predicate.Predicate{k8s.GenerationChanged()}, SkipInitial: rollup.InitialList},
 		{Object: &catalogv1alpha1.Series{}, Map: r.mapSeries, Predicates: []predicate.Predicate{seriesMonitoredChanged()}},
 	}
 }
 
 var _ rollup.Item = (*Reconciler)(nil)
+
+// idleAtStart is the Episode watch's SkipInitial: idleAtStart over o and its
+// Series as the cache holds them.
+func (r *Reconciler) idleAtStart(ctx context.Context, o client.Object) bool {
+	ep, ok := o.(*catalogv1alpha1.Episode)
+	if !ok {
+		return false
+	}
+	var ser catalogv1alpha1.Series
+	if err := r.Get(ctx, client.ObjectKey{Namespace: ep.Namespace, Name: ep.Spec.SeriesRef}, &ser); err != nil {
+		return idleAtStart(ep, nil)
+	}
+	return idleAtStart(ep, &ser)
+}
+
+// idleAtStart reports an Episode whose pass at a manager's start would change
+// nothing, so the cache's initial list leaves it to its watches (owner,
+// 2026-10-28: a start queued all 28,945 Episodes, 16,699 of them
+// unmonitored): its spec observed, no grab, pending grab or search in flight,
+// no dub wanted, and either unmonitored -- its own flag or its Series' -- or
+// transcoded, which is final. A wanted, unaired, imported or cutoff-unmet
+// Episode has a timer or work, and one whose Series the cache lacks is
+// enqueued as before.
+func idleAtStart(ep *catalogv1alpha1.Episode, series *catalogv1alpha1.Series) bool {
+	st := ep.Status
+	if series == nil || st.ObservedGeneration != ep.Generation || st.ActiveDownloadRef != nil ||
+		st.DownloadPhase != "" || st.PendingGrab != nil || st.SearchDispatch.InFlight() ||
+		(st.Audio != nil && len(st.Audio.Missing) > 0) {
+		return false
+	}
+	monitored := ptr.Deref(ep.Spec.Monitored, true) && ptr.Deref(series.Spec.Monitored, true)
+	switch st.Phase {
+	case catalogv1alpha1.EpisodePhaseUnmonitored:
+		return !monitored
+	case catalogv1alpha1.EpisodePhaseTranscoded:
+		return true
+	}
+	return false
+}
 
 // episodePredicate wakes an Episode on a spec change (GenerationChanged,
 // e.g. a user editing spec.monitored) or on the Series reconciler's own

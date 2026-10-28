@@ -2018,7 +2018,19 @@ too; bump the tag in go.mod and go.sum to take a new fork release.
   watched object's related objects up through a field index (the remediation
   loop's `remediation.mediafile.item`, `app/remediation/mfindex`, which
   replaced `app/caption/itemindex` and eight other MediaFile indexes in the
-  fold), never a filtered namespace List.
+  fold), never a filtered namespace List. The initial list also queues every
+  key the loop has at low priority: on 2026-10-28 that was 39,296 keys
+  (28,945 Episodes, 16,699 of them unmonitored), which 16 workers drained at
+  about 15 a second while the day's work arrived as fast, so the backlog never
+  shrank. An item watch's `rollup.Watch.SkipInitial` leaves out of the
+  initial list what it calls idle -- an Episode unmonitored or transcoded with
+  nothing in flight (`episode.idleAtStart`) -- and a file's or
+  QualityProfile's initial-list create wakes no item, since every item's own
+  watch lists it at the same start. The manager serves pprof on
+  `127.0.0.1:6060` by default (`ctrlflags.ManagerPprofAddress`), and
+  `clustarr_remediation_pass_seconds{kind,phase}` and
+  `clustarr_remediation_effect_seconds{planner,effect}` say where a slow
+  pass spends its time.
 - **On kind, loading an image into the node stalls etcd, and every lease
   with it.** `kind load docker-image` unpacks gigabytes into the node's
   containerd store, which shares a disk with etcd; etcd's WAL fsync then

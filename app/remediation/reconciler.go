@@ -166,7 +166,22 @@ func (r *Reconciler) Reconcile(ctx context.Context, k Key) (reconcile.Result, er
 	if k.Kind != KindMediaFile {
 		return r.Items.Reconcile(ctx, k)
 	}
+	defer observePhase(KindMediaFile, PassPhaseTotal, time.Now())
 	return r.reconcileFile(ctx, k.NamespacedName())
+}
+
+// Pass phases, clustarr_remediation_pass_seconds' phase label.
+const (
+	PassPhaseTotal   = "total"
+	PassPhaseStages  = "stages"
+	PassPhaseItem    = "item"
+	PassPhaseSets    = "sets"
+	PassPhaseEffects = "effects"
+)
+
+// observePhase records phase of a kind's pass as begun at start.
+func observePhase(kind KeyKind, phase string, start time.Time) {
+	metrics.RemediationPassSeconds.WithLabelValues(string(kind), phase).Observe(time.Since(start).Seconds())
 }
 
 // Pass outcomes, clustarr_remediation_passes_total's outcome label.

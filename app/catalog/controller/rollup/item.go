@@ -44,7 +44,16 @@ type Watch struct {
 	Object     client.Object
 	Map        handler.MapFunc
 	Predicates []predicate.Predicate
+	// SkipInitial, when set, leaves out of the cache's initial list (a
+	// manager's start) every object it reports true for: one whose pass then
+	// would change nothing, its later events still waking it (owner,
+	// 2026-10-28: a start queued every Episode, 74% of 39,296 keys).
+	SkipInitial func(context.Context, client.Object) bool
 }
+
+// InitialList is a SkipInitial leaving the whole initial list out: a watch
+// whose start-time events only repeat what the woken items' own watches list.
+func InitialList(context.Context, client.Object) bool { return true }
 
 // Self is the Map of an item's watch on its own kind: the object is the item.
 func Self(_ context.Context, o client.Object) []reconcile.Request {

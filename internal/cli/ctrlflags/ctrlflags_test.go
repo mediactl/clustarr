@@ -121,3 +121,24 @@ func TestRegisterMetricsIsIdempotent(t *testing.T) {
 	require.NoError(t, ctrlflags.RegisterMetrics())
 	require.NoError(t, ctrlflags.RegisterMetrics())
 }
+
+// The manager serves net/http/pprof on loopback unless told otherwise (owner,
+// 2026-10-28: a remediation backlog nobody could profile), reached through
+// kubectl port-forward as the usenet engine's is; an empty flag turns it off,
+// and an agent serves none by default.
+func TestTheManagerServesPprofOnLoopbackByDefault(t *testing.T) {
+	fs := pflag.NewFlagSet("manager", pflag.ContinueOnError)
+	o := ctrlflags.BindManager(fs)
+	require.NoError(t, fs.Parse(nil))
+	assert.Equal(t, "127.0.0.1:6060", o.PprofBindAddress)
+
+	fs = pflag.NewFlagSet("manager", pflag.ContinueOnError)
+	o = ctrlflags.BindManager(fs)
+	require.NoError(t, fs.Parse([]string{"--pprof-bind-address="}))
+	assert.Empty(t, o.PprofBindAddress)
+
+	fs = pflag.NewFlagSet("agent", pflag.ContinueOnError)
+	o = ctrlflags.BindAgent(fs)
+	require.NoError(t, fs.Parse(nil))
+	assert.Empty(t, o.PprofBindAddress)
+}

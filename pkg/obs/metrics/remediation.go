@@ -34,6 +34,17 @@ var (
 	// outcome (ok, cas_miss, transient, error, panic).
 	RemediationEffectsTotal = newCounterVec("clustarr_remediation_effects_total",
 		"Remediation effects run, by planner, effect and outcome.", "planner", "effect", "outcome")
+	// RemediationPassSeconds is how long a loop pass takes, by key kind and
+	// phase: total for every pass; an item pass also stages, item (the
+	// kind's own pass and its status apply), sets and effects (owner,
+	// 2026-10-28: about one pass in six took 6-10 s and nothing said where).
+	RemediationPassSeconds = newHistogramVec("clustarr_remediation_pass_seconds",
+		"Duration of a remediation loop pass in seconds, by key kind and phase.", durationBucketsShort, "kind", "phase")
+	// RemediationEffectSeconds is how long one item effect takes, by planner
+	// and effect kind: an RPC, a /data removal or a publish runs inside the
+	// pass and holds its worker.
+	RemediationEffectSeconds = newHistogramVec("clustarr_remediation_effect_seconds",
+		"Duration of a remediation item effect in seconds, by planner and effect.", durationBucketsShort, "planner", "effect")
 	// RemediationIOCallsTotal counts /data calls by op (stat, readdir) and
 	// outcome (ok, timeout, saturated, breaker_open).
 	RemediationIOCallsTotal = newCounterVec("clustarr_remediation_io_calls_total",

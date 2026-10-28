@@ -109,6 +109,7 @@ func (ir *ItemReconciler) Reconcile(ctx context.Context, k Key) (reconcile.Resul
 		attribute.String("key.kind", string(k.Kind)),
 		attribute.String("key.namespace", k.Namespace), attribute.String("key.name", k.Name)))
 	defer span.End()
+	defer observePhase(k.Kind, PassPhaseTotal, time.Now())
 	var (
 		res reconcile.Result
 		err error
@@ -151,6 +152,7 @@ func (ir *ItemReconciler) staged(ctx context.Context, it rollup.Item, k Key) (re
 	}
 
 	// 2. Stages, in StageOrder, each in isolation.
+	phaseStart := time.Now()
 	v := &ItemView{Key: k, Item: item.DeepCopyObject().(client.Object), Now: metav1.NewTime(clock().UTC().Truncate(time.Second))}
 	var (
 		merged         itempass.Contribution
@@ -203,11 +205,15 @@ func (ir *ItemReconciler) staged(ctx context.Context, it rollup.Item, k Key) (re
 		}
 	}
 
+	observePhase(k.Kind, PassPhaseStages, phaseStart)
+
 	// 4. The kind's own pass, with the contribution on its context. A pass
 	// that did not land (a conflict, an error, a path that returned before
 	// applying) stops here: no set, no effect.
+	phaseStart = time.Now()
 	pass := &itempass.Pass{Contribution: merged, Admitter: ir.admitterFor(k)}
 	res, err := it.ReconcileItem(itempass.With(ctx, pass), nn)
+	observePhase(k.Kind, PassPhaseItem, phaseStart)
 	rv, landed := pass.LandedRV()
 	if err != nil || !landed {
 		return res, err
@@ -215,6 +221,7 @@ func (ir *ItemReconciler) staged(ctx context.Context, it rollup.Item, k Key) (re
 
 	// 5. Every other manager's set, CAS-chained, skipped when equal at its
 	// own paths.
+	phaseStart = time.Now()
 	for _, s := range orderedSets(sets) {
 		if skipSets[s.Manager] || itemstatus.SetEqual(item, s) {
 			continue
@@ -228,9 +235,11 @@ func (ir *ItemReconciler) staged(ctx context.Context, it rollup.Item, k Key) (re
 		}
 		rv = next
 	}
+	observePhase(k.Kind, PassPhaseSets, phaseStart)
 
 	// 6. Effects, in StageOrder, each stage's in its own order; the first
 	// failure stops that stage's batch. Then the Events.
+	phaseStart = time.Now()
 	transient, effectFailed := false, false
 	for _, name := range order {
 		for _, eff := range results[name].Effects {
@@ -250,6 +259,7 @@ func (ir *ItemReconciler) staged(ctx context.Context, it rollup.Item, k Key) (re
 	for _, name := range order {
 		ir.emitItemEvents(item, k, results[name].Events)
 	}
+	observePhase(k.Kind, PassPhaseEffects, phaseStart)
 
 	// 7. Requeue at the earliest of the kind's result, every stage's Due,
 	// Again, a failed effect's backoff and a failed stage's retry.
@@ -314,7 +324,9 @@ func (ir *ItemReconciler) ownerGone(ctx context.Context, k Key) (reconcile.Resul
 
 // isolateEffect runs one item effect under recover and classifies it.
 func (ir *ItemReconciler) isolateEffect(ctx context.Context, stage ItemStageName, item client.Object, eff Effect) (o outcome) {
+	start := time.Now()
 	defer func() {
+		metrics.RemediationEffectSeconds.WithLabelValues("item."+string(stage), string(eff.Kind())).Observe(time.Since(start).Seconds())
 		if p := recover(); p != nil {
 			o = outcome{reason: failPanic, message: fmt.Sprintf("effect panicked: %v", p)}
 		}
@@ -402,7 +414,7 @@ func (ir *ItemReconciler) Watch(mgr ctrl.Manager, b *builder.TypedBuilder[Key], 
 	b = b.Watches(&catalogv1alpha1.MediaFile{}, ir.fileWakes())
 	for _, kind := range slices.Sorted(maps.Keys(ir.Items)) {
 		for _, w := range ir.Items[kind].Watches() {
-			b = b.Watches(w.Object, itemHandler(kind, w.Map), builder.WithPredicates(w.Predicates...))
+			b = b.Watches(w.Object, watchHandler(kind, w), builder.WithPredicates(w.Predicates...))
 		}
 	}
 	srcs, err := ir.sources(mgr)
@@ -423,6 +435,26 @@ func (ir *ItemReconciler) Watch(mgr ctrl.Manager, b *builder.TypedBuilder[Key], 
 	return b, nil
 }
 
+// watchHandler is w's handler: its map to kind's keys, leaving out of the
+// cache's initial list what w.SkipInitial reports idle.
+func watchHandler(kind KeyKind, w rollup.Watch) handler.TypedEventHandler[client.Object, Key] {
+	h := itemHandler(kind, w.Map)
+	if w.SkipInitial == nil {
+		return h
+	}
+	return handler.TypedFuncs[client.Object, Key]{
+		CreateFunc: func(ctx context.Context, e event.TypedCreateEvent[client.Object], q workqueue.TypedRateLimitingInterface[Key]) {
+			if e.IsInInitialList && w.SkipInitial(ctx, e.Object) {
+				return
+			}
+			h.Create(ctx, e, q)
+		},
+		UpdateFunc:  h.Update,
+		DeleteFunc:  h.Delete,
+		GenericFunc: h.Generic,
+	}
+}
+
 // itemHandler adapts an item package's map function to kind's keys.
 func itemHandler(kind KeyKind, m handler.MapFunc) handler.TypedEventHandler[client.Object, Key] {
 	return handler.TypedEnqueueRequestsFromMapFunc(func(ctx context.Context, o client.Object) []Key {
@@ -437,8 +469,9 @@ func itemHandler(kind KeyKind, m handler.MapFunc) handler.TypedEventHandler[clie
 
 // fileWakes is the item arm of S1 and S1' (§3.3, §2.14): a file appearing or
 // going, a spec change, or a FileSignature change enqueues the keys of every
-// item the file covers that has a path here. It never enqueues the file key.
-// TypedFuncs enqueues the initial list's creates at handler.LowPriority.
+// item the file covers that has a path here. It never enqueues the file key,
+// and leaves the cache's initial list to the items' own watches, which list
+// every item at the same start and decide which are idle (Watch.SkipInitial).
 func (ir *ItemReconciler) fileWakes() handler.TypedEventHandler[client.Object, Key] {
 	add := func(q workqueue.TypedRateLimitingInterface[Key], keys []Key) {
 		for _, k := range keys {
@@ -449,6 +482,9 @@ func (ir *ItemReconciler) fileWakes() handler.TypedEventHandler[client.Object, K
 	}
 	return handler.TypedFuncs[client.Object, Key]{
 		CreateFunc: func(_ context.Context, e event.TypedCreateEvent[client.Object], q workqueue.TypedRateLimitingInterface[Key]) {
+			if e.IsInInitialList {
+				return
+			}
 			add(q, ItemKeys(asMediaFile(e.Object)))
 		},
 		UpdateFunc: func(_ context.Context, e event.TypedUpdateEvent[client.Object], q workqueue.TypedRateLimitingInterface[Key]) {

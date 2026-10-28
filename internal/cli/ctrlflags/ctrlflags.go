@@ -39,6 +39,12 @@ import (
 // on by default: every controller manifest passed it (spec §3.4.1).
 func BindManager(fs *pflag.FlagSet) *k8s.Options { return bind(fs, true) }
 
+// ManagerPprofAddress is where the manager serves net/http/pprof by default:
+// on loopback, reached through kubectl port-forward as the usenet engine's
+// is (owner, 2026-10-28: a remediation backlog nobody could profile).
+// --pprof-bind-address= turns it off.
+const ManagerPprofAddress = "127.0.0.1:6060"
+
 // BindAgent binds eight of them: an agent never elects and never ensures the
 // topology, so --leader-elect, --leader-election-namespace and
 // --nats-single-node are not flags at all (spec §3.5.1).
@@ -52,6 +58,7 @@ func bind(fs *pflag.FlagSet, manager bool) *k8s.Options {
 	o.Namespace = os.Getenv(cli.EnvNamespace)
 	if manager {
 		o.LeaderElect = true
+		o.PprofBindAddress = ManagerPprofAddress
 	}
 
 	fs.StringVar(&o.MetricsBindAddress, "metrics-bind-address", o.MetricsBindAddress,

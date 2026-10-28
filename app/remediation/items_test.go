@@ -23,6 +23,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -31,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/controller/priorityqueue"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -41,6 +44,7 @@ import (
 	cataloghistory "github.com/mediactl/clustarr/app/catalog/history"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/obs/metrics"
 )
 
 func heatFile(gen int64, labels map[string]string, st catalogv1alpha1.MediaFileStatus) *catalogv1alpha1.MediaFile {
@@ -280,7 +284,9 @@ func TestS24WakesOnlyTheCoveredEpisodes(t *testing.T) {
 		episodeOf("show-s02e01", "show", 2, 1), episodeOf("other-s01e01", "other", 1, 1),
 		issue("saga-1", "saga", "1"), issue("saga-2", "saga", "2"), issue("x-men-1", "x-men", "1"),
 	).Build()
-	ep := func(s, n int32) catalogv1alpha1.EpisodeNumber { return catalogv1alpha1.EpisodeNumber{Season: s, Number: n} }
+	ep := func(s, n int32) catalogv1alpha1.EpisodeNumber {
+		return catalogv1alpha1.EpisodeNumber{Season: s, Number: n}
+	}
 	show := func(entries ...catalogv1alpha1.DownloadEntry) *catalogv1alpha1.Series {
 		s := &catalogv1alpha1.Series{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "show"}}
 		s.Status.Downloads = entries
@@ -315,4 +321,68 @@ func TestS24WakesOnlyTheCoveredEpisodes(t *testing.T) {
 	nc.Status.Downloads = []catalogv1alpha1.DownloadEntry{{ID: "c", Phase: commonv1.DownloadPhaseQueued, Issues: []string{"2"}}}
 	hc.Update(context.Background(), update(oc, nc), q)
 	assert.Equal(t, map[Key]int{key(KindIssue, "saga-2"): 0}, q.added)
+}
+
+// A watch's SkipInitial drops what it calls idle from the cache's initial
+// list only (owner, 2026-10-28: a manager's start queued 39,296 keys, 74% of
+// them Episodes): an initial-list object it does not call idle is enqueued at
+// the initial list's LowPriority, and a later create of an idle one as before.
+func TestTheInitialListLeavesOutWhatAWatchCallsIdle(t *testing.T) {
+	quiet := map[string]bool{"show-s01e01": true}
+	h := watchHandler(KindEpisode, rollup.Watch{Map: rollup.Self, SkipInitial: func(_ context.Context, o client.Object) bool {
+		return quiet[o.GetName()]
+	}})
+	create := func(name string, initial bool) event.TypedCreateEvent[client.Object] {
+		return event.TypedCreateEvent[client.Object]{Object: episodeOf(name, "show", 1, 1), IsInInitialList: initial}
+	}
+	key := func(name string) Key { return Key{Kind: KindEpisode, Namespace: "media", Name: name} }
+
+	q := newRecordingQueue()
+	h.Create(context.Background(), create("show-s01e01", true), q)
+	h.Create(context.Background(), create("show-s01e02", true), q)
+	assert.Equal(t, map[Key]int{key("show-s01e02"): handler.LowPriority}, q.added)
+
+	q = newRecordingQueue()
+	h.Create(context.Background(), create("show-s01e01", false), q)
+	assert.Equal(t, map[Key]int{key("show-s01e01"): 0}, q.added, "only the initial list is pruned")
+
+	q = newRecordingQueue()
+	plain := watchHandler(KindEpisode, rollup.Watch{Map: rollup.Self})
+	plain.Create(context.Background(), create("show-s01e01", true), q)
+	assert.Equal(t, map[Key]int{key("show-s01e01"): handler.LowPriority}, q.added, "a watch without SkipInitial prunes nothing")
+}
+
+// A file's initial-list create wakes none of its items: every item's own
+// watch lists it at the same start, and that one decides whether it is idle.
+func TestFileWakesLeaveTheInitialListToTheItems(t *testing.T) {
+	ir := &ItemReconciler{Items: map[KeyKind]rollup.Item{KindMovie: &recordingItem{}}}
+	h := ir.fileWakes()
+	q := newRecordingQueue()
+	h.Create(context.Background(), event.TypedCreateEvent[client.Object]{Object: heatFile(1, nil, catalogv1alpha1.MediaFileStatus{}), IsInInitialList: true}, q)
+	assert.Empty(t, q.added)
+
+	h.Create(context.Background(), event.TypedCreateEvent[client.Object]{Object: heatFile(1, nil, catalogv1alpha1.MediaFileStatus{})}, q)
+	assert.Equal(t, map[Key]int{{Kind: KindMovie, Namespace: "media", Name: "heat"}: 0}, q.added, "a new file still wakes its items")
+}
+
+// passSeconds is clustarr_remediation_pass_seconds' sample count for kind
+// and phase, read through client_model as passes is.
+func passSeconds(t *testing.T, kind KeyKind, phase string) uint64 {
+	t.Helper()
+	var m dto.Metric
+	h, ok := metrics.RemediationPassSeconds.WithLabelValues(string(kind), phase).(prometheus.Metric)
+	require.True(t, ok)
+	require.NoError(t, h.Write(&m))
+	return m.GetHistogram().GetSampleCount()
+}
+
+// Every item pass is timed by its kind (owner, 2026-10-28: about one pass in
+// six took 6-10 s and nothing said which), so a slow kind shows in the
+// manager's metrics without a profile.
+func TestAnItemPassIsTimedByItsKind(t *testing.T) {
+	before := passSeconds(t, KindMovie, PassPhaseTotal)
+	ir := &ItemReconciler{Items: map[KeyKind]rollup.Item{KindMovie: &recordingItem{}}}
+	_, err := ir.Reconcile(context.Background(), Key{Kind: KindMovie, Namespace: "media", Name: "heat"})
+	require.NoError(t, err)
+	assert.Equal(t, before+1, passSeconds(t, KindMovie, PassPhaseTotal))
 }

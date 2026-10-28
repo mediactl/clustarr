@@ -505,8 +505,9 @@ manager:
     limits:
       cpu: "2"
       memory: 1664Mi
-  # Memory (control-plane placement design §5.4.1). pprofBindAddress serves
-  # net/http/pprof (e.g. 127.0.0.1:6060, reached with kubectl port-forward);
+  # Memory (control-plane placement design §5.4.1). pprofBindAddress moves
+  # net/http/pprof, which the manager serves on 127.0.0.1:6060 when it is
+  # empty (reached with kubectl port-forward);
   # gogc sets GOGC and goMemLimit GOMEMLIMIT in Go's syntax (e.g. 1GiB) in
   # place of 80% of resources.limits.memory; watchReleaseNamespace limits the
   # cache to the release's namespace (--watch-namespace).
