@@ -313,7 +313,12 @@ IPTV for Plex, as xTeVe does it (2026-10-07,
 amended 2026-10-20 by `2026-10-20-iptv-xtream-ranges-design.md`).
 
 **The provider.** An `IPTVProvider` (`clustarr.io`) is an Xtream Codes
-account. Only two fields are required:
+account (`spec.type: Xtream`, the default), or a plain M3U playlist
+(`spec.type: M3U`, 2026-10-27: `spec.playlistURL`, whose `{username}` and
+`{password}` take a Secret's when `credentialsRef` names one; no account
+and no panel, so its guide is `spec.guideURL` alone, else every channel's
+dummy guide, `GuidesFetched` reading `NoGuide`; its tuners `spec.tuners`,
+else 1). An Xtream provider requires two fields:
 - `server`: a host, host:port or URL, https unless it says http.
 - `credentialsRef`: a Secret with `username` and `password`, trimmed of
   stray whitespace. Every URL that is logged, put in status or an error
@@ -489,11 +494,17 @@ picons alike) are often black wordmarks on transparency (Bloomberg,
 C-SPAN, ESPN), invisible on Plex's dark guide, so the tuner fetches each
 once, recolours one at least a fifth transparent with 85% of its opaque
 pixels dark (dim by luminance or in every channel; a saturated red stays)
-to white keeping every pixel's alpha, caches the PNG in the Live TV store
-by source URL, and the guide's and playlist's logo URLs point at it with a
-placeholder base filled in per request (`logoPlaceholder`); the
-whole-provider guide stored for the ui keeps the sources, and a logo that
-cannot be had redirects to its source. E2e scenario 19
+to white keeping every pixel's alpha, and caches the PNG in the Live TV
+store by source URL (`livetvstore.LogoObject`); a logo that cannot be had
+redirects to its source. After each render a background pass stores every
+active channel's logo that way (four at a time, a failure passed over for
+an hour), so the ui shows logos from the store, never from their hosts
+(ADR-0011). Each render that stores the whole-provider guide
+(`guide/<ns>/<name>`, the logos Plex is given) stores its **guide index**
+beside it (`guide-index/<ns>/<name>`, `livetvstore.IndexGuide`: channels
+and programmes with their titles, episode labels, images, live and new),
+which the ui's TV Guide reads instead of parsing XMLTV; the store's names
+and shapes are `pkg/iptv/livetvstore`. E2e scenario 19
 (`test/e2e/livetv_test.go`, `iptv-stub`) is written and has never run.
 
 ## UI
@@ -642,6 +653,30 @@ its phase is only Ready, Pending or Unmonitored, so the movie rule read
 every monitored series as Missing until 2026-09-30.
 
 Each item should show the cover art, monitored status and selected quality profile
+
+The **Live TV** section (2026-10-27, the direct-tuners and ui design's
+§5; Dispatcharr's pages in the Plex look) is a sidebar entry after Library
+with three sub-entries swapped like the library's (every sub-entry carries
+the whole menu out of band, `#app-nav`). **Channels** (`/livetv/channels`)
+lists every IPTVChannel by number with its resolved name, group and logo
+(`ui/projection.LiveTVChannels`: the overrides, else the guide index and
+the playlist), edits number, name, active and the EPG mapping in place
+(one merge patch under the version the page read, `actions.EditChannels`;
+a conflict is said in `#action-status`), edits in bulk, copies each
+channel's tuner stream URL and each block's HDHR/M3U/EPG URL, and pages
+the provider's playlist beside it, where an entry the provider's filters
+admit (`pkg/iptv/filter`) is added as a channel at the next free number
+(`actions.AddChannel`). The **M3U/EPG Manager** (`/livetv/sources`) lists
+each provider's playlist, guide and blocks, refreshing every 10 s, with
+"Refresh now" (the `clustarr.io/livetv-refresh` annotation) and the
+settings forms of both kinds (`iptvproviders`, `iptvchannels`, which the
+Settings page does not list). The **TV Guide** (`/livetv/guide`) draws the
+guide index in six-hour windows at 7.5 px a minute, loaded as they scroll
+into view, times in the browser's zone (`ui/static/guide.js`). The ui reads
+the `clustarr-livetv` store through `Info` and `Get`, decoding an object
+again only when its digest moves (`ui/livetvstore.go`), and serves logos
+at `/livetv/logo/...` from the tuner's stored copies. There is no playback
+in the browser and no DVR page (design §5.8, §5.9).
 
 The ui's home page is the **Dashboard** (2026-10-22: `ui/dashboard.go`,
 `ui/views/dashboard.templ`). `/` redirects to `/dashboard`, the sidebar's

@@ -609,3 +609,39 @@ the device URI's path, as Dispatcharr's users find.
   optional. Live TV is down from the CRD's apply, which prunes
   `status.blocks[].port` at once, until the converger has replaced each
   device.
+
+## 13. As built, Phase B (2026-10-27)
+
+Built on clustarr main by plan `docs/superpowers/plans/2026-10-27-livetv-ui.md`;
+not deployed. What landed, by commit subject:
+
+- "the tuner stores a guide index beside the guide" and "the tuner keeps
+  each active channel's logo, processed, in the store": §5.1's index and
+  §6's logos, in `pkg/iptv/livetvstore`, which also holds the store's
+  names and shapes the tuner writes and the ui reads. The stored
+  whole-provider guide now carries the logos Plex is given.
+- "the ui reads and writes IPTVProviders and IPTVChannels": §5.2, with
+  "Refresh now" the `clustarr.io/livetv-refresh` annotation the tuner
+  already read (its constant moved to `api/clustarr`).
+- "the ui reads the Live TV store by digest and builds the Live TV rows",
+  then the section and its Manager, the Channels page and the TV Guide:
+  §5.3-§5.6.
+- "an IPTVProvider may be a plain M3U playlist URL": §5.7.
+
+Where it differs from the text above:
+
+- The rows are built per page read from the ui's cache, and the Manager's
+  tables poll every 10 s, rather than riding the projection round and an
+  SSE stream (§5.1): two kinds of a handful of objects that change on a
+  minutes scale.
+- A channel's edit dialog is its settings form, reached from the row; the
+  table edits number, name, active and the EPG choice in place.
+- The playlist pane offers "Add as channel" only for an entry the
+  provider's filters admit, since any other would read Missing.
+- Logos in the browser are the tuner's stored copies (§6.1's tv-logos
+  matching stays Phase C); a programme's image shows through `/art/search`
+  when its host is one the proxy fetches, else not at all.
+- The guide's windows load through `intersect once` inside the scrolling
+  canvas rather than `revealed` (which watches the viewport), each window
+  request carrying its direction.
+
