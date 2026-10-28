@@ -19,8 +19,9 @@ package usenet
 
 import (
 	"fmt"
-	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"time"
+
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 )
 
 // postProcessMessageLocked is status.message while the job post-processes.
@@ -36,6 +37,8 @@ func (j *job) postProcessMessageLocked(now time.Time) string {
 		elapsed = now.Sub(j.stageStarted).Round(time.Second)
 	}
 	switch j.stage {
+	case commonv1.DownloadStageVerifying:
+		return "verifying the set" + forDuration(elapsed)
 	case commonv1.DownloadStageRepairing:
 		return "verifying and repairing with par2" + forDuration(elapsed)
 	case commonv1.DownloadStageExtracting:

@@ -1281,6 +1281,11 @@ func (j *job) postProcess(ctx context.Context) error {
 	ctx, span := tracing.Start(ctx, "usenet.job.postProcess")
 	defer span.End()
 
+	// The job holds a post-processing slot from here, and the health checks
+	// and the par2 rename that come before repair or unpack set no stage of
+	// their own: without this it read "transferring" at 100% (or "verifying"
+	// and Queued, from its wait for the slot) while it worked.
+	j.setStage(commonv1alpha1.DownloadStageVerifying, download.StatusDownloading)
 	if err := j.healthVerdict(ctx); err != nil {
 		return err
 	}

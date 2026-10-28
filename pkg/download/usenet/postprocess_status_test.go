@@ -101,6 +101,18 @@ func TestItemReportsPostProcessingRatherThanAStaleTransfer(t *testing.T) {
 	require.NotNil(t, it.ETA)
 	require.Empty(t, it.Message)
 
+	// postProcess's first step: the job holds a post-processing slot and
+	// checks the set before par2 (talos, 2026-10-28: such a job read
+	// "transferring" at 100% for minutes).
+	j.setStage(commonv1.DownloadStageVerifying, download.StatusDownloading)
+	j.mu.Lock()
+	j.stageStarted = now.Add(-40 * time.Second)
+	j.mu.Unlock()
+	it = j.item()
+	require.Equal(t, download.StatusDownloading, it.Status)
+	require.Zero(t, it.DownRate, "verifying downloads nothing")
+	require.Equal(t, "verifying the set for 40s", it.Message)
+
 	j.setStage(commonv1.DownloadStageRepairing, download.StatusDownloading)
 	j.mu.Lock()
 	j.stageStarted = now.Add(-4*time.Minute - 12*time.Second)
