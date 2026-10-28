@@ -442,6 +442,23 @@ type UsenetSpec struct {
 	// +optional
 	PreCheck bool `json:"preCheck,omitempty"`
 
+	// MaxActive is how many downloads transfer at once; the rest wait
+	// their turn, the best priority class first, then the oldest. The
+	// slots are divided among the non-backup providers in proportion to
+	// their connections, at least one each, so every one of them carries
+	// transfers at once. Unset means 2.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=32
+	MaxActive *int32 `json:"maxActive,omitempty"`
+
+	// MaxPostProcess is how many downloads verify, repair, unpack and
+	// publish at once. Unset means 1.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=8
+	MaxPostProcess *int32 `json:"maxPostProcess,omitempty"`
+
 	// AbortHealthPercent is the article-health floor, as a whole percentage.
 	// A download whose projected health falls below it triggers healthAction.
 	// +optional

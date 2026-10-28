@@ -378,6 +378,16 @@ func (in *UsenetSpec) DeepCopyInto(out *UsenetSpec) {
 		*out = new(v1.Duration)
 		**out = **in
 	}
+	if in.MaxActive != nil {
+		in, out := &in.MaxActive, &out.MaxActive
+		*out = new(int32)
+		**out = **in
+	}
+	if in.MaxPostProcess != nil {
+		in, out := &in.MaxPostProcess, &out.MaxPostProcess
+		*out = new(int32)
+		**out = **in
+	}
 	if in.Scratch != nil {
 		in, out := &in.Scratch, &out.Scratch
 		*out = new(ScratchSpec)

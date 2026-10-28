@@ -279,3 +279,37 @@ func TestBuildConfigInstallsTheLedgerAndHolder(t *testing.T) {
 	require.Same(t, ledger, cfg.Ledger)
 	require.Equal(t, "sabnzbd-0", cfg.Holder)
 }
+
+// spec.usenet.maxActive and maxPostProcess reach the client; unset, they
+// stay zero, which the client reads as its defaults (2 and 1).
+func TestBuildConfigCarriesTheConcurrencyLimits(t *testing.T) {
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "usenet-creds", Namespace: "media"},
+		Data:       map[string][]byte{"username": []byte("alice"), "password": []byte("s3cret")},
+	}
+	dc := &downloadv1alpha1.DownloadClient{
+		ObjectMeta: metav1.ObjectMeta{Name: "usenet", Namespace: "media"},
+		Spec: downloadv1alpha1.DownloadClientSpec{
+			Protocol: commonv1alpha1.ProtocolUsenet,
+			Usenet: &downloadv1alpha1.UsenetSpec{
+				Providers: []downloadv1alpha1.NNTPProvider{{
+					Name: "primary", Host: "news.example.invalid",
+					SecretRef: corev1.LocalObjectReference{Name: "usenet-creds"}, Connections: 10,
+				}},
+				MaxActive:      ptr[int32](6),
+				MaxPostProcess: ptr[int32](2),
+			},
+		},
+	}
+	c := fakeClientWithScheme(t, dc, secret)
+	cfg, err := usenetengine.BuildConfig(t.Context(), c, dc, "/data", "/scratch", "", usenetengine.ClientOptions{})
+	require.NoError(t, err)
+	require.Equal(t, 6, cfg.MaxActive)
+	require.Equal(t, 2, cfg.MaxPostProcess)
+
+	dc.Spec.Usenet.MaxActive, dc.Spec.Usenet.MaxPostProcess = nil, nil
+	cfg, err = usenetengine.BuildConfig(t.Context(), c, dc, "/data", "/scratch", "", usenetengine.ClientOptions{})
+	require.NoError(t, err)
+	require.Zero(t, cfg.MaxActive)
+	require.Zero(t, cfg.MaxPostProcess)
+}

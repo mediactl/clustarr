@@ -1949,8 +1949,9 @@ too; bump the tag in go.mod and go.sum to take a new fork release.
   immediately, each with a worker per connection of every provider, and
   a restart resumed all of them -- two archives unpacking and a dozen
   transfers -- past its 8 GiB, so every start ended the same way. Now
-  `usenet.Config.MaxActive` (2) jobs hold a transfer slot and
-  `MaxPostProcess` (1) post-process; the rest wait Queued
+  `usenet.Config.MaxActive` (2; DownloadClient `spec.usenet.maxActive`
+  since 2026-10-28) jobs hold a transfer slot and `MaxPostProcess` (1;
+  `spec.usenet.maxPostProcess`) post-process; the rest wait Queued
   (`priority.go`: the best class, then the oldest; a paused or outranked
   job gives its slot back). Such a wait is `Item.WaitingTurn`
   (`TransferRecord.waitingTurn`), which stops the manager's stall clock,
@@ -2053,9 +2054,15 @@ too; bump the tag in go.mod and go.sum to take a new fork release.
   `clustarr-usenet-connections` holds one compare-and-swap entry per
   provider account (host, port, username: every pod and every
   DownloadClient on that account share the plan's limit), each grant
-  expiring 90 s after its last renewal. A transfer takes a share
-  (`limit / MaxActive`) on the best primary with room and fetches only
-  there, bounded by the grant; no primary with room means it parks
+  expiring 90 s after its last renewal. A transfer takes a share on a
+  primary and fetches only there, bounded by the grant: MaxActive's slots
+  are divided among the primaries in proportion to their connections, at
+  least one each, a share is a server's connections over its slots
+  (`usenet.primaryShares`), and a transfer asks every primary for a full
+  share before it takes a leftover on any (owner, 2026-10-28: every
+  primary carries transfers at once; until then each took `limit /
+  MaxActive` of the first primary with room, so only frugal's 50
+  connections ever carried transfers); no primary with room means it parks
   Queued, `WaitingTurn` (the manager's stall clock and the engine's stall
   watch both stop), naming the wait. Articles the granted server lacks
   are chased through the other servers in order, backups last, each under

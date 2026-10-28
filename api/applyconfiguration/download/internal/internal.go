@@ -376,6 +376,12 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         namedType: com.github.mediactl.clustarr.api.download.v1alpha1.HealthAction
       default: pause
+    - name: maxActive
+      type:
+        scalar: numeric
+    - name: maxPostProcess
+      type:
+        scalar: numeric
     - name: postProcess
       type:
         namedType: com.github.mediactl.clustarr.api.download.v1alpha1.PostProcessSpec

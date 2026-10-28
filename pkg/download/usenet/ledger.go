@@ -159,3 +159,30 @@ func decide(limit, want, min, held int) int {
 	}
 	return n
 }
+
+// primaryShares is each primary server's share of its connections per
+// transfer, so every primary carries transfers at once (owner, 2026-10-28)
+// rather than each taking limit / MaxActive of the first primary with
+// room: MaxActive's slots are divided among the primaries in proportion to
+// their connections, rounded and at least one each, and a share is a
+// server's connections over its slots. With one primary that is
+// limit / MaxActive, as before.
+func primaryShares(providers []Provider, maxActive int) map[string]int {
+	maxActive = max(maxActive, 1)
+	total := 0
+	for _, p := range providers {
+		if !p.Backup {
+			total += max(p.Connections, 1)
+		}
+	}
+	out := map[string]int{}
+	for _, p := range providers {
+		if p.Backup {
+			continue
+		}
+		limit := max(p.Connections, 1)
+		slots := max(1, (2*maxActive*limit+total)/(2*total))
+		out[p.Name] = max(1, limit/slots)
+	}
+	return out
+}

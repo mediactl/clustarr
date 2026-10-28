@@ -557,6 +557,25 @@ spec:
                     - pause
                     - delete
                     type: string
+                  maxActive:
+                    description: |-
+                      MaxActive is how many downloads transfer at once; the rest wait
+                      their turn, the best priority class first, then the oldest. The
+                      slots are divided among the non-backup providers in proportion to
+                      their connections, at least one each, so every one of them carries
+                      transfers at once. Unset means 2.
+                    format: int32
+                    maximum: 32
+                    minimum: 1
+                    type: integer
+                  maxPostProcess:
+                    description: |-
+                      MaxPostProcess is how many downloads verify, repair, unpack and
+                      publish at once. Unset means 1.
+                    format: int32
+                    maximum: 8
+                    minimum: 1
+                    type: integer
                   postProcess:
                     description: PostProcess controls par2 repair, unpacking and cleanup.
                     properties:

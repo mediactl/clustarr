@@ -213,8 +213,23 @@ func (j *job) takeGrant(ctx context.Context, candidates []string, suffix string,
 // tryTake asks the ledger once per candidate that can be asked now (not
 // penalised, not over quota), in order, and returns the first grant, or
 // the "<name> <held>/<limit> in use" summary of every candidate when none
-// had room. askable is false when no candidate could be asked at all.
+// had room. askable is false when no candidate could be asked at all. A
+// transfer grant among several candidates asks every one for a full share
+// before it takes a leftover anywhere: a transfer belongs on a primary
+// with a free share, not on the last connection of a busy one.
 func (j *job) tryTake(ctx context.Context, candidates []string, suffix string, min int) (g grant, waits string, askable bool, err error) {
+	if suffix == "" && len(candidates) > 1 {
+		g, _, askable, err := j.tryTakeEach(ctx, candidates, suffix, 0)
+		if err != nil || g.Connections > 0 {
+			return g, "", askable, err
+		}
+	}
+	return j.tryTakeEach(ctx, candidates, suffix, min)
+}
+
+// tryTakeEach is one pass of tryTake. A min of 0 asks each candidate for
+// its whole share.
+func (j *job) tryTakeEach(ctx context.Context, candidates []string, suffix string, min int) (g grant, waits string, askable bool, err error) {
 	c := j.client
 	var full []string
 	now := time.Now()
@@ -225,8 +240,16 @@ func (j *job) tryTake(ctx context.Context, candidates []string, suffix string, m
 		}
 		askable = true
 		limit := max(p.Connections, 1)
-		want := share(limit, c.maxActive)
-		n, err := c.ledger.Take(ctx, p.Account(), limit, Grant{Holder: j.holder() + suffix, Server: name}, want, min)
+		want, ok := c.shares[name]
+		if !ok {
+			// A backup, asked for a chase.
+			want = share(limit, c.maxActive)
+		}
+		least := min
+		if least == 0 {
+			least = want
+		}
+		n, err := c.ledger.Take(ctx, p.Account(), limit, Grant{Holder: j.holder() + suffix, Server: name}, want, least)
 		if err != nil {
 			return grant{}, "", true, fmt.Errorf("usenet: take connections on %s: %w", name, err)
 		}

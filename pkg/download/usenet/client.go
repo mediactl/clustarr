@@ -259,6 +259,9 @@ type Client struct {
 	// maxActive is Config.MaxActive with its default applied; the client
 	// lock guards slots, the jobs holding a transfer slot (priority.go).
 	maxActive int
+	// shares is each primary's share of its connections per transfer
+	// ([primaryShares]).
+	shares map[string]int
 	// post holds one token per job verifying, repairing, unpacking or
 	// publishing: Config.MaxPostProcess of them.
 	post chan struct{}
@@ -362,14 +365,13 @@ func New(cfg Config) (download.Client, error) {
 	if cfg.GrantRenewInterval <= 0 {
 		cfg.GrantRenewInterval = defaultGrantRenewInterval
 	}
+	shares := primaryShares(cfg.Providers, maxActive)
 	workers := cfg.Workers
 	if workers <= 0 {
 		// One goroutine per connection the largest grant could carry; the
 		// grant's limiter (grant.go) bounds how many fetch at once.
-		for _, p := range cfg.Providers {
-			if !p.Backup {
-				workers = max(workers, share(p.Connections, maxActive))
-			}
+		for _, n := range shares {
+			workers = max(workers, n)
 		}
 		workers = max(workers, 1)
 	}
@@ -381,6 +383,7 @@ func New(cfg Config) (download.Client, error) {
 		baseCtx:   context.Background(),
 		workers:   workers,
 		maxActive: maxActive,
+		shares:    shares,
 		post:      make(chan struct{}, maxPost),
 		jobs:      map[string]*job{},
 		slots:     map[*job]struct{}{},

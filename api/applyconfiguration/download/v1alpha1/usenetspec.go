@@ -41,6 +41,15 @@ type UsenetSpecApplyConfiguration struct {
 	// PreCheck verifies that the first articles of an NZB exist before the
 	// engine commits to the download.
 	PreCheck *bool `json:"preCheck,omitempty"`
+	// MaxActive is how many downloads transfer at once; the rest wait
+	// their turn, the best priority class first, then the oldest. The
+	// slots are divided among the non-backup providers in proportion to
+	// their connections, at least one each, so every one of them carries
+	// transfers at once. Unset means 2.
+	MaxActive *int32 `json:"maxActive,omitempty"`
+	// MaxPostProcess is how many downloads verify, repair, unpack and
+	// publish at once. Unset means 1.
+	MaxPostProcess *int32 `json:"maxPostProcess,omitempty"`
 	// AbortHealthPercent is the article-health floor, as a whole percentage.
 	// A download whose projected health falls below it triggers healthAction.
 	AbortHealthPercent *int32 `json:"abortHealthPercent,omitempty"`
@@ -114,6 +123,22 @@ func (b *UsenetSpecApplyConfiguration) WithPropagationDelay(value v1.Duration) *
 // If called multiple times, the PreCheck field is set to the value of the last call.
 func (b *UsenetSpecApplyConfiguration) WithPreCheck(value bool) *UsenetSpecApplyConfiguration {
 	b.PreCheck = &value
+	return b
+}
+
+// WithMaxActive sets the MaxActive field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the MaxActive field is set to the value of the last call.
+func (b *UsenetSpecApplyConfiguration) WithMaxActive(value int32) *UsenetSpecApplyConfiguration {
+	b.MaxActive = &value
+	return b
+}
+
+// WithMaxPostProcess sets the MaxPostProcess field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the MaxPostProcess field is set to the value of the last call.
+func (b *UsenetSpecApplyConfiguration) WithMaxPostProcess(value int32) *UsenetSpecApplyConfiguration {
+	b.MaxPostProcess = &value
 	return b
 }
 

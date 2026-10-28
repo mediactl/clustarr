@@ -153,6 +153,13 @@ func BuildConfig(ctx context.Context, c client.Client, dc *downloadv1alpha1.Down
 	if us.PropagationDelay != nil {
 		cfg.PropagationDelay = us.PropagationDelay.Duration
 	}
+	// Unset is zero, which the client reads as its defaults.
+	if us.MaxActive != nil {
+		cfg.MaxActive = int(*us.MaxActive)
+	}
+	if us.MaxPostProcess != nil {
+		cfg.MaxPostProcess = int(*us.MaxPostProcess)
+	}
 	// spec.usenet.stallTimeout and downloadTimeout are the manager's
 	// judgement now, on the transfer record's lastProgressAt and startedAt
 	// (ADR-0019 §3.5 P111, ruling R21): the client runs with neither.
