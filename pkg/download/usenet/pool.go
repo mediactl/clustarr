@@ -53,19 +53,34 @@ var ErrArticleMissing = errors.New("usenet: article not available on any configu
 var ErrArticleMismatch = errors.New("usenet: the server's article under this message-ID is another post's")
 
 // segmentMismatch reports whether m, a decoded article's yEnc header, is
-// not s's part of a file whose highest NZB segment number is highest. A
-// part number is compared only when both carry one -- a single-part
-// article names none -- and a total only when it is short of the file: an
-// NZB that lost segments still numbers within the post's total.
-func segmentMismatch(highest int, s segment, m rapidyenc.Meta) error {
+// not s's part of a file whose highest NZB segment number is highest and
+// whose NZB segments come to fileBytes. A part number is compared only when
+// both carry one -- a single-part article names none -- and a total only
+// when it is short of the file: an NZB that lost segments still numbers
+// within the post's total. The file size is compared the same way, only
+// when it is under half the NZB's bytes and those are at least
+// minSizeCheckBytes: yEnc and the article's headers add a few percent to a
+// file of that size, so the post's own file is never that much smaller, and
+// an NZB that lost segments lists less, never more. Every post has a part 1, and on talos
+// (2026-10-28) a 1.5 GB file's first article came back as a 40,484-byte
+// file's single part, which passed the part checks and overwrote the
+// file's start.
+func segmentMismatch(highest int, fileBytes int64, s segment, m rapidyenc.Meta) error {
 	if s.Number > 0 && m.PartNumber > 0 && m.PartNumber != int64(s.Number) {
 		return fmt.Errorf("%w: yEnc part %d of %d where part %d was asked", ErrArticleMismatch, m.PartNumber, m.TotalParts, s.Number)
 	}
 	if m.TotalParts > 0 && m.TotalParts < int64(highest) {
 		return fmt.Errorf("%w: yEnc part %d of %d where the file has %d", ErrArticleMismatch, m.PartNumber, m.TotalParts, highest)
 	}
+	if m.FileSize > 0 && fileBytes >= minSizeCheckBytes && m.FileSize < fileBytes/2 {
+		return fmt.Errorf("%w: a yEnc file of %d bytes where the NZB lists %d", ErrArticleMismatch, m.FileSize, fileBytes)
+	}
 	return nil
 }
+
+// minSizeCheckBytes is the smallest NZB file whose articles segmentMismatch
+// holds to its size: below it an article's headers can outweigh the file.
+const minSizeCheckBytes = 1 << 20
 
 // ErrNoProviders is returned by [New] when no usable provider is configured.
 var ErrNoProviders = errors.New("usenet: no usable NNTP provider configured")

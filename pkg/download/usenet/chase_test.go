@@ -156,8 +156,13 @@ func TestThePreCheckChasesTheShortfallBeforeJudging(t *testing.T) {
 	ledger.open(sp.Account())
 	it := waitForTerminal(t, c, id)
 	require.Equal(t, download.StatusCompleted, it.Status, "message: %s", it.Message)
-	require.Equal(t, 7, second.servedTotal())
-	require.Equal(t, 5, first.servedTotal())
+	for i := range 7 {
+		require.Equal(t, 1, second.servedCount(fmt.Sprintf("f0-p%d@clustarr.test", i)), "the second server serves what the first refuses")
+	}
+	// The chase recovers more than the engine tolerates missing, so the
+	// transfer moves to the second server (moveGrant); each article is
+	// fetched once, from whichever server held the grant.
+	require.Equal(t, 12, first.servedTotal()+second.servedTotal())
 }
 
 // Articles the primary refuses while a chase is running are chased before

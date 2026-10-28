@@ -66,23 +66,37 @@ func TestAnotherPostsArticleUnderTheSameMessageIDIsTakenFromTheNextServer(t *tes
 }
 
 // segmentMismatch reads the segment's file as its highest NZB segment
-// number, 4 here.
+// number, 4 here, and its NZB bytes as bytes (0, unknown, unless a case
+// says).
 func TestSegmentMismatch(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
 		seg   segment
 		meta  rapidyenc.Meta
+		bytes int64
 		wrong bool
 	}{
-		{"the segment's own part", segment{Number: 2}, rapidyenc.Meta{PartNumber: 2, TotalParts: 4}, false},
-		{"another part", segment{Number: 1}, rapidyenc.Meta{PartNumber: 237, TotalParts: 503}, true},
-		{"a total short of the file", segment{Number: 3}, rapidyenc.Meta{PartNumber: 3, TotalParts: 3}, true},
+		{"the segment's own part", segment{Number: 2}, rapidyenc.Meta{PartNumber: 2, TotalParts: 4}, 0, false},
+		{"another part", segment{Number: 1}, rapidyenc.Meta{PartNumber: 237, TotalParts: 503}, 0, true},
+		{"a total short of the file", segment{Number: 3}, rapidyenc.Meta{PartNumber: 3, TotalParts: 3}, 0, true},
 		// An NZB that lost segments still lists numbers within the post's total.
-		{"a total past the NZB's segments", segment{Number: 4}, rapidyenc.Meta{PartNumber: 4, TotalParts: 9}, false},
-		{"a single-part article names no part", segment{Number: 1}, rapidyenc.Meta{}, false},
-		{"an NZB segment without a number", segment{}, rapidyenc.Meta{PartNumber: 7, TotalParts: 9}, false},
+		{"a total past the NZB's segments", segment{Number: 4}, rapidyenc.Meta{PartNumber: 4, TotalParts: 9}, 0, false},
+		{"a single-part article names no part", segment{Number: 1}, rapidyenc.Meta{}, 0, false},
+		{"an NZB segment without a number", segment{}, rapidyenc.Meta{PartNumber: 7, TotalParts: 9}, 0, false},
+		// talos, 2026-10-28: a 1.5 GB file's first article came back as a
+		// 40,484-byte file's single part, every check above passed, and the
+		// file was written over from offset 0.
+		{"a single-part article of a far smaller file", segment{Number: 1}, rapidyenc.Meta{FileSize: 40484}, 1_570_000_000, true},
+		{"another post's part 1 of a far smaller file", segment{Number: 1}, rapidyenc.Meta{FileSize: 40484, PartNumber: 1, TotalParts: 4}, 1_570_000_000, true},
+		{"the file the NZB lists", segment{Number: 1}, rapidyenc.Meta{FileSize: 1_522_520_842, PartNumber: 1, TotalParts: 4}, 1_570_000_000, false},
+		// An NZB that lost segments lists less than the file holds.
+		{"a file larger than the NZB lists", segment{Number: 1}, rapidyenc.Meta{FileSize: 4_000_000, PartNumber: 1, TotalParts: 9}, 1_000_000, false},
+		{"a header that names no size", segment{Number: 1}, rapidyenc.Meta{PartNumber: 1, TotalParts: 4}, 1_570_000_000, false},
+		// An article's own headers outweigh a tiny file: an sfv's 100 bytes
+		// are an NZB segment of several hundred.
+		{"a tiny file under its headers", segment{Number: 1}, rapidyenc.Meta{FileSize: 100}, 420, false},
 	} {
-		err := segmentMismatch(4, tc.seg, tc.meta)
+		err := segmentMismatch(4, tc.bytes, tc.seg, tc.meta)
 		require.Equal(t, tc.wrong, err != nil, "%s: %v", tc.name, err)
 		if err != nil {
 			require.ErrorIs(t, err, ErrArticleMismatch, tc.name)

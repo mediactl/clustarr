@@ -747,6 +747,11 @@ func (j *job) chaseServers(ctx context.Context, skip string, asked []seg) error 
 			tried[p.Name] = true
 			log.InfoContext(ctx, "usenet: chase on a server finished",
 				"download", j.id, "server", p.Name, "recovered", recovered, "stillMissing", len(missing)-recovered)
+			// More than the engine tolerates missing, and half or more of
+			// what it was asked for: the post is on this primary.
+			if !p.Backup && recovered > maxBadArticles && 2*recovered >= len(missing) {
+				j.moveGrant(ctx, p.Name)
+			}
 			if err := j.checkpoint(); err != nil {
 				return err
 			}
@@ -921,7 +926,7 @@ func (j *job) runBatch(ctx context.Context, targets []*os.File, b batch) error {
 func (j *job) segmentCheck(segs []seg) func(int, rapidyenc.Meta) error {
 	return func(i int, m rapidyenc.Meta) error {
 		f := &j.nzb.Files[segs[i].fi]
-		return segmentMismatch(f.Highest, f.Segments[segs[i].si], m)
+		return segmentMismatch(f.Highest, f.Bytes, f.Segments[segs[i].si], m)
 	}
 }
 

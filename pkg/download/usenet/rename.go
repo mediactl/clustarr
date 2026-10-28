@@ -441,10 +441,10 @@ func (j *job) renameObfuscated(ctx context.Context) {
 		}
 	}
 
-	rename := func(i int, to string) { j.renameContent(ctx, i, to) }
-
 	renamed := 0
 	if len(set.Files) > 0 {
+		var plan []plannedRename
+		damaged := false
 		for i, f := range j.nzb.Files {
 			if f.Kind == kindPar2Index || f.Kind == kindPar2Volume {
 				continue
@@ -456,13 +456,22 @@ func (j *job) renameObfuscated(ctx context.Context) {
 			}
 			want := set.nameByHash16k(h)
 			if want == "" {
-				want = set.matchBySlice(p)
+				// Known by a later slice only: the set's file, its start
+				// damaged.
+				if want = set.matchBySlice(p); want != "" {
+					damaged = true
+				}
 			}
 			if want != "" && want != f.Name {
-				rename(i, want)
-				renamed++
+				plan = append(plan, plannedRename{i: i, to: want})
 			}
 		}
+		if damaged {
+			j.mu.Lock()
+			j.damagedHead = true
+			j.mu.Unlock()
+		}
+		renamed += j.renameSet(ctx, plan)
 		names := make([]string, 0, len(set.Files))
 		for _, d := range set.Files {
 			names = append(names, d.Name)
@@ -477,7 +486,7 @@ func (j *job) renameObfuscated(ctx context.Context) {
 			continue
 		}
 		if ext := sniffExtension(filepath.Join(dir, safeName(f.Name))); ext != "" {
-			rename(i, f.Name+ext)
+			j.renameContent(ctx, i, f.Name+ext)
 			renamed++
 		}
 	}
@@ -486,6 +495,58 @@ func (j *job) renameObfuscated(ctx context.Context) {
 			log.WarnContext(ctx, "usenet checkpoint failed", "download", j.id, "error", err)
 		}
 	}
+}
+
+// plannedRename is content file i's name from the par2 set.
+type plannedRename struct {
+	i  int
+	to string
+}
+
+// renamingSuffix marks a file moved aside by renameSet until its name frees.
+const renamingSuffix = ".clustarr-renaming"
+
+// renameSet gives each planned file its name and reports how many it
+// renamed. A name another planned file holds frees only once that file
+// moves, so the file moves aside under a temporary name first and takes its
+// name after every other: a swap or a longer cycle of names comes out
+// whole. One rename at a time found each such name taken and left the
+// set's volumes swapped (talos, 2026-10-28: "bad volume number" on six
+// jobs). A name held by a file the plan does not move is left, as before.
+func (j *job) renameSet(ctx context.Context, plan []plannedRename) int {
+	held := map[string]bool{}
+	for _, p := range plan {
+		held[safeName(j.nzb.Files[p.i].Name)] = true
+	}
+	renamed := 0
+	type movedAside struct {
+		plannedRename
+		from string
+	}
+	var aside []movedAside
+	for _, p := range plan {
+		if held[safeName(p.to)] {
+			from := j.nzb.Files[p.i].Name
+			if j.renameContent(ctx, p.i, safeName(p.to)+renamingSuffix) {
+				aside = append(aside, movedAside{p, from})
+			}
+			continue
+		}
+		if j.renameContent(ctx, p.i, p.to) {
+			renamed++
+		}
+	}
+	for _, p := range aside {
+		if j.renameContent(ctx, p.i, p.to) {
+			renamed++
+			continue
+		}
+		// The name stayed taken (its holder could not move): back to the
+		// name the file had, unless a planned file took that meanwhile, when
+		// the temporary name stays and the unpacker judges the set.
+		j.renameContent(ctx, p.i, p.from)
+	}
+	return renamed
 }
 
 // renameContent renames content file i to to, on disk and in j.nzb.Files,

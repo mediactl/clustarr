@@ -405,3 +405,119 @@ func TestPar2ParseResynchronisesPastAHoleAndDropsACorruptPacket(t *testing.T) {
 		require.NotContains(t, d.Name, "XXXX", "a FileDesc whose MD5 does not match is never taken")
 	}
 }
+
+// A post whose wire names swap volumes -- the file named part01.rar carries
+// part02's bytes, part02.rar part01's -- is renamed as a whole: every name
+// the par2 set gives is taken, though each is held by another file of the
+// set until that one moves. One rename at a time found each name taken and
+// left it, so the volumes stayed swapped and the unpack failed "bad volume
+// number": six jobs on talos in an hour (2026-10-28), The Warrior Princess
+// and the Barbaric King's TLC episodes and a Six Feet Under among them. A
+// cycle of three is undone too, and a name held by a file the set does not
+// rename is still left alone.
+func TestRenameObfuscatedUndoesSwappedVolumes(t *testing.T) {
+	c, _, _ := newTestClient(t, Config{Providers: []Provider{{Name: "p", Host: "127.0.0.1", Port: 1, Connections: 1}}})
+
+	work := t.TempDir()
+	names := []string{"Show.S01E06.part01.rar", "Show.S01E06.part02.rar", "Show.S01E06.part03.rar", "Show.S01E06.part04.rar", "Show.S01E06.part05.rar"}
+	data := map[string][]byte{}
+	for i, n := range names {
+		b := make([]byte, 40<<10)
+		_, _ = rand.New(rand.NewSource(int64(20 + i))).Read(b)
+		data[n] = b
+		require.NoError(t, os.WriteFile(filepath.Join(work, n), b, 0o644))
+	}
+	par2test.CreateSet(t, work, "Show.S01E06.par2", names, 20, 10, 0)
+
+	nzb := nzbWith(t, "", append(append([]string{}, names...), "Show.S01E06.par2", "Show.S01E06.nfo")...)
+	parsed, err := parseNZB(nzb, defaultMaxNZBBytes)
+	require.NoError(t, err)
+	j := c.newJob("job1", "download-1", "tv", filepath.Join(c.cfg.ScratchDir, "tv", "job1"), parsed)
+	require.NoError(t, os.MkdirAll(j.contentDir(), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(j.dir, nzbName), nzb, 0o644))
+	// On disk: part01 and part02 swapped, part03 -> part04 -> part05 ->
+	// part03 a cycle of three, and an nfo the set does not describe.
+	onDisk := map[string]string{
+		"Show.S01E06.part01.rar": "Show.S01E06.part02.rar",
+		"Show.S01E06.part02.rar": "Show.S01E06.part01.rar",
+		"Show.S01E06.part03.rar": "Show.S01E06.part05.rar",
+		"Show.S01E06.part04.rar": "Show.S01E06.part03.rar",
+		"Show.S01E06.part05.rar": "Show.S01E06.part04.rar",
+	}
+	for wire, content := range onDisk {
+		require.NoError(t, os.WriteFile(filepath.Join(j.contentDir(), wire), data[content], 0o644))
+	}
+	require.NoError(t, os.Rename(filepath.Join(work, "Show.S01E06.par2"), filepath.Join(j.contentDir(), "Show.S01E06.par2")))
+	require.NoError(t, os.WriteFile(filepath.Join(j.contentDir(), "Show.S01E06.nfo"), []byte("notes"), 0o644))
+
+	j.renameObfuscated(context.Background())
+
+	for _, n := range names {
+		got, err := os.ReadFile(filepath.Join(j.contentDir(), n))
+		require.NoError(t, err, n)
+		require.True(t, bytes.Equal(data[n], got), "%s carries its own volume", n)
+	}
+	entries, err := os.ReadDir(j.contentDir())
+	require.NoError(t, err)
+	require.Len(t, entries, len(names)+2, "nothing left under a temporary name")
+	byName := map[string]bool{}
+	for _, f := range j.nzb.Files {
+		byName[f.Name] = true
+	}
+	for _, n := range names {
+		require.True(t, byName[n], "the job's files carry %s", n)
+	}
+	require.Equal(t, "Show.S01E06.part02.rar", j.renames["Show.S01E06.part01.rar"])
+	require.Equal(t, "Show.S01E06.part05.rar", j.renames["Show.S01E06.part03.rar"])
+
+	// A restart replays the renames onto the wire names.
+	reparsed, err := parseNZB(nzb, defaultMaxNZBBytes)
+	require.NoError(t, err)
+	applyRenames(reparsed.Files, j.renames)
+	got := map[string]bool{}
+	for _, f := range reparsed.Files {
+		got[f.Name] = true
+	}
+	for _, n := range names {
+		require.True(t, got[n], "the replayed job names %s", n)
+	}
+}
+
+// A file the par2 set knows only by a later slice -- its first 16 KiB are
+// not what the set records -- is damaged at its start though every article
+// arrived and verified: a provider answered a message-ID with another
+// post's article, whole and CRC-clean, which no failed article records.
+// par2 runs on such a set rather than the quick check skipping it. Four
+// obfuscated rar sets on talos (2026-10-28) failed "RAR signature not
+// found" with par2 skipped as every article verified on receipt.
+func TestADamagedFileHeadIsRepairedThoughEveryArticleVerified(t *testing.T) {
+	c, _, _ := newTestClient(t, Config{Providers: []Provider{{Name: "p", Host: "127.0.0.1", Port: 1, Connections: 1}}, Repairer: libraryRepairer(t)})
+
+	work := t.TempDir()
+	data := make([]byte, 200<<10)
+	_, _ = rand.New(rand.NewSource(13)).Read(data)
+	require.NoError(t, os.WriteFile(filepath.Join(work, "Some.Movie.2026.1080p.part01.rar"), data, 0o644))
+	par2test.CreateSet(t, work, "Some.Movie.2026.1080p.par2", []string{"Some.Movie.2026.1080p.part01.rar"}, 16, 50, 0)
+
+	nzb := nzbWith(t, "", "4c147ccf33ea4e40a96139b1a9639da6.part01.rar", "Some.Movie.2026.1080p.par2", "Some.Movie.2026.1080p.vol00+8.par2")
+	parsed, err := parseNZB(nzb, defaultMaxNZBBytes)
+	require.NoError(t, err)
+	j := c.newJob("job1", "download-1", "movies", filepath.Join(c.cfg.ScratchDir, "movies", "job1"), parsed)
+	require.NoError(t, os.MkdirAll(j.contentDir(), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(j.dir, nzbName), nzb, 0o644))
+	foreign := append([]byte{}, data...)
+	_, _ = rand.New(rand.NewSource(99)).Read(foreign[:4<<10])
+	require.NoError(t, os.WriteFile(filepath.Join(j.contentDir(), "4c147ccf33ea4e40a96139b1a9639da6.part01.rar"), foreign, 0o644))
+	require.NoError(t, os.Rename(filepath.Join(work, "Some.Movie.2026.1080p.par2"), filepath.Join(j.contentDir(), "Some.Movie.2026.1080p.par2")))
+	vols, _ := filepath.Glob(filepath.Join(work, "*.vol*.par2"))
+	require.NotEmpty(t, vols)
+	require.NoError(t, os.Rename(vols[0], filepath.Join(j.contentDir(), "Some.Movie.2026.1080p.vol00+8.par2")))
+	require.Zero(t, j.failedArticles(), "every article arrived")
+
+	j.renameObfuscated(context.Background())
+	require.NoError(t, j.repair(context.Background()))
+
+	got, err := os.ReadFile(filepath.Join(j.contentDir(), "Some.Movie.2026.1080p.part01.rar"))
+	require.NoError(t, err)
+	require.True(t, bytes.Equal(data, got), "par2 repaired the file's start")
+}

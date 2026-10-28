@@ -546,6 +546,12 @@ type job struct {
 	waitingGrant atomic.Bool
 	grant        *grant
 	limiter      *connLimiter
+	// grantMu serialises ensureGrant, so workers that find no grant
+	// together take one between them rather than one each.
+	grantMu sync.Mutex
+	// preferred, under mu, is the primary the transfer's grants are taken
+	// on first (moveGrant), "" for the primaries' order.
+	preferred string
 	// chaseMu serialises the chase (segment.go): workers that breach
 	// together run one between them, and the others fetch on meanwhile
 	// ([job.healthGate]).
@@ -608,6 +614,10 @@ type job struct {
 	// par2Names is every name the par2 set records, from renameObfuscated,
 	// for adoptRepairedSet.
 	par2Names []string
+	// damagedHead is set by renameObfuscated when a file's first 16 KiB are
+	// not what the par2 set records for it, so repair's quick check, which
+	// trusts the articles' CRCs, does not skip par2.
+	damagedHead bool
 
 	done       []bitset
 	failedSegs []bitset
@@ -1459,12 +1469,18 @@ func (j *job) repair(ctx context.Context) error {
 	if index == "" {
 		return nil
 	}
-	if j.failedArticles() == 0 {
+	j.mu.Lock()
+	damagedHead := j.damagedHead
+	j.mu.Unlock()
+	if j.failedArticles() == 0 && !damagedHead {
 		// The quick check: every article arrived and its pcrc32 verified on
 		// the way in, so the set is whole and par2 has nothing to do. A full
 		// par2 verify reads every byte of the set -- 10 GB over NFS, since
 		// the working area moved there -- to learn what the transfer already
-		// proved. NZBGet's ParQuick and udl skip it the same way.
+		// proved. NZBGet's ParQuick and udl skip it the same way. A CRC
+		// proves only that the server sent what it holds, so a file whose
+		// start the par2 set does not recognise (damagedHead: another post's
+		// article answered one of its message-IDs) is verified after all.
 		logging.FromContext(ctx).InfoContext(ctx, "usenet: every article verified on receipt; skipping par2",
 			"download", j.id)
 		return nil

@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -314,14 +315,46 @@ func (j *job) give(ctx context.Context, g grant) {
 // of every batch, so a grant given back on a pause or an outranking is
 // taken again before the next article.
 func (j *job) ensureGrant(ctx context.Context) error {
+	j.grantMu.Lock()
+	defer j.grantMu.Unlock()
 	j.mu.Lock()
 	has := j.grant != nil
+	preferred := j.preferred
 	j.mu.Unlock()
 	if has {
 		return nil
 	}
-	_, err := j.takeGrant(ctx, j.client.primaries(), "", 1)
+	candidates := j.client.primaries()
+	if preferred != "" {
+		candidates = append([]string{preferred}, slices.DeleteFunc(candidates, func(n string) bool { return n == preferred })...)
+	}
+	_, err := j.takeGrant(ctx, candidates, "", 1)
 	return err
+}
+
+// moveGrant makes server the primary the transfer's grants are taken on
+// first, and gives back a grant held elsewhere, so every worker's next
+// batch takes one there (ensureGrant), or on the others when it has no
+// room. A chase that recovers most of what the granted server lacked says
+// the rest of the post is there too: on talos (2026-10-28) transfers
+// granted on frugal and newsdemon fetched what those lacked through
+// easynews's chase share -- three connections, a tenth of its thirty --
+// while easynews carried no transfer at all, and the engine moved 16-20
+// MB/s.
+func (j *job) moveGrant(ctx context.Context, server string) {
+	j.mu.Lock()
+	if j.preferred == server {
+		j.mu.Unlock()
+		return
+	}
+	j.preferred = server
+	elsewhere := j.grant != nil && j.grant.Server != server
+	j.mu.Unlock()
+	logging.FromContext(ctx).InfoContext(ctx, "usenet: the transfer moves to the server its chases recover it from",
+		"download", j.id, "server", server)
+	if elsewhere {
+		j.giveGrant(ctx)
+	}
 }
 
 // grantServer is the server the transfer grant names, for scoping a fetch.
