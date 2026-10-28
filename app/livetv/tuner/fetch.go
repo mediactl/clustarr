@@ -285,7 +285,7 @@ func (t *Tuner) fetchGuide(ctx context.Context, p *provider, cfg Config) {
 			want = wanted(parsed.Channels, src) // a guide with no programmes
 		}
 	}
-	if err == nil && cfg.GuideURL != "" {
+	if err == nil && cfg.GuideURL != "" && !cfg.m3u() { // an M3U provider has no panel
 		parsed, want = t.withPanelFallback(ctx, p, cfg, parsed, want, src, from)
 	}
 	fetchDuration.WithLabelValues(label(p.key), "guide").Observe(time.Since(start).Seconds())

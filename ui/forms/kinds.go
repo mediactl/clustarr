@@ -338,9 +338,11 @@ var kinds = []Kind{
 	{
 		ConfigKind: configKind("iptvproviders"),
 		Title:      "IPTV providers", Singular: "IPTV provider",
-		Help: "An IPTV account whose live channels become Plex Live TV. The guide is the panel's xmltv.php unless Guide URL names another XMLTV; {username} and {password} in a URL take the account's.",
+		Help: "An IPTV source whose live channels become Plex Live TV: an Xtream Codes account, or a plain M3U playlist URL. An Xtream guide is the panel's xmltv.php unless Guide URL names another XMLTV; an M3U provider has only its Guide URL, or dummy guides. {username} and {password} in a URL take the account's.",
 		Groups: []Group{
-			{Title: "Provider", Paths: []string{"enabled", "server", "credentialsRef", "tuners", "refresh", "userAgent"}},
+			{Title: "Provider", Paths: []string{"type", "enabled", "credentialsRef", "tuners", "refresh", "userAgent"}},
+			{Title: "Xtream", When: &When{Path: "type", Values: []string{"Xtream"}}, Paths: []string{"server"}},
+			{Title: "M3U", When: &When{Path: "type", Values: []string{"M3U"}}, Paths: []string{"playlistURL"}},
 			{Title: "Guide", Paths: []string{"guideURL", "epgSource"}},
 			{Title: "Channels", Paths: []string{"filters", "channelNumberStart"}},
 			{Title: "Plex", Paths: []string{"device.friendlyName", "device.id", "dvr.maxChannels"}, Advanced: true},
@@ -348,11 +350,14 @@ var kinds = []Kind{
 		},
 		Labels: map[string]string{
 			"guideURL": "Guide URL (XMLTV)", "epgSource": "Guide source", "channelNumberStart": "First channel number",
-			"dvr.maxChannels": "Channels per Plex DVR", "credentialsRef": "Account",
+			"dvr.maxChannels": "Channels per Plex DVR", "credentialsRef": "Account", "playlistURL": "Playlist URL (M3U)",
 		},
+		// Not required here: an M3U provider names a Secret only when its
+		// URLs need one, and an Xtream provider without both keys reads
+		// Valid=False, SecretKeyNotFound.
 		Secrets: []Secret{{Path: "credentialsRef", Keys: []Key{
-			{Key: "username", Label: "Username", Required: true},
-			{Key: "password", Label: "Password", Required: true},
+			{Key: "username", Label: "Username"},
+			{Key: "password", Label: "Password"},
 		}}},
 	},
 	{

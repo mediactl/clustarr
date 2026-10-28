@@ -28,24 +28,32 @@ import (
 // IPTVProviderSpecApplyConfiguration represents a declarative configuration of the IPTVProviderSpec type for use
 // with apply.
 //
-// IPTVProviderSpec is one Xtream Codes IPTV account
-// (docs/superpowers/specs/2026-10-20-iptv-xtream-ranges-design.md). Its
-// playlist is <server>/get.php with output=ts and type=m3u_plus, its guide
-// <server>/xmltv.php unless guideURL names another, both fetched daily and
-// cached. Its active channels are
-// split into blocks of contiguous numbers, each one emulated HDHomeRun and
-// one Plex DVR (Live TV spec §3, §3.1).
+// IPTVProviderSpec is one IPTV source: an Xtream Codes account
+// (docs/superpowers/specs/2026-10-20-iptv-xtream-ranges-design.md), whose
+// playlist is <server>/get.php with output=ts and type=m3u_plus and guide
+// <server>/xmltv.php unless guideURL names another, or a plain M3U
+// playlist URL with an optional guideURL (the direct-tuners and ui design
+// §5.7); both fetched daily and cached. Its active channels are split into
+// blocks of contiguous numbers, each one emulated HDHomeRun and one Plex
+// DVR (Live TV spec §3, §3.1).
 type IPTVProviderSpecApplyConfiguration struct {
 	// Enabled false stops this provider's tuner; Plex then sees its devices
 	// gone. Default true.
 	Enabled *bool `json:"enabled,omitempty"`
+	// Type is Xtream (an Xtream Codes account, the default) or M3U (a plain
+	// playlist URL).
+	Type *clustarrv1alpha1.ProviderType `json:"type,omitempty"`
 	// Server is the Xtream Codes panel: a host ("tvload.win"), a host:port,
-	// or a URL. Without a scheme it is https.
+	// or a URL. Without a scheme it is https. Required for Xtream.
 	Server *string `json:"server,omitempty"`
+	// PlaylistURL is an M3U provider's playlist, http or https; {username}
+	// and {password} in it take the credentials Secret's. Required for M3U.
+	PlaylistURL *string `json:"playlistURL,omitempty"`
 	// CredentialsRef names a Secret in the provider's namespace holding the
 	// account's username and password, under the keys "username" and
-	// "password". They are sent as the panel's query parameters and never
-	// stored or reported.
+	// "password". They are sent as the panel's query parameters (or put in
+	// an M3U provider's URLs) and never stored or reported. Required for
+	// Xtream; an M3U provider names one only when its URLs need it.
 	CredentialsRef *v1.LocalObjectReference `json:"credentialsRef,omitempty"`
 	// Tuners overrides how many distinct channels may stream at once, which
 	// the relay enforces with a 503. Unset, it is the account's
@@ -101,11 +109,27 @@ func (b *IPTVProviderSpecApplyConfiguration) WithEnabled(value bool) *IPTVProvid
 	return b
 }
 
+// WithType sets the Type field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Type field is set to the value of the last call.
+func (b *IPTVProviderSpecApplyConfiguration) WithType(value clustarrv1alpha1.ProviderType) *IPTVProviderSpecApplyConfiguration {
+	b.Type = &value
+	return b
+}
+
 // WithServer sets the Server field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Server field is set to the value of the last call.
 func (b *IPTVProviderSpecApplyConfiguration) WithServer(value string) *IPTVProviderSpecApplyConfiguration {
 	b.Server = &value
+	return b
+}
+
+// WithPlaylistURL sets the PlaylistURL field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the PlaylistURL field is set to the value of the last call.
+func (b *IPTVProviderSpecApplyConfiguration) WithPlaylistURL(value string) *IPTVProviderSpecApplyConfiguration {
+	b.PlaylistURL = &value
 	return b
 }
 

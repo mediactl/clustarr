@@ -288,7 +288,8 @@ func (t *Tuner) Apply(c Config) {
 		p.relay.Configure(effectiveTuners(c, p.account), c.Buffer, c.Linger, c.UserAgent, languageCode(c.Language))
 	}
 	refreshed := !first && c.Refresh != p.cfg.Refresh
-	moved := !first && (c.Server != p.cfg.Server || c.Username != p.cfg.Username || c.Password != p.cfg.Password)
+	moved := !first && (c.Type != p.cfg.Type || c.Server != p.cfg.Server || c.PlaylistURLTemplate != p.cfg.PlaylistURLTemplate ||
+		c.Username != p.cfg.Username || c.Password != p.cfg.Password)
 	if moved || refreshed {
 		p.playlistDue, p.accountDue, p.guide.due = true, true, true
 	}
@@ -497,7 +498,8 @@ func (t *Tuner) dispatch(ctx context.Context) {
 		}
 		tunersInUse.WithLabelValues(label(p.key)).Set(float64(p.relay.InUse()))
 		viewers.WithLabelValues(label(p.key)).Set(float64(p.relay.Viewers()))
-		if isDue(p.accountDue, p.accountNext, now, p.fetching["account"]) {
+		// An M3U provider has no panel: no account to ask.
+		if !p.cfg.m3u() && isDue(p.accountDue, p.accountNext, now, p.fetching["account"]) {
 			p.accountDue, p.accountNext = false, time.Time{}
 			p.fetching["account"] = true
 			go t.fetchAccount(ctx, p, p.cfg)
@@ -507,7 +509,7 @@ func (t *Tuner) dispatch(ctx context.Context) {
 			p.fetching["playlist"] = true
 			go t.fetchPlaylist(ctx, p, p.cfg)
 		}
-		if p.playlistFetched && p.cfg.EPGSource != "PMS" && isDue(p.guide.due, p.guide.next, now, p.fetching["guide"]) {
+		if p.playlistFetched && p.cfg.EPGSource != "PMS" && p.cfg.GuideSource() != "" && isDue(p.guide.due, p.guide.next, now, p.fetching["guide"]) {
 			p.guide.due, p.guide.next = false, time.Time{}
 			p.fetching["guide"] = true
 			go t.fetchGuide(ctx, p, p.cfg)

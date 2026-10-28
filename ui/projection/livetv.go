@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package projection
 
 import (
+	"net/url"
 	"slices"
 	"strings"
 	"time"
@@ -194,7 +195,7 @@ func LiveTVSources(providers []clustarrv1.IPTVProvider, now time.Time) []SourceR
 	for i := range providers {
 		p := &providers[i]
 		r := SourceRow{
-			Namespace: p.Namespace, Name: p.Name, Type: "Xtream", Server: p.Spec.Server,
+			Namespace: p.Namespace, Name: p.Name, Type: string(p.Spec.TypeOrDefault()), Server: p.Spec.Server,
 			Enabled: p.Spec.EnabledOrDefault(), GuidePMS: p.Spec.EPGSourceOrDefault() == clustarrv1.EPGSourcePMS,
 		}
 		if c := meta.FindStatusCondition(p.Status.Conditions, clustarrv1.ConditionReady); c != nil {
@@ -220,9 +221,18 @@ func LiveTVSources(providers []clustarrv1.IPTVProvider, now time.Time) []SourceR
 		if l := p.Status.Lineup; l != nil {
 			r.Active = l.Active
 		}
-		r.GuideSource = strings.TrimRight(p.Spec.Server, "/") + "/xmltv.php"
+		m3u := p.Spec.TypeOrDefault() == clustarrv1.ProviderTypeM3U
+		if m3u {
+			// The playlist URL's host alone: its path and query may name
+			// the account.
+			if u, err := url.Parse(p.Spec.PlaylistURL); err == nil {
+				r.Server = u.Host
+			}
+		} else {
+			r.GuideSource = strings.TrimRight(p.Spec.Server, "/") + "/xmltv.php"
+		}
 		if g := strings.TrimSpace(p.Spec.GuideURL); g != "" {
-			r.GuideSource, r.GuideFallback = g, true
+			r.GuideSource, r.GuideFallback = g, !m3u
 		}
 		if g := p.Status.Guide; g != nil {
 			r.GuideChannels, r.GuideProgrammes, r.GuideError = g.Channels, g.Programmes, g.Error

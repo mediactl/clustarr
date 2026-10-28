@@ -54,7 +54,11 @@ type cachedGuide struct {
 // accountFingerprint names the account a cache belongs to without
 // carrying its credentials.
 func accountFingerprint(c Config) string {
-	sum := sha256.Sum256([]byte(c.Server + "\x00" + c.Username))
+	source := c.Server
+	if c.m3u() {
+		source = "m3u\x00" + strings.TrimSpace(c.PlaylistURLTemplate)
+	}
+	sum := sha256.Sum256([]byte(source + "\x00" + c.Username))
 	return hex.EncodeToString(sum[:8])
 }
 

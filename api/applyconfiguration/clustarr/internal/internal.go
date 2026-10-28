@@ -333,6 +333,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: guideURL
       type:
         scalar: string
+    - name: playlistURL
+      type:
+        scalar: string
     - name: refresh
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Duration
@@ -345,6 +348,10 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: tuners
       type:
         scalar: numeric
+    - name: type
+      type:
+        namedType: com.github.mediactl.clustarr.api.clustarr.v1alpha1.ProviderType
+      default: Xtream
     - name: userAgent
       type:
         scalar: string
@@ -427,6 +434,8 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: hash
       type:
         scalar: string
+- name: com.github.mediactl.clustarr.api.clustarr.v1alpha1.ProviderType
+  scalar: string
 - name: com.github.mediactl.clustarr.api.clustarr.v1alpha1.StreamSpec
   map:
     fields:

@@ -167,6 +167,10 @@ func fetchConditions(p *clustarrv1.IPTVProvider, snap tuner.Snapshot, ok bool) (
 	if p.Spec.EPGSourceOrDefault() == clustarrv1.EPGSourcePMS {
 		return playlist, metav1.Condition{Type: clustarrv1.ConditionGuidesFetched, Status: metav1.ConditionTrue, Reason: "NotUsed", Message: "epgSource is PMS"}
 	}
+	if p.Spec.TypeOrDefault() == clustarrv1.ProviderTypeM3U && p.Spec.GuideURL == "" {
+		return playlist, metav1.Condition{Type: clustarrv1.ConditionGuidesFetched, Status: metav1.ConditionTrue, Reason: "NoGuide",
+			Message: "the M3U provider names no guideURL: every channel has a dummy guide"}
+	}
 	g := snap.Guide
 	guide = metav1.Condition{
 		Type: clustarrv1.ConditionGuidesFetched, Status: metav1.ConditionTrue, Reason: "Fetched",

@@ -204,3 +204,17 @@ func TestBlockOfIsTheLastBlockStartingAtOrBelow(t *testing.T) {
 	_, ok = projection.BlockOf(bs, "999")
 	assert.False(t, ok)
 }
+
+func TestLiveTVSourcesShowAnM3UProvidersType(t *testing.T) {
+	p := tvProvider()
+	p.Spec.Type, p.Spec.Server = clustarrv1.ProviderTypeM3U, ""
+	p.Spec.PlaylistURL = "https://lists.example/{username}/all.m3u?key={password}"
+	rows := projection.LiveTVSources([]clustarrv1.IPTVProvider{p}, time.Now())
+	assert.Equal(t, "M3U", rows[0].Type)
+	assert.Equal(t, "lists.example", rows[0].Server, "the playlist URL's host, no path or query")
+	assert.Empty(t, rows[0].GuideSource, "no guideURL, no panel: no guide")
+	p.Spec.GuideURL = "https://epg.example/guide.xml"
+	rows = projection.LiveTVSources([]clustarrv1.IPTVProvider{p}, time.Now())
+	assert.Equal(t, "https://epg.example/guide.xml", rows[0].GuideSource)
+	assert.False(t, rows[0].GuideFallback, "no panel guide to fall back to")
+}

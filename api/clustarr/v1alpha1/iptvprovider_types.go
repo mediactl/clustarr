@@ -47,32 +47,62 @@ const (
 	FilterCustom FilterType = "custom"
 )
 
-// IPTVProviderSpec is one Xtream Codes IPTV account
-// (docs/superpowers/specs/2026-10-20-iptv-xtream-ranges-design.md). Its
-// playlist is <server>/get.php with output=ts and type=m3u_plus, its guide
-// <server>/xmltv.php unless guideURL names another, both fetched daily and
-// cached. Its active channels are
-// split into blocks of contiguous numbers, each one emulated HDHomeRun and
-// one Plex DVR (Live TV spec §3, §3.1).
+// ProviderType is what an IPTVProvider's playlist comes from.
+//
+// +kubebuilder:validation:Enum=Xtream;M3U
+type ProviderType string
+
+const (
+	// ProviderTypeXtream is an Xtream Codes account: its playlist is the
+	// panel's get.php, its guide its xmltv.php unless guideURL names
+	// another, its tuner limit the account's max_connections.
+	ProviderTypeXtream ProviderType = "Xtream"
+	// ProviderTypeM3U is a plain M3U playlist URL, with an optional XMLTV
+	// guide URL and no account (the direct-tuners and ui design §5.7).
+	ProviderTypeM3U ProviderType = "M3U"
+)
+
+// IPTVProviderSpec is one IPTV source: an Xtream Codes account
+// (docs/superpowers/specs/2026-10-20-iptv-xtream-ranges-design.md), whose
+// playlist is <server>/get.php with output=ts and type=m3u_plus and guide
+// <server>/xmltv.php unless guideURL names another, or a plain M3U
+// playlist URL with an optional guideURL (the direct-tuners and ui design
+// §5.7); both fetched daily and cached. Its active channels are split into
+// blocks of contiguous numbers, each one emulated HDHomeRun and one Plex
+// DVR (Live TV spec §3, §3.1).
+//
+// +kubebuilder:validation:XValidation:rule="(has(self.type) && self.type == 'M3U') ? (has(self.playlistURL) && size(self.playlistURL) > 0) : (has(self.server) && size(self.server) > 0 && has(self.credentialsRef) && has(self.credentialsRef.name) && size(self.credentialsRef.name) > 0)",message="an Xtream provider needs server and credentialsRef; an M3U provider needs playlistURL"
 type IPTVProviderSpec struct {
 	// Enabled false stops this provider's tuner; Plex then sees its devices
 	// gone. Default true.
 	// +optional
 	Enabled *bool `json:"enabled,omitempty"`
 
+	// Type is Xtream (an Xtream Codes account, the default) or M3U (a plain
+	// playlist URL).
+	// +optional
+	// +kubebuilder:default=Xtream
+	Type ProviderType `json:"type,omitempty"`
+
 	// Server is the Xtream Codes panel: a host ("tvload.win"), a host:port,
-	// or a URL. Without a scheme it is https.
-	// +required
-	// +kubebuilder:validation:MinLength=1
+	// or a URL. Without a scheme it is https. Required for Xtream.
+	// +optional
 	// +kubebuilder:validation:MaxLength=512
-	Server string `json:"server"`
+	Server string `json:"server,omitempty"`
+
+	// PlaylistURL is an M3U provider's playlist, http or https; {username}
+	// and {password} in it take the credentials Secret's. Required for M3U.
+	// +optional
+	// +kubebuilder:validation:MaxLength=4096
+	PlaylistURL string `json:"playlistURL,omitempty"`
 
 	// CredentialsRef names a Secret in the provider's namespace holding the
 	// account's username and password, under the keys "username" and
-	// "password". They are sent as the panel's query parameters and never
-	// stored or reported.
-	// +required
-	CredentialsRef corev1.LocalObjectReference `json:"credentialsRef"`
+	// "password". They are sent as the panel's query parameters (or put in
+	// an M3U provider's URLs) and never stored or reported. Required for
+	// Xtream; an M3U provider names one only when its URLs need it.
+	// +optional
+	CredentialsRef corev1.LocalObjectReference `json:"credentialsRef,omitempty"`
 
 	// Tuners overrides how many distinct channels may stream at once, which
 	// the relay enforces with a 503. Unset, it is the account's

@@ -64,9 +64,10 @@ func NormalizeServer(server string) (string, error) {
 	return u.Scheme + "://" + u.Host + strings.TrimRight(u.EscapedPath(), "/"), nil
 }
 
-// ValidateGuideURL checks spec.guideURL: an http or https URL with a host,
-// its credential placeholders left in (they parse as path or query text).
-func ValidateGuideURL(raw string) error {
+// ValidateSourceURL checks spec.guideURL and spec.playlistURL: an http or
+// https URL with a host, its credential placeholders left in (they parse as
+// path or query text).
+func ValidateSourceURL(raw string) error {
 	u, err := url.Parse(strings.TrimSpace(raw))
 	switch {
 	case err != nil:
@@ -88,25 +89,37 @@ func (r *Reconciler) resolve(ctx context.Context, p *clustarrv1.IPTVProvider) (r
 	invalid := func(reason, format string, args ...any) (resolved, metav1.Condition) {
 		return resolved{}, metav1.Condition{Type: clustarrv1.ConditionValid, Status: metav1.ConditionFalse, Reason: reason, Message: fmt.Sprintf(format, args...)}
 	}
-	server, err := NormalizeServer(p.Spec.Server)
-	if err != nil {
-		return invalid(clustarrv1.ReasonInvalidServer, "server %q: %v", p.Spec.Server, err)
+	m3u := p.Spec.TypeOrDefault() == clustarrv1.ProviderTypeM3U
+	var out resolved
+	if m3u {
+		if err := ValidateSourceURL(p.Spec.PlaylistURL); err != nil {
+			return invalid(clustarrv1.ReasonInvalidPlaylistURL, "playlistURL %s: %v", iptv.Redact(p.Spec.PlaylistURL), err)
+		}
+	} else {
+		server, err := NormalizeServer(p.Spec.Server)
+		if err != nil {
+			return invalid(clustarrv1.ReasonInvalidServer, "server %q: %v", p.Spec.Server, err)
+		}
+		out.server = server
+	}
+	if g := p.Spec.GuideURL; g != "" {
+		if err := ValidateSourceURL(g); err != nil {
+			return invalid(clustarrv1.ReasonInvalidGuideURL, "guideURL %s: %v", iptv.Redact(g), err)
+		}
 	}
 	name := p.Spec.CredentialsRef.Name
+	if m3u && name == "" {
+		// An M3U provider whose URLs name no credential needs no Secret.
+		return out, metav1.Condition{Type: clustarrv1.ConditionValid, Status: metav1.ConditionTrue, Reason: "Valid", Message: "the playlist URL parses"}
+	}
 	var s corev1.Secret
-	err = r.SecretReader.Get(ctx, types.NamespacedName{Namespace: p.Namespace, Name: name}, &s)
+	err := r.SecretReader.Get(ctx, types.NamespacedName{Namespace: p.Namespace, Name: name}, &s)
 	switch {
 	case apierrors.IsNotFound(err):
 		return invalid(clustarrv1.ReasonSecretNotFound, "Secret %s/%s does not exist", p.Namespace, name)
 	case err != nil:
 		return invalid(clustarrv1.ReasonSecretNotFound, "Secret %s/%s cannot be read: %v", p.Namespace, name, err)
 	}
-	if g := p.Spec.GuideURL; g != "" {
-		if err := ValidateGuideURL(g); err != nil {
-			return invalid(clustarrv1.ReasonInvalidGuideURL, "guideURL %s: %v", iptv.Redact(g), err)
-		}
-	}
-	out := resolved{server: server}
 	for key, dst := range map[string]*string{clustarrv1.CredentialsKeyUsername: &out.username, clustarrv1.CredentialsKeyPassword: &out.password} {
 		// kubectl --from-file and a YAML "|" block both end the value in a
 		// newline, which no credential carries.
@@ -116,7 +129,11 @@ func (r *Reconciler) resolve(ctx context.Context, p *clustarrv1.IPTVProvider) (r
 		}
 		*dst = string(v)
 	}
-	return out, metav1.Condition{Type: clustarrv1.ConditionValid, Status: metav1.ConditionTrue, Reason: "Valid", Message: "the server parses and the credentials Secret holds both keys"}
+	msg := "the server parses and the credentials Secret holds both keys"
+	if m3u {
+		msg = "the playlist URL parses and the credentials Secret holds both keys"
+	}
+	return out, metav1.Condition{Type: clustarrv1.ConditionValid, Status: metav1.ConditionTrue, Reason: "Valid", Message: msg}
 }
 
 // buildConfig is the provider as the tuner sees it: every spec field read
@@ -124,20 +141,22 @@ func (r *Reconciler) resolve(ctx context.Context, p *clustarrv1.IPTVProvider) (r
 // blocks as planned.
 func buildConfig(p *clustarrv1.IPTVProvider, blocks []tuner.BlockConfig, res resolved, channels []clustarrv1.IPTVChannel) tuner.Config {
 	c := tuner.Config{
-		Key:       types.NamespacedName{Namespace: p.Namespace, Name: p.Name},
-		Blocks:    blocks,
-		Server:    res.server,
-		Username:  res.username,
-		Password:  res.password,
-		GuideURL:  p.Spec.GuideURL,
-		Tuners:    p.Spec.TunersOverride(),
-		UserAgent: p.Spec.UserAgentOrDefault(),
-		Every:     p.Spec.RefreshOrDefault(),
-		EPGSource: string(p.Spec.EPGSourceOrDefault()),
-		Buffer:    int(p.Spec.Stream.BufferOrDefault()),
-		Linger:    p.Spec.Stream.LingerOrDefault(),
-		Language:  p.Spec.Stream.LanguageOrDefault(),
-		Refresh:   p.Annotations[clustarrv1.AnnotationLiveTVRefresh],
+		Key:                 types.NamespacedName{Namespace: p.Namespace, Name: p.Name},
+		Blocks:              blocks,
+		Type:                string(p.Spec.TypeOrDefault()),
+		Server:              res.server,
+		PlaylistURLTemplate: p.Spec.PlaylistURL,
+		Username:            res.username,
+		Password:            res.password,
+		GuideURL:            p.Spec.GuideURL,
+		Tuners:              p.Spec.TunersOverride(),
+		UserAgent:           p.Spec.UserAgentOrDefault(),
+		Every:               p.Spec.RefreshOrDefault(),
+		EPGSource:           string(p.Spec.EPGSourceOrDefault()),
+		Buffer:              int(p.Spec.Stream.BufferOrDefault()),
+		Linger:              p.Spec.Stream.LingerOrDefault(),
+		Language:            p.Spec.Stream.LanguageOrDefault(),
+		Refresh:             p.Annotations[clustarrv1.AnnotationLiveTVRefresh],
 	}
 	for _, f := range p.Spec.Filters {
 		c.Filters = append(c.Filters, filter.Rule{

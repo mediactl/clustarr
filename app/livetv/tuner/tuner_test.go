@@ -137,6 +137,13 @@ func newProvider(t *testing.T) *provider {
 				return
 			}
 			_, _ = w.Write(epgBody)
+		case r.URL.Path == "/lists/user.m3u":
+			// An M3U provider's playlist URL, its {username} filled in.
+			if r.URL.Query().Get("key") != "pass" {
+				http.Error(w, "bad request", http.StatusBadRequest)
+				return
+			}
+			_, _ = w.Write(bytes.ReplaceAll(m3uBody, []byte("http://provider.example"), []byte(p.srv.URL)))
 		case r.URL.Path == "/player_api.php":
 			_, _ = fmt.Fprintf(w, `{"user_info":{"username":"user","password":"pass","auth":1,"status":"Active","exp_date":"1792556379","active_cons":"0","max_connections":"%d"}}`, p.maxConns.Load())
 		case strings.HasPrefix(r.URL.Path, "/live/"):
@@ -1243,4 +1250,54 @@ func TestALogoThatFailsWaitsAnHourBeforeItIsFetchedAgain(t *testing.T) {
 	cfg.Tuners = 4
 	h.tn.Apply(cfg)
 	require.Eventually(t, func() bool { return hits("/gone.png") == 2 }, 5*time.Second, 10*time.Millisecond, "asked again after the hour")
+}
+
+// m3uConfig is config's lineup on an M3U provider: a playlist URL naming
+// the account's credentials, no Xtream panel.
+func m3uConfig(srv string) tuner.Config {
+	c := config(srv)
+	c.Type, c.Server = "M3U", ""
+	c.PlaylistURLTemplate = srv + "/lists/{username}.m3u?key={password}"
+	return c
+}
+
+// TestAnM3UProviderFetchesItsPlaylistURLAndNoAccount: an M3U provider's
+// playlist is its URL with the credentials filled in; it has no panel, so
+// no player_api.php and no xmltv.php, and its guide is spec.guideURL's
+// alone.
+func TestAnM3UProviderFetchesItsPlaylistURLAndNoAccount(t *testing.T) {
+	p := newProvider(t)
+	h := start(t, newStore(t), m3uConfig(p.srv.URL))
+	require.Eventually(t, func() bool {
+		s, ok := h.tn.Snapshot(key)
+		return ok && s.PlaylistFetched && s.Lineup.Active > 0
+	}, 5*time.Second, 10*time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
+	assert.Positive(t, p.count("/lists/user.m3u"))
+	assert.Zero(t, p.count("/player_api.php"), "no account to ask")
+	assert.Zero(t, p.count("/xmltv.php"), "no panel guide")
+	assert.Zero(t, p.count("/get.php"))
+
+	withGuide := m3uConfig(p.srv.URL)
+	withGuide.GuideURL = p.srv.URL + "/epg/{username}/guide.xml?key={password}"
+	h.tn.Apply(withGuide)
+	require.Eventually(t, func() bool { return p.count("/epg/user/guide.xml") > 0 }, 5*time.Second, 10*time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
+	assert.Zero(t, p.count("/xmltv.php"), "no panel fallback either")
+}
+
+// TestAnM3UProviderWithoutAGuideURLHasDummyGuides: with no guide, every
+// channel gets the dummy guide, titled by its name.
+func TestAnM3UProviderWithoutAGuideURLHasDummyGuides(t *testing.T) {
+	p := newProvider(t)
+	h := start(t, newStore(t), m3uConfig(p.srv.URL))
+	var guide string
+	require.Eventually(t, func() bool {
+		code, body := h.get(t, "x", device(deviceA, "xmltv.xml"))
+		guide = body
+		return code == http.StatusOK
+	}, 5*time.Second, 10*time.Millisecond)
+	assert.Contains(t, guide, "<title>BBC One</title>", "hourly blocks titled by the channel")
+	s, _ := h.tn.Snapshot(key)
+	assert.Zero(t, s.Tuners-1, "spec.tuners unset and no account: one tuner")
 }

@@ -35,11 +35,12 @@ const (
 	ReasonDuplicateNumber  = "DuplicateNumber"
 	ReasonProviderNotFound = "ProviderNotFound"
 
-	ReasonDisabled          = "Disabled"
-	ReasonSecretNotFound    = "SecretNotFound"
-	ReasonSecretKeyNotFound = "SecretKeyNotFound"
-	ReasonInvalidServer     = "InvalidServer"
-	ReasonInvalidGuideURL   = "InvalidGuideURL"
+	ReasonDisabled           = "Disabled"
+	ReasonSecretNotFound     = "SecretNotFound"
+	ReasonSecretKeyNotFound  = "SecretKeyNotFound"
+	ReasonInvalidServer      = "InvalidServer"
+	ReasonInvalidGuideURL    = "InvalidGuideURL"
+	ReasonInvalidPlaylistURL = "InvalidPlaylistURL"
 
 	// A provider's Ready=False reasons from its blocks (Live TV spec §3.1).
 	// Each keeps the last good status.blocks, so no Plex DVR is removed.
@@ -76,6 +77,14 @@ const (
 
 // EnabledOrDefault is spec.enabled, true when unset.
 func (s IPTVProviderSpec) EnabledOrDefault() bool { return s.Enabled == nil || *s.Enabled }
+
+// TypeOrDefault is spec.type, Xtream when unset.
+func (s IPTVProviderSpec) TypeOrDefault() ProviderType {
+	if s.Type == "" {
+		return ProviderTypeXtream
+	}
+	return s.Type
+}
 
 // EPGSourceOrDefault is spec.epgSource, XEPG when unset.
 func (s IPTVProviderSpec) EPGSourceOrDefault() EPGSource {

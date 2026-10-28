@@ -198,7 +198,14 @@ templ guideRow(r projection.SourceRow) {
 	@table.Row(table.RowProps{Attributes: templ.Attributes{"data-guide": r.Namespace + "/" + r.Name}}) {
 		@table.Cell(table.CellProps{Class: "font-medium"}) { { r.Name } }
 		@table.Cell() { XMLTV }
-		if r.GuidePMS {
+		if r.GuideSource == "" && !r.GuidePMS {
+			@table.Cell(table.CellProps{Class: "text-muted-foreground"}) { No guide: every channel has hourly dummy blocks }
+			@table.Cell() { }
+			@table.Cell() { }
+			@table.Cell() { }
+			@table.Cell(table.CellProps{Class: "hidden lg:table-cell"}) { }
+			@table.Cell() { }
+		} else if r.GuidePMS {
 			@table.Cell(table.CellProps{Class: "text-muted-foreground"}) { Plex's }
 			@table.Cell(table.CellProps{Class: "text-muted-foreground"}) { — }
 			@table.Cell(table.CellProps{Class: "text-muted-foreground"}) { — }

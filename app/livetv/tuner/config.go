@@ -54,10 +54,17 @@ type Config struct {
 	// TV spec §3.1): each serves the active channels whose numbers it holds,
 	// at its DeviceEndpoint.
 	Blocks []BlockConfig
+	// Type is "Xtream" (or "") for an Xtream Codes account, "M3U" for a
+	// plain playlist URL with no panel (the direct-tuners and ui design
+	// §5.7).
+	Type string
 	// Server is the Xtream Codes panel's root, scheme and host[:port],
-	// without a trailing slash.
-	Server             string
-	Username, Password string
+	// without a trailing slash; empty for an M3U provider.
+	Server string
+	// PlaylistURLTemplate is an M3U provider's playlist URL, a template
+	// that may name {username} and {password}.
+	PlaylistURLTemplate string
+	Username, Password  string
 	// GuideURL is spec.guideURL, a template that may name {username} and
 	// {password}; empty is the panel's xmltv.php (Config.GuideSource). With
 	// it set, the panel's guide is still fetched, for the channels this one
@@ -109,14 +116,27 @@ type ChannelConfig struct {
 	Language string
 }
 
-// PlaylistURL is the panel's live playlist: get.php in m3u_plus, streams as
+// m3u is an M3U provider: a playlist URL, no panel and no account.
+func (c Config) m3u() bool { return c.Type == "M3U" }
+
+// PlaylistURL is the live playlist: an M3U provider's URL with the
+// credentials put in, else the panel's get.php in m3u_plus, streams as
 // MPEG-TS.
-func (c Config) PlaylistURL() string { return c.endpoint("get.php") + "&output=ts&type=m3u_plus" }
+func (c Config) PlaylistURL() string {
+	if c.m3u() {
+		return expandURL(strings.TrimSpace(c.PlaylistURLTemplate), c.Username, c.Password)
+	}
+	return c.endpoint("get.php") + "&output=ts&type=m3u_plus"
+}
 
 // GuideSource is the guide the tuner fetches: Config.GuideURL with the
-// account's credentials put in, else the panel's xmltv.php.
+// account's credentials put in, else the panel's xmltv.php; "" for an M3U
+// provider naming no guide, whose channels take dummy guides.
 func (c Config) GuideSource() string {
 	if c.GuideURL == "" {
+		if c.m3u() {
+			return ""
+		}
 		return c.PanelGuideURL()
 	}
 	return expandURL(strings.TrimSpace(c.GuideURL), c.Username, c.Password)
