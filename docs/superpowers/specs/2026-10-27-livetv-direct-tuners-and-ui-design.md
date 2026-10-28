@@ -569,3 +569,31 @@ does since 2026-10-07.
   cutover and a renamed Service need no code that names an old address;
   `DVRDeviceIDTaken` goes.
 - No stream plays in the browser (§5.9).
+
+## 12. As built, Phase A (2026-10-27)
+
+Built on clustarr main and cluster-plex main; not deployed, and task 0's
+PMS recording has not run (it waits for the owner's OK).
+
+- clustarr, "feat(livetv): the tuner serves each block under
+  /hdhr/<deviceID>, the path Plex is given": §3.1 as written.
+  `tuner.DeviceEndpoint` takes the id alone.
+- clustarr, "feat(livetv): a block publishes its path and URI on the livetv
+  Service and takes no port": §3.2 and §3.3. `status.address` is
+  `manager.ServiceAddress` (the FQDN on port 80). Blocks kept by a rule (an
+  overlap, too many channels) get their path and URI too, so blocks an
+  older manager wrote carry them at the next reconcile.
+- clustarr, "chore(livetv): the installers render no port range and the
+  guards hold it": §3.3's installers and §7's guard.
+- cluster-plex, "livetv: Plex is given each block's URI on clustarr's livetv
+  Service": §4.1 and §4.2. One difference from §4.2's wording: a device or a
+  guide counts as under a livetv Service when its URL is under the `/hdhr/`
+  of any Service address a live provider has named since the converger
+  started, not only a current provider's, so a deleted provider's devices
+  and DVRs still go (as the link-local rule removed them). After a
+  cluster-plex restart with no provider left, such rows stay until a
+  provider names the address again.
+- cluster-plex, "chart: 0.6.0 -- no plex.liveTV.localAddress".
+- The cutover is `docs/runbooks/livetv-direct-tuners-cutover.md`. The
+  umbrella chart still pins cluster-plex 0.4.1; raising it waits for the
+  0.6.0 chart's publication (the runbook's step 0.2).
