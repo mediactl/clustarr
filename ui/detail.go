@@ -167,8 +167,9 @@ func fillSeries(d *views.Detail, sr *catalogv1.Series) {
 }
 
 // imageSetNote is the Images fact: the owner's pasted set when spec names
-// any override (it wins wherever both are read), else the set the mediux
-// provider chose, else none.
+// any override (it wins wherever both are read), else the mediux
+// provider's anchor set and how many more sets filled what it lacks, else
+// none.
 func imageSetNote(artwork []catalogv1.ArtworkOverride, seasons []catalogv1.SeasonArtworkOverride, set *catalogv1.ImageSetStatus) *views.ImageSetNote {
 	if len(artwork) > 0 || len(seasons) > 0 {
 		return &views.ImageSetNote{Label: "pasted set", Pasted: true}
@@ -182,6 +183,12 @@ func imageSetNote(artwork []catalogv1.ArtworkOverride, seasons []catalogv1.Seaso
 	}
 	if set.Creator != "" {
 		label += " by " + set.Creator
+	}
+	switch more := len(set.Sets) - 1; {
+	case more == 1:
+		label += " and 1 more set"
+	case more > 1:
+		label += fmt.Sprintf(" and %d more sets", more)
 	}
 	return &views.ImageSetNote{Label: label, Href: set.URL}
 }

@@ -109,10 +109,13 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 			ans.UpdatedAt = &t
 		}
 		for _, i := range set.Images {
-			ans.Images = append(ans.Images, schema.ImageSetImage{Type: i.Type, Season: i.Season, Episode: i.Episode, URL: i.URL})
+			ans.Images = append(ans.Images, schema.ImageSetImage{Type: i.Type, Scope: i.Scope, Season: i.Season, Episode: i.Episode, URL: i.URL, SetID: i.SetID})
 		}
-		logging.FromContext(ctx).InfoContext(ctx, "image set chosen", "item", task.Item.Name, "kind", task.Inputs.Kind,
-			"set", set.SetID, "title", set.Title, "creator", set.Creator, "reason", set.Reason, "images", len(set.Images))
+		for _, src := range set.Sets {
+			ans.Sets = append(ans.Sets, schema.ImageSetSource{SetID: src.SetID, Title: src.Title, Creator: src.Creator, Kind: src.Kind, URL: src.URL, Images: src.Images})
+		}
+		logging.FromContext(ctx).InfoContext(ctx, "image sets composed", "item", task.Item.Name, "kind", task.Inputs.Kind,
+			"set", set.SetID, "title", set.Title, "creator", set.Creator, "sets", len(set.Sets), "reason", set.Reason, "images", len(set.Images))
 	case errors.Is(err, metadata.ErrNotFound):
 		ans.NotFound = true
 		if len(h.Providers) > 0 {

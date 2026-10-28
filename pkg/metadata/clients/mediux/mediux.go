@@ -44,16 +44,14 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"slices"
 	"strings"
 	"time"
 
 	"golang.org/x/time/rate"
 
-	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
-	"github.com/mediactl/clustarr/pkg/imageset"
 	"github.com/mediactl/clustarr/pkg/metadata"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/httpjson"
+	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
 
@@ -328,6 +326,11 @@ type Movie struct {
 	TVDBID string     `json:"tvdb_id"`
 	IMDBID string     `json:"imdb_id"`
 	Sets   []MovieSet `json:"movie_sets"`
+	// CollectionSets are the collection sets' images of this film, one
+	// entry per collection set (its id, title, creator and rank, the
+	// film's poster and backdrop in it), from MovieSets' second query.
+	// The key is the cache's own, not the wire's.
+	CollectionSets []MovieSet `json:"collectionSets,omitempty"`
 }
 
 // CollectionSet is one collection's set.
@@ -369,7 +372,18 @@ const (
 	queryMovieSet  = `query($id: ID!) { movie_sets_by_id(id: $id) { ` + movieSetFields + ` } }`
 	queryCollSets  = `query($id: ID!) { collections_by_id(id: $id) { id collection_name collection_sets { id set_title user_created { username } date_updated popularity collection_poster ` + fileFields + ` collection_backdrop ` + fileFields + ` } } }`
 	queryContent   = `{ content_ids(limit: -1) { id type } }`
+	// queryFilmCollectionImages is a film's images in collection sets,
+	// AURA's shape (a film's posters and backdrops with collection_set);
+	// not recorded live, so MovieSets survives a schema error from it.
+	collectionSetRef          = `collection_set { id set_title user_created { username } date_created date_updated popularity }`
+	queryFilmCollectionImages = `query($tmdb: ID!) { movies_by_id(id: $tmdb) { id ` +
+		`posters(filter: { collection_set: { id: { _nnull: true } } }) { id modified_on src language { display_name } ` + collectionSetRef + ` } ` +
+		`backdrops(filter: { collection_set: { id: { _nnull: true } } }) { id modified_on src language { display_name } ` + collectionSetRef + ` } } }`
 )
+
+// ErrQuery is a GraphQL error MediUX answered that is neither an auth
+// failure nor a limit: a query it cannot run as written.
+var ErrQuery = errors.New("mediux: query refused")
 
 // ShowByTVDB is the TMDB id of the show TheTVDB numbers tvdbID, or
 // ErrNotFound.
@@ -440,7 +454,71 @@ func (c *Client) MovieSets(ctx context.Context, tmdbID string) (*Movie, error) {
 	if out.Movie == nil || out.Movie.ID == "" {
 		return nil, fmt.Errorf("mediux: no movie %s: %w", tmdbID, metadata.ErrNotFound)
 	}
+	sets, err := c.filmCollectionSets(ctx, tmdbID)
+	switch {
+	case errors.Is(err, ErrQuery):
+		// The film keeps its own sets; the second query was never
+		// recorded live, and a schema MediUX changed must not cost them.
+		logging.FromContext(ctx).WarnContext(ctx, "mediux: a film's collection-set images could not be asked for; using its movie sets alone", "tmdb", tmdbID, "error", err)
+	case err != nil:
+		tracing.RecordError(span, err)
+		return nil, err
+	}
+	out.Movie.CollectionSets = sets
 	return out.Movie, nil
+}
+
+// filmCollectionSets is the collection sets' images of the film tmdbID,
+// grouped by set in the order MediUX lists them.
+func (c *Client) filmCollectionSets(ctx context.Context, tmdbID string) ([]MovieSet, error) {
+	type file struct {
+		rawFile
+		Set *struct {
+			ID         string    `json:"id"`
+			Title      string    `json:"set_title"`
+			Creator    Creator   `json:"user_created"`
+			Created    time.Time `json:"date_created"`
+			Updated    time.Time `json:"date_updated"`
+			Popularity *int      `json:"popularity"`
+		} `json:"collection_set"`
+	}
+	var out struct {
+		Movie *struct {
+			Posters   []file `json:"posters"`
+			Backdrops []file `json:"backdrops"`
+		} `json:"movies_by_id"`
+	}
+	if err := c.query(ctx, queryFilmCollectionImages, map[string]any{"tmdb": tmdbID}, &out); err != nil {
+		return nil, err
+	}
+	if out.Movie == nil {
+		return nil, nil
+	}
+	var sets []MovieSet
+	at := map[string]int{}
+	add := func(f file, backdrop bool) {
+		if f.Set == nil || f.Set.ID == "" {
+			return
+		}
+		i, ok := at[f.Set.ID]
+		if !ok {
+			i = len(sets)
+			at[f.Set.ID] = i
+			sets = append(sets, MovieSet{ID: f.Set.ID, Title: f.Set.Title, Creator: f.Set.Creator, Created: f.Set.Created, Updated: f.Set.Updated, Popularity: f.Set.Popularity})
+		}
+		if backdrop {
+			sets[i].Backdrop = append(sets[i].Backdrop, f.file())
+		} else {
+			sets[i].Poster = append(sets[i].Poster, f.file())
+		}
+	}
+	for _, f := range out.Movie.Posters {
+		add(f, false)
+	}
+	for _, f := range out.Movie.Backdrops {
+		add(f, true)
+	}
+	return sets, nil
 }
 
 // MovieSet is one film set by id, or ErrNotFound.
@@ -536,7 +614,7 @@ func (c *Client) query(ctx context.Context, q string, vars map[string]any, out a
 		if e.Extensions.Code == "INVALID_CREDENTIALS" || e.Extensions.Code == "TOKEN_EXPIRED" || e.Extensions.Code == "FORBIDDEN" {
 			return fmt.Errorf("mediux: %s: %w", e.Message, metadata.ErrAuth)
 		}
-		return fmt.Errorf("mediux: graphql: %s (%s)", e.Message, e.Extensions.Code)
+		return fmt.Errorf("%w: %s (%s)", ErrQuery, e.Message, e.Extensions.Code)
 	}
 	if len(envelope.Data) == 0 {
 		return fmt.Errorf("mediux: %w: no data", metadata.ErrDecode)
@@ -567,60 +645,7 @@ func ImageURL(baseURL string, f File, q Quality) string {
 	return u
 }
 
-// Overrides is a show set as an item's overrides: the poster and backdrop
-// as spec.artwork entries, the season posters and titlecards as
-// spec.seasonArtwork entries, in season then episode order.
-func (c *Client) Overrides(s *ShowSet) imageset.Entry {
-	e := imageset.Entry{ID: s.ID}
-	if len(s.Poster) > 0 {
-		e.Artwork = append(e.Artwork, catalogv1.ArtworkOverride{Type: catalogv1.ImageTypePoster, URL: c.ImageURL(s.Poster[0])})
-	}
-	if len(s.Backdrop) > 0 {
-		e.Artwork = append(e.Artwork, catalogv1.ArtworkOverride{Type: catalogv1.ImageTypeFanart, URL: c.ImageURL(s.Backdrop[0])})
-	}
-	posters := slices.Clone(s.SeasonPosters)
-	slices.SortStableFunc(posters, func(a, b SeasonPoster) int { return int(a.Season - b.Season) })
-	seen := map[int32]bool{}
-	for _, p := range posters {
-		if seen[p.Season] {
-			continue
-		}
-		seen[p.Season] = true
-		e.SeasonArtwork = append(e.SeasonArtwork, catalogv1.SeasonArtworkOverride{Season: p.Season, Type: catalogv1.ImageTypePoster, URL: c.ImageURL(p.File)})
-	}
-	cards := slices.Clone(s.Titlecards)
-	slices.SortStableFunc(cards, func(a, b Titlecard) int {
-		if a.Season != b.Season {
-			return int(a.Season - b.Season)
-		}
-		return int(a.Episode - b.Episode)
-	})
-	seenEp := map[[2]int32]bool{}
-	for _, t := range cards {
-		k := [2]int32{t.Season, t.Episode}
-		if t.Episode < 1 || seenEp[k] {
-			continue
-		}
-		seenEp[k] = true
-		n := t.Episode
-		e.SeasonArtwork = append(e.SeasonArtwork, catalogv1.SeasonArtworkOverride{Season: t.Season, Episode: &n, Type: catalogv1.ImageTypeScreenshot, URL: c.ImageURL(t.File)})
-	}
-	return e
-}
-
-// MovieOverrides is a film set as the film's spec.artwork overrides.
-func (c *Client) MovieOverrides(s *MovieSet) imageset.Entry {
-	e := imageset.Entry{ID: s.ID}
-	if len(s.Poster) > 0 {
-		e.Artwork = append(e.Artwork, catalogv1.ArtworkOverride{Type: catalogv1.ImageTypePoster, URL: c.ImageURL(s.Poster[0])})
-	}
-	if len(s.Backdrop) > 0 {
-		e.Artwork = append(e.Artwork, catalogv1.ArtworkOverride{Type: catalogv1.ImageTypeFanart, URL: c.ImageURL(s.Backdrop[0])})
-	}
-	return e
-}
-
-// Policy is how Choose ranks a show's sets.
+// Policy is how a composition ranks an item's sets.
 type Policy struct {
 	// PreferredCreators are usernames whose sets win, earlier first.
 	PreferredCreators []string
@@ -635,145 +660,11 @@ type Policy struct {
 	Episodes map[int32]int32
 }
 
-// Choice is Choose's answer.
-type Choice struct {
-	Set    *ShowSet
-	Reason string
+// SetURL is a set's page on MediUX, as AURA links it:
+// https://mediux.io/<kind>-set/<id>.
+func SetURL(kind SetKind, id string) string {
+	return "https://mediux.io/" + string(kind) + "-set/" + id
 }
-
-// Choose ranks a show's sets: a preferred creator's first, then one whose
-// poster is in a preferred language, then the more complete (season
-// posters, then titlecards, against the series), then popularity, then the
-// most recently updated. A set with no poster is never chosen. Nil when
-// nothing qualifies.
-func Choose(sets []ShowSet, p Policy) *Choice {
-	var best *ShowSet
-	var bestScore [6]int
-	var bestReason string
-	for i := range sets {
-		s := &sets[i]
-		if len(s.Poster) == 0 {
-			continue
-		}
-		score, reason := p.score(s)
-		if best == nil || compare(score, bestScore) > 0 {
-			best, bestScore, bestReason = s, score, reason
-		}
-	}
-	if best == nil {
-		return nil
-	}
-	return &Choice{Set: best, Reason: bestReason}
-}
-
-func (p Policy) score(s *ShowSet) ([6]int, string) {
-	var sc [6]int
-	var why []string
-	if i := slices.IndexFunc(p.PreferredCreators, func(u string) bool { return strings.EqualFold(u, s.Creator.Username) }); i >= 0 {
-		sc[0] = len(p.PreferredCreators) - i
-		why = append(why, "preferred creator "+s.Creator.Username)
-	}
-	if len(p.Languages) > 0 && len(s.Poster) > 0 && slices.ContainsFunc(p.Languages, func(l string) bool { return strings.EqualFold(l, s.Poster[0].Language) }) {
-		sc[1] = 1
-		why = append(why, "poster in "+s.Poster[0].Language)
-	}
-	seasons := map[int32]bool{}
-	for _, sp := range s.SeasonPosters {
-		seasons[sp.Season] = true
-	}
-	covered := 0
-	for _, n := range p.Seasons {
-		if seasons[n] {
-			covered++
-		}
-	}
-	sc[2] = covered
-	cards := map[int32]int32{}
-	seenEp := map[[2]int32]bool{}
-	for _, t := range s.Titlecards {
-		k := [2]int32{t.Season, t.Episode}
-		if seenEp[k] {
-			continue
-		}
-		seenEp[k] = true
-		cards[t.Season]++
-	}
-	total := 0
-	for n, want := range p.Episodes {
-		total += int(min(cards[n], want))
-	}
-	sc[3] = total
-	if s.Popularity != nil {
-		sc[4] = *s.Popularity
-	}
-	sc[5] = int(s.Updated.Unix() / 60)
-	why = append(why, fmt.Sprintf("%d of %d season posters, %d titlecards, popularity %d", covered, len(p.Seasons), total, sc[4]))
-	return sc, strings.Join(why, "; ")
-}
-
-func compare(a, b [6]int) int {
-	for i := range a {
-		if a[i] != b[i] {
-			if a[i] > b[i] {
-				return 1
-			}
-			return -1
-		}
-	}
-	return 0
-}
-
-// ChooseMovie ranks a film's sets as Choose ranks a show's, without the
-// completeness terms: a preferred creator's first, then a poster in a
-// preferred language, then popularity, then the most recently updated.
-// Nil when nothing qualifies.
-func ChooseMovie(sets []MovieSet, p Policy) *MovieChoice {
-	var best *MovieSet
-	var bestScore [6]int
-	var bestReason string
-	for i := range sets {
-		s := &sets[i]
-		if len(s.Poster) == 0 {
-			continue
-		}
-		score, reason := p.scoreMovie(s)
-		if best == nil || compare(score, bestScore) > 0 {
-			best, bestScore, bestReason = s, score, reason
-		}
-	}
-	if best == nil {
-		return nil
-	}
-	return &MovieChoice{Set: best, Reason: bestReason}
-}
-
-// MovieChoice is ChooseMovie's answer.
-type MovieChoice struct {
-	Set    *MovieSet
-	Reason string
-}
-
-func (p Policy) scoreMovie(s *MovieSet) ([6]int, string) {
-	var sc [6]int
-	var why []string
-	if i := slices.IndexFunc(p.PreferredCreators, func(u string) bool { return strings.EqualFold(u, s.Creator.Username) }); i >= 0 {
-		sc[0] = len(p.PreferredCreators) - i
-		why = append(why, "preferred creator "+s.Creator.Username)
-	}
-	if len(p.Languages) > 0 && len(s.Poster) > 0 && slices.ContainsFunc(p.Languages, func(l string) bool { return strings.EqualFold(l, s.Poster[0].Language) }) {
-		sc[1] = 1
-		why = append(why, "poster in "+s.Poster[0].Language)
-	}
-	if s.Popularity != nil {
-		sc[4] = *s.Popularity
-	}
-	sc[5] = int(s.Updated.Unix() / 60)
-	why = append(why, fmt.Sprintf("popularity %d", sc[4]))
-	return sc, strings.Join(why, "; ")
-}
-
-// SetURL is a set's page on mediux.pro.
-func SetURL(id string) string { return "https://mediux.pro/sets/" + id }
 
 // Ping proves the token is accepted: the smallest query the API answers
 // only to a bearer it knows.

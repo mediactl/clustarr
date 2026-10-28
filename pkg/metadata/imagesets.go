@@ -36,21 +36,47 @@ type ImageSetQuery struct {
 	Seasons []int32
 	// Episodes is, by season, how many episodes the series has.
 	Episodes map[int32]int32
-	// SetID, when set, names the set to apply instead of choosing one.
+	// SetID, when set, names the set to anchor on instead of choosing one;
+	// the item's other sets still fill what it lacks.
 	SetID string
 }
 
-// ImageSetImage is one image of a chosen set. Season and Episode are 0 for
-// the item's own poster or background; an episode's thumbnail names both.
+// Image scopes: what an ImageSetImage is an image of.
+const (
+	ImageScopeItem    = ""        // the item's own poster or background
+	ImageScopeSeason  = "season"  // a season's poster, specials (0) included
+	ImageScopeEpisode = "episode" // an episode's thumbnail
+)
+
+// ImageSetImage is one image of an item's composed sets: the item's own,
+// a season's (Season) or an episode's (Season and Episode), by Scope --
+// a specials poster is season 0's, never the item's.
 type ImageSetImage struct {
 	// Type is the catalog image type: poster, fanart or screenshot.
 	Type    string
+	Scope   string
 	Season  int32
 	Episode int32
 	URL     string
+	// SetID is the set the image came from.
+	SetID string
 }
 
-// ImageSet is a provider's choice for an item.
+// ImageSetSource is a set an item's images came from.
+type ImageSetSource struct {
+	SetID   string
+	Title   string
+	Creator string
+	// Kind is what the set was made for: show, movie or collection.
+	Kind   string
+	URL    string
+	Images int
+}
+
+// ImageSet is a provider's images for an item, composed from its sets
+// (the design's "Composed sets"): SetID, Title, Creator and URL name the
+// anchor, the set the look is built around, and Sets every set that
+// supplied an image, the anchor first.
 type ImageSet struct {
 	Provider  string
 	SetID     string
@@ -58,13 +84,15 @@ type ImageSet struct {
 	Creator   string
 	URL       string
 	UpdatedAt time.Time
-	// Reason says why this set was chosen over the others, for the log.
+	// Reason says why the anchor was chosen and what filled the rest, for
+	// the log.
 	Reason string
 	Images []ImageSetImage
+	Sets   []ImageSetSource
 }
 
-// ImageSetProvider chooses an item's image set (MediUX). It returns
-// ErrNotFound when it has no set for the item.
+// ImageSetProvider composes an item's images from its image sets
+// (MediUX). It returns ErrNotFound when it has no set for the item.
 type ImageSetProvider interface {
 	Provider
 	ImageSet(ctx context.Context, q ImageSetQuery) (*ImageSet, error)

@@ -277,6 +277,68 @@ item per week, and none for items the daily `content_ids` list excludes.
   health condition, collection sets, fetching season and episode images
   into the store.
 
+## Composed sets (2026-10-27)
+
+Owner, 2026-10-27: "use MediUX for images, falling back to TMDB, TVDB,
+etc. Ideally, we would find all image types by combining various sets for
+a series or movie." One chosen set leaves every slot it lacks to the
+providers even when another MediUX set has it: of Cyberpunk: Edgerunners'
+14 sets, four have no show poster, two carry only titlecards, three only
+a backdrop or season posters (`test/data/metadata/mediux`).
+
+**What MediUX has.** A show set: show poster, show backdrop, season
+posters (specials included) and titlecards. A movie set: poster and
+backdrop. A collection set: the collection's poster and backdrop, and a
+poster and backdrop for each of its films (AURA reads them as a film's
+`posters`/`backdrops` with `collection_set`). MediUX has no logos,
+banners, clear art or season backgrounds; those stay TMDB's, TheTVDB's and
+fanart.tv's, as does every slot no set fills.
+
+**Composition** (`mediux.Compose`), one image per slot:
+
+- The **anchor** is the set the look is built around: the owner's pinned
+  set, else the best set with an item poster by preferred creator, poster
+  language (a wanted language, then none, then another), completeness
+  (season posters, then titlecards), a film's own set over a collection's,
+  popularity, recency. Its images are taken first.
+- The **poster group** (item poster, backdrop, season posters) follows the
+  set that supplies the poster -- the anchor's own, else the best set with
+  one -- and fills a slot that set lacks from its creator's other sets,
+  then from any set by preferred creator, the image's language and the
+  set's own poster-group completeness (poster, season posters, backdrop),
+  so a backdrop comes from the set that also gave the season posters
+  rather than from a more popular set of one image.
+- **Titlecards** are chosen per season: the season's own anchor is the set
+  by the anchor's creator, else the preferred creators', with the most
+  cards for that season; its gaps fill from the others in the same order,
+  so a season mixes styles only where no one set covers it.
+- `popularity` is MediUX's rank (1 is the most popular; `popularity_global`
+  grows with it), so a lower one wins and none ranks last. The first cut
+  ranked it upside down.
+
+**Links.** A set's page is `https://mediux.io/<kind>-set/<id>` (AURA's
+`getMediuxBaseUrl`), which the pin form accepts beside the older
+`mediux.pro/sets/<id>`.
+
+**Records and status.** Each image carries its `scope` (item, season,
+episode: a specials poster is season 0, which the first cut read as the
+item's own poster) and the `setID` it came from; the answer and
+`status.imageSet.sets` list every set that supplied an image (anchor
+first, then by images supplied, at most 32), with `status.imageSet`'s own
+`setID`, `title` and `creator` the anchor's. A pinned set is the anchor
+and the item's other sets fill its gaps.
+
+**Films in collections.** A film's sets are its movie sets plus the
+collection sets' images of that film, asked in a second query
+(`movies_by_id { posters(filter collection_set) ... }`, AURA's shape); a
+GraphQL error from that query alone (`mediux.ErrQuery`) leaves the film
+with its movie sets, since it was not recorded live, while a limit, an auth
+failure or a transport error fails the lookup as before.
+
+**Fallback** is per slot and unchanged: `spec.artwork` and
+`spec.seasonArtwork` first, then the composed `status.imageSet`, then the
+providers' images (TMDB, TheTVDB, fanart.tv by priority).
+
 ## Sources
 
 - Kometa MediUX guide: https://kometa.wiki/en/latest/kometa/guides/mediux/

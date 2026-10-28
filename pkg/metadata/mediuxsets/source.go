@@ -16,8 +16,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 // Package mediuxsets is MediUX as a metadata.ImageSetProvider: the client's
-// sets, read through the clustarr-mediux cache, chosen by the provider's
-// policy and mapped to the catalog's override shapes
+// sets, read through the clustarr-mediux cache, composed slot by slot by
+// the provider's policy and mapped to the catalog's override shapes
 // (docs/superpowers/specs/2026-10-22-mediux-image-sets-automation-design.md).
 package mediuxsets
 
@@ -25,6 +25,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
@@ -71,8 +72,9 @@ func (s *Source) Name() string { return "mediux" }
 // Capabilities implements metadata.Provider.
 func (s *Source) Capabilities() metadata.Capabilities { return s.Client.Capabilities() }
 
-// ImageSet implements metadata.ImageSetProvider: the best set for q, or
-// ErrNotFound when MediUX has none (or cannot map a series' TheTVDB id).
+// ImageSet implements metadata.ImageSetProvider: q's images composed from
+// its sets, or ErrNotFound when MediUX has none (or cannot map a series'
+// TheTVDB id).
 func (s *Source) ImageSet(ctx context.Context, q metadata.ImageSetQuery) (*metadata.ImageSet, error) {
 	switch q.Kind {
 	case commonv1.MediaKindMovie:
@@ -85,103 +87,125 @@ func (s *Source) ImageSet(ctx context.Context, q metadata.ImageSetQuery) (*metad
 }
 
 func (s *Source) series(ctx context.Context, q metadata.ImageSetQuery) (*metadata.ImageSet, error) {
-	if q.SetID != "" {
+	sets, err := s.showSets(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	if q.SetID != "" && !slices.ContainsFunc(sets, func(x mediux.ShowSet) bool { return x.ID == q.SetID }) {
 		set, err := s.Client.ShowSet(ctx, q.SetID)
 		if err != nil {
 			return nil, err
 		}
-		return s.showSet(set, "pinned set "+q.SetID), nil
-	}
-	tmdb := q.TMDBID
-	if tmdb == "" {
-		if q.TVDBID == "" {
-			return nil, fmt.Errorf("mediux: a series needs a TMDB or TheTVDB id: %w", metadata.ErrNotFound)
-		}
-		var err error
-		if tmdb, err = s.Lookup.ShowTMDB(ctx, q.TVDBID); err != nil {
-			return nil, err
-		}
-	}
-	show, err := s.Lookup.ShowSets(ctx, tmdb)
-	if err != nil {
-		return nil, err
+		sets = append([]mediux.ShowSet{*set}, sets...)
 	}
 	p := s.Policy
 	p.Seasons, p.Episodes = q.Seasons, q.Episodes
-	ch := mediux.Choose(show.Sets, p)
-	if ch == nil {
-		return nil, fmt.Errorf("mediux: none of %s's %d sets has a poster: %w", show.Title, len(show.Sets), metadata.ErrNotFound)
+	c := mediux.ComposeShow(sets, p, q.SetID)
+	if c == nil {
+		return nil, fmt.Errorf("mediux: none of the series' %d sets has an image: %w", len(sets), metadata.ErrNotFound)
 	}
-	return s.showSet(ch.Set, ch.Reason), nil
+	return s.answer(c), nil
 }
 
-// showSet is set as the provider's answer, with reason.
-func (s *Source) showSet(set *mediux.ShowSet, reason string) *metadata.ImageSet {
-	e := s.Client.Overrides(set)
-	out := &metadata.ImageSet{
-		Provider: "mediux", SetID: set.ID, Title: set.Title, Creator: set.Creator.Username,
-		URL: mediux.SetURL(set.ID), UpdatedAt: set.Updated, Reason: reason,
-	}
-	for _, a := range e.Artwork {
-		out.Images = append(out.Images, metadata.ImageSetImage{Type: string(a.Type), URL: a.URL})
-	}
-	for _, a := range e.SeasonArtwork {
-		img := metadata.ImageSetImage{Type: string(a.Type), Season: a.Season, URL: a.URL}
-		if a.Episode != nil {
-			img.Episode = *a.Episode
+// showSets is the series' sets by its TMDB id, else its TheTVDB id mapped
+// to one. A pinned set needs neither: with no id it is taken alone.
+func (s *Source) showSets(ctx context.Context, q metadata.ImageSetQuery) ([]mediux.ShowSet, error) {
+	tmdb := q.TMDBID
+	if tmdb == "" && q.TVDBID != "" {
+		var err error
+		if tmdb, err = s.Lookup.ShowTMDB(ctx, q.TVDBID); err != nil && (q.SetID == "" || !errors.Is(err, metadata.ErrNotFound)) {
+			return nil, err
 		}
-		out.Images = append(out.Images, img)
 	}
-	return out
+	if tmdb == "" {
+		if q.SetID != "" {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("mediux: a series needs a TMDB or TheTVDB id: %w", metadata.ErrNotFound)
+	}
+	show, err := s.Lookup.ShowSets(ctx, tmdb)
+	switch {
+	case q.SetID != "" && errors.Is(err, metadata.ErrNotFound):
+		return nil, nil
+	case err != nil:
+		return nil, err
+	}
+	return show.Sets, nil
 }
 
 func (s *Source) movie(ctx context.Context, q metadata.ImageSetQuery) (*metadata.ImageSet, error) {
-	if q.SetID != "" {
+	m := &mediux.Movie{}
+	if q.TMDBID != "" {
+		got, err := s.Lookup.MovieSets(ctx, q.TMDBID)
+		switch {
+		case q.SetID != "" && errors.Is(err, metadata.ErrNotFound):
+		case err != nil:
+			return nil, err
+		default:
+			m = got
+		}
+	} else if q.SetID == "" {
+		return nil, fmt.Errorf("mediux: a movie needs a TMDB id: %w", metadata.ErrNotFound)
+	}
+	pinned := func(x mediux.MovieSet) bool { return x.ID == q.SetID }
+	if q.SetID != "" && !slices.ContainsFunc(m.Sets, pinned) && !slices.ContainsFunc(m.CollectionSets, pinned) {
 		set, err := s.Client.MovieSet(ctx, q.SetID)
 		if err != nil {
 			return nil, err
 		}
-		return s.movieSet(set, "pinned set "+q.SetID), nil
+		cp := *m
+		cp.Sets = append([]mediux.MovieSet{*set}, m.Sets...)
+		m = &cp
 	}
-	if q.TMDBID == "" {
-		return nil, fmt.Errorf("mediux: a movie needs a TMDB id: %w", metadata.ErrNotFound)
+	c := mediux.ComposeMovie(m, s.Policy, q.SetID)
+	if c == nil {
+		return nil, fmt.Errorf("mediux: none of the film's %d sets has an image: %w", len(m.Sets)+len(m.CollectionSets), metadata.ErrNotFound)
 	}
-	m, err := s.Lookup.MovieSets(ctx, q.TMDBID)
-	if err != nil {
-		return nil, err
-	}
-	ch := mediux.ChooseMovie(m.Sets, s.Policy)
-	if ch == nil {
-		return nil, fmt.Errorf("mediux: none of %s's %d sets has a poster: %w", m.Title, len(m.Sets), metadata.ErrNotFound)
-	}
-	return s.movieSet(ch.Set, ch.Reason), nil
+	return s.answer(c), nil
 }
 
-// movieSet is set as the provider's answer, with reason.
-func (s *Source) movieSet(set *mediux.MovieSet, reason string) *metadata.ImageSet {
-	e := s.Client.MovieOverrides(set)
+// answer is a composition as the provider's answer.
+func (s *Source) answer(c *mediux.Composition) *metadata.ImageSet {
 	out := &metadata.ImageSet{
-		Provider: "mediux", SetID: set.ID, Title: set.Title, Creator: set.Creator.Username,
-		URL: mediux.SetURL(set.ID), UpdatedAt: set.Updated, Reason: reason,
+		Provider: "mediux", SetID: c.Anchor.ID, Title: c.Anchor.Title, Creator: c.Anchor.Creator,
+		URL: mediux.SetURL(c.Anchor.Kind, c.Anchor.ID), UpdatedAt: c.Anchor.Updated, Reason: c.Reason,
 	}
-	for _, a := range e.Artwork {
-		out.Images = append(out.Images, metadata.ImageSetImage{Type: string(a.Type), URL: a.URL})
+	for _, p := range c.Picks {
+		img := metadata.ImageSetImage{URL: s.Client.ImageURL(p.File), SetID: p.Set, Season: p.Slot.Season, Episode: p.Slot.Episode}
+		switch p.Slot.Kind {
+		case mediux.SlotPoster:
+			img.Type, img.Scope = string(catalogv1.ImageTypePoster), metadata.ImageScopeItem
+		case mediux.SlotBackdrop:
+			img.Type, img.Scope = string(catalogv1.ImageTypeFanart), metadata.ImageScopeItem
+		case mediux.SlotSeasonPoster:
+			img.Type, img.Scope = string(catalogv1.ImageTypePoster), metadata.ImageScopeSeason
+		case mediux.SlotTitlecard:
+			img.Type, img.Scope = string(catalogv1.ImageTypeScreenshot), metadata.ImageScopeEpisode
+		default:
+			continue
+		}
+		out.Images = append(out.Images, img)
+	}
+	for _, u := range c.Sets {
+		out.Sets = append(out.Sets, metadata.ImageSetSource{
+			SetID: u.ID, Title: u.Title, Creator: u.Creator, Kind: string(u.Kind), URL: mediux.SetURL(u.Kind, u.ID), Images: u.Images,
+		})
 	}
 	return out
 }
 
-// Overrides maps a chosen set's images to the catalog's shapes: the item's
-// own to spec.artwork's, a season's and an episode's to
+// Overrides maps an answer's images to the catalog's shapes by scope: the
+// item's own to spec.artwork's, a season's and an episode's to
 // spec.seasonArtwork's.
 func Overrides(images []metadata.ImageSetImage) (artwork []catalogv1.ArtworkOverride, seasons []catalogv1.SeasonArtworkOverride) {
 	for _, img := range images {
 		t := catalogv1.ImageType(img.Type)
-		switch {
-		case img.Season == 0 && img.Episode == 0:
+		switch img.Scope {
+		case metadata.ImageScopeItem:
 			artwork = append(artwork, catalogv1.ArtworkOverride{Type: t, URL: img.URL})
-		case img.Episode == 0:
+		case metadata.ImageScopeSeason:
 			seasons = append(seasons, catalogv1.SeasonArtworkOverride{Season: img.Season, Type: t, URL: img.URL})
-		default:
+		case metadata.ImageScopeEpisode:
 			n := img.Episode
 			seasons = append(seasons, catalogv1.SeasonArtworkOverride{Season: img.Season, Episode: &n, Type: t, URL: img.URL})
 		}

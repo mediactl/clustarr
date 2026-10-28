@@ -26,10 +26,11 @@ import (
 // ImageSetStatusApplyConfiguration represents a declarative configuration of the ImageSetStatus type for use
 // with apply.
 //
-// ImageSetStatus is the image set the mediux MetadataProvider chose for a
-// Movie or Series, written by the remediation loop's image-set stage under
-// catalog-imageset, never the owner's spec: spec.artwork and
-// spec.seasonArtwork stay the owner's and win over it.
+// ImageSetStatus is a Movie's or Series' images from the mediux
+// MetadataProvider's sets, composed slot by slot around an anchor set
+// (setID, title, creator, url), written by the remediation loop's
+// image-set stage under catalog-imageset, never the owner's spec:
+// spec.artwork and spec.seasonArtwork stay the owner's and win over it.
 type ImageSetStatusApplyConfiguration struct {
 	// Provider is the MetadataProvider type the set came from (mediux).
 	Provider *string `json:"provider,omitempty"`
@@ -57,6 +58,9 @@ type ImageSetStatusApplyConfiguration struct {
 	// SeasonArtwork is a series' season posters and episode thumbnails from
 	// the set, as spec.seasonArtwork would name them.
 	SeasonArtwork []SeasonArtworkOverrideApplyConfiguration `json:"seasonArtwork,omitempty"`
+	// Sets are the sets the images came from, composed slot by slot: the
+	// anchor (setID) first, then by images supplied.
+	Sets []ImageSetSourceApplyConfiguration `json:"sets,omitempty"`
 }
 
 // ImageSetStatusApplyConfiguration constructs a declarative configuration of the ImageSetStatus type for use with
@@ -159,6 +163,19 @@ func (b *ImageSetStatusApplyConfiguration) WithSeasonArtwork(values ...*SeasonAr
 			panic("nil value passed to WithSeasonArtwork")
 		}
 		b.SeasonArtwork = append(b.SeasonArtwork, *values[i])
+	}
+	return b
+}
+
+// WithSets adds the given value to the Sets field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Sets field.
+func (b *ImageSetStatusApplyConfiguration) WithSets(values ...*ImageSetSourceApplyConfiguration) *ImageSetStatusApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithSets")
+		}
+		b.Sets = append(b.Sets, *values[i])
 	}
 	return b
 }

@@ -2238,8 +2238,31 @@ var schemaYAML = typed.YAMLObject(`types:
         scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.ImageQuality
   scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.ImageSetKind
+  scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.ImageSetMode
   scalar: string
+- name: com.github.mediactl.clustarr.api.catalog.v1alpha1.ImageSetSource
+  map:
+    fields:
+    - name: creator
+      type:
+        scalar: string
+    - name: images
+      type:
+        scalar: numeric
+    - name: kind
+      type:
+        namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ImageSetKind
+    - name: setID
+      type:
+        scalar: string
+    - name: title
+      type:
+        scalar: string
+    - name: url
+      type:
+        scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.ImageSetStatus
   map:
     fields:
@@ -2275,6 +2298,12 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: setID
       type:
         scalar: string
+    - name: sets
+      type:
+        list:
+          elementType:
+            namedType: com.github.mediactl.clustarr.api.catalog.v1alpha1.ImageSetSource
+          elementRelationship: atomic
     - name: title
       type:
         scalar: string

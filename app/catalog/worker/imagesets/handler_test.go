@@ -112,9 +112,16 @@ func recordOf(t *testing.T, bus events.Bus, uid string) *schema.ImageSetRecord {
 
 func TestAChosenSetIsRecordedForTheItem(t *testing.T) {
 	p := &stubProvider{set: &metadata.ImageSet{
-		Provider: "mediux", SetID: "41471", Title: "Cyberpunk: Edgerunners", Creator: "sharivari", URL: "https://mediux.pro/sets/41471",
+		Provider: "mediux", SetID: "41471", Title: "Cyberpunk: Edgerunners", Creator: "sharivari", URL: "https://mediux.io/show-set/41471",
 		UpdatedAt: now.Add(-time.Hour), Reason: "2 of 2 season posters",
-		Images: []metadata.ImageSetImage{{Type: "poster", URL: "https://images.mediux.io/assets/p?key=jpg"}, {Type: "screenshot", Season: 1, Episode: 2, URL: "https://images.mediux.io/assets/e?key=jpg"}},
+		Images: []metadata.ImageSetImage{
+			{Type: "poster", URL: "https://images.mediux.io/assets/p?key=jpg", SetID: "41471"},
+			{Type: "screenshot", Scope: metadata.ImageScopeEpisode, Season: 1, Episode: 2, URL: "https://images.mediux.io/assets/e?key=jpg", SetID: "22523"},
+		},
+		Sets: []metadata.ImageSetSource{
+			{SetID: "41471", Title: "Cyberpunk: Edgerunners", Creator: "sharivari", Kind: "show", URL: "https://mediux.io/show-set/41471", Images: 1},
+			{SetID: "22523", Creator: "artificial_grey", Kind: "show", URL: "https://mediux.io/show-set/22523", Images: 1},
+		},
 	}}
 	tk := seriesTask()
 	bus, h := world(t, p, tk)
@@ -128,8 +135,14 @@ func TestAChosenSetIsRecordedForTheItem(t *testing.T) {
 	require.NotNil(t, rec.Answer)
 	assert.Equal(t, "41471", rec.Answer.SetID)
 	assert.Equal(t, "sharivari", rec.Answer.Creator)
-	assert.Len(t, rec.Answer.Images, 2)
-	assert.Equal(t, int32(2), rec.Answer.Images[1].Episode)
+	assert.Equal(t, []schema.ImageSetImage{
+		{Type: "poster", URL: "https://images.mediux.io/assets/p?key=jpg", SetID: "41471"},
+		{Type: "screenshot", Scope: schema.ImageScopeEpisode, Season: 1, Episode: 2, URL: "https://images.mediux.io/assets/e?key=jpg", SetID: "22523"},
+	}, rec.Answer.Images)
+	assert.Equal(t, []schema.ImageSetSource{
+		{SetID: "41471", Title: "Cyberpunk: Edgerunners", Creator: "sharivari", Kind: "show", URL: "https://mediux.io/show-set/41471", Images: 1},
+		{SetID: "22523", Creator: "artificial_grey", Kind: "show", URL: "https://mediux.io/show-set/22523", Images: 1},
+	}, rec.Answer.Sets)
 	assert.Equal(t, now, rec.Answer.CheckedAt)
 	assert.Equal(t, "metadata-0", rec.Writer)
 }

@@ -118,7 +118,7 @@ func TestTheStageIncorporatesTheAnswerUnderItsOwnManager(t *testing.T) {
 		Inputs: schema.ImageSetInputs{Kind: "series", TMDBID: "105248", TVDBID: "384541", Seasons: []int32{1}, Episodes: map[string]int32{"1": 10}},
 		Answer: &schema.ImageSetAnswer{
 			Provider: "mediux", SetID: "41471", Creator: "sharivari", CheckedAt: at,
-			Images: []schema.ImageSetImage{{Type: "poster", URL: "https://images.mediux.io/assets/p?key=jpg"}, {Type: "poster", Season: 1, URL: "https://images.mediux.io/assets/s1?key=jpg"}},
+			Images: []schema.ImageSetImage{{Type: "poster", URL: "https://images.mediux.io/assets/p?key=jpg"}, {Type: "poster", Scope: schema.ImageScopeSeason, Season: 1, URL: "https://images.mediux.io/assets/s1?key=jpg"}},
 		},
 	}
 	rec.RecordHeader.Schema, rec.Item, rec.Seq, rec.State, rec.RequestedAt, rec.AnsweredAt =

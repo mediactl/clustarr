@@ -28,12 +28,14 @@ func TestParseSetIDReadsAnIdOrASetURL(t *testing.T) {
 	for in, want := range map[string]string{
 		"": "", " 41471 ": "41471", "https://mediux.pro/sets/41471": "41471", "mediux.pro/sets/38985/": "38985",
 		"https://www.mediux.pro/sets/41471?tab=yaml": "41471",
+		// The links the item page shows since 2026-10-27, AURA's.
+		"https://mediux.io/show-set/41471": "41471", "mediux.io/movie-set/59100/": "59100", "https://mediux.io/collection-set/2133#x": "2133",
 	} {
 		got, err := ParseSetID(in)
 		require.NoError(t, err, in)
 		assert.Equal(t, want, got, in)
 	}
-	for _, in := range []string{"sharivari", "https://mediux.pro/user/sharivari", "4147a", "https://theposterdb.com/set/1"} {
+	for _, in := range []string{"sharivari", "https://mediux.pro/user/sharivari", "4147a", "https://theposterdb.com/set/1", "https://mediux.io/boxset/12", "https://mediux.io/user-set/1"} {
 		_, err := ParseSetID(in)
 		assert.Error(t, err, in)
 	}

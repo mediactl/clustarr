@@ -82,12 +82,17 @@ func TestAnAnswerIsIncorporatedAndReconsideredAtTheRefresh(t *testing.T) {
 	updated := now.Add(-48 * time.Hour)
 	in.Record, in.RecordOK = answeredRecord(in, now.Add(-time.Second), &schema.ImageSetAnswer{
 		Provider: "mediux", SetID: "41471", Title: "Cyberpunk: Edgerunners", Creator: "sharivari",
-		URL: "https://mediux.pro/sets/41471", UpdatedAt: &updated, CheckedAt: now.Add(-time.Second),
+		URL: "https://mediux.io/show-set/41471", UpdatedAt: &updated, CheckedAt: now.Add(-time.Second),
 		Images: []schema.ImageSetImage{
-			{Type: "poster", URL: "https://images.mediux.io/assets/p?key=jpg"},
-			{Type: "fanart", URL: "https://images.mediux.io/assets/b?key=jpg"},
-			{Type: "poster", Season: 1, URL: "https://images.mediux.io/assets/s1?key=jpg"},
-			{Type: "screenshot", Season: 1, Episode: 3, URL: "https://images.mediux.io/assets/e3?key=jpg"},
+			{Type: "poster", URL: "https://images.mediux.io/assets/p?key=jpg", SetID: "41471"},
+			{Type: "fanart", URL: "https://images.mediux.io/assets/b?key=jpg", SetID: "21971"},
+			{Type: "poster", Scope: schema.ImageScopeSeason, Season: 0, URL: "https://images.mediux.io/assets/s0?key=jpg", SetID: "41471"},
+			{Type: "poster", Scope: schema.ImageScopeSeason, Season: 1, URL: "https://images.mediux.io/assets/s1?key=jpg", SetID: "41471"},
+			{Type: "screenshot", Scope: schema.ImageScopeEpisode, Season: 1, Episode: 3, URL: "https://images.mediux.io/assets/e3?key=jpg", SetID: "41471"},
+		},
+		Sets: []schema.ImageSetSource{
+			{SetID: "41471", Title: "Cyberpunk: Edgerunners", Creator: "sharivari", Kind: "show", URL: "https://mediux.io/show-set/41471", Images: 4},
+			{SetID: "21971", Title: "Cyberpunk: Edgerunners Set", Creator: "creshaytions", Kind: "show", URL: "https://mediux.io/show-set/21971", Images: 1},
 		},
 	}, ""), true
 	d := imagesets.Plan(in)
@@ -96,13 +101,21 @@ func TestAnAnswerIsIncorporatedAndReconsideredAtTheRefresh(t *testing.T) {
 	assert.Nil(t, d.Request)
 	assert.Equal(t, "41471", d.ImageSet.SetID)
 	assert.Equal(t, "sharivari", d.ImageSet.Creator)
-	assert.Equal(t, "https://mediux.pro/sets/41471", d.ImageSet.URL)
-	assert.Len(t, d.ImageSet.Artwork, 2)
-	require.Len(t, d.ImageSet.SeasonArtwork, 2)
-	assert.Equal(t, int32(1), d.ImageSet.SeasonArtwork[0].Season)
-	assert.Nil(t, d.ImageSet.SeasonArtwork[0].Episode)
-	assert.Equal(t, int32(3), *d.ImageSet.SeasonArtwork[1].Episode)
-	assert.Equal(t, catalogv1alpha1.ImageTypeScreenshot, d.ImageSet.SeasonArtwork[1].Type)
+	assert.Equal(t, "https://mediux.io/show-set/41471", d.ImageSet.URL)
+	assert.Equal(t, []catalogv1alpha1.ArtworkOverride{
+		{Type: catalogv1alpha1.ImageTypePoster, URL: "https://images.mediux.io/assets/p?key=jpg"},
+		{Type: catalogv1alpha1.ImageTypeFanart, URL: "https://images.mediux.io/assets/b?key=jpg"},
+	}, d.ImageSet.Artwork, "the specials poster is no second item poster")
+	require.Len(t, d.ImageSet.SeasonArtwork, 3)
+	assert.Equal(t, catalogv1alpha1.SeasonArtworkOverride{Season: 0, Type: catalogv1alpha1.ImageTypePoster, URL: "https://images.mediux.io/assets/s0?key=jpg"}, d.ImageSet.SeasonArtwork[0])
+	assert.Equal(t, int32(1), d.ImageSet.SeasonArtwork[1].Season)
+	assert.Nil(t, d.ImageSet.SeasonArtwork[1].Episode)
+	assert.Equal(t, int32(3), *d.ImageSet.SeasonArtwork[2].Episode)
+	assert.Equal(t, catalogv1alpha1.ImageTypeScreenshot, d.ImageSet.SeasonArtwork[2].Type)
+	assert.Equal(t, []catalogv1alpha1.ImageSetSource{
+		{SetID: "41471", Title: "Cyberpunk: Edgerunners", Creator: "sharivari", Kind: catalogv1alpha1.ImageSetKindShow, URL: "https://mediux.io/show-set/41471", Images: 4},
+		{SetID: "21971", Title: "Cyberpunk: Edgerunners Set", Creator: "creshaytions", Kind: catalogv1alpha1.ImageSetKindShow, URL: "https://mediux.io/show-set/21971", Images: 1},
+	}, d.ImageSet.Sets)
 	assert.Equal(t, now.Add(-time.Second).Add(imagesets.DefaultRefresh), d.Due, "reconsidered a week on")
 
 	// Stored: the same answer is not incorporated twice, and nothing is

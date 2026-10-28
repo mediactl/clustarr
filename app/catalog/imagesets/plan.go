@@ -43,6 +43,8 @@ const (
 	MaxMessage = 512
 	// MaxSeasonArtwork is ImageSetStatus.SeasonArtwork's MaxItems.
 	MaxSeasonArtwork = 1000
+	// MaxSets is ImageSetStatus.Sets' MaxItems.
+	MaxSets = 32
 )
 
 // Input is what Plan decides from.
@@ -215,13 +217,37 @@ func incorporate(rec schema.ImageSetRecord, prev *catalogv1alpha1.ImageSetStatus
 	if len(out.SeasonArtwork) > MaxSeasonArtwork {
 		out.SeasonArtwork = out.SeasonArtwork[:MaxSeasonArtwork]
 	}
+	for _, src := range ans.Sets {
+		if src.SetID == "" || len(src.SetID) > 64 || len(out.Sets) == MaxSets {
+			continue
+		}
+		u := src.URL
+		if len(u) > 2048 {
+			u = ""
+		}
+		out.Sets = append(out.Sets, catalogv1alpha1.ImageSetSource{
+			SetID: src.SetID, Title: clamp(src.Title, 256), Creator: clamp(src.Creator, 128),
+			Kind: setKind(src.Kind), URL: u, Images: int32(max(0, src.Images)),
+		})
+	}
 	return out
 }
 
-// overrides maps a chosen set's images to the catalog's shapes: the item's
-// own (no season) to spec.artwork's, a season's and an episode's to
-// spec.seasonArtwork's. One entry per artwork type; the mediuxsets package
-// is the agent's copy of this mapping (the manager links no pkg/metadata).
+// setKind is a source's kind as the API spells it, "" for one it does not.
+func setKind(k string) catalogv1alpha1.ImageSetKind {
+	switch kind := catalogv1alpha1.ImageSetKind(k); kind {
+	case catalogv1alpha1.ImageSetKindShow, catalogv1alpha1.ImageSetKindMovie, catalogv1alpha1.ImageSetKindCollection:
+		return kind
+	}
+	return ""
+}
+
+// overrides maps an answer's images to the catalog's shapes by scope: the
+// item's own to spec.artwork's (one per type), a season's and an
+// episode's to spec.seasonArtwork's. A specials poster is scope season,
+// season 0, never a second item poster, which the status' list map would
+// refuse. The mediuxsets package is the agent's copy of this mapping (the
+// manager links no pkg/metadata).
 func overrides(images []schema.ImageSetImage) (artwork []catalogv1alpha1.ArtworkOverride, seasons []catalogv1alpha1.SeasonArtworkOverride) {
 	seen := map[catalogv1alpha1.ImageType]bool{}
 	for _, img := range images {
@@ -229,15 +255,15 @@ func overrides(images []schema.ImageSetImage) (artwork []catalogv1alpha1.Artwork
 		switch {
 		case img.URL == "":
 			continue
-		case img.Season == 0 && img.Episode == 0:
+		case img.Scope == schema.ImageScopeItem:
 			if seen[t] {
 				continue
 			}
 			seen[t] = true
 			artwork = append(artwork, catalogv1alpha1.ArtworkOverride{Type: t, URL: img.URL})
-		case img.Episode == 0:
+		case img.Scope == schema.ImageScopeSeason:
 			seasons = append(seasons, catalogv1alpha1.SeasonArtworkOverride{Season: img.Season, Type: t, URL: img.URL})
-		default:
+		case img.Scope == schema.ImageScopeEpisode && img.Episode >= 1:
 			n := img.Episode
 			seasons = append(seasons, catalogv1alpha1.SeasonArtworkOverride{Season: img.Season, Episode: &n, Type: t, URL: img.URL})
 		}

@@ -487,27 +487,52 @@ func (in ImageSetInputs) SameItem(o ImageSetInputs) bool {
 	return in.Kind == o.Kind && in.TMDBID == o.TMDBID && in.TVDBID == o.TVDBID && in.SetID == o.SetID
 }
 
-// ImageSetImage is one image of a chosen set: the item's own when Season
-// and Episode are 0, a season's when Episode is 0, else an episode's.
+// Image scopes: what an ImageSetImage is an image of.
+const (
+	ImageScopeItem    = ""        // the item's own poster or background
+	ImageScopeSeason  = "season"  // a season's poster, specials (0) included
+	ImageScopeEpisode = "episode" // an episode's thumbnail
+)
+
+// ImageSetImage is one image of an item's composed sets, by Scope: the
+// item's own, a season's (Season) or an episode's (Season and Episode). A
+// specials poster is scope season, season 0. SetID is the set it came
+// from.
 type ImageSetImage struct {
 	Type    string `json:"type"`
+	Scope   string `json:"scope,omitempty"`
 	Season  int32  `json:"season,omitempty"`
 	Episode int32  `json:"episode,omitempty"`
 	URL     string `json:"url"`
+	SetID   string `json:"setID,omitempty"`
 }
 
-// ImageSetAnswer is the worker's answer: the chosen set, or NotFound.
+// ImageSetSource is a set an item's images came from and how many it
+// supplied; Kind is show, movie or collection.
+type ImageSetSource struct {
+	SetID   string `json:"setID"`
+	Title   string `json:"title,omitempty"`
+	Creator string `json:"creator,omitempty"`
+	Kind    string `json:"kind,omitempty"`
+	URL     string `json:"url,omitempty"`
+	Images  int    `json:"images"`
+}
+
+// ImageSetAnswer is the worker's answer: the item's images composed from
+// its sets -- SetID, Title, Creator and URL the anchor's, Sets every set
+// that supplied one, the anchor first -- or NotFound.
 type ImageSetAnswer struct {
-	Provider  string          `json:"provider,omitempty"`
-	SetID     string          `json:"setID,omitempty"`
-	Title     string          `json:"title,omitempty"`
-	Creator   string          `json:"creator,omitempty"`
-	URL       string          `json:"url,omitempty"`
-	UpdatedAt *time.Time      `json:"updatedAt,omitempty"`
-	Reason    string          `json:"reason,omitempty"`
-	NotFound  bool            `json:"notFound,omitempty"`
-	Images    []ImageSetImage `json:"images,omitempty"`
-	CheckedAt time.Time       `json:"checkedAt"`
+	Provider  string           `json:"provider,omitempty"`
+	SetID     string           `json:"setID,omitempty"`
+	Title     string           `json:"title,omitempty"`
+	Creator   string           `json:"creator,omitempty"`
+	URL       string           `json:"url,omitempty"`
+	UpdatedAt *time.Time       `json:"updatedAt,omitempty"`
+	Reason    string           `json:"reason,omitempty"`
+	NotFound  bool             `json:"notFound,omitempty"`
+	Images    []ImageSetImage  `json:"images,omitempty"`
+	Sets      []ImageSetSource `json:"sets,omitempty"`
+	CheckedAt time.Time        `json:"checkedAt"`
 }
 
 // ImageSetRecord is one item's record in clustarr-image-sets, keyed

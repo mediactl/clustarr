@@ -39,6 +39,13 @@ func TestTheImagesFactNamesTheSetInUse(t *testing.T) {
 		imageSetNote(nil, nil, chosen))
 	assert.Equal(t, &views.ImageSetNote{Label: "pasted set", Pasted: true},
 		imageSetNote([]catalogv1.ArtworkOverride{{Type: catalogv1.ImageTypePoster, URL: "https://x/p"}}, nil, chosen))
+	composed := chosen.DeepCopy()
+	composed.URL = "https://mediux.io/show-set/41471"
+	composed.Sets = []catalogv1.ImageSetSource{{SetID: "41471", Images: 14}, {SetID: "22523", Images: 10}, {SetID: "21971", Images: 1}}
+	assert.Equal(t, &views.ImageSetNote{Label: "MediUX set Cyberpunk: Edgerunners by sharivari and 2 more sets", Href: "https://mediux.io/show-set/41471"},
+		imageSetNote(nil, nil, composed), "the anchor named, the sets that filled its gaps counted")
+	composed.Sets = composed.Sets[:2]
+	assert.Equal(t, "MediUX set Cyberpunk: Edgerunners by sharivari and 1 more set", imageSetNote(nil, nil, composed).Label)
 	assert.Nil(t, imageSetNote(nil, nil, &catalogv1.ImageSetStatus{NotFound: true, CheckedAt: metav1.Now()}))
 	assert.Nil(t, imageSetNote(nil, nil, nil))
 }

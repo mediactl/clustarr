@@ -140,9 +140,10 @@ func sameSeasonImage(a, b catalogv1.SeasonArtworkOverride) bool {
 	return a.Episode == nil || *a.Episode == *b.Episode
 }
 
-// setURLRE is a MediUX set's page, https://mediux.pro/sets/<id>, as the
-// dialog accepts it beside a bare id.
-var setURLRE = regexp.MustCompile(`^(?:https?://)?(?:www\.)?mediux\.pro/sets/([0-9]+)/?(?:[?#].*)?$`)
+// setURLRE is a MediUX set's page, as the dialog accepts it beside a bare
+// id: https://mediux.pro/sets/<id>, or https://mediux.io/<kind>-set/<id>
+// as AURA and the item page link it (2026-10-27).
+var setURLRE = regexp.MustCompile(`^(?:https?://)?(?:www\.)?(?:mediux\.pro/sets|mediux\.io/(?:show|movie|collection)-set)/([0-9]+)/?(?:[?#].*)?$`)
 
 // ParseSetID reads a MediUX set id from s: the id itself, or the set's page
 // URL; "" for an empty s. Anything else is an error.
@@ -156,7 +157,7 @@ func ParseSetID(s string) (string, error) {
 	}
 	for _, r := range s {
 		if r < '0' || r > '9' {
-			return "", fmt.Errorf("%w: %q is neither a MediUX set id nor a mediux.pro/sets URL", actions.ErrInvalid, s)
+			return "", fmt.Errorf("%w: %q is neither a MediUX set id nor a MediUX set URL", actions.ErrInvalid, s)
 		}
 	}
 	return s, nil

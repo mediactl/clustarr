@@ -819,25 +819,41 @@ the dispatch ledger; the agent (`app/catalog/worker/imagesets`) reads MediUX
 through `pkg/metadata/mediuxsets` over the `clustarr-mediux` cache
 (`pkg/metadata/mediuxcache`: id mappings for good, set lists a week, "no
 sets" a day, the daily `content_ids` list first, so an item MediUX has
-nothing for costs no request) and `mediux.Choose` ranks the sets (preferred
-creator, poster language, season posters and titlecards covered,
-popularity, recency); the stage writes the choice into `status.imageSet`
-under `catalog-imageset` (its one field), reconsidered every `refresh`
-(7 days; an hour after a failure), never the spec. Every reader takes the
-owner's `spec.artwork`/`spec.seasonArtwork` over it: the Plex provider's
+nothing for costs no request) and composes the item's images from all of
+its sets, slot by slot (owner, 2026-10-27: "combining various sets";
+`mediux.ComposeShow`/`ComposeMovie`, the design's "Composed sets"): the
+anchor -- a pinned set, else the best by preferred creator, poster
+language, completeness, a film's own set over a collection's,
+popularity, recency -- gives what it has, its creator's other sets and
+then the rest fill each poster, backdrop and season poster it lacks, and
+each season's titlecards come from one set (the anchor creator's with the
+most for it) with only its gaps filled elsewhere. MediUX's `popularity` is
+a rank, 1 the most popular, which the first cut read upside down. A film's
+candidates include the collection sets' images of it (a second query in
+AURA's shape, never recorded live: a GraphQL error from it alone,
+`mediux.ErrQuery`, leaves the film its movie sets). Every image carries
+its scope (a specials poster is season 0's, never the item's) and the set
+it came from; the stage writes the result into `status.imageSet` under
+`catalog-imageset` (its one field; `setID`, `title`, `creator` the
+anchor's, `sets` every set that supplied an image, at most 32),
+reconsidered every `refresh` (7 days; an hour after a failure), never the
+spec. MediUX has no logos, banners or season backgrounds, and any slot no
+set fills keeps the providers' images. Every reader takes the owner's
+`spec.artwork`/`spec.seasonArtwork` over it: the Plex provider's
 `seasonOverride`, the artwork fetch (`catalogartwork.WithImageSet`, so the
 set's poster and background are stored as custom originals) and the item
 page's "Images" fact (pasted set, else "MediUX set <title> by <creator>"
-linked). A set cached as JSON must round-trip: `ShowSet` and `File` have
+and how many more sets filled it, linked to the anchor's
+`mediux.io/<kind>-set/<id>` page, which the pin form also accepts). A set cached as JSON must round-trip: `ShowSet` and `File` have
 `MarshalJSON` writing the wire's nested shape their decoders read, without
 which every cached set came back poster-only and the second choice was never
 the first's. The proxy allowlist has `images.mediux.io` too, the host the
 chosen sets link (`api.mediux.pro` refuses `key=jpg`). The dialog's second
 form sets the policy per item (`ui/actions.SetImageSetPolicy`): untick
 "choose automatically" for `spec.imageSet: none`, or pin a set by id or
-page URL into `spec.imageSetID`, which the worker fetches as it is
-(`ShowSet`/`MovieSet` by id, no choosing) and a changed pin asks for at
-once. A MediUX limit longer than five minutes defers the record and acks,
+page URL into `spec.imageSetID`, which anchors the composition (fetched
+by id when the item's list lacks it, taken alone when the item has no id)
+and a changed pin asks for at once. A MediUX limit longer than five minutes defers the record and acks,
 and the stage republishes the task at the reset (`Decision.Resume`,
 `MsgIDForImageSetAt`), as the markers worker does.
 A season named by TheTVDB ("Book 1: Water", "Steel Ball Run";

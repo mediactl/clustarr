@@ -171,6 +171,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &catalogv1alpha1.HandledNoncesApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("Image"):
 		return &catalogv1alpha1.ImageApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("ImageSetSource"):
+		return &catalogv1alpha1.ImageSetSourceApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("ImageSetStatus"):
 		return &catalogv1alpha1.ImageSetStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("ImportExclusion"):

@@ -1503,6 +1503,53 @@ spec:
                     description: SetID is the set's id at the provider.
                     maxLength: 64
                     type: string
+                  sets:
+                    description: |-
+                      Sets are the sets the images came from, composed slot by slot: the
+                      anchor (setID) first, then by images supplied.
+                    items:
+                      description: |-
+                        ImageSetSource is one set an item's images came from (the 2026-10-22
+                        design's "Composed sets"): the anchor supplies what it has, and the
+                        item's other sets fill each image it lacks.
+                      properties:
+                        creator:
+                          description: Creator is the set's creator's username.
+                          maxLength: 128
+                          type: string
+                        images:
+                          description: Images is how many of the item's images the
+                            set supplied.
+                          format: int32
+                          minimum: 0
+                          type: integer
+                        kind:
+                          description: |-
+                            Kind is what the set was made for: the show, the movie, or the
+                            movie's collection.
+                          enum:
+                          - show
+                          - movie
+                          - collection
+                          type: string
+                        setID:
+                          description: SetID is the set's id at the provider.
+                          maxLength: 64
+                          type: string
+                        title:
+                          description: Title is the set's title.
+                          maxLength: 256
+                          type: string
+                        url:
+                          description: URL is the set's page at the provider.
+                          maxLength: 2048
+                          type: string
+                      required:
+                      - images
+                      - setID
+                      type: object
+                    maxItems: 32
+                    type: array
                   title:
                     description: Title is the set's title.
                     maxLength: 256

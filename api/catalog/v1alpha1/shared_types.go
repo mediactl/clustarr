@@ -251,10 +251,11 @@ const (
 	ImageSetNone ImageSetMode = "none"
 )
 
-// ImageSetStatus is the image set the mediux MetadataProvider chose for a
-// Movie or Series, written by the remediation loop's image-set stage under
-// catalog-imageset, never the owner's spec: spec.artwork and
-// spec.seasonArtwork stay the owner's and win over it.
+// ImageSetStatus is a Movie's or Series' images from the mediux
+// MetadataProvider's sets, composed slot by slot around an anchor set
+// (setID, title, creator, url), written by the remediation loop's
+// image-set stage under catalog-imageset, never the owner's spec:
+// spec.artwork and spec.seasonArtwork stay the owner's and win over it.
 type ImageSetStatus struct {
 	// Provider is the MetadataProvider type the set came from (mediux).
 	// +optional
@@ -312,6 +313,59 @@ type ImageSetStatus struct {
 	// +optional
 	// +kubebuilder:validation:MaxItems=1000
 	SeasonArtwork []SeasonArtworkOverride `json:"seasonArtwork,omitempty"`
+
+	// Sets are the sets the images came from, composed slot by slot: the
+	// anchor (setID) first, then by images supplied.
+	// +optional
+	// +kubebuilder:validation:MaxItems=32
+	Sets []ImageSetSource `json:"sets,omitempty"`
+}
+
+// ImageSetKind is what an image set was made for.
+//
+// +kubebuilder:validation:Enum=show;movie;collection
+type ImageSetKind string
+
+// Image set kinds.
+const (
+	ImageSetKindShow       ImageSetKind = "show"
+	ImageSetKindMovie      ImageSetKind = "movie"
+	ImageSetKindCollection ImageSetKind = "collection"
+)
+
+// ImageSetSource is one set an item's images came from (the 2026-10-22
+// design's "Composed sets"): the anchor supplies what it has, and the
+// item's other sets fill each image it lacks.
+type ImageSetSource struct {
+	// SetID is the set's id at the provider.
+	// +required
+	// +kubebuilder:validation:MaxLength=64
+	SetID string `json:"setID"`
+
+	// Title is the set's title.
+	// +optional
+	// +kubebuilder:validation:MaxLength=256
+	Title string `json:"title,omitempty"`
+
+	// Creator is the set's creator's username.
+	// +optional
+	// +kubebuilder:validation:MaxLength=128
+	Creator string `json:"creator,omitempty"`
+
+	// Kind is what the set was made for: the show, the movie, or the
+	// movie's collection.
+	// +optional
+	Kind ImageSetKind `json:"kind,omitempty"`
+
+	// URL is the set's page at the provider.
+	// +optional
+	// +kubebuilder:validation:MaxLength=2048
+	URL string `json:"url,omitempty"`
+
+	// Images is how many of the item's images the set supplied.
+	// +required
+	// +kubebuilder:validation:Minimum=0
+	Images int32 `json:"images"`
 }
 
 // SeasonTitle is a season's own name, when the provider has one: TheTVDB's

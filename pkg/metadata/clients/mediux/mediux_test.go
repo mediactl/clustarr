@@ -34,7 +34,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/time/rate"
 
-	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/metadata"
 	"github.com/mediactl/clustarr/pkg/metadata/clients/mediux"
 )
@@ -76,6 +75,10 @@ func recorded(t *testing.T) (*mediux.Client, *httptest.Server, *atomic.Int32) {
 			}
 		case strings.Contains(req.Query, "show_sets_by_id"):
 			file = "show_set_41471.json"
+		case strings.Contains(req.Query, "movies_by_id") && strings.Contains(req.Query, "collection_set"):
+			// Not recorded: AURA's shape, constructed (filmCollectionImages).
+			_, _ = w.Write([]byte(filmCollectionImages))
+			return
 		case strings.Contains(req.Query, "movies_by_id"):
 			file = "movie_sets_328387.json"
 		case strings.Contains(req.Query, "collections_by_id"):
@@ -138,68 +141,89 @@ func TestAShowsSetsAreReadWithTheirSeasonsAndEpisodes(t *testing.T) {
 	require.ErrorIs(t, err, metadata.ErrNotFound, "a show MediUX does not have is null")
 }
 
-func TestASetBecomesTheItemsOverridesAtTheChosenQuality(t *testing.T) {
+// An image's URL is the file's versioned src under the client's host:
+// optimized quality adds key=jpg, the original has none.
+func TestAnImagesURLIsItsVersionedSrcAtTheChosenQuality(t *testing.T) {
 	c, srv, _ := recorded(t)
 	set, err := c.ShowSet(context.Background(), "41471")
 	require.NoError(t, err)
-	e := c.Overrides(set)
-	require.Equal(t, "41471", e.ID)
-	require.Len(t, e.Artwork, 2)
-	require.Equal(t, catalogv1.ImageTypePoster, e.Artwork[0].Type)
-	require.Equal(t, srv.URL+"/assets/ea39f814-5cc8-4f3b-91dc-891e4c681cf3?v=20261016195509&key=jpg", e.Artwork[0].URL,
-		"the file's versioned src under the client's host, at optimized quality")
-	require.Equal(t, catalogv1.ImageTypeFanart, e.Artwork[1].Type)
-	require.Len(t, e.SeasonArtwork, 22, "two season posters and twenty titlecards")
-	require.Equal(t, catalogv1.SeasonArtworkOverride{Season: 1, Type: catalogv1.ImageTypePoster, URL: e.SeasonArtwork[0].URL}, e.SeasonArtwork[0])
-	one := int32(1)
-	require.Equal(t, int32(1), e.SeasonArtwork[2].Season)
-	require.Equal(t, &one, e.SeasonArtwork[2].Episode)
-	require.Equal(t, catalogv1.ImageTypeScreenshot, e.SeasonArtwork[2].Type)
-	require.Contains(t, e.SeasonArtwork[2].URL, "&key=jpg")
-	last := e.SeasonArtwork[len(e.SeasonArtwork)-1]
-	require.Equal(t, int32(2), last.Season)
-	require.Equal(t, int32(10), *last.Episode, "seasons then episodes, in number order")
-
+	require.Equal(t, srv.URL+"/assets/ea39f814-5cc8-4f3b-91dc-891e4c681cf3?v=20261016195509&key=jpg", c.ImageURL(set.Poster[0]))
 	orig := mediux.ImageURL("https://images.mediux.io", set.Poster[0], mediux.QualityOriginal)
 	require.Equal(t, "https://images.mediux.io/assets/ea39f814-5cc8-4f3b-91dc-891e4c681cf3?v=20261016195509", orig, "the original has no key")
+	require.Equal(t, "https://mediux.io/show-set/41471", mediux.SetURL(mediux.SetShow, "41471"))
 }
 
-func TestChooseTakesTheMostCompleteSetThenTheMostPopular(t *testing.T) {
-	c, _, _ := recorded(t)
-	show, err := c.ShowSets(context.Background(), "105248")
-	require.NoError(t, err)
-	policy := mediux.Policy{Languages: []string{"English"}, Seasons: []int32{1, 2}, Episodes: map[int32]int32{1: 10, 2: 10}}
-	ch := mediux.Choose(show.Sets, policy)
-	require.NotNil(t, ch)
-	require.Equal(t, "41471", ch.Set.ID, "sharivari's: both season posters and all twenty titlecards, though Ludacris's poster-only set is more popular")
-	require.Contains(t, ch.Reason, "2 of 2 season posters, 20 titlecards")
-
-	policy.PreferredCreators = []string{"RandalPink87"}
-	ch = mediux.Choose(show.Sets, policy)
-	require.Equal(t, "38985", ch.Set.ID, "a preferred creator's set wins")
-	require.Contains(t, ch.Reason, "preferred creator RandalPink87")
-
-	policy.PreferredCreators = nil
-	policy.Seasons, policy.Episodes = nil, nil
-	ch = mediux.Choose(show.Sets, policy)
-	require.Equal(t, "41472", ch.Set.ID, "with no series to complete, the most popular poster")
-	require.Nil(t, mediux.Choose(nil, policy))
-}
+// filmCollectionImages is MovieSets' second answer as AURA's query shapes
+// it -- a film's posters and backdrops, each with its collection set --
+// constructed, not recorded: the shared token was gone by 2026-10-27.
+const filmCollectionImages = `{"data":{"movies_by_id":{"id":"328387",
+	"posters":[{"id":"cp","modified_on":"2026-01-01T00:00:00Z","src":"/cp?v=1","language":{"display_name":"English"},
+		"collection_set":{"id":"c9","set_title":"Thrillers","user_created":{"username":"b"},"date_updated":"2026-01-01T00:00:00Z","popularity":2}}],
+	"backdrops":[{"id":"cb","modified_on":"2026-01-01T00:00:00Z","src":"/cb?v=1","language":null,
+		"collection_set":{"id":"c9","set_title":"Thrillers","user_created":{"username":"b"},"date_updated":"2026-01-01T00:00:00Z","popularity":2}}]}}}`
 
 func TestAFilmsSetsAndACollectionsSetsAreRead(t *testing.T) {
-	c, _, _ := recorded(t)
+	c, _, calls := recorded(t)
 	m, err := c.MovieSets(context.Background(), "328387")
 	require.NoError(t, err)
 	require.Equal(t, "Nerve", m.Title)
-	require.NotEmpty(t, m.Sets)
-	e := c.MovieOverrides(&m.Sets[0])
-	require.Equal(t, catalogv1.ImageTypePoster, e.Artwork[0].Type)
-	require.Contains(t, e.Artwork[0].URL, "/assets/e5d104de-4f53-49df-b984-07fc5d70eabb?v=")
+	require.Len(t, m.Sets, 4)
+	require.Equal(t, "e5d104de-4f53-49df-b984-07fc5d70eabb", m.Sets[0].Poster[0].ID)
+	require.Equal(t, int32(2), calls.Load(), "the film's sets, then its collection-set images")
+	require.Len(t, m.CollectionSets, 1, "the poster and backdrop of one collection set are one set")
+	cs := m.CollectionSets[0]
+	require.Equal(t, "c9", cs.ID)
+	require.Equal(t, "b", cs.Creator.Username)
+	require.Equal(t, 2, *cs.Popularity)
+	require.Equal(t, "cp", cs.Poster[0].ID)
+	require.Equal(t, "English", cs.Poster[0].Language)
+	require.Equal(t, "cb", cs.Backdrop[0].ID)
+
+	b, err := json.Marshal(m)
+	require.NoError(t, err)
+	var back mediux.Movie
+	require.NoError(t, json.Unmarshal(b, &back))
+	require.Equal(t, *m, back, "the cache keeps a film's collection sets")
+
 	col, err := c.CollectionSets(context.Background(), "404609")
 	require.NoError(t, err)
 	require.Equal(t, "John Wick Collection", col.Name)
 	require.NotEmpty(t, col.Sets)
 	require.Equal(t, "Aloha_Alona", col.Sets[0].Creator.Username)
+}
+
+// The collection-images query was never recorded live, so a GraphQL error
+// from it alone leaves the film its own sets; a limit on it fails the
+// lookup, which is retried, rather than caching the film without them.
+func TestAFilmKeepsItsSetsWhenTheCollectionQueryIsRefused(t *testing.T) {
+	movie, err := os.ReadFile(filepath.Join(fixtures, "movie_sets_328387.json"))
+	require.NoError(t, err)
+	second := func(w http.ResponseWriter) {
+		_, _ = w.Write([]byte(`{"errors":[{"message":"Cannot query field \"collection_set\" on type \"posters\".","extensions":{"code":"GRAPHQL_VALIDATION"}}]}`))
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		if strings.Contains(string(body), "collection_set") {
+			second(w)
+			return
+		}
+		_, _ = w.Write(movie)
+	}))
+	defer srv.Close()
+	c, err := mediux.New(mediux.Config{HTTPClient: srv.Client(), BaseURL: srv.URL, Token: "x", Limiter: rate.NewLimiter(rate.Inf, 1)})
+	require.NoError(t, err)
+	m, err := c.MovieSets(context.Background(), "328387")
+	require.NoError(t, err)
+	require.Len(t, m.Sets, 4)
+	require.Empty(t, m.CollectionSets)
+
+	second = func(w http.ResponseWriter) {
+		w.Header().Set("Retry-After", "30")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}
+	_, err = c.MovieSets(context.Background(), "328387")
+	var rl *metadata.RateLimitedError
+	require.True(t, errors.As(err, &rl), "%v", err)
 }
 
 func TestContentIDsAreByKind(t *testing.T) {
