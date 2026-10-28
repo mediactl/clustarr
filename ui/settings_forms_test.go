@@ -97,6 +97,11 @@ func TestSettingsPageLinksAddEditAndDelete(t *testing.T) {
 			require.NotContains(t, body, `href="/settings/new/importlists`, "import lists are the Import Lists page's")
 			continue
 		}
+		if k.Group == "clustarr.io" {
+			// managed on the Live TV pages, not here
+			require.NotContains(t, body, `href="/settings/new/`+k.Slug, "Live TV's kinds are the Live TV pages'")
+			continue
+		}
 		require.Contains(t, body, `href="/settings/new/`+k.Slug+`"`, "an Add link per kind")
 	}
 	require.Contains(t, body, `href="/settings/edit/downloadclients/media/eweka"`, "a namespaced kind's Edit link")

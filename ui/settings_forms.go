@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	clustarrv1 "github.com/mediactl/clustarr/api/clustarr/v1alpha1"
 	downloadv1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	indexv1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	subtitlev1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
@@ -73,6 +74,8 @@ var configConstructors = map[string]func() client.Object{
 	"subtitleproviders": func() client.Object { return &subtitlev1.SubtitleProvider{} },
 	"subtitleprofiles":  func() client.Object { return &subtitlev1.SubtitleProfile{} },
 	"transcodeprofiles": func() client.Object { return &transcodev1.TranscodeProfile{} },
+	"iptvproviders":     func() client.Object { return &clustarrv1.IPTVProvider{} },
+	"iptvchannels":      func() client.Object { return &clustarrv1.IPTVChannel{} },
 }
 
 // specSchemas caches each kind's spec field tree; the embedded CRDs never

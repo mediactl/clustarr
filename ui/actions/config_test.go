@@ -43,7 +43,7 @@ func TestConfigKindsAreTheSettingsPageKinds(t *testing.T) {
 	for _, k := range kinds {
 		bySlug[k.Slug] = k
 	}
-	require.Len(t, kinds, 10)
+	require.Len(t, kinds, 12)
 	for slug, want := range map[string]struct {
 		group, kind, resource string
 		namespaced            bool
@@ -57,6 +57,8 @@ func TestConfigKindsAreTheSettingsPageKinds(t *testing.T) {
 		"subtitleproviders": {"subtitle.clustarr.io", "SubtitleProvider", "subtitleproviders", true},
 		"subtitleprofiles":  {"subtitle.clustarr.io", "SubtitleProfile", "subtitleprofiles", false},
 		"transcodeprofiles": {"transcode.clustarr.io", "TranscodeProfile", "transcodeprofiles", false},
+		"iptvproviders":     {"clustarr.io", "IPTVProvider", "iptvproviders", true},
+		"iptvchannels":      {"clustarr.io", "IPTVChannel", "iptvchannels", true},
 	} {
 		k, ok := bySlug[slug]
 		require.True(t, ok, slug)

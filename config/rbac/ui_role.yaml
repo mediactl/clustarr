@@ -111,6 +111,15 @@ rules:
   - list
   - watch
 - apiGroups:
+  - clustarr.io
+  resources:
+  - iptvchannels
+  - iptvproviders
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - catalog.clustarr.io
   resources:
   - artists
@@ -178,6 +187,15 @@ rules:
   - transcode.clustarr.io
   resources:
   - transcodeprofiles
+  verbs:
+  - create
+  - patch
+  - delete
+- apiGroups:
+  - clustarr.io
+  resources:
+  - iptvchannels
+  - iptvproviders
   verbs:
   - create
   - patch

@@ -335,6 +335,53 @@ var kinds = []Kind{
 		Hidden: []string{"chunking", "ttlSecondsAfterFinished", "gpu.nodeSelector", "gpu.tolerations", "resources.claims", "selector.matchExpressions"},
 		Labels: map[string]string{"default": "Cluster default", "maxConcurrent": "Max concurrent jobs", "selector.matchLabels": "Applies to files labelled", "audio.languages": "Keep audio languages"},
 	},
+	{
+		ConfigKind: configKind("iptvproviders"),
+		Title:      "IPTV providers", Singular: "IPTV provider",
+		Help: "An IPTV account whose live channels become Plex Live TV. The guide is the panel's xmltv.php unless Guide URL names another XMLTV; {username} and {password} in a URL take the account's.",
+		Groups: []Group{
+			{Title: "Provider", Paths: []string{"enabled", "server", "credentialsRef", "tuners", "refresh", "userAgent"}},
+			{Title: "Guide", Paths: []string{"guideURL", "epgSource"}},
+			{Title: "Channels", Paths: []string{"filters", "channelNumberStart"}},
+			{Title: "Plex", Paths: []string{"device.friendlyName", "device.id", "dvr.maxChannels"}, Advanced: true},
+			{Title: "Stream", Paths: []string{"stream.buffer", "stream.linger", "stream.language"}, Advanced: true},
+		},
+		Labels: map[string]string{
+			"guideURL": "Guide URL (XMLTV)", "epgSource": "Guide source", "channelNumberStart": "First channel number",
+			"dvr.maxChannels": "Channels per Plex DVR", "credentialsRef": "Account",
+		},
+		Secrets: []Secret{{Path: "credentialsRef", Keys: []Key{
+			{Key: "username", Label: "Username", Required: true},
+			{Key: "password", Label: "Password", Required: true},
+		}}},
+	},
+	{
+		ConfigKind: configKind("iptvchannels"),
+		Title:      "IPTV channels", Singular: "channel",
+		Help: "One playlist entry in the lineup. The provider and key cannot change once created.",
+		Groups: []Group{
+			{Title: "Channel", Paths: []string{"providerRef", "key", "active", "number", "name", "group", "logo", "language"}},
+			{Title: "Guide", Help: "A guide channel id, or a dummy guide; neither maps it by its tvg-id.", Paths: []string{"epg.channelID", "epg.dummy", "epg.dummyMinutes", "timeshiftMinutes"}},
+		},
+		Labels:         map[string]string{"providerRef": "Provider", "key": "Playlist key", "epg.channelID": "Guide channel id", "epg.dummy": "Dummy guide", "epg.dummyMinutes": "Dummy block minutes"},
+		ReadOnlyOnEdit: []string{"providerRef", "key"},
+		// The dummy checkbox always posts, so an untouched Guide group
+		// decodes to {dummy: false}, which the CRD refuses (exactly one of
+		// channelID and dummy): no channel id and no dummy is no epg.
+		Ensure: func(spec map[string]any) {
+			e, ok := spec["epg"].(map[string]any)
+			if !ok {
+				return
+			}
+			if id, _ := e["channelID"].(string); id != "" {
+				delete(e, "dummy")
+				return
+			}
+			if d, _ := e["dummy"].(bool); !d {
+				delete(spec, "epg")
+			}
+		},
+	},
 }
 
 // whenProvider is a condition on the ImportList form's provider choice.

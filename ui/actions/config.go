@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	clustarrv1alpha1 "github.com/mediactl/clustarr/api/clustarr/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
@@ -44,7 +45,8 @@ import (
 
 // This file is the Settings page's configuration writes (settings CRUD
 // design, docs/superpowers/specs/2026-09-24-settings-crud-design.md): the
-// UI creates, edits and deletes the eight kinds the page shows, and writes
+// UI creates, edits and deletes the kinds the page shows (and Live TV's two,
+// from the Live TV pages), and writes
 // the Secrets their credentials live in. The spec of a created or edited
 // object is whatever ui/schema decoded from the form -- an unstructured
 // map, typed by the kind's own CRD schema and validated by the apiserver
@@ -89,6 +91,10 @@ var configKinds = []ConfigKind{
 	{Slug: "subtitleproviders", Group: subtitlev1alpha1.GroupVersion.Group, Version: subtitlev1alpha1.GroupVersion.Version, Kind: "SubtitleProvider", Resource: "subtitleproviders", Namespaced: true},
 	{Slug: "subtitleprofiles", Group: subtitlev1alpha1.GroupVersion.Group, Version: subtitlev1alpha1.GroupVersion.Version, Kind: "SubtitleProfile", Resource: "subtitleprofiles"},
 	{Slug: "transcodeprofiles", Group: transcodev1alpha1.GroupVersion.Group, Version: transcodev1alpha1.GroupVersion.Version, Kind: "TranscodeProfile", Resource: "transcodeprofiles"},
+	// Live TV's (the direct-tuners and ui design 2026-10-27 §5.2): the
+	// M3U/EPG Manager and the Channels page open these forms.
+	{Slug: "iptvproviders", Group: clustarrv1alpha1.GroupVersion.Group, Version: clustarrv1alpha1.GroupVersion.Version, Kind: "IPTVProvider", Resource: "iptvproviders", Namespaced: true},
+	{Slug: "iptvchannels", Group: clustarrv1alpha1.GroupVersion.Group, Version: clustarrv1alpha1.GroupVersion.Version, Kind: "IPTVChannel", Resource: "iptvchannels", Namespaced: true},
 }
 
 // ConfigKinds returns the kinds the Settings page configures, in the order

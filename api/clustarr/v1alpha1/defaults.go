@@ -48,6 +48,13 @@ const (
 	ReasonNumberRangeOverlap = "NumberRangeOverlap"
 )
 
+// AnnotationLiveTVRefresh on an IPTVProvider forces a fetch of every
+// source when its value changes: the ui's "Refresh now" writes the
+// requester's Unix time (the direct-tuners and ui design §5.2). Declared
+// here because the writer (ui/actions) and the reader (the provider
+// controller) both name it.
+const AnnotationLiveTVRefresh = "clustarr.io/livetv-refresh"
+
 // The keys of a provider's credentials Secret.
 const (
 	CredentialsKeyUsername = "username"

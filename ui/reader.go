@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	clustarrv1alpha1 "github.com/mediactl/clustarr/api/clustarr/v1alpha1"
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	subtitlev1alpha1 "github.com/mediactl/clustarr/api/subtitle/v1alpha1"
@@ -37,8 +38,8 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
 
-// readerSchemeFuncs is corev1 plus the five Clustarr API groups: catalog,
-// index, download, transcode and subtitle. It is deliberately NOT
+// readerSchemeFuncs is corev1 plus the six Clustarr API groups: catalog,
+// index, download, transcode, subtitle and clustarr.io (Live TV). It is deliberately NOT
 // pkg/k8s.AddToSchemeFuncs: that list also carries batchv1, appsv1,
 // coordinationv1 and eventsv1 for the controllers that create Jobs,
 // Deployments and Leases, none of which ui ever touches, and -- the
@@ -54,10 +55,11 @@ var readerSchemeFuncs = []func(*runtime.Scheme) error{
 	downloadv1alpha1.AddToScheme,
 	transcodev1alpha1.AddToScheme,
 	subtitlev1alpha1.AddToScheme,
+	clustarrv1alpha1.AddToScheme,
 }
 
 // NewReaderScheme returns the scheme [NewClusterReader]'s cache maps
-// GroupVersionKinds through: corev1 plus the five Clustarr API groups. It
+// GroupVersionKinds through: corev1 plus the six Clustarr API groups. It
 // takes no cluster and cannot fail from anything but a programming error in
 // a generated AddToScheme.
 func NewReaderScheme() (*runtime.Scheme, error) {

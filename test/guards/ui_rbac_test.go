@@ -125,6 +125,16 @@ var uiActionGrants = map[uiGrant]bool{
 	{"transcode.clustarr.io", "transcodeprofiles", "delete"}: true,
 	{"", "secrets", "create"}:                                true,
 	{"", "secrets", "patch"}:                                 true,
+
+	// The Live TV section (the direct-tuners and ui design 2026-10-27
+	// §5.2): IPTVProviders through the settings forms, IPTVChannels from
+	// the Channels page, and the provider's refresh annotation (a patch).
+	{"clustarr.io", "iptvproviders", "create"}: true,
+	{"clustarr.io", "iptvproviders", "patch"}:  true,
+	{"clustarr.io", "iptvproviders", "delete"}: true,
+	{"clustarr.io", "iptvchannels", "create"}:  true,
+	{"clustarr.io", "iptvchannels", "patch"}:   true,
+	{"clustarr.io", "iptvchannels", "delete"}:  true,
 }
 
 // uiRoleRule mirrors a ClusterRole rules entry, including the fields no rule

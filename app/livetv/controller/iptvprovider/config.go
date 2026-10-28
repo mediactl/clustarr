@@ -37,10 +37,6 @@ import (
 	"github.com/mediactl/clustarr/pkg/iptv/xmltv"
 )
 
-// AnnotationRefresh forces a fetch of every source: the ui's "Refresh now"
-// sets it to a new value (spec §5.1).
-const AnnotationRefresh = "clustarr.io/livetv-refresh"
-
 // resolved is a provider's server and credentials, its Secret read.
 type resolved struct {
 	server, username, password string
@@ -141,7 +137,7 @@ func buildConfig(p *clustarrv1.IPTVProvider, blocks []tuner.BlockConfig, res res
 		Buffer:    int(p.Spec.Stream.BufferOrDefault()),
 		Linger:    p.Spec.Stream.LingerOrDefault(),
 		Language:  p.Spec.Stream.LanguageOrDefault(),
-		Refresh:   p.Annotations[AnnotationRefresh],
+		Refresh:   p.Annotations[clustarrv1.AnnotationLiveTVRefresh],
 	}
 	for _, f := range p.Spec.Filters {
 		c.Filters = append(c.Filters, filter.Rule{
