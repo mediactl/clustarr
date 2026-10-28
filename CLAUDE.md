@@ -927,6 +927,11 @@ Plex's database as the item's Labels (tag type 11, verified live) beside
 the markers and streams it already seeds.
 Images are chosen per (type, language) before the CRD's 50
 (`selectImages`), so the original language's and fanart.tv's survive;
+TheTVDB's artworks, a series' own image and a season's list poster
+among them, rank by their score, ties going to the titles' language, no
+language, then the original (`tvdb.rankArtworks`, `SchemaVersion` 8,
+owner 2026-10-28: TheTVDB's own image for an anime is its best English
+poster, often never scored -- Cautious Hero's was a title card on black);
 `contentRating` prefixes the country the gateway chose the certification
 from (`status.metadata.certificationCountry`), and a request naming no
 language is answered in `status.metadata.language`. Response customization (`includeFields`/`excludeFields`/

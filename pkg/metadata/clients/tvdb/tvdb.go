@@ -23,6 +23,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package tvdb
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"net/http"
@@ -157,13 +158,8 @@ type seriesExtendedResponse struct {
 		// Image is the series' own poster; Artworks the rest, each typed
 		// by /artwork/types' ids (artworkTypes, seasonArtworkTypes), a
 		// season's naming it by seasonId.
-		Image    string `json:"image"`
-		Artworks []struct {
-			Type     int    `json:"type"`
-			Image    string `json:"image"`
-			Language string `json:"language"`
-			SeasonID int64  `json:"seasonId"`
-		} `json:"artworks"`
+		Image    string          `json:"image"`
+		Artworks []artworkRecord `json:"artworks"`
 		// Translations is what `?meta=translations` adds: the record's
 		// name and overview in every language it has, the aliases among
 		// them flagged isAlias. Name above is the original-language name,
@@ -223,6 +219,52 @@ type rawCharacter struct {
 	Image        string `json:"image"`
 	PersonImgURL string `json:"personImgURL"`
 	Sort         int32  `json:"sort"`
+}
+
+// artworkRecord is one of a series record's artworks. Score is TheTVDB's
+// ranking of it: 100,000 plus its votes once reviewed, 0 never scored.
+type artworkRecord struct {
+	Type     int    `json:"type"`
+	Image    string `json:"image"`
+	Language string `json:"language"`
+	SeasonID int64  `json:"seasonId"`
+	Score    int64  `json:"score"`
+}
+
+// rankArtworks orders arts best first, stably: the higher score, then the
+// titles' language, no language, the series' original language, any other.
+// TheTVDB's own image for a series or a season is no better than its score:
+// for an anime it is its best English poster, often never scored (Cautious
+// Hero's, a title card on black, scored 0 beside three scored key arts;
+// owner, 2026-10-28), and taking it first put that card in Plex.
+func rankArtworks(arts []artworkRecord, titleLang, original string) {
+	rank := func(l string) int {
+		switch l {
+		case titleLang:
+			return 0
+		case "":
+			return 1
+		case original:
+			return 2
+		}
+		return 3
+	}
+	slices.SortStableFunc(arts, func(a, b artworkRecord) int {
+		if a.Score != b.Score {
+			return cmp.Compare(b.Score, a.Score)
+		}
+		return cmp.Compare(rank(a.Language), rank(b.Language))
+	})
+}
+
+// withOwnImage is arts with img, the record's own image of type t, as one
+// more candidate when no artwork carries it: first, so it leads the ones
+// never scored, as it led everything before ranking.
+func withOwnImage(arts []artworkRecord, img string, t int, seasonID int64) []artworkRecord {
+	if img == "" || slices.ContainsFunc(arts, func(a artworkRecord) bool { return a.Image == img }) {
+		return arts
+	}
+	return append([]artworkRecord{{Type: t, Image: img, SeasonID: seasonID}}, arts...)
 }
 
 // artworkBase is TheTVDB's image host; an episode record's image is a path
@@ -409,13 +451,11 @@ func (c *Client) Series(ctx context.Context, tvdbID string) (*metadata.Series, e
 		aliases = append(aliases, metadata.AltTitle{Title: a.Name, Language: originalLanguage(a.Language)})
 	}
 	s.AlternateTitles = metadata.DistinctAltTitles(s.Title, aliases)
-	// The series' own image is its poster and comes first, so a consumer
-	// that takes the first poster (the library page) shows the one TheTVDB
-	// itself leads with; the artworks follow in the order published.
-	if raw.Data.Image != "" {
-		s.Images = append(s.Images, metadata.Image{Type: metadata.ImageTypePoster, URL: raw.Data.Image})
-	}
-	for _, a := range raw.Data.Artworks {
+	// Best first (rankArtworks): a consumer that takes the first poster --
+	// the artwork fetch, the library page, Plex -- takes the best scored.
+	arts := withOwnImage(slices.Clone(raw.Data.Artworks), raw.Data.Image, 2, 0)
+	rankArtworks(arts, c.titleLang(), raw.Data.OriginalLanguage)
+	for _, a := range arts {
 		t, ok := artworkTypes[a.Type]
 		if !ok || a.Image == "" {
 			continue
@@ -438,7 +478,7 @@ func (c *Client) Series(ctx context.Context, tvdbID string) (*metadata.Series, e
 	if t, ok := parseDate(raw.Data.LastAired); ok {
 		s.LastAired = &t
 	}
-	mapSeriesExtended(&raw, s, c.region)
+	mapSeriesExtended(&raw, s, c.region, c.titleLang())
 	c.translateSeasonNames(ctx, &raw, s)
 
 	logger.DebugContext(ctx, "tvdb: series fetched", "tvdb_id", tvdbID, "title", s.Title)
@@ -450,7 +490,7 @@ func (c *Client) Series(ctx context.Context, tvdbID string) (*metadata.Series, e
 // types a Network), production companies, the country of origin, per-country
 // content ratings, the cast, each stored order's season posters and banners
 // and the season orderings TheTVDB offers.
-func mapSeriesExtended(raw *seriesExtendedResponse, s *metadata.Series, region string) {
+func mapSeriesExtended(raw *seriesExtendedResponse, s *metadata.Series, region, titleLang string) {
 	d := &raw.Data
 	addNetwork := func(n string) {
 		if n != "" && !slices.Contains(s.Networks, n) {
@@ -511,6 +551,12 @@ func mapSeriesExtended(raw *seriesExtendedResponse, s *metadata.Series, region s
 		n := se.number
 		s.Images = append(s.Images, metadata.Image{Type: t, URL: url, Season: &n, SeasonOrder: se.order})
 	}
+	var arts []artworkRecord
+	for _, a := range d.Artworks {
+		if _, ok := seasonArtworkTypes[a.Type]; ok {
+			arts = append(arts, a)
+		}
+	}
 	for _, se := range d.Seasons {
 		// The orders clustarr can store (spec.episodeOrder); TheTVDB's
 		// alternate and regional orders never number a season here.
@@ -521,20 +567,20 @@ func mapSeriesExtended(raw *seriesExtendedResponse, s *metadata.Series, region s
 		}
 		ref := seasonRef{se.Number, se.Type.Type}
 		stored[se.ID] = ref
-		add(ref, metadata.ImageTypePoster, se.Image)
+		arts = withOwnImage(arts, se.Image, 7, se.ID)
 		if se.Name != "" {
 			// The season's own name, in the original language; Series
 			// translates it into the titles' language afterwards.
 			s.Seasons = append(s.Seasons, metadata.Season{Number: se.Number, Order: metadata.SeasonOrder(se.Type.Type), Title: se.Name})
 		}
 	}
-	// A season's own banners and posters follow its list poster, which stays
-	// its first: the one the Plex provider sends.
-	for _, a := range d.Artworks {
-		t, ok := seasonArtworkTypes[a.Type]
-		ref, known := stored[a.SeasonID]
-		if ok && known {
-			add(ref, t, a.Image)
+	// A season's banners and posters, its own list poster among them, best
+	// first (rankArtworks): its first poster is the one the Plex provider
+	// sends.
+	rankArtworks(arts, titleLang, d.OriginalLanguage)
+	for _, a := range arts {
+		if ref, known := stored[a.SeasonID]; known {
+			add(ref, seasonArtworkTypes[a.Type], a.Image)
 		}
 	}
 	for _, st := range d.SeasonTypes {

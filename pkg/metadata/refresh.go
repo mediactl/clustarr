@@ -124,7 +124,11 @@ func RefreshTTL(kind commonv1.MediaKind, state string, lastRefreshed time.Time) 
 //	   genres so they fill Plex's categories, and a Movie and a Series
 //	   their TMDB keywords (keywords), which cluster-plex writes into
 //	   Plex as Labels (2026-10-27).
-const SchemaVersion int32 = 7
+//	8: a Series' posters, backgrounds, banners and season images rank by
+//	   TheTVDB's score instead of leading with the record's own image
+//	   (2026-10-28): Cautious Hero's, a title card TheTVDB never scored,
+//	   was its poster in Plex beside three scored key arts.
+const SchemaVersion int32 = 8
 
 // RefreshPurpose is the events.MsgIDForObject purpose of an item's metadata
 // task. The refresh an outdated document asks for has one of its own, per

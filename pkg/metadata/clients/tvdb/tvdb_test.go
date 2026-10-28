@@ -367,6 +367,74 @@ func TestSeriesMapsItsImageAndArtworksIntoImages(t *testing.T) {
 	}, s.Images, "an artwork of an unknown type is left out")
 }
 
+// A series' posters, and a season's, rank by TheTVDB's score, the titles'
+// language and then no language breaking a tie, and the record's own image
+// is one candidate among them. Cautious Hero's own image is a title card on
+// black TheTVDB never scored, beside three scored key arts, and taking it
+// first put the card in Plex (owner, 2026-10-28). The series' scores and
+// languages are the live record's (369048); the season's are made up.
+func TestPostersRankByTheirScore(t *testing.T) {
+	login, _ := os.ReadFile("../../../../test/data/metadata/tvdb/login.json")
+	recorded, err := os.ReadFile("../../../../test/data/metadata/tvdb/series_121361.json")
+	require.NoError(t, err)
+	var doc map[string]any
+	require.NoError(t, json.Unmarshal(recorded, &doc))
+	data, ok := doc["data"].(map[string]any)
+	require.True(t, ok)
+	const posters = "https://artworks.thetvdb.com/banners/v4/series/369048/posters/"
+	data["originalLanguage"] = "jpn"
+	data["image"] = posters + "64340795c00c9.jpg"
+	data["seasons"] = []map[string]any{
+		{"id": 5001, "number": 1, "image": posters + "season1-list.jpg", "type": map[string]any{"type": "official"}},
+	}
+	data["artworks"] = []map[string]any{
+		{"type": 2, "image": posters + "5d9690ac499c5.jpg", "language": "jpn", "score": 100001},
+		{"type": 2, "image": posters + "647f8420a054b.jpg", "language": nil, "score": 100001},
+		{"type": 2, "image": posters + "606ed3d8d5651.jpg", "language": nil, "score": 100000},
+		{"type": 2, "image": posters + "64340795c00c9.jpg", "language": "eng", "score": 0},
+		{"type": 2, "image": posters + "5fca4c9bda4db.jpg", "language": "eng", "score": 0},
+		{"type": 7, "image": posters + "season1-list.jpg", "seasonId": 5001, "language": "eng", "score": 0},
+		{"type": 7, "image": posters + "season1-voted.jpg", "seasonId": 5001, "language": "jpn", "score": 100004},
+	}
+	body, err := json.Marshal(doc)
+	require.NoError(t, err)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/login":
+			_, _ = w.Write(login)
+		case "/series/121361/extended":
+			_, _ = w.Write(body)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	c := tvdb.New("test-key", "test-pin", srv.Client(), srv.URL, metadata.NewLimiter(rate.Inf, 1))
+
+	s, err := c.Series(context.Background(), "121361")
+	require.NoError(t, err)
+	var series, season []string
+	for _, img := range s.Images {
+		if img.Type != metadata.ImageTypePoster {
+			continue
+		}
+		if img.Season == nil {
+			series = append(series, img.URL)
+		} else {
+			season = append(season, img.URL)
+		}
+	}
+	require.Equal(t, []string{
+		posters + "647f8420a054b.jpg", // 100001 and no language, ahead of the original's
+		posters + "5d9690ac499c5.jpg",
+		posters + "606ed3d8d5651.jpg",
+		posters + "64340795c00c9.jpg", // the series' own image, never scored
+		posters + "5fca4c9bda4db.jpg",
+	}, series)
+	require.Equal(t, []string{posters + "season1-voted.jpg", posters + "season1-list.jpg"}, season,
+		"a season's scored poster leads its never-scored list poster")
+}
+
 // TestSeriesMapsItsAliasesIntoAlternateTitles: TheTVDB's aliases become the
 // series' AlternateTitles, each with its language normalised to BCP 47 as
 // OriginalLanguage is, the series' own name and a case-only repeat dropped
