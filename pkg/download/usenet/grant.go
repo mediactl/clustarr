@@ -189,6 +189,7 @@ func (j *job) takeGrant(ctx context.Context, candidates []string, suffix string,
 				j.status = download.StatusDownloading
 			}
 			j.message = fmt.Sprintf("transferring on %s (%d connections)", g.Server, g.Connections)
+			j.grantMessage = j.message
 			j.mu.Unlock()
 			if parked {
 				log.InfoContext(ctx, "usenet: connections granted after a wait", "download", j.id, "server", g.Server, "connections", g.Connections)
@@ -283,6 +284,20 @@ func (j *job) giveGrant(ctx context.Context) {
 		return
 	}
 	j.give(context.WithoutCancel(ctx), *g)
+}
+
+// clearGrantMessage drops the message the last grant set, once the transfer
+// is over and no grant stands behind it, and leaves any message that has
+// replaced it since (a health pause, a provider wait). Left standing, a
+// chase's "transferring on frugal (1 connections)" read through
+// post-processing and hid its stage's own message (talos, 2026-10-28).
+func (j *job) clearGrantMessage() {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if j.message != "" && j.message == j.grantMessage {
+		j.message = ""
+	}
+	j.grantMessage = ""
 }
 
 // give returns g to the ledger. A give that fails is logged: the grant

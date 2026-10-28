@@ -231,3 +231,19 @@ func TestALostGrantIsRetaken(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, commonv1.DownloadStageDone, it.Stage)
 }
+
+// The message a connection grant sets goes when the transfer does. A chase's
+// "transferring on frugal (1 connections)" read through publishing on talos
+// (2026-10-28) and hid the stage's own message.
+func TestAFinishedTransferNoLongerReadsItsGrant(t *testing.T) {
+	srv := newStubServer(t)
+	nzb := buildNZB(t, srv, "Done", []fileSpec{{name: "done.mkv", parts: manyParts(1, 4, 300)}})
+	c, _, _ := newTestClient(t, Config{Providers: []Provider{srv.provider("solo", 4, 1)}})
+	ctx := context.Background()
+
+	id, err := c.Add(ctx, download.AddRequest{Name: "Done", Payload: nzb})
+	require.NoError(t, err)
+	it := waitForTerminal(t, c, id)
+	require.Equal(t, download.StatusCompleted, it.Status)
+	require.NotContains(t, it.Message, "transferring on", "the grant's message went with the transfer")
+}

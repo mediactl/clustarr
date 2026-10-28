@@ -540,11 +540,14 @@ type job struct {
 	// stalls the fetch workers.
 	checkpointMu sync.Mutex
 
-	mu           sync.Mutex
-	status       download.Status
-	stage        commonv1alpha1.DownloadStage
-	reason       commonv1alpha1.DownloadFailureReason
-	message      string
+	mu      sync.Mutex
+	status  download.Status
+	stage   commonv1alpha1.DownloadStage
+	reason  commonv1alpha1.DownloadFailureReason
+	message string
+	// grantMessage is the message a connection grant last set, cleared
+	// with it when the transfer ends (clearGrantMessage).
+	grantMessage string
 	outputPath   string
 	downloaded   int64
 	lastProgress time.Time
@@ -1047,6 +1050,7 @@ func (j *job) run(ctx context.Context) {
 		}
 	}
 
+	j.clearGrantMessage()
 	release, err := j.waitToPostProcess(ctx)
 	if err != nil {
 		j.abort(ctx, err)
