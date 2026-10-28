@@ -171,6 +171,14 @@ type Options struct {
 	// detail page.
 	Artwork events.ObjectStore
 
+	// LiveTV is the clustarr-livetv object store the Live TV pages read the
+	// tuner's objects from (the direct-tuners and ui design §5.1): each
+	// provider's playlist, its guide's channels, its guide index and the
+	// processed channel logos (pkg/iptv/livetvstore), bound in cmd/ui like
+	// Artwork and read through Info and Get alone. A nil LiveTV is legal:
+	// the pages say what is not fetched yet and logos show as numbers.
+	LiveTV events.ObjectStore
+
 	// ArtCacheBytes bounds the digest-keyed byte cache /art serves from
 	// (artwork design §B.8 as amended 2026-10-07); 0 disables it. cmd/ui's
 	// --art-cache-bytes sets it, DefaultArtCacheBytes by default.
@@ -433,6 +441,12 @@ type Server struct {
 	// artEvents turns artIndex's changes into SSE art events; nil without
 	// Artwork.
 	artEvents *artEvents
+
+	// liveTV reads Options.LiveTV's objects for the Live TV pages.
+	liveTV *liveTVStore
+
+	// now is the clock the Live TV pages read; time.Now outside tests.
+	now func() time.Time
 }
 
 // DefaultArtCacheBytes is --art-cache-bytes' default: 64 MiB of artwork kept
@@ -502,6 +516,7 @@ func NewServer(ctx context.Context, opts Options) *Server {
 	s := &Server{
 		opts: opts, plexIndex: projection.NewIndexMemo(opts.Reader), searchArt: newSearchArt(opts.ArtSigningKey),
 		addSearchTimeout: defaultAddSearchTimeout, artCache: newArtCache(opts.ArtCacheBytes),
+		liveTV: newLiveTVStore(opts.LiveTV), now: time.Now,
 	}
 	if opts.Artwork != nil {
 		// One read-only watch per process (artwork design §B.8 as amended

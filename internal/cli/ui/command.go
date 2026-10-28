@@ -140,6 +140,7 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 			Actions:              acts,
 			Namespace:            namespace,
 			Artwork:              b.artwork,
+			LiveTV:               b.liveTV,
 			ArtCacheBytes:        artCacheBytes,
 			MetadataSearch:       b.search,
 			PlexExtended:         b.extended,

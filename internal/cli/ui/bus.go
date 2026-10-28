@@ -170,6 +170,7 @@ func buildBus(ctx context.Context, natsURL string) uiBus {
 	}
 	return uiBus{
 		artwork:   bus.ObjectStore(events.BucketArtwork),
+		liveTV:    bus.ObjectStore(events.BucketLiveTV),
 		search:    search,
 		extended:  extendedRead,
 		extras:    extras,
@@ -224,10 +225,13 @@ const busReadTimeout = 2 * time.Second
 const plexExtrasTimeout = 30 * time.Second
 
 // uiBus is what buildBus binds over ui's own bus connection: the artwork
-// store and closures, each a read or one request, so ui never holds
-// a handle it could write through or ask anything else with.
+// and Live TV stores and closures, each a read or one request, so ui never
+// holds a handle it could write through or ask anything else with.
 type uiBus struct {
-	artwork  events.ObjectStore
+	artwork events.ObjectStore
+	// liveTV is the clustarr-livetv store the Live TV pages read the
+	// tuner's objects from.
+	liveTV   events.ObjectStore
 	search   ui.MetadataSearch
 	extended func(ctx context.Context, kind commonv1.MediaKind, uid types.UID) (extended.Doc, bool, error)
 	// extras asks the metadata gateway for a Plex id's extras

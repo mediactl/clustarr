@@ -19,6 +19,9 @@ package ui
 
 import "time"
 
+// SetNowForTest sets the clock the Live TV pages read.
+func SetNowForTest(s *Server, now func() time.Time) { s.now = now }
+
 // SetAddSearchTimeoutForTest shortens Add New's search deadline so a test
 // of the "not responding" answer does not wait the real 10 s.
 func SetAddSearchTimeoutForTest(s *Server, d time.Duration) { s.addSearchTimeout = d }

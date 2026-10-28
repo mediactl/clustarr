@@ -118,6 +118,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /settings/subtitleproviders/{namespace}/{name}", s.handleSetSubtitleProviderSettings)
 	mux.HandleFunc("POST /settings/subtitleprofiles/{name}", s.handleSetSubtitleProfileDefault)
 	mux.HandleFunc("POST /settings/transcodeprofiles/{name}", s.handleSetTranscodeProfilePriority)
+	mux.HandleFunc("GET /livetv/logo/{namespace}/{name}/{hash}", s.handleLiveTVLogo)
 	mux.HandleFunc("GET /{$}", s.handleIndex)
 
 	if s.opts.Plex != nil {
