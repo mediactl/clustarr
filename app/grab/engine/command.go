@@ -20,6 +20,7 @@ package engine
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -41,6 +42,10 @@ const (
 	// notReadyRetry is a command that arrived before the re-attach report.
 	notReadyRetry = 10 * time.Second
 )
+
+// deferralFloor is the shortest wait a deferred payload takes: applyRetry,
+// lowered by a test.
+var deferralFloor = applyRetry
 
 // applyRetryAfter is the retry of a command the engine could not apply at
 // attempt: applyRetry doubling each attempt up to maxApplyRetry. The broker
@@ -78,7 +83,49 @@ type Handler struct {
 	locks map[string]*sync.Mutex
 	// newest is the highest seq seen per entry uid (superseded).
 	newest map[string]int64
+	// deferred is each entry's pending retry of a deferred payload.
+	deferred map[string]*time.Timer
 }
+
+// deferApply asks for cmd's payload again after wait, in place of a nak
+// (Handle's deferral): one timer per entry, a later deferral replacing it.
+func (h *Handler) deferApply(cmd schema.EngineCommand, wait time.Duration) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.deferred == nil {
+		h.deferred = map[string]*time.Timer{}
+	}
+	if t := h.deferred[cmd.Entry.UID]; t != nil {
+		t.Stop()
+	}
+	h.deferred[cmd.Entry.UID] = time.AfterFunc(wait, func() { h.retryDeferred(cmd) })
+}
+
+// retryDeferred applies a deferred command again, unless a newer command for
+// its entry arrived meanwhile (superseded's rule). A failure the bus would
+// have retried is retried here after the wait it names.
+func (h *Handler) retryDeferred(cmd schema.EngineCommand) {
+	h.mu.Lock()
+	delete(h.deferred, cmd.Entry.UID)
+	newer := cmd.Seq < h.newest[cmd.Entry.UID]
+	h.mu.Unlock()
+	if newer {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), deferredApplyTimeout)
+	defer cancel()
+	log := logging.FromContext(ctx).With("engine", h.Engine)
+	var retry *events.RetryError
+	if err := h.handle(ctx, log, cmd, 1); errors.As(err, &retry) {
+		h.deferApply(cmd, retry.After)
+	} else if err != nil {
+		log.WarnContext(ctx, "engine: a deferred command failed", "entry", cmd.Entry.ID, "seq", cmd.Seq, "error", err)
+	}
+}
+
+// deferredApplyTimeout bounds a deferred command's retry, a payload fetch
+// included.
+const deferredApplyTimeout = 5 * time.Minute
 
 // superseded reports whether a command for cmd's entry at a higher seq has
 // been seen, and records cmd's seq otherwise. The manager republishes an owed
@@ -136,6 +183,12 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 	if err := schema.Decode(env.Schema, env.Data, &cmd); err != nil {
 		return events.Discard("engine: malformed EngineCommand", err)
 	}
+	return h.handle(ctx, log, cmd, m.Attempt())
+}
+
+// handle applies cmd at its delivery's attempt (Handle's rules), from a
+// delivery or from a deferred payload's own retry.
+func (h *Handler) handle(ctx context.Context, log *slog.Logger, cmd schema.EngineCommand, attempt uint64) error {
 	if !h.Reporter.Ready() {
 		return events.Retry(notReadyRetry, errors.New("engine: the re-attach report is not complete"))
 	}
@@ -215,18 +268,22 @@ func (h *Handler) Handle(ctx context.Context, m events.Message) error {
 		// find, and the usenet client's ByName, before it asks again.
 		log.WarnContext(ctx, "engine: the payload RPC timed out; re-reading before asking again",
 			"entry", cmd.Entry.ID, "seq", cmd.Seq, "error", err)
-		return events.Retry(downloadTimeoutRetryAfter(m.Attempt()), err)
+		return events.Retry(downloadTimeoutRetryAfter(attempt), err)
 	case errors.As(err, &deferred):
-		// The indexer named when it will serve the payload: wait for that,
-		// within the ordinary schedule's bounds.
-		wait := min(max(time.Until(deferred.Until), applyRetry), maxApplyRetry)
+		// The indexer named when it will serve the payload: the engine asks
+		// again then, itself, and acks the delivery -- a nak would hold one of
+		// the durable's MaxAckPending slots until then, and enough deferrals
+		// held every slot (2026-10-28). A restart forgets the timer; the
+		// manager's re-issue at a new seq brings the command back.
+		wait := min(max(time.Until(deferred.Until), deferralFloor), maxApplyRetry)
 		log.WarnContext(ctx, "engine: the payload is deferred by the indexer", "entry", cmd.Entry.ID, "seq", cmd.Seq,
 			"until", deferred.Until, "error", err)
-		return events.Retry(wait, err)
+		h.deferApply(cmd, wait)
+		return nil
 	case err != nil:
 		log.WarnContext(ctx, "engine: cannot apply the command yet", "entry", cmd.Entry.ID, "seq", cmd.Seq,
-			"attempt", m.Attempt(), "error", err)
-		return events.Retry(applyRetryAfter(m.Attempt()), err)
+			"attempt", attempt, "error", err)
+		return events.Retry(applyRetryAfter(attempt), err)
 	}
 	if err := h.Reporter.WriteHeld(ctx, after, true); err != nil {
 		return events.Retry(notReadyRetry, err)

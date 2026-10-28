@@ -439,19 +439,50 @@ func failNextApply(hs *harness, err error) {
 // A payload the indexer deferred (its grab limit, or a 429 it answered) is
 // asked for again at the time the indexer named, not on the generic
 // doubling schedule: the engine's retries were spending nzb-life's allowance
-// as fast as it came back (2026-10-16).
-func TestADeferredPayloadRetriesAtTheIndexersRetryAt(t *testing.T) {
+// as fast as it came back (2026-10-16). Its delivery is acked meanwhile and
+// the engine asks again itself: a nak held one of the durable's
+// MaxAckPending (256) slots until then, and on 2026-10-28 grabs deferred by
+// nzb-life's grab limit held all 256, so the engine took no other command --
+// no nzbgeek grab and no removal -- for hours.
+func TestADeferredPayloadIsAckedAndAskedForAgainAtTheIndexersRetryAt(t *testing.T) {
+	restore := engine.SetDeferralFloor(10 * time.Millisecond)
+	defer restore()
 	ctx := context.Background()
 	hs := newHarness(t)
 	hs.start(t)
 	cmd := command(entryID, entryUID, 41, schema.EngineDesiredPresent)
 
-	until := time.Now().Add(20 * time.Minute)
 	hs.src.mu.Lock()
-	hs.src.applyErr = engine.PayloadDeferred(until, errors.New("index: grab limit reached for media/tr"))
+	hs.src.applyErr = engine.PayloadDeferred(time.Now().Add(50*time.Millisecond), errors.New("index: grab limit reached for media/tr"))
 	hs.src.mu.Unlock()
-	err := hs.h.Handle(ctx, delivery(t, cmd))
-	var retry *events.RetryError
-	require.ErrorAs(t, err, &retry)
-	assert.InDelta(t, float64(20*time.Minute), float64(retry.After), float64(time.Minute), "the retry lands at the indexer's retry time")
+	require.NoError(t, hs.h.Handle(ctx, delivery(t, cmd)), "acked: a deferral holds no delivery slot")
+	require.Len(t, applies(hs.src.Calls()), 1)
+
+	require.Eventually(t, func() bool { return len(applies(hs.src.Calls())) == 2 }, 5*time.Second, 5*time.Millisecond,
+		"asked for again once the indexer's retry time passed")
+	assert.Equal(t, "apply present seq=41 cur=", applies(hs.src.Calls())[1])
+}
+
+// A newer command for the entry supersedes a deferred one: its retry is
+// dropped, never applied over the newer state.
+func TestANewerCommandSupersedesADeferredOne(t *testing.T) {
+	restore := engine.SetDeferralFloor(10 * time.Millisecond)
+	defer restore()
+	ctx := context.Background()
+	hs := newHarness(t)
+	hs.start(t)
+
+	hs.src.mu.Lock()
+	hs.src.applyErr = engine.PayloadDeferred(time.Now().Add(100*time.Millisecond), errors.New("index: grab limit reached for media/tr"))
+	hs.src.mu.Unlock()
+	require.NoError(t, hs.h.Handle(ctx, delivery(t, command(entryID, entryUID, 41, schema.EngineDesiredPresent))))
+	require.NoError(t, hs.h.Handle(ctx, delivery(t, command(entryID, entryUID, 42, schema.EngineDesiredAbsent))))
+	time.Sleep(300 * time.Millisecond)
+	n := 0
+	for _, c := range applies(hs.src.Calls()) {
+		if strings.Contains(c, "seq=41") {
+			n++
+		}
+	}
+	assert.Equal(t, 1, n, "seq 41 is applied once, when it was deferred, and never retried after 42")
 }
