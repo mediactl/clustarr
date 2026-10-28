@@ -18,6 +18,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package k8s
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"regexp"
 	"slices"
 	"testing"
@@ -32,7 +35,7 @@ func TestFieldManagersAreTheOnesTheSpecLists(t *testing.T) {
 	want := []string{
 		"catalog", "catalog-series", "catalog-worker",
 		"catalog-metadata", "catalog-grab", "catalog-fanout",
-		"catalog-artwork", "catalog-classify",
+		"catalog-artwork", "catalog-classify", "catalog-imageset",
 		"import", "import-worker",
 		"index", "index-worker",
 		"grab",
@@ -138,5 +141,41 @@ func TestFieldManagerValuesAreUnbranded(t *testing.T) {
 		if brandRE.MatchString(m.String()) {
 			t.Errorf("field manager %q names a retired brand (Wave U §2.5)", m)
 		}
+	}
+}
+
+// TestEveryDeclaredFieldManagerIsListed: a manager declared in
+// fieldmanager.go but missing from FieldManagers fails Validate at its first
+// write. catalog-imageset was (2026-10-22 to 2026-10-28): the image-set
+// stage's every status apply failed "is not a field manager listed in the
+// design spec", unseen until a mediux provider existed on talos.
+func TestEveryDeclaredFieldManagerIsListed(t *testing.T) {
+	f, err := parser.ParseFile(token.NewFileSet(), "fieldmanager.go", nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, d := range f.Decls {
+		g, ok := d.(*ast.GenDecl)
+		if !ok || g.Tok != token.CONST {
+			continue
+		}
+		for _, spec := range g.Specs {
+			vs := spec.(*ast.ValueSpec)
+			if id, ok := vs.Type.(*ast.Ident); !ok || id.Name != "FieldManager" {
+				continue
+			}
+			for i, name := range vs.Names {
+				lit := vs.Values[i].(*ast.BasicLit)
+				m := FieldManager(lit.Value[1 : len(lit.Value)-1])
+				n++
+				if !m.Valid() {
+					t.Errorf("%s (%q) is declared but not in FieldManagers: every write under it fails", name.Name, m)
+				}
+			}
+		}
+	}
+	if n < len(FieldManagers()) {
+		t.Errorf("found %d declared managers, fewer than the %d listed: the parse missed some", n, len(FieldManagers()))
 	}
 }

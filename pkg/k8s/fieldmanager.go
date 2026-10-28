@@ -325,6 +325,7 @@ func FieldManagers() []FieldManager {
 		ManagerCatalogFanout,
 		ManagerCatalogArtwork,
 		ManagerCatalogClassify,
+		ManagerCatalogImageSet,
 		ManagerImport,
 		ManagerImportWorker,
 		ManagerIndex,
