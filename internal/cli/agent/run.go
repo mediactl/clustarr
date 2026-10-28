@@ -87,7 +87,8 @@ func Run(ctx context.Context, o Options) error {
 	mgr := k8s.AgentManager(built)
 
 	// 6. The bus.
-	raw, nc, err := busconn.Connect(o.NATSURL, "agent-"+o.Domain, busconn.WithHooks(obs.BusHooks()))
+	raw, nc, err := busconn.Connect(o.NATSURL, "agent-"+o.Domain, busconn.WithHooks(obs.BusHooks()),
+		busconn.WithLogger(logging.FromContext(ctx)))
 	if err != nil {
 		return err
 	}

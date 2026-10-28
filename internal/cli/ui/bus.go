@@ -33,6 +33,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/metadata/extended"
 	"github.com/mediactl/clustarr/pkg/obs"
+	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/ui"
 	"github.com/mediactl/clustarr/ui/projection"
 )
@@ -70,7 +71,8 @@ import (
 // rather than left to the process exit. It is never nil.
 func buildBus(ctx context.Context, natsURL string) uiBus {
 	logger := log.FromContext(ctx).WithName("ui")
-	bus, nc, err := busconn.Connect(natsURL, "ui", busconn.WithHooks(obs.BusHooks()))
+	bus, nc, err := busconn.Connect(natsURL, "ui", busconn.WithHooks(obs.BusHooks()),
+		busconn.WithLogger(logging.FromContext(ctx)))
 	if err != nil {
 		logger.Error(err, "connect ui to NATS; ui will serve placeholder art and no metadata search")
 		return uiBus{close: func() {}}

@@ -60,6 +60,12 @@ func TestEveryBusConnectionCarriesTraceHooks(t *testing.T) {
 				assert.True(t, hasCall(call.Args, busconnAlias, "WithHooks", func(c *ast.CallExpr) bool {
 					return hasCall(c.Args, obsAlias, "BusHooks", nil)
 				}), "%s: busconn.Connect without busconn.WithHooks(obs.BusHooks()): this process publishes and consumes with no trace propagation, silently", p)
+				// A Serve handler logs through its context, which carries
+				// only the logger the bus was given: without one an RPC's
+				// every line is discarded (the index agent's, talos
+				// 2026-10-28).
+				assert.True(t, hasCall(call.Args, busconnAlias, "WithLogger", nil),
+					"%s: busconn.Connect without busconn.WithLogger: every RPC handler of this process logs to nowhere", p)
 			case natsbusAlias != "" && isSelector(call.Fun, natsbusAlias, "New") && !strings.HasPrefix(p, "pkg/busconn/"):
 				news++
 				assert.True(t, hasCall(call.Args, natsbusAlias, "WithHooks", func(c *ast.CallExpr) bool {

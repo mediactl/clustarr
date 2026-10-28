@@ -106,7 +106,8 @@ func Run(ctx context.Context, o Options) error {
 	}
 
 	// 5. The bus.
-	bus, nc, err := busconn.Connect(o.NATSURL, "manager", busconn.WithHooks(obs.BusHooks()))
+	bus, nc, err := busconn.Connect(o.NATSURL, "manager", busconn.WithHooks(obs.BusHooks()),
+		busconn.WithLogger(logging.FromContext(ctx)))
 	if err != nil {
 		return err
 	}

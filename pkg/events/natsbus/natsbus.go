@@ -103,7 +103,10 @@ func WithServeLimits(l events.ServeLimits) Option {
 }
 
 // WithLogger sets the logger the connection's asynchronous errors are
-// reported on (asyncErrors). The default is slog.Default().
+// reported on (asyncErrors), slog.Default() by default, and the one every
+// Serve handler's context carries (logging.FromContext), none by default:
+// without it a responder's lines are discarded, which on talos (2026-10-28)
+// hid every refusal and 429 the index agent's download verb answered.
 func WithLogger(l *slog.Logger) Option {
 	return func(o *options) { o.log = l }
 }
@@ -187,7 +190,11 @@ func New(nc *nats.Conn, opts ...Option) (*Bus, error) {
 	if err != nil {
 		return nil, fmt.Errorf("natsbus: open jetstream: %w", err)
 	}
-	serveCtx, serveCancel := context.WithCancel(context.Background())
+	base := context.Background()
+	if o.log != nil {
+		base = logging.NewContext(base, o.log)
+	}
+	serveCtx, serveCancel := context.WithCancel(base)
 	b := &Bus{
 		serveCtx:     serveCtx,
 		serveCancel:  serveCancel,

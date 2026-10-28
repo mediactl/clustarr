@@ -25,6 +25,7 @@ package busconn
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -101,6 +102,11 @@ type Option = natsbus.Option
 // cmd/clustarr's TestEveryServicePassesBusHooks parses every service's run.go
 // and fails when a busconn.Connect call site omits them.
 func WithHooks(h events.Hooks) Option { return natsbus.WithHooks(h) }
+
+// WithLogger is the logger the bus reports its connection's asynchronous
+// errors on and every Serve handler's context carries; a process passes its
+// own, or its responders' lines are discarded (natsbus.WithLogger).
+func WithLogger(l *slog.Logger) Option { return natsbus.WithLogger(l) }
 
 // Connect dials NATS and wraps the connection in a JetStream bus.
 //
