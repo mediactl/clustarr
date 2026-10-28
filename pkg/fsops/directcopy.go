@@ -24,6 +24,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"unsafe"
 
@@ -48,6 +49,20 @@ import (
 // write before it returns, so a larger one carries fewer commits: the
 // Synology took 16 MB/s in 8 MiB writes and 28 MB/s in 64 MiB ones.
 var copyChunk = 64 << 20
+
+// copyWriters is how many chunks a direct copy has in flight, each written
+// at its own offset. One writer leaves the link idle while its write is
+// committed: on talos (2026-10-28, a 4 GiB copy from talos-88's NVMe onto
+// the Synology, the cluster's own traffic beside it) one writer ran at 36
+// MB/s, two at 47, four at 95 and eight at 54. Each writer holds a
+// copyChunk buffer.
+var copyWriters = 4
+
+// writeChunk writes one chunk at off; a variable so a test can fail it.
+var writeChunk = func(f *os.File, b []byte, off int64) error {
+	_, err := f.WriteAt(b, off)
+	return err
+}
 
 // syncEvery is how much a buffered copy writes between fsyncs.
 const syncEvery = 256 << 20
@@ -111,43 +126,12 @@ func copyFileStats(ctx context.Context, src, dst string) (copyStats, error) {
 		return fail(fmt.Errorf("fsops: chmod %s: %w", tmp, err))
 	}
 
-	buf := alignedBuffer(copyChunk)
-	direct := st.direct
-	var off, synced int64
-	for {
-		if err := ctx.Err(); err != nil {
-			return fail(err)
-		}
-		n, rerr := io.ReadFull(in, buf)
-		if n > 0 {
-			// O_DIRECT writes whole blocks on a local filesystem: a tail
-			// that is not one is written through the cache.
-			if direct && n%directAlign != 0 {
-				if err := setDirect(out, false); err != nil {
-					return fail(fmt.Errorf("fsops: write %s: %w", tmp, err))
-				}
-				direct = false
-			}
-			if _, err := out.Write(buf[:n]); err != nil {
-				return fail(fmt.Errorf("fsops: write %s: %w", tmp, err))
-			}
-			// The source's pages are clean and done with: drop them, so the
-			// copy holds no more of the pod's memory than its buffer.
-			_ = unix.Fadvise(int(in.Fd()), off, int64(n), unix.FADV_DONTNEED)
-			off += int64(n)
-			if !st.direct && off-synced >= syncEvery {
-				if err := out.Sync(); err != nil {
-					return fail(fmt.Errorf("fsops: fsync %s: %w", tmp, err))
-				}
-				synced = off
-			}
-		}
-		if errors.Is(rerr, io.EOF) || errors.Is(rerr, io.ErrUnexpectedEOF) {
-			break
-		}
-		if rerr != nil {
-			return fail(fmt.Errorf("fsops: read %s: %w", src, rerr))
-		}
+	body := copyBuffered
+	if st.direct {
+		body = copyDirect
+	}
+	if err := body(ctx, in, out, src, tmp); err != nil {
+		return fail(err)
 	}
 	if err := out.Sync(); err != nil {
 		return fail(fmt.Errorf("fsops: fsync %s: %w", tmp, err))
@@ -161,6 +145,141 @@ func copyFileStats(ctx context.Context, src, dst string) (copyStats, error) {
 		return st, fmt.Errorf("fsops: rename %s to %s: %w", tmp, dst, err)
 	}
 	return st, fsyncDir(filepath.Dir(dst))
+}
+
+// copyDirect writes in to out, opened with O_DIRECT, with up to copyWriters
+// chunks in flight: the reader fills a free buffer, a writer writes it at
+// its offset, and the buffer comes back. ctx is checked before each chunk.
+// A tail that is not a whole block waits for every write before it and goes
+// through the cache, because O_DIRECT is the descriptor's flag, which the
+// writers share.
+func copyDirect(ctx context.Context, in, out *os.File, src, tmp string) error {
+	type chunk struct {
+		buf []byte
+		n   int
+		off int64
+	}
+	var (
+		mu     sync.Mutex
+		failed error // the first write's failure
+	)
+	failure := func() error {
+		mu.Lock()
+		defer mu.Unlock()
+		return failed
+	}
+	writers := max(copyWriters, 1)
+	free := make(chan []byte, writers)
+	for range writers {
+		free <- alignedBuffer(copyChunk)
+	}
+	work := make(chan chunk)
+	var wg sync.WaitGroup
+	for range writers {
+		wg.Go(func() {
+			for c := range work {
+				if failure() == nil {
+					if err := writeChunk(out, c.buf[:c.n], c.off); err != nil {
+						mu.Lock()
+						if failed == nil {
+							failed = fmt.Errorf("fsops: write %s: %w", tmp, err)
+						}
+						mu.Unlock()
+					}
+				}
+				free <- c.buf
+			}
+		})
+	}
+	drained := false
+	drain := func() error {
+		if !drained {
+			close(work)
+			wg.Wait()
+			drained = true
+		}
+		return failure()
+	}
+	defer func() { _ = drain() }()
+
+	var off int64
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := failure(); err != nil {
+			return err
+		}
+		var buf []byte
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case buf = <-free:
+		}
+		n, rerr := io.ReadFull(in, buf)
+		if n > 0 {
+			// The source's pages are clean and done with: drop them, so the
+			// copy holds no more of the pod's memory than its buffers.
+			_ = unix.Fadvise(int(in.Fd()), off, int64(n), unix.FADV_DONTNEED)
+			if n%directAlign != 0 {
+				// O_DIRECT writes whole blocks on a local filesystem. Only
+				// the last read can be short, so this is the tail.
+				if err := drain(); err != nil {
+					return err
+				}
+				if err := setDirect(out, false); err != nil {
+					return fmt.Errorf("fsops: write %s: %w", tmp, err)
+				}
+				if err := writeChunk(out, buf[:n], off); err != nil {
+					return fmt.Errorf("fsops: write %s: %w", tmp, err)
+				}
+				return nil
+			}
+			work <- chunk{buf, n, off}
+			off += int64(n)
+		} else {
+			free <- buf
+		}
+		if errors.Is(rerr, io.EOF) || errors.Is(rerr, io.ErrUnexpectedEOF) {
+			return drain()
+		}
+		if rerr != nil {
+			return fmt.Errorf("fsops: read %s: %w", src, rerr)
+		}
+	}
+}
+
+// copyBuffered writes in to out through the page cache, for a filesystem
+// that refuses O_DIRECT, and fsyncs every syncEvery bytes so the writeback
+// it piles up stays bounded. ctx is checked before each chunk.
+func copyBuffered(ctx context.Context, in, out *os.File, src, tmp string) error {
+	buf := alignedBuffer(copyChunk)
+	var off, synced int64
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		n, rerr := io.ReadFull(in, buf)
+		if n > 0 {
+			if _, err := out.Write(buf[:n]); err != nil {
+				return fmt.Errorf("fsops: write %s: %w", tmp, err)
+			}
+			_ = unix.Fadvise(int(in.Fd()), off, int64(n), unix.FADV_DONTNEED)
+			off += int64(n)
+			if off-synced >= syncEvery {
+				if err := out.Sync(); err != nil {
+					return fmt.Errorf("fsops: fsync %s: %w", tmp, err)
+				}
+				synced = off
+			}
+		}
+		if errors.Is(rerr, io.EOF) || errors.Is(rerr, io.ErrUnexpectedEOF) {
+			return nil
+		}
+		if rerr != nil {
+			return fmt.Errorf("fsops: read %s: %w", src, rerr)
+		}
+	}
 }
 
 // alignedBuffer is n bytes starting on a directAlign boundary.

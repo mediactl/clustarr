@@ -21,10 +21,14 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"errors"
 	"os"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -74,6 +78,81 @@ func TestACopyIsExactAndWrittenWithODirect(t *testing.T) {
 		_, err = os.Stat(dst + ".partial")
 		assert.True(t, os.IsNotExist(err), "no .partial remains")
 	}
+}
+
+// A direct copy keeps copyWriters chunks in flight, each at its own offset,
+// so the link carries the next chunk while one is being committed: one write
+// at a time onto the Synology ran at 36 MB/s, four in flight at 95 (talos,
+// 2026-10-28). The first copyWriters writes each wait until all of
+// them have started, which they can only do concurrently; the copy is exact
+// across chunks and its unaligned tail.
+func TestADirectCopyKeepsSeveralChunksInFlight(t *testing.T) {
+	smallChunks(t)
+	oldWriters, oldWrite := copyWriters, writeChunk
+	copyWriters = 4
+	var mu sync.Mutex
+	started, maxInFlight, inFlight := 0, 0, 0
+	allStarted := make(chan struct{})
+	writeChunk = func(f *os.File, b []byte, off int64) error {
+		mu.Lock()
+		started++
+		inFlight++
+		maxInFlight = max(maxInFlight, inFlight)
+		if started == copyWriters {
+			close(allStarted)
+		}
+		first := started <= copyWriters
+		mu.Unlock()
+		if first {
+			select {
+			case <-allStarted:
+			case <-time.After(5 * time.Second):
+			}
+		}
+		err := oldWrite(f, b, off)
+		mu.Lock()
+		inFlight--
+		mu.Unlock()
+		return err
+	}
+	t.Cleanup(func() { copyWriters, writeChunk = oldWriters, oldWrite })
+
+	dir := t.TempDir()
+	src, dst := filepath.Join(dir, "src.mkv"), filepath.Join(dir, "dst.mkv")
+	want := randomFile(t, src, 9*(64<<10)+123)
+	st, err := copyFileStats(context.Background(), src, dst)
+	require.NoError(t, err)
+	assert.True(t, st.direct)
+	assert.Equal(t, 4, maxInFlight, "copyWriters chunks are written at once")
+	got, err := os.ReadFile(dst)
+	require.NoError(t, err)
+	assert.True(t, bytes.Equal(want, got), "copied exactly")
+}
+
+// A write that fails mid-copy fails the copy with its error, stops the
+// writes after it and leaves neither the partial nor the destination.
+func TestAFailedDirectWriteLeavesNoPartial(t *testing.T) {
+	smallChunks(t)
+	oldWrite := writeChunk
+	var calls atomic.Int32
+	writeChunk = func(f *os.File, b []byte, off int64) error {
+		if calls.Add(1) == 3 {
+			return errors.New("the NAS went away")
+		}
+		return oldWrite(f, b, off)
+	}
+	t.Cleanup(func() { writeChunk = oldWrite })
+
+	dir := t.TempDir()
+	src, dst := filepath.Join(dir, "src.mkv"), filepath.Join(dir, "dst.mkv")
+	randomFile(t, src, 12*(64<<10))
+	_, err := copyFileStats(context.Background(), src, dst)
+	require.ErrorContains(t, err, "the NAS went away")
+	assert.Less(t, int(calls.Load()), 12, "the writes after a failure are not made")
+	_, err = os.Stat(dst + ".partial")
+	assert.True(t, os.IsNotExist(err), "no .partial remains")
+	_, err = os.Stat(dst)
+	assert.True(t, os.IsNotExist(err), "no destination appears")
 }
 
 // A filesystem that refuses O_DIRECT gets a buffered copy that fsyncs as
