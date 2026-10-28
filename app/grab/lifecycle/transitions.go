@@ -164,6 +164,13 @@ func (d *decider) live(e *catalogv1alpha1.DownloadEntry, rec *schema.TransferRec
 		e.Phase = afterImport(e)
 	default:
 		e.Phase = phaseOfStage(rec.Stage, e.Phase)
+		if e.Phase == commonv1.DownloadPhaseDownloading && rec.WaitingTurn {
+			// Held for its turn -- a transfer or post-processing slot, a
+			// higher-priority transfer -- it is queued in the engine, not
+			// moving: on talos (2026-10-28) 590 such entries read
+			// Downloading beside the five that were.
+			e.Phase = commonv1.DownloadPhaseQueued
+		}
 	}
 
 	switch e.Phase {

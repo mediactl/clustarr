@@ -432,6 +432,37 @@ func TestEveryRowOfTheStateMachine(t *testing.T) {
 			assert.Empty(t, p.Blocks, "a transfer queued for a slot is the engine's wait, not the release's")
 		},
 	}, {
+		// The engine holds most of its jobs for a transfer slot: on talos
+		// (2026-10-28) 590 of them read Downloading beside the five that
+		// moved bytes, and the dashboard's "Running downloads" listed queued
+		// ones with no progress.
+		name: "usenet transferring and waiting its turn -> Queued",
+		view: func() lifecycle.View {
+			e := usenetEntry(commonv1.DownloadPhaseDownloading)
+			tr := record(e, seq0, commonv1.DownloadStageTransferring)
+			tr.Record.WaitingTurn = true
+			v := view([]catalogv1alpha1.DownloadEntry{e}, tr)
+			steady(&v)
+			return v
+		},
+		check: func(t *testing.T, p lifecycle.Plan) {
+			require.Len(t, p.Entries, 1)
+			assert.Equal(t, commonv1.DownloadPhaseQueued, p.Entries[0].Phase)
+		},
+	}, {
+		name: "usenet Queued whose turn came -> Downloading",
+		view: func() lifecycle.View {
+			e := usenetEntry(commonv1.DownloadPhaseQueued)
+			tr := record(e, seq0, commonv1.DownloadStageTransferring)
+			v := view([]catalogv1alpha1.DownloadEntry{e}, tr)
+			steady(&v)
+			return v
+		},
+		check: func(t *testing.T, p lifecycle.Plan) {
+			require.Len(t, p.Entries, 1)
+			assert.Equal(t, commonv1.DownloadPhaseDownloading, p.Entries[0].Phase)
+		},
+	}, {
 		name: "healthPaused with healthAction delete -> Blocklisted missingArticles",
 		view: func() lifecycle.View {
 			e := usenetEntry(commonv1.DownloadPhaseDownloading)

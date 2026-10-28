@@ -1992,8 +1992,10 @@ too; bump the tag in go.mod and go.sum to take a new fork release.
   one loop fills free slots on a change, never a poll (2026-10-28: about
   720 queued jobs each walking every job under the client lock at every
   wake held the engine's commands, removes among them, for minutes). Such a wait is `Item.WaitingTurn`
-  (`TransferRecord.waitingTurn`), which stops the manager's stall clock,
-  and `lastProgressAt` restarts when the turn comes -- a queue is not a
+  (`TransferRecord.waitingTurn`), which stops the manager's stall clock
+  and reads as the entry's phase Queued, not Downloading (2026-10-28: 590
+  waiting entries read Downloading beside the five transferring), and
+  `lastProgressAt` restarts when the turn comes -- a queue is not a
   stall. The engine serves pprof on `127.0.0.1:6060`
   (`downloadclient.EnginePprofAddress`), reached through
   `kubectl port-forward`.
