@@ -61,6 +61,13 @@ const (
 	RecordsTTL = 7 * 24 * time.Hour
 	// RecordsMinTTL is the shortest TTL Validate accepts on a records bucket.
 	RecordsMinTTL = 7 * 24 * time.Hour
+	// SearchesTTL retires a search answer half an hour after its write, the
+	// one records bucket allowed under RecordsMinTTL: the grab planner takes
+	// a search's candidates for grabplan.CandidateWindow (30 minutes) and a
+	// Search times out after five, so nothing reads an answer later, and a
+	// week of answers filled clustarr-searches (owner, 2026-10-28: 2,048
+	// records, 128 MiB, every new answer refused and every search timed out).
+	SearchesTTL = 30 * time.Minute
 )
 
 // The records buckets ADR-0019 adds (design §4.3): one writer per key, the
@@ -115,6 +122,12 @@ func recordBucket(name, desc string, maxBytes int64, maxValue int32) BucketSpec 
 	}
 }
 
+// withTTL is b retiring a record ttl after its last write.
+func withTTL(b BucketSpec, ttl time.Duration) BucketSpec {
+	b.TTL = ttl
+	return b
+}
+
 // agentRecordBuckets are ADR-0019's six agent-written records buckets.
 func agentRecordBuckets() []BucketSpec {
 	r := recordBucket
@@ -122,7 +135,7 @@ func agentRecordBuckets() []BucketSpec {
 		r(BucketTransfers, "One transfer record per grab entry, written by the engine holding it.", TransfersMaxBytes, TransfersMaxValueSize),
 		r(BucketEngines, "One engine record per DownloadClient instance, written by that engine pod.", EnginesMaxBytes, EnginesMaxValueSize),
 		r(BucketImports, "One inspect and one execute record per grab entry, written by the import agent.", ImportsMaxBytes, ImportsMaxValueSize),
-		r(BucketSearches, "One search record per search task, written by the search agent.", SearchesMaxBytes, SearchesMaxValueSize),
+		withTTL(r(BucketSearches, "One search record per search task, written by the search agent.", SearchesMaxBytes, SearchesMaxValueSize), SearchesTTL),
 		r(BucketItemMetadata, "One metadata record per catalog item, written by the metadata gateway.", ItemMetadataMaxBytes, ItemMetadataMaxValueSize),
 		r(BucketIndexerHealth, "One health record per Indexer, written by the index agent.", IndexerHealthMaxBytes, IndexerHealthMaxValueSize),
 		r(BucketImageSets, "One image-set record per Movie or Series, written by the metadata agent's image-set worker.", ImageSetsMaxBytes, ImageSetsMaxValueSize),

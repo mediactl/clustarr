@@ -43,7 +43,7 @@ func TestAgentRecordBucketsAreDurableHistoryOneAndBounded(t *testing.T) {
 		events.BucketTransfers:     {week, 256 * events.MiB, 512 * events.KiB},
 		events.BucketEngines:       {week, 8 * events.MiB, 16 * events.KiB},
 		events.BucketImports:       {week, 128 * events.MiB, 512 * events.KiB},
-		events.BucketSearches:      {week, 128 * events.MiB, 512 * events.KiB},
+		events.BucketSearches:      {events.SearchesTTL, 128 * events.MiB, 512 * events.KiB},
 		events.BucketItemMetadata:  {week, 512 * events.MiB, 512 * events.KiB},
 		events.BucketIndexerHealth: {week, 8 * events.MiB, 8 * events.KiB},
 	}

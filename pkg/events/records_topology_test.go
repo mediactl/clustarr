@@ -143,6 +143,23 @@ func TestValidateHoldsEveryRecordsBucketToTheRule(t *testing.T) {
 	require.NoError(t, top.Validate(), "the rule binds records buckets only")
 }
 
+// A search answer lives half an hour (owner, 2026-10-28): a week of them
+// filled clustarr-searches at 2,048 records and refused every new answer.
+// Only that bucket may keep a record under a week.
+func TestOnlyTheSearchesBucketKeepsARecordUnderAWeek(t *testing.T) {
+	assert.Equal(t, 30*time.Minute, events.SearchesTTL)
+	top := events.Default()
+	require.NoError(t, top.Validate())
+	for i := range top.Buckets {
+		if top.Buckets[i].Name == events.BucketTranscodes {
+			top.Buckets[i].TTL = events.SearchesTTL
+		}
+	}
+	err := top.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), events.BucketTranscodes+".TTL")
+}
+
 // Topology.Retired names a durable a release removed, on a stream that stays.
 // Default() retires nothing (the cold cutover's runbook deletes the old
 // durables), but Ensure still deletes and purges whatever a release names, so

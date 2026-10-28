@@ -286,7 +286,8 @@ type BucketSpec struct {
 	// Records marks a records bucket (loop spec 2026-10-06 §4.3): one
 	// compare-and-swap record per MediaFile UID, every write through
 	// pkg/records. Validate holds it to Durable, History 1, MaxBytes and
-	// MaxValueSize set, and a TTL of 0 or at least RecordsMinTTL.
+	// MaxValueSize set, and a TTL of 0 or at least RecordsMinTTL
+	// (SearchesTTL for clustarr-searches).
 	Records bool
 	// MaxBytes bounds the bucket; 0 is unbounded. A KV stream discards new,
 	// so a full bucket refuses a write rather than evicting a live record.
@@ -587,6 +588,17 @@ func (t Topology) clone() Topology {
 //     and per value, and keeps a record at least 7 days or forever;
 //   - every retired durable names a stream in the topology, is no longer a
 //     consumer, and purges only that stream's subjects.
+//
+// recordsMinTTL is the shortest TTL a records bucket may keep a record:
+// RecordsMinTTL, but SearchesTTL for clustarr-searches, whose answers are
+// read for half an hour at most.
+func recordsMinTTL(bucket string) time.Duration {
+	if bucket == BucketSearches {
+		return SearchesTTL
+	}
+	return RecordsMinTTL
+}
+
 func (t Topology) Validate() error {
 	var errs []error
 	seen := map[string]StreamSpec{}
@@ -704,7 +716,7 @@ func (t Topology) Validate() error {
 			if b.MaxValueSize <= 0 {
 				errs = append(errs, fieldErr(b.Name+".MaxValueSize", "a records bucket must bound one value"))
 			}
-			if b.TTL != 0 && b.TTL < RecordsMinTTL {
+			if minTTL := recordsMinTTL(b.Name); b.TTL != 0 && b.TTL < minTTL {
 				errs = append(errs, fieldErr(b.Name+".TTL", "a records bucket keeps a record at least 7 days, longer than any request timeout"))
 			}
 			if b.TTL > 0 && b.LimitMarkerTTL <= 0 {

@@ -31,6 +31,7 @@ import (
 	"github.com/mediactl/clustarr/app/grab/lifecycle"
 	"github.com/mediactl/clustarr/app/intake"
 	"github.com/mediactl/clustarr/pkg/decision"
+	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/quality"
 )
@@ -493,4 +494,10 @@ func TestCompleteAudioIsGrabbedFirstUnderCompleteFirst(t *testing.T) {
 	}
 	require.Equal(t, []string{"Heat.1995.1080p.BluRay.DUAL.x264-DUALGRP"}, decide(true))
 	require.Equal(t, []string{"Heat.1995.1080p.BluRay.x265-JPONLY"}, decide(false), "without it the score decides")
+}
+
+// A search answer outlives the window the planner takes its candidates in:
+// clustarr-searches retires a record events.SearchesTTL after its write.
+func TestSearchRecordsOutliveTheCandidateWindow(t *testing.T) {
+	require.GreaterOrEqual(t, events.SearchesTTL, grabplan.CandidateWindow)
 }
