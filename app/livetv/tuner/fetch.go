@@ -31,6 +31,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -332,6 +333,13 @@ func (t *Tuner) withPanelFallback(ctx context.Context, p *provider, cfg Config, 
 		}, from, from.AddDate(0, 0, guideDays+1))
 		_ = body.Close()
 	}
+	if err == nil {
+		if fbWant == nil {
+			fbWant = fallbackWanted(wanted(fb.Channels, src), primary)
+		}
+		fb = cutGuide(fb, fbWant)
+		fb.Channels = t.liveIcons(ctx, fb.Channels, cfg.UserAgent)
+	}
 	p.mu.Lock()
 	if err != nil {
 		logging.FromContext(ctx).Warn("livetv: the panel's fallback guide failed; keeping its last good copy", "provider", label(p.key), "err", iptv.RedactError(err))
@@ -339,10 +347,6 @@ func (t *Tuner) withPanelFallback(ctx context.Context, p *provider, cfg Config, 
 			fb = *p.panel
 		}
 	} else {
-		if fbWant == nil {
-			fbWant = fallbackWanted(wanted(fb.Channels, src), primary)
-		}
-		fb = cutGuide(fb, fbWant)
 		p.panel = &fb
 	}
 	p.mu.Unlock()
@@ -355,6 +359,61 @@ func (t *Tuner) withPanelFallback(ctx context.Context, p *provider, cfg Config, 
 		all[id] = true
 	}
 	return merged, all
+}
+
+// iconProbeTime bounds one icon's check; iconProbeParallel is how many run
+// at once.
+const (
+	iconProbeTime     = 5 * time.Second
+	iconProbeParallel = 8
+)
+
+// liveIcons is chans with every icon that does not load blanked: the
+// panel's guide links its icons on three hosts, two of them dead
+// (2026-10-27: 103.176.90.95 and .118 time out or refuse; .154 serves), and
+// PMS shows a dead logo as none, where the playlist's logo would do. Only
+// the fallback's channels are checked, a dozen or so per fetch.
+func (t *Tuner) liveIcons(ctx context.Context, chans []xmltv.Channel, ua string) []xmltv.Channel {
+	out := slices.Clone(chans)
+	sem := make(chan struct{}, iconProbeParallel)
+	var wg sync.WaitGroup
+	for i := range out {
+		if out[i].Icon == "" {
+			continue
+		}
+		wg.Add(1)
+		go func(c *xmltv.Channel) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			if !t.iconLoads(ctx, c.Icon, ua) {
+				c.Icon = ""
+			}
+		}(&out[i])
+	}
+	wg.Wait()
+	return out
+}
+
+// iconLoads reports whether u answers an image within iconProbeTime.
+func (t *Tuner) iconLoads(ctx context.Context, u, ua string) bool {
+	ctx, cancel := context.WithTimeout(ctx, iconProbeTime)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return false
+	}
+	if ua != "" {
+		req.Header.Set("User-Agent", ua)
+	}
+	resp, err := t.o.Fetch.Do(req)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = resp.Body.Close() }()
+	head := make([]byte, 512)
+	n, _ := io.ReadFull(io.LimitReader(resp.Body, int64(len(head))), head)
+	return resp.StatusCode < 300 && strings.HasPrefix(http.DetectContentType(head[:n]), "image/")
 }
 
 // fallbackWanted is want without the channels primary already has

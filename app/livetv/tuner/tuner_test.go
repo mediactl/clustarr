@@ -63,6 +63,9 @@ type provider struct {
 	emptyPlaylist atomic.Bool  // #EXTM3U alone: a panel in maintenance, an expired line
 	headerDelay   atomic.Int64 // nanoseconds the playlist and guide take to answer
 	maxConns      atomic.Int32 // the account's max_connections
+	// newsIcon gives news.uk an icon in the panel's guide: 0 none, 1 one
+	// that loads, 2 one that does not (a dead picon host).
+	newsIcon atomic.Int32
 }
 
 func newProvider(t *testing.T) *provider {
@@ -109,7 +112,19 @@ func newProvider(t *testing.T) *provider {
 				http.Error(w, "down", http.StatusInternalServerError)
 				return
 			}
-			_, _ = w.Write(guideBody)
+			body := guideBody
+			if p.newsIcon.Load() != 0 {
+				body = bytes.Replace(guideBody, []byte(`<channel id="news.uk">`),
+					[]byte(`<channel id="news.uk"><icon src="`+p.srv.URL+`/picons/news.png"/>`), 1)
+			}
+			_, _ = w.Write(body)
+		case r.URL.Path == "/picons/news.png":
+			if p.newsIcon.Load() != 1 {
+				http.NotFound(w, r)
+				return
+			}
+			w.Header().Set("Content-Type", "image/png")
+			_, _ = w.Write([]byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"))
 		case strings.HasPrefix(r.URL.Path, "/epg/"):
 			// A guideURL's guide, its placeholders expanded in the path and
 			// the query.
@@ -784,6 +799,29 @@ func TestAChannelTheGuideURLLacksReadsThePanelsGuide(t *testing.T) {
 	_, guide := h.get(t, "x", device(deviceA, "xmltv.xml"))
 	assert.Contains(t, guide, ">Bulletin<", "1002 auto-maps to news.uk, which only the panel's guide has")
 	assert.Contains(t, guide, "The One Show (epg)")
+}
+
+// TestAFallbackChannelTakesThePanelsIconOnlyWhenItLoads: a channel the
+// panel's guide fills takes that guide's icon as its logo (owner,
+// 2026-10-27: the provider's own image where iptv-epg.org has none), and
+// an icon that does not load is dropped at the fetch, so the playlist's
+// logo, or none, stands instead (the panel's 103.176.90.95 and .118 are
+// dead).
+func TestAFallbackChannelTakesThePanelsIconOnlyWhenItLoads(t *testing.T) {
+	for _, tc := range []struct {
+		state int32
+		want  bool
+	}{{1, true}, {2, false}} {
+		p := newProvider(t)
+		p.newsIcon.Store(tc.state)
+		cfg := config(p.srv.URL)
+		cfg.GuideURL = guideURL(p)
+		h := start(t, newStore(t), cfg)
+		h.fetched(t)
+		_, guide := h.get(t, "x", device(deviceA, "xmltv.xml"))
+		require.Contains(t, guide, ">Bulletin<")
+		assert.Equal(t, tc.want, strings.Contains(guide, `/picons/news.png"`), "icon state %d", tc.state)
+	}
 }
 
 // TestAFailedFallbackKeepsTheGuideURLsGuide: the panel's half failing is no
