@@ -118,6 +118,11 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /settings/subtitleproviders/{namespace}/{name}", s.handleSetSubtitleProviderSettings)
 	mux.HandleFunc("POST /settings/subtitleprofiles/{name}", s.handleSetSubtitleProfileDefault)
 	mux.HandleFunc("POST /settings/transcodeprofiles/{name}", s.handleSetTranscodeProfilePriority)
+	mux.HandleFunc("GET /livetv", s.handleLiveTVIndex)
+	mux.HandleFunc("GET /livetv/sources", s.handleLiveTVSources)
+	mux.HandleFunc("GET /livetv/sources/tables", s.handleLiveTVSourcesTables)
+	mux.HandleFunc("POST /livetv/providers/{namespace}/{name}/refresh", s.handleRefreshLiveTV)
+	mux.HandleFunc("POST /livetv/providers/{namespace}/{name}/enabled", s.handleSetProviderEnabled)
 	mux.HandleFunc("GET /livetv/logo/{namespace}/{name}/{hash}", s.handleLiveTVLogo)
 	mux.HandleFunc("GET /{$}", s.handleIndex)
 

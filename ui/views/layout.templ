@@ -39,6 +39,9 @@ type Chrome struct {
 	Title  string
 	Crumbs []Crumb
 	Tab    projection.Tab
+	// LiveTV is the current Live TV page's path, which the sidebar's Live
+	// TV sub-menu marks; "" off the Live TV section.
+	LiveTV string
 	// HideScrollbar hides the document's native scrollbar (data-scrollbar
 	// on <html>, app.css): the library, where the A-Z strip is the only
 	// thing on the right edge, as in Sonarr. ui/static/jump.js keeps the
@@ -68,6 +71,7 @@ const sidebarID = "app-sidebar"
 var navEntries = []navEntry{
 	{"Dashboard", "/dashboard", "layout-dashboard"},
 	{"Library", "/library", "library"},
+	{"Live TV", "/livetv", "tv"},
 	{"Pipeline", "/pipeline", "activity"},
 	{"Downloads", "/downloads", "download"},
 	{"Unmatched", "/unmatched", "file-question-mark"},
@@ -75,16 +79,46 @@ var navEntries = []navEntry{
 	{"Settings", "/settings", "settings"},
 }
 
+// liveTVEntries are the Live TV entry's sub-menu (the direct-tuners and ui
+// design 2026-10-27 §5.3); a DVR page joins them with §5.8.
+var liveTVEntries = []navEntry{
+	{"Channels", "/livetv/channels", "list-video"},
+	{"M3U/EPG Manager", "/livetv/sources", "radio-tower"},
+	{"TV Guide", "/livetv/guide", "calendar-days"},
+}
+
 // activeFor maps a page title onto the sidebar entry it belongs to. The
-// pages that are entries name themselves; anything else -- an item's own
-// page, a season, a scan -- is somewhere under the library.
+// pages that are entries name themselves, a Live TV page is under Live TV;
+// anything else -- an item's own page, a season, a scan -- is somewhere
+// under the library.
 func activeFor(title string) string {
 	for _, n := range navEntries {
 		if n.Label == title {
 			return n.Href
 		}
 	}
+	for _, n := range liveTVEntries {
+		if n.Label == title {
+			return "/livetv"
+		}
+	}
 	return "/library"
+}
+
+// subNavAttrs are a sub-menu entry's htmx attributes: it swaps the page
+// body, pushes its URL, and carries the whole menu out of band
+// (#app-nav), so the active entry and both sub-menus follow a swap from
+// one section to another, with the top bar's trail and search.
+func subNavAttrs(href string) templ.Attributes {
+	return templ.Attributes{
+		"hx-get":        href,
+		"preload":       "mouseover",
+		"hx-push-url":   "true",
+		"hx-target":     "#page-body",
+		"hx-select":     "#page-body",
+		"hx-select-oob": "#app-nav,#page-crumbs,#header-find",
+		"hx-swap":       "outerHTML",
+	}
 }
 
 // Layout is the page chrome for a page that is itself a sidebar entry:
@@ -133,6 +167,7 @@ templ Shell(c Chrome) {
 			<script src="/static/library.js" defer></script>
 			<script src="/static/art.js" defer></script>
 			<script src="/static/portals.js" defer></script>
+			<script src="/static/livetv.js" defer></script>
 			@components.Scripts()
 		</head>
 		<body class="min-h-screen bg-transparent font-sans text-foreground" hx-ext="preload">
@@ -147,7 +182,7 @@ templ Shell(c Chrome) {
 					@sidebar.Content() {
 						@sidebar.Group() {
 							@sidebar.GroupContent() {
-								@sidebar.Menu() {
+								@sidebar.Menu(sidebar.MenuProps{ID: "app-nav"}) {
 									for _, n := range navEntries {
 										@sidebar.MenuItem() {
 											@sidebar.MenuButton(sidebar.MenuButtonProps{Href: n.Href, IsActive: n.Href == activeFor(c.Title), Tooltip: n.Label}) {
@@ -156,6 +191,9 @@ templ Shell(c Chrome) {
 											}
 											if n.Href == "/library" {
 												@librarySubMenu(c.Tab)
+											}
+											if n.Href == "/livetv" {
+												@liveTVSubMenu(c.LiveTV)
 											}
 										}
 									}
@@ -260,8 +298,8 @@ templ breadcrumbs(crumbs []Crumb) {
 // per projection.Tab, the current one marked, each swapping the page body
 // through htmx (hx-select of #page-body, URL pushed) so the sidebar and
 // the top bar stay put -- and, since the sidebar sits outside that swap,
-// the sub-menu itself out of band (hx-select-oob of #library-subnav) so
-// the active mark follows the tab, with the top bar's trail and search
+// the whole menu out of band (subNavAttrs' hx-select-oob of #app-nav) so
+// the active marks follow the tab, with the top bar's trail and search
 // (#page-crumbs, #header-find), which name the tab. The component hides the sub-menu while
 // the sidebar is collapsed to icons; the Library entry itself still opens
 // the library then.
@@ -270,19 +308,30 @@ templ librarySubMenu(current projection.Tab) {
 		for _, tab := range projection.Tabs() {
 			@sidebar.MenuSubItem() {
 				@sidebar.MenuSubButton(sidebar.MenuSubButtonProps{
-					Href:     "/library/" + string(tab),
-					IsActive: tab == current,
-					Attributes: templ.Attributes{
-						"hx-get":      "/library/" + string(tab),
-						"preload":     "mouseover",
-						"hx-push-url": "true",
-						"hx-target":     "#page-body",
-						"hx-select":     "#page-body",
-						"hx-select-oob": "#library-subnav,#page-crumbs,#header-find",
-						"hx-swap":       "outerHTML",
-					},
+					Href:       "/library/" + string(tab),
+					IsActive:   tab == current,
+					Attributes: subNavAttrs("/library/" + string(tab)),
 				}) {
 					<span>{ tabLabel(tab) }</span>
+				}
+			}
+		}
+	}
+}
+
+// liveTVSubMenu is the Live TV entry's sub-menu (the direct-tuners and ui
+// design §5.3): Channels, the M3U/EPG Manager and the TV Guide, each
+// swapping the page body as the Library's tabs do.
+templ liveTVSubMenu(current string) {
+	@sidebar.MenuSub(sidebar.MenuSubProps{ID: "livetv-subnav"}) {
+		for _, e := range liveTVEntries {
+			@sidebar.MenuSubItem() {
+				@sidebar.MenuSubButton(sidebar.MenuSubButtonProps{
+					Href:       e.Href,
+					IsActive:   e.Href == current,
+					Attributes: subNavAttrs(e.Href),
+				}) {
+					<span>{ e.Label }</span>
 				}
 			}
 		}

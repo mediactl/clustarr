@@ -1,0 +1,295 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package views
+
+import (
+	"fmt"
+
+	"github.com/mediactl/clustarr/ui/components/badge"
+	"github.com/mediactl/clustarr/ui/components/button"
+	"github.com/mediactl/clustarr/ui/components/icon"
+	switchcomp "github.com/mediactl/clustarr/ui/components/switch"
+	"github.com/mediactl/clustarr/ui/components/table"
+	"github.com/mediactl/clustarr/ui/projection"
+)
+
+// SourcesRefresh is how often the M3U/EPG Manager's tables fetch
+// themselves again: a provider's status moves on a minutes scale, so a
+// poll does what a stream would (the Live TV plan's first call).
+const SourcesRefresh = "10s"
+
+// sourcesReturnPath is where the provider forms come back to.
+const sourcesReturnPath = "/livetv/sources"
+
+// LiveTVSources is the M3U/EPG Manager (the direct-tuners and ui design
+// §5.5): each provider's playlist, its guide and its blocks.
+templ LiveTVSources(rows []projection.SourceRow) {
+	@liveTVPage("M3U/EPG Manager", "/livetv/sources", sourcesActions()) {
+		@LiveTVSourcesTables(rows)
+	}
+}
+
+templ sourcesActions() {
+	@button.Button(button.Props{Href: "/settings/new/iptvproviders?return=" + sourcesReturnPath, Size: button.SizeSm, Variant: button.VariantOutline}) {
+		@icon.Icon("plus")(icon.Props{Class: "mr-1 size-4"})
+		Add playlist
+	}
+}
+
+// LiveTVSourcesTables is the page's live part, which replaces itself every
+// SourcesRefresh (GET /livetv/sources/tables).
+templ LiveTVSourcesTables(rows []projection.SourceRow) {
+	<div id="livetv-sources" hx-get="/livetv/sources/tables" hx-trigger={ "every " + SourcesRefresh } hx-swap="outerHTML" class="space-y-8">
+		if len(rows) == 0 {
+			@settingsEmpty("No IPTV providers configured.")
+		} else {
+			<section class="space-y-3">
+				<h2 class="text-lg font-semibold">Playlists</h2>
+				<div class="panel overflow-x-auto rounded-xl border border-border bg-card">
+					@table.Table() {
+						@table.Header() {
+							@table.Row() {
+								@table.Head() { Name }
+								@table.Head() { Type }
+								@table.Head(table.HeadProps{Class: "hidden lg:table-cell"}) { Server }
+								@table.Head() { Status }
+								@table.Head() { Tuners }
+								@table.Head() { Expires }
+								@table.Head(table.HeadProps{Class: "hidden md:table-cell"}) { Entries }
+								@table.Head(table.HeadProps{Class: "hidden md:table-cell"}) { Candidates }
+								@table.Head() { Active }
+								@table.Head(table.HeadProps{Class: "hidden lg:table-cell"}) { Updated }
+								@table.Head() { Enabled }
+								@table.Head(table.HeadProps{Class: "w-24"}) { <span class="sr-only">Actions</span> }
+							}
+						}
+						@table.Body() {
+							for _, r := range rows {
+								@playlistRow(r)
+							}
+						}
+					}
+				</div>
+			</section>
+			<section class="space-y-3">
+				<h2 class="text-lg font-semibold">Guides</h2>
+				<div class="panel overflow-x-auto rounded-xl border border-border bg-card">
+					@table.Table() {
+						@table.Header() {
+							@table.Row() {
+								@table.Head() { Name }
+								@table.Head() { Type }
+								@table.Head() { Source }
+								@table.Head() { Status }
+								@table.Head() { Channels }
+								@table.Head() { Programmes }
+								@table.Head(table.HeadProps{Class: "hidden lg:table-cell"}) { Updated }
+								@table.Head(table.HeadProps{Class: "w-16"}) { <span class="sr-only">Actions</span> }
+							}
+						}
+						@table.Body() {
+							for _, r := range rows {
+								@guideRow(r)
+							}
+						}
+					}
+				</div>
+			</section>
+			<section class="space-y-3">
+				<h2 class="text-lg font-semibold">Blocks</h2>
+				<p class="text-sm text-muted-foreground">Each block is one HDHomeRun device and one Plex DVR, given to Plex at its URL.</p>
+				for _, r := range rows {
+					@blocksCard(r)
+				}
+			</section>
+		}
+	</div>
+}
+
+templ playlistRow(r projection.SourceRow) {
+	@table.Row(table.RowProps{Attributes: templ.Attributes{"data-provider": r.Namespace + "/" + r.Name}}) {
+		@table.Cell(table.CellProps{Class: "font-medium"}) {
+			{ r.Name }
+			<div class="text-xs text-muted-foreground">{ r.Namespace }</div>
+		}
+		@table.Cell() { { r.Type } }
+		@table.Cell(table.CellProps{Class: "hidden max-w-56 truncate lg:table-cell"}) { { r.Server } }
+		@table.Cell() {
+			@readinessBadge(r.Ready, r.Reason)
+			if r.Message != "" {
+				<div class="mt-1 max-w-72 truncate text-xs text-muted-foreground" title={ r.Message }>{ r.Message }</div>
+			}
+		}
+		@table.Cell(table.CellProps{Class: "tabular-nums"}) { { fmt.Sprintf("%d / %d", r.TunersInUse, r.TunersTotal) } }
+		@table.Cell() {
+			if r.ExpiresSoon {
+				<span data-expires-soon class="font-semibold text-primary">
+					@liveTVTime(r.Expires)
+				</span>
+			} else {
+				@liveTVTime(r.Expires)
+			}
+			if r.AccountStatus != "" {
+				<div class="text-xs text-muted-foreground">{ r.AccountStatus }</div>
+			}
+		}
+		@table.Cell(table.CellProps{Class: "hidden tabular-nums md:table-cell"}) { { fmt.Sprint(r.Entries) } }
+		@table.Cell(table.CellProps{Class: "hidden tabular-nums md:table-cell"}) { { fmt.Sprint(r.Candidates) } }
+		@table.Cell(table.CellProps{Class: "tabular-nums"}) { { fmt.Sprint(r.Active) } }
+		@table.Cell(table.CellProps{Class: "hidden lg:table-cell"}) { @liveTVTime(r.Updated) }
+		@table.Cell() {
+			@switchcomp.Switch(switchcomp.Props{
+				Checked: &r.Enabled,
+				Size:    switchcomp.SizeSm,
+				Attributes: templ.Attributes{
+					"aria-label": "Enabled",
+					"hx-post":    "/livetv/providers/" + r.Namespace + "/" + r.Name + "/enabled",
+					"hx-vals":    fmt.Sprintf(`{"enabled":"%t"}`, !r.Enabled),
+					"hx-trigger": "click",
+					"hx-target":  "#action-status",
+					"hx-swap":    "innerHTML",
+				},
+			})
+		}
+		@table.Cell() {
+			<div class="flex items-center justify-end gap-1">
+				@refreshButton(r)
+				@button.Button(button.Props{
+					Href: "/settings/edit/iptvproviders/" + r.Namespace + "/" + r.Name + "?return=" + sourcesReturnPath, Variant: button.VariantGhost, Size: button.SizeIconSm,
+					Attributes: templ.Attributes{"aria-label": "Edit", "title": "Edit"},
+				}) {
+					@icon.Icon("pencil")()
+				}
+			</div>
+		}
+	}
+}
+
+// refreshButton is a provider's "Refresh now": every source fetched again.
+templ refreshButton(r projection.SourceRow) {
+	@button.Button(button.Props{
+		Variant: button.VariantGhost, Size: button.SizeIconSm,
+		Attributes: templ.Attributes{
+			"aria-label": "Refresh now", "title": "Refresh now",
+			"hx-post":   "/livetv/providers/" + r.Namespace + "/" + r.Name + "/refresh",
+			"hx-target": "#action-status", "hx-swap": "innerHTML",
+		},
+	}) {
+		@icon.Icon("refresh-cw")()
+	}
+}
+
+templ guideRow(r projection.SourceRow) {
+	@table.Row(table.RowProps{Attributes: templ.Attributes{"data-guide": r.Namespace + "/" + r.Name}}) {
+		@table.Cell(table.CellProps{Class: "font-medium"}) { { r.Name } }
+		@table.Cell() { XMLTV }
+		if r.GuidePMS {
+			@table.Cell(table.CellProps{Class: "text-muted-foreground"}) { Plex's }
+			@table.Cell(table.CellProps{Class: "text-muted-foreground"}) { — }
+			@table.Cell(table.CellProps{Class: "text-muted-foreground"}) { — }
+			@table.Cell(table.CellProps{Class: "text-muted-foreground"}) { — }
+			@table.Cell(table.CellProps{Class: "hidden lg:table-cell"}) { — }
+			@table.Cell() { }
+		} else {
+			@table.Cell(table.CellProps{Class: "max-w-96"}) {
+				<div class="truncate font-mono text-xs" title={ r.GuideSource }>{ r.GuideSource }</div>
+				if r.GuideFallback {
+					<div class="text-xs text-muted-foreground">the panel's guide fills the channels it lacks</div>
+				}
+			}
+			@table.Cell() {
+				if r.GuideError != "" {
+					@badge.Badge(badge.Props{Variant: badge.VariantDestructive}) { Error }
+					<div class="mt-1 max-w-72 truncate text-xs text-muted-foreground" title={ r.GuideError }>{ r.GuideError }</div>
+				} else if r.GuideUpdated == nil {
+					@badge.Badge(badge.Props{Variant: badge.VariantOutline}) { Not fetched yet }
+				} else {
+					@badge.Badge() { Fetched }
+				}
+			}
+			@table.Cell(table.CellProps{Class: "tabular-nums"}) { { fmt.Sprint(r.GuideChannels) } }
+			@table.Cell(table.CellProps{Class: "tabular-nums"}) { { fmt.Sprint(r.GuideProgrammes) } }
+			@table.Cell(table.CellProps{Class: "hidden lg:table-cell"}) { @liveTVTime(r.GuideUpdated) }
+			@table.Cell() {
+				<div class="flex justify-end">
+					@refreshButton(r)
+				</div>
+			}
+		}
+	}
+}
+
+templ blocksCard(r projection.SourceRow) {
+	<div class="panel overflow-x-auto rounded-xl border border-border bg-card" data-blocks={ r.Namespace + "/" + r.Name }>
+		<div class="border-b border-border px-4 py-2 text-sm font-medium">{ r.Name }</div>
+		if len(r.Blocks) == 0 {
+			<p class="px-4 py-3 text-sm text-muted-foreground">No blocks yet: the provider has no active channel, or has not been reconciled.</p>
+		} else {
+			@table.Table() {
+				@table.Header() {
+					@table.Row() {
+						@table.Head() { Start }
+						@table.Head() { Numbers }
+						@table.Head() { Channels }
+						@table.Head(table.HeadProps{Class: "hidden md:table-cell"}) { Map bytes }
+						@table.Head() { Device }
+						@table.Head() { URL }
+						@table.Head() { Plex }
+						@table.Head(table.HeadProps{Class: "hidden lg:table-cell"}) { Lineup / guide }
+					}
+				}
+				@table.Body() {
+					for _, b := range r.Blocks {
+						@table.Row() {
+							@table.Cell(table.CellProps{Class: "tabular-nums"}) { { b.Start } }
+							@table.Cell(table.CellProps{Class: "tabular-nums"}) { { b.First + "–" + b.Last } }
+							@table.Cell(table.CellProps{Class: "tabular-nums"}) { { fmt.Sprint(b.Channels) } }
+							@table.Cell(table.CellProps{Class: "hidden tabular-nums md:table-cell"}) { { fmt.Sprint(b.MapBytes) } }
+							@table.Cell(table.CellProps{Class: "font-mono text-xs"}) { { b.DeviceID } }
+							@table.Cell() {
+								<div class="flex items-center gap-1">
+									<span class="max-w-80 truncate font-mono text-xs" title={ b.URI }>{ b.URI }</span>
+									@copyButton(b.URI, "Copy the device URL")
+								</div>
+							}
+							@table.Cell() {
+								if b.Owner != "" {
+									{ b.Owner }
+								} else {
+									<span class="text-muted-foreground">not registered</span>
+								}
+							}
+							@table.Cell(table.CellProps{Class: "hidden font-mono text-xs lg:table-cell"}) { { b.LineupHash + " / " + b.GuideHash } }
+						}
+					}
+				}
+			}
+		}
+	</div>
+}
+
+// readinessBadge is a Ready condition: Ready, or its reason.
+templ readinessBadge(ready bool, reason string) {
+	if ready {
+		@badge.Badge() { Ready }
+	} else if reason == "" {
+		@badge.Badge(badge.Props{Variant: badge.VariantOutline}) { Pending }
+	} else {
+		@badge.Badge(badge.Props{Variant: badge.VariantDestructive}) { { reason } }
+	}
+}

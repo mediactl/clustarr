@@ -1,0 +1,78 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package views
+
+import (
+	"time"
+
+	"github.com/mediactl/clustarr/ui/components/button"
+	"github.com/mediactl/clustarr/ui/components/icon"
+)
+
+// The Live TV section's shared chrome (the direct-tuners and ui design
+// 2026-10-27 §5.3): a page's breadcrumbs under "Live TV", the sub-menu's
+// mark, and the in-place action line every page's actions answer into.
+
+// liveTVChrome is a Live TV page's Shell chrome.
+func liveTVChrome(title, path string) Chrome {
+	return Chrome{Title: title, Crumbs: []Crumb{{Label: "Live TV", Href: "/livetv"}, {Label: title}}, LiveTV: path}
+}
+
+// liveTVPage is a Live TV page: its heading, its toolbar's actions, and the
+// in-place action line (#action-status) its rows' actions answer into.
+templ liveTVPage(title, path string, actions templ.Component) {
+	@Shell(liveTVChrome(title, path)) {
+		@ActionStatusRegion()
+		<div class="mb-6 flex flex-wrap items-center justify-between gap-3">
+			<h1 class="text-2xl font-semibold tracking-tight">{ title }</h1>
+			if actions != nil {
+				<div class="flex flex-wrap items-center gap-2">
+					@actions
+				</div>
+			}
+		</div>
+		{ children... }
+	}
+}
+
+// copyButton copies value (ui/static/livetv.js), labelled label; disabled
+// with no value.
+templ copyButton(value, label string) {
+	@button.Button(button.Props{
+		Variant:  button.VariantGhost,
+		Size:     button.SizeIconSm,
+		Disabled: value == "",
+		Attributes: templ.Attributes{
+			"data-copy":  value,
+			"aria-label": label,
+			"title":      label,
+		},
+	}) {
+		@icon.Icon("copy")()
+	}
+}
+
+// liveTVTime is a status time, "—" when unset, in the browser's zone
+// (livetv.js formats data-local="datetime").
+templ liveTVTime(t *time.Time) {
+	if t == nil {
+		<span class="text-muted-foreground">—</span>
+	} else {
+		<time data-local="datetime" datetime={ t.UTC().Format(time.RFC3339) }>{ t.UTC().Format("2006-01-02 15:04 UTC") }</time>
+	}
+}
