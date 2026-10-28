@@ -40,6 +40,8 @@ type fakeWriter struct {
 	creates   []createCall
 	patches   []patchCall
 	deletes   []client.Object
+	// deleteOpts are each delete's options, in deletes' order.
+	deleteOpts []client.DeleteOptions
 }
 
 type createCall struct {
@@ -64,8 +66,11 @@ func (f *fakeWriter) Create(_ context.Context, obj client.Object, opts ...client
 	return f.err
 }
 
-func (f *fakeWriter) Delete(_ context.Context, obj client.Object, _ ...client.DeleteOption) error {
+func (f *fakeWriter) Delete(_ context.Context, obj client.Object, opts ...client.DeleteOption) error {
+	var o client.DeleteOptions
+	o.ApplyOptions(opts)
 	f.deletes = append(f.deletes, obj)
+	f.deleteOpts = append(f.deleteOpts, o)
 	return f.err
 }
 

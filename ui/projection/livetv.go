@@ -52,7 +52,10 @@ type LiveTVInputs struct {
 
 // ChannelRow is one IPTVChannel on the Channels page.
 type ChannelRow struct {
-	Namespace, Name, ResourceVersion, Provider, Key, TvgID string
+	Namespace, Name, Provider, Key, TvgID string
+	// Generation is the metadata.generation an edit from the page names
+	// (actions.ChannelEdit).
+	Generation int64
 	// Number and the name, group and logo the channel goes by: its
 	// overrides, else the playlist's. Logo is the source URL; LogoPath the
 	// ui's route to the tuner's stored copy of it, "" without a logo.
@@ -86,7 +89,7 @@ func LiveTVChannels(in LiveTVInputs) []ChannelRow {
 			pe, _ = in.Playlist(pkey, ch.Spec.Key)
 		}
 		r := ChannelRow{
-			Namespace: ch.Namespace, Name: ch.Name, ResourceVersion: ch.ResourceVersion, Provider: ch.Spec.ProviderRef,
+			Namespace: ch.Namespace, Name: ch.Name, Generation: ch.Generation, Provider: ch.Spec.ProviderRef,
 			Key: ch.Spec.Key, TvgID: pe.TvgID, Number: ch.Spec.Number,
 			DisplayName:    firstOf(ch.Spec.Name, pe.Name, ch.Spec.Key),
 			NameOverridden: ch.Spec.Name != "",

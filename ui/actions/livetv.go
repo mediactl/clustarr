@@ -27,7 +27,9 @@ import (
 	"strconv"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -49,11 +51,15 @@ var channelNumber = regexp.MustCompile(`^[0-9]{1,5}(\.[0-9]{1,3})?$`)
 // ChannelEdit is one IPTVChannel's edit from the Channels page; a nil
 // field is left alone.
 type ChannelEdit struct {
-	// Name is the IPTVChannel's object name; ResourceVersion the version
-	// the page read, which the patch carries, so an edit that lost a race
-	// is refused (Conflict), never written over the other.
-	Name, ResourceVersion string
-	Active                *bool
+	// Name is the IPTVChannel's object name; Generation the
+	// metadata.generation the page read, so an edit made over another
+	// writer's spec change is refused (Conflict), never written over it.
+	// A status write moves resourceVersion and not the generation: the
+	// controller writes status after every edit, which made the page's
+	// resourceVersion stale within a second.
+	Name       string
+	Generation int64
+	Active     *bool
 	// Number must match the CRD's pattern ("1001", "5.1").
 	Number *string
 	// DisplayName is spec.name; "" removes the override, as do Group and
@@ -87,10 +93,12 @@ func (e ChannelEdit) channelSpecPatch() map[string]any {
 		switch *e.EPG {
 		case "":
 			spec["epg"] = nil
+		// A merge patch merges nested objects, so each choice clears the
+		// other's fields: the CRD takes exactly one of channelID and dummy.
 		case "dummy":
-			spec["epg"] = map[string]any{"dummy": true}
+			spec["epg"] = map[string]any{"dummy": true, "channelID": nil}
 		default:
-			spec["epg"] = map[string]any{"channelID": *e.EPG}
+			spec["epg"] = map[string]any{"channelID": *e.EPG, "dummy": nil, "dummyMinutes": nil}
 		}
 	}
 	return spec
@@ -100,8 +108,8 @@ func (e ChannelEdit) validate() error {
 	if errs := validation.IsDNS1123Subdomain(e.Name); len(errs) > 0 {
 		return fmt.Errorf("%w: channel %q: %v", ErrInvalid, e.Name, errs)
 	}
-	if e.ResourceVersion == "" {
-		return fmt.Errorf("%w: channel %s: the edit names no resourceVersion", ErrInvalid, e.Name)
+	if e.Generation < 1 {
+		return fmt.Errorf("%w: channel %s: the edit names no generation", ErrInvalid, e.Name)
 	}
 	if e.Number != nil && !channelNumber.MatchString(*e.Number) {
 		return fmt.Errorf("%w: channel %s: number %q is not a channel number like 1001 or 5.1", ErrInvalid, e.Name, *e.Number)
@@ -112,11 +120,40 @@ func (e ChannelEdit) validate() error {
 	return nil
 }
 
+// ChannelRef is a channel as the page read it: its object name and
+// metadata.generation.
+type ChannelRef struct {
+	Name       string
+	Generation int64
+}
+
+// readUnchanged reads each channel now and refuses, with a Conflict, the
+// first whose generation is not the one the page read: another writer
+// changed its spec. It returns the channels in refs' order.
+func readUnchanged(ctx context.Context, g Getter, namespace string, refs []ChannelRef) ([]*clustarrv1alpha1.IPTVChannel, error) {
+	out := make([]*clustarrv1alpha1.IPTVChannel, 0, len(refs))
+	for _, ref := range refs {
+		ch := &clustarrv1alpha1.IPTVChannel{}
+		if err := g.Get(ctx, client.ObjectKey{Namespace: namespace, Name: ref.Name}, ch); err != nil {
+			return nil, fmt.Errorf("actions: read channel %s/%s: %w", namespace, ref.Name, err)
+		}
+		if ch.Generation != ref.Generation {
+			return nil, apierrors.NewConflict(
+				schema.GroupResource{Group: clustarrv1alpha1.GroupVersion.Group, Resource: "iptvchannels"}, ref.Name,
+				fmt.Errorf("its settings changed since the page was loaded (generation %d, now %d); reload and try again", ref.Generation, ch.Generation))
+		}
+		out = append(out, ch)
+	}
+	return out, nil
+}
+
 // EditChannels sends each edit as one merge patch of the channel's spec
-// under the read resourceVersion and [FieldManager], after checking every
-// edit (none is written when any is refused), in order, stopping at the
-// first refusal. It returns the patched objects.
-func EditChannels(ctx context.Context, p Patcher, namespace string, edits []ChannelEdit) ([]*clustarrv1alpha1.IPTVChannel, error) {
+// under [FieldManager], after checking every edit and reading every
+// channel (none is written when any is refused or changed since the page
+// read it), in order, stopping at the first refusal. Each patch carries the
+// resourceVersion read just now, so a spec change between that read and
+// the patch is refused too. It returns the patched objects.
+func EditChannels(ctx context.Context, g Getter, p Patcher, namespace string, edits []ChannelEdit) ([]*clustarrv1alpha1.IPTVChannel, error) {
 	ctx, span := tracing.Start(ctx, "ui.actions.EditChannels")
 	defer span.End()
 
@@ -125,15 +162,22 @@ func EditChannels(ctx context.Context, p Patcher, namespace string, edits []Chan
 		tracing.RecordError(span, err)
 		return nil, err
 	}
+	refs := make([]ChannelRef, 0, len(edits))
 	for _, e := range edits {
 		if err := e.validate(); err != nil {
 			tracing.RecordError(span, err)
 			return nil, err
 		}
+		refs = append(refs, ChannelRef{Name: e.Name, Generation: e.Generation})
+	}
+	current, err := readUnchanged(ctx, g, namespace, refs)
+	if err != nil {
+		tracing.RecordError(span, err)
+		return nil, err
 	}
 	out := make([]*clustarrv1alpha1.IPTVChannel, 0, len(edits))
-	for _, e := range edits {
-		body := map[string]any{"metadata": map[string]any{"resourceVersion": e.ResourceVersion}, "spec": e.channelSpecPatch()}
+	for i, e := range edits {
+		body := map[string]any{"metadata": map[string]any{"resourceVersion": current[i].ResourceVersion}, "spec": e.channelSpecPatch()}
 		raw, err := json.Marshal(body)
 		if err != nil {
 			return out, fmt.Errorf("actions: encode channel patch: %w", err)
@@ -150,6 +194,42 @@ func EditChannels(ctx context.Context, p Patcher, namespace string, edits []Chan
 	}
 	logging.FromContext(ctx).Info("ui action: channels edited", "namespace", namespace, "count", len(out))
 	return out, nil
+}
+
+// DeleteChannels deletes each channel, after reading every one (none is
+// deleted when any changed since the page read it), each under the UID and
+// resourceVersion read just now. It returns how many it deleted.
+func DeleteChannels(ctx context.Context, g Getter, d Deleter, namespace string, refs []ChannelRef) (int, error) {
+	ctx, span := tracing.Start(ctx, "ui.actions.DeleteChannels")
+	defer span.End()
+
+	var err error
+	if validation.IsDNS1123Label(namespace) != nil {
+		err = fmt.Errorf("%w: namespace %q", ErrInvalid, namespace)
+	}
+	for _, ref := range refs {
+		if err == nil && (validation.IsDNS1123Subdomain(ref.Name) != nil || ref.Generation < 1) {
+			err = fmt.Errorf("%w: channel %q at generation %d", ErrInvalid, ref.Name, ref.Generation)
+		}
+	}
+	if err != nil {
+		tracing.RecordError(span, err)
+		return 0, err
+	}
+	current, err := readUnchanged(ctx, g, namespace, refs)
+	if err != nil {
+		tracing.RecordError(span, err)
+		return 0, err
+	}
+	for i, ch := range current {
+		if err := d.Delete(ctx, ch, client.Preconditions{UID: &ch.UID, ResourceVersion: &ch.ResourceVersion}); err != nil {
+			err = fmt.Errorf("actions: delete channel %s/%s: %w", namespace, ch.Name, err)
+			tracing.RecordError(span, err)
+			return i, err
+		}
+	}
+	logging.FromContext(ctx).Info("ui action: channels deleted", "namespace", namespace, "count", len(current))
+	return len(current), nil
 }
 
 // ChannelObjectName is the name an IPTVChannel the ui adds takes: its
@@ -227,12 +307,29 @@ func RefreshLiveTV(ctx context.Context, p Patcher, namespace, name string, at ti
 	return nil
 }
 
-// EditChannels is [EditChannels] over the Actions' writer.
+// EditChannels is [EditChannels] over the Actions' writer, which reads
+// through the apiserver, never a cache.
 func (a *Actions) EditChannels(ctx context.Context, namespace string, edits []ChannelEdit) ([]*clustarrv1alpha1.IPTVChannel, error) {
 	if a == nil || a.w == nil {
 		return nil, ErrNoWriter
 	}
-	return EditChannels(ctx, a.w, namespace, edits)
+	g, ok := a.w.(Getter)
+	if !ok {
+		return nil, ErrNoWriter
+	}
+	return EditChannels(ctx, g, a.w, namespace, edits)
+}
+
+// DeleteChannels is [DeleteChannels] over the Actions' writer.
+func (a *Actions) DeleteChannels(ctx context.Context, namespace string, refs []ChannelRef) (int, error) {
+	if a == nil || a.w == nil {
+		return 0, ErrNoWriter
+	}
+	g, ok := a.w.(Getter)
+	if !ok {
+		return 0, ErrNoWriter
+	}
+	return DeleteChannels(ctx, g, a.w, namespace, refs)
 }
 
 // AddChannel is [AddChannel] over the Actions' writer.

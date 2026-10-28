@@ -164,7 +164,8 @@ func (s *Server) handleEditChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ns, name := r.PathValue("namespace"), r.PathValue("name")
-	e := actions.ChannelEdit{Name: name, ResourceVersion: r.PostForm.Get("rv")}
+	gen, _ := strconv.ParseInt(r.PostForm.Get("gen"), 10, 64)
+	e := actions.ChannelEdit{Name: name, Generation: gen}
 	str := func(k string) *string {
 		if !r.PostForm.Has(k) {
 			return nil
@@ -215,15 +216,17 @@ func (s *Server) handleDeleteChannel(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// bulkItem is one selected channel: namespace, name and the version the
+// bulkItem is one selected channel: the channel and the generation the
 // page read.
 type bulkItem struct {
-	ch *clustarrv1.IPTVChannel
-	rv string
+	ch  *clustarrv1.IPTVChannel
+	gen int64
 }
 
 // handleChannelsBulk applies one op to every selected channel, checking
-// every item against the cluster before writing any.
+// every item against the cluster before writing any. A delete is asked
+// about first: without confirm=yes it answers the question, carrying the
+// items, and deletes nothing.
 func (s *Server) handleChannelsBulk(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil || s.opts.Reader == nil {
 		s.finishActionWith(w, r, fmt.Errorf("%w: unreadable form", actions.ErrInvalid), "")
@@ -231,14 +234,15 @@ func (s *Server) handleChannelsBulk(w http.ResponseWriter, r *http.Request) {
 	}
 	var items []bulkItem
 	for _, it := range r.PostForm["item"] {
-		ref, rv, _ := strings.Cut(it, "@")
+		ref, g, _ := strings.Cut(it, "@")
 		ns, name, ok := strings.Cut(ref, "/")
+		gen, err := strconv.ParseInt(g, 10, 64)
 		var ch clustarrv1.IPTVChannel
-		if !ok || rv == "" || s.opts.Reader.Get(r.Context(), types.NamespacedName{Namespace: ns, Name: name}, &ch) != nil {
+		if !ok || err != nil || gen < 1 || s.opts.Reader.Get(r.Context(), types.NamespacedName{Namespace: ns, Name: name}, &ch) != nil {
 			s.finishActionWith(w, r, fmt.Errorf("%w: no channel %q", actions.ErrInvalid, it), "")
 			return
 		}
-		items = append(items, bulkItem{ch: &ch, rv: rv})
+		items = append(items, bulkItem{ch: &ch, gen: gen})
 	}
 	if len(items) == 0 {
 		s.finishActionWith(w, r, fmt.Errorf("%w: no channel selected", actions.ErrInvalid), "")
@@ -258,7 +262,7 @@ func (s *Server) handleChannelsBulk(w http.ResponseWriter, r *http.Request) {
 	byNS := map[string][]actions.ChannelEdit{}
 	var nsOrder []string
 	for i, it := range items {
-		e := actions.ChannelEdit{Name: it.ch.Name, ResourceVersion: it.rv}
+		e := actions.ChannelEdit{Name: it.ch.Name, Generation: it.gen}
 		switch op {
 		case "enable", "disable":
 			v := op == "enable"
@@ -281,9 +285,19 @@ func (s *Server) handleChannelsBulk(w http.ResponseWriter, r *http.Request) {
 	}
 	var err error
 	if op == "delete" {
-		k, _ := actions.ConfigKindBySlug("iptvchannels")
+		if r.PostForm.Get("confirm") != "yes" {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			if err := views.ChannelsDeleteConfirm(r.PostForm["item"]).Render(r.Context(), w); err != nil {
+				logging.FromContext(r.Context()).Error("render the delete question", "error", err)
+			}
+			return
+		}
+		refs := map[string][]actions.ChannelRef{}
 		for _, it := range items {
-			if err = s.opts.Actions.DeleteConfig(r.Context(), k, it.ch.Namespace, it.ch.Name); err != nil {
+			refs[it.ch.Namespace] = append(refs[it.ch.Namespace], actions.ChannelRef{Name: it.ch.Name, Generation: it.gen})
+		}
+		for _, ns := range nsOrder {
+			if _, err = s.opts.Actions.DeleteChannels(r.Context(), ns, refs[ns]); err != nil {
 				break
 			}
 		}
@@ -471,7 +485,7 @@ func (s *Server) handleChannelEPG(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	picker := views.EPGPicker{Namespace: ns, Name: name, RV: ch.ResourceVersion, Q: query, Choices: []views.EPGChoice{
+	picker := views.EPGPicker{Namespace: ns, Name: name, Generation: ch.Generation, Q: query, Choices: []views.EPGChoice{
 		{Value: "", Label: "Automatic", Hint: "by the playlist's tvg-id or name"},
 		{Value: "dummy", Label: "Dummy guide", Hint: "hourly blocks titled by the channel"},
 	}}

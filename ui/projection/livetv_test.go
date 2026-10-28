@@ -44,7 +44,7 @@ func tvProvider() clustarrv1.IPTVProvider {
 }
 
 func tvChannel(name, key, number string, active bool, reason string) clustarrv1.IPTVChannel {
-	c := clustarrv1.IPTVChannel{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: name, ResourceVersion: "5"},
+	c := clustarrv1.IPTVChannel{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: name, ResourceVersion: "5", Generation: 3},
 		Spec: clustarrv1.IPTVChannelSpec{ProviderRef: "argon-tv", Key: key, Number: number, Active: active}}
 	status := metav1.ConditionFalse
 	if reason == clustarrv1.ReasonActive {
@@ -101,7 +101,7 @@ func TestLiveTVChannelsResolveNamesGroupsAndLogos(t *testing.T) {
 	assert.Equal(t, "HBO", rows[2].DisplayName)
 	assert.Empty(t, rows[2].Logo, "no logo anywhere")
 	assert.Empty(t, rows[2].LogoPath)
-	assert.Equal(t, "5", rows[2].ResourceVersion)
+	assert.Equal(t, int64(3), rows[2].Generation, "the generation an edit names, never the resourceVersion a status write moves")
 	assert.Equal(t, "argon-tv", rows[2].Provider)
 	assert.Equal(t, "media", rows[2].Namespace)
 }

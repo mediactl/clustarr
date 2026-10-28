@@ -661,8 +661,12 @@ the whole menu out of band, `#app-nav`). **Channels** (`/livetv/channels`)
 lists every IPTVChannel by number with its resolved name, group and logo
 (`ui/projection.LiveTVChannels`: the overrides, else the guide index and
 the playlist), edits number, name, active and the EPG mapping in place
-(one merge patch under the version the page read, `actions.EditChannels`;
-a conflict is said in `#action-status`), edits in bulk, copies each
+(`actions.EditChannels`: the channel read again through the apiserver,
+refused as a conflict, said in `#action-status`, when its
+`metadata.generation` is not the one the page read, else one merge patch
+under the version just read -- never the page's `resourceVersion`, which
+the controller's status write after every edit made stale within a
+second), edits in bulk (a delete asked about first), copies each
 channel's tuner stream URL and each block's HDHR/M3U/EPG URL, and pages
 the provider's playlist beside it, where an entry the provider's filters
 admit (`pkg/iptv/filter`) is added as a channel at the next free number

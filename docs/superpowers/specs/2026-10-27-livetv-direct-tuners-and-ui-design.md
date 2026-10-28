@@ -636,6 +636,15 @@ Where it differs from the text above:
   minutes scale.
 - A channel's edit dialog is its settings form, reached from the row; the
   table edits number, name, active and the EPG choice in place.
+- A table edit names the channel's `metadata.generation` the page read,
+  not its `resourceVersion` (§5.4): the ui reads the channel again through
+  the apiserver, refuses the edit as a conflict when its spec moved, and
+  patches under the version it just read. The controller writes status
+  after every edit, which had made the page's `resourceVersion` stale
+  within a second, so a row's second edit always failed (final review).
+  An EPG choice clears the other choice's fields, since a merge patch
+  merges `spec.epg`. A bulk delete is asked about first and deletes under
+  the UID and version it read.
 - The playlist pane offers "Add as channel" only for an entry the
   provider's filters admit, since any other would read Missing.
 - Logos in the browser are the tuner's stored copies (§6.1's tv-logos

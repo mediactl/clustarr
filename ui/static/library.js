@@ -179,6 +179,8 @@
   document.addEventListener("htmx:afterSwap", function (e) {
     if (!e.target || e.target.id !== "action-status") return;
     clearTimeout(statusTimer);
+    // A question (a bulk delete's) waits for its answer.
+    if (e.target.querySelector("[data-action-confirm]")) return;
     statusTimer = setTimeout(function () {
       e.target.innerHTML = "";
     }, 4000);

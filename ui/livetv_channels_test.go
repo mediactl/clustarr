@@ -20,7 +20,9 @@ package ui_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"html"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -32,6 +34,7 @@ import (
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	clustarrv1 "github.com/mediactl/clustarr/api/clustarr/v1alpha1"
@@ -44,7 +47,7 @@ import (
 var tvKey = types.NamespacedName{Namespace: "media", Name: "argon-tv"}
 
 func tvChannel(name, key, number string, active bool, reason, guide string) *clustarrv1.IPTVChannel {
-	c := &clustarrv1.IPTVChannel{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: name},
+	c := &clustarrv1.IPTVChannel{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: name, Generation: 1},
 		Spec: clustarrv1.IPTVChannelSpec{ProviderRef: "argon-tv", Key: key, Number: number, Active: active}}
 	status := metav1.ConditionFalse
 	if reason == clustarrv1.ReasonActive {
@@ -174,8 +177,7 @@ func TestChannelsFiltersNarrowTheTable(t *testing.T) {
 
 func TestAnInPlaceEditPatchesTheChannelAndAnswersItsRow(t *testing.T) {
 	srv, c := channelsFixture(t)
-	rv := getChannel(t, c, "argon-tv-espn").ResourceVersion
-	rec := postTo(t, srv, "/livetv/channels/media/argon-tv-espn", "channel-argon-tv-espn", url.Values{"rv": {rv}, "number": {"1005"}})
+	rec := postTo(t, srv, "/livetv/channels/media/argon-tv-espn", "channel-argon-tv-espn", url.Values{"gen": {"1"}, "number": {"1005"}})
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Empty(t, rec.Header().Get("HX-Retarget"))
 	body := rec.Body.String()
@@ -183,60 +185,140 @@ func TestAnInPlaceEditPatchesTheChannelAndAnswersItsRow(t *testing.T) {
 	assert.Contains(t, body, `value="1005"`)
 	assert.Equal(t, "1005", getChannel(t, c, "argon-tv-espn").Spec.Number)
 
-	rv = getChannel(t, c, "argon-tv-espn").ResourceVersion
-	rec = postTo(t, srv, "/livetv/channels/media/argon-tv-espn", "channel-argon-tv-espn", url.Values{"rv": {rv}, "epg": {""}})
+	rec = postTo(t, srv, "/livetv/channels/media/argon-tv-espn", "channel-argon-tv-espn", url.Values{"gen": {"1"}, "epg": {""}})
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Nil(t, getChannel(t, c, "argon-tv-espn").Spec.EPG, "automatic")
 }
 
+// rowVals are the hx-vals the first in-place control of a row the server
+// answered posts with: what the page holds after an edit.
+func rowVals(t *testing.T, body string) url.Values {
+	t.Helper()
+	m := regexp.MustCompile(`hx-vals="([^"]*)"`).FindStringSubmatch(body)
+	require.NotNil(t, m, "the row posts its edits with hx-vals")
+	var kv map[string]string
+	require.NoError(t, json.Unmarshal([]byte(html.UnescapeString(m[1])), &kv))
+	out := url.Values{}
+	for k, v := range kv {
+		if k != "active" {
+			out.Set(k, v)
+		}
+	}
+	return out
+}
+
+func TestASecondEditOfARowAfterItsStatusWasWrittenIsNoConflict(t *testing.T) {
+	srv, c := channelsFixture(t)
+	rec := postTo(t, srv, "/livetv/channels/media/argon-tv-espn", "channel-argon-tv-espn", url.Values{"gen": {"1"}, "number": {"1005"}})
+	require.Empty(t, rec.Header().Get("HX-Retarget"), rec.Body.String())
+	vals := rowVals(t, rec.Body.String())
+
+	// The channel controller writes status after every spec edit, which
+	// moves resourceVersion and not the spec the page read (the fake has
+	// no status subresource, so the write is a whole update).
+	ch := getChannel(t, c, "argon-tv-espn")
+	before := ch.ResourceVersion
+	ch.Status.ObservedGeneration = ch.Generation
+	require.NoError(t, c.Update(t.Context(), ch))
+	require.NotEqual(t, before, getChannel(t, c, "argon-tv-espn").ResourceVersion)
+
+	vals.Set("name", "ESPN East")
+	rec = postTo(t, srv, "/livetv/channels/media/argon-tv-espn", "channel-argon-tv-espn", vals)
+	assert.Empty(t, rec.Header().Get("HX-Retarget"), rec.Body.String())
+	assert.Equal(t, "ESPN East", getChannel(t, c, "argon-tv-espn").Spec.Name)
+}
+
 func TestAnEditThatLostARaceSaysSoInPlace(t *testing.T) {
 	srv, c := channelsFixture(t)
-	rec := postTo(t, srv, "/livetv/channels/media/argon-tv-espn", "channel-argon-tv-espn", url.Values{"rv": {"1"}, "number": {"1005"}})
+	ch := getChannel(t, c, "argon-tv-espn")
+	ch.Spec.Number, ch.Generation = "1007", 2 // kubectl's edit, after the page loaded
+	require.NoError(t, c.Update(t.Context(), ch))
+
+	rec := postTo(t, srv, "/livetv/channels/media/argon-tv-espn", "channel-argon-tv-espn", url.Values{"gen": {"1"}, "number": {"1005"}})
 	require.Equal(t, http.StatusOK, rec.Code, "htmx swaps a 200 only")
 	assert.Equal(t, "#action-status", rec.Header().Get("HX-Retarget"))
 	assert.Equal(t, "innerHTML", rec.Header().Get("HX-Reswap"))
 	requireTag(t, rec.Body.String(), `data-action-error="conflict"`)
-	assert.Equal(t, "1001", getChannel(t, c, "argon-tv-espn").Spec.Number, "nothing written over the other edit")
+	assert.Equal(t, "1007", getChannel(t, c, "argon-tv-espn").Spec.Number, "nothing written over the other edit")
+}
+
+func TestTheEPGPickerSwitchesBetweenAGuideChannelAndADummy(t *testing.T) {
+	srv, c := channelsFixture(t)
+	rec := postTo(t, srv, "/livetv/channels/media/argon-tv-espn", "channel-argon-tv-espn", url.Values{"gen": {"1"}, "epg": {"dummy"}})
+	require.Empty(t, rec.Header().Get("HX-Retarget"), rec.Body.String())
+	assert.Equal(t, &clustarrv1.ChannelEPG{Dummy: true}, getChannel(t, c, "argon-tv-espn").Spec.EPG, "the guide channel is cleared")
+
+	ch := getChannel(t, c, "argon-tv-cnn")
+	ch.Spec.EPG.DummyMinutes = ptr.To[int32](30)
+	require.NoError(t, c.Update(t.Context(), ch))
+	rec = postTo(t, srv, "/livetv/channels/media/argon-tv-cnn", "channel-argon-tv-cnn", url.Values{"gen": {"1"}, "epg": {"US-CNN"}})
+	require.Empty(t, rec.Header().Get("HX-Retarget"), rec.Body.String())
+	assert.Equal(t, &clustarrv1.ChannelEPG{ChannelID: "US-CNN"}, getChannel(t, c, "argon-tv-cnn").Spec.EPG, "the dummy and its minutes are cleared")
 }
 
 func TestBulkRenumberChecksEveryItemBeforeWriting(t *testing.T) {
 	srv, c := channelsFixture(t)
-	rv := getChannel(t, c, "argon-tv-espn").ResourceVersion
 	rec := postTo(t, srv, "/livetv/channels/bulk", "action-status", url.Values{
-		"item": {"media/argon-tv-espn@" + rv, "media/nope@1"}, "op": {"renumber"}, "start": {"2001"},
+		"item": {"media/argon-tv-espn@1", "media/nope@1"}, "op": {"renumber"}, "start": {"2001"},
 	})
 	requireTag(t, rec.Body.String(), `data-action-error="invalid"`)
 	assert.Equal(t, "1001", getChannel(t, c, "argon-tv-espn").Spec.Number)
 	rec = postTo(t, srv, "/livetv/channels/bulk", "action-status", url.Values{
-		"item": {"media/argon-tv-espn@" + rv}, "op": {"renumber"}, "start": {"20a"},
+		"item": {"media/argon-tv-espn@1"}, "op": {"renumber"}, "start": {"20a"},
 	})
 	requireTag(t, rec.Body.String(), `data-action-error="invalid"`)
 }
 
 func TestBulkRenumberNumbersInTableOrder(t *testing.T) {
 	srv, c := channelsFixture(t)
-	espn, cnn := getChannel(t, c, "argon-tv-espn"), getChannel(t, c, "argon-tv-cnn")
 	rec := postTo(t, srv, "/livetv/channels/bulk", "action-status", url.Values{
-		"item": {"media/argon-tv-cnn@" + cnn.ResourceVersion, "media/argon-tv-espn@" + espn.ResourceVersion}, "op": {"renumber"}, "start": {"2001"},
+		"item": {"media/argon-tv-cnn@1", "media/argon-tv-espn@1"}, "op": {"renumber"}, "start": {"2001"},
 	})
 	requireTag(t, rec.Body.String(), `data-action-status="ok"`)
 	assert.Equal(t, "channels-changed", rec.Header().Get("HX-Trigger"))
 	assert.Equal(t, "2001", getChannel(t, c, "argon-tv-espn").Spec.Number, "1001 came first")
 	assert.Equal(t, "2002", getChannel(t, c, "argon-tv-cnn").Spec.Number)
 
-	hbo := getChannel(t, c, "argon-tv-hbo")
-	rec = postTo(t, srv, "/livetv/channels/bulk", "action-status", url.Values{"item": {"media/argon-tv-hbo@" + hbo.ResourceVersion}, "op": {"enable"}})
+	rec = postTo(t, srv, "/livetv/channels/bulk", "action-status", url.Values{"item": {"media/argon-tv-hbo@1"}, "op": {"enable"}})
 	requireTag(t, rec.Body.String(), `data-action-status="ok"`)
 	assert.True(t, getChannel(t, c, "argon-tv-hbo").Spec.Active)
-	hbo = getChannel(t, c, "argon-tv-hbo")
-	rec = postTo(t, srv, "/livetv/channels/bulk", "action-status", url.Values{"item": {"media/argon-tv-hbo@" + hbo.ResourceVersion}, "op": {"group"}, "value": {"Movies"}})
+	rec = postTo(t, srv, "/livetv/channels/bulk", "action-status", url.Values{"item": {"media/argon-tv-hbo@1"}, "op": {"group"}, "value": {"Movies"}})
 	requireTag(t, rec.Body.String(), `data-action-status="ok"`)
 	assert.Equal(t, "Movies", getChannel(t, c, "argon-tv-hbo").Spec.Group)
-	hbo = getChannel(t, c, "argon-tv-hbo")
-	rec = postTo(t, srv, "/livetv/channels/bulk", "action-status", url.Values{"item": {"media/argon-tv-hbo@" + hbo.ResourceVersion}, "op": {"delete"}})
+}
+
+func TestBulkDeleteAsksBeforeItDeletes(t *testing.T) {
+	srv, c := channelsFixture(t)
+	rec := postTo(t, srv, "/livetv/channels/bulk", "action-status", url.Values{"item": {"media/argon-tv-hbo@1", "media/argon-tv-gone@1"}, "op": {"delete"}})
+	require.Equal(t, http.StatusOK, rec.Code)
+	body := rec.Body.String()
+	confirm := tagWith(t, body, `data-action-confirm="delete-channels"`)
+	assert.Contains(t, body, "Delete 2 channels?")
+	assert.Contains(t, confirm, `hx-post="/livetv/channels/bulk"`)
+	requireTag(t, body, `name="confirm" value="yes"`)
+	requireTag(t, body, `name="item" value="media/argon-tv-hbo@1"`)
+	requireTag(t, body, `name="item" value="media/argon-tv-gone@1"`)
+	assert.Empty(t, rec.Header().Get("HX-Trigger"))
+	getChannel(t, c, "argon-tv-hbo") // still there
+
+	rec = postTo(t, srv, "/livetv/channels/bulk", "action-status", url.Values{"item": {"media/argon-tv-hbo@1", "media/argon-tv-gone@1"}, "op": {"delete"}, "confirm": {"yes"}})
 	requireTag(t, rec.Body.String(), `data-action-status="ok"`)
-	var gone clustarrv1.IPTVChannel
-	assert.Error(t, c.Get(t.Context(), types.NamespacedName{Namespace: "media", Name: "argon-tv-hbo"}, &gone))
+	assert.Equal(t, "channels-changed", rec.Header().Get("HX-Trigger"))
+	for _, name := range []string{"argon-tv-hbo", "argon-tv-gone"} {
+		var gone clustarrv1.IPTVChannel
+		assert.Error(t, c.Get(t.Context(), types.NamespacedName{Namespace: "media", Name: name}, &gone), name)
+	}
+}
+
+func TestBulkDeleteRefusesAChannelEditedSinceThePageRead(t *testing.T) {
+	srv, c := channelsFixture(t)
+	ch := getChannel(t, c, "argon-tv-hbo")
+	ch.Spec.Number, ch.Generation = "1011", 2
+	require.NoError(t, c.Update(t.Context(), ch))
+	rec := postTo(t, srv, "/livetv/channels/bulk", "action-status", url.Values{"item": {"media/argon-tv-gone@1", "media/argon-tv-hbo@1"}, "op": {"delete"}, "confirm": {"yes"}})
+	requireTag(t, rec.Body.String(), `data-action-error="conflict"`)
+	getChannel(t, c, "argon-tv-hbo")
+	getChannel(t, c, "argon-tv-gone") // none deleted
 }
 
 func TestDeletingAChannelRemovesItsRow(t *testing.T) {

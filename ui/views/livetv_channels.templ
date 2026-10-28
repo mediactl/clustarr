@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"strconv"
 
 	"github.com/mediactl/clustarr/ui/components/badge"
 	"github.com/mediactl/clustarr/ui/components/button"
@@ -104,8 +105,10 @@ type PlaylistPaneEntry struct {
 
 // EPGPicker is a channel's guide picker.
 type EPGPicker struct {
-	Namespace, Name, RV, Q string
-	Choices                []EPGChoice
+	Namespace, Name, Q string
+	// Generation is the channel's metadata.generation the picker read.
+	Generation int64
+	Choices    []EPGChoice
 }
 
 // EPGChoice is one guide choice: Value "" automatic, "dummy", or a guide
@@ -203,6 +206,39 @@ templ channelsFilterForm(p ChannelsPage) {
 	</form>
 }
 
+// ChannelsDeleteConfirm asks before a bulk delete, in #action-status: the
+// selected items posted again with confirm=yes. library.js leaves a
+// confirm standing; Cancel removes it (livetv.js).
+templ ChannelsDeleteConfirm(items []string) {
+	<form
+		data-action-confirm="delete-channels"
+		role="alertdialog"
+		class="glass flex max-w-xl flex-wrap items-center gap-3 rounded-xl border border-border bg-popover px-3 py-2 text-sm text-popover-foreground shadow-lg shadow-black/50"
+		hx-post="/livetv/channels/bulk"
+		hx-target="#action-status"
+		hx-swap="innerHTML"
+	>
+		<input type="hidden" name="op" value="delete"/>
+		<input type="hidden" name="confirm" value="yes"/>
+		for _, it := range items {
+			<input type="hidden" name="item" value={ it }/>
+		}
+		<span>
+			<strong>{ deleteQuestion(len(items)) }</strong>
+			Their numbers, names and guide mappings go with them, and Plex's lineups lose them.
+		</span>
+		@button.Button(button.Props{Type: button.TypeSubmit, Size: button.SizeSm, Variant: button.VariantDestructive}) { Delete }
+		@button.Button(button.Props{Size: button.SizeSm, Variant: button.VariantOutline, Attributes: templ.Attributes{"data-action-dismiss": "true"}}) { Cancel }
+	</form>
+}
+
+func deleteQuestion(n int) string {
+	if n == 1 {
+		return "Delete 1 channel?"
+	}
+	return fmt.Sprintf("Delete %d channels?", n)
+}
+
 templ channelsBulkForm() {
 	<form
 		id="channels-bulk"
@@ -273,7 +309,13 @@ func channelPost(r projection.ChannelRow, vals string) templ.Attributes {
 	}
 }
 
-func rvVals(r projection.ChannelRow) string { return hxVals("rv", r.ResourceVersion) }
+// genVals are an in-place edit's hx-vals: the generation the page read.
+func genVals(r projection.ChannelRow) string { return hxVals("gen", strconv.FormatInt(r.Generation, 10)) }
+
+// bulkValue is a row's selection value: namespace/name@generation.
+func bulkValue(r projection.ChannelRow) string {
+	return r.Namespace + "/" + r.Name + "@" + strconv.FormatInt(r.Generation, 10)
+}
 
 // hxVals is an hx-vals attribute's JSON object of the key, value pairs kv.
 func hxVals(kv ...string) string {
@@ -289,10 +331,10 @@ func hxVals(kv ...string) string {
 templ ChannelRowView(r projection.ChannelRow) {
 	<tr id={ "channel-" + r.Name } data-channel={ r.Namespace + "/" + r.Name } data-slot="table-row" class="border-b border-border transition-colors hover:bg-muted/50">
 		@table.Cell() {
-			<input type="checkbox" name="item" form="channels-bulk" value={ r.Namespace + "/" + r.Name + "@" + r.ResourceVersion } aria-label="Select" data-channel-select/>
+			<input type="checkbox" name="item" form="channels-bulk" value={ bulkValue(r) } aria-label="Select" data-channel-select/>
 		}
 		@table.Cell() {
-			{{ attrs := channelPost(r, hxVals("rv", r.ResourceVersion, "active", fmt.Sprint(!r.Active))) }}
+			{{ attrs := channelPost(r, hxVals("gen", strconv.FormatInt(r.Generation, 10), "active", fmt.Sprint(!r.Active))) }}
 			{{ attrs["hx-trigger"] = "click" }}
 			{{ attrs["aria-label"] = "Active" }}
 			@switchcomp.Switch(switchcomp.Props{Checked: &r.Active, Size: switchcomp.SizeSm, Attributes: attrs})
@@ -305,7 +347,7 @@ templ ChannelRowView(r projection.ChannelRow) {
 				inputmode="decimal"
 				class="h-8 w-20 rounded-md border border-transparent bg-transparent px-1 text-sm tabular-nums hover:border-input focus:border-input"
 				hx-trigger="change"
-				{ channelPost(r, rvVals(r))... }
+				{ channelPost(r, genVals(r))... }
 			/>
 		}
 		@table.Cell() {
@@ -318,7 +360,7 @@ templ ChannelRowView(r projection.ChannelRow) {
 				aria-label="Name"
 				class="h-8 w-full rounded-md border border-transparent bg-transparent px-1 text-sm hover:border-input focus:border-input"
 				hx-trigger="change"
-				{ channelPost(r, rvVals(r))... }
+				{ channelPost(r, genVals(r))... }
 			/>
 			<div class="flex items-center gap-1 px-1 text-xs text-muted-foreground">
 				if r.NameOverridden {
@@ -522,7 +564,7 @@ templ EPGPickerDialog(p EPGPicker) {
 					{{ attrs := templ.Attributes{
 						"data-epg-choice": c.Value,
 						"hx-post":         "/livetv/channels/" + p.Namespace + "/" + p.Name,
-						"hx-vals":         hxVals("rv", p.RV, "epg", c.Value),
+						"hx-vals":         hxVals("gen", strconv.FormatInt(p.Generation, 10), "epg", c.Value),
 						"hx-target":       "#channel-" + p.Name,
 						"hx-swap":         "outerHTML",
 					} }}
