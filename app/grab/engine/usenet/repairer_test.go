@@ -36,6 +36,7 @@ func TestTheEngineRepairsInAChildOfItself(t *testing.T) {
 	lr, ok := newRepairer().(*usenetclient.LibraryRepairer)
 	require.True(t, ok, "the engine's repairer is par2go's")
 	assert.Equal(t, par2child.Exec{}, lr.Runner)
+	assert.Equal(t, 8, lr.FileThreads, "a verify hashes eight files at once, not par2go's two")
 }
 
 // The gauge is registered by every BuildClient, and an engine builds its

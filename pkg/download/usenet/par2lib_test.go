@@ -181,3 +181,25 @@ func TestLibraryRepairerCountsTheBlocksItNeeds(t *testing.T) {
 	assert.ErrorContains(t, err, fmt.Sprintf("%d more recovery blocks needed", res.BlocksNeeded))
 	assert.Equal(t, commonv1alpha1.DownloadFailureMissingArticles, failureReason(context.Background(), err))
 }
+
+// The repairer hands par2 its file threads: the engine sets eight, where
+// par2go's default verifies two of a set's files at once.
+func TestLibraryRepairerPassesItsFileThreads(t *testing.T) {
+	var got par2child.Request
+	r := &LibraryRepairer{Runner: requestRunner{req: &got}, FileThreads: 8}
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "set.par2"), []byte("par2"), 0o644))
+	_, err := r.Repair(context.Background(), dir, "set.par2")
+	require.NoError(t, err)
+	assert.Equal(t, 8, got.FileThreads)
+}
+
+// requestRunner records the request and reports a whole set.
+type requestRunner struct{ req *par2child.Request }
+
+func (r requestRunner) Run(_ context.Context, req par2child.Request) (par2child.Result, error) {
+	*r.req = req
+	return par2child.Result{Status: par2.AllCorrect}, nil
+}
+
+func (requestRunner) Probe(context.Context) error { return nil }

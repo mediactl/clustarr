@@ -46,6 +46,9 @@ type LibraryRepairer struct {
 	// Threads is par2's compute threads; 0 is par2go's default (GOMAXPROCS,
 	// cgroup-aware).
 	Threads int
+	// FileThreads is how many files par2 verifies at once; 0 is par2go's
+	// default, 2.
+	FileThreads int
 	// MemoryLimit is par2's buffer budget in bytes; 0 is par2go's default
 	// (1/8 of the cgroup's limit, at least 256 MiB).
 	MemoryLimit int64
@@ -91,6 +94,7 @@ func (r *LibraryRepairer) Repair(ctx context.Context, dir, indexFile string) (Pa
 		Dir:         abs,
 		Extras:      par2Extras(abs, indexFile),
 		Threads:     r.Threads,
+		FileThreads: r.FileThreads,
 		MemoryLimit: r.MemoryLimit,
 	})
 	span.SetAttributes(

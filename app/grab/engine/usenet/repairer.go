@@ -30,8 +30,14 @@ import (
 // "agent par2-repair" (split spec 2026-10-06 §8.4, §8.6), never in the
 // engine's own process. A variable for one test.
 var newRepairer = func() usenetclient.Repairer {
-	return &usenetclient.LibraryRepairer{Runner: par2child.Exec{}}
+	return &usenetclient.LibraryRepairer{Runner: par2child.Exec{}, FileThreads: par2FileThreads}
 }
+
+// par2FileThreads is how many of a set's files par2 verifies at once. A
+// verify hashes each file with MD5, one core apiece, and par2go's default
+// of two left most of talos-88's sixteen idle once the working area moved
+// onto its NVMe (owner, 2026-10-28), where reads no longer limit it.
+const par2FileThreads = 8
 
 // registerUnreaped exports par2child.Unreaped as
 // clustarr_par2_unreaped_children; a registry that has it already is fine.
