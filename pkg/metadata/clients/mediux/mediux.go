@@ -385,6 +385,15 @@ const (
 // failure nor a limit: a query it cannot run as written.
 var ErrQuery = errors.New("mediux: query refused")
 
+// graphQLError classes a GraphQL error: one naming the credentials is
+// ErrAuth, any other ErrQuery.
+func graphQLError(msg, code string) error {
+	if code == "INVALID_CREDENTIALS" || code == "TOKEN_EXPIRED" || code == "FORBIDDEN" {
+		return fmt.Errorf("mediux: %s: %w", msg, metadata.ErrAuth)
+	}
+	return fmt.Errorf("%w: %s (%s)", ErrQuery, msg, code)
+}
+
 // ShowByTVDB is the TMDB id of the show TheTVDB numbers tvdbID, or
 // ErrNotFound.
 func (c *Client) ShowByTVDB(ctx context.Context, tvdbID string) (string, error) {
@@ -594,9 +603,6 @@ func (c *Client) query(ctx context.Context, q string, vars map[string]any, out a
 	if err != nil {
 		return err
 	}
-	if err := c.h.Check(resp, c.baseURL+"/graphql"); err != nil {
-		return err
-	}
 	var envelope struct {
 		Data   json.RawMessage `json:"data"`
 		Errors []struct {
@@ -606,15 +612,19 @@ func (c *Client) query(ctx context.Context, q string, vars map[string]any, out a
 			} `json:"extensions"`
 		} `json:"errors"`
 	}
+	// Directus answers a query it cannot validate with 400 and its
+	// errors, which say more than the status: read them first.
+	if resp.StatusCode == http.StatusBadRequest && json.Unmarshal(resp.Body, &envelope) == nil && len(envelope.Errors) > 0 {
+		return graphQLError(envelope.Errors[0].Message, envelope.Errors[0].Extensions.Code)
+	}
+	if err := c.h.Check(resp, c.baseURL+"/graphql"); err != nil {
+		return err
+	}
 	if err := c.h.Decode(resp.Body, &envelope); err != nil {
 		return err
 	}
 	if len(envelope.Errors) > 0 {
-		e := envelope.Errors[0]
-		if e.Extensions.Code == "INVALID_CREDENTIALS" || e.Extensions.Code == "TOKEN_EXPIRED" || e.Extensions.Code == "FORBIDDEN" {
-			return fmt.Errorf("mediux: %s: %w", e.Message, metadata.ErrAuth)
-		}
-		return fmt.Errorf("%w: %s (%s)", ErrQuery, e.Message, e.Extensions.Code)
+		return graphQLError(envelope.Errors[0].Message, envelope.Errors[0].Extensions.Code)
 	}
 	if len(envelope.Data) == 0 {
 		return fmt.Errorf("mediux: %w: no data", metadata.ErrDecode)

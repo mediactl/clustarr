@@ -326,13 +326,20 @@ item's own poster) and the `setID` it came from; the answer and
 `status.imageSet.sets` list every set that supplied an image (anchor
 first, then by images supplied, at most 32), with `status.imageSet`'s own
 `setID`, `title` and `creator` the anchor's. A pinned set is the anchor
-and the item's other sets fill its gaps.
+and keeps every image it has, poster or no poster, while the item's other
+sets fill its gaps; a pin MediUX does not find (gone, or a collection set
+the film's list lacks, which no movie-set lookup finds) is passed over and
+named in the reason, never a NotFound that clears the item's images.
+Only the series' own slots are filled when its shape is known: season
+posters of its seasons and the specials, titlecards within each season's
+episode count, so a set with cards past a season's end neither leads the
+season nor fills the status' 1,000 entries.
 
 **Films in collections.** A film's sets are its movie sets plus the
 collection sets' images of that film, asked in a second query
 (`movies_by_id { posters(filter collection_set) ... }`, AURA's shape); a
-GraphQL error from that query alone (`mediux.ErrQuery`) leaves the film
-with its movie sets, since it was not recorded live, while a limit, an auth
+GraphQL error from that query alone (`mediux.ErrQuery`, read from the
+body of Directus' HTTP 400 too) leaves the film with its movie sets, since it was not recorded live, while a limit, an auth
 failure or a transport error fails the lookup as before.
 
 **Fallback** is per slot and unchanged: `spec.artwork` and

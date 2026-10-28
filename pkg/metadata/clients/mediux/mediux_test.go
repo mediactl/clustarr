@@ -198,7 +198,9 @@ func TestAFilmsSetsAndACollectionsSetsAreRead(t *testing.T) {
 func TestAFilmKeepsItsSetsWhenTheCollectionQueryIsRefused(t *testing.T) {
 	movie, err := os.ReadFile(filepath.Join(fixtures, "movie_sets_328387.json"))
 	require.NoError(t, err)
+	// Directus answers a query it cannot validate with 400 and the errors.
 	second := func(w http.ResponseWriter) {
+		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte(`{"errors":[{"message":"Cannot query field \"collection_set\" on type \"posters\".","extensions":{"code":"GRAPHQL_VALIDATION"}}]}`))
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

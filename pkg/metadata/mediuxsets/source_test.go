@@ -74,7 +74,14 @@ func recorded(t *testing.T) (*mediux.Client, *atomic.Int32) {
 			}
 			file = "show_sets_105248.json"
 		case strings.Contains(req.Query, "show_sets_by_id"):
+			if req.Variables["id"] != "41471" {
+				_, _ = w.Write([]byte(`{"data":{"show_sets_by_id":null}}`))
+				return
+			}
 			file = "show_set_41471.json"
+		case strings.Contains(req.Query, "movie_sets_by_id"):
+			_, _ = w.Write([]byte(`{"data":{"movie_sets_by_id":null}}`))
+			return
 		case strings.Contains(req.Query, "movies_by_id") && strings.Contains(req.Query, "collection_set"):
 			_, _ = w.Write([]byte(`{"data":{"movies_by_id":{"id":"328387","posters":[],"backdrops":[]}}}`))
 			return
@@ -199,4 +206,24 @@ func TestAPinnedSetsGapsAreFilledFromTheItemsSets(t *testing.T) {
 	assert.Equal(t, "artificial_grey", set.Creator)
 	assert.Len(t, set.Images, 24)
 	assert.Equal(t, "41471", set.Images[0].SetID, "the show poster from the set that has one")
+}
+
+// A pin MediUX no longer has (or a collection set's, which no movie-set
+// lookup finds) is passed over, said so, and the item's sets composed as
+// if unpinned: never a NotFound that clears the item's images.
+func TestAPinMediUXCannotFindIsPassedOver(t *testing.T) {
+	c, _ := recorded(t)
+	src := &mediuxsets.Source{Client: c, Lookup: mediuxsets.Direct{Client: c}, Policy: mediux.Policy{Languages: []string{"English"}}}
+	set, err := src.ImageSet(context.Background(), metadata.ImageSetQuery{Kind: commonv1.MediaKindSeries, TMDBID: "105248", SetID: "999", Seasons: []int32{1, 2}, Episodes: map[int32]int32{1: 10, 2: 10}})
+	require.NoError(t, err)
+	assert.Equal(t, "41471", set.SetID)
+	assert.Contains(t, set.Reason, "pinned set 999 not found")
+
+	movie, err := src.ImageSet(context.Background(), metadata.ImageSetQuery{Kind: commonv1.MediaKindMovie, TMDBID: "328387", SetID: "2133"})
+	require.NoError(t, err)
+	assert.Equal(t, "59100", movie.SetID)
+	assert.Contains(t, movie.Reason, "pinned set 2133 not found")
+
+	_, err = src.ImageSet(context.Background(), metadata.ImageSetQuery{Kind: commonv1.MediaKindSeries, SetID: "999"})
+	require.ErrorIs(t, err, metadata.ErrNotFound, "a lost pin with no ids to compose from is nothing")
 }

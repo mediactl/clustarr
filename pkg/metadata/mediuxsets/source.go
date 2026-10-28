@@ -91,20 +91,33 @@ func (s *Source) series(ctx context.Context, q metadata.ImageSetQuery) (*metadat
 	if err != nil {
 		return nil, err
 	}
-	if q.SetID != "" && !slices.ContainsFunc(sets, func(x mediux.ShowSet) bool { return x.ID == q.SetID }) {
-		set, err := s.Client.ShowSet(ctx, q.SetID)
-		if err != nil {
+	pin, lost := q.SetID, ""
+	if pin != "" && !slices.ContainsFunc(sets, func(x mediux.ShowSet) bool { return x.ID == pin }) {
+		set, err := s.Client.ShowSet(ctx, pin)
+		switch {
+		case errors.Is(err, metadata.ErrNotFound):
+			pin, lost = "", pin // passed over: the item's sets still compose
+		case err != nil:
 			return nil, err
+		default:
+			sets = append([]mediux.ShowSet{*set}, sets...)
 		}
-		sets = append([]mediux.ShowSet{*set}, sets...)
 	}
 	p := s.Policy
 	p.Seasons, p.Episodes = q.Seasons, q.Episodes
-	c := mediux.ComposeShow(sets, p, q.SetID)
+	c := mediux.ComposeShow(sets, p, pin)
 	if c == nil {
-		return nil, fmt.Errorf("mediux: none of the series' %d sets has an image: %w", len(sets), metadata.ErrNotFound)
+		return nil, fmt.Errorf("mediux: none of the series' %d sets has an image%s: %w", len(sets), lostNote(lost), metadata.ErrNotFound)
 	}
-	return s.answer(c), nil
+	return s.answer(c, lost), nil
+}
+
+// lostNote is the reason's word on a pin MediUX did not find.
+func lostNote(id string) string {
+	if id == "" {
+		return ""
+	}
+	return "; pinned set " + id + " not found"
 }
 
 // showSets is the series' sets by its TMDB id, else its TheTVDB id mapped
@@ -147,28 +160,36 @@ func (s *Source) movie(ctx context.Context, q metadata.ImageSetQuery) (*metadata
 	} else if q.SetID == "" {
 		return nil, fmt.Errorf("mediux: a movie needs a TMDB id: %w", metadata.ErrNotFound)
 	}
-	pinned := func(x mediux.MovieSet) bool { return x.ID == q.SetID }
-	if q.SetID != "" && !slices.ContainsFunc(m.Sets, pinned) && !slices.ContainsFunc(m.CollectionSets, pinned) {
-		set, err := s.Client.MovieSet(ctx, q.SetID)
-		if err != nil {
+	pin, lost := q.SetID, ""
+	pinned := func(x mediux.MovieSet) bool { return x.ID == pin }
+	if pin != "" && !slices.ContainsFunc(m.Sets, pinned) && !slices.ContainsFunc(m.CollectionSets, pinned) {
+		// A collection set is never a movie set; one the film's list lacks
+		// is passed over, as a set MediUX no longer has.
+		set, err := s.Client.MovieSet(ctx, pin)
+		switch {
+		case errors.Is(err, metadata.ErrNotFound):
+			pin, lost = "", pin
+		case err != nil:
 			return nil, err
+		default:
+			cp := *m
+			cp.Sets = append([]mediux.MovieSet{*set}, m.Sets...)
+			m = &cp
 		}
-		cp := *m
-		cp.Sets = append([]mediux.MovieSet{*set}, m.Sets...)
-		m = &cp
 	}
-	c := mediux.ComposeMovie(m, s.Policy, q.SetID)
+	c := mediux.ComposeMovie(m, s.Policy, pin)
 	if c == nil {
-		return nil, fmt.Errorf("mediux: none of the film's %d sets has an image: %w", len(m.Sets)+len(m.CollectionSets), metadata.ErrNotFound)
+		return nil, fmt.Errorf("mediux: none of the film's %d sets has an image%s: %w", len(m.Sets)+len(m.CollectionSets), lostNote(lost), metadata.ErrNotFound)
 	}
-	return s.answer(c), nil
+	return s.answer(c, lost), nil
 }
 
-// answer is a composition as the provider's answer.
-func (s *Source) answer(c *mediux.Composition) *metadata.ImageSet {
+// answer is a composition as the provider's answer; lost is a pin MediUX
+// did not find, which the reason names.
+func (s *Source) answer(c *mediux.Composition, lost string) *metadata.ImageSet {
 	out := &metadata.ImageSet{
 		Provider: "mediux", SetID: c.Anchor.ID, Title: c.Anchor.Title, Creator: c.Anchor.Creator,
-		URL: mediux.SetURL(c.Anchor.Kind, c.Anchor.ID), UpdatedAt: c.Anchor.Updated, Reason: c.Reason,
+		URL: mediux.SetURL(c.Anchor.Kind, c.Anchor.ID), UpdatedAt: c.Anchor.Updated, Reason: c.Reason + lostNote(lost),
 	}
 	for _, p := range c.Picks {
 		img := metadata.ImageSetImage{URL: s.Client.ImageURL(p.File), SetID: p.Set, Season: p.Slot.Season, Episode: p.Slot.Episode}

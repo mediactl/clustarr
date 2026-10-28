@@ -20,6 +20,7 @@ package mediux
 import (
 	"cmp"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -129,23 +130,15 @@ func (c *candidate) seasonPosters(p Policy) int {
 	return n
 }
 
-// cards is how many titlecards c has for season (every season when
-// season is nil): at most the series' episodes when the policy knows them.
-func (c *candidate) cards(p Policy, season *int32) int {
-	by := map[int32]int{}
+// cards is how many titlecards c has for season, every season when season
+// is nil. compose has already dropped the cards of episodes the series
+// does not have (Policy.inShape), so a set is judged on the series alone.
+func (c *candidate) cards(season *int32) int {
+	n := 0
 	for s := range c.files {
 		if s.Kind == SlotTitlecard && (season == nil || s.Season == *season) {
-			by[s.Season]++
+			n++
 		}
-	}
-	n := 0
-	for s, k := range by {
-		if want, ok := p.Episodes[s]; ok && len(p.Episodes) > 0 {
-			k = min(k, int(want))
-		} else if len(p.Episodes) > 0 {
-			k = 0 // a season the series does not have
-		}
-		n += k
 	}
 	return n
 }
@@ -240,6 +233,9 @@ func best(cands []*candidate, k func(*candidate) key) *candidate {
 }
 
 func compose(all []*candidate, p Policy, pinned string) *Composition {
+	for _, c := range all {
+		maps.DeleteFunc(c.files, func(s Slot, _ File) bool { return !p.inShape(s) })
+	}
 	cands := slices.DeleteFunc(slices.Clone(all), func(c *candidate) bool { return len(c.files) == 0 })
 	if len(cands) == 0 {
 		return nil
@@ -257,10 +253,13 @@ func compose(all []*candidate, p Policy, pinned string) *Composition {
 			anchor = nil
 		}
 	}
+	// pin is the owner's pinned set, which keeps every image it has: it
+	// ranks first for each of its own slots, whatever leads the group.
+	pin := anchor // nil unless pinned names one of the sets
 	if anchor == nil {
 		anchor = best(cands, func(c *candidate) key {
 			f := c.files[poster]
-			return key{bit(c.has(poster)), p.creatorRank(c), p.languageScore(f.Language), c.seasonPosters(p), c.cards(p, nil), bit(c.has(backdrop)), kindScore(c), popScore(c), updated(c), -c.order}
+			return key{bit(c.has(poster)), p.creatorRank(c), p.languageScore(f.Language), c.seasonPosters(p), c.cards(nil), bit(c.has(backdrop)), kindScore(c), popScore(c), updated(c), -c.order}
 		})
 	}
 
@@ -269,7 +268,7 @@ func compose(all []*candidate, p Policy, pinned string) *Composition {
 	group := func(c *candidate) int { return bit(c.has(poster)) + c.seasonPosters(p) + bit(c.has(backdrop)) }
 	posterKey := func(lead *candidate, s Slot) func(*candidate) key {
 		return func(c *candidate) key {
-			return key{bit(c == lead), bit(sameCreator(c, lead)), p.creatorRank(c), p.languageScore(c.files[s].Language), group(c), kindScore(c), popScore(c), updated(c), -c.order}
+			return key{bit(c == pin), bit(c == lead), bit(sameCreator(c, lead)), p.creatorRank(c), p.languageScore(c.files[s].Language), group(c), kindScore(c), popScore(c), updated(c), -c.order}
 		}
 	}
 	posterLead := anchor
@@ -289,12 +288,12 @@ func compose(all []*candidate, p Policy, pinned string) *Composition {
 		}
 		var with []*candidate
 		for _, c := range cands {
-			if c.cards(Policy{}, &season) > 0 {
+			if c.cards(&season) > 0 {
 				with = append(with, c)
 			}
 		}
 		l := best(with, func(c *candidate) key {
-			return key{bit(sameCreator(c, anchor)), p.creatorRank(c), c.cards(Policy{}, &season), p.languageScore(c.firstCardLanguage(season)), kindScore(c), popScore(c), updated(c), -c.order}
+			return key{bit(c == pin), bit(sameCreator(c, anchor)), p.creatorRank(c), c.cards(&season), p.languageScore(c.firstCardLanguage(season)), kindScore(c), popScore(c), updated(c), -c.order}
 		})
 		seasonLead[season] = l
 		return l
@@ -321,7 +320,7 @@ func compose(all []*candidate, p Policy, pinned string) *Composition {
 			lead := leadOf(s.Season)
 			season := s.Season
 			k = func(c *candidate) key {
-				return key{bit(c == lead), bit(sameCreator(c, lead)), p.creatorRank(c), p.languageScore(c.files[s].Language), c.cards(Policy{}, &season), kindScore(c), popScore(c), updated(c), -c.order}
+				return key{bit(c == pin), bit(c == lead), bit(sameCreator(c, lead)), p.creatorRank(c), p.languageScore(c.files[s].Language), c.cards(&season), kindScore(c), popScore(c), updated(c), -c.order}
 			}
 		default:
 			k = posterKey(posterLead, s)
@@ -331,9 +330,9 @@ func compose(all []*candidate, p Policy, pinned string) *Composition {
 		used[c]++
 	}
 
-	// A pinned or chosen anchor that every slot went past is no anchor:
-	// the set that supplied the most is.
-	if used[anchor] == 0 {
+	// A chosen anchor that every slot went past is no anchor: the set that
+	// supplied the most is. A pin stays the anchor.
+	if pin == nil && used[anchor] == 0 {
 		anchor = best(cands, func(c *candidate) key { return key{used[c], -c.order} })
 	}
 	out.Anchor = anchor.ref
@@ -380,8 +379,31 @@ func (p Policy) why(c *candidate, pinned string) string {
 	if c.ref.Popularity != nil {
 		rank = fmt.Sprintf("popularity %d", *c.ref.Popularity)
 	}
-	why = append(why, fmt.Sprintf("%s, %d titlecards, %s", seasons, c.cards(p, nil), rank))
+	why = append(why, fmt.Sprintf("%s, %d titlecards, %s", seasons, c.cards(nil), rank))
 	return strings.Join(why, "; ")
+}
+
+// inShape reports whether the series has slot s, as far as the policy
+// knows its shape: a season poster of one of its seasons (or the
+// specials'), a titlecard of an episode within its season's count. A
+// film's slots, and a series' the policy does not describe, are kept.
+func (p Policy) inShape(s Slot) bool {
+	switch s.Kind {
+	case SlotSeasonPoster:
+		return len(p.Seasons) == 0 || s.Season == 0 || slices.Contains(p.Seasons, s.Season)
+	case SlotTitlecard:
+		if s.Season == 0 {
+			return true // the specials' count is not the policy's
+		}
+		if len(p.Seasons) > 0 && !slices.Contains(p.Seasons, s.Season) {
+			return false
+		}
+		if want, ok := p.Episodes[s.Season]; ok && want > 0 {
+			return s.Episode <= want
+		}
+		return true
+	}
+	return true
 }
 
 // creatorRank is how early c's creator is among the preferred, 0 when not.

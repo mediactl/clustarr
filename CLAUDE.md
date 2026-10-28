@@ -851,9 +851,13 @@ the first's. The proxy allowlist has `images.mediux.io` too, the host the
 chosen sets link (`api.mediux.pro` refuses `key=jpg`). The dialog's second
 form sets the policy per item (`ui/actions.SetImageSetPolicy`): untick
 "choose automatically" for `spec.imageSet: none`, or pin a set by id or
-page URL into `spec.imageSetID`, which anchors the composition (fetched
-by id when the item's list lacks it, taken alone when the item has no id)
-and a changed pin asks for at once. A MediUX limit longer than five minutes defers the record and acks,
+page URL into `spec.imageSetID`, which anchors the composition and keeps
+every image it has (fetched by id when the item's list lacks it, taken
+alone when the item has no id, passed over and named in the reason when
+MediUX does not find it, never a NotFound that clears the item's images)
+and a changed pin asks for at once. Only a series' own slots are filled
+when its shape is known (its seasons and the specials, each season's
+episode count). A MediUX limit longer than five minutes defers the record and acks,
 and the stage republishes the task at the reset (`Decision.Resume`,
 `MsgIDForImageSetAt`), as the markers worker does.
 A season named by TheTVDB ("Book 1: Water", "Steel Ball Run";

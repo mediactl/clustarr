@@ -265,3 +265,86 @@ func refOf(c *mediux.Composition, id string) mediux.SetRef {
 	}
 	return mediux.SetRef{ID: id}
 }
+
+// only is the recorded sets with ids, in that order.
+func only(t *testing.T, ids ...string) []mediux.ShowSet {
+	t.Helper()
+	by := map[string]mediux.ShowSet{}
+	for _, s := range edgerunners(t) {
+		by[s.ID] = s
+	}
+	var out []mediux.ShowSet
+	for _, id := range ids {
+		s, ok := by[id]
+		require.True(t, ok, id)
+		out = append(out, s)
+	}
+	return out
+}
+
+// A pinned set keeps every image it has, though it has no poster: ReaperOf
+// Burgers' backdrop and season 1 titlecards stay its own, and only what it
+// lacks comes from the others.
+func TestAPinnedSetKeepsItsOwnImages(t *testing.T) {
+	c := mediux.ComposeShow(edgerunners(t), series(), "11388")
+	require.NotNil(t, c)
+	require.Equal(t, "11388", c.Anchor.ID)
+	require.Contains(t, c.Reason, "pinned")
+	got := from(c)
+	require.Equal(t, "11388", got[backdrop], "the pin's own backdrop")
+	for _, s := range cards(1, 10) {
+		require.Equal(t, "11388", got[s], "%+v", s)
+	}
+	require.Equal(t, "41471", got[poster])
+
+	// A pin of season posters alone keeps them.
+	sets := edgerunners(t)
+	for i := range sets {
+		if sets[i].ID == "61200" {
+			sets[i].Poster = nil
+		}
+	}
+	c = mediux.ComposeShow(sets, series(), "61200")
+	require.Equal(t, "61200", c.Anchor.ID)
+	got = from(c)
+	require.Equal(t, "61200", got[season1])
+	require.Equal(t, "61200", got[season2])
+
+	// A pin tied with its creator's other set wins the tie.
+	twin := only(t, "61211")[0]
+	twin.ID = "61212"
+	c = mediux.ComposeShow(append(only(t, "61211"), twin), series(), "61212")
+	require.Equal(t, "61212", c.Anchor.ID)
+	for _, s := range append(cards(1, 10), cards(2, 10)...) {
+		require.Equal(t, "61212", from(c)[s], "%+v", s)
+	}
+}
+
+// Images for seasons and episodes the series does not have are left out,
+// and a season's titlecard lead is judged on the episodes it has: a set
+// with cards past the season's end does not outrank an exact one.
+func TestOnlyTheSeriesSlotsAreFilled(t *testing.T) {
+	p := mediux.Policy{Languages: []string{"English"}, Seasons: []int32{1}, Episodes: map[int32]int32{1: 5}}
+	c := mediux.ComposeShow(only(t, "41471"), p, "")
+	require.NotNil(t, c)
+	got := from(c)
+	require.Len(t, got, 2+1+5, "poster, backdrop, season 1's poster and its five episodes")
+	_, s2 := got[season2]
+	require.False(t, s2)
+
+	// 61226 (unranked) and 41471 (popularity 2) both have season 1's ten
+	// cards; given ten more past the end, the unranked set would lead on
+	// the raw count.
+	long := only(t, "61226")[0]
+	for _, tc := range long.Titlecards {
+		if tc.Season == 1 {
+			extra := tc
+			extra.Episode += 10
+			long.Titlecards = append(long.Titlecards, extra)
+		}
+	}
+	c = mediux.ComposeShow([]mediux.ShowSet{long, only(t, "41471")[0]}, mediux.Policy{Seasons: []int32{1}, Episodes: map[int32]int32{1: 10}}, "")
+	for _, s := range cards(1, 10) {
+		require.Equal(t, "41471", from(c)[s], "%+v", s)
+	}
+}
