@@ -212,6 +212,13 @@ func (t *Tuner) render(p *provider) {
 		}
 	}
 	t.startArtLookups(p) // the titles the builds found no artwork for
+	logos := map[string]bool{}
+	for _, lc := range lineupChans {
+		if lc.Logo != "" {
+			logos[lc.Logo] = true
+		}
+	}
+	go t.prefetchLogos(p, logos)
 
 	p.mu.Lock()
 	if p.removed || p.renderGen != gen {

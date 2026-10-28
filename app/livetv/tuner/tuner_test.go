@@ -23,6 +23,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -1134,4 +1137,110 @@ func TestTheStoredGuideCarriesTheLogosPlexIsGiven(t *testing.T) {
 		return err == nil
 	}, 5*time.Second, 10*time.Millisecond)
 	assert.Contains(t, string(whole), `<channel id="1001"><display-name>BBC One</display-name><icon src="`+p.srv.URL+`/picons/news.png">`)
+}
+
+// logoServer serves a dark wordmark on transparency at /dark.png, a red one
+// at /red.png and 404 elsewhere, counting requests by path.
+func logoServer(t *testing.T) (*httptest.Server, func(path string) int32) {
+	t.Helper()
+	encode := func(c color.NRGBA) []byte {
+		img := image.NewNRGBA(image.Rect(0, 0, 40, 20))
+		for y := 6; y < 14; y++ {
+			for x := 4; x < 36; x++ {
+				img.SetNRGBA(x, y, c)
+			}
+		}
+		var b bytes.Buffer
+		require.NoError(t, png.Encode(&b, img))
+		return b.Bytes()
+	}
+	dark, red := encode(color.NRGBA{A: 255}), encode(color.NRGBA{R: 200, G: 30, B: 30, A: 255})
+	var hits sync.Map
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c, _ := hits.LoadOrStore(r.URL.Path, new(atomic.Int32))
+		c.(*atomic.Int32).Add(1)
+		switch r.URL.Path {
+		case "/dark.png":
+			_, _ = w.Write(dark)
+		case "/red.png":
+			_, _ = w.Write(red)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv, func(path string) int32 {
+		c, ok := hits.Load(path)
+		if !ok {
+			return 0
+		}
+		return c.(*atomic.Int32).Load()
+	}
+}
+
+// withLogos gives news-a and news-b logos of their own on srv.
+func withLogos(cfg tuner.Config, a, b string) tuner.Config {
+	for i := range cfg.Channels {
+		switch cfg.Channels[i].Object {
+		case "news-a":
+			cfg.Channels[i].Logo = a
+		case "news-b":
+			cfg.Channels[i].Logo = b
+		}
+	}
+	return cfg
+}
+
+// TestEveryActiveChannelsLogoIsStored: the tuner keeps each active channel's
+// logo, processed as the logos/<n>.png route serves it, in the store, so the
+// ui shows it without a request to the logo's host; a logo already stored
+// is not fetched again.
+func TestEveryActiveChannelsLogoIsStored(t *testing.T) {
+	p := newProvider(t)
+	logos, hits := logoServer(t)
+	cfg := withLogos(config(p.srv.URL), logos.URL+"/dark.png", logos.URL+"/red.png")
+	store := newStore(t)
+	h := start(t, store, cfg)
+	h.fetched(t)
+	ctx := context.Background()
+	for _, src := range []string{logos.URL + "/dark.png", logos.URL + "/red.png"} {
+		require.Eventually(t, func() bool {
+			_, err := store.Info(ctx, livetvstore.LogoObject(key, src))
+			return err == nil
+		}, 5*time.Second, 10*time.Millisecond, src)
+	}
+	_, rc, err := store.Get(ctx, livetvstore.LogoObject(key, logos.URL+"/dark.png"))
+	require.NoError(t, err)
+	img, err := png.Decode(rc)
+	_ = rc.Close()
+	require.NoError(t, err)
+	assert.Equal(t, color.NRGBA{R: 255, G: 255, B: 255, A: 255}, color.NRGBAModel.Convert(img.At(10, 10)), "the dark wordmark reads white")
+
+	cfg.Tuners = 3 // a config change renders again
+	h.tn.Apply(cfg)
+	require.Eventually(t, func() bool { s, _ := h.tn.Snapshot(key); return s.Tuners == 3 }, 5*time.Second, 10*time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
+	assert.Equal(t, int32(1), hits("/dark.png"), "a stored logo is not fetched again")
+	assert.Equal(t, int32(1), hits("/red.png"))
+}
+
+// TestALogoThatFailsWaitsAnHourBeforeItIsFetchedAgain.
+func TestALogoThatFailsWaitsAnHourBeforeItIsFetchedAgain(t *testing.T) {
+	p := newProvider(t)
+	logos, hits := logoServer(t)
+	cfg := withLogos(config(p.srv.URL), logos.URL+"/gone.png", "")
+	h := start(t, newStore(t), cfg)
+	h.fetched(t)
+	require.Eventually(t, func() bool { return hits("/gone.png") == 1 }, 5*time.Second, 10*time.Millisecond)
+
+	cfg.Tuners = 3
+	h.tn.Apply(cfg)
+	require.Eventually(t, func() bool { s, _ := h.tn.Snapshot(key); return s.Tuners == 3 }, 5*time.Second, 10*time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
+	assert.Equal(t, int32(1), hits("/gone.png"), "not again within the hour")
+
+	h.clock.Add(int64(61 * time.Minute))
+	cfg.Tuners = 4
+	h.tn.Apply(cfg)
+	require.Eventually(t, func() bool { return hits("/gone.png") == 2 }, 5*time.Second, 10*time.Millisecond, "asked again after the hour")
 }

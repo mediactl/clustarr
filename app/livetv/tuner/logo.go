@@ -56,6 +56,11 @@ const (
 	logoPlaceholder = "http://clustarr-livetv.invalid"
 	maxLogoBytes    = 4 << 20
 	logoFetchTime   = 15 * time.Second
+	// logoRetry is how long a logo that failed to load waits before a
+	// prefetch pass asks for it again; logoPrefetchWidth how many a pass
+	// fetches at once.
+	logoRetry         = time.Hour
+	logoPrefetchWidth = 4
 	// logoDarkShare is how much of a logo's opaque pixels must be dark, and
 	// logoTransparentShare how much of it transparent, for it to be dark text
 	// on transparency.
@@ -85,32 +90,100 @@ func (t *Tuner) serveLogo(w http.ResponseWriter, r *http.Request, p *provider, n
 		http.NotFound(w, r)
 		return
 	}
-	name := livetvstore.LogoObject(p.key, source)
-	if b, ok := t.readBytes(name); ok {
+	if b, ok := t.readBytes(livetvstore.LogoObject(p.key, source)); ok {
 		writeLogo(w, b)
 		return
 	}
-	b, err := t.logoFlight.do(source, func() ([]byte, error) {
-		ctx, cancel := context.WithTimeout(r.Context(), logoFetchTime)
-		defer cancel()
-		b, err := processLogo(ctx, t.o.Fetch, source)
-		if err != nil {
-			return nil, err
-		}
-		if _, err := t.o.Store.Put(t.base, name, bytes.NewReader(b), events.ObjectMeta{
-			Headers:  map[string]string{"Content-Type": "image/png"},
-			Metadata: map[string]string{"source": source},
-		}); err != nil {
-			logging.FromContext(t.base).Warn("livetv: cache a channel logo", "error", err)
-		}
-		return b, nil
-	})
+	b, err := t.storeLogo(r.Context(), p, source)
 	if err != nil {
 		logging.FromContext(r.Context()).Info("livetv: a channel logo falls back to its source", "number", number, "error", err.Error())
 		http.Redirect(w, r, source, http.StatusFound)
 		return
 	}
 	writeLogo(w, b)
+}
+
+// storeLogo fetches source, processes it and stores it under its
+// LogoObject, once however many ask at a time.
+func (t *Tuner) storeLogo(ctx context.Context, p *provider, source string) ([]byte, error) {
+	name := livetvstore.LogoObject(p.key, source)
+	return t.logoFlight.do(source, func() ([]byte, error) {
+		ctx, cancel := context.WithTimeout(ctx, logoFetchTime)
+		defer cancel()
+		b, err := processLogo(ctx, t.o.Fetch, source)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := t.o.Store.Put(t.base, name, bytes.NewReader(b), logoMeta(name, source)); err != nil {
+			logging.FromContext(t.base).Warn("livetv: cache a channel logo", "error", err)
+		}
+		return b, nil
+	})
+}
+
+// logoMeta is a stored logo's metadata: the store's set (objectMeta), a PNG
+// and not gzip, and the source it was processed from.
+func logoMeta(name, source string) events.ObjectMeta {
+	m := objectMeta(name, "image/png")
+	delete(m.Headers, "Content-Encoding")
+	m.Metadata["source"] = source
+	return m
+}
+
+// prefetchLogos stores every logo of sources the store does not hold yet
+// (the design's §6, for the ui, which never fetches a provider's image
+// itself): one pass per provider at a time, logoPrefetchWidth fetches at
+// once, a source that failed within logoRetry passed over.
+func (t *Tuner) prefetchLogos(p *provider, sources map[string]bool) {
+	if t.o.Store == nil || len(sources) == 0 {
+		return
+	}
+	p.mu.Lock()
+	if p.fetching["logos"] {
+		p.mu.Unlock()
+		return
+	}
+	p.fetching["logos"] = true
+	now := t.o.Now()
+	var todo []string
+	for s := range sources {
+		if at, ok := p.logoMisses[s]; ok && now.Sub(at) < logoRetry {
+			continue
+		}
+		todo = append(todo, s)
+	}
+	for s := range p.logoMisses {
+		if !sources[s] {
+			delete(p.logoMisses, s)
+		}
+	}
+	p.mu.Unlock()
+	defer func() {
+		p.mu.Lock()
+		delete(p.fetching, "logos")
+		p.mu.Unlock()
+	}()
+
+	sem := make(chan struct{}, logoPrefetchWidth)
+	var wg sync.WaitGroup
+	for _, s := range todo {
+		if _, err := t.o.Store.Info(t.base, livetvstore.LogoObject(p.key, s)); err == nil {
+			continue
+		}
+		wg.Add(1)
+		sem <- struct{}{}
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			if _, err := t.storeLogo(t.base, p, s); err != nil {
+				p.mu.Lock()
+				p.logoMisses[s] = t.o.Now()
+				p.mu.Unlock()
+				logging.FromContext(t.base).Info("livetv: a channel logo could not be stored", "provider", label(p.key), "error", err.Error())
+			}
+		}()
+	}
+	wg.Wait()
 }
 
 func writeLogo(w http.ResponseWriter, b []byte) {

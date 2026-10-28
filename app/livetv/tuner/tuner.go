@@ -145,9 +145,12 @@ type provider struct {
 
 	streams   map[string]string // number -> upstream URL
 	languages map[string]string // number -> the ISO 639-2 code the channel forces, "" for the provider's fill
-	// logoSources is each channel's logo as the playlist or spec gave it;
-	// the guide and playlist point at the tuner's processed copy.
+	// logoSources is each channel's logo as the playlist or spec gave it,
+	// which the logos/<n>.png route serves processed.
 	logoSources map[string]string
+	// logoMisses is when each logo source last failed to load, so a
+	// prefetch pass asks it again only after logoRetry.
+	logoMisses map[string]time.Time
 	// art is the guide's programme artwork, loaded from the store on first
 	// use.
 	art *programmeArt
@@ -250,7 +253,7 @@ func (t *Tuner) Apply(c Config) {
 	t.mu.Lock()
 	p, ok := t.providers[c.Key]
 	if !ok {
-		p = &provider{key: c.Key, fetching: map[string]bool{}, playlistDue: true, accountDue: true, guide: guide{due: true}}
+		p = &provider{key: c.Key, fetching: map[string]bool{}, logoMisses: map[string]time.Time{}, playlistDue: true, accountDue: true, guide: guide{due: true}}
 		t.providers[c.Key] = p
 	}
 	t.mu.Unlock()
