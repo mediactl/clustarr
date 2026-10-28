@@ -1,11 +1,29 @@
 # Live TV cutover: link-local proxies to direct tuner URIs
 
-**Status:** written 2026-10-27; nothing here has run. Every step that writes to the cluster or to
-PMS needs the owner's explicit OK and an announcement to the other sessions first (no deploy
-while another is in flight; never write to PMS while `/activities` lists `provider.epg.load`).
-The owner approved the cutover once the other changes are confirmed working (the direct-tuners
-design §10): task 0's recording proves PMS keeps a device URI's path, Phase A is built and its
-guards pass, and the owner picks the deploy.
+**Status:** run on talos on 2026-10-28 by another session (Helm rev 143, chart 0.6.0,
+cluster-bootstrap b9353e6): within about 30 s of the manager's start the converger recorded
+`DVRDeviceReplaced`, `DVRProvisioned` and `DVRChannelMapSaved` (257 channels); PMS lists DVR 12
+on device 11 at the block's `uri` with its path kept (task 0 holds in practice), no device at
+`169.254.47.1` remains, `discover.json` answers from a Plex pod and a stream delivered. There were
+no recording rules to re-create. What the run found beyond the steps below:
+
+- **The chart.** Chart 0.6.0 was published from a branch (`chart-0.6.0`, 529e94fa: 79f79f13 plus
+  `Chart.yaml` 0.6.0) pinning cluster-plex **0.5.2**: main's pin of 0.4.1 would have dropped the
+  live HTTPRoute and the maintenance Jobs' TTL, which 0.5.3 already ran.
+- **The deploy script.** `hack/clustarr-deploy.sh`'s `APPLIED_REF` was stale after a full
+  Terraform apply, so its config-patches reset made `module.cluster` diff and the script refused;
+  the plan was made with the config patches at HEAD and the same outside-clustarr check.
+- **Multi-arch images.** With the HA values the ui runs on the arm64 control plane: a clustarr
+  image built amd64-only left it in ImagePullBackOff for about 8 minutes, until an arm64 build was
+  added. Build every clustarr image for both.
+- **All-digit tags.** cluster-plex's 2004734 is all digits, so its alias `g2004734` was deployed
+  (as every all-digit tag is).
+
+Every step that writes to the cluster or to PMS needs the owner's explicit OK and an announcement
+to the other sessions first (no deploy while another is in flight; never write to PMS while
+`/activities` lists `provider.epg.load`). The owner approved the cutover once the other changes
+were confirmed working (the direct-tuners design §10), and waived task 0's recording (2026-10-27,
+"No need for proof run - working").
 
 **What changes.** Until this cutover every Plex pod proxied a link-local port per block
 (`http://169.254.47.1:<port>`) to clustarr's livetv Service. After it, Plex is given each block's

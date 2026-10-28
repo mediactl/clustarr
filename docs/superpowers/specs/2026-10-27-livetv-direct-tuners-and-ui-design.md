@@ -572,8 +572,10 @@ does since 2026-10-07.
 
 ## 12. As built, Phase A (2026-10-27)
 
-Built on clustarr main and cluster-plex main; not deployed, and task 0's
-PMS recording has not run (it waits for the owner's OK).
+Built on clustarr main and cluster-plex main, and cut over on talos on
+2026-10-28 (Helm rev 143, chart 0.6.0; the runbook's status line records
+the run and what it found). The owner waived task 0's recording; PMS kept
+the device URI's path, as Dispatcharr's users find.
 
 - clustarr, "feat(livetv): the tuner serves each block under
   /hdhr/<deviceID>, the path Plex is given": §3.1 as written.
