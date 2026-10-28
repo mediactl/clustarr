@@ -768,3 +768,26 @@ func TestConcurrentDrawsAreBounded(t *testing.T) {
 		})
 	}
 }
+
+// A poster from a MediUX image set is the item's original like any other
+// (status.imageSet's poster is a custom source the gateway fetches, owner
+// 2026-10-27: "apply overlays to posters chosen from MediUX"), so the
+// overlay is drawn on it and names it as its source.
+func TestAnImageSetsPosterIsOverlaid(t *testing.T) {
+	ctx := context.Background()
+	f := newFixture(t, commonv1.MediaKindSeries, "imageset", catalogv1alpha1.RatingSourceMetacritic)
+	const mediux = "https://images.mediux.io/assets/ea39f814-5cc8-4f3b-91dc-891e4c681cf3?v=20261016195509&key=jpg"
+	var err error
+	f.info, err = f.store.Put(ctx, f.originalKey(), bytes.NewReader(f.poster),
+		events.ObjectMeta{Headers: map[string]string{"Content-Type": "image/png", "Clustarr-Source": "custom", "Clustarr-Source-URL": mediux}})
+	require.NoError(t, err)
+	f.gateway(f.ratings, true)
+
+	require.NoError(t, f.handle())
+
+	info, err := f.store.Info(ctx, f.overlayKey())
+	require.NoError(t, err, "the set's poster is overlaid")
+	assert.Equal(t, "render", info.Headers["Clustarr-Source"])
+	assert.Equal(t, mediux, info.Headers["Clustarr-Source-URL"], "drawn on the MediUX poster")
+	assert.Equal(t, f.info.Digest, info.Metadata[events.ArtworkMetaKeyOriginalDigest])
+}
