@@ -160,19 +160,40 @@ func decide(limit, want, min, held int) int {
 	return n
 }
 
-// primaryShares is each primary server's share of its connections per
-// transfer, so every primary carries transfers at once (owner, 2026-10-28)
-// rather than each taking limit / MaxActive of the first primary with
-// room: MaxActive's slots are divided among the primaries in proportion to
-// their connections, rounded and at least one each, and a share is a
-// server's connections over its slots. With one primary that is
+// primaryShares is each primary server's share per transfer, so every
+// primary carries transfers at once (owner, 2026-10-28) rather than each
+// taking limit / MaxActive of the first primary with room: MaxActive's
+// slots are divided among the primaries in proportion to their
+// [transferBudgets], rounded and at least one each, and a share is a
+// server's budget over its slots. With one primary that is
 // limit / MaxActive, as before.
 func primaryShares(providers []Provider, maxActive int) map[string]int {
 	maxActive = max(maxActive, 1)
+	budgets := transferBudgets(providers)
 	total := 0
+	for _, b := range budgets {
+		total += b
+	}
+	out := map[string]int{}
+	for name, b := range budgets {
+		slots := max(1, (2*maxActive*b+total)/(2*total))
+		out[name] = max(1, b/slots)
+	}
+	return out
+}
+
+// transferBudgets is what transfers may hold of each primary. With one
+// primary that is every connection: its chases go to the backups. With
+// several, transfers leave a tenth of each primary (at least one) to
+// chases: a job's mid-transfer chase parks until the server it asks has
+// room while the job keeps its own grant, so two primaries whose every
+// connection a transfer held could each wait on the other's chase for
+// good.
+func transferBudgets(providers []Provider) map[string]int {
+	primaries := 0
 	for _, p := range providers {
 		if !p.Backup {
-			total += max(p.Connections, 1)
+			primaries++
 		}
 	}
 	out := map[string]int{}
@@ -181,8 +202,10 @@ func primaryShares(providers []Provider, maxActive int) map[string]int {
 			continue
 		}
 		limit := max(p.Connections, 1)
-		slots := max(1, (2*maxActive*limit+total)/(2*total))
-		out[p.Name] = max(1, limit/slots)
+		if primaries > 1 && limit > 1 {
+			limit -= max(1, limit/10)
+		}
+		out[p.Name] = limit
 	}
 	return out
 }

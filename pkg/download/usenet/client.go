@@ -259,9 +259,9 @@ type Client struct {
 	// maxActive is Config.MaxActive with its default applied; the client
 	// lock guards slots, the jobs holding a transfer slot (priority.go).
 	maxActive int
-	// shares is each primary's share of its connections per transfer
-	// ([primaryShares]).
-	shares map[string]int
+	// shares is each primary's share per transfer ([primaryShares]), and
+	// budgets what transfers may hold of it ([transferBudgets]).
+	shares, budgets map[string]int
 	// post holds one token per job verifying, repairing, unpacking or
 	// publishing: Config.MaxPostProcess of them.
 	post chan struct{}
@@ -384,6 +384,7 @@ func New(cfg Config) (download.Client, error) {
 		workers:   workers,
 		maxActive: maxActive,
 		shares:    shares,
+		budgets:   transferBudgets(cfg.Providers),
 		post:      make(chan struct{}, maxPost),
 		jobs:      map[string]*job{},
 		slots:     map[*job]struct{}{},

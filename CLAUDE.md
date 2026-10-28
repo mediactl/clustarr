@@ -2058,8 +2058,12 @@ too; bump the tag in go.mod and go.sum to take a new fork release.
   primary and fetches only there, bounded by the grant: MaxActive's slots
   are divided among the primaries in proportion to their connections, at
   least one each, a share is a server's connections over its slots
-  (`usenet.primaryShares`), and a transfer asks every primary for a full
-  share before it takes a leftover on any (owner, 2026-10-28: every
+  (`usenet.primaryShares`), a transfer asks every primary for a full
+  share before it takes a leftover on any, and with several primaries
+  transfers leave a tenth of each to chases (`usenet.transferBudgets`: a
+  mid-transfer chase parks on a full server while its job keeps its
+  grant, so two primaries full of transfers could each wait on the
+  other's chase for good) (owner, 2026-10-28: every
   primary carries transfers at once; until then each took `limit /
   MaxActive` of the first primary with room, so only frugal's 50
   connections ever carried transfers); no primary with room means it parks

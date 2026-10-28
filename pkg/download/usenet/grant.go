@@ -249,7 +249,13 @@ func (j *job) tryTakeEach(ctx context.Context, candidates []string, suffix strin
 		if least == 0 {
 			least = want
 		}
-		n, err := c.ledger.Take(ctx, p.Account(), limit, Grant{Holder: j.holder() + suffix, Server: name}, want, least)
+		// A transfer is held to the primary's budget; a chase may take
+		// what is left above it.
+		take := limit
+		if b, ok := c.budgets[name]; ok && suffix == "" {
+			take = b
+		}
+		n, err := c.ledger.Take(ctx, p.Account(), take, Grant{Holder: j.holder() + suffix, Server: name}, want, least)
 		if err != nil {
 			return grant{}, "", true, fmt.Errorf("usenet: take connections on %s: %w", name, err)
 		}
