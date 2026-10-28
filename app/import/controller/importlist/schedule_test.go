@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func TestEffectiveRefreshIntervalClampsUpToTheProviderFloor(t *testing.T) {
@@ -55,4 +56,28 @@ func TestRequeueForClampsToASleepAHumanCanReasonAbout(t *testing.T) {
 	assert.Equal(t, time.Second, requeueFor(-time.Hour))
 	assert.Equal(t, 5*time.Minute, requeueFor(5*time.Minute))
 	assert.Equal(t, maxRequeue, requeueFor(365*24*time.Hour))
+}
+
+// A list whose spec changed since its last reconcile (a new URL, a filter,
+// re-enabled) syncs now, not at the schedule the old spec set: on
+// 2026-10-28 the-700-club-deep-cut-anime's URL was fixed at 09:25Z and the
+// list would have waited for 15:12Z. A list reconciled at its own
+// generation keeps its schedule; one never synced is due.
+func TestAnEditedListIsDueAtOnce(t *testing.T) {
+	now := time.Date(2026, 10, 28, 9, 25, 0, 0, time.UTC)
+	later := metav1.NewTime(now.Add(6 * time.Hour))
+
+	due, next := isDue(&later, 1, 2, now)
+	assert.True(t, due, "generation 2 was never reconciled")
+	assert.Equal(t, now, next)
+
+	due, next = isDue(&later, 2, 2, now)
+	assert.False(t, due)
+	assert.Equal(t, later.Time, next)
+
+	due, _ = isDue(nil, 0, 1, now)
+	assert.True(t, due, "a list never synced")
+	past := metav1.NewTime(now.Add(-time.Minute))
+	due, _ = isDue(&past, 2, 2, now)
+	assert.True(t, due, "a list whose time has come")
 }

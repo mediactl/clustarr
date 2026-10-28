@@ -243,7 +243,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 	}
 
 	interval := effectiveRefreshInterval(specForClamp(il.Spec))
-	due, nextSyncAt := isDue(il.Status.NextSyncAt, now)
+	due, nextSyncAt := isDue(il.Status.NextSyncAt, il.Status.ObservedGeneration, il.Generation, now)
 	if due || reissue {
 		// A re-issued sync (a refreshed token) gets a Msg-Id of its own, so
 		// the work stream's dedup window never swallows it beside the
@@ -396,10 +396,13 @@ func (r *Reconciler) publishSyncTask(ctx context.Context, il *catalogv1alpha1.Im
 }
 
 // isDue reports whether a sync should fire now, and the NextSyncAt to keep
-// reporting when it should not: nil (never synced) is always due; otherwise
-// due once now has reached the recorded time.
-func isDue(nextSyncAt *metav1.Time, now time.Time) (due bool, next time.Time) {
-	if nextSyncAt == nil {
+// reporting when it should not: nil (never synced) is always due, and so is
+// a list whose spec changed since its last reconcile (observed behind
+// generation: a new URL or filter answers a different question, which the
+// old schedule does not wait for -- 2026-10-28, a fixed URL would have
+// waited six hours); otherwise due once now has reached the recorded time.
+func isDue(nextSyncAt *metav1.Time, observed, generation int64, now time.Time) (due bool, next time.Time) {
+	if nextSyncAt == nil || observed != generation {
 		return true, now
 	}
 	if !now.Before(nextSyncAt.Time) {
