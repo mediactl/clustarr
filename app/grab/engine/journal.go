@@ -55,6 +55,15 @@ type Transfers interface {
 	RemoveByID(ctx context.Context, downloadID string, removeData bool) error
 }
 
+// Finder is a Transfers that finds one entry's transfer without listing every
+// transfer it holds: the one whose journal names entryUID, else a pre-journal
+// transfer named name, or nil (find's rule). Every command finds its entry's
+// transfer, and on talos (2026-10-28) listing about 2,000 usenet jobs, each
+// with its files, for each of them was a quarter of the engine's CPU.
+type Finder interface {
+	Find(ctx context.Context, entryUID, name string) (*Held, error)
+}
+
 // DetachedRemover is a Transfers that keeps state for a transfer its client
 // may not list -- the torrent engine's descriptor of a magnet still fetching
 // its metadata, or of a torrent mid-verification -- and so can forget an

@@ -44,7 +44,10 @@ type Transfers struct {
 	Now func() time.Time
 }
 
-var _ engine.Transfers = (*Transfers)(nil)
+var (
+	_ engine.Transfers = (*Transfers)(nil)
+	_ engine.Finder    = (*Transfers)(nil)
+)
 
 func (t *Transfers) now() time.Time {
 	if t.Now != nil {
@@ -80,6 +83,37 @@ func (t *Transfers) List(ctx context.Context) ([]engine.Held, error) {
 		out = append(out, engine.Held{Name: it.Name, Journal: engine.UnmarshalJournal(raw), Item: it, Found: true})
 	}
 	return out, nil
+}
+
+// Find implements engine.Finder. Every job is added under its entry's id
+// (add's AddRequest.Name) and a pre-journal one was its Download's name, so
+// the job of that name is the only one whose journal can name the entry: it
+// is the entry's when its journal names it or names no entry yet.
+func (t *Transfers) Find(ctx context.Context, entryUID, name string) (*engine.Held, error) {
+	byName, ok := t.Client.(download.ByName)
+	if !ok {
+		return nil, errors.New("usenet: the client cannot find a transfer by name")
+	}
+	jc, err := t.journaled()
+	if err != nil {
+		return nil, err
+	}
+	it, err := byName.FindByName(ctx, name)
+	if errors.Is(err, download.ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	raw, err := jc.Journal(ctx, it.ID)
+	if err != nil && !errors.Is(err, download.ErrNotFound) {
+		return nil, err
+	}
+	j := engine.UnmarshalJournal(raw)
+	if j.EntryUID != entryUID && j.EntryUID != "" {
+		return nil, nil
+	}
+	return &engine.Held{Name: it.Name, Journal: j, Item: it, Found: true}, nil
 }
 
 // Apply implements engine.Transfers.

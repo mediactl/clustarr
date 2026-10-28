@@ -68,7 +68,10 @@ var ErrPayloadUnavailable = errors.New("engine: the payload can no longer be fet
 // as it came back (nzb-life, 2026-10-16).
 type PayloadDeferredError struct {
 	Until time.Time
-	Err   error
+	// Release is a refusal of this release alone (its own cooldown,
+	// ReleaseRefusals), which the indexer's other releases do not wait out.
+	Release bool
+	Err     error
 }
 
 func (e *PayloadDeferredError) Error() string {
@@ -97,7 +100,7 @@ func IndexerDeferred(resp schema.DownloadResponse, err error) error {
 	if resp.ReleaseRefusals >= MaxReleaseRefusals {
 		return fmt.Errorf("%w (%d refusals in a row): %w", ErrReleaseRefused, resp.ReleaseRefusals, err)
 	}
-	return PayloadDeferred(*resp.RetryAt, err)
+	return &PayloadDeferredError{Until: *resp.RetryAt, Release: resp.ReleaseRefusals > 0, Err: err}
 }
 
 // PayloadDeferred wraps err as a PayloadDeferredError until until.

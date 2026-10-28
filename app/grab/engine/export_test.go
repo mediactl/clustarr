@@ -22,7 +22,6 @@ import "time"
 // SetDeferralFloor sets the shortest wait a deferred payload takes, until
 // restore is called.
 func SetDeferralFloor(d time.Duration) (restore func()) {
-	saved := deferralFloor
-	deferralFloor = d
-	return func() { deferralFloor = saved }
+	saved := deferralFloor.Swap(int64(d))
+	return func() { deferralFloor.Store(saved) }
 }

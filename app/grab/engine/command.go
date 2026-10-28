@@ -22,6 +22,7 @@ import (
 	"errors"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
@@ -44,8 +45,13 @@ const (
 )
 
 // deferralFloor is the shortest wait a deferred payload takes: applyRetry,
-// lowered by a test.
-var deferralFloor = applyRetry
+// lowered by a test. It is atomic because a deferred command is retried on
+// its timer's goroutine.
+var deferralFloor = func() *atomic.Int64 {
+	var d atomic.Int64
+	d.Store(int64(applyRetry))
+	return &d
+}()
 
 // applyRetryAfter is the retry of a command the engine could not apply at
 // attempt: applyRetry doubling each attempt up to maxApplyRetry. The broker
@@ -85,6 +91,8 @@ type Handler struct {
 	newest map[string]int64
 	// deferred is each entry's pending retry of a deferred payload.
 	deferred map[string]*time.Timer
+	// gates is each indexer's deferred commands, by indexerOf.
+	gates map[string]*gate
 }
 
 // deferApply asks for cmd's payload again after wait, in place of a nak
@@ -98,12 +106,14 @@ func (h *Handler) deferApply(cmd schema.EngineCommand, wait time.Duration) {
 	if t := h.deferred[cmd.Entry.UID]; t != nil {
 		t.Stop()
 	}
+	if g := h.gates[indexerOf(cmd)]; g != nil {
+		g.removeLocked(cmd.Entry.UID, 0)
+	}
 	h.deferred[cmd.Entry.UID] = time.AfterFunc(wait, func() { h.retryDeferred(cmd) })
 }
 
 // retryDeferred applies a deferred command again, unless a newer command for
-// its entry arrived meanwhile (superseded's rule). A failure the bus would
-// have retried is retried here after the wait it names.
+// its entry arrived meanwhile (superseded's rule).
 func (h *Handler) retryDeferred(cmd schema.EngineCommand) {
 	h.mu.Lock()
 	delete(h.deferred, cmd.Entry.UID)
@@ -112,6 +122,12 @@ func (h *Handler) retryDeferred(cmd schema.EngineCommand) {
 	if newer {
 		return
 	}
+	h.retry(cmd)
+}
+
+// retry applies a deferred command again. A failure the bus would have
+// retried is retried here after the wait it names.
+func (h *Handler) retry(cmd schema.EngineCommand) {
 	ctx, cancel := context.WithTimeout(context.Background(), deferredApplyTimeout)
 	defer cancel()
 	log := logging.FromContext(ctx).With("engine", h.Engine)
@@ -242,6 +258,12 @@ func (h *Handler) handle(ctx context.Context, log *slog.Logger, cmd schema.Engin
 		return nil
 	}
 
+	if cur == nil && cmd.Desired == schema.EngineDesiredPresent && h.waitsOnIndexer(cmd) {
+		log.DebugContext(ctx, "engine: the indexer deferred every payload; the entry waits its turn",
+			"entry", cmd.Entry.ID, "seq", cmd.Seq, "indexer", indexerOf(cmd))
+		return nil
+	}
+
 	after, err := h.Transfers.Apply(ctx, cmd, cur)
 	var deferred *PayloadDeferredError
 	switch {
@@ -275,7 +297,13 @@ func (h *Handler) handle(ctx context.Context, log *slog.Logger, cmd schema.Engin
 		// the durable's MaxAckPending slots until then, and enough deferrals
 		// held every slot (2026-10-28). A restart forgets the timer; the
 		// manager's re-issue at a new seq brings the command back.
-		wait := min(max(time.Until(deferred.Until), deferralFloor), maxApplyRetry)
+		wait := min(max(time.Until(deferred.Until), time.Duration(deferralFloor.Load())), maxApplyRetry)
+		if key := indexerOf(cmd); key != "" && !deferred.Release {
+			waiting := h.deferIndexer(key, cmd, wait)
+			log.WarnContext(ctx, "engine: the indexer deferred every payload", "entry", cmd.Entry.ID, "seq", cmd.Seq,
+				"indexer", key, "until", deferred.Until, "waiting", waiting, "error", err)
+			return nil
+		}
 		log.WarnContext(ctx, "engine: the payload is deferred by the indexer", "entry", cmd.Entry.ID, "seq", cmd.Seq,
 			"until", deferred.Until, "error", err)
 		h.deferApply(cmd, wait)
@@ -295,6 +323,9 @@ func (h *Handler) handle(ctx context.Context, log *slog.Logger, cmd schema.Engin
 // pre-journal transfer by name (the adopted entry's id is its Download's
 // name, §10.2).
 func (h *Handler) find(ctx context.Context, cmd schema.EngineCommand) (*Held, error) {
+	if f, ok := h.Transfers.(Finder); ok {
+		return f.Find(ctx, cmd.Entry.UID, cmd.Entry.ID)
+	}
 	held, err := h.Transfers.List(ctx)
 	if err != nil {
 		return nil, err

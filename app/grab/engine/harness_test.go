@@ -85,6 +85,8 @@ type memTransfers struct {
 	calls []string
 	// applyErr, when set, fails the next Apply (and is cleared).
 	applyErr error
+	// applyHook, when set, decides every Apply's error after applyErr.
+	applyHook func(cmd schema.EngineCommand) error
 	// removed records each RemoveByID's removeData.
 	removed map[string]bool
 }
@@ -134,6 +136,11 @@ func (m *memTransfers) Apply(_ context.Context, cmd schema.EngineCommand, cur *e
 	if err := m.applyErr; err != nil {
 		m.applyErr = nil
 		return engine.Held{}, err
+	}
+	if m.applyHook != nil {
+		if err := m.applyHook(cmd); err != nil {
+			return engine.Held{}, err
+		}
 	}
 	idx := -1
 	for i := range m.held {
