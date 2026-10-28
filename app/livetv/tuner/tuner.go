@@ -133,6 +133,10 @@ type provider struct {
 	fetching        map[string]bool
 
 	guide guide
+	// panel is the panel's own guide as last fetched beside a guideURL's,
+	// cut to the channels that guide lacks (fallbackGuide); kept for a
+	// fetch whose panel half fails.
+	panel *xmltv.Guide
 
 	account        AccountState
 	accountDue     bool

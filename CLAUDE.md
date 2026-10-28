@@ -327,7 +327,11 @@ The tuner fetches three things from the panel:
   and `{password}` in it take the account's. Each IPTVChannel's
   `spec.epg.channelID` names a channel of whichever guide is in use, so a
   new guide needs the lineup's ids remapped to it. The guide cache records
-  its source, and a changed URL is fetched at once, cache or not. A
+  its source, and a changed URL is fetched at once, cache or not. The
+  panel's own xmltv.php is still fetched beside it, as a fallback for the
+  channels that guide lacks or has no programme for (owner, 2026-10-27:
+  Adult Swim and eight more), so such a channel keeps its panel guide id;
+  the fallback's failure keeps its last good copy and is no guide error. A
   programme the guide already gives an image and a Movie or Series
   category is not looked up for artwork;
 - the account, `player_api.php`. Its `max_connections` is the tuner limit

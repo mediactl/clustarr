@@ -58,7 +58,9 @@ type Config struct {
 	Server             string
 	Username, Password string
 	// GuideURL is spec.guideURL, a template that may name {username} and
-	// {password}; empty is the panel's xmltv.php (Config.GuideURL).
+	// {password}; empty is the panel's xmltv.php (Config.GuideSource). With
+	// it set, the panel's guide is still fetched, for the channels this one
+	// lacks (fallbackGuide).
 	GuideURL string
 	// Tuners overrides the account's max_connections; 0 uses it.
 	Tuners    int
@@ -115,18 +117,23 @@ func (c Config) PlaylistURL() string { return c.endpoint("get.php") + "&output=t
 // account's credentials put in, else the panel's xmltv.php.
 func (c Config) GuideSource() string {
 	if c.GuideURL == "" {
-		return c.endpoint("xmltv.php")
+		return c.PanelGuideURL()
 	}
 	return expandURL(strings.TrimSpace(c.GuideURL), c.Username, c.Password)
 }
 
+// PanelGuideURL is the panel's own XMLTV guide, xmltv.php: the guide when
+// no GuideURL is set, else the fallback for channels that one lacks.
+func (c Config) PanelGuideURL() string { return c.endpoint("xmltv.php") }
+
 // guideFingerprint names the guide a cache was fetched from without
 // carrying a credential: the panel's account, or the configured URL as
-// written (its placeholders unexpanded).
+// written (its placeholders unexpanded) with the panel's guide as its
+// fallback.
 func guideFingerprint(c Config) string {
 	src := "panel\x00" + accountFingerprint(c)
 	if c.GuideURL != "" {
-		src = "url\x00" + strings.TrimSpace(c.GuideURL)
+		src = "url+panel\x00" + strings.TrimSpace(c.GuideURL) + "\x00" + accountFingerprint(c)
 	}
 	sum := sha256.Sum256([]byte(src))
 	return hex.EncodeToString(sum[:8])

@@ -28,6 +28,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -282,6 +283,9 @@ func (t *Tuner) fetchGuide(ctx context.Context, p *provider, cfg Config) {
 			want = wanted(parsed.Channels, src) // a guide with no programmes
 		}
 	}
+	if err == nil && cfg.GuideURL != "" {
+		parsed, want = t.withPanelFallback(ctx, p, cfg, parsed, want, src, from)
+	}
 	fetchDuration.WithLabelValues(label(p.key), "guide").Observe(time.Since(start).Seconds())
 
 	p.mu.Lock()
@@ -308,6 +312,105 @@ func (t *Tuner) fetchGuide(ctx context.Context, p *provider, cfg Config) {
 		t.putGuideChannels(ctx, p, parsed.Channels)
 	}
 	t.scheduleRender(p)
+}
+
+// withPanelFallback adds the panel's own guide (xmltv.php) to a guideURL's
+// for the wanted channels that guide lacks or holds no programme for
+// (owner, 2026-10-27: Adult Swim and eight more are not in iptv-epg.org's
+// US guide). The panel's half is best effort: a failed fetch keeps the
+// last good one, or none, and never fails the guide.
+func (t *Tuner) withPanelFallback(ctx context.Context, p *provider, cfg Config, primary xmltv.Guide, want map[string]bool, src []wantSource, from time.Time) (xmltv.Guide, map[string]bool) {
+	var (
+		fb     xmltv.Guide
+		fbWant map[string]bool
+	)
+	body, err := t.get(ctx, cfg.PanelGuideURL(), cfg.UserAgent)
+	if err == nil {
+		fb, err = xmltv.ParseFunc(body, func(chans []xmltv.Channel) map[string]bool {
+			fbWant = fallbackWanted(wanted(chans, src), primary)
+			return fbWant
+		}, from, from.AddDate(0, 0, guideDays+1))
+		_ = body.Close()
+	}
+	p.mu.Lock()
+	if err != nil {
+		logging.FromContext(ctx).Warn("livetv: the panel's fallback guide failed; keeping its last good copy", "provider", label(p.key), "err", iptv.RedactError(err))
+		if p.panel != nil {
+			fb = *p.panel
+		}
+	} else {
+		if fbWant == nil {
+			fbWant = fallbackWanted(wanted(fb.Channels, src), primary)
+		}
+		fb = cutGuide(fb, fbWant)
+		p.panel = &fb
+	}
+	p.mu.Unlock()
+	merged := fallbackGuide(primary, fb)
+	all := make(map[string]bool, len(want)+len(fb.Programmes))
+	for id := range want {
+		all[id] = true
+	}
+	for id := range fb.Programmes {
+		all[id] = true
+	}
+	return merged, all
+}
+
+// fallbackWanted is want without the channels primary already has
+// programmes for.
+func fallbackWanted(want map[string]bool, primary xmltv.Guide) map[string]bool {
+	out := make(map[string]bool, len(want))
+	for id := range want {
+		if len(primary.Programmes[id]) == 0 {
+			out[id] = true
+		}
+	}
+	return out
+}
+
+// cutGuide is g with only the channels and programmes ids names.
+func cutGuide(g xmltv.Guide, ids map[string]bool) xmltv.Guide {
+	out := xmltv.Guide{Programmes: map[string][]xmltv.Programme{}}
+	for _, c := range g.Channels {
+		if ids[c.ID] {
+			out.Channels = append(out.Channels, c)
+		}
+	}
+	for id, ps := range g.Programmes {
+		if ids[id] {
+			out.Programmes[id] = ps
+		}
+	}
+	return out
+}
+
+// fallbackGuide is primary with fb's channels it does not list and fb's
+// programmes for the channels it has none for. primary wins every id it
+// holds programmes for.
+func fallbackGuide(primary, fb xmltv.Guide) xmltv.Guide {
+	out := xmltv.Guide{
+		Channels:   slices.Clone(primary.Channels),
+		Programmes: make(map[string][]xmltv.Programme, len(primary.Programmes)+len(fb.Programmes)),
+	}
+	listed := make(map[string]bool, len(primary.Channels))
+	for _, c := range primary.Channels {
+		listed[c.ID] = true
+	}
+	for id, ps := range primary.Programmes {
+		out.Programmes[id] = ps
+	}
+	for _, c := range fb.Channels {
+		if !listed[c.ID] {
+			out.Channels = append(out.Channels, c)
+		}
+	}
+	for id, ps := range fb.Programmes {
+		if len(out.Programmes[id]) == 0 {
+			out.Programmes[id] = ps
+		}
+	}
+	return out
 }
 
 // guideState counts g's channels and programmes.

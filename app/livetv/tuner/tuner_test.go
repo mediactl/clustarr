@@ -70,6 +70,16 @@ func newProvider(t *testing.T) *provider {
 	require.NoError(t, err)
 	guideBody, err := os.ReadFile("../../../test/data/iptv/guide.xml")
 	require.NoError(t, err)
+	// A guideURL's guide: the fixture without news.uk (as iptv-epg.org
+	// lacks Adult Swim), and a title of its own so a test can tell whose
+	// programme it reads.
+	var epgLines []string
+	for _, l := range strings.Split(string(guideBody), "\n") {
+		if !strings.Contains(l, "news.uk") {
+			epgLines = append(epgLines, l)
+		}
+	}
+	epgBody := []byte(strings.ReplaceAll(strings.Join(epgLines, "\n"), "The One Show", "The One Show (epg)"))
 	p := &provider{}
 	p.maxConns.Store(1)
 	p.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -107,7 +117,7 @@ func newProvider(t *testing.T) *provider {
 				http.Error(w, "bad request", http.StatusBadRequest)
 				return
 			}
-			_, _ = w.Write(guideBody)
+			_, _ = w.Write(epgBody)
 		case r.URL.Path == "/player_api.php":
 			_, _ = fmt.Fprintf(w, `{"user_info":{"username":"user","password":"pass","auth":1,"status":"Active","exp_date":"1792556379","active_cons":"0","max_connections":"%d"}}`, p.maxConns.Load())
 		case strings.HasPrefix(r.URL.Path, "/live/"):
@@ -728,9 +738,42 @@ func TestAGuideURLIsFetchedInsteadOfThePanels(t *testing.T) {
 	h := start(t, newStore(t), cfg)
 	s := h.fetched(t)
 	assert.Equal(t, int32(1), p.count("/epg/user/guide.xml"))
-	assert.Zero(t, p.count("/xmltv.php"), "the panel's guide is not asked")
 	assert.Positive(t, s.Guide.Programmes)
 	assert.Empty(t, s.Guide.Error)
+	_, guide := h.get(t, "x", device(deviceA, "xmltv.xml"))
+	assert.Contains(t, guide, "The One Show (epg)", "a channel both guides hold reads the guideURL's")
+	assert.NotContains(t, guide, ">The One Show<")
+}
+
+// TestAChannelTheGuideURLLacksReadsThePanelsGuide: the panel's own
+// xmltv.php is fetched beside a guideURL, and a channel the guideURL's guide
+// does not hold takes its programmes from it (owner, 2026-10-27: Adult Swim
+// is not in iptv-epg.org's US guide).
+func TestAChannelTheGuideURLLacksReadsThePanelsGuide(t *testing.T) {
+	p := newProvider(t)
+	cfg := config(p.srv.URL)
+	cfg.GuideURL = guideURL(p)
+	h := start(t, newStore(t), cfg)
+	h.fetched(t)
+	assert.Equal(t, int32(1), p.count("/xmltv.php"), "the panel's guide is the fallback")
+	_, guide := h.get(t, "x", device(deviceA, "xmltv.xml"))
+	assert.Contains(t, guide, ">Bulletin<", "1002 auto-maps to news.uk, which only the panel's guide has")
+	assert.Contains(t, guide, "The One Show (epg)")
+}
+
+// TestAFailedFallbackKeepsTheGuideURLsGuide: the panel's half failing is no
+// guide failure; the guideURL's channels are served as fetched.
+func TestAFailedFallbackKeepsTheGuideURLsGuide(t *testing.T) {
+	p := newProvider(t)
+	p.failGuide.Store(true)
+	cfg := config(p.srv.URL)
+	cfg.GuideURL = guideURL(p)
+	h := start(t, newStore(t), cfg)
+	s := h.fetched(t)
+	assert.Empty(t, s.Guide.Error)
+	_, guide := h.get(t, "x", device(deviceA, "xmltv.xml"))
+	assert.Contains(t, guide, "The One Show (epg)")
+	assert.NotContains(t, guide, ">Bulletin<")
 }
 
 // TestAChangedGuideURLRefetchesTheGuideAlone: a new guideURL is fetched at
