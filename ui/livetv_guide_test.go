@@ -48,7 +48,9 @@ func guideFixture(t *testing.T, withIndex bool) (*ui.Server, client.Client) {
 		{Key: "n:espn", Name: "ESPN HD", Group: "USA: SPORTS"}, {Key: "n:cnn", Name: "CNN", Group: "USA: NEWS"},
 	}})
 	if withIndex {
-		at := func(h, m int) time.Time { return guideFrom.Add(time.Duration(h)*time.Hour + time.Duration(m)*time.Minute) }
+		at := func(h, m int) time.Time {
+			return guideFrom.Add(time.Duration(h)*time.Hour + time.Duration(m)*time.Minute)
+		}
 		putObject(t, store, livetvstore.GuideIndexObject(tvKey), livetvstore.GuideIndex{From: guideFrom,
 			Channels: []livetvstore.IndexChannel{{Number: "1001", Name: "ESPN HD", Logo: "https://epg.example/espn.png"}, {Number: "1002", Name: "CNN"}},
 			Programmes: []livetvstore.IndexProgramme{
