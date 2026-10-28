@@ -72,10 +72,36 @@ type par2Set struct {
 	Files map[[16]byte]par2FileDesc
 	// Slices maps a slice's MD5 to the id of the file it belongs to.
 	Slices map[[16]byte][16]byte
+	// recovery and other are the Main packet's file ids: the files the
+	// recovery data covers, and the ones it only names.
+	recovery, other [][16]byte
+	// sliced holds the ids whose IFSC packet has been seen.
+	sliced map[[16]byte]bool
 }
 
 func newPar2Set() *par2Set {
-	return &par2Set{Files: map[[16]byte]par2FileDesc{}, Slices: map[[16]byte][16]byte{}}
+	return &par2Set{Files: map[[16]byte]par2FileDesc{}, Slices: map[[16]byte][16]byte{}, sliced: map[[16]byte]bool{}}
+}
+
+// complete reports whether the set holds all renameObfuscated reads: the
+// Main packet, a FileDesc for every file it lists and the slice hashes of
+// every file in the recovery set. Every par2 file of a set carries them all,
+// so one intact file completes it.
+func (s *par2Set) complete() bool {
+	if s.SliceSize == 0 || len(s.recovery) == 0 {
+		return false
+	}
+	for _, id := range s.recovery {
+		if _, ok := s.Files[id]; !ok || !s.sliced[id] {
+			return false
+		}
+	}
+	for _, id := range s.other {
+		if _, ok := s.Files[id]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 // parsePar2FileDescs walks the packets of one par2 file and returns its
@@ -178,9 +204,23 @@ func (s *par2Set) nextMagic(r io.ReaderAt, size, from int64) int64 {
 func (s *par2Set) take(typ, body []byte) {
 	switch {
 	case bytes.Equal(typ, par2MainType):
-		// slice size 8, file count 4, then the file ids.
-		if len(body) >= 12 {
-			s.SliceSize = binary.LittleEndian.Uint64(body[:8])
+		// slice size 8, recovery set file count 4, then the recovery set's
+		// file ids and the non-recovery set's.
+		if len(body) < 12 {
+			return
+		}
+		s.SliceSize = binary.LittleEndian.Uint64(body[:8])
+		n := int(binary.LittleEndian.Uint32(body[8:12]))
+		ids := body[12:]
+		s.recovery, s.other = nil, nil
+		for i := 0; (i+1)*16 <= len(ids); i++ {
+			var id [16]byte
+			copy(id[:], ids[i*16:(i+1)*16])
+			if i < n {
+				s.recovery = append(s.recovery, id)
+			} else {
+				s.other = append(s.other, id)
+			}
 		}
 	case bytes.Equal(typ, par2FileDescType):
 		// file id 16, hash 16, hash16k 16, length 8, name.
@@ -204,6 +244,7 @@ func (s *par2Set) take(typ, body []byte) {
 		}
 		var id [16]byte
 		copy(id[:], body[:16])
+		s.sliced[id] = true
 		for o := 16; o+20 <= len(body); o += 20 {
 			var h [16]byte
 			copy(h[:], body[o:o+16])
@@ -353,19 +394,51 @@ func (j *job) renameObfuscated(ctx context.Context) {
 	dir := j.contentDir()
 
 	set := newPar2Set()
-	for _, f := range j.nzb.Files {
-		p := filepath.Join(dir, safeName(f.Name))
-		if f.Kind != kindPar2Index && f.Kind != kindPar2Volume && !isPar2File(p) {
-			continue
-		}
+	parse := func(p string) {
 		fh, err := os.Open(p)
 		if err != nil {
-			continue
+			return
 		}
 		if st, err := fh.Stat(); err == nil {
 			set.parse(fh, st.Size())
 		}
 		_ = fh.Close()
+	}
+	// One intact par2 file describes the whole set, so the walk stops at the
+	// first that completes it: the index, then the volumes smallest first.
+	// Each packet header is a read, and on NFS every one was a round trip
+	// queued behind the transfers' writes, across volumes holding thousands
+	// of packets (talos, 2026-10-28: a job held a post-processing slot for
+	// minutes here). A file whose name hides that it is par2 is opened only
+	// when the named ones leave the set incomplete.
+	named := make([]nzbFile, 0, len(j.nzb.Files))
+	for _, f := range j.nzb.Files {
+		if f.Kind == kindPar2Index || f.Kind == kindPar2Volume {
+			named = append(named, f)
+		}
+	}
+	sort.SliceStable(named, func(a, b int) bool {
+		if ia, ib := named[a].Kind == kindPar2Index, named[b].Kind == kindPar2Index; ia != ib {
+			return ia
+		}
+		return named[a].Bytes < named[b].Bytes
+	})
+	for _, f := range named {
+		if set.complete() {
+			break
+		}
+		parse(filepath.Join(dir, safeName(f.Name)))
+	}
+	for _, f := range j.nzb.Files {
+		if set.complete() {
+			break
+		}
+		if f.Kind == kindPar2Index || f.Kind == kindPar2Volume {
+			continue
+		}
+		if p := filepath.Join(dir, safeName(f.Name)); isPar2File(p) {
+			parse(p)
+		}
 	}
 
 	rename := func(i int, to string) { j.renameContent(ctx, i, to) }

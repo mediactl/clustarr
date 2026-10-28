@@ -96,6 +96,71 @@ func TestRenameObfuscatedRestoresNamesFromThePar2Set(t *testing.T) {
 	require.Equal(t, "Some.Movie.2026.1080p.mkv", par2IndexFileOrContent(reparsed.Files))
 }
 
+// Every par2 file of a set carries its Main, FileDesc and IFSC packets, so
+// renameObfuscated stops at the first that completes the set: the index
+// alone does, as does any volume alone, and an index cut short does not.
+func TestOnePar2FileCompletesTheSet(t *testing.T) {
+	work := t.TempDir()
+	names := []string{"Some.Movie.part01.rar", "Some.Movie.part02.rar"}
+	for i, n := range names {
+		data := make([]byte, 96<<10)
+		_, _ = rand.New(rand.NewSource(int64(i))).Read(data)
+		require.NoError(t, os.WriteFile(filepath.Join(work, n), data, 0o644))
+	}
+	par2test.CreateSet(t, work, "set.par2", names, 16, 20, 2)
+	parsed := func(path string, limit int64) *par2Set {
+		f, err := os.Open(path)
+		require.NoError(t, err)
+		defer func() { _ = f.Close() }()
+		st, err := f.Stat()
+		require.NoError(t, err)
+		set := newPar2Set()
+		set.parse(f, min(st.Size(), limit))
+		return set
+	}
+
+	index := parsed(filepath.Join(work, "set.par2"), 1<<30)
+	require.True(t, index.complete(), "the index alone describes the set")
+	require.Len(t, index.recovery, 2)
+	vols, _ := filepath.Glob(filepath.Join(work, "set.vol*.par2"))
+	require.NotEmpty(t, vols)
+	for _, v := range vols {
+		require.True(t, parsed(v, 1<<30).complete(), "%s alone describes the set", filepath.Base(v))
+	}
+	require.False(t, parsed(filepath.Join(work, "set.par2"), 200).complete(), "an index cut short does not")
+}
+
+// A damaged index leaves the set incomplete, and the walk goes on to the
+// volumes, which name the obfuscated file as an intact index would.
+func TestRenameObfuscatedReadsTheVolumesWhenTheIndexIsDamaged(t *testing.T) {
+	c, _, _ := newTestClient(t, Config{Providers: []Provider{{Name: "p", Host: "127.0.0.1", Port: 1, Connections: 1}}})
+	work := t.TempDir()
+	data := make([]byte, 200<<10)
+	_, _ = rand.New(rand.NewSource(11)).Read(data)
+	require.NoError(t, os.WriteFile(filepath.Join(work, "Some.Movie.2026.1080p.mkv"), data, 0o644))
+	par2test.CreateSet(t, work, "Some.Movie.2026.1080p.par2", []string{"Some.Movie.2026.1080p.mkv"}, 16, 10, 0)
+
+	nzb := nzbWith(t, "", "z75QORTuwk9NHlDJbb53izyP7TQqFzG4", "Some.Movie.2026.1080p.par2", "Some.Movie.2026.1080p.vol00+1.par2")
+	parsed, err := parseNZB(nzb, defaultMaxNZBBytes)
+	require.NoError(t, err)
+	j := c.newJob("job1", "download-1", "movies", filepath.Join(c.cfg.ScratchDir, "movies", "job1"), parsed)
+	require.NoError(t, os.MkdirAll(j.contentDir(), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(j.dir, nzbName), nzb, 0o644))
+	require.NoError(t, os.Rename(filepath.Join(work, "Some.Movie.2026.1080p.mkv"), filepath.Join(j.contentDir(), "z75QORTuwk9NHlDJbb53izyP7TQqFzG4")))
+	// The index's articles went missing: zeros from its first packet on.
+	index, err := os.ReadFile(filepath.Join(work, "Some.Movie.2026.1080p.par2"))
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(j.contentDir(), "Some.Movie.2026.1080p.par2"), make([]byte, len(index)), 0o644))
+	vols, _ := filepath.Glob(filepath.Join(work, "*.vol*.par2"))
+	require.NotEmpty(t, vols)
+	require.NoError(t, os.Rename(vols[0], filepath.Join(j.contentDir(), "Some.Movie.2026.1080p.vol00+1.par2")))
+
+	j.renameObfuscated(context.Background())
+
+	_, err = os.Stat(filepath.Join(j.contentDir(), "Some.Movie.2026.1080p.mkv"))
+	require.NoError(t, err, "the volume named the data file")
+}
+
 func par2IndexFileOrContent(files []nzbFile) string {
 	for _, f := range files {
 		if f.Kind == kindContent {
