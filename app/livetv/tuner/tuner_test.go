@@ -470,6 +470,23 @@ func TestARangesGuideHoldsOnlyItsChannelsAndCarriesAnETag(t *testing.T) {
 	assert.NotEmpty(t, resp.Header.Get("ETag"), "a lineup carries one too")
 }
 
+// TestAMappedChannelTakesItsGuidesIcon: a channel mapped to a guide channel
+// with an <icon> shows that icon itself, in every guide and the playlist
+// (owner, 2026-10-27: iptv-epg.org's logos are public and made for a dark
+// guide, where PMS refuses the tuner's private logo route); the stored copy
+// the ui reads keeps it too.
+func TestAMappedChannelTakesItsGuidesIcon(t *testing.T) {
+	p := newProvider(t)
+	store := newStore(t)
+	h := start(t, store, config(p.srv.URL))
+	h.fetched(t)
+	_, guide := h.get(t, "x", device(deviceA, "xmltv.xml"))
+	assert.Contains(t, guide, `<icon src="http://logo.example/bbc1.png"`, "1001 maps to bbc1.uk, whose guide gives an icon")
+	assert.NotContains(t, guide, `/logos/1001.png`)
+	_, whole := h.get(t, "x", "/livetv/media/news/xmltv.xml")
+	assert.Contains(t, whole, `<icon src="http://logo.example/bbc1.png"`)
+}
+
 func TestAPlaylistM3UListsTheRange(t *testing.T) {
 	p := newProvider(t)
 	h := start(t, newStore(t), config(p.srv.URL))
@@ -477,7 +494,7 @@ func TestAPlaylistM3UListsTheRange(t *testing.T) {
 	code, body := h.get(t, "x", "/livetv/media/news/playlist.m3u?from=1001&to=1002")
 	require.Equal(t, http.StatusOK, code)
 	assert.Equal(t, `#EXTM3U
-#EXTINF:-1 tvg-id="1001" tvg-chno="1001" tvg-name="BBC One" tvg-logo="http://x/livetv/media/news/logos/1001.png",BBC One
+#EXTINF:-1 tvg-id="1001" tvg-chno="1001" tvg-name="BBC One" tvg-logo="http://logo.example/bbc1.png",BBC One
 http://x/livetv/media/news/stream/1001
 #EXTINF:-1 tvg-id="1002" tvg-chno="1002" tvg-name="News, Live" tvg-logo="",News, Live
 http://x/livetv/media/news/stream/1002

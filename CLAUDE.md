@@ -471,7 +471,11 @@ carries one) becomes the programme's `<icon>` and its Movie or Series
 category. A build never waits on a lookup: unknown titles queue, a
 background pass resolves up to 300 at 400 ms each and the guide is rebuilt
 when it found any, and the cache is the `programme-art/<ns>/<name>` object
-(hits 30 days, misses 7). **Channel logos are served by the tuner**
+(hits 30 days, misses 7). **A mapped channel's logo is its guide channel's own `<icon>`** when the
+guide gives one (owner, 2026-10-27: iptv-epg.org's are colour logos made
+for a dark guide, on a public host; PMS 1.43.5 refuses the tuner's private
+and link-local addresses for an image), unless the IPTVChannel names its
+own `spec.logo`. Otherwise **channel logos are served by the tuner**
 (`app/livetv/tuner/logo.go`, `logos/<number>.png` under every device and
 range): the providers' logos (the playlist's `tvg-logo`, the guide's
 picons alike) are often black wordmarks on transparency (Bloomberg,

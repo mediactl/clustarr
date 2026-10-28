@@ -97,6 +97,7 @@ func (t *Tuner) render(p *provider) {
 		loaded[GuideName] = p.guide.g
 	}
 	ix := xmltv.NewIndex(loaded)
+	guideIcons := channelIcons(loaded)
 
 	chans := slices.Clone(cfg.Channels)
 	slices.SortStableFunc(chans, func(a, b ChannelConfig) int {
@@ -141,12 +142,6 @@ func (t *Tuner) render(p *provider) {
 		taken[ch.Number] = true
 		name := firstNonEmpty(ch.Name, e.Name)
 		lc := xmltv.LineupChannel{Number: ch.Number, Name: name, TimeshiftMinutes: ch.TimeshiftMinutes, Group: ch.Group}
-		if source := firstNonEmpty(ch.Logo, e.Logo); source != "" {
-			// The guide and playlist point at the tuner's processed copy
-			// (logo.go); the source is kept for the fetch.
-			lc.Logo = logoURL(ch.Number)
-			logoSources[ch.Number] = source
-		}
 		if !pms {
 			switch {
 			case ch.Map != nil:
@@ -167,6 +162,22 @@ func (t *Tuner) render(p *provider) {
 			} else {
 				st.Guide = lc.Map.Guide + "/" + lc.Map.ChannelID
 			}
+		}
+		// The logo: the channel's own spec.logo, else its guide channel's
+		// icon as the guide gives it (owner, 2026-10-27: iptv-epg.org's are
+		// colour logos for a dark background, on a public host PMS fetches,
+		// where it refuses the tuner's private address), else the
+		// playlist's, through the tuner's processed copy (logo.go).
+		guideIcon := ""
+		if lc.Map != nil && ch.Logo == "" {
+			guideIcon = guideIcons[lc.Map.Guide][lc.Map.ChannelID]
+		}
+		switch source := firstNonEmpty(ch.Logo, e.Logo); {
+		case guideIcon != "":
+			lc.Logo = guideIcon
+		case source != "":
+			lc.Logo = logoURL(ch.Number)
+			logoSources[ch.Number] = source
 		}
 		active++
 		entries = append(entries, hdhr.LineupEntry{GuideNumber: ch.Number, GuideName: name, URL: "stream/" + ch.Number})

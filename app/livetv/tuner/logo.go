@@ -260,10 +260,26 @@ func (f *flight) do(key string, fn func() ([]byte, error)) ([]byte, error) {
 func sourceLogos(lineup []xmltv.LineupChannel, sources map[string]string) []xmltv.LineupChannel {
 	out := make([]xmltv.LineupChannel, len(lineup))
 	for i, lc := range lineup {
-		if lc.Logo != "" {
-			lc.Logo = sources[lc.Number]
+		if s, ok := sources[lc.Number]; ok {
+			lc.Logo = s // a guide's own icon is already its source
 		}
 		out[i] = lc
+	}
+	return out
+}
+
+// channelIcons is each guide's channel icons by channel id: a mapped
+// channel's logo when the guide gives one.
+func channelIcons(guides map[string]xmltv.Guide) map[string]map[string]string {
+	out := make(map[string]map[string]string, len(guides))
+	for name, g := range guides {
+		icons := map[string]string{}
+		for _, c := range g.Channels {
+			if c.Icon != "" {
+				icons[c.ID] = c.Icon
+			}
+		}
+		out[name] = icons
 	}
 	return out
 }
