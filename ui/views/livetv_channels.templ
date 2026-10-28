@@ -119,7 +119,7 @@ const channelsReturnPath = "/livetv/channels"
 // right.
 templ LiveTVChannels(p ChannelsPage) {
 	@liveTVPage("Channels", "/livetv/channels", channelsActions(p.Links)) {
-		<div class="grid gap-6 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+		<div class="grid gap-6 min-[1800px]:grid-cols-[minmax(0,1fr)_26rem]">
 			<div class="min-w-0 space-y-3">
 				@channelsFilterForm(p)
 				@channelsBulkForm()
@@ -346,7 +346,7 @@ templ ChannelRowView(r projection.ChannelRow) {
 		@table.Cell(table.CellProps{Class: "hidden text-sm lg:table-cell"}) {
 			if r.BlockStart != "" {
 				<div>{ r.BlockStart + "+" }</div>
-				<div class="text-xs text-muted-foreground">{ r.Owner }</div>
+				<div class="max-w-28 truncate text-xs text-muted-foreground" title={ r.Owner }>{ r.Owner }</div>
 			}
 		}
 		@table.Cell() {

@@ -76,8 +76,10 @@
     place();
     tick();
   });
-  document.addEventListener("htmx:afterSettle", function (ev) {
-    label(ev.target);
+  // The whole document: a programme's dialog is moved to <body> before
+  // htmx settles it (ui/static/portals.js).
+  document.addEventListener("htmx:afterSettle", function () {
+    label(document);
     place();
     tick();
   });

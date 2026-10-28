@@ -43,21 +43,33 @@
     document.body.removeChild(ta);
   });
 
-  // A logo the tuner has not stored yet answers 404: show the tile.
+  // A logo the tuner has not stored yet answers 404: show the tile. An
+  // image may fail before this script runs (it is deferred), so the
+  // ones already broken are swept at load and after every swap too.
+  var toTile = function (img) {
+    img.hidden = true;
+    var tile = img.nextElementSibling;
+    if (tile && tile.hasAttribute("data-logo-tile")) {
+      tile.hidden = false;
+    }
+  };
   document.addEventListener(
     "error",
     function (ev) {
       var img = ev.target;
       if (img && img.tagName === "IMG" && img.hasAttribute("data-logo")) {
-        img.hidden = true;
-        var tile = img.nextElementSibling;
-        if (tile && tile.hasAttribute("data-logo-tile")) {
-          tile.hidden = false;
-        }
+        toTile(img);
       }
     },
     true
   );
+  var sweep = function (root) {
+    root.querySelectorAll("img[data-logo]").forEach(function (img) {
+      if (img.complete && img.naturalWidth === 0) {
+        toTile(img);
+      }
+    });
+  };
 
   var localise = function (root) {
     root.querySelectorAll('time[data-local="datetime"]').forEach(function (t) {
@@ -69,8 +81,12 @@
   };
   document.addEventListener("DOMContentLoaded", function () {
     localise(document);
+    sweep(document);
   });
-  document.addEventListener("htmx:afterSettle", function (ev) {
-    localise(ev.target);
+  // The whole document, not the swap's target: a dialog htmx swaps in is
+  // moved to <body> before htmx settles it (ui/static/portals.js).
+  document.addEventListener("htmx:afterSettle", function () {
+    localise(document);
+    sweep(document);
   });
 })();
