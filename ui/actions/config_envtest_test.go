@@ -157,6 +157,21 @@ var configFixtures = map[string]configFixture{
 		invalid:  map[string]any{"chunking": map[string]any{"enabled": true}},
 		rejects:  "the CEL rule 'chunking is not supported in v1alpha1'",
 	},
+	"iptvproviders": {
+		minimal:  map[string]any{"server": "panel.example", "credentialsRef": map[string]any{"name": "panel-credentials"}},
+		nullable: configField{"guideURL", "https://epg.example/guide.xml"},
+		change:   configField{"tuners", int64(2)},
+		invalid:  map[string]any{"type": "M3U"},
+		rejects:  "the CEL rule 'an Xtream provider needs server and credentialsRef; an M3U provider needs playlistURL'",
+	},
+	"iptvchannels": {
+		minimal:  map[string]any{"providerRef": "argon-tv", "key": "n:espn", "number": "1001"},
+		nullable: configField{"name", "ESPN HD"},
+		change:   configField{"number", "1005"},
+		invalid: map[string]any{"providerRef": "argon-tv", "key": "n:espn", "number": "1001",
+			"epg": map[string]any{"channelID": "US-ESPN", "dummy": true}},
+		rejects: "the CEL rule 'set exactly one of channelID and dummy'",
+	},
 }
 
 // TestConfigActionsAgainstARealAPIServer proves the Settings page's

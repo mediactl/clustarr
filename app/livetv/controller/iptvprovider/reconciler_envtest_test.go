@@ -506,11 +506,12 @@ func TestTheCredentialsTrailingNewlinesAreTrimmed(t *testing.T) {
 
 func TestAMissingCredentialsKeyReadsInvalid(t *testing.T) {
 	h := setup(t)
-	require.NoError(t, h.c.Create(h.ctx, credentials(h.ns, "news", map[string][]byte{"username": []byte("a")})))
+	// A value no status could hold by chance: "a" was in every address.
+	require.NoError(t, h.c.Create(h.ctx, credentials(h.ns, "news", map[string][]byte{"username": []byte("usr-7f3c9d")})))
 	h.provider(t, "news")
 	got := h.until(t, "news", func(p *clustarrv1.IPTVProvider) bool {
 		c := ready(p)
 		return c != nil && c.Reason == clustarrv1.ReasonSecretKeyNotFound
 	}, "Ready=False SecretKeyNotFound")
-	assert.NotContains(t, fmt.Sprint(got.Status), "a", "no credential in status")
+	assert.NotContains(t, fmt.Sprint(got.Status), "usr-7f3c9d", "no credential in status")
 }
