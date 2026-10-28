@@ -594,6 +594,16 @@ PMS recording has not run (it waits for the owner's OK).
   cluster-plex restart with no provider left, such rows stay until a
   provider names the address again.
 - cluster-plex, "chart: 0.6.0 -- no plex.liveTV.localAddress".
+- cluster-plex, "livetv: a device PMS stores under another form of its URI
+  is kept, not replaced on every pass" (the whole-change review): after
+  registering, the converger compares what PMS lists with the URI it sent;
+  a difference is a Warning (`DVRDeviceStoredElsewhere`) and is noted on
+  the block's Lease (`livetv.clusterplex.io/registered`), so the stale-URI
+  rule never replaces that device again. Without it, a PMS that normalised
+  the URI would have lost the DVR on every pass.
 - The cutover is `docs/runbooks/livetv-direct-tuners-cutover.md`. The
-  umbrella chart still pins cluster-plex 0.4.1; raising it waits for the
-  0.6.0 chart's publication (the runbook's step 0.2).
+  umbrella chart still pins cluster-plex 0.4.1, which the new cluster-plex
+  image runs on (it ignores the chart's `localAddress`); raising the pin is
+  optional. Live TV is down from the CRD's apply, which prunes
+  `status.blocks[].port` at once, until the converger has replaced each
+  device.
