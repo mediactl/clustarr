@@ -76,12 +76,10 @@ func ItemStateRejections(ctx context.Context, t Target, p quality.Profile, d Dec
 	parsed := d.Parsed
 	lang := originalLanguageName(ctx, t.OriginalLanguageTag)
 	if parsed == nil {
-		pr, err := release.Parse(rel.Title, release.Options{Kind: t.Kind})
+		pr, err := ParseForItemState(ctx, t.Kind, t.OriginalLanguageTag, rel)
 		if err != nil {
 			return nil
 		}
-		pr.Languages = pr.LanguagesWith(lang, release.GroupLanguagesFrom(ctx))
-		indexerLanguages(pr, rel)
 		parsed = pr
 	}
 	if t.Donor != nil {
@@ -101,23 +99,35 @@ func ItemStateRejections(ctx context.Context, t Target, p quality.Profile, d Dec
 	return videoItemState(t, p, an, parsed, rel, score, complete)
 }
 
-// ReleaseCompletesAudio reports whether rel carries every language p's audio
-// policy wants for an item whose original language is originalTag, as
-// Evaluate ranks LanguagesComplete: the title parsed as ItemStateRejections
-// parses it, its indexer's languages over the title's. True without a
-// policy; false for a title that does not parse.
-func ReleaseCompletesAudio(ctx context.Context, p quality.Profile, originalTag string, kind common.MediaKind, rel common.ReleaseInfo) bool {
+// ParseForItemState parses rel as ItemStateRejections does when its Decision
+// carries no Parsed: the title for kind, its languages read for the item's
+// original language (originalTag) and the release groups' learned ones, the
+// indexer's over them. A caller judging one release for several items parses
+// it once and passes a copy as each Decision.Parsed (owner, 2026-10-28: the
+// grab planner parsed a pack again for every episode it covers, 78% of the
+// manager's CPU).
+func ParseForItemState(ctx context.Context, kind common.MediaKind, originalTag string, rel common.ReleaseInfo) (*release.ParsedRelease, error) {
+	pr, err := release.Parse(rel.Title, release.Options{Kind: kind})
+	if err != nil {
+		return nil, err
+	}
+	pr.Languages = pr.LanguagesWith(originalLanguageName(ctx, originalTag), release.GroupLanguagesFrom(ctx))
+	indexerLanguages(pr, rel)
+	return pr, nil
+}
+
+// ReleaseCompletesAudio reports whether a release, parsed by
+// ParseForItemState, carries every language p's audio policy wants for an
+// item whose original language is originalTag, as Evaluate ranks
+// LanguagesComplete. True without a policy; false for a nil parse.
+func ReleaseCompletesAudio(ctx context.Context, p quality.Profile, originalTag string, parsed *release.ParsedRelease) bool {
 	if len(p.AudioLanguages) == 0 {
 		return true
 	}
-	lang := originalLanguageName(ctx, originalTag)
-	pr, err := release.Parse(rel.Title, release.Options{Kind: kind})
-	if err != nil {
+	if parsed == nil {
 		return false
 	}
-	pr.Languages = pr.LanguagesWith(lang, release.GroupLanguagesFrom(ctx))
-	indexerLanguages(pr, rel)
-	_, complete := audioRejection(resolveAudioNames(ctx, p, lang), p, pr)
+	_, complete := audioRejection(resolveAudioNames(ctx, p, originalLanguageName(ctx, originalTag)), p, parsed)
 	return complete
 }
 

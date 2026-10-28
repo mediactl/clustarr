@@ -274,3 +274,16 @@ func TestAPackAndTheProfilesProtocolWinOverAHigherScore(t *testing.T) {
 		require.Equal(t, []string{pack720}, titles(grabplan.Decide(v)))
 	})
 }
+
+// A release is parsed once per decision, however many items it covers: a
+// pack was parsed again for each episode it covers on every pass (owner,
+// 2026-10-28: 78% of the manager's CPU, 2.4 cores, went to release.Parse in
+// the grab planner).
+func TestAPackIsParsedOncePerDecision(t *testing.T) {
+	cands := seasonCandidates(t, 1, 7, single1, single2, pack720)
+	count, restore := grabplan.CountParses()
+	defer restore()
+	p := grabplan.Decide(seriesView(t, season(1, 7), cands...))
+	require.Equal(t, []string{pack720}, titles(p))
+	require.Equal(t, 3, count(), "one parse per release, not one per episode it covers")
+}

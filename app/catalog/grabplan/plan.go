@@ -31,6 +31,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/decision"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/quality"
+	"github.com/mediactl/clustarr/pkg/release"
 )
 
 // CandidateWindow is how long a search answer stays grab input (ruling R7):
@@ -258,6 +259,10 @@ func Decide(v View) Plan {
 	return d.plan
 }
 
+// parseForItemState is decision.ParseForItemState, swapped by a test that
+// counts the planner's parses.
+var parseForItemState = decision.ParseForItemState
+
 type decider struct {
 	v       View
 	now     time.Time
@@ -266,6 +271,40 @@ type decider struct {
 	// taken are the purpose/item keys a grab or a hold this pass covers.
 	taken     map[string]bool
 	atCapOnce bool
+	// parses are this decision's releases parsed for item state, by kind,
+	// title and indexer languages: a pack is judged for every episode it
+	// covers, and was parsed again for each.
+	parses map[parseKey]parseResult
+}
+
+type parseKey struct {
+	kind               commonv1.MediaKind
+	title, originalTag string
+	indexerLanguages   string
+}
+
+type parseResult struct {
+	parsed *release.ParsedRelease
+	err    error
+}
+
+// parsed is rel parsed for an item of kind as decision.ItemStateRejections
+// would, once per decision; every caller gets its own copy.
+func (d *decider) parsed(kind commonv1.MediaKind, originalTag string, rel commonv1.ReleaseInfo) (*release.ParsedRelease, error) {
+	k := parseKey{kind: kind, title: rel.Title, originalTag: originalTag, indexerLanguages: strings.Join(rel.IndexerLanguages, "\x00")}
+	r, ok := d.parses[k]
+	if !ok {
+		r.parsed, r.err = parseForItemState(ctxBackground, kind, originalTag, rel)
+		if d.parses == nil {
+			d.parses = map[parseKey]parseResult{}
+		}
+		d.parses[k] = r
+	}
+	if r.err != nil {
+		return nil, r.err
+	}
+	cp := *r.parsed
+	return &cp, nil
 }
 
 func (d *decider) settle(c Candidate, o intake.Outcome, decision string) {
@@ -315,7 +354,8 @@ func (d *decider) check(c Candidate) verdict {
 		return vd
 	}
 	if d.v.Profile.AudioCompleteFirst {
-		vd.complete = decision.ReleaseCompletesAudio(ctxBackground, *d.v.Profile, d.v.OriginalLanguageTag, d.v.Kind, rel)
+		parsed, _ := d.parsed(d.v.Kind, d.v.OriginalLanguageTag, rel)
+		vd.complete = decision.ReleaseCompletesAudio(ctxBackground, *d.v.Profile, d.v.OriginalLanguageTag, parsed)
 	}
 	vd.covered = d.coverage(c)
 	if len(vd.covered) == 0 {
@@ -376,6 +416,9 @@ func (d *decider) itemStateRejections(c Candidate, it Covered) []commonv1.Reject
 		t.Donor = &decision.Donor{Rejected: it.DonorRejected}
 	}
 	dec := decision.Decision{Release: rel, Score: int(c.Release.Score)}
+	if pr, err := d.parsed(t.Kind, t.OriginalLanguageTag, rel); err == nil {
+		dec.Parsed = pr
+	}
 	return decision.ItemStateRejections(ctxBackground, t, *d.v.Profile, dec, decision.Options{})
 }
 
