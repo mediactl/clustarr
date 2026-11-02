@@ -564,7 +564,14 @@ state finished (`AutomaticCooldown`). An Episode never searched waits for
 such a season (`View.SeasonPackFirst`; a redownload does not), since a
 single grabbed first makes the grab planner refuse the pack as
 overlapping; the season's answer folds in as its search, as a planned
-one's does. A Series is still not a Search fan-out kind (`ContainerKind`). Every interactive
+one's does. A season answered with approved releases asks for the next
+pass at once (`ItemResult.Again`, 2026-11-02): the grab stage runs before
+the search stage and reads a season answer only from the stored
+`status.seasonSearch`, which wakes nothing, so the answer otherwise waited
+for an unrelated wake and aged out of `grabplan.CandidateWindow` ungrabbed
+-- 62 series' automatic answers of 2026-10-28, 91 Days' 101 approved
+releases among them, after which their episodes' searches went IndexOnly
+and found nothing. A Series is still not a Search fan-out kind (`ContainerKind`). Every interactive
 search's results are banded -- approved, rejected, then the identity
 mismatches (`WrongItem`, `UnknownItem`, `UnableToParse`) last, counted by
 `status.otherTitles` and collapsed behind "N releases for other titles",

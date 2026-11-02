@@ -142,6 +142,15 @@ func (s *Stage) seriesResult(sv searchplan.SeasonView, plan searchplan.SeasonPla
 			trigger = inferTrigger(st, f.Request)
 		}
 		metrics.SeasonSearchesTotal.WithLabelValues(trigger, seasonOutcome(f.Season)).Inc()
+		if f.Season.Phase == catalogv1alpha1.SeasonSearchAnswered && f.Season.Approved > 0 {
+			// The grab stage ran before this one and reads a season answer
+			// only from the stored state, and nothing wakes a Series for
+			// its own seasonSearch: the next pass comes at once, inside
+			// grabplan.CandidateWindow, or the answer ages out ungrabbed
+			// (2026-11-02: 91 Days' 101 approved releases, and 61 other
+			// series' automatic answers of 2026-10-28).
+			res.Again = true
+		}
 		if f.Season.Phase == catalogv1alpha1.SeasonSearchFailed {
 			res.Events = append(res.Events, remediation.ItemEvent{
 				Recorder: "series", Type: "Warning", Reason: ReasonSeasonSearchFailed, Action: "Search",
