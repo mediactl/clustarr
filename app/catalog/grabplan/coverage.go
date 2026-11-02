@@ -51,6 +51,10 @@ type ItemCheck struct {
 	// PackLive: a live pack covers the item, which it holds whatever the
 	// release until it has imported or failed (owner, 2026-11-02).
 	PackLive bool
+	// Queued: any live video grab covers the item, upgraded over or not. A
+	// release covering several items is refused over it (owner,
+	// 2026-11-02: no pack while an episode it covers is downloading).
+	Queued bool
 	// Unaired: the item has not aired.
 	Unaired bool
 }
@@ -70,9 +74,11 @@ func (ic *ItemCheck) NoteQueue(rej commonv1.Rejection) {
 // CoverageRejections folds the covered items into the release's verdict
 // (series search design §6.3): nil takes it, narrowed to the items with no
 // rejection; otherwise the rejections that refuse it -- PackDownloading when
-// a live pack holds any item, else QueueHigherPreference when any item is
-// Live (both exempt with override: the payload would bring that episode a
-// second time, Sonarr's QueueSpecification),
+// a live pack holds any item, EpisodeDownloading when the release covers
+// several items and a live grab covers any of them, else
+// QueueHigherPreference when any item is Live (all exempt with override:
+// the payload would bring that episode a second time, Sonarr's
+// QueueSpecification),
 // FullSeasonNotAired for a full-season release with an Unaired item
 // (exempt when manual: Sonarr's FullSeasonSpecification), else the first
 // item's when every item is rejected (P23: a pack covering no item that
@@ -88,6 +94,14 @@ func CoverageRejections(items []ItemCheck, season int32, fullSeason, manual, ove
 			if it.PackLive {
 				return []commonv1.Rejection{coverageRejection(decision.ReasonPackDownloading,
 					"the release covers an episode a pack still downloading holds; it is judged again once the pack has imported or failed")}
+			}
+		}
+		if len(items) > 1 {
+			for _, it := range items {
+				if it.Queued {
+					return []commonv1.Rejection{coverageRejection(decision.ReasonEpisodeDownloading,
+						"the pack covers an episode a grab is still downloading; no pack is grabbed beside it")}
+				}
 			}
 		}
 		for _, it := range items {
@@ -190,7 +204,7 @@ func seasonFacts(p schema.ParsedFacts, season int32, covered []Covered, add func
 // the item-state rejections the candidate is not exempt from -- plus not
 // monitored and not aired for an automatic candidate -- whether a live
 // video grab covers it that the release does not upgrade or that is a pack,
-// and whether it has aired.
+// whether any live video grab covers it (Queued), and whether it has aired.
 func (d *decider) itemCheck(c Candidate, it Covered) ItemCheck {
 	ic := ItemCheck{Unaired: !it.Wanted}
 	if !c.Manual {
@@ -201,6 +215,7 @@ func (d *decider) itemCheck(c Candidate, it Covered) ItemCheck {
 			ic.Rejections = append(ic.Rejections, rejectionNotAired)
 		}
 	}
+	ic.Queued = c.Purpose == "" && len(d.queue(it, c.Purpose)) > 0
 	for _, rej := range d.itemStateRejections(c, it) {
 		if c.Purpose == "" {
 			ic.NoteQueue(rej)
@@ -221,7 +236,8 @@ func refusalDecision(rejs []commonv1.Rejection) string {
 	switch {
 	case decision.ReasonFullSeasonNotAired.Of(rejs[0]):
 		return decisionSeasonNotAired
-	case decision.ReasonQueueHigherPreference.Of(rejs[0]), decision.ReasonPackDownloading.Of(rejs[0]):
+	case decision.ReasonQueueHigherPreference.Of(rejs[0]), decision.ReasonPackDownloading.Of(rejs[0]),
+		decision.ReasonEpisodeDownloading.Of(rejs[0]):
 		// Only a Live item yields it at the release's level: an item's own
 		// queue rejection is Live's evidence, or exempt.
 		return decisionOverlapsLive

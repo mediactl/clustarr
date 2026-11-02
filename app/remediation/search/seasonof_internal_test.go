@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 )
 
 // An Episode reads its season's PackFirst test from its Series'
@@ -49,4 +50,43 @@ func TestSeasonOfReadsItsSeasonsPackFirstTest(t *testing.T) {
 	pending, _, packFirst = seasonOf(ser, ep(1))
 	require.True(t, pending)
 	require.True(t, packFirst)
+}
+
+// An Episode stops waiting for its season's pack query once a grab of the
+// season is downloading: the automatic season search asks for no pack
+// beside it (owner, 2026-11-02), so the episode searches alone. A donor
+// entry is no video grab and holds nothing.
+func TestSeasonOfIsNoPackFirstWhileTheSeasonDownloads(t *testing.T) {
+	ser := &catalogv1alpha1.Series{Status: catalogv1alpha1.SeriesStatus{Seasons: []catalogv1alpha1.SeasonStatus{
+		{Number: 1, Monitored: true, EpisodeCount: 12},
+		{Number: 2, Monitored: true, EpisodeCount: 12},
+	}}}
+	ep := func(season int32) *catalogv1alpha1.Episode {
+		return &catalogv1alpha1.Episode{Spec: catalogv1alpha1.EpisodeSpec{SeasonNumber: season, EpisodeNumber: 3}}
+	}
+	entry := func(phase commonv1.DownloadPhase, purpose commonv1.DownloadPurpose) catalogv1alpha1.DownloadEntry {
+		return catalogv1alpha1.DownloadEntry{
+			ID: "e", UID: "u", Phase: phase, Purpose: purpose,
+			Episodes: []catalogv1alpha1.EpisodeNumber{{Season: 1, Number: 7}},
+		}
+	}
+	for _, tc := range []struct {
+		name      string
+		entries   []catalogv1alpha1.DownloadEntry
+		packFirst bool
+	}{
+		{"nothing downloading", nil, true},
+		{"a single of the season downloading", []catalogv1alpha1.DownloadEntry{entry(commonv1.DownloadPhaseDownloading, "")}, false},
+		{"its grab imported", []catalogv1alpha1.DownloadEntry{entry(commonv1.DownloadPhaseImported, "")}, true},
+		{"an audio donor downloading", []catalogv1alpha1.DownloadEntry{entry(commonv1.DownloadPhaseDownloading, commonv1.DownloadPurposeAudioDonor)}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := ser.DeepCopy()
+			s.Status.Downloads = tc.entries
+			_, _, packFirst := seasonOf(s, ep(1))
+			require.Equal(t, tc.packFirst, packFirst)
+			_, _, other := seasonOf(s, ep(2))
+			require.True(t, other, "another season's grab holds no other season")
+		})
+	}
 }

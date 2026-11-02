@@ -378,7 +378,8 @@ func (s *Stage) seasonFacts(ctx context.Context, ser *catalogv1alpha1.Series, v 
 // season pending in the Series' season search (Queued or Searching), when
 // the season was answered (not AllPaced or NoIndexer: no indexer was asked,
 // so it is no episode's search), and whether the season passes PackFirst in
-// the Series' status.seasons, the test the automatic season search reads.
+// the Series' status.seasons, the test the automatic season search reads,
+// with no grab of it downloading (seasonDownloading).
 func seasonOf(owner client.Object, ep *catalogv1alpha1.Episode) (pending bool, answeredAt *metav1.Time, packFirst bool) {
 	ser, ok := owner.(*catalogv1alpha1.Series)
 	if !ok {
@@ -386,7 +387,7 @@ func seasonOf(owner client.Object, ep *catalogv1alpha1.Episode) (pending bool, a
 	}
 	for _, s := range ser.Status.Seasons {
 		if s.Number == ep.Spec.SeasonNumber {
-			packFirst = searchplan.PackFirst(s)
+			packFirst = searchplan.PackFirst(s) && !seasonDownloading(ser, s.Number)
 		}
 	}
 	if ser.Status.SeasonSearch == nil {
@@ -408,6 +409,27 @@ func seasonOf(owner client.Object, ep *catalogv1alpha1.Episode) (pending bool, a
 		}
 	}
 	return false, nil, packFirst
+}
+
+// seasonDownloading reports a live video grab on ser covering an episode
+// of season. The automatic season search asks for no pack of such a season,
+// since the grab planner would refuse one beside the grab (owner,
+// 2026-11-02, decision.ReasonEpisodeDownloading), so its episodes wait for
+// no season query and search alone.
+func seasonDownloading(ser *catalogv1alpha1.Series, season int32) bool {
+	entries := dlindex.Entries(ser)
+	for i := range entries {
+		e := &entries[i]
+		if !rollup.EntryNonTerminal(e) || rollup.IsDonor(e) {
+			continue
+		}
+		for _, n := range e.Episodes {
+			if n.Season == season {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // publishTask is t's DispatchPublish on durable: the ledger confirms its

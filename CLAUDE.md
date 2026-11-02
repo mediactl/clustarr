@@ -577,8 +577,17 @@ unless the season pack fails or ends up missing episodes";
 `decision.ReasonPackDownloading`, `DownloadEntry.Pack`): no release is
 grabbed beside it for one of them, an upgrade or another pack included,
 only `spec.override`; once it has failed the episodes are wanted again,
-and once it has imported their files decide. A pack over live singles is
-still taken when it upgrades them. A Series is still not a Search fan-out kind (`ContainerKind`). Every interactive
+and once it has imported their files decide. The reverse holds too
+(owner, the same day: "skip season pack downloads/searches if single
+episodes are already downloading"): a pack is refused while any grab of an
+episode it covers is downloading, an upgrade included
+(`decision.ReasonEpisodeDownloading`, from `ItemCheck.Queued` in
+`grabplan.CoverageRejections`), the automatic season search asks for no
+season with a grab downloading (`automaticSeasons`, `Downloading == 0`),
+and such a season's episodes wait for no season query
+(`seasonDownloading` in the search stage's `seasonOf`). A person's season
+search still runs; its packs are refused and its singles taken. A single
+still upgrades a live single. A Series is still not a Search fan-out kind (`ContainerKind`). Every interactive
 search's results are banded -- approved, rejected, then the identity
 mismatches (`WrongItem`, `UnknownItem`, `UnableToParse`) last, counted by
 `status.otherTitles` and collapsed behind "N releases for other titles",

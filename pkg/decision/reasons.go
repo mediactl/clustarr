@@ -58,7 +58,13 @@ var (
 	// queued beside it for one of them, an upgrade included. Once the pack
 	// has imported or failed, the episodes' own state decides what is
 	// searched and grabbed next. Permanent, as QueueHigherPreference is.
-	ReasonPackDownloading              = Reason{"PackDownloading", common.RejectionPermanent}
+	ReasonPackDownloading = Reason{"PackDownloading", common.RejectionPermanent}
+	// ReasonEpisodeDownloading is its reverse, the owner's rule of the same
+	// day: a pack is not grabbed while a grab of an episode it covers is
+	// still downloading, an upgrade included. Only the grab planner's
+	// coverage fold knows a release covers several episodes, so it is
+	// raised there (grabplan.CoverageRejections), never by queueRejection.
+	ReasonEpisodeDownloading           = Reason{"EpisodeDownloading", common.RejectionPermanent}
 	ReasonExistingHigherPreference     = Reason{"ExistingHigherPreference", common.RejectionPermanent}
 	ReasonUpgradesNotAllowed           = Reason{"UpgradesNotAllowed", common.RejectionPermanent}
 	ReasonExistingHigherRevision       = Reason{"ExistingHigherRevision", common.RejectionPermanent}

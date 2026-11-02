@@ -404,15 +404,18 @@ func start(v SeasonView, req SeasonRequest, now time.Time) *catalogv1alpha1.Seas
 
 // automaticSeasons are the seasons the automatic season search asks for:
 // every PackFirst season, monitored, with an episode waiting for its first
-// search and one wanted that no live grab covers -- none for an unmonitored
-// series. Before AutomaticCooldown has passed since the last automatic
+// search and no live grab covering any episode wanted -- none for an
+// unmonitored series. Before AutomaticCooldown has passed since the last automatic
 // state finished it asks for none, and wait is when it may.
 func automaticSeasons(v SeasonView, st *catalogv1alpha1.SeasonSearchState, now time.Time) (seasons []int32, wait time.Time) {
 	if !v.Monitored {
 		return nil, time.Time{}
 	}
 	for _, f := range v.Seasons {
-		if f.Number != 0 && f.PackFirst && f.Monitored && f.FirstSearch > 0 && f.Wanted > f.Downloading {
+		// A season with a grab downloading is never asked for a pack: the
+		// grab planner refuses one beside it (owner, 2026-11-02,
+		// decision.ReasonEpisodeDownloading), so its episodes search alone.
+		if f.Number != 0 && f.PackFirst && f.Monitored && f.FirstSearch > 0 && f.Downloading == 0 {
 			seasons = append(seasons, f.Number)
 		}
 	}

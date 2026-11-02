@@ -99,6 +99,11 @@ func TestAPackFirstSeasonIsSearchedAutomatically(t *testing.T) {
 
 		v.Seasons[1].FirstSearch, v.Seasons[1].Downloading = 7, 7
 		require.Nil(t, searchplan.DecideSeasons(v, admitAll, paceNow(now)).State, "every wanted episode is downloading")
+
+		// Owner, 2026-11-02: one grab downloading is enough, since the
+		// grab planner refuses a pack beside it (EpisodeDownloading).
+		v.Seasons[1].FirstSearch, v.Seasons[1].Downloading = 6, 1
+		require.Nil(t, searchplan.DecideSeasons(v, admitAll, paceNow(now)).State, "an episode of the season is downloading")
 	})
 	t.Run("an automatic state is never canceled for a missing Search", func(t *testing.T) {
 		v := seasonView(now)

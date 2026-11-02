@@ -37,6 +37,7 @@ const (
 	single5   = "Breaking.Bad.S01E05.720p.HDTV.x264-GRP"
 	bdSingle1 = "Breaking.Bad.S01E01.1080p.BluRay.x264-GRP"
 	bdSingle2 = "Breaking.Bad.S01E02.1080p.BluRay.x264-GRP"
+	bdSingle5 = "Breaking.Bad.S01E05.1080p.BluRay.x264-GRP"
 )
 
 func episodesOf(s int32, from, to int32) []catalogv1alpha1.EpisodeNumber {
@@ -81,8 +82,9 @@ func TestBetterSinglesWinAndThePackIsThenRefused(t *testing.T) {
 // TestALiveGrabRefusesAnOverlappingReleaseUnlessItUpgrades is design §6.3
 // rule 1 across two passes: the first grabs a single; on the second, with
 // that grab live, a pack of the same quality would bring the episode again
-// and is refused whole (overlapsLive); a pack that upgrades the live grab
-// is taken.
+// and is refused whole (overlapsLive), and so is a pack that upgrades it
+// (owner, 2026-11-02: no pack while an episode it covers is downloading,
+// decision.ReasonEpisodeDownloading); a single that upgrades it is taken.
 func TestALiveGrabRefusesAnOverlappingReleaseUnlessItUpgrades(t *testing.T) {
 	first := grabplan.Decide(seriesView(t, season(1, 7), seasonCandidates(t, 1, 7, single5)...))
 	require.Equal(t, []string{single5}, titles(first))
@@ -95,9 +97,12 @@ func TestALiveGrabRefusesAnOverlappingReleaseUnlessItUpgrades(t *testing.T) {
 	require.Equal(t, 1, second.Decisions["overlapsLive"], "%+v", second.Decisions)
 
 	v.Candidates = seasonCandidates(t, 1, 7, pack1080)
-	upgrade := grabplan.Decide(v)
-	require.Equal(t, []string{pack1080}, titles(upgrade))
-	require.Equal(t, episodesOf(1, 1, 7), upgrade.NewEntries[0].Episodes)
+	packUpgrade := grabplan.Decide(v)
+	require.Empty(t, titles(packUpgrade), "a pack waits for the single it would upgrade")
+	require.Equal(t, 1, packUpgrade.Decisions["overlapsLive"], "%+v", packUpgrade.Decisions)
+
+	v.Candidates = seasonCandidates(t, 1, 7, bdSingle5)
+	require.Equal(t, []string{bdSingle5}, titles(grabplan.Decide(v)), "a single still upgrades a single")
 
 	t.Run("the live grab finished, the pack is narrowed past it as any other", func(t *testing.T) {
 		v := seriesView(t, season(1, 7), seasonCandidates(t, 1, 7, pack720)...)
