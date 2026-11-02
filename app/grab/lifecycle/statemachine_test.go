@@ -607,6 +607,47 @@ func TestEveryRowOfTheStateMachine(t *testing.T) {
 			assert.Equal(t, bootID, c.BootID, "the Msg-Id names the boot, so the dedupe window does not swallow it")
 		},
 	}, {
+		// talos, 2026-10-30: a second add of the entry under another uid
+		// took its usenet job; the engine now reports that as removed at the
+		// entry's own seq (engine.Handler's writeDisplaced).
+		name: "Queued: the record reads removed at the entry's add, after the engine's boot -> present again at a new seq",
+		view: func() lifecycle.View {
+			e := usenetEntry(commonv1.DownloadPhaseQueued)
+			tr := record(e, seq0, commonv1.DownloadStageFetchingMetadata)
+			tr.Record.State = schema.TransferStateRemoved
+			return view([]catalogv1alpha1.DownloadEntry{e}, tr)
+		},
+		check: func(t *testing.T, p lifecycle.Plan) {
+			e := only(p)
+			require.NotNil(t, e)
+			assert.Equal(t, commonv1.DownloadPhaseQueued, e.Phase, "the phase is unchanged")
+			assert.Contains(t, e.Message, "went to another grab")
+			require.Len(t, p.Commands, 1)
+			assert.Equal(t, schema.EngineDesiredPresent, p.Commands[0].Cmd.Desired)
+			assert.Greater(t, p.Commands[0].Cmd.Seq, seq0)
+		},
+	}, {
+		name: "an unclaimed failed transfer -> absent at the seq after its record's, never re-created",
+		view: func() lifecycle.View {
+			v := view(nil)
+			e := usenetEntry(commonv1.DownloadPhaseDownloading)
+			tr := record(e, seq0, commonv1.DownloadStageDone)
+			tr.Record.State = schema.TransferStateFailed
+			tr.Record.EngineFailureReason = commonv1.DownloadFailureMissingArticles
+			tr.Record.Claimed = false
+			v.Unclaimed = []lifecycle.Transfer{tr}
+			return v
+		},
+		check: func(t *testing.T, p lifecycle.Plan) {
+			assert.Empty(t, p.Entries, "no entry is re-created for a failure")
+			require.Len(t, absents(p), 1)
+			c := absents(p)[0]
+			assert.Equal(t, entryUID, c.Cmd.Entry.UID)
+			assert.Equal(t, seq0+1, c.Cmd.Seq)
+			assert.Equal(t, "sab-0", c.Engine)
+			assert.Empty(t, p.Blocks)
+		},
+	}, {
 		name: "an unclaimed transfer the owner still wants -> re-created under the claim, present at a new seq",
 		view: func() lifecycle.View {
 			v := view(nil)

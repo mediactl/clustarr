@@ -486,3 +486,83 @@ func TestANewerCommandSupersedesADeferredOne(t *testing.T) {
 	}
 	assert.Equal(t, 1, n, "seq 41 is applied once, when it was deferred, and never retried after 42")
 }
+
+// TestAnAddThatAdoptsAnotherGrabsTransferRemovesThatGrabsRecord: the
+// usenet client adopts a job by the entry's id, so a second add of one
+// entry under a new uid (a duplicate admission whose status was lost, talos
+// 2026-10-30) takes the first grab's transfer. The first uid's record reads
+// removed at its own seq, which the manager answers, when it holds that uid,
+// with an add that adopts the transfer back; then the second uid's record
+// reads removed and one transfer remains, journaled to the uid the owner
+// holds.
+func TestAnAddThatAdoptsAnotherGrabsTransferRemovesThatGrabsRecord(t *testing.T) {
+	ctx := context.Background()
+	const uidA, uidB = "uid-first-grab", "uid-second-grab"
+	hs := newHarness(t)
+	hs.src.adoptByName = true
+	hs.start(t)
+
+	require.NoError(t, hs.h.Handle(ctx, delivery(t, command(entryID, uidA, 100, schema.EngineDesiredPresent))))
+	require.NoError(t, hs.h.Handle(ctx, delivery(t, command(entryID, uidB, 101, schema.EngineDesiredPresent))))
+
+	h, ok := hs.src.get(entryID)
+	require.True(t, ok)
+	assert.Equal(t, "dl-"+uidA, h.Item.ID, "the first grab's transfer, adopted")
+	assert.Equal(t, uidB, h.Journal.EntryUID)
+	recA, ok := hs.transfer(t, uidA)
+	require.True(t, ok)
+	assert.Equal(t, schema.TransferStateRemoved, recA.State, "the displaced grab's record reads removed")
+	assert.Equal(t, int64(100), recA.Seq, "at its own seq, which answers its dispatch")
+	assert.False(t, recA.DataRemoved, "its data stays: the transfer still holds it")
+	recB, ok := hs.transfer(t, uidB)
+	require.True(t, ok)
+	assert.Equal(t, schema.TransferStatePresent, recB.State)
+	assert.Equal(t, int64(101), recB.Seq)
+
+	// The owner holds the first uid: lifecycle re-adds it.
+	require.NoError(t, hs.h.Handle(ctx, delivery(t, command(entryID, uidA, 102, schema.EngineDesiredPresent))))
+	h, _ = hs.src.get(entryID)
+	assert.Equal(t, "dl-"+uidA, h.Item.ID, "still the one transfer")
+	assert.Equal(t, uidA, h.Journal.EntryUID)
+	assert.Equal(t, int64(102), h.Journal.Seq)
+	recA, _ = hs.transfer(t, uidA)
+	assert.Equal(t, schema.TransferStatePresent, recA.State)
+	assert.Equal(t, int64(102), recA.Seq)
+	recB, _ = hs.transfer(t, uidB)
+	assert.Equal(t, schema.TransferStateRemoved, recB.State, "now the second grab's record reads removed")
+	assert.Equal(t, int64(101), recB.Seq)
+
+	held, err := hs.src.List(ctx)
+	require.NoError(t, err)
+	assert.Len(t, held, 1, "no second transfer was added")
+}
+
+// TestADisplacedRecordTheEngineCouldNotWriteIsWrittenByTheNextDelivery: the
+// adopting command is applied but its records cannot be written; its
+// redelivery finds the transfer already journaled to it and still writes the
+// displaced grab's removed record before acking.
+func TestADisplacedRecordTheEngineCouldNotWriteIsWrittenByTheNextDelivery(t *testing.T) {
+	ctx := context.Background()
+	const uidA, uidB = "uid-first-grab", "uid-second-grab"
+	hs := newHarness(t)
+	hs.src.adoptByName = true
+	hs.start(t)
+	require.NoError(t, hs.h.Handle(ctx, delivery(t, command(entryID, uidA, 100, schema.EngineDesiredPresent))))
+
+	hs.transfers.setClosed(true)
+	err := hs.h.Handle(ctx, delivery(t, command(entryID, uidB, 101, schema.EngineDesiredPresent)))
+	var retry *events.RetryError
+	require.ErrorAs(t, err, &retry, "not acked while the records cannot be written")
+	hs.transfers.setClosed(false)
+	recA, _ := hs.transfer(t, uidA)
+	assert.Equal(t, schema.TransferStatePresent, recA.State, "nothing written yet")
+
+	require.NoError(t, hs.h.Handle(ctx, delivery(t, command(entryID, uidB, 101, schema.EngineDesiredPresent))))
+	assert.Equal(t, []string{"apply present seq=100 cur=", "apply present seq=101 cur="}, applies(hs.src.Calls()),
+		"the redelivery applies nothing again")
+	recA, _ = hs.transfer(t, uidA)
+	assert.Equal(t, schema.TransferStateRemoved, recA.State)
+	recB, ok := hs.transfer(t, uidB)
+	require.True(t, ok)
+	assert.Equal(t, int64(101), recB.Seq)
+}

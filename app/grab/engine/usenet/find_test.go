@@ -88,5 +88,16 @@ func TestFindReadsTheJobNamedForTheEntryWithoutListing(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, h)
 
-	assert.Zero(t, jc.lists, "Find never lists")
+	// The job another grab of the entry holds is the one an add adopts.
+	var _ engine.NamedFinder = tr
+	h, err = tr.FindNamed(ctx, "entry-x")
+	require.NoError(t, err)
+	require.NotNil(t, h)
+	assert.Equal(t, "job-x", h.Item.ID)
+	assert.Equal(t, "uid-old", h.Journal.EntryUID)
+	h, err = tr.FindNamed(ctx, "entry-z")
+	require.NoError(t, err)
+	assert.Nil(t, h)
+
+	assert.Zero(t, jc.lists, "Find and FindNamed never list")
 }

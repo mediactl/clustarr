@@ -93,6 +93,9 @@ type Handler struct {
 	deferred map[string]*time.Timer
 	// gates is each indexer's deferred commands, by indexerOf.
 	gates map[string]*gate
+	// displaced is each adopting entry uid's displaced record not yet
+	// written (writeDisplaced), retried by the command's next delivery.
+	displaced map[string]Held
 }
 
 // deferApply asks for cmd's payload again after wait, in place of a nak
@@ -164,16 +167,18 @@ func (h *Handler) superseded(cmd schema.EngineCommand) bool {
 }
 
 // lock serialises one entry's commands: a republish and its successor may
-// arrive on two slots at once.
-func (h *Handler) lock(uid string) func() {
+// arrive on two slots at once. It is keyed by the entry's id, not its uid:
+// two grabs of one entry (a duplicate admission whose status was lost) name
+// one transfer, which the clients find by that id.
+func (h *Handler) lock(id string) func() {
 	h.mu.Lock()
 	if h.locks == nil {
 		h.locks = map[string]*sync.Mutex{}
 	}
-	l, ok := h.locks[uid]
+	l, ok := h.locks[id]
 	if !ok {
 		l = &sync.Mutex{}
-		h.locks[uid] = l
+		h.locks[id] = l
 	}
 	h.mu.Unlock()
 	l.Lock()
@@ -229,16 +234,19 @@ func (h *Handler) handle(ctx context.Context, log *slog.Logger, cmd schema.Engin
 		return nil
 	}
 
-	unlock := h.lock(cmd.Entry.UID)
+	unlock := h.lock(cmd.Entry.ID)
 	defer unlock()
 
-	cur, err := h.find(ctx, cmd)
+	cur, other, err := h.find(ctx, cmd)
 	if err != nil {
 		return events.Retry(applyRetry, err)
 	}
 	h.Reporter.Named(cmd.Entry.UID)
 	if cur != nil && cur.Journal.EntryUID == cmd.Entry.UID && cmd.Seq <= cur.Journal.Seq {
 		// Already applied (a republish, a duplicate): the record shows it.
+		if err := h.writeDisplaced(ctx, log, cmd, nil); err != nil {
+			return events.Retry(notReadyRetry, err)
+		}
 		if err := h.Reporter.WriteHeld(ctx, *cur, true); err != nil {
 			return events.Retry(notReadyRetry, err)
 		}
@@ -264,6 +272,10 @@ func (h *Handler) handle(ctx context.Context, log *slog.Logger, cmd schema.Engin
 		return nil
 	}
 
+	var prior *Held
+	if cur == nil && cmd.Desired == schema.EngineDesiredPresent {
+		prior = other
+	}
 	after, err := h.Transfers.Apply(ctx, cmd, cur)
 	var deferred *PayloadDeferredError
 	switch {
@@ -313,33 +325,116 @@ func (h *Handler) handle(ctx context.Context, log *slog.Logger, cmd schema.Engin
 			"attempt", attempt, "error", err)
 		return events.Retry(applyRetryAfter(attempt), err)
 	}
+	if err := h.writeDisplaced(ctx, log, cmd, adopted(prior, after)); err != nil {
+		return events.Retry(notReadyRetry, err)
+	}
 	if err := h.Reporter.WriteHeld(ctx, after, true); err != nil {
 		return events.Retry(notReadyRetry, err)
 	}
 	return nil
 }
 
+// adopted is prior when the applied command took over its transfer.
+func adopted(prior *Held, after Held) *Held {
+	if prior == nil || prior.Item.ID == "" || prior.Item.ID != after.Item.ID {
+		return nil
+	}
+	return prior
+}
+
+// writeDisplaced writes the record of the grab cmd's entry took a transfer
+// from (adopted, or one an earlier delivery could not write) as removed at
+// that grab's own seq: the manager reads a live entry's removed record as a
+// transfer the engine no longer holds for it and adds it again, which adopts
+// the transfer back under the uid the owner holds -- whichever of the two
+// that is, the other's record ends removed. The engine reports a transfer
+// under one entry only, so without this the displaced entry's record stood
+// at its last stage for good.
+func (h *Handler) writeDisplaced(ctx context.Context, log *slog.Logger, cmd schema.EngineCommand, prior *Held) error {
+	h.mu.Lock()
+	if prior == nil {
+		p, ok := h.displaced[cmd.Entry.UID]
+		if !ok {
+			h.mu.Unlock()
+			return nil
+		}
+		prior = &p
+	} else {
+		if h.displaced == nil {
+			h.displaced = map[string]Held{}
+		}
+		h.displaced[cmd.Entry.UID] = *prior
+	}
+	h.mu.Unlock()
+
+	gone := *prior
+	gone.Found = false
+	if err := h.Reporter.WriteHeld(ctx, gone, true); err != nil {
+		return err
+	}
+	h.mu.Lock()
+	delete(h.displaced, cmd.Entry.UID)
+	h.mu.Unlock()
+	log.WarnContext(ctx, "engine: an add took over another grab's transfer of the entry; that grab's record reads removed",
+		"entry", cmd.Entry.ID, "uid", cmd.Entry.UID, "seq", cmd.Seq,
+		"displacedUID", prior.Journal.EntryUID, "displacedSeq", prior.Journal.Seq, "downloadID", prior.Item.ID)
+	return nil
+}
+
 // find is the transfer a command names: by its journal's entry uid, else a
 // pre-journal transfer by name (the adopted entry's id is its Download's
-// name, §10.2).
-func (h *Handler) find(ctx context.Context, cmd schema.EngineCommand) (*Held, error) {
+// name, §10.2). other is, when there is none, the transfer of the entry's id
+// another grab holds -- an entry of that id under another uid -- which an add
+// adopts, since the clients find a transfer by the entry's id. On 2026-10-30
+// the manager sent four entries a second add under a new uid a second or two
+// after the first; the usenet client adopted each job and re-journaled it to
+// the new uid, whose records the owner never read, so the four read Queued
+// for three days while their jobs had failed or finished.
+func (h *Handler) find(ctx context.Context, cmd schema.EngineCommand) (cur, other *Held, err error) {
 	if f, ok := h.Transfers.(Finder); ok {
-		return f.Find(ctx, cmd.Entry.UID, cmd.Entry.ID)
+		if cur, err = f.Find(ctx, cmd.Entry.UID, cmd.Entry.ID); err != nil || cur != nil {
+			return cur, nil, err
+		}
+		if nf, ok := h.Transfers.(NamedFinder); ok {
+			named, err := nf.FindNamed(ctx, cmd.Entry.ID)
+			if err != nil {
+				return nil, nil, err
+			}
+			if heldByAnother(named, cmd) {
+				other = named
+			}
+		}
+		return nil, other, nil
 	}
 	held, err := h.Transfers.List(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var byName *Held
 	for i := range held {
 		switch {
 		case held[i].Journal.EntryUID == cmd.Entry.UID:
-			return &held[i], nil
+			return &held[i], nil, nil
 		case held[i].Journal.EntryUID == "" && held[i].Name == cmd.Entry.ID && byName == nil:
 			byName = &held[i]
+		case other == nil && heldByAnother(&held[i], cmd):
+			other = &held[i]
 		}
 	}
-	return byName, nil
+	if byName != nil {
+		return byName, nil, nil
+	}
+	return nil, other, nil
+}
+
+// heldByAnother reports h a transfer of cmd's entry id journaled to another
+// of its grabs.
+func heldByAnother(h *Held, cmd schema.EngineCommand) bool {
+	if h == nil || !h.Found || h.Name != cmd.Entry.ID {
+		return false
+	}
+	j := h.Journal
+	return j.Claim != nil && j.EntryUID != "" && j.EntryUID != cmd.Entry.UID
 }
 
 // NextJournal is the journal a transfer carries after cmd is applied.

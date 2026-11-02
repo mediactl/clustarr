@@ -140,7 +140,7 @@ func nonceField(n *catalogv1alpha1.DownloadNonces, a string) *string {
 func (d *decider) converge(entries []catalogv1alpha1.DownloadEntry) []catalogv1alpha1.DownloadEntry {
 	for _, t := range d.v.Unclaimed {
 		rec := t.Record
-		if rec.Claim == nil || rec.Claimed || rec.State != schema.TransferStatePresent {
+		if rec.Claim == nil || rec.Claimed || (rec.State != schema.TransferStatePresent && rec.State != schema.TransferStateFailed) {
 			continue
 		}
 		claim := *rec.Claim
@@ -153,6 +153,14 @@ func (d *decider) converge(entries []catalogv1alpha1.DownloadEntry) []catalogv1a
 			if d.v.ProviderVerified {
 				d.removeUnclaimed(rec, claim, "the transfer's owner is another item now (provider id "+claim.ProviderID+" against "+d.v.ProviderID+")")
 			}
+			continue
+		}
+		if rec.State == schema.TransferStateFailed {
+			// A failure no entry claims is nobody's to blocklist or retry:
+			// the owner searches again on its own. Its job stayed in the
+			// engine for good before (talos, 2026-11-02: a Sex and the City
+			// job that failed on 10-29, its entry long gone).
+			d.removeUnclaimed(rec, claim, "the transfer failed and no grab of it claims it")
 			continue
 		}
 		wanted, why := d.stillWants(claim, rec, entries)

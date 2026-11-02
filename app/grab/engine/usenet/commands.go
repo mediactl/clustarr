@@ -45,8 +45,9 @@ type Transfers struct {
 }
 
 var (
-	_ engine.Transfers = (*Transfers)(nil)
-	_ engine.Finder    = (*Transfers)(nil)
+	_ engine.Transfers   = (*Transfers)(nil)
+	_ engine.Finder      = (*Transfers)(nil)
+	_ engine.NamedFinder = (*Transfers)(nil)
 )
 
 func (t *Transfers) now() time.Time {
@@ -90,6 +91,19 @@ func (t *Transfers) List(ctx context.Context) ([]engine.Held, error) {
 // the job of that name is the only one whose journal can name the entry: it
 // is the entry's when its journal names it or names no entry yet.
 func (t *Transfers) Find(ctx context.Context, entryUID, name string) (*engine.Held, error) {
+	h, err := t.FindNamed(ctx, name)
+	if err != nil || h == nil {
+		return nil, err
+	}
+	if h.Journal.EntryUID != entryUID && h.Journal.EntryUID != "" {
+		return nil, nil
+	}
+	return h, nil
+}
+
+// FindNamed implements engine.NamedFinder: the job named name, whatever
+// entry its journal names.
+func (t *Transfers) FindNamed(ctx context.Context, name string) (*engine.Held, error) {
 	byName, ok := t.Client.(download.ByName)
 	if !ok {
 		return nil, errors.New("usenet: the client cannot find a transfer by name")
@@ -109,11 +123,7 @@ func (t *Transfers) Find(ctx context.Context, entryUID, name string) (*engine.He
 	if err != nil && !errors.Is(err, download.ErrNotFound) {
 		return nil, err
 	}
-	j := engine.UnmarshalJournal(raw)
-	if j.EntryUID != entryUID && j.EntryUID != "" {
-		return nil, nil
-	}
-	return &engine.Held{Name: it.Name, Journal: j, Item: it, Found: true}, nil
+	return &engine.Held{Name: it.Name, Journal: engine.UnmarshalJournal(raw), Item: it, Found: true}, nil
 }
 
 // Apply implements engine.Transfers.

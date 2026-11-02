@@ -64,6 +64,13 @@ type Finder interface {
 	Find(ctx context.Context, entryUID, name string) (*Held, error)
 }
 
+// NamedFinder is a Finder that also reads the transfer named name whatever
+// entry its journal names, or nil: the transfer an add of that entry id
+// adopts (Handler.find's other).
+type NamedFinder interface {
+	FindNamed(ctx context.Context, name string) (*Held, error)
+}
+
 // DetachedRemover is a Transfers that keeps state for a transfer its client
 // may not list -- the torrent engine's descriptor of a magnet still fetching
 // its metadata, or of a torrent mid-verification -- and so can forget an

@@ -89,6 +89,9 @@ type memTransfers struct {
 	applyHook func(cmd schema.EngineCommand) error
 	// removed records each RemoveByID's removeData.
 	removed map[string]bool
+	// adoptByName makes an add adopt a transfer of the entry's id, as the
+	// usenet client's dedupe on AddRequest.Name does.
+	adoptByName bool
 }
 
 func (m *memTransfers) log(format string, args ...any) {
@@ -145,6 +148,9 @@ func (m *memTransfers) Apply(_ context.Context, cmd schema.EngineCommand, cur *e
 	idx := -1
 	for i := range m.held {
 		if cur != nil && m.held[i].Name == cur.Name {
+			idx = i
+		}
+		if cur == nil && m.adoptByName && cmd.Desired == schema.EngineDesiredPresent && m.held[i].Name == cmd.Entry.ID {
 			idx = i
 		}
 	}

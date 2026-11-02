@@ -129,6 +129,17 @@ func (d *decider) live(e *catalogv1alpha1.DownloadEntry, rec *schema.TransferRec
 		return d.pending(e)
 	}
 
+	if rec != nil && rec.State == schema.TransferStateRemoved && rec.Seq >= e.Dispatch.Seq {
+		// The engine answered this entry's add with removed: another grab
+		// of the entry -- the same id under another uid, a duplicate
+		// admission whose status was lost -- took its transfer
+		// (engine.Handler's writeDisplaced). Added again, the engine adopts
+		// the transfer back under this uid and reports it here (talos,
+		// 2026-10-30: four entries read Queued for three days).
+		e.Message = "the engine's transfer for this entry went to another grab of it; adding it again"
+		d.issue(e)
+		return true
+	}
 	if rec == nil || !heldAtBoot(rec, eng) {
 		// No record at the engine's boot. Judged only once the engine
 		// re-attached and finished the resync its client asked for
