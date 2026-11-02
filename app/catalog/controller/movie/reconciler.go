@@ -521,11 +521,13 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Mov
 	if wrongLanguage && !transcoded {
 		cutoffMet = false
 	}
-	// A file missing a language a non-grafting audio policy wants is
-	// replaced by a release carrying them all, a transcoded one included
-	// (decision.IncompleteAudio, 2026-10-20): it reads CutoffUnmet, so the
-	// wanted sweep looks for one, and it is not final until then.
-	missingAudio := profile != nil && hasFile && decision.IncompleteAudio(*profile, originalTag, audio)
+	// A file missing a language a non-grafting audio policy wants, or one
+	// taking complete audio first (Audio.CompleteFirst, owner 2026-11-02;
+	// its graft stays the fallback), is replaced by a release carrying them
+	// all, a transcoded one included (decision.ReplaceableAudio,
+	// 2026-10-20): it reads CutoffUnmet, so the wanted sweep looks for one,
+	// and it is not final until then.
+	missingAudio := profile != nil && hasFile && decision.ReplaceableAudio(*profile, originalTag, audio)
 	if missingAudio {
 		cutoffMet = false
 		transcoded = false

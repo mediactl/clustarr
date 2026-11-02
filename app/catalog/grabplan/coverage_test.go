@@ -325,3 +325,40 @@ func TestAPackIsParsedOncePerDecision(t *testing.T) {
 	require.Equal(t, []string{pack720}, titles(p))
 	require.Equal(t, 3, count(), "one parse per release, not one per episode it covers")
 }
+
+// TestADualAudioPackIsGrabbedOverJapaneseOnlySinglesDownloading is the
+// owner's exception of 2026-11-02 ("Ensure we use dual audio as the highest
+// priority") to the rule above: under a profile taking complete audio first
+// a pack carrying every wanted language is grabbed over a single that does
+// not, as Remake our Life!'s dual-audio EMBER pack was not over SENPAI's
+// Japanese-only singles. A Japanese-only pack still waits for the single.
+func TestADualAudioPackIsGrabbedOverJapaneseOnlySinglesDownloading(t *testing.T) {
+	const (
+		jpSingle5 = "Breaking.Bad.S01E05.720p.HDTV.JAPANESE.x264-GRP"
+		dualPack  = "Breaking.Bad.S01.1080p.BluRay.JAPANESE.ENGLISH.x264-GRP"
+		jpPack    = "Breaking.Bad.S01.1080p.BluRay.JAPANESE.x264-GRP"
+	)
+	completeFirst := func(v grabplan.View) grabplan.View {
+		p := *v.Profile
+		p.AudioLanguages, p.GraftAudio, p.AudioCompleteFirst = []string{"en", "original"}, true, true
+		v.Profile, v.OriginalLanguageTag = &p, "ja"
+		return v
+	}
+	first := grabplan.Decide(completeFirst(seriesView(t, season(1, 7), seasonCandidates(t, 1, 7, jpSingle5)...)))
+	require.Equal(t, []string{jpSingle5}, titles(first))
+	live := first.NewEntries
+	require.Equal(t, []string{"Japanese"}, live[0].Release.Languages, "the grab keeps its release's languages")
+
+	v := completeFirst(seriesView(t, season(1, 7), seasonCandidates(t, 1, 7, dualPack)...))
+	v.Entries = live
+	require.Equal(t, []string{dualPack}, titles(grabplan.Decide(v)), "the dual-audio pack outranks the Japanese-only single")
+
+	v.Candidates = seasonCandidates(t, 1, 7, jpPack)
+	p := grabplan.Decide(v)
+	require.Empty(t, titles(p), "a Japanese-only pack still waits for the single")
+	require.Equal(t, 1, p.Decisions["overlapsLive"], "%+v", p.Decisions)
+
+	plain := seriesView(t, season(1, 7), seasonCandidates(t, 1, 7, dualPack)...)
+	plain.Entries = live
+	require.Empty(t, titles(grabplan.Decide(plain)), "without completeFirst any pack waits for the single")
+}

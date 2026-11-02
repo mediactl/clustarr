@@ -179,25 +179,25 @@ func TestQueueRejection(t *testing.T) {
 	}
 
 	t.Run("nothing queued", func(t *testing.T) {
-		require.Nil(t, queueRejection(p, Target{}, quality.Candidate{Quality: bluray1080.Quality}))
+		require.Nil(t, queueRejection(p, Target{}, quality.Candidate{Quality: bluray1080.Quality}, audioNames{}, false))
 	})
 	t.Run("queued release is equal-or-better, candidate rejected", func(t *testing.T) {
 		tg := Target{Queue: []Queued{{Candidate: quality.Candidate{Quality: bluray1080.Quality, Revision: common.Revision{Version: 1}}}}}
 		candidate := quality.Candidate{Quality: bluray1080.Quality, Revision: common.Revision{Version: 1}}
-		got := queueRejection(p, tg, candidate)
+		got := queueRejection(p, tg, candidate, audioNames{}, false)
 		require.NotNil(t, got)
 		require.Contains(t, got.Reason, ReasonQueueHigherPreference.Code)
 	})
 	t.Run("candidate is strictly better than what's queued, not rejected", func(t *testing.T) {
 		tg := Target{Queue: []Queued{{Candidate: quality.Candidate{Quality: webdl720.Quality}}}}
 		candidate := quality.Candidate{Quality: bluray1080.Quality}
-		require.Nil(t, queueRejection(p, tg, candidate))
+		require.Nil(t, queueRejection(p, tg, candidate, audioNames{}, false))
 	})
 	// The owner's rule of 2026-11-02: a pack still downloading holds the
 	// episode, so even a strict upgrade waits until it imported or failed.
 	t.Run("a queued pack holds the item against an upgrade", func(t *testing.T) {
 		tg := Target{Queue: []Queued{{Candidate: quality.Candidate{Quality: webdl720.Quality}, Pack: true}}}
-		got := queueRejection(p, tg, quality.Candidate{Quality: bluray1080.Quality})
+		got := queueRejection(p, tg, quality.Candidate{Quality: bluray1080.Quality}, audioNames{}, false)
 		require.NotNil(t, got)
 		require.True(t, ReasonPackDownloading.Of(*got), got.Reason)
 	})

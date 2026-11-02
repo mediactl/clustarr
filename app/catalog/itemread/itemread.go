@@ -508,6 +508,7 @@ func Queue(entries []catalogv1alpha1.DownloadEntry, item client.Object, purpose 
 		out = append(out, decision.Queued{
 			Candidate: quality.Candidate{Quality: e.Release.Quality, Revision: e.Release.Revision, FormatScore: int(e.Release.FormatScore)},
 			Pack:      e.Pack(),
+			Languages: e.Release.Languages,
 		})
 	}
 	return out

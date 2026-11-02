@@ -113,6 +113,18 @@ func IncompleteAudio(p quality.Profile, originalTag string, audio []string) bool
 	return !p.GraftAudio && len(MissingAudio(p, originalTag, audio)) > 0
 }
 
+// ReplaceableAudio reports whether a release carrying every language p's
+// audio policy wants replaces a file whatever its quality, a transcoded one
+// included: IncompleteAudio's file, or one known to lack a wanted language
+// under a policy taking complete audio first (Audio.CompleteFirst) that
+// grafts. Such a file reads CutoffUnmet, reason MissingAudio, and a graft
+// stays its fallback while no complete release exists (owner, 2026-11-02:
+// "Ensure we use dual audio as the highest priority"; 2,068 episodes of
+// hevc-small-1080p-anime-tv lacked English, their grafts still searching).
+func ReplaceableAudio(p quality.Profile, originalTag string, audio []string) bool {
+	return (!p.GraftAudio || p.AudioCompleteFirst) && len(MissingAudio(p, originalTag, audio)) > 0
+}
+
 // CompletesAudio reports whether a file whose probed audio languages are
 // audio carries every language p's audio policy wants: a policy, known
 // audio and nothing missing.

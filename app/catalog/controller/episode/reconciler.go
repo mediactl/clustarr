@@ -383,9 +383,9 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, ep *catalogv1alpha1.Ep
 	if wrongLanguage && !transcoded {
 		cutoffMet = false
 	}
-	// Missing audio under a non-grafting policy is not final: see the movie
-	// package's identical block.
-	missingAudio := profile != nil && hasFile && decision.IncompleteAudio(*profile, originalTag, audio)
+	// Missing audio under a non-grafting policy, or one taking complete
+	// audio first, is not final: see the movie package's identical block.
+	missingAudio := profile != nil && hasFile && decision.ReplaceableAudio(*profile, originalTag, audio)
 	if missingAudio {
 		cutoffMet = false
 		transcoded = false

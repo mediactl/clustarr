@@ -215,28 +215,39 @@ func replacesWrongLanguage(p quality.Profile, originalTag string, existing *cata
 }
 
 // audioFill is how an incoming file meets existing files whose audio lacks a
-// language a non-grafting policy wants (decision.IncompleteAudio, Akira on
-// 2026-10-20). fills is true when every existing file is such a file and the
-// incoming file's own probe carries every wanted language: it replaces them
-// whatever its quality, a transcoded one included, as the grab decision
-// approved it. mislabelled names the languages the incoming file carries
-// when one existing file is such a file and the probe, known, still lacks
-// one: the grab took the release to carry them all, so the fault is the
-// release's and it is blocklisted rather than taken again.
+// language the policy wants and a complete release replaces
+// (decision.ReplaceableAudio: a non-grafting policy's, Akira on 2026-10-20,
+// or one taking complete audio first, 2026-11-02). fills is true when every
+// existing file is such a file and the incoming file's own probe carries
+// every wanted language: it replaces them whatever its quality, a
+// transcoded one included, as the grab decision approved it. mislabelled
+// names the languages the incoming file carries when one existing file
+// lacks one under a policy that does not graft (decision.IncompleteAudio)
+// and the probe, known, still lacks one: that policy grabs only a release
+// taken to carry them all, so the fault is the release's and it is
+// blocklisted rather than taken again. A grafting policy also grabs a
+// release short of a dub, so its file is judged by the upgrade rules.
 func audioFill(p quality.Profile, originalTag string, existing []catalogv1alpha1.MediaFile, incoming *schema.ProbeSummary) (fills bool, mislabelled []string) {
-	incomplete := 0
+	replaceable, incomplete := 0, 0
 	for i := range existing {
-		if decision.IncompleteAudio(p, originalTag, decision.AudioLanguages(existing[i].Status.MediaInfo)) {
+		audio := decision.AudioLanguages(existing[i].Status.MediaInfo)
+		if decision.ReplaceableAudio(p, originalTag, audio) {
+			replaceable++
+		}
+		if decision.IncompleteAudio(p, originalTag, audio) {
 			incomplete++
 		}
 	}
-	if incomplete == 0 || incoming == nil || len(incoming.AudioLanguages) == 0 {
+	if replaceable == 0 || incoming == nil || len(incoming.AudioLanguages) == 0 {
 		return false, nil
 	}
 	if !decision.CompletesAudio(p, originalTag, incoming.AudioLanguages) {
+		if incomplete == 0 {
+			return false, nil
+		}
 		return false, incoming.AudioLanguages
 	}
-	return incomplete == len(existing), nil
+	return replaceable == len(existing), nil
 }
 
 // incomingBitrate is c's file's overall bitrate in bytes per second, from

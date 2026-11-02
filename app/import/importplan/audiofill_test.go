@@ -75,4 +75,18 @@ func TestAudioFill(t *testing.T) {
 	fills, mislabelled = audioFill(graft, "ja", files(file("por", "jpn")), summary("jpn", "eng"))
 	require.False(t, fills, "a grafting policy adds the dub to the file instead")
 	require.Nil(t, mislabelled)
+
+	// A grafting policy taking complete audio first (owner, 2026-11-02:
+	// "Ensure we use dual audio as the highest priority") replaces a
+	// Japanese-only file with a dual-audio one. A Japanese-only file is no
+	// lie there, since such a policy also grabs a release short of its dub,
+	// so it is judged by the upgrade rules and never blocklisted.
+	first := graft
+	first.AudioCompleteFirst = true
+	fills, mislabelled = audioFill(first, "ja", files(file("jpn")), summary("jpn", "eng"))
+	require.True(t, fills, "a dual-audio file replaces a Japanese-only one")
+	require.Nil(t, mislabelled)
+	fills, mislabelled = audioFill(first, "ja", files(file("jpn")), summary("jpn"))
+	require.False(t, fills)
+	require.Nil(t, mislabelled, "a grafting policy's Japanese-only grab is no mislabelled release")
 }

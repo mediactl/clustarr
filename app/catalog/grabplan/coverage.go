@@ -23,6 +23,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/decision"
 	"github.com/mediactl/clustarr/pkg/events/schema"
+	"github.com/mediactl/clustarr/pkg/quality"
 )
 
 // Coverage (Wave S, series search design §6.2-§6.3): which of a Series'
@@ -51,9 +52,12 @@ type ItemCheck struct {
 	// PackLive: a live pack covers the item, which it holds whatever the
 	// release until it has imported or failed (owner, 2026-11-02).
 	PackLive bool
-	// Queued: any live video grab covers the item, upgraded over or not. A
-	// release covering several items is refused over it (owner,
-	// 2026-11-02: no pack while an episode it covers is downloading).
+	// Queued: any live video grab covers the item, upgraded over or not,
+	// but one a complete release outranks by its audio
+	// (decision.AudioOutranks). A release covering several items is refused
+	// over it (owner, 2026-11-02: no pack while an episode it covers is
+	// downloading; a dual-audio pack over Japanese-only singles is the
+	// exception, the same day).
 	Queued bool
 	// Unaired: the item has not aired.
 	Unaired bool
@@ -204,8 +208,10 @@ func seasonFacts(p schema.ParsedFacts, season int32, covered []Covered, add func
 // the item-state rejections the candidate is not exempt from -- plus not
 // monitored and not aired for an automatic candidate -- whether a live
 // video grab covers it that the release does not upgrade or that is a pack,
-// whether any live video grab covers it (Queued), and whether it has aired.
-func (d *decider) itemCheck(c Candidate, it Covered) ItemCheck {
+// whether any live video grab covers it (Queued) -- under a profile taking
+// complete audio first, one the release does not outrank by its audio
+// (complete, decision.AudioOutranks) -- and whether it has aired.
+func (d *decider) itemCheck(c Candidate, it Covered, complete bool) ItemCheck {
 	ic := ItemCheck{Unaired: !it.Wanted}
 	if !c.Manual {
 		if !it.Monitored {
@@ -215,7 +221,7 @@ func (d *decider) itemCheck(c Candidate, it Covered) ItemCheck {
 			ic.Rejections = append(ic.Rejections, rejectionNotAired)
 		}
 	}
-	ic.Queued = c.Purpose == "" && len(d.queue(it, c.Purpose)) > 0
+	ic.Queued = c.Purpose == "" && Holds(d.v.Profile, d.v.OriginalLanguageTag, d.queue(it, c.Purpose), complete)
 	for _, rej := range d.itemStateRejections(c, it) {
 		if c.Purpose == "" {
 			ic.NoteQueue(rej)
@@ -225,6 +231,20 @@ func (d *decider) itemCheck(c Candidate, it Covered) ItemCheck {
 		}
 	}
 	return ic
+}
+
+// Holds reports a queued grab a release (complete: carrying every language
+// p's audio policy wants) does not outrank by its audio
+// (decision.AudioOutranks), which ItemCheck.Queued records: a dual-audio pack
+// is grabbed over Japanese-only singles downloading (owner, 2026-11-02),
+// never beside a grab carrying both.
+func Holds(p *quality.Profile, originalTag string, queue []decision.Queued, complete bool) bool {
+	for _, q := range queue {
+		if p == nil || !decision.AudioOutranks(ctxBackground, *p, originalTag, complete, q) {
+			return true
+		}
+	}
+	return false
 }
 
 // refusalDecision is the metric decision of a release CoverageRejections

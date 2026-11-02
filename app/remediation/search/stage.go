@@ -252,18 +252,19 @@ func (s *Stage) gather(ctx context.Context, item client.Object, v *remediation.I
 		if oref.UID != ref.UID {
 			sv.Container = &oref
 		}
-		if ep, ok := item.(*catalogv1alpha1.Episode); ok {
-			// Its Series' season search (Wave S, §7): wait for a pending
-			// season, fold an answered one.
-			sv.SeasonPending, sv.SeasonAnsweredAt, sv.SeasonPackFirst = seasonOf(owner, ep)
-		}
 	}
 	cfg, err := itemread.ConfigOf(ctx, r, item)
 	if err != nil {
 		return sv, err
 	}
-	if _, err := itemread.Profile(ctx, r, cfg.QualityProfileRef); err == nil {
+	prof, err := itemread.Profile(ctx, r, cfg.QualityProfileRef)
+	if err == nil {
 		sv.Profile = cfg.QualityProfileRef
+	}
+	if ep, ok := item.(*catalogv1alpha1.Episode); ok && owner != nil {
+		// Its Series' season search (Wave S, §7): wait for a pending
+		// season, fold an answered one.
+		sv.SeasonPending, sv.SeasonAnsweredAt, sv.SeasonPackFirst = seasonOf(owner, ep, prof)
 	}
 	protocols, err := itemread.Protocols(ctx, r, ref.Namespace)
 	if err != nil {

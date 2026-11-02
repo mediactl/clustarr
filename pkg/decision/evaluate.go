@@ -131,6 +131,28 @@ func ReleaseCompletesAudio(ctx context.Context, p quality.Profile, originalTag s
 	return complete
 }
 
+// AudioOutranks reports whether a release replaces the queued grab q by its
+// audio alone: under a profile taking complete audio first
+// (Audio.CompleteFirst), a release carrying every wanted language (complete)
+// over a grab whose release does not, a pack included. Neither the grab's
+// tier nor its score holds it then (owner, 2026-11-02: "Ensure we use dual
+// audio as the highest priority"): Remake our Life!'s dual-audio EMBER pack
+// was refused for SENPAI's Japanese-only singles downloading, one 1080p
+// tier and a format cutoff of 0 making each "equal or higher preference".
+func AudioOutranks(ctx context.Context, p quality.Profile, originalTag string, complete bool, q Queued) bool {
+	if !p.AudioCompleteFirst || !complete {
+		return false
+	}
+	return !queuedComplete(resolveAudioNames(ctx, p, originalLanguageName(ctx, originalTag)), p, q)
+}
+
+// queuedComplete reports whether the queued grab q's release carries every
+// language an names.
+func queuedComplete(an audioNames, p quality.Profile, q Queued) bool {
+	_, complete := audioRejection(an, p, &release.ParsedRelease{Languages: q.Languages})
+	return complete
+}
+
 // WithItemState is d with extra rejections folded in: Approved and
 // TemporarilyRejected are derived again exactly as Evaluate derives them.
 // d's RankKey is kept (it ranks d among the releases its agent approved).
@@ -282,9 +304,11 @@ func wholeSeasonOf(id Identity, c coverage) bool {
 // order: blocklist and already-imported, the queue preference, the
 // transcoded-final check and the upgrade table. complete is whether the
 // release carries every language the profile's audio policy wants
-// (audioRejection): such a release replaces a file IncompleteAudio holds
+// (audioRejection): such a release replaces a file ReplaceableAudio holds
 // whatever its quality, a transcoded one included, so the transcoded,
-// baseline and upgrade rules do not hold it.
+// baseline and upgrade rules do not hold it. Under a profile taking
+// complete audio first, a release that does not carry them never replaces
+// a file that does, whatever else it upgrades.
 func videoItemState(t Target, p quality.Profile, an audioNames, parsed *release.ParsedRelease, rel common.ReleaseInfo, score int, complete bool) []common.Rejection {
 	var out []common.Rejection
 	add := func(r *common.Rejection) {
@@ -294,8 +318,13 @@ func videoItemState(t Target, p quality.Profile, an audioNames, parsed *release.
 	}
 	out = append(out, blocklistAndHistoryRejections(t, rel)...)
 	candidate := quality.Candidate{Quality: rel.Quality, Revision: rel.Revision, FormatScore: score}
-	add(queueRejection(p, t, candidate))
-	if complete && t.Current != nil && IncompleteAudio(p, t.OriginalLanguageTag, t.Current.AudioLanguages) {
+	add(queueRejection(p, t, candidate, an, complete))
+	if complete && t.Current != nil && ReplaceableAudio(p, t.OriginalLanguageTag, t.Current.AudioLanguages) {
+		return out
+	}
+	if p.AudioCompleteFirst && !complete && t.Current != nil && CompletesAudio(p, t.OriginalLanguageTag, t.Current.AudioLanguages) {
+		r := newRejection(ReasonExistingHigherPreference, "the file carries every wanted language and the release does not")
+		add(&r)
 		return out
 	}
 	// A file outside the profile's bitrate range does not fit it: a

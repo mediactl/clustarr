@@ -274,9 +274,22 @@ func blocklistAndHistoryRejections(t Target, rel common.ReleaseInfo) []common.Re
 // higher-or-equal release already downloading)", not Radarr's seven-way
 // QueueCutoffMet/QueueHigherPreference/... split): reject as soon as any
 // queued entry is not upgraded-over by the candidate. A queued pack is
-// never upgraded over while it downloads (ReasonPackDownloading).
-func queueRejection(p quality.Profile, t Target, candidate quality.Candidate) *common.Rejection {
+// never upgraded over while it downloads (ReasonPackDownloading). Under a
+// profile taking complete audio first, the audio decides before either:
+// a candidate carrying every wanted language (complete) passes a grab whose
+// release does not (AudioOutranks), and one that does not is refused by a
+// grab whose release does.
+func queueRejection(p quality.Profile, t Target, candidate quality.Candidate, an audioNames, complete bool) *common.Rejection {
 	for _, q := range t.Queue {
+		if p.AudioCompleteFirst {
+			switch qc := queuedComplete(an, p, q); {
+			case complete && !qc:
+				continue
+			case !complete && qc:
+				r := newRejection(ReasonQueueHigherPreference, "a release carrying every wanted language is already downloading")
+				return &r
+			}
+		}
 		if q.Pack {
 			r := newRejection(ReasonPackDownloading, "a pack covering it is still downloading; it is judged again once the pack has imported or failed")
 			return &r

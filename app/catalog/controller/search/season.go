@@ -181,7 +181,15 @@ func (st *seasonState) check(ctx context.Context, sr schema.ScoredRelease, ep *c
 		Current: cur, Queue: itemread.Queue(entries, ep, ""),
 		Blocklist: func(string, string) bool { return blocked },
 	}
-	ic := grabplan.ItemCheck{Unaired: !itemread.Available(ep, st.now), Queued: len(t.Queue) > 0}
+	// Under completeFirst a dual-audio release outranks Japanese-only grabs
+	// downloading, so they do not hold a pack (grabplan.Holds).
+	complete := false
+	if st.profile.AudioCompleteFirst {
+		if parsed, err := decision.ParseForItemState(ctx, commonv1.MediaKindEpisode, st.language, rel); err == nil {
+			complete = decision.ReleaseCompletesAudio(ctx, *st.profile, st.language, parsed)
+		}
+	}
+	ic := grabplan.ItemCheck{Unaired: !itemread.Available(ep, st.now), Queued: grabplan.Holds(st.profile, st.language, t.Queue, complete)}
 	rejs := decision.ItemStateRejections(ctx, t, *st.profile,
 		decision.Decision{Release: rel, Score: int(sr.Score)}, decision.Options{UserInvoked: true})
 	for _, rej := range rejs {

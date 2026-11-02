@@ -189,7 +189,7 @@ func TestCompleteFirstRanksDualAudioAheadOfEveryOtherKey(t *testing.T) {
 // animeTranscodeFirst is the owner's hevc-small-1080p-anime-tv: the
 // transcode-first scores with TRaSH's anime group tiers zeroed, 1080p then
 // 720p then 480p, a grafting dual-audio policy, smallest first.
-func animeTranscodeFirst(t *testing.T, completeFirst bool) quality.Profile {
+func animeTranscodeFirst(t *testing.T, completeFirst bool, extra ...catalogv1alpha1.FormatScore) quality.Profile {
 	t.Helper()
 	cat := catalogue.LoadedCatalogue()
 	scores := []catalogv1alpha1.FormatScore{{Format: "x265-hd", Score: 300}, {Format: "10bit", Score: -150}}
@@ -199,6 +199,7 @@ func animeTranscodeFirst(t *testing.T, completeFirst bool) quality.Profile {
 	for _, tier := range []string{"01", "02", "03", "04", "05", "06"} {
 		scores = append(scores, catalogv1alpha1.FormatScore{Format: "anime-web-tier-" + tier})
 	}
+	scores = append(scores, extra...)
 	p, errs := quality.FromCRD(&catalogv1alpha1.QualityProfile{Spec: catalogv1alpha1.QualityProfileSpec{
 		MediaKind: catalogv1alpha1.ProfileMediaKindVideo,
 		Tiers: []catalogv1alpha1.Tier{

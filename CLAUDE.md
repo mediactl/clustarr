@@ -1133,6 +1133,23 @@ size -- in `decision.less` and `grabplan.better`
 (`decision.ReleaseCompletesAudio`); it ranks and never approves, so a
 dual-audio 10-bit H.264 is still refused, and it matters only to a grafting
 policy, since one that does not graft refuses an incomplete release outright.
+Under it the audio also decides before the upgrade table (owner, 2026-11-02:
+"Ensure we use dual audio as the highest priority"): a complete release passes
+a queued grab whose release languages (`decision.Queued.Languages`) lack one,
+a pack included, and an incomplete one is refused by a complete grab
+(`queueRejection`, `decision.AudioOutranks`); a file known to lack a wanted
+language is `decision.ReplaceableAudio` -- CutoffUnmet, reason
+`MissingAudio`, transcoded or not, replaced by a complete release (import's
+`audioFill`), its graft only the fallback -- and an incomplete release never
+replaces a file carrying them all (`ExistingHigherPreference`). A dual-audio
+pack is grabbed over Japanese-only singles downloading, the one exception to
+`EpisodeDownloading` (`grabplan.Holds`), and only a complete grab holds its
+season against the automatic season search (`holdsSeason`). Remake our Life!'s
+EMBER dual-audio pack had been refused for SENPAI's Japanese-only singles, one
+1080p tier and a format cutoff of 0 making each "equal or higher preference";
+2,068 episodes of `hevc-small-1080p-anime-tv` held Japanese-only files, their
+grafts still searching. Only a non-grafting policy's import blocklists a file
+lacking a language as mislabelled (`decision.IncompleteAudio`).
 anime-web-1080p ranks Bluray-1080p, then WEB 1080p, then Remux-1080p,
 below the cutoff, so an encode replaces a remux, which is never transcoded
 (`demotedTiers` exempts that tier from the best-first guard). A bare scene WEB is a WEB-DL

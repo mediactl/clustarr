@@ -76,6 +76,10 @@ type Queued struct {
 	// an anime batch. It holds every item it covers until it has imported
 	// or failed (ReasonPackDownloading), upgrade or not.
 	Pack bool
+	// Languages are the grab's release languages (DownloadRelease.Languages),
+	// which say whether it carries every language the profile's audio
+	// policy wants (AudioOutranks).
+	Languages []string
 }
 
 // Target is everything about one catalog item Evaluate needs that isn't

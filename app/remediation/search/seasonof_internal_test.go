@@ -24,6 +24,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/quality"
 )
 
 // An Episode reads its season's PackFirst test from its Series'
@@ -37,17 +38,17 @@ func TestSeasonOfReadsItsSeasonsPackFirstTest(t *testing.T) {
 	ep := func(season int32) *catalogv1alpha1.Episode {
 		return &catalogv1alpha1.Episode{Spec: catalogv1alpha1.EpisodeSpec{SeasonNumber: season, EpisodeNumber: 3}}
 	}
-	pending, answered, packFirst := seasonOf(ser, ep(1))
+	pending, answered, packFirst := seasonOf(ser, ep(1), nil)
 	require.False(t, pending)
 	require.Nil(t, answered)
 	require.True(t, packFirst)
-	_, _, packFirst = seasonOf(ser, ep(2))
+	_, _, packFirst = seasonOf(ser, ep(2), nil)
 	require.False(t, packFirst, "one missing episode is searched as an episode")
 
 	ser.Status.SeasonSearch = &catalogv1alpha1.SeasonSearchState{Seasons: []catalogv1alpha1.SeasonSearchSeason{
 		{Number: 1, Phase: catalogv1alpha1.SeasonSearchQueued},
 	}}
-	pending, _, packFirst = seasonOf(ser, ep(1))
+	pending, _, packFirst = seasonOf(ser, ep(1), nil)
 	require.True(t, pending)
 	require.True(t, packFirst)
 }
@@ -83,10 +84,48 @@ func TestSeasonOfIsNoPackFirstWhileTheSeasonDownloads(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			s := ser.DeepCopy()
 			s.Status.Downloads = tc.entries
-			_, _, packFirst := seasonOf(s, ep(1))
+			_, _, packFirst := seasonOf(s, ep(1), nil)
 			require.Equal(t, tc.packFirst, packFirst)
-			_, _, other := seasonOf(s, ep(2))
+			_, _, other := seasonOf(s, ep(2), nil)
 			require.True(t, other, "another season's grab holds no other season")
+		})
+	}
+}
+
+// Under a profile taking complete audio first only a grab carrying every
+// wanted language holds its season: a dual-audio pack outranks Japanese-only
+// singles downloading (owner, 2026-11-02: Remake our Life!'s EMBER pack
+// waited on SENPAI's singles), so the automatic season search still asks for
+// one. A dual-audio single downloading holds it as any grab does.
+func TestOnlyACompleteGrabHoldsItsSeasonUnderCompleteFirst(t *testing.T) {
+	first := &quality.Profile{AudioLanguages: []string{"en", "original"}, GraftAudio: true, AudioCompleteFirst: true}
+	ser := &catalogv1alpha1.Series{Status: catalogv1alpha1.SeriesStatus{
+		Metadata: &catalogv1alpha1.SeriesMetadata{OriginalLanguage: "ja"},
+		Seasons:  []catalogv1alpha1.SeasonStatus{{Number: 1, Monitored: true, EpisodeCount: 12}},
+	}}
+	ep := &catalogv1alpha1.Episode{Spec: catalogv1alpha1.EpisodeSpec{SeasonNumber: 1, EpisodeNumber: 3}}
+	single := func(languages ...string) catalogv1alpha1.DownloadEntry {
+		return catalogv1alpha1.DownloadEntry{
+			ID: "e", UID: "u", Phase: commonv1.DownloadPhaseDownloading,
+			Episodes: []catalogv1alpha1.EpisodeNumber{{Season: 1, Number: 7}},
+			Release:  catalogv1alpha1.DownloadRelease{Languages: languages},
+		}
+	}
+	for _, tc := range []struct {
+		name      string
+		prof      *quality.Profile
+		languages []string
+		packFirst bool
+	}{
+		{"a Japanese-only single downloading", first, []string{"Japanese"}, true},
+		{"a dual-audio single downloading", first, []string{"Japanese", "English"}, false},
+		{"a Japanese-only single without completeFirst", &quality.Profile{AudioLanguages: []string{"en", "original"}, GraftAudio: true}, []string{"Japanese"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := ser.DeepCopy()
+			s.Status.Downloads = []catalogv1alpha1.DownloadEntry{single(tc.languages...)}
+			_, _, packFirst := seasonOf(s, ep, tc.prof)
+			require.Equal(t, tc.packFirst, packFirst)
 		})
 	}
 }

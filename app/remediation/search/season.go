@@ -40,10 +40,12 @@ import (
 	"github.com/mediactl/clustarr/app/dispatch"
 	"github.com/mediactl/clustarr/app/remediation"
 	"github.com/mediactl/clustarr/app/remediation/dlindex"
+	"github.com/mediactl/clustarr/pkg/decision"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/metrics"
+	"github.com/mediactl/clustarr/pkg/quality"
 	"github.com/mediactl/clustarr/pkg/records"
 	"github.com/mediactl/clustarr/pkg/records/agentrecords"
 	"github.com/mediactl/clustarr/pkg/version"
@@ -261,7 +263,8 @@ func (s *Stage) gatherSeries(ctx context.Context, ser *catalogv1alpha1.Series, v
 	if err != nil {
 		return sv, served, err
 	}
-	if _, err := itemread.Profile(ctx, r, cfg.QualityProfileRef); err == nil {
+	prof, err := itemread.Profile(ctx, r, cfg.QualityProfileRef)
+	if err == nil {
 		sv.Profile = cfg.QualityProfileRef
 	}
 	protocols, err := itemread.Protocols(ctx, r, ser.Namespace)
@@ -288,7 +291,7 @@ func (s *Stage) gatherSeries(ctx context.Context, ser *catalogv1alpha1.Series, v
 			return sv, served, nil
 		}
 	}
-	if err := s.seasonFacts(ctx, ser, v, now, &sv); err != nil {
+	if err := s.seasonFacts(ctx, ser, v, now, &sv, prof); err != nil {
 		return sv, served, err
 	}
 	if st := sv.State; st != nil && st.FinishedAt == nil {
@@ -316,8 +319,9 @@ func (s *Stage) gatherSeries(ctx context.Context, ser *catalogv1alpha1.Series, v
 // season, monitored (the series and an episode of it), wanted (monitored,
 // aired, missing or below its cutoff -- wantedcron's rule -- or covered by
 // a live grab) and downloading (of the wanted, covered by a live video
-// entry of this pass's downloads outcome).
-func (s *Stage) seasonFacts(ctx context.Context, ser *catalogv1alpha1.Series, v *remediation.ItemView, now time.Time, sv *searchplan.SeasonView) error {
+// entry of this pass's downloads outcome that holds the season against a
+// pack, holdsSeason).
+func (s *Stage) seasonFacts(ctx context.Context, ser *catalogv1alpha1.Series, v *remediation.ItemView, now time.Time, sv *searchplan.SeasonView, prof *quality.Profile) error {
 	var eps catalogv1alpha1.EpisodeList
 	if err := s.o.Reader.List(ctx, &eps, client.InNamespace(ser.Namespace), client.MatchingFields{series.EpisodeBySeriesRefIndex: ser.Name}); err != nil {
 		return fmt.Errorf("search: list the Episodes of %s: %w", ser.Name, err)
@@ -346,12 +350,12 @@ func (s *Stage) seasonFacts(ctx context.Context, ser *catalogv1alpha1.Series, v 
 		if !monitored || !itemread.Available(ep, now) {
 			continue
 		}
-		live := false
+		live, holding := false, false
 		for j := range entries {
 			e := &entries[j]
 			if rollup.EntryNonTerminal(e) && !rollup.IsDonor(e) && itemread.Covers(e, ep) {
 				live = true
-				break
+				holding = holding || holdsSeason(prof, seriesOriginal(ser), e)
 			}
 		}
 		cand, _ := wantedcron.CandidateOf(ep, now)
@@ -359,7 +363,7 @@ func (s *Stage) seasonFacts(ctx context.Context, ser *catalogv1alpha1.Series, v 
 			continue
 		}
 		f.Wanted++
-		if live {
+		if holding {
 			f.Downloading++
 		}
 		if ep.Status.SearchAttempts.Count == 0 && ep.Status.SearchAttempts.Latest == nil && ep.Status.LastSearchedAt == nil {
@@ -379,15 +383,15 @@ func (s *Stage) seasonFacts(ctx context.Context, ser *catalogv1alpha1.Series, v 
 // the season was answered (not AllPaced or NoIndexer: no indexer was asked,
 // so it is no episode's search), and whether the season passes PackFirst in
 // the Series' status.seasons, the test the automatic season search reads,
-// with no grab of it downloading (seasonDownloading).
-func seasonOf(owner client.Object, ep *catalogv1alpha1.Episode) (pending bool, answeredAt *metav1.Time, packFirst bool) {
+// with no grab of it downloading that holds it (seasonDownloading).
+func seasonOf(owner client.Object, ep *catalogv1alpha1.Episode, prof *quality.Profile) (pending bool, answeredAt *metav1.Time, packFirst bool) {
 	ser, ok := owner.(*catalogv1alpha1.Series)
 	if !ok {
 		return false, nil, false
 	}
 	for _, s := range ser.Status.Seasons {
 		if s.Number == ep.Spec.SeasonNumber {
-			packFirst = searchplan.PackFirst(s) && !seasonDownloading(ser, s.Number)
+			packFirst = searchplan.PackFirst(s) && !seasonDownloading(ser, s.Number, prof)
 		}
 	}
 	if ser.Status.SeasonSearch == nil {
@@ -412,15 +416,15 @@ func seasonOf(owner client.Object, ep *catalogv1alpha1.Episode) (pending bool, a
 }
 
 // seasonDownloading reports a live video grab on ser covering an episode
-// of season. The automatic season search asks for no pack of such a season,
-// since the grab planner would refuse one beside the grab (owner,
-// 2026-11-02, decision.ReasonEpisodeDownloading), so its episodes wait for
-// no season query and search alone.
-func seasonDownloading(ser *catalogv1alpha1.Series, season int32) bool {
+// of season that holds it (holdsSeason). The automatic season search asks
+// for no pack of such a season, since the grab planner would refuse one
+// beside the grab (owner, 2026-11-02, decision.ReasonEpisodeDownloading), so
+// its episodes wait for no season query and search alone.
+func seasonDownloading(ser *catalogv1alpha1.Series, season int32, prof *quality.Profile) bool {
 	entries := dlindex.Entries(ser)
 	for i := range entries {
 		e := &entries[i]
-		if !rollup.EntryNonTerminal(e) || rollup.IsDonor(e) {
+		if !rollup.EntryNonTerminal(e) || rollup.IsDonor(e) || !holdsSeason(prof, seriesOriginal(ser), e) {
 			continue
 		}
 		for _, n := range e.Episodes {
@@ -430,6 +434,23 @@ func seasonDownloading(ser *catalogv1alpha1.Series, season int32) bool {
 		}
 	}
 	return false
+}
+
+// holdsSeason reports a live video grab that holds its season against a
+// pack: any, but under a profile taking complete audio first only one whose
+// release carries every wanted language, since a dual-audio pack outranks
+// the rest (decision.AudioOutranks; owner, 2026-11-02: Remake our Life!'s
+// EMBER pack waited on SENPAI's Japanese-only singles).
+func holdsSeason(prof *quality.Profile, originalTag string, e *catalogv1alpha1.DownloadEntry) bool {
+	return prof == nil || !decision.AudioOutranks(context.Background(), *prof, originalTag, true, decision.Queued{Languages: e.Release.Languages})
+}
+
+// seriesOriginal is ser's original language tag, "" unknown.
+func seriesOriginal(ser *catalogv1alpha1.Series) string {
+	if ser.Status.Metadata == nil {
+		return ""
+	}
+	return ser.Status.Metadata.OriginalLanguage
 }
 
 // publishTask is t's DispatchPublish on durable: the ledger confirms its

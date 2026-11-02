@@ -368,7 +368,7 @@ func (d *decider) check(c Candidate) verdict {
 	// season still airing; P23 narrows it to the items that want it.
 	checks := make([]ItemCheck, len(vd.covered))
 	for i, it := range vd.covered {
-		checks[i] = d.itemCheck(c, it)
+		checks[i] = d.itemCheck(c, it, vd.complete)
 	}
 	season := vd.covered[0].Season
 	if c.Season != nil {
@@ -795,6 +795,7 @@ func (d *decider) queue(it Covered, purpose commonv1.DownloadPurpose) []decision
 		out = append(out, decision.Queued{
 			Candidate: quality.Candidate{Quality: e.Release.Quality, Revision: e.Release.Revision, FormatScore: int(e.Release.FormatScore)},
 			Pack:      e.Pack(),
+			Languages: e.Release.Languages,
 		})
 	}
 	return out
