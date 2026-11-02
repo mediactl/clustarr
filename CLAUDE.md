@@ -1145,7 +1145,14 @@ do (`release.titlelessEpisodeRegex`, 2026-10-27): "S01E01 - Title.mkv",
 "1x05", leading bracket tags passed over. It parses with no title, so the
 import attributes it by its numbering, and when its name names no source it
 takes the release title's quality, revision, group and languages
-(`fileimport.fillFromRelease`, Sonarr's aggregation). The usenet engine
+(`fileimport.fillFromRelease`, Sonarr's aggregation). A download's one
+video file whose own name attributes it to no episode of the series takes
+the release title's numbering when that names one (`plan.sceneParsed`,
+`fileimport.takeNumbering`), and a person's named episode takes such a lone
+file whatever its name says; a pack's numbered files keep their own
+verdicts. A resolution is never an episode number (`release.notResolution`):
+GUACAMOLE's "gua-drifters.2016.e08-1080p.mkv" read as absolute episode
+1080 (talos, 2026-11-02), and all eleven files were held for a person. The usenet engine
 names a file whose subject quotes an empty name (`- "" yEnc`) by the
 file-name-shaped token in it, as SABnzbd's name_extractor does
 (`usenet.fileName`), never by the subject's wrapper. A Sign of Affection's

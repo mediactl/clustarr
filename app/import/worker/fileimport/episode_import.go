@@ -30,6 +30,7 @@ import (
 	"github.com/mediactl/clustarr/app/import/importtarget"
 	"github.com/mediactl/clustarr/pkg/quality"
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
+	"github.com/mediactl/clustarr/pkg/release"
 )
 
 // episodePlan is everything an episode import needs, resolved from the
@@ -54,6 +55,9 @@ type episodePlan struct {
 	// sceneName is the Download's release title when it names the one
 	// episode file the download holds, else "": see runEpisodes.
 	sceneName string
+	// sceneParsed is sceneName parsed, whose numbering attributes that one
+	// file when the file's own name attributes it to no episode.
+	sceneParsed *release.ParsedRelease
 }
 
 // resolveSeries reads the target's Series, its root folder, profile and

@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -86,6 +87,14 @@ func fillFromRelease(p *release.ParsedRelease, releaseTitle string, kind commonv
 	if p.LanguageUnknown {
 		p.Languages, p.LanguageUnknown, p.DualAudio, p.NamesOriginal = r.Languages, r.LanguageUnknown, r.DualAudio, r.NamesOriginal
 	}
+}
+
+// takeNumbering gives p the episode numbering r carries, and the release
+// type that numbering makes, keeping everything else p's name says.
+func takeNumbering(p, r *release.ParsedRelease) {
+	p.Seasons, p.Episodes, p.Absolute, p.AirDate = slices.Clone(r.Seasons), slices.Clone(r.Episodes), slices.Clone(r.Absolute), r.AirDate
+	p.FullSeason, p.MultiSeason, p.Partial, p.Special = r.FullSeason, r.MultiSeason, r.Partial, r.Special
+	p.ReleaseType = r.ReleaseType
 }
 
 // probeVideo probes a video file an import is about to judge: its

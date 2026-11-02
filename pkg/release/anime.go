@@ -74,10 +74,18 @@ var animeSeasonEpisodeRegex = mustCompile(
 // every review-required case ("Show - Episode 12") and every title in the
 // anime fixture corpus (test/data/releases/anime.json) unchanged, since
 // none of them has a marker word between the dash and the digits at all.
+//
+// The number is no resolution (notResolution): "gua-drifters.2016.e08-1080p"
+// (talos, 2026-11-02) read as absolute episode 1080.
 var animeAbsoluteRegex = mustCompile(
-	`(?<title>.+?)\s*-\s*(?:(?:Episode|Ep|E|#)\s+)?(?<abs>\d{2,4})(?:\s*\((?<res>\d{3,4}p)\))?`,
+	`(?<title>.+?)\s*-\s*(?:(?:Episode|Ep|E|#)\s+)?(?<abs>\d{2,4})`+notResolution+`(?:\s*\((?<res>\d{3,4}p)\))?`,
 	regexp2.IgnoreCase,
 )
+
+// notResolution follows an episode number: no further digit, and no "p" or
+// "i" that ends the token, so the "1080" of "-1080p" is a resolution, never
+// an episode or a batch's end.
+const notResolution = `(?!\d|[pi](?![a-z]))`
 
 // animeBatchRegex matches an anime batch/pack release naming its absolute
 // episode range: "Title - 01-12", "Title - 01~12", "Title - 01 - 12" and
@@ -88,7 +96,7 @@ var animeAbsoluteRegex = mustCompile(
 // backtracking onto the paren (which previously produced "Frieren -"
 // instead of "Frieren" for the parenthesized form).
 var animeBatchRegex = mustCompile(
-	`(?<title>.+?)\s*-?\s*\(?(?<start>\d{2,4})\s*[-~]\s*(?<end>\d{2,4})\)?(?:\s*\((?<res>\d{3,4}p)\))?`,
+	`(?<title>.+?)\s*-?\s*\(?(?<start>\d{2,4})\s*[-~]\s*(?<end>\d{2,4})`+notResolution+`\)?(?:\s*\((?<res>\d{3,4}p)\))?`,
 	regexp2.IgnoreCase,
 )
 

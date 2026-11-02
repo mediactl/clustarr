@@ -192,3 +192,36 @@ func TestAnAnimeEpisodeNamedWithoutADashBeforeItsNumberingParses(t *testing.T) {
 	assert.Equal(t, int32(2), p.Revision.Version)
 	assert.Equal(t, "SubsPlease", p.Group)
 }
+
+// A resolution is never an episode number. GUACAMOLE's Drifters Blu-rays
+// (talos, 2026-11-02) hold "gua-drifters.2016.e08-1080p.mkv": no standard
+// pattern reads it, and the anime fallback's batch pattern took "08-1080"
+// as a range, refused it as too long, and left the absolute pattern to take
+// "-1080" as absolute episode 1080, which the series lacks, so all eleven
+// files were held for a person. The scene pattern's E08 is the episode.
+func TestAResolutionAfterADashIsNoEpisodeNumber(t *testing.T) {
+	tests := []struct {
+		path     string
+		absolute []int
+	}{
+		{"/data/usenet/complete/tv/drifters-b56151a6a9-0b29b4b719/gua-drifters.2016.e08-1080p.mkv", []int{8}},
+		{"/data/x/gua-drifters.2016.e12-1080p.mkv", []int{12}},
+		{"/data/x/show.e08-720p.mkv", []int{8}},
+		{"/data/x/show.2016.e08-2160p.mkv", []int{8}},
+		// A four-digit episode before its resolution is still the episode.
+		{"/data/x/[SubsPlease] One Piece - 1080 (1080p) [ABCD1234].mkv", []int{1080}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			p, err := ParsePath(tt.path, Options{Kind: commonv1.MediaKindEpisode})
+			require.NoError(t, err)
+			assert.Equal(t, tt.absolute, p.Absolute)
+			assert.Empty(t, p.Episodes)
+		})
+	}
+	// A dash before the resolution alone names no episode at all.
+	p, err := parseSeries("[SubsPlease] Frieren - 1080p [ABCD1234]", Options{SeriesType: "anime"})
+	if err == nil {
+		assert.Empty(t, p.Absolute, "the resolution was read as an absolute episode")
+	}
+}

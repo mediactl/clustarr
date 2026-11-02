@@ -575,7 +575,7 @@ func (w *Worker) inspectEpisodes(
 	// (Sonarr's SceneNameCalculator).
 	if videos == 1 {
 		if p, perr := release.Parse(task.Release.Title, release.Options{Kind: commonv1.MediaKindEpisode}); perr == nil && !p.FullSeason {
-			plan.sceneName = task.Release.Title
+			plan.sceneName, plan.sceneParsed = task.Release.Title, p
 		}
 	}
 	series := plan.series
@@ -625,10 +625,28 @@ func (w *Worker) inspectEpisodes(
 			return nil
 		}
 		fillFromRelease(parsed, task.Release.Title, commonv1.MediaKindEpisode)
-		f.Parsed = factsOf(parsed)
 		eps, reason := MatchEpisodes(parsed, series.Spec.SeriesType, plan.episodes)
+		if reason != "" && plan.sceneParsed != nil {
+			// The download's one video file names no episode of the series,
+			// and its release title names one: the file is the release's,
+			// as Sonarr takes a lone file's episodes from the download
+			// client's title. GUACAMOLE's "gua-drifters.2016.e08-1080p.mkv"
+			// read as absolute episode 1080 (talos, 2026-11-02), and an
+			// engine-renamed file as its entry id's hash (2026-10-27).
+			if reps, rreason := MatchEpisodes(plan.sceneParsed, series.Spec.SeriesType, plan.episodes); rreason == "" {
+				logging.FromContext(ctx).Info("fileimport: the release title names the episode the file's name does not",
+					"source", rel, "file", reason, "episodes", names(reps))
+				takeNumbering(parsed, plan.sceneParsed)
+				eps, reason = reps, ""
+			}
+		}
+		f.Parsed = factsOf(parsed)
 		if reason != "" {
-			if !manual || plan.named == nil || len(parsed.Episodes)+len(parsed.Absolute) > 0 || parsed.AirDate != nil {
+			// A person's named episode takes a file whose name carries no
+			// numbering, or the download's one video file whatever its name
+			// says; a pack's numbered files are never all the named one.
+			numbered := len(parsed.Episodes)+len(parsed.Absolute) > 0 || parsed.AirDate != nil
+			if !manual || plan.named == nil || (numbered && videos != 1) {
 				f.Rejections = append(f.Rejections, needsPersonRejection("%s: not attributable to an episode of series %s: %s",
 					rel, series.Name, reason))
 				insp.Files = append(insp.Files, f)
