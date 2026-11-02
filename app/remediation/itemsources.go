@@ -33,6 +33,7 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 	"github.com/mediactl/clustarr/app/catalog/controller/series"
 	cataloghistory "github.com/mediactl/clustarr/app/catalog/history"
+	"github.com/mediactl/clustarr/app/dispatch"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
@@ -69,6 +70,13 @@ func (ir *ItemReconciler) sources(mgr ctrl.Manager) ([]Source, error) {
 			ch: ir.DeliveryWakes, toKey: targetKey, priority: 0,
 		}})
 	}
+	if ir.Dispatch != nil {
+		// A slot freed on a search lane: its waiters ask again now, where
+		// they polled the ledger every 10 s (dispatch.Ledger.Wakes).
+		out = append(out, Source{Name: "ledger", Raw: &chanSource[dispatch.Key]{
+			ch: ir.Dispatch.Wakes(), toKey: ledgerKey, priority: PriorityUser,
+		}})
+	}
 	for _, s := range ir.Stages {
 		w, ok := s.(Watcher)
 		if !ok {
@@ -91,6 +99,15 @@ func itemRefKey(ref schema.ItemRef) (Key, bool) {
 		return Key{}, false
 	}
 	return Key{Kind: kind, Namespace: ref.Namespace, Name: ref.Name}, true
+}
+
+// ledgerKey is a ledger key's item key, false for any other kind.
+func ledgerKey(k dispatch.Key) (Key, bool) {
+	kind := KeyKind(k.Kind)
+	if _, ok := newItemObject(kind); !ok || k.Name == "" {
+		return Key{}, false
+	}
+	return Key{Kind: kind, Namespace: k.Namespace, Name: k.Name}, true
 }
 
 // targetKey is a history target's item key, false for any other kind (a

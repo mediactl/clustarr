@@ -764,6 +764,16 @@ func TestAFailedEntryWaitsForItsRedownloadSearch(t *testing.T) {
 		assert.Empty(t, p.Entries)
 		assert.Empty(t, p.Redownloads)
 	})
+	// Lazarus S01E02 (2026-11-02): a file arrived after the grab failed, and
+	// its PSA tombstone waited on a search searchplan no longer owes.
+	t.Run("the item holds a file and wants nothing: no search, dropped", func(t *testing.T) {
+		v := tombstone()
+		v.Searched[owner()] = failedAt.Add(-time.Hour)
+		v.Satisfied = map[schema.ItemRef]bool{owner(): true}
+		p := lifecycle.Decide(v)
+		assert.Empty(t, p.Entries)
+		assert.Empty(t, p.Redownloads)
+	})
 	t.Run("older than the window: no search, dropped", func(t *testing.T) {
 		v := tombstone()
 		v.Stored[0].Dispatch.DispatchedAt = metav1.NewTime(now.Add(-lifecycle.RedownloadWindow - time.Minute))

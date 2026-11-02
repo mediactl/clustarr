@@ -615,7 +615,7 @@ func (d *decider) redownload(e *catalogv1alpha1.DownloadEntry) bool {
 	owed := false
 	for _, it := range covered {
 		key := schema.ItemRef{Kind: it.Kind, Ref: schema.Ref{Namespace: it.Namespace, Name: it.Name, UID: it.UID}}
-		if d.v.Unmonitored[key] || (key == d.v.Owner && !d.v.Monitored) {
+		if d.v.Unmonitored[key] || d.v.Satisfied[key] || (key == d.v.Owner && !d.v.Monitored) {
 			continue
 		}
 		if s, ok := d.v.Searched[key]; ok && !s.Before(failedAt) {

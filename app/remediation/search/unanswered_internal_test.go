@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package search
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -32,6 +33,7 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/searchplan"
 	"github.com/mediactl/clustarr/app/dispatch"
 	"github.com/mediactl/clustarr/app/remediation"
+	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
@@ -134,4 +136,43 @@ func TestTheLedgerSourcesReadOneKeysDispatch(t *testing.T) {
 		assert.Equal(t, tc.want, in, tc.k.String())
 		assert.Equal(t, tc.seq, seq, tc.k.String())
 	}
+}
+
+// A redownload due is admitted through AdmitFirst, so it claims the lane's
+// next slot; a routine search waits its turn, woken when a slot frees.
+func TestARedownloadIsAdmittedAheadOfRoutineSearches(t *testing.T) {
+	now := time.Date(2026, 11, 2, 21, 0, 0, 0, time.UTC)
+	r := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).Build()
+	ledger := dispatch.New(dispatch.Options{Topology: events.Default(), Reader: r, Now: func() time.Time { return now }})
+	ledger.Register(LedgerSource{})
+	ledger.Register(SeasonLedgerSource{})
+	go func() { _ = ledger.Start(t.Context()) }()
+	require.Eventually(t, ledger.Rebuilt, 5*time.Second, 5*time.Millisecond, "the ledger rebuilt from status")
+	st := &Stage{o: Options{Dispatch: ledger}}
+
+	view := func(name string) searchplan.View {
+		return searchplan.View{
+			Key:        dispatch.Key{Kind: "Episode", Namespace: "media", Name: name, Sub: history.DispatchSubSearch},
+			Searchable: true, Monitored: true, Profile: "hd", Wanted: true, Now: now,
+		}
+	}
+	for i := range ledger.Budget(searchplan.Durable) {
+		v := view(fmt.Sprintf("busy-%02d", i))
+		require.True(t, st.admitter(v, now)(searchplan.Durable, 1).Admitted)
+		ledger.Published(searchplan.Durable, v.Key, 1)
+	}
+	routine := st.admitter(view("routine"), now)(searchplan.Durable, 1)
+	require.False(t, routine.Admitted)
+	assert.Greater(t, routine.RetryAfter, dispatch.FirstRetry, "a routine search waits for a wake")
+
+	redl := view("redownload")
+	failed := now.Add(-time.Minute)
+	redl.Redownload = &failed
+	dec := st.admitter(redl, now)(searchplan.Durable, 1)
+	require.False(t, dec.Admitted)
+	assert.Equal(t, dispatch.FirstRetry, dec.RetryAfter, "admitted through AdmitFirst")
+
+	ledger.Answered(searchplan.Durable, view("busy-00").Key, 1)
+	assert.False(t, st.admitter(view("routine"), now)(searchplan.Durable, 1).Admitted, "the freed slot is the redownload's")
+	assert.True(t, st.admitter(redl, now)(searchplan.Durable, 1).Admitted)
 }

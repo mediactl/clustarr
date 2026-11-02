@@ -174,6 +174,10 @@ type View struct {
 	// Unmonitored names the covered items whose spec.monitored is false:
 	// a redownload search is never dispatched for one, so none is owed.
 	Unmonitored map[schema.ItemRef]bool
+	// Satisfied names the covered items that hold a file and want nothing
+	// (wantedcron's rule): searchplan.RedownloadDue owes none for one, so
+	// none is owed here either.
+	Satisfied map[schema.ItemRef]bool
 	// Covered is each entry's covered items (Episodes, Issues), by entry
 	// uid; absent means the owner itself.
 	Covered map[types.UID][]schema.ItemRef

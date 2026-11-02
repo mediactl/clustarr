@@ -33,6 +33,8 @@ import (
 	indexv1alpha1 "github.com/mediactl/clustarr/api/index/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/comic"
 	"github.com/mediactl/clustarr/app/catalog/controller/series"
+	"github.com/mediactl/clustarr/app/catalog/controller/wantedcron"
+	"github.com/mediactl/clustarr/app/catalog/itemread"
 	"github.com/mediactl/clustarr/app/grab/lifecycle"
 	"github.com/mediactl/clustarr/app/remediation/mfindex"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -125,6 +127,7 @@ func (s *Stage) gather(ctx context.Context, ow owner, now time.Time) (lifecycle.
 		Covered:     map[types.UID][]schema.ItemRef{},
 		Searched:    map[schema.ItemRef]time.Time{},
 		Unmonitored: map[schema.ItemRef]bool{},
+		Satisfied:   map[schema.ItemRef]bool{},
 	}
 	if ow.nonces != nil {
 		v.Nonces = *ow.nonces
@@ -275,6 +278,9 @@ func (s *Stage) covered(ctx context.Context, ow owner, v *lifecycle.View) error 
 				if !ptr.Deref(ep.Spec.Monitored, true) {
 					v.Unmonitored[ref] = true
 				}
+				if satisfied(ep, v.Now) {
+					v.Satisfied[ref] = true
+				}
 			}
 		}
 	case commonv1.MediaKindComic:
@@ -297,14 +303,30 @@ func (s *Stage) covered(ctx context.Context, ow owner, v *lifecycle.View) error 
 				if !ptr.Deref(iss.Spec.Monitored, true) {
 					v.Unmonitored[ref] = true
 				}
+				if satisfied(iss, v.Now) {
+					v.Satisfied[ref] = true
+				}
 			}
 		}
 	default:
 		if ow.searched != nil {
 			v.Searched[ow.ref] = ow.searched.DispatchedAt.UTC()
 		}
+		if satisfied(ow.obj, v.Now) {
+			v.Satisfied[ow.ref] = true
+		}
 	}
 	return nil
+}
+
+// satisfied reports an item that holds a file and wants nothing
+// (wantedcron's rule): searchplan.RedownloadDue owes no redownload for it.
+func satisfied(o client.Object, now time.Time) bool {
+	if !itemread.HasFile(o) {
+		return false
+	}
+	cand, ok := wantedcron.CandidateOf(o, now)
+	return ok && cand.Reason == ""
 }
 
 func coversNumber(ns []catalogv1alpha1.EpisodeNumber, season, number int32) bool {

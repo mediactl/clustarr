@@ -1987,7 +1987,19 @@ too; bump the tag in go.mod and go.sum to take a new fork release.
   every 2 min) that its source's keyed read shows no longer in flight
   (`Ledger.audit`, `KeyedSource`, Event `DispatchSlotsReleased`, which names
   the first keys). The search stage's R25 window reads `failedAt`, as
-  lifecycle's does.
+  lifecycle's does. On the search lanes (the durables with a `Source`) a
+  redownload is admitted through `Ledger.AdmitFirst`, which claims the next
+  slot ahead of routine searches (a routine `Admit` is refused one slot
+  sooner per such waiter, for `FirstTTL`); a Budget refusal asks again
+  unwoken only after about `BudgetRetry` (2 min, spread by key), and every
+  slot that frees wakes two waiters, AdmitFirst's first (`Ledger.Wakes`, the
+  item loop's "ledger" source at `PriorityUser`): ~2,263 refused searches
+  had asked every 10 s, ~226 passes a second, and the ~307 redownloads among
+  them got about one admission in eight. Other durables keep `TickInterval`
+  and never wake. A redownload is owed only while the item does not hold a
+  file that wants nothing (`searchplan.RedownloadDue`, lifecycle's
+  `View.Satisfied`), so an item that got a file after its grab failed owes no
+  live search, and its tombstone is not held for one.
 - **The usenet engine's missing-article rules are SABnzbd's, by
   number.** `maxArticleTries` 3 same-server retries for a connection that
   dies mid-batch (`max_art_tries`); `maxBadArticles` 5 tolerated before

@@ -157,11 +157,14 @@ type waitingEntry struct {
 type Ledger struct {
 	o Options
 
-	mu         sync.Mutex
-	sources    map[string]Source
-	rebuilt    bool
-	books      map[string]map[Key]*slot
-	waiting    map[string]map[Key]waitingEntry
+	mu      sync.Mutex
+	sources map[string]Source
+	rebuilt bool
+	books   map[string]map[Key]*slot
+	waiting map[string]map[Key]waitingEntry
+	// first is each durable's keys waiting through AdmitFirst.
+	first      map[string]map[Key]firstWait
+	wakes      chan Key
 	attendance map[string]*attendance
 	// unserved is, per agent domain, when a request to one of its verbs
 	// last found no responder, while no later request was answered
@@ -176,6 +179,8 @@ func New(o Options) *Ledger {
 		sources:    map[string]Source{},
 		books:      map[string]map[Key]*slot{},
 		waiting:    map[string]map[Key]waitingEntry{},
+		first:      map[string]map[Key]firstWait{},
+		wakes:      make(chan Key, wakeBuffer),
 		attendance: map[string]*attendance{},
 		unserved:   map[string]time.Time{},
 	}
@@ -309,6 +314,7 @@ func (l *Ledger) audit(ctx context.Context) {
 				released = append(released, st.k.String())
 			}
 		}
+		l.freedLocked(durable, len(released))
 		l.mu.Unlock()
 		if len(released) == 0 {
 			continue
@@ -414,6 +420,7 @@ func (l *Ledger) Answered(durable string, k Key, seq int64) {
 	book := l.bookLocked(durable)
 	if cur, ok := book[k]; ok && cur.seq <= seq {
 		delete(book, k)
+		l.freedLocked(durable, 1)
 	}
 }
 
@@ -428,9 +435,11 @@ func (l *Ledger) ForgetGone(kind, namespace, name string) {
 	defer l.mu.Unlock()
 	gone := func(k Key) bool { return k.Kind == kind && k.Namespace == namespace && k.Name == name }
 	for durable := range l.sources {
+		freed := 0
 		for k := range l.books[durable] {
 			if gone(k) {
 				delete(l.books[durable], k)
+				freed++
 			}
 		}
 		for k := range l.waiting[durable] {
@@ -438,6 +447,12 @@ func (l *Ledger) ForgetGone(kind, namespace, name string) {
 				delete(l.waiting[durable], k)
 			}
 		}
+		for k := range l.first[durable] {
+			if gone(k) {
+				delete(l.first[durable], k)
+			}
+		}
+		l.freedLocked(durable, freed)
 	}
 }
 
@@ -473,11 +488,17 @@ func (l *Ledger) Waiting(durable string, k Key, reason Reason) {
 func (l *Ledger) Forget(k Key) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	for _, book := range l.books {
-		delete(book, k)
+	for durable, book := range l.books {
+		if _, ok := book[k]; ok {
+			delete(book, k)
+			l.freedLocked(durable, 1)
+		}
 	}
 	for _, w := range l.waiting {
 		delete(w, k)
+	}
+	for _, f := range l.first {
+		delete(f, k)
 	}
 }
 
@@ -495,7 +516,7 @@ func (l *Ledger) Outstanding(durable string) int {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	book := l.bookLocked(durable)
-	l.lapseLocked(book, l.now())
+	l.lapseLocked(durable, book, l.now())
 	return len(book)
 }
 
@@ -522,17 +543,20 @@ func (l *Ledger) bookLocked(durable string) map[Key]*slot {
 
 // lapseLocked drops every slot of book past its expiry, restoring the
 // dispatch a lapsed reservation superseded.
-func (l *Ledger) lapseLocked(book map[Key]*slot, now time.Time) {
+func (l *Ledger) lapseLocked(durable string, book map[Key]*slot, now time.Time) {
+	freed := 0
 	for k, s := range book {
 		for s != nil && !s.expires.IsZero() && !now.Before(s.expires) {
 			s = s.prev
 		}
 		if s == nil {
 			delete(book, k)
+			freed++
 		} else {
 			book[k] = s
 		}
 	}
+	l.freedLocked(durable, freed)
 }
 
 func (l *Ledger) lapseWaitingLocked(durable string, now time.Time) {

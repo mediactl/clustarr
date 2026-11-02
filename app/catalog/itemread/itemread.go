@@ -532,6 +532,24 @@ func Tombstoned(entries []catalogv1alpha1.DownloadEntry, item client.Object, rel
 	return false
 }
 
+// HasFile is an item's status.hasFile: Movie, Episode, Book, Audiobook,
+// Issue; false for any other (an Album holds tracks, not a file).
+func HasFile(o client.Object) bool {
+	switch t := o.(type) {
+	case *catalogv1alpha1.Movie:
+		return t.Status.HasFile
+	case *catalogv1alpha1.Episode:
+		return t.Status.HasFile
+	case *catalogv1alpha1.Book:
+		return t.Status.HasFile
+	case *catalogv1alpha1.Audiobook:
+		return t.Status.HasFile
+	case *catalogv1alpha1.Issue:
+		return t.Status.HasFile
+	}
+	return false
+}
+
 // SearchDispatch is a searchable item's status.searchDispatch (ruling R12:
 // Movie, Episode, Album, Book, Audiobook, Issue), nil for any other.
 func SearchDispatch(o client.Object) *catalogv1alpha1.Dispatch {

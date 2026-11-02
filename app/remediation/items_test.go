@@ -433,3 +433,16 @@ func TestAnItemFoundGoneForgetsItsRebuildableSlots(t *testing.T) {
 	assert.True(t, ledger.Holds(searchplan.Durable, kept, 7), "another item's stays")
 	assert.True(t, ledger.Holds(events.ConsumerCatalogMetadata, engine, 7), "a lapsing durable's slot stays")
 }
+
+// A ledger wake names its item by kind: an item kind maps to its key, any
+// other kind to none.
+func TestALedgerWakeMapsToItsItemKey(t *testing.T) {
+	k, ok := ledgerKey(dispatch.Key{Kind: "Episode", Namespace: "media", Name: "kingdom-s02e05", Sub: cataloghistory.DispatchSubSearch})
+	require.True(t, ok)
+	assert.Equal(t, Key{Kind: KindEpisode, Namespace: "media", Name: "kingdom-s02e05"}, k)
+	k, ok = ledgerKey(dispatch.Key{Kind: "Series", Namespace: "media", Name: "kingdom", Sub: cataloghistory.DispatchSubSeasonSearch})
+	require.True(t, ok)
+	assert.Equal(t, KindSeries, k.Kind)
+	_, ok = ledgerKey(dispatch.Key{Kind: "MediaFile", Namespace: "media", Name: "heat-1080p"})
+	assert.False(t, ok)
+}

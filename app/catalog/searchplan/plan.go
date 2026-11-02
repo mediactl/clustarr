@@ -85,6 +85,9 @@ type View struct {
 	// Redownload is the failure time of a covering Failed or Blocklisted
 	// entry asking a search (R25).
 	Redownload *time.Time
+	// HasFile: the item holds a file (status.hasFile); with Wanted false it
+	// wants nothing, and owes no redownload.
+	HasFile bool
 	// InFlight is the task the stage last published for the dispatch in
 	// flight, and when; nil after a leader change (the task is rebuilt).
 	InFlight *Task
@@ -282,7 +285,7 @@ func purposeDue(v View, now time.Time) *purpose {
 	if !v.Searchable || !v.Monitored || v.Profile == "" {
 		return nil
 	}
-	if redownloadDue(v, now) {
+	if RedownloadDue(v, now) {
 		return &purpose{reason: schema.SearchReasonRedownload, live: true}
 	}
 	// A dispatch that closed without counting -- every indexer paced (P6),
@@ -318,10 +321,21 @@ type purpose struct {
 	donor, live bool
 }
 
-// redownloadDue: a covering failure newer than the last search dispatch and
-// younger than RedownloadWindow asks a search at once (R25).
-func redownloadDue(v View, now time.Time) bool {
+// RedownloadDue: a covering failure newer than the last search dispatch and
+// younger than RedownloadWindow asks a search at once (R25), unless the item
+// holds a file and wants nothing (Lazarus S01E02, 2026-11-02: a file was
+// imported and transcoded after its grab failed, and its redownload was
+// still owed as a live search). It reads the stored phase, so a pass before
+// the item's own apply still owes it. The stage admits such a search
+// through dispatch.Ledger.AdmitFirst.
+func RedownloadDue(v View, now time.Time) bool {
 	if v.Redownload == nil || now.Sub(*v.Redownload) >= lifecycle.RedownloadWindow {
+		return false
+	}
+	if v.HasFile && !v.Wanted {
+		return false
+	}
+	if !v.Searchable || !v.Monitored || v.Profile == "" {
 		return false
 	}
 	return v.Dispatch == nil || v.Dispatch.DispatchedAt.Time.Before(*v.Redownload)

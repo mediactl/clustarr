@@ -125,12 +125,7 @@ func (s *Stage) Plan(ctx context.Context, env *remediation.Env, v *remediation.I
 		// A deleting item dispatches nothing; its bookkeeping is re-sent.
 		sv.Searchable = false
 	}
-	admit := func(durable string, seq int64) dispatch.Decision {
-		if s.o.Dispatch == nil {
-			return dispatch.Decision{Admitted: true}
-		}
-		return s.o.Dispatch.Admit(durable, sv.Key, seq)
-	}
+	admit := s.admitter(sv, now)
 	class := records.SearchClass(sv.Item.Namespace)
 	pace := func() time.Time {
 		if env == nil || env.Pacer == nil {
@@ -140,6 +135,22 @@ func (s *Stage) Plan(ctx context.Context, env *remediation.Env, v *remediation.I
 	}
 	plan := searchplan.Decide(sv, admit, pace)
 	return s.result(sv, plan, class), nil
+}
+
+// admitter is Decide's admission for sv: a redownload goes ahead of the
+// routine searches (dispatch.Ledger.AdmitFirst), so R25's window is not run
+// out behind them.
+func (s *Stage) admitter(sv searchplan.View, now time.Time) func(durable string, seq int64) dispatch.Decision {
+	first := searchplan.RedownloadDue(sv, now)
+	return func(durable string, seq int64) dispatch.Decision {
+		if s.o.Dispatch == nil {
+			return dispatch.Decision{Admitted: true}
+		}
+		if first {
+			return s.o.Dispatch.AdmitFirst(durable, sv.Key, seq)
+		}
+		return s.o.Dispatch.Admit(durable, sv.Key, seq)
+	}
 }
 
 // result is the plan as the pass's outcome: catalog-grab's bookkeeping, the
@@ -220,6 +231,7 @@ func (s *Stage) gather(ctx context.Context, item client.Object, v *remediation.I
 	}
 	cand, _ := wantedcron.CandidateOf(item, now)
 	sv.Wanted, sv.Reason = cand.Reason != "", cand.Reason
+	sv.HasFile = itemread.HasFile(item)
 	sv.Attempts, sv.DonorAttempts = cand.Attempts, cand.DonorAttempts
 	sv.LastSearched = lastSearched(item)
 

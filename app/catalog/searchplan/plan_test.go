@@ -307,6 +307,23 @@ func TestABlocklistedEntryMakesItsItemsDueAtOnce(t *testing.T) {
 		require.Nil(t, searchplan.Decide(again, admitAll, func() time.Time { return again.Now }).Publish)
 	}
 
+	// Lazarus S01E02 (2026-11-02): a file was imported and transcoded after
+	// its grab failed, and its redownload was still owed as a live search.
+	t.Run("an item that holds a file and wants nothing owes none", func(t *testing.T) {
+		v := itemView("lazarus-s01e02", t0)
+		v.Redownload = &failedAt
+		v.HasFile, v.Wanted, v.Reason = true, false, ""
+		require.False(t, searchplan.RedownloadDue(v, t0))
+		require.Nil(t, searchplan.Decide(v, admitAll, func() time.Time { return t0 }).Publish)
+
+		v.Wanted, v.Reason = true, schema.SearchReasonCutoffUnmet
+		require.True(t, searchplan.RedownloadDue(v, t0), "a file below its cutoff still owes it")
+
+		v.HasFile, v.Wanted, v.Reason = false, false, ""
+		require.True(t, searchplan.RedownloadDue(v, t0),
+			"no file, whatever the stored phase says: a pass before the item's own apply reads its old phase")
+	})
+
 	t.Run("a failure older than the window asks nothing", func(t *testing.T) {
 		v := itemView("ep", t0)
 		v.Attempts = commonv1.Attempts{Count: 2, Initial: ago(2 * time.Hour), Latest: ago(time.Hour)}

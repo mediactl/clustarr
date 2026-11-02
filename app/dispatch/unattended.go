@@ -104,7 +104,7 @@ func (l *Ledger) tick(ctx context.Context) {
 	now := l.now()
 	l.mu.Lock()
 	for durable, book := range l.books {
-		l.lapseLocked(book, now)
+		l.lapseLocked(durable, book, now)
 		l.lapseWaitingLocked(durable, now)
 	}
 	l.mu.Unlock()

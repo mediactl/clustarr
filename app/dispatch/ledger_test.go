@@ -313,3 +313,95 @@ func TestTheAuditReadsAKeyedSourceKeyByKey(t *testing.T) {
 	assert.False(t, l.Holds(searchNormal, movieKey("lost-1"), 1))
 	assert.False(t, l.Holds(searchNormal, movieKey("lost-2"), 1))
 }
+
+// TestAdmitFirstTakesTheNextSlotAheadOfRoutineSearches: a redownload refused
+// for budget claims the next slot that frees -- a routine Admit is refused
+// one slot sooner per such waiter -- and loses the claim once it stops
+// asking for FirstTTL (talos, 2026-11-02: ~307 redownloads competed equally
+// with ~2,256 routine searches).
+func TestAdmitFirstTakesTheNextSlotAheadOfRoutineSearches(t *testing.T) {
+	ctx := t.Context()
+	clk := clockwork.NewFakeClockAt(t0)
+	l := newLedger(clk, dispatch.Options{})
+	l.Register(&source{durable: searchNormal})
+	require.NoError(t, l.Rebuild(ctx))
+	for i := range 16 {
+		k := movieKey(fmt.Sprintf("m%02d", i))
+		require.True(t, l.Admit(searchNormal, k, 1).Admitted)
+		l.Published(searchNormal, k, 1)
+	}
+	redl := movieKey("redownload")
+	dec := l.AdmitFirst(searchNormal, redl, 1)
+	require.False(t, dec.Admitted)
+	assert.Equal(t, catalogv1alpha1.DeliveryReasonBudget, dec.Reason)
+	assert.Equal(t, dispatch.FirstRetry, dec.RetryAfter)
+
+	l.Answered(searchNormal, movieKey("m00"), 1)
+	assert.False(t, l.Admit(searchNormal, movieKey("routine"), 1).Admitted, "the freed slot is the redownload's")
+	assert.True(t, l.AdmitFirst(searchNormal, redl, 1).Admitted)
+	l.Published(searchNormal, redl, 1)
+
+	// A claim not renewed within FirstTTL lapses.
+	l.Answered(searchNormal, movieKey("m01"), 1)
+	other := movieKey("other-redownload")
+	require.True(t, l.AdmitFirst(searchNormal, other, 1).Admitted, "a slot is free: admitted at once")
+	l.Published(searchNormal, other, 1)
+	require.False(t, l.AdmitFirst(searchNormal, movieKey("third"), 1).Admitted, "the budget is spent again")
+	clk.Advance(dispatch.FirstTTL)
+	l.Answered(searchNormal, movieKey("m02"), 1)
+	assert.True(t, l.Admit(searchNormal, movieKey("routine"), 1).Admitted, "a waiter that stopped asking holds no claim")
+}
+
+// TestABudgetRefusalOnASearchLaneWaitsForAWake: on a rebuildable durable a
+// routine key refused for budget asks again on its own only after about
+// BudgetRetry, spread by key, and is woken when a slot frees -- AdmitFirst's
+// waiters first, then the longest-waiting -- two keys per slot. A durable
+// without a Source keeps TickInterval and never wakes. On talos
+// (2026-11-02) ~2,263 refused searches asked every 10 s, ~226 passes a
+// second.
+func TestABudgetRefusalOnASearchLaneWaitsForAWake(t *testing.T) {
+	ctx := t.Context()
+	clk := clockwork.NewFakeClockAt(t0)
+	l := newLedger(clk, dispatch.Options{})
+	l.Register(&source{durable: searchNormal})
+	require.NoError(t, l.Rebuild(ctx))
+	for i := range 16 {
+		k := movieKey(fmt.Sprintf("m%02d", i))
+		require.True(t, l.Admit(searchNormal, k, 1).Admitted)
+		l.Published(searchNormal, k, 1)
+	}
+	refuse := func(name string) {
+		dec := l.Admit(searchNormal, movieKey(name), 1)
+		require.False(t, dec.Admitted)
+		assert.GreaterOrEqual(t, dec.RetryAfter, dispatch.BudgetRetry*3/4, name)
+		assert.LessOrEqual(t, dec.RetryAfter, dispatch.BudgetRetry*5/4, name)
+		l.Waiting(searchNormal, movieKey(name), dec.Reason)
+		clk.Advance(time.Second)
+	}
+	refuse("oldest")
+	refuse("older")
+	refuse("newest")
+	require.False(t, l.AdmitFirst(searchNormal, movieKey("redownload"), 1).Admitted)
+	l.Waiting(searchNormal, movieKey("paced"), catalogv1alpha1.DeliveryReasonPaced)
+	assert.Empty(t, l.Wakes(), "nothing freed yet")
+
+	l.Answered(searchNormal, movieKey("m00"), 1)
+	var woken []string
+	for len(l.Wakes()) > 0 {
+		woken = append(woken, (<-l.Wakes()).Name)
+	}
+	assert.Equal(t, []string{"redownload", "oldest"}, woken, "two per freed slot, the redownload first")
+
+	meta, ok := events.Default().Consumer(events.ConsumerCatalogMetadata)
+	require.True(t, ok)
+	for i := range 2 * meta.MaxAckPending {
+		k := dispatch.Key{Kind: "Movie", Namespace: "media", Name: fmt.Sprintf("meta-%d", i)}
+		require.True(t, l.Admit(meta.Name, k, 1).Admitted)
+		l.Published(meta.Name, k, 1)
+	}
+	dec := l.Admit(meta.Name, dispatch.Key{Kind: "Movie", Namespace: "media", Name: "late"}, 1)
+	require.False(t, dec.Admitted)
+	assert.Equal(t, dispatch.TickInterval, dec.RetryAfter, "a durable without a Source keeps its 10 s retry")
+	l.Answered(meta.Name, dispatch.Key{Kind: "Movie", Namespace: "media", Name: "meta-0"}, 1)
+	assert.Empty(t, l.Wakes(), "and never wakes")
+}

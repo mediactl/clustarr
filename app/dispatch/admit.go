@@ -50,6 +50,21 @@ type Decision struct {
 // through Waiting. A reservation lapses after ReservationTTL unless
 // Published confirms it.
 func (l *Ledger) Admit(durable string, k Key, seq int64) Decision {
+	return l.admit(durable, k, seq, false)
+}
+
+// AdmitFirst is Admit for a dispatch that goes ahead of the durable's
+// routine ones -- a redownload (R25), whose 24-hour window a queue of
+// routine searches must not run out: while it waits for a slot, a routine
+// Admit is refused one slot sooner per such waiter, so the next slot that
+// frees is its, and it is woken when one does (Wakes). On talos
+// (2026-11-02) about 307 redownloads competed equally with ~2,256 routine
+// searches, so about one admission in eight went to one of them.
+func (l *Ledger) AdmitFirst(durable string, k Key, seq int64) Decision {
+	return l.admit(durable, k, seq, true)
+}
+
+func (l *Ledger) admit(durable string, k Key, seq int64, first bool) Decision {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := l.now()
@@ -69,7 +84,7 @@ func (l *Ledger) Admit(durable string, k Key, seq int64) Decision {
 		}
 	}
 	book := l.bookLocked(durable)
-	l.lapseLocked(book, now)
+	l.lapseLocked(durable, book, now)
 	if cur, ok := book[k]; ok && cur.seq >= seq {
 		l.clearWaitingLocked(durable, k)
 		return Decision{Admitted: true}
@@ -79,7 +94,14 @@ func (l *Ledger) Admit(durable string, k Key, seq int64) Decision {
 	if superseding {
 		n--
 	}
-	if n >= budgetOf(c) {
+	limit := budgetOf(c)
+	if !first {
+		limit -= l.firstWaitingLocked(durable, k, now)
+	}
+	if n >= limit {
+		if first {
+			l.markFirstLocked(durable, k, now)
+		}
 		if l.unattendedLocked(durable) {
 			return Decision{
 				Reason:     catalogv1alpha1.DeliveryReasonNoAgent,
@@ -90,10 +112,11 @@ func (l *Ledger) Admit(durable string, k Key, seq int64) Decision {
 		return Decision{
 			Reason:     catalogv1alpha1.DeliveryReasonBudget,
 			Message:    fmt.Sprintf("waiting for %s: %d in flight", durable, n),
-			RetryAfter: TickInterval,
+			RetryAfter: l.budgetRetryLocked(durable, k, first),
 		}
 	}
 	book[k] = &slot{seq: seq, state: reserved, expires: now.Add(ReservationTTL), prev: prev, at: now}
 	l.clearWaitingLocked(durable, k)
+	delete(l.first[durable], k)
 	return Decision{Admitted: true}
 }
