@@ -58,7 +58,10 @@ var (
 	nvenc   = Hardware{Tier: transcode.TierNVENC}
 	h264    = video("h264", "yuv420p", 8, commonv1.HdrFormatNone)
 	hevc10  = video("hevc", "yuv420p10le", 10, commonv1.HdrFormatNone)
-	eac3    = audio(0, "eac3", 6, "5.1(side)", "eng")
+	// hevc8 is the one compliant release video: HEVC Main at the 8-bit
+	// target (SDR at 1080p or less); a release's 10-bit HEVC is encoded.
+	hevc8 = video("hevc", "yuv420p", 8, commonv1.HdrFormatNone)
+	eac3  = audio(0, "eac3", 6, "5.1(side)", "eng")
 )
 
 func TestSDRH264EncodesOnTheCPU(t *testing.T) {
@@ -145,16 +148,54 @@ func mp4Info(v transcode.VideoStream, a ...transcode.AudioStream) transcode.Medi
 }
 
 func TestCompliantVideoAndAudioIsSkipped(t *testing.T) {
-	p := Plan(mp4Info(hevc10, audio(0, "aac", 2, "stereo", "eng")), profile, cpu)
+	p := Plan(mp4Info(hevc8, audio(0, "aac", 2, "stereo", "eng")), profile, cpu)
 	assert.Equal(t, DecisionSkip, p.Decision, p.Reason)
 	// The same file in Matroska is remuxed into MP4; so is one whose
 	// surround track has no AAC companion yet.
-	assert.Equal(t, DecisionCopyVideo, Plan(info(hevc10, audio(0, "aac", 2, "stereo", "eng")), profile, cpu).Decision)
-	assert.Equal(t, DecisionCopyVideo, Plan(mp4Info(hevc10, eac3), profile, cpu).Decision)
+	assert.Equal(t, DecisionCopyVideo, Plan(info(hevc8, audio(0, "aac", 2, "stereo", "eng")), profile, cpu).Decision)
+	assert.Equal(t, DecisionCopyVideo, Plan(mp4Info(hevc8, eac3), profile, cpu).Decision)
+}
+
+// A release's 10-bit HEVC is never copied (owner, 2026-11-02): it is
+// encoded as any source is -- to the 8-bit target for SDR at 1080p or less,
+// else Main 10 -- in the MP4 layout with its audio already the layout's as
+// much as in Matroska with PCM to convert (Fate/Grand Order Babylonia's
+// x265 10-bit BluRay, remuxed until then).
+func TestAReleasesTenBitHEVCIsEncodedNeverCopied(t *testing.T) {
+	stereo := audio(0, "aac", 2, "stereo", "eng")
+	pcm := audio(0, "pcm_s24le", 2, "", "eng")
+	uhd := hevc10
+	uhd.Width, uhd.Height = 3840, 2160
+	hdr := video("hevc", "yuv420p10le", 10, commonv1.HdrFormatHDR10)
+	for name, c := range map[string]struct {
+		in     transcode.MediaInfo
+		pixFmt string
+	}{
+		"1080p SDR in the MP4 layout":   {mp4Info(hevc10, stereo), "yuv420p"},
+		"1080p SDR with PCM to convert": {info(hevc10, pcm), "yuv420p"},
+		"2160p SDR":                     {info(uhd, eac3), "yuv420p10le"},
+		"HDR10":                         {info(hdr, eac3), "yuv420p10le"},
+	} {
+		p := Plan(c.in, profile, cpu)
+		require.Equal(t, DecisionEncode, p.Decision, "%s: %s", name, p.Reason)
+		assert.Equal(t, "encode", p.Video.Action, name)
+		assert.Equal(t, c.pixFmt, p.Expect.PixelFormat, name)
+		assert.Equal(t, VideoEncoded, p.Tags[VideoTagKey], name)
+		assert.Contains(t, p.Reason, "a release's 10-bit HEVC is encoded, never copied", name)
+	}
+	// On the Intel tier it decodes on the GPU, as the NUC's pods measure.
+	qsv := Hardware{Tier: transcode.TierQSV, Limits: transcode.Limits{
+		VAAPI: &transcode.Decoders{Formats: map[string]bool{"hevc:10": true, "h264:10": false}},
+	}}
+	p := Plan(info(hevc10, pcm), profile, qsv)
+	require.Equal(t, DecisionEncode, p.Decision, p.Reason)
+	assert.Equal(t, "hevc_qsv", p.Video.Encoder)
+	assert.Equal(t, "vaapi", p.Video.Decode)
+	assert.Equal(t, "hwmap=derive_device=qsv,format=qsv,vpp_qsv=format=nv12", p.Video.Filter)
 }
 
 func TestCompliantVideoWithTrueHDCopiesVideoAndEncodesAudio(t *testing.T) {
-	p := Plan(info(hevc10, audio(0, "truehd", 8, "7.1", "eng")), profile, cpu)
+	p := Plan(info(hevc8, audio(0, "truehd", 8, "7.1", "eng")), profile, cpu)
 	require.Equal(t, DecisionCopyVideo, p.Decision, p.Reason)
 	assert.Equal(t, "HEVC video copied into the MP4 layout; audio and subtitles processed", p.Reason)
 	assert.Equal(t, "copy", p.Video.Action)
@@ -305,7 +346,10 @@ func TestHDR(t *testing.T) {
 	hdr10 := video("hevc", "yuv420p10le", 10, commonv1.HdrFormatHDR10Plus)
 	hdr10.HDR.MasteringDisplay = &mediainfo.MasteringDisplay{}
 	p := Plan(info(hdr10, audio(0, "truehd", 8, "7.1", "eng")), profile, cpu)
-	require.Equal(t, DecisionCopyVideo, p.Decision, "HEVC Main 10 HDR10+ is compliant video: copied as is")
+	require.Equal(t, DecisionEncode, p.Decision, "a release's HEVC Main 10 HDR10+ is encoded, never copied")
+	assert.Equal(t, "hdr10", p.Video.HDR)
+	assert.Equal(t, "main10", p.Video.Options["profile"])
+	assert.Equal(t, "yuv420p10le", p.Expect.PixelFormat)
 	p = Plan(info(video("h264", "yuv420p10le", 10, commonv1.HdrFormatHDR10), eac3), profile, cpu)
 	assert.Equal(t, "hdr10", p.Video.HDR)
 	assert.Equal(t, ColorTags{Primaries: "bt2020", Transfer: "smpte2084", Matrix: "bt2020nc", Range: "tv"}, p.Video.Color)
@@ -581,7 +625,7 @@ func TestPlanAlwaysWritesMP4(t *testing.T) {
 	assert.False(t, p.Attachments)
 }
 
-func TestVersionIsEight(t *testing.T) { assert.Equal(t, 8, Version) }
+func TestVersionIsNine(t *testing.T) { assert.Equal(t, 9, Version) }
 
 func sub(codec, lang, title string, forced, hi bool) transcode.SubtitleStream {
 	return transcode.SubtitleStream{
@@ -704,22 +748,34 @@ func TestAnHEVCSourceOverTheBitrateLimitIsEncodedToEightBit(t *testing.T) {
 	assert.Contains(t, p.Reason, "11338 kbps at 1080p, over policy.maxVideoBitrateKbps 6000")
 	assert.Equal(t, VideoEncoded, p.Tags[VideoTagKey])
 
-	lean := d3g
+	// 8-bit HEVC at the target is the compliant release video the limit
+	// decides on (a release's 10-bit HEVC is encoded whatever its bitrate).
+	rich8 := d3g
+	rich8.PixFmt, rich8.BitDepth = "yuv420p", 8
+	p = Plan(info(rich8, eac3), limited, cpu)
+	assert.Equal(t, DecisionEncode, p.Decision, "8-bit HEVC over the limit: %s", p.Reason)
+	assert.Contains(t, p.Reason, "over policy.maxVideoBitrateKbps 6000")
+
+	lean := rich8
 	lean.BitRateKbps = 4500
 	p = Plan(info(lean, eac3), limited, cpu)
 	assert.Equal(t, DecisionCopyVideo, p.Decision, "under the limit, copied as before: %s", p.Reason)
 
-	uhd := d3g
-	uhd.Width, uhd.Height, uhd.BitRateKbps = 3840, 2160, 20000
-	p = Plan(info(uhd, eac3), limited, cpu)
-	assert.Equal(t, DecisionCopyVideo, p.Decision, "20 Mbps of 2160p is 5 Mbps of 1080p: %s", p.Reason)
+	// A remux of clustarr's own (its video copied, final under the limit)
+	// is measured at 1080p: 20 Mbps of 2160p is 5 Mbps of 1080p.
+	uhd := info(d3g, audio(0, "aac", 2, "stereo", "eng"))
+	uhd.Video[0].Width, uhd.Video[0].Height, uhd.Video[0].BitRateKbps = 3840, 2160, 20000
+	uhd.Format.Name, uhd.Subtitles, uhd.Attachments = "mov,mp4,m4a,3gp,3g2,mj2", nil, nil
+	uhd.Tags = map[string]string{ProfileTagKey: "hevc-mkv@old", VideoTagKey: VideoCopied}
+	p = Plan(uhd, limited, cpu)
+	assert.Equal(t, DecisionSkip, p.Decision, "20 Mbps of 2160p is 5 Mbps of 1080p: %s", p.Reason)
 
-	unsized := d3g
+	unsized := rich8
 	unsized.Width, unsized.Height = 0, 0
 	p = Plan(info(unsized, eac3), limited, cpu)
 	assert.Equal(t, DecisionEncode, p.Decision, "an unknown size leaves 11338 kbps as it is: %s", p.Reason)
 
-	p = Plan(info(d3g, eac3), profile, cpu)
+	p = Plan(info(rich8, eac3), profile, cpu)
 	assert.Equal(t, DecisionCopyVideo, p.Decision, "no limit copies every compliant HEVC: %s", p.Reason)
 }
 
@@ -848,7 +904,7 @@ func TestTheMP4CarriesNoSubtitleStream(t *testing.T) {
 // carrying mov_text is remuxed, the text moved beside it as SubRip.
 func TestTheSubtitleLayoutDecidesTheSkip(t *testing.T) {
 	stereo := audio(0, "aac", 2, "stereo", "eng")
-	in := mp4Info(hevc10, stereo)
+	in := mp4Info(hevc8, stereo)
 	assert.Equal(t, DecisionSkip, Plan(in, profile, cpu).Decision)
 	in.Subtitles = []transcode.SubtitleStream{sub("mov_text", "eng", "", false, false)}
 	assert.Equal(t, DecisionCopyVideo, Plan(in, profile, cpu).Decision)

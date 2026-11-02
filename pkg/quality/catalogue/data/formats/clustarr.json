@@ -1,0 +1,14 @@
+[
+  {
+    "slug": "h264-10bit",
+    "name": "H.264 10bit",
+    "trashIds": {},
+    "scores": {"default": -10000},
+    "conditions": [
+      {"kind": "ReleaseTitle", "name": "10bit", "required": true, "pattern": "10[.-]?bit|hi10p"},
+      {"kind": "ReleaseTitle", "name": "Not x265/HEVC", "negate": true, "required": true, "pattern": "[xh][ ._-]?265|\\bHEVC(\\b|\\d)"},
+      {"kind": "ReleaseTitle", "name": "Not AV1", "negate": true, "required": true, "pattern": "\\bAV1\\b"},
+      {"kind": "ReleaseTitle", "name": "Not VP9", "negate": true, "required": true, "pattern": "\\bVP9\\b"}
+    ]
+  }
+]

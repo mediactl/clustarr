@@ -72,7 +72,10 @@ import (
 // copied, a remux of clustarr's own included (CLUSTARR_VIDEO=copy), never
 // clustarr's own encode (CLUSTARR_VIDEO=encode); and every output carries
 // the CLUSTARR_VIDEO tag saying which it got.
-const Version = 8
+// 9: a release's 10-bit HEVC is encoded, never copied, whatever else the
+// file needs (owner, 2026-11-02); an encode's (clustarr's own, another
+// tool's) is still remuxed.
+const Version = 9
 
 // Profile is what a TranscodeProfile decides under the standard.
 type Profile struct {
@@ -358,11 +361,20 @@ func Plan(info transcode.MediaInfo, profile Profile, hw Hardware) Result {
 	if eight {
 		p.Expect.PixelFormat = "yuv420p"
 	}
-	// A 10-bit file is never encoded down to the 8-bit target -- unless its
-	// video runs over policy.maxVideoBitrateKbps, where a release group's
-	// Blu-ray x265 at 8-20 Mbps is encoded as any source is, to the 8-bit
-	// target for SDR at 1080p or less (owner, 2026-10-27).
-	compliant := v.Codec == "hevc" && (tenBit(v) || (eight && v.PixFmt == "yuv420p")) && !isDolbyVision(v.HDR.Format) && !overLimit
+	// A release's 10-bit HEVC is never copied: it is encoded as any source
+	// is -- HEVC Main, 8-bit, for SDR at 1080p or less, else Main 10 --
+	// whether its audio, subtitles or container need the work or not (owner,
+	// 2026-11-02: "When media does not match the correct audio, but it *does*
+	// have HEVC x265 10 bit, we should perform the same encode/decode process
+	// as any other format - *not* a remux"; QSV decodes it). Until then a
+	// 10-bit file was copied unless its video ran over
+	// policy.maxVideoBitrateKbps (owner, 2026-10-27). An encode's 10-bit HEVC
+	// is still copied: clustarr's own (tagged) and another tool's
+	// (TranscodedElsewhere) are final, remuxed into the layout and never
+	// encoded a second time.
+	release10 := tenBit(v) && tag == "" && !elsewhere
+	compliant := v.Codec == "hevc" && ((tenBit(v) && !release10) || (eight && v.PixFmt == "yuv420p")) &&
+		!isDolbyVision(v.HDR.Format) && !overLimit
 	// A profile that keeps H.264 (policy.keepCodecs) copies 8-bit SDR H.264
 	// as compliant HEVC is copied (owner, 2026-10-15). Hi10P and HDR H.264
 	// are still encoded: many players, Apple's among them, cannot decode them;
@@ -411,9 +423,12 @@ func Plan(info transcode.MediaInfo, profile Profile, hw Hardware) Result {
 	if eight {
 		p.Reason = "encode to HEVC Main (8-bit: SDR at 1080p or less)"
 	}
-	if overLimit {
+	switch {
+	case overLimit:
 		p.Reason += fmt.Sprintf("; the source's HEVC runs %d kbps at 1080p, over policy.maxVideoBitrateKbps %d",
 			NormalisedKbps(v.BitRateKbps, v.Width, v.Height), profile.MaxVideoBitrateKbps)
+	case v.Codec == "hevc" && release10 && !isDolbyVision(v.HDR.Format):
+		p.Reason += "; a release's 10-bit HEVC is encoded, never copied"
 	}
 	p.Video = encodeVideo(v, int32(vi), profile.Quality, hw, hdr, strip, eight)
 	p.Tags[VideoTagKey] = VideoEncoded

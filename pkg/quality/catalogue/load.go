@@ -44,6 +44,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // data/formats/anime_extra.json (Anime BD Tier 02-08, Anime Web Tier 02-06,
 // and the remaining anime-only formats) are a mechanical read of the real
 // corpus files, not a guess, and parity_test.go proves it.
+//
+// data/formats/clustarr.json is the exception: clustarr's own formats, with
+// no trash_id (so no corpus to match), for what the transcoder cannot take.
+// h264-10bit (owner, 2026-11-02: "the only real *off-limits* codec is
+// encoding or decoding H.264 10-bit") is a 10bit or Hi10P title naming no
+// x265, HEVC, AV1 or VP9 -- an anime Hi10P release names its codec as often
+// as not -- refused at -10000 by default as TRaSH refuses AV1: no GPU here
+// decodes it (the Intel pods' VA-API trial), where x265 10-bit decodes on
+// QSV and is encoded like any source.
 package catalogue
 
 import (

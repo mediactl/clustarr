@@ -51,7 +51,7 @@
     "AudioStreams": 2,
     "SubtitleStreams": 0,
     "VideoCodec": "hevc",
-    "PixelFormat": "yuv420p10le",
+    "PixelFormat": "yuv420p",
     "DurationMillis": 3600000,
     "AudioSources": [
       0

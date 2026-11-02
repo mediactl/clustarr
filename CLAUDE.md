@@ -214,6 +214,21 @@ remuxes at 31 Mbps, tagged before plans were recorded, were never planned
 again), and only a recorded encode is final, the worker's probe of the
 file's own tag still skipping an encode it finds; a source another tool
 transcoded (`TranscodedElsewhere`) is still remuxed, never encoded.
+**A release's 10-bit HEVC is never copied** (owner, 2026-11-02,
+`standard.Version` 9: "When media does not match the correct audio, but it
+*does* have HEVC x265 10 bit, we should perform the same encode/decode
+process as any other format - *not* a remux", and for a file whose audio
+already fits too): it is encoded as any source is, 8-bit for SDR at 1080p
+or less, else Main 10, HDR included, decoded on the Intel pods' VA-API
+(`hevc:10` in their trial), so the one HEVC a release keeps is 8-bit at the
+8-bit target under the bitrate limit. An encode's 10-bit HEVC, clustarr's
+own (tagged) or another tool's, is still only remuxed, and clustarr's
+remuxes of 10-bit releases made before Version 9 are not planned again.
+The codecs off limits are H.264 10-bit and AV1, which no GPU here decodes:
+clustarr's own catalogue format `h264-10bit`
+(`pkg/quality/catalogue/data/formats/clustarr.json`, a 10bit or Hi10P title
+naming no x265, HEVC, AV1 or VP9) scores -10000 by default, so every
+profile refuses it as TRaSH's AV1 is refused, where x265 10-bit is taken.
 `policy.neverTranscodeModifiers` is gone (owner, 2026-10-27, "we can
 ignore the remux modifier"): a remux's or BR-disk's modifier skipped the
 whole file, 40 of them with DTS or TrueHD audio, and the standard now
@@ -1122,9 +1137,10 @@ them after it. Every built-in prefers usenet (`preferredProtocol: usenet`). A pr
 longer download and transcode) ranks the smallest release first right after
 the format score and languages, ahead of indexer, flags and seeders
 (`decision.less`, `grabplan.better`); the owner's transcode-first profiles
-pair it with one 1080p tier, `x265-hd` +300 and `10bit` -150 at a minimum
-score of 0 (HEVC is copied; 10-bit H.264 and AV1 decode on no GPU here, so
-they would transcode on the CPU) and a 5 MB-a-minute floor in `sizeLimits`,
+pair it with one 1080p tier, `x265-hd` +300 at a minimum score of 0 (until
+2026-11-02 also `10bit` -150, which held x265 10-bit back with H.264 10-bit;
+now `h264-10bit` refuses H.264 10-bit and AV1's default refuses AV1, which
+no GPU here decodes) and a 5 MB-a-minute floor in `sizeLimits`,
 since TRaSH's x264 minimums reject a small HEVC encode. Their anime twins
 (`hevc-small-1080p-anime`, `-anime-tv`) also zero TRaSH's anime group tiers,
 which score 100-1,400 under every score set and would carry a tier-1 10-bit

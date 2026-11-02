@@ -121,7 +121,9 @@ func TestMissingAudio(t *testing.T) {
 // TestADualAudioReleaseCarriesItsGroupsLanguage: PD's "DUAL" NF WEB-DL of
 // Akira was approved on 2026-10-20 as English and Japanese; PD's files carry
 // Portuguese, so it reads as Japanese and Portuguese and lacks English,
-// while an anime group's dual audio still carries English.
+// while an anime group's dual audio still carries English. (That one is a
+// Hi10P encode, refused since 2026-11-02 as H.264 10-bit, for its codec
+// alone: TestAnH264TenBitReleaseIsRefusedAndX265TenBitIsNot.)
 func TestADualAudioReleaseCarriesItsGroupsLanguage(t *testing.T) {
 	p, cat := builtin(t, "anime-remux-1080p")
 	pd := "Akira.1988.1080p.NF.WEB-DL.AAC2.0.x264.DUAL-PD"
@@ -130,7 +132,10 @@ func TestADualAudioReleaseCarriesItsGroupsLanguage(t *testing.T) {
 	require.Equal(t, []string{"Japanese", "Portuguese"}, ds[0].Release.Languages)
 	require.True(t, hasRejection(ds[0], decision.ReasonWantedLanguage), "%v", reasons(ds[0]))
 	require.Equal(t, []string{"Japanese", "English"}, ds[1].Release.Languages)
-	require.True(t, ds[1].Approved, "%v", reasons(ds[1]))
+	require.False(t, hasRejection(ds[1], decision.ReasonWantedLanguage), "%v", reasons(ds[1]))
+	require.Contains(t, ds[1].Release.MatchedFormats, "h264-10bit")
+	require.Len(t, ds[1].Rejections, 1, "%v", reasons(ds[1]))
+	require.True(t, hasRejection(ds[1], decision.ReasonCustomFormatMinimumScore), "%v", reasons(ds[1]))
 }
 
 // TestTheIndexersAudioLanguagesBeatTheTitle: hallowed's Akira Blu-ray names

@@ -42,7 +42,7 @@ func TestPlanGoldens(t *testing.T) {
 		"nvenc_nvdec_sdr_h264": {info(h264, eac3), nvenc},
 		"nvenc_upload_hi10p":   {info(video("h264", "yuv420p10le", 10, commonv1.HdrFormatNone), eac3), nvenc},
 		"cpu_hdr10":            {info(video("hevc", "yuv420p", 8, commonv1.HdrFormatHDR10), eac3), cpu},
-		"copyvideo_truehd":     {info(hevc10, audio(0, "truehd", 8, "7.1", "eng")), cpu},
+		"copyvideo_truehd":     {info(hevc8, audio(0, "truehd", 8, "7.1", "eng")), cpu},
 		"skip_dovi5":           {info(video("hevc", "yuv420p10le", 10, commonv1.HdrFormatDolbyVision), eac3), nvenc},
 	} {
 		t.Run(name, func(t *testing.T) {
