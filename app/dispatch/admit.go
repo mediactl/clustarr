@@ -93,7 +93,7 @@ func (l *Ledger) Admit(durable string, k Key, seq int64) Decision {
 			RetryAfter: TickInterval,
 		}
 	}
-	book[k] = &slot{seq: seq, state: reserved, expires: now.Add(ReservationTTL), prev: prev}
+	book[k] = &slot{seq: seq, state: reserved, expires: now.Add(ReservationTTL), prev: prev, at: now}
 	l.clearWaitingLocked(durable, k)
 	return Decision{Admitted: true}
 }

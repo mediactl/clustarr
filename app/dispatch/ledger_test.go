@@ -228,3 +228,43 @@ func TestAnUnconfirmedReservationLapses(t *testing.T) {
 	clk.Advance(time.Second)
 	assert.Zero(t, l.Outstanding(meta.Name), "an unrebuildable kind's dispatch lapses after AckWait × MaxDeliver")
 }
+
+// TestTheAuditReleasesOldSlotsNoStatusShowsInFlight: a rebuildable durable's
+// published slot never lapses, so one whose Answered was lost held its
+// budget for good (talos, 2026-10-30: all 16 of catalog-search-normal's for
+// three and a half days). The audit releases a published slot older than
+// AuditAge that status no longer shows in flight; one status still shows,
+// or a young one, stays. It reads status only while some slot is that old.
+func TestTheAuditReleasesOldSlotsNoStatusShowsInFlight(t *testing.T) {
+	ctx := t.Context()
+	clk := clockwork.NewFakeClockAt(t0)
+	l := newLedger(clk, dispatch.Options{})
+	src := &source{durable: searchNormal, called: make(chan struct{}, 8)}
+	l.Register(src)
+	require.NoError(t, l.Rebuild(ctx))
+	<-src.called
+
+	for i := range 16 {
+		k := movieKey(fmt.Sprintf("m%02d", i))
+		require.True(t, l.Admit(searchNormal, k, 1).Admitted)
+		l.Published(searchNormal, k, 1)
+	}
+	assert.False(t, l.Admit(searchNormal, movieKey("waiting"), 1).Admitted, "the budget is spent")
+	src.outs = []dispatch.Outstanding{{Key: movieKey("m03"), Seq: 1}}
+
+	clk.Advance(dispatch.AuditAge - time.Minute)
+	l.Audit(ctx)
+	assert.Empty(t, src.called, "no slot is old enough to ask status about")
+	assert.Equal(t, 16, l.Outstanding(searchNormal))
+
+	clk.Advance(2 * time.Minute)
+	young := movieKey("young")
+	l.Published(searchNormal, young, 1)
+	l.Audit(ctx)
+	assert.Len(t, src.called, 1, "status was read once")
+	assert.Equal(t, 2, l.Outstanding(searchNormal), "the slot status shows in flight and the young one stay")
+	assert.True(t, l.Holds(searchNormal, movieKey("m03"), 1))
+	assert.True(t, l.Holds(searchNormal, young, 1))
+	assert.False(t, l.Holds(searchNormal, movieKey("m00"), 1))
+	assert.True(t, l.Admit(searchNormal, movieKey("waiting"), 1).Admitted, "the lane admits again")
+}

@@ -27,3 +27,6 @@ func (l *Ledger) Tick(ctx context.Context) { l.tick(ctx) }
 // Rebuild is Start's rebuild without its loop: it reads every registered
 // Source once and marks the ledger rebuilt.
 func (l *Ledger) Rebuild(ctx context.Context) error { return l.rebuild(ctx) }
+
+// Audit is one of Start's audits, at the ledger's clock.
+func (l *Ledger) Audit(ctx context.Context) { l.audit(ctx) }

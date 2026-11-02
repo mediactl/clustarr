@@ -37,6 +37,10 @@ import (
 // Pod when a dispatched durable turns unattended (§5.5, §7.7).
 const ReasonDispatchUnattended = "DispatchUnattended"
 
+// ReasonDispatchSlotsReleased is the Warning Event recorded on the manager's
+// Pod when the audit releases slots no status shows in flight (audit).
+const ReasonDispatchSlotsReleased = "DispatchSlotsReleased"
+
 // attendance is one durable's unattended detection state.
 type attendance struct {
 	known bool
@@ -215,7 +219,10 @@ func (l *Ledger) detect(ctx context.Context, c events.ConsumerSpec, domain strin
 }
 
 // record files the DispatchUnattended Warning on the manager's Pod.
-func (l *Ledger) record(note string) {
+func (l *Ledger) record(note string) { l.recordReason(ReasonDispatchUnattended, "Detect", note) }
+
+// recordReason files a Warning of reason on the manager's Pod.
+func (l *Ledger) recordReason(reason, action, note string) {
 	if l.o.Recorder == nil || l.o.Pod.Name == "" {
 		return
 	}
@@ -223,5 +230,5 @@ func (l *Ledger) record(note string) {
 		TypeMeta:   metav1.TypeMeta{Kind: "Pod", APIVersion: "v1"},
 		ObjectMeta: metav1.ObjectMeta{Name: l.o.Pod.Name, Namespace: l.o.Pod.Namespace},
 	}
-	l.o.Recorder.Eventf(pod, nil, corev1.EventTypeWarning, ReasonDispatchUnattended, "Detect", "%s", note)
+	l.o.Recorder.Eventf(pod, nil, corev1.EventTypeWarning, reason, action, "%s", note)
 }

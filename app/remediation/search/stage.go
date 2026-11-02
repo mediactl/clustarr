@@ -167,6 +167,8 @@ func (s *Stage) result(sv searchplan.View, plan searchplan.Plan, class string) r
 	}
 	if plan.Answered {
 		res.Effects = append(res.Effects, remediation.DispatchAnswered{Durable: searchplan.Durable, Ledger: sv.Key, Seq: plan.AnsweredSeq})
+	} else if a, ok := s.unanswered(searchplan.Durable, sv.Key, d); ok {
+		res.Effects = append(res.Effects, a)
 	}
 	if t := plan.Publish; t != nil {
 		if t.FirstLiveDonor && !t.Republish {
@@ -180,6 +182,20 @@ func (s *Stage) result(sv searchplan.View, plan searchplan.Plan, class string) r
 		}
 	}
 	return res
+}
+
+// unanswered is the DispatchAnswered a dispatch status already shows closed
+// still owes durable's ledger (dispatch.Ledger.Holds). The pass that closed
+// it ends before its effects when a set after catalog-grab's conflicts, so
+// its answer can be lost while the closed dispatch lands; a rebuildable
+// durable's slot never lapses, and from 2026-10-30 10:12Z on talos sixteen
+// such slots -- catalog-search-normal's whole budget -- admitted no
+// automatic search for three and a half days.
+func (s *Stage) unanswered(durable string, k dispatch.Key, d *catalogv1alpha1.Dispatch) (remediation.DispatchAnswered, bool) {
+	if s.o.Dispatch == nil || d == nil || d.Seq == 0 || d.InFlight() || !s.o.Dispatch.Holds(durable, k, d.Seq) {
+		return remediation.DispatchAnswered{}, false
+	}
+	return remediation.DispatchAnswered{Durable: durable, Ledger: k, Seq: d.Seq}, true
 }
 
 // nilIf is v, or an untyped nil (absent in the set) when absent.
@@ -306,7 +322,14 @@ func redownloadAt(entries []catalogv1alpha1.DownloadEntry, item client.Object, n
 		if !itemread.Covers(e, item) {
 			continue
 		}
+		// The failure's own time, as lifecycle's redownload reads it: every
+		// Remove re-issues the entry's command, so its dispatch time moves
+		// on and restarted the window here (3ef9e89a fixed only lifecycle's
+		// copy).
 		failed := e.Dispatch.DispatchedAt.UTC()
+		if e.FailedAt != nil {
+			failed = e.FailedAt.UTC()
+		}
 		if failed.IsZero() || now.Sub(failed) >= lifecycle.RedownloadWindow {
 			continue
 		}

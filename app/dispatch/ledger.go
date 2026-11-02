@@ -20,6 +20,7 @@ package dispatch
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -52,6 +53,14 @@ const (
 	WaitingTTL = 5 * time.Minute
 	// rebuildRetry spaces the rebuild's attempts at leader start.
 	rebuildRetry = 10 * time.Second
+	// AuditInterval is how often the leader audits each rebuildable
+	// durable's book against status (audit).
+	AuditInterval = 5 * time.Minute
+	// AuditAge is how old a published slot must be before the audit asks
+	// status about it: past every planner's own timeout for a dispatch in
+	// flight (a search's 15 minutes, a season search's 30-minute stall), so
+	// an audit lists status only when a slot already looks lost.
+	AuditAge = time.Hour
 )
 
 // Reason is a catalogv1alpha1.DeliveryReason* value.
@@ -123,6 +132,8 @@ type slot struct {
 	// lapses unpublished, the older dispatch is still in flight and comes
 	// back.
 	prev *slot
+	// at is when the slot was reserved, published or rebuilt (audit).
+	at time.Time
 }
 
 type waitingEntry struct {
@@ -191,8 +202,13 @@ func (l *Ledger) Start(ctx context.Context) error {
 	log.Info("dispatch: ledger rebuilt from status")
 	ticker := time.NewTicker(TickInterval)
 	defer ticker.Stop()
+	audited := l.now()
 	for {
 		l.tick(ctx)
+		if now := l.now(); now.Sub(audited) >= AuditInterval {
+			l.audit(ctx)
+			audited = now
+		}
 		select {
 		case <-ctx.Done():
 			return nil
@@ -221,7 +237,7 @@ func (l *Ledger) rebuild(ctx context.Context) error {
 			if cur, ok := book[o.Key]; ok && cur.seq >= o.Seq {
 				continue
 			}
-			book[o.Key] = &slot{seq: o.Seq, state: published}
+			book[o.Key] = &slot{seq: o.Seq, state: published, at: l.now()}
 		}
 		books[s.Durable()] = book
 	}
@@ -232,6 +248,59 @@ func (l *Ledger) rebuild(ctx context.Context) error {
 	}
 	l.rebuilt = true
 	return nil
+}
+
+// audit drops each rebuildable durable's published slot older than AuditAge
+// that status no longer shows in flight. Such a slot is held for good -- a
+// rebuildable durable's slots never lapse -- once its Answered is lost, and
+// from 2026-10-30 10:12Z on talos sixteen of them, catalog-search-normal's
+// whole budget, admitted no automatic search for three and a half days: the
+// catalog agent's autoscaler took it to zero, since nothing was queued, and
+// nothing was left to answer them. Status is listed only for a durable
+// holding such a slot, so a healthy ledger costs no list.
+func (l *Ledger) audit(ctx context.Context) {
+	cutoff := l.now().Add(-AuditAge)
+	l.mu.Lock()
+	var due []Source
+	for durable, s := range l.sources {
+		for _, sl := range l.books[durable] {
+			if sl.state == published && sl.at.Before(cutoff) {
+				due = append(due, s)
+				break
+			}
+		}
+	}
+	l.mu.Unlock()
+
+	log := logging.FromContext(ctx).With("component", "dispatch-ledger")
+	for _, s := range due {
+		outs, err := s.Rebuild(ctx, l.o.Reader)
+		if err != nil {
+			log.Warn("dispatch: could not audit the ledger against status", "durable", s.Durable(), "error", err)
+			continue
+		}
+		inFlight := make(map[Key]bool, len(outs))
+		for _, o := range outs {
+			inFlight[o.Key] = true
+		}
+		l.mu.Lock()
+		var released []string
+		for k, sl := range l.books[s.Durable()] {
+			if sl.state == published && sl.at.Before(cutoff) && !inFlight[k] {
+				delete(l.books[s.Durable()], k)
+				released = append(released, k.String())
+			}
+		}
+		l.mu.Unlock()
+		if len(released) == 0 {
+			continue
+		}
+		slices.Sort(released)
+		note := fmt.Sprintf("released %d slots of %s that no status shows in flight: %s",
+			len(released), s.Durable(), strings.Join(released[:min(len(released), 5)], ", "))
+		log.Warn("dispatch: "+note, "durable", s.Durable(), "released", len(released))
+		l.recordReason(ReasonDispatchSlotsReleased, "Audit", note)
+	}
 }
 
 // Rebuilt reports whether Start has rebuilt the ledger.
@@ -285,7 +354,7 @@ func (l *Ledger) Published(durable string, k Key, seq int64) {
 	if cur, ok := book[k]; ok && cur.seq > seq {
 		return
 	}
-	s := &slot{seq: seq, state: published} // the superseded dispatch is answered by this one
+	s := &slot{seq: seq, state: published, at: l.now()} // the superseded dispatch is answered by this one
 	if _, rebuildable := l.sources[durable]; !rebuildable {
 		if c, ok := l.spec(durable); ok {
 			s.expires = l.now().Add(lapseAfter(c))
@@ -304,6 +373,18 @@ func (l *Ledger) Answered(durable string, k Key, seq int64) {
 	if cur, ok := book[k]; ok && cur.seq <= seq {
 		delete(book, k)
 	}
+}
+
+// Holds reports that durable's book holds a slot of k at or below seq: a
+// dispatch status already shows closed whose Answered never ran -- a pass
+// whose catalog-grab set landed and whose next set conflicted ends before
+// its effects, and the next pass reads the dispatch as answered. A
+// rebuildable durable's slot never lapses, so the planner answers it again.
+func (l *Ledger) Holds(durable string, k Key, seq int64) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	cur, ok := l.books[durable][k]
+	return ok && cur.seq <= seq
 }
 
 // Waiting records that the planner left k's block waiting with reason (a

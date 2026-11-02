@@ -1939,6 +1939,32 @@ too; bump the tag in go.mod and go.sum to take a new fork release.
   is a grab the indexer counts -- and the engine journal claims a transfer by
   the same id, so a re-grab of the same release reuses it. Torrents are
   unaffected: an info hash is the content.
+- **An engine reports a transfer under one entry uid, and an add adopts a
+  transfer by the entry's id (2026-11-02).** On 2026-10-30 the manager sent
+  four entries a second add under a new uid a second or two after the first
+  (the second admission's status was lost; cause unproven). The usenet
+  client adopted each job by name and re-journaled it to the new uid, so the
+  records the owners read -- the first uid's -- stood at `fetchingMetadata`
+  for three days while the jobs had failed or finished. An add that takes over
+  another grab's transfer of the entry now writes that grab's record removed
+  at its own seq (`engine.Handler`'s `writeDisplaced`, found through
+  `NamedFinder` without listing), and lifecycle re-adds a live entry whose
+  record reads removed at or past its dispatch seq, which adopts the transfer
+  back under the uid the owner holds; commands lock on the entry's id. An
+  unclaimed failed transfer is removed (`converge`), where it stayed for good.
+- **A rebuildable durable's ledger slot never lapses, so a lost Answered
+  wedged automatic search (2026-11-02).** An item pass ends before its effects
+  when a set after catalog-grab's conflicts, so a search whose answer landed in
+  `searchDispatch` could lose its `DispatchAnswered`; the next pass reads the
+  dispatch as answered and sends nothing. From 2026-10-30 10:12Z sixteen such
+  slots -- catalog-search-normal's whole budget -- admitted no automatic
+  search for three and a half days, and the catalog agent's HPA (min 0) took
+  it to zero, since nothing was queued. A closed dispatch the ledger still
+  `Holds` is answered again (`search.Stage.unanswered`, the season search's
+  too), and every `AuditInterval` the leader releases a published slot older
+  than `AuditAge` that no status shows in flight (`Ledger.audit`, Event
+  `DispatchSlotsReleased`). The search stage's R25 window reads `failedAt`,
+  as lifecycle's does.
 - **The usenet engine's missing-article rules are SABnzbd's, by
   number.** `maxArticleTries` 3 same-server retries for a connection that
   dies mid-batch (`max_art_tries`); `maxBadArticles` 5 tolerated before

@@ -129,6 +129,10 @@ func (s *Stage) seriesResult(sv searchplan.SeasonView, plan searchplan.SeasonPla
 	}
 	if plan.Answered {
 		res.Effects = append(res.Effects, remediation.DispatchAnswered{Durable: searchplan.SeasonDurable, Ledger: sv.Key, Seq: plan.AnsweredSeq})
+	} else if st != nil {
+		if a, ok := s.unanswered(searchplan.SeasonDurable, sv.Key, st.Dispatch); ok {
+			res.Effects = append(res.Effects, a)
+		}
 	}
 	if t := plan.Publish; t != nil && t.Payload.Season != nil {
 		if eff, ok := publishTask(t, sv.Key, sv.Series, searchplan.SeasonDurable, class, searchplan.SeasonPaceKey(sv.Series.UID, *t.Payload.Season)); ok {
