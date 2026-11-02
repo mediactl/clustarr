@@ -73,8 +73,9 @@ import (
 // clustarr's own encode (CLUSTARR_VIDEO=encode); and every output carries
 // the CLUSTARR_VIDEO tag saying which it got.
 // 9: a release's 10-bit HEVC is encoded, never copied, whatever else the
-// file needs (owner, 2026-11-02); an encode's (clustarr's own, another
-// tool's) is still remuxed.
+// file needs, and clustarr's earlier remuxes of one are encoded once
+// (copiedTenBit; owner, 2026-11-02); an encode's 10-bit HEVC (clustarr's
+// own, another tool's) is still remuxed.
 const Version = 9
 
 // Profile is what a TranscodeProfile decides under the standard.
@@ -320,11 +321,14 @@ func Plan(info transcode.MediaInfo, profile Profile, hw Hardware) Result {
 	// because the profile kept it (policy.keepCodecs) is encoded once the
 	// profile no longer keeps H.264 (owner, 2026-10-19), and one that copied
 	// HEVC over policy.maxVideoBitrateKbps is encoded once the policy says so
-	// (owner, 2026-10-27).
+	// (owner, 2026-10-27), and one that copied a release's 10-bit HEVC is
+	// encoded once since Version 9 (owner, 2026-11-02: copiedTenBit).
 	elsewhere := (&commonv1.MediaInfo{VideoEncoder: v.Encoder}).TranscodedElsewhere()
 	overLimit := v.Codec == "hevc" && profile.MaxVideoBitrateKbps > 0 && !elsewhere &&
 		NormalisedKbps(v.BitRateKbps, v.Width, v.Height) > int64(profile.MaxVideoBitrateKbps)
-	reencode := tag != "" && (keptH264Dropped(info, profile) || (overLimit && formatTag(info.Tags, VideoTagKey) != VideoEncoded))
+	videoTag := formatTag(info.Tags, VideoTagKey)
+	remux10 := tag != "" && !elsewhere && copiedTenBit(v, videoTag)
+	reencode := tag != "" && (keptH264Dropped(info, profile) || (overLimit && videoTag != VideoEncoded) || remux10)
 	if tag != "" && containerOf(info.Format.Name) == transcode.ContainerMP4 && !reencode {
 		return skip(p, "already transcoded (CLUSTARR_PROFILE "+tag+")")
 	}
@@ -374,7 +378,7 @@ func Plan(info transcode.MediaInfo, profile Profile, hw Hardware) Result {
 	// encoded a second time.
 	release10 := tenBit(v) && tag == "" && !elsewhere
 	compliant := v.Codec == "hevc" && ((tenBit(v) && !release10) || (eight && v.PixFmt == "yuv420p")) &&
-		!isDolbyVision(v.HDR.Format) && !overLimit
+		!isDolbyVision(v.HDR.Format) && !overLimit && !remux10
 	// A profile that keeps H.264 (policy.keepCodecs) copies 8-bit SDR H.264
 	// as compliant HEVC is copied (owner, 2026-10-15). Hi10P and HDR H.264
 	// are still encoded: many players, Apple's among them, cannot decode them;
@@ -429,6 +433,8 @@ func Plan(info transcode.MediaInfo, profile Profile, hw Hardware) Result {
 			NormalisedKbps(v.BitRateKbps, v.Width, v.Height), profile.MaxVideoBitrateKbps)
 	case v.Codec == "hevc" && release10 && !isDolbyVision(v.HDR.Format):
 		p.Reason += "; a release's 10-bit HEVC is encoded, never copied"
+	case remux10:
+		p.Reason += "; clustarr's remux of a release's 10-bit HEVC, encoded once"
 	}
 	p.Video = encodeVideo(v, int32(vi), profile.Quality, hw, hdr, strip, eight)
 	p.Tags[VideoTagKey] = VideoEncoded
@@ -475,6 +481,28 @@ func primaryVideo(vs []transcode.VideoStream) int {
 		return i
 	}
 	return -1
+}
+
+// copiedTenBit reports a tagged transcode whose video is a release's 10-bit
+// HEVC, copied: since Version 9 such video is encoded, never copied, and the
+// owner wanted the earlier remuxes encoded once (2026-11-02). Its
+// CLUSTARR_VIDEO says copy; or, with none (written before Version 8), it is
+// SDR at 1080p or less, where clustarr's own encodes have been 8-bit since
+// the first (2026-10-01, transcode.EightBitTarget), so its 10 bits are the
+// release's. Above 1080p or in HDR an untagged one may be clustarr's own
+// Main 10 encode, which is final, and stays; the caller leaves another
+// tool's encode out.
+func copiedTenBit(v transcode.VideoStream, videoTag string) bool {
+	if v.Codec != "hevc" || !tenBit(v) {
+		return false
+	}
+	switch videoTag {
+	case VideoCopied:
+		return true
+	case "":
+		return transcode.EightBitTarget(v)
+	}
+	return false
 }
 
 func tenBit(v transcode.VideoStream) bool {

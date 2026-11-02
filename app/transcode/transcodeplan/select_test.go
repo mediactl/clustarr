@@ -530,3 +530,47 @@ func TestATaggedHEVCOverTheLimitIsEligibleUnlessClustarrEncodedIt(t *testing.T) 
 	}
 	assert.Equal(t, ReasonTranscoded, Eligible(tagged(31000, nil, ""), hevcProfiles()).Why, "no limit, no re-encode")
 }
+
+// clustarr's remux of a release's 10-bit HEVC is eligible once (owner,
+// 2026-11-02, standard.Version 9): a recorded copy at any size, or with no
+// video action recorded one at SDR 1080p or less, where clustarr's own
+// encodes have always been 8-bit. A recorded encode, another tool's encode,
+// an unrecorded one above 1080p or in HDR (perhaps clustarr's own Main 10),
+// and an 8-bit one stay done.
+func TestClustarrsRemuxOfATenBitReleaseIsEligibleOnce(t *testing.T) {
+	tagged := func(height int32, hdr commonv1.HdrFormat, pixFmt string, tr *catalogv1alpha1.TranscodeState, encoder string) File {
+		st := probed("h1")
+		st.MediaInfo.TranscodeProfile, st.MediaInfo.Container = "hevc@old", "mov,mp4,m4a,3gp,3g2,mj2"
+		st.MediaInfo.VideoCodec, st.MediaInfo.PixelFormat, st.MediaInfo.Hdr = "hevc", pixFmt, hdr
+		st.MediaInfo.Width, st.MediaInfo.Height = height*16/9, height
+		st.MediaInfo.VideoEncoder = encoder
+		st.Transcode = tr
+		f := eligibleFile(st)
+		f.MF.Spec.Original = new(false)
+		return f
+	}
+	recorded := func(action string) *catalogv1alpha1.TranscodeState {
+		return &catalogv1alpha1.TranscodeState{Phase: catalogv1alpha1.TranscodePhaseSucceeded, ProfileTag: "hevc@old",
+			Plan: &catalogv1alpha1.TranscodePlan{VideoAction: action}}
+	}
+	const ten, eight = "yuv420p10le", "yuv420p"
+	for _, tc := range []struct {
+		name     string
+		f        File
+		eligible bool
+	}{
+		{"a recorded copy, 1080p SDR", tagged(1080, commonv1.HdrFormatNone, ten, recorded("copy"), ""), true},
+		{"a recorded copy, 2160p HDR10", tagged(2160, commonv1.HdrFormatHDR10, ten, recorded("copy"), ""), true},
+		{"nothing recorded, 1080p SDR", tagged(1080, "", ten, nil, ""), true},
+		{"nothing recorded, 1080p HDR10", tagged(1080, commonv1.HdrFormatHDR10, ten, nil, ""), false},
+		{"nothing recorded, 2160p SDR", tagged(2160, commonv1.HdrFormatNone, ten, nil, ""), false},
+		{"a recorded encode", tagged(1080, commonv1.HdrFormatNone, ten, recorded("encode"), ""), false},
+		{"another tool's encode", tagged(1080, commonv1.HdrFormatNone, ten, nil, "Lavc61.3.100 hevc_qsv"), false},
+		{"8-bit", tagged(1080, commonv1.HdrFormatNone, eight, nil, ""), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := Eligible(tc.f, hevcProfiles())
+			assert.Equal(t, tc.eligible, e.Eligible, "%s", e.Why)
+		})
+	}
+}

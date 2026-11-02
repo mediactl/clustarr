@@ -283,9 +283,61 @@ func TestARemuxThatKeptH264IsEncodedOnceH264IsNoLongerKept(t *testing.T) {
 	require.Equal(t, DecisionEncode, p.Decision, p.Reason)
 	assert.Equal(t, "hevc-mkv@abc", p.Tags["CLUSTARR_PROFILE"], "tagged anew")
 
-	own := mp4Info(hevc10, audio(0, "aac", 2, "stereo", "eng"))
+	own := mp4Info(hevc8, audio(0, "aac", 2, "stereo", "eng"))
 	own.Tags = map[string]string{"CLUSTARR_PROFILE": "hevc-mkv@old"}
 	assert.Equal(t, DecisionSkip, Plan(own, profile, cpu).Decision, "clustarr's HEVC stays final")
+}
+
+// clustarr's earlier remuxes of a release's 10-bit HEVC are encoded once
+// (owner, 2026-11-02): one whose CLUSTARR_VIDEO says copy, at any size, or
+// one written before that tag at SDR 1080p or less, where clustarr's own
+// encodes have always been 8-bit. An untagged-video one above 1080p or in
+// HDR may be clustarr's own Main 10 encode and stays final; so does a
+// recorded encode, and another tool's encode is only remuxed.
+func TestClustarrsRemuxOfATenBitReleaseIsEncodedOnce(t *testing.T) {
+	stereo := audio(0, "aac", 2, "stereo", "eng")
+	hdr := video("hevc", "yuv420p10le", 10, commonv1.HdrFormatHDR10)
+	uhd := hevc10
+	uhd.Width, uhd.Height = 3840, 2160
+	tagged := func(v transcode.VideoStream, videoTag string) transcode.MediaInfo {
+		in := mp4Info(v, stereo)
+		in.Tags = map[string]string{ProfileTagKey: "hevc-mkv@old"}
+		if videoTag != "" {
+			in.Tags[VideoTagKey] = videoTag
+		}
+		return in
+	}
+	for name, c := range map[string]struct {
+		in       transcode.MediaInfo
+		decision Decision
+	}{
+		"copied, 1080p SDR":                {tagged(hevc10, VideoCopied), DecisionEncode},
+		"copied, HDR10":                    {tagged(hdr, VideoCopied), DecisionEncode},
+		"copied, 2160p":                    {tagged(uhd, VideoCopied), DecisionEncode},
+		"no video tag, 1080p SDR":          {tagged(hevc10, ""), DecisionEncode},
+		"no video tag, HDR10 (maybe ours)": {tagged(hdr, ""), DecisionSkip},
+		"no video tag, 2160p (maybe ours)": {tagged(uhd, ""), DecisionSkip},
+		"clustarr's own encode, HDR10":     {tagged(hdr, VideoEncoded), DecisionSkip},
+		"clustarr's own 8-bit encode":      {tagged(hevc8, ""), DecisionSkip},
+	} {
+		p := Plan(c.in, profile, cpu)
+		require.Equal(t, c.decision, p.Decision, "%s: %s", name, p.Reason)
+		if c.decision == DecisionEncode {
+			assert.Contains(t, p.Reason, "clustarr's remux of a release's 10-bit HEVC, encoded once", name)
+			assert.Equal(t, "hevc-mkv@abc", p.Tags[ProfileTagKey], name)
+			assert.Equal(t, VideoEncoded, p.Tags[VideoTagKey], name)
+		}
+	}
+	// Clustarr's own Main 10 encode in Matroska (Version 1) is still only
+	// remuxed into the layout; another tool's 10-bit encode too.
+	ownHDR := info(hdr, stereo)
+	ownHDR.Tags = map[string]string{ProfileTagKey: "hevc-mkv@older"}
+	assert.Equal(t, DecisionCopyVideo, Plan(ownHDR, profile, cpu).Decision)
+	tdarr := hevc10
+	tdarr.Encoder = "Lavc61.3.100 hevc_qsv"
+	elsewhere := tagged(tdarr, VideoCopied)
+	elsewhere.Format.Name = "matroska,webm"
+	assert.Equal(t, DecisionCopyVideo, Plan(elsewhere, profile, cpu).Decision)
 }
 
 // A source another tool transcoded -- an FFmpeg HEVC or AV1 encode, Tdarr's
@@ -450,7 +502,7 @@ func TestATranscodedFileIsSkippedWhateverItsTag(t *testing.T) {
 // never encoded a second time (owner, 2026-10-15; the H.264 case is
 // TestATranscodedFileIsSkippedWhateverItsTag). One in an MP4 is final.
 func TestClustarrsOwnMKVTranscodeIsRemuxedIntoTheMP4Layout(t *testing.T) {
-	in := info(hevc10, audio(0, "aac", 6, "5.1", "eng"))
+	in := info(hevc8, audio(0, "aac", 6, "5.1", "eng"))
 	in.Tags = map[string]string{"CLUSTARR_PROFILE": "hevc-mkv@older"}
 	p := Plan(in, profile, cpu)
 	require.Equal(t, DecisionCopyVideo, p.Decision, p.Reason)
@@ -466,7 +518,7 @@ func TestClustarrsOwnMKVTranscodeIsRemuxedIntoTheMP4Layout(t *testing.T) {
 	require.NotEmpty(t, p.Sidecars)
 	assert.Equal(t, "en.srt", p.Sidecars[0].Suffix)
 
-	mp4 := mp4Info(hevc10, audio(0, "aac", 6, "5.1", "eng"))
+	mp4 := mp4Info(hevc8, audio(0, "aac", 6, "5.1", "eng"))
 	mp4.Tags = in.Tags
 	p = Plan(mp4, profile, cpu)
 	assert.Equal(t, DecisionSkip, p.Decision, "an MP4 transcode is final, its audio the layout's or not")
@@ -717,7 +769,7 @@ func TestAnImageSubtitleNoTextTrackCoversBecomesASupSidecar(t *testing.T) {
 // copied and the image track beside it as a .sup, and its layout audio is
 // copied as it is.
 func TestATaggedMatroskaFileWithAnImageSubtitleRemuxesToMP4WithASup(t *testing.T) {
-	in := info(video("hevc", "yuv420p10le", 10, commonv1.HdrFormatNone), audio(0, "aac", 2, "stereo", "eng"))
+	in := info(hevc8, audio(0, "aac", 2, "stereo", "eng"))
 	in.Format.Name = "matroska,webm"
 	in.Tags = map[string]string{ProfileTagKey: "p@old", VideoTagKey: VideoCopied}
 	in.Subtitles = []transcode.SubtitleStream{{Index: 0, Codec: "hdmv_pgs_subtitle", Bitmap: true, Language: "eng"}}
@@ -761,14 +813,7 @@ func TestAnHEVCSourceOverTheBitrateLimitIsEncodedToEightBit(t *testing.T) {
 	p = Plan(info(lean, eac3), limited, cpu)
 	assert.Equal(t, DecisionCopyVideo, p.Decision, "under the limit, copied as before: %s", p.Reason)
 
-	// A remux of clustarr's own (its video copied, final under the limit)
-	// is measured at 1080p: 20 Mbps of 2160p is 5 Mbps of 1080p.
-	uhd := info(d3g, audio(0, "aac", 2, "stereo", "eng"))
-	uhd.Video[0].Width, uhd.Video[0].Height, uhd.Video[0].BitRateKbps = 3840, 2160, 20000
-	uhd.Format.Name, uhd.Subtitles, uhd.Attachments = "mov,mp4,m4a,3gp,3g2,mj2", nil, nil
-	uhd.Tags = map[string]string{ProfileTagKey: "hevc-mkv@old", VideoTagKey: VideoCopied}
-	p = Plan(uhd, limited, cpu)
-	assert.Equal(t, DecisionSkip, p.Decision, "20 Mbps of 2160p is 5 Mbps of 1080p: %s", p.Reason)
+	assert.EqualValues(t, 5000, NormalisedKbps(20000, 3840, 2160), "20 Mbps of 2160p is 5 Mbps of 1080p")
 
 	unsized := rich8
 	unsized.Width, unsized.Height = 0, 0

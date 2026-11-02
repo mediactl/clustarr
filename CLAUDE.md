@@ -222,8 +222,14 @@ already fits too): it is encoded as any source is, 8-bit for SDR at 1080p
 or less, else Main 10, HDR included, decoded on the Intel pods' VA-API
 (`hevc:10` in their trial), so the one HEVC a release keeps is 8-bit at the
 8-bit target under the bitrate limit. An encode's 10-bit HEVC, clustarr's
-own (tagged) or another tool's, is still only remuxed, and clustarr's
-remuxes of 10-bit releases made before Version 9 are not planned again.
+own (tagged) or another tool's, is still only remuxed. clustarr's earlier
+remuxes of 10-bit releases are encoded once (owner, same day;
+`transcodeplan.TenBitRemux`, `standard.copiedTenBit`), as
+`RemuxOverLimit` does, but only on evidence the video was copied: a
+recorded copy or `CLUSTARR_VIDEO=copy`, or with neither, SDR at 1080p or
+less, where clustarr's own encodes have been 8-bit since the first. An
+unrecorded HDR or above-1080p one may be clustarr's own Main 10 encode and
+stays.
 The codecs off limits are H.264 10-bit and AV1, which no GPU here decodes:
 clustarr's own catalogue format `h264-10bit`
 (`pkg/quality/catalogue/data/formats/clustarr.json`, a 10bit or Hi10P title

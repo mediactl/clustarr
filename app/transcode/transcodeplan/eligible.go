@@ -19,10 +19,12 @@ package transcodeplan
 
 import (
 	"slices"
+	"strings"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/transcode/jobspec"
+	"github.com/mediactl/clustarr/pkg/transcode"
 	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
 
@@ -105,7 +107,7 @@ func Eligible(f File, profiles []transcodev1alpha1.TranscodeProfile) Eligibility
 		e.Why = "its winning profile is Invalid: " + msg
 	case !f.ItemExists:
 		e.Why = "its " + string(f.MF.Spec.MediaRef.Kind) + " is gone"
-	case AlreadyTranscoded(view, e.Profile.Name) && !KeptH264Dropped(view, e.Profile) && !RemuxOverLimit(view, e.Profile):
+	case AlreadyTranscoded(view, e.Profile.Name) && !KeptH264Dropped(view, e.Profile) && !RemuxOverLimit(view, e.Profile) && !TenBitRemux(view):
 		e.Why = ReasonTranscoded
 	case view.Status.ProbeHash == "" || view.Status.MediaInfo == nil:
 		e.Why, e.Pending = "never probed", ReasonUnprobed
@@ -152,6 +154,30 @@ func RemuxOverLimit(mf *catalogv1alpha1.MediaFile, profile *transcodev1alpha1.Tr
 		return false
 	}
 	return standard.NormalisedKbps(mi.VideoBitrateKbps, mi.Width, mi.Height) > int64(limit)
+}
+
+// TenBitRemux reports a clustarr remux whose copied video is a release's
+// 10-bit HEVC: since standard.Version 9 a release's 10-bit HEVC is encoded,
+// never copied, and the owner wanted the earlier remuxes encoded once too
+// (2026-11-02). Its recorded transcode copied the video; or, with no video
+// action recorded, it is SDR at 1080p or less, where clustarr's own encodes
+// have been 8-bit since the first (transcode.EightBitTarget), so its 10
+// bits are the release's. A recorded encode is final, as is another tool's
+// encode; and above 1080p or in HDR an unrecorded one may be clustarr's own
+// Main 10 encode, so it stays. standard.Plan encodes it by the same rule
+// (copiedTenBit), from the file's CLUSTARR_VIDEO tag; a recorded copy above
+// 1080p or in HDR written before that tag reads to it as clustarr's own,
+// and is skipped.
+func TenBitRemux(mf *catalogv1alpha1.MediaFile) bool {
+	mi, tr := mf.Status.MediaInfo, mf.Status.Transcode
+	if mi == nil || mi.TranscodeProfile == "" || mi.VideoCodec != "hevc" || mi.TranscodedElsewhere() ||
+		(mi.VideoBitDepth != 10 && !strings.Contains(mi.PixelFormat, "10")) {
+		return false
+	}
+	if RecordsATranscode(tr) && tr.Plan != nil && tr.Plan.VideoAction != "" {
+		return tr.Plan.VideoAction == standard.VideoCopied
+	}
+	return transcode.EightBitTarget(transcode.VideoStream{Height: mi.Height, HDR: transcode.HDRInfo{Format: mi.Hdr}})
 }
 
 // UpgradeDownloading reports whether item -- a file's Movie or Episode --
