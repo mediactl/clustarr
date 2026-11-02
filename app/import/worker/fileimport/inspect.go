@@ -133,13 +133,22 @@ func resolution(err error) schema.InspectRejection {
 
 // targetOf is what the task imports to: the intent's target override, else
 // the owner, keyed to the one Episode or Issue a Series or Comic entry
-// covers.
+// covers. A lone target that is no Episode or Issue keys nothing: the
+// downloads stage gives an entry covering no item (one re-created from its
+// transfer's claim) the owner itself, and read as a key it named an episode
+// after the series (talos, 2026-11-02), so such an import is attributed by
+// its files' names, as a pack's is.
 func targetOf(task *schema.ImportInspectTask) importtarget.ImportTarget {
 	if o := task.TargetOverride; o != nil {
 		return importtarget.ImportTarget{Kind: commonv1.MediaKind(strings.ToLower(o.Kind)), Name: o.Name}
 	}
 	t := importtarget.ImportTarget{Kind: commonv1.MediaKind(strings.ToLower(task.Owner.Kind)), Name: task.Owner.Name}
-	if (t.Kind == commonv1.MediaKindSeries || t.Kind == commonv1.MediaKindComic) && len(task.Targets) == 1 {
+	if len(task.Targets) != 1 {
+		return t
+	}
+	switch kind := commonv1.MediaKind(strings.ToLower(task.Targets[0].Kind)); {
+	case t.Kind == commonv1.MediaKindSeries && kind == commonv1.MediaKindEpisode,
+		t.Kind == commonv1.MediaKindComic && kind == commonv1.MediaKindIssue:
 		t.Key = task.Targets[0].Name
 	}
 	return t

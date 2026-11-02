@@ -1756,6 +1756,13 @@ too; bump the tag in go.mod and go.sum to take a new fork release.
   its latest dispatch (a Remove re-issues the command, and had restarted
   the window), with no search owed for an unmonitored item
   (`View.Unmonitored`), which had held that tombstone for good.
+  An entry re-created from its transfer's claim covers no item (a claim
+  carries none), so the downloads stage gives its import the owner itself
+  as the one target; the agent keys a lone target only when it is an
+  Episode or Issue (`fileimport.targetOf`, 2026-11-02), so such an import
+  is attributed by its files' names, as a pack's is. Read as a key, the
+  Series named an "episode" after itself ("episode X is not an episode of
+  series X"), and the import was held and its files removed a day later.
 - **A Helm hook with no delete policy defaults to `before-hook-creation`,
   which destroys anything holding data.** A `post-install,post-upgrade`
   hook carrying no `helm.sh/hook-delete-policy` annotation is deleted and
