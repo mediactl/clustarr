@@ -268,3 +268,48 @@ func TestTheAuditReleasesOldSlotsNoStatusShowsInFlight(t *testing.T) {
 	assert.False(t, l.Holds(searchNormal, movieKey("m00"), 1))
 	assert.True(t, l.Admit(searchNormal, movieKey("waiting"), 1).Admitted, "the lane admits again")
 }
+
+// keyedSource is a dispatch.KeyedSource whose status shows inFlight's keys
+// in flight; it fails the test if the audit lists.
+type keyedSource struct {
+	t        *testing.T
+	durable  string
+	inFlight map[dispatch.Key]bool
+	reads    int
+}
+
+func (s *keyedSource) Durable() string { return s.durable }
+
+func (s *keyedSource) Rebuild(context.Context, client.Reader) ([]dispatch.Outstanding, error) {
+	s.t.Error("the audit listed status; a KeyedSource is read key by key")
+	return nil, nil
+}
+
+func (s *keyedSource) InFlight(_ context.Context, _ client.Reader, k dispatch.Key) (int64, bool, error) {
+	s.reads++
+	return 1, s.inFlight[k], nil
+}
+
+// TestTheAuditReadsAKeyedSourceKeyByKey: a KeyedSource answers the audit for
+// each stale slot alone, never by listing every item (catalog-search-normal's
+// ~29k Episodes), so a slot whose item still shows it in flight costs one
+// read per audit, not a list.
+func TestTheAuditReadsAKeyedSourceKeyByKey(t *testing.T) {
+	ctx := t.Context()
+	clk := clockwork.NewFakeClockAt(t0)
+	l := newLedger(clk, dispatch.Options{})
+	src := &keyedSource{t: t, durable: searchNormal, inFlight: map[dispatch.Key]bool{movieKey("live"): true}}
+	l.Register(src)
+	for _, n := range []string{"live", "lost-1", "lost-2"} {
+		l.Published(searchNormal, movieKey(n), 1)
+	}
+	clk.Advance(dispatch.AuditAge + time.Minute)
+	l.Published(searchNormal, movieKey("republished"), 1)
+
+	l.Audit(ctx)
+	assert.Equal(t, 3, src.reads, "one read per stale slot")
+	assert.True(t, l.Holds(searchNormal, movieKey("live"), 1))
+	assert.True(t, l.Holds(searchNormal, movieKey("republished"), 1), "a slot published since is not stale")
+	assert.False(t, l.Holds(searchNormal, movieKey("lost-1"), 1))
+	assert.False(t, l.Holds(searchNormal, movieKey("lost-2"), 1))
+}

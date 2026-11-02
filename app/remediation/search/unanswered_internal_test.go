@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
@@ -32,6 +33,7 @@ import (
 	"github.com/mediactl/clustarr/app/dispatch"
 	"github.com/mediactl/clustarr/app/remediation"
 	"github.com/mediactl/clustarr/pkg/events/schema"
+	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
 // A dispatch whose closing pass lost its DispatchAnswered -- the
@@ -98,4 +100,38 @@ func TestTheRedownloadWindowRunsFromTheFailureNotTheLatestDispatch(t *testing.T)
 	at = redownloadAt([]catalogv1alpha1.DownloadEntry{e}, movie, now)
 	require.NotNil(t, at, "an entry from before failedAt has only its dispatch time")
 	assert.Equal(t, now.Add(-time.Hour), *at)
+}
+
+// The audit's keyed reads: an item's searchDispatch in flight, closed, or
+// the item gone; a Series' seasonSearch dispatch likewise.
+func TestTheLedgerSourcesReadOneKeysDispatch(t *testing.T) {
+	ctx := t.Context()
+	inFlight := &catalogv1alpha1.Episode{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "live-s01e01"}}
+	inFlight.Status.SearchDispatch = &catalogv1alpha1.Dispatch{Seq: 9, AnsweredSeq: 8}
+	closed := &catalogv1alpha1.Episode{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "done-s01e01"}}
+	closed.Status.SearchDispatch = &catalogv1alpha1.Dispatch{Seq: 9, AnsweredSeq: 9}
+	ser := &catalogv1alpha1.Series{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "kingdom"}}
+	ser.Status.SeasonSearch = &catalogv1alpha1.SeasonSearchState{Dispatch: &catalogv1alpha1.Dispatch{Seq: 4, AnsweredSeq: 3}}
+	r := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).WithObjects(inFlight, closed, ser).Build()
+
+	key := func(kind, name, sub string) dispatch.Key {
+		return dispatch.Key{Kind: kind, Namespace: "media", Name: name, Sub: sub}
+	}
+	for _, tc := range []struct {
+		src  dispatch.KeyedSource
+		k    dispatch.Key
+		seq  int64
+		want bool
+	}{
+		{LedgerSource{}, key("Episode", "live-s01e01", history.DispatchSubSearch), 9, true},
+		{LedgerSource{}, key("Episode", "done-s01e01", history.DispatchSubSearch), 0, false},
+		{LedgerSource{}, key("Episode", "deleted-s01e01", history.DispatchSubSearch), 0, false},
+		{SeasonLedgerSource{}, key("Series", "kingdom", history.DispatchSubSeasonSearch), 4, true},
+		{SeasonLedgerSource{}, key("Series", "gone", history.DispatchSubSeasonSearch), 0, false},
+	} {
+		seq, in, err := tc.src.InFlight(ctx, r, tc.k)
+		require.NoError(t, err, tc.k.String())
+		assert.Equal(t, tc.want, in, tc.k.String())
+		assert.Equal(t, tc.seq, seq, tc.k.String())
+	}
 }

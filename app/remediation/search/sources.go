@@ -24,6 +24,7 @@ import (
 	"strings"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/client-go/util/workqueue"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -195,7 +196,40 @@ func itemKey(ref schema.ItemRef) (remediation.Key, bool) {
 // cache, after a leader change (A4.2 step 4).
 type LedgerSource struct{}
 
-var _ dispatch.Source = LedgerSource{}
+var _ dispatch.KeyedSource = LedgerSource{}
+
+// InFlight implements dispatch.KeyedSource: k's item's searchDispatch, read
+// from the cache; an item the cache does not hold shows nothing in flight.
+func (LedgerSource) InFlight(ctx context.Context, r client.Reader, k dispatch.Key) (int64, bool, error) {
+	var o client.Object
+	switch k.Kind {
+	case "Movie":
+		o = &catalogv1alpha1.Movie{}
+	case "Episode":
+		o = &catalogv1alpha1.Episode{}
+	case "Album":
+		o = &catalogv1alpha1.Album{}
+	case "Book":
+		o = &catalogv1alpha1.Book{}
+	case "Audiobook":
+		o = &catalogv1alpha1.Audiobook{}
+	case "Issue":
+		o = &catalogv1alpha1.Issue{}
+	default:
+		return 0, false, nil
+	}
+	if err := r.Get(ctx, client.ObjectKey{Namespace: k.Namespace, Name: k.Name}, o); err != nil {
+		if apierrors.IsNotFound(err) {
+			return 0, false, nil
+		}
+		return 0, false, fmt.Errorf("search: read %s for the ledger audit: %w", k, err)
+	}
+	d := itemread.SearchDispatch(o)
+	if !d.InFlight() {
+		return 0, false, nil
+	}
+	return d.Seq, true, nil
+}
 
 // Durable implements dispatch.Source.
 func (LedgerSource) Durable() string { return searchplan.Durable }

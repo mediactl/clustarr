@@ -23,6 +23,7 @@ import (
 	"slices"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -440,7 +441,27 @@ func publishTask(t *searchplan.Task, key dispatch.Key, item schema.ItemRef, dura
 // stay unledgered.
 type SeasonLedgerSource struct{}
 
-var _ dispatch.Source = SeasonLedgerSource{}
+var _ dispatch.KeyedSource = SeasonLedgerSource{}
+
+// InFlight implements dispatch.KeyedSource: k's Series' seasonSearch
+// dispatch, read from the cache.
+func (SeasonLedgerSource) InFlight(ctx context.Context, r client.Reader, k dispatch.Key) (int64, bool, error) {
+	if k.Kind != "Series" {
+		return 0, false, nil
+	}
+	var ser catalogv1alpha1.Series
+	if err := r.Get(ctx, client.ObjectKey{Namespace: k.Namespace, Name: k.Name}, &ser); err != nil {
+		if apierrors.IsNotFound(err) {
+			return 0, false, nil
+		}
+		return 0, false, fmt.Errorf("search: read %s for the ledger audit: %w", k, err)
+	}
+	st := ser.Status.SeasonSearch
+	if st == nil || !st.Dispatch.InFlight() {
+		return 0, false, nil
+	}
+	return st.Dispatch.Seq, true, nil
+}
 
 // Durable implements dispatch.Source.
 func (SeasonLedgerSource) Durable() string { return searchplan.SeasonDurable }

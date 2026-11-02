@@ -57,10 +57,10 @@ const (
 	// durable's book against status (audit).
 	AuditInterval = 5 * time.Minute
 	// AuditAge is how old a published slot must be before the audit asks
-	// status about it: past every planner's own timeout for a dispatch in
-	// flight (a search's 15 minutes, a season search's 30-minute stall), so
-	// an audit lists status only when a slot already looks lost.
-	AuditAge = time.Hour
+	// status about it. A dispatch in flight is republished every
+	// searchplan.RepublishEvery (2 minutes), and Published restamps its slot
+	// at the same seq, so only a slot nothing republishes grows this old.
+	AuditAge = 20 * time.Minute
 )
 
 // Reason is a catalogv1alpha1.DeliveryReason* value.
@@ -91,6 +91,16 @@ type Outstanding struct {
 type Source interface {
 	Durable() string
 	Rebuild(ctx context.Context, r client.Reader) ([]Outstanding, error)
+}
+
+// KeyedSource is a Source that reads one key's dispatch from the cache:
+// whether status shows it in flight, and at which seq. The audit asks it
+// about each stale slot alone, where Rebuild lists every item (catalog-search
+// -normal's ~29k Episodes on talos, 123 MB of JSON), and a slot whose item
+// status still shows in flight would have repeated that list every audit.
+type KeyedSource interface {
+	Source
+	InFlight(ctx context.Context, r client.Reader, k Key) (seq int64, inFlight bool, err error)
 }
 
 // ConsumerStater reads one durable's state: the autoscale StateCache (5 s,
@@ -256,39 +266,47 @@ func (l *Ledger) rebuild(ctx context.Context) error {
 // from 2026-10-30 10:12Z on talos sixteen of them, catalog-search-normal's
 // whole budget, admitted no automatic search for three and a half days: the
 // catalog agent's autoscaler took it to zero, since nothing was queued, and
-// nothing was left to answer them. Status is listed only for a durable
-// holding such a slot, so a healthy ledger costs no list.
+// nothing was left to answer them. Status is read only for the stale slots,
+// so a healthy ledger reads nothing; the Event names the first keys
+// released, which is how the next leak shows its kinds.
 func (l *Ledger) audit(ctx context.Context) {
 	cutoff := l.now().Add(-AuditAge)
+	type stale struct {
+		k   Key
+		seq int64
+	}
 	l.mu.Lock()
-	var due []Source
+	due := map[string][]stale{}
+	sources := map[string]Source{}
 	for durable, s := range l.sources {
-		for _, sl := range l.books[durable] {
+		for k, sl := range l.books[durable] {
 			if sl.state == published && sl.at.Before(cutoff) {
-				due = append(due, s)
-				break
+				due[durable] = append(due[durable], stale{k: k, seq: sl.seq})
+				sources[durable] = s
 			}
 		}
 	}
 	l.mu.Unlock()
 
 	log := logging.FromContext(ctx).With("component", "dispatch-ledger")
-	for _, s := range due {
-		outs, err := s.Rebuild(ctx, l.o.Reader)
-		if err != nil {
-			log.Warn("dispatch: could not audit the ledger against status", "durable", s.Durable(), "error", err)
-			continue
+	for durable, slots := range due {
+		keys := make([]Key, 0, len(slots))
+		for _, st := range slots {
+			keys = append(keys, st.k)
 		}
-		inFlight := make(map[Key]bool, len(outs))
-		for _, o := range outs {
-			inFlight[o.Key] = true
+		inFlight, err := l.inFlight(ctx, sources[durable], keys)
+		if err != nil {
+			log.Warn("dispatch: could not audit the ledger against status", "durable", durable, "error", err)
+			continue
 		}
 		l.mu.Lock()
 		var released []string
-		for k, sl := range l.books[s.Durable()] {
-			if sl.state == published && sl.at.Before(cutoff) && !inFlight[k] {
-				delete(l.books[s.Durable()], k)
-				released = append(released, k.String())
+		for _, st := range slots {
+			sl, ok := l.books[durable][st.k]
+			// A slot republished since the snapshot is restamped: it stays.
+			if ok && sl.state == published && sl.seq == st.seq && sl.at.Before(cutoff) && !inFlight[st.k] {
+				delete(l.books[durable], st.k)
+				released = append(released, st.k.String())
 			}
 		}
 		l.mu.Unlock()
@@ -297,10 +315,34 @@ func (l *Ledger) audit(ctx context.Context) {
 		}
 		slices.Sort(released)
 		note := fmt.Sprintf("released %d slots of %s that no status shows in flight: %s",
-			len(released), s.Durable(), strings.Join(released[:min(len(released), 5)], ", "))
-		log.Warn("dispatch: "+note, "durable", s.Durable(), "released", len(released))
+			len(released), durable, strings.Join(released[:min(len(released), 5)], ", "))
+		log.Warn("dispatch: "+note, "durable", durable, "released", len(released))
 		l.recordReason(ReasonDispatchSlotsReleased, "Audit", note)
 	}
+}
+
+// inFlight is which of keys s's status shows in flight: read key by key from
+// a KeyedSource, else from one Rebuild.
+func (l *Ledger) inFlight(ctx context.Context, s Source, keys []Key) (map[Key]bool, error) {
+	out := make(map[Key]bool, len(keys))
+	if ks, ok := s.(KeyedSource); ok {
+		for _, k := range keys {
+			_, in, err := ks.InFlight(ctx, l.o.Reader, k)
+			if err != nil {
+				return nil, err
+			}
+			out[k] = in
+		}
+		return out, nil
+	}
+	outs, err := s.Rebuild(ctx, l.o.Reader)
+	if err != nil {
+		return nil, err
+	}
+	for _, o := range outs {
+		out[o.Key] = true
+	}
+	return out, nil
 }
 
 // Rebuilt reports whether Start has rebuilt the ledger.
@@ -375,11 +417,37 @@ func (l *Ledger) Answered(durable string, k Key, seq int64) {
 	}
 }
 
+// ForgetGone drops the CR's every slot and waiting mark on a rebuildable
+// durable, whatever its sub: the item pass found the CR gone
+// (ItemReconciler's ownerGone). Nothing forgot a deleted item before, so its
+// search in flight held a slot that never lapses. Other durables' slots
+// lapse on their own, and an owner's teardown (absent engine commands) still
+// publishes through them.
+func (l *Ledger) ForgetGone(kind, namespace, name string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	gone := func(k Key) bool { return k.Kind == kind && k.Namespace == namespace && k.Name == name }
+	for durable := range l.sources {
+		for k := range l.books[durable] {
+			if gone(k) {
+				delete(l.books[durable], k)
+			}
+		}
+		for k := range l.waiting[durable] {
+			if gone(k) {
+				delete(l.waiting[durable], k)
+			}
+		}
+	}
+}
+
 // Holds reports that durable's book holds a slot of k at or below seq: a
-// dispatch status already shows closed whose Answered never ran -- a pass
-// whose catalog-grab set landed and whose next set conflicted ends before
-// its effects, and the next pass reads the dispatch as answered. A
-// rebuildable durable's slot never lapses, so the planner answers it again.
+// dispatch status already shows closed whose Answered never ran. On a Movie
+// or a Series a pass ends before its effects when a set after catalog-grab's
+// (catalog-metadata, -artwork, -imageset) conflicts, and the next pass reads
+// the dispatch as answered; an Episode writes catalog-grab's set alone, so
+// its leaks are the audit's. A rebuildable durable's slot never lapses, so
+// the planner answers it again.
 func (l *Ledger) Holds(durable string, k Key, seq int64) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()

@@ -293,10 +293,15 @@ func (ir *ItemReconciler) staged(ctx context.Context, it rollup.Item, k Key) (re
 	return res, nil
 }
 
-// ownerGone is a NotFound key's pass: a stage that holds evidence for it
-// decides on the APIReader's answer and owes effects; otherwise nothing
-// (F4.2's behaviour).
+// ownerGone is a NotFound key's pass: the key's slots on the rebuildable
+// durables go (dispatch.Ledger.ForgetGone), and a stage that holds evidence
+// for it decides on the APIReader's answer and owes effects; otherwise
+// nothing (F4.2's behaviour).
 func (ir *ItemReconciler) ownerGone(ctx context.Context, k Key) (reconcile.Result, error) {
+	if ir.Dispatch != nil {
+		// A search in flight held a slot that never lapses.
+		ir.Dispatch.ForgetGone(string(k.Kind), k.Namespace, k.Name)
+	}
 	for _, s := range ir.Stages {
 		og, ok := s.(OwnerGone)
 		if !ok || !og.Holds(k) {

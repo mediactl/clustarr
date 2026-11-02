@@ -185,9 +185,10 @@ func (s *Stage) result(sv searchplan.View, plan searchplan.Plan, class string) r
 }
 
 // unanswered is the DispatchAnswered a dispatch status already shows closed
-// still owes durable's ledger (dispatch.Ledger.Holds). The pass that closed
-// it ends before its effects when a set after catalog-grab's conflicts, so
-// its answer can be lost while the closed dispatch lands; a rebuildable
+// still owes durable's ledger (dispatch.Ledger.Holds). On a Movie or a
+// Series the pass that closed it ends before its effects when a set after
+// catalog-grab's conflicts, so its answer can be lost while the closed
+// dispatch lands; an Episode's leaks are the ledger audit's. A rebuildable
 // durable's slot never lapses, and from 2026-10-30 10:12Z on talos sixteen
 // such slots -- catalog-search-normal's whole budget -- admitted no
 // automatic search for three and a half days.

@@ -1953,18 +1953,25 @@ too; bump the tag in go.mod and go.sum to take a new fork release.
   back under the uid the owner holds; commands lock on the entry's id. An
   unclaimed failed transfer is removed (`converge`), where it stayed for good.
 - **A rebuildable durable's ledger slot never lapses, so a lost Answered
-  wedged automatic search (2026-11-02).** An item pass ends before its effects
-  when a set after catalog-grab's conflicts, so a search whose answer landed in
-  `searchDispatch` could lose its `DispatchAnswered`; the next pass reads the
-  dispatch as answered and sends nothing. From 2026-10-30 10:12Z sixteen such
-  slots -- catalog-search-normal's whole budget -- admitted no automatic
-  search for three and a half days, and the catalog agent's HPA (min 0) took
-  it to zero, since nothing was queued. A closed dispatch the ledger still
-  `Holds` is answered again (`search.Stage.unanswered`, the season search's
-  too), and every `AuditInterval` the leader releases a published slot older
-  than `AuditAge` that no status shows in flight (`Ledger.audit`, Event
-  `DispatchSlotsReleased`). The search stage's R25 window reads `failedAt`,
-  as lifecycle's does.
+  wedged automatic search (2026-11-02).** From 2026-10-30 10:12Z sixteen
+  slots -- catalog-search-normal's whole budget -- that no status showed in
+  flight admitted no automatic search for three and a half days, and the
+  catalog agent's HPA (min 0) took it to zero, since nothing was queued; a
+  manager restart rebuilt the book (rev 165). Two ways a slot leaks are
+  known: on a Movie or a Series an item pass ends before its effects when a
+  set after catalog-grab's (catalog-metadata, -artwork, -imageset) conflicts,
+  losing a `DispatchAnswered` whose closed `searchDispatch` landed; and a
+  deleted item's search in flight was never forgotten. An Episode writes
+  catalog-grab's set alone, so the Episodes' leak itself is unexplained. A
+  closed dispatch the ledger still `Holds` is answered again
+  (`search.Stage.unanswered`, the season search's too), an item pass that
+  finds its item gone forgets its slots (`Ledger.ForgetGone`), and every
+  `AuditInterval` (5 min) the leader releases a published slot older than
+  `AuditAge` (20 min; a dispatch in flight is republished, and restamped,
+  every 2 min) that its source's keyed read shows no longer in flight
+  (`Ledger.audit`, `KeyedSource`, Event `DispatchSlotsReleased`, which names
+  the first keys). The search stage's R25 window reads `failedAt`, as
+  lifecycle's does.
 - **The usenet engine's missing-article rules are SABnzbd's, by
   number.** `maxArticleTries` 3 same-server retries for a connection that
   dies mid-batch (`max_art_tries`); `maxBadArticles` 5 tolerated before

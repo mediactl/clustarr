@@ -42,6 +42,9 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 	"github.com/mediactl/clustarr/app/catalog/controller/series"
 	cataloghistory "github.com/mediactl/clustarr/app/catalog/history"
+	"github.com/mediactl/clustarr/app/catalog/searchplan"
+	"github.com/mediactl/clustarr/app/dispatch"
+	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/metrics"
@@ -385,4 +388,48 @@ func TestAnItemPassIsTimedByItsKind(t *testing.T) {
 	_, err := ir.Reconcile(context.Background(), Key{Kind: KindMovie, Namespace: "media", Name: "heat"})
 	require.NoError(t, err)
 	assert.Equal(t, before+1, passSeconds(t, KindMovie, PassPhaseTotal))
+}
+
+// rebuildable is a dispatch.Source with nothing in flight.
+type rebuildable struct{ durable string }
+
+func (r rebuildable) Durable() string { return r.durable }
+
+func (rebuildable) Rebuild(context.Context, client.Reader) ([]dispatch.Outstanding, error) {
+	return nil, nil
+}
+
+// noopStage applies to every kind and plans nothing.
+type noopStage struct{}
+
+func (noopStage) Name() ItemStageName                                       { return StageSearch }
+func (noopStage) Applies(KeyKind) bool                                      { return true }
+func (noopStage) Plan(context.Context, *Env, *ItemView) (ItemResult, error) { return ItemResult{}, nil }
+
+// A pass that finds its item gone forgets the item's slots on the
+// rebuildable durables, whatever their sub: a search in flight for a deleted
+// Episode held a slot that never lapses. Another durable's slot of it, which
+// lapses on its own and carries an owner's teardown, stays.
+func TestAnItemFoundGoneForgetsItsRebuildableSlots(t *testing.T) {
+	ledger := dispatch.New(dispatch.Options{Topology: events.Default()})
+	ledger.Register(rebuildable{durable: searchplan.Durable})
+	gone := dispatch.Key{Kind: "Episode", Namespace: "media", Name: "deleted-s01e01", Sub: cataloghistory.DispatchSubSearch}
+	kept := dispatch.Key{Kind: "Episode", Namespace: "media", Name: "other-s01e01", Sub: cataloghistory.DispatchSubSearch}
+	engine := dispatch.Key{Kind: "Episode", Namespace: "media", Name: "deleted-s01e01", Sub: "entry-uid"}
+	ledger.Published(searchplan.Durable, gone, 7)
+	ledger.Published(searchplan.Durable, kept, 7)
+	ledger.Published(events.ConsumerCatalogMetadata, engine, 7)
+
+	ir := &ItemReconciler{
+		Items:    map[KeyKind]rollup.Item{KindEpisode: &recordingItem{}},
+		Stages:   []ItemStage{noopStage{}},
+		Env:      &Env{Reader: fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).Build()},
+		Dispatch: ledger,
+	}
+	_, err := ir.Reconcile(t.Context(), Key{Kind: KindEpisode, Namespace: "media", Name: "deleted-s01e01"})
+	require.NoError(t, err)
+
+	assert.False(t, ledger.Holds(searchplan.Durable, gone, 7), "the deleted item's search slot is forgotten")
+	assert.True(t, ledger.Holds(searchplan.Durable, kept, 7), "another item's stays")
+	assert.True(t, ledger.Holds(events.ConsumerCatalogMetadata, engine, 7), "a lapsing durable's slot stays")
 }
