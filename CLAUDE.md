@@ -208,9 +208,12 @@ over the limit is encoded once (`transcodeplan.RemuxOverLimit`, as
 clustarr encoded never is (61 of its 4,060 encodes run over 6 Mbps on
 grainy sources). The planner reads the recorded plan's `videoAction` for
 outputs written before the tag, and a tagged file without the tag reads
-as copied to the standard, since the planner dispatches only one whose
-recorded plan copied the video; a source another tool transcoded
-(`TranscodedElsewhere`) is still remuxed, never encoded.
+as copied to the standard; one with no recorded transcode at all reads as
+copied to the planner too (owner, 2026-11-02: My Happy Marriage's 14
+remuxes at 31 Mbps, tagged before plans were recorded, were never planned
+again), and only a recorded encode is final, the worker's probe of the
+file's own tag still skipping an encode it finds; a source another tool
+transcoded (`TranscodedElsewhere`) is still remuxed, never encoded.
 `policy.neverTranscodeModifiers` is gone (owner, 2026-10-27, "we can
 ignore the remux modifier"): a remux's or BR-disk's modifier skipped the
 whole file, 40 of them with DTS or TrueHD audio, and the standard now

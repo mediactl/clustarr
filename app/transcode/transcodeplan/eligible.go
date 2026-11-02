@@ -132,18 +132,26 @@ func KeptH264Dropped(mf *catalogv1alpha1.MediaFile, profile *transcodev1alpha1.T
 		!slices.Contains(profile.Spec.Policy.KeepCodecs, "h264")
 }
 
-// RemuxOverLimit reports a clustarr remux that copied HEVC -- tagged, its
-// recorded plan's video copied -- whose video runs over the profile's
-// policy.maxVideoBitrateKbps (normalised to 1080p): the other transcode that
-// is not final, since its video is the release's (owner, 2026-10-27: 110
-// Blu-ray x265 remuxes, 462 GiB, at 6-20 Mbps). standard.Plan encodes it.
-// A transcode clustarr encoded is final whatever its bitrate: 61 of its
-// 4,060 encodes run over 6 Mbps on grainy sources, and none is redone.
+// RemuxOverLimit reports a clustarr transcode whose HEVC video is the
+// release's, copied, and runs over the profile's policy.maxVideoBitrateKbps
+// (normalised to 1080p): the other transcode that is not final (owner,
+// 2026-10-27: 110 Blu-ray x265 remuxes, 462 GiB, at 6-20 Mbps).
+// standard.Plan encodes it. A transcode clustarr encoded is final whatever
+// its bitrate: one whose recorded transcode encoded the video is never
+// redone, nor is another tool's encode. A tagged file with no recorded
+// transcode reads as copied, as standard.Plan reads one without
+// CLUSTARR_VIDEO (owner, 2026-11-02: My Happy Marriage's 14 remuxes at 31
+// Mbps, tagged before plans were recorded, were never planned again); the
+// worker's probe of the file's own tag still skips an encode it finds.
 func RemuxOverLimit(mf *catalogv1alpha1.MediaFile, profile *transcodev1alpha1.TranscodeProfile) bool {
 	mi, tr, limit := mf.Status.MediaInfo, mf.Status.Transcode, profile.Spec.Policy.MaxVideoBitrateKbps
-	return limit > 0 && mi != nil && mi.TranscodeProfile != "" && mi.VideoCodec == "hevc" &&
-		tr != nil && tr.Plan != nil && tr.Plan.VideoAction == standard.VideoCopied &&
-		standard.NormalisedKbps(mi.VideoBitrateKbps, mi.Width, mi.Height) > int64(limit)
+	if limit <= 0 || mi == nil || mi.TranscodeProfile == "" || mi.VideoCodec != "hevc" || mi.TranscodedElsewhere() {
+		return false
+	}
+	if RecordsATranscode(tr) && tr.Plan != nil && tr.Plan.VideoAction == standard.VideoEncoded {
+		return false
+	}
+	return standard.NormalisedKbps(mi.VideoBitrateKbps, mi.Width, mi.Height) > int64(limit)
 }
 
 // UpgradeDownloading reports whether item -- a file's Movie or Episode --

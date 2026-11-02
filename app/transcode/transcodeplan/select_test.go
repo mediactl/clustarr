@@ -486,3 +486,47 @@ func TestARemuxThatKeptH264IsEligibleOnceH264IsNoLongerKept(t *testing.T) {
 	st.MediaInfo.VideoCodec = "hevc"
 	assert.Equal(t, ReasonTranscoded, Eligible(eligibleFile(st), hevcProfiles()).Why, "clustarr's HEVC stays final")
 }
+
+// TestATaggedHEVCOverTheLimitIsEligibleUnlessClustarrEncodedIt: a tagged
+// HEVC file over policy.maxVideoBitrateKbps is encoded once when its
+// recorded transcode copied the video, and when no transcode is recorded
+// at all -- read as copied, as standard.Plan reads a file without
+// CLUSTARR_VIDEO (owner, 2026-11-02: My Happy Marriage's 14 remuxes at 31
+// Mbps had no record and were never planned). A recorded encode is final,
+// as is another tool's encode, and a file under the limit stays done.
+func TestATaggedHEVCOverTheLimitIsEligibleUnlessClustarrEncodedIt(t *testing.T) {
+	limited := hevcProfiles()
+	limited[0].Spec.Policy.MaxVideoBitrateKbps = 2500
+	tagged := func(kbps int32, tr *catalogv1alpha1.TranscodeState, encoder string) File {
+		st := probed("h1")
+		st.MediaInfo.TranscodeProfile, st.MediaInfo.Container = "hevc@old", "mov,mp4,m4a,3gp,3g2,mj2"
+		st.MediaInfo.VideoCodec, st.MediaInfo.VideoBitrateKbps = "hevc", kbps
+		st.MediaInfo.Width, st.MediaInfo.Height = 1920, 1080
+		st.MediaInfo.VideoEncoder = encoder
+		st.Transcode = tr
+		f := eligibleFile(st)
+		f.MF.Spec.Original = new(false)
+		return f
+	}
+	recorded := func(action string) *catalogv1alpha1.TranscodeState {
+		return &catalogv1alpha1.TranscodeState{Phase: catalogv1alpha1.TranscodePhaseSucceeded, ProfileTag: "hevc@old",
+			Plan: &catalogv1alpha1.TranscodePlan{VideoAction: action}}
+	}
+	for _, tc := range []struct {
+		name     string
+		f        File
+		eligible bool
+	}{
+		{"no transcode recorded, over the limit", tagged(31000, nil, ""), true},
+		{"a recorded copy over the limit", tagged(5900, recorded("copy"), ""), true},
+		{"a recorded encode over the limit", tagged(5800, recorded("encode"), ""), false},
+		{"another tool's encode over the limit", tagged(31000, nil, "Lavc61.3.100 hevc_qsv"), false},
+		{"no transcode recorded, under the limit", tagged(2000, nil, ""), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := Eligible(tc.f, limited)
+			assert.Equal(t, tc.eligible, e.Eligible, "%s", e.Why)
+		})
+	}
+	assert.Equal(t, ReasonTranscoded, Eligible(tagged(31000, nil, ""), hevcProfiles()).Why, "no limit, no re-encode")
+}
