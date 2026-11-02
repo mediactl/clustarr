@@ -118,6 +118,39 @@ func TestALiveGrabRefusesAnOverlappingReleaseUnlessItUpgrades(t *testing.T) {
 	})
 }
 
+// TestALivePackHoldsItsEpisodesAgainstEveryRelease is the owner's rule of
+// 2026-11-02: while a pack downloads, no release is queued for an episode
+// it covers -- a single or another pack, an upgrade included. Once it has
+// failed the episodes are wanted again; once it has imported, their files
+// decide.
+func TestALivePackHoldsItsEpisodesAgainstEveryRelease(t *testing.T) {
+	first := grabplan.Decide(seriesView(t, season(1, 7), seasonCandidates(t, 1, 7, pack720)...))
+	require.Equal(t, []string{pack720}, titles(first))
+	live := first.NewEntries
+
+	for _, title := range []string{bdSingle1, pack1080} {
+		v := seriesView(t, season(1, 7), seasonCandidates(t, 1, 7, title)...)
+		v.Entries = live
+		p := grabplan.Decide(v)
+		require.Empty(t, titles(p), "%s upgrades the pack but waits for it", title)
+		require.Equal(t, 1, p.Decisions["overlapsLive"], "%s: %+v", title, p.Decisions)
+	}
+
+	t.Run("the pack failed, the upgrade is grabbed", func(t *testing.T) {
+		failed := live[0]
+		failed.Phase, failed.FailureReason = commonv1.DownloadPhaseFailed, commonv1.DownloadFailureMissingArticles
+		v := seriesView(t, season(1, 7), seasonCandidates(t, 1, 7, bdSingle1)...)
+		v.Entries = []catalogv1alpha1.DownloadEntry{failed}
+		require.Equal(t, []string{bdSingle1}, titles(grabplan.Decide(v)))
+	})
+	t.Run("override takes it over the live pack", func(t *testing.T) {
+		v := seriesView(t, season(1, 7))
+		v.Entries = live
+		v.Candidates = []grabplan.Candidate{parked(bbRef, "pick-1", seasonCandidates(t, 1, 7, bdSingle1)[0], true, true)}
+		require.Equal(t, []string{bdSingle1}, titles(grabplan.Decide(v)))
+	})
+}
+
 // TestAFullSeasonPackWithAnUnairedEpisodeIsRefused is Sonarr's
 // FullSeasonSpecification (design §6.3 rule 2): a full-season pack of a
 // season still airing is refused, an aired single of it is not, and a

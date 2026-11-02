@@ -319,7 +319,7 @@ func decisionSplitCases(t *testing.T) []struct {
 			tg.Current = &decision.Current{Quality: webdl720.Quality, Transcoded: true}
 		})},
 		{"a better queued grab", with(func(tg *decision.Target) {
-			tg.Queue = []decision.Queued{{Quality: bluray1080.Quality, Revision: common.Revision{Version: 2}}}
+			tg.Queue = []decision.Queued{{Candidate: quality.Candidate{Quality: bluray1080.Quality, Revision: common.Revision{Version: 2}}}}
 		})},
 		{"a blocklist", with(func(tg *decision.Target) {
 			tg.Blocklist = func(_, title string) bool { return title != "" }

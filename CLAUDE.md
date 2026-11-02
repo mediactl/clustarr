@@ -571,7 +571,14 @@ the search stage and reads a season answer only from the stored
 for an unrelated wake and aged out of `grabplan.CandidateWindow` ungrabbed
 -- 62 series' automatic answers of 2026-10-28, 91 Days' 101 approved
 releases among them, after which their episodes' searches went IndexOnly
-and found nothing. A Series is still not a Search fan-out kind (`ContainerKind`). Every interactive
+and found nothing. A pack still downloading holds every episode it covers
+(owner, 2026-11-02: "we shouldn't queue individual episode downloads
+unless the season pack fails or ends up missing episodes";
+`decision.ReasonPackDownloading`, `DownloadEntry.Pack`): no release is
+grabbed beside it for one of them, an upgrade or another pack included,
+only `spec.override`; once it has failed the episodes are wanted again,
+and once it has imported their files decide. A pack over live singles is
+still taken when it upgrades them. A Series is still not a Search fan-out kind (`ContainerKind`). Every interactive
 search's results are banded -- approved, rejected, then the identity
 mismatches (`WrongItem`, `UnknownItem`, `UnableToParse`) last, counted by
 `status.otherTitles` and collapsed behind "N releases for other titles",

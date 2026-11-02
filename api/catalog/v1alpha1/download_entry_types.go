@@ -145,6 +145,13 @@ type DownloadEntry struct {
 	Set *EntrySet `json:"set,omitempty"`
 }
 
+// Pack reports an entry covering several episodes or issues: a season
+// pack, an anime batch. While it is live it holds every item it covers
+// (decision.ReasonPackDownloading).
+func (e *DownloadEntry) Pack() bool {
+	return len(e.Episodes) > 1 || len(e.Issues) > 1
+}
+
 // EntrySet places an entry in its part set.
 type EntrySet struct {
 	// ID is the set result's GUID, the same on every part's entry.

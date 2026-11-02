@@ -496,7 +496,8 @@ func Priorities(idxs []indexv1alpha1.Indexer) map[string]int32 {
 
 // Queue is pkg/decision's queue for item: the live entries on its owner
 // covering it, of purpose (an audio donor is no video candidate, so an
-// upgrade never waits on a dub, nor a dub on an upgrade).
+// upgrade never waits on a dub, nor a dub on an upgrade); a pack among them
+// holds it (decision.ReasonPackDownloading).
 func Queue(entries []catalogv1alpha1.DownloadEntry, item client.Object, purpose commonv1.DownloadPurpose) []decision.Queued {
 	var out []decision.Queued
 	for i := range entries {
@@ -504,7 +505,10 @@ func Queue(entries []catalogv1alpha1.DownloadEntry, item client.Object, purpose 
 		if !rollup.EntryNonTerminal(e) || e.Purpose != purpose || !Covers(e, item) {
 			continue
 		}
-		out = append(out, quality.Candidate{Quality: e.Release.Quality, Revision: e.Release.Revision, FormatScore: int(e.Release.FormatScore)})
+		out = append(out, decision.Queued{
+			Candidate: quality.Candidate{Quality: e.Release.Quality, Revision: e.Release.Revision, FormatScore: int(e.Release.FormatScore)},
+			Pack:      e.Pack(),
+		})
 	}
 	return out
 }

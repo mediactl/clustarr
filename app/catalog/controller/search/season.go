@@ -42,7 +42,8 @@ import (
 // item-state rules per Episode (its current file, the Series' entries as
 // its queue, the blocklist), and folds them with
 // grabplan.CoverageRejections, so a release the grab planner would refuse
-// reads rejected with the planner's reason: a pack overlapping a live grab
+// reads rejected with the planner's reason: a release overlapping a live
+// pack PackDownloading, a pack overlapping a live grab
 // QueueHigherPreference, a pack of a season still airing
 // FullSeasonNotAired. A release covering every aired episode of the season
 // is marked CoversSeason. A release for another title is left as the agent
@@ -184,9 +185,7 @@ func (st *seasonState) check(ctx context.Context, sr schema.ScoredRelease, ep *c
 	rejs := decision.ItemStateRejections(ctx, t, *st.profile,
 		decision.Decision{Release: rel, Score: int(sr.Score)}, decision.Options{UserInvoked: true})
 	for _, rej := range rejs {
-		if decision.ReasonQueueHigherPreference.Of(rej) {
-			ic.Live = true
-		}
+		ic.NoteQueue(rej)
 	}
 	ic.Rejections = rejs
 	return ic

@@ -66,11 +66,17 @@ type Current struct {
 	BytesPerSecond int64
 }
 
-// Queued is a release already downloading for a Target. It is a type alias
-// for quality.Candidate (Disagreement 4): spec §7 names the field
-// Target.Queue []Queued without ever defining Queued, and quality.Candidate
-// is exactly the shape queueRejection needs to call p.UpgradeDecision.
-type Queued = quality.Candidate
+// Queued is a release already downloading for a Target: the
+// quality.Candidate queueRejection judges an upgrade against (Disagreement
+// 4: spec §7 names Target.Queue []Queued without ever defining Queued), and
+// whether the grab is a pack.
+type Queued struct {
+	quality.Candidate
+	// Pack is a grab covering several episodes or issues -- a season pack,
+	// an anime batch. It holds every item it covers until it has imported
+	// or failed (ReasonPackDownloading), upgrade or not.
+	Pack bool
+}
 
 // Target is everything about one catalog item Evaluate needs that isn't
 // carried on a candidate release itself. Blocklist matches on infohash

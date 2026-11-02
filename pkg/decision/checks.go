@@ -273,10 +273,15 @@ func blocklistAndHistoryRejections(t Target, rel common.ReleaseInfo) []common.Re
 // single check (Disagreement 2 / the task brief's own "queue preference (a
 // higher-or-equal release already downloading)", not Radarr's seven-way
 // QueueCutoffMet/QueueHigherPreference/... split): reject as soon as any
-// queued entry is not upgraded-over by the candidate.
+// queued entry is not upgraded-over by the candidate. A queued pack is
+// never upgraded over while it downloads (ReasonPackDownloading).
 func queueRejection(p quality.Profile, t Target, candidate quality.Candidate) *common.Rejection {
 	for _, q := range t.Queue {
-		if p.UpgradeDecision(q, candidate) != quality.Upgrade {
+		if q.Pack {
+			r := newRejection(ReasonPackDownloading, "a pack covering it is still downloading; it is judged again once the pack has imported or failed")
+			return &r
+		}
+		if p.UpgradeDecision(q.Candidate, candidate) != quality.Upgrade {
 			r := newRejection(ReasonQueueHigherPreference, "a release of equal or higher preference is already downloading")
 			return &r
 		}
