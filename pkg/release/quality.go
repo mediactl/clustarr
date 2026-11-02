@@ -346,6 +346,18 @@ func detectQuality(title string) (commonv1.Quality, error) {
 		resolution = detected
 	}
 
+	// *arr's last fallback (docs/research/quality.md, ParseQualityName): a
+	// resolution and no source is HDTV at that resolution, SDTV below 720p.
+	// Fansubs name only the resolution ("[SubsPlease] ... (1080p)",
+	// "[Cleo]...Dual.Audio.10bit.1080p.x265"), and on talos every one read
+	// Unknown, which every profile refuses (2026-11-02).
+	if src == commonv1.SourceUnknown && resolution != commonv1.ResolutionUnknown {
+		src = commonv1.SourceTV
+		if resolution < commonv1.Resolution720p {
+			resolution = commonv1.Resolution480p
+		}
+	}
+
 	switch src {
 	case commonv1.SourceBluray:
 		brdisk, berr := brdiskRegex.MatchString(title)

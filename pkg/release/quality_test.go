@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 )
@@ -133,6 +134,37 @@ func TestBareWEBAndAnimeSourcesParse(t *testing.T) {
 			if p != nil {
 				assert.Equal(t, tt.want, p.Quality.Name)
 			}
+		})
+	}
+}
+
+// TestABareResolutionIsHDTV is *arr's last fallback (docs/research/quality.md,
+// ParseQualityName): a title naming a resolution and no source is HDTV at
+// that resolution, and SDTV below 720p. Fansubs name only the resolution,
+// so on talos (2026-11-02) every one of these, from Somali and the Forest
+// Spirit's and Remake our Life!'s searches, read Unknown and every profile
+// refused it, dual-audio Cleo releases among them. A title naming no
+// resolution either stays Unknown.
+func TestABareResolutionIsHDTV(t *testing.T) {
+	tests := []struct {
+		title string
+		want  string
+	}{
+		{"[Cleo]Somali.to.Mori.no.Kamisama-09.Dual.Audio.10bit.1080p.x265", "HDTV-1080p"},
+		{"[Judas] Somali to Mori no Kamisama (Somali and the Forest Spirit) (Season 1) [1080p][HEVC x265 10bit][Multi-Subs]", "HDTV-1080p"},
+		{"[HorribleRips].Somali.to.Mori.no.Kamisama-01.[720p]", "HDTV-720p"},
+		{"[SubsPlease] Bokutachi no Remake - 01 (1080p) [A00CB535]", "HDTV-1080p"},
+		{"[Erai-raws] Bokutachi no Remake - 01 [1080p][Multiple Subtitle]", "HDTV-1080p"},
+		{"[SubsPlease] Bokutachi no Remake - 01 (480p) [50D78DA1]", "SDTV"},
+		{"[SubsPlease] Frieren - 28 (2160p) [ABCD1234]", "HDTV-2160p"},
+		{"Somali and the Forest Spirit S01 Dual Audio LY -END-xpost", "Unknown"},
+		{"Somali and the Forest Spirit - S01E12-xpost", "Unknown"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.title, func(t *testing.T) {
+			p, err := ParseKind(tt.title, commonv1.MediaKindEpisode)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, p.Quality.Name)
 		})
 	}
 }

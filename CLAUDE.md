@@ -1156,7 +1156,15 @@ below the cutoff, so an encode replaces a remux, which is never transcoded
 (`release.sourceRegex`, 2026-10-26: `1080p.WEB.h264-GROUP`, and the
 anime `[WEB]`, `(WEB 1080p`, `(BD 1080p` and `BD1080p` fallbacks); the
 first port read every one as quality Unknown, which every profile
-rejects, 20 of A Model Family's 26 episode results among them. A file
+rejects, 20 of A Model Family's 26 episode results among them. A title
+naming a resolution and no source is HDTV at that resolution, SDTV below
+720p (*arr's last fallback, 2026-11-02): fansubs name only the resolution
+("[SubsPlease] ... (1080p)", "[Cleo]...Dual.Audio.10bit.1080p.x265"), and
+Somali and the Forest Spirit's dual-audio Cleo episodes read Unknown. A title
+naming neither stays Unknown: nzbgeek's and nzb-life's APIs report a
+release's audio and subtitle languages from its MediaInfo but no video
+(`t=details&extended=1`: no `video`, `resolution` or `framerate`), and the
+details page carrying it needs a web login. A file
 named for its episode alone parses, as Sonarr's "episodes without a title"
 do (`release.titlelessEpisodeRegex`, 2026-10-27): "S01E01 - Title.mkv",
 "1x05", leading bracket tags passed over. It parses with no title, so the
