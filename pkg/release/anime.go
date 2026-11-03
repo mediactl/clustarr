@@ -221,6 +221,15 @@ func parseAnime(title string, p *ParsedRelease) error {
 		return nil
 	}
 
+	// "-01x02-": a season and episode in Sonarr's "1x05" form, ahead of the
+	// absolute pattern, which would read "-01" as episode 1 (crossEpisodeRegex).
+	if name, season, episodes, ok, err := crossEpisode(work); err != nil {
+		return fmt.Errorf("release: anime: cross-episode match: %w", err)
+	} else if ok {
+		p.Title, p.Seasons, p.Episodes = name, []int{season}, episodes
+		return nil
+	}
+
 	if m, err := animeSpecialRegex.FindStringMatch(work); err != nil {
 		return fmt.Errorf("release: anime: special match: %w", err)
 	} else if m != nil {

@@ -225,3 +225,34 @@ func TestAResolutionAfterADashIsNoEpisodeNumber(t *testing.T) {
 		assert.Empty(t, p.Absolute, "the resolution was read as an absolute episode")
 	}
 }
+
+// Sonarr's "1x05" numbering parses after any title, under either series
+// type: MC's dual-audio Flying Witch Blu-rays, "[MC].Flying.Witch-01x02-A.
+// Visitor.for.the.Witch.[BD-1080P]..." (talos, 2026-11-03), went to the
+// anime parser for their bracketed group, whose absolute pattern read "-01"
+// as episode 1, so every one was judged against episode 1, refused as no
+// upgrade of its dual-audio transcode, and one was imported as it. A
+// resolution is never one.
+func TestCrossEpisodeNumberingParses(t *testing.T) {
+	for _, tc := range []struct {
+		name             string
+		title            string
+		season, episodes []int
+	}{
+		{"a bracketed group, dashes around it", "[MC].Flying.Witch-01x06-Trick.or.Treat.[BD-1080P].[10Bit].[X265].[DUAL-AUDIO].[AAC].[2335920B]", []int{1}, []int{6}},
+		{"a scene title", "Flying.Witch.1x02.720p.HDTV.x264-GRP", []int{1}, []int{2}},
+		{"spaced dashes", "Flying Witch - 1x02 - A Visitor for the Witch [1080p]", []int{1}, []int{2}},
+		{"two episodes", "Show.Name.2x03x04.720p.HDTV.x264-GRP", []int{2}, []int{3, 4}},
+		{"a resolution beside S/E", "Show.Name.1920x1080.S01E02.mkv", []int{1}, []int{2}},
+	} {
+		for _, seriesType := range []string{"anime", "standard"} {
+			t.Run(tc.name+"/"+seriesType, func(t *testing.T) {
+				p, err := parseSeries(tc.title, Options{SeriesType: seriesType})
+				require.NoError(t, err)
+				assert.Equal(t, tc.season, p.Seasons)
+				assert.Equal(t, tc.episodes, p.Episodes)
+				assert.Empty(t, p.Absolute)
+			})
+		}
+	}
+}

@@ -45,6 +45,41 @@ var multiEpisodeRegex = mustCompile(
 	regexp2.IgnoreCase,
 )
 
+// crossEpisodeRegex matches Sonarr's "1x05" form after a title, single or
+// multi ("1x05x06"): "Flying.Witch.1x02.720p", "Show - 1x02 - Title",
+// "[MC].Flying.Witch-01x02-A.Visitor.for.the.Witch.[BD-1080P]" (talos,
+// 2026-11-03: neither parser knew it, and the anime one, which a bracketed
+// group sends such a title to first, read "-01" as absolute episode 1, so
+// every one of MC's dual-audio Flying Witch episodes was judged as episode
+// 1 and one was imported as it). The season is one or two digits after no
+// letter or digit and the episode two or three digits before none, so a
+// "1920x1080" is never one.
+var crossEpisodeRegex = mustCompile(
+	`(?<title>.*?[\p{L}\p{N}])[.\s_]*(?:-[.\s_]*)?(?<![\p{L}\p{N}])(?<season>\d{1,2})(?:x(?<ep>\d{2,3})(?!\d)(?:v\d+)?)+(?:[.\s_\[\(-]|$)`,
+	regexp2.IgnoreCase,
+)
+
+// crossEpisode parses title's "1x05" numbering (crossEpisodeRegex): its
+// title, season and episodes; ok false when it has none.
+func crossEpisode(title string) (name string, season int, episodes []int, ok bool, err error) {
+	m, err := crossEpisodeRegex.FindStringMatch(title)
+	if err != nil || m == nil {
+		return "", 0, nil, false, err
+	}
+	season, err = atoiGroup(m, "season")
+	if err != nil {
+		return "", 0, nil, false, err
+	}
+	for _, c := range groupCaptures(m, "ep") {
+		v, convErr := strconv.Atoi(c.String())
+		if convErr != nil {
+			return "", 0, nil, false, fmt.Errorf("release: series: parsing episode: %w", convErr)
+		}
+		episodes = append(episodes, v)
+	}
+	return cleanTitleSeparators(groupString(m, "title")), season, episodes, true, nil
+}
+
 // seasonOnlyRegex matches a season pack, with an optional "-S03"-style
 // range for a multi-season pack. It is only tried once the episode regexes
 // above have both failed to match.
@@ -328,6 +363,14 @@ func parseStandardSeries(title string) (*ParsedRelease, error) {
 		}
 		p.ReleaseType = releaseTypeForEpisodes(episodes)
 		p.Special = specialFromMatch(title, m, p.Seasons)
+		return finishSeries(title, p), nil
+	}
+
+	if name, season, episodes, ok, err := crossEpisode(title); err != nil {
+		return nil, fmt.Errorf("release: series: cross-episode match: %w", err)
+	} else if ok {
+		p := &ParsedRelease{Title: name, Seasons: []int{season}, Episodes: episodes}
+		p.ReleaseType = releaseTypeForEpisodes(episodes)
 		return finishSeries(title, p), nil
 	}
 
