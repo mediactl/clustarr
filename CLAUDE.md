@@ -249,7 +249,17 @@ range (`decision.Current.Undecodable`, `grabplan.StillWants`,
 `importplan.undecodableRefit`), and import refuses an incoming file of
 either as a releaseFault (`importplan.undecodableRejection`, from the
 inspect's `ProbeSummary.VideoCodec` and `VideoBitDepth`), a person's pick
-exempt.
+exempt. A season of such files, or of files missing a wanted audio
+language (`MissingAudio`), is searched as a pack (owner, 2026-11-03: the
+same for "anime episodes/series/seasons that are missing dual audio when a
+dub (configured language) is available"): an Episode below the cutoff for
+either reason whose own search is due replaces as a pack
+(`search.replacesAsPack`), and a season with two or more such, no live
+grab covering them and none holding the season, is asked for by the
+automatic season search though every episode holds a file
+(`SeasonFacts.ReplaceDue`), those episodes waiting for it rather than
+searching the release index alone (`View.SeasonReplaces`), so the season's
+answer is each one's search and their backoffs move together.
 AV1 decodes on the Intel GPU too (2026-11-03, ffgo `v0.0.0-clustarr.16`:
 a GPU decode opens FFmpeg's own `av1` decoder, where
 `avcodec_find_decoder` answered `libdav1d`, a CPU decoder that ignores the
@@ -655,17 +665,31 @@ unless the season pack fails or ends up missing episodes";
 `decision.ReasonPackDownloading`, `DownloadEntry.Pack`): no release is
 grabbed beside it for one of them, an upgrade or another pack included,
 only `spec.override`; once it has failed the episodes are wanted again,
-and once it has imported their files decide. The reverse holds too
-(owner, the same day: "skip season pack downloads/searches if single
-episodes are already downloading"): a pack is refused while any grab of an
-episode it covers is downloading, an upgrade included
-(`decision.ReasonEpisodeDownloading`, from `ItemCheck.Queued` in
-`grabplan.CoverageRejections`), the automatic season search asks for no
-season with a grab downloading (`automaticSeasons`, `Downloading == 0`),
-and such a season's episodes wait for no season query
-(`seasonDownloading` in the search stage's `seasonOf`). A person's season
-search still runs; its packs are refused and its singles taken. A single
-still upgrades a live single. A Series is still not a Search fan-out kind (`ContainerKind`). Every interactive
+and once it has imported their files decide. **A pack replaces the
+singles of its season** (owner, 2026-11-03: "When a season pack is
+downloaded, we should *wait* to queue any episodes and remove any existing
+episode downloads for that season ... Episodes within the season pack
+should *replace* single episode files within the season/series folder",
+which reversed the same owner's 2026-11-02 "skip season pack
+downloads/searches if single episodes are already downloading"): a pack is
+grabbed over every single of an episode it covers that is downloading,
+upgrade or not (`decision.queueRejection`'s pack), unless under
+`audio.completeFirst` the single carries every wanted language and the pack
+does not (`decision.AudioOutranked`, `grabplan.Holds`,
+`decision.ReasonEpisodeDownloading`), and only such a single holds its
+season against the automatic season search (`holdsSeason`); once the pack
+is live, the lifecycle removes each automatic single-episode entry it
+covers that is still transferring and was grabbed no later
+(`lifecycle.supersede`, Event `SupersededByPack`: data removed, nothing
+blocklisted, no redownload owed), a person's pick and a complete single
+kept; and at import the pack's file (an entry of several episodes, or a
+release titled as a whole season) replaces a file a single-episode release
+brought (`spec.importedFrom.releaseTitle`), transcoded or not, past the
+transcoded rule and the upgrade table (`importplan.packRefit`), unless its
+probe lacks a language of the audio policy, wanted or optional, that the
+file carries, or the file's HDR; a file an earlier pack brought, or one
+recording no release, keeps the rules. A single still upgrades a live
+single. A Series is still not a Search fan-out kind (`ContainerKind`). Every interactive
 search's results are banded -- approved, rejected, then the identity
 mismatches (`WrongItem`, `UnknownItem`, `UnableToParse`) last, counted by
 `status.otherTitles` and collapsed behind "N releases for other titles",
@@ -1189,10 +1213,23 @@ anchor a graft aligns on), and a complete one wins a tie. The built-in
 101 to prefer), past the release-group tiers' spread (WEB 100-600, BD
 700-1400), so a dual-audio release outranks every Japanese-only one of its
 quality -- the quality tier and a REPACK's revision still rank first, and
-a -10000 group stays below the minimum. Within a quality, a whole season
-and then the profile's preferred protocol rank ahead of the format score
-(owner, 2026-10-27; `decision.less`, `grabplan.better`), where Sonarr has
-them after it. Every built-in prefers usenet (`preferredProtocol: usenet`). A profile's `preferSmallest`
+a -10000 group stays below the minimum. **Releases are ordered by one
+rank score** (owner, 2026-11-03: "all of our current rules impact scoring
+- which determines the order. For instance, instead of bumping dual audio
+to the top, we should add to the score so that we end up with the same
+order"; `pkg/rankscore`): the format score, clamped to +-9,999, plus a
+bonus per rule, each larger than everything below it can add -- the
+preferred protocol 20,000, a whole season 40,000 (owner, 2026-10-27:
+within a quality both rank ahead of the format score, where Sonarr has
+them after it), each version past the first 100,000 and each REAL
+1,000,000, each tier above the profile's worst 10,000,000, and complete
+audio under `completeFirst` 1,000,000,000 -- so the order is the one the
+rules made as a chain of tie-breaks (`decision.Rank` through
+`RankKey.Score`, `grabplan.better`), with size, episode count, indexer,
+flags and seeders breaking a tie after it. Search results carry it as
+`ReleaseDecision.score`, which the ui's results table shows, its title
+naming the parts (`rankscore.Parts`); the minimum, cutoff and upgrade rules
+still read the format score alone. Every built-in prefers usenet (`preferredProtocol: usenet`). A profile's `preferSmallest`
 (owner, 2026-10-28: every file is transcoded, so a bigger source is only a
 longer download and transcode) ranks the smallest release first right after
 the format score and languages, ahead of indexer, flags and seeders
@@ -1209,7 +1246,7 @@ H.264 past the minimum (`TestAnAnimeTranscodeFirstProfileIgnoresGroupTiers`).
 An audio policy's `completeFirst` (owner, 2026-10-28: "We *must* always take
 dual audio if it exists") ranks a release carrying every wanted language ahead
 of every other key -- tier, revision, season pack, protocol, format score and
-size -- in `decision.less` and `grabplan.better`
+size -- as the rank score's largest bonus
 (`decision.ReleaseCompletesAudio`); it ranks and never approves, so a
 dual-audio 10-bit H.264 is still refused, and it matters only to a grafting
 policy, since one that does not graft refuses an incomplete release outright.
@@ -1221,10 +1258,10 @@ a pack included, and an incomplete one is refused by a complete grab
 language is `decision.ReplaceableAudio` -- CutoffUnmet, reason
 `MissingAudio`, transcoded or not, replaced by a complete release (import's
 `audioFill`), its graft only the fallback -- and an incomplete release never
-replaces a file carrying them all (`ExistingHigherPreference`). A dual-audio
-pack is grabbed over Japanese-only singles downloading, the one exception to
-`EpisodeDownloading` (`grabplan.Holds`), and only a complete grab holds its
-season against the automatic season search (`holdsSeason`). Remake our Life!'s
+replaces a file carrying them all (`ExistingHigherPreference`). Only a
+dual-audio single downloading holds a pack that is not dual audio back, and
+its season against the automatic season search (`grabplan.Holds`,
+`holdsSeason`; every other single a pack replaces, above). Remake our Life!'s
 EMBER dual-audio pack had been refused for SENPAI's Japanese-only singles, one
 1080p tier and a format cutoff of 0 making each "equal or higher preference";
 2,068 episodes of `hevc-small-1080p-anime-tv` held Japanese-only files, their
