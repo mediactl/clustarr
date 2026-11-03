@@ -2320,6 +2320,29 @@ too; bump the tag in go.mod and go.sum to take a new fork release.
   moved since its last complete fan-out in the process (`episodeSyncMemo`),
   and an Episode already holding its provider fields is not patched
   (`providerStatusMatches`).
+- **Never list every Episode or MediaFile with kubectl: talos's apiservers
+  read every page after the first from etcd (2026-11-03).** Each
+  kube-apiserver sat at 5.0-5.7 GiB resident on the 16 GB control-plane
+  nodes, its Go heap having reserved 7-8 GiB against about 2.3 GB live (the
+  watch cache's ~42,000 clustarr objects): in the four days since it
+  started, each had read about 870 whole Episode collections (24 million
+  objects) and 815 whole MediaFile collections out of etcd, and the audit
+  logs named `kubectl` from the sessions' own machine (user `admin`,
+  `?continue=…&limit=500`). kubectl pages a LIST 500 at a time; the watch
+  cache answers the first page and etcd every continuation, decoded into
+  unstructured maps (measured on IPTVChannels: `--chunk-size=100` read 157
+  of 257 from etcd, `--chunk-size=0` none), so one `kubectl get mediafiles`
+  costs a control-plane node ~210 MB of JSON decoded and `get episodes`
+  ~280 MB, every time a loop polls it. Read one object by name, or filter on
+  the server (`--field-selector` on a selectable field, `-l`) with
+  `--chunk-size=0`, which the watch cache answers with no etcd read
+  (`--field-selector status.transcode.phase=Running`: 0 from etcd); never
+  poll a whole collection. `apiserver_storage_list_fetched_objects_total`
+  `{storage="etcd"}` (`kubectl get --raw /metrics`, per apiserver with
+  `--server https://<node>:6443`) and the audit log
+  (`talosctl -n <node> read /var/log/audit/kube/kube-apiserver.log`) show
+  who reads what. Talos runs the apiserver without profiling, so no heap
+  profile is to be had.
 - **On kind, loading an image into the node stalls etcd, and every lease
   with it.** `kind load docker-image` unpacks gigabytes into the node's
   containerd store, which shares a disk with etcd; etcd's WAL fsync then
