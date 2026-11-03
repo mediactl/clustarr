@@ -209,6 +209,43 @@ func TestAPlannedFileLeavesTheWindowWhenItStopsBeingEligible(t *testing.T) {
 	assert.Nil(t, pass(gone).Block, "a Pending file leaves the window too")
 }
 
+// TestAHeldPlannedFileGoesBackToPending is the talos stall of 2026-11-03:
+// a Planned file whose item started downloading an upgrade stayed Planned,
+// so admission kept granting it a slot that dispatch refused. It goes back
+// to Pending, holding its place, under a dispatch grant too, and is planned
+// again once the upgrade is no longer downloading.
+func TestAHeldPlannedFileGoesBackToPending(t *testing.T) {
+	in := dispatchIn(t)
+	held := func(in Inputs) Inputs {
+		draft := in.Draft.DeepCopy()
+		draft.Transcode = in.Prev.DeepCopy()
+		in.Eligibility = Eligible(File{MF: in.File, Status: draft, ProbeCurrent: true, ItemExists: true, UpgradeDownloading: true}, hevcProfiles())
+		return in
+	}
+	in = held(in)
+	require.Equal(t, ReasonUpgradeDownloading, in.Eligibility.Pending)
+
+	d := pass(in)
+	require.NotNil(t, d.Block)
+	assert.Equal(t, catalogv1alpha1.TranscodePhasePending, d.Block.Phase, "a refused dispatch leaves the file Pending")
+	assert.Equal(t, ReasonUpgradeDownloading, d.Block.Reason)
+	assert.Equal(t, "an upgrade of its movie is downloading", d.Block.Message)
+	assert.Nil(t, d.Block.Plan, "nothing is planned while it is held")
+	assert.Equal(t, GrantRelease, d.Grant)
+	assert.Nil(t, d.Publish, "and nothing is dispatched")
+
+	quiet := held(inputs(in.Prev, probed("ph-1"), GrantNone))
+	pd := pass(quiet)
+	require.NotNil(t, pd.Block)
+	assert.Equal(t, catalogv1alpha1.TranscodePhasePending, pd.Block.Phase, "so does a pass with no grant")
+
+	cleared := inputs(pd.Block, probed("ph-1"), GrantNone)
+	cd := pass(cleared)
+	require.NotNil(t, cd.Block)
+	assert.Equal(t, catalogv1alpha1.TranscodePhasePlanned, cd.Block.Phase, "planned again once the upgrade clears")
+	assert.Equal(t, GrantKeep, cd.Grant, "in the place it held")
+}
+
 // TestASwapIsIncorporatedWithTheDispatchedTag is §5.9 "The swap": Swapping
 // becomes Succeeded once the probe of the output lands; the tag is the
 // block's, never the profile's current hash.

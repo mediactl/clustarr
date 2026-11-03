@@ -276,16 +276,10 @@ func planWindow(in Inputs) Decision {
 	if !e.Eligible && e.Pending == "" {
 		return Decision{Block: keepFact(in), Grant: GrantRelease}
 	}
-	b := &catalogv1alpha1.TranscodeState{
-		Profile: e.Profile.Name, ProfileHash: e.Hash, ProfileTag: e.Tag,
-		ProbeHash: in.Draft.ProbeHash, Hardware: catalogv1alpha1.TranscodeHardware(hardwareOf(e.Profile)),
-		Priority: e.Priority,
-	}
-	carryDispatch(in.Prev, b)
 	if e.Pending != "" {
-		b.Phase, b.Reason, b.Message = catalogv1alpha1.TranscodePhasePending, e.Pending, e.Why
-		return Decision{Block: b, Grant: GrantConfirm}
+		return Decision{Block: pendingBlock(in), Grant: GrantConfirm}
 	}
+	b := windowBlock(in)
 	p, fail := PlanFor(in.File.Spec.Path, e.Profile, e.Hash, in.File, in.Draft, nil, in.Ledger.Device, in.OriginalLanguage)
 	switch {
 	case fail != nil:
@@ -300,6 +294,28 @@ func planWindow(in Inputs) Decision {
 	return Decision{Block: b, Grant: GrantConfirm}
 }
 
+// windowBlock is a window place's block under the winning profile, no
+// phase yet, carrying the last dispatch.
+func windowBlock(in Inputs) *catalogv1alpha1.TranscodeState {
+	e := in.Eligibility
+	b := &catalogv1alpha1.TranscodeState{
+		Profile: e.Profile.Name, ProfileHash: e.Hash, ProfileTag: e.Tag,
+		ProbeHash: in.Draft.ProbeHash, Hardware: catalogv1alpha1.TranscodeHardware(hardwareOf(e.Profile)),
+		Priority: e.Priority,
+	}
+	carryDispatch(in.Prev, b)
+	return b
+}
+
+// pendingBlock holds a window place while what keeps the file from
+// planning clears (Eligibility.Pending): no plan, so admission offers it no
+// slot.
+func pendingBlock(in Inputs) *catalogv1alpha1.TranscodeState {
+	b := windowBlock(in)
+	b.Phase, b.Reason, b.Message = catalogv1alpha1.TranscodePhasePending, in.Eligibility.Pending, in.Eligibility.Why
+	return b
+}
+
 // verdictHolds reports a Skipped or Failed block that stops planning: only
 // for its own (profileHash, probeHash) (§5.11, D13).
 func verdictHolds(p *catalogv1alpha1.TranscodeState, e Eligibility, st *catalogv1alpha1.MediaFileStatus) bool {
@@ -308,9 +324,17 @@ func verdictHolds(p *catalogv1alpha1.TranscodeState, e Eligibility, st *catalogv
 }
 
 // planInWindow keeps a Pending or Planned file's place while it is
-// eligible; a Pending one is planned once what held it clears; one that
-// stopped being eligible is cleared (§5.11 "Leaving the window"). A profile
-// edit does not evict a Planned file: dispatch re-plans it.
+// eligible; a Pending one is planned once what held it clears, and a
+// Planned one that something holds goes back to Pending; one that stopped
+// being eligible is cleared (§5.11 "Leaving the window"). A profile edit
+// does not evict a Planned file: dispatch re-plans it.
+//
+// A held file must leave Planned: admission offers every Planned file a
+// slot, and dispatch refuses one that is not eligible, so a Planned file
+// whose item started downloading an upgrade was granted, refused and
+// granted again about 25 times a second (talos, 2026-11-03: five
+// Deca-Dence episodes, the window's oldest, held both intel slots for four
+// hours while EMBER's season pack found no peers, and nothing transcoded).
 func planInWindow(in Inputs) Decision {
 	e := in.Eligibility
 	switch {
@@ -324,6 +348,8 @@ func planInWindow(in Inputs) Decision {
 		b := in.Prev.DeepCopy()
 		b.Reason, b.Message = e.Pending, e.Why
 		return Decision{Block: b}
+	case e.Pending != "":
+		return Decision{Block: pendingBlock(in)}
 	}
 	b := in.Prev.DeepCopy()
 	if in.Ledger.WaitReason != "" && in.Ledger.WaitReason != b.Message {

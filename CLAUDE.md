@@ -100,7 +100,14 @@ Backlogs are not an object per file (2026-09-30,
 a TranscodeProfile admits at most `--job-window` (32) of its files at once
 into a window phase of `status.transcode` (Pending, Planned, Queued, Running,
 Swapping), the next matching files by name, and counts the rest in
-`status.waitingFiles` (`clustarr_transcode_backlog_files`); Succeeded retention
+`status.waitingFiles` (`clustarr_transcode_backlog_files`); a window file
+something holds (`Eligibility.Pending`: unprobed, a probe pending, a
+standalone graft, an upgrade downloading) is Pending, never Planned, since
+admission offers every Planned file a slot and a grant given back unused
+backs its file off as an expired one does (2026-11-03: five Planned
+Deca-Dence episodes whose season pack found no peers were granted and
+refused both intel slots about 25 times a second for four hours, and
+nothing transcoded); Succeeded retention
 went with TranscodeJob (ADR-0016); a MediaFile carries `status.subtitles` only
 when a subtitle may be wanted for it (the subtitles planner,
 `app/caption/subtitleplan`, on the tagged audio). **Every transcode is the fixed standard, run in-process**

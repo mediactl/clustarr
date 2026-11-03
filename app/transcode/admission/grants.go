@@ -52,11 +52,17 @@ func (l *Ledger) Confirm(uid types.UID, _ int64) {
 	l.signalLocked()
 }
 
-// Release gives uid's grant back unused and wakes admission.
+// Release gives uid's grant back unused and wakes admission. The file
+// backs off as an expired grant's does, so a planner that refuses what
+// admission keeps offering costs a pass a minute, not a pass per release
+// (2026-11-03: about 25 a second).
 func (l *Ledger) Release(uid types.UID) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	delete(l.grants, uid)
+	if _, ok := l.grants[uid]; ok {
+		delete(l.grants, uid)
+		l.backOffLocked(uid, l.clock.Now())
+	}
 	l.signalLocked()
 }
 
@@ -79,12 +85,18 @@ func (l *Ledger) expireLocked(now time.Time) {
 			continue
 		}
 		delete(l.grants, uid)
-		delay := grantBackoffMin
-		if prev, ok := l.backoffs[uid]; ok {
-			delay = min(prev.delay*2, grantBackoffMax)
-		}
-		l.backoffs[uid] = backoff{until: now.Add(delay), delay: delay}
+		l.backOffLocked(uid, now)
 	}
+}
+
+// backOffLocked puts uid on a backoff of grantBackoffMin, doubling to
+// grantBackoffMax; a confirmed grant clears it.
+func (l *Ledger) backOffLocked(uid types.UID, now time.Time) {
+	delay := grantBackoffMin
+	if prev, ok := l.backoffs[uid]; ok {
+		delay = min(prev.delay*2, grantBackoffMax)
+	}
+	l.backoffs[uid] = backoff{until: now.Add(delay), delay: delay}
 }
 
 // onBackoff reports whether uid waits out an expired grant's backoff.

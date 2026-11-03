@@ -217,6 +217,41 @@ func TestExpiredGrantBacksOff(t *testing.T) {
 	assert.Equal(t, transcodeplan.GrantDispatch, l.Snapshot("a").Grant, "and ended")
 }
 
+// TestARefusedGrantGoesToTheNextFile is the talos stall of 2026-11-03: two
+// Planned Deca-Dence episodes whose item was downloading an upgrade were the
+// oldest in the window, and their planner refused every dispatch admission
+// granted them, about 25 times a second, while no other file got a slot. A
+// file reported ineligible is no candidate, and a grant given back unused
+// backs off as an expired one does.
+func TestARefusedGrantGoesToTheNextFile(t *testing.T) {
+	l, _ := newTestLedger(t, map[string]int32{"cpu": 1}, 0)
+	held := fv("a", 1, planned)
+	held.Eligible = false // an upgrade of its episode is downloading
+	l.Observe(held)
+	l.Observe(fv("b", 1, planned))
+	l.Pass(passIn())
+	assert.Equal(t, transcodeplan.GrantNone, l.Snapshot("a").Grant, "a file its planner found ineligible gets no slot")
+	assert.Equal(t, transcodeplan.GrantDispatch, l.Snapshot("b").Grant, "the next file does")
+
+	l, clk := newTestLedger(t, map[string]int32{"cpu": 1}, 0)
+	l.Observe(fv("a", 1, planned))
+	l.Observe(fv("b", 1, planned))
+	l.Pass(passIn())
+	require.Equal(t, transcodeplan.GrantDispatch, l.Snapshot("a").Grant, "a is first by name")
+	_, ok := l.TakeGrant("a")
+	require.True(t, ok)
+	l.Release("a") // the planner refused the dispatch
+	l.Pass(passIn())
+	assert.Equal(t, transcodeplan.GrantNone, l.Snapshot("a").Grant, "a refused grant is not offered again at once")
+	assert.Equal(t, transcodeplan.GrantDispatch, l.Snapshot("b").Grant, "the slot goes to the next file")
+	l.Confirm("b", 2)
+	l.Observe(fv("b", 2, queued))
+	l.Observe(fv("b", 3, "")) // b finished and left the window
+	clk.Advance(grantBackoffMin + time.Second)
+	l.Pass(passIn())
+	assert.Equal(t, transcodeplan.GrantDispatch, l.Snapshot("a").Grant, "and comes back to a once its backoff ends")
+}
+
 // TestWaitReasonEnqueuesOnlyOnChange: a held candidate is enqueued (and its
 // Planned message written) only when its reason changes (§5.7 step 7).
 func TestWaitReasonEnqueuesOnlyOnChange(t *testing.T) {

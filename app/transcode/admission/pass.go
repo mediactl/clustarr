@@ -213,9 +213,11 @@ func (l *Ledger) candidatesLocked(in PassInputs, now time.Time) ([]candidate, []
 			}
 			running = append(running, Slot{Key: key, Hardware: string(v.Class), Profile: v.Profile})
 		case v.Phase == catalogv1alpha1.TranscodePhasePlanned:
+			// A Planned file its planner last found ineligible would refuse
+			// the dispatch: it is no candidate until it reports otherwise.
 			p, ok := in.Profiles[v.Profile]
 			if !ok || v.Suspended || (!v.NextAttemptAt.IsZero() && v.NextAttemptAt.After(now)) || l.grants[uid] != nil ||
-				l.onBackoffLocked(uid, now) {
+				l.onBackoffLocked(uid, now) || (v.EligibleKnown && !v.Eligible) {
 				continue
 			}
 			if _, ok := l.directives[uid]; ok {
