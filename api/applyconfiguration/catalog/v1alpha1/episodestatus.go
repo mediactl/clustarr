@@ -70,6 +70,17 @@ type EpisodeStatusApplyConfiguration struct {
 	FileFormatScore *int32 `json:"fileFormatScore,omitempty"`
 	// CutoffMet is true when the imported file meets the profile cutoff.
 	CutoffMet *bool `json:"cutoffMet,omitempty"`
+	// CutoffReason says why CutoffMet reads as it does: Pending (no file),
+	// Transcoded, ProfileUnresolved, WrongLanguage, MissingAudio,
+	// BitrateOutOfRange, UndecodableVideo, CutoffMet or CutoffUnmet. It was
+	// the CutoffMet condition's reason until 2026-11-03, when the Aired,
+	// HasFile, CutoffMet and WrongLanguage conditions were retired: every
+	// episode carried the five, restating phase, hasFile and cutoffMet, and
+	// their structs were 26 MB of the manager's cache for 27,558 episodes.
+	CutoffReason *string `json:"cutoffReason,omitempty"`
+	// WrongLanguage is true when the file's probed audio lacks the
+	// profile's language (decision.LacksLanguage), transcoded or not.
+	WrongLanguage *bool `json:"wrongLanguage,omitempty"`
 	// ActiveDownloadRef is the id of the grab entry currently working on this episode.
 	ActiveDownloadRef *string `json:"activeDownloadRef,omitempty"`
 	// DownloadPhase is the phase of the entry on the Series covering this
@@ -251,6 +262,22 @@ func (b *EpisodeStatusApplyConfiguration) WithFileFormatScore(value int32) *Epis
 // If called multiple times, the CutoffMet field is set to the value of the last call.
 func (b *EpisodeStatusApplyConfiguration) WithCutoffMet(value bool) *EpisodeStatusApplyConfiguration {
 	b.CutoffMet = &value
+	return b
+}
+
+// WithCutoffReason sets the CutoffReason field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the CutoffReason field is set to the value of the last call.
+func (b *EpisodeStatusApplyConfiguration) WithCutoffReason(value string) *EpisodeStatusApplyConfiguration {
+	b.CutoffReason = &value
+	return b
+}
+
+// WithWrongLanguage sets the WrongLanguage field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the WrongLanguage field is set to the value of the last call.
+func (b *EpisodeStatusApplyConfiguration) WithWrongLanguage(value bool) *EpisodeStatusApplyConfiguration {
+	b.WrongLanguage = &value
 	return b
 }
 

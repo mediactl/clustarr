@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -79,6 +80,20 @@ const SeriesByQualityProfileIndex = seriesByQualityProfileIndexKey
 // cluster, and no suite can see it, because envtest does not enforce RBAC.
 // catalog's setupControllers records the occasion this repo learned it.
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
+
+// The cutoff reasons of this reconciler's own (the others are rollup's):
+// status.cutoffReason, the CutoffMet condition's reason until 2026-11-03.
+const (
+	CutoffReasonMet               = "CutoffMet"
+	CutoffReasonUnmet             = "CutoffUnmet"
+	CutoffReasonProfileUnresolved = "ProfileUnresolved"
+	CutoffReasonWrongLanguage     = "WrongLanguage"
+)
+
+// retiredEpisodeConditions are the conditions every Episode carried until
+// 2026-11-03 (status.cutoffReason and wrongLanguage say the same): the
+// first pass after the change drops them from the episode.
+var retiredEpisodeConditions = map[string]bool{"Aired": true, "HasFile": true, "CutoffMet": true, "WrongLanguage": true}
 
 // Reconciler reconciles an Episode: phase from monitored/airDate/hasFile/
 // cutoffMet, and the file/download rollup from its MediaFiles (the
@@ -341,7 +356,12 @@ func (r *Reconciler) reconcileDelete(ctx context.Context, ep *catalogv1alpha1.Ep
 func (r *Reconciler) reconcileNormal(ctx context.Context, ep *catalogv1alpha1.Episode) (ctrl.Result, error) {
 	now := time.Now().UTC()
 	monitored := ptr.Deref(ep.Spec.Monitored, true)
-	conditions := append([]metav1.Condition(nil), ep.Status.Conditions...)
+	// Ready and DeadLettered are the episode's conditions; the four retired
+	// on 2026-11-03 are dropped from an episode still carrying them, since
+	// an apply that copied them from the cache would keep them for good.
+	conditions := slices.DeleteFunc(append([]metav1.Condition(nil), ep.Status.Conditions...), func(c metav1.Condition) bool {
+		return retiredEpisodeConditions[c.Type]
+	})
 	// This reconciler has one status apply and no early return, so folding
 	// the DLQ projector's annotation here puts it in every declaration.
 	k8s.MarkDeadLettered(ep, &conditions)
@@ -430,57 +450,39 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, ep *catalogv1alpha1.Ep
 		phase = overlayPhase
 	}
 
-	aired := ep.Status.AirDate != nil && !now.Before(ep.Status.AirDate.Time)
-	k8s.MarkTrue(ep, &conditions, catalogv1alpha1.EpisodeConditionAired, k8s.ReasonReconciled, "aired=%t", aired)
-	if !aired {
-		k8s.MarkFalse(ep, &conditions, catalogv1alpha1.EpisodeConditionAired, "Unaired", "air date has not passed yet")
-	}
-	// HasFile and CutoffMet are the other two conditions spec §4.2 lists for
-	// Episode (alongside Aired). Until task C13 their only writer anywhere
-	// was the MediaFile controller's rollupToOwner, which applied them under
-	// this reconciler's own k8s.ManagerCatalog and therefore released
-	// observedGeneration and activeDownloadRef on every apply. That rollup
-	// is gone; the conditions move here, to the object's sole status writer.
-	// See the movie package's identical block for the full rationale.
-	if hasFile {
-		k8s.MarkTrue(ep, &conditions, catalogv1alpha1.EpisodeConditionHasFile, "HasFile", "backed by MediaFile %s", ptr.Deref(fileRef, ""))
-	} else {
-		k8s.MarkFalse(ep, &conditions, catalogv1alpha1.EpisodeConditionHasFile, k8s.ReasonPending, "no MediaFile backs this episode")
-	}
+	// The cutoff's reason, status.cutoffReason: until 2026-11-03 the
+	// CutoffMet condition's, beside Aired, HasFile and WrongLanguage
+	// conditions that restated phase, hasFile and the audio; the five were
+	// 26 MB of the manager's cache. The season search reads the reason
+	// (replacesAsPack), and a ProfileUnresolved one that is new warns once.
+	var cutoffReason string
 	switch {
 	case !hasFile:
-		k8s.MarkFalse(ep, &conditions, catalogv1alpha1.EpisodeConditionCutoffMet, k8s.ReasonPending, "no file to rank against the profile cutoff")
+		cutoffReason = k8s.ReasonPending
 	case transcoded:
 		// Ahead of the profile arms, as in the movie package: a transcoded
 		// file is final and meets the cutoff whatever the profile says.
-		k8s.MarkTrue(ep, &conditions, catalogv1alpha1.EpisodeConditionCutoffMet, rollup.ReasonTranscoded, "the file is transcoded, and a transcoded file is final")
+		cutoffReason = rollup.ReasonTranscoded
 	case profile == nil:
-		if rollup.Transitioned(ep.Status.Conditions, catalogv1alpha1.EpisodeConditionCutoffMet, metav1.ConditionFalse, "ProfileUnresolved") {
-			r.warn(ep, "ProfileUnresolved", "cutoff not evaluated: %s", profileProblem)
-		}
 		// The cutoff was NOT evaluated -- see the movie package's identical
 		// branch for why this gets a reason of its own rather than reading
 		// as a genuine CutoffUnmet.
-		k8s.MarkFalse(ep, &conditions, catalogv1alpha1.EpisodeConditionCutoffMet, "ProfileUnresolved", "cutoff not evaluated: %s", profileProblem)
+		cutoffReason = CutoffReasonProfileUnresolved
+		if ep.Status.CutoffReason != cutoffReason {
+			r.warn(ep, CutoffReasonProfileUnresolved, "cutoff not evaluated: %s", profileProblem)
+		}
 	case wrongLanguage:
-		k8s.MarkFalse(ep, &conditions, catalogv1alpha1.EpisodeConditionCutoffMet, "WrongLanguage", "the file's audio lacks the profile's language")
+		cutoffReason = CutoffReasonWrongLanguage
 	case missingAudio:
-		k8s.MarkFalse(ep, &conditions, catalogv1alpha1.EpisodeConditionCutoffMet, rollup.ReasonMissingAudio,
-			"the file's audio %v lacks %v, which the profile wants in one release", audio, decision.MissingAudio(*profile, originalTag, audio))
+		cutoffReason = rollup.ReasonMissingAudio
 	case offBitrate != "":
-		k8s.MarkFalse(ep, &conditions, catalogv1alpha1.EpisodeConditionCutoffMet, rollup.ReasonBitrateOutOfRange, "the file's %s", offBitrate)
+		cutoffReason = rollup.ReasonBitrateOutOfRange
 	case undecodable != "":
-		k8s.MarkFalse(ep, &conditions, catalogv1alpha1.EpisodeConditionCutoffMet, rollup.ReasonUndecodableVideo, "the file's video is %s, which no GPU here decodes", undecodable)
+		cutoffReason = rollup.ReasonUndecodableVideo
 	case cutoffMet:
-		k8s.MarkTrue(ep, &conditions, catalogv1alpha1.EpisodeConditionCutoffMet, "CutoffMet", "file meets the profile cutoff")
+		cutoffReason = CutoffReasonMet
 	default:
-		k8s.MarkFalse(ep, &conditions, catalogv1alpha1.EpisodeConditionCutoffMet, "CutoffUnmet", "file does not meet the profile cutoff")
-	}
-
-	if wrongLanguage {
-		k8s.MarkTrue(ep, &conditions, catalogv1alpha1.EpisodeConditionWrongLanguage, "WrongLanguage", "the file's audio %v lacks the profile's language", audio)
-	} else {
-		k8s.MarkFalse(ep, &conditions, catalogv1alpha1.EpisodeConditionWrongLanguage, "LanguageOK", "no evidence the file's audio is wrong")
+		cutoffReason = CutoffReasonUnmet
 	}
 
 	k8s.MarkReady(ep, &conditions, phase != catalogv1alpha1.EpisodePhaseUnaired || ep.Status.AirDate == nil, k8s.ReasonReconciled, "phase=%s", phase)
@@ -491,6 +493,8 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, ep *catalogv1alpha1.Ep
 		WithHasFile(hasFile).
 		WithFileFormatScore(fileFormatScore).
 		WithCutoffMet(cutoffMet).
+		WithCutoffReason(cutoffReason).
+		WithWrongLanguage(wrongLanguage).
 		WithConditions(k8s.ConditionACs(conditions)...)
 	if fileRef != nil {
 		statusAC = statusAC.WithFileRef(*fileRef)

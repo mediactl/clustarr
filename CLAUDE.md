@@ -1313,6 +1313,23 @@ still wanted through `original`, and the K-dramas' dual-audio profile, whose
 series carry no MAL id, is untouched. On talos then: 383 dubbed, 2
 incomplete, 97 not dubbed and 26 without a MAL id of the 508 anime series;
 27 of 28 anime films have one.
+An Episode carries two conditions, Ready and DeadLettered (owner,
+2026-11-03, cutting the manager's memory): the Aired, HasFile, CutoffMet and
+WrongLanguage conditions every episode carried restated `status.phase`,
+`hasFile` and `cutoffMet`, and their five structs per episode were 26 MB of
+the manager's cache for 27,558 episodes. What their readers needed is now
+`status.cutoffReason` (Pending, Transcoded, ProfileUnresolved, WrongLanguage,
+MissingAudio, BitrateOutOfRange, UndecodableVideo, CutoffMet, CutoffUnmet;
+the season search's `replacesAsPack` reads it) and `status.wrongLanguage`;
+the Episode reconciler drops the retired four from an episode still carrying
+them on its first pass (`retiredEpisodeConditions`), since an apply that
+copied them from the cache would keep them for good. Movies keep theirs
+(1,050 objects). The tuner keeps no guide in memory between renders (same
+day): a render drops the parsed programmes once the guides are built and
+reads them back from the guide cache object when needed, and a device serves
+`xmltv.xml` from the store (`GuideObject`, or `GuideBlockObject` for a block
+that does not hold the whole lineup), its ETag answered from the stored hash
+without a read.
 anime-web-1080p ranks Bluray-1080p, then WEB 1080p, then Remux-1080p,
 below the cutoff, so an encode replaces a remux, which is never transcoded
 (`demotedTiers` exempts that tier from the best-first guard). A bare scene WEB is a WEB-DL

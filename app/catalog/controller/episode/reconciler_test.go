@@ -225,9 +225,7 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 			"finalizer and status.phase=Unaired must both appear from the same reconcile pass")
 
 		got := waitForPhase(t, ctx, c, "ep-ns", "the-expanse-s01e01")
-		cond := k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.EpisodeConditionAired)
-		require.NotNil(t, cond)
-		assert.Equal(t, metav1.ConditionFalse, cond.Status)
+		assert.Equal(t, catalogv1alpha1.EpisodePhaseUnaired, got.Status.Phase, "an episode before its air date reads Unaired")
 
 		// Simulate the Series reconciler's own write: provider fields set
 		// under the distinct k8s.ManagerCatalogSeries (never
@@ -253,9 +251,7 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 		}, 5*time.Second, 20*time.Millisecond)
 
 		got = waitForPhase(t, ctx, c, "ep-ns", "the-expanse-s01e01")
-		cond = k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.EpisodeConditionAired)
-		require.NotNil(t, cond)
-		assert.Equal(t, metav1.ConditionTrue, cond.Status)
+		assert.NotEqual(t, catalogv1alpha1.EpisodePhaseUnaired, got.Status.Phase, "an aired episode leaves Unaired")
 
 		// This reconciler's own repeated status patches must never clobber
 		// the provider fields written under the same field manager --
@@ -364,12 +360,9 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 		// from the MediaFile controller's rollup (which was releasing this
 		// manager's other fields on every apply); asserting them on the
 		// WATCH path is what proves deleting that rollup lost nothing.
-		hasFileCond := k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.EpisodeConditionHasFile)
-		require.NotNil(t, hasFileCond, "the MediaFile watch must raise the HasFile condition")
-		assert.Equal(t, metav1.ConditionTrue, hasFileCond.Status)
-		cutoffCond := k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.EpisodeConditionCutoffMet)
-		require.NotNil(t, cutoffCond, "the MediaFile watch must raise the CutoffMet condition")
-		assert.Equal(t, metav1.ConditionTrue, cutoffCond.Status)
+		assert.True(t, got.Status.HasFile, "the MediaFile watch must raise hasFile")
+		assert.True(t, got.Status.CutoffMet, "the MediaFile watch must raise cutoffMet")
+		assert.Equal(t, episode.CutoffReasonMet, got.Status.CutoffReason)
 
 		// An operator raising the profile's cutoff is the realistic path to
 		// CutoffUnmet, and it must reach this Episode on its own: the
@@ -407,13 +400,9 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 			return got.Status.Phase == catalogv1alpha1.EpisodePhaseCutoffUnmet
 		}, 5*time.Second, 20*time.Millisecond, "a QualityProfile edit alone must re-rank the episode")
 
-		cutoffCond = k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.EpisodeConditionCutoffMet)
-		require.NotNil(t, cutoffCond)
-		assert.Equal(t, metav1.ConditionFalse, cutoffCond.Status, "a file below the cutoff must lower the CutoffMet condition")
-		assert.Equal(t, "CutoffUnmet", cutoffCond.Reason)
-		hasFileCond = k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.EpisodeConditionHasFile)
-		require.NotNil(t, hasFileCond)
-		assert.Equal(t, metav1.ConditionTrue, hasFileCond.Status, "the file is still there, only the profile changed")
+		assert.False(t, got.Status.CutoffMet, "a file below the cutoff must lower cutoffMet")
+		assert.Equal(t, episode.CutoffReasonUnmet, got.Status.CutoffReason)
+		assert.True(t, got.Status.HasFile, "the file is still there, only the profile changed")
 
 		// Deleting the MediaFile must clear the rollup. This is the case
 		// the deleted mediafile rollup structurally could not handle -- it
@@ -437,14 +426,12 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 
 		// The negative branches of both relocated conditions, which run on
 		// every file-less reconcile and were previously unasserted.
-		hasFileCond = k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.EpisodeConditionHasFile)
-		require.NotNil(t, hasFileCond)
-		assert.Equal(t, metav1.ConditionFalse, hasFileCond.Status)
-		assert.Equal(t, k8s.ReasonPending, hasFileCond.Reason)
-		cutoffCond = k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.EpisodeConditionCutoffMet)
-		require.NotNil(t, cutoffCond)
-		assert.Equal(t, metav1.ConditionFalse, cutoffCond.Status)
-		assert.Equal(t, k8s.ReasonPending, cutoffCond.Reason, "with no file the cutoff was not evaluated either")
+		assert.False(t, got.Status.HasFile)
+		assert.False(t, got.Status.CutoffMet)
+		assert.Equal(t, k8s.ReasonPending, got.Status.CutoffReason, "with no file the cutoff was not evaluated either")
+		for _, c := range got.Status.Conditions {
+			assert.NotContains(t, []string{"Aired", "HasFile", "CutoffMet", "WrongLanguage"}, c.Type, "a retired condition is written no more")
+		}
 	})
 
 	// The owner's rule (CLAUDE.md, "Transcoding"), driven against Episodes
@@ -492,10 +479,7 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 			}, 5*time.Second, 20*time.Millisecond, "%s: a transcoded file must read Transcoded", name)
 			assert.True(t, got.Status.HasFile, "a Transcoded episode has its file (the Series counts it)")
 			assert.True(t, got.Status.CutoffMet, "a transcoded file is final, so it meets the cutoff")
-			cond := k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.EpisodeConditionCutoffMet)
-			require.NotNil(t, cond)
-			assert.Equal(t, metav1.ConditionTrue, cond.Status)
-			assert.Equal(t, "Transcoded", cond.Reason)
+			assert.Equal(t, rollup.ReasonTranscoded, got.Status.CutoffReason)
 
 			cands, err := wantedcron.ListCandidates(ctx, c, func(k commonv1.MediaKind) bool { return k == commonv1.MediaKindEpisode },
 				time.Now(), client.InNamespace("ep-ns"))
@@ -576,12 +560,9 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 			return got.Status.HasFile
 		}, 5*time.Second, 20*time.Millisecond)
 
-		cond := k8s.FindCondition(got.Status.Conditions, catalogv1alpha1.EpisodeConditionCutoffMet)
-		require.NotNil(t, cond)
-		assert.Equal(t, metav1.ConditionFalse, cond.Status)
-		assert.Equal(t, "ProfileUnresolved", cond.Reason,
+		assert.False(t, got.Status.CutoffMet)
+		assert.Equal(t, episode.CutoffReasonProfileUnresolved, got.Status.CutoffReason,
 			"a dangling qualityProfileRef must not masquerade as a file below the cutoff")
-		assert.Contains(t, cond.Message, "no-such-profile")
 		assert.Equal(t, catalogv1alpha1.EpisodePhaseCutoffUnevaluated, got.Status.Phase,
 			"the phase column must not read CutoffUnmet for a file never ranked against a cutoff")
 	})
@@ -876,24 +857,17 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 			}, 5*time.Second, 20*time.Millisecond, what)
 			return got
 		}
-		cond := func(e catalogv1alpha1.Episode, typ string) *metav1.Condition {
-			return k8s.FindCondition(e.Status.Conditions, typ)
-		}
-
 		audio("kor")
 		got := read("a Korean-only file of a Japanese show must read WrongLanguage", func(e catalogv1alpha1.Episode) bool {
-			w := cond(e, catalogv1alpha1.EpisodeConditionWrongLanguage)
-			return w != nil && w.Status == metav1.ConditionTrue
+			return e.Status.WrongLanguage
 		})
 		assert.False(t, got.Status.CutoffMet)
 		assert.Equal(t, catalogv1alpha1.EpisodePhaseCutoffUnmet, got.Status.Phase, "the wanted sweep must look for a replacement")
-		require.NotNil(t, cond(got, catalogv1alpha1.EpisodeConditionCutoffMet))
-		assert.Equal(t, "WrongLanguage", cond(got, catalogv1alpha1.EpisodeConditionCutoffMet).Reason)
+		assert.Equal(t, episode.CutoffReasonWrongLanguage, got.Status.CutoffReason)
 
 		audio("jpn")
 		got = read("a Japanese file must clear WrongLanguage", func(e catalogv1alpha1.Episode) bool {
-			w := cond(e, catalogv1alpha1.EpisodeConditionWrongLanguage)
-			return w != nil && w.Status == metav1.ConditionFalse
+			return !e.Status.WrongLanguage && e.Status.CutoffMet
 		})
 		assert.True(t, got.Status.CutoffMet)
 
@@ -908,8 +882,7 @@ func TestEpisodeReconcilerRealController(t *testing.T) {
 			return e.Status.Phase == catalogv1alpha1.EpisodePhaseTranscoded
 		})
 		assert.True(t, got.Status.CutoffMet, "a transcoded file is final")
-		require.NotNil(t, cond(got, catalogv1alpha1.EpisodeConditionWrongLanguage))
-		assert.Equal(t, metav1.ConditionTrue, cond(got, catalogv1alpha1.EpisodeConditionWrongLanguage).Status)
+		assert.True(t, got.Status.WrongLanguage, "the field still reports it")
 	})
 
 	t.Run("a dual-audio profile reports status.audio and never blocks the video for a missing dub", func(t *testing.T) {

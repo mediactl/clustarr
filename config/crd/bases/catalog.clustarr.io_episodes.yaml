@@ -39,9 +39,6 @@ spec:
     - jsonPath: .status.hasFile
       name: File
       type: boolean
-    - jsonPath: .status.conditions[?(@.type=="Aired")].status
-      name: Aired
-      type: string
     - jsonPath: .status.downloadPhase
       name: Download
       type: string
@@ -282,6 +279,17 @@ spec:
                 description: CutoffMet is true when the imported file meets the profile
                   cutoff.
                 type: boolean
+              cutoffReason:
+                description: |-
+                  CutoffReason says why CutoffMet reads as it does: Pending (no file),
+                  Transcoded, ProfileUnresolved, WrongLanguage, MissingAudio,
+                  BitrateOutOfRange, UndecodableVideo, CutoffMet or CutoffUnmet. It was
+                  the CutoffMet condition's reason until 2026-11-03, when the Aired,
+                  HasFile, CutoffMet and WrongLanguage conditions were retired: every
+                  episode carried the five, restating phase, hasFile and cutoffMet, and
+                  their structs were 26 MB of the manager's cache for 27,558 episodes.
+                maxLength: 64
+                type: string
               donorSearchAttempts:
                 description: |-
                   DonorSearchAttempts counts the audio donor searches made for this
@@ -883,6 +891,11 @@ spec:
                 description: TvdbID is the TheTVDB episode ID.
                 format: int64
                 type: integer
+              wrongLanguage:
+                description: |-
+                  WrongLanguage is true when the file's probed audio lacks the
+                  profile's language (decision.LacksLanguage), transcoded or not.
+                type: boolean
             type: object
         type: object
     selectableFields:

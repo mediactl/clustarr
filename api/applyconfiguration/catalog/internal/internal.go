@@ -1989,6 +1989,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: cutoffMet
       type:
         scalar: boolean
+    - name: cutoffReason
+      type:
+        scalar: string
     - name: donorSearchAttempts
       type:
         namedType: com.github.mediactl.clustarr.api.common.v1alpha1.Attempts
@@ -2052,6 +2055,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: tvdbID
       type:
         scalar: numeric
+    - name: wrongLanguage
+      type:
+        scalar: boolean
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.ExclusionKind
   scalar: string
 - name: com.github.mediactl.clustarr.api.catalog.v1alpha1.FileMarkers

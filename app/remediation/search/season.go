@@ -24,7 +24,6 @@ import (
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -462,8 +461,7 @@ func holdsSeason(prof *quality.Profile, originalTag string, e *catalogv1alpha1.D
 // for (automaticSeasons, SeasonFacts.ReplaceDue), and they wait for it
 // (seasonReplaces).
 func replacesAsPack(ep *catalogv1alpha1.Episode, now time.Time) bool {
-	c := meta.FindStatusCondition(ep.Status.Conditions, catalogv1alpha1.EpisodeConditionCutoffMet)
-	if c == nil || c.Status != metav1.ConditionFalse || (c.Reason != rollup.ReasonUndecodableVideo && c.Reason != rollup.ReasonMissingAudio) {
+	if ep.Status.CutoffMet || (ep.Status.CutoffReason != rollup.ReasonUndecodableVideo && ep.Status.CutoffReason != rollup.ReasonMissingAudio) {
 		return false
 	}
 	cand, _ := wantedcron.CandidateOf(ep, now)

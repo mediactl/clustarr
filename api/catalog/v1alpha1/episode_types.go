@@ -25,15 +25,12 @@ import (
 
 // Condition types reported on an Episode.
 const (
-	// EpisodeConditionAired is True once the episode's air date has passed.
-	EpisodeConditionAired = "Aired"
-	// EpisodeConditionHasFile is True while a MediaFile backs the episode.
-	EpisodeConditionHasFile = "HasFile"
-	// EpisodeConditionCutoffMet is True when the imported file meets the profile cutoff.
-	EpisodeConditionCutoffMet = "CutoffMet"
-	// EpisodeConditionWrongLanguage is True when the file's probed audio
-	// lacks the language the profile wants (decision.LacksLanguage).
-	EpisodeConditionWrongLanguage = "WrongLanguage"
+	// The Aired, HasFile, CutoffMet and WrongLanguage conditions were
+	// retired on 2026-11-03: status.phase, hasFile, cutoffMet, cutoffReason
+	// and wrongLanguage say the same, and the five constant conditions per
+	// episode were 26 MB of the manager's cache. Ready and DeadLettered
+	// remain. retiredEpisodeConditions in the Episode reconciler drops the
+	// four from every episode on its first pass after the change.
 	// EpisodeConditionReady is True when the episode is fully reconciled.
 	EpisodeConditionReady = "Ready"
 )
@@ -201,6 +198,22 @@ type EpisodeStatus struct {
 	// +optional
 	CutoffMet bool `json:"cutoffMet,omitempty"`
 
+	// CutoffReason says why CutoffMet reads as it does: Pending (no file),
+	// Transcoded, ProfileUnresolved, WrongLanguage, MissingAudio,
+	// BitrateOutOfRange, UndecodableVideo, CutoffMet or CutoffUnmet. It was
+	// the CutoffMet condition's reason until 2026-11-03, when the Aired,
+	// HasFile, CutoffMet and WrongLanguage conditions were retired: every
+	// episode carried the five, restating phase, hasFile and cutoffMet, and
+	// their structs were 26 MB of the manager's cache for 27,558 episodes.
+	// +optional
+	// +kubebuilder:validation:MaxLength=64
+	CutoffReason string `json:"cutoffReason,omitempty"`
+
+	// WrongLanguage is true when the file's probed audio lacks the
+	// profile's language (decision.LacksLanguage), transcoded or not.
+	// +optional
+	WrongLanguage bool `json:"wrongLanguage,omitempty"`
+
 	// ActiveDownloadRef is the id of the grab entry currently working on this episode.
 	// +optional
 	ActiveDownloadRef *string `json:"activeDownloadRef,omitempty"`
@@ -252,7 +265,6 @@ type EpisodeStatus struct {
 // +kubebuilder:printcolumn:name="Title",type=string,JSONPath=`.status.title`
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
 // +kubebuilder:printcolumn:name="File",type=boolean,JSONPath=`.status.hasFile`
-// +kubebuilder:printcolumn:name="Aired",type=string,JSONPath=`.status.conditions[?(@.type=="Aired")].status`
 // +kubebuilder:printcolumn:name="Download",type=string,JSONPath=`.status.downloadPhase`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 

@@ -47,7 +47,7 @@ func TestASeasonOfReplaceableFilesHoldsItsEpisodesForAPack(t *testing.T) {
 		e.Spec.SeriesRef, e.Spec.SeasonNumber, e.Spec.EpisodeNumber = "frieren", season, n
 		e.Status.AirDate = &aired
 		e.Status.Phase = catalogv1alpha1.EpisodePhaseCutoffUnmet
-		e.Status.Conditions = []metav1.Condition{{Type: catalogv1alpha1.EpisodeConditionCutoffMet, Status: metav1.ConditionFalse, Reason: reason}}
+		e.Status.CutoffReason = reason
 		at := metav1.NewTime(now.Add(-searchedAgo))
 		e.Status.LastSearchedAt = &at
 		e.Status.SearchAttempts = commonv1.Attempts{Count: 6, Initial: &at, Latest: &at}
