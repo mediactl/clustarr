@@ -130,9 +130,10 @@ type VideoPlan struct {
 	// Options are the encoder's AVOptions, applied strictly.
 	Options map[string]string `json:",omitempty"`
 	// Decode is "cpu", "nvdec" or "vaapi" (frames stay on the GPU) or
-	// "upload" (CPU decode, uploaded by Filter); the QSV tier decodes on
-	// VA-API where its pod measured the format (transcode.VAAPIDecodes),
-	// else on the CPU, uploading.
+	// "upload" (CPU decode, uploaded by Filter). A GPU tier decodes on the
+	// GPU (NVDEC; VA-API where its pod measured the format,
+	// transcode.VAAPIDecodes) or Plan skips the file; only an Intel tier
+	// with no measured decoder plans "cpu", uploading (gpuUndecodable).
 	Decode string `json:",omitempty"`
 	Filter string `json:",omitempty"`
 	// HDR is "sdr", "hdr10" or "hlg".
@@ -436,9 +437,46 @@ func Plan(info transcode.MediaInfo, profile Profile, hw Hardware) Result {
 	case remux10:
 		p.Reason += "; clustarr's remux of a release's 10-bit HEVC, encoded once"
 	}
+	if why := gpuUndecodable(v, hw); why != "" {
+		return skip(p, why)
+	}
 	p.Video = encodeVideo(v, int32(vi), profile.Quality, hw, hdr, strip, eight)
 	p.Tags[VideoTagKey] = VideoEncoded
 	return p
+}
+
+// gpuUndecodable is why hw's GPU tier would decode v on the CPU, or "" when
+// its GPU decodes v. A GPU transcode decodes on the GPU or not at all
+// (owner, 2026-11-03: "never falling back to cpu"): until then a source
+// the device does not decode -- XviD (Seinfeld, The Simpsons), H.264 10-bit
+// (Star Trek: Discovery's mSD episodes), any 4:2:2 or 4:4:4 stream -- was
+// decoded in software and uploaded to the encoder. The CPU tier decodes on
+// the CPU by design, and an Intel tier with no measured decoder (the pod's
+// own first trial, or a planner before the class's pods published) plans
+// the upload as before: the pod's measured plan is the one that runs, and a
+// pod whose decoder does not open takes no work.
+func gpuUndecodable(v transcode.VideoStream, hw Hardware) string {
+	var decodes bool
+	switch hw.Tier {
+	case transcode.TierNVENC:
+		decodes = transcode.NVDECDecodes(hw.Limits, v)
+	case transcode.TierQSV, transcode.TierVAAPI:
+		if hw.Limits.VAAPI == nil {
+			return ""
+		}
+		decodes = transcode.VAAPIDecodes(hw.Limits, v)
+	default:
+		return ""
+	}
+	if decodes {
+		return ""
+	}
+	format := v.Codec + " " + v.PixFmt // not 4:2:0, which no measured key covers
+	if key := transcode.NVDECKey(v); key != "" {
+		codec, depth, _ := strings.Cut(key, ":")
+		format = codec + " " + depth + "-bit"
+	}
+	return fmt.Sprintf("the %s tier's GPU does not decode %s, and a GPU transcode never decodes on the CPU", hw.Tier, format)
 }
 
 func skip(p Result, reason string) Result {
@@ -561,13 +599,11 @@ func encodeVideo(v transcode.VideoStream, index, quality int32, hw Hardware, hdr
 	}
 	switch hw.Tier {
 	case transcode.TierNVENC:
-		vp.Encoder = "hevc_nvenc"
+		// Decoded on NVDEC: Plan skips a source NVDEC does not decode
+		// (gpuUndecodable).
+		vp.Encoder, vp.Decode = "hevc_nvenc", "nvdec"
 		vp.Options = nvencOptions(quality, v.BitRateKbps)
-		if transcode.NVDECDecodes(hw.Limits, v) {
-			vp.Decode, vp.Filter = "nvdec", "scale_cuda=format="+fmtFor("p010le")
-		} else {
-			vp.Decode, vp.Filter = "upload", "hwupload,scale_cuda=format="+fmtFor("p010le")
-		}
+		vp.Filter = "scale_cuda=format=" + fmtFor("p010le")
 	case transcode.TierQSV:
 		vp.Encoder, vp.Decode = "hevc_qsv", "cpu"
 		// medium, not veryslow (2026-10-16): on the NUC's QSV, four
@@ -584,6 +620,12 @@ func encodeVideo(v transcode.VideoStream, index, quality int32, hw Hardware, hdr
 		vp.Encoder, vp.Decode = "hevc_vaapi", "cpu"
 		vp.Options = map[string]string{"qp": itoa(quality), "profile": "main10"}
 		vp.Filter = "hwupload,scale_vaapi=format=" + fmtFor("p010")
+		if transcode.VAAPIDecodes(hw.Limits, v) {
+			// Decoded on the encoder's own VA-API device, the frames staying
+			// surfaces from decode to encode (2026-11-03: this tier uploaded
+			// every frame).
+			vp.Decode, vp.Filter = "vaapi", "scale_vaapi=format="+fmtFor("p010")
+		}
 	default:
 		vp.Encoder, vp.Decode = "libx265", "cpu"
 		vp.Options = x265Options(v, quality)

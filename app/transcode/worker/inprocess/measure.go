@@ -93,9 +93,12 @@ func (Engine) Measure(ctx context.Context, class transcode.Hardware) (transcode.
 }
 
 // measureTier is one tier's trial encode on dev and its GPU decoder's
-// formats: NVDEC's for NVENC, VA-API's for QSV. The trial uploads frames
-// (no decoder measured yet), so a device whose decoder is broken still
-// encodes.
+// formats: NVDEC's for NVENC, VA-API's for QSV and VAAPI. The Intel tiers'
+// first trial uploads frames (no decoder measured yet); NVENC's decodes
+// its H.264 sample on NVDEC, as the static list says every NVDEC does. A
+// GPU tier whose decoder decodes no sample format, or whose VA-API decode
+// device does not open, fails: a GPU transcode never decodes on the CPU
+// (owner, 2026-11-03), so such a pod could do no work.
 func measureTier(ctx context.Context, dir, sample string, tier transcode.Tier, dev *ffgo.HWDevice) (transcode.Measurement, error) {
 	m := transcode.Measurement{Tier: tier}
 	noNVDEC := transcode.Limits{}
@@ -105,11 +108,23 @@ func measureTier(ctx context.Context, dir, sample string, tier transcode.Tier, d
 	if err := trial(ctx, dir, sample, tier, noNVDEC, dev, nil); err != nil {
 		return m, fmt.Errorf("%s: trial encode: %w", tier, err)
 	}
+	var decoders *transcode.Decoders
 	switch tier {
 	case transcode.TierNVENC:
 		m.Limits.NVDEC = measureNVDEC(ctx, dir, dev)
-	case transcode.TierQSV:
-		m.Limits.VAAPI = measureVAAPI(ctx, dir, dev)
+		decoders = m.Limits.NVDEC
+	case transcode.TierQSV, transcode.TierVAAPI:
+		v, err := measureVAAPI(ctx, dir, tier, dev)
+		if err != nil {
+			return m, fmt.Errorf("%s: the VA-API decode device: %w (a GPU transcode never decodes on the CPU)", tier, err)
+		}
+		m.Limits.VAAPI = v
+		decoders = v
+	default:
+		return m, nil
+	}
+	if ctx.Err() == nil && len(decoders.Decodable()) == 0 {
+		return m, fmt.Errorf("%s: the GPU decodes none of the sample formats (a GPU transcode never decodes on the CPU)", tier)
 	}
 	return m, nil
 }
@@ -135,28 +150,29 @@ func measureNVDEC(ctx context.Context, dir string, dev *ffgo.HWDevice) *transcod
 }
 
 // measureVAAPI is which of transcode.NVDECSampleFormats this Intel device
-// decodes through VA-API into the QSV encode: each sample decoded on the
-// pod's render node, mapped to QSV and encoded on dev, as a job does. Nil
-// when the VA-API device does not open: nothing is decoded on it then.
-func measureVAAPI(ctx context.Context, dir string, dev *ffgo.HWDevice) *transcode.Decoders {
-	dd, err := openDecodeDevice()
+// decodes through VA-API into tier's encode, as a job does: for QSV each
+// sample decoded on the pod's render node and mapped to QSV, for VAAPI on
+// the encoder's own device (decodeDeviceFor). An error when the VA-API
+// decode device does not open.
+func measureVAAPI(ctx context.Context, dir string, tier transcode.Tier, dev *ffgo.HWDevice) (*transcode.Decoders, error) {
+	dd, closeDD, err := decodeDeviceFor(tier, dev)
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	defer func() { _ = dd.Close() }()
+	defer closeDD()
 	d := &transcode.Decoders{Formats: map[string]bool{}}
 	viaVAAPI := transcode.Limits{VAAPI: &transcode.Decoders{Formats: map[string]bool{"h264:8": true}}}
 	for _, s := range transcode.NVDECSampleFormats() {
 		if ctx.Err() != nil {
-			return d
+			return d, nil
 		}
 		path := filepath.Join(dir, strings.ReplaceAll(s.Key, ":", "-")+".mkv")
 		if err := makeSample(path, s.Encoder, s.PixFmt); err != nil {
 			continue
 		}
-		d.Formats[s.Key] = trial(ctx, dir, path, transcode.TierQSV, viaVAAPI, dev, dd) == nil
+		d.Formats[s.Key] = trial(ctx, dir, path, tier, viaVAAPI, dev, dd) == nil
 	}
-	return d
+	return d, nil
 }
 
 // sampleInfo describes every sample to the standard as 8-bit H.264, so its

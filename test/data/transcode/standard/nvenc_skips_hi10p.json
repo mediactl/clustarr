@@ -1,0 +1,25 @@
+{
+  "Decision": "skip",
+  "Reason": "the nvenc tier's GPU does not decode h264 10-bit, and a GPU transcode never decodes on the CPU",
+  "Container": "mp4",
+  "Video": {
+    "SourceIndex": 0,
+    "Action": "",
+    "Color": {}
+  },
+  "Audio": null,
+  "Subtitles": null,
+  "Attachments": false,
+  "Chapters": false,
+  "Tags": {
+    "CLUSTARR_PROFILE": "hevc-mkv@abc"
+  },
+  "Expect": {
+    "VideoStreams": 0,
+    "AudioStreams": 0,
+    "SubtitleStreams": 0,
+    "VideoCodec": "",
+    "PixelFormat": "",
+    "DurationMillis": 0
+  }
+}

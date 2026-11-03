@@ -355,3 +355,38 @@ func TestAWorkerRemovesItsJobsEarlierAttemptsPartFilesBeforeItEncodes(t *testing
 
 // fsopsPart reads a part file's name as the sweep does.
 func fsopsPart(name string) (fsops.TranscodePart, bool) { return fsops.ParseTranscodePart(name) }
+
+// A GPU pod decodes on its GPU or encodes nothing (owner, 2026-11-03): a
+// plan that would decode on the CPU -- an Intel tier with no measured
+// decoder -- is refused, and a source the measured decoder does not decode
+// (the 10-bit H.264 here) is skipped by the standard; neither is encoded.
+func TestAGPUWorkerNeverDecodesOnTheCPU(t *testing.T) {
+	decodes := func(hi10p bool) *transcode.Decoders {
+		return &transcode.Decoders{Formats: map[string]bool{"h264:8": true, "h264:10": hi10p}}
+	}
+	for name, c := range map[string]struct {
+		m       transcode.Measurement
+		encodes int
+		err     string
+	}{
+		"no measured decoder":       {transcode.Measurement{Tier: transcode.TierQSV}, 0, `the qsv plan decodes on the CPU ("cpu")`},
+		"a decoder that refuses it": {transcode.Measurement{Tier: transcode.TierQSV, Limits: transcode.Limits{VAAPI: decodes(false)}}, 0, "does not decode h264 10-bit"},
+		"a decoder that decodes it": {transcode.Measurement{Tier: transcode.TierQSV, Limits: transcode.Limits{VAAPI: decodes(true)}}, 1, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			sc := newSafetyCase(t, "sdr", "sdr")
+			dataDir := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(sc.local))))
+			m := c.m
+			out := Process(context.Background(), sc.tk, Options{DataDir: dataDir, Engine: sc.eng, Measurement: &m})
+			assert.Equal(t, c.encodes, sc.eng.encodes)
+			if c.err == "" {
+				require.NoError(t, out.Err)
+				return
+			}
+			require.Error(t, out.Err)
+			assert.Equal(t, ExitInvalidSource, out.Code, "%v", out.Err)
+			assert.Contains(t, out.Err.Error(), c.err)
+			sc.requireSourceUntouched(t)
+		})
+	}
+}

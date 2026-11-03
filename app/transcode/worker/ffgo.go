@@ -99,6 +99,12 @@ func (r *runner) ffgoJob(ctx context.Context, info transcode.MediaInfo, sw swap,
 	if plan.Decision == standard.DecisionSkip {
 		return encodeJob{}, invalidSource("transcode worker: live plan is skip (%s), not the work the controller planned", plan.Reason)
 	}
+	// A GPU pod decodes on its GPU or encodes nothing (owner, 2026-11-03):
+	// the standard plans a CPU decode on a GPU tier only with no measured
+	// decoder, which a pod that measured healthy always has.
+	if gpuTier(tier) && plan.Decision == standard.DecisionEncode && plan.Video.Decode != "nvdec" && plan.Video.Decode != "vaapi" {
+		return encodeJob{}, invalidSource("transcode worker: the %s plan decodes on the CPU (%q), and a GPU transcode never does", tier, plan.Video.Decode)
+	}
 	if r.t.PlanHash != "" {
 		got := plan.Hash()
 		trace.SpanFromContext(ctx).SetAttributes(attribute.Bool("transcode.plan_matches_recorded", got == r.t.PlanHash))

@@ -94,11 +94,41 @@ func TestNVENCDecodesOnNVDECWithTheArchivalSettings(t *testing.T) {
 	assert.Equal(t, map[string]string{"preset": "p7", "rc": "constqp", "qp": "23", "spatial-aq": "1", "temporal-aq": "1", "profile": "main"}, p.Video.Options)
 }
 
-func TestNVENCUploadsASourceNVDECCannotDecode(t *testing.T) {
+// A GPU tier decodes on its GPU or skips the file (owner, 2026-11-03:
+// "never falling back to cpu"): H.264 10-bit, which no GPU here decodes,
+// XviD, which Intel's do not, and a 4:4:4 stream, which no measured key
+// covers, were decoded in software and uploaded until then.
+func TestAGPUTierSkipsASourceItsGPUDoesNotDecode(t *testing.T) {
 	hi10p := video("h264", "yuv420p10le", 10, commonv1.HdrFormatNone)
-	p := Plan(info(hi10p, eac3), profile, nvenc)
-	assert.Equal(t, "upload", p.Video.Decode)
-	assert.Equal(t, "hwupload,scale_cuda=format=nv12", p.Video.Filter)
+	xvid := video("mpeg4", "yuv420p", 8, commonv1.HdrFormatNone)
+	hevc444 := video("hevc", "yuv444p10le", 10, commonv1.HdrFormatNone)
+	measured := transcode.Limits{VAAPI: &transcode.Decoders{Formats: map[string]bool{
+		"h264:8": true, "h264:10": false, "hevc:10": true,
+	}}}
+	for name, c := range map[string]struct {
+		v      transcode.VideoStream
+		hw     Hardware
+		reason string
+	}{
+		"H.264 10-bit on NVENC":  {hi10p, nvenc, "the nvenc tier's GPU does not decode h264 10-bit"},
+		"H.264 10-bit on QSV":    {hi10p, Hardware{Tier: transcode.TierQSV, Limits: measured}, "the qsv tier's GPU does not decode h264 10-bit"},
+		"XviD on QSV":            {xvid, Hardware{Tier: transcode.TierQSV, Limits: measured}, "the qsv tier's GPU does not decode mpeg4 8-bit"},
+		"4:4:4 HEVC on QSV":      {hevc444, Hardware{Tier: transcode.TierQSV, Limits: measured}, "does not decode hevc yuv444p10le"},
+		"H.264 10-bit on VA-API": {hi10p, Hardware{Tier: transcode.TierVAAPI, Limits: measured}, "the vaapi tier's GPU does not decode h264 10-bit"},
+		"XviD on NVENC (static)": {xvid, nvenc, "the nvenc tier's GPU does not decode mpeg4 8-bit"},
+	} {
+		p := Plan(info(c.v, eac3), profile, c.hw)
+		require.Equal(t, DecisionSkip, p.Decision, "%s: %s", name, p.Reason)
+		assert.Contains(t, p.Reason, c.reason, name)
+		assert.Contains(t, p.Reason, "a GPU transcode never decodes on the CPU", name)
+	}
+	// The CPU tier decodes on the CPU by design.
+	assert.Equal(t, DecisionEncode, Plan(info(hi10p, eac3), profile, cpu).Decision)
+	// An Intel tier with no measured decoder (a pod's own first trial)
+	// still plans the upload; the worker never runs such a plan.
+	p := Plan(info(hi10p, eac3), profile, Hardware{Tier: transcode.TierQSV})
+	require.Equal(t, DecisionEncode, p.Decision, p.Reason)
+	assert.Equal(t, "cpu", p.Video.Decode)
 }
 
 func TestIntelTiers(t *testing.T) {
@@ -124,11 +154,19 @@ func TestQSVDecodesOnVAAPIAFormatItsPodMeasured(t *testing.T) {
 	assert.Equal(t, "vaapi", p.Video.Decode)
 	assert.Equal(t, "hwmap=derive_device=qsv,format=qsv,vpp_qsv=format=nv12", p.Video.Filter)
 	assert.Equal(t, "hevc_qsv", p.Video.Encoder)
+}
 
-	hi10p := video("h264", "yuv420p10le", 10, commonv1.HdrFormatNone)
-	p = Plan(info(hi10p, eac3), profile, qsv)
-	assert.Equal(t, "cpu", p.Video.Decode)
-	assert.Equal(t, "hwupload=extra_hw_frames=64,vpp_qsv=format=nv12", p.Video.Filter, "an SDR 1080p target is 8-bit")
+// The VA-API tier decodes on the encoder's own device a format its pod
+// measured, the frames staying surfaces through scale_vaapi to hevc_vaapi.
+func TestVAAPIDecodesOnItsOwnDeviceAFormatItsPodMeasured(t *testing.T) {
+	vaapi := Hardware{Tier: transcode.TierVAAPI, Limits: transcode.Limits{
+		VAAPI: &transcode.Decoders{Formats: map[string]bool{"h264:8": true}},
+	}}
+	p := Plan(info(h264, eac3), profile, vaapi)
+	require.Equal(t, DecisionEncode, p.Decision, p.Reason)
+	assert.Equal(t, "hevc_vaapi", p.Video.Encoder)
+	assert.Equal(t, "vaapi", p.Video.Decode)
+	assert.Equal(t, "scale_vaapi=format=nv12", p.Video.Filter)
 }
 
 func TestQualityMapsPerEncoder(t *testing.T) {
@@ -362,7 +400,7 @@ func TestATranscodedElsewhereSourceIsRemuxedNeverEncoded(t *testing.T) {
 }
 
 func TestHDRAt1080pStaysMain10(t *testing.T) {
-	hdr := video("h264", "yuv420p10le", 10, commonv1.HdrFormatHDR10)
+	hdr := video("hevc", "yuv420p10le", 10, commonv1.HdrFormatHDR10)
 	for _, hw := range []Hardware{cpu, nvenc} {
 		p := Plan(info(hdr, eac3), profile, hw)
 		require.Equal(t, DecisionEncode, p.Decision)

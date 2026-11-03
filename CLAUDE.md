@@ -293,7 +293,7 @@ capped at `standard.NVENCMaxBitratePercent` (70) of it, else constant QP
 the GPU, for a source each pool worker's trial decodes (published as
 `clustarr-progress` `encoder-limits.<class>` `nvdec`, shown in
 TranscodeProfile `status.encoderLimits[].nvdec`) or else a static Turing
-list say NVDEC decodes; anything else decodes on the CPU and uploads. The
+list say NVDEC decodes. The
 QSV tier likewise decodes on the GPU, through VA-API on the pod's render
 node, its frames mapped to QSV (`hwmap=derive_device=qsv`) for `vpp_qsv` and
 `hevc_qsv` (`engine.Options.DecodeDevice`), but only a format its pod's
@@ -301,7 +301,25 @@ start-up trial measured (`transcode.VAAPIDecodes`, published as
 `encoder-limits.<class>` `vaapi`; no static list), and encodes at preset
 `medium` (2026-10-16, `hack/presetbench` on the NUC: decoding on the GPU made
 `veryslow` 4-6x faster, and `medium` halved that again at 1.8-5.4% more bytes
-and the same VMAF). A
+and the same VMAF); the VAAPI tier decodes on its encoder's own device
+(`scale_vaapi` into `hevc_vaapi`). **A GPU transcode decodes on the GPU or
+not at all** (owner, 2026-11-03: "Ensure that the transcode pods are
+*actually* using hardware decoding an encoding - never falling back to
+cpu"): a source the tier's GPU does not decode is Skipped ("the qsv tier's
+GPU does not decode mpeg4 8-bit, and a GPU transcode never decodes on the
+CPU"; `standard.gpuUndecodable`) where it was decoded in software and
+uploaded -- on talos the XviD episodes of Seinfeld and The Simpsons, the
+H.264 10-bit of Star Trek: Discovery S05 (which the `H264TenBit` cutoff
+replaces) and any 4:2:2 or 4:4:4 stream, which no measured key covers; a
+GPU tier whose decode device does not open, or whose trial decodes no
+sample format, fails its measurement (`measureTier`), so the pod reports
+unhealthy rather than decode on the CPU; the worker refuses a GPU plan
+that decodes on the CPU (`ffgoJob`), and the engine fails a GPU decode at
+its first frame in system memory, FFmpeg's silent fallback when the GPU's
+decoder refuses the stream (`engine/video.go`). Measured on talos-88 the
+same day through the processes' DRM fdinfo (`talosctl read
+/proc/<pid>/fdinfo/<fd>`): each Ted Lasso encode held the Arrow Lake's
+video engine 97% busy and video-enhance 35%, at about one CPU core. A
 pool pod measures its own device at start through ffgo
 (`inprocess.Engine.Measure`), takes no work while it is unusable, and
 publishes `healthy` beside its limits; no work goes to a GPU class whose

@@ -63,6 +63,7 @@ func videoStage(v standard.VideoPlan) stageFunc {
 			return fmt.Errorf("the plan decodes or filters on a GPU (%s, %q) and no device was opened", v.Decode, v.Filter)
 		}
 		dcfg := &ffgo.StreamDecoderConfig{}
+		gpuDecode := v.Decode == "nvdec" || v.Decode == "vaapi"
 		switch v.Decode {
 		case "nvdec":
 			dcfg = &ffgo.StreamDecoderConfig{HWDevice: sc.opts.HWDevice, ExtraHWFrames: nvdecExtraFrames}
@@ -136,6 +137,12 @@ func videoStage(v standard.VideoPlan) stageFunc {
 			return nil
 		}
 		filter := func(f ffgo.Frame) error {
+			// FFmpeg falls back to a software decoder when the GPU's refuses
+			// the stream, at the first frame or a mid-stream reinit; a GPU
+			// decode never continues on the CPU (owner, 2026-11-03).
+			if gpuDecode && f.HWFramesCtx() == nil {
+				return fmt.Errorf("the %s decoder returned a frame in system memory: the GPU did not decode this stream, and a GPU transcode never decodes on the CPU", v.Decode)
+			}
 			if graph == nil {
 				c, err := f.Clone()
 				if err != nil {

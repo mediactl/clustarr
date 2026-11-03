@@ -85,11 +85,11 @@ func (Engine) Encode(ctx context.Context, plan standard.Result, tier transcode.T
 	}
 	opts := engine.Options{HWDevice: dev, Progress: progress}
 	if plan.Video.Decode == "vaapi" {
-		dd, err := openDecodeDevice()
+		dd, closeDD, err := decodeDeviceFor(tier, dev)
 		if err != nil {
 			return transcode.EncodeResult{}, fmt.Errorf("%w: %s: the VA-API decode device: %w", transcode.ErrDeviceUnavailable, tier, err)
 		}
-		defer func() { _ = dd.Close() }()
+		defer closeDD()
 		opts.DecodeDevice = dd
 	}
 	res, err := engine.Run(ctx, plan, input, output, opts)
@@ -115,6 +115,21 @@ var openDecodeDevice = func() (*ffgo.HWDevice, error) {
 		return nil, errors.New("no Intel render node in this pod")
 	}
 	return ffgo.NewHWDevice(ffgo.HWDeviceTypeVAAPI, node)
+}
+
+// decodeDeviceFor is the VA-API device tier's "vaapi" decode runs on, and
+// how to release it: the VAAPI tier's encoder device itself, whose
+// surfaces scale_vaapi and hevc_vaapi take as they are; for QSV a device of
+// its own on the render node, mapped to QSV after decode.
+func decodeDeviceFor(tier transcode.Tier, dev *ffgo.HWDevice) (*ffgo.HWDevice, func(), error) {
+	if tier == transcode.TierVAAPI && dev != nil {
+		return dev, func() {}, nil
+	}
+	dd, err := openDecodeDevice()
+	if err != nil {
+		return nil, nil, err
+	}
+	return dd, func() { _ = dd.Close() }, nil
 }
 
 // openDevice opens the GPU a tier's plan decodes, filters or encodes on;

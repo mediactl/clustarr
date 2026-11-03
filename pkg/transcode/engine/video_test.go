@@ -136,6 +136,24 @@ func TestNVDECAndUploadPathsOnNVENC(t *testing.T) {
 	}
 }
 
+// A GPU decode never continues on the CPU (owner, 2026-11-03): NVDEC does
+// not decode H.264 10-bit, FFmpeg falls back to its software decoder, and
+// the first frame in system memory fails the job.
+func TestAGPUDecodeTheGPURefusesFailsRatherThanDecodeOnTheCPU(t *testing.T) {
+	ffmpeg9OrSkip(t)
+	dev, err := ffgo.NewHWDevice(ffgo.HWDeviceTypeCUDA, "")
+	if err != nil {
+		t.Skipf("no CUDA device: %v", err)
+	}
+	defer func() { _ = dev.Close() }()
+	hi10p := videoClip(t, "hi10p.mkv", "-pix_fmt", "yuv420p10le", "-c:v", "libx264", "-preset", "veryfast")
+	nv := map[string]string{"preset": "p7", "rc": "constqp", "qp": "23", "profile": "main10"}
+	_, err = Run(context.Background(), encodePlan(standard.VideoPlan{Encoder: "hevc_nvenc", Options: nv, Decode: "nvdec", Filter: "scale_cuda=format=p010le", HDR: "sdr"}),
+		hi10p, filepath.Join(t.TempDir(), "o.mkv"), Options{HWDevice: dev})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "the nvdec decoder returned a frame in system memory")
+}
+
 func TestAGPUPlanWithoutADeviceIsAnError(t *testing.T) {
 	src := videoClip(t, "h264.mkv", "-c:v", "libx264", "-preset", "veryfast")
 	_, err := Run(context.Background(), encodePlan(standard.VideoPlan{Encoder: "hevc_nvenc", Decode: "nvdec", Filter: "scale_cuda=format=p010le"}),
