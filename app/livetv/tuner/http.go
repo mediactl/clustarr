@@ -141,12 +141,12 @@ func (t *Tuner) serveDevice(w http.ResponseWriter, r *http.Request, p *provider,
 	sf := p.blocks[deviceID]
 	cfg, fetched, tuners := p.cfg, p.playlistFetched, effectiveTuners(p.cfg, p.account)
 	var (
-		entries []hdhr.LineupEntry
-		guide   []byte
-		block   BlockConfig
+		entries                []hdhr.LineupEntry
+		guideObject, guideHash string
+		block                  BlockConfig
 	)
 	if sf != nil {
-		entries, guide, block = sf.entries, sf.guideXML, sf.block
+		entries, guideObject, guideHash, block = sf.entries, sf.guideObject, sf.guideHash, sf.block
 	}
 	p.mu.Unlock()
 	if sf == nil {
@@ -168,11 +168,19 @@ func (t *Tuner) serveDevice(w http.ResponseWriter, r *http.Request, p *provider,
 		}
 		writeBody(w, "audio/x-mpegurl", withBase(playlistM3U(entries, t.logos(p), base), base))
 	case file == "xmltv.xml":
-		if cfg.EPGSource == "PMS" || guide == nil {
+		if cfg.EPGSource == "PMS" || guideObject == "" {
 			http.NotFound(w, r)
 			return
 		}
-		writeTagged(w, r, "application/xml", withBase(guide, base))
+		// Served from the store, read only past the ETag check: the guide
+		// is some tens of MB, kept in no memory between requests.
+		writeTaggedFrom(w, r, "application/xml", etagOf(guideHash), func() ([]byte, bool) {
+			b, ok := t.readGzip(r.Context(), guideObject)
+			if !ok {
+				return nil, false
+			}
+			return withBase(b, base), true
+		})
 	default:
 		t.serveCommon(w, r, p, device, file)
 	}
@@ -283,9 +291,19 @@ func (t *Tuner) rangeGuide(p *provider, rg channelRange) []byte {
 			chans = append(chans, lc)
 		}
 	}
-	loaded, from := p.loaded, p.guideFrom
+	from := p.guideFrom
+	loaded := map[string]xmltv.Guide{}
+	if p.guide.loaded {
+		loaded[GuideName] = p.guide.g
+	}
 	enricher := t.enricher(p)
 	p.mu.Unlock()
+	if g, ok := loaded[GuideName]; ok && g.Programmes == nil {
+		if programmes, ok := t.loadProgrammes(p); ok { // dropped after the render: read back
+			g.Programmes = programmes
+			loaded[GuideName] = g
+		}
+	}
 
 	var b bytes.Buffer
 	_ = buildGuide(&b, chans, loaded, from, guideDays, enricher)
@@ -335,10 +353,29 @@ func writeBody(w http.ResponseWriter, contentType string, b []byte) {
 // holds it.
 func writeTagged(w http.ResponseWriter, r *http.Request, contentType string, b []byte) {
 	sum := sha256.Sum256(b)
-	tag := `"` + hex.EncodeToString(sum[:16]) + `"`
+	writeTaggedFrom(w, r, contentType, `"`+hex.EncodeToString(sum[:16])+`"`, func() ([]byte, bool) { return b, true })
+}
+
+// etagOf is the ETag writeTagged derives for a body whose sha256 hex is
+// hash: its first 16 bytes.
+func etagOf(hash string) string {
+	if len(hash) > 32 {
+		hash = hash[:32]
+	}
+	return `"` + hash + `"`
+}
+
+// writeTaggedFrom is writeTagged with the body produced only past the ETag
+// check; a body that cannot be produced is a 503.
+func writeTaggedFrom(w http.ResponseWriter, r *http.Request, contentType, tag string, body func() ([]byte, bool)) {
 	w.Header().Set("ETag", tag)
 	if match := r.Header.Get("If-None-Match"); match != "" && strings.Contains(match, tag) {
 		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	b, ok := body()
+	if !ok {
+		http.Error(w, "the guide is not in the store", http.StatusServiceUnavailable)
 		return
 	}
 	writeBody(w, contentType, b)

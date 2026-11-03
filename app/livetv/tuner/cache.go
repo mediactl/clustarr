@@ -18,9 +18,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package tuner
 
 import (
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"io"
 	"net/url"
 	"slices"
 	"strings"
@@ -181,6 +183,42 @@ func (t *Tuner) loadCache(p *provider, c Config) {
 // guideIndex is g's AutoMap index, kept with the guide (guide.index).
 func guideIndex(g xmltv.Guide) *xmltv.Index {
 	return xmltv.NewIndex(map[string]xmltv.Guide{GuideName: g})
+}
+
+// loadProgrammes reads a provider's parsed programmes back from the guide
+// cache object: a render drops them once it has built the guides, so the
+// manager keeps only the guide's channels between renders.
+func (t *Tuner) loadProgrammes(p *provider) (map[string][]xmltv.Programme, bool) {
+	var g cachedGuide
+	if !t.readJSON(livetvstore.GuideCacheObject(p.key), &g) {
+		logging.FromContext(t.base).Warn("livetv: the guide cache object cannot be read; the guide is built without programmes until the next fetch", "provider", label(p.key))
+		return nil, false
+	}
+	return g.Guide.Programmes, true
+}
+
+// readGzip reads the gzip object name back whole, at most
+// livetvstore.MaxObjectBytes.
+func (t *Tuner) readGzip(ctx context.Context, name string) ([]byte, bool) {
+	if t.o.Store == nil {
+		return nil, false
+	}
+	_, rc, err := t.o.Store.Get(ctx, name)
+	if err != nil {
+		logging.FromContext(ctx).Warn("livetv: read object", "object", name, "err", err)
+		return nil, false
+	}
+	defer func() { _ = rc.Close() }()
+	zr, err := gzip.NewReader(io.LimitReader(rc, livetvstore.MaxObjectBytes))
+	if err != nil {
+		return nil, false
+	}
+	b, err := io.ReadAll(io.LimitReader(zr, livetvstore.MaxObjectBytes))
+	if err != nil {
+		logging.FromContext(ctx).Warn("livetv: read object", "object", name, "err", err)
+		return nil, false
+	}
+	return b, true
 }
 
 // readJSON decodes the gzip JSON object name into v.

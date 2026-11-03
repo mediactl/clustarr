@@ -1078,6 +1078,7 @@ func TestEveryStoredObjectDescribesItself(t *testing.T) {
 	assert.Equal(t, map[string]bool{
 		events.LiveTVMetaKindPlaylist: true, events.LiveTVMetaKindGuideCache: true,
 		events.LiveTVMetaKindGuideChannels: true, events.LiveTVMetaKindGuide: true, events.LiveTVMetaKindGuideIndex: true,
+		events.LiveTVMetaKindGuideBlock: true, // the second block's guide (the first holds the whole lineup)
 	}, kinds)
 }
 

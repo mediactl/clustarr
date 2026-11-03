@@ -62,6 +62,14 @@ func GuideObject(key types.NamespacedName) string {
 	return "guide/" + key.Namespace + "/" + key.Name
 }
 
+// GuideBlockObject is the object holding one block's rendered XEPG guide,
+// which its device serves (a block holding the whole lineup serves
+// GuideObject instead). The tuner keeps no rendered guide in memory
+// (2026-11-03: the whole-provider guide was 32 MB of the manager's heap).
+func GuideBlockObject(key types.NamespacedName, deviceID string) string {
+	return "guide-block/" + key.Namespace + "/" + key.Name + "/" + deviceID
+}
+
 // GuideIndexObject is the object holding a provider's guide index, the
 // compact form of its XEPG guide the ui's TV Guide reads.
 func GuideIndexObject(key types.NamespacedName) string {

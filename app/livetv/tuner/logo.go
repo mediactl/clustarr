@@ -76,6 +76,9 @@ func logoURL(number string) string { return logoPlaceholder + "/logos/" + number
 // withBase fills a rendered guide's or playlist's logo URLs with the
 // request's base.
 func withBase(b []byte, base string) []byte {
+	if !bytes.Contains(b, []byte(logoPlaceholder)) {
+		return b // a guide names no placeholder: no copy of its tens of MB
+	}
 	return bytes.ReplaceAll(b, []byte(logoPlaceholder), []byte(base))
 }
 

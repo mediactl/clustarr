@@ -157,10 +157,13 @@ type provider struct {
 	art *programmeArt
 	// lineup is the rendered lineup in number order, its URLs relative
 	// ("stream/<number>"); lineupChans is its channels for the guide, in the
-	// same order. loaded and guideFrom are the guide's other inputs.
+	// same order; guideFrom is the guide's start. The guide's programmes
+	// are not kept between renders (guide.g.Programmes is nil then): a
+	// render or a range reads them back from the guide cache object, and
+	// the rendered guides are served from the store (2026-11-03: the parsed
+	// programmes and the rendered guide were 84 MB of the manager's heap).
 	lineup      []hdhr.LineupEntry
 	lineupChans []xmltv.LineupChannel
-	loaded      map[string]xmltv.Guide
 	guideFrom   time.Time
 	// blocks are each block's rendered surface, by device ID.
 	blocks map[string]*surface
@@ -189,12 +192,19 @@ type surface struct {
 	block BlockConfig
 	// entries' URLs are relative ("stream/<number>"); a request's base is
 	// put in front, so the lineup follows the way Plex came.
-	entries               []hdhr.LineupEntry
-	guideXML              []byte
+	entries []hdhr.LineupEntry
+	// guideObject is the store object holding the block's rendered guide
+	// (livetvstore.GuideObject when the block holds the whole lineup, else
+	// GuideBlockObject); "" when the block serves no guide. guideHash is the
+	// guide's sha256, its ETag.
+	guideObject           string
 	lineupHash, guideHash string
 }
 
 type guide struct {
+	// g holds the guide's channels, and its programmes only from the
+	// fetch or cache load that parsed them until the next render consumes
+	// them (provider.lineup).
 	g      xmltv.Guide
 	loaded bool
 	// index is g's AutoMap index, built once when g lands: building it in

@@ -240,6 +240,7 @@ const (
 	LiveTVMetaKindGuideCache    = "guide-cache"
 	LiveTVMetaKindGuideChannels = "guide-channels"
 	LiveTVMetaKindGuide         = "guide"
+	LiveTVMetaKindGuideBlock    = "guide-block"
 	LiveTVMetaKindGuideIndex    = "guide-index"
 )
 

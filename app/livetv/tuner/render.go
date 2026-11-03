@@ -88,6 +88,11 @@ func (t *Tuner) render(p *provider) {
 	cfg := p.cfg
 	pms := cfg.EPGSource == "PMS"
 	fetched := p.playlistFetched
+	prevGuideHash := p.storedGuideHash
+	prevBlockHash := make(map[string]string, len(p.blocks))
+	for id, sf := range p.blocks {
+		prevBlockHash[id] = sf.guideHash
+	}
 
 	cands := filter.Candidates(p.entries, cfg.Filters)
 	candidate := make(map[string]m3u.Entry, len(cands))
@@ -101,8 +106,11 @@ func (t *Tuner) render(p *provider) {
 		}
 	}
 
+	// The channels alone decide the lineup; the programmes, dropped after
+	// each render, are read back below only for the builds.
 	loaded := map[string]xmltv.Guide{}
-	if p.guide.loaded {
+	guideLoaded := p.guide.loaded
+	if guideLoaded {
 		loaded[GuideName] = p.guide.g
 	}
 	ix := p.guide.index // built when the guide landed
@@ -202,31 +210,33 @@ func (t *Tuner) render(p *provider) {
 	enricher := t.enricher(p)
 	p.mu.Unlock()
 
+	if g := loaded[GuideName]; guideLoaded && !pms && fetched && g.Programmes == nil {
+		if programmes, ok := t.loadProgrammes(p); ok {
+			g.Programmes = programmes
+			loaded[GuideName] = g
+		}
+	}
+
 	// Split the lineup by block: a channel belongs to the block listing its
 	// number, else to the last block starting at or below it (spec §3.1).
 	blockEntries, blockChans := splitBlocks(cfg.Blocks, entries, lineupChans)
-	build := func(lc []xmltv.LineupChannel) []byte {
-		var b bytes.Buffer
-		_ = buildGuide(&b, lc, loaded, from, guideDays, enricher)
-		return b.Bytes()
-	}
-	// Each block's guide is built for its device; the whole provider's for
-	// the store, with its index (the ui reads both); a range's when it is
-	// first asked for.
-	var whole []byte
-	blockGuides := make([][]byte, len(cfg.Blocks))
+	var wholeHash string
+	blocks := make(map[string]*surface, len(cfg.Blocks))
+	blockStates := make([]BlockState, len(cfg.Blocks))
 	if !pms && fetched {
-		whole = build(lineupChans)
-		for i := range cfg.Blocks {
-			if len(blockChans[i]) == len(lineupChans) {
-				// The blocks partition the lineup, so a block as long as it
-				// holds all of it, in the same order: the same bytes, built
-				// once (the owner's one block had the guide built twice).
-				blockGuides[i] = whole
-				continue
-			}
-			blockGuides[i] = build(blockChans[i])
+		wholeHash = t.storeGuides(p, cfg, lineupChans, blockChans, loaded, from, enricher, prevGuideHash, prevBlockHash, blocks)
+	}
+	for i, b := range cfg.Blocks {
+		sf := blocks[b.DeviceID]
+		if sf == nil {
+			sf = &surface{block: b}
+			blocks[b.DeviceID] = sf
 		}
+		sf.entries = blockEntries[i]
+		if fetched {
+			sf.lineupHash = sha(hdhr.Lineup(sf.entries))
+		}
+		blockStates[i] = BlockState{Start: b.Start, Active: len(sf.entries), LineupHash: sf.lineupHash, GuideHash: sf.guideHash}
 	}
 	t.startArtLookups(p) // the titles the builds found no artwork for
 	logos := map[string]bool{}
@@ -242,28 +252,13 @@ func (t *Tuner) render(p *provider) {
 		p.mu.Unlock()
 		return
 	}
-	var putGuide bool
-	if whole != nil {
-		if h := sha(whole); h != p.storedGuideHash {
-			p.storedGuideHash, putGuide = h, true
-		}
+	if wholeHash != "" {
+		p.storedGuideHash = wholeHash
 	}
-	p.lineup, p.lineupChans, p.loaded, p.guideFrom = entries, lineupChans, loaded, from
+	p.lineup, p.lineupChans, p.guideFrom = entries, lineupChans, from
+	p.guide.g.Programmes = nil // the store's copy serves the next render
 	p.ranges = nil
 	p.streams, p.languages, p.logoSources = streams, languages, logoSources
-	blocks := make(map[string]*surface, len(cfg.Blocks))
-	blockStates := make([]BlockState, len(cfg.Blocks))
-	for i, b := range cfg.Blocks {
-		sf := &surface{block: b, entries: blockEntries[i], guideXML: blockGuides[i]}
-		if fetched {
-			sf.lineupHash = sha(hdhr.Lineup(sf.entries))
-		}
-		if sf.guideXML != nil {
-			sf.guideHash = sha(sf.guideXML)
-		}
-		blocks[b.DeviceID] = sf
-		blockStates[i] = BlockState{Start: b.Start, Active: len(sf.entries), LineupHash: sf.lineupHash, GuideHash: sf.guideHash}
-	}
 	p.blocks = blocks
 
 	pl := p.playlist
@@ -300,7 +295,30 @@ func (t *Tuner) render(p *provider) {
 	if putPlaylist {
 		t.putPlaylistCache(t.base, p, cfg, plHash, plFetched, playlistEntries)
 	}
-	if putGuide {
+	if notify {
+		t.o.Notify(p.key)
+	}
+}
+
+// storeGuides builds the provider's guide and each block's, stores the
+// ones whose hash moved (the whole guide with its index for the ui, a
+// block's under its own object unless it holds the whole lineup, which is
+// the same bytes built once), and names each block's object and hash in
+// blocks. Nothing built outlives the call: the devices serve the guides
+// from the store, and the manager keeps no rendered guide (2026-11-03: the
+// whole guide was 32 MB of its heap). It returns the whole guide's hash.
+func (t *Tuner) storeGuides(p *provider, cfg Config, lineupChans []xmltv.LineupChannel, blockChans [][]xmltv.LineupChannel,
+	loaded map[string]xmltv.Guide, from time.Time, enricher *xmltv.Enricher, prevGuideHash string, prevBlockHash map[string]string,
+	blocks map[string]*surface,
+) string {
+	build := func(lc []xmltv.LineupChannel) []byte {
+		var b bytes.Buffer
+		_ = buildGuide(&b, lc, loaded, from, guideDays, enricher)
+		return b.Bytes()
+	}
+	whole := build(lineupChans)
+	wholeHash := sha(whole)
+	if wholeHash != prevGuideHash {
 		t.putGzip(t.base, livetvstore.GuideObject(p.key), whole, "application/xml")
 		if ix, err := livetvstore.IndexGuide(bytes.NewReader(whole), from); err != nil {
 			logging.FromContext(t.base).Warn("livetv: index the guide; the ui's TV Guide keeps the last index", "provider", label(p.key), "error", err)
@@ -308,9 +326,23 @@ func (t *Tuner) render(p *provider) {
 			t.putJSON(t.base, livetvstore.GuideIndexObject(p.key), ix)
 		}
 	}
-	if notify {
-		t.o.Notify(p.key)
+	for i, b := range cfg.Blocks {
+		sf := &surface{block: b}
+		if len(blockChans[i]) == len(lineupChans) {
+			// The blocks partition the lineup, so a block as long as it holds
+			// all of it, in the same order: the same bytes, built once (the
+			// owner's one block had the guide built twice).
+			sf.guideObject, sf.guideHash = livetvstore.GuideObject(p.key), wholeHash
+		} else {
+			g := build(blockChans[i])
+			sf.guideObject, sf.guideHash = livetvstore.GuideBlockObject(p.key, b.DeviceID), sha(g)
+			if sf.guideHash != prevBlockHash[b.DeviceID] {
+				t.putGzip(t.base, sf.guideObject, g, "application/xml")
+			}
+		}
+		blocks[b.DeviceID] = sf
 	}
+	return wholeHash
 }
 
 // renderDone ends p's render and schedules the one asked for while it ran.
