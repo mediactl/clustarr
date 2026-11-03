@@ -88,6 +88,16 @@ func TestAnIdleEpisodeIsSkippedAtAManagersStart(t *testing.T) {
 			return e
 		}, series(true), false},
 		{"no series in the cache", func() *catalogv1alpha1.Episode { return base(catalogv1alpha1.EpisodePhaseUnmonitored) }, nil, false},
+		{"still carrying a condition retired on 2026-11-03", func() *catalogv1alpha1.Episode {
+			e := base(catalogv1alpha1.EpisodePhaseTranscoded)
+			e.Status.Conditions = []metav1.Condition{{Type: "CutoffMet", Status: metav1.ConditionTrue, Reason: "Transcoded"}}
+			return e
+		}, series(true), false},
+		{"carrying Ready alone", func() *catalogv1alpha1.Episode {
+			e := base(catalogv1alpha1.EpisodePhaseTranscoded)
+			e.Status.Conditions = []metav1.Condition{{Type: "Ready", Status: metav1.ConditionTrue}}
+			return e
+		}, series(true), true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			assert.Equal(t, tc.idle, idleAtStart(tc.ep(), tc.series))

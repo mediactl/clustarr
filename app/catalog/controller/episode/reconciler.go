@@ -190,6 +190,15 @@ func idleAtStart(ep *catalogv1alpha1.Episode, series *catalogv1alpha1.Series) bo
 		(st.Audio != nil && len(st.Audio.Missing) > 0) {
 		return false
 	}
+	for i := range st.Conditions {
+		if retiredEpisodeConditions[st.Conditions[i].Type] {
+			// Still carrying a condition retired on 2026-11-03: one pass
+			// drops it (and 1 KB of the cache), then the episode is idle
+			// again. Every episode gets that pass in the first start's
+			// low-priority drain, never through a sweep of its own.
+			return false
+		}
+	}
 	monitored := ptr.Deref(ep.Spec.Monitored, true) && ptr.Deref(series.Spec.Monitored, true)
 	switch st.Phase {
 	case catalogv1alpha1.EpisodePhaseUnmonitored:
