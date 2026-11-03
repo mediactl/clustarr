@@ -146,17 +146,25 @@ func Fetch(ctx context.Context, hc *http.Client, url, etag string) (rec Record, 
 	return rec, false, nil
 }
 
-// Index answers an item's State from the list it last read.
+// Index answers an item's State from the list it last read, and keeps what
+// changed since TakeChange last ran, so the items whose State moved are
+// planned again (the remediation loop's dubs source): an item's policy is
+// read only when something wakes it.
 type Index struct {
 	mu                 sync.RWMutex
 	dubbed, incomplete map[int]struct{}
 	loaded             bool
+	// pendingAll is the first list read: every anime moved from
+	// Ungoverned. pending are the MAL ids whose State moved since.
+	pendingAll bool
+	pending    map[int]struct{}
+	signal     chan struct{}
 }
 
 // NewIndex is an Index that has read no list: every item Ungoverned.
-func NewIndex() *Index { return &Index{} }
+func NewIndex() *Index { return &Index{signal: make(chan struct{}, 1)} }
 
-// Set replaces the index's list with r's.
+// Set replaces the index's list with r's, noting what changed.
 func (ix *Index) Set(r Record) {
 	d := make(map[int]struct{}, len(r.Dubbed))
 	for _, id := range r.Dubbed {
@@ -167,8 +175,72 @@ func (ix *Index) Set(r Record) {
 		in[id] = struct{}{}
 	}
 	ix.mu.Lock()
+	changed := !ix.loaded
+	if changed {
+		ix.pendingAll = true
+	} else {
+		changed = ix.notePending(ix.dubbed, d) || changed
+		changed = ix.notePending(d, ix.dubbed) || changed
+		changed = ix.notePending(ix.incomplete, in) || changed
+		changed = ix.notePending(in, ix.incomplete) || changed
+	}
 	ix.dubbed, ix.incomplete, ix.loaded = d, in, true
 	ix.mu.Unlock()
+	if changed {
+		select {
+		case ix.signal <- struct{}{}:
+		default: // a change is already signalled; TakeChange reads them all
+		}
+	}
+}
+
+// notePending records the ids of a missing from b; it holds ix.mu.
+func (ix *Index) notePending(a, b map[int]struct{}) bool {
+	moved := false
+	for id := range a {
+		if _, ok := b[id]; !ok {
+			if ix.pending == nil {
+				ix.pending = map[int]struct{}{}
+			}
+			ix.pending[id] = struct{}{}
+			moved = true
+		}
+	}
+	return moved
+}
+
+// Changes signals (at most one pending) that the list changed since
+// TakeChange last ran. A nil index never signals.
+func (ix *Index) Changes() <-chan struct{} {
+	if ix == nil {
+		return nil
+	}
+	return ix.signal
+}
+
+// TakeChange is what changed since it last ran: all when the index read its
+// first list (every anime left Ungoverned), else the MAL ids whose State
+// moved.
+func (ix *Index) TakeChange() (all bool, ids map[int]struct{}) {
+	ix.mu.Lock()
+	defer ix.mu.Unlock()
+	all, ids = ix.pendingAll, ix.pending
+	ix.pendingAll, ix.pending = false, nil
+	return all, ids
+}
+
+// Moved reports whether malID's State is among a change TakeChange
+// returned.
+func Moved(all bool, ids map[int]struct{}, malID string) bool {
+	if all {
+		return true
+	}
+	id, err := strconv.Atoi(malID)
+	if err != nil {
+		return false
+	}
+	_, ok := ids[id]
+	return ok
 }
 
 // Lookup is an anime's State by its MAL id ("" when it has none):

@@ -24,6 +24,7 @@ import (
 	"k8s.io/client-go/util/workqueue"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/priorityqueue"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/source"
@@ -34,6 +35,7 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/controller/series"
 	cataloghistory "github.com/mediactl/clustarr/app/catalog/history"
 	"github.com/mediactl/clustarr/app/dispatch"
+	"github.com/mediactl/clustarr/pkg/dubs"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
@@ -76,6 +78,11 @@ func (ir *ItemReconciler) sources(mgr ctrl.Manager) ([]Source, error) {
 		out = append(out, Source{Name: "ledger", Raw: &chanSource[dispatch.Key]{
 			ch: ir.Dispatch.Wakes(), toKey: ledgerKey, priority: PriorityUser,
 		}})
+	}
+	if ir.Dubs != nil {
+		// The MAL-Dubs list changed (pkg/dubs): the anime whose English it
+		// moved are planned again, their audio policy with them.
+		out = append(out, Source{Name: "dubs", Raw: &dubSource{ix: ir.Dubs, c: c}})
 	}
 	for _, s := range ir.Stages {
 		w, ok := s.(Watcher)
@@ -262,6 +269,97 @@ func coveredIssueKeys(ctx context.Context, c client.Reader, co *catalogv1alpha1.
 	}
 	return out
 }
+
+// dubSource wakes, at handler.LowPriority, the items whose English the
+// MAL-Dubs list's last change moved (dubs.Index.TakeChange): an anime Movie,
+// and an anime Series with its Episodes, whose passes resolve their audio
+// policy (decision.ForDub) and decide status.audio and the cutoff. The
+// first list read moves every anime from Ungoverned; on talos that was 508
+// series and 28 films, whose state no other change would have woken.
+type dubSource struct {
+	ix *dubs.Index
+	c  client.Reader
+}
+
+var _ source.TypedSource[Key] = (*dubSource)(nil)
+
+// Start implements source.TypedSource.
+func (s *dubSource) Start(ctx context.Context, q workqueue.TypedRateLimitingInterface[Key]) error {
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-s.ix.Changes():
+				all, ids := s.ix.TakeChange()
+				keys := s.keys(ctx, all, ids)
+				if pq, ok := q.(priorityqueue.PriorityQueue[Key]); ok && len(keys) > 0 {
+					pq.AddWithOpts(priorityqueue.AddOpts{Priority: new(handler.LowPriority)}, keys...)
+					continue
+				}
+				for _, k := range keys {
+					q.Add(k)
+				}
+			}
+		}
+	}()
+	return nil
+}
+
+// keys are the anime items a change moved: all of them, or those whose MAL
+// id is among ids.
+func (s *dubSource) keys(ctx context.Context, all bool, ids map[int]struct{}) []Key {
+	log := logging.FromContext(ctx)
+	var out []Key
+	var anime catalogv1alpha1.SeriesList
+	if err := s.c.List(ctx, &anime); err != nil {
+		log.Warn("remediation: the MAL-Dubs source could not list the series", "error", err)
+	}
+	for i := range anime.Items {
+		sr := &anime.Items[i]
+		if sr.Spec.SeriesType != catalogv1alpha1.SeriesTypeAnime || !dubs.Moved(all, ids, malOf(sr.Status.Metadata)) {
+			continue
+		}
+		out = append(out, Key{Kind: KindSeries, Namespace: sr.Namespace, Name: sr.Name})
+		var eps catalogv1alpha1.EpisodeList
+		if err := s.c.List(ctx, &eps, client.InNamespace(sr.Namespace), client.MatchingFields{series.EpisodeBySeriesRefIndex: sr.Name}); err != nil {
+			log.Warn("remediation: the MAL-Dubs source could not list a series' episodes", "series", sr.Name, "error", err)
+			continue
+		}
+		for j := range eps.Items {
+			out = append(out, Key{Kind: KindEpisode, Namespace: eps.Items[j].Namespace, Name: eps.Items[j].Name})
+		}
+	}
+	var movies catalogv1alpha1.MovieList
+	if err := s.c.List(ctx, &movies); err != nil {
+		log.Warn("remediation: the MAL-Dubs source could not list the movies", "error", err)
+	}
+	for i := range movies.Items {
+		m := &movies.Items[i]
+		if c := m.Status.Classification; c == nil || !c.Anime {
+			continue
+		}
+		var mal string
+		if md := m.Status.Metadata; md != nil {
+			mal = md.ExternalIDs["mal"]
+		}
+		if dubs.Moved(all, ids, mal) {
+			out = append(out, Key{Kind: KindMovie, Namespace: m.Namespace, Name: m.Name})
+		}
+	}
+	return out
+}
+
+// malOf is a series' MAL id, "" when it has none.
+func malOf(md *catalogv1alpha1.SeriesMetadata) string {
+	if md == nil {
+		return ""
+	}
+	return md.ExternalIDs["mal"]
+}
+
+// String implements fmt.Stringer for the controller's logs.
+func (s *dubSource) String() string { return "remediation MAL-Dubs source" }
 
 // chanSource adapts a leader-local wake channel to a loop source: each
 // value maps to a key, added at priority.

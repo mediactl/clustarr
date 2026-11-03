@@ -189,3 +189,36 @@ func TestTheIndexWatchesTheBucket(t *testing.T) {
 	assert.Equal(t, ix, From(WithIndex(ctx, ix)))
 	assert.Nil(t, From(ctx))
 }
+
+// The first list moves every anime from Ungoverned; after it, only the ids
+// whose State moved are noted, and a list read again unchanged signals
+// nothing, so the loop wakes only what changed.
+func TestTheIndexNotesWhatMoved(t *testing.T) {
+	ix := NewIndex()
+	signalled := func() bool {
+		select {
+		case <-ix.Changes():
+			return true
+		default:
+			return false
+		}
+	}
+	ix.Set(Record{Dubbed: []int{1, 5}, Incomplete: []int{8}})
+	require.True(t, signalled())
+	all, ids := ix.TakeChange()
+	assert.True(t, all, "the first list moves every anime")
+	assert.Empty(t, ids)
+
+	ix.Set(Record{Dubbed: []int{1, 5}, Incomplete: []int{8}})
+	assert.False(t, signalled(), "the same list again moves nothing")
+
+	ix.Set(Record{Dubbed: []int{1, 8}, Incomplete: []int{9}}) // 5 dropped, 8 finished, 9 started
+	require.True(t, signalled())
+	all, ids = ix.TakeChange()
+	assert.False(t, all)
+	assert.Equal(t, map[int]struct{}{5: {}, 8: {}, 9: {}}, ids)
+	assert.True(t, Moved(all, ids, "8"))
+	assert.False(t, Moved(all, ids, "1"))
+	assert.False(t, Moved(all, ids, ""), "an anime without a MAL id moves only with the first list")
+	assert.True(t, Moved(true, nil, ""))
+}

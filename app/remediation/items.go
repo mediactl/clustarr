@@ -47,6 +47,7 @@ import (
 	cataloghistory "github.com/mediactl/clustarr/app/catalog/history"
 	"github.com/mediactl/clustarr/app/dispatch"
 	"github.com/mediactl/clustarr/app/intake"
+	"github.com/mediactl/clustarr/pkg/dubs"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -80,6 +81,9 @@ type ItemReconciler struct {
 	// WantedWakes are wantedcron's sweep: every candidate item, enqueued at
 	// handler.LowPriority so the search planner looks at it (§7.3).
 	WantedWakes <-chan schema.ItemRef
+	// Dubs is the process's MAL-Dubs index: its changes wake the anime they
+	// move (dubSource). Nil wakes none.
+	Dubs *dubs.Index
 	// Client writes the item's finalizer, the other managers' sets and the
 	// effects' objects.
 	Client client.Client

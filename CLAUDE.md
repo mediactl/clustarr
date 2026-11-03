@@ -1243,7 +1243,11 @@ id, or one the list does not name); anything else, and every item before a
 list was read, is `Ungoverned`. `decision.ForDub` makes the state the item's
 audio policy wherever its profile is resolved (`itemread.ItemProfile`, the
 Episode and Movie reconcilers, the downloads stage, the search worker's
-snapshot, the RSS matcher): NotDubbed drops English from the languages the
+snapshot, the RSS matcher), and the remediation loop's `dubs` source
+(`dubSource`) re-plans at low priority the anime a list change moved -- every
+one on the first list a process reads, then those whose MAL id changed
+state -- since nothing else wakes an item when the list changes (rev 177
+loaded the list and moved none of 864 not-dubbed episodes): NotDubbed drops English from the languages the
 policy wants, so no dub, donor or dual-audio release is searched for or
 ranked first; Incomplete moves it to `quality.Profile.AudioOptional`, so a
 file without it meets the cutoff and a release without it is not refused,

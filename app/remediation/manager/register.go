@@ -59,6 +59,7 @@ import (
 	"github.com/mediactl/clustarr/app/transcode/controller/pool"
 	"github.com/mediactl/clustarr/app/transcode/task"
 	"github.com/mediactl/clustarr/app/transcode/transcodeplan"
+	"github.com/mediactl/clustarr/pkg/dubs"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/objindex"
 	"github.com/mediactl/clustarr/pkg/events/schema"
@@ -96,7 +97,10 @@ type Options struct {
 	// sweep, the first-time live donor budget it refills, and the
 	// live-search pace per namespace (--search-live-per-minute; 0 is the
 	// default rate).
-	WantedWakes         <-chan schema.ItemRef
+	WantedWakes <-chan schema.ItemRef
+	// Dubs is the process's MAL-Dubs index, whose changes wake the anime
+	// they move.
+	Dubs                *dubs.Index
 	DonorBudget         *searchplan.DonorBudget
 	SearchLivePerMinute int
 
@@ -191,6 +195,7 @@ func Register(mgr ctrl.Manager, bus events.Bus, o Options) error {
 		Env:      env,
 		Dispatch: o.Dispatch, Book: o.Book, Inbox: o.Inbox, DeliveryWakes: o.DeliveryWakes,
 		WantedWakes: o.WantedWakes,
+		Dubs:        o.Dubs,
 		Client:      mgr.GetClient(),
 		Recorder:    recorder,
 		// The import materialisation's MediaFile spec writer (A3.8): the

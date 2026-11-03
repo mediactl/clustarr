@@ -183,7 +183,7 @@ func Run(ctx context.Context, o Options) error {
 	}
 
 	// 8. Every component, in a fixed order.
-	components, err := register(mgr, bus, o)
+	components, err := register(mgr, bus, o, dubIndex)
 	if err != nil {
 		return err
 	}
@@ -254,6 +254,9 @@ type planes struct {
 	// refills (§7.3).
 	wanted chan schema.ItemRef
 	budget *searchplan.DonorBudget
+	// dubs is the MAL-Dubs index on the root context, whose changes wake
+	// the anime they move.
+	dubs *dubs.Index
 }
 
 // wantedWakeBuffer is the wantedcron sweep's channel buffer: the sweep
@@ -338,11 +341,12 @@ func newScanApplier(mgr ctrl.Manager, bus events.Bus, o Options) *scanapply.Appl
 // remediation, livetv (Live TV spec 2026-10-07), then autoscale. The
 // admission and intake planes come first: the components that dispatch
 // take them.
-func register(mgr ctrl.Manager, bus events.Bus, o Options) ([]string, error) {
+func register(mgr ctrl.Manager, bus events.Bus, o Options, dubIndex *dubs.Index) ([]string, error) {
 	p, err := newPlanes(mgr, bus, o)
 	if err != nil {
 		return nil, err
 	}
+	p.dubs = dubIndex
 	// The object-store maintenance loop (ADR-0020 §5): leader-only, the
 	// orphan purge over every object store of the topology on the artwork
 	// reaper's cadence and grace.
@@ -400,6 +404,7 @@ func register(mgr ctrl.Manager, bus events.Bus, o Options) ([]string, error) {
 				Artwork: p.artwork,
 				// The search planner's (A4.2).
 				WantedWakes: p.wanted, DonorBudget: p.budget, SearchLivePerMinute: o.SearchLivePerMinute,
+				Dubs:                p.dubs,
 				SubtitleProfileWake: wake.Signal,
 				Ledger:              ledger,
 				// A standalone graft Job runs on the cpu pool's pod template
