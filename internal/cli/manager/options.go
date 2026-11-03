@@ -116,6 +116,11 @@ type Options struct {
 	// paced.
 	SearchLivePerMinute int
 
+	// BalanceNATSLeaders spreads the replicated JetStream streams' and
+	// durables' leaders over the NATS servers by measured load
+	// (natsbus.Bus.BalanceLeaders); single-node NATS has none to spread.
+	BalanceNATSLeaders bool
+
 	Autoscale                  bool
 	ExternalMetricsBindAddress string
 	ExternalMetricsService     string
@@ -153,6 +158,7 @@ func DefaultOptions() Options {
 	o.RemediationBulkWritesPerSecond = remediation.DefaultBulkWritesPerSecond
 	o.RemediationIOWorkers = remediation.DefaultIOWorkers
 	o.SearchLivePerMinute = records.DefaultRates()[records.PaceSearch]
+	o.BalanceNATSLeaders = true
 	o.Autoscale = true
 	o.ExternalMetricsBindAddress, o.ExternalMetricsService, o.ExternalMetricsSecret = ":6443", "external-metrics", "external-metrics-tls"
 	o.LiveTVBindAddress, o.LiveTVService = ":5004", "livetv"

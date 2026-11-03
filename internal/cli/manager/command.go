@@ -151,6 +151,10 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 	fs.IntVar(&d.SearchLivePerMinute, "search-live-per-minute", d.SearchLivePerMinute,
 		"Live automatic searches the search planner dispatches per minute per namespace (1 or more): a pool of "+
 			"searches is never fired at an indexer in one burst. Index-only searches, which ask no indexer, are not paced.")
+	fs.BoolVar(&d.BalanceNATSLeaders, "nats-balance-leaders", d.BalanceNATSLeaders,
+		"Spread the replicated JetStream streams' and durables' leaders over the NATS servers by measured load "+
+			"(traffic, stored bytes and count), at the manager's start and once a NATS restart's leader elections "+
+			"settle. Ignored with --nats-single-node.")
 
 	fs.BoolVar(&d.Autoscale, "autoscale", d.Autoscale,
 		"Scale the autoscaled agent domains with HPAs the manager renders, fed by its own External Metrics API. "+

@@ -445,6 +445,33 @@ var (
 		"Messages dropped from a core subscription's buffer as a slow consumer, by subscription.",
 		"subscription",
 	)
+
+	// NATSLeaders is how many replicated streams and durables each NATS
+	// server leads, by server and kind (stream, consumer), as the manager's
+	// leader balancer last sampled them.
+	NATSLeaders = newGaugeVec(
+		"clustarr_nats_leaders",
+		"Replicated JetStream streams and durables each NATS server leads, by server and kind.",
+		"server", "kind",
+	)
+
+	// NATSLeaderLoadRatio is each NATS server's share (0 to 1) of the
+	// measured JetStream work it leads: traffic, stored bytes and assets, a
+	// third each (natsbus leader balancing). Even is 1/servers.
+	NATSLeaderLoadRatio = newGaugeVec(
+		"clustarr_nats_leader_load_ratio",
+		"Share of the measured JetStream work each NATS server leads, by server.",
+		"server",
+	)
+
+	// NATSLeaderMovesTotal counts the leader balancer's leadership moves,
+	// by kind (stream, consumer) and result: moved, elsewhere (another
+	// follower took it), unconfirmed, refused or failed.
+	NATSLeaderMovesTotal = newCounterVec(
+		"clustarr_nats_leader_moves_total",
+		"JetStream leadership moves the manager's leader balancer made, by kind and result.",
+		"kind", "result",
+	)
 )
 
 // Controller telemetry, shared by every reconciler alongside

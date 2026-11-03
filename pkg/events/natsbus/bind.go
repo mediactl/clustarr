@@ -79,9 +79,14 @@ func consumerGone(err error) bool {
 		errors.Is(err, jetstream.ErrNoHeartbeat)
 }
 
-// benignFetchError is a Fetch that ended without messages: it expired, or
-// its context ended.
+// benignFetchError is a Fetch that ended without messages: it expired, its
+// context ended, or the durable's leader moved under it (the 409 "Leadership
+// Change" nats.go reports as ErrConsumerLeadershipChanged), after which the
+// next pull reaches the new leader at once. The manager moves leaders to
+// balance the servers ([Bus.BalanceLeaders]), so that last one is routine,
+// not a failure to log and wait out.
 func benignFetchError(err error) bool {
 	return errors.Is(err, nats.ErrTimeout) || errors.Is(err, jetstream.ErrNoMessages) ||
-		errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled)
+		errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) ||
+		errors.Is(err, jetstream.ErrConsumerLeadershipChanged)
 }

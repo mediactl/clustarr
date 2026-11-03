@@ -1409,6 +1409,21 @@ Until the guard lands, review holds the invariant; drop the mark when it does.
   `busconn.KeepTopology` after a NATS restart). `Subscribe` binds its durable and
   its dead-letter watcher and never creates either, so an older agent can never
   revert a newer topology (`TestEveryConsumerHasExactlyOneHome`†).
+  The leader also spreads the JetStream leaders, which nats-server never
+  moves once elected (`natsbus.Bus.BalanceLeaders`, `--nats-balance-leaders`;
+  owner, 2026-11-03).
+  - **Weights are measured, not declared:** a third traffic (appends or
+    deliveries per second, an hourly EWMA), a third stored bytes, a third
+    being one more RAFT group.
+  - **When it runs:** a pass runs at the manager's start and once leader
+    elections it did not ask for settle (the account's `LEADER_ELECTED`
+    advisories: a NATS restart).
+  - **How it moves:** account-level stepdowns to a named, current follower.
+  - **What it can't move:** the meta leader needs the system account, which
+    clustarr holds none of.
+  - **Clients:** a durable whose leader moves ends a waiting pull with
+    `ErrConsumerLeadershipChanged`, which the subscription loop treats as
+    routine.
 - **One domain per agent process.** `--domain` takes exactly one name; there is
   no `all` (`TestEveryAgentDeploymentRunsOneDomain`†).
 - **Every container names its binary** (`pkg/binpath`); no image has an

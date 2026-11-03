@@ -133,6 +133,15 @@ func Run(ctx context.Context, o Options) error {
 	})); err != nil {
 		return fmt.Errorf("manager: add the dead-letter watcher: %w", err)
 	}
+	// The leader also spreads the JetStream leaders over the NATS servers,
+	// which nats-server never moves once elected (owner, 2026-11-03).
+	if o.BalanceNATSLeaders && !o.BusSingleNode {
+		if err := mgr.Add(k8s.LeaderOnly(func(ctx context.Context) error {
+			return bus.BalanceLeaders(ctx, top, natsbus.DefaultLeaderBalance())
+		})); err != nil {
+			return fmt.Errorf("manager: add the NATS leader balancer: %w", err)
+		}
+	}
 	if err := mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
 		return groups.Run(ctx, bus.KV(events.BucketReleaseGroups))
 	})); err != nil {
