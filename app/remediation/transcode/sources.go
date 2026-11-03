@@ -31,9 +31,11 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/remediation"
+	"github.com/mediactl/clustarr/app/remediation/mfindex"
 	"github.com/mediactl/clustarr/app/transcode/transcodeplan"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/k8s/rowcache"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/records/recordsource"
 )
@@ -44,7 +46,9 @@ import (
 // S22 (admission's grants, directives and changed wait reasons, at
 // admission.GrantPriority) and S17 (clustarr-transcodes' answers).
 func (a *Adapter) Sources(mgr ctrl.Manager) ([]remediation.Source, error) {
-	c := mgr.GetClient()
+	// The cache itself, not the client over it: the fan-out reads keys
+	// through rowcache.Keys, which the cache answers without decoding.
+	c := mgr.GetCache()
 	low := func(ctx context.Context, q workqueue.TypedRateLimitingInterface[remediation.Key]) {
 		videoFilesLow(ctx, c, q)
 	}
@@ -77,18 +81,19 @@ func (a *Adapter) Sources(mgr ctrl.Manager) ([]remediation.Source, error) {
 	}...), nil
 }
 
-// videoFilesLow enqueues every movie and episode file at handler.LowPriority.
+// videoFilesLow enqueues every movie and episode file at handler.LowPriority,
+// by key through the MediaKind index: no file is decoded (2026-11-03: each
+// TranscodeProfile's event at the manager's start decoded all 14,600).
 func videoFilesLow(ctx context.Context, c client.Reader, q workqueue.TypedRateLimitingInterface[remediation.Key]) {
-	var files catalogv1alpha1.MediaFileList
-	if err := c.List(ctx, &files, client.UnsafeDisableDeepCopy); err != nil {
-		logging.FromContext(ctx).Error("transcode: list MediaFiles for a TranscodeProfile change", "err", err)
-		return
-	}
-	keys := make([]remediation.Key, 0, len(files.Items))
-	for i := range files.Items {
-		mf := &files.Items[i]
-		if transcodeplan.EligibleKind(mf.Spec.MediaRef.Kind) {
-			keys = append(keys, remediation.Key{Kind: remediation.KindMediaFile, Namespace: mf.Namespace, Name: mf.Name})
+	var keys []remediation.Key
+	for _, kind := range transcodeplan.EligibleKinds() {
+		nns, err := rowcache.Keys(ctx, c, &catalogv1alpha1.MediaFileList{}, client.MatchingFields{mfindex.MediaKind: string(kind)})
+		if err != nil {
+			logging.FromContext(ctx).Error("transcode: list MediaFiles for a TranscodeProfile change", "kind", kind, "err", err)
+			return
+		}
+		for _, nn := range nns {
+			keys = append(keys, remediation.Key{Kind: remediation.KindMediaFile, Namespace: nn.Namespace, Name: nn.Name})
 		}
 	}
 	if pq, ok := q.(priorityqueue.PriorityQueue[remediation.Key]); ok {

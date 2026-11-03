@@ -44,8 +44,15 @@ const DownloadRef = "remediation.mediafile.downloadref"
 // the files of a namespace through it.
 const Subtitles = "remediation.mediafile.subtitles"
 
+// MediaKind indexes a MediaFile by spec.mediaRef.kind ("movie", "episode",
+// ...): the profile fan-outs (S12, S13) wake every video file through it
+// as metadata, without decoding the files (pkg/k8s/rowcache.Metadata;
+// 2026-11-03, after three such fan-outs decoded every MediaFile at the
+// manager's start).
+const MediaKind = "remediation.mediafile.kind"
+
 // Register registers the loop's MediaFile indexes on idx: UID, Item,
-// DownloadRef and Subtitles. A
+// DownloadRef, Subtitles and MediaKind. A
 // second registration on one cache is an "indexer conflict", so only
 // remediation.RegisterIndexes calls it in a process, and tests that run a
 // reader without the loop.
@@ -78,6 +85,15 @@ func Register(ctx context.Context, idx client.FieldIndexer) error {
 		return []string{"true"}
 	}); err != nil {
 		return fmt.Errorf("mfindex: register %s: %w", Subtitles, err)
+	}
+	if err := idx.IndexField(ctx, &catalogv1alpha1.MediaFile{}, MediaKind, func(o client.Object) []string {
+		mf, ok := o.(*catalogv1alpha1.MediaFile)
+		if !ok || mf.Spec.MediaRef.Kind == "" {
+			return nil
+		}
+		return []string{string(mf.Spec.MediaRef.Kind)}
+	}); err != nil {
+		return fmt.Errorf("mfindex: register %s: %w", MediaKind, err)
 	}
 	return nil
 }

@@ -183,24 +183,39 @@ func (c *codec) decode(r *Row, reason string) (runtime.Object, error) {
 }
 
 // decodeInto fills out, zeroed first, from a row. out must be a pointer to
-// the kind's struct.
+// the kind's struct. The inflated JSON lives in a pooled buffer for the
+// unmarshal alone: encoding/json copies every string and byte slice out of
+// its input, so nothing of the object points into it.
 func (c *codec) decodeInto(r *Row, out runtime.Object, reason string) error {
 	v := reflect.ValueOf(out)
 	if v.Kind() != reflect.Pointer || v.Elem().Type() != c.typ {
 		return fmt.Errorf("rowcache: %s: cache had type *%s, but %T was asked for", c.kind, c.typ, out)
 	}
-	js, err := c.decodeJSON(r)
+	c.mu.RLock()
+	dec := c.dec
+	c.mu.RUnlock()
+	buf := inflatePool.Get().(*[]byte)
+	js, err := dec.DecodeAll(r.body, (*buf)[:0])
 	if err != nil {
-		return err
+		inflatePool.Put(buf)
+		return fmt.Errorf("rowcache: %s: %s: inflate: %w", c.kind, r.key(), err)
 	}
 	v.Elem().Set(reflect.Zero(c.typ))
-	if err := json.Unmarshal(js, out); err != nil {
+	err = json.Unmarshal(js, out)
+	*buf = js[:0]
+	inflatePool.Put(buf)
+	if err != nil {
 		return fmt.Errorf("rowcache: %s: %s: decode: %w", c.kind, r.key(), err)
 	}
 	out.GetObjectKind().SetGroupVersionKind(c.gvk)
 	c.decodes[reason].Inc()
 	return nil
 }
+
+var inflatePool = sync.Pool{New: func() any {
+	b := make([]byte, 0, 8<<10)
+	return &b
+}}
 
 // recompress returns the row compressed with the codec's current
 // dictionary, every other field the same.

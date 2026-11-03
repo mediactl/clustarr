@@ -73,6 +73,8 @@ func rowKey(obj any) (string, error) {
 	switch o := obj.(type) {
 	case *Row:
 		return o.key(), nil
+	case *rowEvent:
+		return o.row.key(), nil
 	case toolscache.DeletedFinalStateUnknown:
 		return o.Key, nil
 	}

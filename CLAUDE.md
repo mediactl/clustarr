@@ -2337,10 +2337,17 @@ too; bump the tag in go.mod and go.sum to take a new fork release.
   objects; a List narrows by its field index, namespace and labels before
   it decodes, so a whole-collection List of a large kind now costs a decode
   per object (about 1.5 s for the MediaFiles) and belongs behind an index
-  or a memo; each handler decodes its own copy of every event, so a watch
-  map function reads a fresh object, never the cache's; and
-  `UnsafeDisableDeepCopy` buys nothing on these kinds. Metadata-only and
-  unstructured reads of them keep their own ordinary informers.
+  or a memo -- a watch map function that needs only keys or labels reads
+  them through `rowcache.Keys` or `rowcache.Metadata` on `mgr.GetCache()`,
+  which the row cache answers without a decode (the first deploy
+  OOM-looped at 768Mi: three such map functions decoded every MediaFile at
+  start, 233 MB held at once); an event is decoded once and every handler
+  gets the same object, as a shared informer's handlers do, so a handler
+  never mutates it; the watch stream turns each object into a row before
+  the reflector's own store sees it, so the initial list is never held
+  decoded whole; and `UnsafeDisableDeepCopy` buys nothing on these kinds.
+  Metadata-only and unstructured reads of them keep their own ordinary
+  informers.
 - **A watch's map function runs for every object at startup, and the
   source is not synced until it has.** controller-runtime's `Kind` source
   waits on `handlerRegistration.HasSynced`, and a cache's initial sync

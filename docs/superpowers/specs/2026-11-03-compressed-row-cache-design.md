@@ -96,6 +96,51 @@ change. Metrics: `clustarr_rowcache_rows`, `_bytes`, `_object_bytes`,
 `_dictionary_bytes` by kind, and `clustarr_rowcache_decodes_total` by kind and
 reason (read, event, index, sample).
 
+## 4a. As built: the start-up flood (same day, rev 194-196)
+
+The first deploy OOM-looped the manager at 768Mi during its start, and the
+1Gi pod's live heap peaked at 507 MiB. A GC-forced profile three minutes in
+(593 MB in use) showed where the start-up flood lived, and none of it was
+the settled rows (22 MiB for all four kinds, as designed):
+
+- **233 MB: three watch map functions listing every MediaFile.** The
+  transcode and subtitles adapters' `videoFilesLow` (one List per
+  TranscodeProfile or SubtitleProfile event) and `filesWithSubtitles` (per
+  local SubtitleProvider event) listed the whole kind to compute wake keys.
+  Under the typed cache that was free (`UnsafeDisableDeepCopy` pointers);
+  with rows each List decoded 14,600 files into a copy held for the map
+  function's duration, and the three ran in parallel at start. Fixed: the
+  cache answers `rowcache.Keys` and `rowcache.Metadata` from the rows
+  (`KeyLister`, `MetadataLister`: the same narrowing, no decode; any other
+  reader falls back to List), the adapters take `mgr.GetCache()` for them,
+  and a `remediation.mediafile.kind` index (spec.mediaRef.kind) selects the
+  video files so `transcodeplan.EligibleKinds` and `subtitleplan.EligibleKinds`
+  never need the object.
+- **About 230 MB: the reflector's watch-list temporary store.** client-go
+  collects the whole initial list as decoded objects until the
+  end-of-list bookmark, then hands it to the FIFO where it became rows.
+  Fixed: the informer wraps the cache's lister-watcher so each watch
+  event's object becomes a `rowEvent` (name, namespace, resource version,
+  labels and the row, about 300 bytes) before the reflector stores it; the
+  FIFO's transform unwraps it, `rowKey` keys it, and the reflector runs with
+  no expected type since the stream no longer carries the kind. A plain
+  list (the no-streaming fallback, a relist) still decodes the collection
+  whole.
+- **The replays and reads decoded copies.** Fixed: one decode per event
+  shared by every handler (`decoded`, a once cell in the notification,
+  alive until the last handler has dispatched it, as a shared informer
+  hands one object to all handlers); List decodes straight into the list's
+  Items instead of into objects copied in afterwards; the inflate buffer is
+  pooled. Reads during the flood ran at 1,100 decodes a second from the
+  remediation loop's passes and the controllers' Gets, which is CPU, not
+  retention.
+- Also seen, not from this change: about 110 MB under the NATS object-store
+  watch at start (the artwork objindex listing 53,000 objects), and the
+  zstd encoder and decoder states at about 30 MB for the four codecs.
+- The GC headroom shrank in the same apply: the values stopped pinning
+  GOMEMLIMIT, so automemlimit's 90% (691MiB of 768Mi) left 77 MiB for
+  non-heap memory and GC overshoot where 640MiB had left 128.
+
 ## 5. Tests
 
 `pkg/k8s/rowcache`: the store holds rows and every reader gets an object (a

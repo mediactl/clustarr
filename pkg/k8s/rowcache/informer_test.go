@@ -425,3 +425,97 @@ func TestLifecycle(t *testing.T) {
 	_, err := h.inf.AddEventHandler(&recorder{})
 	assert.Error(t, err)
 }
+
+// A fan-out that needs only keys or metadata reads them from the rows and
+// decodes nothing; a reader that is not the row cache answers the same
+// through List.
+func TestKeysAndMetadataReadRowsWithoutDecoding(t *testing.T) {
+	h := newHarness(t, append(episodes("media", "a", 60), episodes("other", "b", 20)...)...)
+	ctx := h.run()
+	reads := func() float64 {
+		return counterValue(t, metrics.RowCacheDecodesTotal.WithLabelValues("Episode", reasonRead))
+	}
+	before := reads()
+
+	keys, err := Keys(ctx, h.cache, &catalogv1alpha1.EpisodeList{}, client.MatchingFields{seriesField: "a"})
+	require.NoError(t, err)
+	assert.Len(t, keys, 60)
+	metas, err := Metadata(ctx, h.cache, &catalogv1alpha1.EpisodeList{}, client.InNamespace("other"), client.MatchingLabels{"parity": "1"})
+	require.NoError(t, err)
+	assert.Len(t, metas, 10)
+	for _, m := range metas {
+		assert.Equal(t, "other", m.Namespace)
+		assert.Equal(t, "Episode", m.Kind)
+		assert.Equal(t, "1", m.Labels["parity"])
+	}
+	assert.InDelta(t, before, reads(), 0, "no row was decoded")
+
+	plain := listReader{items: episodes("media", "c", 3)}
+	keys, err = Keys(ctx, plain, &catalogv1alpha1.EpisodeList{})
+	require.NoError(t, err)
+	require.Len(t, keys, 3)
+	assert.Equal(t, types.NamespacedName{Namespace: "media", Name: "c-s01e001"}, keys[0])
+}
+
+// listReader is a client.Reader whose List fills an EpisodeList with items.
+type listReader struct {
+	client.Reader
+	items []*catalogv1alpha1.Episode
+}
+
+func (r listReader) List(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+	l, ok := list.(*catalogv1alpha1.EpisodeList)
+	if !ok {
+		return fmt.Errorf("listReader: %T", list)
+	}
+	l.Items = l.Items[:0]
+	for _, e := range r.items {
+		l.Items = append(l.Items, *e)
+	}
+	return nil
+}
+
+// The watch stream carries rows: the reflector's temporary store of a
+// watch-list holds a rowEvent per object, never the decoded object.
+func TestTheWatchStreamCarriesRows(t *testing.T) {
+	h := newHarness(t)
+	w, err := toolscache.ToListerWatcherWithContext(h.inf.lw).WatchWithContext(t.Context(), metav1.ListOptions{ResourceVersion: "0"})
+	require.NoError(t, err)
+	defer w.Stop()
+	e := episode("media", "a", 1)
+	h.src.Add(e)
+	select {
+	case ev := <-w.ResultChan():
+		re, ok := ev.Object.(*rowEvent)
+		require.True(t, ok, "the event carries a %T", ev.Object)
+		assert.Equal(t, e.Name, re.Name)
+		assert.Equal(t, "media", re.Namespace)
+		assert.NotEmpty(t, re.ResourceVersion, "the reflector reads the resource version off the event")
+		require.NotNil(t, re.row)
+		assert.NotEmpty(t, re.row.body)
+		assert.Equal(t, e.Labels, re.row.labels)
+	case <-time.After(5 * time.Second):
+		t.Fatal("no event")
+	}
+}
+
+// One decode per event: every handler is handed the same object.
+func TestAnEventIsDecodedOnceForEveryHandler(t *testing.T) {
+	eps := episodes("media", "a", 5)
+	h := newHarness(t, eps...)
+	r1, r2 := &recorder{}, &recorder{}
+	_, err := h.inf.AddEventHandler(r1)
+	require.NoError(t, err)
+	_, err = h.inf.AddEventHandler(r2)
+	require.NoError(t, err)
+	h.run()
+	require.Eventually(t, func() bool { return r1.count("add") == 5 && r2.count("add") == 5 }, 5*time.Second, 10*time.Millisecond)
+	assert.Same(t, r1.of("add")[0].obj, r2.of("add")[0].obj, "the initial list's objects are shared by the handlers registered before the start")
+
+	changed := eps[1].DeepCopy()
+	changed.Spec.SeasonNumber = 3
+	h.src.Modify(changed)
+	require.Eventually(t, func() bool { return r1.count("update") == 1 && r2.count("update") == 1 }, 5*time.Second, 10*time.Millisecond)
+	assert.Same(t, r1.of("update")[0].obj, r2.of("update")[0].obj, "the new state is one object")
+	assert.Same(t, r1.of("update")[0].old, r2.of("update")[0].old, "the old state is one object")
+}

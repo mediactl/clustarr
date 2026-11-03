@@ -35,6 +35,7 @@ import (
 	"github.com/mediactl/clustarr/app/remediation/mfindex"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/k8s/rowcache"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/records/recordsource"
 )
@@ -46,7 +47,9 @@ import (
 // S2' and S4' are the naming planner's Movie and Series sources, whose
 // predicates read status.metadata.originalLanguage too.
 func (a *Adapter) Sources(mgr ctrl.Manager) ([]remediation.Source, error) {
-	c := mgr.GetClient()
+	// The cache itself, not the client over it: the fan-outs read keys
+	// through rowcache.Keys, which the cache answers without decoding.
+	c := mgr.GetCache()
 	low := func(ctx context.Context, q workqueue.TypedRateLimitingInterface[remediation.Key]) {
 		videoFilesLow(ctx, c, q)
 	}
@@ -81,16 +84,17 @@ func (a *Adapter) Sources(mgr ctrl.Manager) ([]remediation.Source, error) {
 // a profile event enqueues the library, and only files whose block changes
 // are written, through the status-write limiter (§6.4.7).
 func videoFilesLow(ctx context.Context, c client.Reader, q workqueue.TypedRateLimitingInterface[remediation.Key]) {
-	var files catalogv1alpha1.MediaFileList
-	if err := c.List(ctx, &files, client.UnsafeDisableDeepCopy); err != nil {
-		logging.FromContext(ctx).Error("subtitles: list MediaFiles for a SubtitleProfile change", "err", err)
-		return
-	}
-	keys := make([]remediation.Key, 0, len(files.Items))
-	for i := range files.Items {
-		mf := &files.Items[i]
-		if subtitleplan.EligibleKind(mf.Spec.MediaRef.Kind) {
-			keys = append(keys, remediation.Key{Kind: remediation.KindMediaFile, Namespace: mf.Namespace, Name: mf.Name})
+	// By key through the MediaKind index: no file is decoded (2026-11-03:
+	// each SubtitleProfile's event at the manager's start decoded all 14,600).
+	var keys []remediation.Key
+	for _, kind := range subtitleplan.EligibleKinds() {
+		nns, err := rowcache.Keys(ctx, c, &catalogv1alpha1.MediaFileList{}, client.MatchingFields{mfindex.MediaKind: string(kind)})
+		if err != nil {
+			logging.FromContext(ctx).Error("subtitles: list MediaFiles for a SubtitleProfile change", "kind", kind, "err", err)
+			return
+		}
+		for _, nn := range nns {
+			keys = append(keys, remediation.Key{Kind: remediation.KindMediaFile, Namespace: nn.Namespace, Name: nn.Name})
 		}
 	}
 	if pq, ok := q.(priorityqueue.PriorityQueue[remediation.Key]); ok {
@@ -105,15 +109,14 @@ func videoFilesLow(ctx context.Context, c client.Reader, q workqueue.TypedRateLi
 // filesWithSubtitles is S14's map: the files in o's namespace whose status
 // carries a subtitles block, through remediation.mediafile.subtitles.
 func filesWithSubtitles(ctx context.Context, c client.Reader, o client.Object) []remediation.Key {
-	var files catalogv1alpha1.MediaFileList
-	if err := c.List(ctx, &files, client.InNamespace(o.GetNamespace()), client.MatchingFields{mfindex.Subtitles: "true"},
-		client.UnsafeDisableDeepCopy); err != nil {
+	nns, err := rowcache.Keys(ctx, c, &catalogv1alpha1.MediaFileList{}, client.InNamespace(o.GetNamespace()), client.MatchingFields{mfindex.Subtitles: "true"})
+	if err != nil {
 		logging.FromContext(ctx).Error("subtitles: list MediaFiles for a local provider change", "err", err)
 		return nil
 	}
-	out := make([]remediation.Key, 0, len(files.Items))
-	for i := range files.Items {
-		out = append(out, remediation.Key{Kind: remediation.KindMediaFile, Namespace: files.Items[i].Namespace, Name: files.Items[i].Name})
+	out := make([]remediation.Key, 0, len(nns))
+	for _, nn := range nns {
+		out = append(out, remediation.Key{Kind: remediation.KindMediaFile, Namespace: nn.Namespace, Name: nn.Name})
 	}
 	return out
 }

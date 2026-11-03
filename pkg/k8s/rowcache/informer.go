@@ -28,8 +28,10 @@ import (
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/apimachinery/pkg/watch"
 	toolscache "k8s.io/client-go/tools/cache"
 
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -50,8 +52,9 @@ import (
 // controller's, since controllers start after the cache has synced) runs
 // off the writer's lock and in parallel across handlers.
 type Informer struct {
+	// lw is the cache's lister-watcher with the watch stream rowified:
+	// see listerWatcher.
 	lw      toolscache.ListerWatcher
-	objType runtime.Object
 	resync  time.Duration
 	codec   *codec
 	indexer toolscache.Indexer
@@ -86,10 +89,8 @@ type Informer struct {
 
 var _ toolscache.SharedIndexInformer = (*Informer)(nil)
 
-func newInformer(lw toolscache.ListerWatcher, obj runtime.Object, k *kind, resync time.Duration, indexers toolscache.Indexers) *Informer {
+func newInformer(lw toolscache.ListerWatcher, _ runtime.Object, k *kind, resync time.Duration, indexers toolscache.Indexers) *Informer {
 	s := &Informer{
-		lw:         lw,
-		objType:    obj,
 		resync:     resync,
 		codec:      k.codec,
 		indexFuncs: make(map[string]toolscache.IndexFunc, len(indexers)),
@@ -98,6 +99,7 @@ func newInformer(lw toolscache.ListerWatcher, obj runtime.Object, k *kind, resyn
 
 		dictionaryOnSync: true,
 	}
+	s.lw = s.listerWatcher(lw)
 	adapters := make(toolscache.Indexers, len(indexers))
 	for name, fn := range indexers {
 		s.indexFuncs[name] = fn
@@ -105,6 +107,67 @@ func newInformer(lw toolscache.ListerWatcher, obj runtime.Object, k *kind, resyn
 	}
 	s.indexer = toolscache.NewIndexer(rowKey, adapters)
 	return s
+}
+
+// rowEvent is a watch event's object once the watch stream has turned it
+// into a row: the metadata the reflector reads (name, namespace, resource
+// version, labels) beside the row the FIFO's transform unwraps. A
+// watch-list's temporary store in the reflector holds these, about 300
+// bytes each, where it held the decoded objects until the whole initial
+// list was in (2026-11-03: 230 MB of the manager's start-up peak).
+type rowEvent struct {
+	metav1.TypeMeta
+	metav1.ObjectMeta
+	row *Row
+}
+
+func (e *rowEvent) DeepCopyObject() runtime.Object { return e }
+
+// listerWatcher wraps the cache's lister-watcher so every object on the
+// watch stream becomes a row before the reflector stores it. A list (the
+// fallback when the apiserver cannot stream, and a relist) still decodes
+// the collection whole; the FIFO's transform turns its items into rows.
+func (s *Informer) listerWatcher(inner toolscache.ListerWatcher) toolscache.ListerWatcher {
+	lw := toolscache.ToListerWatcherWithContext(inner)
+	return &toolscache.ListWatch{
+		ListWithContextFunc: lw.ListWithContext,
+		WatchFuncWithContext: func(ctx context.Context, opts metav1.ListOptions) (watch.Interface, error) {
+			w, err := lw.WatchWithContext(ctx, opts)
+			if err != nil {
+				return nil, err
+			}
+			return watch.Filter(w, s.rowifyEvent), nil
+		},
+	}
+}
+
+// rowifyEvent turns an Added, Modified or Deleted event's object into a
+// rowEvent; a bookmark or an error passes as it is. An object that cannot
+// become a row passes too, for the FIFO's transform to report.
+func (s *Informer) rowifyEvent(e watch.Event) (watch.Event, bool) {
+	switch e.Type {
+	case watch.Added, watch.Modified, watch.Deleted:
+	default:
+		return e, true
+	}
+	m, err := meta.Accessor(e.Object)
+	if err != nil {
+		return e, true
+	}
+	rv := m.GetResourceVersion()
+	obj, err := s.rowify(e.Object)
+	if err != nil {
+		return e, true
+	}
+	r, ok := obj.(*Row)
+	if !ok {
+		return e, true
+	}
+	e.Object = &rowEvent{
+		ObjectMeta: metav1.ObjectMeta{Name: r.name, Namespace: r.namespace, ResourceVersion: rv, Labels: r.labels},
+		row:        r,
+	}
+	return e, true
 }
 
 // adapter runs an index function registered for the kind's objects on the
@@ -131,6 +194,14 @@ func (s *Informer) adapter(name string, fn toolscache.IndexFunc) toolscache.Inde
 // (the manager's strips managedFields), then the object becomes a row with
 // every registered index's values computed while it is still decoded.
 func (s *Informer) rowify(obj any) (any, error) {
+	// Already a row: the watch stream rowified it, or a resync carries the
+	// stored row.
+	switch o := obj.(type) {
+	case *rowEvent:
+		return o.row, nil
+	case *Row:
+		return o, nil
+	}
 	s.state.Lock()
 	transform := s.transform
 	type namedIndex struct {
@@ -191,10 +262,11 @@ func (s *Informer) RunWithContext(ctx context.Context) {
 		EmitDeltaTypeReplaced: true,
 		Transformer:           s.rowify,
 	})
+	// No ObjectType: the reflector would check every watch event's type
+	// against it, and the watch stream carries rowEvents.
 	s.controller = toolscache.New(&toolscache.Config{
 		Queue:                        fifo,
 		ListerWatcher:                s.lw,
-		ObjectType:                   s.objType,
 		ObjectDescription:            s.codec.kind,
 		FullResyncPeriod:             s.resync,
 		ShouldResync:                 s.shouldResync,
@@ -386,6 +458,7 @@ func (s *Informer) accountLocked(old, cur *Row) {
 }
 
 func (s *Informer) notifyLocked(n notification) {
+	n = withCells(n)
 	for _, l := range s.listenerSnapshot() {
 		l.add(n)
 	}
@@ -488,7 +561,7 @@ func (s *Informer) AddEventHandlerWithOptions(handler toolscache.ResourceEventHa
 		return l, nil
 	}
 	for _, item := range s.indexer.List() {
-		l.add(notification{op: opAdd, row: item.(*Row), initial: true})
+		l.add(withCells(notification{op: opAdd, row: item.(*Row), initial: true}))
 	}
 	if s.isSynced() {
 		l.add(notification{op: opSynced})
@@ -613,16 +686,49 @@ const (
 	opSynced
 )
 
-// notification is one event for a listener: rows, decoded when the
-// listener dispatches it.
+// notification is one event for a listener: rows, decoded once by the
+// first listener to dispatch the event and shared with the rest.
 type notification struct {
 	op       op
 	row, old *Row
-	initial  bool
+	// obj and prev are the decoded row and old, shared by every listener
+	// the event went to; prev is obj when old is row.
+	obj, prev *decoded
+	initial   bool
 	// tombstone marks a DeletedFinalStateUnknown of key; row is its last
 	// known state, or nil.
 	tombstone bool
 	key       string
+}
+
+// withCells gives a notification its decode cells.
+func withCells(n notification) notification {
+	if n.row != nil {
+		n.obj = &decoded{}
+	}
+	switch {
+	case n.old == nil:
+	case n.old == n.row:
+		n.prev = n.obj
+	default:
+		n.prev = &decoded{}
+	}
+	return n
+}
+
+// decoded is one event's object: decoded by the first listener that
+// dispatches the event, handed to every listener by the same pointer, as a
+// shared informer hands one object to all its handlers. It lives until the
+// last listener has dispatched the event.
+type decoded struct {
+	once sync.Once
+	obj  runtime.Object
+	err  error
+}
+
+func (d *decoded) get(c *codec, r *Row) (runtime.Object, error) {
+	d.once.Do(func() { d.obj, d.err = c.decode(r, reasonEvent) })
+	return d.obj, d.err
 }
 
 // listener is one registered handler with its unbounded queue, drained by
@@ -697,30 +803,28 @@ func (l *listener) dispatch(n notification) {
 	case opSynced:
 		l.syncedOnce.Do(func() { close(l.synced) })
 	case opAdd:
-		obj, err := c.decode(n.row, reasonEvent)
+		obj, err := n.obj.get(c, n.row)
 		if err != nil {
 			l.inf.log.Error("rowcache: an add was not delivered", "key", n.row.key(), "err", err)
 			return
 		}
 		l.handler.OnAdd(obj, n.initial)
 	case opUpdate:
-		obj, err := c.decode(n.row, reasonEvent)
+		obj, err := n.obj.get(c, n.row)
 		if err != nil {
 			l.inf.log.Error("rowcache: an update was not delivered", "key", n.row.key(), "err", err)
 			return
 		}
-		old := obj
-		if n.old != n.row {
-			if old, err = c.decode(n.old, reasonEvent); err != nil {
-				l.inf.log.Error("rowcache: an update was not delivered", "key", n.row.key(), "err", err)
-				return
-			}
+		old, err := n.prev.get(c, n.old)
+		if err != nil {
+			l.inf.log.Error("rowcache: an update was not delivered", "key", n.row.key(), "err", err)
+			return
 		}
 		l.handler.OnUpdate(old, obj)
 	case opDelete:
 		var obj any
 		if n.row != nil {
-			o, err := c.decode(n.row, reasonEvent)
+			o, err := n.obj.get(c, n.row)
 			if err != nil {
 				l.inf.log.Error("rowcache: a delete was not delivered", "key", n.row.key(), "err", err)
 				return

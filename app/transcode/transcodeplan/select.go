@@ -62,7 +62,18 @@ const (
 // MediaFiles are never candidates, regardless of whether their labels happen
 // to match a selector.
 func EligibleKind(k commonv1.MediaKind) bool {
-	return k == commonv1.MediaKindMovie || k == commonv1.MediaKindEpisode
+	for _, e := range EligibleKinds() {
+		if e == k {
+			return true
+		}
+	}
+	return false
+}
+
+// EligibleKinds lists the kinds EligibleKind admits, for a fan-out that
+// reads files by kind through an index.
+func EligibleKinds() []commonv1.MediaKind {
+	return []commonv1.MediaKind{commonv1.MediaKindMovie, commonv1.MediaKindEpisode}
 }
 
 // Tag renders the "<name>@<hash>" convention the transcode planner writes

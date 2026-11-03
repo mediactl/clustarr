@@ -113,8 +113,10 @@ func TestManagerFieldIndexes(t *testing.T) {
 	// registered exactly once: in the one manager a second IndexField on the
 	// same (kind, name) is an indexer conflict and Run fails at start.
 	want := map[string][]string{
-		"MediaFile": {"remediation.mediafile.uid", "remediation.mediafile.item", "remediation.mediafile.downloadref",
-			"remediation.mediafile.subtitles", "remediation.mediafile.subtitleProfile", "remediation.mediafile.transcodeProfile"},
+		"MediaFile": {
+			"remediation.mediafile.uid", "remediation.mediafile.item", "remediation.mediafile.downloadref",
+			"remediation.mediafile.subtitles", "remediation.mediafile.kind", "remediation.mediafile.subtitleProfile", "remediation.mediafile.transcodeProfile",
+		},
 		"Movie":     {".spec.qualityProfileRef", "mediafile.clustarr.io/movie-rootfolder", "remediation.item.download"},
 		"Series":    {".spec.qualityProfileRef", "mediafile.clustarr.io/series-rootfolder", "remediation.item.download"},
 		"Episode":   {".spec.seriesRef", "librarydelete.parent"},

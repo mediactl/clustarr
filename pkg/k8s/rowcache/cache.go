@@ -45,11 +45,13 @@ import (
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/selection"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 	toolscache "k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
@@ -185,6 +187,50 @@ func (c *Cache) Get(ctx context.Context, key client.ObjectKey, out client.Object
 	return inf.codec.decodeInto(item.(*Row), out, reasonRead)
 }
 
+// selectRows narrows a kind's rows as controller-runtime's reader narrows
+// objects: the field selector's index, the namespace, the label selector,
+// then the limit.
+func (c *Cache) selectRows(inf *Informer, k *kind, opts []client.ListOption) ([]*Row, error) {
+	lo := client.ListOptions{}
+	lo.ApplyOptions(opts)
+	if lo.Continue != "" {
+		return nil, errors.New("continue list option is not supported by the cache")
+	}
+	var (
+		items []any
+		err   error
+	)
+	switch {
+	case lo.FieldSelector != nil:
+		if !requiresExactMatch(lo.FieldSelector) {
+			return nil, errors.New("non-exact field matches are not supported by the cache")
+		}
+		items, err = byIndexes(inf.indexer, lo.FieldSelector.Requirements(), lo.Namespace)
+	case lo.Namespace != "":
+		items, err = inf.indexer.ByIndex(toolscache.NamespaceIndex, lo.Namespace)
+	default:
+		items = inf.indexer.List()
+	}
+	if err != nil {
+		return nil, err
+	}
+	rows := make([]*Row, 0, len(items))
+	for _, item := range items {
+		if lo.Limit > 0 && int64(len(rows)) >= lo.Limit {
+			break
+		}
+		r, ok := item.(*Row)
+		if !ok {
+			return nil, fmt.Errorf("rowcache: %s: the store held a %T, not a row", k.gvk.Kind, item)
+		}
+		if lo.LabelSelector != nil && !lo.LabelSelector.Matches(labels.Set(r.labels)) {
+			continue
+		}
+		rows = append(rows, r)
+	}
+	return rows, nil
+}
+
 // List implements client.Reader for a kind held as rows: the rows are
 // narrowed by the field selector's index, the namespace and the label
 // selector first, and only the matches are decoded. Any other kind is the
@@ -198,49 +244,141 @@ func (c *Cache) List(ctx context.Context, list client.ObjectList, opts ...client
 	if err != nil {
 		return err
 	}
-	lo := client.ListOptions{}
-	lo.ApplyOptions(opts)
-	if lo.Continue != "" {
-		return errors.New("continue list option is not supported by the cache")
-	}
-	var items []any
-	switch {
-	case lo.FieldSelector != nil:
-		if !requiresExactMatch(lo.FieldSelector) {
-			return errors.New("non-exact field matches are not supported by the cache")
-		}
-		items, err = byIndexes(inf.indexer, lo.FieldSelector.Requirements(), lo.Namespace)
-	case lo.Namespace != "":
-		items, err = inf.indexer.ByIndex(toolscache.NamespaceIndex, lo.Namespace)
-	default:
-		items = inf.indexer.List()
-	}
+	rows, err := c.selectRows(inf, k, opts)
 	if err != nil {
 		return err
 	}
-	objs := make([]runtime.Object, 0, len(items))
-	for _, item := range items {
-		if lo.Limit > 0 && int64(len(objs)) >= lo.Limit {
-			break
-		}
-		r, ok := item.(*Row)
+	// Decoded straight into the list's Items, never into an object copied
+	// in afterwards.
+	items := reflect.ValueOf(list).Elem().FieldByName("Items")
+	if !items.IsValid() || items.Kind() != reflect.Slice || items.Type().Elem() != k.typ {
+		return fmt.Errorf("rowcache: %T carries no Items []%s", list, k.typ)
+	}
+	items.Set(reflect.MakeSlice(items.Type(), len(rows), len(rows)))
+	for i, r := range rows {
+		item, ok := reflect.TypeAssert[runtime.Object](items.Index(i).Addr())
 		if !ok {
-			return fmt.Errorf("rowcache: %s: the store held a %T, not a row", k.gvk.Kind, item)
+			return fmt.Errorf("rowcache: %s: *%s is not a runtime.Object", k.gvk.Kind, k.typ)
 		}
-		if lo.LabelSelector != nil && !lo.LabelSelector.Matches(labels.Set(r.labels)) {
-			continue
-		}
-		obj, err := inf.codec.decode(r, reasonRead)
-		if err != nil {
+		if err := inf.codec.decodeInto(r, item, reasonRead); err != nil {
 			return err
 		}
-		objs = append(objs, obj)
-	}
-	if err := apimeta.SetList(list, objs); err != nil {
-		return err
 	}
 	list.SetContinue("continue-not-supported")
 	return nil
+}
+
+// KeyLister lists objects' keys without decoding them; *Cache implements
+// it for the kinds it holds as rows.
+type KeyLister interface {
+	ListKeys(ctx context.Context, list client.ObjectList, opts ...client.ListOption) ([]types.NamespacedName, error)
+}
+
+// ListKeys implements KeyLister: the keys of every row the options
+// select, narrowed as List narrows; any other kind through ListMetadata.
+func (c *Cache) ListKeys(ctx context.Context, list client.ObjectList, opts ...client.ListOption) ([]types.NamespacedName, error) {
+	k, ok := c.lists[reflect.TypeOf(list)]
+	if !ok {
+		return keysOf(metadataThroughList(ctx, c.Cache, list, opts...))
+	}
+	inf, err := c.informer(ctx, k)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := c.selectRows(inf, k, opts)
+	if err != nil {
+		return nil, err
+	}
+	keys := make([]types.NamespacedName, len(rows))
+	for i, r := range rows {
+		keys[i] = types.NamespacedName{Namespace: r.namespace, Name: r.name}
+	}
+	return keys, nil
+}
+
+func keysOf(metas []metav1.PartialObjectMetadata, err error) ([]types.NamespacedName, error) {
+	if err != nil {
+		return nil, err
+	}
+	keys := make([]types.NamespacedName, len(metas))
+	for i := range metas {
+		keys[i] = types.NamespacedName{Namespace: metas[i].Namespace, Name: metas[i].Name}
+	}
+	return keys, nil
+}
+
+// MetadataLister lists objects' metadata without decoding them. *Cache
+// implements it for the kinds it holds as rows, so a map function that
+// needs only names, or a selector's matches, reads a large kind at no
+// decode (2026-11-03: three such map functions decoded every MediaFile at
+// the manager's start, 233 MB of copies held at once).
+type MetadataLister interface {
+	ListMetadata(ctx context.Context, list client.ObjectList, opts ...client.ListOption) ([]metav1.PartialObjectMetadata, error)
+}
+
+// ListMetadata implements MetadataLister: for a kind held as rows, the
+// name, namespace and labels of every row the options select, narrowed as
+// List narrows; for any other kind the inner cache's List, read down to
+// the same fields. The labels are the cache's own maps: read, never write.
+func (c *Cache) ListMetadata(ctx context.Context, list client.ObjectList, opts ...client.ListOption) ([]metav1.PartialObjectMetadata, error) {
+	k, ok := c.lists[reflect.TypeOf(list)]
+	if !ok {
+		return metadataThroughList(ctx, c.Cache, list, opts...)
+	}
+	inf, err := c.informer(ctx, k)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := c.selectRows(inf, k, opts)
+	if err != nil {
+		return nil, err
+	}
+	tm := metav1.TypeMeta{APIVersion: k.gvk.GroupVersion().String(), Kind: k.gvk.Kind}
+	out := make([]metav1.PartialObjectMetadata, len(rows))
+	for i, r := range rows {
+		out[i] = metav1.PartialObjectMetadata{TypeMeta: tm, ObjectMeta: metav1.ObjectMeta{Namespace: r.namespace, Name: r.name, Labels: r.labels}}
+	}
+	return out, nil
+}
+
+// Metadata lists the metadata of the objects the options select through
+// r: without decoding when r is a MetadataLister (the manager's cache, for
+// a kind it holds as rows), else through List with the deep copy off, read
+// down to name, namespace, labels, uid and resource version. list names
+// the kind and is otherwise unused.
+func Metadata(ctx context.Context, r client.Reader, list client.ObjectList, opts ...client.ListOption) ([]metav1.PartialObjectMetadata, error) {
+	if ml, ok := r.(MetadataLister); ok {
+		return ml.ListMetadata(ctx, list, opts...)
+	}
+	return metadataThroughList(ctx, r, list, opts...)
+}
+
+func metadataThroughList(ctx context.Context, r client.Reader, list client.ObjectList, opts ...client.ListOption) ([]metav1.PartialObjectMetadata, error) {
+	if err := r.List(ctx, list, append(slices.Clone(opts), client.UnsafeDisableDeepCopy)...); err != nil {
+		return nil, err
+	}
+	var out []metav1.PartialObjectMetadata
+	err := apimeta.EachListItem(list, func(o runtime.Object) error {
+		m, err := apimeta.Accessor(o)
+		if err != nil {
+			return err
+		}
+		out = append(out, metav1.PartialObjectMetadata{
+			TypeMeta:   metav1.TypeMeta{APIVersion: o.GetObjectKind().GroupVersionKind().GroupVersion().String(), Kind: o.GetObjectKind().GroupVersionKind().Kind},
+			ObjectMeta: metav1.ObjectMeta{Namespace: m.GetNamespace(), Name: m.GetName(), Labels: m.GetLabels(), UID: m.GetUID(), ResourceVersion: m.GetResourceVersion()},
+		})
+		return nil
+	})
+	return out, err
+}
+
+// Keys lists the keys of the objects the options select through r: from
+// the rows when r is a KeyLister, else through Metadata.
+func Keys(ctx context.Context, r client.Reader, list client.ObjectList, opts ...client.ListOption) ([]types.NamespacedName, error) {
+	if kl, ok := r.(KeyLister); ok {
+		return kl.ListKeys(ctx, list, opts...)
+	}
+	return keysOf(Metadata(ctx, r, list, opts...))
 }
 
 // requiresExactMatch is controller-runtime's rule for a field selector the
