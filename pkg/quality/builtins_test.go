@@ -186,8 +186,9 @@ func TestLoadedCatalogueBuildsFromAllEmbeddedFormatFamilies(t *testing.T) {
 	}
 	// 32 from Steps 16-23, + 8 from Step 23a, + 26 from Step 23b = 66, + 67
 	// streaming services named in files but never scored (2026-09-29) = 133,
-	// + clustarr's own h264-10bit (2026-11-02) = 134.
-	require.Len(t, cat.Formats, 134)
+	// + clustarr's own h264-10bit (2026-11-02) = 134, + mpeg4-part2
+	// (2026-11-03) = 135.
+	require.Len(t, cat.Formats, 135)
 }
 
 // TestEveryBuiltinProfileLoadsAndReferencesOnlyFormatsThatExist is the

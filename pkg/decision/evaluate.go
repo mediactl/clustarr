@@ -335,9 +335,9 @@ func videoItemState(t Target, p quality.Profile, an audioNames, parsed *release.
 		p.Lists(rel.Quality) {
 		return out
 	}
-	// So does an H.264 10-bit file (Current.H264TenBit): no GPU here
-	// decodes it, and a small one cannot transcode under the size limit.
-	if t.Current != nil && t.Current.H264TenBit && p.Lists(rel.Quality) {
+	// So does a file whose video no GPU here decodes (Current.Undecodable:
+	// H.264 10-bit, XviD), which the transcode skips.
+	if t.Current != nil && t.Current.Undecodable && p.Lists(rel.Quality) {
 		return out
 	}
 	add(transcodedRejection(t, Options{}))

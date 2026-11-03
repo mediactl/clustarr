@@ -757,7 +757,7 @@ func (p *planner) planFrom(insp *schema.ImportInspection) planResult {
 			}
 		}
 		if (c.kind == commonv1.MediaKindMovie || c.kind == commonv1.MediaKindEpisode) && !manual {
-			if r := h264TenBitRejection(rel, f.Probe); !r.none() {
+			if r := undecodableRejection(rel, f.Probe); !r.none() {
 				rs = append(rs, r)
 				continue
 			}
@@ -924,7 +924,7 @@ func (p *planner) gate(rel string, c candidate, compared []catalogv1alpha1.Media
 		if bitrateRefit(prof, compared, c, q) {
 			return Rejection{}, false
 		}
-		if h264TenBitRefit(prof, compared, q) {
+		if undecodableRefit(prof, compared, q) {
 			return Rejection{}, false
 		}
 	}

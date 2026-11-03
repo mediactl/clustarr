@@ -40,20 +40,22 @@ const ReasonMissingAudio = "MissingAudio"
 // or not, until a release inside the range replaces the file.
 const ReasonBitrateOutOfRange = "BitrateOutOfRange"
 
-// ReasonH264TenBit is the CutoffMet condition's reason for an item whose
-// file's video is H.264 10-bit (Hi10P; H264TenBit): False, whatever its
-// quality, until a release that is not replaces the file.
-const ReasonH264TenBit = "H264TenBit"
+// ReasonUndecodableVideo is the CutoffMet condition's reason for an item
+// whose file's video is a codec no GPU here decodes (UndecodableVideo):
+// False, whatever its quality, until a release that is not replaces the
+// file.
+const ReasonUndecodableVideo = "UndecodableVideo"
 
-// H264TenBit reports whether mf's video is H.264 10-bit (Hi10P): catalog's
-// name for catalogv1alpha1.(*MediaFile).H264TenBit, where the rule lives
-// beside the type so import reads the same predicate (owner, 2026-11-03).
-// Such a file does not meet the cutoff whatever its quality: no GPU here
-// decodes it, and a small one cannot transcode under
-// policy.maxOutputToSourcePercent (Star Trek: Discovery's 480p mSD
-// episodes came to 100-109%).
-func H264TenBit(mf *catalogv1alpha1.MediaFile) bool {
-	return mf.H264TenBit()
+// UndecodableVideo names mf's video when no GPU here decodes its codec --
+// H.264 10-bit, MPEG-4 Part 2 (XviD, DivX) -- else "": catalog's name for
+// catalogv1alpha1.(*MediaFile).UndecodableVideo, where the rule lives beside
+// the type so import reads the same predicate (owner, 2026-11-03). Such a
+// file does not meet the cutoff whatever its quality: the transcode skips
+// it (a GPU transcode never decodes on the CPU), and a small one could not
+// transcode under policy.maxOutputToSourcePercent anyway (Star Trek:
+// Discovery's 480p mSD episodes came to 100-109%).
+func UndecodableVideo(mf *catalogv1alpha1.MediaFile) string {
+	return mf.UndecodableVideo()
 }
 
 // Transcoded reports whether mf is a transcoded file: catalog's name for

@@ -97,16 +97,20 @@ func episodeContentRejection(rel string, probe *schema.ProbeSummary) Rejection {
 	return Rejection{}
 }
 
-// h264TenBitRejection refuses an incoming movie or episode file whose probe
-// says H.264 10-bit (Hi10P) as the release's fault (owner, 2026-11-03):
-// no GPU here decodes it, many players cannot, and a file of it does not
-// meet the cutoff (MediaFile.H264TenBit), so taking one only for search to
-// replace it would loop. The h264-10bit format refuses such a release at
-// search by its title; this catches one whose title did not say. A
-// person's manual import is exempt, as from every content gate.
-func h264TenBitRejection(rel string, probe *schema.ProbeSummary) Rejection {
-	if probe != nil && probe.VideoCodec == "h264" && probe.VideoBitDepth == 10 {
-		return releaseFaultRejection("%s: the file is H.264 10-bit, which is never taken", rel)
+// undecodableRejection refuses an incoming movie or episode file whose
+// probe says a codec no GPU here decodes -- H.264 10-bit, MPEG-4 Part 2
+// (XviD, DivX) -- as the release's fault (owner, 2026-11-03): the transcode
+// skips it, many players cannot play it, and a file of it does not meet the
+// cutoff (MediaFile.UndecodableVideo), so taking one only for search to
+// replace it would loop. The h264-10bit and mpeg4-part2 formats refuse such
+// a release at search by its title; this catches one whose title did not
+// say. A person's manual import is exempt, as from every content gate.
+func undecodableRejection(rel string, probe *schema.ProbeSummary) Rejection {
+	if probe == nil {
+		return Rejection{}
+	}
+	if name := catalogv1alpha1.UndecodableVideoCodec(probe.VideoCodec, probe.VideoBitDepth, ""); name != "" {
+		return releaseFaultRejection("%s: the file is %s, which is never taken", rel, name)
 	}
 	return Rejection{}
 }

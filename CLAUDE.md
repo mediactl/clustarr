@@ -230,21 +230,26 @@ recorded copy or `CLUSTARR_VIDEO=copy`, or with neither, SDR at 1080p or
 less, where clustarr's own encodes have been 8-bit since the first. An
 unrecorded HDR or above-1080p one may be clustarr's own Main 10 encode and
 stays.
-The codec off limits is H.264 10-bit, which no GPU here decodes:
-clustarr's own catalogue format `h264-10bit`
-(`pkg/quality/catalogue/data/formats/clustarr.json`, a 10bit or Hi10P title
-naming no x265, HEVC, AV1 or VP9) scores -10000 by default, so every
-profile refuses it, dual audio or not (owner), where x265 10-bit is taken.
-A file of it does not meet the cutoff either (owner, 2026-11-03: "These
-files shouldn't meet the cutoff - or should be upgraded";
-`MediaFile.H264TenBit`, CutoffMet reason `H264TenBit`): a small one cannot
-transcode under the size limit (Star Trek: Discovery's 480p mSD episodes
-came to 100-109%), so a release of any quality the profile takes replaces
-it past the transcoded, baseline and upgrade rules, as for a file off the
-bitrate range (`decision.Current.H264TenBit`, `grabplan.StillWants`,
-`importplan.h264TenBitRefit`), and import refuses an incoming H.264
-10-bit file as a releaseFault (`importplan.h264TenBitRejection`, from the
-inspect's `ProbeSummary.VideoBitDepth`), a person's pick exempt.
+The codecs off limits are those no GPU here decodes, H.264 10-bit and
+MPEG-4 Part 2 (XviD, DivX; MS-MPEG-4 with it): clustarr's own catalogue
+formats `h264-10bit` (`pkg/quality/catalogue/data/formats/clustarr.json`,
+a 10bit or Hi10P title naming no x265, HEVC, AV1 or VP9) and `mpeg4-part2`
+(an XviD or DivX title) score -10000 by default, so every profile refuses
+them, dual audio or not (owner), where x265 10-bit is taken. A file of
+either does not meet the cutoff (owner, 2026-11-03: "These files shouldn't
+meet the cutoff - or should be upgraded", then "The 12 XviD files and 18
+H.264 10-bit files should be under the cutoff - forced to search for a new
+release"; `MediaFile.UndecodableVideo`, CutoffMet reason
+`UndecodableVideo`): the transcode skips it, since a GPU transcode never
+decodes on the CPU (below), and a small one could not transcode under the
+size limit anyway (Star Trek: Discovery's 480p mSD episodes came to
+100-109%), so a release of any quality the profile takes replaces it past
+the transcoded, baseline and upgrade rules, as for a file off the bitrate
+range (`decision.Current.Undecodable`, `grabplan.StillWants`,
+`importplan.undecodableRefit`), and import refuses an incoming file of
+either as a releaseFault (`importplan.undecodableRejection`, from the
+inspect's `ProbeSummary.VideoCodec` and `VideoBitDepth`), a person's pick
+exempt.
 AV1 decodes on the Intel GPU too (2026-11-03, ffgo `v0.0.0-clustarr.16`:
 a GPU decode opens FFmpeg's own `av1` decoder, where
 `avcodec_find_decoder` answered `libdav1d`, a CPU decoder that ignores the
@@ -309,8 +314,8 @@ cpu"): a source the tier's GPU does not decode is Skipped ("the qsv tier's
 GPU does not decode mpeg4 8-bit, and a GPU transcode never decodes on the
 CPU"; `standard.gpuUndecodable`) where it was decoded in software and
 uploaded -- on talos the XviD episodes of Seinfeld and The Simpsons, the
-H.264 10-bit of Star Trek: Discovery S05 (which the `H264TenBit` cutoff
-replaces) and any 4:2:2 stream, which no key covers -- neither QSV nor VA-API
+H.264 10-bit of Star Trek: Discovery S05 (both of which the
+`UndecodableVideo` cutoff replaces) and any 4:2:2 stream, which no key covers -- neither QSV nor VA-API
 decodes the first two on any Intel GPU (no `mpeg4_qsv` exists; VA-API: "No
 support for codec mpeg4 profile 15"; `h264_qsv` on High 10: "Decode error
 rate 1", talos-88, 2026-11-03); 4:4:4 has its own key (`hevc:10:444`), which

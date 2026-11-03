@@ -131,16 +131,20 @@ func TestBytesPerSecondPrefersTheSourceSize(t *testing.T) {
 	assert.Zero(t, none.BytesPerSecond())
 }
 
-// H264TenBit reads the probe: H.264 at 10 bits by depth or pixel format.
-func TestH264TenBitReadsTheProbe(t *testing.T) {
+// UndecodableVideo reads the probe: H.264 at 10 bits by depth or pixel
+// format, and MPEG-4 Part 2 (XviD, DivX) and MS-MPEG-4 at any depth.
+func TestUndecodableVideoReadsTheProbe(t *testing.T) {
 	mf := func(mi *commonv1.MediaInfo) *catalogv1alpha1.MediaFile {
 		return &catalogv1alpha1.MediaFile{Status: catalogv1alpha1.MediaFileStatus{MediaInfo: mi}}
 	}
-	assert.True(t, mf(&commonv1.MediaInfo{VideoCodec: "h264", VideoBitDepth: 10}).H264TenBit())
-	assert.True(t, mf(&commonv1.MediaInfo{VideoCodec: "h264", PixelFormat: "yuv420p10le"}).H264TenBit())
-	assert.False(t, mf(&commonv1.MediaInfo{VideoCodec: "h264", VideoBitDepth: 8, PixelFormat: "yuv420p"}).H264TenBit())
-	assert.False(t, mf(&commonv1.MediaInfo{VideoCodec: "hevc", VideoBitDepth: 10}).H264TenBit())
-	assert.False(t, mf(nil).H264TenBit())
+	assert.Equal(t, "H.264 10-bit", mf(&commonv1.MediaInfo{VideoCodec: "h264", VideoBitDepth: 10}).UndecodableVideo())
+	assert.Equal(t, "H.264 10-bit", mf(&commonv1.MediaInfo{VideoCodec: "h264", PixelFormat: "yuv420p10le"}).UndecodableVideo())
+	assert.Equal(t, "MPEG-4 Part 2 (XviD, DivX)", mf(&commonv1.MediaInfo{VideoCodec: "mpeg4", VideoBitDepth: 8, PixelFormat: "yuv420p"}).UndecodableVideo())
+	assert.Equal(t, "MS-MPEG-4 (DivX 3)", mf(&commonv1.MediaInfo{VideoCodec: "msmpeg4v3"}).UndecodableVideo())
+	assert.Empty(t, mf(&commonv1.MediaInfo{VideoCodec: "h264", VideoBitDepth: 8, PixelFormat: "yuv420p"}).UndecodableVideo())
+	assert.Empty(t, mf(&commonv1.MediaInfo{VideoCodec: "hevc", VideoBitDepth: 10}).UndecodableVideo())
+	assert.Empty(t, mf(&commonv1.MediaInfo{VideoCodec: "mpeg2video", VideoBitDepth: 8}).UndecodableVideo(), "the GPU decodes MPEG-2")
+	assert.Empty(t, mf(nil).UndecodableVideo())
 	var none *catalogv1alpha1.MediaFile
-	assert.False(t, none.H264TenBit())
+	assert.Empty(t, none.UndecodableVideo())
 }

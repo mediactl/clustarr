@@ -544,11 +544,15 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Mov
 		cutoffMet = false
 		transcoded = false
 	}
-	// An H.264 10-bit file (Hi10P) does not meet the cutoff whatever its
-	// quality (rollup.H264TenBit, owner 2026-11-03): the wanted sweep looks
-	// for a release that is not, as for a file off the bitrate range.
-	hi10p := hasFile && rollup.H264TenBit(mf)
-	if hi10p {
+	// A file whose video no GPU here decodes (H.264 10-bit, XviD) does not
+	// meet the cutoff whatever its quality (rollup.UndecodableVideo, owner
+	// 2026-11-03): the wanted sweep looks for a release that is not, as for
+	// a file off the bitrate range.
+	undecodable := ""
+	if hasFile {
+		undecodable = rollup.UndecodableVideo(mf)
+	}
+	if undecodable != "" {
 		cutoffMet = false
 		transcoded = false
 	}
@@ -644,8 +648,8 @@ func (r *Reconciler) reconcileNormal(ctx context.Context, m *catalogv1alpha1.Mov
 			"the file's audio %v lacks %v, which the profile wants in one release", audio, decision.MissingAudio(*profile, originalTag, audio))
 	case offBitrate != "":
 		k8s.MarkFalse(m, &conditions, catalogv1alpha1.MovieConditionCutoffMet, rollup.ReasonBitrateOutOfRange, "the file's %s", offBitrate)
-	case hi10p:
-		k8s.MarkFalse(m, &conditions, catalogv1alpha1.MovieConditionCutoffMet, rollup.ReasonH264TenBit, "the file's video is H.264 10-bit, which no GPU here decodes")
+	case undecodable != "":
+		k8s.MarkFalse(m, &conditions, catalogv1alpha1.MovieConditionCutoffMet, rollup.ReasonUndecodableVideo, "the file's video is %s, which no GPU here decodes", undecodable)
 	case cutoffMet:
 		k8s.MarkTrue(m, &conditions, catalogv1alpha1.MovieConditionCutoffMet, "CutoffMet", "file meets the profile cutoff")
 	default:

@@ -52,7 +52,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // x265, HEVC, AV1 or VP9 -- an anime Hi10P release names its codec as often
 // as not -- refused at -10000 by default as TRaSH refuses AV1: no GPU here
 // decodes it (the Intel pods' VA-API trial), where x265 10-bit decodes on
-// QSV and is encoded like any source.
+// QSV and is encoded like any source. mpeg4-part2 (owner, 2026-11-03: "The
+// 12 XviD files and 18 H.264 10-bit files should be under the cutoff -
+// forced to search for a new release") is an XviD or DivX title, refused
+// the same way: no GPU here decodes MPEG-4 Part 2 either.
 package catalogue
 
 import (

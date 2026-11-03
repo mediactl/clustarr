@@ -68,8 +68,8 @@ func StillWants(v View, claim schema.TransferClaim) (bool, string) {
 			v.Profile.Lists(cand.Quality) {
 			return true, "the current file is outside the profile's bitrate range"
 		}
-		if ok && v.Profile != nil && it.Current.H264TenBit && v.Profile.Lists(cand.Quality) {
-			return true, "the current file is H.264 10-bit"
+		if ok && v.Profile != nil && it.Current.Undecodable && v.Profile.Lists(cand.Quality) {
+			return true, "the current file's video is a codec no GPU here decodes"
 		}
 		if ok && v.Profile != nil && !it.Current.Transcoded {
 			cur := quality.Candidate{Quality: it.Current.Quality, Revision: it.Current.Revision, FormatScore: it.Current.FormatScore}

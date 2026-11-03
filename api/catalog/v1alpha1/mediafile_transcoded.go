@@ -83,18 +83,41 @@ func (mf *MediaFile) Final() bool {
 	return mf.Transcoded() && !mf.Upgradeable()
 }
 
-// H264TenBit reports whether mf's probed video is H.264 10-bit (Hi10P), the
-// one codec no GPU here decodes and many players, Apple's among them,
-// cannot (owner, 2026-11-03: "These files shouldn't meet the cutoff - or
-// should be upgraded"). Such a file does not meet the cutoff, a release
-// that is not replaces it, and import refuses a new one. A transcode is
-// HEVC, so it ends once one succeeds. A nil or unprobed mf is not.
-func (mf *MediaFile) H264TenBit() bool {
+// UndecodableVideo names mf's probed video when it is a codec no GPU here
+// decodes, else "" (UndecodableVideoCodec). Such a file does not meet the
+// cutoff, a release that is not replaces it, and import refuses a new one;
+// the transcode skips it, since a GPU transcode never decodes on the CPU. A
+// transcode is HEVC, so the rule ends once one succeeds. A nil or unprobed
+// mf is not.
+func (mf *MediaFile) UndecodableVideo() string {
 	if mf == nil || mf.Status.MediaInfo == nil {
-		return false
+		return ""
 	}
 	mi := mf.Status.MediaInfo
-	return mi.VideoCodec == "h264" && (mi.VideoBitDepth == 10 || strings.Contains(mi.PixelFormat, "10"))
+	return UndecodableVideoCodec(mi.VideoCodec, mi.VideoBitDepth, mi.PixelFormat)
+}
+
+// UndecodableVideoCodec names a video stream (its ffprobe codec, bit depth
+// and pixel format; 0 and "" when unknown) whose codec no GPU here decodes,
+// on QSV, VA-API or NVDEC, else "": H.264 10-bit (Hi10P; owner, 2026-11-03:
+// "These files shouldn't meet the cutoff - or should be upgraded", of Star
+// Trek: Discovery S05's mSD episodes) and MPEG-4 Part 2, XviD and DivX
+// (owner, the same day: "The 12 XviD files and 18 H.264 10-bit files should
+// be under the cutoff - forced to search for a new release"; talos-88's
+// Arrow Lake: no mpeg4_qsv decoder exists, and VA-API answers "No support
+// for codec mpeg4 profile 15"), with DivX 3's MS-MPEG-4 before it.
+func UndecodableVideoCodec(codec string, bitDepth int32, pixFmt string) string {
+	switch codec {
+	case "h264":
+		if bitDepth == 10 || strings.Contains(pixFmt, "10") {
+			return "H.264 10-bit"
+		}
+	case "mpeg4":
+		return "MPEG-4 Part 2 (XviD, DivX)"
+	case "msmpeg4v1", "msmpeg4v2", "msmpeg4v3":
+		return "MS-MPEG-4 (DivX 3)"
+	}
+	return ""
 }
 
 // Upgradeable reports whether AnnotationUpgradeable is "true" on mf.

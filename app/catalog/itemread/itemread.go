@@ -248,7 +248,7 @@ func CurrentOf(mf *catalogv1alpha1.MediaFile) *decision.Current {
 		Transcoded:     rollup.Transcoded(mf),
 		AudioLanguages: rollup.ProbedAudioLanguages(mf),
 		BytesPerSecond: mf.BytesPerSecond(),
-		H264TenBit:     rollup.H264TenBit(mf),
+		Undecodable:    rollup.UndecodableVideo(mf) != "",
 	}
 	// An upgradeable transcode's codec and HDR are the transcode's, no
 	// baseline of the release it is read as.

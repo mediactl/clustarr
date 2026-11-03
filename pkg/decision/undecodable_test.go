@@ -68,11 +68,29 @@ func TestAnH264TenBitFileIsReplacedByAnyReleaseTheProfileTakes(t *testing.T) {
 	same := decide(t, p, cat, rushmoreTarget(cur), bluray)
 	assert.False(t, same.Approved, "an 8-bit file at the cutoff stays: %v", reasons(same))
 
-	cur.H264TenBit = true
+	cur.Undecodable = true
 	same = decide(t, p, cat, rushmoreTarget(cur), bluray)
 	assert.True(t, same.Approved, "%v", reasons(same))
 	lower := decide(t, p, cat, rushmoreTarget(cur), web)
 	assert.True(t, lower.Approved, "a lower tier the profile takes replaces it: %v", reasons(lower))
 	hi10p := decide(t, p, cat, rushmoreTarget(cur), "Rushmore.1998.1080p.BluRay.10bit.x264.DTS-GROUP")
 	assert.False(t, hi10p.Approved, "never by another H.264 10-bit release")
+	xvid := decide(t, p, cat, rushmoreTarget(cur), "Rushmore.1998.1080p.BluRay.XviD.AC3-GROUP")
+	assert.False(t, xvid.Approved, "nor by an XviD one")
+}
+
+// The mpeg4-part2 format refuses an XviD or DivX release at search, under
+// every profile, as h264-10bit refuses Hi10P (owner, 2026-11-03).
+func TestAnXviDReleaseIsRefused(t *testing.T) {
+	p, cat := builtin(t, "hd-bluray-web")
+	for _, title := range []string{
+		"Rushmore.1998.1080p.BluRay.XviD.AC3-GROUP",
+		"Rushmore.1998.720p.BluRay.DivX5-GRP",
+		"Rushmore.1998.1080p.WEB-DL.DD5.1.xvid-GRP",
+	} {
+		d := decide(t, p, cat, rushmoreTarget(nil), title)
+		assert.False(t, d.Approved, "%s: %v", title, reasons(d))
+	}
+	d := decide(t, p, cat, rushmoreTarget(nil), "Rushmore.1998.1080p.BluRay.DD5.1.x264-GRP")
+	assert.True(t, d.Approved, "an 8-bit x264 Blu-ray is taken: %v", reasons(d))
 }

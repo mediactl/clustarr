@@ -10,5 +10,14 @@
       {"kind": "ReleaseTitle", "name": "Not AV1", "negate": true, "required": true, "pattern": "\\bAV1\\b"},
       {"kind": "ReleaseTitle", "name": "Not VP9", "negate": true, "required": true, "pattern": "\\bVP9\\b"}
     ]
+  },
+  {
+    "slug": "mpeg4-part2",
+    "name": "XviD/DivX",
+    "trashIds": {},
+    "scores": {"default": -10000},
+    "conditions": [
+      {"kind": "ReleaseTitle", "name": "XviD or DivX", "required": true, "pattern": "\\b(xvid|divx\\d*)\\b"}
+    ]
   }
 ]

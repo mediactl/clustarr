@@ -251,18 +251,21 @@ func TestAnImportHoldsTheProfilesBitrateRange(t *testing.T) {
 	assert.True(t, r.Transcoded)
 }
 
-// H.264 10-bit at import (owner, 2026-11-03): an incoming movie or episode
-// file whose probe says so is the release's fault, a person's pick exempt,
-// and a file that is not replaces one that is, at any quality the profile
-// takes, past the upgrade table.
-func TestAnImportRefusesH264TenBitAndReplacesIt(t *testing.T) {
-	r := h264TenBitRejection("S05E01.mkv", &schema.ProbeSummary{VideoCodec: "h264", VideoBitDepth: 10})
+// H.264 10-bit and XviD at import (owner, 2026-11-03): an incoming movie or
+// episode file whose probe says so is the release's fault, a person's pick
+// exempt, and a file that is not replaces one that is, at any quality the
+// profile takes, past the upgrade table.
+func TestAnImportRefusesUndecodableVideoAndReplacesIt(t *testing.T) {
+	r := undecodableRejection("S05E01.mkv", &schema.ProbeSummary{VideoCodec: "h264", VideoBitDepth: 10})
 	assert.Equal(t, commonv1.ImportClassReleaseFault, r.Class)
 	assert.Contains(t, r.Text, "H.264 10-bit")
-	assert.True(t, h264TenBitRejection("S05E01.mkv", &schema.ProbeSummary{VideoCodec: "h264", VideoBitDepth: 8}).none())
-	assert.True(t, h264TenBitRejection("S05E01.mkv", &schema.ProbeSummary{VideoCodec: "hevc", VideoBitDepth: 10}).none())
-	assert.True(t, h264TenBitRejection("S05E01.mkv", &schema.ProbeSummary{VideoCodec: "h264"}).none(), "an unknown depth is not judged")
-	assert.True(t, h264TenBitRejection("S05E01.mkv", nil).none())
+	assert.True(t, undecodableRejection("S05E01.mkv", &schema.ProbeSummary{VideoCodec: "h264", VideoBitDepth: 8}).none())
+	assert.True(t, undecodableRejection("S05E01.mkv", &schema.ProbeSummary{VideoCodec: "hevc", VideoBitDepth: 10}).none())
+	assert.True(t, undecodableRejection("S05E01.mkv", &schema.ProbeSummary{VideoCodec: "h264"}).none(), "an unknown depth is not judged")
+	assert.True(t, undecodableRejection("S05E01.mkv", nil).none())
+	xvid := undecodableRejection("S09E06.avi", &schema.ProbeSummary{VideoCodec: "mpeg4", VideoBitDepth: 8})
+	assert.Equal(t, commonv1.ImportClassReleaseFault, xvid.Class)
+	assert.Contains(t, xvid.Text, "MPEG-4 Part 2 (XviD, DivX)")
 
 	web, ok := quality.Lookup("video", "WEBDL-1080p")
 	assert.True(t, ok)
@@ -272,13 +275,13 @@ func TestAnImportRefusesH264TenBitAndReplacesIt(t *testing.T) {
 		Tiers: [][]quality.Definition{{web}, {bluray}}, CutoffIndex: 1, UpgradeAllowed: true, CutoffFormatScore: 10000,
 		ProperPolicy: "preferAndUpgrade", LanguageName: "any",
 	}
-	existing := func(depth int32) catalogv1alpha1.MediaFile {
+	existing := func(codec string, depth int32) catalogv1alpha1.MediaFile {
 		return catalogv1alpha1.MediaFile{
 			Spec: catalogv1alpha1.MediaFileSpec{
 				Quality: bluray.Quality, SizeBytes: 458_000_000,
 				MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: "discovery-s05e01"},
 			},
-			Status: catalogv1alpha1.MediaFileStatus{MediaInfo: &commonv1.MediaInfo{VideoCodec: "h264", VideoBitDepth: depth, RuntimeMillis: 3_583_000}},
+			Status: catalogv1alpha1.MediaFileStatus{MediaInfo: &commonv1.MediaInfo{VideoCodec: codec, VideoBitDepth: depth, RuntimeMillis: 3_583_000}},
 		}
 	}
 	q := web.Quality
@@ -288,8 +291,10 @@ func TestAnImportRefusesH264TenBitAndReplacesIt(t *testing.T) {
 		Probe:     &schema.ProbeSummary{VideoCodec: "h264", VideoBitDepth: 8, DurationSeconds: 3583},
 	}}
 	p := &planner{in: Input{Profile: &prof}}
-	_, refused := p.gate("f.mkv", incoming, []catalogv1alpha1.MediaFile{existing(10)}, false)
+	_, refused := p.gate("f.mkv", incoming, []catalogv1alpha1.MediaFile{existing("h264", 10)}, false)
 	assert.False(t, refused, "a lower-tier WEB-DL replaces a Blu-ray Hi10P file")
-	_, refused = p.gate("f.mkv", incoming, []catalogv1alpha1.MediaFile{existing(8)}, false)
+	_, refused = p.gate("f.mkv", incoming, []catalogv1alpha1.MediaFile{existing("mpeg4", 8)}, false)
+	assert.False(t, refused, "and an XviD one")
+	_, refused = p.gate("f.mkv", incoming, []catalogv1alpha1.MediaFile{existing("h264", 8)}, false)
 	assert.True(t, refused, "an 8-bit Blu-ray file stays")
 }

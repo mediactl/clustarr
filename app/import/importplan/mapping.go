@@ -277,18 +277,18 @@ func bitrateRefit(p quality.Profile, existing []catalogv1alpha1.MediaFile, c can
 	return true
 }
 
-// h264TenBitRefit reports whether an incoming file of quality q replaces
-// existing because every existing file is H.264 10-bit
-// (MediaFile.H264TenBit, owner 2026-11-03) and p takes q
-// (quality.Profile.Lists), whatever the existing files' tiers: such a file
-// does not meet the cutoff, and the incoming file is not H.264 10-bit
-// (h264TenBitRejection refused it already).
-func h264TenBitRefit(p quality.Profile, existing []catalogv1alpha1.MediaFile, q commonv1.Quality) bool {
+// undecodableRefit reports whether an incoming file of quality q replaces
+// existing because every existing file's video is a codec no GPU here
+// decodes (MediaFile.UndecodableVideo: H.264 10-bit, XviD; owner
+// 2026-11-03) and p takes q (quality.Profile.Lists), whatever the existing
+// files' tiers: such a file does not meet the cutoff, and the incoming file
+// is neither (undecodableRejection refused it already).
+func undecodableRefit(p quality.Profile, existing []catalogv1alpha1.MediaFile, q commonv1.Quality) bool {
 	if len(existing) == 0 || !p.Lists(q) {
 		return false
 	}
 	for i := range existing {
-		if !existing[i].H264TenBit() {
+		if existing[i].UndecodableVideo() == "" {
 			return false
 		}
 	}

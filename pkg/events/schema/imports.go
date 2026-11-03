@@ -180,7 +180,7 @@ type ProbeSummary struct {
 	Height     int32  `json:"height,omitempty"`
 	HDR        string `json:"hdr,omitempty"`
 	// VideoBitDepth is the video's bit depth (8, 10), 0 when unknown: an
-	// H.264 10-bit file is refused (importplan.h264TenBitRejection).
+	// H.264 10-bit file is refused (importplan.undecodableRejection).
 	VideoBitDepth   int32    `json:"videoBitDepth,omitempty"`
 	AudioLanguages  []string `json:"audioLanguages,omitempty"`
 	DurationSeconds int64    `json:"durationSeconds,omitempty"`
