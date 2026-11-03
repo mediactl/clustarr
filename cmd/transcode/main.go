@@ -48,6 +48,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/natsbus"
 	"github.com/mediactl/clustarr/pkg/ffruntime"
 	"github.com/mediactl/clustarr/pkg/fsops"
+	"github.com/mediactl/clustarr/pkg/gomemlimit"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/obsflags"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
@@ -59,7 +60,10 @@ import (
 // The in-process engine grafts a joined dub into a transcode in one pass.
 var _ worker.GraftEngine = inprocess.Engine{}
 
-func main() { os.Exit(run(os.Args[1:], os.Getenv)) }
+func main() {
+	gomemlimit.Set()
+	os.Exit(run(os.Args[1:], os.Getenv))
+}
 
 // flags is transcode's flag set: newFlags builds it, run parses it, and
 // manifest_test.go parses every argv transcode stamps onto a pool or graft

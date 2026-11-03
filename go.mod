@@ -3,6 +3,7 @@ module github.com/mediactl/clustarr
 go 1.27
 
 require (
+	github.com/KimMachineGun/automemlimit v1.0.1
 	github.com/Oudwins/tailwind-merge-go v0.2.3
 	github.com/PuerkitoBio/goquery v1.13.0
 	github.com/Tensai75/nntp v0.1.5
@@ -153,6 +154,7 @@ require (
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/onsi/ginkgo/v2 v2.33.0 // indirect
 	github.com/onsi/gomega v1.43.1 // indirect
+	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58 // indirect
 	github.com/pierrec/lz4/v4 v4.1.27 // indirect
 	github.com/pion/datachannel v1.5.9 // indirect
 	github.com/pion/dtls/v3 v3.0.3 // indirect

@@ -444,10 +444,11 @@ securityContext:
 # --------------------------------------------------------------------------
 # The parts that are not knobs -- image, command, domain, volumes, update
 # strategy, grace period -- live in the templates, because getting them wrong
-# is a correctness bug rather than a preference. GOMEMLIMIT is a share of
-# resources.limits.memory: 80%, except agent-import and agent-caption (60%)
-# and markers (50%), whose FFmpeg, par2 and ONNX Runtime allocations live
-# outside the Go heap.
+# is a correctness bug rather than a preference. Each binary's Go memory
+# limit is a share of resources.limits.memory, which it reads from its cgroup
+# (AUTOMEMLIMIT): 80%, except agent-import and agent-caption (60%) and
+# markers (50%), whose FFmpeg, par2 and ONNX Runtime allocations live outside
+# the Go heap.
 
 # Every controller in one process, one replica under the lease
 # manager.clustarr.io (no replica knob). It renders the download engines, the
@@ -500,7 +501,7 @@ manager:
   videoTranscodeLease: ""
   # The memory limit a download engine pod gets when its DownloadClient's
   # spec.resources sets none (--engine-memory-limit-torrent/-usenet); the
-  # engine's GOMEMLIMIT is 80% of it, and it requests 512Mi (or the limit,
+  # engine's Go memory limit is 80% of it, and it requests 512Mi (or the limit,
   # if lower). A DownloadClient's own memory limit always wins. Without a
   # limit an engine had no GOMEMLIMIT and kept its garbage: a usenet engine
   # grew to 20.7 GiB, and with 8Gi it plateaued near 5.5 GB.
@@ -725,8 +726,8 @@ agents:
 # at 95 MB and 1080p H.264 at 40 MB. That holds only with the 128 KiB mmap
 # threshold the pod sets (GLIBC_TUNABLES): under glibc's default, freed frame
 # buffers stay in its arenas, and eight 4K slots held 7.3 GB, two 2.2-3.4 GB.
-# FFmpeg's frames live outside the Go heap, so GOMEMLIMIT is 50% of the
-# limit. Lowering the limit, size it for the slots your nodes give:
+# FFmpeg's frames live outside the Go heap, so the Go memory limit is 50% of
+# the limit. Lowering the limit, size it for the slots your nodes give:
 # 256Mi + 448Mi x slots.
 markers:
   enabled: true

@@ -2540,6 +2540,17 @@ too; bump the tag in go.mod and go.sum to take a new fork release.
   run; propagation rides the `Clustarr-Trace` header already in `pkg/events`.
 - Prometheus metrics use the `clustarr_` prefix and base units. **Never label by
   title, path or release name** — unbounded cardinality.
+- **Every binary's Go memory limit is a share of its cgroup's** (owner,
+  2026-11-03, `pkg/gomemlimit` over `github.com/KimMachineGun/automemlimit`):
+  main's first statement is `gomemlimit.Set()`, which reads the container's
+  memory limit and takes `AUTOMEMLIMIT` of it (0.80; 0.60 for agent-import,
+  agent-caption and the transcode pool and graft pods; 0.50 for markers),
+  re-read every minute. The installers and the pods the manager builds set
+  the share, never a `GOMEMLIMIT` byte count; an explicit `GOMEMLIMIT` (the
+  chart's `goMemLimit`) still wins. GOMAXPROCS is the runtime's own since Go
+  1.25 (the cgroup's CPU limit, rounded up, at least 2, followed when it
+  changes): never add `go.uber.org/automaxprocs`, which rounds down to 1 on
+  the 500m and 1-CPU pods and stops that (`TestNoModuleSetsGOMAXPROCS`).
 - Tests: table-driven, testify, fixtures under `test/data/`. Pure functions where
   the logic is tricky (`pkg/pipeline.Project`, `pkg/transcode/standard.Plan`) so it is
   testable without a cluster.

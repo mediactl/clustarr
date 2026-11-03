@@ -132,10 +132,8 @@ spec:
         # 2.8 GB (values.yaml markers.resources).
         - name: GLIBC_TUNABLES
           value: glibc.malloc.mmap_threshold=131072
-        {{- with dig "resources" "limits" "memory" "" .Values.markers }}
-        - name: GOMEMLIMIT
-          value: {{ include "clustarr.gomemlimit" (list . 50) | quote }}
-        {{- end }}
+        - name: AUTOMEMLIMIT
+          value: {{ include "clustarr.automemlimit" 50 | quote }}
         {{- with .Values.markers.consumerSlots }}
         - name: CLUSTARR_CONSUMER_SLOTS
           value: {{ include "clustarr.consumerSlots" . | quote }}

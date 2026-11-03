@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 
+	"github.com/mediactl/clustarr/pkg/gomemlimit"
 	"github.com/mediactl/clustarr/test/installtest"
 )
 
@@ -46,7 +47,8 @@ func envValue(c corev1.Container, name string) (string, bool) {
 
 // TestManagerMemoryKnobs is the control-plane placement design's §5.4.1
 // items 1, 2 and 4: pprof to profile the manager, a tighter GC (GOGC and a
-// GOMEMLIMIT of its own), and the cache scoped to the release's namespace.
+// GOMEMLIMIT of its own, in place of the share of its memory limit), and the
+// cache scoped to the release's namespace.
 func TestManagerMemoryKnobs(t *testing.T) {
 	out := installtest.RenderChart(t, "--namespace", "clustarr-system",
 		"--set", "manager.pprofBindAddress=127.0.0.1:6060", "--set", "manager.gogc=50",
@@ -61,6 +63,8 @@ func TestManagerMemoryKnobs(t *testing.T) {
 	limit, ok := envValue(c, "GOMEMLIMIT")
 	require.True(t, ok)
 	assert.Equal(t, "1GiB", limit, "Go reads a GOMEMLIMIT with a unit suffix")
+	_, ok = envValue(c, gomemlimit.Env)
+	assert.False(t, ok, "an explicit GOMEMLIMIT takes the share's place")
 }
 
 func TestManagerMemoryKnobsOffByDefault(t *testing.T) {
@@ -70,7 +74,9 @@ func TestManagerMemoryKnobsOffByDefault(t *testing.T) {
 	}
 	_, ok := envValue(c, "GOGC")
 	assert.False(t, ok)
-	limit, ok := envValue(c, "GOMEMLIMIT")
+	_, ok = envValue(c, "GOMEMLIMIT")
+	assert.False(t, ok, "the binary reads its memory limit from its cgroup")
+	share, ok := envValue(c, gomemlimit.Env)
 	require.True(t, ok)
-	assert.Regexp(t, `^[0-9]+$`, limit, "80% of the memory limit, in bytes, as before")
+	assert.Equal(t, "0.80", share, "80% of the memory limit")
 }

@@ -84,7 +84,8 @@ func TestTheGraftJobRunsTheTranscodeBinary(t *testing.T) {
 	}
 	assert.Equal(t, cfg.NATSURL, env["NATS_URL"], "a graft pod answers in clustarr-grafts (D9)")
 	assert.Contains(t, env, "POD_NAME", "the record's writer")
-	assert.Equal(t, "2576980378", env["GOMEMLIMIT"], "60% of the cpu pool's default 4Gi (smoke finding O9's sweep)")
+	assert.Equal(t, "0.60", env["AUTOMEMLIMIT"], "60% of the cpu pool's memory limit (smoke finding O9's sweep)")
+	assert.NotContains(t, env, "GOMEMLIMIT", "the share, read from the cgroup, never a byte count")
 	assert.NotContains(t, env, pool.EnvProfileUID, "a graft pod belongs to no pool")
 	assert.NotContains(t, env, pool.EnvClass)
 

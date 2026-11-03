@@ -313,10 +313,8 @@ spec:
             secretKeyRef:
               name: {{ include "clustarr.fullname" $ }}-ui-art-signing-key
               key: key
-        {{- with dig "resources" "limits" "memory" "" .Values.ui }}
-        - name: GOMEMLIMIT
-          value: {{ include "clustarr.gomemlimit" (list . 80) | quote }}
-        {{- end }}
+        - name: AUTOMEMLIMIT
+          value: {{ include "clustarr.automemlimit" 80 | quote }}
         ports:
         - name: http
           containerPort: 8080

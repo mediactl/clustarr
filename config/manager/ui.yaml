@@ -116,9 +116,10 @@ spec:
               name: ui-art-signing-key
               key: key
               optional: true
-        # GOMEMLIMIT = 80% of 256Mi, in bytes (spec 2026-10-06 §10.2.1).
-        - name: GOMEMLIMIT
-          value: "214748365"
+        # The Go memory limit is 80% of the memory limit, read from the cgroup
+        # at start (pkg/gomemlimit).
+        - name: AUTOMEMLIMIT
+          value: "0.80"
         ports:
         - name: http
           containerPort: 8080

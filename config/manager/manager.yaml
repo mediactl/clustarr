@@ -112,10 +112,10 @@ spec:
                   fieldPath: status.podIP
             - name: UMASK
               value: "002"
-            # GOMEMLIMIT = 80% of 1664Mi, in bytes (the chart computes the same
-            # with clustarr.gomemlimit; TestGOMEMLIMITIsItsShareOfTheLimit).
-            - name: GOMEMLIMIT
-              value: "1395864371"
+            # The Go memory limit is 80% of the memory limit, read from the cgroup
+            # at start (pkg/gomemlimit).
+            - name: AUTOMEMLIMIT
+              value: "0.80"
             # The image of every engine, pool and graft pod (--native-image),
             # nvidia pools included: there is no CUDA image
             # (docs/adr/0015-no-cuda-image.md).

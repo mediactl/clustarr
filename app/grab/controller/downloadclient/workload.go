@@ -24,7 +24,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -36,6 +35,7 @@ import (
 
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/binpath"
+	"github.com/mediactl/clustarr/pkg/gomemlimit"
 	"github.com/mediactl/clustarr/pkg/placement"
 )
 
@@ -173,12 +173,6 @@ const defaultEngineMemoryRequest = "512Mi"
 // --engine-service-account ($CLUSTARR_ENGINE_SERVICE_ACCOUNT) carries.
 const DefaultEngineServiceAccount = "grab-engine"
 
-// gomemlimitFraction is design §12's "GOMEMLIMIT = 80 % of limit" for the
-// engines, both protocols: the Downward API can only give the whole limit,
-// so the controller computes the soft limit itself, as the chart's
-// clustarr.gomemlimit helper does for the Deployments it renders.
-const gomemlimitFraction = 0.8
-
 // engineResources is an engine container's resources: dc's spec.resources
 // as they are when they set a memory limit; otherwise with defaultLimit (the
 // protocol's, from [EngineRuntime]) as the memory limit -- or the
@@ -223,12 +217,12 @@ func memoryLimitOr(q resource.Quantity, fallback string) resource.Quantity {
 }
 
 // engineEnv is every engine container's environment: POD_NAMESPACE and
-// POD_NAME always, then whatever of rt the controller has, then GOMEMLIMIT
-// from the container's memory limit ([engineResources], which always sets
-// one). GOMEMLIMIT is rendered exactly as the chart's helper renders it --
-// 80% of the limit in bytes, "%.0f" -- so a Deployment's and an engine's
-// soft limit read as one convention.
-func engineEnv(rr corev1.ResourceRequirements, rt EngineRuntime) []*corev1ac.EnvVarApplyConfiguration {
+// POD_NAME always, then whatever of rt the controller has, then
+// AUTOMEMLIMIT, design §12's 80% for both protocols: the engine sets its Go
+// memory limit to that share of the container's memory limit
+// ([engineResources], which always sets one) as it starts (pkg/gomemlimit),
+// as every Deployment the chart renders does.
+func engineEnv(rt EngineRuntime) []*corev1ac.EnvVarApplyConfiguration {
 	env := []*corev1ac.EnvVarApplyConfiguration{
 		corev1ac.EnvVar().WithName("POD_NAMESPACE").WithValueFrom(corev1ac.EnvVarSource().
 			WithFieldRef(corev1ac.ObjectFieldSelector().WithFieldPath("metadata.namespace"))),
@@ -241,11 +235,7 @@ func engineEnv(rr corev1.ResourceRequirements, rt EngineRuntime) []*corev1ac.Env
 	if rt.Umask != "" {
 		env = append(env, corev1ac.EnvVar().WithName("UMASK").WithValue(rt.Umask))
 	}
-	if limit, ok := rr.Limits[corev1.ResourceMemory]; ok && !limit.IsZero() {
-		soft := strconv.FormatFloat(float64(limit.Value())*gomemlimitFraction, 'f', 0, 64)
-		env = append(env, corev1ac.EnvVar().WithName("GOMEMLIMIT").WithValue(soft))
-	}
-	return env
+	return append(env, corev1ac.EnvVar().WithName(gomemlimit.Env).WithValue(gomemlimit.Share(gomemlimit.DefaultPercent)))
 }
 
 // engineWorkloadName is spec §6.3's `<downloadclient>-engine` naming: the
@@ -574,7 +564,7 @@ func torrentContainer(dc *downloadv1alpha1.DownloadClient, image, dataDir, scrat
 			WithName("peer").
 			WithContainerPort(listenPort).
 			WithProtocol(corev1.ProtocolTCP), metricsPort).
-		WithEnv(engineEnv(rr, rt)...).
+		WithEnv(engineEnv(rt)...).
 		// anacrolix/torrent's file storage maps every data file it touches and
 		// never unmaps one (mmapFileIo, v1.61's default): 1.2 GiB of mapped
 		// files OOM-killed the engine at its 2Gi limit (talos, 2026-10-15).
@@ -606,7 +596,7 @@ func usenetContainer(dc *downloadv1alpha1.DownloadClient, image, dataDir, scratc
 		WithCommand(cmd...).
 		WithArgs(args...).
 		WithPorts(metricsPort).
-		WithEnv(engineEnv(rr, rt)...).
+		WithEnv(engineEnv(rt)...).
 		WithResources(resourceRequirementsAC(rr)).
 		WithSecurityContext(containerSecurityContextAC()).
 		WithVolumeMounts(mounts...)

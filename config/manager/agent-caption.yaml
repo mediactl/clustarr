@@ -83,9 +83,11 @@ spec:
                   fieldPath: spec.nodeName
             - name: UMASK
               value: "002"
-            # GOMEMLIMIT = 60% of 1Gi, in bytes: FFmpeg allocates outside the Go heap (OD42).
-            - name: GOMEMLIMIT
-              value: "644245094"
+            # The Go memory limit is 60% of the memory limit, read from the cgroup
+            # at start (pkg/gomemlimit): FFmpeg allocates outside the Go heap
+            # (OD42).
+            - name: AUTOMEMLIMIT
+              value: "0.60"
           ports:
             - name: metrics
               containerPort: 8443

@@ -36,6 +36,7 @@ import (
 
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/transcode/jobspec"
+	"github.com/mediactl/clustarr/pkg/gomemlimit"
 )
 
 // Every transcode pool pod runs with the security settings every Deployment
@@ -186,45 +187,44 @@ func TestBuildJobPassesUmask(t *testing.T) {
 	assert.False(t, set, "no UMASK is invented when the controller has none")
 }
 
-// TestPoolPodsGetTheirGOMEMLIMIT (smoke finding O9's sweep of the pods the
-// manager builds): a pool pod -- and so a graft Job's, which runs the cpu
-// pool's template -- gets GOMEMLIMIT at 60% of its memory limit, the share
-// OD42 gives every process whose FFmpeg allocates outside the Go heap,
-// rounded as the chart's clustarr.gomemlimit rounds. A profile whose
-// resources set no memory limit gets none: its operator sized it, and a
-// transcode's memory is FFmpeg's, which a GOMEMLIMIT cannot bound.
-func TestPoolPodsGetTheirGOMEMLIMIT(t *testing.T) {
-	gomemlimit := func(tp *transcodev1alpha1.TranscodeProfile, class transcodev1alpha1.Hardware) (string, bool) {
+// TestPoolPodsGetTheirGoMemoryLimitShare (smoke finding O9's sweep of the
+// pods the manager builds): a pool pod -- and so a graft Job's, which runs
+// the cpu pool's template -- sets its Go memory limit to 60% of its memory
+// limit, the share OD42 gives every process whose FFmpeg allocates outside
+// the Go heap, read from its cgroup (AUTOMEMLIMIT, pkg/gomemlimit). The env
+// names no byte count, so it is the same whatever the profile's limit, and
+// none whatever its class; a pool with no memory limit finds none in its
+// cgroup and runs with no Go limit.
+func TestPoolPodsGetTheirGoMemoryLimitShare(t *testing.T) {
+	envOf := func(tp *transcodev1alpha1.TranscodeProfile, class transcodev1alpha1.Hardware) map[string]string {
+		env := map[string]string{}
 		for _, e := range Template(tp, class, Config{}).Spec.Containers[0].Env {
-			if e.Name == "GOMEMLIMIT" {
-				return e.Value, true
-			}
+			env[e.Name] = e.Value
 		}
-		return "", false
+		return env
 	}
 	withResources := func(rr corev1.ResourceRequirements) *transcodev1alpha1.TranscodeProfile {
 		tp := profile()
 		tp.Spec.Resources = rr
 		return tp
 	}
-
-	got, ok := gomemlimit(&transcodev1alpha1.TranscodeProfile{}, transcodev1alpha1.HardwareCPU)
-	require.True(t, ok, "the floored default (4Gi) pool, which every graft Job runs, sets GOMEMLIMIT")
-	assert.Equal(t, "2576980378", got, "60%% of 4Gi")
-
 	big := withResources(corev1.ResourceRequirements{Limits: corev1.ResourceList{
 		corev1.ResourceCPU: resource.MustParse("8"), corev1.ResourceMemory: resource.MustParse("8Gi"),
 	}})
-	for _, class := range []transcodev1alpha1.Hardware{transcodev1alpha1.HardwareCPU, transcodev1alpha1.HardwareNVIDIA, transcodev1alpha1.HardwareIntel} {
-		got, ok := gomemlimit(big, class)
-		require.True(t, ok, string(class))
-		assert.Equal(t, "5153960755", got, "%s: 60%% of 8Gi, whatever a GPU pool requests", class)
-	}
-
-	_, ok = gomemlimit(withResources(corev1.ResourceRequirements{Limits: corev1.ResourceList{
+	noMemory := withResources(corev1.ResourceRequirements{Limits: corev1.ResourceList{
 		corev1.ResourceCPU: resource.MustParse("4"),
-	}}), transcodev1alpha1.HardwareCPU)
-	assert.False(t, ok, "no memory limit, no GOMEMLIMIT")
+	}})
+
+	for name, tp := range map[string]*transcodev1alpha1.TranscodeProfile{
+		"the floored default (4Gi), which every graft Job runs": {},
+		"8Gi": big, "no memory limit": noMemory,
+	} {
+		for _, class := range []transcodev1alpha1.Hardware{transcodev1alpha1.HardwareCPU, transcodev1alpha1.HardwareNVIDIA, transcodev1alpha1.HardwareIntel} {
+			env := envOf(tp, class)
+			assert.Equal(t, "0.60", env[gomemlimit.Env], "%s, %s", name, class)
+			assert.NotContains(t, env, "GOMEMLIMIT", "%s, %s: the share, never a byte count", name, class)
+		}
+	}
 }
 
 // A pool pod's CLUSTARR_CPU_LIMIT is the pool size its plan was made with:

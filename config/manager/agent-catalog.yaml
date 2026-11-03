@@ -81,9 +81,10 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
-            # GOMEMLIMIT = 80% of 1Gi, in bytes.
-            - name: GOMEMLIMIT
-              value: "858993459"
+            # The Go memory limit is 80% of the memory limit, read from the cgroup
+            # at start (pkg/gomemlimit).
+            - name: AUTOMEMLIMIT
+              value: "0.80"
           ports:
             - name: metrics
               containerPort: 8443

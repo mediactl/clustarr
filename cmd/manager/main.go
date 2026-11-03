@@ -21,6 +21,10 @@ package main
 import (
 	"github.com/mediactl/clustarr/internal/cli"
 	"github.com/mediactl/clustarr/internal/cli/manager"
+	"github.com/mediactl/clustarr/pkg/gomemlimit"
 )
 
-func main() { cli.Main(manager.NewCommand) }
+func main() {
+	gomemlimit.Set()
+	cli.Main(manager.NewCommand)
+}

@@ -18,8 +18,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package guards
 
 import (
+	"fmt"
 	"regexp"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -34,6 +34,7 @@ import (
 	"github.com/mediactl/clustarr/app/grab/controller/downloadclient"
 	"github.com/mediactl/clustarr/app/transcode/controller/pool"
 	"github.com/mediactl/clustarr/pkg/binpath"
+	"github.com/mediactl/clustarr/pkg/gomemlimit"
 	"github.com/mediactl/clustarr/test/installtest"
 )
 
@@ -85,10 +86,13 @@ func TestEveryContainerNamesItsBinary(t *testing.T) {
 	}
 }
 
-// TestGOMEMLIMITIsItsShareOfTheLimit (§10.2.1, OD42): GOMEMLIMIT is
-// round(limit x share) -- 60% for agent-import and agent-caption, 50% for
-// markers, 80% elsewhere -- in both installers, and their defaults agree.
-func TestGOMEMLIMITIsItsShareOfTheLimit(t *testing.T) {
+// TestTheGoMemoryLimitIsItsShareOfTheLimit (§10.2.1, OD42; owner,
+// 2026-11-03): every workload sets a memory limit and AUTOMEMLIMIT, the
+// share of it the binary takes as its Go memory limit from its cgroup
+// (pkg/gomemlimit) -- 60% for agent-import and agent-caption, 50% for
+// markers, 80% elsewhere -- never a GOMEMLIMIT byte count, in both
+// installers, and their defaults agree.
+func TestTheGoMemoryLimitIsItsShareOfTheLimit(t *testing.T) {
 	values := map[string]map[string]string{}
 	for name, r := range installers(t) {
 		values[name] = map[string]string{}
@@ -98,11 +102,12 @@ func TestGOMEMLIMITIsItsShareOfTheLimit(t *testing.T) {
 			c := d.Spec.Template.Spec.Containers[0]
 			limit, ok := c.Resources.Limits[corev1.ResourceMemory]
 			require.True(t, ok, "%s %s sets no memory limit", name, component)
-			got, ok := containerEnv(c, "GOMEMLIMIT")
-			require.True(t, ok, "%s %s sets no GOMEMLIMIT", name, component)
-			assert.Equal(t, strconv.FormatInt((limit.Value()*row.gomemPct+50)/100, 10), got,
-				"%s %s: GOMEMLIMIT is %d%% of %s", name, component, row.gomemPct, limit.String())
-			values[name][component] = got
+			got, ok := containerEnv(c, gomemlimit.Env)
+			require.True(t, ok, "%s %s sets no %s", name, component, gomemlimit.Env)
+			assert.Equal(t, gomemlimit.Share(int(row.gomemPct)), got, "%s %s: the Go memory limit is %d%% of %s", name, component, row.gomemPct, limit.String())
+			_, ok = containerEnv(c, "GOMEMLIMIT")
+			assert.False(t, ok, "%s %s: a GOMEMLIMIT would override the share", name, component)
+			values[name][component] = fmt.Sprintf("%s of %d", got, limit.Value())
 		}
 		require.Len(t, values[name], len(workloadTable), name)
 	}

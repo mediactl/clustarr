@@ -29,6 +29,7 @@ import (
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/transcode/jobspec"
 	"github.com/mediactl/clustarr/pkg/binpath"
+	"github.com/mediactl/clustarr/pkg/gomemlimit"
 	"github.com/mediactl/clustarr/pkg/placement"
 )
 
@@ -346,31 +347,18 @@ func cpuLimitEnv(threads int32, fromLimit bool) corev1.EnvVar {
 	return corev1.EnvVar{Name: jobspec.CPULimitEnv, Value: strconv.Itoa(int(threads))}
 }
 
-// gomemlimitPercent is a pool pod's GOMEMLIMIT share of its memory limit:
-// OD42's 60% for a process whose FFmpeg allocates outside the Go heap, as
-// agent-import and agent-caption get (spec 2026-10-06 §10.2.1). It bounds
-// the Go side -- a graft's decoded anchor tracks, the worker's own garbage --
-// which, with no soft limit, the collector let grow until the cgroup killed
-// the pod (smoke finding O9, on the engines).
+// gomemlimitPercent is a pool pod's Go memory limit share of its memory
+// limit, its AUTOMEMLIMIT (pkg/gomemlimit): OD42's 60% for a process whose
+// FFmpeg allocates outside the Go heap, as agent-import and agent-caption
+// get (spec 2026-10-06 §10.2.1). It bounds the Go side -- a graft's decoded
+// anchor tracks, the worker's own garbage -- which, with no soft limit, the
+// collector let grow until the cgroup killed the pod (smoke finding O9, on
+// the engines). The worker reads the limit from its cgroup, so the env
+// carries no byte count and a memory-limit edit leaves it as it is; a
+// profile whose resources set no memory limit (ResourcesFor keeps it as the
+// operator set it, since a transcode's memory is FFmpeg's, which a limit
+// would kill rather than a Go limit tame) runs with no Go limit either.
 const gomemlimitPercent = 60
-
-// gomemlimit is GOMEMLIMIT for a container with resources res:
-// [gomemlimitPercent] of its memory limit in whole bytes, rounded as the
-// chart's clustarr.gomemlimit rounds; false when it has no memory limit.
-// That is a profile whose resources set something else and no memory limit
-// (ResourcesFor keeps it as the operator set it): no default limit is
-// imposed there, since a transcode's memory is FFmpeg's, which a limit
-// would kill rather than a GOMEMLIMIT tame. The value is a literal in the
-// template's env, so a memory-limit edit recreates the pool rather than
-// reshaping it, as a CPU-request edit on a pool without a CPU limit already
-// does (cpuLimitEnv).
-func gomemlimit(res corev1.ResourceRequirements) (string, bool) {
-	limit, ok := res.Limits[corev1.ResourceMemory]
-	if !ok || limit.Sign() <= 0 {
-		return "", false
-	}
-	return strconv.FormatInt((limit.Value()*gomemlimitPercent+50)/100, 10), true
-}
 
 // Template is the pod template a (profile, class) pool asks for. The image,
 // runtimeClassName, securityContext, volumes, env and args are immutable for
@@ -393,9 +381,7 @@ func Template(tp *transcodev1alpha1.TranscodeProfile, class transcodev1alpha1.Ha
 	if cfg.Umask != "" {
 		env = append(env, corev1.EnvVar{Name: UmaskEnv, Value: cfg.Umask})
 	}
-	if v, ok := gomemlimit(res); ok {
-		env = append(env, corev1.EnvVar{Name: "GOMEMLIMIT", Value: v})
-	}
+	env = append(env, corev1.EnvVar{Name: gomemlimit.Env, Value: gomemlimit.Share(gomemlimitPercent)})
 	pod := corev1.PodSpec{
 		RestartPolicy:                corev1.RestartPolicyNever,
 		AutomountServiceAccountToken: new(false),

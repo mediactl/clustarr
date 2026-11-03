@@ -317,7 +317,8 @@ func envOf(env []corev1ac.EnvVarApplyConfiguration) map[string]string {
 // they ran as the namespace's unbound "default" account and were denied
 // their own DownloadClient; no POD_NAMESPACE, so they could not even name
 // it; no NATS_URL, so they dialled a Service no installer creates; and no
-// GOMEMLIMIT, design §12's 80% of the memory limit. envtest schedules no
+// Go memory limit, design §12's 80% of the memory limit (AUTOMEMLIMIT,
+// read from the cgroup by pkg/gomemlimit). envtest schedules no
 // pods, so only the rendered pod spec can show any of it.
 func TestEnginePodsGetTheRuntimeTheyNeed(t *testing.T) {
 	rt := EngineRuntime{
@@ -334,16 +335,15 @@ func TestEnginePodsGetTheRuntimeTheyNeed(t *testing.T) {
 	dep := buildDeployment(usenet, "nzb-engine", "img", "/data", "/scratch", "clustarr-data", rt, nil, fakeOwnerRef())
 
 	for name, tc := range map[string]struct {
-		spec     *corev1ac.PodSpecApplyConfiguration
-		memLimit string
-		extra    map[string]string
+		spec  *corev1ac.PodSpecApplyConfiguration
+		extra map[string]string
 	}{
-		// The chart's clustarr.gomemlimit renders these same two byte counts
-		// for a 1Gi and a 512Mi Deployment (charts/clustarr/README.md).
-		"torrent": {spec: sts.Spec.Template.Spec, memLimit: "858993459", extra: map[string]string{
+		// The chart's clustarr.automemlimit renders the same share for a
+		// Deployment (charts/clustarr/README.md).
+		"torrent": {spec: sts.Spec.Template.Spec, extra: map[string]string{
 			torrentFileIOEnv: "classic",
 		}},
-		"usenet": {spec: dep.Spec.Template.Spec, memLimit: "429496730"},
+		"usenet": {spec: dep.Spec.Template.Spec},
 	} {
 		t.Run(name, func(t *testing.T) {
 			require.NotNil(t, tc.spec.ServiceAccountName, "the engine pod names no ServiceAccount")
@@ -354,7 +354,7 @@ func TestEnginePodsGetTheRuntimeTheyNeed(t *testing.T) {
 				"POD_NAME":      "fieldRef:metadata.name",
 				"NATS_URL":      rt.NATSURL,
 				"UMASK":         "002",
-				"GOMEMLIMIT":    tc.memLimit,
+				"AUTOMEMLIMIT":  "0.80",
 			}
 			maps.Copy(want, tc.extra)
 			assert.Equal(t, want, envOf(c.Env))
@@ -366,12 +366,12 @@ func TestEnginePodsGetTheRuntimeTheyNeed(t *testing.T) {
 		bare := buildStatefulSet(torrentClient("sab", 1), "sab-engine", "img", "/data", "/scratch", "clustarr-data",
 			EngineRuntime{ServiceAccountName: DefaultEngineServiceAccount}, nil, fakeOwnerRef())
 		c := bare.Spec.Template.Spec.Containers[0]
-		// GOMEMLIMIT is the default limit's (O9:
+		// The share applies to the default limit (O9:
 		// TestAnEngineWithoutAMemoryLimitGetsItsProtocolsDefault).
 		assert.Equal(t, map[string]string{
 			"POD_NAMESPACE":  "fieldRef:metadata.namespace",
 			"POD_NAME":       "fieldRef:metadata.name",
-			"GOMEMLIMIT":     "1717986918",
+			"AUTOMEMLIMIT":   "0.80",
 			torrentFileIOEnv: "classic",
 		}, envOf(c.Env),
 			"NATS_URL and UMASK are set only when there is something to set them to")
@@ -439,10 +439,11 @@ func TestTheTorrentEngineDoesNotMapItsData(t *testing.T) {
 // a host with 5 GB free -- the collector never ran hard without a limit to
 // aim at. An engine whose spec.resources sets no memory limit gets its
 // protocol's default limit, a request far below it (the scheduler must not
-// reserve the whole ceiling), and the GOMEMLIMIT that limit implies; a
-// DownloadClient's own memory limit still wins, untouched.
+// reserve the whole ceiling), and a Go memory limit of 80% of it, which the
+// engine reads from its cgroup; a DownloadClient's own memory limit still
+// wins, untouched.
 func TestAnEngineWithoutAMemoryLimitGetsItsProtocolsDefault(t *testing.T) {
-	memoryOf := func(spec *corev1ac.PodSpecApplyConfiguration) (limit, request, gomemlimit string) {
+	memoryOf := func(spec *corev1ac.PodSpecApplyConfiguration) (limit, request, share string) {
 		c := spec.Containers[0]
 		require.NotNil(t, c.Resources, "the engine container has no resources")
 		if c.Resources.Limits != nil {
@@ -455,7 +456,7 @@ func TestAnEngineWithoutAMemoryLimitGetsItsProtocolsDefault(t *testing.T) {
 				request = q.String()
 			}
 		}
-		return limit, request, envOf(c.Env)["GOMEMLIMIT"]
+		return limit, request, envOf(c.Env)["AUTOMEMLIMIT"]
 	}
 	usenet := func(rt EngineRuntime, rr corev1.ResourceRequirements) *corev1ac.PodSpecApplyConfiguration {
 		dc := usenetClient("nzb")
@@ -470,42 +471,40 @@ func TestAnEngineWithoutAMemoryLimitGetsItsProtocolsDefault(t *testing.T) {
 	none := corev1.ResourceRequirements{}
 
 	for name, tc := range map[string]struct {
-		spec                       *corev1ac.PodSpecApplyConfiguration
-		limit, request, gomemlimit string
+		spec           *corev1ac.PodSpecApplyConfiguration
+		limit, request string
 	}{
-		// 80% of 8Gi and of 2Gi, rendered as the chart's clustarr.gomemlimit
-		// renders a Deployment's.
-		"usenet, no resources":  {spec: usenet(EngineRuntime{}, none), limit: "8Gi", request: "512Mi", gomemlimit: "6871947674"},
-		"torrent, no resources": {spec: torrent(EngineRuntime{}, none), limit: "2Gi", request: "512Mi", gomemlimit: "1717986918"},
+		"usenet, no resources":  {spec: usenet(EngineRuntime{}, none), limit: "8Gi", request: "512Mi"},
+		"torrent, no resources": {spec: torrent(EngineRuntime{}, none), limit: "2Gi", request: "512Mi"},
 		"usenet, CPU only": {
 			spec:  usenet(EngineRuntime{}, corev1.ResourceRequirements{Limits: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")}}),
-			limit: "8Gi", request: "512Mi", gomemlimit: "6871947674",
+			limit: "8Gi", request: "512Mi",
 		},
 		// A request above the default lifts the limit to it: a limit below
 		// the request is one the apiserver refuses.
 		"usenet, a request above the default": {
 			spec:  usenet(EngineRuntime{}, corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("10Gi")}}),
-			limit: "10Gi", request: "10Gi", gomemlimit: "8589934592",
+			limit: "10Gi", request: "10Gi",
 		},
 		"usenet, its own limit": {
 			spec:  usenet(EngineRuntime{}, corev1.ResourceRequirements{Limits: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("12Gi")}}),
-			limit: "12Gi", request: "", gomemlimit: "10307921510",
+			limit: "12Gi", request: "",
 		},
 		// The manager's --engine-memory-limit-usenet and -torrent.
 		"usenet, the manager's default": {
 			spec:  usenet(EngineRuntime{UsenetMemoryLimit: resource.MustParse("6Gi")}, none),
-			limit: "6Gi", request: "512Mi", gomemlimit: "5153960755",
+			limit: "6Gi", request: "512Mi",
 		},
 		"torrent, the manager's default below the request default": {
 			spec:  torrent(EngineRuntime{TorrentMemoryLimit: resource.MustParse("256Mi")}, none),
-			limit: "256Mi", request: "256Mi", gomemlimit: "214748365",
+			limit: "256Mi", request: "256Mi",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			limit, request, gomemlimit := memoryOf(tc.spec)
+			limit, request, share := memoryOf(tc.spec)
 			assert.Equal(t, tc.limit, limit, "memory limit")
 			assert.Equal(t, tc.request, request, "memory request")
-			assert.Equal(t, tc.gomemlimit, gomemlimit, "GOMEMLIMIT")
+			assert.Equal(t, "0.80", share, "the Go memory limit's share of it")
 		})
 	}
 }

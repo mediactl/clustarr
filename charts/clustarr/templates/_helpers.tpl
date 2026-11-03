@@ -121,46 +121,20 @@ false
 {{- end -}}
 
 {{/*
-GOMEMLIMIT: a share of a Kubernetes memory quantity, in whole bytes. Call
-with (list <resources.limits.memory> <percent>): 80 for every Go-heavy
-process, 60 for agent-import and agent-caption and 50 for markers, whose
-FFmpeg, par2 and ONNX Runtime allocations live outside the Go heap (spec
-2026-10-06 §10.2.1, OD42). The Downward API's resourceFieldRef on a
-container's own limit only ever gives back 100% of it -- there is no scaling
-operator -- so the share is computed once, here, from the same quantity
-values.yaml puts in resources.limits.memory, and baked into the rendered env
-var as a literal.
-
-This covers every workload the chart renders but not the torrent/usenet
-engine StatefulSets and Deployments the manager's DownloadClient controller
-creates at runtime: those take their resources from
-DownloadClient.spec.resources, a CRD field this chart never sees, so the same
-calculation is made again in app/grab/controller/downloadclient (Go).
-
-The quantity may be a bare byte count or carry a binary (Ki/Mi/Gi/Ti) or
-decimal (K/M/G/T) suffix -- every form values.yaml uses and the ones
-`kubectl` normally accepts for memory. Anything else (exponent form, a "m"
-milli-suffix, which is meaningless for memory) fails the render rather than
-silently emitting a wrong number. x pct / 100 rather than x 0.8: the product
-of two integers is exact, so the chart and an integer check agree to the byte.
+AUTOMEMLIMIT: the Go memory limit's share of a container's memory limit, as
+pkg/gomemlimit.Share renders it ("0.80"). Call with the percent: 80 for every
+Go-heavy process, 60 for agent-import and agent-caption and 50 for markers,
+whose FFmpeg, par2 and ONNX Runtime allocations live outside the Go heap
+(spec 2026-10-06 §10.2.1, OD42). Every binary reads its own memory limit
+from its cgroup at start and sets GOMEMLIMIT to this share of it
+(github.com/KimMachineGun/automemlimit; owner, 2026-11-03), so the env
+carries no byte count and a container without a memory limit runs with no
+Go limit. The download engines and transcode pools the manager builds get
+the same variable from Go (app/grab/controller/downloadclient,
+app/transcode/controller/pool).
 */}}
-{{- define "clustarr.gomemlimit" -}}
-{{- $q := index . 0 -}}
-{{- $pct := index . 1 -}}
-{{- $mult := 1.0 -}}
-{{- $num := $q -}}
-{{- if hasSuffix "Ki" $q -}}{{- $mult = 1024.0 -}}{{- $num = trimSuffix "Ki" $q -}}
-{{- else if hasSuffix "Mi" $q -}}{{- $mult = 1048576.0 -}}{{- $num = trimSuffix "Mi" $q -}}
-{{- else if hasSuffix "Gi" $q -}}{{- $mult = 1073741824.0 -}}{{- $num = trimSuffix "Gi" $q -}}
-{{- else if hasSuffix "Ti" $q -}}{{- $mult = 1099511627776.0 -}}{{- $num = trimSuffix "Ti" $q -}}
-{{- else if hasSuffix "K" $q -}}{{- $mult = 1000.0 -}}{{- $num = trimSuffix "K" $q -}}
-{{- else if hasSuffix "M" $q -}}{{- $mult = 1000000.0 -}}{{- $num = trimSuffix "M" $q -}}
-{{- else if hasSuffix "G" $q -}}{{- $mult = 1000000000.0 -}}{{- $num = trimSuffix "G" $q -}}
-{{- else if hasSuffix "T" $q -}}{{- $mult = 1000000000000.0 -}}{{- $num = trimSuffix "T" $q -}}
-{{- else if not (regexMatch "^[0-9]+$" $q) -}}
-{{- fail (printf "clustarr.gomemlimit: %q is not a supported memory quantity (want a bare byte count, or a Ki/Mi/Gi/Ti/K/M/G/T suffix)" $q) -}}
-{{- end -}}
-{{- printf "%.0f" (divf (mulf ($num | float64) $mult $pct) 100.0) -}}
+{{- define "clustarr.automemlimit" -}}
+{{- printf "%.2f" (divf (. | float64) 100.0) -}}
 {{- end -}}
 
 {{/*
@@ -420,7 +394,8 @@ Call with a dict:
   index              true to mount the RWO index volume at /var/lib/clustarr/index
   strategy           a Deployment strategy map, or "" for the apps/v1 default
   grace              terminationGracePeriodSeconds (longest AckWait drained + 25 s, spec §3.5.6)
-  gomemPercent       GOMEMLIMIT's share of resources.limits.memory (default 80)
+  gomemPercent       the Go memory limit's share of resources.limits.memory,
+                     rendered as AUTOMEMLIMIT (default 80)
   serviceType        the Service's type (default ClusterIP)
   extraPorts         list of (dict "name" "containerPort") before metrics and health
   extraServicePorts  list of (dict "name" "port" "targetPort") before metrics
@@ -576,16 +551,15 @@ spec:
           value: "002"
         {{- end }}
         {{- /* A workload's own goMemLimit (Go's syntax, e.g. 1GiB) wins over the
-               share of its memory limit; gogc sets GOGC (control-plane
-               placement design §5.4.1). */}}
+               share of its memory limit, which the binary reads from its
+               cgroup; gogc sets GOGC (control-plane placement design
+               §5.4.1). */}}
         {{- if .values.goMemLimit }}
         - name: GOMEMLIMIT
           value: {{ .values.goMemLimit | quote }}
         {{- else }}
-        {{- with dig "resources" "limits" "memory" "" .values }}
-        - name: GOMEMLIMIT
-          value: {{ include "clustarr.gomemlimit" (list . (default 80 $.gomemPercent)) | quote }}
-        {{- end }}
+        - name: AUTOMEMLIMIT
+          value: {{ include "clustarr.automemlimit" (default 80 .gomemPercent) | quote }}
         {{- end }}
         {{- with .values.gogc }}
         - name: GOGC
