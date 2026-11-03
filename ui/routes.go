@@ -148,7 +148,8 @@ func (s *Server) routes() http.Handler {
 			// episode stills) are their own public URLs: PMS fetches a URL
 			// it keeps through images.plex.tv and refuses a private one
 			// (plexPhotoURL).
-			PhotoURL: plexPhotoURL(s.searchArt),
+			PhotoURL:       plexPhotoURL(s.searchArt),
+			ArtContentType: s.artContentType,
 		}))
 	}
 

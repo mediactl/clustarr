@@ -64,6 +64,8 @@ type artworkFor struct {
 	artwork []catalogv1.ArtworkEntry
 	overlay *catalogv1.OverlayEntry
 	sourced bool
+	// contentType is Options.ArtContentType.
+	contentType func(kind commonv1.MediaKind, uid types.UID, t catalogv1.ImageType) string
 }
 
 // entry finds t in af.artwork, reporting false when it was never fetched.
@@ -91,19 +93,30 @@ func (af artworkFor) entry(t catalogv1.ImageType) (catalogv1.ArtworkEntry, bool)
 // (2026-10-26: every season of 86 and A Model Family, whose poster is the
 // show's, and 14 movies). An entry with no absolute http(s)
 // source keeps its /art URL.
+//
+// An /art URL whose object is a WebP asks for it as JPEG or PNG
+// ([projection.ArtNoWebP]), which also makes it a new URL, so PMS downloads
+// it as a new file at the item's next refresh rather than keep the WebP it
+// holds.
 func (af artworkFor) url(externalURL string, t catalogv1.ImageType) (string, bool) {
 	a, ok := af.entry(t)
 	if af.sourced && ok && publicURL(a.SourceURL) {
 		return a.SourceURL, true
 	}
 	base := trimBase(externalURL)
-	if t == catalogv1.ImageTypePoster && af.overlay != nil && !af.sourced {
-		return base + projection.ArtURL(af.kind, af.uid, t, af.overlay.Digest), true
+	var u string
+	switch {
+	case t == catalogv1.ImageTypePoster && af.overlay != nil && !af.sourced:
+		u = base + projection.ArtURL(af.kind, af.uid, t, af.overlay.Digest)
+	case ok:
+		u = base + projection.ArtURL(af.kind, af.uid, t, a.Digest)
+	default:
+		return "", false
 	}
-	if ok {
-		return base + projection.ArtURL(af.kind, af.uid, t, a.Digest), true
+	if af.contentType != nil && af.contentType(af.kind, af.uid, t) == "image/webp" {
+		u += "&" + projection.ArtNoWebP + "=1"
 	}
-	return "", false
+	return u, true
 }
 
 // publicURL reports an absolute http or https URL.
@@ -175,6 +188,7 @@ func (h *handler) handleImages(root rootDef) http.HandlerFunc {
 			http.NotFound(w, r)
 			return
 		}
+		af.contentType = h.opts.ArtContentType
 
 		images := nonNilImages(buildImages(h.opts.ExternalURL, af))
 		writeJSON(w, http.StatusOK, imageContainerResponse{MediaContainer: ImageContainer{

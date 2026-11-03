@@ -358,6 +358,15 @@ func ArtURL(kind commonv1.MediaKind, uid types.UID, t catalogv1.ImageType, diges
 	return fmt.Sprintf("/art/%s/%s/%s?v=%s", kind, uid, t, digest)
 }
 
+// ArtNoWebP is the [ArtURL] query parameter ("&nowebp=1") asking handleArt
+// for a WebP object in a format every Plex component decodes: JPEG, or PNG
+// when it has transparency. Any other object is served as it is. PMS keeps
+// the bytes it downloads, and its UltraBlur processor decodes no WebP: on
+// talos 1,151 movies and shows whose stored background was a WebP had no
+// UltraBlur colours, and one night's maintenance failed to decode 704 of
+// them (2026-11-03).
+const ArtNoWebP = "nowebp"
+
 // ArtKey is an image's key: "<kind>/<uid>/<type>", the path [ArtURL] serves
 // it at under /art/ and the key of the SSE art event.
 func ArtKey(kind commonv1.MediaKind, uid types.UID, t catalogv1.ImageType) string {

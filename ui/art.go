@@ -119,9 +119,9 @@ func (s *Server) handleArt(w http.ResponseWriter, r *http.Request) {
 	// carried on a 304 too, as both are meant to be): a conditional request
 	// still needs to learn the digest it already matched and how long its
 	// own cached copy is now good for.
-	etag := `"` + e.Digest + `"`
+	etag := artETag(r, e)
 	if inm := r.Header.Get("If-None-Match"); inm != "" && inm == etag {
-		setArtCaching(w, r, e.Digest)
+		setArtCaching(w, r, e.Digest, etag)
 		w.WriteHeader(http.StatusNotModified)
 		return
 	}
@@ -131,10 +131,17 @@ func (s *Server) handleArt(w http.ResponseWriter, r *http.Request) {
 		s.artError(w, r, kind, imgType, err)
 		return
 	}
+	contentType := e.ContentType
+	if convertsWebP(r, e) {
+		if body, contentType, err = s.decodableArt(e.Digest, body); err != nil {
+			s.artError(w, r, kind, imgType, err)
+			return
+		}
+	}
 	// The entry artBytes served, so the ETag names the bytes actually sent.
-	setArtCaching(w, r, e.Digest)
-	if e.ContentType != "" {
-		w.Header().Set("Content-Type", e.ContentType)
+	setArtCaching(w, r, e.Digest, artETag(r, e))
+	if contentType != "" {
+		w.Header().Set("Content-Type", contentType)
 	}
 	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
 	w.WriteHeader(http.StatusOK)
@@ -154,14 +161,14 @@ func (s *Server) artError(w http.ResponseWriter, r *http.Request, kind commonv1.
 	http.Error(w, "failed to load artwork", http.StatusInternalServerError)
 }
 
-// setArtCaching sets the ETag and Cache-Control for digest: immutable when
-// the URL's ?v= names it -- this exact byte stream never changes at this URL
-// again, so the browser and any CDN may keep it forever -- and no-cache
-// otherwise (no ?v, or one naming a digest this image no longer serves: a
-// poster refreshed since the link was rendered), so a stale image is never
-// kept as if it were permanent.
-func setArtCaching(w http.ResponseWriter, r *http.Request, digest string) {
-	w.Header().Set("ETag", `"`+digest+`"`)
+// setArtCaching sets the ETag (artETag) and Cache-Control for digest:
+// immutable when the URL's ?v= names it -- this exact byte stream never
+// changes at this URL again, so the browser and any CDN may keep it forever
+// -- and no-cache otherwise (no ?v, or one naming a digest this image no
+// longer serves: a poster refreshed since the link was rendered), so a stale
+// image is never kept as if it were permanent.
+func setArtCaching(w http.ResponseWriter, r *http.Request, digest, etag string) {
+	w.Header().Set("ETag", etag)
 	if r.URL.Query().Get("v") == digest {
 		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	} else {

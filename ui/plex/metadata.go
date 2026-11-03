@@ -163,7 +163,7 @@ func buildMovieMetadata(root rootDef, u urls, m *catalogv1.Movie) Metadata {
 		}
 	}
 
-	af := artworkFor{kind: commonv1.MediaKindMovie, uid: m.UID, artwork: m.Status.Artwork, overlay: m.Status.Overlay, sourced: u.sourced}
+	af := artworkFor{kind: commonv1.MediaKindMovie, uid: m.UID, artwork: m.Status.Artwork, overlay: m.Status.Overlay, sourced: u.sourced, contentType: u.artType}
 	md.Thumb, md.Art = thumbAndArt(u.external, af)
 	md.Image = withAlt(buildImages(u.external, af), md.Title)
 	return md
@@ -240,7 +240,7 @@ func buildShowMetadata(root rootDef, u urls, s *catalogv1.Series, idx *projectio
 		md.Theme = "https://tvthemes.plexapp.com/" + itoa64(s.Spec.TvdbID) + ".mp3"
 	}
 
-	af := artworkFor{kind: commonv1.MediaKindSeries, uid: s.UID, artwork: s.Status.Artwork, overlay: s.Status.Overlay, sourced: u.sourced}
+	af := artworkFor{kind: commonv1.MediaKindSeries, uid: s.UID, artwork: s.Status.Artwork, overlay: s.Status.Overlay, sourced: u.sourced, contentType: u.artType}
 	md.Thumb, md.Art = thumbAndArt(u.external, af)
 	md.Image = withAlt(buildImages(u.external, af), md.Title)
 
@@ -313,7 +313,7 @@ func buildSeasonMetadata(
 		md.Year = meta.Year
 	}
 
-	af := artworkFor{kind: commonv1.MediaKindSeries, uid: s.UID, artwork: s.Status.Artwork, overlay: s.Status.Overlay, sourced: u.sourced}
+	af := artworkFor{kind: commonv1.MediaKindSeries, uid: s.UID, artwork: s.Status.Artwork, overlay: s.Status.Overlay, sourced: u.sourced, contentType: u.artType}
 	md.Thumb, md.Art = thumbAndArt(u.external, af)
 	md.ParentThumb = md.Thumb
 	md.ParentArt = md.Art
@@ -505,7 +505,7 @@ func buildEpisodeMetadata(root rootDef, u urls, s *catalogv1.Series, e *catalogv
 		seriesTitle = meta.Title
 	}
 
-	af := artworkFor{kind: commonv1.MediaKindSeries, uid: s.UID, artwork: s.Status.Artwork, overlay: s.Status.Overlay, sourced: u.sourced}
+	af := artworkFor{kind: commonv1.MediaKindSeries, uid: s.UID, artwork: s.Status.Artwork, overlay: s.Status.Overlay, sourced: u.sourced, contentType: u.artType}
 	parentThumb, seriesArt := thumbAndArt(u.external, af)
 	if poster := u.proxied(seasonPoster(s, e.Spec.SeasonNumber)); poster != "" {
 		parentThumb = poster

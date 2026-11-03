@@ -25,6 +25,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/types"
 
+	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/metadata/extended"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -76,6 +77,13 @@ type Options struct {
 	// the extras route answers PMS with. Nil answers 503 for an item that
 	// has a Plex id, never an empty list, which PMS would read as "none".
 	Extras func(ctx context.Context, plexID string) ([]Extra, error)
+
+	// ArtContentType is the content type of the artwork object /art serves
+	// for an item's image of type t, "" when unknown. The URL of a WebP asks
+	// /art for it in a format PMS decodes ([projection.ArtNoWebP]): PMS keeps
+	// the bytes it downloads, and its UltraBlur processor decodes no WebP.
+	// Nil asks for none.
+	ArtContentType func(kind commonv1.MediaKind, uid types.UID, t catalogv1.ImageType) string
 }
 
 // Handler returns the composed HTTP handler for both provider roots,

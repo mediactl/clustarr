@@ -53,6 +53,8 @@ type urls struct {
 	// sourced is set for a match result, whose artwork PMS is given by its
 	// source URL rather than the ui's ([artworkFor.url]).
 	sourced bool
+	// artType is Options.ArtContentType.
+	artType func(kind commonv1.MediaKind, uid types.UID, t catalogv1.ImageType) string
 }
 
 // proxied is the URL PMS is given for src (Options.PhotoURL), "" when there
@@ -70,6 +72,7 @@ func (h *handler) urlsFor(r *http.Request, idx *projection.Index) urls {
 		external: h.opts.ExternalURL, photo: h.opts.PhotoURL, loc: localeOf(r),
 		episodeOrder: r.URL.Query().Get("episodeOrder"),
 		plexGUIDs:    h.opts.PlexGUIDs,
+		artType:      h.opts.ArtContentType,
 		idx:          idx,
 	}
 }
