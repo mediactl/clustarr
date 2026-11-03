@@ -37,6 +37,32 @@ import (
 // fileMissingRetry is how soon a file the stat did not find is looked at again.
 const fileMissingRetry = time.Minute
 
+// swapStatRetry is how soon a swap whose output the stat does not show yet
+// is looked at again, and swapStatGrace how long after the worker finished
+// a stat of the source's own bytes is read as this node's stale view
+// rather than as a swap that never landed (swapUnseen).
+const (
+	swapStatRetry = 15 * time.Second
+	swapStatGrace = 5 * time.Minute
+)
+
+// swapUnseen reports whether the stat of a Swapping transcode's target
+// still shows the bytes the swap replaced -- the source's planned probe
+// hash, so its path, size and mtime -- within swapStatGrace of the worker
+// finishing. The manager's node stats /data through its own NFS client,
+// whose cached attributes (up to a minute) can outlive a rename another
+// node's transcode pod made: the stat then matched the probe record
+// already held for the old bytes, which was incorporated as the swap's
+// probe with this pass's time, and the swap was refused for the old file's
+// tag (talos, 2026-11-03: 36 files, among them every 10-bit remux encoded
+// in place that the manager had stat'd within the minute before its swap).
+// Past the grace the stat is believed, and a swap that never landed fails
+// as before.
+func swapUnseen(swap *catalogv1alpha1.TranscodeState, ps probeState, now time.Time) bool {
+	return swap.ProbeHash != "" && ps.Hash == swap.ProbeHash &&
+		swap.FinishedAt != nil && now.Sub(swap.FinishedAt.Time) < swapStatGrace
+}
+
 // ProbeInput is what PlanProbe decides from: everything the probe adapter's
 // Gather read. It holds no client.
 type ProbeInput struct {
@@ -184,6 +210,10 @@ func PlanProbe(in ProbeInput, out *catalogv1alpha1.MediaFileStatus) ProbeOutcome
 	}
 	ps := evaluateProbe(in.Path, in.Info.Size(), in.Info.ModTime(), in.Prev.ProbeHash)
 	swapOrKept := in.Swap != nil || in.GraftSwapping
+	if in.Swap != nil && swapUnseen(in.Swap, ps, now.Time) {
+		o.Due = now.Add(swapStatRetry)
+		return o
+	}
 	nonce := reprobeNonce(mf, in.Prev)
 	if nonce != "" && !catalogv1alpha1.ValidNonce(nonce) {
 		SetReprobeNonce(out, catalogv1alpha1.HandledNonce(nonce))
