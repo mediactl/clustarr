@@ -537,12 +537,16 @@ spec:
         {{- end }}
         {{- /* Every binary takes a share of its cgroup's memory limit as its Go
                memory limit (github.com/KimMachineGun/automemlimit): 0.9, or
-               .automemlimit's. A workload's own goMemLimit (Go's syntax,
-               e.g. 1GiB) wins over it; gogc sets GOGC (control-plane
-               placement design §5.4.1). */}}
+               the workload's .automemlimit, or the share the values set
+               (manager.automemlimit, owner 2026-11-03). A workload's own
+               goMemLimit (Go's syntax, e.g. 1GiB) wins over both; gogc sets
+               GOGC (control-plane placement design §5.4.1). */}}
         {{- if .values.goMemLimit }}
         - name: GOMEMLIMIT
           value: {{ .values.goMemLimit | quote }}
+        {{- else if .values.automemlimit }}
+        - name: AUTOMEMLIMIT
+          value: {{ .values.automemlimit | quote }}
         {{- else if .automemlimit }}
         - name: AUTOMEMLIMIT
           value: {{ .automemlimit | quote }}

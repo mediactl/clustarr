@@ -280,6 +280,7 @@
         "pprofBindAddress": { "type": "string", "description": "--pprof-bind-address; empty keeps the manager's default, 127.0.0.1:6060." },
         "gogc": { "type": "integer", "minimum": 1, "description": "GOGC for the manager." },
         "goMemLimit": { "type": "string", "pattern": "^[0-9]+(B|KiB|MiB|GiB|TiB)?$", "description": "GOMEMLIMIT in Go's syntax, in place of 90% of resources.limits.memory (automemlimit's share)." },
+        "automemlimit": { "type": "string", "pattern": "^(0\\.[0-9]+|1(\\.0+)?)$", "description": "AUTOMEMLIMIT: the share of resources.limits.memory the manager takes as its Go memory limit, in place of 0.9; goMemLimit wins over it." },
         "watchReleaseNamespace": { "type": "boolean", "description": "--watch-namespace=<release namespace>: cache only the release's namespace." },
         "slots": {
           "type": "string",

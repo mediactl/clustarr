@@ -536,11 +536,14 @@ manager:
   # Memory (control-plane placement design §5.4.1). pprofBindAddress moves
   # net/http/pprof, which the manager serves on 127.0.0.1:6060 when it is
   # empty (reached with kubectl port-forward);
-  # gogc sets GOGC and goMemLimit GOMEMLIMIT in Go's syntax (e.g. 1GiB) in
-  # place of 90% of resources.limits.memory; watchReleaseNamespace limits the
-  # cache to the release's namespace (--watch-namespace).
+  # gogc sets GOGC; automemlimit the share of resources.limits.memory the
+  # manager takes as its Go memory limit (AUTOMEMLIMIT, in place of 0.9), and
+  # goMemLimit GOMEMLIMIT outright in Go's syntax (e.g. 1GiB), which wins;
+  # watchReleaseNamespace limits the cache to the release's namespace
+  # (--watch-namespace).
   pprofBindAddress: ""
   # gogc: 50
+  # automemlimit: "0.8"
   # goMemLimit: 1GiB
   watchReleaseNamespace: false
   # Placement profile (placement.profiles), used only with placement.enabled.
