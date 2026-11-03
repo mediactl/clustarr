@@ -52,12 +52,13 @@ type ItemCheck struct {
 	// PackLive: a live pack covers the item, which it holds whatever the
 	// release until it has imported or failed (owner, 2026-11-02).
 	PackLive bool
-	// Queued: any live video grab covers the item, upgraded over or not,
-	// but one a complete release outranks by its audio
-	// (decision.AudioOutranks). A release covering several items is refused
-	// over it (owner, 2026-11-02: no pack while an episode it covers is
-	// downloading; a dual-audio pack over Japanese-only singles is the
-	// exception, the same day).
+	// Queued: a live video grab covers the item that outranks the release
+	// by its audio (decision.AudioOutranked: under a profile taking complete
+	// audio first, it carries every wanted language and the release does
+	// not). A release covering several items is refused over it; over any
+	// other live single a pack is grabbed and the single removed (owner,
+	// 2026-11-03, which reversed 2026-11-02's "no pack while an episode it
+	// covers is downloading").
 	Queued bool
 	// Unaired: the item has not aired.
 	Unaired bool
@@ -104,7 +105,7 @@ func CoverageRejections(items []ItemCheck, season int32, fullSeason, manual, ove
 			for _, it := range items {
 				if it.Queued {
 					return []commonv1.Rejection{coverageRejection(decision.ReasonEpisodeDownloading,
-						"the pack covers an episode a grab is still downloading; no pack is grabbed beside it")}
+						"the pack covers an episode a grab carrying every wanted language is still downloading, and the pack does not carry them")}
 				}
 			}
 		}
@@ -233,14 +234,17 @@ func (d *decider) itemCheck(c Candidate, it Covered, complete bool) ItemCheck {
 	return ic
 }
 
-// Holds reports a queued grab a release (complete: carrying every language
-// p's audio policy wants) does not outrank by its audio
-// (decision.AudioOutranks), which ItemCheck.Queued records: a dual-audio pack
-// is grabbed over Japanese-only singles downloading (owner, 2026-11-02),
-// never beside a grab carrying both.
+// Holds reports a queued grab that outranks a release (complete: carrying
+// every language p's audio policy wants) by its audio
+// (decision.AudioOutranked), which ItemCheck.Queued records: a pack is
+// grabbed over every other single downloading, which it replaces (owner,
+// 2026-11-03), never over a dual-audio single when it is not dual audio.
 func Holds(p *quality.Profile, originalTag string, queue []decision.Queued, complete bool) bool {
+	if p == nil {
+		return false
+	}
 	for _, q := range queue {
-		if p == nil || !decision.AudioOutranks(ctxBackground, *p, originalTag, complete, q) {
+		if decision.AudioOutranked(ctxBackground, *p, originalTag, complete, q) {
 			return true
 		}
 	}

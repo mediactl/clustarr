@@ -206,9 +206,11 @@ func TestBandedPutsOtherTitlesLastAndCountsThem(t *testing.T) {
 
 // TestASeasonResultIsRejectedAsThePlannerWould is design §8.1: an
 // interactive season search shows each result as the Series' grab planner
-// would judge it -- a pack overlapping a live grab QueueHigherPreference,
-// a pack of a season still airing FullSeasonNotAired, a pack with some
-// episodes already at the cutoff approved (the planner narrows it).
+// would judge it -- a pack overlapping a live single approved (it replaces
+// the single; owner, 2026-11-03), one overlapping a live pack
+// PackDownloading, a pack of a season still airing FullSeasonNotAired, a
+// pack with some episodes already at the cutoff approved (the planner
+// narrows it).
 func TestASeasonResultIsRejectedAsThePlannerWould(t *testing.T) {
 	const pack = "Breaking.Bad.S01.720p.BluRay.x264-GRP"
 	const single = "Breaking.Bad.S01E03.720p.BluRay.x264-GRP"
@@ -221,13 +223,21 @@ func TestASeasonResultIsRejectedAsThePlannerWould(t *testing.T) {
 		return out
 	}
 
-	t.Run("a pack overlapping a live grab", func(t *testing.T) {
+	t.Run("a pack overlapping a live single", func(t *testing.T) {
 		live := liveSeriesEntry(t, "Breaking.Bad.S01E02.720p.BluRay.x264-OTHER", ep(1, 2))
 		r := seasonReconciler(t, append(aired(), bbSeries(live))...)
 		got, _ := r.seasonItemState(context.Background(), interactiveSeasonSearch(1), answer)
 		res := byTitle(got)
-		rejectedAs(t, res[pack], decision.ReasonQueueHigherPreference)
+		require.True(t, res[pack].Approved, "the pack replaces the single: %+v", res[pack].Rejections)
 		require.True(t, res[single].Approved, "a single of another episode does not overlap it: %+v", res[single].Rejections)
+	})
+	t.Run("a pack overlapping a live pack", func(t *testing.T) {
+		live := liveSeriesEntry(t, "Breaking.Bad.S01.720p.HDTV.x264-OTHER", ep(1, 1), ep(1, 2), ep(1, 3), ep(1, 4), ep(1, 5))
+		r := seasonReconciler(t, append(aired(), bbSeries(live))...)
+		got, _ := r.seasonItemState(context.Background(), interactiveSeasonSearch(1), answer)
+		res := byTitle(got)
+		rejectedAs(t, res[pack], decision.ReasonPackDownloading)
+		rejectedAs(t, res[single], decision.ReasonPackDownloading)
 	})
 	t.Run("a pack of a season still airing", func(t *testing.T) {
 		objs := aired()

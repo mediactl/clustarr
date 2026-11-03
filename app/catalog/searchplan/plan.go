@@ -110,6 +110,12 @@ type View struct {
 	// (automaticSeasons), so a pack is taken before a single could be; the
 	// season's answer is then its search, folded as SeasonAnsweredAt.
 	SeasonPackFirst bool
+	// SeasonReplaces: the Episode and another of its season hold files a
+	// whole release replaces (undecodable video, a wanted audio language
+	// missing), both due, and no grab holds the season (owner, 2026-11-03).
+	// Its video search waits for the automatic season search, which asks
+	// for such a season (SeasonFacts.ReplaceDue); the answer is its search.
+	SeasonReplaces bool
 }
 
 // Task is one search task to publish.
@@ -298,7 +304,7 @@ func purposeDue(v View, now time.Time) *purpose {
 	// An Episode whose season search is queued or searching waits for it
 	// (Wave S, §7), and one never searched waits for its PackFirst season's
 	// automatic search; its donor search does not.
-	waits := v.SeasonPending || (v.SeasonPackFirst && !searched(v.Attempts, v.LastSearched))
+	waits := v.SeasonPending || (v.SeasonPackFirst && !searched(v.Attempts, v.LastSearched)) || v.SeasonReplaces
 	if v.Wanted && !waits && wantedcron.Eligible(v.Attempts, now) {
 		reason := v.Reason
 		if reason == "" {

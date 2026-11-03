@@ -45,22 +45,38 @@ func TestEachRankBonusOutweighsEverythingBelowIt(t *testing.T) {
 		name         string
 		above, below Inputs
 	}{
-		{"complete audio over the best of everything else",
-			worst(Inputs{Complete: true, CompleteFirst: true}), best(Inputs{CompleteFirst: true})},
-		{"a tier over the best below it",
+		{
+			"complete audio over the best of everything else",
+			worst(Inputs{Complete: true, CompleteFirst: true}), best(Inputs{CompleteFirst: true}),
+		},
+		{
+			"a tier over the best below it",
 			func() Inputs { w := worst(Inputs{}); w.Tier = MaxTiers - 2; return w }(),
-			func() Inputs { b := best(Inputs{}); b.Tier = MaxTiers - 1; return b }()},
-		{"REAL over every version below it",
+			func() Inputs { b := best(Inputs{}); b.Tier = MaxTiers - 1; return b }(),
+		},
+		{
+			"REAL over every version below it",
 			Inputs{FormatScore: -FormatLimit, PreferRevision: true, Revision: common.Revision{Version: 1, Real: 1}},
-			Inputs{FormatScore: FormatLimit, PreferredProtocol: true, WholeSeason: true, PreferRevision: true,
-				Revision: common.Revision{Version: 1 + RevisionSteps}}},
-		{"a version over a whole season, protocol and format",
+			Inputs{
+				FormatScore: FormatLimit, PreferredProtocol: true, WholeSeason: true, PreferRevision: true,
+				Revision: common.Revision{Version: 1 + RevisionSteps},
+			},
+		},
+		{
+			"a version over a whole season, protocol and format",
 			Inputs{FormatScore: -FormatLimit, PreferRevision: true, Revision: common.Revision{Version: 2}},
-			Inputs{FormatScore: FormatLimit, PreferredProtocol: true, WholeSeason: true, PreferRevision: true, Revision: v1}},
-		{"a whole season over protocol and format",
-			Inputs{FormatScore: -FormatLimit, WholeSeason: true}, Inputs{FormatScore: FormatLimit, PreferredProtocol: true}},
-		{"the preferred protocol over format",
-			Inputs{FormatScore: -FormatLimit, PreferredProtocol: true}, Inputs{FormatScore: FormatLimit}},
+			Inputs{FormatScore: FormatLimit, PreferredProtocol: true, WholeSeason: true, PreferRevision: true, Revision: v1},
+		},
+		{
+			"a whole season over protocol and format",
+			Inputs{FormatScore: -FormatLimit, WholeSeason: true},
+			Inputs{FormatScore: FormatLimit, PreferredProtocol: true},
+		},
+		{
+			"the preferred protocol over format",
+			Inputs{FormatScore: -FormatLimit, PreferredProtocol: true},
+			Inputs{FormatScore: FormatLimit},
+		},
 	}
 	for _, s := range steps {
 		assert.Greater(t, Score(s.above), Score(s.below), s.name)
@@ -71,8 +87,10 @@ func TestEachRankBonusOutweighsEverythingBelowIt(t *testing.T) {
 }
 
 func TestScorePartsNamesEachBonus(t *testing.T) {
-	in := Inputs{FormatScore: 300, PreferredProtocol: true, WholeSeason: true, Complete: true, CompleteFirst: true,
-		PreferRevision: true, Revision: common.Revision{Version: 2}, Tier: 0, Tiers: 3}
+	in := Inputs{
+		FormatScore: 300, PreferredProtocol: true, WholeSeason: true, Complete: true, CompleteFirst: true,
+		PreferRevision: true, Revision: common.Revision{Version: 2}, Tier: 0, Tiers: 3,
+	}
 	assert.Equal(t, []string{
 		"complete audio +1,000,000,000",
 		"quality tier +20,000,000 (2 x 10,000,000)",

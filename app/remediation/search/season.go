@@ -24,6 +24,7 @@ import (
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -366,6 +367,9 @@ func (s *Stage) seasonFacts(ctx context.Context, ser *catalogv1alpha1.Series, v 
 		if holding {
 			f.Downloading++
 		}
+		if !live && replacesAsPack(ep, now) {
+			f.ReplaceDue++
+		}
 		if ep.Status.SearchAttempts.Count == 0 && ep.Status.SearchAttempts.Latest == nil && ep.Status.LastSearchedAt == nil {
 			f.FirstSearch++
 		}
@@ -418,8 +422,8 @@ func seasonOf(owner client.Object, ep *catalogv1alpha1.Episode, prof *quality.Pr
 // seasonDownloading reports a live video grab on ser covering an episode
 // of season that holds it (holdsSeason). The automatic season search asks
 // for no pack of such a season, since the grab planner would refuse one
-// beside the grab (owner, 2026-11-02, decision.ReasonEpisodeDownloading), so
-// its episodes wait for no season query and search alone.
+// without its languages beside the grab (decision.ReasonEpisodeDownloading),
+// so its episodes wait for no season query and search alone.
 func seasonDownloading(ser *catalogv1alpha1.Series, season int32, prof *quality.Profile) bool {
 	entries := dlindex.Entries(ser)
 	for i := range entries {
@@ -437,12 +441,69 @@ func seasonDownloading(ser *catalogv1alpha1.Series, season int32, prof *quality.
 }
 
 // holdsSeason reports a live video grab that holds its season against a
-// pack: any, but under a profile taking complete audio first only one whose
-// release carries every wanted language, since a dual-audio pack outranks
-// the rest (decision.AudioOutranks; owner, 2026-11-02: Remake our Life!'s
-// EMBER pack waited on SENPAI's Japanese-only singles).
+// pack: under a profile taking complete audio first, one whose release
+// carries every wanted language, which a pack without them is refused
+// beside (decision.AudioOutranked). Any other live single is no hold: a
+// pack is grabbed over it and the single removed (owner, 2026-11-03, after
+// 2026-11-02's Remake our Life!, whose EMBER pack waited on SENPAI's
+// Japanese-only singles).
 func holdsSeason(prof *quality.Profile, originalTag string, e *catalogv1alpha1.DownloadEntry) bool {
-	return prof == nil || !decision.AudioOutranks(context.Background(), *prof, originalTag, true, decision.Queued{Languages: e.Release.Languages})
+	return prof != nil && decision.AudioOutranked(context.Background(), *prof, originalTag, false, decision.Queued{Languages: e.Release.Languages})
+}
+
+// replacesAsPack reports an Episode holding a file a whole release replaces
+// -- below the cutoff because no GPU here decodes its video or it lacks a
+// wanted audio language (rollup.ReasonUndecodableVideo, ReasonMissingAudio)
+// -- whose own search is due on the wanted backoff (owner, 2026-11-03: the
+// undecodable files and the dubbed anime missing dual audio "should be
+// under the cutoff - forced to search for a new release", and the automatic
+// season search counts such episodes as wanted, so a season of them is
+// searched as a pack). A season with two or more such episodes is asked
+// for (automaticSeasons, SeasonFacts.ReplaceDue), and they wait for it
+// (seasonReplaces).
+func replacesAsPack(ep *catalogv1alpha1.Episode, now time.Time) bool {
+	c := meta.FindStatusCondition(ep.Status.Conditions, catalogv1alpha1.EpisodeConditionCutoffMet)
+	if c == nil || c.Status != metav1.ConditionFalse || (c.Reason != rollup.ReasonUndecodableVideo && c.Reason != rollup.ReasonMissingAudio) {
+		return false
+	}
+	cand, _ := wantedcron.CandidateOf(ep, now)
+	return cand.Reason == schema.SearchReasonCutoffUnmet && wantedcron.Eligible(cand.Attempts, now)
+}
+
+// seasonReplaces reports an Episode that waits for its season's pack query
+// rather than search alone (searchplan.View.SeasonReplaces): it and at
+// least one more monitored, aired episode of its season with no live grab
+// replace as a pack (replacesAsPack), and no grab holds the season
+// (seasonDownloading) -- the test seasonFacts' ReplaceDue applies, so the
+// Series asks for the season while they wait, and its answer is each one's
+// search.
+func seasonReplaces(ctx context.Context, r client.Reader, ser *catalogv1alpha1.Series, ep *catalogv1alpha1.Episode, prof *quality.Profile, now time.Time) (bool, error) {
+	if !ptr.Deref(ser.Spec.Monitored, true) || !replacesAsPack(ep, now) || seasonDownloading(ser, ep.Spec.SeasonNumber, prof) {
+		return false, nil
+	}
+	var eps catalogv1alpha1.EpisodeList
+	if err := r.List(ctx, &eps, client.InNamespace(ser.Namespace), client.MatchingFields{series.EpisodeBySeriesRefIndex: ser.Name}); err != nil {
+		return false, fmt.Errorf("search: list the Episodes of %s: %w", ser.Name, err)
+	}
+	entries := dlindex.Entries(ser)
+	due := 0
+	for i := range eps.Items {
+		e := &eps.Items[i]
+		if e.Spec.SeasonNumber != ep.Spec.SeasonNumber || !itemread.OwnMonitored(e) || !itemread.Available(e, now) || !replacesAsPack(e, now) {
+			continue
+		}
+		live := false
+		for j := range entries {
+			if rollup.EntryNonTerminal(&entries[j]) && !rollup.IsDonor(&entries[j]) && itemread.Covers(&entries[j], e) {
+				live = true
+				break
+			}
+		}
+		if !live {
+			due++
+		}
+	}
+	return due >= 2, nil
 }
 
 // seriesOriginal is ser's original language tag, "" unknown.

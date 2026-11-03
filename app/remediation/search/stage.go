@@ -265,6 +265,11 @@ func (s *Stage) gather(ctx context.Context, item client.Object, v *remediation.I
 		// Its Series' season search (Wave S, §7): wait for a pending
 		// season, fold an answered one.
 		sv.SeasonPending, sv.SeasonAnsweredAt, sv.SeasonPackFirst = seasonOf(owner, ep, prof)
+		if ser, ok := owner.(*catalogv1alpha1.Series); ok {
+			if sv.SeasonReplaces, err = seasonReplaces(ctx, r, ser, ep, prof, now); err != nil {
+				return sv, err
+			}
+		}
 	}
 	protocols, err := itemread.Protocols(ctx, r, ref.Namespace)
 	if err != nil {

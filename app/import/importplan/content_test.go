@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
@@ -297,4 +298,72 @@ func TestAnImportRefusesUndecodableVideoAndReplacesIt(t *testing.T) {
 	assert.False(t, refused, "and an XviD one")
 	_, refused = p.gate("f.mkv", incoming, []catalogv1alpha1.MediaFile{existing("h264", 8)}, false)
 	assert.True(t, refused, "an 8-bit Blu-ray file stays")
+}
+
+// A season pack's file replaces an episode's file that a single-episode
+// release brought, transcoded or not, past the upgrade table (owner,
+// 2026-11-03: "Episodes within the season pack should *replace* single
+// episode files within the season/series folder"), unless it would lose a
+// language the audio policy wants that the file carries, or its HDR. A file
+// an earlier pack brought, one recording no release, and a single's import
+// are judged as before.
+func TestASeasonPacksFileReplacesASinglesFile(t *testing.T) {
+	web, ok := quality.Lookup("video", "WEBDL-1080p")
+	assert.True(t, ok)
+	prof := quality.Profile{
+		Tiers: [][]quality.Definition{{web}}, CutoffIndex: 0, UpgradeAllowed: true, CutoffFormatScore: 10000,
+		ProperPolicy: "preferAndUpgrade", LanguageName: "any",
+		AudioLanguages: []string{"en", "original"}, GraftAudio: true, AudioCompleteFirst: true,
+	}
+	existing := func(release string, hdr commonv1.HdrFormat, audio ...string) catalogv1alpha1.MediaFile {
+		mi := &commonv1.MediaInfo{VideoCodec: "hevc", Hdr: hdr, RuntimeMillis: 1_420_000, TranscodeProfile: "hevc-mkv@abc"}
+		for _, l := range audio {
+			mi.Audio = append(mi.Audio, commonv1.AudioStream{Language: l})
+		}
+		mf := catalogv1alpha1.MediaFile{
+			Spec: catalogv1alpha1.MediaFileSpec{
+				Quality: web.Quality, SizeBytes: 300_000_000,
+				MediaRef: commonv1.MediaRef{Kind: commonv1.MediaKindEpisode, Name: "frieren-s01e03"},
+			},
+			Status: catalogv1alpha1.MediaFileStatus{MediaInfo: mi},
+		}
+		if release != "" {
+			mf.Spec.ImportedFrom = &catalogv1alpha1.ImportSource{ReleaseTitle: release}
+		}
+		require.True(t, mf.Final(), "the existing file is a transcode")
+		return mf
+	}
+	const single = "Frieren.S01E03.1080p.WEB-DL.AAC2.0.x265-SINGLE"
+	q := web.Quality
+	incoming := func(hdr string, audio ...string) candidate {
+		return candidate{kind: commonv1.MediaKindEpisode, keys: []string{"frieren-s01e03"}, f: schema.InspectedFile{
+			SizeBytes: 900_000_000, Frozen: schema.FrozenFields{Quality: &q},
+			Probe: &schema.ProbeSummary{VideoCodec: "h264", VideoBitDepth: 8, HDR: hdr, DurationSeconds: 1420, AudioLanguages: audio},
+		}}
+	}
+	packEntry := catalogv1alpha1.DownloadEntry{
+		GrabbedBy: commonv1.GrabSourceSearch,
+		Release:   catalogv1alpha1.DownloadRelease{Title: "Frieren.S01.1080p.BluRay.x264-PACK"},
+		Episodes:  []catalogv1alpha1.EpisodeNumber{{Season: 1, Number: 1}, {Season: 1, Number: 2}},
+	}
+	narrowed := packEntry
+	narrowed.Episodes = narrowed.Episodes[:1]
+	singleEntry := catalogv1alpha1.DownloadEntry{
+		GrabbedBy: commonv1.GrabSourceSearch,
+		Release:   catalogv1alpha1.DownloadRelease{Title: "Frieren.S01E03.1080p.BluRay.x264-OTHER"},
+	}
+	gate := func(e catalogv1alpha1.DownloadEntry, c candidate, have catalogv1alpha1.MediaFile) bool {
+		p := &planner{in: Input{Profile: &prof, OriginalLanguage: "ja", Entry: e}}
+		_, refused := p.gate("f.mkv", c, []catalogv1alpha1.MediaFile{have}, false)
+		return refused
+	}
+
+	assert.False(t, gate(packEntry, incoming("", "ja"), existing(single, "", "ja")), "the pack's file replaces the single's transcode")
+	assert.False(t, gate(narrowed, incoming("", "ja"), existing(single, "", "ja")), "a pack narrowed to one episode is still a pack")
+	assert.False(t, gate(packEntry, incoming("", "ja", "en"), existing(single, "", "ja")), "with more of the policy's audio too")
+	assert.True(t, gate(packEntry, incoming("", "ja"), existing(single, "", "ja", "en")), "never losing a language the file carries")
+	assert.True(t, gate(packEntry, incoming("", "ja"), existing(single, commonv1.HdrFormatHDR10, "ja")), "nor its HDR")
+	assert.True(t, gate(packEntry, incoming("", "ja"), existing("Frieren.S01.1080p.WEB-DL.x265-OLDPACK", "", "ja")), "a file a pack brought keeps the rules")
+	assert.True(t, gate(packEntry, incoming("", "ja"), existing("", "", "ja")), "so does one recording no release")
+	assert.True(t, gate(singleEntry, incoming("", "ja"), existing(single, "", "ja")), "a single's file does not replace a transcode")
 }

@@ -30,14 +30,16 @@ import (
 )
 
 const (
-	pack720   = "Breaking.Bad.S01.720p.HDTV.x264-GRP"
-	pack1080  = "Breaking.Bad.S01.1080p.BluRay.x264-GRP"
-	single1   = "Breaking.Bad.S01E01.720p.HDTV.x264-GRP"
-	single2   = "Breaking.Bad.S01E02.720p.HDTV.x264-GRP"
-	single5   = "Breaking.Bad.S01E05.720p.HDTV.x264-GRP"
-	bdSingle1 = "Breaking.Bad.S01E01.1080p.BluRay.x264-GRP"
-	bdSingle2 = "Breaking.Bad.S01E02.1080p.BluRay.x264-GRP"
-	bdSingle5 = "Breaking.Bad.S01E05.1080p.BluRay.x264-GRP"
+	pack720  = "Breaking.Bad.S01.720p.HDTV.x264-GRP"
+	pack1080 = "Breaking.Bad.S01.1080p.BluRay.x264-GRP"
+	single1  = "Breaking.Bad.S01E01.720p.HDTV.x264-GRP"
+	single2  = "Breaking.Bad.S01E02.720p.HDTV.x264-GRP"
+	single5  = "Breaking.Bad.S01E05.720p.HDTV.x264-GRP"
+	// single5Other is single5's quality from another group: no upgrade.
+	single5Other = "Breaking.Bad.S01E05.720p.HDTV.x264-OTHER"
+	bdSingle1    = "Breaking.Bad.S01E01.1080p.BluRay.x264-GRP"
+	bdSingle2    = "Breaking.Bad.S01E02.1080p.BluRay.x264-GRP"
+	bdSingle5    = "Breaking.Bad.S01E05.1080p.BluRay.x264-GRP"
 )
 
 func episodesOf(s int32, from, to int32) []catalogv1alpha1.EpisodeNumber {
@@ -79,27 +81,31 @@ func TestBetterSinglesWinAndThePackIsThenRefused(t *testing.T) {
 	require.Equal(t, 1, p.Decisions["refused"], "%+v", p.Decisions)
 }
 
-// TestALiveGrabRefusesAnOverlappingReleaseUnlessItUpgrades is design §6.3
-// rule 1 across two passes: the first grabs a single; on the second, with
-// that grab live, a pack of the same quality would bring the episode again
-// and is refused whole (overlapsLive), and so is a pack that upgrades it
-// (owner, 2026-11-02: no pack while an episode it covers is downloading,
-// decision.ReasonEpisodeDownloading); a single that upgrades it is taken.
-func TestALiveGrabRefusesAnOverlappingReleaseUnlessItUpgrades(t *testing.T) {
+// TestALiveSingleHoldsASingleButNoPack is design §6.3 rule 1 across two
+// passes: the first grabs a single; on the second, with that grab live, a
+// single that does not upgrade it is refused (overlapsLive) and one that
+// does is taken, but a pack is grabbed over it whatever its quality,
+// covering its episode too, since the pack replaces it (owner, 2026-11-03:
+// "When a season pack is downloaded, we should *wait* to queue any episodes
+// and remove any existing episode downloads for that season", reversing
+// 2026-11-02's ReasonEpisodeDownloading; lifecycle removes the single).
+func TestALiveSingleHoldsASingleButNoPack(t *testing.T) {
 	first := grabplan.Decide(seriesView(t, season(1, 7), seasonCandidates(t, 1, 7, single5)...))
 	require.Equal(t, []string{single5}, titles(first))
 	live := first.NewEntries
 
-	v := seriesView(t, season(1, 7), seasonCandidates(t, 1, 7, pack720)...)
+	v := seriesView(t, season(1, 7), seasonCandidates(t, 1, 7, single5Other)...)
 	v.Entries = live
 	second := grabplan.Decide(v)
 	require.Empty(t, second.NewEntries)
 	require.Equal(t, 1, second.Decisions["overlapsLive"], "%+v", second.Decisions)
 
-	v.Candidates = seasonCandidates(t, 1, 7, pack1080)
-	packUpgrade := grabplan.Decide(v)
-	require.Empty(t, titles(packUpgrade), "a pack waits for the single it would upgrade")
-	require.Equal(t, 1, packUpgrade.Decisions["overlapsLive"], "%+v", packUpgrade.Decisions)
+	for _, pack := range []string{pack720, pack1080} {
+		v.Candidates = seasonCandidates(t, 1, 7, pack)
+		p := grabplan.Decide(v)
+		require.Equal(t, []string{pack}, titles(p), "the pack is grabbed over the single")
+		require.Equal(t, episodesOf(1, 1, 7), p.NewEntries[0].Episodes, "covering the single's episode")
+	}
 
 	v.Candidates = seasonCandidates(t, 1, 7, bdSingle5)
 	require.Equal(t, []string{bdSingle5}, titles(grabplan.Decide(v)), "a single still upgrades a single")
@@ -251,11 +257,11 @@ func TestAMultiSeasonPackIsJudgedAgainstEveryEpisode(t *testing.T) {
 	require.Len(t, p.NewEntries, 1)
 	require.Equal(t, append(episodesOf(1, 1, 7), episodesOf(2, 1, 7)...), p.NewEntries[0].Episodes)
 
-	other := seasonCandidates(t, 2, 7, "Breaking.Bad.S02E03.720p.HDTV.x264-GRP")
+	other := seasonCandidates(t, 2, 7, "Breaking.Bad.S02.720p.HDTV.x264-OTHER")
 	v := seriesView(t, covered, cands...)
-	v.Entries = []catalogv1alpha1.DownloadEntry{liveEntry(other[0], commonv1.DownloadPhaseDownloading, ep(2, 3))}
+	v.Entries = []catalogv1alpha1.DownloadEntry{liveEntry(other[0], commonv1.DownloadPhaseDownloading, episodesOf(2, 1, 7)...)}
 	refused := grabplan.Decide(v)
-	require.Empty(t, refused.NewEntries, "season 2's live grab refuses the pack season 1 found")
+	require.Empty(t, refused.NewEntries, "season 2's live pack refuses the pack season 1 found")
 	require.Equal(t, 1, refused.Decisions["overlapsLive"], "%+v", refused.Decisions)
 }
 
@@ -326,17 +332,18 @@ func TestAPackIsParsedOncePerDecision(t *testing.T) {
 	require.Equal(t, 3, count(), "one parse per release, not one per episode it covers")
 }
 
-// TestADualAudioPackIsGrabbedOverJapaneseOnlySinglesDownloading is the
-// owner's exception of 2026-11-02 ("Ensure we use dual audio as the highest
-// priority") to the rule above: under a profile taking complete audio first
-// a pack carrying every wanted language is grabbed over a single that does
-// not, as Remake our Life!'s dual-audio EMBER pack was not over SENPAI's
-// Japanese-only singles. A Japanese-only pack still waits for the single.
-func TestADualAudioPackIsGrabbedOverJapaneseOnlySinglesDownloading(t *testing.T) {
+// TestAPackIsGrabbedOverSinglesDownloadingButNotOverDualAudio: a pack is
+// grabbed over the singles of its season downloading, which it replaces
+// (owner, 2026-11-03), unless under a profile taking complete audio first a
+// single carries every wanted language and the pack does not ("All, unless
+// they outrank its audio"). Remake our Life!'s dual-audio EMBER pack had
+// waited on SENPAI's Japanese-only singles (2026-11-02).
+func TestAPackIsGrabbedOverSinglesDownloadingButNotOverDualAudio(t *testing.T) {
 	const (
-		jpSingle5 = "Breaking.Bad.S01E05.720p.HDTV.JAPANESE.x264-GRP"
-		dualPack  = "Breaking.Bad.S01.1080p.BluRay.JAPANESE.ENGLISH.x264-GRP"
-		jpPack    = "Breaking.Bad.S01.1080p.BluRay.JAPANESE.x264-GRP"
+		jpSingle5   = "Breaking.Bad.S01E05.720p.HDTV.JAPANESE.x264-GRP"
+		dualSingle5 = "Breaking.Bad.S01E05.720p.HDTV.JAPANESE.ENGLISH.x264-GRP"
+		dualPack    = "Breaking.Bad.S01.1080p.BluRay.JAPANESE.ENGLISH.x264-GRP"
+		jpPack      = "Breaking.Bad.S01.1080p.BluRay.JAPANESE.x264-GRP"
 	)
 	completeFirst := func(v grabplan.View) grabplan.View {
 		p := *v.Profile
@@ -344,21 +351,29 @@ func TestADualAudioPackIsGrabbedOverJapaneseOnlySinglesDownloading(t *testing.T)
 		v.Profile, v.OriginalLanguageTag = &p, "ja"
 		return v
 	}
-	first := grabplan.Decide(completeFirst(seriesView(t, season(1, 7), seasonCandidates(t, 1, 7, jpSingle5)...)))
-	require.Equal(t, []string{jpSingle5}, titles(first))
-	live := first.NewEntries
-	require.Equal(t, []string{"Japanese"}, live[0].Release.Languages, "the grab keeps its release's languages")
+	liveSingle := func(title string) []catalogv1alpha1.DownloadEntry {
+		first := grabplan.Decide(completeFirst(seriesView(t, season(1, 7), seasonCandidates(t, 1, 7, title)...)))
+		require.Equal(t, []string{title}, titles(first))
+		return first.NewEntries
+	}
+	jp := liveSingle(jpSingle5)
+	require.Equal(t, []string{"Japanese"}, jp[0].Release.Languages, "the grab keeps its release's languages")
 
-	v := completeFirst(seriesView(t, season(1, 7), seasonCandidates(t, 1, 7, dualPack)...))
-	v.Entries = live
-	require.Equal(t, []string{dualPack}, titles(grabplan.Decide(v)), "the dual-audio pack outranks the Japanese-only single")
+	for _, pack := range []string{dualPack, jpPack} {
+		v := completeFirst(seriesView(t, season(1, 7), seasonCandidates(t, 1, 7, pack)...))
+		v.Entries = jp
+		require.Equal(t, []string{pack}, titles(grabplan.Decide(v)), "%s is grabbed over the Japanese-only single", pack)
+	}
 
-	v.Candidates = seasonCandidates(t, 1, 7, jpPack)
+	v := completeFirst(seriesView(t, season(1, 7), seasonCandidates(t, 1, 7, jpPack)...))
+	v.Entries = liveSingle(dualSingle5)
 	p := grabplan.Decide(v)
-	require.Empty(t, titles(p), "a Japanese-only pack still waits for the single")
+	require.Empty(t, titles(p), "a Japanese-only pack waits for a dual-audio single")
 	require.Equal(t, 1, p.Decisions["overlapsLive"], "%+v", p.Decisions)
+	v.Candidates = seasonCandidates(t, 1, 7, dualPack)
+	require.Equal(t, []string{dualPack}, titles(grabplan.Decide(v)), "a dual-audio pack is grabbed over it")
 
-	plain := seriesView(t, season(1, 7), seasonCandidates(t, 1, 7, dualPack)...)
-	plain.Entries = live
-	require.Empty(t, titles(grabplan.Decide(plain)), "without completeFirst any pack waits for the single")
+	plain := seriesView(t, season(1, 7), seasonCandidates(t, 1, 7, jpPack)...)
+	plain.Entries = jp
+	require.Equal(t, []string{jpPack}, titles(grabplan.Decide(plain)), "without completeFirst any pack is grabbed over the single")
 }

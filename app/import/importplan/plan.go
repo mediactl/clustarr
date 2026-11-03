@@ -927,6 +927,9 @@ func (p *planner) gate(rel string, c candidate, compared []catalogv1alpha1.Media
 		if undecodableRefit(prof, compared, q) {
 			return Rejection{}, false
 		}
+		if packRefit(prof, p.in.OriginalLanguage, e, compared, c) {
+			return Rejection{}, false
+		}
 	}
 	for i := range compared {
 		if r := transcodedRejection(rel, &compared[i], e, manual); !r.none() {

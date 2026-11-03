@@ -146,6 +146,18 @@ func AudioOutranks(ctx context.Context, p quality.Profile, originalTag string, c
 	return !queuedComplete(resolveAudioNames(ctx, p, originalLanguageName(ctx, originalTag)), p, q)
 }
 
+// AudioOutranked reports the queued grab q outranking a release by its
+// audio, the reverse of AudioOutranks: under a profile taking complete
+// audio first, q's release carries every wanted language and the release
+// (complete) does not. Only such a grab holds a pack back (owner,
+// 2026-11-03).
+func AudioOutranked(ctx context.Context, p quality.Profile, originalTag string, complete bool, q Queued) bool {
+	if !p.AudioCompleteFirst || complete {
+		return false
+	}
+	return queuedComplete(resolveAudioNames(ctx, p, originalLanguageName(ctx, originalTag)), p, q)
+}
+
 // queuedComplete reports whether the queued grab q's release carries every
 // language an names.
 func queuedComplete(an audioNames, p quality.Profile, q Queued) bool {
@@ -318,7 +330,8 @@ func videoItemState(t Target, p quality.Profile, an audioNames, parsed *release.
 	}
 	out = append(out, blocklistAndHistoryRejections(t, rel)...)
 	candidate := quality.Candidate{Quality: rel.Quality, Revision: rel.Revision, FormatScore: score}
-	add(queueRejection(p, t, candidate, an, complete))
+	pack := parsed != nil && (parsed.FullSeason || len(parsed.Episodes) > 1 || len(parsed.Absolute) > 1)
+	add(queueRejection(p, t, candidate, an, complete, pack))
 	if complete && t.Current != nil && AudioUpgradeable(p, t.OriginalLanguageTag, t.Current.AudioLanguages) {
 		return out
 	}

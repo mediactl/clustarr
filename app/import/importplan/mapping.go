@@ -28,6 +28,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/decision"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/quality"
+	"github.com/mediactl/clustarr/pkg/release"
 )
 
 // MediaKindOf is an ItemRef kind ("Movie") as a MediaRef kind ("movie").
@@ -293,6 +294,80 @@ func undecodableRefit(p quality.Profile, existing []catalogv1alpha1.MediaFile, q
 		}
 	}
 	return true
+}
+
+// packRefit reports whether c's file, from a season pack (entry e covering
+// several episodes, or a release titled as a whole season), replaces
+// existing past the transcoded rule and the upgrade table because every
+// existing file came from a single-episode release (its recorded
+// spec.importedFrom.releaseTitle; owner, 2026-11-03: "Episodes within the season pack
+// should *replace* single episode files within the season/series folder").
+// c's own probe must keep every language of the audio policy, wanted or
+// optional, that an existing file carries, and any HDR it has; otherwise,
+// and for a file an earlier pack brought or one recording no release, the
+// rules judge it as before. Dolby Vision and undecodable video are refused
+// before this.
+func packRefit(p quality.Profile, originalTag string, e *catalogv1alpha1.DownloadEntry, existing []catalogv1alpha1.MediaFile, c candidate) bool {
+	probe := c.f.Probe
+	if c.kind != commonv1.MediaKindEpisode || len(existing) == 0 || !seasonPack(e) || probe == nil || len(probe.AudioLanguages) == 0 {
+		return false
+	}
+	lacks := policyLanguagesMissing(p, originalTag, probe.AudioLanguages)
+	for i := range existing {
+		mf := &existing[i]
+		if mf.Spec.ImportedFrom == nil || !singleEpisodeRelease(mf.Spec.ImportedFrom.ReleaseTitle) {
+			return false
+		}
+		if have := decision.AudioLanguages(mf.Status.MediaInfo); have != nil {
+			had := policyLanguagesMissing(p, originalTag, have)
+			for l := range lacks {
+				if !had[l] {
+					return false // the existing file carries a language this one lacks
+				}
+			}
+		}
+		if mi := mf.Status.MediaInfo; mi != nil && decision.BaselineLoss("", mi.Hdr, 0, probe.VideoCodec, probe.HDR, 0) != "" {
+			return false
+		}
+	}
+	return true
+}
+
+// policyLanguagesMissing is the set of audio-policy languages, wanted or
+// optional, that audio lacks.
+func policyLanguagesMissing(p quality.Profile, originalTag string, audio []string) map[string]bool {
+	out := map[string]bool{}
+	for _, l := range decision.MissingAudio(p, originalTag, audio) {
+		out[l] = true
+	}
+	for _, l := range decision.MissingOptionalAudio(p, originalTag, audio) {
+		out[l] = true
+	}
+	return out
+}
+
+// seasonPack reports an entry that is a season pack: one covering several
+// episodes, or one whose release names a whole season though the grab
+// planner narrowed it to fewer.
+func seasonPack(e *catalogv1alpha1.DownloadEntry) bool {
+	if e.Pack() {
+		return true
+	}
+	pr, err := release.Parse(e.Release.Title, release.Options{Kind: commonv1.MediaKindSeries})
+	return err == nil && pr.FullSeason
+}
+
+// singleEpisodeRelease reports a release title naming one episode, by
+// season and episode or by absolute number, and no whole season.
+func singleEpisodeRelease(title string) bool {
+	if title == "" {
+		return false
+	}
+	pr, err := release.Parse(title, release.Options{Kind: commonv1.MediaKindSeries})
+	if err != nil || pr.FullSeason {
+		return false
+	}
+	return (len(pr.Episodes) == 1 && len(pr.Absolute) <= 1) || (len(pr.Episodes) == 0 && len(pr.Absolute) == 1)
 }
 
 // relPath renders path relative to root for a message, falling back to the

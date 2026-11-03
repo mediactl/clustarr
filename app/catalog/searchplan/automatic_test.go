@@ -156,3 +156,33 @@ func TestAnEpisodeWaitsForItsPackFirstSeason(t *testing.T) {
 	require.NotNil(t, p.Publish, "an episode searched before is no longer held for its season")
 	require.True(t, p.Publish.Payload.IndexOnly)
 }
+
+// TestASeasonOfReplaceableFilesIsSearchedAsAPack: a season with two or
+// more episodes whose files a whole release replaces -- undecodable video,
+// a wanted audio language missing -- due a search is asked for as a season
+// though every episode holds a file (owner, 2026-11-03), unless a grab
+// holds it; one such episode alone searches as an episode, and the
+// Episodes wait for their season's query while it is asked for.
+func TestASeasonOfReplaceableFilesIsSearchedAsAPack(t *testing.T) {
+	now := t0
+	v := seasonView(now)
+	v.Seasons = []searchplan.SeasonFacts{
+		{Number: 1, Monitored: true, Wanted: 7, ReplaceDue: 7},
+		{Number: 2, Monitored: true, Wanted: 7, ReplaceDue: 1},
+		{Number: 3, Monitored: true, Wanted: 7, ReplaceDue: 7, Downloading: 1},
+		{Number: 4, Monitored: false, Wanted: 7, ReplaceDue: 7},
+	}
+	p := searchplan.DecideSeasons(v, admitAll, paceNow(now))
+	require.NotNil(t, p.State)
+	require.True(t, searchplan.Automatic(p.State))
+	require.Equal(t, map[int32]catalogv1alpha1.SeasonSearchPhase{1: catalogv1alpha1.SeasonSearchSearching}, phases(p.State),
+		"only season 1: season 2 has one such episode, a grab holds season 3, season 4 is not monitored")
+
+	ev := itemView("breaking-bad-s01e05", t0)
+	searched := metav1.NewTime(t0.Add(-8 * 24 * time.Hour))
+	ev.LastSearched = &searched
+	ev.Attempts = commonv1.Attempts{Count: 1, Initial: &searched, Latest: &searched}
+	require.NotNil(t, searchplan.Decide(ev, admitAll, func() time.Time { return t0 }).Publish, "alone, it searches on its backoff")
+	ev.SeasonReplaces = true
+	require.Nil(t, searchplan.Decide(ev, admitAll, func() time.Time { return t0 }).Publish, "it waits for its season's query")
+}

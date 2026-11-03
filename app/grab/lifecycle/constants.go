@@ -101,6 +101,7 @@ const (
 	ReasonNothingToResume     = "NothingToResume"
 	ReasonTransferOwnerGone   = "TransferOwnerGone"
 	ReasonUnidentifiedRemoved = "UnidentifiedTransferRemoved"
+	ReasonSupersededByPack    = "SupersededByPack"
 
 	EventNormal  = "Normal"
 	EventWarning = "Warning"

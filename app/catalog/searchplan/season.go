@@ -95,6 +95,12 @@ type SeasonFacts struct {
 	// FirstSearch counts the Wanted episodes never searched (no attempt and
 	// no lastSearchedAt): the ones a PackFirst season holds for its query.
 	FirstSearch int
+	// ReplaceDue counts the Wanted episodes, no live grab covering them,
+	// whose files a whole release replaces -- undecodable video, a wanted
+	// audio language missing -- and whose own search is due (owner,
+	// 2026-11-03): two or more ask for the season, and they wait for it
+	// (View.SeasonReplaces).
+	ReplaceDue int
 }
 
 // SeasonView is everything DecideSeasons reads for one Series.
@@ -404,18 +410,19 @@ func start(v SeasonView, req SeasonRequest, now time.Time) *catalogv1alpha1.Seas
 
 // automaticSeasons are the seasons the automatic season search asks for:
 // every PackFirst season, monitored, with an episode waiting for its first
-// search and no live grab covering any episode wanted -- none for an
-// unmonitored series. Before AutomaticCooldown has passed since the last automatic
+// search, and every season with two or more episodes whose files a whole
+// release replaces due a search (ReplaceDue), in each case with no grab
+// holding the season -- none for an unmonitored series. Before AutomaticCooldown has passed since the last automatic
 // state finished it asks for none, and wait is when it may.
 func automaticSeasons(v SeasonView, st *catalogv1alpha1.SeasonSearchState, now time.Time) (seasons []int32, wait time.Time) {
 	if !v.Monitored {
 		return nil, time.Time{}
 	}
 	for _, f := range v.Seasons {
-		// A season with a grab downloading is never asked for a pack: the
-		// grab planner refuses one beside it (owner, 2026-11-02,
-		// decision.ReasonEpisodeDownloading), so its episodes search alone.
-		if f.Number != 0 && f.PackFirst && f.Monitored && f.FirstSearch > 0 && f.Downloading == 0 {
+		// A season a grab holds is never asked for a pack: the grab planner
+		// refuses one without its languages beside it
+		// (decision.ReasonEpisodeDownloading), so its episodes search alone.
+		if f.Number != 0 && f.Monitored && f.Downloading == 0 && ((f.PackFirst && f.FirstSearch > 0) || f.ReplaceDue >= 2) {
 			seasons = append(seasons, f.Number)
 		}
 	}

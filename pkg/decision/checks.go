@@ -278,8 +278,13 @@ func blocklistAndHistoryRejections(t Target, rel common.ReleaseInfo) []common.Re
 // profile taking complete audio first, the audio decides before either:
 // a candidate carrying every wanted language (complete) passes a grab whose
 // release does not (AudioOutranks), and one that does not is refused by a
-// grab whose release does.
-func queueRejection(p quality.Profile, t Target, candidate quality.Candidate, an audioNames, complete bool) *common.Rejection {
+// grab whose release does. A candidate pack (several episodes) passes every
+// queued single that does not outrank it by its audio, upgrade or not: the
+// pack replaces the singles, which are removed once it is grabbed (owner,
+// 2026-11-03: "When a season pack is downloaded, we should *wait* to queue
+// any episodes and remove any existing episode downloads for that season";
+// lifecycle's supersede).
+func queueRejection(p quality.Profile, t Target, candidate quality.Candidate, an audioNames, complete, pack bool) *common.Rejection {
 	for _, q := range t.Queue {
 		if p.AudioCompleteFirst {
 			switch qc := queuedComplete(an, p, q); {
@@ -293,6 +298,9 @@ func queueRejection(p quality.Profile, t Target, candidate quality.Candidate, an
 		if q.Pack {
 			r := newRejection(ReasonPackDownloading, "a pack covering it is still downloading; it is judged again once the pack has imported or failed")
 			return &r
+		}
+		if pack {
+			continue
 		}
 		if p.UpgradeDecision(q.Candidate, candidate) != quality.Upgrade {
 			r := newRejection(ReasonQueueHigherPreference, "a release of equal or higher preference is already downloading")

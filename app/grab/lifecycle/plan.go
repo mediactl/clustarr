@@ -77,6 +77,7 @@ func Decide(v View) Plan {
 	}
 
 	d.intents(entries)
+	d.supersede(entries)
 	if v.Deleting {
 		for i := range entries {
 			if live(&entries[i]) {
