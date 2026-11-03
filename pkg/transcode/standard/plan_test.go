@@ -96,12 +96,14 @@ func TestNVENCDecodesOnNVDECWithTheArchivalSettings(t *testing.T) {
 
 // A GPU tier decodes on its GPU or skips the file (owner, 2026-11-03:
 // "never falling back to cpu"): H.264 10-bit, which no GPU here decodes,
-// XviD, which Intel's do not, and a 4:4:4 stream, which no measured key
-// covers, were decoded in software and uploaded until then.
+// XviD, which Intel's do not, a 4:2:2 stream, which no key covers, and a
+// 4:4:4 one the pod did not measure were decoded in software and uploaded
+// until then.
 func TestAGPUTierSkipsASourceItsGPUDoesNotDecode(t *testing.T) {
 	hi10p := video("h264", "yuv420p10le", 10, commonv1.HdrFormatNone)
 	xvid := video("mpeg4", "yuv420p", 8, commonv1.HdrFormatNone)
 	hevc444 := video("hevc", "yuv444p10le", 10, commonv1.HdrFormatNone)
+	hevc422 := video("hevc", "yuv422p10le", 10, commonv1.HdrFormatNone)
 	measured := transcode.Limits{VAAPI: &transcode.Decoders{Formats: map[string]bool{
 		"h264:8": true, "h264:10": false, "hevc:10": true,
 	}}}
@@ -113,7 +115,8 @@ func TestAGPUTierSkipsASourceItsGPUDoesNotDecode(t *testing.T) {
 		"H.264 10-bit on NVENC":  {hi10p, nvenc, "the nvenc tier's GPU does not decode h264 10-bit"},
 		"H.264 10-bit on QSV":    {hi10p, Hardware{Tier: transcode.TierQSV, Limits: measured}, "the qsv tier's GPU does not decode h264 10-bit"},
 		"XviD on QSV":            {xvid, Hardware{Tier: transcode.TierQSV, Limits: measured}, "the qsv tier's GPU does not decode mpeg4 8-bit"},
-		"4:4:4 HEVC on QSV":      {hevc444, Hardware{Tier: transcode.TierQSV, Limits: measured}, "does not decode hevc yuv444p10le"},
+		"4:4:4 HEVC on QSV":      {hevc444, Hardware{Tier: transcode.TierQSV, Limits: measured}, "the qsv tier's GPU does not decode hevc 10-bit 4:4:4"},
+		"4:2:2 HEVC on QSV":      {hevc422, Hardware{Tier: transcode.TierQSV, Limits: measured}, "does not decode hevc yuv422p10le"},
 		"H.264 10-bit on VA-API": {hi10p, Hardware{Tier: transcode.TierVAAPI, Limits: measured}, "the vaapi tier's GPU does not decode h264 10-bit"},
 		"XviD on NVENC (static)": {xvid, nvenc, "the nvenc tier's GPU does not decode mpeg4 8-bit"},
 	} {
@@ -122,6 +125,12 @@ func TestAGPUTierSkipsASourceItsGPUDoesNotDecode(t *testing.T) {
 		assert.Contains(t, p.Reason, c.reason, name)
 		assert.Contains(t, p.Reason, "a GPU transcode never decodes on the CPU", name)
 	}
+	// A pod that measured 4:4:4 decodes it on the GPU, into the 4:2:0 output.
+	measured.VAAPI.Formats["hevc:10:444"] = true
+	p444 := Plan(info(hevc444, eac3), profile, Hardware{Tier: transcode.TierQSV, Limits: measured})
+	require.Equal(t, DecisionEncode, p444.Decision, p444.Reason)
+	assert.Equal(t, "vaapi", p444.Video.Decode)
+	assert.Equal(t, "hwmap=derive_device=qsv,format=qsv,vpp_qsv=format=nv12", p444.Video.Filter)
 	// The CPU tier decodes on the CPU by design.
 	assert.Equal(t, DecisionEncode, Plan(info(hi10p, eac3), profile, cpu).Decision)
 	// An Intel tier with no measured decoder (a pod's own first trial)

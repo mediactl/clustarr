@@ -310,7 +310,11 @@ GPU does not decode mpeg4 8-bit, and a GPU transcode never decodes on the
 CPU"; `standard.gpuUndecodable`) where it was decoded in software and
 uploaded -- on talos the XviD episodes of Seinfeld and The Simpsons, the
 H.264 10-bit of Star Trek: Discovery S05 (which the `H264TenBit` cutoff
-replaces) and any 4:2:2 or 4:4:4 stream, which no measured key covers; a
+replaces) and any 4:2:2 stream, which no key covers -- neither QSV nor VA-API
+decodes the first two on any Intel GPU (no `mpeg4_qsv` exists; VA-API: "No
+support for codec mpeg4 profile 15"; `h264_qsv` on High 10: "Decode error
+rate 1", talos-88, 2026-11-03); 4:4:4 has its own key (`hevc:10:444`), which
+the trial measures, since the Arrow Lake decodes it at 9x; a
 GPU tier whose decode device does not open, or whose trial decodes no
 sample format, fails its measurement (`measureTier`), so the pod reports
 unhealthy rather than decode on the CPU; the worker refuses a GPU plan

@@ -36,7 +36,9 @@ func TestNVDECKey(t *testing.T) {
 		{"hevc", "yuv420p12le", "hevc:12"},
 		{"av1", "yuv420p", "av1:8"},
 		{"h264", "yuv422p", ""},
-		{"hevc", "yuv444p10le", ""},
+		{"hevc", "yuv444p10le", "hevc:10:444"},
+		{"hevc", "yuv444p", "hevc:8:444"},
+		{"hevc", "yuv422p10le", ""},
 		{"h264", "", ""},
 	} {
 		assert.Equal(t, tt.want, transcode.NVDECKey(transcode.VideoStream{Codec: tt.codec, PixFmt: tt.pixFmt}), "%s %s", tt.codec, tt.pixFmt)
@@ -86,4 +88,7 @@ func TestVAAPIDecodesOnlyAFormatThePodMeasured(t *testing.T) {
 	assert.True(t, transcode.VAAPIDecodes(measured, h264))
 	assert.False(t, transcode.VAAPIDecodes(measured, hi10p), "measured, and it does not")
 	assert.False(t, transcode.VAAPIDecodes(transcode.Limits{VAAPI: &transcode.Decoders{Formats: map[string]bool{"h264:8": true}}}, h264_422), "no 4:2:2 key decodes")
+	hevc444 := transcode.VideoStream{Codec: "hevc", PixFmt: "yuv444p10le"}
+	assert.False(t, transcode.VAAPIDecodes(measured, hevc444), "4:4:4 decodes only where measured")
+	assert.True(t, transcode.VAAPIDecodes(transcode.Limits{VAAPI: &transcode.Decoders{Formats: map[string]bool{"hevc:10:444": true}}}, hevc444))
 }

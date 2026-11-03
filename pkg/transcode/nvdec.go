@@ -64,11 +64,18 @@ var staticNVDEC = map[string]bool{
 }
 
 // NVDECKey is v's format as Decoders and the static list key it: the
-// ffprobe codec name and the bit depth its pixel format carries, or "" for
-// a stream that is not 4:2:0, which no key decodes.
+// ffprobe codec name and the bit depth its pixel format carries, with
+// ":444" for a 4:4:4 stream, or "" for any other chroma (4:2:2), which no
+// key decodes. 4:4:4 has its key since 2026-11-03: the Arrow Lake on talos
+// decodes HEVC 4:4:4 10-bit through VA-API at 9x, and the eleven 4:4:4
+// files of Chillin' in Another World would otherwise skip the GPU.
 func NVDECKey(v VideoStream) string {
-	pf := v.PixFmt
-	if !strings.HasPrefix(pf, "yuv420p") && !strings.HasPrefix(pf, "yuvj420p") {
+	pf, chroma := v.PixFmt, ""
+	switch {
+	case strings.HasPrefix(pf, "yuv420p"), strings.HasPrefix(pf, "yuvj420p"):
+	case strings.HasPrefix(pf, "yuv444p"), strings.HasPrefix(pf, "yuvj444p"):
+		chroma = ":444"
+	default:
 		return ""
 	}
 	depth := 8
@@ -78,7 +85,7 @@ func NVDECKey(v VideoStream) string {
 	case strings.Contains(pf, "10"):
 		depth = 10
 	}
-	return v.Codec + ":" + strconv.Itoa(depth)
+	return v.Codec + ":" + strconv.Itoa(depth) + chroma
 }
 
 // NVDECDecodes reports whether the NVENC tier decodes v on the GPU: the
@@ -130,8 +137,9 @@ func NVDECSampleFormats() []NVDECSample {
 }
 
 // nvdecSamples are the formats a device's NVDEC is measured on. H.264 10-bit is tried
-// so a device that does decode it is used; VC-1 has no encoder to make a
-// sample with and stays on the static list.
+// so a device that does decode it is used, and HEVC 4:4:4, which no static
+// key covers, so a device that decodes it is used for it; VC-1 has no
+// encoder to make a sample with and stays on the static list.
 var nvdecSamples = []nvdecSample{
 	{"h264:8", "libx264", "yuv420p"},
 	{"h264:10", "libx264", "yuv420p10le"},
@@ -142,4 +150,6 @@ var nvdecSamples = []nvdecSample{
 	{"av1:8", "libsvtav1", "yuv420p"},
 	{"av1:10", "libsvtav1", "yuv420p10le"},
 	{"mpeg2video:8", "mpeg2video", "yuv420p"},
+	{"hevc:8:444", "libx265", "yuv444p"},
+	{"hevc:10:444", "libx265", "yuv444p10le"},
 }

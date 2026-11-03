@@ -449,8 +449,9 @@ func Plan(info transcode.MediaInfo, profile Profile, hw Hardware) Result {
 // its GPU decodes v. A GPU transcode decodes on the GPU or not at all
 // (owner, 2026-11-03: "never falling back to cpu"): until then a source
 // the device does not decode -- XviD (Seinfeld, The Simpsons), H.264 10-bit
-// (Star Trek: Discovery's mSD episodes), any 4:2:2 or 4:4:4 stream -- was
-// decoded in software and uploaded to the encoder. The CPU tier decodes on
+// (Star Trek: Discovery's mSD episodes), any 4:2:2 stream, 4:4:4 where the
+// pod did not measure it -- was decoded in software and uploaded to the
+// encoder. The CPU tier decodes on
 // the CPU by design, and an Intel tier with no measured decoder (the pod's
 // own first trial, or a planner before the class's pods published) plans
 // the upload as before: the pod's measured plan is the one that runs, and a
@@ -471,10 +472,12 @@ func gpuUndecodable(v transcode.VideoStream, hw Hardware) string {
 	if decodes {
 		return ""
 	}
-	format := v.Codec + " " + v.PixFmt // not 4:2:0, which no measured key covers
-	if key := transcode.NVDECKey(v); key != "" {
-		codec, depth, _ := strings.Cut(key, ":")
-		format = codec + " " + depth + "-bit"
+	format := v.Codec + " " + v.PixFmt // 4:2:2, which no key covers
+	if key := strings.Split(transcode.NVDECKey(v), ":"); len(key) > 1 {
+		format = key[0] + " " + key[1] + "-bit"
+		if len(key) > 2 {
+			format += " 4:4:4"
+		}
 	}
 	return fmt.Sprintf("the %s tier's GPU does not decode %s, and a GPU transcode never decodes on the CPU", hw.Tier, format)
 }

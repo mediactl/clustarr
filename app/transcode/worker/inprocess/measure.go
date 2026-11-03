@@ -215,10 +215,7 @@ func makeSample(path, encoder, pixFmt string) error {
 	if _, set := os.LookupEnv("SVT_LOG"); !set {
 		_ = os.Setenv("SVT_LOG", "1")
 	}
-	pf := ffgo.PixelFormatYUV420P
-	if pixFmt == "yuv420p10le" {
-		pf = ffgo.PixelFormatYUV420P10LE()
-	}
+	pf := ffgo.PixelFormatByName(pixFmt)
 	opts := map[string]string{}
 	if encoder == "libx265" {
 		opts["x265-params"] = "log-level=error"
