@@ -5701,6 +5701,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: revision
       type:
         namedType: com.github.mediactl.clustarr.api.common.v1alpha1.Revision
+    - name: score
+      type:
+        scalar: numeric
     - name: seeders
       type:
         scalar: numeric

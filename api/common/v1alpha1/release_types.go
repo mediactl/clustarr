@@ -297,6 +297,14 @@ type ReleaseDecision struct {
 	// +optional
 	Rank int32 `json:"rank,omitempty"`
 
+	// Score is the release's rank score, which orders each band of the
+	// results: its format score plus a bonus for each ranking rule --
+	// complete audio under audio.completeFirst, the quality tier, the
+	// revision, a whole season and the preferred protocol -- each larger
+	// than everything below it can add (pkg/rankscore.Score).
+	// +optional
+	Score int64 `json:"score,omitempty"`
+
 	// CoversSeason marks, on a season search's results, a release covering
 	// every aired episode of the searched season: a full-season pack or an
 	// anime batch. The ui's season view lists these by default.

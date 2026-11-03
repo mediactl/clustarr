@@ -374,7 +374,10 @@ func allTemporary(rejections []common.Rejection) bool {
 // chain supplies the remaining keys (indexer priority/flags, seeders/age)
 // from Options and the Decision's Release at sort time.
 func buildRankKey(p quality.Profile, o Options, t Target, parsed *release.ParsedRelease, rel common.ReleaseInfo, score int) RankKey {
-	idx, _ := p.Index(rel.Quality)
+	idx, ok := p.Index(rel.Quality)
+	if !ok {
+		idx = len(p.Tiers) // below every tier, and no tier's bonus (RankScore)
+	}
 
 	preferredProtocol := o.PreferredProtocol
 	if preferredProtocol == "" {
@@ -394,6 +397,7 @@ func buildRankKey(p quality.Profile, o Options, t Target, parsed *release.Parsed
 	sl := p.Sizes[rel.Quality.Name]
 	key := RankKey{
 		QualityIndex:           idx,
+		Tiers:                  len(p.Tiers),
 		PreferRevision:         p.ProperPolicy != "doNotPrefer",
 		Revision:               rel.Revision,
 		FormatScore:            score,

@@ -26,19 +26,21 @@ import (
 	"github.com/mediactl/clustarr/pkg/release"
 )
 
-// Rank stable-sorts a copy of ds best-first: LanguagesComplete first under a
-// profile taking complete audio first (Audio.CompleteFirst), QualityIndex asc, Revision
-// desc (only if PreferRevision), a whole season first, PreferredProtocolMatch
-// desc, FormatScore desc, LanguagesComplete, CompareEpisodeCount (anime more
-// episodes and any other series fewer), indexer priority asc (from
-// o.IndexerPriority), indexer-flag score desc, seeders/age desc, then size
-// (Disagreement 7) -- or, under a profile preferring the smallest, size asc
-// right after LanguagesComplete. The season pack and the protocol rank ahead of the
-// format score (owner, 2026-10-27: within a quality, a season pack beats
-// single episodes and usenet beats torrent); Sonarr's comparer has them
-// after it. Evaluate fills a RankKey for every decision whose title parsed,
-// approved or not, so a caller ranks each band (BandOf) by the same
-// comparator; Rank does not filter Rejected decisions itself.
+// Rank stable-sorts a copy of ds best-first: by the rank score
+// (RankKey.Score, rankscore.Score: the format score plus a bonus for complete audio under a
+// profile taking it first (Audio.CompleteFirst), the quality tier, the
+// revision unless the profile does not prefer it, a whole season and the
+// preferred protocol, each bonus outweighing everything below it, so the
+// order is the one the rules made as tie-breaks before 2026-11-03), then
+// LanguagesComplete, under a profile preferring the smallest size asc,
+// CompareEpisodeCount (anime more episodes and any other series fewer),
+// indexer priority asc (from o.IndexerPriority), indexer-flag score desc,
+// seeders/age desc, then size (Disagreement 7). The season pack and the
+// protocol outweigh the format score (owner, 2026-10-27: within a quality,
+// a season pack beats single episodes and usenet beats torrent); Sonarr's
+// comparer has them after it. Evaluate fills a RankKey for every decision
+// whose title parsed, approved or not, so a caller ranks each band (BandOf)
+// by the same comparator; Rank does not filter Rejected decisions itself.
 func Rank(ds []Decision, o Options) []Decision {
 	out := make([]Decision, len(ds))
 	copy(out, ds)
@@ -57,27 +59,12 @@ func less(a, b Decision, o Options) bool {
 			return a.Rank.SizeBytes < b.Rank.SizeBytes
 		}
 	}
-	// A profile taking complete audio first (owner, 2026-10-28: dual audio
-	// is always taken when it exists) ranks it ahead of every other key.
-	if a.Rank.CompleteFirst && b.Rank.CompleteFirst && a.Rank.LanguagesComplete != b.Rank.LanguagesComplete {
-		return a.Rank.LanguagesComplete
-	}
-	if a.Rank.QualityIndex != b.Rank.QualityIndex {
-		return a.Rank.QualityIndex < b.Rank.QualityIndex
-	}
-	if a.Rank.PreferRevision {
-		if c := compareRevision(a.Rank.Revision, b.Rank.Revision); c != 0 {
-			return c > 0 // higher revision (Real, then Version) wins
-		}
-	}
-	if aw, bw := a.Rank.WholeSeason(), b.Rank.WholeSeason(); aw != bw {
-		return aw
-	}
-	if a.Rank.PreferredProtocolMatch != b.Rank.PreferredProtocolMatch {
-		return a.Rank.PreferredProtocolMatch
-	}
-	if a.Rank.FormatScore != b.Rank.FormatScore {
-		return a.Rank.FormatScore > b.Rank.FormatScore
+	// Every rule ahead of the format score is a bonus in the rank score
+	// (owner, 2026-11-03), complete audio under a profile taking it first
+	// the largest (owner, 2026-10-28: dual audio is always taken when it
+	// exists).
+	if sa, sb := a.Rank.Score(), b.Rank.Score(); sa != sb {
+		return sa > sb
 	}
 	if a.Rank.LanguagesComplete != b.Rank.LanguagesComplete {
 		return a.Rank.LanguagesComplete

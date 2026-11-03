@@ -31,6 +31,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/decision"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/quality"
+	"github.com/mediactl/clustarr/pkg/rankscore"
 	"github.com/mediactl/clustarr/pkg/release"
 )
 
@@ -455,43 +456,23 @@ func exempt(c Candidate, rej commonv1.Rejection) bool {
 }
 
 // better orders approved candidates best first (decision.Rank's order, P13,
-// over what a scored release carries): a person's pick, then complete audio
-// under a profile taking it first (Audio.CompleteFirst), then quality tier,
-// revision (unless the profile does not prefer it), on a Series a whole
-// season, the profile's preferred protocol, format score, the smallest under
-// a profile preferring it, then on a Series
-// Sonarr's CompareEpisodeCount (anime more episodes and any other series
-// fewer; Wave S) and elsewhere more items first, indexer priority, the
-// agent's own rank, and the newest. The season pack and the protocol come
-// before the score (owner, 2026-10-27), as in decision.Rank.
+// over what a scored release carries): a person's pick, then the rank score
+// (rankscore.Score: the format score plus a bonus for complete audio
+// under a profile taking it first (Audio.CompleteFirst), the quality tier,
+// the revision unless the profile does not prefer it, on a Series a whole
+// season, and the profile's preferred protocol; owner, 2026-11-03), the
+// smallest under a profile preferring it, then on a Series Sonarr's
+// CompareEpisodeCount (anime more episodes and any other series fewer;
+// Wave S) and elsewhere more items first, indexer priority, the agent's own
+// rank, and the newest.
 func (d *decider) better(a, b verdict) bool {
 	if a.c.Manual != b.c.Manual {
 		return a.c.Manual
 	}
 	ra, rb := a.c.Release.Decision.ReleaseInfo, b.c.Release.Decision.ReleaseInfo
 	if a.c.Purpose == "" && b.c.Purpose == "" {
-		if d.v.Profile.AudioCompleteFirst && a.complete != b.complete {
-			return a.complete
-		}
-		ia, ib := tier(d.v.Profile, ra.Quality), tier(d.v.Profile, rb.Quality)
-		if ia != ib {
-			return ia < ib
-		}
-		if d.v.Profile.ProperPolicy != "doNotPrefer" {
-			if c := compareRevision(ra.Revision, rb.Revision); c != 0 {
-				return c > 0
-			}
-		}
-		if d.v.Kind == commonv1.MediaKindSeries {
-			if wa, wb := d.whole(a), d.whole(b); wa != wb {
-				return wa
-			}
-		}
-		if pa, pb := preferredProtocol(d.v.Profile, ra.Protocol), preferredProtocol(d.v.Profile, rb.Protocol); pa != pb {
-			return pa
-		}
-		if a.c.Release.Score != b.c.Release.Score {
-			return a.c.Release.Score > b.c.Release.Score
+		if sa, sb := d.rankScore(a), d.rankScore(b); sa != sb {
+			return sa > sb
 		}
 		// A profile preferring the smallest takes it next, as decision.Rank
 		// does (QualityProfileSpec.PreferSmallest).
@@ -516,6 +497,24 @@ func (d *decider) better(a, b verdict) bool {
 		return ka < kb
 	}
 	return a.c.At.After(b.c.At)
+}
+
+// rankScore is a video candidate's rank score (rankscore.Score), from the
+// manager's own reading of its audio and coverage.
+func (d *decider) rankScore(v verdict) int64 {
+	p := d.v.Profile
+	rel := v.c.Release.Decision.ReleaseInfo
+	return rankscore.Score(rankscore.Inputs{
+		FormatScore:       int(v.c.Release.Score),
+		PreferredProtocol: preferredProtocol(p, rel.Protocol),
+		WholeSeason:       d.v.Kind == commonv1.MediaKindSeries && d.whole(v),
+		PreferRevision:    p.ProperPolicy != "doNotPrefer",
+		Revision:          rel.Revision,
+		Tier:              tier(p, rel.Quality),
+		Tiers:             len(p.Tiers),
+		Complete:          v.complete,
+		CompleteFirst:     p.AudioCompleteFirst,
+	})
 }
 
 // preferredProtocol reports whether protocol is the profile's preferred one
@@ -543,22 +542,6 @@ func rank(r int32) int32 {
 		return 1 << 30
 	}
 	return r
-}
-
-func compareRevision(x, y commonv1.Revision) int {
-	if x.Real != y.Real {
-		if x.Real > y.Real {
-			return 1
-		}
-		return -1
-	}
-	if xv, yv := x.EffectiveVersion(), y.EffectiveVersion(); xv != yv {
-		if xv > yv {
-			return 1
-		}
-		return -1
-	}
-	return 0
 }
 
 // coverKey is one item under one purpose.

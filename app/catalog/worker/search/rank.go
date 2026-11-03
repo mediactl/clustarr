@@ -87,6 +87,7 @@ func RankAndCap(ds []decision.Decision, o decision.Options, limit int) []commonv
 			TemporarilyRejected: ordered[i].TemporarilyRejected,
 			Rejections:          ordered[i].Rejections,
 			Rank:                int32(i + 1),
+			Score:               ordered[i].Rank.Score(),
 		}
 	}
 	return out

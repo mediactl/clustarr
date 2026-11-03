@@ -2730,9 +2730,9 @@ func releaseRow(p SearchPanel, r ReleaseRow) templ.Component {
 				}
 				ctx = templ.InitializeContext(ctx)
 				var templ_7745c5c3_Var128 string
-				templ_7745c5c3_Var128, templ_7745c5c3_Err = templ.JoinStringErrs(signed(r.Score))
+				templ_7745c5c3_Var128, templ_7745c5c3_Err = templ.JoinStringErrs(releaseScore(r))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode.templ`, Line: 406, Col: 154}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/episode.templ`, Line: 406, Col: 138}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var128))
 				if templ_7745c5c3_Err != nil {
@@ -2740,7 +2740,7 @@ func releaseRow(p SearchPanel, r ReleaseRow) templ.Component {
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = table.Cell(table.CellProps{Class: "text-right tabular-nums", Attributes: templ.Attributes{"title": strings.Join(r.Formats, ", ")}}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var127), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = table.Cell(table.CellProps{Class: "text-right tabular-nums", Attributes: templ.Attributes{"title": scoreTitle(r)}}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var127), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -3027,6 +3027,33 @@ func protocolTone(protocol string) string {
 		return "border-emerald-500/40 text-emerald-300"
 	}
 	return "border-sky-500/40 text-sky-300"
+}
+
+// releaseScore is a result's rank score with thousands separators, or its
+// format score signed when it has none.
+func releaseScore(r ReleaseRow) string {
+	if r.RankScore == 0 {
+		return signed(r.Score)
+	}
+	s := fmt.Sprint(r.RankScore)
+	neg := strings.HasPrefix(s, "-")
+	s = strings.TrimPrefix(s, "-")
+	for i := len(s) - 3; i > 0; i -= 3 {
+		s = s[:i] + "," + s[i:]
+	}
+	if neg {
+		return "-" + s
+	}
+	return s
+}
+
+// scoreTitle explains a result's score: its parts, then its formats.
+func scoreTitle(r ReleaseRow) string {
+	lines := append([]string(nil), r.ScoreParts...)
+	if len(r.Formats) > 0 {
+		lines = append(lines, "formats: "+strings.Join(r.Formats, ", "))
+	}
+	return strings.Join(lines, "\n")
 }
 
 // signed is a custom-format score as Sonarr writes it: +25, -10000, 0.

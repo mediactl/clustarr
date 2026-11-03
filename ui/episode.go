@@ -30,6 +30,7 @@ import (
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/pkg/rankscore"
 	"github.com/mediactl/clustarr/ui/actions"
 	"github.com/mediactl/clustarr/ui/projection"
 	"github.com/mediactl/clustarr/ui/views"
@@ -314,9 +315,13 @@ func releaseRow(rd commonv1.ReleaseDecision, now time.Time) views.ReleaseRow {
 		GUID: rd.GUID, Protocol: string(rd.Protocol), Title: rd.Title, InfoURL: rd.InfoURL,
 		Indexer: rd.IndexerName, Size: rd.SizeBytes, Languages: rd.Languages,
 		Quality: qualityLabel(rd.Quality, rd.Revision), Score: rd.FormatScore, Formats: rd.MatchedFormats,
-		Approved: rd.Approved, Override: permanentlyRejected(rd),
+		RankScore: rd.Score,
+		Approved:  rd.Approved, Override: permanentlyRejected(rd),
 		CoversSeason: rd.CoversSeason || rd.ReleaseType == commonv1.ReleaseTypeSeasonPack,
 		Parts:        len(rd.Parts),
+	}
+	if rd.Score != 0 {
+		row.ScoreParts = rankscore.Parts(rd.Score, int(rd.FormatScore))
 	}
 	if row.Indexer == "" {
 		row.Indexer = rd.IndexerRef

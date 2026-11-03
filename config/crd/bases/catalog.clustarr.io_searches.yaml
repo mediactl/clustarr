@@ -714,6 +714,15 @@ spec:
                           format: int32
                           type: integer
                       type: object
+                    score:
+                      description: |-
+                        Score is the release's rank score, which orders each band of the
+                        results: its format score plus a bonus for each ranking rule --
+                        complete audio under audio.completeFirst, the quality tier, the
+                        revision, a whole season and the preferred protocol -- each larger
+                        than everything below it can add (pkg/rankscore.Score).
+                      format: int64
+                      type: integer
                     seeders:
                       description: Seeders is the seeder count reported by the indexer.
                         Torrent only.

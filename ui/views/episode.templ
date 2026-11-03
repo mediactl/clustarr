@@ -403,7 +403,7 @@ templ releaseRow(p SearchPanel, r ReleaseRow) {
 				@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) { { r.Quality } }
 			}
 		}
-		@table.Cell(table.CellProps{Class: "text-right tabular-nums", Attributes: templ.Attributes{"title": strings.Join(r.Formats, ", ")}}) { { signed(r.Score) } }
+		@table.Cell(table.CellProps{Class: "text-right tabular-nums", Attributes: templ.Attributes{"title": scoreTitle(r)}}) { { releaseScore(r) } }
 		@table.Cell() {
 			if len(r.Rejections) > 0 {
 				<span class="text-red-300 [&_svg]:size-4" title={ strings.Join(r.Rejections, "\n") } data-rejections={ fmt.Sprint(len(r.Rejections)) }>
@@ -471,6 +471,33 @@ func protocolTone(protocol string) string {
 		return "border-emerald-500/40 text-emerald-300"
 	}
 	return "border-sky-500/40 text-sky-300"
+}
+
+// releaseScore is a result's rank score with thousands separators, or its
+// format score signed when it has none.
+func releaseScore(r ReleaseRow) string {
+	if r.RankScore == 0 {
+		return signed(r.Score)
+	}
+	s := fmt.Sprint(r.RankScore)
+	neg := strings.HasPrefix(s, "-")
+	s = strings.TrimPrefix(s, "-")
+	for i := len(s) - 3; i > 0; i -= 3 {
+		s = s[:i] + "," + s[i:]
+	}
+	if neg {
+		return "-" + s
+	}
+	return s
+}
+
+// scoreTitle explains a result's score: its parts, then its formats.
+func scoreTitle(r ReleaseRow) string {
+	lines := append([]string(nil), r.ScoreParts...)
+	if len(r.Formats) > 0 {
+		lines = append(lines, "formats: "+strings.Join(r.Formats, ", "))
+	}
+	return strings.Join(lines, "\n")
 }
 
 // signed is a custom-format score as Sonarr writes it: +25, -10000, 0.

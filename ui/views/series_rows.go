@@ -318,8 +318,13 @@ type ReleaseRow struct {
 	Languages []string
 	Quality   string
 	Score     int32
-	Formats   []string
-	Approved  bool
+	// RankScore is the result's rank score (ReleaseDecision.score), which
+	// orders the results, and ScoreParts what it is made of; 0 on a result
+	// recorded before it, which shows Score alone.
+	RankScore  int64
+	ScoreParts []string
+	Formats    []string
+	Approved   bool
 	// Rejections are the decision engine's reasons, each "reason" with
 	// "(temporary)" for one that may pass later.
 	Rejections []string

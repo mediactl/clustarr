@@ -298,6 +298,7 @@ type Options struct {
 // rejected band sorts by the same comparator.
 type RankKey struct {
 	QualityIndex           int
+	Tiers                  int  // the profile's tier count; QualityIndex is Tiers for a quality it does not hold
 	PreferRevision         bool // false when Profile.ProperPolicy == "doNotPrefer"
 	Revision               common.Revision
 	FormatScore            int
