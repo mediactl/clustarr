@@ -99,7 +99,17 @@ type Reconciler struct {
 	// videoRecheck is when a live count goes stale unless renewed: the
 	// pass after it may admit to intel again.
 	videoRecheck time.Time
+	// nextPassAt is the earliest the next pass may run (passMinInterval).
+	nextPassAt time.Time
 }
+
+// passMinInterval is the least time between two passes. Every observation
+// the loop makes wakes a pass, and each pass walks every file: on talos
+// (2026-11-03) the startup flood ran 39 passes a second, each over 14,300
+// files, for most of the manager's CPU. A wake inside the interval is
+// answered at its end, so no signal is lost; a grant a second late costs
+// nothing against a transcode of minutes.
+const passMinInterval = time.Second
 
 func (r *Reconciler) now() time.Time {
 	if r.Now != nil {
@@ -134,16 +144,29 @@ func (r *Reconciler) Reconcile(ctx context.Context, _ reconcile.Request) (reconc
 		r.nextResync = r.now().Add(ledgerResync)
 		r.logSweep(ctx)
 	}
+	if wait, ok := r.throttled(r.now()); ok {
+		return reconcile.Result{RequeueAfter: wait}, nil
+	}
 	in, err := r.passInputs(ctx)
 	if err != nil {
 		return reconcile.Result{}, err
 	}
 	res := r.Ledger.Pass(in)
+	r.nextPassAt = r.now().Add(passMinInterval)
 	after := min(res.RequeueAfter, time.Until(r.nextResync))
 	if in.VideoStreams > 0 {
 		after = min(after, r.videoRecheck.Sub(r.now()))
 	}
 	return reconcile.Result{RequeueAfter: max(after, time.Second)}, nil
+}
+
+// throttled reports whether a pass at now falls inside passMinInterval of
+// the last, and how long the wake it answers waits instead.
+func (r *Reconciler) throttled(now time.Time) (time.Duration, bool) {
+	if !now.Before(r.nextPassAt) {
+		return 0, false
+	}
+	return r.nextPassAt.Sub(now), true
 }
 
 // logSweep runs the task sweep; a failure is logged, and the next resync

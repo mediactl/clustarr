@@ -24,6 +24,8 @@ package index
 import (
 	"context"
 	"fmt"
+	"slices"
+	"strings"
 	"sync"
 
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -46,12 +48,16 @@ func Extract(o client.Object) []string {
 }
 
 // ChannelsOf lists the IPTVChannels of provider in namespace through
-// [ChannelByProvider].
+// [ChannelByProvider], in name order: the cache's index answers in no
+// order, so a configuration built from the list read as changed on every
+// reconcile and the tuner rendered the guide each time (talos, 2026-11-03:
+// a 3.7 GB render every ten minutes, nothing changed).
 func ChannelsOf(ctx context.Context, c client.Reader, namespace, provider string) ([]clustarrv1.IPTVChannel, error) {
 	var list clustarrv1.IPTVChannelList
 	if err := c.List(ctx, &list, client.InNamespace(namespace), client.MatchingFields{ChannelByProvider: provider}); err != nil {
 		return nil, fmt.Errorf("livetv index: list IPTVChannels of %s/%s: %w", namespace, provider, err)
 	}
+	slices.SortFunc(list.Items, func(a, b clustarrv1.IPTVChannel) int { return strings.Compare(a.Name, b.Name) })
 	return list.Items, nil
 }
 

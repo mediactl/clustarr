@@ -553,8 +553,8 @@ func (SeasonLedgerSource) InFlight(ctx context.Context, r client.Reader, k dispa
 	if k.Kind != "Series" {
 		return 0, false, nil
 	}
-	var ser catalogv1alpha1.Series
-	if err := r.Get(ctx, client.ObjectKey{Namespace: k.Namespace, Name: k.Name}, &ser); err != nil {
+	var ser catalogv1alpha1.Series // read only: no copy of its status
+	if err := r.Get(ctx, client.ObjectKey{Namespace: k.Namespace, Name: k.Name}, &ser, client.UnsafeDisableDeepCopy); err != nil {
 		if apierrors.IsNotFound(err) {
 			return 0, false, nil
 		}

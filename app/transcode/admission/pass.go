@@ -205,7 +205,7 @@ func (l *Ledger) candidatesLocked(in PassInputs, now time.Time) ([]candidate, []
 	)
 	for uid, e := range l.files {
 		v := e.view
-		key := v.Key.String()
+		key := e.key // built once at Observe: a pass over 14,000 files built 14,000 strings here
 		switch {
 		case slotPhase(v.Phase):
 			if l.orphanedLocked(v) {
@@ -298,14 +298,24 @@ func (l *Ledger) waitReasonsLocked(queued []candidate, admitted []Slot, holds []
 // metricsLocked is §5.7 step 10: clustarr_transcode_jobs_active per class
 // (in-flight files plus dispatch grants), the backlog gauge per profile, and
 // a profileWake for each profile whose per-pool dispatched count changed.
+// One walk of the files counts every class and every profile: a walk per
+// profile was most of a pass (talos, 2026-11-03: the pass took 46% of the
+// manager's CPU at up to 39 passes a second over 14,300 files).
 func (l *Ledger) metricsLocked(profiles map[string]ProfileView, now time.Time) {
-	active := map[string]int{}
+	active := make(map[string]int, len(l.o.Slots))
 	for class := range l.o.Slots {
 		active[class] = 0
 	}
-	for _, e := range l.files {
+	backlog := make(map[string]int, len(profiles))
+	for name := range profiles {
+		backlog[name] = 0
+	}
+	for uid, e := range l.files {
 		if slotPhase(e.view.Phase) && !l.orphanedLocked(e.view) {
 			active[string(e.view.Class)]++
+		}
+		if n, ok := backlog[e.view.Profile]; ok && l.inBacklogLocked(uid, e, e.view.Profile, now) {
+			backlog[e.view.Profile] = n + 1
 		}
 	}
 	for _, g := range l.grants {
@@ -318,8 +328,8 @@ func (l *Ledger) metricsLocked(profiles map[string]ProfileView, now time.Time) {
 			metrics.TranscodesActive.WithLabelValues(class).Set(float64(n))
 		}
 	}
-	for name := range profiles {
-		metrics.TranscodeBacklogFiles.WithLabelValues(name).Set(float64(l.backlogLenLocked(name, now)))
+	for name, n := range backlog {
+		metrics.TranscodeBacklogFiles.WithLabelValues(name).Set(float64(n))
 	}
 	dispatched := l.dispatchedLocked()
 	woken := map[string]bool{}

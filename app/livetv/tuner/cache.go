@@ -166,15 +166,21 @@ func (t *Tuner) loadCache(p *provider, c Config) {
 			wanted[id] = true
 		}
 		next := g.FetchedAt.Add(c.Every)
+		ix := guideIndex(g.Guide)
 		p.mu.Lock()
 		source := g.Source
 		if source == "" {
 			source = guideFingerprint(Config{Server: c.Server, Username: c.Username})
 		}
 		due := !next.After(now) || source != guideFingerprint(c)
-		p.guide = guide{g: g.Guide, loaded: true, wanted: wanted, next: next, due: due, state: guideState(g.Guide, g.FetchedAt)}
+		p.guide = guide{g: g.Guide, loaded: true, index: ix, wanted: wanted, next: next, due: due, state: guideState(g.Guide, g.FetchedAt)}
 		p.mu.Unlock()
 	}
+}
+
+// guideIndex is g's AutoMap index, kept with the guide (guide.index).
+func guideIndex(g xmltv.Guide) *xmltv.Index {
+	return xmltv.NewIndex(map[string]xmltv.Guide{GuideName: g})
 }
 
 // readJSON decodes the gzip JSON object name into v.

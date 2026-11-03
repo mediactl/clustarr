@@ -29,6 +29,7 @@ import (
 	"io"
 	"net/http"
 	neturl "net/url"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -238,8 +239,26 @@ func (t *Tuner) fetchAccount(ctx context.Context, p *provider, cfg Config) {
 		p.accountNext = now.Add(min(cfg.Every, accountEvery))
 		p.relay.SetTuners(effectiveTuners(p.cfg, p.account))
 	}
+	// The account changes no lineup and no guide, so the snapshot takes it
+	// in place and the controller is told when it moved; a render (the
+	// whole guide built again) followed every hourly fetch until 2026-11-03.
+	// Before the first render there is no snapshot to amend, so one is asked
+	// for as before.
+	if p.notified == nil {
+		p.mu.Unlock()
+		t.scheduleRender(p)
+		return
+	}
+	p.snap.Account, p.snap.Tuners = p.account, effectiveTuners(p.cfg, p.account)
+	changed := !reflect.DeepEqual(*p.notified, p.snap)
+	if changed {
+		n := cloneSnapshot(p.snap)
+		p.notified = &n
+	}
 	p.mu.Unlock()
-	t.scheduleRender(p)
+	if changed {
+		t.o.Notify(p.key)
+	}
 }
 
 // wantSource is what choosing the guide's wanted channels needs of one
@@ -335,6 +354,10 @@ func (t *Tuner) fetchGuide(ctx context.Context, p *provider, cfg Config) {
 		parsed, want = t.withPanelFallback(ctx, p, cfg, parsed, want, src, from)
 	}
 	fetchDuration.WithLabelValues(label(p.key), "guide").Observe(time.Since(start).Seconds())
+	var ix *xmltv.Index
+	if err == nil {
+		ix = guideIndex(parsed) // outside the lock: 13,000 display names normalised
+	}
 
 	p.mu.Lock()
 	delete(p.fetching, "guide")
@@ -349,7 +372,7 @@ func (t *Tuner) fetchGuide(ctx context.Context, p *provider, cfg Config) {
 		g.backoff = nextBackoff(g.backoff, cfg.Every)
 		g.next = t.o.Now().Add(g.backoff)
 	} else {
-		g.g, g.loaded, g.wanted = parsed, true, want
+		g.g, g.loaded, g.wanted, g.index = parsed, true, want, ix
 		g.state = guideState(parsed, t.o.Now())
 		g.backoff = 0
 		g.next = t.o.Now().Add(cfg.Every)

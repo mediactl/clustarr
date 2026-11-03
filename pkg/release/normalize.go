@@ -20,12 +20,32 @@ package release
 import (
 	"regexp"
 	"strings"
+	"sync"
 	"unicode"
 	"unicode/utf8"
 
 	"github.com/moistari/rls"
+	"golang.org/x/text/transform"
 	"golang.org/x/text/unicode/norm"
 )
+
+// normalizers pools rls's transformer: rls.MustNormalize builds a transform
+// chain of some 10 KB on every call, and TitleNorm runs for every guide
+// programme, release and file name (talos, 2026-11-03: 8.5 GB of chains in
+// 25 minutes of the manager's life, a tenth of all it allocated).
+var normalizers = sync.Pool{New: func() any { return rls.NewNormalizer() }}
+
+// normalize is rls.MustNormalize on a pooled transformer: lower case,
+// accents stripped, punctuation collapsed.
+func normalize(s string) string {
+	t := normalizers.Get().(transform.Transformer)
+	defer normalizers.Put(t)
+	out, _, err := transform.String(t, s) // resets t first
+	if err != nil {
+		panic(err) // as rls.MustNormalize does
+	}
+	return out
+}
 
 // Normalize returns title with accents stripped, curly quotes/dashes folded
 // and whitespace collapsed, case preserved. It is for display / re-embedding
@@ -105,7 +125,7 @@ func TitleNorm(title string) string {
 //  4. A leading or trailing English article is stripped.
 //  5. keep filters the runes; whitespace collapses.
 func cleanTitle(title string, keep func(rune) bool) string {
-	s := rls.MustNormalize(norm.NFKC.String(separateRunes(title)))
+	s := normalize(norm.NFKC.String(separateRunes(title)))
 	s = trailingArticleRegex.ReplaceAllString(s, "")
 	s = leadingArticleRegex.ReplaceAllString(s, "")
 	s = strings.Map(func(r rune) rune {

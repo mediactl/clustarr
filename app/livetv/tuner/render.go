@@ -76,6 +76,13 @@ func (t *Tuner) render(p *provider) {
 		p.mu.Unlock()
 		return
 	}
+	if p.rendering {
+		p.renderAgain = true // the render running picks this up when it ends
+		p.mu.Unlock()
+		return
+	}
+	p.rendering = true
+	defer t.renderDone(p)
 	p.renderGen++
 	gen := p.renderGen
 	cfg := p.cfg
@@ -98,7 +105,10 @@ func (t *Tuner) render(p *provider) {
 	if p.guide.loaded {
 		loaded[GuideName] = p.guide.g
 	}
-	ix := xmltv.NewIndex(loaded)
+	ix := p.guide.index // built when the guide landed
+	if ix == nil {
+		ix = xmltv.NewIndex(loaded)
+	}
 	guideIcons := channelIcons(loaded)
 
 	chans := slices.Clone(cfg.Channels)
@@ -208,6 +218,13 @@ func (t *Tuner) render(p *provider) {
 	if !pms && fetched {
 		whole = build(lineupChans)
 		for i := range cfg.Blocks {
+			if len(blockChans[i]) == len(lineupChans) {
+				// The blocks partition the lineup, so a block as long as it
+				// holds all of it, in the same order: the same bytes, built
+				// once (the owner's one block had the guide built twice).
+				blockGuides[i] = whole
+				continue
+			}
 			blockGuides[i] = build(blockChans[i])
 		}
 	}
@@ -293,6 +310,18 @@ func (t *Tuner) render(p *provider) {
 	}
 	if notify {
 		t.o.Notify(p.key)
+	}
+}
+
+// renderDone ends p's render and schedules the one asked for while it ran.
+func (t *Tuner) renderDone(p *provider) {
+	p.mu.Lock()
+	p.rendering = false
+	again := p.renderAgain && !p.removed
+	p.renderAgain = false
+	p.mu.Unlock()
+	if again {
+		t.scheduleRender(p)
 	}
 }
 

@@ -32,6 +32,7 @@ import (
 	"net/http"
 	"reflect"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -173,7 +174,11 @@ type provider struct {
 	notified    *Snapshot
 	renderTimer *time.Timer
 	renderSince time.Time
-	tunersTimer *time.Timer
+	// rendering is a render in progress; renderAgain is one asked for
+	// meanwhile, run when it ends (one render at a time: two had run side by
+	// side, each a few GB, the older's result dropped).
+	rendering, renderAgain bool
+	tunersTimer            *time.Timer
 
 	storedPlaylistHash string
 	storedGuideHash    string
@@ -192,6 +197,9 @@ type surface struct {
 type guide struct {
 	g      xmltv.Guide
 	loaded bool
+	// index is g's AutoMap index, built once when g lands: building it in
+	// every render normalised 13,000 display names a time.
+	index *xmltv.Index
 	// wanted is the channel ids the guide was parsed for.
 	wanted  map[string]bool
 	due     bool
@@ -568,5 +576,8 @@ func cloneConfig(c Config) Config {
 			c.Channels[i].Map = &mm
 		}
 	}
+	// The order carries nothing (render sorts by number), so one order makes
+	// the same channels the same configuration whatever order they came in.
+	slices.SortStableFunc(c.Channels, func(a, b ChannelConfig) int { return strings.Compare(a.Object, b.Object) })
 	return c
 }

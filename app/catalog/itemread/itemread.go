@@ -473,8 +473,10 @@ func OriginalLanguage(ctx context.Context, r client.Reader, item client.Object) 
 			return t.Status.Metadata.OriginalLanguage
 		}
 	case *catalogv1alpha1.Episode:
+		// Read, never written: no copy of the series' status (its metadata
+		// and image set were most of what the file pass allocated).
 		var s catalogv1alpha1.Series
-		if err := r.Get(ctx, client.ObjectKey{Namespace: t.Namespace, Name: t.Spec.SeriesRef}, &s); err == nil && s.Status.Metadata != nil {
+		if err := r.Get(ctx, client.ObjectKey{Namespace: t.Namespace, Name: t.Spec.SeriesRef}, &s, client.UnsafeDisableDeepCopy); err == nil && s.Status.Metadata != nil {
 			return s.Status.Metadata.OriginalLanguage
 		}
 	}
@@ -489,7 +491,7 @@ func TranscodeExcluded(ctx context.Context, r client.Reader, item client.Object)
 	}
 	if e, ok := item.(*catalogv1alpha1.Episode); ok {
 		var s catalogv1alpha1.Series
-		if err := r.Get(ctx, client.ObjectKey{Namespace: e.Namespace, Name: e.Spec.SeriesRef}, &s); err == nil {
+		if err := r.Get(ctx, client.ObjectKey{Namespace: e.Namespace, Name: e.Spec.SeriesRef}, &s, client.UnsafeDisableDeepCopy); err == nil {
 			return s.Annotations[catalogv1alpha1.AnnotationTranscodeExclude] == "true"
 		}
 	}

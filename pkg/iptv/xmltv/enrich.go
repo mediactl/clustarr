@@ -25,8 +25,6 @@ import (
 	"regexp"
 	"strings"
 	"time"
-
-	"github.com/mediactl/clustarr/pkg/release"
 )
 
 // ArtKind is what an artwork lookup found a programme to be.
@@ -219,14 +217,14 @@ func (e *Enricher) enrich(inner []byte, ch LineupChannel, start, stop time.Time,
 		case sportsEvent:
 			addElem("episode-num", progID("SP", ch.Number, start.UTC().Format(time.RFC3339)))
 		case haveArt && art.Kind == ArtMovie:
-			addElem("episode-num", progID("MV", release.TitleNorm(title), fmt.Sprint(year)))
+			addElem("episode-num", progID("MV", rep.titleNorm(title), fmt.Sprint(year)))
 		case class == classMovies && !haveArt:
 			// Plex's movie fallback is right for a movie channel's unknown film.
-		case rep.oneEpisode(episodeKey(title, f.subtitle, f.desc)):
-			addElem("episode-num", progID("EP", release.TitleNorm(title), f.subtitle, f.desc))
+		case rep.oneEpisode(rep.episodeKey(title, f.subtitle, f.desc)):
+			addElem("episode-num", progID("EP", rep.titleNorm(title), f.subtitle, f.desc))
 		default:
 			// An airing of its own, an episode of the listing's show.
-			series := progSum(release.TitleNorm(title), f.subtitle, f.desc)
+			series := progSum(rep.titleNorm(title), f.subtitle, f.desc)
 			episode := progSum(ch.Number, start.UTC().Format(time.RFC3339))
 			addElem("episode-num", formatProgID("EP", series, episode/100000000))
 		}

@@ -49,6 +49,27 @@ func (l *Ledger) Open(profile string) int {
 	return l.open(profile)
 }
 
+// openCounts is open for every profile in profiles, in one walk of the
+// files.
+func (l *Ledger) openCounts(profiles map[string]ProfileView) map[string]int {
+	out := make(map[string]int, len(profiles))
+	for name := range profiles {
+		out[name] = 0
+	}
+	for uid, e := range l.files {
+		if n, ok := out[e.view.Profile]; ok && windowPhase(e.view.Phase) {
+			out[e.view.Profile] = n + 1
+			continue
+		}
+		if g := l.grants[uid]; g != nil && g.kind == transcodeplan.GrantWindow {
+			if n, ok := out[g.profile]; ok {
+				out[g.profile] = n + 1
+			}
+		}
+	}
+	return out
+}
+
 // backlogLocked is P's backlog: eligible files with no window phase, no
 // current verdict, no grant and no backoff, best first -- effective
 // priority descending, then namespace/name (§5.11 "Filling it").
@@ -98,8 +119,9 @@ func (l *Ledger) Backlog(profile string) int {
 // fillWindowLocked grants each profile's best backlog files a window place
 // while the profile's window has room (§5.11); a window of 0 is unlimited.
 func (l *Ledger) fillWindowLocked(profiles map[string]ProfileView, now time.Time) {
+	opens := l.openCounts(profiles)
 	for name := range profiles {
-		open := l.open(name)
+		open := opens[name]
 		if l.o.Window > 0 && open >= l.o.Window {
 			continue // full, the steady state: no need to sort the backlog
 		}

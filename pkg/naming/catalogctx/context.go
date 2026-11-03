@@ -37,6 +37,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 
 	"k8s.io/utils/ptr"
 
@@ -190,23 +191,58 @@ func ConfiguredLanguage(p *quality.Profile) string {
 	return "en"
 }
 
+// formatNamesMemo remembers formatNames's answer by its inputs: the file
+// pass renders every file's name on every pass, and parsing the release
+// title and running the catalogue's regexes over it again was 7% of the
+// manager's CPU (talos, 2026-11-03). The catalogue is loaded once, so an
+// answer never goes stale; the memo is emptied once it holds
+// formatNamesMemoMax answers.
+var formatNamesMemo = struct {
+	sync.Mutex
+	m map[formatNamesKey][]string
+}{m: map[formatNamesKey][]string{}}
+
+const formatNamesMemoMax = 32768
+
+type formatNamesKey struct {
+	title  string
+	kind   commonv1.MediaKind
+	anime  bool
+	frozen string
+}
+
 // formatNames is what {Custom Formats} names: the frozen matched formats,
 // plus those named in a file that the release title matches now (Radarr
 // works them out again when it names a file), by display name, the anime
 // guide's only for an anime item.
 func formatNames(ctx context.Context, c naming.Context, frozen []string) []string {
 	cat := catalogue.LoadedCatalogue()
+	if c.ReleaseTitle == "" {
+		return cat.NamesForRename(frozen, c.Anime)
+	}
+	key := formatNamesKey{title: c.ReleaseTitle, kind: c.Kind, anime: c.Anime, frozen: strings.Join(frozen, "\x00")}
+	formatNamesMemo.Lock()
+	names, ok := formatNamesMemo.m[key]
+	formatNamesMemo.Unlock()
+	if ok {
+		return slices.Clone(names)
+	}
 	slugs := frozen
-	if c.ReleaseTitle != "" {
-		if r, err := release.Parse(c.ReleaseTitle, release.Options{Kind: c.Kind}); err == nil {
-			for _, s := range cat.RenameMatches(ctx, r, catalogue.ItemContext{ReleaseTitle: c.ReleaseTitle}) {
-				if !slices.Contains(slugs, s) {
-					slugs = append(slices.Clip(slugs), s)
-				}
+	if r, err := release.Parse(c.ReleaseTitle, release.Options{Kind: c.Kind}); err == nil {
+		for _, s := range cat.RenameMatches(ctx, r, catalogue.ItemContext{ReleaseTitle: c.ReleaseTitle}) {
+			if !slices.Contains(slugs, s) {
+				slugs = append(slices.Clip(slugs), s)
 			}
 		}
 	}
-	return cat.NamesForRename(slugs, c.Anime)
+	names = cat.NamesForRename(slugs, c.Anime)
+	formatNamesMemo.Lock()
+	if len(formatNamesMemo.m) >= formatNamesMemoMax {
+		formatNamesMemo.m = map[formatNamesKey][]string{}
+	}
+	formatNamesMemo.m[key] = slices.Clone(names)
+	formatNamesMemo.Unlock()
+	return names
 }
 
 // ContainerExt maps mi's probed container to a file extension. It reads

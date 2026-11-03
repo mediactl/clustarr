@@ -31,6 +31,8 @@ package transcodeprofile
 import (
 	"context"
 	"fmt"
+	"slices"
+	"strings"
 	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
@@ -105,6 +107,34 @@ type Reconciler struct {
 	Progress busevents.KV
 	// Now is the clock; nil is time.Now.
 	Now func() time.Time
+
+	// overlaps is each profile's last overlap verdict (overlapTTL).
+	overlaps map[string]overlapVerdict
+}
+
+// overlapTTL is how long an overlap verdict stands before the files are
+// listed for it again. The reconciler runs at every change of a profile's
+// dispatched counts, and each run read every MediaFile for the verdict
+// (talos, 2026-11-03: 4% of the manager's CPU); a profile's generation moving
+// renews it at once, a file's labels within the TTL.
+const overlapTTL = 5 * time.Minute
+
+// overlapVerdict is one overlap answer and what it was read over.
+type overlapVerdict struct {
+	profiles   string // every profile's name and generation (profilesKey)
+	at         time.Time
+	overlapped bool
+}
+
+// profilesKey names profiles by name and generation: the inputs of an
+// overlap verdict besides the files.
+func profilesKey(profiles []transcodev1alpha1.TranscodeProfile) string {
+	keys := make([]string, 0, len(profiles))
+	for i := range profiles {
+		keys = append(keys, fmt.Sprintf("%s@%d", profiles[i].Name, profiles[i].Generation))
+	}
+	slices.Sort(keys)
+	return strings.Join(keys, " ")
 }
 
 // StatusHash is status.hash: jobspec.ProfileHash, the function the planner
@@ -179,21 +209,31 @@ func (r *Reconciler) overlap(ctx context.Context, tp *transcodev1alpha1.Transcod
 	if tp.Spec.Selector == nil {
 		return false, nil
 	}
+	key, now := profilesKey(profiles), r.now()
+	if v, ok := r.overlaps[tp.Name]; ok && v.profiles == key && now.Sub(v.at) < overlapTTL {
+		return v.overlapped, nil
+	}
 	var files catalogv1alpha1.MediaFileList
 	if err := r.Client.List(ctx, &files, client.UnsafeDisableDeepCopy); err != nil {
 		return false, fmt.Errorf("transcodeprofile: list MediaFiles: %w", err)
 	}
 	def := transcodeplan.DefaultWinner(profiles)
+	overlapped := false
 	for i := range files.Items {
 		mf := &files.Items[i]
 		if !transcodeplan.EligibleKind(mf.Spec.MediaRef.Kind) || !transcodeplan.SelectorMatches(tp, mf.Labels) {
 			continue
 		}
 		if w := transcodeplan.WinningProfile(mf.Labels, profiles, def); w != nil && w.Name != tp.Name {
-			return true, nil
+			overlapped = true
+			break
 		}
 	}
-	return false, nil
+	if r.overlaps == nil {
+		r.overlaps = map[string]overlapVerdict{}
+	}
+	r.overlaps[tp.Name] = overlapVerdict{profiles: key, at: now, overlapped: overlapped}
+	return overlapped, nil
 }
 
 // writeStatus renders the profile's status from a fresh read and applies

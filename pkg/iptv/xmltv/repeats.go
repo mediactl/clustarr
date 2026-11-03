@@ -18,7 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package xmltv
 
 import (
-	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/mediactl/clustarr/pkg/release"
@@ -45,6 +45,27 @@ const (
 type repeats struct {
 	episodes map[string]*recurrence
 	titles   map[string]int
+	// norms memoises release.TitleNorm by title: a build normalises each
+	// programme's title about five times, and a guide's titles recur across
+	// its channels and days (talos, 2026-11-03: 2.3 GB of a render's 3.7 GB).
+	norms map[string]string
+}
+
+// titleNorm is release.TitleNorm, memoised for the build; nil (Enrich on
+// its own) normalises each time.
+func (r *repeats) titleNorm(title string) string {
+	if r == nil {
+		return release.TitleNorm(title)
+	}
+	if n, ok := r.norms[title]; ok {
+		return n
+	}
+	n := release.TitleNorm(title)
+	if r.norms == nil {
+		r.norms = map[string]string{}
+	}
+	r.norms[title] = n
+	return n
 }
 
 // recurrence is one listing's airings: how many, and whether one came back
@@ -56,13 +77,13 @@ type recurrence struct {
 }
 
 // episodeKey is the listing an EP id is made from.
-func episodeKey(title, subtitle, desc string) string {
-	return release.TitleNorm(title) + "\x00" + subtitle + "\x00" + desc
+func (r *repeats) episodeKey(title, subtitle, desc string) string {
+	return r.titleNorm(title) + "\x00" + subtitle + "\x00" + desc
 }
 
 // movieKey is the title and year an MV id is made from.
-func movieKey(title string, year int) string {
-	return release.TitleNorm(title) + "\x00" + fmt.Sprint(year)
+func (r *repeats) movieKey(title string, year int) string {
+	return r.titleNorm(title) + "\x00" + strconv.Itoa(year)
 }
 
 // count records one airing of inner on channel at start.
@@ -74,8 +95,8 @@ func (r *repeats) count(inner []byte, channel string, start time.Time) {
 	f := facts(elems)
 	title, _ := stripLive(f.title)
 	title, year := stripYear(title)
-	r.titles[movieKey(title, year)]++
-	key := episodeKey(title, f.subtitle, f.desc)
+	r.titles[r.movieKey(title, year)]++
+	key := r.episodeKey(title, f.subtitle, f.desc)
 	rec := r.episodes[key]
 	if rec == nil {
 		rec = &recurrence{slots: map[string]bool{}}
@@ -103,5 +124,5 @@ func (r *repeats) oneEpisode(key string) bool {
 
 // tooOftenForAFilm reports whether a title airs more often than a film.
 func (r *repeats) tooOftenForAFilm(title string, year int) bool {
-	return r != nil && r.titles[movieKey(title, year)] > maxMovieAirings
+	return r != nil && r.titles[r.movieKey(title, year)] > maxMovieAirings
 }

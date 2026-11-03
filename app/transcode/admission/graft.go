@@ -112,21 +112,41 @@ func GraftGrants(files []GraftFile, jobs map[string][]string, grants map[string]
 	return out
 }
 
+// graftRelevant reports a graft block GraftGrants reads: one that may hold
+// a slot (holdsGraftSlot) or wait for one (graftCandidate). Every other
+// file -- nearly all of them -- plays no part in the count.
+func graftRelevant(phase catalogv1alpha1.GraftPhase) bool {
+	return phase == catalogv1alpha1.GraftPhaseWaiting || phase == catalogv1alpha1.GraftPhaseQueued ||
+		phase == catalogv1alpha1.GraftPhaseRunning
+}
+
 // grantGraftSlotsLocked is §5.7 step 9: the free graft slots of each
 // namespace go to its waiting standalone grafts, each granted and enqueued
 // at GrantPriority; the graft planner dispatches on the grant and confirms
-// it.
+// it. Only the files with a graft in play are listed: a GraftFile of every
+// file was a third of everything the manager allocated (talos, 2026-11-03:
+// 33 GB in 25 minutes).
 func (l *Ledger) grantGraftSlotsLocked(in PassInputs, now time.Time) {
-	files := make([]GraftFile, 0, len(l.files))
-	grants := map[string]int{}
+	var files []GraftFile
 	for uid, e := range l.files {
-		g := l.grants[uid]
+		if !graftRelevant(e.view.GraftPhase) {
+			continue
+		}
 		files = append(files, GraftFile{
 			UID: uid, Key: e.view.Key, Phase: e.view.GraftPhase, Reason: e.view.GraftReason,
 			JobName: e.view.GraftJobName, DonorImportedAt: e.view.DonorImportedAt, JoinInFlight: e.view.JoinedGraft,
-			Granted: g != nil, OnBackoff: l.onBackoffLocked(uid, now),
+			Granted: l.grants[uid] != nil, OnBackoff: l.onBackoffLocked(uid, now),
 		})
-		if g != nil && g.kind == transcodeplan.GrantGraftSlot && (g.inUse || now.Before(g.expires)) {
+	}
+	var grants map[string]int
+	for uid, g := range l.grants {
+		if g.kind != transcodeplan.GrantGraftSlot || (!g.inUse && !now.Before(g.expires)) {
+			continue
+		}
+		if e := l.files[uid]; e != nil {
+			if grants == nil {
+				grants = map[string]int{}
+			}
 			grants[e.view.Key.Namespace]++
 		}
 	}

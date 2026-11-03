@@ -246,8 +246,8 @@ func GatherItem(ctx context.Context, r client.Reader, mf *catalogv1alpha1.MediaF
 		if err := r.Get(ctx, key, &e); err != nil {
 			return nil, "", "", client.IgnoreNotFound(err)
 		}
-		var s catalogv1alpha1.Series
-		if err := r.Get(ctx, client.ObjectKey{Namespace: mf.Namespace, Name: e.Spec.SeriesRef}, &s); err != nil {
+		var s catalogv1alpha1.Series // read only: no copy of its status
+		if err := r.Get(ctx, client.ObjectKey{Namespace: mf.Namespace, Name: e.Spec.SeriesRef}, &s, client.UnsafeDisableDeepCopy); err != nil {
 			return nil, "", "", client.IgnoreNotFound(err)
 		}
 		it.UID, it.Audio, profileRef = string(e.UID), e.Status.Audio, s.Spec.QualityProfileRef
