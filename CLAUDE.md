@@ -230,11 +230,17 @@ recorded copy or `CLUSTARR_VIDEO=copy`, or with neither, SDR at 1080p or
 less, where clustarr's own encodes have been 8-bit since the first. An
 unrecorded HDR or above-1080p one may be clustarr's own Main 10 encode and
 stays.
-The codecs off limits are H.264 10-bit and AV1, which no GPU here decodes:
+The codec off limits is H.264 10-bit, which no GPU here decodes:
 clustarr's own catalogue format `h264-10bit`
 (`pkg/quality/catalogue/data/formats/clustarr.json`, a 10bit or Hi10P title
 naming no x265, HEVC, AV1 or VP9) scores -10000 by default, so every
-profile refuses it as TRaSH's AV1 is refused, where x265 10-bit is taken.
+profile refuses it, dual audio or not (owner), where x265 10-bit is taken.
+AV1 decodes on the Intel GPU too (2026-11-03, ffgo `v0.0.0-clustarr.16`:
+a GPU decode opens FFmpeg's own `av1` decoder, where
+`avcodec_find_decoder` answered `libdav1d`, a CPU decoder that ignores the
+device, so the pods' trial had measured AV1 as undecodable on an iHD
+driver that decodes it at 48x), and the transcode-first profiles take it
+(`av1` 0); TRaSH's built-ins still score AV1 -10000.
 `policy.neverTranscodeModifiers` is gone (owner, 2026-10-27, "we can
 ignore the remux modifier"): a remux's or BR-disk's modifier skipped the
 whole file, 40 of them with DTS or TrueHD audio, and the standard now
@@ -1145,8 +1151,9 @@ the format score and languages, ahead of indexer, flags and seeders
 (`decision.less`, `grabplan.better`); the owner's transcode-first profiles
 pair it with one 1080p tier, `x265-hd` +300 at a minimum score of 0 (until
 2026-11-02 also `10bit` -150, which held x265 10-bit back with H.264 10-bit;
-now `h264-10bit` refuses H.264 10-bit and AV1's default refuses AV1, which
-no GPU here decodes) and a 5 MB-a-minute floor in `sizeLimits`,
+now `h264-10bit` refuses H.264 10-bit, which no GPU here decodes, and
+`av1` 0 takes AV1, decoded on the Intel GPU since ffgo
+`v0.0.0-clustarr.16`) and a 5 MB-a-minute floor in `sizeLimits`,
 since TRaSH's x264 minimums reject a small HEVC encode. Their anime twins
 (`hevc-small-1080p-anime`, `-anime-tv`) also zero TRaSH's anime group tiers,
 which score 100-1,400 under every score set and would carry a tier-1 10-bit
