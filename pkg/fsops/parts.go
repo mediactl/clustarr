@@ -77,12 +77,12 @@ func ParseTranscodePartCopy(path string) (TranscodePart, bool) {
 
 // trimPartial is path without its trailing ".partial" suffixes.
 func trimPartial(path string) string {
-	for strings.HasSuffix(path, partialSuffix) {
-		path = strings.TrimSuffix(path, partialSuffix)
+	for strings.HasSuffix(path, PartialSuffix) {
+		path = strings.TrimSuffix(path, PartialSuffix)
 	}
 	return path
 }
 
-// partialSuffix is what an atomic copy or write appends to its target's
+// PartialSuffix is what an atomic copy or write appends to its target's
 // name while it is in flight (copyFile, AtomicWrite).
-const partialSuffix = ".partial"
+const PartialSuffix = ".partial"

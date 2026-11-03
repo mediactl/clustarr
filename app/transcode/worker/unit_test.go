@@ -209,7 +209,8 @@ func TestUniquePartPathIsDistinctPerJobAndAttempt(t *testing.T) {
 	assert.Equal(t, "/x.part-a1b2c3d4-3.mp4", uniquePartPath("/x.part.mp4", jobA, 3))
 }
 
-// A part's name and its sidecar parts' fit the filesystem's 255 bytes: on
+// A part's name and its sidecar parts' fit the filesystem's 255 bytes with
+// ".partial" after them: on
 // talos (2026-11-03) An Observation Log of My Fiancee's 223-byte episode
 // name made a 255-byte part and a 262-byte CC sidecar part, which the
 // filesystem refused. The stem is cut, at a rune boundary, for every part
@@ -226,25 +227,32 @@ func TestAPartNameIsCutToFitTheFilesystemsNameLimit(t *testing.T) {
 
 	part := uniquePartPath(generic, uid, seq, suffixes...)
 	require.True(t, fsops.IsPart(part), part)
-	assert.LessOrEqual(t, len(filepath.Base(part)), nameMax)
-	require.NoError(t, os.WriteFile(part, nil, 0o644), "the filesystem takes the part's name")
+	// Every name fits with ".partial" after it: the staging copy and
+	// AtomicWrite write through that name (One Piece, 2026-10-28: "...srt.partial:
+	// file name too long").
+	require.NoError(t, os.WriteFile(part+fsops.PartialSuffix, nil, 0o644), "the filesystem takes the part's in-flight name")
+	require.NoError(t, os.Rename(part+fsops.PartialSuffix, part))
 	var want []string
 	for _, s := range suffixes {
 		sc := fsops.SidecarPath(part, s)
-		assert.LessOrEqual(t, len(filepath.Base(sc)), nameMax, s)
-		require.NoError(t, os.WriteFile(sc, nil, 0o644), "the filesystem takes %s's part name", s)
+		assert.LessOrEqual(t, len(filepath.Base(sc+fsops.PartialSuffix)), nameMax, s)
+		require.NoError(t, os.WriteFile(sc+fsops.PartialSuffix, nil, 0o644), "the filesystem takes %s's in-flight part name", s)
+		require.NoError(t, os.Rename(sc+fsops.PartialSuffix, sc))
 		want = append(want, sc)
 	}
 	assert.ElementsMatch(t, want, sidecarParts(part), "the sweeps still find every sidecar part")
 
-	// Without the sidecars' suffixes the part alone must fit, as it did.
-	assert.Equal(t, filepath.Join(dir, stem+".part-677d854a-1793680312000.mp4"), uniquePartPath(generic, uid, seq))
+	// The part alone is cut only as far as its own in-flight name needs:
+	// 255 bytes with ".partial" is 8 over.
+	alone := uniquePartPath(generic, uid, seq)
+	assert.Len(t, filepath.Base(alone+fsops.PartialSuffix), nameMax)
+	assert.True(t, strings.HasPrefix(stem, strings.TrimSuffix(filepath.Base(alone), ".part-677d854a-1793680312000.mp4")))
 	// A name that fits with its sidecars is never cut.
 	assert.Equal(t, "/x.part-677d854a-1.mp4", uniquePartPath("/x.part.mp4", uid, 1, suffixes...))
 	// A cut never splits a character: 130 two-byte runes.
 	wide := uniquePartPath(filepath.Join(dir, strings.Repeat("é", 130)+".part.mp4"), uid, seq, suffixes...)
 	assert.True(t, utf8.ValidString(filepath.Base(wide)), "cut at a rune boundary")
 	for _, s := range suffixes {
-		assert.LessOrEqual(t, len(filepath.Base(fsops.SidecarPath(wide, s))), nameMax, s)
+		assert.LessOrEqual(t, len(filepath.Base(fsops.SidecarPath(wide, s)+fsops.PartialSuffix)), nameMax, s)
 	}
 }

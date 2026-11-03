@@ -597,12 +597,14 @@ const nameMax = 255
 // §4.12: keyed by the MediaFile and its dispatch sequence). sidecars are
 // the suffixes of the sidecars written beside it (fsops.SidecarPath), and
 // the stem is cut, at a UTF-8 boundary, as far as the longest of the
-// part's names and theirs needs to fit nameMax: on talos (2026-11-03) a
-// 223-byte episode name's part came to 255 bytes and its CC sidecar's part
-// to 262, which the filesystem refused. Only the parts' names are cut --
-// the sweeps match a sidecar part to its part by this stem, and the
-// rescan's orphan check by the file UID -- never the output's or its
-// sidecars'.
+// part's names and theirs needs to fit nameMax with fsops.PartialSuffix
+// after it -- AtomicWrite writes a converted sidecar, and the staging copy
+// a part, through that name. On talos (2026-11-03) a 223-byte episode
+// name's part came to 255 bytes and its CC sidecar's part to 262; since
+// 2026-10-28, 27 files with long names failed so (staging "...srt.partial:
+// file name too long", or a panic). Only the parts' names are cut -- the
+// sweeps match a sidecar part to its part by this stem, and the rescan's
+// orphan check by the file UID -- never the output's or its sidecars'.
 func uniquePartPath(generic, fileUID string, seq int64, sidecars ...string) string {
 	ext := filepath.Ext(generic)
 	stem := strings.TrimSuffix(strings.TrimSuffix(generic, ext), ".part")
@@ -615,8 +617,9 @@ func uniquePartPath(generic, fileUID string, seq int64, sidecars ...string) stri
 	for _, s := range sidecars {
 		tail = max(tail, len(marker)+1+len(s)) // <stem>[.<name>]<marker><ext>: "." and the suffix
 	}
-	if base := filepath.Base(stem); len(base)+tail > nameMax {
-		cut := max(nameMax-tail, 1)
+	limit := nameMax - len(fsops.PartialSuffix)
+	if base := filepath.Base(stem); len(base)+tail > limit {
+		cut := max(limit-tail, 1)
 		for cut > 0 && !utf8.RuneStart(base[cut]) {
 			cut--
 		}
