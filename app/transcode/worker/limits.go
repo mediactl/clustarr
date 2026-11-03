@@ -52,3 +52,18 @@ func (c *limitsCache) publishHealth(ctx context.Context, m transcode.Measurement
 		logging.FromContext(ctx).WarnContext(ctx, "transcode worker: could not publish the device's health", "error", err)
 	}
 }
+
+// withdraw removes this pod's report once it takes no more work
+// (task.WithdrawEncoderLimits), under a context that survives the drain
+// that ended ctx. With no clustarr-progress bucket it does nothing.
+func (c *limitsCache) withdraw(ctx context.Context) {
+	if c == nil || c.kv == nil {
+		return
+	}
+	wctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	if err := task.WithdrawEncoderLimits(wctx, c.kv, c.class, c.reporter, time.Now()); err != nil {
+		logging.FromContext(ctx).WarnContext(ctx, "transcode worker: could not withdraw the device's report; it counts until it goes stale",
+			"error", err)
+	}
+}

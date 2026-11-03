@@ -1149,6 +1149,40 @@ func TestAHealthyPodKeepsItsReportFresh(t *testing.T) {
 	assert.Equal(t, int32(1), eng.calls.Load(), "a healthy device is measured once")
 }
 
+// A drained pod (SIGTERM: its pool scaled down or replaced for a new image)
+// withdraws its report as Serve returns, so it stops narrowing the class
+// its replacement serves; another pod's report stays (owner, 2026-11-03).
+func TestADrainedPodWithdrawsItsReport(t *testing.T) {
+	h := newHarness(t)
+	progress := h.bus.KV(events.BucketProgress)
+	peer := task.Reporter("n2", "pool-def")
+	require.NoError(t, task.PublishEncoderLimits(h.ctx, progress, "cpu", peer, transcode.Limits{}, time.Now()))
+	eng := &measuringEngine{measure: func(int32) (transcode.Measurement, error) {
+		return transcode.Measurement{Tier: transcode.TierCPUx265}, nil
+	}}
+	h.serveOnBusWithOptions(h.bus, func(o *ServeOptions) {
+		o.Engine, o.Telemetry, o.RemeasureEvery = eng, progress, 20*time.Millisecond
+	})
+	reporters := func() map[string]task.NodeLimits {
+		entry, err := progress.Get(context.Background(), task.EncoderLimitsKey("cpu"))
+		require.NoError(t, err)
+		var limits task.EncoderLimits
+		require.NoError(t, json.Unmarshal(entry.Value, &limits))
+		return limits.Nodes
+	}
+	mine := task.Reporter("n1", "pool-abc")
+	require.Eventually(t, func() bool { _, ok := reporters()[mine]; return ok }, 5*time.Second, 10*time.Millisecond,
+		"the pod's first report")
+
+	h.cancel()
+	require.ErrorIs(t, h.waitDone(5*time.Second), context.Canceled)
+	got := reporters()
+	assert.NotContains(t, got, mine, "the drained pod's report is withdrawn")
+	assert.Contains(t, got, peer, "another pod's report stays")
+	time.Sleep(60 * time.Millisecond) // three republish periods: nothing republishes it
+	assert.NotContains(t, reporters(), mine)
+}
+
 // A measurement that hangs (a wedged GPU) is cut off and reported as
 // unusable (final review M2), rather than leaving the class with no report.
 func TestAHungMeasurementIsReportedUnhealthy(t *testing.T) {

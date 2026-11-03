@@ -167,6 +167,55 @@ func PublishMeasurement(ctx context.Context, kv events.KV, class, node string, m
 	return fmt.Errorf("task: write %s: lost %d races", key, encoderLimitsAttempts)
 }
 
+// WithdrawEncoderLimits removes reporter's entry from class's key with
+// compare-and-swap, dropping any entry older than EncoderLimitsFresh as a
+// publish does: a pool pod that stops taking work withdraws its report, so
+// it no longer narrows the class for EncoderLimitsFresh after it is gone
+// (owner, 2026-11-03). After a pool's image change the old pods' reports
+// had planned against the new pods for ten minutes: three of Attack on
+// Titan's four AV1 episodes decoded on the CPU beside pods that decode AV1
+// on the GPU, and since a GPU transcode decodes on the GPU or is Skipped, a
+// verdict that holds for the file's hashes, such a gap skips the file. A
+// reporter with no entry withdraws nothing.
+func WithdrawEncoderLimits(ctx context.Context, kv events.KV, class, reporter string, now time.Time) error {
+	key := EncoderLimitsKey(class)
+	for range encoderLimitsAttempts {
+		entry, err := kv.Get(ctx, key)
+		if errors.Is(err, events.ErrKeyNotFound) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("task: read %s: %w", key, err)
+		}
+		var cur EncoderLimits
+		if err := json.Unmarshal(entry.Value, &cur); err != nil {
+			return nil // unreadable: the next publish rebuilds it
+		}
+		if _, ok := cur.Nodes[reporter]; !ok {
+			return nil
+		}
+		next := EncoderLimits{Nodes: map[string]NodeLimits{}}
+		for n, nl := range cur.Nodes {
+			if n != reporter && now.Sub(nl.MeasuredAt) < EncoderLimitsFresh {
+				next.Nodes[n] = nl
+			}
+		}
+		val, err := json.Marshal(next)
+		if err != nil {
+			return fmt.Errorf("task: encode %s: %w", key, err)
+		}
+		_, err = kv.Update(ctx, key, val, entry.Revision)
+		if errors.Is(err, events.ErrRevisionMismatch) {
+			continue // another pod published in between: withdraw again
+		}
+		if err != nil {
+			return fmt.Errorf("task: write %s: %w", key, err)
+		}
+		return nil
+	}
+	return fmt.Errorf("task: write %s: lost %d races", key, encoderLimitsAttempts)
+}
+
 // ReadEncoderLimits is class's device limits as the controller plans with
 // them: for each limit, the tightest over the nodes that published within
 // EncoderLimitsFresh of now, since a job may land on any of them. No entry

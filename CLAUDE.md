@@ -332,7 +332,14 @@ video engine 97% busy and video-enhance 35%, at about one CPU core. A
 pool pod measures its own device at start through ffgo
 (`inprocess.Engine.Measure`), takes no work while it is unusable, and
 publishes `healthy` beside its limits; no work goes to a GPU class whose
-every fresh report is unhealthy. That engine lives in
+every fresh report is unhealthy. A class plans with the tightest of its
+pods' fresh reports (`task.EncoderLimitsFresh`, 10 minutes), and a pod
+withdraws its own when Serve returns (`task.WithdrawEncoderLimits`, owner,
+2026-11-03): after a pool's image change the old pods' reports had
+narrowed the new pods' class for those ten minutes, so three of Attack on
+Titan's AV1 episodes decoded on the CPU beside pods that decode AV1, and
+under the rule above such a gap would skip the file for its hashes. A pod
+killed outright still counts until its report goes stale. That engine lives in
 `app/transcode/worker/inprocess`, imported only by `cmd/transcode`; `cmd/manager`
 and `cmd/ui` must never link ffgo or purego, which make a dynamic binary the
 distroless `clustarr` image cannot start (`TestManagerNeverLinksADynamicLoader`†,

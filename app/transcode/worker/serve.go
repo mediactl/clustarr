@@ -206,12 +206,21 @@ func Serve(ctx context.Context, bus events.Bus, o ServeOptions) error {
 	s.answers = task.Answers(o.Records, o.PodName)
 
 	if s.o.Engine != nil && s.o.Measurement == nil {
+		// Once Serve returns (a drain, or a pull it gave up on) the pod
+		// takes no more work, so its report stops speaking for the class.
+		defer s.o.limits.withdraw(ctx)
 		m, err := s.measureUntilHealthy(ctx)
 		if err != nil {
 			return err
 		}
 		s.o.Measurement = &m
-		go s.keepReportFresh(ctx, m)
+		fctx, stop := context.WithCancel(ctx)
+		fresh := make(chan struct{})
+		go func() {
+			defer close(fresh)
+			s.keepReportFresh(fctx, m)
+		}()
+		defer func() { stop(); <-fresh }() // no republish after the withdrawal
 	}
 
 	retry := newPullRetry(s.clock, s.o.PullRetryBackoffCap, s.o.PullRetryWindow)

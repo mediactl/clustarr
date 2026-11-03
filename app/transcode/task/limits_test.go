@@ -149,6 +149,37 @@ func TestEncoderLimitsMergePerNodeAndDropStaleNodes(t *testing.T) {
 	assert.True(t, got.NVDEC.Formats["av1:8"], "the laptop's entry is stale: only the server's counts")
 }
 
+// A pod that stops taking work withdraws its report, so an old image's pod
+// no longer narrows the class its replacement serves (owner, 2026-11-03:
+// three of Attack on Titan's AV1 episodes decoded on the CPU for the old
+// pods' ten minutes). Only its own entry goes; a reporter with no entry, or
+// a class with no key, withdraws nothing.
+func TestAWithdrawnReportNoLongerNarrowsTheClass(t *testing.T) {
+	ctx := context.Background()
+	kv := progressKV(t)
+	now := time.Date(2026, 11, 3, 2, 0, 0, 0, time.UTC)
+	old, replacement := task.Reporter("talos-88", "pool-old-1"), task.Reporter("talos-88", "pool-new-1")
+
+	require.NoError(t, task.WithdrawEncoderLimits(ctx, kv, "intel", old, now), "no key: nothing to withdraw")
+	require.NoError(t, task.PublishEncoderLimits(ctx, kv, "intel", old,
+		transcode.Limits{VAAPI: &transcode.Decoders{Formats: map[string]bool{"av1:10": false}}}, now))
+	require.NoError(t, task.PublishEncoderLimits(ctx, kv, "intel", replacement,
+		transcode.Limits{VAAPI: &transcode.Decoders{Formats: map[string]bool{"av1:10": true}}}, now.Add(time.Minute)))
+	got, err := task.ReadEncoderLimits(ctx, kv, "intel", now.Add(2*time.Minute))
+	require.NoError(t, err)
+	assert.False(t, got.VAAPI.Formats["av1:10"], "both pods report: a job may land on the old one")
+
+	require.NoError(t, task.WithdrawEncoderLimits(ctx, kv, "intel", old, now.Add(2*time.Minute)))
+	got, err = task.ReadEncoderLimits(ctx, kv, "intel", now.Add(2*time.Minute))
+	require.NoError(t, err)
+	assert.True(t, got.VAAPI.Formats["av1:10"], "the old pod withdrew: only its replacement's report counts")
+
+	require.NoError(t, task.WithdrawEncoderLimits(ctx, kv, "intel", task.Reporter("talos-88", "pool-gone-1"), now.Add(2*time.Minute)))
+	byNode, err := task.ReadEncoderLimitsByNode(ctx, kv, "intel", now.Add(2*time.Minute))
+	require.NoError(t, err)
+	assert.Len(t, byNode, 1, "withdrawing an unknown reporter changes nothing")
+}
+
 // Two pool pods of one class can run on one node (two profiles' pools).
 // Each reports under its own key (task.Reporter), so neither overwrites the
 // other: the node reads healthy while any of its fresh reports is, and its
