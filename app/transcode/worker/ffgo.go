@@ -127,7 +127,11 @@ func (r *runner) ffgoJob(ctx context.Context, info transcode.MediaInfo, sw swap,
 	}
 	plan = withX265Pools(plan, r.o.Threads)
 	r.tier = string(tier)
-	part := uniquePartPath(partPath(sw.localOut, plan.Container), r.t.File.UID, r.t.Seq)
+	suffixes := make([]string, 0, len(plan.Sidecars))
+	for _, sc := range plan.Sidecars {
+		suffixes = append(suffixes, sc.Suffix)
+	}
+	part := uniquePartPath(partPath(sw.localOut, plan.Container), r.t.File.UID, r.t.Seq, suffixes...)
 	sweepEarlierAttempts(ctx, part)
 	stage := ""
 	if lp := r.scratchPart(part, r.t.SourceSizeBytes); lp != "" {

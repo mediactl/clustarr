@@ -732,9 +732,11 @@ func addStreams(m *ffgo.Muxer, d *ffgo.Decoder, plan standard.Result, slots []sl
 		s := &slots[i]
 		var err error
 		if s.sidecar != nil {
-			if s.sink, err = newSidecar(*s.sidecar, s.src, output); err != nil {
-				return fmt.Errorf("%s: %w", s.name, err)
+			sink, serr := newSidecar(*s.sidecar, s.src, output)
+			if serr != nil {
+				return fmt.Errorf("%s: %w", s.name, serr)
 			}
+			s.sink = sink
 			continue
 		}
 		if s.copy {

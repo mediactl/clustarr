@@ -22,8 +22,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -203,4 +207,44 @@ func TestUniquePartPathIsDistinctPerJobAndAttempt(t *testing.T) {
 
 	// The mp4 container's extension round-trips too.
 	assert.Equal(t, "/x.part-a1b2c3d4-3.mp4", uniquePartPath("/x.part.mp4", jobA, 3))
+}
+
+// A part's name and its sidecar parts' fit the filesystem's 255 bytes: on
+// talos (2026-11-03) An Observation Log of My Fiancee's 223-byte episode
+// name made a 255-byte part and a 262-byte CC sidecar part, which the
+// filesystem refused. The stem is cut, at a rune boundary, for every part
+// name alike, so the sweeps still match each sidecar part to its part; a
+// name that fits is left as it was.
+func TestAPartNameIsCutToFitTheFilesystemsNameLimit(t *testing.T) {
+	const uid, seq = "677d854a-0000-4000-8000-000000000000", int64(1793680312000)
+	dir := t.TempDir()
+	stem := "An Observation Log of My Fiancee Who Calls Herself a Villainess (2026) - S01E06 - 006 - " +
+		"An Observation Log of a Self-Proclaimed Villainess and the Resolution of the Matter. [CR][WEBDL-1080p][AAC 2.0][JA+EN][h264 8bit]-VARYG"
+	require.Len(t, stem, 223, "the talos file's stem")
+	suffixes := []string{"en.forced.srt", "en.srt", "en.sdh.srt"}
+	generic := filepath.Join(dir, stem+".part.mp4")
+
+	part := uniquePartPath(generic, uid, seq, suffixes...)
+	require.True(t, fsops.IsPart(part), part)
+	assert.LessOrEqual(t, len(filepath.Base(part)), nameMax)
+	require.NoError(t, os.WriteFile(part, nil, 0o644), "the filesystem takes the part's name")
+	var want []string
+	for _, s := range suffixes {
+		sc := fsops.SidecarPath(part, s)
+		assert.LessOrEqual(t, len(filepath.Base(sc)), nameMax, s)
+		require.NoError(t, os.WriteFile(sc, nil, 0o644), "the filesystem takes %s's part name", s)
+		want = append(want, sc)
+	}
+	assert.ElementsMatch(t, want, sidecarParts(part), "the sweeps still find every sidecar part")
+
+	// Without the sidecars' suffixes the part alone must fit, as it did.
+	assert.Equal(t, filepath.Join(dir, stem+".part-677d854a-1793680312000.mp4"), uniquePartPath(generic, uid, seq))
+	// A name that fits with its sidecars is never cut.
+	assert.Equal(t, "/x.part-677d854a-1.mp4", uniquePartPath("/x.part.mp4", uid, 1, suffixes...))
+	// A cut never splits a character: 130 two-byte runes.
+	wide := uniquePartPath(filepath.Join(dir, strings.Repeat("é", 130)+".part.mp4"), uid, seq, suffixes...)
+	assert.True(t, utf8.ValidString(filepath.Base(wide)), "cut at a rune boundary")
+	for _, s := range suffixes {
+		assert.LessOrEqual(t, len(filepath.Base(fsops.SidecarPath(wide, s))), nameMax, s)
+	}
 }

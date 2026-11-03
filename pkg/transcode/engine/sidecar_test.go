@@ -21,6 +21,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/obinnaokechukwu/ffgo"
@@ -130,4 +131,33 @@ func TestTheEngineWritesTheSidecarsBesideItsOutput(t *testing.T) {
 		_, err := os.Stat(fsops.SidecarPath(out2, s.Suffix))
 		assert.ErrorIs(t, err, os.ErrNotExist, s.Suffix)
 	}
+}
+
+// A sidecar that cannot be opened fails the run; it never reaches the
+// deferred close as a nil *muxSidecar inside a non-nil sink. On talos
+// (2026-11-03) a SubRip sidecar's part name ran past the filesystem's 255
+// bytes while the MP4 part's did not, and the close panicked every pool pod
+// that took the file until the pool Job gave up.
+func TestASidecarThatCannotBeOpenedFailsTheRunWithoutAPanic(t *testing.T) {
+	ffmpeg9OrSkip(t)
+	dir := t.TempDir()
+	srt := filepath.Join(dir, "cc.srt")
+	require.NoError(t, os.WriteFile(srt, []byte("1\n00:00:00,500 --> 00:00:01,500\nHello\n"), 0o644))
+	in := filepath.Join(dir, "in.mkv")
+	run(t, "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+		"-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24:duration=2", "-i", srt,
+		"-map", "0", "-map", "1",
+		"-c:v", "libx265", "-preset", "ultrafast", "-pix_fmt", "yuv420p10le", "-x265-params", "log-level=error",
+		"-c:s:0", "srt", "-metadata:s:s:0", "language=eng", in)
+	plan := standard.Plan(probeInfo(t, in), standard.Profile{Name: "p", Hash: "h"}, standard.Hardware{Tier: transcode.TierCPUx265})
+	require.Len(t, plan.Sidecars, 1, "%+v", plan.Sidecars)
+
+	// The part's name is 255 bytes, as the talos file's was; its SubRip
+	// sidecar's, 258.
+	out := filepath.Join(dir, strings.Repeat("F", 235)+".part-ab12cd34-1.mp4")
+	require.Greater(t, len(filepath.Base(fsops.SidecarPath(out, plan.Sidecars[0].Suffix))), 255)
+	var err error
+	require.NotPanics(t, func() { _, err = Run(context.Background(), plan, in, out, Options{}) })
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "File name too long")
 }

@@ -51,11 +51,23 @@ func newSidecar(sp standard.SidecarPlan, src *ffgo.StreamInfo, output string) (s
 	path := fsops.SidecarPath(output, sp.Suffix)
 	switch {
 	case sp.Format == standard.SidecarSUP:
-		return newMuxSidecar(path, "sup", src)
+		return muxSink(newMuxSidecar(path, "sup", src))
 	case sp.Codec == "subrip" || sp.Codec == "srt":
-		return newMuxSidecar(path, "srt", src)
+		return muxSink(newMuxSidecar(path, "srt", src))
 	}
 	return newSRTSidecar(path, sp.Codec), nil
+}
+
+// muxSink is a mux sidecar as a sink, and one that failed to open as no
+// sink at all: a nil *muxSidecar in the interface is not nil, and Run's
+// deferred close called it (2026-11-03: a sidecar name over the
+// filesystem's 255 bytes panicked every pool pod that took the file, until
+// the pool Job gave up).
+func muxSink(s *muxSidecar, err error) (sidecarSink, error) {
+	if err != nil {
+		return nil, err
+	}
+	return s, nil
 }
 
 // muxSidecar copies a subtitle stream into a muxer of its own: the

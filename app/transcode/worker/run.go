@@ -26,6 +26,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"go.opentelemetry.io/otel/propagation"
 
@@ -586,18 +587,42 @@ func (r *runner) beforeSwap(ctx context.Context, partPath string) error {
 	return nil
 }
 
+// nameMax is the longest file name /data and the scratch volume take, in
+// bytes (NAME_MAX).
+const nameMax = 255
+
 // uniquePartPath rewrites generic -- the "<stem>.part.<ext>" beside the
 // output -- into the physical scratch file this dispatch actually writes
 // to: "<stem>.part-<fileUID8>-<seq>.<ext>" (final review I2a; loop spec
-// §4.12: keyed by the MediaFile and its dispatch sequence).
-func uniquePartPath(generic, fileUID string, seq int64) string {
+// §4.12: keyed by the MediaFile and its dispatch sequence). sidecars are
+// the suffixes of the sidecars written beside it (fsops.SidecarPath), and
+// the stem is cut, at a UTF-8 boundary, as far as the longest of the
+// part's names and theirs needs to fit nameMax: on talos (2026-11-03) a
+// 223-byte episode name's part came to 255 bytes and its CC sidecar's part
+// to 262, which the filesystem refused. Only the parts' names are cut --
+// the sweeps match a sidecar part to its part by this stem, and the
+// rescan's orphan check by the file UID -- never the output's or its
+// sidecars'.
+func uniquePartPath(generic, fileUID string, seq int64, sidecars ...string) string {
 	ext := filepath.Ext(generic)
 	stem := strings.TrimSuffix(strings.TrimSuffix(generic, ext), ".part")
 	uid8 := fileUID
 	if len(uid8) > 8 {
 		uid8 = uid8[:8]
 	}
-	return fmt.Sprintf("%s.part-%s-%d%s", stem, uid8, seq, ext)
+	marker := fmt.Sprintf(".part-%s-%d", uid8, seq)
+	tail := len(marker) + len(ext)
+	for _, s := range sidecars {
+		tail = max(tail, len(marker)+1+len(s)) // <stem>[.<name>]<marker><ext>: "." and the suffix
+	}
+	if base := filepath.Base(stem); len(base)+tail > nameMax {
+		cut := max(nameMax-tail, 1)
+		for cut > 0 && !utf8.RuneStart(base[cut]) {
+			cut--
+		}
+		stem = filepath.Join(filepath.Dir(stem), base[:cut])
+	}
+	return stem + marker + ext
 }
 
 // swap is where one run's output goes and what happens to its source.
