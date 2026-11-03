@@ -17,7 +17,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 package v1alpha1
 
-import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+import (
+	"strings"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
 
 // Transcoded reports whether mf is a transcoded file. This is the one place
 // the rule lives, here beside the type so every service reads the same
@@ -77,6 +81,20 @@ func (mf *MediaFile) Transcoded() bool {
 // TranscodedFinal, the import's refusal); transcode reads Transcoded.
 func (mf *MediaFile) Final() bool {
 	return mf.Transcoded() && !mf.Upgradeable()
+}
+
+// H264TenBit reports whether mf's probed video is H.264 10-bit (Hi10P), the
+// one codec no GPU here decodes and many players, Apple's among them,
+// cannot (owner, 2026-11-03: "These files shouldn't meet the cutoff - or
+// should be upgraded"). Such a file does not meet the cutoff, a release
+// that is not replaces it, and import refuses a new one. A transcode is
+// HEVC, so it ends once one succeeds. A nil or unprobed mf is not.
+func (mf *MediaFile) H264TenBit() bool {
+	if mf == nil || mf.Status.MediaInfo == nil {
+		return false
+	}
+	mi := mf.Status.MediaInfo
+	return mi.VideoCodec == "h264" && (mi.VideoBitDepth == 10 || strings.Contains(mi.PixelFormat, "10"))
 }
 
 // Upgradeable reports whether AnnotationUpgradeable is "true" on mf.

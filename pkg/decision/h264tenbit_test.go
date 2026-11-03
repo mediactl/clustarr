@@ -23,6 +23,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	common "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/decision"
 )
 
@@ -52,4 +53,26 @@ func TestAnH264TenBitReleaseIsRefusedAndX265TenBitIsNot(t *testing.T) {
 			}
 		}
 	}
+}
+
+// An H.264 10-bit file does not meet the cutoff (owner, 2026-11-03: "These
+// files shouldn't meet the cutoff - or should be upgraded"): a release the
+// profile takes replaces it, a lower tier included, though it is no upgrade
+// over the file's quality, where the same file in 8-bit stays.
+func TestAnH264TenBitFileIsReplacedByAnyReleaseTheProfileTakes(t *testing.T) {
+	p, cat := builtin(t, "hd-bluray-web")
+	const bluray = "Rushmore.1998.1080p.BluRay.DD5.1.x264-GRP"
+	const web = "Rushmore.1998.1080p.AMZN.WEB-DL.DDP5.1.H.264-GRP"
+	cur := imported(t, p, cat, bluray, "h264", common.HdrFormatNone)
+
+	same := decide(t, p, cat, rushmoreTarget(cur), bluray)
+	assert.False(t, same.Approved, "an 8-bit file at the cutoff stays: %v", reasons(same))
+
+	cur.H264TenBit = true
+	same = decide(t, p, cat, rushmoreTarget(cur), bluray)
+	assert.True(t, same.Approved, "%v", reasons(same))
+	lower := decide(t, p, cat, rushmoreTarget(cur), web)
+	assert.True(t, lower.Approved, "a lower tier the profile takes replaces it: %v", reasons(lower))
+	hi10p := decide(t, p, cat, rushmoreTarget(cur), "Rushmore.1998.1080p.BluRay.10bit.x264.DTS-GROUP")
+	assert.False(t, hi10p.Approved, "never by another H.264 10-bit release")
 }

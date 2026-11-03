@@ -64,6 +64,13 @@ type Current struct {
 	// inside it of its tier or better, whatever the transcoded, baseline
 	// and upgrade rules say.
 	BytesPerSecond int64
+	// H264TenBit is a file whose video is H.264 10-bit (Hi10P; rollup's
+	// H264TenBit, owner 2026-11-03): it does not meet the cutoff, and a
+	// release of any quality the profile takes replaces it, whatever the
+	// transcoded, baseline and upgrade rules say, as for a file off the
+	// bitrate range. The release itself is not H.264 10-bit: the h264-10bit
+	// format refuses it.
+	H264TenBit bool
 }
 
 // Queued is a release already downloading for a Target: the

@@ -756,6 +756,12 @@ func (p *planner) planFrom(insp *schema.ImportInspection) planResult {
 				continue
 			}
 		}
+		if (c.kind == commonv1.MediaKindMovie || c.kind == commonv1.MediaKindEpisode) && !manual {
+			if r := h264TenBitRejection(rel, f.Probe); !r.none() {
+				rs = append(rs, r)
+				continue
+			}
+		}
 		have := p.existingFor(c)
 		compared := comparedFiles(have, e)
 		if r, ok := p.gate(rel, c, compared, manual); ok {
@@ -916,6 +922,9 @@ func (p *planner) gate(rel string, c candidate, compared []catalogv1alpha1.Media
 			return releaseFaultRejection("%s: the file's %s", rel, why), true
 		}
 		if bitrateRefit(prof, compared, c, q) {
+			return Rejection{}, false
+		}
+		if h264TenBitRefit(prof, compared, q) {
 			return Rejection{}, false
 		}
 	}

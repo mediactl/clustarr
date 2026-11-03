@@ -401,6 +401,15 @@ func probedLanguageNames(mi *commonv1.MediaInfo) []string {
 	return out
 }
 
+// bitDepth is mi's video bit depth, read from its pixel format when the
+// probe recorded none.
+func bitDepth(mi *commonv1.MediaInfo) int32 {
+	if mi.VideoBitDepth == 0 && strings.Contains(mi.PixelFormat, "10") {
+		return 10
+	}
+	return mi.VideoBitDepth
+}
+
 // summaryOf is a probe as an inspection reports it.
 func summaryOf(mi *commonv1.MediaInfo) *schema.ProbeSummary {
 	if mi == nil {
@@ -408,6 +417,7 @@ func summaryOf(mi *commonv1.MediaInfo) *schema.ProbeSummary {
 	}
 	return &schema.ProbeSummary{
 		VideoCodec: mi.VideoCodec, Width: mi.Width, Height: mi.Height, HDR: string(mi.Hdr),
+		VideoBitDepth:   bitDepth(mi),
 		AudioLanguages:  decision.AudioLanguages(mi),
 		DurationSeconds: mi.RuntimeMillis / 1000,
 		Transcoded:      mi.TranscodeProfile != "" || mi.TranscodedElsewhere(),

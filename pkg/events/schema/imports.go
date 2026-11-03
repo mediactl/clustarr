@@ -175,10 +175,13 @@ type DonorPlan struct {
 // planner's TranscodedFinal, wrong-language and probe-corrected quality
 // rules.
 type ProbeSummary struct {
-	VideoCodec      string   `json:"videoCodec,omitempty"`
-	Width           int32    `json:"width,omitempty"`
-	Height          int32    `json:"height,omitempty"`
-	HDR             string   `json:"hdr,omitempty"`
+	VideoCodec string `json:"videoCodec,omitempty"`
+	Width      int32  `json:"width,omitempty"`
+	Height     int32  `json:"height,omitempty"`
+	HDR        string `json:"hdr,omitempty"`
+	// VideoBitDepth is the video's bit depth (8, 10), 0 when unknown: an
+	// H.264 10-bit file is refused (importplan.h264TenBitRejection).
+	VideoBitDepth   int32    `json:"videoBitDepth,omitempty"`
 	AudioLanguages  []string `json:"audioLanguages,omitempty"`
 	DurationSeconds int64    `json:"durationSeconds,omitempty"`
 	Transcoded      bool     `json:"transcoded,omitempty"`

@@ -235,6 +235,16 @@ clustarr's own catalogue format `h264-10bit`
 (`pkg/quality/catalogue/data/formats/clustarr.json`, a 10bit or Hi10P title
 naming no x265, HEVC, AV1 or VP9) scores -10000 by default, so every
 profile refuses it, dual audio or not (owner), where x265 10-bit is taken.
+A file of it does not meet the cutoff either (owner, 2026-11-03: "These
+files shouldn't meet the cutoff - or should be upgraded";
+`MediaFile.H264TenBit`, CutoffMet reason `H264TenBit`): a small one cannot
+transcode under the size limit (Star Trek: Discovery's 480p mSD episodes
+came to 100-109%), so a release of any quality the profile takes replaces
+it past the transcoded, baseline and upgrade rules, as for a file off the
+bitrate range (`decision.Current.H264TenBit`, `grabplan.StillWants`,
+`importplan.h264TenBitRefit`), and import refuses an incoming H.264
+10-bit file as a releaseFault (`importplan.h264TenBitRejection`, from the
+inspect's `ProbeSummary.VideoBitDepth`), a person's pick exempt.
 AV1 decodes on the Intel GPU too (2026-11-03, ffgo `v0.0.0-clustarr.16`:
 a GPU decode opens FFmpeg's own `av1` decoder, where
 `avcodec_find_decoder` answered `libdav1d`, a CPU decoder that ignores the

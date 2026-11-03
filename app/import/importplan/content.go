@@ -97,6 +97,20 @@ func episodeContentRejection(rel string, probe *schema.ProbeSummary) Rejection {
 	return Rejection{}
 }
 
+// h264TenBitRejection refuses an incoming movie or episode file whose probe
+// says H.264 10-bit (Hi10P) as the release's fault (owner, 2026-11-03):
+// no GPU here decodes it, many players cannot, and a file of it does not
+// meet the cutoff (MediaFile.H264TenBit), so taking one only for search to
+// replace it would loop. The h264-10bit format refuses such a release at
+// search by its title; this catches one whose title did not say. A
+// person's manual import is exempt, as from every content gate.
+func h264TenBitRejection(rel string, probe *schema.ProbeSummary) Rejection {
+	if probe != nil && probe.VideoCodec == "h264" && probe.VideoBitDepth == 10 {
+		return releaseFaultRejection("%s: the file is H.264 10-bit, which is never taken", rel)
+	}
+	return Rejection{}
+}
+
 // baselineLoss is decision.BaselineLoss between mf and the incoming file c
 // would replace it with, "" when it keeps mf's baseline or either side's
 // streams are unknown. An upgradeable transcode's streams are the

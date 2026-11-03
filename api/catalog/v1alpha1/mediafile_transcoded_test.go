@@ -130,3 +130,17 @@ func TestBytesPerSecondPrefersTheSourceSize(t *testing.T) {
 	var none *catalogv1alpha1.MediaFile
 	assert.Zero(t, none.BytesPerSecond())
 }
+
+// H264TenBit reads the probe: H.264 at 10 bits by depth or pixel format.
+func TestH264TenBitReadsTheProbe(t *testing.T) {
+	mf := func(mi *commonv1.MediaInfo) *catalogv1alpha1.MediaFile {
+		return &catalogv1alpha1.MediaFile{Status: catalogv1alpha1.MediaFileStatus{MediaInfo: mi}}
+	}
+	assert.True(t, mf(&commonv1.MediaInfo{VideoCodec: "h264", VideoBitDepth: 10}).H264TenBit())
+	assert.True(t, mf(&commonv1.MediaInfo{VideoCodec: "h264", PixelFormat: "yuv420p10le"}).H264TenBit())
+	assert.False(t, mf(&commonv1.MediaInfo{VideoCodec: "h264", VideoBitDepth: 8, PixelFormat: "yuv420p"}).H264TenBit())
+	assert.False(t, mf(&commonv1.MediaInfo{VideoCodec: "hevc", VideoBitDepth: 10}).H264TenBit())
+	assert.False(t, mf(nil).H264TenBit())
+	var none *catalogv1alpha1.MediaFile
+	assert.False(t, none.H264TenBit())
+}
