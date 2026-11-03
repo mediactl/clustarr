@@ -69,7 +69,7 @@ const (
 	DefaultChannelNumberStart int32 = 1000
 	DefaultRefresh                  = 24 * time.Hour
 	DefaultUserAgent                = "clustarr"
-	DefaultStreamBuffer       int64 = 8 << 20
+	DefaultStreamBuffer       int64 = 64 << 20
 	DefaultStreamLinger             = 10 * time.Second
 	DefaultDummyMinutes       int32 = 60
 	DefaultMaxChannels        int32 = 400
@@ -146,7 +146,7 @@ func (d DeviceSpec) FriendlyNameOrDefault(name string) string {
 	return d.FriendlyName
 }
 
-// BufferOrDefault is each channel's ring buffer in bytes, 8 MiB when unset
+// BufferOrDefault is each channel's ring buffer in bytes, 64 MiB when unset
 // or not positive.
 func (s StreamSpec) BufferOrDefault() int64 {
 	if s.Buffer == nil || s.Buffer.Value() <= 0 {

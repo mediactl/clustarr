@@ -38,7 +38,7 @@ func TestAnEmptySpecReadsEveryDefault(t *testing.T) {
 	assert.Equal(t, "clustarr", s.UserAgentOrDefault())
 	assert.Equal(t, 0, s.TunersOverride(), "the account's own limit")
 	assert.True(t, clustarrv1.ChannelFilter{}.EnabledOrDefault())
-	assert.Equal(t, int64(8<<20), s.Stream.BufferOrDefault())
+	assert.Equal(t, int64(64<<20), s.Stream.BufferOrDefault())
 	assert.Equal(t, 10*time.Second, s.Stream.LingerOrDefault())
 	assert.Equal(t, int32(60), clustarrv1.ChannelEPG{Dummy: true}.DummyMinutesOrDefault())
 }

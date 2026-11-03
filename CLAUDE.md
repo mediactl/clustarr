@@ -515,6 +515,16 @@ to its first byte is `clustarr_livetv_upstream_first_byte_seconds`, plus an
 Info log line; a refusal logs its HTTP status. For tvload.win that time is
 about 1.8 s: 0.5 s to its 302, then 1.3 s at the CDN node.
 
+Each channel's ring is the provider's `spec.stream.buffer`, 64 MiB by
+default (2026-11-03; it was 8 MiB). tvload.win now opens a stream with about
+a minute of backlog, 34 MB in 2-3 s, which a first viewer reads from the
+connection's first byte. PMS's grab on the Pi fell a whole 8 MiB ring
+behind, the relay cut it off (`relay.errSlow`), its response ended cleanly,
+and PMS failed every fresh tune as "Recording failed. Please check your
+tuner or antenna", while a tune that joined a warm stream (at the latest
+keyframe) held. A viewer cut off that way is logged ("fell a whole buffer
+behind") and counted (`clustarr_livetv_viewers_dropped_total`).
+
 discover.json advertises three tuners more than `tuners`
 (`tuner.SpareTuners`). The reason: on 2026-10-20 a grab PMS never ended held
 the one tuner for hours while the relay streamed nothing, and every tune

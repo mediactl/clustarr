@@ -28,7 +28,8 @@ import (
 const packetSize = 188
 
 // errSlow ends a viewer that fell a whole buffer behind the upstream: the
-// bytes it would read next have been overwritten.
+// bytes it would read next have been overwritten. The relay logs and counts
+// it (Relay.dropped).
 var errSlow = errors.New("relay: viewer fell a buffer behind")
 
 // ring is one channel's fan-out buffer: the upstream writes, every viewer
@@ -152,4 +153,11 @@ func (r *ring) close(err error) {
 		close(r.notify)
 		r.notify = make(chan struct{})
 	}
+}
+
+// size is the ring's capacity in bytes.
+func (r *ring) size() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.buf)
 }

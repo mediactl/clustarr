@@ -63,7 +63,8 @@ type Options struct {
 	HTTP *http.Client
 	// Tuners is how many channels may stream at once.
 	Tuners int
-	// Buffer is each channel's ring size in bytes. Default 8 MiB.
+	// Buffer is each channel's ring size in bytes. Default 64 MiB
+	// (clustarrv1.DefaultStreamBuffer).
 	Buffer int
 	// Linger keeps an unwatched upstream open.
 	Linger time.Duration
@@ -87,6 +88,9 @@ type Options struct {
 	OnChange func(inUse int)
 	// OnError is told each upstream failure's reason.
 	OnError func(reason string)
+	// OnDropped is told each viewer cut off for falling a whole buffer
+	// behind its upstream.
+	OnDropped func()
 	// OnBytes is told each chunk of upstream bytes relayed.
 	OnBytes func(n int)
 	// OnFirstByte is told how long each upstream connection took to its
@@ -138,7 +142,7 @@ func New(o Options) *Relay {
 		o.HTTP = http.DefaultClient
 	}
 	if o.Buffer <= 0 {
-		o.Buffer = 8 << 20
+		o.Buffer = 64 << 20
 	}
 	if o.Retries == 0 {
 		o.Retries = 3
@@ -346,8 +350,25 @@ func (r *Relay) ServeWith(w http.ResponseWriter, req *http.Request, channel, ups
 			_ = rc.Flush()
 		}
 		if err != nil {
+			if errors.Is(err, errSlow) {
+				r.dropped(req.Context(), channel, s.ring.size())
+			}
 			return
 		}
+	}
+}
+
+// dropped records a viewer cut off for falling a whole buffer behind. Its
+// response ends cleanly, which a player reads as the stream's end: PMS's
+// grab fails as "Recording failed. Please check your tuner or antenna"
+// (talos, 2026-11-03: argon-tv opens a stream with about 60 s, 34 MB, of
+// backlog in 2-3 s, and PMS's transcoder on a Pi fell an 8 MiB ring behind
+// in every fresh tune). A bigger spec.stream.buffer holds such a burst.
+func (r *Relay) dropped(ctx context.Context, channel string, buffer int) {
+	logging.FromContext(ctx).Warn("livetv: a viewer fell a whole buffer behind its upstream and was cut off",
+		"channel", channel, "buffer", buffer)
+	if r.o.OnDropped != nil {
+		r.o.OnDropped()
 	}
 }
 

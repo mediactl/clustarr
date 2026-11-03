@@ -220,9 +220,18 @@ func TestANewViewerStartsOnAPacketBoundary(t *testing.T) {
 	}
 }
 
+// A viewer that falls a whole buffer behind is cut off, and counted
+// (OnDropped): its response ends cleanly, which PMS reads as the stream's
+// end ("Recording failed", talos, 2026-11-03), so it must not pass unseen.
 func TestASlowViewerIsCutOffAndTheOtherIsNot(t *testing.T) {
 	u := newUpstream(t)
-	r := newRelay(t, 1, time.Second)
+	var dropped atomic.Int32
+	r := relay.New(relay.Options{
+		HTTP: http.DefaultClient, Tuners: 1, Buffer: 1 << 20, Linger: time.Second,
+		Retries: 3, Backoff: 10 * time.Millisecond, ReadyTimeout: 5 * time.Second, UserAgent: "clustarr-test",
+		OnDropped: func() { dropped.Add(1) },
+	})
+	t.Cleanup(r.Close)
 	slow, _ := watch(t, r, "1001", u.srv.URL+"/1001.ts")
 	fast, _ := watch(t, r, "1001", u.srv.URL+"/1001.ts")
 	_, err := io.CopyN(io.Discard, fast.Body, 16<<20) // 16 buffers' worth while slow reads nothing
@@ -231,6 +240,7 @@ func TestASlowViewerIsCutOffAndTheOtherIsNot(t *testing.T) {
 	assert.NoError(t, err, "the slow viewer's response ends")
 	_, err = io.CopyN(io.Discard, fast.Body, 1<<20)
 	assert.NoError(t, err, "the fast viewer keeps streaming")
+	assert.EqualValues(t, 1, dropped.Load(), "the slow viewer alone is counted")
 }
 
 func TestAnUpstreamResetIsReopened(t *testing.T) {

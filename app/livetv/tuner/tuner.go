@@ -284,10 +284,11 @@ func (t *Tuner) Apply(c Config) {
 		key := c.Key
 		p.relay = relay.New(relay.Options{
 			Context: t.base, HTTP: t.o.HTTP, Tuners: effectiveTuners(c, p.account), Buffer: c.Buffer, Linger: c.Linger, UserAgent: c.UserAgent,
-			Language: languageCode(c.Language),
-			OnChange: func(inUse int) { t.tunersChanged(p, inUse) },
-			OnError:  func(reason string) { upstreamErrors.WithLabelValues(label(key), reason).Inc() },
-			OnBytes:  func(n int) { streamBytes.WithLabelValues(label(key)).Add(float64(n)) },
+			Language:  languageCode(c.Language),
+			OnChange:  func(inUse int) { t.tunersChanged(p, inUse) },
+			OnError:   func(reason string) { upstreamErrors.WithLabelValues(label(key), reason).Inc() },
+			OnDropped: func() { viewersDropped.WithLabelValues(label(key)).Inc() },
+			OnBytes:   func(n int) { streamBytes.WithLabelValues(label(key)).Add(float64(n)) },
 			OnFirstByte: func(d time.Duration) {
 				upstreamFirstByte.WithLabelValues(label(key)).Observe(d.Seconds())
 			},

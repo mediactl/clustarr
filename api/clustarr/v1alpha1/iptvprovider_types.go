@@ -245,7 +245,10 @@ type DVRSpec struct {
 
 // StreamSpec tunes the stream relay.
 type StreamSpec struct {
-	// Buffer is each channel's ring buffer. Default 8Mi.
+	// Buffer is each channel's ring buffer. Default 64Mi: a provider may
+	// open a stream with a minute of backlog at once (argon-tv: about 34 MB
+	// in 2-3 s, 2026-11-03), and a viewer that falls a whole buffer behind
+	// is cut off, which PMS reports as "Recording failed".
 	// +optional
 	Buffer *resource.Quantity `json:"buffer,omitempty"`
 

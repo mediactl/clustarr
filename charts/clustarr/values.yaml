@@ -521,9 +521,10 @@ manager:
     bulkWritesPerSecond: 25
     # Goroutines for the loop's /data calls (--remediation-io-workers, 1-64).
     ioWorkers: 8
-  # The memory includes 128Mi for the Live TV tuner's stream buffers (at
-  # most tuners x 8 MiB per provider; Live TV spec 2026-10-07 §5.0.1),
-  # which run in this process.
+  # The memory includes 128Mi for the Live TV tuner's stream buffers (each
+  # streaming channel holds its provider's spec.stream.buffer, 64 MiB by
+  # default, so two streams at once; Live TV spec 2026-10-07 §5.0.1),
+  # which run in this process. A provider with more tuners needs more.
   resources:
     requests:
       cpu: 200m
