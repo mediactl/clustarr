@@ -213,6 +213,19 @@ postgres:
     #     tolerations:
     #     - {key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule}
     affinity: {}
+    # CNPG Cluster.spec.resources, every instance's. Requests and a memory
+    # limit keep an instance out of BestEffort, the class a node under
+    # memory pressure kills first: on talos's control-plane nodes, which
+    # also run kube-apiserver, Talos's OOM controller killed the Plex
+    # database's primary that way (plexDatabase.resources, 2026-11-03). The
+    # limit leaves room for the page cache, which the kernel reclaims inside
+    # it; no CPU limit, which would only throttle.
+    resources:
+      requests:
+        cpu: 50m
+        memory: 256Mi
+      limits:
+        memory: 2Gi
     storage:
       size: 5Gi
       # Empty binds against the cluster's default StorageClass, same as
@@ -259,6 +272,19 @@ plexDatabase:
   # the profile's: the way to three instances on the control plane with
   # placement off (the example under postgres.cluster.affinity).
   affinity: {}
+  # CNPG Cluster.spec.resources, every instance's (postgres.cluster.resources
+  # says why). Without them each instance was BestEffort, and on 2026-11-03
+  # (as on 10-28) Talos's OOM controller on a control-plane node short of
+  # memory killed the primary first: CNPG had it in a smart shutdown since
+  # the node lost the API server, Plex hung on it for two minutes and the
+  # failover took three. The primary's working set is about 650 MiB on
+  # talos, its peak with the page cache 2.2 GiB.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      memory: 3Gi
   imageName: ghcr.io/cloudnative-pg/postgresql:15.19-standard-trixie
   storage:
     size: 5Gi

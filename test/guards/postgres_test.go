@@ -98,7 +98,11 @@ type indexDeploy struct {
 type cnpgCluster struct {
 	Spec struct {
 		Instances int `json:"instances"`
-		Storage   struct {
+		Resources struct {
+			Requests map[string]string `json:"requests"`
+			Limits   map[string]string `json:"limits"`
+		} `json:"resources"`
+		Storage struct {
 			Size         string `json:"size"`
 			StorageClass string `json:"storageClass"`
 		} `json:"storage"`
@@ -290,9 +294,10 @@ func TestChartAndKustomizePostgresAgree(t *testing.T) {
 		"the postgres-enabled kustomize overlay still renders the clustarr-index PVC")
 
 	// The two Clusters must agree on the fields both installers set from
-	// values/hard-coded YAML respectively: instances, storage size, and the
-	// bootstrap database/owner (design spec §A.4). storageClass is left at
-	// its empty default by both, so it is compared too.
+	// values/hard-coded YAML respectively: instances, resources, storage
+	// size, and the bootstrap database/owner (design spec §A.4).
+	// storageClass is left at its empty default by both, so it is compared
+	// too.
 	require.Equal(t, chartCluster.Spec, kzCluster.Spec,
 		"the chart's and kustomize's CloudNativePG Cluster specs disagree:\n  chart:     %+v\n  kustomize: %+v",
 		chartCluster.Spec, kzCluster.Spec)

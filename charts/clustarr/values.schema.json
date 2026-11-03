@@ -71,6 +71,7 @@
             "instances": { "type": "integer", "minimum": 1 },
             "placement": { "type": "string", "enum": ["controlPlane", "workers"], "description": "The placement profile this Cluster takes with placement.enabled (placement.profiles)." },
             "primaryUpdateMethod": { "type": "string", "enum": ["restart", "switchover"], "description": "CNPG primaryUpdateMethod; unset is restart with one instance and switchover with more (switchover moves the release index off a node, control-plane placement design §5.5)." },
+            "resources": { "$ref": "#/$defs/resources", "description": "CNPG Cluster.spec.resources, every instance's: requests and a memory limit keep an instance out of BestEffort." },
             "synchronous": {
               "type": "object",
               "additionalProperties": false,
@@ -128,6 +129,7 @@
         },
         "maxSlotWalKeepSize": { "type": "string", "description": "max_slot_wal_keep_size with more than one instance." },
         "primaryUpdateMethod": { "type": "string", "enum": ["restart", "switchover"], "description": "CNPG primaryUpdateMethod with more than one instance." },
+        "resources": { "$ref": "#/$defs/resources", "description": "CNPG Cluster.spec.resources, every instance's: requests and a memory limit keep an instance out of BestEffort." },
         "affinity": { "type": "object", "description": "CNPG Cluster.spec.affinity, verbatim, laid over the placement profile's." },
         "imageName": { "type": "string", "minLength": 1 },
         "storage": {

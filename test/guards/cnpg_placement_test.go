@@ -198,3 +198,18 @@ func TestReleaseIndexMovesBySwitchover(t *testing.T) {
 	assert.Nil(t, nested(t, renderedCluster(t, installtest.RenderChart(t, "--set", "postgres.enabled=true"), "clustarr-postgres"),
 		"spec", "primaryUpdateMethod"), "unset by default")
 }
+
+// TestNoCNPGInstanceIsBestEffort: both CloudNativePG Clusters request CPU
+// and memory and limit memory by default, so no instance is BestEffort, the
+// class a node short of memory kills first. On 2026-11-03 (as on 10-28)
+// Talos's OOM controller on a control-plane node killed the Plex database's
+// primary, BestEffort, and Plex hung until the failover.
+func TestNoCNPGInstanceIsBestEffort(t *testing.T) {
+	out := installtest.RenderChart(t, "--set", "cluster-plex.enabled=true", "--set", "postgres.enabled=true")
+	for _, name := range []string{"clustarr-plex-db", "clustarr-postgres"} {
+		c := renderedCluster(t, out, name)
+		assert.NotEmpty(t, nested(t, c, "spec", "resources", "requests", "cpu"), name)
+		assert.NotEmpty(t, nested(t, c, "spec", "resources", "requests", "memory"), name)
+		assert.NotEmpty(t, nested(t, c, "spec", "resources", "limits", "memory"), name)
+	}
+}

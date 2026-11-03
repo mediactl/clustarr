@@ -81,6 +81,10 @@ spec:
       {{- end }}
     {{- end }}
   {{- end }}
+  {{- with .Values.postgres.cluster.resources }}
+  resources:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   storage:
     size: {{ .Values.postgres.cluster.storage.size | quote }}
     {{- with .Values.postgres.cluster.storage.storageClass }}

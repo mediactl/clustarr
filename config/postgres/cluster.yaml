@@ -27,6 +27,14 @@ metadata:
     app.kubernetes.io/component: postgres
 spec:
   instances: 1
+  # The chart's postgres.cluster.resources: requests and a memory limit keep
+  # an instance out of BestEffort, which a node short of memory kills first.
+  resources:
+    requests:
+      cpu: 50m
+      memory: 256Mi
+    limits:
+      memory: 2Gi
   storage:
     size: 5Gi
   bootstrap:

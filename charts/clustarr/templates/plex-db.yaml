@@ -53,6 +53,10 @@ spec:
       {{- end }}
     {{- end }}
   {{- end }}
+  {{- with .Values.plexDatabase.resources }}
+  resources:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   storage:
     size: {{ .Values.plexDatabase.storage.size | quote }}
     {{- with .Values.plexDatabase.storage.storageClass }}
