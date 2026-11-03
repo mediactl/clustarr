@@ -53,6 +53,7 @@ var classTiers = map[transcode.Hardware][]transcode.Tier{
 func (Engine) Measure(ctx context.Context, class transcode.Hardware) (transcode.Measurement, error) {
 	ctx, span := tracing.Start(ctx, "inprocess.measure")
 	defer span.End()
+	defer ffruntime.Busy()() // the trial leaves ~500 MiB free in the C heap
 	tiers, ok := classTiers[class]
 	if !ok {
 		return transcode.Measurement{}, fmt.Errorf("inprocess: measure: unknown class %q", class)

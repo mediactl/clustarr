@@ -25,6 +25,8 @@ import (
 	"strings"
 
 	"github.com/obinnaokechukwu/ffgo"
+
+	"github.com/mediactl/clustarr/pkg/ffruntime"
 )
 
 // Join remuxes parts -- one encode released in pieces, in order -- into
@@ -35,6 +37,7 @@ import (
 // a movie is one file (28 Up's, 42 Up's and 49 Up's Blu-ray encodes,
 // 2026-10-16, each imported as half the film).
 func Join(ctx context.Context, parts []string, output string) (Result, error) {
+	defer ffruntime.Busy()()
 	if len(parts) < 2 {
 		return Result{}, fmt.Errorf("engine: a join takes two parts or more, not %d", len(parts))
 	}

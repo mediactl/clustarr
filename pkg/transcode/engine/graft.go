@@ -34,6 +34,7 @@ import (
 	"github.com/obinnaokechukwu/ffgo/avcodec"
 	"github.com/obinnaokechukwu/ffgo/avutil"
 
+	"github.com/mediactl/clustarr/pkg/ffruntime"
 	"github.com/mediactl/clustarr/pkg/transcode"
 	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
@@ -99,6 +100,7 @@ func audioStreams(d *ffgo.Decoder) []*ffgo.StreamInfo {
 // that starts late begins with silence, and two files' samples share their
 // containers' clocks, which the graft's copied streams keep).
 func DecodePCM(ctx context.Context, path string, audioIndex, rate int) ([]float32, error) {
+	defer ffruntime.Busy()()
 	if err := ffgo.Init(); err != nil {
 		return nil, err
 	}
@@ -251,6 +253,7 @@ func packedSamples(f ffgo.Frame, channels int) []float32 {
 // tags, into a Matroska audio file at output -- a donor reduced to what a
 // graft reads. output is removed on any failure.
 func ExtractAudio(ctx context.Context, input, output string, audioIndexes []int) (err error) {
+	defer ffruntime.Busy()()
 	if err := ffgo.Init(); err != nil {
 		return err
 	}
@@ -652,6 +655,7 @@ func graftSlots(slots []slot, g GraftAudio, dd *ffgo.Decoder, target time.Durati
 // its own container: the base a graft adds its track to. Only Matroska and
 // MP4 inputs, which the plan's containers are.
 func CopyPlan(path string) (standard.Result, error) {
+	defer ffruntime.Busy()()
 	c, ok := graftContainer(path)
 	if !ok {
 		return standard.Result{}, fmt.Errorf("engine: %s is neither Matroska nor MP4", path)
@@ -707,6 +711,7 @@ type Track struct {
 
 // AudioTracks lists the input's audio streams.
 func AudioTracks(path string) ([]Track, error) {
+	defer ffruntime.Busy()()
 	if err := ffgo.Init(); err != nil {
 		return nil, err
 	}

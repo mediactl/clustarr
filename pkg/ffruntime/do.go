@@ -51,7 +51,11 @@ func Do(ctx context.Context, f func(context.Context) error) error {
 		return err
 	}
 	done := make(chan error, 1)
-	go func() { done <- f(ctx) }()
+	end := Busy() // until f returns, abandoned or not
+	go func() {
+		defer end()
+		done <- f(ctx)
+	}()
 	select {
 	case err := <-done:
 		return err

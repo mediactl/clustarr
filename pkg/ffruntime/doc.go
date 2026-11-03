@@ -23,6 +23,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // (Capture) or nowhere (Mute); and Do bounds every in-process FFmpeg call by
 // its context plus Grace, counting calls it had to abandon until they
 // return, and reports the process wedged at MaxAbandoned outstanding calls.
+// Do and Busy mark FFmpeg work in flight, and once none has been for
+// IdleTrim the process hands its C heap's free pages back (TrimHeap).
 //
 // ffgo dlopens FFmpeg at package init (avutil/avutil.go's init), not at
 // Load, so any binary linking this package has mapped FFmpeg before main.

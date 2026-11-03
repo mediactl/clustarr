@@ -27,6 +27,7 @@ import (
 	"github.com/obinnaokechukwu/ffgo"
 	"github.com/obinnaokechukwu/ffgo/avutil"
 
+	"github.com/mediactl/clustarr/pkg/ffruntime"
 	"github.com/mediactl/clustarr/pkg/transcode"
 	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
@@ -41,6 +42,7 @@ const durationTolMillis = 1000
 // else the source's) within a second. A probe that cannot
 // run is an error; a mismatch is a Report with OK false and each problem.
 func Verify(ctx context.Context, source, output string, exp standard.Expectation) (*transcode.Report, error) {
+	defer ffruntime.Busy()()
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}

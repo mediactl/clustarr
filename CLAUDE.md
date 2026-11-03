@@ -2376,6 +2376,21 @@ too; bump the tag in go.mod and go.sum to take a new fork release.
   that outlives its context is abandoned, not killed (`clustarr_ffgo_abandoned_calls`);
   at `ffruntime.MaxAbandoned` (4) the process reports itself wedged and its
   `ffgo` liveness check restarts it.
+- **FFmpeg's memory is glibc's, which the Go collector never sees and glibc
+  never gives back on its own.** Each OS thread that mallocs gets an arena
+  of its own, and an arena keeps what its thread freed. On talos-88
+  (2026-11-03) a transcode pool worker ratcheted from 319 to 757 MiB RSS
+  over four hevc_qsv jobs while 2 MiB of its C heap was in use;
+  `debug.FreeOSMemory` freed 4 MiB, and one `malloc_trim(0)` took it to 301
+  MiB in 50 ms. So the native image caps the arenas at two
+  (`MALLOC_ARENA_MAX`, `images/Dockerfile.native`), which bounds the ratchet
+  at no measured encode cost, and `ffruntime` trims the C heap
+  (`TrimHeap`) once no FFmpeg work has been in flight for `IdleTrim` (2 s).
+  `Do` marks its calls in flight; an entry point that runs FFmpeg outside
+  `Do` -- `engine.Run`, `Join`, `Verify`, the graft's, the pool's `Measure`
+  -- marks itself with `defer ffruntime.Busy()()`, or the trim may land
+  mid-call (safe, glibc trims each arena under its lock, but a stall).
+  par2go needs neither: it repairs in a child process (`pkg/par2child`).
 - **`agent --self-check` is the image's proof.** It checks the cgo SQLite piece
   completion (R13) and FFmpeg 9 with what the import and caption domains need;
   `markers --self-check` and `transcode --self-check=<class>` (`cpu`, `cuda`,
@@ -2433,6 +2448,10 @@ too; bump the tag in go.mod and go.sum to take a new fork release.
   writeback and crawled at 8.3 MB/s, and transcode pool and usenet engine
   pods were OOM-killed moving outputs and releases from local scratch.
   Never move a large file onto /data with `io.Copy` or `os.WriteFile`.
+  Its buffers are sized to the file (`copyBuffers`: up to four 64 MiB
+  chunks, no more than the file fills) and mapped outside the Go heap,
+  unmapped when the copy ends (2026-11-03: four 64 MiB Go buffers per copy,
+  a sidecar's too, were most of a transcode pool worker's ~290 MiB heap).
 
 ## Status
 

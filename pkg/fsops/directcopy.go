@@ -26,7 +26,6 @@ import (
 	"path/filepath"
 	"sync"
 	"syscall"
-	"unsafe"
 
 	"golang.org/x/sys/unix"
 )
@@ -50,13 +49,55 @@ import (
 // Synology took 16 MB/s in 8 MiB writes and 28 MB/s in 64 MiB ones.
 var copyChunk = 64 << 20
 
-// copyWriters is how many chunks a direct copy has in flight, each written
+// copyWriters is the most chunks a direct copy has in flight, each written
 // at its own offset. One writer leaves the link idle while its write is
 // committed: on talos (2026-10-28, a 4 GiB copy from talos-88's NVMe onto
 // the Synology, the cluster's own traffic beside it) one writer ran at 36
 // MB/s, two at 47, four at 95 and eight at 54. Each writer holds a
-// copyChunk buffer.
+// chunk's buffer (copyBuffers).
 var copyWriters = 4
+
+// copyBuffers is how many buffers a copy of size bytes takes and how long
+// each is: at most copyWriters chunks of at most copyChunk, and no more
+// than the file fills. They are mapped outside the Go heap (mapBuffers) and
+// unmapped when the copy ends. Until 2026-11-03 every copy took four 64 MiB
+// buffers from the Go heap, a transcode's .srt sidecar's as much as its
+// output's, which the collector held until its next cycle: most of a
+// transcode pool worker's ~290 MiB Go heap on talos.
+func copyBuffers(size int64) (n, chunk int) {
+	chunk = copyChunk
+	if size < int64(chunk) {
+		chunk = int(max(size, 1)+directAlign-1) / directAlign * directAlign
+	}
+	n = int(min((max(size, 1)+int64(chunk)-1)/int64(chunk), int64(max(copyWriters, 1))))
+	return n, chunk
+}
+
+// mapBuffer maps n bytes of anonymous memory, page-aligned and so aligned
+// as O_DIRECT asks; a variable so a test can see the sizes.
+var mapBuffer = func(n int) ([]byte, error) {
+	return unix.Mmap(-1, 0, n, unix.PROT_READ|unix.PROT_WRITE, unix.MAP_PRIVATE|unix.MAP_ANONYMOUS)
+}
+
+// mapBuffers maps n buffers of chunk bytes, and a release that unmaps them
+// all, which must run only once nothing holds one.
+func mapBuffers(n, chunk int) ([][]byte, func(), error) {
+	bufs := make([][]byte, 0, n)
+	release := func() {
+		for _, b := range bufs {
+			_ = unix.Munmap(b)
+		}
+	}
+	for range n {
+		b, err := mapBuffer(chunk)
+		if err != nil {
+			release()
+			return nil, nil, fmt.Errorf("fsops: map a %d-byte copy buffer: %w", chunk, err)
+		}
+		bufs = append(bufs, b)
+	}
+	return bufs, release, nil
+}
 
 // writeChunk writes one chunk at off; a variable so a test can fail it.
 var writeChunk = func(f *os.File, b []byte, off int64) error {
@@ -130,7 +171,7 @@ func copyFileStats(ctx context.Context, src, dst string) (copyStats, error) {
 	if st.direct {
 		body = copyDirect
 	}
-	if err := body(ctx, in, out, src, tmp); err != nil {
+	if err := body(ctx, in, out, src, tmp, info.Size()); err != nil {
 		return fail(err)
 	}
 	if err := out.Sync(); err != nil {
@@ -153,7 +194,7 @@ func copyFileStats(ctx context.Context, src, dst string) (copyStats, error) {
 // A tail that is not a whole block waits for every write before it and goes
 // through the cache, because O_DIRECT is the descriptor's flag, which the
 // writers share.
-func copyDirect(ctx context.Context, in, out *os.File, src, tmp string) error {
+func copyDirect(ctx context.Context, in, out *os.File, src, tmp string, size int64) error {
 	type chunk struct {
 		buf []byte
 		n   int
@@ -168,10 +209,15 @@ func copyDirect(ctx context.Context, in, out *os.File, src, tmp string) error {
 		defer mu.Unlock()
 		return failed
 	}
-	writers := max(copyWriters, 1)
+	writers, chunkLen := copyBuffers(size)
+	bufs, release, err := mapBuffers(writers, chunkLen)
+	if err != nil {
+		return err
+	}
+	defer release() // after the deferred drain below: no writer holds one
 	free := make(chan []byte, writers)
-	for range writers {
-		free <- alignedBuffer(copyChunk)
+	for _, b := range bufs {
+		free <- b
 	}
 	work := make(chan chunk)
 	var wg sync.WaitGroup
@@ -252,8 +298,14 @@ func copyDirect(ctx context.Context, in, out *os.File, src, tmp string) error {
 // copyBuffered writes in to out through the page cache, for a filesystem
 // that refuses O_DIRECT, and fsyncs every syncEvery bytes so the writeback
 // it piles up stays bounded. ctx is checked before each chunk.
-func copyBuffered(ctx context.Context, in, out *os.File, src, tmp string) error {
-	buf := alignedBuffer(copyChunk)
+func copyBuffered(ctx context.Context, in, out *os.File, src, tmp string, size int64) error {
+	_, chunkLen := copyBuffers(size)
+	bufs, release, err := mapBuffers(1, chunkLen)
+	if err != nil {
+		return err
+	}
+	defer release()
+	buf := bufs[0]
 	var off, synced int64
 	for {
 		if err := ctx.Err(); err != nil {
@@ -280,16 +332,6 @@ func copyBuffered(ctx context.Context, in, out *os.File, src, tmp string) error 
 			return fmt.Errorf("fsops: read %s: %w", src, rerr)
 		}
 	}
-}
-
-// alignedBuffer is n bytes starting on a directAlign boundary.
-func alignedBuffer(n int) []byte {
-	b := make([]byte, n+directAlign)
-	off := int(uintptr(unsafe.Pointer(&b[0])) & (directAlign - 1))
-	if off != 0 {
-		off = directAlign - off
-	}
-	return b[off : off+n]
 }
 
 // setDirect turns O_DIRECT on or off for f (fcntl F_SETFL).

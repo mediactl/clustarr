@@ -244,9 +244,17 @@ LABEL org.opencontainers.image.source="https://github.com/mediactl/clustarr" \
       org.opencontainers.image.licenses="GPL-3.0-only" \
       org.opencontainers.image.title="clustarr-native"
 COPY --from=staging /staging/ /
+# MALLOC_ARENA_MAX: glibc gives each OS thread that mallocs an arena of its
+# own (8 per core), and an arena keeps what its thread freed. The Go threads
+# purego calls FFmpeg on and the GPU driver's own made ~90 on a transcode
+# pool pod, which held 1 GiB of freed C heap after four jobs; at two it held
+# ~300 MiB, encoding no slower (talos-88, 2026-11-03). pkg/ffruntime trims
+# the rest once FFmpeg work goes idle. The par2 child keeps glibc's default:
+# its environment is par2child.childEnv's alone.
 ENV FFGO_SHIM_DIR=/usr/lib \
     ORT_LIB_PATH=/usr/lib/libonnxruntime.so \
-    PAR2GO_LIB=/usr/lib/libpar2shim.so
+    PAR2GO_LIB=/usr/lib/libpar2shim.so \
+    MALLOC_ARENA_MAX=2
 VOLUME ["/data"]
 USER 1000:1000
 

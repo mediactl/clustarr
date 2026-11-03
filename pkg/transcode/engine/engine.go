@@ -37,6 +37,7 @@ import (
 	"github.com/obinnaokechukwu/ffgo/avcodec"
 	"github.com/obinnaokechukwu/ffgo/avutil"
 
+	"github.com/mediactl/clustarr/pkg/ffruntime"
 	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/transcode"
@@ -210,6 +211,7 @@ var closeMuxer = (*ffgo.Muxer).Close
 // Run executes plan on input, writing output (the caller's .part path;
 // removed on any failure). The plan must not be a skip.
 func Run(ctx context.Context, plan standard.Result, input, output string, o Options) (res Result, err error) {
+	defer ffruntime.Busy()()
 	o = o.withDefaults()
 	if plan.Decision == standard.DecisionSkip {
 		return res, errors.New("engine: the plan skips this file")

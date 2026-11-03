@@ -24,6 +24,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -189,4 +190,70 @@ func TestACancelledCopyLeavesNoPartial(t *testing.T) {
 	assert.True(t, os.IsNotExist(err))
 	_, err = os.Stat(dst)
 	assert.True(t, os.IsNotExist(err))
+}
+
+// mappedSizes records the length of every buffer a copy maps.
+func mappedSizes(t *testing.T) func() []int {
+	t.Helper()
+	var (
+		mu    sync.Mutex
+		sizes []int
+	)
+	old := mapBuffer
+	mapBuffer = func(n int) ([]byte, error) {
+		mu.Lock()
+		sizes = append(sizes, n)
+		mu.Unlock()
+		return old(n)
+	}
+	t.Cleanup(func() { mapBuffer = old })
+	return func() []int {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]int(nil), sizes...)
+	}
+}
+
+// A copy takes no more buffer than its file fills: a transcode's sidecar
+// took four 64 MiB buffers, as its output did, until 2026-11-03.
+func TestACopysBuffersAreSizedToItsFile(t *testing.T) {
+	smallChunks(t) // 64 KiB chunks, copyWriters 4
+	for _, c := range []struct {
+		size int
+		want []int
+	}{
+		{0, []int{4096}},
+		{1, []int{4096}},
+		{5000, []int{8192}},
+		{64 << 10, []int{64 << 10}},
+		{(64 << 10) + 1, []int{64 << 10, 64 << 10}},
+		{3*(64<<10) + 123, []int{64 << 10, 64 << 10, 64 << 10, 64 << 10}},
+		{10 * (64 << 10), []int{64 << 10, 64 << 10, 64 << 10, 64 << 10}},
+	} {
+		sizes := mappedSizes(t)
+		dir := t.TempDir()
+		src, dst := filepath.Join(dir, "src.srt"), filepath.Join(dir, "dst.srt")
+		want := randomFile(t, src, c.size)
+		_, err := copyFileStats(context.Background(), src, dst)
+		require.NoError(t, err, "%d bytes", c.size)
+		got, err := os.ReadFile(dst)
+		require.NoError(t, err)
+		assert.True(t, bytes.Equal(want, got), "%d bytes copied exactly", c.size)
+		assert.Equal(t, c.want, sizes(), "%d bytes", c.size)
+	}
+}
+
+// A copy's buffers are mapped outside the Go heap, so a staged output
+// leaves the collector nothing to hold until its next cycle.
+func TestACopyTakesItsBuffersOutsideTheGoHeap(t *testing.T) {
+	dir := t.TempDir()
+	src, dst := filepath.Join(dir, "src.mkv"), filepath.Join(dir, "dst.mkv")
+	randomFile(t, src, 3*(64<<20)/2) // 96 MiB: two 64 MiB chunks
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	_, err := copyFileStats(context.Background(), src, dst)
+	require.NoError(t, err)
+	runtime.ReadMemStats(&after)
+	assert.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(4<<20),
+		"the copy allocated %d MiB on the Go heap", (after.TotalAlloc-before.TotalAlloc)>>20)
 }

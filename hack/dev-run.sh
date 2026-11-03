@@ -20,6 +20,7 @@ export LD_LIBRARY_PATH="${assets}/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
 export FFGO_SHIM_DIR="${assets}/lib"
 export ORT_LIB_PATH="${assets}/lib/libonnxruntime.so"
 export PAR2GO_LIB="${assets}/lib/libpar2shim.so"
+export MALLOC_ARENA_MAX="${MALLOC_ARENA_MAX:-2}" # as the native image runs (Dockerfile.native)
 native_img="${NATIVE_IMG:-ghcr.io/mediactl/clustarr/native:dev}"
 data_dir="${DATA_DIR:-${repo}/.data}"
 index="${XDG_CACHE_HOME:-${HOME}/.cache}/clustarr/releases.db"
