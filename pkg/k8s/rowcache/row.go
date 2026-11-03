@@ -30,6 +30,9 @@ import (
 // informer -- a Get, a List, a handler notification -- is a fresh decode.
 type Row struct {
 	namespace, name string
+	// k is the store key, namespace/name, built once: every index set that
+	// names the row holds this one string.
+	k string
 	// labels is the object's own map, kept for List's label selectors.
 	labels map[string]string
 	// body is the object's JSON as one zstd frame, compressed with the
@@ -48,11 +51,13 @@ type indexed struct {
 	values []string
 }
 
-func (r *Row) key() string {
-	if r.namespace == "" {
-		return r.name
+func (r *Row) key() string { return r.k }
+
+func storeKey(namespace, name string) string {
+	if namespace == "" {
+		return name
 	}
-	return r.namespace + "/" + r.name
+	return namespace + "/" + name
 }
 
 // indexValues reports the precomputed values of the index name, if the row

@@ -2346,6 +2346,11 @@ too; bump the tag in go.mod and go.sum to take a new fork release.
   never mutates it; the watch stream turns each object into a row before
   the reflector's own store sees it, so the initial list is never held
   decoded whole; and `UnsafeDisableDeepCopy` buys nothing on these kinds.
+  A reader that wants the few items in some state lists them through a
+  marker index (`itemread.SearchInFlightIndex`, `SeasonSearchInFlightIndex`,
+  `AnimeIndex`, `MALIndex`, `mfindex.MediaKind`), never the kind: the
+  ledger rebuilds, the MAL-Dubs source and the profile overlap checks did,
+  and were the manager's start-up peak after the first deploy (rev 197).
   Metadata-only and unstructured reads of them keep their own ordinary
   informers.
 - **A watch's map function runs for every object at startup, and the

@@ -117,14 +117,20 @@ func TestManagerFieldIndexes(t *testing.T) {
 			"remediation.mediafile.uid", "remediation.mediafile.item", "remediation.mediafile.downloadref",
 			"remediation.mediafile.subtitles", "remediation.mediafile.kind", "remediation.mediafile.subtitleProfile", "remediation.mediafile.transcodeProfile",
 		},
-		"Movie":     {".spec.qualityProfileRef", "mediafile.clustarr.io/movie-rootfolder", "remediation.item.download"},
-		"Series":    {".spec.qualityProfileRef", "mediafile.clustarr.io/series-rootfolder", "remediation.item.download"},
-		"Episode":   {".spec.seriesRef", "librarydelete.parent"},
-		"Album":     {".spec.artistRef", ".spec.qualityProfileRef", "librarydelete.parent", "remediation.item.download"},
-		"Book":      {".spec.authorRef", ".spec.qualityProfileRef", "librarydelete.parent", "remediation.item.download"},
-		"Audiobook": {".spec.qualityProfileRef", ".spec.bookRef", "remediation.item.download"},
+		"Movie": {
+			".spec.qualityProfileRef", "mediafile.clustarr.io/movie-rootfolder", "remediation.item.download",
+			"remediation.item.searchInFlight", "remediation.item.anime", "remediation.item.mal",
+		},
+		"Series": {
+			".spec.qualityProfileRef", "mediafile.clustarr.io/series-rootfolder", "remediation.item.download",
+			"remediation.series.seasonSearchInFlight", "remediation.item.anime", "remediation.item.mal",
+		},
+		"Episode":   {".spec.seriesRef", "librarydelete.parent", "remediation.item.searchInFlight"},
+		"Album":     {".spec.artistRef", ".spec.qualityProfileRef", "librarydelete.parent", "remediation.item.download", "remediation.item.searchInFlight"},
+		"Book":      {".spec.authorRef", ".spec.qualityProfileRef", "librarydelete.parent", "remediation.item.download", "remediation.item.searchInFlight"},
+		"Audiobook": {".spec.qualityProfileRef", ".spec.bookRef", "remediation.item.download", "remediation.item.searchInFlight"},
 		"Comic":     {"remediation.item.download"},
-		"Issue":     {".spec.comicRef", "librarydelete.parent"},
+		"Issue":     {".spec.comicRef", "librarydelete.parent", "remediation.item.searchInFlight"},
 		"Search":    {"remediation.search.series"},
 	}
 	expected := map[string]int{}

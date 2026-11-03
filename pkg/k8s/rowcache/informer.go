@@ -26,6 +26,7 @@ import (
 	"math/rand/v2"
 	"sync"
 	"time"
+	"unique"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -232,13 +233,23 @@ func (s *Informer) rowify(obj any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	r := &Row{namespace: m.GetNamespace(), name: m.GetName(), labels: m.GetLabels(), body: body, dict: dict, size: size}
+	r := &Row{
+		namespace: m.GetNamespace(), name: m.GetName(), k: storeKey(m.GetNamespace(), m.GetName()),
+		labels: m.GetLabels(), body: body, dict: dict, size: size,
+	}
 	if len(funcs) > 0 {
 		r.index = make([]indexed, 0, len(funcs))
 		for _, f := range funcs {
 			vals, err := f.fn(o)
 			if err != nil {
 				return nil, fmt.Errorf("rowcache: %s: index %s of %s: %w", s.codec.kind, f.name, r.key(), err)
+			}
+			// An index value is shared by every row that carries it and by
+			// the store's index map, which keys on the string the adapter
+			// hands it: interned, they are one string (2026-11-03: 22 MB of
+			// namespaced index keys, a copy per row).
+			for i := range vals {
+				vals[i] = unique.Make(vals[i]).Value()
 			}
 			r.index = append(r.index, indexed{name: f.name, values: vals})
 		}
@@ -501,7 +512,12 @@ func (s *Informer) buildDictionary(ctx context.Context) error {
 
 	// The sweep: each row compressed before the dictionary is compressed
 	// again with it, one at a time under the writer's lock, so neither the
-	// watch stream nor a reader waits for more than one row.
+	// watch stream nor a reader waits for more than one row. It waits for
+	// the listeners' replays to drain first: a queued notification holds
+	// its row, and sweeping under a replay kept the old rows alive beside
+	// the new ones (2026-11-03: a second copy of every row at the start-up
+	// peak).
+	s.awaitDrained(ctx, sweepDrainWait)
 	started := time.Now()
 	var before, after int64
 	for _, key := range s.indexer.ListKeys() {
@@ -527,6 +543,33 @@ func (s *Informer) buildDictionary(ctx context.Context) error {
 	s.log.Info("rowcache: rows compressed with the kind's dictionary",
 		"dictionaryBytes", len(s.codec.dict), "bytesBefore", before, "bytesAfter", after, "took", time.Since(started).Round(time.Millisecond))
 	return nil
+}
+
+// sweepDrainWait is the longest the dictionary sweep waits for the
+// listeners' queues to drain.
+const sweepDrainWait = 2 * time.Minute
+
+// awaitDrained waits until every listener's queue is empty, or for at most
+// limit.
+func (s *Informer) awaitDrained(ctx context.Context, limit time.Duration) {
+	deadline := time.Now().Add(limit)
+	for time.Now().Before(deadline) && ctx.Err() == nil {
+		busy := false
+		for _, l := range s.listenerSnapshot() {
+			if l.pending() > 0 {
+				busy = true
+				break
+			}
+		}
+		if !busy {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(250 * time.Millisecond):
+		}
+	}
 }
 
 // AddEventHandler implements SharedInformer.
@@ -764,6 +807,13 @@ func (l *listener) add(n notification) {
 }
 
 func (l *listener) start(ctx context.Context) { go l.run(ctx) }
+
+// pending is how many notifications wait in the queue.
+func (l *listener) pending() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return len(l.queue)
+}
 
 func (l *listener) end() { l.stopOnce.Do(func() { close(l.stop) }) }
 

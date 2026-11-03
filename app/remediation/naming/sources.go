@@ -35,7 +35,9 @@ import (
 // configured language, which {MediaInfo AudioLanguages} names against). A
 // transcode holds a rename through the file's own status.transcode (F6.2).
 func (*Adapter) Sources(mgr ctrl.Manager) ([]remediation.Source, error) {
-	c := mgr.GetClient()
+	// The cache itself, not the client over it: the file maps read keys
+	// through rowcache.Keys, which the cache answers without decoding.
+	c := mgr.GetCache()
 	via := func(f func(context.Context, client.Reader, client.Object) []types.NamespacedName) func(context.Context, client.Object) []types.NamespacedName {
 		return func(ctx context.Context, o client.Object) []types.NamespacedName { return f(ctx, c, o) }
 	}

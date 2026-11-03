@@ -52,10 +52,16 @@ const (
 	// encoderWindow bounds the encoder's history, dictionary included; a
 	// row is a few KB, so a small window costs nothing and keeps each
 	// encoder state small.
-	encoderWindow = 512 << 10
-	// encoders is how many compressions may run at once: the watch
-	// stream's transform and the dictionary sweep.
-	encoders = 2
+	encoderWindow = 256 << 10
+	// encoders is how many compressions may run at once: one state, which
+	// the watch stream's transform and the dictionary sweep share (a
+	// compression takes microseconds; a state with a dictionary is a
+	// megabyte or more).
+	encoders = 1
+	// decoders is how many inflations may run at once; past it a read
+	// waits microseconds for a state (2026-11-03: one per CPU for four
+	// kinds was 31 MB of encoder and decoder states).
+	decoders = 2
 )
 
 // codec turns one kind's objects into rows and back: JSON, then one zstd
@@ -102,8 +108,12 @@ func newCodec(kind string, gvk schema.GroupVersionKind, typ reflect.Type) (*code
 }
 
 func encoderOptions(dict []byte) []zstd.EOption {
+	// The fastest level: with a dictionary it compresses these rows within
+	// 2% of the default level (4.69x against 4.78x on Episodes, 7.94x
+	// against 8.08x on MediaFiles, 2026-11-03) with a fraction of its
+	// tables.
 	opts := []zstd.EOption{
-		zstd.WithEncoderLevel(zstd.SpeedDefault),
+		zstd.WithEncoderLevel(zstd.SpeedFastest),
 		zstd.WithEncoderConcurrency(encoders),
 		zstd.WithWindowSize(encoderWindow),
 		zstd.WithLowerEncoderMem(true),
@@ -117,7 +127,7 @@ func encoderOptions(dict []byte) []zstd.EOption {
 
 func decoderOptions(dict []byte) []zstd.DOption {
 	opts := []zstd.DOption{
-		zstd.WithDecoderConcurrency(0),
+		zstd.WithDecoderConcurrency(decoders),
 		zstd.WithDecoderLowmem(true),
 		zstd.WithDecoderMaxWindow(encoderWindow),
 	}

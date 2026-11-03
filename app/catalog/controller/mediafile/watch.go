@@ -33,6 +33,7 @@ import (
 	seriesctl "github.com/mediactl/clustarr/app/catalog/controller/series"
 	"github.com/mediactl/clustarr/app/remediation/mfindex"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/k8s/rowcache"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
 
@@ -237,35 +238,34 @@ func FilesForRootFolder(ctx context.Context, c client.Reader, o client.Object) [
 		return nil
 	}
 	set := fileSet{}
-	var movies catalogv1alpha1.MovieList
-	if err := c.List(ctx, &movies, client.InNamespace(rf.Namespace),
-		client.MatchingFields{movieByRootFolderIndex: rf.Name}, client.UnsafeDisableDeepCopy); err != nil {
+	// Keys only, through the indexes (rowcache.Keys: no decode from the
+	// manager's cache).
+	movies, err := rowcache.Keys(ctx, c, &catalogv1alpha1.MovieList{}, client.InNamespace(rf.Namespace), client.MatchingFields{movieByRootFolderIndex: rf.Name})
+	if err != nil {
 		logging.FromContext(ctx).Warn("mediafile: list a RootFolder's movies to re-name their files", "rootFolder", rf.Name, "error", err)
 	}
-	for i := range movies.Items {
-		addMediaFilesOf(ctx, c, set, rf.Namespace, commonv1.MediaKindMovie, movies.Items[i].Name)
+	for _, m := range movies {
+		addMediaFilesOf(ctx, c, set, rf.Namespace, commonv1.MediaKindMovie, m.Name)
 	}
-	var series catalogv1alpha1.SeriesList
-	if err := c.List(ctx, &series, client.InNamespace(rf.Namespace),
-		client.MatchingFields{seriesByRootFolderIndex: rf.Name}, client.UnsafeDisableDeepCopy); err != nil {
+	series, err := rowcache.Keys(ctx, c, &catalogv1alpha1.SeriesList{}, client.InNamespace(rf.Namespace), client.MatchingFields{seriesByRootFolderIndex: rf.Name})
+	if err != nil {
 		logging.FromContext(ctx).Warn("mediafile: list a RootFolder's series to re-name their files", "rootFolder", rf.Name, "error", err)
 	}
-	for i := range series.Items {
-		addSeriesMediaFiles(ctx, c, set, rf.Namespace, series.Items[i].Name)
+	for _, s := range series {
+		addSeriesMediaFiles(ctx, c, set, rf.Namespace, s.Name)
 	}
 	return set.names()
 }
 
 // addSeriesMediaFiles adds the MediaFiles of every Episode of series.
 func addSeriesMediaFiles(ctx context.Context, c client.Reader, set fileSet, ns, series string) {
-	var eps catalogv1alpha1.EpisodeList
-	if err := c.List(ctx, &eps, client.InNamespace(ns),
-		client.MatchingFields{seriesctl.EpisodeBySeriesRefIndex: series}, client.UnsafeDisableDeepCopy); err != nil {
+	eps, err := rowcache.Keys(ctx, c, &catalogv1alpha1.EpisodeList{}, client.InNamespace(ns), client.MatchingFields{seriesctl.EpisodeBySeriesRefIndex: series})
+	if err != nil {
 		logging.FromContext(ctx).Warn("mediafile: list a series' episodes to re-name their files", "series", series, "error", err)
 		return
 	}
-	for i := range eps.Items {
-		addMediaFilesOf(ctx, c, set, ns, commonv1.MediaKindEpisode, eps.Items[i].Name)
+	for _, ep := range eps {
+		addMediaFilesOf(ctx, c, set, ns, commonv1.MediaKindEpisode, ep.Name)
 	}
 }
 
@@ -273,14 +273,13 @@ func addSeriesMediaFiles(ctx context.Context, c client.Reader, set fileSet, ns, 
 // A failed List is logged and skipped: a map function cannot return an
 // error, and the MediaFile is re-rendered on its next pass anyway.
 func addMediaFilesOf(ctx context.Context, c client.Reader, set fileSet, ns string, kind commonv1.MediaKind, name string) {
-	var files catalogv1alpha1.MediaFileList
-	if err := c.List(ctx, &files, client.InNamespace(ns),
-		client.MatchingFields{mfindex.Item: mfindex.ItemKey(kind, name)}, client.UnsafeDisableDeepCopy); err != nil {
+	files, err := rowcache.Keys(ctx, c, &catalogv1alpha1.MediaFileList{}, client.InNamespace(ns), client.MatchingFields{mfindex.Item: mfindex.ItemKey(kind, name)})
+	if err != nil {
 		logging.FromContext(ctx).Warn("mediafile: list an item's files to re-name them", "kind", kind, "name", name, "error", err)
 		return
 	}
-	for i := range files.Items {
-		set[types.NamespacedName{Namespace: files.Items[i].Namespace, Name: files.Items[i].Name}] = struct{}{}
+	for _, f := range files {
+		set[f] = struct{}{}
 	}
 }
 

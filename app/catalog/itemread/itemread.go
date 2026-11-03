@@ -589,6 +589,90 @@ func HasFile(o client.Object) bool {
 	return false
 }
 
+// The item indexes the remediation loop registers (app/remediation
+// .RegisterIndexes), so a reader selects the few items a state names
+// instead of decoding a whole kind from the row cache (pkg/k8s/rowcache;
+// 2026-11-03: the ledger rebuilds and the MAL-Dubs source listed every
+// Movie, Episode and Series at the manager's start).
+const (
+	// SearchInFlightIndex marks a searchable item whose status.searchDispatch
+	// is in flight, with IndexTrue.
+	SearchInFlightIndex = "remediation.item.searchInFlight"
+	// SeasonSearchInFlightIndex marks a Series whose status.seasonSearch
+	// dispatch is in flight, with IndexTrue.
+	SeasonSearchInFlightIndex = "remediation.series.seasonSearchInFlight"
+	// AnimeIndex marks an anime Series or Movie with IndexTrue.
+	AnimeIndex = "remediation.item.anime"
+	// MALIndex is an anime Series' or Movie's MAL id.
+	MALIndex = "remediation.item.mal"
+	// IndexTrue is the one value of a marker index.
+	IndexTrue = "true"
+)
+
+// SearchInFlightValues is SearchInFlightIndex's extractor.
+func SearchInFlightValues(o client.Object) []string {
+	if d := SearchDispatch(o); d != nil && d.InFlight() {
+		return []string{IndexTrue}
+	}
+	return nil
+}
+
+// SeasonSearchInFlightValues is SeasonSearchInFlightIndex's extractor.
+func SeasonSearchInFlightValues(o client.Object) []string {
+	s, ok := o.(*catalogv1alpha1.Series)
+	if !ok || s.Status.SeasonSearch == nil || !s.Status.SeasonSearch.Dispatch.InFlight() {
+		return nil
+	}
+	return []string{IndexTrue}
+}
+
+// AnimeValues is AnimeIndex's extractor.
+func AnimeValues(o client.Object) []string {
+	if Anime(o) {
+		return []string{IndexTrue}
+	}
+	return nil
+}
+
+// MALValues is MALIndex's extractor: an anime's MAL id.
+func MALValues(o client.Object) []string {
+	if !Anime(o) {
+		return nil
+	}
+	if id := MALID(o); id != "" {
+		return []string{id}
+	}
+	return nil
+}
+
+// Anime reports an anime Series (spec.seriesType) or Movie (its
+// classification).
+func Anime(o client.Object) bool {
+	switch t := o.(type) {
+	case *catalogv1alpha1.Series:
+		return t.Spec.SeriesType == catalogv1alpha1.SeriesTypeAnime
+	case *catalogv1alpha1.Movie:
+		return t.Status.Classification != nil && t.Status.Classification.Anime
+	}
+	return false
+}
+
+// MALID is a Series' or Movie's MAL id from status.metadata.externalIDs,
+// "" when it has none.
+func MALID(o client.Object) string {
+	switch t := o.(type) {
+	case *catalogv1alpha1.Series:
+		if t.Status.Metadata != nil {
+			return t.Status.Metadata.ExternalIDs["mal"]
+		}
+	case *catalogv1alpha1.Movie:
+		if t.Status.Metadata != nil {
+			return t.Status.Metadata.ExternalIDs["mal"]
+		}
+	}
+	return ""
+}
+
 // SearchDispatch is a searchable item's status.searchDispatch (ruling R12:
 // Movie, Episode, Album, Book, Audiobook, Issue), nil for any other.
 func SearchDispatch(o client.Object) *catalogv1alpha1.Dispatch {

@@ -86,16 +86,19 @@ func Register(ctx context.Context, idx client.FieldIndexer) error {
 	}); err != nil {
 		return fmt.Errorf("mfindex: register %s: %w", Subtitles, err)
 	}
-	if err := idx.IndexField(ctx, &catalogv1alpha1.MediaFile{}, MediaKind, func(o client.Object) []string {
-		mf, ok := o.(*catalogv1alpha1.MediaFile)
-		if !ok || mf.Spec.MediaRef.Kind == "" {
-			return nil
-		}
-		return []string{string(mf.Spec.MediaRef.Kind)}
-	}); err != nil {
+	if err := idx.IndexField(ctx, &catalogv1alpha1.MediaFile{}, MediaKind, MediaKindValues); err != nil {
 		return fmt.Errorf("mfindex: register %s: %w", MediaKind, err)
 	}
 	return nil
+}
+
+// MediaKindValues is MediaKind's extractor: the file's spec.mediaRef.kind.
+func MediaKindValues(o client.Object) []string {
+	mf, ok := o.(*catalogv1alpha1.MediaFile)
+	if !ok || mf.Spec.MediaRef.Kind == "" {
+		return nil
+	}
+	return []string{string(mf.Spec.MediaRef.Kind)}
 }
 
 // SubtitleProfile indexes a MediaFile by the SubtitleProfile its subtitles

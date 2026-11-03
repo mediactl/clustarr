@@ -19,9 +19,11 @@ package remediation
 
 import (
 	"context"
+	"fmt"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/album"
 	"github.com/mediactl/clustarr/app/catalog/controller/audiobook"
 	"github.com/mediactl/clustarr/app/catalog/controller/book"
@@ -31,6 +33,7 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/controller/mediafile"
 	"github.com/mediactl/clustarr/app/catalog/controller/movie"
 	"github.com/mediactl/clustarr/app/catalog/controller/series"
+	"github.com/mediactl/clustarr/app/catalog/itemread"
 	"github.com/mediactl/clustarr/app/catalog/seriessearch"
 	"github.com/mediactl/clustarr/app/remediation/dlindex"
 	"github.com/mediactl/clustarr/app/remediation/mfindex"
@@ -74,6 +77,29 @@ func RegisterIndexes(ctx context.Context, idx client.FieldIndexer) error {
 	}
 	if err := comic.RegisterIndexes(ctx, idx); err != nil {
 		return err
+	}
+	// The marker indexes a reader selects a few items by instead of
+	// decoding a kind from the row cache (itemread; 2026-11-03): the search
+	// dispatches in flight, the season dispatches in flight, the anime and
+	// their MAL ids.
+	for _, obj := range []client.Object{
+		&catalogv1alpha1.Movie{}, &catalogv1alpha1.Episode{}, &catalogv1alpha1.Album{},
+		&catalogv1alpha1.Book{}, &catalogv1alpha1.Audiobook{}, &catalogv1alpha1.Issue{},
+	} {
+		if err := idx.IndexField(ctx, obj, itemread.SearchInFlightIndex, itemread.SearchInFlightValues); err != nil {
+			return fmt.Errorf("remediation: register %s on %T: %w", itemread.SearchInFlightIndex, obj, err)
+		}
+	}
+	if err := idx.IndexField(ctx, &catalogv1alpha1.Series{}, itemread.SeasonSearchInFlightIndex, itemread.SeasonSearchInFlightValues); err != nil {
+		return fmt.Errorf("remediation: register %s: %w", itemread.SeasonSearchInFlightIndex, err)
+	}
+	for _, obj := range []client.Object{&catalogv1alpha1.Series{}, &catalogv1alpha1.Movie{}} {
+		if err := idx.IndexField(ctx, obj, itemread.AnimeIndex, itemread.AnimeValues); err != nil {
+			return fmt.Errorf("remediation: register %s on %T: %w", itemread.AnimeIndex, obj, err)
+		}
+		if err := idx.IndexField(ctx, obj, itemread.MALIndex, itemread.MALValues); err != nil {
+			return fmt.Errorf("remediation: register %s on %T: %w", itemread.MALIndex, obj, err)
+		}
 	}
 	// remediation.item.download (ADR-0019 §6.11): grab entries by id, uid
 	// and pinned engine, on the six owner kinds.

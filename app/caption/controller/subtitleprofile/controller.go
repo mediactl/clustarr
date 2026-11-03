@@ -49,6 +49,7 @@ import (
 	"github.com/mediactl/clustarr/app/caption/subtitleplan"
 	"github.com/mediactl/clustarr/app/remediation/mfindex"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/k8s/rowcache"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
 
@@ -70,6 +71,18 @@ import (
 type Reconciler struct {
 	client.Client
 	Recorder events.EventRecorder
+	// Cache is the manager's cache itself, for the reads of every video
+	// file's labels and of the planned files' keys through rowcache (no
+	// decode); nil reads through Client.
+	Cache client.Reader
+}
+
+// reader is the cache when set, else the client.
+func (r *Reconciler) reader() client.Reader {
+	if r.Cache != nil {
+		return r.Cache
+	}
+	return r.Client
 }
 
 // NewReconciler builds a Reconciler.
@@ -95,8 +108,8 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 		return ctrl.Result{}, fmt.Errorf("subtitleprofile: list SubtitleProfiles: %w", err)
 	}
 	invalid, reason, message := validateProfile(&sp, profiles.Items)
-	var planned catalogv1alpha1.MediaFileList
-	if err := r.List(ctx, &planned, client.MatchingFields{mfindex.SubtitleProfile: sp.Name}, client.UnsafeDisableDeepCopy); err != nil {
+	planned, err := rowcache.Keys(ctx, r.reader(), &catalogv1alpha1.MediaFileList{}, client.MatchingFields{mfindex.SubtitleProfile: sp.Name})
+	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("subtitleprofile: list the files planned with %s: %w", sp.Name, err)
 	}
 	overlapped, err := r.overlapped(ctx, &sp, profiles.Items)
@@ -106,7 +119,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (ctrl
 
 	next := sp.Status.DeepCopy()
 	next.ObservedGeneration, next.WantedKeys = sp.Generation, wantedKeys(sp.Spec)
-	next.MatchingFiles = int32(len(planned.Items)) //nolint:gosec // bounded by the library
+	next.MatchingFiles = int32(len(planned)) //nolint:gosec // bounded by the library
 	conds := next.Conditions
 	if invalid {
 		k8s.MarkTrue(&sp, &conds, subtitlev1alpha1.SubtitleProfileConditionInvalid, reason, "%s", message)
@@ -143,17 +156,21 @@ func (r *Reconciler) overlapped(ctx context.Context, sp *subtitlev1alpha1.Subtit
 	if sp.Spec.Selector == nil {
 		return false, nil
 	}
-	var files catalogv1alpha1.MediaFileList
-	if err := r.List(ctx, &files, client.UnsafeDisableDeepCopy); err != nil {
-		return false, fmt.Errorf("subtitleprofile: list MediaFiles: %w", err)
-	}
-	for i := range files.Items {
-		mf := &files.Items[i]
-		if !subtitleplan.EligibleKind(mf.Spec.MediaRef.Kind) || !subtitleplan.SelectorMatches(sp, mf.Labels) {
-			continue
+	// The video files' labels through the MediaKind index, never the files
+	// decoded (2026-11-03: every MediaFile at the manager's start).
+	for _, kind := range subtitleplan.EligibleKinds() {
+		files, err := rowcache.Metadata(ctx, r.reader(), &catalogv1alpha1.MediaFileList{}, client.MatchingFields{mfindex.MediaKind: string(kind)})
+		if err != nil {
+			return false, fmt.Errorf("subtitleprofile: list the %s files: %w", kind, err)
 		}
-		if w := subtitleplan.WinningProfile(mf.Labels, profiles); w != nil && w.Name != sp.Name {
-			return true, nil
+		for i := range files {
+			labels := files[i].Labels
+			if !subtitleplan.SelectorMatches(sp, labels) {
+				continue
+			}
+			if w := subtitleplan.WinningProfile(labels, profiles); w != nil && w.Name != sp.Name {
+				return true, nil
+			}
 		}
 	}
 	return false, nil
@@ -186,6 +203,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager, wake *Wake) error {
 	if err := mfindex.RegisterSubtitleProfile(context.Background(), mgr.GetFieldIndexer()); err != nil {
 		return err
 	}
+	r.Cache = mgr.GetCache()
 	all := handler.EnqueueRequestsFromMapFunc(r.mapAllProfiles)
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("subtitleprofile").

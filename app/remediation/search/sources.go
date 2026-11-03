@@ -250,7 +250,10 @@ func (LedgerSource) Rebuild(ctx context.Context, r client.Reader) ([]dispatch.Ou
 		&catalogv1alpha1.BookList{}, &catalogv1alpha1.AudiobookList{}, &catalogv1alpha1.IssueList{},
 	}
 	for _, l := range lists {
-		if err := r.List(ctx, l); err != nil {
+		// Only the items whose dispatch is in flight (a few), through the
+		// index: a whole kind decoded from the row cache was the manager's
+		// start-up peak (2026-11-03).
+		if err := r.List(ctx, l, client.MatchingFields{itemread.SearchInFlightIndex: itemread.IndexTrue}); err != nil {
 			return nil, fmt.Errorf("search: rebuild the ledger: %w", err)
 		}
 		switch t := l.(type) {

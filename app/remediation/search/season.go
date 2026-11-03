@@ -571,7 +571,8 @@ func (SeasonLedgerSource) Durable() string { return searchplan.SeasonDurable }
 // Rebuild implements dispatch.Source.
 func (SeasonLedgerSource) Rebuild(ctx context.Context, r client.Reader) ([]dispatch.Outstanding, error) {
 	var list catalogv1alpha1.SeriesList
-	if err := r.List(ctx, &list); err != nil {
+	// Only the series whose season dispatch is in flight, through the index.
+	if err := r.List(ctx, &list, client.MatchingFields{itemread.SeasonSearchInFlightIndex: itemread.IndexTrue}); err != nil {
 		return nil, fmt.Errorf("search: rebuild the season ledger: %w", err)
 	}
 	var out []dispatch.Outstanding

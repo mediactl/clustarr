@@ -57,6 +57,7 @@ import (
 	"github.com/mediactl/clustarr/app/transcode/transcodeplan"
 	busevents "github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/k8s/rowcache"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
 
@@ -98,9 +99,13 @@ const (
 type Reconciler struct {
 	Client    client.Client
 	APIReader client.Reader
-	Recorder  k8sevents.EventRecorder
-	Ledger    *admission.Ledger
-	Pool      pool.Config
+	// Cache is the manager's cache itself, for the overlap verdict's read
+	// of every video file's labels through rowcache.Metadata (no decode);
+	// nil reads through Client.
+	Cache    client.Reader
+	Recorder k8sevents.EventRecorder
+	Ledger   *admission.Ledger
+	Pool     pool.Config
 	// Progress is the clustarr-progress bucket GPU pool workers publish
 	// their measured encoder limits to (status.encoderLimits); nil shows
 	// none.
@@ -213,20 +218,30 @@ func (r *Reconciler) overlap(ctx context.Context, tp *transcodev1alpha1.Transcod
 	if v, ok := r.overlaps[tp.Name]; ok && v.profiles == key && now.Sub(v.at) < overlapTTL {
 		return v.overlapped, nil
 	}
-	var files catalogv1alpha1.MediaFileList
-	if err := r.Client.List(ctx, &files, client.UnsafeDisableDeepCopy); err != nil {
-		return false, fmt.Errorf("transcodeprofile: list MediaFiles: %w", err)
+	// The video files' labels through the MediaKind index, never the files
+	// decoded (2026-11-03: every MediaFile at the manager's start, per
+	// profile).
+	reader := r.Cache
+	if reader == nil {
+		reader = r.Client
 	}
 	def := transcodeplan.DefaultWinner(profiles)
 	overlapped := false
-	for i := range files.Items {
-		mf := &files.Items[i]
-		if !transcodeplan.EligibleKind(mf.Spec.MediaRef.Kind) || !transcodeplan.SelectorMatches(tp, mf.Labels) {
-			continue
+kinds:
+	for _, kind := range transcodeplan.EligibleKinds() {
+		files, err := rowcache.Metadata(ctx, reader, &catalogv1alpha1.MediaFileList{}, client.MatchingFields{mfindex.MediaKind: string(kind)})
+		if err != nil {
+			return false, fmt.Errorf("transcodeprofile: list the %s files: %w", kind, err)
 		}
-		if w := transcodeplan.WinningProfile(mf.Labels, profiles, def); w != nil && w.Name != tp.Name {
-			overlapped = true
-			break
+		for i := range files {
+			labels := files[i].Labels
+			if !transcodeplan.SelectorMatches(tp, labels) {
+				continue
+			}
+			if w := transcodeplan.WinningProfile(labels, profiles, def); w != nil && w.Name != tp.Name {
+				overlapped = true
+				break kinds
+			}
 		}
 	}
 	if r.overlaps == nil {
@@ -291,6 +306,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if err := mfindex.RegisterTranscodeProfile(context.Background(), mgr.GetFieldIndexer()); err != nil {
 		return err
 	}
+	r.Cache = mgr.GetCache()
 	return ctrl.NewControllerManagedBy(mgr).Named("transcodeprofile").
 		For(&transcodev1alpha1.TranscodeProfile{}, builder.WithPredicates(k8s.GenerationChanged())).
 		Owns(&batchv1.Job{}, builder.WithPredicates(pool.JobPredicate())).

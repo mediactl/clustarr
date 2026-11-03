@@ -19,8 +19,11 @@ package remediation
 
 import (
 	"context"
+	"fmt"
 	"slices"
+	"strconv"
 
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -34,9 +37,11 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 	"github.com/mediactl/clustarr/app/catalog/controller/series"
 	cataloghistory "github.com/mediactl/clustarr/app/catalog/history"
+	"github.com/mediactl/clustarr/app/catalog/itemread"
 	"github.com/mediactl/clustarr/app/dispatch"
 	"github.com/mediactl/clustarr/pkg/dubs"
 	"github.com/mediactl/clustarr/pkg/events/schema"
+	"github.com/mediactl/clustarr/pkg/k8s/rowcache"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
 
@@ -82,7 +87,8 @@ func (ir *ItemReconciler) sources(mgr ctrl.Manager) ([]Source, error) {
 	if ir.Dubs != nil {
 		// The MAL-Dubs list changed (pkg/dubs): the anime whose English it
 		// moved are planned again, their audio policy with them.
-		out = append(out, Source{Name: "dubs", Raw: &dubSource{ix: ir.Dubs, c: c}})
+		// The cache itself: the source reads keys through rowcache.Keys.
+		out = append(out, Source{Name: "dubs", Raw: &dubSource{ix: ir.Dubs, c: mgr.GetCache()}})
 	}
 	for _, s := range ir.Stages {
 		w, ok := s.(Watcher)
@@ -307,55 +313,51 @@ func (s *dubSource) Start(ctx context.Context, q workqueue.TypedRateLimitingInte
 }
 
 // keys are the anime items a change moved: all of them, or those whose MAL
-// id is among ids.
+// id is among ids -- read as keys through the anime and MAL indexes
+// (itemread.AnimeIndex, MALIndex), never a kind decoded whole (2026-11-03:
+// every Series and Movie at the manager's start).
 func (s *dubSource) keys(ctx context.Context, all bool, ids map[int]struct{}) []Key {
 	log := logging.FromContext(ctx)
 	var out []Key
-	var anime catalogv1alpha1.SeriesList
-	if err := s.c.List(ctx, &anime); err != nil {
-		log.Warn("remediation: the MAL-Dubs source could not list the series", "error", err)
-	}
-	for i := range anime.Items {
-		sr := &anime.Items[i]
-		if sr.Spec.SeriesType != catalogv1alpha1.SeriesTypeAnime || !dubs.Moved(all, ids, malOf(sr.Status.Metadata)) {
+	for _, nn := range s.moved(ctx, &catalogv1alpha1.SeriesList{}, all, ids) {
+		out = append(out, Key{Kind: KindSeries, Namespace: nn.Namespace, Name: nn.Name})
+		eps, err := rowcache.Keys(ctx, s.c, &catalogv1alpha1.EpisodeList{}, client.InNamespace(nn.Namespace), client.MatchingFields{series.EpisodeBySeriesRefIndex: nn.Name})
+		if err != nil {
+			log.Warn("remediation: the MAL-Dubs source could not list a series' episodes", "series", nn.Name, "error", err)
 			continue
 		}
-		out = append(out, Key{Kind: KindSeries, Namespace: sr.Namespace, Name: sr.Name})
-		var eps catalogv1alpha1.EpisodeList
-		if err := s.c.List(ctx, &eps, client.InNamespace(sr.Namespace), client.MatchingFields{series.EpisodeBySeriesRefIndex: sr.Name}); err != nil {
-			log.Warn("remediation: the MAL-Dubs source could not list a series' episodes", "series", sr.Name, "error", err)
-			continue
-		}
-		for j := range eps.Items {
-			out = append(out, Key{Kind: KindEpisode, Namespace: eps.Items[j].Namespace, Name: eps.Items[j].Name})
+		for _, ep := range eps {
+			out = append(out, Key{Kind: KindEpisode, Namespace: ep.Namespace, Name: ep.Name})
 		}
 	}
-	var movies catalogv1alpha1.MovieList
-	if err := s.c.List(ctx, &movies); err != nil {
-		log.Warn("remediation: the MAL-Dubs source could not list the movies", "error", err)
-	}
-	for i := range movies.Items {
-		m := &movies.Items[i]
-		if c := m.Status.Classification; c == nil || !c.Anime {
-			continue
-		}
-		var mal string
-		if md := m.Status.Metadata; md != nil {
-			mal = md.ExternalIDs["mal"]
-		}
-		if dubs.Moved(all, ids, mal) {
-			out = append(out, Key{Kind: KindMovie, Namespace: m.Namespace, Name: m.Name})
-		}
+	for _, nn := range s.moved(ctx, &catalogv1alpha1.MovieList{}, all, ids) {
+		out = append(out, Key{Kind: KindMovie, Namespace: nn.Namespace, Name: nn.Name})
 	}
 	return out
 }
 
-// malOf is a series' MAL id, "" when it has none.
-func malOf(md *catalogv1alpha1.SeriesMetadata) string {
-	if md == nil {
-		return ""
+// moved lists the anime of list's kind a change moved: every anime when
+// all, else those whose MAL id is among ids (dubs.Moved's rule, through the
+// indexes).
+func (s *dubSource) moved(ctx context.Context, list client.ObjectList, all bool, ids map[int]struct{}) []types.NamespacedName {
+	log := logging.FromContext(ctx)
+	if all {
+		keys, err := rowcache.Keys(ctx, s.c, list, client.MatchingFields{itemread.AnimeIndex: itemread.IndexTrue})
+		if err != nil {
+			log.Warn("remediation: the MAL-Dubs source could not list the anime", "kind", fmt.Sprintf("%T", list), "error", err)
+		}
+		return keys
 	}
-	return md.ExternalIDs["mal"]
+	var out []types.NamespacedName
+	for id := range ids {
+		keys, err := rowcache.Keys(ctx, s.c, list, client.MatchingFields{itemread.MALIndex: strconv.Itoa(id)})
+		if err != nil {
+			log.Warn("remediation: the MAL-Dubs source could not list an anime by MAL id", "mal", id, "error", err)
+			continue
+		}
+		out = append(out, keys...)
+	}
+	return out
 }
 
 // String implements fmt.Stringer for the controller's logs.

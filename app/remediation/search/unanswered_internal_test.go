@@ -25,11 +25,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/history"
+	"github.com/mediactl/clustarr/app/catalog/itemread"
 	"github.com/mediactl/clustarr/app/catalog/searchplan"
 	"github.com/mediactl/clustarr/app/dispatch"
 	"github.com/mediactl/clustarr/app/remediation"
@@ -138,11 +140,23 @@ func TestTheLedgerSourcesReadOneKeysDispatch(t *testing.T) {
 	}
 }
 
+// withLedgerIndexes registers the in-flight indexes the ledger rebuilds read
+// through (remediation.RegisterIndexes does in the manager).
+func withLedgerIndexes(b *fake.ClientBuilder) *fake.ClientBuilder {
+	for _, obj := range []client.Object{
+		&catalogv1alpha1.Movie{}, &catalogv1alpha1.Episode{}, &catalogv1alpha1.Album{},
+		&catalogv1alpha1.Book{}, &catalogv1alpha1.Audiobook{}, &catalogv1alpha1.Issue{},
+	} {
+		b = b.WithIndex(obj, itemread.SearchInFlightIndex, itemread.SearchInFlightValues)
+	}
+	return b.WithIndex(&catalogv1alpha1.Series{}, itemread.SeasonSearchInFlightIndex, itemread.SeasonSearchInFlightValues)
+}
+
 // A redownload due is admitted through AdmitFirst, so it claims the lane's
 // next slot; a routine search waits its turn, woken when a slot frees.
 func TestARedownloadIsAdmittedAheadOfRoutineSearches(t *testing.T) {
 	now := time.Date(2026, 11, 2, 21, 0, 0, 0, time.UTC)
-	r := fake.NewClientBuilder().WithScheme(k8s.MustNewScheme()).Build()
+	r := withLedgerIndexes(fake.NewClientBuilder().WithScheme(k8s.MustNewScheme())).Build()
 	ledger := dispatch.New(dispatch.Options{Topology: events.Default(), Reader: r, Now: func() time.Time { return now }})
 	ledger.Register(LedgerSource{})
 	ledger.Register(SeasonLedgerSource{})

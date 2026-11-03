@@ -141,6 +141,44 @@ the settled rows (22 MiB for all four kinds, as designed):
   GOMEMLIMIT, so automemlimit's 90% (691MiB of 768Mi) left 77 MiB for
   non-heap memory and GC overshoot where 640MiB had left 128.
 
+## 4b. As built: the second round (rev 197's start, same day)
+
+Rev 197 (the 4a fixes) started at 768Mi with a Go limit of 614MiB: rows
+in at 95 s, dictionaries by 3 min, then a peak of 746 MiB RSS with a
+550 MiB live heap at 3 min 20 s, 22 MiB short of the limit, and a GC
+pinned to the limit afterwards (34 cycles a minute, a quarter of the CPU)
+while the live heap sat at 330-420 MiB. A GC-forced profile at seven
+minutes (294 MB) and a benchmark of the dictionary build (5 MB allocated,
+0.5 MB retained) put the peak on the readers that run when the lease is
+won and list whole kinds, plus three avoidable holdings:
+
+- **The leader-start readers list whole kinds.** The search and season
+  ledger rebuilds (every Movie, Episode, Album, Book, Audiobook and Issue;
+  every Series), the MAL-Dubs source's first pass (every Series and Movie),
+  the transcode-profile and subtitle-profile overlap checks (every
+  MediaFile, once per profile) and the root-folder file map each decoded a
+  collection and held it. Now: the ledger rebuilds list through marker
+  indexes that name the few items whose dispatch is in flight
+  (`itemread.SearchInFlightIndex`, `SeasonSearchInFlightIndex`); the dubs
+  source reads keys through an anime marker and a MAL-id index
+  (`itemread.AnimeIndex`, `MALIndex`); the overlap checks read labels
+  through `rowcache.Metadata` by the media-kind index; the file maps read
+  keys through `rowcache.Keys`. All of them take `mgr.GetCache()`, the
+  reader that answers without a decode; any other reader falls back to
+  List.
+- **The index strings were held twice** (22 MB of `ns/value` and
+  `__all_namespaces/value` keys per row, beside the store's own): the
+  values are interned at rowify, so a row's copy and the store's map key
+  are one string, and a row's own key is built once instead of per store
+  operation.
+- **The dictionary sweep ran under the replays**, so the pre-dictionary
+  rows stayed alive from the handlers' queues beside the new ones: the
+  sweep now waits for every listener's queue to drain (two minutes at
+  most).
+- **zstd states were 31 MB**: the fastest level (within 2% of the default
+  level's ratio with a dictionary, measured), one encoder state per codec
+  and two decoders instead of one per CPU.
+
 ## 5. Tests
 
 `pkg/k8s/rowcache`: the store holds rows and every reader gets an object (a

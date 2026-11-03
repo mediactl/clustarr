@@ -28,6 +28,7 @@ import (
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/series"
+	"github.com/mediactl/clustarr/app/catalog/itemread"
 	"github.com/mediactl/clustarr/pkg/dubs"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
@@ -62,6 +63,10 @@ func TestTheMALDubsSourceWakesTheAnimeAChangeMoved(t *testing.T) {
 		WithIndex(&catalogv1alpha1.Episode{}, series.EpisodeBySeriesRefIndex, func(o client.Object) []string {
 			return []string{o.(*catalogv1alpha1.Episode).Spec.SeriesRef}
 		}).
+		WithIndex(&catalogv1alpha1.Series{}, itemread.AnimeIndex, itemread.AnimeValues).
+		WithIndex(&catalogv1alpha1.Series{}, itemread.MALIndex, itemread.MALValues).
+		WithIndex(&catalogv1alpha1.Movie{}, itemread.AnimeIndex, itemread.AnimeValues).
+		WithIndex(&catalogv1alpha1.Movie{}, itemread.MALIndex, itemread.MALValues).
 		WithObjects(
 			sr("eighty-six", catalogv1alpha1.SeriesTypeAnime, "41457"), ep("eighty-six-s01e01", "eighty-six"),
 			sr("seventh-loop", catalogv1alpha1.SeriesTypeAnime, "56352"), ep("seventh-loop-s01e01", "seventh-loop"),

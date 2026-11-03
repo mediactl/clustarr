@@ -31,6 +31,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
+	"github.com/mediactl/clustarr/app/remediation/mfindex"
 )
 
 // An overlap verdict stands for overlapTTL, or until a profile's generation
@@ -50,7 +51,7 @@ func TestAnOverlapVerdictStandsForItsTTL(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "high", Generation: 1},
 		Spec:       transcodev1alpha1.TranscodeProfileSpec{Selector: sel, Priority: 10},
 	}
-	c := fake.NewClientBuilder().WithScheme(s).Build()
+	c := fake.NewClientBuilder().WithScheme(s).WithIndex(&catalogv1alpha1.MediaFile{}, mfindex.MediaKind, mfindex.MediaKindValues).Build()
 	now := time.Date(2026, 11, 3, 12, 0, 0, 0, time.UTC)
 	r := &Reconciler{Client: c, Now: func() time.Time { return now }}
 	ctx := context.Background()
