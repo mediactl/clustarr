@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/app/grab/controller/downloadclient"
 	livetvmanager "github.com/mediactl/clustarr/app/livetv/manager"
 	"github.com/mediactl/clustarr/app/remediation"
@@ -42,6 +43,7 @@ import (
 	"github.com/mediactl/clustarr/app/transcode/graftplan"
 	transcodemanager "github.com/mediactl/clustarr/app/transcode/manager"
 	"github.com/mediactl/clustarr/pkg/k8s"
+	"github.com/mediactl/clustarr/pkg/k8s/rowcache"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 	"github.com/mediactl/clustarr/pkg/placement"
@@ -240,16 +242,29 @@ func (o Options) Validate() error {
 	return errors.Join(errs...)
 }
 
+// rowCacheKinds are the kinds the manager's cache holds as compressed rows
+// (pkg/k8s/rowcache; the compressed row cache design, 2026-11-03): the four
+// that were about 230 MB of its live heap as decoded objects on the owner's
+// library. Every other kind keeps its ordinary informer.
+var rowCacheKinds = []client.Object{
+	&catalogv1alpha1.Episode{},
+	&catalogv1alpha1.MediaFile{},
+	&catalogv1alpha1.Movie{},
+	&catalogv1alpha1.Series{},
+}
+
 // managerOptions is §5.6's one merged cache: the lease manager.clustarr.io,
 // the pinned default field owner, Secret and ConfigMap never cached (every
 // read is a by-name Get; Wave 4e's Trakt token compare-and-swap reads the
-// Secret live), the pool Jobs selected by transcode's managed-by label, and
-// no MediaFile status.mediaInfo strip (the manager reads it).
+// Secret live), the pool Jobs selected by transcode's managed-by label, no
+// MediaFile status.mediaInfo strip (the manager reads it), and the large
+// kinds held as compressed rows.
 func managerOptions(o Options) ctrl.Options {
 	opts := o.ManagerOptions(LeaderElectionID, o.LeaderElect)
 	opts.Client.FieldOwner = string(k8s.DefaultFieldOwner)
 	opts.Client.Cache = &client.CacheOptions{DisableFor: []client.Object{&corev1.Secret{}, &corev1.ConfigMap{}}}
 	opts.Cache.ByObject = map[client.Object]cache.ByObject{&batchv1.Job{}: pool.PoolJobCache(o.Namespace)}
+	opts.NewCache = rowcache.New(rowcache.Options{Kinds: rowCacheKinds})
 	if o.SkipNameValidation {
 		opts.Controller.SkipNameValidation = new(true)
 	}

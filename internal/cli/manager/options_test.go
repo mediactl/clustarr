@@ -58,6 +58,12 @@ func TestManagerCacheOptions(t *testing.T) {
 		assert.Nil(t, by.Transform, "the manager reads status.mediaInfo; nothing strips it (§5.6)")
 	}
 	assert.NotNil(t, opts.Cache.DefaultTransform, "managedFields stay stripped")
+	assert.NotNil(t, opts.NewCache, "the large kinds are held as compressed rows (pkg/k8s/rowcache)")
+	var rowKinds []string
+	for _, obj := range rowCacheKinds {
+		rowKinds = append(rowKinds, fmt.Sprintf("%T", obj))
+	}
+	assert.ElementsMatch(t, []string{"*v1alpha1.Episode", "*v1alpha1.MediaFile", "*v1alpha1.Movie", "*v1alpha1.Series"}, rowKinds)
 	assert.Equal(t, k8s.CacheSyncTimeout, opts.Controller.CacheSyncTimeout)
 	assert.Nil(t, opts.Controller.SkipNameValidation, "production validates controller names")
 

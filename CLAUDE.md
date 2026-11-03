@@ -2321,6 +2321,26 @@ too; bump the tag in go.mod and go.sum to take a new fork release.
   did (it retired with ADR-0019); the artwork envtests read them through a
   direct client. One process now caches every kind the manager reconciles, so
   the ten minutes is the manager's start budget for the whole library.
+  **The manager holds its four large kinds as compressed rows** (owner,
+  2026-11-03, `pkg/k8s/rowcache`,
+  `docs/superpowers/specs/2026-11-03-compressed-row-cache-design.md`):
+  Episode, MediaFile, Movie and Series were about 230 MB of its live heap as
+  decoded objects, keys and index sets, and their compact JSON is the same
+  size, so `rowCacheKinds` in `internal/cli/manager` go through
+  `rowcache.New`, whose informer turns each object into a `Row` in the
+  DeltaFIFO's transform (its JSON as one zstd frame, 4.9-8.3x with a
+  dictionary the informer builds from the kind's own initial list and
+  applies in a sweep; the labels and every registered index's values kept
+  beside it) and whose cache decodes a fresh object for every Get, List
+  entry and handler notification. The rules that follow: the store's items
+  are `*Row`, never the kind, so nothing reads `GetIndexer().List()` for
+  objects; a List narrows by its field index, namespace and labels before
+  it decodes, so a whole-collection List of a large kind now costs a decode
+  per object (about 1.5 s for the MediaFiles) and belongs behind an index
+  or a memo; each handler decodes its own copy of every event, so a watch
+  map function reads a fresh object, never the cache's; and
+  `UnsafeDisableDeepCopy` buys nothing on these kinds. Metadata-only and
+  unstructured reads of them keep their own ordinary informers.
 - **A watch's map function runs for every object at startup, and the
   source is not synced until it has.** controller-runtime's `Kind` source
   waits on `handlerRegistration.HasSynced`, and a cache's initial sync

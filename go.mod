@@ -24,6 +24,7 @@ require (
 	github.com/javi11/nzbparser v0.5.5
 	github.com/javi11/rapidyenc v0.0.0-20260215144528-f0dac5a39d34
 	github.com/jonboulle/clockwork v0.5.0
+	github.com/klauspost/compress v1.20.0
 	github.com/lithammer/fuzzysearch v1.1.8
 	github.com/mediactl/par2go v0.1.1
 	github.com/moistari/rls v0.6.0
@@ -135,7 +136,6 @@ require (
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
-	github.com/klauspost/compress v1.20.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.3 // indirect
 	github.com/lib/pq v1.10.9 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
