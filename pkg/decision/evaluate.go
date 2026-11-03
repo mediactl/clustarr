@@ -319,7 +319,7 @@ func videoItemState(t Target, p quality.Profile, an audioNames, parsed *release.
 	out = append(out, blocklistAndHistoryRejections(t, rel)...)
 	candidate := quality.Candidate{Quality: rel.Quality, Revision: rel.Revision, FormatScore: score}
 	add(queueRejection(p, t, candidate, an, complete))
-	if complete && t.Current != nil && ReplaceableAudio(p, t.OriginalLanguageTag, t.Current.AudioLanguages) {
+	if complete && t.Current != nil && AudioUpgradeable(p, t.OriginalLanguageTag, t.Current.AudioLanguages) {
 		return out
 	}
 	if p.AudioCompleteFirst && !complete && t.Current != nil && CompletesAudio(p, t.OriginalLanguageTag, t.Current.AudioLanguages) {

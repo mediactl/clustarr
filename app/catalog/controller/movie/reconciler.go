@@ -46,6 +46,7 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/metadatainputs"
 	"github.com/mediactl/clustarr/app/remediation/mfindex"
 	"github.com/mediactl/clustarr/pkg/decision"
+	"github.com/mediactl/clustarr/pkg/dubs"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/metadata"
@@ -711,6 +712,8 @@ func (r *Reconciler) resolveProfile(ctx context.Context, m *catalogv1alpha1.Movi
 	if len(errs) > 0 {
 		return nil, fmt.Sprintf("qualityProfile %q does not parse: %s", qp.Name, errors.Join(errs...)), nil
 	}
+	// The film's English dub, as the MAL-Dubs list knows it (pkg/dubs).
+	p = decision.ForDub(p, dubs.From(ctx).Movie(m))
 	return &p, "", nil
 }
 

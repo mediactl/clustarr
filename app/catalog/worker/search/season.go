@@ -29,6 +29,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/worker/titleindex"
 	"github.com/mediactl/clustarr/pkg/decision"
+	"github.com/mediactl/clustarr/pkg/dubs"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 )
@@ -61,6 +62,7 @@ func (w *Worker) snapshotSeason(ctx context.Context, ns string, ref commonv1.Med
 	if err := w.Client.Get(ctx, client.ObjectKey{Namespace: ns, Name: ref.Name}, &s); err != nil {
 		return snap, fmt.Errorf("get Series %s/%s: %w", ns, ref.Name, err)
 	}
+	snap.Dub = dubs.From(ctx).Series(&s)
 	var list catalogv1alpha1.EpisodeList
 	if err := w.Client.List(ctx, &list, client.InNamespace(ns),
 		client.MatchingFields{titleindex.IndexEpisodeSeriesSeason: titleindex.SeasonKey(s.Name, season)}); err != nil {

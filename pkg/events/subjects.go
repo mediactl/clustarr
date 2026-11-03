@@ -156,7 +156,11 @@ const (
 	// BucketReleaseGroups holds what each release group's imported files
 	// carried (pkg/grouplang): the language its dual-audio titles mean beside
 	// the original. The manager writes it; every process reads it.
-	BucketReleaseGroups    = "clustarr-release-groups"
+	BucketReleaseGroups = "clustarr-release-groups"
+	// BucketMALDubs holds the MAL-Dubs list (pkg/dubs): the MAL ids of
+	// anime with an English dub. The manager's leader writes it; every
+	// process that decides releases reads it.
+	BucketMALDubs          = "clustarr-mal-dubs"
 	BucketIndexerSessions  = "clustarr-indexer-sessions"
 	BucketIndexerLimits    = "clustarr-indexer-limits"
 	BucketProviderThrottle = "clustarr-provider-throttle"

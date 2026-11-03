@@ -20,6 +20,7 @@ package manager
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"time"
 
@@ -49,6 +50,7 @@ import (
 	"github.com/mediactl/clustarr/app/transcode/admission"
 	transcodemanager "github.com/mediactl/clustarr/app/transcode/manager"
 	"github.com/mediactl/clustarr/pkg/busconn"
+	"github.com/mediactl/clustarr/pkg/dubs"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/natsbus"
 	"github.com/mediactl/clustarr/pkg/events/objindex"
@@ -87,6 +89,11 @@ func Run(ctx context.Context, o Options) error {
 	// read.
 	groups := grouplang.NewIndex()
 	ctx = release.WithGroupLanguages(ctx, groups)
+	// The MAL-Dubs list (pkg/dubs) beside them: which anime have an English
+	// dub, for the audio policy decision.ForDub makes of each item's
+	// profile; every anime is Ungoverned until the bucket is read.
+	dubIndex := dubs.NewIndex()
+	ctx = dubs.WithIndex(ctx, dubIndex)
 	log := logging.FromContext(ctx)
 
 	// 3.
@@ -146,6 +153,18 @@ func Run(ctx context.Context, o Options) error {
 		return groups.Run(ctx, bus.KV(events.BucketReleaseGroups))
 	})); err != nil {
 		return fmt.Errorf("manager: add the release groups index: %w", err)
+	}
+	if err := mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
+		return dubIndex.Run(ctx, bus.KV(events.BucketMALDubs))
+	})); err != nil {
+		return fmt.Errorf("manager: add the MAL-Dubs index: %w", err)
+	}
+	// The leader fetches the list once a day, conditionally on its ETag.
+	if err := mgr.Add(k8s.LeaderOnly(func(ctx context.Context) error {
+		r := &dubs.Refresher{KV: bus.KV(events.BucketMALDubs), HTTP: &http.Client{Timeout: time.Minute}}
+		return r.Run(ctx)
+	})); err != nil {
+		return fmt.Errorf("manager: add the MAL-Dubs refresher: %w", err)
 	}
 	// A standby keeps the failover kinds warm, and every replica reports
 	// whether it leads (control-plane placement design §5.4, §5.4.1).

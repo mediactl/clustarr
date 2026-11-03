@@ -23,8 +23,8 @@ import (
 
 	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/decision"
 	"github.com/mediactl/clustarr/pkg/k8s"
-	"github.com/mediactl/clustarr/pkg/lang"
 	"github.com/mediactl/clustarr/pkg/quality"
 )
 
@@ -87,20 +87,14 @@ func AudioStateFor(p *quality.Profile, originalTag string, mf *catalogv1alpha1.M
 	return st
 }
 
-// wantedTags is the profile's audio languages as tags: "original" is
-// originalTag, an unknown one is dropped, each once (an English original is
-// wanted once).
+// wantedTags is the profile's audio languages as tags, its optional ones
+// (Profile.AudioOptional: an English dub still airing) after them:
+// "original" is originalTag, an unknown one is dropped, each once (an
+// English original is wanted once). An optional language the file lacks is
+// missing like any other, so the donor search keeps looking for it, though
+// the item meets the cutoff without it.
 func wantedTags(p *quality.Profile, originalTag string) []string {
-	var out []string
-	for _, l := range p.AudioLanguages {
-		if l == "original" {
-			l = originalTag
-		}
-		if t, ok := lang.Normalize(l); ok && !slices.Contains(out, string(t)) {
-			out = append(out, string(t))
-		}
-	}
-	return out
+	return append(decision.WantedAudio(*p, originalTag), decision.OptionalAudio(*p, originalTag)...)
 }
 
 // graftState is status.audio.graft (anime dual-audio spec §6, §9; loop spec

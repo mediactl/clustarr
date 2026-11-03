@@ -52,6 +52,7 @@ import (
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
 	"github.com/mediactl/clustarr/app/catalog/delay"
 	"github.com/mediactl/clustarr/pkg/decision"
+	"github.com/mediactl/clustarr/pkg/dubs"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/quality"
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
@@ -214,6 +215,40 @@ func Profile(ctx context.Context, r client.Reader, name string) (*quality.Profil
 		return nil, fmt.Errorf("%w: QualityProfile %q: %w", ErrNoProfile, name, errs[0])
 	}
 	return &p, nil
+}
+
+// ItemProfile is Profile(name) as item's audio policy: decision.ForDub with
+// its DubState, so an anime whose MAL id the MAL-Dubs list does not name
+// wants no English, and one whose dub is still airing wants it optionally.
+func ItemProfile(ctx context.Context, r client.Reader, item client.Object, name string) (*quality.Profile, error) {
+	p, err := Profile(ctx, r, name)
+	if err != nil {
+		return nil, err
+	}
+	*p = decision.ForDub(*p, DubState(ctx, r, item))
+	return p, nil
+}
+
+// DubState is item's English dub as the MAL-Dubs list ctx carries knows it
+// (pkg/dubs): a Movie's and a Series' their own, an Episode's its Series';
+// Ungoverned for anything else, or with no list.
+func DubState(ctx context.Context, r client.Reader, item client.Object) dubs.State {
+	ix := dubs.From(ctx)
+	if ix == nil {
+		return dubs.Ungoverned
+	}
+	switch t := item.(type) {
+	case *catalogv1alpha1.Movie:
+		return ix.Movie(t)
+	case *catalogv1alpha1.Series:
+		return ix.Series(t)
+	case *catalogv1alpha1.Episode:
+		var s catalogv1alpha1.Series
+		if err := r.Get(ctx, client.ObjectKey{Namespace: t.Namespace, Name: t.Spec.SeriesRef}, &s); err == nil {
+			return ix.Series(&s)
+		}
+	}
+	return dubs.Ungoverned
 }
 
 // Delay is the DelayProfile spec governing cfg in ns (spec §8.2's order,

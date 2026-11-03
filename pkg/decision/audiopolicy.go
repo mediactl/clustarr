@@ -52,6 +52,9 @@ func audioAnchor(p quality.Profile) string {
 type audioNames struct {
 	original string
 	wanted   []string
+	// optional are the policy's optional languages (Profile.AudioOptional):
+	// a release lacking one is not refused, but is not complete either.
+	optional []string
 	anchor   string
 }
 
@@ -66,6 +69,11 @@ func resolveAudioNames(ctx context.Context, p quality.Profile, originalLanguage 
 	for _, l := range p.AudioLanguages {
 		if n := name(l); n != "" && !containsFold(an.wanted, n) {
 			an.wanted = append(an.wanted, n)
+		}
+	}
+	for _, l := range p.AudioOptional {
+		if n := name(l); n != "" && !containsFold(an.wanted, n) && !containsFold(an.optional, n) {
+			an.optional = append(an.optional, n)
 		}
 	}
 	if a := audioAnchor(p); a != "" {
@@ -91,7 +99,10 @@ func namesWantedLanguages(an audioNames, p quality.Profile, parsed *release.Pars
 
 // audioRejection is the release check that replaces languageRejection when a
 // profile sets audio languages (anime dual-audio spec §5.2). complete is
-// whether the release carries every wanted language. A partial release
+// whether the release carries every wanted language, the optional ones
+// (Profile.AudioOptional) included; lacking only an optional one refuses
+// nothing, but is not complete, so a release carrying it ranks first. A
+// partial release
 // passes only when the profile grafts and the release carries the anchor
 // (audioAnchor: the original language when listed) that a donor's audio is
 // aligned against; an unknown anchor fails open, as languageRejection does.
@@ -105,6 +116,11 @@ func audioRejection(an audioNames, p quality.Profile, parsed *release.ParsedRele
 		}
 	}
 	if len(missing) == 0 {
+		for _, o := range an.optional {
+			if !containsFold(have, o) {
+				return nil, false
+			}
+		}
 		return nil, true
 	}
 	if p.GraftAudio && (an.anchor == "" || containsFold(have, an.anchor)) {

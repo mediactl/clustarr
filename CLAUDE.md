@@ -1230,6 +1230,31 @@ EMBER dual-audio pack had been refused for SENPAI's Japanese-only singles, one
 2,068 episodes of `hevc-small-1080p-anime-tv` held Japanese-only files, their
 grafts still searching. Only a non-grafting policy's import blocklists a file
 lacking a language as mislabelled (`decision.IncompleteAudio`).
+**An anime wants English only when the MAL-Dubs list names it** (owner,
+2026-11-03: English dubs and dual audio "*only* for series who's
+status.externalIDs.mal exists within" github.com/MAL-Dubs/MAL-Dubs'
+`dubInfo.json`; `pkg/dubs`). The manager's leader fetches the list once a
+day by its ETag (`dubs.Refresher`) into the durable `clustarr-mal-dubs`
+bucket, and the manager and every agent watch it into an index on their root
+context (`dubs.WithIndex`, as `pkg/grouplang`'s). An anime -- a Series of
+type `anime`, a Movie its classification calls anime -- is `Dubbed`,
+`Incomplete` (the list's `incomplete`: a simuldub), or `NotDubbed` (no MAL
+id, or one the list does not name); anything else, and every item before a
+list was read, is `Ungoverned`. `decision.ForDub` makes the state the item's
+audio policy wherever its profile is resolved (`itemread.ItemProfile`, the
+Episode and Movie reconcilers, the downloads stage, the search worker's
+snapshot, the RSS matcher): NotDubbed drops English from the languages the
+policy wants, so no dub, donor or dual-audio release is searched for or
+ranked first; Incomplete moves it to `quality.Profile.AudioOptional`, so a
+file without it meets the cutoff and a release without it is not refused,
+while a release with it still ranks first (`LanguagesComplete`) and replaces
+a file lacking it (`decision.AudioUpgradeable`), and `status.audio` keeps it
+missing, so the donor search looks for it on the wanted backoff (weekly
+from the sixth try; IndexOnly after the first). An English original is
+still wanted through `original`, and the K-dramas' dual-audio profile, whose
+series carry no MAL id, is untouched. On talos then: 383 dubbed, 2
+incomplete, 97 not dubbed and 26 without a MAL id of the 508 anime series;
+27 of 28 anime films have one.
 anime-web-1080p ranks Bluray-1080p, then WEB 1080p, then Remux-1080p,
 below the cutoff, so an encode replaces a remux, which is never transcoded
 (`demotedTiers` exempts that tier from the best-first guard). A bare scene WEB is a WEB-DL

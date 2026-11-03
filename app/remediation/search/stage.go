@@ -257,7 +257,7 @@ func (s *Stage) gather(ctx context.Context, item client.Object, v *remediation.I
 	if err != nil {
 		return sv, err
 	}
-	prof, err := itemread.Profile(ctx, r, cfg.QualityProfileRef)
+	prof, err := itemread.ItemProfile(ctx, r, item, cfg.QualityProfileRef)
 	if err == nil {
 		sv.Profile = cfg.QualityProfileRef
 	}

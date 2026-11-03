@@ -100,7 +100,7 @@ func (r *Reconciler) seasonState(ctx context.Context, s *catalogv1alpha1.Search)
 	if err != nil {
 		return nil, false
 	}
-	profile, err := itemread.Profile(ctx, r.Client, cfg.QualityProfileRef)
+	profile, err := itemread.ItemProfile(ctx, r.Client, &ser, cfg.QualityProfileRef)
 	if err != nil {
 		return nil, false
 	}

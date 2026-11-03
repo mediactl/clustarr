@@ -30,6 +30,7 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/worker/search"
 	"github.com/mediactl/clustarr/pkg/decision"
+	"github.com/mediactl/clustarr/pkg/dubs"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/quality"
 	"github.com/mediactl/clustarr/pkg/quality/catalogue"
@@ -63,6 +64,9 @@ type resolveState struct {
 	targets []schema.ItemRef
 	// scope is the owner's release-index block scope (§6.14).
 	scope string
+	// dub is the item's English dub as the MAL-Dubs list knows it
+	// (pkg/dubs), which decision.ForDub makes its audio policy.
+	dub dubs.State
 }
 
 func itemRef(kind string, o client.Object) schema.ItemRef {
@@ -82,6 +86,7 @@ func resolve(ctx context.Context, c client.Client, ns string, ref commonv1.Media
 		st.monitored = ptr.Deref(m.Spec.Monitored, true)
 		st.available = m.Status.Available
 		st.qualityProfile = m.Spec.QualityProfileRef
+		st.dub = dubs.From(ctx).Movie(&m)
 		if m.Status.Metadata != nil {
 			st.runtimeMinutes = int(m.Status.Metadata.RuntimeMinutes)
 			st.originalLanguageTag = m.Status.Metadata.OriginalLanguage
@@ -130,6 +135,7 @@ func resolve(ctx context.Context, c client.Client, ns string, ref commonv1.Media
 		// it was matched to is exactly what it may grab.
 		st.identity.SceneMappings = scenes.table(ctx, s.Spec.TvdbID)
 		st.qualityProfile = s.Spec.QualityProfileRef
+		st.dub = dubs.From(ctx).Series(&s)
 		st.monitored = st.monitored && ptr.Deref(s.Spec.Monitored, true)
 		if s.Status.Metadata != nil {
 			st.runtimeMinutes = int(s.Status.Metadata.RuntimeMinutes)

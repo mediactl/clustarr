@@ -233,6 +233,7 @@ func (h *Handler) decideOne(ctx context.Context, ns string, ref commonv1.MediaRe
 		log.Warn("rssmatcher: cannot resolve the quality profile; skipping this item", "error", err)
 		return nil
 	}
+	profile = decision.ForDub(profile, st.dub)
 
 	input := decision.Target{
 		Kind:                ref.Kind,

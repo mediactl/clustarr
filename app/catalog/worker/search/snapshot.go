@@ -28,6 +28,7 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/decision"
+	"github.com/mediactl/clustarr/pkg/dubs"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 )
@@ -47,6 +48,10 @@ type itemSnapshot struct {
 	// block state under its BlockScopeOf (§6.14) when the task names no
 	// scope.
 	Owner schema.ItemRef
+	// Dub is the item's English dub as the MAL-Dubs list knows it
+	// (pkg/dubs), which decision.ForDub makes its audio policy: a Movie's
+	// own, an Episode's or a season's its Series'.
+	Dub dubs.State
 }
 
 // snapshot fetches the item named by ref in namespace ns: movie, episode,
@@ -67,6 +72,7 @@ func (w *Worker) snapshot(ctx context.Context, ns string, ref commonv1.MediaRef)
 			return snap, fmt.Errorf("get Movie %s/%s: %w", ns, ref.Name, err)
 		}
 		snap.QualityProfileRef = m.Spec.QualityProfileRef
+		snap.Dub = dubs.From(ctx).Movie(&m)
 		snap.IDs.TmdbID = m.Spec.TmdbID
 		snap.Target.Monitored = ptr.Deref(m.Spec.Monitored, true)
 		snap.Target.Available = m.Status.Available
@@ -95,6 +101,7 @@ func (w *Worker) snapshot(ctx context.Context, ns string, ref commonv1.MediaRef)
 		// An Episode carries no QualityProfileRef of its own: episodes are
 		// ranked against the owning Series' profile (spec §4.2).
 		snap.QualityProfileRef = s.Spec.QualityProfileRef
+		snap.Dub = dubs.From(ctx).Series(&s)
 		// The series' whole TheXEM table: the identity check reads every
 		// release number through it, and the request below asks for the
 		// target's scene numbering from it.

@@ -87,18 +87,45 @@ func MissingAudio(p quality.Profile, originalTag string, audio []string) []strin
 
 // WantedAudio is p's audio policy languages as canonical tags, each once:
 // "original" is originalTag, and a language that does not resolve is
-// dropped. It is nil with no policy.
+// dropped. It is nil with no policy. The optional languages are not among
+// them (OptionalAudio).
 func WantedAudio(p quality.Profile, originalTag string) []string {
+	return audioTags(p.AudioLanguages, originalTag, nil)
+}
+
+// OptionalAudio is p's optional audio languages (Profile.AudioOptional) as
+// canonical tags, each once and none of WantedAudio's.
+func OptionalAudio(p quality.Profile, originalTag string) []string {
+	return audioTags(p.AudioOptional, originalTag, WantedAudio(p, originalTag))
+}
+
+// audioTags is languages as canonical tags, each once and none of except's.
+func audioTags(languages []string, originalTag string, except []string) []string {
 	var out []string
-	for _, l := range p.AudioLanguages {
+	for _, l := range languages {
 		if l == "original" {
 			l = originalTag
 		}
-		if w, ok := lang.Normalize(l); ok && !slices.Contains(out, string(w)) {
+		if w, ok := lang.Normalize(l); ok && !slices.Contains(out, string(w)) && !slices.Contains(except, string(w)) {
 			out = append(out, string(w))
 		}
 	}
 	return out
+}
+
+// MissingOptionalAudio is the optional languages (OptionalAudio) a file
+// whose probed audio languages are audio lacks; nil when audio is unknown.
+func MissingOptionalAudio(p quality.Profile, originalTag string, audio []string) []string {
+	if audio == nil {
+		return nil
+	}
+	var missing []string
+	for _, o := range OptionalAudio(p, originalTag) {
+		if !slices.ContainsFunc(audio, func(a string) bool { return baseLanguage(a) == baseLanguage(o) }) {
+			missing = append(missing, o)
+		}
+	}
+	return missing
 }
 
 // IncompleteAudio reports whether a file must be replaced to carry every
@@ -125,11 +152,23 @@ func ReplaceableAudio(p quality.Profile, originalTag string, audio []string) boo
 	return (!p.GraftAudio || p.AudioCompleteFirst) && len(MissingAudio(p, originalTag, audio)) > 0
 }
 
+// AudioUpgradeable reports whether a release carrying every language p's
+// audio policy wants, the optional ones included, replaces a file whatever
+// its quality: ReplaceableAudio's file, or one lacking only an optional
+// language under the same policies (an anime whose English dub is still
+// airing; owner, 2026-11-03). Unlike ReplaceableAudio's, such a file meets
+// the cutoff.
+func AudioUpgradeable(p quality.Profile, originalTag string, audio []string) bool {
+	return ReplaceableAudio(p, originalTag, audio) ||
+		(!p.GraftAudio || p.AudioCompleteFirst) && len(MissingOptionalAudio(p, originalTag, audio)) > 0
+}
+
 // CompletesAudio reports whether a file whose probed audio languages are
-// audio carries every language p's audio policy wants: a policy, known
-// audio and nothing missing.
+// audio carries every language p's audio policy wants, the optional ones
+// included: a policy, known audio and nothing missing.
 func CompletesAudio(p quality.Profile, originalTag string, audio []string) bool {
-	return len(p.AudioLanguages) > 0 && audio != nil && len(MissingAudio(p, originalTag, audio)) == 0
+	return len(p.AudioLanguages) > 0 && audio != nil && len(MissingAudio(p, originalTag, audio)) == 0 &&
+		len(MissingOptionalAudio(p, originalTag, audio)) == 0
 }
 
 // baseLanguage is a tag's primary subtag, lower-cased.

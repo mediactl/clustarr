@@ -263,7 +263,7 @@ func (s *Stage) gatherSeries(ctx context.Context, ser *catalogv1alpha1.Series, v
 	if err != nil {
 		return sv, served, err
 	}
-	prof, err := itemread.Profile(ctx, r, cfg.QualityProfileRef)
+	prof, err := itemread.ItemProfile(ctx, r, ser, cfg.QualityProfileRef)
 	if err == nil {
 		sv.Profile = cfg.QualityProfileRef
 	}

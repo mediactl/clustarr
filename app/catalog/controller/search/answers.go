@@ -198,7 +198,7 @@ func (r *Reconciler) itemTarget(ctx context.Context, s *catalogv1alpha1.Search) 
 	if err != nil {
 		return decision.Target{}, nil
 	}
-	profile, err := itemread.Profile(ctx, r.Client, cfg.QualityProfileRef)
+	profile, err := itemread.ItemProfile(ctx, r.Client, item, cfg.QualityProfileRef)
 	if err != nil {
 		return decision.Target{}, nil
 	}

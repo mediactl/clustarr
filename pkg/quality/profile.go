@@ -67,6 +67,14 @@ type Profile struct {
 	// AudioCompleteFirst is QualityProfileSpec.Audio.CompleteFirst: a
 	// release carrying every wanted language ranks ahead of every other key.
 	AudioCompleteFirst bool
+	// AudioOptional are languages the item wants but does not require: an
+	// anime whose English dub is still airing (decision.ForDub, from the
+	// MAL-Dubs list's incomplete ids; owner, 2026-11-03). A release or file
+	// without them is not refused and meets the cutoff; one with them still
+	// ranks first and replaces a file lacking them, and status.audio keeps
+	// them missing so a donor search looks for them. Never set from the CRD,
+	// and outside Hash: it is the item's, not the profile's.
+	AudioOptional []string
 	// ScoreSet is the resolved score set ("default", "anime-sonarr",
 	// "anime-radarr"). Scores already reflects it, so Hash leaves it out;
 	// pkg/decision reads it to know a release title's anime conventions.

@@ -29,6 +29,7 @@ import (
 	torrentagent "github.com/mediactl/clustarr/app/grab/agent/torrent"
 	"github.com/mediactl/clustarr/pkg/agentdomain"
 	"github.com/mediactl/clustarr/pkg/busconn"
+	"github.com/mediactl/clustarr/pkg/dubs"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/ffruntime"
 	"github.com/mediactl/clustarr/pkg/grouplang"
@@ -67,6 +68,11 @@ func Run(ctx context.Context, o Options) error {
 	// read.
 	groups := grouplang.NewIndex()
 	ctx = release.WithGroupLanguages(ctx, groups)
+	// The MAL-Dubs list (pkg/dubs) beside them: which anime have an English
+	// dub, for the audio policy decision.ForDub makes of each item's
+	// profile; every anime is Ungoverned until the bucket is read.
+	dubIndex := dubs.NewIndex()
+	ctx = dubs.WithIndex(ctx, dubIndex)
 
 	// 4.
 	k8s.RegisterRESTClientMetrics()
@@ -157,6 +163,11 @@ func Run(ctx context.Context, o Options) error {
 		return groups.Run(ctx, bus.KV(events.BucketReleaseGroups))
 	})); err != nil {
 		return fmt.Errorf("agent %s: add the release groups index: %w", o.Domain, err)
+	}
+	if err := mgr.Add(k8s.EveryReplica(func(ctx context.Context) error {
+		return dubIndex.Run(ctx, bus.KV(events.BucketMALDubs))
+	})); err != nil {
+		return fmt.Errorf("agent %s: add the MAL-Dubs index: %w", o.Domain, err)
 	}
 	if err := registerIndexes(ctx, mgr.GetFieldIndexer(), reg.Indexes); err != nil {
 		return fmt.Errorf("agent %s: %w", o.Domain, err)

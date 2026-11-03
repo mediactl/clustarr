@@ -116,7 +116,7 @@ func (s *Stage) gatherInto(ctx context.Context, item client.Object, now time.Tim
 		return err
 	}
 	v.ProfileRef = cfg.QualityProfileRef
-	switch p, err := itemread.Profile(ctx, r, cfg.QualityProfileRef); {
+	switch p, err := itemread.ItemProfile(ctx, r, item, cfg.QualityProfileRef); {
 	case err == nil:
 		v.Profile = p
 	case errors.Is(err, itemread.ErrNoProfile):

@@ -44,6 +44,7 @@ import (
 	seriesctl "github.com/mediactl/clustarr/app/catalog/controller/series"
 	"github.com/mediactl/clustarr/app/remediation/mfindex"
 	"github.com/mediactl/clustarr/pkg/decision"
+	"github.com/mediactl/clustarr/pkg/dubs"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
@@ -592,5 +593,7 @@ func (r *Reconciler) resolveProfile(ctx context.Context, ep *catalogv1alpha1.Epi
 	if len(errs) > 0 {
 		return nil, fmt.Sprintf("qualityProfile %q does not parse: %s", qp.Name, errors.Join(errs...)), nil
 	}
+	// The series' English dub, as the MAL-Dubs list knows it (pkg/dubs).
+	p = decision.ForDub(p, dubs.From(ctx).Series(s))
 	return &p, "", nil
 }

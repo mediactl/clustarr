@@ -1239,6 +1239,9 @@ func defaultBuckets() []BucketSpec {
 		// Durable: what a group's files carried is learned once, from imports
 		// before a transcode drops a language, and cannot be learned again.
 		durable(b(BucketReleaseGroups, 0, "The audio each release group's imported files carried.")),
+		// Durable: the list is fetched once a day, and a restart that lost it
+		// would leave every anime Ungoverned until the next fetch.
+		durable(b(BucketMALDubs, 0, "The MAL-Dubs list: MAL ids of anime with an English dub.")),
 		b(BucketIndexerSessions, 30*24*time.Hour, "Cardigann cookies and JWTs."),
 		b(BucketIndexerLimits, 2*24*time.Hour, "Query and grab timestamp rings."),
 		b(BucketProviderThrottle, 24*time.Hour, "Subtitle provider throttle table."),

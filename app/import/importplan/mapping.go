@@ -231,7 +231,7 @@ func audioFill(p quality.Profile, originalTag string, existing []catalogv1alpha1
 	replaceable, incomplete := 0, 0
 	for i := range existing {
 		audio := decision.AudioLanguages(existing[i].Status.MediaInfo)
-		if decision.ReplaceableAudio(p, originalTag, audio) {
+		if decision.AudioUpgradeable(p, originalTag, audio) {
 			replaceable++
 		}
 		if decision.IncompleteAudio(p, originalTag, audio) {

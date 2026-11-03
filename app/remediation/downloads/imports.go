@@ -39,6 +39,7 @@ import (
 	"github.com/mediactl/clustarr/app/import/mediafilespec"
 	"github.com/mediactl/clustarr/app/remediation"
 	"github.com/mediactl/clustarr/app/remediation/mfindex"
+	"github.com/mediactl/clustarr/pkg/decision"
 	"github.com/mediactl/clustarr/pkg/events"
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/quality"
@@ -229,6 +230,8 @@ func (s *Stage) importInput(
 		} else if p, errs := quality.FromCRD(&qp, catalogue.LoadedCatalogue()); len(errs) > 0 {
 			in.ProfileError = fmt.Sprintf("%v", errs[0])
 		} else {
+			// The owner's English dub, as the MAL-Dubs list knows it (pkg/dubs).
+			p = decision.ForDub(p, itemread.DubState(ctx, s.o.Reader, ow.obj))
 			in.Profile = &p
 		}
 	} else {

@@ -25,6 +25,8 @@ import (
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/app/catalog/controller/rollup"
+	"github.com/mediactl/clustarr/pkg/decision"
+	"github.com/mediactl/clustarr/pkg/dubs"
 	"github.com/mediactl/clustarr/pkg/quality"
 )
 
@@ -78,4 +80,14 @@ func TestAudioStateFor(t *testing.T) {
 	require.Nil(t, rollup.AudioStateFor(&quality.Profile{}, "ja", mf("jpn"), rollup.GraftObservation{}), "no audio policy")
 	require.Nil(t, rollup.AudioStateFor(nil, "ja", mf("jpn"), rollup.GraftObservation{}))
 	require.Nil(t, rollup.AudioStateFor(p, "ja", nil, rollup.GraftObservation{}), "no file")
+
+	// An anime whose dub is still airing (decision.ForDub, Incomplete): its
+	// optional English is missing like any other language, so the donor
+	// search keeps looking; one the MAL-Dubs list does not name wants none.
+	incomplete := decision.ForDub(*p, dubs.Incomplete)
+	require.Equal(t, &catalogv1alpha1.AudioState{Wanted: []string{"ja", "en"}, Present: []string{"ja"}, Missing: []string{"en"}, Graft: "searching"},
+		rollup.AudioStateFor(&incomplete, "ja", mf("jpn"), rollup.GraftObservation{}))
+	none := decision.ForDub(*p, dubs.NotDubbed)
+	require.Equal(t, &catalogv1alpha1.AudioState{Wanted: []string{"ja"}, Present: []string{"ja"}, Graft: "none"},
+		rollup.AudioStateFor(&none, "ja", mf("jpn"), rollup.GraftObservation{}))
 }

@@ -291,6 +291,7 @@ func (w *Worker) handleSearchTask(ctx context.Context, span trace.Span, m events
 		}
 		return err
 	}
+	profile = decision.ForDub(profile, snap.Dub)
 
 	if task.Purpose == schema.SearchPurposeAudioDonor {
 		// An audio donor search (anime dual-audio spec §6.1): judged on the
