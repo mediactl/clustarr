@@ -216,28 +216,26 @@ apply. There are two supported paths:
 
 ## GOMEMLIMIT
 
-Every clustarr binary sets its own Go memory limit as it starts: it reads its
-container's memory limit from the cgroup and takes the share `AUTOMEMLIMIT`
-names (`pkg/gomemlimit`, over `github.com/KimMachineGun/automemlimit`). Every
-workload the chart renders sets that share (`clustarr.automemlimit` in
-`templates/_helpers.tpl`): `0.80`, except `agent-import` and `agent-caption`
-(`0.60`) and `markers` (`0.50`), whose FFmpeg, par2 and ONNX Runtime
-allocations live outside the Go heap. The env carries no byte count, so a
-memory limit's edit needs no matching edit of the Go limit, and a container
-with no memory limit runs with no Go limit. A workload's own `goMemLimit`
-(the manager's, in Go's syntax, e.g. `1GiB`) renders `GOMEMLIMIT` in place of
-the share, and an explicit `GOMEMLIMIT` always wins. `config/manager` carries
-the same shares, and `TestTheGoMemoryLimitIsItsShareOfTheLimit` holds the
-two installers together.
+Every clustarr binary sets its own Go memory limit before `main` runs: it
+imports `github.com/KimMachineGun/automemlimit`, which reads the container's
+memory limit from the cgroup and takes 90% of it, or the share
+`AUTOMEMLIMIT` names. The chart sets `AUTOMEMLIMIT` only where FFmpeg, par2
+and ONNX Runtime allocate outside the Go heap: `agent-import` and
+`agent-caption` (`0.60`) and `markers` (`0.50`); the transcode pool and graft
+pods the manager builds get `0.60` the same way
+(`app/transcode/controller/pool`). No env carries a byte count, so a memory
+limit's edit needs no matching edit of the Go limit, and a container with no
+memory limit runs with no Go limit. A workload's own `goMemLimit` (the
+manager's, in Go's syntax, e.g. `1GiB`) renders `GOMEMLIMIT`, which wins.
+`config/manager` sets the same, and `TestTheGoMemoryLimitIsItsShareOfTheLimit`
+holds the two installers together.
 
-The pods the manager builds at runtime set the same variable from Go: the
-torrent/usenet engines (`app/grab/controller/downloadclient`, `0.80`) and the
-transcode pool and graft pods (`app/transcode/controller/pool`, `0.60`). An
-engine whose `DownloadClient.spec.resources` sets no memory limit gets
-`manager.engineMemoryLimits` (the manager's
-`--engine-memory-limit-usenet`/`-torrent`, `8Gi` and `2Gi`): an engine never
-runs without a limit and a Go limit. Without them a usenet engine's garbage
-grew to 20.7 GiB; under `8Gi` it plateaus near 5.5 GB.
+The torrent/usenet engines the manager's DownloadClient controller builds
+take the default 90% of their memory limit, which is the `DownloadClient`'s
+own, or, when its `spec.resources` sets none, `manager.engineMemoryLimits`
+(the manager's `--engine-memory-limit-usenet`/`-torrent`, `8Gi` and `2Gi`):
+an engine never runs without a limit and a Go limit. Without them a usenet
+engine's garbage grew to 20.7 GiB; under `8Gi` it plateaus near 5.5 GB.
 
 `GOMAXPROCS` needs nothing of the kind: since Go 1.25 the runtime sizes it
 from the cgroup's CPU limit (rounded up, at least 2) and follows a change.
@@ -516,7 +514,7 @@ template.
 | `manager.cardigann.definitions.configMap`/`.existingClaim`/`.subPath` | A ConfigMap or PVC of definition files, mounted read-only into the manager as `--cardigann-definitions-dir`, **replacing** the corpus; one, not both. | `""` |
 | `manager.graftConcurrency` | Audio grafts running at once in the namespace (`--graft-concurrency`): the admission ledger's graft slots, each a CPU pod of a cpu pool's size. | `2` |
 | `manager.videoTranscodeLease` | `<namespace>/<name>` of cluster-plex's video-transcode Lease (`--video-transcode-lease`): while it counts a conversion on the GPU pool, transcode admission admits no new file to intel, and running encodes finish. With cluster-plex's `videoTranscode` on, `<release namespace>/cluster-plex-video-transcodes`. | `""` |
-| `manager.engineMemoryLimits.usenet`/`.torrent` | Memory limit of a download engine pod whose `DownloadClient.spec.resources` sets none (`--engine-memory-limit-usenet`/`-torrent`); its Go memory limit is 80% of it and it requests `512Mi`. A `DownloadClient`'s own memory limit wins. See [GOMEMLIMIT](#gomemlimit). | `8Gi`, `2Gi` |
+| `manager.engineMemoryLimits.usenet`/`.torrent` | Memory limit of a download engine pod whose `DownloadClient.spec.resources` sets none (`--engine-memory-limit-usenet`/`-torrent`); its Go memory limit is 90% of it and it requests `512Mi`. A `DownloadClient`'s own memory limit wins. See [GOMEMLIMIT](#gomemlimit). | `8Gi`, `2Gi` |
 | `manager.remediation.concurrency` | MediaFiles and items the remediation loop reconciles at once (`--remediation-concurrency`, 1-64). | `16` |
 | `manager.remediation.bulkWritesPerSecond` | MediaFile status applies per second that no grant, answer, intent or first probe caused (`--remediation-bulk-writes-per-second`); `0` disables the pacing. | `25` |
 | `manager.remediation.ioWorkers` | Goroutines for the loop's `/data` calls (`--remediation-io-workers`, 1-64). | `8` |

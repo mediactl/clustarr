@@ -36,6 +36,7 @@ import (
 	"syscall"
 	"time"
 
+	_ "github.com/KimMachineGun/automemlimit"
 	"github.com/nats-io/nats.go"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -49,7 +50,6 @@ import (
 	"github.com/mediactl/clustarr/pkg/ffruntime"
 	"github.com/mediactl/clustarr/pkg/ffruntime/ffmetrics"
 	"github.com/mediactl/clustarr/pkg/fsops"
-	"github.com/mediactl/clustarr/pkg/gomemlimit"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/obsflags"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
@@ -60,10 +60,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/version"
 )
 
-func main() {
-	gomemlimit.Set()
-	os.Exit(run(os.Args[1:], os.Getenv))
-}
+func main() { os.Exit(run(os.Args[1:], os.Getenv)) }
 
 // flags is markers' flag set: newFlags builds it, run parses it, and the
 // installers' markers args are parsed through it.

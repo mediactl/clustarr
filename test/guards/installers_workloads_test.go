@@ -34,7 +34,6 @@ import (
 	"github.com/mediactl/clustarr/app/grab/controller/downloadclient"
 	"github.com/mediactl/clustarr/app/transcode/controller/pool"
 	"github.com/mediactl/clustarr/pkg/binpath"
-	"github.com/mediactl/clustarr/pkg/gomemlimit"
 	"github.com/mediactl/clustarr/test/installtest"
 )
 
@@ -87,11 +86,13 @@ func TestEveryContainerNamesItsBinary(t *testing.T) {
 }
 
 // TestTheGoMemoryLimitIsItsShareOfTheLimit (§10.2.1, OD42; owner,
-// 2026-11-03): every workload sets a memory limit and AUTOMEMLIMIT, the
-// share of it the binary takes as its Go memory limit from its cgroup
-// (pkg/gomemlimit) -- 60% for agent-import and agent-caption, 50% for
-// markers, 80% elsewhere -- never a GOMEMLIMIT byte count, in both
-// installers, and their defaults agree.
+// 2026-11-03): every binary takes a share of its cgroup's memory limit as
+// its Go memory limit (github.com/KimMachineGun/automemlimit), so every
+// workload sets a memory limit and no GOMEMLIMIT byte count, and only a
+// process whose FFmpeg, par2 or ONNX Runtime allocates outside the Go heap
+// names its share in AUTOMEMLIMIT -- 0.60 for agent-import and
+// agent-caption, 0.50 for markers -- the rest taking automemlimit's 0.9;
+// in both installers, and their defaults agree.
 func TestTheGoMemoryLimitIsItsShareOfTheLimit(t *testing.T) {
 	values := map[string]map[string]string{}
 	for name, r := range installers(t) {
@@ -102,12 +103,11 @@ func TestTheGoMemoryLimitIsItsShareOfTheLimit(t *testing.T) {
 			c := d.Spec.Template.Spec.Containers[0]
 			limit, ok := c.Resources.Limits[corev1.ResourceMemory]
 			require.True(t, ok, "%s %s sets no memory limit", name, component)
-			got, ok := containerEnv(c, gomemlimit.Env)
-			require.True(t, ok, "%s %s sets no %s", name, component, gomemlimit.Env)
-			assert.Equal(t, gomemlimit.Share(int(row.gomemPct)), got, "%s %s: the Go memory limit is %d%% of %s", name, component, row.gomemPct, limit.String())
+			got, _ := containerEnv(c, "AUTOMEMLIMIT")
+			assert.Equal(t, row.automemlimit, got, "%s %s: AUTOMEMLIMIT", name, component)
 			_, ok = containerEnv(c, "GOMEMLIMIT")
 			assert.False(t, ok, "%s %s: a GOMEMLIMIT would override the share", name, component)
-			values[name][component] = fmt.Sprintf("%s of %d", got, limit.Value())
+			values[name][component] = fmt.Sprintf("%q of %d", got, limit.Value())
 		}
 		require.Len(t, values[name], len(workloadTable), name)
 	}

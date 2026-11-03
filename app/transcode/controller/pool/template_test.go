@@ -36,7 +36,6 @@ import (
 
 	transcodev1alpha1 "github.com/mediactl/clustarr/api/transcode/v1alpha1"
 	"github.com/mediactl/clustarr/app/transcode/jobspec"
-	"github.com/mediactl/clustarr/pkg/gomemlimit"
 )
 
 // Every transcode pool pod runs with the security settings every Deployment
@@ -191,7 +190,7 @@ func TestBuildJobPassesUmask(t *testing.T) {
 // pods the manager builds): a pool pod -- and so a graft Job's, which runs
 // the cpu pool's template -- sets its Go memory limit to 60% of its memory
 // limit, the share OD42 gives every process whose FFmpeg allocates outside
-// the Go heap, read from its cgroup (AUTOMEMLIMIT, pkg/gomemlimit). The env
+// the Go heap, read from its cgroup (AUTOMEMLIMIT, automemlimit). The env
 // names no byte count, so it is the same whatever the profile's limit, and
 // none whatever its class; a pool with no memory limit finds none in its
 // cgroup and runs with no Go limit.
@@ -221,7 +220,7 @@ func TestPoolPodsGetTheirGoMemoryLimitShare(t *testing.T) {
 	} {
 		for _, class := range []transcodev1alpha1.Hardware{transcodev1alpha1.HardwareCPU, transcodev1alpha1.HardwareNVIDIA, transcodev1alpha1.HardwareIntel} {
 			env := envOf(tp, class)
-			assert.Equal(t, "0.60", env[gomemlimit.Env], "%s, %s", name, class)
+			assert.Equal(t, "0.60", env["AUTOMEMLIMIT"], "%s, %s", name, class)
 			assert.NotContains(t, env, "GOMEMLIMIT", "%s, %s: the share, never a byte count", name, class)
 		}
 	}

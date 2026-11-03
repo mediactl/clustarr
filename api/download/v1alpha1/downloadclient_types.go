@@ -563,8 +563,8 @@ type DownloadClientSpec struct {
 	// it sets no memory limit the engine still gets one, its protocol's
 	// default (the manager's --engine-memory-limit-usenet, 8Gi, or
 	// --engine-memory-limit-torrent, 2Gi; or the memory request when that is
-	// higher), with a 512Mi memory request when it sets none. GOMEMLIMIT is
-	// 80% of the memory limit either way.
+	// higher), with a 512Mi memory request when it sets none. Its Go memory
+	// limit is 90% of the memory limit either way.
 	// +optional
 	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
 

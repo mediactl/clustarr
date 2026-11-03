@@ -279,7 +279,7 @@
         "replicas": { "type": "integer", "minimum": 1, "description": "Unset is 1, or with placement.enabled the profile's; more than a onePerNode profile allows fails the render." },
         "pprofBindAddress": { "type": "string", "description": "--pprof-bind-address; empty keeps the manager's default, 127.0.0.1:6060." },
         "gogc": { "type": "integer", "minimum": 1, "description": "GOGC for the manager." },
-        "goMemLimit": { "type": "string", "pattern": "^[0-9]+(B|KiB|MiB|GiB|TiB)?$", "description": "GOMEMLIMIT in Go's syntax, in place of 80% of resources.limits.memory." },
+        "goMemLimit": { "type": "string", "pattern": "^[0-9]+(B|KiB|MiB|GiB|TiB)?$", "description": "GOMEMLIMIT in Go's syntax, in place of 90% of resources.limits.memory (automemlimit's share)." },
         "watchReleaseNamespace": { "type": "boolean", "description": "--watch-namespace=<release namespace>: cache only the release's namespace." },
         "slots": {
           "type": "string",
@@ -340,7 +340,7 @@
           "type": "object",
           "additionalProperties": false,
           "required": ["usenet", "torrent"],
-          "description": "The memory limit a download engine pod gets when its DownloadClient's spec.resources sets none; its GOMEMLIMIT is 80% of it. A DownloadClient's own memory limit wins.",
+          "description": "The memory limit a download engine pod gets when its DownloadClient's spec.resources sets none; its Go memory limit is 90% of it. A DownloadClient's own memory limit wins.",
           "properties": {
             "usenet": { "$ref": "#/$defs/quantity", "description": "--engine-memory-limit-usenet." },
             "torrent": { "$ref": "#/$defs/quantity", "description": "--engine-memory-limit-torrent." }

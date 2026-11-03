@@ -317,8 +317,8 @@ func envOf(env []corev1ac.EnvVarApplyConfiguration) map[string]string {
 // they ran as the namespace's unbound "default" account and were denied
 // their own DownloadClient; no POD_NAMESPACE, so they could not even name
 // it; no NATS_URL, so they dialled a Service no installer creates; and no
-// Go memory limit, design §12's 80% of the memory limit (AUTOMEMLIMIT,
-// read from the cgroup by pkg/gomemlimit). envtest schedules no
+// Go memory limit, now automemlimit's 90% of the memory limit, which the
+// engine reads from its cgroup with no env of ours. envtest schedules no
 // pods, so only the rendered pod spec can show any of it.
 func TestEnginePodsGetTheRuntimeTheyNeed(t *testing.T) {
 	rt := EngineRuntime{
@@ -338,8 +338,6 @@ func TestEnginePodsGetTheRuntimeTheyNeed(t *testing.T) {
 		spec  *corev1ac.PodSpecApplyConfiguration
 		extra map[string]string
 	}{
-		// The chart's clustarr.automemlimit renders the same share for a
-		// Deployment (charts/clustarr/README.md).
 		"torrent": {spec: sts.Spec.Template.Spec, extra: map[string]string{
 			torrentFileIOEnv: "classic",
 		}},
@@ -354,7 +352,6 @@ func TestEnginePodsGetTheRuntimeTheyNeed(t *testing.T) {
 				"POD_NAME":      "fieldRef:metadata.name",
 				"NATS_URL":      rt.NATSURL,
 				"UMASK":         "002",
-				"AUTOMEMLIMIT":  "0.80",
 			}
 			maps.Copy(want, tc.extra)
 			assert.Equal(t, want, envOf(c.Env))
@@ -366,12 +363,9 @@ func TestEnginePodsGetTheRuntimeTheyNeed(t *testing.T) {
 		bare := buildStatefulSet(torrentClient("sab", 1), "sab-engine", "img", "/data", "/scratch", "clustarr-data",
 			EngineRuntime{ServiceAccountName: DefaultEngineServiceAccount}, nil, fakeOwnerRef())
 		c := bare.Spec.Template.Spec.Containers[0]
-		// The share applies to the default limit (O9:
-		// TestAnEngineWithoutAMemoryLimitGetsItsProtocolsDefault).
 		assert.Equal(t, map[string]string{
 			"POD_NAMESPACE":  "fieldRef:metadata.namespace",
 			"POD_NAME":       "fieldRef:metadata.name",
-			"AUTOMEMLIMIT":   "0.80",
 			torrentFileIOEnv: "classic",
 		}, envOf(c.Env),
 			"NATS_URL and UMASK are set only when there is something to set them to")
@@ -439,11 +433,11 @@ func TestTheTorrentEngineDoesNotMapItsData(t *testing.T) {
 // a host with 5 GB free -- the collector never ran hard without a limit to
 // aim at. An engine whose spec.resources sets no memory limit gets its
 // protocol's default limit, a request far below it (the scheduler must not
-// reserve the whole ceiling), and a Go memory limit of 80% of it, which the
-// engine reads from its cgroup; a DownloadClient's own memory limit still
-// wins, untouched.
+// reserve the whole ceiling), which the engine reads from its cgroup and
+// takes 90% of as its Go memory limit (automemlimit's default, no env); a
+// DownloadClient's own memory limit still wins, untouched.
 func TestAnEngineWithoutAMemoryLimitGetsItsProtocolsDefault(t *testing.T) {
-	memoryOf := func(spec *corev1ac.PodSpecApplyConfiguration) (limit, request, share string) {
+	memoryOf := func(spec *corev1ac.PodSpecApplyConfiguration) (limit, request string) {
 		c := spec.Containers[0]
 		require.NotNil(t, c.Resources, "the engine container has no resources")
 		if c.Resources.Limits != nil {
@@ -456,7 +450,9 @@ func TestAnEngineWithoutAMemoryLimitGetsItsProtocolsDefault(t *testing.T) {
 				request = q.String()
 			}
 		}
-		return limit, request, envOf(c.Env)["AUTOMEMLIMIT"]
+		assert.NotContains(t, envOf(c.Env), "AUTOMEMLIMIT", "automemlimit's default")
+		assert.NotContains(t, envOf(c.Env), "GOMEMLIMIT", "the engine reads its limit from its cgroup")
+		return limit, request
 	}
 	usenet := func(rt EngineRuntime, rr corev1.ResourceRequirements) *corev1ac.PodSpecApplyConfiguration {
 		dc := usenetClient("nzb")
@@ -501,10 +497,9 @@ func TestAnEngineWithoutAMemoryLimitGetsItsProtocolsDefault(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			limit, request, share := memoryOf(tc.spec)
+			limit, request := memoryOf(tc.spec)
 			assert.Equal(t, tc.limit, limit, "memory limit")
 			assert.Equal(t, tc.request, request, "memory request")
-			assert.Equal(t, "0.80", share, "the Go memory limit's share of it")
 		})
 	}
 }

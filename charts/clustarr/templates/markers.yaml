@@ -133,7 +133,7 @@ spec:
         - name: GLIBC_TUNABLES
           value: glibc.malloc.mmap_threshold=131072
         - name: AUTOMEMLIMIT
-          value: {{ include "clustarr.automemlimit" 50 | quote }}
+          value: "0.50"
         {{- with .Values.markers.consumerSlots }}
         - name: CLUSTARR_CONSUMER_SLOTS
           value: {{ include "clustarr.consumerSlots" . | quote }}

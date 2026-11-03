@@ -19,16 +19,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package main
 
 import (
+	_ "github.com/KimMachineGun/automemlimit"
+
 	"github.com/mediactl/clustarr/internal/cli"
 	"github.com/mediactl/clustarr/internal/cli/agent"
-	"github.com/mediactl/clustarr/pkg/gomemlimit"
 	"github.com/mediactl/clustarr/pkg/par2child"
 )
 
 func main() {
-	// Before the par2 child's dispatch, so a repair runs under the share
-	// of the pod's limit too.
-	gomemlimit.Set()
 	// The usenet engine's par2 repair runs in a child of this binary
 	// ("agent par2-repair", pkg/par2child): dispatched before cobra, flags,
 	// logging or tracing exist (split spec 2026-10-06 §8.4.4).

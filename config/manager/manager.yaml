@@ -112,10 +112,6 @@ spec:
                   fieldPath: status.podIP
             - name: UMASK
               value: "002"
-            # The Go memory limit is 80% of the memory limit, read from the cgroup
-            # at start (pkg/gomemlimit).
-            - name: AUTOMEMLIMIT
-              value: "0.80"
             # The image of every engine, pool and graft pod (--native-image),
             # nvidia pools included: there is no CUDA image
             # (docs/adr/0015-no-cuda-image.md).

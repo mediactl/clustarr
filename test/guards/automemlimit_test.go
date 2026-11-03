@@ -18,7 +18,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package guards
 
 import (
-	"go/ast"
 	"go/parser"
 	"go/token"
 	"os"
@@ -32,36 +31,25 @@ import (
 	"github.com/mediactl/clustarr/test/installtest"
 )
 
-// TestEveryBinarySetsItsGoMemoryLimitFirst (owner, 2026-11-03): the
-// installers set AUTOMEMLIMIT and no GOMEMLIMIT
-// (TestTheGoMemoryLimitIsItsShareOfTheLimit), so a binary that does not
-// call gomemlimit.Set runs with no Go memory limit at all. It is main's
-// first statement, ahead of the agent's par2 child dispatch.
-func TestEveryBinarySetsItsGoMemoryLimitFirst(t *testing.T) {
-	root := installtest.RepoRoot(t)
-	mains, err := filepath.Glob(filepath.Join(root, "cmd", "*", "main.go"))
+// TestEveryBinaryImportsAutomemlimit (owner, 2026-11-03): no installer
+// sets GOMEMLIMIT (TestTheGoMemoryLimitIsItsShareOfTheLimit), so a binary
+// without automemlimit's blank import, which sets the Go memory limit from
+// the cgroup's memory limit before main, runs with no Go memory limit at
+// all.
+func TestEveryBinaryImportsAutomemlimit(t *testing.T) {
+	mains, err := filepath.Glob(filepath.Join(installtest.RepoRoot(t), "cmd", "*", "main.go"))
 	require.NoError(t, err)
 	require.Len(t, mains, 5, "manager, agent, ui, markers, transcode")
 	for _, path := range mains {
-		f, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+		f, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
 		require.NoError(t, err)
-		var main *ast.FuncDecl
-		for _, d := range f.Decls {
-			if fn, ok := d.(*ast.FuncDecl); ok && fn.Recv == nil && fn.Name.Name == "main" {
-				main = fn
+		blank := false
+		for _, imp := range f.Imports {
+			if imp.Path.Value == `"github.com/KimMachineGun/automemlimit"` && imp.Name != nil && imp.Name.Name == "_" {
+				blank = true
 			}
 		}
-		require.NotNil(t, main, path)
-		require.NotEmpty(t, main.Body.List, path)
-		call, ok := main.Body.List[0].(*ast.ExprStmt)
-		require.True(t, ok, "%s: main's first statement is gomemlimit.Set()", path)
-		ce, ok := call.X.(*ast.CallExpr)
-		require.True(t, ok, path)
-		sel, ok := ce.Fun.(*ast.SelectorExpr)
-		require.True(t, ok, path)
-		pkg, ok := sel.X.(*ast.Ident)
-		require.True(t, ok, path)
-		assert.Equal(t, "gomemlimit.Set", pkg.Name+"."+sel.Sel.Name, "%s: main's first statement", path)
+		assert.True(t, blank, `%s: import _ "github.com/KimMachineGun/automemlimit"`, path)
 	}
 }
 
@@ -69,7 +57,7 @@ func TestEveryBinarySetsItsGoMemoryLimitFirst(t *testing.T) {
 // from the cgroup's CPU limit, rounded up and at least 2, and follows a
 // change. go.uber.org/automaxprocs, even through a dependency's blank
 // import, would round it down to 1 on the 500m and 1-CPU pods and stop the
-// runtime's re-check (owner, 2026-11-03: not used; pkg/gomemlimit).
+// runtime's re-check (owner, 2026-11-03: not used).
 func TestNoModuleSetsGOMAXPROCS(t *testing.T) {
 	gomod, err := os.ReadFile(filepath.Join(installtest.RepoRoot(t), "go.mod"))
 	require.NoError(t, err)

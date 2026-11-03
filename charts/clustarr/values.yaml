@@ -446,9 +446,9 @@ securityContext:
 # strategy, grace period -- live in the templates, because getting them wrong
 # is a correctness bug rather than a preference. Each binary's Go memory
 # limit is a share of resources.limits.memory, which it reads from its cgroup
-# (AUTOMEMLIMIT): 80%, except agent-import and agent-caption (60%) and
-# markers (50%), whose FFmpeg, par2 and ONNX Runtime allocations live outside
-# the Go heap.
+# (github.com/KimMachineGun/automemlimit): 90%, except agent-import and
+# agent-caption (AUTOMEMLIMIT 0.60) and markers (0.50), whose FFmpeg, par2 and
+# ONNX Runtime allocations live outside the Go heap.
 
 # Every controller in one process, one replica under the lease
 # manager.clustarr.io (no replica knob). It renders the download engines, the
@@ -501,7 +501,7 @@ manager:
   videoTranscodeLease: ""
   # The memory limit a download engine pod gets when its DownloadClient's
   # spec.resources sets none (--engine-memory-limit-torrent/-usenet); the
-  # engine's Go memory limit is 80% of it, and it requests 512Mi (or the limit,
+  # engine's Go memory limit is 90% of it, and it requests 512Mi (or the limit,
   # if lower). A DownloadClient's own memory limit always wins. Without a
   # limit an engine had no GOMEMLIMIT and kept its garbage: a usenet engine
   # grew to 20.7 GiB, and with 8Gi it plateaued near 5.5 GB.
@@ -537,7 +537,7 @@ manager:
   # net/http/pprof, which the manager serves on 127.0.0.1:6060 when it is
   # empty (reached with kubectl port-forward);
   # gogc sets GOGC and goMemLimit GOMEMLIMIT in Go's syntax (e.g. 1GiB) in
-  # place of 80% of resources.limits.memory; watchReleaseNamespace limits the
+  # place of 90% of resources.limits.memory; watchReleaseNamespace limits the
   # cache to the release's namespace (--watch-namespace).
   pprofBindAddress: ""
   # gogc: 50

@@ -80,7 +80,7 @@ type Options struct {
 	EngineServiceAccount string
 	// EngineMemoryLimitTorrent and EngineMemoryLimitUsenet are the memory
 	// limit an engine pod gets when its DownloadClient's spec.resources sets
-	// none, which also sets its GOMEMLIMIT (smoke finding O9).
+	// none, which also bounds its Go memory limit (smoke finding O9).
 	EngineMemoryLimitTorrent resource.Quantity
 	EngineMemoryLimitUsenet  resource.Quantity
 	// WorkerPlacement is --worker-placement: the workers profile every pod

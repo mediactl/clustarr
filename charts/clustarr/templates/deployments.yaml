@@ -110,7 +110,7 @@ creates those at runtime, owned by the object that asked for them.
       "leaderElect" true "natsSingleNodeFlag" true
       "data" true "index" false
       "strategy" (dict "type" "RollingUpdate" "rollingUpdate" (ternary (dict "maxSurge" 0 "maxUnavailable" 1) (dict "maxSurge" 1 "maxUnavailable" 0) (eq (include "clustarr.onePerNode" (dict "root" $ "values" .Values.manager)) "true")))
-      "grace" 85 "gomemPercent" 80
+      "grace" 85
       "extraPorts" $managerPorts "extraEnv" $managerEnv
       "extraVolumeMounts" $managerMounts "extraVolumes" $managerVolumes) }}
 {{- /* Every agent: grace is the longest AckWait it drains plus 25 s
@@ -120,14 +120,14 @@ creates those at runtime, owned by the object that asked for them.
       "root" $ "component" "agent-catalog" "values" .
       "image" "native" "command" "/usr/bin/agent" "args" (list "--domain=catalog")
       "replicas" .replicas "autoscaled" true "domain" "catalog" "nodeName" true
-      "data" false "index" false "strategy" "" "grace" 145 "gomemPercent" 80) }}
+      "data" false "index" false "strategy" "" "grace" 145) }}
 {{- end }}{{ end }}
 {{- with .Values.agents.events }}{{ if .enabled }}
 {{- include "clustarr.workload" (dict
       "root" $ "component" "agent-events" "values" .
       "image" "native" "command" "/usr/bin/agent" "args" (list "--domain=events")
       "replicas" .replicas "autoscaled" true "domain" "events" "nodeName" true
-      "data" false "index" false "strategy" "" "grace" 55 "gomemPercent" 80) }}
+      "data" false "index" false "strategy" "" "grace" 55) }}
 {{- end }}{{ end }}
 {{- with .Values.agents.metadata }}{{ if .enabled }}
 {{- /* Exactly one, Recreate: in-process provider limiters (ADR-0007). */}}
@@ -135,14 +135,14 @@ creates those at runtime, owned by the object that asked for them.
       "root" $ "component" "agent-metadata" "values" .
       "image" "native" "command" "/usr/bin/agent" "args" (list "--domain=metadata")
       "replicas" 1 "nodeName" true "data" false "index" false
-      "strategy" (dict "type" "Recreate") "grace" 85 "gomemPercent" 80) }}
+      "strategy" (dict "type" "Recreate") "grace" 85) }}
 {{- end }}{{ end }}
 {{- with .Values.agents.import }}{{ if .enabled }}
 {{- include "clustarr.workload" (dict
       "root" $ "component" "agent-import" "values" .
       "image" "native" "command" "/usr/bin/agent" "args" (list "--domain=import")
       "replicas" .replicas "autoscaled" true "domain" "import" "nodeName" true
-      "data" true "index" false "strategy" "" "grace" 85 "gomemPercent" 60) }}
+      "data" true "index" false "strategy" "" "grace" 85 "automemlimit" "0.60") }}
 {{- end }}{{ end }}
 {{- with .Values.agents.index }}{{ if .enabled }}
 {{- $indexEnv := list
@@ -163,7 +163,7 @@ creates those at runtime, owned by the object that asked for them.
       "root" $ "component" "agent-index" "values" .
       "image" "native" "command" "/usr/bin/agent" "args" (list "--domain=index")
       "replicas" 1 "nodeName" true "data" false "index" (not $.Values.postgres.enabled)
-      "strategy" (dict "type" "Recreate") "grace" 85 "gomemPercent" 80
+      "strategy" (dict "type" "Recreate") "grace" 85
       "serviceType" .facade.service.type
       "extraPorts" (list (dict "name" "http" "containerPort" 8080))
       "extraServicePorts" (list (dict "name" "http" "port" .facade.service.port "targetPort" "http"))
@@ -174,7 +174,7 @@ creates those at runtime, owned by the object that asked for them.
       "root" $ "component" "agent-caption" "values" .
       "image" "native" "command" "/usr/bin/agent" "args" (list "--domain=caption")
       "replicas" .replicas "autoscaled" true "domain" "caption" "nodeName" true
-      "data" true "index" false "strategy" "" "grace" 115 "gomemPercent" 60) }}
+      "data" true "index" false "strategy" "" "grace" 115 "automemlimit" "0.60") }}
 {{- end }}{{ end }}
 {{- if .Values.ui.enabled }}
 {{/* ui does not fit clustarr.workload: it runs no controller-runtime
@@ -313,8 +313,6 @@ spec:
             secretKeyRef:
               name: {{ include "clustarr.fullname" $ }}-ui-art-signing-key
               key: key
-        - name: AUTOMEMLIMIT
-          value: {{ include "clustarr.automemlimit" 80 | quote }}
         ports:
         - name: http
           containerPort: 8080

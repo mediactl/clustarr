@@ -19,12 +19,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package main
 
 import (
+	_ "github.com/KimMachineGun/automemlimit"
+
 	"github.com/mediactl/clustarr/internal/cli"
 	"github.com/mediactl/clustarr/internal/cli/manager"
-	"github.com/mediactl/clustarr/pkg/gomemlimit"
 )
 
-func main() {
-	gomemlimit.Set()
-	cli.Main(manager.NewCommand)
-}
+func main() { cli.Main(manager.NewCommand) }

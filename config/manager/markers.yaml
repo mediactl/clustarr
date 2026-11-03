@@ -102,9 +102,10 @@ spec:
             # with it 2.8 GB.
             - name: GLIBC_TUNABLES
               value: glibc.malloc.mmap_threshold=131072
-            # The Go memory limit is 50% of the memory limit, read from the cgroup
-            # at start (pkg/gomemlimit): FFmpeg and ONNX Runtime allocate
-            # outside the Go heap (OD42).
+            # AUTOMEMLIMIT: the binary takes 50% of its memory limit, read from
+            # its cgroup, as its Go memory limit (automemlimit; 90% where
+            # unset): FFmpeg and ONNX Runtime allocate outside the Go heap
+            # (OD42).
             - name: AUTOMEMLIMIT
               value: "0.50"
           ports:

@@ -35,7 +35,6 @@ import (
 
 	downloadv1alpha1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/binpath"
-	"github.com/mediactl/clustarr/pkg/gomemlimit"
 	"github.com/mediactl/clustarr/pkg/placement"
 )
 
@@ -141,14 +140,16 @@ type EngineRuntime struct {
 // Without a limit an engine had no GOMEMLIMIT either, and Go's collector,
 // pacing only on GOGC, let garbage grow with the transfers: a usenet engine
 // reached 20.7 GiB on a host with 5 GB free (smoke finding O9), and with an
-// 8Gi limit (GOMEMLIMIT 6.4 GB) the same load plateaued near 5.5 GB.
+// 8Gi limit (GOMEMLIMIT 6.4 GB) the same load plateaued near 5.5 GB. The
+// engine now takes 90% of its limit as its Go memory limit
+// (github.com/KimMachineGun/automemlimit's default).
 //
 //   - usenet, 8Gi: ten concurrent transfers over up to 160 NNTP
 //     connections, each pipelining articles of ~750 KB through yEnc decode,
 //     plus assembly and rardecode buffers -- several GiB under load is the
 //     working set, not a leak (the live plateau above). par2 repairs run in
 //     child processes (pkg/par2child) outside the Go heap, so the limit
-//     leaves them the fifth GOMEMLIMIT does not take.
+//     leaves them the tenth the Go memory limit does not take.
 //   - torrent, 2Gi: anacrolix keeps per-torrent piece bitmaps and per-peer
 //     request state (docs/research/download.md: realistic for hundreds of
 //     torrents per pod, design §12's ceiling is 500) and at most
@@ -217,11 +218,10 @@ func memoryLimitOr(q resource.Quantity, fallback string) resource.Quantity {
 }
 
 // engineEnv is every engine container's environment: POD_NAMESPACE and
-// POD_NAME always, then whatever of rt the controller has, then
-// AUTOMEMLIMIT, design §12's 80% for both protocols: the engine sets its Go
-// memory limit to that share of the container's memory limit
-// ([engineResources], which always sets one) as it starts (pkg/gomemlimit),
-// as every Deployment the chart renders does.
+// POD_NAME always, then whatever of rt the controller has. No AUTOMEMLIMIT:
+// the engine takes automemlimit's default, 90% of the container's memory
+// limit ([engineResources], which always sets one), as its Go memory limit
+// at start.
 func engineEnv(rt EngineRuntime) []*corev1ac.EnvVarApplyConfiguration {
 	env := []*corev1ac.EnvVarApplyConfiguration{
 		corev1ac.EnvVar().WithName("POD_NAMESPACE").WithValueFrom(corev1ac.EnvVarSource().
@@ -235,7 +235,7 @@ func engineEnv(rt EngineRuntime) []*corev1ac.EnvVarApplyConfiguration {
 	if rt.Umask != "" {
 		env = append(env, corev1ac.EnvVar().WithName("UMASK").WithValue(rt.Umask))
 	}
-	return append(env, corev1ac.EnvVar().WithName(gomemlimit.Env).WithValue(gomemlimit.Share(gomemlimit.DefaultPercent)))
+	return env
 }
 
 // engineWorkloadName is spec §6.3's `<downloadclient>-engine` naming: the

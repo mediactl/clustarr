@@ -84,11 +84,11 @@ func NewCommandWith(run RunFunc) *cobra.Command {
 			d.EngineServiceAccount+".")
 
 	fs.StringVar(&memoryLimitTorrent, "engine-memory-limit-torrent", memoryLimitTorrent,
-		"Memory limit of a torrent engine pod whose DownloadClient's spec.resources sets none; its GOMEMLIMIT is "+
-			"80% of it, and it requests 512Mi (or the limit, if lower). A DownloadClient's own memory limit wins.")
+		"Memory limit of a torrent engine pod whose DownloadClient's spec.resources sets none; its Go memory limit is "+
+			"90% of it, and it requests 512Mi (or the limit, if lower). A DownloadClient's own memory limit wins.")
 	fs.StringVar(&memoryLimitUsenet, "engine-memory-limit-usenet", memoryLimitUsenet,
-		"Memory limit of a usenet engine pod whose DownloadClient's spec.resources sets none; its GOMEMLIMIT is "+
-			"80% of it, and it requests 512Mi. A DownloadClient's own memory limit wins.")
+		"Memory limit of a usenet engine pod whose DownloadClient's spec.resources sets none; its Go memory limit is "+
+			"90% of it, and it requests 512Mi. A DownloadClient's own memory limit wins.")
 
 	fs.StringVar(&slots, "slots", transcodemanager.FormatSlots(d.Slots),
 		"Concurrent transcode budget per hardware class, e.g. cpu=2,nvidia=1,intel=1. "+

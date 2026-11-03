@@ -84,9 +84,9 @@ spec:
                   fieldPath: spec.nodeName
             - name: UMASK
               value: "002"
-            # The Go memory limit is 60% of the memory limit, read from the cgroup
-            # at start (pkg/gomemlimit): FFmpeg allocates outside the Go heap
-            # (OD42).
+            # AUTOMEMLIMIT: the binary takes 60% of its memory limit, read from
+            # its cgroup, as its Go memory limit (automemlimit; 90% where
+            # unset): FFmpeg allocates outside the Go heap (OD42).
             - name: AUTOMEMLIMIT
               value: "0.60"
           ports:

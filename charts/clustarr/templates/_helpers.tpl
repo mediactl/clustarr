@@ -121,23 +121,6 @@ false
 {{- end -}}
 
 {{/*
-AUTOMEMLIMIT: the Go memory limit's share of a container's memory limit, as
-pkg/gomemlimit.Share renders it ("0.80"). Call with the percent: 80 for every
-Go-heavy process, 60 for agent-import and agent-caption and 50 for markers,
-whose FFmpeg, par2 and ONNX Runtime allocations live outside the Go heap
-(spec 2026-10-06 §10.2.1, OD42). Every binary reads its own memory limit
-from its cgroup at start and sets GOMEMLIMIT to this share of it
-(github.com/KimMachineGun/automemlimit; owner, 2026-11-03), so the env
-carries no byte count and a container without a memory limit runs with no
-Go limit. The download engines and transcode pools the manager builds get
-the same variable from Go (app/grab/controller/downloadclient,
-app/transcode/controller/pool).
-*/}}
-{{- define "clustarr.automemlimit" -}}
-{{- printf "%.2f" (divf (. | float64) 100.0) -}}
-{{- end -}}
-
-{{/*
 CLUSTARR_CONSUMER_SLOTS from a consumerSlots map (consumer -> per-pod
 slots): "a=1,b=2", keys in sorted order (spec 2026-10-06 §9.2). The
 autoscale reconciler reads the same value from the pod template.
@@ -394,8 +377,10 @@ Call with a dict:
   index              true to mount the RWO index volume at /var/lib/clustarr/index
   strategy           a Deployment strategy map, or "" for the apps/v1 default
   grace              terminationGracePeriodSeconds (longest AckWait drained + 25 s, spec §3.5.6)
-  gomemPercent       the Go memory limit's share of resources.limits.memory,
-                     rendered as AUTOMEMLIMIT (default 80)
+  automemlimit       AUTOMEMLIMIT, the share of resources.limits.memory the binary
+                     takes from its cgroup as its Go memory limit, for a process
+                     whose FFmpeg or par2 allocates outside the Go heap ("0.60",
+                     OD42); unset, automemlimit's own 0.9
   serviceType        the Service's type (default ClusterIP)
   extraPorts         list of (dict "name" "containerPort") before metrics and health
   extraServicePorts  list of (dict "name" "port" "targetPort") before metrics
@@ -550,16 +535,17 @@ spec:
         - name: UMASK
           value: "002"
         {{- end }}
-        {{- /* A workload's own goMemLimit (Go's syntax, e.g. 1GiB) wins over the
-               share of its memory limit, which the binary reads from its
-               cgroup; gogc sets GOGC (control-plane placement design
-               §5.4.1). */}}
+        {{- /* Every binary takes a share of its cgroup's memory limit as its Go
+               memory limit (github.com/KimMachineGun/automemlimit): 0.9, or
+               .automemlimit's. A workload's own goMemLimit (Go's syntax,
+               e.g. 1GiB) wins over it; gogc sets GOGC (control-plane
+               placement design §5.4.1). */}}
         {{- if .values.goMemLimit }}
         - name: GOMEMLIMIT
           value: {{ .values.goMemLimit | quote }}
-        {{- else }}
+        {{- else if .automemlimit }}
         - name: AUTOMEMLIMIT
-          value: {{ include "clustarr.automemlimit" (default 80 .gomemPercent) | quote }}
+          value: {{ .automemlimit | quote }}
         {{- end }}
         {{- with .values.gogc }}
         - name: GOGC
