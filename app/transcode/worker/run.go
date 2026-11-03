@@ -409,10 +409,14 @@ func (r *runner) run(ctx context.Context) error {
 		removePart(ctx, job.part)
 		return verifyFailed("transcode worker: output failed verification: %v", report.Problems)
 	}
-	if limit := jobspec.MaxOutputToSourcePercent(r.t.Profile.Spec.Policy); outputTooLarge(job.plan, limit, report.SizeBytes, st.Size()) {
+	policy := jobspec.MaxOutputToSourcePercent(r.t.Profile.Spec.Policy)
+	if limit := sizeLimit(policy, sourceCodec(info)); outputTooLarge(job.plan, limit, report.SizeBytes, st.Size()) {
 		removePart(ctx, job.part)
-		return verifyFailed("transcode worker: output is %d%% of the source, above policy.maxOutputToSourcePercent %d",
-			sizePercent(report.SizeBytes, st.Size()), limit)
+		over := fmt.Sprintf("policy.maxOutputToSourcePercent %d", limit)
+		if limit != policy {
+			over = fmt.Sprintf("the %d%% an AV1 source may reach", limit)
+		}
+		return verifyFailed("transcode worker: output is %d%% of the source, above %s", sizePercent(report.SizeBytes, st.Size()), over)
 	}
 
 	// The encode can take hours. If the source changed under it, the
@@ -842,6 +846,33 @@ func formatTag(raw *mediainfo.Raw, key string) string {
 // a limit of 100 failed every one (policy.keepCodecs, 2026-10-15).
 func outputTooLarge(plan standard.Result, limit int32, out, src int64) bool {
 	return plan.Decision == standard.DecisionEncode && limit > 0 && out*100 > src*int64(limit)
+}
+
+// AV1LimitPercent is the most an encode of an AV1 source may come out, as a
+// percentage of it, however far below policy.maxOutputToSourcePercent sits
+// (owner, 2026-11-03): AV1 spends some 25-30% fewer bits than HEVC at one
+// quality, so the standard's HEVC of a lean AV1 encode lands at 100-105%
+// of it (Attack on Titan's fourth season, 1 Mbps AV1 10-bit, failed every
+// attempt at 100), and such an encode is for playability -- Plex here
+// transcodes no video, and many clients decode no AV1 -- not size. Past it
+// the encode is still refused as a runaway.
+const AV1LimitPercent = 150
+
+// sizeLimit is the output limit for a source whose video is codec: the
+// policy's, raised to AV1LimitPercent for AV1; 0 stays no limit.
+func sizeLimit(policy int32, codec string) int32 {
+	if policy > 0 && codec == "av1" {
+		return max(policy, AV1LimitPercent)
+	}
+	return policy
+}
+
+// sourceCodec is the codec of info's first video stream, "" with none.
+func sourceCodec(info transcode.MediaInfo) string {
+	if len(info.Video) == 0 {
+		return ""
+	}
+	return info.Video[0].Codec
 }
 
 func sizePercent(out, src int64) int32 {

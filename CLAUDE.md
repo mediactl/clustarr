@@ -259,7 +259,11 @@ a kept language, and an image subtitle in a dropped language holds no
 file for OCR. A dropped track is gone once the output replaces the
 source. The size limit
 holds an encode only: a remux adds the AAC 2.0 companion, so it is a little
-larger by design (`worker.outputTooLarge`). A file is planned
+larger by design (`worker.outputTooLarge`), and an encode of an AV1
+source may run to 150% (`worker.AV1LimitPercent`, owner, 2026-11-03): the
+standard's HEVC of a lean AV1 encode lands at 100-105% of it (Attack on
+Titan's fourth season failed every attempt at 100), and is made for
+playability, since Plex here transcodes no video. A file is planned
 again at dispatch whenever its plan would differ (a profile edit, another
 class, new limits). **A new hash
 re-transcodes nothing**: the transcode planner (`app/transcode/transcodeplan`)

@@ -33,6 +33,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/events/schema"
 	"github.com/mediactl/clustarr/pkg/fsops"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
+	"github.com/mediactl/clustarr/pkg/transcode"
 	"github.com/mediactl/clustarr/pkg/transcode/standard"
 )
 
@@ -119,6 +120,24 @@ func TestTheSizeLimitHoldsOnlyAnEncode(t *testing.T) {
 	assert.False(t, outputTooLarge(encode, 100, 900, 1000))
 	assert.False(t, outputTooLarge(encode, 0, 5000, 1000), "0 is no limit")
 	assert.False(t, outputTooLarge(remux, 100, 1050, 1000), "a remux is not held to an encode's limit")
+}
+
+// An encode of an AV1 source may run to AV1LimitPercent (owner, 2026-11-03):
+// the standard's HEVC of a lean AV1 encode lands at 100-105% of it -- Attack
+// on Titan's fourth season failed every attempt at 103% under a limit of
+// 100 -- and is made for playability. Past it, it is still a runaway.
+func TestAnAV1SourcesEncodeMayRunLargerThanTheSource(t *testing.T) {
+	encode := standard.Result{Decision: standard.DecisionEncode}
+	assert.Equal(t, int32(150), sizeLimit(100, "av1"))
+	assert.Equal(t, int32(200), sizeLimit(200, "av1"), "a looser policy stands")
+	assert.Equal(t, int32(0), sizeLimit(0, "av1"), "0 is still no limit")
+	assert.Equal(t, int32(100), sizeLimit(100, "hevc"))
+	assert.Equal(t, int32(100), sizeLimit(100, "h264"))
+	assert.False(t, outputTooLarge(encode, sizeLimit(100, "av1"), 1030, 1000), "Attack on Titan S04E05 at 103%")
+	assert.True(t, outputTooLarge(encode, sizeLimit(100, "av1"), 1600, 1000), "a runaway")
+	assert.True(t, outputTooLarge(encode, sizeLimit(100, "hevc"), 1030, 1000))
+	assert.Equal(t, "av1", sourceCodec(transcode.MediaInfo{Video: []transcode.VideoStream{{Codec: "av1"}}}))
+	assert.Empty(t, sourceCodec(transcode.MediaInfo{}))
 }
 
 func TestProcessLogsWithTheTaskJob(t *testing.T) {
