@@ -62,8 +62,10 @@ func namedChannels(numbers ...string) []clustarrv1.IPTVChannel {
 // pairedSnapshot pairs the numbers given with stations of the lineup, the
 // rest not in it.
 func pairedSnapshot(chans []clustarrv1.IPTVChannel, paired ...string) tuner.Snapshot {
-	s := tuner.Snapshot{PlaylistFetched: true, Channels: map[string]tuner.ChannelState{},
-		Plex: tuner.PlexState{LineupID: plexLineupID, Title: "DIRECTV Mobile (1009 channels)", Stations: 1000, Loaded: true}}
+	s := tuner.Snapshot{
+		PlaylistFetched: true, Channels: map[string]tuner.ChannelState{},
+		Plex: tuner.PlexState{LineupID: plexLineupID, Title: "DIRECTV Mobile (1009 channels)", Stations: 1000, Loaded: true},
+	}
 	on := map[string]bool{}
 	for _, n := range paired {
 		on[n] = true

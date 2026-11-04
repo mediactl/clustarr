@@ -446,8 +446,7 @@ caches and fetches only a stale one:
 - the guide cache (`GuideCacheObject`) keeps every channel, with programmes
   only for the mapped ones.
 
-Optional fields are `filters` and `epgSource` (`XEPG`, clustarr's guide,
-or `PMS`). An `IPTVChannel` is one channel turned on,
+Optional fields are `filters` and `plexGuide` (below). An `IPTVChannel` is one channel turned on,
 `key` (immutable, `t:<tvg-id>` or a name key) and `number`. The provider
 controller (`clustarr-livetv`) and the channel controller
 (`clustarr-livetv-channel`) are their status's sole writers. `pkg/iptv/m3u`
@@ -550,6 +549,49 @@ buffers, which live outside the Go heap (`pkg/offheap`, 2026-11-03: one
 64 MiB ring was a fifth of the manager's live heap and of its GC
 headroom) and go back to the kernel once a ring is closed and its last
 viewer has left.
+
+**Plex's own guide** (owner, 2026-11-03: "Add support for mapping TV
+channels to Plex Native Guide (Gracenote)";
+`docs/superpowers/specs/2026-11-03-livetv-plex-native-guide-design.md`):
+an IPTVProvider's `spec.plexGuide` names a Plex cloud lineup (`lineup`, its
+24-hex id; on talos DIRECTV Mobile, `657c8183afd0f02cd353633f`, the owner's
+"DIRECTV - Mobile-Pensacola (Ft. Walton Beach)") and a Secret key holding a
+Plex account token (`credentialsRef`). The tuner fetches the lineup's title
+and stations from `epg.provider.plex.tv` (`/lineups/<id>`,
+`/lineups/<id>/channels`, `X-Plex-Token`; at most 1,000 stations listed,
+the 1,009-station lineup cut, no paging by query), caches it as
+`plex-lineup/<ns>/<name>`, and each render pairs the active channels with
+stations (`pkg/iptv/plexguide.Pair`): `spec.epg.plex.off`, a timeshifted
+channel (Plex cannot shift its guide), a hand-picked station
+(`spec.epg.plex.station`, a gridKey, the same in every lineup), the last
+pairing while its station is listed or absent under 7 days
+(`MissingGrace`), then the call sign a guide id names (`ABCEast_WABC.us`
+is WABC; the New York flagships 1001-1004 sit on DIRECTV's distant network
+feeds 390-398), the name or guide id normalized, and a short alias table; a
+station's feeds under one call sign are one (WEAR, WEARDT), a cable
+network's feeds under unrelated call signs are one when titled alike (FX,
+FXHD), never a local station's, and the HD feed is served; several stations
+named is `Ambiguous`, never a guess; one channel per station (a hand pick,
+else the lower number; the other `Taken`). The channel controller writes it
+to `status.plex` (`match`: Manual, Automatic, Ambiguous, Taken,
+Timeshifted, NotInLineup, Off, NoLineup); the provider's
+`status.plexGuide` counts them, condition `PlexGuideReady`. Only with
+`plexGuide.enabled` do the blocks move: they hold the `Manual` and
+`Automatic` channels alone, under device ids of their own
+(`hdhr.BlockDeviceID(ns, name, "plex/"+start)`, so cluster-plex replaces
+the XMLTV devices and DVRs, recording rules included, rather than changing
+a lineup in place), `status.blocks[].lineup` names the cloud lineup, each
+serves `/hdhr/<id>/plexmap.json` (its numbers' lineup channel ids and
+numbers) and no guide, and cluster-plex creates the DVR on the lineup,
+saves that map and never reloads its guide; every other channel is on no
+DVR (owner: "Drop out of Plex"), and Plex shows DIRECTV's numbers. Until a
+lineup is held the published blocks stay (`LineupPending`) and the tuner
+serves each channel's recorded pairing. Without `enabled` the pairing is a
+dry run the Channels page shows (station, number, or why off Plex, with a
+station picker and an "Off Plex" filter). On the owner's 257 channels 167
+pair; PMS's own guide work for a cloud lineup is unmeasured (the design's
+§5.8 check, held by the owner, runs before the cutover). `spec.epgSource`
+(XEPG or PMS, the latter Plex's setup wizard by hand) is gone.
 
 **Streams declare their language** (owner, 2026-10-27: Plex showed ESPN's
 audio as Unknown; its PMT said `und` where the Weather Channel's said

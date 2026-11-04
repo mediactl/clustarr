@@ -1,6 +1,6 @@
 # Live TV on Plex's own guide (Gracenote lineups)
 
-Date: 2026-11-03. Status: design, not built. Repos: clustarr (API, the
+Date: 2026-11-03. Status: built 2026-11-03 (clustarr 1e4244ae..f85335a7, cluster-plex 3bd6d98, 6daf7d3); not enabled on talos, the §5.8 check pending. Repos: clustarr (API, the
 provider and channel controllers, blocks, the tuner, the ui) and
 cluster-plex (the Live TV converger).
 

@@ -90,14 +90,14 @@ func TestURLsNameTheCloudGuide(t *testing.T) {
 
 func TestNormalize(t *testing.T) {
 	for in, want := range map[string]string{
-		"A&E":                    "aande",
-		"Cartoon Network HD":     "cartoon",
-		"CARTOON NETWORK":        "cartoon",
-		"NewsNation SD":          "newsnation",
-		"ABCEast_WABC.us":        "abceastwabc",
-		"MeTV+":                  "metvplus",
-		"The Travel Channel HD":  "thetravel",
-		"TV":                     "tv",
+		"A&E":                   "aande",
+		"Cartoon Network HD":    "cartoon",
+		"CARTOON NETWORK":       "cartoon",
+		"NewsNation SD":         "newsnation",
+		"ABCEast_WABC.us":       "abceastwabc",
+		"MeTV+":                 "metvplus",
+		"The Travel Channel HD": "thetravel",
+		"TV":                    "tv",
 	} {
 		assert.Equal(t, want, plexguide.Normalize(in), in)
 	}
