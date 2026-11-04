@@ -19,6 +19,7 @@ package views
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/mediactl/clustarr/ui/components/alert"
 	"github.com/mediactl/clustarr/ui/components/badge"
@@ -299,7 +300,9 @@ templ SeasonPage(d Detail, season SeasonRow, episodes []EpisodeRow) {
 
 // EpisodeRows is the episodes component, Sonarr's season table: what a
 // season's first expand fetches, and what the season page renders inline.
-// Air dates fold away on a narrow screen.
+// Air dates fold away on a narrow screen; the file columns -- languages
+// and score from a laptop's width, the codecs and the three remediations
+// from a desktop's -- fold away before them.
 templ EpisodeRows(episodes []EpisodeRow) {
 	if len(episodes) == 0 {
 		@emptyNote("No episodes in this season yet.", "py-3", nil)
@@ -318,6 +321,27 @@ templ EpisodeRows(episodes []EpisodeRow) {
 					}
 					@table.Head(table.HeadProps{Class: "hidden w-32 sm:table-cell"}) {
 						Air Date 
+					}
+					@table.Head(table.HeadProps{Class: "hidden lg:table-cell"}) {
+						Languages 
+					}
+					@table.Head(table.HeadProps{Class: "hidden w-16 text-right lg:table-cell"}) {
+						Score 
+					}
+					@table.Head(table.HeadProps{Class: "hidden xl:table-cell"}) {
+						Video 
+					}
+					@table.Head(table.HeadProps{Class: "hidden xl:table-cell"}) {
+						Audio 
+					}
+					@table.Head(table.HeadProps{Class: "hidden xl:table-cell"}) {
+						Transcode 
+					}
+					@table.Head(table.HeadProps{Class: "hidden xl:table-cell"}) {
+						Subtitles 
+					}
+					@table.Head(table.HeadProps{Class: "hidden xl:table-cell"}) {
+						Markers 
 					}
 					@table.Head(table.HeadProps{Class: "w-36"}) {
 						Status 
@@ -339,8 +363,8 @@ templ EpisodeRows(episodes []EpisodeRow) {
 // EpisodeRowView is one episode, Sonarr's episode row, and what its monitor
 // toggle swaps in place: the bookmark, the number, the title (the
 // episode's page) with its finale and audio badges, the air date, the
-// status cell, and the automatic and interactive searches. An unmonitored
-// episode reads dimmed.
+// file's columns (empty without a file), the status cell, and the
+// automatic and interactive searches. An unmonitored episode reads dimmed.
 templ EpisodeRowView(ep EpisodeRow) {
 	@table.Row(table.RowProps{
 		Class: rowTone(ep.Monitored),
@@ -393,6 +417,41 @@ templ EpisodeRowView(ep EpisodeRow) {
 				<time datetime={ ep.AirDate } title={ ep.AirDate }>{ ep.AirDateLabel }</time>
 			}
 		}
+		@table.Cell(table.CellProps{Class: "hidden lg:table-cell"}) {
+			if ep.File != nil {
+				@languagesCell(ep.File)
+			}
+		}
+		@table.Cell(table.CellProps{Class: "hidden text-right tabular-nums lg:table-cell"}) {
+			if ep.File != nil {
+				<span data-score={ signed(ep.File.Score) }>{ signed(ep.File.Score) }</span>
+			}
+		}
+		@table.Cell(table.CellProps{Class: "hidden xl:table-cell"}) {
+			if ep.File != nil {
+				@fileCell(ep.File.VideoCodec, "data-video")
+			}
+		}
+		@table.Cell(table.CellProps{Class: "hidden xl:table-cell"}) {
+			if ep.File != nil {
+				@fileCell(ep.File.AudioCodec, "data-audio-codec")
+			}
+		}
+		@table.Cell(table.CellProps{Class: "hidden xl:table-cell"}) {
+			if ep.File != nil {
+				@fileCell(ep.File.Transcode, "data-transcode")
+			}
+		}
+		@table.Cell(table.CellProps{Class: "hidden xl:table-cell"}) {
+			if ep.File != nil {
+				@fileCell(ep.File.Subtitles, "data-subtitles")
+			}
+		}
+		@table.Cell(table.CellProps{Class: "hidden xl:table-cell"}) {
+			if ep.File != nil {
+				@fileCell(ep.File.Markers, "data-markers")
+			}
+		}
 		@table.Cell() {
 			@statusCell(ep.Status)
 		}
@@ -402,6 +461,50 @@ templ EpisodeRowView(ep EpisodeRow) {
 			</span>
 		}
 	}
+}
+
+// languagesCell is the file's frozen languages, Sonarr's Languages
+// column: the first LanguagesShown as badges and the rest behind a count
+// that names them in its tooltip.
+templ languagesCell(f *EpisodeFile) {
+	<span class="flex flex-wrap gap-1" data-languages={ strings.Join(f.Languages, ",") }>
+		for i, l := range f.Languages {
+			if i < LanguagesShown {
+				@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
+					{ l }
+				}
+			}
+		}
+		if more := f.MoreLanguages(); len(more) > 0 {
+			@badge.Badge(badge.Props{Variant: badge.VariantOutline, Attributes: templ.Attributes{"title": strings.Join(more, ", "), "data-more-languages": fmt.Sprint(len(more))}}) {
+				{ fmt.Sprintf("+%d", len(more)) }
+			}
+		}
+	</span>
+}
+
+// fileCell is one of a file's cells: its label in its tone, the detail as
+// the tooltip, carried on attr for the tests; nothing for an empty one.
+templ fileCell(c Cell, attr string) {
+	if c.Label != "" {
+		<span class={ "whitespace-nowrap text-xs " + cellTone(c.Tone) } title={ c.Title } { templ.Attributes{attr: c.Label}... }>{ c.Label }</span>
+	}
+}
+
+// cellTone is a Cell's colour: done, in flight, a warning, a failure, else
+// muted.
+func cellTone(tone string) string {
+	switch tone {
+	case "done":
+		return "text-emerald-300"
+	case "busy":
+		return "text-sky-300"
+	case "warn":
+		return "text-amber-300"
+	case "fail":
+		return "text-red-300"
+	}
+	return "text-muted-foreground"
 }
 
 // rowTone dims an unmonitored episode, as Sonarr does.

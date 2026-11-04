@@ -748,7 +748,23 @@ concurrent grab conflicts; `spec.override` for a permanent rejection,
 after a confirm). The Search controller sends each pick to the item's
 owner as a manual Candidate, and the panel polls until `status.grabbed`
 names the grab entry it became (`downloadRef`) or the owner's refusal.
-The ui role patches `searches` for it. A season is searched as one
+The ui role patches `searches` for it. Since 2026-11-04 (owner: "Each
+item should also include Languages, Score, Video and Audio Codec,
+Transcode status, Subtitle status, Marker status") the row also carries
+its file's columns, read from the Episode's MediaFile by name
+(`ui.episodeFiles`: a cached Get per file, never a List; `ui/episodefile.go`,
+`views.EpisodeFile`, `views.Cell`): the frozen languages (three as badges,
+the rest behind a count), the format score, the probe's video ("HEVC 10-bit
+HDR10", warned when `MediaFile.UndecodableVideo`) and its first audio track
+as Radarr labels it ("EAC3 - 5.1") with the count of the others, and the
+transcode, subtitles and markers as toned cells -- `status.transcode`'s
+phase (Succeeded as Transcoded, and Transcoded for a tagged file the loop
+holds no block for), `status.subtitles`' phase naming the languages still
+missing, the segments' kinds ("intro · credits") -- each detail in its
+tooltip, and every cell empty for a file the ui cannot read. Languages and
+score fold away below a laptop's width, the rest below a desktop's. The
+monitor toggle's reply reads the file too, so the swapped row keeps them. A
+season is searched as one
 query, planned by the Series (Wave S, 2026-10-07,
 `docs/superpowers/specs/2026-10-07-series-search-design.md`): each season
 header has Sonarr's two buttons -- the magnifier (`actions.SearchSeason`, a

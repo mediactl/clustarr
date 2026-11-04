@@ -132,8 +132,64 @@ type EpisodeRow struct {
 	Status RowStatus
 	// Audio is the episode's status.audio as a note (ui.audioNote).
 	Audio AudioNote
+	// File is the season table's view of the episode's MediaFile
+	// (ui.episodeFileCells); nil without a file the ui could read.
+	File *EpisodeFile
 	// Error is set on a row rendered as the reply to a toggle that failed.
 	Error ActionFailure
+}
+
+// EpisodeFile is what the season table shows of an episode's file past
+// the status cell's quality (owner, 2026-11-04): Sonarr's Languages and
+// Custom Format Score columns, the probe's video and audio, and the three
+// per-file remediations -- transcode, subtitles and markers -- each a
+// Cell. Every field reads the MediaFile alone, as the modal's Files table
+// does.
+type EpisodeFile struct {
+	// Languages are the file's frozen spec.languages, the catalogue's
+	// names ("English", "Japanese").
+	Languages []string
+	// Score is the file's frozen custom-format score.
+	Score int32
+	// VideoCodec is the probe's video ("HEVC 10-bit HDR10"), warned when
+	// no GPU here decodes it; its tooltip the profile, resolution, frame
+	// rate and bitrate.
+	VideoCodec Cell
+	// AudioCodec is the first audio track as Radarr labels it ("EAC3 -
+	// 5.1") and how many more there are; its tooltip every track.
+	AudioCodec Cell
+	// Transcode is status.transcode's phase, or Transcoded for a tagged
+	// file the loop holds no transcode for; its tooltip the reason.
+	Transcode Cell
+	// Subtitles is status.subtitles' phase, naming the languages still
+	// missing; its tooltip each language's state.
+	Subtitles Cell
+	// Markers names the file's skip segments by kind; its tooltip their
+	// times and sources.
+	Markers Cell
+}
+
+// LanguagesShown is how many of a file's languages the table shows as
+// badges before folding the rest behind a count: a fourteen-track pack
+// takes one line.
+const LanguagesShown = 3
+
+// MoreLanguages are the languages past LanguagesShown, the count badge's
+// tooltip.
+func (f *EpisodeFile) MoreLanguages() []string {
+	if f == nil || len(f.Languages) <= LanguagesShown {
+		return nil
+	}
+	return f.Languages[LanguagesShown:]
+}
+
+// Cell is a short label in a tone with the detail as its tooltip. An
+// empty Label renders nothing.
+type Cell struct {
+	Label string
+	Title string
+	// Tone is "done", "busy", "warn", "fail", or "" for muted.
+	Tone string
 }
 
 // RowStatus is Sonarr's status cell (EpisodeStatus.tsx) on an episode's

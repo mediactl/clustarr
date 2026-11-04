@@ -87,7 +87,8 @@ func (s *Server) handleSeason(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "could not list episodes", http.StatusInternalServerError)
 		return
 	}
-	rows := episodeRows(episodes, name, int32(n), time.Now())
+	files := s.episodeFiles(r.Context(), episodes, name, int32(n))
+	rows := episodeRows(episodes, files, name, int32(n), time.Now())
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if isHTMX(r) {
@@ -161,7 +162,7 @@ func (s *Server) replyEpisodeRow(w http.ResponseWriter, r *http.Request, ns, nam
 		ep = &catalogv1.Episode{}
 		ep.Namespace, ep.Name = ns, name
 	}
-	row := episodeRow(ep, time.Now())
+	row := episodeRow(ep, s.episodeFile(r.Context(), ep), time.Now())
 	if err != nil {
 		row.Error = failureOf(r, err)
 	}
@@ -247,22 +248,24 @@ func seasonRow(series *catalogv1.Series, number int32) views.SeasonRow {
 }
 
 // episodeRows keeps the episodes of one season of one series, in episode
-// order.
-func episodeRows(episodes []catalogv1.Episode, series string, season int32, now time.Time) []views.EpisodeRow {
+// order, each with its file from files (by episode name) when read.
+func episodeRows(episodes []catalogv1.Episode, files map[string]*catalogv1.MediaFile, series string, season int32, now time.Time) []views.EpisodeRow {
 	var rows []views.EpisodeRow
 	for i := range episodes {
 		ep := &episodes[i]
 		if ep.Spec.SeriesRef != series || ep.Spec.SeasonNumber != season {
 			continue
 		}
-		rows = append(rows, episodeRow(ep, now))
+		rows = append(rows, episodeRow(ep, files[ep.Name], now))
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].Number < rows[j].Number })
 	return rows
 }
 
-// episodeRow is one episode's row in Sonarr's season table.
-func episodeRow(ep *catalogv1.Episode, now time.Time) views.EpisodeRow {
+// episodeRow is one episode's row in Sonarr's season table; file is its
+// MediaFile when the caller read one (episodeFile), nil otherwise, which
+// leaves the file columns empty.
+func episodeRow(ep *catalogv1.Episode, file *catalogv1.MediaFile, now time.Time) views.EpisodeRow {
 	row := views.EpisodeRow{
 		Namespace: ep.Namespace, Name: ep.Name, Series: ep.Spec.SeriesRef,
 		Season: ep.Spec.SeasonNumber, Number: ep.Spec.EpisodeNumber,
@@ -277,6 +280,7 @@ func episodeRow(ep *catalogv1.Episode, now time.Time) views.EpisodeRow {
 		row.Quality = ep.Status.FileQuality.Name
 	}
 	row.Audio = audioNote(ep.Status.Audio)
+	row.File = episodeFileCells(file)
 	row.Status = episodeStatus(ep, row.Monitored, now)
 	return row
 }

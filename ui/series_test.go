@@ -104,9 +104,43 @@ func seriesFixtureBuild(t *testing.T, wrap func(client.Reader) client.Reader, wi
 		ObjectMeta: metav1.ObjectMeta{Name: "silo-s01e01", Namespace: "default"},
 		Spec:       catalogv1.EpisodeSpec{SeriesRef: "silo", SeasonNumber: 1, EpisodeNumber: 1},
 	}
+	// Kassa's file is on the cluster, with everything the season table's
+	// file columns read: four frozen languages (one past the three shown),
+	// a score, an HDR10 10-bit HEVC probe with two audio tracks, a skipped
+	// transcode, a subtitle still wanted and two skip segments. That Would
+	// Be Me has a file the Episode names no MediaFile for, so its row has
+	// no file columns.
+	kassa := episode("andor-s01e01", 1, 1, "Kassa", true)
+	kassa.Status.FileRef = new("andor-s01e01-file")
+	kassaFile := &catalogv1.MediaFile{
+		ObjectMeta: metav1.ObjectMeta{Name: "andor-s01e01-file", Namespace: "default"},
+		Spec: catalogv1.MediaFileSpec{
+			Path: "/data/tv/Andor/Season 01/Andor - S01E01 - Kassa.mkv", Quality: commonv1.Quality{Name: "WEBDL-1080p"},
+			Languages: []string{"English", "Japanese", "French", "German"}, FormatScore: 1250,
+		},
+		Status: catalogv1.MediaFileStatus{
+			MediaInfo: &commonv1.MediaInfo{
+				VideoCodec: "hevc", VideoProfile: "Main 10", VideoBitDepth: 10, Hdr: commonv1.HdrFormatHDR10,
+				Width: 1920, Height: 1080, FpsMilli: 23976, VideoBitrateKbps: 5400, Container: "matroska",
+				Audio: []commonv1.AudioStream{
+					{Codec: "eac3", Channels: 6, Language: "eng"},
+					{Codec: "aac", Channels: 2, Language: "jpn", Title: "Commentary"},
+				},
+			},
+			Transcode: &catalogv1.TranscodeState{Phase: catalogv1.TranscodePhaseSkipped, Reason: "Excluded", Message: "transcode.clustarr.io/exclude on the series"},
+			Subtitles: &catalogv1.SubtitlesStatus{Phase: catalogv1.SubtitlesPhaseWanted, Items: []catalogv1.SubtitleItemStatus{
+				{LangKey: "en", State: catalogv1.SubtitleStateDownloaded, Provider: "opensubtitles", Score: 180, ScoreOutOf: 360},
+				{LangKey: "fr", State: catalogv1.SubtitleStatePending},
+			}},
+			Markers: &catalogv1.FileMarkers{Result: catalogv1.MarkersFound, Segments: []catalogv1.MarkerSegment{
+				{Kind: catalogv1.MarkerIntro, StartMs: 228664, EndMs: 246143},
+				{Kind: catalogv1.MarkerCredits, StartMs: 3431000, EndMs: 3480000},
+			}},
+		},
+	}
 	reader := fake.NewClientBuilder().WithScheme(libraryTestScheme(t)).WithObjects(series,
 		withAudio(episode("andor-s01e02", 1, 2, "That Would Be Me", true)),
-		episode("andor-s01e01", 1, 1, "Kassa", true),
+		kassa, kassaFile,
 		episode("andor-s02e01", 2, 1, "One Year Later", false),
 		other,
 	).WithIndex(&catalogv1.Episode{}, ui.EpisodeSeriesRefField, ui.IndexEpisodeBySeriesRef).Build()
@@ -393,6 +427,55 @@ func TestAnEpisodeRowShowsItsAudio(t *testing.T) {
 	require.Contains(t, w.Body.String(), `data-audio="no en dub · graft failed"`)
 	require.Contains(t, w.Body.String(), `title="AlignmentRejected: coverage 12%"`)
 	require.Equal(t, 1, strings.Count(w.Body.String(), "data-audio="), "only the episode with something to say")
+}
+
+// An episode row carries its file's columns (owner, 2026-11-04): the
+// frozen languages, three as badges and the rest behind a count, the
+// format score, the probe's video and first audio track with the count of
+// the others, and the transcode, subtitles and markers as cells, each
+// naming its detail in the tooltip. Only the row whose Episode names a
+// MediaFile has them; the toggle's reply keeps them, so a swapped row
+// loses nothing.
+func TestAnEpisodeRowShowsItsFile(t *testing.T) {
+	srv, _ := seriesFixture(t)
+	req := httptest.NewRequest(http.MethodGet, "/library/default/series/andor/seasons/1", nil)
+	req.Header.Set("HX-Request", "true")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+	body := w.Body.String()
+	for _, want := range []string{
+		`data-languages="English,Japanese,French,German"`,
+		`data-more-languages="1"`, `title="German"`,
+		`data-score="+1250"`,
+		`data-video="HEVC 10-bit HDR10"`, `title="Main 10, 1920x1080, 23.976 fps, 5400 kbps, HDR10, matroska"`,
+		`data-audio-codec="EAC3 - 5.1 +1"`, "eng: EAC3 - 5.1\njpn: AAC - 2.0 (Commentary)",
+		`data-transcode="Skipped"`, `title="Excluded; transcode.clustarr.io/exclude on the series"`,
+		`data-subtitles="Wanted fr"`, "en: downloaded (opensubtitles) 180/360\nfr: pending",
+		`data-markers="intro · credits"`, `title="intro 3:48–4:06 (TheIntroDB), credits 57:11–58:00 (TheIntroDB)"`,
+	} {
+		require.Contains(t, body, want)
+	}
+	for _, attr := range []string{"data-languages=", "data-score=", "data-video=", "data-transcode=", "data-subtitles=", "data-markers="} {
+		require.Equal(t, 1, strings.Count(body, attr), "%s: only the episode whose Episode names a file", attr)
+	}
+	for _, head := range []string{"Languages", "Score", "Video", "Audio", "Transcode", "Subtitles", "Markers"} {
+		require.Contains(t, body, ">"+head+" <", "column %s", head)
+	}
+
+	srv, c := seriesFixtureWithActions(t)
+	form := url.Values{"monitored": {"false"}}
+	req = httptest.NewRequest(http.MethodPost, "/library/default/episode/andor-s01e01/monitor", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("HX-Request", "true")
+	w = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+	require.Contains(t, w.Body.String(), `data-video="HEVC 10-bit HDR10"`, "the toggle's reply keeps the file columns")
+	var ep catalogv1.Episode
+	require.NoError(t, c.Get(t.Context(), types.NamespacedName{Namespace: "default", Name: "andor-s01e01"}, &ep))
+	require.NotNil(t, ep.Spec.Monitored)
+	require.False(t, *ep.Spec.Monitored)
 }
 
 // A season the provider names shows that name beside its label, as the

@@ -210,24 +210,22 @@ func (s *Server) episodeDetail(ctx context.Context, ns, name string) (views.Epis
 	if !ok {
 		return views.EpisodeDetail{}, false
 	}
+	mf := s.episodeFile(ctx, &ep)
 	d := views.EpisodeDetail{
-		Row:         episodeRow(&ep, time.Now()),
+		Row:         episodeRow(&ep, mf, time.Now()),
 		SeriesTitle: item.Title,
 		SeriesURL:   views.DetailPath(item),
 		Overview:    ep.Status.Overview,
 		Runtime:     runtimeLabel(ep.Status.RuntimeMinutes),
 		Tab:         "details",
 	}
-	if ep.Status.HasFile && ep.Status.FileRef != nil {
-		var mf catalogv1.MediaFile
-		if s.getObject(ctx, types.NamespacedName{Namespace: ns, Name: *ep.Status.FileRef}, &mf) {
-			folder := ""
-			if series, ok := s.getSeries(ctx, item.Ref); ok {
-				folder = series.Status.Path
-			}
-			rows, _ := fileRows(folder, &mf)
-			d.File = &rows[0]
+	if mf != nil {
+		folder := ""
+		if series, ok := s.getSeries(ctx, item.Ref); ok {
+			folder = series.Status.Path
 		}
+		rows, _ := fileRows(folder, mf)
+		d.File = &rows[0]
 	}
 	return d, true
 }

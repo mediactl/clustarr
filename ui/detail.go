@@ -340,12 +340,20 @@ func subtitleRows(f *catalogv1.MediaFile) (string, []views.SubtitleRow) {
 	return string(st.Phase), rows
 }
 
-// audioLabel is Radarr's "DTS - 5.1": the codec and the channel layout.
+// audioLabel is Radarr's "DTS - 5.1": the codec and the channel layout,
+// ffprobe's "stereo" and "mono" written as 2.0 and 1.0 and a layout's
+// variant ("5.1(side)") dropped.
 func audioLabel(a commonv1.AudioStream) string {
 	codec := strings.ToUpper(a.Codec)
 	layout := a.ChannelLayout
 	if i := strings.Index(layout, "("); i >= 0 {
 		layout = layout[:i]
+	}
+	switch layout {
+	case "stereo":
+		layout = "2.0"
+	case "mono":
+		layout = "1.0"
 	}
 	if layout == "" {
 		switch a.Channels {

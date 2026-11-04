@@ -76,9 +76,10 @@ func (s *Server) episodePage(ctx context.Context, ns, name string) (views.Episod
 	if !ok {
 		return views.EpisodeView{}, false
 	}
+	f := s.episodeFile(ctx, &ep)
 	v := views.EpisodeView{
 		Detail:       views.Detail{Item: item},
-		Row:          episodeRow(&ep, time.Now()),
+		Row:          episodeRow(&ep, f, time.Now()),
 		SeasonLabel:  views.SeasonRow{Number: ep.Spec.SeasonNumber}.Label(),
 		CutoffReason: ep.Status.CutoffReason,
 	}
@@ -101,13 +102,10 @@ func (s *Server) episodePage(ctx context.Context, ns, name string) (views.Episod
 	v.Links, v.SeriesLinks = episodeLinks(&ep), seriesLinks(v.Links)
 	v.Audio = audioNote(ep.Status.Audio)
 	v.Still = s.episodeStill(&ep)
-	if ref := ep.Status.FileRef; ep.Status.HasFile && ref != nil && *ref != "" {
-		var f catalogv1.MediaFile
-		if s.getObject(ctx, types.NamespacedName{Namespace: ns, Name: *ref}, &f) {
-			v.Files, v.Extras = fileRows(folder, &f)
-			v.SubtitlesPhase, v.Subtitles = subtitleRows(&f)
-			v.Path = filepath.Dir(f.Spec.Path)
-		}
+	if f != nil {
+		v.Files, v.Extras = fileRows(folder, f)
+		v.SubtitlesPhase, v.Subtitles = subtitleRows(f)
+		v.Path = filepath.Dir(f.Spec.Path)
 	}
 	v.Prev, v.Next = s.episodeNeighbours(ctx, &ep)
 	return v, true
