@@ -42,7 +42,7 @@ func TestTheImagesFactNamesTheSetInUse(t *testing.T) {
 	composed := chosen.DeepCopy()
 	composed.URL = "https://mediux.io/show-set/41471"
 	composed.Sets = []catalogv1.ImageSetSource{{SetID: "41471", Images: 14}, {SetID: "22523", Images: 10}, {SetID: "21971", Images: 1}}
-	assert.Equal(t, &views.ImageSetNote{Label: "MediUX set Cyberpunk: Edgerunners by sharivari and 2 more sets", Href: "https://mediux.io/show-set/41471"},
+	assert.Equal(t, &views.ImageSetNote{Label: "MediUX set Cyberpunk: Edgerunners by sharivari and 2 more sets", Href: "https://mediux.pro/sets/41471"},
 		imageSetNote(nil, nil, composed), "the anchor named, the sets that filled its gaps counted")
 	composed.Sets = composed.Sets[:2]
 	assert.Equal(t, "MediUX set Cyberpunk: Edgerunners by sharivari and 1 more set", imageSetNote(nil, nil, composed).Label)

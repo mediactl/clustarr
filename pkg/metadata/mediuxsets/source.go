@@ -189,7 +189,7 @@ func (s *Source) movie(ctx context.Context, q metadata.ImageSetQuery) (*metadata
 func (s *Source) answer(c *mediux.Composition, lost string) *metadata.ImageSet {
 	out := &metadata.ImageSet{
 		Provider: "mediux", SetID: c.Anchor.ID, Title: c.Anchor.Title, Creator: c.Anchor.Creator,
-		URL: mediux.SetURL(c.Anchor.Kind, c.Anchor.ID), UpdatedAt: c.Anchor.Updated, Reason: c.Reason + lostNote(lost),
+		URL: mediux.SetURL(c.Anchor.ID), UpdatedAt: c.Anchor.Updated, Reason: c.Reason + lostNote(lost),
 	}
 	for _, p := range c.Picks {
 		img := metadata.ImageSetImage{URL: s.Client.ImageURL(p.File), SetID: p.Set, Season: p.Slot.Season, Episode: p.Slot.Episode}
@@ -209,7 +209,7 @@ func (s *Source) answer(c *mediux.Composition, lost string) *metadata.ImageSet {
 	}
 	for _, u := range c.Sets {
 		out.Sets = append(out.Sets, metadata.ImageSetSource{
-			SetID: u.ID, Title: u.Title, Creator: u.Creator, Kind: string(u.Kind), URL: mediux.SetURL(u.Kind, u.ID), Images: u.Images,
+			SetID: u.ID, Title: u.Title, Creator: u.Creator, Kind: string(u.Kind), URL: mediux.SetURL(u.ID), Images: u.Images,
 		})
 	}
 	return out

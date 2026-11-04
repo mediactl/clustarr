@@ -150,7 +150,7 @@ func TestAnImagesURLIsItsVersionedSrcAtTheChosenQuality(t *testing.T) {
 	require.Equal(t, srv.URL+"/assets/ea39f814-5cc8-4f3b-91dc-891e4c681cf3?v=20261016195509&key=jpg", c.ImageURL(set.Poster[0]))
 	orig := mediux.ImageURL("https://images.mediux.io", set.Poster[0], mediux.QualityOriginal)
 	require.Equal(t, "https://images.mediux.io/assets/ea39f814-5cc8-4f3b-91dc-891e4c681cf3?v=20261016195509", orig, "the original has no key")
-	require.Equal(t, "https://mediux.io/show-set/41471", mediux.SetURL(mediux.SetShow, "41471"))
+	require.Equal(t, "https://mediux.pro/sets/41471", mediux.SetURL("41471"), "the page is mediux.pro, the same path for every kind")
 }
 
 // filmCollectionImages is MovieSets' second answer as AURA's query shapes

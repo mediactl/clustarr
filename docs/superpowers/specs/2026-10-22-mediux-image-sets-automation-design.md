@@ -320,6 +320,15 @@ fanart.tv's, as does every slot no set fills.
 `getMediuxBaseUrl`), which the pin form accepts beside the older
 `mediux.pro/sets/<id>`.
 
+*As built, 2026-11-04 (owner: "The domain is down - cloudflare tunnel
+errors the correct url: https://mediux.pro/sets/18395").* The page is
+`https://mediux.pro/sets/<id>` for every kind (`mediux.SetURL`); mediux.io
+answers a Cloudflare tunnel error. The item page builds its link from
+`status.imageSet.setID`, never from the stored `url`, since 772 items on
+talos held the mediux.io link and keep it until the stage next reconsiders
+them (the refresh, 7 days); those were rewritten in place the same day.
+The pin form still accepts the mediux.io shape, which pasted links carry.
+
 **Records and status.** Each image carries its `scope` (item, season,
 episode: a specials poster is season 0, which the first cut read as the
 item's own poster) and the `setID` it came from; the answer and

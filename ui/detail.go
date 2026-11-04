@@ -31,6 +31,7 @@ import (
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/pkg/metadata/clients/mediux"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/ui/projection"
 	"github.com/mediactl/clustarr/ui/views"
@@ -190,7 +191,20 @@ func imageSetNote(artwork []catalogv1.ArtworkOverride, seasons []catalogv1.Seaso
 	case more > 1:
 		label += fmt.Sprintf(" and %d more sets", more)
 	}
-	return &views.ImageSetNote{Label: label, Href: set.URL}
+	return &views.ImageSetNote{Label: label, Href: imageSetHref(set)}
+}
+
+// imageSetHref is the set's page. A mediux set's is built from its id
+// (mediux.SetURL), never read from status.imageSet.url: until 2026-11-04
+// the agent recorded AURA's https://mediux.io/<kind>-set/<id>, which
+// mediux.io no longer serves (a Cloudflare tunnel error; owner), and an
+// item keeps that link until the stage next reconsiders it. Any other
+// provider's link is the stored one.
+func imageSetHref(set *catalogv1.ImageSetStatus) string {
+	if set.Provider == "mediux" || set.Provider == "" {
+		return mediux.SetURL(set.SetID)
+	}
+	return set.URL
 }
 
 // backdropArt is a detail page's Backdrop: the [projection.ArtURL] of the

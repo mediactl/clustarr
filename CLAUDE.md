@@ -1239,7 +1239,7 @@ set fills keeps the providers' images. Every reader takes the owner's
 set's poster and background are stored as custom originals) and the item
 page's "Images" fact (pasted set, else "MediUX set <title> by <creator>"
 and how many more sets filled it, linked to the anchor's
-`mediux.io/<kind>-set/<id>` page, which the pin form also accepts). A set cached as JSON must round-trip: `ShowSet` and `File` have
+`mediux.pro/sets/<id>` page, built from the set id, never from `status.imageSet.url`, which held AURA's `mediux.io/<kind>-set/<id>` until 2026-11-04 and which mediux.io no longer serves; the pin form accepts both shapes). A set cached as JSON must round-trip: `ShowSet` and `File` have
 `MarshalJSON` writing the wire's nested shape their decoders read, without
 which every cached set came back poster-only and the second choice was never
 the first's. The proxy allowlist has `images.mediux.io` too, the host the

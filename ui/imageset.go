@@ -141,8 +141,10 @@ func sameSeasonImage(a, b catalogv1.SeasonArtworkOverride) bool {
 }
 
 // setURLRE is a MediUX set's page, as the dialog accepts it beside a bare
-// id: https://mediux.pro/sets/<id>, or https://mediux.io/<kind>-set/<id>
-// as AURA and the item page link it (2026-10-27).
+// id: https://mediux.pro/sets/<id>, the page the item page links, or
+// https://mediux.io/<kind>-set/<id>, AURA's shape, which the item page
+// linked until 2026-11-04 and which still turns up pasted though mediux.io
+// no longer serves it.
 var setURLRE = regexp.MustCompile(`^(?:https?://)?(?:www\.)?(?:mediux\.pro/sets|mediux\.io/(?:show|movie|collection)-set)/([0-9]+)/?(?:[?#].*)?$`)
 
 // ParseSetID reads a MediUX set id from s: the id itself, or the set's page

@@ -117,7 +117,7 @@ func TestASeriesIsComposedByItsTheTVDBIdThroughTheCache(t *testing.T) {
 	assert.Equal(t, "mediux", set.Provider)
 	assert.Equal(t, "41471", set.SetID, "sharivari's complete set anchors")
 	assert.Equal(t, "sharivari", set.Creator)
-	assert.Equal(t, "https://mediux.io/show-set/41471", set.URL)
+	assert.Equal(t, "https://mediux.pro/sets/41471", set.URL)
 	assert.Contains(t, set.Reason, "2 of 2 season posters")
 	assert.Len(t, set.Images, 24, "poster, backdrop, two season posters, twenty titlecards")
 	assert.Equal(t, metadata.ImageSetImage{Type: "poster", Scope: metadata.ImageScopeItem, URL: set.Images[0].URL, SetID: "41471"}, set.Images[0])
@@ -152,7 +152,7 @@ func TestASeriesTakesWhatItsAnchorLacksFromOtherSets(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "8776", set.SetID)
 	require.Len(t, set.Sets, 2)
-	assert.Equal(t, metadata.ImageSetSource{SetID: "41471", Title: set.Sets[1].Title, Creator: "sharivari", Kind: "show", URL: "https://mediux.io/show-set/41471", Images: 11}, set.Sets[1])
+	assert.Equal(t, metadata.ImageSetSource{SetID: "41471", Title: set.Sets[1].Title, Creator: "sharivari", Kind: "show", URL: "https://mediux.pro/sets/41471", Images: 11}, set.Sets[1])
 	bySet := map[string]int{}
 	for _, img := range set.Images {
 		bySet[img.SetID]++
@@ -169,7 +169,7 @@ func TestAMovieIsComposedDirectly(t *testing.T) {
 	require.Len(t, set.Images, 2)
 	assert.Equal(t, "poster", set.Images[0].Type)
 	assert.Equal(t, "fanart", set.Images[1].Type)
-	assert.Equal(t, "https://mediux.io/movie-set/59100", set.URL)
+	assert.Equal(t, "https://mediux.pro/sets/59100", set.URL)
 	_, err = src.ImageSet(context.Background(), metadata.ImageSetQuery{Kind: commonv1.MediaKindMovie})
 	require.ErrorIs(t, err, metadata.ErrNotFound)
 	_, err = src.ImageSet(context.Background(), metadata.ImageSetQuery{Kind: commonv1.MediaKindAlbum, TMDBID: "1"})

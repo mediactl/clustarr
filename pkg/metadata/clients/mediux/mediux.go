@@ -670,10 +670,14 @@ type Policy struct {
 	Episodes map[int32]int32
 }
 
-// SetURL is a set's page on MediUX, as AURA links it:
-// https://mediux.io/<kind>-set/<id>.
-func SetURL(kind SetKind, id string) string {
-	return "https://mediux.io/" + string(kind) + "-set/" + id
+// SetURL is a set's page on MediUX, https://mediux.pro/sets/<id>, the
+// same path for a show, movie or collection set. Until 2026-11-04 it was
+// AURA's https://mediux.io/<kind>-set/<id>; mediux.io answers a Cloudflare
+// tunnel error now (owner, 2026-11-04), so every stored link of that shape
+// is dead, and the item page derives its link from the id (ui.imageSetNote)
+// rather than trusting a stored one.
+func SetURL(id string) string {
+	return "https://mediux.pro/sets/" + id
 }
 
 // Ping proves the token is accepted: the smallest query the API answers
