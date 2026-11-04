@@ -1005,7 +1005,43 @@ the registry's own (`shadcn-templ add … --overwrite`, 2026-10-06: hooks are
 `data-templ-*` and `window.templ`, the select's hidden input follows its
 trigger and a read-only select is `ReadOnly` with a disabled trigger, so
 its value still posts); Clustarr no longer keeps its own navigationmenu or
-scrollarea.
+scrollarea. Since 2026-11-04 (owner: "determine what can migrate to a
+native shadcn-templ component"; "use the select component from
+shadcn-templ"; "all inputs/forms ... input groups or field groups") every
+control a person sees is a component: `shadcn-templ add` (the registry
+inlines its `cn-*` styles for the base-vega style as it writes, so a
+vendored file never carries them) brought collapsible, progress, spinner,
+toast, kbd, toggle, toggle-group and alert-dialog beside the earlier set,
+and the views hold no raw `<input>`, `<select>`, `<textarea>`, `<label>`,
+`<details>` or `<button>` -- only hidden inputs and the `<form>` elements
+themselves, which have no component. The rules the sweep settled: a select
+is `select`, never `nativeselect` (vendored once and removed); a disclosure
+is `collapsible`, and one that loads on first open asks on
+`views.expandOnce` (the collapsible's `collapsible-open-change[detail.open]
+once`, since a collapsible fires no `toggle`); a destructive question is an
+`alertdialog` (an item's Delete, Settings' and Import Lists' deletes, a bulk
+channel delete), and every `hx-confirm` asks through the layout's one
+(`views.confirmDialog`, `ui/static/confirm.js`), so nothing calls
+`window.confirm`; a card action's answer into `#action-status` is a toast
+marker (`ActionStatus`, `ActionErrorToast`; `toast.Toaster` in the layout)
+with the tests' `data-action-*` on its wrapper, while `ActionError` stays
+the inline alert an error page shows; an empty list is `views.emptyState`
+(icon, title, a line) and an empty section `views.emptyNote`; a progress
+bar is `progress`, its percent on `data-progress`; a segmented filter (the
+season search's packs|all, the dashboard's range) is a `togglegroup`; the
+alert dialog and the toast take their glass from input.css's `[data-slot]`
+rules as the dialog does. Not swapped, on purpose: the library's A-Z bar,
+the guide grid's geometry, the channel logos (`avatar.js` hides the image
+until it loads, which would flash the number tile on every refresh), the
+header search's dropdown shell (`command` and `combobox` filter client-side
+over their own items while find.js's list is server-filled), the sort and
+filter menus (menubar radio items carry no `href`), the Live TV copy
+button (`copy-button` is a docs-site part, not a registry item) and the
+monitor bookmarks (`toggle` is `type="button"`, and theirs are submits).
+Format a template with the project's templ, `go run
+github.com/a-h/templ/cmd/templ@v0.3.1020 fmt <file>`: the `templ` on PATH
+(v0.3.1100) formats differently, and `templ fmt ui/views` rewrote twenty
+untouched files.
 An import list likewise finds an item by provider id
 (`importlist.libraryByID`) and writes only the items it added itself:
 one added by hand, by a rescan or by another list is recorded as listed
