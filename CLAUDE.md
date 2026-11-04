@@ -546,7 +546,10 @@ while every other manager port stays open (`clustarr.managerPorts`; held by
 kustomize's policy is `config/livetv`, outside `config/manager`, whose
 `includeSelectors` labels would add clustarr's labels to the peer and admit
 no Plex pod. The manager's memory default carries 128Mi for the stream
-buffers.
+buffers, which live outside the Go heap (`pkg/offheap`, 2026-11-03: one
+64 MiB ring was a fifth of the manager's live heap and of its GC
+headroom) and go back to the kernel once a ring is closed and its last
+viewer has left.
 
 **Streams declare their language** (owner, 2026-10-27: Plex showed ESPN's
 audio as Unknown; its PMT said `und` where the Weather Channel's said
@@ -2352,7 +2355,16 @@ too; bump the tag in go.mod and go.sum to take a new fork release.
   ledger rebuilds, the MAL-Dubs source and the profile overlap checks did,
   and were the manager's start-up peak after the first deploy (rev 197).
   Metadata-only and unstructured reads of them keep their own ordinary
-  informers.
+  informers. Two more rules since the third round (2026-11-03): the
+  handlers that register together on a started informer share one replay
+  of the store (`pkg/k8s/rowcache/replay.go`: one decode per row for all
+  of them, each member at most `replayLead` rows ahead of the slowest, so
+  a shared object lives until the slowest has dispatched it; a handler
+  registering after the store changed replays on its own), and a
+  remediation pass reads through a `passReader` that answers a repeat Get
+  of one object from the first decode, by the same object (the planners
+  read with `UnsafeDisableDeepCopy` already and never mutate what they
+  read), counted in `clustarr_remediation_pass_reads_total{kind,result}`.
 - **A watch's map function runs for every object at startup, and the
   source is not synced until it has.** controller-runtime's `Kind` source
   waits on `handlerRegistration.HasSynced`, and a cache's initial sync

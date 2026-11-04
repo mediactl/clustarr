@@ -179,6 +179,56 @@ won and list whole kinds, plus three avoidable holdings:
   level's ratio with a dictionary, measured), one encoder state per codec
   and two decoders instead of one per CPU.
 
+## 4c. As built: the third round (the GOGC 20 start, same day)
+
+The owner deployed GOGC 20 at 23:11Z (768Mi, AUTOMEMLIMIT 0.8, a 500m CPU
+limit). Loki's timestamps and the minute samples put the start's phases
+where they are: the watch-list stream and the dictionaries took 52 s and
+the live heap went from 50 to 128 MiB with never more than 11 MiB of
+garbage above it (the collector ran 57 cycles a minute); the lease took 75
+s to pass from the old pod; then the controllers registered 157 event
+sources in four seconds and the replays ran until the remediation loop's
+workers started 2 min 46 s after the lease, at 41 to 50 MB/s of
+allocation and 0.65 GC cores against the 500m limit, the container
+throttled two thirds of the time. The 313 MiB peak sat inside that window,
+before a single pass, and was reachable memory: a GC-forced profile of
+the settled pod (320 MiB) put the relay's 64 MiB stream ring first, then
+rows and row structs 54, index sets 36, the rows' retained strings 24, the
+Live TV playlist cache 23, the loop's queue 15. An explicit collection at
+a phase boundary frees nothing the pacer does not free within seconds.
+Three changes:
+
+- **The relay ring is off the heap** (`pkg/offheap`, which the copy
+  buffers use too): an anonymous mapping the collector never scans and no
+  heap goal counts, released once the ring is closed and its last viewer
+  has left (`ring.Leave`), never at a cycle.
+- **Late handlers share one replay** (`replay.go`). Four handlers replayed
+  every Episode, two every MediaFile, six every Movie and eight every
+  Series: 155,000 decodes. The first late handler opens a replay of the
+  store's row pointers, the handlers registering within `replayQuiet`
+  (500 ms of quiet, `replayWindow` 5 s at most) join it, delivery starts
+  when the window closes, each member reads at its own cursor no more than
+  `replayLead` (128) rows ahead of the slowest, and a row's object is
+  dropped once every member has dispatched it, so the shared objects alive
+  are never more than the lead. A member removed while blocked in its own
+  callback frees the others at once. A handler registering after the
+  store changed (the store's generation moved) replays on its own, since
+  the snapshot would be stale for it. Every member is told of the sync
+  after its last row, as before.
+- **A pass reads each object once** (`app/remediation/passreader.go`). The
+  planners gather on their own and several read the file's item and its
+  Series, about 77 decodes a file pass; a repeat Get within the pass is
+  answered from the first decode by the same object (a shallow copy of its
+  struct, the slices beneath shared, as `UnsafeDisableDeepCopy` already
+  shares them), a NotFound remembered, Lists passed through; the item pass
+  reads the same way. `clustarr_remediation_pass_reads_total{kind,result}`
+  counts the reads and the memo's answers.
+
+Expected: the replay phase's decodes down four times on Episodes and the
+loop's workers starting within a minute of the lease; the drain's
+allocation down three to four times; one stream's 64 MiB out of the live
+heap and the GC goal.
+
 ## 5. Tests
 
 `pkg/k8s/rowcache`: the store holds rows and every reader gets an object (a
