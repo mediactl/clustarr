@@ -229,30 +229,30 @@ loop's workers starting within a minute of the lease; the drain's
 allocation down three to four times; one stream's 64 MiB out of the live
 heap and the GC goal.
 
-## 4d. As built: the stream in CBOR (2026-11-04)
+## 4d. As built: CBOR to the apiserver (2026-11-04)
 
 The owner asked for client-go's `ClientsAllowCBOR` and `ClientsPreferCBOR`.
-talos's apiserver (1.37) serves CBOR (`CBORServingAndStorage` is on), and
-client-go 0.37 decodes it behind `ClientsAllowCBOR`. controller-runtime
-0.25, though, builds the codec factories of its client and its cache with
-`serializer.NewCodecFactory(scheme)` alone, without the CBOR serializer, and
-overwrites the REST config's negotiated serializer with them, so neither
+talos's apiserver (1.37) serves and accepts CBOR (`CBORServingAndStorage`
+is on), and client-go 0.37 negotiates it behind the two gates. controller-
+runtime 0.25, though, builds the codec factories of its client and its cache
+with `serializer.NewCodecFactory(scheme)` alone, without the CBOR serializer,
+and overwrites the REST config's negotiated serializer with them, so neither
 gate reaches its clients: under `ClientsPreferCBOR` every lister-watcher it
 builds asks for CBOR and cannot decode the answer, no kind syncs, and the
-manager never becomes ready (seen live at 04:05Z when both variables were
-set on the Deployment). So `cbor.go` gives the row cache its own
-lister-watcher per kind -- the shape of controller-runtime's structured
-one, on a REST client whose codec factory carries the CBOR serializer and
-whose content types ask for CBOR with JSON as the fallback -- where the
-bytes are: the 44,000-object initial list and the watch. `ClientsAllowCBOR`
-is set on through client-go's own gates at init unless the environment
-names it (a set value outranks the environment); with it off, client-go
-rewrites the content types to JSON. `ClientsPreferCBOR` stays off. A kind
-keeps controller-runtime's lister-watcher when the cache's options give it
-a shape the row cache's does not reproduce (several namespaces, a default
-selector, a ByObject entry). Tests: a list over CBOR against an httptest
-apiserver, the same request as JSON with the gate off, a watch as a CBOR
-sequence decoded into the kind's objects, and the shapes that fall back.
+manager never becomes ready (seen live at 04:05Z and 04:24Z with the two
+variables set by hand on the Deployment). A first cut gave the row cache its
+own CBOR lister-watcher for the four kinds (rev 206, where the bytes are);
+the owner wanted CBOR everywhere, so `go.mod` now replaces controller-runtime
+with the clustarr fork (`github.com/mediactl/controller-runtime
+v0.25.1-clustarr.1`, branch `clustarr`, one commit on v0.25.1) whose two
+factories go through `rest.CodecFactoryForGeneratedClient`, client-go's own
+helper that adds the CBOR serializer when `ClientsAllowCBOR` is on, and
+`cbor.go` turns both gates on at init through client-go's own gates unless
+the environment names one. Every controller, informer and write in the
+manager then speaks CBOR; the row cache's own stream went. Tests:
+controller-runtime's own client on the fork asks for CBOR first and decodes
+a CBOR answer, and JSON with PreferCBOR off; a watch answered as a CBOR
+sequence decodes through the fork's factory; the gates' default.
 
 ## 5. Tests
 

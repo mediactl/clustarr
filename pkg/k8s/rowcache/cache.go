@@ -102,29 +102,10 @@ func New(o Options) cache.NewCacheFunc {
 			kinds[reflect.TypeOf(obj)] = k
 			lists[listType] = k
 		}
-		// Each kind's own lister-watcher, over CBOR (cbor.go), where the
-		// cache's options let the row cache reproduce controller-runtime's.
-		streams := make(map[*kind]toolscache.ListerWatcher, len(kinds))
-		for _, k := range kinds {
-			ns, ok := cborNamespace(opts, k)
-			if !ok {
-				continue
-			}
-			lw, err := cborListerWatcher(cfg, opts.HTTPClient, opts.Scheme, k, ns)
-			if err != nil {
-				return nil, err
-			}
-			streams[k] = lw
-		}
 		next := opts.NewInformer
 		opts.NewInformer = func(lw toolscache.ListerWatcher, obj runtime.Object, resync time.Duration, indexers toolscache.Indexers) toolscache.SharedIndexInformer {
 			if k, ok := kinds[reflect.TypeOf(obj)]; ok {
-				inf := newInformer(lw, obj, k, resync, indexers)
-				if own := streams[k]; own != nil {
-					inf.lw = inf.listerWatcher(own)
-					inf.wire = runtime.ContentTypeCBOR
-				}
-				return inf
+				return newInformer(lw, obj, k, resync, indexers)
 			}
 			if next != nil {
 				return next(lw, obj, resync, indexers)

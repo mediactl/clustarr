@@ -96,9 +96,6 @@ type Informer struct {
 	// a test can shorten them.
 	replayQuiet, replayWindow time.Duration
 	replayLead                int
-	// wire is the content type the kind streams in when the row cache
-	// built the lister-watcher itself (cbor.go); "" for controller-runtime's.
-	wire string
 }
 
 var _ toolscache.SharedIndexInformer = (*Informer)(nil)
@@ -283,13 +280,6 @@ func (s *Informer) RunWithContext(ctx context.Context) {
 	s.started = true
 	s.ctx = ctx
 	s.log = logging.FromContext(ctx).With("informer", s.codec.kind)
-	if s.wire != "" {
-		wire := s.wire
-		if !cborAllowed() {
-			wire = runtime.ContentTypeJSON + " (ClientsAllowCBOR is off)"
-		}
-		s.log.Info("rowcache: the kind lists and watches over its own stream", "contentType", wire)
-	}
 	fifo := toolscache.NewDeltaFIFOWithOptions(toolscache.DeltaFIFOOptions{
 		KeyFunction:           rowKey,
 		KnownObjects:          s.indexer,

@@ -220,3 +220,10 @@ require (
 )
 
 replace github.com/obinnaokechukwu/ffgo => github.com/mediactl/ffgo v0.0.0-clustarr.16
+
+// controller-runtime builds its client's and its cache's codec factories
+// without the CBOR serializer, so client-go's ClientsAllowCBOR and
+// ClientsPreferCBOR gates never reach them (and PreferCBOR fails every
+// request); the fork routes both through rest.CodecFactoryForGeneratedClient
+// (one commit on v0.25.1; pkg/k8s/rowcache/cbor.go turns the gates on).
+replace sigs.k8s.io/controller-runtime => github.com/mediactl/controller-runtime v0.25.1-clustarr.1
