@@ -621,8 +621,36 @@ plan and writes status in one reconcile, while the render serves a new
 had registered a device PMS could not fetch ("POST /media/grabbers/devices:
 plex: not found") and deleted the XMLTV DVR first, leaving Plex without
 Live TV for 90 s; cluster-plex 40dd555 also holds the removal of devices no
-block names while a block's add fails. `spec.epgSource` (XEPG or PMS, the
-latter Plex's setup wizard by hand) is gone.
+block names while a block's add fails. **A device PMS marks dead is
+discovered again by cluster-plex** (87bdd72, `DiscoverDevice`, once a
+minute while it stays dead, Event `DVRDeviceRevived`): PMS refreshes its
+devices at its start and on a schedule, marks one dead when the refresh
+fails and never retries it ("Device not found. Ensure your device is
+powered on and connected to your network"), and a manager restart leaves
+every `/hdhr/<id>` unserved for the length of the tuner's first render
+(85 s), which is how rev 213's restart lost Live TV at 09:52Z until a
+discover by hand. **The copy into PostgreSQL happens before PMS's rename**
+since shim `v1.3.17-clusterplex.45` (its `rename()` hook, the shim half of
+cluster-plex's 2026-10-21 design, built the same day; the manager's
+`guideSwapDeadline` 230 s, the hook's wait 240 s): the shim decides SQLite
+or PostgreSQL when PMS opens a guide, so until then a new DVR's first guide
+was served from its SQLite file until PMS next reopened it (DVR 32,
+09:43-09:52Z) and each later load was served stale for the minute the poll
+took; a forced reload at 10:30Z proved the order (the manager's "the shim
+asks for a guide load's copy before its rename", the copy, then PMS reading
+the new load from PostgreSQL). **Plex's limit for a cloud block is the map
+budget** (`blocks.DefaultMaxBytes`, 30,000 bytes; about 116 bytes per
+cloud channel key, so about 255 channels per DVR), not `dvr.maxChannels`.
+The DIRECTV mapping was extended by hand on 2026-11-04 (owner: "map out the
+remaining direct TV channels"): 65 IPTVChannels paired through
+`spec.epg.plex.station` (the Pensacola/Mobile and Los Angeles affiliates,
+CSPAN 1-3, CNNI, premium movie variants, shopping, Music Choice, F1,
+MotoGP, team feeds), 233 on the one block; a channel is served only when
+some provider filter admits its playlist entry (51 read Missing, "not a
+candidate ... filtered out", until argon-tv admitted their groups), and the
+remaining 750-odd unpaired stations have no argon stream (DIRECTV
+placeholders, PPV, regional sports, out-of-market locals). `spec.epgSource`
+(XEPG or PMS, the latter Plex's setup wizard by hand) is gone.
 
 **Streams declare their language** (owner, 2026-10-27: Plex showed ESPN's
 audio as Unknown; its PMT said `und` where the Weather Channel's said
