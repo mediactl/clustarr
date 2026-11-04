@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -56,6 +57,10 @@ func episodeFixture(t *testing.T) (*ui.Server, client.Client) {
 		Status: catalogv1.SeriesStatus{
 			Path:    "/data/tv/Andor (2022)",
 			Seasons: []catalogv1.SeasonStatus{{Number: 1, Monitored: true, EpisodeCount: 6, EpisodeFileCount: 1, SizeBytes: 3 << 30}},
+			Metadata: &catalogv1.SeriesMetadata{
+				Network: "Disney+", Certification: "TV-14", OriginalLanguage: "en", Genres: []string{"Drama", "Science Fiction"},
+				Overview: "The series' overview.", RuntimeMinutes: 45,
+			},
 		},
 	}
 	episode := func(number int32, title string, status catalogv1.EpisodeStatus) *catalogv1.Episode {
@@ -104,8 +109,10 @@ func episodeFixture(t *testing.T) (*ui.Server, client.Client) {
 	c := fake.NewClientBuilder().WithScheme(libraryTestScheme(t)).WithObjects(series, file, answered, running,
 		episode(1, "Kassa", catalogv1.EpisodeStatus{
 			AirDate: &aired, HasFile: true, FileRef: new("andor-s01e01-file"),
-			FileQuality: &commonv1.Quality{Name: "WEBDL-1080p"}, Phase: catalogv1.EpisodePhaseCutoffUnmet,
+			FileQuality: &commonv1.Quality{Name: "WEBDL-1080p"}, Phase: catalogv1.EpisodePhaseCutoffUnmet, CutoffReason: "MissingAudio",
 			Overview: "Cassian Andor searches for his sister.", RuntimeMinutes: 39,
+			TvdbID: 8911531, AbsoluteNumber: new(int32(1)),
+			Images: []catalogv1.Image{{Type: catalogv1.ImageTypeScreenshot, URL: "https://artworks.thetvdb.com/banners/episodes/393189/8911531.jpg"}},
 		}),
 		episode(2, "That Would Be Me", catalogv1.EpisodeStatus{AirDate: &aired, Phase: catalogv1.EpisodePhaseDownloading, ActiveDownloadRef: new("dl"), FinaleType: "midseason"}),
 		episode(3, "Reckoning", catalogv1.EpisodeStatus{AirDate: &aired, Phase: catalogv1.EpisodePhaseWanted}),
@@ -150,7 +157,7 @@ func getPath(t *testing.T, srv *ui.Server, path string, htmx bool) *httptest.Res
 
 // Each row is Sonarr's: the status cell says, in Sonarr's order, what the
 // episode is waiting on, and every row has the automatic and interactive
-// searches and a title that opens the episode's details.
+// searches and a title that opens the episode's page.
 func TestEpisodeRowsAreSonarrs(t *testing.T) {
 	srv, _ := episodeFixture(t)
 	rec := getPath(t, srv, "/library/default/series/andor/seasons/1", true)
@@ -169,7 +176,9 @@ func TestEpisodeRowsAreSonarrs(t *testing.T) {
 	require.Contains(t, body, `<time datetime="2022-09-21" title="2022-09-21">Sep 21 2022</time>`)
 	require.Contains(t, body, `hx-post="/library/default/episode/andor-s01e03/search" hx-target="#action-status"`)
 	require.Contains(t, body, `hx-post="/library/default/episode/andor-s01e03/search/interactive" hx-target="#episode-modal"`)
-	require.Contains(t, body, `hx-get="/library/default/episode/andor-s01e03/details" hx-target="#episode-modal"`)
+	require.Regexp(t, `href="/library/default/episode/andor-s01e03"\s+preload="mouseover"[^>]*data-episode-title`, body,
+		"the title is the episode's page, preloaded as a library card is")
+	require.NotContains(t, body, `hx-get="/library/default/episode/andor-s01e03/details"`, "no longer the modal")
 	require.Contains(t, body, `name="return" value="/library/default/series/andor/seasons/1"`)
 	require.Regexp(t, `data-episode-title[^>]*>\s*TBA`, body, "an untitled episode reads TBA")
 
@@ -203,8 +212,9 @@ func TestEpisodeAutomaticSearchAnswersInPlace(t *testing.T) {
 	require.Len(t, got, 1, "one automatic search, grabbing its best")
 }
 
-// The title opens Sonarr's details modal for htmx and a page for anyone
-// else: the heading, the overview and the file, Details open.
+// The details route answers htmx with Sonarr's details modal -- the
+// heading, the overview and the file, Details open -- and anyone else with
+// the episode's page.
 func TestEpisodeDetailsServesTheModalToHTMXAndAPageOtherwise(t *testing.T) {
 	srv, _ := episodeFixture(t)
 	rec := getPath(t, srv, "/library/default/episode/andor-s01e01/details", true)
@@ -231,8 +241,93 @@ func TestEpisodeDetailsServesTheModalToHTMXAndAPageOtherwise(t *testing.T) {
 	require.Equal(t, http.StatusOK, page.Code)
 	require.Contains(t, page.Body.String(), "<html")
 	require.Contains(t, page.Body.String(), `data-episode-page="andor-s01e01"`)
+	require.Empty(t, page.Header().Get("Cache-Control"), "nothing preloads the details route")
 
 	require.Equal(t, http.StatusNotFound, getPath(t, srv, "/library/default/episode/nope/details", true).Code)
+}
+
+// An episode's page is the movie page for one episode (owner, 2026-11-03):
+// the toolbar's searches and its series' refresh, a hero on the series'
+// fanart with the episode's still, bookmark, title, series, season and
+// number, air date, runtime, provider links and the movie page's facts
+// and overview, then the movie page's Files, extra files and subtitles,
+// and the neighbouring episodes.
+func TestEpisodePageShowsWhatTheMoviePageShows(t *testing.T) {
+	srv, _ := episodeFixture(t)
+	rec := getPath(t, srv, "/library/default/episode/andor-s01e01", false)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, "private, max-age=10", rec.Header().Get("Cache-Control"), "the title preloads the page")
+	page := rec.Body.String()
+	require.Contains(t, page, "<html")
+	requireTag(t, page, `data-episode-page="andor-s01e01"`, `data-kind="episode"`, `data-monitored="true"`,
+		`data-hasfile="true"`, `data-status="file"`, `data-profile="web-1080p"`)
+
+	// The hero.
+	require.Contains(t, page, "<title>Andor - S01E01 - Kassa")
+	require.Regexp(t, `<h1[^>]*>Kassa</h1>`, page)
+	require.Regexp(t, `href="/library/default/series/andor"[^>]*data-series-link[^>]*>Andor<`, page)
+	require.Regexp(t, `href="/library/default/series/andor/seasons/1"[^>]*data-season-link[^>]*>Season 1<`, page)
+	require.Regexp(t, `data-episode-code[^>]*>S01E01<`, page)
+	require.Regexp(t, `data-absolute[^>]*>\(1\)<`, page)
+	require.Contains(t, page, `<time datetime="2022-09-21" title="2022-09-21" data-airdate>Aired Sep 21 2022</time>`)
+	require.Contains(t, page, "39m", "the episode's runtime over the series' 45")
+	require.Contains(t, page, ">TV-14<")
+	require.Regexp(t, `data-still src="/art/search\?[^"]+"`, page, "the still, through the art proxy")
+	require.Contains(t, page, `href="https://thetvdb.com/dereferrer/episode/8911531"`)
+	require.Contains(t, page, `title="TVDB (series)"`)
+	require.Contains(t, page, "Cassian Andor searches for his sister.")
+	require.NotContains(t, page, "The series' overview.", "the series' overview is its own page's")
+	for fact, want := range map[string]string{
+		"path":     "/data/tv/Andor (2022)/Season 01",
+		"status":   "Cutoff Unmet: MissingAudio",
+		"profile":  "web-1080p",
+		"size":     "2.00 GiB",
+		"language": "English",
+		"network":  "Disney+",
+		"genres":   "Drama, Science Fiction",
+	} {
+		require.Regexp(t, `data-fact="`+fact+`"[\s\S]*?`+regexp.QuoteMeta(want), page, fact)
+	}
+	requireTag(t, page, `data-status="cutoff-unmet"`, `bg-amber-500`)
+
+	// The bookmark and the toolbar, each returning here; the interactive
+	// search opens the modal in the page's own #episode-modal.
+	episodeURL := "/library/default/episode/andor-s01e01"
+	require.Contains(t, page, `action="`+episodeURL+`/monitor"`)
+	require.Contains(t, page, `name="monitored" value="false"`)
+	require.Contains(t, page, `action="`+episodeURL+`/search"`)
+	require.Regexp(t, `hx-post="`+episodeURL+`/search/interactive"[^>]*hx-target="#episode-modal"`, page)
+	require.Contains(t, page, `action="/library/default/series/andor/refresh"`)
+	require.Contains(t, page, `name="return" value="`+episodeURL+`"`)
+	require.Contains(t, page, `id="episode-modal"`)
+	require.Contains(t, page, `id="action-status"`)
+	require.NotContains(t, page, `data-action="delete"`, "deleting is the series' page's")
+
+	// The movie page's sections.
+	require.Contains(t, page, `data-section="files"`)
+	requireTag(t, page, `data-file="andor-s01e01-file"`)
+	require.Contains(t, page, "Season 01/Andor - S01E01 - Kassa.mkv", "the path relative to the series' folder")
+	require.Contains(t, page, `data-section="extras"`)
+
+	// The neighbours: the first episode has no previous one.
+	require.NotContains(t, page, `data-nav="prev"`)
+	require.Regexp(t, `href="/library/default/episode/andor-s01e02"[^>]*data-nav="next"`, page)
+
+	// An episode without a file: missing, its series' folder, no still,
+	// the series' poster in its place, both neighbours.
+	missing := getPath(t, srv, "/library/default/episode/andor-s01e03", false).Body.String()
+	requireTag(t, missing, `data-episode-page="andor-s01e03"`, `data-status="missing"`, `data-hasfile="false"`)
+	require.Contains(t, missing, "No file on disk.")
+	require.Regexp(t, `data-fact="path"[\s\S]*?/data/tv/Andor \(2022\)<`, missing)
+	require.NotContains(t, missing, "data-still")
+	require.Contains(t, missing, "45m", "no runtime of its own: the series'")
+	require.Regexp(t, `href="/library/default/episode/andor-s01e02"[^>]*data-nav="prev"`, missing)
+	require.Regexp(t, `href="/library/default/episode/andor-s01e04"[^>]*data-nav="next"`, missing)
+
+	untitled := getPath(t, srv, "/library/default/episode/andor-s01e06", false).Body.String()
+	require.Regexp(t, `<h1[^>]*>TBA</h1>`, untitled)
+
+	require.Equal(t, http.StatusNotFound, getPath(t, srv, "/library/default/episode/nope", false).Code)
 }
 
 // The row's interactive search creates a Search that grabs nothing and

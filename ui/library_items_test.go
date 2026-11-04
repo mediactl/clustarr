@@ -111,7 +111,7 @@ func TestSeasonHeadersAreItemsAndEpisodesASonarrTable(t *testing.T) {
 		`data-quality="WEBDL-1080p"`, `data-phase="Imported"`, `data-status="file"`)
 	require.Contains(t, partial, `hx-target="closest tr"`, "a toggle swaps the row it sits in")
 	require.Regexp(t, `data-slot="badge"[^>]*>WEBDL-1080p<`, partial, "the file's quality is a badge")
-	require.Regexp(t, `data-episode-title[^>]*>\s*Kassa`, partial, "the title opens the episode's details")
+	require.Regexp(t, `data-episode-title[^>]*>\s*Kassa`, partial, "the title opens the episode's page")
 }
 
 func TestChildRowsAreItems(t *testing.T) {

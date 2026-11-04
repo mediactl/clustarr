@@ -27,7 +27,6 @@ import (
 	"github.com/mediactl/clustarr/ui/components/icon"
 	"github.com/mediactl/clustarr/ui/components/table"
 	"github.com/mediactl/clustarr/ui/components/tabs"
-	"github.com/mediactl/clustarr/ui/projection"
 )
 
 // EpisodeModal is Sonarr's episode details modal, opened from an episode's
@@ -46,21 +45,6 @@ templ EpisodeModal(d EpisodeDetail) {
 			}
 			@episodeTabs(d)
 		}
-	}
-}
-
-// EpisodePage is the episode's details as a page, for a browser without
-// JavaScript: the modal's tabs under the series' crumbs.
-templ EpisodePage(d EpisodeDetail, series projection.LibraryItem) {
-	@Shell(Chrome{Title: episodeHeading(d), Crumbs: childCrumbs(series, d.Row.Code()), Tab: series.Tab}) {
-		<div class="space-y-4" data-episode-page={ d.Row.Name }>
-			<div>
-				<h1 class="text-xl font-semibold">{ episodeHeading(d) }</h1>
-				<p class="text-sm text-muted-foreground">{ episodeFacts(d) }</p>
-			</div>
-			@episodeTabs(d)
-		</div>
-		@ActionStatusRegion()
 	}
 }
 

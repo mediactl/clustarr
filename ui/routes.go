@@ -477,6 +477,12 @@ func (s *Server) listRootFolders(ctx context.Context) []catalogv1.RootFolder {
 // handler needs no per-kind Get, which ui/projection's describeLibraryItem
 // already solves once for the whole package.
 func (s *Server) handleLibraryItem(w http.ResponseWriter, r *http.Request) {
+	// An episode is no library item: its page is its series' card and its
+	// own Episode (handleEpisodePage).
+	if r.PathValue("kind") == string(commonv1.MediaKindEpisode) {
+		s.handleEpisodePage(w, r)
+		return
+	}
 	item, ok := findLibraryItem(s.opts.Library(r.Context()),
 		r.PathValue("namespace"), r.PathValue("kind"), r.PathValue("name"))
 	if !ok {

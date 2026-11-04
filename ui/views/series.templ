@@ -30,8 +30,9 @@ import (
 // SeriesDetail is a series' page (spec 2026-09-23-library-page-design):
 // the item header -- poster, title, monitored toggle, profile, search now
 // -- followed by one season component per season. Episodes are not on the
-// page; each season loads its own on first expand. #episode-modal holds
-// an episode's details or interactive search once one is opened, and
+// page; each season loads its own on first expand, and an episode's title
+// opens its page (EpisodePage). #episode-modal holds an episode's or a
+// season's interactive search once one is opened, and
 // #action-status says how an episode's automatic search went.
 templ SeriesDetail(d Detail, seasons []SeasonRow) {
 	@Shell(Chrome{Title: d.Item.Title, Crumbs: itemCrumbs(d.Item), Tab: d.Item.Tab}) {
@@ -279,8 +280,8 @@ templ EpisodeRows(episodes []EpisodeRow) {
 }
 
 // EpisodeRowView is one episode, Sonarr's episode row, and what its monitor
-// toggle swaps in place: the bookmark, the number, the title (opening the
-// episode's details) with its finale and audio badges, the air date, the
+// toggle swaps in place: the bookmark, the number, the title (the
+// episode's page) with its finale and audio badges, the air date, the
 // status cell, and the automatic and interactive searches. An unmonitored
 // episode reads dimmed.
 templ EpisodeRowView(ep EpisodeRow) {
@@ -306,10 +307,8 @@ templ EpisodeRowView(ep EpisodeRow) {
 		@table.Cell(table.CellProps{Class: "whitespace-normal"}) {
 			<span class="flex flex-wrap items-center gap-2">
 				<a
-					href={ templ.URL(ep.DetailsURL()) }
-					hx-get={ ep.DetailsURL() }
-					hx-target="#episode-modal"
-					hx-swap="innerHTML"
+					href={ templ.URL(ep.URL()) }
+					preload="mouseover"
 					class="font-medium hover:underline"
 					data-episode-title
 				>

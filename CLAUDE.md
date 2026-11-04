@@ -674,7 +674,7 @@ sidebar stays put.
 In the TV pane, only series should be shown. Clicking a series should present a page with the seasons and episodes.
 A season's episodes are Sonarr's table (2026-10-07, `ui/series.go`,
 `ui/episode.go`, `ui/views/episode.templ`): the monitor bookmark, number,
-title (opening the episode's details modal, Details and Search tabs), air
+title (the episode's page, below), air
 date, Sonarr's status cell (`episodeStatus`: downloading, pending, the
 file's quality -- amber below the cutoff -- TBA, unaired, unmonitored,
 missing; read from the Episode's status, which the catalog derives from
@@ -758,6 +758,20 @@ mismatches (`WrongItem`, `UnknownItem`, `UnableToParse`) last, counted by
 never dropped -- in the agent before its cap and again after the
 item-state rules; and a yearless, title-only match on a title another
 library item carries is `UnknownItem` (`decision.Identity.Namesakes`).
+An episode has a page of its own, the movie page for one episode (owner,
+2026-11-03; `ui/episode_page.go`, `ui/views/episode_page.templ`):
+`/library/{ns}/episode/{name}`, which its title in the season table opens
+and preloads, and where the details route sends anything but htmx. Its
+toolbar refreshes and scans the series (an episode's metadata is its
+series') and runs the episode's automatic and interactive searches (the
+modal, on its Search tab, in the page's `#episode-modal`); its hero is on
+the series' fanart with the episode's still (TVDB's screenshot through
+`/art/search`, else the series' poster), the bookmark, title, series,
+season and `S01E03`, absolute number, air date, runtime, finale and
+provider links, and the movie page's facts -- the Status fact Transcoded
+from `status.cutoffReason` whatever the phase -- then the movie page's own
+Files, extra files and Subtitles sections, and the episodes either side
+of it. Edit, Image Set, Delete and Rename stay on the series' page.
 An author's books are the same table (2026-10-07, `ui/book.go`,
 `ui/views/book.templ`): bookmark, title opening the book's modal
 (`/library/{ns}/book/{name}/details`, `#book-modal`), release date,

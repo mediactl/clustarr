@@ -32,7 +32,6 @@ import (
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/rankscore"
 	"github.com/mediactl/clustarr/ui/actions"
-	"github.com/mediactl/clustarr/ui/projection"
 	"github.com/mediactl/clustarr/ui/views"
 )
 
@@ -47,10 +46,15 @@ import (
 // owner's grab planner made of it, or the owner's refusal. Every route
 // serves htmx its component and anyone else a page.
 
-// handleEpisodeDetails serves GET /library/{namespace}/episode/{name}/details,
-// on the Details tab, or the Search tab with ?tab=search.
+// handleEpisodeDetails serves GET /library/{namespace}/episode/{name}/details:
+// the modal on its Details tab, or the Search tab with ?tab=search, to
+// htmx, and the episode's page to anyone else.
 func (s *Server) handleEpisodeDetails(w http.ResponseWriter, r *http.Request) {
-	d, series, ok := s.episodeDetail(r.Context(), r.PathValue("namespace"), r.PathValue("name"))
+	if !isHTMX(r) {
+		s.renderEpisodePage(w, r, false)
+		return
+	}
+	d, ok := s.episodeDetail(r.Context(), r.PathValue("namespace"), r.PathValue("name"))
 	if !ok {
 		http.NotFound(w, r)
 		return
@@ -58,7 +62,7 @@ func (s *Server) handleEpisodeDetails(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Query().Get("tab") == "search" {
 		d.Tab = "search"
 	}
-	s.renderEpisode(w, r, d, series)
+	s.renderEpisodeModal(w, r, d)
 }
 
 // handleInteractiveSearch serves POST
@@ -69,7 +73,7 @@ func (s *Server) handleEpisodeDetails(w http.ResponseWriter, r *http.Request) {
 // and nothing is created for it.
 func (s *Server) handleInteractiveSearch(w http.ResponseWriter, r *http.Request) {
 	ns, name := r.PathValue("namespace"), r.PathValue("name")
-	d, series, ok := s.episodeDetail(r.Context(), ns, name)
+	d, ok := s.episodeDetail(r.Context(), ns, name)
 	if !ok {
 		http.NotFound(w, r)
 		return
@@ -79,7 +83,7 @@ func (s *Server) handleInteractiveSearch(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	d.Tab, d.Search = "search", panel
-	s.renderEpisode(w, r, d, series)
+	s.renderEpisodeModal(w, r, d)
 }
 
 // startInteractiveSearch starts an interactive search for the item
@@ -169,15 +173,10 @@ func (s *Server) handleGrabRelease(w http.ResponseWriter, r *http.Request) {
 	s.renderSearchPanel(w, r, p, search.Spec.MediaRef)
 }
 
-// renderEpisode answers the episode's details: the modal to htmx, a page
-// otherwise.
-func (s *Server) renderEpisode(w http.ResponseWriter, r *http.Request, d views.EpisodeDetail, series projection.LibraryItem) {
+// renderEpisodeModal answers htmx with the episode's details modal.
+func (s *Server) renderEpisodeModal(w http.ResponseWriter, r *http.Request, d views.EpisodeDetail) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	view := views.EpisodePage(d, series)
-	if isHTMX(r) {
-		view = views.EpisodeModal(d)
-	}
-	if err := view.Render(r.Context(), w); err != nil {
+	if err := views.EpisodeModal(d).Render(r.Context(), w); err != nil {
 		logging.FromContext(r.Context()).Error("render episode details", "error", err)
 	}
 }
@@ -200,17 +199,16 @@ func (s *Server) renderSearchPanel(w http.ResponseWriter, r *http.Request, p vie
 }
 
 // episodeDetail reads an episode and its series and builds the modal's
-// view on its Details tab, plus the series' library card for a page's
-// crumbs. False when the episode, its series' card or the reader is
-// missing.
-func (s *Server) episodeDetail(ctx context.Context, ns, name string) (views.EpisodeDetail, projection.LibraryItem, bool) {
+// view on its Details tab. False when the episode, its series' card or the
+// reader is missing.
+func (s *Server) episodeDetail(ctx context.Context, ns, name string) (views.EpisodeDetail, bool) {
 	var ep catalogv1.Episode
 	if !s.getObject(ctx, types.NamespacedName{Namespace: ns, Name: name}, &ep) {
-		return views.EpisodeDetail{}, projection.LibraryItem{}, false
+		return views.EpisodeDetail{}, false
 	}
 	item, ok := findLibraryItem(s.opts.Library(ctx), ns, string(commonv1.MediaKindSeries), ep.Spec.SeriesRef)
 	if !ok {
-		return views.EpisodeDetail{}, projection.LibraryItem{}, false
+		return views.EpisodeDetail{}, false
 	}
 	d := views.EpisodeDetail{
 		Row:         episodeRow(&ep, time.Now()),
@@ -231,7 +229,7 @@ func (s *Server) episodeDetail(ctx context.Context, ns, name string) (views.Epis
 			d.File = &rows[0]
 		}
 	}
-	return d, item, true
+	return d, true
 }
 
 // searchPanel is a Search's results panel: its phase, the indexers' tally,

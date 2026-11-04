@@ -1,0 +1,308 @@
+/*
+Copyright 2026 The Clustarr Authors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+package views
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/mediactl/clustarr/ui/components/badge"
+	"github.com/mediactl/clustarr/ui/components/button"
+	"github.com/mediactl/clustarr/ui/components/icon"
+)
+
+// An episode's page (owner, 2026-11-03: "pages for TV episodes ... the same
+// variety of info as the movie page") is the movie page for one episode:
+// the toolbar, a hero on its series' fanart -- the episode's still, the
+// bookmark and title, its series, season and number, the air date,
+// runtime and provider links, the facts, the overview -- then its file,
+// its extra files and its subtitles, the movie page's own sections. What
+// belongs to the series -- Edit, Image Set, Delete, Rename -- stays on the
+// series' page; the episode's metadata is refreshed with its series'.
+
+// EpisodeView is everything an episode's page shows.
+type EpisodeView struct {
+	// Detail is what the movie page's sections read: Item is the series'
+	// library card (poster, art key, quality profile, tab), Backdrop its
+	// fanart, Certification, Language, Network and Genres its metadata;
+	// Overview, Runtime, Path, Links, Files, Extras, Subtitles and Audio
+	// are the episode's own, Prev and Next the neighbouring episodes.
+	Detail
+	Row EpisodeRow
+	// Still is the episode's still through /art/search, "" without one.
+	Still string
+	// Absolute is the episode's absolute number, 0 without one.
+	Absolute int32
+	// SeasonLabel names the episode's season as the season's page does:
+	// "Season N", or "Specials".
+	SeasonLabel string
+	// CutoffReason is status.cutoffReason, said beside a file below the
+	// cutoff.
+	CutoffReason string
+}
+
+// EpisodePage is an episode's page.
+templ EpisodePage(v EpisodeView) {
+	@Shell(Chrome{Title: episodePageTitle(v), Crumbs: episodeCrumbs(v), Tab: v.Item.Tab}) {
+		@episodeToolbar(v)
+		@episodeHero(v)
+		@filesSection(v.Detail)
+		@extrasSection(v.Detail)
+		@subtitlesSection(v.Detail)
+		<div id="episode-modal"></div>
+		@ActionStatusRegion()
+	}
+}
+
+// episodePageTitle is the page's title: "Series - S01E03 - Title".
+func episodePageTitle(v EpisodeView) string {
+	return fmt.Sprintf("%s - %s - %s", v.Item.Title, v.Row.SeasonEpisode(), episodeTitle(v.Row))
+}
+
+// episodeTitle is the episode's title, TBA without one.
+func episodeTitle(r EpisodeRow) string {
+	if r.Title == "" {
+		return "TBA"
+	}
+	return r.Title
+}
+
+// episodeCrumbs is the trail: the library, the tab, the series and the
+// season linked, the episode's number last.
+func episodeCrumbs(v EpisodeView) []Crumb {
+	return []Crumb{
+		{Label: "Library", Href: "/library"},
+		{Label: tabLabel(v.Item.Tab), Href: "/library/" + string(v.Item.Tab)},
+		{Label: v.Item.Title, Href: libraryDetailPath(v.Item)},
+		{Label: v.SeasonLabel, Href: v.Row.ReturnURL()},
+		{Label: v.Row.SeasonEpisode()},
+	}
+}
+
+// episodeToolbar is the movie page's toolbar for an episode: "Refresh &
+// Scan Series" (an episode's metadata is its series', and the scan is of
+// the series' folder), the automatic search, and the interactive search,
+// which opens the episode's modal on its Search tab in #episode-modal.
+// Every form returns here.
+templ episodeToolbar(v EpisodeView) {
+	@toolbar(nil) {
+		@toolbarGroup() {
+			@toolbarForm(libraryActionURL(v.Item, "refresh"), []Field{{"return", v.Row.URL()}, {"scan", "true"}}, "refresh-cw", "Refresh & Scan Series", "refresh-metadata", nil)
+			@toolbarForm(v.Row.SearchURL(), []Field{{"return", v.Row.URL()}}, "search", "Search Episode", "search-now", nil)
+			@toolbarForm(v.Row.InteractiveSearchURL(), nil, "user-search", "Interactive Search", "episode-interactive-search",
+				templ.Attributes{"hx-post": v.Row.InteractiveSearchURL(), "hx-target": "#episode-modal", "hx-swap": "innerHTML"})
+		}
+	}
+}
+
+// episodeHero is the movie page's header for an episode, on its series'
+// fanart: the still (else the series' poster), the bookmark and title with
+// the neighbouring episodes, the series, season and number, the
+// certification, air date, runtime, finale and provider links, the facts
+// and the overview. It carries the episode's data attributes for the
+// tests.
+templ episodeHero(v EpisodeView) {
+	{{ li, ep := v.Item, v.Row }}
+	<section
+		data-hero
+		data-episode-page={ ep.Name }
+		data-kind="episode"
+		data-monitored={ fmt.Sprintf("%t", ep.Monitored) }
+		data-phase={ ep.Phase }
+		data-hasfile={ fmt.Sprintf("%t", ep.HasFile) }
+		data-status={ ep.Status.Kind }
+		data-profile={ li.QualityProfileRef }
+		class="relative -mx-6 mb-8"
+	>
+		if v.Backdrop != "" {
+			<img data-backdrop src={ templ.URL(v.Backdrop) } data-art={ artKeyAs(li, "fanart") } alt="" loading="lazy" class="page-backdrop"/>
+			<div class="page-backdrop-shade" aria-hidden="true"></div>
+		}
+		if li.ArtKey != "" {
+			<div hidden hx-ext="sse" sse-connect={ artStreamURL(v.Detail) } hx-trigger="sse:art"></div>
+		}
+		<div class="relative flex flex-col gap-6 p-8 md:flex-row md:gap-10">
+			if v.Still != "" {
+				<div class="w-full shrink-0 sm:w-80 md:w-96">
+					<div class="overflow-hidden rounded-xl shadow-2xl shadow-black/60 ring-1 ring-white/10">
+						<img data-still src={ templ.URL(v.Still) } alt={ episodeTitle(ep) } loading="lazy" class="aspect-video w-full bg-muted object-cover"/>
+					</div>
+				</div>
+			} else {
+				<div class="w-40 shrink-0 md:w-56">
+					<div class="overflow-hidden rounded-xl shadow-2xl shadow-black/60 ring-1 ring-white/10">
+						@poster(li.Poster, li.Title, li.ArtKey)
+					</div>
+				</div>
+			}
+			<div class="min-w-0 flex-1">
+				<div class="flex items-start justify-between gap-4">
+					<div class="flex min-w-0 items-center gap-3">
+						@episodeBookmark(ep)
+						<h1 class="min-w-0 truncate text-4xl font-bold tracking-tight md:text-5xl">{ episodeTitle(ep) }</h1>
+					</div>
+					@neighbours(v.Detail)
+				</div>
+				<div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xl">
+					<a href={ templ.URL(libraryDetailPath(li)) } data-series-link class="font-medium hover:underline">{ li.Title }</a>
+					<span class="text-muted-foreground" aria-hidden="true">·</span>
+					<a href={ templ.URL(ep.ReturnURL()) } data-season-link class="hover:underline">{ v.SeasonLabel }</a>
+					<span class="text-muted-foreground" aria-hidden="true">·</span>
+					<span data-episode-code>{ ep.SeasonEpisode() }</span>
+					if v.Absolute > 0 {
+						<span data-absolute class="text-muted-foreground">{ fmt.Sprintf("(%d)", v.Absolute) }</span>
+					}
+				</div>
+				<div class="mt-3 flex flex-wrap items-center gap-3 text-xl text-muted-foreground">
+					if v.Certification != "" {
+						@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "text-base"}) { { v.Certification } }
+					}
+					if ep.AirDate != "" {
+						<time datetime={ ep.AirDate } title={ ep.AirDate } data-airdate>{ airedLabel(ep) }</time>
+					}
+					if v.Runtime != "" {
+						<span>{ v.Runtime }</span>
+					}
+					if ep.FinaleLabel() != "" {
+						@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "border-sky-500/40 text-base text-sky-300", Attributes: templ.Attributes{"data-finale": ep.FinaleType}}) { { ep.FinaleLabel() } }
+					}
+					for _, l := range v.Links {
+						<a href={ templ.URL(l.Href) } target="_blank" rel="noreferrer" title={ l.Label } class="[&_svg]:size-5 hover:text-foreground">
+							@icon.Icon("external-link")()
+							<span class="sr-only">{ l.Label }</span>
+						</a>
+					}
+				</div>
+				<dl class="mt-6 flex flex-wrap gap-x-10 gap-y-4 text-lg">
+					if v.Path != "" {
+						@fact("path", "Path") {
+							<span class="break-all">{ v.Path }</span>
+						}
+					}
+					@fact("status", "Status") {
+						<span class="flex items-center gap-2">
+							<span data-status={ episodeStripe(ep.Status) } class={ "inline-block h-5 w-1 rounded-sm " + stripeColour(episodeStripe(ep.Status)) }></span>
+							{ episodeStatusLabel(v) }
+						</span>
+					}
+					if li.QualityProfileRef != "" {
+						@fact("profile", "Quality Profile") {
+							@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: "text-sm"}) { { li.QualityProfileRef } }
+						}
+					}
+					if size := totalSize(v.Files); size > 0 {
+						@fact("size", "Size") {
+							{ formatBytes(size) }
+						}
+					}
+					if v.Language != "" {
+						@fact("language", "Original Language") {
+							{ v.Language }
+						}
+					}
+					if v.Audio.Text != "" {
+						@fact("audio", "Audio") {
+							@audioBadge(v.Audio)
+						}
+					}
+					if v.Network != "" {
+						@fact("network", "Network") {
+							{ v.Network }
+						}
+					}
+					if len(v.Genres) > 0 {
+						@fact("genres", "Genres") {
+							{ strings.Join(v.Genres, ", ") }
+						}
+					}
+				</dl>
+				if v.Overview != "" {
+					<p data-overview class="mt-6 max-w-5xl text-base leading-relaxed">{ v.Overview }</p>
+				}
+			</div>
+		</div>
+	</section>
+}
+
+// episodeBookmark is the movie page's bookmark for the episode: filled
+// when monitored, and the form that flips it, returning here.
+templ episodeBookmark(ep EpisodeRow) {
+	<form method="post" action={ templ.URL(ep.MonitorURL()) } class="contents">
+		<input type="hidden" name="return" value={ ep.URL() }/>
+		<input type="hidden" name="monitored" value={ fmt.Sprintf("%t", !ep.Monitored) }/>
+		@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantGhost, Size: button.SizeIconLg, Attributes: templ.Attributes{"data-action": "set-monitored", "aria-label": bookmarkLabel(ep.Monitored), "title": bookmarkLabel(ep.Monitored)}}) {
+			if ep.Monitored {
+				<span class="[&_svg]:size-8 [&_svg]:fill-current">
+					@icon.Icon("bookmark")()
+				</span>
+			} else {
+				<span class="[&_svg]:size-8">
+					@icon.Icon("bookmark")()
+				</span>
+			}
+		}
+	</form>
+}
+
+// airedLabel is the air date as the hero says it: "Aired Sep 21 2022", or
+// "Airs ..." before then.
+func airedLabel(ep EpisodeRow) string {
+	if ep.Status.Kind == "unaired" {
+		return "Airs " + ep.AirDateLabel
+	}
+	return "Aired " + ep.AirDateLabel
+}
+
+// episodeStripe is the status cell's case as a projection.LibraryStatus,
+// for the Status fact's stripe: a file below the cutoff is cutoff-unmet,
+// one at it downloaded, a pending grab downloading.
+func episodeStripe(s RowStatus) string {
+	switch s.Kind {
+	case "file":
+		if s.Warn {
+			return "cutoff-unmet"
+		}
+		return "downloaded"
+	case "pending":
+		return "downloading"
+	default:
+		return s.Kind
+	}
+}
+
+// episodeStatusLabel is the Status fact in words, as the movie page's:
+// a file is Downloaded, Transcoded or Cutoff Unmet (with the reason the
+// catalog recorded), else the status cell's own word.
+func episodeStatusLabel(v EpisodeView) string {
+	s := v.Row.Status
+	if s.Kind != "file" {
+		return s.Label
+	}
+	switch {
+	case s.Warn && v.CutoffReason != "" && v.CutoffReason != "CutoffUnmet":
+		return "Cutoff Unmet: " + v.CutoffReason
+	case s.Warn:
+		return "Cutoff Unmet"
+	case v.Row.Phase == "Transcoded" || v.CutoffReason == "Transcoded":
+		// The reason holds whatever the phase: an unmonitored episode's
+		// phase is Unmonitored, its transcoded file still final.
+		return "Transcoded"
+	default:
+		return "Downloaded"
+	}
+}

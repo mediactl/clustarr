@@ -154,6 +154,9 @@ type RowStatus struct {
 // Code is the episode's Sonarr number, "1x03".
 func (r EpisodeRow) Code() string { return fmt.Sprintf("%dx%02d", r.Season, r.Number) }
 
+// SeasonEpisode is the episode's scene number, "S01E03".
+func (r EpisodeRow) SeasonEpisode() string { return fmt.Sprintf("S%02dE%02d", r.Season, r.Number) }
+
 // FinaleLabel is the finale badge's text, "" for no finale.
 func (r EpisodeRow) FinaleLabel() string {
 	switch r.FinaleType {
@@ -167,7 +170,7 @@ func (r EpisodeRow) FinaleLabel() string {
 	return ""
 }
 
-// URL is the episode's base route.
+// URL is the episode's page, and the base of its actions' routes.
 func (r EpisodeRow) URL() string { return fmt.Sprintf("/library/%s/episode/%s", r.Namespace, r.Name) }
 
 // MonitorURL is the episode's monitor action, the existing per-item route.
@@ -184,7 +187,8 @@ func (r EpisodeRow) ReturnURL() string {
 	return fmt.Sprintf("/library/%s/series/%s/seasons/%d", r.Namespace, r.Series, r.Season)
 }
 
-// DetailsURL is the episode's details: the modal to htmx, a page otherwise.
+// DetailsURL is the episode's details modal, to htmx; anyone else gets the
+// episode's page.
 func (r EpisodeRow) DetailsURL() string { return r.URL() + "/details" }
 
 // EpisodeDetail is Sonarr's episode details modal: the episode's summary
