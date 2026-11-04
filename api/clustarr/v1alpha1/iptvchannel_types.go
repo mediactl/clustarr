@@ -85,9 +85,11 @@ type IPTVChannelSpec struct {
 
 // ChannelEPG maps a channel to a guide: ChannelID is an XMLTV channel id in
 // the provider's guide (its panel's xmltv.php); or Dummy draws DummyMinutes
-// blocks titled by the channel's name.
+// blocks titled by the channel's name; neither maps by tvg-id, as an absent
+// epg does. Plex is the channel's pairing with its provider's Plex lineup,
+// beside either.
 //
-// +kubebuilder:validation:XValidation:rule="(has(self.channelID) && size(self.channelID) > 0) != (has(self.dummy) && self.dummy)",message="set exactly one of channelID and dummy"
+// +kubebuilder:validation:XValidation:rule="!((has(self.channelID) && size(self.channelID) > 0) && (has(self.dummy) && self.dummy))",message="set at most one of channelID and dummy"
 type ChannelEPG struct {
 	// ChannelID is an XMLTV channel id in the provider's guide.
 	// +optional
@@ -102,6 +104,84 @@ type ChannelEPG struct {
 	// +optional
 	// +kubebuilder:validation:Enum=30;60;120;180
 	DummyMinutes *int32 `json:"dummyMinutes,omitempty"`
+
+	// Plex overrides the automatic pairing with the provider's Plex lineup
+	// (spec.plexGuide): a station, or off. Unset, the channel is paired by
+	// its guide id's call sign and its name (the Plex native guide design
+	// §5.3).
+	// +optional
+	Plex *ChannelPlex `json:"plex,omitempty"`
+}
+
+// ChannelPlex is a channel's pairing chosen by hand.
+//
+// +kubebuilder:validation:XValidation:rule="(has(self.station) && size(self.station) > 0) != (has(self.off) && self.off)",message="set exactly one of station and off"
+type ChannelPlex struct {
+	// Station is a station's gridKey, the same in every Plex lineup: the
+	// part of a lineup channel's id after its dash.
+	// +optional
+	// +kubebuilder:validation:Pattern=`^[0-9a-f]{24}$`
+	Station string `json:"station,omitempty"`
+
+	// Off keeps the channel off Plex.
+	// +optional
+	Off bool `json:"off,omitempty"`
+}
+
+// PlexMatch is how a channel was paired with its provider's Plex lineup.
+// Only Manual and Automatic channels reach Plex.
+// +kubebuilder:validation:Enum=Manual;Automatic;Ambiguous;Taken;Timeshifted;NotInLineup;Off;NoLineup
+type PlexMatch string
+
+const (
+	PlexMatchManual      PlexMatch = "Manual"
+	PlexMatchAutomatic   PlexMatch = "Automatic"
+	PlexMatchAmbiguous   PlexMatch = "Ambiguous"
+	PlexMatchTaken       PlexMatch = "Taken"
+	PlexMatchTimeshifted PlexMatch = "Timeshifted"
+	PlexMatchNotInLineup PlexMatch = "NotInLineup"
+	PlexMatchOff         PlexMatch = "Off"
+	PlexMatchNoLineup    PlexMatch = "NoLineup"
+)
+
+// ChannelPlexStatus is a channel's pairing with its provider's Plex lineup.
+type ChannelPlexStatus struct {
+	// Match is how the channel was paired, or why it is off Plex.
+	Match PlexMatch `json:"match"`
+	// Station is the paired station's gridKey.
+	// +optional
+	// +kubebuilder:validation:MaxLength=64
+	Station string `json:"station,omitempty"`
+	// ID is the lineup channel's id, <lineup id>-<gridKey>.
+	// +optional
+	// +kubebuilder:validation:MaxLength=128
+	ID string `json:"id,omitempty"`
+	// CallSign is the station's call sign.
+	// +optional
+	// +kubebuilder:validation:MaxLength=64
+	CallSign string `json:"callSign,omitempty"`
+	// Title is the station's title.
+	// +optional
+	// +kubebuilder:validation:MaxLength=256
+	Title string `json:"title,omitempty"`
+	// VCN is the station's channel number in the lineup, which Plex shows.
+	// +optional
+	// +kubebuilder:validation:MaxLength=16
+	VCN string `json:"vcn,omitempty"`
+	// TakenBy names the channel holding the station, for Taken.
+	// +optional
+	// +kubebuilder:validation:MaxLength=253
+	TakenBy string `json:"takenBy,omitempty"`
+	// Candidates are the stations an Ambiguous match named, each
+	// "<callSign> <vcn> <title>".
+	// +optional
+	// +kubebuilder:validation:MaxItems=5
+	// +kubebuilder:validation:items:MaxLength=320
+	Candidates []string `json:"candidates,omitempty"`
+	// MissingSince is when the paired station was first absent from the
+	// lineup; the pairing stands for 7 days of absence.
+	// +optional
+	MissingSince *metav1.Time `json:"missingSince,omitempty"`
 }
 
 // IPTVChannelStatus is written by the IPTVChannel controller alone, under
@@ -119,11 +199,16 @@ type IPTVChannelStatus struct {
 	// +kubebuilder:validation:MaxItems=4
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
-	// Guide is the mapping actually used: "<guide>/<channelID>",
-	// "dummy/<minutes>", or "" under PMS.
+	// Guide is the mapping actually used: "<guide>/<channelID>" or
+	// "dummy/<minutes>".
 	// +optional
 	// +kubebuilder:validation:MaxLength=512
 	Guide string `json:"guide,omitempty"`
+
+	// Plex is the channel's pairing with its provider's Plex lineup; unset
+	// when the provider names none.
+	// +optional
+	Plex *ChannelPlexStatus `json:"plex,omitempty"`
 }
 
 // IPTVChannel is one mapped channel of an IPTVProvider (Live TV spec §3).

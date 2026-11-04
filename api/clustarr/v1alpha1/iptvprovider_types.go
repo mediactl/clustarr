@@ -18,23 +18,42 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package v1alpha1
 
 import (
+	"strings"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EPGSource is where Plex reads a provider's guide.
-// +kubebuilder:validation:Enum=XEPG;PMS
-type EPGSource string
+// PlexGuide names the Plex cloud lineup a provider's channels are paired
+// with (the Plex native guide design §5.1).
+type PlexGuide struct {
+	// Lineup is a Plex cloud lineup: its id (657c8183afd0f02cd353633f, Plex's
+	// DIRECTV Mobile) or its lineup://tv.plex.providers.epg.cloud/<id> uuid,
+	// as PMS's /livetv/epg/countries/<country>/tv.plex.providers.epg.cloud/
+	// lineups?postalCode= lists them.
+	// +kubebuilder:validation:MaxLength=512
+	// +kubebuilder:validation:Pattern=`^(lineup://tv\.plex\.providers\.epg\.cloud/)?[0-9a-f]{24}(#.*)?$`
+	Lineup string `json:"lineup"`
 
-const (
-	// EPGSourceXEPG serves this provider's own XMLTV guide, built from its
-	// guides and channel mappings.
-	EPGSourceXEPG EPGSource = "XEPG"
-	// EPGSourcePMS leaves the guide to Plex's own lineup; mappings' epg is
-	// ignored.
-	EPGSourcePMS EPGSource = "PMS"
-)
+	// CredentialsRef is a key of a Secret in the provider's namespace
+	// holding a Plex account token, sent as X-Plex-Token to
+	// epg.provider.plex.tv for the lineup's stations.
+	CredentialsRef corev1.SecretKeySelector `json:"credentialsRef"`
+
+	// Enabled puts the paired channels on Plex. Until it is true the pairing
+	// is a dry run: computed and shown in each channel's status.plex while
+	// the blocks stay on the XMLTV guide (design §5.9).
+	// +optional
+	Enabled bool `json:"enabled,omitempty"`
+}
+
+// LineupID is Lineup's 24-hex id, its lineup:// prefix and #title cut.
+func (g *PlexGuide) LineupID() string {
+	id := strings.TrimPrefix(g.Lineup, "lineup://tv.plex.providers.epg.cloud/")
+	id, _, _ = strings.Cut(id, "#")
+	return id
+}
 
 // FilterType is how a ChannelFilter matches a playlist entry.
 // +kubebuilder:validation:Enum=groupTitle;custom
@@ -139,11 +158,13 @@ type IPTVProviderSpec struct {
 	// +kubebuilder:validation:MaxLength=256
 	UserAgent string `json:"userAgent,omitempty"`
 
-	// EPGSource is where Plex reads the guide: XEPG (this provider's
-	// xmltv.xml, built from the panel's guide and the channel mappings) or
-	// PMS (Plex's own lineup guide; mappings' epg is ignored). Default XEPG.
+	// PlexGuide puts the provider's channels on Plex's own guide: a Plex
+	// cloud (Gracenote) lineup whose stations the channels are paired with
+	// (the Plex native guide design, 2026-11-03). Only paired channels reach
+	// Plex, on DVRs whose guide is that lineup; the rest are on no DVR.
+	// Unset, every channel is on the XMLTV guide the tuner builds.
 	// +optional
-	EPGSource EPGSource `json:"epgSource,omitempty"`
+	PlexGuide *PlexGuide `json:"plexGuide,omitempty"`
 
 	// Filters choose which playlist entries reach the mapping table. An
 	// entry is a candidate when any enabled filter matches it; with no
@@ -316,6 +337,52 @@ type IPTVProviderStatus struct {
 	// Tuners counts the provider's tuners.
 	// +optional
 	Tuners *TunerStatus `json:"tuners,omitempty"`
+
+	// PlexGuide describes spec.plexGuide's lineup and the pairing.
+	// +optional
+	PlexGuide *PlexGuideStatus `json:"plexGuide,omitempty"`
+}
+
+// PlexGuideStatus is the Plex lineup the tuner holds and how the channels
+// paired with it.
+type PlexGuideStatus struct {
+	// LineupID is the lineup's id.
+	// +optional
+	// +kubebuilder:validation:MaxLength=64
+	LineupID string `json:"lineupID,omitempty"`
+	// Title is the lineup's title, as Plex lists it.
+	// +optional
+	// +kubebuilder:validation:MaxLength=256
+	Title string `json:"title,omitempty"`
+	// Stations is how many stations the lineup lists (Plex lists at most
+	// 1,000).
+	// +optional
+	Stations int32 `json:"stations,omitempty"`
+	// FetchedAt is when the lineup was fetched.
+	// +optional
+	FetchedAt *metav1.Time `json:"fetchedAt,omitempty"`
+	// Error is the last fetch's failure; the last good lineup is kept.
+	// +optional
+	// +kubebuilder:validation:MaxLength=1024
+	Error string `json:"error,omitempty"`
+	// Paired counts the active channels on Plex (Manual or Automatic).
+	// +optional
+	Paired int32 `json:"paired,omitempty"`
+	// Ambiguous counts the channels several stations matched.
+	// +optional
+	Ambiguous int32 `json:"ambiguous,omitempty"`
+	// Taken counts the channels whose station another channel holds.
+	// +optional
+	Taken int32 `json:"taken,omitempty"`
+	// Timeshifted counts the timeshifted channels, never on Plex's guide.
+	// +optional
+	Timeshifted int32 `json:"timeshifted,omitempty"`
+	// NotInLineup counts the channels no station matched.
+	// +optional
+	NotInLineup int32 `json:"notInLineup,omitempty"`
+	// Off counts the channels kept off Plex by spec.epg.plex.off.
+	// +optional
+	Off int32 `json:"off,omitempty"`
 }
 
 // AccountStatus is an Xtream account as its panel reports it.
@@ -459,6 +526,15 @@ type BlockStatus struct {
 	// +optional
 	// +kubebuilder:validation:MaxLength=64
 	GuideHash string `json:"guideHash,omitempty"`
+
+	// Lineup is the Plex cloud lineup a Plex block's DVR is created with,
+	// lineup://tv.plex.providers.epg.cloud/<id>#<title>; empty for a block
+	// on the XMLTV guide. A Plex block serves its channel map at
+	// <path>/plexmap.json and no xmltv.xml (the Plex native guide design
+	// §5.4-§5.6).
+	// +optional
+	// +kubebuilder:validation:MaxLength=1024
+	Lineup string `json:"lineup,omitempty"`
 }
 
 // TunerStatus counts a provider's tuners.
@@ -480,7 +556,7 @@ type TunerStatus struct {
 // +kubebuilder:printcolumn:name="Tuners",type="integer",JSONPath=".status.tuners.total"
 // +kubebuilder:printcolumn:name="Active",type="integer",JSONPath=".status.lineup.active"
 // +kubebuilder:printcolumn:name="Candidates",type="integer",JSONPath=".status.playlist.candidates"
-// +kubebuilder:printcolumn:name="EPG",type="string",JSONPath=".spec.epgSource"
+// +kubebuilder:printcolumn:name="Plex",type="boolean",JSONPath=".spec.plexGuide.enabled"
 // +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=".status.conditions[?(@.type=='Ready')].status"
 // +kubebuilder:printcolumn:name="Expires",type="string",JSONPath=".status.account.expiresAt"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"

@@ -345,13 +345,13 @@ var kinds = []Kind{
 			{Title: "Provider", Paths: []string{"type", "enabled", "credentialsRef", "tuners", "refresh", "userAgent"}},
 			{Title: "Xtream", When: &When{Path: "type", Values: []string{"Xtream"}}, Paths: []string{"server"}},
 			{Title: "M3U", When: &When{Path: "type", Values: []string{"M3U"}}, Paths: []string{"playlistURL"}},
-			{Title: "Guide", Paths: []string{"guideURL", "epgSource"}},
+			{Title: "Guide", Paths: []string{"guideURL"}},
 			{Title: "Channels", Paths: []string{"filters", "channelNumberStart"}},
 			{Title: "Plex", Paths: []string{"device.friendlyName", "device.id", "dvr.maxChannels"}, Advanced: true},
 			{Title: "Stream", Paths: []string{"stream.buffer", "stream.linger", "stream.language"}, Advanced: true},
 		},
 		Labels: map[string]string{
-			"guideURL": "Guide URL (XMLTV)", "epgSource": "Guide source", "channelNumberStart": "First channel number",
+			"guideURL": "Guide URL (XMLTV)", "channelNumberStart": "First channel number",
 			"dvr.maxChannels": "Channels per Plex DVR", "credentialsRef": "Account", "playlistURL": "Playlist URL (M3U)",
 		},
 		// Not required here: an M3U provider names a Secret only when its

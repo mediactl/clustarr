@@ -31,9 +31,9 @@ spec:
     - jsonPath: .status.playlist.candidates
       name: Candidates
       type: integer
-    - jsonPath: .spec.epgSource
-      name: EPG
-      type: string
+    - jsonPath: .spec.plexGuide.enabled
+      name: Plex
+      type: boolean
     - jsonPath: .status.conditions[?(@.type=='Ready')].status
       name: Ready
       type: string
@@ -142,15 +142,6 @@ spec:
                   Enabled false stops this provider's tuner; Plex then sees its devices
                   gone. Default true.
                 type: boolean
-              epgSource:
-                description: |-
-                  EPGSource is where Plex reads the guide: XEPG (this provider's
-                  xmltv.xml, built from the panel's guide and the channel mappings) or
-                  PMS (Plex's own lineup guide; mappings' epg is ignored). Default XEPG.
-                enum:
-                - XEPG
-                - PMS
-                type: string
               filters:
                 description: |-
                   Filters choose which playlist entries reach the mapping table. An
@@ -231,6 +222,60 @@ spec:
                   and {password} in it take the credentials Secret's. Required for M3U.
                 maxLength: 4096
                 type: string
+              plexGuide:
+                description: |-
+                  PlexGuide puts the provider's channels on Plex's own guide: a Plex
+                  cloud (Gracenote) lineup whose stations the channels are paired with
+                  (the Plex native guide design, 2026-11-03). Only paired channels reach
+                  Plex, on DVRs whose guide is that lineup; the rest are on no DVR.
+                  Unset, every channel is on the XMLTV guide the tuner builds.
+                properties:
+                  credentialsRef:
+                    description: |-
+                      CredentialsRef is a key of a Secret in the provider's namespace
+                      holding a Plex account token, sent as X-Plex-Token to
+                      epg.provider.plex.tv for the lineup's stations.
+                    properties:
+                      key:
+                        description: The key of the secret to select from.  Must be
+                          a valid secret key.
+                        type: string
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                      optional:
+                        description: Specify whether the Secret or its key must be
+                          defined
+                        type: boolean
+                    required:
+                    - key
+                    type: object
+                    x-kubernetes-map-type: atomic
+                  enabled:
+                    description: |-
+                      Enabled puts the paired channels on Plex. Until it is true the pairing
+                      is a dry run: computed and shown in each channel's status.plex while
+                      the blocks stay on the XMLTV guide (design §5.9).
+                    type: boolean
+                  lineup:
+                    description: |-
+                      Lineup is a Plex cloud lineup: its id (657c8183afd0f02cd353633f, Plex's
+                      DIRECTV Mobile) or its lineup://tv.plex.providers.epg.cloud/<id> uuid,
+                      as PMS's /livetv/epg/countries/<country>/tv.plex.providers.epg.cloud/
+                      lineups?postalCode= lists them.
+                    maxLength: 512
+                    pattern: ^(lineup://tv\.plex\.providers\.epg\.cloud/)?[0-9a-f]{24}(#.*)?$
+                    type: string
+                required:
+                - credentialsRef
+                - lineup
+                type: object
               refresh:
                 description: |-
                   Refresh is how often the playlist, the guide and the account are
@@ -394,6 +439,15 @@ spec:
                       type: string
                     last:
                       maxLength: 16
+                      type: string
+                    lineup:
+                      description: |-
+                        Lineup is the Plex cloud lineup a Plex block's DVR is created with,
+                        lineup://tv.plex.providers.epg.cloud/<id>#<title>; empty for a block
+                        on the XMLTV guide. A Plex block serves its channel map at
+                        <path>/plexmap.json and no xmltv.xml (the Plex native guide design
+                        §5.4-§5.6).
+                      maxLength: 1024
                       type: string
                     lineupHash:
                       description: |-
@@ -578,6 +632,60 @@ spec:
                 - candidates
                 - entries
                 - groups
+                type: object
+              plexGuide:
+                description: PlexGuide describes spec.plexGuide's lineup and the pairing.
+                properties:
+                  ambiguous:
+                    description: Ambiguous counts the channels several stations matched.
+                    format: int32
+                    type: integer
+                  error:
+                    description: Error is the last fetch's failure; the last good
+                      lineup is kept.
+                    maxLength: 1024
+                    type: string
+                  fetchedAt:
+                    description: FetchedAt is when the lineup was fetched.
+                    format: date-time
+                    type: string
+                  lineupID:
+                    description: LineupID is the lineup's id.
+                    maxLength: 64
+                    type: string
+                  notInLineup:
+                    description: NotInLineup counts the channels no station matched.
+                    format: int32
+                    type: integer
+                  "off":
+                    description: Off counts the channels kept off Plex by spec.epg.plex.off.
+                    format: int32
+                    type: integer
+                  paired:
+                    description: Paired counts the active channels on Plex (Manual
+                      or Automatic).
+                    format: int32
+                    type: integer
+                  stations:
+                    description: |-
+                      Stations is how many stations the lineup lists (Plex lists at most
+                      1,000).
+                    format: int32
+                    type: integer
+                  taken:
+                    description: Taken counts the channels whose station another channel
+                      holds.
+                    format: int32
+                    type: integer
+                  timeshifted:
+                    description: Timeshifted counts the timeshifted channels, never
+                      on Plex's guide.
+                    format: int32
+                    type: integer
+                  title:
+                    description: Title is the lineup's title, as Plex lists it.
+                    maxLength: 256
+                    type: string
                 type: object
               tuners:
                 description: Tuners counts the provider's tuners.

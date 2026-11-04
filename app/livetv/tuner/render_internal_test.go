@@ -45,7 +45,7 @@ func TestGuidesAreBuiltOutsideTheProvidersLock(t *testing.T) {
 	key := types.NamespacedName{Namespace: "media", Name: "news"}
 	tn := New(Options{Debounce: time.Hour})
 	tn.Apply(Config{
-		Key: key, Tuners: 1, EPGSource: "XEPG",
+		Key: key, Tuners: 1,
 		Channels: []ChannelConfig{{Object: "a", Key: "t:a", Number: "1", Active: true}},
 	})
 	p := tn.providers[key]

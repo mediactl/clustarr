@@ -152,7 +152,6 @@ func buildConfig(p *clustarrv1.IPTVProvider, blocks []tuner.BlockConfig, res res
 		Tuners:              p.Spec.TunersOverride(),
 		UserAgent:           p.Spec.UserAgentOrDefault(),
 		Every:               p.Spec.RefreshOrDefault(),
-		EPGSource:           string(p.Spec.EPGSourceOrDefault()),
 		Buffer:              int(p.Spec.Stream.BufferOrDefault()),
 		Linger:              p.Spec.Stream.LingerOrDefault(),
 		Language:            p.Spec.Stream.LanguageOrDefault(),

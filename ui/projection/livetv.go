@@ -173,10 +173,9 @@ type SourceRow struct {
 	// GuideSource is spec.guideURL as written, its placeholders
 	// unexpanded, else the panel's <server>/xmltv.php with no query:
 	// never a credential. GuideFallback is the panel's guide filling the
-	// channels a guideURL's lacks; GuidePMS a provider whose guide is
-	// Plex's own.
+	// channels a guideURL's lacks.
 	GuideSource                    string
-	GuideFallback, GuidePMS        bool
+	GuideFallback                  bool
 	GuideChannels, GuideProgrammes int32
 	GuideUpdated                   *time.Time
 	GuideError                     string
@@ -199,7 +198,7 @@ func LiveTVSources(providers []clustarrv1.IPTVProvider, now time.Time) []SourceR
 		p := &providers[i]
 		r := SourceRow{
 			Namespace: p.Namespace, Name: p.Name, Type: string(p.Spec.TypeOrDefault()), Server: p.Spec.Server,
-			Enabled: p.Spec.EnabledOrDefault(), GuidePMS: p.Spec.EPGSourceOrDefault() == clustarrv1.EPGSourcePMS,
+			Enabled: p.Spec.EnabledOrDefault(),
 		}
 		if c := meta.FindStatusCondition(p.Status.Conditions, clustarrv1.ConditionReady); c != nil {
 			r.Ready, r.Reason, r.Message = c.Status == "True", c.Reason, c.Message

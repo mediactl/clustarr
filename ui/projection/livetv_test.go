@@ -189,9 +189,6 @@ func TestTheGuideSourceNeverCarriesTheAccount(t *testing.T) {
 	rows = projection.LiveTVSources([]clustarrv1.IPTVProvider{p}, time.Now())
 	assert.Equal(t, "https://epg.example/{username}/guide.xml?key={password}", rows[0].GuideSource, "as written")
 	assert.True(t, rows[0].GuideFallback, "the panel's guide fills the channels it lacks")
-	p.Spec.EPGSource = clustarrv1.EPGSourcePMS
-	rows = projection.LiveTVSources([]clustarrv1.IPTVProvider{p}, time.Now())
-	assert.True(t, rows[0].GuidePMS)
 }
 
 func TestBlockOfIsTheLastBlockStartingAtOrBelow(t *testing.T) {

@@ -69,7 +69,6 @@ func render(p *clustarrv1.IPTVProvider, address string, pl plan, tn Tuner, valid
 	set(playlist)
 	set(guide)
 	ready := metav1.Condition{Type: clustarrv1.ConditionReady, Status: metav1.ConditionTrue, Reason: "Ready", Message: "the tuner serves this provider"}
-	pms := p.Spec.EPGSourceOrDefault() == clustarrv1.EPGSourcePMS
 	switch {
 	case disabled:
 		ready = metav1.Condition{Type: clustarrv1.ConditionReady, Status: metav1.ConditionFalse, Reason: clustarrv1.ReasonDisabled, Message: "spec.enabled is false"}
@@ -79,7 +78,7 @@ func render(p *clustarrv1.IPTVProvider, address string, pl plan, tn Tuner, valid
 		ready = metav1.Condition{Type: clustarrv1.ConditionReady, Status: metav1.ConditionFalse, Reason: pl.reason, Message: pl.message + "; the last good blocks are kept"}
 	case playlist.Status != metav1.ConditionTrue:
 		ready = metav1.Condition{Type: clustarrv1.ConditionReady, Status: metav1.ConditionFalse, Reason: "PlaylistNotFetched", Message: playlist.Message}
-	case !pms && guide.Status != metav1.ConditionTrue:
+	case guide.Status != metav1.ConditionTrue:
 		ready = metav1.Condition{Type: clustarrv1.ConditionReady, Status: metav1.ConditionFalse, Reason: "GuidesNotFetched", Message: guide.Message}
 	}
 	set(ready)
@@ -163,9 +162,6 @@ func fetchConditions(p *clustarrv1.IPTVProvider, snap tuner.Snapshot, ok bool) (
 		playlist = metav1.Condition{Type: clustarrv1.ConditionPlaylistFetched, Status: metav1.ConditionFalse, Reason: "Pending", Message: "the playlist has not been fetched yet"}
 	case snap.Playlist.Error != "":
 		playlist.Reason, playlist.Message = "StaleAfterError", "serving the last good playlist: "+snap.Playlist.Error
-	}
-	if p.Spec.EPGSourceOrDefault() == clustarrv1.EPGSourcePMS {
-		return playlist, metav1.Condition{Type: clustarrv1.ConditionGuidesFetched, Status: metav1.ConditionTrue, Reason: "NotUsed", Message: "epgSource is PMS"}
 	}
 	if p.Spec.TypeOrDefault() == clustarrv1.ProviderTypeM3U && p.Spec.GuideURL == "" {
 		return playlist, metav1.Condition{Type: clustarrv1.ConditionGuidesFetched, Status: metav1.ConditionTrue, Reason: "NoGuide",

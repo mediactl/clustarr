@@ -95,11 +95,32 @@ spec:
                     - 180
                     format: int32
                     type: integer
+                  plex:
+                    description: |-
+                      Plex overrides the automatic pairing with the provider's Plex lineup
+                      (spec.plexGuide): a station, or off. Unset, the channel is paired by
+                      its guide id's call sign and its name (the Plex native guide design
+                      §5.3).
+                    properties:
+                      "off":
+                        description: Off keeps the channel off Plex.
+                        type: boolean
+                      station:
+                        description: |-
+                          Station is a station's gridKey, the same in every Plex lineup: the
+                          part of a lineup channel's id after its dash.
+                        pattern: ^[0-9a-f]{24}$
+                        type: string
+                    type: object
+                    x-kubernetes-validations:
+                    - message: set exactly one of station and off
+                      rule: (has(self.station) && size(self.station) > 0) != (has(self.off)
+                        && self.off)
                 type: object
                 x-kubernetes-validations:
-                - message: set exactly one of channelID and dummy
-                  rule: (has(self.channelID) && size(self.channelID) > 0) != (has(self.dummy)
-                    && self.dummy)
+                - message: set at most one of channelID and dummy
+                  rule: '!((has(self.channelID) && size(self.channelID) > 0) && (has(self.dummy)
+                    && self.dummy))'
               group:
                 description: Group overrides the playlist's group-title.
                 maxLength: 256
@@ -224,14 +245,76 @@ spec:
                 x-kubernetes-list-type: map
               guide:
                 description: |-
-                  Guide is the mapping actually used: "<guide>/<channelID>",
-                  "dummy/<minutes>", or "" under PMS.
+                  Guide is the mapping actually used: "<guide>/<channelID>" or
+                  "dummy/<minutes>".
                 maxLength: 512
                 type: string
               observedGeneration:
                 description: ObservedGeneration is the generation the status describes.
                 format: int64
                 type: integer
+              plex:
+                description: |-
+                  Plex is the channel's pairing with its provider's Plex lineup; unset
+                  when the provider names none.
+                properties:
+                  callSign:
+                    description: CallSign is the station's call sign.
+                    maxLength: 64
+                    type: string
+                  candidates:
+                    description: |-
+                      Candidates are the stations an Ambiguous match named, each
+                      "<callSign> <vcn> <title>".
+                    items:
+                      maxLength: 320
+                      type: string
+                    maxItems: 5
+                    type: array
+                  id:
+                    description: ID is the lineup channel's id, <lineup id>-<gridKey>.
+                    maxLength: 128
+                    type: string
+                  match:
+                    description: Match is how the channel was paired, or why it is
+                      off Plex.
+                    enum:
+                    - Manual
+                    - Automatic
+                    - Ambiguous
+                    - Taken
+                    - Timeshifted
+                    - NotInLineup
+                    - "Off"
+                    - NoLineup
+                    type: string
+                  missingSince:
+                    description: |-
+                      MissingSince is when the paired station was first absent from the
+                      lineup; the pairing stands for 7 days of absence.
+                    format: date-time
+                    type: string
+                  station:
+                    description: Station is the paired station's gridKey.
+                    maxLength: 64
+                    type: string
+                  takenBy:
+                    description: TakenBy names the channel holding the station, for
+                      Taken.
+                    maxLength: 253
+                    type: string
+                  title:
+                    description: Title is the station's title.
+                    maxLength: 256
+                    type: string
+                  vcn:
+                    description: VCN is the station's channel number in the lineup,
+                      which Plex shows.
+                    maxLength: 16
+                    type: string
+                required:
+                - match
+                type: object
             type: object
         type: object
     served: true

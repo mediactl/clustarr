@@ -32,7 +32,6 @@ import (
 func TestAnEmptySpecReadsEveryDefault(t *testing.T) {
 	var s clustarrv1.IPTVProviderSpec
 	assert.True(t, s.EnabledOrDefault())
-	assert.Equal(t, clustarrv1.EPGSourceXEPG, s.EPGSourceOrDefault())
 	assert.Equal(t, int32(1000), s.ChannelNumberStartOrDefault())
 	assert.Equal(t, 24*time.Hour, s.RefreshOrDefault())
 	assert.Equal(t, "clustarr", s.UserAgentOrDefault())
@@ -47,7 +46,6 @@ func TestASetValueWinsOverItsDefault(t *testing.T) {
 	q := resource.MustParse("4Mi")
 	s := clustarrv1.IPTVProviderSpec{
 		Enabled:            ptr.To(false),
-		EPGSource:          clustarrv1.EPGSourcePMS,
 		ChannelNumberStart: ptr.To(int32(1)),
 		UserAgent:          "VLC",
 		Refresh:            &metav1.Duration{Duration: time.Hour},
@@ -55,7 +53,6 @@ func TestASetValueWinsOverItsDefault(t *testing.T) {
 		Stream:             clustarrv1.StreamSpec{Buffer: &q, Linger: &metav1.Duration{Duration: time.Second}},
 	}
 	assert.False(t, s.EnabledOrDefault())
-	assert.Equal(t, clustarrv1.EPGSourcePMS, s.EPGSourceOrDefault())
 	assert.Equal(t, int32(1), s.ChannelNumberStartOrDefault())
 	assert.Equal(t, "VLC", s.UserAgentOrDefault())
 	assert.Equal(t, time.Hour, s.RefreshOrDefault())

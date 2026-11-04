@@ -49,7 +49,7 @@ func TestARenderKeepsNoGuideInMemory(t *testing.T) {
 	tn := New(Options{Store: store, Debounce: time.Hour, Now: func() time.Time { return now }})
 	key := types.NamespacedName{Namespace: "media", Name: "news"}
 	tn.Apply(Config{
-		Key: key, Tuners: 1, EPGSource: "XEPG", Blocks: []BlockConfig{{DeviceID: "dev1", Start: "1"}},
+		Key: key, Tuners: 1, Blocks: []BlockConfig{{DeviceID: "dev1", Start: "1"}},
 		Filters:  []filter.Rule{{Name: "all", Type: filter.TypeCustom, Enabled: true}},
 		Channels: []ChannelConfig{{Object: "a", Key: "t:a", Number: "1", Active: true, Map: &xmltv.Mapping{Guide: GuideName, ChannelID: "a"}}},
 	})

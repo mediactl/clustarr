@@ -75,12 +75,11 @@ type Config struct {
 	UserAgent string
 	// Every is how often the playlist, the guide and the account are fetched
 	// again, and how old a cached one may be at a restart.
-	Every     time.Duration
-	EPGSource string // "XEPG" | "PMS"
-	Filters   []filter.Rule
-	Channels  []ChannelConfig
-	Buffer    int
-	Linger    time.Duration
+	Every    time.Duration
+	Filters  []filter.Rule
+	Channels []ChannelConfig
+	Buffer   int
+	Linger   time.Duration
 	// Language is the language, as a BCP-47 or ISO 639-2 code, the relay
 	// declares for an audio or subtitle track whose program map names none
 	// or an undetermined one; empty declares nothing.
@@ -223,8 +222,8 @@ type BlockState struct {
 }
 
 // ChannelState is one channel's place in the lineup. Guide is the mapping
-// used: "<guide>/<channelID>", "dummy/<minutes>", or "" under PMS or when
-// the channel is not in the lineup.
+// used: "<guide>/<channelID>", "dummy/<minutes>", or "" when the channel is
+// not in the lineup.
 type ChannelState struct {
 	Missing, Duplicate bool
 	Guide              string

@@ -189,7 +189,7 @@ func config(srv string) tuner.Config {
 			{Start: "1001", DeviceID: deviceA, FriendlyName: "Clustarr news 1001+", Numbers: []string{"1001", "1002", "1003"}},
 			{Start: "1004", DeviceID: deviceB, FriendlyName: "Clustarr news 1004+", Numbers: []string{"1004"}},
 		},
-		UserAgent: "clustarr", Every: time.Hour, EPGSource: "XEPG",
+		UserAgent: "clustarr", Every: time.Hour,
 		Filters: []filter.Rule{
 			{Type: "groupTitle", Match: "UK | Entertainment", Enabled: true},
 			{Type: "groupTitle", Match: "UK | News", Enabled: true},
@@ -422,7 +422,7 @@ func TestTwoProvidersBlocksNeverAnswerEachOther(t *testing.T) {
 	h.tn.Apply(tuner.Config{
 		Key: sportKey, Server: p.srv.URL, Username: "user", Password: "pass",
 		Blocks:    []tuner.BlockConfig{{Start: "2001", DeviceID: sportID, FriendlyName: "Clustarr sport 2001+", Numbers: []string{"2001"}}},
-		UserAgent: "clustarr", Every: time.Hour, EPGSource: "XEPG",
+		UserAgent: "clustarr", Every: time.Hour,
 		Filters:  []filter.Rule{{Type: "custom", Match: "Sports 1", Enabled: true}},
 		Channels: []tuner.ChannelConfig{{Object: "sport-a", Key: m3u.NameKey("Sports", "Sports 1"), Number: "2001", Active: true}},
 		Buffer:   1 << 20, Linger: time.Second,

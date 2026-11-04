@@ -139,7 +139,7 @@ func (t *Tuner) serveDevice(w http.ResponseWriter, r *http.Request, p *provider,
 	base := baseURL(r, prefix)
 	p.mu.Lock()
 	sf := p.blocks[deviceID]
-	cfg, fetched, tuners := p.cfg, p.playlistFetched, effectiveTuners(p.cfg, p.account)
+	fetched, tuners := p.playlistFetched, effectiveTuners(p.cfg, p.account)
 	var (
 		entries                []hdhr.LineupEntry
 		guideObject, guideHash string
@@ -168,7 +168,7 @@ func (t *Tuner) serveDevice(w http.ResponseWriter, r *http.Request, p *provider,
 		}
 		writeBody(w, "audio/x-mpegurl", withBase(playlistM3U(entries, t.logos(p), base), base))
 	case file == "xmltv.xml":
-		if cfg.EPGSource == "PMS" || guideObject == "" {
+		if guideObject == "" {
 			http.NotFound(w, r)
 			return
 		}
@@ -191,7 +191,7 @@ func (t *Tuner) serveRange(w http.ResponseWriter, r *http.Request, p *provider, 
 	rg := rangeOf(r.URL.Query())
 	base := baseURL(r, prefix)
 	p.mu.Lock()
-	cfg, fetched, tuners := p.cfg, p.playlistFetched, effectiveTuners(p.cfg, p.account)
+	fetched, tuners := p.playlistFetched, effectiveTuners(p.cfg, p.account)
 	var entries []hdhr.LineupEntry
 	if file == "lineup.json" || file == "playlist.m3u" {
 		for _, e := range p.lineup {
@@ -224,7 +224,7 @@ func (t *Tuner) serveRange(w http.ResponseWriter, r *http.Request, p *provider, 
 		}
 		writeBody(w, "audio/x-mpegurl", withBase(playlistM3U(entries, t.logos(p), base), base))
 	case file == "xmltv.xml":
-		if cfg.EPGSource == "PMS" || !fetched {
+		if !fetched {
 			http.NotFound(w, r)
 			return
 		}

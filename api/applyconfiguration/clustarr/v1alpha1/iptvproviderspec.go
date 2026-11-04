@@ -77,10 +77,12 @@ type IPTVProviderSpecApplyConfiguration struct {
 	// UserAgent is sent with playlist, guide and stream requests. Default
 	// "clustarr".
 	UserAgent *string `json:"userAgent,omitempty"`
-	// EPGSource is where Plex reads the guide: XEPG (this provider's
-	// xmltv.xml, built from the panel's guide and the channel mappings) or
-	// PMS (Plex's own lineup guide; mappings' epg is ignored). Default XEPG.
-	EPGSource *clustarrv1alpha1.EPGSource `json:"epgSource,omitempty"`
+	// PlexGuide puts the provider's channels on Plex's own guide: a Plex
+	// cloud (Gracenote) lineup whose stations the channels are paired with
+	// (the Plex native guide design, 2026-11-03). Only paired channels reach
+	// Plex, on DVRs whose guide is that lineup; the rest are on no DVR.
+	// Unset, every channel is on the XMLTV guide the tuner builds.
+	PlexGuide *PlexGuideApplyConfiguration `json:"plexGuide,omitempty"`
 	// Filters choose which playlist entries reach the mapping table. An
 	// entry is a candidate when any enabled filter matches it; with no
 	// filter, nothing is a candidate (xTeVe's rule).
@@ -173,11 +175,11 @@ func (b *IPTVProviderSpecApplyConfiguration) WithUserAgent(value string) *IPTVPr
 	return b
 }
 
-// WithEPGSource sets the EPGSource field in the declarative configuration to the given value
+// WithPlexGuide sets the PlexGuide field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the EPGSource field is set to the value of the last call.
-func (b *IPTVProviderSpecApplyConfiguration) WithEPGSource(value clustarrv1alpha1.EPGSource) *IPTVProviderSpecApplyConfiguration {
-	b.EPGSource = &value
+// If called multiple times, the PlexGuide field is set to the value of the last call.
+func (b *IPTVProviderSpecApplyConfiguration) WithPlexGuide(value *PlexGuideApplyConfiguration) *IPTVProviderSpecApplyConfiguration {
+	b.PlexGuide = value
 	return b
 }
 

@@ -85,6 +85,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: last
       type:
         scalar: string
+    - name: lineup
+      type:
+        scalar: string
     - name: lineupHash
       type:
         scalar: string
@@ -115,6 +118,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: dummyMinutes
       type:
         scalar: numeric
+    - name: plex
+      type:
+        namedType: com.github.mediactl.clustarr.api.clustarr.v1alpha1.ChannelPlex
 - name: com.github.mediactl.clustarr.api.clustarr.v1alpha1.ChannelFilter
   map:
     fields:
@@ -145,6 +151,48 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: type
       type:
         namedType: com.github.mediactl.clustarr.api.clustarr.v1alpha1.FilterType
+- name: com.github.mediactl.clustarr.api.clustarr.v1alpha1.ChannelPlex
+  map:
+    fields:
+    - name: "off"
+      type:
+        scalar: boolean
+    - name: station
+      type:
+        scalar: string
+- name: com.github.mediactl.clustarr.api.clustarr.v1alpha1.ChannelPlexStatus
+  map:
+    fields:
+    - name: callSign
+      type:
+        scalar: string
+    - name: candidates
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: atomic
+    - name: id
+      type:
+        scalar: string
+    - name: match
+      type:
+        namedType: com.github.mediactl.clustarr.api.clustarr.v1alpha1.PlexMatch
+    - name: missingSince
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: station
+      type:
+        scalar: string
+    - name: takenBy
+      type:
+        scalar: string
+    - name: title
+      type:
+        scalar: string
+    - name: vcn
+      type:
+        scalar: string
 - name: com.github.mediactl.clustarr.api.clustarr.v1alpha1.DVRSpec
   map:
     fields:
@@ -160,8 +208,6 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: id
       type:
         scalar: string
-- name: com.github.mediactl.clustarr.api.clustarr.v1alpha1.EPGSource
-  scalar: string
 - name: com.github.mediactl.clustarr.api.clustarr.v1alpha1.FilterType
   scalar: string
 - name: com.github.mediactl.clustarr.api.clustarr.v1alpha1.GuideStatus
@@ -265,6 +311,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: observedGeneration
       type:
         scalar: numeric
+    - name: plex
+      type:
+        namedType: com.github.mediactl.clustarr.api.clustarr.v1alpha1.ChannelPlexStatus
 - name: com.github.mediactl.clustarr.api.clustarr.v1alpha1.IPTVProvider
   map:
     fields:
@@ -319,9 +368,6 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: enabled
       type:
         scalar: boolean
-    - name: epgSource
-      type:
-        namedType: com.github.mediactl.clustarr.api.clustarr.v1alpha1.EPGSource
     - name: filters
       type:
         list:
@@ -336,6 +382,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: playlistURL
       type:
         scalar: string
+    - name: plexGuide
+      type:
+        namedType: com.github.mediactl.clustarr.api.clustarr.v1alpha1.PlexGuide
     - name: refresh
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Duration
@@ -392,6 +441,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: playlist
       type:
         namedType: com.github.mediactl.clustarr.api.clustarr.v1alpha1.PlaylistStatus
+    - name: plexGuide
+      type:
+        namedType: com.github.mediactl.clustarr.api.clustarr.v1alpha1.PlexGuideStatus
     - name: tuners
       type:
         namedType: com.github.mediactl.clustarr.api.clustarr.v1alpha1.TunerStatus
@@ -434,6 +486,56 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: hash
       type:
         scalar: string
+- name: com.github.mediactl.clustarr.api.clustarr.v1alpha1.PlexGuide
+  map:
+    fields:
+    - name: credentialsRef
+      type:
+        namedType: io.k8s.api.core.v1.SecretKeySelector
+    - name: enabled
+      type:
+        scalar: boolean
+    - name: lineup
+      type:
+        scalar: string
+- name: com.github.mediactl.clustarr.api.clustarr.v1alpha1.PlexGuideStatus
+  map:
+    fields:
+    - name: ambiguous
+      type:
+        scalar: numeric
+    - name: error
+      type:
+        scalar: string
+    - name: fetchedAt
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: lineupID
+      type:
+        scalar: string
+    - name: notInLineup
+      type:
+        scalar: numeric
+    - name: "off"
+      type:
+        scalar: numeric
+    - name: paired
+      type:
+        scalar: numeric
+    - name: stations
+      type:
+        scalar: numeric
+    - name: taken
+      type:
+        scalar: numeric
+    - name: timeshifted
+      type:
+        scalar: numeric
+    - name: title
+      type:
+        scalar: string
+- name: com.github.mediactl.clustarr.api.clustarr.v1alpha1.PlexMatch
+  scalar: string
 - name: com.github.mediactl.clustarr.api.clustarr.v1alpha1.ProviderType
   scalar: string
 - name: com.github.mediactl.clustarr.api.clustarr.v1alpha1.StreamSpec
@@ -464,6 +566,20 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         scalar: string
       default: ""
+    elementRelationship: atomic
+- name: io.k8s.api.core.v1.SecretKeySelector
+  map:
+    fields:
+    - name: key
+      type:
+        scalar: string
+    - name: name
+      type:
+        scalar: string
+      default: ""
+    - name: optional
+      type:
+        scalar: boolean
     elementRelationship: atomic
 - name: io.k8s.apimachinery.pkg.api.resource.Quantity
   scalar: untyped

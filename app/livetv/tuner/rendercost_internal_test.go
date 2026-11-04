@@ -47,16 +47,16 @@ func TestTheSameChannelsInAnotherOrderRenderNothing(t *testing.T) {
 	tn := New(Options{Debounce: time.Millisecond})
 	a := ChannelConfig{Object: "a", Key: "t:a", Number: "1", Active: true}
 	b := ChannelConfig{Object: "b", Key: "t:b", Number: "2", Active: true, Map: &xmltv.Mapping{Guide: GuideName, ChannelID: "b"}}
-	tn.Apply(Config{Key: key, Tuners: 1, EPGSource: "XEPG", Channels: []ChannelConfig{a, b}})
+	tn.Apply(Config{Key: key, Tuners: 1, Channels: []ChannelConfig{a, b}})
 	p := tn.providers[key]
 	require.Eventually(t, func() bool { return renderGen(p) == 1 }, 2*time.Second, time.Millisecond)
 
-	tn.Apply(Config{Key: key, Tuners: 1, EPGSource: "XEPG", Channels: []ChannelConfig{b, a}})
+	tn.Apply(Config{Key: key, Tuners: 1, Channels: []ChannelConfig{b, a}})
 	time.Sleep(20 * time.Millisecond)
 	assert.Equal(t, uint64(1), renderGen(p), "the channels in another order rendered again")
 
 	b.Name = "B News"
-	tn.Apply(Config{Key: key, Tuners: 1, EPGSource: "XEPG", Channels: []ChannelConfig{b, a}})
+	tn.Apply(Config{Key: key, Tuners: 1, Channels: []ChannelConfig{b, a}})
 	require.Eventually(t, func() bool { return renderGen(p) == 2 }, 2*time.Second, time.Millisecond, "a changed channel renders")
 }
 
@@ -65,7 +65,7 @@ func fetchedProvider(t *testing.T, tn *Tuner, blocks []BlockConfig) *provider {
 	t.Helper()
 	key := types.NamespacedName{Namespace: "media", Name: "news"}
 	tn.Apply(Config{
-		Key: key, Tuners: 1, EPGSource: "XEPG", Blocks: blocks,
+		Key: key, Tuners: 1, Blocks: blocks,
 		Filters: []filter.Rule{{Name: "all", Type: filter.TypeCustom, Enabled: true}}, // every entry is a candidate
 		Channels: []ChannelConfig{
 			{Object: "a", Key: "t:a", Number: "1", Active: true},

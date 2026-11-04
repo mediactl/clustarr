@@ -86,7 +86,6 @@ func (t *Tuner) render(p *provider) {
 	p.renderGen++
 	gen := p.renderGen
 	cfg := p.cfg
-	pms := cfg.EPGSource == "PMS"
 	fetched := p.playlistFetched
 	prevGuideHash := p.storedGuideHash
 	prevBlockHash := make(map[string]string, len(p.blocks))
@@ -162,26 +161,24 @@ func (t *Tuner) render(p *provider) {
 		taken[ch.Number] = true
 		name := firstNonEmpty(ch.Name, e.Name)
 		lc := xmltv.LineupChannel{Number: ch.Number, Name: name, TimeshiftMinutes: ch.TimeshiftMinutes, Group: ch.Group}
-		if !pms {
-			switch {
-			case ch.Map != nil:
-				m := *ch.Map
+		switch {
+		case ch.Map != nil:
+			m := *ch.Map
+			lc.Map = &m
+		case ch.DummyMinutes == 0:
+			if m, ok := ix.AutoMap(e.TvgID, e.Name); ok {
 				lc.Map = &m
-			case ch.DummyMinutes == 0:
-				if m, ok := ix.AutoMap(e.TvgID, e.Name); ok {
-					lc.Map = &m
-				}
 			}
-			if lc.Map == nil {
-				lc.DummyMinutes = ch.DummyMinutes
-				if lc.DummyMinutes <= 0 {
-					lc.DummyMinutes = defaultDummyMinutes
-				}
-				unmapped++
-				st.Guide = fmt.Sprintf("dummy/%d", lc.DummyMinutes)
-			} else {
-				st.Guide = lc.Map.Guide + "/" + lc.Map.ChannelID
+		}
+		if lc.Map == nil {
+			lc.DummyMinutes = ch.DummyMinutes
+			if lc.DummyMinutes <= 0 {
+				lc.DummyMinutes = defaultDummyMinutes
 			}
+			unmapped++
+			st.Guide = fmt.Sprintf("dummy/%d", lc.DummyMinutes)
+		} else {
+			st.Guide = lc.Map.Guide + "/" + lc.Map.ChannelID
 		}
 		// The logo, always a URL PMS fetches itself: the channel's own
 		// spec.logo, else its guide channel's icon -- iptv-epg.org's colour
@@ -210,7 +207,7 @@ func (t *Tuner) render(p *provider) {
 	enricher := t.enricher(p)
 	p.mu.Unlock()
 
-	if g := loaded[GuideName]; guideLoaded && !pms && fetched && g.Programmes == nil {
+	if g := loaded[GuideName]; guideLoaded && fetched && g.Programmes == nil {
 		if programmes, ok := t.loadProgrammes(p); ok {
 			g.Programmes = programmes
 			loaded[GuideName] = g
@@ -223,7 +220,7 @@ func (t *Tuner) render(p *provider) {
 	var wholeHash string
 	blocks := make(map[string]*surface, len(cfg.Blocks))
 	blockStates := make([]BlockState, len(cfg.Blocks))
-	if !pms && fetched {
+	if fetched {
 		wholeHash = t.storeGuides(p, cfg, lineupChans, blockChans, loaded, from, enricher, prevGuideHash, prevBlockHash, blocks)
 	}
 	for i, b := range cfg.Blocks {

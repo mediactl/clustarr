@@ -59,6 +59,12 @@ type BlockStatusApplyConfiguration struct {
 	// GuideHash is a hash of the block's guide. A change tells cluster-plex
 	// to reload that DVR's guide.
 	GuideHash *string `json:"guideHash,omitempty"`
+	// Lineup is the Plex cloud lineup a Plex block's DVR is created with,
+	// lineup://tv.plex.providers.epg.cloud/<id>#<title>; empty for a block
+	// on the XMLTV guide. A Plex block serves its channel map at
+	// <path>/plexmap.json and no xmltv.xml (the Plex native guide design
+	// §5.4-§5.6).
+	Lineup *string `json:"lineup,omitempty"`
 }
 
 // BlockStatusApplyConfiguration constructs a declarative configuration of the BlockStatus type for use with
@@ -168,5 +174,13 @@ func (b *BlockStatusApplyConfiguration) WithLineupHash(value string) *BlockStatu
 // If called multiple times, the GuideHash field is set to the value of the last call.
 func (b *BlockStatusApplyConfiguration) WithGuideHash(value string) *BlockStatusApplyConfiguration {
 	b.GuideHash = &value
+	return b
+}
+
+// WithLineup sets the Lineup field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Lineup field is set to the value of the last call.
+func (b *BlockStatusApplyConfiguration) WithLineup(value string) *BlockStatusApplyConfiguration {
+	b.Lineup = &value
 	return b
 }

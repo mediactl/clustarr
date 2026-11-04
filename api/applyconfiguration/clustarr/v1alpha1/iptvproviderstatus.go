@@ -51,6 +51,8 @@ type IPTVProviderStatusApplyConfiguration struct {
 	Lineup *LineupStatusApplyConfiguration `json:"lineup,omitempty"`
 	// Tuners counts the provider's tuners.
 	Tuners *TunerStatusApplyConfiguration `json:"tuners,omitempty"`
+	// PlexGuide describes spec.plexGuide's lineup and the pairing.
+	PlexGuide *PlexGuideStatusApplyConfiguration `json:"plexGuide,omitempty"`
 }
 
 // IPTVProviderStatusApplyConfiguration constructs a declarative configuration of the IPTVProviderStatus type for use with
@@ -138,5 +140,13 @@ func (b *IPTVProviderStatusApplyConfiguration) WithLineup(value *LineupStatusApp
 // If called multiple times, the Tuners field is set to the value of the last call.
 func (b *IPTVProviderStatusApplyConfiguration) WithTuners(value *TunerStatusApplyConfiguration) *IPTVProviderStatusApplyConfiguration {
 	b.Tuners = value
+	return b
+}
+
+// WithPlexGuide sets the PlexGuide field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the PlexGuide field is set to the value of the last call.
+func (b *IPTVProviderStatusApplyConfiguration) WithPlexGuide(value *PlexGuideStatusApplyConfiguration) *IPTVProviderStatusApplyConfiguration {
+	b.PlexGuide = value
 	return b
 }

@@ -41,6 +41,10 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &clustarrv1alpha1.ChannelEPGApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("ChannelFilter"):
 		return &clustarrv1alpha1.ChannelFilterApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("ChannelPlex"):
+		return &clustarrv1alpha1.ChannelPlexApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("ChannelPlexStatus"):
+		return &clustarrv1alpha1.ChannelPlexStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("DeviceSpec"):
 		return &clustarrv1alpha1.DeviceSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("DVRSpec"):
@@ -63,6 +67,10 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &clustarrv1alpha1.LineupStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("PlaylistStatus"):
 		return &clustarrv1alpha1.PlaylistStatusApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("PlexGuide"):
+		return &clustarrv1alpha1.PlexGuideApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("PlexGuideStatus"):
+		return &clustarrv1alpha1.PlexGuideStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("StreamSpec"):
 		return &clustarrv1alpha1.StreamSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("TunerStatus"):

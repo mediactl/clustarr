@@ -25,6 +25,10 @@ const (
 	ConditionValid           = "Valid"
 	ConditionPlaylistFetched = "PlaylistFetched"
 	ConditionGuidesFetched   = "GuidesFetched"
+	// ConditionPlexGuideReady is whether the tuner holds spec.plexGuide's
+	// lineup: LineupFetched, LineupFailed (the last good one kept) or
+	// LineupPending.
+	ConditionPlexGuideReady = "PlexGuideReady"
 )
 
 // Reasons of an IPTVChannel's Ready condition, and of a provider's.
@@ -47,6 +51,13 @@ const (
 	ReasonTooManyChannels    = "TooManyChannels"
 	ReasonDuplicateDeviceID  = "DuplicateDeviceID"
 	ReasonNumberRangeOverlap = "NumberRangeOverlap"
+
+	// PlexGuideReady's reasons; LineupPending is also Ready=False's while a
+	// provider with spec.plexGuide.enabled waits for its first lineup, its
+	// published blocks kept.
+	ReasonLineupFetched = "LineupFetched"
+	ReasonLineupFailed  = "LineupFailed"
+	ReasonLineupPending = "LineupPending"
 )
 
 // AnnotationLiveTVRefresh on an IPTVProvider forces a fetch of every
@@ -84,14 +95,6 @@ func (s IPTVProviderSpec) TypeOrDefault() ProviderType {
 		return ProviderTypeXtream
 	}
 	return s.Type
-}
-
-// EPGSourceOrDefault is spec.epgSource, XEPG when unset.
-func (s IPTVProviderSpec) EPGSourceOrDefault() EPGSource {
-	if s.EPGSource == "" {
-		return EPGSourceXEPG
-	}
-	return s.EPGSource
 }
 
 // MaxChannelsOrDefault is spec.dvr.maxChannels, 400 when unset.

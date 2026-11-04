@@ -34,9 +34,12 @@ type IPTVChannelStatusApplyConfiguration struct {
 	// Conditions: Ready, whose reason is Active, Inactive, Missing,
 	// DuplicateNumber, GuideNotFound or ProviderNotFound.
 	Conditions []v1.ConditionApplyConfiguration `json:"conditions,omitempty"`
-	// Guide is the mapping actually used: "<guide>/<channelID>",
-	// "dummy/<minutes>", or "" under PMS.
+	// Guide is the mapping actually used: "<guide>/<channelID>" or
+	// "dummy/<minutes>".
 	Guide *string `json:"guide,omitempty"`
+	// Plex is the channel's pairing with its provider's Plex lineup; unset
+	// when the provider names none.
+	Plex *ChannelPlexStatusApplyConfiguration `json:"plex,omitempty"`
 }
 
 // IPTVChannelStatusApplyConfiguration constructs a declarative configuration of the IPTVChannelStatus type for use with
@@ -71,5 +74,13 @@ func (b *IPTVChannelStatusApplyConfiguration) WithConditions(values ...*v1.Condi
 // If called multiple times, the Guide field is set to the value of the last call.
 func (b *IPTVChannelStatusApplyConfiguration) WithGuide(value string) *IPTVChannelStatusApplyConfiguration {
 	b.Guide = &value
+	return b
+}
+
+// WithPlex sets the Plex field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Plex field is set to the value of the last call.
+func (b *IPTVChannelStatusApplyConfiguration) WithPlex(value *ChannelPlexStatusApplyConfiguration) *IPTVChannelStatusApplyConfiguration {
+	b.Plex = value
 	return b
 }

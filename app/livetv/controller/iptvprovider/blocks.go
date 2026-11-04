@@ -165,9 +165,7 @@ func (r *Reconciler) planBlocks(ctx context.Context, p *clustarrv1.IPTVProvider,
 		bs.First, bs.Last = nb.Numbers[0], nb.Numbers[len(nb.Numbers)-1]
 		bs.MapBytes = int32(blocks.MapBytes(nb.Numbers))
 		bs.FriendlyName = friendly + " " + nb.Start + "+"
-		if p.Spec.EPGSourceOrDefault() == clustarrv1.EPGSourceXEPG {
-			bs.GuidePath = BlockGuidePath
-		}
+		bs.GuidePath = BlockGuidePath
 		out.blocks = append(out.blocks, bs)
 		out.numbers[nb.Start] = nb.Numbers
 	}

@@ -24,7 +24,9 @@ package v1alpha1
 //
 // ChannelEPG maps a channel to a guide: ChannelID is an XMLTV channel id in
 // the provider's guide (its panel's xmltv.php); or Dummy draws DummyMinutes
-// blocks titled by the channel's name.
+// blocks titled by the channel's name; neither maps by tvg-id, as an absent
+// epg does. Plex is the channel's pairing with its provider's Plex lineup,
+// beside either.
 type ChannelEPGApplyConfiguration struct {
 	// ChannelID is an XMLTV channel id in the provider's guide.
 	ChannelID *string `json:"channelID,omitempty"`
@@ -32,6 +34,11 @@ type ChannelEPGApplyConfiguration struct {
 	Dummy *bool `json:"dummy,omitempty"`
 	// DummyMinutes is the dummy guide's block length. Default 60.
 	DummyMinutes *int32 `json:"dummyMinutes,omitempty"`
+	// Plex overrides the automatic pairing with the provider's Plex lineup
+	// (spec.plexGuide): a station, or off. Unset, the channel is paired by
+	// its guide id's call sign and its name (the Plex native guide design
+	// §5.3).
+	Plex *ChannelPlexApplyConfiguration `json:"plex,omitempty"`
 }
 
 // ChannelEPGApplyConfiguration constructs a declarative configuration of the ChannelEPG type for use with
@@ -61,5 +68,13 @@ func (b *ChannelEPGApplyConfiguration) WithDummy(value bool) *ChannelEPGApplyCon
 // If called multiple times, the DummyMinutes field is set to the value of the last call.
 func (b *ChannelEPGApplyConfiguration) WithDummyMinutes(value int32) *ChannelEPGApplyConfiguration {
 	b.DummyMinutes = &value
+	return b
+}
+
+// WithPlex sets the Plex field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Plex field is set to the value of the last call.
+func (b *ChannelEPGApplyConfiguration) WithPlex(value *ChannelPlexApplyConfiguration) *ChannelEPGApplyConfiguration {
+	b.Plex = value
 	return b
 }

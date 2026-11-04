@@ -528,7 +528,7 @@ func (t *Tuner) dispatch(ctx context.Context) {
 			p.fetching["playlist"] = true
 			go t.fetchPlaylist(ctx, p, p.cfg)
 		}
-		if p.playlistFetched && p.cfg.EPGSource != "PMS" && p.cfg.GuideSource() != "" && isDue(p.guide.due, p.guide.next, now, p.fetching["guide"]) {
+		if p.playlistFetched && p.cfg.GuideSource() != "" && isDue(p.guide.due, p.guide.next, now, p.fetching["guide"]) {
 			p.guide.due, p.guide.next = false, time.Time{}
 			p.fetching["guide"] = true
 			go t.fetchGuide(ctx, p, p.cfg)
