@@ -123,3 +123,23 @@ func TestChartTabFigures(t *testing.T) {
 	assert.InDelta(t, 8.0, totalOf(grabbed), 0)
 	assert.Equal(t, p, onlySeries(p, nil, "all"), "no keys is the whole panel")
 }
+
+func TestPageOf(t *testing.T) {
+	rows := []int{1, 2, 3, 4, 5, 6, 7}
+	for _, tc := range []struct {
+		asked int
+		want  []int
+		page  views.ListPage
+	}{
+		{0, []int{1, 2, 3, 4, 5}, views.ListPage{Page: 1, Pages: 2}},
+		{2, []int{6, 7}, views.ListPage{Page: 2, Pages: 2}},
+		{9, []int{6, 7}, views.ListPage{Page: 2, Pages: 2}},
+	} {
+		got, page := pageOf(rows, tc.asked)
+		assert.Equal(t, tc.want, got, tc.asked)
+		assert.Equal(t, tc.page, page, tc.asked)
+	}
+	none, page := pageOf([]int(nil), 3)
+	assert.Empty(t, none)
+	assert.Equal(t, views.ListPage{Page: 1, Pages: 1}, page)
+}

@@ -253,9 +253,11 @@ var panelColors = []string{
 // chartsTimeout bounds one render's queries.
 const chartsTimeout = 15 * time.Second
 
+// handleDashboard is the page, its cards on the tabs and pages the URL
+// names, as the pollers ask (a page link's fallback without JavaScript).
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	v := views.DashboardView{
-		Summary: s.dashboardSummary(r.Context()),
+		Summary: s.dashboardSummary(r.Context(), r),
 		Charts:  s.dashboardCharts(r.Context(), dashRangeNamed(r.URL.Query().Get("range"))),
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -265,13 +267,10 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleDashboardSummary answers the summary poller, each section card on
-// the tab the poller says it shows (tab-<section>, ui/static/dashboard.js).
+// the tab, and each running list on the page, the poller says it shows
+// (tab-<section>, page-<list>, ui/static/dashboard.js).
 func (s *Server) handleDashboardSummary(w http.ResponseWriter, r *http.Request) {
-	v := s.dashboardSummary(r.Context())
-	v.Tabs = map[string]string{}
-	for _, section := range []string{"downloads", "transcodes"} {
-		v.Tabs[section] = r.URL.Query().Get("tab-" + section)
-	}
+	v := s.dashboardSummary(r.Context(), r)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.DashboardSummary(v).Render(r.Context(), w); err != nil {
 		logging.FromContext(r.Context()).Error("render dashboard summary", "error", err)
@@ -293,14 +292,42 @@ func (s *Server) handleDashboardCharts(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// dashboardSummary is the projection's dashboard, with the active
-// downloads' transfer telemetry.
-func (s *Server) dashboardSummary(ctx context.Context) views.DashboardSummaryView {
+// runningPerPage is how many rows of a running list a page shows (owner,
+// 2026-11-04: "one item per line with a 5 item cap and pagination").
+const runningPerPage = 5
+
+// dashboardSummary is the projection's dashboard on the tabs and the
+// running lists' pages r asks for (tab-<section>, page-<list>): a running
+// list cut to its page, and the active downloads on the page with their
+// transfer telemetry.
+func (s *Server) dashboardSummary(ctx context.Context, r *http.Request) views.DashboardSummaryView {
 	var d projection.Dashboard
 	if s.opts.Dashboard != nil {
 		d = s.opts.Dashboard(ctx)
 	}
-	return views.DashboardSummaryView{Summary: d, Active: s.downloadViews(ctx, d.Downloads.Active.Rows)}
+	q := r.URL.Query()
+	v := views.DashboardSummaryView{Summary: d, Tabs: map[string]string{}, Pages: map[string]views.ListPage{}}
+	for _, section := range []string{"downloads", "transcodes"} {
+		v.Tabs[section] = q.Get("tab-" + section)
+	}
+	pageNum := func(list string) int {
+		n, _ := strconv.Atoi(q.Get("page-" + list))
+		return n
+	}
+	var active []projection.DownloadRow
+	active, v.Pages["downloads-running"] = pageOf(d.Downloads.Active.Rows, pageNum("downloads-running"))
+	v.Active = s.downloadViews(ctx, active)
+	v.Summary.Transcodes.Running.Rows, v.Pages["transcodes-running"] = pageOf(d.Transcodes.Running.Rows, pageNum("transcodes-running"))
+	return v
+}
+
+// pageOf is page n (from 1, clamped to the pages there are) of rows,
+// runningPerPage to a page.
+func pageOf[T any](rows []T, n int) ([]T, views.ListPage) {
+	pages := max(1, (len(rows)+runningPerPage-1)/runningPerPage)
+	n = min(max(n, 1), pages)
+	from := (n - 1) * runningPerPage
+	return rows[from:min(from+runningPerPage, len(rows))], views.ListPage{Page: n, Pages: pages}
 }
 
 // dashboardCharts queries every panel over rg, all at once.

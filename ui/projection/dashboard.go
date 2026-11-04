@@ -31,11 +31,16 @@ import (
 )
 
 // DashboardRows caps each list the dashboard shows; the totals count all.
-const DashboardRows = 8
+// RunningRows caps the running lists, which the dashboard pages through
+// (owner, 2026-11-04), as many as the slots that run them can hold.
+const (
+	DashboardRows = 8
+	RunningRows   = 100
+)
 
 // Dashboard is the dashboard's view of one projection round: the
 // MediaFiles' transcodes and the grab entries' downloads, counted by state,
-// with the first DashboardRows of each list.
+// with the first DashboardRows of each list (RunningRows of a running one).
 type Dashboard struct {
 	Transcodes TranscodeSummary
 	Downloads  DownloadSummary
@@ -111,10 +116,10 @@ func buildDashboard(ctx context.Context, files []*catalogv1.MediaFile, rows []Do
 		}
 	}
 	d := Dashboard{Transcodes: TranscodeSummary{
-		Running:   transcodeList(running, oldestFirst),
-		Pending:   transcodeList(pending, oldestFirst),
-		Failed:    transcodeList(failed, newestFirst),
-		Skipped:   transcodeList(skipped, newestFirst),
+		Running:   transcodeList(running, oldestFirst, RunningRows),
+		Pending:   transcodeList(pending, oldestFirst, DashboardRows),
+		Failed:    transcodeList(failed, newestFirst, DashboardRows),
+		Skipped:   transcodeList(skipped, newestFirst, DashboardRows),
 		Succeeded: succeeded,
 	}}
 	if progress != nil {
@@ -139,9 +144,9 @@ func buildDashboard(ctx context.Context, files []*catalogv1.MediaFile, rows []Do
 			d.Downloads.Imported++
 		}
 	}
-	d.Downloads.Active = downloadList(active, oldestFirst)
-	d.Downloads.Pending = downloadList(waiting, oldestFirst)
-	d.Downloads.Failed = downloadList(broken, newestFirst)
+	d.Downloads.Active = downloadList(active, oldestFirst, RunningRows)
+	d.Downloads.Pending = downloadList(waiting, oldestFirst, DashboardRows)
+	d.Downloads.Failed = downloadList(broken, newestFirst, DashboardRows)
 	return d
 }
 
@@ -177,20 +182,20 @@ func transcodeRow(mf *catalogv1.MediaFile, at ...*metav1.Time) TranscodeRow {
 	return r
 }
 
-// transcodeList sorts rows by Since and keeps the first DashboardRows.
-func transcodeList(rows []TranscodeRow, newest bool) TranscodeList {
+// transcodeList sorts rows by Since and keeps the first keep.
+func transcodeList(rows []TranscodeRow, newest bool, keep int) TranscodeList {
 	sort.SliceStable(rows, func(i, j int) bool {
 		if newest {
 			return rows[i].Since.After(rows[j].Since)
 		}
 		return rows[i].Since.Before(rows[j].Since)
 	})
-	return TranscodeList{Rows: rows[:min(len(rows), DashboardRows)], Total: len(rows)}
+	return TranscodeList{Rows: rows[:min(len(rows), keep)], Total: len(rows)}
 }
 
 // downloadList sorts rows by when each was grabbed and keeps the first
-// DashboardRows.
-func downloadList(rows []DownloadRow, newest bool) DownloadList {
+// keep.
+func downloadList(rows []DownloadRow, newest bool, keep int) DownloadList {
 	sort.SliceStable(rows, func(i, j int) bool {
 		a, b := rows[i].Entry.GrabbedAt.Time, rows[j].Entry.GrabbedAt.Time
 		if newest {
@@ -198,5 +203,5 @@ func downloadList(rows []DownloadRow, newest bool) DownloadList {
 		}
 		return a.Before(b)
 	})
-	return DownloadList{Rows: rows[:min(len(rows), DashboardRows)], Total: len(rows)}
+	return DownloadList{Rows: rows[:min(len(rows), keep)], Total: len(rows)}
 }

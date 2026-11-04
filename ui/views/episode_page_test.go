@@ -50,3 +50,11 @@ func TestEpisodeStatusLabel(t *testing.T) {
 		assert.Equal(t, tc.stripe, episodeStripe(tc.status), name)
 	}
 }
+
+// A pager lists every page of up to seven, else the first, the last and
+// the open one's neighbours, a gap (0) between.
+func TestListPageWindow(t *testing.T) {
+	assert.Equal(t, []int{1, 2, 3}, listPageWindow(ListPage{Page: 2, Pages: 3}))
+	assert.Equal(t, []int{1, 0, 9, 10, 11, 0, 20}, listPageWindow(ListPage{Page: 10, Pages: 20}))
+	assert.Equal(t, []int{1, 2, 0, 20}, listPageWindow(ListPage{Page: 1, Pages: 20}))
+}

@@ -902,16 +902,32 @@ in the browser and no DVR page (design §5.8, §5.9).
 
 The ui's home page is the **Dashboard** (2026-10-22: `ui/dashboard.go`,
 `ui/views/dashboard.templ`). `/` redirects to `/dashboard`, the sidebar's
-first entry. It has two parts.
+first entry. It is a section per subject (owner, 2026-11-04), in the order
+work flows: Downloads, Transcodes, then Plex's and Live TV's charts, each
+section a grid of eighths on a wide screen.
 
-The summary comes from the projection round (`Projection.Dashboard`) and
-refreshes itself every 10 s (`/dashboard/summary`). It counts:
+Downloads and Transcodes are two half-row cards each, laid out as
+shadcn's "Bar Chart - Interactive" (`views.sectionCard`): the title at the
+header's left, tabs at its right as tall as the header (on a phone a line
+of their own), each tab equal in width, its colour a line down its left
+edge, its name and its figure.
 
-- downloads: downloading, queued and failed (grab entries by phase);
-- transcodes: running, pending (Pending, Planned, Queued), failed and
-  skipped (MediaFile `status.transcode`).
+- The first card's tabs are its lists from the projection round
+  (`Projection.Dashboard`): Running, Queued and Failed grab entries;
+  Running, Pending (Pending, Planned, Queued), Failed and Skipped
+  transcodes (MediaFile `status.transcode`). A tab counts its list and
+  opens its rows (the first 8, `projection.DashboardRows`, with "8 of N ·
+  See all"); a Running list is a row a line, five to a page, with a pager
+  (up to `projection.RunningRows`).
+- The second card's tabs are the section's charts (`dashChartTabs`): a
+  series or a chart a tab, its figure the range's total, peak or latest.
 
-Each list shows its first 8 rows (`projection.DashboardRows`).
+A section's grid holds two `display: contents` groups, its live cards and
+its charts, and two hidden pollers refresh them out of band: the summary
+every 10 s (`/dashboard/summary`), the charts every 60 s and at a range
+pick. `ui/static/dashboard.js` adds every card's open tab and every paged
+list's page to those requests (`tab-<card>`, `page-<list>`), and a pager's
+link asks for its page at once, so a refresh never snaps either back.
 
 The charts are shadcn-templ's chart component (`ui/components/chart`, an
 SVG runtime in the component bundle). They chart range queries the ui runs

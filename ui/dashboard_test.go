@@ -20,6 +20,7 @@ package ui_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"regexp"
 	"strings"
@@ -170,6 +171,47 @@ func TestTheSummaryKeepsTheOpenTab(t *testing.T) {
 
 	body = get(t, srv, "/dashboard/summary?tab-downloads=nope").Body.String()
 	assert.Regexp(t, `aria-selected="true"[^>]*data-templ-value="running"`, body, "an unknown tab is the default")
+}
+
+// A running list is a row a line, five to a page, with the pages beneath
+// (owner, 2026-11-04); the summary poller asks for the page a list shows,
+// and a page past the last is the last.
+func TestTheRunningListsPage(t *testing.T) {
+	d := dashboardFixture()
+	running := d.Transcodes.Running.Rows[0]
+	d.Transcodes.Running.Rows = nil
+	for i := range 7 {
+		r := running
+		r.File.Name = fmt.Sprintf("run%d", i)
+		d.Transcodes.Running.Rows = append(d.Transcodes.Running.Rows, r)
+	}
+	d.Transcodes.Running.Total = 7
+	srv := ui.NewServer(t.Context(), ui.Options{Dashboard: func(context.Context) projection.Dashboard { return d }})
+	list := func(body string) string {
+		at := strings.Index(body, `data-list="transcodes-running"`)
+		require.Positive(t, at)
+		end := strings.Index(body[at:], `data-list="transcodes-pending"`)
+		require.Positive(t, end)
+		return body[at : at+end]
+	}
+
+	first := list(get(t, srv, "/dashboard").Body.String())
+	assert.Equal(t, 5, strings.Count(first, `data-transcode="run`), "five to a page")
+	assert.Contains(t, first, `class="grid gap-4" data-dashboard-page-list="transcodes-running" data-dashboard-page="1"`, "a row a line")
+	assert.Contains(t, first, `data-pager="transcodes-running"`)
+	requireTag(t, first, `data-dashboard-goto="2"`, `data-dashboard-list="transcodes-running"`, `href="/dashboard?page-transcodes-running=2"`)
+	assert.NotContains(t, first, `data-more`, "the pages say how many, not a See all")
+
+	second := list(get(t, srv, "/dashboard/summary?page-transcodes-running=2").Body.String())
+	assert.Equal(t, 2, strings.Count(second, `data-transcode="run`))
+	assert.Contains(t, second, `data-transcode="run5"`)
+	assert.Contains(t, second, `data-dashboard-page="2"`)
+
+	past := list(get(t, srv, "/dashboard/summary?page-transcodes-running=9").Body.String())
+	assert.Contains(t, past, `data-dashboard-page="2"`, "a page past the last is the last")
+
+	one := get(t, ui.NewServer(t.Context(), ui.Options{Dashboard: func(context.Context) projection.Dashboard { return dashboardFixture() }}), "/dashboard").Body.String()
+	assert.NotContains(t, one, `data-pager=`, "one page has no pager")
 }
 
 // fakeQuerier answers each query with the series registered for it.
