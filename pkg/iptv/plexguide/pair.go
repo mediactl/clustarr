@@ -95,6 +95,10 @@ type Pairing struct {
 // as its HD channel, else its lowest number.
 type group struct {
 	best Station
+	// broadcast is a local station (K or W and three letters): one station
+	// under its call sign, never one network's feed with another station
+	// its network titles alike (WEAR and WABC, both "ABC" in PMS's lineup).
+	broadcast bool
 }
 
 type index struct {
@@ -110,7 +114,7 @@ func newIndex(stations []Station) index {
 		base := baseCallSign(s.CallSign)
 		g := ix.byCallSign[base]
 		if g == nil {
-			g = &group{best: s}
+			g = &group{best: s, broadcast: broadcastCallSign.MatchString(base)}
 			ix.byCallSign[base] = g
 		} else if better(s, g.best) {
 			g.best = s
@@ -255,8 +259,8 @@ func oneNetwork(found []*group) []*group {
 	}
 	title := Normalize(found[0].best.Title)
 	best := found[0]
-	for _, g := range found[1:] {
-		if title == "" || Normalize(g.best.Title) != title {
+	for _, g := range found {
+		if title == "" || g.broadcast || Normalize(g.best.Title) != title {
 			return found
 		}
 		if better(g.best, best.best) {
@@ -271,12 +275,12 @@ func oneNetwork(found []*group) []*group {
 // True Crime HD") serves it when it is better.
 func (ix index) feed(g *group) *group {
 	title := Normalize(g.best.Title)
-	if title == "" {
+	if title == "" || g.broadcast {
 		return g
 	}
 	best := g
 	for _, o := range ix.byName[title] {
-		if Normalize(o.best.Title) == title && better(o.best, best.best) {
+		if !o.broadcast && Normalize(o.best.Title) == title && better(o.best, best.best) {
 			best = o
 		}
 	}

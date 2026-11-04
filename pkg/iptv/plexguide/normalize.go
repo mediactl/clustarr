@@ -26,7 +26,7 @@ import (
 // suffixes are cut from a normalized name in this order, each at most once
 // and only while something is left, so "Cartoon Network HD" and "CARTOON
 // NETWORK" both read "cartoon", and "NewsNation SD" "newsnation".
-var suffixes = []string{"hdtv", "hd", "sd", "east", "usa", "us", "network", "channel", "tv"}
+var suffixes = []string{"hdtv", "hd", "sd", "east", "usa", "network", "channel", "tv"}
 
 // Normalize is a channel or station name as the pairing compares it: lower
 // case, "&" as "and", "+" as "plus", a trailing .us, .ca or .uk (an XMLTV
