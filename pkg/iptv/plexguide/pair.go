@@ -114,7 +114,11 @@ func newIndex(stations []Station) index {
 		base := baseCallSign(s.CallSign)
 		g := ix.byCallSign[base]
 		if g == nil {
-			g = &group{best: s, broadcast: broadcastCallSign.MatchString(base)}
+			// A local call sign is K or W and three letters, never an HD
+			// feed's (WEHD is WE tv's), or a station the lineup names a
+			// network affiliate of.
+			local := broadcastCallSign.MatchString(base) && !strings.HasSuffix(strings.ToUpper(s.CallSign), "HD")
+			g = &group{best: s, broadcast: local || s.AffiliateCallSign != ""}
 			ix.byCallSign[base] = g
 		} else if better(s, g.best) {
 			g.best = s

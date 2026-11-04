@@ -198,3 +198,16 @@ func TestUndoingAHandPickRunsTheRules(t *testing.T) {
 	assert.Equal(t, plexguide.Automatic, p.Match)
 	assert.Equal(t, "ESPNHD", p.Station.CallSign)
 }
+
+// TestACableNetworksHDFeedIsNoLocalStation: WEHD is W and three letters,
+// as a local call sign is, but it is WE tv's HD feed (found on talos,
+// 2026-11-04: WE TV read Ambiguous between WE and WEHD).
+func TestACableNetworksHDFeedIsNoLocalStation(t *testing.T) {
+	l := plexguide.Lineup{ID: "lineup", Stations: []plexguide.Station{
+		station("bbbbbbbbbbbbbbbbbbbbbbb1", "WE", "WE tv", "260", false),
+		station("bbbbbbbbbbbbbbbbbbbbbbb2", "WEHD", "WE tv HD", "260", true),
+	}}
+	p := plexguide.Pair(l, []plexguide.Channel{{Object: "a", Number: "1187", Name: "WE TV", ChannelID: "WeTV.us"}}, now)["a"]
+	assert.Equal(t, plexguide.Automatic, p.Match)
+	assert.Equal(t, "WEHD", p.Station.CallSign)
+}
