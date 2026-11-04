@@ -199,7 +199,7 @@ func TestTheRunningListsPage(t *testing.T) {
 
 	first := list(get(t, srv, "/dashboard").Body.String())
 	assert.Equal(t, 4, strings.Count(first, `data-transcode="run`), "four to a page")
-	assert.Contains(t, first, `class="grid gap-4" data-dashboard-page-list="transcodes-running" data-dashboard-page="1"`, "a row a line")
+	assert.Contains(t, first, `class="grid gap-3" data-dashboard-page-list="transcodes-running" data-dashboard-page="1"`, "a row a line")
 	assert.Contains(t, first, `data-pager="transcodes-running"`)
 	requireTag(t, first, `data-dashboard-goto="2"`, `data-dashboard-list="transcodes-running"`, `href="/dashboard?page-transcodes-running=2"`)
 	assert.NotContains(t, first, `data-more`, "the pages say how many, not a See all")
