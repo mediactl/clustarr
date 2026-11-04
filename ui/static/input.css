@@ -358,32 +358,31 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 .panel {
   box-shadow: inset 0 1px 0 var(--glass-highlight);
 }
-/* A section card's open tab (the dashboard's tabbed cards) is lit with the
-   page's own UltraBlur (owner, 2026-11-04: "an ultrablur variant based on
-   the page background", then "slightly reduce the brightness ... washed
-   out"): the four corner colours, each lifted a sixth toward white,
-   laid as the html background lays them and fixed to the viewport as it
-   is, so the open tab shows the patch of the canvas behind it, brightened,
-   rather than a grey block. The attribute rule is unlayered, so it outranks
-   the tab's own data-active utility. */
+/* A section card's open tab (the dashboard's tabbed cards) is a frosted
+   glass tile over the page's own UltraBlur (owner, 2026-11-04: "an
+   ultrablur variant based on the page background", then the Apple frosted
+   tile: the backdrop showing through a white frost, a bright rim all round,
+   a soft shadow beneath). The four corner colours are laid as the html
+   background lays them and fixed to the viewport as it is, so the tab
+   shows the patch of canvas behind it; over them a white frost, a little
+   denser at the top; around them a 1px rim of light, and a shadow that
+   lifts the tile off its neighbours. The attribute rule is unlayered, so
+   it outranks the tab's own data-active utility. */
 [data-dashboard-tabs] [role="tab"][data-active] {
+  z-index: 1;
   background-color: transparent;
-  /* The top layer is the tab's own: a subtle frosted-glass sheen, clear at
-     the centre and a little lighter toward the edges, as light catches the
-     rim of a pane, with a faint line along the top (owner, 2026-11-04:
-     "following apple frosted glass design", then "inverted with lighter
-     edges - but make the frosted glass effect subtle"). It scrolls with the
-     tab; the UltraBlur layers under it stay fixed. */
   background-image:
-    radial-gradient(ellipse 75% 65% at 50% 45%, transparent 55%, rgba(255, 255, 255, 0.07) 100%),
-    radial-gradient(circle at 0% 0%, color-mix(in oklab, var(--ultrablur-top-left) 84%, white), transparent 65%),
-    radial-gradient(circle at 100% 0%, color-mix(in oklab, var(--ultrablur-top-right) 84%, white), transparent 65%),
-    radial-gradient(circle at 100% 100%, color-mix(in oklab, var(--ultrablur-bottom-right) 84%, white), transparent 65%),
-    radial-gradient(circle at 0% 100%, color-mix(in oklab, var(--ultrablur-bottom-left) 84%, white), transparent 65%);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0.08) 100%),
+    radial-gradient(circle at 0% 0%, color-mix(in oklab, var(--ultrablur-top-left) 90%, white), transparent 65%),
+    radial-gradient(circle at 100% 0%, color-mix(in oklab, var(--ultrablur-top-right) 90%, white), transparent 65%),
+    radial-gradient(circle at 100% 100%, color-mix(in oklab, var(--ultrablur-bottom-right) 90%, white), transparent 65%),
+    radial-gradient(circle at 0% 100%, color-mix(in oklab, var(--ultrablur-bottom-left) 90%, white), transparent 65%);
   background-attachment: scroll, fixed, fixed, fixed, fixed;
+  backdrop-filter: blur(12px) saturate(1.2);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.1),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+    inset 0 0 0 1px rgba(255, 255, 255, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.4),
+    0 6px 16px -6px rgba(0, 0, 0, 0.5);
 }
 [data-slot="dialog-overlay"],
 [data-slot="alert-dialog-overlay"],
