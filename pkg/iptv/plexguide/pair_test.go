@@ -188,3 +188,13 @@ func TestTheOwnersChannelsPair(t *testing.T) {
 		assert.Equal(t, cs, out[number].Station.CallSign, number)
 	}
 }
+
+// TestUndoingAHandPickRunsTheRules: a hand-picked station set back to
+// automatic is paired by the rules, not kept as the last pairing was.
+func TestUndoingAHandPickRunsTheRules(t *testing.T) {
+	l := small()
+	prev := plexguide.Prev{Match: plexguide.Manual, Station: l.Stations[3]} // FX, picked by hand
+	p := plexguide.Pair(l, []plexguide.Channel{{Object: "a", Number: "1", Name: "ESPN", Prev: prev}}, now)["a"]
+	assert.Equal(t, plexguide.Automatic, p.Match)
+	assert.Equal(t, "ESPNHD", p.Station.CallSign)
+}

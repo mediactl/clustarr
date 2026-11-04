@@ -220,7 +220,9 @@ func (ix index) pair(c Channel, now time.Time) Pairing {
 		}
 		return Pairing{Match: NotInLineup}
 	}
-	if prev := c.Prev.Station.GridKey; prev != "" {
+	// Only an automatic pairing sticks: a hand pick set back to automatic is
+	// paired by the rules again.
+	if prev := c.Prev.Station.GridKey; prev != "" && c.Prev.Match == Automatic {
 		if s, ok := ix.byGridKey[prev]; ok {
 			return Pairing{Match: Automatic, Station: s}
 		}
