@@ -366,8 +366,9 @@ templ sectionCard(key, title, description, href string, tabList []statTab, selec
 }
 
 // downloadRows is a download tab's content, list naming it for the pages
-// (owner, 2026-11-04: every tab "one item per line with a 5 item cap and
-// pagination at the bottom", "All tables should have the same max rows"):
+// (owner, 2026-11-04: every tab "one item per line" with a cap "and
+// pagination at the bottom", "All tables should have the same max rows",
+// four rows so the card fits beside its charts):
 // a row a line, a page of them (pg), and the pages beneath; none says an
 // empty list.
 templ downloadRows(list string, rows []DownloadView, pg ListPage, none string) {

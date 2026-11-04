@@ -131,7 +131,7 @@ func TestTheDashboardShowsWhatIsRunningPendingFailedAndSkipped(t *testing.T) {
 	}
 	assert.NotContains(t, transcodes, `data-download=`, "no download in the Transcodes section")
 	// A card opens on its first tab with rows; every tab pages its rows,
-	// five to a page, with a pager under them.
+	// four to a page, with a pager under them.
 	assert.Regexp(t, `aria-selected="true"[^>]*data-templ-value="running"`, downloads)
 	assert.Regexp(t, `data-list="transcodes-pending"[\s\S]*?data-dashboard-page-list="transcodes-pending" data-dashboard-page="1"[\s\S]*?data-pager="transcodes-pending"`, body)
 	pending := body[strings.Index(body, `data-list="transcodes-pending"`):strings.Index(body, `data-list="transcodes-failed"`)]
@@ -175,7 +175,7 @@ func TestTheSummaryKeepsTheOpenTab(t *testing.T) {
 	assert.Regexp(t, `aria-selected="true"[^>]*data-templ-value="running"`, body, "an unknown tab is the default")
 }
 
-// A running list is a row a line, five to a page, with the pages beneath
+// A running list is a row a line, four to a page, with the pages beneath
 // (owner, 2026-11-04); the summary poller asks for the page a list shows,
 // and a page past the last is the last.
 func TestTheRunningListsPage(t *testing.T) {
@@ -198,14 +198,14 @@ func TestTheRunningListsPage(t *testing.T) {
 	}
 
 	first := list(get(t, srv, "/dashboard").Body.String())
-	assert.Equal(t, 5, strings.Count(first, `data-transcode="run`), "five to a page")
+	assert.Equal(t, 4, strings.Count(first, `data-transcode="run`), "four to a page")
 	assert.Contains(t, first, `class="grid gap-4" data-dashboard-page-list="transcodes-running" data-dashboard-page="1"`, "a row a line")
 	assert.Contains(t, first, `data-pager="transcodes-running"`)
 	requireTag(t, first, `data-dashboard-goto="2"`, `data-dashboard-list="transcodes-running"`, `href="/dashboard?page-transcodes-running=2"`)
 	assert.NotContains(t, first, `data-more`, "the pages say how many, not a See all")
 
 	second := list(get(t, srv, "/dashboard/summary?page-transcodes-running=2").Body.String())
-	assert.Equal(t, 2, strings.Count(second, `data-transcode="run`))
+	assert.Equal(t, 3, strings.Count(second, `data-transcode="run`))
 	assert.Contains(t, second, `data-transcode="run5"`)
 	assert.Contains(t, second, `data-dashboard-page="2"`)
 

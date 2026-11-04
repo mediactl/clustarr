@@ -986,8 +986,9 @@ stretch to the tallest.
   (`Projection.Dashboard`): Running, Queued and Failed grab entries;
   Running, Pending (Pending, Planned, Queued), Failed and Skipped
   transcodes (MediaFile `status.transcode`). A tab counts its list and
-  opens its rows, every list a row a line, five to a page
-  (`ui.listPerPage`) with a pager under it, one page or many (up to
+  opens its rows, every list a row a line, four to a page
+  (`ui.listPerPage`; five until the cards had to fit beside their charts)
+  with a pager under it, one page or many (up to
   `projection.DashboardRows`, 100); a row's bar is the progress component
   in full, its details the label and its percent the value.
 - The second card's tabs are the section's charts (`dashChartTabs`): a

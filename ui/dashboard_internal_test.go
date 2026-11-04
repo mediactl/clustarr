@@ -131,9 +131,9 @@ func TestPageOf(t *testing.T) {
 		want  []int
 		page  views.ListPage
 	}{
-		{0, []int{1, 2, 3, 4, 5}, views.ListPage{Page: 1, Pages: 2}},
-		{2, []int{6, 7}, views.ListPage{Page: 2, Pages: 2}},
-		{9, []int{6, 7}, views.ListPage{Page: 2, Pages: 2}},
+		{0, []int{1, 2, 3, 4}, views.ListPage{Page: 1, Pages: 2}},
+		{2, []int{5, 6, 7}, views.ListPage{Page: 2, Pages: 2}},
+		{9, []int{5, 6, 7}, views.ListPage{Page: 2, Pages: 2}},
 	} {
 		got, page := pageOf(rows, tc.asked)
 		assert.Equal(t, tc.want, got, tc.asked)

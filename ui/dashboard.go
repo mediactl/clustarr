@@ -293,8 +293,9 @@ func (s *Server) handleDashboardCharts(w http.ResponseWriter, r *http.Request) {
 }
 
 // listPerPage is how many rows of a list a page shows (owner, 2026-11-04:
-// "one item per line with a 5 item cap and pagination"; then every list).
-const listPerPage = 5
+// "one item per line with a 5 item cap and pagination", then every list,
+// then "reduce the max rows ... to 4" so the cards fit beside their charts).
+const listPerPage = 4
 
 // dashboardSummary is the projection's dashboard on the tabs and the
 // lists' pages r asks for (tab-<section>, page-<list>): every list cut to
