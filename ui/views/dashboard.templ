@@ -288,8 +288,8 @@ const sectionTabClass = "h-auto flex-1 flex-col items-start justify-center gap-1
 
 // sectionCard is a section's tabbed card (owner, 2026-11-04, after
 // shadcn's "Bar Chart - Interactive"): the title and description at the
-// left of the header and the tabs at its right, each a colour, a name and
-// a figure; the open tab's content below. A tab switches in the browser
+// left of the header and the tabs at its right, each its colour as a line
+// down its left, its name and its figure; the open tab's content below. A tab switches in the browser
 // (ui/components/tabs); the pollers tell the server which tab each card
 // shows, so a refresh keeps it open. A section has two: its lists, and its
 // charts (chartCard). href links the title, when there is one.
@@ -308,15 +308,23 @@ templ sectionCard(key, title, description, href string, tabList []statTab, selec
 				@tabs.List(tabs.ListProps{Class: "h-auto w-full items-stretch rounded-none bg-transparent p-0 group-data-horizontal/tabs:h-auto sm:w-auto"}) {
 					for _, t := range tabList {
 						@tabs.Trigger(tabs.TriggerProps{Value: t.Value, Class: sectionTabClass, Attributes: templ.Attributes{"data-stat": t.Label, "data-count": t.figure()}}) {
-							<span class="flex items-center gap-1.5 text-xs font-normal text-muted-foreground">
+							// The tab's colour is a line at its left, the height of
+							// its name and figure (owner, 2026-11-04), as an item
+							// page's Status stripe; a chart of several series has
+							// no one colour, and a neutral line keeps it aligned.
+							<span class="flex items-stretch gap-3">
 								if t.Color != "" {
-									<span class={ "size-2.5 shrink-0 rounded-[2px] " + t.Color } aria-hidden="true"></span>
+									<span data-stripe class={ "w-1 shrink-0 rounded-full " + t.Color } aria-hidden="true"></span>
 								} else if t.Swatch != "" {
-									<span class="size-2.5 shrink-0 rounded-[2px]" style={ templ.SafeCSS("background-color: " + t.Swatch + ";") } aria-hidden="true"></span>
+									<span data-stripe class="w-1 shrink-0 rounded-full" style={ templ.SafeCSS("background-color: " + t.Swatch + ";") } aria-hidden="true"></span>
+								} else {
+									<span data-stripe class="w-1 shrink-0 rounded-full bg-muted-foreground/40" aria-hidden="true"></span>
 								}
-								{ t.Label }
+								<span class="flex flex-col items-start gap-1">
+									<span class="text-xs font-normal text-muted-foreground">{ t.Label }</span>
+									<span class="text-lg font-bold leading-none tabular-nums text-foreground sm:text-3xl">{ t.figure() }</span>
+								</span>
 							</span>
-							<span class="text-lg font-bold leading-none tabular-nums text-foreground sm:text-3xl">{ t.figure() }</span>
 						}
 					}
 				}
