@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package rowcache
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -31,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	"k8s.io/apimachinery/pkg/runtime/serializer/cbor"
+	cbordirect "k8s.io/apimachinery/pkg/runtime/serializer/cbor/direct"
 	"k8s.io/apimachinery/pkg/runtime/serializer/json"
 	"k8s.io/apimachinery/pkg/runtime/serializer/streaming"
 	"k8s.io/apimachinery/pkg/watch"
@@ -38,6 +40,8 @@ import (
 	clientfeaturestesting "k8s.io/client-go/features/testing"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	catalogac "github.com/mediactl/clustarr/api/applyconfiguration/catalog/v1alpha1"
 
 	catalogv1alpha1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/k8s"
@@ -157,4 +161,47 @@ func TestTheWatchStreamsAsACBORSequence(t *testing.T) {
 	assert.Equal(t, runtime.ContentTypeCBOR+", */*", accept)
 	assert.Contains(t, query, "watch=true")
 	assert.Contains(t, query, "resourceVersion=7")
+}
+
+// A server-side apply round-trips in CBOR on the fork: client-go sends the
+// apply configuration as application/apply-patch+cbor under the gates, the
+// apiserver answers in application/cbor, and controller-runtime's typed
+// client decodes that answer into the apply configuration (upstream read it
+// as JSON only and refused it, which exited the manager at its first apply
+// on 2026-11-04).
+func TestAServerSideApplyRoundTripsInCBOR(t *testing.T) {
+	scheme := k8s.MustNewScheme()
+	var contentType, accept string
+	var body []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		contentType, accept = r.Header.Get("Content-Type"), r.Header.Get("Accept")
+		var err error
+		body, err = io.ReadAll(r.Body)
+		require.NoError(t, err)
+		applied := map[string]any{
+			"apiVersion": "catalog.clustarr.io/v1alpha1", "kind": "Series",
+			"metadata": map[string]any{"name": "kingdom", "namespace": "media", "resourceVersion": "42"},
+			"spec":     map[string]any{"tvdbID": int64(7), "seriesType": "anime"},
+		}
+		out, err := cbordirect.Marshal(applied)
+		require.NoError(t, err)
+		w.Header().Set("Content-Type", runtime.ContentTypeCBOR)
+		_, _ = w.Write(out)
+	}))
+	defer srv.Close()
+	mapper := meta.NewDefaultRESTMapper(nil)
+	mapper.Add(catalogv1alpha1.GroupVersion.WithKind("Series"), meta.RESTScopeNamespace)
+	c, err := client.New(&rest.Config{Host: srv.URL}, client.Options{Scheme: scheme, Mapper: mapper})
+	require.NoError(t, err)
+
+	ac := catalogac.Series("kingdom", "media").WithSpec(catalogac.SeriesSpec().WithTvdbID(7))
+	require.NoError(t, c.Apply(t.Context(), ac, client.FieldOwner("test"), client.ForceOwnership))
+	assert.Equal(t, "application/apply-patch+cbor", contentType, "the request body is CBOR")
+	assert.Equal(t, runtime.ContentTypeCBOR+", */*", accept)
+	assert.NotEmpty(t, body)
+	require.NotNil(t, ac.ResourceVersion)
+	assert.Equal(t, "42", *ac.ResourceVersion, "the answer was decoded into the apply configuration")
+	require.NotNil(t, ac.Spec)
+	require.NotNil(t, ac.Spec.SeriesType)
+	assert.Equal(t, catalogv1alpha1.SeriesTypeAnime, *ac.Spec.SeriesType)
 }

@@ -2418,10 +2418,13 @@ too; bump the tag in go.mod and go.sum to take a new fork release.
   exist"; the pods started with the two variables on 2026-11-04 never became
   ready): `go.mod` replaces it with the clustarr fork
   (`github.com/mediactl/controller-runtime v0.25.1-clustarr.N`, branch
-  `clustarr`, one commit on the upstream tag) whose two factories go through
+  `clustarr`, two commits on the upstream tag) whose two factories go through
   `rest.CodecFactoryForGeneratedClient`, identical to upstream with the gate
-  off. Bump the fork by rebasing that commit onto the next upstream tag and
-  tagging `v<upstream>-clustarr.1`, as ffgo's fork is bumped.
+  off, and whose typed client decodes an apply's answer by its content type
+  (upstream read it as JSON only: with PreferCBOR the apiserver answers an
+  apply in CBOR, and the manager exited at its first server-side apply,
+  2026-11-04 04:5xZ). Bump the fork by rebasing those commits onto the next
+  upstream tag and tagging `v<upstream>-clustarr.1`, as ffgo's fork is bumped.
 - **A watch's map function runs for every object at startup, and the
   source is not synced until it has.** controller-runtime's `Kind` source
   waits on `handlerRegistration.HasSynced`, and a cache's initial sync

@@ -244,9 +244,13 @@ variables set by hand on the Deployment). A first cut gave the row cache its
 own CBOR lister-watcher for the four kinds (rev 206, where the bytes are);
 the owner wanted CBOR everywhere, so `go.mod` now replaces controller-runtime
 with the clustarr fork (`github.com/mediactl/controller-runtime
-v0.25.1-clustarr.1`, branch `clustarr`, one commit on v0.25.1) whose two
+v0.25.1-clustarr.2`, branch `clustarr`, two commits on v0.25.1) whose two
 factories go through `rest.CodecFactoryForGeneratedClient`, client-go's own
 helper that adds the CBOR serializer when `ClientsAllowCBOR` is on, and
+whose typed client decodes an apply's answer by its content type (rev 207,
+on the first commit alone, exited at its first server-side apply: client-go
+sends the apply as `application/apply-patch+cbor` and the apiserver answers
+in CBOR, which upstream's JSON-only read refused), and
 `cbor.go` turns both gates on at init through client-go's own gates unless
 the environment names one. Every controller, informer and write in the
 manager then speaks CBOR; the row cache's own stream went. Tests:
