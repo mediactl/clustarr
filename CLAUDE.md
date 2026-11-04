@@ -638,7 +638,26 @@ was served from its SQLite file until PMS next reopened it (DVR 32,
 09:43-09:52Z) and each later load was served stale for the minute the poll
 took; a forced reload at 10:30Z proved the order (the manager's "the shim
 asks for a guide load's copy before its rename", the copy, then PMS reading
-the new load from PostgreSQL). **Plex's limit for a cloud block is the map
+the new load from PostgreSQL). **PMS never refreshed the cloud guide incrementally, for two reasons of
+ours** (owner, 2026-11-04: "why we never seem to get any incremental guide
+refreshes"): PMS has an incremental refresh, run by its nightly
+`RefreshEpgGuides` butler task and by itself at boot when the DVR's
+provider row (`plex.media_provider_resources`, `pv:lastChunkEndedAt`,
+`pv:timeOfLastRefresh`) reads stale, but cluster-plex turns every butler
+task off, so the nightly one never ran; and when a refresh does run it
+first streams the whole guide it holds through one SELECT (98,180 rows
+for 248 channels, 657 ms on the server) and works each row as it arrives,
+longer than the plex-postgresql shim's five-minute statement timeout, so
+PostgreSQL cancelled it ("canceling statement due to statement timeout"),
+PMS's loader died with an uncaught exception, its "Refreshing guide data,
+Initializing 0%" activity sat as a ghost until the next restart, and it
+retried every five minutes. Shim `v1.3.17-clusterplex.46` runs a guide's
+connection with no statement timeout. A load from scratch (a map save,
+`reloadGuide`) reads nothing back and was never affected: it is two 7-day
+steps of one `GET /grid/bulk?channelGridKey=&startDate=&endDate=` per
+channel and one `GET /library/metadata/<id>` per programme, serial, with
+PMS's summary `Step 2/2 (network: 512.6 sec, database: 1651.1 sec)` for
+248 channels. **Plex's limit for a cloud block is the map
 budget** (`blocks.DefaultMaxBytes`, 30,000 bytes; about 116 bytes per
 cloud channel key, so about 255 channels per DVR), not `dvr.maxChannels`.
 The DIRECTV mapping was extended by hand on 2026-11-04 (owner: "map out the
