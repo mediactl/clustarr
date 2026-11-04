@@ -130,10 +130,12 @@ func TestTheDashboardShowsWhatIsRunningPendingFailedAndSkipped(t *testing.T) {
 		assert.Contains(t, transcodes, want, "transcodes: "+want)
 	}
 	assert.NotContains(t, transcodes, `data-download=`, "no download in the Transcodes section")
-	// A card opens on its first tab with rows; a tab showing fewer rows
-	// than its count says so and links the page listing them all.
+	// A card opens on its first tab with rows; every tab pages its rows,
+	// five to a page, with a pager under them.
 	assert.Regexp(t, `aria-selected="true"[^>]*data-templ-value="running"`, downloads)
-	assert.Regexp(t, `data-list="transcodes-pending"[\s\S]*?data-more>\s*1 of 30 ·\s*<a href="/pipeline"`, body)
+	assert.Regexp(t, `data-list="transcodes-pending"[\s\S]*?data-dashboard-page-list="transcodes-pending" data-dashboard-page="1"[\s\S]*?data-pager="transcodes-pending"`, body)
+	pending := body[strings.Index(body, `data-list="transcodes-pending"`):strings.Index(body, `data-list="transcodes-failed"`)]
+	assert.Equal(t, 1, strings.Count(pending, `data-transcode="`), "the fixture's one pending row, of a total of 30, on the first page")
 	// A row's percent sits at the right of the line under its bar.
 	assert.Regexp(t, `>why tenma</span>\s*<span[^>]*data-percent>42%</span>`, body)
 	assert.Regexp(t, `>2.00 MiB/s · ETA 1m30s</span>\s*<span[^>]*data-percent>0%</span>`, body)
@@ -210,8 +212,9 @@ func TestTheRunningListsPage(t *testing.T) {
 	past := list(get(t, srv, "/dashboard/summary?page-transcodes-running=9").Body.String())
 	assert.Contains(t, past, `data-dashboard-page="2"`, "a page past the last is the last")
 
-	one := get(t, ui.NewServer(t.Context(), ui.Options{Dashboard: func(context.Context) projection.Dashboard { return dashboardFixture() }}), "/dashboard").Body.String()
-	assert.NotContains(t, one, `data-pager=`, "one page has no pager")
+	one := list(get(t, ui.NewServer(t.Context(), ui.Options{Dashboard: func(context.Context) projection.Dashboard { return dashboardFixture() }}), "/dashboard").Body.String())
+	assert.Contains(t, one, `data-pager="transcodes-running"`, "a pager under every list, one page or many")
+	assert.Regexp(t, `<button[^>]*disabled[^>]*>[^<]*(<svg[\s\S]*?</svg>)?\s*<span[^>]*>Next</span>|data-dashboard-goto="2"[^>]*disabled`, one, "one page offers no second")
 }
 
 // fakeQuerier answers each query with the series registered for it.

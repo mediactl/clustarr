@@ -972,18 +972,24 @@ work flows: Downloads, Transcodes, then Plex's and Live TV's charts, each
 section a grid of eighths on a wide screen.
 
 Downloads and Transcodes are two half-row cards each, laid out as
-shadcn's "Bar Chart - Interactive" (`views.sectionCard`): the title at the
-header's left, tabs at its right as tall as the header (on a phone a line
-of their own), each tab equal in width, its colour a line down its left
-edge, its name and its figure.
+shadcn's "Bar Chart - Interactive" (`views.sectionCard`): the title and
+its one-line description at the header's left, square tabs at its right
+(one size on every card -- 4rem on a phone, 5 on a laptop, 6 on a wide
+screen -- so every header is as tall; on a phone a line of their own),
+each tab's colour a line along its bottom edge, dim until it is open, its
+name and its figure (owner, 2026-11-04: "the tabs should be square ...
+the same size for all cards"; "moving the colored lines to the bottom";
+"Card height should be identical for all cards"). The cards of a grid row
+stretch to the tallest.
 
 - The first card's tabs are its lists from the projection round
   (`Projection.Dashboard`): Running, Queued and Failed grab entries;
   Running, Pending (Pending, Planned, Queued), Failed and Skipped
   transcodes (MediaFile `status.transcode`). A tab counts its list and
-  opens its rows (the first 8, `projection.DashboardRows`, with "8 of N ·
-  See all"); a Running list is a row a line, five to a page, with a pager
-  (up to `projection.RunningRows`).
+  opens its rows, every list a row a line, five to a page
+  (`ui.listPerPage`) with a pager under it, one page or many (up to
+  `projection.DashboardRows`, 100); a row's bar is the progress component
+  in full, its details the label and its percent the value.
 - The second card's tabs are the section's charts (`dashChartTabs`): a
   series or a chart a tab, its figure the range's total, peak or latest.
 

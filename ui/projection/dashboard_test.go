@@ -114,7 +114,7 @@ func TestTheDashboardsListsAreCappedNewestFailureFirst(t *testing.T) {
 
 	require.Len(t, d.Transcodes.Failed.Rows, DashboardRows)
 	assert.Equal(t, DashboardRows+5, d.Transcodes.Failed.Total)
-	assert.Equal(t, "f12", d.Transcodes.Failed.Rows[0].File.Name, "the newest failure first")
+	assert.Equal(t, fmt.Sprintf("f%02d", DashboardRows+4), d.Transcodes.Failed.Rows[0].File.Name, "the newest failure first")
 }
 
 func TestARunningTranscodeCarriesItsProgressAndItsItem(t *testing.T) {

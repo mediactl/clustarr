@@ -30,17 +30,14 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 )
 
-// DashboardRows caps each list the dashboard shows; the totals count all.
-// RunningRows caps the running lists, which the dashboard pages through
-// (owner, 2026-11-04), as many as the slots that run them can hold.
-const (
-	DashboardRows = 8
-	RunningRows   = 100
-)
+// DashboardRows caps each list the dashboard shows, which it pages through
+// five at a time (owner, 2026-11-04: "All tables should have the same max
+// rows ... a pagination footer to browse more"); the totals count all.
+const DashboardRows = 100
 
 // Dashboard is the dashboard's view of one projection round: the
 // MediaFiles' transcodes and the grab entries' downloads, counted by state,
-// with the first DashboardRows of each list (RunningRows of a running one).
+// with the first DashboardRows of each list.
 type Dashboard struct {
 	Transcodes TranscodeSummary
 	Downloads  DownloadSummary
@@ -116,7 +113,7 @@ func buildDashboard(ctx context.Context, files []*catalogv1.MediaFile, rows []Do
 		}
 	}
 	d := Dashboard{Transcodes: TranscodeSummary{
-		Running:   transcodeList(running, oldestFirst, RunningRows),
+		Running:   transcodeList(running, oldestFirst, DashboardRows),
 		Pending:   transcodeList(pending, oldestFirst, DashboardRows),
 		Failed:    transcodeList(failed, newestFirst, DashboardRows),
 		Skipped:   transcodeList(skipped, newestFirst, DashboardRows),
@@ -144,7 +141,7 @@ func buildDashboard(ctx context.Context, files []*catalogv1.MediaFile, rows []Do
 			d.Downloads.Imported++
 		}
 	}
-	d.Downloads.Active = downloadList(active, oldestFirst, RunningRows)
+	d.Downloads.Active = downloadList(active, oldestFirst, DashboardRows)
 	d.Downloads.Pending = downloadList(waiting, oldestFirst, DashboardRows)
 	d.Downloads.Failed = downloadList(broken, newestFirst, DashboardRows)
 	return d

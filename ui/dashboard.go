@@ -90,7 +90,7 @@ type panelDef struct {
 // as each step's peak (max_over_time): sampled once a step, the 7-day view's
 // two-hour points missed every stream shorter than that.
 var dashPanels = []panelDef{
-	{ID: "plex-sessions", Section: "plex", Title: "Plex sessions", Description: "Peak playback sessions, and those Plex transcodes", Kind: "area", Series: []panelSeries{
+	{ID: "plex-sessions", Section: "plex", Title: "Plex sessions", Description: "Peak sessions and Plex transcodes", Kind: "area", Series: []panelSeries{
 		{Key: "sessions", Label: "Sessions", Query: `sum(max_over_time(clusterplex_plex_sessions[$step]))`},
 		{Key: "transcodes", Label: "Transcodes", Query: `sum(max_over_time(clusterplex_plex_transcode_sessions[$step]))`},
 	}},
@@ -100,14 +100,14 @@ var dashPanels = []panelDef{
 	{ID: "plex-plays", Section: "plex", Title: "Plex plays", Description: "Plays started, by media type", Kind: "bar", Stacked: true, Series: []panelSeries{
 		{Query: `sum by (media_type) (increase(clusterplex_plex_plays_total[$step]))`, By: "media_type"},
 	}},
-	{ID: "livetv", Section: "livetv", Title: "Live TV", Description: "Peak viewers, and the provider's tuners in use", Kind: "line", Series: []panelSeries{
+	{ID: "livetv", Section: "livetv", Title: "Live TV", Description: "Peak viewers and tuners in use", Kind: "line", Series: []panelSeries{
 		{Key: "viewers", Label: "Viewers", Query: `sum(max_over_time(clustarr_livetv_viewers[$step]))`},
 		{Key: "tuners", Label: "Tuners", Query: `sum(max_over_time(clustarr_livetv_tuners_in_use[$step]))`},
 	}},
 	{ID: "transcodes", Section: "transcodes", Title: "Transcodes finished", Description: "By outcome", Kind: "bar", Stacked: true, Series: []panelSeries{
 		{Query: `sum by (outcome) (increase(clustarr_transcode_duration_seconds_count[$step]))`, By: "outcome"},
 	}},
-	{ID: "transcode-workers", Section: "transcodes", Title: "Transcode workers", Description: "Peak jobs running, by hardware tier", Kind: "area", Stacked: true, Series: []panelSeries{
+	{ID: "transcode-workers", Section: "transcodes", Title: "Transcode workers", Description: "Peak jobs by hardware tier", Kind: "area", Stacked: true, Series: []panelSeries{
 		{Query: `sum by (tier) (max_over_time(clustarr_transcode_jobs_active[$step]))`, By: "tier"},
 	}},
 	{ID: "transcode-backlog", Section: "transcodes", Title: "Transcode backlog", Description: "Files waiting outside the window", Kind: "line", Series: []panelSeries{
@@ -292,14 +292,14 @@ func (s *Server) handleDashboardCharts(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// runningPerPage is how many rows of a running list a page shows (owner,
-// 2026-11-04: "one item per line with a 5 item cap and pagination").
-const runningPerPage = 5
+// listPerPage is how many rows of a list a page shows (owner, 2026-11-04:
+// "one item per line with a 5 item cap and pagination"; then every list).
+const listPerPage = 5
 
 // dashboardSummary is the projection's dashboard on the tabs and the
-// running lists' pages r asks for (tab-<section>, page-<list>): a running
-// list cut to its page, and the active downloads on the page with their
-// transfer telemetry.
+// lists' pages r asks for (tab-<section>, page-<list>): every list cut to
+// its page, and the active downloads on theirs with their transfer
+// telemetry.
 func (s *Server) dashboardSummary(ctx context.Context, r *http.Request) views.DashboardSummaryView {
 	var d projection.Dashboard
 	if s.opts.Dashboard != nil {
@@ -317,17 +317,23 @@ func (s *Server) dashboardSummary(ctx context.Context, r *http.Request) views.Da
 	var active []projection.DownloadRow
 	active, v.Pages["downloads-running"] = pageOf(d.Downloads.Active.Rows, pageNum("downloads-running"))
 	v.Active = s.downloadViews(ctx, active)
-	v.Summary.Transcodes.Running.Rows, v.Pages["transcodes-running"] = pageOf(d.Transcodes.Running.Rows, pageNum("transcodes-running"))
+	dl, tc := &v.Summary.Downloads, &v.Summary.Transcodes
+	dl.Pending.Rows, v.Pages["downloads-queued"] = pageOf(d.Downloads.Pending.Rows, pageNum("downloads-queued"))
+	dl.Failed.Rows, v.Pages["downloads-failed"] = pageOf(d.Downloads.Failed.Rows, pageNum("downloads-failed"))
+	tc.Running.Rows, v.Pages["transcodes-running"] = pageOf(d.Transcodes.Running.Rows, pageNum("transcodes-running"))
+	tc.Pending.Rows, v.Pages["transcodes-pending"] = pageOf(d.Transcodes.Pending.Rows, pageNum("transcodes-pending"))
+	tc.Failed.Rows, v.Pages["transcodes-failed"] = pageOf(d.Transcodes.Failed.Rows, pageNum("transcodes-failed"))
+	tc.Skipped.Rows, v.Pages["transcodes-skipped"] = pageOf(d.Transcodes.Skipped.Rows, pageNum("transcodes-skipped"))
 	return v
 }
 
 // pageOf is page n (from 1, clamped to the pages there are) of rows,
-// runningPerPage to a page.
+// listPerPage to a page.
 func pageOf[T any](rows []T, n int) ([]T, views.ListPage) {
-	pages := max(1, (len(rows)+runningPerPage-1)/runningPerPage)
+	pages := max(1, (len(rows)+listPerPage-1)/listPerPage)
 	n = min(max(n, 1), pages)
-	from := (n - 1) * runningPerPage
-	return rows[from:min(from+runningPerPage, len(rows))], views.ListPage{Page: n, Pages: pages}
+	from := (n - 1) * listPerPage
+	return rows[from:min(from+listPerPage, len(rows))], views.ListPage{Page: n, Pages: pages}
 }
 
 // dashboardCharts queries every panel over rg, all at once.
