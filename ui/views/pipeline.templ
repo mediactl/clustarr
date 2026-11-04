@@ -70,7 +70,7 @@ templ PipelineList(p paging.Page, entries []pipeline.Entry) {
 // #pipeline-rows's contents.
 templ PipelineRows(entries []pipeline.Entry) {
 	if len(entries) == 0 {
-		<p class="text-muted-foreground">Nothing in flight.</p>
+		@emptyState("activity", "Nothing in flight.", "Downloads, imports and transcodes show here while they run.", templ.Attributes{"data-empty": "pipeline"})
 	}
 	@item.Group(item.GroupProps{Class: "gap-3"}) {
 		for _, e := range entries {

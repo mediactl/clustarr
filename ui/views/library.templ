@@ -22,19 +22,20 @@ import (
 	"fmt"
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	"github.com/mediactl/clustarr/ui/paging"
+	"github.com/mediactl/clustarr/ui/projection"
 	"github.com/mediactl/clustarr/ui/components/alert"
 	"github.com/mediactl/clustarr/ui/components/aspectratio"
 	"github.com/mediactl/clustarr/ui/components/badge"
 	"github.com/mediactl/clustarr/ui/components/button"
 	"github.com/mediactl/clustarr/ui/components/checkbox"
 	"github.com/mediactl/clustarr/ui/components/dialog"
+	"github.com/mediactl/clustarr/ui/components/field"
 	"github.com/mediactl/clustarr/ui/components/icon"
 	"github.com/mediactl/clustarr/ui/components/item"
 	"github.com/mediactl/clustarr/ui/components/menubar"
 	"github.com/mediactl/clustarr/ui/components/separator"
 	"github.com/mediactl/clustarr/ui/components/tooltip"
-	"github.com/mediactl/clustarr/ui/paging"
-	"github.com/mediactl/clustarr/ui/projection"
 )
 
 // Library renders the Library page (amendment §A3.4, Task G3-3): every
@@ -207,7 +208,7 @@ templ loadMore(tab projection.Tab, p paging.Page) {
 // #library-rows's contents.
 templ LibraryRows(items []projection.LibraryItem) {
 	if len(items) == 0 {
-		<p class="text-muted-foreground">Nothing in the library yet.</p>
+		@emptyState("library", "Nothing in the library yet.", "Add a title from Add New, or scan a root folder in Settings.", templ.Attributes{"data-empty": "library"})
 	}
 	// The column width is the Options menu's poster size
 	// (--library-poster-width, set on <html> by ui/static/library.js).
@@ -681,17 +682,23 @@ templ bulkBar(tab projection.Tab) {
 				<form method="post" action={ templ.URL(bulkPath(tab)) } data-bulk-form class="space-y-3">
 					<input type="hidden" name="return" value={ "/library/" + string(tab) }/>
 					<input type="hidden" name="action" value="delete"/>
-					<label class="flex items-start gap-2">
+					@field.Field(field.Props{Orientation: field.OrientationHorizontal}) {
 						@checkbox.Checkbox(checkbox.Props{ID: "bulk-delete-files", Name: "files", Value: "true"})
-						<span>
-							Delete files and folders
-							<span class="block text-xs text-destructive">This permanently deletes every selected folder and cannot be undone.</span>
-						</span>
-					</label>
-					<label class="flex items-center gap-2">
+						@field.Content() {
+							@field.Label(field.LabelProps{For: "bulk-delete-files"}) {
+								Delete files and folders
+							}
+							@field.Description(field.DescriptionProps{Class: "text-destructive"}) {
+								This permanently deletes every selected folder and cannot be undone.
+							}
+						}
+					}
+					@field.Field(field.Props{Orientation: field.OrientationHorizontal}) {
 						@checkbox.Checkbox(checkbox.Props{ID: "bulk-delete-exclude", Name: "exclude", Value: "true"})
-						<span>Add import list exclusions</span>
-					</label>
+						@field.Label(field.LabelProps{For: "bulk-delete-exclude"}) {
+							Add import list exclusions
+						}
+					}
 					@dialog.Footer() {
 						@button.Button(button.Props{Variant: button.VariantOutline, Attributes: dialog.Close(ctx)}) { Cancel }
 						@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantDestructive, Attributes: templ.Attributes{"data-action": "bulk-delete-confirm"}}) { Delete }
@@ -811,7 +818,7 @@ func stripeColour(status string) string {
 	}
 }
 
-// monitoredLabel and monitoredBadgeClass mirror downloads.templ's
+// monitoredLabel mirrors downloads.templ's
 // clientEnabledLabel/clientEnabledBadgeClass for the identical boolean-badge
 // shape.
 func monitoredLabel(monitored bool) string {
@@ -821,24 +828,7 @@ func monitoredLabel(monitored bool) string {
 	return "unmonitored"
 }
 
-func monitoredBadgeClass(monitored bool) string {
-	const base = "rounded-full px-2 py-0.5 text-xs font-medium "
-	if monitored {
-		return base + "bg-emerald-500/20 text-emerald-300"
-	}
-	return base + "bg-slate-500/20 text-slate-300"
-}
 
-// stagePhaseBadgeClass gives a LibraryItem's raw status.phase string a
-// badge, grouped the same way helpers.go's stageTone groups
-// pipeline.Stage: failed/cutoff-style phases read as amber, a settled phase
-// reads as emerald, anything else (including a phase this switch does not
-// specifically know, which keeps the badge readable for a phase value added
-// to a kind's enum after this was written) reads as the default "in
-// progress" sky blue.
-func stagePhaseBadgeClass(phase string) string {
-	return "rounded-full px-2 py-0.5 text-xs font-medium " + phaseTone(phase)
-}
 
 // phaseTone is the colour alone, for a badge component that brings its own
 // shape: the library card's phase badge keeps these semantics (the tests
@@ -862,15 +852,10 @@ func phaseTone(phase string) string {
 	}
 }
 
-// libraryItemURL and libraryDetailPath both build a LibraryItem's detail
-// page path -- /library/<namespace>/<kind>/<name>, matching ui/routes.go's
-// "GET /library/{namespace}/{kind}/{name}" pattern -- the former typed as
-// templ.SafeURL for the <a href> it's used in, the latter a plain string for
-// a hidden form field's value, where templ does not apply URL sanitisation.
-func libraryItemURL(item projection.LibraryItem) templ.SafeURL {
-	return templ.URL(libraryDetailPath(item))
-}
-
+// libraryDetailPath builds a LibraryItem's detail page path --
+// /library/<namespace>/<kind>/<name>, matching ui/routes.go's
+// "GET /library/{namespace}/{kind}/{name}" pattern -- as a plain string, for
+// a hidden form field's value as much as an href.
 func libraryDetailPath(item projection.LibraryItem) string {
 	return fmt.Sprintf("/library/%s/%s/%s", item.Ref.Namespace, item.Kind, item.Ref.Name)
 }

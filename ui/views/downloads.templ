@@ -26,11 +26,13 @@ import (
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	downloadv1 "github.com/mediactl/clustarr/api/download/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/events/schema"
-	"github.com/mediactl/clustarr/ui/components/badge"
-	"github.com/mediactl/clustarr/ui/components/button"
-	"github.com/mediactl/clustarr/ui/components/item"
 	"github.com/mediactl/clustarr/ui/paging"
 	"github.com/mediactl/clustarr/ui/projection"
+	"github.com/mediactl/clustarr/ui/components/badge"
+	"github.com/mediactl/clustarr/ui/components/button"
+	"github.com/mediactl/clustarr/ui/components/card"
+	"github.com/mediactl/clustarr/ui/components/item"
+	"github.com/mediactl/clustarr/ui/components/table"
 )
 
 // DownloadView is one Downloads-page row: a grab entry as the projection
@@ -53,7 +55,7 @@ type DownloadView struct {
 templ Downloads(p paging.Page, rows []DownloadView, clients []downloadv1.DownloadClient) {
 	@Layout("Downloads") {
 		<h1 class="mb-4 text-2xl font-bold">Downloads</h1>
-		<div id="action-status" aria-live="polite" class="fixed top-16 left-1/2 z-50 w-max max-w-[90vw] -translate-x-1/2 empty:hidden"></div>
+		@ActionStatusRegion()
 		if len(clients) > 0 {
 			@downloadClientsSection(clients)
 		}
@@ -83,7 +85,7 @@ templ DownloadList(p paging.Page, rows []DownloadView) {
 // grid: the initial render and every live update produce the same markup.
 templ DownloadRows(rows []DownloadView) {
 	if len(rows) == 0 {
-		<p class="text-muted-foreground">No downloads in flight.</p>
+		@emptyState("download", "No downloads in flight.", "A grab shows here from the moment it reaches a client until its import is done.", templ.Attributes{"data-empty": "downloads"})
 	}
 	@item.Group(item.GroupProps{Class: "gap-3"}) {
 		for _, d := range rows {
@@ -182,7 +184,8 @@ templ downloadAction(r projection.DownloadRow, action, label, vals string) {
 }
 
 // DownloadImport renders an entry's import records: the inspect's files
-// with every rejection, and what the execute placed or why it refused.
+// with every rejection, and what the execute placed or why it refused,
+// each a card holding a table (shadcn-templ's, since 2026-11-04).
 templ DownloadImport(r projection.DownloadRow, inspect, execute *schema.ImportRecord) {
 	@Layout("Import") {
 		<h1 class="mb-2 text-2xl font-bold">{ downloadTitle(r) }</h1>
@@ -193,37 +196,72 @@ templ DownloadImport(r projection.DownloadRow, inspect, execute *schema.ImportRe
 			}
 		</p>
 		if inspect == nil && execute == nil {
-			<p class="text-muted-foreground">No import record yet.</p>
+			@emptyNote("No import record yet.", "", nil)
 		}
 		if inspect != nil && inspect.Inspect != nil {
-			<h2 class="mb-2 text-lg font-semibold">Inspected files</h2>
-			for _, rj := range inspect.Inspect.Rejections {
-				<div data-import-rejection class="text-sm text-destructive">{ rj.Text }</div>
-			}
-			<ul class="mb-4 space-y-1 text-sm">
-				for _, f := range inspect.Inspect.Files {
-					<li data-import-file={ f.Path }>
-						<span class="font-mono">{ f.Path }</span>
-						if f.Dest != "" {
-							<span class="text-muted-foreground">{ " → " + f.Dest }</span>
+			@card.Card(card.Props{Class: "mb-4 gap-0 py-0"}) {
+				@card.Header(card.HeaderProps{Class: "px-4 py-3"}) {
+					@card.Title() {
+						Inspected files
+					}
+					if len(inspect.Inspect.Rejections) > 0 {
+						@card.Description(card.DescriptionProps{Class: "text-destructive"}) {
+							for _, rj := range inspect.Inspect.Rejections {
+								<div data-import-rejection>{ rj.Text }</div>
+							}
 						}
-						for _, rj := range f.Rejections {
-							<div class="text-destructive">{ rj.Text }</div>
-						}
-					</li>
+					}
 				}
-			</ul>
+				@card.Content(card.ContentProps{Class: "border-t border-border p-0"}) {
+					@table.Table() {
+						@table.Header() {
+							@table.Row() {
+								@table.Head() { File }
+								@table.Head() { Destination }
+								@table.Head() { Rejections }
+							}
+						}
+						@table.Body() {
+							for _, f := range inspect.Inspect.Files {
+								@table.Row(table.RowProps{Attributes: templ.Attributes{"data-import-file": f.Path}}) {
+									@table.Cell(table.CellProps{Class: "font-mono whitespace-normal break-all"}) { { f.Path } }
+									@table.Cell(table.CellProps{Class: "whitespace-normal break-all text-muted-foreground"}) { { f.Dest } }
+									@table.Cell(table.CellProps{Class: "whitespace-normal text-destructive"}) {
+										for _, rj := range f.Rejections {
+											<div>{ rj.Text }</div>
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
 		}
 		if execute != nil && execute.Execute != nil {
-			<h2 class="mb-2 text-lg font-semibold">Placed</h2>
-			if execute.Execute.Refused != "" {
-				<p class="text-sm text-destructive">{ "refused: " + execute.Execute.Refused + " " + execute.Failure }</p>
-			}
-			<ul class="space-y-1 text-sm">
-				for _, f := range execute.Execute.Placed {
-					<li class="font-mono" data-import-placed={ f.Dest }>{ f.Dest }</li>
+			@card.Card(card.Props{Class: "gap-0 py-0"}) {
+				@card.Header(card.HeaderProps{Class: "px-4 py-3"}) {
+					@card.Title() {
+						Placed
+					}
+					if execute.Execute.Refused != "" {
+						@card.Description(card.DescriptionProps{Class: "text-destructive"}) {
+							{ "refused: " + execute.Execute.Refused + " " + execute.Failure }
+						}
+					}
 				}
-			</ul>
+				@card.Content(card.ContentProps{Class: "border-t border-border p-0"}) {
+					@table.Table() {
+						@table.Body() {
+							for _, f := range execute.Execute.Placed {
+								@table.Row(table.RowProps{Attributes: templ.Attributes{"data-import-placed": f.Dest}}) {
+									@table.Cell(table.CellProps{Class: "font-mono whitespace-normal break-all"}) { { f.Dest } }
+								}
+							}
+						}
+					}
+				}
+			}
 		}
 	}
 }

@@ -492,6 +492,28 @@ func totalSize(files []FileRow) int64 {
 }
 
 // sectionTitle is Radarr's ruled section heading.
+// emptyState is a page's or a list's empty state, shadcn-templ's empty in
+// full (owner, 2026-11-04: "shadcn-templ has an empty component"): an
+// icon in its media slot, a title and a line under it; attrs for the
+// tests.
+templ emptyState(iconName, title, description string, attrs templ.Attributes) {
+	@empty.Empty(empty.Props{Class: "py-16", Attributes: attrs}) {
+		@empty.Header() {
+			@empty.Media(empty.MediaProps{Variant: empty.MediaVariantIcon}) {
+				@icon.Icon(iconName)()
+			}
+			@empty.Title() {
+				{ title }
+			}
+			if description != "" {
+				@empty.Description() {
+					{ description }
+				}
+			}
+		}
+	}
+}
+
 // emptyNote says a section holds nothing: shadcn-templ's empty (owner,
 // 2026-11-04) as one muted line, class on the box, attrs for the tests.
 templ emptyNote(text, class string, attrs templ.Attributes) {

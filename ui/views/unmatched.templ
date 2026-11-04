@@ -25,8 +25,15 @@ import (
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	"github.com/mediactl/clustarr/ui/actions"
+	"github.com/mediactl/clustarr/ui/components/alert"
 	"github.com/mediactl/clustarr/ui/components/badge"
+	"github.com/mediactl/clustarr/ui/components/button"
+	"github.com/mediactl/clustarr/ui/components/card"
+	"github.com/mediactl/clustarr/ui/components/field"
+	"github.com/mediactl/clustarr/ui/components/icon"
+	"github.com/mediactl/clustarr/ui/components/input"
 	"github.com/mediactl/clustarr/ui/components/item"
+	selectcomp "github.com/mediactl/clustarr/ui/components/select"
 	"github.com/mediactl/clustarr/ui/paging"
 	"github.com/mediactl/clustarr/ui/projection"
 )
@@ -74,7 +81,7 @@ templ UnmatchedList(p paging.Page, entries []projection.UnmatchedEntry) {
 // contents.
 templ UnmatchedRows(entries []projection.UnmatchedEntry) {
 	if len(entries) == 0 {
-		<p class="text-muted-foreground">Nothing unmatched.</p>
+		@emptyState("file-x", "Nothing unmatched.", "Every scanned file was attributed to an item.", templ.Attributes{"data-empty": "unmatched"})
 	}
 	@item.Group(item.GroupProps{Class: "gap-3"}) {
 		for _, e := range entries {
@@ -102,14 +109,22 @@ templ unmatchedRow(e projection.UnmatchedEntry) {
 		},
 	}) {
 		@item.Content() {
-			@item.Title() { { e.Path } }
-			<div class="text-sm text-amber-300">{ e.Reason }</div>
+			@item.Title() {
+				{ e.Path }
+			}
+			@item.Description(item.DescriptionProps{Class: "text-amber-300"}) {
+				{ e.Reason }
+			}
 			if len(e.Candidates) > 0 {
-				@item.Description() { Candidates: { strings.Join(e.Candidates, ", ") } }
+				@item.Description() {
+					Candidates: { strings.Join(e.Candidates, ", ") }
+				}
 			}
 		}
 		@item.Content(item.ContentProps{Class: "flex-none items-end"}) {
-			@badge.Badge(badge.Props{Variant: badge.VariantOutline}) { { e.RootFolder } }
+			@badge.Badge(badge.Props{Variant: badge.VariantOutline}) {
+				{ e.RootFolder }
+			}
 		}
 		@item.Footer(item.FooterProps{Class: "basis-full"}) {
 			@manualAssignForm(e)
@@ -118,11 +133,13 @@ templ unmatchedRow(e projection.UnmatchedEntry) {
 }
 
 // manualAssignForm renders one unmatched entry's "assign" form
-// (app/import/worker/rescan/doc.go, "Manual assignment"): a name field with
-// the row's own candidates offered through a <datalist> -- a native,
-// no-JavaScript picker-plus-free-form-text hybrid, since ui ships no
-// client-side framework -- a kind select restricted to
-// actions.MediaKinds(), and an optional key for a comic or series target.
+// (app/import/worker/rescan/doc.go, "Manual assignment"), on shadcn-templ's
+// fields since 2026-11-04: a name input with the row's own candidates
+// offered through a <datalist> -- a native, no-JavaScript
+// picker-plus-free-form-text hybrid, since ui ships no client-side
+// framework -- a select (shadcn-templ's, the owner's choice over the native
+// one) restricted to actions.MediaKinds(), and an
+// optional key for a comic or series target.
 // Submitting posts to POST /unmatched/assign (ui/routes.go's
 // handleManualAssign), which calls Options.Actions.ManualAssign and, on
 // success, redirects to the created LibraryScan's own detail page
@@ -141,53 +158,46 @@ templ manualAssignForm(e projection.UnmatchedEntry) {
 		<input type="hidden" name="rootFolder" value={ e.RootFolder }/>
 		<input type="hidden" name="subpath" value={ e.Path }/>
 		<input type="hidden" name="return" value="/unmatched"/>
-		<div>
-			<label class="block text-xs text-muted-foreground" for={ "kind-" + manualAssignRowID(e) }>Kind</label>
-			<select
-				id={ "kind-" + manualAssignRowID(e) }
-				name="kind"
-				class="rounded-md border border-input bg-background px-2 py-1 text-sm"
-			>
-				for _, kind := range actions.MediaKinds() {
-					<option value={ string(kind) }>{ string(kind) }</option>
+		{{ id := manualAssignRowID(e) }}
+		@field.Field(field.Props{Class: "w-auto gap-1.5"}) {
+			@field.Label(field.LabelProps{For: "kind-" + id + "-trigger", Class: "text-xs text-muted-foreground"}) {
+				Kind
+			}
+			@selectcomp.Select(selectcomp.Props{ID: "kind-" + id, Name: "kind", DefaultValue: string(actions.MediaKinds()[0]), Required: true}) {
+				@selectcomp.Trigger(selectcomp.TriggerProps{Size: selectcomp.SizeSm, Class: "w-32"}) {
+					@selectcomp.Value()
 				}
-			</select>
-		</div>
-		<div>
-			<label class="block text-xs text-muted-foreground" for={ "name-" + manualAssignRowID(e) }>Name</label>
-			<input
-				type="text"
-				id={ "name-" + manualAssignRowID(e) }
-				name="name"
-				list={ "candidates-" + manualAssignRowID(e) }
-				placeholder="item name"
-				class="w-48 rounded-md border border-input bg-background px-2 py-1 text-sm"
-			/>
+				@selectcomp.Content() {
+					for _, kind := range actions.MediaKinds() {
+						@selectcomp.Item(selectcomp.ItemProps{Value: string(kind)}) {
+							{ string(kind) }
+						}
+					}
+				}
+			}
+		}
+		@field.Field(field.Props{Class: "w-auto gap-1.5"}) {
+			@field.Label(field.LabelProps{For: "name-" + id, Class: "text-xs text-muted-foreground"}) {
+				Name
+			}
+			@input.Input(input.Props{ID: "name-" + id, Name: "name", Placeholder: "item name", Class: "h-8 w-48", Attributes: templ.Attributes{"list": "candidates-" + id}})
 			if len(e.Candidates) > 0 {
-				<datalist id={ "candidates-" + manualAssignRowID(e) }>
+				<datalist id={ "candidates-" + id }>
 					for _, c := range e.Candidates {
 						<option value={ c }></option>
 					}
 				</datalist>
 			}
-		</div>
-		<div>
-			<label class="block text-xs text-muted-foreground" for={ "key-" + manualAssignRowID(e) }>Key (comic/series only)</label>
-			<input
-				type="text"
-				id={ "key-" + manualAssignRowID(e) }
-				name="key"
-				placeholder="issue or episode name"
-				class="w-40 rounded-md border border-input bg-background px-2 py-1 text-sm"
-			/>
-		</div>
-		<button
-			type="submit"
-			data-action="manual-assign"
-			class="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/80"
-		>
+		}
+		@field.Field(field.Props{Class: "w-auto gap-1.5"}) {
+			@field.Label(field.LabelProps{For: "key-" + id, Class: "text-xs text-muted-foreground"}) {
+				Key (comic/series only)
+			}
+			@input.Input(input.Props{ID: "key-" + id, Name: "key", Placeholder: "issue or episode name", Class: "h-8 w-40"})
+		}
+		@button.Button(button.Props{Type: button.TypeSubmit, Size: button.SizeSm, Attributes: templ.Attributes{"data-action": "manual-assign"}}) {
 			Assign
-		</button>
+		}
 	</form>
 }
 
@@ -210,40 +220,53 @@ func manualAssignRowID(e projection.UnmatchedEntry) string {
 // this page reads it, exactly like every other page's own status reads.
 templ LibraryScanDetail(scan catalogv1.LibraryScan) {
 	@Layout(scan.Name) {
-		<a href="/unmatched" class="text-sm text-slate-400 hover:text-slate-100">&larr; Unmatched</a>
-		<div
-			class="mt-4 rounded-lg border border-slate-800 bg-slate-900 p-6"
-			data-scan={ scan.Namespace + "/" + scan.Name }
-			data-phase={ string(scan.Status.Phase) }
-		>
-			<div class="flex items-center justify-between gap-4">
-				<h1 class="text-2xl font-bold">{ scan.Name }</h1>
-				<span class={ scanPhaseBadgeClass(scan.Status.Phase) }>{ scanPhaseLabel(scan.Status.Phase) }</span>
-			</div>
-			<p class="mt-1 text-xs text-slate-400">root folder { scan.Spec.RootFolderRef }
-				if scan.Spec.Subpath != "" {
-					· { scan.Spec.Subpath }
+		@button.Button(button.Props{Variant: button.VariantLink, Size: button.SizeSm, Href: "/unmatched", Class: "px-0 text-muted-foreground"}) {
+			@icon.Icon("arrow-left")()
+			Unmatched
+		}
+		@card.Card(card.Props{Class: "mt-4", Attributes: templ.Attributes{"data-scan": scan.Namespace + "/" + scan.Name, "data-phase": string(scan.Status.Phase)}}) {
+			@card.Header() {
+				@card.Title(card.TitleProps{Class: "text-2xl font-bold"}) {
+					{ scan.Name }
 				}
-			</p>
-			<div class="mt-4 grid grid-cols-2 gap-x-4 gap-y-2 text-sm text-slate-300 sm:grid-cols-3">
-				<span>{ fmt.Sprintf("files seen %d", scan.Status.FilesSeen) }</span>
-				<span>{ fmt.Sprintf("files matched %d", scan.Status.FilesMatched) }</span>
-				<span>{ fmt.Sprintf("files skipped %d", scan.Status.FilesSkipped) }</span>
-				<span>{ fmt.Sprintf("items created %d", scan.Status.ItemsCreated) }</span>
-				<span>{ fmt.Sprintf("items updated %d", scan.Status.ItemsUpdated) }</span>
-			</div>
-			if reason, message, ok := scanReadyFailure(scan); ok {
-				<div class="mt-4 rounded-md border border-red-900 bg-red-950/50 p-4 text-sm text-red-300">
-					<p class="font-medium">{ reason }</p>
-					<p class="mt-1">{ message }</p>
-				</div>
+				@card.Description() {
+					root folder { scan.Spec.RootFolderRef }
+					if scan.Spec.Subpath != "" {
+						· { scan.Spec.Subpath }
+					}
+				}
+				@card.Action() {
+					@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: scanPhaseTone(scan.Status.Phase)}) {
+						{ scanPhaseLabel(scan.Status.Phase) }
+					}
+				}
 			}
-		</div>
+			@card.Content() {
+				<div class="grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-3">
+					<span>{ fmt.Sprintf("files seen %d", scan.Status.FilesSeen) }</span>
+					<span>{ fmt.Sprintf("files matched %d", scan.Status.FilesMatched) }</span>
+					<span>{ fmt.Sprintf("files skipped %d", scan.Status.FilesSkipped) }</span>
+					<span>{ fmt.Sprintf("items created %d", scan.Status.ItemsCreated) }</span>
+					<span>{ fmt.Sprintf("items updated %d", scan.Status.ItemsUpdated) }</span>
+				</div>
+				if reason, message, ok := scanReadyFailure(scan); ok {
+					@alert.Alert(alert.Props{Variant: alert.VariantDestructive, Attributes: templ.Attributes{"data-scan-failure": reason}}) {
+						@icon.CircleAlert()
+						@alert.Title() {
+							{ reason }
+						}
+						@alert.Description() {
+							{ message }
+						}
+					}
+				}
+			}
+		}
 	}
 }
 
-// scanPhaseLabel and scanPhaseBadgeClass render a LibraryScan's coarse
-// phase, mirroring library.templ's stagePhaseBadgeClass for the same
+// scanPhaseLabel and scanPhaseTone render a LibraryScan's coarse
+// phase, mirroring library.templ's phaseTone for the same
 // unset-phase-still-renders-sensibly reasoning.
 func scanPhaseLabel(phase catalogv1.ScanPhase) string {
 	if phase == "" {
@@ -252,17 +275,18 @@ func scanPhaseLabel(phase catalogv1.ScanPhase) string {
 	return string(phase)
 }
 
-func scanPhaseBadgeClass(phase catalogv1.ScanPhase) string {
-	const base = "rounded-full px-2 py-0.5 text-xs font-medium "
+// scanPhaseTone is the phase badge's colour, over the badge component's
+// own shape (shadcn-templ's badge, since 2026-11-04).
+func scanPhaseTone(phase catalogv1.ScanPhase) string {
 	switch phase {
 	case catalogv1.ScanPhaseFailed:
-		return base + "bg-red-500/20 text-red-300"
+		return "bg-red-500/20 text-red-300"
 	case catalogv1.ScanPhaseCompleted:
-		return base + "bg-emerald-500/20 text-emerald-300"
+		return "bg-emerald-500/20 text-emerald-300"
 	case "":
-		return base + "bg-slate-500/20 text-slate-300"
+		return "bg-slate-500/20 text-slate-300"
 	default:
-		return base + "bg-sky-500/20 text-sky-300"
+		return "bg-sky-500/20 text-sky-300"
 	}
 }
 

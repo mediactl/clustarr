@@ -19,14 +19,15 @@ package views
 
 import (
 	"fmt"
-	"github.com/mediactl/clustarr/ui/components/button"
-	"github.com/mediactl/clustarr/ui/components/collapsible"
-	"github.com/mediactl/clustarr/ui/components/icon"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
-	"github.com/mediactl/clustarr/ui/components/badge"
-	"github.com/mediactl/clustarr/ui/components/item"
 	"github.com/mediactl/clustarr/ui/projection"
+	"github.com/mediactl/clustarr/ui/components/badge"
+	"github.com/mediactl/clustarr/ui/components/button"
+	"github.com/mediactl/clustarr/ui/components/card"
+	"github.com/mediactl/clustarr/ui/components/collapsible"
+	"github.com/mediactl/clustarr/ui/components/icon"
+	"github.com/mediactl/clustarr/ui/components/item"
 )
 
 // ParentDetail is an artist's or an author's page (spec
@@ -41,7 +42,7 @@ templ ParentDetail(d Detail, label string) {
 	@Shell(Chrome{Title: li.Title, Crumbs: itemCrumbs(li), Tab: li.Tab}) {
 		@itemToolbar(d)
 		@hero(d)
-		<div class="mt-6 overflow-hidden panel rounded-xl border border-border bg-card">
+		@card.Card(card.Props{Class: "mt-6 gap-0 py-0"}) {
 			@collapsible.Collapsible(collapsible.Props{
 				Attributes: templ.Attributes{"hx-get": ChildrenURL(li.Ref.Namespace, string(li.Kind), li.Ref.Name), "hx-trigger": expandOnce, "hx-target": "find .children", "hx-swap": "innerHTML"},
 			}) {
@@ -65,7 +66,7 @@ templ ParentDetail(d Detail, label string) {
 					@loadingRows()
 				}
 			}
-		</div>
+		}
 		@childRegions(li)
 	}
 }
@@ -78,12 +79,16 @@ templ ChildrenPage(d Detail, label string, children templ.Component) {
 	@Shell(Chrome{Title: fmt.Sprintf("%s · %s", li.Title, label), Crumbs: childCrumbs(li, label), Tab: li.Tab}) {
 		@itemToolbar(d)
 		@hero(d)
-		<div class="mt-6 overflow-hidden panel rounded-xl border border-border bg-card">
-			<h2 class="px-4 py-3 font-medium">{ label }</h2>
-			<div class="children border-t border-border">
+		@card.Card(card.Props{Class: "mt-6 gap-0 py-0"}) {
+			@card.Header(card.HeaderProps{Class: "px-4 py-3"}) {
+				@card.Title() {
+					{ label }
+				}
+			}
+			@card.Content(card.ContentProps{Class: "children border-t border-border p-0"}) {
 				@children
-			</div>
-		</div>
+			}
+		}
 		@childRegions(li)
 	}
 }

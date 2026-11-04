@@ -75,13 +75,11 @@ templ Pager(p paging.Page, base string) {
 				}
 			}
 		}
-		<span class="flex items-center gap-2">
-			<span>Per page</span>
+		<span class="flex items-center gap-1">
+			<span class="mr-1">Per page</span>
 			for _, size := range perSizes {
-				if size == p.Per {
-					<span class="font-medium text-foreground" aria-current="true">{ fmt.Sprint(size) }</span>
-				} else {
-					<a href={ templ.SafeURL(base + perHref(p, size)) } class="hover:text-foreground">{ fmt.Sprint(size) }</a>
+				@pagination.Link(pagination.LinkProps{Href: base + perHref(p, size), IsActive: size == p.Per, Class: "h-7 w-auto px-2", Attributes: templ.Attributes{"data-per-size": fmt.Sprint(size)}}) {
+					{ fmt.Sprint(size) }
 				}
 			}
 		</span>

@@ -6,6 +6,7 @@ import (
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
+	"github.com/mediactl/clustarr/ui/projection"
 	"github.com/mediactl/clustarr/ui/components/alert"
 	"github.com/mediactl/clustarr/ui/components/badge"
 	"github.com/mediactl/clustarr/ui/components/button"
@@ -16,7 +17,7 @@ import (
 	"github.com/mediactl/clustarr/ui/components/field"
 	"github.com/mediactl/clustarr/ui/components/input"
 	selectcomp "github.com/mediactl/clustarr/ui/components/select"
-	"github.com/mediactl/clustarr/ui/projection"
+	"github.com/mediactl/clustarr/ui/components/spinner"
 )
 
 // AddOption is one choice of an Add New select.
@@ -106,7 +107,10 @@ templ AddPage(d AddPageData) {
 				"hx-indicator": "#add-searching",
 			},
 		})
-		<p id="add-searching" class="htmx-indicator mt-2 text-sm text-muted-foreground">Searching…</p>
+		<p id="add-searching" class="htmx-indicator mt-2 flex items-center gap-2 text-sm text-muted-foreground">
+			@spinner.Spinner()
+			Searching…
+		</p>
 		<div id="add-results" class="mt-6" data-add-results>
 			if d.Results != nil {
 				@AddResults(*d.Results)

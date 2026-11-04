@@ -171,7 +171,7 @@ func TestUnmatchedPageRendersManualAssignFormPerRow(t *testing.T) {
 	require.Contains(t, body, `name="return" value="/unmatched"`)
 	require.Contains(t, body, `data-action="manual-assign"`)
 	for _, kind := range actions.MediaKinds() {
-		require.Contains(t, body, `<option value="`+string(kind)+`">`, "kind select is missing %s", kind)
+		require.Regexp(t, `role="option"[^>]*data-templ-value="`+string(kind)+`"|data-templ-value="`+string(kind)+`"[^>]*role="option"`, body, "kind select is missing %s", kind)
 	}
 	require.Contains(t, body, `<option value="some-movie-2023">`)
 	require.Contains(t, body, `<option value="some-movie-2024-remaster">`)
