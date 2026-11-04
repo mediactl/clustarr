@@ -3,20 +3,11 @@
 // The Live TV pages' small behaviours (the direct-tuners and ui design
 // 2026-10-27): a [data-copy] button writes its value to the clipboard and
 // says so; a channel logo that will not load gives way to its number tile;
-// a <time data-local="datetime"> reads in the browser's zone; a question's
-// Cancel ([data-action-dismiss]) removes the question. Delegated on the
-// document, so rows htmx swaps in need nothing more.
+// a <time data-local="datetime"> reads in the browser's zone. Delegated on
+// the document, so rows htmx swaps in need nothing more. (A bulk delete's
+// question is an alert dialog since 2026-11-04, whose Cancel is its own.)
 (function () {
   "use strict";
-
-  document.addEventListener("click", function (ev) {
-    var btn = ev.target.closest("[data-action-dismiss]");
-    var question = btn && btn.closest("[data-action-confirm]");
-    if (question) {
-      ev.preventDefault();
-      question.remove();
-    }
-  });
 
   document.addEventListener("click", function (ev) {
     var btn = ev.target.closest("[data-copy]");

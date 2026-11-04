@@ -21,7 +21,10 @@ import (
 	"time"
 
 	"github.com/mediactl/clustarr/ui/components/button"
+	"github.com/mediactl/clustarr/ui/components/checkbox"
+	"github.com/mediactl/clustarr/ui/components/field"
 	"github.com/mediactl/clustarr/ui/components/icon"
+	selectcomp "github.com/mediactl/clustarr/ui/components/select"
 )
 
 // The Live TV section's shared chrome (the direct-tuners and ui design
@@ -74,5 +77,62 @@ templ liveTVTime(t *time.Time) {
 		<span class="text-muted-foreground">—</span>
 	} else {
 		<time data-local="datetime" datetime={ t.UTC().Format(time.RFC3339) }>{ t.UTC().Format("2006-01-02 15:04 UTC") }</time>
+	}
+}
+
+// filterSelect is a Live TV filter form's select: shadcn-templ's select
+// (owner, 2026-11-04: never the native one), named name and label, the
+// choice meaning every (value "", the placeholder item) when every is set,
+// then opts, the current value chosen.
+templ filterSelect(name, label, every string, opts []ProviderOption, current string) {
+	@selectcomp.Select(selectcomp.Props{Name: name, DefaultValue: current, Items: selectItems(every, opts)}) {
+		@selectcomp.Trigger(selectcomp.TriggerProps{Size: selectcomp.SizeSm, Class: "max-w-56", Attributes: templ.Attributes{"aria-label": label}}) {
+			@selectcomp.Value(selectcomp.ValueProps{Placeholder: every})
+		}
+		@selectcomp.Content() {
+			if every != "" {
+				@selectcomp.Item(selectcomp.ItemProps{Value: ""}) {
+					{ every }
+				}
+			}
+			for _, o := range opts {
+				@selectcomp.Item(selectcomp.ItemProps{Value: o.Value}) {
+					{ o.Label }
+				}
+			}
+		}
+	}
+}
+
+// selectItems are a select's items -- the labels its trigger shows for
+// its values -- the every choice first when there is one.
+func selectItems(every string, opts []ProviderOption) []selectcomp.ItemData {
+	items := make([]selectcomp.ItemData, 0, len(opts)+1)
+	if every != "" {
+		items = append(items, selectcomp.ItemData{Value: "", Label: every})
+	}
+	for _, o := range opts {
+		items = append(items, selectcomp.ItemData{Value: o.Value, Label: o.Label})
+	}
+	return items
+}
+
+// groupOptions are channel groups as a select's options.
+func groupOptions(groups []string) []ProviderOption {
+	opts := make([]ProviderOption, 0, len(groups))
+	for _, g := range groups {
+		opts = append(opts, ProviderOption{Value: g, Label: g})
+	}
+	return opts
+}
+
+// filterCheck is a Live TV filter form's checkbox with its label, a
+// horizontal field (shadcn-templ's, since 2026-11-04).
+templ filterCheck(name, label string, checked bool) {
+	@field.Field(field.Props{Orientation: field.OrientationHorizontal, Class: "w-auto gap-1.5"}) {
+		@checkbox.Checkbox(checkbox.Props{ID: "filter-" + name, Name: name, Value: "1", DefaultChecked: checked})
+		@field.Label(field.LabelProps{For: "filter-" + name, Class: "text-sm font-normal"}) {
+			{ label }
+		}
 	}
 }

@@ -23,12 +23,14 @@ import (
 	"time"
 
 	catalogv1 "github.com/mediactl/clustarr/api/catalog/v1alpha1"
+	"github.com/mediactl/clustarr/ui/projection"
 	"github.com/mediactl/clustarr/ui/components/badge"
 	"github.com/mediactl/clustarr/ui/components/card"
 	"github.com/mediactl/clustarr/ui/components/chart"
 	"github.com/mediactl/clustarr/ui/components/pagination"
 	"github.com/mediactl/clustarr/ui/components/tabs"
-	"github.com/mediactl/clustarr/ui/projection"
+	"github.com/mediactl/clustarr/ui/components/togglegroup"
+	"github.com/mediactl/clustarr/ui/components/utils"
 )
 
 // DashboardView is the dashboard, the ui's home page (2026-10-22): what is
@@ -641,27 +643,34 @@ templ chartsPoller(v DashboardChartsView, oob bool) {
 }
 
 // rangePicker is the charts' range, beside the page's title since it
-// ranges every section's charts.
+// ranges every section's charts: shadcn-templ's toggle group (since
+// 2026-11-04), the current range pressed; a press asks the charts poller
+// for that range and the answer re-renders the picker out of band.
 templ rangePicker(v DashboardChartsView, oob bool) {
-	<div
-		id="dashboard-range"
-		class="inline-flex rounded-md border border-border p-0.5"
-		role="group"
-		aria-label="Range"
-		if oob {
-			hx-swap-oob="true"
-		}
-	>
+	@togglegroup.ToggleGroup(togglegroup.Props{
+		ID:         "dashboard-range",
+		Variant:    togglegroup.VariantOutline,
+		Size:       togglegroup.SizeSm,
+		Spacing:    utils.Ptr(0),
+		Value:      []string{v.Range},
+		Attributes: rangePickerAttrs(oob),
+	}) {
 		for _, r := range v.Ranges {
-			<button
-				type="button"
-				class={ "rounded px-3 py-1 text-sm", templ.KV("bg-muted font-medium", r == v.Range), templ.KV("text-muted-foreground hover:text-foreground", r != v.Range) }
-				hx-get={ "/dashboard/charts?range=" + r }
-				hx-swap="none"
-				aria-pressed={ strconv.FormatBool(r == v.Range) }
-			>{ r }</button>
+			@togglegroup.Item(togglegroup.ItemProps{Value: r, Attributes: templ.Attributes{"hx-get": "/dashboard/charts?range=" + r, "hx-swap": "none"}}) {
+				{ r }
+			}
 		}
-	</div>
+	}
+}
+
+// rangePickerAttrs label the range picker and, when oob, have it swap
+// itself in place.
+func rangePickerAttrs(oob bool) templ.Attributes {
+	attrs := templ.Attributes{"aria-label": "Range"}
+	if oob {
+		attrs["hx-swap-oob"] = "true"
+	}
+	return attrs
 }
 
 // chartsGroup is a section's charts, swapped in place (oob) by the charts

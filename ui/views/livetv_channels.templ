@@ -25,13 +25,20 @@ import (
 	"strings"
 
 	clustarrv1 "github.com/mediactl/clustarr/api/clustarr/v1alpha1"
+	"github.com/mediactl/clustarr/ui/projection"
+	"github.com/mediactl/clustarr/ui/components/alertdialog"
 	"github.com/mediactl/clustarr/ui/components/badge"
 	"github.com/mediactl/clustarr/ui/components/button"
+	"github.com/mediactl/clustarr/ui/components/card"
+	"github.com/mediactl/clustarr/ui/components/checkbox"
 	"github.com/mediactl/clustarr/ui/components/dialog"
 	"github.com/mediactl/clustarr/ui/components/icon"
+	"github.com/mediactl/clustarr/ui/components/input"
+	"github.com/mediactl/clustarr/ui/components/inputgroup"
+	"github.com/mediactl/clustarr/ui/components/item"
+	"github.com/mediactl/clustarr/ui/components/pagination"
 	switchcomp "github.com/mediactl/clustarr/ui/components/switch"
 	"github.com/mediactl/clustarr/ui/components/table"
-	"github.com/mediactl/clustarr/ui/projection"
 )
 
 // ChannelFilter is the Channels table's filters.
@@ -155,28 +162,41 @@ templ channelsActions(links []BlockLinks) {
 				@dialog.Description() { Each block's HDHomeRun device, M3U playlist and XMLTV guide on the livetv Service. }
 			}
 			if len(links) == 0 {
-				<p class="text-sm text-muted-foreground">No block has a URL yet.</p>
+				@emptyNote("No block has a URL yet.", "py-3", nil)
 			}
 			<div class="space-y-3">
 				for _, l := range links {
-					<div class="rounded-lg border border-border p-3">
-						<div class="mb-2 text-sm font-medium">{ l.Provider + " " + l.Start + "+" }</div>
-						@linkLine("HDHR", l.HDHR)
-						@linkLine("M3U", l.M3U)
-						@linkLine("EPG", l.EPG)
-					</div>
+					@card.Card(card.Props{Size: card.SizeSm}) {
+						@card.Header() {
+							@card.Title() {
+								{ l.Provider + " " + l.Start + "+" }
+							}
+						}
+						@card.Content(card.ContentProps{Class: "gap-2"}) {
+							@linkLine("HDHR", l.HDHR)
+							@linkLine("M3U", l.M3U)
+							@linkLine("EPG", l.EPG)
+						}
+					}
 				}
 			</div>
 		}
 	}
 }
 
+// linkLine is one URL of the Links dialog: an input group (shadcn-templ's,
+// since 2026-11-04) -- the label at its start, the URL read-only and
+// selectable, the copy button at its end.
 templ linkLine(label, value string) {
-	<div class="flex items-center gap-2 text-xs">
-		<span class="w-10 shrink-0 text-muted-foreground">{ label }</span>
-		<span class="min-w-0 flex-1 truncate font-mono" title={ value }>{ value }</span>
-		@copyButton(value, "Copy the "+label+" URL")
-	</div>
+	@inputgroup.InputGroup(inputgroup.Props{Class: "h-8"}) {
+		@inputgroup.Addon() {
+			<span class="w-8 text-xs text-muted-foreground">{ label }</span>
+		}
+		@inputgroup.Input(inputgroup.InputProps{Value: value, Class: "font-mono text-xs", Attributes: templ.Attributes{"readonly": true, "aria-label": label + " URL"}})
+		@inputgroup.Addon(inputgroup.AddonProps{Align: inputgroup.AlignInlineEnd}) {
+			@copyButton(value, "Copy the "+label+" URL")
+		}
+	}
 }
 
 templ channelsFilterForm(p ChannelsPage) {
@@ -190,54 +210,50 @@ templ channelsFilterForm(p ChannelsPage) {
 		hx-push-url="true"
 		hx-trigger="input changed delay:300ms, change"
 	>
-		<input type="search" name="q" value={ p.Filter.Q } placeholder="Name or number" class="h-8 w-48 rounded-md border border-input bg-transparent px-2 text-sm"/>
-		<select name="provider" class="h-8 rounded-md border border-input bg-transparent px-2 text-sm" aria-label="Provider">
-			<option value="">Every provider</option>
-			for _, o := range p.Providers {
-				<option value={ o.Value } selected?={ o.Value == p.Filter.Provider }>{ o.Label }</option>
-			}
-		</select>
-		<select name="group" class="h-8 max-w-56 rounded-md border border-input bg-transparent px-2 text-sm" aria-label="Group">
-			<option value="">Every group</option>
-			for _, g := range p.Groups {
-				<option value={ g } selected?={ g == p.Filter.Group }>{ g }</option>
-			}
-		</select>
-		<select name="state" class="h-8 rounded-md border border-input bg-transparent px-2 text-sm" aria-label="State">
-			<option value="">Active and inactive</option>
-			<option value="active" selected?={ p.Filter.State == "active" }>Active</option>
-			<option value="inactive" selected?={ p.Filter.State == "inactive" }>Inactive</option>
-		</select>
-		<label class="flex items-center gap-1 text-sm"><input type="checkbox" name="noguide" value="1" checked?={ p.Filter.NoGuide }/> No guide</label>
-		<label class="flex items-center gap-1 text-sm"><input type="checkbox" name="nologo" value="1" checked?={ p.Filter.NoLogo }/> No logo</label>
-		<label class="flex items-center gap-1 text-sm"><input type="checkbox" name="offplex" value="1" checked?={ p.Filter.OffPlex }/> Off Plex</label>
+		@input.Input(input.Props{Type: "search", Name: "q", Value: p.Filter.Q, Placeholder: "Name or number", Class: "h-8 w-48", Attributes: templ.Attributes{"aria-label": "Search"}})
+		@filterSelect("provider", "Provider", "Every provider", p.Providers, p.Filter.Provider)
+		@filterSelect("group", "Group", "Every group", groupOptions(p.Groups), p.Filter.Group)
+		@filterSelect("state", "State", "Active and inactive", []ProviderOption{{Value: "active", Label: "Active"}, {Value: "inactive", Label: "Inactive"}}, p.Filter.State)
+		@filterCheck("noguide", "No guide", p.Filter.NoGuide)
+		@filterCheck("nologo", "No logo", p.Filter.NoLogo)
+		@filterCheck("offplex", "Off Plex", p.Filter.OffPlex)
 	</form>
 }
 
-// ChannelsDeleteConfirm asks before a bulk delete, in #action-status: the
-// selected items posted again with confirm=yes. library.js leaves a
-// confirm standing; Cancel removes it (livetv.js).
+// ChannelsDeleteConfirm asks before a bulk delete: an alert dialog
+// (shadcn-templ's, since 2026-11-04) open as it lands in #action-status,
+// whose Delete posts the selected items again with confirm=yes and whose
+// Cancel closes it. library.js leaves the question standing in the
+// region, where the next answer replaces it.
 templ ChannelsDeleteConfirm(items []string) {
-	<form
-		data-action-confirm="delete-channels"
-		role="alertdialog"
-		class="glass flex max-w-xl flex-wrap items-center gap-3 rounded-xl border border-border bg-popover px-3 py-2 text-sm text-popover-foreground shadow-lg shadow-black/50"
-		hx-post="/livetv/channels/bulk"
-		hx-target="#action-status"
-		hx-swap="innerHTML"
-	>
-		<input type="hidden" name="op" value="delete"/>
-		<input type="hidden" name="confirm" value="yes"/>
-		for _, it := range items {
-			<input type="hidden" name="item" value={ it }/>
+	@alertdialog.AlertDialog(alertdialog.Props{DefaultOpen: true}) {
+		@alertdialog.Content(alertdialog.ContentProps{Size: alertdialog.SizeSm}) {
+			@alertdialog.Header() {
+				@alertdialog.Title() {
+					{ deleteQuestion(len(items)) }
+				}
+				@alertdialog.Description() {
+					Their numbers, names and guide mappings go with them, and Plex's lineups lose them.
+				}
+			}
+			<form
+				data-action-confirm="delete-channels"
+				hx-post="/livetv/channels/bulk"
+				hx-target="#action-status"
+				hx-swap="innerHTML"
+			>
+				<input type="hidden" name="op" value="delete"/>
+				<input type="hidden" name="confirm" value="yes"/>
+				for _, it := range items {
+					<input type="hidden" name="item" value={ it }/>
+				}
+				@alertdialog.Footer() {
+					@alertdialog.Cancel() { Cancel }
+					@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantDestructive}) { Delete }
+				}
+			</form>
 		}
-		<span>
-			<strong>{ deleteQuestion(len(items)) }</strong>
-			Their numbers, names and guide mappings go with them, and Plex's lineups lose them.
-		</span>
-		@button.Button(button.Props{Type: button.TypeSubmit, Size: button.SizeSm, Variant: button.VariantDestructive}) { Delete }
-		@button.Button(button.Props{Size: button.SizeSm, Variant: button.VariantOutline, Attributes: templ.Attributes{"data-action-dismiss": "true"}}) { Cancel }
-	</form>
+	}
 }
 
 func deleteQuestion(n int) string {
@@ -256,15 +272,9 @@ templ channelsBulkForm() {
 		hx-swap="innerHTML"
 	>
 		<span class="text-muted-foreground">Selected:</span>
-		<select name="op" class="h-8 rounded-md border border-input bg-transparent px-2 text-sm" aria-label="Bulk action">
-			<option value="enable">Enable</option>
-			<option value="disable">Disable</option>
-			<option value="group">Assign group</option>
-			<option value="renumber">Renumber from</option>
-			<option value="delete">Delete</option>
-		</select>
-		<input name="value" placeholder="Group" class="h-8 w-36 rounded-md border border-input bg-transparent px-2 text-sm"/>
-		<input name="start" placeholder="Start number" inputmode="numeric" class="h-8 w-28 rounded-md border border-input bg-transparent px-2 text-sm"/>
+		@filterSelect("op", "Bulk action", "", []ProviderOption{{Value: "enable", Label: "Enable"}, {Value: "disable", Label: "Disable"}, {Value: "group", Label: "Assign group"}, {Value: "renumber", Label: "Renumber from"}, {Value: "delete", Label: "Delete"}}, "enable")
+		@input.Input(input.Props{Name: "value", Placeholder: "Group", Class: "h-8 w-36", Attributes: templ.Attributes{"aria-label": "Group"}})
+		@input.Input(input.Props{Name: "start", Placeholder: "Start number", Class: "h-8 w-28", Attributes: templ.Attributes{"aria-label": "Start number", "inputmode": "numeric"}})
 		@button.Button(button.Props{Type: button.TypeSubmit, Size: button.SizeSm}) { Apply }
 	</form>
 }
@@ -337,9 +347,9 @@ func hxVals(kv ...string) string {
 
 // ChannelRowView is one channel's row.
 templ ChannelRowView(r projection.ChannelRow) {
-	<tr id={ "channel-" + r.Name } data-channel={ r.Namespace + "/" + r.Name } data-slot="table-row" class="border-b border-border transition-colors hover:bg-muted/50">
+	@table.Row(table.RowProps{ID: "channel-" + r.Name, Attributes: templ.Attributes{"data-channel": r.Namespace + "/" + r.Name}}) {
 		@table.Cell() {
-			<input type="checkbox" name="item" form="channels-bulk" value={ bulkValue(r) } aria-label="Select" data-channel-select/>
+			@checkbox.Checkbox(checkbox.Props{Name: "item", Value: bulkValue(r), Form: "channels-bulk", Attributes: templ.Attributes{"aria-label": "Select", "data-channel-select": true}})
 		}
 		@table.Cell() {
 			{{ attrs := channelPost(r, hxVals("gen", strconv.FormatInt(r.Generation, 10), "active", fmt.Sprint(!r.Active))) }}
@@ -348,28 +358,13 @@ templ ChannelRowView(r projection.ChannelRow) {
 			@switchcomp.Switch(switchcomp.Props{Checked: &r.Active, Size: switchcomp.SizeSm, Attributes: attrs})
 		}
 		@table.Cell() {
-			<input
-				name="number"
-				value={ r.Number }
-				aria-label="Number"
-				inputmode="decimal"
-				class="h-8 w-20 rounded-md border border-transparent bg-transparent px-1 text-sm tabular-nums hover:border-input focus:border-input"
-				hx-trigger="change"
-				{ channelPost(r, genVals(r))... }
-			/>
+			@input.Input(input.Props{Name: "number", Value: r.Number, Class: inPlaceInputClass + " w-20 tabular-nums", Attributes: inPlaceAttrs(r, "Number", "decimal")})
 		}
 		@table.Cell() {
 			@channelLogo(r.LogoPath, r.Number)
 		}
 		@table.Cell(table.CellProps{Class: "min-w-40"}) {
-			<input
-				name="name"
-				value={ r.DisplayName }
-				aria-label="Name"
-				class="h-8 w-full rounded-md border border-transparent bg-transparent px-1 text-sm hover:border-input focus:border-input"
-				hx-trigger="change"
-				{ channelPost(r, genVals(r))... }
-			/>
+			@input.Input(input.Props{Name: "name", Value: r.DisplayName, Class: inPlaceInputClass + " w-full", Attributes: inPlaceAttrs(r, "Name", "")})
 			<div class="flex items-center gap-1 px-1 text-xs text-muted-foreground">
 				if r.NameOverridden {
 					<span title="Named here, not by the playlist">renamed</span>
@@ -382,29 +377,15 @@ templ ChannelRowView(r projection.ChannelRow) {
 		@table.Cell(table.CellProps{Class: "hidden max-w-48 truncate text-sm lg:table-cell"}) { { r.Group } }
 		@table.Cell(table.CellProps{Class: "hidden text-sm md:table-cell"}) { { r.Provider } }
 		@table.Cell() {
-			<button
-				type="button"
-				class="max-w-40 truncate rounded-md px-1 text-left text-sm hover:bg-muted"
-				hx-get={ "/livetv/channels/" + r.Namespace + "/" + r.Name + "/epg" }
-				hx-target="#epg-picker"
-				hx-swap="innerHTML"
-				title="Change the guide"
-			>
+			@pickerButton("/livetv/channels/"+r.Namespace+"/"+r.Name+"/epg", "Change the guide") {
 				{ epgLabel(r.EPG) }
-			</button>
+			}
 		}
 		@table.Cell(table.CellProps{Class: "hidden text-sm lg:table-cell"}) {
 			if r.PlexGuide {
-				<button
-					type="button"
-					class="max-w-40 truncate rounded-md px-1 text-left text-sm hover:bg-muted"
-					hx-get={ "/livetv/channels/" + r.Namespace + "/" + r.Name + "/plex" }
-					hx-target="#epg-picker"
-					hx-swap="innerHTML"
-					title={ plexTitle(r) }
-				>
+				@pickerButton("/livetv/channels/"+r.Namespace+"/"+r.Name+"/plex", plexTitle(r)) {
 					{ plexLabel(r) }
-				</button>
+				}
 			}
 			if r.BlockStart != "" {
 				<div>{ r.BlockStart + "+" }</div>
@@ -433,7 +414,34 @@ templ ChannelRowView(r projection.ChannelRow) {
 				}
 			</div>
 		}
-	</tr>
+	}
+}
+
+// inPlaceInputClass is a row's in-place input (number, name): an input
+// whose border shows only under the pointer or focus, so the table reads
+// as a table until a cell is edited.
+const inPlaceInputClass = "h-8 border-transparent px-1 shadow-none hover:border-input focus-visible:border-input"
+
+// inPlaceAttrs are an in-place input's attributes: the row's post on
+// change, its label and, when set, its input mode.
+func inPlaceAttrs(r projection.ChannelRow, label, mode string) templ.Attributes {
+	attrs := channelPost(r, genVals(r))
+	attrs["hx-trigger"] = "change"
+	attrs["aria-label"] = label
+	if mode != "" {
+		attrs["inputmode"] = mode
+	}
+	return attrs
+}
+
+// pickerButton opens a channel's guide or Plex station picker (#epg-picker)
+// from its cell: a ghost button reading the current choice.
+templ pickerButton(href, title string) {
+	@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeXs, Class: "max-w-40 justify-start px-1 font-normal", Attributes: templ.Attributes{"hx-get": href, "hx-target": "#epg-picker", "hx-swap": "innerHTML", "title": title}}) {
+		<span class="truncate">
+			{ children... }
+		</span>
+	}
 }
 
 // channelLogo is a channel's logo from the store, its number on a tile
@@ -503,95 +511,107 @@ func channelReasonVariant(reason string) badge.Variant {
 
 // PlaylistPaneView is the provider's playlist beside the table.
 templ PlaylistPaneView(p PlaylistPane) {
-	<div id="playlist-pane" class="panel space-y-3 rounded-xl border border-border bg-card p-3">
-		<div class="flex items-center justify-between">
-			<h2 class="text-lg font-semibold">Playlist</h2>
-			if p.Loaded {
-				<span class="text-xs text-muted-foreground">{ fmt.Sprint(p.Total) } entries</span>
+	@card.Card(card.Props{ID: "playlist-pane", Size: card.SizeSm}) {
+		@card.Header() {
+			@card.Title(card.TitleProps{Class: "text-lg font-semibold"}) {
+				Playlist
 			}
-		</div>
-		if len(p.Filters) > 0 {
-			<div class="flex flex-wrap gap-1">
-				for _, f := range p.Filters {
-					@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) { { f } }
+			if p.Loaded {
+				@card.Action() {
+					<span class="text-xs text-muted-foreground">{ fmt.Sprint(p.Total) } entries</span>
 				}
-			</div>
+			}
 		}
-		<form
-			class="flex flex-wrap items-center gap-2"
-			hx-get="/livetv/channels/playlist"
-			hx-target="#playlist-pane"
-			hx-swap="outerHTML"
-			hx-trigger="input changed delay:300ms, change"
-		>
-			<input type="hidden" name="provider" value={ p.Provider }/>
-			<input type="search" name="q" value={ p.Q } placeholder="Name, tvg-id or group" class="h-8 min-w-0 flex-1 rounded-md border border-input bg-transparent px-2 text-sm"/>
-			<select name="group" class="h-8 max-w-48 rounded-md border border-input bg-transparent px-2 text-sm" aria-label="Group">
-				<option value="">Every group</option>
-				for _, g := range p.Groups {
-					<option value={ g } selected?={ g == p.Group }>{ g }</option>
-				}
-			</select>
-			<label class="flex items-center gap-1 text-sm"><input type="checkbox" name="all" value="1" checked?={ p.All }/> Every entry</label>
-		</form>
-		if !p.Loaded {
-			<p class="text-sm text-muted-foreground">The playlist has not been fetched yet.</p>
-		} else {
-			<div class="divide-y divide-border">
-				for _, e := range p.Entries {
-					@PlaylistEntryRow(e)
-				}
-			</div>
-			if p.Pages > 1 {
-				<div class="flex items-center justify-between text-sm">
-					if p.Page > 1 {
-						<button type="button" class="rounded-md px-2 py-1 hover:bg-muted" hx-get={ p.PageURL(p.Page - 1) } hx-target="#playlist-pane" hx-swap="outerHTML">Previous</button>
-					} else {
-						<span></span>
-					}
-					<span class="text-muted-foreground">{ fmt.Sprintf("Page %d of %d", p.Page, p.Pages) }</span>
-					if p.Page < p.Pages {
-						<button type="button" class="rounded-md px-2 py-1 hover:bg-muted" hx-get={ p.PageURL(p.Page + 1) } hx-target="#playlist-pane" hx-swap="outerHTML">Next</button>
-					} else {
-						<span></span>
+		@card.Content() {
+			if len(p.Filters) > 0 {
+				<div class="flex flex-wrap gap-1">
+					for _, f := range p.Filters {
+						@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) { { f } }
 					}
 				</div>
 			}
+			<form
+				class="flex flex-wrap items-center gap-2"
+				hx-get="/livetv/channels/playlist"
+				hx-target="#playlist-pane"
+				hx-swap="outerHTML"
+				hx-trigger="input changed delay:300ms, change"
+			>
+				<input type="hidden" name="provider" value={ p.Provider }/>
+				@input.Input(input.Props{Type: "search", Name: "q", Value: p.Q, Placeholder: "Name, tvg-id or group", Class: "h-8 min-w-0 flex-1", Attributes: templ.Attributes{"aria-label": "Search the playlist"}})
+				@filterSelect("group", "Group", "Every group", groupOptions(p.Groups), p.Group)
+				@filterCheck("all", "Every entry", p.All)
+			</form>
+			if !p.Loaded {
+				@emptyNote("The playlist has not been fetched yet.", "py-3", nil)
+			} else {
+				@item.Group(item.GroupProps{Class: "gap-0 divide-y divide-border"}) {
+					for _, e := range p.Entries {
+						@PlaylistEntryRow(e)
+					}
+				}
+				if p.Pages > 1 {
+					@pagination.Pagination(pagination.Props{Attributes: templ.Attributes{"data-playlist-pager": true}}) {
+						@pagination.Content() {
+							@pagination.Item() {
+								@pagination.Previous(pagination.PreviousProps{Href: p.PageURL(max(p.Page-1, 1)), Disabled: p.Page <= 1, Text: "Previous", Attributes: playlistPageAttrs(p, p.Page-1)})
+							}
+							@pagination.Item() {
+								<span class="px-2 text-sm text-muted-foreground">{ fmt.Sprintf("Page %d of %d", p.Page, p.Pages) }</span>
+							}
+							@pagination.Item() {
+								@pagination.Next(pagination.NextProps{Href: p.PageURL(min(p.Page+1, p.Pages)), Disabled: p.Page >= p.Pages, Text: "Next", Attributes: playlistPageAttrs(p, p.Page+1)})
+							}
+						}
+					}
+				}
+			}
 		}
-	</div>
+	}
+}
+
+// playlistPageAttrs fetch page n of the playlist pane into its place.
+func playlistPageAttrs(p PlaylistPane, n int) templ.Attributes {
+	return templ.Attributes{"hx-get": p.PageURL(n), "hx-target": "#playlist-pane", "hx-swap": "outerHTML"}
 }
 
 // PlaylistEntryRow is one playlist entry: its channel's number, or Add as
 // channel when the provider's filters admit it.
 templ PlaylistEntryRow(e PlaylistPaneEntry) {
-	<div id={ e.ID } data-playlist-entry={ e.Key } class="flex items-center gap-2 py-1.5">
-		@channelLogo(e.LogoPath, "")
-		<div class="min-w-0 flex-1">
-			<div class="truncate text-sm">{ e.Name }</div>
-			<div class="truncate text-xs text-muted-foreground">
+	@item.Item(item.Props{ID: e.ID, Size: item.SizeXs, Class: "rounded-none px-0", Attributes: templ.Attributes{"data-playlist-entry": e.Key}}) {
+		@item.Media() {
+			@channelLogo(e.LogoPath, "")
+		}
+		@item.Content() {
+			@item.Title(item.TitleProps{Class: "truncate text-sm font-normal"}) {
+				{ e.Name }
+			}
+			@item.Description(item.DescriptionProps{Class: "truncate text-xs"}) {
 				{ e.Group }
 				if e.TvgID != "" {
 					{ " · " + e.TvgID }
 				}
-			</div>
-		</div>
-		if e.Number != "" {
-			@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) { { "Channel " + e.Number } }
-		} else if e.Candidate {
-			@button.Button(button.Props{
-				Size: button.SizeXs, Variant: button.VariantOutline,
-				Attributes: templ.Attributes{
-					"hx-post":   "/livetv/channels/add",
-					"hx-vals":   hxVals("provider", e.Provider, "key", e.Key, "name", e.Name),
-					"hx-target": "#" + e.ID, "hx-swap": "outerHTML",
-				},
-			}) {
-				Add as channel
 			}
-		} else {
-			<span class="text-xs text-muted-foreground" title="Add a filter that admits it in the provider's settings">not in the filters</span>
 		}
-	</div>
+		@item.Actions() {
+			if e.Number != "" {
+				@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) { { "Channel " + e.Number } }
+			} else if e.Candidate {
+				@button.Button(button.Props{
+					Size: button.SizeXs, Variant: button.VariantOutline,
+					Attributes: templ.Attributes{
+						"hx-post":   "/livetv/channels/add",
+						"hx-vals":   hxVals("provider", e.Provider, "key", e.Key, "name", e.Name),
+						"hx-target": "#" + e.ID, "hx-swap": "outerHTML",
+					},
+				}) {
+					Add as channel
+				}
+			} else {
+				<span class="text-xs text-muted-foreground" title="Add a filter that admits it in the provider's settings">not in the filters</span>
+			}
+		}
+	}
 }
 
 // EPGPickerDialog is a channel's guide picker, open as it lands in
@@ -609,18 +629,17 @@ templ EPGPickerDialog(p EPGPicker) {
 					@dialog.Description() { Which guide channel this channel takes its programmes from. }
 				}
 			}
-			<input
-				type="search"
-				name="q"
-				value={ p.Q }
-				placeholder={ pickerPlaceholder(p.Plex) }
-				class="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm"
-				hx-get={ "/livetv/channels/" + p.Namespace + "/" + p.Name + "/" + pickerRoute(p.Plex) }
-				hx-trigger="input changed delay:250ms"
-				hx-target={ "#epg-choices-" + p.Name }
-				hx-select={ "#epg-choices-" + p.Name }
-				hx-swap="outerHTML"
-			/>
+			@input.Input(input.Props{
+				Type: "search", Name: "q", Value: p.Q, Placeholder: pickerPlaceholder(p.Plex),
+				Attributes: templ.Attributes{
+					"aria-label": pickerPlaceholder(p.Plex),
+					"hx-get":     "/livetv/channels/" + p.Namespace + "/" + p.Name + "/" + pickerRoute(p.Plex),
+					"hx-trigger": "input changed delay:250ms",
+					"hx-target":  "#epg-choices-" + p.Name,
+					"hx-select":  "#epg-choices-" + p.Name,
+					"hx-swap":    "outerHTML",
+				},
+			})
 			<div id={ "epg-choices-" + p.Name } class="max-h-96 divide-y divide-border overflow-y-auto">
 				for _, c := range p.Choices {
 					{{ attrs := templ.Attributes{
@@ -635,10 +654,10 @@ templ EPGPickerDialog(p EPGPicker) {
 							attrs[k] = v
 						}
 					} }}
-					<button type="button" class="flex w-full items-center justify-between gap-3 px-2 py-2 text-left text-sm hover:bg-muted" { attrs... }>
+					@button.Button(button.Props{Variant: button.VariantGhost, Class: "h-auto w-full justify-between gap-3 rounded-none px-2 py-2 font-normal", Attributes: attrs}) {
 						<span class="truncate">{ c.Label }</span>
 						<span class="truncate font-mono text-xs text-muted-foreground">{ c.Hint }</span>
-					</button>
+					}
 				}
 			</div>
 		}

@@ -25,6 +25,7 @@ import (
 	"github.com/mediactl/clustarr/pkg/iptv/livetvstore"
 	"github.com/mediactl/clustarr/ui/components/badge"
 	"github.com/mediactl/clustarr/ui/components/dialog"
+	"github.com/mediactl/clustarr/ui/components/input"
 )
 
 // The TV Guide's geometry (the direct-tuners and ui design §5.6,
@@ -125,21 +126,12 @@ templ LiveTVGuide(p GuidePage) {
 			hx-push-url="true"
 			hx-trigger="input changed delay:300ms, change"
 		>
-			<select name="provider" class="h-8 rounded-md border border-input bg-transparent px-2 text-sm" aria-label="Provider">
-				for _, o := range p.Providers {
-					<option value={ o.Value } selected?={ o.Value == p.Provider }>{ o.Label }</option>
-				}
-			</select>
-			<select name="group" class="h-8 max-w-56 rounded-md border border-input bg-transparent px-2 text-sm" aria-label="Group">
-				<option value="">Every group</option>
-				for _, g := range p.Groups {
-					<option value={ g } selected?={ g == p.Group }>{ g }</option>
-				}
-			</select>
-			<input type="search" name="q" value={ p.Q } placeholder="Channel or number" class="h-8 w-48 rounded-md border border-input bg-transparent px-2 text-sm"/>
+			@filterSelect("provider", "Provider", "", p.Providers, p.Provider)
+			@filterSelect("group", "Group", "Every group", groupOptions(p.Groups), p.Group)
+			@input.Input(input.Props{Type: "search", Name: "q", Value: p.Q, Placeholder: "Channel or number", Class: "h-8 w-48", Attributes: templ.Attributes{"aria-label": "Search"}})
 		</form>
 		if !p.Built {
-			<p class="text-sm text-muted-foreground">The guide is not built yet: the tuner writes it after the provider's first guide fetch.</p>
+			@emptyNote("The guide is not built yet: the tuner writes it after the provider's first guide fetch.", "", nil)
 		} else {
 			<div class="panel flex overflow-hidden rounded-xl border border-border bg-card" data-guide data-from={ rfc3339(p.From) }>
 				<div class="sticky left-0 z-10 shrink-0 border-r border-border bg-card" style={ "width:" + px(GuideChannelPx) }>
@@ -218,13 +210,13 @@ templ guideWindow(w GuideWindowView) {
 				<div class="flex items-center gap-1">
 					<span class="truncate text-sm font-medium">{ b.Title }</span>
 					if b.Episode != "" {
-						<span class="shrink-0 rounded bg-muted px-1 text-[10px] text-muted-foreground">{ b.Episode }</span>
+						@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: guidePillClass}) { { b.Episode } }
 					}
 					if b.Live {
-						<span class="shrink-0 rounded bg-destructive px-1 text-[10px] font-semibold text-white">LIVE</span>
+						@badge.Badge(badge.Props{Variant: badge.VariantDestructive, Class: guidePillClass + " font-semibold"}) { LIVE }
 					}
 					if b.New {
-						<span class="shrink-0 rounded bg-primary px-1 text-[10px] font-semibold text-primary-foreground">NEW</span>
+						@badge.Badge(badge.Props{Class: guidePillClass + " font-semibold"}) { NEW }
 					}
 				</div>
 				<div class="truncate text-xs text-muted-foreground">
@@ -296,3 +288,7 @@ templ ProgrammeDialogView(d ProgrammeDialog) {
 		}
 	}
 }
+
+// guidePillClass sizes a programme's badges (episode, LIVE, NEW) to a
+// guide row: shadcn-templ's badge at 10px.
+const guidePillClass = "h-4 shrink-0 rounded px-1 text-[10px]"

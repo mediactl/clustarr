@@ -23,12 +23,13 @@ import (
 	"time"
 
 	clustarrv1 "github.com/mediactl/clustarr/api/clustarr/v1alpha1"
+	"github.com/mediactl/clustarr/ui/projection"
 	"github.com/mediactl/clustarr/ui/components/badge"
 	"github.com/mediactl/clustarr/ui/components/button"
+	"github.com/mediactl/clustarr/ui/components/card"
 	"github.com/mediactl/clustarr/ui/components/icon"
 	switchcomp "github.com/mediactl/clustarr/ui/components/switch"
 	"github.com/mediactl/clustarr/ui/components/table"
-	"github.com/mediactl/clustarr/ui/projection"
 )
 
 // SourcesRefresh is how often the M3U/EPG Manager's tables fetch
@@ -61,9 +62,13 @@ templ LiveTVSourcesTables(rows []projection.SourceRow) {
 		if len(rows) == 0 {
 			@settingsEmpty("No IPTV providers configured.")
 		} else {
-			<section class="space-y-3">
-				<h2 class="text-lg font-semibold">Playlists</h2>
-				<div class="panel overflow-x-auto rounded-xl border border-border bg-card">
+			@card.Card(card.Props{Class: "gap-0 py-0"}) {
+				@card.Header(card.HeaderProps{Class: "px-4 py-3"}) {
+					@card.Title(card.TitleProps{Class: "text-lg font-semibold"}) {
+						Playlists
+					}
+				}
+				@card.Content(card.ContentProps{Class: "overflow-x-auto border-t border-border p-0"}) {
 					@table.Table() {
 						@table.Header() {
 							@table.Row() {
@@ -87,11 +92,15 @@ templ LiveTVSourcesTables(rows []projection.SourceRow) {
 							}
 						}
 					}
-				</div>
-			</section>
-			<section class="space-y-3">
-				<h2 class="text-lg font-semibold">Guides</h2>
-				<div class="panel overflow-x-auto rounded-xl border border-border bg-card">
+				}
+			}
+			@card.Card(card.Props{Class: "gap-0 py-0"}) {
+				@card.Header(card.HeaderProps{Class: "px-4 py-3"}) {
+					@card.Title(card.TitleProps{Class: "text-lg font-semibold"}) {
+						Guides
+					}
+				}
+				@card.Content(card.ContentProps{Class: "overflow-x-auto border-t border-border p-0"}) {
 					@table.Table() {
 						@table.Header() {
 							@table.Row() {
@@ -114,8 +123,8 @@ templ LiveTVSourcesTables(rows []projection.SourceRow) {
 							}
 						}
 					}
-				</div>
-			</section>
+				}
+			}
 			<section class="space-y-3">
 				<h2 class="text-lg font-semibold">Blocks</h2>
 				<p class="text-sm text-muted-foreground">Each block is one HDHomeRun device and one Plex DVR, given to Plex at its URL.</p>
@@ -291,11 +300,16 @@ templ guideRow(r projection.SourceRow) {
 }
 
 templ blocksCard(r projection.SourceRow) {
-	<div class="panel overflow-x-auto rounded-xl border border-border bg-card" data-blocks={ r.Namespace + "/" + r.Name }>
-		<div class="border-b border-border px-4 py-2 text-sm font-medium">{ r.Name }</div>
+	@card.Card(card.Props{Class: "gap-0 py-0", Attributes: templ.Attributes{"data-blocks": r.Namespace + "/" + r.Name}}) {
+		@card.Header(card.HeaderProps{Class: "px-4 py-2"}) {
+			@card.Title() {
+				{ r.Name }
+			}
+		}
 		if len(r.Blocks) == 0 {
-			<p class="px-4 py-3 text-sm text-muted-foreground">No blocks yet: the provider has no active channel, or has not been reconciled.</p>
+			@emptyNote("No blocks yet: the provider has no active channel, or has not been reconciled.", "border-t border-border py-3", nil)
 		} else {
+			@card.Content(card.ContentProps{Class: "overflow-x-auto border-t border-border p-0"}) {
 			@table.Table() {
 				@table.Header() {
 					@table.Row() {
@@ -335,8 +349,9 @@ templ blocksCard(r projection.SourceRow) {
 					}
 				}
 			}
+			}
 		}
-	</div>
+	}
 }
 
 // readinessBadge is a Ready condition: Ready, or its reason.
