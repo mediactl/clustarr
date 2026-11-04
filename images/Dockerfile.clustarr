@@ -43,6 +43,7 @@ COPY . .
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
+      -trimpath \
       -ldflags "-s -w -X github.com/mediactl/clustarr/pkg/version.Version=${VERSION}" \
       -o /out/manager ./cmd/manager \
  && GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \

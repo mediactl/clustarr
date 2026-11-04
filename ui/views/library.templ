@@ -60,7 +60,7 @@ import (
 // placement.
 templ Library(tab projection.Tab, p paging.Page, items []projection.LibraryItem, tb LibraryToolbar, rootFolders []catalogv1.RootFolder, jumpsFor []Jump) {
 	@Shell(Chrome{Title: "Library", Crumbs: []Crumb{{Label: "Library", Href: "/library"}, {Label: tabLabel(tab)}}, Tab: tab, HideScrollbar: true}) {
-		<div id="library-page" class="group/library" data-tab={ string(tab) }>
+		<div id="library-page" class="group/library lg:pr-10" data-tab={ string(tab) }>
 			@libraryToolbar(tab, tb, rootFolders)
 			<div
 				id="library-rows"
@@ -75,7 +75,7 @@ templ Library(tab projection.Tab, p paging.Page, items []projection.LibraryItem,
 				sse-swap="library"
 				hx-swap="morph:innerHTML"
 				hx-trigger="sse:art"
-				class="space-y-4 lg:pr-10"
+				class="space-y-4"
 			>
 				@LibraryList(tab, p, items)
 			</div>
