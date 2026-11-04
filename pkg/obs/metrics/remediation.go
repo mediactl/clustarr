@@ -49,4 +49,9 @@ var (
 	// outcome (ok, timeout, saturated, breaker_open).
 	RemediationIOCallsTotal = newCounterVec("clustarr_remediation_io_calls_total",
 		"Remediation /data I/O calls, by op and outcome.", "op", "outcome")
+	// RemediationPassReadsTotal counts a pass's Gets by the object's kind
+	// and result: read (answered by the cache, a row decoded) or memo
+	// (answered from an earlier Get of the same pass).
+	RemediationPassReadsTotal = newCounterVec("clustarr_remediation_pass_reads_total",
+		"Remediation pass Gets, by kind and result (read, memo).", "kind", "result")
 )

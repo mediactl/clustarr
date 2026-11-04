@@ -148,7 +148,11 @@ func (ir *ItemReconciler) staged(ctx context.Context, it rollup.Item, k Key) (re
 	if !ok {
 		return it.ReconcileItem(ctx, nn)
 	}
-	if err := ir.Env.Reader.Get(ctx, nn, item); err != nil {
+	// The pass reads through one pass reader: the item, its Series, an
+	// Indexer are read once for every stage (passReader).
+	env := *ir.Env
+	env.Reader = newPassReader(ir.Env.Reader)
+	if err := env.Reader.Get(ctx, nn, item); err != nil {
 		if !apierrors.IsNotFound(err) {
 			return reconcile.Result{RequeueAfter: itemEffectRetry, Priority: new(0)}, nil
 		}
@@ -174,7 +178,7 @@ func (ir *ItemReconciler) staged(ctx context.Context, it rollup.Item, k Key) (re
 			if s.Name() != name || !s.Applies(k.Kind) {
 				continue
 			}
-			so := runStage(ctx, ir.Env, s, v)
+			so := runStage(ctx, &env, s, v)
 			if so.failed.failed() {
 				if so.failed.transient() {
 					stageTransient = true

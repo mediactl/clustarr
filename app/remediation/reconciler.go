@@ -243,6 +243,10 @@ func (r *Reconciler) reconcileFile(ctx context.Context, nn types.NamespacedName)
 	ins := make([]any, len(r.planners))
 	fails := make([]outcome, len(r.planners))
 	skipped := make([]bool, len(r.planners))
+	// The planners gather through one pass reader: the file's item and its
+	// Series are read once for all of them (passReader).
+	env := *r.env
+	env.Reader = newPassReader(r.env.Reader)
 	for i, p := range r.planners {
 		if !p.Applies(v.File) {
 			continue
@@ -252,7 +256,7 @@ func (r *Reconciler) reconcileFile(ctx context.Context, nn types.NamespacedName)
 			continue
 		}
 		fails[i] = r.isolate(ctx, p.Name(), "gather", gatherTimeout(p.Name()), func(ctx context.Context) error {
-			in, err := p.gather(ctx, r.env, v)
+			in, err := p.gather(ctx, &env, v)
 			ins[i] = in
 			return err
 		})
