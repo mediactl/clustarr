@@ -364,24 +364,25 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
    tile: the backdrop showing through a white frost, a bright rim all round,
    a soft shadow beneath). The four corner colours are laid as the html
    background lays them and fixed to the viewport as it is, so the tab
-   shows the patch of canvas behind it; over them a white frost, a little
-   denser at the top; around them a 1px rim of light, and a shadow that
-   lifts the tile off its neighbours. The attribute rule is unlayered, so
+   shows the patch of canvas behind it, at the canvas's own depth; over
+   them a thin white frost, a little denser at the top ("dim the effect
+   (darker tint)"); around them a 1px rim of light, and a shadow that lifts
+   the tile off its neighbours. The attribute rule is unlayered, so
    it outranks the tab's own data-active utility. */
 [data-dashboard-tabs] [role="tab"][data-active] {
   z-index: 1;
   background-color: transparent;
   background-image:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0.08) 100%),
-    radial-gradient(circle at 0% 0%, color-mix(in oklab, var(--ultrablur-top-left) 90%, white), transparent 65%),
-    radial-gradient(circle at 100% 0%, color-mix(in oklab, var(--ultrablur-top-right) 90%, white), transparent 65%),
-    radial-gradient(circle at 100% 100%, color-mix(in oklab, var(--ultrablur-bottom-right) 90%, white), transparent 65%),
-    radial-gradient(circle at 0% 100%, color-mix(in oklab, var(--ultrablur-bottom-left) 90%, white), transparent 65%);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.09) 0%, rgba(255, 255, 255, 0.04) 100%),
+    radial-gradient(circle at 0% 0%, var(--ultrablur-top-left), transparent 65%),
+    radial-gradient(circle at 100% 0%, var(--ultrablur-top-right), transparent 65%),
+    radial-gradient(circle at 100% 100%, var(--ultrablur-bottom-right), transparent 65%),
+    radial-gradient(circle at 0% 100%, var(--ultrablur-bottom-left), transparent 65%);
   background-attachment: scroll, fixed, fixed, fixed, fixed;
   backdrop-filter: blur(12px) saturate(1.2);
   box-shadow:
-    inset 0 0 0 1px rgba(255, 255, 255, 0.28),
-    inset 0 1px 0 rgba(255, 255, 255, 0.4),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
     0 6px 16px -6px rgba(0, 0, 0, 0.5);
 }
 [data-slot="dialog-overlay"],
