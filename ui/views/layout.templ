@@ -24,11 +24,14 @@ package views
 
 import (
 	"github.com/mediactl/clustarr/ui/components"
+	"github.com/mediactl/clustarr/ui/components/alertdialog"
 	"github.com/mediactl/clustarr/ui/components/breadcrumb"
+	"github.com/mediactl/clustarr/ui/components/button"
 	"github.com/mediactl/clustarr/ui/components/icon"
 	"github.com/mediactl/clustarr/ui/components/navigationmenu"
 	"github.com/mediactl/clustarr/ui/components/separator"
 	"github.com/mediactl/clustarr/ui/components/sidebar"
+	"github.com/mediactl/clustarr/ui/components/toast"
 	"github.com/mediactl/clustarr/ui/projection"
 )
 
@@ -144,11 +147,11 @@ templ Layout(title string) {
 templ Shell(c Chrome) {
 	<!DOCTYPE html>
 	<html
-			lang="en"
-			if c.HideScrollbar {
-				data-scrollbar="hidden"
-			}
-		>
+		lang="en"
+		if c.HideScrollbar {
+			data-scrollbar="hidden"
+		}
+	>
 		<head>
 			<meta charset="UTF-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
@@ -170,6 +173,7 @@ templ Shell(c Chrome) {
 			<script src="/static/livetv.js" defer></script>
 			<script src="/static/guide.js" defer></script>
 			<script src="/static/dashboard.js" defer></script>
+			<script src="/static/confirm.js" defer></script>
 			@components.Scripts()
 		</head>
 		<body class="min-h-screen bg-transparent font-sans text-foreground" hx-ext="preload">
@@ -213,6 +217,8 @@ templ Shell(c Chrome) {
 					</div>
 				}
 			}
+			@toast.Toaster()
+			@confirmDialog()
 		</body>
 	</html>
 }
@@ -284,9 +290,13 @@ templ breadcrumbs(crumbs []Crumb) {
 					}
 					@breadcrumb.Item(breadcrumb.ItemProps{Class: crumbClass(i, len(crumbs))}) {
 						if i < len(crumbs)-1 && c.Href != "" {
-							@breadcrumb.Link(breadcrumb.LinkProps{Href: c.Href}) { { c.Label } }
+							@breadcrumb.Link(breadcrumb.LinkProps{Href: c.Href}) {
+								{ c.Label }
+							}
 						} else {
-							@breadcrumb.Page() { { c.Label } }
+							@breadcrumb.Page() {
+								{ c.Label }
+							}
 						}
 					}
 				}
@@ -347,4 +357,40 @@ func crumbClass(i, n int) string {
 		return "hidden md:inline-flex"
 	}
 	return "min-w-0 truncate"
+}
+
+// confirmDialog is the one alert dialog every hx-confirm asks through
+// (ui/static/confirm.js, since 2026-11-04; the browser's window.confirm
+// before): its hidden trigger opens it, its text is the request's
+// question, and Continue issues the request the question held.
+templ confirmDialog() {
+	@alertdialog.AlertDialog(alertdialog.Props{ID: "confirm"}) {
+		<button hidden data-confirm-open { alertdialog.TriggerFor("confirm")... }></button>
+		@alertdialog.Content(alertdialog.ContentProps{Size: alertdialog.SizeSm}) {
+			@alertdialog.Header() {
+				@alertdialog.Title() {
+					Are you sure?
+				}
+				@alertdialog.Description(alertdialog.DescriptionProps{Class: "whitespace-pre-line"}) {
+					<span data-confirm-text></span>
+				}
+			}
+			@alertdialog.Footer() {
+				@alertdialog.Cancel() {
+					Cancel 
+				}
+				@alertdialog.Action(alertdialog.ActionProps{Variant: button.VariantDestructive, Attributes: confirmOKAttrs()}) {
+					Continue
+				}
+			}
+		}
+	}
+}
+
+// confirmOKAttrs mark the Continue button for confirm.js and close the
+// dialog on its click.
+func confirmOKAttrs() templ.Attributes {
+	attrs := alertdialog.CloseFor("confirm")
+	attrs["data-confirm-ok"] = true
+	return attrs
 }

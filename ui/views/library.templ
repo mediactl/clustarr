@@ -35,7 +35,10 @@ import (
 	"github.com/mediactl/clustarr/ui/components/item"
 	"github.com/mediactl/clustarr/ui/components/menubar"
 	"github.com/mediactl/clustarr/ui/components/separator"
+	"github.com/mediactl/clustarr/ui/components/toast"
+	"github.com/mediactl/clustarr/ui/components/toggle"
 	"github.com/mediactl/clustarr/ui/components/tooltip"
+	"github.com/mediactl/clustarr/ui/components/utils"
 )
 
 // Library renders the Library page (amendment §A3.4, Task G3-3): every
@@ -364,11 +367,20 @@ func cardDeleteAttrs(li projection.LibraryItem) templ.Attributes {
 }
 
 // ActionStatus is what a card's action answers into #action-status: a
-// line saying it was done, or ActionError's why not.
+// toast saying it was done (shadcn-templ's, since 2026-11-04: the marker
+// toast.js turns into one as it lands), in a wrapper carrying the tests'
+// data-action-status; ActionErrorToast its why not.
 templ ActionStatus(message string) {
-	<div data-action-status="ok" role="status" class="glass flex items-center gap-2 rounded-xl border border-border bg-popover px-3 py-2 text-sm text-popover-foreground shadow-lg shadow-black/50">
-		@icon.Icon("circle-check")(icon.Props{Class: "size-4 text-primary"})
-		{ message }
+	<div data-action-status="ok" role="status" class="contents">
+		@toast.Toast(toast.Props{Title: message, Type: toast.TypeSuccess})
+	</div>
+}
+
+// ActionErrorToast is ActionError as a toast, for an action answered into
+// #action-status, the code on the wrapper as ActionError carries it.
+templ ActionErrorToast(code, message string) {
+	<div data-action-error={ code } role="alert" class="contents">
+		@toast.Toast(toast.Props{Title: "Action failed", Description: message, Type: toast.TypeError, Timeout: 8000})
 	</div>
 }
 
@@ -599,7 +611,7 @@ templ viewMenu(label, iconName, heading, attr string, choices []Choice) {
 // #library-page, which swaps the label and shows the cards' marks, Select
 // All and the bulk bar.
 templ selectToggle() {
-	@button.Button(button.Props{Variant: button.VariantGhost, Class: toolbarButtonClass, Attributes: templ.Attributes{"data-action": "select-toggle", "data-toolbar-button": true, "aria-pressed": "false"}}) {
+	@toggle.Toggle(toggle.Props{Pressed: utils.Ptr(false), Class: toolbarButtonClass + " aria-pressed:bg-muted", Attributes: templ.Attributes{"data-action": "select-toggle", "data-toolbar-button": true}}) {
 		@icon.Icon("square-check")(icon.Props{Class: "group-data-selecting/library:hidden"})
 		@icon.Icon("square-x")(icon.Props{Class: "hidden group-data-selecting/library:block"})
 		<span class="group-data-selecting/library:hidden">Select</span>

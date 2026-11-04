@@ -153,7 +153,7 @@ func (s *Server) answerInPlace(w http.ResponseWriter, r *http.Request, err error
 	w.Header().Set("HX-Retarget", "#action-status")
 	w.Header().Set("HX-Reswap", "innerHTML")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if renderErr := views.ActionError(code, err.Error()).Render(r.Context(), w); renderErr != nil {
+	if renderErr := views.ActionErrorToast(code, err.Error()).Render(r.Context(), w); renderErr != nil {
 		logging.FromContext(r.Context()).Error("render action error", "error", renderErr)
 	}
 }

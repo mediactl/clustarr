@@ -67,11 +67,14 @@ import templruntime "github.com/a-h/templ/runtime"
 
 import (
 	"github.com/mediactl/clustarr/ui/components"
+	"github.com/mediactl/clustarr/ui/components/alertdialog"
 	"github.com/mediactl/clustarr/ui/components/breadcrumb"
+	"github.com/mediactl/clustarr/ui/components/button"
 	"github.com/mediactl/clustarr/ui/components/icon"
 	"github.com/mediactl/clustarr/ui/components/navigationmenu"
 	"github.com/mediactl/clustarr/ui/components/separator"
 	"github.com/mediactl/clustarr/ui/components/sidebar"
+	"github.com/mediactl/clustarr/ui/components/toast"
 	"github.com/mediactl/clustarr/ui/projection"
 )
 
@@ -263,13 +266,13 @@ func Shell(c Chrome) templ.Component {
 		var templ_7745c5c3_Var4 string
 		templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(c.Title)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/layout.templ`, Line: 155, Col: 19}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/layout.templ`, Line: 158, Col: 19}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, " · Clustarr</title><link rel=\"icon\" type=\"image/svg+xml\" href=\"/static/favicon.svg\"><link rel=\"icon\" type=\"image/png\" sizes=\"32x32\" href=\"/static/favicon-32.png\"><link rel=\"apple-touch-icon\" sizes=\"180x180\" href=\"/static/apple-touch-icon.png\"><link rel=\"stylesheet\" href=\"/static/app.css\"><script src=\"/static/htmx.min.js\"></script><script src=\"/static/htmx-ext-sse.js\"></script><script src=\"/static/idiomorph-ext.min.js\"></script><script src=\"/static/htmx-ext-preload.js\"></script><script src=\"/static/jump.js\" defer></script><script src=\"/static/find.js\" defer></script><script src=\"/static/settings.js\" defer></script><script src=\"/static/library.js\" defer></script><script src=\"/static/art.js\" defer></script><script src=\"/static/portals.js\" defer></script><script src=\"/static/livetv.js\" defer></script><script src=\"/static/guide.js\" defer></script><script src=\"/static/dashboard.js\" defer></script>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, " · Clustarr</title><link rel=\"icon\" type=\"image/svg+xml\" href=\"/static/favicon.svg\"><link rel=\"icon\" type=\"image/png\" sizes=\"32x32\" href=\"/static/favicon-32.png\"><link rel=\"apple-touch-icon\" sizes=\"180x180\" href=\"/static/apple-touch-icon.png\"><link rel=\"stylesheet\" href=\"/static/app.css\"><script src=\"/static/htmx.min.js\"></script><script src=\"/static/htmx-ext-sse.js\"></script><script src=\"/static/idiomorph-ext.min.js\"></script><script src=\"/static/htmx-ext-preload.js\"></script><script src=\"/static/jump.js\" defer></script><script src=\"/static/find.js\" defer></script><script src=\"/static/settings.js\" defer></script><script src=\"/static/library.js\" defer></script><script src=\"/static/art.js\" defer></script><script src=\"/static/portals.js\" defer></script><script src=\"/static/livetv.js\" defer></script><script src=\"/static/guide.js\" defer></script><script src=\"/static/dashboard.js\" defer></script><script src=\"/static/confirm.js\" defer></script>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -393,7 +396,7 @@ func Shell(c Chrome) templ.Component {
 											var templ_7745c5c3_Var13 string
 											templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(n.Label)
 											if templ_7745c5c3_Err != nil {
-												return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/layout.templ`, Line: 192, Col: 27}
+												return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/layout.templ`, Line: 196, Col: 27}
 											}
 											_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 											if templ_7745c5c3_Err != nil {
@@ -511,6 +514,14 @@ func Shell(c Chrome) templ.Component {
 			return nil
 		})
 		templ_7745c5c3_Err = sidebar.Provider(sidebar.ProviderProps{ID: sidebarID, Class: "min-h-[calc(100svh-3rem)]"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var5), templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = toast.Toaster().Render(ctx, templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = confirmDialog().Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -694,7 +705,7 @@ func topNav(c Chrome) templ.Component {
 								var templ_7745c5c3_Var22 string
 								templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.JoinStringErrs("Add " + addLabel(tab))
 								if templ_7745c5c3_Err != nil {
-									return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/layout.templ`, Line: 262, Col: 35}
+									return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/layout.templ`, Line: 268, Col: 35}
 								}
 								_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var22))
 								if templ_7745c5c3_Err != nil {
@@ -838,7 +849,7 @@ func breadcrumbs(crumbs []Crumb) templ.Component {
 									var templ_7745c5c3_Var28 string
 									templ_7745c5c3_Var28, templ_7745c5c3_Err = templ.JoinStringErrs(c.Label)
 									if templ_7745c5c3_Err != nil {
-										return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/layout.templ`, Line: 287, Col: 71}
+										return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/layout.templ`, Line: 294, Col: 17}
 									}
 									_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var28))
 									if templ_7745c5c3_Err != nil {
@@ -866,7 +877,7 @@ func breadcrumbs(crumbs []Crumb) templ.Component {
 									var templ_7745c5c3_Var30 string
 									templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.JoinStringErrs(c.Label)
 									if templ_7745c5c3_Err != nil {
-										return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/layout.templ`, Line: 289, Col: 37}
+										return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/layout.templ`, Line: 298, Col: 17}
 									}
 									_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var30))
 									if templ_7745c5c3_Err != nil {
@@ -978,7 +989,7 @@ func librarySubMenu(current projection.Tab) templ.Component {
 						var templ_7745c5c3_Var35 string
 						templ_7745c5c3_Var35, templ_7745c5c3_Err = templ.JoinStringErrs(tabLabel(tab))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/layout.templ`, Line: 317, Col: 26}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/layout.templ`, Line: 327, Col: 26}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var35))
 						if templ_7745c5c3_Err != nil {
@@ -1083,7 +1094,7 @@ func liveTVSubMenu(current string) templ.Component {
 						var templ_7745c5c3_Var40 string
 						templ_7745c5c3_Var40, templ_7745c5c3_Err = templ.JoinStringErrs(e.Label)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/layout.templ`, Line: 336, Col: 20}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui/views/layout.templ`, Line: 346, Col: 20}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var40))
 						if templ_7745c5c3_Err != nil {
@@ -1127,6 +1138,227 @@ func crumbClass(i, n int) string {
 		return "hidden md:inline-flex"
 	}
 	return "min-w-0 truncate"
+}
+
+// confirmDialog is the one alert dialog every hx-confirm asks through
+// (ui/static/confirm.js, since 2026-11-04; the browser's window.confirm
+// before): its hidden trigger opens it, its text is the request's
+// question, and Continue issues the request the question held.
+func confirmDialog() templ.Component {
+	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
+			return templ_7745c5c3_CtxErr
+		}
+		templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+		if !templ_7745c5c3_IsBuffer {
+			defer func() {
+				templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err == nil {
+					templ_7745c5c3_Err = templ_7745c5c3_BufErr
+				}
+			}()
+		}
+		ctx = templ.InitializeContext(ctx)
+		templ_7745c5c3_Var41 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var41 == nil {
+			templ_7745c5c3_Var41 = templ.NopComponent
+		}
+		ctx = templ.ClearChildren(ctx)
+		templ_7745c5c3_Var42 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+			if !templ_7745c5c3_IsBuffer {
+				defer func() {
+					templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+					if templ_7745c5c3_Err == nil {
+						templ_7745c5c3_Err = templ_7745c5c3_BufErr
+					}
+				}()
+			}
+			ctx = templ.InitializeContext(ctx)
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 33, "<button hidden data-confirm-open")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templ.RenderAttributes(ctx, templ_7745c5c3_Buffer, alertdialog.TriggerFor("confirm"))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 34, "></button>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Var43 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+				templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+				templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+				if !templ_7745c5c3_IsBuffer {
+					defer func() {
+						templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+						if templ_7745c5c3_Err == nil {
+							templ_7745c5c3_Err = templ_7745c5c3_BufErr
+						}
+					}()
+				}
+				ctx = templ.InitializeContext(ctx)
+				templ_7745c5c3_Var44 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+					templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+					templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+					if !templ_7745c5c3_IsBuffer {
+						defer func() {
+							templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+							if templ_7745c5c3_Err == nil {
+								templ_7745c5c3_Err = templ_7745c5c3_BufErr
+							}
+						}()
+					}
+					ctx = templ.InitializeContext(ctx)
+					templ_7745c5c3_Var45 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+						templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+						templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+						if !templ_7745c5c3_IsBuffer {
+							defer func() {
+								templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+								if templ_7745c5c3_Err == nil {
+									templ_7745c5c3_Err = templ_7745c5c3_BufErr
+								}
+							}()
+						}
+						ctx = templ.InitializeContext(ctx)
+						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 35, "Are you sure?")
+						if templ_7745c5c3_Err != nil {
+							return templ_7745c5c3_Err
+						}
+						return nil
+					})
+					templ_7745c5c3_Err = alertdialog.Title().Render(templ.WithChildren(ctx, templ_7745c5c3_Var45), templ_7745c5c3_Buffer)
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 36, " ")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					templ_7745c5c3_Var46 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+						templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+						templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+						if !templ_7745c5c3_IsBuffer {
+							defer func() {
+								templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+								if templ_7745c5c3_Err == nil {
+									templ_7745c5c3_Err = templ_7745c5c3_BufErr
+								}
+							}()
+						}
+						ctx = templ.InitializeContext(ctx)
+						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 37, "<span data-confirm-text></span>")
+						if templ_7745c5c3_Err != nil {
+							return templ_7745c5c3_Err
+						}
+						return nil
+					})
+					templ_7745c5c3_Err = alertdialog.Description(alertdialog.DescriptionProps{Class: "whitespace-pre-line"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var46), templ_7745c5c3_Buffer)
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					return nil
+				})
+				templ_7745c5c3_Err = alertdialog.Header().Render(templ.WithChildren(ctx, templ_7745c5c3_Var44), templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 38, " ")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Var47 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+					templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+					templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+					if !templ_7745c5c3_IsBuffer {
+						defer func() {
+							templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+							if templ_7745c5c3_Err == nil {
+								templ_7745c5c3_Err = templ_7745c5c3_BufErr
+							}
+						}()
+					}
+					ctx = templ.InitializeContext(ctx)
+					templ_7745c5c3_Var48 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+						templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+						templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+						if !templ_7745c5c3_IsBuffer {
+							defer func() {
+								templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+								if templ_7745c5c3_Err == nil {
+									templ_7745c5c3_Err = templ_7745c5c3_BufErr
+								}
+							}()
+						}
+						ctx = templ.InitializeContext(ctx)
+						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 39, "Cancel ")
+						if templ_7745c5c3_Err != nil {
+							return templ_7745c5c3_Err
+						}
+						return nil
+					})
+					templ_7745c5c3_Err = alertdialog.Cancel().Render(templ.WithChildren(ctx, templ_7745c5c3_Var48), templ_7745c5c3_Buffer)
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 40, " ")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					templ_7745c5c3_Var49 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+						templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+						templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+						if !templ_7745c5c3_IsBuffer {
+							defer func() {
+								templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+								if templ_7745c5c3_Err == nil {
+									templ_7745c5c3_Err = templ_7745c5c3_BufErr
+								}
+							}()
+						}
+						ctx = templ.InitializeContext(ctx)
+						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 41, "Continue")
+						if templ_7745c5c3_Err != nil {
+							return templ_7745c5c3_Err
+						}
+						return nil
+					})
+					templ_7745c5c3_Err = alertdialog.Action(alertdialog.ActionProps{Variant: button.VariantDestructive, Attributes: confirmOKAttrs()}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var49), templ_7745c5c3_Buffer)
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					return nil
+				})
+				templ_7745c5c3_Err = alertdialog.Footer().Render(templ.WithChildren(ctx, templ_7745c5c3_Var47), templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				return nil
+			})
+			templ_7745c5c3_Err = alertdialog.Content(alertdialog.ContentProps{Size: alertdialog.SizeSm}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var43), templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			return nil
+		})
+		templ_7745c5c3_Err = alertdialog.AlertDialog(alertdialog.Props{ID: "confirm"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var42), templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		return nil
+	})
+}
+
+// confirmOKAttrs mark the Continue button for confirm.js and close the
+// dialog on its click.
+func confirmOKAttrs() templ.Attributes {
+	attrs := alertdialog.CloseFor("confirm")
+	attrs["data-confirm-ok"] = true
+	return attrs
 }
 
 var _ = templruntime.GeneratedTemplate

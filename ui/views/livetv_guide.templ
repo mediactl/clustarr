@@ -24,6 +24,7 @@ import (
 
 	"github.com/mediactl/clustarr/pkg/iptv/livetvstore"
 	"github.com/mediactl/clustarr/ui/components/badge"
+	"github.com/mediactl/clustarr/ui/components/button"
 	"github.com/mediactl/clustarr/ui/components/dialog"
 	"github.com/mediactl/clustarr/ui/components/input"
 )
@@ -196,17 +197,19 @@ templ guideWindow(w GuideWindowView) {
 			}
 		</div>
 		for _, b := range w.Blocks {
-			<button
-				type="button"
-				data-programme
-				data-start={ rfc3339(b.IndexProgramme.Start) }
-				data-stop={ rfc3339(b.Stop) }
-				class="absolute overflow-hidden rounded-md border border-border bg-muted/50 px-2 py-1 text-left hover:bg-muted data-past:opacity-50"
-				style={ blockStyle(b) }
-				hx-get={ b.URL }
-				hx-target="#guide-dialog"
-				hx-swap="innerHTML"
-			>
+			@button.Button(button.Props{
+				Variant: button.VariantOutline,
+				Class:   "absolute h-auto flex-col items-stretch justify-start gap-0 overflow-hidden whitespace-normal bg-muted/50 px-2 py-1 text-left font-normal shadow-none hover:bg-muted data-past:opacity-50",
+				Attributes: templ.Attributes{
+					"data-programme": true,
+					"data-start":     rfc3339(b.IndexProgramme.Start),
+					"data-stop":      rfc3339(b.Stop),
+					"style":          blockStyle(b),
+					"hx-get":         b.URL,
+					"hx-target":      "#guide-dialog",
+					"hx-swap":        "innerHTML",
+				},
+			}) {
 				<div class="flex items-center gap-1">
 					<span class="truncate text-sm font-medium">{ b.Title }</span>
 					if b.Episode != "" {
@@ -232,7 +235,7 @@ templ guideWindow(w GuideWindowView) {
 					<time data-local="time" datetime={ rfc3339(b.Stop) }>{ b.Stop.UTC().Format("15:04") }</time>
 				</div>
 				<div data-progress class="absolute inset-x-0 bottom-0 h-0.5 bg-primary" style="width:0"></div>
-			</button>
+			}
 		}
 		<span data-window-end hidden></span>
 	</div>

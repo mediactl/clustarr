@@ -275,6 +275,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 [data-slot="select-content"],
 [data-slot="tooltip-content"],
 [data-slot="popover-content"],
+[data-slot="toast"],
 [data-slot="card"],
 .panel,
 .recharts-tooltip-wrapper > div,
@@ -294,6 +295,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 [data-slot="navigation-menu-content"],
 [data-slot="select-content"],
 [data-slot="popover-content"],
+[data-slot="toast"],
 .recharts-tooltip-wrapper > div {
   background-color: var(--popover);
   border-color: var(--border);

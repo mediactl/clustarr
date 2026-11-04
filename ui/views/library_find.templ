@@ -21,10 +21,11 @@ import (
 	"fmt"
 	"net/url"
 
+	"github.com/mediactl/clustarr/ui/projection"
 	"github.com/mediactl/clustarr/ui/components/icon"
 	"github.com/mediactl/clustarr/ui/components/inputgroup"
+	"github.com/mediactl/clustarr/ui/components/item"
 	"github.com/mediactl/clustarr/ui/components/scrollarea"
-	"github.com/mediactl/clustarr/ui/projection"
 )
 
 // headerFind is the top bar's search (2026-10-01 as the library tab's
@@ -135,22 +136,28 @@ templ LibraryFindResults(tab projection.Tab, q string, items []projection.Librar
 			<ul class="py-1">
 				for _, li := range items {
 					<li>
-						<a
-							href={ templ.SafeURL(libraryDetailPath(li)) }
-							role="option"
-							data-find-ref={ li.Ref.String() }
-							class="flex items-center gap-3 px-3 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground data-[find-active]:bg-accent data-[find-active]:text-accent-foreground"
-						>
-							<span class="relative h-12 w-8 shrink-0 overflow-hidden rounded-sm bg-muted">
+						@item.Item(item.Props{
+							Href:       libraryDetailPath(li),
+							Size:       item.SizeXs,
+							Class:      "rounded-none px-3 py-1.5 hover:bg-accent hover:text-accent-foreground data-[find-active]:bg-accent data-[find-active]:text-accent-foreground",
+							Attributes: templ.Attributes{"role": "option", "data-find-ref": li.Ref.String()},
+						}) {
+							@item.Media(item.MediaProps{Variant: item.MediaVariantImage, Class: "h-12 w-8 rounded-sm bg-muted"}) {
 								if li.Poster != "" {
-									<img src={ templ.URL(li.Poster) } data-art={ li.ArtKey } alt="" loading="lazy" class="absolute inset-0 h-full w-full object-cover"/>
+									<img src={ templ.URL(li.Poster) } data-art={ li.ArtKey } alt="" loading="lazy" class="size-full object-cover"/>
 								}
-							</span>
-							<span class="min-w-0 flex-1 truncate">{ li.Title }</span>
-							if li.Year > 0 {
-								<span class="shrink-0 text-muted-foreground">{ fmt.Sprint(li.Year) }</span>
 							}
-						</a>
+							@item.Content() {
+								@item.Title(item.TitleProps{Class: "truncate text-sm font-normal"}) {
+									{ li.Title }
+								}
+							}
+							if li.Year > 0 {
+								@item.Actions() {
+									<span class="shrink-0 text-sm text-muted-foreground">{ fmt.Sprint(li.Year) }</span>
+								}
+							}
+						}
 					</li>
 				}
 			</ul>

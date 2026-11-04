@@ -784,9 +784,9 @@ func cardAction(r *http.Request) bool {
 
 // finishActionWith is finishAction for an action a library card can post
 // too: a card's request is answered in place, 200 with ActionStatus's done
-// line or ActionError's why not -- htmx swaps no error status and would
-// follow a redirect to fetch a page it does not show -- while a form's is
-// finishAction's redirect or error page.
+// toast or ActionErrorToast's why not -- htmx swaps no error status and
+// would follow a redirect to fetch a page it does not show -- while a
+// form's is finishAction's redirect or error page.
 func (s *Server) finishActionWith(w http.ResponseWriter, r *http.Request, err error, done string) {
 	if cardAction(r) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -794,7 +794,7 @@ func (s *Server) finishActionWith(w http.ResponseWriter, r *http.Request, err er
 		if err != nil {
 			code, _ := actionErrorCode(err)
 			logging.FromContext(r.Context()).Error("ui action failed", "error", err, "code", code)
-			view = views.ActionError(code, err.Error())
+			view = views.ActionErrorToast(code, err.Error())
 		} else {
 			view = views.ActionStatus(done)
 		}

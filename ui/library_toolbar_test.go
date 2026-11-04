@@ -137,7 +137,7 @@ func TestLibraryToolbarHasRescanSortAndFilter(t *testing.T) {
 
 	// The mass editor (2026-10-06, after Sonarr's): Select, and Select All
 	// shown only while selecting.
-	requireTag(t, bar, `data-action="select-toggle"`, `data-slot="button"`, `aria-pressed="false"`)
+	requireTag(t, bar, `data-action="select-toggle"`, `data-slot="toggle"`, `aria-pressed="false"`)
 	require.Regexp(t, regexp.MustCompile(`(?s)data-action="select-toggle".*?>Select</span>.*?>Stop Selecting</span>`), bar)
 	requireTag(t, bar, `data-action="select-all"`, `data-slot="button"`)
 	require.Regexp(t, regexp.MustCompile(`class="hidden group-data-selecting/library:flex"[^>]*>\s*<button[^>]*data-action="select-all"`), bar, "Select All only while selecting")
