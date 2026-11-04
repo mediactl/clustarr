@@ -30,6 +30,7 @@ import (
 	clustarrac "github.com/mediactl/clustarr/api/applyconfiguration/clustarr/v1alpha1"
 	clustarrv1 "github.com/mediactl/clustarr/api/clustarr/v1alpha1"
 	"github.com/mediactl/clustarr/app/livetv/tuner"
+	"github.com/mediactl/clustarr/pkg/iptv/plexguide"
 	"github.com/mediactl/clustarr/pkg/k8s"
 )
 
@@ -57,6 +58,9 @@ func render(p *clustarrv1.IPTVProvider, address string, pl plan, tn Tuner, valid
 	}
 	if ok {
 		fromSnapshot(st, snap)
+		if p.Spec.PlexGuide != nil {
+			st.WithPlexGuide(plexGuideStatus(snap))
+		}
 	} else {
 		reassertKnownStatus(st, p)
 	}
@@ -82,8 +86,16 @@ func render(p *clustarrv1.IPTVProvider, address string, pl plan, tn Tuner, valid
 		ready = metav1.Condition{Type: clustarrv1.ConditionReady, Status: metav1.ConditionFalse, Reason: "GuidesNotFetched", Message: guide.Message}
 	}
 	set(ready)
+	if p.Spec.PlexGuide != nil {
+		set(plexGuideCondition(p, snap, ok))
+	}
 	for _, c := range conds {
 		switch c.Type {
+		case clustarrv1.ConditionPlexGuideReady:
+			if p.Spec.PlexGuide == nil {
+				continue // released with spec.plexGuide
+			}
+			fallthrough
 		case clustarrv1.ConditionReady, clustarrv1.ConditionValid, clustarrv1.ConditionPlaylistFetched, clustarrv1.ConditionGuidesFetched:
 			st.WithConditions(metav1ac.Condition().WithType(c.Type).WithStatus(c.Status).WithReason(c.Reason).
 				WithMessage(c.Message).WithLastTransitionTime(c.LastTransitionTime).WithObservedGeneration(c.ObservedGeneration))
@@ -101,9 +113,11 @@ func withBlocks(st *clustarrac.IPTVProviderStatusApplyConfiguration, p *clustarr
 			rendered[b.Start] = b
 		}
 	}
+	// By device: a Plex block may start where an XMLTV block did, and
+	// carries none of its hashes.
 	known := map[string]clustarrv1.BlockStatus{}
 	for _, b := range p.Status.Blocks {
-		known[b.Start] = b
+		known[b.DeviceID] = b
 	}
 	for _, b := range pl.blocks {
 		ac := clustarrac.BlockStatus().WithStart(b.Start).WithChannels(b.Channels).WithFirst(b.First).WithLast(b.Last).
@@ -117,6 +131,9 @@ func withBlocks(st *clustarrac.IPTVProviderStatusApplyConfiguration, p *clustarr
 		if b.GuidePath != "" {
 			ac.WithGuidePath(b.GuidePath)
 		}
+		if b.Lineup != "" {
+			ac.WithLineup(b.Lineup)
+		}
 		if b.Owner != "" {
 			ac.WithOwner(b.Owner)
 		}
@@ -124,7 +141,7 @@ func withBlocks(st *clustarrac.IPTVProviderStatusApplyConfiguration, p *clustarr
 		// started, before its cache loads) has no hashes: the status keeps
 		// the last ones, or cluster-plex would save every block's map and
 		// reload its guide again.
-		lineupHash, guideHash := known[b.Start].LineupHash, known[b.Start].GuideHash
+		lineupHash, guideHash := known[b.DeviceID].LineupHash, known[b.DeviceID].GuideHash
 		if rb, has := rendered[b.Start]; has && snap.PlaylistFetched {
 			lineupHash, guideHash = rb.LineupHash, rb.GuideHash
 		}
@@ -285,4 +302,73 @@ func reassertKnownStatus(st *clustarrac.IPTVProviderStatusApplyConfiguration, p 
 	if t := cur.Tuners; t != nil {
 		st.WithTuners(clustarrac.TunerStatus().WithTotal(t.Total).WithInUse(t.InUse))
 	}
+	if g := cur.PlexGuide; g != nil && p.Spec.PlexGuide != nil {
+		ac := clustarrac.PlexGuideStatus().WithStations(g.Stations).WithPaired(g.Paired).WithAmbiguous(g.Ambiguous).
+			WithTaken(g.Taken).WithTimeshifted(g.Timeshifted).WithNotInLineup(g.NotInLineup).WithOff(g.Off)
+		if g.LineupID != "" {
+			ac.WithLineupID(g.LineupID)
+		}
+		if g.Title != "" {
+			ac.WithTitle(g.Title)
+		}
+		if g.FetchedAt != nil {
+			ac.WithFetchedAt(*g.FetchedAt)
+		}
+		if g.Error != "" {
+			ac.WithError(g.Error)
+		}
+		st.WithPlexGuide(ac)
+	}
+}
+
+// plexGuideStatus is the snapshot's Plex lineup and how the channels
+// paired with it.
+func plexGuideStatus(s tuner.Snapshot) *clustarrac.PlexGuideStatusApplyConfiguration {
+	counts := map[plexguide.Match]int32{}
+	for _, c := range s.Channels {
+		if c.Plex != nil {
+			counts[c.Plex.Match]++
+		}
+	}
+	ac := clustarrac.PlexGuideStatus().WithStations(int32(s.Plex.Stations)).
+		WithPaired(counts[plexguide.Manual] + counts[plexguide.Automatic]).WithAmbiguous(counts[plexguide.Ambiguous]).
+		WithTaken(counts[plexguide.Taken]).WithTimeshifted(counts[plexguide.Timeshifted]).
+		WithNotInLineup(counts[plexguide.NotInLineup]).WithOff(counts[plexguide.Off])
+	if s.Plex.LineupID != "" {
+		ac.WithLineupID(s.Plex.LineupID)
+	}
+	if s.Plex.Title != "" {
+		ac.WithTitle(s.Plex.Title)
+	}
+	if !s.Plex.FetchedAt.IsZero() {
+		ac.WithFetchedAt(metav1.NewTime(s.Plex.FetchedAt))
+	}
+	if s.Plex.Error != "" {
+		ac.WithError(s.Plex.Error)
+	}
+	return ac
+}
+
+// plexGuideCondition is PlexGuideReady: the lineup held, its last fetch's
+// failure, or none yet; carried over from the status when the tuner does
+// not answer.
+func plexGuideCondition(p *clustarrv1.IPTVProvider, s tuner.Snapshot, ok bool) metav1.Condition {
+	c := metav1.Condition{Type: clustarrv1.ConditionPlexGuideReady}
+	switch {
+	case !ok:
+		if cur := meta.FindStatusCondition(p.Status.Conditions, clustarrv1.ConditionPlexGuideReady); cur != nil {
+			return *cur
+		}
+		c.Status, c.Reason, c.Message = metav1.ConditionUnknown, clustarrv1.ReasonLineupPending, "the tuner has not answered yet"
+	case s.Plex.Loaded && s.Plex.Error != "":
+		c.Status, c.Reason, c.Message = metav1.ConditionTrue, clustarrv1.ReasonLineupFailed, "serving the last good lineup: "+s.Plex.Error
+	case s.Plex.Loaded:
+		c.Status, c.Reason = metav1.ConditionTrue, clustarrv1.ReasonLineupFetched
+		c.Message = fmt.Sprintf("%s: %d stations", s.Plex.Title, s.Plex.Stations)
+	case s.Plex.Error != "":
+		c.Status, c.Reason, c.Message = metav1.ConditionFalse, clustarrv1.ReasonLineupFailed, s.Plex.Error
+	default:
+		c.Status, c.Reason, c.Message = metav1.ConditionFalse, clustarrv1.ReasonLineupPending, "the Plex lineup has not been fetched yet"
+	}
+	return c
 }

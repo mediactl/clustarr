@@ -20,7 +20,10 @@ package iptvchannel
 import (
 	"context"
 	"slices"
+	"strings"
+	"time"
 
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -39,6 +42,7 @@ import (
 	clustarrv1 "github.com/mediactl/clustarr/api/clustarr/v1alpha1"
 	"github.com/mediactl/clustarr/app/livetv/index"
 	"github.com/mediactl/clustarr/app/livetv/tuner"
+	"github.com/mediactl/clustarr/pkg/iptv/plexguide"
 	"github.com/mediactl/clustarr/pkg/k8s"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
@@ -71,10 +75,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	if err := r.Client.Get(ctx, req.NamespacedName, &ch); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	reason, guide := r.place(ctx, &ch)
+	reason, guide, pair := r.place(ctx, &ch)
 	if reason == reasonKeep {
 		return ctrl.Result{}, nil
 	}
+	plex := plexStatus(pair)
 	status := metav1.ConditionFalse
 	switch reason {
 	case clustarrv1.ReasonActive:
@@ -87,12 +92,15 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		Type: clustarrv1.ConditionReady, Status: status, Reason: reason,
 		Message: message(reason), ObservedGeneration: ch.Generation,
 	})
-	if !changed && ch.Status.Guide == guide && ch.Status.ObservedGeneration == ch.Generation {
+	if !changed && ch.Status.Guide == guide && ch.Status.ObservedGeneration == ch.Generation && equality.Semantic.DeepEqual(ch.Status.Plex, plex) {
 		return ctrl.Result{}, nil
 	}
 	st := clustarrac.IPTVChannelStatus().WithObservedGeneration(ch.Generation)
 	if guide != "" {
 		st.WithGuide(guide)
+	}
+	if plex != nil {
+		st.WithPlex(plexApply(plex))
 	}
 	for _, c := range conds {
 		if c.Type == clustarrv1.ConditionReady {
@@ -104,35 +112,73 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	return ctrl.Result{}, err
 }
 
-// place is the channel's Ready reason and the guide it uses.
-func (r *Reconciler) place(ctx context.Context, ch *clustarrv1.IPTVChannel) (string, string) {
+// place is the channel's Ready reason, the guide it uses and its pairing
+// with the provider's Plex lineup.
+func (r *Reconciler) place(ctx context.Context, ch *clustarrv1.IPTVChannel) (string, string, *plexguide.Pairing) {
 	key := types.NamespacedName{Namespace: ch.Namespace, Name: ch.Spec.ProviderRef}
 	view, ok := r.Snapshots.Channel(key, ch.Name)
 	if !ok {
 		var p clustarrv1.IPTVProvider
 		if err := r.Client.Get(ctx, key, &p); apierrors.IsNotFound(err) {
-			return clustarrv1.ReasonProviderNotFound, ""
+			return clustarrv1.ReasonProviderNotFound, "", nil
 		} else if err != nil {
 			logging.FromContext(ctx).Warn("livetv: read the channel's provider", "provider", key.String(), "err", err)
 		}
-		return reasonPending, ""
+		return reasonPending, "", nil
 	}
 	st, has := view.State, view.Listed
 	switch {
 	case !has && !view.PlaylistFetched && meta.FindStatusCondition(ch.Status.Conditions, clustarrv1.ConditionReady) != nil:
 		// The tuner has not fetched since it (re)started: what the status
 		// says is the best there is until it has.
-		return reasonKeep, ""
+		return reasonKeep, "", nil
 	case !has:
-		return reasonPending, ""
+		return reasonPending, "", nil
 	case st.Missing:
-		return clustarrv1.ReasonMissing, ""
+		return clustarrv1.ReasonMissing, "", nil
 	case st.Duplicate:
-		return clustarrv1.ReasonDuplicateNumber, ""
+		return clustarrv1.ReasonDuplicateNumber, "", nil
 	case ch.Spec.Active:
-		return clustarrv1.ReasonActive, st.Guide
+		return clustarrv1.ReasonActive, st.Guide, st.Plex
 	}
-	return clustarrv1.ReasonInactive, ""
+	return clustarrv1.ReasonInactive, "", nil
+}
+
+// plexStatus is a pairing as status.plex records it; nil without one.
+func plexStatus(p *plexguide.Pairing) *clustarrv1.ChannelPlexStatus {
+	if p == nil {
+		return nil
+	}
+	out := &clustarrv1.ChannelPlexStatus{Match: clustarrv1.PlexMatch(p.Match), TakenBy: p.TakenBy}
+	if s := p.Station; s.GridKey != "" {
+		out.Station, out.ID, out.CallSign, out.Title, out.VCN = s.GridKey, s.ID, s.CallSign, s.Title, s.VCN
+	}
+	for _, c := range p.Candidates {
+		out.Candidates = append(out.Candidates, strings.TrimSpace(c.CallSign+" "+c.VCN+" "+c.Title))
+	}
+	if !p.MissingSince.IsZero() {
+		t := metav1.NewTime(p.MissingSince.UTC().Truncate(time.Second))
+		out.MissingSince = &t
+	}
+	return out
+}
+
+// plexApply is st as its apply configuration.
+func plexApply(st *clustarrv1.ChannelPlexStatus) *clustarrac.ChannelPlexStatusApplyConfiguration {
+	ac := clustarrac.ChannelPlexStatus().WithMatch(st.Match)
+	if st.Station != "" {
+		ac.WithStation(st.Station).WithID(st.ID).WithCallSign(st.CallSign).WithTitle(st.Title).WithVCN(st.VCN)
+	}
+	if st.TakenBy != "" {
+		ac.WithTakenBy(st.TakenBy)
+	}
+	if len(st.Candidates) > 0 {
+		ac.WithCandidates(st.Candidates...)
+	}
+	if st.MissingSince != nil {
+		ac.WithMissingSince(*st.MissingSince)
+	}
+	return ac
 }
 
 func message(reason string) string {

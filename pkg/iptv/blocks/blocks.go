@@ -51,6 +51,39 @@ var ErrTooManyBlocks = errors.New("blocks: the lineup needs more than 32 blocks"
 type Limits struct {
 	MaxChannels int
 	MaxBytes    int
+	// Cost is what one number adds to a block's channel-map query; nil is
+	// an XMLTV block's, the number standing for all three of PMS's
+	// identifiers. A Plex block's carries its lineup channel (PlexCost).
+	Cost func(number string) int
+}
+
+// costOf is lim's per-number cost.
+func (lim Limits) costOf(n string) int {
+	if lim.Cost != nil {
+		return lim.Cost(n)
+	}
+	return cost(n)
+}
+
+// PlexCost is what a number paired with a Plex lineup channel adds to its
+// block's channel-map query: its comma and number in channelsEnabled, and
+// "&channelMapping%5B<n>%5D=<vcn>" and "&channelMappingByKey%5B<n>%5D=<key>"
+// (a lineup channel's key and vcn need no escaping). 116 bytes for a
+// four-digit number on a 49-byte key and a three-digit vcn.
+func PlexCost(number, key, vcn string) int {
+	return perChannelBytes + 3*len(number) + len(key) + len(vcn)
+}
+
+// MapBytesWith is MapBytes under a per-number cost.
+func MapBytesWith(numbers []string, cost func(string) int) int {
+	if len(numbers) == 0 {
+		return len("channelsEnabled=")
+	}
+	n := baseBytes
+	for _, s := range numbers {
+		n += cost(s)
+	}
+	return n
 }
 
 // Block is one device's run of numbers. Start is its identity and lower
@@ -78,16 +111,7 @@ func cost(n string) int { return perChannelBytes + 5*len(n) }
 // numbers: 13 + Σ(52 + 5·len(n)). Verified against the recording: 454
 // four-digit numbers give 32,701, which with the 37-byte path is the
 // 32,738 PMS accepted.
-func MapBytes(numbers []string) int {
-	if len(numbers) == 0 {
-		return len("channelsEnabled=")
-	}
-	n := baseBytes
-	for _, s := range numbers {
-		n += cost(s)
-	}
-	return n
-}
+func MapBytes(numbers []string) int { return MapBytesWith(numbers, cost) }
 
 // fits reports whether a block of count numbers and bytes stays within pct
 // percent of lim.
@@ -117,7 +141,7 @@ func Next(prev []string, numbers []string, lim Limits) ([]Block, error) {
 		out = assign(prev, numbers)
 	}
 	for i := 0; i < len(out); i++ {
-		for len(out[i].Numbers) > 1 && !fits(len(out[i].Numbers), MapBytes(out[i].Numbers), lim, 100) {
+		for len(out[i].Numbers) > 1 && !fits(len(out[i].Numbers), MapBytesWith(out[i].Numbers, lim.costOf), lim, 100) {
 			m := len(out[i].Numbers) / 2
 			upper := Block{Start: out[i].Numbers[m], Numbers: slices.Clone(out[i].Numbers[m:])}
 			out[i].Numbers = slices.Clip(out[i].Numbers[:m])
@@ -136,12 +160,12 @@ func pack(numbers []string, lim Limits) []Block {
 	cur := Block{Start: numbers[0]}
 	bytes := baseBytes
 	for _, n := range numbers {
-		if len(cur.Numbers) > 0 && !fits(len(cur.Numbers)+1, bytes+cost(n), lim, FirstFill) {
+		if len(cur.Numbers) > 0 && !fits(len(cur.Numbers)+1, bytes+lim.costOf(n), lim, FirstFill) {
 			out = append(out, cur)
 			cur, bytes = Block{Start: n}, baseBytes
 		}
 		cur.Numbers = append(cur.Numbers, n)
-		bytes += cost(n)
+		bytes += lim.costOf(n)
 	}
 	return append(out, cur)
 }

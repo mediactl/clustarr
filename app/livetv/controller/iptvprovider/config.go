@@ -34,12 +34,15 @@ import (
 	"github.com/mediactl/clustarr/app/livetv/tuner"
 	"github.com/mediactl/clustarr/pkg/iptv"
 	"github.com/mediactl/clustarr/pkg/iptv/filter"
+	"github.com/mediactl/clustarr/pkg/iptv/plexguide"
 	"github.com/mediactl/clustarr/pkg/iptv/xmltv"
 )
 
-// resolved is a provider's server and credentials, its Secret read.
+// resolved is a provider's server and credentials, its Secrets read.
 type resolved struct {
 	server, username, password string
+	// plexToken is spec.plexGuide.credentialsRef's token.
+	plexToken string
 }
 
 // NormalizeServer is spec.server as the panel's root: a scheme (https when
@@ -86,6 +89,34 @@ func ValidateSourceURL(raw string) error {
 // missing Secret or key, is a Valid=False condition naming it, never a
 // credential.
 func (r *Reconciler) resolve(ctx context.Context, p *clustarrv1.IPTVProvider) (resolved, metav1.Condition) {
+	out, valid := r.resolveAccount(ctx, p)
+	g := p.Spec.PlexGuide
+	if valid.Status != metav1.ConditionTrue || g == nil {
+		return out, valid
+	}
+	ref := g.CredentialsRef
+	var s corev1.Secret
+	err := r.SecretReader.Get(ctx, types.NamespacedName{Namespace: p.Namespace, Name: ref.Name}, &s)
+	invalid := func(reason, format string, args ...any) (resolved, metav1.Condition) {
+		return resolved{}, metav1.Condition{Type: clustarrv1.ConditionValid, Status: metav1.ConditionFalse, Reason: reason, Message: fmt.Sprintf(format, args...)}
+	}
+	switch {
+	case apierrors.IsNotFound(err):
+		return invalid(clustarrv1.ReasonSecretNotFound, "plexGuide: Secret %s/%s does not exist", p.Namespace, ref.Name)
+	case err != nil:
+		return invalid(clustarrv1.ReasonSecretNotFound, "plexGuide: Secret %s/%s cannot be read: %v", p.Namespace, ref.Name, err)
+	}
+	token := bytes.TrimSpace(s.Data[ref.Key])
+	if len(token) == 0 {
+		return invalid(clustarrv1.ReasonSecretKeyNotFound, "plexGuide: Secret %s/%s has no key %q", p.Namespace, ref.Name, ref.Key)
+	}
+	out.plexToken = string(token)
+	valid.Message += "; the Plex token Secret holds its key"
+	return out, valid
+}
+
+// resolveAccount reads the panel's or playlist's settings and credentials.
+func (r *Reconciler) resolveAccount(ctx context.Context, p *clustarrv1.IPTVProvider) (resolved, metav1.Condition) {
 	invalid := func(reason, format string, args ...any) (resolved, metav1.Condition) {
 		return resolved{}, metav1.Condition{Type: clustarrv1.ConditionValid, Status: metav1.ConditionFalse, Reason: reason, Message: fmt.Sprintf(format, args...)}
 	}
@@ -157,6 +188,9 @@ func buildConfig(p *clustarrv1.IPTVProvider, blocks []tuner.BlockConfig, res res
 		Language:            p.Spec.Stream.LanguageOrDefault(),
 		Refresh:             p.Annotations[clustarrv1.AnnotationLiveTVRefresh],
 	}
+	if g := p.Spec.PlexGuide; g != nil {
+		c.Plex = &tuner.PlexConfig{LineupID: g.LineupID(), Token: res.plexToken, Enabled: g.Enabled}
+	}
 	for _, f := range p.Spec.Filters {
 		c.Filters = append(c.Filters, filter.Rule{
 			Name: f.Name, Type: string(f.Type), Match: f.Match, Include: f.Include,
@@ -176,8 +210,32 @@ func buildConfig(p *clustarrv1.IPTVProvider, blocks []tuner.BlockConfig, res res
 			} else if e.ChannelID != "" {
 				cc.Map = &xmltv.Mapping{Guide: tuner.GuideName, ChannelID: e.ChannelID}
 			}
+			if e.Plex != nil {
+				cc.PlexStation, cc.PlexOff = e.Plex.Station, e.Plex.Off
+			}
 		}
+		cc.PlexPrev = plexPrev(ch.Status.Plex)
 		c.Channels = append(c.Channels, cc)
 	}
 	return c
+}
+
+// plexPrev is the pairing a channel's status records, for the next pairing
+// to keep: only a pairing on Plex is one (a Taken channel's station is
+// another channel's).
+func plexPrev(st *clustarrv1.ChannelPlexStatus) plexguide.Prev {
+	if st == nil {
+		return plexguide.Prev{}
+	}
+	m := plexguide.Match(st.Match)
+	if !m.OnPlex() || st.Station == "" {
+		return plexguide.Prev{}
+	}
+	prev := plexguide.Prev{Match: m, Station: plexguide.Station{
+		ID: st.ID, GridKey: st.Station, CallSign: st.CallSign, Title: st.Title, VCN: st.VCN,
+	}}
+	if st.MissingSince != nil {
+		prev.MissingSince = st.MissingSince.UTC()
+	}
+	return prev
 }

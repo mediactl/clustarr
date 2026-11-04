@@ -30,8 +30,8 @@ import (
 	"github.com/mediactl/clustarr/pkg/iptv/filter"
 	"github.com/mediactl/clustarr/pkg/iptv/hdhr"
 	"github.com/mediactl/clustarr/pkg/iptv/livetvstore"
-	"github.com/mediactl/clustarr/pkg/iptv/plexguide"
 	"github.com/mediactl/clustarr/pkg/iptv/m3u"
+	"github.com/mediactl/clustarr/pkg/iptv/plexguide"
 	"github.com/mediactl/clustarr/pkg/iptv/xmltv"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 )
@@ -223,8 +223,23 @@ func (t *Tuner) render(p *provider) {
 	// design §5.3): none until a lineup is held, so a restart before the
 	// cache or the first fetch moves nobody.
 	plexByNumber := map[string]plexguide.Station{}
-	if cfg.Plex != nil && p.plex.loaded {
-		for obj, pair := range plexguide.Pair(p.plex.lineup, plexChans, t.o.Now()) {
+	if cfg.Plex != nil {
+		var pairs map[string]plexguide.Pairing
+		if p.plex.loaded {
+			pairs = plexguide.Pair(p.plex.lineup, plexChans, t.o.Now())
+		} else {
+			// No lineup held yet (no cache, the first fetch pending): each
+			// channel keeps the pairing its status records, so a Plex block
+			// keeps serving its map and no channel's status moves.
+			pairs = make(map[string]plexguide.Pairing, len(plexChans))
+			for _, c := range plexChans {
+				pairs[c.Object] = plexguide.Pairing{Match: plexguide.NoLineup}
+				if c.Prev.Match.OnPlex() && c.Prev.Station.ID != "" {
+					pairs[c.Object] = plexguide.Pairing{Match: c.Prev.Match, Station: c.Prev.Station, MissingSince: c.Prev.MissingSince}
+				}
+			}
+		}
+		for obj, pair := range pairs {
 			st := states[obj]
 			st.Plex = &pair
 			states[obj] = st

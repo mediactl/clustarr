@@ -33,6 +33,7 @@ import (
 	"github.com/mediactl/clustarr/app/livetv/tuner"
 	"github.com/mediactl/clustarr/pkg/iptv/blocks"
 	"github.com/mediactl/clustarr/pkg/iptv/hdhr"
+	"github.com/mediactl/clustarr/pkg/iptv/plexguide"
 	"github.com/mediactl/clustarr/pkg/iptv/xmltv"
 )
 
@@ -78,6 +79,23 @@ func activeNumbers(channels []clustarrv1.IPTVChannel) []string {
 	return slices.Compact(out)
 }
 
+// pairedStations is the active channels on Plex in the tuner's snapshot,
+// by number: the stations their blocks' channel maps carry.
+func pairedStations(channels []clustarrv1.IPTVChannel, snap tuner.Snapshot) map[string]plexguide.Station {
+	out := map[string]plexguide.Station{}
+	for i := range channels {
+		ch := &channels[i]
+		st, ok := snap.Channels[ch.Name]
+		if !ch.Spec.Active || !ok || st.Plex == nil || !st.Plex.Match.OnPlex() {
+			continue
+		}
+		if _, dup := out[ch.Spec.Number]; !dup {
+			out[ch.Spec.Number] = st.Plex.Station
+		}
+	}
+	return out
+}
+
 // span is the numbers a provider's published blocks cover.
 func span(bs []clustarrv1.BlockStatus) (first, last string, ok bool) {
 	if len(bs) == 0 || bs[0].First == "" || bs[len(bs)-1].Last == "" {
@@ -114,13 +132,38 @@ func (r *Reconciler) planBlocks(ctx context.Context, p *clustarrv1.IPTVProvider,
 	}
 
 	numbers := activeNumbers(channels)
+	lim := blocks.Limits{MaxChannels: int(p.Spec.MaxChannelsOrDefault()), MaxBytes: blocks.DefaultMaxBytes}
+	// With spec.plexGuide.enabled the blocks hold the channels paired with
+	// the Plex lineup alone, each a device whose DVR's guide is that lineup;
+	// a channel off Plex is in no block (the Plex native guide design §5.4).
+	plexOn := p.Spec.PlexGuide != nil && p.Spec.PlexGuide.Enabled
+	var lineup string
+	if plexOn {
+		snap, ok := r.Tuner.Snapshot(types.NamespacedName{Namespace: p.Namespace, Name: p.Name})
+		if !ok || !snap.Plex.Loaded {
+			return keep(clustarrv1.ReasonLineupPending, "waiting for the Plex lineup "+p.Spec.PlexGuide.LineupID()), nil
+		}
+		paired := pairedStations(channels, snap)
+		numbers = numbers[:0:0]
+		for n := range paired {
+			numbers = append(numbers, n)
+		}
+		slices.SortFunc(numbers, xmltv.CompareNumbers)
+		lim.Cost = func(n string) int { s := paired[n]; return blocks.PlexCost(n, s.ID, s.VCN) }
+		lineup = plexguide.LineupURI(snap.Plex.LineupID, snap.Plex.Title)
+	}
 	prev := make([]string, 0, len(p.Status.Blocks))
 	byStart := map[string]clustarrv1.BlockStatus{}
 	for _, b := range p.Status.Blocks {
+		// A switch to or from Plex's guide packs afresh: the other kind's
+		// starts are no boundaries of this one.
+		if (b.Lineup != "") != plexOn {
+			continue
+		}
 		prev = append(prev, b.Start)
 		byStart[b.Start] = b
 	}
-	next, err := blocks.Next(prev, numbers, blocks.Limits{MaxChannels: int(p.Spec.MaxChannelsOrDefault()), MaxBytes: blocks.DefaultMaxBytes})
+	next, err := blocks.Next(prev, numbers, lim)
 	if errors.Is(err, blocks.ErrTooManyBlocks) {
 		return keep(clustarrv1.ReasonTooManyChannels, fmt.Sprintf("%d active channels need more than %d blocks", len(numbers), blocks.MaxBlocks)), nil
 	}
@@ -155,17 +198,32 @@ func (r *Reconciler) planBlocks(ctx context.Context, p *clustarrv1.IPTVProvider,
 			bs.DeviceID = old.DeviceID
 		}
 		if bs.DeviceID == "" {
-			bs.DeviceID = hdhr.BlockDeviceID(p.Namespace, p.Name, nb.Start)
-			if len(prev) == 0 && i == 0 && p.Spec.Device.ID != "" {
+			switch {
+			case plexOn:
+				// A device of its own, so turning Plex's guide on replaces the
+				// XMLTV devices and their DVRs rather than changing a DVR's
+				// lineup in place, which PMS has no call for.
+				bs.DeviceID = hdhr.BlockDeviceID(p.Namespace, p.Name, "plex/"+nb.Start)
+			case len(prev) == 0 && i == 0 && p.Spec.Device.ID != "":
 				bs.DeviceID = p.Spec.Device.ID
+			default:
+				bs.DeviceID = hdhr.BlockDeviceID(p.Namespace, p.Name, nb.Start)
 			}
 		}
 		r.address(&bs)
 		bs.Channels = int32(len(nb.Numbers))
 		bs.First, bs.Last = nb.Numbers[0], nb.Numbers[len(nb.Numbers)-1]
-		bs.MapBytes = int32(blocks.MapBytes(nb.Numbers))
+		if lim.Cost != nil {
+			bs.MapBytes = int32(blocks.MapBytesWith(nb.Numbers, lim.Cost))
+		} else {
+			bs.MapBytes = int32(blocks.MapBytes(nb.Numbers))
+		}
 		bs.FriendlyName = friendly + " " + nb.Start + "+"
-		bs.GuidePath = BlockGuidePath
+		if plexOn {
+			bs.Lineup = lineup
+		} else {
+			bs.GuidePath = BlockGuidePath
+		}
 		out.blocks = append(out.blocks, bs)
 		out.numbers[nb.Start] = nb.Numbers
 	}
@@ -241,7 +299,7 @@ func (r *Reconciler) owners(ctx context.Context, namespace string, bs []clustarr
 func tunerBlocks(pl plan) []tuner.BlockConfig {
 	out := make([]tuner.BlockConfig, 0, len(pl.blocks))
 	for _, b := range pl.blocks {
-		out = append(out, tuner.BlockConfig{Start: b.Start, DeviceID: b.DeviceID, FriendlyName: b.FriendlyName, Numbers: pl.numbers[b.Start]})
+		out = append(out, tuner.BlockConfig{Start: b.Start, DeviceID: b.DeviceID, FriendlyName: b.FriendlyName, Numbers: pl.numbers[b.Start], Lineup: b.Lineup})
 	}
 	return out
 }

@@ -53,10 +53,11 @@ const (
 // OnPlex is whether a channel so paired reaches Plex.
 func (m Match) OnPlex() bool { return m == Manual || m == Automatic }
 
-// Prev is a channel's last pairing, as its status records it: the station
-// it was on (whole, so a station absent from a fetch is still served) and
-// since when that station has been absent.
+// Prev is a channel's last pairing on Plex, as its status records it: how
+// it was paired, the station it was on (whole, so a station absent from a
+// fetch is still served) and since when that station has been absent.
 type Prev struct {
+	Match        Match
 	Station      Station
 	MissingSince time.Time
 }
