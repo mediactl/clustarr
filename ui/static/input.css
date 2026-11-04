@@ -360,7 +360,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 }
 /* A section card's open tab (the dashboard's tabbed cards) is lit with the
    page's own UltraBlur (owner, 2026-11-04: "an ultrablur variant based on
-   the page background"): the four corner colours, each lifted toward white,
+   the page background", then "slightly reduce the brightness ... washed
+   out"): the four corner colours, each lifted a sixth toward white,
    laid as the html background lays them and fixed to the viewport as it
    is, so the open tab shows the patch of the canvas behind it, brightened,
    rather than a grey block. The attribute rule is unlayered, so it outranks
@@ -368,10 +369,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 [data-dashboard-tabs] [role="tab"][data-active] {
   background-color: transparent;
   background-image:
-    radial-gradient(circle at 0% 0%, color-mix(in oklab, var(--ultrablur-top-left) 70%, white), transparent 65%),
-    radial-gradient(circle at 100% 0%, color-mix(in oklab, var(--ultrablur-top-right) 70%, white), transparent 65%),
-    radial-gradient(circle at 100% 100%, color-mix(in oklab, var(--ultrablur-bottom-right) 70%, white), transparent 65%),
-    radial-gradient(circle at 0% 100%, color-mix(in oklab, var(--ultrablur-bottom-left) 70%, white), transparent 65%);
+    radial-gradient(circle at 0% 0%, color-mix(in oklab, var(--ultrablur-top-left) 84%, white), transparent 65%),
+    radial-gradient(circle at 100% 0%, color-mix(in oklab, var(--ultrablur-top-right) 84%, white), transparent 65%),
+    radial-gradient(circle at 100% 100%, color-mix(in oklab, var(--ultrablur-bottom-right) 84%, white), transparent 65%),
+    radial-gradient(circle at 0% 100%, color-mix(in oklab, var(--ultrablur-bottom-left) 84%, white), transparent 65%);
   background-attachment: fixed;
   box-shadow: inset 0 1px 0 var(--glass-highlight);
 }
