@@ -51,7 +51,8 @@ import (
 // Handler notifications carry rows and are decoded in each handler's own
 // goroutine, so a late handler's replay of the whole store (every
 // controller's, since controllers start after the cache has synced) runs
-// off the writer's lock and in parallel across handlers.
+// off the writer's lock; the handlers that register together share one
+// replay and one decode of each row ([replay]).
 type Informer struct {
 	// lw is the cache's lister-watcher with the watch stream rowified:
 	// see listerWatcher.
@@ -86,6 +87,15 @@ type Informer struct {
 
 	// Under mu: what the store holds, mirrored into the gauges.
 	rows, bytes, objectBytes int64
+	// gen counts the store's writes, under mu: a replay opened at one
+	// generation is joined only while the store is still at it.
+	gen uint64
+	// replay is the latest late-handler replay, joinable until it starts.
+	replay *replay
+	// The replay's tuning (replayQuiet, replayWindow, replayLead); fields so
+	// a test can shorten them.
+	replayQuiet, replayWindow time.Duration
+	replayLead                int
 }
 
 var _ toolscache.SharedIndexInformer = (*Informer)(nil)
@@ -99,6 +109,9 @@ func newInformer(lw toolscache.ListerWatcher, _ runtime.Object, k *kind, resync 
 		synced:     make(chan struct{}),
 
 		dictionaryOnSync: true,
+		replayQuiet:      replayQuiet,
+		replayWindow:     replayWindow,
+		replayLead:       replayLead,
 	}
 	s.lw = s.listerWatcher(lw)
 	adapters := make(toolscache.Indexers, len(indexers))
@@ -404,6 +417,7 @@ func (s *Informer) process(obj any, isInInitialList bool) error {
 				if err := s.indexer.Update(r); err != nil {
 					return err
 				}
+				s.gen++
 				prev := old.(*Row)
 				s.accountLocked(prev, r)
 				s.notifyLocked(notification{op: opUpdate, row: r, old: prev})
@@ -411,6 +425,7 @@ func (s *Informer) process(obj any, isInInitialList bool) error {
 				if err := s.indexer.Add(r); err != nil {
 					return err
 				}
+				s.gen++
 				s.accountLocked(nil, r)
 				s.notifyLocked(notification{op: opAdd, row: r, initial: isInInitialList})
 			}
@@ -421,6 +436,7 @@ func (s *Informer) process(obj any, isInInitialList bool) error {
 				if err := s.indexer.Delete(o); err != nil {
 					return err
 				}
+				s.gen++
 				if pr, ok := prev.(*Row); ok {
 					s.accountLocked(pr, nil)
 				}
@@ -430,6 +446,7 @@ func (s *Informer) process(obj any, isInInitialList bool) error {
 				if err := s.indexer.Delete(o); err != nil {
 					return err
 				}
+				s.gen++
 				if pr, ok := prev.(*Row); ok {
 					s.accountLocked(pr, nil)
 				}
@@ -533,6 +550,7 @@ func (s *Informer) buildDictionary(ctx context.Context) error {
 			} else if err := s.indexer.Update(nr); err != nil {
 				s.log.Warn("rowcache: a row stays compressed without the dictionary", "key", key, "err", err)
 			} else {
+				s.gen++
 				before += int64(len(r.body))
 				after += int64(len(nr.body))
 				s.accountLocked(r, nr)
@@ -603,12 +621,14 @@ func (s *Informer) AddEventHandlerWithOptions(handler toolscache.ResourceEventHa
 	if !started {
 		return l, nil
 	}
-	for _, item := range s.indexer.List() {
-		l.add(withCells(notification{op: opAdd, row: item.(*Row), initial: true}))
+	// The store as of now, delivered through a replay shared with the
+	// handlers registering alongside; the sync marker follows it.
+	rep := s.replay
+	if rep == nil || !rep.join(l, s.gen) {
+		rep = s.newReplay(l, s.isSynced())
+		s.replay = rep
 	}
-	if s.isSynced() {
-		l.add(notification{op: opSynced})
-	}
+	l.rep = rep
 	l.start(ctx)
 	return l, nil
 }
@@ -623,6 +643,11 @@ func (s *Informer) RemoveEventHandler(handle toolscache.ResourceEventHandlerRegi
 	delete(s.listeners, l)
 	s.state.Unlock()
 	l.end()
+	// Its replay's other members wait for it no longer, whatever its
+	// handler is doing.
+	if rep := l.replay(); rep != nil {
+		rep.leave(l)
+	}
 	return nil
 }
 
@@ -783,6 +808,9 @@ type listener struct {
 	mu    sync.Mutex
 	queue []notification
 	wake  chan struct{}
+	// rep is the store's replay this handler reads first, when it
+	// registered on a started informer; nil once read.
+	rep *replay
 
 	synced     chan struct{}
 	syncedOnce sync.Once
@@ -808,16 +836,52 @@ func (l *listener) add(n notification) {
 
 func (l *listener) start(ctx context.Context) { go l.run(ctx) }
 
-// pending is how many notifications wait in the queue.
+// pending is how many notifications wait: the replay's rows not yet
+// dispatched, then the queue's.
 func (l *listener) pending() int {
 	l.mu.Lock()
+	n, rep := len(l.queue), l.rep
+	l.mu.Unlock()
+	if rep != nil {
+		n += rep.remaining(l)
+	}
+	return n
+}
+
+// replay is the replay l is reading, or nil.
+func (l *listener) replay() *replay {
+	l.mu.Lock()
 	defer l.mu.Unlock()
-	return len(l.queue)
+	return l.rep
 }
 
 func (l *listener) end() { l.stopOnce.Do(func() { close(l.stop) }) }
 
 func (l *listener) run(ctx context.Context) {
+	// The replay first, in the order every member reads it; the sync
+	// marker once it is read, when the informer had synced by its opening;
+	// then the queue, which holds what arrived since the registration.
+	if rep := l.replay(); rep != nil {
+		defer rep.leave(l)
+		for {
+			row, cell, status := rep.next(ctx, l)
+			if status == replayStopped {
+				return
+			}
+			if status == replayDone {
+				break
+			}
+			l.dispatch(notification{op: opAdd, row: row, obj: cell, initial: true})
+			rep.advance(l)
+		}
+		rep.leave(l)
+		l.mu.Lock()
+		l.rep = nil
+		l.mu.Unlock()
+		if rep.synced {
+			l.syncedOnce.Do(func() { close(l.synced) })
+		}
+	}
 	for {
 		l.mu.Lock()
 		if len(l.queue) == 0 {
