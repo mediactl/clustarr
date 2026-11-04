@@ -103,38 +103,41 @@ func TestTheDashboardShowsWhatIsRunningPendingFailedAndSkipped(t *testing.T) {
 	} {
 		assert.Contains(t, body, want, want)
 	}
-	// The counts read as a chart tooltip (owner, 2026-11-04): one card per
-	// kind of work, a row per state with its count at the right.
-	for summary, rows := range map[string][]string{
-		"Downloads":  {`data-stat="Downloading" data-count="1"`, `data-stat="Queued" data-count="1"`, `data-stat="Failed" data-count="1"`},
-		"Transcodes": {`data-stat="Transcoding" data-count="1"`, `data-stat="Pending" data-count="30"`, `data-stat="Failed" data-count="1"`, `data-stat="Skipped" data-count="2"`},
-	} {
-		assert.Contains(t, body, `data-summary="`+summary+`"`)
-		for _, row := range rows {
-			assert.Regexp(t, `data-summary="`+summary+`"[\s\S]*?`+row, body, summary+": "+row)
-		}
-	}
-	// A section per subject (owner, 2026-11-04), in the order work flows:
-	// each kind's summary, lists and rows under its own heading; Plex's and
-	// Live TV's are charts alone, which need --metrics-url.
+	// A section per subject (owner, 2026-11-04), in the order work flows,
+	// each with one card after shadcn's interactive chart: the title, then
+	// a tab per state carrying its count, and each tab's rows in a panel;
+	// Plex's and Live TV's are charts alone, which need --metrics-url.
 	downloadsAt := strings.Index(body, `data-dashboard-section="downloads"`)
 	transcodesAt := strings.Index(body, `data-dashboard-section="transcodes"`)
 	require.True(t, downloadsAt >= 0 && transcodesAt > downloadsAt, "Downloads, then Transcodes")
 	assert.NotContains(t, body, `data-dashboard-section="plex"`)
 	downloads, transcodes := body[downloadsAt:transcodesAt], body[transcodesAt:]
-	for _, want := range []string{`data-summary="Downloads"`, `data-list="downloads-running"`, `data-list="downloads-queued"`, `data-list="downloads-failed"`, `data-download="03"`, `data-download="04"`} {
+	for section, tabs := range map[string]map[string]string{
+		"downloads":  {"Running": "1", "Queued": "1", "Failed": "1"},
+		"transcodes": {"Running": "1", "Pending": "30", "Failed": "1", "Skipped": "2"},
+	} {
+		html := map[string]string{"downloads": downloads, "transcodes": transcodes}[section]
+		assert.Contains(t, html, `data-section-card="`+section+`"`)
+		for label, n := range tabs {
+			assert.Regexp(t, `role="tab"[^>]*data-count="`+n+`"[^>]*data-stat="`+label+`"`, html, section+": "+label)
+		}
+	}
+	for _, want := range []string{`data-list="downloads-running"`, `data-list="downloads-queued"`, `data-list="downloads-failed"`, `data-download="03"`, `data-download="04"`} {
 		assert.Contains(t, downloads, want, "downloads: "+want)
 	}
-	for _, want := range []string{`data-summary="Transcodes"`, `data-list="transcodes-running"`, `data-list="transcodes-pending"`, `data-list="transcodes-failed"`, `data-list="transcodes-skipped"`, `data-transcode="nina"`} {
+	for _, want := range []string{`data-list="transcodes-running"`, `data-list="transcodes-pending"`, `data-list="transcodes-failed"`, `data-list="transcodes-skipped"`, `data-transcode="nina"`} {
 		assert.Contains(t, transcodes, want, "transcodes: "+want)
 	}
 	assert.NotContains(t, transcodes, `data-download=`, "no download in the Transcodes section")
-	// A list's count sits at the right of its title, a row's percent at the
-	// right of the line under its bar.
-	assert.Regexp(t, `data-list="transcodes-pending"[\s\S]*?data-slot="card-action"[^>]*>1 of 30</div>`, body)
+	// A card opens on its first tab with rows; a tab showing fewer rows
+	// than its count says so and links the page listing them all.
+	assert.Regexp(t, `aria-selected="true"[^>]*data-templ-value="running"`, downloads)
+	assert.Regexp(t, `data-list="transcodes-pending"[\s\S]*?data-more>\s*1 of 30 ·\s*<a href="/pipeline"`, body)
+	// A row's percent sits at the right of the line under its bar.
 	assert.Regexp(t, `>why tenma</span>\s*<span[^>]*data-percent>42%</span>`, body)
 	assert.Regexp(t, `>2.00 MiB/s · ETA 1m30s</span>\s*<span[^>]*data-percent>0%</span>`, body)
 	assert.Contains(t, body, `hx-get="/dashboard/summary"`, "the summary refreshes itself")
+	assert.Contains(t, body, `<script src="/static/dashboard.js" defer>`, "the script that keeps a card's tab across refreshes")
 	assert.Contains(t, body, "Metrics are not configured", "no --metrics-url")
 	assert.Regexp(t, `<a href="/dashboard" [^>]*data-active[ >]`, body, "the sidebar marks the Dashboard")
 }
@@ -152,6 +155,21 @@ func TestTheSummaryRefreshesAlone(t *testing.T) {
 	}
 	assert.Contains(t, body, `data-transcode="tenma"`)
 	assert.NotContains(t, body, "<html")
+}
+
+// The summary poller says which tab each card shows (ui/static/dashboard.js),
+// and the refresh keeps it open; a tab the card has not is the default.
+func TestTheSummaryKeepsTheOpenTab(t *testing.T) {
+	srv := ui.NewServer(t.Context(), ui.Options{Dashboard: func(context.Context) projection.Dashboard { return dashboardFixture() }})
+
+	body := get(t, srv, "/dashboard/summary?tab-downloads=failed&tab-transcodes=skipped").Body.String()
+	split := strings.Index(body, `id="dashboard-live-transcodes"`)
+	require.Positive(t, split)
+	assert.Regexp(t, `aria-selected="true"[^>]*data-templ-value="failed"`, body[:split])
+	assert.Regexp(t, `aria-selected="true"[^>]*data-templ-value="skipped"`, body[split:])
+
+	body = get(t, srv, "/dashboard/summary?tab-downloads=nope").Body.String()
+	assert.Regexp(t, `aria-selected="true"[^>]*data-templ-value="running"`, body, "an unknown tab is the default")
 }
 
 // fakeQuerier answers each query with the series registered for it.
@@ -193,13 +211,17 @@ func TestTheChartsQueryEveryPanelOverTheRange(t *testing.T) {
 	body := rec.Body.String()
 	assert.Contains(t, body, `data-range="6h"`)
 	assert.Contains(t, body, `hx-get="/dashboard/charts?range=6h"`, "the charts refresh over the range picked")
-	assert.Contains(t, body, `data-panel="transcode-workers"`)
-	// Each chart stands in its subject's section, swapped out of band.
-	groups := []string{"downloads", "transcodes", "plex", "livetv"}
-	panels := map[string][]string{
-		"downloads": {"grabs"}, "transcodes": {"transcodes", "transcode-workers", "transcode-backlog"},
-		"plex": {"plex-sessions", "plex-bandwidth", "plex-plays"}, "livetv": {"livetv"},
+	// Downloads' and Transcodes' charts are a card each behind tabs (owner,
+	// 2026-11-04), a tab per chart or series carrying its figure over the
+	// range: the workers' peak is 2 intel and 1 nvidia at once, and a chart
+	// that failed or has nothing shows a dash.
+	for label, figure := range map[string]string{"Finished": "–", "Peak workers": "3", "Backlog": "–", "Grabbed": "–", "Imported": "–"} {
+		assert.Regexp(t, `role="tab"[^>]*data-count="`+figure+`"[^>]*data-stat="`+label+`"`, body, label)
 	}
+	// Each chart stands in its subject's section, swapped out of band:
+	// Plex's and Live TV's as cards of their own.
+	groups := []string{"downloads", "transcodes", "plex", "livetv"}
+	panels := map[string][]string{"plex": {"plex-sessions", "plex-bandwidth", "plex-plays"}, "livetv": {"livetv"}}
 	for i, group := range groups {
 		open := `<div id="dashboard-charts-` + group + `" class="contents" hx-swap-oob="true">`
 		at := strings.Index(body, open)
@@ -214,7 +236,15 @@ func TestTheChartsQueryEveryPanelOverTheRange(t *testing.T) {
 			ids = append(ids, m[1])
 		}
 		assert.Equal(t, panels[group], ids, group)
+		if panels[group] == nil {
+			assert.Contains(t, body[at:end], `data-section-card="`+group+`-charts"`, group)
+		}
 	}
+	// A chart card keeps the tab its request says it shows.
+	body = get(t, srv, "/dashboard/charts?range=6h&tab-transcodes-charts=backlog").Body.String()
+	cardAt := strings.Index(body, `data-section-card="transcodes-charts"`)
+	require.Positive(t, cardAt)
+	assert.Regexp(t, `aria-selected="true"[^>]*data-templ-value="backlog"`, body[cardAt:])
 	assert.Contains(t, body, `data-chart="chart-dash-transcode-workers"`)
 	assert.Contains(t, body, "--color-s-intel", "one series per tier, keyed for its color")
 	assert.Contains(t, body, "prom: 502 Bad Gateway", "a failing panel says why")

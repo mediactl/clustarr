@@ -26,6 +26,7 @@ import (
 	"github.com/mediactl/clustarr/ui/components/badge"
 	"github.com/mediactl/clustarr/ui/components/card"
 	"github.com/mediactl/clustarr/ui/components/chart"
+	"github.com/mediactl/clustarr/ui/components/tabs"
 	"github.com/mediactl/clustarr/ui/projection"
 )
 
@@ -43,6 +44,10 @@ type DashboardView struct {
 type DashboardSummaryView struct {
 	Summary projection.Dashboard
 	Active  []DownloadView
+	// Tabs is the tab each section card shows, by section key, as the
+	// summary poller reports it (ui/static/dashboard.js), so a refresh
+	// keeps it; empty, the first tab with rows.
+	Tabs map[string]string
 }
 
 // DashboardChartsView is the dashboard's charts over one range, re-fetched
@@ -52,6 +57,11 @@ type DashboardChartsView struct {
 	Ranges     []string
 	Configured bool
 	Panels     []ChartPanel
+	// Tabs are each section's chart card's tabs; a section without any
+	// shows its panels as cards of their own. Selected is the tab each
+	// card shows, by section, as the request reports it.
+	Tabs     map[string][]ChartTab
+	Selected map[string]string
 }
 
 // ChartPanel is one chart: its series' config, one datum per sample time
@@ -69,6 +79,15 @@ type ChartPanel struct {
 	Keys        []string
 	Data        []chart.Datum
 	Err         string
+}
+
+// ChartTab is one tab of a section's chart card: a chart, or one series of
+// it, the figure it shows over the range (its total, peak or latest, "–"
+// without data) and, when it shows one series, that series' colour.
+type ChartTab struct {
+	Value, Label   string
+	Figure, Swatch string
+	Panel          ChartPanel
 }
 
 // The dashboard's refresh periods.
@@ -107,8 +126,8 @@ func (v DashboardChartsView) Has(section string) bool {
 }
 
 // Dashboard is the page: the title and the charts' range, then a section
-// per subject, each one grid of eighths on a wide screen -- a summary card
-// one column, a list or a chart two -- quarters on a laptop and halves on
+// per subject, each one grid of eighths on a wide screen -- its tabbed card
+// the whole row, a chart two columns -- quarters on a laptop and halves on
 // a phone, each card as tall as its own rows. A section's grid holds two
 // groups whose boxes vanish (display: contents), its live cards and its
 // charts, and two hidden pollers refresh them: every SummaryRefresh the
@@ -130,7 +149,11 @@ templ Dashboard(v DashboardView) {
 			for _, sec := range dashboardSections {
 				if sec.Live || v.Charts.Has(sec.Key) {
 					<section data-dashboard-section={ sec.Key } class="space-y-3">
-						<h2 class="text-lg font-semibold">{ sec.Title }</h2>
+						// A live section's card carries its title; a section of
+						// charts alone is headed.
+						if !sec.Live {
+							<h2 class="text-lg font-semibold">{ sec.Title }</h2>
+						}
 						<div class="grid grid-cols-2 items-start gap-4 lg:grid-cols-4 xl:grid-cols-8">
 							if sec.Live {
 								@liveGroup(sec.Key, v.Summary, false)
@@ -185,119 +208,176 @@ templ liveGroup(key string, v DashboardSummaryView, oob bool) {
 	</div>
 }
 
-// downloadsLive is the Downloads section's counts and lists.
+// downloadsLive is the Downloads section's card: a tab per state of a
+// grab, its count the tab's overview, its rows the tab's content.
 templ downloadsLive(v DashboardSummaryView) {
 	{{ d := v.Summary.Downloads }}
-	@summaryCard("Downloads", "/downloads", []summaryRow{
-		{"Downloading", d.Active.Total, "bg-sky-500"},
-		{"Queued", d.Pending.Total, "bg-blue-700"},
-		{"Failed", d.Failed.Total, "bg-red-500"},
-	})
-	@listCard("downloads-running", "Running", d.Active.Total, len(v.Active), "Nothing is downloading.") {
-		for _, dv := range v.Active {
-			@dashboardDownload(dv)
+	{{
+		tabList := []statTab{
+			{Value: "running", Label: "Running", Color: "bg-sky-500", N: d.Active.Total,
+				Body: downloadRows(v.Active, d.Active.Total, "Nothing is downloading.", "/downloads")},
+			{Value: "queued", Label: "Queued", Color: "bg-blue-700", N: d.Pending.Total,
+				Body: downloadRows(rowViews(d.Pending.Rows), d.Pending.Total, "Nothing is waiting.", "/downloads")},
+			{Value: "failed", Label: "Failed", Color: "bg-red-500", N: d.Failed.Total,
+				Body: downloadRows(rowViews(d.Failed.Rows), d.Failed.Total, "Nothing has failed.", "/downloads")},
 		}
-	}
-	@listCard("downloads-queued", "Queued", d.Pending.Total, len(d.Pending.Rows), "Nothing is waiting.") {
-		for _, r := range d.Pending.Rows {
-			@dashboardDownload(DownloadView{Row: r})
-		}
-	}
-	@listCard("downloads-failed", "Failed", d.Failed.Total, len(d.Failed.Rows), "Nothing has failed.") {
-		for _, r := range d.Failed.Rows {
-			@dashboardDownload(DownloadView{Row: r})
-		}
-	}
+	}}
+	@sectionCard("downloads", "Downloads", "Grabs transferring, waiting their turn, and failed", "/downloads", tabList, selectedTab(tabList, v.Tabs["downloads"]))
 }
 
-// transcodesLive is the Transcodes section's counts and lists.
+// transcodesLive is the Transcodes section's card, as downloadsLive.
 templ transcodesLive(v DashboardSummaryView) {
 	{{ t := v.Summary.Transcodes }}
-	@summaryCard("Transcodes", "/pipeline", []summaryRow{
-		{"Transcoding", t.Running.Total, "bg-sky-500"},
-		{"Pending", t.Pending.Total, "bg-blue-700"},
-		{"Failed", t.Failed.Total, "bg-red-500"},
-		{"Skipped", t.Skipped.Total, "bg-amber-500"},
-	})
-	@transcodeList("transcodes-running", "Running", t.Running, "Nothing is transcoding.")
-	@transcodeList("transcodes-pending", "Pending", t.Pending, "Nothing is waiting.")
-	@transcodeList("transcodes-failed", "Failed", t.Failed, "Nothing has failed.")
-	@transcodeList("transcodes-skipped", "Skipped", t.Skipped, "No transcode was skipped.")
+	{{
+		tabList := []statTab{
+			{Value: "running", Label: "Running", Color: "bg-sky-500", N: t.Running.Total,
+				Body: transcodeRows(t.Running, "Nothing is transcoding.")},
+			{Value: "pending", Label: "Pending", Color: "bg-blue-700", N: t.Pending.Total,
+				Body: transcodeRows(t.Pending, "Nothing is waiting.")},
+			{Value: "failed", Label: "Failed", Color: "bg-red-500", N: t.Failed.Total,
+				Body: transcodeRows(t.Failed, "Nothing has failed.")},
+			{Value: "skipped", Label: "Skipped", Color: "bg-amber-500", N: t.Skipped.Total,
+				Body: transcodeRows(t.Skipped, "No transcode was skipped.")},
+		}
+	}}
+	@sectionCard("transcodes", "Transcodes", "Files encoding, waiting in the window, failed and skipped", "/pipeline", tabList, selectedTab(tabList, v.Tabs["transcodes"]))
 }
 
-// transcodeList is a list card of transcodes.
-templ transcodeList(key, title string, l projection.TranscodeList, none string) {
-	@listCard(key, title, l.Total, len(l.Rows), none) {
-		for _, r := range l.Rows {
-			@dashboardTranscode(r)
+// statTab is one tab of a section card, as shadcn's interactive chart
+// header has one per series: its value, its label and colour, its count
+// (the tab's overview) and what it reveals.
+type statTab struct {
+	Value, Label, Color string
+	N                   int
+	// Figure is the tab's overview when it is no count (a chart's total,
+	// peak or latest); Swatch its colour as a CSS value when Color, a
+	// Tailwind class, is empty.
+	Figure, Swatch string
+	Body           templ.Component
+}
+
+// figure is the tab's overview: its Figure, else its count.
+func (t statTab) figure() string {
+	if t.Figure != "" {
+		return t.Figure
+	}
+	return strconv.Itoa(t.N)
+}
+
+// selectedTab is the tab a section card opens on: the one asked for when
+// it is one of the card's, else the first with rows, else the first.
+func selectedTab(list []statTab, asked string) string {
+	for _, t := range list {
+		if t.Value == asked {
+			return asked
+		}
+	}
+	for _, t := range list {
+		if t.N > 0 {
+			return t.Value
+		}
+	}
+	return list[0].Value
+}
+
+// sectionTabClass dresses a section card's tab as shadcn's interactive
+// chart header does its series buttons: a block divided from its
+// neighbours, the label over the count, the open one shaded. It overrides
+// the tabs component's own pill (tailwind-merge drops what it replaces).
+const sectionTabClass = "h-auto flex-1 flex-col items-start justify-center gap-1 rounded-none border-0 border-t border-border px-6 py-4 text-left not-first:border-l hover:bg-muted/30 data-active:bg-muted/50 group-data-[variant=default]/tabs-list:data-active:shadow-none sm:border-t-0 sm:border-l sm:px-8 sm:py-5"
+
+// sectionCard is a section's tabbed card (owner, 2026-11-04, after
+// shadcn's "Bar Chart - Interactive"): the title and description at the
+// left of the header and the tabs at its right, each a colour, a name and
+// a figure; the open tab's content below. A tab switches in the browser
+// (ui/components/tabs); the pollers tell the server which tab each card
+// shows, so a refresh keeps it open. A section has two: its lists, and its
+// charts (chartCard). href links the title, when there is one.
+templ sectionCard(key, title, description, href string, tabList []statTab, selected string) {
+	@card.Card(card.Props{Class: "col-span-full gap-0 py-0", Attributes: templ.Attributes{"data-section-card": key}}) {
+		@tabs.Tabs(tabs.Props{ID: "dashboard-tabs-" + key, DefaultValue: selected, Class: "gap-0", Attributes: templ.Attributes{"data-dashboard-tabs": key}}) {
+			<div class="flex flex-col items-stretch border-b border-border sm:flex-row">
+				<div class="flex flex-1 flex-col justify-center gap-1 px-6 py-4">
+					if href != "" {
+						<a href={ templ.SafeURL(href) } class="font-semibold leading-snug hover:underline">{ title }</a>
+					} else {
+						<span class="font-semibold leading-snug">{ title }</span>
+					}
+					<p class="text-sm text-muted-foreground">{ description }</p>
+				</div>
+				@tabs.List(tabs.ListProps{Class: "h-auto w-full items-stretch rounded-none bg-transparent p-0 group-data-horizontal/tabs:h-auto sm:w-auto"}) {
+					for _, t := range tabList {
+						@tabs.Trigger(tabs.TriggerProps{Value: t.Value, Class: sectionTabClass, Attributes: templ.Attributes{"data-stat": t.Label, "data-count": t.figure()}}) {
+							<span class="flex items-center gap-1.5 text-xs font-normal text-muted-foreground">
+								if t.Color != "" {
+									<span class={ "size-2.5 shrink-0 rounded-[2px] " + t.Color } aria-hidden="true"></span>
+								} else if t.Swatch != "" {
+									<span class="size-2.5 shrink-0 rounded-[2px]" style={ templ.SafeCSS("background-color: " + t.Swatch + ";") } aria-hidden="true"></span>
+								}
+								{ t.Label }
+							</span>
+							<span class="text-lg font-bold leading-none tabular-nums text-foreground sm:text-3xl">{ t.figure() }</span>
+						}
+					}
+				}
+			</div>
+			for _, t := range tabList {
+				@tabs.Content(tabs.ContentProps{Value: t.Value, Class: "px-6 py-4", Attributes: templ.Attributes{"data-list": key + "-" + t.Value}}) {
+					@t.Body
+				}
+			}
 		}
 	}
 }
 
-// summaryRow is one state of a summaryCard: its name, its count and its
-// colour (a Tailwind background class).
-type summaryRow struct {
-	Label string
-	N     int
-	Color string
-}
-
-// summaryCard is the counts of one kind of work as a chart tooltip reads
-// (owner, 2026-11-04: shadcn's ChartTooltipContent, which
-// ui/components/chart draws on hover): the title, then a row per state --
-// its colour, its name and, at the right, its count, the tooltip's rows
-// (chart.js tooltipHTML) at the tooltip's own size, which an eighth of a
-// wide screen holds on one line. It is a card, so it
-// is glass as the theme makes every card; it opens the page that lists the
-// work.
-templ summaryCard(title, href string, rows []summaryRow) {
-	<a href={ templ.SafeURL(href) } class="col-span-1 block" data-summary={ title }>
-		@card.Card(card.Props{Size: card.SizeSm, Class: "h-full transition-colors hover:bg-muted/50"}) {
-			@card.Header() {
-				@card.Title() {
-					{ title }
-				}
+// downloadRows is a download tab's content: its rows in columns, and how
+// many of total they are when the list goes on.
+templ downloadRows(rows []DownloadView, total int, none, href string) {
+	if len(rows) == 0 {
+		<p class="text-sm text-muted-foreground">{ none }</p>
+	} else {
+		<div class="grid gap-x-8 gap-y-4 md:grid-cols-2 xl:grid-cols-3">
+			for _, d := range rows {
+				@dashboardDownload(d)
 			}
-			@card.Content(card.ContentProps{Class: "grid gap-2 text-xs"}) {
-				for _, r := range rows {
-					<div class="flex w-full items-center gap-2" data-stat={ r.Label } data-count={ strconv.Itoa(r.N) }>
-						<div class={ "size-2.5 shrink-0 rounded-[2px] " + r.Color } aria-hidden="true"></div>
-						<div class="flex min-w-0 flex-1 items-center justify-between gap-2 leading-none">
-							<span class="min-w-0 truncate text-muted-foreground">{ r.Label }</span>
-							<span class="shrink-0 font-mono font-medium tabular-nums text-foreground">{ strconv.Itoa(r.N) }</span>
-						</div>
-					</div>
-				}
-			}
-		}
-	</a>
-}
-
-// listCard is a titled card of rows, its count at the right of the title
-// as a summaryCard's are; shown of total are rendered, and the rest are
-// counted. key names it (data-list), since titles repeat across sections.
-templ listCard(key, title string, total, shown int, none string) {
-	@card.Card(card.Props{Class: "col-span-2", Attributes: templ.Attributes{"data-list": key}}) {
-		@card.Header() {
-			@card.Title() {
-				{ title }
-			}
-			@card.Action(card.ActionProps{Class: "self-center text-sm font-medium tabular-nums text-muted-foreground", Attributes: templ.Attributes{"data-list-count": true}}) {
-				if total > shown {
-					{ fmt.Sprintf("%d of %d", shown, total) }
-				} else {
-					{ strconv.Itoa(total) }
-				}
-			}
-		}
-		@card.Content(card.ContentProps{Class: "space-y-3"}) {
-			if shown == 0 {
-				<p class="text-sm text-muted-foreground">{ none }</p>
-			} else {
-				{ children... }
-			}
-		}
+		</div>
+		@moreRows(len(rows), total, href)
 	}
+}
+
+// transcodeRows is a transcode tab's content, as downloadRows.
+templ transcodeRows(l projection.TranscodeList, none string) {
+	if len(l.Rows) == 0 {
+		<p class="text-sm text-muted-foreground">{ none }</p>
+	} else {
+		<div class="grid gap-x-8 gap-y-4 md:grid-cols-2 xl:grid-cols-3">
+			for _, r := range l.Rows {
+				@dashboardTranscode(r)
+			}
+		</div>
+		@moreRows(len(l.Rows), l.Total, "/pipeline")
+	}
+}
+
+// moreRows says how many of the list a tab shows, and links the page that
+// lists them all, when it shows fewer than all.
+templ moreRows(shown, total int, href string) {
+	if total > shown {
+		<p class="mt-4 text-xs text-muted-foreground" data-more>
+			{ fmt.Sprintf("%d of %d", shown, total) } ·
+			<a href={ templ.SafeURL(href) } class="hover:text-foreground hover:underline">See all</a>
+		</p>
+	}
+}
+
+// rowViews are grab entries without transfer telemetry, as the queued and
+// failed tabs list them.
+func rowViews(rows []projection.DownloadRow) []DownloadView {
+	out := make([]DownloadView, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, DownloadView{Row: r})
+	}
+	return out
 }
 
 // dashboardDownload is one grab entry.
@@ -474,12 +554,50 @@ templ chartsGroup(key string, v DashboardChartsView, oob bool) {
 			hx-swap-oob="true"
 		}
 	>
-		for _, p := range v.Panels {
-			if p.Section == key {
-				@chartPanel(p)
+		if len(v.Tabs[key]) > 0 {
+			@chartCard(key, v)
+		} else {
+			for _, p := range v.Panels {
+				if p.Section == key {
+					@chartPanel(p)
+				}
 			}
 		}
 	</div>
+}
+
+// chartCard is a section's second card (owner, 2026-11-04): its charts
+// behind tabs, each tab a chart's or a series' figure over the range.
+templ chartCard(key string, v DashboardChartsView) {
+	{{ list := chartStatTabs(v.Tabs[key]) }}
+	@sectionCard(key+"-charts", chartCardTitles[key], "Over "+rangeLabel(v.Range), "", list, selectedTab(list, v.Selected[key]))
+}
+
+// chartCardTitles title the chart cards.
+var chartCardTitles = map[string]string{
+	"downloads":  "Grabs and imports",
+	"transcodes": "Transcode activity",
+}
+
+// rangeLabel says a range in words.
+func rangeLabel(r string) string {
+	switch r {
+	case "6h":
+		return "the last 6 hours"
+	case "7d":
+		return "the last 7 days"
+	default:
+		return "the last 24 hours"
+	}
+}
+
+// chartStatTabs are a chart card's tabs as sectionCard draws them.
+func chartStatTabs(list []ChartTab) []statTab {
+	out := make([]statTab, 0, len(list))
+	for _, t := range list {
+		out = append(out, statTab{Value: t.Value, Label: t.Label, Figure: t.Figure, Swatch: t.Swatch, Body: chartView(t.Panel, "h-[250px]")})
+	}
+	return out
 }
 
 // chartPanel is one chart, a quarter of a wide screen as a list card is.
@@ -494,48 +612,53 @@ templ chartPanel(p ChartPanel) {
 			}
 		}
 		@card.Content() {
-			if p.Err != "" {
-				<p class="text-sm text-destructive">{ p.Err }</p>
-			} else if len(p.Data) == 0 {
-				<p class="text-sm text-muted-foreground">No data in this range.</p>
-			} else {
-				@chart.Container(chart.ContainerProps{ID: "dash-" + p.ID, Config: p.Config, Class: "aspect-auto h-[220px] w-full"}) {
-					switch p.Kind {
-						case "bar":
-							@chart.BarChart(chart.BarChartProps{Data: p.Data, AccessibilityLayer: true}) {
-								@chart.CartesianGrid(chart.CartesianGridProps{Vertical: chart.Bool(false)})
-								@chart.XAxis(chart.XAxisProps{DataKey: "t", TickLine: false, AxisLine: false, TickMargin: 8, MinTickGap: 32})
-								@chart.YAxis(chart.YAxisProps{TickLine: false, AxisLine: false, Width: 40})
-								@chart.Tooltip(chart.TooltipProps{Content: chart.TooltipContentProps{Indicator: "dot"}})
-								for _, k := range p.Keys {
-									@chart.Bar(chart.BarProps{DataKey: k, Fill: "var(--color-" + k + ")", StackID: stackID(p), Radius: 2})
-								}
-								@chart.Legend()
-							}
-						case "line":
-							@chart.LineChart(chart.LineChartProps{Data: p.Data, AccessibilityLayer: true}) {
-								@chart.CartesianGrid(chart.CartesianGridProps{Vertical: chart.Bool(false)})
-								@chart.XAxis(chart.XAxisProps{DataKey: "t", TickLine: false, AxisLine: false, TickMargin: 8, MinTickGap: 32})
-								@chart.YAxis(chart.YAxisProps{TickLine: false, AxisLine: false, Width: 40})
-								@chart.Tooltip(chart.TooltipProps{Content: chart.TooltipContentProps{Indicator: "line"}})
-								for _, k := range p.Keys {
-									@chart.Line(chart.LineProps{DataKey: k, Type: chart.CurveMonotone, Stroke: "var(--color-" + k + ")", StrokeWidth: 2})
-								}
-								@chart.Legend()
-							}
-						default:
-							@chart.AreaChart(chart.AreaChartProps{Data: p.Data, AccessibilityLayer: true}) {
-								@chart.CartesianGrid(chart.CartesianGridProps{Vertical: chart.Bool(false)})
-								@chart.XAxis(chart.XAxisProps{DataKey: "t", TickLine: false, AxisLine: false, TickMargin: 8, MinTickGap: 32})
-								@chart.YAxis(chart.YAxisProps{TickLine: false, AxisLine: false, Width: 40})
-								@chart.Tooltip(chart.TooltipProps{Content: chart.TooltipContentProps{Indicator: "dot"}})
-								for _, k := range p.Keys {
-									@chart.Area(chart.AreaProps{DataKey: k, Type: chart.CurveMonotone, Fill: "var(--color-" + k + ")", Stroke: "var(--color-" + k + ")", FillOpacity: 0.3, StackID: stackID(p)})
-								}
-								@chart.Legend()
-							}
+			@chartView(p, "h-[220px]")
+		}
+	}
+}
+
+// chartView is a panel's chart, height tall, or why it has none.
+templ chartView(p ChartPanel, height string) {
+	if p.Err != "" {
+		<p class="text-sm text-destructive">{ p.Err }</p>
+	} else if len(p.Data) == 0 {
+		<p class="text-sm text-muted-foreground">No data in this range.</p>
+	} else {
+		@chart.Container(chart.ContainerProps{ID: "dash-" + p.ID, Config: p.Config, Class: "aspect-auto w-full " + height}) {
+			switch p.Kind {
+				case "bar":
+					@chart.BarChart(chart.BarChartProps{Data: p.Data, AccessibilityLayer: true}) {
+						@chart.CartesianGrid(chart.CartesianGridProps{Vertical: chart.Bool(false)})
+						@chart.XAxis(chart.XAxisProps{DataKey: "t", TickLine: false, AxisLine: false, TickMargin: 8, MinTickGap: 32})
+						@chart.YAxis(chart.YAxisProps{TickLine: false, AxisLine: false, Width: 40})
+						@chart.Tooltip(chart.TooltipProps{Content: chart.TooltipContentProps{Indicator: "dot"}})
+						for _, k := range p.Keys {
+							@chart.Bar(chart.BarProps{DataKey: k, Fill: "var(--color-" + k + ")", StackID: stackID(p), Radius: 2})
+						}
+						@chart.Legend()
 					}
-				}
+				case "line":
+					@chart.LineChart(chart.LineChartProps{Data: p.Data, AccessibilityLayer: true}) {
+						@chart.CartesianGrid(chart.CartesianGridProps{Vertical: chart.Bool(false)})
+						@chart.XAxis(chart.XAxisProps{DataKey: "t", TickLine: false, AxisLine: false, TickMargin: 8, MinTickGap: 32})
+						@chart.YAxis(chart.YAxisProps{TickLine: false, AxisLine: false, Width: 40})
+						@chart.Tooltip(chart.TooltipProps{Content: chart.TooltipContentProps{Indicator: "line"}})
+						for _, k := range p.Keys {
+							@chart.Line(chart.LineProps{DataKey: k, Type: chart.CurveMonotone, Stroke: "var(--color-" + k + ")", StrokeWidth: 2})
+						}
+						@chart.Legend()
+					}
+				default:
+					@chart.AreaChart(chart.AreaChartProps{Data: p.Data, AccessibilityLayer: true}) {
+						@chart.CartesianGrid(chart.CartesianGridProps{Vertical: chart.Bool(false)})
+						@chart.XAxis(chart.XAxisProps{DataKey: "t", TickLine: false, AxisLine: false, TickMargin: 8, MinTickGap: 32})
+						@chart.YAxis(chart.YAxisProps{TickLine: false, AxisLine: false, Width: 40})
+						@chart.Tooltip(chart.TooltipProps{Content: chart.TooltipContentProps{Indicator: "dot"}})
+						for _, k := range p.Keys {
+							@chart.Area(chart.AreaProps{DataKey: k, Type: chart.CurveMonotone, Fill: "var(--color-" + k + ")", Stroke: "var(--color-" + k + ")", FillOpacity: 0.3, StackID: stackID(p)})
+						}
+						@chart.Legend()
+					}
 			}
 		}
 	}

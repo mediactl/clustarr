@@ -22,6 +22,7 @@ import (
 	"errors"
 	"math"
 	"net/http"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -118,6 +119,126 @@ var dashPanels = []panelDef{
 	}},
 }
 
+// chartTabDef is one tab of a section's chart card (owner, 2026-11-04,
+// after shadcn's "Bar Chart - Interactive"): the panel it shows -- only the
+// Keys series when set, as that chart shows one series a tab -- its label,
+// and how the tab's figure reduces what it shows over the range.
+type chartTabDef struct {
+	Value, Label, Panel string
+	Keys                []string
+	Reduce              func(views.ChartPanel) float64
+}
+
+// dashChartTabs are the chart cards' tabs, by section; a section without
+// any shows its panels as cards of their own.
+var dashChartTabs = map[string][]chartTabDef{
+	"downloads": {
+		{Value: "grabbed", Label: "Grabbed", Panel: "grabs", Keys: []string{"grabbed"}, Reduce: totalOf},
+		{Value: "imported", Label: "Imported", Panel: "grabs", Keys: []string{"imported"}, Reduce: totalOf},
+	},
+	"transcodes": {
+		{Value: "finished", Label: "Finished", Panel: "transcodes", Reduce: totalOf},
+		{Value: "workers", Label: "Peak workers", Panel: "transcode-workers", Reduce: peakOf},
+		{Value: "backlog", Label: "Backlog", Panel: "transcode-backlog", Reduce: latestOf},
+	},
+}
+
+// stepSum is a datum's series summed.
+func stepSum(p views.ChartPanel, d chart.Datum) float64 {
+	var sum float64
+	for _, k := range p.Keys {
+		if v, ok := d[k].(float64); ok {
+			sum += v
+		}
+	}
+	return sum
+}
+
+// totalOf is everything a panel counts over the range; peakOf its highest
+// step; latestOf its last step.
+func totalOf(p views.ChartPanel) float64 {
+	var total float64
+	for _, d := range p.Data {
+		total += stepSum(p, d)
+	}
+	return total
+}
+
+func peakOf(p views.ChartPanel) float64 {
+	var peak float64
+	for _, d := range p.Data {
+		peak = max(peak, stepSum(p, d))
+	}
+	return peak
+}
+
+func latestOf(p views.ChartPanel) float64 {
+	if len(p.Data) == 0 {
+		return 0
+	}
+	return stepSum(p, p.Data[len(p.Data)-1])
+}
+
+// chartTabs builds each section's chart tabs from the panels: the tab's
+// panel (narrowed to its series), its figure and, when it shows one
+// series, that series' colour.
+func chartTabs(panels []views.ChartPanel) map[string][]views.ChartTab {
+	out := map[string][]views.ChartTab{}
+	for section, defs := range dashChartTabs {
+		for _, def := range defs {
+			i := slices.IndexFunc(panels, func(p views.ChartPanel) bool { return p.ID == def.Panel })
+			if i < 0 {
+				continue
+			}
+			tab := views.ChartTab{Value: def.Value, Label: def.Label, Panel: onlySeries(panels[i], def.Keys, def.Value), Figure: "–"}
+			if tab.Panel.Err == "" && len(tab.Panel.Data) > 0 {
+				tab.Figure = groupDigits(int64(math.Round(def.Reduce(tab.Panel))))
+			}
+			if len(tab.Panel.Config) == 1 {
+				tab.Swatch = tab.Panel.Config[0].Color
+			}
+			out[section] = append(out[section], tab)
+		}
+	}
+	return out
+}
+
+// onlySeries is p showing keys alone, under an id of its own (its chart
+// is drawn beside p's other series' tabs); all of p for no keys.
+func onlySeries(p views.ChartPanel, keys []string, value string) views.ChartPanel {
+	if len(keys) == 0 {
+		return p
+	}
+	out := p
+	out.ID, out.Keys, out.Config = p.ID+"-"+value, nil, nil
+	for i, k := range p.Keys {
+		if slices.Contains(keys, k) {
+			out.Keys = append(out.Keys, k)
+			out.Config = append(out.Config, p.Config[i])
+		}
+	}
+	return out
+}
+
+// groupDigits writes n with thousands separators, as the chart tooltip
+// does (toLocaleString("en-US")).
+func groupDigits(n int64) string {
+	s := strconv.FormatInt(n, 10)
+	neg := strings.HasPrefix(s, "-")
+	s = strings.TrimPrefix(s, "-")
+	var b strings.Builder
+	for i, c := range s {
+		if i > 0 && (len(s)-i)%3 == 0 {
+			b.WriteByte(',')
+		}
+		b.WriteRune(c)
+	}
+	if neg {
+		return "-" + b.String()
+	}
+	return b.String()
+}
+
 // maxPanelSeries caps a By panel's series, keeping the largest.
 const maxPanelSeries = 6
 
@@ -143,16 +264,30 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleDashboardSummary answers the summary poller, each section card on
+// the tab the poller says it shows (tab-<section>, ui/static/dashboard.js).
 func (s *Server) handleDashboardSummary(w http.ResponseWriter, r *http.Request) {
+	v := s.dashboardSummary(r.Context())
+	v.Tabs = map[string]string{}
+	for _, section := range []string{"downloads", "transcodes"} {
+		v.Tabs[section] = r.URL.Query().Get("tab-" + section)
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := views.DashboardSummary(s.dashboardSummary(r.Context())).Render(r.Context(), w); err != nil {
+	if err := views.DashboardSummary(v).Render(r.Context(), w); err != nil {
 		logging.FromContext(r.Context()).Error("render dashboard summary", "error", err)
 	}
 }
 
+// handleDashboardCharts answers the charts poller and the range picker,
+// each chart card on the tab the request says it shows
+// (tab-<section>-charts, ui/static/dashboard.js).
 func (s *Server) handleDashboardCharts(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	v := s.dashboardCharts(r.Context(), dashRangeNamed(r.URL.Query().Get("range")))
+	v.Selected = map[string]string{}
+	for section := range dashChartTabs {
+		v.Selected[section] = r.URL.Query().Get("tab-" + section + "-charts")
+	}
 	if err := views.DashboardCharts(v).Render(r.Context(), w); err != nil {
 		logging.FromContext(r.Context()).Error("render dashboard charts", "error", err)
 	}
@@ -189,6 +324,7 @@ func (s *Server) dashboardCharts(ctx context.Context, rg dashRange) views.Dashbo
 		wg.Go(func() { v.Panels[i] = buildPanel(ctx, q, p, rg, start, end) })
 	}
 	wg.Wait()
+	v.Tabs = chartTabs(v.Panels)
 	return v
 }
 

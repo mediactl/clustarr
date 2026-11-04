@@ -25,7 +25,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/mediactl/clustarr/ui/components/chart"
 	"github.com/mediactl/clustarr/ui/prom"
+	"github.com/mediactl/clustarr/ui/views"
 )
 
 type oneAnswer []prom.Series
@@ -89,4 +91,35 @@ func TestAPanelLeavesTheCachedAnswerAlone(t *testing.T) {
 	assert.Equal(t, 40.0, first.Data[0]["bandwidth"])
 	assert.Equal(t, 40.0, second.Data[0]["bandwidth"], "the same answer charts the same")
 	assert.Equal(t, 5e6, q[0].Points[0].V)
+}
+
+func TestGroupDigits(t *testing.T) {
+	for n, want := range map[int64]string{0: "0", 999: "999", 1000: "1,000", 7324: "7,324", 1234567: "1,234,567", -4500: "-4,500"} {
+		assert.Equal(t, want, groupDigits(n), n)
+	}
+}
+
+// A chart tab's figure is its panel's total, peak or latest step, over the
+// series it shows: one series narrowed out of a panel keeps its colour and
+// takes an id of its own.
+func TestChartTabFigures(t *testing.T) {
+	p := views.ChartPanel{
+		ID: "grabs", Keys: []string{"grabbed", "imported"},
+		Config: chart.Config{{Key: "grabbed", Label: "Grabbed", Color: "c1"}, {Key: "imported", Label: "Imported", Color: "c2"}},
+		Data: []chart.Datum{
+			{"t": "1", "grabbed": 2.0, "imported": 1.0},
+			{"t": "2", "grabbed": 5.0, "imported": 4.0},
+			{"t": "3", "grabbed": 1.0, "imported": 0.0},
+		},
+	}
+	assert.InDelta(t, 13.0, totalOf(p), 0)
+	assert.InDelta(t, 9.0, peakOf(p), 0)
+	assert.InDelta(t, 1.0, latestOf(p), 0)
+
+	grabbed := onlySeries(p, []string{"grabbed"}, "grabbed")
+	assert.Equal(t, "grabs-grabbed", grabbed.ID)
+	assert.Equal(t, []string{"grabbed"}, grabbed.Keys)
+	assert.Equal(t, "c1", grabbed.Config[0].Color)
+	assert.InDelta(t, 8.0, totalOf(grabbed), 0)
+	assert.Equal(t, p, onlySeries(p, nil, "all"), "no keys is the whole panel")
 }
