@@ -649,7 +649,16 @@ MotoGP, team feeds), 233 on the one block; a channel is served only when
 some provider filter admits its playlist entry (51 read Missing, "not a
 candidate ... filtered out", until argon-tv admitted their groups), and the
 remaining 750-odd unpaired stations have no argon stream (DIRECTV
-placeholders, PPV, regional sports, out-of-market locals). `spec.epgSource`
+placeholders, PPV, regional sports, out-of-market locals); of the lineups
+Plex offers the owner's market, DIRECTV Mobile has the most
+argon-compatible networks (230, against U-verse 209, DISH 199, Cox 186,
+Mediacom 166, one network counted once across its SD and HD feeds). **A
+paired channel's number is its station's DIRECTV number** (owner,
+2026-11-04: "channel numbers should match the direct tv mobile provided by
+plex instead of the 1000+ we have now"): `spec.number` is
+`status.plex.vcn` (3 WEAR ... 9572), channels off Plex park at 10000 plus
+their old number, and the block's sticky start (1001) keeps its device id
+and DVR through a renumbering. `spec.epgSource`
 (XEPG or PMS, the latter Plex's setup wizard by hand) is gone.
 
 **Streams declare their language** (owner, 2026-10-27: Plex showed ESPN's
