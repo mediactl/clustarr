@@ -42,7 +42,11 @@
       "sidebar-accent": "rgba(255, 255, 255, 0.1)",
       "sidebar-accent-foreground": "#ffffff",
       "sidebar-border": "rgba(255, 255, 255, 0.08)",
-      "sidebar-ring": "#e5a00d"
+      "sidebar-ring": "#e5a00d",
+      "ultrablur-top-left": "#0f3a4f",
+      "ultrablur-top-right": "#3b1f4f",
+      "ultrablur-bottom-right": "#4a2c0c",
+      "ultrablur-bottom-left": "#1a1f3f"
     },
     "dark": {
       "background": "#111417",
@@ -76,7 +80,11 @@
       "sidebar-accent": "rgba(255, 255, 255, 0.1)",
       "sidebar-accent-foreground": "#ffffff",
       "sidebar-border": "rgba(255, 255, 255, 0.08)",
-      "sidebar-ring": "#e5a00d"
+      "sidebar-ring": "#e5a00d",
+      "ultrablur-top-left": "#0f3a4f",
+      "ultrablur-top-right": "#3b1f4f",
+      "ultrablur-bottom-right": "#4a2c0c",
+      "ultrablur-bottom-left": "#1a1f3f"
     }
   }
 }

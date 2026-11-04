@@ -166,6 +166,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   --sidebar-border: rgba(255, 255, 255, 0.08);
   --sidebar-ring: #e5a00d;
   --destructive-foreground: #ffffff;
+  /* The UltraBlur: the four corner colours of the Plex apps' background
+     (iOS, tvOS), each fading toward the middle over the canvas -- dark
+     enough that text keeps its contrast. */
+  --ultrablur-top-left: #0f3a4f;
+  --ultrablur-top-right: #3b1f4f;
+  --ultrablur-bottom-right: #4a2c0c;
+  --ultrablur-bottom-left: #1a1f3f;
   /* The glass: the blur every frosted surface shares, and the shade the
      page backdrop fades into (the canvas, so a page without art and the
      foot of one with art meet the same colour). */
@@ -206,6 +213,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   --sidebar-border: rgba(255, 255, 255, 0.08);
   --sidebar-ring: #e5a00d;
   --destructive-foreground: #ffffff;
+  /* The UltraBlur: the four corner colours of the Plex apps' background
+     (iOS, tvOS), each fading toward the middle over the canvas -- dark
+     enough that text keeps its contrast. */
+  --ultrablur-top-left: #0f3a4f;
+  --ultrablur-top-right: #3b1f4f;
+  --ultrablur-bottom-right: #4a2c0c;
+  --ultrablur-bottom-left: #1a1f3f;
 }
 
 @layer base {
@@ -216,14 +230,18 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
      takes: a page's backdrop (below) sits at z-index -1 in the root
      stacking context, which paints above the canvas but below the body's
      own background, so the body must stay transparent for the art to show.
-     On a page with no art of its own the canvas carries a faint warm glow
-     in the top corner, as tvOS lights a dark screen from above, fixed so
-     it never scrolls with the page. */
+     A page with no art of its own (the Dashboard, a library tab, Settings)
+     shows the canvas as the Plex apps' UltraBlur (owner, 2026-11-04): the
+     four --ultrablur corner colours, each a radial field fading out toward
+     the middle so they meet in a soft blend, fixed so it never scrolls
+     with the page; an item page's art lies over it. */
   html {
     background-color: var(--background);
     background-image:
-      radial-gradient(120vmax 80vmax at 8% -10%, rgba(229, 160, 13, 0.07), transparent 60%),
-      radial-gradient(90vmax 70vmax at 100% 100%, rgba(120, 140, 170, 0.08), transparent 55%);
+      radial-gradient(circle at 0% 0%, var(--ultrablur-top-left), transparent 65%),
+      radial-gradient(circle at 100% 0%, var(--ultrablur-top-right), transparent 65%),
+      radial-gradient(circle at 100% 100%, var(--ultrablur-bottom-right), transparent 65%),
+      radial-gradient(circle at 0% 100%, var(--ultrablur-bottom-left), transparent 65%);
     background-attachment: fixed;
   }
   body {
