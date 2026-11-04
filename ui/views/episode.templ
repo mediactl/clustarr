@@ -23,8 +23,10 @@ import (
 
 	"github.com/mediactl/clustarr/ui/components/badge"
 	"github.com/mediactl/clustarr/ui/components/button"
+	"github.com/mediactl/clustarr/ui/components/collapsible"
 	"github.com/mediactl/clustarr/ui/components/dialog"
 	"github.com/mediactl/clustarr/ui/components/icon"
+	"github.com/mediactl/clustarr/ui/components/spinner"
 	"github.com/mediactl/clustarr/ui/components/table"
 	"github.com/mediactl/clustarr/ui/components/tabs"
 )
@@ -229,9 +231,7 @@ templ SearchPanelView(p SearchPanel) {
 				case p.Gone:
 					This search has expired; run it again.
 				case p.Pending():
-					<span class="animate-spin [&_svg]:size-4">
-						@icon.Icon("loader-circle")()
-					</span>
+					@spinner.Spinner(spinner.Props{Attributes: templ.Attributes{"aria-label": "Searching"}})
 					Searching indexers…
 				case p.Phase == "Failed":
 					<span class="text-red-300">Search failed: { p.Failed }</span>
@@ -262,10 +262,14 @@ templ SearchPanelView(p SearchPanel) {
 			<p class="rounded-md border border-border px-4 py-6 text-center text-muted-foreground" data-search-empty>No results found.</p>
 		}
 		if others := p.OtherRows(); len(others) > 0 {
-			<details class="rounded-md border border-border" data-other-titles={ fmt.Sprint(len(others)) }>
-				<summary class="cursor-pointer px-4 py-2 text-sm text-muted-foreground hover:bg-muted/50">{ otherTitlesLabel(len(others)) }</summary>
-				@releaseTable(p, others, "data-other-titles-table")
-			</details>
+			@collapsible.Collapsible(collapsible.Props{Class: "rounded-md border border-border", Attributes: templ.Attributes{"data-other-titles": fmt.Sprint(len(others))}}) {
+				@button.Button(button.Props{Variant: button.VariantGhost, Class: "h-auto w-full justify-start rounded-md px-4 py-2 text-sm font-normal text-muted-foreground hover:bg-muted/50", Attributes: collapsible.Trigger(ctx)}) {
+					{ otherTitlesLabel(len(others)) }
+				}
+				@collapsible.Content() {
+					@releaseTable(p, others, "data-other-titles-table")
+				}
+			}
 		}
 	</div>
 }
@@ -411,9 +415,7 @@ templ grabCell(p SearchPanel, r ReleaseRow) {
 				@icon.Icon("check")()
 			</span>
 		case "requested":
-			<span class="animate-spin text-muted-foreground [&_svg]:size-4" title="Grabbing…" data-grab-state="requested">
-				@icon.Icon("loader-circle")()
-			</span>
+			@spinner.Spinner(spinner.Props{Class: "text-muted-foreground", Attributes: templ.Attributes{"title": "Grabbing…", "aria-label": "Grabbing", "data-grab-state": "requested"}})
 		default:
 			<form
 				hx-post={ p.GrabURL() }

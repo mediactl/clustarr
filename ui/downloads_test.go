@@ -155,10 +155,9 @@ func TestDownloadRowWithNoMeaningfulPercentRendersNoProgressBar(t *testing.T) {
 
 	var buf bytes.Buffer
 	require.NoError(t, views.DownloadRows([]views.DownloadView{d}).Render(context.Background(), &buf))
-	// "h-2 rounded-full bg-primary" is the progress-fill div's own class
-	// (downloads.templ's downloadRow); a bare "bg-primary" substring check
-	// would also match the phase badge's unrelated sky-blue default color.
-	require.NotContains(t, buf.String(), "h-2 rounded-full bg-primary",
+	// The bar is shadcn-templ's progress, role="progressbar"
+	// (pipeline.templ's progressMeter).
+	require.NotContains(t, buf.String(), `role="progressbar"`,
 		"a Pending download has no meaningful progress and must not render a progress bar")
 }
 

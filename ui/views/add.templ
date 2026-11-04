@@ -11,6 +11,7 @@ import (
 	"github.com/mediactl/clustarr/ui/components/button"
 	"github.com/mediactl/clustarr/ui/components/card"
 	"github.com/mediactl/clustarr/ui/components/checkbox"
+	"github.com/mediactl/clustarr/ui/components/collapsible"
 	"github.com/mediactl/clustarr/ui/components/empty"
 	"github.com/mediactl/clustarr/ui/components/field"
 	"github.com/mediactl/clustarr/ui/components/input"
@@ -204,36 +205,43 @@ templ addHitCard(d AddResultsData, h AddHit) {
 	}
 }
 
+// addForm is a hit's add form behind an "Add" link (shadcn-templ's
+// collapsible, since 2026-11-04), open from the start for the hit whose
+// post was refused.
 templ addForm(d AddResultsData, h AddHit) {
-	<details class="mt-2" open?={ d.OpenID != "" && d.OpenID == h.ID }>
-		<summary class="cursor-pointer text-sm text-primary">Add</summary>
-		<form method="post" action={ templ.SafeURL("/library/" + string(d.Kind.Tab) + "/add") } class="mt-3 grid gap-3" data-settings-form>
-			<input type="hidden" name="title" value={ h.Title }/>
-			<input type="hidden" name="id" value={ h.ID }/>
-			<input type="hidden" name="q" value={ d.Query }/>
-			@addSelect("rootFolder", h.ID, "Root folder", d.RootFolders, posted(d, h, "rootFolder", onlyValue(d.RootFolders)))
-			@addSelect("qualityProfile", h.ID, "Quality profile", d.Profiles, posted(d, h, "qualityProfile", onlyValue(d.Profiles)))
-			@addSelect("monitor", h.ID, "Monitor", d.Kind.Monitor, posted(d, h, "monitor", d.Kind.Monitor[0].Value))
-			switch d.Kind.Kind {
-				case commonv1.MediaKindMovie:
-					@addSelect("minimumAvailability", h.ID, "Minimum availability", []AddOption{{Value: "announced", Label: "Announced"}, {Value: "inCinemas", Label: "In cinemas"}, {Value: "released", Label: "Released"}}, posted(d, h, "minimumAvailability", "released"))
-				case commonv1.MediaKindSeries:
-					@addSelect("seriesType", h.ID, "Series type", []AddOption{{Value: "standard", Label: "Standard"}, {Value: "daily", Label: "Daily"}, {Value: "anime", Label: "Anime"}}, posted(d, h, "seriesType", "standard"))
-					@addCheck("seasonFolder", h.ID, "Season folders", postedCheck(d, h, "seasonFolder", true))
-					@addCheck("searchCutoffUnmet", h.ID, "Search for cutoff unmet", postedCheck(d, h, "searchCutoffUnmet", false))
-			}
-			if len(d.Kind.MonitorNew) > 0 {
-				@addSelect("monitorNewItems", h.ID, "Monitor new items", d.Kind.MonitorNew, posted(d, h, "monitorNewItems", d.Kind.MonitorNew[0].Value))
-			}
-			@addCheck("monitored", h.ID, "Monitored", postedCheck(d, h, "monitored", true))
-			@addCheck("searchOnAdd", h.ID, "Start search for missing", postedCheck(d, h, "searchOnAdd", true))
-			<div>
-				@button.Button(button.Props{Type: "submit", Size: button.SizeSm, Attributes: templ.Attributes{"data-action": "add"}}) {
-					Add { h.Title }
+	@collapsible.Collapsible(collapsible.Props{Class: "mt-2", DefaultOpen: d.OpenID != "" && d.OpenID == h.ID}) {
+		@button.Button(button.Props{Variant: button.VariantLink, Class: "h-auto p-0 text-sm", Attributes: collapsible.Trigger(ctx)}) {
+			Add
+		}
+		@collapsible.Content() {
+			<form method="post" action={ templ.SafeURL("/library/" + string(d.Kind.Tab) + "/add") } class="mt-3 grid gap-3" data-settings-form>
+				<input type="hidden" name="title" value={ h.Title }/>
+				<input type="hidden" name="id" value={ h.ID }/>
+				<input type="hidden" name="q" value={ d.Query }/>
+				@addSelect("rootFolder", h.ID, "Root folder", d.RootFolders, posted(d, h, "rootFolder", onlyValue(d.RootFolders)))
+				@addSelect("qualityProfile", h.ID, "Quality profile", d.Profiles, posted(d, h, "qualityProfile", onlyValue(d.Profiles)))
+				@addSelect("monitor", h.ID, "Monitor", d.Kind.Monitor, posted(d, h, "monitor", d.Kind.Monitor[0].Value))
+				switch d.Kind.Kind {
+					case commonv1.MediaKindMovie:
+						@addSelect("minimumAvailability", h.ID, "Minimum availability", []AddOption{{Value: "announced", Label: "Announced"}, {Value: "inCinemas", Label: "In cinemas"}, {Value: "released", Label: "Released"}}, posted(d, h, "minimumAvailability", "released"))
+					case commonv1.MediaKindSeries:
+						@addSelect("seriesType", h.ID, "Series type", []AddOption{{Value: "standard", Label: "Standard"}, {Value: "daily", Label: "Daily"}, {Value: "anime", Label: "Anime"}}, posted(d, h, "seriesType", "standard"))
+						@addCheck("seasonFolder", h.ID, "Season folders", postedCheck(d, h, "seasonFolder", true))
+						@addCheck("searchCutoffUnmet", h.ID, "Search for cutoff unmet", postedCheck(d, h, "searchCutoffUnmet", false))
 				}
-			</div>
-		</form>
-	</details>
+				if len(d.Kind.MonitorNew) > 0 {
+					@addSelect("monitorNewItems", h.ID, "Monitor new items", d.Kind.MonitorNew, posted(d, h, "monitorNewItems", d.Kind.MonitorNew[0].Value))
+				}
+				@addCheck("monitored", h.ID, "Monitored", postedCheck(d, h, "monitored", true))
+				@addCheck("searchOnAdd", h.ID, "Start search for missing", postedCheck(d, h, "searchOnAdd", true))
+				<div>
+					@button.Button(button.Props{Type: "submit", Size: button.SizeSm, Attributes: templ.Attributes{"data-action": "add"}}) {
+						Add { h.Title }
+					}
+				</div>
+			</form>
+		}
+	}
 }
 
 templ addSelect(name, hitID, label string, opts []AddOption, def string) {

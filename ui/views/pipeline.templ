@@ -21,9 +21,10 @@ import (
 	"fmt"
 
 	"github.com/mediactl/clustarr/pkg/pipeline"
+	"github.com/mediactl/clustarr/ui/paging"
 	"github.com/mediactl/clustarr/ui/components/badge"
 	"github.com/mediactl/clustarr/ui/components/item"
-	"github.com/mediactl/clustarr/ui/paging"
+	"github.com/mediactl/clustarr/ui/components/progress"
 )
 
 // Pipeline renders the Pipeline page (§A3.4): one row per in-flight item,
@@ -119,13 +120,13 @@ templ progressBar(percent int32) {
 }
 
 // progressMeter is the bar alone, for a row that says its percent beside
-// its other details (the dashboard's progressLine).
+// its other details (the dashboard's progressLine): shadcn-templ's
+// progress (owner, 2026-11-04), its percent on data-progress for the
+// tests, unclamped as the engine reported it.
 templ progressMeter(percent int32) {
-	<div class="mt-1 w-full overflow-hidden rounded-full bg-muted">
-		<div
-			class="h-2 rounded-full bg-primary"
-			data-progress={ fmt.Sprint(percent) }
-			style={ fmt.Sprintf("width: %d%%", clampPercent(percent)) }
-		></div>
-	</div>
+	@progress.Progress(progress.Props{
+		Value:      int(clampPercent(percent)),
+		Class:      "mt-1 gap-0",
+		Attributes: templ.Attributes{"data-progress": fmt.Sprint(percent)},
+	})
 }

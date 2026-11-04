@@ -18,6 +18,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package views
 
 import (
+	"github.com/mediactl/clustarr/ui/components/icon"
+	"github.com/mediactl/clustarr/ui/components/collapsible"
+	"github.com/mediactl/clustarr/ui/components/button"
 	"fmt"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
@@ -27,29 +30,41 @@ import (
 )
 
 // ParentDetail is an artist's or an author's page (spec
-// 2026-09-23-library-page-design): the item header and one component that
-// loads the children -- albums, or an author's books table -- on first
-// expand, the series page's shape with one component instead of one per
-// season. label names the children ("Albums", "Books").
+// 2026-09-23-library-page-design): the item header and one collapsible
+// (shadcn-templ's, since 2026-11-04) that loads the children -- albums, or
+// an author's books table -- on first expand, the series page's shape with
+// one component instead of one per season, and beside its trigger a link
+// to the children's own page. label names the children ("Albums",
+// "Books").
 templ ParentDetail(d Detail, label string) {
 	{{ li := d.Item }}
 	@Shell(Chrome{Title: li.Title, Crumbs: itemCrumbs(li), Tab: li.Tab}) {
 		@itemToolbar(d)
 		@hero(d)
-		<div class="mt-6 panel rounded-xl border border-border bg-card">
-			<details
-				hx-get={ ChildrenURL(li.Ref.Namespace, string(li.Kind), li.Ref.Name) }
-				hx-trigger="toggle once"
-				hx-target="find .children"
-				hx-swap="innerHTML"
-			>
-				<summary class="cursor-pointer px-4 py-3 font-medium">
-					<a href={ templ.URL(ChildrenURL(li.Ref.Namespace, string(li.Kind), li.Ref.Name)) } class="hover:underline">{ label }</a>
-				</summary>
-				<div class="children border-t border-border text-sm text-muted-foreground">
-					<p class="px-4 py-3">Loading…</p>
+		<div class="mt-6 overflow-hidden panel rounded-xl border border-border bg-card">
+			@collapsible.Collapsible(collapsible.Props{
+				Attributes: templ.Attributes{"hx-get": ChildrenURL(li.Ref.Namespace, string(li.Kind), li.Ref.Name), "hx-trigger": expandOnce, "hx-target": "find .children", "hx-swap": "innerHTML"},
+			}) {
+				<div class="flex items-center">
+					@button.Button(button.Props{
+						Variant:    button.VariantGhost,
+						Class:      "group/trigger h-auto flex-1 justify-between rounded-none px-4 py-3 text-base font-medium",
+						Attributes: collapsible.Trigger(ctx),
+					}) {
+						{ label }
+						<span class="transition-transform group-data-[panel-open]/trigger:rotate-180 [&_svg]:size-4">
+							@icon.Icon("chevron-down")()
+						</span>
+					}
+					<a href={ templ.URL(ChildrenURL(li.Ref.Namespace, string(li.Kind), li.Ref.Name)) } title={ label + " page" } class="px-4 py-3 text-muted-foreground hover:text-foreground [&_svg]:size-4" data-children-page>
+						@icon.Icon("arrow-up-right")()
+						<span class="sr-only">{ label } page</span>
+					</a>
 				</div>
-			</details>
+				@collapsible.Content(collapsible.ContentProps{Class: "children border-t border-border text-sm text-muted-foreground"}) {
+					<p class="px-4 py-3">Loading…</p>
+				}
+			}
 		</div>
 		@childRegions(li)
 	}

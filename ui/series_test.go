@@ -178,7 +178,7 @@ func TestSeriesPageListsSeasonsThatLoadTheirEpisodesLazily(t *testing.T) {
 	// The spec override wins over the rollup.
 	requireTag(t, body, `data-season="2"`, `data-monitored="false"`, `data-episodes="12"`, `data-files="0"`)
 	require.Contains(t, body, `hx-get="/library/default/series/andor/seasons/1"`)
-	require.Contains(t, body, `hx-trigger="toggle once"`)
+	require.Contains(t, body, `hx-trigger="collapsible-open-change[detail.open] once"`, "a season's episodes load on its collapsible's first open")
 	require.Contains(t, body, `href="/library/default/series/andor/seasons/2"`)
 	require.NotContains(t, body, `data-episode=`, "episodes load lazily, not with the page")
 }

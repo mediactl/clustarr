@@ -196,7 +196,7 @@ func TestAddRejectionRerendersTheForm(t *testing.T) {
 	requireTag(t, body, `data-action-error=`, `data-slot="alert"`)
 	requireTag(t, pageBody(t, body), `name="q"`, `value="fight"`)
 	requireTag(t, body, `data-add-hit="550"`)
-	require.Regexp(t, `<details[^>]*\bopen\b`, body, "the rejected hit's form is open")
+	require.Regexp(t, `data-slot="collapsible"[^>]*\bdata-open\b`, body, "the rejected hit's form is open")
 	requireTag(t, body, `name="monitor"`, `value="none"`)
 	requireTag(t, body, `name="minimumAvailability"`, `value="inCinemas"`)
 	require.NotRegexp(t, `id="add-monitored-550"[^>]*\bchecked\b`, body, "an unticked box stays unticked")

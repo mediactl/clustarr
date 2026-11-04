@@ -22,6 +22,7 @@ import (
 
 	"github.com/mediactl/clustarr/ui/components/badge"
 	"github.com/mediactl/clustarr/ui/components/button"
+	"github.com/mediactl/clustarr/ui/components/collapsible"
 	"github.com/mediactl/clustarr/ui/components/icon"
 	"github.com/mediactl/clustarr/ui/components/item"
 	"github.com/mediactl/clustarr/ui/components/table"
@@ -66,31 +67,46 @@ templ ActionStatusRegion() {
 }
 
 // SeasonComponent is one season, Sonarr's season block: its header, and a
-// <details> whose first open fetches the season's episodes table into its
-// body (hx-trigger "toggle once"). The header links to the season's own
-// page, so a browser without JavaScript still gets there.
+// collapsible (shadcn-templ's, since 2026-11-04; a <details> before) whose
+// first open fetches the season's episodes table into its panel
+// (hx-trigger on the collapsible's open-change event, once). The header
+// links to the season's own page, so a browser without JavaScript still
+// gets there.
 templ SeasonComponent(season SeasonRow) {
 	<div class="overflow-hidden panel rounded-xl border border-border bg-card" id={ fmt.Sprintf("season-%d", season.Number) }>
 		@SeasonHeader(season)
-		<details
-			class="group border-t border-border"
-			hx-get={ season.URL() }
-			hx-trigger="toggle once"
-			hx-target="find .episodes"
-			hx-swap="innerHTML"
-		>
-			<summary class="flex cursor-pointer list-none items-center justify-center gap-1 py-1.5 text-xs text-muted-foreground hover:bg-muted/50 [&::-webkit-details-marker]:hidden">
-				<span class="group-open:hidden">Show episodes</span>
-				<span class="hidden group-open:inline">Hide episodes</span>
-				<span class="transition-transform group-open:rotate-180 [&_svg]:size-4">
-					@icon.Icon("chevron-down")()
-				</span>
-			</summary>
-			<div class="episodes border-t border-border text-sm text-muted-foreground">
+		@collapsible.Collapsible(collapsible.Props{
+			Class:      "border-t border-border",
+			Attributes: templ.Attributes{"hx-get": season.URL(), "hx-trigger": expandOnce, "hx-target": "find .episodes", "hx-swap": "innerHTML"},
+		}) {
+			@expandTrigger("Show episodes", "Hide episodes")
+			@collapsible.Content(collapsible.ContentProps{Class: "episodes border-t border-border text-sm text-muted-foreground"}) {
 				<p class="px-4 py-3">Loading…</p>
-			</div>
-		</details>
+			}
+		}
 	</div>
+}
+
+// expandOnce is the hx-trigger of a collapsible whose first open loads
+// its panel: the collapsible's open-change event, filtered to an opening,
+// once. A <details>' "toggle once" before 2026-11-04.
+const expandOnce = "collapsible-open-change[detail.open] once"
+
+// expandTrigger is a collapsible's trigger as the season blocks draw it:
+// a slim centred row reading show while closed and hide while open, with
+// a chevron that turns.
+templ expandTrigger(show, hide string) {
+	@button.Button(button.Props{
+		Variant:    button.VariantGhost,
+		Class:      "group/trigger h-auto w-full gap-1 rounded-none py-1.5 text-xs font-normal text-muted-foreground hover:bg-muted/50",
+		Attributes: collapsible.Trigger(ctx),
+	}) {
+		<span class="group-data-[panel-open]/trigger:hidden">{ show }</span>
+		<span class="hidden group-data-[panel-open]/trigger:inline">{ hide }</span>
+		<span class="transition-transform group-data-[panel-open]/trigger:rotate-180 [&_svg]:size-4">
+			@icon.Icon("chevron-down")()
+		</span>
+	}
 }
 
 // SeasonHeader is the season's heading row, Sonarr's: the monitor
@@ -128,13 +144,17 @@ templ SeasonHeader(season SeasonRow) {
 				if season.Title != "" {
 					<span class="text-base font-normal text-muted-foreground" data-season-title>{ season.Title }</span>
 				}
-				@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: season.CountTone(), Attributes: templ.Attributes{"data-season-count": season.CountLabel()}}) { { season.CountLabel() } }
+				@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: season.CountTone(), Attributes: templ.Attributes{"data-season-count": season.CountLabel()}}) {
+					{ season.CountLabel() }
+				}
 				if season.SizeBytes > 0 {
 					<span class="text-xs font-normal text-muted-foreground" data-season-size>{ formatBytes(season.SizeBytes) }</span>
 				}
 			}
 			if season.NextAiring != "" {
-				@item.Description() { Next airing { season.NextAiring } }
+				@item.Description() {
+					Next airing { season.NextAiring }
+				}
 			}
 			@actionFailure(season.Error)
 		}
@@ -142,7 +162,9 @@ templ SeasonHeader(season SeasonRow) {
 			if season.Search.Label != "" {
 				@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: seasonSearchTone(season.Search.Phase), Attributes: templ.Attributes{
 					"data-season-search": season.Search.Phase, "title": season.Search.Title,
-				}}) { { season.Search.Label } }
+				}}) {
+					{ season.Search.Label }
+				}
 			}
 			@seasonSearchButtons(season)
 		}
@@ -220,9 +242,13 @@ func bookmarkClass(monitored, large bool) string {
 // outline look when not, so it reads as the badge it flips.
 templ monitorToggle(monitored bool, action string) {
 	if monitored {
-		@button.Button(button.Props{Type: button.TypeSubmit, Size: button.SizeXs, Attributes: templ.Attributes{"data-action": action}}) { { monitoredLabel(monitored) } }
+		@button.Button(button.Props{Type: button.TypeSubmit, Size: button.SizeXs, Attributes: templ.Attributes{"data-action": action}}) {
+			{ monitoredLabel(monitored) }
+		}
 	} else {
-		@button.Button(button.Props{Type: button.TypeSubmit, Size: button.SizeXs, Variant: button.VariantOutline, Attributes: templ.Attributes{"data-action": action}}) { { monitoredLabel(monitored) } }
+		@button.Button(button.Props{Type: button.TypeSubmit, Size: button.SizeXs, Variant: button.VariantOutline, Attributes: templ.Attributes{"data-action": action}}) {
+			{ monitoredLabel(monitored) }
+		}
 	}
 }
 
@@ -262,12 +288,24 @@ templ EpisodeRows(episodes []EpisodeRow) {
 		@table.Table(table.Props{Attributes: templ.Attributes{"data-episode-table": ""}}) {
 			@table.Header() {
 				@table.Row() {
-					@table.Head(table.HeadProps{Class: "w-10"}) { <span class="sr-only">Monitored</span> }
-					@table.Head(table.HeadProps{Class: "w-10"}) { # }
-					@table.Head() { Title }
-					@table.Head(table.HeadProps{Class: "hidden w-32 sm:table-cell"}) { Air Date }
-					@table.Head(table.HeadProps{Class: "w-36"}) { Status }
-					@table.Head(table.HeadProps{Class: "w-20"}) { <span class="sr-only">Actions</span> }
+					@table.Head(table.HeadProps{Class: "w-10"}) {
+						<span class="sr-only">Monitored</span>
+					}
+					@table.Head(table.HeadProps{Class: "w-10"}) {
+						# 
+					}
+					@table.Head() {
+						Title 
+					}
+					@table.Head(table.HeadProps{Class: "hidden w-32 sm:table-cell"}) {
+						Air Date 
+					}
+					@table.Head(table.HeadProps{Class: "w-36"}) {
+						Status 
+					}
+					@table.Head(table.HeadProps{Class: "w-20"}) {
+						<span class="sr-only">Actions</span>
+					}
 				}
 			}
 			@table.Body() {
@@ -303,7 +341,9 @@ templ EpisodeRowView(ep EpisodeRow) {
 				@bookmarkToggle(ep.Monitored, "set-monitored", false)
 			</form>
 		}
-		@table.Cell(table.CellProps{Class: "tabular-nums text-muted-foreground"}) { { fmt.Sprint(ep.Number) } }
+		@table.Cell(table.CellProps{Class: "tabular-nums text-muted-foreground"}) {
+			{ fmt.Sprint(ep.Number) }
+		}
 		@table.Cell(table.CellProps{Class: "whitespace-normal"}) {
 			<span class="flex flex-wrap items-center gap-2">
 				<a
@@ -319,7 +359,9 @@ templ EpisodeRowView(ep EpisodeRow) {
 					}
 				</a>
 				if ep.FinaleLabel() != "" {
-					@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "border-sky-500/40 text-sky-300", Attributes: templ.Attributes{"data-finale": ep.FinaleType}}) { { ep.FinaleLabel() } }
+					@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "border-sky-500/40 text-sky-300", Attributes: templ.Attributes{"data-finale": ep.FinaleType}}) {
+						{ ep.FinaleLabel() }
+					}
 				}
 				if ep.Audio.Text != "" {
 					@audioBadge(ep.Audio)
@@ -383,9 +425,13 @@ templ searchButtons(kind, searchURL, interactiveURL, returnURL string) {
 templ statusCell(s RowStatus) {
 	switch s.Kind {
 		case "file":
-			@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: fileTone(s.Warn), Attributes: templ.Attributes{"title": s.Title}}) { { s.Label } }
+			@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: fileTone(s.Warn), Attributes: templ.Attributes{"title": s.Title}}) {
+				{ s.Label }
+			}
 		case "missing":
-			@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: "bg-red-500/20 text-red-300", Attributes: templ.Attributes{"title": s.Title}}) { { s.Label } }
+			@badge.Badge(badge.Props{Variant: badge.VariantSecondary, Class: "bg-red-500/20 text-red-300", Attributes: templ.Attributes{"title": s.Title}}) {
+				{ s.Label }
+			}
 		case "downloading", "pending":
 			<span class="inline-flex items-center gap-1 text-sky-300 [&_svg]:size-4" title={ s.Title }>
 				if s.Kind == "downloading" {
@@ -412,5 +458,7 @@ func fileTone(warn bool) string {
 // warns, with a failure's reason as its tooltip.
 templ audioBadge(n AudioNote) {
 	@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: audioTone(n),
-		Attributes: templ.Attributes{"data-audio": n.Text, "title": n.Title}}) { { n.Text } }
+		Attributes: templ.Attributes{"data-audio": n.Text, "title": n.Title}}) {
+		{ n.Text }
+	}
 }
