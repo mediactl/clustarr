@@ -104,6 +104,22 @@ func TestTheDashboardShowsWhatIsRunningPendingFailedAndSkipped(t *testing.T) {
 	} {
 		assert.Contains(t, body, want, want)
 	}
+	// The counts read as a chart tooltip (owner, 2026-11-04): one card per
+	// kind of work, a row per state with its count at the right.
+	for summary, rows := range map[string][]string{
+		"Downloads":  {`data-stat="Downloading" data-count="1"`, `data-stat="Queued" data-count="1"`, `data-stat="Failed" data-count="1"`},
+		"Transcodes": {`data-stat="Transcoding" data-count="1"`, `data-stat="Pending" data-count="30"`, `data-stat="Failed" data-count="1"`, `data-stat="Skipped" data-count="2"`},
+	} {
+		assert.Contains(t, body, `data-summary="`+summary+`"`)
+		for _, row := range rows {
+			assert.Regexp(t, `data-summary="`+summary+`"[\s\S]*?`+row, body, summary+": "+row)
+		}
+	}
+	// A list's count sits at the right of its title, a row's percent at the
+	// right of the line under its bar.
+	assert.Regexp(t, `data-list="Pending"[\s\S]*?data-slot="card-action"[^>]*>2 of 31</div>`, body)
+	assert.Regexp(t, `>why tenma</span>\s*<span[^>]*data-percent>42%</span>`, body)
+	assert.Regexp(t, `>2.00 MiB/s · ETA 1m30s</span>\s*<span[^>]*data-percent>0%</span>`, body)
 	assert.Contains(t, body, `hx-get="/dashboard/summary"`, "the summary refreshes itself")
 	assert.Contains(t, body, "Metrics are not configured", "no --metrics-url")
 	assert.Regexp(t, `<a href="/dashboard" [^>]*data-active[ >]`, body, "the sidebar marks the Dashboard")

@@ -95,14 +95,18 @@ templ DashboardSummary(v DashboardSummaryView) {
 		hx-trigger={ "every " + SummaryRefresh }
 		hx-swap="outerHTML"
 	>
-		<div class="grid grid-cols-2 gap-4 md:grid-cols-4 xl:grid-cols-7">
-			@statCard("Downloading", s.Downloads.Active.Total, "/downloads", "")
-			@statCard("Downloads queued", s.Downloads.Pending.Total, "/downloads", "")
-			@statCard("Downloads failed", s.Downloads.Failed.Total, "/downloads", tone(s.Downloads.Failed.Total, "text-destructive"))
-			@statCard("Transcoding", s.Transcodes.Running.Total, "/pipeline", "")
-			@statCard("Transcodes pending", s.Transcodes.Pending.Total, "/pipeline", "")
-			@statCard("Transcodes failed", s.Transcodes.Failed.Total, "/pipeline", tone(s.Transcodes.Failed.Total, "text-destructive"))
-			@statCard("Transcodes skipped", s.Transcodes.Skipped.Total, "/pipeline", tone(s.Transcodes.Skipped.Total, "text-amber-600 dark:text-amber-400"))
+		<div class="grid gap-4 md:grid-cols-2">
+			@summaryCard("Downloads", "/downloads", []summaryRow{
+				{"Downloading", s.Downloads.Active.Total, "bg-sky-500"},
+				{"Queued", s.Downloads.Pending.Total, "bg-blue-700"},
+				{"Failed", s.Downloads.Failed.Total, "bg-red-500"},
+			})
+			@summaryCard("Transcodes", "/pipeline", []summaryRow{
+				{"Transcoding", s.Transcodes.Running.Total, "bg-sky-500"},
+				{"Pending", s.Transcodes.Pending.Total, "bg-blue-700"},
+				{"Failed", s.Transcodes.Failed.Total, "bg-red-500"},
+				{"Skipped", s.Transcodes.Skipped.Total, "bg-amber-500"},
+			})
 		</div>
 		<div class="grid gap-4 lg:grid-cols-2">
 			@listCard("Running downloads", s.Downloads.Active.Total, len(v.Active), "Nothing is downloading.") {
@@ -144,30 +148,51 @@ templ DashboardSummary(v DashboardSummaryView) {
 	</div>
 }
 
-templ statCard(label string, n int, href, class string) {
-	<a href={ templ.SafeURL(href) } class="block" data-stat={ label }>
-		@card.Card(card.Props{Size: card.SizeSm, Class: "h-full transition-colors hover:bg-muted/50"}) {
-			@card.Header() {
-				@card.Description() {
-					{ label }
-				}
-				@card.Title(card.TitleProps{Class: "text-2xl font-semibold tabular-nums " + class}) {
-					{ strconv.Itoa(n) }
-				}
+// summaryRow is one state of a summaryCard: its name, its count and its
+// colour (a Tailwind background class).
+type summaryRow struct {
+	Label string
+	N     int
+	Color string
+}
+
+// summaryCard is the counts of one kind of work as a chart tooltip reads
+// (owner, 2026-11-04: shadcn's ChartTooltipContent, which
+// ui/components/chart draws on hover): the title, then a row per state --
+// its colour, its name and, at the right, its count. The markup is the
+// tooltip's (chart.js tooltipHTML), at the dashboard's text size; the card
+// opens the page that lists the work.
+templ summaryCard(title, href string, rows []summaryRow) {
+	<a
+		href={ templ.SafeURL(href) }
+		data-summary={ title }
+		class="grid min-w-32 content-start items-start gap-2 rounded-lg border border-border/50 bg-background px-4 py-3 text-sm shadow-xl transition-colors hover:bg-muted/50"
+	>
+		<div class="font-medium">{ title }</div>
+		<div class="grid gap-2">
+			for _, r := range rows {
+				<div class="flex w-full flex-wrap items-center gap-2" data-stat={ r.Label } data-count={ strconv.Itoa(r.N) }>
+					<div class={ "size-2.5 shrink-0 rounded-[2px] " + r.Color } aria-hidden="true"></div>
+					<div class="flex flex-1 items-center justify-between leading-none">
+						<span class="text-muted-foreground">{ r.Label }</span>
+						<span class="font-mono font-medium tabular-nums text-foreground">{ strconv.Itoa(r.N) }</span>
+					</div>
+				</div>
 			}
-		}
+		</div>
 	</a>
 }
 
-// listCard is a titled card of rows; shown of total are rendered, and the
-// rest are counted.
+// listCard is a titled card of rows, its count at the right of the title
+// as a summaryCard's are; shown of total are rendered, and the rest are
+// counted.
 templ listCard(title string, total, shown int, none string) {
 	@card.Card(card.Props{Attributes: templ.Attributes{"data-list": title}}) {
 		@card.Header() {
 			@card.Title() {
 				{ title }
 			}
-			@card.Description() {
+			@card.Action(card.ActionProps{Class: "self-center text-sm font-medium tabular-nums text-muted-foreground", Attributes: templ.Attributes{"data-list-count": true}}) {
 				if total > shown {
 					{ fmt.Sprintf("%d of %d", shown, total) }
 				} else {
@@ -201,11 +226,12 @@ templ dashboardDownload(d DownloadView, kind string) {
 				}
 			</div>
 		</div>
-		if pct := downloadPercent(d); pct >= 0 {
-			@progressBar(pct)
+		{{ pct := downloadPercent(d) }}
+		if pct >= 0 {
+			@progressMeter(pct)
 		}
-		if pr := d.Progress; pr != nil {
-			<div class="text-xs text-muted-foreground">{ fmt.Sprintf("%s/s · ETA %s", formatBytes(pr.DownRateBytesPerSec), formatETA(pr.ETASeconds)) }</div>
+		if detail := downloadRate(d); detail != "" || pct >= 0 {
+			@progressLine(detail, pct)
 		}
 		if failed(d.Row.Entry.Phase) {
 			<div class="truncate text-xs text-destructive" title={ downloadFailureDetail(d.Row.Entry) }>{ downloadFailureDetail(d.Row.Entry) }</div>
@@ -228,10 +254,30 @@ templ dashboardTranscode(r projection.TranscodeRow) {
 			</div>
 		</div>
 		if r.Percent >= 0 {
-			@progressBar(r.Percent)
+			@progressMeter(r.Percent)
 		}
-		<div class="truncate text-xs text-muted-foreground" title={ transcodeDetail(r) }>{ transcodeDetail(r) }</div>
+		@progressLine(transcodeDetail(r), r.Percent)
 	</div>
+}
+
+// progressLine is the line under a row's bar: its details at the left and,
+// at the right, its percent when it has one.
+templ progressLine(detail string, percent int32) {
+	<div class="flex items-baseline justify-between gap-3 text-xs text-muted-foreground">
+		<span class="min-w-0 truncate" title={ detail }>{ detail }</span>
+		if percent >= 0 {
+			<span class="shrink-0 tabular-nums" data-percent>{ fmt.Sprintf("%d%%", percent) }</span>
+		}
+	</div>
+}
+
+// downloadRate is a transfer's rate and ETA, "" without its telemetry.
+func downloadRate(d DownloadView) string {
+	pr := d.Progress
+	if pr == nil {
+		return ""
+	}
+	return fmt.Sprintf("%s/s · ETA %s", formatBytes(pr.DownRateBytesPerSec), formatETA(pr.ETASeconds))
 }
 
 // transcodeDetail is a row's second line: its plan or verdict, the class it
@@ -282,14 +328,6 @@ func joinDot(parts []string) string {
 		out += p
 	}
 	return out
-}
-
-// tone is class when n is above zero.
-func tone(n int, class string) string {
-	if n > 0 {
-		return class
-	}
-	return ""
 }
 
 // DashboardCharts is the charts over v.Range, replacing itself every

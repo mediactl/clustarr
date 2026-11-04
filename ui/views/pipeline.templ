@@ -114,6 +114,13 @@ templ pipelineRow(e pipeline.Entry) {
 // progressBar is the bar the pipeline and downloads rows share: the fill
 // carries data-progress with the raw percentage, the width the clamped one.
 templ progressBar(percent int32) {
+	@progressMeter(percent)
+	<div class="text-xs text-muted-foreground">{ fmt.Sprintf("%d%%", percent) }</div>
+}
+
+// progressMeter is the bar alone, for a row that says its percent beside
+// its other details (the dashboard's progressLine).
+templ progressMeter(percent int32) {
 	<div class="mt-1 w-full overflow-hidden rounded-full bg-muted">
 		<div
 			class="h-2 rounded-full bg-primary"
@@ -121,5 +128,4 @@ templ progressBar(percent int32) {
 			style={ fmt.Sprintf("width: %d%%", clampPercent(percent)) }
 		></div>
 	</div>
-	<div class="text-xs text-muted-foreground">{ fmt.Sprintf("%d%%", percent) }</div>
 }
