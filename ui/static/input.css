@@ -233,12 +233,18 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 /* The glass. A frosted surface is translucent (its token is rgba) and
    blurs what is behind it: the sidebar, the top bar and a page toolbar
-   (over the page backdrop and the content scrolling under them), and every
-   floating layer -- dialogs, menus, popovers, tooltips, selects. Cards do
-   not blur: a library page draws hundreds, and the blur costs a layer each;
-   their translucency alone reads as glass over the canvas. A hairline
-   highlight along the top edge is what makes a panel look lit from above
-   rather than merely transparent. */
+   (over the page backdrop and the content scrolling under them), every
+   card and panel, and every floating layer -- dialogs, menus, popovers,
+   tooltips, selects, and the charts' tooltip, which ui/components/chart
+   draws as a bare div (.recharts-tooltip-wrapper's child) with an opaque
+   bg-background. These rules are the theme's, so every component takes
+   them without a class of its own (owner, 2026-11-04: "apply styles to the
+   shadcn/tailwind themes to universally apply glass"). The library's
+   poster cards (shadcn items, not cards) do not blur: a library page draws
+   hundreds, and the blur costs a layer each; their translucency alone
+   reads as glass over the canvas. A hairline highlight along the top edge
+   is what makes a panel look lit from above rather than merely
+   transparent. */
 [data-slot="sidebar-inner"],
 [data-slot="sheet-content"],
 [data-slot="dialog-content"],
@@ -250,9 +256,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 [data-slot="select-content"],
 [data-slot="tooltip-content"],
 [data-slot="popover-content"],
+[data-slot="card"],
+.panel,
+.recharts-tooltip-wrapper > div,
 .glass {
+  /* Only the standard property: Tailwind's minifier folds a pair written
+     with -webkit-backdrop-filter into the prefixed one alone, which Chrome
+     and Firefox ignore, so no surface blurred outside Safari until
+     2026-11-04. It adds the prefix itself where its targets need one. */
   backdrop-filter: blur(var(--glass-blur)) saturate(1.4);
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.4);
 }
 [data-slot="dialog-content"],
 [data-slot="dropdown-menu-content"],
@@ -261,7 +273,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 [data-slot="menubar-sub-content"],
 [data-slot="navigation-menu-content"],
 [data-slot="select-content"],
-[data-slot="popover-content"] {
+[data-slot="popover-content"],
+.recharts-tooltip-wrapper > div {
   background-color: var(--popover);
   border-color: var(--border);
   box-shadow:
@@ -327,7 +340,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 [data-slot="sheet-overlay"] {
   background-color: rgba(0, 0, 0, 0.55);
   backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
 }
 
 /* The page backdrop (an item's fanart, ui/views/detail.templ's hero): the

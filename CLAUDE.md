@@ -815,15 +815,25 @@ artwork behind a page shows through the glass, Plex Gold the one accent,
 12px corners. The tokens are rgba in `ui/static/input.css` (and
 `ui/theme/plex.json`, kept in step), so a `bg-card` or `bg-muted/50` is
 glass wherever it is used; the frosted surfaces -- the sidebar, the top
-bar, a page toolbar (`glass`), every dialog, menu, popover and tooltip --
-take their blur from unlayered `[data-slot=...]` rules there, never from
-an edit to a vendored component. An item page's fanart is the page's
+bar, a page toolbar (`glass`), every card and `.panel`, every dialog,
+menu, popover and tooltip, and the charts' tooltip (a bare
+`.recharts-tooltip-wrapper > div` that `chart.js` paints `bg-background`)
+-- take their blur, and a floating one its popover glass, from unlayered
+`[data-slot=...]` rules there, never from an edit to a vendored component
+or a class of a view's own (owner, 2026-11-04). Write only the standard
+`backdrop-filter`: Tailwind's minifier folded a pair written with
+`-webkit-backdrop-filter` into the prefixed one alone, which Chrome and
+Firefox ignore, so nothing blurred outside Safari until 2026-11-04; it adds
+the prefix itself. A blurred card is a containing block for fixed
+descendants, which is safe only because every floating layer portals to
+`<body>`. An item page's fanart is the page's
 backdrop: the hero's `<img data-backdrop class="page-backdrop">` is fixed
 over the viewport at z-index -1 with a `page-backdrop-shade` fading it
 into the canvas, which is why the canvas is the html element's background
 and the body and the sidebar's inset are transparent -- an opaque
 background on either paints over the art (both did, the first two tries).
-Library cards do not blur (hundreds a page, a layer each) and lift under
+Library posters (shadcn items, not cards) do not blur (hundreds a page, a
+layer each) and lift under
 the pointer (`[data-library-grid]` rules, off under reduced motion). Check
 such a change in a browser with a fresh profile: `/static` is cached for
 an hour, so a reload shows the old stylesheet.
