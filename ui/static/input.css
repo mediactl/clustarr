@@ -368,13 +368,21 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
    the tab's own data-active utility. */
 [data-dashboard-tabs] [role="tab"][data-active] {
   background-color: transparent;
+  /* The top layer is the tab's own: a frosted-glass vignette, clear at the
+     centre and darker toward the edges, with a light rim along the top and
+     a soft inner shade below it (owner, 2026-11-04: "its own gradient where
+     the edges are a bit darker - following apple frosted glass design").
+     It scrolls with the tab; the UltraBlur layers under it stay fixed. */
   background-image:
+    radial-gradient(ellipse 80% 70% at 50% 38%, rgba(255, 255, 255, 0.07) 0%, transparent 45%, rgba(0, 0, 0, 0.28) 100%),
     radial-gradient(circle at 0% 0%, color-mix(in oklab, var(--ultrablur-top-left) 84%, white), transparent 65%),
     radial-gradient(circle at 100% 0%, color-mix(in oklab, var(--ultrablur-top-right) 84%, white), transparent 65%),
     radial-gradient(circle at 100% 100%, color-mix(in oklab, var(--ultrablur-bottom-right) 84%, white), transparent 65%),
     radial-gradient(circle at 0% 100%, color-mix(in oklab, var(--ultrablur-bottom-left) 84%, white), transparent 65%);
-  background-attachment: fixed;
-  box-shadow: inset 0 1px 0 var(--glass-highlight);
+  background-attachment: scroll, fixed, fixed, fixed, fixed;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    inset 0 0 20px rgba(0, 0, 0, 0.22);
 }
 [data-slot="dialog-overlay"],
 [data-slot="alert-dialog-overlay"],
