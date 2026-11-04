@@ -148,7 +148,12 @@ func (v DashboardChartsView) Has(section string) bool {
 // each answered out of band so one request serves every section.
 templ Dashboard(v DashboardView) {
 	@Layout("Dashboard") {
-		<div class="mb-4 flex items-center justify-between gap-4">
+		// The title stands off the content by 3rem on a laptop or wider, 2rem
+		// on a phone: a step of the page's 8px rhythm above the 2rem between
+		// sections and the 1rem between cards, so the hierarchy reads in the
+		// spacing (owner, 2026-11-04: "based on swiss design principles and
+		// proportions").
+		<div class="mb-8 flex items-center justify-between gap-4 sm:mb-12">
 			<h1 class="text-2xl font-bold">Dashboard</h1>
 			if v.Charts.Configured {
 				@rangePicker(v.Charts, false)
