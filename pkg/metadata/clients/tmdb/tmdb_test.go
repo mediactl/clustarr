@@ -419,7 +419,9 @@ func TestSearchMoviesMapsProviderErrors(t *testing.T) {
 }
 
 // TestTwoClientsKeepTheirOwnBaseURLs is the regression for golang-tmdb's
-// process-global base URL: SetCustomBaseURL writes a package variable, so
+// process-global base URL (rawtmdb's is a constant since 2026-11-04, and
+// the test still proves two Clients stay apart): SetCustomBaseURL wrote a
+// package variable, so
 // the second New used to redirect the first Client to the second server.
 func TestTwoClientsKeepTheirOwnBaseURLs(t *testing.T) {
 	serve := func(title string) *httptest.Server {

@@ -13,7 +13,6 @@ require (
 	github.com/anacrolix/utp v0.1.0
 	github.com/asticode/go-astisub v0.45.0
 	github.com/bodgit/sevenzip v1.6.5
-	github.com/cyruzin/golang-tmdb v1.9.4
 	github.com/dlclark/regexp2 v1.12.0
 	github.com/ebitengine/purego v0.11.1
 	github.com/fergusstrange/embedded-postgres v1.34.0
@@ -122,7 +121,6 @@ require (
 	github.com/go-openapi/swag/typeutils v0.28.0 // indirect
 	github.com/go-openapi/swag/yamlutils v0.28.0 // indirect
 	github.com/go-resty/resty/v2 v2.17.2 // indirect
-	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/google/btree v1.1.3 // indirect
 	github.com/google/gnostic-models v0.7.0 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect

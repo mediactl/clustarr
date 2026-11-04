@@ -15,34 +15,37 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Package tmdb wraps github.com/cyruzin/golang-tmdb as a
+// Package tmdb wraps the five TMDB requests in internal/rawtmdb as a
 // metadata.MovieProvider.
 //
-// golang-tmdb has no per-call context.Context (docs/research/metadata.md
-// §2.1): this client honours ctx at the rate-limiter wait
-// (limiter.Wait(ctx) returns immediately on cancellation) and with an
-// upfront ctx.Err() check, but the in-flight HTTP round-trip itself cannot
-// be cancelled through ctx -- a known, accepted limit of the adopted
-// library, not a gap in this package.
+// rawtmdb is the slice of github.com/cyruzin/golang-tmdb v1.9.4 this
+// package calls, carried in-tree since 2026-11-04 so it decodes with
+// encoding/json rather than goccy/go-json (0.77 MiB of text in the manager
+// and the agent, docs/superpowers/plans/2026-11-04-binary-size-reduction.md
+// #7). It keeps the library's shape, and with it the library's limits:
 //
-// golang-tmdb's returned error (a decoded tmdb.Error) carries TMDB's own
+// It has no per-call context.Context (docs/research/metadata.md §2.1):
+// this client honours ctx at the rate-limiter wait (limiter.Wait(ctx)
+// returns immediately on cancellation) and with an upfront ctx.Err() check,
+// but the in-flight HTTP round-trip itself cannot be cancelled through ctx
+// -- a known, accepted limit of the adopted library, not a gap in this
+// package.
+//
+// Its returned error (a decoded rawtmdb.Error) carries TMDB's own
 // body-level status_code (e.g. 34 "resource not found"), never the HTTP
-// status code that produced it (go doc github.com/cyruzin/golang-tmdb
-// confirms Client.decodeError discards *http.Response after reading the
-// body). To map HTTP 404/401/403/429 onto metadata's sentinel errors, this
-// client wraps the http.Client's Transport in statusCaptureTransport, which
-// records the most recent response's status code and Retry-After header for
-// the method that issued the request to read immediately after the call
-// returns.
+// status code that produced it (decodeError discards *http.Response after
+// reading the body). To map HTTP 404/401/403/429 onto metadata's sentinel
+// errors, this client wraps the http.Client's Transport in
+// statusCaptureTransport, which records the most recent response's status
+// code and Retry-After header for the method that issued the request to
+// read immediately after the call returns.
 //
-// golang-tmdb also keeps its base URL in a package-level variable
-// (`var baseURL` in its tmdb.go, which SetCustomBaseURL mutates), so two
-// Clients built with different base URLs in one process used to share
-// whichever was set last. This client never calls SetCustomBaseURL: a
-// custom base URL is applied per Client by baseURLTransport, which rewrites
-// each request golang-tmdb builds against its own default base onto this
-// Client's. And golang-tmdb decodes straight off the socket, so the
-// response-size cap (metadata.MaxResponseBytes) is enforced beneath it, by
+// It builds every request against rawtmdb.BaseURL (a constant; the
+// library kept a package-level variable that SetCustomBaseURL mutated for
+// every Client in the process). A custom base URL is applied per Client by
+// baseURLTransport, which rewrites each request onto this Client's. And it
+// decodes straight off the socket, so the response-size cap
+// (metadata.MaxResponseBytes) is enforced beneath it, by
 // metadata.CappedTransport.
 package tmdb
 
@@ -59,11 +62,11 @@ import (
 	"sync"
 	"time"
 
-	rawtmdb "github.com/cyruzin/golang-tmdb"
 	"golang.org/x/time/rate"
 
 	commonv1 "github.com/mediactl/clustarr/api/common/v1alpha1"
 	"github.com/mediactl/clustarr/pkg/metadata"
+	"github.com/mediactl/clustarr/pkg/metadata/clients/tmdb/internal/rawtmdb"
 	"github.com/mediactl/clustarr/pkg/obs/logging"
 	"github.com/mediactl/clustarr/pkg/obs/tracing"
 )
@@ -99,13 +102,9 @@ func (c *Client) baseLanguage() string {
 	return c.language
 }
 
-// libraryBaseURL is golang-tmdb v1.9.4's own defaultBaseURL: every request
-// the library builds starts with it, because this package never mutates the
-// library's global (see the package doc). baseURLTransport rewrites from it;
-// TestLibraryBaseURLMatchesGolangTMDB holds it to the library's value so an
-// upgrade that changes the default fails a test instead of silently
-// bypassing every custom base URL.
-const libraryBaseURL = "https://api.themoviedb.org/3"
+// libraryBaseURL is the base every request rawtmdb builds starts with;
+// baseURLTransport rewrites from it.
+const libraryBaseURL = rawtmdb.BaseURL
 
 // posterBaseURL is TMDB's image CDN at the w500 size
 // (docs/research/metadata.md §2.1: images at
@@ -153,12 +152,10 @@ func New(apiKey string, httpClient *http.Client, baseURL string, limiter *rate.L
 	return &Client{raw: raw, capture: capture, limiter: limiter}, nil
 }
 
-// baseURLTransport points one Client at a custom base URL without touching
-// golang-tmdb's process-global one. golang-tmdb builds every request as
-// libraryBaseURL + "/<resource>..."; this rewrites the scheme and host to
-// target's and replaces libraryBaseURL's path prefix ("/3") with target's
-// path, which is exactly the URL SetCustomBaseURL(target) would have made
-// the library build -- so a stub serving "/movie/603" behind
+// baseURLTransport points one Client at a custom base URL. rawtmdb builds
+// every request as libraryBaseURL + "/<resource>..."; this rewrites the
+// scheme and host to target's and replaces libraryBaseURL's path prefix
+// ("/3") with target's path -- so a stub serving "/movie/603" behind
 // "http://tmdb-stub:8080" keeps working unchanged. A request that is not
 // under libraryBaseURL (a redirect the base URL itself issued, say) passes
 // through untouched.
@@ -168,7 +165,7 @@ type baseURLTransport struct {
 }
 
 func (t *baseURLTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	lib, _ := url.Parse(libraryBaseURL) // a constant; covered by TestLibraryBaseURLMatchesGolangTMDB
+	lib, _ := url.Parse(libraryBaseURL) // a constant
 	if req.URL.Scheme != lib.Scheme || req.URL.Host != lib.Host || !strings.HasPrefix(req.URL.Path, lib.Path+"/") {
 		return t.base.RoundTrip(req)
 	}
@@ -745,10 +742,10 @@ func parseYear(s string) (int32, bool) {
 
 // statusCapture holds the most recently observed HTTP response's status
 // code and Retry-After header, written by statusCaptureTransport and read
-// by mapError immediately after a golang-tmdb call returns an error. It is
+// by mapError immediately after a rawtmdb call returns an error. It is
 // scoped to a single Client and its own http.Client, so a genuinely
 // concurrent pair of requests on the same Client can race on which
-// response's status mapError sees -- acceptable here because golang-tmdb's
+// response's status mapError sees -- acceptable here because rawtmdb's
 // own error carries no HTTP status at all, and every call site consults
 // the capture immediately after its own synchronous request returns.
 type statusCapture struct {
@@ -779,7 +776,7 @@ func (s *statusCapture) snapshot() (int, string) {
 
 // statusCaptureTransport wraps an http.RoundTripper to record each
 // response's status before returning it unmodified, working around
-// golang-tmdb discarding the *http.Response once it has decoded the body
+// rawtmdb discarding the *http.Response once it has decoded the body
 // (see the package doc).
 type statusCaptureTransport struct {
 	base    http.RoundTripper
@@ -801,21 +798,21 @@ func (t *statusCaptureTransport) RoundTrip(req *http.Request) (*http.Response, e
 
 // mapError maps the HTTP status statusCapture observed on the most recent
 // request to metadata's sentinel errors. A captured 200 with a non-nil err
-// means the HTTP round trip succeeded but golang-tmdb's own JSON decode of
-// the body failed (verified by reading golang-tmdb's Client.get: it only
+// means the HTTP round trip succeeded but rawtmdb's own JSON decode of
+// the body failed (verified by reading rawtmdb's Client.get: it only
 // calls decodeError on a non-200 status, and returns a bare
 // fmt.Errorf("could not decode the data: %s", err) straight from
 // json.Decode otherwise) -- that is wrapped as metadata.ErrDecode rather
-// than leaking golang-tmdb's raw error text as this package's only signal.
+// than leaking rawtmdb's raw error text as this package's only signal.
 // No status at all (0) means a transport-level failure that never reached
 // either path; it falls back to wrapping err.
 //
 // A body over metadata.MaxResponseBytes fails the round trip inside
-// metadata.CappedTransport, and golang-tmdb returns http.Client.Do's error
+// metadata.CappedTransport, and rawtmdb returns http.Client.Do's error
 // unchanged, so it arrives here as a *url.Error still wrapping
 // metadata.ErrResponseTooLarge. Every *url.Error is unwrapped to its Op and
 // cause first because its message carries the full request URL, and
-// golang-tmdb puts the API key in the query string -- an error string ends
+// rawtmdb puts the API key in the query string -- an error string ends
 // up in logs, span events and a MetadataResponse, none of which may carry a
 // credential.
 func (c *Client) mapError(err error) error {
