@@ -187,7 +187,12 @@ func TestAnInPlaceEditPatchesTheChannelAndAnswersItsRow(t *testing.T) {
 
 	rec = postTo(t, srv, "/livetv/channels/media/argon-tv-espn", "channel-argon-tv-espn", url.Values{"gen": {"1"}, "epg": {""}})
 	require.Equal(t, http.StatusOK, rec.Code)
-	assert.Nil(t, getChannel(t, c, "argon-tv-espn").Spec.EPG, "automatic")
+	if epg := getChannel(t, c, "argon-tv-espn").Spec.EPG; epg != nil {
+		// Automatic clears channelID and dummy and keeps spec.epg.plex, so
+		// an empty spec.epg may stay: the same as none, mapped by tvg-id.
+		assert.Empty(t, epg.ChannelID, "automatic")
+		assert.False(t, epg.Dummy, "automatic")
+	}
 }
 
 // rowVals are the hx-vals the first in-place control of a row the server

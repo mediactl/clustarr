@@ -190,3 +190,25 @@ func TestMapBytesIsTheQueryClusterPlexSends(t *testing.T) {
 	}
 	assert.Equal(t, 32701, blocks.MapBytes(run(1000, 1453, 1)), "454 four-digit numbers, the largest map PMS took (recorded)")
 }
+
+func TestPlexCostCountsKeyAndVCN(t *testing.T) {
+	key := "657c8183afd0f02cd353633f-5fc705e2088e7d002d4c6de2"
+	assert.Equal(t, 116, blocks.PlexCost("1070", key, "265"))
+	// The query cluster-plex sends for a Plex block: each number's lineup
+	// channel and its number there, encoded as url.Values encodes them.
+	q := url.Values{}
+	q.Set("channelMappingByKey[1070]", key)
+	q.Set("channelMapping[1070]", "265")
+	q.Set("channelsEnabled", "1070")
+	assert.Equal(t, len(q.Encode()), blocks.MapBytesWith([]string{"1070"}, func(n string) int { return blocks.PlexCost(n, key, "265") }))
+}
+
+func TestNextUsesTheLimitsCost(t *testing.T) {
+	plex := blocks.Limits{MaxChannels: 400, MaxBytes: 30000, Cost: func(string) int { return 1000 }}
+	got, err := blocks.Next(nil, run(1000, 1039, 1), plex)
+	require.NoError(t, err)
+	require.Len(t, got, 2, "40 numbers at 1,000 bytes are over one 30,000-byte block")
+	for _, b := range got {
+		assert.LessOrEqual(t, blocks.MapBytesWith(b.Numbers, plex.Cost), 30000)
+	}
+}

@@ -110,9 +110,10 @@ func TestEditChannelsMapsTheEPGChoiceAndClearsOverrides(t *testing.T) {
 		edit actions.ChannelEdit
 		want string
 	}{
-		{actions.ChannelEdit{EPG: ptr.To("")}, `{"epg":null}`},
 		// A merge patch merges nested objects, so each choice clears the
-		// other's fields: the CRD takes exactly one of channelID and dummy.
+		// other's fields (the CRD takes at most one of channelID and dummy),
+		// and automatic clears both without removing spec.epg.plex.
+		{actions.ChannelEdit{EPG: ptr.To("")}, `{"epg":{"channelID":null,"dummy":null,"dummyMinutes":null}}`},
 		{actions.ChannelEdit{EPG: ptr.To("dummy")}, `{"epg":{"dummy":true,"channelID":null}}`},
 		{actions.ChannelEdit{EPG: ptr.To("US-ESPN")}, `{"epg":{"channelID":"US-ESPN","dummy":null,"dummyMinutes":null}}`},
 		{actions.ChannelEdit{DisplayName: ptr.To("")}, `{"name":null}`},
@@ -126,6 +127,39 @@ func TestEditChannelsMapsTheEPGChoiceAndClearsOverrides(t *testing.T) {
 		require.Len(t, w.patches, 1)
 		assert.JSONEq(t, `{"metadata":{"resourceVersion":"3"},"spec":`+c.want+`}`, string(w.patches[0].data), c.want)
 	}
+}
+
+func TestEditChannelsWritesThePlexChoice(t *testing.T) {
+	const station = "5fc705e2088e7d002d4c6de2"
+	for _, c := range []struct {
+		plex, want string
+	}{
+		{"", `{"epg":{"plex":null}}`},
+		{"off", `{"epg":{"plex":{"off":true,"station":null}}}`},
+		{station, `{"epg":{"plex":{"station":"` + station + `","off":null}}}`},
+	} {
+		w := &fakeWriter{}
+		_, err := actions.EditChannels(t.Context(), channelGetter{"a": readChannel("a", 1, "3")}, w, "media",
+			[]actions.ChannelEdit{{Name: "a", Generation: 1, Plex: ptr.To(c.plex)}})
+		require.NoError(t, err)
+		require.Len(t, w.patches, 1)
+		assert.JSONEq(t, `{"metadata":{"resourceVersion":"3"},"spec":`+c.want+`}`, string(w.patches[0].data), c.want)
+	}
+	w := &fakeWriter{}
+	_, err := actions.EditChannels(t.Context(), channelGetter{"a": readChannel("a", 1, "3")}, w, "media",
+		[]actions.ChannelEdit{{Name: "a", Generation: 1, Plex: ptr.To("WABC")}})
+	require.ErrorIs(t, err, actions.ErrInvalid, "a call sign is no station id")
+	assert.Empty(t, w.patches)
+}
+
+func TestEditChannelsKeepsThePlexChoice(t *testing.T) {
+	w := &fakeWriter{}
+	_, err := actions.EditChannels(t.Context(), channelGetter{"a": readChannel("a", 1, "3")}, w, "media",
+		[]actions.ChannelEdit{{Name: "a", Generation: 1, EPG: ptr.To("US-ESPN"), Plex: ptr.To("off")}})
+	require.NoError(t, err)
+	require.Len(t, w.patches, 1)
+	assert.JSONEq(t, `{"metadata":{"resourceVersion":"3"},"spec":{"epg":{"channelID":"US-ESPN","dummy":null,"dummyMinutes":null,"plex":{"off":true,"station":null}}}}`,
+		string(w.patches[0].data), "one epg object carries both choices")
 }
 
 func TestEditChannelsStopsAtTheFirstRefusal(t *testing.T) {
